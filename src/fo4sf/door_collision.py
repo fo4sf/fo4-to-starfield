@@ -10,7 +10,7 @@ from . import nif,hkpackfile,fo4collision as fc
 
 def plan(source, rig):
     bone_indices={bone['node']:i for i,bone in enumerate(rig['bones'])}
-    animated={track['node'] for clip in rig['clips'] for track in clip['tracks']}
+    animated={track['node'] for clip in rig['clips'] for track in clip['tracks'] if not track.get('static')}
     systems={};attachments=[];assigned={}
     parents={}
     for node in range(len(source.blocks)):

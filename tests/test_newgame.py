@@ -64,6 +64,21 @@ def written_properties(cs):
 
 
 class ContractTests(unittest.TestCase):
+    def test_lift_and_s13_inventory_o2_switches_remain_independent(self):
+        """Combining the S3/S13 branches must not let the lift flag change inventory or O2 policy."""
+        for lift in (False, True):
+            for keep in (False, True):
+                for no_o2 in (False, True):
+                    with self.subTest(lift=lift, keep=keep, no_o2=no_o2):
+                        args = namespace(exit_lift="private-lift-stage" if lift else None,
+                                         keep_inventory=keep, no_o2_fill=no_o2)
+                        options = ng.tool_options(args)
+                        self.assertEqual("--animated-exit-lift" in options, lift)
+                        self.assertEqual("--keep-inventory" in options, keep)
+                        self.assertEqual("--no-o2-fill" in options, no_o2)
+                        self.assertEqual(ng.clear_inventory_option(args), not keep)
+                        self.assertEqual(ng.o2_fill_option(args), not keep and not no_o2)
+
     def test_no_variable_shares_a_property_name(self):
         """Papyrus names are case-insensitive: a script variable or local named like a property fails to compile
         (newgame_v4 on the PC, 21 Oct: CenterTicks and centerTicks)."""
@@ -518,7 +533,8 @@ class ContractTests(unittest.TestCase):
         self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
         check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
         self.assertIn("podChecked = true", check)
-        self.assertIn("float drop = PodZ + PodLift - player.GetPositionZ()", check)
+        self.assertIn("float targetZ = PodZ + PodLift", check)
+        self.assertIn("float drop = targetZ - sampleZ", check)
         self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
         self.assertIn('Trace("pod settle ok=" + ok + " pos="', check)
         for call in ("MoveTo(", "SetPosition(", "CenterOnCell("):
@@ -549,9 +565,12 @@ class ContractTests(unittest.TestCase):
         self.assertLess(finish.index("if !player.Is3DLoaded()"), finish.index("player.SetPosition(x, y, ArrivalZ)"))
         self.assertNotIn("Is3DLoaded", inside)               # an outside player still loading is never a missed move
         self.assertIn("bool ok = dx * dx + dy * dy <= 25.0", finish)
-        self.assertIn('Trace("surface setposition ok=" + ok + " set=" + surfaceSets', finish)
-        self.assertIn("if ok || surfaceSets >= SurfaceTries", finish)
-        self.assertLess(finish.index("if ok || surfaceSets >= SurfaceTries"), finish.index("AdvanceTo(40)"))
+        self.assertIn('Trace("surface setposition ok=" + ok +', finish)
+        self.assertNotIn("if ok || surfaceSets >= SurfaceTries", finish)
+        self.assertIn('elseif surfaceSets >= SurfaceTries', finish)
+        self.assertIn('FailExit("surface_cell_not_core")', finish)
+        self.assertIn('FailExit("surface_position_not_confirmed")', finish)
+        self.assertLess(finish.index("if ok\n"), finish.index("AdvanceTo(40)"))
         self.assertIn("if surfaceMoves < 2", finish)
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
@@ -561,7 +580,7 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("SetPosition(", invault)
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         branch = body[body.index("elseif stage == 20 || stage == 30"):body.index("elseif stage == 40")]
-        self.assertIn("if surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
+        self.assertIn("elseif surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
         self.assertLess(branch.index("FinishSurface(player)"), branch.index("InVault(player, stage)"))
         land = psc[psc.index("Function CheckLanding"):psc.index("bool Function Near")]
         self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 3.0", land)   # three seconds after the arrival that took
@@ -992,6 +1011,7 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
         "bool abStayFaded = false) native global\n")
+FAST_READ = "bool Function IsFastTravelEnabled() native global\n"
 # Actor.psc's declarations the quest script itself needs: the guard's GetLevel, the inventory reset's EquipItem /
 # IsEquipped and the O2 fill's ModValue / GetValue (FO4's signatures; Starfield's are what the precheck reads: its
 # Actor.psc declares GetValue on a parent, 28 Oct). ObjectReference's RemoveAllItems, GetItemCount and AddItem are
@@ -1004,7 +1024,7 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
-             objectreference=None, quest=None):
+             objectreference=None, quest=None, animation=True):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -1019,7 +1039,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
-                                              + CHARGEN + FADE,
+                                              + CHARGEN + FADE + FAST_READ,
         "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
         "ObjectReference": objectreference if objectreference is not None else
@@ -1035,6 +1055,10 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
     }
+    if animation:
+        base["ScriptObject"] += ("\nFunction RegisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Function UnregisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Event OnAnimationEvent(ObjectReference source, string name)\nEndEvent\n")
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)
@@ -1091,7 +1115,7 @@ class PrecheckTests(unittest.TestCase):
     def test_missing_show_race_menu_only_drops_the_looks(self):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                    + CHARGEN + FADE)
+                    + CHARGEN + FADE + FAST_READ)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], [])
         self.assertFalse(r["natives"][ng.LOOKS]["Game.ShowRaceMenu"])
@@ -1182,7 +1206,7 @@ class PrecheckTests(unittest.TestCase):
         without the second is too, and it drops the looks and SPECIAL scripts as well, which start their timers on it."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN)
+                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN + FAST_READ)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Game.FadeOutGame"])
         self.assertEqual(r["drop"], [])
@@ -1847,6 +1871,61 @@ class VerifyFoldTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.fold(out, port=self.port)
 
+    def test_fold_accepts_same_sha256_core_assets_and_pex_and_refuses_differing_ones(self):
+        plan_path = os.path.join(self.stage, "plan.json")
+        stage_pex = os.path.join(self.stage, "Data", "Scripts", "FO4SF_NewGameQuest.pex")
+        core_pex = os.path.join(self.core_dir, "Data", "Scripts", "FO4SF_NewGameQuest.pex")
+        os.makedirs(os.path.dirname(core_pex), exist_ok=True)
+        with open(core_pex, "wb") as f:
+            f.write(b"pex1")
+        stage_copies = []
+        real_copy2 = shutil.copy2
+        def spy_copy2(src, dst, *a, **kw):
+            if os.path.abspath(src).startswith(os.path.abspath(self.stage) + os.sep):
+                stage_copies.append(os.path.abspath(src))
+            return real_copy2(src, dst, *a, **kw)
+        out_same_pex = os.path.join(self.tmp, "folded_same_pex")
+        with unittest.mock.patch.object(ng.shutil, "copy2", side_effect=spy_copy2):
+            self.assertEqual(self.fold(out_same_pex, port=self.port), 0)
+        self.assertNotIn(os.path.abspath(stage_pex), stage_copies)
+        self.assertEqual(ng.verify_dir(out_same_pex, ng.load_plan(plan_path), self.port), [])
+        with open(core_pex, "wb") as f:
+            f.write(b"differing_pex")
+        out_diff_pex = os.path.join(self.tmp, "folded_diff_pex")
+        with self.assertRaisesRegex(SystemExit, r"Data/Scripts/FO4SF_NewGameQuest\.pex"):
+            self.fold(out_diff_pex, port=self.port)
+        self.assertFalse(os.path.exists(out_diff_pex))
+        with open(core_pex, "rb") as f:
+            self.assertEqual(f.read(), b"differing_pex")
+        os.remove(core_pex)
+        rel = "Data/materials/fo4port/_neutral.mat"
+        stage_mat = os.path.join(self.stage, *rel.split("/"))
+        core_mat = os.path.join(self.core_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(stage_mat), exist_ok=True)
+        os.makedirs(os.path.dirname(core_mat), exist_ok=True)
+        with open(stage_mat, "wb") as f:
+            f.write(b"neutral_bytes")
+        with open(core_mat, "wb") as f:
+            f.write(b"neutral_bytes")
+        plan = ng.load_plan(plan_path)
+        plan["cog_door"] = {"plugins": [], "outputs": {rel: ng.sha256(stage_mat)}}
+        with open(plan_path, "w", encoding="utf-8") as f:
+            json.dump(plan, f)
+        stage_copies.clear()
+        out_same_mat = os.path.join(self.tmp, "folded_same_mat")
+        with unittest.mock.patch.object(ng.shutil, "copy2", side_effect=spy_copy2):
+            self.assertEqual(self.fold(out_same_mat, port=self.port), 0)
+        self.assertNotIn(os.path.abspath(stage_mat), stage_copies)
+        self.assertEqual(ng.verify_dir(out_same_mat, ng.load_plan(plan_path), self.port), [])
+        with open(core_mat, "wb") as f:
+            f.write(b"differing_neutral")
+        out_diff_mat = os.path.join(self.tmp, "folded_diff_mat")
+        with self.assertRaisesRegex(SystemExit, r"Data/materials/fo4port/_neutral\.mat"):
+            self.fold(out_diff_mat, port=self.port)
+        self.assertFalse(os.path.exists(out_diff_mat))
+        with open(core_mat, "rb") as f:
+            self.assertEqual(f.read(), b"differing_neutral")
+
 
 @unittest.skipUnless(shutil.which("dotnet"), "no dotnet SDK on PATH")
 class WriterSelfTest(unittest.TestCase):
@@ -1857,6 +1936,33 @@ class WriterSelfTest(unittest.TestCase):
                             "selftest", tmp], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-2000:])
         self.assertIn("selftest pass", r.stdout)
+
+
+class PodStepOptionTests(unittest.TestCase):
+    """Default pod step is -2.5 m (stand 9.143, -6.614, -1.029 m; heading unchanged), and stage's --pod-step overrides."""
+
+    def args(self, **kw):
+        base = dict(pod_ref=None, terminal_ref=None, pod_step=None)
+        base.update(kw)
+        return type("A", (), base)()
+
+    def test_default_constant_matches_writer(self):
+        self.assertEqual(ng.DEFAULT_POD_STEP, -2.5)
+        self.assertIn("DefaultPodStep = -2.5f;", read(CS))
+        self.assertIn('NewGame.Opt(args, "--pod-step", NewGame.DefaultPodStep)', read(CS))
+
+    def test_unset_adds_nothing_so_writer_uses_default_minus_two_point_five(self):
+        self.assertEqual(ng.points_options(self.args()), [])
+        self.assertEqual(ng.points_options(self.args(pod_ref="4A011", terminal_ref="23CCD")),
+                         ["--pod-ref", "4A011", "--terminal-ref", "23CCD"])
+
+    def test_explicit_step_is_passed_verbatim(self):
+        self.assertEqual(ng.points_options(self.args(pod_step=-2.5)), ["--pod-step", "-2.5"])
+        self.assertEqual(ng.points_options(self.args(pod_step=1.0)), ["--pod-step", "1.0"])
+        self.assertEqual(ng.points_options(self.args(pod_step=0.0)), ["--pod-step", "0.0"])
+
+    def test_the_stage_parser_takes_it(self):
+        self.assertIn('"--pod-step", type=float, default=None', read(os.path.join(ROOT, "scripts", "newgame", "make_newgame.py")))
 
 
 if __name__ == "__main__":

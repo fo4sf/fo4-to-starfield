@@ -131,13 +131,27 @@ float Property ConsoleZ Auto Const Mandatory
 float Property PlatformX Auto Const Mandatory
 float Property PlatformY Auto Const Mandatory
 float Property PlatformZ Auto Const Mandatory
-{The elevator platform V111ElevatorREF (FO4 000244EB) at the bottom of its shaft: standing on it offers the ride up.}
+{The stand spot RespecMoveMarker (FO4 0001B29E) on the floor of V111ElevatorREF (FO4 000244EB) at the bottom of its
+ shaft: standing inside the open cage offers the ride up.}
+int Property LiftId = 0 Auto Const
+int Property LiftBaseId = 0 Auto Const
+{Opt-in animated exit: the writer resolves the port's original V111ElevatorREF and its ACTI base. Zero keeps the
+ earlier exit. Requires the separately staged production floor-start model, never the animation probe quest.}
+float Property LiftRise = 21.6 Auto Const
+float Property LiftSeconds = 9.8667 Auto Const
+float Property LiftDoneMargin = 0.25 Auto Const
+{Measured floor-to-top platform rise (-1.72 to 19.88 m), stage3 duration (9.8667 s), and Done-event arrival margin
+ (0.25 s, ~7.5 frames at 30 Hz, covering the observed 9.794 s Done timestamp vs 9.8667 s clip duration while rejecting
+ the 0.068 s stale Done from an earlier clip).}
 
 string Property CorePlugin = "FO4TerrainCore.esm" Auto Const
 int Property ExitAnchorId Auto Const Mandatory
 {A persistent reference in the core world (its Vault 111 map marker): MoveTo it puts the player in the core world at
  the reference's LOCAL position (persistent references are not moved by the merge), a later tick's SetPosition then
  places them (FinishSurface).}
+int Property ArrivalDiscoveryId = 0 Auto Const
+{Only the canonical Vault 111 map marker, supplied by the writer; zero disables discovery for a custom exit anchor.
+ The call is made after confirmed exterior arrival. Its return and the fast-travel reads do not prove map discovery.}
 float Property ArrivalX Auto Const Mandatory
 float Property ArrivalY Auto Const Mandatory
 float Property ArrivalZ Auto Const Mandatory
@@ -165,15 +179,14 @@ int Property MaxNewGameLevel = 1 Auto Const
  is unverified). Supported hypothesis: that a New Game+ starts the startup quest, and that the kept level already reads
  during the first load; MQ101's own NG+ test is PlayerUnityTimesEntered >= 1.}
 float Property ConsoleRadius = 2.5 Auto Const
-float Property PlatformRadius = 2.5 Auto Const
+float Property PlatformRadius = 2.0 Auto Const
 float Property FallDrop = 3.0 Auto Const
 {A landing this far below its target z (m) counts as a fall: the player is put on the fallback spot.}
 float Property SurfaceWait = 10.0 Auto Const
 {Seconds after the ride's MoveTo the player may still be inside before it counts as missed: one more MoveTo, then the
  elevator prompt again.}
 int Property SurfaceTries = 3 Auto Const
-{SetPositions on the merged arrival, one a tick, before stage 40 goes on without one taking (CheckLanding's fallback
- then decides).}
+{SetPositions on the merged arrival, one a tick. Exhaustion stops this exit with failure, without stage 40 or discovery.}
 float Property LooksWait = 120.0 Auto Const
 {Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 (the creator closed, or the
  quick start) before moving on: the fallback when the creator's close event never comes. 0 in a --no-looks build.}
@@ -211,6 +224,20 @@ bool podChecked = false
 float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
 int surfaceMoves = 0
 int surfaceSets = 0
+WorldSpace arrivalWorld = None
+bool exitFailed = false
+bool fallbackPending = false
+bool discoveryMarkerMoved = false
+int landingChecks = 0
+ObjectReference ridingLift = None
+Cell ridingCell = None
+float rideStartedAt = 0.0
+float riderX = 0.0
+float riderY = 0.0
+float riderZ = 0.0
+bool rideActive = false
+bool rideDone = false
+bool rideTransferred = false
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -357,6 +384,9 @@ Function AdvanceTo(int n)
 EndFunction
 
 Event OnTimer(int aiTimerID)
+    if exitFailed
+        return
+    endif
     if aiTimerID != 1
         return
     endif
@@ -404,7 +434,9 @@ Event OnTimer(int aiTimerID)
             AdvanceTo(20)
         endif
     elseif stage == 20 || stage == 30
-        if surfaceMovedAt > 0.0
+        if rideActive
+            CheckAscent(player)
+        elseif surfaceMovedAt > 0.0
             FinishSurface(player)                            ; the ride's MoveTo is done: the arrival waits for this tick
         else
             InVault(player, stage)
@@ -415,7 +447,7 @@ Event OnTimer(int aiTimerID)
     if ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
     endif
-    if GetStage() < 200 && GetStage() != 1
+    if GetStage() < 200 && GetStage() != 1 && !exitFailed
         StartTimer(1.0, 1)
     endif
 EndEvent
@@ -487,11 +519,23 @@ Function CheckPod(Actor player)
 {Where the player stands the first tick they are loaded after the move into the pod: the "pod settle" line (PodRadius,
  PodDrop). In run 3 of 28 Oct that tick came after the game had already put the sunk player on the COC marker.}
     podChecked = true
-    float dx = player.GetPositionX() - PodX
-    float dy = player.GetPositionY() - PodY
-    float drop = PodZ + PodLift - player.GetPositionZ()
+    ; One set of sequential readings, not an atomic engine snapshot. Earlier lines read XYZ again after computing
+    ; dx/dy/drop, so a moving actor could print coordinates that did not reproduce those deltas.
+    float sampleStart = Utility.GetCurrentRealTime()
+    float sampleX = player.GetPositionX()
+    float sampleY = player.GetPositionY()
+    float sampleZ = player.GetPositionZ()
+    float targetZ = PodZ + PodLift
+    float dx = sampleX - PodX
+    float dy = sampleY - PodY
+    float drop = targetZ - sampleZ
     bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop
-    Trace("pod settle ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " dx=" + dx + " dy=" + dy + " drop=" + drop)
+    float sampledHeading = player.GetAngleZ()
+    bool sampledLoaded = player.Is3DLoaded()
+    Cell sampledCell = player.GetParentCell()
+    WorldSpace sampledWorld = player.GetWorldSpace()
+    float sampleEnd = Utility.GetCurrentRealTime()
+    Trace("pod settle ok=" + ok + " pos=" + sampleX + " " + sampleY + " " + sampleZ + " dx=" + dx + " dy=" + dy + " drop=" + drop + " target=" + PodX + " " + PodY + " " + targetZ + " heading=" + sampledHeading + " loaded=" + sampledLoaded + " cell=" + sampledCell + " world=" + sampledWorld + " sample_start=" + sampleStart + " sample_end=" + sampleEnd)
 EndFunction
 
 bool Function StandsInVault(Actor player)
@@ -565,16 +609,32 @@ Function InVault(Actor player, int stage)
     if !player.IsInInterior()
         return
     endif
-    if stage == 20 && CogDoorId > 0 && Near(player, ConsoleX, ConsoleY, ConsoleZ, ConsoleRadius)
+    if stage == 20 && CogDoorId > 0
         ObjectReference cogDoor = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
-        if cogDoor != None
-            int before = cogDoor.GetOpenState()
-            cogDoor.SetOpen(True)
-            Trace("cog door open_state before=" + before + " after=" + cogDoor.GetOpenState())
-        else
-            Trace("cog door " + VaultPlugin + ":" + CogDoorId + " does not resolve")
+        if Near(player, ConsoleX, ConsoleY, ConsoleZ, ConsoleRadius)
+            if cogDoor != None
+                int before = cogDoor.GetOpenState()
+                if before != 1 && before != 2
+                    cogDoor.SetOpen(True)
+                endif
+                Trace("cog door open_state before=" + before + " after=" + cogDoor.GetOpenState())
+            else
+                Trace("cog door " + VaultPlugin + ":" + CogDoorId + " does not resolve")
+            endif
+            stage = 30
+            AdvanceTo(30)
+        elseif cogDoor != None
+            int doorState = cogDoor.GetOpenState()
+            if doorState == 1 || doorState == 2
+                Trace("cog door opened directly open_state=" + doorState)
+                stage = 30
+                AdvanceTo(30)
+            endif
         endif
-        AdvanceTo(30)
+    endif
+    if CogDoorId > 0 && stage < 30
+        asked = false
+        return
     endif
     bool onPlatform = Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)
     if !onPlatform
@@ -588,8 +648,108 @@ Function InVault(Actor player, int stage)
     int button = ExitMessage.Show()
     Trace("elevator prompt button=" + button)
     if button == 0
-        Surface(player)
+        if LiftId > 0
+            StartAscent(player)
+        else
+            Surface(player)
+        endif
     endif
+EndFunction
+
+Function StartAscent(Actor player)
+{One play on the real placed lift. Position remains under the platform's moving collision until completion.}
+    if rideActive || rideTransferred || exitFailed
+        return
+    endif
+    ObjectReference lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
+    Form base = Game.GetFormFromFile(LiftBaseId, VaultPlugin)
+    Cell vault = player.GetParentCell()
+    if lift == None || base == None || vault == None
+        FailExit("lift_unavailable")
+        return
+    endif
+    if !player.Is3DLoaded() || !player.IsInInterior() || !StandsInVault(player) || !lift.Is3DLoaded() || lift.GetParentCell() != vault || lift.GetBaseObject() != base
+        FailExit("lift_identity_or_cell")
+        return
+    endif
+    if !Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)
+        return
+    endif
+    ridingLift = lift
+    ridingCell = vault
+    riderX = player.GetPositionX()
+    riderY = player.GetPositionY()
+    riderZ = player.GetPositionZ()
+    rideDone = false
+    ; Register before playback; the callback checks the exact source and age; a later tick checks the upper position.
+    RegisterForAnimationEvent(lift, "Done")
+    if !player.Is3DLoaded() || player.GetParentCell() != ridingCell || !Near(player, riderX, riderY, riderZ, PlatformRadius)
+        FailExit("lift_rider_left_before_play")
+        return
+    endif
+    rideStartedAt = Utility.GetCurrentRealTime()
+    rideActive = true
+    bool accepted = lift.PlayAnimation("Play01")
+    Trace("ascent play accepted=" + accepted + " ref=" + lift + " from=" + riderZ + " rise=" + LiftRise + " seconds=" + LiftSeconds)
+    if !accepted
+        FailExit("lift_play_refused")
+    endif
+EndFunction
+
+Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+    if !rideActive || exitFailed || akSource != ridingLift || asEventName != "Done"
+        return
+    endif
+    float elapsed = Utility.GetCurrentRealTime() - rideStartedAt
+    ; Prior probe heard a stale Done at 0.068 s from an earlier clip as well as 9.794 s for up. A bare Done is not an end.
+    ; LiftDoneMargin (0.25 s) covers the measured 0.073 s delta (9.794 s vs 9.8667 s); physical ascent remains mandatory.
+    if elapsed >= LiftSeconds - LiftDoneMargin
+        rideDone = true
+        Trace("ascent done elapsed=" + elapsed + " ref=" + akSource)
+    else
+        Trace("ascent ignored early_or_unconfirmed_done elapsed=" + elapsed)
+    endif
+EndEvent
+
+bool Function AtLiftTop(Actor player)
+    if !player.Is3DLoaded() || !player.IsInInterior() || player.GetParentCell() != ridingCell
+        return false
+    endif
+    float dx = player.GetPositionX() - riderX
+    float dy = player.GetPositionY() - riderY
+    float dz = player.GetPositionZ() - (riderZ + LiftRise)
+    return dx * dx + dy * dy <= PlatformRadius * PlatformRadius && dz > -0.75 && dz < 0.75
+EndFunction
+
+Function CheckAscent(Actor player)
+    if !rideActive || rideTransferred || exitFailed
+        return
+    endif
+    float elapsed = Utility.GetCurrentRealTime() - rideStartedAt
+    if elapsed > LiftSeconds + 30.0
+        FailExit("lift_timeout")
+        return
+    endif
+    if !player.Is3DLoaded() || ridingLift == None || !ridingLift.Is3DLoaded()
+        return
+    endif
+    if !player.IsInInterior() || player.GetParentCell() != ridingCell || ridingLift.GetParentCell() != ridingCell
+        FailExit("lift_cell_changed")
+        return
+    endif
+    if !rideDone || !AtLiftTop(player)
+        return
+    endif
+    ; Set the latch before any yielding native. No second play or transition can race this one.
+    rideTransferred = true
+    rideActive = false
+    UnregisterForAnimationEvent(ridingLift, "Done")
+    Trace("ascent carried confirmed elapsed=" + elapsed + " z=" + player.GetPositionZ())
+    if !AtLiftTop(player)
+        FailExit("lift_rider_left_before_arrival")
+        return
+    endif
+    Surface(player)
 EndFunction
 
 Function Surface(Actor player)
@@ -598,8 +758,16 @@ Function Surface(Actor player)
     ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
     if anchor == None
         Trace("exit anchor " + CorePlugin + ":" + ExitAnchorId + " does not resolve")
+        if LiftId > 0
+            FailExit("lift_exit_anchor_unavailable")
+        endif
         return
     endif
+    surfaceSets = 0
+    arrivalWorld = None
+    fallbackPending = false
+    discoveryMarkerMoved = false
+    landingChecks = 0
     player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)
     surfaceMoves += 1
     surfaceMovedAt = Utility.GetCurrentRealTime()
@@ -608,18 +776,20 @@ EndFunction
 
 Function FinishSurface(Actor player)
 {The ride up, second half: SetPosition on the merged arrival, a tick after the MoveTo at the earliest and once the player
- is outside with their 3D loaded (the load door's MoveTo, wait, SetPosition order: FO4SF_LoadDoor's SettleSeconds,
- PASS on the Super Duper Mart round trip, 17 Oct). Run 3 of 28 Oct called it in the MoveTo's own tick: the game ignored
- it, the player stood at the anchor's local spot until the fall check's SetPosition 5.7 s later moved them. A SetPosition
- that does not take (the position read back is more than 5 m off) is tried again next tick, SurfaceTries in all, then
- stage 40 goes on and CheckLanding decides. Still inside SurfaceWait seconds after the MoveTo: one more MoveTo, then the
- elevator prompt again. Outside but not loaded yet: it waits.}
+ is outside with their 3D loaded. Because persistent references in the overlay world retain their unmerged local XY while
+ exterior grid cells are shifted by MergeOffset, the initial MoveTo lands in a procedural Mars Surface cell of the runtime
+ MarsPlanetWorld; SetPosition shifts the player onto the merged core cell first, and the post-move parent cell must then
+ carry the core plugin's load index. Exhaustion stops the exit with failure.}
     if player.IsInInterior()
         if Utility.GetCurrentRealTime() - surfaceMovedAt > SurfaceWait
             if surfaceMoves < 2
                 Trace("surface still inside " + SurfaceWait + " s after the moveto: moving again")
                 Surface(player)
             else
+                if LiftId > 0
+                    FailExit("lift_surface_missed")
+                    return
+                endif
                 Trace("surface missed: still inside after " + surfaceMoves + " moves; the elevator asks again")
                 surfaceMovedAt = 0.0
                 surfaceMoves = 0
@@ -631,36 +801,136 @@ Function FinishSurface(Actor player)
     if !player.Is3DLoaded()
         return                                               ; outside, still loading: never a missed move
     endif
+    WorldSpace w = player.GetWorldSpace()
+    ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+    if w == None || anchor == None
+        FailExit("surface_world_or_cell_unavailable")
+        return
+    endif
     float x = ArrivalX + MergeOffsetX
     float y = ArrivalY + MergeOffsetY
     player.SetPosition(x, y, ArrivalZ)
     player.SetAngle(0.0, 0.0, ArrivalHeading)
     surfaceSets += 1
+    WorldSpace afterWorld = player.GetWorldSpace()
+    Cell afterCell = player.GetParentCell()
+    ; Check core cell ownership AFTER SetPosition shifts from the unmerged persistent anchor into the merged core grid.
+    bool coreCell = afterCell != None && afterCell.GetFormID() / 16777216 == anchor.GetFormID() / 16777216
     float dx = player.GetPositionX() - x
     float dy = player.GetPositionY() - y
-    bool ok = dx * dx + dy * dy <= 25.0
-    Trace("surface setposition ok=" + ok + " set=" + surfaceSets + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + x + " " + y + " " + ArrivalZ)
-    if ok || surfaceSets >= SurfaceTries
+    float dz = player.GetPositionZ() - ArrivalZ
+    bool ok = dx * dx + dy * dy <= 25.0 && dz > -FallDrop && dz < 3.0 && !player.IsInInterior() && afterWorld != None && coreCell
+    Trace("surface setposition ok=" + ok + " set=" + surfaceSets + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + x + " " + y + " " + ArrivalZ + " core_cell=" + coreCell + " cell=" + afterCell + " world=" + afterWorld)
+    if ok
+        arrivalWorld = afterWorld
         surfaceMovedAt = 0.0
         arrivedAt = Utility.GetCurrentRealTime()
         AdvanceTo(40)
+    elseif surfaceSets >= SurfaceTries
+        if !coreCell
+            FailExit("surface_cell_not_core")
+        else
+            FailExit("surface_position_not_confirmed")
+        endif
     endif
 EndFunction
 
 Function CheckLanding(Actor player)
-{Three seconds after the arrival: a player below the arrival by FallDrop fell (the surface elevator platform may not be
- solid in the core) and goes to the fallback, the map marker's spot on the ground; then the quest completes.}
+{Confirm the landing on a later loaded tick in the attached exterior world. A fallback move is checked on another
+ tick; exhaustion is failure. Discovery is requested only after the landing and marker's placement both confirm.}
     if Utility.GetCurrentRealTime() - arrivedAt < 3.0
         return
     endif
+    if !player.Is3DLoaded()
+        return
+    endif
+    if player.IsInInterior() || arrivalWorld == None || player.GetWorldSpace() != arrivalWorld
+        FailExit("landing_world_changed")
+        return
+    endif
+    landingChecks += 1
     float z = player.GetPositionZ()
-    if z < ArrivalZ - FallDrop
+    if !fallbackPending && z < ArrivalZ - FallDrop
+        fallbackPending = true
         player.SetPosition(FallbackX + MergeOffsetX, FallbackY + MergeOffsetY, FallbackZ + 1.0)
         Trace("fell z=" + z + ": fallback pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
-    else
-        Trace("landed z=" + z)
+        return
     endif
+    if !AtArrival(player)
+        FailExit("landing_position_not_confirmed")
+        return
+    endif
+    if !RequestArrivalDiscovery(player)
+        if landingChecks >= 30
+            FailExit("arrival_marker_not_attached")
+        endif
+        return
+    endif
+    Trace("landed z=" + z + " confirmed=True fallback=" + fallbackPending + " world=" + arrivalWorld)
     AdvanceTo(200)
+EndFunction
+
+bool Function RequestArrivalDiscovery(Actor player)
+    if ArrivalDiscoveryId == 0
+        Trace("arrival discovery disabled: custom exit anchor")
+        return true
+    endif
+    ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
+    if marker == None
+        Trace("arrival discovery waits: marker missing")
+        return false
+    endif
+    float mx = FallbackX + MergeOffsetX
+    float my = FallbackY + MergeOffsetY
+    float mz = FallbackZ
+    bool sameWorld = marker.GetWorldSpace() == arrivalWorld
+    float dx = marker.GetPositionX() - mx
+    float dy = marker.GetPositionY() - my
+    float dz = marker.GetPositionZ() - mz
+    bool atMerged = dx * dx + dy * dy <= 25.0 && dz >= -3.0 && dz <= 3.0
+    if !sameWorld || !atMerged
+        ; When the separate map-marker mover is not installed, attach the canonical Vault 111 marker once and confirm next tick.
+        if !discoveryMarkerMoved && player.Is3DLoaded() && !player.IsInInterior() && player.GetWorldSpace() == arrivalWorld && AtArrival(player)
+            discoveryMarkerMoved = true
+            float px = player.GetPositionX()
+            float py = player.GetPositionY()
+            float pz = player.GetPositionZ()
+            marker.Enable(False)
+            marker.MoveTo(player, mx - px, my - py, mz - pz, False, False)
+            if marker.GetWorldSpace() == arrivalWorld
+                marker.SetPosition(mx, my, mz)
+            endif
+            Trace("arrival discovery marker moved ref=" + marker + " world=" + marker.GetWorldSpace() + " pos=" + marker.GetPositionX() + " " + marker.GetPositionY() + " " + marker.GetPositionZ() + " target=" + mx + " " + my + " " + mz)
+        else
+            Trace("arrival discovery waits: marker world=" + marker.GetWorldSpace() + " same_world=" + sameWorld + " at_merged=" + atMerged)
+        endif
+        return false
+    endif
+    ; Native reads yield between calls: recheck the player after reading the marker, immediately before mutation.
+    bool enabledBefore = Game.IsFastTravelEnabled()
+    if !player.Is3DLoaded() || player.IsInInterior() || player.GetWorldSpace() != arrivalWorld || !AtArrival(player) || marker.GetWorldSpace() != arrivalWorld
+        return false
+    endif
+    marker.SetMarkerDiscovered()
+    Trace("arrival discovery requested ref=" + marker + " world=" + marker.GetWorldSpace() + " fast_before=" + enabledBefore + " fast_after=" + Game.IsFastTravelEnabled())
+    return true
+EndFunction
+
+bool Function AtArrival(Actor player)
+    if fallbackPending
+        return Near(player, FallbackX + MergeOffsetX, FallbackY + MergeOffsetY, FallbackZ + 1.0, 5.0)
+    endif
+    return Near(player, ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ, 5.0)
+EndFunction
+
+Function FailExit(string reason)
+    exitFailed = true
+    rideActive = false
+    if ridingLift != None
+        UnregisterForAnimationEvent(ridingLift, "Done")
+    endif
+    surfaceMovedAt = 0.0
+    Trace("exit failed reason=" + reason + " stage=" + GetStage())
 EndFunction
 
 bool Function Near(Actor player, float x, float y, float z, float radius)

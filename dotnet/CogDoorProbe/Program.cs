@@ -43,14 +43,17 @@ try
     var rig = Opt("--rig");
     var anims = Opt("--anims");
     var control = Flag("--control");
+    var productionCog = Flag("--production-cog");
+    if (productionCog && control)
+        throw new CogDoorProbe.Refusal("--production-cog writes the converted DOOR override alone: cannot combine with --control");
     if (control && (model != null || rig != null || anims != null))
         throw new CogDoorProbe.Refusal("--control writes no DOOR override: leave --model / --rig / --anims out");
     if (!control && (rest.Count == 4 && (rest[0] == "build" || rest[0] == "check")) && (model == null || rig == null || anims == null))
         throw new CogDoorProbe.Refusal("the full kit needs --model, --rig and --anims (or --control for the quest alone)");
     var refId = CogDoorProbe.ParseRef(refText);
     if (rest.Count == 3 && rest[0] == "info") return CogDoorProbe.Info(rest[1], rest[2], refId);
-    if (rest.Count == 4 && rest[0] == "build") return CogDoorProbe.Build(rest[1], rest[2], rest[3], refId, control ? null : (model!, rig!, anims!));
-    if (rest.Count == 4 && rest[0] == "check") return CogDoorProbe.Check(rest[1], rest[2], rest[3], refId, control ? null : (model!, rig!, anims!));
+    if (rest.Count == 4 && rest[0] == "build") return CogDoorProbe.Build(rest[1], rest[2], rest[3], refId, control ? null : (model!, rig!, anims!), productionCog);
+    if (rest.Count == 4 && rest[0] == "check") return CogDoorProbe.Check(rest[1], rest[2], rest[3], refId, control ? null : (model!, rig!, anims!), productionCog);
     if (rest.Count == 2 && rest[0] == "fixture") return CogDoorProbe.Fixture(rest[1]);
 if (rest.Count == 4 && rest[0] == "fixture") return CogDoorProbe.Fixture(rest[1], rest[2], rest[3]);   // fixture <dir> <DNAM> <ENAM>
 }
@@ -72,6 +75,7 @@ static class CogDoorProbe
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
     static readonly ModKey PortEsm = ModKey.FromFileName("FO4Port.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFCogDoor.esm");
+    public static readonly ModKey ProductionPlugin = ModKey.FromFileName("FO4SFVaultGearDoor.esm");
 
     // the layout (scripts/newgame/FO4SF_CogDoorQuest.psc carries the same quest id and stages)
     const uint QuestId = 0x800;
@@ -149,11 +153,14 @@ static class CogDoorProbe
         return quest;
     }
 
-    public static int Build(string portPath, string sfPath, string outDir, uint refId, (string Model, string Rig, string Anims)? files)
+    public static int Build(string portPath, string sfPath, string outDir, uint refId, (string Model, string Rig, string Anims)? files, bool productionCog = false)
     {
+        if (productionCog && (files is null || refId != 0x00126D))
+            throw new Refusal("production cog door must override the original Vault 111 cog door 00126D");
         using var port = Open(portPath);
         var baseRec = FindBase(port, refId, out _);
-        var mod = new StarfieldMod(Plugin, Release);
+        var key = productionCog ? ProductionPlugin : Plugin;
+        var mod = new StarfieldMod(key, Release);
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;               // as every plugin of ours that loads
         mod.ModHeader.Author = "fo4-to-starfield";
         if (files is { } f)
@@ -170,10 +177,10 @@ static class CogDoorProbe
             comp.CNAM = f.Anims;
             mod.Doors.Add(ov);
         }
-        mod.Quests.Add(MakeQuest());
+        if (!productionCog) mod.Quests.Add(MakeQuest());
         mod.ModHeader.Stats.NextFormID = 0x801;
         Write(mod, outDir, SfEsm, PortEsm);
-        var path = Path.Combine(outDir, Plugin.FileName);
+        var path = Path.Combine(outDir, key.FileName);
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): " + (files is null ? "control, the quest alone" : $"override of {Show(baseRec)}"));
         if (files is { } g) Console.WriteLine($"now model {g.Model}, graph component ANAM {baseRec.Components.OfType<IAnimationGraphComponentGetter>().First().ANAM} BNAM {g.Rig} CNAM {g.Anims}");
         Console.WriteLine($"BASE_ID 0x{baseRec.FormKey.ID:X6}");
@@ -205,8 +212,10 @@ static class CogDoorProbe
 
     // ---------------------------------------------------------------- check (Mutagen read-back)
 
-    public static int Check(string pluginPath, string portPath, string sfPath, uint refId, (string Model, string Rig, string Anims)? files)
+    public static int Check(string pluginPath, string portPath, string sfPath, uint refId, (string Model, string Rig, string Anims)? files, bool productionCog = false)
     {
+        if (productionCog && (files is null || refId != 0x00126D))
+            throw new Refusal("production cog door must override the original Vault 111 cog door 00126D");
         using var port = Open(portPath);
         var baseRec = FindBase(port, refId, out _);
         using var mod = Open(pluginPath);
@@ -215,14 +224,16 @@ static class CogDoorProbe
 
         var masters = mod.ModHeader.MasterReferences.Select(m => m.Master).ToList();
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
-        Need(mod.ModKey == Plugin, $"the file is {mod.ModKey}, not {Plugin}");
+        var key = productionCog ? ProductionPlugin : Plugin;
+        Need(mod.ModKey == key, $"the file is {mod.ModKey}, not {key}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
         Need(masters.SequenceEqual(new[] { SfEsm, PortEsm }), "masters are not exactly [Starfield.esm, FO4Port.esm]");
         var all = mod.EnumerateMajorRecords().ToList();
-        var want = files is null ? 1 : 2;
-        Need(all.Count == want, files is null ? "not exactly one record (the quest)" : "not exactly two records (the DOOR override and the quest)");
-        var own = all.Where(r => r.FormKey.ModKey == Plugin).Select(r => r.FormKey).ToList();
-        Need(own.Count == 1 && own[0] == Own(QuestId), "records of ours are not exactly the quest 0x800");
+        var want = productionCog ? 1 : (files is null ? 1 : 2);
+        Need(all.Count == want, productionCog ? "not exactly one record (the DOOR override)" : (files is null ? "not exactly one record (the quest)" : "not exactly two records (the DOOR override and the quest)"));
+        var own = all.Where(r => r.FormKey.ModKey == key).Select(r => r.FormKey).ToList();
+        Need(productionCog ? own.Count == 0 : own.Count == 1 && own[0] == Own(QuestId), "unexpected records owned by this plugin");
+        if (productionCog) Need(mod.Quests.Count == 0, "production cog door carries a probe quest");
         if (files is null)
             Need(!mod.Doors.Any(), "the control holds a DOOR record: it must be the quest alone");
         else
@@ -247,8 +258,8 @@ static class CogDoorProbe
             }
         }
         var q = mod.Quests.FirstOrDefault(x => x.FormKey == Own(QuestId));
-        Need(q?.EditorID == QuestEdid, $"no QUST {QuestEdid}");
-        if (q != null)
+        if (!productionCog) Need(q?.EditorID == QuestEdid, $"no QUST {QuestEdid}");
+        if (!productionCog && q != null)
         {
             var scripts = q.VirtualMachineAdapter?.Scripts.ToList() ?? new();
             Console.WriteLine($"  QUST {q.EditorID} flags {q.Data?.Flags} stages [{string.Join(",", q.Stages.Select(s => s.Index))}] scripts [{string.Join(", ", scripts.Select(s => $"{s.Name} ({s.Properties.Count} properties)"))}]");

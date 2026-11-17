@@ -257,6 +257,22 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(wrong.returncode, 1)
         self.assertIn("the model is not Meshes/other.nif", norm(wrong.stdout))
 
+    def test_production_cog_has_no_probe_quest(self):
+        port, sf = self.paths()
+        out = self.root / "production-cog"
+        opts = [*MARGS, "--production-cog"]
+        made = self.run_tool("build", port, sf, out, *opts)
+        self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+        plugin = out / mcd.COG_PLUGIN
+        self.assertTrue(plugin.exists())
+        self.assertFalse((out / PLUGIN).exists())
+        self.assertNotIn(b"QUST", plugin.read_bytes())
+        checked = self.run_tool("check", plugin, port, sf, *opts)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        refused = self.run_tool("build", port, sf, self.root / "not-production", "--control", "--production-cog")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertFalse((self.root / "not-production").exists())
+
     def test_the_override_keeps_the_base_graph_fields_it_does_not_change_and_check_sees_a_drop(self):
         # FAL-760 HOLD 1: the override copies the graph component and sets only BNAM and CNAM; DNAM and ENAM stay the base's, and Check compares them
         port, sf = self.paths()
