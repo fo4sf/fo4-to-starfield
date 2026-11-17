@@ -330,19 +330,64 @@ class CoreBundleTests(unittest.TestCase):
                 ]),
                 encoding="utf-8",
             )
+            (ldir / "FO4SFReputation.1.log").write_text(
+                "token_hook token=theft count=3 karma=-1000 tier=-2 buy_mult=1.0 fac0_react=0 states=0,0,0,0,0,0,0,0\n"
+                "token_hook token=faction_aid count=1 karma=-1000 tier=-2 buy_mult=0.75 fac0_react=2 states=3,0,0,0,0,0,0,0\n",
+                encoding="utf-8",
+            )
             (ldir / "FO4SFReputation.0.log").write_text(
-                "orthogonality karma=-900 state=3 ok=true\nreload_audit when=reload ok=true\n",
+                "reload_audit karma=-1000 tier=-2 buy_mult=0.75 fac0_react=2 states=3,0,0,0,0,0,0,0 ok=true\n",
+                encoding="utf-8",
+            )
+            (ldir / "FO4SFCompanions.1.log").write_text(
+                "stage_result stage=20 cap=4 active=4 wait_all=4 follow_all=4 pass=true\n"
+                "teleport reason=manual_radio_sync moved=4 skipped_waiting=0 active=4\n",
                 encoding="utf-8",
             )
             (ldir / "FO4SFCompanions.0.log").write_text(
-                "fireteam_cmd active=4\nteleport reason=load_door_cell_change\nreload_audit when=reload\n",
+                "reload_audit when=reload reload_count=1 squad_ok=4/4 following=4 waiting=0 pass=true\n",
+                encoding="utf-8",
+            )
+            sfse_logs = ldir / "sfse_logs"
+            sfse_logs.mkdir()
+            (sfse_logs / "FO4SFPipboyMenu.log").write_text(
+                "\n".join([
+                    "step=code_obj_special n=1 when=late mode=fill found=1 type=object cleared_by=length pushed=7 length=#7",
+                    "step=map_key n=1 vk=0x4D was_open=0 page=3 sent=show",
+                    "step=map_texture loaded=1 children=1",
+                    "step=map_markers n=309 discovered=2 undiscovered=307 player_idx=309 corners_set=3/3 read_back=match",
+                    "step=map_key n=2 vk=0x4D was_open=1 on_map=1 sent=hide",
+                    "step=starmap_blocked n=1 route=create",
+                ]),
                 encoding="utf-8",
             )
 
-            self.assertEqual(mcb.main(["log", "--log-dir", str(ldir), "--step", "all"]), 0)
-            results = bundle_log.evaluate_walk_logs(str(ldir), mcb.make_newgame.summarize)
-            self.assertEqual(len(results), 11)
+            self.assertEqual(
+                mcb.main(["log", "--log-dir", str(ldir), "--sfse-log-dir", str(sfse_logs), "--step", "all"]),
+                0,
+            )
+            results = bundle_log.evaluate_walk_logs(
+                str(ldir), mcb.make_newgame.summarize, sfse_log_dir=str(sfse_logs)
+            )
+            self.assertEqual(len(results), 12)
             self.assertTrue(all(r["ok"] for r in results.values()))
+
+            # --no-pipboy allows evaluating a 19-plugin non-Pip-Boy run cleanly
+            self.assertEqual(mcb.main(["log", "--log-dir", str(ldir), "--no-pipboy", "--step", "all"]), 0)
+
+            # A refusal line in FO4SFPipboyMenu.log fails only step 'pipboy' without breaking steps 1..11
+            (sfse_logs / "FO4SFPipboyMenu.log").write_text("refuse step=ini reason=bad\n", encoding="utf-8")
+            results_bad_pb = bundle_log.evaluate_walk_logs(
+                str(ldir), mcb.make_newgame.summarize, sfse_log_dir=str(sfse_logs)
+            )
+            self.assertFalse(results_bad_pb["pipboy"]["ok"])
+            self.assertTrue(all(results_bad_pb[k]["ok"] for k in bundle_log.STEP_NAMES if k != "pipboy"))
+
+    def test_walk_harness_script_wires_station_g_fireteam_muster(self):
+        psc_txt = (REPO / "scripts" / "core" / "FO4SF_CoreCandidateWalk.psc").read_text(encoding="utf-8")
+        self.assertIn("PlacedFireteamRefs = new ObjectReference[4]", psc_txt)
+        self.assertIn('RegisterForRemoteEvent(ftRef, "OnActivate")', psc_txt)
+        self.assertIn("compQuest.SetStage(20)", psc_txt)
 
     def test_cf1_start_world_descriptor_table_covers_all_titles_and_faction_starts(self):
         for required in ("vault111", "vault101", "goodsprings", "vault76", "vault13", "arroyo", "bunkeralpha"):

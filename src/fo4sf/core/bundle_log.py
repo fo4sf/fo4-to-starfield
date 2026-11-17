@@ -1,6 +1,6 @@
 """Structured step-by-step log evaluator for the Core Candidate walk (docs/testing/core-candidate-pc-card.md).
 
-Evaluates each of the 11 walk steps independently so a failure in one step never blocks reading the remaining steps:
+Evaluates each of the 12 walk steps independently so a failure in one step never blocks reading the remaining steps:
   1. exit        - pod walk-out, gear door, carrying lift, Commonwealth surface landing (fo4sf_newgame.0.log)
   2. hold        - hold-off pass 1 + pass 2 stopping 195 of 199 DefaultHold quests (fo4sf_newgame.0.log)
   3. rads        - radiation exposure (> 0 rads) and RadAway cure reduction (FO4SFRadsCore.0.log)
@@ -12,11 +12,13 @@ Evaluates each of the 11 walk steps independently so a failure in one step never
   9. combat      - zone hits, high-DT AP vs Standard ammo cycle, leg cripple & cure, and slow-time VATS shot (FO4SFCombat.0.log)
  10. reputation  - Very Evil + Idolized orthogonality (Ally + 0.75x buy mult) and Karma/Faction standing (FO4SFReputation.1.log + .0.log)
  11. companions  - 4-NPC Warfare fireteam commands, squad cap/upkeep gates, and follower teleportation (FO4SFCompanions.1.log + .0.log)
+ 12. pipboy      - FO4 shell/SPECIAL fill, M-key MAP open/close + texture/markers, and complete Star-Map block (FO4SFPipboyMenu.log)
 """
 from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 STEP_NAMES = (
@@ -31,6 +33,7 @@ STEP_NAMES = (
     "combat",
     "reputation",
     "companions",
+    "pipboy",
 )
 
 EXPECTED_HOLD_STOPPED = 195
@@ -202,10 +205,20 @@ def eval_reputation(lines: Iterable[str]) -> dict:
     if not raw:
         return {"step": "reputation", "ok": False, "detail": "no FO4SFReputation log lines found"}
     text = "\n".join(raw)
-    ortho_ok = bool(
-        re.search(r"(orthogonality[^\n]*ok=true|karma=-(?:7[5-9]\d|[89]\d\d|1000)[^\n]*state=3)", text, re.I)
-        or (re.search(r"karma=-(?:7[5-9]\d|[89]\d\d|1000)", text, re.I) and re.search(r"(state=3\b|idolized)", text, re.I))
+    explicit_ortho = bool(re.search(r"orthogonality[^\n]*ok=true", text, re.I))
+    token_or_hook_ortho = bool(
+        re.search(
+            r"karma=-(?:7[5-9]\d|[89]\d\d|1000)\b[^\n]*(?:buy_mult=0\.75[^\n]*fac0_react=2[^\n]*states=3\b|states?=3\b)",
+            text,
+            re.I,
+        )
+        or (
+            re.search(r"karma=-(?:7[5-9]\d|[89]\d\d|1000)\b", text, re.I)
+            and re.search(r"(?:\bstates?=3\b|idolized)", text, re.I)
+            and re.search(r"(?:\bbuy_mult=0\.75\b|\bfac0_react=2\b|\breaction=2\b|\bok=true\b)", text, re.I)
+        )
     )
+    ortho_ok = explicit_ortho or token_or_hook_ortho
     reload_ok = bool(re.search(r"(reload_audit[^\n]*ok=true|when=reload)", text, re.I))
     ok = ortho_ok and reload_ok
     return {"step": "reputation", "ok": ok, "detail": f"evil_idolized_orthogonality={ortho_ok} reload_persisted={reload_ok}"}
@@ -216,15 +229,55 @@ def eval_companions(lines: Iterable[str]) -> dict:
     if not raw:
         return {"step": "companions", "ok": False, "detail": "no FO4SFCompanions log lines found"}
     text = "\n".join(raw)
-    fireteam_ok = bool(re.search(r"(active=4\b|slot=3\b|fireteam_cmd|fireteam_4npc)", text, re.I))
-    teleport_ok = bool(re.search(r"(load_door_cell_change|vault_lift_or_interior_exit|pipboy_fast_travel|teleport)", text, re.I))
+    fireteam_ok = bool(re.search(r"(active=4\b|count=4\b|slot=3\b|fireteam_cmd|fireteam_4npc)", text, re.I))
+    teleport_ok = bool(re.search(r"(load_door_cell_change|vault_lift_or_interior_exit|pipboy_fast_travel|manual_radio_sync|teleport)", text, re.I))
     reload_ok = bool(re.search(r"(reload_audit|when=reload)", text, re.I))
     ok = fireteam_ok and teleport_ok and reload_ok
     return {"step": "companions", "ok": ok, "detail": f"fireteam_4npc={fireteam_ok} teleport={teleport_ok} reload_persisted={reload_ok}"}
 
 
-def evaluate_walk_logs(log_dir: str, newgame_summarizer) -> Dict[str, dict]:
-    """Evaluate all 11 walk steps from Starfield's Logs/Script/User folder."""
+def _read_pipboy_sfse_lines(log_dir: str, sfse_log_dir: Optional[str] = None) -> List[str]:
+    candidates: List[Path] = []
+    if sfse_log_dir:
+        sroot = Path(sfse_log_dir)
+        candidates.append(sroot / "FO4SFPipboyMenu.log")
+        candidates.append(sroot / "Logs" / "FO4SFPipboyMenu.log")
+    ldir = Path(log_dir)
+    candidates.append(ldir / "FO4SFPipboyMenu.log")
+    # Standard Starfield layout: <My Games>/Starfield/Logs/Script/User -> <My Games>/Starfield/SFSE/{Logs/}FO4SFPipboyMenu.log
+    for anc in list(ldir.parents)[:4]:
+        candidates.append(anc / "SFSE" / "Logs" / "FO4SFPipboyMenu.log")
+        candidates.append(anc / "SFSE" / "FO4SFPipboyMenu.log")
+    for c in candidates:
+        if c.is_file():
+            return _read_lines(str(c))
+    return []
+
+
+def eval_pipboy(lines: Iterable[str]) -> dict:
+    raw = list(lines)
+    if not raw:
+        return {"step": "pipboy", "ok": False, "detail": "no FO4SFPipboyMenu.log lines found"}
+    text = "\n".join(raw)
+    refused = bool(re.search(r"\brefuse\s+step=", text, re.I))
+    shell_ok = bool(re.search(r"step=code_obj_special\b[^\n]*\bpushed=7\b", text, re.I))
+    map_open = bool(re.search(r"step=map_key\b[^\n]*\bwas_open=0\b[^\n]*\bsent=show\b", text, re.I))
+    map_close = bool(re.search(r"step=map_key\b[^\n]*\bwas_open=1\b[^\n]*\bsent=hide\b", text, re.I))
+    map_data = bool(re.search(r"(step=map_texture\s+loaded=1|step=map_markers\b[^\n]*\bcorners_set=3/3)", text, re.I))
+    starmap_blocked = bool(re.search(r"step=starmap_blocked\b[^\n]*\broute=create\b", text, re.I))
+    ok = (not refused) and shell_ok and map_open and map_close and map_data and starmap_blocked
+    return {
+        "step": "pipboy",
+        "ok": ok,
+        "detail": (
+            f"no_refuse={not refused} shell_special={shell_ok} map_open_close={map_open and map_close} "
+            f"map_data={map_data} starmap_blocked={starmap_blocked}"
+        ),
+    }
+
+
+def evaluate_walk_logs(log_dir: str, newgame_summarizer, sfse_log_dir: Optional[str] = None) -> Dict[str, dict]:
+    """Evaluate all 12 walk steps from Starfield's Logs/Script/User and SFSE log folders."""
     ng_lines = _read_stitched(log_dir, "fo4sf_newgame")
     ng_sum = newgame_summarizer(ng_lines)
     step_exit, step_hold = eval_exit_and_hold(ng_sum)
@@ -244,5 +297,6 @@ def evaluate_walk_logs(log_dir: str, newgame_summarizer) -> Dict[str, dict]:
         "combat": eval_combat(_read_stitched(log_dir, "FO4SFCombat")),
         "reputation": eval_reputation(_read_stitched(log_dir, "FO4SFReputation")),
         "companions": eval_companions(_read_stitched(log_dir, "FO4SFCompanions")),
+        "pipboy": eval_pipboy(_read_pipboy_sfse_lines(log_dir, sfse_log_dir=sfse_log_dir)),
     }
     return results

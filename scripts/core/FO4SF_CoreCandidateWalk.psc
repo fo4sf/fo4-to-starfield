@@ -2,11 +2,12 @@ Scriptname FO4SF_CoreCandidateWalk extends Quest
 {Unified console-free exterior walk harness for gemini/core-candidate (docs/testing/core-candidate-pc-card.md).
  Attached to QUST FO4SF_CoreCandidateWalkQuest (0x800 in FO4SFCoreCandidate.esm, StartGameEnabled):
    - Zero mandatory script properties: resolves FO4SFNewGame.esm, FO4SFRads.esm, FO4SFHardcore.esm,
-     FO4SFWorkshop.esm, FO4SFPowerArmor.esm, FO4SFListDialogue.esm, and FO4SFProgression.esm dynamically via
+     FO4SFWorkshop.esm, FO4SFPowerArmor.esm, FO4SFListDialogue.esm, FO4SFProgression.esm, FO4SFCombat.esm,
+     FO4SFReputation.esm, FO4SFCompanions.esm, and FO4SFPipboyProbe.esm/FO4SFPipboyTravel.esm dynamically via
      Game.GetFormFromFile so every slice remains decoupled.
    - Polls gently (2.0 s) until FO4SFNewGame.esm QUST 0x800 completes stage 200 (Commonwealth landing),
-     then places a clean 4-station console-free verification line 12..38 m ahead of the player and adds the
-     starter field kit to inventory so all 8 walk steps run with zero console commands.}
+     then places a clean 7-station console-free verification line 12..56 m ahead of the player and adds the
+     starter field kit to inventory so all 12 walk steps run with zero console commands.}
 
 string LogName = "FO4SFCoreCandidate"
 string OwnPlugin = "FO4SFCoreCandidate.esm"
@@ -20,6 +21,8 @@ string ProgPlugin = "FO4SFProgression.esm"
 string CombatPlugin = "FO4SFCombat.esm"
 string RepPlugin = "FO4SFReputation.esm"
 string CompPlugin = "FO4SFCompanions.esm"
+string PipboyProbePlugin = "FO4SFPipboyProbe.esm"
+string PipboyTravelPlugin = "FO4SFPipboyTravel.esm"
 string StarfieldPlugin = "Starfield.esm"
 
 int OwnKioskActiId = 0x801
@@ -103,6 +106,7 @@ bool FieldLineStaged = false
 bool BusyChargen = false
 ObjectReference PlacedRadsRef = None
 ObjectReference PlacedKioskRef = None
+ObjectReference[] PlacedFireteamRefs
 int ChargenRuns = 0
 
 Event OnInit()
@@ -111,7 +115,7 @@ Event OnInit()
     if p != None
         RegisterPlayerEvents(p)
     endif
-    Trace("init version=1 quest=" + GetFormID() + " ng=" + Game.IsPluginInstalled(NewGamePlugin) + " rads=" + Game.IsPluginInstalled(RadsPlugin) + " hc=" + Game.IsPluginInstalled(HardcorePlugin) + " ws=" + Game.IsPluginInstalled(WorkshopPlugin) + " pa=" + Game.IsPluginInstalled(PaPlugin) + " dlg=" + Game.IsPluginInstalled(ListDlgPlugin) + " prog=" + Game.IsPluginInstalled(ProgPlugin))
+    Trace("init version=2 quest=" + GetFormID() + " ng=" + Game.IsPluginInstalled(NewGamePlugin) + " rads=" + Game.IsPluginInstalled(RadsPlugin) + " hc=" + Game.IsPluginInstalled(HardcorePlugin) + " ws=" + Game.IsPluginInstalled(WorkshopPlugin) + " pa=" + Game.IsPluginInstalled(PaPlugin) + " dlg=" + Game.IsPluginInstalled(ListDlgPlugin) + " prog=" + Game.IsPluginInstalled(ProgPlugin) + " combat=" + Game.IsPluginInstalled(CombatPlugin) + " rep=" + Game.IsPluginInstalled(RepPlugin) + " comp=" + Game.IsPluginInstalled(CompPlugin) + " pb=" + Game.IsPluginInstalled(PipboyProbePlugin) + " pb_travel=" + Game.IsPluginInstalled(PipboyTravelPlugin))
     StartTimer(POLL_S, TIMER_POLL)
 EndEvent
 
@@ -123,6 +127,15 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     endif
     if PlacedKioskRef != None
         RegisterForRemoteEvent(PlacedKioskRef, "OnActivate")
+    endif
+    if PlacedFireteamRefs != None
+        int rIdx = 0
+        while rIdx < PlacedFireteamRefs.Length
+            if PlacedFireteamRefs[rIdx] != None
+                RegisterForRemoteEvent(PlacedFireteamRefs[rIdx], "OnActivate")
+            endif
+            rIdx += 1
+        endwhile
     endif
     Trace("reload staged=" + FieldLineStaged + " chargen_runs=" + ChargenRuns)
     if !FieldLineStaged
@@ -378,6 +391,7 @@ Function StageFieldLine(string triggerReason)
     ; 8. Station G (56 m ahead): 4-NPC Warfare Fireteam + Story Companion
     bool compPlaced = false
     if Game.IsPluginInstalled(CompPlugin)
+        PlacedFireteamRefs = new ObjectReference[4]
         int fi = 0
         while fi < 4
             ObjectReference ftRef = Game.GetFormFromFile(0x835 + fi, CompPlugin) as ObjectReference
@@ -385,6 +399,8 @@ Function StageFieldLine(string triggerReason)
                 float lat = ((fi as float) - 1.5) * 1.6
                 ftRef.MoveTo(p, (fwdX * 56.0) + (rightX * lat), (fwdY * 56.0) + (rightY * lat), 0.0, true)
                 ftRef.EnableNoWait()
+                PlacedFireteamRefs[fi] = ftRef
+                RegisterForRemoteEvent(ftRef, "OnActivate")
                 compPlaced = true
             endif
             fi += 1
@@ -400,9 +416,33 @@ Function StageFieldLine(string triggerReason)
     Debug.Notification("FO4SF Core Walk ready ahead: Rads (12m)..Chargen (38m), Combat (44m), Reputation (50m), Squad (56m).")
 EndFunction
 
+bool Function IsPlacedFireteamRef(ObjectReference akCandidate)
+    if akCandidate == None || PlacedFireteamRefs == None
+        return false
+    endif
+    int i = 0
+    while i < PlacedFireteamRefs.Length
+        if PlacedFireteamRefs[i] == akCandidate
+            return true
+        endif
+        i += 1
+    endwhile
+    return false
+EndFunction
+
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
-    if akSender == PlacedKioskRef && akActionRef == Game.GetPlayer()
+    if akActionRef != Game.GetPlayer()
+        return
+    endif
+    if akSender == PlacedKioskRef
         RunInteractiveChargen("kiosk_activate")
+    elseif IsPlacedFireteamRef(akSender) && Game.IsPluginInstalled(CompPlugin)
+        Quest compQuest = Game.GetFormFromFile(0x800, CompPlugin) as Quest
+        if compQuest != None && !compQuest.GetStageDone(20)
+            compQuest.SetStage(20)
+            Trace("fireteam_muster_requested actor=" + akSender.GetFormID())
+            Debug.Notification("Mustering 4-NPC Warfare Fireteam (wait 2s, then drop Tactical Fireteam Radio).")
+        endif
     endif
 EndEvent
 

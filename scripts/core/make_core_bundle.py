@@ -1,10 +1,11 @@
 r"""Stage, fold, verify, and inspect logs for the unified FO4SF Core Candidate Bundle (CF-10).
 
 Stages every core component from one checkout (gear door, exit lift, NewGame with hold 199 and pod_step -2.5,
-rads, hardcore, workshop, power armor, progression, list dialogue, Fort Hagen when present, the console-free
-candidate walk harness, and optional --with-pipboy), folds them into a clean hardlinked copy of the owner's
-core set, runs full SHA-256 + TES4 master-order + plugin-count + 4 GiB BA2 archive-limit verification, and
-prints one `exp_install.py install ... --pack` command plus its matching rollback command.
+rads, hardcore, workshop, power armor, progression, list dialogue, combat + FO4SFCombat.dll, reputation,
+companions, A-Life when present, Fort Hagen when present, the console-free candidate walk harness, and
+--with-pipboy --pipboy-stage), folds them into a clean hardlinked copy of the owner's core set, runs full
+SHA-256 + TES4 master-order + plugin-count + 4 GiB BA2 archive-limit verification, and prints one
+`exp_install.py install ... --pack` command plus its matching rollback command.
 
 Refuses to run whenever Starfield.exe is open (via fo4sf.launcher.crashwatch.System.pids).
 
@@ -13,8 +14,9 @@ usage:
       --work <scratch-stage-dir> --starfield-dir <Starfield> --fo4-data <Fallout 4/Data>
       --port <FO4Port.esm> --port-ids <formids.json>
       --door-anim-dll <CALUMI.Animation.dll> --collision-template <nif> --texconv <texconv.exe>
-      [--render-python <venv-render/python.exe>] [--no-fort-hagen] [--no-walk-harness]
-      [--with-pipboy --pipboy-stage <pipboy-stage-dir>] [--no-hardlink]
+      [--render-python <venv-render/python.exe>] [--combat-sfse-build <combat-sfse-dir>]
+      [--with-pipboy --pipboy-stage <pipboy-stage-dir>]
+      [--no-alife] [--no-fort-hagen] [--no-walk-harness] [--no-hardlink]
 
   python scripts/core/make_core_bundle.py fold --owner-set <owner-set-dir> --stages-root <stages-dir>
       --out <bundle-dir> [--clean-core-out <clean-core-dir>] [--port <FO4Port.esm>]
@@ -25,7 +27,8 @@ usage:
       [--max-plugins 245] [--max-ba2-bytes 4294967295]
 
   python scripts/core/make_core_bundle.py log [--log-dir <My Games/Starfield/Logs/Script/User>]
-      [--step all|exit|hold|rads|hardcore|workshop|powerarmor|dialogue|progression]
+      [--sfse-log-dir <My Games/Starfield/SFSE/Logs>] [--no-pipboy]
+      [--step all|exit|hold|rads|hardcore|workshop|powerarmor|dialogue|progression|combat|reputation|companions|pipboy]
 """
 from __future__ import annotations
 
@@ -972,8 +975,15 @@ def cmd_verify(a) -> int:
 
 
 def cmd_log(a) -> int:
-    results = bundle_log.evaluate_walk_logs(a.log_dir, make_newgame.summarize)
-    steps = list(bundle_log.STEP_NAMES) if a.step == "all" else [a.step]
+    results = bundle_log.evaluate_walk_logs(
+        a.log_dir,
+        make_newgame.summarize,
+        sfse_log_dir=getattr(a, "sfse_log_dir", None),
+    )
+    if a.step == "all":
+        steps = [s for s in bundle_log.STEP_NAMES if not (getattr(a, "no_pipboy", False) and s == "pipboy")]
+    else:
+        steps = [a.step]
     any_fail = False
     for s in steps:
         r = results[s]
@@ -1035,6 +1045,8 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     default_logs = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User")
     lg = sub.add_parser("log")
     lg.add_argument("--log-dir", default=default_logs)
+    lg.add_argument("--sfse-log-dir", default=None)
+    lg.add_argument("--no-pipboy", action="store_true")
     lg.add_argument("--step", choices=("all", *bundle_log.STEP_NAMES), default="all")
 
     args = p.parse_args(argv)
