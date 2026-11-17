@@ -255,7 +255,27 @@ static class NewGame
         "City_AC_FAB_Quest11", "City_AC_FAB_Quest09", "City_AC_FAB_Quest07", "City_AC_FAB_Quest08",
         "City_AC_FAB_Quest10", "City_AC_FAB_Quest12", "City_AC_FAB_Quest16", "City_AC_FAB_Quest14",
         "City_AC_FAB_Quest13", "City_AC_FAB_Quest15", "City_AC_FAB_Quest17", "City_AC_FAB_Quest19" };
-    public static readonly string[] DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray();
+    // S13 row 5, the fourth group (FAL-1041), in the order of Gemini's ranked batches (FAL-883 comment 1b484947): the
+    // rest of the city and faction dialogue batches (generic, crowd, creature, robot, Starborn, crime, guard, vendor,
+    // staryard and leftover dialogue), then the rest of the activities and misc batches. None is follower, crew or
+    // group runtime plumbing (doc §4e); the radiant, ship and system batches and the never-stop quests stay running
+    public static readonly string[] HoldGenericDialogue = { "DialogueCrowds", "DialgoueSSNNScenes",
+        "CR_Dialogue_Turret", "DialogueTerrormorphThrallHuman", "DialogueGeneric_LISTOutpost",
+        "DialogueGenericSpacers", "DialogueGenericUnique_Crime_TheKey", "DialogueGenericChildren",
+        "CR_Dialogue_Terrormorph_Base", "DialogueGenericStarborn_Unique", "CR_Dialogue_QuadrupedB", "DialogueMiniBot",
+        "DialogueSettleBartenderRumors", "DialogueCrimeGuards", "MQ105_AlwaysOnDialogueNeon",
+        "DialogueGenericVendor_Chunks", "DialogueGenericVendor_Terrabrew", "Staryard_StroudEklund_Dialogue",
+        "Staryard_Taiyo_Dialogue", "Staryard_Deimos_Dialogue", "DialogueGenericEclipticANDSoldiers",
+        "DialogueGenericUnique_Combat", "Staryard_TridentLuxury_Dialogue", "DialogueGenericCitizens",
+        "DialogueGenericScum", "DialogueGenericGuards", "DialogueGenericRobotModelA", "DialogueGenericStarborn",
+        "DialogueGenericRobotModelS", "DialogueGenericUnique_Crime", "LC082_SuspiciousActors",
+        "DialogueStarstations" };
+    public static readonly string[] HoldActivities = { "MQ207C_AlwaysOn", "Trait_RaisedEnlightenedBoxEnabler",
+        "Traits_Shared", "MQ207C_Support_Fix01", "Trait_RaisedUniversalBoxEnabler", "MQ206B_AlwaysOn", "SQ_Doctors",
+        "AspirationalItems", "MS04", "Patch_Hotfix", "Patch_Update03_FixFollower", "StarbornTempleQuest",
+        "SkillMag_CyberRunner_Handler", "SQ_PEO_SustenanceDialogue", "Patch_Update05", "SQ_Hoteliers" };
+    public static readonly string[] DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction)
+        .Concat(HoldGenericDialogue).Concat(HoldActivities).ToArray();
     // The O2/CO2 dial (S13 row 2b): with no suit the player's 0002E2 (the pack's O2 capacity, an engine value with no
     // record) is 0, Oxygen reads 0 and the dial is red; 0002E2 +100 by ModValue or console modav clears it (PC, 15 Nov,
     // verified at 8c655d22 and f96cd32f; the script resolves the id as an ActorValue). So with the reset the quest adds
@@ -1155,6 +1175,55 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37C5AB), rel) { EditorID = "City_AC_FAB_Quest15" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x37C5AC), rel) { EditorID = "City_AC_FAB_Quest17" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x38430B), rel) { EditorID = "City_AC_FAB_Quest19" });
+        // S13 row 5's fourth group (generic dialogue, then activities), at their real ids
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x01E3F9), rel) { EditorID = "DialogueCrowds" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x184511), rel) { EditorID = "DialgoueSSNNScenes" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x19651F), rel) { EditorID = "CR_Dialogue_Turret" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x19D592), rel) { EditorID = "DialogueTerrormorphThrallHuman" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1A2D27), rel) { EditorID = "DialogueGeneric_LISTOutpost" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1BA198), rel) { EditorID = "DialogueGenericSpacers" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1BFCA7), rel) { EditorID = "DialogueGenericUnique_Crime_TheKey" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1F77DA), rel) { EditorID = "DialogueGenericChildren" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x20C577), rel) { EditorID = "CR_Dialogue_Terrormorph_Base" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x20EC59), rel) { EditorID = "DialogueGenericStarborn_Unique" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x211C5E), rel) { EditorID = "CR_Dialogue_QuadrupedB" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x225314), rel) { EditorID = "DialogueMiniBot" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2534D3), rel) { EditorID = "DialogueSettleBartenderRumors" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x269BC0), rel) { EditorID = "DialogueCrimeGuards" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x26D87F), rel) { EditorID = "MQ105_AlwaysOnDialogueNeon" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2711B4), rel) { EditorID = "DialogueGenericVendor_Chunks" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2711B5), rel) { EditorID = "DialogueGenericVendor_Terrabrew" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x27A4EF), rel) { EditorID = "Staryard_StroudEklund_Dialogue" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x27A4F0), rel) { EditorID = "Staryard_Taiyo_Dialogue" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x27A4F1), rel) { EditorID = "Staryard_Deimos_Dialogue" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2959DE), rel) { EditorID = "DialogueGenericEclipticANDSoldiers" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2963AD), rel) { EditorID = "DialogueGenericUnique_Combat" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2B2112), rel) { EditorID = "Staryard_TridentLuxury_Dialogue" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2BCA5A), rel) { EditorID = "DialogueGenericCitizens" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2BCA5C), rel) { EditorID = "DialogueGenericScum" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2BCA5E), rel) { EditorID = "DialogueGenericGuards" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2BCA62), rel) { EditorID = "DialogueGenericRobotModelA" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2BCA63), rel) { EditorID = "DialogueGenericStarborn" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2BCA64), rel) { EditorID = "DialogueGenericRobotModelS" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2C1733), rel) { EditorID = "DialogueGenericUnique_Crime" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x30D5FB), rel) { EditorID = "LC082_SuspiciousActors" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x3272C8), rel) { EditorID = "DialogueStarstations" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0032F6), rel) { EditorID = "MQ207C_AlwaysOn" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x00637D), rel) { EditorID = "Trait_RaisedEnlightenedBoxEnabler" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0078DF), rel) { EditorID = "Traits_Shared" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x03DBA8), rel) { EditorID = "MQ207C_Support_Fix01" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x0664E3), rel) { EditorID = "Trait_RaisedUniversalBoxEnabler" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1736F9), rel) { EditorID = "MQ206B_AlwaysOn" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x189658), rel) { EditorID = "SQ_Doctors" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1991B3), rel) { EditorID = "AspirationalItems" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1CD001), rel) { EditorID = "MS04" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2058DE), rel) { EditorID = "Patch_Hotfix" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x20D397), rel) { EditorID = "Patch_Update03_FixFollower" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x214707), rel) { EditorID = "StarbornTempleQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2A78ED), rel) { EditorID = "SkillMag_CyberRunner_Handler" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2EF25C), rel) { EditorID = "SQ_PEO_SustenanceDialogue" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x2F0912), rel) { EditorID = "Patch_Update05" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x32AF5F), rel) { EditorID = "SQ_Hoteliers" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
         startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
@@ -1251,7 +1320,7 @@ static class NewGame
         var plain = Options.From(Array.Empty<string>());
         if (plain.MQ101Debug is not null || plain.DebugAfterHold != DefaultDebugAfterHold || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
         // S13 row 2b: Starfield's environment quest is held off by default, and the reset brings the O2 capacity
-        if (!DefaultHold.SequenceEqual(HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction)) || DefaultHold.Distinct().Count() != DefaultHold.Length) { Console.WriteLine("FAIL  the hold list"); return 1; }
+        if (!DefaultHold.SequenceEqual(HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).Concat(HoldGenericDialogue).Concat(HoldActivities)) || DefaultHold.Distinct().Count() != DefaultHold.Length) { Console.WriteLine("FAIL  the hold list"); return 1; }
         if (!DefaultHold.Contains("SQ_ENV") || !DefaultO2Fill || !plain.O2 || Options.From(new[] { "--no-o2-fill" }).O2 ||
             Options.From(new[] { "--keep-inventory" }).O2) { Console.WriteLine("FAIL  the environment options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8 ||
@@ -1297,6 +1366,8 @@ static class NewGame
             ("nocompanions", idsPath, plain with { Hold = HoldCore }),
             ("noaudio", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).ToArray() }),
             ("nocity", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray() }),
+            ("nodialogue", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray() }),
+            ("noactivities", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).Concat(HoldGenericDialogue).ToArray() }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -1346,6 +1417,10 @@ static class NewGame
             ("default", plain with { Hold = HoldCore.Concat(HoldCompanions).ToArray() }, idsPath, "the default hold list as one without the audio-log and tutorial group"),
             ("nocity", plain, idsPath, "a hold list without the city and faction group as the default one"),
             ("default", plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray() }, idsPath, "the default hold list as one without the city and faction group"),
+            ("nodialogue", plain, idsPath, "a hold list without the generic dialogue and activities group as the default one"),
+            ("default", plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray() }, idsPath, "the default hold list as one without the generic dialogue and activities group"),
+            ("noactivities", plain, idsPath, "a hold list without the activities as the default one"),
+            ("default", plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).Concat(HoldGenericDialogue).ToArray() }, idsPath, "the default hold list as one without the activities"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -1377,6 +1452,8 @@ static class NewGame
             ("the DebugAfterHold property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "DebugAfterHold")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
+            ("the hold list lost DialogueCrowds", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + HoldCompanions.Length + HoldAudioTutorials.Length + HoldCityFaction.Length + Array.IndexOf(HoldGenericDialogue, "DialogueCrowds"))),
+            ("the hold list lost SQ_Doctors", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + HoldCompanions.Length + HoldAudioTutorials.Length + HoldCityFaction.Length + HoldGenericDialogue.Length + Array.IndexOf(HoldActivities, "SQ_Doctors"))),
             ("the hold list lost DialogueCydonia", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + HoldCompanions.Length + HoldAudioTutorials.Length + Array.IndexOf(HoldCityFaction, "DialogueCydonia"))),
             ("the hold list lost OutpostTutorial", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + HoldCompanions.Length + Array.IndexOf(HoldAudioTutorials, "OutpostTutorial"))),
             ("the hold list lost SQ_Companions", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(HoldCore.Length + Array.IndexOf(HoldCompanions, "SQ_Companions"))),

@@ -481,8 +481,45 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   3,072-byte doc-comment limit (tests/test_papyrus_strings.py).
 - **How, the way back:** the same hold-off; `--hold` without them. The writer refuses a Starfield.esm without one of
   them, so the PC stage catches a wrong EditorID.
-- **Unverified until the PC run:** that all 80 stop and stay stopped, and that nothing "breaks" (section 4f). Dialogue
-  matters most here: the PC run talks to an NPC.
+- **Verified in game at `7636fa80` (PC run, 16 Nov, FAL-883 comment 46871658; PR #800):** the plan held 117 quests
+  (5 + 18 + 14 + 80); pass 1 stopped none and pass 2 stopped 114 of 117, none still running after; the other three
+  (MQ101, MQ101PostQuest, MQ_TutorialQuest_Misc04) were not running. All 80 read 0 at stage 20 and again at stage 200
+  plus about 3 minutes; `SQ_Followers` 00D773 and `DialogueGeneric` 010B4B still ran (1) and `AudioLogsQuest` 012996
+  stayed stopped (0). Stage 200 was reached, with no crash.
+- **One new Papyrus error kind, accepted as harmless:** `Cannot clear a None array`, three times, from
+  `UC02_PerrysMeatsSupportQuest` 2B180A's collection aliases in `DefaultCollectionAliasParent.OnAliasShutdown`, only at
+  the hold-off. The quest is stopped right after the game starts it, so its empty collection aliases shut down before
+  their arrays exist; nothing else reads them and nothing followed. The quest stays in the group.
+- **Dialogue, not conclusive:** the run's NPC was our converted Codsworth, who has no talk prompt on main either, so it
+  did not test Starfield dialogue. Section 4h's run talks to a Starfield citizen instead.
+
+## 4h. Starfield's generic dialogue and its activities held off (S13 row 5, the fourth group)
+
+- **Why:** the owner's direction (section 4f), in the order of Gemini's ranked batches for the 175 quests left after the
+  second group (FAL-883 comment 1b484947): the city and faction dialogue batches first (the third group took 72 of
+  their 104), then the activities and misc batches (the third group took 7 of their 23).
+- **What:** two writer lists join the default hold list after the city and faction group. All 48 are running quests of
+  `result-pc-read-s13-5-partb`, at the ids the PC read:
+  - `HoldGenericDialogue` (`HOLD_GENERIC_DIALOGUE` in make_newgame.py), the other 32 dialogue quests: the generic,
+    crowd, child, creature, robot, Starborn, Ecliptic, spacer, crime and guard dialogue, the vendor and bartender
+    dialogue, the four staryards, `DialogueStarstations`, `DialgoueSSNNScenes` (Starfield's own spelling),
+    `LC082_SuspiciousActors` and `MQ105_AlwaysOnDialogueNeon`. With their ids: `DialogueCrowds` 01E3F9, `DialgoueSSNNScenes` 184511, `CR_Dialogue_Turret` 19651F, `DialogueTerrormorphThrallHuman` 19D592, `DialogueGeneric_LISTOutpost` 1A2D27, `DialogueGenericSpacers` 1BA198, `DialogueGenericUnique_Crime_TheKey` 1BFCA7, `DialogueGenericChildren` 1F77DA, `CR_Dialogue_Terrormorph_Base` 20C577, `DialogueGenericStarborn_Unique` 20EC59, `CR_Dialogue_QuadrupedB` 211C5E, `DialogueMiniBot` 225314, `DialogueSettleBartenderRumors` 2534D3, `DialogueCrimeGuards` 269BC0, `MQ105_AlwaysOnDialogueNeon` 26D87F, `DialogueGenericVendor_Chunks` 2711B4, `DialogueGenericVendor_Terrabrew` 2711B5, `Staryard_StroudEklund_Dialogue` 27A4EF, `Staryard_Taiyo_Dialogue` 27A4F0, `Staryard_Deimos_Dialogue` 27A4F1, `DialogueGenericEclipticANDSoldiers` 2959DE, `DialogueGenericUnique_Combat` 2963AD, `Staryard_TridentLuxury_Dialogue` 2B2112, `DialogueGenericCitizens` 2BCA5A, `DialogueGenericScum` 2BCA5C, `DialogueGenericGuards` 2BCA5E, `DialogueGenericRobotModelA` 2BCA62, `DialogueGenericStarborn` 2BCA63, `DialogueGenericRobotModelS` 2BCA64, `DialogueGenericUnique_Crime` 2C1733, `LC082_SuspiciousActors` 30D5FB, `DialogueStarstations` 3272C8.
+  - `HoldActivities` (`HOLD_ACTIVITIES`), the other 16 activities and misc quests: the main-quest always-on leftovers,
+    the trait boxes, Starfield's hotfix quests that still run, the doctor and inn services and the rest. With their
+    ids: `MQ207C_AlwaysOn` 0032F6, `Trait_RaisedEnlightenedBoxEnabler` 00637D, `Traits_Shared` 0078DF, `MQ207C_Support_Fix01` 03DBA8, `Trait_RaisedUniversalBoxEnabler` 0664E3, `MQ206B_AlwaysOn` 1736F9, `SQ_Doctors` 189658, `AspirationalItems` 1991B3, `MS04` 1CD001, `Patch_Hotfix` 2058DE, `Patch_Update03_FixFollower` 20D397, `StarbornTempleQuest` 214707, `SkillMag_CyberRunner_Handler` 2A78ED, `SQ_PEO_SustenanceDialogue` 2EF25C, `Patch_Update05` 2F0912, `SQ_Hoteliers` 32AF5F.
+- **Not in it:** Gemini's radiant (9 left), ship (21) and system (4) batches, for later groups; the five the Warfare
+  boundary keeps running (`SQ_Followers`, `SQ_Groups`, `SQ_COM_CREW_AngerCombatOverride`, `SQ_Captive`, `SQ_Airlock`);
+  and the seven never to stop (`SQ_PlayerShip`, `SQ_Parent`, `PlayerSkills`, `DialogueGenericPlayer`,
+  `DialogueGeneric`, `SpeechChallenge`, `Achievements_Quest`). After this group, 46 of the 207 still run.
+- **The boundary (section 4e):** none is follower, crew or group runtime plumbing. Two names come close, by Gemini's
+  read: `Patch_Update03_FixFollower` is a hotfix for one story quest, and `SQ_PEO_SustenanceDialogue` is follower voice
+  lines with no script. `SQ_Followers` keeps running.
+- **What else stops, by Gemini's read (not checked here):** Starfield's crowd, combat and crime barks for its own voice
+  types, guard fines and arrests (`DialogueCrimeGuards`' arrest scene is its only player-controls use), and the doctor
+  and inn services. `DialogueGeneric`, the fallback barks, stays running.
+- **How, the way back:** the same hold-off; `--hold` without one or both lists. The selftest builds both
+  (`nodialogue`, `noactivities`) and cross-checks them, so a break can be narrowed to one list.
+- **Unverified until the PC run:** that all 48 stop and stay stopped, and that nothing "breaks" (section 4f).
 
 ## 5. What Vault 111 needs from the port today
 
@@ -514,7 +551,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
-   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`, the companion group, section 4e, and the audio-log and tutorial group, section 4f, and the city and faction group, section 4g), `--debug-after-hold <n>`
+   Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04,SQ_ENV`, the companion group, section 4e, and the audio-log and tutorial group, section 4f, the city and faction group, section 4g, and the generic dialogue and activities group, section 4h), `--debug-after-hold <n>`
    (default 2, the value the quest writes after the hold-off; 0 writes nothing), `--mq101debug <n>` (a GLOB override,
    none by default, experiments only: a value no MQ101 entry matches hangs the first load, section 11;
    `--no-mq101debug` is kept for old command lines: alone it changes nothing, but it still cancels a `--mq101debug`

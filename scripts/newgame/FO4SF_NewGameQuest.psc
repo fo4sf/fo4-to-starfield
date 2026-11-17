@@ -81,8 +81,8 @@ int Property DebugAfterHold = 2 Auto Const
 Quest[] Property HoldOff Auto Const Mandatory
 {Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
  MQ_TutorialQuest_Misc04: the main-quest start, the opening, and the two its stop starts; SQ_ENV, S13 row 2b; then
- S13 row 5's groups, the writer's HoldCompanions, HoldAudioTutorials and HoldCityFaction lists, named with their ids
- in docs/newgame/vault111-start.md sections 4e to 4g). Walked twice: in the start,
+ S13 row 5's groups, the writer's HoldCompanions, HoldAudioTutorials, HoldCityFaction, HoldGenericDialogue and
+ HoldActivities lists, named with their ids in docs/newgame/vault111-start.md sections 4e to 4h). Walked twice: in the start,
  right after the move, and again once the vault has loaded, for a quest that started meanwhile (MQ00 is start-game
  enabled, and whether it starts before our start is unverified) and for what MQ101's stage 9000 starts if something had
  started MQ101. Each is stopped only if it runs; each stop is logged with its pass.}
