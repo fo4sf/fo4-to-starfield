@@ -74,6 +74,10 @@ DROPPED_SLICE_ESMS = frozenset({
     "fo4sfpowerarmor.esm",
     "fo4sfprogression.esm",
     "fo4sflistdialogue.esm",
+    "fo4sfcombat.esm",
+    "fo4sfreputation.esm",
+    "fo4sfcompanions.esm",
+    "fo4sfalife.esm",
     "fo4sfforthagen.esm",
     "fo4sfcorecandidate.esm",
     "fo4sfpipboyprobe.esm",
@@ -91,6 +95,11 @@ DROPPED_SLICE_PEX = frozenset({
     "data/scripts/fo4sf_powerarmorcorequest.pex",
     "data/scripts/fo4sf_progressionquest.pex",
     "data/scripts/fo4sf_listdialoguequest.pex",
+    "data/scripts/fo4sf_combatquest.pex",
+    "data/scripts/fo4sf_combatinput.pex",
+    "data/scripts/fo4sf_reputationquest.pex",
+    "data/scripts/fo4sf_companionsquest.pex",
+    "data/scripts/fo4sf_alifecontrollerquest.pex",
     "data/scripts/fo4sf_forthagenquest.pex",
     "data/scripts/fo4sf_corecandidatewalk.pex",
     "data/scripts/fo4sf_pipboytravel.pex",
@@ -106,6 +115,10 @@ ORDERED_COMPONENT_KEYS = (
     "powerarmor",
     "progression",
     "list_dialogue",
+    "combat",
+    "reputation",
+    "companions",
+    "alife",
     "fort_hagen",
     "candidate_walk",
     "pipboy",
@@ -614,6 +627,8 @@ def stage_from_checkout(a) -> Dict[str, str]:
         ("powerarmor", "07-powerarmor", "scripts/powerarmor/make_power_armor_core.py"),
         ("progression", "08-progression", "scripts/progression/make_progression.py"),
         ("list_dialogue", "09-list-dialogue", "scripts/dialogue/make_list_dialogue.py"),
+        ("reputation", "11-reputation", "scripts/reputation/make_reputation_core.py"),
+        ("companions", "12-companions", "scripts/companions/make_companions_core.py"),
     ]
     for key, folder, rel_script in slice_specs:
         sdir = os.path.join(work, folder)
@@ -627,9 +642,33 @@ def stage_from_checkout(a) -> Dict[str, str]:
             ])
         stages[key] = sdir
 
+    combat_dir = os.path.join(work, "10-combat")
+    if not os.path.exists(combat_dir):
+        combat_args = ["stage", "--out", combat_dir, "--starfield-dir", sf_dir]
+        if getattr(a, "combat_sfse_build", None):
+            combat_args.extend(["--sfse-build", os.path.abspath(a.combat_sfse_build)])
+        _run_py(py_main, "scripts/combat/make_combat_core.py", combat_args)
+    stages["combat"] = combat_dir
+
+    alife_script = os.path.join(REPO, "scripts", "alife", "make_alife.py")
+    raider_esm = os.path.join(os.path.abspath(a.owner_set), "FO4ActorRaider.esm")
+    if not getattr(a, "no_alife", False) and os.path.isfile(alife_script) and os.path.isfile(raider_esm):
+        alife_dir = os.path.join(work, "13-alife")
+        if not os.path.exists(alife_dir):
+            _run_py(py_main, "scripts/alife/make_alife.py", [
+                "stage",
+                "--out", alife_dir,
+                "--starfield", sf_esm,
+                "--core", core_esm,
+                "--raider", raider_esm,
+                "--compiler", compiler,
+                "--content-resources", cr_zip,
+            ])
+        stages["alife"] = alife_dir
+
     fh_script = os.path.join(REPO, "scripts", "fort_hagen", "make_fort_hagen.py")
     if not getattr(a, "no_fort_hagen", False) and os.path.isfile(fh_script):
-        fh_dir = os.path.join(work, "10-fort-hagen")
+        fh_dir = os.path.join(work, "14-fort-hagen")
         if not os.path.exists(fh_dir):
             _run_py(py_main, "scripts/fort_hagen/make_fort_hagen.py", [
                 "stage",
@@ -643,7 +682,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
         stages["fort_hagen"] = fh_dir
 
     if not getattr(a, "no_walk_harness", False):
-        cw_dir = os.path.join(work, "11-candidate-walk")
+        cw_dir = os.path.join(work, "15-candidate-walk")
         if not os.path.exists(cw_dir):
             stage_candidate_walk(cw_dir, sf_esm, compiler, cr_zip)
         stages["candidate_walk"] = cw_dir
@@ -709,8 +748,28 @@ def fold_bundle(
                 with open(ng_plan_p, encoding="utf-8") as f:
                     ng_plan_obj = json.load(f)
 
-        # Optional SFSE sidecar handling for --with-pipboy (kept outside Data/ so Archive2 never packs DLLs into BA2)
-        if key == "pipboy":
+        # Optional SFSE sidecar handling (kept outside Data/ so Archive2 never packs DLLs/INIs into BA2)
+        if key == "combat":
+            combat_sc = os.path.join(st_dir, "sfse_sidecar")
+            if os.path.isdir(combat_sc):
+                for fn in sorted(os.listdir(combat_sc)):
+                    sfile = os.path.join(combat_sc, fn)
+                    if os.path.isfile(sfile):
+                        rel_sc = f"SFSE/Plugins/{fn}"
+                        dst_sc = os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", fn)
+                        os.makedirs(os.path.dirname(dst_sc), exist_ok=True)
+                        shutil.copy2(sfile, dst_sc)
+                        sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
+        elif key == "reputation":
+            for fn in ("FO4SFPipboyMenu.reputation.ini", "FO4SFPipboyReputation.json", "FO4SFPipboyReputation.tsv"):
+                sfile = os.path.join(st_dir, fn)
+                if os.path.isfile(sfile):
+                    rel_sc = f"reputation/{fn}"
+                    dst_sc = os.path.join(partial, "sfse_sidecar", "reputation", fn)
+                    os.makedirs(os.path.dirname(dst_sc), exist_ok=True)
+                    shutil.copy2(sfile, dst_sc)
+                    sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
+        elif key == "pipboy":
             sfse_plugins_src = os.path.join(st_dir, "SFSE", "Plugins")
             sidecar_src = os.path.join(st_dir, "sfse")
             if os.path.isdir(sfse_plugins_src):
@@ -847,23 +906,29 @@ def cmd_fold(a, system=None) -> int:
     ensure_game_closed(system)
     root = os.path.abspath(a.stages_root)
     mapping = {
-        "cog_door": "01-cog-door",
-        "exit_lift": "02-exit-lift",
-        "newgame": "03-newgame",
-        "rads": "04-rads",
-        "hardcore": "05-hardcore",
-        "workshop": "06-workshop",
-        "powerarmor": "07-powerarmor",
-        "progression": "08-progression",
-        "list_dialogue": "09-list-dialogue",
-        "fort_hagen": "10-fort-hagen",
-        "candidate_walk": "11-candidate-walk",
+        "cog_door": ("01-cog-door",),
+        "exit_lift": ("02-exit-lift",),
+        "newgame": ("03-newgame",),
+        "rads": ("04-rads",),
+        "hardcore": ("05-hardcore",),
+        "workshop": ("06-workshop",),
+        "powerarmor": ("07-powerarmor",),
+        "progression": ("08-progression",),
+        "list_dialogue": ("09-list-dialogue",),
+        "combat": ("10-combat",),
+        "reputation": ("11-reputation",),
+        "companions": ("12-companions",),
+        "alife": ("13-alife",),
+        "fort_hagen": ("14-fort-hagen", "10-fort-hagen"),
+        "candidate_walk": ("15-candidate-walk", "11-candidate-walk"),
     }
     stages: Dict[str, str] = {}
-    for k, sub in mapping.items():
-        cand = os.path.join(root, sub)
-        if os.path.isdir(cand):
-            stages[k] = cand
+    for k, subs in mapping.items():
+        for sub in subs:
+            cand = os.path.join(root, sub)
+            if os.path.isdir(cand):
+                stages[k] = cand
+                break
     if a.with_pipboy:
         if not a.pipboy_stage:
             raise BundleRefused("--with-pipboy requires --pipboy-stage <dir>")
@@ -937,6 +1002,8 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--collision-template", required=True)
     b.add_argument("--texconv", required=True)
     b.add_argument("--render-python", default=None)
+    b.add_argument("--combat-sfse-build", default=None)
+    b.add_argument("--no-alife", action="store_true")
     b.add_argument("--no-fort-hagen", action="store_true")
     b.add_argument("--no-walk-harness", action="store_true")
     b.add_argument("--with-pipboy", action="store_true")

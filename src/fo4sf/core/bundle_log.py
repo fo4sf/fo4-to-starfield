@@ -1,6 +1,6 @@
-"""Structured step-by-step log evaluator for the Core Candidate 30-minute walk (docs/testing/core-candidate-pc-card.md).
+"""Structured step-by-step log evaluator for the Core Candidate walk (docs/testing/core-candidate-pc-card.md).
 
-Evaluates each of the 8 walk steps independently so a failure in one step never blocks reading the remaining steps:
+Evaluates each of the 11 walk steps independently so a failure in one step never blocks reading the remaining steps:
   1. exit        - pod walk-out, gear door, carrying lift, Commonwealth surface landing (fo4sf_newgame.0.log)
   2. hold        - hold-off pass 1 + pass 2 stopping 195 of 199 DefaultHold quests (fo4sf_newgame.0.log)
   3. rads        - radiation exposure (> 0 rads) and RadAway cure reduction (FO4SFRadsCore.0.log)
@@ -9,6 +9,9 @@ Evaluates each of the 8 walk steps independently so a failure in one step never 
   6. powerarmor  - climb-in frame entry, FusionCore charge/drain, and frame exit outfit restore (FO4SFPACore.0.log)
   7. dialogue    - silent-player list dialogue with [Speech 50] / tag check stage transition (FO4SFListDialogue.0.log)
   8. progression - creation flow applying 1 Background, 0..2 Traits, and 40-pt SPECIAL (FO4SFCoreCandidate.0.log / FO4SFProgression.0.log)
+  9. combat      - zone hits, high-DT AP vs Standard ammo cycle, leg cripple & cure, and slow-time VATS shot (FO4SFCombat.0.log)
+ 10. reputation  - Very Evil + Idolized orthogonality (Ally + 0.75x buy mult) and Karma/Faction standing (FO4SFReputation.1.log + .0.log)
+ 11. companions  - 4-NPC Warfare fireteam commands, squad cap/upkeep gates, and follower teleportation (FO4SFCompanions.1.log + .0.log)
 """
 from __future__ import annotations
 
@@ -25,6 +28,9 @@ STEP_NAMES = (
     "powerarmor",
     "dialogue",
     "progression",
+    "combat",
+    "reputation",
+    "companions",
 )
 
 EXPECTED_HOLD_STOPPED = 195
@@ -170,8 +176,55 @@ def eval_progression(candidate_lines: Iterable[str], prog_lines: Iterable[str]) 
     return {"step": "progression", "ok": prog_ok, "detail": f"source=progression_quest ok={prog_ok}"}
 
 
+def eval_combat(lines: Iterable[str]) -> dict:
+    raw = list(lines)
+    if not raw:
+        return {"step": "combat", "ok": False, "detail": "no FO4SFCombat log lines found"}
+    text = "\n".join(raw)
+    zones = set(re.findall(r"step=zone_hit\s+zone=([a-z_]+)", text))
+    zones_ok = {"head", "torso", "left_arm", "right_arm", "left_leg", "right_leg"}.issubset(zones)
+    dt_hits = {m.group(1).lower(): float(m.group(2)) for m in re.finditer(r"step=high_dt_hit\s+subtype=(\S+)[^\n]*\bdamage=([0-9.]+)", text)}
+    ammo_ok = ("ap" in dt_hits and "standard" in dt_hits and dt_hits["ap"] > dt_hits["standard"])
+    cripple_ok = bool(re.search(r"step=limb_crippled\s+zone=(?:left_leg|right_leg)", text)) and bool(
+        re.search(r"step=limb_cure\s+item=\S+\s+hardcore=[01]\s+cured=1", text)
+    )
+    vats_ok = bool(re.search(r"step=vats_shot\s+slow_time=1", text))
+    ok = zones_ok and ammo_ok and cripple_ok and vats_ok
+    return {
+        "step": "combat",
+        "ok": ok,
+        "detail": f"zones={len(zones)}/6 ammo_dt={ammo_ok} cripple_cure={cripple_ok} vats={vats_ok}",
+    }
+
+
+def eval_reputation(lines: Iterable[str]) -> dict:
+    raw = list(lines)
+    if not raw:
+        return {"step": "reputation", "ok": False, "detail": "no FO4SFReputation log lines found"}
+    text = "\n".join(raw)
+    ortho_ok = bool(
+        re.search(r"(orthogonality[^\n]*ok=true|karma=-(?:7[5-9]\d|[89]\d\d|1000)[^\n]*state=3)", text, re.I)
+        or (re.search(r"karma=-(?:7[5-9]\d|[89]\d\d|1000)", text, re.I) and re.search(r"(state=3\b|idolized)", text, re.I))
+    )
+    reload_ok = bool(re.search(r"(reload_audit[^\n]*ok=true|when=reload)", text, re.I))
+    ok = ortho_ok and reload_ok
+    return {"step": "reputation", "ok": ok, "detail": f"evil_idolized_orthogonality={ortho_ok} reload_persisted={reload_ok}"}
+
+
+def eval_companions(lines: Iterable[str]) -> dict:
+    raw = list(lines)
+    if not raw:
+        return {"step": "companions", "ok": False, "detail": "no FO4SFCompanions log lines found"}
+    text = "\n".join(raw)
+    fireteam_ok = bool(re.search(r"(active=4\b|slot=3\b|fireteam_cmd|fireteam_4npc)", text, re.I))
+    teleport_ok = bool(re.search(r"(load_door_cell_change|vault_lift_or_interior_exit|pipboy_fast_travel|teleport)", text, re.I))
+    reload_ok = bool(re.search(r"(reload_audit|when=reload)", text, re.I))
+    ok = fireteam_ok and teleport_ok and reload_ok
+    return {"step": "companions", "ok": ok, "detail": f"fireteam_4npc={fireteam_ok} teleport={teleport_ok} reload_persisted={reload_ok}"}
+
+
 def evaluate_walk_logs(log_dir: str, newgame_summarizer) -> Dict[str, dict]:
-    """Evaluate all 8 walk steps from Starfield's Logs/Script/User folder."""
+    """Evaluate all 11 walk steps from Starfield's Logs/Script/User folder."""
     ng_lines = _read_stitched(log_dir, "fo4sf_newgame")
     ng_sum = newgame_summarizer(ng_lines)
     step_exit, step_hold = eval_exit_and_hold(ng_sum)
@@ -188,5 +241,8 @@ def evaluate_walk_logs(log_dir: str, newgame_summarizer) -> Dict[str, dict]:
             _read_stitched(log_dir, "FO4SFCoreCandidate"),
             _read_stitched(log_dir, "FO4SFProgression"),
         ),
+        "combat": eval_combat(_read_stitched(log_dir, "FO4SFCombat")),
+        "reputation": eval_reputation(_read_stitched(log_dir, "FO4SFReputation")),
+        "companions": eval_companions(_read_stitched(log_dir, "FO4SFCompanions")),
     }
     return results

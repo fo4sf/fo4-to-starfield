@@ -17,6 +17,9 @@ string WorkshopPlugin = "FO4SFWorkshop.esm"
 string PaPlugin = "FO4SFPowerArmor.esm"
 string ListDlgPlugin = "FO4SFListDialogue.esm"
 string ProgPlugin = "FO4SFProgression.esm"
+string CombatPlugin = "FO4SFCombat.esm"
+string RepPlugin = "FO4SFReputation.esm"
+string CompPlugin = "FO4SFCompanions.esm"
 string StarfieldPlugin = "Starfield.esm"
 
 int OwnKioskActiId = 0x801
@@ -218,6 +221,13 @@ Function StageFieldLine(string triggerReason)
     GiveIfPresent(p, OwnPlugin, OwnChargenTokenId, 1)
     GiveIfPresent(p, OwnPlugin, OwnSpeechTokenId, 1)
 
+    GiveIfPresent(p, CombatPlugin, 0x811, 4) ; FO4SF_DoctorsBag
+    GiveIfPresent(p, CombatPlugin, 0x813, 4) ; FO4SF_CombatStimpak
+    GiveIfPresent(p, CombatPlugin, 0x816, 1) ; FO4SF_VatsTriggerToken
+    GiveIfPresent(p, CombatPlugin, 0x817, 1) ; FO4SF_AmmoCycleToken
+
+    GiveIfPresent(p, CompPlugin, 0x820, 1)   ; FO4SF_SquadRadioToken
+
     ; 2. Station A (12 m ahead): Radiation Emitter Zone
     bool radsPlaced = false
     if Game.IsPluginInstalled(RadsPlugin)
@@ -272,8 +282,122 @@ Function StageFieldLine(string triggerReason)
         endif
     endif
 
-    Trace("field_line_staged reason=" + triggerReason + " rads_zone=" + radsPlaced + " pa_frame=" + paPlaced + " list_speaker=" + dlgPlaced + " chargen_kiosk=" + kioskPlaced)
-    Debug.Notification("FO4SF Core Walk ready ahead: Rads (12m), PA (28m), Dialogue (34m), Chargen (38m).")
+    ; 6. Station E (44 m ahead): Combat Core Firing Range (6-Zone Silhouette, DT=18 Target, VATS, Pedestals)
+    bool combatPlaced = false
+    if Game.IsPluginInstalled(CombatPlugin)
+        ObjectReference zHead = Game.GetFormFromFile(0x860, CombatPlugin) as ObjectReference
+        ObjectReference zTorso = Game.GetFormFromFile(0x861, CombatPlugin) as ObjectReference
+        ObjectReference zLArm = Game.GetFormFromFile(0x862, CombatPlugin) as ObjectReference
+        ObjectReference zRArm = Game.GetFormFromFile(0x863, CombatPlugin) as ObjectReference
+        ObjectReference zLLeg = Game.GetFormFromFile(0x864, CombatPlugin) as ObjectReference
+        ObjectReference zRLeg = Game.GetFormFromFile(0x865, CombatPlugin) as ObjectReference
+        ObjectReference armTgt = Game.GetFormFromFile(0x866, CombatPlugin) as ObjectReference
+        ObjectReference vatsTgt = Game.GetFormFromFile(0x867, CombatPlugin) as ObjectReference
+        ObjectReference ammoPed = Game.GetFormFromFile(0x868, CombatPlugin) as ObjectReference
+        ObjectReference legTrap = Game.GetFormFromFile(0x869, CombatPlugin) as ObjectReference
+        ObjectReference hcSw = Game.GetFormFromFile(0x86A, CombatPlugin) as ObjectReference
+        ObjectReference supRack = Game.GetFormFromFile(0x86B, CombatPlugin) as ObjectReference
+        if zHead != None
+            zHead.MoveTo(p, (fwdX * 44.0) - (rightX * 2.5), (fwdY * 44.0) - (rightY * 2.5), 1.85, true)
+            zHead.EnableNoWait()
+            combatPlaced = true
+        endif
+        if zTorso != None
+            zTorso.MoveTo(p, (fwdX * 44.0) - (rightX * 2.5), (fwdY * 44.0) - (rightY * 2.5), 1.15, true)
+            zTorso.EnableNoWait()
+        endif
+        if zLArm != None
+            zLArm.MoveTo(p, (fwdX * 44.0) - (rightX * 3.2), (fwdY * 44.0) - (rightY * 3.2), 1.25, true)
+            zLArm.EnableNoWait()
+        endif
+        if zRArm != None
+            zRArm.MoveTo(p, (fwdX * 44.0) - (rightX * 1.8), (fwdY * 44.0) - (rightY * 1.8), 1.25, true)
+            zRArm.EnableNoWait()
+        endif
+        if zLLeg != None
+            zLLeg.MoveTo(p, (fwdX * 44.0) - (rightX * 2.85), (fwdY * 44.0) - (rightY * 2.85), 0.45, true)
+            zLLeg.EnableNoWait()
+        endif
+        if zRLeg != None
+            zRLeg.MoveTo(p, (fwdX * 44.0) - (rightX * 2.15), (fwdY * 44.0) - (rightY * 2.15), 0.45, true)
+            zRLeg.EnableNoWait()
+        endif
+        if armTgt != None
+            armTgt.MoveTo(p, fwdX * 44.0, fwdY * 44.0, 1.0, true)
+            armTgt.EnableNoWait()
+        endif
+        if vatsTgt != None
+            vatsTgt.MoveTo(p, (fwdX * 44.0) + (rightX * 2.5), (fwdY * 44.0) + (rightY * 2.5), 1.0, true)
+            vatsTgt.EnableNoWait()
+        endif
+        if supRack != None
+            supRack.MoveTo(p, (fwdX * 41.0) - (rightX * 2.0), (fwdY * 41.0) - (rightY * 2.0), 0.0, true)
+            supRack.EnableNoWait()
+        endif
+        if ammoPed != None
+            ammoPed.MoveTo(p, fwdX * 41.0, fwdY * 41.0, 0.0, true)
+            ammoPed.EnableNoWait()
+        endif
+        if legTrap != None
+            legTrap.MoveTo(p, (fwdX * 41.0) + (rightX * 1.8), (fwdY * 41.0) + (rightY * 1.8), 0.0, true)
+            legTrap.EnableNoWait()
+        endif
+        if hcSw != None
+            hcSw.MoveTo(p, (fwdX * 41.0) + (rightX * 3.0), (fwdY * 41.0) + (rightY * 3.0), 0.0, true)
+            hcSw.EnableNoWait()
+        endif
+    endif
+
+    ; 7. Station F (50 m ahead): Reputation & Karma Vendor + Walk Tokens
+    bool repPlaced = false
+    if Game.IsPluginInstalled(RepPlugin)
+        ActorBase repVendorBase = Game.GetFormFromFile(0x888, RepPlugin) as ActorBase
+        if repVendorBase != None
+            Actor repVendor = p.PlaceActorAtMe(repVendorBase, 1, None, true, false, false)
+            if repVendor != None
+                repVendor.MoveTo(p, fwdX * 50.0, fwdY * 50.0, 0.0, true)
+                repPlaced = true
+            endif
+        endif
+        Form theftTok = Game.GetFormFromFile(0x881, RepPlugin)
+        Form aidTok = Game.GetFormFromFile(0x882, RepPlugin)
+        if theftTok != None
+            ObjectReference t1 = p.PlaceAtMe(theftTok, 3, true, false, false)
+            if t1 != None
+                t1.MoveTo(p, (fwdX * 49.0) - (rightX * 1.0), (fwdY * 49.0) - (rightY * 1.0), 0.2, true)
+            endif
+        endif
+        if aidTok != None
+            ObjectReference a1 = p.PlaceAtMe(aidTok, 1, true, false, false)
+            if a1 != None
+                a1.MoveTo(p, (fwdX * 49.0) + (rightX * 1.0), (fwdY * 49.0) + (rightY * 1.0), 0.2, true)
+            endif
+        endif
+    endif
+
+    ; 8. Station G (56 m ahead): 4-NPC Warfare Fireteam + Story Companion
+    bool compPlaced = false
+    if Game.IsPluginInstalled(CompPlugin)
+        int fi = 0
+        while fi < 4
+            ObjectReference ftRef = Game.GetFormFromFile(0x835 + fi, CompPlugin) as ObjectReference
+            if ftRef != None
+                float lat = ((fi as float) - 1.5) * 1.6
+                ftRef.MoveTo(p, (fwdX * 56.0) + (rightX * lat), (fwdY * 56.0) + (rightY * lat), 0.0, true)
+                ftRef.EnableNoWait()
+                compPlaced = true
+            endif
+            fi += 1
+        endwhile
+        ObjectReference storyRef = Game.GetFormFromFile(0x83A, CompPlugin) as ObjectReference
+        if storyRef != None
+            storyRef.MoveTo(p, (fwdX * 56.0) + (rightX * 4.0), (fwdY * 56.0) + (rightY * 4.0), 0.0, true)
+            storyRef.EnableNoWait()
+        endif
+    endif
+
+    Trace("field_line_staged reason=" + triggerReason + " rads_zone=" + radsPlaced + " pa_frame=" + paPlaced + " list_speaker=" + dlgPlaced + " chargen_kiosk=" + kioskPlaced + " combat=" + combatPlaced + " rep=" + repPlaced + " comp=" + compPlaced)
+    Debug.Notification("FO4SF Core Walk ready ahead: Rads (12m)..Chargen (38m), Combat (44m), Reputation (50m), Squad (56m).")
 EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)

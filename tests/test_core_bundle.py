@@ -24,6 +24,7 @@ for _p in (
 
 import make_core_bundle as mcb  # noqa: E402
 from fo4sf.core import bundle_log  # noqa: E402
+from fo4sf.core.start_worlds import START_WORLD_TABLE, get_start_world  # noqa: E402
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -132,8 +133,25 @@ class CoreBundleTests(unittest.TestCase):
         add_stage("07-powerarmor", "FO4SFPowerArmor.esm", pex_name="FO4SF_PowerArmorCoreQuest")
         add_stage("08-progression", "FO4SFProgression.esm", pex_name="FO4SF_ProgressionQuest")
         add_stage("09-list-dialogue", "FO4SFListDialogue.esm", pex_name="FO4SF_ListDialogueQuest")
+
+        # 10-combat with FO4SFCombat.dll SFSE sidecar
+        add_stage("10-combat", "FO4SFCombat.esm", pex_name="FO4SF_CombatQuest",
+                  extra_files={"Data/Scripts/FO4SF_CombatInput.pex": b"PEX:FO4SF_CombatInput"})
+        combat_sc = stages_root / "10-combat" / "sfse_sidecar"
+        combat_sc.mkdir(parents=True, exist_ok=True)
+        (combat_sc / "FO4SFCombat.dll").write_bytes(b"MZ_SYNTHETIC_COMBAT_DLL")
+
+        # 11-reputation with Pip-Boy INI/JSON/TSV sidecar manifests
+        add_stage("11-reputation", "FO4SFReputation.esm", pex_name="FO4SF_ReputationQuest")
+        (stages_root / "11-reputation" / "FO4SFPipboyMenu.reputation.ini").write_text("[Page STAT/KARMA]\n", encoding="utf-8")
+
+        # 12-companions & 13-alife
+        add_stage("12-companions", "FO4SFCompanions.esm", pex_name="FO4SF_CompanionsQuest")
+        add_stage("13-alife", "FO4SFALife.esm", pex_name="FO4SF_ALifeControllerQuest",
+                  masters=("Starfield.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"))
+
         # Mirror make_fort_hagen.py's exact stage layout (Data/FO4SFFortHagen.esm + script ending in .pex)
-        fh_st = stages_root / "10-fort-hagen"
+        fh_st = stages_root / "14-fort-hagen"
         (fh_st / "Data" / "Scripts").mkdir(parents=True, exist_ok=True)
         fh_esm_sha = _make_tes4_esm(
             fh_st / "Data" / "FO4SFFortHagen.esm",
@@ -151,7 +169,7 @@ class CoreBundleTests(unittest.TestCase):
             }, indent=1),
             encoding="utf-8",
         )
-        add_stage("11-candidate-walk", "FO4SFCoreCandidate.esm", pex_name="FO4SF_CoreCandidateWalk")
+        add_stage("15-candidate-walk", "FO4SFCoreCandidate.esm", pex_name="FO4SF_CoreCandidateWalk")
 
         return owner, stages_root, port_esm, shared_mat_sha
 
@@ -230,13 +248,15 @@ class CoreBundleTests(unittest.TestCase):
             self.assertIn("--pack", install_lines[0])
 
             bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(bplan["plugins"]), 17)
+            self.assertEqual(len(bplan["plugins"]), 21)
             self.assertEqual(
                 bplan["plugins"][:4],
                 ["FO4ActorRaider.esm", "FO4TerrainCore.esm", "FO4SFMission.esm", "FO4TerrainCore_Mars.esm"],
             )
-            # SFSE DLL kept outside Data/ so Archive2 never packs it into Main.ba2
+            # SFSE DLLs & Reputation manifests kept outside Data/ so Archive2 never packs them into Main.ba2
             self.assertTrue((out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").is_file())
+            self.assertTrue((out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFCombat.dll").is_file())
+            self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyMenu.reputation.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
 
     def test_refuses_differing_core_asset_plugin_limit_and_4gib_archive_limit(self):
@@ -294,10 +314,48 @@ class CoreBundleTests(unittest.TestCase):
                 "FO4SFCANDIDATE rt=50.0 chargen_applied run=1 trigger=kiosk_activate bg=VaultDweller trait1=GoodNatured trait2=SmallFrame traits_count=2 special_sum=40 speech=52 science=52 str=7 end=true\n",
                 encoding="utf-8",
             )
+            (ldir / "FO4SFCombat.0.log").write_text(
+                "\n".join([
+                    "[FO4SF_Combat] PASS step=zone_hit zone=head mult=2.0 applied=48.0 subtype=standard",
+                    "[FO4SF_Combat] PASS step=zone_hit zone=torso mult=1.0 applied=24.0 subtype=standard",
+                    "[FO4SF_Combat] PASS step=zone_hit zone=left_arm mult=0.85 applied=20.4 subtype=standard",
+                    "[FO4SF_Combat] PASS step=zone_hit zone=right_arm mult=0.85 applied=20.4 subtype=standard",
+                    "[FO4SF_Combat] PASS step=zone_hit zone=left_leg mult=0.85 applied=20.4 subtype=standard",
+                    "[FO4SF_Combat] PASS step=zone_hit zone=right_leg mult=0.85 applied=20.4 subtype=standard",
+                    "[FO4SF_Combat] PASS step=high_dt_hit subtype=standard target_dt=18.0 eff_dt=18.0 damage=4.8",
+                    "[FO4SF_Combat] PASS step=high_dt_hit subtype=ap target_dt=18.0 eff_dt=3.0 damage=16.38",
+                    "[FO4SF_Combat] PASS step=limb_crippled zone=left_leg speed_delta=-40.0 sway=0.0",
+                    "[FO4SF_Combat] PASS step=limb_cure item=doctors_bag hardcore=1 cured=1",
+                    "[FO4SF_Combat] PASS step=vats_shot slow_time=1 zone=head ap_cost=32 chance=54 queued=1",
+                ]),
+                encoding="utf-8",
+            )
+            (ldir / "FO4SFReputation.0.log").write_text(
+                "orthogonality karma=-900 state=3 ok=true\nreload_audit when=reload ok=true\n",
+                encoding="utf-8",
+            )
+            (ldir / "FO4SFCompanions.0.log").write_text(
+                "fireteam_cmd active=4\nteleport reason=load_door_cell_change\nreload_audit when=reload\n",
+                encoding="utf-8",
+            )
 
             self.assertEqual(mcb.main(["log", "--log-dir", str(ldir), "--step", "all"]), 0)
             results = bundle_log.evaluate_walk_logs(str(ldir), mcb.make_newgame.summarize)
+            self.assertEqual(len(results), 11)
             self.assertTrue(all(r["ok"] for r in results.values()))
+
+    def test_cf1_start_world_descriptor_table_covers_all_titles_and_faction_starts(self):
+        for required in ("vault111", "vault101", "goodsprings", "vault76", "vault13", "arroyo", "bunkeralpha"):
+            self.assertIn(required, START_WORLD_TABLE)
+        v111 = get_start_world("vault111")
+        self.assertEqual(v111.squad_base_cap, 2)
+        self.assertEqual(v111.initial_karma, 0)
+        bunker = get_start_world("bunkeralpha")
+        self.assertEqual(bunker.squad_base_cap, 4)
+        self.assertIn("Brotherhood", bunker.initial_fame)
+        mm = get_start_world("minuteman_volunteer")
+        self.assertEqual(mm.squad_base_cap, 4)
+        self.assertIn("Minutemen", mm.initial_fame)
 
     @unittest.skipUnless(os.environ.get("FO4SF_DOTNET_TESTS") == "1", "FO4SF_DOTNET_TESTS!=1")
     def test_dotnet_core_candidate_selftest(self):
