@@ -258,7 +258,19 @@ P3Float Rot(JsonElement o) => new(o[0].GetSingle(), o[1].GetSingle(), o[2].GetSi
 
 // every placed reference by its source FO4 FormKey, for the teleport links after all cells are placed
 var placedBySource = new Dictionary<string, (PlacedObject obj, Cell cell)>();
-var cellDocs = args.Skip(2).Select(p => JsonDocument.Parse(File.ReadAllText(p))).ToList();   // kept open until the links are written
+bool interactiveFidelity = false;
+string? portReferencePath = null;
+var cellArgPaths = new List<string>();
+for (int ai = 2; ai < args.Length; ai++)
+{
+    var a = args[ai];
+    if (a == "--interactive-fidelity") interactiveFidelity = true;
+    else if (a.StartsWith("--port-reference=", StringComparison.Ordinal)) portReferencePath = a.Substring("--port-reference=".Length);
+    else if (a == "--port-reference" && ai + 1 < args.Length) portReferencePath = args[++ai];
+    else if (a.StartsWith("--", StringComparison.Ordinal)) throw new InvalidOperationException($"unknown option {a}");
+    else cellArgPaths.Add(a);
+}
+var cellDocs = cellArgPaths.Select(p => JsonDocument.Parse(File.ReadAllText(p))).ToList();   // kept open until the links are written
 foreach (var cdoc in cellDocs)
 {
     var root = cdoc.RootElement;
@@ -359,7 +371,8 @@ foreach (var cdoc in cellDocs)
     mod.Cells.Records.Add(block);
     Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references ({placedPosed} with their own posed model) + {lights} lights ({disabled} initially disabled), skipped {skipped}");
     if (openDoors + lockedDoors > 0)
-        Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 (lock not written)");
+        Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 " +
+                          (interactiveFidelity ? "(evaluated by interactive-fidelity pass)" : "(lock not written)"));
 }
 
 if (cellDocs.Count > 0)
@@ -382,20 +395,43 @@ Console.WriteLine($"door names: {named.Copies} named copies of door bases " +
                   $"({named.Moved} references moved), {named.Unnamed} door references without an FO4 name, {named.Refused.Count} refused");
 foreach (var refusal in named.Refused) Console.WriteLine($"  refused {refusal}");
 
-// ---- activation chains (ActivationChains.cs): FO4 activate parents as Starfield linked-ref activation ------------------
-var chains = ActivationChains.Apply(placedBySource, cellDocs.Select(d => d.RootElement),
-                                    new HashSet<FormKey>(promotions.UsableBases.Concat(openingDoors)));
-if (chains.ChildrenWithParents > 0)
+TeleportReport teleports;
+if (interactiveFidelity)
 {
-    Console.WriteLine($"activation chains: {chains.Wired} wired; unwired: {chains.ParentNotPlaced} parent not placed, " +
-                      $"{chains.ParentNotUsable} parent not usable, {chains.ParentDrivesSeveral} parent drives several, " +
-                      $"{chains.ParentHasScript} parent already scripted, {chains.ChildNotPlaced} child not placed; " +
-                      $"{chains.DelaysDropped} delays and {chains.ParentActivateOnly} parent-activate-only flags not carried");
-    File.WriteAllText(Path.Combine(outDir, "activation.json"), JsonSerializer.Serialize(chains, new JsonSerializerOptions { WriteIndented = true }));
+    var preReport = new InteractiveFidelityReport();
+    InteractiveFidelityPass.BuildManifestKeys(manifestDoc.RootElement, mod, Id, release, preReport);
+    var cellElements = cellDocs.Select(d => d.RootElement).ToList();
+    var applied = InteractiveFidelityPass.Apply(mod, ids, Id, placedBySource, cellElements, ownRigDoors, xtelLoadBases, portReferencePath, release);
+    applied.Fidelity.CreatedKeys += preReport.CreatedKeys;
+    var f = applied.Fidelity;
+    teleports = applied.Teleports;
+    Console.WriteLine($"interactive fidelity: XESP={f.XespWritten} (opp={f.XespOppositeWritten}, popin={f.XespPopInWritten}, folded={f.XespFoldedInitialState}), " +
+                      $"XLOC={f.XlocWritten} (key_mapped={f.XlocKeyMapped}, unmapped_key_fallback={f.XlocUnmappedKeyFallback}), " +
+                      $"XLKR={f.XlkrWritten} (dangling_skipped={f.XlkrDanglingSkipped}), " +
+                      $"XAPR={f.XaprEdgesWired} edges on {f.XaprParentsWired} parents (delays={f.XaprDelaysPreserved}, parent_only={f.XaprParentActivateOnlyApplied}), " +
+                      $"XTEL={f.XtelLinked} (cross_cell_ref={f.XtelCrossCellReferenceLinked}); " +
+                      $"recreated {f.CreatedMarkers} markers + {f.CreatedDoors} doors + {f.CreatedKeywords} keywords + {f.CreatedKeys} keys; {f.Issues.Count} issues");
+    foreach (var fi in f.Issues) Console.WriteLine($"  fidelity issue {fi.Source} {fi.Field}: {fi.Reason}");
+    File.WriteAllText(Path.Combine(outDir, "interactive_fidelity.json"),
+        JsonSerializer.Serialize(f, new JsonSerializerOptions { WriteIndented = true }));
 }
+else
+{
+    // ---- activation chains (ActivationChains.cs): FO4 activate parents as Starfield linked-ref activation ------------------
+    var chains = ActivationChains.Apply(placedBySource, cellDocs.Select(d => d.RootElement),
+                                        new HashSet<FormKey>(promotions.UsableBases.Concat(openingDoors)));
+    if (chains.ChildrenWithParents > 0)
+    {
+        Console.WriteLine($"activation chains: {chains.Wired} wired; unwired: {chains.ParentNotPlaced} parent not placed, " +
+                          $"{chains.ParentNotUsable} parent not usable, {chains.ParentDrivesSeveral} parent drives several, " +
+                          $"{chains.ParentHasScript} parent already scripted, {chains.ChildNotPlaced} child not placed; " +
+                          $"{chains.DelaysDropped} delays and {chains.ParentActivateOnly} parent-activate-only flags not carried");
+        File.WriteAllText(Path.Combine(outDir, "activation.json"), JsonSerializer.Serialize(chains, new JsonSerializerOptions { WriteIndented = true }));
+    }
 
-// ---- load-door teleports between the cells of this build ---------------------------------------------------------------
-var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors, xtelLoadBases);
+    // ---- load-door teleports between the cells of this build ---------------------------------------------------------------
+    teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors, xtelLoadBases);
+}
 foreach (var d in cellDocs) d.Dispose();
 Console.WriteLine($"teleports: {teleports.Linked} references linked ({teleports.Pairs} mutual pairs, {teleports.OneWay} one-way), " +
                   $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues" +

@@ -800,3 +800,197 @@ Console.WriteLine("Persistent coc marker checks passed.");
     finally { Console.SetOut(stdout); Directory.Delete(nameDir, true); }
 }
 Console.WriteLine("Door name checks passed.");
+
+// Converter interactive fidelity (--interactive-fidelity, InteractiveFidelity.cs): end-to-end binary round-trip across
+// XESP (enable parent + opposite 0x01 / pop-in 0x02 + recreated EnableMarker + 0x800 folding on unplaced parent),
+// XLOC (DOOR + promoted CONT lock level, KEYM remap, pickable unmapped-key fallback, unmapped RequiresKey skip, level-0 skip),
+// XLKR (generic KYWD without game text, ref-union discriminator, MultirefLOD + dangling target skipped cleanly),
+// XAPR (FO4SF_ActivateChain multi-target fanout, delays, ParentActivateOnly, and multi-hop relay), and
+// XTEL (AutoloadDoor_Cave + cross-cell --port-reference resolution + idempotent FormID map).
+{
+    var fidDir = Path.Combine(Path.GetTempPath(), "fo4sf-fidelity-" + Guid.NewGuid().ToString("N"));
+    var refPortDir = Path.Combine(fidDir, "refport");
+    var outDir = Path.Combine(fidDir, "out");
+    Directory.CreateDirectory(refPortDir);
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    try
+    {
+        var manifest = Path.Combine(fidDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\doors\\d.nif",
+  "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations",
+          "origin_offset":[0,0,0]}},
+ {"editor_id":"FO4Port_SynthLoadDoor","model":"fo4port\\ld.nif","source":"meshes\\doors\\ld.nif",
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]]}},
+ {"editor_id":"FO4Port_SynthBox","model":"fo4port\\box.nif","source":"meshes\\props\\box.nif"},
+ {"editor_id":"FO4Port_SynthSwitch","model":"fo4port\\sw.nif","source":"meshes\\props\\sw.nif"},
+ {"editor_id":"FO4Port_SynthWall","model":"fo4port\\wall.nif","source":"meshes\\props\\wall.nif"}],
+ "keys":[
+ {"src":"000AA1:Fallout4.esm","edid":"FO4Port_SynthKey","model":"fo4port\\key.nif"}]}
+""");
+
+        // Build a baseline reference port holding CellB with persistent load door 000B01 so single-cell conversion of CellA
+        // can resolve 000A10 -> 000B01 via --port-reference.
+        var cellB = Path.Combine(fidDir, "CellB.json");
+        var cellADummy = Path.Combine(fidDir, "CellADummy.json");
+        File.WriteAllText(cellB, """
+{"schema_version":3,"cell":"CellB","formkey":"000200:Fallout4.esm","refs":[
+ {"formkey":"000B01:Fallout4.esm","base_editor_id":"LD","type":"Door","model":"doors\\ld.nif","pos":[70,140,0],"rot":[0,0,0.5],"scale":1,
+  "persistent":true,"teleport_destination":{"door":"000A10:Fallout4.esm","pos":[0,70,0],"rot":[0,0,1.0],"flags":0,"transition_interior":null}}]}
+""");
+        File.WriteAllText(cellADummy, """
+{"schema_version":3,"cell":"CellA","formkey":"000100:Fallout4.esm","refs":[
+ {"formkey":"000A10:Fallout4.esm","base_editor_id":"LD","type":"Door","model":"doors\\ld.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1,
+  "persistent":true,"teleport_destination":{"door":"000B01:Fallout4.esm","pos":[140,210,70],"rot":[0,0,-0.5],"flags":2,"transition_interior":null}}]}
+""");
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", fidDir);
+        Console.SetOut(new StringWriter());
+        typeof(InteractiveFidelityPass).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { refPortDir, manifest, cellADummy, cellB } });
+        Console.SetOut(stdout);
+
+        // Promote container 000A04 and switches 000A07 / 000A08 in outDir/promote.json.
+        File.WriteAllText(Path.Combine(outDir, "promote.json"), """
+{"containers":[{"src":"000A04:Fallout4.esm","edid":"FO4Port_SynthChest","name":"Container","items":[]}],
+ "activators":[
+  {"src":"000A07:Fallout4.esm","edid":"FO4Port_SynthBtn","name":"Switch"},
+  {"src":"000A08:Fallout4.esm","edid":"FO4Port_SynthRelay","name":"Relay"}]}
+""");
+
+        var cellA = Path.Combine(fidDir, "CellA.json");
+        File.WriteAllText(cellA, """
+{"schema_version":3,"cell":"CellA","formkey":"000100:Fallout4.esm",
+ "referenced_keywords":[
+  {"formkey":"000CC1:Fallout4.esm","editor_id":"SynthLinkKeyword","record_flags":0,"name":"SecretTextMustNotCopy","notes":"SecretNote",
+   "display_name":null,"type":"None","type_value":0,"color":[16,32,64],"attraction_rule":null},
+  {"formkey":"195411:Fallout4.esm","editor_id":"MultirefLOD","record_flags":0,"name":null,"notes":null,
+   "display_name":null,"type":"None","type_value":0,"color":null,"attraction_rule":null}],
+ "deferred_refs":[
+  {"formkey":"000F01:Fallout4.esm","type":"PlacedNpc","disabled":0,"enable_parent":null}],
+ "refs":[
+  {"formkey":"000A00:Fallout4.esm","base_editor_id":"EnableMarker","type":"Static","model":"","pos":[70,0,0],"rot":[0,0,0],"scale":1,"disabled":0,"persistent":true},
+  {"formkey":"000A01:Fallout4.esm","base_editor_id":"W","type":"Static","model":"props\\wall.nif","pos":[140,0,0],"rot":[0,0,0],"scale":1,"disabled":0,
+   "enable_parent":{"reference":"000A00:Fallout4.esm","flags":3},
+   "linked_references":[
+    {"keyword_or_reference":"000CC1:Fallout4.esm","reference":"000A02:Fallout4.esm"},
+    {"keyword_or_reference":"000A00:Fallout4.esm","reference":"000A02:Fallout4.esm"},
+    {"keyword_or_reference":"195411:Fallout4.esm","reference":"000A02:Fallout4.esm"},
+    {"keyword_or_reference":"000CC1:Fallout4.esm","reference":"000DEAD:Fallout4.esm"}]},
+  {"formkey":"000A02:Fallout4.esm","base_editor_id":"W","type":"Static","model":"props\\wall.nif","pos":[210,0,0],"rot":[0,0,0],"scale":1,"disabled":0,
+   "enable_parent":{"reference":"000F01:Fallout4.esm","flags":1}},
+  {"formkey":"000A03:Fallout4.esm","base_editor_id":"D","type":"Door","model":"doors\\d.nif","pos":[280,0,0],"rot":[0,0,0],"scale":1,
+   "lock_data":{"level":50,"key":"000AA1:Fallout4.esm","flags":1,"unused":0},
+   "activate_parents":{"flags":1,"parents":[{"reference":"000A07:Fallout4.esm","delay":0.0},{"reference":"000A08:Fallout4.esm","delay":1.25}]}},
+  {"formkey":"000A04:Fallout4.esm","base_editor_id":"Box","type":"Container","model":"props\\box.nif","pos":[350,0,0],"rot":[0,0,0],"scale":1,
+   "lock_data":{"level":75,"key":"000FFE:Fallout4.esm","flags":0,"unused":0}},
+  {"formkey":"000A05:Fallout4.esm","base_editor_id":"D","type":"Door","model":"doors\\d.nif","pos":[420,0,0],"rot":[0,0,0],"scale":1,
+   "lock_data":{"level":255,"key":"000FFF:Fallout4.esm","flags":0,"unused":0},
+   "activate_parents":{"flags":0,"parents":[{"reference":"000A07:Fallout4.esm","delay":0.5}]}},
+  {"formkey":"000A06:Fallout4.esm","base_editor_id":"D","type":"Door","model":"doors\\d.nif","pos":[490,0,0],"rot":[0,0,0],"scale":1,
+   "lock_data":{"level":0,"key":null,"flags":0,"unused":0}},
+  {"formkey":"000A07:Fallout4.esm","base_editor_id":"Sw","type":"Activator","model":"props\\sw.nif","pos":[560,0,0],"rot":[0,0,0],"scale":1},
+  {"formkey":"000A08:Fallout4.esm","base_editor_id":"Sw","type":"Activator","model":"props\\sw.nif","pos":[630,0,0],"rot":[0,0,0],"scale":1,
+   "activate_parents":{"flags":1,"parents":[{"reference":"000A07:Fallout4.esm","delay":0.25}]}},
+  {"formkey":"000A10:Fallout4.esm","base_editor_id":"LD","type":"Door","model":"doors\\ld.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1,"persistent":true,
+   "teleport_destination":{"door":"000B01:Fallout4.esm","pos":[140,210,70],"rot":[0,0,-0.5],"flags":2,"transition_interior":null}}]}
+""");
+
+        var refEsm = Path.Combine(refPortDir, "FO4Port.esm");
+        var runArgs = new[] { outDir, manifest, cellA, "--interactive-fidelity", "--port-reference=" + refEsm };
+        Console.SetOut(new StringWriter());
+        typeof(InteractiveFidelityPass).Assembly.EntryPoint!.Invoke(null, new object[] { runArgs });
+        Console.SetOut(stdout);
+
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var refIds = StableFormIds.Load(Path.Combine(refPortDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var cell = written.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).Single();
+            var allRefs = cell.Persistent.Concat(cell.Temporary).OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+            IPlacedObjectGetter Ref(string fo4) => allRefs[new FormKey(port, ids[$"REFR:FO4Port_CellA:{fo4}:Fallout4.esm"])];
+
+            // 1. XESP: recreated EnableMarker 000A00 (persistent), opposite 0x01 + pop-in 0x02 preserved on 000A01,
+            //    and unplaced deferred parent 000F01 (enabled) + opposite=1 folded into 0x800 InitiallyDisabled on 000A02.
+            var marker = Ref("000A00");
+            Require(marker.Base.FormKey == new FormKey(sfKey, 0x010D8D) && (marker.MajorRecordFlagsRaw & 0x400) != 0,
+                "EnableMarker 000A00 not recreated as persistent Starfield EnableMarker");
+            var rA01 = Ref("000A01");
+            Require(rA01.EnableParent != null && rA01.EnableParent.Reference.FormKey == marker.FormKey &&
+                    (uint)rA01.EnableParent.Flags == 3u, "XESP opposite + pop-in flags not preserved on 000A01");
+            var rA02 = Ref("000A02");
+            Require(rA02.EnableParent == null && (rA02.MajorRecordFlagsRaw & 0x800) != 0,
+                "unplaced XESP opposite parent did not fold InitiallyDisabled (0x800) onto 000A02");
+
+            // 2. XLOC: 000A03 gets Advanced(50) + Leveled(1) + mapped KEYM; 000A04 CONT gets Expert(75) with null key fallback;
+            //    000A05 unmapped RequiresKey(255) skipped; 000A06 unlocked level-0 stub skipped.
+            var keyRec = written.Keys.Single();
+            Require(keyRec.FormKey.ID == ids["KEYM:000AA1:fallout4.esm"], "KEYM record not created with stable ID");
+            var rA03 = Ref("000A03");
+            Require(rA03.Lock != null && (int)rA03.Lock.Level == 50 && (uint)rA03.Lock.Flags == 1u &&
+                    rA03.Lock.Key.FormKey == keyRec.FormKey, "DOOR 000A03 XLOC level/flags/key remap wrong");
+            var rA04 = Ref("000A04");
+            Require(rA04.Lock != null && (int)rA04.Lock.Level == 75 && rA04.Lock.Key.IsNull,
+                "CONT 000A04 XLOC pickable unmapped-key fallback wrong");
+            Require(Ref("000A05").Lock == null, "RequiresKey lock with unmapped key must be skipped to prevent softlock");
+            Require(Ref("000A06").Lock == null, "level-0 unlocked XLOC stub must not be written");
+
+            // 3. XLKR: generic KYWD created with zero Name/Notes game text, ref-union preserved, MultirefLOD + dangling skipped.
+            var kw = written.Keywords.Single(k => k.FormKey.ID == ids["KYWD:000CC1:fallout4.esm"]);
+            Require(kw.Name == null && kw.Notes == null, "KYWD copied game text Name or Notes");
+            Require(rA01.LinkedReferences.Count == 2, $"expected 2 XLKR links on 000A01, got {rA01.LinkedReferences.Count}");
+            Require(rA01.LinkedReferences.Any(l => l.KeywordOrReference.FormKey == kw.FormKey && l.Reference.FormKey == rA02.FormKey),
+                "keyword XLKR link missing on 000A01");
+            Require(rA01.LinkedReferences.Any(l => l.KeywordOrReference.FormKey == marker.FormKey && l.Reference.FormKey == rA02.FormKey),
+                "reference-union XLKR link missing on 000A01");
+
+            // 4. XAPR: 000A07 drives 3 children (000A03, 000A05, 000A08) with delays [0, 0.5, 0.25] and UnblockTargets [true, false, true];
+            //    000A08 is BOTH a ParentActivateOnly child AND a parent driving 000A03 with delay 1.25 on one FO4SF_ActivateChain entry.
+            var rA07 = Ref("000A07");
+            var s07 = rA07.VirtualMachineAdapter!.Scripts.Single(s => s.Name == "FO4SF_ActivateChain");
+            var t07 = ((IScriptObjectListPropertyGetter)s07.Properties.Single(p => p.Name == "Targets")).Objects.Select(o => o.Object.FormKey).ToArray();
+            var d07 = ((IScriptFloatListPropertyGetter)s07.Properties.Single(p => p.Name == "Delays")).Data.ToArray();
+            var u07 = ((IScriptBoolListPropertyGetter)s07.Properties.Single(p => p.Name == "UnblockTargets")).Data.ToArray();
+            Require(t07.SequenceEqual(new[] { rA03.FormKey, Ref("000A05").FormKey, Ref("000A08").FormKey }), "000A07 XAPR Targets wrong");
+            Require(d07.SequenceEqual(new[] { 0f, 0.5f, 0.25f }), "000A07 XAPR Delays wrong");
+            Require(u07.SequenceEqual(new[] { true, false, true }), "000A07 XAPR UnblockTargets wrong");
+            Require(rA07.LinkedReferences.Count == 0, "000A07 XAPR must not pollute authored XLKR links");
+
+            var s08 = Ref("000A08").VirtualMachineAdapter!.Scripts.Single(s => s.Name == "FO4SF_ActivateChain");
+            Require(((IScriptBoolPropertyGetter)s08.Properties.Single(p => p.Name == "ParentActivateOnly")).Data,
+                "000A08 multi-hop relay missing ParentActivateOnly=true");
+            Require(((IScriptFloatListPropertyGetter)s08.Properties.Single(p => p.Name == "Delays")).Data.Single() == 1.25f,
+                "000A08 multi-hop relay delay 1.25 lost");
+            var s03 = rA03.VirtualMachineAdapter!.Scripts.Single(s => s.Name == "FO4SF_ActivateChain");
+            Require(((IScriptBoolPropertyGetter)s03.Properties.Single(p => p.Name == "ParentActivateOnly")).Data,
+                "000A03 child missing ParentActivateOnly=true");
+
+            // 5. XTEL: 000A10 linked across cells via --port-reference to CellB's 000B01 with converted metre arrival & flags.
+            var rA10 = Ref("000A10");
+            var expectedB01 = new FormKey(port, refIds["REFR:FO4Port_CellB:000B01:Fallout4.esm"]);
+            Require(rA10.TeleportDestination != null && rA10.TeleportDestination.Door.FormKey == expectedB01,
+                "000A10 cross-cell XTEL via --port-reference not written");
+            Require(rA10.TeleportDestination!.Position.X == 2f && rA10.TeleportDestination.Position.Y == 3f &&
+                    rA10.TeleportDestination.Position.Z == 1f && rA10.TeleportDestination.Rotation.Z == -0.5f &&
+                    (uint)rA10.TeleportDestination.Flags == 2u && (rA10.MajorRecordFlagsRaw & 0x400) != 0,
+                "000A10 XTEL coordinates, angles, flags or persistence wrong");
+        }
+
+        // Repeat build with same formids.json allocates zero new FormIDs.
+        var mapBefore = File.ReadAllText(Path.Combine(outDir, "formids.json"));
+        File.Delete(Path.Combine(outDir, "FO4Port.esm"));
+        Console.SetOut(new StringWriter());
+        typeof(InteractiveFidelityPass).Assembly.EntryPoint!.Invoke(null, new object[] { runArgs });
+        Console.SetOut(stdout);
+        Require(File.ReadAllText(Path.Combine(outDir, "formids.json")) == mapBefore, "repeat interactive-fidelity build changed formids.json");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(fidDir, true); }
+}
+Console.WriteLine("Interactive fidelity synthetic checks and binary round-trip passed.");
