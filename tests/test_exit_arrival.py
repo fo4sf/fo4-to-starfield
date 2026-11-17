@@ -39,12 +39,12 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
                 continue
             if line.startswith(("elseif ", "else")):
                 depth -= 1
-            line = re.sub(r"\b(?:bool|float|int|WorldSpace|Cell|Form|ObjectReference) (\w+) =", r"\1 =", line)
+            line = re.sub(r"\bint (\w+) = (.+)", r"\1 = int(\2)", line)
+            line = re.sub(r"\b(?:bool|float|WorldSpace|Cell|Form|ObjectReference) (\w+) =", r"\1 =", line)
             line = re.sub(r" as ObjectReference\b", "", line)
             line = re.sub(r"\btrue\b", "True", line, flags=re.I)
             line = re.sub(r"\bfalse\b", "False", line, flags=re.I)
             line = re.sub(r"!(?!=)", "not ", line).replace("&&", "and").replace("||", "or")
-            line = line.replace(" / 16777216", " // 16777216")
             if line.startswith("elseif "):
                 line = "elif " + line[7:]
             if line.startswith(("if ", "elif ")) or line == "else":
@@ -136,6 +136,26 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.assertEqual(self.player.moves, [(-1200.0, -2700.0, 100.0)])
         self.assertEqual(self.stages, [40])
         self.assertEqual(self.failures, [])
+
+    def test_translator_catches_untruncated_float_formid_divide(self):
+        """Without storing both / 16777216 quotients in int, 03000CF0/16777216 != 030A775B/16777216 fails as float."""
+        buggy = re.sub(
+            r"bool coreCell = false.*?endif",
+            "bool coreCell = afterCell != None && afterCell.GetFormID() / 16777216 == anchor.GetFormID() / 16777216",
+            read(PSC),
+            count=1,
+            flags=re.S,
+        )
+        ns = dict(self.ns)
+        failures, stages = [], []
+        ns["FailExit"] = failures.append
+        ns["AdvanceTo"] = stages.append
+        ns["surfaceSets"] = 0
+        exec(compile(translated_functions(buggy), "<buggy>", "exec"), ns)
+        for _ in range(3):
+            ns["FinishSurface"](self.player)
+        self.assertEqual(failures, ["surface_cell_not_core"])
+        self.assertEqual(stages, [])
 
     def test_post_setposition_cell_still_non_core_retries_then_fails(self):
         self.player.cell = SimpleNamespace(GetFormID=lambda: 0xFF00A492)

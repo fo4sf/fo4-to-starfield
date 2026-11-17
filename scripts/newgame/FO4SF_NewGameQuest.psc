@@ -816,7 +816,12 @@ Function FinishSurface(Actor player)
     WorldSpace afterWorld = player.GetWorldSpace()
     Cell afterCell = player.GetParentCell()
     ; Check core cell ownership AFTER SetPosition shifts from the unmerged persistent anchor into the merged core grid.
-    bool coreCell = afterCell != None && afterCell.GetFormID() / 16777216 == anchor.GetFormID() / 16777216
+    bool coreCell = false
+    if afterCell != None
+        int cellMod = afterCell.GetFormID() / 16777216
+        int anchorMod = anchor.GetFormID() / 16777216
+        coreCell = cellMod == anchorMod
+    endif
     float dx = player.GetPositionX() - x
     float dy = player.GetPositionY() - y
     float dz = player.GetPositionZ() - ArrivalZ
