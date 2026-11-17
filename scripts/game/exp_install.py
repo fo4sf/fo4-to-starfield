@@ -32,11 +32,13 @@ import tempfile
 
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))
 # cycle.ps1 uses isolated Python, which omits this script's own directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import deploy_starfield as deployment  # noqa: E402
 from verify_packed_experiment import verify_archive, verify_texture_archive  # noqa: E402
-from experiment_receipts import preserve_receipt  # noqa: E402
+from experiment_receipts import preserve_receipt, receipt_directory  # noqa: E402
+from fo4sf.save_safety import SaveSafetyError, compare_builds, one_line_swap_warning  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
 TOGGLE = "FO4SF.toggle.json"                             # plugin_toggle.py: our plugins held off for a test
@@ -578,6 +580,67 @@ def refuse_while_held(data, what):
                  f"plugin_toggle.py on first")
 
 
+def _latest_preserved_exp_swap(cur_exp_dir):
+    """Return (prev_exp_dir, prev_plugins) from the newest preserved receipt for this profile, or (None, None)."""
+    import gzip
+    try:
+        rdir = receipt_directory()
+        if not rdir.is_dir():
+            return None, None
+        here_ptxt = os.path.normcase(os.path.abspath(plugins_txt()))
+        cur_norm = os.path.normcase(os.path.abspath(cur_exp_dir))
+        candidates = sorted(
+            (p for p in rdir.iterdir() if p.name.endswith(".json.gz") and p.is_file() and not p.is_symlink()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for path in candidates[:8]:
+            with gzip.open(path, "rb") as gz:
+                rec = json.loads(gz.read(2_000_000))
+            if not isinstance(rec, dict) or rec.get("complete") is not True:
+                continue
+            if os.path.normcase(os.path.abspath(rec.get("plugins_txt", ""))) != here_ptxt:
+                continue
+            prev_dir = rec.get("exp_dir", "")
+            if not prev_dir or not os.path.isdir(prev_dir):
+                continue
+            prev_plugins = rec.get("plugins")
+            if os.path.normcase(os.path.abspath(prev_dir)) == cur_norm:
+                return None, None
+            return prev_dir, prev_plugins
+    except Exception:
+        return None, None
+    return None, None
+
+
+def _emit_save_swap_warning(a, plugins, *, auto_prev_dir=None, auto_prev_plugins=None):
+    """Print the single-line save-invalidation warning when swapping from a breaking prior build."""
+    explicit_prev = getattr(a, "check_save_swap", "") or getattr(a, "prev_exp_dir", "")
+    if explicit_prev:
+        try:
+            rep = compare_builds(explicit_prev, a.exp_dir, after_plugins=plugins)
+        except SaveSafetyError as error:
+            sys.exit(f"save swap check failed; nothing installed: {error}")
+        warn = one_line_swap_warning(rep)
+        if warn:
+            print(warn)
+        return warn
+    prev_dir = auto_prev_dir
+    prev_plugins = auto_prev_plugins
+    if not prev_dir:
+        prev_dir, prev_plugins = _latest_preserved_exp_swap(a.exp_dir)
+    if not prev_dir:
+        return None
+    try:
+        rep = compare_builds(prev_dir, a.exp_dir, before_plugins=prev_plugins, after_plugins=plugins)
+    except (SaveSafetyError, OSError, ValueError):
+        return None
+    warn = one_line_swap_warning(rep)
+    if warn:
+        print(warn)
+    return warn
+
+
 def install(a):
     if getattr(a, "prepacked", "") and not getattr(a, "pack", False):
         sys.exit("--prepacked requires --pack; nothing installed")
@@ -619,6 +682,7 @@ def _install(a, packing_dir=None):
             print("already installed" + (f"; held off: {', '.join(p for p in plugins if p.casefold() in held)}"
                                          if any(p.casefold() in held for p in plugins) else ""))
             return
+        _emit_save_swap_warning(a, plugins, auto_prev_dir=data)
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     refuse_while_held(data, "experiment not installed")
     names = [rel for _, rel in files]
@@ -683,6 +747,7 @@ def _install(a, packing_dir=None):
                 verify_texture_archive(built_tex, {k: v for k, v in inputs.items() if k.startswith(tex_prefix)})
         except (OSError, ValueError) as error:
             sys.exit(f"experiment archive validation failed; nothing installed: {error}")
+    _emit_save_swap_warning(a, plugins)
     p = plugins_txt()
     original = read_bytes(p)
     lines, bom, nl = plugin_lines(original)
@@ -783,6 +848,8 @@ def main(argv=None):
     ap.add_argument("--prepacked", default="", help="with --pack, verify and install this existing Main archive; never build. "
                     "With --textures-archive and staged textures, also require '<first plugin> - Textures.ba2' beside it")
     ap.add_argument("--needs", default="", help="runner features the queue needs (runner_features.py); refuse without")
+    ap.add_argument("--check-save-swap", default="", help="compare against this previous staged or installed directory and print a one-line warning if swapping breaks saves")
+    ap.add_argument("--prev-exp-dir", default="", help="alias for --check-save-swap")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.exp_dir:
