@@ -39,3 +39,38 @@ Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`RECORDS ON
 ### Steps
 1. On `00-baseline`, hop outward in `<= 180 m` steps from the NW (`Sanctuary`) and S (`Concord`) core edges into the ring between cell `32` and the `100`-cell landing boundary, recording any procedural Starfield POI, creature, or ship encounter.
 2. Swap in single-keyword variants `01`–`05` (and `06-all5`) to isolate which keyword suppresses any observed bleed-through.
+
+---
+
+## Card 3 — `WD2` & `WD3` Staged Far Harbor and Nuka-World Terrain & Sea Probes (`TEST-STATION`)
+
+**Scope & Label:** Terrain-only overlay worlds built from parameterized `make_cw_overlays.py` + `dotnet/Fo4Land --master`, registered both on Mars (`FO4WorldFarHarbor_Mars.esm`, `FO4WorldNukaWorld_Mars.esm`) and together in the single 3-world `W3` registration plugin (`FO4TerrainCore_Home.esm` listing `Commonwealth`, `FarHarbor`, and `NukaWorld` `>= 2,000` planet cells apart, with `FO4TerrainCore.esm` SHA-256 unchanged):
+- **Far Harbor (`FO4WorldFarHarbor.esm`):** `34 x 34` cells (`1,156` exterior cells), heights `-22.49..117.34 m`, sea water `6.43 m` (`HasWater` + `XCLW` inherit), `8` FO4 `LAND` probes `<= 0.037 m` error, nearest other world `3,563.1` planet cells (`>= 2,000`).
+- **Nuka-World (`FO4WorldNukaWorld.esm`):** `40 x 40` cells (`1,600` exterior cells covering all `4,225` FO4 `LAND` cells), heights `-0.40..212.62 m`, water `4.64 m`, `8` FO4 `LAND` probes `<= 0.088 m` error, nearest other world `4,583.1` planet cells (`>= 2,000`).
+
+### Swap-Session Steps
+1. Swap-install `FO4WorldFarHarbor.esm` (and then `FO4WorldNukaWorld.esm`) alongside its registration plugin with pre/post install receipts.
+2. Arrive via `coc FO4FH_FarHarborSpawn` / `coc FO4NW_NukaWorldSpawn`, read `player.getpos`, and compute each world's own `merge_offset = pos_read - spawn_local`.
+3. Hop `<= 180 m` across the `plan.json` height probe points and verify terrain heights within `<= 0.5 m` and coastal water surface visibility at the sea/lake edge.
+4. Roll back and verify receipts.
+
+---
+
+## Card 4 — `I3` Start-Path 13 Exterior Doors Walk (`TEST-STATION` -> `REACHABLE` After Swap Walk)
+
+**Scope & Label:** Core door delta promoting `13` existing placed exterior door references in place (`ConcordMuseum01`: `01D22F`, `01AC07`, `029AD8`; `ConcordCivicAccess01`: `04C3E0`, `04C3DE`, `02C9A5`; `ConcordFactory`: `0E3DAD`, `0E3DAB`, `0E3DA1`; `ConcordSpeakeasy`: `07895F`, `07895D`, `07895C`; `SanctuaryBasementJahani`: `0A36EB`) alongside the `15` kept doors (`28` total).
+- **Offline Proof:** `make_core64c.py compare-ids` confirms `0` existing FormIDs changed (`683,857 / 683,857` non-door records byte-identical; only `13` arrival markers + `3` door `ACTI` bases appended after lights); `vmad_patch.py check` passes `88/88` checks across all `28` doors.
+
+### Console-Free Steps
+1. Swap-install the `I3` core + animated-door batch (`interiors_b11` / patched `28`-door port) with receipts.
+2. Walk from Sanctuary to the Sanctuary root cellar (`SanctuaryBasementJahani`), press `E` to enter, open `3` containers, and exit through the same door.
+3. Walk to Concord, press `E` on the Museum of Freedom front door (`ConcordMuseum01`), walk the ground floor, open `3` containers, and walk back out the front door.
+4. Run `python scripts/bridge/door_rounds.py judge` on the `FO4SF_LoadDoor` log (`0` `retry gave up` lines).
+
+---
+
+## Card 5 — `WG1` 29 x 29 Red Rocket Ground-Texture Window (`TEST-STATION` / `OWNER TEST`)
+
+**Scope & Label:** Staged test world (`FO4WG1RedRocket.esm` + `.btd` + `40` `Terrain1Layer.mat` materials + converted `_color`/`_normal`/`_rough` `.dds` maps) mapping Fallout 4's `40` most-used `LTEX` land textures across the `29 x 29`-cell Red Rocket window.
+- **Offline Proof:** Decoded `.btd` carries `41` `LTEX` entries (`> 1`) and matches Fallout 4's dominant land texture across **`3,134 / 3,364` quadrants (`93.16% >= 90%`)**.
+- **OWNER TEST:** With owner release (`R8`), swap-install the Red Rocket ground window so the owner can inspect the ground-texture blending and roughness look directly before expanding across the full Commonwealth (`NEXT`).
