@@ -15,6 +15,7 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     parse_cs_vmad_bindings,
     parse_psc_declared_properties,
     parse_psc_form_refs,
+    validate_native_core_value_refs,
     validate_psc_form_refs,
     validate_vmad_bindings,
 )
@@ -69,6 +70,37 @@ class CrossPluginResolutionTests(unittest.TestCase):
         self.assertGreater(len(all_bindings), 0)
         vmad_errors = validate_vmad_bindings(catalog, psc_props_by_script, all_bindings)
         self.assertEqual(vmad_errors, [], "\n".join(vmad_errors))
+
+        native_errors = validate_native_core_value_refs(ROOT, catalog)
+        self.assertEqual(native_errors, [], "\n".join(native_errors))
+
+    def test_r13_native_checker_rejects_missing_wrong_type_and_unregistered_core_lookups(self) -> None:
+        catalog, _ = build_writer_catalog(ROOT)
+        main_rel = "sfse/FO4SFPipboyMenu/src/main.cpp"
+        with open(os.path.join(ROOT, *main_rel.split("/")), encoding="utf-8") as handle:
+            main_txt = handle.read()
+
+        # 1. Missing 0x000865 in FO4SFCoreValues.esm (the exact pre-A6 bug!) must fail
+        cat_without_865 = {k: dict(v) for k, v in catalog.items()}
+        cat_without_865["FO4SFCoreValues.esm"].pop(0x000865, None)
+        errs_missing = validate_native_core_value_refs(ROOT, cat_without_865)
+        self.assertTrue(errs_missing)
+        self.assertIn("0x000865", "\n".join(errs_missing))
+
+        # 2. Wrong RTTI type (reading GLOB 0x865 as ActorValueInfo@@) must fail
+        wrong_rtti_cpp = main_txt.replace(
+            'KitFileForm("FO4SFCoreValues.esm", kCorePipboyAcquiredId, "TESGlobal@@", detail)',
+            'KitFileForm("FO4SFCoreValues.esm", kCorePipboyAcquiredId, "ActorValueInfo@@", detail)',
+        )
+        errs_rtti = validate_native_core_value_refs(ROOT, catalog, cpp_overrides={main_rel: wrong_rtti_cpp})
+        self.assertTrue(errs_rtti)
+        self.assertIn("incompatible with RTTI ActorValueInfo@@", "\n".join(errs_rtti))
+
+        # 3. Unregistered FO4SFCoreValues.esm lookup in C++ must fail until added to NATIVE_CORE_VALUE_SPECS
+        extra_cpp = main_txt + '\nvoid _TestUnregistered() { std::string d; KitFileForm("FO4SFCoreValues.esm", 0x860, "TESGlobal@@", d); }\n'
+        errs_unreg = validate_native_core_value_refs(ROOT, catalog, cpp_overrides={main_rel: extra_cpp})
+        self.assertTrue(errs_unreg)
+        self.assertIn("missing from NATIVE_CORE_VALUE_SPECS", "\n".join(errs_unreg))
 
     def test_checker_catches_all_three_cd03411a_bugs_and_duplicate_edids(self) -> None:
         """Prove `1c` fails on `cd03411a`'s 3 silent wrong reads (`1b`) and duplicate EditorIDs (`1a`)."""

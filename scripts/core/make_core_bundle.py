@@ -39,6 +39,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -60,7 +61,9 @@ import exp_install  # noqa: E402
 import make_newgame  # noqa: E402
 from make_workshop_probe import compile_text  # noqa: E402
 from fo4sf.core import bundle_log  # noqa: E402
+from fo4sf.core.core_values import core_form_id  # noqa: E402
 from fo4sf.launcher.crashwatch import GAME_EXE, System  # noqa: E402
+from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin  # noqa: E402
 
 MAX_STARFIELD_PLUGINS = 245
 MAX_BA2_BYTES = (4 * (1024 ** 3)) - 1  # 4,294,967,295 bytes (32-bit unsigned BA2 ceiling)
@@ -379,6 +382,76 @@ def estimate_general_ba2_bytes(data_dir: str, exclude_textures: bool = False) ->
     return file_count, payload_bytes, ba2_bytes
 
 
+PIPBOY_INI_MOVIE_KEYS = ("Movie", "BootMovie", "SpecialMovie", "WorldMovie")
+
+
+def named_pipboy_ini_movies(ini_text: str) -> List[Tuple[str, str]]:
+    """Return `(ini_key, swf_filename)` for every non-empty movie named under `[FO4SFPipboyMenu]`."""
+    in_main = False
+    kv: Dict[str, str] = {}
+    for raw in ini_text.splitlines():
+        s = raw.strip()
+        if not s or s.startswith(";"):
+            continue
+        if s.startswith("[") and s.endswith("]"):
+            in_main = s[1:-1].strip() == "FO4SFPipboyMenu"
+            continue
+        if in_main and "=" in s:
+            k, v = s.split("=", 1)
+            kv[k.strip()] = v.strip()
+
+    named: List[Tuple[str, str]] = []
+    for key in PIPBOY_INI_MOVIE_KEYS:
+        val = kv.get(key, "")
+        if not val:
+            continue
+        if key == "SpecialMovie" and kv.get("SpecialMenu", "0") in ("0", ""):
+            continue
+        if key == "WorldMovie" and kv.get("World", "0") in ("0", ""):
+            continue
+        swf_name = val if val.lower().endswith(".swf") else f"{val}.swf"
+        named.append((key, swf_name))
+    return named
+
+
+def _find_interface_swf_in_dir(iface_dir: str, swf_name: str) -> Optional[str]:
+    if not os.path.isdir(iface_dir):
+        return None
+    exact = os.path.join(iface_dir, *swf_name.split("/"))
+    if os.path.isfile(exact):
+        return swf_name.replace("\\", "/")
+    want_low = swf_name.replace("\\", "/").casefold()
+    for dp, _, fns in os.walk(iface_dir):
+        for fn in sorted(fns):
+            full = os.path.join(dp, fn)
+            rel = os.path.relpath(full, iface_dir).replace("\\", "/")
+            if rel.casefold() == want_low:
+                return rel
+    return None
+
+
+def read_core_values_test_mode_fltv(esm_path: str) -> Tuple[Optional[float], Optional[str]]:
+    """Inspect `FO4SFCoreValues.esm`'s `FO4SF_TestModeEnabled` (`0x000860`) GLOB `FLTV` float32 value."""
+    target_local_id = core_form_id("FO4SF_TestModeEnabled")
+    try:
+        with RawEsmPlugin(esm_path) as plg:
+            want_fid = (plg.self_index << 24) | (target_local_id & 0xFFFFFF)
+            for rec in plg.records("GLOB"):
+                if rec.formid == want_fid or rec.edid == "FO4SF_TestModeEnabled":
+                    if (rec.formid & 0xFFFFFF) != target_local_id:
+                        return None, f"FO4SF_TestModeEnabled local id 0x{rec.formid & 0xFFFFFF:06X} != 0x{target_local_id:06X}"
+                    if rec.edid and rec.edid != "FO4SF_TestModeEnabled":
+                        return None, f"GLOB 0x{target_local_id:06X} edid {rec.edid!r} != 'FO4SF_TestModeEnabled'"
+                    fltv = rec.get(b"FLTV")
+                    if fltv is None or len(fltv) != 4:
+                        return None, f"GLOB 0x{target_local_id:06X} FO4SF_TestModeEnabled missing 4-byte FLTV"
+                    val = struct.unpack("<f", fltv)[0]
+                    return float(val), None
+    except (OSError, EsmError) as err:
+        return None, f"unreadable TES4/GLOB records ({err})"
+    return None, f"missing GLOB 0x{target_local_id:06X} FO4SF_TestModeEnabled"
+
+
 def verify_bundle(
     bundle_dir: str,
     plan_path: Optional[str] = None,
@@ -460,6 +533,62 @@ def verify_bundle(
             if not exp_install.implicit(m) and m_low not in seen_before:
                 problems.append(f"{plg}: master {m} is neither implicit nor loaded before {plg}")
         seen_before.add(plg.casefold())
+
+    # 3b (A16). Explicit refusal when FO4SFNewGame.esm masters FO4SFCoreValues.esm and the store plugin is absent or ordered after it
+    ng_esm_path = os.path.join(bdir, "FO4SFNewGame.esm")
+    p_low = [p.casefold() for p in plugins]
+    if "fo4sfnewgame.esm" in p_low or os.path.isfile(ng_esm_path):
+        if os.path.isfile(ng_esm_path):
+            try:
+                ng_masters_low = [m.casefold() for m in exp_install.plugin_masters(ng_esm_path)]
+            except ValueError:
+                ng_masters_low = []
+            if "fo4sfcorevalues.esm" in ng_masters_low:
+                cv_esm_path = os.path.join(bdir, "FO4SFCoreValues.esm")
+                if "fo4sfcorevalues.esm" not in p_low or not os.path.isfile(cv_esm_path):
+                    problems.append("FO4SFNewGame.esm masters FO4SFCoreValues.esm, but bundle lacks FO4SFCoreValues.esm")
+                elif "fo4sfnewgame.esm" in p_low and p_low.index("fo4sfnewgame.esm") < p_low.index("fo4sfcorevalues.esm"):
+                    problems.append("FO4SFNewGame.esm is ordered before its required master FO4SFCoreValues.esm in Plugins.txt")
+
+    # 3c (A5). Inspect FO4SFCoreValues.esm FO4SF_TestModeEnabled (0x000860) FLTV against bundle profile
+    cv_bundle_path = os.path.join(bdir, "FO4SFCoreValues.esm")
+    bundle_profile = bplan.get("profile")
+    if "fo4sfcorevalues.esm" in p_low and os.path.isfile(cv_bundle_path) and bundle_profile in ("player", "test"):
+        tm_val, tm_err = read_core_values_test_mode_fltv(cv_bundle_path)
+        if tm_err is not None or tm_val is None:
+            problems.append(f"FO4SFCoreValues.esm: {tm_err}")
+        elif bundle_profile == "test" and abs(tm_val - 1.0) > 1e-4:
+            problems.append(
+                f"FO4SFCoreValues.esm: --profile test requires FO4SF_TestModeEnabled (0x000860) FLTV=1.0, found {tm_val}"
+            )
+        elif bundle_profile == "player" and abs(tm_val - 0.0) > 1e-4:
+            problems.append(
+                f"FO4SFCoreValues.esm: --profile player requires FO4SF_TestModeEnabled (0x000860) FLTV=0.0, found {tm_val}"
+            )
+
+    # 3d (A1). Verify every movie named in shipped FO4SFPipboyMenu.ini exists in Data/Interface/ and in bundle manifest
+    pb_ini_candidates = (
+        os.path.join(bdir, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.ini"),
+        os.path.join(bdir, "sfse_sidecar", "FO4SFPipboyMenu.ini"),
+    )
+    pb_comp_outputs = ((bplan.get("components") or {}).get("pipboy") or {}).get("outputs") or {}
+    pb_manifest_low = {k.replace("\\", "/").casefold() for k in pb_comp_outputs}
+    iface_bundle_dir = os.path.join(bdir, "Data", "Interface")
+    for pb_ini_p in pb_ini_candidates:
+        if not os.path.isfile(pb_ini_p):
+            continue
+        ini_txt = Path(pb_ini_p).read_text(encoding="utf-8")
+        for ini_key, swf_name in named_pipboy_ini_movies(ini_txt):
+            matched_rel = _find_interface_swf_in_dir(iface_bundle_dir, swf_name)
+            if matched_rel is None:
+                problems.append(
+                    f"pipboy: FO4SFPipboyMenu.ini {ini_key} names {swf_name}, which is absent from Data/Interface/"
+                )
+            elif f"data/interface/{matched_rel.casefold()}" not in pb_manifest_low:
+                problems.append(
+                    f"pipboy: Data/Interface/{matched_rel} (named by {ini_key}) is missing from bundle_plan.json manifest"
+                )
+        break
 
     # 4. Run make_newgame.verify_dir when real newgame plan is bundled
     ng_plan = bplan.get("newgame_plan")
@@ -617,13 +746,15 @@ def stage_from_checkout(a) -> Dict[str, str]:
 
     stages: Dict[str, str] = {}
 
-    cv_dir = os.path.join(work, "00-core-values")
+    want_test_mode = "1" if profile == "test" else "0"
+    cv_folder = "00-core-values-test" if profile == "test" else "00-core-values-player"
+    cv_dir = os.path.join(work, cv_folder)
     if not os.path.exists(cv_dir):
         _run_py(py_main, "scripts/core/make_core_values.py", [
             "stage",
             "--sf-data", sf_data,
             "--out", cv_dir,
-            "--test-mode", "0",
+            "--test-mode", want_test_mode,
         ])
     stages["core_values"] = cv_dir
 
@@ -844,6 +975,15 @@ def refresh_pipboy_stage_for_bundle(src_stage: str, out_stage: str, fo4_data_dir
             raise BundleRefused(str(exc)) from exc
         updated_data_rels.append("SFSE/Plugins/FO4SFPipboyMenu.ini")
 
+    stage_ini_p = os.path.join(partial, "SFSE", "Plugins", "FO4SFPipboyMenu.ini")
+    if os.path.isfile(stage_ini_p):
+        for _ini_k, swf_nm in named_pipboy_ini_movies(Path(stage_ini_p).read_text(encoding="utf-8")):
+            matched_swf = _find_interface_swf_in_dir(iface_dir, swf_nm)
+            if matched_swf is not None:
+                rel_swf = f"Data/Interface/{matched_swf}"
+                if rel_swf not in updated_data_rels:
+                    updated_data_rels.append(rel_swf)
+
     plan_p = os.path.join(partial, "plan.json")
     if os.path.isfile(plan_p) and updated_data_rels:
         with open(plan_p, encoding="utf-8") as f:
@@ -1031,6 +1171,23 @@ def fold_bundle(
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
 
         comp_plugins, comp_outputs = extract_component_outputs(key, st_dir)
+        if key == "pipboy":
+            for pb_ini_cand in (
+                os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.ini"),
+                os.path.join(partial, "sfse_sidecar", "FO4SFPipboyMenu.ini"),
+            ):
+                if not os.path.isfile(pb_ini_cand):
+                    continue
+                st_iface = os.path.join(st_dir, "Data", "Interface")
+                existing_low = {r.replace("\\", "/").casefold() for r in comp_outputs}
+                for _ini_k, swf_nm in named_pipboy_ini_movies(Path(pb_ini_cand).read_text(encoding="utf-8")):
+                    matched_swf = _find_interface_swf_in_dir(st_iface, swf_nm)
+                    if matched_swf is not None:
+                        rel_swf = f"Data/Interface/{matched_swf}"
+                        if rel_swf.casefold() not in existing_low:
+                            comp_outputs[rel_swf] = sha256_file(os.path.join(st_iface, *matched_swf.split("/")))
+                            existing_low.add(rel_swf.casefold())
+                break
         for plg in comp_plugins:
             if plg.casefold() in {p.casefold() for p in plugins}:
                 raise BundleRefused(f"duplicate plugin {plg} from component {key}")
@@ -1150,7 +1307,7 @@ def cmd_fold(a, system=None) -> int:
     root = os.path.abspath(a.stages_root)
     profile = getattr(a, "profile", "test")
     mapping = {
-        "core_values": ("00-core-values",),
+        "core_values": ("00-core-values-player", "00-core-values") if profile == "player" else ("00-core-values-test", "00-core-values"),
         "cog_door": ("01-cog-door",),
         "exit_lift": ("02-exit-lift",),
         "newgame": ("03-newgame",),

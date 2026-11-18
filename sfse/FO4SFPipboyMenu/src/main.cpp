@@ -202,7 +202,6 @@ namespace
 	constexpr std::uint32_t kUnequipObjectId = 101951;       // ID::ActorEquipManager::UnequipObject
 	constexpr std::uint32_t kObjectInstanceCtorId = 59786;   // ID::BGSObjectInstance::ctor
 	constexpr std::uint32_t kAlchemyItemRttiId = 845251;     // RTTI::AlchemyItem
-	constexpr std::uint32_t kMedPackFormId = 0x0000ABF9;     // Starfield.esm ALCH MedPack fallback for FO4SF_Stimpak
 	constexpr std::uint32_t kOxygenAvifId = 0x2E2;           // Starfield.esm AVIF Oxygen (AP dial)
 	constexpr std::uint32_t kDamageResistAvifId = 0x2E3;     // Starfield.esm AVIF DamageResist
 	constexpr std::uint32_t kEnergyResistAvifId = 0x2EB;     // Starfield.esm AVIF EnergyResist
@@ -533,6 +532,8 @@ namespace
 	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
 	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
 	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
+	std::filesystem::path                    g_gameDir;                 // Game root (<Starfield>/) for Data\Interface\<BootMovie>.swf check
+	std::atomic<bool>                        g_loggedBootSkipMissing{ false };
 	// Task 1 step 1k (UI-3): opt-in FO4SF_SpecialMenu host for SPECIALMenu.swf
 	bool                                     g_specialMenu = false;
 	std::string                              g_specialMovie;
@@ -3593,6 +3594,7 @@ namespace
 	{
 		g_open = false;
 		g_closing = false;
+		g_playingBootMovie = false;
 		g_inDestructionCall = false;
 		g_cancelHeld = false;
 		g_keyInputHeld = false;
@@ -3646,6 +3648,7 @@ namespace
 	void FailMovieCall(const char* a_where, const std::string& a_detail = "")
 	{
 		REX::ERROR("step=movie_call_failed where={}{}{} action=close_menu", a_where, a_detail.empty() ? "" : " ", a_detail);
+		g_playingBootMovie = false;
 		ClearMovieSessionState(true);
 		if (g_task) {
 			g_task->AddTask([]() { Close(0, "movie_call_failed"); });
@@ -4346,6 +4349,12 @@ namespace
 		};
 	}
 
+	void LogCoreValueResolve(std::string_view a_name, std::uint32_t a_localId, std::uint32_t a_resolvedFormId)
+	{
+		REX::INFO("step=core_value_resolve name={} source=FO4SFCoreValues.esm:{:06X} found={} form={:08X}",
+			a_name, a_localId, a_resolvedFormId ? 1 : 0, a_resolvedFormId);
+	}
+
 	// Main thread only: collects player vitals, S.P.E.C.I.A.L. (FO4SFCoreValues.esm 0x810..0x816), Rads (0x800),
 	// Stimpak/RadAway/Caps counts, limb conditions, and (only when a_targetPage == 3) MAP state before kShow / throttled update
 	void CollectShellVitalsMainThread(std::uint32_t a_targetPage)
@@ -4368,7 +4377,6 @@ namespace
 		static std::array<std::uintptr_t, 7> specialAvifs{};
 		static std::string                  resolvedSpecialSource = "fallback";
 		static std::uint32_t                stimpakId = 0;
-		static std::uint32_t                medpackId = 0;
 		static std::uint32_t                radawayId = 0;
 		static double                       highWaterHp = 100.0;
 		static double                       highWaterAp = 100.0;
@@ -4381,25 +4389,36 @@ namespace
 			for (std::size_t i = 0; i < kLimbConditionAvifIds.size(); ++i) {
 				AcceptById(kLimbConditionAvifIds[i], "LimbCondition", "ActorValueInfo@@", kAvifEditorIdAt, limbAvifs[i]);
 			}
+			std::string radsDetail;
+			const auto  radsStoreId = KitFileForm("FO4SFCoreValues.esm", kRadsLocalId, "ActorValueInfo@@", radsDetail);
+			if (radsStoreId) {
+				AcceptById(radsStoreId, "FO4SF_Rads", "ActorValueInfo@@", kAvifEditorIdAt, g_forms.rads);
+			}
+			LogCoreValueResolve("FO4SF_Rads", kRadsLocalId, g_forms.rads ? radsStoreId : 0u);
+
 			std::string detail;
-			if (const auto rrId = KitFileForm("FO4SFCoreValues.esm", kCoreRadResistLocalId, "ActorValueInfo@@", detail)) {
+			const auto  rrId = KitFileForm("FO4SFCoreValues.esm", kCoreRadResistLocalId, "ActorValueInfo@@", detail);
+			if (rrId) {
 				AcceptById(rrId, "FO4SF_RadResist", "ActorValueInfo@@", kAvifEditorIdAt, rrAvif);
 			} else {
 				rrAvif = LookupFormByEditorIdChecked("FO4SF_RadResist", "ActorValueInfo@@");
 			}
+			LogCoreValueResolve("FO4SF_RadResist", kCoreRadResistLocalId, rrAvif ? rrId : 0u);
+
 			std::size_t fromCoreStore = 0;
 			std::size_t fromEditorId = 0;
 			std::size_t fromVanilla = 0;
 			for (std::size_t i = 0; i < kSpecialEditorIds.size(); ++i) {
-				std::string spDetail;
-				const auto  spId = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialFirstLocalId + static_cast<std::uint32_t>(i),
-                    "ActorValueInfo@@", spDetail);
+				std::string        spDetail;
+				const std::uint32_t spLocalId = kCoreSpecialFirstLocalId + static_cast<std::uint32_t>(i);
+				const auto         spId = KitFileForm("FO4SFCoreValues.esm", spLocalId, "ActorValueInfo@@", spDetail);
 				if (spId) {
 					AcceptById(spId, kSpecialEditorIds[i], "ActorValueInfo@@", kAvifEditorIdAt, specialAvifs[i]);
 					if (specialAvifs[i]) {
 						++fromCoreStore;
 					}
 				}
+				LogCoreValueResolve(kSpecialEditorIds[i], spLocalId, specialAvifs[i] ? spId : 0u);
 				if (!specialAvifs[i]) {
 					specialAvifs[i] = LookupFormByEditorIdChecked(kSpecialEditorIds[i], "ActorValueInfo@@");
 					if (specialAvifs[i]) {
@@ -4423,15 +4442,11 @@ namespace
 			}
 			std::string stimDetail;
 			stimpakId = KitFileForm("FO4SFCoreValues.esm", kCoreStimpakLocalId, "AlchemyItem@@", stimDetail);
+			LogCoreValueResolve("FO4SF_Stimpak", kCoreStimpakLocalId, stimpakId);
 			if (!stimpakId) {
 				if (const auto f = LookupFormByEditorIdChecked("FO4SF_Stimpak", "AlchemyItem@@")) {
 					Peek(f + kFormIdAt, stimpakId);
 				}
-			}
-			std::uintptr_t mpForm = 0;
-			AcceptById(kMedPackFormId, "MedPack", "AlchemyItem@@", 0x30, mpForm);
-			if (mpForm) {
-				medpackId = kMedPackFormId;
 			}
 			std::string radDetail;
 			radawayId = KitFileForm("FO4SFRads.esm", kRadsRadawayLocalId, "AlchemyItem@@", radDetail);
@@ -4456,7 +4471,7 @@ namespace
 		ShellVitalsSnapshot next;
 		next.ready = true;
 		next.specialSource = resolvedSpecialSource;
-		next.stimpakFormId = stimpakId ? stimpakId : medpackId;
+		next.stimpakFormId = stimpakId;
 		next.radawayFormId = radawayId;
 
 		ShellInvDataSnapshot invDataNext;
@@ -4507,9 +4522,8 @@ namespace
 				}
 			}
 
-			// Inventory scan: Caps (0xF), FO4SF_Stimpak / MedPack fallback, FO4SF_RadAway, and UI-2 InvItems
+			// Inventory scan: Caps (0xF), FO4SF_Stimpak, FO4SF_RadAway, and UI-2 InvItems (Fallout items only)
 			std::uint32_t  fo4StimpakCount = 0;
-			std::uint32_t  medpackCount = 0;
 			std::uintptr_t invList = 0;
 			ObjectType     listType;
 			ArrayHead      items{};
@@ -4528,7 +4542,7 @@ namespace
 						continue;
 					}
 					const bool isAidOrCaps = (fid == kCreditsFormId || (stimpakId && fid == stimpakId) ||
-					                          (medpackId && fid == medpackId) || (radawayId && fid == radawayId));
+					                          (radawayId && fid == radawayId));
 					if (!isAidOrCaps && !g_invDataAnswers) {
 						continue;
 					}
@@ -4551,8 +4565,6 @@ namespace
 					}
 					if (stimpakId && fid == stimpakId) {
 						fo4StimpakCount += clamped;
-					} else if (medpackId && fid == medpackId) {
-						medpackCount += clamped;
 					} else if (radawayId && fid == radawayId) {
 						next.radawayCount += clamped;
 					}
@@ -4619,9 +4631,6 @@ namespace
 			if (fo4StimpakCount > 0 && stimpakId != 0) {
 				next.stimpakCount = fo4StimpakCount;
 				next.stimpakFormId = stimpakId;
-			} else if (medpackCount > 0 && medpackId != 0) {
-				next.stimpakCount = medpackCount;
-				next.stimpakFormId = medpackId;
 			}
 		}
 
@@ -4852,7 +4861,7 @@ namespace
 
 	void ToggleEquipInvItemMainThread(std::uint32_t a_nodeId)
 	{
-		if (!g_shellExtraIdsReady || !g_equipMgrSingletonRva || !g_equipObjectRva || !g_unequipObjectRva || !g_objInstanceCtorRva) {
+		if (!g_shellExtraIdsReady || !g_equipMgrSingletonRva || !g_equipObjectRva || !g_objInstanceCtorRva) {
 			return;
 		}
 		ShellInvEntry target;
@@ -4882,6 +4891,10 @@ namespace
 		bool ok = false;
 		const char* action = "equip";
 		if (target.equipState != 0 && (target.formType == 0x30 || target.formType == 0x22)) {
+			if (!g_unequipObjectRva) {
+				REX::INFO("step=inv_equip node={} form={:08X} action=unequip ok=0 reason=no_unequip_rva", a_nodeId, target.formId);
+				return;
+			}
 			action = "unequip";
 			ok = reinterpret_cast<UnequipObjectCall_t>(g_base + g_unequipObjectRva)(
 				reinterpret_cast<void*>(equipMgr), reinterpret_cast<void*>(player), inst, nullptr, false, false, true, true, nullptr);
@@ -6398,6 +6411,24 @@ namespace
 		}
 	}
 
+	// The bundle ships Data\Interface\<BootMovie>.swf as a loose file under Data\Interface\ (and verify_bundle enforces
+	// its presence). Check that loose file on disk before attempting a boot movie load so a missing file never locks
+	// g_playingBootMovie or prevents the main Pip-Boy movie from opening.
+	bool BootMovieLooseFileExists()
+	{
+		if (g_bootMovie.empty()) {
+			return false;
+		}
+		const std::string relName = g_bootMovie + ".swf";
+		std::error_code   ec;
+		if (!g_gameDir.empty()) {
+			if (std::filesystem::is_regular_file(g_gameDir / "Data" / "Interface" / relName, ec)) {
+				return true;
+			}
+		}
+		return std::filesystem::is_regular_file(std::filesystem::path("Data") / "Interface" / relName, ec);
+	}
+
 	bool MenuLoadMovie(void* a_self, bool a_dispatcher, bool a_arg2)
 	{
 		const auto menu = Hex(reinterpret_cast<std::uintptr_t>(a_self));
@@ -6409,14 +6440,25 @@ namespace
 			REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b result=already_loaded", menu, a_dispatcher, a_arg2);
 			return true;
 		}
+		// The bundle ships <BootMovie>.swf as a loose file under Data\Interface\; if absent on disk at load time, log
+		// step=boot_skip reason=missing once and skip the boot movie cleanly so the main Pip-Boy movie opens directly.
+		if (g_playingBootMovie.load() && !g_bootMovie.empty() && !BootMovieLooseFileExists()) {
+			g_playingBootMovie.store(false);
+			if (!g_loggedBootSkipMissing.exchange(true)) {
+				REX::INFO("step=boot_skip reason=missing movie={} file=Data\\Interface\\{}.swf", g_bootMovie, g_bootMovie);
+			}
+		}
+		const char* targetMovie = (g_playingBootMovie.load() && !g_bootMovie.empty())
+		                              ? g_bootMovie.c_str()
+		                              : (g_movie.empty() ? kMenuName : g_movie.c_str());
 		REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b calling movie_name={}", menu, a_dispatcher, a_arg2,
-			g_movie.empty() ? kMenuName : g_movie.c_str());
+			targetMovie);
 		g_movieNameAsks.store(0);
 		g_loadingMovie.store(true);
 		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
 		g_loadingMovie.store(false);
 		REX::INFO("step=load_movie menu={} stage=b result={} movie={} movie_name={} name_asks={}", menu, loaded ? 1 : 0,
-			Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), g_movie.empty() ? kMenuName : g_movie.c_str(),
+			Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), targetMovie,
 			g_movieNameAsks.load());
 		if (!loaded || !MovieOf(a_self)) {
 			FailMovieCall("load_movie");
@@ -7990,18 +8032,21 @@ namespace
 	std::atomic<std::int64_t>  g_stateCheckDueAt{ 0 };
 	std::atomic<std::uint32_t> g_stateCheckN{ 0 };
 
-	// Step X2 & Step 1f: checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x865 / LookupByEditorID) float value at +0x48
+	// Step X2 & Step 1f (R13): checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) float value at +0x48
 	bool IsPipboyPickedUpMainThread(float& a_outVal)
 	{
 		a_outVal = 0.0f;
 		FindGlobalValue();
 		std::string    detail;
 		std::uintptr_t form = 0;
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCorePipboyAcquiredId, "TESGlobal@@", detail)) {
+		const auto     fid = KitFileForm("FO4SFCoreValues.esm", kCorePipboyAcquiredId, "TESGlobal@@", detail);
+		if (fid) {
 			AcceptById(fid, "FO4SF_PipboyAcquired", "TESGlobal@@", kGlobalEditorIdAt, form);
 		}
-		if (!form) {
-			form = LookupFormByEditorIdChecked("FO4SF_PipboyAcquired", "TESGlobal@@");
+		static bool s_loggedPipboyAcquiredResolve = false;
+		if (!s_loggedPipboyAcquiredResolve) {
+			s_loggedPipboyAcquiredResolve = true;
+			LogCoreValueResolve("FO4SF_PipboyAcquired", kCorePipboyAcquiredId, form ? fid : 0u);
 		}
 		if (!form) {
 			return false;
@@ -8028,7 +8073,12 @@ namespace
 			return false;
 		}
 		if (g_bootOnFirstOpen && !g_bootMovie.empty() && acquired && std::string_view(a_by ? a_by : "") != "boot_reopen") {
-			if (!s_bootPlayed.exchange(true)) {
+			// The bundle ships Data\Interface\<BootMovie>.swf as a loose file; if absent on disk, log once and skip boot.
+			if (!BootMovieLooseFileExists()) {
+				if (!g_loggedBootSkipMissing.exchange(true)) {
+					REX::INFO("step=boot_skip reason=missing movie={} file=Data\\Interface\\{}.swf", g_bootMovie, g_bootMovie);
+				}
+			} else if (!s_bootPlayed.exchange(true)) {
 				g_playingBootMovie.store(true);
 				REX::INFO("step=boot_sequence movie={} first_open=1 page={}", g_bootMovie, a_targetPage);
 			}
@@ -8762,14 +8812,13 @@ namespace
 			std::uint32_t  expectedRva;
 			const char*    rttiTail;
 		};
-		const std::array<ShellIdSpec, 9> specs{ {
+		const std::array<ShellIdSpec, 8> specs{ {
 			{ "TESDataHandler.Singleton", 937572, &g_rva[kDataHandlerSingleton], kDataHandlerRva, nullptr },
 			{ "TESForm.LookupByID", 47401, &g_rva[kLookupById], kLookupByIdRva, nullptr },
 			{ "TESForm.LookupByEditorID", kLookupByEditorId, &g_shellLookupEditorIdRva, 0, nullptr },
 			{ "ActorEquipManager.Singleton", kEquipManagerSingletonId, &g_equipMgrSingletonRva, 0, nullptr },
 			{ "ActorEquipManager.RTTI", kEquipManagerRttiId, &g_equipMgrRttiRva, 0, "ActorEquipManager@@" },
 			{ "ActorEquipManager.EquipObject", kEquipObjectId, &g_equipObjectRva, 0, nullptr },
-			{ "ActorEquipManager.UnequipObject", kUnequipObjectId, &g_unequipObjectRva, 0, nullptr },
 			{ "BGSObjectInstance.ctor", kObjectInstanceCtorId, &g_objInstanceCtorRva, 0, nullptr },
 			{ "AlchemyItem.RTTI", kAlchemyItemRttiId, &g_alchemyRttiRva, 0, "AlchemyItem@@" },
 		} };
@@ -8801,6 +8850,23 @@ namespace
 			}
 			*s.out = offset;
 		}
+		// A8: ActorEquipManager.UnequipObject (101951) is checked ONLY when InvDataAnswers=1 and stays optional so 1a
+		// (InvDataAnswers=0) never depends on 101951 and missing 101951 skips unequip cleanly without aborting init.
+		g_unequipObjectRva = 0;
+		if (g_invDataAnswers) {
+			std::uint32_t unequipOff = 0;
+			bool          unequipOk = false;
+			if (kUnequipObjectId < count) {
+				in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * kUnequipObjectId));
+				if (in.read(reinterpret_cast<char*>(&unequipOff), sizeof unequipOff) && unequipOff > 0 && unequipOff < g_imageSize &&
+					REL::ID(kUnequipObjectId).offset() == unequipOff) {
+					g_unequipObjectRva = unequipOff;
+					unequipOk = true;
+				}
+			}
+			REX::INFO("step=shell_optional_id name=ActorEquipManager.UnequipObject id={} rva={} status={}",
+				kUnequipObjectId, Hex(g_unequipObjectRva), unequipOk ? "ok" : "unresolved");
+		}
 		g_shellExtraIdsReady = true;
 		REX::INFO("step=shell_ids result=ok equip_mgr={} equip_obj={} lookup_edid={}",
 			Hex(g_equipMgrSingletonRva), Hex(g_equipObjectRva), Hex(g_shellLookupEditorIdRva));
@@ -8812,6 +8878,11 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
 	SFSE::Init(a_sfse, { .trampoline = false, .hook = false });
 
+	std::array<wchar_t, 1024> exePath{};
+	const auto exeLen = REX::W32::GetModuleFileNameW(nullptr, exePath.data(), static_cast<std::uint32_t>(exePath.size()));
+	if (exeLen > 0 && exeLen < exePath.size()) {
+		g_gameDir = std::filesystem::path(std::wstring(exePath.data(), exeLen)).parent_path();
+	}
 	std::array<wchar_t, 1024> path{};
 	const auto len = REX::W32::GetModuleFileNameW(REX::W32::GetCurrentModule(), path.data(), static_cast<std::uint32_t>(path.size()));
 	const auto dir = std::filesystem::path(std::wstring(path.data(), len)).parent_path();

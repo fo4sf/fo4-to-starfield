@@ -729,8 +729,11 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
         self.assertIn("step=arm_lower n={} send=none (the raise's clip carries on) accepted={} lock_ms={} t_ms={}", main_cpp)
         self.assertIn("step=arm_lower n={} send={} result={} try=1 accepted={} t_ms={}", main_cpp)
 
-        # 1j: UseStimpak (0x851 + 0xABF9 MedPack fallback), UseRadaway (0x820), stat_use & stat_sound logs
-        self.assertIn("kMedPackFormId = 0x0000ABF9", main_cpp)
+        # 1j & A7: UseStimpak (0x851 FO4SF_Stimpak only; zero Starfield MedPack 0xABF9 fallback), UseRadaway (0x820), stat_use & stat_sound logs
+        self.assertNotIn("kMedPackFormId", main_cpp)
+        self.assertNotIn("0x0000ABF9", main_cpp)
+        self.assertNotIn("medpackCount", main_cpp)
+        self.assertIn("kCoreStimpakLocalId = 0x851", main_cpp)
         self.assertIn("step=stat_use item={:08X} hp_before={:.0f} hp_after={:.0f} used={}", main_cpp)
         self.assertIn("step=stat_use item={:08X} rads_before={:.0f} rads_after={:.0f} used={}", main_cpp)
         self.assertIn("step=stat_sound action=play_perk_sound", main_cpp)
@@ -756,6 +759,46 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
         self.assertIn("step=special_done sum={} max_points={} written={}", main_cpp)
         for shipped_default in ("SpecialMenu=0", "SpecialMovie=", "SpecialMaxPoints=40", "SpecialKey=0"):
             self.assertIn(f"\n{shipped_default}\n", "\n" + shipped_ini)
+
+    def test_a1_a6_a7_a8_round2_group2_cpp_contracts(self) -> None:
+        main_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp").read_text(encoding="utf-8")
+
+        # A1: g_playingBootMovie cleared in BOTH ClearMovieSessionState and FailMovieCall; loose Data\Interface\<BootMovie>.swf check
+        clear_fn = main_cpp[main_cpp.index("void ClearMovieSessionState("):main_cpp.index("const char* OpenBlockingOverlayMenu(")]
+        self.assertIn("g_playingBootMovie = false;", clear_fn)
+        fail_fn = main_cpp[main_cpp.index("void FailMovieCall("):main_cpp.index("void* MenuDestroy(")]
+        self.assertIn("g_playingBootMovie = false;", fail_fn)
+        self.assertIn("bool BootMovieLooseFileExists()", main_cpp)
+        self.assertIn("step=boot_skip reason=missing", main_cpp)
+        self.assertIn("g_loggedBootSkipMissing", main_cpp)
+        self.assertIn("as a loose file under Data\\Interface\\", main_cpp)
+
+        # A6 & R13: FO4SF_PipboyAcquired resolved from FO4SFCoreValues.esm:000865 and logged once via step=core_value_resolve
+        self.assertIn("kCorePipboyAcquiredId = 0x865", main_cpp)
+        self.assertIn("step=core_value_resolve name={} source=FO4SFCoreValues.esm:{:06X} found={}", main_cpp)
+        acq_fn = main_cpp[main_cpp.index("bool IsPipboyPickedUpMainThread("):main_cpp.index("bool CheckOpenGateAndBootMainThread(")]
+        self.assertIn('KitFileForm("FO4SFCoreValues.esm", kCorePipboyAcquiredId, "TESGlobal@@"', acq_fn)
+        self.assertIn('LogCoreValueResolve("FO4SF_PipboyAcquired", kCorePipboyAcquiredId,', acq_fn)
+        self.assertNotIn("LookupFormByEditorIdChecked", acq_fn)
+
+        # A7: Fallout items only — next.stimpakFormId = stimpakId and zero MedPack fallback
+        vitals_fn = main_cpp[main_cpp.index("void CollectShellVitalsMainThread("):main_cpp.index("void ConsumePipboyAidMainThread(")]
+        self.assertIn("next.stimpakFormId = stimpakId;", vitals_fn)
+        self.assertNotIn("MedPack", vitals_fn)
+
+        # A8: 101951 (UnequipObject) is NOT in CheckShellIds required specs (so 1a InvDataAnswers=0 never depends on it),
+        # and InvDataAnswers=1 resolves it optionally without calling Refuse or blocking EquipObject
+        check_shell = main_cpp[main_cpp.index("bool CheckShellIds("):main_cpp.index("SFSE_PLUGIN_LOAD(")]
+        req_specs_block = check_shell[:check_shell.index("for (const auto& s : specs)")]
+        self.assertNotIn("kUnequipObjectId", req_specs_block)
+        self.assertNotIn("UnequipObject", req_specs_block)
+        opt_block = check_shell[check_shell.index("if (g_invDataAnswers)"):]
+        self.assertIn("kUnequipObjectId", opt_block)
+        self.assertNotIn("Refuse(", opt_block)
+        equip_fn = main_cpp[main_cpp.index("void ToggleEquipInvItemMainThread("):main_cpp.index("void DropInvItemMainThread(")]
+        top_guard = equip_fn[:equip_fn.index("ShellInvEntry target;")]
+        self.assertNotIn("g_unequipObjectRva", top_guard)
+        self.assertIn("reason=no_unequip_rva", equip_fn)
 
 
 if __name__ == "__main__":

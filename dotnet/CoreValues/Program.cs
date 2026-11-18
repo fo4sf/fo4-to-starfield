@@ -8,6 +8,7 @@
 //   0x840..0x847 Hardcore toggle, fast-travel gate, and Hunger/Thirst/Sleep AVIFs + stage GLOBs
 //   0x850..0x851 Shared FO4SF_StimpakEffect MGEF + FO4SF_Stimpak ALCH
 //   0x860        FO4SF_TestModeEnabled GLOB (default 0)
+//   0x865        FO4SF_PipboyAcquired GLOB (default 0, non-constant)
 //
 // usage:
 //   CoreValues build <Starfield.esm> <out dir> [--json <core_values.json>] [--default-rads-rule 0|1] [--default-hardcore 0|1] [--test-mode 0|1]
@@ -77,7 +78,7 @@ public static class CoreValuesWriter
     public record BuildOptions(string JsonPath, int DefaultRadsRule = 0, int DefaultHardcore = 0, int TestMode = 0);
     public record RecordSpec(
         uint Id, string Type, string Edid, string Name, string Abbr, string Desc,
-        float Default, float Min, float Max, string[] Flags, string[] Items, string Effect);
+        float Default, float Min, float Max, string[] Flags, string[] Items, string Effect, bool Constant = false);
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
@@ -117,13 +118,15 @@ public static class CoreValuesWriter
 
             string Str(string k) => el.TryGetProperty(k, out var v) ? v.GetString() ?? "" : "";
             float Flt(string k) => el.TryGetProperty(k, out var v) ? v.GetSingle() : 0f;
+            bool Bool(string k) => el.TryGetProperty(k, out var v) && v.GetBoolean();
             string[] Arr(string k) => el.TryGetProperty(k, out var v)
                 ? v.EnumerateArray().Select(x => x.GetString()!).ToArray()
                 : Array.Empty<string>();
+            if (id >= nextId) throw new Refusal($"FormID 0x{id:X6} ({edid}) >= next_form_id 0x{nextId:X6} in {jsonPath}");
 
             specs.Add(new RecordSpec(
                 id, type, edid, Str("name"), Str("abbr"), Str("desc"),
-                Flt("default"), Flt("min"), Flt("max"), Arr("flags"), Arr("items"), Str("effect")));
+                Flt("default"), Flt("min"), Flt("max"), Arr("flags"), Arr("items"), Str("effect"), Bool("constant")));
         }
         return (ModKey.FromFileName(pluginName), nextId, specs);
     }
@@ -241,11 +244,13 @@ public static class CoreValuesWriter
             }
             else if (s.Type == "GLOB")
             {
-                mod.Globals.Add(new Global(fk, Release)
+                var g = new Global(fk, Release)
                 {
                     EditorID = s.Edid,
                     Data = EffectiveGlobValue(s, opts),
-                });
+                };
+                if (s.Constant) g.MajorFlags |= Global.MajorFlag.Constant;
+                mod.Globals.Add(g);
             }
             else if (s.Type == "MGEF")
             {
@@ -393,8 +398,9 @@ public static class CoreValuesWriter
             {
                 var r = plug.Globals.FirstOrDefault(x => x.FormKey == fk);
                 float want = EffectiveGlobValue(s, opts);
-                Need(r != null && r.EditorID == s.Edid && r.Data.HasValue && MathF.Abs(r.Data.Value - want) < 1e-4f,
-                     $"GLOB 0x{s.Id:X} {s.Edid} mismatch (want {want})");
+                Need(r != null && r.EditorID == s.Edid && r.Data.HasValue && MathF.Abs(r.Data.Value - want) < 1e-4f &&
+                     r.MajorFlags.HasFlag(Global.MajorFlag.Constant) == s.Constant,
+                     $"GLOB 0x{s.Id:X} {s.Edid} mismatch (want {want}, constant={s.Constant})");
             }
             else if (s.Type == "FLST")
             {

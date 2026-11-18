@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from fo4sf.core.core_values import CORE_VALUES_JSON, load_core_values
 
@@ -716,5 +716,274 @@ def validate_psc_form_refs(
                             f"expected '{concept}' record, but {ref.plugin}:0x{ref.form_id:06X} is '{actual_edid}' ({actual_type})"
                         )
                         break
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Rule R13: Native C++ plugin shared value lookup table & C++ source validator
+# ---------------------------------------------------------------------------
+
+CPP_RTTI_TO_RECORD_TYPE: Dict[str, str] = {
+    "ActorValueInfo@@": "AVIF",
+    "TESGlobal@@": "GLOB",
+    "AlchemyItem@@": "ALCH",
+    "TESQuest@@": "QUST",
+}
+
+NATIVE_CPP_DIRS: Tuple[str, ...] = (
+    "sfse/FO4SFPipboyMenu/src",
+    "sfse/FO4SFCombat/src",
+)
+
+
+@dataclass(frozen=True)
+class NativeCoreValueSpec:
+    cpp_rel: str
+    const_name: str
+    plugin: str
+    local_id: int
+    record_type: str
+    edid: str
+    count: int = 1
+
+
+NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kRadsLocalId",
+        "FO4SFCoreValues.esm",
+        0x000800,
+        "AVIF",
+        "FO4SF_Rads",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreRadResistLocalId",
+        "FO4SFCoreValues.esm",
+        0x000804,
+        "AVIF",
+        "FO4SF_RadResist",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreSpecialFirstLocalId",
+        "FO4SFCoreValues.esm",
+        0x000810,
+        "AVIF",
+        "FO4SF_Special_Strength",
+        count=7,
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreStimpakLocalId",
+        "FO4SFCoreValues.esm",
+        0x000851,
+        "ALCH",
+        "FO4SF_Stimpak",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCorePipboyAcquiredId",
+        "FO4SFCoreValues.esm",
+        0x000865,
+        "GLOB",
+        "FO4SF_PipboyAcquired",
+    ),
+)
+
+
+@dataclass(frozen=True)
+class CppPluginFormRef:
+    cpp_rel: str
+    line_no: int
+    plugin: str
+    local_id: int
+    rtti_name: str
+    paired_edid: str = ""
+
+
+def _strip_cpp_comments(cpp_text: str) -> str:
+    no_block = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), cpp_text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", no_block)
+
+
+def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, int], List[CppPluginFormRef]]:
+    """Parse C++ `uint32_t` FormID constants and `KitFileForm` / plugin-local FormID lookups in `cpp_text`."""
+    clean = _strip_cpp_comments(cpp_text)
+    uint_consts: Dict[str, int] = {}
+    str_vars: Dict[str, str] = {}
+
+    for m in re.finditer(r"\bconstexpr\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
+        val = _parse_int_literal(m.group(2).strip(), uint_consts)
+        if val is not None:
+            uint_consts[m.group(1)] = val
+
+    for m in re.finditer(r'\b(?:constexpr\s+auto|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean):
+        str_vars[m.group(1)] = m.group(2)
+
+    # Also resolve local aliases such as `const std::uint32_t spLocalId = kCoreSpecialFirstLocalId + ...;`
+    local_aliases: Dict[str, int] = dict(uint_consts)
+    for m in re.finditer(r"\bconst\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
+        expr = re.sub(r"static_cast<[^>]+>\(([^)]+)\)", r"\1", m.group(2).strip())
+        val = _parse_int_literal(expr, local_aliases)
+        if val is not None:
+            local_aliases[m.group(1)] = val
+
+    refs: List[CppPluginFormRef] = []
+    # Match multi-line KitFileForm(pluginExpr, idExpr, "RTTI@@", ...) calls
+    for km in re.finditer(
+        r'KitFileForm\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.]*)\s*,\s*([^,]+?)\s*,\s*"([^"]+)"',
+        clean,
+        flags=re.S,
+    ):
+        plg_raw, id_raw, rtti_name = km.group(1).strip(), km.group(2).strip(), km.group(3).strip()
+        if plg_raw.startswith('"') and plg_raw.endswith('"'):
+            plugin = plg_raw[1:-1]
+        else:
+            plugin = str_vars.get(plg_raw, "")
+        if not plugin:
+            continue
+
+        id_clean = re.sub(r"static_cast<[^>]+>\(([^)]+)\)", r"\1", id_raw)
+        fid = _parse_int_literal(id_clean, local_aliases)
+        line_no = clean.count("\n", 0, km.start()) + 1
+        if fid is None or fid <= 0:
+            continue
+
+        # Look immediately ahead (~260 chars) for a paired AcceptById(..., "FO4SF_...", ...) EditorID
+        tail = clean[km.end() : km.end() + 260]
+        em = re.search(r'AcceptById\([^,]+,\s*"(FO4SF_[A-Za-z0-9_]+)"', tail)
+        paired_edid = em.group(1) if em else ""
+        refs.append(CppPluginFormRef(cpp_rel, line_no, plugin, fid, rtti_name, paired_edid))
+
+    return uint_consts, refs
+
+
+def validate_native_core_value_refs(
+    repo_root: str,
+    catalog: Dict[str, Dict[int, Tuple[str, str]]],
+    specs: Sequence[NativeCoreValueSpec] = NATIVE_CORE_VALUE_SPECS,
+    cpp_overrides: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """Validate native C++ plugin lookups against `core_values.json` / `catalog` and `NATIVE_CORE_VALUE_SPECS` (R13)."""
+    errors: List[str] = []
+    overrides = cpp_overrides or {}
+
+    core_table = catalog.get("FO4SFCoreValues.esm", {})
+    core_edid_to_id: Dict[str, Tuple[int, str]] = {
+        edid.lower(): (fid, rtype) for fid, (rtype, edid) in core_table.items() if edid
+    }
+
+    cpp_texts: Dict[str, str] = {}
+    for rel_dir in NATIVE_CPP_DIRS:
+        abs_dir = os.path.join(repo_root, *rel_dir.split("/"))
+        if not os.path.isdir(abs_dir):
+            continue
+        for fn in sorted(os.listdir(abs_dir)):
+            if fn.endswith(".cpp"):
+                rel = f"{rel_dir}/{fn}"
+                if rel in overrides:
+                    cpp_texts[rel] = overrides[rel]
+                else:
+                    with open(os.path.join(abs_dir, fn), encoding="utf-8") as handle:
+                        cpp_texts[rel] = handle.read()
+    for rel, txt in overrides.items():
+        cpp_texts.setdefault(rel, txt)
+
+    parsed_by_file: Dict[str, Tuple[Dict[str, int], List[CppPluginFormRef]]] = {
+        rel: parse_cpp_plugin_form_refs(rel, txt) for rel, txt in sorted(cpp_texts.items())
+    }
+
+    registered_core_ids: Set[Tuple[str, int]] = set()
+
+    # 1. Validate every entry in the R13 native core-values table against catalog and C++ constants
+    for spec in specs:
+        plg_table = catalog.get(spec.plugin)
+        if plg_table is None:
+            errors.append(f"{spec.cpp_rel}:{spec.const_name} references unknown plugin {spec.plugin}")
+            continue
+
+        for off in range(spec.count):
+            fid = spec.local_id + off
+            if spec.plugin == "FO4SFCoreValues.esm":
+                registered_core_ids.add((spec.cpp_rel, fid))
+            if fid not in plg_table:
+                errors.append(
+                    f"{spec.cpp_rel}:{spec.const_name} -> {spec.plugin}:0x{fid:06X} ({spec.edid}) missing in writer table"
+                )
+                continue
+            actual_type, actual_edid = plg_table[fid]
+            if actual_type != spec.record_type:
+                errors.append(
+                    f"{spec.cpp_rel}:{spec.const_name} -> {spec.plugin}:0x{fid:06X} is {actual_type}, expected {spec.record_type}"
+                )
+            if off == 0 and actual_edid != spec.edid:
+                errors.append(
+                    f"{spec.cpp_rel}:{spec.const_name} -> {spec.plugin}:0x{fid:06X} is '{actual_edid}', expected '{spec.edid}'"
+                )
+
+        if spec.cpp_rel not in parsed_by_file:
+            errors.append(f"native C++ source file missing for R13 check: {spec.cpp_rel}")
+            continue
+        consts, _ = parsed_by_file[spec.cpp_rel]
+        if spec.const_name not in consts:
+            errors.append(f"{spec.cpp_rel}: missing C++ constant {spec.const_name}")
+        elif consts[spec.const_name] != spec.local_id:
+            errors.append(
+                f"{spec.cpp_rel}: C++ constant {spec.const_name}=0x{consts[spec.const_name]:06X} "
+                f"!= R13 table 0x{spec.local_id:06X} ({spec.edid})"
+            )
+
+    # 2. Validate every actual C++ plugin lookup call-site (catches wrong, missing, untracked, or split IDs)
+    for rel, (_, refs) in sorted(parsed_by_file.items()):
+        for ref in refs:
+            if ref.plugin not in catalog:
+                errors.append(
+                    f"{ref.cpp_rel}:{ref.line_no} native lookup references unknown plugin '{ref.plugin}' (0x{ref.local_id:06X})"
+                )
+                continue
+            plg_table = catalog[ref.plugin]
+            if ref.local_id not in plg_table:
+                errors.append(
+                    f"{ref.cpp_rel}:{ref.line_no} native lookup {ref.plugin}:0x{ref.local_id:06X} missing in writer table"
+                )
+                continue
+
+            actual_type, actual_edid = plg_table[ref.local_id]
+            expected_type = CPP_RTTI_TO_RECORD_TYPE.get(ref.rtti_name)
+            if expected_type and actual_type != expected_type:
+                errors.append(
+                    f"{ref.cpp_rel}:{ref.line_no} native lookup {ref.plugin}:0x{ref.local_id:06X} ({actual_edid}) "
+                    f"is {actual_type}, incompatible with RTTI {ref.rtti_name} ({expected_type})"
+                )
+
+            if ref.plugin == "FO4SFCoreValues.esm" and (ref.cpp_rel, ref.local_id) not in registered_core_ids:
+                errors.append(
+                    f"{ref.cpp_rel}:{ref.line_no} native lookup FO4SFCoreValues.esm:0x{ref.local_id:06X} ({actual_edid}) "
+                    f"is missing from NATIVE_CORE_VALUE_SPECS"
+                )
+
+            if ref.paired_edid:
+                ed_low = ref.paired_edid.lower()
+                if ed_low in core_edid_to_id:
+                    core_fid, _ = core_edid_to_id[ed_low]
+                    if ref.plugin != "FO4SFCoreValues.esm" or ref.local_id != core_fid:
+                        errors.append(
+                            f"{ref.cpp_rel}:{ref.line_no} split native lookup for {ref.paired_edid}: "
+                            f"owned by FO4SFCoreValues.esm:0x{core_fid:06X}, but C++ reads {ref.plugin}:0x{ref.local_id:06X}"
+                        )
+                elif actual_edid and actual_edid.lower() != ed_low:
+                    errors.append(
+                        f"{ref.cpp_rel}:{ref.line_no} native lookup EditorID mismatch: C++ expects {ref.paired_edid}, "
+                        f"but {ref.plugin}:0x{ref.local_id:06X} is {actual_edid}"
+                    )
+
+            if ref.plugin != "FO4SFCoreValues.esm" and actual_edid and actual_edid.lower() in core_edid_to_id:
+                core_fid, _ = core_edid_to_id[actual_edid.lower()]
+                errors.append(
+                    f"{ref.cpp_rel}:{ref.line_no} split native lookup: {actual_edid} belongs to "
+                    f"FO4SFCoreValues.esm:0x{core_fid:06X}, not {ref.plugin}:0x{ref.local_id:06X}"
+                )
 
     return errors
