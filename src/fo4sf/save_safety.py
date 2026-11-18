@@ -733,9 +733,9 @@ def collect_build_pex(plugin_root: str, data_root: str, plugins: Sequence[str]) 
         for fn in sorted(os.listdir(folder)):
             if not fn.lower().endswith(".ba2"):
                 continue
-            # When scanning a shared game Data/ folder, restrict to archives belonging to the selected plugins.
+            # Always restrict BA2 scanning to archives belonging to the selected plugins (including live Data/ where folder == plugin_root).
             stem_prefix = fn.split(" - ", 1)[0].casefold()
-            if plugin_stems and folder != plugin_root and stem_prefix not in plugin_stems:
+            if stem_prefix not in plugin_stems:
                 continue
             bpath = os.path.join(folder, fn)
             if not os.path.isfile(bpath):
@@ -882,6 +882,7 @@ def _compare_vmad_script_lists(
 def compare_inspected_builds(before: dict, after: dict) -> dict:
     """Compare two `inspect_build` snapshots and classify save compatibility."""
     breaking: List[dict] = []
+    notes: List[dict] = []
     advisories: List[dict] = []
 
     b_order = before["ordered_plugins"]
@@ -915,18 +916,19 @@ def compare_inspected_builds(before: dict, after: dict) -> dict:
             idx_new = kept_a.index(p)
             if idx_old != idx_new:
                 reordered_plugins.append(a_names[p])
-                breaking.append(
-                    {
-                        "category": "reordered_plugin",
-                        "kind": "reordered_plugin",
-                        "plugin": a_names[p],
-                        "target": a_names[p],
-                        "detail": (
-                            f"plugin {a_names[p]} moved relative slot {idx_old} -> {idx_new}, "
-                            "shifting load-order FormID indices"
-                        ),
-                    }
-                )
+                note_item = {
+                    "category": "reordered_plugin",
+                    "kind": "reordered_plugin",
+                    "severity": "NOTE",
+                    "plugin": a_names[p],
+                    "target": a_names[p],
+                    "detail": (
+                        f"plugin {a_names[p]} moved relative slot {idx_old} -> {idx_new} "
+                        "(unverified, waits for a game test)"
+                    ),
+                }
+                notes.append(note_item)
+                advisories.append(note_item)
 
     added_cf = [p for p in a_cf if p not in b_set]
     inserted_plugins: List[str] = []
@@ -938,18 +940,19 @@ def compare_inspected_builds(before: dict, after: dict) -> dict:
         if pos < last_surviving_idx:
             inserted_plugins.append(pname)
             shifted_after = a_names[next(k for k in kept_a if a_cf.index(k) > pos)]
-            breaking.append(
-                {
-                    "category": "inserted_plugin_shifts_indices",
-                    "kind": "inserted_plugin_shifts_indices",
-                    "plugin": pname,
-                    "target": pname,
-                    "detail": (
-                        f"added plugin {pname} at index {pos} before {shifted_after} "
-                        "shifts surviving plugin FormID indices"
-                    ),
-                }
-            )
+            note_item = {
+                "category": "inserted_plugin_shifts_indices",
+                "kind": "inserted_plugin_shifts_indices",
+                "severity": "NOTE",
+                "plugin": pname,
+                "target": pname,
+                "detail": (
+                    f"added plugin {pname} at index {pos} before {shifted_after} "
+                    "shifts surviving plugin indices (unverified, waits for a game test)"
+                ),
+            }
+            notes.append(note_item)
+            advisories.append(note_item)
         else:
             appended_plugins.append(pname)
             p_info = after["plugins"][p]
@@ -1115,9 +1118,9 @@ def compare_inspected_builds(before: dict, after: dict) -> dict:
 
     counts = {
         "removed_plugin": sum(1 for x in breaking if x["category"] == "removed_plugin"),
-        "reordered_plugin": sum(1 for x in breaking if x["category"] == "reordered_plugin"),
+        "reordered_plugin": sum(1 for x in notes if x["category"] == "reordered_plugin"),
         "inserted_plugin_shifts_indices": sum(
-            1 for x in breaking if x["category"] == "inserted_plugin_shifts_indices"
+            1 for x in notes if x["category"] == "inserted_plugin_shifts_indices"
         ),
         "changed_script_property": sum(1 for x in breaking if x["category"] == "changed_script_property"),
         "changed_quest_or_alias": sum(1 for x in breaking if x["category"] == "changed_quest_or_alias"),
@@ -1126,6 +1129,8 @@ def compare_inspected_builds(before: dict, after: dict) -> dict:
 
     if breaking:
         verdict = "BREAKING"
+    elif notes:
+        verdict = "NOTE"
     elif appended_plugins:
         verdict = "SAFE_APPEND"
     else:
@@ -1150,6 +1155,7 @@ def compare_inspected_builds(before: dict, after: dict) -> dict:
         },
         "counts": counts,
         "breaking": breaking,
+        "notes": notes,
         "advisories": advisories,
     }
     report["swap_warning"] = one_line_swap_warning(report)
@@ -1170,24 +1176,34 @@ def compare_builds(
 
 
 def one_line_swap_warning(report: dict) -> Optional[str]:
-    """Return None when save-compatible, or a single-line warning string when a swap breaks saves."""
-    if not report or report.get("verdict") != "BREAKING":
+    """Return None when clean, a `WARNING:` line when save-breaking, or a `NOTE:` line on unverified slot shifts."""
+    if not report:
         return None
+    verdict = report.get("verdict")
     counts = report.get("counts") or {}
-    ordered_keys = (
-        "removed_plugin",
-        "reordered_plugin",
-        "inserted_plugin_shifts_indices",
-        "changed_script_property",
-        "changed_quest_or_alias",
-    )
-    parts = [f"{k}={counts[k]}" for k in ordered_keys if counts.get(k, 0) > 0]
-    if not parts:
-        parts = [f"issues={len(report.get('breaking') or ())}"]
-    return (
-        f"WARNING: swapping builds will invalidate existing saves ({', '.join(parts)}); "
-        "start a New Game or back up saves first."
-    )
+    if verdict == "BREAKING":
+        breaking_keys = (
+            "removed_plugin",
+            "changed_script_property",
+            "changed_quest_or_alias",
+        )
+        parts = [f"{k}={counts[k]}" for k in breaking_keys if counts.get(k, 0) > 0]
+        if not parts:
+            parts = [f"issues={len(report.get('breaking') or ())}"]
+        return (
+            f"WARNING: swapping builds will invalidate existing saves ({', '.join(parts)}); "
+            "start a New Game or back up saves first."
+        )
+    if verdict == "NOTE":
+        note_keys = ("reordered_plugin", "inserted_plugin_shifts_indices")
+        note_parts = [f"{k}={counts[k]}" for k in note_keys if counts.get(k, 0) > 0]
+        if not note_parts:
+            note_parts = [f"notes={len(report.get('notes') or ())}"]
+        return (
+            f"NOTE: plugin load-order indices shifted ({', '.join(note_parts)}; "
+            "unverified, waits for a game test)."
+        )
+    return None
 
 
 def format_text_report(report: dict) -> str:
@@ -1218,8 +1234,9 @@ def format_text_report(report: dict) -> str:
         lines.append(f"  [BREAKING:{item['category']}] {item['detail']}")
     if len(report["breaking"]) > 20:
         lines.append(f"  ... and {len(report['breaking']) - 20} more breaking finding(s)")
-    for adv in report["advisories"][:10]:
-        lines.append(f"  [ADVISORY:{adv['category']}] {adv['detail']}")
-    if len(report["advisories"]) > 10:
-        lines.append(f"  ... and {len(report['advisories']) - 10} more advisory note(s)")
+    for adv in report["advisories"][:15]:
+        tag = "NOTE" if adv.get("severity") == "NOTE" else "ADVISORY"
+        lines.append(f"  [{tag}:{adv['category']}] {adv['detail']}")
+    if len(report["advisories"]) > 15:
+        lines.append(f"  ... and {len(report['advisories']) - 15} more advisory note(s)")
     return "\n".join(lines) + "\n"

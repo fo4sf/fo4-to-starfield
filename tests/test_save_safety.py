@@ -17,7 +17,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 GAME_SCRIPTS = ROOT / "scripts" / "game"
-for p in (SRC, GAME_SCRIPTS):
+TESTS_DIR = ROOT / "tests"
+for p in (SRC, GAME_SCRIPTS, TESTS_DIR):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
@@ -185,7 +186,7 @@ class SaveSafetyTests(unittest.TestCase):
             self.assertEqual(rep["breaking"], [])
             self.assertIsNone(one_line_swap_warning(rep))
 
-    def test_appended_plugin_is_safe_append_while_inserted_removed_reordered_break(self):
+    def test_appended_plugin_is_safe_append_removed_breaks_and_inserted_or_reordered_emit_note(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             before = self._make_baseline_bundle(root / "before")
@@ -203,10 +204,11 @@ class SaveSafetyTests(unittest.TestCase):
             (removed / "FO4SFBeta.esm").unlink()
             rep_rem = compare_builds(str(before), str(removed))
             self.assertEqual(rep_rem["verdict"], "BREAKING")
+            self.assertFalse(rep_rem["save_compatible"])
             self.assertEqual(rep_rem["counts"]["removed_plugin"], 1)
             self.assertIn("removed_plugin=1", one_line_swap_warning(rep_rem))
 
-            # 3. Inserted plugin before existing FO4SFBeta.esm -> BREAKING (inserted_plugin_shifts_indices)
+            # 3. Inserted plugin before existing FO4SFBeta.esm -> NOTE (unverified, waits for a game test)
             inserted = self._make_baseline_bundle(root / "inserted")
             _write_plugin(inserted / "FO4SFAardvark.esm", masters=("Starfield.esm",), records=[])
             (inserted / "bundle_plan.json").write_text(
@@ -214,11 +216,17 @@ class SaveSafetyTests(unittest.TestCase):
                 encoding="utf-8",
             )
             rep_ins = compare_builds(str(before), str(inserted))
-            self.assertEqual(rep_ins["verdict"], "BREAKING")
+            self.assertEqual(rep_ins["verdict"], "NOTE")
+            self.assertTrue(rep_ins["save_compatible"])
+            self.assertEqual(rep_ins["breaking"], [])
             self.assertEqual(rep_ins["counts"]["inserted_plugin_shifts_indices"], 1)
-            self.assertIn("inserted_plugin_shifts_indices=1", one_line_swap_warning(rep_ins))
+            ins_note = one_line_swap_warning(rep_ins)
+            self.assertIsNotNone(ins_note)
+            self.assertTrue(ins_note.startswith("NOTE:"), ins_note)
+            self.assertIn("inserted_plugin_shifts_indices=1", ins_note)
+            self.assertIn("unverified, waits for a game test", ins_note)
 
-            # 4. Reordered surviving plugins -> BREAKING (reordered_plugin)
+            # 4. Reordered surviving plugins -> NOTE (unverified, waits for a game test)
             reord_before = root / "reord_before"
             _write_plugin(reord_before / "FO4SFA.esm", masters=("Starfield.esm",), records=[])
             _write_plugin(reord_before / "FO4SFB.esm", masters=("Starfield.esm",), records=[])
@@ -232,9 +240,15 @@ class SaveSafetyTests(unittest.TestCase):
                 json.dumps({"plugins": ["FO4SFB.esm", "FO4SFA.esm"]}), encoding="utf-8"
             )
             rep_reord = compare_builds(str(reord_before), str(reord_after))
-            self.assertEqual(rep_reord["verdict"], "BREAKING")
+            self.assertEqual(rep_reord["verdict"], "NOTE")
+            self.assertTrue(rep_reord["save_compatible"])
+            self.assertEqual(rep_reord["breaking"], [])
             self.assertGreaterEqual(rep_reord["counts"]["reordered_plugin"], 1)
-            self.assertIn("reordered_plugin=", one_line_swap_warning(rep_reord))
+            reord_note = one_line_swap_warning(rep_reord)
+            self.assertIsNotNone(reord_note)
+            self.assertTrue(reord_note.startswith("NOTE:"), reord_note)
+            self.assertIn("reordered_plugin=", reord_note)
+            self.assertIn("unverified, waits for a game test", reord_note)
 
     def test_changed_vmad_property_and_packed_ba2_pex_property_break(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -383,6 +397,44 @@ class SaveSafetyTests(unittest.TestCase):
                 )
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertIn("WARNING: swapping builds will invalidate existing saves", proc.stdout)
+
+    def test_live_data_dir_ignores_starfield_misc_ba2_containing_pex(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            game = root / "game"
+            data = game / "Data"
+            data.mkdir(parents=True)
+            local = root / "local"
+            (local / "Starfield").mkdir(parents=True)
+            (local / "Starfield" / "Plugins.txt").write_bytes(b"*Starfield.esm\r\n")
+
+            # Place a fake vanilla 'Starfield - Misc.ba2' holding a .pex inside live Data/
+            vanilla_pex = _build_synthetic_pex("VanillaBaseQuestScript", [("BaseProp", "Int")])
+            (data / "Starfield - Misc.ba2").write_bytes(
+                general_archive({"Scripts/VanillaBaseQuestScript.pex": vanilla_pex})
+            )
+
+            stage_v1 = self._make_baseline_bundle(root / "stage_v1")
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(local)}):
+                exp.main(
+                    [
+                        "install",
+                        "--exp-dir",
+                        str(stage_v1),
+                        "--starfield",
+                        str(game),
+                        "--plugins",
+                        "FO4SFAlpha.esm,FO4SFBeta.esm",
+                    ]
+                )
+                # Both <game> and <game>/Data (where plugin_root == data_root) must skip Starfield - Misc.ba2!
+                rep_game = compare_builds(str(game), str(stage_v1))
+                self.assertEqual(rep_game["verdict"], "SAFE", rep_game["breaking"])
+                self.assertEqual(rep_game["before"]["summary"]["pex_script_count"], 2)
+
+                rep_data = compare_builds(str(data), str(stage_v1))
+                self.assertEqual(rep_data["verdict"], "SAFE", rep_data["breaking"])
+                self.assertEqual(rep_data["before"]["summary"]["pex_script_count"], 2)
 
 
 if __name__ == "__main__":
