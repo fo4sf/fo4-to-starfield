@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import subprocess
@@ -108,8 +109,9 @@ class SoakReportTests(unittest.TestCase):
             "SFSE loader: initialize\nWinVerifyTrust: 00000000 00000000 sfse_loader.exe\nhook thread complete\n",
         )
 
-        # Clean exit in crashwatch.log
-        _write(base / "crashes" / "crashwatch.log", "2026-11-17T13:00:06 exited: 0x00000000 normal exit\n")
+        # Clean exit in crashwatch.log anchored to current wall-clock session end
+        now_local = datetime.datetime.now().isoformat(timespec="seconds")
+        _write(base / "crashes" / "crashwatch.log", f"{now_local} exited: 0x00000000 normal exit\n")
 
     def test_clean_60min_soak_passes_and_fits_phone_bounds(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -147,7 +149,8 @@ class SoakReportTests(unittest.TestCase):
             base = Path(tmp)
             self._populate_clean_60min_session(base)
             (base / "crashes" / "Starfield_261117_123000.dmp").write_bytes(b"synthetic dump payload")
-            _write(base / "driver.log", "2026-11-17T12:30:01Z monitor check alive=False pid=4242\n")
+            now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _write(base / "driver.log", f"{now_utc} monitor check alive=False pid=4242\n")
 
             report = analyze_session(str(base), crash_dir=str(base / "crashes"))
             self.assertEqual(report["verdict"], "FAIL")
@@ -310,6 +313,60 @@ class SoakReportTests(unittest.TestCase):
             all_ages = analyze_session(str(base), crash_dir=str(base / "crashes"), session_window_hours=None)
             self.assertEqual(all_ages["verdict"], "FAIL")
             self.assertIn("FOCCPing:slots", all_ages["sfse"]["refusals"])
+
+    def test_cumulative_crashwatch_history_windowed_by_line_timestamp_and_watch_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            # Simulate a rotated Papyrus.0.log covering only the final 1m 49s of a 60-minute soak
+            _write(
+                base / "Logs" / "Script" / "Papyrus.0.log",
+                "[12:58:16] Papyrus log opened (PC-64)\n"
+                "[13:00:05] Log closed\n",
+            )
+            now_dt = datetime.datetime.now()
+            old_base = now_dt - datetime.timedelta(days=14)
+            history_lines = [
+                "ProcDump v12.02 - Sysinternals process dump utility",
+                *(
+                    f"{(old_base + datetime.timedelta(minutes=5 * i)).isoformat(timespec='seconds')} "
+                    f"ended: process {10000 + i}, 0xC0000005 ACCESS_VIOLATION, after 180 s up, "
+                    f"dumps: Starfield.exe_old_{i}.dmp, ProcDump exit 1"
+                    for i in range(143)
+                ),
+            ]
+            t_start = (now_dt - datetime.timedelta(seconds=3610)).isoformat(timespec="seconds")
+            t_armed = (now_dt - datetime.timedelta(seconds=3582)).isoformat(timespec="seconds")
+            t_end = now_dt.isoformat(timespec="seconds")
+            current_lines = [
+                f"{t_start} play: starting the game",
+                f"{t_armed} armed: process 42420: -accepteula -mm -e 1 -f 80000003 -t -n 2",
+                "  procdump: Exception filter: *80000003*",
+                "  procdump: [12:00:30]Exception: 406D1388",
+                f"{t_end} ended: process 42420, 0x00000000 normal exit, after 3605 s up, dumps: none, ProcDump exit 0",
+            ]
+            cw_path = base / "crashes" / "crashwatch.log"
+            cw_path.parent.mkdir(parents=True, exist_ok=True)
+            # Include embedded NULs as seen in mixed ProcDump folds to verify _read_lines sanitization
+            payload = ("\n".join(history_lines + current_lines) + "\n").encode("utf-8").replace(b"v12.02", b"v12\x00.02")
+            cw_path.write_bytes(payload)
+
+            # Also verify weeks-old driver.log lines are filtered by line timestamp even when file mtime is fresh
+            old_utc = (now_dt.astimezone(datetime.timezone.utc) - datetime.timedelta(days=10)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            _write(base / "driver.log", f"{old_utc} monitor check alive=False pid=9999\n")
+
+            report = analyze_session(str(base), crash_dir=str(base / "crashes"))
+            self.assertEqual(report["verdict"], "PASS", report["fail_reasons"])
+            self.assertEqual(report["crashes"]["unexpected_exits"], 0)
+            self.assertEqual(report["crashes"]["clean_exits"], 1)
+            self.assertGreaterEqual(report["crashes"]["stale_lines_skipped"], 144)
+            # Session duration comes from watch start/end lines (3610s) rather than 1m 49s Papyrus tail!
+            self.assertGreaterEqual(report["duration_seconds"], 3605.0)
+
+            unwindowed = analyze_session(str(base), crash_dir=str(base / "crashes"), session_window_hours=None)
+            self.assertEqual(unwindowed["verdict"], "FAIL")
+            self.assertEqual(unwindowed["crashes"]["unexpected_exits"], 144)
 
 
 if __name__ == "__main__":

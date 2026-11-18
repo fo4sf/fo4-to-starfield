@@ -30,6 +30,10 @@ _OURS_RE = re.compile(
 _PAPYRUS_LINE_RE = re.compile(r"^\[(?P<time>[^\]]{1,40})\]\s*(?P<text>.*)$")
 _CLOCK_RE = re.compile(r"(?:^|\s)(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?\s*(AM|PM)?$", re.IGNORECASE)
 _SFSE_LINE_RE = re.compile(r"^\[(?P<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]\s*\[[^\]]+\]\s*\[(?P<lvl>[A-Z])\]\s*(?P<body>.*)$")
+_ISO_LINE_RE = re.compile(
+    r"^\[?(?P<iso>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]?(?:\s+|$)(?P<body>.*)$"
+)
+_WATCH_UP_RE = re.compile(r"\bafter\s+(?P<up>\d+(?:\.\d+)?)\s*s\s+up\b", re.IGNORECASE)
 _ROTATED_LOG_RE = re.compile(r"^(?P<stem>.+?)\.(?P<idx>\d+)\.log$", re.IGNORECASE)
 _RT_RE = re.compile(r"\brt=(?P<rt>-?\d+(?:\.\d+)?)")
 _HOLD_PASS_RE = re.compile(r"\bhold-off pass\s+(?P<pass>\d+)\s+stopped=(?P<stopped>\d+)\s+of\s+(?P<total>\d+)", re.IGNORECASE)
@@ -86,7 +90,17 @@ _EXCEPTION_NAMES = {
 
 def _read_lines(path: str) -> List[str]:
     with open(path, encoding="utf-8-sig", errors="replace") as handle:
-        return [ln.rstrip("\r\n") for ln in handle]
+        return [ln.replace("\x00", "").rstrip("\r\n") for ln in handle]
+
+
+def _parse_iso_epoch(raw_iso: str) -> Optional[float]:
+    s = raw_iso.strip()
+    if s.endswith(("Z", "z")):
+        s = s[:-1] + "+00:00"
+    try:
+        return datetime.datetime.fromisoformat(s).timestamp()
+    except ValueError:
+        return None
 
 
 def _parse_clock_seconds(token: str) -> Optional[float]:
@@ -277,13 +291,13 @@ def _is_fresh(path: str, min_mtime: Optional[float]) -> bool:
         return True
 
 
-def _compute_min_mtime(layout: dict, session_window_hours: Optional[float]) -> Optional[float]:
-    if session_window_hours is None or session_window_hours <= 0:
-        return None
+def _compute_session_bounds(
+    layout: dict, session_window_hours: Optional[float]
+) -> Tuple[Optional[float], Optional[float]]:
     newest = 0.0
     # Prefer Papyrus.0.log / Papyrus.1.log or sfse.txt as session time anchors, falling back to any log file.
     anchor_candidates: List[str] = []
-    all_candidates: List[str] = []
+    other_candidates: List[str] = []
     for d in layout["script_dirs"] + layout["user_dirs"] + layout["sfse_dirs"]:
         if not os.path.isdir(d):
             continue
@@ -293,21 +307,34 @@ def _compute_min_mtime(layout: dict, session_window_hours: Optional[float]) -> O
                 continue
             p = os.path.join(d, fn)
             if os.path.isfile(p):
-                all_candidates.append(p)
+                other_candidates.append(p)
                 if low in ("papyrus.0.log", "papyrus.1.log", "sfse.txt", "sfse.log"):
                     anchor_candidates.append(p)
-    for p in layout["driver_logs"]:
-        if os.path.isfile(p):
-            all_candidates.append(p)
-    pool = anchor_candidates or all_candidates
+    pool = anchor_candidates or other_candidates
     for p in pool:
         try:
             newest = max(newest, os.path.getmtime(p))
         except OSError:
             continue
     if newest <= 0.0:
-        return None
-    return newest - session_window_hours * 3600.0
+        for p in layout["driver_logs"]:
+            if not os.path.isfile(p):
+                continue
+            for ln in _read_lines(p):
+                m_iso = _ISO_LINE_RE.match(ln)
+                if m_iso:
+                    ts = _parse_iso_epoch(m_iso.group("iso"))
+                    if ts is not None:
+                        newest = max(newest, ts)
+            if newest <= 0.0:
+                try:
+                    newest = max(newest, os.path.getmtime(p))
+                except OSError:
+                    continue
+    anchor_ts = newest if newest > 0.0 else None
+    if session_window_hours is None or session_window_hours <= 0 or anchor_ts is None:
+        return None, anchor_ts
+    return anchor_ts - session_window_hours * 3600.0, anchor_ts
 
 
 def _inspect_minidump_exception(path: str) -> Optional[str]:
@@ -337,10 +364,12 @@ def _parse_crashes_and_exits(
     sfse_dirs: Sequence[str],
     *,
     min_mtime: Optional[float] = None,
+    anchor_ts: Optional[float] = None,
 ) -> dict:
     seen_dumps = set()
     dumps = []
     stale_skipped = 0
+    stale_lines_skipped = 0
     for folder in crash_dirs:
         if not os.path.isdir(folder):
             continue
@@ -368,16 +397,73 @@ def _parse_crashes_and_exits(
     unexpected_exits = 0
     exit_notes: List[str] = []
     logs_read = 0
+    watch_runs: List[Tuple[float, float]] = []  # [(end_ts, duration_s)]
+
     for path in driver_logs:
         if not os.path.isfile(path):
             continue
-        if not _is_fresh(path, min_mtime):
-            stale_skipped += 1
-            continue
-        logs_read += 1
+        raw_lines = _read_lines(path)
+        has_iso = any(_ISO_LINE_RE.match(ln) for ln in raw_lines if ln.strip())
+        if not has_iso:
+            if not _is_fresh(path, min_mtime):
+                stale_skipped += 1
+                continue
+
         base = os.path.basename(path)
-        for line in _read_lines(path):
-            low = line.lower()
+        cur_ts: Optional[float] = None
+        active_start_ts: Optional[float] = None
+        kept_in_file = 0
+        skipped_in_file = 0
+
+        for line in raw_lines:
+            if not line.strip():
+                continue
+            # Folded ProcDump stdout/stderr lines (`  procdump: ...`) summarize already-recorded `ended:` runs.
+            if line[:1].isspace() and line.lstrip().lower().startswith("procdump:"):
+                continue
+
+            m_iso = _ISO_LINE_RE.match(line)
+            if m_iso:
+                cur_ts = _parse_iso_epoch(m_iso.group("iso"))
+                body = m_iso.group("body")
+            else:
+                body = line
+
+            if has_iso and min_mtime is not None:
+                if cur_ts is None or cur_ts < min_mtime or (anchor_ts is not None and cur_ts > anchor_ts + 3600.0):
+                    skipped_in_file += 1
+                    continue
+
+            kept_in_file += 1
+            low = body.lower().strip()
+
+            # Track watch session start / cancel / end lines to derive session duration accurately.
+            if cur_ts is not None:
+                if low.startswith(("play: starting", "watch: waiting", "session start", "started:")):
+                    active_start_ts = cur_ts
+                elif low.startswith(("armed: process", "not armed on process")) and active_start_ts is None:
+                    active_start_ts = cur_ts
+                elif low.startswith(("play: refused:", "play: stopped by", "play: could not start", "game did not stay up")):
+                    active_start_ts = None
+
+            is_end_line = (
+                low.startswith(("ended:", "exited:"))
+                or "alive=false" in low
+                or "alive=0" in low
+            )
+            if is_end_line:
+                m_up = _WATCH_UP_RE.search(body)
+                up_s = float(m_up.group("up")) if m_up else 0.0
+                span_s = (
+                    cur_ts - active_start_ts
+                    if (cur_ts is not None and active_start_ts is not None and cur_ts >= active_start_ts)
+                    else 0.0
+                )
+                active_start_ts = None
+                dur_s = max(up_s, span_s)
+                if dur_s > 0.0:
+                    watch_runs.append((cur_ts or 0.0, dur_s))
+
             if "alive=false" in low or "alive=0" in low:
                 if any(tok in low for tok in ("clean_quit", "clean=true", "clean=1", "expected", "user_quit", "phase=quit")):
                     clean_exits += 1
@@ -385,27 +471,48 @@ def _parse_crashes_and_exits(
                     unexpected_exits += 1
                     exit_notes.append(f"{base}: unexpected process exit (alive=False)")
                 continue
-            if any(
-                tok in low
-                for tok in (
-                    "unexpected exit",
-                    "ended before it settled",
-                    "access_violation",
-                    "0xc0000005",
-                    "0x80000003",
-                    "stack_buffer_overrun",
-                    "0xc0000409",
-                    "stack_overflow",
-                    "0xc00000fd",
-                    "heap_corruption",
-                    "0xc0000374",
-                    "# timed out after",
+
+            if "0x00000000 normal exit" in low or "clean quit" in low:
+                clean_exits += 1
+            elif (
+                low.startswith("ended:")
+                or any(
+                    tok in low
+                    for tok in (
+                        "unexpected exit",
+                        "ended before it settled",
+                        "access_violation",
+                        "0xc0000005",
+                        "0x80000003",
+                        "stack_buffer_overrun",
+                        "0xc0000409",
+                        "stack_overflow",
+                        "0xc00000fd",
+                        "heap_corruption",
+                        "0xc0000374",
+                        "# timed out after",
+                    )
                 )
-            ) or re.search(r"\bexit code [1-9]\d*\b", low):
+                or re.search(r"\bexit code [1-9]\d*\b", low)
+            ):
                 unexpected_exits += 1
                 exit_notes.append(f"{base}: abnormal exit")
-            elif "0x00000000 normal exit" in low or "clean quit" in low:
-                clean_exits += 1
+
+        if active_start_ts is not None and anchor_ts is not None and anchor_ts > active_start_ts:
+            watch_runs.append((anchor_ts, anchor_ts - active_start_ts))
+
+        stale_lines_skipped += skipped_in_file
+        if kept_in_file > 0 or not has_iso or min_mtime is None:
+            logs_read += 1
+        elif skipped_in_file > 0:
+            stale_skipped += 1
+
+    watch_duration_s = 0.0
+    if watch_runs:
+        watch_runs.sort(key=lambda item: item[0])
+        latest_end_ts, latest_dur_s = watch_runs[-1]
+        if anchor_ts is None or latest_end_ts <= 0.0 or abs(anchor_ts - latest_end_ts) <= 1800.0:
+            watch_duration_s = latest_dur_s
 
     loader_errors: List[str] = []
     for folder in sfse_dirs:
@@ -443,6 +550,8 @@ def _parse_crashes_and_exits(
         "loader_errors": loader_errors,
         "logs_read": logs_read,
         "stale_skipped": stale_skipped,
+        "stale_lines_skipped": stale_lines_skipped,
+        "watch_duration_s": round(watch_duration_s, 1),
     }
 
 
@@ -1012,9 +1121,13 @@ def analyze_session(
 ) -> dict:
     """Parse Crash/Process, SFSE, and Papyrus/Slice logs into a structured soak report dict."""
     layout = _resolve_layout(log_dir, sfse_log_dir, crash_dir, driver_log)
-    min_mtime = _compute_min_mtime(layout, session_window_hours)
+    min_mtime, anchor_ts = _compute_session_bounds(layout, session_window_hours)
     crashes = _parse_crashes_and_exits(
-        layout["crash_dirs"], layout["driver_logs"], layout["sfse_dirs"], min_mtime=min_mtime
+        layout["crash_dirs"],
+        layout["driver_logs"],
+        layout["sfse_dirs"],
+        min_mtime=min_mtime,
+        anchor_ts=anchor_ts,
     )
     sfse = _parse_sfse_logs(layout["sfse_dirs"], min_mtime=min_mtime)
     papyrus = _parse_papyrus_engine_logs(layout["script_dirs"], include_rotated=include_rotated)
@@ -1028,15 +1141,14 @@ def analyze_session(
 
     total_logs = crashes["logs_read"] + sfse["logs_read"] + papyrus["logs_read"] + slices["logs_read"]
     stale_skipped = crashes["stale_skipped"] + sfse["stale_skipped"] + slices["stale_skipped"]
-    duration_s = round(
-        max(
-            sfse["clock_span_s"],
-            papyrus["clock_span_s"],
-            slices["clock_span_s"],
-            slices["rt_span_s"],
-        ),
-        1,
+    fallback_span_s = max(
+        sfse["clock_span_s"],
+        papyrus["clock_span_s"],
+        slices["clock_span_s"],
+        slices["rt_span_s"],
     )
+    watch_span_s = crashes.get("watch_duration_s", 0.0)
+    duration_s = round(watch_span_s if watch_span_s > 0.0 else fallback_span_s, 1)
 
     fail_reasons: List[str] = []
     warn_reasons: List[str] = []
