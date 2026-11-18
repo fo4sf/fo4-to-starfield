@@ -706,6 +706,31 @@ def stage_fo4_boot_movie(fo4_interface_ba2, out_interface_dir, dst_name="pipboyb
     return dst_name
 
 
+def stage_fo4_special_movie(fo4_interface_ba2, out_interface_dir, dst_name="fo4sf_specialmenu"):
+    """Extract `Interface/SPECIALMenu.swf` from a local `Fallout4 - Interface.ba2` into `<out_interface_dir>/<dst_name>.swf`."""
+    refuse_unsafe_output_path(out_interface_dir)
+    if not dst_name or not re.fullmatch(r"[A-Za-z0-9_]{1,64}", dst_name):
+        raise MapStoreError(f"invalid special menu movie name: {dst_name!r}")
+    from fo4sf.ba2 import Ba2
+    archive = Ba2(fo4_interface_ba2)
+    matched_entry = None
+    for entry in archive.entries:
+        if entry.name.replace("\\", "/").lower() == "interface/specialmenu.swf":
+            matched_entry = entry
+            break
+    if matched_entry is None:
+        raise MapStoreError("Interface/SPECIALMenu.swf not found in archive")
+    os.makedirs(out_interface_dir, exist_ok=True)
+    dst = os.path.join(out_interface_dir, f"{dst_name}.swf")
+    raw = archive.read(matched_entry.name)
+    with open(dst, "wb") as f:
+        f.write(raw)
+    why = pbi.swf_problem(dst)
+    if why:
+        raise MapStoreError(f"extracted special menu movie {dst_name}.swf failed SWF check: {why}")
+    return dst_name
+
+
 # ------------------------------------------------------------------------------------------------ travel ESM & store TSV
 def _glob_record(formid, edid, value=0.0):
     return Record(b"GLOB", formid, [(b"EDID", zbytes(edid)), (b"FLTV", struct.pack("<f", float(value)))])
@@ -1044,6 +1069,14 @@ def main(argv=None):
     p_fc.add_argument("--interface-dir", required=True, help="Destination <stage>/Data/Interface directory")
     p_fc.add_argument("--no-perks", action="store_true", help="Skip VaultBoys/Perks/*.swf")
 
+    p_sm = sub.add_parser(
+        "stage-special-menu",
+        help="Extract SPECIALMenu.swf from Fallout4 - Interface.ba2 into Data/Interface/<dst_name>.swf",
+    )
+    p_sm.add_argument("--ba2", required=True, help="Path to local Fallout4 - Interface.ba2")
+    p_sm.add_argument("--interface-dir", required=True, help="Destination <stage>/Data/Interface directory")
+    p_sm.add_argument("--dst-name", default="fo4sf_specialmenu", help="Destination base SWF name")
+
     sub.add_parser("self-test", help="Run synthetic offline self-checks")
 
     args = ap.parse_args(argv)
@@ -1098,6 +1131,10 @@ def main(argv=None):
     if args.cmd == "stage-fo4-components":
         staged = stage_fo4_stat_components(args.ba2, args.interface_dir, include_perks=not args.no_perks)
         print(f"staged {len(staged)} component SWF(s) into {args.interface_dir}")
+        return 0
+    if args.cmd == "stage-special-menu":
+        name = stage_fo4_special_movie(args.ba2, args.interface_dir, dst_name=args.dst_name)
+        print(f"staged {name}.swf into {args.interface_dir}")
         return 0
     return 1
 

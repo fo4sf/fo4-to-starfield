@@ -265,6 +265,7 @@ namespace
 	std::atomic<bool>                      g_markersDirty{ true };
 	std::atomic<bool>                      g_needTexturesLoaded{ false };
 	std::atomic<bool>                      g_needCenter{ false };
+	std::atomic<std::int32_t>              g_requestedCenterMarkerId{ -1 };
 	std::atomic<bool>                      g_textureLogged{ false };
 	std::atomic<bool>                      g_modalOpen{ false };
 	std::atomic<bool>                      g_hasCustomMarker{ false };
@@ -1891,10 +1892,21 @@ namespace PipboyMap
 		g_markersDirty = true;
 	}
 
+	void RequestCenterMarker(std::int32_t a_markerIdOrIndex)
+	{
+		if (!g_on) {
+			return;
+		}
+		g_requestedCenterMarkerId.store(a_markerIdOrIndex);
+		g_needCenter = true;
+		g_markersDirty = true;
+	}
+
 	void ReleaseMovieRefs()
 	{
 		g_mapPageVal = RE::Scaleform::GFx::Value{};
 		g_needTexturesLoaded = false;
+		g_requestedCenterMarkerId = -1;
 		g_modalOpen = false;
 	}
 
@@ -2236,10 +2248,21 @@ namespace PipboyMap
 				}
 			}
 			if (g_needCenter.exchange(false) && g_lastPlayerArrayIdx >= 0) {
-				RE::Scaleform::GFx::Value idxArg(static_cast<std::uint32_t>(g_lastPlayerArrayIdx));
+				std::int32_t centerIdx = g_lastPlayerArrayIdx;
+				const auto   wantId = g_requestedCenterMarkerId.exchange(-1);
+				if (wantId >= 0) {
+					for (std::size_t mi = 0; mi < g_store.size(); ++mi) {
+						if (static_cast<std::int32_t>(g_store[mi].localId) == (wantId & 0xFFFFFF) ||
+							static_cast<std::int32_t>(g_store[mi].index) == wantId) {
+							centerIdx = static_cast<std::int32_t>(mi);
+							break;
+						}
+					}
+				}
+				RE::Scaleform::GFx::Value idxArg(static_cast<std::uint32_t>(centerIdx));
 				RE::Scaleform::GFx::Value res;
 				const bool called = InvokeMapMovie(g_mapPageVal, "SetCenterMarker", &res, &idxArg, 1, "MapPage.SetCenterMarker");
-				REX::INFO("step=map_center idx={} called={}", g_lastPlayerArrayIdx, called ? 1 : 0);
+				REX::INFO("step=map_center idx={} called={}", centerIdx, called ? 1 : 0);
 				if (!called) {
 					REX::INFO("step=movie_call_miss where=SetCenterMarker");
 					return;

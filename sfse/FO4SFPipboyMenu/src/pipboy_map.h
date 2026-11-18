@@ -55,6 +55,8 @@ namespace PipboyMap
 
 	void CollectStateForPage(std::int32_t a_targetPage);
 
+	void RequestCenterMarker(std::int32_t a_markerIdOrIndex = -1);
+
 	void PopulateMapDataObj(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root,
 		RE::Scaleform::GFx::Value& a_dataObj, std::int32_t a_targetPage);
 
