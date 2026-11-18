@@ -287,7 +287,17 @@ class ArchiveSplitTests(unittest.TestCase):
             archive_split.plan_split_by_size(
                 resources, plugins, max_archive_bytes=1400, starfield_dir=str(self.game)
             )
+        # Alternate toggle schema ("plugins_off") and unticked Plugins.txt lines are also refused in every mode
+        toggle_path.write_text(json.dumps({"plugins_off": ["Alpha.esm"]}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "carrier plugin.*Alpha.esm"):
+            archive_split.plan_split_by_plugin(
+                resources, plugins, bundle_plan=bplan, max_archive_bytes=10000, starfield_dir=str(self.game)
+            )
         toggle_path.unlink()
+        with self.assertRaisesRegex(ValueError, "carrier plugin.*Charlie.esm"):
+            archive_split.plan_split_by_plugin(
+                resources, plugins, bundle_plan=bplan, max_archive_bytes=10000, plugins_txt_path=str(self.plugins_txt)
+            )
 
 
 if __name__ == "__main__":

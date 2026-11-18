@@ -83,35 +83,50 @@ def plugin_main_archive_name(plugin_filename: str) -> str:
     return f"{stem} - Main.ba2"
 
 
-def read_held_off_plugins(starfield_dir: Optional[str]) -> set[str]:
-    """Return casefolded plugin names listed under `"off"` in `<starfield_dir>/Data/FO4SF.toggle.json`."""
-    if not starfield_dir:
-        return set()
-    cand_data = os.path.join(starfield_dir, "Data")
-    toggle_path = (
-        os.path.join(cand_data, "FO4SF.toggle.json")
-        if os.path.isdir(cand_data)
-        else os.path.join(starfield_dir, "FO4SF.toggle.json")
-    )
-    if not os.path.exists(toggle_path):
-        return set()
-    with open(toggle_path, encoding="utf-8") as fp:
-        rec = json.load(fp)
-    off = rec.get("off") if isinstance(rec, Mapping) else None
-    if not isinstance(off, list) or not all(isinstance(x, str) and x.strip() for x in off):
-        raise ValueError(f"{toggle_path}: 'off' must be a list of non-empty plugin names")
-    return {x.strip().casefold() for x in off}
+def read_held_off_plugins(
+    starfield_dir: Optional[str],
+    plugins_txt_path: Optional[str] = None,
+) -> set[str]:
+    """Return casefolded plugin names switched off in `Data/FO4SF.toggle.json` (`"off"`/`"plugins_off"`) or `Plugins.txt`."""
+    held: set[str] = set()
+    if starfield_dir:
+        cand_data = os.path.join(starfield_dir, "Data")
+        toggle_path = (
+            os.path.join(cand_data, "FO4SF.toggle.json")
+            if os.path.isdir(cand_data)
+            else os.path.join(starfield_dir, "FO4SF.toggle.json")
+        )
+        if os.path.exists(toggle_path):
+            with open(toggle_path, encoding="utf-8") as fp:
+                rec = json.load(fp)
+            if not isinstance(rec, Mapping) or ("off" not in rec and "plugins_off" not in rec):
+                raise ValueError(f"{toggle_path}: 'off' must be a list of non-empty plugin names")
+            for key in ("off", "plugins_off"):
+                if key in rec:
+                    off = rec.get(key)
+                    if not isinstance(off, list) or not all(isinstance(x, str) and x.strip() for x in off):
+                        raise ValueError(f"{toggle_path}: '{key}' must be a list of non-empty plugin names")
+                    held.update(x.strip().casefold() for x in off)
+    if plugins_txt_path and os.path.isfile(plugins_txt_path):
+        with open(plugins_txt_path, encoding="utf-8-sig") as fp:
+            for raw in fp:
+                s = raw.strip()
+                if not s or s.startswith("#") or s.startswith("*"):
+                    continue
+                held.add(s.casefold())
+    return held
 
 
 def refuse_held_carrier_buckets(
     buckets: Sequence[ArchiveBucket],
     held_off: Iterable[str] = (),
     starfield_dir: Optional[str] = None,
+    plugins_txt_path: Optional[str] = None,
 ) -> None:
-    """Refuse any split plan whose carrier plugin is held off in `Data/FO4SF.toggle.json` (`"off"` list)."""
+    """Refuse any split plan whose carrier plugin is switched off in `Data/FO4SF.toggle.json` or `Plugins.txt`."""
     held_set = {str(p).strip().casefold() for p in (held_off or ()) if str(p).strip()}
-    if starfield_dir:
-        held_set |= read_held_off_plugins(starfield_dir)
+    if starfield_dir or plugins_txt_path:
+        held_set |= read_held_off_plugins(starfield_dir, plugins_txt_path=plugins_txt_path)
     if not held_set:
         return
     held_stems = {os.path.splitext(p)[0].casefold() for p in held_set}
@@ -199,6 +214,7 @@ def plan_split_by_size(
     *,
     held_off: Iterable[str] = (),
     starfield_dir: Optional[str] = None,
+    plugins_txt_path: Optional[str] = None,
 ) -> List[ArchiveBucket]:
     """Deterministically split `resources` across `<plugins[k]> - Main.ba2` archives so each is <= `max_archive_bytes`.
 
@@ -243,7 +259,12 @@ def plan_split_by_size(
                 f"planned archive {bucket.archive_name} is {bucket.estimated_ba2_bytes} B > {max_archive_bytes} B"
             )
         buckets.append(bucket)
-    refuse_held_carrier_buckets(buckets, held_off=held_off, starfield_dir=starfield_dir)
+    refuse_held_carrier_buckets(
+        buckets,
+        held_off=held_off,
+        starfield_dir=starfield_dir,
+        plugins_txt_path=plugins_txt_path,
+    )
     return buckets
 
 
@@ -255,6 +276,7 @@ def plan_split_by_plugin(
     *,
     held_off: Iterable[str] = (),
     starfield_dir: Optional[str] = None,
+    plugins_txt_path: Optional[str] = None,
 ) -> List[ArchiveBucket]:
     """Assign each `Data/*` resource to its owning plugin's `<PluginStem> - Main.ba2` (with overflow spill if > budget).
 
@@ -322,7 +344,12 @@ def plan_split_by_plugin(
         )
         for p, grp in final_pairs
     ]
-    refuse_held_carrier_buckets(buckets, held_off=held_off, starfield_dir=starfield_dir)
+    refuse_held_carrier_buckets(
+        buckets,
+        held_off=held_off,
+        starfield_dir=starfield_dir,
+        plugins_txt_path=plugins_txt_path,
+    )
     return buckets
 
 
