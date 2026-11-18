@@ -1,0 +1,356 @@
+"""Offline synthetic unit tests for `W2`, `W3`, `W4`, `WL1`, `WL2`, and `R4`
+(`src/fo4sf/planet/home_planet_spec.py`, `src/fo4sf/planet/biom.py`, `scripts/planet/make_home_planet.py`,
+`scripts/terrain/sf_location_census.py`, and `docs/world/three-way-study.md`).
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import struct
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+for sub in ("src", "scripts/planet", "scripts/terrain"):
+    p = str(ROOT / sub)
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from fo4_world_census import CensusPathError  # noqa: E402
+from fo4sf.planet import biom, esm, home_planet_spec as hspec, probe, records  # noqa: E402
+import make_home_planet  # noqa: E402
+import sf_location_census  # noqa: E402
+
+
+def _build_synthetic_starfield_data(data_dir: Path) -> Path:
+    """Create a synthetic `Data/Starfield.esm` and `Data/FO4TerrainCore.esm` with zero game files read."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    sf_path = data_dir / "Starfield.esm"
+    w = esm.PluginWriter([], esm.ESM)
+
+    kywds = [
+        (0x00149F, "LocTypeStarSystem"),
+        (0x0014A0, "LocTypePlanet"),
+        (0x016010, "LocTypeMoon"),
+        (0x070A54, "LocTypeMajorOrbital"),
+        (0x016503, "LocTypeSurface"),
+        (0x016504, "LocTypeOrbit"),
+        (0x2CA99D, "LocTypeOverlay"),
+        (0x121A19, "Star_Class_G"),
+        (0x295EA4, "PlanetAtmosphereType05O2"),
+        (0x295EC0, "PlanetPressure02Terrestrial"),
+        (0x295EC5, "PlanetTemperature03Temperate"),
+        (0x295EBC, "PlanetGravity01Terrestrial"),
+        (0x295EB8, "PlanetWaterQuality01Safe"),
+        (0x295ECA, "PlanetWaterAbundance02Terrestrial"),
+        (0x295EAF, "PlanetFaunaAbundance00None"),
+        (0x295EB4, "PlanetFloraAbundance00None"),
+        (0x295ED0, "PlanetType07Rock"),
+        (0x290FCD, "PlanetMagnetosphereType04Strong"),
+        (0x11D575, "LocTypeNoPCMScanTreeContent"),
+        (0x295EA8, "PlanetAtmosphereType01CO2"),
+        (0x295EC1, "PlanetPressure01Thin"),
+        (0x295EC6, "PlanetTemperature02Cold"),
+        (0x1EF941, "LocTypeNoHumanPresence"),
+        (0x1984BD, "PCM_OverlayExclusionZone"),
+        (0x0C21AD, "PCM_OverlayExclusionZone_HumanLocations"),
+        (0x2194F4, "LocTypeNoPCMCreatureContent"),
+        (0x2253D1, "LocTypeSENotAllowed"),
+    ]
+    for fid, edid in kywds:
+        w.add(esm.Record(b"KYWD", fid, [(b"EDID", esm.zbytes(edid))]))
+
+    w.add(esm.Record(b"LCRT", 0x02271F, [(b"EDID", esm.zbytes("MapMarkerRefType"))]))
+    w.add(esm.Record(b"GLOB", 0x2EDD3B, [(b"EDID", esm.zbytes("PCM_BiomeDensity_None"))]))
+    w.add(esm.Record(b"LTEX", 0x1235C2, [(b"EDID", esm.zbytes("LDirtFootprints01"))]))
+    w.add(esm.Record(b"CLMT", 0x24E982, [(b"EDID", esm.zbytes("ClimateUniqueNewAtlantis"))]))
+    w.add(esm.Record(b"CLMT", 0x00015F, [(b"EDID", esm.zbytes("DefaultClimate"))]))
+    w.add(esm.Record(b"ATMO", 0x00C010, [(b"EDID", esm.zbytes("ATMO_Jemison"))]))
+    w.add(esm.Record(b"ATMO", 0x00C9D1, [(b"EDID", esm.zbytes("ATMO_Earth"))]))
+    w.add(esm.Record(b"SFTR", 0x1B6C63, [(b"EDID", esm.zbytes("EarthSurfaceTree"))]))
+    w.add(esm.Record(b"PTST", 0x23DE7E, [(b"EDID", esm.zbytes("PatternStyleHillsRockyFieldsRocky"))]))
+    w.add(esm.Record(b"SUNP", 0x134249, [(b"EDID", esm.zbytes("SunPresetTypeG2"))]))
+
+    w.add(esm.Record(b"LCTN", 0x01A53A, [(b"EDID", esm.zbytes("Universe"))]))
+    w.add(records.new_location(0x061527, "SSol", "Sol", [0x00149F], 0x01A53A, 0, 0))
+    w.add(records.new_location(0x01B736, "SSol_PMars_Surface", "Mars", [0x016503], 0x061527, 0, 4))
+
+    w.add(
+        esm.Record(
+            b"STDT",
+            0x05E5CB,
+            [
+                (b"EDID", esm.zbytes("SolStar")),
+                (b"ANAM", esm.zbytes("Sol")),
+                (b"BNAM", struct.pack("<3f", 0.0, 0.0, 0.0)),
+                (b"DNAM", struct.pack("<I", 0)),
+                (b"ENAM", struct.pack("<I", 0xFFEDFCFC)),
+            ],
+        )
+    )
+    w.add(
+        esm.Record(
+            b"PNDT",
+            0x03F59A,
+            [
+                (b"EDID", esm.zbytes("MarsPlanetData")),
+                (b"BDST", b""),
+                (b"ANAM", esm.zbytes("Mars")),
+                (b"GNAM", struct.pack("<III", 0, 0, 4)),
+                (b"BDED", b""),
+            ],
+        )
+    )
+    w.write(str(sf_path), compress=False)
+
+    # Synthetic FO4TerrainCore.esm with SFBK 0x801, LCTN 0x802 (carrying LCSR), WRLD 0x803
+    cw = esm.PluginWriter(["Starfield.esm"], esm.ESM)
+    own = cw.own
+    cw.add(esm.Record(b"SFBK", own(0x801), [(b"EDID", esm.zbytes("FO4Core_CommonwealthBlock"))]))
+    lcsr = struct.pack("<5I", 0x0002271F, own(0x80A), own(0x803), 0x00000000, 0xFFFFFFFF)
+    cw.add(
+        esm.Record(
+            b"LCTN",
+            own(0x802),
+            [
+                (b"EDID", esm.zbytes("FO4Core_CommonwealthLocation")),
+                (b"LCSR", lcsr),
+                (b"FULL", esm.zbytes("Commonwealth 00")),
+                (b"KSIZ", struct.pack("<I", 1)),
+                (b"KWDA", struct.pack("<I", 0x2CA99D)),
+                (b"DATA", records.DEFAULT_LOCATION_DATA),
+                (b"PNAM", struct.pack("<I", 0x01B736)),
+                (b"XNAM", struct.pack("<i", -1)),
+                (b"YNAM", struct.pack("<i", -3)),
+            ],
+        )
+    )
+    cw.add(
+        esm.Record(
+            b"WRLD",
+            own(0x803),
+            [
+                (b"EDID", esm.zbytes("FO4Core_Commonwealth")),
+                (b"BFCB", esm.zbytes("BGSWorldSpaceOverlay_Component")),
+                (b"SNAM", struct.pack("<i", 0)),
+                (b"PNAM", struct.pack("<i", 4)),
+                (b"BNAM", struct.pack("<I", own(0x801))),
+                (b"BFCE", b""),
+                (b"XLCN", struct.pack("<I", own(0x802))),
+                (b"BNAM", struct.pack("<I", 0x2A3777)),
+                (b"DATA", b"\x01"),
+                (b"FNAM", b"\x00"),
+            ],
+        )
+    )
+    cw.write(str(data_dir / "FO4TerrainCore.esm"), compress=False)
+    return sf_path
+
+
+class HomePlanetSpecTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="fo4sf-home-test-")
+        self.root = Path(self.tmp.name)
+        self.data_dir = self.root / "mock_sf_data"
+        self.sf_path = _build_synthetic_starfield_data(self.data_dir)
+        self.out_root = self.root / "safe_out"
+        self.out_root.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_w2_w3_w4_stage_check_and_core_byte_identity(self) -> None:
+        core_path = self.data_dir / "FO4TerrainCore.esm"
+        core_sha_before = hashlib.sha256(core_path.read_bytes()).hexdigest()
+
+        stage_dir = self.out_root / "home-stage"
+        rc = make_home_planet.main(
+            ["stage", "--data", str(self.data_dir), "--out", str(stage_dir), "--sky", "ATMO_Earth", "--temp", "16.5"]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(hashlib.sha256(core_path.read_bytes()).hexdigest(), core_sha_before)
+
+        rc_chk = make_home_planet.main(["check", "--stage", str(stage_dir), "--data", str(self.data_dir)])
+        self.assertEqual(rc_chk, 0)
+
+        # W2: verify every spec entry has a source and zero hazard keywords / zero PCCC exist
+        for table in (hspec.STAR_FIELD_SPEC, hspec.PLANET_FIELD_SPEC, hspec.BIOM_FIELD_SPEC):
+            self.assertTrue(len(table) >= 6)
+            for row in table:
+                self.assertTrue(row.get("subrecord"))
+                self.assertTrue(row.get("source"))
+
+        with esm.Plugin(str(stage_dir / hspec.HOME_MASTER)) as hm:
+            pndt = next(r for r in hm.records("PNDT"))
+            stdt = next(r for r in hm.records("STDT"))
+            biom_rec = next(r for r in hm.records("BIOM"))
+            self.assertIsNone(pndt.get(b"PCCC"))
+            self.assertIsNone(stdt.get(b"PCCC"))
+            phys = records.orbital(pndt)
+            self.assertAlmostEqual(phys["surface_gravity"], 1.0, places=4)
+            self.assertAlmostEqual(phys["radius_km"], 6371.0, places=2)
+            self.assertAlmostEqual(phys["mean_orbit"], 149598000.0, places=1)
+            self.assertAlmostEqual(phys["rotational_velocity"], 1.0, places=4)
+            self.assertAlmostEqual(phys["temp"], 16.5, places=3)
+            inam = records.body_get(pndt.subs, b"INAM")
+            self.assertEqual(struct.unpack_from("<I", inam, 0)[0], 0x00C9D1)  # ATMO_Earth selected
+            self.assertEqual(biom_rec.all(b"GNAM"), [])
+            self.assertEqual(biom_rec.all(b"NAM1"), [])
+
+        # W3: verify FO4TerrainCore_Home.esm has 3 records and remapped LCSR & SFBK to 0x02XXXXXX
+        with esm.Plugin(str(stage_dir / hspec.HOME_REGISTRATION)) as reg:
+            self.assertEqual(reg.masters, ["Starfield.esm", "FO4SFHome.esm", "FO4TerrainCore.esm"])
+            pndts = list(reg.records("PNDT"))
+            lctns = list(reg.records("LCTN"))
+            wrlds = [
+                reg.record_at(it[1])
+                for st, en in reg.groups.get("WRLD", [])
+                for it in reg.walk(st, en, groups=set())
+                if it[0] == "REC"
+            ]
+            self.assertEqual((len(pndts), len(wrlds), len(lctns)), (1, 1, 1))
+            lcrt, refr, wrld_fid, _grid, tail = struct.unpack("<5I", lctns[0].get(b"LCSR"))
+            self.assertEqual((lcrt, refr, wrld_fid, tail), (0x0002271F, 0x0200080A, 0x02000803, 0xFFFFFFFF))
+            ov = probe.component_fields(wrlds[0], "BGSWorldSpaceOverlay_Component")
+            self.assertEqual(struct.unpack("<I", ov["BNAM"])[0], 0x02000801)
+            self.assertEqual(struct.unpack("<I", probe.top_level(wrlds[0], b"BNAM"))[0], 0x01000806)
+
+        # W4: verify both .biom files exist and carry TEST-STATION label on plugin subfolder
+        plan = make_home_planet.load_plan(str(stage_dir))
+        self.assertEqual(
+            plan["biome_map"]["path_status"]["Data/PlanetData/BiomeMaps/fo4sfhome.esm/earth.biom"],
+            "TEST-STATION",
+        )
+        for rel in ("Data/PlanetData/BiomeMaps/earth.biom", "Data/PlanetData/BiomeMaps/fo4sfhome.esm/earth.biom"):
+            bpath = stage_dir / Path(*rel.split("/"))
+            self.assertTrue(bpath.is_file(), rel)
+            self.assertEqual(bpath.stat().st_size, 655406)
+
+    def test_w2_system_id_bumps_when_preferred_id_is_taken_in_data(self) -> None:
+        clash = esm.PluginWriter(["Starfield.esm"], esm.ESM)
+        clash.add(
+            esm.Record(
+                b"STDT",
+                clash.own(0x800),
+                [
+                    (b"EDID", esm.zbytes("OtherModStar")),
+                    (b"ANAM", esm.zbytes("Other")),
+                    (b"BNAM", struct.pack("<3f", 20.0, 20.0, 20.0)),
+                    (b"DNAM", struct.pack("<I", hspec.DEFAULT_HOME_SYSTEM_ID)),
+                    (b"ENAM", struct.pack("<I", 0xFFFFFFFF)),
+                ],
+            )
+        )
+        clash.write(str(self.data_dir / "OtherStarMod.esm"), compress=False)
+
+        stage_dir = self.out_root / "bumped-stage"
+        self.assertEqual(
+            make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(stage_dir)]),
+            0,
+        )
+        plan = make_home_planet.load_plan(str(stage_dir))
+        self.assertNotEqual(int(plan["system_id"], 16), hspec.DEFAULT_HOME_SYSTEM_ID)
+
+    def test_w3_refuses_duplicate_pndt_or_lctn_overrides_across_plugin_set(self) -> None:
+        stage_dir = self.out_root / "dup-check-stage"
+        self.assertEqual(
+            make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(stage_dir)]),
+            0,
+        )
+        reg_path = str(stage_dir / hspec.HOME_REGISTRATION)
+
+        # Second plugin overriding FO4TerrainCore.esm LCTN 0x000802
+        other_lctn = self.out_root / "ConflictingMarkers.esm"
+        w1 = esm.PluginWriter(["Starfield.esm", "FO4TerrainCore.esm"], esm.ESM)
+        w1.add(records.new_location(0x01000802, "FO4Core_CommonwealthLocation", "CW", [0x2CA99D], 0x01B736, 0, 4))
+        w1.write(str(other_lctn), compress=False)
+        probs_lctn = hspec.check_no_duplicate_overrides([reg_path, str(other_lctn)])
+        self.assertEqual(len(probs_lctn), 1)
+        self.assertIn("duplicate LCTN override of fo4terraincore.esm:000802", probs_lctn[0])
+
+        # Second plugin overriding FO4SFHome.esm PNDT 0x000805
+        other_pndt = self.out_root / "ConflictingPlanetReg.esm"
+        w2 = esm.PluginWriter(["Starfield.esm", "FO4SFHome.esm"], esm.ESM)
+        w2.add(
+            esm.Record(
+                b"PNDT",
+                0x01000805,
+                [(b"EDID", esm.zbytes("EarthPlanetData")), (b"BDST", b""), (b"ANAM", esm.zbytes("Earth")), (b"BDED", b"")],
+            )
+        )
+        w2.write(str(other_pndt), compress=False)
+        probs_pndt = hspec.check_no_duplicate_overrides([reg_path, str(other_pndt)])
+        self.assertEqual(len(probs_pndt), 1)
+        self.assertIn("duplicate PNDT override of fo4sfhome.esm:000805", probs_pndt[0])
+
+    def test_wl1_variants_stage_and_census_verifies_exact_keywords(self) -> None:
+        wl1_dir = self.out_root / "wl1"
+        rc = make_home_planet.main(["stage-wl1", "--data", str(self.data_dir), "--out", str(wl1_dir)])
+        self.assertEqual(rc, 0)
+        summary = json.loads((wl1_dir / "wl1_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(summary["variants"]), 7)
+        for v in summary["variants"]:
+            want = {k: (k in v["lever_keywords"]) for k in hspec.LEVER_KEYWORD_EDIDS}
+            self.assertEqual(v["home_surface_location"]["levers"], want)
+            self.assertEqual(v["registration_locations"][0]["levers"], want)
+
+    def test_wl2_plugin_sets_only_fnam_bits_approved_in_study_doc(self) -> None:
+        study_text = (ROOT / "docs" / "world" / "three-way-study.md").read_text(encoding="utf-8")
+        section = study_text.split("## 4. Worldspace `FNAM` Flag Bits (`WL2`)", 1)[1]
+        approved_mask = 0
+        for line in section.splitlines():
+            if not line.startswith("|") or "Set in `FO4TerrainCore_Home.esm`?" in line or line.startswith("|---"):
+                continue
+            cols = [c.strip() for c in line.strip("|").split("|")]
+            if len(cols) >= 5 and "yes" in cols[4].lower():
+                m = re.search(r"0x([0-9A-Fa-f]+)", cols[0])
+                if m:
+                    approved_mask |= int(m.group(1), 16)
+
+        self.assertEqual(approved_mask, 0x00)
+        self.assertEqual(hspec.ALLOWED_WRLD_FNAM_BITS, approved_mask)
+
+        stage_dir = self.out_root / "wl2-stage"
+        make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(stage_dir)])
+        inspected = sf_location_census.inspect_host_plugins(
+            str(self.sf_path),
+            home_esm=str(stage_dir / hspec.HOME_MASTER),
+            registration_esm=str(stage_dir / hspec.HOME_REGISTRATION),
+        )
+        for wrld in inspected["our_registration"]["worlds"]:
+            self.assertEqual(wrld["fnam_int"] & ~approved_mask, 0)
+
+        # Verify unproven bits are rejected by builder
+        dummy_wrld = esm.Record(b"WRLD", 0x01000803, [(b"EDID", esm.zbytes("W")), (b"FNAM", b"\x00")])
+        for bad_bit in (0x01, 0x02, 0x04):
+            with self.assertRaises(records.PlanetError):
+                hspec._remap_wrld_override(dummy_wrld, 1, 2, 100, 1, 0x01000806, fnam_flags=bad_bit)
+
+    def test_r4_refuses_output_inside_git_worktree_or_game_folder(self) -> None:
+        # Inside Git worktree -> exit 1
+        in_repo = ROOT / "build_forbidden_home_stage"
+        self.assertEqual(
+            make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(in_repo)]),
+            1,
+        )
+        self.assertFalse(in_repo.exists())
+
+        # Inside game installation directory (where Starfield.exe + Data/Starfield.esm sit) -> exit 1
+        mock_game_root = self.root / "mock_game_install"
+        mock_game_data = mock_game_root / "Data"
+        _build_synthetic_starfield_data(mock_game_data)
+        (mock_game_root / "Starfield.exe").write_bytes(b"MZ")
+        in_game = mock_game_root / "staged_inside_game"
+        self.assertEqual(
+            make_home_planet.main(["stage", "--data", str(mock_game_data), "--out", str(in_game)]),
+            1,
+        )
+        self.assertFalse(in_game.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

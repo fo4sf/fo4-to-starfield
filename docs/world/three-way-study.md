@@ -97,3 +97,45 @@ Every route by which a player in normal play could still encounter, see, read, o
 | **Fast-travel list & Data menus** | Starfield `DataMenu` -> star/planet/surface map fast-travel targets (`503` vanilla `MapMarker` `REFR`s across `374` worlds; `scripts/terrain/sf_location_census.py`) | Route `M` and fast travel exclusively through `FO4SF_PipboyMenu` (`Pipboy_MapPage.swf` + `FO4SFPipboyMapMarkers.tsv` + `FO4SF_PipboyTravel.Go`; [pipboy_map_store.py](../../scripts/ui/pipboy_map_store.py#L542-L632), [FO4SF_PipboyTravel.psc](../../scripts/mapmarkers/FO4SF_PipboyTravel.psc#L110-L225)), block `GalaxyStarMapMenu`/surface/planet maps (`1g`), and replace `DataMenu` once Pip-Boy `INV` + `DATA` pass in game (`1g`, `1k`) | **built but untested** for Pip-Boy `MAP` fast-travel bridge and `GalaxyStarMapMenu` block (`Map=0` in repo INI; `1a` menu crash blocks `F7`/`M` until `Task 1` lands); `DataMenu` intentionally retained until Pip-Boy `INV`/`DATA` pass (`1g`) |
 | **304 loading screens** | `304` `LSCR` records in `Starfield.esm` (`90` carry `215` `CTDA` conditions, `214` have `0` `CTDA` conditions and `0` carry `KWDA`, so `214` unconditioned Starfield screens are eligible on any load; `scripts/terrain/sf_location_census.py`) | Override plugin conditioning all `304` vanilla `LSCR` records off (or conditioning selection onto a FO4SF-only `LSCR` set; `WL3` proposal for owner choice) | **missing** (zero `LSCR` overrides or FO4SF `LSCR` records exist in the repo today) |
 | **Ships & landing pads** | Ambient ship landing encounters (`LocTypeSENotAllowed` `0x002253D1` suppresses on `92` vanilla `LCTN`s; `scripts/terrain/sf_location_census.py`), `ShipLandingMarkerRefType` (`0x00009105` / `0x00009102`; [map-markers.md](../terrain/map-markers.md#L86-L96)), and `0x0008F2` landing marker | Add `LocTypeSENotAllowed` (`0x002253D1`) to every FO4SF `LCTN` (`WL1`), omit `ShipLandingMarkerRefType` `LCSR` rows on all FO4SF `LCTN`s ([Program.cs](../../dotnet/TerrainOverlays/Program.cs#L123)), exclude `0x0008F2` from Pip-Boy map store (`include_landing=False`; [pipboy_map_store.py](../../scripts/ui/pipboy_map_store.py#L548-L592)), and never grant a player ship | **built but untested** for `0x0008F2` store exclusion and zero `ShipLandingMarkerRefType` `LCSR` rows; **missing** for `LocTypeSENotAllowed` (`0x002253D1` is absent on `FO4Core_CommonwealthLocation` `0x01000802`; `scripts/terrain/sf_location_census.py`) |
+
+---
+
+## 3. Biome Map Lookup & Custom Home Biome (`W4`)
+
+### 3.1 Engine Evidence: How `BSGalaxy::BiomeMapDB` Resolves `.biom` Files and Why Probe Run 1 Produced Icy Ground
+
+Read-only inspection of `Starfield.exe` (1.16.244), `CreationKit.exe`, `Starfield.esm`, and `Starfield - PlanetData.ba2` establishes four measured facts:
+
+1. **Lookup path is `PlanetData\BiomeMaps\<ANAM_lower>.biom`:**
+   - `Starfield.exe` `.rdata` RVA `0x4AFC8A0..0x4AFC8A8` holds the extension `"biom"` and directory prefix `"PlanetData\\BiomeMaps\\"`.
+   - Across all `1,437` landable `PNDT` records with `PPBD` biome entries in `Starfield.esm`, `1,437 / 1,437` match `planetdata/biomemaps/<body ANAM lower-cased>.biom` inside `Starfield - PlanetData.ba2` (`1,438` `.biom` files total), while `0` match `EDID` where `EDID != ANAM`.
+2. **Exact `.biom` binary format (`magic = 0x0105`):**
+   - Header: `u16 magic (0x0105)` + `u32 biome_count` + `biome_count x u32 biome_formid` (`CreationKit.exe` RVA `0x8A8B3D8`, `BSGalaxyBiomeMapDB.cpp`: `"Trying to load biome map file with invalid version"`).
+   - Payload: `u32 face_count (2)` followed by `2` polar faces of `[u32 width (256), u32 height (256), u32 pixel_count (65536), 65536 x u32 biome_formid, u32 resource_count (65536), 65536 x u8 resource_index]` (`655,406` bytes total for a 1-biome planet).
+3. **Why Planet Probe Run 1 (`29 Oct`) rendered icy ground outside the test cells:**
+   - Probe run 1 cloned `JemisonPlanetData` (`0x0003F5A1`) whole, retaining Jemison's `5` `PPBD` biome entries (`0x0007F88A OceanLife04`, `0x000FD00D FrozenLife07`, `0x001CBD6A ForestDeciduousLifeJemison`, `0x002636BA MountainsLife03`, `0x0029434E ForestConiferousLife01`), and registered its overlay at `(0.0, 0.0)` rad.
+   - Two independent mechanisms select `0x000FD00D` (`FrozenLife07`, icy ground) on that clone:
+     - First, when `BSGalaxy::BiomeMapDB` cannot open a plugin planet's `.biom` stream (`CreationKit.exe` RVA `0x8A8C3D8`: `"BiomeMapDB unable to create file for %s. Using default biome."`; `Starfield.exe` RVA `0x4D60308`: `bUseFirstBiomePosition:Biomes`), the engine falls back to the planet's first non-ocean `PPBD` biome — which on `JemisonPlanetData` is `0x000FD00D` (`FrozenLife07`).
+     - Second, even inside `jemison.biom` itself, both polar grid centers `(128, 128)` hold `0x000FD00D` (`FrozenLife07`).
+4. **Why naming our home planet `"Earth"` also requires overriding `earth.biom` AND owning `PPBD`:**
+   - Vanilla `Starfield - PlanetData.ba2` already ships `planetdata/biomemaps/earth.biom` listing `0x000F1169` (`DesertSandyNoLifeEarth`) and `0x0028791F` (`FrozenNoLifeEarth`).
+   - In `FO4SFHome.esm` ([home_planet_spec.py](../../src/fo4sf/planet/home_planet_spec.py) and [biom.py](../../src/fo4sf/planet/biom.py)), we:
+     1. Author our own `BIOM` record `FO4SFHomeBiome` (`0x01000806`), assigning slots `0..6` `LNAM` to plain neutral `LDirtFootprints01` (`0x001235C2`) with `0` `GCVR` ground cover, `NAM2`/`NAM3`/`NAM4` to `PCM_BiomeDensity_None` (`0x002EDD3B`), `0` `GNAM` procedural objects, and `0` `NAM1` resources;
+     2. Set `FO4SFHome.esm` `PNDT` (`0x01000805`) `PPBD` to contain **only** `0x01000806` (`FO4SFHomeBiome`, `100%` weight, `0` fauna, `0` flora, `0` resources) and `FO4TerrainCore_Home.esm` `WRLD` `BNAM` to `0x01000806`, so both `.biom` lookup and default-biome fallback resolve exclusively to `FO4SFHomeBiome`;
+     3. Synthesise a uniform `655,406`-byte `.biom` file (`magic 0x0105`, `1` biome `0x01000806`, `0` resource bytes) staged at both `Data/PlanetData/BiomeMaps/<name_lower>.biom` (`VERIFIED_ENGINE_ANAM_PATH`, packed into `FO4SFHome - Main.ba2`) and `Data/PlanetData/BiomeMaps/fo4sfhome.esm/<name_lower>.biom` (`TEST-STATION` until confirmed in game by Claude (PC)).
+
+---
+
+## 4. Worldspace `FNAM` Flag Bits (`WL2`)
+
+Measured across all `433` `WRLD` records in `Starfield.esm` (`scripts/terrain/sf_location_census.py`) and cross-referenced against `CreationKit.exe` RTTI/INI strings and Mutagen `Worldspace` schema definitions:
+
+| Bit / Mask | Creation Kit / Engine Name | Meaning & Source | Count in `Starfield.esm` (`433` `WRLD`) | Set in `FO4TerrainCore_Home.esm`? |
+|---|---|---|---|---|
+| `0x00` (none) | Default overlay / city flags | Standard hand-built city and settlement overlay configuration (`NewAtlantis` `0x0001251B`, `CydoniaCity` `0x002CFC4A`, `akilacity` `0x0027CFA2`, `NeonCity` `0x0027CF9E`, `LC172World` `0x0002DF8C`, `TempJemisonWorld` `0x00190D2E` all carry `FNAM = 0x00`) | `431 / 433` (`99.54%`) | **Yes (`FNAM = 0x00`)** |
+| Bit 0 (`0x01`) | `Allow ProcGen` (`bAllowProcGenOnOverlays:ProcGen`, `CreationKit.exe` RVA `0x87D72B0`) | Permits Planet Content Manager procedural scatter inside an overlay worldspace; set on `OverlayTraitCharredEcosystemMd02Water` (`0x002C7419`) only | `1 / 433` | **No** (would invite procedural scatter onto FO4SF terrain) |
+| Bit 1 (`0x02`) | `Prevent Merge Cell Content` (`CreationKit.exe` worldspace flag string) | Suppresses merging overlay cell content into the runtime planet worldspace; unused across all `433` vanilla `WRLD`s | `0 / 433` | **No** (unproven in vanilla and risks suppressing placed cell references during planet merge) |
+| Bit 2 (`0x04`) | `Allow Cell Content` (`CreationKit.exe` worldspace flag string) | Set only on `LC030World` (`0x00260A7C`); absent on all major cities and `LC172World` | `1 / 433` | **No** (not used by `LC172World` or city overlays; unproven effect) |
+| Bits 3..7 (`0x08..0x80`) | Unassigned / reserved | Zero occurrences in `Starfield.esm` and no `CreationKit.exe` checkbox string | `0 / 433` | **No** |
+
+Accordingly, `ALLOWED_WRLD_FNAM_BITS` in [home_planet_spec.py](../../src/fo4sf/planet/home_planet_spec.py) is `0x00`, and `test_home_planet.py` asserts that `FO4TerrainCore_Home.esm` sets no unproven `FNAM` bits.
