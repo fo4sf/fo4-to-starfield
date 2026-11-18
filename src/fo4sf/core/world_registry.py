@@ -420,6 +420,8 @@ def parse_world_registry(doc: Mapping[str, Any]) -> WorldRegistry:
             if not isinstance(pentry, Mapping):
                 raise RegistryError(f"{key}.status.{part}: must be an object with 'state' and 'evidence'")
             state = pentry.get("state")
+            if state == "built_offline":
+                state = "built offline"
             evidence = pentry.get("evidence")
             if state not in ALLOWED_PART_STATUSES:
                 raise RegistryError(f"{key}.status.{part}: invalid state {state!r}")

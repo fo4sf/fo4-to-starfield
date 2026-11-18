@@ -4187,7 +4187,10 @@
         "tile_cells": 34,
         "cell_count": 1156,
         "host_planet": "FO4SFHomePlanet",
-        "planet_position": null,
+        "planet_position": [
+          0.374542773,
+          -1.121475735
+        ],
         "measured_merge_offset": null,
         "pipboy_plugin_code": 5,
         "map_picture": "Interface/Components/FO4SF_FarHarborMap.swf",
@@ -4198,16 +4201,16 @@
       },
       "status": {
         "terrain": {
-          "state": "none",
-          "evidence": "scripts/terrain/fo4_world_census.py"
+          "state": "built offline",
+          "evidence": "docs/world/dlc-worlds-water-and-ground.md"
         },
         "objects": {
           "state": "none",
           "evidence": "scripts/terrain/fo4_world_census.py"
         },
         "water": {
-          "state": "none",
-          "evidence": "scripts/terrain/fo4_world_census.py"
+          "state": "built offline",
+          "evidence": "docs/world/dlc-worlds-water-and-ground.md"
         },
         "ground_textures": {
           "state": "none",
@@ -4778,7 +4781,10 @@
         "tile_cells": 40,
         "cell_count": 1600,
         "host_planet": "FO4SFHomePlanet",
-        "planet_position": null,
+        "planet_position": [
+          0.212300885,
+          -1.306361158
+        ],
         "measured_merge_offset": null,
         "pipboy_plugin_code": 6,
         "map_picture": "Interface/Components/FO4SF_NukaWorldMap.swf",
@@ -4789,16 +4795,16 @@
       },
       "status": {
         "terrain": {
-          "state": "none",
-          "evidence": "scripts/terrain/fo4_world_census.py"
+          "state": "built offline",
+          "evidence": "docs/world/dlc-worlds-water-and-ground.md"
         },
         "objects": {
           "state": "none",
           "evidence": "scripts/terrain/fo4_world_census.py"
         },
         "water": {
-          "state": "none",
-          "evidence": "scripts/terrain/fo4_world_census.py"
+          "state": "built offline",
+          "evidence": "docs/world/dlc-worlds-water-and-ground.md"
         },
         "ground_textures": {
           "state": "none",
