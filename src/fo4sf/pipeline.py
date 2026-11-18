@@ -112,6 +112,17 @@ ULTRA_HIGH_RES_PREFIX = "dlcultrahighresolution"
 GAME_EXECUTABLES = ("Starfield.exe", "Fallout4.exe", "FalloutNV.exe", "Fallout3.exe", "Fallout76.exe")
 
 
+def editor_id_prefix(prefix: str = "fo4port") -> str:
+    """Record EditorID prefix for a --prefix slug: default 'fo4port' stays 'FO4Port' byte-for-byte; other lowercase
+    slotted prefixes become uppercase ('fo4dlc' -> 'FO4DLC', 'fo4ui' -> 'FO4UI')."""
+    p = (prefix or "fo4port").strip()
+    if p.lower() == "fo4port":
+        return "FO4Port"
+    if re.fullmatch(r"[a-z0-9_]+", p):
+        return p.upper()
+    return re.sub(r"[^A-Za-z0-9_]", "_", p)
+
+
 def is_excluded_dlc_name(name: str) -> bool:
     """True for Fallout 4's 58 GB High-Resolution Texture Pack (DLCUltraHighResolution.esm / - Textures*.ba2)."""
     return os.path.basename(name).lower().startswith(ULTRA_HIGH_RES_PREFIX)

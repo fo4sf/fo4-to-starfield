@@ -173,5 +173,160 @@ class D1UltraHighResAndDlcPluginsTests(unittest.TestCase):
                 pipeline.refuse_unsafe_output_dir(str(game / "Data" / "out"), "--out")
 
 
+class D2PrefixEditorIdsAndManifestRewriterTests(unittest.TestCase):
+    @staticmethod
+    def _legacy_editor_id(source, ids):
+        """Exact pre-D2 editor_id implementation for SHA-256 byte-identity proof (Rule R3)."""
+        import re
+        key = source.replace("\\", "/").lower()
+        if key not in ids:
+            basename = key.rsplit("/", 1)[-1]
+            stem = re.sub(r"[^A-Za-z0-9_]", "_", os.path.splitext(basename)[0])
+            name = "FO4Port_" + stem
+            reserved = {v.lower() for v in ids.values()}
+            if name.lower() in reserved:
+                name += "_" + hashlib.sha256(key.encode()).hexdigest()[:16]
+            ids[key] = name
+        return ids[key]
+
+    def test_default_prefix_is_sha256_byte_identical_to_pre_d2(self):
+        sources = [
+            "meshes\\SetDressing\\Chair01.nif",
+            "meshes\\Architecture\\Chair01.nif",
+            "Meshes\\DLC03\\Architecture\\DLC03_ParkStoneBlockA.nif",
+            "meshes\\Props\\Box-A.01.nif",
+        ]
+        legacy_ids, current_default_ids, explicit_default_ids = {}, {}, {}
+        for s in sources:
+            self._legacy_editor_id(s, legacy_ids)
+            convert_batch.editor_id(s, current_default_ids)
+            convert_batch.editor_id(s, explicit_default_ids, prefix="fo4port")
+
+        legacy_bytes = json.dumps(legacy_ids, indent=1).encode("utf-8")
+        default_bytes = json.dumps(current_default_ids, indent=1).encode("utf-8")
+        explicit_bytes = json.dumps(explicit_default_ids, indent=1).encode("utf-8")
+        self.assertEqual(hashlib.sha256(default_bytes).hexdigest(), hashlib.sha256(legacy_bytes).hexdigest())
+        self.assertEqual(hashlib.sha256(explicit_bytes).hexdigest(), hashlib.sha256(legacy_bytes).hexdigest())
+
+    def test_non_default_prefix_generates_prefixed_editor_ids(self):
+        ids_dlc, ids_ui = {}, {}
+        self.assertEqual(
+            convert_batch.editor_id("Meshes\\DLC03\\DLC03_ParkStoneBlockA.nif", ids_dlc, prefix="fo4dlc"),
+            "FO4DLC_dlc03_parkstoneblocka",
+        )
+        self.assertEqual(
+            convert_batch.editor_id("Meshes\\DLC03\\Sub\\DLC03_ParkStoneBlockA.nif", ids_dlc, prefix="fo4dlc"),
+            "FO4DLC_dlc03_parkstoneblocka_"
+            + hashlib.sha256(b"meshes/dlc03/sub/dlc03_parkstoneblocka.nif").hexdigest()[:16],
+        )
+        self.assertEqual(
+            convert_batch.editor_id("Meshes\\AnimObjects\\Pipboy.nif", ids_ui, prefix="fo4ui"),
+            "FO4UI_pipboy",
+        )
+
+    def test_rewrite_manifest_prefix_rewrites_and_merges_without_reconverting_and_keeps_default_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src_dir = root / "src_stage"
+            src_dir.mkdir()
+            editorids = {
+                "meshes/dlc03/blocka.nif": "FO4Port_blocka",
+                "meshes/setdressing/chair01.nif": "FO4Port_chair01",
+                "meshes/doors/loaddoor01.nif": "FO4Port_loaddoor01",
+            }
+            man_models = {
+                "items": [
+                    {"editor_id": "FO4Port_blocka", "model": "fo4dlc\\dlc03\\blocka.nif",
+                     "source": "Meshes\\DLC03\\BlockA.nif", "shapes": 2, "fallback_materials": 0, "form_index": 0,
+                     "collision_report": {"source": "fo4-native"}},
+                    {"editor_id": "FO4Port_loaddoor01", "model": "fo4dlc\\doors\\loaddoor01.nif",
+                     "source": "Meshes\\Doors\\LoadDoor01.nif", "shapes": 1, "fallback_materials": 0, "form_index": 1,
+                     "collision_report": {"source": "fo4-native"}},
+                ],
+                "failures": [{"nif": "meshes\\dlc01\\fx.nif", "reason": "ValueError: effect-only"}],
+                "material_fallbacks": {},
+                "materials_converted": ["materials\\dlc03\\a.bgsm"],
+                "stats": {"assets": 2, "failed": 1, "materials_ok": 1, "materials_fallback": 0},
+                "seconds": 1.2,
+            }
+            man_cells = {
+                "items": [
+                    {"editor_id": "FO4Port_chair01", "model": "fo4dlc\\setdressing\\chair01.nif",
+                     "source": "meshes\\SetDressing\\Chair01.nif", "shapes": 1, "fallback_materials": 0, "form_index": 0,
+                     "collision_report": {"source": "fo4-native"}},
+                    {"editor_id": "FO4Port_loaddoor01", "model": "fo4dlc\\doors\\loaddoor01.nif",
+                     "source": "meshes\\Doors\\LoadDoor01.nif", "shapes": 1, "fallback_materials": 0, "form_index": 1,
+                     "collision_report": {"source": "fo4-native"},
+                     "load_door": {"bounds": [[-1, -1, 0], [1, 1, 2]]}},
+                    {"editor_id": "FO4Port_chair01_pose_abc", "model": "fo4dlc\\setdressing\\chair01_pose_abc.nif",
+                     "source": "meshes\\SetDressing\\Chair01.nif", "shapes": 1, "fallback_materials": 0, "form_index": 2,
+                     "collision_report": {"source": "fo4-native"},
+                     "pose": {"kind": "xrgd", "key": "abc", "refs": ["000001:DLCCoast.esm"]}},
+                ],
+                "failures": [],
+                "material_fallbacks": {},
+                "materials_converted": ["materials\\b.bgsm"],
+                "stats": {"assets": 3, "failed": 0, "materials_ok": 1, "materials_fallback": 0},
+                "seconds": 2.3,
+            }
+            for fn, obj in (("editorids.json", editorids), ("manifest-models.json", man_models),
+                            ("manifest-cells.json", man_cells)):
+                convert_batch.write_json_atomic(str(src_dir / fn), obj)
+            orig_hashes = {fn: hashlib.sha256((src_dir / fn).read_bytes()).hexdigest()
+                           for fn in ("editorids.json", "manifest-models.json", "manifest-cells.json")}
+
+            # Rewriting with default prefix fo4port produces byte-for-byte identical files (Rule R3)
+            out_default = root / "out_default"
+            rc = convert_batch.main([
+                "rewrite-manifest-prefix",
+                "--manifest", str(src_dir / "manifest-models.json"),
+                "--manifest", str(src_dir / "manifest-cells.json"),
+                "--editorids", str(src_dir / "editorids.json"),
+                "--prefix", "fo4port",
+                "--out-dir", str(out_default),
+            ])
+            self.assertEqual(rc, 0)
+            for fn, h in orig_hashes.items():
+                self.assertEqual(hashlib.sha256((out_default / fn).read_bytes()).hexdigest(), h)
+
+            # Rewriting with fo4dlc rewrites all EditorIDs (including posed) and merges load_door metadata cleanly
+            out_dlc = root / "out_dlc"
+            rc2 = convert_batch.main([
+                "rewrite-manifest-prefix",
+                "--manifest", str(src_dir / "manifest-models.json"),
+                "--manifest", str(src_dir / "manifest-cells.json"),
+                "--editorids", str(src_dir / "editorids.json"),
+                "--prefix", "fo4dlc",
+                "--out-dir", str(out_dlc),
+                "--merge-out", "manifest.json",
+            ])
+            self.assertEqual(rc2, 0)
+            # Original source files untouched
+            for fn, h in orig_hashes.items():
+                self.assertEqual(hashlib.sha256((src_dir / fn).read_bytes()).hexdigest(), h)
+
+            rewritten_ids = json.loads((out_dlc / "editorids.json").read_text(encoding="utf-8"))
+            self.assertEqual(rewritten_ids["meshes/dlc03/blocka.nif"], "FO4DLC_blocka")
+            merged = json.loads((out_dlc / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual([it["editor_id"] for it in merged["items"]],
+                             ["FO4DLC_blocka", "FO4DLC_loaddoor01", "FO4DLC_chair01", "FO4DLC_chair01_pose_abc"])
+            self.assertEqual([it["form_index"] for it in merged["items"]], [0, 1, 2, 3])
+            self.assertIn("load_door", merged["items"][1])
+
+            # Refuses overwriting input folder in place or writing into a Git worktree
+            with self.assertRaises(SystemExit):
+                convert_batch.main([
+                    "rewrite-manifest-prefix", "--manifest", str(src_dir / "manifest-models.json"),
+                    "--prefix", "fo4dlc", "--out-dir", str(src_dir),
+                ])
+            wt = root / "git_wt"
+            (wt / ".git").mkdir(parents=True)
+            with self.assertRaises(SystemExit):
+                convert_batch.main([
+                    "rewrite-manifest-prefix", "--manifest", str(src_dir / "manifest-models.json"),
+                    "--prefix", "fo4dlc", "--out-dir", str(wt / "out"),
+                ])
+
+
 if __name__ == "__main__":
     unittest.main()
