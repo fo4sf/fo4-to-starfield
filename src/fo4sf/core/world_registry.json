@@ -1,0 +1,5878 @@
+{
+  "schema_version": 1,
+  "worlds": [
+    {
+      "key": "Commonwealth",
+      "kind": "world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm"
+      ],
+      "source_worldspace": {
+        "edid": "Commonwealth",
+        "form_id": "0x00003C",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": [
+          -96,
+          95,
+          -96,
+          95
+        ],
+        "land_bbox": [
+          -96,
+          95,
+          -96,
+          95
+        ],
+        "land_cells": 36864,
+        "ref_bbox": [
+          -42,
+          77,
+          -48,
+          38
+        ],
+        "height_range_m": [
+          -118.86,
+          641.03
+        ],
+        "map_marker_count": 311
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4Core_Commonwealth",
+        "plugin": "FO4TerrainCore.esm",
+        "tile_cells": 64,
+        "cell_count": 4096,
+        "host_planet": "MarsPlanetData",
+        "planet_position": [
+          0.3,
+          -1.2
+        ],
+        "measured_merge_offset": [
+          -1200.0,
+          -2700.0
+        ],
+        "pipboy_plugin_code": 1,
+        "map_picture": "Interface/Components/FO4SF_WorldMap.swf",
+        "marker_index_range": [
+          0,
+          311
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "passed in game",
+          "evidence": "docs/terrain/commonwealth-scale.md#L139-L141"
+        },
+        "objects": {
+          "state": "passed in game",
+          "evidence": "docs/terrain/core64c.md#L19-L22"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md#L101-L106"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/make_cw_overlays.py#L397-L400"
+        },
+        "walk_mesh": {
+          "state": "passed in game",
+          "evidence": "docs/actors/navmesh-core64n-convert.md#L28-L36"
+        },
+        "interiors": {
+          "state": "installed",
+          "evidence": "scripts/terrain/interior_census.py#L1-L27"
+        },
+        "doors": {
+          "state": "installed",
+          "evidence": "scripts/terrain/vmad_patch.py#L75-L76"
+        },
+        "markers": {
+          "state": "installed",
+          "evidence": "scripts/ui/pipboy_map_store.py#L542-L632"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "built offline",
+          "evidence": "scripts/mapmarkers/FO4SF_PipboyTravel.psc#L110-L225"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "docs/terrain/object-lod.md#L15-L16"
+        }
+      },
+      "start_descriptors": [
+        {
+          "key": "vault111",
+          "start_cell": "FO4Port_Vault111Cryo",
+          "surface_anchor": "Commonwealth_Vault111Hilltop"
+        },
+        {
+          "key": "minuteman_volunteer",
+          "start_cell": "FO4Port_ConcordMuseum",
+          "surface_anchor": "Commonwealth_Concord"
+        },
+        {
+          "key": "brotherhood_initiate",
+          "start_cell": "FO4Port_CambridgePD",
+          "surface_anchor": "Commonwealth_CambridgePoliceStation"
+        }
+      ],
+      "locations": [
+        {
+          "edid": "CommonwealthLocation",
+          "form_id": "0x002CF0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:002CF0",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MS13LatimerAmbushLocation",
+          "form_id": "0x013AD5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:013AD5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ConcordLocation",
+          "form_id": "0x017E00",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:017E00",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CombatZoneLocation",
+          "form_id": "0x01905B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01905B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CabotHouseInteriorLocation",
+          "form_id": "0x0195B6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0195B6",
+          "parent_lctn": "Fallout4.esm:03A50C",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "QuincyPDLocation",
+          "form_id": "0x0199EE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0199EE",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ConcordMuseumLocation",
+          "form_id": "0x01D807",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01D807",
+          "parent_lctn": "Fallout4.esm:017E00",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "TrinityTowerLocation",
+          "form_id": "0x01DAF7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01DAF7",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SanctuaryHillsLocation",
+          "form_id": "0x01F228",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01F228",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SanctuaryHillsPlayerHouseLocation",
+          "form_id": "0x01F229",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01F229",
+          "parent_lctn": "Fallout4.esm:01F228",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SanctuaryHillsHawthorneHouseLocation",
+          "form_id": "0x01F3B9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01F3B9",
+          "parent_lctn": "Fallout4.esm:01F228",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SanctuaryHillsRosaHouseLocation",
+          "form_id": "0x01F3DA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01F3DA",
+          "parent_lctn": "Fallout4.esm:01F228",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SanctuaryHillsDonoghueHouseLocation",
+          "form_id": "0x01F3FB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01F3FB",
+          "parent_lctn": "Fallout4.esm:01F228",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault111Location",
+          "form_id": "0x01F3FE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01F3FE",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault111MainEntranceLocation",
+          "form_id": "0x01F400",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01F400",
+          "parent_lctn": "Fallout4.esm:01F3FE",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CambridgePDLocation",
+          "form_id": "0x01FA4A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01FA4A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SpectacleIslandInteriorLocation",
+          "form_id": "0x01FA54",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:01FA54",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "PersistAllLocation",
+          "form_id": "0x02178D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02178D",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "VirtualLocation",
+          "form_id": "0x02178E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02178E",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "UniversityPointLocation",
+          "form_id": "0x02179F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02179F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "EgretToursMarinaLocation",
+          "form_id": "0x021A7F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:021A7F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CoastGuardPierLocation",
+          "form_id": "0x021A80",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:021A80",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CutlerBendLocation",
+          "form_id": "0x021A81",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:021A81",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ForestGroveMarshLocation",
+          "form_id": "0x021A82",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:021A82",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CollegeSquareLocation",
+          "form_id": "0x0233C3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0233C3",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BedfordStationLocation",
+          "form_id": "0x024F8D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024F8D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CorvegaAssemblyPlantLocation",
+          "form_id": "0x024F93",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024F93",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "StarlightDriveInLocation",
+          "form_id": "0x024F96",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024F96",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CrowsCragParkLocation",
+          "form_id": "0x024FA4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FA4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ConcordUndergroundLocation",
+          "form_id": "0x024FA5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FA5",
+          "parent_lctn": "Fallout4.esm:017E00",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HestersConsumerRoboticsLocation",
+          "form_id": "0x024FA7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FA7",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LexingtonLocation",
+          "form_id": "0x024FA8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FA8",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GorskiCabinLocation",
+          "form_id": "0x024FA9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FA9",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RangerCabinLocation",
+          "form_id": "0x024FAA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FAA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RedRocketTruckStopLocation",
+          "form_id": "0x024FAB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FAB",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RoboticsDisposalGroundLocation",
+          "form_id": "0x024FAC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FAC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SunshineTidingsCoopLocation",
+          "form_id": "0x024FAD",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FAD",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ThicketExcavationsLocation",
+          "form_id": "0x024FAE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FAE",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WaldenPondLocation",
+          "form_id": "0x024FAF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FAF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WickedShippingFleetLockupLocation",
+          "form_id": "0x024FB0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:024FB0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "AtomatoysCorporateHQLocation",
+          "form_id": "0x0252EC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0252EC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "AtomatoysFactoryLocation",
+          "form_id": "0x0254B8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0254B8",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CambridgePolymerLabsLocation",
+          "form_id": "0x025560",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:025560",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FinchFarmLocation",
+          "form_id": "0x02648A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02648A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SandyCovesConvalescentHomeLocation",
+          "form_id": "0x026D97",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:026D97",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FortHagenSatelliteArrayLocation",
+          "form_id": "0x026ED8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:026ED8",
+          "parent_lctn": "Fallout4.esm:148C5E",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DiamondCityExtSuperMutantPOI",
+          "form_id": "0x027E96",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:027E96",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RoadsidePinesMotelLocation",
+          "form_id": "0x0291CA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0291CA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GNNLocation",
+          "form_id": "0x0291CE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0291CE",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SuffolkCountyCharterSchoolLocation",
+          "form_id": "0x02A4B9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02A4B9",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "YangtzeLocation",
+          "form_id": "0x02B7C5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02B7C5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BreakheartBanksLocation",
+          "form_id": "0x02B97F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02B97F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "TiconderogaStationLocation",
+          "form_id": "0x02BB00",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02BB00",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault81Location",
+          "form_id": "0x02BE8D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02BE8D",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SalemLocation",
+          "form_id": "0x02C13F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02C13F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SalemWitchMuseumLocation",
+          "form_id": "0x02C144",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02C144",
+          "parent_lctn": "Fallout4.esm:02C13F",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteOldRoboticsLocation",
+          "form_id": "0x02D70C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02D70C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "USSRiptideLocation",
+          "form_id": "0x02FF7B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02FF7B",
+          "parent_lctn": "Fallout4.esm:017E00",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BADTFLLocation",
+          "form_id": "0x0317EA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0317EA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SuperDuperMartLocation",
+          "form_id": "0x032192",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:032192",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NeponsetParkLocation",
+          "form_id": "0x032B40",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:032B40",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HalluciGenLocation",
+          "form_id": "0x0342E7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0342E7",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MiltonGeneralLocation",
+          "form_id": "0x034313",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:034313",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FederalRationStockpileLocation",
+          "form_id": "0x036010",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:036010",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WildwoodCemeteryLocation",
+          "form_id": "0x03757B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03757B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MaldenCenterLocation",
+          "form_id": "0x038DD9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:038DD9",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CovenantLocation",
+          "form_id": "0x0397DC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0397DC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GeneralAtomicsGalleriaLocation",
+          "form_id": "0x039D8E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:039D8E",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FortStrongLocation",
+          "form_id": "0x039D8F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:039D8F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BeantownBreweryLocation",
+          "form_id": "0x03A508",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03A508",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CabotHouseLocation",
+          "form_id": "0x03A50C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03A50C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "OldGulletSinkholeLocation",
+          "form_id": "0x03A871",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03A871",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DBTechHighSchoolLocation",
+          "form_id": "0x03AC8A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03AC8A",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CustomHouseLocation",
+          "form_id": "0x03ADC3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03ADC3",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SwansPondLocation",
+          "form_id": "0x03B16D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03B16D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LongneckLukowskisLocation",
+          "form_id": "0x03B6F3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03B6F3",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ShawHighSchoolLocation",
+          "form_id": "0x03C0FC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03C0FC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CroupManorLocation",
+          "form_id": "0x03C0FE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03C0FE",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FallonsDepartmentStoreLocation",
+          "form_id": "0x03D7E4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03D7E4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HardwareTownLocation",
+          "form_id": "0x03E0CC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03E0CC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "TrinityPlazaLocation",
+          "form_id": "0x03F2BC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03F2BC",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LakeCochituateLocation",
+          "form_id": "0x03F2C5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03F2C5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WRVRLocation",
+          "form_id": "0x03F2E4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03F2E4",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ParsonsStateLocation",
+          "form_id": "0x03FA43",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03FA43",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BarneysBunkerLocation",
+          "form_id": "0x03FA53",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:03FA53",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SaugusIronworksLocation",
+          "form_id": "0x042193",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:042193",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensStreetSewerLocation",
+          "form_id": "0x04280E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04280E",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FourLeafFishpackingLocation",
+          "form_id": "0x042811",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:042811",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GeneralAtomicsFactoryLocation",
+          "form_id": "0x0428E2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0428E2",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault114Location",
+          "form_id": "0x042904",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:042904",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "EastBostonPrepLocation",
+          "form_id": "0x042B33",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:042B33",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FraternalPost115Location",
+          "form_id": "0x042B40",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:042B40",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MedTekResearchLocation",
+          "form_id": "0x042B42",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:042B42",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "PickmanGalleryLocation",
+          "form_id": "0x042B44",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:042B44",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BostonPoliceRationingSiteLocation",
+          "form_id": "0x043DD4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:043DD4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ShamrockTaphouseLocation",
+          "form_id": "0x0453CF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0453CF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HubrisComicsLocation",
+          "form_id": "0x045610",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:045610",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "PoseidonEnergyTurbineLocation",
+          "form_id": "0x0456B6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0456B6",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BunkerHillLocation",
+          "form_id": "0x0456FA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0456FA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ProspectHillLocation",
+          "form_id": "0x0456FB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0456FB",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NahantOceanSocietyLocation",
+          "form_id": "0x0461A8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0461A8",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BostonAirportRuinsLocation",
+          "form_id": "0x046871",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:046871",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BostonCommonLocation",
+          "form_id": "0x047071",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:047071",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "AndrewStationLocation",
+          "form_id": "0x0475FB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0475FB",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MassPikeInterchangeLocation",
+          "form_id": "0x04788D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04788D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "IrishPrideShipyardLocation",
+          "form_id": "0x047995",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:047995",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RailroadHQLocation",
+          "form_id": "0x0482C2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0482C2",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WestonWaterTreatmentLocation",
+          "form_id": "0x0482CB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0482CB",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GraygardenLocation",
+          "form_id": "0x0482CF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0482CF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "AtomCatsGarageLocation",
+          "form_id": "0x04852B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04852B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FederalSurvCenterLocation",
+          "form_id": "0x04896A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04896A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GwinnettBreweryLocation",
+          "form_id": "0x048D92",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:048D92",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BostonMayoralShelterLocation",
+          "form_id": "0x048DE6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:048DE6",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DunwichBorersLocation",
+          "form_id": "0x049B78",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:049B78",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WestEverettEstatesLocation",
+          "form_id": "0x04A4D5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04A4D5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MedfordMemorialLocation",
+          "form_id": "0x04AE47",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04AE47",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "PoseidonEnergyLocation",
+          "form_id": "0x04B2C2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04B2C2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ScrapPalaceLocation",
+          "form_id": "0x04C8D1",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04C8D1",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HubCityAutoWreckersLocation",
+          "form_id": "0x04D135",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04D135",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LakeQuannapowittLocation",
+          "form_id": "0x04D47D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04D47D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MysticPinesLocation",
+          "form_id": "0x04E011",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04E011",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BackStreetApparelLocation",
+          "form_id": "0x04E4D7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04E4D7",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GreaterMassBloodClinicLocation",
+          "form_id": "0x04F500",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04F500",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RR303VertibirdAmbushLocation",
+          "form_id": "0x05098C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05098C",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "JamaicaPlainLocation",
+          "form_id": "0x050C08",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:050C08",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ChestnutHillockReservoirLocation",
+          "form_id": "0x050C0A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:050C0A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SlocumsJoeHQLocation",
+          "form_id": "0x0513A1",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0513A1",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "JalbertBrothersLocation",
+          "form_id": "0x0517DA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0517DA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SkylanesFlightLocation",
+          "form_id": "0x051866",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:051866",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault114TunnelStartLocation",
+          "form_id": "0x052172",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:052172",
+          "parent_lctn": "Fallout4.esm:042904",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MS16StrongroomLocation",
+          "form_id": "0x0521AE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0521AE",
+          "parent_lctn": "Fallout4.esm:042904",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ReebMarinaLocation",
+          "form_id": "0x0527C2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0527C2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NationalGuardTrainingYardLocation",
+          "form_id": "0x0533A8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0533A8",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "PoseidonReservoirLocation",
+          "form_id": "0x053D99",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:053D99",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MahkraFishpackingLocation",
+          "form_id": "0x053D9B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:053D9B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WestingEstateLocation",
+          "form_id": "0x054508",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:054508",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RelayTowerZimonjaLocation",
+          "form_id": "0x055402",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:055402",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GreatLinks18Location",
+          "form_id": "0x056109",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:056109",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "TaffingtonBoatHouseLocation",
+          "form_id": "0x056CBA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:056CBA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MaldenDrainageLocation",
+          "form_id": "0x056CBB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:056CBB",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DebugSALocation",
+          "form_id": "0x058202",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:058202",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WreckOfTheFMSNorthernStarLocation",
+          "form_id": "0x0585B7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0585B7",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "EasyCityDownsLocation",
+          "form_id": "0x05885C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05885C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FaneuilHallLocation",
+          "form_id": "0x05885F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05885F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MassGravelAndSandLocation",
+          "form_id": "0x058BEF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:058BEF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LynnWoodsLocation",
+          "form_id": "0x059F1B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:059F1B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WestRoxburyStationLocation",
+          "form_id": "0x05A118",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05A118",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "QuincyRuinsLocation",
+          "form_id": "0x05A5DD",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05A5DD",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "KingsportLighthouseLocation",
+          "form_id": "0x05A5E4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05A5E4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DanversHideoutLocation",
+          "form_id": "0x05A9AC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05A9AC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DanversLocation",
+          "form_id": "0x05A9AD",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05A9AD",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BigJohnsSalvageLocation",
+          "form_id": "0x05B75F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05B75F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "USAFSatelliteLocation",
+          "form_id": "0x05C523",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05C523",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RevereSatelliteArrayLocation",
+          "form_id": "0x05DEDE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05DEDE",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CharlesViewAmphitheaterLocation",
+          "form_id": "0x05E1FB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05E1FB",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RedRocketCaveLocation",
+          "form_id": "0x05FAA8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05FAA8",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault95Location",
+          "form_id": "0x05FF5E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:05FF5E",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RevereBeachStationLocation",
+          "form_id": "0x062507",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:062507",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WarwickHomesteadLocation",
+          "form_id": "0x06260C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:06260C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "TheSlogLocation",
+          "form_id": "0x06260D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:06260D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "TheCastleLocation",
+          "form_id": "0x066EBA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:066EBA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "OldNorthChurchLocation",
+          "form_id": "0x066EFD",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:066EFD",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteLocation",
+          "form_id": "0x0681AC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0681AC",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "AbernathyFarmLocation",
+          "form_id": "0x06B4D0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:06B4D0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WattzLocation",
+          "form_id": "0x06E89F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:06E89F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NHMFreightDepotLocation",
+          "form_id": "0x072215",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:072215",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RottenLandfillLocation",
+          "form_id": "0x072BAB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:072BAB",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MS09POILocation",
+          "form_id": "0x072F30",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:072F30",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "PrydwenLocation",
+          "form_id": "0x076A38",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:076A38",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GreenetechGeneticsLocation",
+          "form_id": "0x07D6B8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:07D6B8",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MassPikeTunnelLocation",
+          "form_id": "0x07D930",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:07D930",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ArcjetSystemsLocation",
+          "form_id": "0x0807EA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0807EA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SpectacleIslandLocation",
+          "form_id": "0x08281C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:08281C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SouthBostonCheckpointLocation",
+          "form_id": "0x0849DF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0849DF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MassFusionLocation",
+          "form_id": "0x084A6E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:084A6E",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BostonAirportLocation",
+          "form_id": "0x084AB0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:084AB0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FairlineHillEstatesLocation",
+          "form_id": "0x08BDB0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:08BDB0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NatickBanksLocation",
+          "form_id": "0x08BDB2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:08BDB2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MinutemenHomeDummyLocation",
+          "form_id": "0x08C47D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:08C47D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BostonPublicLibrary",
+          "form_id": "0x090848",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:090848",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "USSConstitutionLocation",
+          "form_id": "0x091386",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:091386",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HydeParkLocation",
+          "form_id": "0x099E5C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:099E5C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIConcordControlPointLocation",
+          "form_id": "0x09B01F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09B01F",
+          "parent_lctn": "Fallout4.esm:017E00",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Farm01Location",
+          "form_id": "0x09B1B4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09B1B4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Farm02Location",
+          "form_id": "0x09B1B5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09B1B5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Farm03Location",
+          "form_id": "0x09B1C2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09B1C2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Farm04Location",
+          "form_id": "0x09B1C3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09B1C3",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Farm05Location",
+          "form_id": "0x09B1C4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09B1C4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Farm06Location",
+          "form_id": "0x09B1C5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09B1C5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CraterHouseLocation",
+          "form_id": "0x09BD04",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:09BD04",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "IvansLocation",
+          "form_id": "0x0A6B1D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0A6B1D",
+          "parent_lctn": "Fallout4.esm:066EBA",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MilitaryCheckpointRJ01Location",
+          "form_id": "0x0AC960",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0AC960",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MinutemanHoldingCellLocation",
+          "form_id": "0x0B0FCC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0B0FCC",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RoboticsPioneerParkLocation",
+          "form_id": "0x0B1CE7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0B1CE7",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "AtomsDivideLocation",
+          "form_id": "0x0B2FDC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0B2FDC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SwitchboardLocation",
+          "form_id": "0x0B477F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0B477F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ReconBunkerThetaLocation",
+          "form_id": "0x0B882D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0B882D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FortHagenLocation",
+          "form_id": "0x0BAACA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0BAACA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BoSBattleSiteLocation",
+          "form_id": "0x0BB43B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0BB43B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ListeningPostBravoLocation",
+          "form_id": "0x0D10A8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0D10A8",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MQ203Location",
+          "form_id": "0x0D41A4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0D41A4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RickyOverpassLocation",
+          "form_id": "0x0D8665",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0D8665",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault75Location",
+          "form_id": "0x0D86D5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0D86D5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GibsonPointPierLocation",
+          "form_id": "0x0D948F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0D948F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RockyNarrowsLocation",
+          "form_id": "0x0D9895",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0D9895",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIJeffB04Location",
+          "form_id": "0x0DC941",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0DC941",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LibertaliaLocation",
+          "form_id": "0x0E3746",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0E3746",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NahantChapelLocation",
+          "form_id": "0x0E8CC1",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0E8CC1",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "QuincyQuarryLocation",
+          "form_id": "0x0ECA8F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0ECA8F",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DrumlinDinerLocation",
+          "form_id": "0x0ED94E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0ED94E",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BillysHouseLocation",
+          "form_id": "0x1241B6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1241B6",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SentinelSiteLocation",
+          "form_id": "0x141982",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:141982",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FortHagenInteriorLocation",
+          "form_id": "0x148C5E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:148C5E",
+          "parent_lctn": "Fallout4.esm:0BAACA",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteTunnelLocation",
+          "form_id": "0x154FB5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:154FB5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LaytonTowersLocation",
+          "form_id": "0x162480",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:162480",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LexingtonWorkshopLocation",
+          "form_id": "0x1647D9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1647D9",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GreenetechGeneticsLocationInterior",
+          "form_id": "0x164FE0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:164FE0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FortHagenWorkshopLocation",
+          "form_id": "0x165595",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:165595",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MQ106TrackingSite01Location",
+          "form_id": "0x1678E3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1678E3",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MQ106TrackingSite02Location",
+          "form_id": "0x1678E4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1678E4",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MQ106TrackingSite03Location",
+          "form_id": "0x1678E5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1678E5",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MQ106TrackingSite04Location",
+          "form_id": "0x1678E6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1678E6",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MQ106TrackingSite05Location",
+          "form_id": "0x1678E7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1678E7",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "VirgilsLabLocation",
+          "form_id": "0x167EA4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:167EA4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DarkHollowPondLocation",
+          "form_id": "0x1680BF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1680BF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CambridgeCraterLocation",
+          "form_id": "0x1680C3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1680C3",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MassFusionCoolantDisposalLocation",
+          "form_id": "0x1680C6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1680C6",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB01Location",
+          "form_id": "0x169768",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169768",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB02Location",
+          "form_id": "0x169914",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169914",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB03Location",
+          "form_id": "0x169AFA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169AFA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB04Location",
+          "form_id": "0x169B32",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169B32",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB05Location",
+          "form_id": "0x169B33",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169B33",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB06Location",
+          "form_id": "0x169B34",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169B34",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB07Location",
+          "form_id": "0x169B35",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169B35",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB08Location",
+          "form_id": "0x169B36",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169B36",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryBB09Location",
+          "form_id": "0x169B37",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:169B37",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WarrenTheaterLocation",
+          "form_id": "0x16A5F2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16A5F2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryMC01Location",
+          "form_id": "0x16C095",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16C095",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryMC02Location",
+          "form_id": "0x16C096",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16C096",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryMC03Location",
+          "form_id": "0x16C097",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16C097",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryMC04Location",
+          "form_id": "0x16C098",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16C098",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryMC05Location",
+          "form_id": "0x16C099",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16C099",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryMC06Location",
+          "form_id": "0x16C09A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16C09A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIMilitaryMC07Location",
+          "form_id": "0x16C09B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16C09B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIJoel06Location",
+          "form_id": "0x16FCE0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:16FCE0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BostonAirportAliasCellLocation",
+          "form_id": "0x1722A6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1722A6",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POICoastalCottage_WorkshopLocation",
+          "form_id": "0x176926",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:176926",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "POIBryanB01_WorkshopLocation",
+          "form_id": "0x178E7A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:178E7A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "ShenleysOysterBarLocation",
+          "form_id": "0x18127F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:18127F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DNPrimeBridge01Location",
+          "form_id": "0x1848D3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1848D3",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DNPrimeBridge02Location",
+          "form_id": "0x185918",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:185918",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GraygardenHomesteadLocation",
+          "form_id": "0x1886D2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1886D2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BobbisNewPlace",
+          "form_id": "0x188B3A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:188B3A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NorthEndGraveyardLocation",
+          "form_id": "0x196AC0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:196AC0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "EastBostonPDLocation",
+          "form_id": "0x198CD9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:198CD9",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SouthBostonPDLocation",
+          "form_id": "0x198CDA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:198CDA",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NahantPDLocation",
+          "form_id": "0x198CDB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:198CDB",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensIntersectionLocation",
+          "form_id": "0x198CDC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:198CDC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Theater_PearwoodResidencesLocation",
+          "form_id": "0x19D3E8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3E8",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Theater_TickerTapeLoungeLocation",
+          "form_id": "0x19D3E9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3E9",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Theater_Hub360Location",
+          "form_id": "0x19D3EA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3EA",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Theater_MassBayMedicalCenterLoctation",
+          "form_id": "0x19D3EB",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3EB",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_GraveyardLocation",
+          "form_id": "0x19D3F0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3F0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_CollegeAdminBuildingLocation",
+          "form_id": "0x19D3F2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3F2",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_DinerLocation",
+          "form_id": "0x19D3F4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3F4",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_EastCITRaiderCampLocation",
+          "form_id": "0x19D3F6",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3F6",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_KendallHospitalLocation",
+          "form_id": "0x19D3F8",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3F8",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_MonsignorPlazaLocation",
+          "form_id": "0x19D3FA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3FA",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_MassChemicalLocation",
+          "form_id": "0x19D3FC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3FC",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_ScienceCenterGiftShopLocation",
+          "form_id": "0x19D3FE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:19D3FE",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "EsplanadeChurchLocation",
+          "form_id": "0x1A972E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1A972E",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "EsplanadeMansionLocation",
+          "form_id": "0x1A972F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1A972F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MeanPastriesLocation",
+          "form_id": "0x1ACCE2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1ACCE2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HoardersApartmentLocation",
+          "form_id": "0x1ACCE7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1ACCE7",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BoylstonClubLocation",
+          "form_id": "0x1AD73F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1AD73F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NorthEndBoxingGymLocation",
+          "form_id": "0x1AD91D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1AD91D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NorthEndValentiStationLocation",
+          "form_id": "0x1AD91E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1AD91E",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "NorthEndSalemStreetCottageLocation",
+          "form_id": "0x1AD996",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1AD996",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MassStateHouseLocation",
+          "form_id": "0x1B157F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B157F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "OldCornerBookstoreLocation",
+          "form_id": "0x1B166D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B166D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WaterStreetApartmentsLocation",
+          "form_id": "0x1B17DE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B17DE",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "JoesSpuckiesLocation",
+          "form_id": "0x1B348C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B348C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "35CourtLocation",
+          "form_id": "0x1B3495",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B3495",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "HaymarketMallLocation",
+          "form_id": "0x1B3F3B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B3F3B",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensEvansWayLocation",
+          "form_id": "0x1B4BD9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B4BD9",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensRaiderCampLocation",
+          "form_id": "0x1B8C53",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B8C53",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensParkviewApartmentsLocation",
+          "form_id": "0x1B8C56",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1B8C56",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensBankLocation",
+          "form_id": "0x1BA3F0",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BA3F0",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteRoboticsLocation",
+          "form_id": "0x1BBC21",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BBC21",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteSRBLocation",
+          "form_id": "0x1BBC22",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BBC22",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteBioScienceLocation",
+          "form_id": "0x1BBC23",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BBC23",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteAdvSysLocation",
+          "form_id": "0x1BBC24",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BBC24",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteConcourseLocation",
+          "form_id": "0x1BBC25",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BBC25",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteReactorLocation",
+          "form_id": "0x1BC416",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BC416",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteCaveLocation",
+          "form_id": "0x1BC418",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BC418",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteFEVLabLocation",
+          "form_id": "0x1BC41A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BC41A",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteStorageLocation",
+          "form_id": "0x1BC41C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BC41C",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensKenmoreStationLocation",
+          "form_id": "0x1BDDF2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1BDDF2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "VaultTecOfficeLocation",
+          "form_id": "0x1CB257",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1CB257",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RelayTower05Location",
+          "form_id": "0x1D2081",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1D2081",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DNPrimeBridge03Location",
+          "form_id": "0x1D7FEC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1D7FEC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CharlestownDrugDenLocation",
+          "form_id": "0x1D7FED",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1D7FED",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BeaconHillApartmentsLocation",
+          "form_id": "0x1ED782",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1ED782",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BeaconHillBostonBugleLocation",
+          "form_id": "0x1ED784",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1ED784",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BeaconHillPubLocation",
+          "form_id": "0x1ED785",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1ED785",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteExteriorLocation",
+          "form_id": "0x1F1DFA",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1F1DFA",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensParkviewLoungeLocation",
+          "form_id": "0x1F578F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1F578F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FensCafeLocation",
+          "form_id": "0x1F5790",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:1F5790",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "FiddlersGreenLocation",
+          "form_id": "0x211741",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:211741",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "PrydwenQuartersLocation",
+          "form_id": "0x21640C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:21640C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WatefrontHotelLocation",
+          "form_id": "0x218104",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:218104",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WarehouseTrapsLocation",
+          "form_id": "0x2196DC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2196DC",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "InstituteTransElevatorLocation",
+          "form_id": "0x21A11B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:21A11B",
+          "parent_lctn": "Fallout4.esm:0681AC",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "VitalePumphouseLocation",
+          "form_id": "0x21C940",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:21C940",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CharlestownHouseLocation",
+          "form_id": "0x21E029",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:21E029",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WaterfrontHotelLocation",
+          "form_id": "0x224D27",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:224D27",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MS05DeathclawLocation",
+          "form_id": "0x224D2C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:224D2C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "RuinedSkyscraperLocation",
+          "form_id": "0x2259DC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2259DC",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "DartmouthProfessionalLocation",
+          "form_id": "0x225BAF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:225BAF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SouthBostonHighSchoolLocation",
+          "form_id": "0x225DD5",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:225DD5",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Vault81HoldingLocation",
+          "form_id": "0x225F8A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:225F8A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WaterfrontWarehouseLocation",
+          "form_id": "0x2263B2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2263B2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SouthBostonFactoryLocation",
+          "form_id": "0x2263B4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2263B4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "SouthBostonChurchLocation",
+          "form_id": "0x2263B7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2263B7",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_CITRotundaLocation",
+          "form_id": "0x2263B9",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2263B9",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_CampKendallLocation",
+          "form_id": "0x227B13",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:227B13",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "MassContainmentShedLocation",
+          "form_id": "0x22FC5F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:22FC5F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "GlowingSeaCraterLocation",
+          "form_id": "0x23B46A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:23B46A",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CambridgePlumbingLocation",
+          "form_id": "0x24070D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:24070D",
+          "parent_lctn": null,
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "WeatherbyInvestmentTrustLocation",
+          "form_id": "0x2488C2",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2488C2",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "CommonwealthBankLocation",
+          "form_id": "0x2488C3",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:2488C3",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LexingtonPharmacyLocation",
+          "form_id": "0x248D8C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:248D8C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LexingtonGarageLocation",
+          "form_id": "0x248D8D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:248D8D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LexingtonApartmentsLocation",
+          "form_id": "0x248D8E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:248D8E",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "LexingtonLaundromatLocation",
+          "form_id": "0x248D8F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:248D8F",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "BrokenMonorailLocation",
+          "form_id": "0x249D50",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:249D50",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        },
+        {
+          "edid": "Cambridge_ConstructionSiteLocation",
+          "form_id": "0x249D52",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:249D52",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth"
+        }
+      ]
+    },
+    {
+      "key": "DiamondCity",
+      "kind": "child_world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCCoast.esm"
+      ],
+      "source_worldspace": {
+        "edid": "DiamondCity",
+        "form_id": "0x000F94",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": "Commonwealth"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -4,
+          9,
+          -4,
+          7
+        ],
+        "land_bbox": [
+          -1,
+          0,
+          -1,
+          0
+        ],
+        "land_cells": 4,
+        "ref_bbox": [
+          -1,
+          3,
+          -2,
+          2
+        ],
+        "height_range_m": [
+          -30.06,
+          -29.26
+        ],
+        "map_marker_count": 3
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4DC_DiamondCity",
+        "plugin": "FO4WorldDiamondCity.esm",
+        "tile_cells": 8,
+        "cell_count": 64,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 7,
+        "map_picture": "Interface/Components/FO4SF_WorldMap.swf",
+        "marker_index_range": [
+          311,
+          314
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "interiors": {
+          "state": "staged",
+          "evidence": "scripts/terrain/interior_census.py#L8-L12"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DiamondCityLocation",
+          "form_id": "0x002CEF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:002CEF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityAllFaithsChapelLocation",
+          "form_id": "0x003953",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003953",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondSolomonsHouseLocation",
+          "form_id": "0x003957",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003957",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityPollysHouseLocation",
+          "form_id": "0x003958",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003958",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCitySurplusLocation",
+          "form_id": "0x003959",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003959",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityArturosHouseLocation",
+          "form_id": "0x00395A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00395A",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityDugoutInnLocation",
+          "form_id": "0x00395C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00395C",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityEarlSterlingHouseLocation",
+          "form_id": "0x00395D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00395D",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityFallonsBasementLocation",
+          "form_id": "0x00395E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00395E",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCitySurgeryCellarLocation",
+          "form_id": "0x00395F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00395F",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityShengsHouseLocation",
+          "form_id": "0x003960",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003960",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityWarehouseALocation",
+          "form_id": "0x003961",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003961",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityPublickOccurrencesLocation",
+          "form_id": "0x003962",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003962",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCitySchoolhouseLocation",
+          "form_id": "0x003963",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003963",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityMisterZwickysHouse",
+          "form_id": "0x003964",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003964",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityScienceCenterLocation",
+          "form_id": "0x003965",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003965",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCitySecurityOfficeLocation",
+          "form_id": "0x003966",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003966",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityPlayerHouseLocation",
+          "form_id": "0x003967",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003967",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityCodmanResidenceLocation",
+          "form_id": "0x003968",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003968",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityHawthorneResidenceLocation",
+          "form_id": "0x003969",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003969",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityLatimerResidenceLocation",
+          "form_id": "0x00396A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00396A",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityMayorsOfficeLocation",
+          "form_id": "0x00396B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00396B",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityPembrokeResidenceLocation",
+          "form_id": "0x00396C",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00396C",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityColonialTaphouseLocation",
+          "form_id": "0x00396D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00396D",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityJohnsHouseLocation",
+          "form_id": "0x00396E",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00396E",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityTunnelsLocation",
+          "form_id": "0x003970",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003970",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityChurchofAtomLocation",
+          "form_id": "0x003971",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003971",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityRadioLocation",
+          "form_id": "0x003976",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003976",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityMensRestroomLocation",
+          "form_id": "0x003977",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003977",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityWomensRestroomLocation",
+          "form_id": "0x003978",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003978",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityValentinesLocation",
+          "form_id": "0x003979",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:003979",
+          "parent_lctn": null,
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityDocCrockersHouseLocation",
+          "form_id": "0x00397A",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00397A",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityMoeCroninsHouseLocation",
+          "form_id": "0x00397B",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:00397B",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityMegaSurgeryLocation",
+          "form_id": "0x020977",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:020977",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityDoctorSunsHouseLocation",
+          "form_id": "0x020B8D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:020B8D",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityCookeResidenceLocation",
+          "form_id": "0x0399DC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0399DC",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityAbbotsHouseLocation",
+          "form_id": "0x0C8664",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0C8664",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityWarehouseCLocation",
+          "form_id": "0x0C8668",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0C8668",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityKelloggsHouse",
+          "form_id": "0x0F3546",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0F3546",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityInteriorEntranceLocation",
+          "form_id": "0x118A30",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:118A30",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        },
+        {
+          "edid": "DiamondCityChoiceChopsLockerLocation",
+          "form_id": "0x13A12D",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:13A12D",
+          "parent_lctn": "Fallout4.esm:002CEF",
+          "parent_world": "DiamondCity"
+        }
+      ]
+    },
+    {
+      "key": "Goodneighbor",
+      "kind": "child_world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm"
+      ],
+      "source_worldspace": {
+        "edid": "Goodneighbor",
+        "form_id": "0x054BD5",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": "Commonwealth"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -1,
+          10,
+          -7,
+          1
+        ],
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": [
+          0,
+          6,
+          -5,
+          -1
+        ],
+        "height_range_m": null,
+        "map_marker_count": 1
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4GN_Goodneighbor",
+        "plugin": "FO4WorldGoodneighbor.esm",
+        "tile_cells": 8,
+        "cell_count": 64,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 8,
+        "map_picture": "Interface/Components/FO4SF_WorldMap.swf",
+        "marker_index_range": [
+          314,
+          315
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "interiors": {
+          "state": "staged",
+          "evidence": "scripts/terrain/interior_census.py#L8-L12"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "docs/world/three-way-study.md"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "GoodneighborOldStateHouseLocation",
+          "form_id": "0x02260F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02260F",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborLocation",
+          "form_id": "0x022610",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:022610",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborTheThirdRailLocation",
+          "form_id": "0x02267F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02267F",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborBobbisPlaceLocation",
+          "form_id": "0x0226AE",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0226AE",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborHotelRexfordLocation",
+          "form_id": "0x0226D7",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0226D7",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborTheMemoryDenLocation",
+          "form_id": "0x0228A4",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0228A4",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborKleosHouseLocation",
+          "form_id": "0x0228CC",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0228CC",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborHancocksStrongroomLocation",
+          "form_id": "0x0228EF",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0228EF",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborWarehouse01Location",
+          "form_id": "0x02290F",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:02290F",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborWarehouse02Location",
+          "form_id": "0x022930",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:022930",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborDaisysHouseLocation",
+          "form_id": "0x022950",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:022950",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "GoodneighborWarehouse03Location",
+          "form_id": "0x022993",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:022993",
+          "parent_lctn": "Fallout4.esm:022610",
+          "parent_world": "Goodneighbor"
+        },
+        {
+          "edid": "TheBigDigLocation",
+          "form_id": "0x04E448",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:04E448",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Goodneighbor"
+        }
+      ]
+    },
+    {
+      "key": "SanctuaryHillsWorld",
+      "kind": "no_build",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm"
+      ],
+      "source_worldspace": {
+        "edid": "SanctuaryHillsWorld",
+        "form_id": "0x0A7FF4",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": [
+          -28,
+          7,
+          -13,
+          34
+        ],
+        "land_bbox": [
+          -25,
+          2,
+          -9,
+          25
+        ],
+        "land_cells": 118,
+        "ref_bbox": [
+          -25,
+          -11,
+          16,
+          25
+        ],
+        "height_range_m": [
+          0.0,
+          149.83
+        ],
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": null,
+        "plugin": null,
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": null,
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": null,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "PrewarSanctuaryHillsLocation",
+          "form_id": "0x0A7D39",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0A7D39",
+          "parent_lctn": null,
+          "parent_world": "SanctuaryHillsWorld"
+        },
+        {
+          "edid": "PrewarVault111Location",
+          "form_id": "0x0CA853",
+          "plugin": "Fallout4.esm",
+          "form_key": "Fallout4.esm:0CA853",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "SanctuaryHillsWorld"
+        }
+      ]
+    },
+    {
+      "key": "DiamondCityFX",
+      "kind": "no_build",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm"
+      ],
+      "source_worldspace": {
+        "edid": "DiamondCityFX",
+        "form_id": "0x000F93",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": "Commonwealth"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -9,
+          5,
+          -3,
+          3
+        ],
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": [
+          -1,
+          -1,
+          -1,
+          -1
+        ],
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": null,
+        "plugin": null,
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": null,
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": null,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": []
+    },
+    {
+      "key": "Commonwealth_DLCRobot",
+      "kind": "dlc_edit",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCRobot.esm"
+      ],
+      "source_worldspace": {
+        "edid": "Commonwealth",
+        "form_id": "0x00003C",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": "Commonwealth"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -28,
+          13,
+          -10,
+          7
+        ],
+        "land_bbox": [
+          -1,
+          -1,
+          5,
+          6
+        ],
+        "land_cells": 2,
+        "ref_bbox": [
+          -25,
+          10,
+          -2,
+          5
+        ],
+        "height_range_m": [
+          8.69,
+          13.83
+        ],
+        "map_marker_count": 3
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4Core_Commonwealth",
+        "plugin": "FO4TerrainCore_DLC.esm",
+        "tile_cells": 64,
+        "cell_count": 4096,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": null,
+        "map_picture": "Interface/Components/FO4SF_WorldMap.swf",
+        "marker_index_range": [
+          315,
+          318
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "staged",
+          "evidence": "scripts/terrain/interior_census.py#L8-L12"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC01LairLocation",
+          "form_id": "0x0008A4",
+          "plugin": "DLCRobot.esm",
+          "form_key": "DLCRobot.esm:0008A4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth_DLCRobot"
+        },
+        {
+          "edid": "DLC01CaravanLocation",
+          "form_id": "0x00FFFA",
+          "plugin": "DLCRobot.esm",
+          "form_key": "DLCRobot.esm:00FFFA",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth_DLCRobot"
+        },
+        {
+          "edid": "DLC01LairRobcoStoreLocation",
+          "form_id": "0x01089D",
+          "plugin": "DLCRobot.esm",
+          "form_key": "DLCRobot.esm:01089D",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth_DLCRobot"
+        },
+        {
+          "edid": "DLC01GeneralAtomicsFactoryLocation",
+          "form_id": "0x011362",
+          "plugin": "DLCRobot.esm",
+          "form_key": "DLCRobot.esm:011362",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth_DLCRobot"
+        }
+      ]
+    },
+    {
+      "key": "Commonwealth_DLCCoast",
+      "kind": "dlc_edit",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCCoast.esm"
+      ],
+      "source_worldspace": {
+        "edid": "Commonwealth",
+        "form_id": "0x00003C",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": "Commonwealth"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -28,
+          32,
+          -31,
+          39
+        ],
+        "land_bbox": [
+          11,
+          32,
+          22,
+          39
+        ],
+        "land_cells": 253,
+        "ref_bbox": [
+          -25,
+          31,
+          -29,
+          37
+        ],
+        "height_range_m": [
+          -20.46,
+          82.74
+        ],
+        "map_marker_count": 3
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4Core_Commonwealth",
+        "plugin": "FO4TerrainCore_DLC.esm",
+        "tile_cells": 64,
+        "cell_count": 4096,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": null,
+        "map_picture": "Interface/Components/FO4SF_WorldMap.swf",
+        "marker_index_range": [
+          318,
+          321
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC03NakanoResidence",
+          "form_id": "0x00220C",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00220C",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth_DLCCoast"
+        }
+      ]
+    },
+    {
+      "key": "Commonwealth_DLCworkshop03",
+      "kind": "dlc_edit",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCworkshop03.esm"
+      ],
+      "source_worldspace": {
+        "edid": "Commonwealth",
+        "form_id": "0x00003C",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": "Commonwealth"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -4,
+          7,
+          -22,
+          -14
+        ],
+        "land_bbox": [
+          2,
+          3,
+          -21,
+          -20
+        ],
+        "land_cells": 4,
+        "ref_bbox": [
+          3,
+          4,
+          -21,
+          -15
+        ],
+        "height_range_m": [
+          -1.94,
+          16.69
+        ],
+        "map_marker_count": 3
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4Core_Commonwealth",
+        "plugin": "FO4TerrainCore_DLC.esm",
+        "tile_cells": 64,
+        "cell_count": 4096,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": null,
+        "map_picture": "Interface/Components/FO4SF_WorldMap.swf",
+        "marker_index_range": [
+          321,
+          324
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC06Vault88Location",
+          "form_id": "0x003DDF",
+          "plugin": "DLCworkshop03.esm",
+          "form_key": "DLCworkshop03.esm:003DDF",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth_DLCworkshop03"
+        }
+      ]
+    },
+    {
+      "key": "Commonwealth_DLCNukaWorld",
+      "kind": "dlc_edit",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCNukaWorld.esm"
+      ],
+      "source_worldspace": {
+        "edid": "Commonwealth",
+        "form_id": "0x00003C",
+        "defining_plugin": "Fallout4.esm",
+        "parent_world": "Commonwealth"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -34,
+          10,
+          -15,
+          10
+        ],
+        "land_bbox": [
+          -32,
+          -25,
+          2,
+          10
+        ],
+        "land_cells": 43,
+        "ref_bbox": [
+          -32,
+          -22,
+          2,
+          9
+        ],
+        "height_range_m": [
+          72.34,
+          186.29
+        ],
+        "map_marker_count": 2
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4Core_Commonwealth",
+        "plugin": "FO4TerrainCore_DLC.esm",
+        "tile_cells": 64,
+        "cell_count": 4096,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": null,
+        "map_picture": "Interface/Components/FO4SF_WorldMap.swf",
+        "marker_index_range": [
+          324,
+          326
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC04TransitCenterLocation",
+          "form_id": "0x007EC4",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:007EC4",
+          "parent_lctn": "Fallout4.esm:002CF0",
+          "parent_world": "Commonwealth_DLCNukaWorld"
+        }
+      ]
+    },
+    {
+      "key": "FarHarbor",
+      "kind": "world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCCoast.esm"
+      ],
+      "source_worldspace": {
+        "edid": "DLC03FarHarbor",
+        "form_id": "0x000B0F",
+        "defining_plugin": "DLCCoast.esm",
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": [
+          -73,
+          69,
+          -59,
+          78
+        ],
+        "land_bbox": [
+          -29,
+          20,
+          -21,
+          31
+        ],
+        "land_cells": 2067,
+        "ref_bbox": [
+          -25,
+          19,
+          -19,
+          24
+        ],
+        "height_range_m": [
+          -22.51,
+          117.37
+        ],
+        "map_marker_count": 47
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4FH_FarHarbor",
+        "plugin": "FO4WorldFarHarbor.esm",
+        "tile_cells": 34,
+        "cell_count": 1156,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 5,
+        "map_picture": "Interface/Components/FO4SF_FarHarborMap.swf",
+        "marker_index_range": [
+          326,
+          373
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC03NucleusLocation",
+          "form_id": "0x004477",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:004477",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03EdenMeadowsCinemasLocation",
+          "form_id": "0x004C7C",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:004C7C",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03FarHarborSettlementLocation",
+          "form_id": "0x005C79",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:005C79",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03LastPlankLocation",
+          "form_id": "0x005CB6",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:005CB6",
+          "parent_lctn": "DLCCoast.esm:005C79",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03AcadiaLocation",
+          "form_id": "0x006126",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:006126",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03NationalParkVisitorsCenterLocation",
+          "form_id": "0x009353",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:009353",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03MSAzaleaLocation",
+          "form_id": "0x00AF72",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00AF72",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03AtomsSpringLocation",
+          "form_id": "0x00AFE2",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00AFE2",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03AtomShrineLocation",
+          "form_id": "0x00AFF9",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00AFF9",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03BrookesHeadLighthouseLocation",
+          "form_id": "0x00ED4B",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00ED4B",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03CliffsEdgeHotelLocation",
+          "form_id": "0x00F041",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00F041",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03BeaverCreekLanesLocation",
+          "form_id": "0x00F042",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00F042",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03VimPopFactoryLocation",
+          "form_id": "0x00F043",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00F043",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03HorizonFlight1207Location",
+          "form_id": "0x00F044",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00F044",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03EchoLakeLumberLocation",
+          "form_id": "0x00F101",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00F101",
+          "parent_lctn": null,
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03EmmetsCausewayLocation",
+          "form_id": "0x00F10E",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00F10E",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03NationalParkHQLocation",
+          "form_id": "0x01049F",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:01049F",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03FringeCoveDocksLocation",
+          "form_id": "0x011A83",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:011A83",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03EaglesCoveTanneryLocation",
+          "form_id": "0x0140E0",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0140E0",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03KyeBunkerLocation",
+          "form_id": "0x014143",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:014143",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03AlderseaDaySpaLocation",
+          "form_id": "0x016667",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:016667",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_POI_17_Location",
+          "form_id": "0x0169FE",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0169FE",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_POI_12_Location",
+          "form_id": "0x01CBE5",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:01CBE5",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_POI_37_Location",
+          "form_id": "0x01CBE6",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:01CBE6",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03BarHarbourMuseumLocation",
+          "form_id": "0x01F9F5",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:01F9F5",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03WindFarmBuildingLocation",
+          "form_id": "0x01FEC4",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:01FEC4",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03FarHarborWorldLocation",
+          "form_id": "0x020168",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:020168",
+          "parent_lctn": null,
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03NorthwoodRidgeQuarryLocation",
+          "form_id": "0x020648",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:020648",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03LongfellowsCabinLocation",
+          "form_id": "0x020649",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:020649",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03HarborGrandHotelLocation",
+          "form_id": "0x0217D4",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0217D4",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03NationalParkCampgroundLocation",
+          "form_id": "0x0247BE",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0247BE",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03PineCrestCavernLocation",
+          "form_id": "0x0258DF",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0258DF",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03KitteredgePassLocation",
+          "form_id": "0x0258E0",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0258E0",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03HaddockCoveLocation",
+          "form_id": "0x0316B7",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0316B7",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_POI_40_Location",
+          "form_id": "0x037498",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:037498",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03Vault118Location",
+          "form_id": "0x038AE6",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:038AE6",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03DaltonFarmLocation",
+          "form_id": "0x038EAE",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:038EAE",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03SouthwestHarborLocation",
+          "form_id": "0x0399C8",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0399C8",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_POI_40Interior_Location",
+          "form_id": "0x03A381",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:03A381",
+          "parent_lctn": "DLCCoast.esm:037498",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03WindFarmBuildingInteriorLocation",
+          "form_id": "0x040AF9",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:040AF9",
+          "parent_lctn": "DLCCoast.esm:01FEC4",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03RedDeathIslandLocation",
+          "form_id": "0x048AC1",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:048AC1",
+          "parent_lctn": null,
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03REHoldingCellLocation",
+          "form_id": "0x04B68F",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:04B68F",
+          "parent_lctn": null,
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03RayburnPointLocation",
+          "form_id": "0x053FD5",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:053FD5",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_POI_07_Location",
+          "form_id": "0x053FF1",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:053FF1",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_RockPointCampLocation",
+          "form_id": "0x05422C",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:05422C",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03_ZephyrRidgeLocation",
+          "form_id": "0x054230",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:054230",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        },
+        {
+          "edid": "DLC03POI45Location",
+          "form_id": "0x0567BC",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:0567BC",
+          "parent_lctn": "DLCCoast.esm:020168",
+          "parent_world": "FarHarbor"
+        }
+      ]
+    },
+    {
+      "key": "DLC03VRWorldspace",
+      "kind": "child_world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCCoast.esm"
+      ],
+      "source_worldspace": {
+        "edid": "DLC03VRWorldspace",
+        "form_id": "0x004EA4",
+        "defining_plugin": "DLCCoast.esm",
+        "parent_world": "FarHarbor"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -12,
+          12,
+          -12,
+          12
+        ],
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": [
+          -3,
+          2,
+          -3,
+          2
+        ],
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4FH_VRWorldspace",
+        "plugin": "FO4WorldFarHarborVR.esm",
+        "tile_cells": 6,
+        "cell_count": 36,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 9,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC03VRLocation",
+          "form_id": "0x00750E",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:00750E",
+          "parent_lctn": null,
+          "parent_world": "DLC03VRWorldspace"
+        },
+        {
+          "edid": "DLC03NucleusMemoryBanksLocation",
+          "form_id": "0x02259F",
+          "plugin": "DLCCoast.esm",
+          "form_key": "DLCCoast.esm:02259F",
+          "parent_lctn": "DLCCoast.esm:004477",
+          "parent_world": "DLC03VRWorldspace"
+        }
+      ]
+    },
+    {
+      "key": "NukaWorld",
+      "kind": "world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCNukaWorld.esm"
+      ],
+      "source_worldspace": {
+        "edid": "NukaWorld",
+        "form_id": "0x00290F",
+        "defining_plugin": "DLCNukaWorld.esm",
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": [
+          -32,
+          32,
+          -32,
+          32
+        ],
+        "land_bbox": [
+          -32,
+          32,
+          -32,
+          32
+        ],
+        "land_cells": 4225,
+        "ref_bbox": [
+          -28,
+          22,
+          -25,
+          23
+        ],
+        "height_range_m": [
+          -0.57,
+          212.69
+        ],
+        "map_marker_count": 43
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4NW_NukaWorld",
+        "plugin": "FO4WorldNukaWorld.esm",
+        "tile_cells": 40,
+        "cell_count": 1600,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 6,
+        "map_picture": "Interface/Components/FO4SF_NukaWorldMap.swf",
+        "marker_index_range": [
+          373,
+          416
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC04ColaCarsLocation",
+          "form_id": "0x00805D",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:00805D",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04NukaWorldLocation",
+          "form_id": "0x008060",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:008060",
+          "parent_lctn": null,
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04NukaStationLocation",
+          "form_id": "0x00B8E5",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:00B8E5",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04NukaWorldWorkshopLocation",
+          "form_id": "0x00BCED",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:00BCED",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GauntletLocation",
+          "form_id": "0x00BD04",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:00BD04",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GalacticZoneLocation",
+          "form_id": "0x00E765",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:00E765",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GalacticZone_NukaGalaxyLocation",
+          "form_id": "0x010C9F",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:010C9F",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GalacticZone_RobCoBattlezoneLocation",
+          "form_id": "0x010CA2",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:010CA2",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GalacticZone_StarlightInterstellarTheaterLocation",
+          "form_id": "0x010CA3",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:010CA3",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GalacticZone_VaultTecAmongTheStarsLocation",
+          "form_id": "0x010CA4",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:010CA4",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04JunkyardLocation",
+          "form_id": "0x01763E",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:01763E",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04BottlingPlantLocation",
+          "form_id": "0x017643",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:017643",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04NukacadeLocation",
+          "form_id": "0x017644",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:017644",
+          "parent_lctn": "DLCNukaWorld.esm:01FCEC",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04KiddieKingdomLocation",
+          "form_id": "0x017645",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:017645",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04KiddieKingdomTunnelsLocation",
+          "form_id": "0x017646",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:017646",
+          "parent_lctn": null,
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04FunhouseLocation",
+          "form_id": "0x019559",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:019559",
+          "parent_lctn": "DLCNukaWorld.esm:017645",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04HubologistCampLocation",
+          "form_id": "0x01CE0C",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:01CE0C",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GrandchesterMansionLocation",
+          "form_id": "0x01EB9B",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:01EB9B",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04WildWestLocation",
+          "form_id": "0x01FB1C",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:01FB1C",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04SafariAdventureLocation",
+          "form_id": "0x01FC7F",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:01FC7F",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04NukaWorldPowerPlantLocation",
+          "form_id": "0x01FC81",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:01FC81",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04NukaTownUSALocation",
+          "form_id": "0x01FCEC",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:01FCEC",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04CappysCafeLocation",
+          "form_id": "0x021370",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:021370",
+          "parent_lctn": "DLCNukaWorld.esm:01FCEC",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04SafariAdventure_ReptileHouseLocation",
+          "form_id": "0x0337A0",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:0337A0",
+          "parent_lctn": "DLCNukaWorld.esm:01FC7F",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04SafariAdventure_WelcomeCenterLocation",
+          "form_id": "0x0337A1",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:0337A1",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04SafariAdventure_BearCaveLocation",
+          "form_id": "0x0337A2",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:0337A2",
+          "parent_lctn": "DLCNukaWorld.esm:01FC7F",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04SafariAdventure_PrimateHouseLocation",
+          "form_id": "0x0337A3",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:0337A3",
+          "parent_lctn": "DLCNukaWorld.esm:01FC7F",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04POISC07Location",
+          "form_id": "0x042B5A",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:042B5A",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04WildWestMineCartLocation",
+          "form_id": "0x043958",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:043958",
+          "parent_lctn": "DLCNukaWorld.esm:01FB1C",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04GalacticZone_StarportNukaLocation",
+          "form_id": "0x04ABAE",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:04ABAE",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04BradbertonLocation",
+          "form_id": "0x04E130",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:04E130",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04BradbertonOverpassLocation",
+          "form_id": "0x0503B3",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:0503B3",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04BradbertonReservoirLocation",
+          "form_id": "0x0503BC",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:0503BC",
+          "parent_lctn": "DLCNukaWorld.esm:008060",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04NukaWorldAirfieldLocation",
+          "form_id": "0x0503BD",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:0503BD",
+          "parent_lctn": null,
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04WorkshopHoldingCellLocation",
+          "form_id": "0x051BAD",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:051BAD",
+          "parent_lctn": null,
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04FizztopMountainLocation",
+          "form_id": "0x056DB2",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:056DB2",
+          "parent_lctn": "DLCNukaWorld.esm:01FCEC",
+          "parent_world": "NukaWorld"
+        },
+        {
+          "edid": "DLC04TheParlorLocation",
+          "form_id": "0x056DB3",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:056DB3",
+          "parent_lctn": "DLCNukaWorld.esm:01FCEC",
+          "parent_world": "NukaWorld"
+        }
+      ]
+    },
+    {
+      "key": "NukaWorldAmphitheater",
+      "kind": "child_world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCNukaWorld.esm"
+      ],
+      "source_worldspace": {
+        "edid": "NukaWorldAmphitheater",
+        "form_id": "0x052931",
+        "defining_plugin": "DLCNukaWorld.esm",
+        "parent_world": "NukaWorld"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -11,
+          4,
+          -8,
+          -2
+        ],
+        "land_bbox": [
+          -1,
+          0,
+          -5,
+          -5
+        ],
+        "land_cells": 2,
+        "ref_bbox": [
+          -2,
+          1,
+          -6,
+          -4
+        ],
+        "height_range_m": [
+          4.34,
+          8.0
+        ],
+        "map_marker_count": 1
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4NW_Amphitheater",
+        "plugin": "FO4WorldNukaAmphitheater.esm",
+        "tile_cells": 6,
+        "cell_count": 36,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 10,
+        "map_picture": "Interface/Components/FO4SF_NukaWorldMap.swf",
+        "marker_index_range": [
+          416,
+          417
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "staged",
+          "evidence": "src/fo4sf/core/world_registry.json"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": [
+        {
+          "edid": "DLC04BradbertonAmphitheaterLocation",
+          "form_id": "0x055A05",
+          "plugin": "DLCNukaWorld.esm",
+          "form_key": "DLCNukaWorld.esm:055A05",
+          "parent_lctn": "DLCNukaWorld.esm:01FCEC",
+          "parent_world": "NukaWorldAmphitheater"
+        }
+      ]
+    },
+    {
+      "key": "NukaWorldMarket",
+      "kind": "child_world",
+      "game": "FO4",
+      "source_plugins": [
+        "Fallout4.esm",
+        "DLCNukaWorld.esm"
+      ],
+      "source_worldspace": {
+        "edid": "NukaWorldMarket",
+        "form_id": "0x053C58",
+        "defining_plugin": "DLCNukaWorld.esm",
+        "parent_world": "NukaWorld"
+      },
+      "bounds": {
+        "cell_bbox": [
+          -4,
+          4,
+          -8,
+          -2
+        ],
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": [
+          -1,
+          1,
+          -6,
+          -4
+        ],
+        "height_range_m": null,
+        "map_marker_count": 1
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4NW_Market",
+        "plugin": "FO4WorldNukaMarket.esm",
+        "tile_cells": 6,
+        "cell_count": 36,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 11,
+        "map_picture": "Interface/Components/FO4SF_NukaWorldMap.swf",
+        "marker_index_range": [
+          417,
+          418
+        ]
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "scripts/terrain/fo4_world_census.py"
+        }
+      },
+      "start_descriptors": [],
+      "locations": []
+    },
+    {
+      "key": "CapitalWasteland",
+      "kind": "other_game_world",
+      "game": "FO3",
+      "source_plugins": [
+        "Fallout3.esm"
+      ],
+      "source_worldspace": {
+        "edid": null,
+        "form_id": null,
+        "defining_plugin": "Fallout3.esm",
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": null,
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": null,
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4CW_CapitalWasteland",
+        "plugin": "FO4CapitalWasteland.esm",
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 2,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        },
+        "travel": {
+          "state": "staged",
+          "evidence": "scripts/mapmarkers/FO4SF_PipboyTravel.psc#L19-L20"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L43-L54"
+        }
+      },
+      "start_descriptors": [
+        {
+          "key": "vault101",
+          "start_cell": "FO3Port_Vault101Exit",
+          "surface_anchor": "CapitalWasteland_ScenicOverlook"
+        }
+      ],
+      "locations": []
+    },
+    {
+      "key": "MojaveWasteland",
+      "kind": "other_game_world",
+      "game": "FNV",
+      "source_plugins": [
+        "FalloutNV.esm"
+      ],
+      "source_worldspace": {
+        "edid": null,
+        "form_id": null,
+        "defining_plugin": "FalloutNV.esm",
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": null,
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": null,
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4NV_MojaveWasteland",
+        "plugin": "FO4Mojave.esm",
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 3,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        },
+        "travel": {
+          "state": "staged",
+          "evidence": "scripts/mapmarkers/FO4SF_PipboyTravel.psc#L21-L22"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L55-L66"
+        }
+      },
+      "start_descriptors": [
+        {
+          "key": "goodsprings",
+          "start_cell": "FNVPort_GSDocMitchellHouse",
+          "surface_anchor": "Mojave_GoodspringsPorch"
+        },
+        {
+          "key": "ncr_trooper",
+          "start_cell": "FNVPort_MojaveOutpostBarracks",
+          "surface_anchor": "Mojave_OutpostCourtyard"
+        },
+        {
+          "key": "desert_ranger",
+          "start_cell": "FNVPort_RangerStationAlpha",
+          "surface_anchor": "Mojave_RangerStation"
+        }
+      ],
+      "locations": []
+    },
+    {
+      "key": "Appalachia",
+      "kind": "other_game_world",
+      "game": "FO76",
+      "source_plugins": [
+        "SeventySix.esm"
+      ],
+      "source_worldspace": {
+        "edid": null,
+        "form_id": null,
+        "defining_plugin": "SeventySix.esm",
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": null,
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": null,
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4AP_Appalachia",
+        "plugin": "FO4Appalachia.esm",
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 4,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        },
+        "travel": {
+          "state": "staged",
+          "evidence": "scripts/mapmarkers/FO4SF_PipboyTravel.psc#L23-L24"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L67-L78"
+        }
+      },
+      "start_descriptors": [
+        {
+          "key": "vault76",
+          "start_cell": "FO76Port_Vault76Bedroom",
+          "surface_anchor": "Appalachia_Vault76Plaza"
+        }
+      ],
+      "locations": []
+    },
+    {
+      "key": "SouthernCalifornia",
+      "kind": "other_game_world",
+      "game": "FO1",
+      "source_plugins": [],
+      "source_worldspace": {
+        "edid": null,
+        "form_id": null,
+        "defining_plugin": null,
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": null,
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": null,
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4FO1_SouthernCalifornia",
+        "plugin": "FO4SouthernCalifornia.esm",
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 12,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L79-L90"
+        }
+      },
+      "start_descriptors": [
+        {
+          "key": "vault13",
+          "start_cell": "FO1Port_Vault13Cave",
+          "surface_anchor": "SoCal_Vault13Entrance"
+        }
+      ],
+      "locations": []
+    },
+    {
+      "key": "NorthernCalifornia",
+      "kind": "other_game_world",
+      "game": "FO2",
+      "source_plugins": [],
+      "source_worldspace": {
+        "edid": null,
+        "form_id": null,
+        "defining_plugin": null,
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": null,
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": null,
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4FO2_NorthernCalifornia",
+        "plugin": "FO4NorthernCalifornia.esm",
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 13,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L91-L102"
+        }
+      },
+      "start_descriptors": [
+        {
+          "key": "arroyo",
+          "start_cell": "FO2Port_TempleOfTrials",
+          "surface_anchor": "NorCal_ArroyoBridge"
+        }
+      ],
+      "locations": []
+    },
+    {
+      "key": "MidwestCorridor",
+      "kind": "other_game_world",
+      "game": "FOT",
+      "source_plugins": [],
+      "source_worldspace": {
+        "edid": null,
+        "form_id": null,
+        "defining_plugin": null,
+        "parent_world": null
+      },
+      "bounds": {
+        "cell_bbox": null,
+        "land_bbox": null,
+        "land_cells": 0,
+        "ref_bbox": null,
+        "height_range_m": null,
+        "map_marker_count": 0
+      },
+      "planned_starfield_world": {
+        "world_edid": "FO4FOT_MidwestCorridor",
+        "plugin": "FO4MidwestCorridor.esm",
+        "tile_cells": null,
+        "cell_count": null,
+        "host_planet": "FO4SFHomePlanet",
+        "planet_position": null,
+        "measured_merge_offset": null,
+        "pipboy_plugin_code": 14,
+        "map_picture": null,
+        "marker_index_range": null
+      },
+      "status": {
+        "terrain": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "objects": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "water": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "ground_textures": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "walk_mesh": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "interiors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "doors": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "markers": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "locations": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "travel": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        },
+        "lod": {
+          "state": "none",
+          "evidence": "src/fo4sf/core/start_worlds.py#L103-L114"
+        }
+      },
+      "start_descriptors": [
+        {
+          "key": "bunkeralpha",
+          "start_cell": "FOTPort_BunkerAlphaBriefing",
+          "surface_anchor": "Midwest_BrahminWoodLZ"
+        }
+      ],
+      "locations": []
+    }
+  ]
+}
