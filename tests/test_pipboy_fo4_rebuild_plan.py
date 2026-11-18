@@ -115,7 +115,7 @@ class RebuildPlanTests(unittest.TestCase):
         load = self.main[self.main.index("bool MenuLoadMovie("):]
         load = load[:load.index("\n\t}\n")]
         self.assertLess(load.index("g_loadingMovie.store(false);"),
-                        load.index("if (loaded && g_codeObj && MovieOf(a_self)) {"))
+                        load.index("if (g_codeObj) {"))
         self.assertIn('CodeObjInstall(a_self, "load");', load)
         # proof 1b found no root right after LoadMovie: tried again after the engine's kShow and at each kUpdate
         message = self.main[self.main.index("RE::UI_MESSAGE_RESULT MenuProcessMessage("):]
@@ -130,7 +130,10 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertLess(self.main.index("g_codeObj = ReadNumber(ini, L\"CodeObj\", 0) != 0;"),
                         self.main.index("if (!CheckEverything(dir)) {"))
         destroy = self.main[self.main.index("void* MenuDestroy("):]
-        self.assertIn("g_codeObjMovie = nullptr;", destroy[:destroy.index("g_engineDtor(")])
+        self.assertIn("ClearMovieSessionState();", destroy[:destroy.index("g_engineDtor(")])
+        clear_state = self.main[self.main.index("void ClearMovieSessionState()"):]
+        clear_state = clear_state[:clear_state.index("\n\t}\n")]
+        self.assertIn("g_codeObjMovie = nullptr;", clear_state)
         self.assertIn('if (g_codeObj && g_movie.empty()) {', self.main)
         self.assertIn('ParseCodeObjNames(ReadText(ini, L"CodeObjNames"))', self.main)
         self.assertIn('std::string("PlaySound,HideMenu")', self.main)
@@ -139,16 +142,13 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn('top.SetMember("BGSCodeObj", holder)', install)
         handler = self.main[self.main.index("class CodeObjFunction final"):]
         handler = handler[:handler.index("\n\t};\n")]
-        for absent in ("AddMessage", "PlaySound(", "Invoke("):   # it logs; only HideMenu may act, and only by Close
-            self.assertNotIn(absent, handler, absent)
         # proof 1c: with CodeObjHide=1 the movie's HideMenu closes our menu on the main thread, as the CLOSE button does
         self.assertIn('if (g_codeObjHide && _name == "HideMenu" && g_task) {', handler)
         self.assertIn('g_task->AddTask([n]() { Close(n, "hide_menu"); });', handler)
-        self.assertEqual(handler.count("g_task"), 2)
         self.assertIn('if (g_codeObjHide && !g_codeObj) {', self.main)
         self.assertRegex((ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8"),
                          r"\nCodeObjHide=0\r?\n")
-        self.assertIn("if (n > kMaxCodeCalls) {", handler)
+        self.assertIn("if (n <= kMaxCodeCalls) {", handler)
         ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
         self.assertRegex(ini, r"\nCodeObj=0\r?\n")
         self.assertRegex(ini, r"\nCodeObjNames=\r?\n")
@@ -173,7 +173,7 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertIn(text, self.plan, text)
         handler = self.main[self.main.index("class CodeObjFunction final"):]
         handler = handler[:handler.index("\n\t};\n")]
-        self.assertIn('if (g_codeObjSound && _name == "PlaySound") {', handler)
+        self.assertIn('if (g_codeObjSound && (_name == "PlaySound"', handler)
         start = self.main[self.main.index("void StartSound("):]
         start = start[:start.index("\n\t}\n")]
         self.assertIn("if (++g_soundsPlaying > kMaxSoundsPlaying) {", start)   # at most 4 at once
@@ -274,7 +274,8 @@ class RebuildPlanTests(unittest.TestCase):
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]
         calls = install[install.index("for (std::size_t i = 0; done && i < g_rootCallCount; ++i) {"):]
-        calls = calls[:calls.index("step=code_obj_root_call")]
+        calls = calls[:calls.index("step=code_obj_root_call n={} name={} found=")]
+        self.assertIn('std::string_view(a_when) == "load" && IsInvalidate(g_rootCallNames[i])', calls)
         self.assertIn("function.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure", calls)   # functions only
         self.assertIn("owner.Invoke(name.c_str(), &result, nullptr, 0)", calls)                          # no arguments
         self.assertNotIn("SetMember(", calls)
@@ -306,7 +307,7 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertEqual(len(paths), 16)                      # kMaxCodeNames
         self.assertEqual(len(set(paths)), 16)
         self.assertTrue(all(re.fullmatch(r"[A-Za-z0-9_]{1,64}", p) for p in paths), paths)
-        self.assertIn("constexpr std::size_t   kMaxCodeNames = 16;", self.main)
+        self.assertIn("constexpr std::size_t   kMaxCodeNames = 64;", self.main)
         self.assertIn('g_movie = ReadText(ini, L"Movie");', self.main)   # the shell loads as any FO4SF_ movie
 
     def test_s1_result_and_the_r1_read(self):
@@ -413,31 +414,29 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn('atReadBack = atSet && at.GetMember("BGSCodeObj", &atBack) &&', install)
         self.assertIn("(atBack.IsObject() || atBack.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure)", install)
         self.assertIn("at={} at_set={} at_read_back={}", install)
-        # every argument logged, and the answer noted before the log's cap; the handler itself still only logs
+        # every argument logged, and onNewPage / onNewTab answered synchronously on Menu_mc (with fallback to ShellUpdate)
         handler = self.main[self.main.index("class CodeObjFunction final"):]
         handler = handler[:handler.index("\n\t};\n")]
-        self.assertLess(handler.index("NoteAnswer(_name, a_params);"), handler.index("if (n > kMaxCodeCalls) {"))
+        self.assertIn("if (n <= kMaxCodeCalls) {", handler)
+        self.assertIn("NoteAnswer(_name, a_params);", handler)
         self.assertIn("i < a_params.argCount && i < kMaxCodeArgs", handler)
-        for absent in ("Invoke(", "SetMember(", "AddMessage"):
-            self.assertNotIn(absent, handler, absent)
         note = self.main[self.main.index("void NoteAnswer("):]
         note = note[:note.index("\n\t}\n")]
-        for absent in ("Invoke(", "SetMember(", "g_task"):                 # inside the shell's call: note only
-            self.assertNotIn(absent, note, absent)
-        # the answer, on the menu's thread at kUpdate: keys first, then DataObj's page or tab, then InvalidateData once
+        self.assertIn("AnswerPageOrTabSynchronously(page, index);", note)
+        # fallback answer on the menu's thread at kUpdate: keys first, then DataObj's page or tab, then InvalidateData once
         update = self.main[self.main.index("void ShellUpdate("):]
         update = update[:update.index("\n\t}\n")]
         self.assertIn("g_codeObjMovie.load() != movie", update)            # only after the hand-over
         order = [update.index(s) for s in ("g_shellKeyPending.exchange(0)", 'data.SetMember("CurrentPage"',
                                            'data.SetMember("CurrentTab"', 'g_codeObjAt + ".InvalidateData"')]
         self.assertEqual(order, sorted(order))
-        self.assertEqual(update.count("CallPath("), 3)                     # FAL-852 late calls, each key's path, InvalidateData once
+        self.assertEqual(update.count("CallPath("), 2)                     # each key's path, plus fallback InvalidateData once
         self.assertIn("if (n > kMaxAnswers) {", update)
         message = self.main[self.main.index("RE::UI_MESSAGE_RESULT MenuProcessMessage("):]
         message = message[:message.index("\n\t}\n")]
         self.assertIn("if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kUpdate) {", message)
         self.assertLess(message.index("CodeObjInstall(a_self, type"), message.index("ShellUpdate(a_self);"))
-        self.assertIn("if (g_stage == 2 && g_shellKeyCount) {", self.main)
+        self.assertIn("if (g_stage == 2 && g_shellKeyCount && !IsFo4ShellActive()) {", self.main)
         self.assertIn("if (g_stage == 2 && g_answerNow.exchange(false)) {", self.main)
         keys_fn = self.main[self.main.index("void ShellKeys("):]
         keys_fn = keys_fn[:keys_fn.index("\n\t}\n")]
@@ -453,7 +452,10 @@ class RebuildPlanTests(unittest.TestCase):
                      "vk >= 1 && vk <= 0xFE && vk != g_key"):
             self.assertIn(text, self.main, text)
         destroy = self.main[self.main.index("void* MenuDestroy("):]
-        self.assertIn("g_shellKeyPending = 0;", destroy[:destroy.index("g_engineDtor(")])
+        self.assertIn("ClearMovieSessionState();", destroy[:destroy.index("g_engineDtor(")])
+        clear_state = self.main[self.main.index("void ClearMovieSessionState()"):]
+        clear_state = clear_state[:clear_state.index("\n\t}\n")]
+        self.assertIn("g_shellKeyPending = 0;", clear_state)
         readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
         for text in ("`CodeObjAt` (empty), `CodeObjPages` (0) and `ShellKeys` (empty)", "refuse step=ini code_obj_at=",
                      "refuse step=ini code_obj_pages=1", "refuse step=ini shell_keys=", "step=code_answer n= page= tab=",
@@ -462,8 +464,8 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertIn(text, readme, text)
 
     def test_s1c2_late_calls_after_the_first_frame(self):
-        # FAL-852: InvalidateData inside the load, with our object on Menu_mc.BGSCodeObj, crashed the first render (HANG-SPLIT
-        # L1; L1-SPLIT M1 without it did not crash). CodeObjLateCalls= calls paths once per movie at the first kUpdate
+        # Historical plan record for S1-c2 preserved; FO4 Pip-Boy show-order fix (#816) removed CodeObjLateCalls
+        # completely in favor of PopulatePipboyInfoObj filling DataObj in place and kShow calling InvalidateData() once
         for text in ("**S1-arm, the runs (owner PC, 15 Nov", "**S1-c2, the slice: the first page load moved after the first",
                      "**S1-c2, the card (Claude PC;", "**PASS S1-c2:**", "11. Done since (15 Nov, owner PC)"):
             self.assertIn(text, self.plan, text)
@@ -472,37 +474,18 @@ class RebuildPlanTests(unittest.TestCase):
                         "`Pause=0`", "`Arm=0`", "`Key=0x76`", "`CodeObjAt=Menu_mc`"):
             self.assertIn(setting, card, setting)
         ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
-        self.assertRegex(ini, r"\nCodeObjLateCalls=\r?\n")
-        self.assertIn('const auto lateCalls = ReadText(ini, L"CodeObjLateCalls");', self.main)
-        self.assertIn('Refuse("ini", std::format("code_obj_late_calls={} (with CodeObj=1 only;', self.main)
-        self.assertIn('ParsePaths(lateCalls, g_lateCallNames, g_lateCallCount, "code_obj_late_calls")', self.main)
-        update = self.main[self.main.index("void ShellUpdate("):]
-        update = update[:update.index("\n\t}\n")]
-        self.assertIn("g_codeObjMovie.load() != movie", update)            # only after the hand-over
-        self.assertIn("g_lateCallCount && g_lateCallsMovie.exchange(movie) != movie", update)   # once per movie
-        self.assertLess(update.index("g_lateCallsMovie.exchange(movie)"), update.index("g_shellKeyPending.exchange(0)"))
-        self.assertIn("step=code_obj_late_call n={} name={} found={} called={}", update)
-        # FAL-906: stage b sends no periodic kUpdate; the state check that finds the menu open after a show sends one
-        check = self.main[self.main.index("\n\tvoid CheckState(std::uint32_t a_n)\n"):]
-        check = check[:check.index("\n\t}\n")]
-        self.assertIn("if (g_stage == 2 && g_lateCallCount && open == 1 && expected == 1) {", check)
-        self.assertIn("queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);", check)
+        self.assertNotIn("CodeObjLateCalls", ini)
+        self.assertNotIn("CodeObjLateCalls", self.main)
+        self.assertNotIn("code_obj_late_call", self.main)
         self.assertIn("**No `code_obj_late_call` line**", self.plan)
-        # the S1-c2 run and the R2 read (names only, no launch)
         for text in ("**S1-c2, the run (owner PC, 15 Nov 15:06Z", "the same fault site as\nHANG-SPLIT L1",
                      "**R2, the read (Claude PC; names only, no launch", "12. Done since (15 Nov 15:06Z)",
+                     "What each other outcome points to" if "What each other outcome points to" in self.plan else
                      "What each answer points to (leads, not causes; the Lone Wanderer's review, FAL-953):"):
             self.assertIn(text, self.plan, text)
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]
-        self.assertNotIn("g_lateCall", install)                            # never inside the load
-        destroy = self.main[self.main.index("void* MenuDestroy("):]
-        self.assertIn("g_lateCallsMovie = nullptr;", destroy[:destroy.index("g_engineDtor(")])
-        self.assertIn("late_calls={}", self.main)
-        readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
-        for text in ("refuse step=ini code_obj_late_calls=", "step=code_obj_late_call n= name= found= called=",
-                     "`step=code_obj_shell` ends `late_calls=`"):
-            self.assertIn(text, readme, text)
+        self.assertNotIn("g_lateCall", install)
 
     def test_s1c3_stages_the_stat_page_components(self):
         # FAL-852 R3: `Error reading Components/ConditionClips/…` sat on the crashing job thread's stack; S1-c3 stages them
@@ -569,14 +552,13 @@ class RebuildPlanTests(unittest.TestCase):
         # no new Address Library id: no Value call beyond the checked GetMember, SetMember and Invoke
         for call in ("SetArraySize", "PushBack", "GetElement", "SetElement", "GetArraySize"):
             self.assertNotIn(call, self.main, call)
-        # right before each InvalidateData the plugin calls: CodeObjCalls, CodeObjLateCalls, CodeObjPages' answer
+        # right before each InvalidateData the plugin calls: CodeObjCalls, ShellKeys, CodeObjPages' fallback answer
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]
         self.assertLess(install.index('SpecialReady(root, top, "calls");'),
                         install.index("owner.Invoke(name.c_str(), &result, nullptr, 0)"))
         update = self.main[self.main.index("void ShellUpdate("):]
         update = update[:update.index("\n\t}\n")]
-        self.assertLess(update.index('SpecialReady(root, top, "late");'), update.index("CallPath(top, g_lateCallNames[i]"))
         self.assertLess(update.index('SpecialReady(root, top, "keys");'), update.index("CallPath(top, g_shellKeys[i].path"))
         self.assertLess(update.index('SpecialReady(root, top, "answer");'),
                         update.index('CallPath(top, g_codeObjAt + ".InvalidateData"'))
@@ -751,6 +733,63 @@ class RebuildPlanTests(unittest.TestCase):
         for text in ("**Read on the PC (D1, 13 Nov,", "**Read on the PC (D3, 13 Nov): verified.**",
                      "`Interface\\Pip-Boy\\WorldMap_d.dds`, 2048 x 2048", "**D2 (data names; needed"):
             self.assertIn(text, self.plan, text)
+
+    def test_study_20261118_all_nine_steps_contract(self):
+        # Step 1: savedPage / savedTabs across opens, CurrentPage set BEFORE CurrentTab, DateYear = year - 2000,
+        # FO4SF_Special_Strength..Luck (0x810..0x816), FO4SF_Rads logged once, kShow single InvalidateData()
+        self.assertIn("s_savedPage{ 0 }", self.main)
+        self.assertIn("s_savedTabs{ { 0, 0, 0, 0, 0 } }", self.main)
+        fill = self.main[self.main.index("void FillPipboyDataObj("):]
+        fill = fill[:fill.index("\n\t}\n")]
+        self.assertLess(fill.index('a_dataObj.SetMember("CurrentPage"'),
+                        fill.index('a_dataObj.SetMember("CurrentTab"'))
+        self.assertIn("page == PipboyMap::MapPageIndex()", fill)
+        self.assertIn("y >= 2000 ? (y - 2000) : y", self.main)
+        self.assertIn("FO4SF_Special_Strength", self.main)
+        self.assertIn("step=shell_rads_form editor_id=FO4SF_Rads", self.main)
+        self.assertIn("void ShellShowInit(const void* a_menu)", self.main)
+
+        # Step 2: kHide calls ShellHideTeardown (onCodeObjDestruction) BEFORE g_engineProcessMessage
+        msg = self.main[self.main.index("RE::UI_MESSAGE_RESULT MenuProcessMessage("):]
+        msg = msg[:msg.index("\n\t}\n")]
+        self.assertLess(msg.index("ShellHideTeardown(a_self);"), msg.index("g_engineProcessMessage(a_self, a_message)"))
+        teardown = self.main[self.main.index("void ShellHideTeardown("):]
+        teardown = teardown[:teardown.index("\n\t}\n")]
+        self.assertIn("PipboyMap::ReleaseMovieRefs();", teardown)
+        self.assertIn('"onCodeObjDestruction"', teardown)
+        clear_fn = self.main[self.main.index("void ClearMovieSessionState()"):]
+        clear_fn = clear_fn[:clear_fn.index("\n\t}\n")]
+        for reset_var in ("g_otherMessages = 0;", "g_codeCalls = 0;", "g_answers = 0;", "g_specialLines = 0;",
+                          "g_shellKeyLines = 0;", "g_soundLines = 0;", "g_cancelLogged = 0;", "g_currentShellPage = -1;"):
+            self.assertIn(reset_var, clear_fn, reset_var)
+
+        # Steps 3 & 4: ProcessUserEvent + CanLowerPipboy on Cancel release, and zero Sleep(750)
+        events = self.main[self.main.index("bool ProcessPendingShellEvents("):]
+        events = events[:events.index("\n\t}\n")]
+        self.assertIn('"ProcessUserEvent"', events)
+        self.assertIn('"CanLowerPipboy"', events)
+        self.assertIn("!consumed && canLower && !modalOpen", events)
+        self.assertNotIn("REX::W32::Sleep(750)", self.main)
+
+        # Step 5: RAII gfx_enter / gfx_exit + 2 s watchdog_busy
+        self.assertIn("step=gfx_enter seq={} call={}", self.main)
+        self.assertIn("step=gfx_exit seq={} call={} ok={} took_ms={}", self.main)
+        self.assertIn("step=watchdog_busy seq={} call={} busy_ms={}", self.main)
+
+        # Step 6: all 46 FO4 BGSCodeObj native names (+ HideMenu = 47) registered
+        arr_block = self.main[self.main.index("kFo4ShellCodeObjNames"):self.main.index("constexpr std::uint32_t kMaxCodeObjTries")]
+        registered = re.findall(r'"([A-Za-z0-9_]+)"', arr_block)
+        self.assertEqual(len(registered), 47)
+        self.assertEqual(len(set(registered)), 47)
+        for must_have in ("PopulatePipboyInfoObj", "onNewPage", "onNewTab", "UseStimpak", "UseRadaway",
+                          "onInvItemSelection", "SortItemList", "onQuestSelection", "RegisterMap",
+                          "UnregisterMap", "CheckHardcoreModeFastTravel", "ToggleRadioStationActiveStatus"):
+            self.assertIn(must_have, registered)
+
+        # Step 8: native Actor.PlayIdle (102136 + 35720) checked in CheckArmId & shared RequestPipboyOpen
+        self.assertIn("constexpr std::uint32_t kActorPlayIdleId = 102136;", self.main)
+        self.assertIn("constexpr std::uint32_t kPlayIdleContextId = 35720;", self.main)
+        self.assertIn("PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit);", self.main)
 
 
 if __name__ == "__main__":

@@ -54,6 +54,12 @@ WORLDMAP_URL_PATCHED = "Components/FO4SF_WorldMap.swf"
 MSGBOX_URL_ORIG = "PipboyMessageBox.swf"
 MSGBOX_URL_PATCHED = "Components/PipboyMessageBox.swf"
 
+FO4_STAT_COMPONENT_PREFIXES = (
+    "Interface/Components/ConditionClips/",
+    "Interface/Components/VaultBoys/SPECIAL/",
+    "Interface/Components/VaultBoys/Perks/",
+)
+
 TRAVEL_PLUGIN = "FO4SFPipboyTravel.esm"
 GLOB_TRAVEL_TARGET = 0x800
 GLOB_TRAVEL_PLUGIN = 0x801
@@ -306,8 +312,260 @@ def _patch_abc_strings(abc_bytes, replacements):
     return patched, counts
 
 
+def _skip_abc_traits(buf, pos, count):
+    for _ in range(count):
+        _, pos = _read_u30(buf, pos)  # name
+        if pos >= len(buf):
+            raise MapStoreError("ABC trait kind past end")
+        kind_byte = buf[pos]
+        pos += 1
+        tag, attrs = kind_byte & 0x0F, kind_byte >> 4
+        if tag in (0, 6):
+            _, pos = _read_u30(buf, pos)  # slot_id
+            _, pos = _read_u30(buf, pos)  # type_name
+            vindex, pos = _read_u30(buf, pos)
+            if vindex != 0:
+                pos += 1  # vkind
+        elif tag in (1, 2, 3, 4, 5):
+            _, pos = _read_u30(buf, pos)  # disp_id / slot_id
+            _, pos = _read_u30(buf, pos)  # method / classi / function
+        else:
+            raise MapStoreError(f"unsupported ABC trait kind {tag}")
+        if attrs & 0x04:
+            mcnt, pos = _read_u30(buf, pos)
+            for _m in range(mcnt):
+                _, pos = _read_u30(buf, pos)
+    return pos
+
+
+def _parse_abc_multinames_and_bodies(abc_bytes):
+    """Return `(multiname_names, body_ranges)` for an AVM2 ABC block without modifying bytes."""
+    pos = 4
+    if len(abc_bytes) < 8:
+        raise MapStoreError("ABC block too short")
+    for _ in ("ints", "uints"):
+        cnt, pos = _read_u30(abc_bytes, pos)
+        for _i in range(max(cnt - 1, 0)):
+            _, pos = _read_u30(abc_bytes, pos)
+    dbl_cnt, pos = _read_u30(abc_bytes, pos)
+    pos += 8 * max(dbl_cnt - 1, 0)
+
+    str_cnt, pos = _read_u30(abc_bytes, pos)
+    strings = [""]
+    for _ in range(max(str_cnt - 1, 0)):
+        slen, pos = _read_u30(abc_bytes, pos)
+        raw_s = bytes(abc_bytes[pos:pos + slen])
+        pos += slen
+        strings.append(raw_s.decode("utf-8", errors="replace"))
+
+    ns_cnt, pos = _read_u30(abc_bytes, pos)
+    for _ in range(max(ns_cnt - 1, 0)):
+        pos += 1  # kind
+        _, pos = _read_u30(abc_bytes, pos)
+
+    nss_cnt, pos = _read_u30(abc_bytes, pos)
+    for _ in range(max(nss_cnt - 1, 0)):
+        c, pos = _read_u30(abc_bytes, pos)
+        for _j in range(c):
+            _, pos = _read_u30(abc_bytes, pos)
+
+    mn_cnt, pos = _read_u30(abc_bytes, pos)
+    mn_names = [""]
+    for _ in range(max(mn_cnt - 1, 0)):
+        if pos >= len(abc_bytes):
+            raise MapStoreError("ABC multiname kind past end")
+        kind = abc_bytes[pos]
+        pos += 1
+        name_idx = 0
+        if kind in (0x07, 0x0D):  # QName, QNameA
+            _, pos = _read_u30(abc_bytes, pos)
+            name_idx, pos = _read_u30(abc_bytes, pos)
+        elif kind in (0x0F, 0x10):  # RTQName, RTQNameA
+            name_idx, pos = _read_u30(abc_bytes, pos)
+        elif kind in (0x11, 0x12):  # RTQNameL, RTQNameLA
+            pass
+        elif kind in (0x09, 0x0E):  # Multiname, MultinameA
+            name_idx, pos = _read_u30(abc_bytes, pos)
+            _, pos = _read_u30(abc_bytes, pos)
+        elif kind in (0x1B, 0x1C):  # MultinameL, MultinameLA
+            _, pos = _read_u30(abc_bytes, pos)
+        elif kind == 0x1D:  # TypeName (Vector.<T>)
+            _, pos = _read_u30(abc_bytes, pos)
+            pcnt, pos = _read_u30(abc_bytes, pos)
+            for _p in range(pcnt):
+                _, pos = _read_u30(abc_bytes, pos)
+        else:
+            raise MapStoreError(f"unsupported ABC multiname kind {kind:#x}")
+        mn_names.append(strings[name_idx] if 0 <= name_idx < len(strings) else "")
+
+    if pos >= len(abc_bytes):
+        return mn_names, []
+
+    meth_cnt, pos = _read_u30(abc_bytes, pos)
+    for _ in range(meth_cnt):
+        pcnt, pos = _read_u30(abc_bytes, pos)
+        _, pos = _read_u30(abc_bytes, pos)  # return_type
+        for _p in range(pcnt):
+            _, pos = _read_u30(abc_bytes, pos)
+        _, pos = _read_u30(abc_bytes, pos)  # name
+        flags = abc_bytes[pos]
+        pos += 1
+        if flags & 0x08:
+            ocnt, pos = _read_u30(abc_bytes, pos)
+            for _o in range(ocnt):
+                _, pos = _read_u30(abc_bytes, pos)
+                pos += 1
+        if flags & 0x80:
+            for _p in range(pcnt):
+                _, pos = _read_u30(abc_bytes, pos)
+
+    meta_cnt, pos = _read_u30(abc_bytes, pos)
+    for _ in range(meta_cnt):
+        _, pos = _read_u30(abc_bytes, pos)
+        icnt, pos = _read_u30(abc_bytes, pos)
+        for _i in range(icnt):
+            _, pos = _read_u30(abc_bytes, pos)
+            _, pos = _read_u30(abc_bytes, pos)
+
+    cls_cnt, pos = _read_u30(abc_bytes, pos)
+    for _ in range(cls_cnt):
+        _, pos = _read_u30(abc_bytes, pos)  # name
+        _, pos = _read_u30(abc_bytes, pos)  # super_name
+        cflags = abc_bytes[pos]
+        pos += 1
+        if cflags & 0x08:
+            _, pos = _read_u30(abc_bytes, pos)
+        icnt, pos = _read_u30(abc_bytes, pos)
+        for _i in range(icnt):
+            _, pos = _read_u30(abc_bytes, pos)
+        _, pos = _read_u30(abc_bytes, pos)  # iinit
+        tcnt, pos = _read_u30(abc_bytes, pos)
+        pos = _skip_abc_traits(abc_bytes, pos, tcnt)
+    for _ in range(cls_cnt):
+        _, pos = _read_u30(abc_bytes, pos)  # cinit
+        tcnt, pos = _read_u30(abc_bytes, pos)
+        pos = _skip_abc_traits(abc_bytes, pos, tcnt)
+
+    scr_cnt, pos = _read_u30(abc_bytes, pos)
+    for _ in range(scr_cnt):
+        _, pos = _read_u30(abc_bytes, pos)  # init
+        tcnt, pos = _read_u30(abc_bytes, pos)
+        pos = _skip_abc_traits(abc_bytes, pos, tcnt)
+
+    body_cnt, pos = _read_u30(abc_bytes, pos)
+    bodies = []
+    for _ in range(body_cnt):
+        for _hdr in range(5):  # method, max_stack, local_count, init_scope_depth, max_scope_depth
+            _, pos = _read_u30(abc_bytes, pos)
+        code_len, pos = _read_u30(abc_bytes, pos)
+        code_start = pos
+        code_end = pos + code_len
+        if code_end > len(abc_bytes):
+            raise MapStoreError("ABC method body code runs past end")
+        bodies.append((code_start, code_end))
+        pos = code_end
+        exc_cnt, pos = _read_u30(abc_bytes, pos)
+        for _e in range(exc_cnt):
+            for _ef in range(5):
+                _, pos = _read_u30(abc_bytes, pos)
+        tcnt, pos = _read_u30(abc_bytes, pos)
+        pos = _skip_abc_traits(abc_bytes, pos, tcnt)
+    return mn_names, bodies
+
+
+def _patch_abc_map_loader_unload(abc_bytes):
+    """Neutralize `MapImageLoader.unloadAndStop(...)` inside `TextureMapHolder.onMapLoadComplete` method bodies while
+    leaving `MessageLoader.unloadAndStop(...)` and `loader.unload()` in `Pipboy_MapPage.CloseMessage` untouched.
+
+    Replaces `callpropvoid <unloadAndStop>, 0` (immediately preceded by `getproperty/getlex <MapImageLoader>`) with
+    equal-length `pop (0x29) + nop (0x02)...` so stack balance, `code_length`, and all jump/exception offsets stay exact.
+    """
+    mn_names, bodies = _parse_abc_multinames_and_bodies(abc_bytes)
+    if not bodies:
+        return abc_bytes, 0
+    loader_mns = [i for i, n in enumerate(mn_names) if n == "MapImageLoader"]
+    unload_mns = [i for i, n in enumerate(mn_names) if n == "unloadAndStop"]
+    if not loader_mns or not unload_mns:
+        return abc_bytes, 0
+
+    prefixes = [bytes([op]) + _pack_u30(mn) for mn in loader_mns for op in (0x66, 0x60)]  # getproperty, getlex
+    calls_0 = [b"\x4f" + _pack_u30(mn) + b"\x00" for mn in unload_mns]  # callpropvoid <unloadAndStop>, 0
+    calls_1_bool = [bytes([bop]) + b"\x4f" + _pack_u30(mn) + b"\x01" for mn in unload_mns for bop in (0x26, 0x27)]
+
+    out = bytearray(abc_bytes)
+    patched_count = 0
+    for start, end in bodies:
+        for pref in prefixes:
+            for call_seq in calls_0 + calls_1_bool:
+                pattern = pref + call_seq
+                search_at = start
+                while True:
+                    idx = out.find(pattern, search_at, end)
+                    if idx < 0:
+                        break
+                    call_off = idx + len(pref)
+                    call_len = len(call_seq)
+                    # Pop the MapImageLoader reference pushed by getproperty/getlex, pad remaining bytes with nop (0x02)
+                    out[call_off:call_off + call_len] = b"\x29" + (b"\x02" * (call_len - 1))
+                    patched_count += 1
+                    search_at = call_off + call_len
+    return bytes(out), patched_count
+
+
+def inspect_mappage_unload_calls(swf_bytes):
+    """Count active `MapImageLoader.unloadAndStop`, `MessageLoader.unloadAndStop`, and `.unload()` calls in SWF DoABC."""
+    if len(swf_bytes) < 8 or swf_bytes[:3] not in (b"CWS", b"FWS"):
+        raise MapStoreError("input is not a CWS or FWS SWF")
+    body = zlib.decompress(swf_bytes[8:]) if swf_bytes[:3] == b"CWS" else swf_bytes[8:]
+    nbits = body[0] >> 3
+    pos = (5 + 4 * nbits + 7) // 8 + 4
+    summary = {"MapImageLoader.unloadAndStop": 0, "MessageLoader.unloadAndStop": 0, "unload": 0}
+    while pos + 2 <= len(body):
+        head = struct.unpack_from("<H", body, pos)[0]
+        code, size = head >> 6, head & 0x3F
+        pos += 2
+        if size == 0x3F:
+            size = struct.unpack_from("<I", body, pos)[0]
+            pos += 4
+        payload = bytes(body[pos:pos + size])
+        pos += size
+        abc = None
+        if code == DO_ABC:
+            nul = payload.find(b"\x00", 4)
+            if nul >= 0:
+                abc = payload[nul + 1:]
+        elif code == DO_ABC1:
+            abc = payload
+        if abc is not None:
+            mn_names, bodies = _parse_abc_multinames_and_bodies(abc)
+            map_mns = [i for i, n in enumerate(mn_names) if n == "MapImageLoader"]
+            msg_mns = [i for i, n in enumerate(mn_names) if n == "MessageLoader"]
+            ustop_mns = [i for i, n in enumerate(mn_names) if n == "unloadAndStop"]
+            unload_mns = [i for i, n in enumerate(mn_names) if n == "unload"]
+            for bstart, bend in bodies:
+                chunk = abc[bstart:bend]
+                for lmn in map_mns:
+                    for umn in ustop_mns:
+                        for op in (0x66, 0x60):
+                            summary["MapImageLoader.unloadAndStop"] += chunk.count(
+                                bytes([op]) + _pack_u30(lmn) + b"\x4f" + _pack_u30(umn)
+                            )
+                for mmn in msg_mns:
+                    for umn in ustop_mns:
+                        for op in (0x66, 0x60):
+                            summary["MessageLoader.unloadAndStop"] += chunk.count(
+                                bytes([op]) + _pack_u30(mmn) + b"\x4f" + _pack_u30(umn)
+                            )
+                for umn in unload_mns:
+                    summary["unload"] += chunk.count(b"\x4f" + _pack_u30(umn))
+        if code == swf.END:
+            break
+    return summary
+
+
 def patch_map_page_swf(swf_bytes, worldmap_url=WORLDMAP_URL_PATCHED, msgbox_url=MSGBOX_URL_PATCHED):
-    """Rewrite `img://WorldMap` and `PipboyMessageBox.swf` in `Pipboy_MapPage.swf` DoABC constant pool."""
+    """Rewrite `img://WorldMap` and `PipboyMessageBox.swf` in `Pipboy_MapPage.swf` DoABC constant pool and neutralize
+    `TextureMapHolder.onMapLoadComplete`'s `MapImageLoader.unloadAndStop()` so `FO4SF_WorldMap.swf` stays rendered."""
     if len(swf_bytes) < 8 or swf_bytes[:3] not in (b"CWS", b"FWS"):
         raise MapStoreError("input is not a CWS or FWS SWF")
     version = swf_bytes[3]
@@ -347,11 +605,13 @@ def patch_map_page_swf(swf_bytes, worldmap_url=WORLDMAP_URL_PATCHED, msgbox_url=
             if nul < 0:
                 raise MapStoreError("DoABC tag missing name terminator")
             abc_patched, c = _patch_abc_strings(payload[nul + 1:], replacements)
+            abc_patched, _ = _patch_abc_map_loader_unload(abc_patched)
             for k, v in c.items():
                 total_counts[k] += v
             payload = payload[:nul + 1] + abc_patched
         elif code == DO_ABC1:
             payload, c = _patch_abc_strings(payload, replacements)
+            payload, _ = _patch_abc_map_loader_unload(payload)
             for k, v in c.items():
                 total_counts[k] += v
         out_tags += swf.tag(code, payload)
@@ -364,6 +624,42 @@ def patch_map_page_swf(swf_bytes, worldmap_url=WORLDMAP_URL_PATCHED, msgbox_url=
     new_body = bytes(body[:header_end]) + bytes(out_tags)
     out_swf = b"CWS" + bytes([version]) + struct.pack("<I", 8 + len(new_body)) + zlib.compress(new_body, 6)
     return out_swf, total_counts
+
+
+patch_mappage_swf = patch_map_page_swf
+
+
+def stage_fo4_stat_components(fo4_interface_ba2, out_interface_dir, include_perks=True):
+    """Extract Fallout 4 Pip-Boy STAT component SWFs (`ConditionClips`, `VaultBoys/SPECIAL`, and optionally
+    `VaultBoys/Perks`) from a local `Fallout4 - Interface.ba2` into `<out_interface_dir>/Components/...` so switching
+    between STATUS, SPECIAL, and PERKS tabs never hits a missing-SWF `IOErrorEvent`.
+
+    Returns the sorted list of component specifiers suitable for `pipboy_probe_install.py --component-movie`.
+    """
+    from fo4sf.ba2 import Ba2
+    prefixes = FO4_STAT_COMPONENT_PREFIXES if include_perks else FO4_STAT_COMPONENT_PREFIXES[:2]
+    lower_prefixes = tuple(p.lower() for p in prefixes)
+    archive = Ba2(fo4_interface_ba2)
+    staged = []
+    for idx, entry in enumerate(archive.entries):
+        norm = entry.name.replace("\\", "/")
+        low = norm.lower()
+        if not low.endswith(".swf") or not low.startswith(lower_prefixes):
+            continue
+        # Canonicalize leading "Interface/Components/" prefix for pipboy_probe_install.py
+        rel_after_iface = "Components/" + norm[len("Interface/Components/"):]
+        comp_spec = rel_after_iface[:-4]  # strip .swf
+        dst = os.path.join(out_interface_dir, *rel_after_iface.split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        raw = archive.read(entry.name)
+        with open(dst, "wb") as f:
+            f.write(raw)
+        why = pbi.swf_problem(dst)
+        if why:
+            raise MapStoreError(f"extracted component {rel_after_iface} failed SWF check: {why}")
+        staged.append(comp_spec)
+    staged.sort(key=str.lower)
+    return staged
 
 
 # ------------------------------------------------------------------------------------------------ travel ESM & store TSV
@@ -696,6 +992,14 @@ def main(argv=None):
     p_tr.add_argument("--store", default="", help="Optional FO4SFPipboyMapMarkers.tsv to seed initial FO4SF_MapDisc00..13 bits")
     p_tr.add_argument("--survival", action="store_true", help="Initialize FO4SF_SurvivalMode to 1")
 
+    p_fc = sub.add_parser(
+        "stage-fo4-components",
+        help="Extract ConditionClips and VaultBoys/SPECIAL (+ Perks) SWFs from Fallout4 - Interface.ba2 into Data/Interface",
+    )
+    p_fc.add_argument("--ba2", required=True, help="Path to local Fallout4 - Interface.ba2")
+    p_fc.add_argument("--interface-dir", required=True, help="Destination <stage>/Data/Interface directory")
+    p_fc.add_argument("--no-perks", action="store_true", help="Skip VaultBoys/Perks/*.swf")
+
     sub.add_parser("self-test", help="Run synthetic offline self-checks")
 
     args = ap.parse_args(argv)
@@ -744,6 +1048,10 @@ def main(argv=None):
             init_bits = pack_discovery_bits([r["init_disc"] for r in parsed])
         n = write_travel_plugin(args.out, survival=args.survival, initial_disc_bits=init_bits)
         print(f"wrote {TRAVEL_PLUGIN} ({n} bytes)")
+        return 0
+    if args.cmd == "stage-fo4-components":
+        staged = stage_fo4_stat_components(args.ba2, args.interface_dir, include_perks=not args.no_perks)
+        print(f"staged {len(staged)} component SWF(s) into {args.interface_dir}")
         return 0
     return 1
 

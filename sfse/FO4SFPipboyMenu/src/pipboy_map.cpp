@@ -50,10 +50,12 @@ namespace
 	constexpr std::size_t   kGlobalObjectBytes = 0x60;
 	constexpr float         kGlobalMinutes = 15.0f;
 	constexpr float         kMaxDays = 1000000.0f;
+	constexpr std::size_t   kDefaultFileListAt = 0x1570;       // TESDataHandler::files (BSSimpleList<TESFile*>)
 	constexpr std::size_t   kDefaultFileCollectionAt = 0x1580; // TESDataHandler::compiledFileCollection
 	constexpr std::size_t   kDefaultFileNameAt = 0x38;
 	constexpr std::size_t   kFileNameSize = 260;
 	constexpr std::size_t   kDefaultFileCompileIndexAt = 0x1B7;
+	constexpr std::size_t   kFileRecordFlagsAt = 0x1B8;        // TESFile::recordFlags (0x200 ESL small, 0x400 ESH medium)
 	constexpr std::size_t   kDefaultFileIndexAt = 0x218;
 	constexpr std::size_t   kMaxFiles = 4096;
 	constexpr std::size_t   kDefaultExtraListAt = 0xC8;        // TESObjectREFR::extraList (verified in SetMarkerDiscovered)
@@ -132,6 +134,7 @@ namespace
 		kLookupById,
 		kGetExtraMapMarker,
 		kExtraMapMarkerRtti,
+		kTesFullNameRtti,
 		kObjectRefrRtti,
 		kTesFileRtti,
 		kMapIdCount
@@ -155,6 +158,7 @@ namespace
 		{ "TESForm.LookupByID", 47401, {}, kLookupByIdRva },
 		{ "ExtraDataList.GetExtraMapMarker", 44761, {}, kGetExtraMapMarkerRva },
 		{ "ExtraMapMarker.RTTI", 845517, "ExtraMapMarker@@"sv, 0 },
+		{ "TESFullName.RTTI", 843072, "TESFullName@@"sv, 0 },
 		{ "TESObjectREFR.RTTI", 840386, "TESObjectREFR@@"sv, 0 },
 		{ "TESFile.RTTI", 845789, "TESFile@@"sv, 0 },
 	} };
@@ -184,7 +188,7 @@ namespace
 		float                                     gameHour = 9.0f;
 		std::uint32_t                             dateMonth = 10;
 		std::uint32_t                             dateDay = 23;
-		std::uint32_t                             dateYear = 2287;
+		std::uint32_t                             dateYear = 287;   // DateYear = year - 2000 (Pipboy_BottomBar prefixes ".2")
 		std::string                               locationName = "COMMONWEALTH";
 		bool                                      liveSurvival = false;
 		std::array<std::uint32_t, kDiscGlobals>   discBits{};
@@ -213,6 +217,10 @@ namespace
 	std::size_t                            g_imageSize = 0;
 	std::array<std::uint32_t, kMapIdCount> g_rva{};
 	const SFSE::TaskInterface*             g_task = nullptr;
+	PipboyMap::OpenRequestFn               g_openFn = nullptr;
+	PipboyMap::CloseRequestFn              g_closeFn = nullptr;
+	PipboyMap::GfxEnterFn                  g_gfxEnterFn = nullptr;
+	PipboyMap::GfxExitFn                   g_gfxExitFn = nullptr;
 
 	std::uint32_t                          g_mapKey = 0x4D;
 	std::uint32_t                          g_mapPage = 3;
@@ -476,10 +484,20 @@ namespace
 		return matches == 1 ? found : std::nullopt;
 	}
 
-	// TESDataHandler's compiled file lists hold TESPackedFile (subclass of TESFile at +0, FAL-437)
+	// TESDataHandler's compiled file lists hold TESPackedFile (subclass of TESFile at +0, FAL-437; IsType(file, "TESFile@@") alone skips packed files)
 	bool IsFileType(const ObjectType& a_type)
 	{
 		return a_type.offset == 0 && (NameIs(a_type.name, "TESFile@@") || BaseOffset(a_type, "TESFile@@") == 0u);
+	}
+
+	// REL::ID 44761 (RVA 0x50A840) dereferences [ExtraMapMarker + 0x18] and returns MAP_MARKER_DATA*, whose vtable at +0
+	// is TESFullName@@ (checked via kTesFullNameRtti 843072); also accept ExtraMapMarker@@ if an INI override points at BSExtraData
+	bool IsMapMarkerDataType(std::uintptr_t a_object)
+	{
+		ObjectType t;
+		return TypeOf(a_object, t) && t.offset == 0 &&
+		       (NameIs(t.name, "TESFullName@@") || BaseOffset(t, "TESFullName@@") == 0u ||
+				   NameIs(t.name, "ExtraMapMarker@@") || BaseOffset(t, "ExtraMapMarker@@") == 0u);
 	}
 
 	bool IsRefrType(std::uintptr_t a_object)
@@ -724,6 +742,65 @@ namespace
 				}
 			}
 		}
+
+		// Fallback: walk TESDataHandler::files BSSimpleList<TESFile*> at +0x1570 (handles TESFile@@ and TESPackedFile@@)
+		if (g_fileCollectionAt >= 0x10) {
+			const std::size_t fileListAt = (g_fileCollectionAt == kDefaultFileCollectionAt) ? kDefaultFileListAt : (g_fileCollectionAt - 0x10);
+			std::uintptr_t    nodeAddr = handler + fileListAt;
+			for (std::size_t step = 0; step < kMaxFiles && nodeAddr; ++step) {
+				std::uintptr_t file = 0;
+				std::uintptr_t nextNode = 0;
+				if (!Peek(nodeAddr, file) || !Peek(nodeAddr + sizeof(std::uintptr_t), nextNode)) {
+					break;
+				}
+				nodeAddr = nextNode;
+				if (!file) {
+					continue;
+				}
+				ObjectType fileType;
+				if (!TypeOf(file, fileType) || !IsFileType(fileType)) {
+					++skipped;
+					continue;
+				}
+				std::array<char, kFileNameSize> rawName{};
+				if (!PeekBytes(file + g_fileNameAt, rawName.data(), rawName.size())) {
+					continue;
+				}
+				rawName.back() = '\0';
+				const std::string_view fileView(rawName.data(), strnlen(rawName.data(), rawName.size()));
+				if (!SameAscii(fileView, a_fileName)) {
+					continue;
+				}
+				std::uint8_t                compileIdx = 0xFF;
+				std::uint32_t               recordFlags = 0;
+				std::array<std::uint8_t, 4> indexBytes{};
+				if (!Peek(file + g_fileCompileIndexAt, compileIdx) ||
+					!PeekBytes(file + g_fileIndexAt, indexBytes.data(), indexBytes.size()) ||
+					indexBytes[0] == 0xFF) {
+					continue;
+				}
+				Peek(file + kFileRecordFlagsAt, recordFlags);
+				if (compileIdx == 0xFE || indexBytes[0] == 0xFE || (recordFlags & 0x200u) != 0) {
+					const std::uint32_t smallIdx = static_cast<std::uint32_t>(indexBytes[2]) |
+					                               (static_cast<std::uint32_t>(indexBytes[3]) << 8);
+					a_small = true;
+					a_prefix = 0xFE000000u | ((smallIdx & 0xFFFu) << 12);
+					return true;
+				}
+				if (compileIdx == 0xFD || indexBytes[0] == 0xFD || (recordFlags & 0x400u) != 0) {
+					a_small = false;
+					a_prefix = 0xFD000000u | (static_cast<std::uint32_t>(indexBytes[1]) << 16);
+					return true;
+				}
+				const std::uint8_t fullIdx = (compileIdx < 0xFD) ? compileIdx : indexBytes[0];
+				if (fullIdx < 0xFD) {
+					a_small = false;
+					a_prefix = static_cast<std::uint32_t>(fullIdx) << 24;
+					return true;
+				}
+			}
+		}
+
 		if (skipped && !g_fileSkipLogged) {
 			g_fileSkipLogged = true;
 			REX::INFO("step=map_file file={} skipped={} (non-TESFile entries in compiledFileCollection)", a_fileName, skipped);
@@ -820,7 +897,7 @@ namespace
 		}
 		const auto fn = reinterpret_cast<GetExtraMapMarker_t>(Address(kGetExtraMapMarker));
 		const auto emm = reinterpret_cast<std::uintptr_t>(fn(extraList));
-		if (!emm || !IsType(emm, "ExtraMapMarker@@")) {
+		if (!emm || !IsMapMarkerDataType(emm)) {
 			return false;
 		}
 		std::uint32_t flags = 0;
@@ -843,7 +920,7 @@ namespace
 		}
 		a_month = static_cast<std::uint32_t>(m + 1);
 		a_day = static_cast<std::uint32_t>(d);
-		a_year = static_cast<std::uint32_t>(y);
+		a_year = static_cast<std::uint32_t>(y >= 2000 ? (y - 2000) : y);
 	}
 
 	// Main thread only: refreshes player position/heading, clock, survival mode, and syncs live engine discovery into FO4SF_MapDisc00..13
@@ -1128,9 +1205,14 @@ namespace
 		}
 		g_lastMapTransitionMs = NowMs();
 		CollectMainThreadState();
+		g_markersDirty = true;
+		if (g_openFn) {
+			g_openFn(g_mapPage, "map_key");
+			REX::INFO("step=map_key n={} vk={} was_open=0 page={} sent=request_open", a_n, Hex(g_mapKey), g_mapPage);
+			return;
+		}
 		g_requestedPage = static_cast<std::int32_t>(g_mapPage);
 		g_requestedTab = 0;
-		g_markersDirty = true;
 		queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kShow);
 		REX::INFO("step=map_key n={} vk={} was_open=0 page={} sent=show", a_n, Hex(g_mapKey), g_mapPage);
 	}
@@ -1149,7 +1231,11 @@ namespace
 		}
 		g_lastMapTransitionMs = NowMs();
 		if (g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage) && !g_modalOpen.load()) {
-			queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kHide);
+			if (g_closeFn) {
+				g_closeFn(a_n, "map_key");
+			} else {
+				queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kHide);
+			}
 			REX::INFO("step=map_key n={} vk={} was_open=1 on_map=1 sent=hide", a_n, Hex(g_mapKey));
 			return;
 		}
@@ -1406,6 +1492,38 @@ namespace
 		}
 		return false;
 	}
+	struct MapGfxCallGuard
+	{
+		const char*   what = nullptr;
+		std::uint64_t seq = 0;
+		std::int64_t  startMs = 0;
+		bool          uncapped = true;
+		bool          ok = false;
+
+		MapGfxCallGuard(const char* a_what, bool a_uncapped = true) :
+			what(a_what), startMs(NowMs()), uncapped(a_uncapped)
+		{
+			if (g_gfxEnterFn) {
+				seq = g_gfxEnterFn(a_what, a_uncapped);
+			}
+		}
+
+		~MapGfxCallGuard()
+		{
+			if (g_gfxExitFn) {
+				g_gfxExitFn(seq, what, ok, startMs, uncapped);
+			}
+		}
+	};
+
+	bool InvokeMapMovie(RE::Scaleform::GFx::Value& a_target, const char* a_method, RE::Scaleform::GFx::Value* a_ret,
+		const RE::Scaleform::GFx::Value* a_args, std::size_t a_count, const char* a_label, bool a_uncapped = true)
+	{
+		MapGfxCallGuard guard(a_label, a_uncapped);
+		guard.ok = a_target.Invoke(a_method, a_ret, a_args, a_count);
+		return guard.ok;
+	}
+
 	void ResetMapMovieState()
 	{
 		g_menuOpen = false;
@@ -1417,10 +1535,17 @@ namespace
 		g_needTexturesLoaded = false;
 		g_needCenter = false;
 		g_textureLogged = false;
-		g_currentShellPage = 0;
+		g_currentShellPage = -1;
 		g_currentShellTab = 0;
 		g_requestedPage = -1;
 		g_requestedTab = -1;
+		g_markersDirty = true;
+		g_lastPlayerArrayIdx = -1;
+		g_inputLogs = 0;
+		g_discSyncLogs = 0;
+		g_hardcoreLogs = 0;
+		g_refreshLogs = 0;
+		g_markerLogs = 0;
 	}
 
 	void CloseMenuOnFailedMovieCall(const char* a_where)
@@ -1467,6 +1592,24 @@ namespace PipboyMap
 	bool Enabled()
 	{
 		return g_on;
+	}
+
+	std::uint32_t MapPageIndex()
+	{
+		return g_mapPage;
+	}
+
+	bool IsModalOpen()
+	{
+		return g_on && g_modalOpen.load();
+	}
+
+	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn)
+	{
+		g_openFn = a_openFn;
+		g_closeFn = a_closeFn;
+		g_gfxEnterFn = a_gfxEnterFn;
+		g_gfxExitFn = a_gfxExitFn;
 	}
 
 	void Configure(const std::filesystem::path& a_ini, const std::filesystem::path& a_dir, int a_stage,
@@ -1678,8 +1821,6 @@ namespace PipboyMap
 			g_lastMapTransitionMs = NowMs();
 			const auto n = ++g_keyPresses;
 			g_task->AddTask([n]() { HandleClosedMapKeyMainThread(n); });
-			REX::W32::Sleep(750);
-			g_task->AddTask([]() { SendMenuUpdateMainThread(); });
 			return;
 		}
 		const auto t = ++g_tickCount;
@@ -1689,6 +1830,38 @@ namespace PipboyMap
 		if (t % 17 == 0 && g_menuOpen.load() && g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage)) {
 			g_task->AddTask([]() { SendMenuUpdateMainThread(); });
 		}
+	}
+
+	void NotifyShellPageTab(std::int32_t a_page, std::int32_t a_tab)
+	{
+		if (a_page >= 0) {
+			g_currentShellPage = a_page;
+		}
+		if (a_tab >= 0) {
+			g_currentShellTab = a_tab;
+		}
+		if (g_on && a_page == static_cast<std::int32_t>(g_mapPage)) {
+			g_markersDirty = true;
+			if (g_task) {
+				g_task->AddTask([]() { SendMenuUpdateMainThread(); });
+			}
+		}
+	}
+
+	void CollectStateForPage(std::int32_t a_targetPage)
+	{
+		if (!g_on || a_targetPage != static_cast<std::int32_t>(g_mapPage)) {
+			return;
+		}
+		CollectMainThreadState();
+		g_markersDirty = true;
+	}
+
+	void ReleaseMovieRefs()
+	{
+		g_mapPageVal = RE::Scaleform::GFx::Value{};
+		g_needTexturesLoaded = false;
+		g_modalOpen = false;
 	}
 
 	void OnCodeObjCall(const std::string& a_name, const RE::Scaleform::GFx::FunctionHandler::Params& a_params)
@@ -1795,6 +1968,113 @@ namespace PipboyMap
 		}
 	}
 
+	void PopulateMapDataObj(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root,
+		RE::Scaleform::GFx::Value& a_dataObj, std::int32_t a_targetPage)
+	{
+		if (!g_on || !a_menu || !a_root || !a_dataObj.IsObject()) {
+			return;
+		}
+		// G5 / Step 7: scope MAP markers and map time/texture fields strictly to MapPage (3)
+		if (a_targetPage != static_cast<std::int32_t>(g_mapPage)) {
+			return;
+		}
+		const void* const movie = static_cast<const RE::IMenu*>(a_menu)->uiMovie.get();
+		if (!CheckCreateObjectSlot(movie, a_root)) {
+			return;
+		}
+
+		LiveSnapshot snap;
+		{
+			std::scoped_lock lock(g_snapLock);
+			snap = g_snap;
+		}
+
+		a_dataObj.SetMember("ReadOnlyMode", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
+		a_dataObj.SetMember("TimeHour", RE::Scaleform::GFx::Value(static_cast<double>(snap.gameHour)));
+		a_dataObj.SetMember("DateMonth", RE::Scaleform::GFx::Value(snap.dateMonth));
+		a_dataObj.SetMember("DateDay", RE::Scaleform::GFx::Value(snap.dateDay));
+		a_dataObj.SetMember("DateYear", RE::Scaleform::GFx::Value(snap.dateYear));
+		a_dataObj.SetMember("CurrLocationName", RE::Scaleform::GFx::Value(snap.locationName.c_str()));
+		a_dataObj.SetMember("WorldMapTextureName", RE::Scaleform::GFx::Value(kDefaultWorldTexture));
+
+		const std::size_t cornersOk =
+			(MutatePoint(a_dataObj, "WorldMapNWCorner", kCommonwealthNWX, kCommonwealthNWY) ? 1u : 0u) +
+			(MutatePoint(a_dataObj, "WorldMapNECorner", kCommonwealthNEX, kCommonwealthNEY) ? 1u : 0u) +
+			(MutatePoint(a_dataObj, "WorldMapSWCorner", kCommonwealthSWX, kCommonwealthSWY) ? 1u : 0u);
+		MutatePoint(a_dataObj, "LocalMapNWCorner", -2048.0, 2048.0);
+		MutatePoint(a_dataObj, "LocalMapNECorner", 2048.0, 2048.0);
+		MutatePoint(a_dataObj, "LocalMapSWCorner", -2048.0, -2048.0);
+
+		RE::Scaleform::GFx::Value markersArr;
+		if (a_dataObj.GetMember("WorldMapMarkers", &markersArr) && markersArr.IsObject()) {
+			a_dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(true));
+			markersArr.SetMember("length", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
+
+			std::uint32_t arrIdx = 0;
+			std::uint32_t discCount = 0;
+			std::uint32_t undiscCount = 0;
+			for (const auto& m : g_store) {
+				RE::Scaleform::GFx::Value entry;
+				a_root->CreateObject(&entry, "Object");
+				if (!entry.IsObject()) {
+					continue;
+				}
+				const bool disc = IsMarkerDiscovered(m, snap.discBits);
+				disc ? ++discCount : ++undiscCount;
+				entry.SetMember("arrayIndex", RE::Scaleform::GFx::Value(arrIdx));
+				entry.SetMember("markerId", RE::Scaleform::GFx::Value(m.localId));
+				entry.SetMember("x", RE::Scaleform::GFx::Value(m.xFo4));
+				entry.SetMember("y", RE::Scaleform::GFx::Value(m.yFo4));
+				entry.SetMember("type", RE::Scaleform::GFx::Value(m.type));
+				entry.SetMember("name", RE::Scaleform::GFx::Value(m.label.c_str()));
+				entry.SetMember("undiscovered", RE::Scaleform::GFx::Value(!disc));
+				if (PushMarkerObject(markersArr, entry)) {
+					++arrIdx;
+				}
+			}
+
+			if (g_hasCustomMarker.load()) {
+				RE::Scaleform::GFx::Value wp;
+				a_root->CreateObject(&wp, "Object");
+				if (wp.IsObject()) {
+					wp.SetMember("arrayIndex", RE::Scaleform::GFx::Value(arrIdx));
+					wp.SetMember("markerId", RE::Scaleform::GFx::Value(std::uint32_t{ 0xFFFFFEu }));
+					wp.SetMember("x", RE::Scaleform::GFx::Value(g_customX.load()));
+					wp.SetMember("y", RE::Scaleform::GFx::Value(g_customY.load()));
+					wp.SetMember("type", RE::Scaleform::GFx::Value(kPlayerSetMarkerType));
+					wp.SetMember("name", RE::Scaleform::GFx::Value(""));
+					if (PushMarkerObject(markersArr, wp)) {
+						++arrIdx;
+					}
+				}
+			}
+
+			RE::Scaleform::GFx::Value playerEntry;
+			a_root->CreateObject(&playerEntry, "Object");
+			if (playerEntry.IsObject()) {
+				playerEntry.SetMember("arrayIndex", RE::Scaleform::GFx::Value(arrIdx));
+				playerEntry.SetMember("markerId", RE::Scaleform::GFx::Value(std::uint32_t{ 0xFFFFFFu }));
+				playerEntry.SetMember("x", RE::Scaleform::GFx::Value(snap.playerXFo4));
+				playerEntry.SetMember("y", RE::Scaleform::GFx::Value(snap.playerYFo4));
+				playerEntry.SetMember("type", RE::Scaleform::GFx::Value(kPlayerLocMarkerType));
+				playerEntry.SetMember("name", RE::Scaleform::GFx::Value(""));
+				playerEntry.SetMember("rotation", RE::Scaleform::GFx::Value(snap.playerHeadingDeg));
+				if (PushMarkerObject(markersArr, playerEntry)) {
+					g_lastPlayerArrayIdx = static_cast<std::int32_t>(arrIdx);
+					++arrIdx;
+				}
+			}
+
+			g_populatedMovie = movie;
+			g_markersDirty = false;
+			if (++g_markerLogs <= kMaxLogLines) {
+				REX::INFO("step=map_markers n={} discovered={} undiscovered={} player_idx={} corners_set={}/3 read_back={}",
+					arrIdx, discCount, undiscCount, g_lastPlayerArrayIdx, cornersOk,
+					cornersOk == 3 ? "match" : "partial");
+			}
+		}
+	}
+
 	void OnShellUpdate(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root, RE::Scaleform::GFx::Value& a_top,
 		const std::string& a_codeObjAt, std::atomic<std::int32_t>& a_answerPage, std::atomic<std::int32_t>& a_answerTab)
 	{
@@ -1806,16 +2086,6 @@ namespace PipboyMap
 			return;
 		}
 
-		// Hand any MapKey / world-local toggle request into ShellUpdate's own CurrentPage/CurrentTab answer slot
-		const auto reqPage = g_requestedPage.exchange(-1);
-		const auto reqTab = g_requestedTab.exchange(-1);
-		if (reqPage >= 0) {
-			a_answerPage.store(reqPage);
-		}
-		if (reqTab >= 0) {
-			a_answerTab.store(reqTab);
-		}
-
 		RE::Scaleform::GFx::Value menuMc;
 		RE::Scaleform::GFx::Value dataObj;
 		if (!ReadDotPath(a_top, a_codeObjAt, menuMc) || !menuMc.IsObject() ||
@@ -1823,98 +2093,36 @@ namespace PipboyMap
 			return;
 		}
 
-		LiveSnapshot snap;
-		{
-			std::scoped_lock lock(g_snapLock);
-			snap = g_snap;
-		}
-
-		dataObj.SetMember("ReadOnlyMode", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
-		dataObj.SetMember("TimeHour", RE::Scaleform::GFx::Value(static_cast<double>(snap.gameHour)));
-		dataObj.SetMember("DateMonth", RE::Scaleform::GFx::Value(snap.dateMonth));
-		dataObj.SetMember("DateDay", RE::Scaleform::GFx::Value(snap.dateDay));
-		dataObj.SetMember("DateYear", RE::Scaleform::GFx::Value(snap.dateYear));
-		dataObj.SetMember("CurrLocationName", RE::Scaleform::GFx::Value(snap.locationName.c_str()));
-		dataObj.SetMember("WorldMapTextureName", RE::Scaleform::GFx::Value(kDefaultWorldTexture));
-
-		const bool newMovie = g_populatedMovie != movie;
-		bool       rebuiltMarkers = false;
-		if (newMovie || g_markersDirty.exchange(false)) {
-			const std::size_t cornersOk =
-				(MutatePoint(dataObj, "WorldMapNWCorner", kCommonwealthNWX, kCommonwealthNWY) ? 1u : 0u) +
-				(MutatePoint(dataObj, "WorldMapNECorner", kCommonwealthNEX, kCommonwealthNEY) ? 1u : 0u) +
-				(MutatePoint(dataObj, "WorldMapSWCorner", kCommonwealthSWX, kCommonwealthSWY) ? 1u : 0u);
-			// Non-zero local map axes so LocalMapHolder never computes 1/0 = Infinity
-			MutatePoint(dataObj, "LocalMapNWCorner", -2048.0, 2048.0);
-			MutatePoint(dataObj, "LocalMapNECorner", 2048.0, 2048.0);
-			MutatePoint(dataObj, "LocalMapSWCorner", -2048.0, -2048.0);
-
-			RE::Scaleform::GFx::Value markersArr;
-			if (dataObj.GetMember("WorldMapMarkers", &markersArr) && markersArr.IsObject()) {
-				dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(true));
-				markersArr.SetMember("length", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
-
-				std::uint32_t arrIdx = 0;
-				std::uint32_t discCount = 0;
-				std::uint32_t undiscCount = 0;
-				for (const auto& m : g_store) {
-					RE::Scaleform::GFx::Value entry;
-					a_root->CreateObject(&entry, "Object");
-					if (!entry.IsObject()) {
-						continue;
-					}
-					const bool disc = IsMarkerDiscovered(m, snap.discBits);
-					disc ? ++discCount : ++undiscCount;
-					entry.SetMember("arrayIndex", RE::Scaleform::GFx::Value(arrIdx));
-					entry.SetMember("markerId", RE::Scaleform::GFx::Value(m.localId));
-					entry.SetMember("x", RE::Scaleform::GFx::Value(m.xFo4));
-					entry.SetMember("y", RE::Scaleform::GFx::Value(m.yFo4));
-					entry.SetMember("type", RE::Scaleform::GFx::Value(m.type));
-					entry.SetMember("name", RE::Scaleform::GFx::Value(m.label.c_str()));
-					entry.SetMember("undiscovered", RE::Scaleform::GFx::Value(!disc));
-					if (PushMarkerObject(markersArr, entry)) {
-						++arrIdx;
-					}
+		// External page/tab switch while open (e.g. pressing M while on STAT, or World/Local toggle):
+		// wait until Menu_mc._IsLoadingPage == false and CurrentPage MovieClip is loaded, then route via TryToSetPage/TryToSetTab
+		const auto pendingPage = g_requestedPage.load();
+		const auto pendingTab = g_requestedTab.load();
+		if (pendingPage >= 0 || pendingTab >= 0) {
+			RE::Scaleform::GFx::Value loadingVal;
+			RE::Scaleform::GFx::Value curPageClip;
+			const bool loadingFlag = menuMc.GetMember("_IsLoadingPage", &loadingVal) && loadingVal.IsBoolean() && loadingVal.GetBoolean();
+			const bool pageClipReady = menuMc.GetMember("CurrentPage", &curPageClip) && curPageClip.IsObject();
+			if (loadingFlag || !pageClipReady) {
+				// Page SWF is still loading; keep g_requestedPage / g_requestedTab queued for the next kUpdate
+				if (g_task) {
+					g_task->AddTask([]() { SendMenuUpdateMainThread(); });
 				}
-
-				if (g_hasCustomMarker.load()) {
-					RE::Scaleform::GFx::Value wp;
-					a_root->CreateObject(&wp, "Object");
-					if (wp.IsObject()) {
-						wp.SetMember("arrayIndex", RE::Scaleform::GFx::Value(arrIdx));
-						wp.SetMember("markerId", RE::Scaleform::GFx::Value(std::uint32_t{ 0xFFFFFEu }));
-						wp.SetMember("x", RE::Scaleform::GFx::Value(g_customX.load()));
-						wp.SetMember("y", RE::Scaleform::GFx::Value(g_customY.load()));
-						wp.SetMember("type", RE::Scaleform::GFx::Value(kPlayerSetMarkerType));
-						wp.SetMember("name", RE::Scaleform::GFx::Value(""));
-						if (PushMarkerObject(markersArr, wp)) {
-							++arrIdx;
-						}
-					}
+				return;
+			}
+			const auto reqPage = g_requestedPage.exchange(-1);
+			const auto reqTab = g_requestedTab.exchange(-1);
+			if (reqPage >= 0) {
+				RE::Scaleform::GFx::Value pageArg(static_cast<std::uint32_t>(reqPage));
+				RE::Scaleform::GFx::Value tryRes;
+				if (!InvokeMapMovie(menuMc, "TryToSetPage", &tryRes, &pageArg, 1, "Menu_mc.TryToSetPage")) {
+					a_answerPage.store(reqPage);
 				}
-
-				RE::Scaleform::GFx::Value playerEntry;
-				a_root->CreateObject(&playerEntry, "Object");
-				if (playerEntry.IsObject()) {
-					playerEntry.SetMember("arrayIndex", RE::Scaleform::GFx::Value(arrIdx));
-					playerEntry.SetMember("markerId", RE::Scaleform::GFx::Value(std::uint32_t{ 0xFFFFFFu }));
-					playerEntry.SetMember("x", RE::Scaleform::GFx::Value(snap.playerXFo4));
-					playerEntry.SetMember("y", RE::Scaleform::GFx::Value(snap.playerYFo4));
-					playerEntry.SetMember("type", RE::Scaleform::GFx::Value(kPlayerLocMarkerType));
-					playerEntry.SetMember("name", RE::Scaleform::GFx::Value(""));
-					playerEntry.SetMember("rotation", RE::Scaleform::GFx::Value(snap.playerHeadingDeg));
-					if (PushMarkerObject(markersArr, playerEntry)) {
-						g_lastPlayerArrayIdx = static_cast<std::int32_t>(arrIdx);
-						++arrIdx;
-					}
-				}
-
-				g_populatedMovie = movie;
-				rebuiltMarkers = true;
-				if (++g_markerLogs <= kMaxLogLines) {
-					REX::INFO("step=map_markers n={} discovered={} undiscovered={} player_idx={} corners_set={}/3 read_back={}",
-						arrIdx, discCount, undiscCount, g_lastPlayerArrayIdx, cornersOk,
-						cornersOk == 3 ? "match" : "partial");
+			}
+			if (reqTab >= 0) {
+				RE::Scaleform::GFx::Value tabArg(static_cast<std::uint32_t>(reqTab));
+				RE::Scaleform::GFx::Value tryRes;
+				if (!InvokeMapMovie(menuMc, "TryToSetTab", &tryRes, &tabArg, 1, "Menu_mc.TryToSetTab")) {
+					a_answerTab.store(reqTab);
 				}
 			}
 		}
@@ -1932,13 +2140,25 @@ namespace PipboyMap
 			g_currentShellTab = parsedIdx;
 		}
 
+		// G5 / Step 7: scope MAP markers and map updates strictly to MapPage (3)
+		if (g_currentShellPage.load() != static_cast<std::int32_t>(g_mapPage)) {
+			return;
+		}
+
+		const bool newMovie = g_populatedMovie != movie;
+		bool       rebuiltMarkers = false;
+		if (newMovie || g_markersDirty.exchange(false)) {
+			PopulateMapDataObj(a_menu, a_root, dataObj, static_cast<std::int32_t>(g_mapPage));
+			rebuiltMarkers = (g_populatedMovie == movie);
+		}
+
 		// G1 fix: never invoke InvalidatePartialData(0x80) unless Pipboy_MapPage is registered and active on MapPage
 		if (rebuiltMarkers && g_mapPageVal.IsObject() && a_answerPage.load() < 0 && a_answerTab.load() < 0 &&
 			g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage)) {
 			RE::Scaleform::GFx::Value maskArg(std::uint32_t{ 0x80u });
 			RE::Scaleform::GFx::Value invRes;
-			if (!menuMc.Invoke("InvalidatePartialData", &invRes, &maskArg, 1) &&
-				!menuMc.Invoke("InvalidateData", &invRes, nullptr, 0)) {
+			if (!InvokeMapMovie(menuMc, "InvalidatePartialData", &invRes, &maskArg, 1, "Menu_mc.InvalidatePartialData") &&
+				!InvokeMapMovie(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData")) {
 				CloseMenuOnFailedMovieCall("map_invalidate_markers");
 				return;
 			}
@@ -1949,13 +2169,13 @@ namespace PipboyMap
 			if (g_needTexturesLoaded.exchange(false)) {
 				// Deliver WorldMapTextureName + corners to newly registered Pipboy_MapPage before onMapTexturesLoaded()
 				RE::Scaleform::GFx::Value invRes;
-				if (!menuMc.Invoke("InvalidateData", &invRes, nullptr, 0)) {
+				if (!InvokeMapMovie(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData")) {
 					CloseMenuOnFailedMovieCall("map_register_invalidate");
 					return;
 				}
 				dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(false));
 				RE::Scaleform::GFx::Value res;
-				const bool called = g_mapPageVal.Invoke("onMapTexturesLoaded", &res, nullptr, 0);
+				const bool called = InvokeMapMovie(g_mapPageVal, "onMapTexturesLoaded", &res, nullptr, 0, "MapPage.onMapTexturesLoaded");
 				REX::INFO("step=map_textures_loaded called={}", called ? 1 : 0);
 				if (!called) {
 					CloseMenuOnFailedMovieCall("onMapTexturesLoaded");
@@ -1965,7 +2185,7 @@ namespace PipboyMap
 			if (!g_textureLogged.load()) {
 				RE::Scaleform::GFx::Value holder, bLoaded, texHolder, children;
 				if (ReadDotPath(g_mapPageVal, "WorldMapHolder_mc", holder) &&
-					holder.GetMember("bMapLoaded", &bLoaded) && bLoaded.IsBoolean() && bLoaded.GetBoolean()) {
+					holder.GetMember("mapLoaded", &bLoaded) && bLoaded.IsBoolean() && bLoaded.GetBoolean()) {
 					int numChildren = -1;
 					if (holder.GetMember("TextureHolder_mc", &texHolder) && texHolder.IsObject() &&
 						texHolder.GetMember("numChildren", &children)) {
@@ -1984,7 +2204,7 @@ namespace PipboyMap
 			if (g_needCenter.exchange(false) && g_lastPlayerArrayIdx >= 0) {
 				RE::Scaleform::GFx::Value idxArg(static_cast<std::uint32_t>(g_lastPlayerArrayIdx));
 				RE::Scaleform::GFx::Value res;
-				const bool called = g_mapPageVal.Invoke("SetCenterMarker", &res, &idxArg, 1);
+				const bool called = InvokeMapMovie(g_mapPageVal, "SetCenterMarker", &res, &idxArg, 1, "MapPage.SetCenterMarker");
 				REX::INFO("step=map_center idx={} called={}", g_lastPlayerArrayIdx, called ? 1 : 0);
 				if (!called) {
 					CloseMenuOnFailedMovieCall("SetCenterMarker");

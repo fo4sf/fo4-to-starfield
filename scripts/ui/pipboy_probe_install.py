@@ -91,8 +91,9 @@ def component_movies_problem(components, pages):
     for c in components:
         parts = c.split("/")
         if not (2 <= len(parts) <= 4 and parts[0] == COMPONENT_ROOT and all(
-                p and len(p) <= 64 and all(ch.isascii() and (ch.isalnum() or ch == "_") for ch in p) for p in parts[1:])):
-            return (f"--component-movie {c!r}: {COMPONENT_ROOT}/ then one to three names of letters, digits and _ "
+                p and len(p) <= 64 and any(ch != " " for ch in p)
+                and all(ch.isascii() and (ch.isalnum() or ch in "_ ") for ch in p) for p in parts[1:])):
+            return (f"--component-movie {c!r}: {COMPONENT_ROOT}/ then one to three names of letters, digits, space and _ "
                     "joined by /, without .swf")
     if len({c.lower() for c in components}) != len(components):
         return "--component-movie: each component once"

@@ -128,6 +128,91 @@ class WorldMapSwfAndPatcherTests(unittest.TestCase):
             ["", "WorldMapHolder", store.WORLDMAP_URL_PATCHED, store.MSGBOX_URL_PATCHED],
         )
 
+    def test_patch_mappage_swf_neutralizes_map_image_unload_preserving_close_message(self):
+        # Build a valid AVM2 ABC with 2 method bodies:
+        #   method 0 (TextureMapHolder.onMapLoadComplete): getlocal_0, getproperty MapImageLoader, callpropvoid unloadAndStop 0, returnvoid
+        #   method 1 (Pipboy_MapPage.CloseMessage): getlocal_0, getproperty MessageLoader, callpropvoid unloadAndStop 0,
+        #                                           getlocal_0, getproperty MessageLoader, callpropvoid unload 0, returnvoid
+        strings = [
+            b"",
+            store.WORLDMAP_URL_ORIG.encode("utf-8"),
+            store.MSGBOX_URL_ORIG.encode("utf-8"),
+            b"MapImageLoader",
+            b"MessageLoader",
+            b"unloadAndStop",
+            b"unload",
+        ]
+        abc = bytearray(struct.pack("<HH", 16, 46))
+        abc += b"\x00\x00\x00"  # ints, uints, doubles
+        abc += store._pack_u30(len(strings))
+        for s in strings[1:]:
+            abc += store._pack_u30(len(s)) + s
+        # 1 public namespace (idx 1 -> string 1 "")
+        abc += store._pack_u30(2) + bytes([0x16, 1])
+        abc += b"\x00"  # ns_sets
+        # 4 QName multinames (indices 1..4 -> strings 3..6: MapImageLoader, MessageLoader, unloadAndStop, unload)
+        abc += store._pack_u30(5)
+        for str_idx in (3, 4, 5, 6):
+            abc += bytes([0x07, 1, str_idx])
+        # 2 method signatures (0 params, return any, name 0, flags 0)
+        abc += store._pack_u30(2)
+        for _ in range(2):
+            abc += b"\x00\x00\x00\x00"
+        abc += b"\x00\x00\x00"  # metadata, classes, scripts
+        # 2 method bodies
+        code0 = bytes([0xD0, 0x66, 1, 0x4F, 3, 0, 0x47])
+        code1 = bytes([0xD0, 0x66, 2, 0x4F, 3, 0, 0xD0, 0x66, 2, 0x4F, 4, 0, 0x47])
+        abc += store._pack_u30(2)
+        for m_idx, code in ((0, code0), (1, code1)):
+            abc += store._pack_u30(m_idx)
+            abc += b"\x02\x01\x00\x02"  # max_stack, local_count, init_scope, max_scope
+            abc += store._pack_u30(len(code)) + code
+            abc += b"\x00\x00"  # exceptions=0, traits=0
+
+        doabc = struct.pack("<I", 1) + b"Pipboy_MapPage\x00" + bytes(abc)
+        body = (
+            swf.rect(0, 876 * 20, 0, 700 * 20)
+            + struct.pack("<HH", 30 << 8, 1)
+            + swf.tag(swf.FILE_ATTRIBUTES, struct.pack("<I", swf.AS3))
+            + swf.tag(store.DO_ABC, doabc)
+            + swf.tag(swf.SHOW_FRAME)
+            + swf.tag(swf.END)
+        )
+        raw_swf = b"CWS" + bytes([12]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body)
+        before = store.inspect_mappage_unload_calls(raw_swf)
+        self.assertEqual(
+            before,
+            {"MapImageLoader.unloadAndStop": 1, "MessageLoader.unloadAndStop": 1, "unload": 1},
+        )
+        patched, counts = store.patch_mappage_swf(raw_swf)
+        self.assertEqual(counts, {store.WORLDMAP_URL_ORIG: 1, store.MSGBOX_URL_ORIG: 1})
+        after = store.inspect_mappage_unload_calls(patched)
+        self.assertEqual(
+            after,
+            {"MapImageLoader.unloadAndStop": 0, "MessageLoader.unloadAndStop": 1, "unload": 1},
+        )
+        # Verify patched method 0 body has exact same byte length and pop + nop*2 replacement
+        decomp = zlib.decompress(patched[8:])
+        nul = decomp.index(b"Pipboy_MapPage\x00") + len(b"Pipboy_MapPage\x00")
+        patched_abc = decomp[nul:-4]
+        _, bodies = store._parse_abc_multinames_and_bodies(patched_abc)
+        self.assertEqual(len(bodies), 2)
+        b0 = patched_abc[bodies[0][0]:bodies[0][1]]
+        self.assertEqual(len(b0), len(code0))
+        self.assertEqual(b0, bytes([0xD0, 0x66, 1, 0x29, 0x02, 0x02, 0x47]))
+
+    def test_spaced_perk_component_movies_accepted_and_blank_segments_rejected(self):
+        self.assertIsNone(
+            pbi.component_movies_problem([
+                "Components/ConditionClips/Condition_Head",
+                "Components/VaultBoys/SPECIAL/Strength",
+                "Components/VaultBoys/Perks/Combat Medic",
+                "Components/VaultBoys/Perks/Adrenaline ",
+            ], ["Pipboy_StatsPage"])
+        )
+        self.assertIsNotNone(pbi.component_movies_problem(["Components/VaultBoys/Perks/   "], ["Pipboy_StatsPage"]))
+        self.assertIsNotNone(pbi.component_movies_problem(["Components/VaultBoys/Perks/Bad..Name"], ["Pipboy_StatsPage"]))
+
     def test_component_paths_accepted_by_pipboy_probe_install_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             mpp.stage(tmp)
@@ -281,7 +366,7 @@ class SourceAndContractTests(unittest.TestCase):
             "MapTravelPlugin=FO4SFPipboyTravel.esm",
             "MapTravelScript=FO4SF_PipboyTravel.Go",
             "MapSurvival=0",
-            "MapHeadingAt=",
+            "MapHeadingAt=88",
             "MapGlobalValueAt=0",
             "MapGameHourId=0x38",
             "MapGameDaysPassedId=0x39",
@@ -305,15 +390,23 @@ class SourceAndContractTests(unittest.TestCase):
         self.assertIn("RE::InputEvent::Status::kStop", self.cpp)
         self.assertIn("PipboyMap::ShouldHandleInput(a_event)", self.main)
         self.assertIn("PipboyMap::OnButtonInput(a_event)", self.main)
-        self.assertIn("g_stage >= 4 || PipboyMap::Enabled()", self.main)
+        self.assertIn("g_stage >= 2 || PipboyMap::Enabled()", self.main)
 
     def test_live_engine_discovery_and_papyrus_agreement(self):
-        # C++ reads live ExtraMapMarker kDiscovered (0x20 via REL::ID 44761) and syncs into FO4SF_MapDisc00..13;
-        # Papyrus checks IsBitDiscovered(storeIdx) (not CanFastTravelToMarker/IsMapMarkerVisible which are 1 on FNAM 0x03)
+        # C++ reads live MAP_MARKER_DATA kDiscovered (0x20 via REL::ID 44761, whose base at +0 is TESFullName@@)
+        # and syncs into FO4SF_MapDisc00..13; Papyrus checks IsBitDiscovered(storeIdx)
         self.assertIn("ExtraDataList.GetExtraMapMarker", self.cpp)
+        self.assertIn('"TESFullName.RTTI", 843072', self.cpp)
+        self.assertIn("IsMapMarkerDataType(emm)", self.cpp)
         self.assertIn("step=map_disc_sync", self.cpp)
         self.assertIn("EnsureGlobalValueOffset(", self.cpp)
-        self.assertIn('IsType(file, "TESFile@@")', self.cpp)
+        self.assertIn("IsFileType(fileType)", self.cpp)
+        self.assertIn("kDefaultFileListAt = 0x1570", self.cpp)
+        self.assertIn('holder.GetMember("mapLoaded", &bLoaded)', self.cpp)
+        self.assertNotIn('"bMapLoaded"', self.cpp)
+        self.assertIn("y >= 2000 ? (y - 2000) : y", self.cpp)
+        self.assertIn('g_openFn(g_mapPage, "map_key")', self.cpp)
+        self.assertNotIn("Sleep(750)", self.cpp)
         self.assertIn("bool canTravel = IsBitDiscovered(storeIdx)", self.psc)
         self.assertNotIn("CanFastTravelToMarker()", self.psc)
         self.assertNotIn("IsMapMarkerVisible()", self.psc)

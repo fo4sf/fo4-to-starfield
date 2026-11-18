@@ -19,9 +19,20 @@
 //            thread by writing the target into FO4SFPipboyTravel.esm's globals and dispatching FO4SF_PipboyTravel.Go.
 namespace PipboyMap
 {
+	using OpenRequestFn = void (*)(std::uint32_t a_targetPage, const char* a_by);
+	using CloseRequestFn = void (*)(std::uint32_t a_n, const char* a_by);
+	using GfxEnterFn = std::uint64_t (*)(const char* a_what, bool a_uncapped);
+	using GfxExitFn = void (*)(std::uint64_t a_seq, const char* a_what, bool a_ok, std::int64_t a_startMs, bool a_uncapped);
+
 	bool Requested(const std::filesystem::path& a_ini);
 
 	bool Enabled();
+
+	std::uint32_t MapPageIndex();
+
+	bool IsModalOpen();
+
+	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn);
 
 	void Configure(const std::filesystem::path& a_ini, const std::filesystem::path& a_dir, int a_stage,
 		std::uint32_t a_menuKey, std::uintptr_t a_base, std::size_t a_imageSize);
@@ -37,6 +48,15 @@ namespace PipboyMap
 	bool OnButtonInput(const void* a_event);
 
 	void Tick();
+
+	void NotifyShellPageTab(std::int32_t a_page, std::int32_t a_tab);
+
+	void CollectStateForPage(std::int32_t a_targetPage);
+
+	void PopulateMapDataObj(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root,
+		RE::Scaleform::GFx::Value& a_dataObj, std::int32_t a_targetPage);
+
+	void ReleaseMovieRefs();
 
 	void OnCodeObjCall(const std::string& a_name, const RE::Scaleform::GFx::FunctionHandler::Params& a_params);
 
