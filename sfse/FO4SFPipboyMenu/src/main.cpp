@@ -3375,6 +3375,8 @@ namespace
 
 	void ClearMovieSessionState()
 	{
+		g_open = false;
+		g_cancelHeld = false;
 		g_listenedMovie = nullptr;
 		g_checkedMovie = nullptr;
 		g_codeObjMovie = nullptr;
@@ -3385,6 +3387,48 @@ namespace
 		g_answerPage = -1;
 		g_answerTab = -1;
 		PipboyMap::OnMenuDestroy();
+	}
+
+	constexpr std::array<const char*, 16> kBlockingOverlayMenus{ {
+		"Console",
+		"MessageBoxMenu",
+		"MainMenu",
+		"LoadingMenu",
+		"PauseMenu",
+		"ChargenMenu",
+		"DialogueMenu",
+		"InventoryMenu",
+		"DataMenu",
+		"ContainerMenu",
+		"BarterMenu",
+		"SleepWaitMenu",
+		"FavoritesMenu",
+		"LockpickingMenu",
+		"TerminalMenu",
+		"FaderMenu",
+	} };
+
+	const char* OpenBlockingOverlayMenu(RE::UI* a_ui, bool a_topModalOnly = false)
+	{
+		if (!a_ui) {
+			return nullptr;
+		}
+		static const auto* const names = [] {
+			auto* out = new std::vector<RE::BSFixedString>();
+			out->reserve(kBlockingOverlayMenus.size());
+			for (const auto* m : kBlockingOverlayMenus) {
+				out->emplace_back(m);
+			}
+			return out;
+		}();
+		const std::size_t limit = a_topModalOnly ? 5u : names->size();
+		for (std::size_t i = 0; i < limit; ++i) {
+			const auto& nm = (*names)[i];
+			if (a_ui->IsMenuRegistered(nm) && a_ui->IsMenuOpen(nm)) {
+				return kBlockingOverlayMenus[i];
+			}
+		}
+		return nullptr;
 	}
 
 	void FailMovieCall(const char* a_where, const std::string& a_detail = "")
@@ -4272,6 +4316,12 @@ namespace
 	// show is due ArmRaiseMs after the accepted (or given-up) raise, on the key thread's tick
 	void ArmRaise(std::uint32_t a_n)
 	{
+		if (const char* blocking = OpenBlockingOverlayMenu(RE::UI::GetSingleton())) {
+			g_raiseRetry.state = kRetryIdle;
+			g_armShowAt = 0;
+			REX::INFO("step=arm_raise n={} ignored=menu_open menu={} t_ms={}", a_n, blocking, SincePress());
+			return;
+		}
 		const auto  tries = ++g_raiseRetry.tries;
 		std::string result;
 		if (!ArmResolve()) {
@@ -4377,6 +4427,8 @@ namespace
 			ArmMessage(type == RE::UI_MESSAGE_TYPE::kShow);
 		}
 		if (showOrHide) {
+			g_open = (type == RE::UI_MESSAGE_TYPE::kShow);
+			g_cancelHeld = false;
 			PipboyMap::OnMenuMessage(type);
 			if (type == RE::UI_MESSAGE_TYPE::kHide) {
 				ClearMovieSessionState();
@@ -4435,6 +4487,9 @@ namespace
 		CancelLook look;
 		if (!a_event || !g_open) {
 			return look;
+		}
+		if (OpenBlockingOverlayMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return look;   // Let Console / MessageBoxMenu / PauseMenu own Esc & Tab when stacked above PipboyMenu
 		}
 		const auto* base = static_cast<const RE::InputEvent*>(a_event);
 		if (base->eventType != RE::InputEvent::EventType::kButton || base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
@@ -4511,7 +4566,7 @@ namespace
 		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);   // Scaleform RefCountImplCore
 		const auto ctorRefs = *refs;
 		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_vtbl.slots.data());
-		if (g_stage >= 4 || PipboyMap::Enabled()) {
+		if (g_stage >= 2 || PipboyMap::Enabled()) {
 			*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_inputVtbl.slots.data());
 		}
 		// what the engine's dynamic_cast reads on our object: the locator one slot before its primary vtable
@@ -4757,7 +4812,7 @@ namespace
 		g_vtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
 		g_vtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&MenuLoadMovie);
 		g_vtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&MenuProcessMessage);
-		if (g_stage >= 4 || PipboyMap::Requested(a_dir / "FO4SFPipboyMenu.ini")) {   // FAL-414: copy the input vtable, replace [01] ShouldHandleEvent and [08] OnButtonEvent
+		if (g_stage >= 2 || PipboyMap::Requested(a_dir / "FO4SFPipboyMenu.ini")) {   // G2 / FAL-414: install cancel input vtable at Stage >= 2
 			const auto* input = reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput));
 			g_inputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);   // checked by CheckVtable
 			std::copy_n(input, kInputSlots, g_inputVtbl.slots.begin());
@@ -4790,6 +4845,17 @@ namespace
 			return;
 		}
 		const bool open = ui->IsMenuOpen(MenuName());
+		if (!open) {
+			if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
+				REX::INFO("step=toggle n={} ignored=menu_open menu={}", a_n, blocking);
+				return;
+			}
+		} else if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
+			if (std::string_view(topModal) == "Console") {
+				REX::INFO("step=toggle n={} ignored=console_open", a_n);
+				return;
+			}
+		}
 		g_cancelHeld = false;   // FAL-414: a release heard while the page was closed must not keep the gate shut
 		if (g_stage == 4 && !open) {
 			PageCollect();   // the page's text before the show
@@ -4852,6 +4918,15 @@ namespace
 		auto* queue = RE::UIMessageQueue::GetSingleton();
 		if (!ui || !queue || !ui->IsMenuOpen(MenuName())) {
 			g_open = false;
+			return;
+		}
+		if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
+			// Discard any Q/E/A/D shell keys pressed while Console or a modal popup is open
+			g_shellKeyPending = 0;
+			const std::string_view modalView(topModal);
+			if (modalView == "MessageBoxMenu" || modalView == "MainMenu" || modalView == "LoadingMenu") {
+				Close(0, "modal_preempt");
+			}
 			return;
 		}
 		if (g_stage == 4) {
@@ -5008,6 +5083,12 @@ namespace
 				g_task->AddTask([]() { SendUpdate(); });
 			}
 			PipboyMap::Tick();
+			if (g_stage >= 2 && g_cancelNow.exchange(false)) {   // G2 / FAL-414: Tab or Esc closes FO4SF_PipboyMenu at Stage >= 2
+				const auto n = ++presses;
+				g_task->AddTask([n]() { Close(n, "cancel"); });
+				REX::W32::Sleep(750);
+				g_task->AddTask([n]() { CheckState(n); });
+			}
 			if (g_stage < 3) {
 				continue;
 			}
@@ -5025,12 +5106,6 @@ namespace
 				if (g_closeNow.exchange(false)) {
 					const auto n = ++presses;
 					g_task->AddTask([n]() { Close(n); });
-					REX::W32::Sleep(750);
-					g_task->AddTask([n]() { CheckState(n); });
-				}
-				if (g_cancelNow.exchange(false)) {   // Tab or Esc heard by our input handler (FAL-414)
-					const auto n = ++presses;
-					g_task->AddTask([n]() { Close(n, "cancel"); });
 					REX::W32::Sleep(750);
 					g_task->AddTask([n]() { CheckState(n); });
 				}

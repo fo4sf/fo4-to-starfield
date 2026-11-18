@@ -1068,6 +1068,48 @@ namespace
 		return suppressed;
 	}
 
+	constexpr std::array<const char*, 16> kBlockingMapMenus{ {
+		"Console",
+		"MessageBoxMenu",
+		"ChargenMenu",
+		"PauseMenu",
+		"LoadingMenu",
+		"FaderMenu",
+		"DataMenu",
+		"InventoryMenu",
+		"MainMenu",
+		"DialogueMenu",
+		"ContainerMenu",
+		"BarterMenu",
+		"SleepWaitMenu",
+		"FavoritesMenu",
+		"LockpickingMenu",
+		"TerminalMenu",
+	} };
+
+	const char* OpenBlockingMapMenu(RE::UI* a_ui, bool a_topModalOnly = false)
+	{
+		if (!a_ui) {
+			return nullptr;
+		}
+		static const auto* const names = [] {
+			auto* out = new std::vector<RE::BSFixedString>();
+			out->reserve(kBlockingMapMenus.size());
+			for (const auto* m : kBlockingMapMenus) {
+				out->emplace_back(m);
+			}
+			return out;
+		}();
+		const std::size_t limit = a_topModalOnly ? 5u : names->size();
+		for (std::size_t i = 0; i < limit; ++i) {
+			const auto& nm = (*names)[i];
+			if (a_ui->IsMenuRegistered(nm) && a_ui->IsMenuOpen(nm)) {
+				return kBlockingMapMenus[i];
+			}
+		}
+		return nullptr;
+	}
+
 	// Main thread: opens FO4SF_PipboyMenu on MAP when pressed from gameplay (closed state)
 	void HandleClosedMapKeyMainThread(std::uint32_t a_n)
 	{
@@ -1079,6 +1121,10 @@ namespace
 		SuppressVanillaMapMenus();
 		if (ui->IsMenuOpen(OurMenuFixed())) {
 			return;   // Open-menu MapKey is handled exclusively by OnButtonInput (IMenu input vtable)
+		}
+		if (const char* blocking = OpenBlockingMapMenu(ui)) {
+			REX::INFO("step=map_key n={} vk={} ignored=menu_open menu={}", a_n, Hex(g_mapKey), blocking);
+			return;
 		}
 		g_lastMapTransitionMs = NowMs();
 		CollectMainThreadState();
@@ -1123,6 +1169,9 @@ namespace
 		a_user = {};
 		if (!g_on || !a_event || !g_menuOpen.load()) {
 			return false;
+		}
+		if (OpenBlockingMapMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return false;   // Never swallow Console / MessageBoxMenu keys while open over PipboyMenu
 		}
 		const auto* base = static_cast<const RE::InputEvent*>(a_event);
 		if (base->eventType != RE::InputEvent::EventType::kButton ||
