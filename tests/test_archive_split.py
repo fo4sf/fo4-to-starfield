@@ -216,6 +216,79 @@ class ArchiveSplitTests(unittest.TestCase):
         exp.main(["uninstall", "--starfield", str(self.game)])
         self.assertEqual(list(self.data.iterdir()), [])
 
+    def test_default_plugin_mode_and_held_off_carrier_refusal_in_every_mode(self):
+        plugins, _ = self._populate_synthetic_bundle()
+        resources = archive_split.scan_data_resources(str(self.staging))
+        bplan = json.loads((self.staging / "bundle_plan.json").read_text(encoding="utf-8"))
+
+        # 1. archive_split CLI --split-by defaults to 'plugin'; bare exp_install --split-archives defaults to 'plugin'
+        split_out = self.root / "default-plugin-split"
+        with patch("deploy_starfield.subprocess.run", side_effect=self._fake_archive2_run):
+            rc = archive_split.main([
+                "build",
+                "--exp-dir", str(self.staging),
+                "--starfield", str(self.game),
+                "--out", str(split_out),
+                "--plugins", ",".join(plugins),
+            ])
+        self.assertEqual(rc, 0)
+        manifest = json.loads((split_out / "archive_split_plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["split_by"], "plugin")
+
+        with patch.object(exp.subprocess, "run", side_effect=self._fake_archive2_run):
+            exp.main([
+                "install",
+                "--exp-dir", str(self.staging),
+                "--starfield", str(self.game),
+                "--plugins", ",".join(plugins),
+                "--pack",
+                "--split-archives",
+            ])
+        rec = json.loads((self.data / exp.RECORD).read_text(encoding="utf-8"))
+        self.assertEqual(rec["split_mode"], "plugin")
+        self.assertEqual(rec["archives"], ["Alpha - Main.ba2", "Charlie - Main.ba2"])
+
+        # 2. Holding off a carrier plugin in Data/FO4SF.toggle.json refuses relaunch, order, active, AND both split planners
+        toggle_path = self.data / exp.TOGGLE
+        toggle_path.write_text(
+            json.dumps({"off": ["Charlie.esm"], "plugins_txt": str(self.plugins_txt)}),
+            encoding="utf-8",
+        )
+        # Untick Charlie.esm in Plugins.txt as plugin_toggle.py off does
+        cur_lines = self.plugins_txt.read_text(encoding="utf-8-sig").splitlines()
+        unticked = [ln.lstrip("*") if "charlie.esm" in ln.lower() else ln for ln in cur_lines]
+        self.plugins_txt.write_bytes(b"\xef\xbb\xbf" + ("\r\n".join(unticked) + "\r\n").encode("utf-8"))
+
+        with self.assertRaisesRegex(SystemExit, "split archive carrier.*Charlie.esm"):
+            exp.main([
+                "install",
+                "--exp-dir", str(self.staging),
+                "--starfield", str(self.game),
+                "--plugins", ",".join(plugins),
+                "--pack",
+                "--split-archives",
+            ])
+        with self.assertRaises(SystemExit) as cm_ord:
+            exp.main(["order", "--starfield", str(self.game)])
+        self.assertEqual(cm_ord.exception.code, 6)
+        with self.assertRaises(SystemExit) as cm_act:
+            exp.main(["active", "--starfield", str(self.game)])
+        self.assertEqual(cm_act.exception.code, 8)
+
+        with self.assertRaisesRegex(ValueError, "carrier plugin.*Charlie.esm"):
+            archive_split.plan_split_by_plugin(
+                resources, plugins, bundle_plan=bplan, max_archive_bytes=10000, starfield_dir=str(self.game)
+            )
+        toggle_path.write_text(
+            json.dumps({"off": ["Bravo.esm"], "plugins_txt": str(self.plugins_txt)}),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "carrier plugin.*Bravo.esm"):
+            archive_split.plan_split_by_size(
+                resources, plugins, max_archive_bytes=1400, starfield_dir=str(self.game)
+            )
+        toggle_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

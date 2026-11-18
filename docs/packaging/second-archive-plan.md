@@ -26,16 +26,18 @@ Offline inspection of the installed Starfield configuration (`Starfield.ini` `[A
 ## 2. Split Modes, Verification, Install, and Rollback
 
 ### `src/fo4sf/archive_split.py`
+- **`--split-by plugin` (`plan_split_by_plugin`, default mode):**
+  Uses `bundle_plan.json` component output maps to assign each folded component's `Data/*` outputs to its owning `<ComponentPlugin> - Main.ba2`, assigns base world assets to `FO4TerrainCore - Main.ba2`, and spills any overflowing bucket onto remaining active plugins.
 - **`--split-by size` (`plan_split_by_size`, default `--max-archive-bytes 3221225472` = `3.000 GiB`):**
   Groups non-texture directories (`geometries`, `meshes`, `Terrain`, `materials`, `Interface`, `Scripts`, `sound`) ahead of `textures`, splitting cleanly at the non-texture / texture boundary first and spilling into `plugins[2]`, `plugins[3]`, ... whenever any group exceeds `max_archive_bytes`.
-- **`--split-by plugin` (`plan_split_by_plugin`):**
-  Uses `bundle_plan.json` component output maps to assign each folded component's `Data/*` outputs to its owning `<ComponentPlugin> - Main.ba2`, assigns base world assets to `FO4TerrainCore - Main.ba2`, and spills any overflowing bucket onto remaining active plugins.
+- **Held-off carrier refusal (`refuse_held_carrier_buckets`):**
+  In **every** split mode (`plugin` and `size`), both `archive_split.py` (when given `--starfield` or `held_off`) and `exp_install.py` refuse any split plan whose carrier plugin is listed under `"off"` in `Data/FO4SF.toggle.json`, preventing a held-off plugin from silently unmounting shared assets.
 - **`verify_split_archives`:**
   Runs `verify_archive` (`BTDX` header, `GNRL` entries, uncompressed/compressed payload SHA-256s) on **every** built `.ba2`, enforces `actual_size <= min(max_archive_bytes, 4 GiB - 1)`, rejects any duplicate `Data/...` path across buckets, and proves the disjoint union of all split archives equals the staged `Data/` SHA-256 inventory.
 
 ### `scripts/game/exp_install.py`
-- Adds `--split-archives {none,size,plugin}`, `--max-archive-bytes`, and `--prepacked-dir <split_dir>`.
-- Publishes every split `<Plugin> - Main.ba2` atomically via `deployment.publish_files`, records `"archives": [...]` and `"archive_inputs": {archive_name: {Data/...: sha256}}` in `Data/FO4SFExp.install.json`, verifies every archive on `verify_relaunch` / `order`, and removes every recorded `.ba2` cleanly on `uninstall` or mid-install rollback.
+- Adds `--split-archives [none|size|plugin]` (`default="none"`, `const="plugin"` when passed bare as `--split-archives`), `--max-archive-bytes`, and `--prepacked-dir <split_dir>`.
+- Publishes every split `<Plugin> - Main.ba2` via `deployment.copy_new_artifact`, records `rec["archives"] = ["<PluginStem> - Main.ba2", ...]`, `rec["split_mode"] = "plugin" | "size" | "prepacked"`, per-file SHA-256s in `rec["files"]`, and staged `Data/...` digests in `rec["source_inputs"]` inside `Data/FO4SFExp.install.json` (while per-archive `"inputs"` maps live in offline `archive_split_plan.json`). Refuses `verify_relaunch`, `order`, and `active` if any recorded split carrier plugin is held off in `Data/FO4SF.toggle.json`, and removes every recorded `.ba2` cleanly on `uninstall` or mid-install rollback.
 
 ---
 

@@ -152,6 +152,22 @@ def order_lines(lines, plugins, masters):
     return out, moved, missing
 
 
+def _held_split_carriers(rec, plugins, held):
+    """Carrier plugins for recorded split archives (`<Stem> - Main.ba2`) that are held off in FO4SF.toggle.json."""
+    archives = rec.get("archives") or []
+    if not archives or not held:
+        return []
+    arc_stems = {
+        arc[:-len(" - Main.ba2")].casefold()
+        for arc in archives
+        if isinstance(arc, str) and arc.lower().endswith(" - main.ba2")
+    }
+    return [
+        p for p in plugins
+        if p.casefold() in held and os.path.splitext(p)[0].casefold() in arc_stems
+    ]
+
+
 def order(a):
     """Plugins.txt: the plugins this install activated after their masters (module doc). 0 ok, 6 a master missing."""
     data = os.path.join(a.starfield, "Data")
@@ -170,6 +186,10 @@ def order(a):
             plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
             plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
         held = held_off(data)
+        bad_carriers = _held_split_carriers(rec, plugins, held)
+        if bad_carriers:
+            raise ValueError(f"split archive carrier plugin(s) held off in FO4SF.toggle.json: "
+                             f"{', '.join(bad_carriers)}; run plugin_toggle.py on")
         if any(p.casefold() in held for p in plugins):
             ticked = {ln.strip()[1:].strip().casefold() for ln in read_plugins(plugins_txt())[0]
                       if ln.strip().startswith("*")}
@@ -241,6 +261,10 @@ def active(a):
     if plugins is None:
         plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
         plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
+    bad_carriers = _held_split_carriers(rec, plugins, held)
+    if bad_carriers:
+        print(f"split archive carrier plugin(s) held off in FO4SF.toggle.json: {', '.join(bad_carriers)}")
+        return 8
     off = [p for p in plugins if p.casefold() not in on and p.casefold() not in held]
     if off:
         print(f"inactive in Plugins.txt: {', '.join(off)}")
@@ -373,6 +397,10 @@ def verify_relaunch(a, data, plugins, packed, rec, held=frozenset()):
     if again:
         sys.exit(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(again)}; "
                  f"run plugin_toggle.py on, or off again, before relaunching")
+    bad_carriers = _held_split_carriers(rec, plugins, held)
+    if packed and bad_carriers:
+        sys.exit(f"split archive carrier plugin(s) held off in FO4SF.toggle.json: {', '.join(bad_carriers)}; "
+                 f"run plugin_toggle.py on before relaunching")
     expected_archives = rec.get("archives")
     if packed and expected_archives:
         if any(arc not in rec["files"] for arc in expected_archives):
@@ -669,13 +697,20 @@ def _install(a, packing_dir=None):
                     ]
                     if any(len(b.resources) != len(m["inputs"]) for b, m in zip(split_buckets, manifest["archives"])):
                         raise ValueError("prepacked archive_split_plan.json does not match staged Data inventory")
+                    archive_split.refuse_held_carrier_buckets(split_buckets, starfield_dir=a.starfield)
                 elif split_mode == "size":
-                    split_buckets = archive_split.plan_split_by_size(resources, plugins, max_archive_bytes=max_arc_bytes)
+                    split_buckets = archive_split.plan_split_by_size(
+                        resources, plugins, max_archive_bytes=max_arc_bytes, starfield_dir=a.starfield
+                    )
                 elif split_mode == "plugin":
                     bplan_p = os.path.join(a.exp_dir, "bundle_plan.json")
                     bplan_obj = read_json(bplan_p) if os.path.isfile(bplan_p) else None
                     split_buckets = archive_split.plan_split_by_plugin(
-                        resources, plugins, bundle_plan=bplan_obj, max_archive_bytes=max_arc_bytes
+                        resources,
+                        plugins,
+                        bundle_plan=bplan_obj,
+                        max_archive_bytes=max_arc_bytes,
+                        starfield_dir=a.starfield,
                     )
                 else:
                     raise ValueError(f"unknown --split-archives mode: {split_mode!r}")
@@ -867,8 +902,8 @@ def main(argv=None):
     ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
     ap.add_argument("--prepacked", default="", help="with --pack, verify and install this existing Main archive; never build. "
                     "With --textures-archive and staged textures, also require '<first plugin> - Textures.ba2' beside it")
-    ap.add_argument("--split-archives", choices=("none", "size", "plugin"), default="none",
-                    help="with --pack: split Data across multiple '<plugin> - Main.ba2' archives by size budget or owning plugin")
+    ap.add_argument("--split-archives", nargs="?", const="plugin", choices=("none", "size", "plugin"), default="none",
+                    help="with --pack: split Data across multiple '<plugin> - Main.ba2' archives (default when bare: plugin)")
     ap.add_argument("--max-archive-bytes", type=int, default=archive_split.DEFAULT_MAX_ARCHIVE_BYTES,
                     help="maximum BA2 byte size per split archive (default 3 GiB, max 4294967295)")
     ap.add_argument("--prepacked-dir", default="",

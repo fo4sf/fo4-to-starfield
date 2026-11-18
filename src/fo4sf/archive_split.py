@@ -83,6 +83,52 @@ def plugin_main_archive_name(plugin_filename: str) -> str:
     return f"{stem} - Main.ba2"
 
 
+def read_held_off_plugins(starfield_dir: Optional[str]) -> set[str]:
+    """Return casefolded plugin names listed under `"off"` in `<starfield_dir>/Data/FO4SF.toggle.json`."""
+    if not starfield_dir:
+        return set()
+    cand_data = os.path.join(starfield_dir, "Data")
+    toggle_path = (
+        os.path.join(cand_data, "FO4SF.toggle.json")
+        if os.path.isdir(cand_data)
+        else os.path.join(starfield_dir, "FO4SF.toggle.json")
+    )
+    if not os.path.exists(toggle_path):
+        return set()
+    with open(toggle_path, encoding="utf-8") as fp:
+        rec = json.load(fp)
+    off = rec.get("off") if isinstance(rec, Mapping) else None
+    if not isinstance(off, list) or not all(isinstance(x, str) and x.strip() for x in off):
+        raise ValueError(f"{toggle_path}: 'off' must be a list of non-empty plugin names")
+    return {x.strip().casefold() for x in off}
+
+
+def refuse_held_carrier_buckets(
+    buckets: Sequence[ArchiveBucket],
+    held_off: Iterable[str] = (),
+    starfield_dir: Optional[str] = None,
+) -> None:
+    """Refuse any split plan whose carrier plugin is held off in `Data/FO4SF.toggle.json` (`"off"` list)."""
+    held_set = {str(p).strip().casefold() for p in (held_off or ()) if str(p).strip()}
+    if starfield_dir:
+        held_set |= read_held_off_plugins(starfield_dir)
+    if not held_set:
+        return
+    held_stems = {os.path.splitext(p)[0].casefold() for p in held_set}
+    bad: List[str] = []
+    for b in buckets:
+        p_cf = b.plugin.strip().casefold()
+        arc_stem = b.archive_name[:-len(" - Main.ba2")].casefold() if b.archive_name.lower().endswith(" - main.ba2") else ""
+        if p_cf in held_set or (arc_stem and arc_stem in held_stems):
+            if b.plugin not in bad:
+                bad.append(b.plugin)
+    if bad:
+        raise ValueError(
+            f"split archive carrier plugin(s) held off in FO4SF.toggle.json: {', '.join(bad)}; "
+            f"run plugin_toggle.py on before using split archives"
+        )
+
+
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fp:
@@ -150,6 +196,9 @@ def plan_split_by_size(
     resources: Sequence[DataResource],
     plugins: Sequence[str],
     max_archive_bytes: int = DEFAULT_MAX_ARCHIVE_BYTES,
+    *,
+    held_off: Iterable[str] = (),
+    starfield_dir: Optional[str] = None,
 ) -> List[ArchiveBucket]:
     """Deterministically split `resources` across `<plugins[k]> - Main.ba2` archives so each is <= `max_archive_bytes`.
 
@@ -194,6 +243,7 @@ def plan_split_by_size(
                 f"planned archive {bucket.archive_name} is {bucket.estimated_ba2_bytes} B > {max_archive_bytes} B"
             )
         buckets.append(bucket)
+    refuse_held_carrier_buckets(buckets, held_off=held_off, starfield_dir=starfield_dir)
     return buckets
 
 
@@ -202,6 +252,9 @@ def plan_split_by_plugin(
     plugins: Sequence[str],
     bundle_plan: Optional[Mapping[str, object]] = None,
     max_archive_bytes: int = MAX_BA2_BYTES,
+    *,
+    held_off: Iterable[str] = (),
+    starfield_dir: Optional[str] = None,
 ) -> List[ArchiveBucket]:
     """Assign each `Data/*` resource to its owning plugin's `<PluginStem> - Main.ba2` (with overflow spill if > budget).
 
@@ -261,7 +314,7 @@ def plan_split_by_plugin(
 
     carrier_order = {p.casefold(): idx for idx, p in enumerate(carriers)}
     final_pairs.sort(key=lambda pair: carrier_order[pair[0].casefold()])
-    return [
+    buckets = [
         ArchiveBucket(
             plugin=p,
             archive_name=plugin_main_archive_name(p),
@@ -269,6 +322,8 @@ def plan_split_by_plugin(
         )
         for p, grp in final_pairs
     ]
+    refuse_held_carrier_buckets(buckets, held_off=held_off, starfield_dir=starfield_dir)
+    return buckets
 
 
 def stage_bucket_tree(exp_data_dir: str, bucket: ArchiveBucket, dst_data_dir: str, hardlink: bool = True) -> List[str]:
@@ -345,9 +400,10 @@ def build_split_archives_offline(
     starfield_dir: str,
     out_dir: str,
     plugins: Sequence[str],
-    split_by: str = "size",
+    split_by: str = "plugin",
     max_archive_bytes: int = DEFAULT_MAX_ARCHIVE_BYTES,
     hardlink: bool = True,
+    held_off: Iterable[str] = (),
 ) -> Dict[str, object]:
     """Build and verify split `<plugin> - Main.ba2` archives from `<exp_dir>/Data` into `<out_dir>`."""
     scripts_dir = str(Path(__file__).resolve().parents[2] / "scripts")
@@ -370,9 +426,22 @@ def build_split_archives_offline(
             bundle_plan = json.load(fp)
 
     if split_by == "size":
-        buckets = plan_split_by_size(resources, plugins, max_archive_bytes=max_archive_bytes)
+        buckets = plan_split_by_size(
+            resources,
+            plugins,
+            max_archive_bytes=max_archive_bytes,
+            held_off=held_off,
+            starfield_dir=starfield_dir,
+        )
     elif split_by == "plugin":
-        buckets = plan_split_by_plugin(resources, plugins, bundle_plan=bundle_plan, max_archive_bytes=max_archive_bytes)
+        buckets = plan_split_by_plugin(
+            resources,
+            plugins,
+            bundle_plan=bundle_plan,
+            max_archive_bytes=max_archive_bytes,
+            held_off=held_off,
+            starfield_dir=starfield_dir,
+        )
     else:
         raise ValueError(f"unsupported split_by mode: {split_by!r}")
 
@@ -443,8 +512,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     p_plan = sub.add_parser("plan", help="Preview split archives and sizes without building BA2s.")
     p_plan.add_argument("--exp-dir", required=True)
+    p_plan.add_argument("--starfield", default="", help="Optional Starfield root to check Data/FO4SF.toggle.json")
     p_plan.add_argument("--plugins", default="")
-    p_plan.add_argument("--split-by", choices=("size", "plugin"), default="size")
+    p_plan.add_argument("--split-by", choices=("size", "plugin"), default="plugin")
     p_plan.add_argument("--max-archive-bytes", type=int, default=DEFAULT_MAX_ARCHIVE_BYTES)
 
     p_build = sub.add_parser("build", help="Build and verify split BA2 archives into --out.")
@@ -452,13 +522,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_build.add_argument("--starfield", required=True)
     p_build.add_argument("--out", required=True)
     p_build.add_argument("--plugins", default="")
-    p_build.add_argument("--split-by", choices=("size", "plugin"), default="size")
+    p_build.add_argument("--split-by", choices=("size", "plugin"), default="plugin")
     p_build.add_argument("--max-archive-bytes", type=int, default=DEFAULT_MAX_ARCHIVE_BYTES)
     p_build.add_argument("--no-hardlink", action="store_true")
 
     p_ver = sub.add_parser("verify", help="Verify an existing split archive directory against --exp-dir.")
     p_ver.add_argument("--split-dir", required=True)
     p_ver.add_argument("--exp-dir", required=True)
+    p_ver.add_argument("--starfield", default="", help="Optional Starfield root to check Data/FO4SF.toggle.json")
 
     a = ap.parse_args(argv)
     if a.cmd == "plan":
@@ -470,9 +541,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             with open(bp_file, encoding="utf-8") as fp:
                 bplan = json.load(fp)
         buckets = (
-            plan_split_by_size(resources, plugins, a.max_archive_bytes)
+            plan_split_by_size(resources, plugins, a.max_archive_bytes, starfield_dir=a.starfield or None)
             if a.split_by == "size"
-            else plan_split_by_plugin(resources, plugins, bundle_plan=bplan, max_archive_bytes=a.max_archive_bytes)
+            else plan_split_by_plugin(
+                resources,
+                plugins,
+                bundle_plan=bplan,
+                max_archive_bytes=a.max_archive_bytes,
+                starfield_dir=a.starfield or None,
+            )
         )
         for b in buckets:
             gib = b.estimated_ba2_bytes / (1024 ** 3)
@@ -519,6 +596,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise ValueError(f"{item['archive']} references Data resources missing from {a.exp_dir}")
             buckets.append(ArchiveBucket(plugin=item["plugin"], archive_name=item["archive"], resources=res_tuple))
             paths[item["archive"]] = os.path.join(a.split_dir, item["archive"])
+        refuse_held_carrier_buckets(buckets, starfield_dir=a.starfield or None)
         verify_split_archives(
             paths,
             buckets,
