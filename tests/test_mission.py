@@ -267,7 +267,8 @@ class NextStageTests(unittest.TestCase):
         self.assertNotIn("GetCombatState() == 0\n", psc)
         self.assertIn("int Function NextStage(int stage, int dead, int total, bool fighting, bool atPreston, bool found)",
                       psc)
-        self.assertIn("NextStage(stage, dead, Raiders.Length, fighting, dp < TalkRadius, prestonFound)", psc)
+        self.assertIn("bool readyTalk = TalkCompleteReady(stage, dp)", psc)
+        self.assertIn("NextStage(stage, dead, Raiders.Length, fighting, readyTalk, prestonFound)", psc)
 
 
 class FindPrestonTests(unittest.TestCase):
@@ -286,7 +287,9 @@ class FindPrestonTests(unittest.TestCase):
     def test_activation_before_the_fight_finds_preston(self):
         act = self.block("Event ObjectReference.OnActivate(", "EndEvent")
         self.assertRegex(act, r"if stage < 20\s+FoundPreston\(\"activated\"\)")
-        self.assertRegex(act, r"elseif stage == 30\s+AdvanceTo\(40\)")
+        self.assertIn("elseif stage == 30", act)
+        self.assertIn("PrestonTalkScene.Start()", act)
+        self.assertIn("AdvanceTo(40)", act)
 
     def test_standing_near_preston_before_the_fight_finds_him(self):
         tick = self.block("Event OnTimer(", "EndEvent")
@@ -306,11 +309,11 @@ class FindPrestonTests(unittest.TestCase):
         self.assertEqual(re.findall(r"\b(\w+)\.StartCombat\((\w+)\)", self.psc), [("r", "player")])
 
     def test_dead_raiders_are_skipped(self):
-        """A dead raider is counted and never put into combat: the loop's first test on each raider is IsDead."""
+        """A dead or WFC-01 auto-cleared raider is counted and never put into combat."""
         tick = self.block("Event OnTimer(", "EndEvent")
-        self.assertRegex(tick, r"Actor r = Raiders\[i\]\s+if r\.IsDead\(\)\s+dead \+= 1\s+else\s")
+        self.assertRegex(tick, r"Actor r = Raiders\[i\]\s+if r\.IsDead\(\) \|\| raiderCleared\[i\]\s+dead \+= 1\s+else\s")
         loop = tick[tick.index("Actor r = Raiders[i]"):]
-        self.assertLess(loop.index("if r.IsDead()"), loop.index("r.StartCombat(player)"))
+        self.assertLess(loop.index("if r.IsDead() || raiderCleared[i]"), loop.index("r.StartCombat(player)"))
 
     def test_found_is_set_and_logged_once(self):
         found = self.block("Function FoundPreston(string how)", "EndFunction")
@@ -354,9 +357,10 @@ class RelocateContractTests(unittest.TestCase):
                     "guard", "hidden", "if", "import", "int", "is", "length", "mandatory", "native", "new", "none",
                     "parent", "property", "return", "scriptname", "self", "state", "string", "struct", "true",
                     "tryguard", "var", "while"}
-        code = re.sub(r"\{[^}]*\}", "", read(PSC) + "\n" + read(os.path.join(ROOT, "scripts", "mission", "FO4SF_COMPreston.psc")))
+        all_psc = "\n".join(read(os.path.join(ROOT, "scripts", "mission", s + ".psc")) for s in make_mission.ALL_SCRIPTS)
+        code = re.sub(r"\{[^}]*\}", "", all_psc)
         code = re.sub(r'"[^"]*"', '""', "\n".join(line.split(";")[0] for line in code.splitlines()))
-        names = [n for n in re.findall(r"\b(?:bool|int|float|string|Actor|WorldSpace|MiscObject)(?:\[\])?\s+(\w+)",
+        names = [n for n in re.findall(r"\b(?:bool|int|float|string|Actor|WorldSpace|MiscObject|Scene|ObjectReference)(?:\[\])?[ \t]+(\w+)",
                                        code, re.I) if n not in ("Property", "Function")]
         self.assertIn("spotState", names)
         self.assertEqual([n for n in names if n.lower() in keywords], [])
@@ -433,28 +437,26 @@ class RelocateContractTests(unittest.TestCase):
         self.assertEqual(psc.count("KeepCodsworthStart()"), 3)          # defined, from OnQuestInit, from timer 1
 
     def test_the_keeper_restarts_codsworth_on_an_existing_save(self):
-        """22 Oct, the owner's save: Codsworth unmoved and no mission log, since stage 200 cancels timer 1 and nothing
-        else started his timer. His keeper (a start-game-enabled quest of its own, KeeperOnly) starts on such a save,
-        enables him, and restarts his timer with a fresh budget at its init and on every save load; it never runs the
-        mission."""
+        """His keeper (KeeperOnly) starts via StartQuestInstance (OnQuestStarted / OnQuestInit), enables Codsworth, and
+        restarts his timer with a fresh budget at start and on every save load; it never runs the mission."""
         with open(PSC, encoding="utf-8") as f:
             psc = f.read()
         self.assertRegex(psc, r"(?m)^bool Property KeeperOnly = False Auto Const$")
         self.assertNotIn("KeeperOnly", make_mission.mandatory_properties(psc))
-        init = psc[psc.index("Event OnQuestInit()"):psc.index("EndEvent", psc.index("Event OnQuestInit()"))]
-        keeper = init[:init.index("endif")]
+        init = function_body(psc, "StartQuestInstance")
+        keeper_start = init.index("if KeeperOnly")
+        keeper = init[keeper_start:init.index("endif", keeper_start)]
         self.assertIn("if KeeperOnly", keeper)
         self.assertIn('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")', keeper)
         self.assertIn("KeepCodsworthLoad()", keeper)
         self.assertIn("return", keeper)
-        self.assertLess(init.index("return"), init.index("AdvanceTo(10)"))     # the keeper never starts the mission
+        self.assertLess(init.index("return", keeper_start), init.index('Trace("init raiders="'))
         load = psc[psc.index("Function KeepCodsworthLoad()"):psc.index("EndFunction", psc.index("Function KeepCodsworthLoad()"))]
         self.assertRegex(load, r"if Codsworth.IsDisabled\(\)\s+Codsworth.Enable\(\)")
         self.assertIn("codsworthFails = 0", load)
         self.assertIn("StartTimer(CodsworthCheck, 2)", load)
-        self.assertRegex(psc, r"Event Actor.OnPlayerLoadGame\(Actor akSender\)\s+if KeeperOnly\s+KeepCodsworthLoad\(\)")
+        self.assertRegex(psc, r"Event Actor.OnPlayerLoadGame\(Actor akSender\)\s+Debug\.OpenUserLog\(LogName\)\s+if KeeperOnly\s+KeepCodsworthLoad\(\)")
         keep = psc[psc.index("Function KeepCodsworth()"):psc.index("bool Function MoveOver")]
-        # the mission's old timer 2 (no Codsworth, not the keeper) moves nobody and is not restarted
         self.assertRegex(keep, r"if Codsworth != None && codsworthFails < 10\s+if PlaceCodsworth\(player\)")
 
     def test_a_missing_codsworth_does_not_stop_preston(self):
@@ -612,7 +614,7 @@ class RelocateContractTests(unittest.TestCase):
         self.assertEqual(at, sorted(at))
         self.assertIn("Debug.Notification(", place)
         self.assertNotIn("SetRestrained", place)                         # the callers hold (HoldDue)
-        self.assertEqual(len(re.findall(r"\.MoveTo\(", psc)), 2)          # PlaceAt's and MoveOver's (the raiders)
+        self.assertEqual(len(re.findall(r"\.MoveTo\(", psc)), 3)          # PlaceAt, MoveOver, and WFC-01 rescue
         due = function_body(psc, "HoldDue")
         self.assertRegex(due, r"if fighting\s+return False\s+endif\s+"
                               r'return s == "placed" \|\| \(s == "at spot" && !held && off <= HeldRadius\)')
@@ -675,14 +677,14 @@ class RelocateContractTests(unittest.TestCase):
         self.assertEqual(re.findall(r"if MoveOver\((\w+)", psc), ["Raiders"])
         keep = function_body(psc, "KeepCodsworth")
         self.assertRegex(keep, r"if PlaceCodsworth\(player\)\s+codsworthFails \+= 1\s+if codsworthFails >= 10\s+"
-                               r'codsworthState = "gave up"\s+Trace\([^\n]*\n\s+Debug\.Notification\(')
+                               r'codsworthState = "gave up"\s+Trace\([^\n]*\n\s+if IsTestModeEnabled\(\)\s+Debug\.Notification\(')
         self.assertRegex(keep, r"if KeeperOnly\s+KeepPreston\(player\)\s+"
                                r"if Codsworth != None && keeperChecks % KeeperStatusEvery == 0\s+"
                                r'TraceCodsworth\("keeper status"\)')
         self.assertNotIn("GetStage", keep + place)                      # after stage 200 too
         load = function_body(psc, "KeepCodsworthLoad")
         tail = load[load.rindex("if Codsworth != None"):]
-        self.assertRegex(tail, r'if Codsworth != None\s+TraceCodsworth\("keeper load"\)\s+Debug\.Notification\('
+        self.assertRegex(tail, r'if Codsworth != None\s+TraceCodsworth\("keeper load"\)\s+if IsTestModeEnabled\(\)\s+Debug\.Notification\('
                                r'"FO4SF keeper: Codsworth "')
         self.assertLess(load.index('TraceCodsworth("keeper load")'), load.index("StartTimer(CodsworthCheck, 2)"))
         self.assertIn('TraceSpot(what, Codsworth, "codsworth", codsworthOff, codsworthState, codsworthMoves, '
@@ -923,7 +925,7 @@ class RelocateContractTests(unittest.TestCase):
         load = psc[psc.index("Function KeepCodsworthLoad()"):psc.index("EndFunction", psc.index("Function KeepCodsworthLoad()"))]
         self.assertIn("prestonHeld = False", load[load.index("prestonFails = 0"):])       # outside Codsworth's guard
         self.assertLess(load.index("prestonHeld = False"), load.index("StartTimer(CodsworthCheck, 2)"))
-        self.assertEqual(psc.count('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")'), 1)   # the keeper's
+        self.assertEqual(psc.count('RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")'), 2)   # keeper + mission (2f)
         guarded = load[load.index("if Codsworth != None"):load.index("prestonFails = 0")]
         self.assertIn("codsworthHeld = False", guarded)                  # FAL-163: Codsworth too
         # held before the save; after the load the flag is False, so the first check at his spot holds him again
@@ -961,15 +963,18 @@ class RelocateContractTests(unittest.TestCase):
         self.assertGreater(move.index('" after="'), move.index("a.MoveTo("))
 
     def test_trace_reopens_the_log_after_a_save_load(self):
-        """21 Oct crash runs: OnQuestInit's OpenUserLog does not survive a save load, so the timers ran with no log.
-        Trace opens the log itself, right before it writes (a no-op when it is already open)."""
+        """2f: OpenUserLog runs once at start (StartQuestInstance) and once on reload (OnPlayerLoadGame) rather than on
+        every Trace call."""
         with open(PSC, encoding="utf-8") as f:
             psc = f.read()
+        self.assertIn("Debug.OpenUserLog(LogName)", function_body(psc, "StartQuestInstance"))
+        load_ev = psc[psc.index("Event Actor.OnPlayerLoadGame"):psc.index("EndEvent", psc.index("Event Actor.OnPlayerLoadGame"))]
+        self.assertIn("Debug.OpenUserLog(LogName)", load_ev)
         trace = psc[psc.index("Function Trace("):]
         trace = trace[:trace.index("EndFunction")]
         lines = [ln.strip() for ln in trace.splitlines()[1:] if ln.strip() and not ln.strip().startswith(";")]
-        self.assertEqual(lines[0], "Debug.OpenUserLog(LogName)")
-        self.assertTrue(lines[1].startswith("Debug.TraceUser(LogName,"))
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("Debug.TraceUser(LogName,"))
 
     def test_codsworth_is_an_optional_property(self):
         with open(PSC, encoding="utf-8") as f:
@@ -1080,7 +1085,7 @@ class StageAndInstallTests(unittest.TestCase):
         by its WEMFile id; voice.json carries the text and the sex rule ("sir" male, "mum" female) to the writer."""
         with tempfile.TemporaryDirectory() as d:
             src = os.path.join(d, "voice")
-            rows = [("000F1F6E", "1", "Yes?"), ("000F1F78", "1", "Sir?"), ("000F1F80", "1", "Right away, mum.")]
+            rows = [("000F1F6E", "1", "Synthetic line 1"), ("000F1F78", "1", "Synthetic line sir"), ("000F1F80", "1", "Synthetic line mum")]
             os.makedirs(src)
             with open(os.path.join(src, "lines.tsv"), "w", encoding="utf-8", newline="") as f:
                 f.write("quest\tsubtype\ttopic\tinfo\tresponse\tvoice\ttext\n")
@@ -1103,7 +1108,7 @@ class StageAndInstallTests(unittest.TestCase):
             src = os.path.join(d, "voice")
             os.makedirs(src)
             with open(os.path.join(src, "lines.tsv"), "w", encoding="utf-8", newline="") as f:
-                f.write("info\tresponse\ttext\nAA\t1\tYes, sir.\nBB\t1\tMum!\nCC\t1\tSirius\n")
+                f.write("info\tresponse\ttext\nAA\t1\tSynthetic sir.\nBB\t1\tSynthetic mum.\nCC\t1\tSynthetic Sirius\n")
             for n in ("aa_1", "bb_1", "cc_1"):
                 _write(os.path.join(src, "wem", f"{n}.wem"), b"x")
             vj = os.path.join(d, "voice.json")
@@ -1228,6 +1233,245 @@ class StageAndInstallTests(unittest.TestCase):
                                    "--raider", raider])
             self.assertFalse(os.path.exists(os.path.join(d, "f2")))
             self.assertFalse(os.path.exists(os.path.join(d, "f2.partial")))
+
+
+class Phase2TrackBTests(unittest.TestCase):
+    """Phase 2 Track B: 2b (StartNoWait startup), 2f (WFC-01 anti-stall + mission reload),
+    2g (Preston HumanRace NPC + 3-exchange Scene + TestMode FollowTest gate),
+    2h (Codsworth01 0x816 4-choice Scene + AllowPcDialog/AllowDefaultDialog),
+    2k (Sanctuary01 0x817 workbench 0250FE/0x005C50 + 5-min test card)."""
+
+    def test_2b_quests_are_not_start_game_enabled_and_support_startnowait(self):
+        cs = read(CS)
+        self.assertIn("static bool NonStartGameReady(SF.IQuestGetter q)", cs)
+        self.assertIn("!q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled)", cs)
+        self.assertIn("q.Data.Flags.HasFlag(SF.Quest.Flag.StartsEnabled)", cs)
+        for mutation_label in (
+            "FO4SF_Min00 has StartGameEnabled",
+            "keeper has StartGameEnabled",
+            "FO4SF_Codsworth01 has StartGameEnabled",
+            "FO4SF_Sanctuary01 has StartGameEnabled",
+        ):
+            self.assertIn(mutation_label, cs)
+        for scr in ("FO4SF_Min00Quest.psc", "FO4SF_Codsworth01Quest.psc", "FO4SF_Sanctuary01Quest.psc"):
+            txt = read(os.path.join(ROOT, "scripts", "mission", scr))
+            self.assertIn("Event OnQuestStarted()", txt, scr)
+            self.assertIn("Event OnQuestInit()", txt, scr)
+            self.assertIn("Function StartQuestInstance()", txt, scr)
+
+    def test_m1_story_gate_silent_start_and_1h_no_dev_banners(self):
+        psc = read(PSC)
+        start_fn = function_body(psc, "StartQuestInstance")
+        self.assertIn('Trace("mission gate mode=1 started=true")', start_fn)
+        self.assertIn("LogWarfareStop()", start_fn)
+        self.assertIn('Trace("mission gate mode=2 started=false")', function_body(psc, "LogWarfareStop"))
+        self.assertNotIn("AdvanceTo(10)", start_fn)
+        self.assertIn('Trace("min00 given by=codsworth")', function_body(psc, "GiveFromCodsworth"))
+        self.assertIn('Trace("min00 given by=concord")', psc)
+        self.assertRegex(psc, r"(?m)^float Property GiveConcordRadius = 150\.0 Auto Const$")
+
+        # 1h: zero objective Debug.Notification banners, and every keeper Debug.Notification gated behind IsTestModeEnabled()
+        self.assertNotIn("When Freedom Calls:", function_body(psc, "Apply"))
+        for scr in make_mission.ALL_SCRIPTS:
+            txt = read(os.path.join(ROOT, "scripts", "mission", scr + ".psc"))
+            lines = txt.splitlines()
+            for idx, ln in enumerate(lines):
+                if "Debug.Notification(" in ln:
+                    prev = lines[idx - 1].strip() if idx > 0 else ""
+                    self.assertEqual(prev, "if IsTestModeEnabled()", f"{scr}:{idx + 1} notification not gated by test mode")
+
+    def test_2f_and_m3_wfc01_rescue_absent_clear_combat_package_and_reload(self):
+        cs = read(CS)
+        self.assertIn('RaiderCombatPackageEdid = "DefaultCombatMasterPackage"', cs)
+        self.assertIn('RaiderSandboxPackageEdid = "DefaultSandboxCurrentLocation"', cs)
+        self.assertIn('"raider alias lacks combat package"', cs)
+
+        psc = read(PSC)
+        load_ev = psc[psc.index("Event Actor.OnPlayerLoadGame"):psc.index("EndEvent", psc.index("Event Actor.OnPlayerLoadGame"))]
+        self.assertIn("relocateFails = 0", load_ev)
+        self.assertIn('Trace("reload mission stage=" + st + " relocate_fails=" + relocateFails)', load_ev)
+        self.assertIn("if st == 20", load_ev)
+        self.assertIn("CheckConcordRaidersWfc01(Game.GetPlayer(), False)", load_ev)
+        wfc = function_body(psc, "CheckConcordRaidersWfc01")
+        self.assertIn('Trace("wfc01 rescue raider=" + i', wfc)
+        self.assertIn('raider cleared absent id=', wfc)
+        self.assertIn("raiderCleared[i] = True", wfc)
+
+        # Negative/stall test (M3): 4 raiders dead + 1 raider far away (> 250 m) ends with 'raider cleared absent' and stage 30
+        door = (-2011.14, -1697.54, 89.09)
+        player = (-2015.0, -1700.0, 89.1)
+        raiders = [
+            {"pos": (-2029.0, -1701.0, 75.0), "target": (-2029.0, -1701.0, 88.3), "dead": False, "loaded": True,
+             "absent_sec": 0.0, "cleared": False},  # subterranean (z < targetZ - 8)
+            {"pos": (-1820.0, -1701.0, 88.3), "target": (-2029.0, -1708.0, 88.1), "dead": False, "loaded": True,
+             "absent_sec": 0.0, "cleared": False},  # drifted > 140 m
+            {"pos": (-2450.0, -1710.0, 88.2), "target": (-2035.0, -1710.0, 88.2), "dead": False, "loaded": False,
+             "absent_sec": 0.0, "cleared": False},  # far away / unloaded straggler
+            {"pos": (-2027.0, -1721.0, 88.1), "target": (-2027.0, -1721.0, 88.1), "dead": True, "loaded": True,
+             "absent_sec": 0.0, "cleared": False},  # already dead
+            {"pos": (-2048.0, -1740.0, 88.2), "target": (-2048.0, -1740.0, 88.2), "dead": True, "loaded": True,
+             "absent_sec": 0.0, "cleared": False},  # already dead
+        ]
+        rescued, cleared = make_mission.wfc01_step(player, False, door, raiders)
+        self.assertEqual(rescued, [0, 1, 2])
+        self.assertEqual(cleared, [])
+        self.assertEqual(raiders[0]["pos"], raiders[0]["target"])
+        self.assertEqual(raiders[1]["pos"], raiders[1]["target"])
+
+        raiders[0]["dead"] = True
+        raiders[1]["dead"] = True
+        # Before >60 s, 4/5 dead keeps stage at 20; on second 61 (> 60.0 s), straggler clears -> stage 30!
+        for _ in range(59):
+            _, cleared = make_mission.wfc01_step(player, False, door, raiders)
+            self.assertEqual(cleared, [])
+            self.assertEqual(make_mission.next_stage(20, sum(1 for r in raiders if r["dead"] or r["cleared"]), 5, True, False), 20)
+        _, cleared = make_mission.wfc01_step(player, False, door, raiders)
+        self.assertEqual(cleared, [2])
+        self.assertTrue(raiders[2]["cleared"])
+        effective_dead = sum(1 for r in raiders if r["dead"] or r["cleared"])
+        self.assertEqual(effective_dead, 5)
+        self.assertEqual(make_mission.next_stage(20, effective_dead, 5, False, False), 30)
+
+    def test_2g_and_m4_preston_npc_scene_logs_and_test_mode_follow_gate(self):
+        cs = read(CS)
+        self.assertIn('SfHumanRaceEdid = "HumanRace"', cs)
+        self.assertIn('SfPapaKatzEdid = "UC_NA_PapaKatz"', cs)
+        self.assertIn('SfPrestonVoiceEdid = "GenericMaleEvenToned"', cs)
+        self.assertIn('SfPrestonOutfitEdid = "Outfit_FreestarRanger_Vest_with_Hat"', cs)
+        self.assertIn('SfPrestonWeaponEdid = "Orion"', cs)
+        self.assertIn("PrestonTalkSceneId = 0x900", cs)
+        self.assertNotIn("calm.Duplicate", cs)
+
+        com = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_COMPreston.psc"))
+        psc = read(PSC)
+        self.assertIn('Trace("preston talk end info=0x092A -> stage 40")', psc)
+        self.assertIn('Trace("stage 40 by=fallback")', psc)
+        for src in (com, function_body(psc, "BeginFollow")):
+            self.assertIn('Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable', src)
+            self.assertIn("follow preston test-only refused: test mode off", src)
+
+        s = make_mission.summarize([
+            "FO4SF_MISSION rt=5.0 mission gate mode=1 started=true",
+            "FO4SF_MISSION rt=6.0 min00 given by=codsworth",
+            "FO4SF_MISSION rt=7.0 follow preston test-only refused: test mode off",
+            "FO4SF_MISSION rt=8.0 reload mission stage=20 relocate_fails=0",
+            "FO4SF_MISSION rt=9.0 wfc01 rescue raider=0 z=70.0 target_z=88.3 drift=18.3",
+            "FO4SF_MISSION rt=70.0 wfc01 raider cleared absent id=2051 raider=2 elapsed=61.0",
+            "FO4SF_MISSION rt=90.0 preston talk end info=0x092A -> stage 40",
+        ])
+        self.assertTrue(s["follow_refused_test_mode"])
+        self.assertEqual(s["mission_gate"], "mission gate mode=1 started=true")
+        self.assertEqual(s["min00_given_by"], "codsworth")
+        self.assertEqual(s["preston_talk_end"], "preston talk end info=0x092A -> stage 40")
+        self.assertFalse(s["stage40_fallback"])
+        self.assertEqual((s["reloads"], s["wfc01_rescues"], s["wfc01_absent_cleared"]), (1, 1, 1))
+
+        s_fb = make_mission.summarize(["FO4SF_MISSION rt=90.0 stage 40 by=fallback"])
+        self.assertTrue(s_fb["stage40_fallback"])
+
+    def test_2h_and_m6_codsworth_steel_mat_fix_and_talk_end(self):
+        cs = read(CS)
+        self.assertIn('CodsworthQuestId = 0x816', cs)
+        self.assertIn('CodsworthQuestEdid = "FO4SF_Codsworth01"', cs)
+        self.assertIn('CodsworthRaceEdid = "FO4SF_CodsworthRace"', cs)
+        self.assertIn('CodsworthVoiceEdid = "FO4SF_CodsworthVoice"', cs)
+        self.assertIn("SF.Race.Flag.AllowPcDialog", cs)
+        self.assertIn("SF.VoiceType.Flag.AllowDefaultDialog", cs)
+        self.assertEqual(make_mission.VOICE_DIR, "sound/voice/fo4sfmission.esm/fo4sf_codsworthvoice")
+
+        c_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_Codsworth01Quest.psc"))
+        self.assertIn('Game.GetFormFromFile(0x000800, "FO4SFMission.esm") as FO4SF_Min00Quest', c_psc)
+        self.assertIn("min00.GiveFromCodsworth()", c_psc)
+        self.assertIn('Trace("codsworth talk end -> min00 stage 10")', c_psc)
+        self.assertIn('Trace("codsworth01 complete choices=" + choicesCount + " concord_pointed=" + pointedStr)', c_psc)
+
+        # M6: verify dark-diffuse Metalness=0.0 .mat is upgraded to bright brushed steel (Metalness=0.85, Roughness=0.22, Tint=0.72)
+        dark_mat = {
+            "Objects": [
+                {
+                    "Components": [
+                        {"Type": "BSMaterial::TextureSetID", "Index": 0, "Data": {"ID": "res:1"}},
+                        {"Type": "BSMaterial::Color", "Index": 0, "Data": {"Value": {"Data": {"w": "0.0", "x": "1.0", "y": "1.0", "z": "1.0"}}}},
+                    ],
+                    "Edges": [{"EdgeIndex": 0, "To": "res:0", "Type": "BSComponentDB2::OuterEdge"}],
+                    "ID": "res:2",
+                },
+                {
+                    "Components": [
+                        {"Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": {"FileName": "Data\\textures\\handy_color.dds"}},
+                        {"Type": "BSMaterial::MRTextureFile", "Index": 1, "Data": {"FileName": "Data\\textures\\handy_normal.dds"}},
+                        {"Type": "BSMaterial::MRTextureFile", "Index": 3, "Data": {"FileName": "Data\\textures\\handy_rough.dds"}},
+                        {"Type": "BSMaterial::TextureReplacement", "Index": 4, "Data": {"Color": {"Data": {"Value": {"Data": {"w": "1", "x": "0", "y": "0", "z": "0"}}}}, "Enabled": "true"}},
+                    ],
+                    "ID": "res:1",
+                },
+            ],
+            "Summary": {
+                "Layer1": {
+                    "Tint": {"w": 0.0, "x": 1.0, "y": 1.0, "z": 1.0},
+                    "Textures": {
+                        "Metalness": {"File": "", "Replacement": {"w": 1, "x": 0.0, "y": 0.0, "z": 0.0}, "UseReplacement": True},
+                        "Roughness": {"File": "Data\\textures\\handy_rough.dds", "Replacement": {"w": 1, "x": 0, "y": 0, "z": 0}, "UseReplacement": False},
+                    },
+                }
+            },
+        }
+        patched = make_mission.patch_codsworth_steel_mat(json.loads(json.dumps(dark_mat)))
+        self.assertAlmostEqual(patched["Summary"]["Layer1"]["Tint"]["w"], 0.72)
+        self.assertAlmostEqual(patched["Summary"]["Layer1"]["Textures"]["Metalness"]["Replacement"]["x"], 0.85)
+        self.assertTrue(patched["Summary"]["Layer1"]["Textures"]["Roughness"]["UseReplacement"])
+        self.assertAlmostEqual(patched["Summary"]["Layer1"]["Textures"]["Roughness"]["Replacement"]["x"], 0.22)
+        mr_indices = [
+            c["Index"] for c in patched["Objects"][1]["Components"] if c["Type"] == "BSMaterial::MRTextureFile"
+        ]
+        self.assertEqual(mr_indices, [0, 1])
+
+        s = make_mission.summarize([
+            "FO4SF_MISSION rt=119.9 codsworth talk end -> min00 stage 10",
+            "FO4SF_MISSION rt=120.0 codsworth01 complete choices=4 concord_pointed=true",
+        ])
+        self.assertTrue(s["codsworth_talk_end"])
+        self.assertEqual(s["codsworth01_complete"], "codsworth01 complete choices=4 concord_pointed=true")
+
+    def test_2k_m5_and_r4_sanctuary_bench_and_forbidden_output_guard(self):
+        psc = read(PSC)
+        apply_fn = function_body(psc, "Apply")
+        self.assertIn('Game.GetFormFromFile(0x000817, "FO4SFMission.esm") as Quest', apply_fn)
+        self.assertIn("sanctuaryQuest.StartNoWait()", apply_fn)
+
+        s_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_Sanctuary01Quest.psc"))
+        self.assertIn("int BenchRefId = 0x005C50", s_psc)
+        self.assertIn("int BenchBaseId = 0x0A2ECD", s_psc)
+        self.assertIn('RegisterForRemoteEvent(boundBench, "OnActivate")', s_psc)
+        self.assertIn('RegisterForRemoteEvent(boundBench, "OnWorkshopMode")', s_psc)
+        self.assertIn('Trace("min01 bench activated -> stage 100")', s_psc)
+        self.assertIn('Trace("sanctuary01 bench_activated=true ref=" + refUsed + " complete=true")', s_psc)
+
+        card_path = os.path.join(ROOT, "docs", "testing", "sanctuary-workbench-card.md")
+        self.assertTrue(os.path.isfile(card_path))
+        card = read(card_path)
+        for required in ("0x000817", "0x005C50", "0x0A2ECD", "0250FE", "reload mission stage=20 relocate_fails=0",
+                         "min01 bench activated -> stage 100", "preston talk end info=0x092A -> stage 40"):
+            self.assertIn(required, card)
+
+        s = make_mission.summarize([
+            "FO4SF_MISSION rt=299.9 min01 bench activated -> stage 100",
+            "FO4SF_MISSION rt=300.0 sanctuary01 bench_activated=true ref=[ObjectReference < (04005C50)>] complete=true",
+        ])
+        self.assertTrue(s["min01_bench_activated"])
+        self.assertTrue(s["sanctuary01_complete"].startswith("sanctuary01 bench_activated=true"))
+
+        # R4: make_mission refuses --out inside a Git worktree or under a game folder
+        with tempfile.TemporaryDirectory() as d:
+            git_sub = os.path.join(d, "worktree", "sub", "out")
+            os.makedirs(os.path.join(d, "worktree", ".git"))
+            with self.assertRaises(SystemExit):
+                make_mission.refuse_forbidden_output_dir(git_sub)
+
+            game_sub = os.path.join(d, "game", "Data", "out")
+            _write(os.path.join(d, "game", "Starfield.exe"), b"MZ")
+            with self.assertRaises(SystemExit):
+                make_mission.refuse_forbidden_output_dir(game_sub)
 
 
 @unittest.skipUnless(shutil.which("dotnet") and os.environ.get("FO4SF_DOTNET_TESTS"),

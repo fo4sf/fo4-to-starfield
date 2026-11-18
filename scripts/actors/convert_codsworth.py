@@ -28,6 +28,88 @@ SOURCE = "meshes\\actors\\robot\\characterassets\\mrhandy.nif"
 TEMPLATE = "meshes\\actors\\minibota\\mesh\\minibota_base\\minibota_mesh.nif"
 OUT_NAME = "fo4port/actors/codsworth/codsworth"
 ARMS = (("LArm", "C_Arm1"), ("MArm", "C_Arm2"), ("RArm", "C_Arm3"))
+CODSWORTH_STEEL_TINT = (0.88, 0.90, 0.92, 0.72)
+CODSWORTH_METALNESS = 0.85
+CODSWORTH_ROUGHNESS = 0.22
+
+
+def patch_codsworth_steel_mat(mat: dict) -> dict:
+    """Fix FO4 Mr. Handy dark-chrome diffuse + missing _s.dds roughness (M6):
+    blend 72% bright brushed-steel tint over the dark FO4 _color.dds seams, enable Metalness=0.85 (slot 4),
+    and replace the flat 0.745 fallback roughness map with brushed-metal Roughness=0.22 (slot 3)."""
+    tx, ty, tz, tw = CODSWORTH_STEEL_TINT
+    m_str = f"{CODSWORTH_METALNESS:g}"
+    r_str = f"{CODSWORTH_ROUGHNESS:g}"
+    for obj in mat.get("Objects") or []:
+        comps = obj.get("Components") or []
+        if not comps:
+            continue
+        has_texset_id = any(c.get("Type") == "BSMaterial::TextureSetID" for c in comps)
+        has_texfiles = any(
+            c.get("Type") in ("BSMaterial::MRTextureFile", "BSMaterial::TextureReplacement") for c in comps
+        )
+        if has_texset_id and "Edges" in obj:
+            for c in comps:
+                if c.get("Type") == "BSMaterial::Color" and c.get("Index") == 0 and "Value" in c.get("Data", {}):
+                    d = c["Data"]["Value"]["Data"]
+                    d["x"], d["y"], d["z"], d["w"] = f"{tx:g}", f"{ty:g}", f"{tz:g}", f"{tw:g}"
+        if has_texfiles:
+            kept = []
+            saw_rough, saw_metal = False, False
+            for c in comps:
+                ctype = c.get("Type")
+                cidx = c.get("Index")
+                if ctype == "BSMaterial::MRTextureFile" and cidx in (3, 4):
+                    continue
+                if ctype == "BSMaterial::TextureReplacement" and cidx == 3:
+                    d = c["Data"]["Color"]["Data"]["Value"]["Data"]
+                    d["x"] = d["y"] = d["z"] = r_str
+                    d["w"] = "1"
+                    c["Data"]["Enabled"] = "true"
+                    saw_rough = True
+                elif ctype == "BSMaterial::TextureReplacement" and cidx == 4:
+                    d = c["Data"]["Color"]["Data"]["Value"]["Data"]
+                    d["x"] = d["y"] = d["z"] = m_str
+                    d["w"] = "1"
+                    c["Data"]["Enabled"] = "true"
+                    saw_metal = True
+                kept.append(c)
+            if not saw_rough:
+                kept.append({
+                    "Data": {
+                        "Color": {"Data": {"Value": {"Data": {"w": "1", "x": r_str, "y": r_str, "z": r_str}, "Type": "XMFLOAT4"}},
+                                  "Type": "BSMaterial::Color", "Version": 1},
+                        "Enabled": "true",
+                    },
+                    "Index": 3,
+                    "Type": "BSMaterial::TextureReplacement",
+                })
+            if not saw_metal:
+                kept.append({
+                    "Data": {
+                        "Color": {"Data": {"Value": {"Data": {"w": "1", "x": m_str, "y": m_str, "z": m_str}, "Type": "XMFLOAT4"}},
+                                  "Type": "BSMaterial::Color", "Version": 1},
+                        "Enabled": "true",
+                    },
+                    "Index": 4,
+                    "Type": "BSMaterial::TextureReplacement",
+                })
+            obj["Components"] = kept
+    layer = (mat.get("Summary") or {}).get("Layer1")
+    if isinstance(layer, dict):
+        layer["Tint"] = {"w": tw, "x": tx, "y": ty, "z": tz}
+        tex = layer.setdefault("Textures", {})
+        tex["Metalness"] = {
+            "File": "",
+            "Replacement": {"w": 1, "x": CODSWORTH_METALNESS, "y": CODSWORTH_METALNESS, "z": CODSWORTH_METALNESS},
+            "UseReplacement": True,
+        }
+        tex["Roughness"] = {
+            "File": "",
+            "Replacement": {"w": 1, "x": CODSWORTH_ROUGHNESS, "y": CODSWORTH_ROUGHNESS, "z": CODSWORTH_ROUGHNESS},
+            "UseReplacement": True,
+        }
+    return mat
 
 
 def bone_map(animate_arms: bool):
@@ -99,6 +181,13 @@ def build(a, staging):
         if mat:
             materials[s.name.decode("latin-1")] = mat
     default = conv.neutral
+    for mat_rel in sorted(set(materials.values())):
+        if mat_rel and mat_rel != default:
+            mat_path = os.path.join(staging, *mat_rel.replace("\\", "/").split("/"))
+            if os.path.isfile(mat_path):
+                with open(mat_path, encoding="utf-8") as mf:
+                    patched = patch_codsworth_steel_mat(json.load(mf))
+                pipeline.write_staged(mat_path, (json.dumps(patched, indent="\t", sort_keys=True) + "\n").encode("utf-8"))
     if a.one_material and materials:                                        # shapes without one fall back to it too
         default = materials[next(iter(materials))]
         materials = {k: default for k in materials}

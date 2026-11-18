@@ -4,12 +4,12 @@ usage:
   python make_mission.py stage --out <experiment dir> --fo4 <Fallout4.esm> --starfield <Starfield.esm>
                                --core <FO4TerrainCore.esm> --raider <FO4ActorRaider.esm>
                                [--compiler <PapyrusCompiler.exe>] [--content-resources <zip>] [--no-alias]
-      1. dotnet/Mission points: Fallout 4's Concord raiders, the museum door's outside arrival and Codsworth's Sanctuary
-         spot (points.json); the script keeps Preston and Codsworth at those spots from its own PrestonLocalX/Y/Z and
-         CodsworthLocalX/Y/Z, so points that differ are refused;
+      1. dotnet/Mission points: Fallout 4's Concord raiders, the museum door's outside arrival, Preston's NPC metadata
+         and Concord talk lines, Codsworth's Sanctuary spot and MQ102-lite 4-choice lines, and the Sanctuary workbench;
       2. dotnet/Mission write + check: FO4SFMission.esm against the given core and raider plugins (offline_check.txt);
-      3. the Papyrus compile of FO4SF_Min00Quest.psc and FO4SF_COMPreston.psc against every base script of ContentResources.zip;
-      4. plan.json (the plugin's, the script's and the masters' SHA-256) and README.txt.
+      3. the Papyrus compile of FO4SF_Min00Quest.psc, FO4SF_COMPreston.psc, FO4SF_Codsworth01Quest.psc and
+         FO4SF_Sanctuary01Quest.psc against every base script of ContentResources.zip;
+      4. plan.json (the plugin's, the scripts' and the masters' SHA-256) and README.txt.
       The masters are hashed BEFORE the build and again before publication: a core or raider plugin that changed
       during the build is refused. The stage is built in a new <out>.partial-<time>-<pid> folder (never reused or
       deleted: a failed attempt stays as evidence) and renamed to <out> only when every step passed; an existing
@@ -17,10 +17,11 @@ usage:
   python make_mission.py fold --mission <stage dir> --core-dir <core experiment dir> --out <new experiment dir>
                               [--raider <FO4ActorRaider.esm>]
       exp_install.py holds one experiment at a time, so the mission goes in WITH the core set: a copy of the core's
-      experiment folder plus FO4SFMission.esm and Data\Scripts\FO4SF_Min00Quest.pex (and FO4SF_COMPreston.pex), written only after verify
-      passes on the result (built in a new <out>.partial-<time>-<pid>, kept on failure; an existing <out> is refused).
+      experiment folder plus FO4SFMission.esm and Data\Scripts\FO4SF_Min00Quest.pex (and the companion, Codsworth01 and
+      Sanctuary01 .pex files), written only after verify passes on the result (built in a new <out>.partial-<time>-<pid>,
+      kept on failure; an existing <out> is refused).
   python make_mission.py verify --exp-dir <experiment dir> --plan <stage dir>\plan.json [--raider <FO4ActorRaider.esm>]
-      the install preflight: FO4SFMission.esm and the .pex in <exp-dir> match the plan's hashes, FO4TerrainCore.esm
+      the install preflight: FO4SFMission.esm and the .pex files in <exp-dir> match the plan's hashes, FO4TerrainCore.esm
       in <exp-dir> and FO4ActorRaider.esm (in <exp-dir>, else --raider) match the masters the plugin was built
       against (it copies the core's world record). Exit 1 on any mismatch or missing file: install only after exit 0.
   python make_mission.py log [--file <fo4sf_mission.0.log>]
@@ -32,37 +33,68 @@ Install (the install session, game closed, on the owner's words): fold, then ver
 import argparse
 import csv
 import datetime
+import glob
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+SRC_DIR = os.path.join(REPO, "src")
+ACTORS_DIR = os.path.join(REPO, "scripts", "actors")
+for _p in (SRC_DIR, ACTORS_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from convert_codsworth import patch_codsworth_steel_mat  # noqa: E402
+
 PROJECT = os.path.join(REPO, "dotnet", "Mission")
 PLUGIN = "FO4SFMission.esm"
 SCRIPT = "FO4SF_Min00Quest"
-COM_SCRIPT = "FO4SF_COMPreston"                              # test-only follow command (FAL-866); not a quest property
-# Codsworth's own model (scripts/actors/convert_codsworth.py, PR #361): the asset folders stage copies into Data and the
-# mesh the plugin's ARMA names (relative to Data\Meshes)
+COM_SCRIPT = "FO4SF_COMPreston"
+CODSWORTH_SCRIPT = "FO4SF_Codsworth01Quest"
+SANCTUARY_SCRIPT = "FO4SF_Sanctuary01Quest"
+ALL_SCRIPTS = (SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT)
+
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
-# his voice (scripts/actors/codsworth_voice.py, PR #361): lines.tsv plus wem\Windows\<info>_<response>.wem. Each line
-# gets a WEMFile id and its file is named by it under his voice type's folder (verified on the PC: all 20 vanilla
-# robotminibota names are INFO WEMFile values, all below 0x01000000, so ours are too). He inherits RobotMiniBotA.
-VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/robotminibota"
+# Codsworth carries his own VTYP FO4SF_CodsworthVoice (0x819, AllowDefaultDialog) so Starfield resolves his .wem files here:
+VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/fo4sf_codsworthvoice"
 FIRST_WEM = 0x00F4C001
+FIRST_MQ_WEM = 0x00F4C101
+
+# FormIDs only (zero FO4 text in source): 20 Codsworth Hello INFOs + 5 MQ102 DialogueCodsworthPostWar Codsworth INFOs
+HELLO_INFO_IDS = (
+    0x000F1F6E, 0x000F1F78, 0x000F1F7D, 0x000841D6, 0x000F1F9C,
+    0x000F1F9A, 0x000F1F62, 0x000841C3, 0x000F1F53, 0x000841C1,
+    0x000F1F61, 0x000841C2, 0x000F1F48, 0x000841B8, 0x000841B9,
+    0x000F1F9D, 0x000841C6, 0x000785E8, 0x000F1F46, 0x000F1F57,
+)
+MQ102_CODSWORTH_INFO_IDS = (
+    0x0001E64D,  # greeting
+    0x000A1818,  # choice 1 reply (date / what happened)
+    0x000A51A3,  # choice 2 reply (Sanctuary / family)
+    0x0019E112,  # choice 3 reply (nearby survivors)
+    0x0019E711,  # choice 4 reply (head to Concord)
+)
+
+PRESTON_PLACEHOLDER_NOTE = (
+    "Starfield human face, colonial/frontier outfit, and weapon placeholder: "
+    "HumanRace (0x00347D, UC_NA_PapaKatz 0x01169C template) + GenericMaleEvenToned + "
+    "Outfit_FreestarRanger_Vest_with_Hat (0x208E39) + Orion laser rifle (0x2773C8)"
+)
+
 STAGES = (10, 20, 30, 40, 200)
-# the script properties dotnet/Mission writes (Program.cs, Write): a renamed property would leave the script unbound
 PROPERTIES = ("Preston", "Raiders", "Credits")
-# the script carries Preston's and Codsworth's spots as defaults (PrestonLocalX/Y/Z, FAL-128; CodsworthLocalX/Y/Z,
-# FAL-163); stage refuses points farther than this (m)
 SPOT_TOLERANCE = 0.5
-STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
+STARFIELD = os.environ.get("FO4SF_STARFIELD_DIR", "")
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_mission.0.log")
 LINE = re.compile(r"FO4SF_MISSION rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
@@ -86,6 +118,24 @@ def sha256(path):
     return h.hexdigest()
 
 
+def refuse_forbidden_output_dir(out_dir):
+    """R4: refuse any output directory inside a Git worktree or under a Starfield / Fallout 4 game folder."""
+    for candidate in {os.path.abspath(out_dir), os.path.realpath(os.path.abspath(out_dir))}:
+        low_norm = candidate.replace("\\", "/").lower()
+        if "steamapps/common/starfield" in low_norm or "steamapps/common/fallout 4" in low_norm:
+            sys.exit(f"{out_dir}: refusing output inside a game install folder ({candidate})")
+        cur = candidate
+        while True:
+            if os.path.exists(os.path.join(cur, ".git")):
+                sys.exit(f"{out_dir}: refusing output inside a Git worktree ({cur})")
+            if os.path.isfile(os.path.join(cur, "Starfield.exe")) or os.path.isfile(os.path.join(cur, "Fallout4.exe")):
+                sys.exit(f"{out_dir}: refusing output inside a game install folder ({cur})")
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
+
+
 def mandatory_properties(psc_text):
     """The names of the script's Auto Const Mandatory properties (what the plugin must fill), in source order."""
     return [m.group(1) for m in re.finditer(r"^\s*[\w\[\]]+\s+Property\s+(\w+)\s+Auto\s+Const\s+Mandatory\b",
@@ -100,8 +150,7 @@ def script_floats(psc_text):
 
 def spot_problem(psc_text, pos, who="Preston"):
     """None when points.json's position of who (Preston or Codsworth) is the script's <who>LocalX/Y/Z (within
-    SPOT_TOLERANCE), else why not: the script puts him back at that spot, so a build whose points moved him must not
-    ship the old one."""
+    SPOT_TOLERANCE), else why not."""
     f = script_floats(psc_text)
     want = [f[who + "LocalX"], f[who + "LocalY"], f[who + "LocalZ"]]
     got = [float(v) for v in pos]
@@ -112,8 +161,7 @@ def spot_problem(psc_text, pos, who="Preston"):
 
 
 def extract_sources(zip_path, work):
-    """Every base script (Scripts/Source/*.psc, top level) and the flags file from ContentResources.zip: the quest
-    script uses Actor, Quest, ObjectReference, MiscObject and their own imports, so all of them are given."""
+    """Every base script (Scripts/Source/*.psc, top level) and the flags file from ContentResources.zip."""
     src = os.path.join(work, "Source")
     os.makedirs(src, exist_ok=True)
     n = 0
@@ -140,6 +188,170 @@ def compile_script(compiler, src_dir, out_dir, script):
     return pex
 
 
+def split_fuz_xwma(data):
+    """Extract xWMA RIFF bytes from a Fallout 4 .fuz file."""
+    if data[:4] != b"FUZE":
+        raise ValueError(f"not a .fuz header: {data[:4]!r}")
+    _ver, lip_len = struct.unpack_from("<II", data, 4)
+    xwma = data[12 + lip_len:]
+    if xwma[:4] != b"RIFF":
+        raise ValueError(f".fuz audio stream is not RIFF: {xwma[:4]!r}")
+    return xwma
+
+
+def extract_fo4_strings(interface_ba2_path, dest_dir):
+    """Extract Strings/Fallout4_en.*STRINGS from Fallout4 - Interface.ba2 into dest_dir."""
+    from fo4sf.ba2 import Ba2
+    arch = Ba2(interface_ba2_path)
+    os.makedirs(dest_dir, exist_ok=True)
+    extracted = 0
+    for entry in arch.entries:
+        low = entry.name.lower().replace("\\", "/")
+        if low.startswith("strings/fallout4_en."):
+            out_file = os.path.join(dest_dir, os.path.basename(low))
+            with open(out_file, "wb") as f:
+                f.write(arch.read(entry.name))
+            extracted += 1
+    if extracted < 3:
+        sys.exit(f"{interface_ba2_path}: expected 3 Fallout4_en.*STRINGS files, found {extracted}")
+    return dest_dir
+
+
+def find_wwise_console(explicit=None):
+    if explicit and os.path.isfile(explicit):
+        return explicit
+    env_wwise = os.environ.get("WWISE_CONSOLE")
+    if env_wwise and os.path.isfile(env_wwise):
+        return env_wwise
+    on_path = shutil.which("WwiseConsole")
+    if on_path:
+        return on_path
+    appdata = os.environ.get("APPDATA", "")
+    known = os.path.join(appdata, "WwiseLauncher", "Json", "knownInstalls.json") if appdata else ""
+    if known and os.path.isfile(known):
+        with open(known, encoding="utf-8") as f:
+            roots = json.load(f)
+        for root in reversed(roots if isinstance(roots, list) else []):
+            cand = os.path.join(str(root), "Authoring", "x64", "Release", "bin", "WwiseConsole.exe")
+            if os.path.isfile(cand):
+                return cand
+    return None
+
+
+def find_xwmaencode(fo4_esm_path, explicit=None):
+    if explicit and os.path.isfile(explicit):
+        return explicit
+    fo4_data = os.path.dirname(os.path.abspath(fo4_esm_path))
+    fo4_root = os.path.dirname(fo4_data)
+    bundled = os.path.join(fo4_root, "Tools", "Audio", "xwmaencode.exe")
+    if os.path.isfile(bundled):
+        return bundled
+    return shutil.which("xwmaencode")
+
+
+def convert_fuz_stems_to_wem(voices_ba2_path, stems, xwmaencode_exe, wwise_console_exe, scratch_dir, conversion="Vorbis Quality High"):
+    """Convert `stems` (e.g. ['0001e64d_1', ...]) from Fallout4 - Voices.ba2 -> .xwm -> .wav -> .wem in scratch_dir."""
+    from fo4sf.ba2 import Ba2
+    arch = Ba2(voices_ba2_path)
+    by_low = {e.name.lower().replace("/", "\\"): e.name for e in arch.entries}
+    xwm_dir = os.path.join(scratch_dir, "xwm")
+    wav_dir = os.path.join(scratch_dir, "wav")
+    wem_dir = os.path.join(scratch_dir, "wem")
+    os.makedirs(xwm_dir, exist_ok=True)
+    os.makedirs(wav_dir, exist_ok=True)
+    os.makedirs(wem_dir, exist_ok=True)
+
+    for stem in stems:
+        key = f"sound\\voice\\fallout4.esm\\robotmrhandy\\{stem.lower()}.fuz"
+        if key not in by_low:
+            sys.exit(f"{voices_ba2_path}: missing Codsworth voice entry {key}")
+        xwma = split_fuz_xwma(arch.read(by_low[key]))
+        xp = os.path.join(xwm_dir, stem.lower() + ".xwm")
+        wp = os.path.join(wav_dir, stem.lower() + ".wav")
+        with open(xp, "wb") as f:
+            f.write(xwma)
+        run([xwmaencode_exe, xp, wp])
+        if not os.path.isfile(wp) or os.path.getsize(wp) == 0:
+            sys.exit(f"xwmaencode did not produce {wp}")
+
+    proj = os.path.join(scratch_dir, "wwise", "CodsworthStageVoice", "CodsworthStageVoice.wproj")
+    run([wwise_console_exe, "create-new-project", proj, "--platform", "Windows", "--quiet"])
+    wsources = os.path.join(scratch_dir, "sources.wsources")
+    with open(wsources, "w", encoding="utf-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+        f.write(f'<ExternalSourcesList SchemaVersion="1" Root="{wav_dir}">\n')
+        for stem in sorted(stems):
+            f.write(f'  <Source Path="{stem.lower()}.wav" Conversion="{conversion}"/>\n')
+        f.write("</ExternalSourcesList>\n")
+    run([wwise_console_exe, "convert-external-source", proj, "--platform", "Windows", "--source-file", wsources,
+         "--output", wem_dir, "--quiet"])
+
+    found = {}
+    for dp, _, fns in os.walk(wem_dir):
+        for fn in fns:
+            if fn.lower().endswith(".wem"):
+                found[os.path.splitext(fn.lower())[0]] = os.path.join(dp, fn)
+    missing = [s for s in stems if s.lower() not in found]
+    if missing:
+        sys.exit(f"WwiseConsole missing converted .wem files: {missing}")
+    return found
+
+
+def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_voice):
+    """Build-time voice staging into Data/VOICE_DIR and temporary JSON specs in tmp_dir."""
+    fo4_data = os.path.dirname(os.path.abspath(a.fo4))
+    voices_ba2 = getattr(a, "fo4_voices", None) or os.path.join(fo4_data, "Fallout4 - Voices.ba2")
+    if not os.path.isfile(voices_ba2):
+        return [], None, None
+
+    xwm_exe = find_xwmaencode(a.fo4, getattr(a, "xwmaencode", None))
+    wwise_exe = find_wwise_console(getattr(a, "wwise_console", None))
+    if not xwm_exe or not wwise_exe:
+        return [], None, None
+
+    copied = []
+    voice_json_out = None
+    needed_stems = [f"{fid:08x}_1" for fid in MQ102_CODSWORTH_INFO_IDS]
+    hello_rows = pts.get("codsworth_hellos") or []
+    if not has_explicit_hello_voice and hello_rows:
+        for hr in hello_rows:
+            needed_stems.append(f"{hr['info'].lower()}_{hr['response']}")
+
+    converted = convert_fuz_stems_to_wem(voices_ba2, sorted(set(needed_stems)), xwm_exe, wwise_exe,
+                                         os.path.join(tmp_dir, "audio_conv"))
+    dest_voice_dir = os.path.join(data_dir, *VOICE_DIR.split("/"))
+    os.makedirs(dest_voice_dir, exist_ok=True)
+
+    if not has_explicit_hello_voice and hello_rows:
+        lines = []
+        for idx, hr in enumerate(hello_rows):
+            stem = f"{hr['info'].lower()}_{hr['response']}"
+            wem_hex = f"{FIRST_WEM + idx:08x}"
+            rel = f"{VOICE_DIR}/{wem_hex}.wem"
+            shutil.copy2(converted[stem], os.path.join(data_dir, *rel.split("/")))
+            copied.append(rel)
+            text = hr["text"]
+            sex = "male" if re.search(r"\bsir\b", text, re.I) else "female" if re.search(r"\bmum\b", text, re.I) else None
+            lines.append({"info": hr["info"], "response": int(hr["response"]), "text": text, "wem": wem_hex, "sex": sex})
+        voice_json_out = os.path.join(tmp_dir, "auto_hello_voice.json")
+        with open(voice_json_out, "w", encoding="utf-8") as f:
+            json.dump(lines, f, indent=1)
+
+    mq_wems = []
+    for idx, fid in enumerate(MQ102_CODSWORTH_INFO_IDS):
+        stem = f"{fid:08x}_1"
+        wem_hex = f"{FIRST_MQ_WEM + idx:08x}"
+        rel = f"{VOICE_DIR}/{wem_hex}.wem"
+        shutil.copy2(converted[stem], os.path.join(data_dir, *rel.split("/")))
+        copied.append(rel)
+        mq_wems.append(wem_hex)
+
+    mq_voice_json = os.path.join(tmp_dir, "mq_voice.json")
+    with open(mq_voice_json, "w", encoding="utf-8") as f:
+        json.dump({"greeting_wem": mq_wems[0], "reply_wems": mq_wems[1:]}, f, indent=1)
+    return copied, voice_json_out, mq_voice_json
+
+
 def stage(a):
     with open(os.path.join(HERE, SCRIPT + ".psc"), encoding="utf-8") as f:
         psc = f.read()
@@ -147,87 +359,146 @@ def stage(a):
     if tuple(props) != PROPERTIES:
         sys.exit(f"{SCRIPT}.psc properties {props} differ from what dotnet/Mission writes {list(PROPERTIES)}")
     final = os.path.abspath(a.out)
+    refuse_forbidden_output_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
-    masters = pin_masters((a.core, a.raider))            # the bytes the build reads, hashed before it starts
+    masters = pin_masters((a.core, a.raider))
     out = new_partial(final)
     work = os.path.join(out, "work")
     os.makedirs(work, exist_ok=True)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
-    points = os.path.join(work, "points.json")
-    run(tool + ["points", a.fo4, points])
-    with open(points, encoding="utf-8") as f:
-        pts = json.load(f)
-    problem = spot_problem(psc, pts["preston"]["pos"])
-    if not problem and a.codsworth and pts.get("codsworth"):
-        problem = spot_problem(psc, pts["codsworth"]["pos"], "Codsworth")
-    if problem:
-        sys.exit(f"{problem}; attempt kept in {out}")
-    alias = [] if a.alias else ["--no-alias"]
-    cods = [] if a.codsworth else ["--no-codsworth"]
-    assets = set()
-    if getattr(a, "codsworth_assets", None):
-        if not a.codsworth:
-            sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
-        assets = set(copy_assets(a.codsworth_assets, os.path.join(out, "Data")))
-        cods = ["--codsworth-model", CODSWORTH_MESH]
-    if getattr(a, "codsworth_voice", None):
-        if not a.codsworth:
-            sys.exit("--codsworth-voice needs Codsworth (drop --no-codsworth)")
-        voice_json = os.path.join(work, "voice.json")
-        assets |= set(copy_voice(a.codsworth_voice, os.path.join(out, "Data"), voice_json))
-        cods = cods + ["--codsworth-voice", voice_json]
-    run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
-    check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
+
+    fo4_data = os.path.dirname(os.path.abspath(a.fo4))
+    iface_ba2 = getattr(a, "fo4_interface", None) or os.path.join(fo4_data, "Fallout4 - Interface.ba2")
+    has_real_fo4_ba2 = os.path.isfile(a.fo4) and os.path.isfile(iface_ba2)
+
+    with tempfile.TemporaryDirectory(prefix="fo4sf-mission-tmp-") as tmp_dir:
+        points = os.path.join(tmp_dir if has_real_fo4_ba2 else work, "points.json")
+        if has_real_fo4_ba2:
+            sdir = extract_fo4_strings(iface_ba2, os.path.join(tmp_dir, "Strings"))
+            hello_csv = ",".join(f"{fid:08X}" for fid in HELLO_INFO_IDS)
+            run(tool + ["points", a.fo4, points, "--strings-dir", sdir, "--hello-infos", hello_csv])
+        else:
+            run(tool + ["points", a.fo4, points])
+
+        with open(points, encoding="utf-8") as f:
+            pts = json.load(f)
+        problem = spot_problem(psc, pts["preston"]["pos"])
+        if not problem and a.codsworth and pts.get("codsworth"):
+            problem = spot_problem(psc, pts["codsworth"]["pos"], "Codsworth")
+        if problem:
+            sys.exit(f"{problem}; attempt kept in {out}")
+
+        alias = [] if a.alias else ["--no-alias"]
+        cods = [] if a.codsworth else ["--no-codsworth"]
+        assets = set()
+        if getattr(a, "codsworth_assets", None):
+            if not a.codsworth:
+                sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
+            assets = set(copy_assets(a.codsworth_assets, os.path.join(out, "Data")))
+            cods = ["--codsworth-model", CODSWORTH_MESH]
+
+        has_explicit_voice = bool(getattr(a, "codsworth_voice", None))
+        if has_explicit_voice:
+            if not a.codsworth:
+                sys.exit("--codsworth-voice needs Codsworth (drop --no-codsworth)")
+            voice_json = os.path.join(tmp_dir if has_real_fo4_ba2 else work, "voice.json")
+            assets |= set(copy_voice(a.codsworth_voice, os.path.join(out, "Data"), voice_json))
+            cods = cods + ["--codsworth-voice", voice_json]
+
+        if a.codsworth and has_real_fo4_ba2:
+            extra_copied, auto_hello_json, mq_voice_json = stage_mq102_and_hello_voices(
+                a, pts, os.path.join(out, "Data"), tmp_dir, has_explicit_voice
+            )
+            assets |= set(extra_copied)
+            if auto_hello_json:
+                cods = cods + ["--codsworth-voice", auto_hello_json]
+            if mq_voice_json:
+                cods = cods + ["--codsworth-mq-voice", mq_voice_json]
+
+        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
+        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
+
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
     src = extract_sources(a.content_resources, work)
     scripts_dir = os.path.join(out, "Data", "Scripts")
-    pex = compile_script(a.compiler, src, scripts_dir, SCRIPT)
-    com_pex = compile_script(a.compiler, src, scripts_dir, COM_SCRIPT)
-    shutil.copy(os.path.join(HERE, SCRIPT + ".psc"), os.path.join(out, SCRIPT + ".psc"))
-    shutil.copy(os.path.join(HERE, COM_SCRIPT + ".psc"), os.path.join(out, COM_SCRIPT + ".psc"))
+    compiled_pex = {}
+    for scr_name in ALL_SCRIPTS:
+        compiled_pex[scr_name] = compile_script(a.compiler, src, scripts_dir, scr_name)
+        shutil.copy(os.path.join(HERE, scr_name + ".psc"), os.path.join(out, scr_name + ".psc"))
+    if os.path.isdir(work):
+        shutil.rmtree(work)
+
+    pex = compiled_pex[SCRIPT]
+    com_pex = compiled_pex[COM_SCRIPT]
     drift = [f"{n}: {masters[n]} at the start, {h} now" for n, h in pin_masters((a.core, a.raider)).items()
              if h != masters[n]]
     if drift:
         sys.exit("a master changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
-    plan = {"kind": "mission", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
-            "script": SCRIPT, "script_sha256": sha256(pex),
-            "companion_script": COM_SCRIPT, "companion_script_sha256": sha256(com_pex),
-            "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
-            "raiders": [r["src"] for r in pts["raiders"]], "preston": pts["preston"],
-            "codsworth": pts.get("codsworth") if a.codsworth else None,
-            "assets": {rel: sha256(os.path.join(out, "Data", rel)) for rel in sorted(assets)},
-            "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log"}
+
+    plugin_sha = sha256(os.path.join(out, PLUGIN))
+    scripts_sha = {scr_name: sha256(p_path) for scr_name, p_path in compiled_pex.items()}
+    assets_sha = {rel: sha256(os.path.join(out, "Data", *rel.split("/"))) for rel in sorted(assets)}
+    outputs_sha = {PLUGIN: plugin_sha}
+    for scr_name, digest in scripts_sha.items():
+        outputs_sha[f"Data/Scripts/{scr_name}.pex"] = digest
+    for rel, digest in assets_sha.items():
+        outputs_sha[f"Data/{rel}"] = digest
+
+    plan = {
+        "kind": "mission",
+        "plugin": PLUGIN,
+        "plugin_sha256": plugin_sha,
+        "script": SCRIPT,
+        "script_sha256": scripts_sha[SCRIPT],
+        "companion_script": COM_SCRIPT,
+        "companion_script_sha256": scripts_sha[COM_SCRIPT],
+        "scripts": scripts_sha,
+        "outputs": outputs_sha,
+        "alias": a.alias,
+        "masters_sha256": masters,
+        "stages": list(STAGES),
+        "raiders": [r["src"] for r in pts["raiders"]],
+        "preston": pts["preston"],
+        "preston_placeholder": PRESTON_PLACEHOLDER_NOTE,
+        "codsworth": pts.get("codsworth") if a.codsworth else None,
+        "sanctuary_workbench": {"fo4_src": "0250FE", "core_base": "0A2ECD", "core_ref": "005C50",
+                                "merged_pos": [-2329.25043, -1420.19271, 112.08571]},
+        "assets": assets_sha,
+        "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log",
+    }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     raiders = ", ".join(f"{r['src']} ({r.get('dist_m', '?')} m)" for r in pts["raiders"])
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
-        f.write(f"""Cut-down "When Freedom Calls" (Claude-cloud, {datetime.date.today().isoformat()}). docs/mission/when-freedom-calls.md
-{PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_Min00 (start game enabled), NPC_ FO4_PrestonGarvey, Preston's ACHR
-at the museum door's outside arrival {pts['preston']['pos']} m, {len(pts['raiders'])} raider ACHRs of FO4_LvlRaider at
-Fallout 4's Concord positions ({raiders}), all persistent in the core world's persistent cell (WRLD override).
-Codsworth: {"NPC_ FO4_Codsworth (a Starfield robot body under his name) at his Sanctuary spot " + str(plan["codsworth"]["pos"]) + " m, kept by QUST FO4SF_CodsworthKeeper (start game enabled, so it also starts on an existing save)" if plan["codsworth"] else "left out (--no-codsworth)"}.
+        f.write(f"""Cut-down "When Freedom Calls", Codsworth MQ102-lite, and Sanctuary Workbench ({datetime.date.today().isoformat()}).
+{PLUGIN} (sha256 {plan['plugin_sha256']}):
+- QUST FO4SF_Min00 (0x0800, started at FO4SFNewGame stage 200 via StartNoWait; NOT StartGameEnabled),
+- QUST FO4SF_CodsworthKeeper (0x0814, started at FO4SFNewGame stage 200 via StartNoWait; NOT StartGameEnabled),
+- QUST FO4SF_COMPreston (0x0815, test-only follow alias gated behind FO4SF_TestModeEnabled != 0),
+- QUST FO4SF_Codsworth01 (0x0816, MQ102-lite 4-choice Sanctuary conversation pointing to Concord; NOT StartGameEnabled),
+- QUST FO4SF_Sanctuary01 (0x0817, First Settlement objective on Sanctuary workbench 0250FE / FO4TerrainCore.esm 0x005C50, started at FO4SF_Min00 stage 200).
+Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {PRESTON_PLACEHOLDER_NOTE}.
+Raiders: {len(pts['raiders'])} ACHR(s) of FO4_LvlRaider ({raiders}).
+Codsworth: {"NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + FO4SF_CodsworthVoice AllowDefaultDialog) at " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
-Data\\Scripts\\{SCRIPT}.pex compiled from {SCRIPT}.psc, and Data\\Scripts\\{COM_SCRIPT}.pex from {COM_SCRIPT}.psc
-(both beside this file). The follow command is test-only until the Concord talk starts it:
-cgf "FO4SF_COMPreston.FollowTest"
-It reaches the owner's game only after this stage is folded and installed. Until that command, Preston stays at the door.
-Install (game closed): exp_install.py holds one experiment, so fold this stage into a copy of the core set and
-verify it first: python scripts\\mission\\make_mission.py fold --mission "{final}" --core-dir <core experiment dir> --out <new dir>
-Logging needs the [Papyrus] keys of make_bridge.py ini (already set where the bridge runs).
-In game: load a save, walk to Concord. The HUD shows the objectives; the log {plan['log']} gets each stage and a
-status line every 5 s. Read it: python scripts\\mission\\make_mission.py log
+Scripts compiled into Data\\Scripts\\: {", ".join(s + ".pex" for s in ALL_SCRIPTS)}.
+The follow command is test-only (requires FO4SFCoreValues.esm:0x000860 FO4SF_TestModeEnabled != 0):
+  cgf "FO4SF_COMPreston.FollowTest"
+Install (game closed): fold this stage into a copy of the core set and verify it first:
+  python scripts\\mission\\make_mission.py fold --mission "{final}" --core-dir <core experiment dir> --out <new dir>
+Log: {plan['log']} (read with: python scripts\\mission\\make_mission.py log).
 Uninstall: exp_install.py uninstall.
 """)
     os.replace(out, final)
-    print(f"staged {final}: {PLUGIN}, {os.path.relpath(pex, out)}, {os.path.relpath(com_pex, out)}, "
-          "offline_check.txt, plan.json, README.txt")
+    print(f"staged {final}: {PLUGIN}, " + ", ".join(f"Data\\Scripts\\{s}.pex" for s in ALL_SCRIPTS) +
+          ", offline_check.txt, plan.json, README.txt")
 
 
 def copy_assets(src, data):
-    """Copies the asset folders (ASSET_DIRS) of a convert_codsworth.py output into data; anything else there (its
-    report) stays out. Refuses a source without the mesh the plugin names. Returns the copied paths, relative to data."""
+    """Copies the asset folders (ASSET_DIRS) of a convert_codsworth.py output into data; anything else stays out.
+    Upgrades any unpatched handy*.mat JSON files to brushed-steel/chrome PBR parameters (M6)."""
     mesh = os.path.join(src, "meshes", *CODSWORTH_MESH.split("\\"))
     if not os.path.isfile(mesh):
         sys.exit(f"--codsworth-assets {src} has no meshes\\{CODSWORTH_MESH}")
@@ -237,16 +508,29 @@ def copy_assets(src, data):
         for dirpath, _, files in os.walk(root):
             for name in files:
                 rel = os.path.relpath(os.path.join(dirpath, name), src)
-                os.makedirs(os.path.join(data, os.path.dirname(rel)), exist_ok=True)
-                shutil.copy2(os.path.join(src, rel), os.path.join(data, rel))
-                copied.append(rel.replace(os.sep, "/"))
+                dst = os.path.join(data, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                rel_slash = rel.replace(os.sep, "/")
+                if d == "materials" and name.lower().endswith(".mat") and "/handy/" in rel_slash.lower():
+                    try:
+                        with open(os.path.join(src, rel), encoding="utf-8") as mf:
+                            mat_obj = json.load(mf)
+                    except (OSError, UnicodeDecodeError, ValueError):
+                        mat_obj = None
+                    if isinstance(mat_obj, dict) and "Objects" in mat_obj and "Summary" in mat_obj:
+                        patched = patch_codsworth_steel_mat(mat_obj)
+                        with open(dst, "wb") as out_f:
+                            out_f.write((json.dumps(patched, indent="\t", sort_keys=True) + "\n").encode("utf-8"))
+                        copied.append(rel_slash)
+                        continue
+                shutil.copy2(os.path.join(src, rel), dst)
+                copied.append(rel_slash)
     return copied
 
 
 def copy_voice(src, data, voice_json):
     """Reads src/lines.tsv, finds each line's src/wem/**/<info>_<response>.wem, copies it to data/VOICE_DIR/<wem>.wem
-    with the line's WEMFile id (FIRST_WEM on, 8 lowercase hex digits) and writes voice.json for the writer. A line that
-    says "sir" is for a male player, "mum" for a female one. Returns the copied paths, relative to data."""
+    with the line's WEMFile id (FIRST_WEM on, 8 lowercase hex digits) and writes voice.json for the writer."""
     with open(os.path.join(src, "lines.tsv"), encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f, delimiter="\t"))
     wems = {}
@@ -281,8 +565,7 @@ def pin_masters(paths):
 
 
 def new_partial(final, create=True):
-    """A new, unique attempt folder beside final (<final>.partial-<UTC time>-<pid>[-n]); never an existing one, so an
-    earlier failed attempt or another writer's folder is never reused or deleted."""
+    """A new, unique attempt folder beside final (<final>.partial-<UTC time>-<pid>[-n])."""
     base = f"{final}.partial-{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
     out, n = base, 1
     while os.path.exists(out):
@@ -292,10 +575,18 @@ def new_partial(final, create=True):
     return out
 
 
+def _plan_scripts(plan):
+    if isinstance(plan.get("scripts"), dict) and plan["scripts"]:
+        return dict(plan["scripts"])
+    out = {plan["script"]: plan["script_sha256"]}
+    if plan.get("companion_script"):
+        out[plan["companion_script"]] = plan["companion_script_sha256"]
+    return out
+
+
 def verify_dir(exp_dir, plan, raider=None):
     """Problems (a list of strings, empty when the experiment folder may be installed) of an experiment folder against
-    a mission plan: the plugin and the script are the staged ones, the core and the raider plugin the ones it was
-    built against."""
+    a mission plan."""
     problems = []
 
     def same(label, path, want):
@@ -305,10 +596,8 @@ def verify_dir(exp_dir, plan, raider=None):
             problems.append(f"{label}: {path} sha256 {sha256(path)} is not the plan's {want}")
 
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
-    same("script", os.path.join(exp_dir, "Data", "Scripts", plan["script"] + ".pex"), plan["script_sha256"])
-    if plan.get("companion_script"):
-        same("companion script", os.path.join(exp_dir, "Data", "Scripts", plan["companion_script"] + ".pex"),
-             plan["companion_script_sha256"])
+    for scr_name, scr_sha in _plan_scripts(plan).items():
+        same(f"script {scr_name}", os.path.join(exp_dir, "Data", "Scripts", scr_name + ".pex"), scr_sha)
     for rel, want in plan.get("assets", {}).items():
         same("asset", os.path.join(exp_dir, "Data", *rel.split("/")), want)
     for name, want in plan["masters_sha256"].items():
@@ -338,6 +627,7 @@ def verify(a):
 
 def fold(a):
     final = os.path.abspath(a.out)
+    refuse_forbidden_output_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: fold into a new folder")
     plan = load_plan(os.path.join(a.mission, "plan.json"))
@@ -346,9 +636,7 @@ def fold(a):
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
     shutil.copy2(os.path.join(a.mission, plan["plugin"]), os.path.join(out, plan["plugin"]))
-    script_rels = ["Scripts/" + plan["script"] + ".pex"]
-    if plan.get("companion_script"):
-        script_rels.append("Scripts/" + plan["companion_script"] + ".pex")
+    script_rels = ["Scripts/" + s + ".pex" for s in _plan_scripts(plan)]
     for rel in script_rels + sorted(plan.get("assets", {})):
         dst = os.path.join(out, "Data", *rel.split("/"))
         if os.path.exists(dst):
@@ -361,17 +649,13 @@ def fold(a):
             print("FAIL  " + p)
         sys.exit(f"fold refused: {len(problems)} problem(s); nothing published (attempt kept in {out})")
     os.replace(out, final)
-    extra = f" + Data\\Scripts\\{plan['companion_script']}.pex" if plan.get("companion_script") else ""
-    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex{extra}"
+    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + {len(script_rels)} script(s)"
           f" + {len(plan.get('assets', {}))} Codsworth asset(s); verify ok")
     return 0
 
 
 def next_stage(stage, dead, total, fighting, at_preston, found=False):
-    """The script's NextStage (FO4SF_Min00Quest.psc), the same rule in Python so it can be tested: the fight counts as
-    started when a raider fights or is dead (whoever started it, a reload mid-fight included) or the player has found
-    Preston (activated him or came within FindRadius before the fight), all dead is 30, standing at Preston after that
-    is 40; it never goes back."""
+    """The script's NextStage (FO4SF_Min00Quest.psc)."""
     s = stage
     if s < 20 and (fighting or dead > 0 or found):
         s = 20
@@ -382,23 +666,47 @@ def next_stage(stage, dead, total, fighting, at_preston, found=False):
     return s
 
 
+def wfc01_step(player_pos, interior, door_pos, raiders, dt=1.0, check_radius=150.0, door_radius=100.0,
+               subterranean_drop=8.0, max_drift=140.0, absent_distance=250.0, absent_limit=60.0):
+    """Python mirror of CheckConcordRaidersWfc01 (FO4SF_Min00Quest.psc) at stage 20.
+    Each raider dict holds {"pos": (x,y,z), "target": (tx,ty,tz), "dead": bool, "loaded": bool,
+    "absent_sec": float, "cleared": bool}. Mutates raiders in place and returns (rescued_indices, newly_cleared_indices)."""
+    if interior:
+        return [], []
+    door_dist = math.dist(player_pos, door_pos)
+    rescued, newly_cleared = [], []
+    for i, r in enumerate(raiders):
+        if r.get("dead") or r.get("cleared"):
+            r["absent_sec"] = 0.0
+            continue
+        tx, ty, tz = r["target"]
+        rx, ry, rz = r["pos"]
+        if door_dist < check_radius:
+            drift = math.dist((rx, ry, rz), (tx, ty, tz))
+            if rz < tz - subterranean_drop or drift > max_drift:
+                r["pos"] = (tx, ty, tz)
+                rx, ry, rz = tx, ty, tz
+                rescued.append(i)
+        if dt > 0.0:
+            dist_p = math.dist(player_pos, (rx, ry, rz))
+            if door_dist <= door_radius and (not r.get("loaded", True) or dist_p > absent_distance):
+                r["absent_sec"] = r.get("absent_sec", 0.0) + dt
+                if r["absent_sec"] > absent_limit:
+                    r["cleared"] = True
+                    newly_cleared.append(i)
+            else:
+                r["absent_sec"] = 0.0
+    return rescued, newly_cleared
+
+
 def place_at(off, dp, to_spot, interior, fighting, held=False, landed=None, hold=25.0, gap=1500.0, radius=300.0,
              held_radius=3.0, following=False):
-    """The script's PlaceAt decision with its caller's hold (FO4SF_Min00Quest.psc: PlacePreston, PlaceCodsworth, HoldDue),
-    Preston's (FAL-128, FAL-170) and Codsworth's (FAL-163) fixed-spot rule, the same rule in Python so it can be tested:
-    off is the actor's distance from its fixed merged spot, dp its distance from the player (inf: another world),
-    to_spot the player's (x, y) distance from that spot, held the instance's prestonHeld/codsworthHeld before the check,
-    landed whether a move leaves it at its spot (None: the move's outcome is not modelled). Returns the script's state
-    (prestonState, codsworthState), or "move" when a move is due and landed is None. An actor that fights is let go
-    first, whatever held says (the caller's ReleaseInFight); at its spot it is held when calm, not yet held and within
-    held_radius; a move that lands holds it unless it fights; the state ends in ", held" while this instance holds it
-    after the check. following is Preston's BeginFollow flag (FAL-866): PlacePreston returns "follow" and does not
-    place or hold him. Codsworth has no such flag."""
+    """The script's PlaceAt decision with its caller's hold (FO4SF_Min00Quest.psc: PlacePreston, PlaceCodsworth, HoldDue)."""
     if following:
         return "follow"
     if fighting:
-        held = False                                    # ReleaseInFight, before PlaceAt
-    state = lambda s, h: s + ", held" if h else s       # HeldState
+        held = False
+    state = lambda s, h: s + ", held" if h else s
     if off <= hold and dp < gap:
         return state("at spot", held or (not fighting and off <= held_radius))
     if interior:
@@ -424,17 +732,16 @@ def off_of(msg):
 
 
 def summarize(lines):
-    """The mission log's lines as {"stages": [...], "status": <last status line or None>, "reward": int or None,
-    "startcombat": n, "activated": n, "found": <how the player found Preston before the fight, or None>,
-    "preston_moves": n, "keeper": <the keeper's last line of where Preston is, or None>, "preston_off": <that line's
-    off=, his distance in m from his spot, or None>, "codsworth_moves", "codsworth_keeper", "codsworth_off": the same
-    for Codsworth}; lines of other logs are ignored. After stage 200 only the keeper moves Preston, and only the keeper
-    ever moves Codsworth, so these are the evidence of where they are. Prefixes match in any case: the game prints a
-    name as the script property it matches (31 Oct: "moved Codsworth" from the literal "codsworth")."""
+    """Summarize fo4sf_mission.0.log across FO4SF_Min00, FO4SF_CodsworthKeeper, FO4SF_Codsworth01, and FO4SF_Sanctuary01."""
     s = {"stages": [], "status": None, "reward": None, "startcombat": 0, "activated": 0, "found": None,
          "preston_moves": 0, "keeper": None, "preston_off": None,
          "codsworth_moves": 0, "codsworth_keeper": None, "codsworth_off": None,
-         "follow": None, "follow_package": None, "holds_after_follow": 0}
+         "follow": None, "follow_package": None, "holds_after_follow": 0, "follow_refused_test_mode": False,
+         "reloads": 0, "wfc01_rescues": 0, "wfc01_absent_cleared": 0,
+         "mission_gate": None, "min00_given_by": None,
+         "codsworth_talk_end": False, "codsworth01_complete": None,
+         "preston_talk_end": None, "stage40_fallback": False,
+         "min01_bench_activated": False, "sanctuary01_complete": None}
     follow_seen = False
     for line in lines:
         m = LINE.search(line)
@@ -442,8 +749,14 @@ def summarize(lines):
             continue
         msg = m.group("msg")
         low = msg.lower()
-        if low.startswith("stage "):
+        if low.startswith("stage 40 by=fallback"):
+            s["stage40_fallback"] = True
+        elif low.startswith("stage "):
             s["stages"].append(int(msg.split()[1]))
+        elif low.startswith("mission gate ") and "quest=" not in low:
+            s["mission_gate"] = msg
+        elif low.startswith("min00 given by="):
+            s["min00_given_by"] = msg.split("=", 1)[1].strip()
         elif low.startswith("status "):
             s["status"] = msg
         elif low.startswith("reward credits="):
@@ -452,12 +765,31 @@ def summarize(lines):
             s["startcombat"] += 1
         elif low.startswith("preston activated"):
             s["activated"] += 1
+        elif low.startswith("preston talk end "):
+            s["preston_talk_end"] = msg
         elif low.startswith("found preston ") and s["found"] is None:
             s["found"] = msg[len("found preston "):]
         elif low.startswith("moved preston "):
             s["preston_moves"] += 1
         elif low.startswith("moved codsworth "):
             s["codsworth_moves"] += 1
+        elif low.startswith("reload mission "):
+            s["reloads"] += 1
+        elif low.startswith("wfc01 rescue "):
+            s["wfc01_rescues"] += 1
+        elif "raider cleared absent" in low or low.startswith("wfc01 absent_cleared "):
+            s["wfc01_absent_cleared"] += 1
+        elif low.startswith("codsworth talk end -> min00 stage 10"):
+            s["codsworth_talk_end"] = True
+        elif low.startswith("codsworth01 complete "):
+            s["codsworth01_complete"] = msg
+        elif low.startswith("min01 bench activated -> stage 100"):
+            s["min01_bench_activated"] = True
+        elif low.startswith("sanctuary01 bench_activated=true "):
+            s["sanctuary01_complete"] = msg
+        elif low.startswith("follow preston test-only refused: test mode off"):
+            s["follow"] = msg
+            s["follow_refused_test_mode"] = True
         elif low.startswith("follow preston test-only"):
             s["follow"] = msg
             follow_seen = True
@@ -493,6 +825,10 @@ def main(argv=None):
     s.add_argument("--raider", required=True)
     s.add_argument("--compiler", default=os.path.join(STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     s.add_argument("--content-resources", default=os.path.join(STARFIELD, "Tools", "ContentResources.zip"))
+    s.add_argument("--fo4-interface", default=None, help="optional path to Fallout4 - Interface.ba2")
+    s.add_argument("--fo4-voices", default=None, help="optional path to Fallout4 - Voices.ba2")
+    s.add_argument("--xwmaencode", default=None, help="optional path to xwmaencode.exe")
+    s.add_argument("--wwise-console", default=None, help="optional path to WwiseConsole.exe")
     s.add_argument("--no-alias", dest="alias", action="store_false")
     s.add_argument("--no-codsworth", dest="codsworth", action="store_false", help="leave Codsworth out of the plugin")
     s.add_argument("--codsworth-voice", default=None,

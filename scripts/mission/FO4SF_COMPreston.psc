@@ -2,6 +2,7 @@ Scriptname FO4SF_COMPreston Hidden
 {Test-only stand-in for the Concord talk (phase plan row 2, DialogueConcordArea). Not story recruitment.
  Fallout 4's companion quest is COMPreston 0007925B. This is not that record, and it does not start the host
  follower quest 0000D773 or fill an ActiveFollowers alias. Affinity is out of this slice.
+ Gated behind FO4SFCoreValues.esm 0x000860 (FO4SF_TestModeEnabled != 0).
  The command arms both mission instances so the museum-door restraint cannot come back, releases that restraint,
  points Preston's linked ref at the player, fills alias 0 Preston on QUST FO4SF_COMPreston (FO4SFMission.esm 0x815)
  and re-evaluates packages. That alias carries only Starfield.esm DefaultMaster_FollowPackage 000301C5, the host
@@ -11,8 +12,14 @@ Scriptname FO4SF_COMPreston Hidden
  The line "follow preston test-only" is the evidence the command ran. A later "hold preston" means the door hold won.}
 
 Function FollowTest() global
-{TEST-ONLY. The Concord talk will call the same steps. Do not treat this as the story recruiting Preston.
+{TEST-ONLY. Gated behind FO4SFCoreValues.esm:0x000860 (FO4SF_TestModeEnabled != 0).
  Ids are plugin-local: 2048 = FO4SF_Min00 0x800, 2068 = FO4SF_CodsworthKeeper 0x814, 2069 = FO4SF_COMPreston 0x815.}
+    GlobalVariable testMode = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    if testMode == None || testMode.GetValue() == 0.0
+        Debug.OpenUserLog("fo4sf_mission")
+        Debug.TraceUser("fo4sf_mission", "FO4SF_MISSION rt=" + Utility.GetCurrentRealTime() + " follow preston test-only refused: test mode off")
+        return
+    endif
     FO4SF_Min00Quest mission = Game.GetFormFromFile(2048, "FO4SFMission.esm") as FO4SF_Min00Quest
     FO4SF_Min00Quest keeper = Game.GetFormFromFile(2068, "FO4SFMission.esm") as FO4SF_Min00Quest
     if mission == None && keeper == None
