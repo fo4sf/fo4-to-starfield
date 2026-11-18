@@ -1,19 +1,21 @@
 """Source-attributed specification and pure record builders for our isolated home host (`FO4SFHome.esm`)
 and single host registration plugin (`FO4TerrainCore_Home.esm`).
 
-Design invariants (`W2`, `W3`, `W4`, `WL1`, `WL2`, `C2`, `C3`):
+Design invariants (`W2`, `W3`, `W4`, `WL1`, `WL2`, `C2`, `C3`, `WB1`, `WB2`, `WB3`):
 - `FO4SFHome.esm` holds our own isolated star system (`STDT 0x800`), our own location chain (`LCTN 0x801..0x804`
-  under `Universe 0x01A53A`), our own home planet (`PNDT 0x805`), and our own `"no-life, Starfield-patterned"`
-  biome (`BIOM 0x806`; Starfield climate, sky, terrain pattern, surface tree, and ground texture remain Starfield
-  references until `WB1`–`WB3` land).
-- Zero whole-record copies of any Starfield star, planet, or biome (`0` `PCCC`/`XMPM` Houdini blobs copied).
-- Every `STDT`, `PNDT`, and `BIOM` subrecord is constructed field-by-field from `STAR_FIELD_SPEC`,
-  `PLANET_FIELD_SPEC`, and `BIOM_FIELD_SPEC`, which record the exact source of every scalar and FormID reference.
-- Every external `Starfield.esm` reference (`KYWD`, `ATMO`, `SUNP`, `SFTR`, `LTEX`, `CLMT`, `PTST`, `GLOB`, `LCTN`)
-  is resolved by `EditorID` at stage time.
+  under `Universe 0x01A53A`), our own home planet (`PNDT 0x805`), our own biome (`BIOM 0x806`), plus under default
+  `WB1`–`WB3` parameters our own clear temperate weather (`WTHR 0x807`), climate (`CLMT 0x808`), atmosphere
+  (`ATMO 0x809`), Fallout 4 converted ground land texture (`LTEX 0x80A`), and neutral water (`WATR 0x80C`).
+- Zero whole-record copies of any Starfield star, planet, biome, weather, climate, or atmosphere (`0` `PCCC`/`XMPM`
+  Houdini blobs copied).
+- Every subrecord is constructed field-by-field from `STAR_FIELD_SPEC`, `PLANET_FIELD_SPEC`, `BIOM_FIELD_SPEC`,
+  `WTHR_FIELD_SPEC`, `CLMT_FIELD_SPEC`, `ATMO_FIELD_SPEC`, `LTEX_FIELD_SPEC`, and `WB3_OVERRIDE_SPEC`.
+- Every external `Starfield.esm` trait/pattern reference is resolved by `EditorID` at stage time; `FO4WG1RedRocket.esm`
+  is never referenced.
 - `FO4TerrainCore_Home.esm` is the ONE registration plugin for the host, built from `world_registry.json`:
   it overrides the home `PNDT` (`CNAM` master worldspaces) plus each registered world's `WRLD` (`SNAM`/`PNAM`,
-  `BNAM` biome, `FNAM` flags) and `LCTN` (`PNAM` surface parent, `WL1` lever keywords, and optional merged
+  `BNAM` biome, `FNAM` flags, and `WB3` `CNAM`/`ZNAM`/`NAM3`/`NAM4`/`DNAM`/`MNAM`/`ONAM`/`FULL` overrides) and
+  `LCTN` (`PNAM` surface parent, `WL1` lever keywords, `WB3` `DATA`/`FULL` overrides, and optional merged
   `FO4SFMapMarkers.esm` `LCSR` rows when staged with `--map-markers`), leaving `FO4TerrainCore.esm` untouched
   and byte-identical.
 """
@@ -26,7 +28,7 @@ import struct
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.world_registry import load_world_registry
-from . import census, esm, probe, records
+from . import census, esm, probe, records, wb_records
 
 HOME_MASTER = "FO4SFHome.esm"
 HOME_REGISTRATION = "FO4TerrainCore_Home.esm"
@@ -43,6 +45,13 @@ ORBIT_LOC = 0x803
 SURFACE_LOC = 0x804
 PLANET = 0x805
 BIOME = 0x806
+HOME_WEATHER = wb_records.HOME_WEATHER
+HOME_CLIMATE = wb_records.HOME_CLIMATE
+HOME_ATMO = wb_records.HOME_ATMO
+HOME_GROUND_LTEX = wb_records.HOME_GROUND_LTEX
+HOME_SURFACE_TREE = wb_records.HOME_SURFACE_TREE
+HOME_WATER = wb_records.HOME_WATER
+HOME_SUN_PRESET = wb_records.HOME_SUN_PRESET
 
 FORM_VERSION = 581
 
@@ -54,10 +63,24 @@ DEFAULT_BODY_NAME = "fo4sf_home_earth"
 DEFAULT_BIOME_EDID = "FO4SFHomeBiome"
 DEFAULT_BIOME_NAME = "FO4SF Home Biome"
 DEFAULT_TEMP_C = 15.0
-DEFAULT_SKY_ATMO = "ATMO_Jemison"
+DEFAULT_CLIMATE = "ours"
+DEFAULT_SKY_ATMO = "ours"
+DEFAULT_GROUND_LTEX = "ours"
+DEFAULT_TERRAIN_PATTERN = wb_records.DEFAULT_TERRAIN_PATTERN_EDID
+DEFAULT_SURFACE_TREE = "none"
+DEFAULT_WB3_MODE = "ours"
+DEFAULT_SUN_PRESET = "SunPresetTypeG2"
+DEFAULT_ORBITAL_MESHES = "starfield"
 DEFAULT_STAR_OFFSET_PC: Tuple[float, float, float] = (3.0, 2.0, 1.5)
 
-SKY_ATMO_CHOICES: Tuple[str, ...] = ("ATMO_Jemison", "ATMO_Earth")
+CLIMATE_CHOICES: Tuple[str, ...] = wb_records.CLIMATE_CHOICES
+SKY_ATMO_CHOICES: Tuple[str, ...] = wb_records.SKY_CHOICES
+GROUND_LTEX_CHOICES: Tuple[str, ...] = wb_records.GROUND_LTEX_CHOICES
+TERRAIN_PATTERN_CHOICES: Tuple[str, ...] = wb_records.TERRAIN_PATTERN_CHOICES
+SURFACE_TREE_CHOICES: Tuple[str, ...] = wb_records.SURFACE_TREE_CHOICES
+WB3_MODE_CHOICES: Tuple[str, ...] = wb_records.WB3_MODE_CHOICES
+SUN_PRESET_CHOICES: Tuple[str, ...] = wb_records.SUN_PRESET_CHOICES
+ORBITAL_MESHES_CHOICES: Tuple[str, ...] = wb_records.ORBITAL_MESHES_CHOICES
 
 # WL2: only bits proven in docs/world/three-way-study.md (431 / 433 Starfield.esm WRLDs, including all hand-built
 # cities NewAtlantis, CydoniaCity, AkilaCity, NeonCity and LC172World, carry FNAM = 0x00).
@@ -124,8 +147,8 @@ STAR_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "TESPlanetModel_Component/MODL",
         "field": "star_mesh",
-        "value": "Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet_star.nif",
-        "source": "Standard Starfield star mesh path (120/123 STDT in Starfield.esm); XMPM/PCCC omitted",
+        "value": "orbital_meshes parameter (default 'Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet_star.nif'; 'none' omits component)",
+        "source": "Standard BSGalaxy unit-sphere star mesh path (120/123 STDT in Starfield.esm; XMPM/PCCC omitted; '--orbital-meshes none' staged variant)",
     },
     {
         "subrecord": "TESFullName_Component/FULL",
@@ -166,8 +189,8 @@ STAR_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "PNAM",
         "field": "sun_preset",
-        "value": "SunPresetTypeG2",
-        "source": "Starfield.esm SUNP SunPresetTypeG2 resolved by EditorID",
+        "value": "sun_preset parameter (default 'SunPresetTypeG2'; optional 'ours' -> FO4SFHomeSunPreset 0x0100080D)",
+        "source": "14 Nov G2 solar daylight preset (Starfield.esm SunPresetTypeG2 or our standalone FO4SFHomeSunPreset)",
     },
 )
 
@@ -181,8 +204,8 @@ PLANET_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "TESPlanetModel_Component/MODL",
         "field": "planet_mesh",
-        "value": "Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet.nif",
-        "source": "Standard Starfield planet sphere mesh path; XMPM/PCCC omitted (zero whole-record clone)",
+        "value": "orbital_meshes parameter (default 'Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet.nif'; 'none' omits component)",
+        "source": "Standard BSGalaxy unit-sphere planet mesh path; XMPM/PCCC omitted (zero whole-record clone; '--orbital-meshes none' staged variant)",
     },
     {
         "subrecord": "BGSKeywordForm_Component/KSIZ+KWDA",
@@ -205,8 +228,8 @@ PLANET_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "FNAM (top-level)",
         "field": "surface_tree",
-        "value": "EarthSurfaceTree",
-        "source": "Starfield.esm SFTR EarthSurfaceTree resolved by EditorID",
+        "value": "surface_tree parameter (default 'none' = omitted; 'ours_empty' -> FO4SFHomeSurfaceTree 0x0100080B; control 'EarthSurfaceTree')",
+        "source": "Omitted by default so zero Starfield SFTR/SFPT procedural surface tree attaches (WB2)",
     },
     {
         "subrecord": "GNAM (top-level)",
@@ -279,12 +302,12 @@ PLANET_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
         "subrecord": "BDST..BDED/INAM",
         "field": "atmosphere_data_16b",
         "value": {
-            "atmosphere": "sky_atmo parameter (default ATMO_Jemison, optional ATMO_Earth)",
+            "atmosphere": "sky_atmo parameter (default 'ours' -> FO4SFHomeAtmosphere 0x01000809; controls ATMO_Jemison | ATMO_Earth)",
             "rayleigh": 0.25,
             "mie": 0.0025,
             "scale_height": 0.001,
         },
-        "source": "Selectable Starfield.esm ATMO resolved by EditorID + terrestrial scattering scalars",
+        "source": "Our own standalone BETH v8 REFL ATMO record in FO4SFHome.esm by default (WB1; zero Starfield ATMO references)",
     },
     {
         "subrecord": "BDST..BDED/KNAM",
@@ -334,8 +357,8 @@ BIOM_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "ENAM",
         "field": "climate",
-        "value": "ClimateUniqueNewAtlantis (fallback DefaultClimate)",
-        "source": "Starfield.esm CLMT resolved by EditorID",
+        "value": "climate parameter (default 'ours' -> FO4SFHomeClimate 0x01000808 + FO4SFHomeClearWeather 0x01000807; control ClimateUniqueNewAtlantis)",
+        "source": "Our own clear temperate CLMT + WTHR in FO4SFHome.esm by default (WB1; zero Starfield climate/weather references)",
     },
     {
         "subrecord": "MNAM+WNAM+YNAM+UNAM+CNAM+BMC1..3+TNAM",
@@ -346,14 +369,14 @@ BIOM_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "NNAM",
         "field": "terrain_pattern_style",
-        "value": "PatternStyleHillsRockyFieldsRocky",
-        "source": "Starfield.esm PTST resolved by EditorID",
+        "value": "pattern_style parameter (default PatternStyleFieldsHillsFieldsFlat, 38.11 m smallest height range; control PatternStyleHillsRockyFieldsRocky, 372.61 m)",
+        "source": "Smallest-relief PTST in Starfield.esm (46/46 PTST records hold only EDID over 258 SFPT->SFBK .btd tiles) (WB2)",
     },
     {
         "subrecord": "LNAM[0..6]",
         "field": "land_textures_and_ground_cover",
-        "value": "Slots 0..6 -> LDirtFootprints01, ground_cover = 0x00000000",
-        "source": "Plain neutral dirt LTEX resolved by EditorID with zero GCVR grass",
+        "value": "Slots 0..6 -> FO4SFHomeGroundDirt01 (0x0100080A, converted FO4 dirt .mat + .dds; control LDirtFootprints01), ground_cover = 0x00000000",
+        "source": "Our own Fallout 4 converted LTEX record in FO4SFHome.esm across all 7 slots with zero GCVR grass (WB2)",
     },
     {
         "subrecord": "BTPS+BDFS",
@@ -403,12 +426,32 @@ def resolve_home_references(
     sf: esm.Plugin,
     sky_atmo: str = DEFAULT_SKY_ATMO,
     lever_keywords: Sequence[str] = (),
+    *,
+    climate: str = DEFAULT_CLIMATE,
+    ground_ltex: str = DEFAULT_GROUND_LTEX,
+    pattern_style: str = DEFAULT_TERRAIN_PATTERN,
+    surface_tree: str = DEFAULT_SURFACE_TREE,
+    sun_preset: str = DEFAULT_SUN_PRESET,
+    wb3_mode: str = DEFAULT_WB3_MODE,
 ) -> Dict[str, Any]:
-    """Resolve every `Starfield.esm` record needed by `FO4SFHome.esm` and `FO4TerrainCore_Home.esm` by EditorID."""
+    """Resolve every `Starfield.esm` record needed by `FO4SFHome.esm` and `FO4TerrainCore_Home.esm` by EditorID,
+    while binding our own `FO4SFHome.esm` local FormIDs (`0x01000807..0x0100080D`) when `ours` options are selected."""
     if sf.masters:
         raise records.PlanetError(f"{sf.path} has masters {sf.masters}: expected Starfield.esm itself")
     if sky_atmo not in SKY_ATMO_CHOICES:
         raise records.PlanetError(f"sky_atmo {sky_atmo!r} must be one of {SKY_ATMO_CHOICES}")
+    if climate not in CLIMATE_CHOICES:
+        raise records.PlanetError(f"climate {climate!r} must be one of {CLIMATE_CHOICES}")
+    if ground_ltex not in GROUND_LTEX_CHOICES:
+        raise records.PlanetError(f"ground_ltex {ground_ltex!r} must be one of {GROUND_LTEX_CHOICES}")
+    if pattern_style not in TERRAIN_PATTERN_CHOICES:
+        raise records.PlanetError(f"pattern_style {pattern_style!r} must be one of {TERRAIN_PATTERN_CHOICES}")
+    if surface_tree not in SURFACE_TREE_CHOICES:
+        raise records.PlanetError(f"surface_tree {surface_tree!r} must be one of {SURFACE_TREE_CHOICES}")
+    if sun_preset not in SUN_PRESET_CHOICES:
+        raise records.PlanetError(f"sun_preset {sun_preset!r} must be one of {SUN_PRESET_CHOICES}")
+    if wb3_mode not in WB3_MODE_CHOICES:
+        raise records.PlanetError(f"wb3_mode {wb3_mode!r} must be one of {WB3_MODE_CHOICES}")
 
     for lev in lever_keywords:
         if lev not in LEVER_KEYWORD_EDIDS:
@@ -440,49 +483,100 @@ def resolve_home_references(
     if records.UNIVERSE_EDID not in locs:
         raise records.PlanetError(f"Starfield.esm is missing LCTN {records.UNIVERSE_EDID!r}")
 
-    atmos = resolve_edids_in_group(sf, "ATMO", [sky_atmo])
-    if sky_atmo not in atmos:
-        raise records.PlanetError(f"Starfield.esm is missing ATMO {sky_atmo!r}")
+    own_master = lambda loc_id: (1 << 24) | loc_id  # noqa: E731
 
-    sunps = resolve_edids_in_group(sf, "SUNP", ["SunPresetTypeG2"])
-    if "SunPresetTypeG2" not in sunps:
-        raise records.PlanetError("Starfield.esm is missing SUNP 'SunPresetTypeG2'")
+    if sky_atmo == "ours":
+        atmo_edid = wb_records.DEFAULT_ATMO_EDID
+        atmo_fid = own_master(HOME_ATMO)
+    else:
+        atmos = resolve_edids_in_group(sf, "ATMO", [sky_atmo])
+        if sky_atmo not in atmos:
+            raise records.PlanetError(f"Starfield.esm is missing ATMO {sky_atmo!r}")
+        atmo_edid = sky_atmo
+        atmo_fid = atmos[sky_atmo]
 
-    sftrs = resolve_edids_in_group(sf, "SFTR", ["EarthSurfaceTree"])
-    if "EarthSurfaceTree" not in sftrs:
-        raise records.PlanetError("Starfield.esm is missing SFTR 'EarthSurfaceTree'")
+    if sun_preset == "ours":
+        sun_preset_edid = wb_records.DEFAULT_SUN_PRESET_EDID
+        sun_preset_fid = own_master(HOME_SUN_PRESET)
+    else:
+        sunps = resolve_edids_in_group(sf, "SUNP", ["SunPresetTypeG2"])
+        if "SunPresetTypeG2" not in sunps:
+            raise records.PlanetError("Starfield.esm is missing SUNP 'SunPresetTypeG2'")
+        sun_preset_edid = "SunPresetTypeG2"
+        sun_preset_fid = sunps["SunPresetTypeG2"]
 
-    ltexs = resolve_edids_in_group(sf, "LTEX", ["LDirtFootprints01"])
-    if "LDirtFootprints01" not in ltexs:
-        raise records.PlanetError("Starfield.esm is missing LTEX 'LDirtFootprints01'")
+    if surface_tree == "none":
+        surface_tree_edid = "none"
+        surface_tree_fid: Optional[int] = None
+    elif surface_tree == "ours_empty":
+        surface_tree_edid = wb_records.DEFAULT_SURFACE_TREE_EDID
+        surface_tree_fid = own_master(HOME_SURFACE_TREE)
+    else:
+        sftrs = resolve_edids_in_group(sf, "SFTR", ["EarthSurfaceTree"])
+        if "EarthSurfaceTree" not in sftrs:
+            raise records.PlanetError("Starfield.esm is missing SFTR 'EarthSurfaceTree'")
+        surface_tree_edid = "EarthSurfaceTree"
+        surface_tree_fid = sftrs["EarthSurfaceTree"]
 
-    clmts = resolve_edids_in_group(sf, "CLMT", ["ClimateUniqueNewAtlantis", "DefaultClimate"])
-    clmt_fid = clmts.get("ClimateUniqueNewAtlantis") or clmts.get("DefaultClimate")
-    if clmt_fid is None:
-        raise records.PlanetError("Starfield.esm is missing CLMT 'ClimateUniqueNewAtlantis' and 'DefaultClimate'")
-    clmt_edid = "ClimateUniqueNewAtlantis" if "ClimateUniqueNewAtlantis" in clmts else "DefaultClimate"
+    matt_dirt_fid: Optional[int] = None
+    if ground_ltex == "ours":
+        matts = resolve_edids_in_group(sf, "MATT", ["MaterialDirtlSand"])
+        if "MaterialDirtlSand" not in matts:
+            raise records.PlanetError("Starfield.esm is missing MATT 'MaterialDirtlSand'")
+        matt_dirt_fid = matts["MaterialDirtlSand"]
+        ground_ltex_edid = wb_records.DEFAULT_GROUND_LTEX_EDID
+        ground_ltex_fid = own_master(HOME_GROUND_LTEX)
+    else:
+        ltexs = resolve_edids_in_group(sf, "LTEX", ["LDirtFootprints01"])
+        if "LDirtFootprints01" not in ltexs:
+            raise records.PlanetError("Starfield.esm is missing LTEX 'LDirtFootprints01'")
+        ground_ltex_edid = "LDirtFootprints01"
+        ground_ltex_fid = ltexs["LDirtFootprints01"]
 
-    ptsts = resolve_edids_in_group(sf, "PTST", ["PatternStyleHillsRockyFieldsRocky"])
-    if "PatternStyleHillsRockyFieldsRocky" not in ptsts:
-        raise records.PlanetError("Starfield.esm is missing PTST 'PatternStyleHillsRockyFieldsRocky'")
+    if climate in ("ours", "ours_empty"):
+        clmt_edid = wb_records.DEFAULT_CLIMATE_EDID
+        clmt_fid = own_master(HOME_CLIMATE)
+    else:
+        clmts = resolve_edids_in_group(sf, "CLMT", [climate, "DefaultClimate"])
+        clmt_fid = clmts.get(climate) or clmts.get("DefaultClimate")
+        if clmt_fid is None:
+            raise records.PlanetError(f"Starfield.esm is missing CLMT {climate!r} and 'DefaultClimate'")
+        clmt_edid = climate if climate in clmts else "DefaultClimate"
+
+    ptsts = resolve_edids_in_group(sf, "PTST", [pattern_style])
+    if pattern_style not in ptsts:
+        raise records.PlanetError(f"Starfield.esm is missing PTST {pattern_style!r}")
 
     globs = resolve_edids_in_group(sf, "GLOB", ["PCM_BiomeDensity_None"])
     if "PCM_BiomeDensity_None" not in globs:
         raise records.PlanetError("Starfield.esm is missing GLOB 'PCM_BiomeDensity_None'")
 
+    silent_music_fid: Optional[int] = None
+    if wb3_mode == "ours":
+        muscs = resolve_edids_in_group(sf, "MUSC", ["_NONE"])
+        if "_NONE" not in muscs:
+            raise records.PlanetError("Starfield.esm is missing MUSC '_NONE'")
+        silent_music_fid = muscs["_NONE"]
+
     return {
         "keywords": resolved_kws,
         "forbidden_keywords": forbidden_fids,
         "universe_lctn": locs[records.UNIVERSE_EDID],
-        "atmo_edid": sky_atmo,
-        "atmo_fid": atmos[sky_atmo],
-        "sun_preset_fid": sunps["SunPresetTypeG2"],
-        "surface_tree_fid": sftrs["EarthSurfaceTree"],
-        "ground_ltex_fid": ltexs["LDirtFootprints01"],
+        "atmo_edid": atmo_edid,
+        "atmo_fid": atmo_fid,
+        "sun_preset_edid": sun_preset_edid,
+        "sun_preset_fid": sun_preset_fid,
+        "surface_tree_edid": surface_tree_edid,
+        "surface_tree_fid": surface_tree_fid,
+        "ground_ltex_edid": ground_ltex_edid,
+        "ground_ltex_fid": ground_ltex_fid,
+        "matt_dirt_fid": matt_dirt_fid,
         "climate_edid": clmt_edid,
         "climate_fid": clmt_fid,
-        "pattern_style_fid": ptsts["PatternStyleHillsRockyFieldsRocky"],
+        "pattern_style_edid": pattern_style,
+        "pattern_style_fid": ptsts[pattern_style],
         "biome_density_none_fid": globs["PCM_BiomeDensity_None"],
+        "silent_music_fid": silent_music_fid,
     }
 
 
@@ -626,8 +720,11 @@ def build_home_star(
     position_pc: Sequence[float],
     refs: Dict[str, Any],
     star_name: str = DEFAULT_STAR_NAME,
+    orbital_meshes: str = DEFAULT_ORBITAL_MESHES,
 ) -> esm.Record:
     """Author our own isolated `STDT` record (`0x800`) from `STAR_FIELD_SPEC` with zero `PCCC`/`XMPM` copy."""
+    if orbital_meshes not in ORBITAL_MESHES_CHOICES:
+        raise records.PlanetError(f"orbital_meshes {orbital_meshes!r} must be one of {ORBITAL_MESHES_CHOICES}")
     if len(position_pc) != 3 or not all(math.isfinite(v) for v in position_pc):
         raise records.PlanetError(f"invalid star position {position_pc!r}")
     star_tag = records.tag(star_name)
@@ -639,6 +736,16 @@ def build_home_star(
         + struct.pack("<ffffIII", 4.85, 1.9885e30, 0.75, 1.76, 0, 0, 5830)
     )
     kw_g = refs["keywords"]["Star_Class_G"]
+    model_comp: List[Tuple[bytes, bytes]] = (
+        [
+            (b"BFCB", esm.zbytes("TESPlanetModel_Component")),
+            (b"MODL", esm.zbytes("Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet_star.nif")),
+            (b"FLLD", struct.pack("<I", 1)),
+            (b"BFCE", b""),
+        ]
+        if orbital_meshes == "starfield"
+        else []
+    )
     subs: List[Tuple[bytes, bytes]] = [
         (b"EDID", esm.zbytes(edid)),
         (b"BFCB", esm.zbytes("BGSOrbitedDataComponent_Component")),
@@ -647,10 +754,7 @@ def build_home_star(
         (b"BFCB", esm.zbytes("BGSStarDataComponent_Component")),
         (b"DATA", star_data),
         (b"BFCE", b""),
-        (b"BFCB", esm.zbytes("TESPlanetModel_Component")),
-        (b"MODL", esm.zbytes("Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet_star.nif")),
-        (b"FLLD", struct.pack("<I", 1)),
-        (b"BFCE", b""),
+        *model_comp,
         (b"BFCB", esm.zbytes("TESFullName_Component")),
         (b"FULL", esm.zbytes(star_name)),
         (b"BFCE", b""),
@@ -678,8 +782,11 @@ def build_home_planet(
     body_name: str = DEFAULT_BODY_NAME,
     star_name: str = DEFAULT_STAR_NAME,
     temp_c: float = DEFAULT_TEMP_C,
+    orbital_meshes: str = DEFAULT_ORBITAL_MESHES,
 ) -> esm.Record:
     """Author our own `PNDT` record (`0x805`) from `PLANET_FIELD_SPEC` with zero whole-record copy."""
+    if orbital_meshes not in ORBITAL_MESHES_CHOICES:
+        raise records.PlanetError(f"orbital_meshes {orbital_meshes!r} must be one of {ORBITAL_MESHES_CHOICES}")
     clean_body = body_name.strip()
     if not clean_body or "/" in clean_body or "\\" in clean_body:
         raise records.PlanetError(f"invalid body_name {body_name!r}")
@@ -751,12 +858,25 @@ def build_home_planet(
     inam_atmo = struct.pack("<I3f", refs["atmo_fid"], 0.25, 0.0025, 0.001)
     knam_rings = struct.pack("<IddBII", 0, 0.0, 1.0, 0, 0, 0)
 
+    model_comp: List[Tuple[bytes, bytes]] = (
+        [
+            (b"BFCB", esm.zbytes("TESPlanetModel_Component")),
+            (b"MODL", esm.zbytes("Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet.nif")),
+            (b"FLLD", struct.pack("<I", 1)),
+            (b"BFCE", b""),
+        ]
+        if orbital_meshes == "starfield"
+        else []
+    )
+    sftr_sub: List[Tuple[bytes, bytes]] = (
+        [(b"FNAM", struct.pack("<I", refs["surface_tree_fid"]))]
+        if refs["surface_tree_fid"] is not None
+        else []
+    )
+
     subs: List[Tuple[bytes, bytes]] = [
         (b"EDID", esm.zbytes(edid)),
-        (b"BFCB", esm.zbytes("TESPlanetModel_Component")),
-        (b"MODL", esm.zbytes("Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet.nif")),
-        (b"FLLD", struct.pack("<I", 1)),
-        (b"BFCE", b""),
+        *model_comp,
         (b"BFCB", esm.zbytes("BGSKeywordForm_Component")),
         (b"KSIZ", struct.pack("<I", len(trait_fids))),
         (b"KWDA", struct.pack(f"<{len(trait_fids)}I", *trait_fids)),
@@ -768,7 +888,7 @@ def build_home_planet(
         (b"FLLD", struct.pack("<I", 1)),
         (b"BFCE", b""),
         (b"PPBD", ppbd),
-        (b"FNAM", struct.pack("<I", refs["surface_tree_fid"])),
+        *sftr_sub,
         (b"GNAM", struct.pack("<f", 0.56)),
         (b"BDST", b""),
         (b"ANAM", esm.zbytes(clean_body)),
@@ -802,9 +922,28 @@ def build_home_master(
     system_id: Optional[int] = None,
     planet_id: Optional[int] = None,
     star_offset_pc: Tuple[float, float, float] = DEFAULT_STAR_OFFSET_PC,
+    *,
+    climate: str = DEFAULT_CLIMATE,
+    ground_ltex: str = DEFAULT_GROUND_LTEX,
+    pattern_style: str = DEFAULT_TERRAIN_PATTERN,
+    surface_tree: str = DEFAULT_SURFACE_TREE,
+    sun_preset: str = DEFAULT_SUN_PRESET,
+    orbital_meshes: str = DEFAULT_ORBITAL_MESHES,
+    wb3_mode: str = DEFAULT_WB3_MODE,
 ) -> Tuple[esm.PluginWriter, Dict[str, Any]]:
-    """Build `FO4SFHome.esm` (`STDT 0x800`, `LCTN 0x801..0x804`, `PNDT 0x805`, `BIOM 0x806`) and return `(writer, report)`."""
-    refs = resolve_home_references(sf, sky_atmo=sky_atmo, lever_keywords=lever_keywords)
+    """Build `FO4SFHome.esm` (`STDT 0x800`, `LCTN 0x801..0x804`, `PNDT 0x805`, `BIOM 0x806`, plus our `WB1`–`WB3`
+    `WTHR`/`CLMT`/`ATMO`/`LTEX`/`SFTR`/`WATR`/`SUNP` records when selected) and return `(writer, report)`."""
+    refs = resolve_home_references(
+        sf,
+        sky_atmo=sky_atmo,
+        lever_keywords=lever_keywords,
+        climate=climate,
+        ground_ltex=ground_ltex,
+        pattern_style=pattern_style,
+        surface_tree=surface_tree,
+        sun_preset=sun_preset,
+        wb3_mode=wb3_mode,
+    )
     free_info = free_system_and_planet_ids(
         sf,
         data_dir=data_dir,
@@ -833,7 +972,7 @@ def build_home_master(
         if kfid not in surface_kws:
             surface_kws.append(kfid)
 
-    star_rec = build_home_star(own(STAR), sid, pos_pc, refs, star_name=star_name)
+    star_rec = build_home_star(own(STAR), sid, pos_pc, refs, star_name=star_name, orbital_meshes=orbital_meshes)
     sys_loc = records.new_location(own(SYSTEM_LOC), sys_edid, star_name, [kw["LocTypeStarSystem"]], refs["universe_lctn"], sid, 0, version=FORM_VERSION)
     pl_loc = records.new_location(own(PLANET_LOC), pl_edid, planet_name, [kw["LocTypePlanet"], kw["LocTypeMajorOrbital"]], own(SYSTEM_LOC), sid, pid, version=FORM_VERSION)
     orb_loc = records.new_location(own(ORBIT_LOC), f"{pl_edid}_Orbit", planet_name, [kw["LocTypeOrbit"]], own(PLANET_LOC), sid, pid, version=FORM_VERSION)
@@ -849,22 +988,76 @@ def build_home_master(
         body_name=body_name,
         star_name=star_name,
         temp_c=temp_c,
+        orbital_meshes=orbital_meshes,
     )
 
     for rec in (star_rec, sys_loc, pl_loc, orb_loc, surf_loc, biome_rec, planet_rec):
         w.add(rec)
+
+    authored_wb_records: Dict[str, str] = {}
+    if climate == "ours":
+        wthr_rec = wb_records.build_home_weather(own(HOME_WEATHER))
+        clmt_rec = wb_records.build_home_climate(own(HOME_CLIMATE), weather_formid=own(HOME_WEATHER))
+        w.add(wthr_rec)
+        w.add(clmt_rec)
+        authored_wb_records["WTHR"] = records.fid_hex(wthr_rec.formid)
+        authored_wb_records["CLMT"] = records.fid_hex(clmt_rec.formid)
+    elif climate == "ours_empty":
+        clmt_rec = wb_records.build_home_climate(own(HOME_CLIMATE), weather_formid=None)
+        w.add(clmt_rec)
+        authored_wb_records["CLMT"] = records.fid_hex(clmt_rec.formid)
+
+    if sky_atmo == "ours":
+        atmo_rec = wb_records.build_home_atmosphere(own(HOME_ATMO))
+        w.add(atmo_rec)
+        authored_wb_records["ATMO"] = records.fid_hex(atmo_rec.formid)
+
+    if ground_ltex == "ours":
+        assert refs["matt_dirt_fid"] is not None
+        ltex_rec = wb_records.build_home_ground_ltex(own(HOME_GROUND_LTEX), refs["matt_dirt_fid"])
+        w.add(ltex_rec)
+        authored_wb_records["LTEX"] = records.fid_hex(ltex_rec.formid)
+
+    if surface_tree == "ours_empty":
+        sftr_rec = wb_records.build_home_empty_surface_tree(own(HOME_SURFACE_TREE))
+        w.add(sftr_rec)
+        authored_wb_records["SFTR"] = records.fid_hex(sftr_rec.formid)
+
+    if wb3_mode == "ours":
+        watr_rec = wb_records.build_home_water(own(HOME_WATER))
+        w.add(watr_rec)
+        authored_wb_records["WATR"] = records.fid_hex(watr_rec.formid)
+
+    if sun_preset == "ours":
+        sunp_rec = wb_records.build_home_sun_preset(own(HOME_SUN_PRESET))
+        w.add(sunp_rec)
+        authored_wb_records["SUNP"] = records.fid_hex(sunp_rec.formid)
+
+    field_sources: Dict[str, Any] = {
+        "STDT": list(STAR_FIELD_SPEC),
+        "PNDT": list(PLANET_FIELD_SPEC),
+        "BIOM": list(BIOM_FIELD_SPEC),
+        "WTHR": list(wb_records.WTHR_FIELD_SPEC),
+        "CLMT": list(wb_records.CLMT_FIELD_SPEC),
+        "ATMO": list(wb_records.ATMO_FIELD_SPEC),
+        "LTEX": list(wb_records.LTEX_FIELD_SPEC),
+        "WB3_OVERRIDES": list(wb_records.WB3_OVERRIDE_SPEC),
+    }
 
     report = {
         "master": HOME_MASTER,
         "system_id": f"0x{sid:08X}",
         "system_id_int": sid,
         "planet_id": pid,
+        "authored_wb_records": authored_wb_records,
         "star": {
             "formid": records.fid_hex(star_rec.formid),
             "edid": star_rec.edid,
             "name": star_name,
             "position_pc": pos_pc,
             "nearest_star_pc": free_info["nearest_star_pc"],
+            "sun_preset": f"{refs['sun_preset_edid']} ({records.fid_hex(refs['sun_preset_fid'])})",
+            "orbital_meshes": orbital_meshes,
         },
         "planet": {
             "formid": records.fid_hex(planet_rec.formid),
@@ -873,14 +1066,19 @@ def build_home_master(
             "body_name": body_name.strip(),
             "temp_c": float(temp_c),
             "sky_atmo": sky_atmo,
+            "sky_atmo_edid": refs["atmo_edid"],
             "sky_atmo_fid": records.fid_hex(refs["atmo_fid"]),
+            "surface_tree": surface_tree,
+            "surface_tree_fid": records.fid_hex(refs["surface_tree_fid"]) if refs["surface_tree_fid"] is not None else None,
+            "orbital_meshes": orbital_meshes,
             "trait_keywords": list(HOME_PLANET_TRAIT_KEYWORD_EDIDS),
         },
         "biome": {
             "formid": records.fid_hex(biome_rec.formid),
             "edid": biome_rec.edid,
             "name": DEFAULT_BIOME_NAME,
-            "ground_ltex": f"LDirtFootprints01 ({records.fid_hex(refs['ground_ltex_fid'])})",
+            "ground_ltex": f"{refs['ground_ltex_edid']} ({records.fid_hex(refs['ground_ltex_fid'])})",
+            "pattern_style": f"{refs['pattern_style_edid']} ({records.fid_hex(refs['pattern_style_fid'])})",
             "pcm_density_global": f"PCM_BiomeDensity_None ({records.fid_hex(refs['biome_density_none_fid'])})",
             "climate": f"{refs['climate_edid']} ({records.fid_hex(refs['climate_fid'])})",
         },
@@ -896,11 +1094,7 @@ def build_home_master(
             },
         },
         "census": free_info,
-        "field_sources": {
-            "STDT": list(STAR_FIELD_SPEC),
-            "PNDT": list(PLANET_FIELD_SPEC),
-            "BIOM": list(BIOM_FIELD_SPEC),
-        },
+        "field_sources": field_sources,
     }
     return w, report
 
@@ -990,6 +1184,13 @@ def remap_lcsr_rows_to_masters(
     return out
 
 
+WORLD_DISPLAY_NAMES: Dict[str, str] = {
+    "Commonwealth": "Commonwealth",
+    "FarHarbor": "Far Harbor",
+    "NukaWorld": "Nuka-World",
+}
+
+
 def _remap_lctn_override(
     src_lctn: esm.Record,
     src_self_idx: int,
@@ -1000,6 +1201,9 @@ def _remap_lctn_override(
     system_id: int,
     planet_id: int,
     extra_lcsr_chunks: Sequence[bytes] = (),
+    *,
+    wb3_mode: str = "passthrough",
+    wb3_display_name: Optional[str] = None,
 ) -> esm.Record:
     out_fid = _remap_formid(src_lctn.formid, src_self_idx, dst_master_idx)
     kws = [overlay_kw_fid]
@@ -1025,7 +1229,7 @@ def _remap_lctn_override(
             seen_lcsr.add(row_b)
 
     new_subs: List[Tuple[bytes, bytes]] = []
-    saw_ksiz = saw_kwda = saw_pnam = emitted_lcsr = False
+    saw_ksiz = saw_kwda = saw_pnam = saw_full = saw_data = emitted_lcsr = False
     for sig, data in src_lctn.subs:
         if sig == b"LCSR" and len(data) % 20 == 0:
             if not emitted_lcsr and merged_lcsr:
@@ -1039,15 +1243,25 @@ def _remap_lctn_override(
                 loc = _remap_formid(loc, src_self_idx, dst_master_idx)
                 chunks.append(struct.pack("<4I", actor, loc, grid, tail))
             new_subs.append((sig, b"".join(chunks)))
-        elif sig == b"LCID" and len(data) > 0 and len(data) % 4 == 0:
-            fids = [_remap_formid(x, src_self_idx, dst_master_idx) for x in struct.unpack(f"<{len(data) // 4}I", data)]
-            new_subs.append((sig, struct.pack(f"<{len(fids)}I", *fids)))
+        elif sig == b"LCID":
+            if len(data) > 0 and len(data) % 4 == 0:
+                fids = [_remap_formid(x, src_self_idx, dst_master_idx) for x in struct.unpack(f"<{len(data) // 4}I", data)]
+                new_subs.append((sig, struct.pack(f"<{len(fids)}I", *fids)))
+            elif wb3_mode != "ours":
+                new_subs.append((sig, data))
+        elif sig == b"FULL" and wb3_mode == "ours" and wb3_display_name:
+            new_subs.append((b"FULL", esm.zbytes(wb3_display_name)))
+            saw_full = True
         elif sig == b"KSIZ":
             new_subs.append((b"KSIZ", struct.pack("<I", len(kws))))
             saw_ksiz = True
         elif sig == b"KWDA":
             new_subs.append((b"KWDA", struct.pack(f"<{len(kws)}I", *kws)))
             saw_kwda = True
+        elif sig == b"DATA" and wb3_mode == "ours" and len(data) == 8:
+            # WB3: clear LC172WorldLocation's inherited max_level = 16 (0000000000001000 -> all zero)
+            new_subs.append((b"DATA", b"\x00" * 8))
+            saw_data = True
         elif sig == b"PNAM":
             new_subs.append((b"PNAM", struct.pack("<I", surface_parent_fid)))
             saw_pnam = True
@@ -1061,14 +1275,39 @@ def _remap_lctn_override(
     if merged_lcsr and not emitted_lcsr:
         insert_idx = next((i + 1 for i, (s, _) in enumerate(new_subs) if s == b"EDID"), 0)
         new_subs.insert(insert_idx, (b"LCSR", b"".join(merged_lcsr)))
+    if wb3_mode == "ours" and wb3_display_name and not saw_full:
+        insert_idx = next((i for i, (s, _) in enumerate(new_subs) if s == b"KSIZ"), len(new_subs))
+        new_subs.insert(insert_idx, (b"FULL", esm.zbytes(wb3_display_name)))
     if not saw_ksiz:
         new_subs.append((b"KSIZ", struct.pack("<I", len(kws))))
     if not saw_kwda:
         new_subs.append((b"KWDA", struct.pack(f"<{len(kws)}I", *kws)))
+    if wb3_mode == "ours" and not saw_data:
+        insert_idx = next((i for i, (s, _) in enumerate(new_subs) if s == b"PNAM"), len(new_subs))
+        new_subs.insert(insert_idx, (b"DATA", b"\x00" * 8))
     if not saw_pnam:
         new_subs.append((b"PNAM", struct.pack("<I", surface_parent_fid)))
 
     return esm.Record(b"LCTN", out_fid, new_subs, src_lctn.flags, src_lctn.vc, src_lctn.version, src_lctn.unknown)
+
+
+def _compute_wb3_mnam_bounds(src_wrld: esm.Record, tile_cells: int = 64) -> bytes:
+    """Compute 16-byte `WRLD.MNAM` (`usable_x, usable_y, nw_x, nw_y, se_x, se_y`) from `NAM0`/`NAM9` or `tile_cells`."""
+    nam0 = probe.top_level(src_wrld, b"NAM0")
+    nam9 = probe.top_level(src_wrld, b"NAM9")
+    if nam0 and len(nam0) == 8 and nam9 and len(nam9) == 8:
+        min_x_m, min_y_m = struct.unpack("<2f", nam0)
+        max_x_m, max_y_m = struct.unpack("<2f", nam9)
+        min_cx = int(round(min_x_m / 100.0))
+        min_cy = int(round(min_y_m / 100.0))
+        max_cx = int(round(max_x_m / 100.0)) - 1
+        max_cy = int(round(max_y_m / 100.0)) - 1
+        span_x = max(100, int(round(max_x_m - min_x_m)))
+        span_y = max(100, int(round(max_y_m - min_y_m)))
+        return struct.pack("<IIhhhh", span_x, span_y, min_cx, max_cy, max_cx, min_cy)
+    half = tile_cells // 2
+    span = tile_cells * 100
+    return struct.pack("<IIhhhh", span, span, -half, tile_cells - half - 1, tile_cells - half - 1, -half)
 
 
 def _remap_wrld_override(
@@ -1079,6 +1318,13 @@ def _remap_wrld_override(
     planet_id: int,
     biome_fid: int,
     fnam_flags: int = ALLOWED_WRLD_FNAM_BITS,
+    *,
+    wb3_mode: str = "passthrough",
+    wb3_display_name: Optional[str] = None,
+    wb3_climate_fid: Optional[int] = None,
+    wb3_water_fid: Optional[int] = None,
+    wb3_silent_music_fid: Optional[int] = None,
+    wb3_tile_cells: int = 64,
 ) -> esm.Record:
     if fnam_flags & ~ALLOWED_WRLD_FNAM_BITS:
         raise records.PlanetError(
@@ -1089,6 +1335,21 @@ def _remap_wrld_override(
     inside_comp: Optional[str] = None
     saw_top_bnam = False
     saw_top_fnam = False
+    saw_top_full = False
+    saw_top_cnam = False
+    saw_top_nam3 = False
+    saw_top_nam4 = False
+    saw_top_dnam = False
+    saw_top_mnam = False
+    saw_top_onam = False
+    saw_top_znam = False
+
+    # Inspect source DNAM so coastal DLC worlds (Far Harbor +6.43 m, Nuka-World +4.64 m) keep their sea height
+    src_dnam_raw = probe.top_level(src_wrld, b"DNAM")
+    src_land_h, src_water_h = struct.unpack("<2f", src_dnam_raw) if (src_dnam_raw and len(src_dnam_raw) == 8) else (-2048.0, -200.0)
+    wb3_land_h = -120.0 if abs(src_land_h - (-2048.0)) < 1e-3 else src_land_h
+    wb3_water_h = -200.0 if src_water_h <= -100.0 else src_water_h
+    wb3_mnam_bytes = _compute_wb3_mnam_bounds(src_wrld, tile_cells=wb3_tile_cells) if wb3_mode == "ours" else b""
 
     for sig, data in src_wrld.subs:
         if sig == b"BFCB":
@@ -1113,12 +1374,40 @@ def _remap_wrld_override(
             continue
 
         if inside_comp is None:
-            if sig in (b"XLCN", b"WNAM", b"CNAM") and len(data) == 4:
+            if sig == b"FULL" and wb3_mode == "ours" and wb3_display_name:
+                new_subs.append((b"FULL", esm.zbytes(wb3_display_name)))
+                saw_top_full = True
+            elif sig in (b"XLCN", b"WNAM") and len(data) == 4:
                 remapped = _remap_formid(struct.unpack("<I", data)[0], src_self_idx, dst_master_idx)
                 new_subs.append((sig, struct.pack("<I", remapped)))
+            elif sig == b"CNAM" and len(data) == 4:
+                if wb3_mode == "ours" and wb3_climate_fid is not None:
+                    new_subs.append((b"CNAM", struct.pack("<I", wb3_climate_fid)))
+                else:
+                    remapped = _remap_formid(struct.unpack("<I", data)[0], src_self_idx, dst_master_idx)
+                    new_subs.append((b"CNAM", struct.pack("<I", remapped)))
+                saw_top_cnam = True
             elif sig == b"BNAM" and len(data) == 4:
                 new_subs.append((b"BNAM", struct.pack("<I", biome_fid)))
                 saw_top_bnam = True
+            elif sig == b"NAM3" and len(data) == 4 and wb3_mode == "ours" and wb3_water_fid is not None:
+                new_subs.append((b"NAM3", struct.pack("<I", wb3_water_fid)))
+                saw_top_nam3 = True
+            elif sig == b"NAM4" and len(data) == 4 and wb3_mode == "ours":
+                new_subs.append((b"NAM4", struct.pack("<f", wb3_water_h)))
+                saw_top_nam4 = True
+            elif sig == b"DNAM" and len(data) == 8 and wb3_mode == "ours":
+                new_subs.append((b"DNAM", struct.pack("<2f", wb3_land_h, wb3_water_h)))
+                saw_top_dnam = True
+            elif sig == b"MNAM" and len(data) == 16 and wb3_mode == "ours":
+                new_subs.append((b"MNAM", wb3_mnam_bytes))
+                saw_top_mnam = True
+            elif sig == b"ONAM" and len(data) == 16 and wb3_mode == "ours":
+                new_subs.append((b"ONAM", struct.pack("<4f", 1.0, 0.0, 0.0, 0.0)))
+                saw_top_onam = True
+            elif sig == b"ZNAM" and len(data) == 4 and wb3_mode == "ours" and wb3_silent_music_fid is not None:
+                new_subs.append((b"ZNAM", struct.pack("<I", wb3_silent_music_fid)))
+                saw_top_znam = True
             elif sig == b"FNAM":
                 new_subs.append((b"FNAM", bytes([fnam_flags])))
                 saw_top_fnam = True
@@ -1127,13 +1416,62 @@ def _remap_wrld_override(
         else:
             new_subs.append((sig, data))
 
+    def _top_idx_after(target_sig: bytes) -> Optional[int]:
+        comp = None
+        for idx, (s, d) in enumerate(new_subs):
+            if s == b"BFCB":
+                comp = esm.zstring(d)
+            elif s == b"BFCE":
+                comp = None
+            elif comp is None and s == target_sig:
+                return idx + 1
+        return None
+
+    def _top_idx_before(target_sig: bytes) -> Optional[int]:
+        comp = None
+        for idx, (s, d) in enumerate(new_subs):
+            if s == b"BFCB":
+                comp = esm.zstring(d)
+            elif s == b"BFCE":
+                comp = None
+            elif comp is None and s == target_sig:
+                return idx
+        return None
+
     if not saw_top_bnam:
-        # Insert top-level BNAM right after XLCN when the source WRLD had none
-        idx = next((i + 1 for i, (s, _) in enumerate(new_subs) if s == b"XLCN"), len(new_subs))
-        new_subs.insert(idx, (b"BNAM", struct.pack("<I", biome_fid)))
+        idx = _top_idx_after(b"XLCN")
+        new_subs.insert(idx if idx is not None else len(new_subs), (b"BNAM", struct.pack("<I", biome_fid)))
     if not saw_top_fnam:
-        idx = next((i + 1 for i, (s, _) in enumerate(new_subs) if s == b"DATA"), len(new_subs))
-        new_subs.insert(idx, (b"FNAM", bytes([fnam_flags])))
+        idx = _top_idx_after(b"DATA")
+        new_subs.insert(idx if idx is not None else len(new_subs), (b"FNAM", bytes([fnam_flags])))
+
+    if wb3_mode == "ours":
+        if wb3_display_name and not saw_top_full:
+            idx = _top_idx_before(b"XLCN")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"FULL", esm.zbytes(wb3_display_name)))
+        if wb3_climate_fid is not None and not saw_top_cnam:
+            # Canonical Starfield WRLD order (NewAtlantis / DefaultWorld): CNAM immediately after top-level BNAM
+            idx = _top_idx_after(b"BNAM")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"CNAM", struct.pack("<I", wb3_climate_fid)))
+        if wb3_water_fid is not None and not saw_top_nam3:
+            idx = _top_idx_after(b"CNAM") or _top_idx_after(b"BNAM")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"NAM3", struct.pack("<I", wb3_water_fid)))
+        if not saw_top_nam4:
+            idx = _top_idx_after(b"NAM3") or _top_idx_after(b"BNAM")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"NAM4", struct.pack("<f", wb3_water_h)))
+        if not saw_top_dnam:
+            idx = _top_idx_after(b"NAM4")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"DNAM", struct.pack("<2f", wb3_land_h, wb3_water_h)))
+        if not saw_top_mnam:
+            idx = _top_idx_after(b"DNAM")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"MNAM", wb3_mnam_bytes))
+        if not saw_top_onam:
+            idx = _top_idx_after(b"MNAM")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"ONAM", struct.pack("<4f", 1.0, 0.0, 0.0, 0.0)))
+        if wb3_silent_music_fid is not None and not saw_top_znam:
+            # Canonical Starfield WRLD order (NewAtlantis / DefaultWorld): ZNAM immediately after NAM9 (before GNAM)
+            idx = _top_idx_after(b"NAM9") or _top_idx_before(b"GNAM")
+            new_subs.insert(idx if idx is not None else len(new_subs), (b"ZNAM", struct.pack("<I", wb3_silent_music_fid)))
 
     return esm.Record(b"WRLD", out_fid, new_subs, src_wrld.flags, src_wrld.vc, src_wrld.version, src_wrld.unknown)
 
@@ -1148,22 +1486,56 @@ def build_home_registration(
     registry: Optional[Dict[str, Any]] = None,
     position_overrides: Optional[Dict[str, Tuple[float, float]]] = None,
     map_markers_path: Optional[str] = None,
+    *,
+    wb3_mode: str = DEFAULT_WB3_MODE,
 ) -> Tuple[esm.PluginWriter, Dict[str, Any]]:
     """Build `FO4TerrainCore_Home.esm` from `world_registry.json`:
     - `1` `PNDT` override (`0x01000805` in `FO4SFHome.esm`) listing all registered worlds in `CNAM`
     - For each world in `world_keys`: `1` `WRLD` override + `1` `LCTN` override (`3` records total for `Commonwealth`).
+    - When `wb3_mode == 'ours'` (`WB3` default): overrides inherited `LC172World` / `LC172WorldLocation` fields inside
+      `FO4TerrainCore_Home.esm` (`CNAM`, `ZNAM`, `NAM3`, `NAM4`, `DNAM`, `MNAM`, `ONAM`, `FULL`, `LCTN.DATA`) while
+      never touching `FO4TerrainCore.esm`; labels every `WB3` lever `untested`.
     - When `map_markers_path` (`--map-markers <FO4SFMapMarkers.esm>`) is given: adds `FO4SFMapMarkers.esm` as a master
       and merges its `LCSR` rows of `FO4TerrainCore.esm:000802` into our `LCTN` override (`C3`).
     """
     if not world_keys:
         raise records.PlanetError("world_keys must name at least one world from world_registry.json")
-    refs = resolve_home_references(sf, lever_keywords=lever_keywords)
+    if wb3_mode not in WB3_MODE_CHOICES:
+        raise records.PlanetError(f"wb3_mode {wb3_mode!r} must be one of {WB3_MODE_CHOICES}")
+
+    # Resolve only keywords (+ _NONE MUSC when wb3_mode == 'ours') from sf so synthetic b7dc7f52 fixtures stay minimal
+    kw_names = records.keyword_edids(sf)
+    by_kw_edid = {ed.lower(): fid & 0xFFFFFF for fid, ed in kw_names.items() if ed}
+    for lev in lever_keywords:
+        if lev not in LEVER_KEYWORD_EDIDS:
+            raise records.PlanetError(f"unknown lever keyword {lev!r}; expected one of {LEVER_KEYWORD_EDIDS}")
+    overlay_kw_fid = by_kw_edid.get("loctypeoverlay")
+    if overlay_kw_fid is None:
+        raise records.PlanetError("Starfield.esm is missing required KYWD 'LocTypeOverlay'")
+    lever_kw_fids: List[int] = []
+    for lev in lever_keywords:
+        lk = by_kw_edid.get(lev.lower())
+        if lk is None:
+            raise records.PlanetError(f"Starfield.esm is missing required KYWD {lev!r}")
+        lever_kw_fids.append(lk)
+
+    wb3_silent_music_fid: Optional[int] = None
+    if wb3_mode == "ours":
+        muscs = resolve_edids_in_group(sf, "MUSC", ["_NONE"])
+        if "_NONE" not in muscs:
+            raise records.PlanetError("Starfield.esm is missing MUSC '_NONE' required by WB3")
+        wb3_silent_music_fid = muscs["_NONE"]
+
     reg_data = registry if registry is not None else load_world_registry()
     raw_worlds = reg_data["worlds"] if isinstance(reg_data, dict) else reg_data.worlds
     if isinstance(raw_worlds, dict):
         by_key = dict(raw_worlds)
     else:
         by_key = {(r["key"] if isinstance(r, dict) else r.key): r for r in raw_worlds}
+
+    home_idx = 1  # masters[1] == FO4SFHome.esm
+    wb3_climate_fid: Optional[int] = None
+    wb3_water_fid: Optional[int] = None
 
     with esm.Plugin(home_master_path) as hm:
         if hm.masters != ["Starfield.esm"]:
@@ -1173,6 +1545,18 @@ def build_home_registration(
             raise records.PlanetError(f"{home_master_path} is missing home PNDT {(1 << 24) | PLANET:#010x}")
         home_planet = pndts[0]
         sid, _parent, pid = records.galaxy(home_planet)
+
+        if wb3_mode == "ours":
+            bioms = [r for r in hm.records("BIOM", [b"BIOM"]) if r.formid == ((1 << 24) | BIOME)]
+            if len(bioms) == 1:
+                enam_b = bioms[0].get(b"ENAM")
+                if enam_b and len(enam_b) == 4:
+                    raw_clmt, = struct.unpack("<I", enam_b)
+                    wb3_climate_fid = (home_idx << 24) | (raw_clmt & 0xFFFFFF) if (raw_clmt >> 24) == 1 else raw_clmt
+            watrs = [r for r in hm.records("WATR", [b"WATR"]) if r.formid == ((1 << 24) | HOME_WATER)]
+            if len(watrs) != 1:
+                raise records.PlanetError(f"{home_master_path} is missing home WATR {(1 << 24) | HOME_WATER:#010x} for WB3")
+            wb3_water_fid = (home_idx << 24) | HOME_WATER
 
     # Resolve each world's plugin path and planned metadata from world_registry.json
     world_specs = []
@@ -1186,11 +1570,13 @@ def build_home_registration(
             plug_name = planned.get("plugin")
             world_edid = planned.get("world_edid")
             raw_pos = planned.get("planet_position")
+            tile_cells = int(planned.get("tile_cells") or 64)
         else:
             planned_obj = row.planned_starfield_world
             plug_name = planned_obj.plugin
             world_edid = planned_obj.world_edid
             raw_pos = planned_obj.planet_position
+            tile_cells = int(getattr(planned_obj, "tile_cells", 64) or 64)
         pos = (position_overrides or {}).get(wkey) or raw_pos
         if not plug_name or not world_edid or not pos or len(pos) != 2:
             raise records.PlanetError(f"world {wkey!r} has incomplete planned_starfield_world in world_registry.json")
@@ -1204,7 +1590,7 @@ def build_home_registration(
             raise records.PlanetError(f"world plugin {plug_name!r} for {wkey!r} not found in search dirs")
         if plug_name not in masters:
             masters.append(plug_name)
-        world_specs.append((wkey, plug_name, plug_path, world_edid, (float(pos[0]), float(pos[1]))))
+        world_specs.append((wkey, plug_name, plug_path, world_edid, (float(pos[0]), float(pos[1])), tile_cells))
 
     mm_lcsr_chunks: List[bytes] = []
     mm_name: Optional[str] = None
@@ -1229,19 +1615,17 @@ def build_home_registration(
             mm_lcsr_chunks = remap_lcsr_rows_to_masters(mm, mm_name, mm_lctns[0], masters)
 
     writer = esm.PluginWriter(masters, esm.ESM)
-    home_idx = 1  # masters[1] == FO4SFHome.esm
     surface_parent_fid = (home_idx << 24) | SURFACE_LOC
     home_biome_fid = (home_idx << 24) | BIOME
-    overlay_kw_fid = refs["keywords"]["LocTypeOverlay"]
-    lever_kw_fids = [refs["keywords"][k] for k in lever_keywords]
 
     cnam_entries: List[Tuple[float, float, int]] = []
     wrld_overrides: List[esm.Record] = []
     lctn_overrides: List[esm.Record] = []
     registered_report: List[Dict[str, Any]] = []
 
-    for wkey, plug_name, plug_path, world_edid, (lat, lon) in world_specs:
+    for wkey, plug_name, plug_path, world_edid, (lat, lon), tile_cells in world_specs:
         dst_master_idx = masters.index(plug_name)
+        disp_name = WORLD_DISPLAY_NAMES.get(wkey, wkey)
         with esm.Plugin(plug_path) as wp:
             src_self_idx = wp.self_index
             wrlds = [w for w in census.worlds(wp) if w.edid == world_edid]
@@ -1265,6 +1649,12 @@ def build_home_registration(
             pid,
             home_biome_fid,
             fnam_flags=fnam_flags,
+            wb3_mode=wb3_mode,
+            wb3_display_name=disp_name,
+            wb3_climate_fid=wb3_climate_fid,
+            wb3_water_fid=wb3_water_fid,
+            wb3_silent_music_fid=wb3_silent_music_fid,
+            wb3_tile_cells=tile_cells,
         )
         extra_chunks = (
             mm_lcsr_chunks
@@ -1281,25 +1671,30 @@ def build_home_registration(
             sid,
             pid,
             extra_lcsr_chunks=extra_chunks,
+            wb3_mode=wb3_mode,
+            wb3_display_name=disp_name,
         )
         wrld_overrides.append(remapped_wrld)
         lctn_overrides.append(remapped_lctn)
         cnam_entries.append((lat, lon, remapped_wrld.formid))
         lcsr_total = sum(len(d) // 20 for d in remapped_lctn.all(b"LCSR"))
-        registered_report.append(
-            {
-                "world_key": wkey,
-                "world_plugin": plug_name,
-                "world_edid": world_edid,
-                "wrld_formid": records.fid_hex(remapped_wrld.formid),
-                "lctn_formid": records.fid_hex(remapped_lctn.formid),
-                "lcsr_rows": lcsr_total,
-                "latitude_rad": lat,
-                "longitude_rad": lon,
-                "fnam_flags": fnam_flags,
-                "lever_keywords": list(lever_keywords),
-            }
-        )
+        w_entry: Dict[str, Any] = {
+            "world_key": wkey,
+            "world_plugin": plug_name,
+            "world_edid": world_edid,
+            "wrld_formid": records.fid_hex(remapped_wrld.formid),
+            "lctn_formid": records.fid_hex(remapped_lctn.formid),
+            "lcsr_rows": lcsr_total,
+            "latitude_rad": lat,
+            "longitude_rad": lon,
+            "fnam_flags": fnam_flags,
+            "lever_keywords": list(lever_keywords),
+            "wb3_mode": wb3_mode,
+        }
+        if wb3_mode == "ours":
+            w_entry["wb3_status"] = "untested"
+            w_entry["wb3_overrides"] = list(wb_records.WB3_OVERRIDE_SPEC)
+        registered_report.append(w_entry)
 
     pndt_override = records.registration_record(home_planet, (home_idx << 24) | PLANET, cnam_entries)
     writer.add(pndt_override)
@@ -1315,6 +1710,8 @@ def build_home_registration(
         "pndt_override": records.fid_hex(pndt_override.formid),
         "biome_formid": records.fid_hex(home_biome_fid),
         "surface_parent_formid": records.fid_hex(surface_parent_fid),
+        "wb3_mode": wb3_mode,
+        "wb3_status": "untested" if wb3_mode == "ours" else "passthrough",
         "worlds": registered_report,
     }
     if mm_name is not None:
@@ -1478,19 +1875,38 @@ def check_home_stage(
     expected_world_count: int = 1,
     expected_levers: Sequence[str] = (),
     map_markers_path: Optional[str] = None,
+    *,
+    expected_climate: Optional[str] = None,
+    expected_sky: Optional[str] = None,
+    expected_ground_ltex: Optional[str] = None,
+    expected_surface_tree: Optional[str] = None,
+    expected_wb3_mode: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """Comprehensive offline verification for `W2`, `W3`, `W4`, `WL1`, and `WL2`."""
+    """Comprehensive offline verification for `W2`, `W3`, `W4`, `WL1`, `WL2`, `WB1`, `WB2`, and `WB3`."""
     problems: List[str] = []
     with esm.Plugin(sf_path) as sf:
         kw_names = records.keyword_edids(sf)
-        refs = resolve_home_references(sf, lever_keywords=expected_levers)
-        forbidden_ids = set(refs["forbidden_keywords"].values())
+        by_kw_edid = {ed.lower(): fid & 0xFFFFFF for fid, ed in kw_names.items() if ed}
+        forbidden_ids = {
+            by_kw_edid[name.lower()]
+            for name in FORBIDDEN_PLANET_KEYWORD_EDIDS
+            if name.lower() in by_kw_edid
+        }
 
         with esm.Plugin(home_master_path) as hm:
             if hm.masters != ["Starfield.esm"]:
                 problems.append(f"{HOME_MASTER} masters {hm.masters} != ['Starfield.esm']")
+            if any(m.lower() == "fo4wg1redrocket.esm" for m in hm.masters):
+                problems.append(f"{HOME_MASTER} must never reference FO4WG1RedRocket.esm")
             if hm.localized:
                 problems.append(f"{HOME_MASTER} has LOCALIZED flag set")
+
+            hm_group_order = list(hm.groups.keys())
+            canonical_hm_groups = [g for g in esm.GROUP_ORDER if g in hm.groups]
+            if hm_group_order != canonical_hm_groups:
+                problems.append(
+                    f"{HOME_MASTER} top-group order {hm_group_order} != canonical Starfield order {canonical_hm_groups}"
+                )
 
             own = lambda loc_id: (1 << 24) | loc_id  # noqa: E731
             by_fid: Dict[int, esm.Record] = {}
@@ -1498,7 +1914,7 @@ def check_home_stage(
                 for rec in hm.records(grp):
                     by_fid[rec.formid] = rec
 
-            want_sigs = {
+            mandatory_sigs = {
                 own(STAR): b"STDT",
                 own(SYSTEM_LOC): b"LCTN",
                 own(PLANET_LOC): b"LCTN",
@@ -1507,12 +1923,26 @@ def check_home_stage(
                 own(PLANET): b"PNDT",
                 own(BIOME): b"BIOM",
             }
-            for fid, wsig in want_sigs.items():
+            optional_wb_sigs = {
+                own(HOME_WEATHER): b"WTHR",
+                own(HOME_CLIMATE): b"CLMT",
+                own(HOME_ATMO): b"ATMO",
+                own(HOME_GROUND_LTEX): b"LTEX",
+                own(HOME_SURFACE_TREE): b"SFTR",
+                own(HOME_WATER): b"WATR",
+                own(HOME_SUN_PRESET): b"SUNP",
+            }
+            for fid, wsig in mandatory_sigs.items():
                 if fid not in by_fid or by_fid[fid].sig != wsig:
                     problems.append(f"{HOME_MASTER} missing {wsig.decode()} {fid:#010x}")
-            extra = sorted(set(by_fid) - set(want_sigs))
-            if extra:
-                problems.append(f"{HOME_MASTER} holds unexpected records {[hex(x) for x in extra]}")
+            for fid, rec in sorted(by_fid.items()):
+                if fid not in mandatory_sigs:
+                    if fid not in optional_wb_sigs:
+                        problems.append(f"{HOME_MASTER} holds unexpected record {fid:#010x} ({rec.sig.decode()})")
+                    elif rec.sig != optional_wb_sigs[fid]:
+                        problems.append(
+                            f"{HOME_MASTER} record {fid:#010x} has sig {rec.sig.decode()}, expected {optional_wb_sigs[fid].decode()}"
+                        )
             if problems:
                 return problems, {}
 
@@ -1520,6 +1950,47 @@ def check_home_stage(
             planet_rec = by_fid[own(PLANET)]
             biome_rec = by_fid[own(BIOME)]
             surf_rec = by_fid[own(SURFACE_LOC)]
+            biom_pndt_refs = wb_records.collect_biom_and_pndt_references(sf, hm, home_master_name=HOME_MASTER)
+
+            # WB1: verify zero Starfield climate, weather, or atmosphere when 'ours' is selected
+            if expected_climate in ("ours", "ours_empty"):
+                sf_clmt_wthr = [
+                    r
+                    for r in biom_pndt_refs
+                    if r["owner"].lower() == "starfield.esm" and r["record_type"] in ("CLMT", "WTHR", "WTHS")
+                ]
+                if sf_clmt_wthr:
+                    problems.append(f"WB1 failed: BIOM/CLMT still references Starfield climate/weather {sf_clmt_wthr}")
+            if expected_sky == "ours":
+                sf_atmo = [
+                    r
+                    for r in biom_pndt_refs
+                    if r["owner"].lower() == "starfield.esm" and r["record_type"] == "ATMO"
+                ]
+                if sf_atmo:
+                    problems.append(f"WB1 failed: PNDT/ATMO still references Starfield atmosphere {sf_atmo}")
+
+            # WB2: verify FO4 land texture across all 7 LNAM slots and surface tree setting
+            if expected_ground_ltex == "ours":
+                if own(HOME_GROUND_LTEX) not in by_fid:
+                    problems.append(f"WB2 failed: {HOME_MASTER} missing LTEX {own(HOME_GROUND_LTEX):#010x}")
+                lnams = biome_rec.all(b"LNAM")
+                if len(lnams) != 7:
+                    problems.append(f"WB2 failed: BIOM has {len(lnams)} LNAM slots, expected 7")
+                for expected_slot, lbuf in enumerate(lnams):
+                    slot_i, lfid, gfid = struct.unpack_from("<3I", lbuf, 0)
+                    if (slot_i, lfid, gfid) != (expected_slot, own(HOME_GROUND_LTEX), 0):
+                        problems.append(
+                            f"WB2 failed: BIOM LNAM[{expected_slot}] = {(slot_i, hex(lfid), hex(gfid))} "
+                            f"!= {(expected_slot, hex(own(HOME_GROUND_LTEX)), '0x0')}"
+                        )
+            fnam_top = wb_records.pndt_surface_tree_fnam(planet_rec)
+            if expected_surface_tree == "none":
+                if fnam_top is not None:
+                    problems.append("WB2 failed: PNDT carries top-level FNAM when surface_tree='none'")
+            elif expected_surface_tree == "ours_empty":
+                if not fnam_top or struct.unpack("<I", fnam_top)[0] != own(HOME_SURFACE_TREE):
+                    problems.append(f"WB2 failed: PNDT FNAM != {own(HOME_SURFACE_TREE):#010x}")
 
             # Zero whole-record Houdini PCCC/XMPM copies
             for label, rec in (("STDT", star_rec), ("PNDT", planet_rec)):
@@ -1579,16 +2050,25 @@ def check_home_stage(
                 problems.append("BIOM carries procedural GNAM objects or NAM1 resources")
 
             # Check surface location lever keywords
-            want_surf_kws = [refs["keywords"]["LocTypeSurface"]] + [
-                refs["keywords"][k] for k in expected_levers if k != "LocTypeSurface"
+            surf_kw_fid = by_kw_edid["loctypesurface"]
+            want_surf_kws = [surf_kw_fid] + [
+                by_kw_edid[k.lower()] for k in expected_levers if k != "LocTypeSurface"
             ]
             if records.keywords_of(surf_rec) != want_surf_kws:
                 problems.append(f"home surface LCTN keywords {records.keywords_of(surf_rec)} != {want_surf_kws}")
 
-        # W3 + WL1 + WL2: inspect FO4TerrainCore_Home.esm
+        # W3 + WL1 + WL2 + WB3: inspect FO4TerrainCore_Home.esm
         with esm.Plugin(home_reg_path) as reg:
             if len(reg.masters) < 3 or reg.masters[:2] != ["Starfield.esm", os.path.basename(home_master_path)]:
                 problems.append(f"{HOME_REGISTRATION} masters {reg.masters} invalid")
+            if any(m.lower() == "fo4wg1redrocket.esm" for m in reg.masters):
+                problems.append(f"{HOME_REGISTRATION} must never reference FO4WG1RedRocket.esm")
+            reg_group_order = list(reg.groups.keys())
+            canonical_reg_groups = [g for g in esm.GROUP_ORDER if g in reg.groups]
+            if reg_group_order != canonical_reg_groups:
+                problems.append(
+                    f"{HOME_REGISTRATION} top-group order {reg_group_order} != canonical Starfield order {canonical_reg_groups}"
+                )
             reg_pndts = list(reg.records("PNDT", [b"PNDT"]))
             reg_lctns = list(reg.records("LCTN", [b"LCTN"]))
             reg_wrlds = census.worlds(reg)
@@ -1603,9 +2083,11 @@ def check_home_stage(
                 if len(mws) != expected_world_count:
                     problems.append(f"{HOME_REGISTRATION} CNAM lists {len(mws)} worlds, expected {expected_world_count}")
 
-            want_reg_kws = [refs["keywords"]["LocTypeOverlay"]] + [
-                refs["keywords"][k] for k in expected_levers if k != "LocTypeOverlay"
+            want_reg_kws = [by_kw_edid["loctypeoverlay"]] + [
+                by_kw_edid[k.lower()] for k in expected_levers if k != "LocTypeOverlay"
             ]
+            silent_musc = resolve_edids_in_group(sf, "MUSC", ["_NONE"]).get("_NONE") if expected_wb3_mode == "ours" else None
+
             for wrec in reg_wrlds:
                 ov = census.overlay_of(wrec)
                 if ov is None or ov[0] != sid or ov[1] != pid:
@@ -1618,6 +2100,21 @@ def check_home_stage(
                 fnam_val = int.from_bytes(fnam_b, "little") if fnam_b else 0
                 if fnam_val & ~ALLOWED_WRLD_FNAM_BITS:
                     problems.append(f"WRLD {wrec.edid} FNAM {fnam_val:#04x} sets unproven bits")
+                if expected_wb3_mode == "ours":
+                    cnam_b = probe.top_level(wrec, b"CNAM")
+                    if not cnam_b or len(cnam_b) != 4:
+                        problems.append(f"WB3 failed: WRLD {wrec.edid} missing CNAM climate override")
+                    nam3_b = probe.top_level(wrec, b"NAM3")
+                    nam3_fid = struct.unpack("<I", nam3_b)[0] if nam3_b and len(nam3_b) == 4 else None
+                    if nam3_fid != ((1 << 24) | HOME_WATER):
+                        problems.append(f"WB3 failed: WRLD {wrec.edid} NAM3 {nam3_fid!r} != {(1 << 24) | HOME_WATER:#010x}")
+                    znam_b = probe.top_level(wrec, b"ZNAM")
+                    znam_fid = struct.unpack("<I", znam_b)[0] if znam_b and len(znam_b) == 4 else None
+                    if znam_fid != silent_musc:
+                        problems.append(f"WB3 failed: WRLD {wrec.edid} ZNAM {znam_fid!r} != {silent_musc!r}")
+                    mnam_b = probe.top_level(wrec, b"MNAM")
+                    if not mnam_b or mnam_b == bytes(16):
+                        problems.append(f"WB3 failed: WRLD {wrec.edid} MNAM map bounds remained zero")
 
             for lrec in reg_lctns:
                 pnam_b = lrec.get(b"PNAM")
@@ -1626,6 +2123,10 @@ def check_home_stage(
                     problems.append(f"LCTN {lrec.edid} PNAM {pnam_fid!r} != {(1 << 24) | SURFACE_LOC:#010x}")
                 if records.keywords_of(lrec) != want_reg_kws:
                     problems.append(f"LCTN {lrec.edid} keywords {records.keywords_of(lrec)} != {want_reg_kws}")
+                if expected_wb3_mode == "ours":
+                    ldata = lrec.get(b"DATA")
+                    if ldata != b"\x00" * 8:
+                        problems.append(f"WB3 failed: LCTN {lrec.edid} DATA {ldata!r} not cleared to zero")
 
             if map_markers_path:
                 mm_name = os.path.basename(map_markers_path)
@@ -1665,11 +2166,18 @@ def check_home_stage(
         "temp_c": round(phys.get("temp", 0.0), 2),
         "planet_keywords": [name for _, name in p_desc["keywords"]],
         "biome_formid": f"0x{(1 << 24) | BIOME:08X}",
+        "top_group_order": hm_group_order,
         "registration_records": want_total,
+        "biom_and_pndt_references": biom_pndt_refs,
         "field_sources": {
             "STDT": list(STAR_FIELD_SPEC),
             "PNDT": list(PLANET_FIELD_SPEC),
             "BIOM": list(BIOM_FIELD_SPEC),
+            "WTHR": list(wb_records.WTHR_FIELD_SPEC),
+            "CLMT": list(wb_records.CLMT_FIELD_SPEC),
+            "ATMO": list(wb_records.ATMO_FIELD_SPEC),
+            "LTEX": list(wb_records.LTEX_FIELD_SPEC),
+            "WB3_OVERRIDES": list(wb_records.WB3_OVERRIDE_SPEC),
         },
     }
     return problems, summary

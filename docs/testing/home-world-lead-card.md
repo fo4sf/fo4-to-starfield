@@ -4,18 +4,24 @@ Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`RECORDS ON
 
 ---
 
-## Card 1 — `W1`–`W4` Home Planet Swap Session & Merge-Offset Measurement (`TEST-STATION`)
+## Card 1 — `W1`–`W4` & `WB1`–`WB3` Home Planet Arrival, Weather/Sky, Outer-Ring FO4 Ground, & Override Walk (`TEST-STATION` / `OWNER TEST`)
 
-- **Scope & Label:** `FO4SFHome.esm` (`7` records: our own star `STDT`, `4` location chain records `system -> planet -> orbit -> surface`, `1.0 g` `24 h` `15 C` breathable `PNDT` with HUD `FULL = "Earth"` and non-colliding internal body `ANAM = "fo4sf_home_earth"`, and our own `"no-life, Starfield-patterned"` `FO4SFHomeBiome` `BIOM`, written field-by-field from `home_planet_spec.py` with zero whole-record copies; Starfield climate, sky, terrain pattern, surface tree, and ground texture remain Starfield references until `WB1`–`WB3` land) + `FO4TerrainCore_Home.esm` (`3` records: home `PNDT` `CNAM` registration, `WRLD 0x803` override, `LCTN 0x802` override) + dual `.biom` maps (`Data/PlanetData/BiomeMaps/fo4sf_home_earth.biom` and `Data/PlanetData/BiomeMaps/fo4sfhome.esm/fo4sf_home_earth.biom`, both labelled `TEST-STATION` under `C9` so vanilla `earth.biom` can never collide), installed reversibly via `scripts/planet/home_world_install.py`.
-- **Stage Placeholder:** `<home-stage>` (outside Git worktrees and game folders).
-- **Disk Space Need:** `~2 MiB` in `<game-dir>/Data` (`FO4SFHome - Main.ba2` `~1.3 MiB` + `FO4SFHome.esm` + `FO4TerrainCore_Home.esm` + `FO4SFHomeWorld.install.json` + `FO4SFHomeWorld.swap.json`).
-- **Active `Plugins.txt` Load List:** `*FO4Port.esm`, `*FO4TerrainCore.esm`, `*FO4SFMapMarkers.esm` (when kept active and pinned via `--map-markers`), `*FO4SFHome.esm`, `*FO4TerrainCore_Home.esm` (`FO4TerrainCore_Mars.esm` unticked automatically by `home_world_install.py`; any other plugin overriding `FO4TerrainCore.esm:000803` `WRLD`, such as `FO4SFMission.esm`, must be unticked during this raw host-swap probe).
+- **Scope & Label:**
+  - `FO4SFHome.esm` (`12` records in `Starfield.esm`'s canonical `GRUP` order under defaults: `FO4SFHomeGroundDirt01` `LTEX 0x80A` across all `7` biome `LNAM` slots, `FO4SFHomeClearWeather` `WTHR 0x807`, `FO4SFHomeClimate` `CLMT 0x808`, `FO4SFHomeDryWater` `WATR 0x80C`, `4` location chain records `LCTN 0x801..0x804`, `FO4SFHomeBiome` `BIOM 0x806` using smallest-relief `PatternStyleFieldsHillsFieldsFlat`, `FO4SFHomeAtmosphere` `ATMO 0x809`, `1.0 g` `24 h` `15 C` breathable `PNDT 0x805` omitting `SFTR` `FNAM` by default with HUD `FULL = "Earth"` and non-colliding `ANAM = "fo4sf_home_earth"`, and our own star `STDT 0x800`; zero whole-record copies and zero reference to `FO4WG1RedRocket.esm`).
+  - `FO4TerrainCore_Home.esm` (`3` records: home `PNDT` `CNAM` registration, `WRLD 0x803` override, `LCTN 0x802` override; all `WB3` inherited-field overrides — `CNAM` climate, `ZNAM` `_NONE` silence music, `NAM3` `FO4SFHomeDryWater`, `NAM4 = -200.0`, `DNAM = (-120.0, -200.0)`, `MNAM` `64 x 64`-cell bounds, `ONAM`, `FULL = "Commonwealth"`, and zeroed `LCTN.DATA` clearing `max_level = 16` — are labelled **`untested`** until Lead's probe, while `FO4TerrainCore.esm` stays untouched).
+  - Dual `.biom` maps (`Data/PlanetData/BiomeMaps/fo4sf_home_earth.biom` and `Data/PlanetData/BiomeMaps/fo4sfhome.esm/fo4sf_home_earth.biom`, both labelled `TEST-STATION` under `C9`) + converted Fallout 4 ground `.mat` and `_color`/`_normal`/`_rough` `.dds` maps in `<home-stage>/Data/` (never in Git), installed reversibly via `scripts/planet/home_world_install.py`.
+- **Paired Core (`WB3`):** Staged against the **installed `15`-door `FO4TerrainCore.esm`** in `<game-dir>/Data` (plus `--map-markers <game-dir>/Data/FO4SFMapMarkers.esm`). Do not install Card 4's `13`-door `<home-13door-stage>` onto the `15`-door core (`home_world_install.py` verifies the pinned `FO4TerrainCore.esm` SHA-256 and refuses core mismatches).
+- **Stage Placeholders:** `<home-stage>` (default installed-core stage), `<wb1-stage>` (`01-ours-clear-temperate`, `02-starfield-control`), `<wb2-stage>` (`01-fo4-ground-flat-nosftr`, `02-fo4-ground-flat-emptysftr`, `03-fo4-ground-hills-control`, `04-no-orbital-meshes-ours-sunp`), and `<fo4-ground-src>` (converted Fallout 4 ground `.dds` folder, outside Git).
+- **Disk Space Need:** `~5 MiB` in `<game-dir>/Data` per active swap (`FO4SFHome - Main.ba2` `~4.4 MiB` + `FO4SFHome.esm` + `FO4TerrainCore_Home.esm` + `FO4SFHomeWorld.install.json` + `FO4SFHomeWorld.swap.json`); `~32 MiB` on staging disk across `<home-stage>`, `<wb1-stage>`, and `<wb2-stage>`.
+- **Active `Plugins.txt` Load List:** `*FO4Port.esm`, `*FO4TerrainCore.esm` (installed `15`-door core), `*FO4SFMapMarkers.esm` (when kept active and pinned via `--map-markers`), `*FO4SFHome.esm`, `*FO4TerrainCore_Home.esm` (`FO4TerrainCore_Mars.esm` unticked automatically by `home_world_install.py`; any other plugin overriding `FO4TerrainCore.esm:000803` `WRLD`, such as `FO4SFMission.esm`, must be unticked during this raw host-swap probe).
 
-### Offline Stage & Load-Order Precheck (`W3` / `C3` Single-Override Rule)
-Stage against `<game-dir>/Data` (passing `--map-markers <game-dir>/Data/FO4SFMapMarkers.esm` when `FO4SFMapMarkers.esm` stays active so `FO4TerrainCore_Home.esm` adds `FO4SFMapMarkers.esm` as a master, merges all `312` `LCSR` rows into `FO4Core_CommonwealthLocation`, and pins `map_markers_sha256` in `plan.json`):
+### Offline Stage & Load-Order Precheck (`W3` / `C3` / `WB1`–`WB3`)
+Stage the default installed-core pair plus the `WB1` weather/sky and `WB2` ground/shape comparison variants (`make_home_planet.py check` prints every form `BIOM` and `PNDT` point at and confirms zero Starfield climate, weather, or atmosphere under defaults):
 
 ```powershell
-python scripts/planet/make_home_planet.py stage --data <game-dir>/Data --out <home-stage> --map-markers <game-dir>/Data/FO4SFMapMarkers.esm
+python scripts/planet/make_home_planet.py stage --data <game-dir>/Data --out <home-stage> --map-markers <game-dir>/Data/FO4SFMapMarkers.esm --ground-source-dir <fo4-ground-src>
+python scripts/planet/make_home_planet.py stage-wb1 --data <game-dir>/Data --out <wb1-stage> --map-markers <game-dir>/Data/FO4SFMapMarkers.esm --ground-source-dir <fo4-ground-src>
+python scripts/planet/make_home_planet.py stage-wb2 --data <game-dir>/Data --out <wb2-stage> --map-markers <game-dir>/Data/FO4SFMapMarkers.esm --ground-source-dir <fo4-ground-src>
 python scripts/planet/make_home_planet.py check --stage <home-stage> --data <game-dir>/Data
 ```
 
@@ -27,7 +33,7 @@ python scripts/planet/home_world_install.py install --dir <home-stage> --starfie
 python scripts/planet/home_world_install.py order --starfield <game-dir>
 ```
 
-### In-Game Probe Steps (2 Fresh Launches)
+### In-Game Probe Steps (2 Fresh Launches + `WB1`/`WB2` Variant Swaps)
 1. **Launch 1:** Load a clean test save, open the developer console, arrive at Red Rocket, wait for the exterior cell to settle, and read the player coordinates to compute `merge_offset = pos_read - spawn_local`:
 
 ```console
@@ -37,9 +43,10 @@ player.getpos y
 player.getpos z
 ```
 
-2. Verify persistent references in the Commonwealth (`FO4Core_CommonwealthMapMarkerVault111`, Vault 111 exterior pad anchors, Red Rocket references) loaded on `FO4SFHome.esm`.
-3. Walk past the `64`-cell core edge into the procedural ring and inspect the ground (`FO4SFHomeBiome` `"no-life, Starfield-patterned"` `LDirtFootprints01` via `PlanetData\BiomeMaps\fo4sf_home_earth.biom` vs probe run 1's `FrozenLife07` icy fallback).
+2. Verify persistent references in the Commonwealth (`FO4Core_CommonwealthMapMarkerVault111`, Vault 111 exterior pad anchors, Red Rocket references) loaded on `FO4SFHome.esm`, and verify `WB3`'s `untested` overrides (Commonwealth HUD location name, silent `_NONE` music, dry `-200 m` LOD water, cleared `LCTN` level cap).
+3. Walk past the `64`-cell core edge into the procedural ring and inspect our Fallout 4 ground texture (`FO4SFHomeGroundDirt01` via `PlanetData\BiomeMaps\fo4sf_home_earth.biom`) and gentle `38.11 m` `PatternStyleFieldsHillsFieldsFlat` relief.
 4. Quit completely, launch fresh (**Launch 2**), repeat step 1, and confirm the same whole-cell `merge_offset` across both launches.
+5. **`WB1` & `WB2` Variant Swap Sessions (Game Closed Between Swaps):** Run `undo`, then `install --dir <wb1-stage>/01-ours-clear-temperate` vs `<wb1-stage>/02-starfield-control`, and `<wb2-stage>/01-fo4-ground-flat-nosftr` vs `<wb2-stage>/02-fo4-ground-flat-emptysftr` vs `<wb2-stage>/03-fo4-ground-hills-control`, capturing comparison screenshots at identical time-of-day and coordinates.
 
 ### Exact Undo Command (Game Closed)
 Close `Starfield.exe` and restore `Data` + `Plugins.txt` (`*FO4TerrainCore_Mars.esm` re-ticked) byte-for-byte:
@@ -49,18 +56,27 @@ python scripts/planet/home_world_install.py undo --starfield <game-dir>
 python scripts/planet/home_world_install.py status --starfield <game-dir>
 ```
 
-### Expected PASS Output & Owner Judgments
+### Expected PASS Output
 
 ```text
 staged <home-stage>: plugins=['FO4SFHome.esm', 'FO4TerrainCore_Home.esm'], system_id=0x000F04F2, planet_id=1, body_name=fo4sf_home_earth, biome=01000806, levers=[]
+staged 2 WB1 variants under <wb1-stage>
+staged 4 WB2 variants under <wb2-stage>
 check: ok
 installed 3 files, plugins ['FO4SFHome.esm', 'FO4TerrainCore_Home.esm']
 uninstalled
 nothing installed
 ```
 
-- **Technical PASS:** Both fresh launches produce the same whole-cell `merge_offset`; core persistent references load in the Commonwealth on `FO4SFHome.esm`; HUD planet name reads `Earth` (`1.0 g`, `15 C`, breathable `O2`, zero Sol planets or locations in system).
-- **OWNER TEST (Visual, `R8`):** Sky look under default `ATMO_Jemison` vs optional `--sky ATMO_Earth`, and plain neutral dirt (`LDirtFootprints01`, zero Starfield flora/fauna/rocks/ice) past the `64`-cell edge.
+### `OWNER TEST` — `WB1` Weather & Sky Variants (`R8` — Owner Picks from Screenshots; No Variant Is Final)
+- **Variant 1 (`<wb1-stage>/01-ours-clear-temperate`, default):** Our own `FO4SFHomeClearWeather` (`WTHR 0x807`) + `FO4SFHomeClimate` (`CLMT 0x808`) + `FO4SFHomeAtmosphere` (`ATMO 0x809`, clear blue O2/N2 Rayleigh/Mie scattering, zero Starfield weather/sky forms).
+- **Control (`<wb1-stage>/02-starfield-control`):** Starfield `ClimateUniqueNewAtlantis` + `ATMO_Jemison`.
+
+### `OWNER TEST` — `WB2` Outer-Ring Fallout 4 Ground, Terrain Pattern, & Surface Tree Variants (`R8` — No Variant Is Final)
+- **Variant 1 (`<wb2-stage>/01-fo4-ground-flat-nosftr`, default):** Converted Fallout 4 dirt `FO4SFHomeGroundDirt01` (`LTEX 0x80A` in all `7` `LNAM` slots), smallest-relief `PatternStyleFieldsHillsFieldsFlat` (`38.11 m` max span), `PNDT` `SFTR` omitted (`--surface-tree none`).
+- **Variant 2 (`<wb2-stage>/02-fo4-ground-flat-emptysftr`):** Same Fallout 4 ground + `38.11 m` pattern, with our empty `FO4SFHomeSurfaceTree` (`SFTR 0x80B`, `--surface-tree ours_empty`).
+- **Control (`<wb2-stage>/03-fo4-ground-hills-control`):** Same Fallout 4 ground with Round-1 `PatternStyleHillsRockyFieldsRocky` (`372.61 m` max span) + `EarthSurfaceTree`.
+- **Minimalist Variant (`<wb2-stage>/04-no-orbital-meshes-ours-sunp`):** Omits orbital `MODL` unit spheres (`--orbital-meshes none`) and uses standalone `FO4SFHomeSunPreset` (`SUNP 0x80D`, `--sun-preset ours`).
 
 ---
 
@@ -193,16 +209,18 @@ uninstalled
 ## Card 4 — `I3` Start-Path 13 Exterior Doors Walk (`HELD FOR WB4` — Do NOT Install Round-1 `I3` Port)
 
 - **Scope & Hold Gate (`C6` — `HELD FOR WB4`):** Core door delta (`<i3-stage>/core`) promotes `13` existing placed exterior door references in place (`ConcordMuseum01`: `01D22F`, `01AC07`, `029AD8`; `ConcordCivicAccess01`: `04C3E0`, `04C3DE`, `02C9A5`; `ConcordFactory`: `0E3DAD`, `0E3DAB`, `0E3DA1`; `ConcordSpeakeasy`: `07895F`, `07895D`, `07895C`; `SanctuaryBasementJahani`: `0A36EB`) alongside the `15` kept doors (`28` total), keeping every existing `FO4TerrainCore.esm` FormID unchanged. **DO NOT INSTALL `<i3-stage>/port` from Round 1:** it was built on un-animated `interiors_b10` (`28` plain `FO4SF_LoadDoor`, `0` `FO4SF_AnimatedLoadDoor`; `interiors_b11` did not exist yet) and installing it would overwrite the owner's installed animated doors (`FO4SF_AnimatedLoadDoor`). Live swap-install is **HELD FOR `WB4`**, which rebuilds the `28`-door port on top of Lead's Interior Batch 11 `plugin` folder with `--keep-markers <i3-stage>/port/doors.json`, `--allow-new-doors`, and `--animated-doors <batch11-anim-manifest>`.
-- **Mars Planet-Record & Core Replacement Note (`C5` & `C7`):** When `WB4` runs, `<wb4-core-stage>` (`13`-door `FO4TerrainCore.esm` + `FO4TerrainCore_Mars.esm`, which overrides the whole `MarsPlanetData` `PNDT 0x0003F59A` record) **REPLACES the installed Commonwealth core experiment set for that swap session**, and `<wb4-port-stage>` replaces `FO4Port.esm` for that swap session.
-- **Stage Placeholders:** `<i3-stage>/core` and `<i3-stage>/port` (offline checks today); `<wb4-core-stage>`, `<wb4-port-stage>`, `<batch11-plugin-dir>`, `<batch11-anim-manifest>`, and `<cw-exp-dir>` / `<cw-plugins>` (once Interior Batch 11 and `WB4` are staged).
-- **Disk Space Need:** `0 B` installed in `<game-dir>/Data` today (`HELD FOR WB4`); `~3.8 GiB` during the future `WB4` swap session (`FO4TerrainCore - Main.ba2` + `FO4TerrainCore.esm` + `FO4TerrainCore_Mars.esm` + `WB4` `FO4Port.esm`).
-- **Active `Plugins.txt` Load List (Future `WB4` Session Only):** `*FO4Port.esm`, `*FO4TerrainCore.esm`, `*FO4TerrainCore_Mars.esm` (replacing the `15`-door Commonwealth core and base `FO4Port.esm` for that session).
+- **Mars Planet-Record & Core Replacement Note (`C5`, `C7`, & `WB3`):** When `WB4` runs, `<wb4-core-stage>` (`13`-door `FO4TerrainCore.esm` + `FO4TerrainCore_Mars.esm`, which overrides the whole `MarsPlanetData` `PNDT 0x0003F59A` record) **REPLACES the installed `15`-door Commonwealth core experiment set for that swap session**, and `<wb4-port-stage>` replaces `FO4Port.esm` for that swap session. If testing the `13`-door core on `FO4SFHome.esm` instead of Mars (`WB3`), stage and use the dedicated **`13`-door-core home pair** `<home-13door-stage>` (`--world-plugin-dir <i3-stage>/core`, NOT Card 1's `15`-door `<home-stage>`).
+- **Stage Placeholders:** `<i3-stage>/core`, `<i3-stage>/port`, and `<home-13door-stage>` (paired `WB3` home stage against the `13`-door `FO4TerrainCore.esm`, runnable offline today); `<wb4-core-stage>`, `<wb4-port-stage>`, `<batch11-plugin-dir>`, `<batch11-anim-manifest>`, and `<cw-exp-dir>` / `<cw-plugins>` (once Interior Batch 11 and `WB4` are staged).
+- **Disk Space Need:** `0 B` installed in `<game-dir>/Data` today (`HELD FOR WB4`); `~5 MiB` on staging disk for `<home-13door-stage>`; `~3.8 GiB` during the future `WB4` swap session (`FO4TerrainCore - Main.ba2` + `FO4TerrainCore.esm` + `FO4TerrainCore_Mars.esm` or `<home-13door-stage>` + `WB4` `FO4Port.esm`).
+- **Active `Plugins.txt` Load List (Future `WB4` Session Only):** `*FO4Port.esm`, `*FO4TerrainCore.esm` (`13`-door core), `*FO4TerrainCore_Mars.esm` (or `*FO4SFHome.esm`, `*FO4TerrainCore_Home.esm` from `<home-13door-stage>`), replacing the `15`-door Commonwealth core and base `FO4Port.esm` for that session.
 
-### Runnable Offline Verification Commands (Valid Today on `<i3-stage>` and on `WB4`)
+### Runnable Offline Verification Commands (Valid Today on `<i3-stage>` + `<home-13door-stage>` and on `WB4`)
 
 ```powershell
 python scripts/terrain/make_core64c.py compare-ids --out <i3-stage>/core --against <base-core-stage>
 python scripts/terrain/vmad_patch.py check --port <base-port-plugin-dir> --out <i3-stage>/port --core <i3-stage>/core
+python scripts/planet/make_home_planet.py stage --data <game-dir>/Data --out <home-13door-stage> --world-plugin-dir <i3-stage>/core --ground-source-dir <fo4-ground-src>
+python scripts/planet/make_home_planet.py check --stage <home-13door-stage> --data <game-dir>/Data --world-plugin-dir <i3-stage>/core
 ```
 
 ### `WB4` Rebuild, Install, Judge, and Undo Commands (Run Only After Interior Batch 11 Lands)

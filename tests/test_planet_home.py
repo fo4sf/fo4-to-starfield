@@ -4,7 +4,9 @@
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -22,19 +24,25 @@ for sub in ("src", "scripts/planet", "scripts/terrain"):
         sys.path.insert(0, p)
 
 from fo4_world_census import CensusPathError  # noqa: E402
-from fo4sf.planet import biom, esm, home_planet_spec as hspec, probe, records  # noqa: E402
+from fo4sf.planet import biom, esm, home_planet_spec as hspec, probe, records, wb_records  # noqa: E402
 import make_home_planet  # noqa: E402
 import sf_location_census  # noqa: E402
 
-# R12 control SHA-256 pins from Round-1 head b7dc7f52 (--body-name Earth control variant)
+# R12 control SHA-256 pins from Round-1 head b7dc7f52 (--control-b7dc7f52 preset)
 B7DC7F52_HOME_MASTER_SHA256 = "513a0a1ef0bfa4bde6c83f9611ba1715a2081da0c8d2a0dd4be272c768291f5c"
 B7DC7F52_HOME_REG_SHA256 = "31f180babafa7e7c57a3d1aef888b558cd54735c9e417cbac643965aa5412596"
 B7DC7F52_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
 
-# parity not applicable: ordered by C9 (default PNDT ANAM changed from 'Earth' to non-colliding 'fo4sf_home_earth')
+# parity not applicable: ordered by C9 (non-colliding PNDT ANAM 'fo4sf_home_earth' on Starfield-patterned control)
 C9_DEFAULT_HOME_MASTER_SHA256 = "4a206130c7a2aefa04295359ce1b6fb91604498a86ce695e789373d4f1077b0b"
 C9_DEFAULT_HOME_REG_SHA256 = "53a52534c0497bb20a392eb835a19fafeffe5d19c8140d110cf221073c091a64"
 C9_DEFAULT_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
+
+# parity not applicable: ordered by WB1, WB2, WB3 (default weather, sky, FO4 ground LTEX, smallest PTST, WB3 overrides)
+WB1_WB3_DEFAULT_HOME_MASTER_SHA256 = "c09fe96cb47fc6c382bb334f832703f92b6e256d32e9b7e51747d44c8727af7c"
+WB1_WB3_DEFAULT_HOME_REG_SHA256 = "41d4f384a1f0ff654ef411c5acf011d9685becb356d15c5918e3d3478226f6d6"
+WB1_WB3_DEFAULT_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
+WB1_WB3_DEFAULT_HOME_MAT_SHA256 = "f325b12538068a66a48dbc9996ebbf5969f8005d9d1cd11d636d1bfc293378a4"
 
 
 def _build_synthetic_starfield_data(data_dir: Path) -> Path:
@@ -84,6 +92,10 @@ def _build_synthetic_starfield_data(data_dir: Path) -> Path:
     w.add(esm.Record(b"ATMO", 0x00C9D1, [(b"EDID", esm.zbytes("ATMO_Earth"))]))
     w.add(esm.Record(b"SFTR", 0x1B6C63, [(b"EDID", esm.zbytes("EarthSurfaceTree"))]))
     w.add(esm.Record(b"PTST", 0x23DE7E, [(b"EDID", esm.zbytes("PatternStyleHillsRockyFieldsRocky"))]))
+    w.add(esm.Record(b"PTST", 0x23DECE, [(b"EDID", esm.zbytes("PatternStyleFieldsHillsFieldsFlat"))]))
+    w.add(esm.Record(b"PTST", 0x0EEA98, [(b"EDID", esm.zbytes("PatternStyleFieldsMixed"))]))
+    w.add(esm.Record(b"MATT", 0x012F3E, [(b"EDID", esm.zbytes("MaterialDirtlSand"))]))
+    w.add(esm.Record(b"MUSC", 0x01BA72, [(b"EDID", esm.zbytes("_NONE"))]))
     w.add(esm.Record(b"SUNP", 0x134249, [(b"EDID", esm.zbytes("SunPresetTypeG2"))]))
 
     w.add(esm.Record(b"LCTN", 0x01A53A, [(b"EDID", esm.zbytes("Universe"))]))
@@ -246,12 +258,12 @@ class HomePlanetSpecTests(unittest.TestCase):
             self.assertTrue(bpath.is_file(), rel)
             self.assertEqual(bpath.stat().st_size, 655406)
 
-    def test_r12_b7dc7f52_earth_control_and_c9_default_pinned_sha256(self) -> None:
-        # 1. Named b7dc7f52 control variant (--body-name Earth) reproduces exact Round-1 bytes
+    def test_r12_b7dc7f52_earth_control_and_wb1_wb3_default_pinned_sha256(self) -> None:
+        # 1. Named b7dc7f52 control preset (--control-b7dc7f52) reproduces exact Round-1 bytes
         ctrl_dir = self.out_root / "r12-b7dc7f52-control"
         self.assertEqual(
             make_home_planet.main(
-                ["stage", "--data", str(self.data_dir), "--out", str(ctrl_dir), "--body-name", "Earth"]
+                ["stage", "--data", str(self.data_dir), "--out", str(ctrl_dir), "--control-b7dc7f52"]
             ),
             0,
         )
@@ -268,25 +280,66 @@ class HomePlanetSpecTests(unittest.TestCase):
             B7DC7F52_HOME_BIOM_SHA256,
         )
 
-        # 2. parity not applicable: ordered by C9 (default --body-name fo4sf_home_earth)
-        def_dir = self.out_root / "r12-c9-default"
+        # 2. C9 control (fo4sf_home_earth with Starfield-patterned control switches)
+        c9_dir = self.out_root / "r12-c9-control"
+        self.assertEqual(
+            make_home_planet.main(
+                [
+                    "stage",
+                    "--data",
+                    str(self.data_dir),
+                    "--out",
+                    str(c9_dir),
+                    "--climate",
+                    "ClimateUniqueNewAtlantis",
+                    "--sky",
+                    "ATMO_Jemison",
+                    "--ground-ltex",
+                    "LDirtFootprints01",
+                    "--pattern",
+                    "PatternStyleHillsRockyFieldsRocky",
+                    "--surface-tree",
+                    "EarthSurfaceTree",
+                    "--wb3-mode",
+                    "passthrough",
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(
+            hashlib.sha256((c9_dir / hspec.HOME_MASTER).read_bytes()).hexdigest(),
+            C9_DEFAULT_HOME_MASTER_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256((c9_dir / hspec.HOME_REGISTRATION).read_bytes()).hexdigest(),
+            C9_DEFAULT_HOME_REG_SHA256,
+        )
+
+        # 3. parity not applicable: ordered by WB1, WB2, WB3 (new default build)
+        def_dir = self.out_root / "r12-wb1-wb3-default"
         self.assertEqual(
             make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(def_dir)]),
             0,
         )
         self.assertEqual(
             hashlib.sha256((def_dir / hspec.HOME_MASTER).read_bytes()).hexdigest(),
-            C9_DEFAULT_HOME_MASTER_SHA256,
+            WB1_WB3_DEFAULT_HOME_MASTER_SHA256,
         )
         self.assertEqual(
             hashlib.sha256((def_dir / hspec.HOME_REGISTRATION).read_bytes()).hexdigest(),
-            C9_DEFAULT_HOME_REG_SHA256,
+            WB1_WB3_DEFAULT_HOME_REG_SHA256,
         )
         self.assertEqual(
             hashlib.sha256(
                 (def_dir / "Data" / "PlanetData" / "BiomeMaps" / "fo4sf_home_earth.biom").read_bytes()
             ).hexdigest(),
-            C9_DEFAULT_HOME_BIOM_SHA256,
+            WB1_WB3_DEFAULT_HOME_BIOM_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                (def_dir / "Data" / "materials" / "terrain" / "FO4SFHomeGroundDirt01.mat").read_bytes()
+            ).hexdigest(),
+            WB1_WB3_DEFAULT_HOME_MAT_SHA256,
         )
 
     def test_w2_system_id_bumps_when_preferred_id_is_taken_in_data(self) -> None:
@@ -505,7 +558,7 @@ class HomePlanetSpecTests(unittest.TestCase):
         plan = make_home_planet.load_plan(str(stage_dir))
         self.assertEqual(plan["map_markers_plugin"], "FO4SFMapMarkers.esm")
         self.assertEqual(plan["map_markers_sha256"], mm_sha)
-        self.assertEqual(plan["biome_profile"], "no-life, Starfield-patterned")
+        self.assertEqual(plan["biome_profile"], "our-weather-sky-fo4-ground")
 
         with esm.Plugin(str(stage_dir / hspec.HOME_REGISTRATION)) as reg:
             self.assertEqual(
@@ -537,6 +590,179 @@ class HomePlanetSpecTests(unittest.TestCase):
         mm_w2.write(str(mm_path), compress=False)
         self.assertEqual(
             make_home_planet.main(["check", "--stage", str(stage_dir), "--data", str(self.data_dir)]),
+            1,
+        )
+
+    def test_wb_canonical_top_group_order_matches_starfield_esm_order(self) -> None:
+        # Stage with all optional WB record types enabled (LTEX, WTHR, CLMT, WATR, LCTN, BIOM, ATMO, SFTR, PNDT, STDT, SUNP)
+        stage_dir = self.out_root / "group-order-stage"
+        self.assertEqual(
+            make_home_planet.main(
+                [
+                    "stage",
+                    "--data",
+                    str(self.data_dir),
+                    "--out",
+                    str(stage_dir),
+                    "--surface-tree",
+                    "ours_empty",
+                    "--sun-preset",
+                    "ours",
+                ]
+            ),
+            0,
+        )
+        raw_master = (stage_dir / hspec.HOME_MASTER).read_bytes()
+        tes4_size = struct.unpack_from("<I", raw_master, 4)[0]
+        off = 24 + tes4_size
+        raw_groups: list[str] = []
+        while off < len(raw_master):
+            sig, gsize, label = struct.unpack_from("<4sI4s", raw_master, off)
+            self.assertEqual(sig, b"GRUP")
+            raw_groups.append(label.decode("ascii"))
+            off += gsize
+
+        expected_master_groups = [
+            "LTEX",
+            "WTHR",
+            "CLMT",
+            "WATR",
+            "LCTN",
+            "BIOM",
+            "ATMO",
+            "SFTR",
+            "PNDT",
+            "STDT",
+            "SUNP",
+        ]
+        self.assertEqual(raw_groups, expected_master_groups)
+        self.assertEqual(raw_groups, [g for g in esm.GROUP_ORDER if g in raw_groups])
+
+        with esm.Plugin(str(stage_dir / hspec.HOME_REGISTRATION)) as reg:
+            self.assertEqual(list(reg.groups.keys()), ["WRLD", "LCTN", "PNDT"])
+
+    def test_wb1_own_weather_climate_and_atmosphere_have_zero_starfield_weather_or_sky_forms(self) -> None:
+        wb1_dir = self.out_root / "wb1-variants"
+        self.assertEqual(
+            make_home_planet.main(["stage-wb1", "--data", str(self.data_dir), "--out", str(wb1_dir)]),
+            0,
+        )
+        wb1_summary = json.loads((wb1_dir / "wb1_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual([v["variant"] for v in wb1_summary["variants"]], ["01-ours-clear-temperate", "02-starfield-control"])
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = make_home_planet.main(
+                ["check", "--stage", str(wb1_dir / "01-ours-clear-temperate"), "--data", str(self.data_dir)]
+            )
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("=== BIOM & PNDT Form References ===", out)
+        self.assertIn("FO4SFHome.esm:CLMT 0x01000808 (FO4SFHomeClimate)", out)
+        self.assertIn("FO4SFHome.esm:WTHR 0x01000807 (FO4SFHomeClearWeather)", out)
+        self.assertIn("FO4SFHome.esm:ATMO 0x01000809 (FO4SFHomeAtmosphere)", out)
+        for forbidden in ("Starfield.esm:CLMT", "Starfield.esm:WTHR", "Starfield.esm:WTHS", "Starfield.esm:ATMO"):
+            self.assertNotIn(forbidden, out)
+
+        with esm.Plugin(str(wb1_dir / "01-ours-clear-temperate" / hspec.HOME_MASTER)) as hm:
+            atmo_rec = next(r for r in hm.records("ATMO"))
+            self.assertIsNone(atmo_rec.get(b"RFDP"))
+            self.assertEqual(wb_records.inspect_beth_refl_formids(atmo_rec.get(b"REFL")), [])
+
+    def test_wb2_own_fo4_ground_ltex_all_seven_slots_and_surface_tree_variants(self) -> None:
+        wb2_dir = self.out_root / "wb2-variants"
+        self.assertEqual(
+            make_home_planet.main(["stage-wb2", "--data", str(self.data_dir), "--out", str(wb2_dir)]),
+            0,
+        )
+        wb2_summary = json.loads((wb2_dir / "wb2_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(wb2_summary["variants"]), 4)
+
+        v1 = wb2_dir / "01-fo4-ground-flat-nosftr"
+        self.assertTrue((v1 / "Data" / "materials" / "terrain" / "FO4SFHomeGroundDirt01.mat").is_file())
+        for kind in ("color", "normal", "rough"):
+            self.assertTrue(
+                (v1 / "Data" / "textures" / "fo4sfhome" / "landscape" / "ground" / f"fo4sfhomegrounddirt01_{kind}.dds").is_file()
+            )
+        with esm.Plugin(str(v1 / hspec.HOME_MASTER)) as hm:
+            self.assertNotIn("FO4WG1RedRocket.esm", hm.masters)
+            biom_rec = next(r for r in hm.records("BIOM"))
+            pndt_rec = next(r for r in hm.records("PNDT"))
+            ltex_rec = next(r for r in hm.records("LTEX"))
+            self.assertEqual(ltex_rec.formid, 0x0100080A)
+            lnams = [struct.unpack("<3I", d) for d in biom_rec.all(b"LNAM")]
+            self.assertEqual(lnams, [(slot, 0x0100080A, 0) for slot in range(7)])
+            self.assertIsNone(wb_records.pndt_surface_tree_fnam(pndt_rec))
+
+        v2 = wb2_dir / "02-fo4-ground-flat-emptysftr"
+        with esm.Plugin(str(v2 / hspec.HOME_MASTER)) as hm2:
+            pndt2 = next(r for r in hm2.records("PNDT"))
+            self.assertEqual(struct.unpack("<I", wb_records.pndt_surface_tree_fnam(pndt2))[0], 0x0100080B)
+
+    def test_wb3_registration_overrides_clear_lc172_fields_without_editing_core_and_check_core_pairing(self) -> None:
+        core_path = self.data_dir / "FO4TerrainCore.esm"
+        core_sha_before = hashlib.sha256(core_path.read_bytes()).hexdigest()
+
+        stage_dir = self.out_root / "wb3-installed-core"
+        self.assertEqual(
+            make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(stage_dir)]),
+            0,
+        )
+        self.assertEqual(hashlib.sha256(core_path.read_bytes()).hexdigest(), core_sha_before)
+        plan = make_home_planet.load_plan(str(stage_dir))
+        self.assertEqual(plan["wb3_status"], "untested")
+
+        with esm.Plugin(str(stage_dir / hspec.HOME_REGISTRATION)) as reg:
+            wrld = next(
+                reg.record_at(it[1])
+                for st, en in reg.groups.get("WRLD", [])
+                for it in reg.walk(st, en, groups=set())
+                if it[0] == "REC"
+            )
+            lctn = next(r for r in reg.records("LCTN"))
+            self.assertEqual(esm.zstring(probe.top_level(wrld, b"FULL")), "Commonwealth")
+            self.assertEqual(struct.unpack("<I", probe.top_level(wrld, b"CNAM"))[0], 0x01000808)
+            self.assertEqual(struct.unpack("<I", probe.top_level(wrld, b"NAM3"))[0], 0x0100080C)
+            self.assertEqual(struct.unpack("<I", probe.top_level(wrld, b"ZNAM"))[0], 0x0001BA72)
+            self.assertEqual(struct.unpack("<IIhhhh", probe.top_level(wrld, b"MNAM")), (6400, 6400, -32, 31, 31, -32))
+            self.assertEqual(esm.zstring(lctn.get(b"FULL")), "Commonwealth")
+            self.assertEqual(lctn.get(b"DATA"), b"\x00" * 8)
+
+        # Stage against an alternate (13-door) core directory and verify core-pairing check
+        alt_core_dir = self.root / "alt_13door_core"
+        alt_core_dir.mkdir(parents=True, exist_ok=True)
+        alt_cw = esm.PluginWriter(["Starfield.esm"], esm.ESM, author="13door")
+        with esm.Plugin(str(core_path)) as orig_cw:
+            for grp in orig_cw.groups:
+                for it in orig_cw.walk(*orig_cw.groups[grp][0], groups=set()):
+                    if it[0] == "REC":
+                        alt_cw.add(orig_cw.record_at(it[1]).copy())
+        alt_cw.write(str(alt_core_dir / "FO4TerrainCore.esm"), compress=False)
+
+        stage_13 = self.out_root / "wb3-13door-core"
+        self.assertEqual(
+            make_home_planet.main(
+                [
+                    "stage",
+                    "--data",
+                    str(self.data_dir),
+                    "--out",
+                    str(stage_13),
+                    "--world-plugin-dir",
+                    str(alt_core_dir),
+                ]
+            ),
+            0,
+        )
+        # Check with --world-plugin-dir passes; check against mismatched Data/ core without --world-plugin-dir fails!
+        self.assertEqual(
+            make_home_planet.main(
+                ["check", "--stage", str(stage_13), "--data", str(self.data_dir), "--world-plugin-dir", str(alt_core_dir)]
+            ),
+            0,
+        )
+        self.assertEqual(
+            make_home_planet.main(["check", "--stage", str(stage_13), "--data", str(self.data_dir)]),
             1,
         )
 

@@ -1,14 +1,22 @@
-"""Stage and verify our isolated home star system, home planet, `"no-life, Starfield-patterned"` biome
-(`FO4SFHome.esm`, until `WB1`–`WB3` replace the remaining Starfield climate/sky/pattern/ground references),
-and single host registration plugin (`FO4TerrainCore_Home.esm`), plus `WL1` location-lever variants.
+"""Stage and verify our isolated home star system, home planet, our own weather/sky/Fallout-4-ground biome
+(`FO4SFHome.esm`, `WB1`–`WB2`), and single host registration plugin (`FO4TerrainCore_Home.esm`, `WB3`),
+plus `WL1`, `WB1`, and `WB2` swap-session comparison variants.
 
 Usage:
   python scripts/planet/make_home_planet.py stage --data <Starfield Data> --out <stage dir>
       [--worlds Commonwealth] [--star-name "FO4SF Home"] [--planet-name "Earth"]
-      [--body-name "fo4sf_home_earth"] [--temp 15.0] [--sky ATMO_Jemison|ATMO_Earth]
+      [--body-name "fo4sf_home_earth"] [--temp 15.0]
+      [--climate ours|ours_empty|ClimateUniqueNewAtlantis|DefaultClimate]
+      [--sky ours|ATMO_Jemison|ATMO_Earth] [--ground-ltex ours|LDirtFootprints01]
+      [--ground-source-dir <converted FO4 ground dir>]
+      [--pattern PatternStyleFieldsHillsFieldsFlat|PatternStyleFieldsMixed|PatternStyleHillsRockyFieldsRocky]
+      [--surface-tree none|ours_empty|EarthSurfaceTree] [--wb3-mode ours|passthrough]
+      [--sun-preset SunPresetTypeG2|ours] [--orbital-meshes starfield|none] [--control-b7dc7f52]
       [--lever-keywords K1,K2] [--world-plugin-dir <extra dir>] [--map-markers <FO4SFMapMarkers.esm>]
   python scripts/planet/make_home_planet.py check --stage <stage dir> [--data <Starfield Data>]
   python scripts/planet/make_home_planet.py stage-wl1 --data <Starfield Data> --out <variants dir>
+  python scripts/planet/make_home_planet.py stage-wb1 --data <Starfield Data> --out <variants dir>
+  python scripts/planet/make_home_planet.py stage-wb2 --data <Starfield Data> --out <variants dir>
 
 Refuses any output path inside a Git worktree or inside a game installation directory (`R4`).
 Never modifies `FO4TerrainCore.esm`, `FO4SFMapMarkers.esm`, or any file in `<Starfield Data>`.
@@ -21,7 +29,7 @@ import hashlib
 import json
 import os
 import sys
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -31,7 +39,7 @@ if os.path.join(REPO, "scripts", "terrain") not in sys.path:
     sys.path.insert(0, os.path.join(REPO, "scripts", "terrain"))
 
 from fo4_world_census import CensusPathError, refuse_unsafe_output_path  # noqa: E402
-from fo4sf.planet import biom, esm, home_planet_spec as hspec, records  # noqa: E402
+from fo4sf.planet import biom, esm, home_planet_spec as hspec, records, wb_records  # noqa: E402
 import sf_location_census  # noqa: E402
 
 PLAN_KIND = "home-world"
@@ -43,6 +51,52 @@ WL1_VARIANTS: Sequence[tuple[str, Sequence[str]]] = (
     ("04-LocTypeNoPCMCreatureContent", ("LocTypeNoPCMCreatureContent",)),
     ("05-LocTypeSENotAllowed", ("LocTypeSENotAllowed",)),
     ("06-all5", hspec.LEVER_KEYWORD_EDIDS),
+)
+WB1_VARIANTS: Sequence[Tuple[str, str, str]] = (
+    ("01-ours-clear-temperate", "ours", "ours"),
+    ("02-starfield-control", "ClimateUniqueNewAtlantis", "ATMO_Jemison"),
+)
+WB2_VARIANTS: Sequence[Tuple[str, Dict[str, str]]] = (
+    (
+        "01-fo4-ground-flat-nosftr",
+        {
+            "ground_ltex": "ours",
+            "pattern_style": wb_records.DEFAULT_TERRAIN_PATTERN_EDID,
+            "surface_tree": "none",
+            "sun_preset": "SunPresetTypeG2",
+            "orbital_meshes": "starfield",
+        },
+    ),
+    (
+        "02-fo4-ground-flat-emptysftr",
+        {
+            "ground_ltex": "ours",
+            "pattern_style": wb_records.DEFAULT_TERRAIN_PATTERN_EDID,
+            "surface_tree": "ours_empty",
+            "sun_preset": "SunPresetTypeG2",
+            "orbital_meshes": "starfield",
+        },
+    ),
+    (
+        "03-fo4-ground-hills-control",
+        {
+            "ground_ltex": "ours",
+            "pattern_style": wb_records.CONTROL_TERRAIN_PATTERN_EDID,
+            "surface_tree": "EarthSurfaceTree",
+            "sun_preset": "SunPresetTypeG2",
+            "orbital_meshes": "starfield",
+        },
+    ),
+    (
+        "04-no-orbital-meshes-ours-sunp",
+        {
+            "ground_ltex": "ours",
+            "pattern_style": wb_records.DEFAULT_TERRAIN_PATTERN_EDID,
+            "surface_tree": "none",
+            "sun_preset": "ours",
+            "orbital_meshes": "none",
+        },
+    ),
 )
 
 
@@ -104,6 +158,15 @@ def stage_one(
     lever_keywords: Sequence[str] = (),
     extra_world_dirs: Sequence[str] = (),
     map_markers_path: str = "",
+    *,
+    climate: str = hspec.DEFAULT_CLIMATE,
+    ground_ltex: str = hspec.DEFAULT_GROUND_LTEX,
+    ground_source_dir: str = "",
+    pattern_style: str = hspec.DEFAULT_TERRAIN_PATTERN,
+    surface_tree: str = hspec.DEFAULT_SURFACE_TREE,
+    wb3_mode: str = hspec.DEFAULT_WB3_MODE,
+    sun_preset: str = hspec.DEFAULT_SUN_PRESET,
+    orbital_meshes: str = hspec.DEFAULT_ORBITAL_MESHES,
 ) -> Dict[str, Any]:
     final = os.path.abspath(out_dir)
     sf_path = os.path.join(os.path.abspath(data_dir), "Starfield.esm")
@@ -114,8 +177,12 @@ def stage_one(
     if mm_abs and not os.path.isfile(mm_abs):
         raise FileNotFoundError(f"map-markers plugin not found: {map_markers_path}")
 
+    ground_src_abs = os.path.abspath(ground_source_dir) if ground_source_dir else ""
+    if ground_src_abs and not os.path.isdir(ground_src_abs):
+        raise FileNotFoundError(f"ground-source-dir not found: {ground_source_dir}")
+
     search_dirs = [os.path.abspath(d) for d in extra_world_dirs if d] + [os.path.abspath(data_dir)]
-    guard_inputs = [sf_path] + ([mm_abs] if mm_abs else []) + search_dirs
+    guard_inputs = [sf_path] + ([mm_abs] if mm_abs else []) + ([ground_src_abs] if ground_src_abs else []) + search_dirs
     refuse_unsafe_output_path(final, guard_inputs)
     if os.path.exists(final):
         raise FileExistsError(f"{final} already exists; stage into a new folder")
@@ -137,6 +204,13 @@ def stage_one(
             temp_c=temp_c,
             sky_atmo=sky_atmo,
             lever_keywords=lever_keywords,
+            climate=climate,
+            ground_ltex=ground_ltex,
+            pattern_style=pattern_style,
+            surface_tree=surface_tree,
+            sun_preset=sun_preset,
+            orbital_meshes=orbital_meshes,
+            wb3_mode=wb3_mode,
         )
         master_path = os.path.join(partial, hspec.HOME_MASTER)
         master_writer.write(master_path, compress=False)
@@ -148,6 +222,7 @@ def stage_one(
             world_keys=worlds,
             lever_keywords=lever_keywords,
             map_markers_path=mm_abs or None,
+            wb3_mode=wb3_mode,
         )
         reg_path = os.path.join(partial, hspec.HOME_REGISTRATION)
         reg_writer.write(reg_path, compress=False)
@@ -165,6 +240,14 @@ def stage_one(
     biome_fid = (1 << 24) | hspec.BIOME
     biome_map_report = biom.stage_uniform_biome_map(biome_fid, clean_body_name, hspec.HOME_MASTER, partial)
 
+    ground_assets_report: Optional[Dict[str, Any]] = None
+    if ground_ltex == "ours":
+        ground_assets_report = wb_records.stage_home_ground_assets(
+            partial,
+            edid=wb_records.DEFAULT_GROUND_LTEX_EDID,
+            ground_source_dir=ground_src_abs,
+        )
+
     problems, check_summary = hspec.check_home_stage(
         sf_path,
         master_path,
@@ -173,6 +256,11 @@ def stage_one(
         expected_world_count=len(worlds),
         expected_levers=lever_keywords,
         map_markers_path=mm_abs or None,
+        expected_climate=climate,
+        expected_sky=sky_atmo,
+        expected_ground_ltex=ground_ltex,
+        expected_surface_tree=surface_tree,
+        expected_wb3_mode=wb3_mode,
     )
     if problems:
         raise records.PlanetError(f"home stage check failed: {problems}")
@@ -201,6 +289,11 @@ def stage_one(
             "sha256": mm_sha_before,
             "bytes": os.path.getsize(mm_abs),
         }
+    biome_profile = (
+        "our-weather-sky-fo4-ground"
+        if (climate in ("ours", "ours_empty") and sky_atmo == "ours" and ground_ltex == "ours")
+        else "no-life, Starfield-patterned"
+    )
     plan: Dict[str, Any] = {
         "kind": PLAN_KIND,
         "version": 1,
@@ -213,13 +306,22 @@ def stage_one(
         "planet_name": planet_name,
         "body_name": clean_body_name,
         "temp_c": float(temp_c),
+        "climate": climate,
         "sky_atmo": sky_atmo,
-        "biome_profile": "no-life, Starfield-patterned",
+        "ground_ltex": ground_ltex,
+        "pattern_style": pattern_style,
+        "surface_tree": surface_tree,
+        "wb3_mode": wb3_mode,
+        "wb3_status": "untested" if wb3_mode == "ours" else "passthrough",
+        "sun_preset": sun_preset,
+        "orbital_meshes": orbital_meshes,
+        "biome_profile": biome_profile,
         "system_id": master_report["system_id"],
         "planet_id": master_report["planet_id"],
         "biome_formid": reg_report["biome_formid"],
         "surface_location_formid": reg_report["surface_parent_formid"],
         "biome_map": biome_map_report,
+        "ground_assets": ground_assets_report,
         "map_markers_plugin": mm_name,
         "map_markers_sha256": mm_sha_before,
         "inputs": inputs_doc,
@@ -234,11 +336,12 @@ def stage_one(
             "master": master_report,
             "registration": reg_report,
             "biome_map": biome_map_report,
+            "ground_assets": ground_assets_report,
         },
     )
     write_json(os.path.join(partial, "plan.json"), plan)
 
-    verify_probs = verify_stage(partial, plan, data_dir)
+    verify_probs = verify_stage(partial, plan, data_dir, extra_world_dirs=extra_world_dirs)
     if verify_probs:
         raise records.PlanetError(f"stage post-verification failed: {verify_probs}")
 
@@ -257,8 +360,14 @@ def load_plan(stage_dir: str) -> Dict[str, Any]:
     return plan
 
 
-def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] = None) -> List[str]:
-    """Verify staged file hashes, `.biom` paths and binary validity, and `W2`/`W3`/`W4`/`WL1`/`WL2` checks."""
+def verify_stage(
+    stage_dir: str,
+    plan: Dict[str, Any],
+    data_dir: Optional[str] = None,
+    *,
+    extra_world_dirs: Sequence[str] = (),
+) -> List[str]:
+    """Verify staged file hashes, `.biom` paths, `WB1`–`WB3` ground/weather/sky/override invariants, and `W2`–`WL2` checks."""
     problems: List[str] = []
     now = stage_files_inventory(stage_dir)
     for rel, expected_sha in plan["outputs"].items():
@@ -294,11 +403,36 @@ def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] =
             if face["resource_values"] != [0]:
                 problems.append(f"{rel} face {fidx} has non-zero resource bytes {face['resource_values']}")
 
+    # WB2: verify staged Fallout 4 ground .mat + .dds assets when ground_ltex == 'ours'
+    if plan.get("ground_ltex") == "ours":
+        ginfo = plan.get("ground_assets") or {}
+        gfiles = ginfo.get("files") or []
+        if len(gfiles) != 4:
+            problems.append(f"WB2 ground_assets expected 4 files (.mat + 3 .dds), got {gfiles!r}")
+        for rel in gfiles:
+            full = os.path.join(stage_dir, *rel.split("/"))
+            if not os.path.isfile(full):
+                problems.append(f"WB2 ground asset missing: {rel}")
+            elif rel.lower().endswith(".mat"):
+                try:
+                    with open(full, encoding="utf-8") as mf:
+                        mdoc = json.load(mf)
+                    if "Summary" not in mdoc:
+                        problems.append(f"WB2 ground material {rel} missing Summary")
+                except (OSError, ValueError) as exc:
+                    problems.append(f"WB2 ground material {rel} invalid JSON: {exc}")
+
     master_path = os.path.join(stage_dir, hspec.HOME_MASTER)
     reg_path = os.path.join(stage_dir, hspec.HOME_REGISTRATION)
     for label, ppath in ((hspec.HOME_MASTER, master_path), (hspec.HOME_REGISTRATION, reg_path)):
         if os.path.isfile(ppath):
             with esm.Plugin(ppath) as plug:
+                if any(m.lower() == "fo4wg1redrocket.esm" for m in plug.masters):
+                    problems.append(f"{label} references forbidden FO4WG1RedRocket.esm")
+                grp_order = list(plug.groups.keys())
+                want_grp_order = [g for g in esm.GROUP_ORDER if g in plug.groups]
+                if grp_order != want_grp_order:
+                    problems.append(f"{label} top-group order {grp_order} != canonical {want_grp_order}")
                 pndts = list(plug.records("PNDT", [b"PNDT"]))
                 if pndts:
                     anam_b = records.body_get(pndts[0].subs, b"ANAM")
@@ -317,10 +451,14 @@ def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] =
         if pinned_sf and sf_sha != pinned_sf:
             problems.append(f"Starfield.esm changed since stage ({sf_sha} != {pinned_sf})")
         pinned_worlds = ((plan.get("inputs") or {}).get("world_plugins") or {})
+        world_search = [os.path.abspath(d) for d in extra_world_dirs if d] + [os.path.abspath(data_dir)]
         for wname, wsha in pinned_worlds.items():
-            wp = os.path.join(data_dir, wname)
-            if os.path.isfile(wp) and sha256_file(wp) != wsha:
-                problems.append(f"{wname} changed since stage ({sha256_file(wp)} != {wsha})")
+            for wdir in world_search:
+                wp = os.path.join(wdir, wname)
+                if os.path.isfile(wp):
+                    if sha256_file(wp) != wsha:
+                        problems.append(f"{wname} changed since stage ({sha256_file(wp)} != {wsha})")
+                    break
         pinned_mm_sha = plan.get("map_markers_sha256")
         pinned_mm_name = plan.get("map_markers_plugin") or hspec.MAP_MARKERS_PLUGIN
         mm_check_path: Optional[str] = None
@@ -339,6 +477,11 @@ def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] =
             expected_world_count=len(plan.get("worlds", ["Commonwealth"])),
             expected_levers=plan.get("lever_keywords", ()),
             map_markers_path=mm_check_path,
+            expected_climate=plan.get("climate"),
+            expected_sky=plan.get("sky_atmo"),
+            expected_ground_ltex=plan.get("ground_ltex"),
+            expected_surface_tree=plan.get("surface_tree"),
+            expected_wb3_mode=plan.get("wb3_mode"),
         )
         problems.extend(chk_probs)
 
@@ -350,28 +493,84 @@ def _print_field_sources() -> None:
         ("STDT", hspec.STAR_FIELD_SPEC),
         ("PNDT", hspec.PLANET_FIELD_SPEC),
         ("BIOM", hspec.BIOM_FIELD_SPEC),
+        ("WTHR", wb_records.WTHR_FIELD_SPEC),
+        ("CLMT", wb_records.CLMT_FIELD_SPEC),
+        ("ATMO", wb_records.ATMO_FIELD_SPEC),
+        ("LTEX", wb_records.LTEX_FIELD_SPEC),
     ):
         print(f"=== {rtype} Field Sources ===")
         for row in rows:
             print(f"  [{row['subrecord']}] {row['field']} = {row['value']}  <-- {row['source']}")
+    print("=== WB3 Registration Overrides (untested) ===")
+    for row in wb_records.WB3_OVERRIDE_SPEC:
+        print(f"  [{row['record']} / {row['subrecord']}] {row['value']} ({row['status']})  <-- {row['why']}")
+
+
+def _live_biom_and_pndt_refs(stage_dir: str, data_dir: Optional[str]) -> List[Dict[str, Any]]:
+    master_path = os.path.join(stage_dir, hspec.HOME_MASTER)
+    fallback_sf: Dict[int, Tuple[str, str]] = {}
+    chk_json = os.path.join(stage_dir, "offline_check.json")
+    if os.path.isfile(chk_json):
+        with open(chk_json, encoding="utf-8") as f:
+            chk_doc = json.load(f)
+        for r in (chk_doc.get("summary") or {}).get("biom_and_pndt_references") or ():
+            if (r.get("owner") or "").lower() == "starfield.esm":
+                fid_int = int(r["form_id"], 16) & 0xFFFFFF
+                fallback_sf[fid_int] = (r.get("record_type", "UNKNOWN"), r.get("edid", ""))
+
+    sf_cand = os.path.join(data_dir, "Starfield.esm") if data_dir else ""
+    with esm.Plugin(master_path) as hm:
+        if sf_cand and os.path.isfile(sf_cand):
+            with esm.Plugin(sf_cand) as sf:
+                return wb_records.collect_biom_and_pndt_references(sf, hm, home_master_name=hspec.HOME_MASTER, fallback_sf_names=fallback_sf)
+        return wb_records.collect_biom_and_pndt_references(None, hm, home_master_name=hspec.HOME_MASTER, fallback_sf_names=fallback_sf)
 
 
 def cmd_stage(args: argparse.Namespace) -> int:
     worlds = _parse_csv_list(args.worlds)
     levers = _parse_csv_list(args.lever_keywords)
     extra_dirs = [args.world_plugin_dir] if args.world_plugin_dir else []
+    if args.control_b7dc7f52:
+        body_name = "Earth"
+        climate = "ClimateUniqueNewAtlantis"
+        sky = "ATMO_Jemison"
+        ground_ltex = "LDirtFootprints01"
+        pattern_style = wb_records.CONTROL_TERRAIN_PATTERN_EDID
+        surface_tree = "EarthSurfaceTree"
+        wb3_mode = "passthrough"
+        sun_preset = "SunPresetTypeG2"
+        orbital_meshes = "starfield"
+    else:
+        body_name = args.body_name
+        climate = args.climate
+        sky = args.sky
+        ground_ltex = args.ground_ltex
+        pattern_style = args.pattern
+        surface_tree = args.surface_tree
+        wb3_mode = args.wb3_mode
+        sun_preset = args.sun_preset
+        orbital_meshes = args.orbital_meshes
+
     plan = stage_one(
         data_dir=args.data,
         out_dir=args.out,
         worlds=worlds,
         star_name=args.star_name,
         planet_name=args.planet_name,
-        body_name=args.body_name,
+        body_name=body_name,
         temp_c=args.temp,
-        sky_atmo=args.sky,
+        sky_atmo=sky,
         lever_keywords=levers,
         extra_world_dirs=extra_dirs,
         map_markers_path=args.map_markers,
+        climate=climate,
+        ground_ltex=ground_ltex,
+        ground_source_dir=args.ground_source_dir,
+        pattern_style=pattern_style,
+        surface_tree=surface_tree,
+        wb3_mode=wb3_mode,
+        sun_preset=sun_preset,
+        orbital_meshes=orbital_meshes,
     )
     print(
         f"staged {os.path.abspath(args.out)}: plugins={plan['plugins']}, "
@@ -383,8 +582,33 @@ def cmd_stage(args: argparse.Namespace) -> int:
 
 def cmd_check(args: argparse.Namespace) -> int:
     plan = load_plan(args.stage)
-    problems = verify_stage(args.stage, plan, args.data or None)
+    extra_dirs = [args.world_plugin_dir] if getattr(args, "world_plugin_dir", "") else []
+    problems = verify_stage(args.stage, plan, args.data or None, extra_world_dirs=extra_dirs)
     _print_field_sources()
+    live_refs = _live_biom_and_pndt_refs(args.stage, args.data or None)
+    print("=== BIOM & PNDT Form References ===")
+    for r in live_refs:
+        print(
+            f"  [{r['record']} {r['subrecord']}] {r['field']} -> "
+            f"{r['owner']}:{r['record_type']} {r['form_id']} ({r['edid']})"
+        )
+    if plan.get("climate") in ("ours", "ours_empty"):
+        bad_cw = [
+            r
+            for r in live_refs
+            if r["owner"].lower() == "starfield.esm" and r["record_type"] in ("CLMT", "WTHR", "WTHS")
+        ]
+        if bad_cw:
+            problems.append(f"WB1 check failed: Starfield climate/weather referenced: {bad_cw}")
+    if plan.get("sky_atmo") == "ours":
+        bad_atmo = [
+            r
+            for r in live_refs
+            if r["owner"].lower() == "starfield.esm" and r["record_type"] == "ATMO"
+        ]
+        if bad_atmo:
+            problems.append(f"WB1 check failed: Starfield atmosphere referenced: {bad_atmo}")
+
     chk_json = os.path.join(args.stage, "offline_check.json")
     if os.path.isfile(chk_json):
         with open(chk_json, encoding="utf-8") as f:
@@ -419,6 +643,7 @@ def cmd_stage_wl1(args: argparse.Namespace) -> int:
             lever_keywords=levers,
             extra_world_dirs=extra_dirs,
             map_markers_path=getattr(args, "map_markers", ""),
+            ground_source_dir=getattr(args, "ground_source_dir", ""),
         )
         inspected = sf_location_census.inspect_host_plugins(
             sf_path,
@@ -461,11 +686,87 @@ def cmd_stage_wl1(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stage_wb1(args: argparse.Namespace) -> int:
+    out_root = os.path.abspath(args.out)
+    sf_path = os.path.join(os.path.abspath(args.data), "Starfield.esm")
+    refuse_unsafe_output_path(out_root, [sf_path, os.path.abspath(args.data)])
+    if os.path.exists(out_root):
+        raise FileExistsError(f"{out_root} already exists; stage into a new folder")
+    os.makedirs(out_root)
+
+    worlds = _parse_csv_list(args.worlds)
+    extra_dirs = [args.world_plugin_dir] if args.world_plugin_dir else []
+    rows: List[Dict[str, Any]] = []
+    for slug, climate_opt, sky_opt in WB1_VARIANTS:
+        vdir = os.path.join(out_root, slug)
+        plan = stage_one(
+            data_dir=args.data,
+            out_dir=vdir,
+            worlds=worlds,
+            extra_world_dirs=extra_dirs,
+            map_markers_path=args.map_markers,
+            climate=climate_opt,
+            sky_atmo=sky_opt,
+            ground_source_dir=args.ground_source_dir,
+        )
+        rows.append(
+            {
+                "variant": slug,
+                "climate": climate_opt,
+                "sky_atmo": sky_opt,
+                "owner_pick_status": "OWNER TEST (R8 — no variant is final)",
+                "outputs": plan["outputs"],
+            }
+        )
+    write_json(os.path.join(out_root, "wb1_summary.json"), {"variants": rows})
+    print(f"staged {len(rows)} WB1 variants under {out_root}")
+    return 0
+
+
+def cmd_stage_wb2(args: argparse.Namespace) -> int:
+    out_root = os.path.abspath(args.out)
+    sf_path = os.path.join(os.path.abspath(args.data), "Starfield.esm")
+    refuse_unsafe_output_path(out_root, [sf_path, os.path.abspath(args.data)])
+    if os.path.exists(out_root):
+        raise FileExistsError(f"{out_root} already exists; stage into a new folder")
+    os.makedirs(out_root)
+
+    worlds = _parse_csv_list(args.worlds)
+    extra_dirs = [args.world_plugin_dir] if args.world_plugin_dir else []
+    rows: List[Dict[str, Any]] = []
+    for slug, opts in WB2_VARIANTS:
+        vdir = os.path.join(out_root, slug)
+        plan = stage_one(
+            data_dir=args.data,
+            out_dir=vdir,
+            worlds=worlds,
+            extra_world_dirs=extra_dirs,
+            map_markers_path=args.map_markers,
+            ground_ltex=opts["ground_ltex"],
+            ground_source_dir=args.ground_source_dir,
+            pattern_style=opts["pattern_style"],
+            surface_tree=opts["surface_tree"],
+            sun_preset=opts["sun_preset"],
+            orbital_meshes=opts["orbital_meshes"],
+        )
+        rows.append(
+            {
+                "variant": slug,
+                **opts,
+                "owner_pick_status": "OWNER TEST (R8 — no variant is final)",
+                "outputs": plan["outputs"],
+            }
+        )
+    write_json(os.path.join(out_root, "wb2_summary.json"), {"variants": rows})
+    print(f"staged {len(rows)} WB2 variants under {out_root}")
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Stage and check FO4SFHome.esm + FO4TerrainCore_Home.esm")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    st = sub.add_parser("stage", help="Stage FO4SFHome.esm, FO4TerrainCore_Home.esm, and .biom maps")
+    st = sub.add_parser("stage", help="Stage FO4SFHome.esm, FO4TerrainCore_Home.esm, .biom maps, and FO4 outer-ring ground")
     st.add_argument("--data", required=True, help="Path to Starfield Data folder")
     st.add_argument("--out", required=True, help="Output stage directory (outside Git worktrees and game folders)")
     st.add_argument("--worlds", default="Commonwealth", help="Comma-separated world keys from world_registry.json")
@@ -477,7 +778,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="Internal PNDT ANAM body name and .biom stem (default: fo4sf_home_earth; control: Earth)",
     )
     st.add_argument("--temp", type=float, default=hspec.DEFAULT_TEMP_C)
-    st.add_argument("--sky", choices=hspec.SKY_ATMO_CHOICES, default=hspec.DEFAULT_SKY_ATMO)
+    st.add_argument("--climate", choices=hspec.CLIMATE_CHOICES, default=hspec.DEFAULT_CLIMATE)
+    st.add_argument("--sky", "--atmosphere", dest="sky", choices=hspec.SKY_ATMO_CHOICES, default=hspec.DEFAULT_SKY_ATMO)
+    st.add_argument("--ground-ltex", choices=hspec.GROUND_LTEX_CHOICES, default=hspec.DEFAULT_GROUND_LTEX)
+    st.add_argument("--ground-source-dir", default="", help="Optional directory of converted Fallout 4 ground PBR .dds maps")
+    st.add_argument("--pattern", choices=hspec.TERRAIN_PATTERN_CHOICES, default=hspec.DEFAULT_TERRAIN_PATTERN)
+    st.add_argument("--surface-tree", choices=hspec.SURFACE_TREE_CHOICES, default=hspec.DEFAULT_SURFACE_TREE)
+    st.add_argument("--wb3-mode", choices=hspec.WB3_MODE_CHOICES, default=hspec.DEFAULT_WB3_MODE)
+    st.add_argument("--sun-preset", choices=hspec.SUN_PRESET_CHOICES, default=hspec.DEFAULT_SUN_PRESET)
+    st.add_argument("--orbital-meshes", choices=hspec.ORBITAL_MESHES_CHOICES, default=hspec.DEFAULT_ORBITAL_MESHES)
+    st.add_argument(
+        "--control-b7dc7f52",
+        action="store_true",
+        help="Reproduce the exact Round-1 b7dc7f52 control preset (R12)",
+    )
     st.add_argument("--lever-keywords", default="", help="Comma-separated WL1 lever keyword EditorIDs")
     st.add_argument("--world-plugin-dir", default="", help="Optional extra folder searched for world ESMs before --data")
     st.add_argument(
@@ -489,6 +803,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ck = sub.add_parser("check", help="Offline verification of a staged home-world folder")
     ck.add_argument("--stage", required=True, help="Path to staged home-world directory")
     ck.add_argument("--data", default="", help="Optional path to Starfield Data folder for live clash checks")
+    ck.add_argument("--world-plugin-dir", default="", help="Optional extra folder searched for world ESMs before --data")
 
     wl = sub.add_parser("stage-wl1", help="Stage 0-keyword baseline, 5 single-keyword variants, and all-5 variant")
     wl.add_argument("--data", required=True, help="Path to Starfield Data folder")
@@ -496,7 +811,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     wl.add_argument("--worlds", default="Commonwealth")
     wl.add_argument("--body-name", default=hspec.DEFAULT_BODY_NAME)
     wl.add_argument("--world-plugin-dir", default="")
+    wl.add_argument("--ground-source-dir", default="")
     wl.add_argument("--map-markers", default="", help="Optional FO4SFMapMarkers.esm path to merge LCSR rows and pin sha256")
+
+    wb1p = sub.add_parser("stage-wb1", help="Stage WB1 weather & sky comparison variants (ours vs Starfield control)")
+    wb1p.add_argument("--data", required=True, help="Path to Starfield Data folder")
+    wb1p.add_argument("--out", required=True, help="Output directory for WB1 variants")
+    wb1p.add_argument("--worlds", default="Commonwealth")
+    wb1p.add_argument("--world-plugin-dir", default="")
+    wb1p.add_argument("--ground-source-dir", default="")
+    wb1p.add_argument("--map-markers", default="")
+
+    wb2p = sub.add_parser("stage-wb2", help="Stage WB2 ground, pattern, and surface-tree comparison variants")
+    wb2p.add_argument("--data", required=True, help="Path to Starfield Data folder")
+    wb2p.add_argument("--out", required=True, help="Output directory for WB2 variants")
+    wb2p.add_argument("--worlds", default="Commonwealth")
+    wb2p.add_argument("--world-plugin-dir", default="")
+    wb2p.add_argument("--ground-source-dir", default="")
+    wb2p.add_argument("--map-markers", default="")
 
     args = ap.parse_args(argv)
     try:
@@ -506,6 +838,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return cmd_check(args)
         if args.cmd == "stage-wl1":
             return cmd_stage_wl1(args)
+        if args.cmd == "stage-wb1":
+            return cmd_stage_wb1(args)
+        if args.cmd == "stage-wb2":
+            return cmd_stage_wb2(args)
     except (CensusPathError, records.PlanetError, biom.BiomError, esm.EsmError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

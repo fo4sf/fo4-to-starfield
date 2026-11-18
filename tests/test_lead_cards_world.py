@@ -37,6 +37,7 @@ SOURCE_FORMAT_FILES: tuple[Path, ...] = (
 WRITER_CONSTANT_FILES: tuple[Path, ...] = (
     ROOT / "src" / "fo4sf" / "core" / "world_registry.json",
     ROOT / "src" / "fo4sf" / "planet" / "home_planet_spec.py",
+    ROOT / "src" / "fo4sf" / "planet" / "wb_records.py",
     ROOT / "src" / "fo4sf" / "planet" / "records.py",
     ROOT / "scripts" / "terrain" / "make_wg1_redrocket.py",
     ROOT / "scripts" / "bridge" / "border_walk.py",
