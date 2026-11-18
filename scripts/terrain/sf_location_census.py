@@ -233,10 +233,29 @@ def _inspect_core_plugin(
         }
 
 
-def _inspect_registration_plugin(reg_path: str) -> Dict[str, Any]:
+def _inspect_registration_plugin(
+    reg_path: str,
+    kywd_by_local: Optional[Dict[int, str]] = None,
+    lctn_by_owner: Optional[Dict[Tuple[str, int], str]] = None,
+    biom_by_owner: Optional[Dict[Tuple[str, int], str]] = None,
+) -> Dict[str, Any]:
     counts: Dict[str, int] = collections.Counter()
     pndt_rows: List[Dict[str, Any]] = []
+    lctn_rows: List[Dict[str, Any]] = []
+    wrld_rows: List[Dict[str, Any]] = []
+    kywd_map = kywd_by_local or {}
+    lctn_map = lctn_by_owner or {}
+    biom_map = biom_by_owner or {}
+
     with esm.Plugin(reg_path) as plug:
+        sf_indices = {i for i, m in enumerate(plug.masters) if m.lower() == "starfield.esm"}
+
+        def _owner_name(fid: int) -> str:
+            idx = fid >> 24
+            if idx < len(plug.masters):
+                return plug.masters[idx].lower()
+            return os.path.basename(reg_path).lower()
+
         for gname, spans in sorted(plug.groups.items()):
             for start, end in spans:
                 for item in plug.walk(start, end):
@@ -258,12 +277,64 @@ def _inspect_registration_plugin(reg_path: str) -> Dict[str, Any]:
                                 "master_worldspaces": mws,
                             }
                         )
+                    elif rsig == b"LCTN":
+                        rec = plug.record_at(roff)
+                        pnam = _u32_or_none(rec.get(b"PNAM"))
+                        pnam_edid = lctn_map.get((_owner_name(pnam), pnam & 0xFFFFFF)) if pnam is not None else None
+                        kw_fids = records.keywords_of(rec)
+                        kw_list = []
+                        kw_edids_present = set()
+                        for kfid in kw_fids:
+                            kedid = kywd_map.get(kfid & 0xFFFFFF) if (kfid >> 24) in sf_indices else None
+                            if kedid:
+                                kw_edids_present.add(kedid)
+                            kw_list.append({"form_id": _hex8(kfid), "edid": kedid})
+                        lever_state = {lev: (lev in kw_edids_present) for lev in LEVER_EDITOR_IDS[:5]}
+                        lctn_rows.append(
+                            {
+                                "form_id": _hex8(rec.formid),
+                                "local_id": f"0x{rec.formid & 0xFFFFFF:06X}",
+                                "edid": rec.edid,
+                                "parent_lctn": {"form_id": _hex8(pnam), "edid": pnam_edid} if pnam is not None else None,
+                                "keywords": kw_list,
+                                "exclusion_levers_present": lever_state,
+                            }
+                        )
+                    elif rsig == b"WRLD":
+                        rec = plug.record_at(roff)
+                        ov = probe.component_fields(rec, "BGSWorldSpaceOverlay_Component")
+                        ov_info = None
+                        if ov and len(ov.get("SNAM", b"")) == 4 and len(ov.get("PNAM", b"")) == 4:
+                            bnam_ov = _u32_or_none(ov.get("BNAM"))
+                            ov_info = {
+                                "system_id": struct.unpack_from("<i", ov["SNAM"], 0)[0],
+                                "planet_id": struct.unpack_from("<i", ov["PNAM"], 0)[0],
+                                "sfbk_form_id": _hex8(bnam_ov),
+                            }
+                        bnam_top = _u32_or_none(probe.top_level(rec, b"BNAM"))
+                        bnam_edid = biom_map.get((_owner_name(bnam_top), bnam_top & 0xFFFFFF)) if bnam_top is not None else None
+                        fnam_bytes = probe.top_level(rec, b"FNAM") or b""
+                        data_bytes = probe.top_level(rec, b"DATA") or b""
+                        wrld_rows.append(
+                            {
+                                "form_id": _hex8(rec.formid),
+                                "local_id": f"0x{rec.formid & 0xFFFFFF:06X}",
+                                "edid": rec.edid,
+                                "data_flags_hex": data_bytes.hex(),
+                                "fnam_flags_hex": fnam_bytes.hex(),
+                                "fnam_int": int.from_bytes(fnam_bytes, "little") if fnam_bytes else 0,
+                                "overlay": ov_info,
+                                "biome": {"form_id": _hex8(bnam_top), "edid": bnam_edid} if bnam_top is not None else None,
+                            }
+                        )
         return {
             "plugin": os.path.basename(reg_path),
             "bytes": os.path.getsize(reg_path),
             "masters": list(plug.masters),
             "record_counts": dict(sorted(counts.items())),
             "pndt_overrides": pndt_rows,
+            "locations": lctn_rows,
+            "worlds": wrld_rows,
         }
 
 
@@ -271,8 +342,9 @@ def run_sf_census(
     starfield_esm: str,
     core_esm: str = "",
     registration_esm: str = "",
+    home_esm: str = "",
 ) -> Dict[str, Any]:
-    """Walk `Starfield.esm` (and optional core/registration ESMs) read-only and return a redacted census dictionary."""
+    """Walk `Starfield.esm` (and optional core, home, and registration ESMs) read-only and return a redacted census dictionary."""
     counts: Dict[str, int] = collections.Counter()
     kywd_by_fid: Dict[int, str] = {}
     biom_by_fid: Dict[int, str] = {}
@@ -493,19 +565,107 @@ def run_sf_census(
             "subrecord_presence_histogram": dict(sorted(lscr_sub_hist.items())),
         },
         "our_core": None,
+        "our_home": None,
         "our_registration": None,
     }
 
+    kywd_local = {fid & 0xFFFFFF: ed for fid, ed in kywd_by_fid.items()}
+    lctn_local = {fid & 0xFFFFFF: vals[0] for fid, vals in lctn_by_fid.items()}
+    biom_local = {fid & 0xFFFFFF: ed for fid, ed in biom_by_fid.items()}
+    lctn_owner: Dict[Tuple[str, int], str] = {("starfield.esm", k): v for k, v in lctn_local.items() if v}
+    biom_owner: Dict[Tuple[str, int], str] = {("starfield.esm", k): v for k, v in biom_local.items() if v}
+
     if core_esm:
-        kywd_local = {fid & 0xFFFFFF: ed for fid, ed in kywd_by_fid.items()}
-        lctn_local = {fid & 0xFFFFFF: vals[0] for fid, vals in lctn_by_fid.items()}
-        biom_local = {fid & 0xFFFFFF: ed for fid, ed in biom_by_fid.items()}
-        result["our_core"] = _inspect_core_plugin(core_esm, kywd_local, lctn_local, biom_local)
+        core_info = _inspect_core_plugin(core_esm, kywd_local, lctn_local, biom_local)
+        result["our_core"] = core_info
+        cname = os.path.basename(core_esm).lower()
+        for row in core_info["locations"]:
+            if row["edid"]:
+                lctn_owner[(cname, int(row["local_id"], 16))] = row["edid"]
+
+    if home_esm:
+        home_info = _inspect_core_plugin(home_esm, kywd_local, lctn_local, biom_local)
+        with esm.Plugin(home_esm) as hp:
+            hname = os.path.basename(home_esm).lower()
+            home_bioms = []
+            for brec in hp.records("BIOM", [b"BIOM"]):
+                if brec.edid:
+                    biom_owner[(hname, brec.formid & 0xFFFFFF)] = brec.edid
+                home_bioms.append({"form_id": _hex8(brec.formid), "local_id": f"0x{brec.formid & 0xFFFFFF:06X}", "edid": brec.edid})
+            home_info["biomes"] = home_bioms
+        for row in home_info["locations"]:
+            if row["edid"]:
+                lctn_owner[(hname, int(row["local_id"], 16))] = row["edid"]
+        result["our_home"] = home_info
 
     if registration_esm:
-        result["our_registration"] = _inspect_registration_plugin(registration_esm)
+        result["our_registration"] = _inspect_registration_plugin(
+            registration_esm,
+            kywd_by_local=kywd_local,
+            lctn_by_owner=lctn_owner,
+            biom_by_owner=biom_owner,
+        )
 
     return result
+
+
+def inspect_host_plugins(
+    starfield_esm: str,
+    home_esm: str = "",
+    registration_esm: str = "",
+    core_esm: str = "",
+) -> Dict[str, Any]:
+    """Fast read-only inspection of our host, core, and registration ESMs resolving keywords, locations, and biomes against
+    `Starfield.esm` without walking exterior CELL/REFR trees."""
+    kywd_local: Dict[int, str] = {}
+    lctn_local: Dict[int, str] = {}
+    biom_local: Dict[int, str] = {}
+    with esm.Plugin(starfield_esm) as sf:
+        for rec in sf.records("KYWD", [b"KYWD"]):
+            if rec.edid:
+                kywd_local[rec.formid & 0xFFFFFF] = rec.edid
+        for rec in sf.records("LCTN", [b"LCTN"]):
+            if rec.edid:
+                lctn_local[rec.formid & 0xFFFFFF] = rec.edid
+        for rec in sf.records("BIOM", [b"BIOM"]):
+            if rec.edid:
+                biom_local[rec.formid & 0xFFFFFF] = rec.edid
+
+    lctn_owner: Dict[Tuple[str, int], str] = {("starfield.esm", k): v for k, v in lctn_local.items()}
+    biom_owner: Dict[Tuple[str, int], str] = {("starfield.esm", k): v for k, v in biom_local.items()}
+    out: Dict[str, Any] = {"our_core": None, "our_home": None, "our_registration": None}
+
+    if core_esm:
+        cinfo = _inspect_core_plugin(core_esm, kywd_local, lctn_local, biom_local)
+        out["our_core"] = cinfo
+        cname = os.path.basename(core_esm).lower()
+        for row in cinfo["locations"]:
+            if row["edid"]:
+                lctn_owner[(cname, int(row["local_id"], 16))] = row["edid"]
+
+    if home_esm:
+        hinfo = _inspect_core_plugin(home_esm, kywd_local, lctn_local, biom_local)
+        with esm.Plugin(home_esm) as hp:
+            hname = os.path.basename(home_esm).lower()
+            home_bioms = []
+            for brec in hp.records("BIOM", [b"BIOM"]):
+                if brec.edid:
+                    biom_owner[(hname, brec.formid & 0xFFFFFF)] = brec.edid
+                home_bioms.append({"form_id": _hex8(brec.formid), "local_id": f"0x{brec.formid & 0xFFFFFF:06X}", "edid": brec.edid})
+            hinfo["biomes"] = home_bioms
+        for row in hinfo["locations"]:
+            if row["edid"]:
+                lctn_owner[(hname, int(row["local_id"], 16))] = row["edid"]
+        out["our_home"] = hinfo
+
+    if registration_esm:
+        out["our_registration"] = _inspect_registration_plugin(
+            registration_esm,
+            kywd_by_local=kywd_local,
+            lctn_by_owner=lctn_owner,
+            biom_by_owner=biom_owner,
+        )
+    return out
 
 
 def write_sf_census_json(out_path: str, payload: Dict[str, Any], input_paths: Sequence[str] = ()) -> None:
@@ -524,18 +684,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Read-only Starfield location, worldspace, PCM, and lever-keyword census")
     ap.add_argument("--starfield", required=True, help="Path to Starfield.esm")
     ap.add_argument("--core", default="", help="Optional path to FO4TerrainCore.esm")
-    ap.add_argument("--registration", default="", help="Optional path to FO4TerrainCore_Mars.esm / registration ESM")
+    ap.add_argument("--home", default="", help="Optional path to FO4SFHome.esm")
+    ap.add_argument("--registration", default="", help="Optional path to FO4TerrainCore_Mars.esm / FO4TerrainCore_Home.esm")
+    ap.add_argument("--plugins-only", action="store_true", help="Fast mode: inspect --core/--home/--registration against Starfield.esm KYWD/LCTN/BIOM only")
     ap.add_argument("--out", required=True, help="Output JSON path (outside Git worktrees and game folders)")
     args = ap.parse_args(argv)
 
-    inputs = [p for p in (args.starfield, args.core, args.registration) if p]
+    inputs = [p for p in (args.starfield, args.core, args.home, args.registration) if p]
     try:
         refuse_unsafe_output_path(args.out, inputs)
-        report = run_sf_census(args.starfield, args.core, args.registration)
+        if args.plugins_only:
+            report = inspect_host_plugins(args.starfield, home_esm=args.home, registration_esm=args.registration, core_esm=args.core)
+        else:
+            report = run_sf_census(args.starfield, args.core, args.registration, home_esm=args.home)
         write_sf_census_json(args.out, report, inputs)
     except (CensusPathError, esm.EsmError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    if args.plugins_only:
+        print(json.dumps(report, indent=2))
+        return 0
 
     summary = {
         "counts": report["counts"],
@@ -544,6 +713,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "lever_keywords": report["lever_keywords"],
         "our_core_worlds": report["our_core"]["worlds"] if report["our_core"] else None,
         "our_core_locations": report["our_core"]["locations"] if report["our_core"] else None,
+        "our_home_locations": report["our_home"]["locations"] if report["our_home"] else None,
+        "our_registration_locations": report["our_registration"]["locations"] if report["our_registration"] else None,
     }
     print(json.dumps(summary, indent=2))
     return 0
