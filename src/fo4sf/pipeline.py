@@ -108,30 +108,117 @@ def _palette_scale_ident(scale: float) -> str:
     return struct.pack(">f", s).hex()
 
 
+ULTRA_HIGH_RES_PREFIX = "dlcultrahighresolution"
+GAME_EXECUTABLES = ("Starfield.exe", "Fallout4.exe", "FalloutNV.exe", "Fallout3.exe", "Fallout76.exe")
+
+
+def is_excluded_dlc_name(name: str) -> bool:
+    """True for Fallout 4's 58 GB High-Resolution Texture Pack (DLCUltraHighResolution.esm / - Textures*.ba2)."""
+    return os.path.basename(name).lower().startswith(ULTRA_HIGH_RES_PREFIX)
+
+
+def is_converter_archive_name(name: str) -> bool:
+    """True for a .ba2 filename that Fo4Archives opens (meshes, materials, textures, or DLC ' - Main.ba2')."""
+    low = os.path.basename(name).lower()
+    return low.endswith(".ba2") and (
+        "meshes" in low or low.endswith(" - main.ba2") or "materials" in low or "textures" in low
+    )
+
+
+def parse_dlc_plugins(dlc_plugins) -> Optional[List[str]]:
+    """Normalize an optional --dlc-plugins list (comma-separated string or iterable of plugin names/stems) to
+    lower-case stems in load order, or None when unset."""
+    if dlc_plugins is None or dlc_plugins == "" or dlc_plugins == () or dlc_plugins == []:
+        return None
+    raw = dlc_plugins.split(",") if isinstance(dlc_plugins, str) else list(dlc_plugins)
+    stems: List[str] = []
+    seen = set()
+    for item in raw:
+        s = re.sub(r"\.(esm|esp|esl)$", "", str(item).strip(), flags=re.I)
+        if not s:
+            continue
+        if is_excluded_dlc_name(s):
+            raise ValueError(f"DLCUltraHighResolution is excluded from conversion ({item!r})")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", s):
+            raise ValueError(f"invalid DLC plugin stem: {item!r}")
+        low = s.lower()
+        if low not in seen:
+            seen.add(low)
+            stems.append(low)
+    return stems or None
+
+
+def matches_dlc_stem(filename: str, stem_low: str) -> bool:
+    low = os.path.basename(filename).lower()
+    return low.startswith(stem_low + " - ") or low == stem_low + ".ba2"
+
+
+def select_dlc_archive_names(data_dir: str, dlc_plugins=None, converter_only: bool = False) -> List[str]:
+    """DLC*.ba2 filenames in data_dir, always skipping DLCUltraHighResolution*. When dlc_plugins is None, returns
+    sorted filenames as before; when given, restricts to those DLC stems in that exact load order."""
+    stems = parse_dlc_plugins(dlc_plugins)
+    entries = [
+        fn for fn in sorted(os.listdir(data_dir))
+        if fn.lower().endswith(".ba2") and fn.lower().startswith("dlc") and not is_excluded_dlc_name(fn)
+        and (not converter_only or is_converter_archive_name(fn))
+    ]
+    if stems is None:
+        return entries
+    ordered: List[str] = []
+    for stem in stems:
+        ordered.extend(fn for fn in entries if matches_dlc_stem(fn, stem))
+    return ordered
+
+
+def refuse_unsafe_output_dir(path: str, flag: str = "--staging") -> None:
+    """Refuse an output directory inside a Git worktree or inside a game installation folder (Rule R4)."""
+    if not path or not str(path).strip():
+        raise ValueError(f"{flag}: output path must not be empty")
+    cur = os.path.abspath(path)
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            raise ValueError(f"{flag} {path} is inside a Git worktree ({cur}); refusing to write converted or staged files")
+        if any(os.path.isfile(os.path.join(cur, exe)) for exe in GAME_EXECUTABLES):
+            raise ValueError(f"{flag} {path} is inside a game folder ({cur}); refusing to write converted or staged files")
+        if os.path.basename(cur).lower() == "data" and any(
+            os.path.isfile(os.path.join(cur, esm)) for esm in ("Starfield.esm", "Fallout4.esm")
+        ):
+            raise ValueError(f"{flag} {path} is inside a game Data folder ({cur}); refusing to write converted or staged files")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+
+
 class Fo4Archives:
-    def __init__(self, data_dir: str, extra_dirs=()):
-        """Fallout4 - *.ba2 from data_dir, then (extra_dirs, e.g. a DLC's own Data folder) every DLC*.ba2 there. Lookups
-        try the base game's archives first, so a model the base game holds converts byte-identically with or without
-        the DLC archives (a DLC replacing a base-game file is not followed; supported: none seen in DLCRobot or
-        DLCworkshop01's own cells)."""
+    def __init__(self, data_dir: str, extra_dirs=(), dlc_plugins=None):
+        """Fallout4 - *.ba2 from data_dir, then (extra_dirs, e.g. a DLC's own Data folder) every DLC*.ba2 there
+        except Fallout 4's High-Resolution Texture Pack (DLCUltraHighResolution*). When dlc_plugins is given,
+        restricts DLC archives to those stems in load order. Lookups try the base game's archives first, so a model
+        the base game holds converts byte-identically with or without the DLC archives."""
         self.meshes, self.materials, self.textures = [], [], []
         self._add(data_dir, lambda low: low.startswith("fallout4 - "))
         for d in extra_dirs:
-            self._add(d, lambda low: low.startswith("dlc"))
+            for fn in select_dlc_archive_names(d, dlc_plugins=dlc_plugins, converter_only=True):
+                self._open(d, fn)
 
     def _add(self, data_dir, wanted):
         for fn in sorted(os.listdir(data_dir)):
             low = fn.lower()
-            if not (low.endswith(".ba2") and wanted(low)):
+            if not (low.endswith(".ba2") and wanted(low) and not is_excluded_dlc_name(low)):
                 continue
-            if "meshes" in low or low.endswith(" - main.ba2"):
-                self.meshes.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
-                if low.endswith(" - main.ba2"):       # DLC "Main" archives hold meshes and materials together
-                    self.materials.append(self.meshes[-1])
-            elif "materials" in low:
-                self.materials.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
-            elif "textures" in low:
-                self.textures.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
+            self._open(data_dir, fn)
+
+    def _open(self, data_dir, fn):
+        low = fn.lower()
+        if "meshes" in low or low.endswith(" - main.ba2"):
+            self.meshes.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
+            if low.endswith(" - main.ba2"):       # DLC "Main" archives hold meshes and materials together
+                self.materials.append(self.meshes[-1])
+        elif "materials" in low:
+            self.materials.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
+        elif "textures" in low:
+            self.textures.append(ba2mod.Ba2(os.path.join(data_dir, fn)))
 
     @staticmethod
     def _read(archives, name):

@@ -49,10 +49,14 @@ def checkpoint_signature(a):
     if getattr(a, "rig_load_doors", False) and a.starfield_data:   # load doors rigged; off keeps checkpoints valid
         sig["rig_load_doors"] = True
     extra = [Path(d) for d in getattr(a, "extra_data", None) or []]
+    dlc_plugins = pipeline.parse_dlc_plugins(getattr(a, "dlc_plugins", None))
     if extra:                                           # DLC archives, in lookup order; none keeps existing checkpoints valid
-        sig["extra_archives"] = [[str(d.resolve()), [checkpoints.archive_identity(p) for p in sorted(
-            (p for p in d.iterdir() if p.name.lower().startswith("dlc") and p.suffix.lower() == ".ba2"),
-            key=lambda p: p.name.lower())]] for d in extra]
+        sig["extra_archives"] = [[str(d.resolve()), [
+            checkpoints.archive_identity(d / fn)
+            for fn in pipeline.select_dlc_archive_names(str(d), dlc_plugins=dlc_plugins, converter_only=True)
+        ]] for d in extra]
+    if dlc_plugins:                                     # explicit DLC load order; unset keeps existing checkpoints valid
+        sig["dlc_plugins"] = dlc_plugins
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
     if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
@@ -403,6 +407,11 @@ def main():
                     help="another Data folder whose DLC*.ba2 archives are read after the base game's (a DLC's depot "
                          "Data); base-game models keep converting from Fallout4 - *.ba2 first. The folders and their "
                          "DLC*.ba2 identities, in order, join the checkpoint signature (none: existing checkpoints stay valid)")
+    ap.add_argument("--dlc-plugins", default="",
+                    help="comma-separated DLC plugin names or stems in load order (e.g. "
+                         "DLCRobot,DLCworkshop01,DLCCoast,DLCworkshop02,DLCworkshop03,DLCNukaWorld); restricts DLC "
+                         "archive lookup and checkpoint signatures to those stems in order. DLCUltraHighResolution is "
+                         "always skipped")
     ap.add_argument("--rig-load-doors", action="store_true",
                     help="with --starfield-data: FO4 load doors whose model animates are rigged like other doors and "
                          "open before the trip (manifest load_door.anim; docs/spikes/load-door-animations.md). Off by "
@@ -458,11 +467,20 @@ def main():
         ap.error("--door-anim-dll needs --starfield-data (doors are rigged only with the vanilla donor body)")
     if a.rig_load_doors and not a.starfield_data:
         ap.error("--rig-load-doors needs --starfield-data (doors are rigged only with the vanilla donor body)")
+    try:
+        dlc_plugins = pipeline.parse_dlc_plugins(a.dlc_plugins)
+    except ValueError as e:
+        ap.error(f"--dlc-plugins: {e}")
+    try:
+        pipeline.refuse_unsafe_output_dir(a.staging, "--staging")
+    except ValueError as e:
+        ap.error(str(e))
 
     ids = load_editor_ids(a.staging)
 
     t0 = time.time()
-    src = pipeline.Fo4Archives(a.fo4_data, a.extra_data)
+    src = (pipeline.Fo4Archives(a.fo4_data, a.extra_data, dlc_plugins=dlc_plugins)
+           if dlc_plugins else pipeline.Fo4Archives(a.fo4_data, a.extra_data))
     with open(a.collision_template, "rb") as f:
         template = convert_static.collision_template_from_nif(f.read())
     donor = None

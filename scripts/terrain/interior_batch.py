@@ -106,6 +106,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import vmad_patch  # noqa: E402
 import deploy_starfield  # noqa: E402
+from fo4sf import pipeline  # noqa: E402
 
 PLUGIN = "FO4Port.esm"
 MARKER = "result.json"
@@ -253,18 +254,27 @@ def source_pins(a, plan, n, extra=None):
     plugins = {}
     fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
     lists = list(cell_plugins(plan, n, getattr(a, "census_data", None)).values()) + list((extra or {}).values())
-    others = {p for ps in lists for p in ps if p.lower() != "fallout4.esm"}
+    others = {p for ps in lists for p in ps if p.lower() != "fallout4.esm" and not pipeline.is_excluded_dlc_name(p)}
     names = ["Fallout4.esm"] + sorted(others, key=str.casefold)
     for name in names:
         path = fo4 if name == "Fallout4.esm" else find_plugin(a.dlc_data, name)
         plugins[name] = ({"sha256": sha256(path), "bytes": os.path.getsize(path)} if path and os.path.isfile(path) else None)
+    dlc_stems = pipeline.parse_dlc_plugins(getattr(a, "dlc_plugins", None))
     archives = {}
     for d in [a.fo4_data] + list(a.dlc_data):
         if not os.path.isdir(d):
             continue
-        for f in sorted(os.listdir(d), key=str.casefold):
+        if dlc_stems is not None:
+            non_dlc = [f for f in sorted(os.listdir(d), key=str.casefold)
+                       if f.lower().endswith(".ba2") and not f.lower().startswith("dlc") and not pipeline.is_excluded_dlc_name(f)]
+            dlc_files = pipeline.select_dlc_archive_names(d, dlc_plugins=dlc_stems, converter_only=False)
+            candidates = non_dlc + dlc_files
+        else:
+            candidates = [f for f in sorted(os.listdir(d), key=str.casefold)
+                          if f.lower().endswith(".ba2") and not pipeline.is_excluded_dlc_name(f)]
+        for f in candidates:
             p = os.path.join(d, f)
-            if f.lower().endswith(".ba2") and os.path.isfile(p):
+            if os.path.isfile(p):
                 st = os.stat(p)
                 archives[f] = {"bytes": st.st_size, "mtime": st.st_mtime, "folder": os.path.abspath(d)}
     return {"plugins": plugins, "archives": archives}
@@ -320,7 +330,7 @@ def plugins_of(row):
     if not plugins:
         owner = (row.get("formkey") or "").partition(":")[2]
         plugins = [owner] if owner else []
-    return [FO4] + [p for p in plugins if p.lower() != FO4.lower()]
+    return [FO4] + [p for p in plugins if p.lower() != FO4.lower() and not pipeline.is_excluded_dlc_name(p)]
 
 
 def cell_plugins(plan, n, census=None):
@@ -598,6 +608,12 @@ def base_plugins(old_cells, base_exports, census):
 
 
 def build(a):
+    try:
+        pipeline.parse_dlc_plugins(getattr(a, "dlc_plugins", None))
+        pipeline.refuse_unsafe_output_dir(a.out, "--out")
+        pipeline.refuse_unsafe_output_dir(a.work, "--work")
+    except ValueError as e:
+        sys.exit(str(e))
     plan = load(a.plan)
     a.census_data = load(a.census) if getattr(a, "census", "") else None
     t0 = time.time()
@@ -739,6 +755,8 @@ def build(a):
         cmd.append("--spec-mask-roughness")
     for d in a.dlc_data:
         cmd += ["--extra-data", d]
+    if getattr(a, "dlc_plugins", ""):
+        cmd += ["--dlc-plugins", a.dlc_plugins]
     cmd += a.convert_arg
     if getattr(a, "animated_doors", False) and "--rig-load-doors" not in a.convert_arg:
         cmd.append("--rig-load-doors")
@@ -1518,6 +1536,8 @@ def main(argv=None):
     b.add_argument("--prev", default="")
     b.add_argument("--dlc-data", action="append", default=[],
                    help="a DLC's Data folder (repeatable): its plugin for that batch's cells, its DLC*.ba2 for the models")
+    b.add_argument("--dlc-plugins", default="",
+                   help="comma-separated DLC plugin stems in load order (DLCUltraHighResolution is always skipped)")
     b.add_argument("--min-free-gb", type=float, default=40.0)
     b.add_argument("--no-pack", action="store_true")
     b.add_argument("--jobs", type=int, default=2)
