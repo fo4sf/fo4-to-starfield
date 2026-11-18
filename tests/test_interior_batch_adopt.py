@@ -18,6 +18,8 @@ for _p in (os.path.join(ROOT, "src"), os.path.join(ROOT, "scripts"), os.path.joi
 import deploy_starfield  # noqa: E402
 import interior_batch as ib  # noqa: E402
 import pack_staging as ps  # noqa: E402
+import vmad_patch  # noqa: E402
+from fo4sf import fo4land  # noqa: E402
 
 
 def _sha256_bytes(b: bytes) -> str:
@@ -445,6 +447,117 @@ class AdoptCoreAndAnimatedPrevTests(unittest.TestCase):
             self.assertEqual(dry_doc["formids"]["displaced_by_installed"], 2)
             # Confirm work dir stayed untouched during --dry-run!
             self.assertEqual(os.listdir(work), [])
+
+
+class RootLocationParentTests(unittest.TestCase):
+    def test_default_root_location_parent_is_sha256_byte_identical_and_custom_parent_updates_only_root_lctn(self):
+        self.assertEqual(ib.normalize_parent_formkey(""), "Starfield.esm:01B736")
+        self.assertEqual(ib.normalize_parent_formkey("01B736:Starfield.esm"), "Starfield.esm:01B736")
+        self.assertEqual(ib.normalize_parent_formkey("FO4SFHome.esm:0x00810"), "FO4SFHome.esm:000810")
+        with self.assertRaises(ValueError):
+            ib.normalize_parent_formkey("BadPlugin.esp:000800")
+
+        dll = _pluginspike_dll()
+        with tempfile.TemporaryDirectory() as tmp:
+            sf_data = os.path.join(tmp, "sf_data")
+            os.makedirs(sf_data)
+            env = dict(os.environ, STARFIELD_DATA=sf_data)
+
+            manifest = os.path.join(tmp, "manifest.json")
+            cell = os.path.join(tmp, "ConcordMuseum01.json")
+            with open(manifest, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "items": [
+                            {"editor_id": "FO4Port_MuseumWall", "model": "fo4port\\set\\wall.nif", "source": "Set\\Wall.nif"}
+                        ],
+                        "failures": [],
+                    },
+                    f,
+                )
+            with open(cell, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "schema_version": 3,
+                        "cell": "ConcordMuseum01",
+                        "location": {"formkey": "019000:Fallout4.esm", "editor_id": "ConcordMuseumLocation", "name": "Museum"},
+                        "refs": [
+                            {
+                                "formkey": "019001:Fallout4.esm",
+                                "base_formkey": "019002:Fallout4.esm",
+                                "type": "Static",
+                                "base_editor_id": "MuseumWall",
+                                "model": "Set\\Wall.nif",
+                                "pos": [0.0, 0.0, 0.0],
+                                "rot": [0.0, 0.0, 0.0],
+                                "scale": 1.0,
+                                "disabled": 0,
+                            }
+                        ],
+                    },
+                    f,
+                )
+
+            out_default = os.path.join(tmp, "out_default")
+            out_mars_a = os.path.join(tmp, "out_mars_a")
+            out_mars_b = os.path.join(tmp, "out_mars_b")
+            out_sf_custom = os.path.join(tmp, "out_sf_custom")
+            out_home_custom = os.path.join(tmp, "out_home_custom")
+
+            subprocess.run(["dotnet", dll, out_default, manifest, cell], check=True, env=env, capture_output=True)
+            subprocess.run(
+                ["dotnet", dll, out_mars_a, manifest, "--root-location-parent", "Starfield.esm:01B736", cell],
+                check=True, env=env, capture_output=True,
+            )
+            subprocess.run(
+                ["dotnet", dll, out_mars_b, manifest, "--root-location-parent=01B736:Starfield.esm", cell],
+                check=True, env=env, capture_output=True,
+            )
+            subprocess.run(
+                ["dotnet", dll, out_sf_custom, manifest, "--root-location-parent", "Starfield.esm:02ABCD", cell],
+                check=True, env=env, capture_output=True,
+            )
+            subprocess.run(
+                ["dotnet", dll, out_home_custom, manifest, "--root-location-parent", "FO4SFHome.esm:000810", cell],
+                check=True, env=env, capture_output=True,
+            )
+
+            # R3: Default vs explicit Starfield.esm:01B736 vs 01B736:Starfield.esm must be 100% SHA-256 byte-identical!
+            sha_def = _sha256_file(os.path.join(out_default, "FO4Port.esm"))
+            self.assertEqual(sha_def, _sha256_file(os.path.join(out_mars_a, "FO4Port.esm")))
+            self.assertEqual(sha_def, _sha256_file(os.path.join(out_mars_b, "FO4Port.esm")))
+            self.assertEqual(
+                _sha256_file(os.path.join(out_default, "formids.json")),
+                _sha256_file(os.path.join(out_mars_a, "formids.json")),
+            )
+
+            # Custom Starfield.esm parent: every record except LCTN:FO4Port_InteriorsLocation is byte-identical, and
+            # root LCTN's PNAM carries 0x0002ABCD.
+            fids = ib.load(os.path.join(out_default, "formids.json"))
+            root_local = fids["LCTN:FO4Port_InteriorsLocation"]
+            p_def = vmad_patch.Plugin.read(os.path.join(out_default, "FO4Port.esm"))
+            p_sfc = vmad_patch.Plugin.read(os.path.join(out_sf_custom, "FO4Port.esm"))
+            self.assertEqual(p_def.masters(), ["Starfield.esm"])
+            self.assertEqual(p_sfc.masters(), ["Starfield.esm"])
+            r_def, r_sfc = p_def.records(), p_sfc.records()
+            root_fid_1 = 0x01000000 | root_local
+            for fid in r_def:
+                if fid == root_fid_1:
+                    continue
+                self.assertEqual(r_def[fid], r_sfc[fid])
+            pnam_def = dict(fo4land.iter_subrecords(r_def[root_fid_1][2]))[b"PNAM"]
+            pnam_sfc = dict(fo4land.iter_subrecords(r_sfc[root_fid_1][2]))[b"PNAM"]
+            self.assertEqual(int.from_bytes(pnam_def, "little"), 0x0001B736)
+            self.assertEqual(int.from_bytes(pnam_sfc, "little"), 0x0002ABCD)
+
+            # Custom external master (FO4SFHome.esm:000810): masters == ["Starfield.esm", "FO4SFHome.esm"] and
+            # root LCTN's PNAM points to master index 1 (0x01000810).
+            p_home = vmad_patch.Plugin.read(os.path.join(out_home_custom, "FO4Port.esm"))
+            self.assertEqual(p_home.masters(), ["Starfield.esm", "FO4SFHome.esm"])
+            r_home = p_home.records()
+            root_fid_2 = 0x02000000 | root_local
+            pnam_home = dict(fo4land.iter_subrecords(r_home[root_fid_2][2]))[b"PNAM"]
+            self.assertEqual(int.from_bytes(pnam_home, "little"), 0x01000810)
 
 
 if __name__ == "__main__":

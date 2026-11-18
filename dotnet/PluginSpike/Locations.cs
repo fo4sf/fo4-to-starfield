@@ -23,10 +23,40 @@ public sealed class Locations : IDisposable
     public const string RootEditorId = "FO4Port_InteriorsLocation";
     public static readonly FormKey RootParent = new(ModKey.FromNameAndExtension("Starfield.esm"), 0x01B736);   // SSol_PMars_Surface
 
+    public static FormKey ParseParentFormKey(string? spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec)) return RootParent;
+        var parts = spec.Trim().Split(':');
+        if (parts.Length != 2)
+            throw new InvalidOperationException($"invalid --root-location-parent '{spec}' (expected Plugin.esm:HexId or HexId:Plugin.esm)");
+        string modPart, hexPart;
+        if (parts[0].Contains('.'))
+        {
+            modPart = parts[0].Trim();
+            hexPart = parts[1].Trim();
+        }
+        else if (parts[1].Contains('.'))
+        {
+            hexPart = parts[0].Trim();
+            modPart = parts[1].Trim();
+        }
+        else
+        {
+            throw new InvalidOperationException($"invalid --root-location-parent '{spec}' (missing plugin extension)");
+        }
+        if (hexPart.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            hexPart = hexPart.Substring(2);
+        if (hexPart.Length == 0 || hexPart.Length > 6 || !uint.TryParse(hexPart, System.Globalization.NumberStyles.HexNumber, null, out var localId) || localId > 0x00FFFFFF)
+            throw new InvalidOperationException($"invalid --root-location-parent local FormID '{hexPart}' in '{spec}'");
+        var mk = ModKey.FromNameAndExtension(modPart);
+        return new FormKey(mk, localId);
+    }
+
     readonly StarfieldMod mod;
     readonly Func<string, FormKey> id;
     readonly StarfieldRelease release;
     readonly string edidPrefix;
+    readonly FormKey rootParent;
     readonly JsonDocument? sidecar;
     readonly Dictionary<string, Location> byKey = new();            // formids key -> record: Id() is called once per key
     readonly Dictionary<FormKey, (string cell, string zone)> leveledBy = new();   // location -> the cell whose zone it carries
@@ -36,10 +66,11 @@ public sealed class Locations : IDisposable
     public readonly List<string> Warnings = new();
 
     public Locations(string sidecarPath, StarfieldMod mod, Func<string, FormKey> id, StarfieldRelease release,
-                     string edidPrefix = DefaultPrefix)
+                     string edidPrefix = DefaultPrefix, FormKey? rootParent = null)
     {
         this.mod = mod; this.id = id; this.release = release;
         this.edidPrefix = string.IsNullOrWhiteSpace(edidPrefix) ? DefaultPrefix : edidPrefix;
+        this.rootParent = rootParent ?? RootParent;
         if (!File.Exists(sidecarPath)) return;
         sidecar = JsonDocument.Parse(File.ReadAllText(sidecarPath));
         if (sidecar.RootElement.ValueKind != JsonValueKind.Object || !sidecar.RootElement.TryGetProperty("cells", out var cells)
@@ -110,7 +141,7 @@ public sealed class Locations : IDisposable
         if (root != null) return root;
         var rootEdid = edidPrefix == DefaultPrefix ? RootEditorId : $"{edidPrefix}_InteriorsLocation";
         root = new Location(id("LCTN:" + rootEdid), release) { EditorID = rootEdid };
-        root.ParentLocation.SetTo(RootParent);
+        root.ParentLocation.SetTo(rootParent);
         mod.Locations.Add(root);
         return root;
     }

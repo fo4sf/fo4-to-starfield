@@ -29,6 +29,7 @@ Directory.CreateDirectory(outDir);
 
 string pluginFileName = "FO4Port.esm";
 string edidPrefix = "FO4Port";
+string? rootLocationParentSpec = null;
 bool interactiveFidelity = false;
 string? portReferencePath = null;
 var cellArgPaths = new List<string>();
@@ -42,9 +43,12 @@ for (int ai = 2; ai < args.Length; ai++)
     else if (a == "--plugin-name" && ai + 1 < args.Length) pluginFileName = args[++ai];
     else if (a.StartsWith("--edid-prefix=", StringComparison.Ordinal)) edidPrefix = a.Substring("--edid-prefix=".Length);
     else if (a == "--edid-prefix" && ai + 1 < args.Length) edidPrefix = args[++ai];
+    else if (a.StartsWith("--root-location-parent=", StringComparison.Ordinal)) rootLocationParentSpec = a.Substring("--root-location-parent=".Length);
+    else if (a == "--root-location-parent" && ai + 1 < args.Length) rootLocationParentSpec = args[++ai];
     else if (a.StartsWith("--", StringComparison.Ordinal)) throw new InvalidOperationException($"unknown option {a}");
     else cellArgPaths.Add(a);
 }
+var rootLocationParent = Locations.ParseParentFormKey(rootLocationParentSpec);
 if (!pluginFileName.EndsWith(".esm", StringComparison.OrdinalIgnoreCase))
     pluginFileName += ".esm";
 
@@ -271,7 +275,7 @@ using var promotions = new Promotions(Path.Combine(outDir, "promote.json"));
 
 // Starfield locations (Locations.cs): every converted cell gets an LCTN, shared with the other cells of its FO4 location,
 // carrying the FO4 encounter zone's leveling; <output dir>/locations.json supplies the FO4 data for exports without it.
-using var locations = new Locations(Path.Combine(outDir, "locations.json"), mod, Id, release, edidPrefix);
+using var locations = new Locations(Path.Combine(outDir, "locations.json"), mod, Id, release, edidPrefix, rootLocationParent);
 
 // ---- cells ------------------------------------------------------------------------------------------------------------
 P3Float Pos(JsonElement p) => new(p[0].GetSingle() / UnitsPerMetre, p[1].GetSingle() / UnitsPerMetre, p[2].GetSingle() / UnitsPerMetre);
@@ -483,7 +487,20 @@ var sfData = Environment.GetEnvironmentVariable("STARFIELD_DATA") ?? throw new I
 // Reserve identities before any plugin write. Failed output retains these IDs
 // for retry; a failed map publication must not replace the previous plugin.
 StableFormIds.Save(mapPath, ids);
-mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
-    .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full))
-    .Write();
+if (rootLocationParent.ModKey != sfEsm && rootLocationParent.ModKey != modKey)
+{
+    mod.BeginWrite.ToPath(path)
+        .WithLoadOrder(sfEsm, rootLocationParent.ModKey)
+        .WithDataFolder(sfData)
+        .WithKnownMasters(
+            new KeyedMasterStyle(sfEsm, MasterStyle.Full),
+            new KeyedMasterStyle(rootLocationParent.ModKey, MasterStyle.Full))
+        .Write();
+}
+else
+{
+    mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
+        .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full))
+        .Write();
+}
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes); {ids.Count} stable FormIDs in {mapPath}");

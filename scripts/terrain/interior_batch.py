@@ -111,6 +111,27 @@ from fo4sf import pipeline  # noqa: E402
 
 PLUGIN = "FO4Port.esm"
 DEFAULT_PREFIX = "fo4port"
+DEFAULT_ROOT_LOCATION_PARENT = "Starfield.esm:01B736"
+
+
+def normalize_parent_formkey(spec):
+    """Normalize 'Plugin.esm:HexId' or 'HexId:Plugin.esm' to canonical 'Plugin.esm:XXXXXX'."""
+    raw = (spec or DEFAULT_ROOT_LOCATION_PARENT).strip()
+    parts = raw.split(":")
+    if len(parts) != 2:
+        raise ValueError(f"--root-location-parent {spec!r}: expected Plugin.esm:HexId or HexId:Plugin.esm")
+    if "." in parts[0]:
+        mod_part, hex_part = parts[0].strip(), parts[1].strip()
+    elif "." in parts[1]:
+        hex_part, mod_part = parts[0].strip(), parts[1].strip()
+    else:
+        raise ValueError(f"--root-location-parent {spec!r}: missing plugin extension")
+    plugin_esm, _ = pack_staging.normalize_plugin_name(mod_part)
+    if hex_part.lower().startswith("0x"):
+        hex_part = hex_part[2:]
+    if not hex_part or len(hex_part) > 6 or not re.fullmatch(r"[0-9A-Fa-f]+", hex_part):
+        raise ValueError(f"--root-location-parent {spec!r}: invalid 24-bit hex FormID {hex_part!r}")
+    return f"{plugin_esm}:{int(hex_part, 16):06X}"
 
 
 def resolve_plugin_and_prefix(a):
@@ -741,6 +762,7 @@ def base_plugins(old_cells, base_exports, census):
 def build(a):
     try:
         plugin_esm, prefix, edid_prefix = resolve_plugin_and_prefix(a)
+        root_parent = normalize_parent_formkey(getattr(a, "root_location_parent", ""))
         pipeline.parse_dlc_plugins(getattr(a, "dlc_plugins", None))
         pipeline.refuse_unsafe_output_dir(a.out, "--out")
         pipeline.refuse_unsafe_output_dir(a.work, "--work")
@@ -999,6 +1021,8 @@ def build(a):
         spike_flags += ["--plugin-name", plugin_esm]
     if edid_prefix != "FO4Port":
         spike_flags += ["--edid-prefix", edid_prefix]
+    if root_parent.lower() != DEFAULT_ROOT_LOCATION_PARENT.lower():
+        spike_flags += ["--root-location-parent", root_parent]
     rc, s = run(["dotnet", a.pluginspike, raw, plugin_manifest] + spike_flags + export_paths, log, env=env)
     steps["pluginspike"] = {"exit": rc, "seconds": s}
     if rc != 0:
@@ -1224,6 +1248,9 @@ def finish(a, plan, steps, cells, t0, error, sources=None):
     if plugin_esm != PLUGIN or prefix != DEFAULT_PREFIX:
         result["plugin_name"] = plugin_esm
         result["prefix"] = prefix
+    root_parent = normalize_parent_formkey(getattr(a, "root_location_parent", ""))
+    if root_parent.lower() != DEFAULT_ROOT_LOCATION_PARENT.lower():
+        result["root_location_parent"] = root_parent
     save(os.path.join(a.out, MARKER), result)
     with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"Interior batch {a.batch} (scripts/terrain/interior_batch.py build; docs/terrain/interior-batches.md).\n"
@@ -1698,6 +1725,8 @@ def main(argv=None):
     b.add_argument("--doorsounds", default="", help="with --animated-doors: SfInspect doorsounds TSV (load_door_anim sounds)")
     b.add_argument("--plugin-name", default=PLUGIN, help="target plugin file or stem (default: FO4Port.esm)")
     b.add_argument("--prefix", default=DEFAULT_PREFIX, help="asset/EditorID prefix slug (default: fo4port)")
+    b.add_argument("--root-location-parent", default=DEFAULT_ROOT_LOCATION_PARENT,
+                   help="parent LCTN FormKey for <Prefix>_InteriorsLocation (default: Starfield.esm:01B736)")
     ac = sub.add_parser("adopt-core")
     ac.add_argument("--stage", required=True, help="stage directory with passed result.json and port/doors_check.json")
     ac.add_argument("--core", default="", help="optional core directory (defaults to port/doors_check.json 'core')")
