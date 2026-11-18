@@ -48,6 +48,15 @@ class CompilerRouteTests(unittest.TestCase):
         body = lambda text: text[text.index("param("):]
         mine = body(self.build).replace("FOCCSidecar", "X").replace("bEnabled=0", "Stage=0")
         theirs = body(pipboy).replace("FO4SFPipboyMenu", "X")
+        for line in (
+            "$commonHeader = Join-Path $src '..\\common\\blocking_menus.h'\n",
+            'if (-not (Test-Path $commonHeader)) { "missing ..\\common\\blocking_menus.h from $src"; exit 1 }\n',
+            "New-Item -ItemType Directory -Path (Join-Path $proj 'common') -Force | Out-Null\n",
+            "Copy-Item $commonHeader (Join-Path $proj 'common\\blocking_menus.h')\n",
+            "$record.sources['common\\blocking_menus.h'] = (& $hash $commonHeader)\n",
+        ):
+            self.assertIn(line, theirs)
+            theirs = theirs.replace(line, "", 1)
         mine = mine.replace("$sources = @('xmake.lua', 'src\\main.cpp', 'src\\pch.h', 'codec.h', 'runtime_dir.h', 'sha256.h', 'sha256.cpp', 'X.ini')",
                             "$sources = @('xmake.lua', 'src\\main.cpp', 'src\\pch.h', 'src\\pipboy_map.cpp', 'src\\pipboy_map.h', 'src\\world.cpp', 'src\\world.h', 'X.ini')")  # FAL-250 + PipboyMap sources
         mine = mine.replace("plugin_version = '0.3.0'", "plugin_version = '0.1.0'")

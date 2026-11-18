@@ -67,9 +67,26 @@ Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`RECORDS ON
 
 ---
 
-## Explicitly `NOT BUILT` / Gated in `gemini/core-integration` This Round
-- **`1b` active switch (`PopulateInCall=1`):** Code path is compiled and unit-tested behind `PopulateInCall=0` so `1a` can be proven in isolation first; flipping `PopulateInCall=1` is gated on Card B passing.
-- **`1i` (`Arm=1` examine-watch raise/lower idle):** `NOT BUILT` (deferred to NEXT after THIS ROUND Lane A steps pass).
-- **`1j` (`STAT` `UseStimpak` / `UseRadaway` / perk sounds):** `NOT BUILT` (`StatActions=0` stub).
-- **`1k` (`INV` / `DATA` same-call answers + Scaleform lift S.P.E.C.I.A.L. menu):** `NOT BUILT` (`InvDataAnswers=0`; Starfield's inventory, status, missions, and skills menus remain unblocked so the player never loses access).
+## Card D — `1i`, `1j`, `1k` Arm Idle, `STAT` Aid Actions, `INV`/`DATA` Answers & Lift `SpecialMenu` (`TEST-STATION`, Gated Off Until Card B Passes)
+
+**Default Safety (`R3`):** Shipped `FO4SFPipboyMenu.ini` and default `make_pipboy_stage_ini.py` keep `PopulateInCall=0`, `Arm=0`, `StatActions=0`, `InvDataAnswers=0`, and `SpecialMenu=0` so Card B (`1a` isolation) runs untouched first. Once Card B passes in game, enable each switch one step at a time (`--populate-in-call 1`, `--arm 1`, `--stat-actions 1`, `--inv-data-answers 1`, `--special-menu 1`).
+
+### Required PASS Log Lines (`FO4SFPipboyMenu.log`)
+1. **`1b` (`PopulateInCall=1`):**
+   - `step=populate page=<p> tab=<t> hp=<cur>/<max> ap=<cur>/<max> level=<lvl> special=<s>,<p>,<e>,<c>,<i>,<a>,<l> source=<...> paused=<0|1>` *(logged before `Menu_mc.InvalidateData`)*
+2. **`1i` (`Arm=1`, both `F7` and `M`):**
+   - Open: `step=arm_raise n=<k> idle=IdleExamineWatch form=<hex> accepted=1`
+   - Close: `step=arm_lower n=<k> how=<idle|watch_resume> accepted=1`
+3. **`1j` (`StatActions=1`):**
+   - `step=code_call ... name=UseStimpak` -> `step=stat_use item=<hex> hp_before=<X> hp_after=<Y> used=1`
+   - `step=code_call ... name=UseRadaway` -> `step=stat_use item=<hex> rads_before=<X> rads_after=<Y> used=1`
+   - `step=stat_sound fn=<PlayPerkSound|StopPerkSound|PlaySmallTransition> clip=<id>` (`ShowPerksMenu` logs `step=stat_stub fn=ShowPerksMenu`).
+4. **`1k` (`UI-2` `InvDataAnswers=1` & `UI-3` `SpecialMenu=1`):**
+   - `INV` (`page=1`): `step=inv_fill count=<N> tab=<T> filter=<mask>`, `step=inv_select ...`, `step=inv_equip ...`, `step=inv_drop ...` *(Starfield's inventory, status, missions, and skills menus remain unblocked until `INV` and `DATA` pass in game).*
+   - `DATA` (`page=2`): `step=quests_fill count=<Q> workshops=<W> stats=<S>`.
+   - `FO4SF_SpecialMenu` (`SpecialMenu=1`, `SpecialMaxPoints=40`): `step=special_done name="<name>" s=<S> p=<P> e=<E> c=<C> i=<I> a=<A> l=<L>` writing `FO4SFCoreValues.esm` `0x000810`–`0x000816`.
+
+---
+
+## Explicitly `NOT BUILT` in `gemini/core-integration`
 - **`1l` (`docs/ui/fo4-menus-hosting.md` & `docs/ui/fo4-hud-options.md`):** Design option notes only (`TOOLING` / docs; nothing built until owner picks).

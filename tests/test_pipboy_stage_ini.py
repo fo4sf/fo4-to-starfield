@@ -336,6 +336,54 @@ def _build_boot_swf() -> bytes:
     return _wrap_swf(abc.to_bytes(), compressed=True)
 
 
+def _build_special_swf(extra_call: str = "") -> bytes:
+    abc = _AbcBuilder()
+    pub = abc.ns(0x16, "")
+    shared = abc.ns(0x16, "Shared")
+    cls_q = abc.qname("SyntheticSpecialMenu", pub)
+    base_q = abc.qname("MovieClip", pub)
+    bgs_ext = abc.qname("BGSExternalInterface", shared)
+    call_q = abc.qname("call", pub)
+    code_obj_q = abc.qname("BGSCodeObj", pub)
+    run_q = abc.qname("run", pub)
+
+    fn_names = [
+        "initMenu",
+        "modValue",
+        "startEditText",
+        "endEditText",
+        "confirmResetPoints",
+        "tryCloseMenu",
+        "playSound",
+        "PlayPerkSound",
+        "StopPerkSound",
+        "OnScrollingStarted",
+        "OnScrollingStopped",
+    ]
+    if extra_call:
+        fn_names.append(extra_call)
+
+    iinit, cinit, run_m, sinit = (abc.method() for _ in range(4))
+    abc.classes.append({
+        "name": cls_q,
+        "super": base_q,
+        "flags": 0x01,
+        "iinit": iinit,
+        "cinit": cinit,
+        "traits": [abc.trait_slot(code_obj_q), abc.trait_method(run_q, run_m)],
+        "static": [],
+    })
+    abc.scripts.append((sinit, [abc.trait_class(cls_q, 0)]))
+    code = bytearray(b"\xd0\x30")
+    for fn in fn_names:
+        s_fn = abc.s(fn)
+        code += b"\x60" + _u30(bgs_ext) + b"\xd0\x66" + _u30(code_obj_q) + b"\x2c" + _u30(s_fn)
+        code += b"\x4f" + _u30(call_q) + _u30(2)
+    code += b"\x47"
+    abc.bodies = [(iinit, b"\xd0\x30\x47"), (cinit, b"\x47"), (run_m, bytes(code)), (sinit, b"\x47")]
+    return _wrap_swf(abc.to_bytes(), compressed=True)
+
+
 def _build_gnrl_ba2(entries: list[tuple[str, bytes]]) -> bytes:
     """Build a minimal v1 GNRL BTDX archive in memory."""
     count = len(entries)
@@ -494,6 +542,72 @@ class StageIniGeneratorTests(unittest.TestCase):
         with self.assertRaises(mpsi.StageIniError):
             mpsi.refuse_unsafe_output_path(ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini")
 
+    def test_1i_1j_1k_cli_flags_and_special_menu_staging(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stage = root / "stage"
+            iface = self._populate_synthetic_stage(stage)
+
+            ba2_path = root / "SyntheticInterface.ba2"
+            boot_bytes = _build_boot_swf()
+            special_bytes = _build_special_swf()
+            ba2_path.write_bytes(
+                _build_gnrl_ba2([
+                    ("Interface\\PipboyBootSequence.swf", boot_bytes),
+                    ("Interface\\SPECIALMenu.swf", special_bytes),
+                ])
+            )
+
+            out_buf = io.StringIO()
+            with redirect_stdout(out_buf):
+                rc = mpsi.main([
+                    "--stage", str(stage),
+                    "--fo4-ba2", str(ba2_path),
+                    "--arm", "1",
+                    "--stat-actions", "1",
+                    "--inv-data-answers", "1",
+                    "--special-menu", "1",
+                    "--special-max-points", "40",
+                ])
+            self.assertEqual(rc, 0)
+
+            staged_special = iface / "fo4sf_specialmenu.swf"
+            self.assertTrue(staged_special.is_file())
+            self.assertEqual(staged_special.read_bytes(), special_bytes)
+
+            ini_txt = (stage / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+            mpsi.assert_no_kit_entries(ini_txt)
+            for req in (
+                "Arm=1",
+                "StatActions=1",
+                "InvDataAnswers=1",
+                "SpecialMenu=1",
+                "SpecialMovie=fo4sf_specialmenu",
+                "SpecialMaxPoints=40",
+                "SpecialKey=0",
+            ):
+                self.assertIn(f"\n{req}\n", "\n" + ini_txt, req)
+
+            # SPECIALMenu's standalone BGSCodeObj names must NOT pollute PipboyMenu's CodeObjNames=
+            names = re.search(r"^CodeObjNames=(.+)$", ini_txt, re.M).group(1).split(",")
+            self.assertNotIn("initMenu", names)
+            self.assertNotIn("modValue", names)
+            self.assertNotIn("tryCloseMenu", names)
+
+            # Uncovered BGSCodeObj call inside SPECIALMenu.swf must fail coverage when --special-menu 1
+            bad_ba2 = root / "BadSpecial.ba2"
+            bad_ba2.write_bytes(
+                _build_gnrl_ba2([
+                    ("Interface\\PipboyBootSequence.swf", boot_bytes),
+                    ("Interface\\SPECIALMenu.swf", _build_special_swf(extra_call="UnknownSpecialFn")),
+                ])
+            )
+            err_buf = io.StringIO()
+            with redirect_stderr(err_buf):
+                rc_bad = mpsi.main(["--stage", str(stage), "--fo4-ba2", str(bad_ba2), "--special-menu", "1"])
+            self.assertEqual(rc_bad, 1)
+            self.assertIn("fo4sf_specialmenu.swf:UnknownSpecialFn", err_buf.getvalue())
+
 
 class Task1CrossModuleContractsTests(unittest.TestCase):
     def test_1a_1b_1c_1d_1e_1f_1g_cpp_contracts(self) -> None:
@@ -597,6 +711,51 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
             self.assertGreater(len(txt), 400)
             for pat in banned:
                 self.assertIsNone(pat.search(txt), f"forbidden pattern {pat.pattern!r} in {doc.name}")
+
+    def test_1i_1j_1k_cpp_and_ini_contracts(self) -> None:
+        main_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp").read_text(encoding="utf-8")
+        map_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "pipboy_map.cpp").read_text(encoding="utf-8")
+        blocking_h = (ROOT / "sfse" / "common" / "blocking_menus.h").read_text(encoding="utf-8")
+        shipped_ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+
+        # 1i: PlayIdle without ArmNotifyIdle fallback, graph sink IDs, IdleExamineWatch fallback, accepted=<0|1> on open/close
+        play_idle_fn = main_cpp[main_cpp.index("std::string ArmPlayIdle("):main_cpp.index("bool ArmLowerSet(")]
+        self.assertNotIn("ArmNotifyIdle", play_idle_fn)
+        self.assertIn("kRegisterSinkId = 123821", main_cpp)
+        self.assertIn("kUnregisterSinkId = 123822", main_cpp)
+        self.assertIn("kIdleExamineWatchFormId = 0x000C154F", main_cpp)
+        self.assertIn("class ArmAnimGraphSink final", main_cpp)
+        self.assertIn("step=arm_raise n={} result={} try=1 accepted={} t_ms={}", main_cpp)
+        self.assertIn("step=arm_lower n={} send=none (the raise's clip carries on) accepted={} lock_ms={} t_ms={}", main_cpp)
+        self.assertIn("step=arm_lower n={} send={} result={} try=1 accepted={} t_ms={}", main_cpp)
+
+        # 1j: UseStimpak (0x851 + 0xABF9 MedPack fallback), UseRadaway (0x820), stat_use & stat_sound logs
+        self.assertIn("kMedPackFormId = 0x0000ABF9", main_cpp)
+        self.assertIn("step=stat_use item={:08X} hp_before={:.0f} hp_after={:.0f} used={}", main_cpp)
+        self.assertIn("step=stat_use item={:08X} rads_before={:.0f} rads_after={:.0f} used={}", main_cpp)
+        self.assertIn("step=stat_sound action=play_perk_sound", main_cpp)
+        self.assertIn("step=stat_sound action=stop_perk_sound", main_cpp)
+        self.assertIn("step=stat_sound action=play_small_transition", main_cpp)
+        self.assertIn("step=stat_stub name=ShowPerksMenu", main_cpp)
+
+        # 1k UI-2: INV & DATA in-call answers + equip/unequip/drop/sort/quickkey/quest/map handlers
+        self.assertIn("kUnequipObjectId = 101951", main_cpp)
+        self.assertIn("kRefrRemoveItemSlot = 0x8B", main_cpp)
+        self.assertIn("step=inv_fill when={} tab={} filter={:#x} n={} total_count={}", main_cpp)
+        self.assertIn("step=quests_fill when={} tab={} n={} active={} completed={}", main_cpp)
+        self.assertIn("step=inv_equip node={} form={:08X} action={} ok={}", main_cpp)
+        self.assertIn("step=inv_drop node={} form={:08X} count={} handle={:#x}", main_cpp)
+        self.assertIn("step=quest_select form={:08X} objectives={}", main_cpp)
+        self.assertIn("step=quest_active form={:08X} active={}", main_cpp)
+        self.assertIn("void RequestCenterMarker(", map_cpp)
+
+        # 1k UI-3: FO4SF_SpecialMenu second IMenu host, plain Object BGSCodeObj, 40-point parameterized pool
+        self.assertIn('"FO4SF_SpecialMenu"', blocking_h)
+        self.assertIn("CreateSpecialMenu", main_cpp)
+        self.assertIn("step=special_code_obj type=object", main_cpp)
+        self.assertIn("step=special_done sum={} max_points={} written={}", main_cpp)
+        for shipped_default in ("SpecialMenu=0", "SpecialMovie=", "SpecialMaxPoints=40", "SpecialKey=0"):
+            self.assertIn(f"\n{shipped_default}\n", "\n" + shipped_ini)
 
 
 if __name__ == "__main__":

@@ -13,12 +13,13 @@
 namespace fo4sf
 {
 	inline constexpr const char* kOurPipboyMenuName = "FO4SF_PipboyMenu";
+	inline constexpr const char* kOurSpecialMenuName = "FO4SF_SpecialMenu";
 
 	// First kTopModalMenuCount entries are top-level modal / text-entry overlays that take priority even when
 	// FO4SF_PipboyMenu is already open underneath them.
 	inline constexpr std::size_t kTopModalMenuCount = 8;
 
-	inline constexpr std::array<const char*, 37> kBlockingMenus{ {
+	inline constexpr std::array<const char*, 38> kBlockingMenus{ {
 		// Top modal & text-input overlays (indices 0 .. kTopModalMenuCount - 1)
 		"Console",
 		"ConsoleNativeUIMenu",
@@ -28,7 +29,8 @@ namespace fo4sf
 		"MainMenu",
 		"LoadingMenu",
 		"LoadingMenuNewLocation",
-		// Character creation & dialogue
+		// Character creation & dialogue (including FO4SF_SpecialMenu)
+		"FO4SF_SpecialMenu",
 		"ChargenMenu",
 		"DialogueMenu",
 		"ShipDialogueMenu",
