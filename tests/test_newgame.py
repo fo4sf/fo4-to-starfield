@@ -2019,6 +2019,7 @@ class PodStepOptionTests(unittest.TestCase):
         self.assertIn("InputEnableLayer scannerLayer = None", psc)
         self.assertIn("scannerLayer = InputEnableLayer.Create()", psc)
         self.assertIn("scannerLayer.EnableHandscanner(false)", psc)
+        self.assertIn('Trace("blocked input=handscanner")', psc)
         self.assertIn("DisableHandScanner()", psc)
 
 

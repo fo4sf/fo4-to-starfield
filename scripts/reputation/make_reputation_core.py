@@ -178,7 +178,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
         # 2. Compile FO4SF_ReputationQuest.psc -> Data/Scripts/FO4SF_ReputationQuest.pex
         compile_papyrus(compiler, resources, PSC_PATH, partial / "Data" / "Scripts")
 
-        # 3. Generate Stage=5 Pip-Boy kit INI & Stage=2 AS3 shell manifests
+        # 3. Generate Stage=5 Pip-Boy kit INI (FO4SFPipboyKit.ini, NEVER FO4SFPipboyMenu.ini) & Stage=2 AS3 shell manifests
         base_ini_text = SHIPPED_PIPBOY_INI.read_text(encoding="utf-8")
         merged_ini = inject_pipboy_kit_pages(
             base_ini_text,
@@ -187,7 +187,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
             slot_count=slot_count,
         )
         validate_kit_ini_text(merged_ini)
-        (partial / "FO4SFPipboyMenu.reputation.ini").write_text(merged_ini, encoding="utf-8")
+        (partial / "FO4SFPipboyKit.ini").write_text(merged_ini, encoding="utf-8")
         (partial / "FO4SFPipboyReputation.tsv").write_text(format_shell_tsv(slot_count=slot_count), encoding="utf-8")
         (partial / "FO4SFPipboyReputation.json").write_text(
             json.dumps(build_shell_manifest(slot_count=slot_count), indent=2) + "\n", encoding="utf-8"
@@ -199,7 +199,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
             "=============================\n"
             f"- Plugin: {PLUGIN_NAME} (masters {', '.join(PLUGIN_MASTERS)}, slots={slot_count}, no_test_cell={no_test_cell})\n"
             f"- Script: Data/Scripts/{SCRIPT_NAME}.pex\n"
-            "- Pip-Boy Stage=5 Kit INI: FO4SFPipboyMenu.reputation.ini ([Page STAT/KARMA], [Page DATA/REPUTATION])\n"
+            "- Pip-Boy Stage=5 Kit INI: FO4SFPipboyKit.ini ([Page STAT/KARMA], [Page DATA/REPUTATION])\n"
             "- Pip-Boy Stage=2 Shell Bridge: FO4SFPipboyReputation.tsv, FO4SFPipboyReputation.json\n"
         )
         (partial / "README.txt").write_text(readme, encoding="utf-8")
@@ -262,7 +262,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     required_rels = {
         PLUGIN_NAME,
         f"Data/Scripts/{SCRIPT_NAME}.pex",
-        "FO4SFPipboyMenu.reputation.ini",
+        "FO4SFPipboyKit.ini",
         "FO4SFPipboyReputation.tsv",
         "FO4SFPipboyReputation.json",
         "offline_check.txt",
@@ -300,7 +300,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     if extra_rels:
         problems.append(f"unexpected extra file(s) in stage: {extra_rels}")
 
-    ini_path = stage_dir / "FO4SFPipboyMenu.reputation.ini"
+    ini_path = stage_dir / "FO4SFPipboyKit.ini"
     if ini_path.is_file():
         try:
             validate_kit_ini_text(ini_path.read_text(encoding="utf-8"))
@@ -356,6 +356,11 @@ def cmd_pipboy_ini(args: argparse.Namespace) -> int:
         return 1
 
     out_path = Path(args.out)
+    if out_path.is_dir():
+        out_path = out_path / "FO4SFPipboyKit.ini"
+    if out_path.name.casefold() == "fo4sfpipboymenu.ini":
+        sys.stderr.write("pipboy-ini failed: refusing to write kit pages into FO4SFPipboyMenu.ini (use FO4SFPipboyKit.ini)\n")
+        return 1
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(merged_ini, encoding="utf-8")
 

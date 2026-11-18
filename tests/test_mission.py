@@ -675,14 +675,14 @@ class RelocateContractTests(unittest.TestCase):
         self.assertEqual(re.findall(r"if MoveOver\((\w+)", psc), ["Raiders"])
         keep = function_body(psc, "KeepCodsworth")
         self.assertRegex(keep, r"if PlaceCodsworth\(player\)\s+codsworthFails \+= 1\s+if codsworthFails >= 10\s+"
-                               r'codsworthState = "gave up"\s+Trace\([^\n]*\n\s+Debug\.Notification\(')
+                               r'codsworthState = "gave up"\s+Trace\([^\n]*\n\s+if IsTestMode\(\)\n\s+Debug\.Notification\(')
         self.assertRegex(keep, r"if KeeperOnly\s+KeepPreston\(player\)\s+"
                                r"if Codsworth != None && keeperChecks % KeeperStatusEvery == 0\s+"
                                r'TraceCodsworth\("keeper status"\)')
         self.assertNotIn("GetStage", keep + place)                      # after stage 200 too
         load = function_body(psc, "KeepCodsworthLoad")
         tail = load[load.rindex("if Codsworth != None"):]
-        self.assertRegex(tail, r'if Codsworth != None\s+TraceCodsworth\("keeper load"\)\s+Debug\.Notification\('
+        self.assertRegex(tail, r'if Codsworth != None\s+TraceCodsworth\("keeper load"\)\s+if IsTestMode\(\)\n\s+Debug\.Notification\('
                                r'"FO4SF keeper: Codsworth "')
         self.assertLess(load.index('TraceCodsworth("keeper load")'), load.index("StartTimer(CodsworthCheck, 2)"))
         self.assertIn('TraceSpot(what, Codsworth, "codsworth", codsworthOff, codsworthState, codsworthMoves, '

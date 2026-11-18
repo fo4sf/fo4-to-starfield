@@ -377,7 +377,7 @@ Function DisableHandScanner()
         scannerLayer = InputEnableLayer.Create()
         if scannerLayer != None
             scannerLayer.EnableHandscanner(false)
-            Trace("handscanner disabled=true")
+            Trace("blocked input=handscanner")
         endif
     endif
 EndFunction
@@ -526,7 +526,7 @@ bool Function EnterVault(Actor player)
     player.SetAngle(0.0, 0.0, PodHeading)
     bool ok = player.GetParentCell() == anchor.GetParentCell()
     Trace("enter vault ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + PodX + " " + PodY + " " + (PodZ + PodLift) + " cell=" + player.GetParentCell())
-    if ok
+    if ok && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
         Debug.Notification("Vault 111")
     endif
     return ok

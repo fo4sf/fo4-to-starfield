@@ -83,6 +83,24 @@ class MapStoreError(ValueError):
     pass
 
 
+def refuse_unsafe_output_path(path):
+    """Refuse writing converted/staged game files inside any Git worktree or game install directory (Rule R4)."""
+    target = os.path.abspath(os.fspath(path))
+    cur = target if os.path.isdir(target) else os.path.dirname(target)
+    visited = set()
+    while cur and cur not in visited:
+        visited.add(cur)
+        if os.path.exists(os.path.join(cur, ".git")):
+            raise MapStoreError(f"refused output path inside Git worktree: {target}")
+        if os.path.isfile(os.path.join(cur, "Starfield.exe")) or os.path.isfile(os.path.join(cur, "Fallout4.exe")):
+            raise MapStoreError(f"refused output path inside game directory: {target}")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return target
+
+
 # ------------------------------------------------------------------------------------------------ coordinates & bitsets
 def project_child_world(x_fo4, y_fo4, world_formid=0x0000003C):
     """Project child worldspace coordinates onto canonical Commonwealth world-map coordinates."""
@@ -636,6 +654,7 @@ def stage_fo4_stat_components(fo4_interface_ba2, out_interface_dir, include_perk
 
     Returns the sorted list of component specifiers suitable for `pipboy_probe_install.py --component-movie`.
     """
+    refuse_unsafe_output_path(out_interface_dir)
     from fo4sf.ba2 import Ba2
     prefixes = FO4_STAT_COMPONENT_PREFIXES if include_perks else FO4_STAT_COMPONENT_PREFIXES[:2]
     lower_prefixes = tuple(p.lower() for p in prefixes)
@@ -660,6 +679,31 @@ def stage_fo4_stat_components(fo4_interface_ba2, out_interface_dir, include_perk
         staged.append(comp_spec)
     staged.sort(key=str.lower)
     return staged
+
+
+def stage_fo4_boot_movie(fo4_interface_ba2, out_interface_dir, dst_name="pipboybootsequence"):
+    """Extract `Interface/PipboyBootSequence.swf` from a local `Fallout4 - Interface.ba2` into `<out_interface_dir>/<dst_name>.swf`."""
+    refuse_unsafe_output_path(out_interface_dir)
+    if not dst_name or not re.fullmatch(r"[A-Za-z0-9_]{1,64}", dst_name):
+        raise MapStoreError(f"invalid boot movie name: {dst_name!r}")
+    from fo4sf.ba2 import Ba2
+    archive = Ba2(fo4_interface_ba2)
+    matched_entry = None
+    for entry in archive.entries:
+        if entry.name.replace("\\", "/").lower() == "interface/pipboybootsequence.swf":
+            matched_entry = entry
+            break
+    if matched_entry is None:
+        raise MapStoreError("Interface/PipboyBootSequence.swf not found in archive")
+    os.makedirs(out_interface_dir, exist_ok=True)
+    dst = os.path.join(out_interface_dir, f"{dst_name}.swf")
+    raw = archive.read(matched_entry.name)
+    with open(dst, "wb") as f:
+        f.write(raw)
+    why = pbi.swf_problem(dst)
+    if why:
+        raise MapStoreError(f"extracted boot movie {dst_name}.swf failed SWF check: {why}")
+    return dst_name
 
 
 # ------------------------------------------------------------------------------------------------ travel ESM & store TSV
@@ -1018,6 +1062,7 @@ def main(argv=None):
         print(f"wrote {n} marker row(s) to {os.path.basename(args.out)}")
         return 0
     if args.cmd == "stage-worldmap":
+        refuse_unsafe_output_path(args.out)
         with open(args.dds, "rb") as f:
             w, h, argb = parse_dds_bc1(f.read())
         data = worldmap_swf_bytes(argb, w, h)
@@ -1030,6 +1075,7 @@ def main(argv=None):
         print(f"wrote {w}x{h} world map SWF ({len(data)} bytes)")
         return 0
     if args.cmd == "patch-mappage":
+        refuse_unsafe_output_path(args.out)
         with open(args.src, "rb") as f:
             patched, counts = patch_map_page_swf(f.read(), args.worldmap_url, args.msgbox_url)
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

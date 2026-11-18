@@ -3,16 +3,16 @@
 Evaluates each of the 12 walk steps independently so a failure in one step never blocks reading the remaining steps:
   1. exit        - pod walk-out, gear door, carrying lift, Commonwealth surface landing (fo4sf_newgame.0.log)
   2. hold        - hold-off pass 1 + pass 2 stopping 196 of 199 DefaultHold quests, 0 remaining running (fo4sf_newgame.0.log)
-  3. rads        - radiation exposure (> 0 rads) and RadAway cure reduction (FO4SFRadsCore.0.log)
+  3. rads        - radiation exposure (> 0 rads), RadAway cure reduction, and no mode/verdict failure (FO4SFRadsCore.0.log)
   4. hardcore    - GPOF Hardcore toggle ON and OFF with sq_env_running=false (FO4SFHardcore.0.log)
   5. workshop    - junk scrap, station/beacon placement, and save-quit-reload persistence (FO4SFWorkshopCore.1.log + .0.log)
   6. powerarmor  - climb-in frame entry, FusionCore charge/drain, and frame exit outfit restore (FO4SFPACore.0.log)
-  7. dialogue    - silent-player list dialogue with [Speech 50] / tag check stage transition (FO4SFListDialogue.0.log)
-  8. progression - creation flow applying 1 Background, 0..2 Traits, and 40-pt SPECIAL (FO4SFCoreCandidate.0.log / FO4SFProgression.0.log)
+  7. dialogue    - silent-player list dialogue with explicit player choice stage transition (FO4SFListDialogue.0.log)
+  8. progression - FO4SFProgression creation_applied flow with 40-pt SPECIAL and 13 skills (FO4SFProgression.0.log)
   9. combat      - zone hits, high-DT AP vs Standard ammo cycle, leg cripple & cure, and slow-time VATS shot (FO4SFCombat.0.log)
- 10. reputation  - Very Evil + Idolized orthogonality (Ally + 0.75x buy mult) and Karma/Faction standing (FO4SFReputation.1.log + .0.log)
- 11. companions  - 4-NPC Warfare fireteam commands, squad cap/upkeep gates, and follower teleportation (FO4SFCompanions.1.log + .0.log)
- 12. pipboy      - FO4 shell/SPECIAL fill, M-key MAP open/close + texture/markers, and complete Star-Map block (FO4SFPipboyMenu.log)
+ 10. reputation  - Very Evil + Idolized orthogonality (Ally + 0.75x buy mult) and post-reload persistence (FO4SFReputation.1.log + .0.log)
+ 11. companions  - 4-NPC Warfare fireteam commands, chokepoint follower teleportation, and reload persistence (FO4SFCompanions.1.log + .0.log)
+ 12. pipboy      - FO4 shell/DataObj fill, M-key MAP open/close + discovered markers, Star-Map block, and 0 GFx/watchdog errors (FO4SFPipboyMenu.log)
 """
 from __future__ import annotations
 
@@ -38,6 +38,43 @@ STEP_NAMES = (
 
 EXPECTED_HOLD_STOPPED = 196
 EXPECTED_HOLD_TOTAL = 199
+
+_WORKSHOP_RELOAD_PERSISTED_RE = re.compile(
+    r"\breload_audit\b"
+    r"(?=[^\n]*\bwhen=reload(?:\+2s)?\b)"
+    r"(?![^\n]*\bpass=false\b)"
+    r"[^\n]*(?:"
+    r"\b(?:tracked_beacons|tracked_stations|tracked_workshops)=[1-9]\d*\b"
+    r"|"
+    r"(?=[^\n]*\bpass=true\b)[^\n]*\b(?:benches_ok|beacons_ok|stations_ok)=[1-9]\d*/[1-9]\d*\b"
+    r")",
+    re.I,
+)
+
+_DIALOGUE_CHOICE_STAGE_RE = re.compile(
+    r"\b(?:choice|choice_stage)\b[^\n]*\bstage=(?:20|21|22|30|31|40|50)\b",
+    re.I,
+)
+
+_PROGRESSION_CREATION_APPLIED_RE = re.compile(
+    r"\bcreation_applied\b(?![^\n]*\bok=false\b)[^\n]*\bspecial_sum=40(?:\.0+)?\b[^\n]*\bskills_count=13\b",
+    re.I,
+)
+
+_COMPANIONS_TELEPORT_RE = re.compile(
+    r"\b(?:teleport|step=teleport|teleport_sync)\b"
+    r"[^\n]*\breason=(?:load_door_cell_change|vault_lift_or_interior_exit|pipboy_fast_travel|manual_radio_sync)\b"
+    r"[^\n]*\bmoved=[1-9]\d*\b",
+    re.I,
+)
+
+_COMPANIONS_RELOAD_RE = re.compile(
+    r"\breload_audit\b"
+    r"(?=[^\n]*\bwhen=reload(?:\+2s)?\b)"
+    r"(?![^\n]*\bpass=false\b)"
+    r"[^\n]*(?:\bsquad_ok=[1-9]\d*/[1-9]\d*\b[^\n]*\bpass=true\b|\btracked_squad=[1-9]\d*\b)",
+    re.I,
+)
 
 
 def _read_lines(path: Optional[str]) -> List[str]:
@@ -98,14 +135,19 @@ def eval_rads(lines: Iterable[str]) -> dict:
     if not text.strip():
         return {"step": "rads", "ok": False, "detail": "no FO4SFRadsCore log lines found"}
     rads_vals = [float(m.group(1)) for m in re.finditer(r"\brads=([0-9]+(?:\.[0-9]+)?)", text)]
-    cured = bool(re.search(r"(radaway|cure|delta=-\d+)", text, re.I)) or (
+    has_fail = bool(re.search(r"(?:\bverdict\b[^\n]*\bpass=false\b|\bmode_switch\b[^\n]*\bok=false\b)", text, re.I))
+    cured = bool(re.search(r"(?:\bradaway\b|\bcure\b|\bdelta=-\d+)", text, re.I)) or (
         len(rads_vals) >= 2 and max(rads_vals) >= 25.0 and rads_vals[-1] < max(rads_vals)
     )
-    exposed = any(v >= 25.0 for v in rads_vals) or bool(re.search(r"(hazard|emitter|ingest|source=)", text, re.I))
-    ok = exposed and cured
+    exposed = any(v >= 25.0 for v in rads_vals)
+    ok = exposed and cured and (not has_fail)
     peak = max(rads_vals) if rads_vals else 0.0
     last = rads_vals[-1] if rads_vals else 0.0
-    return {"step": "rads", "ok": ok, "detail": f"exposed={exposed} cured={cured} peak_rads={peak:.1f} final_rads={last:.1f}"}
+    return {
+        "step": "rads",
+        "ok": ok,
+        "detail": f"exposed={exposed} cured={cured} no_rule_fail={not has_fail} peak_rads={peak:.1f} final_rads={last:.1f}",
+    }
 
 
 def eval_hardcore(lines: Iterable[str]) -> dict:
@@ -127,9 +169,25 @@ def eval_workshop(lines: Iterable[str]) -> dict:
     if not raw:
         return {"step": "workshop", "ok": False, "detail": "no FO4SFWorkshopCore log lines found"}
     text = "\n".join(raw)
-    scrapped = bool(re.search(r"(cmpo_scrap|scrapped|scrap_complete|scrap_junk)", text, re.I))
-    placed = bool(re.search(r"(camp_deployed|bench_placed|station_added|tracked_stations=[1-9]|tracked_beacons=[1-9]|tracked_workshops=[1-9])", text, re.I))
-    reloaded = bool(re.search(r"(reload_audit|onplayerloadgame|when=reload)", text, re.I))
+    scrapped = bool(
+        re.search(
+            r"(?:\bcmpo_scrap\b[^\n]*\bitems=[1-9]\d*\b"
+            r"|\bscrap_run\b[^\n]*\bjunk_removed=[1-9]\d*[^\n]*\bpass=true\b"
+            r"|\bscrap_complete\b[^\n]*\b(?:ok|pass)=true\b)",
+            text,
+            re.I,
+        )
+    )
+    placed = bool(
+        re.search(
+            r"(?:\bcamp_deployed\b[^\n]*\b(?:moved=true|ok=true|active_camps=[1-9]\d*)\b"
+            r"|\bbench_placed\b[^\n]*\b(?:moved=true|count=[1-9]\d*)\b"
+            r"|\bstation_placed\b[^\n]*\bcount=[1-9]\d*\b)",
+            text,
+            re.I,
+        )
+    )
+    reloaded = bool(_WORKSHOP_RELOAD_PERSISTED_RE.search(text))
     ok = scrapped and placed and reloaded
     return {"step": "workshop", "ok": ok, "detail": f"scrapped={scrapped} placed={placed} reload_persisted={reloaded}"}
 
@@ -151,8 +209,8 @@ def eval_dialogue(lines: Iterable[str]) -> dict:
     if not raw:
         return {"step": "dialogue", "ok": False, "detail": "no FO4SFListDialogue log lines found"}
     text = "\n".join(raw)
-    skill_branch = bool(re.search(r"(stage=(?:20|21|22|30|31|40|50)|speech_(?:pass|fail)|science_pass|strength_(?:pass|fail)|bg_vault_dweller|trait_good_natured)", text, re.I))
-    return {"step": "dialogue", "ok": skill_branch, "detail": f"skill_or_tag_branch_recorded={skill_branch}"}
+    choice_recorded = bool(_DIALOGUE_CHOICE_STAGE_RE.search(text))
+    return {"step": "dialogue", "ok": choice_recorded, "detail": f"choice_stage_recorded={choice_recorded}"}
 
 
 def eval_progression(candidate_lines: Iterable[str], prog_lines: Iterable[str]) -> dict:
@@ -161,21 +219,14 @@ def eval_progression(candidate_lines: Iterable[str], prog_lines: Iterable[str]) 
     if not cand_text.strip() and not prog_text.strip():
         return {"step": "progression", "ok": False, "detail": "no FO4SFCoreCandidate / FO4SFProgression log lines found"}
 
-    m = re.search(
-        r"chargen_applied\b[^\n]*\bbg=(\w+)[^\n]*\btraits_count=(\d+)[^\n]*\bspecial_sum=([0-9.]+)",
-        cand_text,
-        re.I,
-    )
-    if m:
-        bg, tcount, ssum = m.group(1), int(m.group(2)), float(m.group(3))
-        ok = bool(bg) and (tcount == 2) and abs(ssum - 40.0) < 0.01
+    prog_ok = bool(_PROGRESSION_CREATION_APPLIED_RE.search(prog_text))
+    harness_only = (not prog_ok) and bool(re.search(r"\bchargen_applied\b", cand_text, re.I))
+    if harness_only:
         return {
             "step": "progression",
-            "ok": ok,
-            "detail": f"source=walk_kiosk bg={bg} traits_count={tcount} (expect 2) special_sum={ssum:.0f}",
+            "ok": False,
+            "detail": "source=walk_harness_only ok=False (missing FO4SFProgression creation_applied)",
         }
-
-    prog_ok = bool(re.search(r"(creation_applied|special_sum=40|stage[^\n]*id=10)", prog_text, re.I))
     return {"step": "progression", "ok": prog_ok, "detail": f"source=progression_quest ok={prog_ok}"}
 
 
@@ -219,7 +270,7 @@ def eval_reputation(lines: Iterable[str]) -> dict:
         )
     )
     ortho_ok = explicit_ortho or token_or_hook_ortho
-    reload_ok = bool(re.search(r"(reload_audit[^\n]*ok=true|when=reload)", text, re.I))
+    reload_ok = bool(re.search(r"\breload_audit\b[^\n]*\b(?:ok|pass)=true\b", text, re.I))
     ok = ortho_ok and reload_ok
     return {"step": "reputation", "ok": ok, "detail": f"evil_idolized_orthogonality={ortho_ok} reload_persisted={reload_ok}"}
 
@@ -229,9 +280,17 @@ def eval_companions(lines: Iterable[str]) -> dict:
     if not raw:
         return {"step": "companions", "ok": False, "detail": "no FO4SFCompanions log lines found"}
     text = "\n".join(raw)
-    fireteam_ok = bool(re.search(r"(active=4\b|count=4\b|slot=3\b|fireteam_cmd|fireteam_4npc)", text, re.I))
-    teleport_ok = bool(re.search(r"(load_door_cell_change|vault_lift_or_interior_exit|pipboy_fast_travel|manual_radio_sync|teleport)", text, re.I))
-    reload_ok = bool(re.search(r"(reload_audit|when=reload)", text, re.I))
+    fireteam_ok = bool(
+        re.search(
+            r"(?:\bstage_result\s+stage=20\b[^\n]*\bactive=4\b[^\n]*\bpass=true\b"
+            r"|\bfireteam_cmd\b[^\n]*\bcount=4\b"
+            r"|\brecruited\b[^\n]*\bslot=4/4\b)",
+            text,
+            re.I,
+        )
+    )
+    teleport_ok = bool(_COMPANIONS_TELEPORT_RE.search(text))
+    reload_ok = bool(_COMPANIONS_RELOAD_RE.search(text))
     ok = fireteam_ok and teleport_ok and reload_ok
     return {"step": "companions", "ok": ok, "detail": f"fireteam_4npc={fireteam_ok} teleport={teleport_ok} reload_persisted={reload_ok}"}
 
@@ -260,18 +319,43 @@ def eval_pipboy(lines: Iterable[str]) -> dict:
         return {"step": "pipboy", "ok": False, "detail": "no FO4SFPipboyMenu.log lines found"}
     text = "\n".join(raw)
     refused = bool(re.search(r"\brefuse\s+step=", text, re.I))
-    shell_ok = bool(re.search(r"step=code_obj_special\b[^\n]*\bpushed=7\b", text, re.I))
-    map_open = bool(re.search(r"step=map_key\b[^\n]*\bwas_open=0\b[^\n]*\bsent=show\b", text, re.I))
-    map_close = bool(re.search(r"step=map_key\b[^\n]*\bwas_open=1\b[^\n]*\bsent=hide\b", text, re.I))
-    map_data = bool(re.search(r"(step=map_texture\s+loaded=1|step=map_markers\b[^\n]*\bcorners_set=3/3)", text, re.I))
-    starmap_blocked = bool(re.search(r"step=starmap_blocked\b[^\n]*\broute=create\b", text, re.I))
-    ok = (not refused) and shell_ok and map_open and map_close and map_data and starmap_blocked
+    watchdog_busy = bool(re.search(r"\bstep=watchdog_busy\b", text, re.I))
+    gfx_fail = bool(re.search(r"\bstep=gfx_exit\b[^\n]*\bok=0\b", text, re.I))
+
+    shell_ok = bool(
+        re.search(
+            r"(?:\bstep=data_obj_fill\b[^\n]*\bwhen=PopulatePipboyInfoObj\b"
+            r"|\bstep=code_call\b[^\n]*\bname=PopulatePipboyInfoObj\b"
+            r"|\bstep=code_obj_special\b[^\n]*\bpushed=7\b)",
+            text,
+            re.I,
+        )
+    )
+    map_open = bool(re.search(r"\bstep=map_key\b[^\n]*\bwas_open=0\b[^\n]*\bsent=show\b", text, re.I))
+    map_close = bool(re.search(r"\bstep=(?:map_key|toggle)\b[^\n]*\bwas_open=1\b[^\n]*\bsent=hide\b", text, re.I))
+
+    marker_lines = re.findall(r"\bstep=map_markers\b[^\n]*", text, re.I)
+    markers_discovered_ok = (
+        any(
+            re.search(r"\bdiscovered=[1-9]\d*\b", ln, re.I) and re.search(r"\bcorners_set=3/3\b", ln, re.I)
+            for ln in marker_lines
+        )
+        if marker_lines
+        else True
+    )
+    has_map_surface = bool(re.search(r"\bstep=map_texture\s+loaded=1\b", text, re.I)) or bool(marker_lines)
+    map_data = has_map_surface and markers_discovered_ok
+
+    starmap_blocked = bool(re.search(r"\bstep=starmap_blocked\b[^\n]*\broute=create\b", text, re.I))
+    no_errors = (not refused) and (not watchdog_busy) and (not gfx_fail)
+    ok = no_errors and shell_ok and map_open and map_close and map_data and starmap_blocked
     return {
         "step": "pipboy",
         "ok": ok,
         "detail": (
-            f"no_refuse={not refused} shell_special={shell_ok} map_open_close={map_open and map_close} "
-            f"map_data={map_data} starmap_blocked={starmap_blocked}"
+            f"no_refuse={not refused} no_watchdog_busy={not watchdog_busy} no_gfx_fail={not gfx_fail} "
+            f"shell_data={shell_ok} map_open_close={map_open and map_close} "
+            f"map_data={map_data} markers_discovered={markers_discovered_ok} starmap_blocked={starmap_blocked}"
         ),
     }
 

@@ -39,8 +39,10 @@ if (Get-Command git.exe -ErrorAction SilentlyContinue) {
   elseif ($sharedCommit -ne $PinnedShared) { "note: lib\commonlib-shared is at $sharedCommit, not the pinned $PinnedShared" }
 }
 $src = $PSScriptRoot
+$commonHeader = Join-Path $src '..\common\blocking_menus.h'
 $sources = @('xmake.lua', 'FO4SFCombat.ini', 'src\main.cpp', 'src\pch.h')
 foreach ($s in $sources) { if (-not (Test-Path (Join-Path $src $s))) { "missing $s in $src"; exit 1 } }
+if (-not (Test-Path $commonHeader)) { "missing ..\common\blocking_menus.h from $src"; exit 1 }
 if ($Sdk -and -not (Test-Path (Join-Path $Sdk 'VC\Tools\MSVC'))) { "-Sdk $Sdk has no VC\Tools\MSVC folder"; exit 1 }
 
 $dll = Join-Path $Out 'FO4SFCombat.dll'
@@ -58,8 +60,10 @@ if (-not $Sdk -and $env:VCToolsInstallDir -and $env:WindowsSdkDir) {
 }
 $proj = Join-Path $Out 'proj'
 New-Item -ItemType Directory -Path (Join-Path $proj 'src') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $proj 'common') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $proj 'lib') -Force | Out-Null
 foreach ($s in $sources) { Copy-Item (Join-Path $src $s) (Join-Path $proj $s) }
+Copy-Item $commonHeader (Join-Path $proj 'common\blocking_menus.h')
 New-Junction (Join-Path $proj 'lib\commonlibsf') (Resolve-Path $Lib).Path
 Remove-Item Env:XSE_SF_MODS_PATH -ErrorAction SilentlyContinue
 Remove-Item Env:XSE_SF_GAME_PATH -ErrorAction SilentlyContinue
@@ -96,6 +100,7 @@ $record = [ordered]@{
   install = 'copy FO4SFCombat.dll, FO4SFCombat.ini and versionlib-1-16-244-0.bin (format 5) to <Starfield>\Data\SFSE\Plugins\ by hand (game closed)'
 }
 foreach ($s in $sources) { $record.sources[$s] = (& $hash (Join-Path $src $s)) }
+$record.sources['common\blocking_menus.h'] = (& $hash $commonHeader)
 $json = $record | ConvertTo-Json -Depth 4
 $json | Set-Content -Encoding UTF8 (Join-Path $Out 'build.json')
 $json

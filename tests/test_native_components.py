@@ -216,11 +216,31 @@ class SourceTests(unittest.TestCase):
         self.assertIn("IsFileType(fileType)", map_cpp)
 
     def test_sfse_key_handlers_g2_menu_console_guards_and_stage2_cancel(self):
+        blocking_h = text("sfse/common/blocking_menus.h")
         combat_cpp = text("sfse/FO4SFCombat/src/main.cpp")
         main_cpp = text("sfse/FO4SFPipboyMenu/src/main.cpp")
         map_cpp = text("sfse/FO4SFPipboyMenu/src/pipboy_map.cpp")
-        for menu_name in ("Console", "FO4SF_PipboyMenu", "MessageBoxMenu", "ChargenMenu", "DialogueMenu"):
-            self.assertIn(f'"{menu_name}"', combat_cpp)
+        for menu_name in (
+            "Console",
+            "TextInputMenu",
+            "MonocleMenu",
+            "SecurityMenu",
+            "SkillsMenu",
+            "StatusMenu",
+            "WorkshopMenu",
+            "PhotoModeMenu",
+            "SurfaceMap",
+            "MapMenu",
+            "FO4SF_PipboyMenu",
+            "MessageBoxMenu",
+            "ChargenMenu",
+            "DialogueMenu",
+        ):
+            self.assertIn(f'"{menu_name}"', blocking_h)
+        self.assertNotIn('"FaderMenu"', blocking_h)
+        for src in (combat_cpp, main_cpp, map_cpp):
+            self.assertIn('#include "blocking_menus.h"', src)
+            self.assertIn("fo4sf::FindOpenBlockingMenu(", src)
         self.assertIn("OpenBlockingMenu()", combat_cpp)
         self.assertIn("OpenBlockingOverlayMenu(", main_cpp)
         self.assertIn("OpenBlockingMapMenu(", map_cpp)

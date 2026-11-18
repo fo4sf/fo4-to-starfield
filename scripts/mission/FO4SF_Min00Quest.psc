@@ -93,6 +93,9 @@ float Property FindRadius = 20.0 Auto Const
 float Property TalkRadius = 3.0 Auto Const
 {Standing this close (m) to Preston counts as talking to him once the raiders are dead (no dialogue ported yet).}
 
+GlobalVariable Property TestModeGlobal Auto Const
+{Optional FO4SF_TestModeEnabled (FO4SFCoreValues.esm 0x860); resolved via GetFormFromFile when unbound so the plugin stays byte-identical.}
+
 string LogName = "fo4sf_mission"
 int ticks = 0
 int relocateFails = 0
@@ -142,9 +145,17 @@ Function KeepCodsworthStart()
     endif
 EndFunction
 
+bool Function IsTestMode()
+    GlobalVariable tm = TestModeGlobal
+    if tm == None
+        tm = Game.GetFormFromFile(0x860, "FO4SFCoreValues.esm") as GlobalVariable
+    endif
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
 Function KeepCodsworthLoad()
 {The keeper's start, at its init and on every save load: Codsworth enabled, fresh budgets of failed moves for him and
- Preston, one line each of where they are (in the log and on screen), the timer (re)started. A load also restarts a
+ Preston, one line each of where they are (in the log, and on screen only when test mode is on), the timer (re)started. A load also restarts a
  check that spent its budget in an earlier session. A missing Codsworth no longer stops Preston's keeping (FAL-128).
  Both count as not held, so the first check after a load holds them again, whatever the engine kept (FAL-170, FAL-163).}
     if Codsworth != None
@@ -160,10 +171,14 @@ Function KeepCodsworthLoad()
     prestonHeld = False
     ; prestonFollow stays as the save left it. Clearing it here would put the door hold back over a follow.
     TracePreston("keeper load")
-    Debug.Notification("FO4SF keeper: Preston " + (prestonOff as int) + " m from his spot (last: " + prestonState + ", moves " + prestonMoves + ")")
+    if IsTestMode()
+        Debug.Notification("FO4SF keeper: Preston " + (prestonOff as int) + " m from his spot (last: " + prestonState + ", moves " + prestonMoves + ")")
+    endif
     if Codsworth != None
         TraceCodsworth("keeper load")
-        Debug.Notification("FO4SF keeper: Codsworth " + (codsworthOff as int) + " m from his spot (last: " + codsworthState + ", moves " + codsworthMoves + ")")
+        if IsTestMode()
+            Debug.Notification("FO4SF keeper: Codsworth " + (codsworthOff as int) + " m from his spot (last: " + codsworthState + ", moves " + codsworthMoves + ")")
+        endif
     endif
     StartTimer(CodsworthCheck, 2)
 EndFunction
@@ -193,22 +208,18 @@ Function Apply(int auiStageID)
     Trace("stage " + auiStageID)
     if auiStageID == 10
         SetObjectiveDisplayed(10)
-        Debug.Notification("When Freedom Calls: find the Last Minutemen")
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
         SetObjectiveDisplayed(85)
-        Debug.Notification("When Freedom Calls: kill the raiders")
     elseif auiStageID == 30
         Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
         SetObjectiveDisplayed(86)
-        Debug.Notification("When Freedom Calls: talk to Preston Garvey")
     elseif auiStageID == 40
         SetObjectiveCompleted(86)
         Game.GetPlayer().AddItem(Credits, RewardCount)
         Trace("reward credits=" + RewardCount)
     elseif auiStageID == 200
-        Debug.Notification("When Freedom Calls: complete")
         CancelTimer(1)
     endif
 EndFunction
@@ -371,7 +382,9 @@ Function KeepCodsworth()
             if codsworthFails >= 10
                 codsworthState = "gave up"
                 Trace("keeper gave up codsworth fails=" + codsworthFails)
-                Debug.Notification("FO4SF keeper: Codsworth not placed after 10 tries; stopped until the next load")
+                if IsTestMode()
+                    Debug.Notification("FO4SF keeper: Codsworth not placed after 10 tries; stopped until the next load")
+                endif
             endif
         endif
     endif
@@ -401,7 +414,9 @@ Function KeepPreston(Actor player)
             if prestonFails >= 10
                 prestonState = "gave up"
                 Trace("keeper gave up preston fails=" + prestonFails)
-                Debug.Notification("FO4SF keeper: Preston not placed after 10 tries; stopped until the next load")
+                if IsTestMode()
+                    Debug.Notification("FO4SF keeper: Preston not placed after 10 tries; stopped until the next load")
+                endif
             endif
         endif
     endif
@@ -511,7 +526,9 @@ string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Acto
     bool failed = after > HoldRadius || d >= RelocateGap
     Trace("world " + name + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     Trace("moved " + name + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + tx + " " + ty + " " + tz + " before=" + dp + " off=" + off + " d=" + d + " failed=" + failed + " by=" + who)
-    Debug.Notification("FO4SF: " + name + " put back " + where + " (" + who + ", was " + (off as int) + " m off, failed=" + failed + ")")
+    if IsTestMode()
+        Debug.Notification("FO4SF: " + name + " put back " + where + " (" + who + ", was " + (off as int) + " m off, failed=" + failed + ")")
+    endif
     if failed
         return "move failed"
     endif

@@ -20,6 +20,8 @@
 #include <string_view>
 #include <vector>
 
+#include "blocking_menus.h"
+
 REX_W32_IMPORT(std::int16_t, GetAsyncKeyState, std::int32_t);
 REX_W32_IMPORT(void*, GetForegroundWindow);
 REX_W32_IMPORT(std::uint32_t, GetWindowThreadProcessId, void*, std::uint32_t*);
@@ -61,27 +63,6 @@ namespace
 		{ "BSStringPool.Entry.Release", 139340, "libxse" },
 		{ "UI.Singleton", 937580, "libxse" },
 		{ "UI.IsMenuOpen", 130475, "libxse" },
-	} };
-
-	constexpr std::array<const char*, 18> kBlockingMenus{ {
-		"Console",
-		"FO4SF_PipboyMenu",
-		"MessageBoxMenu",
-		"ChargenMenu",
-		"PauseMenu",
-		"LoadingMenu",
-		"FaderMenu",
-		"DataMenu",
-		"InventoryMenu",
-		"MainMenu",
-		"DialogueMenu",
-		"ContainerMenu",
-		"BarterMenu",
-		"SleepWaitMenu",
-		"GalaxyStarMapMenu",
-		"FavoritesMenu",
-		"LockpickingMenu",
-		"TerminalMenu",
 	} };
 
 	std::uintptr_t                      g_base = 0;
@@ -292,31 +273,13 @@ namespace
 
 	const char* OpenBlockingMenu()
 	{
-		auto* const ui = RE::UI::GetSingleton();
-		if (!ui) {
-			return nullptr;
-		}
-		static const auto* const names = [] {
-			auto* list = new std::vector<RE::BSFixedString>();
-			list->reserve(kBlockingMenus.size());
-			for (const auto* name : kBlockingMenus) {
-				list->emplace_back(name);
-			}
-			return list;
-		}();
-		for (std::size_t i = 0; i < names->size(); ++i) {
-			const auto& name = (*names)[i];
-			if (ui->IsMenuRegistered(name) && ui->IsMenuOpen(name)) {
-				return kBlockingMenus[i];
-			}
-		}
-		return nullptr;
+		return fo4sf::FindOpenBlockingMenu(RE::UI::GetSingleton(), false, true);
 	}
 
 	void DispatchCombatCall(const char* a_fn, std::uint32_t a_press)
 	{
 		if (const auto* menu = OpenBlockingMenu()) {
-			REX::INFO("step=dispatch n={} fn=FO4SF_CombatInput.{} result=menu_open menu={}", a_press, a_fn, menu);
+			REX::INFO("step=dispatch n={} fn=FO4SF_CombatInput.{} ignored=menu_open menu={}", a_press, a_fn, menu);
 			return;
 		}
 		auto* const vm = ScriptVm();

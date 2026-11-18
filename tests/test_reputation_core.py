@@ -336,6 +336,14 @@ class CrossLayerParityAndPipboyTests(unittest.TestCase):
         self.assertIn("Minutemen: Idolized", [r["text"] for r in data_rows])
         self.assertIn("Legion: Hated", [r["text"] for r in data_rows])
 
+        with tempfile.TemporaryDirectory() as td:
+            kit_out = Path(td) / "FO4SFPipboyKit.ini"
+            menu_out = Path(td) / "FO4SFPipboyMenu.ini"
+            self.assertEqual(make_reputation_core.main(["pipboy-ini", "--out", str(kit_out)]), 0)
+            self.assertTrue(kit_out.is_file())
+            self.assertEqual(make_reputation_core.main(["pipboy-ini", "--out", str(menu_out)]), 1)
+            self.assertFalse(menu_out.exists())
+
 
 class LogStitchingAndStageCliTests(unittest.TestCase):
     def test_log_stitching_across_save_quit_reload_and_failures(self) -> None:

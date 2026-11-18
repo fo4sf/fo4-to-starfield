@@ -90,7 +90,10 @@ class RebuildPlanTests(unittest.TestCase):
     def test_movie_setting(self):
         self.assertIn("**Proof 1, the card (owner PC; the plugin's `Movie=` setting, FAL-614).**", self.plan)
         self.assertIn("`Stage=2`, `Movie=FO4SF_Fo4Boot`", self.plan)
-        self.assertIn("if (!g_movie.empty() && g_loadingMovie.load()) {", self.main)
+        get_name = self.main[self.main.index("const char* MenuGetName("):]
+        get_name = get_name[:get_name.index("\n\t}\n")]
+        self.assertIn("if (g_loadingMovie.load()) {", get_name)
+        self.assertIn("if (!g_movie.empty()) {", get_name)
         self.assertIn("if (!name || g_stage != 2) {", self.main)
         load = self.main[self.main.index("bool MenuLoadMovie("):]
         load = load[:load.index("\n\t}\n")]
@@ -130,8 +133,9 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertLess(self.main.index("g_codeObj = ReadNumber(ini, L\"CodeObj\", 0) != 0;"),
                         self.main.index("if (!CheckEverything(dir)) {"))
         destroy = self.main[self.main.index("void* MenuDestroy("):]
+        self.assertIn("g_codeObjMovie = nullptr;", destroy[:destroy.index("g_engineDtor(")])
         self.assertIn("ClearMovieSessionState();", destroy[:destroy.index("g_engineDtor(")])
-        clear_state = self.main[self.main.index("void ClearMovieSessionState()"):]
+        clear_state = self.main[self.main.index("void ClearMovieSessionState("):]
         clear_state = clear_state[:clear_state.index("\n\t}\n")]
         self.assertIn("g_codeObjMovie = nullptr;", clear_state)
         self.assertIn('if (g_codeObj && g_movie.empty()) {', self.main)
@@ -217,7 +221,7 @@ class RebuildPlanTests(unittest.TestCase):
         # proof 2a's first run: the page's sealed root took no BGSCodeObj (set=16 of=17), so InitCodeObj waits only for
         # the stand-in's functions, not for root.BGSCodeObj, and a call that went through ends the tries
         self.assertIn("const bool        holderReady = gotRoot && !holder.IsUndefined() && members == g_codeObjCount;", install)
-        self.assertIn("if (holderReady && !g_codeObjInit.empty()) {", install)
+        self.assertIn("if (holderReady && !bootMode && !g_codeObjInit.empty()) {", install)
         self.assertIn("called = found && top.Invoke(g_codeObjInit.c_str(), &result, &holder, 1);", install)
         self.assertIn('top.GetMember("codeObj", &codeObj)', install)
         # S1-c: with CodeObjAt= the hand-over also waits for <path>.BGSCodeObj to read back (atDone is true without it)
@@ -247,10 +251,10 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertEqual(len(set(paths)), 16)
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]
-        probe = install[install.index("for (std::size_t i = 0; done && i < g_probeCount; ++i) {"):]
+        probe = install[install.index("for (std::size_t i = 0; done && !bootMode && i < g_probeCount; ++i) {"):]
         probe = probe[:probe.index("step=code_obj_probe")]
         self.assertIn("ReadPath(top, g_probeNames[i], at)", probe)
-        read = self.main[self.main.index("bool ReadPath("):]
+        read = self.main[self.main.rindex("bool ReadPath("):]
         read = read[:read.index("\n\t}\n")]
         self.assertIn(".GetMember(", read)
         for absent in ("SetMember(", "Invoke(", "CreateFunction("):   # read-only
@@ -273,7 +277,7 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertIn(text, self.plan, text)
         install = self.main[self.main.index("bool CodeObjInstall("):]
         install = install[:install.index("\n\t}\n")]
-        calls = install[install.index("for (std::size_t i = 0; done && i < g_rootCallCount; ++i) {"):]
+        calls = install[install.index("for (std::size_t i = 0; done && !bootMode && i < g_rootCallCount; ++i) {"):]
         calls = calls[:calls.index("step=code_obj_root_call n={} name={} found=")]
         self.assertIn('std::string_view(a_when) == "load" && IsInvalidate(g_rootCallNames[i])', calls)
         self.assertIn("function.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure", calls)   # functions only
@@ -412,7 +416,7 @@ class RebuildPlanTests(unittest.TestCase):
         install = install[:install.index("\n\t}\n")]
         self.assertIn('atSet = ReadPath(top, g_codeObjAt, at) && at.SetMember("BGSCodeObj", holder);', install)
         self.assertIn('atReadBack = atSet && at.GetMember("BGSCodeObj", &atBack) &&', install)
-        self.assertIn("(atBack.IsObject() || atBack.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure)", install)
+        self.assertIn("atBack.IsObject() && atBack.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure", install)
         self.assertIn("at={} at_set={} at_read_back={}", install)
         # every argument logged, and onNewPage / onNewTab answered synchronously on Menu_mc (with fallback to ShellUpdate)
         handler = self.main[self.main.index("class CodeObjFunction final"):]
@@ -453,7 +457,7 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertIn(text, self.main, text)
         destroy = self.main[self.main.index("void* MenuDestroy("):]
         self.assertIn("ClearMovieSessionState();", destroy[:destroy.index("g_engineDtor(")])
-        clear_state = self.main[self.main.index("void ClearMovieSessionState()"):]
+        clear_state = self.main[self.main.index("void ClearMovieSessionState("):]
         clear_state = clear_state[:clear_state.index("\n\t}\n")]
         self.assertIn("g_shellKeyPending = 0;", clear_state)
         readme = (ROOT / "sfse" / "FO4SFPipboyMenu" / "README.md").read_text(encoding="utf-8")
@@ -541,7 +545,7 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn('if ((special != "fill" && special != "clear") || g_codeObjAt.empty()) {', self.main)
         self.assertIn('Refuse("ini", std::format("code_obj_special={} (fill or clear, with CodeObjAt= only)", special));',
                       self.main)
-        special = self.main[self.main.index("void SpecialReady("):]
+        special = self.main[self.main.rindex("void SpecialReady("):]
         special = special[:special.index("\n\t}\n")]
         self.assertIn('g_codeObjAt + ".DataObj.SPECIALList"', special)
         self.assertLess(special.index('list.Invoke("splice"'), special.index('list.Invoke("push"'))
@@ -582,7 +586,7 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertLess(keys_loop.index('SpecialReady(root, top, "keys");'),
                         keys_loop.index("CallPath(top, g_shellKeys[i].path"))
         # 3. Partial fill (0 < pushed < 7) re-clears SPECIALList before length readback
-        special = self.main[self.main.index("void SpecialReady("):]
+        special = self.main[self.main.rindex("void SpecialReady("):]
         special = special[:special.index("\n\t}\n")]
         self.assertIn("pushed > 0 && pushed < kSpecialNames.size()", special)
         self.assertLess(special.index("pushed > 0 && pushed < kSpecialNames.size()"),
@@ -757,7 +761,7 @@ class RebuildPlanTests(unittest.TestCase):
         teardown = teardown[:teardown.index("\n\t}\n")]
         self.assertIn("PipboyMap::ReleaseMovieRefs();", teardown)
         self.assertIn('"onCodeObjDestruction"', teardown)
-        clear_fn = self.main[self.main.index("void ClearMovieSessionState()"):]
+        clear_fn = self.main[self.main.index("void ClearMovieSessionState("):]
         clear_fn = clear_fn[:clear_fn.index("\n\t}\n")]
         for reset_var in ("g_otherMessages = 0;", "g_codeCalls = 0;", "g_answers = 0;", "g_specialLines = 0;",
                           "g_shellKeyLines = 0;", "g_soundLines = 0;", "g_cancelLogged = 0;", "g_currentShellPage = -1;"):
@@ -776,15 +780,18 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("step=gfx_exit seq={} call={} ok={} took_ms={}", self.main)
         self.assertIn("step=watchdog_busy seq={} call={} busy_ms={}", self.main)
 
-        # Step 6: all 46 FO4 BGSCodeObj native names (+ HideMenu = 47) registered
-        arr_block = self.main[self.main.index("kFo4ShellCodeObjNames"):self.main.index("constexpr std::uint32_t kMaxCodeObjTries")]
-        registered = re.findall(r'"([A-Za-z0-9_]+)"', arr_block)
-        self.assertEqual(len(registered), 47)
-        self.assertEqual(len(set(registered)), 47)
-        for must_have in ("PopulatePipboyInfoObj", "onNewPage", "onNewTab", "UseStimpak", "UseRadaway",
-                          "onInvItemSelection", "SortItemList", "onQuestSelection", "RegisterMap",
-                          "UnregisterMap", "CheckHardcoreModeFastTravel", "ToggleRadioStationActiveStatus"):
-            self.assertIn(must_have, registered)
+        # Step 6 / Task 1 (1a-1f): plain Object BGSCodeObj holder (zero g_codeObjSelf), stage-INI generator from SWF
+        # DoABC bytecode (zero committed 49-name list), PopulateInCall, RequirePickup, and structured log lines
+        self.assertNotIn("g_codeObjSelf", self.main)
+        self.assertNotIn("kFo4ShellCodeObjNames", self.main)
+        self.assertIn('root->CreateObject(&holder, "Object")', self.main)
+        self.assertIn("step=code_obj_holder type=object", self.main)
+        self.assertIn("step=populate page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} level={}", self.main)
+        self.assertIn("step=code_obj_destruction movie={} called={}", self.main)
+        self.assertIn("step=process_user_event name={} handled={} down={}", self.main)
+        self.assertIn('ReadNumber(ini, L"PopulateInCall", 0)', self.main)
+        self.assertIn('ReadNumber(ini, L"RequirePickup", 0)', self.main)
+        self.assertTrue((ROOT / "scripts" / "ui" / "make_pipboy_stage_ini.py").is_file())
 
         # Step 8: native Actor.PlayIdle (102136 + 35720) checked in CheckArmId & shared RequestPipboyOpen
         self.assertIn("constexpr std::uint32_t kActorPlayIdleId = 102136;", self.main)
