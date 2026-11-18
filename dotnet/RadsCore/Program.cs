@@ -44,6 +44,7 @@
 //   RadsCore selftest <scratch dir>
 
 using System.Globalization;
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -58,6 +59,7 @@ try
     int defaultRule = 0;
     int mutDefault = 0;
     string fixtureMode = "full";
+    string? jsonPath = null;
 
     void OptInt(string name, ref int into)
     {
@@ -76,11 +78,20 @@ try
         into = rest[i + 1];
         rest.RemoveRange(i, 2);
     }
+    void OptStrNull(string name, ref string? into)
+    {
+        int i = rest.IndexOf(name);
+        if (i < 0) return;
+        if (i + 1 >= rest.Count) throw new RadsCore.Refusal($"{name} needs a value");
+        into = rest[i + 1];
+        rest.RemoveRange(i, 2);
+    }
 
     OptInt("--default-rule", ref defaultRule);
     OptInt("--mutations-default", ref mutDefault);
     OptStr("--mode", ref fixtureMode);
-    var opts = new RadsCore.BuildOptions(defaultRule, mutDefault);
+    OptStrNull("--json", ref jsonPath);
+    var opts = new RadsCore.BuildOptions(defaultRule, mutDefault, jsonPath);
 
     if (rest.Count == 3 && rest[0] == "build") return RadsCore.Build(rest[1], rest[2], opts);
     if (rest.Count == 3 && rest[0] == "check") return RadsCore.Check(rest[1], rest[2], opts);
@@ -93,27 +104,22 @@ catch (RadsCore.Refusal r)
     return 1;
 }
 
-Console.Error.WriteLine("usage: RadsCore build <Starfield.esm> <out dir> [--default-rule 0|1] [--mutations-default 0|1] | " +
+Console.Error.WriteLine("usage: RadsCore build <Starfield.esm> <out dir> [--json <path>] [--default-rule 0|1] [--mutations-default 0|1] | " +
                         "check <plugin> <Starfield.esm> [same options] | fixture <out dir> [--mode full|spell|none] | selftest <scratch dir>");
 return 2;
 
 public static class RadsCore
 {
     public class Refusal(string m) : Exception(m);
-    public record BuildOptions(int DefaultRule = 0, int MutationsDefault = 0);
+    public record BuildOptions(int DefaultRule = 0, int MutationsDefault = 0, string? CoreValuesJson = null);
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    public static readonly ModKey CoreValuesEsm = ModKey.FromFileName("FO4SFCoreValues.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFRads.esm");
 
-    // Deterministic local FormIDs
-    public const uint RadsAvifId = 0x800;
-    public const uint RadsCapPctAvifId = 0x801;
-    public const uint RadsDisplayPctGlobId = 0x802;
-    public const uint RadsStageGlobId = 0x803;
-    public const uint RadResistAvifId = 0x804;
+    // Deterministic local FormIDs owned by FO4SFRads.esm (shared radiation/SPECIAL/test-mode IDs live in FO4SFCoreValues.esm)
     public const uint InWaterAvifId = 0x805;
-    public const uint RadsRuleGlobId = 0x806;
     public const uint MutationsGlobId = 0x807;
     public const uint RadsRuleGpoId = 0x808;
     public const uint MutationsGpoId = 0x809;
@@ -202,6 +208,11 @@ public static class RadsCore
     public const string MutationPerksFlstEdid = "FO4SF_MutationPerks";
     public const string QuestEdid = "FO4SF_RadsCoreQuest";
     public const string ScriptName = "FO4SF_RadsCoreQuest";
+    public const string SpecialStrEdid = "FO4SF_Special_Strength";
+    public const string SpecialEndEdid = "FO4SF_Special_Endurance";
+    public const string SpecialIntEdid = "FO4SF_Special_Intelligence";
+    public const string SpecialAgiEdid = "FO4SF_Special_Agility";
+    public const string TestModeGlobEdid = "FO4SF_TestModeEnabled";
 
     public const float RadsMax = 1000f;
     public const float CapPctMax = 100f;
@@ -228,7 +239,7 @@ public static class RadsCore
         "RadsSpell", "RadsHazardSpell", "AbWaterDetect", "WaterDrinkSpell", "WaterContactSpell",
         "RadAway", "RadX", "IrradiatedFood", "DirtyWater",
         "RadsHazard", "RadsEmitter", "RadsEmitterKeyword", "IrradiatedWater",
-        "MutationPerks", "StarchedGenesPerk"
+        "MutationPerks", "StarchedGenesPerk", "TestModeGlobal"
     };
 
     public record MutEffectSpec(uint MgefId, string MgefEdid, string TargetAvEdid, float Magnitude, bool Detrimental);
@@ -243,7 +254,7 @@ public static class RadsCore
             {
                 new MutEffectSpec(MgefMutJumpId, "FO4SF_MgefMut_Jump", "JumpSpeedMult", 0.5f, false),
                 new MutEffectSpec(MgefMutCarryId, "FO4SF_MgefMut_Carry", "CarryWeight", 20f, false),
-                new MutEffectSpec(MgefMutIntPenaltyId, "FO4SF_MgefMut_IntPenalty", "Intelligence", 1f, true),
+                new MutEffectSpec(MgefMutIntPenaltyId, "FO4SF_MgefMut_IntPenalty", SpecialIntEdid, 1f, true),
             }),
         new(MutSpeedDemonId, "FO4SF_Mut_SpeedDemon", "Speed Demon",
             "Movement Speed +20, Reload Speed +0.2.",
@@ -272,8 +283,7 @@ public static class RadsCore
 
     static readonly string[] RequiredSfAvifs =
     {
-        "Health", "Strength", "Endurance", "Agility", "Intelligence",
-        "CarryWeight", "SpeedMult", "DamageResist", "EnergyResist",
+        "Health", "CarryWeight", "SpeedMult", "DamageResist", "EnergyResist",
         "HealRateMult", "JumpSpeedMult", "PlayerReloadSpeedMult"
     };
 
@@ -281,10 +291,49 @@ public static class RadsCore
     static ActorValueInformation.Flag RadsAvifFlags => ActorValueInformation.Flag.DefaultToZero | ActorValueInformation.Flag.DamageIsPositive;
     static ActorValueInformation.Flag ZeroAvifFlags => ActorValueInformation.Flag.DefaultToZero;
 
-    static IStarfieldModDisposableGetter OpenMod(string path)
+    public static string DefaultJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "core", "core_values.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "core_values.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/core/core_values.json; pass --json <path>");
+    }
+
+    public static Dictionary<string, uint> LoadCoreValues(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing core_values.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var plugin = root.GetProperty("plugin").GetString() ?? throw new Refusal("core_values.json missing plugin");
+        if (ModKey.FromFileName(plugin) != CoreValuesEsm)
+            throw new Refusal($"core_values.json plugin {plugin} != {CoreValuesEsm}");
+        var ids = new Dictionary<string, uint>(StringComparer.Ordinal);
+        foreach (var el in root.GetProperty("records").EnumerateArray())
+        {
+            var edid = el.GetProperty("edid").GetString() ?? throw new Refusal("core_values.json record missing edid");
+            var id = Convert.ToUInt32(el.GetProperty("id").GetString()!, 16);
+            ids[edid] = id;
+        }
+        return ids;
+    }
+
+    static FormKey Core(IReadOnlyDictionary<string, uint> coreIds, string edid) =>
+        coreIds.TryGetValue(edid, out var id) ? new FormKey(CoreValuesEsm, id) : throw new Refusal($"core_values.json missing {edid}");
+
+    static FormKey TargetAvKey(string edid, IReadOnlyDictionary<string, IActorValueInformationGetter> sfAvifs, IReadOnlyDictionary<string, uint> coreIds) =>
+        edid.StartsWith("FO4SF_", StringComparison.Ordinal) ? Core(coreIds, edid) : sfAvifs[edid].FormKey;
+
+    static IStarfieldModDisposableGetter OpenMod(string path, params ModKey[] masters)
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
-        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        foreach (var m in (masters.Length > 0 ? masters : new[] { SfEsm, CoreValuesEsm }))
+            styles.Set(new KeyedMasterStyle(m, MasterStyle.Full));
         return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
@@ -495,7 +544,10 @@ public static class RadsCore
 
     public static int Build(string sfPath, string outDir, BuildOptions opts)
     {
-        using var sf = OpenMod(sfPath);
+        var coreIds = LoadCoreValues(opts.CoreValuesJson);
+        var radsFk = Core(coreIds, RadsAvifEdid);
+        var radResistFk = Core(coreIds, RadResistAvifEdid);
+        using var sf = OpenMod(sfPath, SfEsm);
         var sfAvifs = RequiredSfAvifs.ToDictionary(n => n, n =>
         {
             var av = One(sf.ActorValueInformation, n, "AVIF");
@@ -512,39 +564,15 @@ public static class RadsCore
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
         mod.ModHeader.Author = "fo4-to-starfield RadsCore";
 
-        // 1. AVIFs & GLOBs & GameplayOptions
-        var radsAv = new ActorValueInformation(Own(RadsAvifId), Release)
-        {
-            EditorID = RadsAvifEdid, Name = "Rads", Abbreviation = "Rad",
-            Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = RadsMax, Flags = RadsAvifFlags,
-        };
-        var capPctAv = new ActorValueInformation(Own(RadsCapPctAvifId), Release)
-        {
-            EditorID = RadsCapPctAvifEdid, Name = "Rads Health Cap", Abbreviation = "RCp",
-            Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = CapPctMax, Flags = ZeroAvifFlags,
-        };
-        var radResistAv = new ActorValueInformation(Own(RadResistAvifId), Release)
-        {
-            EditorID = RadResistAvifEdid, Name = "Radiation Resistance", Abbreviation = "RR",
-            Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = RadsMax, Flags = ZeroAvifFlags,
-        };
+        // 1. Local AVIF & GLOB & GameplayOptions (shared Rads/SPECIAL/TestMode live in FO4SFCoreValues.esm)
         var inWaterAv = new ActorValueInformation(Own(InWaterAvifId), Release)
         {
             EditorID = InWaterAvifEdid, Name = "In Water", Abbreviation = "Wtr",
             Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = 1f, Flags = ZeroAvifFlags,
         };
-        mod.ActorValueInformation.Add(radsAv);
-        mod.ActorValueInformation.Add(capPctAv);
-        mod.ActorValueInformation.Add(radResistAv);
         mod.ActorValueInformation.Add(inWaterAv);
 
-        var dispPctGlob = new Global(Own(RadsDisplayPctGlobId), Release) { EditorID = RadsDisplayPctGlobEdid, Data = 0f };
-        var stageGlob = new Global(Own(RadsStageGlobId), Release) { EditorID = RadsStageGlobEdid, Data = 0f };
-        var ruleGlob = new Global(Own(RadsRuleGlobId), Release) { EditorID = RadsRuleGlobEdid, Data = opts.DefaultRule };
         var mutGlob = new Global(Own(MutationsGlobId), Release) { EditorID = MutationsGlobEdid, Data = opts.MutationsDefault };
-        mod.Globals.Add(dispPctGlob);
-        mod.Globals.Add(stageGlob);
-        mod.Globals.Add(ruleGlob);
         mod.Globals.Add(mutGlob);
 
         var gpoRule = new GameplayOption(Own(RadsRuleGpoId), Release)
@@ -586,7 +614,7 @@ public static class RadsCore
 
         // 2. Radiation & Water & Aid Effects and Spells
         var radsEffect = CopyValueEffect(found.SelfEffect, RadsEffectId, RadsEffectEdid, "Radiation Exposure",
-            "Raises radiation burden.", radsAv.FormKey, CastType.FireAndForget, TargetType.Self,
+            "Raises radiation burden.", radsFk, CastType.FireAndForget, TargetType.Self,
             found.SelfEffect?.Flags ?? (MagicEffect.Flag.Detrimental | MagicEffect.Flag.NoDuration | MagicEffect.Flag.NoArea));
         mod.MagicEffects.Add(radsEffect);
 
@@ -600,7 +628,7 @@ public static class RadsCore
         var hazFlags = found.TouchEffect?.Flags ?? ((found.SelfEffect?.Flags ?? (MagicEffect.Flag.Detrimental | MagicEffect.Flag.NoDuration)) | MagicEffect.Flag.NoArea);
         if (!hazFlags.HasFlag(MagicEffect.Flag.Detrimental)) hazFlags |= MagicEffect.Flag.Detrimental;
         var radsHazEffect = CopyValueEffect(hazTplMgef, RadsHazardEffectId, RadsHazardEffectEdid, "Radiation Zone Exposure",
-            "Raises radiation inside a hazard zone.", radsAv.FormKey, CastType.FireAndForget, TargetType.Touch, hazFlags);
+            "Raises radiation inside a hazard zone.", radsFk, CastType.FireAndForget, TargetType.Touch, hazFlags);
         mod.MagicEffects.Add(radsHazEffect);
 
         var touchEntryTpl = found.TouchSpell?.Effects.FirstOrDefault() ?? selfEntryTpl;
@@ -615,12 +643,12 @@ public static class RadsCore
         if (found.Mirror)
         {
             radAwayEffect = CopyValueEffect(found.RestoreEffect!, RadAwayEffectId, RadAwayEffectEdid, "RadAway Cure",
-                "Lowers radiation burden.", radsAv.FormKey, found.RestoreEffect!.CastType, found.RestoreEffect.TargetType,
+                "Lowers radiation burden.", radsFk, found.RestoreEffect!.CastType, found.RestoreEffect.TargetType,
                 found.RestoreEffect.Flags);
             mod.MagicEffects.Add(radAwayEffect);
 
             radXEffect = CopyValueEffect(found.RestoreEffect!, RadXEffectId, RadXEffectEdid, "Rad-X Resistance",
-                "Increases radiation resistance.", radResistAv.FormKey, found.RestoreEffect!.CastType, found.RestoreEffect.TargetType,
+                "Increases radiation resistance.", radResistFk, found.RestoreEffect!.CastType, found.RestoreEffect.TargetType,
                 found.RestoreEffect.Flags);
             mod.MagicEffects.Add(radXEffect);
         }
@@ -746,7 +774,7 @@ public static class RadsCore
             foreach (var es in ms.Effects)
             {
                 var mg = CopyValueEffect(found.AbilityEffect, es.MgefId, es.MgefEdid, ms.Name + " Modifier",
-                    ms.Desc, sfAvifs[es.TargetAvEdid].FormKey, CastType.ConstantEffect, TargetType.Self,
+                    ms.Desc, TargetAvKey(es.TargetAvEdid, sfAvifs, coreIds), CastType.ConstantEffect, TargetType.Self,
                     es.Detrimental ? AbilityNegFlags : AbilityPosFlags);
                 mod.MagicEffects.Add(mg);
                 abEntries.Add(MakeEntry(mg.FormKey, es.Magnitude, abEntryTpl));
@@ -790,7 +818,7 @@ public static class RadsCore
         {
             Name = propName, Flags = ScriptProperty.Flag.Edited, Object = new FormLink<IStarfieldMajorRecordGetter>(fk), Alias = -1, Unused = 0,
         };
-        var propTargets = ExpectedProperties(sfAvifs);
+        var propTargets = ExpectedProperties(sfAvifs, coreIds);
         foreach (var name in PropNames)
             script.Properties.Add(Obj(name, propTargets[name]));
 
@@ -803,27 +831,29 @@ public static class RadsCore
         mod.Quests.Add(quest);
         mod.ModHeader.Stats.NextFormID = NextId;
 
-        WriteMod(mod, outDir, SfEsm);
+        WriteMod(mod, outDir);
         var path = Path.Combine(outDir, Plugin.FileName);
-        Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): 4 AVIF, 4 GLOB, 2 GPOF, 1 GPOG, " +
+        Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): 1 AVIF, 1 GLOB, 2 GPOF, 1 GPOG, " +
                           $"{mod.MagicEffects.Count} MGEF, {mod.Spells.Count} SPEL, 4 ALCH, 1 HAZD, 1 ACTI, 1 KYWD, 1 WATR, " +
                           $"5 PERK, 1 FLST, 1 QUST ({PropNames.Length} properties); rule={opts.DefaultRule}, mutations={opts.MutationsDefault}");
         return 0;
     }
 
-    static Dictionary<string, FormKey> ExpectedProperties(Dictionary<string, IActorValueInformationGetter> sfAvifs) => new()
+    static Dictionary<string, FormKey> ExpectedProperties(
+        IReadOnlyDictionary<string, IActorValueInformationGetter> sfAvifs,
+        IReadOnlyDictionary<string, uint> coreIds) => new()
     {
-        ["RadsAV"] = Own(RadsAvifId),
-        ["RadsCapPctAV"] = Own(RadsCapPctAvifId),
-        ["RadResistAV"] = Own(RadResistAvifId),
+        ["RadsAV"] = Core(coreIds, RadsAvifEdid),
+        ["RadsCapPctAV"] = Core(coreIds, RadsCapPctAvifEdid),
+        ["RadResistAV"] = Core(coreIds, RadResistAvifEdid),
         ["InWaterAV"] = Own(InWaterAvifId),
         ["HealthAV"] = sfAvifs["Health"].FormKey,
-        ["EnduranceAV"] = sfAvifs["Endurance"].FormKey,
-        ["AgilityAV"] = sfAvifs["Agility"].FormKey,
-        ["StrengthAV"] = sfAvifs["Strength"].FormKey,
-        ["RadsDisplayPctGlobal"] = Own(RadsDisplayPctGlobId),
-        ["RadsStageGlobal"] = Own(RadsStageGlobId),
-        ["RadsRuleGlobal"] = Own(RadsRuleGlobId),
+        ["EnduranceAV"] = Core(coreIds, SpecialEndEdid),
+        ["AgilityAV"] = Core(coreIds, SpecialAgiEdid),
+        ["StrengthAV"] = Core(coreIds, SpecialStrEdid),
+        ["RadsDisplayPctGlobal"] = Core(coreIds, RadsDisplayPctGlobEdid),
+        ["RadsStageGlobal"] = Core(coreIds, RadsStageGlobEdid),
+        ["RadsRuleGlobal"] = Core(coreIds, RadsRuleGlobEdid),
         ["MutationsEnabledGlobal"] = Own(MutationsGlobId),
         ["RadsRuleOption"] = Own(RadsRuleGpoId),
         ["MutationsOption"] = Own(MutationsGpoId),
@@ -842,9 +872,10 @@ public static class RadsCore
         ["IrradiatedWater"] = Own(IrradiatedWaterId),
         ["MutationPerks"] = Own(MutationPerksFlstId),
         ["StarchedGenesPerk"] = Own(StarchedGenesId),
+        ["TestModeGlobal"] = Core(coreIds, TestModeGlobEdid),
     };
 
-    static void WriteMod(StarfieldMod mod, string outDir, params ModKey[] masters)
+    static void WriteMod(StarfieldMod mod, string outDir)
     {
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, mod.ModKey.FileName);
@@ -853,8 +884,15 @@ public static class RadsCore
         {
             Directory.CreateDirectory(tmpDir);
             var tmp = Path.Combine(tmpDir, mod.ModKey.FileName);
-            mod.BeginWrite.ToPath(tmp).WithLoadOrder(masters)
-                .WithKnownMasters(masters.Select(m => new KeyedMasterStyle(m, MasterStyle.Full)).ToArray()).Write();
+            var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+            masters.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+            masters.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
+            mod.WriteToBinary(tmp, new BinaryWriteParameters
+            {
+                ModKey = ModKeyOption.NoCheck,
+                MastersListOrdering = new MastersListOrderingByLoadOrder(new[] { SfEsm, CoreValuesEsm }),
+                MasterFlagsLookup = masters,
+            });
             File.Move(tmp, path, overwrite: true);
         }
         finally
@@ -867,10 +905,11 @@ public static class RadsCore
 
     public static int Check(string pluginPath, string sfPath, BuildOptions opts)
     {
-        using var sf = OpenMod(sfPath);
+        var coreIds = LoadCoreValues(opts.CoreValuesJson);
+        using var sf = OpenMod(sfPath, SfEsm);
         var sfAvifs = RequiredSfAvifs.ToDictionary(n => n, n => One(sf.ActorValueInformation, n, "AVIF"));
         var found = FindTemplates(sf, sfAvifs["Health"].FormKey);
-        using var mod = OpenMod(pluginPath);
+        using var mod = OpenMod(pluginPath, SfEsm, CoreValuesEsm);
 
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
@@ -879,13 +918,15 @@ public static class RadsCore
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
         Need(mod.ModKey == Plugin, $"the file is {mod.ModKey}, not {Plugin}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
-        Need(masters.SequenceEqual(new[] { SfEsm }), "masters are not exactly [Starfield.esm]");
+        Need(masters.SequenceEqual(new[] { SfEsm, CoreValuesEsm }), "masters are not exactly [Starfield.esm, FO4SFCoreValues.esm]");
         Need(mod.ModHeader.Stats.NextFormID == NextId, $"NextFormID is 0x{mod.ModHeader.Stats.NextFormID:X}, expected 0x{NextId:X}");
         var foreign = mod.EnumerateMajorRecords().Where(r => r.FormKey.ModKey != Plugin).Select(r => r.FormKey.ToString()).ToList();
         Need(foreign.Count == 0, $"plugin contains foreign override records: {string.Join(", ", foreign)}");
+        var dupEdids = mod.EnumerateMajorRecords().Where(r => r.EditorID != null && coreIds.ContainsKey(r.EditorID)).Select(r => r.EditorID!).ToList();
+        Need(dupEdids.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupEdids)}");
 
-        // AVIF checks
-        Need(mod.ActorValueInformation.Count == 4, $"expected 4 AVIF, found {mod.ActorValueInformation.Count}");
+        // AVIF checks (only FO4SF_InWater stays local)
+        Need(mod.ActorValueInformation.Count == 1, $"expected 1 AVIF, found {mod.ActorValueInformation.Count}");
         void CheckAvif(uint id, string edid, float max, ActorValueInformation.Flag flags)
         {
             var av = mod.ActorValueInformation.FirstOrDefault(a => a.FormKey == Own(id));
@@ -893,22 +934,16 @@ public static class RadsCore
                  av.DefaultValue == 0f && av.Min == 0f && av.Max == max && av.Flags == flags,
                  $"AVIF 0x{id:X} ({edid}) missing or mismatched");
         }
-        CheckAvif(RadsAvifId, RadsAvifEdid, RadsMax, RadsAvifFlags);
-        CheckAvif(RadsCapPctAvifId, RadsCapPctAvifEdid, CapPctMax, ZeroAvifFlags);
-        CheckAvif(RadResistAvifId, RadResistAvifEdid, RadsMax, ZeroAvifFlags);
         CheckAvif(InWaterAvifId, InWaterAvifEdid, 1f, ZeroAvifFlags);
 
-        // GLOB checks
-        Need(mod.Globals.Count == 4, $"expected 4 GLOB, found {mod.Globals.Count}");
+        // GLOB checks (only FO4SF_MutationsEnabled stays local)
+        Need(mod.Globals.Count == 1, $"expected 1 GLOB, found {mod.Globals.Count}");
         void CheckGlob(uint id, string edid, float wantVal)
         {
             var g = mod.Globals.FirstOrDefault(x => x.FormKey == Own(id));
             Need(g != null && g.EditorID == edid && g.Data == wantVal && !g.MajorFlags.HasFlag(Global.MajorFlag.Constant),
                  $"GLOB 0x{id:X} ({edid}) is not non-constant {wantVal}");
         }
-        CheckGlob(RadsDisplayPctGlobId, RadsDisplayPctGlobEdid, 0f);
-        CheckGlob(RadsStageGlobId, RadsStageGlobEdid, 0f);
-        CheckGlob(RadsRuleGlobId, RadsRuleGlobEdid, opts.DefaultRule);
         CheckGlob(MutationsGlobId, MutationsGlobEdid, opts.MutationsDefault);
 
         // GPOF & GPOG checks
@@ -952,17 +987,17 @@ public static class RadsCore
                 Need(m.Flags.HasFlag(MagicEffect.Flag.Detrimental) == detrimental.Value,
                      $"MGEF {edid} Detrimental flag is {!detrimental.Value}, expected {detrimental.Value}");
         }
-        CheckMgef(RadsEffectId, RadsEffectEdid, Own(RadsAvifId), CastType.FireAndForget, TargetType.Self, true);
-        CheckMgef(RadsHazardEffectId, RadsHazardEffectEdid, Own(RadsAvifId), CastType.FireAndForget, TargetType.Touch, true);
+        CheckMgef(RadsEffectId, RadsEffectEdid, Core(coreIds, RadsAvifEdid), CastType.FireAndForget, TargetType.Self, true);
+        CheckMgef(RadsHazardEffectId, RadsHazardEffectEdid, Core(coreIds, RadsAvifEdid), CastType.FireAndForget, TargetType.Touch, true);
         CheckMgef(InWaterEffectId, InWaterEffectEdid, Own(InWaterAvifId), CastType.ConstantEffect, TargetType.Self, false);
         if (found.Mirror)
         {
-            CheckMgef(RadAwayEffectId, RadAwayEffectEdid, Own(RadsAvifId), found.RestoreEffect!.CastType, found.RestoreEffect.TargetType, false);
-            CheckMgef(RadXEffectId, RadXEffectEdid, Own(RadResistAvifId), found.RestoreEffect!.CastType, found.RestoreEffect.TargetType, false);
+            CheckMgef(RadAwayEffectId, RadAwayEffectEdid, Core(coreIds, RadsAvifEdid), found.RestoreEffect!.CastType, found.RestoreEffect.TargetType, false);
+            CheckMgef(RadXEffectId, RadXEffectEdid, Core(coreIds, RadResistAvifEdid), found.RestoreEffect!.CastType, found.RestoreEffect.TargetType, false);
         }
         foreach (var ms in Mutations)
             foreach (var es in ms.Effects)
-                CheckMgef(es.MgefId, es.MgefEdid, sfAvifs[es.TargetAvEdid].FormKey, CastType.ConstantEffect, TargetType.Self, es.Detrimental);
+                CheckMgef(es.MgefId, es.MgefEdid, TargetAvKey(es.TargetAvEdid, sfAvifs, coreIds), CastType.ConstantEffect, TargetType.Self, es.Detrimental);
 
         // SPEL checks
         Need(mod.Spells.Count == 5 + Mutations.Length, $"expected {5 + Mutations.Length} SPEL, found {mod.Spells.Count}");
@@ -1058,7 +1093,7 @@ public static class RadsCore
                 var gotNames = scripts[0].Properties.Select(p => p.Name).ToList();
                 Need(gotNames.SequenceEqual(PropNames), $"script property order [{string.Join(",", gotNames)}] != [{string.Join(",", PropNames)}]");
                 var map = scripts[0].Properties.OfType<IScriptObjectPropertyGetter>().ToDictionary(p => p.Name, p => p.Object.FormKey);
-                foreach (var (name, wantFk) in ExpectedProperties(sfAvifs))
+                foreach (var (name, wantFk) in ExpectedProperties(sfAvifs, coreIds))
                     Need(map.TryGetValue(name, out var fk) && fk == wantFk, $"property {name} is not {wantFk}");
             }
         }
@@ -1242,24 +1277,25 @@ public static class RadsCore
 
         void TamperAndExpectRefusal(string name, Action<StarfieldMod> mutate)
         {
-            using var ro = OpenMod(goodPlugin);
+            using var ro = OpenMod(goodPlugin, SfEsm, CoreValuesEsm);
             var copy = new StarfieldMod(Plugin, Release);
             copy.DeepCopyIn(ro);
             mutate(copy);
             var dir = Path.Combine(scratchDir, "bad_" + name);
-            WriteMod(copy, dir, SfEsm);
+            WriteMod(copy, dir);
             MustFail(Check(Path.Combine(dir, Plugin.FileName), sfFull, new BuildOptions(0, 0)), "tamper " + name);
         }
 
         TamperAndExpectRefusal("mgef_av", m => m.MagicEffects.First(x => x.FormKey == Own(RadsEffectId)).SecondActorValue.SetToNull());
-        TamperAndExpectRefusal("avif_flag", m => m.ActorValueInformation.First(x => x.FormKey == Own(RadsAvifId)).Flags = ZeroAvifFlags);
+        TamperAndExpectRefusal("avif_flag", m => m.ActorValueInformation.First(x => x.FormKey == Own(InWaterAvifId)).Flags = RadsAvifFlags);
+        TamperAndExpectRefusal("dup_core_avif", m => m.ActorValueInformation.Add(new ActorValueInformation(Own(0x800), Release) { EditorID = RadsAvifEdid }));
         TamperAndExpectRefusal("hazd_spell", m => m.Hazards.First().Effect.SetTo(Own(RadsSpellId)));
         TamperAndExpectRefusal("watr_flag", m => m.Waters.First().Flags = 0);
         TamperAndExpectRefusal("gpo_rewards", m => m.GameplayOptions.First().Rewards.Clear());
         TamperAndExpectRefusal("flst_order", m => m.FormLists.First().Items!.RemoveAt(0));
         TamperAndExpectRefusal("foreign_override", m => m.Globals.Add(new Global(new FormKey(SfEsm, 0x00A039), Release) { EditorID = "SynthForeignGlob", Data = 1f }));
 
-        Console.WriteLine("selftest: ok (all modes, options, and 7 tamper controls passed)");
+        Console.WriteLine("selftest: ok (all modes, options, and 8 tamper controls passed)");
         return 0;
     }
 }

@@ -42,6 +42,7 @@ Keyword Property RadsEmitterKeyword Auto Const Mandatory
 Form Property IrradiatedWater Auto Const Mandatory
 FormList Property MutationPerks Auto Const Mandatory
 Perk Property StarchedGenesPerk Auto Const Mandatory
+GlobalVariable Property TestModeGlobal Auto Const
 
 ; ---------------------------------------------------------------- constants & runtime state
 
@@ -113,17 +114,24 @@ bool Ok30 = false
 bool Ok40 = false
 bool Ok50 = false
 bool Ok60 = false
+bool Initialized = false
 
 ; ---------------------------------------------------------------- lifecycle & logging
 
-Event OnInit()
+Event OnQuestInit()
+    if Initialized
+        return
+    endif
+    Initialized = true
     Debug.OpenUserLog(LogName)
     Actor p = Game.GetPlayer()
     Trace("init version=" + Version + " quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(CorePlugin))
     Trace("start rads_av=" + Id(RadsAV) + " cap_pct_av=" + Id(RadsCapPctAV) + " rad_resist_av=" + Id(RadResistAV) + " rule_glob=" + Id(RadsRuleGlobal) + " mut_glob=" + Id(MutationsEnabledGlobal) + " hazard=" + Id(RadsHazard) + " emitter=" + Id(RadsEmitter) + " water=" + Id(IrradiatedWater) + " radaway=" + Id(RadAway) + " radx=" + Id(RadX) + " food=" + Id(IrradiatedFood) + " dirty_water=" + Id(DirtyWater) + " mut_flst=" + Id(MutationPerks) + " starched=" + Id(StarchedGenesPerk))
     SetupPlayerHooks(p)
     SyncItemCounts(p)
-    SyncState(p, "init")
+    if p != None
+        SyncState(p, "init")
+    endif
     StartTimer(POLL_S, TIMER_POLL)
 EndEvent
 
@@ -225,6 +233,13 @@ EndFunction
 float Function AbsF(float v)
     if v < 0.0
         return -1.0 * v
+    endif
+    return v
+EndFunction
+
+float Function ClampStatFloor(float v)
+    if v < 1.0
+        return 1.0
     endif
     return v
 EndFunction
@@ -659,6 +674,10 @@ Event OnTimer(int aiTimerID)
     endif
 EndEvent
 
+bool Function TestModeOn()
+    return TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
+EndFunction
+
 Function Poll()
     Actor p = Game.GetPlayer()
     if p == None
@@ -667,40 +686,42 @@ Function Poll()
     if BusyStage != 0
         return
     endif
-    if !Done5 && GetStageDone(5)
-        Done5 = true
-        RunStage5(p)
-        return
-    endif
-    if !Done10 && GetStageDone(10)
-        Done10 = true
-        RunStage10(p)
-        return
-    endif
-    if !Done20 && GetStageDone(20)
-        Done20 = true
-        StartStage20(p)
-        return
-    endif
-    if !Done30 && GetStageDone(30)
-        Done30 = true
-        StartStage30(p)
-        return
-    endif
-    if !Done40 && GetStageDone(40)
-        Done40 = true
-        RunStage40(p)
-        return
-    endif
-    if !Done50 && GetStageDone(50)
-        Done50 = true
-        RunStage50(p)
-        return
-    endif
-    if !Done60 && GetStageDone(60)
-        Done60 = true
-        RunStage60(p)
-        return
+    if TestModeOn()
+        if !Done5 && GetStageDone(5)
+            Done5 = true
+            RunStage5(p)
+            return
+        endif
+        if !Done10 && GetStageDone(10)
+            Done10 = true
+            RunStage10(p)
+            return
+        endif
+        if !Done20 && GetStageDone(20)
+            Done20 = true
+            StartStage20(p)
+            return
+        endif
+        if !Done30 && GetStageDone(30)
+            Done30 = true
+            StartStage30(p)
+            return
+        endif
+        if !Done40 && GetStageDone(40)
+            Done40 = true
+            RunStage40(p)
+            return
+        endif
+        if !Done50 && GetStageDone(50)
+            Done50 = true
+            RunStage50(p)
+            return
+        endif
+        if !Done60 && GetStageDone(60)
+            Done60 = true
+            RunStage60(p)
+            return
+        endif
     endif
     PollConsumables(p)
     PollEnvironment(p)
@@ -764,6 +785,15 @@ Function RunStage10(Actor p)
     Trace("set stage=10 wrote=0.0 read=" + r0)
 
     SyncState(p, "stage10_done")
+    if p.GetValue(EnduranceAV) < 5.0
+        SetExactAV(p, EnduranceAV, 5.0)
+    endif
+    if p.GetValue(AgilityAV) < 5.0
+        SetExactAV(p, AgilityAV, 5.0)
+    endif
+    if p.GetValue(StrengthAV) < 5.0
+        SetExactAV(p, StrengthAV, 5.0)
+    endif
     BaseHP0 = p.GetBaseValue(HealthAV)
     if BaseHP0 <= 0.0
         BaseHP0 = p.GetValue(HealthAV)
@@ -857,13 +887,13 @@ Function RunStage40(Actor p)
     RadsRuleGlobal.SetValue(0.0)
     SyncState(p, "stage40_preA")
 
-    ; Switch 0 -> 1 (Mode B Critical: HP unwound to Health0; -3 END, -2 AGI, -1 STR)
+    ; Switch 0 -> 1 (Mode B Critical: HP unwound to Health0; -3 END, -2 AGI, -1 STR clamped at 1.0 floor)
     RadsRuleGlobal.SetValue(1.0)
     SyncState(p, "stage40_toB")
     float driftHpB = p.GetValue(HealthAV) - Health0
-    float driftEndB = p.GetValue(EnduranceAV) - (End0 - 3.0)
-    float driftAgiB = p.GetValue(AgilityAV) - (Agi0 - 2.0)
-    float driftStrB = p.GetValue(StrengthAV) - (Str0 - 1.0)
+    float driftEndB = p.GetValue(EnduranceAV) - ClampStatFloor(End0 - 3.0)
+    float driftAgiB = p.GetValue(AgilityAV) - ClampStatFloor(Agi0 - 2.0)
+    float driftStrB = p.GetValue(StrengthAV) - ClampStatFloor(Str0 - 1.0)
     bool okToB = AbsF(driftHpB) < 0.1 && AbsF(driftEndB) < 0.1 && AbsF(driftAgiB) < 0.1 && AbsF(driftStrB) < 0.1
     Trace("mode_switch stage=40 from_rule=0 to_rule=1 rads=600.0 hp=" + p.GetValue(HealthAV) + " end=" + p.GetValue(EnduranceAV) + " agi=" + p.GetValue(AgilityAV) + " str=" + p.GetValue(StrengthAV) + " drift_hp=" + driftHpB + " drift_end=" + driftEndB + " drift_agi=" + driftAgiB + " drift_str=" + driftStrB + " ok=" + okToB)
 
@@ -903,7 +933,7 @@ Function RunStage50(Actor p)
     UseRadAway(p, false)
     int mutLockedAfterAway = CountMutations(p)
     float radsMid = p.GetValue(RadsAV)
-    bool midEndOk = AbsF(p.GetValue(EnduranceAV) - (End0 - 1.0)) < 0.1 && AbsF(p.GetValue(AgilityAV) - Agi0) < 0.1 && AbsF(p.GetValue(StrengthAV) - Str0) < 0.1
+    bool midEndOk = AbsF(p.GetValue(EnduranceAV) - ClampStatFloor(End0 - 1.0)) < 0.1 && AbsF(p.GetValue(AgilityAV) - Agi0) < 0.1 && AbsF(p.GetValue(StrengthAV) - Str0) < 0.1
 
     ; Unlock Starched Genes: second RadAway cures -300 rads (350 -> 50, Stage 0 None) AND cures the unlocked mutation
     p.RemovePerk(StarchedGenesPerk)

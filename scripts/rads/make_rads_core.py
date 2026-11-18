@@ -27,6 +27,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "scripts", "newgame"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from make_newgame import declares, extract_sources, new_partial, run  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.rads import core_log  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "RadsCore")
@@ -203,10 +204,10 @@ def stage(a):
         "options": {"default_rule": a.default_rule, "mutations_default": a.mutations_default},
         "templates": template_line(wrote),
         "pipboy_contract": {
-            "FO4SF_Rads": "0x800 (AVIF, 0..1000)",
-            "FO4SF_RadsCapPct": "0x801 (AVIF, 0..100)",
-            "FO4SF_RadsDisplayPct": "0x802 (GLOB, 0..100)",
-            "FO4SF_RadsStage": "0x803 (GLOB, 0..5)",
+            "FO4SF_Rads": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_Rads'):03X} (AVIF, 0..1000)",
+            "FO4SF_RadsCapPct": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_RadsCapPct'):03X} (AVIF, 0..100)",
+            "FO4SF_RadsDisplayPct": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_RadsDisplayPct'):03X} (GLOB, 0..100)",
+            "FO4SF_RadsStage": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_RadsStage'):03X} (GLOB, 0..5)",
             "FO4SF_RadAway": "0x820 (ALCH, -300 rads)",
             "FO4SF_RadX": "0x821 (ALCH, +100 RadResist 60 s)",
         },
@@ -217,16 +218,15 @@ def stage(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout Radiation & Optional Mutations Core ({datetime.date.today().isoformat()}). docs/rads/rads-core.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}):
-  AVIF FO4SF_Rads (0x800, 0..1000, DefaultToZero | DamageIsPositive), FO4SF_RadsCapPct (0x801, 0..100),
-       FO4SF_RadResist (0x804), FO4SF_InWater (0x805);
-  GLOB FO4SF_RadsDisplayPct (0x802), FO4SF_RadsStage (0x803), FO4SF_RadsRule (0x806, default {a.default_rule}),
-       FO4SF_MutationsEnabled (0x807, default {a.mutations_default});
-  GPOF FO4SF_GPO_RadsRule (0x808), FO4SF_GPO_Mutations (0x809), GPOG FO4SF_GPOG_Radiation (0x80A);
+  Shared in {CORE_VALUES_PLUGIN}: FO4SF_Rads (0x800), FO4SF_RadsCapPct (0x801), FO4SF_RadsDisplayPct (0x802),
+       FO4SF_RadsStage (0x803), FO4SF_RadResist (0x804), FO4SF_RadsRule (0x805), SPECIAL AVIFs, FO4SF_TestModeEnabled (0x860);
+  Local AVIF & GLOB: FO4SF_InWater (0x805), FO4SF_MutationsEnabled (0x807, default {a.mutations_default});
+  GPOF FO4SF_GPO_RadsRule (0x808, default {a.default_rule}), FO4SF_GPO_Mutations (0x809), GPOG FO4SF_GPOG_Radiation (0x80A);
   Sources & Aid: HAZD FO4SF_RadsHazard (0x828), ACTI FO4SF_RadsEmitter (0x82A), WATR FO4SF_IrradiatedWater (0x82B),
        ALCH FO4SF_RadAway (0x820, -300 rads), FO4SF_RadX (0x821), FO4SF_IrradiatedFood (0x822), FO4SF_DirtyWater (0x823);
   Mutations: 4 clean-room PERK records (0x830..0x833) in FLST FO4SF_MutationPerks (0x835) + FO4SF_Perk_StarchedGenes (0x834);
-  QUST FO4SF_RadsCoreQuest (0x850, StartGameEnabled, stages 5 and 10..60) + Data/Scripts/{SCRIPT}.pex.
-Master Starfield.esm only ({before}); adds records, overrides none.
+  QUST FO4SF_RadsCoreQuest (0x850, StartGameEnabled, stages 5 and 10..60 gated by FO4SF_TestModeEnabled) + Data/Scripts/{SCRIPT}.pex.
+Masters Starfield.esm ({before}) and {CORE_VALUES_PLUGIN}; adds records, overrides none.
 Ride-along install (game closed):
   python scripts/rads/rads_core_install.py install --dir <stage dir> --starfield <game dir>
 Fold into core experiment set:

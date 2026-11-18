@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "game"))
 sys.path.insert(0, str(ROOT / "src"))
 
 from ba2_fixture import archive_from_tree  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.planet import esm  # noqa: E402
 from fo4sf.rads import core_log as cl  # noqa: E402
 import exp_install  # noqa: E402
@@ -159,9 +160,11 @@ class ContractTests(unittest.TestCase):
     def test_script_properties_match_writer_order_and_names(self):
         m = re.search(r"PropNames\s*=\s*\{([^}]*)\}", CS_TEXT, re.S)
         tool_props = re.findall(r'"(\w+)"', m.group(1))
-        psc_props = re.findall(r"^(\w+)\s+Property\s+(\w+)\s+Auto\s+Const\s+Mandatory\b", PSC_TEXT, re.M)
+        psc_props = re.findall(r"^(\w+)\s+Property\s+(\w+)\s+Auto\s+Const(?:\s+Mandatory)?\b", PSC_TEXT, re.M)
         self.assertEqual([name for _, name in psc_props], tool_props)
-        self.assertEqual(len(tool_props), 29)
+        self.assertEqual(len(tool_props), 30)
+        self.assertEqual(tool_props[-1], "TestModeGlobal")
+        self.assertIn("TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", PSC_TEXT)
         self.assertTrue(PSC_TEXT.startswith("Scriptname FO4SF_RadsCoreQuest extends Quest"))
 
     def test_no_script_variable_shadows_a_property_name(self):
@@ -192,7 +195,10 @@ class ContractTests(unittest.TestCase):
     def test_pipboy_rads_local_id_matches_native_pipboy_menu(self):
         pipboy_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp").read_text(encoding="utf-8")
         self.assertIn("kRadsLocalId = 0x800", pipboy_cpp)
-        self.assertIn("RadsAvifId = 0x800", CS_TEXT)
+        self.assertEqual(core_form_id("FO4SF_Rads"), 0x800)
+        self.assertEqual(core_form_id("FO4SF_Special_Intelligence"), 0x814)
+        self.assertEqual(core_form_id("FO4SF_TestModeEnabled"), 0x860)
+        self.assertIn(CORE_VALUES_PLUGIN, CS_TEXT)
         self.assertIn('RadsAvifEdid = "FO4SF_Rads"', CS_TEXT)
         for edid in (
             "FO4SF_Rads", "FO4SF_RadsCapPct", "FO4SF_RadsDisplayPct",
@@ -423,6 +429,12 @@ class RadsCoreInstallTests(unittest.TestCase):
 
         self.sf_bytes = b"Synthetic Starfield.esm bytes"
         (self.data / "Starfield.esm").write_bytes(self.sf_bytes)
+        (self.data / CORE_VALUES_PLUGIN).write_bytes(
+            esm.PluginWriter(["Starfield.esm"], esm.ESM, author=CORE_VALUES_PLUGIN).to_bytes()
+        )
+        (self.data / "FO4TerrainCore.esm").write_bytes(
+            esm.PluginWriter(["Starfield.esm"], esm.ESM, author="FO4TerrainCore.esm").to_bytes()
+        )
 
         self.neighbors = {
             exp_install.RECORD: b'{"complete": true, "plugins": ["FO4TerrainCore.esm"]}',
@@ -435,7 +447,7 @@ class RadsCoreInstallTests(unittest.TestCase):
 
         self.staged = root / "stage"
         (self.staged / "Data" / "Scripts").mkdir(parents=True)
-        esm_bytes = esm.PluginWriter(["Starfield.esm"], esm.ESM, author=PLUGIN).to_bytes()
+        esm_bytes = esm.PluginWriter(["Starfield.esm", CORE_VALUES_PLUGIN], esm.ESM, author=PLUGIN).to_bytes()
         pex_bytes = b"compiled pex bytes"
         (self.staged / PLUGIN).write_bytes(esm_bytes)
         (self.staged / "Data" / "Scripts" / "FO4SF_RadsCoreQuest.pex").write_bytes(pex_bytes)
@@ -459,7 +471,7 @@ class RadsCoreInstallTests(unittest.TestCase):
         local = root / "local"
         self.plugins_txt = local / "Starfield" / "Plugins.txt"
         self.plugins_txt.parent.mkdir(parents=True)
-        self.plugins_txt.write_bytes(b"# header\r\n*FO4TerrainCore.esm\r\n")
+        self.plugins_txt.write_bytes(f"# header\r\n*{CORE_VALUES_PLUGIN}\r\n*FO4TerrainCore.esm\r\n".encode("utf-8"))
 
         old_local = os.environ.get("LOCALAPPDATA")
         os.environ["LOCALAPPDATA"] = str(local)
@@ -493,7 +505,7 @@ class RadsCoreInstallTests(unittest.TestCase):
             self.assertTrue((self.data / fn).is_file(), fn)
         self.assertEqual(
             self.plugins_txt.read_text(encoding="utf-8-sig").splitlines(),
-            ["# header", "*FO4TerrainCore.esm", "*" + PLUGIN],
+            ["# header", f"*{CORE_VALUES_PLUGIN}", "*FO4TerrainCore.esm", "*" + PLUGIN],
         )
         for name, body in self.neighbors.items():
             self.assertEqual((self.data / name).read_bytes(), body)
@@ -574,20 +586,20 @@ class WriterStageFoldTests(unittest.TestCase):
                 i += 24 + size
 
         walk(data, 0, len(data))
-        self.assertTrue(ids and all((f >> 24) == 1 for f in ids), [hex(f) for f in ids if (f >> 24) != 1])
+        self.assertTrue(ids and all((f >> 24) == 2 for f in ids), [hex(f) for f in ids if (f >> 24) != 2])
         self.assertEqual(
             kinds,
             {
-                b"TES4": 1, b"AVIF": 4, b"GLOB": 4, b"GPOF": 2, b"GPOG": 1,
+                b"TES4": 1, b"AVIF": 1, b"GLOB": 1, b"GPOF": 2, b"GPOG": 1,
                 b"MGEF": 13, b"SPEL": 9, b"ALCH": 4, b"HAZD": 1, b"KYWD": 1,
                 b"ACTI": 1, b"WATR": 1, b"PERK": 5, b"FLST": 1, b"QUST": 1,
             },
         )
-        # First AVFL belongs to FO4SF_Rads (0x800): DefaultToZero | DamageIsPositive = 0x04000400
+        # Only FO4SF_InWater (0x805) stays local: DefaultToZero = 0x00000400
         avfl_off = data.index(b"AVFL") + 6
-        self.assertEqual(struct.unpack_from("<I", data, avfl_off)[0], 0x04000400)
+        self.assertEqual(struct.unpack_from("<I", data, avfl_off)[0], 0x00000400)
 
-        # First two MGEFs (FO4SF_RadsEffect and FO4SF_RadsHazardEffect) carry 0x01000800 in DATA word 14 and 0 in word 0
+        # MGEF DATA word 14 links to FO4SFCoreValues.esm (master index 0x01) for shared AVIFs and local 0x02 for FO4SF_InWater
         mgef_grp = data.index(b"GRUP")
         while data[mgef_grp + 8:mgef_grp + 12] != b"MGEF":
             mgef_grp += struct.unpack_from("<I", data, mgef_grp + 4)[0]
@@ -605,10 +617,14 @@ class WriterStageFoldTests(unittest.TestCase):
             mgef_words.append(struct.unpack_from(f"<{len(subs[b'DATA']) // 4}I", subs[b"DATA"]))
             rec += 24 + rsize
         self.assertEqual(len(mgef_words), 13)
-        self.assertEqual(mgef_words[0][14], 0x01000800)  # FO4SF_RadsEffect -> FO4SF_Rads
+        self.assertEqual(mgef_words[0][14], 0x01000800)  # FO4SF_RadsEffect -> FO4SFCoreValues.esm:FO4SF_Rads
         self.assertEqual(mgef_words[0][0], 0)
-        self.assertEqual(mgef_words[1][14], 0x01000800)  # FO4SF_RadsHazardEffect -> FO4SF_Rads
+        self.assertEqual(mgef_words[1][14], 0x01000800)  # FO4SF_RadsHazardEffect -> FO4SFCoreValues.esm:FO4SF_Rads
         self.assertEqual(mgef_words[1][0], 0)
+        self.assertEqual(mgef_words[2][14], 0x01000800)  # FO4SF_RadAwayEffect -> FO4SFCoreValues.esm:FO4SF_Rads
+        self.assertEqual(mgef_words[3][14], 0x01000804)  # FO4SF_RadXEffect -> FO4SFCoreValues.esm:FO4SF_RadResist
+        self.assertEqual(mgef_words[4][14], 0x02000805)  # FO4SF_InWaterEffect -> FO4SFRads.esm:FO4SF_InWater
+        self.assertEqual(mgef_words[7][14], 0x01000814)  # FO4SF_MgefMut_IntPenalty -> FO4SFCoreValues.esm:FO4SF_Special_Intelligence
 
     def test_stage_fold_hardlink_and_verify_pipeline(self):
         cr = self.root / "cr.zip"
