@@ -33,6 +33,7 @@ WRITER_PROJECTS = (
     "ALife",
     "FortHagen",
     "Mission",
+    "RouteLoot",
     "CoreCandidate",
 )
 

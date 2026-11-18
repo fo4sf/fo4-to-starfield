@@ -1,13 +1,14 @@
 r"""Stage, fold, verify, and inspect logs for the unified FO4SF Core Candidate Bundle (CF-10).
 
-Stages every core component from one checkout (gear door, exit lift, NewGame with hold 199 and pod_step -2.5,
-rads, hardcore, workshop, power armor, progression, list dialogue, combat + FO4SFCombat.dll, reputation,
-companions, A-Life when present, Fort Hagen when present, the console-free candidate walk harness, and
---with-pipboy --pipboy-stage), folds them into a clean hardlinked copy of the owner's core set, runs full
-SHA-256 + TES4 master-order + plugin-count + 4 GiB BA2 archive-limit verification, and prints one
-`exp_install.py install ... --pack` command plus its matching rollback command.
+Stages every core component from one checkout (core values, gear door, exit lift, mission + Codsworth assets/voice,
+NewGame with hold 199 and pod_step -2.5, rads, hardcore, workshop, route loot, power armor, progression,
+list dialogue, combat + FO4SFCombat.dll, reputation, companions, A-Life when present, Fort Hagen when present,
+the console-free candidate walk harness, and --with-pipboy --pipboy-stage), folds them into a clean hardlinked
+copy of the owner's core set, runs full SHA-256 + TES4 master-order + plugin-count + 4 GiB BA2 archive-limit
+verification, and prints one `exp_install.py install ... --pack` command plus its matching rollback command.
 
-Refuses to run whenever Starfield.exe is open (via fo4sf.launcher.crashwatch.System.pids).
+Refuses to run whenever Starfield.exe is open (via fo4sf.launcher.crashwatch.System.pids) or when any output
+directory sits inside a Git worktree or game folder (R4).
 
 usage:
   python scripts/core/make_core_bundle.py build --owner-set <owner-set-dir> --out <bundle-dir>
@@ -15,11 +16,13 @@ usage:
       --port <FO4Port.esm> --port-ids <formids.json>
       --door-anim-dll <CALUMI.Animation.dll> --collision-template <nif> --texconv <texconv.exe>
       [--render-python <venv-render/python.exe>] [--combat-sfse-build <combat-sfse-dir>]
+      [--mission-stage <02b-mission-dir>] [--route-loot-stage <17-route-loot-dir>]
       [--with-pipboy --pipboy-stage <pipboy-stage-dir>]
       [--no-alife] [--no-fort-hagen] [--no-walk-harness] [--no-hardlink]
 
   python scripts/core/make_core_bundle.py fold --owner-set <owner-set-dir> --stages-root <stages-dir>
       --out <bundle-dir> [--clean-core-out <clean-core-dir>] [--port <FO4Port.esm>]
+      [--mission-stage <02b-mission-dir>] [--route-loot-stage <17-route-loot-dir>]
       [--with-pipboy --pipboy-stage <pipboy-stage-dir>] [--no-hardlink]
 
   python scripts/core/make_core_bundle.py verify --bundle-dir <bundle-dir>
@@ -75,6 +78,7 @@ DROPPED_SLICE_ESMS = frozenset({
     "fo4sfrads.esm",
     "fo4sfhardcore.esm",
     "fo4sfworkshop.esm",
+    "fo4sfrouteloot.esm",
     "fo4sfpowerarmor.esm",
     "fo4sfprogression.esm",
     "fo4sflistdialogue.esm",
@@ -86,6 +90,10 @@ DROPPED_SLICE_ESMS = frozenset({
     "fo4sfcorecandidate.esm",
     "fo4sfpipboyprobe.esm",
     "fo4sfpipboytravel.esm",
+})
+
+DROPPED_MISSION_ESMS = frozenset({
+    "fo4sfmission.esm",
 })
 
 DROPPED_SLICE_PEX = frozenset({
@@ -109,14 +117,30 @@ DROPPED_SLICE_PEX = frozenset({
     "data/scripts/fo4sf_pipboytravel.pex",
 })
 
+DROPPED_MISSION_PEX = frozenset({
+    "data/scripts/fo4sf_min00quest.pex",
+    "data/scripts/fo4sf_compreston.pex",
+    "data/scripts/fo4sf_codsworth01quest.pex",
+    "data/scripts/fo4sf_sanctuary01quest.pex",
+})
+
+DROPPED_MISSION_DATA_PREFIXES = (
+    "data/sound/voice/fo4sfmission.esm/",
+    "data/meshes/fo4port/actors/codsworth/",
+    "data/materials/fo4port/texsets/actors/handy/",
+    "data/textures/fo4port/texsets/actors/handy/",
+)
+
 ORDERED_COMPONENT_KEYS = (
     "core_values",
     "cog_door",
     "exit_lift",
+    "mission",
     "newgame",
     "rads",
     "hardcore",
     "workshop",
+    "route_loot",
     "powerarmor",
     "progression",
     "list_dialogue",
@@ -127,6 +151,37 @@ ORDERED_COMPONENT_KEYS = (
     "fort_hagen",
     "candidate_walk",
     "pipboy",
+)
+
+PLAYER_BUNDLE_PLUGINS = (
+    "FO4ActorRaider.esm",
+    "FO4TerrainCore.esm",
+    "FO4TerrainCore_Mars.esm",
+    "FO4SFCoreValues.esm",
+    "FO4SFVaultGearDoor.esm",
+    "FO4SFExitLift.esm",
+    "FO4SFMission.esm",
+    "FO4SFNewGame.esm",
+    "FO4SFRads.esm",
+    "FO4SFHardcore.esm",
+    "FO4SFWorkshop.esm",
+    "FO4SFRouteLoot.esm",
+    "FO4SFPowerArmor.esm",
+    "FO4SFProgression.esm",
+    "FO4SFListDialogue.esm",
+    "FO4SFCombat.esm",
+    "FO4SFReputation.esm",
+    "FO4SFCompanions.esm",
+    "FO4SFALife.esm",
+    "FO4SFFortHagen.esm",
+    "FO4SFPipboyProbe.esm",
+    "FO4SFPipboyTravel.esm",
+)
+
+CORE_BUNDLE_PLUGINS = (
+    *PLAYER_BUNDLE_PLUGINS[:20],
+    "FO4SFCoreCandidate.esm",
+    *PLAYER_BUNDLE_PLUGINS[20:],
 )
 
 TEST_CELL_SLICE_KEYS = frozenset({"powerarmor", "list_dialogue", "combat", "reputation", "companions"})
@@ -156,6 +211,38 @@ def ensure_game_closed(system=None) -> None:
         raise BundleRefused(f"bundle refused: {GAME_EXE} is running (pid {joined}); close the game first")
 
 
+def refuse_unsafe_output_dir(
+    path_str: str,
+    label: str = "--out",
+    game_dirs: Sequence[Optional[str]] = (),
+) -> None:
+    """R4: refuse any bundle/work/clean-core output path inside a Git worktree or game folder."""
+    forbidden_roots = [os.path.abspath(gd) for gd in game_dirs if gd]
+    for candidate in {os.path.abspath(path_str), os.path.realpath(os.path.abspath(path_str))}:
+        low_norm = candidate.replace("\\", "/").lower()
+        if "steamapps/common/starfield" in low_norm or "steamapps/common/fallout 4" in low_norm:
+            raise BundleRefused(f"bundle refused ({label}): output path inside game install folder ({candidate})")
+        cand_case = os.path.normcase(candidate)
+        for froot in forbidden_roots:
+            froot_case = os.path.normcase(froot)
+            if cand_case == froot_case or cand_case.startswith(froot_case + os.sep):
+                raise BundleRefused(f"bundle refused ({label}): output path inside game folder ({froot})")
+        cur = candidate
+        while True:
+            if os.path.exists(os.path.join(cur, ".git")):
+                raise BundleRefused(f"bundle refused ({label}): output path inside Git worktree ({cur})")
+            if (
+                os.path.isfile(os.path.join(cur, "Starfield.exe"))
+                or os.path.isfile(os.path.join(cur, "Fallout4.exe"))
+                or os.path.isfile(os.path.join(cur, "Data", "Starfield.esm"))
+            ):
+                raise BundleRefused(f"bundle refused ({label}): output path inside game install folder ({cur})")
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
+
+
 def link_or_copy(src: str, dst: str, hardlink: bool = True) -> None:
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if hardlink:
@@ -164,8 +251,15 @@ def link_or_copy(src: str, dst: str, hardlink: bool = True) -> None:
         shutil.copy2(src, dst)
 
 
-def prepare_clean_core(owner_set: str, clean_out: str, hardlink: bool = True) -> Dict[str, object]:
-    """Create a clean copy of owner_set without FO4SFNewGame.esm (or other slice ESMs/PEX) and with a NEW README.txt."""
+def prepare_clean_core(
+    owner_set: str,
+    clean_out: str,
+    hardlink: bool = True,
+    strip_mission: bool = False,
+    extra_dropped_data: Sequence[str] = (),
+) -> Dict[str, object]:
+    """Create a clean copy of owner_set without slice ESMs/PEX (and stale mission files when strip_mission=True)."""
+    refuse_unsafe_output_dir(clean_out, label="--clean-core-out")
     src_root = Path(os.path.abspath(owner_set))
     dst_root = Path(os.path.abspath(clean_out))
     if not src_root.is_dir():
@@ -176,6 +270,14 @@ def prepare_clean_core(owner_set: str, clean_out: str, hardlink: bool = True) ->
     if dst_root.exists():
         raise BundleRefused(f"clean-core output already exists: {dst_root}")
 
+    dropped_esms = (DROPPED_SLICE_ESMS | DROPPED_MISSION_ESMS) if strip_mission else DROPPED_SLICE_ESMS
+    dropped_pex = (DROPPED_SLICE_PEX | DROPPED_MISSION_PEX) if strip_mission else DROPPED_SLICE_PEX
+    extra_drop_low = {
+        r.replace("\\", "/").lower()
+        for r in extra_dropped_data
+        if r.replace("\\", "/").lower() != "data/materials/fo4port/_neutral.mat"
+    }
+
     orig_readme_sha = sha256_file(str(src_readme))
     linked_count = 0
     dropped: List[str] = []
@@ -184,14 +286,18 @@ def prepare_clean_core(owner_set: str, clean_out: str, hardlink: bool = True) ->
     for dp, dirs, files in os.walk(src_root):
         dirs.sort()
         rel_dir = Path(dp).relative_to(src_root)
-        (partial / rel_dir).mkdir(parents=True, exist_ok=True)
         for fn in sorted(files):
             s = Path(dp) / fn
             rel_posix = s.relative_to(src_root).as_posix()
             rel_low = rel_posix.lower()
             if rel_low == "readme.txt":
                 continue
-            if ("/" not in rel_posix and rel_low in DROPPED_SLICE_ESMS) or rel_low in DROPPED_SLICE_PEX:
+            if (
+                ("/" not in rel_posix and rel_low in dropped_esms)
+                or rel_low in dropped_pex
+                or rel_low in extra_drop_low
+                or (strip_mission and rel_low.startswith(DROPPED_MISSION_DATA_PREFIXES))
+            ):
                 dropped.append(rel_posix)
                 continue
             link_or_copy(str(s), str(partial / rel_dir / fn), hardlink=hardlink)
@@ -201,7 +307,7 @@ def prepare_clean_core(owner_set: str, clean_out: str, hardlink: bool = True) ->
         m = INSTALL_LINE_RE.search(line)
         if not m:
             return line
-        kept = [p for p in m.group("plugins").split(",") if p and p.lower() not in DROPPED_SLICE_ESMS]
+        kept = [p for p in m.group("plugins").split(",") if p and p.lower() not in dropped_esms]
         if not kept:
             raise BundleRefused("clean-core README install line has zero base core plugins left after stripping slice ESMs")
         return line[:m.start()] + m.group(1) + ",".join(kept) + m.group("tail")
@@ -598,6 +704,11 @@ def _run_py(py_exe: str, script_rel: str, args: Sequence[str]) -> None:
 
 def stage_from_checkout(a) -> Dict[str, str]:
     """Run every component's stager from this single checkout into <a.work>."""
+    game_roots = (getattr(a, "starfield_dir", None), getattr(a, "fo4_data", None))
+    refuse_unsafe_output_dir(a.work, label="--work", game_dirs=game_roots)
+    refuse_unsafe_output_dir(a.out, label="--out", game_dirs=game_roots)
+    if getattr(a, "clean_core_out", None):
+        refuse_unsafe_output_dir(a.clean_core_out, label="--clean-core-out", game_dirs=game_roots)
     work = os.path.abspath(a.work)
     os.makedirs(work, exist_ok=True)
 
@@ -611,6 +722,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
     port_esm = os.path.abspath(a.port)
     port_dir = os.path.dirname(port_esm)
     core_esm = os.path.join(os.path.abspath(a.owner_set), "FO4TerrainCore.esm")
+    raider_esm = os.path.join(os.path.abspath(a.owner_set), "FO4ActorRaider.esm")
     profile = getattr(a, "profile", "player")
     commonlibsf = getattr(a, "commonlibsf", None)
     msvc_env = getattr(a, "msvc_env", None)
@@ -660,6 +772,34 @@ def stage_from_checkout(a) -> Dict[str, str]:
             "--content-resources", cr_zip,
         ])
     stages["exit_lift"] = lift_dir
+
+    if getattr(a, "mission_stage", None):
+        ms_override = os.path.abspath(a.mission_stage)
+        if not os.path.isdir(ms_override):
+            raise BundleRefused(f"--mission-stage directory not found: {ms_override}")
+        stages["mission"] = ms_override
+    elif not getattr(a, "no_mission", False) and os.path.isfile(raider_esm):
+        mission_dir = os.path.join(work, "02b-mission")
+        if not os.path.exists(mission_dir):
+            fo4_data_abs = os.path.abspath(a.fo4_data)
+            ms_args = [
+                "stage",
+                "--out", mission_dir,
+                "--fo4", os.path.join(fo4_data_abs, "Fallout4.esm"),
+                "--starfield", sf_esm,
+                "--core", core_esm,
+                "--raider", raider_esm,
+                "--compiler", compiler,
+                "--content-resources", cr_zip,
+            ]
+            fo4_iface = os.path.join(fo4_data_abs, "Fallout4 - Interface.ba2")
+            fo4_voices = os.path.join(fo4_data_abs, "Fallout4 - Voices.ba2")
+            if os.path.isfile(fo4_iface):
+                ms_args.extend(["--fo4-interface", fo4_iface])
+            if os.path.isfile(fo4_voices):
+                ms_args.extend(["--fo4-voices", fo4_voices])
+            _run_py(py_main, "scripts/mission/make_mission.py", ms_args)
+        stages["mission"] = mission_dir
 
     ng_dir = os.path.join(work, "03-newgame")
     if not os.path.exists(ng_dir):
@@ -734,7 +874,6 @@ def stage_from_checkout(a) -> Dict[str, str]:
     stages["combat"] = combat_dir
 
     alife_script = os.path.join(REPO, "scripts", "alife", "make_alife.py")
-    raider_esm = os.path.join(os.path.abspath(a.owner_set), "FO4ActorRaider.esm")
     if not getattr(a, "no_alife", False) and os.path.isfile(alife_script) and os.path.isfile(raider_esm):
         alife_dir = os.path.join(work, "13-alife")
         if not os.path.exists(alife_dir):
@@ -748,6 +887,25 @@ def stage_from_checkout(a) -> Dict[str, str]:
                 "--content-resources", cr_zip,
             ])
         stages["alife"] = alife_dir
+
+    if getattr(a, "route_loot_stage", None):
+        rl_override = os.path.abspath(a.route_loot_stage)
+        if not os.path.isdir(rl_override):
+            raise BundleRefused(f"--route-loot-stage directory not found: {rl_override}")
+        stages["route_loot"] = rl_override
+    elif not getattr(a, "no_route_loot", False):
+        rl_script = os.path.join(REPO, "scripts", "loot", "make_route_loot.py")
+        if os.path.isfile(rl_script):
+            rl_dir = os.path.join(work, "17-route-loot")
+            if not os.path.exists(rl_dir):
+                _run_py(py_main, "scripts/loot/make_route_loot.py", [
+                    "stage",
+                    "--out", rl_dir,
+                    "--starfield", sf_esm,
+                    "--core", core_esm,
+                    "--port", port_esm,
+                ])
+            stages["route_loot"] = rl_dir
 
     fh_script = os.path.join(REPO, "scripts", "fort_hagen", "make_fort_hagen.py")
     if not getattr(a, "no_fort_hagen", False) and os.path.isfile(fh_script):
@@ -916,15 +1074,29 @@ def fold_bundle(
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
     final = os.path.abspath(out_dir)
+    cc_dir = os.path.abspath(clean_core_out or (final + ".clean-core"))
+    refuse_unsafe_output_dir(final, label="--out", game_dirs=(starfield_dir,))
+    refuse_unsafe_output_dir(cc_dir, label="--clean-core-out", game_dirs=(starfield_dir,))
     if os.path.exists(final):
         raise BundleRefused(f"output bundle directory already exists: {final}")
     if profile == "player" and "candidate_walk" in stages:
         stages = {k: v for k, v in stages.items() if k != "candidate_walk"}
 
-    cc_dir = os.path.abspath(clean_core_out or (final + ".clean-core"))
+    has_mission_stage = "mission" in stages
+    mission_data_rels: List[str] = []
+    if has_mission_stage:
+        _, ms_outputs = extract_component_outputs("mission", stages["mission"])
+        mission_data_rels = [r for r in ms_outputs if r.startswith("Data/")]
+
     if os.path.exists(cc_dir):
         shutil.rmtree(cc_dir)
-    cc_info = prepare_clean_core(owner_set, cc_dir, hardlink=hardlink)
+    cc_info = prepare_clean_core(
+        owner_set,
+        cc_dir,
+        hardlink=hardlink,
+        strip_mission=has_mission_stage,
+        extra_dropped_data=mission_data_rels,
+    )
     base_plugins: List[str] = list(cc_info["base_plugins"])
     clean_readme = Path(os.path.join(cc_dir, "README.txt")).read_text(encoding="utf-8")
 
@@ -1127,23 +1299,28 @@ def cmd_build(a, system=None) -> int:
 
 def cmd_fold(a, system=None) -> int:
     ensure_game_closed(system)
+    refuse_unsafe_output_dir(a.out, label="--out", game_dirs=(a.starfield_dir,))
+    if a.clean_core_out:
+        refuse_unsafe_output_dir(a.clean_core_out, label="--clean-core-out", game_dirs=(a.starfield_dir,))
     root = os.path.abspath(a.stages_root)
     profile = getattr(a, "profile", "test")
     mapping = {
-        "core_values": ("00-core-values",),
-        "cog_door": ("01-cog-door",),
-        "exit_lift": ("02-exit-lift",),
-        "newgame": ("03-newgame",),
-        "rads": ("04-rads",),
-        "hardcore": ("05-hardcore",),
-        "workshop": ("06-workshop",),
+        "core_values": ("00-core-values-r2", "00-core-values"),
+        "cog_door": ("01-cog-door-r2", "01-cog-door"),
+        "exit_lift": ("02-exit-lift-r2", "02-exit-lift"),
+        "mission": ("02b-mission-r2", "02b-mission"),
+        "newgame": ("03-newgame-r2", "03-newgame"),
+        "rads": ("04-rads-r2", "04-rads"),
+        "hardcore": ("05-hardcore-r2", "05-hardcore"),
+        "workshop": ("06-workshop-r2", "06-workshop"),
+        "route_loot": ("17-route-loot-r2", "17-route-loot"),
         "powerarmor": ("07-powerarmor-player", "07-powerarmor") if profile == "player" else ("07-powerarmor",),
-        "progression": ("08-progression",),
+        "progression": ("08-progression-r2", "08-progression"),
         "list_dialogue": ("09-list-dialogue-player", "09-list-dialogue") if profile == "player" else ("09-list-dialogue",),
         "combat": ("10-combat-player", "10-combat") if profile == "player" else ("10-combat",),
         "reputation": ("11-reputation-player", "11-reputation") if profile == "player" else ("11-reputation",),
         "companions": ("12-companions-player", "12-companions") if profile == "player" else ("12-companions",),
-        "alife": ("13-alife",),
+        "alife": ("13-alife-r2", "13-alife"),
         "fort_hagen": ("14-fort-hagen", "10-fort-hagen"),
     }
     if profile == "test":
@@ -1155,6 +1332,16 @@ def cmd_fold(a, system=None) -> int:
             if os.path.isdir(cand):
                 stages[k] = cand
                 break
+    if getattr(a, "mission_stage", None):
+        ms_dir = os.path.abspath(a.mission_stage)
+        if not os.path.isdir(ms_dir):
+            raise BundleRefused(f"--mission-stage directory not found: {ms_dir}")
+        stages["mission"] = ms_dir
+    if getattr(a, "route_loot_stage", None):
+        rl_dir = os.path.abspath(a.route_loot_stage)
+        if not os.path.isdir(rl_dir):
+            raise BundleRefused(f"--route-loot-stage directory not found: {rl_dir}")
+        stages["route_loot"] = rl_dir
     if a.with_pipboy:
         if not a.pipboy_stage:
             raise BundleRefused("--with-pipboy requires --pipboy-stage <dir>")
@@ -1244,6 +1431,10 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--msvc-env", default=None)
     b.add_argument("--combat-sfse-build", default=None)
     b.add_argument("--pipboy-sfse-build", default=None)
+    b.add_argument("--mission-stage", default=None)
+    b.add_argument("--route-loot-stage", default=None)
+    b.add_argument("--no-mission", action="store_true")
+    b.add_argument("--no-route-loot", action="store_true")
     b.add_argument("--no-alife", action="store_true")
     b.add_argument("--no-fort-hagen", action="store_true")
     b.add_argument("--no-walk-harness", action="store_true")
@@ -1261,6 +1452,8 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--port", default=None)
     fo.add_argument("--starfield-dir", default=None)
     fo.add_argument("--profile", choices=("player", "test"), default="test")
+    fo.add_argument("--mission-stage", default=None)
+    fo.add_argument("--route-loot-stage", default=None)
     fo.add_argument("--with-pipboy", action="store_true")
     fo.add_argument("--pipboy-stage", default=None)
     fo.add_argument("--pipboy-sfse-build", default=None)

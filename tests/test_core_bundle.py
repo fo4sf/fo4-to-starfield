@@ -80,10 +80,18 @@ class CoreBundleTests(unittest.TestCase):
                 masters = ("Starfield.esm",)
             _make_tes4_esm(owner / base_esm, masters=masters, extra_tag=base_esm.encode("ascii"))
 
-        # Stale FO4SFNewGame.esm + 4 PEX inside owner-set that clean-core MUST strip
+        # Stale FO4SFNewGame.esm + 4 PEX + stale pre-folded FO4SFMission scripts/mats/voice that clean-core MUST strip
         _make_tes4_esm(owner / "FO4SFNewGame.esm", extra_tag=b"old-newgame")
         for s in ("Quest", "Looks", "Special", "Version"):
             (owner / "Data" / "Scripts" / f"FO4SF_NewGame{s}.pex").write_bytes(f"old-{s}".encode("ascii"))
+        (owner / "Data" / "Scripts" / "FO4SF_Min00Quest.pex").write_bytes(b"old-min00")
+        (owner / "Data" / "Scripts" / "FO4SF_COMPreston.pex").write_bytes(b"old-compreston")
+        old_handy_dir = owner / "Data" / "materials" / "fo4port" / "texsets" / "actors" / "handy"
+        old_handy_dir.mkdir(parents=True, exist_ok=True)
+        (old_handy_dir / "handyarmor_d_8e98a175.mat").write_bytes(b"OLD_BLACK_STEEL_MAT")
+        old_voice_dir = owner / "Data" / "sound" / "voice" / "fo4sfmission.esm" / "robotminibota"
+        old_voice_dir.mkdir(parents=True, exist_ok=True)
+        (old_voice_dir / "00f4c001.wem").write_bytes(b"OLD_MINIBOT_WEM")
 
         # Shared _neutral.mat already in owner-set (same bytes as cog_door & exit_lift)
         shared_mat = b"SHARED_NEUTRAL_MAT_BYTES"
@@ -127,6 +135,20 @@ class CoreBundleTests(unittest.TestCase):
         add_stage("02-exit-lift", "FO4SFExitLift.esm", masters=("Starfield.esm", "FO4Port.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/lift_anim.nif": b"LIFT_NIF"})
+        add_stage(
+            "02b-mission",
+            "FO4SFMission.esm",
+            pex_name="FO4SF_Min00Quest",
+            masters=("Starfield.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"),
+            extra_files={
+                "Data/Scripts/FO4SF_COMPreston.pex": b"PEX:FO4SF_COMPreston",
+                "Data/Scripts/FO4SF_Codsworth01Quest.pex": b"PEX:FO4SF_Codsworth01Quest",
+                "Data/Scripts/FO4SF_Sanctuary01Quest.pex": b"PEX:FO4SF_Sanctuary01Quest",
+                "Data/materials/fo4port/_neutral.mat": shared_mat,
+                "Data/materials/fo4port/texsets/actors/handy/handyarmor_d_8e98a175.mat": b"PATCHED_BRUSHED_STEEL_MAT",
+                "Data/sound/voice/fo4sfmission.esm/fo4sf_codsworthvoice/00f4c001.wem": b"CODSWORTH_VOICE_WEM",
+            },
+        )
         add_stage("03-newgame", "FO4SFNewGame.esm", pex_name="FO4SF_NewGameQuest",
                   masters=("Starfield.esm", "FO4SFCoreValues.esm"))
         add_stage("04-rads", "FO4SFRads.esm", pex_name="FO4SF_RadsCoreQuest",
@@ -135,6 +157,29 @@ class CoreBundleTests(unittest.TestCase):
                   masters=("Starfield.esm", "FO4SFCoreValues.esm"))
         add_stage("06-workshop", "FO4SFWorkshop.esm", pex_name="FO4SF_WorkshopCoreQuest",
                   masters=("Starfield.esm", "FO4SFCoreValues.esm"))
+        rl_st = stages_root / "17-route-loot"
+        rl_st.mkdir(parents=True, exist_ok=True)
+        rl_sha = _make_tes4_esm(
+            rl_st / "FO4SFRouteLoot.esm",
+            masters=(
+                "Starfield.esm",
+                "FO4SFCoreValues.esm",
+                "FO4SFRads.esm",
+                "FO4SFWorkshop.esm",
+                "FO4TerrainCore.esm",
+                "FO4Port.esm",
+            ),
+            extra_tag=b"FO4SFRouteLoot.esm",
+        )
+        (rl_st / "census.json").write_text("{\"route_containers_with_non_credit_items\": 439}\n", encoding="utf-8")
+        (rl_st / "plan.json").write_text(
+            json.dumps({
+                "kind": "route-loot",
+                "plugin": "FO4SFRouteLoot.esm",
+                "plugin_sha256": rl_sha,
+            }, indent=1),
+            encoding="utf-8",
+        )
         add_stage("07-powerarmor", "FO4SFPowerArmor.esm", pex_name="FO4SF_PowerArmorCoreQuest",
                   masters=("Starfield.esm", "FO4SFCoreValues.esm"))
         add_stage("08-progression", "FO4SFProgression.esm", pex_name="FO4SF_ProgressionQuest",
@@ -248,9 +293,13 @@ class CoreBundleTests(unittest.TestCase):
             ], system=_FakeSystemClosed())
             self.assertEqual(rc, 0)
 
-            # Source owner-set README.txt was NEVER mutated
+            # Source owner-set README.txt was NEVER mutated; stale NewGame & Mission files stripped from clean_out
             self.assertEqual((owner / "README.txt").read_bytes(), owner_readme_before)
             self.assertFalse((clean_out / "FO4SFNewGame.esm").exists())
+            self.assertFalse((clean_out / "FO4SFMission.esm").exists())
+            self.assertFalse((clean_out / "Data" / "Scripts" / "FO4SF_Min00Quest.pex").exists())
+            self.assertFalse((clean_out / "Data" / "Scripts" / "FO4SF_COMPreston.pex").exists())
+            self.assertFalse((clean_out / "Data" / "sound" / "voice" / "fo4sfmission.esm" / "robotminibota").exists())
 
             # Verify standalone verify command passes and README has exactly ONE install line
             rc_v = mcb.main(["verify", "--bundle-dir", str(out), "--port", str(port_esm)])
@@ -264,13 +313,27 @@ class CoreBundleTests(unittest.TestCase):
             self.assertIn("--pack", install_lines[0])
 
             bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(bplan["plugins"]), 22)
+            self.assertEqual(len(bplan["plugins"]), 23)
+            self.assertEqual(bplan["plugins"], list(mcb.CORE_BUNDLE_PLUGINS))
             self.assertIn("FO4SFCoreValues.esm", bplan["plugins"])
+            self.assertIn("FO4SFMission.esm", bplan["plugins"])
+            self.assertIn("FO4SFRouteLoot.esm", bplan["plugins"])
             self.assertLess(bplan["plugins"].index("FO4SFCoreValues.esm"), bplan["plugins"].index("FO4SFNewGame.esm"))
+            self.assertLess(bplan["plugins"].index("FO4TerrainCore.esm"), bplan["plugins"].index("FO4SFMission.esm"))
+            self.assertLess(bplan["plugins"].index("FO4SFMission.esm"), bplan["plugins"].index("FO4SFRouteLoot.esm"))
             self.assertEqual(
-                bplan["plugins"][:4],
-                ["FO4ActorRaider.esm", "FO4TerrainCore.esm", "FO4SFMission.esm", "FO4TerrainCore_Mars.esm"],
+                bplan["plugins"][:3],
+                ["FO4ActorRaider.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"],
             )
+            self.assertEqual(
+                (out / "Data" / "materials" / "fo4port" / "texsets" / "actors" / "handy" / "handyarmor_d_8e98a175.mat").read_bytes(),
+                b"PATCHED_BRUSHED_STEEL_MAT",
+            )
+            for s_pex in ("FO4SF_Min00Quest.pex", "FO4SF_COMPreston.pex", "FO4SF_Codsworth01Quest.pex", "FO4SF_Sanctuary01Quest.pex"):
+                self.assertTrue((out / "Data" / "Scripts" / s_pex).is_file())
+            self.assertTrue((out / "Data" / "sound" / "voice" / "fo4sfmission.esm" / "fo4sf_codsworthvoice" / "00f4c001.wem").is_file())
+            self.assertFalse((out / "Data" / "sound" / "voice" / "fo4sfmission.esm" / "robotminibota").exists())
+
             # SFSE DLLs & Reputation manifests kept outside Data/ so Archive2 never packs them into Main.ba2
             self.assertTrue((out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").is_file())
             shipped_pb_ini = (out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
@@ -281,17 +344,20 @@ class CoreBundleTests(unittest.TestCase):
             self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyMenu.reputation.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
 
-            # Player profile omits FO4SFCoreCandidate.esm
+            # Player profile omits FO4SFCoreCandidate.esm -> 22 plugins
             out_player = root / "bundle-player"
             rc_player = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--mission-stage", str(stages_root / "02b-mission"),
+                "--route-loot-stage", str(stages_root / "17-route-loot"),
                 "--out", str(out_player), "--port", str(port_esm),
                 "--profile", "player", "--with-pipboy", "--pipboy-stage", str(pb),
             ], system=_FakeSystemClosed())
             self.assertEqual(rc_player, 0)
             pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
             self.assertEqual(pplan["profile"], "player")
-            self.assertEqual(len(pplan["plugins"]), 21)
+            self.assertEqual(len(pplan["plugins"]), 22)
+            self.assertEqual(pplan["plugins"], list(mcb.PLAYER_BUNDLE_PLUGINS))
             self.assertNotIn("FO4SFCoreCandidate.esm", pplan["plugins"])
 
             # Empty/wrong --pipboy-stage is refused (never silently folds 0 Pip-Boy plugins)
@@ -328,6 +394,33 @@ class CoreBundleTests(unittest.TestCase):
                 "--out", str(root / "bundle-bad-asset"), "--port", str(port_esm),
             ], system=_FakeSystemClosed())
             self.assertEqual(rc_diff, 2)
+
+    def test_refuses_output_inside_git_worktree_or_game_folder(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+
+            # 1. Output inside Git worktree (REPO) must be refused (R4)
+            in_repo_out = REPO / "forbidden-bundle-out"
+            self.assertFalse(in_repo_out.exists())
+            rc_git = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(in_repo_out), "--port", str(port_esm),
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_git, 2)
+            self.assertFalse(in_repo_out.exists())
+
+            # 2. Output inside a Starfield game install folder must be refused (R4)
+            fake_game = root / "FakeStarfield"
+            fake_game.mkdir()
+            (fake_game / "Starfield.exe").write_bytes(b"MZ")
+            in_game_out = fake_game / "sub" / "bundle-out"
+            rc_game = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(in_game_out), "--port", str(port_esm),
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_game, 2)
+            self.assertFalse(in_game_out.exists())
 
     def test_bundle_log_evaluates_all_eight_steps_independently(self):
         with tempfile.TemporaryDirectory() as td:
