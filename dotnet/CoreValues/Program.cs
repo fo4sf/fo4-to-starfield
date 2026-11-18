@@ -8,6 +8,7 @@
 //   0x840..0x847 Hardcore toggle, fast-travel gate, and Hunger/Thirst/Sleep AVIFs + stage GLOBs
 //   0x850..0x851 Shared FO4SF_StimpakEffect MGEF + FO4SF_Stimpak ALCH
 //   0x860        FO4SF_TestModeEnabled GLOB (default 0)
+//   0x870..0x876 Start & Mode GLOBs (GameMode, SurvivalStart, SurvivalLocked, StartDifficulty, WarfareFaction, WarfareStartIndex, StartChoiceDone)
 //
 // usage:
 //   CoreValues build <Starfield.esm> <out dir> [--json <core_values.json>] [--default-rads-rule 0|1] [--default-hardcore 0|1] [--test-mode 0|1]
@@ -162,8 +163,21 @@ public static class CoreValuesWriter
         _ => s.Default,
     };
 
+    static void RefuseForbiddenOutDir(string outDir)
+    {
+        var full = Path.GetFullPath(outDir);
+        for (var cur = new DirectoryInfo(full); cur != null; cur = cur.Parent)
+        {
+            if (Directory.Exists(Path.Combine(cur.FullName, ".git")) || File.Exists(Path.Combine(cur.FullName, ".git")))
+                throw new Refusal($"output folder inside Git worktree is forbidden: {full}");
+            if (File.Exists(Path.Combine(cur.FullName, "Starfield.exe")))
+                throw new Refusal($"output folder inside game install is forbidden: {full}");
+        }
+    }
+
     static void WriteMod(StarfieldMod mod, ModKey pluginKey, string outDir)
     {
+        RefuseForbiddenOutDir(outDir);
         Directory.CreateDirectory(outDir);
         var finalPath = Path.Combine(outDir, pluginKey.FileName);
         var tmpDir = Path.Combine(outDir, ".tmp-" + Guid.NewGuid().ToString("N"));

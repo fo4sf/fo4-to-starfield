@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "starts": [
+    {
+      "key": "minutemen_sanctuary",
+      "faction_slot": 0,
+      "faction_name": "Minutemen",
+      "name": "Sanctuary Hills",
+      "marker_edid": "FO4Core_CommonwealthMapMarkerSanctuary",
+      "marker_plugin": "FO4TerrainCore.esm",
+      "heading": 135.0,
+      "min_difficulty": 0,
+      "max_difficulty": 3,
+      "background_index": 8,
+      "fame": 45.0,
+      "infamy": 0.0,
+      "karma": 150.0,
+      "squad_cap": 4,
+      "gear": [
+        {
+          "plugin": "Starfield.esm",
+          "id": "0x01D1D7",
+          "count": 1,
+          "equip": true
+        },
+        {
+          "plugin": "Starfield.esm",
+          "id": "0x24561C",
+          "count": 1,
+          "equip": true
+        },
+        {
+          "plugin": "Starfield.esm",
+          "id": "0x2B5598",
+          "count": 64,
+          "equip": false
+        },
+        {
+          "plugin": "Starfield.esm",
+          "id": "0x00ABF9",
+          "count": 2,
+          "equip": false
+        }
+      ]
+    }
+  ]
+}

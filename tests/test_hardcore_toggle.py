@@ -135,8 +135,8 @@ class PropertyParityTests(unittest.TestCase):
             for pm in re.finditer(r"^\s*\w+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)
         ]
         self.assertEqual(cs_props, psc_props)
-        self.assertEqual(len(cs_props), 24)
-        self.assertEqual(cs_props[-1], "TestModeGlobal")
+        self.assertEqual(len(cs_props), 26)
+        self.assertEqual(cs_props[-3:], ["SurvivalStartGlobal", "SurvivalLockedGlobal", "TestModeGlobal"])
         self.assertIn("TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", psc)
         self.assertIn(CORE_VALUES_PLUGIN, cs)
         self.assertEqual(core_form_id("FO4SF_HardcoreEnabled"), 0x840)
@@ -145,6 +145,46 @@ class PropertyParityTests(unittest.TestCase):
         self.assertEqual(core_form_id("FO4SF_SleepDeprivation"), 0x844)
         self.assertEqual(core_form_id("FO4SF_Stimpak"), 0x851)
         self.assertEqual(core_form_id("FO4SF_TestModeEnabled"), 0x860)
+        self.assertEqual(core_form_id("FO4SF_SurvivalStart"), 0x871)
+        self.assertEqual(core_form_id("FO4SF_SurvivalLocked"), 0x872)
+
+    def test_s2_evaluate_hardcore_obeys_start_choice_and_reload(self):
+        psc = (ROOT / "scripts" / "survival" / "FO4SF_HardcoreQuest.psc").read_text(encoding="utf-8")
+        # All three GPOF sync sites delegate to EvaluateHardcore(why); HardcoreOption.GetValue() appears only there.
+        self.assertEqual(psc.count("HardcoreOption.GetValue()"), 1)
+        self.assertIn('EvaluateHardcore("init")', psc)
+        self.assertIn('EvaluateHardcore("reload")', psc)
+        self.assertIn('EvaluateHardcore("gpof_menu")', psc)
+        self.assertIn('"source gpof=" + gpof + " start=" + start + " enabled=" + enabled', psc)
+
+        def eval_hardcore(gpof_val: float, start_val: float, why: str) -> tuple[int, str]:
+            gpof = 1 if gpof_val >= 0.5 else 0
+            start = 1 if start_val >= 0.5 else 0
+            enabled = 1 if start == 1 else gpof
+            line = f"FO4SFHC rt=15.0 hardcore source gpof={gpof} start={start} enabled={enabled} why={why} end=true"
+            return enabled, line
+
+        # Case 1 (S2): start=1 stays ON at start and after save & reload even when GPOF is 0
+        en_start, ln_start = eval_hardcore(0.0, 1.0, "start_choice")
+        en_reload, ln_reload = eval_hardcore(0.0, 1.0, "reload")
+        self.assertEqual(en_start, 1)
+        self.assertEqual(en_reload, 1)
+        self.assertIn("hardcore source gpof=0 start=1 enabled=1", ln_reload)
+        parsed = hardcore_log.parse_lines([ln_start, ln_reload])
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(parsed[1]["kv"]["enabled"], "1")
+
+        # Case 2 (S2): start=0 toggles ON and OFF cleanly with GPOF
+        en_on, ln_on = eval_hardcore(1.0, 0.0, "gpof_menu")
+        en_off, ln_off = eval_hardcore(0.0, 0.0, "gpof_menu")
+        self.assertEqual(en_on, 1)
+        self.assertIn("hardcore source gpof=1 start=0 enabled=1", ln_on)
+        self.assertEqual(en_off, 0)
+        self.assertIn("hardcore source gpof=0 start=0 enabled=0", ln_off)
+
+    def test_r4_refuses_output_inside_git_worktree(self):
+        with self.assertRaises(SystemExit):
+            mh.refuse_forbidden_out_dir(str(ROOT / "bad_stage_out"))
 
 
 class HardcoreLogTests(unittest.TestCase):

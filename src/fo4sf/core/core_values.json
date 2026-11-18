@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plugin": "FO4SFCoreValues.esm",
-  "next_form_id": "0x000861",
+  "next_form_id": "0x000877",
   "records": [
     {
       "id": "0x000800",
@@ -440,6 +440,48 @@
       "id": "0x000860",
       "type": "GLOB",
       "edid": "FO4SF_TestModeEnabled",
+      "default": 0.0
+    },
+    {
+      "id": "0x000870",
+      "type": "GLOB",
+      "edid": "FO4SF_GameMode",
+      "default": 0.0
+    },
+    {
+      "id": "0x000871",
+      "type": "GLOB",
+      "edid": "FO4SF_SurvivalStart",
+      "default": 0.0
+    },
+    {
+      "id": "0x000872",
+      "type": "GLOB",
+      "edid": "FO4SF_SurvivalLocked",
+      "default": 0.0
+    },
+    {
+      "id": "0x000873",
+      "type": "GLOB",
+      "edid": "FO4SF_StartDifficulty",
+      "default": 0.0
+    },
+    {
+      "id": "0x000874",
+      "type": "GLOB",
+      "edid": "FO4SF_WarfareFaction",
+      "default": -1.0
+    },
+    {
+      "id": "0x000875",
+      "type": "GLOB",
+      "edid": "FO4SF_WarfareStartIndex",
+      "default": -1.0
+    },
+    {
+      "id": "0x000876",
+      "type": "GLOB",
+      "edid": "FO4SF_StartChoiceDone",
       "default": 0.0
     }
   ]

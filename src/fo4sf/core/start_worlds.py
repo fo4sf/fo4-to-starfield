@@ -25,6 +25,7 @@ class StartWorldDescriptor:
     initial_fame: Mapping[str, int] = field(default_factory=dict)  # FO4SFReputation.esm faction slot -> Fame
     squad_base_cap: int = 2             # FO4SFCompanions.esm 0x801 (2 default; 4 for tactical/leadership starts)
     default_background: Optional[str] = None
+    active: bool = True                 # False on legacy faction rows superseded by warfare_starts.json (S3)
 
 
 START_WORLD_TABLE: Dict[str, StartWorldDescriptor] = {
@@ -112,7 +113,8 @@ START_WORLD_TABLE: Dict[str, StartWorldDescriptor] = {
         squad_base_cap=4,
         default_background="BrotherhoodScribe",
     ),
-    # Faction / leadership alternate starts requiring explicit Reputation & Warfare Squad start descriptors
+    # Legacy faction start descriptors (superseded by src/fo4sf/core/warfare_starts.json in S3;
+    # kept with active=False so historical tests work while world_registry.json reads other-game rows)
     "minuteman_volunteer": StartWorldDescriptor(
         key="minuteman_volunteer",
         title="FO4",
@@ -124,6 +126,7 @@ START_WORLD_TABLE: Dict[str, StartWorldDescriptor] = {
         initial_fame={"Minutemen": 45, "Settlers": 30},
         squad_base_cap=4,
         default_background="MinutemanVolunteer",
+        active=False,
     ),
     "brotherhood_initiate": StartWorldDescriptor(
         key="brotherhood_initiate",
@@ -136,6 +139,7 @@ START_WORLD_TABLE: Dict[str, StartWorldDescriptor] = {
         initial_fame={"Brotherhood": 45},
         squad_base_cap=2,
         default_background="BrotherhoodScribe",
+        active=False,
     ),
     "ncr_trooper": StartWorldDescriptor(
         key="ncr_trooper",
@@ -148,6 +152,7 @@ START_WORLD_TABLE: Dict[str, StartWorldDescriptor] = {
         initial_fame={"NCR": 45},
         squad_base_cap=2,
         default_background="CaravanGuard",
+        active=False,
     ),
     "desert_ranger": StartWorldDescriptor(
         key="desert_ranger",
@@ -160,6 +165,7 @@ START_WORLD_TABLE: Dict[str, StartWorldDescriptor] = {
         initial_fame={"NCR": 50},
         squad_base_cap=4,
         default_background="DesertRanger",
+        active=False,
     ),
 }
 

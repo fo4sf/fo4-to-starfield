@@ -52,9 +52,10 @@ REQUIRED = {
     "FormList": ["GetSize", "GetAt"],
     "GlobalVariable": ["GetValue", "SetValue"],
     "Game": ["GetPlayer", "GetFormFromFile"],
-    "Debug": ["OpenUserLog", "TraceUser"],
+    "Debug": ["OpenUserLog", "TraceUser", "Notification"],
+    "Message": ["Show"],
     "Utility": ["GetCurrentRealTime"],
-    "Quest": ["GetStageDone"],
+    "Quest": ["GetStageDone", "OnStageSet"],
     "ScriptObject": ["StartTimer", "RegisterForRemoteEvent"],
 }
 
@@ -149,11 +150,26 @@ def stage_files(out):
     return files
 
 
+def refuse_forbidden_out_dir(out_dir):
+    full = os.path.abspath(out_dir)
+    cur = full
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            sys.exit(f"refused: output folder inside Git worktree is forbidden ({full})")
+        if os.path.isfile(os.path.join(cur, "Starfield.exe")):
+            sys.exit(f"refused: output folder inside game install is forbidden ({full})")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+
+
 def stage(a):
     for flag, val in (("--starfield", a.starfield), ("--compiler", a.compiler), ("--content-resources", a.content_resources)):
         if not val:
             sys.exit(f"stage needs {flag} (or FO4SF_STARFIELD_DIR)")
     final = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder")
 
@@ -205,7 +221,8 @@ def stage(a):
   Shared {CORE_VALUES_PLUGIN} links: SpecialAVList (0x0817), SkillAVList (0x082D), KarmaAV (0x0830), KarmaGlobal (0x0831), TestModeGlobal (0x0860);
   26 PERKs + 3 FLSTs: 9 Backgrounds (0x820..0x828), 9 Traits (0x830..0x838, 0..2 + 1 exit respec), 8 Perks (0x840..0x847, GLOB cadence={a.cadence});
   5 GLOBs: Pool28 (0x808={a.pool28}), PerkCadenceLevels (0x809={a.cadence}), QueuedPerkPoints (0x80A), TraitRespecUsed (0x80B), QueuedSkillPoints (0x80D);
-  QUST FO4SF_ProgressionQuest (0x880, stages 10..50 gated by TestModeGlobal; reads faction state from FO4SFReputation.esm) + Data/Scripts/{SCRIPT}.pex.
+  8 MESGs: 0x870..0x877 interactive Creation Sheet & Respec Message menus (OpenCreationSheetMenu / stage 15);
+  QUST FO4SF_ProgressionQuest (0x880, live stage 15 + harness stages 10,20..50 gated by TestModeGlobal; reads faction state from FO4SFReputation.esm) + Data/Scripts/{SCRIPT}.pex.
 NOTE: First in-game test is gated on Grok reviewing PR #806 or Claude (PC) go-ahead.
 """)
     os.replace(out, final)
@@ -317,6 +334,7 @@ def _hardlink_or_copy(src, dst):
 
 def fold(a):
     final = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: fold into a new folder")
     plan = load_plan(os.path.join(a.stage, "plan.json"))

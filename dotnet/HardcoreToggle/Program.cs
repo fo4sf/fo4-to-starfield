@@ -131,6 +131,8 @@ public static class HardcoreToggle
     public const string SpecialEndEdid = "FO4SF_Special_Endurance";
     public const string SpecialIntEdid = "FO4SF_Special_Intelligence";
     public const string SpecialAgiEdid = "FO4SF_Special_Agility";
+    public const string SurvivalStartGlobEdid = "FO4SF_SurvivalStart";
+    public const string SurvivalLockedGlobEdid = "FO4SF_SurvivalLocked";
     public const string TestModeGlobEdid = "FO4SF_TestModeEnabled";
 
     public const string CaliberLightEdid = "FO4SF_CaliberLight";
@@ -164,6 +166,8 @@ public static class HardcoreToggle
         "RationFood", "PurifiedWater", "Stimpak",
         "CaliberLight", "CaliberRifle", "CaliberHeavy",
         "WeightedAmmoList",
+        "SurvivalStartGlobal",
+        "SurvivalLockedGlobal",
         "TestModeGlobal"
     };
 
@@ -365,8 +369,21 @@ public static class HardcoreToggle
         Name = name, Flags = ScriptProperty.Flag.Edited, Object = new FormLink<IStarfieldMajorRecordGetter>(fk),
     };
 
+    static void RefuseForbiddenOutDir(string outDir)
+    {
+        var full = Path.GetFullPath(outDir);
+        for (var cur = new DirectoryInfo(full); cur != null; cur = cur.Parent)
+        {
+            if (Directory.Exists(Path.Combine(cur.FullName, ".git")) || File.Exists(Path.Combine(cur.FullName, ".git")))
+                throw new Refusal($"output folder inside Git worktree is forbidden: {full}");
+            if (File.Exists(Path.Combine(cur.FullName, "Starfield.exe")))
+                throw new Refusal($"output folder inside game install is forbidden: {full}");
+        }
+    }
+
     static void WriteMod(StarfieldMod mod, string outDir)
     {
+        RefuseForbiddenOutDir(outDir);
         Directory.CreateDirectory(outDir);
         var finalPath = Path.Combine(outDir, Plugin.FileName);
         var tmpDir = Path.Combine(outDir, ".tmp-" + Guid.NewGuid().ToString("N"));
@@ -418,6 +435,8 @@ public static class HardcoreToggle
         ["CaliberRifle"] = Own(CaliberRifleId),
         ["CaliberHeavy"] = Own(CaliberHeavyId),
         ["WeightedAmmoList"] = Own(WeightedAmmoFlstId),
+        ["SurvivalStartGlobal"] = Core(coreIds, SurvivalStartGlobEdid),
+        ["SurvivalLockedGlobal"] = Core(coreIds, SurvivalLockedGlobEdid),
         ["TestModeGlobal"] = Core(coreIds, TestModeGlobEdid),
     };
 

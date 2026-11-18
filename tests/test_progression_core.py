@@ -86,9 +86,19 @@ def _build_synthetic_sources_zip(zip_path: Path) -> None:
             "Scriptname Debug Native\n"
             "bool Function OpenUserLog(string asLogName) native global\n"
             "bool Function TraceUser(string asUserLog, string asText, int aiSev = 0) native global\n"
+            "Function Notification(string asMessage) native global\n"
+        ),
+        "Message.psc": (
+            "Scriptname Message extends Form Native\n"
+            "int Function Show(float afArg1 = 0.0, float afArg2 = 0.0, float afArg3 = 0.0, float afArg4 = 0.0, "
+            "float afArg5 = 0.0, float afArg6 = 0.0, float afArg7 = 0.0, float afArg8 = 0.0, float afArg9 = 0.0) native\n"
         ),
         "Utility.psc": "Scriptname Utility Native\nfloat Function GetCurrentRealTime() native global\n",
-        "Quest.psc": "Scriptname Quest extends Form Native\nbool Function GetStageDone(int aiStage) native\n",
+        "Quest.psc": (
+            "Scriptname Quest extends Form Native\n"
+            "bool Function GetStageDone(int aiStage) native\n"
+            "Event OnStageSet(int auiStageID, int auiItemID)\nEndEvent\n"
+        ),
     }
     with zipfile.ZipFile(zip_path, "w") as z:
         z.writestr("Scripts/Source/Starfield_Papyrus_Flags.flg", "")
@@ -204,8 +214,19 @@ class PluginParityAndStageTests(unittest.TestCase):
         psc = (ROOT / "scripts" / "progression" / "FO4SF_ProgressionQuest.psc").read_text(encoding="utf-8")
         psc_props = [pm.group(1) for pm in re.finditer(r"^\s*\w+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)]
         self.assertEqual(cs_props, psc_props)
-        self.assertEqual(len(cs_props), 15)
+        self.assertEqual(len(cs_props), 23)
         self.assertIn("TestModeGlobal", cs_props)
+        for msg_prop in (
+            "SpecialMenuMsg",
+            "TagSkillsPage1Msg",
+            "TagSkillsPage2Msg",
+            "BackgroundPage1Msg",
+            "BackgroundPage2Msg",
+            "TraitsPage1Msg",
+            "TraitsPage2Msg",
+            "RespecRefusedMsg",
+        ):
+            self.assertIn(msg_prop, cs_props)
         self.assertNotIn("RepuGlobalsList", cs_props)
         self.assertNotIn("FactionList", cs_props)
         self.assertNotIn("SyncFactionRepu", psc)
@@ -214,8 +235,40 @@ class PluginParityAndStageTests(unittest.TestCase):
         self.assertIn("int Function ReadFactionRepState(int slotIndex)", psc)
         self.assertIn('Game.GetFormFromFile(0x000870 + slotIndex, "FO4SFReputation.esm") as GlobalVariable', psc)
         self.assertIn("bool Function ApplyCreationSheet(", psc)
+        self.assertIn("bool Function OpenCreationSheetMenu()", psc)
         self.assertIn("if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", psc)
         self.assertEqual(pi.RECORD, "FO4SFProgression.install.json")
+
+    def test_interactive_creation_sheet_menus_and_single_respec_contract(self):
+        cs = (ROOT / "dotnet" / "ProgressionCore" / "Program.cs").read_text(encoding="utf-8")
+        psc = (ROOT / "scripts" / "progression" / "FO4SF_ProgressionQuest.psc").read_text(encoding="utf-8")
+        for fid, edid in (
+            ("0x870", "FO4SF_ProgSpecialMsg"),
+            ("0x871", "FO4SF_ProgTagSkillsPage1Msg"),
+            ("0x872", "FO4SF_ProgTagSkillsPage2Msg"),
+            ("0x873", "FO4SF_ProgBackgroundMsg"),
+            ("0x874", "FO4SF_ProgBackgroundPage2Msg"),
+            ("0x875", "FO4SF_ProgTraitsMsg"),
+            ("0x876", "FO4SF_ProgTraitsPage2Msg"),
+            ("0x877", "FO4SF_ProgRespecRefusedMsg"),
+        ):
+            self.assertIn(fid, cs)
+            self.assertIn(edid, cs)
+        self.assertIn("Stages = { 10, 15, 20, 30, 40, 50 }", cs)
+        self.assertIn('LogLine("creation_applied", "source=" + source', psc)
+        self.assertIn('ApplyCreationSheet(player, bgIdx, traits[0], traits[1], stats[0], stats[1], stats[2], stats[3], stats[4], stats[5], stats[6], tags[0], tags[1], tags[2], "lift_menu")', psc)
+        self.assertIn('respecOk = ApplyExitTraitRespec(player, traits[0], traits[1])', psc)
+        self.assertIn('LogLine("respec_applied", "source=lift_menu', psc)
+        self.assertIn('LogLine("respec_refused", "source=lift_menu reason=limit_1")', psc)
+        self.assertIn("if unspent != 0", psc)
+        self.assertIn("if CountSelectedTags(tags) == 3", psc)
+        self.assertIn('"special box shown buttons=10 unspent=" + unspent', psc)
+        self.assertIn('"special box press=" + presses + " button="', psc)
+        self.assertIn("bool Function OpenSpecialAllocationOnly(string sourceTag)", psc)
+        self.assertIn('"special set S=" + stats[0]', psc)
+        self.assertIn("Function ApplyWarfareBackground(int bgIdx)", psc)
+        with self.assertRaises(SystemExit):
+            mp.refuse_forbidden_out_dir(str(ROOT / "bad_prog_stage"))
 
     def test_log_summary_and_precheck_fold_verify(self):
         s = core_log.summarize(SAMPLE_PASS_LOG)

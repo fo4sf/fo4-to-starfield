@@ -25,6 +25,8 @@ Ammo Property CaliberLight Auto Const
 Ammo Property CaliberRifle Auto Const
 Ammo Property CaliberHeavy Auto Const
 FormList Property WeightedAmmoList Auto Const
+GlobalVariable Property SurvivalStartGlobal Auto Const
+GlobalVariable Property SurvivalLockedGlobal Auto Const
 GlobalVariable Property TestModeGlobal Auto Const
 
 int Property TimerIdPoll = 1 AutoReadOnly
@@ -290,31 +292,41 @@ Function RegisterHooks()
     endif
 EndFunction
 
+Function EvaluateHardcore(string why)
+    int gpof = 0
+    if HardcoreOption != None && HardcoreOption.GetValue() >= 0.5
+        gpof = 1
+    endif
+    int start = 0
+    if SurvivalStartGlobal != None && SurvivalStartGlobal.GetValue() >= 0.5
+        start = 1
+    endif
+    int enabled = gpof
+    if start == 1
+        enabled = 1
+    endif
+    HardcoreEnabledGlobal.SetValue(enabled as float)
+    LogLine("hardcore", "source gpof=" + gpof + " start=" + start + " enabled=" + enabled + " why=" + why)
+    SyncAllSystems(why)
+EndFunction
+
 Event OnQuestInit()
     RegisterHooks()
-    if HardcoreOption != None
-        HardcoreEnabledGlobal.SetValue(HardcoreOption.GetValue())
-    endif
     lastGameDays = Utility.GetCurrentGameTime()
-    SyncAllSystems("init")
+    EvaluateHardcore("init")
     StartTimer(1.0, TimerIdPoll)
 EndEvent
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     RegisterHooks()
-    if HardcoreOption != None
-        HardcoreEnabledGlobal.SetValue(HardcoreOption.GetValue())
-    endif
     lastGameDays = Utility.GetCurrentGameTime()
-    SyncAllSystems("reload")
+    EvaluateHardcore("reload")
     StartTimer(1.0, TimerIdPoll)
 EndEvent
 
 Event OnGameplayOptionChanged(GameplayOption[] aChangedOptions)
     if aChangedOptions != None && HardcoreOption != None && aChangedOptions.Find(HardcoreOption) >= 0
-        float newVal = HardcoreOption.GetValue()
-        HardcoreEnabledGlobal.SetValue(newVal)
-        SyncAllSystems("gpof_menu")
+        EvaluateHardcore("gpof_menu")
         GameplayOption.NotifyGameplayOptionUpdateFinished()
     endif
 EndEvent

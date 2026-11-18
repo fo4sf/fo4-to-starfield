@@ -14,7 +14,8 @@
 //     0x820..0x828 PERK FO4SF_BG_*                     (9 Wasteland Backgrounds in FLST 0x82F)
 //     0x830..0x838 PERK FO4SF_Trait_*                  (9 Trade-Off Traits in FLST 0x83F)
 //     0x840..0x847 PERK FO4SF_Perk_*                   (8 Core Playable Perks in FLST 0x84F)
-//     0x880        QUST FO4SF_ProgressionQuest         (StartGameEnabled creation, respec & cadence quest; stages gated by TestModeGlobal)
+//     0x870..0x877 MESG FO4SF_Prog*Msg                 (8 Interactive Creation Sheet & Respec Message Menus)
+//     0x880        QUST FO4SF_ProgressionQuest         (StartGameEnabled creation, lift menu stage 15, & TestMode harness stages)
 //
 // usage:
 //   ProgressionCore build <Starfield.esm> <out dir> [--pool28 0|1] [--cadence <int>=2] [--json <core_values.json>]
@@ -95,7 +96,27 @@ public static class ProgressionCore
     public const uint TraitFlstId = 0x83F;
     public const uint PerkFlstId = 0x84F;
 
+    public const uint SpecialMsgId = 0x870;
+    public const uint TagPage1MsgId = 0x871;
+    public const uint TagPage2MsgId = 0x872;
+    public const uint ProgBackgroundMsgId = 0x873;
+    public const uint ProgBackgroundPage2MsgId = 0x874;
+    public const uint ProgTraitsMsgId = 0x875;
+    public const uint ProgTraitsPage2MsgId = 0x876;
+    public const uint RespecRefusedMsgId = 0x877;
+
+    public const string SpecialMsgEdid = "FO4SF_ProgSpecialMsg";
+    public const string TagPage1MsgEdid = "FO4SF_ProgTagSkillsPage1Msg";
+    public const string TagPage2MsgEdid = "FO4SF_ProgTagSkillsPage2Msg";
+    public const string ProgBackgroundMsgEdid = "FO4SF_ProgBackgroundMsg";
+    public const string ProgBackgroundPage2MsgEdid = "FO4SF_ProgBackgroundPage2Msg";
+    public const string ProgTraitsMsgEdid = "FO4SF_ProgTraitsMsg";
+    public const string ProgTraitsPage2MsgEdid = "FO4SF_ProgTraitsPage2Msg";
+    public const string RespecRefusedMsgEdid = "FO4SF_ProgRespecRefusedMsg";
+
     public const uint QuestId = 0x880;
+    public const string QuestEdid = "FO4SF_ProgressionQuest";
+    public const string ScriptName = "FO4SF_ProgressionQuest";
     public const uint NextId = 0x881;
 
     const string SpecialAvListEdid = "FO4SF_SpecialAVList";
@@ -142,7 +163,35 @@ public static class ProgressionCore
         (0x847, "FO4SF_Perk_ActionPerson", "Action Boy", "Increases Action Points by +15."),
     };
 
-    public static readonly ushort[] Stages = { 10, 20, 30, 40, 50 };
+    public static readonly ushort[] Stages = { 10, 15, 20, 30, 40, 50 };
+
+    public static readonly (uint Id, string Edid, string Name, string Desc, string[] Buttons)[] CreationMessages =
+    {
+        (SpecialMsgId, SpecialMsgEdid, "S.P.E.C.I.A.L. Allocation",
+         "STR %.0f   PER %.0f   END %.0f   CHA %.0f   INT %.0f   AGI %.0f   LCK %.0f\nUnspent Points: %.0f   (Step: %.0f)",
+         new[] { "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck", "Toggle +1 / -1", "Confirm (0 unspent)", "Cancel" }),
+        (TagPage1MsgId, TagPage1MsgEdid, "Tag Skills (1 of 2)",
+         "Select 3 Tag Skills (+15 each). Selected: %.0f / 3",
+         new[] { "Barter", "Energy Weapons", "Explosives", "Guns", "Lockpick", "Medicine", "Melee Weapons", "Next Page (8-13)", "Clear Tags", "Confirm (3 selected)" }),
+        (TagPage2MsgId, TagPage2MsgEdid, "Tag Skills (2 of 2)",
+         "Select 3 Tag Skills (+15 each). Selected: %.0f / 3",
+         new[] { "Repair", "Science", "Sneak", "Speech", "Survival", "Unarmed", "Previous Page (1-7)", "Clear Tags", "Confirm (3 selected)", "Cancel" }),
+        (ProgBackgroundMsgId, ProgBackgroundMsgEdid, "Character Background (1 of 2)",
+         "Choose 1 Wasteland Background (+10 to three signature skills):",
+         new[] { "Vault Dweller", "Wasteland Scavenger", "Caravan Guard", "Field Medic", "Brotherhood Scribe", "Enclave Remnant", "More Backgrounds", "Cancel" }),
+        (ProgBackgroundPage2MsgId, ProgBackgroundPage2MsgEdid, "Character Background (2 of 2)",
+         "Choose 1 Wasteland Background (+10 to three signature skills):",
+         new[] { "Tribal Hunter", "Desert Ranger", "Minuteman Volunteer", "Previous Page", "Cancel" }),
+        (ProgTraitsMsgId, ProgTraitsMsgEdid, "Traits (1 of 2)",
+         "Choose 0 to 2 Trade-Off Traits (toggle). Selected: %.0f / 2",
+         new[] { "Small Frame", "Trigger Discipline", "Fast Shot", "Kamikaze", "Heavy Handed", "Four Eyes", "More Traits", "Clear Traits", "Done (0-2 selected)", "Cancel" }),
+        (ProgTraitsPage2MsgId, ProgTraitsPage2MsgEdid, "Traits (2 of 2)",
+         "Choose 0 to 2 Trade-Off Traits (toggle). Selected: %.0f / 2",
+         new[] { "Good Natured", "Skilled", "Wild Wasteland", "Previous Page", "Clear Traits", "Done (0-2 selected)", "Cancel" }),
+        (RespecRefusedMsgId, RespecRefusedMsgEdid, "Character Revision Locked",
+         "You have already used your one character revision before leaving Vault 111.",
+         new[] { "OK" }),
+    };
 
     // Pinned Quest VMAD property order
     public static readonly string[] PropNames =
@@ -161,7 +210,15 @@ public static class ProgressionCore
         "TraitRespecUsedGlobal",
         "CarryWeightAV",
         "HealthAV",
-        "TestModeGlobal"
+        "TestModeGlobal",
+        "SpecialMenuMsg",
+        "TagSkillsPage1Msg",
+        "TagSkillsPage2Msg",
+        "BackgroundPage1Msg",
+        "BackgroundPage2Msg",
+        "TraitsPage1Msg",
+        "TraitsPage2Msg",
+        "RespecRefusedMsg"
     };
 
     static FormKey Own(uint id) => new(Plugin, id);
@@ -241,10 +298,31 @@ public static class ProgressionCore
         ["CarryWeightAV"] = carryKey,
         ["HealthAV"] = healthKey,
         ["TestModeGlobal"] = Core(coreIds, TestModeGlobEdid),
+        ["SpecialMenuMsg"] = Own(SpecialMsgId),
+        ["TagSkillsPage1Msg"] = Own(TagPage1MsgId),
+        ["TagSkillsPage2Msg"] = Own(TagPage2MsgId),
+        ["BackgroundPage1Msg"] = Own(ProgBackgroundMsgId),
+        ["BackgroundPage2Msg"] = Own(ProgBackgroundPage2MsgId),
+        ["TraitsPage1Msg"] = Own(ProgTraitsMsgId),
+        ["TraitsPage2Msg"] = Own(ProgTraitsPage2MsgId),
+        ["RespecRefusedMsg"] = Own(RespecRefusedMsgId),
     };
+
+    static void RefuseForbiddenOutDir(string outDir)
+    {
+        var full = Path.GetFullPath(outDir);
+        for (var cur = new DirectoryInfo(full); cur != null; cur = cur.Parent)
+        {
+            if (Directory.Exists(Path.Combine(cur.FullName, ".git")) || File.Exists(Path.Combine(cur.FullName, ".git")))
+                throw new Refusal($"output folder inside Git worktree is forbidden: {full}");
+            if (File.Exists(Path.Combine(cur.FullName, "Starfield.exe")))
+                throw new Refusal($"output folder inside game install is forbidden: {full}");
+        }
+    }
 
     static void WriteMod(StarfieldMod mod, string outDir)
     {
+        RefuseForbiddenOutDir(outDir);
         Directory.CreateDirectory(outDir);
         var finalPath = Path.Combine(outDir, Plugin.FileName);
         var tmpDir = Path.Combine(outDir, ".tmp-" + Guid.NewGuid().ToString("N"));
@@ -332,16 +410,28 @@ public static class ProgressionCore
         }
         mod.FormLists.Add(pkFlst);
 
-        // 3. Progression Controller Quest (0x880)
+        // 3. Interactive Creation Sheet & Respec Message Menus (0x870..0x877)
+        foreach (var cm in CreationMessages)
+        {
+            var msg = new Message(Own(cm.Id), Release)
+            {
+                EditorID = cm.Edid, Name = cm.Name, Description = cm.Desc,
+                Flags = Message.Flag.MessageBox,
+            };
+            foreach (var b in cm.Buttons) msg.MenuButtons.Add(new MessageButton { Text = b });
+            mod.Messages.Add(msg);
+        }
+
+        // 4. Progression Controller Quest (0x880)
         var quest = new Quest(Own(QuestId), Release)
         {
-            EditorID = "FO4SF_ProgressionQuest", Name = "FO4SF Player Creation & Progression",
+            EditorID = QuestEdid, Name = "FO4SF Player Creation & Progression",
             FormVersion = 581, Version2 = 12,
             Data = new QuestData { Flags = Quest.Flag.StartGameEnabled | Quest.Flag.RunOnce, Priority = 48 },
         };
         foreach (var st in Stages) quest.Stages.Add(new QuestStage { Index = st });
 
-        var se = new ScriptEntry { Name = "FO4SF_ProgressionQuest", Flags = ScriptEntry.Flag.Local };
+        var se = new ScriptEntry { Name = ScriptName, Flags = ScriptEntry.Flag.Local };
         var propMap = ExpectedProperties(coreIds, carryAv.FormKey, healthAv.FormKey);
         foreach (var pn in PropNames) se.Properties.Add(ObjProp(pn, propMap[pn]));
 
@@ -358,7 +448,7 @@ public static class ProgressionCore
         WriteMod(mod, outDir);
         var outPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-                          $"0 AVIF, 26 PERK, 3 FLST, 5 GLOB, 0 FACT, 1 QUST ({PropNames.Length} properties); pool28={pool28}, cadence={cadence}");
+                          $"0 AVIF, 26 PERK, 3 FLST, 5 GLOB, {CreationMessages.Length} MESG, 0 FACT, 1 QUST ({PropNames.Length} properties); pool28={pool28}, cadence={cadence}");
         return 0;
     }
 
@@ -393,10 +483,20 @@ public static class ProgressionCore
             throw new Refusal($"expected 3 FLST (BackgroundPerks, TraitPerks, PlayablePerks), found {mod.FormLists.Count}");
         if (mod.Globals.Count != 5)
             throw new Refusal($"expected 5 GLOB (0x808..0x80B, 0x80D), found {mod.Globals.Count}");
+        if (mod.Messages.Count != CreationMessages.Length)
+            throw new Refusal($"expected {CreationMessages.Length} MESG (0x870..0x877), found {mod.Messages.Count}");
         if (mod.Factions.Count != 0)
             throw new Refusal($"expected 0 FACT (faction reputation lives in FO4SFReputation.esm), found {mod.Factions.Count}");
         if (mod.Quests.Count != 1)
             throw new Refusal($"expected 1 QUST, found {mod.Quests.Count}");
+
+        foreach (var cm in CreationMessages)
+        {
+            var m = mod.Messages.FirstOrDefault(x => x.FormKey == Own(cm.Id));
+            if (m is null || m.EditorID != cm.Edid || !m.Flags.HasFlag(Message.Flag.MessageBox) ||
+                !m.MenuButtons.Select(b => b.Text?.String).SequenceEqual(cm.Buttons))
+                throw new Refusal($"MESG 0x{cm.Id:X} ({cm.Edid}) missing or button contract mismatch");
+        }
 
         var expectedGlobIds = new[] { Pool28GlobId, CadenceGlobId, QueuedPerkGlobId, RespecUsedGlobId, QueuedSkillGlobId };
         var actualGlobIds = mod.Globals.Select(g => g.FormKey.ID).OrderBy(x => x).ToArray();
@@ -414,8 +514,10 @@ public static class ProgressionCore
         if (Math.Abs((cadG.Data ?? -1f) - cadence) > 0.001f) throw new Refusal($"FO4SF_PerkCadenceLevels expected {cadence}, got {cadG.Data}");
 
         var q = mod.Quests.First();
-        if (q.FormKey != Own(QuestId) || q.EditorID != "FO4SF_ProgressionQuest")
+        if (q.FormKey != Own(QuestId) || q.EditorID != QuestEdid)
             throw new Refusal($"unexpected QUST {q.FormKey} ({q.EditorID})");
+        if (!q.Stages.Select(s => s.Index).SequenceEqual(Stages))
+            throw new Refusal($"quest stages [{string.Join(",", q.Stages.Select(s => s.Index))}] != expected [{string.Join(",", Stages)}]");
         var props = q.VirtualMachineAdapter?.Scripts.FirstOrDefault()?.Properties ?? Array.Empty<IScriptPropertyGetter>();
         var actualProps = props.Select(p => p.Name).ToArray();
         if (!actualProps.SequenceEqual(PropNames))
@@ -428,7 +530,7 @@ public static class ProgressionCore
                 throw new Refusal($"quest property {p.Name} target {(p as IScriptObjectPropertyGetter)?.Object.FormKey} != expected {expectedMap[p.Name]}");
         }
 
-        Console.WriteLine("FO4SFProgression.esm: header Master, masters [Starfield.esm, FO4SFCoreValues.esm], 0 AVIF, 26 PERK, 3 FLST, 5 GLOB, 0 FACT, 1 QUST; all checks pass");
+        Console.WriteLine($"FO4SFProgression.esm: header Master, masters [Starfield.esm, FO4SFCoreValues.esm], 0 AVIF, 26 PERK, 3 FLST, 5 GLOB, {CreationMessages.Length} MESG, 0 FACT, 1 QUST; all checks pass");
         return 0;
     }
 
@@ -496,7 +598,11 @@ public static class ProgressionCore
         ExpectRefusal("bad_vmad_link", m =>
             ((ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties[0]).Object.SetTo(Own(BgFlstId)));
         ExpectRefusal("stray_fact", m =>
-            m.Factions.Add(new Faction(Own(0x870), Release) { EditorID = "FO4SF_UnexpectedFaction" }));
+            m.Factions.Add(new Faction(Own(0x890), Release) { EditorID = "FO4SF_UnexpectedFaction" }));
+        ExpectRefusal("missing_mesg", m =>
+            m.Messages.Remove(m.Messages.First().FormKey));
+        ExpectRefusal("bad_mesg_buttons", m =>
+            m.Messages.First().MenuButtons.RemoveAt(0));
 
         Console.WriteLine("selftest: ok");
         return 0;
