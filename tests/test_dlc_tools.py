@@ -399,12 +399,24 @@ class D5ScolMissingMeshAndFallbackTests(unittest.TestCase):
 
 
 class D4DlcInteriorsDriverTests(unittest.TestCase):
-    @staticmethod
-    def _pluginspike_dll() -> str:
+    @classmethod
+    def _pluginspike_dll(cls) -> str:
         for cfg in ("Release", "Debug"):
             cand = ROOT / "dotnet" / "PluginSpike" / "bin" / cfg / "net9.0" / "PluginSpike.dll"
             if cand.is_file():
                 return str(cand)
+        dotnet = shutil.which("dotnet")
+        if not dotnet:
+            raise unittest.SkipTest(".NET SDK required to build PluginSpike.dll")
+        subprocess.run(
+            [dotnet, "build", str(ROOT / "dotnet" / "PluginSpike" / "PluginSpike.csproj"), "-c", "Release", "--nologo"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        cand = ROOT / "dotnet" / "PluginSpike" / "bin" / "Release" / "net9.0" / "PluginSpike.dll"
+        if cand.is_file():
+            return str(cand)
         raise FileNotFoundError("PluginSpike.dll not built")
 
     def test_select_dlc_cells_excludes_fo4port_owned_and_builds_self_contained_test_station_stage(self):
