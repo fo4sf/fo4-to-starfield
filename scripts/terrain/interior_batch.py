@@ -1019,13 +1019,49 @@ def build(a):
         return finish_("locations failed")
     tables = os.path.join(ROOT, "scripts", "terrain", "clusters")
     promote_prefix = ["--prefix", prefix] if prefix != DEFAULT_PREFIX else []
+    fo4_loot_on = bool(getattr(a, "fo4_loot", False))
+    beds_benches_on = bool(getattr(a, "usable_beds_benches", False))
+    fidelity_on = bool(getattr(a, "interactive_fidelity", False))
+    promote_switches = []
+    if fo4_loot_on:
+        promote_switches += [
+            "--fo4-loot",
+            "--manifest", plugin_manifest,
+            "--loot-fallbacks-out", os.path.join(raw, "loot_fallbacks.json"),
+        ]
+        fo4_esm_path = os.path.join(a.fo4_data, FO4)
+        if os.path.isfile(fo4_esm_path):
+            promote_switches += ["--fo4-plugin", fo4_esm_path]
+        for pname in sorted((sources.get("plugins") or {}).keys(), key=str.casefold):
+            if pname.casefold() == FO4.casefold():
+                continue
+            dlc_p = find_plugin(a.dlc_data, pname)
+            if dlc_p:
+                promote_switches += ["--fo4-plugin", dlc_p]
+    if beds_benches_on:
+        promote_switches.append("--usable-beds-benches")
+        has_fo4_arg = any(tok == "--fo4-data" or tok.startswith("--fo4-data=") for tok in a.promote_arg)
+        if not has_fo4_arg and a.fo4_data:
+            promote_switches += ["--fo4-data", a.fo4_data]
     rc, s = run([sys.executable, os.path.join(HERE, "port_promote.py"), "--out", os.path.join(raw, "promote.json"),
                  "--containers-table", os.path.join(tables, "container_table.json"),
                  "--items-table", os.path.join(tables, "item_table.json"), "--starfield-data", sf_data]
-                + promote_prefix + a.promote_arg + export_paths, log, cwd=ROOT)
+                + promote_prefix + promote_switches + a.promote_arg + export_paths, log, cwd=ROOT)
     steps["promote"] = {"exit": rc, "seconds": s}
     if rc != 0:
         return finish_("port_promote failed")
+    if fo4_loot_on and os.path.isfile(os.path.join(raw, "loot_fallbacks.json")):
+        lf_doc = load(os.path.join(raw, "loot_fallbacks.json"))
+        steps["fo4_loot"] = {k: v for k, v in lf_doc.items() if k != "fallbacks"} | {
+            "fallbacks_file": os.path.abspath(os.path.join(raw, "loot_fallbacks.json")),
+        }
+    if beds_benches_on and os.path.isfile(os.path.join(raw, "promote.json")):
+        p_rep = (load(os.path.join(raw, "promote.json")).get("report") or {})
+        steps["usable_beds_benches"] = {
+            "beds": int((p_rep.get("furniture") or {}).get("beds", 0)),
+            "benches": int((p_rep.get("benches") or {}).get("benches", 0)),
+            "benches_report": p_rep.get("benches") or {},
+        }
     env = dict(os.environ, STARFIELD_DATA=sf_data)
     spike_flags = []
     if plugin_esm != PLUGIN:
@@ -1034,10 +1070,18 @@ def build(a):
         spike_flags += ["--edid-prefix", edid_prefix]
     if root_parent.lower() != DEFAULT_ROOT_LOCATION_PARENT.lower():
         spike_flags += ["--root-location-parent", root_parent]
+    if fidelity_on:
+        spike_flags.append("--interactive-fidelity")
     rc, s = run(["dotnet", a.pluginspike, raw, plugin_manifest] + spike_flags + export_paths, log, env=env)
     steps["pluginspike"] = {"exit": rc, "seconds": s}
     if rc != 0:
         return finish_("PluginSpike failed")
+    if fidelity_on and os.path.isfile(os.path.join(raw, "interactive_fidelity.json")):
+        if_doc = load(os.path.join(raw, "interactive_fidelity.json"))
+        steps["interactive_fidelity"] = {k: v for k, v in if_doc.items() if k != "Issues"} | {
+            "issues_count": len(if_doc.get("Issues") or []),
+            "report_file": os.path.abspath(os.path.join(raw, "interactive_fidelity.json")),
+        }
     placed = placed_counts(log, edid_prefix=edid_prefix)
     for c in new_cells:
         if c in cells and c in placed:
@@ -1262,6 +1306,13 @@ def finish(a, plan, steps, cells, t0, error, sources=None):
     root_parent = normalize_parent_formkey(getattr(a, "root_location_parent", ""))
     if root_parent.lower() != DEFAULT_ROOT_LOCATION_PARENT.lower():
         result["root_location_parent"] = root_parent
+    ib1_switches = {
+        "fo4_loot": bool(getattr(a, "fo4_loot", False)),
+        "usable_beds_benches": bool(getattr(a, "usable_beds_benches", False)),
+        "interactive_fidelity": bool(getattr(a, "interactive_fidelity", False)),
+    }
+    if any(ib1_switches.values()):
+        result["start_path_switches"] = ib1_switches
     save(os.path.join(a.out, MARKER), result)
     with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"Interior batch {a.batch} (scripts/terrain/interior_batch.py build; docs/terrain/interior-batches.md).\n"
@@ -1738,6 +1789,12 @@ def main(argv=None):
     b.add_argument("--prefix", default=DEFAULT_PREFIX, help="asset/EditorID prefix slug (default: fo4port)")
     b.add_argument("--root-location-parent", default=DEFAULT_ROOT_LOCATION_PARENT,
                    help="parent LCTN FormKey for <Prefix>_InteriorsLocation (default: Starfield.esm:01B736)")
+    b.add_argument("--fo4-loot", action="store_true",
+                   help="off by default (IB1): populate interior containers from FO4 CNTO/LVLI where converted items exist, logging fallbacks")
+    b.add_argument("--usable-beds-benches", action="store_true",
+                   help="off by default (IB1): promote FO4 beds and crafting workbenches alongside chairs")
+    b.add_argument("--interactive-fidelity", action="store_true",
+                   help="off by default (IB1): pass --interactive-fidelity (XLOC, XESP, XLKR, XAPR) to PluginSpike")
     ac = sub.add_parser("adopt-core")
     ac.add_argument("--stage", required=True, help="stage directory with passed result.json and port/doors_check.json")
     ac.add_argument("--core", default="", help="optional core directory (defaults to port/doors_check.json 'core')")
@@ -1745,6 +1802,15 @@ def main(argv=None):
     import interior_dlc
     bd = sub.add_parser("build-dlc")
     interior_dlc.add_cli_arguments(bd)
+    import interior_start_census
+    sc = sub.add_parser("start-census", help="IB1 per-cell census (non-credit loot, usable furniture, XLOC, XESP, XLKR)")
+    sc_grp = sc.add_mutually_exclusive_group(required=True)
+    sc_grp.add_argument("--plugin", default="", help="path to built FO4Port.esm")
+    sc_grp.add_argument("--stage", default="", help="interior batch stage directory")
+    sc.add_argument("--plugin-name", default=PLUGIN)
+    sc.add_argument("--cells", action="append", default=[])
+    sc.add_argument("--start-path-only", action="store_true")
+    sc.add_argument("--out", default="")
     c = sub.add_parser("compare")
     c.add_argument("--old", required=True)
     c.add_argument("--new", required=True)
@@ -1772,6 +1838,12 @@ def main(argv=None):
         return build(a)
     if a.cmd == "build-dlc":
         return interior_dlc.run_from_namespace(a)
+    if a.cmd == "start-census":
+        try:
+            return interior_start_census.run_from_namespace(a)
+        except (OSError, ValueError) as e:
+            print("refused: " + str(e), file=sys.stderr)
+            return 1
     if a.cmd == "adopt-core":
         try:
             summary = adopt_core(a.stage, core_dir=a.core, out_dir=a.out)

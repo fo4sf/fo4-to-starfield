@@ -103,6 +103,21 @@ python scripts/deploy_starfield.py uninstall --starfield <starfield-dir> --plugi
 
 ---
 
+## Part 2 Offline Tooling — `IB1` Start-Path Switches & `IB2` Install-Record Report (`TOOLING`)
+
+- **`IB1` start-path interior switches (`TOOLING`, off by default on `interior_batch.py build` for the batch after Batch 11; in no built plugin yet):**
+  - `--fo4-loot`: populates `CONT` bases from Fallout 4 `CNTO` / `LVLI` records wherever a converted item model exists in `<work>/manifest.json`, logging unconverted/empty fallbacks to `plugin/loot_fallbacks.json`.
+  - `--usable-beds-benches`: promotes Fallout 4 beds (`Bed_Single01` `1FA770`) and weapon/armor/chem/cooking workbenches (`2B6A63` / `2B6A62` / `2B6A61` / `2B6A65`).
+  - `--interactive-fidelity`: passes `--interactive-fidelity` (`XLOC` locks, `XESP` enable-parents, `XLKR` linked references, `XAPR` multi-target activation chains) to `PluginSpike`.
+- **`IB1` per-cell start-path census & `IB2` read-only install-record report (`TOOLING`, 100% read-only on game state):**
+
+```sh
+python scripts/terrain/interior_start_census.py --stage <next-batch-stage> --start-path-only
+python scripts/terrain/port_install_report.py --starfield <starfield-dir> --out <owner-tests-dir>/ib2-install-record-report.json --counts-only
+```
+
+---
+
 ## Explicitly `NOT BUILT` in `gemini/dlc-and-interiors` This Round
 
 - **58 recovered Automatron `SCOL` meshes (`D6`):** Converted by `convert_batch.py` / `interior_batch.py` once Card 2 builds `<b11-stage>`, and **in no built plugin yet** (`DLC01Lair01` and `DLC01FortHagenSatelliteArray01` are base-port-owned and excluded from `FO4DLC.esm`).
@@ -111,4 +126,4 @@ python scripts/deploy_starfield.py uninstall --starfield <starfield-dir> --plugi
   2. `GeneralAtomicsFactory01` (`04280D:Fallout4.esm`, edited by `DLCRobot.esm`): `44` `DLCRobot.esm` child reference records (`19` `REFR` [`3` added: `00FF9C:DLCRobot.esm`, `00FFA7:DLCRobot.esm`, `00FFA8:DLCRobot.esm` + `16` overridden vanilla `REFR`s] and `25` `ACHR` [`12` added + `13` overridden vanilla `ACHR`s], plus encounter zone `011363:DLCRobot.esm`; net `6,136 -> 6,139` `REFR`, `13 -> 25` `ACHR`). Exported merged in uninstalled `interiors_b10`, not in the installed `16`-cell `FO4Port.esm` yet.
   3. `RailroadHQ01` (`092B21:Fallout4.esm`, edited by `DLCCoast.esm`): `1` added `ACHR` (`18 -> 19` `ACHR`; `1,542 -> 1,542` `REFR` with `0` `REFR` additions or overrides). Exported from `Fallout4.esm` only in `interiors_b10` (and `ACHR` actors are deferred).
 - Exterior door delta for the `13` start-path Commonwealth doors (`I3` — owned by `gemini/world-own-space`) and exterior doors into `FO4DLC.esm` interiors (`WB5b`).
-- Fallout 4 `CNTO`/`LVLI` container loot, usable beds/workbenches, and `--interactive-fidelity` (`XESP`/`XLOC`/`XLKR`/`XAPR`) inside start-path interiors (`IB1`), plus the read-only port install-record report tool (`IB2`).
+- Guarded repair command for `FO4Port.deploy.json` (explicitly deferred by `IB2` until after the read-only report is reviewed).
