@@ -185,9 +185,14 @@ def build(a, staging):
         if mat_rel and mat_rel != default:
             mat_path = os.path.join(staging, *mat_rel.replace("\\", "/").split("/"))
             if os.path.isfile(mat_path):
-                with open(mat_path, encoding="utf-8") as mf:
-                    patched = patch_codsworth_steel_mat(json.load(mf))
-                pipeline.write_staged(mat_path, (json.dumps(patched, indent="\t", sort_keys=True) + "\n").encode("utf-8"))
+                try:
+                    with open(mat_path, encoding="utf-8") as mf:
+                        raw_mat = json.load(mf)
+                except (OSError, UnicodeDecodeError, ValueError):
+                    raw_mat = None
+                if isinstance(raw_mat, dict):
+                    patched = patch_codsworth_steel_mat(raw_mat)
+                    pipeline.write_staged(mat_path, (json.dumps(patched, indent="\t", sort_keys=True) + "\n").encode("utf-8"))
     if a.one_material and materials:                                        # shapes without one fall back to it too
         default = materials[next(iter(materials))]
         materials = {k: default for k in materials}
