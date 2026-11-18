@@ -30,7 +30,7 @@ _REC = struct.Struct("<4sIIIIHH")   # sig, size, flags, form id, version control
 _GRP = struct.Struct("<4sI4siII")   # "GRUP", size, label, type, two u32
 # top-group order of xEdit's SF1 definitions (AddGroupOrder), for the groups this package writes
 GROUP_ORDER = ("GMST", "KYWD", "LCRT", "GLOB", "FACT", "STAT", "NPC_", "CLMT", "CELL", "WRLD", "QUST", "LCTN",
-               "SFBK", "PNDT", "STDT")
+               "BIOM", "SFBK", "PNDT", "STDT")
 
 
 class EsmError(ValueError):

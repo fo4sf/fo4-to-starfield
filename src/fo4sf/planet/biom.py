@@ -17,6 +17,8 @@ from .. import ba2
 
 ARCHIVE = "Starfield - PlanetData.ba2"
 MAGIC = 0x0105
+DEFAULT_FACE_SIZE = 256
+DEFAULT_FACES = 2
 
 
 class BiomError(ValueError):
@@ -73,3 +75,96 @@ def copy_biome_map(data_dir, template, name, plugin, out, expect_biomes=None, st
     return {"source": f"{ARCHIVE}:{want}", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
             "biomes": [f"{i:08X}" for i in ids], "files": written, "biomes_match": match,
             "planet_biomes": None if expect_biomes is None else [f"{i:08X}" for i in expect_biomes]}
+
+
+def build_uniform_biome_map(biome_formid, resource_byte=0, width=DEFAULT_FACE_SIZE, height=DEFAULT_FACE_SIZE,
+                            faces=DEFAULT_FACES):
+    """Build a synthetic `.biom` binary file (magic 0x0105, 1 biome, `faces` polar grids of `width x height` pixels)
+    naming `biome_formid` at every pixel with zero Bethesda archive bytes copied."""
+    if not (0 < biome_formid <= 0xFFFFFFFF):
+        raise BiomError(f"biome form id {biome_formid:#x} out of u32 range")
+    if not (0 <= resource_byte <= 0xFF):
+        raise BiomError(f"resource_byte {resource_byte} out of u8 range")
+    if width <= 0 or height <= 0 or faces <= 0:
+        raise BiomError(f"invalid biome map dimensions {width}x{height}x{faces}")
+    npix = width * height
+    parts = [struct.pack("<HIII", MAGIC, 1, biome_formid, faces)]
+    face_header = struct.pack("<3I", width, height, npix)
+    face_pixels = struct.pack("<I", biome_formid) * npix
+    face_res = struct.pack("<I", npix) + (bytes([resource_byte]) * npix)
+    for _ in range(faces):
+        parts.append(face_header)
+        parts.append(face_pixels)
+        parts.append(face_res)
+    return b"".join(parts)
+
+
+def parse_biome_map(data):
+    """Validate and summarize a `.biom` binary buffer (header biomes, faces, dimensions, distinct pixel biomes, and
+    distinct resource bytes)."""
+    ids = biome_ids(data)
+    p = 6 + 4 * len(ids)
+    if p + 4 > len(data):
+        raise BiomError("biome map truncated before face count")
+    nfaces, = struct.unpack_from("<I", data, p)
+    p += 4
+    if nfaces <= 0 or nfaces > 16:
+        raise BiomError(f"biome map has invalid face count {nfaces}")
+    face_summaries = []
+    header_set = set(ids)
+    for idx in range(nfaces):
+        if p + 12 > len(data):
+            raise BiomError(f"biome map face {idx} truncated before header")
+        w, h, npix = struct.unpack_from("<3I", data, p)
+        p += 12
+        if w <= 0 or h <= 0 or npix != w * h:
+            raise BiomError(f"biome map face {idx} invalid dimensions {w}x{h} ({npix} pixels)")
+        pix_end = p + 4 * npix
+        if pix_end + 4 > len(data):
+            raise BiomError(f"biome map face {idx} truncated inside pixel table")
+        pixels = struct.unpack_from(f"<{npix}I", data, p)
+        pix_set = set(pixels)
+        if not pix_set.issubset(header_set):
+            raise BiomError(f"biome map face {idx} pixel biomes {sorted(hex(x) for x in pix_set - header_set)} not in header")
+        p = pix_end
+        nres, = struct.unpack_from("<I", data, p)
+        p += 4
+        if nres != npix or p + nres > len(data):
+            raise BiomError(f"biome map face {idx} invalid resource table ({nres} vs {npix})")
+        res_vals = sorted(set(data[p:p + nres]))
+        p += nres
+        face_summaries.append({"width": w, "height": h, "pixels": npix,
+                               "pixel_biomes": [f"{x:08X}" for x in sorted(pix_set)],
+                               "resource_values": res_vals})
+    if p != len(data):
+        raise BiomError(f"biome map has {len(data) - p} trailing bytes")
+    return {"biomes": [f"{i:08X}" for i in ids], "faces": face_summaries, "bytes": len(data)}
+
+
+def stage_uniform_biome_map(biome_formid, name, plugin, out, resource_byte=0):
+    """Write a synthetic `.biom` map for `biome_formid` to both candidate paths under `out`:
+      Data/PlanetData/BiomeMaps/<name_lower>.biom
+      Data/PlanetData/BiomeMaps/<plugin_lower>/<name_lower>.biom
+    Returns a report dict with `label='TEST-STATION'` for the plugin-subfolder candidate."""
+    data = build_uniform_biome_map(biome_formid, resource_byte=resource_byte)
+    parsed = parse_biome_map(data)
+    written = []
+    for rel in stage_paths(name, plugin):
+        dst = os.path.join(out, *rel.split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(dst, "wb") as f:
+            f.write(data)
+        written.append(rel)
+    return {
+        "source": "synthetic:uniform_biome_map",
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "biomes": parsed["biomes"],
+        "faces": len(parsed["faces"]),
+        "resource_values": parsed["faces"][0]["resource_values"],
+        "files": written,
+        "path_status": {
+            written[0]: "VERIFIED_ENGINE_ANAM_PATH",
+            written[1]: "TEST-STATION",
+        },
+    }
