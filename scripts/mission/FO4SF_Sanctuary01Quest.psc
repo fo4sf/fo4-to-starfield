@@ -26,6 +26,9 @@ int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference markerRef = None
 ObjectReference boundBench = None
+float benchNearSec = 0.0
+float BenchFallbackRadius = 3.0
+float BenchFallbackLimit = 120.0
 
 Function AdvanceTo(int n, string by = "trigger")
     pendingStage = n
@@ -127,6 +130,30 @@ Event OnTimer(int aiTimerID)
         if boundBench == None || boundBench.IsDeleted()
             EnsureGuideMarker(player)
             TryBindBench(player)
+            if (boundBench == None || boundBench.IsDeleted()) && player != None && !player.IsInInterior()
+                float dx = player.GetPositionX() - (BenchLocalX + MergeOffsetX)
+                float dy = player.GetPositionY() - (BenchLocalY + MergeOffsetY)
+                if dx * dx + dy * dy <= BenchFallbackRadius * BenchFallbackRadius
+                    benchNearSec += 1.0
+                    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+                    float lim = BenchFallbackLimit
+                    if tm != None && tm.GetValue() != 0.0
+                        lim = 8.0
+                    endif
+                    if benchNearSec >= lim
+                        completed = True
+                        AdvanceTo(100, "fallback")
+                        SetObjectiveCompleted(10)
+                        CompleteQuest()
+                        CancelTimer(1)
+                        CleanupMarker()
+                        Trace("sanctuary01 fallback unbound_bench near_sec=" + benchNearSec)
+                        return
+                    endif
+                else
+                    benchNearSec = 0.0
+                endif
+            endif
         endif
         StartTimer(1.0, 1)
     endif

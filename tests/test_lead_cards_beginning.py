@@ -31,11 +31,79 @@ if str(ROOT / "src") not in sys.path:
 
 from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 
-# R11: read ONLY the three card files owned by gemini/beginning-real (#833)
+# R11 / G1: read ONLY the four card & run-order files owned by gemini/beginning-real (#833)
 CARD_PATHS: Tuple[str, ...] = (
     "docs/testing/candidate-2-cards.md",
     "docs/testing/fo4-beginning-pilot.md",
     "docs/testing/sanctuary-workbench-card.md",
+    "docs/testing/lead-run-order.md",
+)
+
+# Verified CLI --help flags for cross-branch Session 3 (#832) and Session 4 (#832 / #834) tools referenced in lead-run-order.md
+CROSS_BRANCH_TOOL_FLAGS: Dict[Tuple[str, str], Set[str]] = {
+    ("scripts/planet/make_home_planet.py", "stage"): {
+        "--data", "--out", "--worlds", "--star-name", "--planet-name", "--body-name", "--temp",
+        "--climate", "--sky", "--atmosphere", "--ground-ltex", "--ground-source-dir", "--pattern",
+        "--surface-tree", "--wb3-mode", "--sun-preset", "--orbital-meshes", "--control-b7dc7f52",
+        "--lever-keywords", "--world-plugin-dir", "--map-markers",
+    },
+    ("scripts/planet/make_home_planet.py", "stage-wb1"): {
+        "--data", "--out", "--worlds", "--world-plugin-dir", "--ground-source-dir", "--map-markers",
+    },
+    ("scripts/planet/make_home_planet.py", "stage-wb2"): {
+        "--data", "--out", "--worlds", "--world-plugin-dir", "--ground-source-dir", "--map-markers",
+    },
+    ("scripts/planet/make_home_planet.py", "stage-wl1"): {
+        "--data", "--out", "--worlds", "--body-name", "--world-plugin-dir", "--ground-source-dir", "--map-markers",
+    },
+    ("scripts/planet/make_home_planet.py", "check"): {
+        "--stage", "--data", "--world-plugin-dir",
+    },
+    ("scripts/planet/home_world_install.py", "install"): {"--dir", "--starfield"},
+    ("scripts/planet/home_world_install.py", "order"): {"--starfield"},
+    ("scripts/planet/home_world_install.py", "undo"): {"--starfield"},
+    ("scripts/planet/home_world_install.py", "uninstall"): {"--starfield"},
+    ("scripts/planet/home_world_install.py", "status"): {"--starfield"},
+    ("scripts/deploy_starfield.py", "install"): {
+        "--batch", "--starfield", "--min-free-gb", "--dry-run", "--other-core", "--plugin-name",
+    },
+    ("scripts/deploy_starfield.py", "uninstall"): {"--starfield", "--plugin-name"},
+    ("scripts/deploy_starfield.py", "verify"): {"--starfield", "--plugin-name"},
+    ("scripts/terrain/make_cw_dlc_override.py", "status"): {"--starfield"},
+    ("scripts/terrain/make_cw_dlc_override.py", "install"): {"--dir", "--dlc-doors", "--starfield"},
+    ("scripts/terrain/make_cw_dlc_override.py", "uninstall"): {"--starfield"},
+    ("src/fo4sf/terrain/overlay_postpatch.py", "verify"): {
+        "--stage-dir", "--fo4", "--fo4-masters", "--fo4-world",
+    },
+}
+
+CROSS_BRANCH_COC_TARGETS = frozenset({
+    "FO4Core_RedRocketSpawn",
+    "FO4FH_FarHarborSpawn",
+    "FO4NW_NukaWorldSpawn",
+    "FO4WG1_RedRocketSpawn",
+    "FO4DLC_DLC03Acadia",
+    "FO4DLC_DLC04BradbertonsOffice01",
+    "FO4DLC_DLC06VaultWorkshop",
+})
+
+CROSS_BRANCH_PASS_PREFIXES: Tuple[str, ...] = (
+    "staged ",
+    "check: ok",
+    "installed 3 files, plugins ",
+    "uninstalled",
+    "nothing installed",
+    "install batch ",
+    "Plugins.txt (",
+    "installed. Undo with: python deploy_starfield.py uninstall --starfield <game dir> --plugin-name FO4DLC.esm",
+    "removing [",
+    "installed port as recorded: FO4Port.esm ",
+    "CHECK PASS",
+    "wb5 check: ok",
+    "installed wb5 session:",
+    "uninstalled wb5 session:",
+    '"reachability": "TEST-STATION (coc only)"',
+    '"water_exterior_cells_verified":',
 )
 
 CONSOLE_VERBS = frozenset({
@@ -464,6 +532,151 @@ def validate_lead_card_markdown(
     return errors
 
 
+def validate_lead_run_order_markdown(
+    card_rel: str,
+    md_text: str,
+    *,
+    help_runner: HelpRunner,
+    source_patterns: Sequence[Tuple[str, str, Pattern[str]]],
+    writer_edids: Set[str],
+    writer_fids: Set[int],
+    quest_stages: Dict[str, Set[int]],
+) -> List[str]:
+    """Validate `docs/testing/lead-run-order.md` (`G1` / `R11`) across Sessions 1–4 in exact order."""
+    errors: List[str] = []
+    top_header = "\n".join(md_text.splitlines()[:15])
+    if "NEW GAME needed" not in top_header:
+        errors.append(f"{card_rel}: missing 'NEW GAME needed' banner near top of run sheet")
+
+    for sym in sorted(set(re.findall(r"\bFO4SF_[A-Za-z0-9_]+\b", md_text))):
+        if sym not in writer_edids and sym not in ("FO4SF_NEWGAME", "FO4SF_MISSION"):
+            errors.append(f"{card_rel}: unknown FO4SF_* identifier {sym!r}")
+
+    parts = re.split(r"(?m)^##\s+(Session\s+(\d+)\s+—\s+[^\r\n]+)$", md_text)
+    # parts = [preamble, full_h1, num1, body1, full_h2, num2, body2, ...]
+    sessions: List[Tuple[int, str, str]] = []
+    for idx in range(1, len(parts), 3):
+        sessions.append((int(parts[idx + 1]), parts[idx].strip(), parts[idx + 2]))
+
+    if [s[0] for s in sessions] != [1, 2, 3, 4]:
+        errors.append(f"{card_rel}: expected Sessions [1, 2, 3, 4] in exact order, got {[s[0] for s in sessions]}")
+        return errors
+
+    # G1 exact session order content invariants
+    s1_body, s2_body, s3_body, s4_body = (s[2] for s in sessions)
+    for req in ("Candidate 2", "Card B", "Card C", "gemini/core-integration"):
+        if req not in sessions[0][1] and req not in s1_body:
+            errors.append(f"{card_rel} [Session 1]: missing {req!r}")
+    for req in ("Candidate 2b", "Card A", "Card 2", "Card 1", "Card 5", "Card 3", "Card 4", "gemini/beginning-real"):
+        if req not in sessions[1][1] and req not in s2_body:
+            errors.append(f"{card_rel} [Session 2]: missing {req!r}")
+    if s2_body.find("Card A") > s2_body.find("Card 2"):
+        errors.append(f"{card_rel} [Session 2]: Card A must precede Card 2")
+    for req in ("FO4SFHome.esm", "FO4TerrainCore_Home.esm", "WB1", "WB2", "gemini/world-own-space"):
+        if req not in sessions[2][1] and req not in s3_body:
+            errors.append(f"{card_rel} [Session 3]: missing {req!r}")
+    for req in ("FO4DLC.esm", "FO4WorldFarHarbor.esm", "FO4WorldNukaWorld.esm", "FO4TerrainCore_DLC.esm", "gemini/dlc-and-interiors", "gemini/world-own-space"):
+        if req not in sessions[3][1] and req not in s4_body:
+            errors.append(f"{card_rel} [Session 4]: missing {req!r}")
+
+    for snum, stitle, raw_body in sessions:
+        body = re.split(r"(?m)^##\s+(?!Session\b)", raw_body, maxsplit=1)[0]
+        if not re.search(r"gemini/[a-z0-9-]+", body) or not re.search(r"\b[0-9a-f]{8}\b", body):
+            errors.append(f"{card_rel} [{stitle}]: missing branch name + 8-char commit head")
+        if "New-Game Note" not in body:
+            errors.append(f"{card_rel} [{stitle}]: missing New-Game Note")
+        if "Disk Need" not in body or not re.search(r"\b\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|GiB|MiB)\b", body):
+            errors.append(f"{card_rel} [{stitle}]: missing Disk Need statement")
+        if "Plugins.txt" not in body or not re.search(r"FO4[A-Za-z0-9_]+\.esm", body):
+            errors.append(f"{card_rel} [{stitle}]: missing Plugins.txt plugin list")
+        if "Cards to Run in Order" not in body:
+            errors.append(f"{card_rel} [{stitle}]: missing 'Cards to Run in Order'")
+        if "Stop Point" not in body:
+            errors.append(f"{card_rel} [{stitle}]: missing 'Stop Point' if a card fails")
+        if not re.search(r"<[A-Za-z0-9_-]+>", body):
+            errors.append(f"{card_rel} [{stitle}]: missing <placeholder> stage/game path")
+
+        blocks = FENCED_BLOCK_RE.findall(body)
+        has_install = False
+        has_undo = False
+        has_pass = False
+
+        for lang, block_body in blocks:
+            lang_low = lang.strip().lower()
+            lines = [ln.strip() for ln in block_body.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+            if lang_low == "log":
+                has_pass = True
+                for pline in lines:
+                    sample = _sample_from_card_line(pline)
+                    fixed_toks = _extract_fixed_tokens(pline)
+                    matched = any(
+                        pat.search(sample) and all(_token_matches_template(ft, src_tpl) for ft in fixed_toks)
+                        for _src_rel, src_tpl, pat in source_patterns
+                    )
+                    if not matched:
+                        errors.append(f"{card_rel} [{stitle}]: PASS log line does not match source: {pline!r}")
+                continue
+            if lang_low == "text":
+                has_pass = True
+                for pline in lines:
+                    if not any(pline.startswith(pref) for pref in CROSS_BRANCH_PASS_PREFIXES):
+                        errors.append(f"{card_rel} [{stitle}]: unrecognized CLI PASS output line: {pline!r}")
+                continue
+
+            for cline in lines:
+                if " install " in f" {cline} ":
+                    has_install = True
+                if " uninstall " in f" {cline} " or " undo " in f" {cline} ":
+                    has_undo = True
+
+                if cline.startswith("python "):
+                    sanitized = re.sub(r"<[^>\s]+>", "PLACEHOLDER", cline)
+                    tokens = shlex.split(sanitized, posix=True)
+                    script_rel = tokens[1] if len(tokens) >= 2 else ""
+                    subcmd = tokens[2] if len(tokens) >= 3 and not tokens[2].startswith("-") else ""
+                    used_flags = [t.split("=", 1)[0] for t in tokens if t.startswith("--") and t != "--"]
+                    if snum in (3, 4) and (script_rel, subcmd) in CROSS_BRANCH_TOOL_FLAGS:
+                        allowed_flags = CROSS_BRANCH_TOOL_FLAGS[(script_rel, subcmd)]
+                        err = ""
+                    else:
+                        allowed_flags, err = help_runner.get_help_flags(tokens)
+                    if err:
+                        errors.append(f"{card_rel} [{stitle}]: {err}")
+                        continue
+                    for fl in used_flags:
+                        if fl not in allowed_flags:
+                            errors.append(f"{card_rel} [{stitle}]: flag {fl!r} not in --help for command: {cline}")
+                    continue
+
+                first_word = cline.split()[0].lower()
+                if lang_low == "console" or first_word in CONSOLE_VERBS:
+                    cparts = cline.split()
+                    verb = cparts[0].lower()
+                    if verb == "coc" and len(cparts) >= 2:
+                        cell_edid = cparts[1]
+                        if cell_edid not in writer_edids and cell_edid not in CROSS_BRANCH_COC_TARGETS:
+                            errors.append(f"{card_rel} [{stitle}]: unknown coc target {cell_edid!r}")
+                    elif verb == "setstage" and len(cparts) >= 3:
+                        q_edid, stg_raw = cparts[1], cparts[2]
+                        if q_edid not in writer_edids:
+                            errors.append(f"{card_rel} [{stitle}]: unknown quest {q_edid!r}")
+                        elif q_edid.lower() in quest_stages and stg_raw.isdigit() and int(stg_raw, 10) not in quest_stages[q_edid.lower()]:
+                            errors.append(f"{card_rel} [{stitle}]: unknown stage {q_edid} {stg_raw}")
+                    elif verb == "help" and len(cparts) >= 2:
+                        t_edid = cparts[1].strip('"')
+                        if t_edid not in writer_edids:
+                            errors.append(f"{card_rel} [{stitle}]: unknown help target {t_edid!r}")
+
+        if not has_install:
+            errors.append(f"{card_rel} [{stitle}]: missing fenced install command")
+        if not has_undo:
+            errors.append(f"{card_rel} [{stitle}]: missing fenced undo/uninstall command")
+        if not has_pass:
+            errors.append(f"{card_rel} [{stitle}]: missing fenced PASS block")
+
+    return errors
+
+
 class LeadCardsBeginningTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -478,6 +691,7 @@ class LeadCardsBeginningTests(unittest.TestCase):
                 "docs/testing/candidate-2-cards.md",
                 "docs/testing/fo4-beginning-pilot.md",
                 "docs/testing/sanctuary-workbench-card.md",
+                "docs/testing/lead-run-order.md",
             ),
         )
         self.assertGreater(len(self.source_patterns), 80)
@@ -486,7 +700,8 @@ class LeadCardsBeginningTests(unittest.TestCase):
             self.assertTrue(card_path.is_file(), f"missing lead card: {rel}")
             txt = card_path.read_text(encoding="utf-8")
             self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", txt), f"local path leaked in {rel}")
-            errors = validate_lead_card_markdown(
+            validator = validate_lead_run_order_markdown if rel.endswith("lead-run-order.md") else validate_lead_card_markdown
+            errors = validator(
                 rel,
                 txt,
                 help_runner=self.help_runner,
@@ -496,6 +711,37 @@ class LeadCardsBeginningTests(unittest.TestCase):
                 quest_stages=self.quest_stages,
             )
             self.assertEqual(errors, [], "\n".join(errors))
+
+    def test_lead_run_order_validator_rejects_missing_stop_point_and_bad_order(self) -> None:
+        bad_sheet = """# Run Sheet
+NEW GAME needed
+
+## Session 1 — Candidate 2 Cards B and C (gemini/core-integration b03a534d)
+- New-Game Note: NEW GAME needed
+- Disk Need: 4.2 GB
+- Plugins.txt: FO4SFCoreValues.esm
+- Cards to Run in Order: Card B, Card C
+
+```bash
+python scripts/game/exp_install.py install --exp-dir <stage> --starfield <game> --plugins FO4SFCoreValues.esm --bogus-flag
+python scripts/game/exp_install.py uninstall --starfield <game>
+```
+
+```log
+step=nonexistent_log_line foo=1
+```
+"""
+        errs = validate_lead_run_order_markdown(
+            "docs/testing/lead-run-order.md",
+            bad_sheet,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("expected Sessions [1, 2, 3, 4]", joined)
 
     def test_r11_validator_rejects_bad_flags_wrong_edids_missing_new_game_and_stale_pass_lines(self) -> None:
         bad_card = """# Stale Card

@@ -354,6 +354,8 @@ bool leftArrivalPad = false
 bool returnAsked = false
 bool returnVaultAsked = false
 bool returnSurfacePending = false
+int returnSurfaceWaitTicks = 0
+int returnSurfaceTries = 0
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -1317,6 +1319,13 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
             Trace("exit reload recovered stage=" + st + " failures=" + exitFailures)
         endif
     endif
+    if st >= 200 && returnSurfacePending
+        returnSurfacePending = false
+        returnVaultAsked = false
+        returnSurfaceWaitTicks = 0
+        returnSurfaceTries = 0
+        Trace("return lift reload recovered")
+    endif
     if st != 1
         StartTimer(1.0, 1)
     endif
@@ -1541,13 +1550,38 @@ Function RunWarfareBranch(Actor player, int rowIdx)
     float wz = WarfareMarkerZ[rowIdx] + 1.0
     bool moveOk = false
     float dist = 9999.0
-    if wMarker != None
-        player.MoveTo(wMarker, 0.0, 0.0, 0.0, True, False)
+    ObjectReference targetMarker = wMarker
+    int wMoveTry = 0
+    while targetMarker != None && player.IsInInterior() && wMoveTry < 3
+        wMoveTry += 1
+        player.MoveTo(targetMarker, 0.0, 0.0, 0.0, True, False)
         float mWait = 0.0
         while (player.IsInInterior() || !player.Is3DLoaded()) && mWait < SurfaceWait
             Utility.Wait(0.25)
             mWait += 0.25
         endwhile
+    endwhile
+    if player.IsInInterior()
+        ObjectReference eFallback = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+        if eFallback != None
+            targetMarker = eFallback
+            wx = ArrivalX + MergeOffsetX
+            wy = ArrivalY + MergeOffsetY
+            wz = ArrivalZ + 1.0
+            int fbTry = 0
+            while player.IsInInterior() && fbTry < 3
+                fbTry += 1
+                player.MoveTo(eFallback, 0.0, 0.0, 0.0, True, False)
+                float fbWait = 0.0
+                while (player.IsInInterior() || !player.Is3DLoaded()) && fbWait < SurfaceWait
+                    Utility.Wait(0.25)
+                    fbWait += 0.25
+                endwhile
+            endwhile
+            Trace("warfare move fallback anchor=" + eFallback + " tries=" + fbTry + " interior=" + player.IsInInterior())
+        endif
+    endif
+    if targetMarker != None && !player.IsInInterior()
         int setTry = 0
         while !moveOk && setTry < SurfaceTries
             setTry += 1
@@ -1556,7 +1590,7 @@ Function RunWarfareBranch(Actor player, int rowIdx)
             Cell wc = player.GetParentCell()
             bool coreCell = false
             if wc != None
-                coreCell = (wc.GetFormID() / 16777216) == (wMarker.GetFormID() / 16777216)
+                coreCell = (wc.GetFormID() / 16777216) == (targetMarker.GetFormID() / 16777216)
             endif
             float dx = player.GetPositionX() - wx
             float dy = player.GetPositionY() - wy
@@ -1903,9 +1937,27 @@ Function CheckReturnLift(Actor player)
             player.SetPosition(sx, sy, sz)
             player.SetAngle(0.0, 0.0, ArrivalHeading)
             returnSurfacePending = false
+            returnSurfaceWaitTicks = 0
+            returnSurfaceTries = 0
             leftArrivalPad = false
             returnAsked = true
             Trace("return lift arrived surface pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
+            return
+        endif
+        returnSurfaceWaitTicks += 1
+        if returnSurfaceWaitTicks == 5 || returnSurfaceWaitTicks == 10 || returnSurfaceWaitTicks == 15
+            ObjectReference rAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+            if rAnchor != None && returnSurfaceTries < 3
+                returnSurfaceTries += 1
+                player.MoveTo(rAnchor, 0.0, 0.0, 0.0, True, False)
+                Trace("return lift surface retry n=" + returnSurfaceTries)
+            endif
+        elseif returnSurfaceWaitTicks >= 20
+            returnSurfacePending = false
+            returnVaultAsked = false
+            returnSurfaceWaitTicks = 0
+            returnSurfaceTries = 0
+            Trace("return lift surface retry exhausted; re-arming prompt")
         endif
         return
     endif
@@ -1927,6 +1979,8 @@ Function CheckReturnLift(Actor player)
             ObjectReference eAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
             if eAnchor != None
                 returnSurfacePending = true
+                returnSurfaceWaitTicks = 0
+                returnSurfaceTries = 0
                 player.MoveTo(eAnchor, 0.0, 0.0, 0.0, True, False)
                 Trace("return lift surface moveto requested")
             endif
