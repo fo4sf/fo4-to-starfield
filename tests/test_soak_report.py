@@ -368,6 +368,49 @@ class SoakReportTests(unittest.TestCase):
             self.assertEqual(unwindowed["verdict"], "FAIL")
             self.assertEqual(unwindowed["crashes"]["unexpected_exits"], 144)
 
+    def test_driver_log_clock_lines_and_sanitized_real_crashwatch_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _write(
+                base / "Logs" / "Script" / "Papyrus.0.log",
+                "[17:46:27] Papyrus log opened (PC-64)\n"
+                "[17:55:00] Log closed\n",
+            )
+            # Sanitized real session driver.log lines: clean CloseMainWindow ends with 'game closed: alive=False'
+            _write(
+                base / "session" / "driver.log",
+                "00:46:26 launch guards pass: idle 181 s\n"
+                "00:46:54 game up pid 24744; refocus exit 0\n"
+                "00:46:58 main menu seen: True\n"
+                "00:55:01 game closed: alive=False\n",
+            )
+            rep_clean = analyze_session(str(base), driver_log=str(base / "session" / "driver.log"))
+            self.assertEqual(rep_clean["verdict"], "PASS", rep_clean["fail_reasons"])
+            self.assertEqual(rep_clean["crashes"]["clean_exits"], 1)
+            self.assertEqual(rep_clean["crashes"]["unexpected_exits"], 0)
+            self.assertGreaterEqual(rep_clean["duration_seconds"], 515.0)
+
+            # Sanitized real crashwatch.log tail with prior normal exit + 0xC0000005 ACCESS_VIOLATION after 2139 s up
+            now_dt = datetime.datetime.now()
+            t1_end = (now_dt - datetime.timedelta(seconds=2200)).isoformat(timespec="seconds")
+            t2_start = (now_dt - datetime.timedelta(seconds=2144)).isoformat(timespec="seconds")
+            t2_armed = (now_dt - datetime.timedelta(seconds=2118)).isoformat(timespec="seconds")
+            t2_end = (now_dt - datetime.timedelta(seconds=4)).isoformat(timespec="seconds")
+            _write(
+                base / "crashes" / "crashwatch.log",
+                "  procdump: [17:08:24]The process has exited.\n"
+                f"{t1_end} ended: process 48420, 0x00000000 normal exit (also what a silent ExitProcess gives), after 315 s up, dumps: none, ProcDump exit 0\n"
+                f"{t2_start} play: starting the game\n"
+                f"{t2_armed} armed: process 50644: -accepteula -mm -e 1 -f 80000003 -t -n 2\n"
+                "  procdump: [17:44:57]Process Exit: PID 50644, Exit Code 0xc0000005\n"
+                f"{t2_end} ended: process 50644, 0xC0000005 ACCESS_VIOLATION, after 2139 s up, dumps: Starfield.exe_261117_174457.dmp, ProcDump exit 1\n",
+            )
+            rep_av = analyze_session(str(base), crash_dir=str(base / "crashes"))
+            self.assertEqual(rep_av["verdict"], "FAIL")
+            self.assertEqual(rep_av["crashes"]["clean_exits"], 1)
+            self.assertEqual(rep_av["crashes"]["unexpected_exits"], 1)
+            self.assertGreaterEqual(rep_av["duration_seconds"], 2139.0)
+
 
 if __name__ == "__main__":
     unittest.main()

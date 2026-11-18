@@ -33,6 +33,7 @@ _SFSE_LINE_RE = re.compile(r"^\[(?P<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]\s*\[[^\]
 _ISO_LINE_RE = re.compile(
     r"^\[?(?P<iso>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]?(?:\s+|$)(?P<body>.*)$"
 )
+_CLOCK_LINE_RE = re.compile(r"^\[?(?P<clock>\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]?\s+(?P<body>.*)$")
 _WATCH_UP_RE = re.compile(r"\bafter\s+(?P<up>\d+(?:\.\d+)?)\s*s\s+up\b", re.IGNORECASE)
 _ROTATED_LOG_RE = re.compile(r"^(?P<stem>.+?)\.(?P<idx>\d+)\.log$", re.IGNORECASE)
 _RT_RE = re.compile(r"\brt=(?P<rt>-?\d+(?:\.\d+)?)")
@@ -411,7 +412,10 @@ def _parse_crashes_and_exits(
 
         base = os.path.basename(path)
         cur_ts: Optional[float] = None
+        cur_clock_s: Optional[float] = None
         active_start_ts: Optional[float] = None
+        active_clock_start: Optional[float] = None
+        forced_stop_pending = False
         kept_in_file = 0
         skipped_in_file = 0
 
@@ -425,9 +429,15 @@ def _parse_crashes_and_exits(
             m_iso = _ISO_LINE_RE.match(line)
             if m_iso:
                 cur_ts = _parse_iso_epoch(m_iso.group("iso"))
+                cur_clock_s = None
                 body = m_iso.group("body")
             else:
-                body = line
+                m_clk = _CLOCK_LINE_RE.match(line)
+                if m_clk:
+                    cur_clock_s = _parse_clock_seconds(m_clk.group("clock"))
+                    body = m_clk.group("body")
+                else:
+                    body = line
 
             if has_iso and min_mtime is not None:
                 if cur_ts is None or cur_ts < min_mtime or (anchor_ts is not None and cur_ts > anchor_ts + 3600.0):
@@ -437,17 +447,27 @@ def _parse_crashes_and_exits(
             kept_in_file += 1
             low = body.lower().strip()
 
-            # Track watch session start / cancel / end lines to derive session duration accurately.
+            # Track watch/driver session start / cancel / end lines to derive session duration accurately.
             if cur_ts is not None:
-                if low.startswith(("play: starting", "watch: waiting", "session start", "started:")):
+                if low.startswith(("play: starting", "watch: waiting", "session start", "started:", "launch guards pass:")):
                     active_start_ts = cur_ts
-                elif low.startswith(("armed: process", "not armed on process")) and active_start_ts is None:
+                    forced_stop_pending = False
+                elif low.startswith(("armed: process", "not armed on process", "game up pid ")) and active_start_ts is None:
                     active_start_ts = cur_ts
                 elif low.startswith(("play: refused:", "play: stopped by", "play: could not start", "game did not stay up")):
                     active_start_ts = None
+            if cur_clock_s is not None:
+                if low.startswith(("launch guards pass:", "play: starting", "watch: waiting", "session start", "started:")):
+                    active_clock_start = cur_clock_s
+                    forced_stop_pending = False
+                elif low.startswith(("game up pid ", "armed: process", "not armed on process")) and active_clock_start is None:
+                    active_clock_start = cur_clock_s
+
+            if "window did not close: process stopped" in low or low.startswith("not responding:"):
+                forced_stop_pending = True
 
             is_end_line = (
-                low.startswith(("ended:", "exited:"))
+                low.startswith(("ended:", "exited:", "game closed:", "game gone", "game exited "))
                 or "alive=false" in low
                 or "alive=0" in low
             )
@@ -459,13 +479,25 @@ def _parse_crashes_and_exits(
                     if (cur_ts is not None and active_start_ts is not None and cur_ts >= active_start_ts)
                     else 0.0
                 )
+                clock_dur_s = 0.0
+                if cur_clock_s is not None and active_clock_start is not None:
+                    diff = cur_clock_s - active_clock_start
+                    if diff < -3600.0:
+                        diff += 86400.0
+                    if diff > 0.0:
+                        clock_dur_s = diff
                 active_start_ts = None
-                dur_s = max(up_s, span_s)
+                active_clock_start = None
+                dur_s = max(up_s, span_s, clock_dur_s)
                 if dur_s > 0.0:
                     watch_runs.append((cur_ts or 0.0, dur_s))
 
             if "alive=false" in low or "alive=0" in low:
-                if any(tok in low for tok in ("clean_quit", "clean=true", "clean=1", "expected", "user_quit", "phase=quit")):
+                is_clean_driver_close = low.startswith("game closed:") and (not forced_stop_pending)
+                forced_stop_pending = False
+                if is_clean_driver_close or any(
+                    tok in low for tok in ("clean_quit", "clean=true", "clean=1", "expected", "user_quit", "phase=quit")
+                ):
                     clean_exits += 1
                 else:
                     unexpected_exits += 1
@@ -475,7 +507,7 @@ def _parse_crashes_and_exits(
             if "0x00000000 normal exit" in low or "clean quit" in low:
                 clean_exits += 1
             elif (
-                low.startswith("ended:")
+                low.startswith(("ended:", "game gone", "game exited within", "game exited before", "guard: the game is not running"))
                 or any(
                     tok in low
                     for tok in (
