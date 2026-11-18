@@ -1,6 +1,6 @@
 # Candidate 2 — Player-Profile Swap Test Cards (Cards 1–5)
 
-Target bundle: **Candidate 2 (`--profile player`, `22` plugins, `FO4SF_TestModeEnabled == 0`, `FO4SFCoreCandidate.esm` omitted)**.
+Target bundle: **Candidate 2 (`--profile player`, `22` plugins, `FO4SF_TestModeEnabled == 0`, `FO4SFCoreCandidate.esm` omitted)**, plus the staged `mapmarkers-full` ride-along (`FO4SFMapMarkers.esm` + updated `FO4SF_MapMarkers.pex` installed via `scripts/game/map_markers_install.py` right after `exp_install.py` so `X4` / `S5` / `1e` map-marker setup & discovery run with zero file collision).
 
 ## Truth Labels Before Swap Run
 
