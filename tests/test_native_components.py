@@ -203,6 +203,18 @@ class SourceTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(refuse_steps(folder_sources(plugin["folder"])), set(plugin["refuse_steps"]))
 
+    def test_pipboy_menu_g1_movie_lifecycle_and_fail_close(self):
+        main_cpp = text("sfse/FO4SFPipboyMenu/src/main.cpp")
+        map_cpp = text("sfse/FO4SFPipboyMenu/src/pipboy_map.cpp")
+        self.assertIn("ClearMovieSessionState()", main_cpp)
+        self.assertIn("FailMovieCall(", main_cpp)
+        self.assertIn('Close(0, "movie_call_failed")', main_cpp)
+        self.assertIn("ResetMapMovieState()", map_cpp)
+        self.assertIn("CloseMenuOnFailedMovieCall(", map_cpp)
+        self.assertIn("rebuiltMarkers && g_mapPageVal.IsObject()", map_cpp)
+        self.assertIn("ExtractNonNegIndex(curPageVal", map_cpp)
+        self.assertIn("IsFileType(fileType)", map_cpp)
+
 
 class KnownRuntimeTests(unittest.TestCase):
     def test_known_runtimes_agree_with_the_declaration(self):

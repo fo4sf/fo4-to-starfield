@@ -13,6 +13,7 @@
 #include <fstream>
 #include <mutex>
 #include <numbers>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -443,6 +444,51 @@ namespace
 		return TypeOf(a_object, t) && t.offset == 0 && NameIs(t.name, a_tail);
 	}
 
+	std::optional<std::uint32_t> BaseOffset(const ObjectType& a_type, std::string_view a_tail)
+	{
+		const auto hierarchy = a_type.hierarchy;
+		if (!InImage(hierarchy, 0x10)) {
+			return std::nullopt;
+		}
+		const auto count = *reinterpret_cast<const std::uint32_t*>(hierarchy + 0x08);
+		const auto array = g_base + *reinterpret_cast<const std::uint32_t*>(hierarchy + 0x0C);
+		if (count == 0 || count > 512 || !InImage(array, 4ull * count)) {
+			return std::nullopt;
+		}
+		std::optional<std::uint32_t> found;
+		std::size_t                  matches = 0;
+		for (std::uint32_t i = 0; i < count; ++i) {
+			const auto base = g_base + reinterpret_cast<const std::uint32_t*>(array)[i];
+			if (!InImage(base, 0x1C)) {
+				return std::nullopt;
+			}
+			if (!NameIs(TypeNameAt(g_base + *reinterpret_cast<const std::uint32_t*>(base)), a_tail)) {
+				continue;
+			}
+			const auto mdisp = *reinterpret_cast<const std::int32_t*>(base + 0x08);
+			const auto pdisp = *reinterpret_cast<const std::int32_t*>(base + 0x0C);
+			if (pdisp != -1 || mdisp < 0) {
+				return std::nullopt;
+			}
+			found = static_cast<std::uint32_t>(mdisp);
+			++matches;
+		}
+		return matches == 1 ? found : std::nullopt;
+	}
+
+	// TESDataHandler's compiled file lists hold TESPackedFile (subclass of TESFile at +0, FAL-437)
+	bool IsFileType(const ObjectType& a_type)
+	{
+		return a_type.offset == 0 && (NameIs(a_type.name, "TESFile@@") || BaseOffset(a_type, "TESFile@@") == 0u);
+	}
+
+	bool IsRefrType(std::uintptr_t a_object)
+	{
+		ObjectType t;
+		return TypeOf(a_object, t) && t.offset == 0 &&
+		       (NameIs(t.name, "TESObjectREFR@@") || BaseOffset(t, "TESObjectREFR@@") == 0u);
+	}
+
 	bool CheckSingleton(std::string_view a_what, MapIdIndex a_singleton, MapIdIndex a_rtti, std::atomic<int>& a_state)
 	{
 		const auto st = a_state.load();
@@ -634,7 +680,8 @@ namespace
 				if (!Peek(list.data + 8ull * i, file) || !file) {
 					continue;
 				}
-				if (!IsType(file, "TESFile@@")) {
+				ObjectType fileType;
+				if (!TypeOf(file, fileType) || !IsFileType(fileType)) {
 					++skipped;
 					continue;
 				}
@@ -668,6 +715,11 @@ namespace
 				if (compileIdx < 0xFD) {
 					a_small = false;
 					a_prefix = static_cast<std::uint32_t>(compileIdx) << 24;
+					return true;
+				}
+				if (listKind == 0 && indexBytes[0] < 0xFD) {
+					a_small = false;
+					a_prefix = static_cast<std::uint32_t>(indexBytes[0]) << 24;
 					return true;
 				}
 			}
@@ -759,7 +811,7 @@ namespace
 		}
 		const std::uint32_t mask = a_small ? 0xFFFu : 0xFFFFFFu;
 		const auto          refr = LookupForm(a_prefix | (a_localId & mask));
-		if (!refr || !IsType(refr, "TESObjectREFR@@")) {
+		if (!refr || !IsRefrType(refr)) {
 			return false;
 		}
 		std::uintptr_t extraList = 0;
@@ -1305,6 +1357,55 @@ namespace
 		}
 		return false;
 	}
+	void ResetMapMovieState()
+	{
+		g_menuOpen = false;
+		g_mapInputHeld = false;
+		g_modalOpen = false;
+		g_mapPageVal = RE::Scaleform::GFx::Value{};
+		g_populatedMovie = nullptr;
+		g_checkedCreateObjMovie = nullptr;
+		g_needTexturesLoaded = false;
+		g_needCenter = false;
+		g_textureLogged = false;
+		g_currentShellPage = 0;
+		g_currentShellTab = 0;
+		g_requestedPage = -1;
+		g_requestedTab = -1;
+	}
+
+	void CloseMenuOnFailedMovieCall(const char* a_where)
+	{
+		REX::ERROR("step=movie_call_failed where={} action=close_menu", a_where);
+		ResetMapMovieState();
+		if (g_task) {
+			g_task->AddTask([]() {
+				auto* ui = RE::UI::GetSingleton();
+				auto* queue = RE::UIMessageQueue::GetSingleton();
+				if (ui && queue && ui->IsMenuOpen(OurMenuFixed())) {
+					g_lastMapTransitionMs = NowMs();
+					queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kHide);
+				}
+			});
+		}
+	}
+
+	bool ExtractNonNegIndex(const RE::Scaleform::GFx::Value& a_val, std::int32_t& a_out)
+	{
+		if (a_val.IsUInt()) {
+			a_out = static_cast<std::int32_t>(a_val.GetUInt());
+			return a_out >= 0;
+		}
+		if (a_val.IsInt()) {
+			a_out = a_val.GetInt();
+			return a_out >= 0;
+		}
+		if (a_val.IsNumber() && std::isfinite(a_val.GetNumber()) && a_val.GetNumber() >= 0.0 && a_val.GetNumber() <= 64.0) {
+			a_out = static_cast<std::int32_t>(a_val.GetNumber());
+			return true;
+		}
+		return false;
+	}
 }
 
 namespace PipboyMap
@@ -1465,11 +1566,13 @@ namespace PipboyMap
 		if (a_type == RE::UI_MESSAGE_TYPE::kShow) {
 			g_menuOpen = true;
 			g_mapInputHeld = false;
+			if (g_requestedPage.load() < 0) {
+				g_currentShellPage = 0;
+				g_currentShellTab = 0;
+			}
 			g_lastMapTransitionMs = NowMs();
 		} else if (a_type == RE::UI_MESSAGE_TYPE::kHide) {
-			g_menuOpen = false;
-			g_mapInputHeld = false;
-			g_modalOpen = false;
+			ResetMapMovieState();
 			g_lastMapTransitionMs = NowMs();
 		}
 	}
@@ -1768,32 +1871,47 @@ namespace PipboyMap
 		}
 
 		RE::Scaleform::GFx::Value curPageVal, curTabVal;
+		std::int32_t              parsedIdx = -1;
 		if (a_answerPage.load() >= 0) {
 			g_currentShellPage = a_answerPage.load();
-		} else if (dataObj.GetMember("CurrentPage", &curPageVal) && curPageVal.IsUInt()) {
-			g_currentShellPage = static_cast<std::int32_t>(curPageVal.GetUInt());
+		} else if (dataObj.GetMember("CurrentPage", &curPageVal) && ExtractNonNegIndex(curPageVal, parsedIdx)) {
+			g_currentShellPage = parsedIdx;
 		}
 		if (a_answerTab.load() >= 0) {
 			g_currentShellTab = a_answerTab.load();
-		} else if (dataObj.GetMember("CurrentTab", &curTabVal) && curTabVal.IsUInt()) {
-			g_currentShellTab = static_cast<std::int32_t>(curTabVal.GetUInt());
+		} else if (dataObj.GetMember("CurrentTab", &curTabVal) && ExtractNonNegIndex(curTabVal, parsedIdx)) {
+			g_currentShellTab = parsedIdx;
 		}
 
-		if (rebuiltMarkers && a_answerPage.load() < 0 && a_answerTab.load() < 0 &&
+		// G1 fix: never invoke InvalidatePartialData(0x80) unless Pipboy_MapPage is registered and active on MapPage
+		if (rebuiltMarkers && g_mapPageVal.IsObject() && a_answerPage.load() < 0 && a_answerTab.load() < 0 &&
 			g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage)) {
 			RE::Scaleform::GFx::Value maskArg(std::uint32_t{ 0x80u });
 			RE::Scaleform::GFx::Value invRes;
-			if (!menuMc.Invoke("InvalidatePartialData", &invRes, &maskArg, 1)) {
-				menuMc.Invoke("InvalidateData", &invRes, nullptr, 0);
+			if (!menuMc.Invoke("InvalidatePartialData", &invRes, &maskArg, 1) &&
+				!menuMc.Invoke("InvalidateData", &invRes, nullptr, 0)) {
+				CloseMenuOnFailedMovieCall("map_invalidate_markers");
+				return;
 			}
 			dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(false));
 		}
 
 		if (g_mapPageVal.IsObject()) {
 			if (g_needTexturesLoaded.exchange(false)) {
+				// Deliver WorldMapTextureName + corners to newly registered Pipboy_MapPage before onMapTexturesLoaded()
+				RE::Scaleform::GFx::Value invRes;
+				if (!menuMc.Invoke("InvalidateData", &invRes, nullptr, 0)) {
+					CloseMenuOnFailedMovieCall("map_register_invalidate");
+					return;
+				}
+				dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(false));
 				RE::Scaleform::GFx::Value res;
 				const bool called = g_mapPageVal.Invoke("onMapTexturesLoaded", &res, nullptr, 0);
 				REX::INFO("step=map_textures_loaded called={}", called ? 1 : 0);
+				if (!called) {
+					CloseMenuOnFailedMovieCall("onMapTexturesLoaded");
+					return;
+				}
 			}
 			if (!g_textureLogged.load()) {
 				RE::Scaleform::GFx::Value holder, bLoaded, texHolder, children;
@@ -1819,20 +1937,16 @@ namespace PipboyMap
 				RE::Scaleform::GFx::Value res;
 				const bool called = g_mapPageVal.Invoke("SetCenterMarker", &res, &idxArg, 1);
 				REX::INFO("step=map_center idx={} called={}", g_lastPlayerArrayIdx, called ? 1 : 0);
+				if (!called) {
+					CloseMenuOnFailedMovieCall("SetCenterMarker");
+					return;
+				}
 			}
 		}
 	}
 
 	void OnMenuDestroy()
 	{
-		g_menuOpen = false;
-		g_mapInputHeld = false;
-		g_modalOpen = false;
-		g_mapPageVal = RE::Scaleform::GFx::Value{};
-		g_populatedMovie = nullptr;
-		g_checkedCreateObjMovie = nullptr;
-		g_needTexturesLoaded = false;
-		g_needCenter = false;
-		g_textureLogged = false;
+		ResetMapMovieState();
 	}
 }

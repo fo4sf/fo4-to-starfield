@@ -1382,7 +1382,7 @@ namespace
 
 	// the page's forms by form id: the globals and actor values by their fixed ids and RTTI type (AcceptById); every
 	// ActorValueInfo among Starfield.esm's ids 0x001 to 0xFFF listed with its editor ID as read, once; FO4SF_Rads by its
-	// editor ID at local id 0x800 of each full plugin (01 to FD) and each light plugin (FE000 to FEFFF)
+	// FO4SF_Rads is owned by FO4SFCoreValues.esm at local id 0x800; scan 0x800 of each full (01..FD) and light (FE000..FEFFF) plugin and log the resolved id
 	void FindForms()
 	{
 		std::string known = AcceptById(kGameHourId, "GameHour", "TESGlobal@@", kGlobalEditorIdAt, g_forms.gameHour);
@@ -3371,28 +3371,36 @@ namespace
 	}
 
 	// ------------------------------------------------------------------------------------------- the menu's slots
+	void Close(std::uint32_t a_n, const char* a_by);
+
+	void ClearMovieSessionState()
+	{
+		g_listenedMovie = nullptr;
+		g_checkedMovie = nullptr;
+		g_codeObjMovie = nullptr;
+		g_lateCallsMovie = nullptr;
+		g_codeObjTriedMovie = nullptr;
+		g_codeObjTries = 0;
+		g_shellKeyPending = 0;
+		g_answerPage = -1;
+		g_answerTab = -1;
+		PipboyMap::OnMenuDestroy();
+	}
+
+	void FailMovieCall(const char* a_where, const std::string& a_detail = "")
+	{
+		REX::ERROR("step=movie_call_failed where={}{}{} action=close_menu", a_where, a_detail.empty() ? "" : " ", a_detail);
+		ClearMovieSessionState();
+		if (g_task) {
+			g_task->AddTask([]() { Close(0, "movie_call_failed"); });
+		}
+	}
+
 	void* MenuDestroy(void* a_self, std::uint32_t a_flags)
 	{
 		REX::INFO("step=destroy menu={} flags={}", Hex(reinterpret_cast<std::uintptr_t>(a_self)), a_flags);
-		if (const auto movie = MovieOf(a_self)) {   // stage c: a later movie at the same address is checked again
-			if (g_listenedMovie == movie) {
-				g_listenedMovie = nullptr;
-			}
-			if (g_checkedMovie == movie) {
-				g_checkedMovie = nullptr;
-			}
-			if (g_codeObjMovie == movie) {   // FAL-614 proof 1b: a later movie at the same address gets its own stand-in
-				g_codeObjMovie = nullptr;
-				g_lateCallsMovie = nullptr;  // FAL-852: the next movie gets its own late calls
-				g_shellKeyPending = 0;       // S1-c: nothing pressed or asked for carries over to the next movie
-				g_answerPage = -1;
-				g_answerTab = -1;
-				PipboyMap::OnMenuDestroy();
-			}
-			if (g_codeObjTriedMovie == movie) {
-				g_codeObjTriedMovie = nullptr;
-			}
-		}
+		// G1 fix: engine kHide clears uiMovie before MenuDestroy, so always clear session movie state unconditionally
+		ClearMovieSessionState();
 		g_engineDtor(a_self, a_flags & ~1u);   // the engine's IMenu destructor, without its delete: the memory is ours
 		if (a_flags & 1) {
 			std::free(a_self);
@@ -3894,6 +3902,10 @@ namespace
 			const bool called = found && owner.Invoke(name.c_str(), &result, nullptr, 0);
 			REX::INFO("step=code_obj_root_call n={} name={} found={} type={} called={} result_type={}", i + 1, g_rootCallNames[i],
 				found ? 1 : 0, read ? TypeCode(function) : -1, called ? 1 : 0, TypeCode(result));
+			if (!called) {
+				FailMovieCall("code_obj_root_call", std::format("name={}", g_rootCallNames[i]));
+				return false;
+			}
 		}
 		// FAL-614 proof 2b-i (CodeObjProbe=<path>,...): read-only. Once per movie, on the try that finished the
 		// hand-over, each path (a root member, or members joined by '.') is read with GetMember and its type logged,
@@ -3925,6 +3937,10 @@ namespace
 				g_codeObjCount + 1, readBack ? 1 : 0, names, g_codeObjAt.empty() ? "none" : g_codeObjAt, atSet ? 1 : 0,
 				atReadBack ? 1 : 0);
 		}
+		if (!done && attempt >= kMaxCodeObjTries) {
+			FailMovieCall("code_obj_install", std::format("tries={}", attempt));
+			return false;
+		}
 		return done;
 	}
 
@@ -3949,6 +3965,7 @@ namespace
 		auto* const               root = RootOf(a_menu);
 		RE::Scaleform::GFx::Value top;
 		if (!root || !root->GetVariable(&top, "root") || !top.IsObject()) {
+			FailMovieCall("shell_update_root");
 			return;
 		}
 		// FAL-852 (CodeObjLateCalls=<path>,...): once per movie, at the first kUpdate after the hand-over, each path is called
@@ -3965,6 +3982,10 @@ namespace
 				const bool called = CallPath(top, g_lateCallNames[i], nullptr, 0, found);
 				REX::INFO("step=code_obj_late_call n={} name={} found={} called={}", i + 1, g_lateCallNames[i], found ? 1 : 0,
 					called ? 1 : 0);
+				if (!called) {
+					FailMovieCall("code_obj_late_call", std::format("name={}", g_lateCallNames[i]));
+					return;
+				}
 			}
 		}
 		const auto keys = g_shellKeyPending.exchange(0);
@@ -3980,6 +4001,10 @@ namespace
 			if (const auto line = ++g_shellKeyLines; line <= kMaxCodeCalls) {
 				REX::INFO("step=shell_key n={} vk={} path={} found={} called={}", line, Hex(g_shellKeys[i].vk),
 					g_shellKeys[i].path, found ? 1 : 0, called ? 1 : 0);
+			}
+			if (!called) {
+				FailMovieCall("shell_key", std::format("path={}", g_shellKeys[i].path));
+				return;
 			}
 		}
 		PipboyMap::OnShellUpdate(a_menu, root, top, g_codeObjAt, g_answerPage, g_answerTab);
@@ -4010,6 +4035,9 @@ namespace
 		REX::INFO("step=code_answer n={} page={} tab={} data={} page_set={} tab_set={} page_now={} tab_now={} "
 				  "invalidate_found={} invalidated={}",
 			n, page, tab, gotData ? 1 : 0, pageSet ? 1 : 0, tabSet ? 1 : 0, pageNow, tabNow, found ? 1 : 0, invalidated ? 1 : 0);
+		if (!invalidated) {
+			FailMovieCall("code_answer_invalidate", std::format("page={} tab={}", page, tab));
+		}
 	}
 
 	bool MenuLoadMovie(void* a_self, bool a_dispatcher, bool a_arg2)
@@ -4032,7 +4060,11 @@ namespace
 		REX::INFO("step=load_movie menu={} stage=b result={} movie={} movie_name={} name_asks={}", menu, loaded ? 1 : 0,
 			Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), g_movie.empty() ? kMenuName : g_movie.c_str(),
 			g_movieNameAsks.load());
-		if (loaded && g_codeObj && MovieOf(a_self)) {
+		if (!loaded || !MovieOf(a_self)) {
+			FailMovieCall("load_movie");
+			return false;
+		}
+		if (g_codeObj) {
 			CodeObjInstall(a_self, "load");
 		}
 		return loaded;
@@ -4346,6 +4378,9 @@ namespace
 		}
 		if (showOrHide) {
 			PipboyMap::OnMenuMessage(type);
+			if (type == RE::UI_MESSAGE_TYPE::kHide) {
+				ClearMovieSessionState();
+			}
 		}
 		if (g_stage >= 3) {   // stages c, d and e: after the engine's own handling, on its thread for this menu
 			if (type == RE::UI_MESSAGE_TYPE::kShow) {
