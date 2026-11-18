@@ -1,5 +1,7 @@
 # Silent-Player List Dialogue & Deterministic Skill / SPECIAL / Background / Trait Checks (`CF-7`)
 
+> **Reachability & Wiring Status:** **`TEST-STATION`** (`FO4SF_ListTalkCell` `0x0807` interior test cell) — **`NOT WIRED`** to Preston or Codsworth on `gemini/core-integration`.
+
 Implements the second half of the unified Fallout dialogue host (`CF-7`, Phase B item `1d`) **beside** PR `#792`'s 4-option wheel (`Interface/FO4SF_DialogueWheel.swf`), keeping Starfield's native `DialogueMenu` (`DialogueListData.aChoices` shuttle) intact (`0` replacement of `Interface/DialogueMenu.swf`, `0` edits to `#792`'s files).
 
 - **Plugin writer & checker:** `dotnet/ListDialogue/Program.cs` (`FO4SFListDialogue.esm`, sole master `Starfield.esm`, `0` foreign overrides)

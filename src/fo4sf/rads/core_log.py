@@ -15,7 +15,7 @@ TOKEN = re.compile(r"(\w+)=(\S*)")
 SAY_TEXT = re.compile(r" text=(?P<text>.*) end=true\s*$", re.IGNORECASE)
 
 EVENTS = (
-    "init", "start", "control", "set", "gain", "radaway", "radx",
+    "init", "start", "options_sync", "control", "set", "gain", "radaway", "radx",
     "mutation", "sync", "mode_switch", "stage_done", "fatal", "say", "verdict",
 )
 ID_KEYS = {

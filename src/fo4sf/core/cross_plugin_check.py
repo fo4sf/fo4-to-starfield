@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from fo4sf.core.core_values import CORE_VALUES_JSON, load_core_values
+from fo4sf.planet.esm import Plugin
 
 # Known immutable engine/port base records referenced across scripts
 KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
@@ -67,7 +69,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0xF04801: ("NPC_", "FO4_LvlRaider_Calm"),
     },
     "FO4SFPipboyTravel.esm": {
-        **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32)},
+        **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32) if i != 2},
     },
 }
 
@@ -720,6 +722,290 @@ def validate_psc_form_refs(
     return errors
 
 
+def collect_psc_props_by_script(repo_root: str) -> Dict[str, Dict[str, str]]:
+    """Scan `scripts/**/*.psc` and return `{script_name_lower: {prop_name_lower: psc_type}}`."""
+    out: Dict[str, Dict[str, str]] = {}
+    scripts_root = os.path.join(repo_root, "scripts")
+    if not os.path.isdir(scripts_root):
+        return out
+    for dp, dirs, fns in os.walk(scripts_root):
+        dirs.sort()
+        for fn in sorted(fns):
+            if not fn.lower().endswith(".psc"):
+                continue
+            with open(os.path.join(dp, fn), encoding="utf-8") as handle:
+                sname, props = parse_psc_declared_properties(handle.read())
+            if sname:
+                out[sname.lower()] = props
+    return out
+
+
+_VMAD_PRIMITIVE_PSC_TYPES: Dict[int, str] = {
+    2: "string",
+    3: "int",
+    4: "float",
+    5: "bool",
+    12: "string[]",
+    13: "int[]",
+    14: "float[]",
+    15: "bool[]",
+}
+
+
+@dataclass(frozen=True)
+class BinaryVmadProperty:
+    plugin_name: str
+    record_edid: str
+    script_name: str
+    prop_name: str
+    prop_type: int
+    object_refs: Tuple[Tuple[int, str, int], ...]  # (alias, target_plugin, local_id)
+
+
+@dataclass(frozen=True)
+class BinaryEsmReport:
+    plugin_name: str
+    masters: Tuple[str, ...]
+    own_records: Dict[int, Tuple[str, str]]  # local_id -> (rec_type, edid)
+    vmad_properties: Tuple[BinaryVmadProperty, ...]
+    cross_plugin_item_refs: Tuple[Tuple[str, str, int], ...]  # (context, target_plugin, local_id)
+
+
+def _resolve_esm_formid(raw_fid: int, masters: Sequence[str], plugin_name: str) -> Tuple[str, int]:
+    idx = (raw_fid >> 24) & 0xFF
+    local_id = raw_fid & 0xFFFFFF
+    if idx < len(masters):
+        return masters[idx], local_id
+    return plugin_name, local_id
+
+
+def parse_binary_vmad_properties(
+    vmad_bytes: bytes,
+    masters: Sequence[str],
+    plugin_name: str,
+    record_edid: str,
+) -> List[BinaryVmadProperty]:
+    """Decode Papyrus VMAD v5/v6 script properties and resolve Object/Object[] FormIDs via `masters`."""
+    if len(vmad_bytes) < 6:
+        raise ValueError(f"{plugin_name} ({record_edid}): truncated VMAD header ({len(vmad_bytes)} bytes)")
+    _ver, obj_fmt, script_count = struct.unpack_from("<HHH", vmad_bytes, 0)
+    p = 6
+    out: List[BinaryVmadProperty] = []
+
+    def read_elem(elem_type: int) -> Optional[Tuple[int, str, int]]:
+        nonlocal p
+        if elem_type == 1:
+            if obj_fmt == 2:
+                _unused, alias, raw_fid = struct.unpack_from("<HhI", vmad_bytes, p)
+            else:
+                raw_fid, alias, _unused = struct.unpack_from("<IhH", vmad_bytes, p)
+            p += 8
+            if raw_fid == 0:
+                return None
+            tgt_plg, local_id = _resolve_esm_formid(raw_fid, masters, plugin_name)
+            return (alias, tgt_plg, local_id)
+        if elem_type == 2:
+            slen = struct.unpack_from("<H", vmad_bytes, p)[0]
+            p += 2 + slen
+            return None
+        if elem_type in (3, 4):
+            p += 4
+            return None
+        if elem_type == 5:
+            p += 1
+            return None
+        raise ValueError(f"{plugin_name} ({record_edid}): unsupported VMAD element type {elem_type} at offset {p}")
+
+    for _ in range(script_count):
+        slen = struct.unpack_from("<H", vmad_bytes, p)[0]
+        p += 2
+        sname = vmad_bytes[p : p + slen].decode("cp1252", "replace")
+        p += slen
+        p += 1  # status byte
+        prop_count = struct.unpack_from("<H", vmad_bytes, p)[0]
+        p += 2
+        for _ in range(prop_count):
+            plen = struct.unpack_from("<H", vmad_bytes, p)[0]
+            p += 2
+            pname = vmad_bytes[p : p + plen].decode("cp1252", "replace")
+            p += plen
+            ptype, _pstatus = struct.unpack_from("<BB", vmad_bytes, p)
+            p += 2
+            obj_refs: List[Tuple[int, str, int]] = []
+            if 1 <= ptype <= 5:
+                r = read_elem(ptype)
+                if r is not None:
+                    obj_refs.append(r)
+            elif 11 <= ptype <= 15:
+                arr_len = struct.unpack_from("<I", vmad_bytes, p)[0]
+                p += 4
+                for _ in range(arr_len):
+                    r = read_elem(ptype - 10)
+                    if r is not None:
+                        obj_refs.append(r)
+            else:
+                raise ValueError(f"{plugin_name} ({record_edid}): unsupported VMAD property type {ptype} on {sname}.{pname}")
+            if sname:
+                out.append(BinaryVmadProperty(plugin_name, record_edid, sname, pname, ptype, tuple(obj_refs)))
+
+    return out
+
+
+def inspect_esm_binary(esm_path: str) -> BinaryEsmReport:
+    """Inspect a compiled `.esm` file's TES4 masters, owned EditorIDs, VMAD bindings, and CNTO/NAME references."""
+    plugin_name = os.path.basename(esm_path)
+    own_records: Dict[int, Tuple[str, str]] = {}
+    vmad_props: List[BinaryVmadProperty] = []
+    item_refs: List[Tuple[str, str, int]] = []
+
+    with Plugin(esm_path) as plg:
+        masters = tuple(plg.masters)
+        self_idx = plg.self_index
+        for grp in plg.groups:
+            for start, end in plg.groups[grp]:
+                for item in plg.walk(start, end):
+                    if item[0] != "REC":
+                        continue
+                    rec = plg.record_at(item[1])
+                    rtype = rec.sig.decode("latin1")
+                    owner_idx = (rec.formid >> 24) & 0xFF
+                    local_id = rec.formid & 0xFFFFFF
+                    edid = rec.edid
+                    if owner_idx == self_idx:
+                        own_records[local_id] = (rtype, edid)
+
+                    vmad_raw = rec.get(b"VMAD")
+                    if vmad_raw is not None:
+                        vmad_props.extend(
+                            parse_binary_vmad_properties(vmad_raw, masters, plugin_name, edid or f"0x{local_id:06X}")
+                        )
+
+                    if rtype in ("CONT", "NPC_"):
+                        for cnto in rec.all(b"CNTO"):
+                            if len(cnto) >= 8:
+                                raw_item_fid, _cnt = struct.unpack_from("<Ii", cnto, 0)
+                                if raw_item_fid != 0:
+                                    tgt_plg, tgt_id = _resolve_esm_formid(raw_item_fid, masters, plugin_name)
+                                    item_refs.append((f"{rtype}:{edid or hex(local_id)}.CNTO", tgt_plg, tgt_id))
+                    elif rtype in ("REFR", "ACHR") and owner_idx == self_idx:
+                        name_sub = rec.get(b"NAME")
+                        if name_sub is not None and len(name_sub) == 4:
+                            raw_base_fid = struct.unpack_from("<I", name_sub, 0)[0]
+                            if raw_base_fid != 0:
+                                tgt_plg, tgt_id = _resolve_esm_formid(raw_base_fid, masters, plugin_name)
+                                item_refs.append((f"{rtype}:{edid or hex(local_id)}.NAME", tgt_plg, tgt_id))
+
+    return BinaryEsmReport(
+        plugin_name=plugin_name,
+        masters=masters,
+        own_records=own_records,
+        vmad_properties=tuple(vmad_props),
+        cross_plugin_item_refs=tuple(item_refs),
+    )
+
+
+def validate_staged_esms(
+    esm_paths: Sequence[str],
+    catalog: Dict[str, Dict[int, Tuple[str, str]]],
+    psc_props_by_script: Dict[str, Dict[str, str]],
+) -> List[str]:
+    """Validate compiled `.esm` files for duplicate EditorIDs, cross-plugin refs, and VMAD property parity."""
+    errors: List[str] = []
+    merged_catalog: Dict[str, Dict[int, Tuple[str, str]]] = {k: dict(v) for k, v in catalog.items()}
+    reports: List[BinaryEsmReport] = []
+    inspected_names: Set[str] = set()
+
+    for p in esm_paths:
+        rep = inspect_esm_binary(p)
+        reports.append(rep)
+        inspected_names.add(rep.plugin_name)
+        merged_catalog[rep.plugin_name] = dict(merged_catalog.get(rep.plugin_name, {}))
+        merged_catalog[rep.plugin_name].update(rep.own_records)
+
+    # 1. Duplicate EditorID check across all FO4SF plugins and any inspected binary .esm
+    edid_owners: Dict[str, List[Tuple[str, int, str]]] = {}
+    for plg, recs in sorted(merged_catalog.items()):
+        if not (plg.lower().startswith("fo4sf") or plg in inspected_names):
+            continue
+        for fid, (_rt, edid) in sorted(recs.items()):
+            if edid:
+                edid_owners.setdefault(edid.lower(), []).append((plg, fid, edid))
+    for _, owners in sorted(edid_owners.items()):
+        if len({p for p, _, _ in owners}) > 1:
+            desc = ", ".join(f"{p}:0x{fid:04X} ({ed})" for p, fid, ed in owners)
+            errors.append(f"Binary stage duplicate EditorID across plugins: {desc}")
+
+    # 2. Validate VMAD script & property parity + resolved Object FormIDs
+    for rep in reports:
+        for vp in rep.vmad_properties:
+            sprops = psc_props_by_script.get(vp.script_name.lower())
+            if sprops is None:
+                errors.append(f"{rep.plugin_name} ({vp.record_edid}): VMAD script {vp.script_name} missing in .psc sources")
+                continue
+            psc_ptype = sprops.get(vp.prop_name.lower())
+            if psc_ptype is None:
+                errors.append(
+                    f"{rep.plugin_name} ({vp.record_edid}): {vp.script_name} does not declare VMAD property {vp.prop_name}"
+                )
+                continue
+            psc_low = psc_ptype.lower()
+            if vp.prop_type in _VMAD_PRIMITIVE_PSC_TYPES:
+                want_psc = _VMAD_PRIMITIVE_PSC_TYPES[vp.prop_type]
+                if psc_low != want_psc:
+                    errors.append(
+                        f"{rep.plugin_name} ({vp.record_edid}): {vp.script_name}.{vp.prop_name} VMAD type {vp.prop_type} != .psc {psc_ptype}"
+                    )
+                continue
+
+            if vp.prop_type == 11 and not psc_low.endswith("[]"):
+                errors.append(
+                    f"{rep.plugin_name} ({vp.record_edid}): {vp.script_name}.{vp.prop_name} is Object[] in VMAD but {psc_ptype} in .psc"
+                )
+                continue
+            if vp.prop_type == 1 and psc_low.endswith("[]"):
+                errors.append(
+                    f"{rep.plugin_name} ({vp.record_edid}): {vp.script_name}.{vp.prop_name} is scalar Object in VMAD but {psc_ptype} in .psc"
+                )
+                continue
+
+            base_ptype = psc_low[:-2] if psc_low.endswith("[]") else psc_low
+            expected_types = {"QUST"} if base_ptype.startswith("fo4sf_") else CAST_EXPECTED_TYPES.get(base_ptype, set())
+            for alias_id, tgt_plg, tgt_id in vp.object_refs:
+                if alias_id >= 0:
+                    continue
+                if tgt_plg in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"):
+                    if tgt_id not in merged_catalog.get(tgt_plg, {}):
+                        continue
+                if (
+                    vp.script_name.lower() == "fo4sf_newgamequest"
+                    and vp.prop_name.lower() == "holdoff"
+                    and tgt_plg == "Starfield.esm"
+                    and tgt_id not in merged_catalog.get("Starfield.esm", {})
+                ):
+                    continue
+                if tgt_plg not in merged_catalog or tgt_id not in merged_catalog[tgt_plg]:
+                    errors.append(
+                        f"{rep.plugin_name} ({vp.record_edid}): {vp.script_name}.{vp.prop_name} -> "
+                        f"{tgt_plg}:0x{tgt_id:06X} missing in catalog"
+                    )
+                    continue
+                actual_type, actual_edid = merged_catalog[tgt_plg][tgt_id]
+                if expected_types and actual_type not in expected_types:
+                    errors.append(
+                        f"{rep.plugin_name} ({vp.record_edid}): {vp.script_name}.{vp.prop_name} ({psc_ptype}) -> "
+                        f"{tgt_plg}:0x{tgt_id:06X} ({actual_edid}) has wrong record type {actual_type}"
+                    )
+
+        # 3. Validate cross-plugin FO4SF* item/base references in CNTO and placed REFR/ACHR
+        for ctx, tgt_plg, tgt_id in rep.cross_plugin_item_refs:
+            if not tgt_plg.lower().startswith("fo4sf"):
+                continue
+            if tgt_plg not in merged_catalog or tgt_id not in merged_catalog[tgt_plg]:
+                errors.append(f"{rep.plugin_name} ({ctx}): unresolved cross-plugin ref {tgt_plg}:0x{tgt_id:06X}")
+
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Rule R13: Native C++ plugin shared value lookup table & C++ source validator
 # ---------------------------------------------------------------------------
@@ -776,6 +1062,22 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
     ),
     NativeCoreValueSpec(
         "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreHardcoreFastTravelBlockedId",
+        "FO4SFCoreValues.esm",
+        0x000841,
+        "GLOB",
+        "FO4SF_HardcoreFastTravelBlocked",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_map.cpp",
+        "kCoreHardcoreFastTravelBlockedId",
+        "FO4SFCoreValues.esm",
+        0x000841,
+        "GLOB",
+        "FO4SF_HardcoreFastTravelBlocked",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
         "kCoreStimpakLocalId",
         "FO4SFCoreValues.esm",
         0x000851,
@@ -789,6 +1091,23 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
         0x000865,
         "GLOB",
         "FO4SF_PipboyAcquired",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreSpecialMenuPendingFirstId",
+        "FO4SFCoreValues.esm",
+        0x000880,
+        "GLOB",
+        "FO4SF_SpecialMenuPendingS",
+        count=7,
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreSpecialMenuCommitReqId",
+        "FO4SFCoreValues.esm",
+        0x000887,
+        "GLOB",
+        "FO4SF_SpecialMenuCommitRequested",
     ),
 )
 
@@ -856,6 +1175,35 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
         em = re.search(r'AcceptById\([^,]+,\s*"(FO4SF_[A-Za-z0-9_]+)"', tail)
         paired_edid = em.group(1) if em else ""
         refs.append(CppPluginFormRef(cpp_rel, line_no, plugin, fid, rtti_name, paired_edid))
+
+    # Also match ResolvePluginPrefix("FO4SFCoreValues.esm", prefixVar, ...) + LookupPluginGlobal(prefixVar, ..., idExpr)
+    prefix_plugins: Dict[str, str] = {}
+    for pm in re.finditer(
+        r'ResolvePluginPrefix\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)',
+        clean,
+    ):
+        plg_raw, prefix_var = pm.group(1).strip(), pm.group(2).strip()
+        plg = plg_raw[1:-1] if (plg_raw.startswith('"') and plg_raw.endswith('"')) else str_vars.get(plg_raw, "")
+        if plg:
+            prefix_plugins[prefix_var] = plg
+
+    for lm in re.finditer(
+        r"LookupPluginGlobal\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*[^,]+?,\s*([^)]+?)\s*\)",
+        clean,
+    ):
+        prefix_var, id_raw = lm.group(1).strip(), lm.group(2).strip()
+        plugin = prefix_plugins.get(prefix_var, "")
+        if not plugin:
+            continue
+        id_clean = re.sub(r"static_cast<[^>]+>\(([^)]+)\)", r"\1", id_raw)
+        fid = _parse_int_literal(id_clean, local_aliases)
+        line_no = clean.count("\n", 0, lm.start()) + 1
+        if fid is None or fid <= 0:
+            continue
+        tail = clean[lm.end() : lm.end() + 360]
+        em = re.search(r"name=(FO4SF_[A-Za-z0-9_]+)", tail)
+        paired_edid = em.group(1) if em else ""
+        refs.append(CppPluginFormRef(cpp_rel, line_no, plugin, fid, "TESGlobal@@", paired_edid))
 
     return uint_consts, refs
 

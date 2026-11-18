@@ -116,7 +116,7 @@ Function Go() global
 
     GlobalVariable gTarget = TravelGlobal(0x800)
     GlobalVariable gPlugin = TravelGlobal(0x801)
-    GlobalVariable gSurv = TravelGlobal(0x802)
+    GlobalVariable gSurv = Game.GetFormFromFile(0x000841, "FO4SFCoreValues.esm") as GlobalVariable
     GlobalVariable gIdx = TravelGlobal(0x803)
     GlobalVariable gX = TravelGlobal(0x804)
     GlobalVariable gY = TravelGlobal(0x805)

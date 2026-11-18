@@ -2,7 +2,9 @@
 
 ## Overview
 
-`FO4SFPowerArmor.esm` (sole master `Starfield.esm`) implements Fallout 4's climb-in Power Armor frame gameplay loop alongside Fallout: New Vegas's worn heavy Salvaged NCR Power Armor (`#806`), without modifying existing probe or startup plugins:
+> **Reachability Status (`--profile player`):** **`NOT REACHABLE`** in the player profile — `FO4SFPowerArmor.esm` places no Power Armor frame in the exterior world (`FO4SF_PATestCell` `0x0800` is omitted when staged with `--no-test-cell` for `--profile player`, and `FO4SFCoreCandidate.esm`'s test-walk station is `--profile test` only).
+
+`FO4SFPowerArmor.esm` (masters `Starfield.esm` and `FO4SFCoreValues.esm`) implements Fallout 4's climb-in Power Armor frame gameplay loop alongside Fallout: New Vegas's worn heavy Salvaged NCR Power Armor (`#806`), without modifying existing probe or startup plugins:
 
 | Component | Path |
 | :--- | :--- |

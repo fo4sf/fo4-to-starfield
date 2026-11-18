@@ -27,10 +27,10 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_native_core_value_refs,
 )
 
-# parity not applicable: ordered by A6 (FO4SF_PipboyAcquired moved into FO4SFCoreValues.esm at 0x000865)
-PINNED_CORE_VALUES_PLAYER_SHA256 = "ec4bf5489a3822c9e438c07545b511495a699f91450b76a3c9a00d8641b1c41c"
-# parity not applicable: ordered by A5 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
-PINNED_CORE_VALUES_TEST_SHA256 = "83918f6ac60a9d72d4362bd11f82bb2a2d0dfee64cfaec15adc66c3806e6eca7"
+# parity not applicable: ordered by A6 & A12 (FO4SF_PipboyAcquired 0x000865 + FO4SF_SpecialMenuPendingS..CommitRequested 0x000880..0x000887)
+PINNED_CORE_VALUES_PLAYER_SHA256 = "17cc094fae17fe7875f4313dcdc74618e92a9b4fe10bfb5c8c45e43660948ca4"
+# parity not applicable: ordered by A5 & A12 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
+PINNED_CORE_VALUES_TEST_SHA256 = "6cd864fa2dc58f1d047c2eadc264a01f3b4e52b5c1be8df5abf8036d125d143d"
 
 
 def _sha256_file(path: str) -> str:
@@ -43,10 +43,10 @@ def _sha256_file(path: str) -> str:
 
 class CoreValuesSchemaTests(unittest.TestCase):
     def test_schema_invariants_and_pipboy_shared_ids(self) -> None:
-        # parity not applicable: ordered by A6
+        # parity not applicable: ordered by A6 & A12 (0x000870..0x000877 reserved for beginning-real; 0x000880..0x000887 SpecialMenu store handoff)
         plugin, next_id, records = load_core_values()
         self.assertEqual(plugin, CORE_VALUES_PLUGIN)
-        self.assertEqual(next_id, 0x000866)
+        self.assertEqual(next_id, 0x000888)
         by_edid = core_values_by_edid()
         # Pip-Boy native lookup reads local id 0x800 for FO4SF_Rads
         self.assertEqual(core_form_id("FO4SF_Rads"), 0x000800)
@@ -66,7 +66,18 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_PipboyAcquired"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_PipboyAcquired"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_PipboyAcquired"].constant)
-        self.assertEqual(len(records), 43)
+        # A12: 7 pending S.P.E.C.I.A.L. GLOBs (0x000880..0x000886) + commit flag (0x000887)
+        for off, ltr in enumerate(("S", "P", "E", "C", "I", "A", "L")):
+            ed = f"FO4SF_SpecialMenuPending{ltr}"
+            self.assertEqual(core_form_id(ed), 0x000880 + off)
+            self.assertEqual(by_edid[ed].record_type, "GLOB")
+            self.assertEqual(by_edid[ed].default, 5.0)
+            self.assertFalse(by_edid[ed].constant)
+        self.assertEqual(core_form_id("FO4SF_SpecialMenuCommitRequested"), 0x000887)
+        self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].record_type, "GLOB")
+        self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].default, 0.0)
+        self.assertFalse(by_edid["FO4SF_SpecialMenuCommitRequested"].constant)
+        self.assertEqual(len(records), 51)
 
     def test_r13_native_core_value_lookups_match_schema_and_catch_wrong_or_split_ids(self) -> None:
         catalog, dup_errors = build_writer_catalog(ROOT)

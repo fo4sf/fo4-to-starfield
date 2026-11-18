@@ -294,7 +294,7 @@ class CoreBundleTests(unittest.TestCase):
             rc = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
                 "--clean-core-out", str(clean_out), "--out", str(out), "--port", str(port_esm),
-                "--with-pipboy", "--pipboy-stage", str(pb),
+                "--profile", "test", "--with-pipboy", "--pipboy-stage", str(pb),
             ], system=_FakeSystemClosed())
             self.assertEqual(rc, 0)
 
@@ -331,12 +331,12 @@ class CoreBundleTests(unittest.TestCase):
             self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyKit.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
 
-            # Player profile omits FO4SFCoreCandidate.esm
+            # A17: Default profile for fold (when --profile is omitted) is 'player', omitting FO4SFCoreCandidate.esm
             out_player = root / "bundle-player"
             rc_player = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
                 "--out", str(out_player), "--port", str(port_esm),
-                "--profile", "player", "--with-pipboy", "--pipboy-stage", str(pb),
+                "--with-pipboy", "--pipboy-stage", str(pb),
             ], system=_FakeSystemClosed())
             self.assertEqual(rc_player, 0)
             pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
@@ -706,6 +706,94 @@ class CoreBundleTests(unittest.TestCase):
                 probs_missing,
             )
             self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out), "--port", str(port_esm)]), 1)
+
+    def test_a15_verify_binary_esm_rejects_rogue_duplicate_editor_id_plugin(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+
+            out = root / "bundle-a15"
+            self.assertEqual(
+                mcb.main([
+                    "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                    "--out", str(out), "--port", str(port_esm),
+                ], system=_FakeSystemClosed()),
+                0,
+            )
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out), "--port", str(port_esm)]), 0)
+
+            # Inject a rogue binary .esm redefining FO4SF_Rads (already owned by FO4SFCoreValues.esm:0x000800)
+            rogue_w = PluginWriter(("Starfield.esm",), flags=ESM, author="rogue")
+            rogue_w.add(
+                Record(
+                    b"AVIF",
+                    rogue_w.own(0x000899),
+                    [(b"EDID", zbytes("FO4SF_Rads"))],
+                    0,
+                    0,
+                    581,
+                    0,
+                )
+            )
+            rogue_bytes = rogue_w.to_bytes(compress=False)
+            (out / "FO4SFRogueDup.esm").write_bytes(rogue_bytes)
+
+            bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
+            orig_plugins = list(bplan["plugins"])
+            new_plugins = [*orig_plugins, "FO4SFRogueDup.esm"]
+            bplan["plugins"] = new_plugins
+            bplan["components"]["rogue"] = {
+                "plugins": ["FO4SFRogueDup.esm"],
+                "outputs": {"FO4SFRogueDup.esm": _sha256_bytes(rogue_bytes)},
+            }
+            (out / "bundle_plan.json").write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+            (out / "README.txt").write_text(
+                (out / "README.txt").read_text(encoding="utf-8").replace(",".join(orig_plugins), ",".join(new_plugins)),
+                encoding="utf-8",
+                newline="\n",
+            )
+
+            probs, _ = mcb.verify_bundle(str(out), port_esm=str(port_esm))
+            self.assertTrue(
+                any("Binary stage duplicate EditorID across plugins" in p and "FO4SF_Rads" in p for p in probs),
+                probs,
+            )
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out), "--port", str(port_esm)]), 1)
+
+    def test_a17_build_and_fold_both_default_profile_to_player(self):
+        # Capture parsed args for both `build` and `fold` when `--profile` is omitted
+        captured: list[tuple[str, str]] = []
+        orig_build = mcb.cmd_build
+        orig_fold = mcb.cmd_fold
+        try:
+            mcb.cmd_build = lambda a, system=None: (captured.append(("build", a.profile)), 0)[1]
+            mcb.cmd_fold = lambda a, system=None: (captured.append(("fold", a.profile)), 0)[1]
+            rc_b = mcb.main([
+                "build",
+                "--owner-set", "ow",
+                "--out", "out",
+                "--work", "wk",
+                "--starfield-dir", "sf",
+                "--fo4-data", "fo4",
+                "--port", "port.esm",
+                "--port-ids", "ids.json",
+                "--door-anim-dll", "calumi.dll",
+                "--collision-template", "col.nif",
+                "--texconv", "texconv.exe",
+            ])
+            rc_f = mcb.main([
+                "fold",
+                "--owner-set", "ow",
+                "--stages-root", "st",
+                "--out", "out",
+            ])
+        finally:
+            mcb.cmd_build = orig_build
+            mcb.cmd_fold = orig_fold
+
+        self.assertEqual(rc_b, 0)
+        self.assertEqual(rc_f, 0)
+        self.assertEqual(captured, [("build", "player"), ("fold", "player")])
 
     @unittest.skipUnless(os.environ.get("FO4SF_DOTNET_TESTS") == "1", "FO4SF_DOTNET_TESTS!=1")
     def test_dotnet_core_candidate_selftest(self):

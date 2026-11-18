@@ -66,10 +66,10 @@ namespace
 	constexpr std::uint32_t kDefaultGameHourId = 0x38;
 	constexpr std::uint32_t kDefaultGameDaysPassedId = 0x39;
 
-	// FO4SFPipboyTravel.esm local FormIDs (written by scripts/ui/pipboy_map_store.py)
+	// FO4SFPipboyTravel.esm local FormIDs (written by scripts/ui/pipboy_map_store.py) and FO4SFCoreValues.esm hardcore gate (A2)
 	constexpr std::uint32_t kGlobTravelTarget = 0x800;  // target marker local FormID (< 2^24, exact in float32)
 	constexpr std::uint32_t kGlobTravelPlugin = 0x801;  // 0 = FO4SFMapMarkers.esm, 1 = FO4TerrainCore.esm, 2+ = other worlds
-	constexpr std::uint32_t kGlobSurvivalMode = 0x802;  // 0 = fast travel enabled, 1 = survival blocked
+	constexpr std::uint32_t kCoreHardcoreFastTravelBlockedId = 0x841; // FO4SFCoreValues.esm GLOB FO4SF_HardcoreFastTravelBlocked
 	constexpr std::uint32_t kGlobTravelIndex = 0x803;   // marker store index
 	constexpr std::uint32_t kGlobTravelX = 0x804;       // merged arrival X (Starfield m)
 	constexpr std::uint32_t kGlobTravelY = 0x805;       // merged arrival Y (Starfield m)
@@ -990,16 +990,34 @@ namespace
 			DaysToCalendar(days, next.dateMonth, next.dateDay, next.dateYear);
 		}
 
+		static bool   loggedCoreSurvivalResolve = false;
+		std::uint32_t corePrefix = 0;
+		bool          coreSmall = false;
+		if (g_verifiedGlobalValueAt != 0) {
+			std::uintptr_t survGlob = 0;
+			std::uint32_t  survFormId = 0;
+			if (ResolvePluginPrefix("FO4SFCoreValues.esm", corePrefix, coreSmall)) {
+				survGlob = LookupPluginGlobal(corePrefix, coreSmall, kCoreHardcoreFastTravelBlockedId);
+				if (survGlob) {
+					Peek(survGlob + kFormIdAt, survFormId);
+				}
+			}
+			if (!loggedCoreSurvivalResolve) {
+				loggedCoreSurvivalResolve = true;
+				REX::INFO("step=core_value_resolve name=FO4SF_HardcoreFastTravelBlocked source=FO4SFCoreValues.esm:{:06X} found={} form={:08X}",
+					kCoreHardcoreFastTravelBlockedId, survGlob ? 1 : 0, survFormId);
+			}
+			float surv = 0.0f;
+			if (survGlob && ReadGlobalFloat(survGlob, surv)) {
+				next.liveSurvival = surv >= 0.5f;
+			}
+		}
+
 		std::uint32_t travelPrefix = 0;
 		bool          travelSmall = false;
 		const bool    haveTravelPlugin = g_verifiedGlobalValueAt != 0 &&
 		                                 ResolvePluginPrefix(g_travelPlugin, travelPrefix, travelSmall);
 		if (haveTravelPlugin) {
-			float surv = 0.0f;
-			if (const auto survGlob = LookupPluginGlobal(travelPrefix, travelSmall, kGlobSurvivalMode);
-				ReadGlobalFloat(survGlob, surv)) {
-				next.liveSurvival = surv >= 0.5f;
-			}
 			for (std::size_t i = 0; i < kDiscGlobals; ++i) {
 				float      bits = 0.0f;
 				const auto glob = LookupPluginGlobal(travelPrefix, travelSmall, kGlobDiscFirst + static_cast<std::uint32_t>(i));
@@ -1157,18 +1175,18 @@ namespace
 		if (!ui) {
 			return;
 		}
-		for (auto& entry : ui->menuMap) {
-			const char* rawKey = entry.key.c_str();
-			if (!rawKey) {
-				continue;
-			}
-			for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
-				const auto& blocked = g_mapMenus[slot];
-				if (!SameAscii(rawKey, blocked)) {
+		for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
+			const auto& blocked = g_mapMenus[slot];
+			bool        found = false;
+			for (auto& entry : ui->menuMap) {
+				const char* rawKey = entry.key.c_str();
+				if (!rawKey || !SameAscii(rawKey, blocked)) {
 					continue;
 				}
+				found = true;
 				const auto origAddr = reinterpret_cast<std::uintptr_t>(entry.value.initFunc);
 				if (IsBlockedMapCreator(entry.value.initFunc)) {
+					REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva=already_installed", blocked, slot);
 					break;
 				}
 				if (!InImage(origAddr, 1)) {
@@ -1180,8 +1198,11 @@ namespace
 				} else {
 					entry.value.initFunc = kBlockedMapMenuCreators[slot];
 				}
-				REX::INFO("step=starmap_block_install menu={} slot={} orig_rva={}", blocked, slot, Hex(origAddr - g_base));
+				REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva={}", blocked, slot, Hex(origAddr - g_base));
 				break;
+			}
+			if (!found) {
+				REX::INFO("step=starmap_block_install menu={} found=0", blocked);
 			}
 		}
 	}
@@ -1928,7 +1949,7 @@ namespace PipboyMap
 			if (++g_hardcoreLogs <= kMaxLogLines) {
 				std::uint32_t idx = 0;
 				ParseArgUInt(a_params, 0, idx);
-				REX::INFO("step=map_check_hardcore idx={} allow={}", idx, allow ? 1 : 0);
+				REX::INFO("step=map_check_hardcore idx={} source=FO4SFCoreValues.esm:000841 allow={}", idx, allow ? 1 : 0);
 			}
 			return;
 		}

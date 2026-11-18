@@ -296,6 +296,59 @@ int Function ReadFactionRepState(int slotIndex)
     return stateGlob.GetValue() as int
 EndFunction
 
+bool Function ApplySpecialMenuCommit(Actor player)
+    GlobalVariable reqGlob = Game.GetFormFromFile(0x000887, "FO4SFCoreValues.esm") as GlobalVariable
+    if reqGlob == None || reqGlob.GetValue() < 0.5
+        return false
+    endif
+    reqGlob.SetValue(0.0)
+
+    GlobalVariable gS = Game.GetFormFromFile(0x000880, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gP = Game.GetFormFromFile(0x000881, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gE = Game.GetFormFromFile(0x000882, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gC = Game.GetFormFromFile(0x000883, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gI = Game.GetFormFromFile(0x000884, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gA = Game.GetFormFromFile(0x000885, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gL = Game.GetFormFromFile(0x000886, "FO4SFCoreValues.esm") as GlobalVariable
+    if gS == None || gP == None || gE == None || gC == None || gI == None || gA == None || gL == None
+        LogLine("error", "reason=special_menu_missing_globals source=fo4_menu")
+        return false
+    endif
+
+    int s0 = gS.GetValue() as int
+    int s1 = gP.GetValue() as int
+    int s2 = gE.GetValue() as int
+    int s3 = gC.GetValue() as int
+    int s4 = gI.GetValue() as int
+    int s5 = gA.GetValue() as int
+    int s6 = gL.GetValue() as int
+    if s0 < 1 || s0 > 10 || s1 < 1 || s1 > 10 || s2 < 1 || s2 > 10 || s3 < 1 || s3 > 10 || s4 < 1 || s4 > 10 || s5 < 1 || s5 > 10 || s6 < 1 || s6 > 10
+        LogLine("error", "reason=special_menu_stat_range source=fo4_menu")
+        return false
+    endif
+
+    int reqPool = 40
+    if Pool28Global.GetValue() >= 0.5
+        reqPool = 28
+    endif
+    int sum = s0 + s1 + s2 + s3 + s4 + s5 + s6
+    if sum != reqPool
+        LogLine("error", "reason=pool_mismatch sum=" + sum + " required=" + reqPool + " source=fo4_menu")
+        return false
+    endif
+
+    player.SetValue(GetSpecialAV(0), s0 as float)
+    player.SetValue(GetSpecialAV(1), s1 as float)
+    player.SetValue(GetSpecialAV(2), s2 as float)
+    player.SetValue(GetSpecialAV(3), s3 as float)
+    player.SetValue(GetSpecialAV(4), s4 as float)
+    player.SetValue(GetSpecialAV(5), s5 as float)
+    player.SetValue(GetSpecialAV(6), s6 as float)
+    RecomputeSkillsAndDerived(player)
+    LogLine("special", "set S=" + s0 + " P=" + s1 + " E=" + s2 + " C=" + s3 + " I=" + s4 + " A=" + s5 + " L=" + s6 + " sum=" + sum + " source=fo4_menu")
+    return true
+EndFunction
+
 Event OnQuestInit()
     Actor player = Game.GetPlayer()
     if player != None
@@ -315,6 +368,8 @@ Function PollStages()
     if player == None
         return
     endif
+
+    ApplySpecialMenuCommit(player)
 
     ; Passive level-up watcher queueing skill & GLOB-cadence perk points
     int curLv = player.GetLevel()
