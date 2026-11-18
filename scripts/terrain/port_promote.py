@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
 sys.path.insert(0, HERE)
 import make_cluster  # noqa: E402
 import make_core64c  # noqa: E402
-from fo4sf import nif  # noqa: E402
+from fo4sf import nif, pipeline  # noqa: E402
 
 PREFIX = "FO4Port_"
 KINDS = ("containers", "items", "activators", "terminals", "furniture")
@@ -73,7 +73,7 @@ def chair_markers(nif_bytes):
              "rotation_z": round(math.degrees(m["heading"]), 3)} for m in marks]
 
 
-def furniture(refs, placed, bases, mesh=None, names=None):
+def furniture(refs, placed, bases, mesh=None, names=None, prefix=PREFIX):
     """(entries, report): every placed FO4 Furniture reference that furniture_kind calls a chair, one shared base per
     FO4 base (name from --names / the export, else "Chair"), markers from its NIF when `mesh` (model -> bytes) reads one."""
     order = {src: i for i, src in enumerate(placed)}
@@ -90,7 +90,7 @@ def furniture(refs, placed, bases, mesh=None, names=None):
         if base not in markers:
             markers[base] = chair_markers(mesh("meshes\\" + str(r["model"]).lstrip("\\"))) if mesh else None
         name = names.get(base) or (bases[base].get("name") or "Chair")
-        entries.append({"src": src, "edid": port_edid("furn", base, src), "name": name, "template": CHAIR_TEMPLATE,
+        entries.append({"src": src, "edid": port_edid("furn", base, src, prefix=prefix), "name": name, "template": CHAIR_TEMPLATE,
                         "markers": markers[base], "slot": order[src]})
         rep["chairs with FO4 markers" if markers[base] else "chairs with the template marker"] += 1
     entries.sort(key=lambda e: e["slot"])
@@ -100,10 +100,10 @@ def furniture(refs, placed, bases, mesh=None, names=None):
     return entries, dict(rep)
 
 
-def port_edid(kind, base, src):
+def port_edid(kind, base, src, prefix=PREFIX):
     """The core's promoted edid (FO4Core_<kind>_<6 hex>_<plugin>) under the port's prefix."""
     core = make_core64c.promoted_edid(kind, base, src)
-    return PREFIX + core[len(make_core64c.EDID_PREFIX):]
+    return prefix + core[len(make_core64c.EDID_PREFIX):]
 
 
 def cell_refs(paths):
@@ -123,26 +123,27 @@ def cell_refs(paths):
     return refs, placed
 
 
-def promote(refs, placed, containers_table, items_table, names=None, starfield_esm=None, furniture_bases=None, mesh=None):
+def promote(refs, placed, containers_table, items_table, names=None, starfield_esm=None, furniture_bases=None, mesh=None,
+            prefix=PREFIX):
     """The promote.json document: per kind the entries PluginSpike reads ({"src", "edid", ...}) and a report."""
     out, report = {"note": "scripts/terrain/port_promote.py: interior promotions read by dotnet/PluginSpike "
                            "(Promotions.cs) from its output dir", "starfield_esm": starfield_esm}, {}
     conts, report["containers"] = make_cluster.containers(refs, placed, containers_table)
-    out["containers"] = [{"src": e["src"], "edid": port_edid("cont", e["base"], e["src"]), "name": e["name"],
+    out["containers"] = [{"src": e["src"], "edid": port_edid("cont", e["base"], e["src"], prefix=prefix), "name": e["name"],
                           "items": e["items"]} for e in conts["containers"]]
     its, report["items"] = make_cluster.items(refs, placed, items_table)
-    out["items"] = [{"src": e["src"], "edid": port_edid("misc", e["base"], e["src"]), "name": e["name"],
+    out["items"] = [{"src": e["src"], "edid": port_edid("misc", e["base"], e["src"], prefix=prefix), "name": e["name"],
                      "value": e["value"], "weight": e["weight"]} for e in its["items"]]
     actis, report["activators"] = make_cluster.activators(refs, placed, names=names)
-    out["activators"] = [{"src": e["src"], "edid": port_edid("acti", e["base"], e["src"]), "name": e["name"]}
+    out["activators"] = [{"src": e["src"], "edid": port_edid("acti", e["base"], e["src"], prefix=prefix), "name": e["name"]}
                          for e in actis["activators"]]
     terms, report["terminals"] = make_cluster.terminals(refs, placed, names=names)
     out["terminals"] = []
     for e in terms["terminals"]:
-        edid = port_edid("term", e["base"], e["src"])
-        out["terminals"].append({"src": e["src"], "edid": edid, "menu_edid": PREFIX + "tmlm_" + edid[len(PREFIX + "term_"):],
+        edid = port_edid("term", e["base"], e["src"], prefix=prefix)
+        out["terminals"].append({"src": e["src"], "edid": edid, "menu_edid": prefix + "tmlm_" + edid[len(prefix + "term_"):],
                                  "name": e["name"], "body": e["body"]})
-    out["furniture"], report["furniture"] = (furniture(refs, placed, furniture_bases, mesh, names)
+    out["furniture"], report["furniture"] = (furniture(refs, placed, furniture_bases, mesh, names, prefix=prefix)
                                              if furniture_bases is not None else ([], {}))
     for kind, what in (("terminals", "terminal's"), ("furniture", "chair's")):
         if out[kind] and not starfield_esm:
@@ -168,18 +169,19 @@ def main(argv=None):
     ap.add_argument("--starfield-data", default="", help="Starfield's Data folder (Starfield.esm: terminal and chair templates)")
     ap.add_argument("--furniture", default="", help="dotnet/Fo4Land export-furniture over Fallout4.esm: promotes chairs")
     ap.add_argument("--fo4-data", default="", help="Fallout 4's Data folder: the chairs' sit markers from their NIFs")
+    ap.add_argument("--prefix", default="fo4port", help="EditorID prefix slug (default fo4port -> FO4Port_)")
     a = ap.parse_args(argv)
+    edid_prefix = pipeline.editor_id_prefix(a.prefix) + "_"
     refs, placed = cell_refs(a.exports)
     sf = os.path.abspath(os.path.join(a.starfield_data, "Starfield.esm")) if a.starfield_data else None
     if sf and not os.path.isfile(sf):
         raise SystemExit(f"no Starfield.esm in {a.starfield_data}")
     mesh = None
     if a.fo4_data:
-        from fo4sf import pipeline
         mesh = pipeline.Fo4Archives(a.fo4_data).mesh
     doc = promote(refs, placed, make_cluster.load(a.containers_table), make_cluster.load(a.items_table),
                   make_cluster.load_names(a.names) if a.names else None, sf,
-                  make_cluster.load(a.furniture)["furniture"] if a.furniture else None, mesh)
+                  make_cluster.load(a.furniture)["furniture"] if a.furniture else None, mesh, prefix=edid_prefix)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1)

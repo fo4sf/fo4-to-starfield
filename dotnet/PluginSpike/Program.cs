@@ -27,7 +27,28 @@ const float UnitsPerMetre = 70f;
 var outDir = args[0];
 Directory.CreateDirectory(outDir);
 
-var modKey = ModKey.FromNameAndExtension("FO4Port.esm");
+string pluginFileName = "FO4Port.esm";
+string edidPrefix = "FO4Port";
+bool interactiveFidelity = false;
+string? portReferencePath = null;
+var cellArgPaths = new List<string>();
+for (int ai = 2; ai < args.Length; ai++)
+{
+    var a = args[ai];
+    if (a == "--interactive-fidelity") interactiveFidelity = true;
+    else if (a.StartsWith("--port-reference=", StringComparison.Ordinal)) portReferencePath = a.Substring("--port-reference=".Length);
+    else if (a == "--port-reference" && ai + 1 < args.Length) portReferencePath = args[++ai];
+    else if (a.StartsWith("--plugin-name=", StringComparison.Ordinal)) pluginFileName = a.Substring("--plugin-name=".Length);
+    else if (a == "--plugin-name" && ai + 1 < args.Length) pluginFileName = args[++ai];
+    else if (a.StartsWith("--edid-prefix=", StringComparison.Ordinal)) edidPrefix = a.Substring("--edid-prefix=".Length);
+    else if (a == "--edid-prefix" && ai + 1 < args.Length) edidPrefix = args[++ai];
+    else if (a.StartsWith("--", StringComparison.Ordinal)) throw new InvalidOperationException($"unknown option {a}");
+    else cellArgPaths.Add(a);
+}
+if (!pluginFileName.EndsWith(".esm", StringComparison.OrdinalIgnoreCase))
+    pluginFileName += ".esm";
+
+var modKey = ModKey.FromNameAndExtension(pluginFileName);
 var sfEsm = ModKey.FromNameAndExtension("Starfield.esm");
 var release = StarfieldRelease.Starfield;
 var mod = new StarfieldMod(modKey, release);
@@ -250,7 +271,7 @@ using var promotions = new Promotions(Path.Combine(outDir, "promote.json"));
 
 // Starfield locations (Locations.cs): every converted cell gets an LCTN, shared with the other cells of its FO4 location,
 // carrying the FO4 encounter zone's leveling; <output dir>/locations.json supplies the FO4 data for exports without it.
-using var locations = new Locations(Path.Combine(outDir, "locations.json"), mod, Id, release);
+using var locations = new Locations(Path.Combine(outDir, "locations.json"), mod, Id, release, edidPrefix);
 
 // ---- cells ------------------------------------------------------------------------------------------------------------
 P3Float Pos(JsonElement p) => new(p[0].GetSingle() / UnitsPerMetre, p[1].GetSingle() / UnitsPerMetre, p[2].GetSingle() / UnitsPerMetre);
@@ -258,24 +279,12 @@ P3Float Rot(JsonElement o) => new(o[0].GetSingle(), o[1].GetSingle(), o[2].GetSi
 
 // every placed reference by its source FO4 FormKey, for the teleport links after all cells are placed
 var placedBySource = new Dictionary<string, (PlacedObject obj, Cell cell)>();
-bool interactiveFidelity = false;
-string? portReferencePath = null;
-var cellArgPaths = new List<string>();
-for (int ai = 2; ai < args.Length; ai++)
-{
-    var a = args[ai];
-    if (a == "--interactive-fidelity") interactiveFidelity = true;
-    else if (a.StartsWith("--port-reference=", StringComparison.Ordinal)) portReferencePath = a.Substring("--port-reference=".Length);
-    else if (a == "--port-reference" && ai + 1 < args.Length) portReferencePath = args[++ai];
-    else if (a.StartsWith("--", StringComparison.Ordinal)) throw new InvalidOperationException($"unknown option {a}");
-    else cellArgPaths.Add(a);
-}
 var cellDocs = cellArgPaths.Select(p => JsonDocument.Parse(File.ReadAllText(p))).ToList();   // kept open until the links are written
 foreach (var cdoc in cellDocs)
 {
     var root = cdoc.RootElement;
     var src4 = root.GetProperty("cell").GetString()!;
-    var cellName = "FO4Port_" + src4;
+    var cellName = $"{edidPrefix}_{src4}";
     var cell = new Cell(Id("CELL:" + cellName), release) { EditorID = cellName, Flags = Cell.Flag.IsInteriorCell };
     cell.Location.SetTo(locations.For(root, src4).FormKey);
     // CELL flag bit 16 "Use Location as Name" (no Mutagen member in alpha.67; the raw bit round-trips): off unless the
@@ -401,7 +410,7 @@ if (interactiveFidelity)
     var preReport = new InteractiveFidelityReport();
     InteractiveFidelityPass.BuildManifestKeys(manifestDoc.RootElement, mod, Id, release, preReport);
     var cellElements = cellDocs.Select(d => d.RootElement).ToList();
-    var applied = InteractiveFidelityPass.Apply(mod, ids, Id, placedBySource, cellElements, ownRigDoors, xtelLoadBases, portReferencePath, release);
+    var applied = InteractiveFidelityPass.Apply(mod, ids, Id, placedBySource, cellElements, ownRigDoors, xtelLoadBases, portReferencePath, release, edidPrefix);
     applied.Fidelity.CreatedKeys += preReport.CreatedKeys;
     var f = applied.Fidelity;
     teleports = applied.Teleports;
@@ -444,14 +453,15 @@ File.WriteAllText(Path.Combine(outDir, "teleports.json"), JsonSerializer.Seriali
 // Akila door 0AA24A 3 m to the side for comparison, and a COC marker 1.5 m in front of the converted door, facing it.
 if (Environment.GetEnvironmentVariable("FO4PORT_DOORTEST") is string testDoor)
 {
-    var cell = new Cell(Id("CELL:FO4Port_DoorTest"), release) { EditorID = "FO4Port_DoorTest", Flags = Cell.Flag.IsInteriorCell };
+    var doorTestEdid = $"{edidPrefix}_DoorTest";
+    var cell = new Cell(Id("CELL:" + doorTestEdid), release) { EditorID = doorTestEdid, Flags = Cell.Flag.IsInteriorCell };
     cell.LightingTemplate.SetTo(new FormKey(sfEsm, 0x006658));
     cell.ImageSpace.SetTo(new FormKey(sfEsm, 0x122393));
     cell.EnvironmentMap = "Data\\Textures\\cubemaps\\blackcube.dds";
     var entry = items.First(i => i.editorId == testDoor);
     var (doorKey, doorOff) = bySource[entry.source.Replace('/', '\\')];
     PlacedObject P(string key, FormKey b, P3Float pos, P3Float rot) =>
-        new(Id("REFR:FO4Port_DoorTest:" + key), release) { Base = new FormLinkNullable<IPlaceableObjectGetter>(b), Position = pos, Rotation = rot };
+        new(Id($"REFR:{doorTestEdid}:" + key), release) { Base = new FormLinkNullable<IPlaceableObjectGetter>(b), Position = pos, Rotation = rot };
     var zero = new P3Float(0, 0, 0);
     cell.Temporary.Add(P("floor", new FormKey(sfEsm, 0x050776), new P3Float(-2, 0, 0), zero));  // NA_Transit_PlatformA_Str08x08_01: x -2..6, top z 0
     cell.Temporary.Add(P("door", doorKey, doorOff, zero));

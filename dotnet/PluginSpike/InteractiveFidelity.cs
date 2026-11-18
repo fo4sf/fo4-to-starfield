@@ -126,7 +126,8 @@ public static class InteractiveFidelityPass
         IReadOnlySet<FormKey> ownRigDoors,
         IReadOnlyDictionary<FormKey, FormKey> xtelLoadBases,
         string? portReferencePath = null,
-        StarfieldRelease release = StarfieldRelease.Starfield)
+        StarfieldRelease release = StarfieldRelease.Starfield,
+        string edidPrefix = "FO4Port")
     {
         var report = new InteractiveFidelityReport();
 
@@ -285,7 +286,7 @@ public static class InteractiveFidelityPass
         // Step A: Recreate needed control markers and connected AutoloadDoor endpoints; honor exported persistence.
         foreach (var exp in cellExports)
         {
-            var cellName = "FO4Port_" + exp.GetProperty("cell").GetString()!;
+            var cellName = $"{edidPrefix}_" + exp.GetProperty("cell").GetString()!;
             if (!cellsByName.TryGetValue(cellName, out var cell)) continue;
             foreach (var r in exp.GetProperty("refs").EnumerateArray())
             {
@@ -451,7 +452,7 @@ public static class InteractiveFidelityPass
                 var salt = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(norm)))[..16];
                 var kw = new Keyword(fk, release)
                 {
-                    EditorID = $"FO4Port_{stem}_{salt}",
+                    EditorID = $"{edidPrefix}_{stem}_{salt}",
                     Type = def.HasNoneType ? Keyword.TypeEnum.None : null,
                     Color = def.Color == null ? null : Color.FromArgb(def.Color[0], def.Color[1], def.Color[2]),
                 };

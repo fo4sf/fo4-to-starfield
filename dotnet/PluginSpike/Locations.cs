@@ -19,12 +19,14 @@ using Mutagen.Bethesda.Starfield;
 
 public sealed class Locations : IDisposable
 {
+    public const string DefaultPrefix = "FO4Port";
     public const string RootEditorId = "FO4Port_InteriorsLocation";
     public static readonly FormKey RootParent = new(ModKey.FromNameAndExtension("Starfield.esm"), 0x01B736);   // SSol_PMars_Surface
 
     readonly StarfieldMod mod;
     readonly Func<string, FormKey> id;
     readonly StarfieldRelease release;
+    readonly string edidPrefix;
     readonly JsonDocument? sidecar;
     readonly Dictionary<string, Location> byKey = new();            // formids key -> record: Id() is called once per key
     readonly Dictionary<FormKey, (string cell, string zone)> leveledBy = new();   // location -> the cell whose zone it carries
@@ -33,9 +35,11 @@ public sealed class Locations : IDisposable
     public int Shared, PerCell, Leveled, FromSidecar, WithoutData;
     public readonly List<string> Warnings = new();
 
-    public Locations(string sidecarPath, StarfieldMod mod, Func<string, FormKey> id, StarfieldRelease release)
+    public Locations(string sidecarPath, StarfieldMod mod, Func<string, FormKey> id, StarfieldRelease release,
+                     string edidPrefix = DefaultPrefix)
     {
         this.mod = mod; this.id = id; this.release = release;
+        this.edidPrefix = string.IsNullOrWhiteSpace(edidPrefix) ? DefaultPrefix : edidPrefix;
         if (!File.Exists(sidecarPath)) return;
         sidecar = JsonDocument.Parse(File.ReadAllText(sidecarPath));
         if (sidecar.RootElement.ValueKind != JsonValueKind.Object || !sidecar.RootElement.TryGetProperty("cells", out var cells)
@@ -55,12 +59,12 @@ public sealed class Locations : IDisposable
         if (fo4Loc is JsonElement l)
         {
             // one Starfield LCTN per FO4 LCTN; an FO4 location without an editor id is keyed by its FormKey
-            editorId = Text(l, "editor_id") is string e ? "FO4Port_" + e : "FO4Port_LCTN_" + l.GetProperty("formkey").GetString()!.Replace(':', '_');
+            editorId = Text(l, "editor_id") is string e ? $"{edidPrefix}_{e}" : $"{edidPrefix}_LCTN_" + l.GetProperty("formkey").GetString()!.Replace(':', '_');
             key = "LCTN:" + editorId;
         }
         else
         {
-            editorId = $"FO4Port_{src4}Location";
+            editorId = $"{edidPrefix}_{src4}Location";
             key = "LCTN:" + editorId;
         }
         if (!byKey.TryGetValue(key, out var loc))
@@ -104,7 +108,8 @@ public sealed class Locations : IDisposable
     Location Root()
     {
         if (root != null) return root;
-        root = new Location(id("LCTN:" + RootEditorId), release) { EditorID = RootEditorId };
+        var rootEdid = edidPrefix == DefaultPrefix ? RootEditorId : $"{edidPrefix}_InteriorsLocation";
+        root = new Location(id("LCTN:" + rootEdid), release) { EditorID = rootEdid };
         root.ParentLocation.SetTo(RootParent);
         mod.Locations.Add(root);
         return root;
