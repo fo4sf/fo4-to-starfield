@@ -1209,7 +1209,7 @@ def install_set(port, plugin=PLUGIN):
 def placed_counts(log, edid_prefix="FO4Port"):
     """{cell: {"placed", "lights", "skipped"}} from PluginSpike's per-cell lines."""
     out = {}
-    rx = re.compile(rf"cell {re.escape(edid_prefix)}_(\S+) \S+: placed (\d+) references \+ (\d+) lights .*skipped (\d+)")
+    rx = re.compile(rf"cell {re.escape(edid_prefix)}_(\S+) \S+: placed (\d+) references .*?\+ (\d+) lights .*?skipped (\d+)")
     with open(log, encoding="utf-8", errors="replace") as f:
         for line in f:
             m = rx.search(line)
@@ -1731,6 +1731,9 @@ def main(argv=None):
     ac.add_argument("--stage", required=True, help="stage directory with passed result.json and port/doors_check.json")
     ac.add_argument("--core", default="", help="optional core directory (defaults to port/doors_check.json 'core')")
     ac.add_argument("--out", default="", help="optional new stage directory (leaves --stage untouched)")
+    import interior_dlc
+    bd = sub.add_parser("build-dlc")
+    interior_dlc.add_cli_arguments(bd)
     c = sub.add_parser("compare")
     c.add_argument("--old", required=True)
     c.add_argument("--new", required=True)
@@ -1756,6 +1759,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "build":
         return build(a)
+    if a.cmd == "build-dlc":
+        return interior_dlc.run_from_namespace(a)
     if a.cmd == "adopt-core":
         try:
             summary = adopt_core(a.stage, core_dir=a.core, out_dir=a.out)

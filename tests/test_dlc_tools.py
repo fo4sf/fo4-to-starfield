@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from ba2_fixture import general_archive  # noqa: E402
 from fo4sf import pipeline  # noqa: E402
 import interior_batch as ib  # noqa: E402
+import interior_dlc  # noqa: E402
 
 _cb_spec = importlib.util.spec_from_file_location("convert_batch_dlc", ROOT / "scripts" / "convert_batch.py")
 convert_batch = importlib.util.module_from_spec(_cb_spec)
@@ -395,6 +396,164 @@ class D5ScolMissingMeshAndFallbackTests(unittest.TestCase):
             self.assertEqual(src.mesh("Meshes\\direct.nif"), b"direct-bytes")
             # Missing developer-ESP SCOL resolves cleanly to its base FormKey path in DLCRobot - Main.ba2
             self.assertEqual(src.mesh("meshes\\SCOL\\DevMergeA.esp\\CM00083F.NIF"), b"scol-combined-nif-bytes")
+
+
+class D4DlcInteriorsDriverTests(unittest.TestCase):
+    @staticmethod
+    def _pluginspike_dll() -> str:
+        for cfg in ("Release", "Debug"):
+            cand = ROOT / "dotnet" / "PluginSpike" / "bin" / cfg / "net9.0" / "PluginSpike.dll"
+            if cand.is_file():
+                return str(cand)
+        raise FileNotFoundError("PluginSpike.dll not built")
+
+    def test_select_dlc_cells_excludes_fo4port_owned_and_builds_self_contained_test_station_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sf = root / "sf"
+            (sf / "Data").mkdir(parents=True)
+            exports = root / "exports"
+            exports.mkdir()
+            staging = root / "staging"
+            (staging / "meshes" / "fo4dlc").mkdir(parents=True)
+            (staging / "textures" / "fo4dlc").mkdir(parents=True)
+            (staging / "meshes" / "fo4dlc" / "wall.nif").write_bytes(b"NIFDATA")
+            (staging / "textures" / "fo4dlc" / "wall_d.dds").write_bytes(b"DDSDATA")
+
+            owned_stage = root / "interiors_b10"
+            owned_stage.mkdir()
+            (owned_stage / "result.json").write_text(
+                json.dumps(
+                    {
+                        "name": "interiors_b10",
+                        "pins": {"base_exports": {"DmndValentines01": "abc"}},
+                        "cells": {
+                            "GeneralAtomicsFactory01": {},
+                            "RailroadHQ01": {},
+                            "DLC01FortHagenSatelliteArray01": {},
+                            "DLC01Lair01": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            census_cells = [
+                # 5 overlapping cells owned by FO4Port / interiors_b10
+                {"editor_id": "DmndValentines01", "formkey": "001E47:Fallout4.esm", "plugins": ["Fallout4.esm", "DLCCoast.esm"], "reach": "worldspace", "test_name": False},
+                {"editor_id": "GeneralAtomicsFactory01", "formkey": "04280D:Fallout4.esm", "plugins": ["Fallout4.esm", "DLCRobot.esm"], "reach": "worldspace", "test_name": False},
+                {"editor_id": "RailroadHQ01", "formkey": "092B21:Fallout4.esm", "plugins": ["Fallout4.esm", "DLCCoast.esm"], "reach": "behind_interior", "test_name": False},
+                {"editor_id": "DLC01FortHagenSatelliteArray01", "formkey": "0044DF:DLCRobot.esm", "plugins": ["DLCRobot.esm"], "reach": "worldspace", "test_name": False},
+                {"editor_id": "DLC01Lair01", "formkey": "0008A3:DLCRobot.esm", "plugins": ["DLCRobot.esm"], "reach": "behind_interior", "test_name": False},
+                # Filtered out: test_name and no_load_door
+                {"editor_id": "DLC04TestCell", "formkey": "009999:DLCNukaWorld.esm", "plugins": ["DLCNukaWorld.esm"], "reach": "worldspace", "test_name": True},
+                {"editor_id": "DLC03Unreachable", "formkey": "008888:DLCCoast.esm", "plugins": ["DLCCoast.esm"], "reach": "no_load_door", "test_name": False},
+                # 3 net-new DLC cells across Coast, Workshop03, NukaWorld
+                {"editor_id": "DLC03Acadia", "formkey": "004643:DLCCoast.esm", "plugins": ["DLCCoast.esm"], "reach": "worldspace", "test_name": False},
+                {"editor_id": "DLC06VaultWorkshop", "formkey": "000801:DLCworkshop03.esm", "plugins": ["DLCworkshop03.esm"], "reach": "worldspace", "test_name": False},
+                {"editor_id": "DLC04BradbertonsOffice01", "formkey": "005000:DLCNukaWorld.esm", "plugins": ["DLCNukaWorld.esm"], "reach": "behind_interior", "test_name": False},
+            ]
+            census_path = root / "census.json"
+            census_path.write_text(json.dumps({"cells": census_cells}), encoding="utf-8")
+
+            for edid, plug in (
+                ("DLC03Acadia", "DLCCoast.esm"),
+                ("DLC06VaultWorkshop", "DLCworkshop03.esm"),
+                ("DLC04BradbertonsOffice01", "DLCNukaWorld.esm"),
+            ):
+                (exports / f"{edid}.json").write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 3,
+                            "cell": edid,
+                            "formkey": f"001000:{plug}",
+                            "location": {"formkey": f"002000:{plug}", "editor_id": f"{edid}Loc", "name": edid},
+                            "refs": [
+                                {
+                                    "formkey": f"003001:{plug}",
+                                    "base_formkey": f"003002:{plug}",
+                                    "type": "Static",
+                                    "base_editor_id": "DLCWall",
+                                    "model": "DLC\\Wall.nif",
+                                    "pos": [0.0, 0.0, 0.0],
+                                    "rot": [0.0, 0.0, 0.0],
+                                    "scale": 1.0,
+                                    "disabled": 0,
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            man_path = root / "manifest.json"
+            man_path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {"editor_id": "FO4DLC_Wall", "model": "fo4dlc\\wall.nif", "source": "DLC\\Wall.nif"}
+                        ],
+                        "failures": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_archive(_packer, out_ba2, _dirs, _fmt):
+                Path(out_ba2).write_bytes(b"BTDX" + b"pack" * 8)
+
+            out_stage = root / "fo4dlc-stage"
+            res = interior_dlc.build_dlc_interiors(
+                census_path=str(census_path),
+                exports_dir=str(exports),
+                manifest_paths=[str(man_path)],
+                out_dir=str(out_stage),
+                pluginspike_dll=self._pluginspike_dll(),
+                starfield_dir=str(sf),
+                owned_stages=[str(owned_stage)],
+                staging_dir=str(staging),
+                no_promote=True,
+                build_archive_fn=fake_archive,
+            )
+
+            self.assertEqual(res["classification"], "TEST-STATION")
+            self.assertEqual(res["architecture"], "self-contained")
+            self.assertEqual(res["masters"], ["Starfield.esm"])
+            self.assertEqual(res["dlc_reachable_total"], 8)
+            self.assertEqual(res["excluded_count"], 5)
+            self.assertEqual(res["selected_count"], 3)
+            self.assertEqual(
+                sorted(e["editor_id"] for e in res["excluded_cells"]),
+                [
+                    "DLC01FortHagenSatelliteArray01",
+                    "DLC01Lair01",
+                    "DmndValentines01",
+                    "GeneralAtomicsFactory01",
+                    "RailroadHQ01",
+                ],
+            )
+            fids = json.loads((out_stage / "port" / "formids.json").read_text(encoding="utf-8"))
+            self.assertIn("CELL:FO4DLC_DLC03Acadia", fids)
+            self.assertIn("CELL:FO4DLC_DLC04BradbertonsOffice01", fids)
+            self.assertIn("CELL:FO4DLC_DLC06VaultWorkshop", fids)
+            self.assertNotIn("CELL:FO4DLC_DLC01Lair01", fids)
+            self.assertNotIn("CELL:FO4DLC_DmndValentines01", fids)
+            self.assertIn("[TEST-STATION]", (out_stage / "README.txt").read_text(encoding="utf-8"))
+
+            # Refuses Git worktree output dir (R4)
+            git_wt = root / "git_wt"
+            (git_wt / ".git").mkdir(parents=True)
+            with self.assertRaises(ValueError):
+                interior_dlc.build_dlc_interiors(
+                    census_path=str(census_path),
+                    exports_dir=str(exports),
+                    manifest_paths=[str(man_path)],
+                    out_dir=str(git_wt / "out"),
+                    pluginspike_dll=self._pluginspike_dll(),
+                    starfield_dir=str(sf),
+                    no_pack=True,
+                    no_promote=True,
+                )
 
 
 if __name__ == "__main__":
