@@ -197,6 +197,8 @@ SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligenc
 SPECIAL_AVIF_IDS = tuple(core_form_id(f"FO4SF_Special_{s}") for s in SPECIAL_STATS)
 TEST_MODE_GLOBAL_ID = core_form_id("FO4SF_TestModeEnabled")
 SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
+SPECIAL_PAGE1_BUTTONS = ("Strength", "Perception", "Endurance", "Next (C / I / A / L)", "Reset", "Confirm", "Leave")
+SPECIAL_PAGE2_BUTTONS = ("Charisma", "Intelligence", "Agility", "Luck", "Back (S / P / E)", "Confirm", "Leave")
 SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
 SPECIAL_MAX_PRESSES = 300
 # The save version check (NG-15 / NG-L2; Program.cs DefaultBuildVersion, held equal by tests/test_newgame.py): the
@@ -262,7 +264,7 @@ NATIVES = {
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
-                         "RegisterForRemoteEvent", "UnregisterForRemoteEvent",
+                         "RegisterForRemoteEvent", "UnregisterForRemoteEvent", "AddInventoryEventFilter",
                          "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["GetCurrentRealTime", "Wait"],
     },
@@ -948,7 +950,8 @@ def summarize(lines):
          "arrival_discovery_requested": None, "exit_failure": None, "ascent": [], "looks_positions": [],
          "landing_quests": None, "pipboy_pickup": None, "mode_fade_held": False, "mode_choice": None,
          "mode_load_default": None, "warfare_pick": None, "warfare_gear": None,
-         "map_setup": None, "pistol_picked": None}
+         "map_setup": None, "pistol_picked": None, "exit_retries": [], "exit_fallback": None,
+         "arrival_discovery_failed": None, "special_default": None}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r or "stage 210" in r for r in runs[:-1])
@@ -1001,6 +1004,14 @@ def summarize(lines):
             s["landed"] = True
         elif msg.startswith("arrival discovery requested "):
             s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("arrival discovery failed "):
+            s["arrival_discovery_failed"] = msg[len("arrival discovery failed "):]
+        elif msg.startswith("special default "):
+            s["special_default"] = msg[len("special default "):]
+        elif msg.startswith("exit retry "):
+            s["exit_retries"].append(msg[len("exit retry "):])
+        elif msg.startswith("exit fallback "):
+            s["exit_fallback"] = msg[len("exit fallback "):]
         elif msg.startswith("landing quests started "):
             s["landing_quests"] = msg[len("landing quests started "):]
         elif msg.startswith("pipboy pickup "):

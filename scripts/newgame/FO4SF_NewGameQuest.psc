@@ -93,6 +93,9 @@ Quest[] Property HoldOff Auto Const Mandatory
 Message Property ExitMessage Auto Const Mandatory
 {The elevator prompt (FO4SFNewGame.esm 0x801): 0 Continue, 1 S.P.E.C.I.A.L., 2 Character, 3 Stay.}
 
+Message Property ExitFallbackMessage Auto Const Mandatory
+{The lift fallback prompt (FO4SFNewGame.esm 0x81A): 0 Go up to the Commonwealth, 1 Retry lift.}
+
 Message Property ReturnMessage Auto Const Mandatory
 {The surface lift pad return prompt (FO4SFNewGame.esm 0x80B): button 0 rides back down to Vault 111, button 1 stays.}
 
@@ -107,7 +110,7 @@ Message Property WarfareGroupMsg Auto Const Mandatory
 Message Property WarfareSpotMsg Auto Const Mandatory
 {S4 Box 5 (0x80A): starting Warfare deployment spot.}
 Message Property NoPipboyMsg Auto Const Mandatory
-{X2 (0x811): shown when activating the Vault 111 console before picking up the Pip-Boy.}
+{X2 / A16 (0x817): shown when activating the Vault 111 console before picking up the Pip-Boy.}
 
 string Property VaultPlugin = "FO4Port.esm" Auto Const
 int Property VaultAnchorId Auto Const Mandatory
@@ -245,11 +248,17 @@ GlobalVariable Property WarfareStartIndexGlobal Auto Const Mandatory
 GlobalVariable Property StartChoiceDoneGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_StartChoiceDone (0x876): 0 or 1.}
 GlobalVariable Property PipboyAcquiredGlobal Auto Const Mandatory
-{FO4SFNewGame.esm FO4SF_PipboyAcquired (0x80C), set to 1 once the Pip-Boy 3000 is picked up beside the Vault 111 console.}
+{FO4SFCoreValues.esm FO4SF_PipboyAcquired (0x865), set to 1 once the Pip-Boy 3000 is picked up beside the Vault 111 console.}
 Armor Property PipboyWristArmor Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyWrist (0x80D), playable left-wrist Pip-Boy 3000 equipped on pickup.}
 ObjectReference Property PipboyCorpseRef Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyCorpsePickupRef (0x80F), placed persistent pickup beside the Vault-Tec scientist skeleton.}
+ObjectReference Property GearDoorConsoleRef Auto Const Mandatory
+{FO4SFNewGame.esm FO4SF_GearDoorConsoleRef (0x819), placed persistent named activator at the gear-door console.}
+Weapon Property VaultPistolBase Auto Const Mandatory
+{Starfield.esm WEAP for vault111.pistol_id from route_loot_ids.json, filtered for OnItemAdded.}
+int Property VaultPistolId = 0 Auto Const
+{Plugin-local FormID of VaultPistolBase in Starfield.esm, logged when adding the inventory event filter.}
 bool Property FadeHold = true Auto Const
 {S4: holds screen black and saving off from vault entry until start mode choice completes (--no-fade-hold sets false).}
 int Property RaceMenuMode = 2 Auto Const
@@ -301,9 +310,11 @@ float surfaceMovedAt = 0.0                                   ; the ride's MoveTo
 int surfaceMoves = 0
 int surfaceSets = 0
 WorldSpace arrivalWorld = None
-bool exitFailed = false
+int exitFailures = 0
+bool exitUsedFallback = false
 bool fallbackPending = false
 bool discoveryMarkerMoved = false
+bool discoveryAttachPending = false
 int landingChecks = 0
 ObjectReference ridingLift = None
 Cell ridingCell = None
@@ -501,9 +512,6 @@ Function AdvanceTo(int n)
 EndFunction
 
 Event OnTimer(int aiTimerID)
-    if exitFailed
-        return
-    endif
     if aiTimerID != 1
         return
     endif
@@ -589,9 +597,9 @@ Event OnTimer(int aiTimerID)
     if GetStage() < 200 && ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
     endif
-    if GetStage() < 200 && GetStage() != 1 && !exitFailed
+    if GetStage() < 200 && GetStage() != 1
         StartTimer(1.0, 1)
-    elseif GetStage() == 200 && !exitFailed
+    elseif GetStage() == 200
         if returnSurfacePending
             StartTimer(1.0, 1)
         else
@@ -812,10 +820,25 @@ Function InVault(Actor player, int stage)
             StartTimer(0.1, 1)
             return
         endif
-        Trace("lift cage_door=closing")
         if LiftId > 0
-            StartAscent(player)
+            if exitFailures >= 3
+                int fbBtn = 0
+                if ExitFallbackMessage != None
+                    fbBtn = ExitFallbackMessage.Show()
+                endif
+                Trace("elevator fallback prompt button=" + fbBtn + " failures=" + exitFailures)
+                if fbBtn == 1
+                    Trace("lift cage_door=closing")
+                    StartAscent(player)
+                else
+                    FallbackExitToSurface(player)
+                endif
+            else
+                Trace("lift cage_door=closing")
+                StartAscent(player)
+            endif
         else
+            Trace("lift cage_door=closing")
             RunSharedMapSetup()
             Surface(player)
         endif
@@ -830,7 +853,7 @@ EndFunction
 
 Function StartAscent(Actor player)
 {One play on the real placed lift. Position remains under the platform's moving collision until completion.}
-    if rideActive || rideTransferred || exitFailed
+    if rideActive || rideTransferred
         return
     endif
     ObjectReference lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
@@ -871,7 +894,7 @@ Function StartAscent(Actor player)
 EndFunction
 
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
-    if !rideActive || exitFailed || akSource != ridingLift || asEventName != "Done"
+    if !rideActive || akSource != ridingLift || asEventName != "Done"
         return
     endif
     float elapsed = Utility.GetCurrentRealTime() - rideStartedAt
@@ -896,7 +919,7 @@ bool Function AtLiftTop(Actor player)
 EndFunction
 
 Function CheckAscent(Actor player)
-    if !rideActive || rideTransferred || exitFailed
+    if !rideActive || rideTransferred
         return
     endif
     float elapsed = Utility.GetCurrentRealTime() - rideStartedAt
@@ -1015,8 +1038,7 @@ Function FinishSurface(Actor player)
 EndFunction
 
 Function CheckLanding(Actor player)
-{Confirm the landing on a later loaded tick in the attached exterior world. A fallback move is checked on another
- tick; exhaustion is failure. Discovery is requested only after the landing and marker's placement both confirm.}
+{Confirm landing once the player is in arrivalWorld with 3D loaded; fall rescue runs once, and marker discovery runs separately without blocking stage 200.}
     if Utility.GetCurrentRealTime() - arrivedAt < 3.0
         return
     endif
@@ -1035,14 +1057,9 @@ Function CheckLanding(Actor player)
         Trace("fell z=" + z + ": fallback pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
         return
     endif
-    if !AtArrival(player)
-        FailExit("landing_position_not_confirmed")
-        return
-    endif
-    if !RequestArrivalDiscovery(player)
-        if landingChecks >= 30
-            FailExit("arrival_marker_not_attached")
-        endif
+    bool discovered = RequestArrivalDiscovery(player)
+    if !discovered && discoveryAttachPending
+        discoveryAttachPending = false
         return
     endif
     Trace("landed z=" + z + " confirmed=True fallback=" + fallbackPending + " world=" + arrivalWorld)
@@ -1050,13 +1067,14 @@ Function CheckLanding(Actor player)
 EndFunction
 
 bool Function RequestArrivalDiscovery(Actor player)
+    discoveryAttachPending = false
     if ArrivalDiscoveryId == 0
         Trace("arrival discovery disabled: custom exit anchor")
         return true
     endif
     ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
     if marker == None
-        Trace("arrival discovery waits: marker missing")
+        Trace("arrival discovery failed reason=marker_missing id=" + ArrivalDiscoveryId)
         return false
     endif
     float mx = FallbackX + MergeOffsetX
@@ -1069,8 +1087,9 @@ bool Function RequestArrivalDiscovery(Actor player)
     bool atMerged = dx * dx + dy * dy <= 25.0 && dz >= -3.0 && dz <= 3.0
     if !sameWorld || !atMerged
         ; When the separate map-marker mover is not installed, attach the canonical Vault 111 marker once and confirm next tick.
-        if !discoveryMarkerMoved && player.Is3DLoaded() && !player.IsInInterior() && player.GetWorldSpace() == arrivalWorld && AtArrival(player)
+        if !discoveryMarkerMoved && player.Is3DLoaded() && !player.IsInInterior() && player.GetWorldSpace() == arrivalWorld
             discoveryMarkerMoved = true
+            discoveryAttachPending = true
             float px = player.GetPositionX()
             float py = player.GetPositionY()
             float pz = player.GetPositionZ()
@@ -1081,13 +1100,14 @@ bool Function RequestArrivalDiscovery(Actor player)
             endif
             Trace("arrival discovery marker moved ref=" + marker + " world=" + marker.GetWorldSpace() + " pos=" + marker.GetPositionX() + " " + marker.GetPositionY() + " " + marker.GetPositionZ() + " target=" + mx + " " + my + " " + mz)
         else
-            Trace("arrival discovery waits: marker world=" + marker.GetWorldSpace() + " same_world=" + sameWorld + " at_merged=" + atMerged)
+            Trace("arrival discovery failed reason=marker_not_attached ref=" + marker + " world=" + marker.GetWorldSpace() + " same_world=" + sameWorld + " at_merged=" + atMerged)
         endif
         return false
     endif
     ; Native reads yield between calls: recheck the player after reading the marker, immediately before mutation.
     bool enabledBefore = Game.IsFastTravelEnabled()
-    if !player.Is3DLoaded() || player.IsInInterior() || player.GetWorldSpace() != arrivalWorld || !AtArrival(player) || marker.GetWorldSpace() != arrivalWorld
+    if !player.Is3DLoaded() || player.IsInInterior() || player.GetWorldSpace() != arrivalWorld || marker.GetWorldSpace() != arrivalWorld
+        Trace("arrival discovery failed reason=state_changed_before_discover ref=" + marker)
         return false
     endif
     marker.SetMarkerDiscovered()
@@ -1103,13 +1123,25 @@ bool Function AtArrival(Actor player)
 EndFunction
 
 Function FailExit(string reason)
-    exitFailed = true
-    rideActive = false
+    exitFailures += 1
     if ridingLift != None
         UnregisterForAnimationEvent(ridingLift, "Done")
     endif
+    rideActive = false
+    rideDone = false
+    rideTransferred = false
+    ridingLift = None
+    ridingCell = None
     surfaceMovedAt = 0.0
-    Trace("exit failed reason=" + reason + " stage=" + GetStage())
+    surfaceMoves = 0
+    surfaceSets = 0
+    exitUsedFallback = false
+    asked = false
+    Actor player = Game.GetPlayer()
+    if player != None && GetStage() < 40
+        ReturnPlayerToVaultPlatform(player)
+    endif
+    Trace("exit retry n=" + exitFailures + " reason=" + reason + " stage=" + GetStage())
 EndFunction
 
 bool Function Near(Actor player, float x, float y, float z, float radius)
@@ -1117,6 +1149,30 @@ bool Function Near(Actor player, float x, float y, float z, float radius)
     float dy = player.GetPositionY() - y
     float dz = player.GetPositionZ() - z
     return dx * dx + dy * dy <= radius * radius && dz < 3.0 && dz > -3.0
+EndFunction
+
+Function ReturnPlayerToVaultPlatform(Actor player)
+{Returns the player onto the Vault 111 lift platform so InVault offers the lift prompt again.}
+    if player == None
+        return
+    endif
+    if player.IsInInterior() && StandsInVault(player)
+        player.SetPosition(PlatformX, PlatformY, PlatformZ + 0.2)
+    else
+        ObjectReference vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if vAnchor != None
+            player.MoveTo(vAnchor, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)
+        endif
+    endif
+EndFunction
+
+Function FallbackExitToSurface(Actor player)
+{Offered after 3 lift failures: fades to black, logs exit fallback by=move, and moves directly to the surface arrival.}
+    exitUsedFallback = true
+    Game.FadeOutGame(True, True, 0.0, 0.2, False)
+    Trace("exit fallback by=move")
+    RunSharedMapSetup()
+    Surface(player)
 EndFunction
 
 Function Trace(string msg)
@@ -1175,9 +1231,33 @@ EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
-    if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 0 && GetStage() >= 10
+    int st = GetStage()
+    if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 0 && st >= 10
         GameModeGlobal.SetValue(1.0)
         Trace("mode load default=story stage=" + GetStage())
+    endif
+    if st >= 10 && st < 40
+        bool wasMidExit = rideActive || rideTransferred || surfaceMovedAt > 0.0
+        if ridingLift != None
+            UnregisterForAnimationEvent(ridingLift, "Done")
+        endif
+        rideActive = false
+        rideDone = false
+        rideTransferred = false
+        ridingLift = None
+        ridingCell = None
+        surfaceMovedAt = 0.0
+        surfaceMoves = 0
+        surfaceSets = 0
+        exitUsedFallback = false
+        asked = false
+        if wasMidExit && akSender != None
+            ReturnPlayerToVaultPlatform(akSender)
+            Trace("exit reload recovered stage=" + st + " failures=" + exitFailures)
+        endif
+    endif
+    if st != 1
+        StartTimer(1.0, 1)
     endif
 EndEvent
 
@@ -1318,10 +1398,13 @@ Function RunWarfareBranch(Actor player, int rowIdx)
     if prog != None
         int tries = 0
         bool allocOk = false
-        while !allocOk && tries < 5
+        while !allocOk && tries < 3
             tries += 1
             allocOk = prog.OpenAttributeAllocation("warfare")
         endwhile
+        if !allocOk
+            allocOk = prog.OfferStandardSpread("warfare", false)
+        endif
         prog.ApplyWarfareBackground(WarfareBgIndices[rowIdx])
     endif
     player.RemoveAllItems(None, false, false)
@@ -1474,8 +1557,10 @@ EndFunction
 
 Function EnsureVaultInteractivesRegistered()
     Actor player = Game.GetPlayer()
-    if !itemWatchRegistered && player != None
+    if !itemWatchRegistered && player != None && VaultPistolBase != None
         itemWatchRegistered = true
+        AddInventoryEventFilter(VaultPistolBase)
+        Trace("pistol filter added base=" + VaultPistolBase + " id=" + VaultPistolId)
         RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")
     endif
     if !pipboyRegistered && PipboyCorpseRef != None
@@ -1492,21 +1577,19 @@ Function EnsureVaultInteractivesRegistered()
             RegisterForRemoteEvent(cogDoorWatchedRef, "OnActivate")
         endif
     endif
-    if !consoleRegistered && ConsoleRefId > 0
-        consoleWatchedRef = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
-        if consoleWatchedRef != None
-            consoleRegistered = true
-            RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")
-            Trace("console registered ref=" + consoleWatchedRef + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ())
-        endif
+    if !consoleRegistered && GearDoorConsoleRef != None
+        consoleWatchedRef = GearDoorConsoleRef
+        consoleRegistered = true
+        RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")
+        Trace("console activator registered ref=" + consoleWatchedRef + " id=" + consoleWatchedRef.GetFormID() + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ())
     endif
 EndFunction
 
 Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
-    if pistolPickedLogged || GetStage() >= 40 || akBaseItem == None
+    if pistolPickedLogged || GetStage() >= 40 || akBaseItem == None || VaultPistolBase == None
         return
     endif
-    if akBaseItem as Weapon != None
+    if akBaseItem == VaultPistolBase
         pistolPickedLogged = true
         Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)
     endif
@@ -1551,6 +1634,12 @@ Function ActivateGearDoorConsole()
         Trace("console refused: no pipboy")
         return
     endif
+    if ConsoleRefId > 0
+        ObjectReference portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+        if portCon != None
+            portCon.PlayAnimation("Stage2")
+        endif
+    endif
     ObjectReference cogDoor = None
     if CogDoorId > 0
         cogDoor = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
@@ -1561,10 +1650,22 @@ Function ActivateGearDoorConsole()
         if before != 1 && before != 2
             cogDoor.SetOpen(True)
         endif
+        Utility.Wait(2.0)
         int after = cogDoor.GetOpenState()
         Trace("cog door console activated ref=" + consoleWatchedRef + " before=" + before + " after=" + after)
+        if after != 1 && after != 2
+            Trace("cog door open failed state=" + after)
+            if TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0
+                cogDoor.BlockActivation(True, False)
+            endif
+            return
+        endif
     else
         Trace("cog door " + VaultPlugin + ":" + CogDoorId + " does not resolve")
+        if CogDoorId > 0
+            Trace("cog door open failed state=-1")
+            return
+        endif
     endif
     if stage < 30
         AdvanceTo(30)

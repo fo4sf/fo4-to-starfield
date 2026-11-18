@@ -198,6 +198,34 @@ class DataTablesAndMathTests(unittest.TestCase):
         self.assertEqual(rep_tables.evaluate_faction_reputation(80.0, 80.0).code, 15)
 
 
+def _parse_progression_cs_messages(cs: str) -> list[tuple[int, str, list[str]]]:
+    uint_consts = {
+        m.group(1): int(m.group(2).rstrip("uU"), 0)
+        for bm in re.finditer(r"\bconst\s+uint\s+([^;]+);", cs, re.S)
+        for part in bm.group(1).split(",")
+        if (m := re.match(r"\s*(\w+)\s*=\s*(0x[0-9A-Fa-f]+u?|\d+u?)", part.strip()))
+    }
+    str_consts = {
+        m.group(1): m.group(2)
+        for bm in re.finditer(r"\bconst\s+string\s+([^;]+);", cs, re.S)
+        for part in bm.group(1).split(",")
+        if (m := re.match(r'\s*(\w+)\s*=\s*"([^"]*)"', part.strip()))
+    }
+    cm_block = cs[cs.index("CreationMessages ="):cs.index("static readonly uint[] SpecialAllocationMsgIds")]
+    rows = []
+    for m in re.finditer(
+        r'\(\s*(\w+|0x[0-9A-Fa-f]+)\s*,\s*(\w+|"[^"]+")\s*,.*?new\[\]\s*\{([^}]*)\}\s*\)',
+        cm_block,
+        re.S,
+    ):
+        raw_id, raw_edid, btns_raw = m.groups()
+        fid = int(raw_id, 16) if raw_id.startswith("0x") else uint_consts[raw_id]
+        edid = raw_edid.strip('"') if raw_edid.startswith('"') else str_consts[raw_edid]
+        btns = re.findall(r'"([^"]+)"', btns_raw)
+        rows.append((fid, edid, btns))
+    return rows
+
+
 class PluginParityAndStageTests(unittest.TestCase):
     def test_csharp_psc_and_python_tables_match_1_to_1(self):
         cs = (ROOT / "dotnet" / "ProgressionCore" / "Program.cs").read_text(encoding="utf-8")
@@ -208,23 +236,33 @@ class PluginParityAndStageTests(unittest.TestCase):
         self.assertNotIn("FO4SF_Repu_", cs)
         self.assertNotIn("FO4SF_Fact_", cs)
 
-        m = re.search(r"PropNames\s*=\s*\{([^}]*)\}", cs, re.S)
-        self.assertIsNotNone(m)
-        cs_props = re.findall(r'"(\w+)"', m.group(1))
+        m_obj = re.search(r"ObjPropNames\s*=\s*\{([^}]*)\}", cs, re.S)
+        m_val = re.search(r"ValuePropNames\s*=\s*\{([^}]*)\}", cs, re.S)
+        self.assertIsNotNone(m_obj)
+        self.assertIsNotNone(m_val)
+        cs_props = re.findall(r'"(\w+)"', m_obj.group(1)) + re.findall(r'"(\w+)"', m_val.group(1))
         psc = (ROOT / "scripts" / "progression" / "FO4SF_ProgressionQuest.psc").read_text(encoding="utf-8")
-        psc_props = [pm.group(1) for pm in re.finditer(r"^\s*\w+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)]
+        psc_props = [pm.group(1) for pm in re.finditer(r"^\s*[\w\[\]]+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)]
         self.assertEqual(cs_props, psc_props)
-        self.assertEqual(len(cs_props), 23)
+        self.assertEqual(len(cs_props), 31)
         self.assertIn("TestModeGlobal", cs_props)
         for msg_prop in (
-            "SpecialMenuMsg",
+            "SpecialPage1Msg",
+            "SpecialPage2Msg",
+            "SpecialDefaultMsg",
             "TagSkillsPage1Msg",
             "TagSkillsPage2Msg",
+            "TagSkillsPage3Msg",
             "BackgroundPage1Msg",
             "BackgroundPage2Msg",
             "TraitsPage1Msg",
             "TraitsPage2Msg",
+            "TraitsPage3Msg",
             "RespecRefusedMsg",
+            "SpecialBoxNames",
+            "SpecialBoxButtonCounts",
+            "StandardSpread40",
+            "StandardSpread28",
         ):
             self.assertIn(msg_prop, cs_props)
         self.assertNotIn("RepuGlobalsList", cs_props)
@@ -242,8 +280,19 @@ class PluginParityAndStageTests(unittest.TestCase):
     def test_interactive_creation_sheet_menus_and_single_respec_contract(self):
         cs = (ROOT / "dotnet" / "ProgressionCore" / "Program.cs").read_text(encoding="utf-8")
         psc = (ROOT / "scripts" / "progression" / "FO4SF_ProgressionQuest.psc").read_text(encoding="utf-8")
+        self.assertIn("MaxMessageButtons = 7", cs)
+        # B3: Every single MESG in CreationMessages must have <= 7 buttons, and Confirm is reachable on Page 1
+        msg_rows = _parse_progression_cs_messages(cs)
+        self.assertEqual(len(msg_rows), 12)
+        btns_by_edid = {}
+        for fid, edid, btns in msg_rows:
+            self.assertGreaterEqual(len(btns), 1, edid)
+            self.assertLessEqual(len(btns), 7, f"{edid} (0x{fid:X}) exceeds 7 buttons: {btns}")
+            btns_by_edid[edid] = btns
+        self.assertTrue(any("Confirm" in b for b in btns_by_edid["FO4SF_ProgSpecialPage1Msg"]))
+        self.assertIn("Use the standard spread", btns_by_edid["FO4SF_ProgSpecialDefaultMsg"])
         for fid, edid in (
-            ("0x870", "FO4SF_ProgSpecialMsg"),
+            ("0x870", "FO4SF_ProgSpecialPage1Msg"),
             ("0x871", "FO4SF_ProgTagSkillsPage1Msg"),
             ("0x872", "FO4SF_ProgTagSkillsPage2Msg"),
             ("0x873", "FO4SF_ProgBackgroundMsg"),
@@ -251,6 +300,10 @@ class PluginParityAndStageTests(unittest.TestCase):
             ("0x875", "FO4SF_ProgTraitsMsg"),
             ("0x876", "FO4SF_ProgTraitsPage2Msg"),
             ("0x877", "FO4SF_ProgRespecRefusedMsg"),
+            ("0x878", "FO4SF_ProgSpecialPage2Msg"),
+            ("0x879", "FO4SF_ProgTagSkillsPage3Msg"),
+            ("0x87A", "FO4SF_ProgTraitsPage3Msg"),
+            ("0x87B", "FO4SF_ProgSpecialDefaultMsg"),
         ):
             self.assertIn(fid, cs)
             self.assertIn(edid, cs)
@@ -262,10 +315,13 @@ class PluginParityAndStageTests(unittest.TestCase):
         self.assertIn('LogLine("respec_refused", "source=lift_menu reason=limit_1")', psc)
         self.assertIn("if unspent != 0", psc)
         self.assertIn("if CountSelectedTags(tags) == 3", psc)
-        self.assertIn('"special box shown buttons=10 unspent=" + unspent', psc)
-        self.assertIn('"special box press=" + presses + " button="', psc)
+        self.assertIn("string boxName = SpecialBoxNames[pageIdx]", psc)
+        self.assertIn("int boxButtons = SpecialBoxButtonCounts[pageIdx]", psc)
+        self.assertIn('"special box shown box=" + boxName + " buttons=" + boxButtons', psc)
+        self.assertIn('"special box press=" + presses + " box=" + boxName + " button="', psc)
         self.assertIn("bool Function OpenSpecialAllocationOnly(string sourceTag)", psc)
         self.assertIn('"special set S=" + stats[0]', psc)
+        self.assertIn('"special default sum=" + sum + " source=" + sourceTag', psc)
         self.assertIn("Function ApplyWarfareBackground(int bgIdx)", psc)
         with self.assertRaises(SystemExit):
             mp.refuse_forbidden_out_dir(str(ROOT / "bad_prog_stage"))
@@ -330,6 +386,127 @@ class PluginParityAndStageTests(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 0, res.stdout + "\n" + res.stderr)
             self.assertIn("selftest: ok", res.stdout)
+
+
+class SpecialBoxAndStandardSpreadExecutionTests(unittest.TestCase):
+    """B3: Translated-execution tests on FO4SF_ProgressionQuest.psc using the single translator in test_exit_arrival."""
+
+    FUNCS = (
+        "ActiveSpecialPool",
+        "AdjustSpecialStat",
+        "RunSpecialMenu",
+        "CommitSpecialAllocation",
+        "ApplyStandardSpread",
+        "OfferStandardSpread",
+        "OpenSpecialAllocationOnly",
+        "OpenAttributeAllocation",
+    )
+    VARS = "specialAllocatedOnce, liftSpecialFailures"
+
+    def setUp(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        cs = (ROOT / "dotnet" / "ProgressionCore" / "Program.cs").read_text(encoding="utf-8")
+        by_id = {fid: (edid, len(btns)) for fid, edid, btns in _parse_progression_cs_messages(cs)}
+        # Populate SpecialBoxNames & SpecialBoxButtonCounts directly from the C# writer's record table!
+        box_names = [by_id[0x870][0], by_id[0x878][0]]
+        box_counts = [by_id[0x870][1], by_id[0x878][1]]
+
+        self.avs = [f"AV_{i}" for i in range(7)]
+        self.written_stats = {}
+        self.prog_logs = []
+        self.ng_logs = []
+        self.recomputes = 0
+        self.pool28 = 0.0
+        self.page1_queue = []
+        self.page2_queue = []
+        self.default_queue = []
+
+        self.player = SimpleNamespace(
+            GetValue=lambda av: float(self.written_stats.get(av, 5.0)),
+            SetValue=lambda av, val: self.written_stats.__setitem__(av, float(val)),
+        )
+        psc = (ROOT / "scripts" / "progression" / "FO4SF_ProgressionQuest.psc").read_text(encoding="utf-8")
+        self.ns = dict(
+            specialAllocatedOnce=False,
+            liftSpecialFailures=0,
+            Pool28Global=SimpleNamespace(GetValue=lambda: self.pool28),
+            SpecialBoxNames=box_names,
+            SpecialBoxButtonCounts=box_counts,
+            StandardSpread40=[6, 5, 5, 6, 7, 6, 5],
+            StandardSpread28=[4, 4, 4, 4, 4, 4, 4],
+            SpecialPage1Msg=SimpleNamespace(Show=lambda *a: self.page1_queue.pop(0) if self.page1_queue else -1),
+            SpecialPage2Msg=SimpleNamespace(Show=lambda *a: self.page2_queue.pop(0) if self.page2_queue else -1),
+            SpecialDefaultMsg=SimpleNamespace(Show=lambda *a: self.default_queue.pop(0) if self.default_queue else 0),
+            Game=SimpleNamespace(GetPlayer=lambda: self.player),
+            Debug=SimpleNamespace(Notification=lambda *_: None),
+            GetSpecialAV=lambda idx: self.avs[idx],
+            RecomputeSkillsAndDerived=lambda p: setattr(self, "recomputes", self.recomputes + 1),
+            LogLine=lambda step, body: self.prog_logs.append(f"{step} {body}"),
+            LogNewGameLine=lambda body: self.ng_logs.append(str(body)),
+        )
+        exec(compile(translated_functions(psc, self.FUNCS, self.VARS), "<FO4SF_ProgressionQuest>", "exec"), self.ns)
+
+    def test_b3_writer_table_box_names_button_counts_and_confirm_from_page_1(self):
+        # Spend 5 points on Page 1 (+2 STR, Next -> Page 2 +2 INT, Back -> Page 1 +1 PER, Confirm on Page 1!)
+        self.page1_queue = [0, 0, 4, 1, 5]  # +STR, +STR, Next, +PER, Confirm (button 5 on Page 1!)
+        self.page2_queue = [1, 1, 5]        # +INT, +INT, Back
+        ok = self.ns["OpenAttributeAllocation"]("lift")
+        self.assertTrue(ok)
+        self.assertEqual([int(self.written_stats[av]) for av in self.avs], [7, 6, 5, 5, 7, 5, 5])
+        self.assertTrue(
+            any("special box shown box=FO4SF_ProgSpecialPage1Msg buttons=7" in l for l in self.ng_logs),
+            self.ng_logs,
+        )
+        self.assertTrue(
+            any("special box shown box=FO4SF_ProgSpecialPage2Msg buttons=7" in l for l in self.ng_logs),
+            self.ng_logs,
+        )
+        self.assertTrue(
+            any("special box press=1 box=FO4SF_ProgSpecialPage1Msg button=0" in l for l in self.ng_logs),
+            self.ng_logs,
+        )
+        self.assertIn("special set S=7 P=6 E=5 C=5 I=7 A=5 L=5 sum=40 source=lift", self.ng_logs)
+        self.assertFalse(any("special default " in l for l in self.ng_logs))
+
+    def test_b3_three_cancelled_lift_tries_offer_standard_spread_sum_40_and_28(self):
+        # 40-point pool: 2 cancels return False; 3rd cancel offers SpecialDefaultMsg ("Use the standard spread" = 0)
+        self.page1_queue = [6, 6, 6]  # Cancel 3 times
+        self.default_queue = [0]
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertEqual(self.written_stats, {})
+        self.assertTrue(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertEqual([int(self.written_stats[av]) for av in self.avs], [6, 5, 5, 6, 7, 6, 5])
+        self.assertIn("special set S=6 P=5 E=5 C=6 I=7 A=6 L=5 sum=40 source=lift", self.ng_logs)
+        self.assertIn("special default sum=40 source=lift", self.ng_logs)
+        self.assertIn("special_default sum=40 source=lift", self.prog_logs)
+
+        # 28-point pool: 3 cancels on lift apply 4/4/4/4/4/4/4 (= 28) through the same CommitSpecialAllocation write path
+        self.setUp()
+        self.pool28 = 1.0
+        self.page1_queue = [-1, -1, -1]
+        self.default_queue = [0]
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertTrue(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertEqual([int(self.written_stats[av]) for av in self.avs], [4, 4, 4, 4, 4, 4, 4])
+        self.assertIn("special set S=4 P=4 E=4 C=4 I=4 A=4 L=4 sum=28 source=lift", self.ng_logs)
+        self.assertIn("special default sum=28 source=lift", self.ng_logs)
+
+    def test_b3_warfare_three_tries_then_standard_spread_logs_source_warfare(self):
+        self.page1_queue = [6, 6, 6]
+        self.default_queue = [0]
+        alloc_ok = False
+        for _ in range(3):
+            alloc_ok = self.ns["OpenAttributeAllocation"]("warfare")
+            self.assertFalse(alloc_ok)
+        alloc_ok = self.ns["OfferStandardSpread"]("warfare", False)
+        self.assertTrue(alloc_ok)
+        self.assertEqual([int(self.written_stats[av]) for av in self.avs], [6, 5, 5, 6, 7, 6, 5])
+        self.assertIn("special set S=6 P=5 E=5 C=6 I=7 A=6 L=5 sum=40 source=warfare", self.ng_logs)
+        self.assertIn("special default sum=40 source=warfare", self.ng_logs)
 
 
 if __name__ == "__main__":

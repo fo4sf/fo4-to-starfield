@@ -20,7 +20,10 @@ Message Property TerminalMessage Auto Const Mandatory
 {The prompt at the terminal (FO4SFNewGame.esm 0x803): button 0 sets SPECIAL, button 1 is later.}
 
 Message Property SpecialMessage Auto Const Mandatory
-{The allocation (FO4SFNewGame.esm 0x804): buttons 0 to 6 add a point to that stat, 7 resets, 8 confirms, 9 leaves.}
+{Page 1 of the allocation (FO4SFNewGame.esm 0x804, 7 buttons): S, P, E, Next, Reset, Confirm, Leave.}
+
+Message Property SpecialMessagePage2 Auto Const Mandatory
+{Page 2 of the allocation (FO4SFNewGame.esm 0x81B, 7 buttons): C, I, A, L, Back, Confirm, Leave.}
 
 string Property VaultPlugin = "FO4Port.esm" Auto Const
 int Property TerminalId = 0 Auto Const
@@ -95,34 +98,65 @@ Function AtTerminal(Actor player)
 EndFunction
 
 Function Allocate(Actor player)
-{The allocation loop: the message shows the seven values and the points left, and returns the button pressed.}
+{The two-page <= 7-button allocation loop: Confirm is reachable from Page 1.}
     int[] values = new int[7]
     int left = ResetValues(values)
+    int page = 0
     int presses = 0
     while presses < MaxPresses
         presses += 1
-        int button = SpecialMessage.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
-        if button >= 0 && button < 7
-            if left <= 0
-                Debug.Notification("No points left")
-            elseif values[button] >= SpecialMax
-                Debug.Notification(SpecialMax + " is the most in one stat")
+        int button = -1
+        if page == 0
+            button = SpecialMessage.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
+            if button >= 0 && button < 3
+                if left <= 0
+                    Debug.Notification("No points left")
+                elseif values[button] >= SpecialMax
+                    Debug.Notification(SpecialMax + " is the most in one stat")
+                else
+                    values[button] += 1
+                    left -= 1
+                endif
+            elseif button == 3
+                page = 1
+            elseif button == 4
+                left = ResetValues(values)
+            elseif button == 5
+                if left > 0
+                    Debug.Notification(left + " points left to spend")
+                else
+                    Apply(player, values)
+                    return
+                endif
             else
-                values[button] += 1
-                left -= 1
-            endif
-        elseif button == 7
-            left = ResetValues(values)
-        elseif button == 8
-            if left > 0
-                Debug.Notification(left + " points left to spend")
-            else
-                Apply(player, values)
+                Trace("special left: defaults kept, " + left + " points unspent")
                 return
             endif
         else
-            Trace("special left: defaults kept, " + left + " points unspent")
-            return
+            button = SpecialMessagePage2.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
+            if button >= 0 && button < 4
+                int idx = 3 + button
+                if left <= 0
+                    Debug.Notification("No points left")
+                elseif values[idx] >= SpecialMax
+                    Debug.Notification(SpecialMax + " is the most in one stat")
+                else
+                    values[idx] += 1
+                    left -= 1
+                endif
+            elseif button == 4
+                page = 0
+            elseif button == 5
+                if left > 0
+                    Debug.Notification(left + " points left to spend")
+                else
+                    Apply(player, values)
+                    return
+                endif
+            else
+                Trace("special left: defaults kept, " + left + " points unspent")
+                return
+            endif
         endif
     endwhile
     Trace("special left: defaults kept, " + MaxPresses + " presses without Confirm or Leave")

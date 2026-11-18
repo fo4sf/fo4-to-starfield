@@ -221,7 +221,7 @@ def stage(a):
   Shared {CORE_VALUES_PLUGIN} links: SpecialAVList (0x0817), SkillAVList (0x082D), KarmaAV (0x0830), KarmaGlobal (0x0831), TestModeGlobal (0x0860);
   26 PERKs + 3 FLSTs: 9 Backgrounds (0x820..0x828), 9 Traits (0x830..0x838, 0..2 + 1 exit respec), 8 Perks (0x840..0x847, GLOB cadence={a.cadence});
   5 GLOBs: Pool28 (0x808={a.pool28}), PerkCadenceLevels (0x809={a.cadence}), QueuedPerkPoints (0x80A), TraitRespecUsed (0x80B), QueuedSkillPoints (0x80D);
-  8 MESGs: 0x870..0x877 interactive Creation Sheet & Respec Message menus (OpenCreationSheetMenu / stage 15);
+  12 MESGs: 0x870..0x87B interactive Creation Sheet, Standard-Spread & Respec Message menus (<= 7 buttons each; OpenCreationSheetMenu / stage 15);
   QUST FO4SF_ProgressionQuest (0x880, live stage 15 + harness stages 10,20..50 gated by TestModeGlobal; reads faction state from FO4SFReputation.esm) + Data/Scripts/{SCRIPT}.pex.
 NOTE: First in-game test is gated on Grok reviewing PR #806 or Claude (PC) go-ahead.
 """)

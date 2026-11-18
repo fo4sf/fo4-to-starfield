@@ -18,7 +18,8 @@ import make_cog_door as mcd
 
 
 GLOBALS = ('ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, '
-           'rideActive, rideDone, rideTransferred, exitFailed, asked')
+           'rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, '
+           'surfaceMovedAt, surfaceMoves, surfaceSets, asked')
 
 
 class Lift(Reference):
@@ -59,7 +60,7 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             self.prompts += 1
             return self.button
         self.ns = dict(
-            asked=False, liftSpecConfirmed=False, TestModeGlobal=None,
+            asked=False, liftSpecConfirmed=False, exitFailures=0, TestModeGlobal=None,
             CogDoorId=0x126D, VaultPlugin='FO4Port.esm',
             ConsoleX=-53.7, ConsoleY=-3.7, ConsoleZ=0.53, ConsoleRadius=2.5,
             PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
@@ -67,6 +68,7 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             Game=SimpleNamespace(GetFormFromFile=lambda i, _: self.door if i == 0x126D else None),
             Debug=SimpleNamespace(Notification=self.notifications.append),
             ExitMessage=SimpleNamespace(Show=show),
+            ExitFallbackMessage=SimpleNamespace(Show=lambda: 0),
             EnsureVaultInteractivesRegistered=lambda: None,
             StartTimer=lambda *_: None,
             OpenLiftAttributeAllocation=lambda: setattr(self, 'spec_calls', self.spec_calls + 1),
@@ -74,9 +76,10 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             RunSharedMapSetup=lambda: 4,
             AdvanceTo=self.stages.append,
             StartAscent=self.ascents.append,
+            FallbackExitToSurface=lambda p: None,
             Surface=self.surfaces.append,
         )
-        exec(compile(translated_functions(read(PSC), ('InVault', 'Near'), 'asked, liftSpecConfirmed'), PSC, 'exec'), self.ns)
+        exec(compile(translated_functions(read(PSC), ('InVault', 'Near'), 'asked, liftSpecConfirmed, exitFailures'), PSC, 'exec'), self.ns)
 
     def test_platform_marker_and_radius_constants(self):
         self.assertIn('Fo4PlatformMarker = 0x01B29E', read(CS))
@@ -138,6 +141,8 @@ class AscentExecutionTests(unittest.TestCase):
         self.cell = object()
         self.player = Reference(None, (-77.742, -3.958, -1.72))
         self.player.interior, self.player.cell = True, self.cell
+        self.vault_anchor = Reference(None, (-60.0, 0.0, -1.0))
+        self.vault_anchor.interior, self.vault_anchor.cell = True, self.cell
         self.lift = Lift(None, (-70.392, -2.742, -0.114))
         self.base = object()
         self.lift.base, self.lift.plays, self.lift.accepted = self.base, [], True
@@ -148,12 +153,17 @@ class AscentExecutionTests(unittest.TestCase):
             self.map_setup_calls += 1
             return 4
         self.ns = dict(ridingLift=None, ridingCell=None, rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
-                       rideActive=False, rideDone=False, rideTransferred=False, exitFailed=False, asked=False,
+                       rideActive=False, rideDone=False, rideTransferred=False, exitFailures=0, exitUsedFallback=False,
+                       surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, asked=False,
+                       VaultAnchorId=0x805, AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
                        PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
                        LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftDoneMargin=0.25, VaultPlugin='FO4Port.esm',
-                       Game=SimpleNamespace(GetFormFromFile=lambda i, _: self.lift if i == 0x1618 else self.base,
-                                            GetPlayer=lambda: self.player),
+                       Game=SimpleNamespace(
+                           GetFormFromFile=lambda i, _: self.lift if i == 0x1618 else (self.vault_anchor if i == 0x805 else self.base),
+                           GetPlayer=lambda: self.player,
+                       ),
                        Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
+                       GetStage=lambda: 30,
                        StandsInVault=lambda _: True, Surface=self.transfers.append,
                        RunSharedMapSetup=run_map_setup,
                        RegisterForAnimationEvent=lambda *args: self.registrations.append(args),
@@ -161,7 +171,7 @@ class AscentExecutionTests(unittest.TestCase):
         text = read(PSC)
         event = re.search(r'Event OnAnimationEvent\((.*?)\)\n(.*?)EndEvent', text, re.S)
         text += '\nFunction AscentEvent(' + event[1] + ')\n' + event[2] + 'EndFunction\n'
-        exec(compile(translated_functions(text, ('StartAscent', 'AscentEvent', 'AtLiftTop', 'CheckAscent', 'Near', 'FailExit'), GLOBALS), PSC, 'exec'), self.ns)
+        exec(compile(translated_functions(text, ('StartAscent', 'AscentEvent', 'AtLiftTop', 'CheckAscent', 'Near', 'FailExit', 'ReturnPlayerToVaultPlatform'), GLOBALS), PSC, 'exec'), self.ns)
         actual_fail = self.ns['FailExit']
         def fail(reason):
             self.failures.append(reason)
@@ -282,6 +292,113 @@ class AscentExecutionTests(unittest.TestCase):
         self.run_branch('CheckAscent')
         self.assertEqual(self.failures, ['lift_rider_left_before_arrival'])
         self.assertEqual(self.transfers, [])
+
+
+class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
+    """B4 & B5: Translated-execution tests for GearDoorConsoleRef 2s open-state check/retry and VaultPistolBase filter."""
+
+    FUNCS = (
+        'EnsureVaultInteractivesRegistered',
+        'ObjectReference.OnItemAdded',
+        'ObjectReference.OnActivate',
+        'ActivateGearDoorConsole',
+    )
+    VARS = (
+        'itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, '
+        'consoleRegistered, consoleWatchedRef, pistolPickedLogged'
+    )
+
+    def setUp(self):
+        self.player = Reference(None, (-53.7, -3.7, 0.53), form_id=0x00000014)
+        self.player.interior = True
+        self.console_ref = Reference(None, (-53.7, -3.7, 0.53), form_id=0x04000819)
+        self.pipboy_ref = Reference(None, (-53.79, -2.15, -0.52), form_id=0x0400080F)
+        self.port_console = Lift(None, (-53.7, -3.7, 0.53))
+        self.port_console.plays = []
+        self.port_console.accepted = True
+        self.door = DoorRef(open_state=3)
+        self.door.blocks = []
+        self.door.BlockActivation = lambda *args: self.door.blocks.append(args)
+        self.vault_pistol = object()
+        self.other_weapon = object()
+        self.stage = 20
+        self.stages = []
+        self.traces = []
+        self.waits = []
+        self.call_order = []
+
+        def get_form(fid, plg):
+            if plg == 'FO4Port.esm':
+                if fid == 0x126D:
+                    return self.door
+                if fid == 0x126E:
+                    return self.port_console
+            return None
+
+        self.ns = dict(
+            Trace=self.traces.append,
+            itemWatchRegistered=False,
+            pipboyRegistered=False,
+            cogDoorRegistered=False,
+            cogDoorWatchedRef=None,
+            consoleRegistered=False,
+            consoleWatchedRef=None,
+            pistolPickedLogged=False,
+            VaultPistolBase=self.vault_pistol,
+            VaultPistolId=0x24561C,
+            PipboyCorpseRef=self.pipboy_ref,
+            GearDoorConsoleRef=self.console_ref,
+            CogDoorId=0x126D,
+            ConsoleRefId=0x126E,
+            VaultPlugin='FO4Port.esm',
+            TestModeGlobal=None,
+            PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),
+            NoPipboyMsg=SimpleNamespace(Show=lambda: 0),
+            Game=SimpleNamespace(GetPlayer=lambda: self.player, GetFormFromFile=get_form),
+            Utility=SimpleNamespace(Wait=self.waits.append),
+            AddInventoryEventFilter=lambda f: self.call_order.append(('filter', f)),
+            RegisterForRemoteEvent=lambda target, ev: self.call_order.append(('register', target, ev)),
+            HandlePipboyPickup=lambda p: None,
+            GetStage=lambda: self.stage,
+            AdvanceTo=lambda n: (setattr(self, 'stage', n), self.stages.append(n)),
+        )
+        exec(compile(translated_functions(read(PSC), self.FUNCS, self.VARS), PSC, 'exec'), self.ns)
+
+    def test_b5_inventory_filter_precedes_registration_and_accepts_only_vault_pistol_base(self):
+        self.ns['EnsureVaultInteractivesRegistered']()
+        self.assertEqual(self.call_order[0], ('filter', self.vault_pistol))
+        self.assertEqual(self.call_order[1], ('register', self.player, 'OnItemAdded'))
+        self.assertTrue(any('pistol filter added base=' in t and 'id=2381340' in t for t in self.traces), self.traces)
+
+        # Arbitrary other weapon must NOT log pistol picked
+        self.ns['OnItemAdded'](self.player, self.other_weapon, 1, None, None, 0)
+        self.assertFalse(self.ns['pistolPickedLogged'])
+        self.assertFalse(any(t.startswith('pistol picked ') for t in self.traces))
+
+        # Exact VaultPistolBase logs pistol picked once
+        self.ns['OnItemAdded'](self.player, self.vault_pistol, 1, None, None, 0)
+        self.assertTrue(self.ns['pistolPickedLogged'])
+        self.assertTrue(any(t.startswith('pistol picked ') for t in self.traces))
+
+    def test_b4_gear_door_console_registers_own_activator_waits_2s_and_retries_if_still_closed(self):
+        self.ns['EnsureVaultInteractivesRegistered']()
+        self.assertIn(('register', self.console_ref, 'OnActivate'), self.call_order)
+        self.assertTrue(any('console activator registered ref=' in t for t in self.traces), self.traces)
+
+        # First press: door refuses to open (SetOpen ignored -> open_state stays 3 after 2.0 s wait)
+        self.door.SetOpen = lambda val: self.door.set_open_calls.append(val)  # stays 3!
+        self.ns['OnActivate'](self.console_ref, self.player)
+        self.assertEqual(self.waits, [2.0])
+        self.assertIn('cog door open failed state=3', self.traces)
+        self.assertEqual(self.stages, [])
+        self.assertEqual(self.stage, 20)
+
+        # Second press: console remains active, door opens (open_state=2 opening) -> advances to stage 30!
+        self.door.SetOpen = lambda val: (self.door.set_open_calls.append(val), setattr(self.door, 'open_state', 2))
+        self.ns['OnActivate'](self.console_ref, self.player)
+        self.assertEqual(self.waits, [2.0, 2.0])
+        self.assertEqual(self.stages, [30])
+        self.assertEqual(self.stage, 30)
 
 
 def lift_animation():

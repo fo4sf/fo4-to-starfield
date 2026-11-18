@@ -14,7 +14,7 @@
 //     0x820..0x828 PERK FO4SF_BG_*                     (9 Wasteland Backgrounds in FLST 0x82F)
 //     0x830..0x838 PERK FO4SF_Trait_*                  (9 Trade-Off Traits in FLST 0x83F)
 //     0x840..0x847 PERK FO4SF_Perk_*                   (8 Core Playable Perks in FLST 0x84F)
-//     0x870..0x877 MESG FO4SF_Prog*Msg                 (8 Interactive Creation Sheet & Respec Message Menus)
+//     0x870..0x87B MESG FO4SF_Prog*Msg                 (12 Interactive Creation, Standard-Spread & Respec Message Menus, all <= 7 buttons)
 //     0x880        QUST FO4SF_ProgressionQuest         (StartGameEnabled creation, lift menu stage 15, & TestMode harness stages)
 //
 // usage:
@@ -86,6 +86,8 @@ public static class ProgressionCore
     static readonly ModKey CoreValuesEsm = ModKey.FromFileName("FO4SFCoreValues.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFProgression.esm");
 
+    public const int MaxMessageButtons = 7;
+
     public const uint Pool28GlobId = 0x808;
     public const uint CadenceGlobId = 0x809;
     public const uint QueuedPerkGlobId = 0x80A;
@@ -96,7 +98,7 @@ public static class ProgressionCore
     public const uint TraitFlstId = 0x83F;
     public const uint PerkFlstId = 0x84F;
 
-    public const uint SpecialMsgId = 0x870;
+    public const uint SpecialPage1MsgId = 0x870;
     public const uint TagPage1MsgId = 0x871;
     public const uint TagPage2MsgId = 0x872;
     public const uint ProgBackgroundMsgId = 0x873;
@@ -104,8 +106,12 @@ public static class ProgressionCore
     public const uint ProgTraitsMsgId = 0x875;
     public const uint ProgTraitsPage2MsgId = 0x876;
     public const uint RespecRefusedMsgId = 0x877;
+    public const uint SpecialPage2MsgId = 0x878;
+    public const uint TagPage3MsgId = 0x879;
+    public const uint ProgTraitsPage3MsgId = 0x87A;
+    public const uint SpecialDefaultMsgId = 0x87B;
 
-    public const string SpecialMsgEdid = "FO4SF_ProgSpecialMsg";
+    public const string SpecialPage1MsgEdid = "FO4SF_ProgSpecialPage1Msg";
     public const string TagPage1MsgEdid = "FO4SF_ProgTagSkillsPage1Msg";
     public const string TagPage2MsgEdid = "FO4SF_ProgTagSkillsPage2Msg";
     public const string ProgBackgroundMsgEdid = "FO4SF_ProgBackgroundMsg";
@@ -113,11 +119,19 @@ public static class ProgressionCore
     public const string ProgTraitsMsgEdid = "FO4SF_ProgTraitsMsg";
     public const string ProgTraitsPage2MsgEdid = "FO4SF_ProgTraitsPage2Msg";
     public const string RespecRefusedMsgEdid = "FO4SF_ProgRespecRefusedMsg";
+    public const string SpecialPage2MsgEdid = "FO4SF_ProgSpecialPage2Msg";
+    public const string TagPage3MsgEdid = "FO4SF_ProgTagSkillsPage3Msg";
+    public const string ProgTraitsPage3MsgEdid = "FO4SF_ProgTraitsPage3Msg";
+    public const string SpecialDefaultMsgEdid = "FO4SF_ProgSpecialDefaultMsg";
 
     public const uint QuestId = 0x880;
     public const string QuestEdid = "FO4SF_ProgressionQuest";
     public const string ScriptName = "FO4SF_ProgressionQuest";
     public const uint NextId = 0x881;
+
+    // Placeholder standard S.P.E.C.I.A.L. spreads summing to the active pool (40 or 28); the owner may change these values.
+    public static readonly int[] StandardSpread40 = { 6, 5, 5, 6, 7, 6, 5 };
+    public static readonly int[] StandardSpread28 = { 4, 4, 4, 4, 4, 4, 4 };
 
     const string SpecialAvListEdid = "FO4SF_SpecialAVList";
     const string SkillAvListEdid = "FO4SF_SkillAVList";
@@ -165,27 +179,40 @@ public static class ProgressionCore
 
     public static readonly ushort[] Stages = { 10, 15, 20, 30, 40, 50 };
 
+    // Every MESG in ProgressionCore has <= 7 buttons (B3); Confirm is reachable directly from SpecialPage1Msg.
     public static readonly (uint Id, string Edid, string Name, string Desc, string[] Buttons)[] CreationMessages =
     {
-        (SpecialMsgId, SpecialMsgEdid, "S.P.E.C.I.A.L. Allocation",
+        (SpecialPage1MsgId, SpecialPage1MsgEdid, "S.P.E.C.I.A.L. (1 of 2)",
          "STR %.0f   PER %.0f   END %.0f   CHA %.0f   INT %.0f   AGI %.0f   LCK %.0f\nUnspent Points: %.0f   (Step: %.0f)",
-         new[] { "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck", "Toggle +1 / -1", "Confirm (0 unspent)", "Cancel" }),
-        (TagPage1MsgId, TagPage1MsgEdid, "Tag Skills (1 of 2)",
+         new[] { "Strength", "Perception", "Endurance", "Toggle +1 / -1", "Next (C / I / A / L)", "Confirm (0 unspent)", "Cancel" }),
+        (SpecialPage2MsgId, SpecialPage2MsgEdid, "S.P.E.C.I.A.L. (2 of 2)",
+         "STR %.0f   PER %.0f   END %.0f   CHA %.0f   INT %.0f   AGI %.0f   LCK %.0f\nUnspent Points: %.0f   (Step: %.0f)",
+         new[] { "Charisma", "Intelligence", "Agility", "Luck", "Toggle +1 / -1", "Back (S / P / E)", "Confirm (0 unspent)" }),
+        (SpecialDefaultMsgId, SpecialDefaultMsgEdid, "Standard S.P.E.C.I.A.L. Spread",
+         "Three S.P.E.C.I.A.L. attempts ended without confirmation. Apply the standard spread or try again?",
+         new[] { "Use the standard spread", "Try again" }),
+        (TagPage1MsgId, TagPage1MsgEdid, "Tag Skills (1 of 3)",
          "Select 3 Tag Skills (+15 each). Selected: %.0f / 3",
-         new[] { "Barter", "Energy Weapons", "Explosives", "Guns", "Lockpick", "Medicine", "Melee Weapons", "Next Page (8-13)", "Clear Tags", "Confirm (3 selected)" }),
-        (TagPage2MsgId, TagPage2MsgEdid, "Tag Skills (2 of 2)",
+         new[] { "Barter", "Energy Weapons", "Explosives", "Guns", "Next Page (5-9)", "Confirm (3 selected)", "Cancel" }),
+        (TagPage2MsgId, TagPage2MsgEdid, "Tag Skills (2 of 3)",
          "Select 3 Tag Skills (+15 each). Selected: %.0f / 3",
-         new[] { "Repair", "Science", "Sneak", "Speech", "Survival", "Unarmed", "Previous Page (1-7)", "Clear Tags", "Confirm (3 selected)", "Cancel" }),
+         new[] { "Lockpick", "Medicine", "Melee Weapons", "Repair", "Science", "Next Page (10-13)", "Previous Page (1-4)" }),
+        (TagPage3MsgId, TagPage3MsgEdid, "Tag Skills (3 of 3)",
+         "Select 3 Tag Skills (+15 each). Selected: %.0f / 3",
+         new[] { "Sneak", "Speech", "Survival", "Unarmed", "Previous Page (5-9)", "Clear Tags", "Confirm (3 selected)" }),
         (ProgBackgroundMsgId, ProgBackgroundMsgEdid, "Character Background (1 of 2)",
          "Choose 1 Wasteland Background (+10 to three signature skills):",
-         new[] { "Vault Dweller", "Wasteland Scavenger", "Caravan Guard", "Field Medic", "Brotherhood Scribe", "Enclave Remnant", "More Backgrounds", "Cancel" }),
+         new[] { "Vault Dweller", "Wasteland Scavenger", "Caravan Guard", "Field Medic", "Brotherhood Scribe", "More Backgrounds", "Cancel" }),
         (ProgBackgroundPage2MsgId, ProgBackgroundPage2MsgEdid, "Character Background (2 of 2)",
          "Choose 1 Wasteland Background (+10 to three signature skills):",
-         new[] { "Tribal Hunter", "Desert Ranger", "Minuteman Volunteer", "Previous Page", "Cancel" }),
-        (ProgTraitsMsgId, ProgTraitsMsgEdid, "Traits (1 of 2)",
+         new[] { "Enclave Remnant", "Tribal Hunter", "Desert Ranger", "Minuteman Volunteer", "Previous Page", "Cancel" }),
+        (ProgTraitsMsgId, ProgTraitsMsgEdid, "Traits (1 of 3)",
          "Choose 0 to 2 Trade-Off Traits (toggle). Selected: %.0f / 2",
-         new[] { "Small Frame", "Trigger Discipline", "Fast Shot", "Kamikaze", "Heavy Handed", "Four Eyes", "More Traits", "Clear Traits", "Done (0-2 selected)", "Cancel" }),
-        (ProgTraitsPage2MsgId, ProgTraitsPage2MsgEdid, "Traits (2 of 2)",
+         new[] { "Small Frame", "Trigger Discipline", "Fast Shot", "More Traits", "Clear Traits", "Done (0-2 selected)", "Cancel" }),
+        (ProgTraitsPage2MsgId, ProgTraitsPage2MsgEdid, "Traits (2 of 3)",
+         "Choose 0 to 2 Trade-Off Traits (toggle). Selected: %.0f / 2",
+         new[] { "Kamikaze", "Heavy Handed", "Four Eyes", "More Traits", "Previous Page", "Done (0-2 selected)", "Cancel" }),
+        (ProgTraitsPage3MsgId, ProgTraitsPage3MsgEdid, "Traits (3 of 3)",
          "Choose 0 to 2 Trade-Off Traits (toggle). Selected: %.0f / 2",
          new[] { "Good Natured", "Skilled", "Wild Wasteland", "Previous Page", "Clear Traits", "Done (0-2 selected)", "Cancel" }),
         (RespecRefusedMsgId, RespecRefusedMsgEdid, "Character Revision Locked",
@@ -193,8 +220,16 @@ public static class ProgressionCore
          new[] { "OK" }),
     };
 
-    // Pinned Quest VMAD property order
-    public static readonly string[] PropNames =
+    static readonly uint[] SpecialAllocationMsgIds = { SpecialPage1MsgId, SpecialPage2MsgId };
+
+    public static string[] SpecialBoxNamesFromTable() =>
+        SpecialAllocationMsgIds.Select(id => CreationMessages.First(m => m.Id == id).Edid).ToArray();
+
+    public static int[] SpecialBoxButtonCountsFromTable() =>
+        SpecialAllocationMsgIds.Select(id => CreationMessages.First(m => m.Id == id).Buttons.Length).ToArray();
+
+    // Pinned Quest VMAD object & value property order
+    public static readonly string[] ObjPropNames =
     {
         "SpecialAVList",
         "SkillAVList",
@@ -211,15 +246,29 @@ public static class ProgressionCore
         "CarryWeightAV",
         "HealthAV",
         "TestModeGlobal",
-        "SpecialMenuMsg",
+        "SpecialPage1Msg",
+        "SpecialPage2Msg",
+        "SpecialDefaultMsg",
         "TagSkillsPage1Msg",
         "TagSkillsPage2Msg",
+        "TagSkillsPage3Msg",
         "BackgroundPage1Msg",
         "BackgroundPage2Msg",
         "TraitsPage1Msg",
         "TraitsPage2Msg",
+        "TraitsPage3Msg",
         "RespecRefusedMsg"
     };
+
+    public static readonly string[] ValuePropNames =
+    {
+        "SpecialBoxNames",
+        "SpecialBoxButtonCounts",
+        "StandardSpread40",
+        "StandardSpread28"
+    };
+
+    public static readonly string[] PropNames = ObjPropNames.Concat(ValuePropNames).ToArray();
 
     static FormKey Own(uint id) => new(Plugin, id);
 
@@ -278,6 +327,16 @@ public static class ProgressionCore
         Name = name, Flags = ScriptProperty.Flag.Edited, Object = new FormLink<IStarfieldMajorRecordGetter>(fk),
     };
 
+    static ScriptStringListProperty StrListProp(string name, IEnumerable<string> values) => new()
+    {
+        Name = name, Flags = ScriptProperty.Flag.Edited, Data = new ExtendedList<string>(values),
+    };
+
+    static ScriptIntListProperty IntListProp(string name, IEnumerable<int> values) => new()
+    {
+        Name = name, Flags = ScriptProperty.Flag.Edited, Data = new ExtendedList<int>(values),
+    };
+
     static Dictionary<string, FormKey> ExpectedProperties(
         IReadOnlyDictionary<string, uint> coreIds,
         FormKey carryKey,
@@ -298,13 +357,17 @@ public static class ProgressionCore
         ["CarryWeightAV"] = carryKey,
         ["HealthAV"] = healthKey,
         ["TestModeGlobal"] = Core(coreIds, TestModeGlobEdid),
-        ["SpecialMenuMsg"] = Own(SpecialMsgId),
+        ["SpecialPage1Msg"] = Own(SpecialPage1MsgId),
+        ["SpecialPage2Msg"] = Own(SpecialPage2MsgId),
+        ["SpecialDefaultMsg"] = Own(SpecialDefaultMsgId),
         ["TagSkillsPage1Msg"] = Own(TagPage1MsgId),
         ["TagSkillsPage2Msg"] = Own(TagPage2MsgId),
+        ["TagSkillsPage3Msg"] = Own(TagPage3MsgId),
         ["BackgroundPage1Msg"] = Own(ProgBackgroundMsgId),
         ["BackgroundPage2Msg"] = Own(ProgBackgroundPage2MsgId),
         ["TraitsPage1Msg"] = Own(ProgTraitsMsgId),
         ["TraitsPage2Msg"] = Own(ProgTraitsPage2MsgId),
+        ["TraitsPage3Msg"] = Own(ProgTraitsPage3MsgId),
         ["RespecRefusedMsg"] = Own(RespecRefusedMsgId),
     };
 
@@ -349,6 +412,11 @@ public static class ProgressionCore
 
     public static int Build(string sfPath, string outDir, int pool28, int cadence, string? jsonPath = null)
     {
+        if (StandardSpread40.Length != 7 || StandardSpread40.Sum() != 40)
+            throw new Refusal("StandardSpread40 must hold 7 values summing to 40");
+        if (StandardSpread28.Length != 7 || StandardSpread28.Sum() != 28)
+            throw new Refusal("StandardSpread28 must hold 7 values summing to 28");
+
         var coreIds = LoadCoreValues(jsonPath);
         using var sf = OpenMod(sfPath, SfEsm);
         var carryAv = One(sf.ActorValueInformation, "CarryWeight", "AVIF");
@@ -410,9 +478,11 @@ public static class ProgressionCore
         }
         mod.FormLists.Add(pkFlst);
 
-        // 3. Interactive Creation Sheet & Respec Message Menus (0x870..0x877)
-        foreach (var cm in CreationMessages)
+        // 3. Interactive Creation Sheet, Standard-Spread & Respec Message Menus (0x870..0x87B, all <= 7 buttons)
+        foreach (var cm in CreationMessages.OrderBy(x => x.Id))
         {
+            if (cm.Buttons.Length > MaxMessageButtons)
+                throw new Refusal($"MESG 0x{cm.Id:X} ({cm.Edid}) has {cm.Buttons.Length} buttons (> {MaxMessageButtons})");
             var msg = new Message(Own(cm.Id), Release)
             {
                 EditorID = cm.Edid, Name = cm.Name, Description = cm.Desc,
@@ -433,7 +503,11 @@ public static class ProgressionCore
 
         var se = new ScriptEntry { Name = ScriptName, Flags = ScriptEntry.Flag.Local };
         var propMap = ExpectedProperties(coreIds, carryAv.FormKey, healthAv.FormKey);
-        foreach (var pn in PropNames) se.Properties.Add(ObjProp(pn, propMap[pn]));
+        foreach (var pn in ObjPropNames) se.Properties.Add(ObjProp(pn, propMap[pn]));
+        se.Properties.Add(StrListProp("SpecialBoxNames", SpecialBoxNamesFromTable()));
+        se.Properties.Add(IntListProp("SpecialBoxButtonCounts", SpecialBoxButtonCountsFromTable()));
+        se.Properties.Add(IntListProp("StandardSpread40", StandardSpread40));
+        se.Properties.Add(IntListProp("StandardSpread28", StandardSpread28));
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
@@ -484,16 +558,23 @@ public static class ProgressionCore
         if (mod.Globals.Count != 5)
             throw new Refusal($"expected 5 GLOB (0x808..0x80B, 0x80D), found {mod.Globals.Count}");
         if (mod.Messages.Count != CreationMessages.Length)
-            throw new Refusal($"expected {CreationMessages.Length} MESG (0x870..0x877), found {mod.Messages.Count}");
+            throw new Refusal($"expected {CreationMessages.Length} MESG (0x870..0x87B), found {mod.Messages.Count}");
         if (mod.Factions.Count != 0)
             throw new Refusal($"expected 0 FACT (faction reputation lives in FO4SFReputation.esm), found {mod.Factions.Count}");
         if (mod.Quests.Count != 1)
             throw new Refusal($"expected 1 QUST, found {mod.Quests.Count}");
 
+        foreach (var m in mod.Messages)
+        {
+            if (m.MenuButtons.Count > MaxMessageButtons)
+                throw new Refusal($"MESG {m.FormKey} ({m.EditorID}) has {m.MenuButtons.Count} buttons, exceeding maximum {MaxMessageButtons}");
+        }
+
         foreach (var cm in CreationMessages)
         {
             var m = mod.Messages.FirstOrDefault(x => x.FormKey == Own(cm.Id));
             if (m is null || m.EditorID != cm.Edid || !m.Flags.HasFlag(Message.Flag.MessageBox) ||
+                m.MenuButtons.Count > MaxMessageButtons ||
                 !m.MenuButtons.Select(b => b.Text?.String).SequenceEqual(cm.Buttons))
                 throw new Refusal($"MESG 0x{cm.Id:X} ({cm.Edid}) missing or button contract mismatch");
         }
@@ -524,13 +605,26 @@ public static class ProgressionCore
             throw new Refusal($"quest properties [{string.Join(",", actualProps)}] != expected [{string.Join(",", PropNames)}]");
 
         var expectedMap = ExpectedProperties(coreIds, carryAv.FormKey, healthAv.FormKey);
-        foreach (var p in props)
+        var byName = props.ToDictionary(p => p.Name);
+        foreach (var pn in ObjPropNames)
         {
-            if (p is not IScriptObjectPropertyGetter op || op.Object.FormKey != expectedMap[p.Name])
-                throw new Refusal($"quest property {p.Name} target {(p as IScriptObjectPropertyGetter)?.Object.FormKey} != expected {expectedMap[p.Name]}");
+            if (byName[pn] is not IScriptObjectPropertyGetter op || op.Object.FormKey != expectedMap[pn])
+                throw new Refusal($"quest property {pn} target {(byName[pn] as IScriptObjectPropertyGetter)?.Object.FormKey} != expected {expectedMap[pn]}");
         }
 
-        Console.WriteLine($"FO4SFProgression.esm: header Master, masters [Starfield.esm, FO4SFCoreValues.esm], 0 AVIF, 26 PERK, 3 FLST, 5 GLOB, {CreationMessages.Length} MESG, 0 FACT, 1 QUST; all checks pass");
+        // Verify SpecialBoxNames and SpecialBoxButtonCounts match the written MESG records
+        var actualBoxNames = SpecialAllocationMsgIds.Select(id => mod.Messages.First(x => x.FormKey == Own(id)).EditorID ?? "").ToArray();
+        var actualBoxCounts = SpecialAllocationMsgIds.Select(id => mod.Messages.First(x => x.FormKey == Own(id)).MenuButtons.Count).ToArray();
+        if (byName["SpecialBoxNames"] is not IScriptStringListPropertyGetter sbn || !sbn.Data.SequenceEqual(actualBoxNames))
+            throw new Refusal("quest property SpecialBoxNames does not match written S.P.E.C.I.A.L. MESG EditorIDs");
+        if (byName["SpecialBoxButtonCounts"] is not IScriptIntListPropertyGetter sbc || !sbc.Data.SequenceEqual(actualBoxCounts))
+            throw new Refusal("quest property SpecialBoxButtonCounts does not match written S.P.E.C.I.A.L. MESG MenuButtons counts");
+        if (byName["StandardSpread40"] is not IScriptIntListPropertyGetter sp40 || !sp40.Data.SequenceEqual(StandardSpread40) || sp40.Data.Sum() != 40)
+            throw new Refusal("quest property StandardSpread40 mismatch or sum != 40");
+        if (byName["StandardSpread28"] is not IScriptIntListPropertyGetter sp28 || !sp28.Data.SequenceEqual(StandardSpread28) || sp28.Data.Sum() != 28)
+            throw new Refusal("quest property StandardSpread28 mismatch or sum != 28");
+
+        Console.WriteLine($"FO4SFProgression.esm: header Master, masters [Starfield.esm, FO4SFCoreValues.esm], 0 AVIF, 26 PERK, 3 FLST, 5 GLOB, {CreationMessages.Length} MESG (all <= {MaxMessageButtons} buttons), 0 FACT, 1 QUST; all checks pass");
         return 0;
     }
 
@@ -574,7 +668,7 @@ public static class ProgressionCore
             if (!refused) throw new Refusal("Check failed to refuse mismatched --cadence");
         }
 
-        // Negative tamper controls: duplicate CoreValues AVIF, wrong VMAD link, and stray FACT must all be refused
+        // Negative tamper controls: duplicate CoreValues AVIF, > 7 MESG buttons, mismatched SpecialBoxButtonCounts, wrong VMAD link, and stray FACT
         var cleanPlugin = Path.Combine(scratchDir, "out_0_2", Plugin.FileName);
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
@@ -603,6 +697,12 @@ public static class ProgressionCore
             m.Messages.Remove(m.Messages.First().FormKey));
         ExpectRefusal("bad_mesg_buttons", m =>
             m.Messages.First().MenuButtons.RemoveAt(0));
+        ExpectRefusal("over_7_mesg_buttons", m =>
+            m.Messages.First(x => x.FormKey == Own(SpecialPage1MsgId)).MenuButtons.Add(new MessageButton { Text = "Extra8th" }));
+        ExpectRefusal("bad_box_count_prop", m =>
+            ((ScriptIntListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "SpecialBoxButtonCounts")).Data[0] = 10);
+        ExpectRefusal("bad_spread40_sum", m =>
+            ((ScriptIntListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "StandardSpread40")).Data[0] = 7);
 
         Console.WriteLine("selftest: ok");
         return 0;

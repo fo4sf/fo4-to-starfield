@@ -1,5 +1,5 @@
 Scriptname FO4SF_ProgressionQuest extends Quest
-{Player Creation & Progression Core controller (CF-6): 40-pt SPECIAL (with off-by-default 28-pt GLOB), 13 NV skills, 9 Backgrounds, 9 Traits (0..2 + 1 free exit respec), GLOB-driven Perk cadence, shared Karma in FO4SFCoreValues.esm, and read-only faction state queries from FO4SFReputation.esm.}
+{Player Creation & Progression Core controller (CF-6): 40-pt SPECIAL (with off-by-default 28-pt GLOB) in <= 7-button boxes, 3-try standard-spread fallback, 13 NV skills, 9 Backgrounds, 9 Traits (0..2 + 1 free exit respec), GLOB-driven Perk cadence, shared Karma in FO4SFCoreValues.esm, and read-only faction state queries from FO4SFReputation.esm.}
 
 ; Exact property order pinned by dotnet/ProgressionCore/Program.cs and tests/test_progression_core.py
 FormList Property SpecialAVList Auto Const
@@ -17,14 +17,23 @@ GlobalVariable Property TraitRespecUsedGlobal Auto Const
 ActorValue Property CarryWeightAV Auto Const
 ActorValue Property HealthAV Auto Const
 GlobalVariable Property TestModeGlobal Auto Const
-Message Property SpecialMenuMsg Auto Const
+Message Property SpecialPage1Msg Auto Const
+Message Property SpecialPage2Msg Auto Const
+Message Property SpecialDefaultMsg Auto Const
 Message Property TagSkillsPage1Msg Auto Const
 Message Property TagSkillsPage2Msg Auto Const
+Message Property TagSkillsPage3Msg Auto Const
 Message Property BackgroundPage1Msg Auto Const
 Message Property BackgroundPage2Msg Auto Const
 Message Property TraitsPage1Msg Auto Const
 Message Property TraitsPage2Msg Auto Const
+Message Property TraitsPage3Msg Auto Const
 Message Property RespecRefusedMsg Auto Const
+string[] Property SpecialBoxNames Auto Const
+int[] Property SpecialBoxButtonCounts Auto Const
+; Placeholder standard S.P.E.C.I.A.L. spreads summing to the active pool (40: 6/5/5/6/7/6/5; 28: 4/4/4/4/4/4/4); the owner may change these values.
+int[] Property StandardSpread40 Auto Const
+int[] Property StandardSpread28 Auto Const
 
 int Property TimerIdPoll = 1 AutoReadOnly
 
@@ -39,6 +48,7 @@ float appliedHpMod = 0.0
 int lastTrackedLevel = 1
 bool creationCompleted = false
 bool specialAllocatedOnce = false
+int liftSpecialFailures = 0
 
 bool ran10 = false
 bool ran15 = false
@@ -199,10 +209,7 @@ Function RecomputeSkillsAndDerived(Actor player)
 EndFunction
 
 bool Function ApplyCreationSheet(Actor player, int bgIdx, int t0, int t1, int s0, int s1, int s2, int s3, int s4, int s5, int s6, int tag0, int tag1, int tag2, string source = "")
-    int reqPool = 40
-    if Pool28Global.GetValue() >= 0.5
-        reqPool = 28
-    endif
+    int reqPool = ActiveSpecialPool()
     int sum = s0 + s1 + s2 + s3 + s4 + s5 + s6
     if sum != reqPool
         LogLine("error", "reason=pool_mismatch sum=" + sum + " required=" + reqPool)
@@ -258,6 +265,13 @@ bool Function ApplyCreationSheet(Actor player, int bgIdx, int t0, int t1, int s0
         LogLine("creation_applied", "source=" + source + " bg=" + bgIdx + " traits=" + traitCount + " special_sum=" + sum + " skills_count=13 tags=" + tag0 + "," + tag1 + "," + tag2 + " carry_mod=" + appliedCarryMod)
     endif
     return true
+EndFunction
+
+int Function ActiveSpecialPool()
+    if Pool28Global != None && Pool28Global.GetValue() >= 0.5
+        return 28
+    endif
+    return 40
 EndFunction
 
 int Function CountSelectedTags(int[] tags)
@@ -328,14 +342,35 @@ Function ToggleTraitPick(int[] traits, int traitIdx)
     endif
 EndFunction
 
+int Function AdjustSpecialStat(int[] stats, int statIdx, int unspent, int step)
+    if step > 0
+        if unspent <= 0
+            Debug.Notification("0 unspent points (toggle +1 / -1 to lower a stat)")
+        elseif stats[statIdx] >= 10
+            Debug.Notification("10 is the maximum for one S.P.E.C.I.A.L. stat")
+        else
+            stats[statIdx] += 1
+            unspent -= 1
+        endif
+    else
+        if stats[statIdx] <= 1
+            Debug.Notification("1 is the minimum for one S.P.E.C.I.A.L. stat")
+        else
+            stats[statIdx] -= 1
+            unspent += 1
+        endif
+    endif
+    return unspent
+EndFunction
+
 bool Function RunSpecialMenu(Actor player, bool isRespec, int[] stats)
-    if SpecialMenuMsg == None
+{Two-page <= 7-button S.P.E.C.I.A.L. allocation with Confirm reachable from Page 1; logs box Edid and button count from the writer's record table.}
+    if SpecialPage1Msg == None || SpecialPage2Msg == None
         return false
     endif
-    int reqPool = 40
+    int reqPool = ActiveSpecialPool()
     int baseStat = 5
-    if Pool28Global != None && Pool28Global.GetValue() >= 0.5
-        reqPool = 28
+    if reqPool == 28
         baseStat = 4
     endif
     int sum = 0
@@ -364,64 +399,80 @@ bool Function RunSpecialMenu(Actor player, bool isRespec, int[] stats)
     endif
     int unspent = reqPool - sum
     int step = 1
+    int pageIdx = 0
     int presses = 0
     while presses < 300
         presses += 1
-        LogLine("special_box", "shown=1 buttons=10 unspent=" + unspent + " step=" + step)
-        LogNewGameLine("special box shown buttons=10 unspent=" + unspent + " step=" + step)
-        int btn = SpecialMenuMsg.Show(stats[0], stats[1], stats[2], stats[3], stats[4], stats[5], stats[6], unspent, step)
-        if btn >= 0 && btn < 7
-            if step > 0
-                if unspent <= 0
-                    Debug.Notification("0 unspent points (toggle +1 / -1 to lower a stat)")
-                elseif stats[btn] >= 10
-                    Debug.Notification("10 is the maximum for one S.P.E.C.I.A.L. stat")
+        string boxName = SpecialBoxNames[pageIdx]
+        int boxButtons = SpecialBoxButtonCounts[pageIdx]
+        LogLine("special_box", "shown=1 box=" + boxName + " buttons=" + boxButtons + " unspent=" + unspent + " step=" + step)
+        LogNewGameLine("special box shown box=" + boxName + " buttons=" + boxButtons + " unspent=" + unspent + " step=" + step)
+        int btn = -1
+        if pageIdx == 0
+            btn = SpecialPage1Msg.Show(stats[0], stats[1], stats[2], stats[3], stats[4], stats[5], stats[6], unspent, step)
+            if btn >= 0 && btn < 3
+                unspent = AdjustSpecialStat(stats, btn, unspent, step)
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+            elseif btn == 3
+                step = -step
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=3 unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=3 unspent=" + unspent + " step=" + step)
+            elseif btn == 4
+                pageIdx = 1
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=4 unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=4 unspent=" + unspent + " step=" + step)
+            elseif btn == 5
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=5 unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=5 unspent=" + unspent + " step=" + step)
+                if unspent != 0
+                    Debug.Notification("Spend all S.P.E.C.I.A.L. points (" + unspent + " left)")
                 else
-                    stats[btn] += 1
-                    unspent -= 1
+                    return true
                 endif
             else
-                if stats[btn] <= 1
-                    Debug.Notification("1 is the minimum for one S.P.E.C.I.A.L. stat")
-                else
-                    stats[btn] -= 1
-                    unspent += 1
-                endif
-            endif
-            LogLine("special_press", "press=" + presses + " button=" + btn + " unspent=" + unspent + " step=" + step)
-            LogNewGameLine("special box press=" + presses + " button=" + btn + " unspent=" + unspent + " step=" + step)
-        elseif btn == 7
-            step = -step
-            LogLine("special_press", "press=" + presses + " button=7 unspent=" + unspent + " step=" + step)
-            LogNewGameLine("special box press=" + presses + " button=7 unspent=" + unspent + " step=" + step)
-        elseif btn == 8
-            LogLine("special_press", "press=" + presses + " button=8 unspent=" + unspent + " step=" + step)
-            LogNewGameLine("special box press=" + presses + " button=8 unspent=" + unspent + " step=" + step)
-            if unspent != 0
-                Debug.Notification("Spend all S.P.E.C.I.A.L. points (" + unspent + " left)")
-            else
-                return true
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+                return false
             endif
         else
-            LogLine("special_press", "press=" + presses + " button=" + btn + " unspent=" + unspent + " step=" + step)
-            LogNewGameLine("special box press=" + presses + " button=" + btn + " unspent=" + unspent + " step=" + step)
-            return false
+            btn = SpecialPage2Msg.Show(stats[0], stats[1], stats[2], stats[3], stats[4], stats[5], stats[6], unspent, step)
+            if btn >= 0 && btn < 4
+                unspent = AdjustSpecialStat(stats, 3 + btn, unspent, step)
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+            elseif btn == 4
+                step = -step
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=4 unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=4 unspent=" + unspent + " step=" + step)
+            elseif btn == 5
+                pageIdx = 0
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=5 unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=5 unspent=" + unspent + " step=" + step)
+            elseif btn == 6
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=6 unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=6 unspent=" + unspent + " step=" + step)
+                if unspent != 0
+                    Debug.Notification("Spend all S.P.E.C.I.A.L. points (" + unspent + " left)")
+                else
+                    return true
+                endif
+            else
+                LogLine("special_press", "press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+                LogNewGameLine("special box press=" + presses + " box=" + boxName + " button=" + btn + " unspent=" + unspent + " step=" + step)
+                return false
+            endif
         endif
     endwhile
     return false
 EndFunction
 
-bool Function OpenSpecialAllocationOnly(string sourceTag)
-{X3 / S5: Runs Progression's 40-point (or 28-point when Pool28Global != 0) S.P.E.C.I.A.L. allocation box, writes the
- seven FO4SFCoreValues.esm S.P.E.C.I.A.L. AVIFs and 13 derived skills, and logs 'special set S=... sum=40'.}
-    Actor player = Game.GetPlayer()
-    if player == None
-        return false
-    endif
-    int[] stats = new int[7]
-    if !RunSpecialMenu(player, specialAllocatedOnce, stats)
-        LogLine("special_cancelled", "source=" + sourceTag)
-        LogNewGameLine("special cancelled source=" + sourceTag)
+bool Function CommitSpecialAllocation(Actor player, int[] stats, string sourceTag, bool isDefault = false)
+{Single shared write path for confirmed and standard-spread S.P.E.C.I.A.L. allocations.}
+    int reqPool = ActiveSpecialPool()
+    int sum = stats[0] + stats[1] + stats[2] + stats[3] + stats[4] + stats[5] + stats[6]
+    if sum != reqPool
+        LogLine("error", "reason=pool_mismatch sum=" + sum + " required=" + reqPool)
         return false
     endif
     player.SetValue(GetSpecialAV(0), stats[0] as float)
@@ -433,10 +484,77 @@ bool Function OpenSpecialAllocationOnly(string sourceTag)
     player.SetValue(GetSpecialAV(6), stats[6] as float)
     specialAllocatedOnce = true
     RecomputeSkillsAndDerived(player)
-    int sum = stats[0] + stats[1] + stats[2] + stats[3] + stats[4] + stats[5] + stats[6]
     LogLine("special_set", "S=" + stats[0] + " P=" + stats[1] + " E=" + stats[2] + " C=" + stats[3] + " I=" + stats[4] + " A=" + stats[5] + " L=" + stats[6] + " sum=" + sum + " source=" + sourceTag)
     LogNewGameLine("special set S=" + stats[0] + " P=" + stats[1] + " E=" + stats[2] + " C=" + stats[3] + " I=" + stats[4] + " A=" + stats[5] + " L=" + stats[6] + " sum=" + sum + " source=" + sourceTag)
+    if isDefault
+        LogLine("special_default", "sum=" + sum + " source=" + sourceTag)
+        LogNewGameLine("special default sum=" + sum + " source=" + sourceTag)
+    endif
     return true
+EndFunction
+
+bool Function ApplyStandardSpread(Actor player, string sourceTag)
+{Applies the active pool's standard spread (40: 6/5/5/6/7/6/5; 28: 4/4/4/4/4/4/4; placeholder values) through CommitSpecialAllocation.}
+    if player == None
+        return false
+    endif
+    int reqPool = ActiveSpecialPool()
+    int[] stats = new int[7]
+    int i = 0
+    while i < 7
+        if reqPool == 28
+            stats[i] = StandardSpread28[i]
+        else
+            stats[i] = StandardSpread40[i]
+        endif
+        i += 1
+    endwhile
+    return CommitSpecialAllocation(player, stats, sourceTag, true)
+EndFunction
+
+bool Function OfferStandardSpread(string sourceTag, bool allowDecline = true)
+{Offered after 3 failed S.P.E.C.I.A.L. tries on the lift or in Warfare; applies standard spread through CommitSpecialAllocation.}
+    Actor player = Game.GetPlayer()
+    if player == None
+        return false
+    endif
+    int dBtn = 0
+    if SpecialDefaultMsg != None
+        dBtn = SpecialDefaultMsg.Show()
+    endif
+    if dBtn == 1 && allowDecline
+        LogLine("special_default_declined", "source=" + sourceTag)
+        LogNewGameLine("special default declined source=" + sourceTag)
+        return false
+    endif
+    if sourceTag == "lift"
+        liftSpecialFailures = 0
+    endif
+    return ApplyStandardSpread(player, sourceTag)
+EndFunction
+
+bool Function OpenSpecialAllocationOnly(string sourceTag)
+{X3 / S5 / B3: Runs Progression's <= 7-button S.P.E.C.I.A.L. allocation; after 3 failed lift tries offers the standard spread.}
+    Actor player = Game.GetPlayer()
+    if player == None
+        return false
+    endif
+    int[] stats = new int[7]
+    if !RunSpecialMenu(player, specialAllocatedOnce, stats)
+        LogLine("special_cancelled", "source=" + sourceTag)
+        LogNewGameLine("special cancelled source=" + sourceTag)
+        if sourceTag == "lift"
+            liftSpecialFailures += 1
+            if liftSpecialFailures >= 3
+                return OfferStandardSpread("lift", true)
+            endif
+        endif
+        return false
+    endif
+    if sourceTag == "lift"
+        liftSpecialFailures = 0
+    endif
+    return CommitSpecialAllocation(player, stats, sourceTag, false)
 EndFunction
 
 bool Function OpenAttributeAllocation(string sourceTag)
@@ -462,7 +580,7 @@ Function ApplyWarfareBackground(int bgIdx)
 EndFunction
 
 bool Function RunTagSkillsMenu(bool isRespec, int[] tags)
-    if TagSkillsPage1Msg == None || TagSkillsPage2Msg == None
+    if TagSkillsPage1Msg == None || TagSkillsPage2Msg == None || TagSkillsPage3Msg == None
         return false
     endif
     if isRespec && tagSkillIdx0 >= 0 && tagSkillIdx1 >= 0 && tagSkillIdx2 >= 0
@@ -481,15 +599,11 @@ bool Function RunTagSkillsMenu(bool isRespec, int[] tags)
         int sel = CountSelectedTags(tags)
         if page == 1
             int btn = TagSkillsPage1Msg.Show(sel)
-            if btn >= 0 && btn < 7
+            if btn >= 0 && btn < 4
                 ToggleTagSkill(tags, btn)
-            elseif btn == 7
+            elseif btn == 4
                 page = 2
-            elseif btn == 8
-                tags[0] = -1
-                tags[1] = -1
-                tags[2] = -1
-            elseif btn == 9
+            elseif btn == 5
                 if CountSelectedTags(tags) == 3
                     return true
                 endif
@@ -497,17 +611,28 @@ bool Function RunTagSkillsMenu(bool isRespec, int[] tags)
             else
                 return false
             endif
-        else
+        elseif page == 2
             int btn2 = TagSkillsPage2Msg.Show(sel)
-            if btn2 >= 0 && btn2 < 6
-                ToggleTagSkill(tags, 7 + btn2)
+            if btn2 >= 0 && btn2 < 5
+                ToggleTagSkill(tags, 4 + btn2)
+            elseif btn2 == 5
+                page = 3
             elseif btn2 == 6
                 page = 1
-            elseif btn2 == 7
+            else
+                return false
+            endif
+        else
+            int btn3 = TagSkillsPage3Msg.Show(sel)
+            if btn3 >= 0 && btn3 < 4
+                ToggleTagSkill(tags, 9 + btn3)
+            elseif btn3 == 4
+                page = 2
+            elseif btn3 == 5
                 tags[0] = -1
                 tags[1] = -1
                 tags[2] = -1
-            elseif btn2 == 8
+            elseif btn3 == 6
                 if CountSelectedTags(tags) == 3
                     return true
                 endif
@@ -530,18 +655,18 @@ int Function RunBackgroundMenu()
         presses += 1
         if page == 1
             int btn = BackgroundPage1Msg.Show()
-            if btn >= 0 && btn < 6
+            if btn >= 0 && btn < 5
                 return btn
-            elseif btn == 6
+            elseif btn == 5
                 page = 2
             else
                 return -1
             endif
         else
             int btn2 = BackgroundPage2Msg.Show()
-            if btn2 >= 0 && btn2 < 3
-                return 6 + btn2
-            elseif btn2 == 3
+            if btn2 >= 0 && btn2 < 4
+                return 5 + btn2
+            elseif btn2 == 4
                 page = 1
             else
                 return -1
@@ -552,7 +677,7 @@ int Function RunBackgroundMenu()
 EndFunction
 
 bool Function RunTraitsMenu(bool isRespec, int[] traits)
-    if TraitsPage1Msg == None || TraitsPage2Msg == None
+    if TraitsPage1Msg == None || TraitsPage2Msg == None || TraitsPage3Msg == None
         return false
     endif
     if isRespec
@@ -569,28 +694,41 @@ bool Function RunTraitsMenu(bool isRespec, int[] traits)
         int sel = CountSelectedTraits(traits)
         if page == 1
             int btn = TraitsPage1Msg.Show(sel)
-            if btn >= 0 && btn < 6
+            if btn >= 0 && btn < 3
                 ToggleTraitPick(traits, btn)
-            elseif btn == 6
+            elseif btn == 3
                 page = 2
-            elseif btn == 7
+            elseif btn == 4
                 traits[0] = -1
                 traits[1] = -1
-            elseif btn == 8
+            elseif btn == 5
+                return true
+            else
+                return false
+            endif
+        elseif page == 2
+            int btn2 = TraitsPage2Msg.Show(sel)
+            if btn2 >= 0 && btn2 < 3
+                ToggleTraitPick(traits, 3 + btn2)
+            elseif btn2 == 3
+                page = 3
+            elseif btn2 == 4
+                page = 1
+            elseif btn2 == 5
                 return true
             else
                 return false
             endif
         else
-            int btn2 = TraitsPage2Msg.Show(sel)
-            if btn2 >= 0 && btn2 < 3
-                ToggleTraitPick(traits, 6 + btn2)
-            elseif btn2 == 3
-                page = 1
-            elseif btn2 == 4
+            int btn3 = TraitsPage3Msg.Show(sel)
+            if btn3 >= 0 && btn3 < 3
+                ToggleTraitPick(traits, 6 + btn3)
+            elseif btn3 == 3
+                page = 2
+            elseif btn3 == 4
                 traits[0] = -1
                 traits[1] = -1
-            elseif btn2 == 5
+            elseif btn3 == 5
                 return true
             else
                 return false
@@ -601,7 +739,7 @@ bool Function RunTraitsMenu(bool isRespec, int[] traits)
 EndFunction
 
 bool Function OpenCreationSheetMenu()
-{Interactive Creation Sheet via real Message menus: 40-pt S.P.E.C.I.A.L., 3 of 13 Tag Skills, 1 Background, and 0..2 Traits.
+{Interactive Creation Sheet via <= 7-button Message menus: 40-pt S.P.E.C.I.A.L., 3 of 13 Tag Skills, 1 Background, and 0..2 Traits.
  First completion applies creation (source=lift_menu); second completion performs the single Vault 111 lift respec; third is refused.}
     Actor player = Game.GetPlayer()
     if player == None
@@ -763,12 +901,12 @@ Function PollStages()
     endif
 
     if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
-        ; Stage 10: Run Creation Flow (Vault Dweller + Good Natured & Small Frame + 40-pt SPECIAL 6/5/5/6/7/6/5 + Tags Speech/Guns/Lockpick)
+        ; Stage 10: Run Creation Flow (Vault Dweller + Good Natured & Small Frame + StandardSpread40 6/5/5/6/7/6/5 + Tags Speech/Guns/Lockpick)
         if !ran10 && GetStageDone(10)
             ran10 = true
             TraitRespecUsedGlobal.SetValue(0.0)
             Pool28Global.SetValue(0.0)
-            bool ok = ApplyCreationSheet(player, 0, 6, 0, 6, 5, 5, 6, 7, 6, 5, 10, 3, 4)
+            bool ok = ApplyCreationSheet(player, 0, 6, 0, StandardSpread40[0], StandardSpread40[1], StandardSpread40[2], StandardSpread40[3], StandardSpread40[4], StandardSpread40[5], StandardSpread40[6], 10, 3, 4)
             float spc = player.GetValue(GetSkillAV(10))
             float sci = player.GetValue(GetSkillAV(8))
             float med = player.GetValue(GetSkillAV(5))
@@ -801,33 +939,23 @@ Function PollStages()
             ran40 = true
             player.SetValue(KarmaAV, -800.0)
             KarmaGlobal.SetValue(-800.0)
-            string kt = KarmaTierToken(-800.0)
             int repState = ReadFactionRepState(0)
-            LogLine("karma_repu", "karma=-800.0 karma_tier=" + kt + " faction_slot=0 rep_state=" + repState)
+            LogLine("karma_repu", "karma=" + player.GetValue(KarmaAV) + " karma_tier=" + KarmaTierToken(-800.0) + " faction_slot=0 rep_state=" + repState)
         endif
 
-        ; Stage 50: Clean Reset
+        ; Stage 50: Final summary line once all 4 checks executed
         if !ran50 && GetStageDone(50)
             ran50 = true
-            ClearListPerks(player, BackgroundPerks)
-            ClearListPerks(player, TraitPerks)
-            if appliedCarryMod > 0.01 || appliedCarryMod < -0.01
-                player.ModValue(CarryWeightAV, -appliedCarryMod)
-                appliedCarryMod = 0.0
-            endif
-            player.SetValue(KarmaAV, 0.0)
-            KarmaGlobal.SetValue(0.0)
-            TraitRespecUsedGlobal.SetValue(0.0)
-            creationCompleted = false
-            ran15 = false
-            LogLine("summary", "ok=true stages=10,20,30,40,50")
+            bool allRan = ran10 && ran20 && ran30 && ran40
+            LogLine("summary", "ok=" + allRan + " stages=10,20,30,40,50")
         endif
     endif
 EndFunction
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID == TimerIdPoll
-        PollStages()
-        StartTimer(1.0, TimerIdPoll)
+    if aiTimerID != TimerIdPoll
+        return
     endif
+    PollStages()
+    StartTimer(1.0, TimerIdPoll)
 EndEvent

@@ -111,7 +111,7 @@ static class NewGame
     public const string PortPlugin = "FO4Port.esm", CorePluginFile = "FO4TerrainCore.esm";
     public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks", SpecialScript = "FO4SF_NewGameSpecial";
     public const string MessageEdid = "FO4SF_NewGameElevator", StartMessageEdid = "FO4SF_NewGameStart", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
-    public const string TerminalMessageEdid = "FO4SF_NewGameTerminal", SpecialMessageEdid = "FO4SF_NewGameSpecial", SpecialAvifPrefix = "FO4SF_Special_";
+    public const string TerminalMessageEdid = "FO4SF_NewGameTerminal", SpecialMessageEdid = "FO4SF_NewGameSpecial", SpecialMessagePage2Edid = "FO4SF_NewGameSpecialPage2", SpecialAvifPrefix = "FO4SF_Special_";
     public const string ReturnMsgEdid = "FO4SF_NewGameReturn",
                         ModePickMsgEdid = "FO4SF_NewGameModeMsg",
                         SurvivalPickMsgEdid = "FO4SF_NewGameSurvivalMsg",
@@ -122,7 +122,10 @@ static class NewGame
                         PipboyAcquiredGlobEdid = "FO4SF_PipboyAcquired",
                         PipboyWristArmorEdid = "FO4SF_PipboyWrist",
                         PipboyCorpseActiEdid = "FO4SF_PipboyCorpsePickup",
-                        PipboyCorpseRefEdid = "FO4SF_PipboyCorpsePickupRef";
+                        PipboyCorpseRefEdid = "FO4SF_PipboyCorpsePickupRef",
+                        GearDoorConsoleActiEdid = "FO4SF_GearDoorConsole",
+                        GearDoorConsoleRefEdid = "FO4SF_GearDoorConsoleRef",
+                        ExitFallbackMsgEdid = "FO4SF_NewGameExitFallbackMsg";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
     public const uint ModePickMsgId = 0x806,
                       SurvivalPickMsgId = 0x807,
@@ -130,14 +133,23 @@ static class NewGame
                       WarfareGroupMsgId = 0x809,
                       WarfareSpotMsgId = 0x80A,
                       ReturnMsgId = 0x80B,
-                      PipboyAcquiredGlobId = 0x80C,
+                      // 0x80C reserved (former FO4SF_PipboyAcquired GLOB; now owned solely by FO4SFCoreValues.esm:000865)
                       PipboyWristArmorId = 0x80D,
                       PipboyCorpseActiId = 0x80E,
                       PipboyCorpseRefId = 0x80F,
-                      NoPipboyMsgId = 0x811;
+                      // 0x810..0x816 reserved (retired SPECIAL AVIF / early prototype IDs moved to FO4SFCoreValues.esm)
+                      NoPipboyMsgId = 0x817,
+                      GearDoorConsoleActiId = 0x818,
+                      GearDoorConsoleRefId = 0x819,
+                      ExitFallbackMsgId = 0x81A,
+                      SpecialMessagePage2Id = 0x81B;
+    // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
+    public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
+    public const int MaxMessageButtons = 7;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
     public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Character", "Stay" };
+    public static readonly string[] ExitFallbackButtons = { "Go up to the Commonwealth", "Retry lift" };
     public static readonly string[] ReturnButtons = { "Ride down to Vault 111", "Stay" };
     public static readonly string[] ModeButtons = { "Story", "Warfare" };
     public static readonly string[] SurvivalButtons = { "Survival: No", "Survival: Yes" };
@@ -183,6 +195,8 @@ static class NewGame
     // opens the plugin).
     public static readonly string[] SpecialNames = { "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck" };
     public static readonly string[] SpecialExtraButtons = { "Reset", "Confirm", "Leave" };
+    public static readonly string[] SpecialPage1Buttons = { "Strength", "Perception", "Endurance", "Next (C / I / A / L)", "Reset", "Confirm", "Leave" };
+    public static readonly string[] SpecialPage2Buttons = { "Charisma", "Intelligence", "Agility", "Luck", "Back (S / P / E)", "Confirm", "Leave" };
     public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
     // names are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1) and do not describe Starfield's
@@ -387,6 +401,36 @@ static class NewGame
     public static uint RequireCoreId(IReadOnlyDictionary<string, uint> ids, string edid) =>
         ids.TryGetValue(edid, out var id) ? id : throw new Refusal($"core_values.json missing {edid}");
 
+    public static string DefaultRouteLootJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "loot", "route_loot_ids.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "loot", "route_loot_ids.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/loot/route_loot_ids.json; pass --route-loot-json <path>");
+    }
+
+    public static uint LoadVaultPistolId(string? jsonPath, SF.IStarfieldModGetter sf)
+    {
+        var path = jsonPath ?? DefaultRouteLootJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing route_loot_ids.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("vault111", out var v111) || !v111.TryGetProperty("pistol_id", out var pidEl))
+            throw new Refusal($"route_loot_ids.json missing vault111.pistol_id: {path}");
+        var pidStr = pidEl.GetString()?.Trim() ?? "";
+        if (pidStr.Length == 0)
+            throw new Refusal($"route_loot_ids.json empty vault111.pistol_id: {path}");
+        uint pid = Convert.ToUInt32(pidStr, 16);
+        if (pid == 0 || !sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, pid)))
+            throw new Refusal($"Starfield.esm has no WEAP 0x{pid:X6} for vault111.pistol_id in {path}");
+        return pid;
+    }
+
     public static string DefaultWarfareStartsJsonPath()
     {
         var dir = AppContext.BaseDirectory;
@@ -575,7 +619,7 @@ static class NewGame
     public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
                           bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor,
                           int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false, bool O2Fill = DefaultO2Fill, string? CoreValuesJson = null,
-                          bool FadeHold = DefaultFadeHold, string? WarfareStartsJson = null)
+                          bool FadeHold = DefaultFadeHold, string? WarfareStartsJson = null, string? RouteLootJson = null)
     {
         public bool O2 => ClearInventory && O2Fill;   // a --keep-inventory player keeps Starfield's suit and its capacity
         public static Options From(string[] a)
@@ -591,6 +635,9 @@ static class NewGame
             var wfJson = ArgOrNull(a, "--warfare-starts");
             if (a.Contains("--warfare-starts") && (wfJson is null || wfJson.StartsWith("--")))
                 throw new Refusal("--warfare-starts needs a JSON path");
+            var rlJson = ArgOrNull(a, "--route-loot-json");
+            if (a.Contains("--route-loot-json") && (rlJson is null || rlJson.StartsWith("--")))
+                throw new Refusal("--route-loot-json needs a JSON path");
             return new(
                 ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
                 (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
@@ -606,7 +653,8 @@ static class NewGame
                 a.Contains("--animated-exit-lift"), !a.Contains("--no-o2-fill"),
                 ArgOrNull(a, "--core-values-json"),
                 !a.Contains("--no-fade-hold"),
-                wfJson);
+                wfJson,
+                rlJson);
         }
     }
 
@@ -697,7 +745,7 @@ static class NewGame
     public record Places(uint VaultAnchor, P3Float AnchorPos, uint CogDoor, string CogDoorBase, uint ExitAnchor, P3Float ExitPos,
                          uint Terminal, uint TerminalSrc, P3Float TerminalPos, uint VaultSuit = 0, bool AnchorTemporary = false,
                          uint Lift = 0, uint LiftBase = 0, uint Console = 0, uint PortPipboyStatic = 0,
-                         uint PortCellId = 0, int CellBlockNum = 0, int CellSubBlockNum = 0, int[]? CoreMarkers = null)
+                         uint PortCellId = 0, int CellBlockNum = 0, int CellSubBlockNum = 0, int[]? CoreMarkers = null, P3Float ConsoleRot = default)
     {
         /// "persistent" or "temporary": the anchor's mode, as write and check print it after the anchor's id.
         public string AnchorMode => AnchorTemporary ? "temporary" : "persistent";
@@ -815,11 +863,12 @@ static class NewGame
             Owned(r, port.ModKey, "the cog door");
             cogBase = port.EnumerateMajorRecords().FirstOrDefault(x => x.FormKey == r.Base.FormKey) is { } b ? $"{b.GetType().Name.Replace("BinaryOverlay", "")} {b.EditorID}" : r.Base.FormKey.ToString();
         }
-        if (console != 0)
-        {
-            var r = inCell.FirstOrDefault(x => x.FormKey.ID == console) ?? throw new Refusal($"formids.json names {console:X6} as the cog door console, not a reference of {VaultCell}");
-            Owned(r, port.ModKey, "the cog door console");
-        }
+        if (console == 0)
+            throw new Refusal($"formids.json has no mapping for gear-door console {Fo4Console:X8} in {VaultCell}");
+        var consoleRefInPort = inCell.FirstOrDefault(x => x.FormKey.ID == console)
+                               ?? throw new Refusal($"formids.json names {console:X6} as the cog door console, not a reference of {VaultCell}");
+        Owned(consoleRefInPort, port.ModKey, "the cog door console");
+        var consoleRot = consoleRefInPort.Rotation;
         if (portPipboy != 0)
         {
             var r = inCell.FirstOrDefault(x => x.FormKey.ID == portPipboy) ?? throw new Refusal($"formids.json names {portPipboy:X6} as the ground Pip-Boy static, not a reference of {VaultCell}");
@@ -865,7 +914,7 @@ static class NewGame
             .Select(r => (int)r.FormKey.ID)
             .Distinct()
             .ToArray();
-        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos, suit, anchorTemporary, lift, liftBase, console, portPipboy, cell.FormKey.ID, cellBlockNum, cellSubBlockNum, coreMarkers);
+        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos, suit, anchorTemporary, lift, liftBase, console, portPipboy, cell.FormKey.ID, cellBlockNum, cellSubBlockNum, coreMarkers, consoleRot);
     }
 
     static bool IsPersistent(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & 0x400) != 0;
@@ -917,7 +966,7 @@ static class NewGame
     }
 
     /// Every script property the plugin writes, by name: what the check compares and the Python contract test reads.
-    public static List<(string Name, object Value)> Properties(JsonElement pts, Places p, Options o, WarfareTable wf)
+    public static List<(string Name, object Value)> Properties(JsonElement pts, Places p, Options o, WarfareTable wf, uint vaultPistolId)
     {
         var pod = Floats(pts.GetProperty("pod").GetProperty("pos"));
         var con = Floats(pts.GetProperty("console").GetProperty("pos"));
@@ -928,7 +977,7 @@ static class NewGame
             ("VaultAnchorId", (int)p.VaultAnchor), ("AnchorX", p.AnchorPos.X), ("AnchorY", p.AnchorPos.Y), ("AnchorZ", p.AnchorPos.Z),
             ("PodX", pod[0]), ("PodY", pod[1]), ("PodZ", pod[2]), ("PodHeading", pts.GetProperty("pod").GetProperty("heading").GetSingle()),
             ("CogDoorId", (int)p.CogDoor), ("ConsoleRefId", (int)p.Console), ("ConsoleX", con[0]), ("ConsoleY", con[1]), ("ConsoleZ", con[2]),
-            ("PortPipboyStaticId", (int)p.PortPipboyStatic),
+            ("PortPipboyStaticId", (int)p.PortPipboyStatic), ("VaultPistolId", (int)vaultPistolId),
             ("PlatformX", plat[0]), ("PlatformY", plat[1]), ("PlatformZ", plat[2]),
             ("LiftId", (int)p.Lift), ("LiftBaseId", (int)p.LiftBase), ("LiftRise", 21.6f), ("LiftSeconds", 9.8667f),
             ("ExitAnchorId", (int)p.ExitAnchor), ("ArrivalX", arr[0]), ("ArrivalY", arr[1]), ("ArrivalZ", arr[2]),
@@ -1007,10 +1056,13 @@ static class NewGame
         var wfFactionKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareFactionGlobEdid));
         var wfStartIdxKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareStartIndexGlobEdid));
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
+        var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
+        uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
+        var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
         var modKey = ModKey.FromFileName(o.Plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
         mod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
@@ -1061,6 +1113,7 @@ static class NewGame
         var wfGroupMsg = MakeMsg(WarfareGroupMsgId, WarfareGroupMsgEdid, "Warfare Allegiance", "Choose your starting allegiance:", wf.FactionButtons);
         var wfSpotMsg = MakeMsg(WarfareSpotMsgId, WarfareSpotMsgEdid, "Warfare Deployment", "Choose your starting deployment:", wf.SpotButtons);
         var noPipboyMsg = MakeMsg(NoPipboyMsgId, NoPipboyMsgEdid, "Vault Door Controls", "A Pip-Boy is required to interface with the Vault 111 door controls.", NoPipboyButtons);
+        var exitFallbackMsg = MakeMsg(ExitFallbackMsgId, ExitFallbackMsgEdid, "Vault 111 elevator", "The elevator platform did not reach the surface. Go up to the Commonwealth directly, or try the lift again?", ExitFallbackButtons);
         // the opening choice (NG-6, NG-C9): button 0 opens the creator, button 1 keeps the preset and skips it. A
         // message box, so it needs no voice: the player is silent
         var start = new SF.Message(new FormKey(modKey, StartMessageId), SF.StarfieldRelease.Starfield)
@@ -1071,8 +1124,8 @@ static class NewGame
         start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
         start.MenuButtons.Add(new SF.MessageButton { Text = "Quick start" });
         mod.Messages.Add(start);
-        // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt and allocation MESGs (the seven AVIFs live in FO4SFCoreValues.esm)
-        SF.Message? terminalMsg = null, specialMsg = null;
+        // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt and two <=7-button allocation MESGs (the seven AVIFs live in FO4SFCoreValues.esm)
+        SF.Message? terminalMsg = null, specialMsg = null, specialMsgPage2 = null;
         if (o.Special)
         {
             terminalMsg = new SF.Message(new FormKey(modKey, TerminalMessageId), SF.StarfieldRelease.Starfield)
@@ -1084,23 +1137,25 @@ static class NewGame
             terminalMsg.MenuButtons.Add(new SF.MessageButton { Text = "Later" });
             mod.Messages.Add(terminalMsg);
             // the text's %.0f tokens take Message.Show's float arguments (the seven values, then the points left), as
-            // FO4's message boxes do; whether Starfield's substitute the same way is unverified until the PC run
+            // FO4's message boxes do; split across two <=7-button pages with Confirm reachable on Page 1
             specialMsg = new SF.Message(new FormKey(modKey, SpecialMessageId), SF.StarfieldRelease.Starfield)
             {
-                EditorID = SpecialMessageEdid, Name = "S.P.E.C.I.A.L.",
+                EditorID = SpecialMessageEdid, Name = "S.P.E.C.I.A.L. (S / P / E)",
                 Description = SpecialDescription, Flags = SF.Message.Flag.MessageBox,
             };
-            foreach (var b in SpecialNames.Concat(SpecialExtraButtons)) specialMsg.MenuButtons.Add(new SF.MessageButton { Text = b });
+            foreach (var b in SpecialPage1Buttons) specialMsg.MenuButtons.Add(new SF.MessageButton { Text = b });
             mod.Messages.Add(specialMsg);
+            specialMsgPage2 = new SF.Message(new FormKey(modKey, SpecialMessagePage2Id), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = SpecialMessagePage2Edid, Name = "S.P.E.C.I.A.L. (C / I / A / L)",
+                Description = SpecialDescription, Flags = SF.Message.Flag.MessageBox,
+            };
+            foreach (var b in SpecialPage2Buttons) specialMsgPage2.MenuButtons.Add(new SF.MessageButton { Text = b });
+            mod.Messages.Add(specialMsgPage2);
         }
 
-        // Pip-Boy corpse pickup (2l): non-constant GLOB 0x80C, playable wrist ARMO 0x80D, ACTI 0x80E, and persistent REFR 0x80F in FO4Port_Vault111Cryo
-        var pipboyGlob = new SF.Global(new FormKey(modKey, PipboyAcquiredGlobId), SF.StarfieldRelease.Starfield)
-        {
-            EditorID = PipboyAcquiredGlobEdid, Data = 0f,
-        };
-        mod.Globals.Add(pipboyGlob);
-
+        // Pip-Boy corpse pickup + gear-door console: playable wrist ARMO 0x80D, ACTIs 0x80E & 0x818, persistent REFRs 0x80F & 0x819 in FO4Port_Vault111Cryo
+        // (FO4SF_PipboyAcquired GLOB lives solely in FO4SFCoreValues.esm:000865; 0x80C and 0x810..0x816 stay reserved)
         var wristTpl = sf.Armors.FirstOrDefault(a => a.FormKey == new FormKey(SfEsm, SfChronomarkArmorId))
                        ?? sf.Armors.FirstOrDefault(a => a.FormKey == new FormKey(SfEsm, SfFallbackJumpsuitId))
                        ?? throw new Refusal($"Starfield.esm has neither wrist template {SfChronomarkArmorId:X6} nor fallback {SfFallbackJumpsuitId:X6}");
@@ -1125,6 +1180,15 @@ static class NewGame
             pipboyActi.Model = SF.ModelMixIn.DeepCopy(portPipboyStat.Model);
         mod.Activators.Add(pipboyActi);
 
+        var gearConsoleActi = actiTpl is not null
+            ? (SF.Activator)actiTpl.Duplicate(new FormKey(modKey, GearDoorConsoleActiId))
+            : new SF.Activator(new FormKey(modKey, GearDoorConsoleActiId), SF.StarfieldRelease.Starfield);
+        gearConsoleActi.EditorID = GearDoorConsoleActiEdid;
+        gearConsoleActi.Name = "Vault Door Controls";
+        gearConsoleActi.ActivateTextOverride = "Activate";
+        gearConsoleActi.VirtualMachineAdapter = null;
+        mod.Activators.Add(gearConsoleActi);
+
         var portCell = port.EnumerateMajorRecords<SF.ICellGetter>().First(c => c.FormKey == new FormKey(PortEsm, places.PortCellId));
         var cellOver = (SF.Cell)portCell.DeepCopy();
         cellOver.Persistent.Clear();
@@ -1140,6 +1204,16 @@ static class NewGame
         };
         pipboyRef.MajorRecordFlagsRaw |= 0x400;
         cellOver.Persistent.Add(pipboyRef);
+        var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
+        var gearConsoleRef = new SF.PlacedObject(new FormKey(modKey, GearDoorConsoleRefId), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = GearDoorConsoleRefEdid,
+            Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(gearConsoleActi.FormKey),
+            Position = new P3Float(conCoords[0], conCoords[1], conCoords[2]),
+            Rotation = places.ConsoleRot,
+        };
+        gearConsoleRef.MajorRecordFlagsRaw |= 0x400;
+        cellOver.Persistent.Add(gearConsoleRef);
         var cBlock = new SF.CellBlock { BlockNumber = places.CellBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var cSub = new SF.CellSubBlock { BlockNumber = places.CellSubBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         cSub.Cells.Add(cellOver);
@@ -1172,6 +1246,7 @@ static class NewGame
         foreach (var q in hold) list.Objects.Add(Obj("", q.FormKey));
         script.Properties.Add(list);
         script.Properties.Add(Obj("ExitMessage", msg.FormKey));
+        script.Properties.Add(Obj("ExitFallbackMessage", exitFallbackMsg.FormKey));
         script.Properties.Add(Obj("ReturnMessage", returnMsg.FormKey));
         script.Properties.Add(Obj("ModePickMsg", modePickMsg.FormKey));
         script.Properties.Add(Obj("SurvivalPickMsg", survPickMsg.FormKey));
@@ -1188,10 +1263,12 @@ static class NewGame
         script.Properties.Add(Obj("WarfareFactionGlobal", wfFactionKey));
         script.Properties.Add(Obj("WarfareStartIndexGlobal", wfStartIdxKey));
         script.Properties.Add(Obj("StartChoiceDoneGlobal", choiceDoneKey));
-        script.Properties.Add(Obj("PipboyAcquiredGlobal", pipboyGlob.FormKey));
+        script.Properties.Add(Obj("PipboyAcquiredGlobal", pipboyAcquiredKey));
         script.Properties.Add(Obj("PipboyWristArmor", pipboyWrist.FormKey));
         script.Properties.Add(Obj("PipboyCorpseRef", pipboyRef.FormKey));
-        foreach (var (name, value) in Properties(pts, places, o, wf))
+        script.Properties.Add(Obj("GearDoorConsoleRef", gearConsoleRef.FormKey));
+        script.Properties.Add(Obj("VaultPistolBase", vaultPistolKey));
+        foreach (var (name, value) in Properties(pts, places, o, wf, vaultPistolId))
             script.Properties.Add(ValueProperty(name, value));
         quest.VirtualMachineAdapter = new SF.QuestAdapter
         {
@@ -1214,6 +1291,7 @@ static class NewGame
             special.Properties.Add(avs);
             special.Properties.Add(Obj("TerminalMessage", terminalMsg!.FormKey));
             special.Properties.Add(Obj("SpecialMessage", specialMsg!.FormKey));
+            special.Properties.Add(Obj("SpecialMessagePage2", specialMsgPage2!.FormKey));
             foreach (var (name, value) in SpecialProperties(pts, places)) special.Properties.Add(ValueProperty(name, value));
             quest.VirtualMachineAdapter.Scripts.Add(special);
         }
@@ -1249,7 +1327,7 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = NoPipboyMsgId + 1;
+        mod.ModHeader.Stats.NextFormID = SpecialMessagePage2Id + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         WritePlugin(mod, path);
@@ -1312,10 +1390,13 @@ static class NewGame
         var wfFactionKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareFactionGlobEdid));
         var wfStartIdxKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareStartIndexGlobEdid));
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
+        var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
+        uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
+        var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm, PortEsm, CoreValuesEsm));
         var key = plug.ModKey;
         var masters = plug.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
@@ -1327,30 +1408,52 @@ static class NewGame
         Need(masters.SequenceEqual(new[] { "Starfield.esm", PortPlugin, CoreValuesPlugin }), $"masters [{string.Join(", ", masters)}] are not [Starfield.esm, {PortPlugin}, {CoreValuesPlugin}]");
         Need(plug.Npcs.Count == 0 && plug.Worldspaces.Count == 0, "the plugin carries NPC_ or WRLD records");
         Need(plug.ActorValueInformation.Count == 0, "the plugin carries AVIF records (S.P.E.C.I.A.L. AVIFs live in FO4SFCoreValues.esm)");
+        var reservedSet = ReservedFormIds.ToHashSet();
+        foreach (var rec in plug.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == key && reservedSet.Contains(r.FormKey.ID)))
+            Need(false, $"reserved FormID 0x{rec.FormKey.ID:X} carries record {rec.EditorID ?? rec.FormKey.ToString()}");
 
         var pipboyWrist = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyWristArmorId));
         Need(plug.Armors.Count == 1 && pipboyWrist is { EditorID: PipboyWristArmorEdid } && (pipboyWrist.MajorRecordFlagsRaw & 0x4) == 0,
              $"ARMO 0x{PipboyWristArmorId:X} is not playable {PipboyWristArmorEdid}");
         var pipboyActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyCorpseActiId));
-        Need(plug.Activators.Count == 1 && pipboyActi is { EditorID: PipboyCorpseActiEdid },
-             $"ACTI 0x{PipboyCorpseActiId:X} is not {PipboyCorpseActiEdid}");
+        var gearConsoleActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, GearDoorConsoleActiId));
+        Need(plug.Activators.Count == 2 && pipboyActi is { EditorID: PipboyCorpseActiEdid } &&
+             gearConsoleActi is { EditorID: GearDoorConsoleActiEdid } &&
+             gearConsoleActi.Name?.String == "Vault Door Controls" &&
+             gearConsoleActi.ActivateTextOverride?.String == "Activate",
+             $"ACTIs are not {PipboyCorpseActiEdid} (0x{PipboyCorpseActiId:X}) and named {GearDoorConsoleActiEdid} (0x{GearDoorConsoleActiId:X})");
 
         var cellOver = plug.Cells.Records.Count == 1 && plug.Cells.Records[0].SubBlocks.Count == 1 && plug.Cells.Records[0].SubBlocks[0].Cells.Count == 1
             ? plug.Cells.Records[0].SubBlocks[0].Cells[0] : null;
         var pipboyRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, PipboyCorpseRefId));
+        var gearConsoleRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, GearDoorConsoleRefId));
         var (wantPbPos, _) = PipboyPlacement(pts);
+        var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
+        var wantConPos = new P3Float(conCoords[0], conCoords[1], conCoords[2]);
         Need(cellOver is not null && cellOver.FormKey == new FormKey(PortEsm, places.PortCellId) && cellOver.EditorID == VaultCell &&
-             cellOver.Temporary.Count == 0 && cellOver.Persistent.Count == 1 &&
+             cellOver.Temporary.Count == 0 && cellOver.Persistent.Count == 2 &&
              pipboyRef is { EditorID: PipboyCorpseRefEdid } && IsPersistent(pipboyRef) &&
              pipboyRef.Base.FormKey == new FormKey(key, PipboyCorpseActiId) &&
              MathF.Abs(pipboyRef.Position.X - wantPbPos.X) <= 1e-3f &&
              MathF.Abs(pipboyRef.Position.Y - wantPbPos.Y) <= 1e-3f &&
-             MathF.Abs(pipboyRef.Position.Z - wantPbPos.Z) <= 1e-3f,
-             $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X}) alone");
+             MathF.Abs(pipboyRef.Position.Z - wantPbPos.Z) <= 1e-3f &&
+             gearConsoleRef is { EditorID: GearDoorConsoleRefEdid } && IsPersistent(gearConsoleRef) &&
+             gearConsoleRef.Base.FormKey == new FormKey(key, GearDoorConsoleActiId) &&
+             MathF.Abs(gearConsoleRef.Position.X - wantConPos.X) <= 1e-3f &&
+             MathF.Abs(gearConsoleRef.Position.Y - wantConPos.Y) <= 1e-3f &&
+             MathF.Abs(gearConsoleRef.Position.Z - wantConPos.Z) <= 1e-3f,
+             $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X}) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X})");
+        Console.WriteLine($"  gear door console ACTI {GearDoorConsoleActiEdid} {gearConsoleActi?.FormKey} -> REFR {GearDoorConsoleRefEdid} {gearConsoleRef?.FormKey} persistent at {Show(wantConPos)} (port ref FO4Port.esm:{places.Console:X6})");
+
+        foreach (var anyMsg in plug.Messages)
+            Need(anyMsg.MenuButtons.Count <= MaxMessageButtons, $"MESG {anyMsg.EditorID} ({anyMsg.FormKey}) has {anyMsg.MenuButtons.Count} buttons (> {MaxMessageButtons})");
 
         var msg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, MessageId));
         Need(msg is { EditorID: MessageEdid } && msg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              msg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(ExitButtons), $"MESG 0x{MessageId:X} is not {MessageEdid} with buttons [{string.Join(", ", ExitButtons)}]");
+        var exitFallbackMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, ExitFallbackMsgId));
+        Need(exitFallbackMsg is { EditorID: ExitFallbackMsgEdid } && exitFallbackMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+             exitFallbackMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(ExitFallbackButtons), $"MESG 0x{ExitFallbackMsgId:X} is not {ExitFallbackMsgEdid} with buttons [{string.Join(", ", ExitFallbackButtons)}]");
         var returnMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, ReturnMsgId));
         Need(returnMsg is { EditorID: ReturnMsgEdid } && returnMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              returnMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(ReturnButtons), $"MESG 0x{ReturnMsgId:X} is not {ReturnMsgEdid} with buttons [{string.Join(", ", ReturnButtons)}]");
@@ -1377,23 +1480,26 @@ static class NewGame
              start.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{StartMessageId:X} is not {StartMessageEdid}, a message box with two buttons");
         var terminalMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, TerminalMessageId));
         var specialMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessageId));
+        var specialMsgPage2 = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessagePage2Id));
         if (o.Special)
         {
             Need(terminalMsg is { EditorID: TerminalMessageEdid } && terminalMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) && terminalMsg.MenuButtons.Count == 2 &&
                  terminalMsg.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{TerminalMessageId:X} is not {TerminalMessageEdid}, a message box with two buttons");
-            var buttons = SpecialNames.Concat(SpecialExtraButtons).ToList();
             Need(specialMsg is { EditorID: SpecialMessageEdid } && specialMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
-                 specialMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(buttons) && specialMsg.Description?.String == SpecialDescription,
-                 $"MESG 0x{SpecialMessageId:X} is not {SpecialMessageEdid}, a message box with the buttons [{string.Join(", ", buttons)}] and the allocation text");
-            Need(plug.Messages.Count == 11, $"{plug.Messages.Count} MESG, expected 11");
+                 specialMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(SpecialPage1Buttons) && specialMsg.Description?.String == SpecialDescription,
+                 $"MESG 0x{SpecialMessageId:X} is not {SpecialMessageEdid}, a <=7-button message box with [{string.Join(", ", SpecialPage1Buttons)}] and the allocation text");
+            Need(specialMsgPage2 is { EditorID: SpecialMessagePage2Edid } && specialMsgPage2.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+                 specialMsgPage2.MenuButtons.Select(b => b.Text?.String).SequenceEqual(SpecialPage2Buttons) && specialMsgPage2.Description?.String == SpecialDescription,
+                 $"MESG 0x{SpecialMessagePage2Id:X} is not {SpecialMessagePage2Edid}, a <=7-button message box with [{string.Join(", ", SpecialPage2Buttons)}] and the allocation text");
+            Need(plug.Messages.Count == 13, $"{plug.Messages.Count} MESG, expected 13");
             Console.WriteLine($"  SPECIAL links [{string.Join(", ", specialKeys)}]; terminal {TerminalText(places)}");
         }
         else
         {
-            Need(plug.Messages.Count == 9, $"{plug.Messages.Count} MESG, expected 9 in a --no-special build");
+            Need(plug.Messages.Count == 10, $"{plug.Messages.Count} MESG, expected 10 in a --no-special build");
         }
 
-        // the GLOBs: Starfield's MQ101Debug overridden (or not), FO4SF_PipboyAcquired (0, non-constant), and our own version GLOB (or not)
+        // the GLOBs: Starfield's MQ101Debug overridden (or not), and our own version GLOB (or not); FO4SF_PipboyAcquired lives in FO4SFCoreValues.esm:000865
         var overrides = plug.Globals.Where(g => g.FormKey.ModKey != key).ToList();
         var own = plug.Globals.Where(g => g.FormKey.ModKey == key).ToList();
         if (o.MQ101Debug is { } dbg)
@@ -1403,17 +1509,14 @@ static class NewGame
                  $"GLOB MQ101Debug is not overridden to {F(dbg)}");
         }
         else Need(overrides.Count == 0, "a build without --mq101debug overrides a GLOB");
-        var pbGlob = own.FirstOrDefault(g => g.FormKey == new FormKey(key, PipboyAcquiredGlobId));
-        Need(pbGlob is { EditorID: PipboyAcquiredGlobEdid } && pbGlob.Data == 0f && !pbGlob.MajorFlags.HasFlag(SF.Global.MajorFlag.Constant),
-             $"GLOB 0x{PipboyAcquiredGlobId:X} is not non-constant {PipboyAcquiredGlobEdid} = 0");
         var ver = own.FirstOrDefault(g => g.FormKey == new FormKey(key, VersionGlobId));
         if (o.Version)
         {
-            Need(own.Count == 2 && ver is { EditorID: VersionGlobEdid } && ver.Data == o.BuildVersion && ver.MajorFlags.HasFlag(SF.Global.MajorFlag.Constant),
+            Need(own.Count == 1 && ver is { EditorID: VersionGlobEdid } && ver.Data == o.BuildVersion && ver.MajorFlags.HasFlag(SF.Global.MajorFlag.Constant),
                  $"GLOB 0x{VersionGlobId:X} is not {VersionGlobEdid} = {F(o.BuildVersion)}, constant");
             Console.WriteLine($"  GLOB {VersionGlobEdid} = {(ver?.Data is { } vd ? F(vd) : "missing")} flags {ver?.MajorFlags}");
         }
-        else Need(own.Count == 1, "a --no-version build carries a GLOB other than FO4SF_PipboyAcquired");
+        else Need(own.Count == 0, "a --no-version build carries a local GLOB");
 
         // our own start: exactly one DFOB, Starfield's StartupQuest_DO overridden (same id and EditorID) to name our quest
         var opening = sf.Quests.FirstOrDefault(x => x.EditorID == OpeningEdid);
@@ -1482,6 +1585,7 @@ static class NewGame
                 Need(props.TryGetValue("DebugGlobal", out var dg) && dg is SF.IScriptObjectPropertyGetter dgo &&
                      dgo.Object.FormKey == sf.Globals.FirstOrDefault(x => x.EditorID == DebugGlobEdid)?.FormKey, $"property DebugGlobal is not {DebugGlobEdid}");
                 Need(props.TryGetValue("ExitMessage", out var mp) && mp is SF.IScriptObjectPropertyGetter mo && mo.Object.FormKey == msg?.FormKey, "property ExitMessage");
+                Need(props.TryGetValue("ExitFallbackMessage", out var efmp) && efmp is SF.IScriptObjectPropertyGetter efmo && efmo.Object.FormKey == exitFallbackMsg?.FormKey, "property ExitFallbackMessage");
                 Need(props.TryGetValue("ReturnMessage", out var rmp) && rmp is SF.IScriptObjectPropertyGetter rmo && rmo.Object.FormKey == returnMsg?.FormKey, "property ReturnMessage");
                 Need(props.TryGetValue("ModePickMsg", out var mpm) && mpm is SF.IScriptObjectPropertyGetter mpmo && mpmo.Object.FormKey == modePickMsg?.FormKey, "property ModePickMsg");
                 Need(props.TryGetValue("SurvivalPickMsg", out var spm) && spm is SF.IScriptObjectPropertyGetter spmo && spmo.Object.FormKey == survPickMsg?.FormKey, "property SurvivalPickMsg");
@@ -1507,19 +1611,23 @@ static class NewGame
                      $"property WarfareStartIndexGlobal is not {wfStartIdxKey}");
                 Need(props.TryGetValue("StartChoiceDoneGlobal", out var scdp) && scdp is SF.IScriptObjectPropertyGetter scdpo && scdpo.Object.FormKey == choiceDoneKey,
                      $"property StartChoiceDoneGlobal is not {choiceDoneKey}");
-                Need(props.TryGetValue("PipboyAcquiredGlobal", out var pgp) && pgp is SF.IScriptObjectPropertyGetter pgo && pgo.Object.FormKey == pbGlob?.FormKey,
-                     "property PipboyAcquiredGlobal");
+                Need(props.TryGetValue("PipboyAcquiredGlobal", out var pgp) && pgp is SF.IScriptObjectPropertyGetter pgo && pgo.Object.FormKey == pipboyAcquiredKey,
+                     $"property PipboyAcquiredGlobal is not {pipboyAcquiredKey}");
                 Need(props.TryGetValue("PipboyWristArmor", out var pwp) && pwp is SF.IScriptObjectPropertyGetter pwo && pwo.Object.FormKey == pipboyWrist?.FormKey,
                      "property PipboyWristArmor");
                 Need(props.TryGetValue("PipboyCorpseRef", out var prp) && prp is SF.IScriptObjectPropertyGetter pro && pro.Object.FormKey == pipboyRef?.FormKey,
                      "property PipboyCorpseRef");
+                Need(props.TryGetValue("GearDoorConsoleRef", out var gcrp) && gcrp is SF.IScriptObjectPropertyGetter gcro && gcro.Object.FormKey == gearConsoleRef?.FormKey,
+                     "property GearDoorConsoleRef");
+                Need(props.TryGetValue("VaultPistolBase", out var vpbp) && vpbp is SF.IScriptObjectPropertyGetter vpbo && vpbo.Object.FormKey == vaultPistolKey,
+                     $"property VaultPistolBase is not {vaultPistolKey}");
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
                      hl.Objects.Select(x => (FormKey?)x.Object.FormKey).SequenceEqual(want), $"property HoldOff is not [{string.Join(", ", o.Hold)}] in order");
-                var expected = Properties(pts, places, o, wf);
+                var expected = Properties(pts, places, o, wf, vaultPistolId);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 24, $"{props.Count} properties, expected {expected.Count + 24}");
+                Need(props.Count == expected.Count + 27, $"{props.Count} properties, expected {expected.Count + 27}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");
@@ -1546,10 +1654,11 @@ static class NewGame
                      $"property Special is not the seven {CoreValuesPlugin} AVIF, Strength to Luck");
                 Need(props.TryGetValue("TerminalMessage", out var tp) && tp is SF.IScriptObjectPropertyGetter to && to.Object.FormKey == terminalMsg?.FormKey, "property TerminalMessage");
                 Need(props.TryGetValue("SpecialMessage", out var xp) && xp is SF.IScriptObjectPropertyGetter xo && xo.Object.FormKey == specialMsg?.FormKey, "property SpecialMessage");
+                Need(props.TryGetValue("SpecialMessagePage2", out var xp2) && xp2 is SF.IScriptObjectPropertyGetter xo2 && xo2.Object.FormKey == specialMsgPage2?.FormKey, "property SpecialMessagePage2");
                 var expected = SpecialProperties(pts, places);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"SPECIAL property {name} is not {value}");
-                Need(props.Count == expected.Count + 3, $"{props.Count} SPECIAL properties, expected {expected.Count + 3}");
+                Need(props.Count == expected.Count + 4, $"{props.Count} SPECIAL properties, expected {expected.Count + 4}");
             }
         }
         // the anchor line names the mode (make_newgame.py anchor_mode reads it into plan.json): "persistent", or
@@ -1884,8 +1993,10 @@ static class NewGame
         File.WriteAllText(idsPath, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}, \"DOOR:FO4Port_VltGearDoor01\": {0x810}, " +
                                    $"\"REFR:{VaultCell}:091A49:Fallout4.esm\": {0x80A}, \"REFR:{VaultCell}:075039:Fallout4.esm\": {0x80B}, " +
                                    $"\"REFR:{VaultCell}:001002:Fallout4.esm\": {0x807}, \"REFR:{VaultCell}:001003:Fallout4.esm\": {0x808}, \"REFR:{VaultCell}:0244EB:Fallout4.esm\": {0x809}}}");
-        var noCogIds = Path.Combine(dir, "formids_nocog.json");          // neither the cog door nor a terminal
-        File.WriteAllText(noCogIds, $"{{\"CELL:{VaultCell}\": {0x800}}}");
+        var noCogIds = Path.Combine(dir, "formids_nocog.json");          // neither the cog door nor a terminal (retains required console)
+        File.WriteAllText(noCogIds, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:091A49:Fallout4.esm\": {0x80A}}}");
+        var noConsoleIds = Path.Combine(dir, "formids_noconsole.json");  // missing required gear-door console mapping -> refused
+        File.WriteAllText(noConsoleIds, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}}}");
         var nearTermIds = Path.Combine(dir, "formids_nearterm.json");    // only the nearer, temporary terminal
         File.WriteAllText(nearTermIds, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}, \"REFR:{VaultCell}:091A49:Fallout4.esm\": {0x80A}, \"REFR:{VaultCell}:075039:Fallout4.esm\": {0x80B}, \"REFR:{VaultCell}:001002:Fallout4.esm\": {0x807}}}");
         // a core with the world and its Vault 111 map marker, persistent
@@ -2134,7 +2245,9 @@ static class NewGame
             ("a SPECIAL link removed", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "Special")).Objects.RemoveAt(6)),
             ("TestModeGlobal removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "TestModeGlobal")),
             ("TestModeGlobal pointed at another global", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "TestModeGlobal")).Object.SetTo(new FormKey(SfEsm, GameDaysPassedId))),
-            ("the allocation lost its Leave button", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).MenuButtons.RemoveAt(9)),
+            ("the allocation lost its Leave button", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).MenuButtons.RemoveAt(6)),
+            ("a message box with more than 7 buttons", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).MenuButtons.Add(new SF.MessageButton { Text = "Extra8" })),
+            ("the allocation page 2 lost a button", m => m.Messages.First(x => x.EditorID == SpecialMessagePage2Edid).MenuButtons.RemoveAt(6)),
             ("the allocation's text lost a token", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).Description = "S.P.E.C.I.A.L."),
             ("the terminal prompt removed", m => m.Messages.Remove(m.Messages.First(x => x.EditorID == TerminalMessageEdid).FormKey)),
             ("the SPECIAL list order swapped", m => { var l = (SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "Special"); (l.Objects[0], l.Objects[6]) = (l.Objects[6], l.Objects[0]); }),
@@ -2148,9 +2261,15 @@ static class NewGame
             ("the vault cell renamed", m => ((SF.ScriptStringProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultCell")).Data = "FO4Port_Vault111Ent"),
             ("VaultCell removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "VaultCell")),
             ("the return prompt lost a button", m => m.Messages.First(x => x.EditorID == ReturnMsgEdid).MenuButtons.RemoveAt(1)),
-            ("PipboyAcquiredGlobal marked constant", m => m.Globals.First(g => g.EditorID == PipboyAcquiredGlobEdid).MajorFlags = SF.Global.MajorFlag.Constant),
+            ("the exit fallback prompt lost a button", m => m.Messages.First(x => x.EditorID == ExitFallbackMsgEdid).MenuButtons.RemoveAt(1)),
+            ("retired GLOB 0x80C added", m => m.Globals.Add(new SF.Global(new FormKey(m.ModKey, 0x80C), rel) { EditorID = PipboyAcquiredGlobEdid })),
+            ("retired FormID 0x811 reused", m => m.Messages.Add(new SF.Message(new FormKey(m.ModKey, 0x811), rel) { EditorID = "FO4SF_Retired811", Flags = SF.Message.Flag.MessageBox })),
+            ("PipboyAcquiredGlobal pointed off FO4SFCoreValues.esm", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "PipboyAcquiredGlobal")).Object.SetTo(new FormKey(SfEsm, GameDaysPassedId))),
             ("PipboyWrist marked NonPlayable", m => m.Armors.First(a => a.EditorID == PipboyWristArmorEdid).MajorRecordFlagsRaw |= 0x4),
-            ("PipboyCorpseRef made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent[0]; r.MajorRecordFlagsRaw &= ~0x400; }),
+            ("PipboyCorpseRef made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent.First(x => x.EditorID == PipboyCorpseRefEdid); r.MajorRecordFlagsRaw &= ~0x400; }),
+            ("GearDoorConsoleRef made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent.First(x => x.EditorID == GearDoorConsoleRefEdid); r.MajorRecordFlagsRaw &= ~0x400; }),
+            ("GearDoorConsoleActi lost its name", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).Name = ""),
+            ("VaultPistolBase pointed at another form", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultPistolBase")).Object.SetTo(new FormKey(SfEsm, SfFallbackJumpsuitId))),
             ("ConsoleRefId changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ConsoleRefId")).Data = 0x999),
         };
         foreach (var (name, edit) in mutations)
@@ -2320,6 +2439,22 @@ static class NewGame
             File.WriteAllText(badWfPath, File.ReadAllText(DefaultWarfareStartsJsonPath()).Replace("FO4Core_CommonwealthMapMarkerSanctuary", "FO4Core_NoSuchWarfareMarker"));
             try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused_wf"), plain with { WarfareStartsJson = badWfPath }); Console.WriteLine("FAIL  write accepted unknown warfare marker_edid"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected (unknown warfare marker_edid): {e.Message}"); }
+        }
+        // B4 refusal: missing gear-door console mapping in formids.json must fail Resolve, Write, and Check
+        {
+            try { Resolve(portPath, noConsoleIds, corePath, ExitAnchorEdid, terms); Console.WriteLine("FAIL  resolve accepted missing gear-door console mapping"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (missing gear-door console mapping in Resolve): {e.Message}"); }
+            try { Write(sfPath, portPath, noConsoleIds, corePath, pointsPath, Path.Combine(outDir, "refused_noconsole"), plain); Console.WriteLine("FAIL  write accepted missing gear-door console mapping"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (missing gear-door console mapping in Write): {e.Message}"); }
+            try { Check(good, sfPath, portPath, noConsoleIds, corePath, pointsPath, plain); Console.WriteLine("FAIL  check accepted missing gear-door console mapping"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (missing gear-door console mapping in Check): {e.Message}"); }
+        }
+        // B5 refusal: route_loot_ids.json naming an unknown weapon in Starfield.esm must fail at build time
+        {
+            var badRlPath = Path.Combine(dir, "bad_route_loot_ids.json");
+            File.WriteAllText(badRlPath, "{\"schema_version\": 1, \"vault111\": {\"pistol_id\": \"0x3FFFFF\"}}");
+            try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused_rl"), plain with { RouteLootJson = badRlPath }); Console.WriteLine("FAIL  write accepted unknown vault111.pistol_id"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (unknown vault111.pistol_id): {e.Message}"); }
         }
         // the records reader (Records.cs): its own synthetic plugins, under this scratch dir
         if (NewGameRecords.SelfTest(Path.Combine(dir, "records")) != 0) return 1;

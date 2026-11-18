@@ -243,13 +243,19 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
         return []
 
     uint_consts: Dict[str, int] = {}
+    str_consts: Dict[str, str] = {}
     for block_m in re.finditer(r"\bconst\s+uint\s+([^;]+);", body, re.S):
         for part in block_m.group(1).split(","):
             pm = re.match(r"\s*(\w+)\s*=\s*(0x[0-9A-Fa-f]+u?|\d+u?)", part.strip())
             if pm:
                 uint_consts[pm.group(1)] = int(pm.group(2).rstrip("uU"), 0)
+    for block_m in re.finditer(r"\bconst\s+string\s+([^;]+);", body, re.S):
+        for part in block_m.group(1).split(","):
+            pm = re.match(r'\s*(\w+)\s*=\s*"([^"]*)"', part.strip())
+            if pm:
+                str_consts[pm.group(1)] = pm.group(2)
 
-    # Load core_values.json map so `Core("FO4SF_...")` / `LoadCoreValueId("FO4SF_...")` resolves cleanly
+    # Load core_values.json map so `Core("FO4SF_...")` / `LoadCoreValueId("FO4SF_...")` / `RequireCoreId(...)` resolves cleanly
     _, _, cv_recs = load_core_values()
     cv_by_edid = {r.edid.lower(): r.form_id for r in cv_recs}
     for var_m in re.finditer(r'(\w+)\s*=\s*(?:LoadCoreValueId|CoreId|GetCoreId)\("([^"]+)"\)', body):
@@ -260,6 +266,7 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
     modkey_aliases: Dict[str, str] = {
         "SfEsm": "Starfield.esm",
         "CoreValuesEsm": "FO4SFCoreValues.esm",
+        "coreKey": "FO4SFCoreValues.esm",
         "ProgressionEsm": "FO4SFProgression.esm",
         "RadsEsm": "FO4SFRads.esm",
         "WorkshopEsm": "FO4SFWorkshop.esm",
@@ -282,13 +289,61 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
             if cname in uint_consts:
                 local_formkey_vars[vname] = ("Starfield.esm", uint_consts[cname])
 
+    # Resolve `new FormKey(<modKeyAlias>, RequireCoreId(..., <edidConstOrStr>))`
+    for m_req in re.finditer(
+        r'var\s+(\w+)\s*=\s*new\s+FormKey\(\s*(\w+)\s*,\s*RequireCoreId\(\s*\w+\s*,\s*(?:"([^"]+)"|(\w+))\s*\)\s*\)',
+        body,
+    ):
+        vname, mk_alias, ed_lit, ed_const = m_req.groups()
+        ed = (ed_lit or str_consts.get(ed_const or "", "")).lower()
+        if mk_alias in modkey_aliases and ed in cv_by_edid:
+            local_formkey_vars[vname] = (modkey_aliases[mk_alias], cv_by_edid[ed])
+
+    # Resolve `uint <var> = LoadVaultPistolId(...)` from `src/fo4sf/loot/route_loot_ids.json`
+    rl_default = os.path.join(os.path.dirname(CORE_VALUES_JSON), "..", "loot", "route_loot_ids.json")
+    if os.path.isfile(rl_default):
+        try:
+            with open(rl_default, encoding="utf-8") as rl_h:
+                rl_data = json.load(rl_h)
+            rl_pid = ((rl_data.get("vault111") or {}).get("pistol_id") or "").strip()
+            if rl_pid:
+                pid_int = int(rl_pid, 16)
+                for m_pid in re.finditer(r"\buint\s+(\w+)\s*=\s*LoadVaultPistolId\(", body):
+                    uint_consts[m_pid.group(1)] = pid_int
+        except (OSError, ValueError, KeyError):
+            pass
+
+    # Resolve `var <var> = new FormKey(<modKeyAlias>, <idConstOrVar>);`
+    for m_fkvar in re.finditer(r"var\s+(\w+)\s*=\s*new\s+FormKey\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*;", body):
+        vname, mk_alias, id_tok = m_fkvar.groups()
+        cid = _parse_int_literal(id_tok, uint_consts)
+        if mk_alias in modkey_aliases and cid is not None:
+            local_formkey_vars[vname] = (modkey_aliases[mk_alias], cid)
+
+    # Resolve `MakeMsg(<IdConst>, ...)` and `new SF.<Type>(new FormKey(modKey, <IdConst>), ...)`
+    for m_mm in re.finditer(r"(?:var\s+)?(\w+)\s*=\s*MakeMsg\(\s*([A-Za-z0-9_xX+]+)\s*,", body):
+        vname, id_tok = m_mm.groups()
+        cid = _parse_int_literal(id_tok, uint_consts)
+        if cid is not None:
+            local_formkey_vars[vname] = (own_plugin, cid)
+    for m_rec in re.finditer(
+        r"(?:var\s+)?(\w+)\s*=\s*(?:\([A-Za-z0-9_.]+\)\s*\w+\.Duplicate|new\s+SF\.\w+)\(\s*new\s+FormKey\(\s*modKey\s*,\s*([A-Za-z0-9_xX+]+)\s*\)",
+        body,
+    ):
+        vname, id_tok = m_rec.groups()
+        cid = _parse_int_literal(id_tok, uint_consts)
+        if cid is not None:
+            local_formkey_vars[vname] = (own_plugin, cid)
+
     bindings: List[VmadPropBinding] = []
 
     def resolve_fk(fk_expr: str) -> Optional[Tuple[str, int]]:
         s = fk_expr.strip()
         while s.endswith(")") and s.count(")") > s.count("("):
             s = s[:-1].strip()
-        m_var = re.match(r"^(\w+)\??\.FormKey$", s)
+        if s in local_formkey_vars:
+            return local_formkey_vars[s]
+        m_var = re.match(r"^(\w+)[?!]?\.FormKey$", s)
         if m_var and m_var.group(1) in local_formkey_vars:
             return local_formkey_vars[m_var.group(1)]
         m_own = re.match(r"^Own\(\s*([A-Za-z0-9_xX+]+)\s*\)$", s)
@@ -344,7 +399,7 @@ def validate_vmad_bindings(
             continue
         ptype = sprops.get(b.prop_name.lower())
         if ptype is None and b.script_name.lower() == "fo4sf_newgamequest":
-            for alt_name in ("fo4sf_newgamespecial", "fo4sf_newgameversion"):
+            for alt_name in ("fo4sf_newgamelooks", "fo4sf_newgamespecial", "fo4sf_newgameversion"):
                 alt = psc_props_by_script.get(alt_name)
                 if alt is not None and b.prop_name.lower() in alt:
                     ptype = alt.get(b.prop_name.lower())
@@ -502,7 +557,11 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
 
     # 1. Pair `<Stem>Id` and `<Stem>Edid` constants when `<Stem>Id` is an owned local FormID (`0x800..0xFFF`)
     for cname, cid in uint_consts.items():
-        if not (0x800 <= cid <= 0xFFF) or cname in ("NextId", "MaxPool") or cname.startswith("Sf"):
+        if (
+            not (0x800 <= cid <= 0xFFF)
+            or cname in ("NextId", "MaxPool", "MaxMessageButtons")
+            or cname.startswith(("Sf", "Reserved"))
+        ):
             continue
         stem = cname[:-2] if cname.endswith("Id") else cname
         edid = str_consts.get(stem + "Edid") or ""
@@ -710,6 +769,69 @@ def validate_route_loot_refs(
         check_item("vault111.ammo_id", "Starfield.esm", str(v111["ammo_id"]))
     for idx, pk in enumerate(v111.get("pickups") or ()):
         check_item(f"vault111.pickups[{idx}]", str(pk["plugin"]), str(pk["id"]))
+    return errors
+
+
+def validate_vault_pistol_sync(
+    bindings: Iterable[VmadPropBinding],
+    route_loot_json: str,
+    staged_reports: Optional[Sequence[BinaryEsmReport]] = None,
+) -> List[str]:
+    """B5: Assert `FO4SFNewGame.esm` (`FO4SF_NewGameQuest.VaultPistolBase`) and `FO4SFRouteLoot.esm` share `vault111.pistol_id`."""
+    if not os.path.isfile(route_loot_json):
+        return [f"route_loot_ids.json not found: {route_loot_json}"]
+    with open(route_loot_json, encoding="utf-8") as handle:
+        spec = json.load(handle)
+    v111 = spec.get("vault111") or {}
+    raw_pid = str(v111.get("pistol_id") or "").strip()
+    if not raw_pid:
+        return [f"route_loot_ids.json missing vault111.pistol_id: {route_loot_json}"]
+    want_pid = int(raw_pid, 16)
+    errors: List[str] = []
+
+    # Check pickups in route_loot_ids.json include the exact same pistol_id in Starfield.esm
+    pickup_ids = [
+        (str(pk.get("plugin") or ""), int(str(pk.get("id") or "0"), 16))
+        for pk in (v111.get("pickups") or ())
+    ]
+    if pickup_ids and ("Starfield.esm", want_pid) not in pickup_ids:
+        errors.append(
+            f"route_loot_ids.json vault111.pickups lacks Starfield.esm:0x{want_pid:06X} matching vault111.pistol_id"
+        )
+
+    ng_pistol_bindings = [
+        b for b in bindings if b.script_name == "FO4SF_NewGameQuest" and b.prop_name == "VaultPistolBase"
+    ]
+    if len(ng_pistol_bindings) != 1:
+        errors.append(
+            f"FO4SF_NewGameQuest.VaultPistolBase VMAD binding count={len(ng_pistol_bindings)}, expected 1"
+        )
+    else:
+        b = ng_pistol_bindings[0]
+        if (b.target_plugin, b.target_id) != ("Starfield.esm", want_pid):
+            errors.append(
+                f"FO4SF_NewGameQuest.VaultPistolBase bound to {b.target_plugin}:0x{b.target_id:06X} "
+                f"!= route_loot_ids.json vault111.pistol_id Starfield.esm:0x{want_pid:06X}"
+            )
+
+    if staged_reports:
+        for rep in staged_reports:
+            if rep.plugin_name == "FO4SFNewGame.esm":
+                vps = [
+                    vp
+                    for vp in rep.vmad_properties
+                    if vp.script_name == "FO4SF_NewGameQuest" and vp.prop_name == "VaultPistolBase"
+                ]
+                if len(vps) != 1 or len(vps[0].object_refs) != 1:
+                    errors.append("FO4SFNewGame.esm missing compiled VMAD FO4SF_NewGameQuest.VaultPistolBase")
+                else:
+                    _alias, tgt_plg, tgt_id = vps[0].object_refs[0]
+                    if (tgt_plg, tgt_id) != ("Starfield.esm", want_pid):
+                        errors.append(
+                            f"FO4SFNewGame.esm compiled VaultPistolBase={tgt_plg}:0x{tgt_id:06X} "
+                            f"!= route_loot_ids.json Starfield.esm:0x{want_pid:06X}"
+                        )
+
     return errors
 
 

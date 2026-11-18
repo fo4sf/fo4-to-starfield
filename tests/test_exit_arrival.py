@@ -1,7 +1,7 @@
-"""Synthetic execution of the production arrival branches with native calls substituted.
+"""Synthetic execution of the production exit/arrival branches with native calls substituted.
 
-This small translator executes only the straight-line/if Papyrus functions below. It is
-not a Papyrus compiler or native-engine model; native placement/discovery remain PC gates.
+This small translator executes the Papyrus functions under test directly from `.psc` source.
+It is not a Papyrus compiler or native-engine model; native placement/discovery remain PC gates.
 It tests the actual branch bodies, so removing a production guard changes these results.
 """
 import contextlib
@@ -16,38 +16,106 @@ from tests.test_newgame import CS, PSC, read, ng
 
 
 FUNCTIONS = ("FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "AtArrival", "Near")
-VARIABLES = "arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, fallbackPending, discoveryMarkerMoved, landingChecks"
+VARIABLES = (
+    "arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, fallbackPending, "
+    "discoveryMarkerMoved, discoveryAttachPending, landingChecks"
+)
+
+
+class _PStr(str):
+    """String wrapper allowing Papyrus-style `'text=' + non_str` concatenation in translated functions."""
+
+    def __add__(self, other):
+        return _PStr(super().__add__(str(other)))
+
+    def __radd__(self, other):
+        return _PStr(str(other) + str(self))
+
+
+def _wrap_pstr_literals(expr: str) -> str:
+    return re.sub(r'"([^"\\]*(?:\\.[^"\\]*)*)"', r'_PStr("\1")', expr)
+
+
+def _strip_psc_line_comment(line: str) -> str:
+    return re.sub(r'("(?:[^"\\]|\\.)*")|;.*', lambda m: m.group(1) or "", line)
 
 
 def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
-    out = []
+    clean_text = re.sub(r"\{[^}]*\}", "", text)
+    out = [
+        "class _PStr(str):",
+        "    def __add__(self, other): return _PStr(super().__add__(str(other)))",
+        "    def __radd__(self, other): return _PStr(str(other) + str(self))",
+        "if 'Trace' not in globals(): Trace = lambda *_: None",
+    ]
     for name in names:
-        match = re.search(rf"(?m)^(?:bool )?Function {name}\(([^)]*)\)\n(.*?)^EndFunction", text, re.S)
-        args, body = match.groups()
-        out += [f"def {name}({', '.join(a.split()[-1] for a in args.split(',') if a.strip())}):",
-                "    global " + variables]
+        esc = re.escape(name)
+        match = re.search(
+            rf"(?m)^(?:[\w\[\]]+[ \t]+)?(?:Function|Event)[ \t]+{esc}\(([^)]*)\)[ \t]*\r?\n(.*?)^End(?:Function|Event)\b",
+            clean_text,
+            re.S,
+        )
+        if match is None:
+            raise AssertionError(f"missing Papyrus function/event: {name}")
+        args_raw, body = match.groups()
+        py_args = []
+        for raw_arg in args_raw.split(","):
+            raw_arg = raw_arg.strip()
+            if not raw_arg:
+                continue
+            if "=" in raw_arg:
+                lhs, rhs = raw_arg.split("=", 1)
+                p_name = lhs.strip().split()[-1]
+                rhs = rhs.strip()
+                if rhs.lower() == "true":
+                    rhs = "True"
+                elif rhs.lower() == "false":
+                    rhs = "False"
+                elif rhs.lower() == "none":
+                    rhs = "None"
+                py_args.append(f"{p_name}={rhs}")
+            else:
+                py_args.append(raw_arg.split()[-1])
+        fn_py_name = name.split(".")[-1]
+        out.append(f"def {fn_py_name}({', '.join(py_args)}):")
+        if variables.strip():
+            out.append("    global " + variables)
         depth = 1
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
         for line in body.splitlines():
-            line = line.split(";", 1)[0].strip()
+            line = _strip_psc_line_comment(line).strip()
             if not line:
                 continue
-            if line.startswith("Trace("):
-                line = "pass"
-            if line == "endif":
+            if line in ("endif", "endwhile"):
                 depth -= 1
                 continue
             if line.startswith(("elseif ", "else")):
                 depth -= 1
-            line = re.sub(r"\bint (\w+) = (.+)", r"\1 = int(\2)", line)
-            line = re.sub(r"\b(?:bool|float|WorldSpace|Cell|Form|ObjectReference) (\w+) =", r"\1 =", line)
-            line = re.sub(r" as ObjectReference\b", "", line)
+            if any(tok in line for tok in ("Trace(", "LogLine(", "LogNewGameLine(", "Debug.Notification(")):
+                line = _wrap_pstr_literals(line)
+            if line.startswith(("bool ", "int ", "float ", "string ")) and "=" in line:
+                pass
+            line = re.sub(r"\bint\[\]\s+(\w+)\s*=\s*new\s+int\[(\d+)\]", r"\1 = [0] * \2", line)
+            line = re.sub(r"^int\s+(\w+)\s*=\s*(.+)", r"\1 = int(\2)", line)
+            line = re.sub(
+                r"\b(?:bool|float|string|WorldSpace|Cell|Form|ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|FO4SF_\w+)\s+(\w+)\s*=",
+                r"\1 =",
+                line,
+            )
+            line = re.sub(r"([\w.\[\]]+(?:\([^()]*(?:\([^()]*\))?\))?)\s+as\s+float\b", r"float(\1)", line)
+            line = re.sub(r"([\w.\[\]]+(?:\([^()]*(?:\([^()]*\))?\))?)\s+as\s+int\b", r"int(\1)", line)
+            line = re.sub(
+                r"\s+as\s+(?:ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|FO4SF_\w+)\b",
+                "",
+                line,
+            )
+            line = re.sub(r"\b(\w+)\.Length\b", r"len(\1)", line)
             line = re.sub(r"\btrue\b", "True", line, flags=re.I)
             line = re.sub(r"\bfalse\b", "False", line, flags=re.I)
             line = re.sub(r"!(?!=)", "not ", line).replace("&&", "and").replace("||", "or")
             if line.startswith("elseif "):
                 line = "elif " + line[7:]
-            if line.startswith(("if ", "elif ")) or line == "else":
+            if line.startswith(("if ", "elif ", "while ")) or line == "else":
                 line += ":"
                 out.append("    " * depth + line)
                 depth += 1
@@ -89,6 +157,8 @@ class Reference:
         self.moveto_calls.append((target, dx, dy, dz))
         if self.take_move:
             self.world = target.GetWorldSpace()
+            self.cell = target.GetParentCell()
+            self.interior = target.IsInInterior()
             self.pos = (target.GetPositionX() + dx, target.GetPositionY() + dy, target.GetPositionZ() + dz)
 
     def SetPosition(self, *pos):
@@ -107,18 +177,22 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.world = object()  # runtime MarsPlanetWorld (0xFF......) differs from FO4Core_Commonwealth (0x03000803)
         self.player = Reference(self.world, (-1200.0, -2700.0, 100.0))
         self.marker = Reference(self.world, (-1210.0, -2720.0, 95.0))
-        self.failures, self.stages = [], []
+        self.failures, self.stages, self.traces = [], [], []
         self.now = 10.0
-        self.ns = dict(arrivalWorld=self.world, ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=100.0,
-                       ArrivalHeading=0.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
-                       FallbackX=-10.0, FallbackY=-20.0, FallbackZ=95.0, FallDrop=3.0,
-                       ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x0A775B, CorePlugin="FO4TerrainCore.esm",
-                       SurfaceWait=10.0, SurfaceTries=3, surfaceMoves=1, surfaceSets=0,
-                       surfaceMovedAt=1.0, arrivedAt=1.0, fallbackPending=False,
-                       discoveryMarkerMoved=False, landingChecks=0,
-                       Game=SimpleNamespace(GetFormFromFile=lambda *_: self.marker, IsFastTravelEnabled=lambda: True),
-                       Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
-                       FailExit=self.failures.append, AdvanceTo=self.stages.append)
+        self.ns = dict(
+            _PStr=_PStr,
+            Trace=self.traces.append,
+            arrivalWorld=self.world, ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=100.0,
+            ArrivalHeading=0.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+            FallbackX=-10.0, FallbackY=-20.0, FallbackZ=95.0, FallDrop=3.0,
+            ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x0A775B, CorePlugin="FO4TerrainCore.esm",
+            SurfaceWait=10.0, SurfaceTries=3, surfaceMoves=1, surfaceSets=0,
+            surfaceMovedAt=1.0, arrivedAt=1.0, fallbackPending=False,
+            discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
+            Game=SimpleNamespace(GetFormFromFile=lambda *_: self.marker, IsFastTravelEnabled=lambda: True),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
+            FailExit=self.failures.append, AdvanceTo=self.stages.append,
+        )
         exec(compile(translated_functions(read(PSC)), PSC, "exec"), self.ns)
 
     def run_branch(self, name):
@@ -128,9 +202,11 @@ class ArrivalExecutionTests(unittest.TestCase):
         """MoveTo lands at unmerged (-1275.3, 1305.3) in procedural Surface (FF00A492); SetPosition shifts into core 03000CF0."""
         self.player.pos = (-1275.3, 1305.3, 119.4)
         self.player.cell = SimpleNamespace(GetFormID=lambda: 0xFF00A492)
+
         def shift_to_merged_core(pos):
             if abs(pos[0] - (-1200.0)) < 1.0 and abs(pos[1] - (-2700.0)) < 1.0:
                 self.player.cell = SimpleNamespace(GetFormID=lambda: 0x03000CF0)
+
         self.player.on_set_position = shift_to_merged_core
         self.run_branch("FinishSurface")
         self.assertEqual(self.player.moves, [(-1200.0, -2700.0, 100.0)])
@@ -184,6 +260,7 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.now += 3.0
         self.run_branch("CheckLanding")
         self.assertEqual(self.marker.discovery_calls, 1)
+        self.assertTrue(any(t.startswith("arrival discovery requested ") for t in self.traces))
         self.assertEqual(self.stages, [40, 200])
         self.assertEqual(self.failures, [])
 
@@ -213,54 +290,70 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.assertEqual(self.marker.discovery_calls, 1)
         self.assertEqual(self.stages, [200])
 
-    def test_ignored_fallback_cannot_complete(self):
-        self.player.pos = (-1200.0, -2700.0, 90.0)
-        self.player.take_position = False
+    def test_b2_player_walked_beyond_5m_in_arrival_world_still_confirms_landing_and_discovers(self):
+        """B2: Landing confirms once outside in arrivalWorld with 3D loaded, even if the player walked > 5 m away."""
+        self.player.pos = (-1150.0, -2660.0, 102.0)  # > 60 m from ArrivalX/Y, still in arrivalWorld with 3D loaded
         self.run_branch("CheckLanding")
+        self.assertEqual(self.failures, [])
+        self.assertEqual(self.marker.discovery_calls, 1)
+        self.assertEqual(self.stages, [200])
+
+    def test_b2_failed_or_missing_marker_discovery_logs_failure_and_still_advances_to_stage_200(self):
+        """B2: Missing or unattachable marker logs arrival discovery failed and STILL advances to stage 200."""
+        # Case 1: Marker missing (None) -> logs failure immediately and advances to stage 200
+        self.setUp()
+        self.ns["Game"].GetFormFromFile = lambda *_: None
         self.run_branch("CheckLanding")
-        self.assertEqual(self.failures, ["landing_position_not_confirmed"])
+        self.assertEqual(self.failures, [])
         self.assertEqual(self.marker.discovery_calls, 0)
-        self.assertEqual(self.stages, [])
+        self.assertTrue(any("arrival discovery failed reason=marker_missing" in t for t in self.traces), self.traces)
+        self.assertEqual(self.stages, [200])
+
+        # Case 2: Unattached or misplaced marker that refuses MoveTo/SetPosition -> tries attach on tick 1, logs failure + stage 200 on tick 2
+        for world, pos in [(None, self.marker.pos), (object(), self.marker.pos), (self.world, (0.0, 0.0, 95.0))]:
+            with self.subTest(world=world, pos=pos):
+                self.setUp()
+                self.marker.world, self.marker.pos = world, pos
+                self.marker.take_move = False
+                self.marker.take_position = False
+                self.run_branch("CheckLanding")
+                self.assertEqual(self.stages, [])  # 1 tick given for the attach MoveTo to settle
+                self.assertEqual(len(self.marker.moveto_calls), 1)
+                self.run_branch("CheckLanding")
+                self.assertEqual(self.failures, [])
+                self.assertEqual(self.marker.discovery_calls, 0)
+                self.assertTrue(
+                    any("arrival discovery failed reason=marker_not_attached" in t for t in self.traces),
+                    self.traces,
+                )
+                self.assertEqual(self.stages, [200])
 
     def test_same_coordinates_in_wrong_player_world_cannot_discover(self):
         self.player.world = object()
         self.run_branch("CheckLanding")
         self.assertEqual(self.failures, ["landing_world_changed"])
         self.assertEqual(self.marker.discovery_calls, 0)
+        self.assertEqual(self.stages, [])
 
-    def test_unattached_or_misplaced_marker_that_refuses_move_has_bounded_wait(self):
-        for world, pos in [(None, self.marker.pos), (object(), self.marker.pos),
-                           (self.world, (0.0, 0.0, 95.0))]:
-            with self.subTest(world=world, pos=pos):
-                self.setUp()
-                self.marker.world, self.marker.pos = world, pos
-                self.marker.take_move = False
-                self.marker.take_position = False
-                self.ns["landingChecks"] = 29
-                self.run_branch("CheckLanding")
-                self.assertEqual(self.failures, ["arrival_marker_not_attached"])
-                self.assertEqual(len(self.marker.moveto_calls), 1)
-                self.assertEqual(self.marker.discovery_calls, 0)
-                self.assertEqual(self.stages, [])
-
-    def test_indoor_unloaded_and_wrong_height_never_request_discovery(self):
-        for field, value in [("interior", True), ("loaded", False), ("pos", (-1200.0, -2700.0, 110.0))]:
+    def test_indoor_and_unloaded_never_request_discovery(self):
+        for field, value in [("interior", True), ("loaded", False)]:
             with self.subTest(field=field):
-                old = getattr(self.player, field)
+                self.setUp()
                 setattr(self.player, field, value)
                 self.run_branch("CheckLanding")
                 self.assertEqual(self.marker.discovery_calls, 0)
                 self.assertEqual(self.stages, [])
-                setattr(self.player, field, old)
 
-    def test_leaving_during_marker_reads_prevents_the_call(self):
+    def test_leaving_world_during_marker_reads_prevents_discovery_call(self):
         def fast_read():
-            self.player.pos = (1000.0, 1000.0, 100.0)
+            self.player.world = object()
             return True
+
         self.ns["Game"].IsFastTravelEnabled = fast_read
         self.run_branch("CheckLanding")
         self.assertEqual(self.marker.discovery_calls, 0)
-        self.assertEqual(self.stages, [])
+        self.assertTrue(any("arrival discovery failed reason=state_changed_before_discover" in t for t in self.traces))
+        self.assertEqual(self.stages, [200])
 
     def test_custom_exit_discovery_is_disabled_and_writer_pins_canonical_marker(self):
         self.ns["ArrivalDiscoveryId"] = 0
@@ -271,6 +364,285 @@ class ArrivalExecutionTests(unittest.TestCase):
         code = re.sub(r"\{.*?\}|;[^\n]*", "", read(PSC), flags=re.S)
         self.assertEqual(code.count(".SetMarkerDiscovered()"), 1)
         self.assertNotIn(".AddToMap(", code)
+
+
+class _LiftRef(Reference):
+    def __init__(self, cell):
+        super().__init__(None, (-70.392, -2.742, -0.114), form_id=0x02001618)
+        self.interior = True
+        self.cell = cell
+        self.base = object()
+        self.plays = []
+        self.accepted = True
+
+    def GetBaseObject(self):
+        return self.base
+
+    def PlayAnimation(self, name):
+        self.plays.append(name)
+        return self.accepted
+
+
+class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
+    """B1 + R10: Translated-execution tests proving lift failures return to the platform & offer retry, then fallback after 3."""
+
+    EXIT_FUNCTIONS = (
+        "InVault",
+        "StartAscent",
+        "OnAnimationEvent",
+        "AtLiftTop",
+        "CheckAscent",
+        "Surface",
+        "FinishSurface",
+        "FailExit",
+        "Near",
+        "ReturnPlayerToVaultPlatform",
+        "FallbackExitToSurface",
+        "Actor.OnPlayerLoadGame",
+    )
+    EXIT_VARS = (
+        "asked, liftSpecConfirmed, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
+        "rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, "
+        "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, "
+        "fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks"
+    )
+
+    def setUp(self):
+        self.now = 10.0
+        self.vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+        self.surface_world = object()
+        self.core_cell = SimpleNamespace(GetFormID=lambda: 0x03000CF0)
+
+        self.vault_anchor = Reference(None, (-60.0, 0.0, -1.0), form_id=0x02000805)
+        self.vault_anchor.interior = True
+        self.vault_anchor.cell = self.vault_cell
+
+        self.exit_anchor = Reference(self.surface_world, (-1275.3, 1305.3, 108.2), form_id=0x030A775B)
+        self.exit_anchor.interior = False
+        self.exit_anchor.cell = SimpleNamespace(GetFormID=lambda: 0xFF00A492)
+
+        self.lift = _LiftRef(self.vault_cell)
+        self.player = Reference(None, (-77.742, -3.958, -1.72), form_id=0x00000014)
+        self.player.interior = True
+        self.player.cell = self.vault_cell
+
+        def on_player_set_pos(pos):
+            if not self.player.interior and abs(pos[0] - (-1200.0)) < 1.0 and abs(pos[1] - (-2700.0)) < 1.0:
+                self.player.cell = self.core_cell
+
+        self.player.on_set_position = on_player_set_pos
+
+        self.stage = 30
+        self.stages = []
+        self.traces = []
+        self.fades = []
+        self.timers = []
+        self.exit_prompts = 0
+        self.exit_button = 0
+        self.fallback_prompts = 0
+        self.fallback_button = 0
+        self.unregistrations = []
+
+        def advance_to(n):
+            self.stage = n
+            self.stages.append(n)
+
+        def get_form(fid, plg):
+            if plg == "FO4Port.esm":
+                if fid == 0x805:
+                    return self.vault_anchor
+                if fid == 0x1618:
+                    return self.lift
+                if fid == 0x1619:
+                    return self.lift.base
+            if plg == "FO4TerrainCore.esm" and fid == 0x0A775B:
+                return self.exit_anchor
+            return None
+
+        def exit_show():
+            self.exit_prompts += 1
+            return self.exit_button
+
+        def fallback_show():
+            self.fallback_prompts += 1
+            return self.fallback_button
+
+        self.ns = dict(
+            _PStr=_PStr,
+            LogName="fo4sf_newgame",
+            Trace=self.traces.append,
+            asked=False,
+            liftSpecConfirmed=True,
+            TestModeGlobal=None,
+            GameModeGlobal=SimpleNamespace(GetValue=lambda: 1.0, SetValue=lambda v: None),
+            CogDoorId=0x126D,
+            VaultPlugin="FO4Port.esm",
+            VaultAnchorId=0x805,
+            AnchorX=-60.0,
+            AnchorY=0.0,
+            AnchorZ=-1.0,
+            ConsoleX=-53.7,
+            ConsoleY=-3.7,
+            ConsoleZ=0.53,
+            ConsoleRadius=2.5,
+            PlatformX=-77.742,
+            PlatformY=-3.958,
+            PlatformZ=-1.751,
+            PlatformRadius=2.0,
+            LiftId=0x1618,
+            LiftBaseId=0x1619,
+            LiftRise=21.6,
+            LiftSeconds=9.8667,
+            LiftDoneMargin=0.25,
+            CorePlugin="FO4TerrainCore.esm",
+            ExitAnchorId=0x0A775B,
+            ArrivalDiscoveryId=0x0A775B,
+            ArrivalX=0.0,
+            ArrivalY=0.0,
+            ArrivalZ=100.0,
+            ArrivalHeading=0.0,
+            FallbackX=-10.0,
+            FallbackY=-20.0,
+            FallbackZ=95.0,
+            MergeOffsetX=-1200.0,
+            MergeOffsetY=-2700.0,
+            FallDrop=3.0,
+            SurfaceWait=10.0,
+            SurfaceTries=3,
+            ridingLift=None,
+            ridingCell=None,
+            rideStartedAt=0.0,
+            riderX=0.0,
+            riderY=0.0,
+            riderZ=0.0,
+            rideActive=False,
+            rideDone=False,
+            rideTransferred=False,
+            exitFailures=0,
+            exitUsedFallback=False,
+            surfaceMovedAt=0.0,
+            surfaceMoves=0,
+            surfaceSets=0,
+            arrivalWorld=None,
+            arrivedAt=0.0,
+            fallbackPending=False,
+            discoveryMarkerMoved=False,
+            discoveryAttachPending=False,
+            landingChecks=0,
+            Game=SimpleNamespace(
+                GetFormFromFile=get_form,
+                GetPlayer=lambda: self.player,
+                FadeOutGame=lambda *args: self.fades.append(args),
+            ),
+            Debug=SimpleNamespace(OpenUserLog=lambda *_: None, Notification=lambda *_: None),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
+            ExitMessage=SimpleNamespace(Show=exit_show),
+            ExitFallbackMessage=SimpleNamespace(Show=fallback_show),
+            EnsureVaultInteractivesRegistered=lambda: None,
+            OpenLiftAttributeAllocation=lambda: None,
+            OpenLiftCharacterRespec=lambda: None,
+            RunSharedMapSetup=lambda: 4,
+            StandsInVault=lambda p: p.GetParentCell() == self.vault_cell,
+            RegisterForAnimationEvent=lambda *_: None,
+            UnregisterForAnimationEvent=lambda *args: self.unregistrations.append(args),
+            StartTimer=lambda *args: self.timers.append(args),
+            GetStage=lambda: self.stage,
+            AdvanceTo=advance_to,
+        )
+        exec(compile(translated_functions(read(PSC), self.EXIT_FUNCTIONS, self.EXIT_VARS), PSC, "exec"), self.ns)
+
+    def assert_at_platform(self):
+        self.assertTrue(self.player.interior)
+        self.assertEqual(self.player.cell, self.vault_cell)
+        self.assertAlmostEqual(self.player.pos[0], -77.742, places=3)
+        self.assertAlmostEqual(self.player.pos[1], -3.958, places=3)
+        self.assertAlmostEqual(self.player.pos[2], -1.551, places=3)
+        self.assertTrue(self.ns["Near"](self.player, -77.742, -3.958, -1.751, 2.0))
+
+    def test_b1_timeout_stepped_off_and_refused_play_each_return_to_platform_and_fourth_reaches_stage_40_by_fallback(self):
+        # 1) Lift timeout: rider stays mid-shaft past LiftSeconds + 30 -> returns to platform, logs exit retry n=1, prompt ready again
+        self.ns["InVault"](self.player, 30)
+        self.assertEqual(self.exit_prompts, 1)
+        self.assertTrue(self.ns["rideActive"])
+        self.player.pos = (-77.742, -3.958, 8.0)  # mid-shaft
+        self.now += 41.0
+        self.ns["CheckAscent"](self.player)
+        self.assertFalse(self.ns["rideActive"])
+        self.assertFalse(self.ns["asked"])
+        self.assertEqual(self.ns["exitFailures"], 1)
+        self.assert_at_platform()
+        self.assertIn("exit retry n=1 reason=lift_timeout stage=30", self.traces)
+
+        # Prompt is offered again on the next InVault tick; 2) Rider stepped off platform before play -> exit retry n=2
+        def step_off_during_register(*_):
+            self.player.pos = (-72.0, -3.958, -1.72)  # stepped off onto catwalk (> 2 m from platform)
+
+        self.ns["RegisterForAnimationEvent"] = step_off_during_register
+        self.ns["InVault"](self.player, 30)
+        self.assertEqual(self.exit_prompts, 2)
+        self.assertFalse(self.ns["rideActive"])
+        self.assertFalse(self.ns["asked"])
+        self.assertEqual(self.ns["exitFailures"], 2)
+        self.assert_at_platform()
+        self.assertIn("exit retry n=2 reason=lift_rider_left_before_play stage=30", self.traces)
+        self.ns["RegisterForAnimationEvent"] = lambda *_: None
+
+        # Prompt is offered again on the next InVault tick; 3) Refused Play01 -> exit retry n=3
+        self.lift.accepted = False
+        self.ns["InVault"](self.player, 30)
+        self.assertEqual(self.exit_prompts, 3)
+        self.assertFalse(self.ns["rideActive"])
+        self.assertFalse(self.ns["asked"])
+        self.assertEqual(self.ns["exitFailures"], 3)
+        self.assert_at_platform()
+        self.assertIn("exit retry n=3 reason=lift_play_refused stage=30", self.traces)
+
+        # Prompt is offered again on the 4th attempt; after 3 failures, offers plain way up -> logs exit fallback by=move -> stage 40!
+        self.fallback_button = 0  # "Go up to the Commonwealth"
+        self.ns["InVault"](self.player, 30)
+        self.assertEqual(self.exit_prompts, 4)
+        self.assertEqual(self.fallback_prompts, 1)
+        self.assertIn("exit fallback by=move", self.traces)
+        self.assertEqual(len(self.fades), 1)
+        self.assertGreater(self.ns["surfaceMovedAt"], 0.0)
+        self.now += 1.0
+        self.ns["FinishSurface"](self.player)
+        self.assertEqual(self.stages, [40])
+        self.assertEqual(self.stage, 40)
+
+    def test_b1_rider_stepped_off_before_arrival_also_returns_to_platform_for_retry(self):
+        self.ns["InVault"](self.player, 30)
+        self.now += 10.0
+        self.player.pos = (-77.742, -3.958, 19.88)
+        self.ns["OnAnimationEvent"](self.lift, "Done")
+        self.ns["UnregisterForAnimationEvent"] = lambda *args: (
+            self.unregistrations.append(args),
+            setattr(self.player, "pos", (-72.0, -3.958, 19.88)),
+        )
+        self.ns["CheckAscent"](self.player)
+        self.assertEqual(self.ns["exitFailures"], 1)
+        self.assertFalse(self.ns["rideTransferred"])
+        self.assertFalse(self.ns["asked"])
+        self.assert_at_platform()
+        self.assertIn("exit retry n=1 reason=lift_rider_left_before_arrival stage=30", self.traces)
+        # Verify the prompt fires again immediately on the next InVault tick
+        self.exit_button = 3  # Stay
+        self.ns["InVault"](self.player, 30)
+        self.assertEqual(self.exit_prompts, 2)
+
+    def test_b1_reload_recovery_clears_mid_ride_returns_player_to_platform_and_restarts_timer(self):
+        self.ns["InVault"](self.player, 30)
+        self.assertTrue(self.ns["rideActive"])
+        self.player.pos = (-77.742, -3.958, 11.5)  # stuck mid-shaft on save/reload
+        self.timers.clear()
+        self.ns["OnPlayerLoadGame"](self.player)
+        self.assertFalse(self.ns["rideActive"])
+        self.assertFalse(self.ns["rideTransferred"])
+        self.assertFalse(self.ns["asked"])
+        self.assertEqual(self.unregistrations, [(self.lift, "Done")])
+        self.assert_at_platform()
+        self.assertIn((1.0, 1), self.timers)
+        self.assertTrue(any("exit reload recovered stage=30" in t for t in self.traces), self.traces)
 
 
 class ArrivalReceiptTests(unittest.TestCase):

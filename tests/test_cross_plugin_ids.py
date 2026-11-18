@@ -14,6 +14,7 @@ if os.path.join(ROOT, "src") not in sys.path:
 
 from fo4sf.core.cross_plugin_check import (  # noqa: E402
     ROUTE_LOOT_JSON_REL,
+    VmadPropBinding,
     build_writer_catalog,
     parse_cs_vmad_bindings,
     parse_psc_declared_properties,
@@ -22,6 +23,7 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_psc_form_refs,
     validate_route_loot_refs,
     validate_staged_esms,
+    validate_vault_pistol_sync,
     validate_vmad_bindings,
 )
 from fo4sf.planet.esm import PluginWriter, Record, zbytes  # noqa: E402
@@ -106,6 +108,20 @@ class CrossPluginResolutionTests(unittest.TestCase):
         self.assertGreaterEqual(len(mission_bindings), 5)
         vmad_errors = validate_vmad_bindings(catalog, psc_props_by_script, all_bindings)
         self.assertEqual(vmad_errors, [], "\n".join(vmad_errors))
+
+        pistol_errors = validate_vault_pistol_sync(all_bindings, os.path.join(ROOT, ROUTE_LOOT_JSON_REL))
+        self.assertEqual(pistol_errors, [], "\n".join(pistol_errors))
+
+        # Negative B5 check: mismatched VaultPistolBase binding vs route_loot_ids.json must fail
+        drifted_bindings = [
+            VmadPropBinding(b.cs_rel, b.script_name, b.prop_name, "Starfield.esm", 0x2773C8)
+            if (b.script_name == "FO4SF_NewGameQuest" and b.prop_name == "VaultPistolBase")
+            else b
+            for b in all_bindings
+        ]
+        drift_errs = validate_vault_pistol_sync(drifted_bindings, os.path.join(ROOT, ROUTE_LOOT_JSON_REL))
+        self.assertTrue(drift_errs)
+        self.assertIn("!= route_loot_ids.json vault111.pistol_id", "\n".join(drift_errs))
 
         native_errors = validate_native_core_value_refs(ROOT, catalog)
         self.assertEqual(native_errors, [], "\n".join(native_errors))

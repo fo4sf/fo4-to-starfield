@@ -147,7 +147,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("Game.SetInChargen(true, true, false)", hold_fade)
         self.assertIn('Trace("mode fade held")', hold_fade)
         code_only = re.sub(r"\{[^}]*\}", "", psc)          # the doc comments name the fade call too
-        self.assertEqual(code_only.count("Game.FadeOutGame("), 2)   # FadeIn + HoldFadeForModeChoice
+        self.assertEqual(code_only.count("Game.FadeOutGame("), 3)   # FadeIn + HoldFadeForModeChoice + FallbackExitToSurface
         self.assertEqual(code_only.count("Game.SetInChargen("), 2)  # FadeIn + HoldFadeForModeChoice
         self.assertEqual(code_only.count("Game.SetCharGenHUDMode("), 1)  # in FadeIn alone
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
@@ -200,7 +200,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("TestModeGlobal", written)
         self.assertIn("LooksWait", written)                  # 0 in a --no-looks build, so the quest does not wait
         self.assertEqual(looks_written, {"StartMessage", "RaceMenuMode"})
-        self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
+        self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "SpecialMessagePage2", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
         self.assertEqual(version_written, {"BuildVersion"})   # SavedVersion is the script's own, written in game, never by the plugin
         self.assertFalse(ng.declared_properties(read(VERSION))["SavedVersion"])
 
@@ -648,10 +648,14 @@ class ContractTests(unittest.TestCase):
         self.assertIn("while presses < MaxPresses", special)   # the loop is bounded: no spin on a box that returns at once
         self.assertNotIn("while true", special)
         self.assertGreater(ng.SPECIAL_MAX_PRESSES, 10 * (ng.SPECIAL_POINTS + 1))   # ten full passes with a Reset each
-        self.assertEqual(len(ng.SPECIAL_BUTTONS), 10)         # FO4's MESG limit; the script's button indices
-        self.assertIn("if button >= 0 && button < 7", special)
-        self.assertIn("elseif button == 7", special)         # Reset
-        self.assertIn("elseif button == 8", special)         # Confirm
+        self.assertEqual(len(ng.SPECIAL_BUTTONS), 10)
+        self.assertLessEqual(len(ng.SPECIAL_PAGE1_BUTTONS), 7)
+        self.assertLessEqual(len(ng.SPECIAL_PAGE2_BUTTONS), 7)
+        self.assertIn("Confirm", ng.SPECIAL_PAGE1_BUTTONS)    # B3: Confirm reachable from the first box
+        self.assertIn("if button >= 0 && button < 3", special)
+        self.assertIn("if button >= 0 && button < 4", special)
+        self.assertIn("elseif button == 5", special)          # Confirm on both <=7-button pages
+        self.assertIn("Message Property SpecialMessagePage2 Auto Const Mandatory", special)
         self.assertIn("int[] values = new int[7]", special)
         self.assertIn("player.SetValue(Special[i], values[i] as float)", special)
         self.assertIn('Trace("special set S="', special)
@@ -1012,13 +1016,13 @@ class ContractTests(unittest.TestCase):
 
     def test_every_native_the_script_calls_is_prechecked(self):
         psc = read(PSC)
-        calls = set(re.findall(r"\.(\w+)\(", psc)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer)\(", psc, re.M))
+        calls = set(re.findall(r"\.(\w+)\(", psc)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer|AddInventoryEventFilter)\(", psc, re.M))
         listed = {f for bases in ng.NATIVES[ng.SCRIPT].values() for f in bases}
         own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", psc, re.M))
         # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls live in our own repo scripts
         calls |= set(re.findall(r"^Event (?:\w+\.)?(On\w+)\(", psc, re.M)) - {"OnTimer"}
         fo4sf_methods = {"GetPositionY", "GetPositionZ", "EvaluateHardcore", "OpenAttributeAllocation",
-                         "ApplyWarfareBackground", "SetFactionScoresAbsolute", "SetKarmaAbsolute",
+                         "OfferStandardSpread", "ApplyWarfareBackground", "SetFactionScoresAbsolute", "SetKarmaAbsolute",
                          "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"}
         missing = calls - listed - own - fo4sf_methods
         self.assertEqual(missing, set())
@@ -1085,7 +1089,7 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
-             objectreference=None, quest=None, animation=True, remote=True):
+             objectreference=None, quest=None, animation=True, remote=True, inventory_filter=True):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -1124,6 +1128,8 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
     if remote:
         base["ScriptObject"] += ("\nbool Function RegisterForRemoteEvent(ScriptObject source, string name) native\n"
                                  "Function UnregisterForRemoteEvent(ScriptObject source, string name) native\n")
+    if inventory_filter:
+        base["ScriptObject"] += "\nFunction AddInventoryEventFilter(Form akFilter) native\n"
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)
@@ -2150,34 +2156,55 @@ class Phase2BeginningRealTests(unittest.TestCase):
     def test_x1_console_only_gear_door_blocks_direct_activation_and_gates_shortcuts_on_test_mode(self):
         cs, psc = read(CS), read(PSC)
         self.assertIn('("ConsoleRefId", (int)p.Console)', cs)
+        self.assertIn('GearDoorConsoleActiEdid = "FO4SF_GearDoorConsole"', cs)
+        self.assertIn('GearDoorConsoleRefEdid = "FO4SF_GearDoorConsoleRef"', cs)
+        self.assertIn("GearDoorConsoleActiId = 0x818", cs)
+        self.assertIn("GearDoorConsoleRefId = 0x819", cs)
+        self.assertIn('if (console == 0)\n            throw new Refusal(', cs)
         invault = psc[psc.index("Function InVault"):psc.index("Function StartAscent")]
         self.assertIn("if stage == 20 && CogDoorId > 0 && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", invault)
         self.assertIn("cogDoorWatchedRef.BlockActivation(True, False)", psc)
         self.assertIn('RegisterForRemoteEvent(cogDoorWatchedRef, "OnActivate")', psc)
+        self.assertIn("consoleWatchedRef = GearDoorConsoleRef", psc)
         self.assertIn('RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")', psc)
+        self.assertIn('Trace("console activator registered ref=" + consoleWatchedRef', psc)
         self.assertIn('Trace("cog door activate blocked by=player open_state=" + curState)', psc)
+        self.assertIn("Utility.Wait(2.0)", psc)
         self.assertIn('Trace("cog door console activated ref=" + consoleWatchedRef + " before=" + before + " after=" + after)', psc)
+        self.assertIn('Trace("cog door open failed state=" + after)', psc)
 
     def test_x2_pipboy_pickup_console_gate_and_pistol_picked(self):
         cs, psc = read(CS), read(PSC)
-        self.assertIn("PipboyAcquiredGlobId = 0x80C", cs)
+        # A6 & A16: FO4SF_PipboyAcquired lives solely in FO4SFCoreValues.esm:000865; 0x80C and 0x810..0x816 stay reserved
+        self.assertNotIn("PipboyAcquiredGlobId =", cs)
+        self.assertIn('var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));', cs)
+        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 }", cs)
         self.assertIn("PipboyWristArmorId = 0x80D", cs)
         self.assertIn("PipboyCorpseActiId = 0x80E", cs)
         self.assertIn("PipboyCorpseRefId = 0x80F", cs)
-        self.assertIn("NoPipboyMsgId = 0x811", cs)
+        self.assertIn("NoPipboyMsgId = 0x817", cs)
+        self.assertIn("MaxMessageButtons = 7", cs)
         self.assertIn("Fo4PipboyPickup = 0x075039", cs)
         self.assertIn("Fo4PipboySkeleton = 0x0AB6AF", cs)
         self.assertIn('["pipboy_corpse"]', cs)
+        self.assertIn("AddInventoryEventFilter(VaultPistolBase)", psc)
+        self.assertLess(
+            psc.index("AddInventoryEventFilter(VaultPistolBase)"),
+            psc.index('RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")'),
+        )
+        self.assertIn('Trace("pistol filter added base=" + VaultPistolBase + " id=" + VaultPistolId)', psc)
+        self.assertIn("if akBaseItem == VaultPistolBase", psc)
         self.assertIn('Trace("console refused: no pipboy")', psc)
         self.assertIn('Trace("pipboy pickup equipped flag=1 worn=" + worn)', psc)
         self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)', psc)
         z = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
         z.close()
         try:
-            fake_zip(z.name, remote=False)
+            fake_zip(z.name, remote=False, inventory_filter=False)
             r = ng.precheck_zip(z.name)
             self.assertIn("ScriptObject.RegisterForRemoteEvent", r["missing_core"])
             self.assertIn("ScriptObject.UnregisterForRemoteEvent", r["missing_core"])
+            self.assertIn("ScriptObject.AddInventoryEventFilter", r["missing_core"])
         finally:
             os.unlink(z.name)
 
