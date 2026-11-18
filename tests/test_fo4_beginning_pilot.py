@@ -357,6 +357,45 @@ class BeginningPilotTests(unittest.TestCase):
         for step_num in ("Step 13", "Step 14", "Step 15"):
             self.assertIn(step_num, card_doc)
 
+    def test_real_18nov_cand21_split_pass_196_of_199_full_run(self) -> None:
+        """Sanitized real 18 Nov cand21 Run 2 excerpt (63 + 133 = 196 of 199 stopped across passes 1 & 2)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = Path(tmp)
+            ng_log = tdir / "fo4sf_newgame.0.log"
+            ms_log = tdir / "fo4sf_mission.0.log"
+            ng_log.write_text(
+                "[17:10:11] FO4SF_NEWGAME rt=49.688004 hold-off pass 1 stopped=63 of 199\n"
+                "[17:10:24] FO4SF_NEWGAME rt=62.743004 hold-off pass 2 stopped=133 of 199\n"
+                "[17:10:24] FO4SF_NEWGAME rt=62.877003 stage 10\n"
+                "[17:10:25] FO4SF_NEWGAME rt=64.215004 pod settle ok=true pos=9.142858 -6.614286 -0.851672 dx=0.000000 dy=0.000000 drop=0.123100\n"
+                "[17:10:41] FO4SF_NEWGAME rt=79.796005 stage 20\n"
+                "[17:11:19] FO4SF_NEWGAME rt=118.269005 cog door open_state before=3 after=2\n"
+                "[17:11:19] FO4SF_NEWGAME rt=118.302002 stage 30\n"
+                "[17:12:13] FO4SF_NEWGAME rt=172.077011 ascent play accepted=true ref=[ObjectReference < (02001618)>] from=-1.782437 rise=21.600000 seconds=9.866700\n"
+                "[17:12:23] FO4SF_NEWGAME rt=182.395004 ascent carried confirmed elapsed=10.102997 z=19.812813\n"
+                "[17:12:30] FO4SF_NEWGAME rt=189.578003 surface setposition ok=true set=1 pos=-2467.781494 -1406.924927 127.450577 target=-2467.781494 -1406.924927 128.109528 core_cell=true\n"
+                "[17:12:30] FO4SF_NEWGAME rt=189.578003 stage 40\n"
+                "[17:12:36] FO4SF_NEWGAME rt=194.654007 landed z=127.450577 confirmed=True fallback=false\n"
+                "[17:12:36] FO4SF_NEWGAME rt=194.696014 stage 200\n",
+                encoding="utf-8",
+            )
+            ms_log.write_text(
+                "[17:10:10] FO4SF_MISSION rt=48.765003 init raiders=5\n"
+                "[17:10:10] FO4SF_MISSION rt=48.765003 stage 10\n"
+                "[17:13:34] FO4SF_MISSION rt=253.263016 hold Codsworth by=keeper off=0.042274 ok=true\n"
+                "[17:18:10] FO4SF_MISSION rt=529.0 stage 20\n"
+                "[17:19:00] FO4SF_MISSION rt=579.0 stage 30\n"
+                "[17:19:20] FO4SF_MISSION rt=599.0 stage 40\n"
+                "[17:19:20] FO4SF_MISSION rt=599.0 reward credits=100\n"
+                "[17:19:21] FO4SF_MISSION rt=600.0 stage 200\n",
+                encoding="utf-8",
+            )
+            res = evaluate_beginning_logs(str(ng_log), str(ms_log))
+            self.assertTrue(res["ok"], res)
+            self.assertTrue(res["all_pass"], res)
+            for spec in BEGINNING_STEPS:
+                self.assertEqual(res["steps"][spec.step_id]["status"], "PASS")
+
 
 if __name__ == "__main__":
     unittest.main()
