@@ -314,3 +314,59 @@ python scripts/game/exp_install.py order --starfield <game-dir>
 installed 3 files, plugins ['FO4WG1RedRocket.esm', 'FO4WG1RedRocket_Mars.esm']
 uninstalled
 ```
+
+---
+
+## Card 6 — `WB5` & `WB5b` Staged Commonwealth DLC Reference Override & Two-Way DLC Doors (`TEST-STATION`)
+
+- **Scope & Label (`TEST-STATION`):**
+  - `FO4TerrainCore_DLC.esm` (`masters = ['Starfield.esm', 'FO4TerrainCore.esm', 'FO4DLC.esm']`, `TEST-STATION`) staged on top of the **unchanged** `FO4TerrainCore.esm` (`core_unchanged=True`):
+    - Places references only: `647` `FO4TerrainCore.esm` `REFR` overrides (`511` DLC core deletions overridden at their exact core FormIDs with `InitiallyDisabled` `0x00000800` and **never** `Deleted` `0x00000020`, plus `136` moved/modified core `REFR`s; `80` identical overrides resolved as no-ops; `18` changed/deleted base-game references absent from `FO4TerrainCore.esm` listed by name in `not_in_core`).
+    - Places `6,295` added DLC Commonwealth `REFR`s (`5,659` reusing `FO4TerrainCore.esm` bases, `636` reusing `FO4DLC.esm` bases via its pinned `formids.json` without writing a duplicate base for any model `FO4DLC.esm` holds, `0` override-authored bases on the current manifests, and `909` unconverted/non-model references listed by name in `missing_bases`).
+    - Pins `FO4DLC`'s `formids.json` SHA-256 and refuses any `FO4DLC` stage whose `formids.json` hash differs.
+  - **`WB5b` Two-Way Commonwealth <-> `FO4DLC.esm` Doors (`R10` — No One-Way Door):**
+    - Wires all `3` placed Commonwealth exterior entrances into the `2` `FO4DLC.esm` interiors Fallout 4 enters from the Commonwealth (`DLC06VaultWorkshop` via `003CC5:DLCworkshop03.esm <-> 003CBF:DLCworkshop03.esm` and `003CC6:DLCworkshop03.esm <-> 003CC0:DLCworkshop03.esm`, and `DLC04TransitCenter01` via `00AD1B:DLCNukaWorld.esm <-> 00ADB3:DLCNukaWorld.esm`), plus persistent exterior arrival `XMarker`s (`0x00000400`) in `FO4TerrainCore_DLC.esm` and a **patched copy** of the `FO4DLC.esm` stage (`<fo4dlc-doors-stage>`) via `scripts/terrain/vmad_patch.py` (`120,052 / 120,052` non-door records in `FO4DLC.esm` byte-identical, every other `FO4DLC.esm` FormID unchanged).
+- **Required `FO4DLC` Archives (`WB5`):** **This `TEST-STATION` session requires `FO4DLC.esm` and its archives (`FO4DLC - Main.ba2`, `FO4DLC - Textures.ba2`, `FO4DLCTextures2.esm`, `FO4DLCTextures2 - Textures.ba2`, `FO4DLCTextures3.esm`, `FO4DLCTextures3 - Textures.ba2`) installed.** `make_cw_dlc_override.py install` installs them together from `<fo4dlc-doors-stage>` (or swaps `FO4DLC.esm` against a backup if the `FO4DLC` archive set is already in `<game-dir>/Data`) and refuses any install missing the `FO4DLC` archives.
+- **Stage Placeholders:** `<cw-dlc-stage>` (`FO4TerrainCore_DLC.esm`, `objects.json`, `formids.json`, `overlays_params.json`, `wb5_report.json`), `<fo4dlc-doors-stage>` (patched `FO4DLC.esm` + hard-linked `FO4DLC` `.ba2` / companion `.esm` files), `<core-stage>` (`folded-v111-exit` core build), `<fo4dlc-stage>` (pinned `fo4dlc-stage/port`), and `<dlc-edits-json>` (`dlc_edits.json`).
+- **Disk Space Need:** `~6.65 GiB` in `<game-dir>/Data` when installing `FO4DLC.esm` and its `4` `.ba2` archives fresh from `<fo4dlc-doors-stage>` (hard-linked with zero extra disk allocation when `<fo4dlc-doors-stage>` and `<game-dir>/Data` share an NTFS volume), or `~9.5 MiB` (`FO4TerrainCore_DLC.esm` `0.46 MiB` + `FO4DLC.esm` backup `9.01 MiB`) when the `FO4DLC` archives are already installed.
+- **Active `Plugins.txt` Load List:** `*FO4Port.esm`, `*FO4PortTextures2.esm`, `*FO4TerrainCore.esm`, `*FO4DLC.esm`, `*FO4DLCTextures2.esm`, `*FO4DLCTextures3.esm`, `*FO4TerrainCore_DLC.esm`, `*FO4TerrainCore_Mars.esm` (placed after `FO4TerrainCore.esm` and before the world registration plugin; run on the Mars `TEST-STATION` load list with Card 1 undone so `FO4TerrainCore_DLC.esm`'s structural `WRLD` group header does not collide with Card 1's strict single-override `home_world_install.py` check).
+
+### Offline Build & Two-Way Door Check Commands
+
+```powershell
+python scripts/terrain/make_cw_dlc_override.py build --edits <dlc-edits-json> --core <core-stage> --dlc <fo4dlc-stage> --fo4-data <fo4-data-dir> --out <cw-dlc-stage> --dlc-doors-out <fo4dlc-doors-stage>
+python scripts/terrain/make_cw_dlc_override.py check --out <cw-dlc-stage> --core <core-stage> --dlc <fo4dlc-stage> --dlc-doors-out <fo4dlc-doors-stage>
+python scripts/terrain/vmad_patch.py check --port <fo4dlc-stage> --out <fo4dlc-doors-stage> --core <cw-dlc-stage>
+```
+
+### Exact Install Command (`TEST-STATION` Session — Game Closed)
+
+```powershell
+python scripts/terrain/make_cw_dlc_override.py status --starfield <game-dir>
+python scripts/terrain/make_cw_dlc_override.py install --dir <cw-dlc-stage> --dlc-doors <fo4dlc-doors-stage> --starfield <game-dir>
+```
+
+### In-Game Two-Way Door Probe (`R8` & `R10`)
+With owner release (`R8`), launch `Starfield.exe`, arrive in the Commonwealth via console, and verify both outbound entry and return exit (`R10`: no one-way door) at the Nuka-World Transit Centre (`[-2798.8, -2442.0, 96.4]` merged) and the two Vault 88 entrances (`[-916.0, -3545.1, 16.2]` and `[-1335.7, -3541.3, 17.1]` merged):
+
+```console
+coc FO4Core_RedRocketSpawn
+player.getpos x
+player.getpos y
+player.getpos z
+```
+
+### Exact Undo Command (Game Closed)
+
+```powershell
+python scripts/terrain/make_cw_dlc_override.py uninstall --starfield <game-dir>
+```
+
+### Expected PASS Output
+
+```text
+CHECK PASS
+wb5 check: ok (core_resolved=727, not_in_core=18, added_placed=6295, missing_refs=909, wb5b_doors=3)
+installed wb5 session: added=8, plugins=['FO4DLC.esm', 'FO4DLCTextures2.esm', 'FO4DLCTextures3.esm', 'FO4TerrainCore_DLC.esm']
+uninstalled wb5 session: removed=8, restored_fo4dlc=False
+```

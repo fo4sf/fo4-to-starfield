@@ -32,6 +32,7 @@ SOURCE_FORMAT_FILES: tuple[Path, ...] = (
     ROOT / "scripts" / "terrain" / "vmad_patch.py",
     ROOT / "scripts" / "bridge" / "door_rounds.py",
     ROOT / "scripts" / "terrain" / "make_wg1_redrocket.py",
+    ROOT / "scripts" / "terrain" / "make_cw_dlc_override.py",
 )
 
 WRITER_CONSTANT_FILES: tuple[Path, ...] = (
@@ -40,6 +41,7 @@ WRITER_CONSTANT_FILES: tuple[Path, ...] = (
     ROOT / "src" / "fo4sf" / "planet" / "wb_records.py",
     ROOT / "src" / "fo4sf" / "planet" / "records.py",
     ROOT / "scripts" / "terrain" / "make_wg1_redrocket.py",
+    ROOT / "scripts" / "terrain" / "make_cw_dlc_override.py",
     ROOT / "scripts" / "bridge" / "border_walk.py",
     ROOT / "scripts" / "bridge" / "door_rounds.py",
     ROOT / "scripts" / "terrain" / "walk_route.py",
@@ -242,7 +244,7 @@ class LeadCardsWorldTests(unittest.TestCase):
 
     def test_every_fenced_pass_line_matches_source_format_strings(self) -> None:
         pass_blocks = [body for lang, body in self.fenced_blocks if lang == "text"]
-        self.assertEqual(len(pass_blocks), 5, "Each of Cards 1-5 must have a fenced ```text PASS block")
+        self.assertEqual(len(pass_blocks), 6, "Each of Cards 1-6 must have a fenced ```text PASS block")
         haystack = self.combined_sources + "\n" + self.combined_constants
 
         for block_idx, body in enumerate(pass_blocks, 1):
@@ -276,8 +278,8 @@ class LeadCardsWorldTests(unittest.TestCase):
                             f"Fixed word {word!r} in Card {block_idx} PASS line {ln!r} not found in repo sources",
                         )
 
-    def test_cards_1_to_5_structure_and_c5_c6_c7_c9_c11_invariants(self) -> None:
-        self.assertEqual(sorted(self.cards.keys()), [1, 2, 3, 4, 5])
+    def test_cards_1_to_6_structure_and_c5_c6_c7_c9_c11_wb5_invariants(self) -> None:
+        self.assertEqual(sorted(self.cards.keys()), [1, 2, 3, 4, 5, 6])
 
         for card_num, text in self.cards.items():
             self.assertIn("**Stage Placeholder", text, f"Card {card_num} missing Stage Placeholder")
@@ -321,6 +323,14 @@ class LeadCardsWorldTests(unittest.TestCase):
         self.assertIn("HELD FOR WB4", self.cards[4])
         self.assertIn("DO NOT INSTALL", self.cards[4])
         self.assertIn("FO4SF_AnimatedLoadDoor", self.cards[4])
+
+        # WB5 & WB5b: Card 6 is labelled TEST-STATION and states FO4DLC.esm and its archives are required
+        self.assertIn("TEST-STATION", self.cards[6])
+        self.assertIn("FO4DLC.esm", self.cards[6])
+        self.assertIn("FO4DLC - Main.ba2", self.cards[6])
+        self.assertIn("FO4DLC - Textures.ba2", self.cards[6])
+        self.assertIn("FO4TerrainCore_DLC.esm", self.cards[6])
+        self.assertIn("InitiallyDisabled", self.cards[6])
 
 
 if __name__ == "__main__":

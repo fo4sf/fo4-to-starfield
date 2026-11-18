@@ -526,9 +526,9 @@ def xmarker_ref(fid, pos, rot, version=0x0240):
 
 
 # --------------------------------------------------------------------------------------------------------- folders
-# a packed interior batch's texture companions (FO4PortTextures2.esm ..., deploy_starfield.py COMPANION_RX): empty
-# plugins that only load their archive, never the port
-TEXTURE_COMPANION = re.compile(r"^FO4PortTextures([2-9]|[1-9]\d+)\.esm$", re.I)
+# a packed interior/DLC batch's texture companions (FO4PortTextures2.esm / FO4DLCTextures2.esm ..., deploy_starfield.py):
+# empty plugins that only load their archive, never the port
+TEXTURE_COMPANION = re.compile(r"^FO4(?:Port|DLC)Textures([2-9]|[1-9]\d+)\.esm$", re.I)
 
 
 def plugin_in(folder):
