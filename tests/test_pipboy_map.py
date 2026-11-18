@@ -234,7 +234,8 @@ class WorldMapSwfAndPatcherTests(unittest.TestCase):
 
 
 class TravelPluginAndStoreTests(unittest.TestCase):
-    def test_travel_plugin_writes_valid_esm_with_22_globals(self):
+    def test_travel_plugin_writes_valid_esm_with_21_globals_and_no_static_survival_authority(self):
+        # parity not applicable: ordered by A2 (FO4SF_SurvivalMode 0x802 dropped; hardcore gate reads FO4SFCoreValues.esm:0x000841)
         with tempfile.TemporaryDirectory() as tmp:
             esm_path = os.path.join(tmp, store.TRAVEL_PLUGIN)
             store.write_travel_plugin(esm_path, survival=True, initial_disc_bits=[0b10101, 0xFFFFFF])
@@ -242,9 +243,10 @@ class TravelPluginAndStoreTests(unittest.TestCase):
                 self.assertTrue(p.flags & 0x01)
                 self.assertEqual(p.masters, ["Starfield.esm"])
                 globs = list(p.records("GLOB"))
-                self.assertEqual(len(globs), 8 + store.DISC_GLOBAL_COUNT)
+                self.assertEqual(len(globs), 7 + store.DISC_GLOBAL_COUNT)
                 by_edid = {g.edid: struct.unpack("<f", g.get(b"FLTV"))[0] for g in globs}
-                self.assertEqual(by_edid["FO4SF_SurvivalMode"], 1.0)
+                self.assertNotIn("FO4SF_SurvivalMode", by_edid)
+                self.assertNotIn(0x802, {g.formid & 0xFFFFFF for g in globs})
                 self.assertEqual(int(by_edid["FO4SF_MapDisc00"]), 0b10101)
                 self.assertEqual(int(by_edid["FO4SF_MapDisc01"]), 0xFFFFFF)
 
@@ -450,6 +452,39 @@ class SourceAndContractTests(unittest.TestCase):
         self.assertIn("Slices 1–2 (`MapKey` + Star-Map Block + World Texture) are testable first", self.doc)
         self.assertIn("Do NOT claim Slices 3–4 are verified", self.doc)
         self.assertIn("does **not** prove that slot `0x2E` is `CreateObject`", self.doc)
+
+    def test_a2_and_a10_hardcore_fast_travel_core_values_0x000841_allow_0_and_1_and_per_menu_install_logs(self):
+        # A2: Native pipboy_map.cpp, main.cpp fallback, and FO4SF_PipboyTravel.psc all read FO4SFCoreValues.esm:0x000841
+        self.assertNotIn("kGlobSurvivalMode", self.cpp)
+        self.assertNotIn("TravelGlobal(0x802)", self.psc)
+        self.assertIn("kCoreHardcoreFastTravelBlockedId = 0x841;", self.cpp)
+        self.assertIn("kCoreHardcoreFastTravelBlockedId = 0x841;", self.main)
+        self.assertIn('ResolvePluginPrefix("FO4SFCoreValues.esm", corePrefix, coreSmall)', self.cpp)
+        self.assertIn("step=core_value_resolve name=FO4SF_HardcoreFastTravelBlocked source=FO4SFCoreValues.esm:{:06X}", self.cpp)
+        self.assertIn('LogCoreValueResolve("FO4SF_HardcoreFastTravelBlocked", kCoreHardcoreFastTravelBlockedId,', self.main)
+        self.assertIn("step=map_check_hardcore idx={} source=FO4SFCoreValues.esm:000841 allow={}", self.cpp)
+        self.assertIn("step=map_check_hardcore idx={} source=FO4SFCoreValues.esm:000841 allow={}", self.main)
+        self.assertIn('Game.GetFormFromFile(0x000841, "FO4SFCoreValues.esm") as GlobalVariable', self.psc)
+
+        # Evaluate exact C++/Papyrus threshold rule (surv >= 0.5f -> allow=0; surv < 0.5f -> allow=1)
+        def _eval_check_hardcore(idx: int, core_val: float, map_survival: bool = False) -> tuple[bool, str]:
+            live_surv = core_val >= 0.5
+            allow = not (map_survival or live_surv)
+            line = f"step=map_check_hardcore idx={idx} source=FO4SFCoreValues.esm:000841 allow={1 if allow else 0}"
+            return allow, line
+
+        allow_off, line_off = _eval_check_hardcore(7, 0.0)
+        self.assertTrue(allow_off)
+        self.assertEqual(line_off, "step=map_check_hardcore idx=7 source=FO4SFCoreValues.esm:000841 allow=1")
+
+        allow_on, line_on = _eval_check_hardcore(7, 1.0)
+        self.assertFalse(allow_on)
+        self.assertEqual(line_on, "step=map_check_hardcore idx=7 source=FO4SFCoreValues.esm:000841 allow=0")
+
+        # A10: InstallStarMapBlock logs one step=starmap_block_install menu=<name> found=<0|1> line per listed menu
+        install_fn = self.cpp[self.cpp.index("void InstallStarMapBlock()"):self.cpp.index("bool SuppressVanillaMapMenus()")]
+        self.assertIn("step=starmap_block_install menu={} found=1 slot={} orig_rva={}", install_fn)
+        self.assertIn("step=starmap_block_install menu={} found=0", install_fn)
 
 
 if __name__ == "__main__":

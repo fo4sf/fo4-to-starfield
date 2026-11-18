@@ -468,11 +468,11 @@ bool Function RunSpecialMenu(Actor player, bool isRespec, int[] stats)
 EndFunction
 
 bool Function CommitSpecialAllocation(Actor player, int[] stats, string sourceTag, bool isDefault = false)
-{Single shared write path for confirmed and standard-spread S.P.E.C.I.A.L. allocations.}
+{Single shared write path for confirmed, native-menu, and standard-spread S.P.E.C.I.A.L. allocations.}
     int reqPool = ActiveSpecialPool()
     int sum = stats[0] + stats[1] + stats[2] + stats[3] + stats[4] + stats[5] + stats[6]
     if sum != reqPool
-        LogLine("error", "reason=pool_mismatch sum=" + sum + " required=" + reqPool)
+        LogLine("error", "reason=pool_mismatch sum=" + sum + " required=" + reqPool + " source=" + sourceTag)
         return false
     endif
     player.SetValue(GetSpecialAV(0), stats[0] as float)
@@ -484,7 +484,7 @@ bool Function CommitSpecialAllocation(Actor player, int[] stats, string sourceTa
     player.SetValue(GetSpecialAV(6), stats[6] as float)
     specialAllocatedOnce = true
     RecomputeSkillsAndDerived(player)
-    LogLine("special_set", "S=" + stats[0] + " P=" + stats[1] + " E=" + stats[2] + " C=" + stats[3] + " I=" + stats[4] + " A=" + stats[5] + " L=" + stats[6] + " sum=" + sum + " source=" + sourceTag)
+    LogLine("special", "set S=" + stats[0] + " P=" + stats[1] + " E=" + stats[2] + " C=" + stats[3] + " I=" + stats[4] + " A=" + stats[5] + " L=" + stats[6] + " sum=" + sum + " source=" + sourceTag)
     LogNewGameLine("special set S=" + stats[0] + " P=" + stats[1] + " E=" + stats[2] + " C=" + stats[3] + " I=" + stats[4] + " A=" + stats[5] + " L=" + stats[6] + " sum=" + sum + " source=" + sourceTag)
     if isDefault
         LogLine("special_default", "sum=" + sum + " source=" + sourceTag)
@@ -852,6 +852,48 @@ int Function ReadFactionRepState(int slotIndex)
     return stateGlob.GetValue() as int
 EndFunction
 
+bool Function ApplySpecialMenuCommit(Actor player)
+    GlobalVariable reqGlob = Game.GetFormFromFile(0x000887, "FO4SFCoreValues.esm") as GlobalVariable
+    if reqGlob == None || reqGlob.GetValue() < 0.5
+        return false
+    endif
+    reqGlob.SetValue(0.0)
+
+    GlobalVariable gS = Game.GetFormFromFile(0x000880, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gP = Game.GetFormFromFile(0x000881, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gE = Game.GetFormFromFile(0x000882, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gC = Game.GetFormFromFile(0x000883, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gI = Game.GetFormFromFile(0x000884, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gA = Game.GetFormFromFile(0x000885, "FO4SFCoreValues.esm") as GlobalVariable
+    GlobalVariable gL = Game.GetFormFromFile(0x000886, "FO4SFCoreValues.esm") as GlobalVariable
+    if gS == None || gP == None || gE == None || gC == None || gI == None || gA == None || gL == None
+        LogLine("error", "reason=special_menu_missing_globals source=fo4_menu")
+        return false
+    endif
+
+    int s0 = gS.GetValue() as int
+    int s1 = gP.GetValue() as int
+    int s2 = gE.GetValue() as int
+    int s3 = gC.GetValue() as int
+    int s4 = gI.GetValue() as int
+    int s5 = gA.GetValue() as int
+    int s6 = gL.GetValue() as int
+    if s0 < 1 || s0 > 10 || s1 < 1 || s1 > 10 || s2 < 1 || s2 > 10 || s3 < 1 || s3 > 10 || s4 < 1 || s4 > 10 || s5 < 1 || s5 > 10 || s6 < 1 || s6 > 10
+        LogLine("error", "reason=special_menu_stat_range source=fo4_menu")
+        return false
+    endif
+
+    int[] stats = new int[7]
+    stats[0] = s0
+    stats[1] = s1
+    stats[2] = s2
+    stats[3] = s3
+    stats[4] = s4
+    stats[5] = s5
+    stats[6] = s6
+    return CommitSpecialAllocation(player, stats, "fo4_menu", false)
+EndFunction
+
 Event OnQuestInit()
     Actor player = Game.GetPlayer()
     if player != None
@@ -878,6 +920,8 @@ Function PollStages()
     if player == None
         return
     endif
+
+    ApplySpecialMenuCommit(player)
 
     ; Passive level-up watcher queueing skill & GLOB-cadence perk points
     int curLv = player.GetLevel()

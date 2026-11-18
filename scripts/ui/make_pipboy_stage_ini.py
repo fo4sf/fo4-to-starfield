@@ -365,6 +365,93 @@ def collect_stage_codeobj_calls(
     return per_movie, union_ordered
 
 
+def extract_swf_avm2_strings(swf_bytes: bytes) -> Set[str]:
+    """Return the set of all non-empty strings in every DoABC / DoABC1 constant pool of `swf_bytes`."""
+    if len(swf_bytes) < 8 or swf_bytes[:3] not in (b"CWS", b"FWS"):
+        raise StageIniError("input is not an uncompressed (FWS) or zlib-compressed (CWS) SWF")
+    body = zlib.decompress(swf_bytes[8:]) if swf_bytes[:3] == b"CWS" else swf_bytes[8:]
+    if not body:
+        return set()
+    nbits = body[0] >> 3
+    pos = (5 + 4 * nbits + 7) // 8 + 4
+    pool: Set[str] = set()
+    while pos + 2 <= len(body):
+        head = struct.unpack_from("<H", body, pos)[0]
+        code, size = head >> 6, head & 0x3F
+        pos += 2
+        if size == 0x3F:
+            if pos + 4 > len(body):
+                raise StageIniError("truncated SWF long tag header")
+            size = struct.unpack_from("<I", body, pos)[0]
+            pos += 4
+        payload = bytes(body[pos : pos + size])
+        pos += size
+        abc_raw: Optional[bytes] = None
+        if code == 82:
+            nul = payload.find(b"\x00", 4)
+            if nul >= 0:
+                abc_raw = payload[nul + 1 :]
+        elif code == 72:
+            abc_raw = payload
+        if abc_raw:
+            _mns, strings, _consts = _read_abc_consts_and_pools(abc_raw)
+            for s in strings:
+                if s:
+                    pool.add(s)
+        if code == 0:
+            break
+    return pool
+
+
+def parse_expect_file(expect_file: os.PathLike | str) -> List[str]:
+    """Parse expected BGSCodeObj callback names from `<expect_file>` (never committed)."""
+    p = Path(expect_file)
+    if not p.is_file():
+        raise StageIniError(f"--expect-file not found: {p}")
+    names: List[str] = []
+    seen: Set[str] = set()
+    for raw_line in p.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].split(";", 1)[0].strip()
+        if not line:
+            continue
+        for tok in re.split(r"[\s,]+", line):
+            if not tok:
+                continue
+            if not IDENT_RE.fullmatch(tok):
+                raise StageIniError(f"invalid identifier in --expect-file: {tok!r}")
+            if tok not in seen:
+                seen.add(tok)
+                names.append(tok)
+    return names
+
+
+def check_expect_file_against_stage(
+    interface_dir: os.PathLike | str,
+    per_movie_calls: Dict[str, Sequence[str]],
+    expect_names: Sequence[str],
+) -> None:
+    """Cross-check per-movie extracted callback names against each movie's AVM2 string pool and `expect_names` (A9)."""
+    iface = Path(interface_dir)
+    for rel, calls in sorted(per_movie_calls.items()):
+        swf_p = iface / Path(*rel.split("/"))
+        pool = extract_swf_avm2_strings(swf_p.read_bytes())
+        call_set = set(calls)
+
+        missing_from_pool = [fn for fn in calls if fn not in pool]
+        if missing_from_pool:
+            raise StageIniError(
+                f"--expect-file check failed for {rel}: extractor listed name(s) absent from movie string pool: "
+                f"{', '.join(missing_from_pool)}"
+            )
+
+        missed_by_extractor = [nm for nm in expect_names if nm in pool and nm not in call_set]
+        if missed_by_extractor:
+            raise StageIniError(
+                f"--expect-file check failed for {rel}: expected name(s) present in movie string pool but missing from "
+                f"extractor list: {', '.join(missed_by_extractor)}"
+            )
+
+
 def check_codeobj_coverage(
     per_movie_calls: Dict[str, Sequence[str]],
     registered_names: Sequence[str],
@@ -533,6 +620,7 @@ def generate_stage_ini(
     map_menus: str = DEFAULT_MAP_MENUS,
     omit: Sequence[str] = (),
     allow_omit: Sequence[str] = (),
+    expect_file: Optional[os.PathLike | str] = None,
 ) -> Dict[str, object]:
     """Build and write `SFSE/Plugins/FO4SFPipboyMenu.ini` for `stage_dir`, returning a summary dictionary."""
     stage = refuse_unsafe_output_path(stage_dir)
@@ -564,6 +652,12 @@ def generate_stage_ini(
     special_swf_present = special_swf_path.is_file()
     excluded_swfs = set(SPECIAL_MENU_SWFS) | {f"{special_movie_name.lower()}.swf"}
     per_movie, discovered = collect_stage_codeobj_calls(iface_dir, exclude_swfs=excluded_swfs)
+    if expect_file is not None:
+        check_expect_file_against_stage(iface_dir, per_movie, parse_expect_file(expect_file))
+
+    # A9: Always register HideMenu in the generated callback name list
+    if "HideMenu" not in discovered:
+        discovered = [*discovered, "HideMenu"]
 
     special_calls: List[str] = []
     if special_menu and special_swf_present:
@@ -573,6 +667,11 @@ def generate_stage_ini(
     omit_set = set(omit)
     registered = [nm for nm in discovered if nm not in omit_set]
     check_codeobj_coverage(per_movie, registered, allow_omit=allow_omit)
+
+    reg_set = set(registered)
+    for rel, calls in per_movie.items():
+        reg_cnt = sum(1 for fn in calls if fn in reg_set)
+        print(f"movie {rel}: extracted={len(calls)} registered={reg_cnt}")
 
     sounds_dir = target_ini.parent / "FO4SFPipboyMenuSounds"
     has_sounds = sounds_dir.is_dir() and any(p.suffix.lower() == ".wav" for p in sounds_dir.iterdir())
@@ -641,6 +740,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--special-movie", default=DEFAULT_SPECIAL_MOVIE, help="Staged SPECIALMenu SWF base name")
     ap.add_argument("--special-max-points", type=int, default=40, help="S.P.E.C.I.A.L. point pool (default 40)")
     ap.add_argument("--map-menus", default=DEFAULT_MAP_MENUS, help="Comma-separated Starfield map menus to block")
+    ap.add_argument("--expect-file", default=None, help="Optional file of expected BGSCodeObj names to cross-check against SWF string pools")
     ap.add_argument("--omit", action="append", default=[], help="Omit a BGSCodeObj name from CodeObjNames= (repeatable)")
     ap.add_argument(
         "--allow-omit",
@@ -675,6 +775,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             map_menus=args.map_menus,
             omit=args.omit,
             allow_omit=args.allow_omit,
+            expect_file=args.expect_file,
         )
     except StageIniError as exc:
         sys.stderr.write(f"make_pipboy_stage_ini error: {exc}\n")

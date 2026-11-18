@@ -208,15 +208,26 @@ namespace
 	constexpr std::uint32_t kCreditsFormId = 0x0000000F;     // Starfield.esm MISC Credits (Caps)
 	constexpr std::uint32_t kCoreSpecialFirstLocalId = 0x810; // FO4SFCoreValues.esm AVIF FO4SF_Special_Strength..Luck (0x810..0x816)
 	constexpr std::uint32_t kCoreRadResistLocalId = 0x804;   // FO4SFCoreValues.esm AVIF FO4SF_RadResist
+	constexpr std::uint32_t kCoreHardcoreFastTravelBlockedId = 0x841; // FO4SFCoreValues.esm GLOB FO4SF_HardcoreFastTravelBlocked (A2)
 	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
 	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
+	constexpr std::uint32_t kCoreSpecialMenuPendingFirstId = 0x880; // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuPendingS..L (0x880..0x886)
+	constexpr std::uint32_t kCoreSpecialMenuCommitReqId = 0x887;    // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuCommitRequested
 	constexpr std::uint32_t kRadsRadawayLocalId = 0x820;     // FO4SFRads.esm ALCH FO4SF_RadAway
+	constexpr std::array<const char*, 7> kSpecialPendingEditorIds{
+		"FO4SF_SpecialMenuPendingS",
+		"FO4SF_SpecialMenuPendingP",
+		"FO4SF_SpecialMenuPendingE",
+		"FO4SF_SpecialMenuPendingC",
+		"FO4SF_SpecialMenuPendingI",
+		"FO4SF_SpecialMenuPendingA",
+		"FO4SF_SpecialMenuPendingL",
+	};
 	constexpr std::array<std::uint32_t, 6> kLimbConditionAvifIds{ 0x36C, 0x36D, 0x36E, 0x370 - 1, 0x370, 0x371 };
 	constexpr std::array<const char*, 7> kSpecialTitleNames{
 		"Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck"
 	};
-	constexpr std::size_t   kSetBaseActorValueSlot = 0x04;   // libxse ActorValueOwner::SetBaseActorValue
-	constexpr std::size_t   kRefrRemoveItemSlot = 0x8B;      // libxse TESObjectREFR::RemoveItem
+	constexpr std::size_t   kRefrRemoveItemSlot = 0x8B;      // libxse RE::TESObjectREFR::RemoveItem (docs/ui/pipboy-inv-drop-note.md)
 	constexpr std::size_t   kFormTypeAt = 0x2E;              // libxse RE::TESForm::formType (a u8)
 	constexpr std::uint8_t  kIdleType = 0x5C;                // libxse FormType kIDLE (TESIdleForm)
 	constexpr std::size_t   kIdleGraphAt = 0x68;             // FAL-719, the 3b session at 1.16.244 (the Sep 2025 libxse header:
@@ -260,6 +271,8 @@ namespace
 	constexpr std::size_t   kAvifEditorIdAt = 0x40;          // libxse RE::ActorValueInfo::editorID
 	constexpr std::size_t   kBaseObjectAt = 0x80 + 0x18;     // libxse RE::TESObjectREFR::data, OBJ_REFR::objectReference
 	constexpr std::size_t   kParentCellAt = 0xB0;            // libxse RE::TESObjectREFR::parentCell
+	constexpr std::size_t   kLoadedDataAt = 0xB8;            // libxse RE::TESObjectREFR::loadedData (BSGuarded<LOADED_REF_DATA*, ...>)
+	constexpr std::size_t   kLoadedData3DAt = 0x08;          // libxse RE::LOADED_REF_DATA::data3D (NiPointer<NiAVObject>)
 	constexpr std::size_t   kCellWorldAt = 0x110;            // FAL-595, PC at 4d1e7641: kit_map_world at=+110 "Mars" outdoors in two
 	                                                         // cells, found=0 indoors (libxse names +0x118, which read 0)
 	constexpr std::size_t   kCellScanEnd = 0x200;            // FAL-595: F11 looks for the worldspace in the cell's +0x38 to here
@@ -667,6 +680,12 @@ namespace
 	std::uintptr_t                           g_armNotify = 0;           // its checked slot 0x01
 	std::uintptr_t                           g_armGetGraphMgr = 0;      // its checked slot 0x03 (GetAnimationGraphManagerImpl)
 	std::uintptr_t                           g_armWatchedGraph = 0;     // BSAnimationGraph* with ArmAnimGraphSink registered
+	std::uintptr_t                           g_armWatchedMgrAddr = 0;   // BSAnimationGraphManager* identity for g_armWatchedGraph
+	std::uintptr_t                           g_armWatchedPlayer3D = 0;  // Player data3D identity when g_armWatchedGraph registered
+	std::uint64_t                            g_armWatchedGen = 0;       // Load generation counter when g_armWatchedGraph registered
+	std::atomic<std::uint64_t>               g_armGraphLoadGen{ 1 };    // Incremented on LoadingMenu / cell transition (A4)
+	bool                                     g_armSawLoadingMenu = false;
+	std::atomic<bool>                        g_shellHardcoreFastTravelBlocked{ false };
 	ProcessMessage_t                         g_engineProcessMessage = nullptr;
 	const SFSE::TaskInterface*               g_task = nullptr;
 	std::atomic<bool>                        g_registered{ false };
@@ -4318,9 +4337,10 @@ namespace
 			return a.name < b.name;
 		});
 
+		// PLACEHOLDER (A13): WorkshopsList is a fixed static placeholder row when FO4SFWorkshop.esm is loaded; not live settlement data
 		if (workshopPluginLoaded) {
 			ShellWorkshopEntry ws;
-			ws.name = "Sanctuary Hills";
+			ws.name = "Sanctuary Hills (Placeholder)";
 			ws.mapMarkerId = 0;
 			ws.values = { 5, 80, 6, 6, 5, 8, 6 };
 			a_out.workshops.push_back(std::move(ws));
@@ -4373,6 +4393,7 @@ namespace
 		static std::uintptr_t               drAvif = 0;
 		static std::uintptr_t               erAvif = 0;
 		static std::uintptr_t               rrAvif = 0;
+		static std::uintptr_t               hardcoreBlockedGlob = 0;
 		static std::array<std::uintptr_t, 6> limbAvifs{};
 		static std::array<std::uintptr_t, 7> specialAvifs{};
 		static std::string                  resolvedSpecialSource = "fallback";
@@ -4455,7 +4476,23 @@ namespace
 					Peek(f + kFormIdAt, radawayId);
 				}
 			}
+			std::string hcDetail;
+			const auto  hcId = KitFileForm("FO4SFCoreValues.esm", kCoreHardcoreFastTravelBlockedId, "TESGlobal@@", hcDetail);
+			if (hcId) {
+				AcceptById(hcId, "FO4SF_HardcoreFastTravelBlocked", "TESGlobal@@", kGlobalEditorIdAt, hardcoreBlockedGlob);
+			}
+			LogCoreValueResolve("FO4SF_HardcoreFastTravelBlocked", kCoreHardcoreFastTravelBlockedId, hardcoreBlockedGlob ? hcId : 0u);
 		}
+
+		bool hcBlocked = false;
+		if (hardcoreBlockedGlob) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			float             hcVal = 0.0f;
+			if (Peek(hardcoreBlockedGlob + valAt, hcVal) && std::isfinite(hcVal)) {
+				hcBlocked = hcVal >= 0.5f;
+			}
+		}
+		g_shellHardcoreFastTravelBlocked.store(hcBlocked);
 
 		if (!g_forms.rads) {
 			g_forms.rads = LookupFormByEditorIdChecked("FO4SF_Rads", "ActorValueInfo@@");
@@ -4910,6 +4947,29 @@ namespace
 		}
 	}
 
+	constexpr bool IsDroppableItemFormType(std::uint8_t a_formType) noexcept
+	{
+		switch (a_formType) {
+		case 0x22:   // kARMO (TESObjectARMO)
+		case 0x23:   // kBOOK (TESObjectBOOK)
+		case 0x26:   // kINGR (IngredientItem)
+		case 0x28:   // kMISC (TESObjectMISC)
+		case 0x30:   // kWEAP (TESObjectWEAP)
+		case 0x31:   // kAMMO (TESAmmo)
+		case 0x35:   // kKEYM (TESKey)
+		case 0x36:   // kALCH (AlchemyItem)
+		case 0x39:   // kNOTE (BGSNote)
+		case 0x3D:   // kSLGM (TESSoulGem)
+		case 0x98:   // kOMOD (BGSMod::Attachment::Mod)
+		case 0x9F:   // kIRES (BGSResource)
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	// Virtual slot 0x8B (RE::TESObjectREFR::RemoveItem) and 0x40-byte RE::RemoveItemRequest layout documented in
+	// docs/ui/pipboy-inv-drop-note.md (CommonLibSF include/RE/T/TESObjectREFR.h:102-115, 201).
 	void DropInvItemMainThread(std::uint32_t a_nodeId, std::uint32_t a_count)
 	{
 		ShellInvEntry target;
@@ -4924,15 +4984,25 @@ namespace
 		if (!found || !target.formId || a_count == 0) {
 			return;
 		}
-		const auto player = Singleton(kPlayerSingleton);
+		const auto     player = Singleton(kPlayerSingleton);
 		std::uintptr_t primaryVt = 0;
 		const auto     objForm = ShellFormLookup(target.formId);
 		ObjectType     objType;
+		std::uint8_t   formType = 0;
 		if (!player || !CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk) ||
 			!Peek(player, primaryVt) || !InImage(primaryVt, (kRefrRemoveItemSlot + 1) * 8) ||
-			!objForm || !TypeOf(objForm, objType) || !BaseOffset(objType, "TESBoundObject@@")) {
+			!objForm || !TypeOf(objForm, objType) || !BaseOffset(objType, "TESBoundObject@@") ||
+			!Peek(objForm + kFormTypeAt, formType) || !IsDroppableItemFormType(formType)) {
 			return;
 		}
+		std::array<float, 3> worldPos{};
+		std::array<float, 3> worldRot{};
+		if (!Peek(player + kPositionAt, worldPos.data(), sizeof(worldPos)) ||
+			!std::isfinite(worldPos[0]) || !std::isfinite(worldPos[1]) || !std::isfinite(worldPos[2])) {
+			return;
+		}
+		const bool haveRot = Peek(player + kAngleAt, worldRot.data(), sizeof(worldRot)) &&
+		                     std::isfinite(worldRot[0]) && std::isfinite(worldRot[1]) && std::isfinite(worldRot[2]);
 		const auto removeFn = reinterpret_cast<const std::uintptr_t*>(primaryVt)[kRefrRemoveItemSlot];
 		if (!InImage(removeFn, 1)) {
 			return;
@@ -4942,9 +5012,12 @@ namespace
 		req.inventoryIndex = static_cast<std::int32_t>(target.invIndex);
 		req.count = static_cast<std::int32_t>(std::min(a_count, target.count));
 		req.reason = 3u;   // ITEM_TRANSFER_REASON::kDropping
+		req.dropLocation = worldPos.data();
+		req.dropRotation = haveRot ? worldRot.data() : nullptr;
 		std::uint32_t outHandle = 0;
 		reinterpret_cast<RefrRemoveItemCall_t>(removeFn)(reinterpret_cast<void*>(player), outHandle, req);
-		REX::INFO("step=inv_drop node={} form={:08X} count={} handle={:#x}", a_nodeId, target.formId, req.count, outHandle);
+		REX::INFO("step=inv_drop node={} form={:08X} form_type={:#x} count={} handle={:#x}",
+			a_nodeId, target.formId, formType, req.count, outHandle);
 		CollectShellVitalsMainThread(s_savedPage.load());
 		g_pendingPartialMask.fetch_or(0x6u);   // Stats | Inv
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
@@ -5810,8 +5883,17 @@ namespace
 			}
 
 			PipboyMap::OnCodeObjCall(_name, a_params);
-			if (_name == "CheckHardcoreModeFastTravel" && !PipboyMap::Enabled() && a_params.ret) {
-				*a_params.ret = RE::Scaleform::GFx::Value(true);
+			if (_name == "CheckHardcoreModeFastTravel" && !PipboyMap::Enabled()) {
+				const bool allow = !g_shellHardcoreFastTravelBlocked.load();
+				if (a_params.ret) {
+					*a_params.ret = RE::Scaleform::GFx::Value(allow);
+				}
+				std::int32_t idx = 0;
+				if (a_params.argCount >= 1) {
+					ExtractShellIndex(a_params.args[0], idx, 0x7FFFFFFF);
+				}
+				REX::INFO("step=map_check_hardcore idx={} source=FO4SFCoreValues.esm:000841 allow={}",
+					idx >= 0 ? idx : 0, allow ? 1 : 0);
 			}
 
 			if (g_codeObjHide && _name == "HideMenu" && g_task) {
@@ -6263,6 +6345,9 @@ namespace
 			batch.swap(g_pendingUserEvents);
 		}
 		for (const auto& ev : batch) {
+			if (g_closing.load()) {
+				break;
+			}
 			RE::Scaleform::GFx::Value args[2]{
 				RE::Scaleform::GFx::Value(ev.name.c_str()),
 				RE::Scaleform::GFx::Value(ev.isDown),
@@ -6270,7 +6355,7 @@ namespace
 			RE::Scaleform::GFx::Value res;
 			if (!InvokeMovieTracked(menuMc, "ProcessUserEvent", &res, args, 2, "Menu_mc.ProcessUserEvent")) {
 				REX::INFO("step=movie_call_miss where=ProcessUserEvent event={}", ev.name);
-				return false;
+				continue;
 			}
 			const bool consumed = res.IsBoolean() && res.GetBoolean();
 			REX::INFO("step=process_user_event name={} handled={} down={}", ev.name, consumed ? 1 : 0, ev.isDown ? 1 : 0);
@@ -6535,21 +6620,81 @@ namespace
 	};
 	ArmAnimGraphSink g_armGraphSink;
 
+	std::uintptr_t ReadPlayer3DRoot(std::uintptr_t a_player)
+	{
+		std::uintptr_t loadedData = 0;
+		std::uintptr_t data3D = 0;
+		if (a_player && Peek(a_player + kLoadedDataAt, loadedData) && loadedData) {
+			Peek(loadedData + kLoadedData3DAt, data3D);
+		}
+		return data3D;
+	}
+
+	// A4: Clear g_armWatchedGraph WITHOUT unregistering through a potentially freed pointer whenever LoadingMenu /
+	// LoadingMenuNewLocation opens, and bump g_armGraphLoadGen so a newly allocated graph reusing the same address re-registers.
+	void ArmPollLoadingTransitionMainThread()
+	{
+		auto* const ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		static auto* const kLoadingMenuFixed = new RE::BSFixedString("LoadingMenu");
+		static auto* const kLoadingNewLocFixed = new RE::BSFixedString("LoadingMenuNewLocation");
+		const bool loadingNow = (ui->IsMenuRegistered(*kLoadingMenuFixed) && ui->IsMenuOpen(*kLoadingMenuFixed)) ||
+		                        (ui->IsMenuRegistered(*kLoadingNewLocFixed) && ui->IsMenuOpen(*kLoadingNewLocFixed));
+		if (loadingNow && !g_armSawLoadingMenu) {
+			g_armSawLoadingMenu = true;
+			const auto gen = ++g_armGraphLoadGen;
+			if (g_armWatchedGraph != 0) {
+				g_armWatchedGraph = 0;
+				g_armWatchedMgrAddr = 0;
+				g_armWatchedPlayer3D = 0;
+				REX::INFO("step=arm_graph_sink_reset reason=loading_menu gen={}", gen);
+			}
+		} else if (!loadingNow && g_armSawLoadingMenu) {
+			g_armSawLoadingMenu = false;
+		}
+	}
+
 	void ArmSyncGraphSink()
 	{
+		ArmPollLoadingTransitionMainThread();
 		if (!g_armGetGraphMgr || !g_armRegSinkRva) {
 			return;
 		}
 		const auto     player = Singleton(kPlayerSingleton);
 		std::uintptr_t holder = 0;
 		if (!player || !Peek(player + kAnimHolderAt, holder) || holder != g_armHolderVtable) {
+			if (g_armWatchedGraph != 0) {
+				g_armWatchedGraph = 0;
+				g_armWatchedMgrAddr = 0;
+				g_armWatchedPlayer3D = 0;
+				++g_armGraphLoadGen;
+			}
 			return;
 		}
+		const std::uintptr_t player3D = ReadPlayer3DRoot(player);
 		RE::BSTSmartPointer<RE::BSAnimationGraphManager> mgr;
 		if (!reinterpret_cast<GetGraphMgr_t>(g_armGetGraphMgr)(reinterpret_cast<void*>(player + kAnimHolderAt), mgr) || !mgr) {
+			if (g_armWatchedGraph != 0) {
+				g_armWatchedGraph = 0;
+				g_armWatchedMgrAddr = 0;
+				g_armWatchedPlayer3D = 0;
+				++g_armGraphLoadGen;
+			}
 			return;
 		}
 		const auto mgrAddr = reinterpret_cast<std::uintptr_t>(mgr.get());
+		const auto curGen = g_armGraphLoadGen.load();
+		// A4: If LoadingMenu fired or player 3D / animation graph manager changed, drop g_armWatchedGraph WITHOUT calling
+		// UnregisterSink on the potentially freed graph, and force re-registration even if the new graph reuses the address.
+		if (g_armWatchedGraph != 0 &&
+			(curGen != g_armWatchedGen || mgrAddr != g_armWatchedMgrAddr || player3D != g_armWatchedPlayer3D)) {
+			g_armWatchedGraph = 0;
+			g_armWatchedMgrAddr = 0;
+			g_armWatchedPlayer3D = 0;
+			REX::INFO("step=arm_graph_sink_reset reason=player3d_or_mgr_changed gen={}", curGen);
+		}
 		std::uint32_t gSize = 0;
 		std::uint32_t activeIdx = 0;
 		std::uint32_t capBits = 0;
@@ -6566,20 +6711,28 @@ namespace
 		}
 		const std::uint32_t idx = activeIdx < gSize ? activeIdx : 0u;
 		std::uintptr_t      graphPtr = 0;
-		if (!Peek(dataPtr + idx * sizeof(std::uintptr_t), graphPtr) || !graphPtr || graphPtr == g_armWatchedGraph) {
+		if (!Peek(dataPtr + idx * sizeof(std::uintptr_t), graphPtr) || !graphPtr) {
+			return;
+		}
+		if (graphPtr == g_armWatchedGraph && curGen == g_armWatchedGen &&
+			mgrAddr == g_armWatchedMgrAddr && player3D == g_armWatchedPlayer3D) {
 			return;
 		}
 		ObjectType gType;
 		if (!TypeOf(graphPtr, gType)) {
 			return;
 		}
-		if (g_armWatchedGraph && g_armUnregSinkRva) {
+		if (g_armWatchedGraph && g_armUnregSinkRva && curGen == g_armWatchedGen &&
+			mgrAddr == g_armWatchedMgrAddr && player3D == g_armWatchedPlayer3D) {
 			reinterpret_cast<RegisterAnimSink_t>(g_base + g_armUnregSinkRva)(reinterpret_cast<void*>(g_armWatchedGraph), &g_armGraphSink);
 		}
 		reinterpret_cast<RegisterAnimSink_t>(g_base + g_armRegSinkRva)(reinterpret_cast<void*>(graphPtr), &g_armGraphSink);
 		g_armWatchedGraph = graphPtr;
-		REX::INFO("step=arm_graph_sink graph={} type={} active_idx={} count={}",
-			Hex(graphPtr), gType.name, idx, gSize);
+		g_armWatchedMgrAddr = mgrAddr;
+		g_armWatchedPlayer3D = player3D;
+		g_armWatchedGen = curGen;
+		REX::INFO("step=arm_graph_sink graph={} type={} active_idx={} count={} gen={}",
+			Hex(graphPtr), gType.name, idx, gSize, curGen);
 	}
 
 	// FAL-719: an event name that looks like a file path: a '\' or '/', or ending .agx, .hkx or .hkt (any case)
@@ -6803,11 +6956,12 @@ namespace
 		if (tries == 1) {
 			REX::INFO("step=arm_raise n={} result={} try=1 accepted={} t_ms={}", a_n, result, accepted, SincePress());
 		}
-		// When PlayIdle returns 0 (third person or weapon drawn), fall back immediately instead of stalling on retries
-		if (g_armRetryMs == 0 || result == "0") {
+		// A13: Retry refused raise (result == "0") every 100 ms up to ArmRetryMs (FO4SFPipboyMenu.ini); if it gives up,
+		// open the screen cleanly without stalling indefinitely.
+		if (g_armRetryMs == 0) {
 			g_raiseRetry.state = kRetryIdle;
 		}
-		const auto outcome = (g_armRetryMs == 0 || result == "0") ? result : ArmRetryOutcome(g_raiseRetry, result);
+		const auto outcome = g_armRetryMs == 0 ? result : ArmRetryOutcome(g_raiseRetry, result);
 		if (outcome.empty()) {
 			return;
 		}
@@ -6837,10 +6991,10 @@ namespace
 			REX::INFO("step=arm_lower n={} send={} result={} try=1 accepted={} t_ms={}", a_n, g_lowerIdle ? "idle" : "event",
 				result, accepted, SincePress());
 		}
-		if (g_armRetryMs == 0 || (g_lowerIdle && result == "0")) {
+		if (g_armRetryMs == 0) {
 			g_lowerRetry.state = kRetryIdle;
 		}
-		const auto outcome = (g_armRetryMs == 0 || (g_lowerIdle && result == "0")) ? result : ArmRetryOutcome(g_lowerRetry, result);
+		const auto outcome = g_armRetryMs == 0 ? result : ArmRetryOutcome(g_lowerRetry, result);
 		if (outcome.empty()) {
 			return;
 		}
@@ -7177,10 +7331,10 @@ namespace
 	}
 
 	// ------------------------------------------------------------------------------------------- Task 1 step 1k (UI-3): FO4SF_SpecialMenu
-	// Opt-in second IMenu host (SpecialMenu=1, default 0) loading Fallout 4's SPECIALMenu.swf staged privately on the PC
-	// (Interface/<SpecialMovie>.swf), installing a plain-Object BGSCodeObj holder (Menu_mc.BGSCodeObj / CreateObject),
-	// enforcing SpecialMaxPoints=40 (parameterized), and writing the 7 S.P.E.C.I.A.L. attributes to FO4SFCoreValues.esm
-	// (0x000810..0x000816) on confirm.
+	// Opt-in second IMenu host (SpecialMenu=1, default 0, NOT WIRED to Vault 111 lift per R14) loading Fallout 4's
+	// SPECIALMenu.swf staged privately on the PC (Interface/<SpecialMovie>.swf), installing a plain-Object BGSCodeObj
+	// holder (Menu_mc.BGSCodeObj / CreateObject), enforcing SpecialMaxPoints=40 (refusing increments when pointsRemaining <= 0),
+	// and handing the 7 chosen S.P.E.C.I.A.L. values to FO4SF_ProgressionQuest via FO4SFCoreValues.esm globals (0x000880..0x000887).
 	const RE::BSFixedString& SpecialMenuName()
 	{
 		static auto* const name = new RE::BSFixedString(fo4sf::kOurSpecialMenuName);
@@ -7210,8 +7364,6 @@ namespace
 	std::atomic<bool>           g_specialCancelHeld{ false };
 	std::atomic<std::uint32_t>  g_specialCodeCalls{ 0 };
 
-	using SetBaseAvCall_t = void (*)(void*, const void*, float);
-
 	void QueueSpecialUserEvent(std::string_view a_name, bool a_isDown)
 	{
 		{
@@ -7229,54 +7381,84 @@ namespace
 		}
 	}
 
+	bool WriteCoreGlobalFloatVerified(std::uintptr_t a_globForm, std::size_t a_valAt, float a_want)
+	{
+		if (!a_globForm || !a_valAt) {
+			return false;
+		}
+		float existing = 0.0f;
+		if (!Peek(a_globForm + a_valAt, existing)) {
+			return false;
+		}
+		*reinterpret_cast<float*>(a_globForm + a_valAt) = a_want;
+		float rb = 0.0f;
+		return Peek(a_globForm + a_valAt, rb) && std::isfinite(rb) && std::fabs(rb - a_want) <= 1e-4f;
+	}
+
+	// A3 & A12: Never call SetBaseActorValue directly in native code. Write the 7 chosen S.P.E.C.I.A.L. values into
+	// FO4SFCoreValues.esm (0x000880..0x000886) and set FO4SF_SpecialMenuCommitRequested (0x000887) = 1.0 so
+	// FO4SF_ProgressionQuest applies them through its single write path (recomputing skills & derived CarryWeight).
 	void CommitSpecialMenuMainThread(std::array<std::int32_t, 7> a_vals, std::string a_name)
 	{
 		PageScan();
-		std::array<std::uintptr_t, 7> avifs{};
-		std::size_t                   fromCore = 0;
-		for (std::size_t i = 0; i < kSpecialEditorIds.size(); ++i) {
-			std::string detail;
-			if (const auto spId = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialFirstLocalId + static_cast<std::uint32_t>(i),
-				"ActorValueInfo@@", detail)) {
-				AcceptById(spId, kSpecialEditorIds[i], "ActorValueInfo@@", kAvifEditorIdAt, avifs[i]);
-				if (avifs[i]) {
+		FindGlobalValue();
+
+		static bool                         s_loggedSpecialStoreResolve = false;
+		static std::array<std::uintptr_t, 7> s_pendingGlobs{};
+		static std::uintptr_t               s_commitReqGlob = 0;
+
+		std::size_t fromCore = 0;
+		for (std::size_t i = 0; i < kSpecialPendingEditorIds.size(); ++i) {
+			std::string         detail;
+			const std::uint32_t localId = kCoreSpecialMenuPendingFirstId + static_cast<std::uint32_t>(i);
+			const auto          fid = KitFileForm("FO4SFCoreValues.esm", localId, "TESGlobal@@", detail);
+			if (fid) {
+				AcceptById(fid, kSpecialPendingEditorIds[i], "TESGlobal@@", kGlobalEditorIdAt, s_pendingGlobs[i]);
+				if (s_pendingGlobs[i]) {
 					++fromCore;
 				}
 			}
-			if (!avifs[i]) {
-				avifs[i] = LookupFormByEditorIdChecked(kSpecialEditorIds[i], "ActorValueInfo@@");
+			if (!s_loggedSpecialStoreResolve) {
+				LogCoreValueResolve(kSpecialPendingEditorIds[i], localId, s_pendingGlobs[i] ? fid : 0u);
 			}
 		}
-		const auto     player = Singleton(kPlayerSingleton);
-		std::uintptr_t vtable = 0;
-		std::size_t    written = 0;
-		if (player && g_forms.ownerVtable && Peek(player + g_forms.ownerOffset, vtable) && vtable == g_forms.ownerVtable &&
-			InImage(vtable, (kSetBaseActorValueSlot + 1) * sizeof(std::uintptr_t))) {
-			const auto setBaseFn = reinterpret_cast<const std::uintptr_t*>(vtable)[kSetBaseActorValueSlot];
-			if (InImage(setBaseFn, 1)) {
-				for (std::size_t i = 0; i < 7; ++i) {
-					if (!avifs[i]) {
-						continue;
-					}
-					const float v = static_cast<float>(std::clamp(a_vals[i], 1, 10));
-					reinterpret_cast<SetBaseAvCall_t>(setBaseFn)(
-						reinterpret_cast<void*>(player + g_forms.ownerOffset),
-						reinterpret_cast<const void*>(avifs[i]),
-						v);
+		{
+			std::string reqDetail;
+			const auto  reqFid = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialMenuCommitReqId, "TESGlobal@@", reqDetail);
+			if (reqFid) {
+				AcceptById(reqFid, "FO4SF_SpecialMenuCommitRequested", "TESGlobal@@", kGlobalEditorIdAt, s_commitReqGlob);
+			}
+			if (!s_loggedSpecialStoreResolve) {
+				LogCoreValueResolve("FO4SF_SpecialMenuCommitRequested", kCoreSpecialMenuCommitReqId, s_commitReqGlob ? reqFid : 0u);
+				s_loggedSpecialStoreResolve = true;
+			}
+		}
+
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		std::size_t       written = 0;
+		if (fromCore == 7 && s_commitReqGlob) {
+			for (std::size_t i = 0; i < 7; ++i) {
+				const float v = static_cast<float>(std::clamp(a_vals[i], 1, 10));
+				if (WriteCoreGlobalFloatVerified(s_pendingGlobs[i], valAt, v)) {
 					++written;
 				}
 			}
+			if (written == 7) {
+				if (!WriteCoreGlobalFloatVerified(s_commitReqGlob, valAt, 1.0f)) {
+					written = 0;
+				}
+			}
 		}
+
 		int sum = 0;
 		for (const int v : a_vals) {
 			sum += v;
 		}
-		const char* source = (fromCore == 7) ? "FO4SFCoreValues.esm" : (written > 0 ? "LookupByEditorID" : "unwritten");
+		const char* source = (written == 7) ? "FO4SFCoreValues.esm" : "unwritten";
 		REX::INFO("step=special_done sum={} max_points={} written={} values={},{},{},{},{},{},{} name=\"{}\" source={}",
 			sum, g_specialMaxPoints, written,
 			a_vals[0], a_vals[1], a_vals[2], a_vals[3], a_vals[4], a_vals[5], a_vals[6],
 			a_name, source);
-		CollectShellVitalsMainThread(s_savedPage.load());
 		if (auto* ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(SpecialMenuName())) {
 			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 				queue->AddMessage(SpecialMenuName(), RE::UI_MESSAGE_TYPE::kHide);
@@ -7358,7 +7540,18 @@ namespace
 				}
 				if (entryIdx >= 1 && entryIdx <= 7 && delta != 0) {
 					const auto attrIdx = static_cast<std::size_t>(entryIdx - 1);
-					const int  nextVal = std::clamp(g_specialValues[attrIdx] + delta, 1, 10);
+					int curSum = 0;
+					for (const int v : g_specialValues) {
+						curSum += v;
+					}
+					const int pointsRemaining = static_cast<int>(g_specialMaxPoints) - curSum;
+					if (delta > 0 && pointsRemaining <= 0) {
+						REX::INFO("step=special_mod_refused attr={} delta={} points_remaining={} sum={}/{}",
+							kSpecialTitleNames[attrIdx], delta, pointsRemaining, curSum, g_specialMaxPoints);
+						return;
+					}
+					const int cappedDelta = (delta > 0) ? std::min(delta, pointsRemaining) : delta;
+					const int nextVal = std::clamp(g_specialValues[attrIdx] + cappedDelta, 1, 10);
 					g_specialValues[attrIdx] = nextVal;
 					if (g_specialEntryList.IsArray() || g_specialEntryList.IsObject()) {
 						RE::Scaleform::GFx::Value elem;
@@ -7372,7 +7565,7 @@ namespace
 						sum += v;
 					}
 					REX::INFO("step=special_mod attr={} delta={} value={} sum={}/{}",
-						kSpecialTitleNames[attrIdx], delta, nextVal, sum, g_specialMaxPoints);
+						kSpecialTitleNames[attrIdx], cappedDelta, nextVal, sum, g_specialMaxPoints);
 				}
 				return;
 			}
@@ -8333,6 +8526,10 @@ namespace
 	void ArmTick(ArmCheck& a_check)
 	{
 		const auto tick = NowMs();
+		static std::uint32_t s_armLoadPollTicks = 0;
+		if (++s_armLoadPollTicks % 5 == 0 && g_task) {
+			g_task->AddTask([]() { ArmPollLoadingTransitionMainThread(); });
+		}
 		for (auto* retry : { &g_raiseRetry, &g_lowerRetry }) {
 			int waiting = kRetryWaiting;
 			if (retry->state.load() == kRetryWaiting && tick >= retry->nextAt.load() &&

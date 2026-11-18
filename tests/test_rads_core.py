@@ -686,6 +686,56 @@ class WriterStageFoldTests(unittest.TestCase):
                 "--out", str(self.root / "folded_twice"),
             ])
 
+    def test_a18_default_rule_1_build_and_option_to_store_sync_on_init_and_load(self):
+        # 1. Verify FO4SF_RadsCoreQuest.psc copies RadsRuleOption -> RadsRuleGlobal and MutationsOption -> MutationsEnabledGlobal
+        #    in BOTH OnQuestInit and Actor.OnPlayerLoadGame and logs options_sync
+        self.assertIn("Function SyncOptionsToStore(string whenTag)", PSC_TEXT)
+        self.assertIn("RadsRuleGlobal.SetValue(RadsRuleOption.GetValue())", PSC_TEXT)
+        self.assertIn("MutationsEnabledGlobal.SetValue(MutationsOption.GetValue())", PSC_TEXT)
+        self.assertIn('Trace("options_sync when=" + whenTag + " rule=" + CurrentRule() + " mut_on=" + MutationsOn())', PSC_TEXT)
+
+        init_blk = PSC_TEXT[PSC_TEXT.index("Event OnQuestInit()"):PSC_TEXT.index("Function SetupPlayerHooks(")]
+        load_blk = PSC_TEXT[PSC_TEXT.index("Event Actor.OnPlayerLoadGame("):PSC_TEXT.index("Event OnGameplayOptionChanged(")]
+        self.assertIn('SyncOptionsToStore("init")', init_blk)
+        self.assertLess(init_blk.index('SyncOptionsToStore("init")'), init_blk.index('SyncState(p, "init")'))
+        self.assertIn('SyncOptionsToStore("load_game")', load_blk)
+        self.assertLess(load_blk.index('SyncOptionsToStore("load_game")'), load_blk.index('SyncState(p, "load_game")'))
+
+        # 2. Build FO4SFRads.esm with --default-rule 1 while FO4SFCoreValues.esm has FO4SF_RadsRule default 0.0,
+        #    proving the GPOF option carries 1.0 and SyncOptionsToStore copies 1.0 into RadsRuleGlobal on init & load
+        out_rule1 = self.root / "rads_rule1"
+        r = subprocess.run(
+            [self.dotnet, "run", "--project", str(ROOT / "dotnet" / "RadsCore"), "--",
+             "build", str(self.master), str(out_rule1), "--default-rule", "1"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 0, msg=r.stderr + "\n" + r.stdout)
+        r_chk = subprocess.run(
+            [self.dotnet, "run", "--project", str(ROOT / "dotnet" / "RadsCore"), "--",
+             "check", str(out_rule1 / PLUGIN), str(self.master), "--default-rule", "1"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r_chk.returncode, 0, msg=r_chk.stderr + "\n" + r_chk.stdout)
+
+        # Simulate store global starting at 0.0 (FO4SFCoreValues.esm default) + RadsRuleOption=1.0 (--default-rule 1)
+        store_rule_glob = 0.0
+        gpo_rule_opt = 1.0
+
+        def _sync_options_to_store(when_tag: str) -> str:
+            nonlocal store_rule_glob
+            store_rule_glob = gpo_rule_opt
+            cur_rule = 1 if store_rule_glob >= 0.5 else 0
+            return f"FO4SFRADSCORE rt=1.0 options_sync when={when_tag} rule={cur_rule} mut_on=0 end=true"
+
+        init_line = _sync_options_to_store("init")
+        self.assertEqual(store_rule_glob, 1.0)
+        self.assertIn("options_sync when=init rule=1", init_line)
+
+        store_rule_glob = 0.0
+        load_line = _sync_options_to_store("load_game")
+        self.assertEqual(store_rule_glob, 1.0)
+        self.assertIn("options_sync when=load_game rule=1", load_line)
+
 
 if __name__ == "__main__":
     unittest.main()

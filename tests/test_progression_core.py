@@ -377,6 +377,61 @@ class PluginParityAndStageTests(unittest.TestCase):
                 0,
             )
 
+    def test_a3_a12_special_menu_store_handoff_and_pool_cap(self):
+        psc = (ROOT / "scripts" / "progression" / "FO4SF_ProgressionQuest.psc").read_text(encoding="utf-8")
+        self.assertIn("bool Function ApplySpecialMenuCommit(Actor player)", psc)
+        self.assertIn("ApplySpecialMenuCommit(player)", psc)
+        for fid in range(0x000880, 0x000888):
+            self.assertIn(f'Game.GetFormFromFile(0x{fid:06X}, "FO4SFCoreValues.esm") as GlobalVariable', psc)
+        self.assertIn("reqGlob.SetValue(0.0)", psc)
+        self.assertIn('return CommitSpecialAllocation(player, stats, "fo4_menu", false)', psc)
+        self.assertIn('LogLine("special", "set S=" + stats[0] + " P=" + stats[1] + " E=" + stats[2] + " C=" + stats[3] + " I=" + stats[4] + " A=" + stats[5] + " L=" + stats[6] + " sum=" + sum + " source=" + sourceTag)', psc)
+
+        # Simulate FO4SF_ProgressionQuest.ApplySpecialMenuCommit against shared store globals (0x000880..0x000887)
+        def _sim_apply(pending_vals: list[int], commit_req: float, pool28: bool = False) -> tuple[bool, float, dict[int, int] | None, str]:
+            if commit_req < 0.5:
+                return False, commit_req, None, ""
+            new_req = 0.0
+            if any(v < 1 or v > 10 for v in pending_vals):
+                return False, new_req, None, "reason=special_menu_stat_range source=fo4_menu"
+            req_pool = 28 if pool28 else 40
+            s = sum(pending_vals)
+            if s != req_pool:
+                return False, new_req, None, f"reason=pool_mismatch sum={s} required={req_pool} source=fo4_menu"
+            alloc = dict(zip(("STR", "PER", "END", "CHA", "INT", "AGI", "LCK"), pending_vals))
+            tables.validate_special_allocation(alloc, use_fo4_pool_28=pool28)
+            skills = tables.compute_initial_skills(
+                alloc,
+                background_name="Vault Dweller",
+                tag_skills=["Speech", "Guns", "Lockpick"],
+                traits=[],
+            )
+            log = (
+                f"FO4SFPROG rt=10.0 special set S={pending_vals[0]} P={pending_vals[1]} E={pending_vals[2]} "
+                f"C={pending_vals[3]} I={pending_vals[4]} A={pending_vals[5]} L={pending_vals[6]} sum={s} source=fo4_menu end=true"
+            )
+            return True, new_req, skills, log
+
+        # 40-pt pool apply clears commit_req, recomputes all 13 skills, and logs source=fo4_menu
+        ok40, req_after, sk40, log40 = _sim_apply([6, 5, 5, 6, 7, 6, 5], 1.0, pool28=False)
+        self.assertTrue(ok40)
+        self.assertEqual(req_after, 0.0)
+        self.assertEqual(len(sk40), 13)
+        self.assertIn("special set S=6 P=5 E=5 C=6 I=7 A=6 L=5 sum=40 source=fo4_menu", log40)
+
+        # Pool mismatch (sum=41 or sum=35 on 40-pt pool) is refused and still clears commit_req so it cannot loop
+        ok_bad, req_bad_after, sk_bad, log_bad = _sim_apply([10, 6, 5, 6, 7, 4, 3], 1.0, pool28=False)
+        self.assertFalse(ok_bad)
+        self.assertEqual(req_bad_after, 0.0)
+        self.assertIsNone(sk_bad)
+        self.assertIn("reason=pool_mismatch sum=41 required=40 source=fo4_menu", log_bad)
+
+        # 28-pt pool mode accepts exact 28-pt sum
+        ok28, _, sk28, log28 = _sim_apply([4, 4, 4, 4, 4, 4, 4], 1.0, pool28=True)
+        self.assertTrue(ok28)
+        self.assertEqual(len(sk28), 13)
+        self.assertIn("sum=28 source=fo4_menu", log28)
+
     @unittest.skipUnless(os.environ.get("FO4SF_DOTNET_TESTS") == "1", "set FO4SF_DOTNET_TESTS=1 to run ProgressionCore selftest")
     def test_dotnet_progression_core_selftest(self):
         with tempfile.TemporaryDirectory() as tmp:

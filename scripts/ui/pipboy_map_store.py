@@ -737,12 +737,16 @@ def _glob_record(formid, edid, value=0.0):
 
 
 def travel_plugin_bytes(survival=False, initial_disc_bits=()):
-    """Build `FO4SFPipboyTravel.esm` holding travel target/coord globals and 14 x 24-bit discovery globals."""
+    """Build `FO4SFPipboyTravel.esm` holding travel target/coord globals and 14 x 24-bit discovery globals.
+
+    Hardcore fast-travel blocking lives exclusively in `FO4SFCoreValues.esm:0x000841` (`FO4SF_HardcoreFastTravelBlocked`),
+    so `FO4SFPipboyTravel.esm` carries no static `0x802` survival authority (`survival` arg kept unused for CLI compatibility).
+    """
+    _ = survival
     w = PluginWriter(["Starfield.esm"], flags=ESM, author="FO4SF", description="Pip-Boy MAP travel and discovery bridge")
     fixed = (
         (GLOB_TRAVEL_TARGET, "FO4SF_PipboyTravelTarget", 0.0),
         (GLOB_TRAVEL_PLUGIN, "FO4SF_PipboyTravelPlugin", 0.0),
-        (GLOB_SURVIVAL_MODE, "FO4SF_SurvivalMode", 1.0 if survival else 0.0),
         (GLOB_TRAVEL_INDEX, "FO4SF_PipboyTravelIndex", -1.0),
         (GLOB_TRAVEL_X, "FO4SF_PipboyTravelX", 0.0),
         (GLOB_TRAVEL_Y, "FO4SF_PipboyTravelY", 0.0),

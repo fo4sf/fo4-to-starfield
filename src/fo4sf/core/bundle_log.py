@@ -131,14 +131,31 @@ def eval_exit_and_hold(newgame_summary: dict, expected_stopped: int = EXPECTED_H
 
 
 def eval_rads(lines: Iterable[str]) -> dict:
-    text = "\n".join(lines)
+    raw = list(lines)
+    text = "\n".join(raw)
     if not text.strip():
         return {"step": "rads", "ok": False, "detail": "no FO4SFRadsCore log lines found"}
     rads_vals = [float(m.group(1)) for m in re.finditer(r"\brads=([0-9]+(?:\.[0-9]+)?)", text)]
     has_fail = bool(re.search(r"(?:\bverdict\b[^\n]*\bpass=false\b|\bmode_switch\b[^\n]*\bok=false\b)", text, re.I))
-    cured = bool(re.search(r"(?:\bradaway\b|\bcure\b|\bdelta=-\d+)", text, re.I)) or (
-        len(rads_vals) >= 2 and max(rads_vals) >= 25.0 and rads_vals[-1] < max(rads_vals)
-    )
+
+    # A14: Pass ONLY when there is a RadAway cure log line with a strictly negative delta AND a lower rads value after than before
+    cured = False
+    prior_rads: Optional[float] = None
+    for ln in raw:
+        if re.search(r"\bradaway\b", ln, re.I):
+            m_delta = re.search(r"\bdelta=([-+]?[0-9]+(?:\.[0-9]+)?)", ln, re.I)
+            m_after = re.search(r"\brads=([0-9]+(?:\.[0-9]+)?)", ln, re.I)
+            m_before = re.search(r"\bbefore=([0-9]+(?:\.[0-9]+)?)", ln, re.I)
+            if m_delta and m_after:
+                delta_v = float(m_delta.group(1))
+                after_v = float(m_after.group(1))
+                before_v = float(m_before.group(1)) if m_before else prior_rads
+                if delta_v < -1e-4 and before_v is not None and after_v < before_v - 1e-4:
+                    cured = True
+        m_rads = re.search(r"\brads=([0-9]+(?:\.[0-9]+)?)", ln, re.I)
+        if m_rads:
+            prior_rads = float(m_rads.group(1))
+
     exposed = any(v >= 25.0 for v in rads_vals)
     ok = exposed and cured and (not has_fail)
     peak = max(rads_vals) if rads_vals else 0.0
@@ -156,10 +173,21 @@ def eval_hardcore(lines: Iterable[str]) -> dict:
         return {"step": "hardcore", "ok": False, "detail": "no FO4SFHardcore log lines found"}
     text = "\n".join(raw)
     sq_conflict = bool(re.search(r"sq_env_running=true", text, re.I))
-    saw_on = bool(re.search(r"(enabled=true|enabled=1|hardcore=1|mode=on)", text, re.I))
-    saw_off = bool(re.search(r"(reason=(gpof|stage30)|enabled=false.*reason=|reverted|hardcore=0)", text, re.I)) or (
-        saw_on and len(re.findall(r"enabled=(?:false|0)", text, re.I)) >= 1
-    )
+
+    # A14: Pass ONLY when there is an ON line followed LATER by an OFF line from the gameplay options (gpof) path
+    first_on_idx: Optional[int] = None
+    saw_gpof_off_after_on = False
+    for idx, ln in enumerate(raw):
+        is_on = bool(re.search(r"\b(?:enabled=true|enabled=1|hardcore=1|mode=on)\b", ln, re.I))
+        is_off = bool(re.search(r"\b(?:enabled=false|enabled=0|hardcore=0|mode=off)\b", ln, re.I))
+        is_gpof = bool(re.search(r"\breason=gpof(?:_menu)?\b", ln, re.I))
+        if is_on and not is_off and first_on_idx is None:
+            first_on_idx = idx
+        elif is_off and not is_on and is_gpof and first_on_idx is not None and idx > first_on_idx:
+            saw_gpof_off_after_on = True
+
+    saw_on = first_on_idx is not None
+    saw_off = saw_gpof_off_after_on
     ok = saw_on and saw_off and (not sq_conflict)
     return {"step": "hardcore", "ok": ok, "detail": f"saw_on={saw_on} saw_off={saw_off} sq_env_conflict={sq_conflict}"}
 

@@ -24,6 +24,9 @@ Branch `gemini/pipboy-stack` rebases the complete four-PR Pip-Boy stack linearly
    - `sfse/FO4SFPipboyMenu/build.ps1` `$sources`, `tests/test_sfse_sidecar_scripts.py` (normalized to `LF` line endings so only the single `$sources` line differs from `main`), `sfse/native_components.json`, and `tests/test_native_components.py` remain 100% synchronized.
 3. **Complete Vanilla Star-Map Block (`Map=1`, `MapBlockStarMap=1`):**
    - `InstallStarMapBlock` replaces `GalaxyStarMapMenu`'s creator in `RE::UI::menuMap` with `BlockedStarMapCreate` (`step=starmap_blocked n=... route=create`), blocking vanilla Star Map instantiation from `M`, scanner `G`, `DataMenu`, `MonocleMenu`, console, or script, while `MapKey` (`0x4D`) opens `FO4SF_PipboyMenu` directly on `MAP` (`page=3`) and swallows `M` while open so closing never bounces.
+4. **`INV` Drop & `DATA` `WorkshopsList` Placeholder (`InvDataAnswers=1`):**
+   - `WorkshopsList` on the `DATA` page is an explicit static **placeholder** (`Sanctuary Hills (Placeholder)`), not live settlement telemetry.
+   - `TESObjectREFR::RemoveItem` virtual slot `0x8B` and `RawRemoveItemRequest` (`0x40` bytes) are documented in [pipboy-inv-drop-note.md](pipboy-inv-drop-note.md).
 
 ---
 

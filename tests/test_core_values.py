@@ -28,10 +28,10 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_native_core_value_refs,
 )
 
-# parity not applicable: ordered by S1 and A6 (FO4SF_PipboyAcquired 0x000865 + start/mode GLOBs 0x000870..0x000876)
-PINNED_CORE_VALUES_PLAYER_SHA256 = "5fb3dd66aac06a97db609d080856ade49b3bb1b245e5cc726329fed7cd11bd21"
-# parity not applicable: ordered by S1, A5, and A6 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
-PINNED_CORE_VALUES_TEST_SHA256 = "dc32065864fb96abd09bb2afaf10448380856cf3c339dcb6cac3ac1facac9e3e"
+# parity not applicable: ordered by S1, A6, and A12 (FO4SF_PipboyAcquired 0x000865 + start/mode GLOBs 0x000870..0x000876 + SpecialMenuPending 0x000880..0x000887)
+PINNED_CORE_VALUES_PLAYER_SHA256 = "a8e3063fae7e68e84cd3cbf9a33e4bf0ee6aecc5af0d971a36d0dee54dba1326"
+# parity not applicable: ordered by S1, A5, A6, and A12 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
+PINNED_CORE_VALUES_TEST_SHA256 = "320901d3d315b1f413b53c3af63f4a618ff6156325dd4daa8553a4e3867d91f6"
 
 
 def _sha256_file(path: str) -> str:
@@ -44,10 +44,10 @@ def _sha256_file(path: str) -> str:
 
 class CoreValuesSchemaTests(unittest.TestCase):
     def test_schema_invariants_and_pipboy_shared_ids(self) -> None:
-        # parity not applicable: ordered by S1 and A6
+        # parity not applicable: ordered by S1, A6, and A12 (0x000870..0x000876 beginning-real start/mode GLOBs + 0x000880..0x000887 SpecialMenu store handoff)
         plugin, next_id, records = load_core_values()
         self.assertEqual(plugin, CORE_VALUES_PLUGIN)
-        self.assertEqual(next_id, 0x000877)
+        self.assertEqual(next_id, 0x000888)
         by_edid = core_values_by_edid()
         # Pip-Boy native lookup reads local id 0x800 for FO4SF_Rads
         self.assertEqual(core_form_id("FO4SF_Rads"), 0x000800)
@@ -85,7 +85,18 @@ class CoreValuesSchemaTests(unittest.TestCase):
             self.assertEqual(rec.record_type, "GLOB")
             self.assertEqual(rec.default, want_def)
             self.assertNotIn("Constant", rec.flags)
-        self.assertEqual(len(records), 50)
+        # A12: 7 pending S.P.E.C.I.A.L. GLOBs (0x000880..0x000886) + commit flag (0x000887)
+        for off, ltr in enumerate(("S", "P", "E", "C", "I", "A", "L")):
+            ed = f"FO4SF_SpecialMenuPending{ltr}"
+            self.assertEqual(core_form_id(ed), 0x000880 + off)
+            self.assertEqual(by_edid[ed].record_type, "GLOB")
+            self.assertEqual(by_edid[ed].default, 5.0)
+            self.assertFalse(by_edid[ed].constant)
+        self.assertEqual(core_form_id("FO4SF_SpecialMenuCommitRequested"), 0x000887)
+        self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].record_type, "GLOB")
+        self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].default, 0.0)
+        self.assertFalse(by_edid["FO4SF_SpecialMenuCommitRequested"].constant)
+        self.assertEqual(len(records), 58)
 
     def test_start_mode_globals_owned_exclusively_by_core_values(self) -> None:
         catalog, problems = build_writer_catalog(ROOT)

@@ -118,6 +118,16 @@ bool Initialized = false
 
 ; ---------------------------------------------------------------- lifecycle & logging
 
+Function SyncOptionsToStore(string whenTag)
+    if RadsRuleOption != None
+        RadsRuleGlobal.SetValue(RadsRuleOption.GetValue())
+    endif
+    if MutationsOption != None
+        MutationsEnabledGlobal.SetValue(MutationsOption.GetValue())
+    endif
+    Trace("options_sync when=" + whenTag + " rule=" + CurrentRule() + " mut_on=" + MutationsOn())
+EndFunction
+
 Event OnQuestInit()
     if Initialized
         return
@@ -128,6 +138,7 @@ Event OnQuestInit()
     Trace("init version=" + Version + " quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(CorePlugin))
     Trace("start rads_av=" + Id(RadsAV) + " cap_pct_av=" + Id(RadsCapPctAV) + " rad_resist_av=" + Id(RadResistAV) + " rule_glob=" + Id(RadsRuleGlobal) + " mut_glob=" + Id(MutationsEnabledGlobal) + " hazard=" + Id(RadsHazard) + " emitter=" + Id(RadsEmitter) + " water=" + Id(IrradiatedWater) + " radaway=" + Id(RadAway) + " radx=" + Id(RadX) + " food=" + Id(IrradiatedFood) + " dirty_water=" + Id(DirtyWater) + " mut_flst=" + Id(MutationPerks) + " starched=" + Id(StarchedGenesPerk))
     SetupPlayerHooks(p)
+    SyncOptionsToStore("init")
     SyncItemCounts(p)
     if p != None
         SyncState(p, "init")
@@ -152,6 +163,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     Actor p = Game.GetPlayer()
     SetupPlayerHooks(p)
+    SyncOptionsToStore("load_game")
     SyncItemCounts(p)
     SyncState(p, "load_game")
     StartTimer(POLL_S, TIMER_POLL)

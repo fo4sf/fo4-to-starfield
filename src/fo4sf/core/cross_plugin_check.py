@@ -99,7 +99,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         **{0x000800 + i: ("QUST", f"FO4SF_MapMarkersQuest_{i:02d}") for i in range(16)},
     },
     "FO4SFPipboyTravel.esm": {
-        **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32)},
+        **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32) if i != 2},
     },
 }
 
@@ -980,6 +980,22 @@ def validate_psc_form_refs(
     return errors
 
 
+def collect_psc_props_by_script(repo_root: str) -> Dict[str, Dict[str, str]]:
+    """Scan `scripts/**/*.psc` and return `{script_name_lower: {prop_name_lower: psc_type}}`."""
+    out: Dict[str, Dict[str, str]] = {}
+    scripts_root = os.path.join(repo_root, "scripts")
+    if not os.path.isdir(scripts_root):
+        return out
+    for dp, dirs, fns in os.walk(scripts_root):
+        dirs.sort()
+        for fn in sorted(fns):
+            if not fn.lower().endswith(".psc"):
+                continue
+            with open(os.path.join(dp, fn), encoding="utf-8") as handle:
+                sname, props = parse_psc_declared_properties(handle.read())
+            if sname:
+                out[sname.lower()] = props
+    return out
 _VMAD_PRIMITIVE_PSC_TYPES: Dict[int, str] = {
     2: "string",
     3: "int",
@@ -1153,18 +1169,19 @@ def validate_staged_esms(
     errors: List[str] = []
     merged_catalog: Dict[str, Dict[int, Tuple[str, str]]] = {k: dict(v) for k, v in catalog.items()}
     reports: List[BinaryEsmReport] = []
+    inspected_names: Set[str] = set()
 
     for p in esm_paths:
         rep = inspect_esm_binary(p)
         reports.append(rep)
-        # Overlay actual compiled records for this plugin onto merged_catalog
+        inspected_names.add(rep.plugin_name)
         merged_catalog[rep.plugin_name] = dict(merged_catalog.get(rep.plugin_name, {}))
         merged_catalog[rep.plugin_name].update(rep.own_records)
 
-    # 1. Duplicate EditorID check across all FO4SF plugins (writer catalog + binary overrides)
+    # 1. Duplicate EditorID check across all FO4SF plugins and any inspected binary .esm
     edid_owners: Dict[str, List[Tuple[str, int, str]]] = {}
     for plg, recs in sorted(merged_catalog.items()):
-        if not plg.lower().startswith("fo4sf"):
+        if not (plg.lower().startswith("fo4sf") or plg in inspected_names):
             continue
         for fid, (_rt, edid) in sorted(recs.items()):
             if edid:
@@ -1301,6 +1318,22 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
     ),
     NativeCoreValueSpec(
         "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreHardcoreFastTravelBlockedId",
+        "FO4SFCoreValues.esm",
+        0x000841,
+        "GLOB",
+        "FO4SF_HardcoreFastTravelBlocked",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_map.cpp",
+        "kCoreHardcoreFastTravelBlockedId",
+        "FO4SFCoreValues.esm",
+        0x000841,
+        "GLOB",
+        "FO4SF_HardcoreFastTravelBlocked",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
         "kCoreStimpakLocalId",
         "FO4SFCoreValues.esm",
         0x000851,
@@ -1314,6 +1347,23 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
         0x000865,
         "GLOB",
         "FO4SF_PipboyAcquired",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreSpecialMenuPendingFirstId",
+        "FO4SFCoreValues.esm",
+        0x000880,
+        "GLOB",
+        "FO4SF_SpecialMenuPendingS",
+        count=7,
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreSpecialMenuCommitReqId",
+        "FO4SFCoreValues.esm",
+        0x000887,
+        "GLOB",
+        "FO4SF_SpecialMenuCommitRequested",
     ),
 )
 
@@ -1381,6 +1431,35 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
         em = re.search(r'AcceptById\([^,]+,\s*"(FO4SF_[A-Za-z0-9_]+)"', tail)
         paired_edid = em.group(1) if em else ""
         refs.append(CppPluginFormRef(cpp_rel, line_no, plugin, fid, rtti_name, paired_edid))
+
+    # Also match ResolvePluginPrefix("FO4SFCoreValues.esm", prefixVar, ...) + LookupPluginGlobal(prefixVar, ..., idExpr)
+    prefix_plugins: Dict[str, str] = {}
+    for pm in re.finditer(
+        r'ResolvePluginPrefix\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)',
+        clean,
+    ):
+        plg_raw, prefix_var = pm.group(1).strip(), pm.group(2).strip()
+        plg = plg_raw[1:-1] if (plg_raw.startswith('"') and plg_raw.endswith('"')) else str_vars.get(plg_raw, "")
+        if plg:
+            prefix_plugins[prefix_var] = plg
+
+    for lm in re.finditer(
+        r"LookupPluginGlobal\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*[^,]+?,\s*([^)]+?)\s*\)",
+        clean,
+    ):
+        prefix_var, id_raw = lm.group(1).strip(), lm.group(2).strip()
+        plugin = prefix_plugins.get(prefix_var, "")
+        if not plugin:
+            continue
+        id_clean = re.sub(r"static_cast<[^>]+>\(([^)]+)\)", r"\1", id_raw)
+        fid = _parse_int_literal(id_clean, local_aliases)
+        line_no = clean.count("\n", 0, lm.start()) + 1
+        if fid is None or fid <= 0:
+            continue
+        tail = clean[lm.end() : lm.end() + 360]
+        em = re.search(r"name=(FO4SF_[A-Za-z0-9_]+)", tail)
+        paired_edid = em.group(1) if em else ""
+        refs.append(CppPluginFormRef(cpp_rel, line_no, plugin, fid, "TESGlobal@@", paired_edid))
 
     return uint_consts, refs
 

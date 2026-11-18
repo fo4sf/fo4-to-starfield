@@ -185,8 +185,8 @@ class BundleLogJudgesTests(unittest.TestCase):
             bundle_log.eval_pipboy([*good_populate, "step=gfx_exit seq=5 call=Menu_mc.InvalidateData ok=0 took_ms=12"])["ok"]
         )
 
-    def test_rads_fails_when_rule_switch_or_verdict_reports_false(self) -> None:
-        # Negative: exposure + RadAway happened, but Rule B mode_switch ok=false and verdict pass=false
+    def test_rads_fails_when_rule_switch_or_verdict_reports_false_or_radaway_delta_non_negative(self) -> None:
+        # Negative 1: exposure + RadAway happened, but Rule B mode_switch ok=false and verdict pass=false
         failed_switch = [
             "FO4SFRADSCORE rt=10.0 gain source=hazard_zone raw=180.0 resist=0.0 added=180.0 rads=200.0 end=true",
             "FO4SFRADSCORE rt=20.0 mode_switch stage=40 from_rule=0 to_rule=1 rads=600.0 hp=200.0 end=1.0 agi=1.0 str=1.0 drift_hp=0.0 drift_end=3.0 drift_agi=2.0 drift_str=1.0 ok=false end=true",
@@ -194,11 +194,93 @@ class BundleLogJudgesTests(unittest.TestCase):
             "FO4SFRADSCORE rt=35.0 verdict pass=false stages=10,20,30,40,50,60 drift=0.0 end=true",
         ]
         self.assertFalse(bundle_log.eval_rads(failed_switch)["ok"])
+
+        # Negative 2 (A14): zero or positive delta on RadAway, or rads after >= before, or loose word 'cure' without radaway
+        self.assertFalse(
+            bundle_log.eval_rads(
+                [
+                    "FO4SFRADSCORE rt=10.0 gain source=hazard_zone rads=150.0 end=true",
+                    "FO4SFRADSCORE rt=20.0 radaway before=150.0 delta=0.0 rads=150.0 end=true",
+                ]
+            )["ok"]
+        )
+        self.assertFalse(
+            bundle_log.eval_rads(
+                [
+                    "FO4SFRADSCORE rt=10.0 gain source=hazard_zone rads=150.0 end=true",
+                    "FO4SFRADSCORE rt=20.0 radaway before=150.0 delta=+50.0 rads=200.0 end=true",
+                ]
+            )["ok"]
+        )
+        self.assertFalse(
+            bundle_log.eval_rads(
+                [
+                    "FO4SFRADSCORE rt=10.0 gain source=hazard_zone rads=150.0 end=true",
+                    "FO4SFRADSCORE rt=20.0 radaway before=100.0 delta=-50.0 rads=150.0 end=true",
+                ]
+            )["ok"]
+        )
+        self.assertFalse(
+            bundle_log.eval_rads(
+                [
+                    "FO4SFRADSCORE rt=10.0 gain source=hazard_zone rads=150.0 end=true",
+                    "FO4SFRADSCORE rt=20.0 sync reason=stage60_clean rads=0.0 cure_hint=true end=true",
+                ]
+            )["ok"]
+        )
+
+        # Positive: RadAway line has strictly negative delta AND lower rads after than before
         self.assertTrue(
             bundle_log.eval_rads(
                 [
                     "FO4SFRADSCORE rt=10.0 gain source=hazard_zone rads=150.0 end=true",
                     "FO4SFRADSCORE rt=20.0 radaway delta=-300 rads=0.0 end=true",
+                ]
+            )["ok"]
+        )
+        self.assertTrue(
+            bundle_log.eval_rads(
+                [
+                    "FO4SFRADSCORE rt=10.0 gain source=hazard_zone rads=250.0 end=true",
+                    "FO4SFRADSCORE rt=20.0 radaway before=250.0 delta=-250.0 rads=0.0 rule=0 end=true",
+                ]
+            )["ok"]
+        )
+
+    def test_a14_hardcore_requires_on_followed_later_by_gpof_options_off(self) -> None:
+        # Negative 1: OFF from gpof appears BEFORE ON, with no gpof OFF after ON
+        self.assertFalse(
+            bundle_log.eval_hardcore(
+                [
+                    "FO4SFHC rt=5.0 sync reason=gpof_menu hardcore=0 sq_env_running=false end=true",
+                    "FO4SFHC rt=10.0 sync reason=gpof_menu hardcore=1 sq_env_running=false end=true",
+                ]
+            )["ok"]
+        )
+        # Negative 2: ON followed by non-options OFF (stage30, init, reload) MUST fail
+        self.assertFalse(
+            bundle_log.eval_hardcore(
+                [
+                    "FO4SFHC rt=10.0 sync reason=stage10_on hardcore=1 sq_env_running=false end=true",
+                    "FO4SFHC rt=20.0 sync reason=stage30 hardcore=0 sq_env_running=false end=true",
+                ]
+            )["ok"]
+        )
+        self.assertFalse(
+            bundle_log.eval_hardcore(
+                [
+                    "FO4SFHC rt=10.0 sync reason=gpof_menu hardcore=1 sq_env_running=false end=true",
+                    "FO4SFHC rt=20.0 sync reason=reload hardcore=0 sq_env_running=false end=true",
+                ]
+            )["ok"]
+        )
+        # Positive: ON followed LATER by gameplay-options (gpof / gpof_menu) OFF with sq_env_running=false
+        self.assertTrue(
+            bundle_log.eval_hardcore(
+                [
+                    "FO4SFHC rt=2.0 sync reason=init hardcore=0 sq_env_running=false end=true",
+                    "FO4SFHC rt=10.0 sync reason=gpof_menu hardcore=1 sq_env_running=false end=true",
+                    "FO4SFHC rt=18.0 sync reason=gpof_menu hardcore=0 sq_env_running=false end=true",
                 ]
             )["ok"]
         )

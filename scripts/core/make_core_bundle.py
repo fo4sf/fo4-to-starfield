@@ -63,7 +63,7 @@ for _p in (
 import exp_install  # noqa: E402
 import make_newgame  # noqa: E402
 from make_workshop_probe import compile_text  # noqa: E402
-from fo4sf.core import bundle_log  # noqa: E402
+from fo4sf.core import bundle_log, cross_plugin_check  # noqa: E402
 from fo4sf.core.core_values import core_form_id  # noqa: E402
 from fo4sf.launcher.crashwatch import GAME_EXE, System  # noqa: E402
 from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin  # noqa: E402
@@ -672,7 +672,40 @@ def verify_bundle(
                 f"FO4SFCoreValues.esm: --profile player requires FO4SF_TestModeEnabled (0x000860) FLTV=0.0, found {tm_val}"
             )
 
-    # 3d (A1). Verify every movie named in shipped FO4SFPipboyMenu.ini exists in Data/Interface/ and in bundle manifest
+    # 3d (A15 + R13). Binary .esm duplicate-EditorID / cross-plugin check and native C++ shared-value table check
+    base_skip_binary = {"fo4actorraider.esm", "fo4terraincore.esm", "fo4terraincore_mars.esm"}
+    esm_paths_to_inspect: List[str] = []
+    seen_esm_paths: set[str] = set()
+    for plg in plugins:
+        if plg.casefold() in base_skip_binary:
+            continue
+        cand_p = os.path.join(bdir, plg)
+        if os.path.isfile(cand_p):
+            esm_paths_to_inspect.append(cand_p)
+            seen_esm_paths.add(os.path.normcase(os.path.abspath(cand_p)))
+    if os.path.isdir(bdir):
+        for fn in sorted(os.listdir(bdir)):
+            if fn.lower().endswith(".esm") and fn.casefold() not in base_skip_binary:
+                cand_p = os.path.join(bdir, fn)
+                norm_p = os.path.normcase(os.path.abspath(cand_p))
+                if os.path.isfile(cand_p) and norm_p not in seen_esm_paths:
+                    esm_paths_to_inspect.append(cand_p)
+                    seen_esm_paths.add(norm_p)
+    try:
+        catalog, dup_errs = cross_plugin_check.build_writer_catalog(REPO)
+        for de in dup_errs:
+            problems.append(f"cross_plugin_check: {de}")
+        psc_props = cross_plugin_check.collect_psc_props_by_script(REPO)
+        if esm_paths_to_inspect:
+            bin_errs = cross_plugin_check.validate_staged_esms(esm_paths_to_inspect, catalog, psc_props)
+            for be in bin_errs:
+                problems.append(f"binary esm check: {be}")
+        for ne in cross_plugin_check.validate_native_core_value_refs(REPO, catalog):
+            problems.append(f"native core value check: {ne}")
+    except Exception as exc:
+        problems.append(f"binary esm check failed: {exc}")
+
+    # 3e (A1). Verify every movie named in shipped FO4SFPipboyMenu.ini exists in Data/Interface/ and in bundle manifest
     pb_ini_candidates = (
         os.path.join(bdir, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.ini"),
         os.path.join(bdir, "sfse_sidecar", "FO4SFPipboyMenu.ini"),
@@ -1225,7 +1258,7 @@ def fold_bundle(
     hardlink: bool = True,
     max_plugins: int = MAX_STARFIELD_PLUGINS,
     max_ba2_bytes: int = MAX_BA2_BYTES,
-    profile: str = "test",
+    profile: str = "player",
     pipboy_sfse_override: Optional[str] = None,
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
@@ -1481,7 +1514,7 @@ def cmd_fold(a, system=None) -> int:
     if a.clean_core_out:
         refuse_unsafe_output_dir(a.clean_core_out, label="--clean-core-out", game_dirs=(a.starfield_dir,))
     root = os.path.abspath(a.stages_root)
-    profile = getattr(a, "profile", "test")
+    profile = getattr(a, "profile", "player")
     mapping = {
         "core_values": (
             ("00-core-values-player", "00-core-values-r2", "00-core-values")
@@ -1633,7 +1666,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--clean-core-out", default=None)
     fo.add_argument("--port", default=None)
     fo.add_argument("--starfield-dir", default=None)
-    fo.add_argument("--profile", choices=("player", "test"), default="test")
+    fo.add_argument("--profile", choices=("player", "test"), default="player")
     fo.add_argument("--mission-stage", default=None)
     fo.add_argument("--route-loot-stage", default=None)
     fo.add_argument("--with-pipboy", action="store_true")

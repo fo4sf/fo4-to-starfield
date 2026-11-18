@@ -105,8 +105,8 @@ Per the owner's decision (16 Nov), **the player never sees Starfield's surface, 
   3. Verify `MapSurvival=0` in `FO4SFPipboyMenu.ini`.
 - **In-Game Steps:**
   1. Stand outdoors in the Commonwealth away from the discovered marker, press `M`, click an undiscovered marker first (verify fast travel is refused and custom waypoint is offered), then click the discovered marker and confirm in `PipboyMessageBox`.
-  2. Wait for the loading fade to complete, observe player arrival and `GameHour` advance, then test `MapSurvival=1` (or `FO4SF_SurvivalMode = 1`) to confirm Survival mode blocks fast travel cleanly.
+  2. Wait for the loading fade to complete, observe player arrival and `GameHour` advance, then test `MapSurvival=1` (or `FO4SF_HardcoreFastTravelBlocked = 1` at `FO4SFCoreValues.esm:0x000841`) to confirm Hardcore/Survival mode blocks fast travel cleanly (`step=map_check_hardcore idx=... source=FO4SFCoreValues.esm:000841 allow=0`).
 - **PASS Criteria:**
-  - `FO4SFPipboyMenu.log` shows `step=map_check_hardcore ... allow=1`, `step=map_modal open=1`, `step=map_fast_travel_req idx=...`, and `step=map_fast_travel idx=... global_set=1 read_back=match call=FO4SF_PipboyTravel.Go queued=1`.
+  - `FO4SFPipboyMenu.log` shows `step=map_check_hardcore ... source=FO4SFCoreValues.esm:000841 allow=1` (when Hardcore is OFF), `step=map_modal open=1`, `step=map_fast_travel_req idx=...`, and `step=map_fast_travel idx=... global_set=1 read_back=match call=FO4SF_PipboyTravel.Go queued=1`.
   - `FO4SF_PipboyTravel.0.log` shows `step=go idx=... fallback=...` with arrival coordinates matching the marker's merged arrival point and companions warped alongside the player.
   - Rollback: run `pipboy_probe_install.py uninstall --starfield <game_dir>` and restore `Map=0` / `Stage=0` in `FO4SFPipboyMenu.ini`.

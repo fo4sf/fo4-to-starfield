@@ -747,7 +747,7 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
         self.assertIn("step=inv_fill when={} tab={} filter={:#x} n={} total_count={}", main_cpp)
         self.assertIn("step=quests_fill when={} tab={} n={} active={} completed={}", main_cpp)
         self.assertIn("step=inv_equip node={} form={:08X} action={} ok={}", main_cpp)
-        self.assertIn("step=inv_drop node={} form={:08X} count={} handle={:#x}", main_cpp)
+        self.assertIn("step=inv_drop node={} form={:08X} form_type={:#x} count={} handle={:#x}", main_cpp)
         self.assertIn("step=quest_select form={:08X} objectives={}", main_cpp)
         self.assertIn("step=quest_active form={:08X} active={}", main_cpp)
         self.assertIn("void RequestCenterMarker(", map_cpp)
@@ -799,6 +799,138 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
         top_guard = equip_fn[:equip_fn.index("ShellInvEntry target;")]
         self.assertNotIn("g_unequipObjectRva", top_guard)
         self.assertIn("reason=no_unequip_rva", equip_fn)
+
+    def test_a9_always_registers_hidemenu_prints_per_movie_counts_and_expect_file_both_directions(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stage = root / "stage-no-boot"
+            # Stage WITHOUT pipboybootsequence.swf so no movie calls HideMenu directly
+            StageIniGeneratorTests()._populate_synthetic_stage(stage)
+
+            out_buf = io.StringIO()
+            with redirect_stdout(out_buf):
+                rc = mpsi.main(["--stage", str(stage)])
+            self.assertEqual(rc, 0)
+            stdout_txt = out_buf.getvalue()
+            # Per-movie extracted/registered counts printed
+            self.assertIn("movie FO4SF_Fo4Shell.swf: extracted=5 registered=5", stdout_txt)
+            self.assertIn("movie Pipboy_StatsPage.swf: extracted=3 registered=3", stdout_txt)
+            self.assertIn("movie Pipboy_MapPage.swf: extracted=4 registered=4", stdout_txt)
+
+            ini_txt = (stage / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+            names = re.search(r"^CodeObjNames=(.+)$", ini_txt, re.M).group(1).split(",")
+            # HideMenu is ALWAYS registered even when no staged movie invoked HideMenu
+            self.assertIn("HideMenu", names)
+
+            # 1. --expect-file PASS when all expected names occurring in a movie's AVM2 string pool are extracted
+            expect_ok = root / "expect_ok.txt"
+            expect_ok.write_text(
+                "# Synthetic expected callback names\n"
+                "PopulatePipboyInfoObj, OnScrollingStarted, OnScrollingStopped\n"
+                "onNewPage, onNewTab, StopPerkSound, UseStimpak, PlaySound\n"
+                "CheckHardcoreModeFastTravel, RefreshMapMarkers, functiononGPSModeButtonClicked\n"
+                "UnrelatedNameInZeroPools\n",
+                encoding="utf-8",
+            )
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(mpsi.main(["--stage", str(stage), "--expect-file", str(expect_ok)]), 0)
+
+            # 2. --expect-file FAIL Direction A: expected name is in a movie's AVM2 string pool (e.g. InitCodeObj in StatsPage)
+            #    but NOT in the extractor's BGSCodeObj list for that movie!
+            expect_missed = root / "expect_missed.txt"
+            expect_missed.write_text("PopulatePipboyInfoObj\nInitCodeObj\n", encoding="utf-8")
+            err_missed = io.StringIO()
+            with redirect_stderr(err_missed):
+                rc_missed = mpsi.main(["--stage", str(stage), "--expect-file", str(expect_missed)])
+            self.assertEqual(rc_missed, 1)
+            self.assertIn("InitCodeObj", err_missed.getvalue())
+            self.assertIn("present in movie string pool but missing from extractor list", err_missed.getvalue())
+
+            # 3. --expect-file FAIL Direction B: extractor lists a name that the movie's AVM2 string pool lacks!
+            per_movie, _ = mpsi.collect_stage_codeobj_calls(stage / "Data" / "Interface")
+            hallucinated = dict(per_movie)
+            hallucinated["Pipboy_StatsPage.swf"] = [*hallucinated["Pipboy_StatsPage.swf"], "GhostCallbackNotInPool"]
+            with self.assertRaises(ValueError) as ctx:
+                mpsi.check_expect_file_against_stage(
+                    stage / "Data" / "Interface",
+                    hallucinated,
+                    mpsi.parse_expect_file(expect_ok),
+                )
+            self.assertIn("absent from movie string pool: GhostCallbackNotInPool", str(ctx.exception))
+
+    def test_a3_a4_a10_a12_a13_a19_a21_round2_group4_cpp_and_doc_contracts(self) -> None:
+        main_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp").read_text(encoding="utf-8")
+        map_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "pipboy_map.cpp").read_text(encoding="utf-8")
+
+        # A3 & A12: SpecialMenu refuses stat increment when pointsRemaining <= 0, has zero SetBaseActorValue writes,
+        # and hands off 7 pending globals (0x000880..0x000886) + commit flag (0x000887) in FO4SFCoreValues.esm
+        self.assertNotIn("SetBaseAvCall_t", main_cpp)
+        self.assertNotIn("kSetBaseActorValueSlot", main_cpp)
+        commit_fn = main_cpp[main_cpp.index("void CommitSpecialMenuMainThread("):main_cpp.index("class SpecialCodeObjFunction final")]
+        self.assertIn("kCoreSpecialMenuPendingFirstId", commit_fn)
+        self.assertIn("kCoreSpecialMenuCommitReqId", commit_fn)
+        self.assertIn('LogCoreValueResolve("FO4SF_SpecialMenuCommitRequested", kCoreSpecialMenuCommitReqId,', commit_fn)
+        self.assertIn("step=special_mod_refused attr={} delta={} points_remaining={}", main_cpp)
+
+        # Simulate C++ modValue pool-cap refusal when pointsRemaining <= 0
+        def _sim_mod_value(vals: list[int], attr_idx: int, delta: int, max_pts: int = 40) -> tuple[list[int], bool]:
+            cur_sum = sum(vals)
+            rem = max_pts - cur_sum
+            if delta > 0 and rem <= 0:
+                return list(vals), False
+            capped = min(delta, rem) if delta > 0 else delta
+            nxt = list(vals)
+            nxt[attr_idx] = max(1, min(10, nxt[attr_idx] + capped))
+            return nxt, True
+
+        at_cap = [6, 6, 6, 6, 6, 5, 5]  # sum == 40 -> pointsRemaining == 0
+        after_inc, accepted_inc = _sim_mod_value(at_cap, 5, +1, max_pts=40)
+        self.assertFalse(accepted_inc)
+        self.assertEqual(after_inc, at_cap)
+        after_dec, accepted_dec = _sim_mod_value(at_cap, 0, -1, max_pts=40)
+        self.assertTrue(accepted_dec)
+        self.assertEqual(sum(after_dec), 39)
+
+        # A4: Arm listener lifetime guard clears g_armWatchedGraph WITHOUT UnregisterSink on LoadingMenu or 3D/mgr change,
+        # and tracks g_armGraphLoadGen + g_armWatchedPlayer3D + g_armWatchedMgrAddr so address reuse still re-registers
+        arm_sync = main_cpp[main_cpp.index("void ArmPollLoadingTransitionMainThread("):main_cpp.index("bool EventIsPath(")]
+        self.assertIn('"LoadingMenu"', arm_sync)
+        self.assertIn('"LoadingMenuNewLocation"', arm_sync)
+        self.assertIn("step=arm_graph_sink_reset reason=loading_menu", arm_sync)
+        self.assertIn("step=arm_graph_sink_reset reason=player3d_or_mgr_changed", arm_sync)
+        self.assertIn("ReadPlayer3DRoot(player)", arm_sync)
+        self.assertIn("curGen != g_armWatchedGen || mgrAddr != g_armWatchedMgrAddr || player3D != g_armWatchedPlayer3D", arm_sync)
+
+        # A10: per-menu starmap_block_install found=<0|1>
+        self.assertIn("step=starmap_block_install menu={} found=1", map_cpp)
+        self.assertIn("step=starmap_block_install menu={} found=0", map_cpp)
+
+        # A13: WorkshopsList placeholder, RemoveItem slot 0x8B doc note + concrete formType + worldPos, and ArmRetryMs restored
+        self.assertIn("Sanctuary Hills (Placeholder)", main_cpp)
+        drop_note = (ROOT / "docs" / "ui" / "pipboy-inv-drop-note.md").read_text(encoding="utf-8")
+        self.assertIn("0x8B", drop_note)
+        self.assertIn("0x40", drop_note)
+        self.assertIn("WorkshopsList", drop_note)
+        drop_fn = main_cpp[main_cpp.index("void DropInvItemMainThread("):main_cpp.index("bool ClearAs3ArrayInPlace(")]
+        self.assertIn("IsDroppableItemFormType(formType)", drop_fn)
+        self.assertIn("req.dropLocation = worldPos.data();", drop_fn)
+        raise_fn = main_cpp[main_cpp.index("void ArmRaise("):main_cpp.index("void ArmLower(")]
+        self.assertIn("const auto outcome = g_armRetryMs == 0 ? result : ArmRetryOutcome(g_raiseRetry, result);", raise_fn)
+
+        # A19: Power Armor NOT REACHABLE in player profile & List Dialogue NOT WIRED to Preston/Codsworth
+        pa_doc = (ROOT / "docs" / "powerarmor" / "power-armor-core.md").read_text(encoding="utf-8")
+        dlg_doc = (ROOT / "docs" / "dialogue" / "list-skill-checks.md").read_text(encoding="utf-8")
+        cards_doc = (ROOT / "docs" / "testing" / "task0-task1-lead-cards.md").read_text(encoding="utf-8")
+        self.assertIn("NOT REACHABLE", pa_doc)
+        self.assertIn("NOT WIRED", dlg_doc)
+        self.assertIn("NOT WIRED", cards_doc)
+
+        # A21: ProcessPendingShellEvents continues processing remaining queued events after a failed ProcessUserEvent call
+        ev_fn = main_cpp[main_cpp.index("bool ProcessPendingShellEvents("):main_cpp.index("void ShellUpdate(")]
+        loop_body = ev_fn[ev_fn.index("for (const auto& ev : batch)"):ev_fn.index("if (const auto extPage")]
+        miss_tail = loop_body[loop_body.index("where=ProcessUserEvent"):]
+        self.assertLess(miss_tail.index("continue;"), miss_tail.index("const bool consumed"))
+        self.assertNotIn("return false;", miss_tail[:miss_tail.index("const bool consumed")])
 
 
 if __name__ == "__main__":

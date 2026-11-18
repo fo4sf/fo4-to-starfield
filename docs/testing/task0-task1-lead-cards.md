@@ -103,7 +103,8 @@ step=dispatch n=<k> fn=FO4SF_CombatInput.OnAmmoKey ignored=menu_open menu=Consol
 
 ## Card C — `1g` Starfield Scanner & Map Menus Block (`TEST-STATION`)
 
-- **Purpose:** Verify that `GalaxyStarMapMenu`, `SurfaceMap`, and `MapMenu` are blocked via per-slot null-menu creation (`MapBlockStarMap=1`, `kMaxMapMenus = 16`; set `MapBlockStarMap=0` in `FO4SFPipboyMenu.ini` for hide-only fallback in the same session if needed) without crashing when each map shortcut key is pressed, and that `FO4SF_NewGameQuest` logs its hand-scanner input-layer block.
+- **Purpose:** Verify that `GalaxyStarMapMenu`, `SurfaceMap`, and `MapMenu` each log `step=starmap_block_install menu=<name> found=<0|1>` at startup and are blocked via per-slot null-menu creation (`MapBlockStarMap=1` default, `kMaxMapMenus = 16`) without crashing when each map shortcut key is pressed, and that `FO4SF_NewGameQuest` logs its hand-scanner input-layer block.
+- **Same-Session Hide-Only Fallback (`MapBlockStarMap=0`):** If returning an empty `Ptr<IMenu>` from `route=create` ever misbehaves in game, edit `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini` (game closed), set `MapBlockStarMap=0`, and rerun in the same install: `SuppressVanillaMapMenus()` hides any opened map menu on the main thread via `kHide` without replacing its creator (`step=map_suppress n=<k> name=<menu> sent=hide`).
 - **Stage Placeholders:** `<player-bundle-dir>`, `<starfield-dir>`
 - **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` (`0 B` extra when run in the same session as Card B).
 - **Plugin List (`Plugins.txt`, `--profile player`, `21` plugins):**
@@ -116,8 +117,9 @@ python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starf
 ```
 
 ### In-Game Steps
-1. Outdoors in a new `--profile player` session, press the Star Map, Surface Map, and Planet Map keys once each, and press `F` (hand scanner).
+1. Outdoors in a new `--profile player` session (`MapBlockStarMap=1`), press the Star Map, Surface Map, and Planet Map keys once each, and press `F` (hand scanner).
 2. Confirm no Starfield map menu opens, no crash occurs, and zero `"FO4SF"` developer banner text (`1h`) appears on screen.
+3. *(Fallback only if `MapBlockStarMap=1` needs bypass)* Set `MapBlockStarMap=0` in `FO4SFPipboyMenu.ini`, relaunch, press the map keys once, and verify `step=map_suppress n=<k> name=<menu> sent=hide`.
 
 ### Undo Command (Game Closed)
 ```bash
@@ -127,7 +129,14 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ### Required PASS Log Lines (`FO4SF_NewGame.0.log` & `FO4SFPipboyMenu.log`)
 ```log
 blocked input=handscanner
+step=starmap_block_install menu=<menu> found=1 slot=<slot> orig_rva=<rva>
+step=starmap_block_install menu=<menu> found=0
 step=starmap_blocked n=<k> blocked menu=<menu> route=create
+```
+
+### Fallback PASS Log Line (`MapBlockStarMap=0` Hide-Only Mode, `FO4SFPipboyMenu.log`)
+```log
+step=map_suppress n=<k> name=<menu> sent=hide
 ```
 
 ---
@@ -136,10 +145,10 @@ step=starmap_blocked n=<k> blocked menu=<menu> route=create
 
 - **Default Safety & Scope Notes:**
   - Default `make_pipboy_stage_ini.py` keeps `PopulateInCall=0`, `Arm=0`, `StatActions=0`, `InvDataAnswers=0`, and `SpecialMenu=0` so Card B runs untouched first. Enable switches only after Card B passes in game.
-  - Native `FO4SF_SpecialMenu` is **`NOT WIRED`** to the Vault 111 lift this round (`R14`; testable standalone only via `SpecialMenu=1` and `SpecialKey`).
-  - `WorkshopsList` on `DATA` is a fixed placeholder this round.
-  - `DropItem` (`inv_drop`) is withheld from Card D until tried separately on a throwaway item.
-  - Power armor is **`NOT REACHABLE`** in `--profile player` (no frame is placed outside the `--profile test` cell).
+  - Native `FO4SF_SpecialMenu` is **`NOT WIRED`** to the Vault 111 lift or start flow this round (`R14`; testable standalone only via `SpecialMenu=1` and `SpecialKey`). It refuses increments when `pointsRemaining <= 0` and writes chosen values to `FO4SFCoreValues.esm` (`0x000880..0x000887`) for `FO4SF_ProgressionQuest` to apply (`source=fo4_menu`).
+  - `WorkshopsList` on `DATA` is an explicit static **placeholder** (`Sanctuary Hills (Placeholder)`) this round.
+  - `DropItem` (`inv_drop`, documented in `docs/ui/pipboy-inv-drop-note.md`) is withheld from Card D until tried separately on a throwaway item.
+  - Power armor is **`NOT REACHABLE`** in `--profile player` (no frame is placed in the world outside the `--profile test` cell).
 - **Stage Placeholders:** `<test-bundle-dir>`, `<pipboy-stage-dir>`, `<stage-ini-path>`, `<starfield-dir>`
 - **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins`.
 - **Plugin List (`Plugins.txt`, `--profile test`, `22` plugins):**
@@ -177,6 +186,7 @@ step=inv_select node=<node> form=<hex> wt=<wt> val=<val>
 step=inv_equip node=<node> form=<hex> action=<equip|unequip> ok=<0|1>
 step=quests_fill when=<when> tab=<T> n=<Q> active=<A> completed=<C>
 step=special_done sum=<sum> max_points=<max> written=<w> values=<s>,<p>,<e>,<c>,<i>,<a>,<l> name="<name>" source=<source>
+FO4SFPROG rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=<sum> source=fo4_menu end=true
 ```
 
 ---
