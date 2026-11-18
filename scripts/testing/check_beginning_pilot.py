@@ -27,13 +27,24 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p_bun = sub.add_parser("check-bundle", help="Verify offline that a staged bundle carries all B1..B7 plugins, scripts, meshes, and voices.")
+    p_bun = sub.add_parser(
+        "check-bundle",
+        help="Verify offline that a staged bundle carries all B1..B7 plugins, scripts, meshes, and voices.",
+    )
     p_bun.add_argument("--bundle-dir", required=True)
 
-    p_log = sub.add_parser("check-logs", help="Evaluate fo4sf_newgame and fo4sf_mission logs into B1..B7 PASS/FAIL/UNTESTED lines.")
+    p_log = sub.add_parser(
+        "check-logs",
+        help="Evaluate fo4sf_newgame and fo4sf_mission logs into B1..B7 PASS/FAIL/IN_PROGRESS/UNTESTED lines.",
+    )
     p_log.add_argument("--newgame-log", default="")
     p_log.add_argument("--mission-log", default="")
-    p_log.add_argument("--min-hold-pass2", type=int, default=162)
+    p_log.add_argument(
+        "--min-hold-pass2",
+        type=int,
+        default=None,
+        help="Optional explicit minimum stopped count for pass 2 (defaults to dynamic X of N check).",
+    )
     p_log.add_argument("--require-all-pass", action="store_true", help="Exit non-zero unless all 7 steps reached PASS.")
 
     args = ap.parse_args(argv)
@@ -56,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         for spec in BEGINNING_STEPS:
             info = res["steps"][spec.step_id]
-            print(f"{info['status']:8s}  {spec.step_id}: {info['detail']}")
+            print(f"{info['status']:11s}  {spec.step_id}: {info['detail']}")
         if not res["ok"]:
             return 1
         if args.require_all_pass and not res["all_pass"]:
