@@ -52,8 +52,11 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "src"))
+import contextlib
 from fo4sf import btd, exterior, map_markers  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
+from fo4sf.core import world_registry as wreg  # noqa: E402
+from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path  # noqa: E402
 
 sys.path.insert(0, HERE)
 import make_exp2c as x2c  # noqa: E402
@@ -62,6 +65,75 @@ import vmad_patch  # noqa: E402
 
 EDID_PREFIX = "FO4Core_"
 ASSET_PREFIX = "fo4core"
+
+
+def resolve_world_key(world_key, registry_path=None):
+    """Resolve a world row from `world_registry.py` into builder metadata (`source_worldspace`, `plugin`, `world_edid`,
+    `edid_prefix`, `asset_prefix`, `tile_cells`, `bounds`). Returns None when `world_key` is empty."""
+    if not world_key:
+        return None
+    reg = wreg.load_world_registry(registry_path) if registry_path else wreg.load_world_registry()
+    try:
+        row = reg.get_world(world_key)
+    except KeyError as err:
+        raise ValueError(f"unknown --world-key {world_key!r} in world_registry") from err
+    psw = row.planned_starfield_world
+    if row.kind in ("no_build", "dlc_edit") or not psw.plugin or not psw.world_edid:
+        raise ValueError(
+            f"--world-key {world_key!r} (kind={row.kind!r}) has no buildable Starfield overlay plugin/world_edid"
+        )
+    prefix_stem = psw.world_edid.split("_", 1)[0] if "_" in psw.world_edid else psw.world_edid
+    edid_prefix = prefix_stem + "_"
+    asset_prefix = prefix_stem.lower()
+    return {
+        "key": row.key,
+        "kind": row.kind,
+        "source_worldspace": row.source_worldspace.edid,
+        "source_plugins": list(row.source_plugins),
+        "plugin": psw.plugin,
+        "world_edid": psw.world_edid,
+        "tile_cells": psw.tile_cells,
+        "bounds": {
+            "cell_bbox": list(row.bounds.cell_bbox) if row.bounds.cell_bbox else None,
+            "land_bbox": list(row.bounds.land_bbox) if row.bounds.land_bbox else None,
+            "ref_bbox": list(row.bounds.ref_bbox) if row.bounds.ref_bbox else None,
+        },
+        "edid_prefix": edid_prefix,
+        "asset_prefix": asset_prefix,
+    }
+
+
+def check_core_matches_world_spec(prm, ov, spec):
+    """Verify a staged terrain overlay matches the registry row selected by `--world-key`."""
+    if spec is None:
+        return
+    if prm.get("plugin") != spec["plugin"]:
+        raise ValueError(
+            f"--world-key {spec['key']}: core plugin {prm.get('plugin')!r} != registry {spec['plugin']!r}"
+        )
+    if ov.get("world") != spec["world_edid"]:
+        raise ValueError(
+            f"--world-key {spec['key']}: overlay world {ov.get('world')!r} != registry {spec['world_edid']!r}"
+        )
+    if spec["tile_cells"] is not None and ov.get("n") != spec["tile_cells"]:
+        raise ValueError(
+            f"--world-key {spec['key']}: overlay tile n={ov.get('n')} != registry tile_cells={spec['tile_cells']}"
+        )
+
+
+@contextlib.contextmanager
+def world_prefixes(spec):
+    """Temporarily bind `EDID_PREFIX` and `ASSET_PREFIX` when `--world-key` selects a non-Commonwealth world."""
+    global EDID_PREFIX, ASSET_PREFIX
+    if spec is None:
+        yield
+        return
+    old_edid, old_asset = EDID_PREFIX, ASSET_PREFIX
+    EDID_PREFIX, ASSET_PREFIX = spec["edid_prefix"], spec["asset_prefix"]
+    try:
+        yield
+    finally:
+        EDID_PREFIX, ASSET_PREFIX = old_edid, old_asset
 DATA_TREES = ("meshes", "geometries", "materials", "textures")
 # fields of an exported reference that placing, reporting and the plan need (the export has about 25)
 SLIM_KEYS = ("formkey", "type", "base_editor_id", "base_formkey", "model", "pos", "rot", "scale", "disabled",
@@ -167,11 +239,28 @@ def convert_list(kept):
 
 def cmd_select(a):
     t0 = time.time()
+    try:
+        spec = resolve_world_key(getattr(a, "world_key", ""), getattr(a, "registry", None))
+    except ValueError as err:
+        sys.exit(str(err))
     paths = sorted(glob.glob(os.path.join(a.work, "export", "band_*.json")))
     if not paths:
         sys.exit(f"no export bands in {os.path.join(a.work, 'export')}")
+    if spec is not None:
+        for bp in paths:
+            bdoc = load(bp)
+            ws_edid = (bdoc.get("worldspace") or {}).get("editor_id")
+            if ws_edid and spec["source_worldspace"] and ws_edid != spec["source_worldspace"]:
+                sys.exit(
+                    f"--world-key {spec['key']}: band {os.path.basename(bp)} worldspace {ws_edid!r} "
+                    f"!= registry source_worldspace {spec['source_worldspace']!r}"
+                )
     kept, skipped, tot = select_bands(paths)
-    _prm, ov = core_params(a.core)
+    prm, ov = core_params(a.core)
+    try:
+        check_core_matches_world_spec(prm, ov, spec)
+    except ValueError as err:
+        sys.exit(str(err))
     cmin, cmax = ov["cell_min"], ov["cell_max"]
     regions, cells = {}, {}
     for r in kept:
@@ -180,8 +269,9 @@ def cmd_select(a):
         g = region_of(c)
         regions[g] = regions.get(g, 0) + 1
     models = convert_list(kept)
+    cell_label = spec["key"] if spec is not None else "core64c"
     save(os.path.join(a.work, "selected.json"), {"core": os.path.abspath(a.core), "refs": kept})
-    save(os.path.join(a.work, "convert_input.json"), {"schema_version": 2, "cell": "core64c", "refs": models})
+    save(os.path.join(a.work, "convert_input.json"), {"schema_version": 2, "cell": cell_label, "refs": models})
     rep = {"bands": [os.path.basename(p) for p in paths], **tot, "to_convert": len(kept), "models": len(models),
            "skipped": len(skipped), "skip_reasons": exterior.reason_counts(skipped),
            "skip_types": type_counts(skipped), "convert_types": list(exterior.CONVERT_TYPES),
@@ -192,6 +282,10 @@ def cmd_select(a):
                                and (c[0] in (cmin, cmax) or c[1] in (cmin, cmax))),
            "regions": {f"{g[0]},{g[1]}": n for g, n in sorted(regions.items())}, "region_cells": REGION_CELLS,
            "seconds": round(time.time() - t0, 1), "skipped_refs": skipped}
+    if spec is not None:
+        rep["world_key"] = spec["key"]
+        rep["source_worldspace"] = spec["source_worldspace"]
+        rep["edid_prefix"] = spec["edid_prefix"]
     save(os.path.join(a.work, "selection.json"), rep)
     print(f"{rep['refs']:,} references + {rep['deferred']:,} deferred in {rep['cells']:,} FO4 cells: convert "
           f"{rep['to_convert']:,} ({rep['models']:,} models), skip {rep['skipped']:,}: {rep['skip_reasons']}")
@@ -2634,8 +2728,21 @@ def navmesh_input(nav, ov):
 
 
 def cmd_stage(a):
+    try:
+        spec = resolve_world_key(getattr(a, "world_key", ""), getattr(a, "registry", None))
+    except ValueError as err:
+        sys.exit(str(err))
+    with world_prefixes(spec):
+        return _cmd_stage_inner(a, spec)
+
+
+def _cmd_stage_inner(a, spec):
     t0 = time.time()
     prm, ov = core_params(a.core)
+    try:
+        check_core_matches_world_spec(prm, ov, spec)
+    except ValueError as err:
+        sys.exit(str(err))
     core_plan = load(os.path.join(a.core, "plan.json"))
     core_exp = load(os.path.join(a.core, "expected.json"))
     selrep = load(os.path.join(a.work, "selection.json"))
@@ -3043,10 +3150,23 @@ def archive_dry_run(archive2, out, scratch, files):
 
 
 def cmd_check(a):
+    try:
+        spec = resolve_world_key(getattr(a, "world_key", ""), getattr(a, "registry", None))
+    except ValueError as err:
+        sys.exit(str(err))
+    with world_prefixes(spec):
+        return _cmd_check_inner(a, spec)
+
+
+def _cmd_check_inner(a, spec):
     import make_cw_overlays as cwo
     t0 = time.time()
     out = a.out
     prm, ov = core_params(out)
+    try:
+        check_core_matches_world_spec(prm, ov, spec)
+    except ValueError as err:
+        sys.exit(str(err))
     cprm, _cov = core_params(a.core)
     plan = load(os.path.join(out, "plan.json"))
     exp = load(os.path.join(out, "expected.json"))
@@ -3454,6 +3574,8 @@ def main():
     s = sub.add_parser("select")
     s.add_argument("--work", required=True)
     s.add_argument("--core", required=True, help="the staged core64 terrain (overlays_params.json, plugins, Data)")
+    s.add_argument("--world-key", default="", help="world key from src/fo4sf/core/world_registry.py (default: Commonwealth)")
+    s.add_argument("--registry", default="", help="optional path to world_registry.json")
     s = sub.add_parser("measure")
     s.add_argument("--work", required=True)
     s.add_argument("--fo4-data", required=True)
@@ -3466,6 +3588,8 @@ def main():
         s.add_argument("--work", required=True)
         s.add_argument("--core", required=True)
         s.add_argument("--out", required=True)
+        s.add_argument("--world-key", default="", help="world key from src/fo4sf/core/world_registry.py (default: Commonwealth)")
+        s.add_argument("--registry", default="", help="optional path to world_registry.json")
         if name == "stage":
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
             s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json, "
@@ -3502,6 +3626,15 @@ def main():
     s.add_argument("--out", required=True)
     s.add_argument("--against", required=True, help="the input build (e.g. the one the cluster was generated from)")
     a = ap.parse_args()
+    try:
+        if a.cmd in ("select", "measure"):
+            refuse_unsafe_output_path(a.work, [getattr(a, "core", ""), getattr(a, "fo4_data", "")])
+        elif a.cmd == "stage":
+            refuse_unsafe_output_path(a.out, [a.work, a.core, getattr(a, "sf_esm", "")])
+        elif a.cmd == "compare-ids":
+            refuse_unsafe_output_path(a.out, [a.against])
+    except OutputPathRefusedError as err:
+        sys.exit(str(err))
     return {"select": cmd_select, "measure": cmd_measure, "stage": cmd_stage, "check": cmd_check,
             "verify-data": cmd_verify_data, "compare-ids": cmd_compare_ids}[a.cmd](a)
 
