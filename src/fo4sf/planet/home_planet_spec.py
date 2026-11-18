@@ -1,9 +1,11 @@
 """Source-attributed specification and pure record builders for our isolated home host (`FO4SFHome.esm`)
 and single host registration plugin (`FO4TerrainCore_Home.esm`).
 
-Design invariants (`W2`, `W3`, `W4`, `WL1`, `WL2`):
+Design invariants (`W2`, `W3`, `W4`, `WL1`, `WL2`, `C2`, `C3`):
 - `FO4SFHome.esm` holds our own isolated star system (`STDT 0x800`), our own location chain (`LCTN 0x801..0x804`
-  under `Universe 0x01A53A`), our own home planet (`PNDT 0x805`), and our own neutral biome (`BIOM 0x806`).
+  under `Universe 0x01A53A`), our own home planet (`PNDT 0x805`), and our own `"no-life, Starfield-patterned"`
+  biome (`BIOM 0x806`; Starfield climate, sky, terrain pattern, surface tree, and ground texture remain Starfield
+  references until `WB1`–`WB3` land).
 - Zero whole-record copies of any Starfield star, planet, or biome (`0` `PCCC`/`XMPM` Houdini blobs copied).
 - Every `STDT`, `PNDT`, and `BIOM` subrecord is constructed field-by-field from `STAR_FIELD_SPEC`,
   `PLANET_FIELD_SPEC`, and `BIOM_FIELD_SPEC`, which record the exact source of every scalar and FormID reference.
@@ -11,11 +13,13 @@ Design invariants (`W2`, `W3`, `W4`, `WL1`, `WL2`):
   is resolved by `EditorID` at stage time.
 - `FO4TerrainCore_Home.esm` is the ONE registration plugin for the host, built from `world_registry.json`:
   it overrides the home `PNDT` (`CNAM` master worldspaces) plus each registered world's `WRLD` (`SNAM`/`PNAM`,
-  `BNAM` biome, `FNAM` flags) and `LCTN` (`PNAM` surface parent, `WL1` lever keywords), leaving
-  `FO4TerrainCore.esm` untouched and byte-identical.
+  `BNAM` biome, `FNAM` flags) and `LCTN` (`PNAM` surface parent, `WL1` lever keywords, and optional merged
+  `FO4SFMapMarkers.esm` `LCSR` rows when staged with `--map-markers`), leaving `FO4TerrainCore.esm` untouched
+  and byte-identical.
 """
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import struct
@@ -27,6 +31,10 @@ from . import census, esm, probe, records
 HOME_MASTER = "FO4SFHome.esm"
 HOME_REGISTRATION = "FO4TerrainCore_Home.esm"
 MARS_REGISTRATION = "FO4TerrainCore_Mars.esm"
+CORE_PLUGIN = "FO4TerrainCore.esm"
+MAP_MARKERS_PLUGIN = "FO4SFMapMarkers.esm"
+CORE_LCTN_LOCAL = 0x000802
+CORE_WRLD_LOCAL = 0x000803
 
 STAR = 0x800
 SYSTEM_LOC = 0x801
@@ -896,6 +904,84 @@ def _remap_formid(fid: int, src_self_idx: int, dst_master_idx: int) -> int:
     return fid
 
 
+def canonical_formkey(plugin: esm.Plugin, plugin_name: str, formid: int) -> Tuple[str, int]:
+    """Resolve `formid` inside `plugin` to `(defining_plugin_lower, local_24bit_id)` (`0` and `0xFFFFFFFF` stay sentinels)."""
+    if formid in (0, 0xFFFFFFFF):
+        return ("", formid)
+    hi = formid >> 24
+    lo = formid & 0xFFFFFF
+    owner = plugin.masters[hi] if hi < len(plugin.masters) else plugin_name
+    return (owner.lower(), lo)
+
+
+def remap_formid_to_masters(
+    formid: int,
+    src_plugin: esm.Plugin,
+    src_name: str,
+    dst_masters: Sequence[str],
+) -> int:
+    """Remap `formid` from `src_plugin`'s master/self table into `dst_masters`."""
+    if formid in (0, 0xFFFFFFFF):
+        return formid
+    owner_low, lo = canonical_formkey(src_plugin, src_name, formid)
+    dst_low = [m.lower() for m in dst_masters]
+    if owner_low not in dst_low:
+        raise records.PlanetError(
+            f"cannot remap FormID {formid:#010x} (owner {owner_low!r}) into masters {list(dst_masters)}"
+        )
+    return (dst_low.index(owner_low) << 24) | lo
+
+
+def canonical_lcsr_rows(
+    plugin: esm.Plugin,
+    plugin_name: str,
+    lctn_rec: esm.Record,
+) -> List[Tuple[Tuple[str, int], Tuple[str, int], Tuple[str, int], int, int]]:
+    """Extract canonical `(lcrt_fk, refr_fk, wrld_fk, grid_u32, tail_u32)` rows from `lctn_rec`'s `LCSR` subrecords."""
+    rows: List[Tuple[Tuple[str, int], Tuple[str, int], Tuple[str, int], int, int]] = []
+    for data in lctn_rec.all(b"LCSR"):
+        if len(data) % 20 != 0:
+            raise records.PlanetError(f"{plugin_name} LCTN {lctn_rec.edid} has malformed LCSR length {len(data)}")
+        for off in range(0, len(data), 20):
+            lcrt, refr, wrld, grid, tail = struct.unpack_from("<5I", data, off)
+            rows.append(
+                (
+                    canonical_formkey(plugin, plugin_name, lcrt),
+                    canonical_formkey(plugin, plugin_name, refr),
+                    canonical_formkey(plugin, plugin_name, wrld),
+                    grid,
+                    tail,
+                )
+            )
+    return rows
+
+
+def remap_lcsr_rows_to_masters(
+    src_plugin: esm.Plugin,
+    src_name: str,
+    lctn_rec: esm.Record,
+    dst_masters: Sequence[str],
+) -> List[bytes]:
+    """Return 20-byte `LCSR` chunks from `lctn_rec` with `lcrt`, `refr`, and `wrld` remapped into `dst_masters`."""
+    out: List[bytes] = []
+    for data in lctn_rec.all(b"LCSR"):
+        if len(data) % 20 != 0:
+            raise records.PlanetError(f"{src_name} LCTN {lctn_rec.edid} has malformed LCSR length {len(data)}")
+        for off in range(0, len(data), 20):
+            lcrt, refr, wrld, grid, tail = struct.unpack_from("<5I", data, off)
+            out.append(
+                struct.pack(
+                    "<5I",
+                    remap_formid_to_masters(lcrt, src_plugin, src_name, dst_masters),
+                    remap_formid_to_masters(refr, src_plugin, src_name, dst_masters),
+                    remap_formid_to_masters(wrld, src_plugin, src_name, dst_masters),
+                    grid,
+                    tail,
+                )
+            )
+    return out
+
+
 def _remap_lctn_override(
     src_lctn: esm.Record,
     src_self_idx: int,
@@ -905,6 +991,7 @@ def _remap_lctn_override(
     lever_kw_fids: Sequence[int],
     system_id: int,
     planet_id: int,
+    extra_lcsr_chunks: Sequence[bytes] = (),
 ) -> esm.Record:
     out_fid = _remap_formid(src_lctn.formid, src_self_idx, dst_master_idx)
     kws = [overlay_kw_fid]
@@ -912,17 +999,30 @@ def _remap_lctn_override(
         if lk not in kws:
             kws.append(lk)
 
-    new_subs: List[Tuple[bytes, bytes]] = []
-    saw_ksiz = saw_kwda = saw_pnam = False
+    merged_lcsr: List[bytes] = []
+    seen_lcsr: set[bytes] = set()
     for sig, data in src_lctn.subs:
         if sig == b"LCSR" and len(data) % 20 == 0:
-            chunks = []
             for off in range(0, len(data), 20):
                 lcrt, refr, wrld, grid, tail = struct.unpack_from("<5I", data, off)
                 refr = _remap_formid(refr, src_self_idx, dst_master_idx)
                 wrld = _remap_formid(wrld, src_self_idx, dst_master_idx)
-                chunks.append(struct.pack("<5I", lcrt, refr, wrld, grid, tail))
-            new_subs.append((sig, b"".join(chunks)))
+                row_b = struct.pack("<5I", lcrt, refr, wrld, grid, tail)
+                if row_b not in seen_lcsr:
+                    merged_lcsr.append(row_b)
+                    seen_lcsr.add(row_b)
+    for row_b in extra_lcsr_chunks:
+        if row_b not in seen_lcsr:
+            merged_lcsr.append(row_b)
+            seen_lcsr.add(row_b)
+
+    new_subs: List[Tuple[bytes, bytes]] = []
+    saw_ksiz = saw_kwda = saw_pnam = emitted_lcsr = False
+    for sig, data in src_lctn.subs:
+        if sig == b"LCSR" and len(data) % 20 == 0:
+            if not emitted_lcsr and merged_lcsr:
+                new_subs.append((b"LCSR", b"".join(merged_lcsr)))
+                emitted_lcsr = True
         elif sig == b"LCPR" and len(data) % 16 == 0:
             chunks = []
             for off in range(0, len(data), 16):
@@ -950,6 +1050,9 @@ def _remap_lctn_override(
         else:
             new_subs.append((sig, data))
 
+    if merged_lcsr and not emitted_lcsr:
+        insert_idx = next((i + 1 for i, (s, _) in enumerate(new_subs) if s == b"EDID"), 0)
+        new_subs.insert(insert_idx, (b"LCSR", b"".join(merged_lcsr)))
     if not saw_ksiz:
         new_subs.append((b"KSIZ", struct.pack("<I", len(kws))))
     if not saw_kwda:
@@ -1036,10 +1139,13 @@ def build_home_registration(
     fnam_flags: int = ALLOWED_WRLD_FNAM_BITS,
     registry: Optional[Dict[str, Any]] = None,
     position_overrides: Optional[Dict[str, Tuple[float, float]]] = None,
+    map_markers_path: Optional[str] = None,
 ) -> Tuple[esm.PluginWriter, Dict[str, Any]]:
     """Build `FO4TerrainCore_Home.esm` from `world_registry.json`:
     - `1` `PNDT` override (`0x01000805` in `FO4SFHome.esm`) listing all registered worlds in `CNAM`
     - For each world in `world_keys`: `1` `WRLD` override + `1` `LCTN` override (`3` records total for `Commonwealth`).
+    - When `map_markers_path` (`--map-markers <FO4SFMapMarkers.esm>`) is given: adds `FO4SFMapMarkers.esm` as a master
+      and merges its `LCSR` rows of `FO4TerrainCore.esm:000802` into our `LCTN` override (`C3`).
     """
     if not world_keys:
         raise records.PlanetError("world_keys must name at least one world from world_registry.json")
@@ -1092,6 +1198,28 @@ def build_home_registration(
             masters.append(plug_name)
         world_specs.append((wkey, plug_name, plug_path, world_edid, (float(pos[0]), float(pos[1]))))
 
+    mm_lcsr_chunks: List[bytes] = []
+    mm_name: Optional[str] = None
+    if map_markers_path:
+        mm_name = os.path.basename(map_markers_path)
+        if not any(m.lower() == CORE_PLUGIN.lower() for m in masters):
+            raise records.PlanetError(
+                f"--map-markers {mm_name} requires {CORE_PLUGIN} in world_keys {list(world_keys)}"
+            )
+        if all(m.lower() != mm_name.lower() for m in masters):
+            masters.append(mm_name)
+        with esm.Plugin(map_markers_path) as mm:
+            mm_lctns = [
+                r
+                for r in mm.records("LCTN", [b"LCTN"])
+                if canonical_record_owner(mm, r.formid, mm_name) == (CORE_PLUGIN.lower(), CORE_LCTN_LOCAL, True)
+            ]
+            if len(mm_lctns) != 1:
+                raise records.PlanetError(
+                    f"{mm_name} has {len(mm_lctns)} LCTN overrides of {CORE_PLUGIN}:{CORE_LCTN_LOCAL:06X}, expected 1"
+                )
+            mm_lcsr_chunks = remap_lcsr_rows_to_masters(mm, mm_name, mm_lctns[0], masters)
+
     writer = esm.PluginWriter(masters, esm.ESM)
     home_idx = 1  # masters[1] == FO4SFHome.esm
     surface_parent_fid = (home_idx << 24) | SURFACE_LOC
@@ -1130,6 +1258,11 @@ def build_home_registration(
             home_biome_fid,
             fnam_flags=fnam_flags,
         )
+        extra_chunks = (
+            mm_lcsr_chunks
+            if mm_name and plug_name.lower() == CORE_PLUGIN.lower() and (src_lctn.formid & 0xFFFFFF) == CORE_LCTN_LOCAL
+            else ()
+        )
         remapped_lctn = _remap_lctn_override(
             src_lctn,
             src_self_idx,
@@ -1139,10 +1272,12 @@ def build_home_registration(
             lever_kw_fids,
             sid,
             pid,
+            extra_lcsr_chunks=extra_chunks,
         )
         wrld_overrides.append(remapped_wrld)
         lctn_overrides.append(remapped_lctn)
         cnam_entries.append((lat, lon, remapped_wrld.formid))
+        lcsr_total = sum(len(d) // 20 for d in remapped_lctn.all(b"LCSR"))
         registered_report.append(
             {
                 "world_key": wkey,
@@ -1150,6 +1285,7 @@ def build_home_registration(
                 "world_edid": world_edid,
                 "wrld_formid": records.fid_hex(remapped_wrld.formid),
                 "lctn_formid": records.fid_hex(remapped_lctn.formid),
+                "lcsr_rows": lcsr_total,
                 "latitude_rad": lat,
                 "longitude_rad": lon,
                 "fnam_flags": fnam_flags,
@@ -1164,7 +1300,7 @@ def build_home_registration(
     for lr in lctn_overrides:
         writer.add(lr)
 
-    report = {
+    report: Dict[str, Any] = {
         "registration_plugin": HOME_REGISTRATION,
         "masters": masters,
         "record_count": len(writer.records),
@@ -1173,6 +1309,9 @@ def build_home_registration(
         "surface_parent_formid": records.fid_hex(surface_parent_fid),
         "worlds": registered_report,
     }
+    if mm_name is not None:
+        report["map_markers_plugin"] = mm_name
+        report["map_markers_lcsr_rows"] = len(mm_lcsr_chunks)
     return writer, report
 
 
@@ -1186,27 +1325,141 @@ def canonical_record_owner(plugin: esm.Plugin, formid: int, plugin_name: str) ->
     return plugin_name.lower(), local, False
 
 
-def check_no_duplicate_overrides(plugin_paths: Sequence[str]) -> List[str]:
-    """Refuse any plugin set in which two plugins override the same `PNDT` or `LCTN` record (`W3`).
-    Returns a list of human-readable collision errors (`[]` when clean)."""
-    seen: Dict[Tuple[str, str, int], str] = {}
+def _sha256_path(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_load_order_overrides(
+    plugin_paths: Sequence[str],
+    *,
+    allow_map_markers_pair: bool = False,
+    pinned_map_markers_sha256: Optional[str] = None,
+    map_markers_plugin_name: str = MAP_MARKERS_PLUGIN,
+) -> List[str]:
+    """Verify `PNDT`, `LCTN`, and `WRLD` overrides across `plugin_paths` in load order (`W3`, `C3`).
+
+    When `allow_map_markers_pair` is `True`, allows **only** `FO4SFMapMarkers.esm` followed later in load order
+    by `FO4TerrainCore_Home.esm` on `fo4terraincore.esm:000802` (`LCTN`) and `fo4terraincore.esm:000803` (`WRLD`),
+    and **only** when:
+      (a) `FO4TerrainCore_Home.esm`'s `LCTN` override `LCSR` rows include every `LCSR` row of `FO4SFMapMarkers.esm`'s,
+      (b) the `FO4SFMapMarkers.esm` file SHA-256 matches `pinned_map_markers_sha256`, and
+      (c) `FO4SFMapMarkers.esm` loads before `FO4SFHome.esm` and `FO4TerrainCore_Home.esm`.
+    Refuses every other duplicate override, naming both plugins and the colliding `owner:XXXXXX` FormKey.
+    """
     problems: List[str] = []
-    for path in plugin_paths:
-        name = os.path.basename(path)
+    orig_names = [os.path.basename(p) for p in plugin_paths]
+    names_low = [n.lower() for n in orig_names]
+    mm_low = map_markers_plugin_name.lower()
+    hm_low = HOME_MASTER.lower()
+    hr_low = HOME_REGISTRATION.lower()
+
+    if allow_map_markers_pair and mm_low in names_low:
+        mm_idx = names_low.index(mm_low)
+        mm_disp = orig_names[mm_idx]
+        for tgt_low, tgt_disp in ((hm_low, HOME_MASTER), (hr_low, HOME_REGISTRATION)):
+            if tgt_low in names_low and names_low.index(tgt_low) < mm_idx:
+                problems.append(
+                    f"invalid load order: {mm_disp} loads after {tgt_disp}; "
+                    f"{HOME_MASTER} and {HOME_REGISTRATION} must load after {mm_disp}"
+                )
+    if hm_low in names_low and hr_low in names_low and names_low.index(hr_low) < names_low.index(hm_low):
+        problems.append(f"invalid load order: {HOME_REGISTRATION} loads before its master {HOME_MASTER}")
+
+    sha_by_low: Dict[str, str] = {}
+    lcsr_by_plugin_and_key: Dict[Tuple[str, str, int], List[Any]] = {}
+    per_plugin_overrides: List[Tuple[str, str, List[Tuple[str, str, int, str]]]] = []
+
+    for path, name, nlow in zip(plugin_paths, orig_names, names_low):
+        if nlow == mm_low:
+            sha_by_low[nlow] = _sha256_path(path)
+        ov_rows: List[Tuple[str, str, int, str]] = []
         with esm.Plugin(path) as p:
             for rtype in ("PNDT", "LCTN"):
                 for rec in p.records(rtype, [rtype.encode("ascii")]):
                     owner, local, is_override = canonical_record_owner(p, rec.formid, name)
                     if not is_override:
                         continue
-                    key = (rtype, owner, local)
-                    if key in seen:
-                        problems.append(
-                            f"duplicate {rtype} override of {owner}:{local:06X} ({rec.edid}) in both {seen[key]} and {name}"
-                        )
-                    else:
-                        seen[key] = name
+                    if rtype == "LCTN":
+                        lcsr_by_plugin_and_key[(nlow, owner, local)] = canonical_lcsr_rows(p, name, rec)
+                    ov_rows.append((rtype, owner, local, rec.edid))
+            for rec in census.worlds(p):
+                owner, local, is_override = canonical_record_owner(p, rec.formid, name)
+                if not is_override:
+                    continue
+                ov_rows.append(("WRLD", owner, local, rec.edid))
+        per_plugin_overrides.append((name, nlow, ov_rows))
+
+    mm_hash_ok = False
+    mm_lcsr_subset_ok = False
+    if allow_map_markers_pair and mm_low in names_low:
+        mm_disp = orig_names[names_low.index(mm_low)]
+        actual_sha = sha_by_low[mm_low]
+        if not pinned_map_markers_sha256:
+            problems.append(
+                f"{mm_disp} is active without a pinned map_markers_sha256 in plan.json (re-stage with --map-markers)"
+            )
+        elif actual_sha.lower() != pinned_map_markers_sha256.lower():
+            problems.append(
+                f"{mm_disp} sha256 mismatch: installed file has {actual_sha}, plan.json pinned {pinned_map_markers_sha256}"
+            )
+        else:
+            mm_hash_ok = True
+
+        mm_lcsr = lcsr_by_plugin_and_key.get((mm_low, CORE_PLUGIN.lower(), CORE_LCTN_LOCAL))
+        hr_lcsr = lcsr_by_plugin_and_key.get((hr_low, CORE_PLUGIN.lower(), CORE_LCTN_LOCAL))
+        if mm_lcsr is not None and hr_low in names_low:
+            if hr_lcsr is None:
+                problems.append(
+                    f"{HOME_REGISTRATION} is missing LCTN override of {CORE_PLUGIN.lower()}:{CORE_LCTN_LOCAL:06X} "
+                    f"required by {mm_disp}"
+                )
+            else:
+                hr_set = set(hr_lcsr)
+                missing_lcsr = [r for r in mm_lcsr if r not in hr_set]
+                if missing_lcsr:
+                    problems.append(
+                        f"{HOME_REGISTRATION} LCTN override of {CORE_PLUGIN.lower()}:{CORE_LCTN_LOCAL:06X} "
+                        f"is missing {len(missing_lcsr)} LCSR row(s) from {mm_disp}"
+                    )
+                else:
+                    mm_lcsr_subset_ok = True
+        elif mm_lcsr is None:
+            # Map-markers plugin without an LCTN 000802 override needs no LCSR rows copied
+            mm_lcsr_subset_ok = True
+
+    seen: Dict[Tuple[str, str, int], List[Tuple[str, str]]] = {}
+    for cur_name, cur_low, ov_rows in per_plugin_overrides:
+        for rtype, owner, local, edid in ov_rows:
+            key = (rtype, owner, local)
+            for prev_name, prev_low in seen.get(key, ()):
+                allowed = (
+                    allow_map_markers_pair
+                    and prev_low == mm_low
+                    and cur_low == hr_low
+                    and (
+                        (rtype == "LCTN" and owner == CORE_PLUGIN.lower() and local == CORE_LCTN_LOCAL)
+                        or (rtype == "WRLD" and owner == CORE_PLUGIN.lower() and local == CORE_WRLD_LOCAL)
+                    )
+                    and mm_hash_ok
+                    and mm_lcsr_subset_ok
+                )
+                if not allowed:
+                    problems.append(
+                        f"duplicate {rtype} override of {owner}:{local:06X} ({edid}) in both {prev_name} and {cur_name}"
+                    )
+            seen.setdefault(key, []).append((cur_name, cur_low))
+
     return problems
+
+
+def check_no_duplicate_overrides(plugin_paths: Sequence[str]) -> List[str]:
+    """Refuse any plugin set in which two plugins override the same `PNDT`, `LCTN`, or `WRLD` record (`W3`).
+    Returns a list of human-readable collision errors (`[]` when clean)."""
+    return check_load_order_overrides(plugin_paths, allow_map_markers_pair=False)
 
 
 def check_home_stage(
@@ -1216,6 +1469,7 @@ def check_home_stage(
     data_dir: Optional[str] = None,
     expected_world_count: int = 1,
     expected_levers: Sequence[str] = (),
+    map_markers_path: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Comprehensive offline verification for `W2`, `W3`, `W4`, `WL1`, and `WL2`."""
     problems: List[str] = []
@@ -1360,6 +1614,31 @@ def check_home_stage(
                     problems.append(f"LCTN {lrec.edid} PNAM {pnam_fid!r} != {(1 << 24) | SURFACE_LOC:#010x}")
                 if records.keywords_of(lrec) != want_reg_kws:
                     problems.append(f"LCTN {lrec.edid} keywords {records.keywords_of(lrec)} != {want_reg_kws}")
+
+            if map_markers_path:
+                mm_name = os.path.basename(map_markers_path)
+                if mm_name.lower() not in [m.lower() for m in reg.masters]:
+                    problems.append(f"{HOME_REGISTRATION} masters {reg.masters} missing {mm_name}")
+                with esm.Plugin(map_markers_path) as mm:
+                    mm_lctns = [
+                        r
+                        for r in mm.records("LCTN", [b"LCTN"])
+                        if canonical_record_owner(mm, r.formid, mm_name) == (CORE_PLUGIN.lower(), CORE_LCTN_LOCAL, True)
+                    ]
+                    reg_core_lctns = [
+                        r
+                        for r in reg_lctns
+                        if canonical_record_owner(reg, r.formid, HOME_REGISTRATION)
+                        == (CORE_PLUGIN.lower(), CORE_LCTN_LOCAL, True)
+                    ]
+                    if len(mm_lctns) == 1 and len(reg_core_lctns) == 1:
+                        mm_rows = canonical_lcsr_rows(mm, mm_name, mm_lctns[0])
+                        hr_rows = set(canonical_lcsr_rows(reg, HOME_REGISTRATION, reg_core_lctns[0]))
+                        miss = [r for r in mm_rows if r not in hr_rows]
+                        if miss:
+                            problems.append(
+                                f"{HOME_REGISTRATION} LCTN override missing {len(miss)} LCSR row(s) from {mm_name}"
+                            )
 
     problems.extend(check_no_duplicate_overrides([home_master_path, home_reg_path]))
 

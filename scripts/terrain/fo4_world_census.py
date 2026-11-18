@@ -106,15 +106,39 @@ def refuse_unsafe_output_path(out_path: str, input_paths: Sequence[str] = ()) ->
     if not out_path or not out_path.strip():
         raise CensusPathError("refused: empty output path")
 
-    candidates = [
+    base_targets = [
         os.path.abspath(out_path),
         os.path.realpath(os.path.abspath(out_path)),
+    ]
+    candidates = base_targets + [
         os.path.abspath(out_path + ".tmp"),
         os.path.realpath(os.path.abspath(out_path + ".tmp")),
     ]
 
+    for btarget in base_targets:
+        t_norm = os.path.normcase(os.path.normpath(btarget))
+        for src in input_paths:
+            if not src:
+                continue
+            src_abs = os.path.abspath(src)
+            src_real = os.path.realpath(src_abs)
+            for s_cand in (src_abs, src_real):
+                s_norm = os.path.normcase(os.path.normpath(s_cand))
+                if t_norm == s_norm:
+                    raise CensusPathError(f"refused: output path aliases input plugin {os.path.basename(src)}")
+                try:
+                    common = os.path.normcase(os.path.normpath(os.path.commonpath([t_norm, s_norm])))
+                except ValueError:
+                    continue
+                if common == t_norm:
+                    raise CensusPathError(f"refused: output path is a parent/ancestor of input {os.path.basename(src)}")
+                if common == s_norm:
+                    raise CensusPathError(f"refused: output path lies inside input {os.path.basename(src)}")
+
     for target in candidates:
         for src in input_paths:
+            if not src:
+                continue
             src_abs = os.path.abspath(src)
             src_real = os.path.realpath(src_abs)
             if os.path.normcase(target) in (os.path.normcase(src_abs), os.path.normcase(src_real)):

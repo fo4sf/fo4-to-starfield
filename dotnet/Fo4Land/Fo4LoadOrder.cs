@@ -106,12 +106,19 @@ public sealed class Fo4LoadOrder : IDisposable
     {
         if (string.IsNullOrWhiteSpace(outPath))
             throw new InvalidOperationException("refused: empty output path");
-        var fullOut = Path.GetFullPath(outPath);
+        var fullOut = Path.GetFullPath(outPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var outPrefix = fullOut + Path.DirectorySeparatorChar;
         foreach (var inp in inputPaths)
         {
             if (string.IsNullOrWhiteSpace(inp)) continue;
-            if (string.Equals(fullOut, Path.GetFullPath(inp), StringComparison.OrdinalIgnoreCase))
+            var fullInp = Path.GetFullPath(inp).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(fullOut, fullInp, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"refused: output path '{outPath}' aliases input '{inp}'");
+            if (fullInp.StartsWith(outPrefix, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"refused: output path '{outPath}' is a parent/ancestor of input '{inp}'");
+            var inpPrefix = fullInp + Path.DirectorySeparatorChar;
+            if (fullOut.StartsWith(inpPrefix, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"refused: output path '{outPath}' lies inside input '{inp}'");
         }
         var slash = fullOut.Replace('\\', '/').ToLowerInvariant();
         if (slash.Contains("/steamapps/common/") || slash.Contains("/steamapps/content/"))

@@ -54,8 +54,23 @@ def refuse_unsafe_output_path(out_path: str, input_paths: Iterable[str] = ()) ->
         src_abs = os.path.abspath(src)
         src_real = os.path.realpath(src_abs)
         for target in candidates:
-            if os.path.normcase(target) in (os.path.normcase(src_abs), os.path.normcase(src_real)):
-                raise OutputPathRefusedError(f"refused: output path {out_path!r} aliases input {src!r}")
+            t_norm = os.path.normcase(os.path.normpath(target))
+            for s_cand in (src_abs, src_real):
+                s_norm = os.path.normcase(os.path.normpath(s_cand))
+                if t_norm == s_norm:
+                    raise OutputPathRefusedError(f"refused: output path {out_path!r} aliases input {src!r}")
+                try:
+                    common = os.path.normcase(os.path.normpath(os.path.commonpath([t_norm, s_norm])))
+                except ValueError:
+                    continue
+                if common == t_norm:
+                    raise OutputPathRefusedError(
+                        f"refused: output path {out_path!r} is a parent/ancestor of input {src!r}"
+                    )
+                if common == s_norm:
+                    raise OutputPathRefusedError(
+                        f"refused: output path {out_path!r} lies inside input {src!r}"
+                    )
 
     for target in candidates:
         norm_slash = target.replace("\\", "/").lower()

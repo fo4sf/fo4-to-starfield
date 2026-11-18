@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -300,7 +301,7 @@ class HomePlanetSpecTests(unittest.TestCase):
 
     def test_wl2_plugin_sets_only_fnam_bits_approved_in_study_doc(self) -> None:
         study_text = (ROOT / "docs" / "world" / "three-way-study.md").read_text(encoding="utf-8")
-        section = study_text.split("## 4. Worldspace `FNAM` Flag Bits (`WL2`)", 1)[1]
+        section = study_text.split("## 4. Worldspace `FNAM` Flag Bits (`WL2`)", 1)[1].split("\n## ", 1)[0]
         approved_mask = 0
         for line in section.splitlines():
             if not line.startswith("|") or "Set in `FO4TerrainCore_Home.esm`?" in line or line.startswith("|---"):
@@ -350,6 +351,136 @@ class HomePlanetSpecTests(unittest.TestCase):
             1,
         )
         self.assertFalse(in_game.exists())
+
+    def test_c1_home_world_install_cli_help_runs_with_clean_pythonpath_and_card1_uses_dir(self) -> None:
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        script = str(ROOT / "scripts" / "planet" / "home_world_install.py")
+
+        for extra_args in (
+            ["--help"],
+            ["install", "--help"],
+            ["uninstall", "--help"],
+            ["undo", "--help"],
+            ["status", "--help"],
+            ["order", "--help"],
+            ["active", "--help"],
+        ):
+            proc = subprocess.run(
+                [sys.executable, "-B", script, *extra_args],
+                cwd=str(self.root),
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, msg=f"{extra_args}: {proc.stderr}")
+            self.assertIn("--dir", proc.stdout)
+            self.assertIn("--starfield", proc.stdout)
+            self.assertIn("--prepacked", proc.stdout)
+
+        card_text = (ROOT / "docs" / "testing" / "home-world-lead-card.md").read_text(encoding="utf-8")
+        card1 = card_text.split("## Card 1", 1)[1].split("\n## Card 2", 1)[0]
+        self.assertIn("home_world_install.py install --dir <home-stage> --starfield <game-dir>", card1)
+        self.assertNotIn("home_world_install.py install --stage", card1)
+
+    def test_c3_stage_with_map_markers_merges_lcsr_adds_master_and_pins_sha256(self) -> None:
+        mm_path = self.data_dir / "FO4SFMapMarkers.esm"
+        mm_w = esm.PluginWriter(["Starfield.esm", "FO4TerrainCore.esm"], esm.ESM)
+        # Core row (refr in master[1] = FO4TerrainCore.esm) + two extra rows owned by FO4SFMapMarkers.esm (self_index = 2)
+        core_row = struct.pack("<5I", 0x0002271F, 0x0100080A, 0x01000803, 0x00000000, 0xFFFFFFFF)
+        extra_row_1 = struct.pack("<5I", 0x0002271F, 0x02000800, 0x01000803, 0x0005FFFE, 0xFFFFFFFF)
+        extra_row_2 = struct.pack("<5I", 0x00009105, 0x02000801, 0x01000803, 0x0006FFFD, 0xFFFFFFFF)
+        mm_w.add(
+            esm.Record(
+                b"LCTN",
+                0x01000802,
+                [
+                    (b"EDID", esm.zbytes("FO4Core_CommonwealthLocation")),
+                    (b"LCSR", core_row + extra_row_1 + extra_row_2),
+                    (b"FULL", esm.zbytes("Commonwealth 00")),
+                    (b"KSIZ", struct.pack("<I", 1)),
+                    (b"KWDA", struct.pack("<I", 0x2CA99D)),
+                    (b"DATA", records.DEFAULT_LOCATION_DATA),
+                    (b"PNAM", struct.pack("<I", 0x01B736)),
+                    (b"XNAM", struct.pack("<i", -1)),
+                    (b"YNAM", struct.pack("<i", -3)),
+                ],
+            )
+        )
+        mm_w.add(
+            esm.Record(
+                b"WRLD",
+                0x01000803,
+                [
+                    (b"EDID", esm.zbytes("FO4Core_Commonwealth")),
+                    (b"BFCB", esm.zbytes("BGSWorldSpaceOverlay_Component")),
+                    (b"SNAM", struct.pack("<i", 0)),
+                    (b"PNAM", struct.pack("<i", 4)),
+                    (b"BNAM", struct.pack("<I", 0x01000801)),
+                    (b"BFCE", b""),
+                    (b"XLCN", struct.pack("<I", 0x01000802)),
+                    (b"BNAM", struct.pack("<I", 0x2A3777)),
+                    (b"DATA", b"\x01"),
+                    (b"FNAM", b"\x00"),
+                ],
+            )
+        )
+        mm_w.write(str(mm_path), compress=False)
+        mm_sha = hashlib.sha256(mm_path.read_bytes()).hexdigest()
+
+        stage_dir = self.out_root / "home-stage-with-mm"
+        rc = make_home_planet.main(
+            [
+                "stage",
+                "--data",
+                str(self.data_dir),
+                "--out",
+                str(stage_dir),
+                "--map-markers",
+                str(mm_path),
+            ]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(hashlib.sha256(mm_path.read_bytes()).hexdigest(), mm_sha)
+
+        plan = make_home_planet.load_plan(str(stage_dir))
+        self.assertEqual(plan["map_markers_plugin"], "FO4SFMapMarkers.esm")
+        self.assertEqual(plan["map_markers_sha256"], mm_sha)
+        self.assertEqual(plan["biome_profile"], "no-life, Starfield-patterned")
+
+        with esm.Plugin(str(stage_dir / hspec.HOME_REGISTRATION)) as reg:
+            self.assertEqual(
+                reg.masters,
+                ["Starfield.esm", "FO4SFHome.esm", "FO4TerrainCore.esm", "FO4SFMapMarkers.esm"],
+            )
+            lctns = list(reg.records("LCTN"))
+            self.assertEqual(len(lctns), 1)
+            lcsr_raw = lctns[0].get(b"LCSR")
+            self.assertEqual(len(lcsr_raw), 3 * 20)
+            # Master[2] = FO4TerrainCore.esm, Master[3] = FO4SFMapMarkers.esm
+            rows = [struct.unpack_from("<5I", lcsr_raw, off) for off in range(0, len(lcsr_raw), 20)]
+            self.assertEqual(
+                rows,
+                [
+                    (0x0002271F, 0x0200080A, 0x02000803, 0x00000000, 0xFFFFFFFF),
+                    (0x0002271F, 0x03000800, 0x02000803, 0x0005FFFE, 0xFFFFFFFF),
+                    (0x00009105, 0x03000801, 0x02000803, 0x0006FFFD, 0xFFFFFFFF),
+                ],
+            )
+
+        self.assertEqual(
+            make_home_planet.main(["check", "--stage", str(stage_dir), "--data", str(self.data_dir)]),
+            0,
+        )
+
+        # Tampering with Data/FO4SFMapMarkers.esm after staging fails check
+        mm_w2 = esm.PluginWriter(["Starfield.esm", "FO4TerrainCore.esm"], esm.ESM, author="tampered")
+        mm_w2.write(str(mm_path), compress=False)
+        self.assertEqual(
+            make_home_planet.main(["check", "--stage", str(stage_dir), "--data", str(self.data_dir)]),
+            1,
+        )
 
 
 if __name__ == "__main__":

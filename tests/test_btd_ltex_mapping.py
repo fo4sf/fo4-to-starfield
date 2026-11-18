@@ -21,8 +21,9 @@ if str(ROOT / "scripts" / "terrain") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts" / "terrain"))
 
 from fo4sf import btd  # noqa: E402
-from fo4sf.terrain import ltex_map as lm  # noqa: E402
-from fo4sf.terrain.path_guard import OutputPathRefusedError  # noqa: E402
+from fo4sf.planet import esm  # noqa: E402
+from fo4sf.terrain import ltex_map as lm, overlay_postpatch as opp  # noqa: E402
+from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path  # noqa: E402
 import make_wg1_redrocket as mwg1  # noqa: E402
 
 SYNTH_TERRAIN_TEMPLATE = {
@@ -169,6 +170,90 @@ class BtdLtexMappingTests(unittest.TestCase):
             os.makedirs(os.path.join(wt, ".git"), exist_ok=True)
             with self.assertRaises(OutputPathRefusedError):
                 mwg1.check_wg1_stage(os.path.join(wt, "out"))
+
+    def test_c4_path_guard_refuses_parent_of_input_and_child_of_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            staging_root = os.path.join(tmp, "staging")
+            nested_input = os.path.join(staging_root, "textures_cache", "tile_a")
+            os.makedirs(nested_input, exist_ok=True)
+
+            # 1. Output is a parent/ancestor of an input -> refused
+            with self.assertRaises(OutputPathRefusedError) as ctx_parent:
+                refuse_unsafe_output_path(staging_root, input_paths=[nested_input])
+            self.assertIn("parent/ancestor", str(ctx_parent.exception))
+
+            # 2. Output lies inside an input directory -> refused
+            child_out = os.path.join(staging_root, "sub", "wg1_out")
+            with self.assertRaises(OutputPathRefusedError) as ctx_child:
+                refuse_unsafe_output_path(child_out, input_paths=[staging_root])
+            self.assertIn("lies inside input", str(ctx_child.exception))
+
+            # 3. Output equals input -> refused
+            with self.assertRaises(OutputPathRefusedError):
+                refuse_unsafe_output_path(staging_root, input_paths=[staging_root])
+
+            # 4. Disjoint sibling output -> allowed
+            sibling_out = os.path.join(tmp, "wg1_clean_out")
+            self.assertEqual(
+                os.path.normcase(refuse_unsafe_output_path(sibling_out, input_paths=[nested_input])),
+                os.path.normcase(os.path.abspath(sibling_out)),
+            )
+
+    def test_c4_wg1_prepare_output_refuses_unrelated_existing_dir_and_allows_own_manifest_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            inp_dir = os.path.join(tmp, "inputs")
+            os.makedirs(inp_dir, exist_ok=True)
+
+            # 1. Existing non-empty unrelated folder -> refused, zero files deleted
+            unrelated = os.path.join(tmp, "unrelated_existing")
+            os.makedirs(unrelated, exist_ok=True)
+            keep_file = Path(unrelated, "precious.txt")
+            keep_file.write_text("do not delete", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                mwg1.prepare_wg1_output_dir(unrelated, input_paths=[inp_dir])
+            self.assertEqual(keep_file.read_text(encoding="utf-8"), "do not delete")
+
+            # 2. Existing folder with bogus wg1_ltex_manifest.json -> refused, zero files deleted
+            bogus = os.path.join(tmp, "bogus_manifest_dir")
+            os.makedirs(bogus, exist_ok=True)
+            Path(bogus, "wg1_ltex_manifest.json").write_text('{"plugin": "Other.esm"}\n', encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                mwg1.prepare_wg1_output_dir(bogus, input_paths=[inp_dir])
+            self.assertTrue(Path(bogus, "wg1_ltex_manifest.json").is_file())
+
+            # 3. Valid wg1_ltex_manifest.json written by make_wg1_redrocket.py -> allowed for re-run
+            own_stage = os.path.join(tmp, "wg1_stage")
+            os.makedirs(own_stage, exist_ok=True)
+            valid_manifest = {
+                "world": mwg1.WORLD_EDID,
+                "plugin": mwg1.PLUGIN_NAME,
+                "ltex_mapping": {"Fallout4.esm:000000": "01000F00"},
+            }
+            Path(own_stage, "wg1_ltex_manifest.json").write_text(json.dumps(valid_manifest), encoding="utf-8")
+            resolved = mwg1.prepare_wg1_output_dir(own_stage, input_paths=[inp_dir])
+            self.assertEqual(os.path.normcase(resolved), os.path.normcase(os.path.abspath(own_stage)))
+            self.assertTrue(Path(own_stage, "wg1_ltex_manifest.json").is_file())
+
+            # 4. Parent-of-input is STILL refused even if wg1_ltex_manifest.json exists!
+            nested_tex = os.path.join(own_stage, "nested_staged_tex")
+            os.makedirs(nested_tex, exist_ok=True)
+            with self.assertRaises(OutputPathRefusedError):
+                mwg1.prepare_wg1_output_dir(own_stage, input_paths=[nested_tex])
+
+    def test_c4_overlay_postpatch_atomic_write_leaves_no_temp_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plug_path = os.path.join(tmp, "FO4WG1RedRocket.esm")
+            w = esm.PluginWriter(["Starfield.esm"], esm.ESM)
+            w.add(esm.Record(b"WRLD", w.own(0x803), [(b"EDID", esm.zbytes("FO4WG1_Commonwealth")), (b"FULL", esm.zbytes("Old"))]))
+            w.write(plug_path, compress=False)
+
+            res = opp.patch_overlay_plugin(
+                plug_path,
+                world_display_name="Updated World",
+                ltex_records=[{"fid_local": 0xF00, "edid": "FO4WG1_LTest", "bnam": "Materials\\Terrain\\FO4WG1_LTest.mat"}],
+            )
+            self.assertEqual(res["ltex_added"], 1)
+            self.assertEqual(os.listdir(tmp), ["FO4WG1RedRocket.esm"])
 
 
 if __name__ == "__main__":

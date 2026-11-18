@@ -1,6 +1,6 @@
 """Install / uninstall / undo / status / order / active of a staged home-world host swap
 (`FO4SFHome.esm` + `FO4TerrainCore_Home.esm` replacing `FO4TerrainCore_Mars.esm` in `Plugins.txt`),
-reversibly (`W3`).
+reversibly (`W3`, `C1`, `C3`).
 
 Usage:
   python scripts/planet/home_world_install.py install --dir <stage> --starfield <game dir> [--prepacked <ba2>]
@@ -9,7 +9,12 @@ Usage:
 Invariants:
 - Imports `scripts/game/exp_install.py` unchanged and uses its own receipt `Data/FO4SFHomeWorld.install.json`
   plus `Data/FO4SFHomeWorld.swap.json` — `Data/FO4SFExp.install.json` is never written or modified.
-- Unticks `FO4TerrainCore_Mars.esm` and ticks `FO4SFHome.esm` + `FO4TerrainCore_Home.esm` in `Plugins.txt`.
+- Refuses `install` and `uninstall` / `undo` whenever `Starfield.exe` is running (`System.pids`).
+- Unticks `FO4TerrainCore_Mars.esm` and ticks `FO4SFHome.esm` + `FO4TerrainCore_Home.esm` in `Plugins.txt`
+  after `FO4SFMapMarkers.esm` (refusing any other order in `install` and `order`).
+- Reads every active (`*`) FO4SF plugin from `Plugins.txt` in `install` and `order`, checking `PNDT`, `LCTN`,
+  and `WRLD` overrides across the full load list; allows only `FO4SFMapMarkers.esm -> FO4TerrainCore_Home.esm`
+  when `LCSR` rows and `map_markers_sha256` match, refusing every other duplicate override.
 - Refuses any `Plugins.txt` holding both `FO4TerrainCore_Mars.esm` and `FO4TerrainCore_Home.esm` active (`*`).
 - Restores `Data` and `Plugins.txt` byte-for-byte on `uninstall` / `undo`.
 """
@@ -21,23 +26,47 @@ import hashlib
 import json
 import os
 import sys
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-GAME_SCRIPTS = os.path.abspath(os.path.join(HERE, "..", "game"))
-if GAME_SCRIPTS not in sys.path:
-    sys.path.insert(0, GAME_SCRIPTS)
+SCRIPTS_DIR = os.path.abspath(os.path.join(HERE, ".."))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPTS_DIR, ".."))
+GAME_SCRIPTS = os.path.join(SCRIPTS_DIR, "game")
+SRC_DIR = os.path.join(REPO_ROOT, "src")
+for _p in (HERE, GAME_SCRIPTS, SCRIPTS_DIR, SRC_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import deploy_starfield as deployment  # noqa: E402
 import exp_install  # noqa: E402
+import deploy_starfield as deployment  # noqa: E402
+from fo4sf.core import loadset  # noqa: E402
+from fo4sf.launcher import crashwatch  # noqa: E402
+from fo4sf.planet import home_planet_spec as hspec  # noqa: E402
 import make_home_planet  # noqa: E402
 
 RECORD = "FO4SFHomeWorld.install.json"
 SWAP_RECORD = "FO4SFHomeWorld.swap.json"
 MARS_PLUGIN = "FO4TerrainCore_Mars.esm"
+HOME_MASTER_PLUGIN = "FO4SFHome.esm"
 HOME_REG_PLUGIN = "FO4TerrainCore_Home.esm"
+MAP_MARKERS_PLUGIN = hspec.MAP_MARKERS_PLUGIN
+GAME_EXE = "Starfield.exe"
+
+
+def _active_game_pids(system: Any = None) -> List[int]:
+    sys_obj = system if system is not None else crashwatch.System()
+    return sys_obj.pids(GAME_EXE)
+
+
+def ensure_game_closed(what: str, system: Any = None) -> None:
+    """Refuse mutating Data or Plugins.txt while Starfield.exe is running or process inspection fails."""
+    try:
+        pids = _active_game_pids(system)
+    except ValueError as err:
+        sys.exit(f"{what}: cannot confirm {GAME_EXE} is closed ({err})")
+    if pids:
+        joined = ", ".join(str(p) for p in pids)
+        sys.exit(f"{what}: {GAME_EXE} is running (pid {joined}); close the game first")
 
 
 def installer(argv: List[str]) -> Optional[int]:
@@ -87,7 +116,105 @@ def _retick_plugin_lines(lines: Sequence[str], unticked_entries: Sequence[dict])
     return out
 
 
+def validate_active_load_order(
+    lines: Sequence[str],
+    *,
+    data_dir: str,
+    stage_dir: Optional[str] = None,
+    plan: Optional[dict] = None,
+    pinned_map_markers_sha256: Optional[str] = None,
+    map_markers_plugin_name: str = MAP_MARKERS_PLUGIN,
+) -> List[str]:
+    """Validate active (`*`) FO4SF plugins in `lines` against `C3` load-order and single-override rules."""
+    problems: List[str] = []
+    active_ours = [p for p in loadset.active_plugins(lines) if loadset.ours(p)]
+    active_low = [p.casefold() for p in active_ours]
+    mm_low = map_markers_plugin_name.casefold()
+    hm_low = HOME_MASTER_PLUGIN.casefold()
+    hr_low = HOME_REG_PLUGIN.casefold()
+
+    if mm_low in active_low:
+        mm_idx = active_low.index(mm_low)
+        mm_disp = active_ours[mm_idx]
+        for tgt_low, tgt_disp in ((hm_low, HOME_MASTER_PLUGIN), (hr_low, HOME_REG_PLUGIN)):
+            if tgt_low in active_low and active_low.index(tgt_low) < mm_idx:
+                problems.append(
+                    f"invalid load order: {mm_disp} loads after {tgt_disp}; "
+                    f"{HOME_MASTER_PLUGIN} and {HOME_REG_PLUGIN} must load after {mm_disp}"
+                )
+    if hm_low in active_low and hr_low in active_low and active_low.index(hr_low) < active_low.index(hm_low):
+        problems.append(f"invalid load order: {HOME_REG_PLUGIN} loads before its master {HOME_MASTER_PLUGIN}")
+
+    stage_names = {p.casefold() for p in (plan.get("plugins") or ())} if (stage_dir and plan) else set()
+    plugin_paths: List[str] = []
+    for pname in active_ours:
+        plow = pname.casefold()
+        if stage_dir and plow in stage_names:
+            cand = os.path.join(stage_dir, pname)
+            if os.path.isfile(cand):
+                plugin_paths.append(cand)
+            else:
+                problems.append(f"staged plugin missing: {pname}")
+        else:
+            cand = os.path.join(data_dir, pname)
+            if os.path.isfile(cand):
+                plugin_paths.append(cand)
+            elif plow in (mm_low, hm_low, hr_low):
+                problems.append(f"active plugin missing in Data: {pname}")
+
+    pin_sha = (
+        pinned_map_markers_sha256
+        if pinned_map_markers_sha256 is not None
+        else (plan.get("map_markers_sha256") if plan else None)
+    )
+    ov_probs = hspec.check_load_order_overrides(
+        plugin_paths,
+        allow_map_markers_pair=True,
+        pinned_map_markers_sha256=pin_sha,
+        map_markers_plugin_name=map_markers_plugin_name,
+    )
+    for op in ov_probs:
+        if op not in problems:
+            problems.append(op)
+    return problems
+
+
+def _load_pinned_map_markers_info(data_dir: str) -> Tuple[Optional[str], str]:
+    swap_path = os.path.join(data_dir, SWAP_RECORD)
+    if os.path.isfile(swap_path):
+        try:
+            with open(swap_path, encoding="utf-8") as f:
+                swap_doc = json.load(f)
+            if isinstance(swap_doc, dict) and (
+                "map_markers_sha256" in swap_doc or "map_markers_plugin" in swap_doc
+            ):
+                return (
+                    swap_doc.get("map_markers_sha256"),
+                    swap_doc.get("map_markers_plugin") or MAP_MARKERS_PLUGIN,
+                )
+        except (OSError, ValueError):
+            pass
+
+    rec_path = os.path.join(data_dir, RECORD)
+    if os.path.isfile(rec_path):
+        try:
+            with open(rec_path, encoding="utf-8") as f:
+                rec_doc = json.load(f)
+            exp_dir = rec_doc.get("exp_dir") if isinstance(rec_doc, dict) else None
+            if exp_dir and os.path.isfile(os.path.join(exp_dir, "plan.json")):
+                plan_doc = make_home_planet.load_plan(exp_dir)
+                return (
+                    plan_doc.get("map_markers_sha256"),
+                    plan_doc.get("map_markers_plugin") or MAP_MARKERS_PLUGIN,
+                )
+        except (OSError, ValueError):
+            pass
+
+    return None, MAP_MARKERS_PLUGIN
+
+
 def install(a: argparse.Namespace) -> int:
+    ensure_game_closed("home world not installed")
     stage_dir = os.path.abspath(a.dir)
     data_dir = os.path.abspath(os.path.join(a.starfield, "Data"))
     try:
@@ -114,6 +241,23 @@ def install(a: argparse.Namespace) -> int:
     swap_path = os.path.join(data_dir, SWAP_RECORD)
     relaunch = os.path.exists(rec_path)
 
+    mm_plugin_name = plan.get("map_markers_plugin") or MAP_MARKERS_PLUGIN
+    try:
+        planned_activated, _, _ = exp_install.plan_activation(pre_lines, plan["plugins"])
+    except ValueError as exc:
+        sys.exit(f"home world not installed: {exc}")
+    planned_swapped = pre_lines if relaunch else _untick_plugin_lines(planned_activated, MARS_PLUGIN)[0]
+    load_errs = validate_active_load_order(
+        planned_swapped,
+        data_dir=data_dir,
+        stage_dir=None if relaunch else stage_dir,
+        plan=plan,
+        pinned_map_markers_sha256=plan.get("map_markers_sha256"),
+        map_markers_plugin_name=mm_plugin_name,
+    )
+    if load_errs:
+        sys.exit("home world not installed: " + "; ".join(load_errs))
+
     rc = installer(
         ["install", "--exp-dir", stage_dir, "--starfield", a.starfield, "--pack", "--plugins", ",".join(plan["plugins"])]
         + (["--prepacked", a.prepacked] if getattr(a, "prepacked", "") else [])
@@ -126,6 +270,15 @@ def install(a: argparse.Namespace) -> int:
         dual_after = check_no_dual_host_active(cur_lines)
         if dual_after:
             sys.exit(f"home world relaunch refused: {dual_after}")
+        relaunch_errs = validate_active_load_order(
+            cur_lines,
+            data_dir=data_dir,
+            plan=plan,
+            pinned_map_markers_sha256=plan.get("map_markers_sha256"),
+            map_markers_plugin_name=mm_plugin_name,
+        )
+        if relaunch_errs:
+            sys.exit("home world relaunch refused: " + "; ".join(relaunch_errs))
         return 0
 
     try:
@@ -135,6 +288,15 @@ def install(a: argparse.Namespace) -> int:
         dual_after = check_no_dual_host_active(swapped_lines)
         if dual_after:
             raise ValueError(dual_after)
+        post_errs = validate_active_load_order(
+            swapped_lines,
+            data_dir=data_dir,
+            plan=plan,
+            pinned_map_markers_sha256=plan.get("map_markers_sha256"),
+            map_markers_plugin_name=mm_plugin_name,
+        )
+        if post_errs:
+            raise ValueError("; ".join(post_errs))
         if swapped_lines != after_lines:
             exp_install.write_plugins(p_txt, swapped_lines, bom, nl, after_raw)
         swap_payload = {
@@ -143,6 +305,8 @@ def install(a: argparse.Namespace) -> int:
             "original_plugins_b64": base64.b64encode(pre_raw).decode("ascii") if pre_raw is not None else None,
             "original_plugins_sha256": hashlib.sha256(pre_raw).hexdigest() if pre_raw is not None else None,
             "unticked": unticked,
+            "map_markers_plugin": plan.get("map_markers_plugin"),
+            "map_markers_sha256": plan.get("map_markers_sha256"),
         }
         deployment.write_manifest(swap_path, swap_payload)
     except Exception as exc:
@@ -158,6 +322,7 @@ def install(a: argparse.Namespace) -> int:
 
 
 def uninstall(a: argparse.Namespace) -> int:
+    ensure_game_closed("home world not uninstalled")
     data_dir = os.path.abspath(os.path.join(a.starfield, "Data"))
     rec_path = os.path.join(data_dir, RECORD)
     swap_path = os.path.join(data_dir, SWAP_RECORD)
@@ -197,13 +362,37 @@ def uninstall(a: argparse.Namespace) -> int:
 
 
 def order_cmd(a: argparse.Namespace) -> int:
+    data_dir = os.path.abspath(os.path.join(a.starfield, "Data"))
     p_txt = exp_install.plugins_txt()
     lines, _, _ = exp_install.read_plugins(p_txt)
     dual_err = check_no_dual_host_active(lines)
     if dual_err:
         print(f"not ordered: {dual_err}")
         return 6
-    return installer(["order", "--starfield", a.starfield]) or 0
+    pinned_mm_sha, pinned_mm_plugin = _load_pinned_map_markers_info(data_dir)
+    load_errs = validate_active_load_order(
+        lines,
+        data_dir=data_dir,
+        pinned_map_markers_sha256=pinned_mm_sha,
+        map_markers_plugin_name=pinned_mm_plugin,
+    )
+    if load_errs:
+        print("not ordered: " + "; ".join(load_errs))
+        return 6
+    rc = installer(["order", "--starfield", a.starfield]) or 0
+    if rc != 0:
+        return rc
+    after_lines, _, _ = exp_install.read_plugins(p_txt)
+    after_errs = validate_active_load_order(
+        after_lines,
+        data_dir=data_dir,
+        pinned_map_markers_sha256=pinned_mm_sha,
+        map_markers_plugin_name=pinned_mm_plugin,
+    )
+    if after_errs:
+        print("not ordered: " + "; ".join(after_errs))
+        return 6
+    return 0
 
 
 def active_cmd(a: argparse.Namespace) -> int:

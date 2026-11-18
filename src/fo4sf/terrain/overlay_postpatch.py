@@ -17,6 +17,7 @@ import math
 import os
 import struct
 import sys
+import tempfile
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import zlib
 
@@ -45,6 +46,27 @@ def encode_subrecord(sig: bytes, payload: bytes) -> bytes:
 
 def _zstr(text: str) -> bytes:
     return text.encode("cp1252") + b"\x00"
+
+
+def _atomic_write_bytes(path: str, data: bytes) -> None:
+    """Write `data` to a sibling temp file and atomically `os.replace` onto `path`."""
+    abs_p = os.path.abspath(path)
+    parent = os.path.dirname(abs_p)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".fo4sf-opp-", dir=parent)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp_path, abs_p)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def _atomic_write_json(path: str, payload: Any, *, indent: int = 2) -> None:
+    raw = (json.dumps(payload, indent=indent) + "\n").encode("utf-8")
+    _atomic_write_bytes(path, raw)
 
 
 class RawRecord:
@@ -373,8 +395,7 @@ def patch_overlay_plugin(
         plug.set_hedr(rec_count + (1 if created_group else 0) + len(ltex_records), max_local)
 
     data = plug.serialize()
-    with open(plugin_path, "wb") as f:
-        f.write(data)
+    _atomic_write_bytes(plugin_path, data)
     return patched_counts
 
 
@@ -440,15 +461,13 @@ def patch_mars_plugin_extra_worlds(
     plug.items = walk_patch(plug.items)
     if patched_pndt != 1:
         raise ValueError(f"Expected 1 PNDT record in {mars_plugin_path}, found {patched_pndt}")
-    with open(mars_plugin_path, "wb") as f:
-        f.write(plug.serialize())
+    _atomic_write_bytes(mars_plugin_path, plug.serialize())
 
     with open(overlays_params_path, encoding="utf-8") as f:
         prm = json.load(f)
     if prm.get("mars"):
         prm["mars"]["extra_worlds"] = [dict(ew) for ew in extra_worlds]
-        with open(overlays_params_path, "w", encoding="utf-8") as f:
-            json.dump(prm, f, indent=1)
+        _atomic_write_json(overlays_params_path, prm, indent=1)
     return {"added_entries": len(resolved_entries), "masters": plug.masters()}
 
 
@@ -644,8 +663,7 @@ def verify_dlc_terrain_stage(
     }
     out_json = os.path.join(stage_dir, "dlc_terrain_verification.json")
     refuse_unsafe_output_path(out_json)
-    with open(out_json, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2)
+    _atomic_write_json(out_json, report, indent=2)
     return report
 
 

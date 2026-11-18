@@ -1,16 +1,17 @@
-"""Stage and verify our isolated home star system, home planet, custom neutral biome (`FO4SFHome.esm`),
+"""Stage and verify our isolated home star system, home planet, `"no-life, Starfield-patterned"` biome
+(`FO4SFHome.esm`, until `WB1`–`WB3` replace the remaining Starfield climate/sky/pattern/ground references),
 and single host registration plugin (`FO4TerrainCore_Home.esm`), plus `WL1` location-lever variants.
 
 Usage:
   python scripts/planet/make_home_planet.py stage --data <Starfield Data> --out <stage dir>
       [--worlds Commonwealth] [--star-name "FO4SF Home"] [--planet-name "Earth"]
       [--temp 15.0] [--sky ATMO_Jemison|ATMO_Earth] [--lever-keywords K1,K2]
-      [--world-plugin-dir <extra dir>]
+      [--world-plugin-dir <extra dir>] [--map-markers <FO4SFMapMarkers.esm>]
   python scripts/planet/make_home_planet.py check --stage <stage dir> [--data <Starfield Data>]
   python scripts/planet/make_home_planet.py stage-wl1 --data <Starfield Data> --out <variants dir>
 
 Refuses any output path inside a Git worktree or inside a game installation directory (`R4`).
-Never modifies `FO4TerrainCore.esm` or any file in `<Starfield Data>`.
+Never modifies `FO4TerrainCore.esm`, `FO4SFMapMarkers.esm`, or any file in `<Starfield Data>`.
 """
 from __future__ import annotations
 
@@ -101,18 +102,26 @@ def stage_one(
     sky_atmo: str = hspec.DEFAULT_SKY_ATMO,
     lever_keywords: Sequence[str] = (),
     extra_world_dirs: Sequence[str] = (),
+    map_markers_path: str = "",
 ) -> Dict[str, Any]:
     final = os.path.abspath(out_dir)
     sf_path = os.path.join(os.path.abspath(data_dir), "Starfield.esm")
     if not os.path.isfile(sf_path):
         raise FileNotFoundError(f"Starfield.esm not found in {data_dir}")
 
+    mm_abs = os.path.abspath(map_markers_path) if map_markers_path else ""
+    if mm_abs and not os.path.isfile(mm_abs):
+        raise FileNotFoundError(f"map-markers plugin not found: {map_markers_path}")
+
     search_dirs = [os.path.abspath(d) for d in extra_world_dirs if d] + [os.path.abspath(data_dir)]
-    refuse_unsafe_output_path(final, [sf_path] + search_dirs)
+    guard_inputs = [sf_path] + ([mm_abs] if mm_abs else []) + search_dirs
+    refuse_unsafe_output_path(final, guard_inputs)
     if os.path.exists(final):
         raise FileExistsError(f"{final} already exists; stage into a new folder")
 
     sf_sha_before = sha256_file(sf_path)
+    mm_sha_before = sha256_file(mm_abs) if mm_abs else None
+    mm_name = os.path.basename(mm_abs) if mm_abs else None
     world_plugin_pins_before: Dict[str, str] = {}
 
     partial = _new_partial_dir(final)
@@ -135,12 +144,15 @@ def stage_one(
             world_plugin_dirs=search_dirs,
             world_keys=worlds,
             lever_keywords=lever_keywords,
+            map_markers_path=mm_abs or None,
         )
         reg_path = os.path.join(partial, hspec.HOME_REGISTRATION)
         reg_writer.write(reg_path, compress=False)
 
     # Pin every referenced world plugin (e.g. FO4TerrainCore.esm) and verify zero modification
     for mname in reg_report["masters"][2:]:
+        if mm_name and mname.lower() == mm_name.lower():
+            continue
         for sdir in search_dirs:
             cand = os.path.join(sdir, mname)
             if os.path.isfile(cand):
@@ -157,12 +169,15 @@ def stage_one(
         data_dir=data_dir,
         expected_world_count=len(worlds),
         expected_levers=lever_keywords,
+        map_markers_path=mm_abs or None,
     )
     if problems:
         raise records.PlanetError(f"home stage check failed: {problems}")
 
     if sha256_file(sf_path) != sf_sha_before:
         raise RuntimeError("Starfield.esm changed during stage")
+    if mm_abs and sha256_file(mm_abs) != mm_sha_before:
+        raise RuntimeError(f"{mm_name} changed during stage")
     for mname, old_sha in world_plugin_pins_before.items():
         for sdir in search_dirs:
             cand = os.path.join(sdir, mname)
@@ -173,7 +188,17 @@ def stage_one(
 
     plugins = [hspec.HOME_MASTER, hspec.HOME_REGISTRATION]
     outputs = stage_files_inventory(partial)
-    plan = {
+    inputs_doc: Dict[str, Any] = {
+        "Starfield.esm": {"sha256": sf_sha_before, "bytes": os.path.getsize(sf_path)},
+        "world_plugins": world_plugin_pins_before,
+    }
+    if mm_abs and mm_name and mm_sha_before:
+        inputs_doc["map_markers"] = {
+            "plugin": mm_name,
+            "sha256": mm_sha_before,
+            "bytes": os.path.getsize(mm_abs),
+        }
+    plan: Dict[str, Any] = {
         "kind": PLAN_KIND,
         "version": 1,
         "plugins": plugins,
@@ -185,15 +210,15 @@ def stage_one(
         "planet_name": planet_name,
         "temp_c": float(temp_c),
         "sky_atmo": sky_atmo,
+        "biome_profile": "no-life, Starfield-patterned",
         "system_id": master_report["system_id"],
         "planet_id": master_report["planet_id"],
         "biome_formid": reg_report["biome_formid"],
         "surface_location_formid": reg_report["surface_parent_formid"],
         "biome_map": biome_map_report,
-        "inputs": {
-            "Starfield.esm": {"sha256": sf_sha_before, "bytes": os.path.getsize(sf_path)},
-            "world_plugins": world_plugin_pins_before,
-        },
+        "map_markers_plugin": mm_name,
+        "map_markers_sha256": mm_sha_before,
+        "inputs": inputs_doc,
         "outputs": outputs,
     }
     write_json(os.path.join(partial, "field_sources.json"), master_report["field_sources"])
@@ -279,6 +304,16 @@ def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] =
             wp = os.path.join(data_dir, wname)
             if os.path.isfile(wp) and sha256_file(wp) != wsha:
                 problems.append(f"{wname} changed since stage ({sha256_file(wp)} != {wsha})")
+        pinned_mm_sha = plan.get("map_markers_sha256")
+        pinned_mm_name = plan.get("map_markers_plugin") or hspec.MAP_MARKERS_PLUGIN
+        mm_check_path: Optional[str] = None
+        if pinned_mm_sha:
+            cand_mm = os.path.join(data_dir, pinned_mm_name)
+            if os.path.isfile(cand_mm):
+                mm_check_path = cand_mm
+                actual_mm_sha = sha256_file(cand_mm)
+                if actual_mm_sha != pinned_mm_sha:
+                    problems.append(f"{pinned_mm_name} changed since stage ({actual_mm_sha} != {pinned_mm_sha})")
         chk_probs, _summary = hspec.check_home_stage(
             sf_path,
             master_path,
@@ -286,6 +321,7 @@ def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] =
             data_dir=data_dir,
             expected_world_count=len(plan.get("worlds", ["Commonwealth"])),
             expected_levers=plan.get("lever_keywords", ()),
+            map_markers_path=mm_check_path,
         )
         problems.extend(chk_probs)
 
@@ -317,6 +353,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
         sky_atmo=args.sky,
         lever_keywords=levers,
         extra_world_dirs=extra_dirs,
+        map_markers_path=args.map_markers,
     )
     print(
         f"staged {os.path.abspath(args.out)}: plugins={plan['plugins']}, "
@@ -362,6 +399,7 @@ def cmd_stage_wl1(args: argparse.Namespace) -> int:
             worlds=worlds,
             lever_keywords=levers,
             extra_world_dirs=extra_dirs,
+            map_markers_path=getattr(args, "map_markers", ""),
         )
         inspected = sf_location_census.inspect_host_plugins(
             sf_path,
@@ -418,6 +456,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     st.add_argument("--sky", choices=hspec.SKY_ATMO_CHOICES, default=hspec.DEFAULT_SKY_ATMO)
     st.add_argument("--lever-keywords", default="", help="Comma-separated WL1 lever keyword EditorIDs")
     st.add_argument("--world-plugin-dir", default="", help="Optional extra folder searched for world ESMs before --data")
+    st.add_argument(
+        "--map-markers",
+        default="",
+        help="Optional FO4SFMapMarkers.esm path: merge core LCTN LCSR rows, add master, and pin sha256 in plan.json",
+    )
 
     ck = sub.add_parser("check", help="Offline verification of a staged home-world folder")
     ck.add_argument("--stage", required=True, help="Path to staged home-world directory")
@@ -428,6 +471,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     wl.add_argument("--out", required=True, help="Output directory for WL1 variants")
     wl.add_argument("--worlds", default="Commonwealth")
     wl.add_argument("--world-plugin-dir", default="")
+    wl.add_argument("--map-markers", default="", help="Optional FO4SFMapMarkers.esm path to merge LCSR rows and pin sha256")
 
     args = ap.parse_args(argv)
     try:

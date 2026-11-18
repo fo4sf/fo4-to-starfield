@@ -119,10 +119,95 @@ Read-only inspection of `Starfield.exe` (1.16.244), `CreationKit.exe`, `Starfiel
      - Second, even inside `jemison.biom` itself, both polar grid centers `(128, 128)` hold `0x000FD00D` (`FrozenLife07`).
 4. **Why naming our home planet `"Earth"` also requires overriding `earth.biom` AND owning `PPBD`:**
    - Vanilla `Starfield - PlanetData.ba2` already ships `planetdata/biomemaps/earth.biom` listing `0x000F1169` (`DesertSandyNoLifeEarth`) and `0x0028791F` (`FrozenNoLifeEarth`).
-   - In `FO4SFHome.esm` ([home_planet_spec.py](../../src/fo4sf/planet/home_planet_spec.py) and [biom.py](../../src/fo4sf/planet/biom.py)), we:
-     1. Author our own `BIOM` record `FO4SFHomeBiome` (`0x01000806`), assigning slots `0..6` `LNAM` to plain neutral `LDirtFootprints01` (`0x001235C2`) with `0` `GCVR` ground cover, `NAM2`/`NAM3`/`NAM4` to `PCM_BiomeDensity_None` (`0x002EDD3B`), `0` `GNAM` procedural objects, and `0` `NAM1` resources;
+     - In `FO4SFHome.esm` ([home_planet_spec.py](../../src/fo4sf/planet/home_planet_spec.py) and [biom.py](../../src/fo4sf/planet/biom.py)), we:
+     1. Author our own `"no-life, Starfield-patterned"` `BIOM` record `FO4SFHomeBiome` (`0x01000806`), assigning slots `0..6` `LNAM` to plain neutral `LDirtFootprints01` (`0x001235C2`) with `0` `GCVR` ground cover, `NAM2`/`NAM3`/`NAM4` to `PCM_BiomeDensity_None` (`0x002EDD3B`), `0` `GNAM` procedural objects, and `0` `NAM1` resources (until `WB1`–`WB3` replace its Starfield climate, sky, terrain pattern, surface tree, and ground texture references with our own);
      2. Set `FO4SFHome.esm` `PNDT` (`0x01000805`) `PPBD` to contain **only** `0x01000806` (`FO4SFHomeBiome`, `100%` weight, `0` fauna, `0` flora, `0` resources) and `FO4TerrainCore_Home.esm` `WRLD` `BNAM` to `0x01000806`, so both `.biom` lookup and default-biome fallback resolve exclusively to `FO4SFHomeBiome`;
      3. Synthesise a uniform `655,406`-byte `.biom` file (`magic 0x0105`, `1` biome `0x01000806`, `0` resource bytes) staged at both `Data/PlanetData/BiomeMaps/<name_lower>.biom` (`VERIFIED_ENGINE_ANAM_PATH`, packed into `FO4SFHome - Main.ba2`) and `Data/PlanetData/BiomeMaps/fo4sfhome.esm/<name_lower>.biom` (`TEST-STATION` until confirmed in game by Claude (PC)).
+
+### 3.2 Complete Starfield Form & Asset Reference Audit (`C2`)
+
+Until `WB1`–`WB3` land, `FO4SFHomeBiome` (`BIOM 0x01000806`) is **`"no-life, Starfield-patterned"`**: procedural fauna, flora, rocks, POIs, and resource deposits are zeroed, while climate, sky atmosphere, surface tree, terrain pattern, ground land texture, star/planet sphere meshes, and one pass-through water reference on `WRLD` still point at `Starfield.esm` forms or Starfield meshes. Every external `Starfield.esm` form and mesh asset referenced across the `7` records of `FO4SFHome.esm` (`STDT 0x800`, `LCTN 0x801..0x804`, `PNDT 0x805`, `BIOM 0x806`) and the `3` override records of `FO4TerrainCore_Home.esm` (`PNDT 0x01000805`, `WRLD 0x02000803`, `LCTN 0x02000802`) is audited below:
+
+| Plugin & Record | Subrecord / Field | `Starfield.esm` Target (`Type`, `EditorID`, `FormID` / Asset Path) | Classification | CLI Parameter Today |
+|---|---|---|---|---|
+| `FO4SFHome.esm` `STDT 0x800` (`FO4SFHomeStar`) | `TESPlanetModel_Component / MODL` | Star mesh `Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet_star.nif` | `brings content` | None |
+| `FO4SFHome.esm` `STDT 0x800` (`FO4SFHomeStar`) | `KWDA[0]` | `KYWD` `Star_Class_G` (`0x00121A19`) | `describes a trait` | None |
+| `FO4SFHome.esm` `STDT 0x800` (`FO4SFHomeStar`) | `PNAM` | `SUNP` `SunPresetTypeG2` (`0x00134249`) | `brings content` | None |
+| `FO4SFHome.esm` `LCTN 0x801` (`SFO4SFHome`) | `KWDA[0]` | `KYWD` `LocTypeStarSystem` (`0x0000149F`) | `describes a trait` | None |
+| `FO4SFHome.esm` `LCTN 0x801` (`SFO4SFHome`) | `PNAM` (parent location) | `LCTN` `Universe` (`0x0001A53A`) | `describes a trait` | None |
+| `FO4SFHome.esm` `LCTN 0x802` (`SFO4SFHome_PEarth`) | `KWDA[0]` | `KYWD` `LocTypePlanet` (`0x000014A0`) | `describes a trait` | None |
+| `FO4SFHome.esm` `LCTN 0x802` (`SFO4SFHome_PEarth`) | `KWDA[1]` | `KYWD` `LocTypeMajorOrbital` (`0x00070A54`) | `describes a trait` | None |
+| `FO4SFHome.esm` `LCTN 0x803` (`SFO4SFHome_PEarth_Orbit`) | `KWDA[0]` | `KYWD` `LocTypeOrbit` (`0x00016504`) | `describes a trait` | None |
+| `FO4SFHome.esm` `LCTN 0x804` (`SFO4SFHome_PEarth_Surface`) | `KWDA[0]` | `KYWD` `LocTypeSurface` (`0x00016503`) | `describes a trait` | None |
+| `FO4SFHome.esm` `LCTN 0x804` (`SFO4SFHome_PEarth_Surface`) | `KWDA[1..]` (optional `WL1` levers) | `KYWD` `PCM_OverlayExclusionZone` (`0x001984BD`), `PCM_OverlayExclusionZone_HumanLocations` (`0x000C21AD`), `LocTypeNoPCMScanTreeContent` (`0x0011D575`), `LocTypeNoPCMCreatureContent` (`0x002194F4`), `LocTypeSENotAllowed` (`0x002253D1`) | `describes a trait` | `--lever-keywords` |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `TESPlanetModel_Component / MODL` | Planet sphere mesh `Data/Meshes/Planets/HoudiniPlanets/HoudiniPlanet.nif` | `brings content` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[0]` | `KYWD` `PlanetAtmosphereType05O2` (`0x00295EA4`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[1]` | `KYWD` `PlanetPressure02Terrestrial` (`0x00295EC0`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[2]` | `KYWD` `PlanetTemperature03Temperate` (`0x00295EC5`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[3]` | `KYWD` `PlanetGravity01Terrestrial` (`0x00295EBC`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[4]` | `KYWD` `PlanetWaterQuality01Safe` (`0x00295EB8`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[5]` | `KYWD` `PlanetWaterAbundance02Terrestrial` (`0x00295ECA`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[6]` | `KYWD` `PlanetFaunaAbundance00None` (`0x00295EAF`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[7]` | `KYWD` `PlanetFloraAbundance00None` (`0x00295EB4`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[8]` | `KYWD` `PlanetType07Rock` (`0x00295ED0`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[9]` | `KYWD` `PlanetMagnetosphereType04Strong` (`0x00290FCD`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BGSKeywordForm_Component / KWDA[10]` | `KYWD` `LocTypeNoPCMScanTreeContent` (`0x0011D575`) | `describes a trait` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `FNAM` (top-level surface tree) | `SFTR` `EarthSurfaceTree` (`0x001B6C63`) | `brings content` | None |
+| `FO4SFHome.esm` `PNDT 0x805` (`EarthPlanetData`) | `BDST..BDED / INAM` (sky atmosphere) | `ATMO` `ATMO_Jemison` (`0x0000C010`, default) or `ATMO_Earth` (`0x0000C9D1`) | `brings content` | `--sky` (`ATMO_Jemison` \| `ATMO_Earth`) |
+| `FO4SFHome.esm` `BIOM 0x806` (`FO4SFHomeBiome`) | `ENAM` (climate) | `CLMT` `ClimateUniqueNewAtlantis` (`0x0024E982`; fallback `DefaultClimate` `0x0000015F`) | `brings content` | None |
+| `FO4SFHome.esm` `BIOM 0x806` (`FO4SFHomeBiome`) | `NNAM` (terrain pattern style) | `PTST` `PatternStyleHillsRockyFieldsRocky` (`0x0023DE7E`) | `brings content` | None |
+| `FO4SFHome.esm` `BIOM 0x806` (`FO4SFHomeBiome`) | `LNAM[0..6]` (all `7` land-texture slots) | `LTEX` `LDirtFootprints01` (`0x001235C2`, `ground_cover = 0x00000000`) | `brings content` | None |
+| `FO4SFHome.esm` `BIOM 0x806` (`FO4SFHomeBiome`) | `NAM2`, `NAM3`, `NAM4` (PCM density) | `GLOB` `PCM_BiomeDensity_None` (`0x002EDD3B`) | `describes a trait` | None |
+| `FO4TerrainCore_Home.esm` `PNDT 0x01000805` (override) | Identical to `FO4SFHome.esm` `PNDT 0x805` + `CNAM` | Same `MODL`, `11` `KWDA` traits, `EarthSurfaceTree`, and `ATMO` as `PNDT 0x805` (`CNAM` points only at FO4SF `WRLD`s) | Same per field as `PNDT 0x805` | `--sky` (on `stage`) |
+| `FO4TerrainCore_Home.esm` `WRLD 0x02000803` (override) | `NAM3` (pass-through LOD water form) | `WATR` `WaterClear` (`0x00000018`, inherited from `LC172World` via `FO4TerrainCore.esm`) | `brings content` | None |
+| `FO4TerrainCore_Home.esm` `LCTN 0x02000802` (override) | `KWDA[0]` | `KYWD` `LocTypeOverlay` (`0x002CA99D`) | `describes a trait` | None |
+| `FO4TerrainCore_Home.esm` `LCTN 0x02000802` (override) | `KWDA[1..]` (optional `WL1` levers) | `KYWD`s from `LEVER_KEYWORD_EDIDS` (`0x001984BD`, `0x000C21AD`, `0x0011D575`, `0x002194F4`, `0x002253D1`) | `describes a trait` | `--lever-keywords` |
+| `FO4TerrainCore_Home.esm` `LCTN 0x02000802` (override) | `LCSR[*].lcrt` (location ref types) | `LCRT` `MapMarkerRefType` (`0x0002271F`) on core rows; plus `ShipLandingMarkerRefType` (`0x00009105`) / `ShipLandingMarkerRefType_Large` (`0x00009102`) when `--map-markers` includes landing rows | `describes a trait` | `--map-markers` (merges `LCSR` rows) |
+
+### 3.3 `FO4TerrainCore_Home.esm` `WRLD` & `LCTN` Pass-Through Subrecord Audit (`LC172World` Lineage)
+
+`dotnet/TerrainOverlays` originally constructed `FO4TerrainCore.esm`'s `WRLD` (`FO4Core_Commonwealth`, `0x01000803`) and `LCTN` (`FO4Core_CommonwealthLocation`, `0x01000802`) by duplicating `Starfield.esm`'s `LC172World` (`0x0002DF8C`) and `LC172WorldLocation` (`0x003807BE`), replacing selected fields, and leaving the remaining subrecords intact (`OFST` and `CLSZ` were stripped; `CNAM` climate, `ZNAM` music, and `WNAM` parent world are absent on `LC172World` and therefore absent on `FO4TerrainCore.esm`). `FO4TerrainCore_Home.esm` (`_remap_wrld_override` and `_remap_lctn_override` in [home_planet_spec.py](../../src/fo4sf/planet/home_planet_spec.py)) rewrites the host-binding fields and passes every other subrecord through from `FO4TerrainCore.esm`:
+
+#### `WRLD` Override (`FO4Core_Commonwealth`, `0x02000803`)
+
+| Subrecord | `LC172World` (`0x0002DF8C`) | `FO4TerrainCore.esm` (`0x01000803`) | `FO4TerrainCore_Home.esm` (`0x02000803`) | Still Carries `LC172World` / Starfield Value? |
+|---|---|---|---|---|
+| `EDID` | `'LC172World'` | `'FO4Core_Commonwealth'` | `'FO4Core_Commonwealth'` | **No** (FO4SF identifier) |
+| `BGSWorldSpaceOverlay_Component / SNAM` | `0` (`i32`, Sol) | `0` (`i32`, Sol) | Home `system_id` (default `0x000F04F2`) | **No** (overwritten by `FO4TerrainCore_Home.esm`) |
+| `BGSWorldSpaceOverlay_Component / PNAM` | `4` (`i32`, Mars) | `4` (`i32`, Mars) | Home `planet_id` (`1`) | **No** (overwritten by `FO4TerrainCore_Home.esm`) |
+| `BGSWorldSpaceOverlay_Component / BNAM` | `0x00102382` (`OverlayBlockLC172World`) | `0x01000801` (`FO4Core_CommonwealthBlock`) | `0x02000801` (`FO4Core_CommonwealthBlock`) | **No** (remapped to our core `SFBK`) |
+| `FULL` | Localized string ID `0x0000FC86` | `'Commonwealth 00 (FO4 terrain)'` | `'Commonwealth 00 (FO4 terrain)'` | **No** (FO4SF plain name) |
+| `XLCN` | `0x003807BE` (`LC172WorldLocation`) | `0x01000802` (`FO4Core_CommonwealthLocation`) | `0x02000802` (`FO4Core_CommonwealthLocation`) | **No** (remapped to our core `LCTN`) |
+| `BNAM` (top-level biome) | `0x002A3777` (`DesertRockyNoLifeMars`) | `0x002A3777` (`DesertRockyNoLifeMars`) | `0x01000806` (`FO4SFHomeBiome`) | **No** (overwritten by `FO4TerrainCore_Home.esm`) |
+| `NAM3` (LOD water form) | `0x00000018` (`WATR` `WaterClear`) | `0x00000018` (`WATR` `WaterClear`) | `0x00000018` (`WATR` `WaterClear`) | **YES — passed through from `LC172World` (`Starfield.esm` `WATR` `WaterClear`)** |
+| `NAM4` (LOD ocean water height) | `0.0` (`f32`) | `0.0` (`f32`) | `0.0` (`f32`) | **YES — passed through from `LC172World`** |
+| `DNAM` (default land, water heights) | `(-2048.0, -200.0)` (`2f`) | `(-2048.0, -200.0)` (`2f`) | `(-2048.0, -200.0)` (`2f`) | **YES — passed through from `LC172World`** |
+| `MNAM` (map usable bounds) | `16 B` all `0x00` | `16 B` all `0x00` | `16 B` all `0x00` | **YES — passed through from `LC172World`** |
+| `ONAM` (world map scale/offset) | `(1.0, 0.0, 0.0, 0.0)` (`16 B`) | `(1.0, 0.0, 0.0, 0.0)` (`16 B`) | `(1.0, 0.0, 0.0, 0.0)` (`16 B`) | **YES — passed through from `LC172World`** |
+| `NAMA` (distant LOD multiplier) | `1.0` (`f32`) | `1.0` (`f32`) | `1.0` (`f32`) | **YES — passed through from `LC172World`** |
+| `DATA` (worldspace flags) | `0x01` (`SmallWorld`) | `0x01` (`SmallWorld`) | `0x01` (`SmallWorld`) | **YES — passed through from `LC172World`** |
+| `FNAM` (overlay/procgen flags) | `0x00` | `0x00` | `0x00` (`ALLOWED_WRLD_FNAM_BITS`) | **Explicitly enforced to `0x00`** (`WL2`; matches `431 / 433` vanilla `WRLD`s) |
+| `NAM0` / `NAM9` (object bounds) | `(-200, -200)` / `(300, 300)` | `(-3200, -3200)` / `(3200, 3200)` | `(-3200, -3200)` / `(3200, 3200)` | **No** (`64 x 64`-cell Commonwealth bounds) |
+| `GNAM` (world gravity / LOD scalar) | `1.0` (`f32`) | `1.0` (`f32`) | `1.0` (`f32`) | **YES — passed through from `LC172World`** |
+| `XCLW` / `WHGT` | Empty `0 B` markers | Empty `0 B` markers | Empty `0 B` markers | **YES — passed through from `LC172World`** |
+| `HNAM` | `0x00` (`1 B`) | `0x00` (`1 B`) | `0x00` (`1 B`) | **YES — passed through from `LC172World`** |
+
+#### `LCTN` Override (`FO4Core_CommonwealthLocation`, `0x02000802`)
+
+| Subrecord | `LC172WorldLocation` (`0x003807BE`) | `FO4TerrainCore.esm` (`0x01000802`) | `FO4TerrainCore_Home.esm` (`0x02000802`) | Still Carries `LC172WorldLocation` / Starfield Value? |
+|---|---|---|---|---|
+| `EDID` | `'LC172WorldLocation'` | `'FO4Core_CommonwealthLocation'` | `'FO4Core_CommonwealthLocation'` | **No** (FO4SF identifier) |
+| `LCSR` | `2` rows (`40 B`, `LC172` refs) | `4` rows (`80 B`, core `MapMarkerRefType` `0x0002271F` refs) | `4` core rows (or `312` merged rows with `--map-markers`) | **Partially** (`REFR`/`WRLD` are FO4SF; `LCRT` uses `Starfield.esm` `0x0002271F`, plus `0x00009102`/`0x00009105` if `--map-markers` has landing rows) |
+| `LCID` | `0x003E5E12` (`4 B`) | Empty (`0 B`, cleared by `TerrainOverlays`) | Empty (`0 B`) | **No** (cleared) |
+| `FULL` | Localized string ID `0x0002EF64` | `'Commonwealth 00 (FO4 terrain)'` | `'Commonwealth 00 (FO4 terrain)'` | **No** (FO4SF plain name) |
+| `KSIZ` + `KWDA` | `1`: `LocTypeOverlay` (`0x002CA99D`) | `1`: `LocTypeOverlay` (`0x002CA99D`) | `LocTypeOverlay` (`0x002CA99D`) + `--lever-keywords` | **Trait keyword(s) from `Starfield.esm`** (explicitly set by `_remap_lctn_override`) |
+| `DATA` (faction, rank, min/max level, flags) | `0000000000001000` (`max_level = 16`) | `0000000000001000` (`max_level = 16`) | `0000000000001000` (`max_level = 16`) | **YES — passed through unchanged from `LC172WorldLocation`** |
+| `PNAM` (parent location) | `0x0001B736` (`SSol_PMars_Surface`) | `0x0001B736` (`SSol_PMars_Surface`) | `0x01000804` (`SFO4SFHome_PEarth_Surface`) | **No** (overwritten by `FO4TerrainCore_Home.esm`) |
+| `RNAM` (location radius) | `0` (`00000000`) | `0` (`00000000`) | `0` (`00000000`) | **YES — passed through from `LC172WorldLocation`** |
+| `ANAM` (actor fade / scalar) | `1.0` (`0000803f`) | `1.0` (`0000803f`) | `1.0` (`0000803f`) | **YES — passed through from `LC172WorldLocation`** |
+| `TNAM` | `0` (`00000000`) | `0` (`00000000`) | `0` (`00000000`) | **YES — passed through from `LC172WorldLocation`** |
+| `XNAM` (system ID) | `-1` (`0xFFFFFFFF`) | `-1` (`0xFFFFFFFF`) | Home `system_id` (default `0x000F04F2`) | **No** (overwritten by `FO4TerrainCore_Home.esm`) |
+| `YNAM` (planet ID) | `-3` (`0xFFFFFFFD`) | `-3` (`0xFFFFFFFD`) | Home `planet_id` (`1`) | **No** (overwritten by `FO4TerrainCore_Home.esm`) |
 
 ---
 
@@ -138,4 +223,4 @@ Measured across all `433` `WRLD` records in `Starfield.esm` (`scripts/terrain/sf
 | Bit 2 (`0x04`) | `Allow Cell Content` (`CreationKit.exe` worldspace flag string) | Set only on `LC030World` (`0x00260A7C`); absent on all major cities and `LC172World` | `1 / 433` | **No** (not used by `LC172World` or city overlays; unproven effect) |
 | Bits 3..7 (`0x08..0x80`) | Unassigned / reserved | Zero occurrences in `Starfield.esm` and no `CreationKit.exe` checkbox string | `0 / 433` | **No** |
 
-Accordingly, `ALLOWED_WRLD_FNAM_BITS` in [home_planet_spec.py](../../src/fo4sf/planet/home_planet_spec.py) is `0x00`, and `test_home_planet.py` asserts that `FO4TerrainCore_Home.esm` sets no unproven `FNAM` bits.
+Accordingly, `ALLOWED_WRLD_FNAM_BITS` in [home_planet_spec.py](../../src/fo4sf/planet/home_planet_spec.py) is `0x00`, and `test_planet_home.py` asserts that `FO4TerrainCore_Home.esm` sets no unproven `FNAM` bits.

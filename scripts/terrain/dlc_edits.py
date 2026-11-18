@@ -559,8 +559,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     full_path = Path(out_dir, "dlc_edits.json")
     refuse_unsafe_output_path(sum_path, input_paths=input_paths)
     refuse_unsafe_output_path(full_path, input_paths=input_paths)
-    sum_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    full_path.write_text(json.dumps(full_doc, indent=2) + "\n", encoding="utf-8")
+    for dst_p, doc in ((sum_path, summary), (full_path, full_doc)):
+        tmp_p = dst_p.with_name(dst_p.name + ".tmp")
+        tmp_p.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp_p, dst_p)
     print(json.dumps(summary, indent=2))
     return 0
 

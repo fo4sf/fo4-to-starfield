@@ -39,6 +39,35 @@ PLUGIN_NAME = "FO4WG1RedRocket.esm"
 MARS_PLUGIN_NAME = "FO4WG1RedRocket_Mars.esm"
 WORLD_EDID = "FO4WG1_Commonwealth"
 COC_EDID = "FO4WG1_RedRocketSpawn"
+MANIFEST_FILENAME = "wg1_ltex_manifest.json"
+
+
+def prepare_wg1_output_dir(out_arg: str, input_paths: Sequence[str] = ()) -> str:
+    """Validate `out_arg` against `path_guard` (including parent/child-of-input refusal) and refuse any existing
+    non-empty directory unless it already holds a valid `wg1_ltex_manifest.json` written by this tool (`C4`)."""
+    out_dir = str(refuse_unsafe_output_path(out_arg, input_paths=input_paths))
+    if os.path.exists(out_dir):
+        if not os.path.isdir(out_dir):
+            raise FileExistsError(f"refused: --out {out_dir!r} already exists and is not a directory")
+        if os.listdir(out_dir):
+            manifest_path = os.path.join(out_dir, MANIFEST_FILENAME)
+            if not os.path.isfile(manifest_path):
+                raise FileExistsError(
+                    f"refused: --out {out_dir!r} already exists and has no {MANIFEST_FILENAME}; stage into a new folder"
+                )
+            try:
+                with open(manifest_path, encoding="utf-8") as f:
+                    doc = json.load(f)
+            except (OSError, ValueError) as exc:
+                raise FileExistsError(
+                    f"refused: --out {out_dir!r} has an unreadable {MANIFEST_FILENAME}: {exc}"
+                ) from exc
+            if not isinstance(doc, dict) or doc.get("plugin") != PLUGIN_NAME or doc.get("world") != WORLD_EDID:
+                raise FileExistsError(
+                    f"refused: --out {out_dir!r} has an unrecognized {MANIFEST_FILENAME} (not written by make_wg1_redrocket.py)"
+                )
+    os.makedirs(out_dir, exist_ok=True)
+    return out_dir
 
 
 def _clean_stem(diffuse_path: str) -> str:
@@ -150,10 +179,7 @@ def _stage_or_convert_texture_triple(
 
 def build_wg1_prototype(args: argparse.Namespace) -> Dict[str, Any]:
     inputs = [args.fo4, args.fo4_data, args.sf_data, args.content_resources, *args.staged_textures]
-    out_dir = str(refuse_unsafe_output_path(args.out, input_paths=inputs))
-    if os.path.exists(out_dir):
-        shutil.rmtree(out_dir)
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = prepare_wg1_output_dir(args.out, input_paths=inputs)
     out_data_dir = os.path.join(out_dir, "Data")
 
     # 1. Rank Commonwealth top-K (40) LTEX and resolve textures
@@ -330,7 +356,10 @@ def build_wg1_prototype(args: argparse.Namespace) -> Dict[str, Any]:
         "quad_gt_dominant": enc_stats["quad_gt_dominant"],
         "entries": manifest_rows,
     }
-    Path(out_dir, "wg1_ltex_manifest.json").write_text(json.dumps(manifest_doc, indent=2) + "\n", encoding="utf-8")
+    pipeline.write_staged(
+        os.path.join(out_dir, MANIFEST_FILENAME),
+        (json.dumps(manifest_doc, indent=2) + "\n").encode("utf-8"),
+    )
 
     return check_wg1_stage(out_dir)
 
@@ -394,7 +423,10 @@ def check_wg1_stage(stage_dir: str) -> Dict[str, Any]:
         "texture_source_counts": manifest["texture_source_counts"],
         "pass": True,
     }
-    Path(stage_dir, "wg1_report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    pipeline.write_staged(
+        os.path.join(stage_dir, "wg1_report.json"),
+        (json.dumps(report, indent=2) + "\n").encode("utf-8"),
+    )
     return report
 
 
