@@ -41,6 +41,16 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
+def _sha256_text(path: str) -> str:
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest()
+
+
+# Pinned SHA-256 parity digests produced by commit cd03411a on the ConcordMuseum01 fixture below (Rule R12).
+CD03411A_ROOT_PARENT_ESM_SHA256 = "2b4a24c7f703e0ebc3ee0935e63af3f1abd36d775a6f8ea0c538411126d956e8"
+CD03411A_ROOT_PARENT_FORMIDS_SHA256 = "bd9f721e4d2789fc239413f08fe475a0908d6ed6c805cbaecf2d9f8ae31f2b74"
+
+
 def _pluginspike_dll() -> str:
     return ensure_pluginspike_dll(ROOT)
 
@@ -528,14 +538,10 @@ class RootLocationParentTests(unittest.TestCase):
                 check=True, env=env, capture_output=True,
             )
 
-            # R3: Default vs explicit Starfield.esm:01B736 vs 01B736:Starfield.esm must be 100% SHA-256 byte-identical!
-            sha_def = _sha256_file(os.path.join(out_default, "FO4Port.esm"))
-            self.assertEqual(sha_def, _sha256_file(os.path.join(out_mars_a, "FO4Port.esm")))
-            self.assertEqual(sha_def, _sha256_file(os.path.join(out_mars_b, "FO4Port.esm")))
-            self.assertEqual(
-                _sha256_file(os.path.join(out_default, "formids.json")),
-                _sha256_file(os.path.join(out_mars_a, "formids.json")),
-            )
+            # R12: Default and explicit Starfield.esm:01B736 / 01B736:Starfield.esm MUST equal pinned cd03411a hashes!
+            for out_dir in (out_default, out_mars_a, out_mars_b):
+                self.assertEqual(_sha256_file(os.path.join(out_dir, "FO4Port.esm")), CD03411A_ROOT_PARENT_ESM_SHA256)
+                self.assertEqual(_sha256_text(os.path.join(out_dir, "formids.json")), CD03411A_ROOT_PARENT_FORMIDS_SHA256)
 
             # Custom Starfield.esm parent: every record except LCTN:FO4Port_InteriorsLocation is byte-identical, and
             # root LCTN's PNAM carries 0x0002ABCD.

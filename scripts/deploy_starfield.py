@@ -79,15 +79,15 @@ def plugin_bundle_spec(plugin_name=PLUGIN):
     if not re.fullmatch(r"[A-Za-z0-9_-]+", stem):
         raise ValueError(f"invalid plugin name: {plugin_name!r}")
     plugin_esm = f"{stem}.esm"
-    if plugin_esm == PLUGIN:
+    if plugin_esm.casefold() == PLUGIN.casefold():
         return {
-            "plugin": PLUGIN, "stem": "FO4Port", "archive": ARCHIVE, "tex_archive": TEX_ARCHIVE,
+            "plugin": PLUGIN, "plugin_esm": PLUGIN, "stem": "FO4Port", "archive": ARCHIVE, "tex_archive": TEX_ARCHIVE,
             "manifest": MANIFEST, "deployed": DEPLOYED_FILES, "companion_rx": COMPANION_RX,
         }
     main_ba2 = f"{stem} - Main.ba2"
     tex_ba2 = f"{stem} - Textures.ba2"
     return {
-        "plugin": plugin_esm, "stem": stem, "archive": main_ba2, "tex_archive": tex_ba2,
+        "plugin": plugin_esm, "plugin_esm": plugin_esm, "stem": stem, "archive": main_ba2, "tex_archive": tex_ba2,
         "manifest": f"{stem}.deploy.json", "deployed": frozenset((plugin_esm, main_ba2, tex_ba2)),
         "companion_rx": re.compile(rf"^{re.escape(stem)}Textures([2-9]|[1-9]\d+)(\.esm| - Textures\.ba2)$"),
     }
@@ -365,7 +365,7 @@ def publish(data, man_path, built, targets, identities, companions=(), *, pinned
     pt = plugins_txt_path()
     state = {"files": [], "published_files": [], "plugins_txt": pt, "plugins_added": [],
              "plugins_replaced": [], "complete": False, "artifacts": identities}
-    if plugin_esm != PLUGIN:
+    if plugin_esm.casefold() != PLUGIN.casefold():
         state["plugin_name"] = plugin_esm
     plugins_existed = os.path.exists(pt)
     plugins_original = None
@@ -441,7 +441,8 @@ def publish(data, man_path, built, targets, identities, companions=(), *, pinned
                      f"Retry uninstall after resolving: {'; '.join(errors)}")
         os.remove(man_path)
         sys.exit(f"install failed and was rolled back: {type(e).__name__}: {e}")
-    print("installed. Undo with: python deploy_starfield.py uninstall --starfield <game dir>")
+    undo_flag = f" --plugin-name {plugin_esm}" if plugin_esm.casefold() != PLUGIN.casefold() else ""
+    print(f"installed. Undo with: python deploy_starfield.py uninstall --starfield <game dir>{undo_flag}")
 
 
 def read_head(path, n=4):
@@ -509,18 +510,31 @@ def core_check(result, data):
 
 def install_batch(a):
     data = os.path.join(a.starfield, "Data")
-    first_man = os.path.join(data, plugin_bundle_spec(getattr(a, "plugin_name", "") or PLUGIN)["manifest"])
-    if os.path.exists(first_man) and not getattr(a, "plugin_name", ""):
+    raw_req = (getattr(a, "plugin_name", "") or "").strip()
+    req_spec = None
+    if raw_req:
+        try:
+            req_spec = plugin_bundle_spec(raw_req)
+        except ValueError as error:
+            sys.exit(f"nothing installed: {error}")
+    first_man = os.path.join(data, plugin_bundle_spec(raw_req or PLUGIN)["manifest"])
+    if os.path.exists(first_man) and not raw_req:
         # preserve fast check for FO4Port before opening result.json unless result.json names a different plugin
         try:
             with open(os.path.join(a.batch, BATCH_RESULT), encoding="utf-8") as f:
                 pre_plug = (json.load(f) or {}).get("plugin_name") or PLUGIN
         except Exception:
             pre_plug = PLUGIN
-        if pre_plug == PLUGIN:
+        if pre_plug.casefold() == PLUGIN.casefold():
             sys.exit("already installed (manifest exists); uninstall first")
     items, companions, result = batch_install_set(a.batch)
-    spec = plugin_bundle_spec(result.get("plugin_name") or getattr(a, "plugin_name", "") or PLUGIN)
+    stage_spec = plugin_bundle_spec(result.get("plugin_name") or PLUGIN)
+    if req_spec is not None and req_spec["plugin_esm"].casefold() != stage_spec["plugin_esm"].casefold():
+        sys.exit(
+            f"nothing installed: --plugin-name {req_spec['plugin_esm']} does not match "
+            f"stage plugin {stage_spec['plugin_esm']} in {os.path.join(a.batch, BATCH_RESULT)}"
+        )
+    spec = stage_spec
     man_path = os.path.join(data, spec["manifest"])
     if os.path.exists(man_path):
         sys.exit("already installed (manifest exists); uninstall first")
@@ -602,13 +616,34 @@ def verify(a):
 
 
 def uninstall(a):
-    spec = plugin_bundle_spec(getattr(a, "plugin_name", "") or PLUGIN)
+    try:
+        spec = plugin_bundle_spec(getattr(a, "plugin_name", "") or PLUGIN)
+    except ValueError as error:
+        sys.exit(f"nothing uninstalled: {error}")
     data = os.path.join(a.starfield, "Data")
     man_path = os.path.join(data, spec["manifest"])
     if not os.path.exists(man_path):
         sys.exit("nothing to uninstall (no manifest)")
-    with open(man_path) as f:
+    with open(man_path, encoding="utf-8") as f:
         m = json.load(f)
+    if not isinstance(m, dict):
+        sys.exit("invalid deployment manifest; refusing cleanup")
+    raw_recorded_plugin = m.get("plugin_name")
+    if raw_recorded_plugin is None or raw_recorded_plugin == "":
+        recorded_plugin = PLUGIN
+    elif not isinstance(raw_recorded_plugin, str):
+        sys.exit("invalid plugin_name in deployment manifest; refusing cleanup")
+    else:
+        try:
+            recorded_plugin = plugin_bundle_spec(raw_recorded_plugin)["plugin_esm"]
+        except ValueError as error:
+            sys.exit(f"invalid plugin_name in deployment manifest ({error}); refusing cleanup")
+    if recorded_plugin.casefold() != spec["plugin_esm"].casefold():
+        sys.exit(
+            f"manifest plugin_name {recorded_plugin} does not match requested --plugin-name {spec['plugin_esm']}; "
+            "refusing cleanup"
+        )
+    spec = plugin_bundle_spec(recorded_plugin)
     expected_plugins = plugins_txt_path()
     recorded_plugins = m.get("plugins_txt") if isinstance(m, dict) else None
     if (not isinstance(recorded_plugins, str) or

@@ -1,4 +1,4 @@
-# Lane B Lead Verification Cards — DLC Interiors & Staged Batch Look Test (`gemini/dlc-and-interiors`)
+# Lane B Lead Verification Cards — `FO4DLC.esm` Swap & Interior Batch 11 Build (`gemini/dlc-and-interiors`)
 
 Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`RECORDS ONLY`**, **`TOOLING`**, **`NOT BUILT`**.
 
@@ -6,47 +6,109 @@ Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`RECORDS ON
 
 ## Card 1 — `D4` Self-Contained `FO4DLC.esm` Swap Session (`TEST-STATION`)
 
-**Scope & Label:** `FO4DLC.esm` (`9,446,134` B, `49` net-new DLC interior cells, `103,009` placed references, `4,673` lights, `18` interior-to-interior linked teleports, self-contained over `Starfield.esm` only) + `FO4DLC - Main.ba2`, `FO4DLC - Textures.ba2`, `FO4DLCTextures2.esm` + BA2, and `FO4DLCTextures3.esm` + BA2 (each `< 4 GiB`).
-- **Why `TEST-STATION`:** `47` of the `54` load-door-reachable DLC cells enter from Far Harbor, Nuka-World, or other DLC interiors whose exterior doors are not wired yet, so entry is by console `coc` only.
+- **Stage path placeholder:** `<fo4dlc-stage>` (containing `result.json` and `port\`)
+- **Disk space need:** `--min-free-gb 40` free-space floor on `<starfield-dir>`'s drive after copying the ~`7.1 GB` stage (`FO4DLC.esm` `9,446,134` B + `FO4DLC - Main.ba2` + `FO4DLC - Textures.ba2` + `FO4DLCTextures2.esm`/`FO4DLCTextures2 - Textures.ba2` + `FO4DLCTextures3.esm`/`FO4DLCTextures3 - Textures.ba2`, every archive `< 4 GiB`).
+- **`Plugins.txt` load list:** `*FO4DLC.esm`, `*FO4DLCTextures2.esm`, `*FO4DLCTextures3.esm` appended in number order right after the active `*FO4Port.esm` set (`FO4DLC.esm` masters `Starfield.esm` only and installs side-by-side without replacing `FO4Port.esm`).
+- **Why `TEST-STATION`:** `49` net-new DLC interior cells (`103,009` placed references, `4,673` lights, `18` interior-to-interior linked teleports) enter from Far Harbor, Nuka-World, or unwired Commonwealth doors, so entry is by console `coc` only.
 - **5 Excluded Overlapping Cells (owned by `FO4Port.esm` / staged base batch; omitted from `FO4DLC.esm`):**
-  1. `DLC01FortHagenSatelliteArray01`
-  2. `DLC01Lair01` *(tested from the staged base interior build instead)*
-  3. `DmndValentines01`
-  4. `GeneralAtomicsFactory01`
-  5. `RailroadHQ01`
+  `DLC01FortHagenSatelliteArray01`, `DLC01Lair01`, `DmndValentines01`, `GeneralAtomicsFactory01`, `RailroadHQ01`.
 
-### Swap-Session Steps (Game Closed for Install / Rollback)
-1. Install the staged `FO4DLC` package (`FO4DLC.esm`, `FO4DLCTextures2.esm`, `FO4DLCTextures3.esm` + their BA2 archives) in a swap session and record pre/post install receipts.
-2. Launch a clean test save and enter at least three cells owned exclusively by `FO4DLC.esm`:
-   - Far Harbor — Acadia: `coc FO4DLC_DLC03Acadia` (`2,605` refs, `211` lights)
-   - Nuka-World interior: `coc FO4DLC_DLC04BradbertonsOffice01` (`1,269` refs, `70` lights)
-   - Vault-Tec Workshop vault: `coc FO4DLC_DLC06VaultWorkshop` (`6,037` refs, `631` lights)
-3. Walk the floor in each cell, inspect multi-part companion texture rendering (`FO4DLCTextures2` / `FO4DLCTextures3`), and test an internal DLC-to-DLC door pair where present.
-4. Close the game, uninstall, and verify byte-identical receipt restoration.
+### Install Commands (Game Closed)
 
-### Pass Criteria & Owner Test Judgments
-- **Technical PASS:** All three `FO4DLC_*` cells load with zero crash, solid floor collision (no fall-through), and textures from companion archives (`FO4DLCTextures2` / `FO4DLCTextures3`) render without missing-texture magenta.
-- **OWNER TEST (Visual):** Room lighting balance (neither pitch-black nor washed out) and material roughness/tint look across converted DLC meshes and the `58` recovered Automatron `SCOL` static-collection meshes (`D5`).
+```sh
+python scripts/deploy_starfield.py install --batch <fo4dlc-stage> --starfield <starfield-dir> --min-free-gb 40 --dry-run
+python scripts/deploy_starfield.py install --batch <fo4dlc-stage> --starfield <starfield-dir> --min-free-gb 40
+```
+
+### In-Game Console Checks (`TEST-STATION`)
+
+Launch a clean test save, walk the floor, verify collision and companion-archive texture rendering (`FO4DLCTextures2` / `FO4DLCTextures3`), and test an internal DLC-to-DLC door pair where present:
+
+```console
+coc FO4DLC_DLC03Acadia
+coc FO4DLC_DLC04BradbertonsOffice01
+coc FO4DLC_DLC06VaultWorkshop
+```
+
+### Undo / Rollback Commands (Game Closed)
+
+> **CRITICAL (`--plugin-name FO4DLC.esm` required):** Always pass `--plugin-name FO4DLC.esm` on `uninstall`. Without `--plugin-name FO4DLC.esm`, `deploy_starfield.py uninstall` defaults to `FO4Port.esm` (`FO4Port.deploy.json`) and acts on the owner's installed `FO4Port.esm` port instead of `FO4DLC.esm`.
+
+```sh
+python scripts/deploy_starfield.py uninstall --starfield <starfield-dir> --plugin-name FO4DLC.esm
+python scripts/deploy_starfield.py verify --starfield <starfield-dir>
+```
+
+### Card 1 PASS Lines
+
+```text
+install batch <fo4dlc-stage>: ['FO4DLC.esm', 'FO4DLC - Main.ba2', 'FO4DLC - Textures.ba2', 'FO4DLCTextures2.esm', 'FO4DLCTextures2 - Textures.ba2', 'FO4DLCTextures3.esm', 'FO4DLCTextures3 - Textures.ba2'] -> <starfield-dir>\Data (<gb> GB)
+Plugins.txt (<plugins-txt>): *FO4DLC.esm then ['*FO4DLCTextures2.esm', '*FO4DLCTextures3.esm']
+installed. Undo with: python deploy_starfield.py uninstall --starfield <game dir> --plugin-name FO4DLC.esm
+removing ['FO4DLC.esm', 'FO4DLC - Main.ba2', 'FO4DLC - Textures.ba2', 'FO4DLCTextures2.esm', 'FO4DLCTextures2 - Textures.ba2', 'FO4DLCTextures3.esm', 'FO4DLCTextures3 - Textures.ba2'] and Plugins.txt entries ['*FO4DLC.esm', '*FO4DLCTextures2.esm', '*FO4DLCTextures3.esm']
+uninstalled
+installed port as recorded: FO4Port.esm <sha8>
+```
+
+- **Technical PASS:** All three `FO4DLC_*` cells load with zero crash, solid floor collision, and zero missing-texture magenta across `FO4DLCTextures2` / `FO4DLCTextures3`; rollback removes only `FO4DLC*` files and leaves `verify` passing on `FO4Port.esm`.
+- **OWNER TEST (Visual):** Room lighting balance and material roughness/tint look across the converted DLC interiors in `FO4DLC.esm` (note: none of the `49` selected `FO4DLC.esm` cells places the `58` recovered Automatron `SCOL` meshes, and the `269`-cell base-port look test was already completed on 18 Nov).
 
 ---
 
-## Card 2 — `I2` Staged Base Interior Batch Look Test & Animated-Door Chain (`TEST-STATION` / `TOOLING`)
+## Card 2 — `I2` + `D6` Offline Build of Interior Batch 11 (`TOOLING`)
 
-### Part A — Offline `adopt-core` & Animated-Door `--prev` Dry Run (`TOOLING`, Verified Offline)
-- `python scripts/terrain/interior_batch.py adopt-core --stage <b10-stage> --out <adopted-meta>` records `pins.core_plugin` from `port/doors_check.json` (`49/49` door checks pass; `deploy_starfield.py install --batch --dry-run` accepts the stage without `--other-core`).
-- `python scripts/terrain/interior_batch.py build --dry-run --batch 10 --prev <b10-stage> --base <doors-anim-b00-port> --compare-installed <doors-anim-b00-port> --animated-doors` reports:
-  - `pass: true`, `cells: 16 base + 253 batch = 269 total`
-  - `installed_count: 55706`, **`installed_moved: 0`** (zero installed FormIDs move)
+- **Stage path placeholder:** `<b11-stage>` (with fresh work staging `<new-work-dir>` and dry-run output `<b11-dry-out>`)
+- **Disk space need:** `--min-free-gb 40` free-space floor on `<new-work-dir>` and `<b11-stage>` drives after work-staging conversion plus ~`4.5 GB` packed archives; `--min-free-gb 40` on `<starfield-dir>`'s drive if `<b11-stage>` is later swap-installed.
+- **`Plugins.txt` load list** (recorded in `<b11-stage>/result.json` `install.plugins_txt`; the offline build touches neither `<starfield-dir>` nor `Plugins.txt`): `*FO4Port.esm`, `*FO4PortTextures2.esm` (and any further `*FO4PortTexturesN.esm` companion in number order right after `*FO4Port.esm`).
+- **`D6` Automatron `SCOL` recovery under default `fo4port` prefix:** The `58` recovered Automatron `SCOL` (`CM*.NIF`) static-collection meshes belong to base-port-owned Automatron cells (`DLC01Lair01`, `DLC01FortHagenSatelliteArray01`) and are **in no built plugin yet**. Passing `--dlc-data <dlcrobot-plugin-data>` (plus a second `--dlc-data <dlcrobot-archives-data>` when `DLCRobot.esm` and `DLCRobot - *.ba2` live in separate depot folders; pass one `--dlc-data` when both sit in one folder), `--dlc-plugins DLCRobot.esm`, and a fresh `--work <new-work-dir>` converts all `58` `SCOL` meshes under the default `fo4port` prefix (`FO4Port_cm*` / `fo4port\scol\...`) while preserving `<b10-stage>`'s work folder untouched.
+- **`D3` `--dry-run` seed-check note:** `interior_batch.py build --dry-run` performs a **seed check** (`"check_kind": "seed_check"`, `"compares_run": false`, `"check": "seed_id_map_only"`) against reconciled `seed_ids` (`16` base + `253` batch = `269` cells, `0` installed FormIDs moved). The two full plugin compares (`--compare-installed` -> `port/compare_installed.json` and `--prev` -> `port/compare_prev.json`) run only in the real build.
 
-### Part B — Swap-Session Console Look Test of Staged Base Batch (`TEST-STATION`)
-1. With owner release, swap-install the `269`-cell staged interior batch (`FO4Port.esm` + `FO4PortTextures2.esm`).
-2. Enter `coc FO4Port_ConcordMuseum01`, `coc FO4Port_SanctuaryBasementJahani`, `coc FO4Port_CorvegaAssemblyPlant01`, `coc FO4Port_DLC01Lair01`, and one cell whose textures reside in `FO4PortTextures2 - Textures.ba2`.
-3. Confirm room load, collision, lighting, and companion-archive texture rendering, then roll back to the `16`-cell animated-doors port and verify the SHA-256 receipt matches.
+### Offline Build Commands (`TOOLING` — Nothing Installed)
+
+Optional non-destructive `adopt-core` helper (records `pins.core_plugin` from `port/doors_check.json` on an older stage without modifying `--stage`):
+
+```sh
+python scripts/terrain/interior_batch.py adopt-core --stage <b10-stage> --out <b10-adopted-stage>
+```
+
+Seed-check dry run (`D3`) followed by the real offline Batch 11 build (`I2` + `D6`):
+
+```sh
+python scripts/terrain/interior_batch.py build --dry-run --plan docs/terrain/data/interior-batches.json --batch 10 --base <installed-anim-doors-port> --base-exports <base-exports-dir> --prev <b10-stage> --compare-installed <installed-anim-doors-port> --core <installed-core-stage> --work <new-work-dir> --out <b11-dry-out> --fo4-data <fo4-data-dir> --dlc-data <dlcrobot-plugin-data> --dlc-data <dlcrobot-archives-data> --dlc-plugins DLCRobot.esm --census docs/terrain/data/interior-census.json --starfield <starfield-dir> --content-resources <content-resources-zip> --texconv <texconv-exe> --collision-template <collision-template-nif> --fo4export <fo4export-dll> --pluginspike <pluginspike-dll> --spec-mask-roughness --convert-arg=--door-anim-dll --convert-arg=<door-anim-dll> --convert-arg=--mass-scale --convert-arg=0.2 --promote-arg=--names --promote-arg=<fo4-names-json> --promote-arg=--furniture --promote-arg=<fo4-furniture-json> --promote-arg=--fo4-data --promote-arg=<fo4-data-dir> --animated-doors --animated-pex <animated-load-door-pex> --door-flags --doorsounds <doorsounds-tsv> --min-free-gb 40
+python scripts/terrain/interior_batch.py build --plan docs/terrain/data/interior-batches.json --batch 10 --base <installed-anim-doors-port> --base-exports <base-exports-dir> --prev <b10-stage> --compare-installed <installed-anim-doors-port> --core <installed-core-stage> --work <new-work-dir> --out <b11-stage> --fo4-data <fo4-data-dir> --dlc-data <dlcrobot-plugin-data> --dlc-data <dlcrobot-archives-data> --dlc-plugins DLCRobot.esm --census docs/terrain/data/interior-census.json --starfield <starfield-dir> --content-resources <content-resources-zip> --texconv <texconv-exe> --collision-template <collision-template-nif> --fo4export <fo4export-dll> --pluginspike <pluginspike-dll> --spec-mask-roughness --convert-arg=--door-anim-dll --convert-arg=<door-anim-dll> --convert-arg=--mass-scale --convert-arg=0.2 --promote-arg=--names --promote-arg=<fo4-names-json> --promote-arg=--furniture --promote-arg=<fo4-furniture-json> --promote-arg=--fo4-data --promote-arg=<fo4-data-dir> --animated-doors --animated-pex <animated-load-door-pex> --door-flags --doorsounds <doorsounds-tsv> --min-free-gb 40
+```
+
+### Future Swap-Session Install & Undo Commands (Only After Owner Release; Uninstall Replaces Installed `FO4Port.esm` First)
+
+```sh
+python scripts/deploy_starfield.py uninstall --starfield <starfield-dir> --plugin-name FO4Port.esm
+python scripts/deploy_starfield.py install --batch <b11-stage> --starfield <starfield-dir> --plugin-name FO4Port.esm --min-free-gb 40
+python scripts/deploy_starfield.py uninstall --starfield <starfield-dir> --plugin-name FO4Port.esm
+```
+
+### Card 2 PASS Lines
+
+```text
+"check_kind": "seed_check"
+"compares_run": false
+"seed_check_pass": true
+"check": "seed_id_map_only"
+"seed_installed_moved": 0
+"batch": 10,
+"pass": true,
+"error": null,
+"compare_installed": { "pass": true, "ids": { "missing": 0, "renumbered": 0 } }
+"compare_prev": { "pass": true }
+```
 
 ---
 
 ## Explicitly `NOT BUILT` in `gemini/dlc-and-interiors` This Round
-- Exterior door delta for the `13` start-path Commonwealth doors (`I3` — owned by `gemini/world-own-space`).
-- Fallout 4 `CNTO`/`LVLI` container loot and usable beds/workbenches inside start-path interiors (`NEXT`).
-- Folding `--interactive-fidelity` (`XESP`/`XLOC`/`XLKR`/`XAPR`) into the batch build, remaining `334` Commonwealth exterior doors, interior `NAVM` walk meshes, per-light FO4 color/spot carry-over, and exterior doors into DLC interiors (`NEXT`).
-- Repo UI extractor, startup/interface low-priority texture archives, and first-person Pip-Boy arm mesh note (`Task 6 NEXT`).
+
+- **58 recovered Automatron `SCOL` meshes (`D6`):** Converted by `convert_batch.py` / `interior_batch.py` once Card 2 builds `<b11-stage>`, and **in no built plugin yet** (`DLC01Lair01` and `DLC01FortHagenSatelliteArray01` are base-port-owned and excluded from `FO4DLC.esm`).
+- **DLC edits to the 3 base-game cells excluded from `FO4DLC.esm` (`D7`, `NOT BUILT`):**
+  1. `DmndValentines01` (`001E47:Fallout4.esm`, edited by `DLCCoast.esm`): `2` added `REFR`s (`0141AB:DLCCoast.esm`, `04BA1A:DLCCoast.esm`; `342 -> 344` `REFR`, `2` `ACHR` unchanged, `0` vanilla `REFR` overrides). Base port pins the `Fallout4.esm`-only export (`342` `REFR`).
+  2. `GeneralAtomicsFactory01` (`04280D:Fallout4.esm`, edited by `DLCRobot.esm`): `44` `DLCRobot.esm` child reference records (`19` `REFR` [`3` added: `00FF9C:DLCRobot.esm`, `00FFA7:DLCRobot.esm`, `00FFA8:DLCRobot.esm` + `16` overridden vanilla `REFR`s] and `25` `ACHR` [`12` added + `13` overridden vanilla `ACHR`s], plus encounter zone `011363:DLCRobot.esm`; net `6,136 -> 6,139` `REFR`, `13 -> 25` `ACHR`). Exported merged in uninstalled `interiors_b10`, not in the installed `16`-cell `FO4Port.esm` yet.
+  3. `RailroadHQ01` (`092B21:Fallout4.esm`, edited by `DLCCoast.esm`): `1` added `ACHR` (`18 -> 19` `ACHR`; `1,542 -> 1,542` `REFR` with `0` `REFR` additions or overrides). Exported from `Fallout4.esm` only in `interiors_b10` (and `ACHR` actors are deferred).
+- Exterior door delta for the `13` start-path Commonwealth doors (`I3` — owned by `gemini/world-own-space`) and exterior doors into `FO4DLC.esm` interiors (`WB5b`).
+- Fallout 4 `CNTO`/`LVLI` container loot, usable beds/workbenches, and `--interactive-fidelity` (`XESP`/`XLOC`/`XLKR`/`XAPR`) inside start-path interiors (`IB1`), plus the read-only port install-record report tool (`IB2`).

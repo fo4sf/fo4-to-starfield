@@ -21,13 +21,17 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from ba2_fixture import general_archive  # noqa: E402
 from pluginspike_fixture import ensure_pluginspike_dll  # noqa: E402
-from fo4sf import pipeline  # noqa: E402
+from fo4sf import nif, pipeline, sfnif  # noqa: E402
 import interior_batch as ib  # noqa: E402
 import interior_dlc  # noqa: E402
 
 _cb_spec = importlib.util.spec_from_file_location("convert_batch_dlc", ROOT / "scripts" / "convert_batch.py")
 convert_batch = importlib.util.module_from_spec(_cb_spec)
 _cb_spec.loader.exec_module(convert_batch)
+
+# Pinned SHA-256 parity digests produced by commit cd03411a on the synthetic fixtures below (Rule R12).
+CD03411A_CHECKPOINT_EXTRA_ARCHIVES_SHA256 = "8a8336dc255dfcf5a2fac65089a685bf3b0d404b90f75ee693ca442abd8d2d90"
+CD03411A_CONVERT_BATCH_EDITORIDS_SHA256 = "dd03dbb81479968a4d5c2e39e5f8e5f578b0b214d1fa9954a348ca2fd459758d"
 
 
 def _sha256_json(obj) -> str:
@@ -118,12 +122,13 @@ class D1UltraHighResAndDlcPluginsTests(unittest.TestCase):
             self.assertNotIn("dlc_plugins", sig_full)
             self.assertEqual(len(sig_full["extra_archives"][0][1]), 12)  # 12 DLC Main/Textures, not 28 or 32
 
-            # Default behavior on a clean 12-archive DLC folder: identical archive digest list, no dlc_plugins key
+            # Default behavior on a clean 12-archive DLC folder: matches pinned cd03411a digest list, no dlc_plugins key
             sig_clean = convert_batch.checkpoint_signature(make_args([clean_dlc]))
             self.assertNotIn("dlc_plugins", sig_clean)
             clean_digests = [(Path(x[0]).name, x[1], x[2]) for x in sig_clean["extra_archives"][0][1]]
             full_digests = [(Path(x[0]).name, x[1], x[2]) for x in sig_full["extra_archives"][0][1]]
-            self.assertEqual(_sha256_json(clean_digests), _sha256_json(full_digests))
+            self.assertEqual(_sha256_json(clean_digests), CD03411A_CHECKPOINT_EXTRA_ARCHIVES_SHA256)
+            self.assertEqual(_sha256_json(full_digests), CD03411A_CHECKPOINT_EXTRA_ARCHIVES_SHA256)
 
             # Explicit --dlc-plugins records load-order stems and changes signature when order changes
             sig_ord_a = convert_batch.checkpoint_signature(make_args([full_data], "DLCRobot,DLCCoast"))
@@ -178,39 +183,22 @@ class D1UltraHighResAndDlcPluginsTests(unittest.TestCase):
 
 
 class D2PrefixEditorIdsAndManifestRewriterTests(unittest.TestCase):
-    @staticmethod
-    def _legacy_editor_id(source, ids):
-        """Exact pre-D2 editor_id implementation for SHA-256 byte-identity proof (Rule R3)."""
-        import re
-        key = source.replace("\\", "/").lower()
-        if key not in ids:
-            basename = key.rsplit("/", 1)[-1]
-            stem = re.sub(r"[^A-Za-z0-9_]", "_", os.path.splitext(basename)[0])
-            name = "FO4Port_" + stem
-            reserved = {v.lower() for v in ids.values()}
-            if name.lower() in reserved:
-                name += "_" + hashlib.sha256(key.encode()).hexdigest()[:16]
-            ids[key] = name
-        return ids[key]
-
-    def test_default_prefix_is_sha256_byte_identical_to_pre_d2(self):
+    def test_default_prefix_matches_cd03411a(self):
         sources = [
             "meshes\\SetDressing\\Chair01.nif",
             "meshes\\Architecture\\Chair01.nif",
             "Meshes\\DLC03\\Architecture\\DLC03_ParkStoneBlockA.nif",
             "meshes\\Props\\Box-A.01.nif",
         ]
-        legacy_ids, current_default_ids, explicit_default_ids = {}, {}, {}
+        current_default_ids, explicit_default_ids = {}, {}
         for s in sources:
-            self._legacy_editor_id(s, legacy_ids)
             convert_batch.editor_id(s, current_default_ids)
             convert_batch.editor_id(s, explicit_default_ids, prefix="fo4port")
 
-        legacy_bytes = json.dumps(legacy_ids, indent=1).encode("utf-8")
         default_bytes = json.dumps(current_default_ids, indent=1).encode("utf-8")
         explicit_bytes = json.dumps(explicit_default_ids, indent=1).encode("utf-8")
-        self.assertEqual(hashlib.sha256(default_bytes).hexdigest(), hashlib.sha256(legacy_bytes).hexdigest())
-        self.assertEqual(hashlib.sha256(explicit_bytes).hexdigest(), hashlib.sha256(legacy_bytes).hexdigest())
+        self.assertEqual(hashlib.sha256(default_bytes).hexdigest(), CD03411A_CONVERT_BATCH_EDITORIDS_SHA256)
+        self.assertEqual(hashlib.sha256(explicit_bytes).hexdigest(), CD03411A_CONVERT_BATCH_EDITORIDS_SHA256)
 
     def test_non_default_prefix_generates_prefixed_editor_ids(self):
         ids_dlc, ids_ui = {}, {}
@@ -399,6 +387,169 @@ class D5ScolMissingMeshAndFallbackTests(unittest.TestCase):
             self.assertEqual(src.mesh("Meshes\\direct.nif"), b"direct-bytes")
             # Missing developer-ESP SCOL resolves cleanly to its base FormKey path in DLCRobot - Main.ba2
             self.assertEqual(src.mesh("meshes\\SCOL\\DevMergeA.esp\\CM00083F.NIF"), b"scol-combined-nif-bytes")
+
+    def test_interior_batch_default_prefix_converts_automatron_scol_and_retries_uncheckpointed_failure(self):
+        """D6: interior_batch default-prefix (`fo4port` -> `FO4Port_cm*` / `fo4port\\scol\\...`) converts Automatron SCOL
+        meshes from merged cell exports when `--dlc-data` and `--dlc-plugins DLCRobot.esm` are passed, both in a fresh
+        `--work` folder and when resuming over an earlier failed run (failures are never frozen in `.checkpoints`)."""
+        dll = ensure_pluginspike_dll(ROOT)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fo4_data = root / "fo4_data"
+            dlc_data = root / "dlc_data"
+            sf_data = root / "sf_data"
+            for d in (fo4_data, dlc_data, sf_data):
+                d.mkdir()
+            (fo4_data / "Fallout4 - Meshes.ba2").write_bytes(general_archive({"meshes/base_wall.nif": b"base-nif"}))
+            (dlc_data / "DLCRobot - Main.ba2").write_bytes(
+                general_archive({
+                    "meshes/scol/dlcrobot.esm/cm000100da.nif": b"scol-lair-bytes",
+                    "meshes/scol/dlcrobot.esm/cm00010555.nif": b"scol-array-bytes",
+                })
+            )
+            # Extra unrelated DLC archive in the same folder: restricted out by --dlc-plugins DLCRobot.esm
+            (dlc_data / "DLCCoast - Main.ba2").write_bytes(general_archive({"meshes/dlc03/unused.nif": b"unused"}))
+            tool_dep = root / "tool.bin"
+            tool_dep.write_bytes(b"synthetic-tool")
+
+            cell_lair = root / "DLC01Lair01.json"
+            cell_array = root / "DLC01FortHagenSatelliteArray01.json"
+            lair_doc = {
+                "schema_version": 3,
+                "cell": "DLC01Lair01",
+                "location": {"formkey": "0008A4:DLCRobot.esm", "editor_id": "DLC01LairLocation", "name": "Lair"},
+                "refs": [
+                    {
+                        "formkey": "008B01:DLCRobot.esm",
+                        "base_formkey": "0100DA:DLCRobot.esm",
+                        "type": "StaticCollection",
+                        "base_editor_id": "DLC01LairScol01",
+                        "model": "SCOL\\DevMergeA.esp\\CM00007E0C.NIF",
+                        "pos": [0.0, 0.0, 0.0],
+                        "rot": [0.0, 0.0, 0.0],
+                        "scale": 1.0,
+                        "disabled": 0,
+                    }
+                ],
+            }
+            array_doc = {
+                "schema_version": 3,
+                "cell": "DLC01FortHagenSatelliteArray01",
+                "location": {"formkey": "05BA28:Fallout4.esm", "editor_id": "FortHagenArrayLocation", "name": "Array"},
+                "refs": [
+                    {
+                        "formkey": "0044F0:DLCRobot.esm",
+                        "base_formkey": "010555:DLCRobot.esm",
+                        "type": "StaticCollection",
+                        "base_editor_id": "DLC01ArrayScol01",
+                        "model": "SCOL\\DevMergeB.esp\\CM0000E3E8.NIF",
+                        "pos": [140.0, 0.0, 0.0],
+                        "rot": [0.0, 0.0, 0.0],
+                        "scale": 1.0,
+                        "disabled": 0,
+                    }
+                ],
+            }
+            cell_lair.write_text(json.dumps(lair_doc), encoding="utf-8")
+            cell_array.write_text(json.dumps(array_doc), encoding="utf-8")
+
+            # Build merged.json identically to interior_batch.py step 3.
+            merged = root / "merged.json"
+            merged.write_text(
+                json.dumps({"cell": "merged", "refs": lair_doc["refs"] + array_doc["refs"]}),
+                encoding="utf-8",
+            )
+
+            def make_fake_converter(src_archives, staging_dir, *_args, **kwargs):
+                prefix = kwargs.get("prefix", "fo4port")
+
+                def fake_convert_nif(nif_name, **_kw):
+                    raw = src_archives.mesh(nif_name)
+                    if raw is None:
+                        return {"nif": nif_name, "ok": False, "reason": f"FileNotFoundError: {nif_name}"}
+                    rel = nif_name.replace("\\", "/")
+                    if rel.lower().startswith("meshes/"):
+                        rel = rel[7:]
+                    out_name = f"{prefix}/{os.path.splitext(rel)[0].lower()}"
+                    geom_rel = f"geometries/{out_name}.mesh"
+                    mat_rel = f"materials/{prefix}/scol_test.mat"
+                    tex_rel = f"textures/{prefix}/scol_test_color.dds"
+                    st = Path(staging_dir)
+                    for p_rel, payload in (
+                        (geom_rel, b"synthetic-mesh:" + raw),
+                        (mat_rel, json.dumps({"Objects": [], "texture": f"Data\\Textures\\{prefix}\\scol_test_color.dds"}).encode()),
+                        (tex_rel, b"synthetic-dds"),
+                    ):
+                        dst = st / p_rel
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        dst.write_bytes(payload)
+                    shape = sfnif.StaticShape(
+                        b"SCOL",
+                        out_name.replace("/", "\\").encode("latin-1"),
+                        3,
+                        3,
+                        mat_rel.replace("/", "\\"),
+                        (0, 0, 0, 1),
+                        (0, 0, 0, 1, 1, 1),
+                    )
+                    nif_dst = st / f"meshes/{out_name}.nif"
+                    nif_dst.parent.mkdir(parents=True, exist_ok=True)
+                    nif_dst.write_bytes(nif.serialize(sfnif.build_static_nif(b"SCOL", [shape])))
+                    return {"nif": nif_name, "ok": True, "out_name": out_name, "shapes": 1, "fallback_materials": 0}
+
+                return SimpleNamespace(convert_nif=fake_convert_nif, stats={}, material_errors={})
+
+            work_resumed = root / "work_resumed"
+            work_fresh = root / "work_fresh"
+            base_args = [
+                "--fo4-data", str(fo4_data),
+                "--content-resources", str(tool_dep),
+                "--texconv", str(tool_dep),
+                "--collision-template", str(tool_dep),
+                "--cell-json", str(merged),
+                "--limit", "100000",
+                "--resume",
+            ]
+            with patch.object(convert_batch.pipeline, "Converter", side_effect=make_fake_converter), \
+                 patch.object(convert_batch.convert_static, "collision_template_from_nif", return_value=b"tmpl"), \
+                 patch("builtins.print"):
+                # 1. Without --extra-data (no DLCRobot - Main.ba2): both SCOLs fail, and .checkpoints freezes neither.
+                convert_batch.main(base_args + ["--staging", str(work_resumed)])
+                man_fail = json.loads((work_resumed / "manifest.json").read_text(encoding="utf-8"))
+                self.assertEqual(len(man_fail["items"]), 0)
+                self.assertEqual(len(man_fail["failures"]), 2)
+
+                # 2. Resumed with --extra-data + --dlc-plugins DLCRobot.esm AND in a fresh --work dir under default prefix:
+                dlc_args = ["--extra-data", str(dlc_data), "--dlc-plugins", "DLCRobot.esm"]
+                convert_batch.main(base_args + ["--staging", str(work_resumed)] + dlc_args)
+                convert_batch.main(base_args + ["--staging", str(work_fresh)] + dlc_args)
+
+            for wdir in (work_resumed, work_fresh):
+                man_ok = json.loads((wdir / "manifest.json").read_text(encoding="utf-8"))
+                self.assertEqual(man_ok["failures"], [])
+                self.assertEqual(
+                    [(it["editor_id"], it["model"]) for it in man_ok["items"]],
+                    [
+                        ("FO4Port_cm00007e0c", "fo4port\\scol\\devmergea.esp\\cm00007e0c.nif"),
+                        ("FO4Port_cm0000e3e8", "fo4port\\scol\\devmergeb.esp\\cm0000e3e8.nif"),
+                    ],
+                )
+                self.assertTrue((wdir / "meshes" / "fo4port" / "scol" / "devmergea.esp" / "cm00007e0c.nif").is_file())
+                self.assertTrue((wdir / "meshes" / "fo4port" / "scol" / "devmergeb.esp" / "cm0000e3e8.nif").is_file())
+
+            # 3. PluginSpike places both converted SCOL statics into FO4Port.esm under default prefix FO4Port.
+            out_plugin = root / "out_plugin"
+            subprocess.run(
+                ["dotnet", dll, str(out_plugin), str(work_fresh / "manifest.json"), str(cell_lair), str(cell_array)],
+                check=True,
+                env=dict(os.environ, STARFIELD_DATA=str(sf_data)),
+                capture_output=True,
+            )
+            fids = json.loads((out_plugin / "formids.json").read_text(encoding="utf-8"))
+            self.assertIn("STAT:FO4Port_cm00007e0c", fids)
+            self.assertIn("STAT:FO4Port_cm0000e3e8", fids)
+            self.assertIn("REFR:FO4Port_DLC01Lair01:008B01:DLCRobot.esm", fids)
+            self.assertIn("REFR:FO4Port_DLC01FortHagenSatelliteArray01:0044F0:DLCRobot.esm", fids)
 
 
 class D4DlcInteriorsDriverTests(unittest.TestCase):
