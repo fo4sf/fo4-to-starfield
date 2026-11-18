@@ -40,6 +40,7 @@ class CoreValueRecord:
     flags: Tuple[str, ...] = ()
     items: Tuple[str, ...] = ()
     effect: str = ""
+    constant: bool = False
 
 
 def load_core_values(path: str = CORE_VALUES_JSON) -> Tuple[str, int, Tuple[CoreValueRecord, ...]]:
@@ -54,6 +55,8 @@ def load_core_values(path: str = CORE_VALUES_JSON) -> Tuple[str, int, Tuple[Core
         fid = int(str(entry["id"]), 16)
         edid = str(entry["edid"])
         rtype = str(entry["type"])
+        if fid >= next_id:
+            raise ValueError(f"FormID 0x{fid:06X} ({edid}) >= next_form_id 0x{next_id:06X}")
         if fid in seen_ids:
             raise ValueError(f"Duplicate FormID 0x{fid:06X}: {seen_ids[fid]} vs {edid}")
         if edid.lower() in seen_edids:
@@ -73,6 +76,7 @@ def load_core_values(path: str = CORE_VALUES_JSON) -> Tuple[str, int, Tuple[Core
                 flags=tuple(entry.get("flags", ())),
                 items=tuple(entry.get("items", ())),
                 effect=str(entry.get("effect", "")),
+                constant=bool(entry.get("constant", False)),
             )
         )
     return plugin, next_id, tuple(records)

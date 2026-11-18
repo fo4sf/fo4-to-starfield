@@ -443,6 +443,13 @@
       "default": 0.0
     },
     {
+      "id": "0x000865",
+      "type": "GLOB",
+      "edid": "FO4SF_PipboyAcquired",
+      "default": 0.0,
+      "constant": false
+    },
+    {
       "id": "0x000870",
       "type": "GLOB",
       "edid": "FO4SF_GameMode",

@@ -25,6 +25,7 @@ for _p in (
 import make_core_bundle as mcb  # noqa: E402
 from fo4sf.core import bundle_log  # noqa: E402
 from fo4sf.core.start_worlds import START_WORLD_TABLE, get_start_world  # noqa: E402
+from fo4sf.planet.esm import ESM, PluginWriter, Record, zbytes  # noqa: E402
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -45,6 +46,37 @@ def _make_tes4_esm(path: Path, masters: tuple[str, ...] = ("Starfield.esm",), ex
     # TES4 24-byte header: type(4), dataSize(I), flags(I=0x01 Master), formId(I=0), vc1(I=0), formVer(H=581), vc2(H=0)
     header = b"TES4" + struct.pack("<IIIIHH", len(subrecords), 0x00000001, 0, 0, 581, 0)
     blob = header + bytes(subrecords)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(blob)
+    return _sha256_bytes(blob)
+
+
+def _make_core_values_esm(path: Path, test_mode: float) -> str:
+    """Write a minimal valid FO4SFCoreValues.esm containing GLOB 0x000860 (FO4SF_TestModeEnabled) and 0x000865."""
+    w = PluginWriter(("Starfield.esm",), flags=ESM, author="fo4-to-starfield CoreValues")
+    w.add(
+        Record(
+            b"GLOB",
+            w.own(0x000860),
+            [(b"EDID", zbytes("FO4SF_TestModeEnabled")), (b"FLTV", struct.pack("<f", float(test_mode)))],
+            0,
+            0,
+            581,
+            0,
+        )
+    )
+    w.add(
+        Record(
+            b"GLOB",
+            w.own(0x000865),
+            [(b"EDID", zbytes("FO4SF_PipboyAcquired")), (b"FLTV", struct.pack("<f", 0.0))],
+            0,
+            0,
+            581,
+            0,
+        )
+    )
+    blob = w.to_bytes(compress=False)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(blob)
     return _sha256_bytes(blob)
@@ -128,7 +160,25 @@ class CoreBundleTests(unittest.TestCase):
                 outputs[rel] = _sha256_bytes(raw)
             (st / "plan.json").write_text(json.dumps({"plugin": plugin, "plugins": [plugin], "outputs": outputs}, indent=1), encoding="utf-8")
 
-        add_stage("00-core-values", "FO4SFCoreValues.esm", masters=("Starfield.esm",))
+        def add_core_values_stage(folder: str, test_mode: float):
+            st = stages_root / folder
+            st.mkdir(parents=True, exist_ok=True)
+            cv_sha = _make_core_values_esm(st / "FO4SFCoreValues.esm", test_mode=test_mode)
+            (st / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "plugin": "FO4SFCoreValues.esm",
+                        "plugins": ["FO4SFCoreValues.esm"],
+                        "outputs": {"FO4SFCoreValues.esm": cv_sha},
+                    },
+                    indent=1,
+                ),
+                encoding="utf-8",
+            )
+
+        add_core_values_stage("00-core-values", test_mode=1.0)
+        add_core_values_stage("00-core-values-test", test_mode=1.0)
+        add_core_values_stage("00-core-values-player", test_mode=0.0)
         add_stage("01-cog-door", "FO4SFVaultGearDoor.esm", masters=("Starfield.esm", "FO4Port.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/door_anim.nif": b"DOOR_NIF"})
@@ -546,6 +596,210 @@ class CoreBundleTests(unittest.TestCase):
         mm = get_start_world("minuteman_volunteer")
         self.assertEqual(mm.squad_base_cap, 4)
         self.assertIn("Minutemen", mm.initial_fame)
+
+    def test_a1_pipboy_boot_movie_copied_from_stage_and_verify_refuses_when_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+
+            pb = stages_root / "16-pipboy-cand2"
+            (pb / "Data" / "Interface").mkdir(parents=True)
+            (pb / "Data" / "Scripts").mkdir(parents=True)
+            (pb / "SFSE" / "Plugins").mkdir(parents=True)
+            p1_sha = _make_tes4_esm(pb / "FO4SFPipboyProbe.esm", extra_tag=b"pbprobe")
+            p2_sha = _make_tes4_esm(pb / "FO4SFPipboyTravel.esm", extra_tag=b"pbtravel")
+            shell_swf = b"FWS_SYNTHETIC_SHELL"
+            boot_swf = b"CWS_SYNTHETIC_BOOT_SEQUENCE"
+            pex_bytes = b"PEX_TRAVEL"
+            (pb / "Data" / "Interface" / "FO4SF_Fo4Shell.swf").write_bytes(shell_swf)
+            (pb / "Data" / "Interface" / "pipboybootsequence.swf").write_bytes(boot_swf)
+            (pb / "Data" / "Scripts" / "FO4SF_PipboyTravel.pex").write_bytes(pex_bytes)
+            (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").write_bytes(b"MZ_SYNTHETIC_PIPBOY_DLL")
+            (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").write_text(
+                "[FO4SFPipboyMenu]\nStage=2\nMovie=FO4SF_Fo4Shell\nBootMovie=pipboybootsequence\nBootOnFirstOpen=1\n",
+                encoding="utf-8",
+            )
+            # Reproduce Candidate 2 bug: stage plan.json omitted pipboybootsequence.swf even though INI named it
+            (pb / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "kind": "pipboy-stack-stage",
+                        "plugins": ["FO4SFPipboyProbe.esm", "FO4SFPipboyTravel.esm"],
+                        "files": {
+                            "FO4SFPipboyProbe.esm": {"sha256": p1_sha},
+                            "FO4SFPipboyTravel.esm": {"sha256": p2_sha},
+                            "Data/Interface/FO4SF_Fo4Shell.swf": {"sha256": _sha256_bytes(shell_swf)},
+                            "Data/Scripts/FO4SF_PipboyTravel.pex": {"sha256": _sha256_bytes(pex_bytes)},
+                        },
+                    },
+                    indent=1,
+                ),
+                encoding="utf-8",
+            )
+
+            out_ok = root / "bundle-with-boot"
+            rc = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(out_ok), "--port", str(port_esm),
+                "--profile", "player", "--with-pipboy", "--pipboy-stage", str(pb),
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc, 0)
+            self.assertTrue((out_ok / "Data" / "Interface" / "pipboybootsequence.swf").is_file())
+            bplan = json.loads((out_ok / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertIn(
+                "Data/Interface/pipboybootsequence.swf",
+                bplan["components"]["pipboy"]["outputs"],
+            )
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out_ok), "--port", str(port_esm)]), 0)
+
+            # Removing pipboybootsequence.swf from both disk and manifest (the Candidate 2 failure state) MUST fail verify!
+            (out_ok / "Data" / "Interface" / "pipboybootsequence.swf").unlink()
+            bplan["components"]["pipboy"]["outputs"].pop("Data/Interface/pipboybootsequence.swf", None)
+            (out_ok / "bundle_plan.json").write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+            probs, _ = mcb.verify_bundle(str(out_ok), port_esm=str(port_esm))
+            self.assertTrue(any("BootMovie" in p and "pipboybootsequence.swf" in p for p in probs), probs)
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out_ok), "--port", str(port_esm)]), 1)
+
+    def test_a5_test_vs_player_profile_core_values_fltv_and_pinned_hashes(self):
+        # parity not applicable: ordered by A5
+        PINNED_SYNTH_TEST_ESM_SHA256 = "a400f17ef6e4be0689d393719e8208b937774c1df795555c83ac2f97637af4ef"
+        PINNED_SYNTH_PLAYER_ESM_SHA256 = "e18bd6f628b3246b88ab209a263b4cc1b0b435f8dc296c11d43516d46dc45b4a"
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+
+            # Verify stage_from_checkout passes --test-mode 1 for test profile and --test-mode 0 for player profile
+            recorded_cv_calls: list[tuple[str, list[str]]] = []
+            orig_run_py = mcb._run_py
+
+            def _spy_run_py(py_exe, script_rel, args):
+                if script_rel == "scripts/core/make_core_values.py":
+                    recorded_cv_calls.append((script_rel, list(args)))
+                    out_idx = list(args).index("--out") + 1
+                    Path(args[out_idx]).mkdir(parents=True, exist_ok=True)
+                    raise StopIteration("stop-after-core-values")
+                return orig_run_py(py_exe, script_rel, args)
+
+            mcb._run_py = _spy_run_py
+            try:
+                for prof in ("test", "player"):
+                    ns = type("Args", (), {
+                        "work": str(root / "work-spy"),
+                        "out": str(root / "out-spy"),
+                        "render_python": None,
+                        "starfield_dir": str(root / "sf"),
+                        "port": str(port_esm),
+                        "owner_set": str(owner),
+                        "profile": prof,
+                        "commonlibsf": None,
+                        "msvc_env": None,
+                    })()
+                    with self.assertRaises(StopIteration):
+                        mcb.stage_from_checkout(ns)
+            finally:
+                mcb._run_py = orig_run_py
+
+            self.assertEqual(len(recorded_cv_calls), 2)
+            self.assertEqual(recorded_cv_calls[0][1][-2:], ["--test-mode", "1"])
+            self.assertEqual(recorded_cv_calls[1][1][-2:], ["--test-mode", "0"])
+
+            out_test = root / "bundle-test"
+            self.assertEqual(
+                mcb.main([
+                    "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                    "--out", str(out_test), "--port", str(port_esm), "--profile", "test",
+                ], system=_FakeSystemClosed()),
+                0,
+            )
+            out_player = root / "bundle-player"
+            self.assertEqual(
+                mcb.main([
+                    "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                    "--out", str(out_player), "--port", str(port_esm), "--profile", "player",
+                ], system=_FakeSystemClosed()),
+                0,
+            )
+
+            test_val, test_err = mcb.read_core_values_test_mode_fltv(str(out_test / "FO4SFCoreValues.esm"))
+            player_val, player_err = mcb.read_core_values_test_mode_fltv(str(out_player / "FO4SFCoreValues.esm"))
+            self.assertIsNone(test_err)
+            self.assertIsNone(player_err)
+            self.assertAlmostEqual(test_val, 1.0, places=5)
+            self.assertAlmostEqual(player_val, 0.0, places=5)
+
+            self.assertEqual(mcb.sha256_file(str(out_test / "FO4SFCoreValues.esm")), PINNED_SYNTH_TEST_ESM_SHA256)
+            self.assertEqual(mcb.sha256_file(str(out_player / "FO4SFCoreValues.esm")), PINNED_SYNTH_PLAYER_ESM_SHA256)
+
+            # Swapping player (0.0) FO4SFCoreValues.esm into test bundle (even updating hash) MUST fail verify!
+            player_bytes = (out_player / "FO4SFCoreValues.esm").read_bytes()
+            test_bytes = (out_test / "FO4SFCoreValues.esm").read_bytes()
+
+            (out_test / "FO4SFCoreValues.esm").write_bytes(player_bytes)
+            tplan = json.loads((out_test / "bundle_plan.json").read_text(encoding="utf-8"))
+            tplan["components"]["core_values"]["outputs"]["FO4SFCoreValues.esm"] = _sha256_bytes(player_bytes)
+            (out_test / "bundle_plan.json").write_text(json.dumps(tplan, indent=1), encoding="utf-8")
+            t_probs, _ = mcb.verify_bundle(str(out_test), port_esm=str(port_esm))
+            self.assertTrue(any("--profile test requires FO4SF_TestModeEnabled" in p for p in t_probs), t_probs)
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out_test), "--port", str(port_esm)]), 1)
+
+            # Swapping test (1.0) FO4SFCoreValues.esm into player bundle (even updating hash) MUST fail verify!
+            (out_player / "FO4SFCoreValues.esm").write_bytes(test_bytes)
+            pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
+            pplan["components"]["core_values"]["outputs"]["FO4SFCoreValues.esm"] = _sha256_bytes(test_bytes)
+            (out_player / "bundle_plan.json").write_text(json.dumps(pplan, indent=1), encoding="utf-8")
+            p_probs, _ = mcb.verify_bundle(str(out_player), port_esm=str(port_esm))
+            self.assertTrue(any("--profile player requires FO4SF_TestModeEnabled" in p for p in p_probs), p_probs)
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out_player), "--port", str(port_esm)]), 1)
+
+    def test_a16_verify_refuses_newgame_mastering_core_values_without_store_or_out_of_order(self):
+        # parity not applicable: ordered by A16
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+
+            out = root / "bundle-a16"
+            self.assertEqual(
+                mcb.main([
+                    "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                    "--out", str(out), "--port", str(port_esm), "--profile", "player",
+                ], system=_FakeSystemClosed()),
+                0,
+            )
+
+            # 1. Ordering FO4SFNewGame.esm BEFORE FO4SFCoreValues.esm in Plugins.txt / bundle_plan.json must fail verify
+            bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
+            orig_plugins = list(bplan["plugins"])
+            reordered = [p for p in orig_plugins if p != "FO4SFCoreValues.esm"] + ["FO4SFCoreValues.esm"]
+            bplan["plugins"] = reordered
+            (out / "bundle_plan.json").write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+            readme_txt = (out / "README.txt").read_text(encoding="utf-8").replace(
+                ",".join(orig_plugins), ",".join(reordered)
+            )
+            (out / "README.txt").write_text(readme_txt, encoding="utf-8", newline="\n")
+            probs_order, _ = mcb.verify_bundle(str(out), port_esm=str(port_esm))
+            self.assertTrue(
+                any("FO4SFNewGame.esm is ordered before its required master FO4SFCoreValues.esm" in p for p in probs_order),
+                probs_order,
+            )
+
+            # 2. Removing FO4SFCoreValues.esm from the bundle completely while FO4SFNewGame.esm masters it must fail verify
+            without_cv = [p for p in orig_plugins if p != "FO4SFCoreValues.esm"]
+            bplan["plugins"] = without_cv
+            bplan["components"].pop("core_values", None)
+            (out / "bundle_plan.json").write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+            (out / "README.txt").write_text(
+                readme_txt.replace(",".join(reordered), ",".join(without_cv)),
+                encoding="utf-8",
+                newline="\n",
+            )
+            (out / "FO4SFCoreValues.esm").unlink()
+            probs_missing, _ = mcb.verify_bundle(str(out), port_esm=str(port_esm))
+            self.assertTrue(
+                any("FO4SFNewGame.esm masters FO4SFCoreValues.esm, but bundle lacks FO4SFCoreValues.esm" in p for p in probs_missing),
+                probs_missing,
+            )
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out), "--port", str(port_esm)]), 1)
 
     @unittest.skipUnless(os.environ.get("FO4SF_DOTNET_TESTS") == "1", "FO4SF_DOTNET_TESTS!=1")
     def test_dotnet_core_candidate_selftest(self):
