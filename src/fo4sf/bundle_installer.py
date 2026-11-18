@@ -1,19 +1,21 @@
-"""One-command bundle installer, post-check, save-swap warning, and byte-identical rollback.
+"""One-command bundle installer, post-check, save-swap check, and byte-identical rollback.
 
 Wraps `scripts/game/exp_install.py` and `scripts/game/plugin_toggle.py` into a deterministic workflow:
   1. Refuses if `Starfield.exe`, `CreationKit.exe`, `sfse_loader.exe`, or the FO4SF launcher is open,
-     or if target drive free space would fall below `--min-free-gb`.
-  2. Evaluates save-swap safety against any currently installed plugin set (removed/reordered plugins,
-     changed TES4/QUST/VMAD signatures) and emits a one-line `SAVE-WARNING:` when saves are invalidated.
+     or if target drive free space would fall below `--min-free-gb` (counting `Archive2` temporary `.ba2`
+     bytes and cross-volume/copy-fallback `owner-files` bytes).
+  2. Evaluates save-swap safety via `fo4sf.save_safety` against any currently installed plugin set and
+     emits a one-line `WARNING:` (or `NOTE:` on unverified plugin slot shifts).
   3. Backs up `Plugins.txt`, INI files (`StarfieldCustom.ini`, `StarfieldPrefs.ini`, `Starfield.ini`),
-     `launcher_settings.json`, `FO4SFExp.install.json`, `FO4SF.toggle.json`, and creates hardlinks of all
-     previously installed owner `.esm`/`.ba2` files under `<work_dir>/owner-files/`.
+     `launcher_settings.json`, `FO4SFExp.install.json`, `FO4SF.toggle.json`, creates hardlinks/copies of all
+     previously installed owner `.esm`/`.ba2` files under `<work_dir>/owner-files/`, and writes a
+     `"status": "pending"` `<work_dir>/install_receipt.json` BEFORE any destructive step.
   4. Uninstalls the previous experiment (handling held `FO4SFBridge.esm` via `plugin_toggle.py`), installs
      the new bundle, restores prior holds, orders `Plugins.txt`, and runs a dynamic post-check against the
      newly written `FO4SFExp.install.json` (never hardcoding `"FO4TerrainCore - Main.ba2"` when `plugins[0]`
      or split archives produce `"FO4ActorRaider - Main.ba2"`, etc.).
-  5. Writes `<work_dir>/install_receipt.json` and provides a matching `rollback` command that restores
-     byte-identical files and prints every artifact it compared.
+  5. Marks `<work_dir>/install_receipt.json` `"status": "complete"`, and provides a matching `rollback`
+     command that recovers byte-identical state from both `"pending"` and `"complete"` receipts.
 """
 from __future__ import annotations
 
@@ -23,21 +25,25 @@ import json
 import os
 import shutil
 import stat
-import struct
 import subprocess
 import sys
 import time
-import zlib
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from fo4sf.launcher.crashwatch import System
+from fo4sf.save_safety import (
+    Ba2,
+    Ba2Error,
+    compare_inspected_builds,
+    inspect_build,
+    one_line_swap_warning,
+    parse_pex_properties,
+)
 
 WATCHED_PROCESSES = ("Starfield.exe", "CreationKit.exe", "sfse_loader.exe", "FO4SFLauncher.exe")
 LAUNCHER_LOCK_NAMES = ("launcher.lock", "fo4sf-launcher.lock")
 HASH_SIZE_CUTOFF = 600 * 1024 * 1024  # 600 MiB row-hash cutoff matching prep.ps1/rollback.ps1 snapshot rows
-COMPRESSED_RECORD_FLAG = 0x00040000
 
 
 class BundleInstallRefused(RuntimeError):
@@ -71,6 +77,46 @@ def _make_writable_if_exists(path: str) -> None:
 def _remove_file(path: str) -> None:
     _make_writable_if_exists(path)
     os.remove(path)
+
+
+def _write_json_atomic(path: str, payload: Mapping[str, object]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".bundle-tmp"
+    _make_writable_if_exists(tmp)
+    raw = (json.dumps(payload, indent=1) + "\n").encode("utf-8")
+    with open(tmp, "wb") as fp:
+        fp.write(raw)
+        fp.flush()
+        os.fsync(fp.fileno())
+    _make_writable_if_exists(path)
+    os.replace(tmp, path)
+
+
+def _existing_ancestor(path: str) -> str:
+    cur = os.path.abspath(path)
+    while not os.path.exists(cur):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return cur
+
+
+def _same_volume(path_a: str, path_b: str) -> bool:
+    abs_a = os.path.abspath(path_a)
+    abs_b = os.path.abspath(path_b)
+    drv_a = os.path.splitdrive(abs_a)[0].casefold()
+    drv_b = os.path.splitdrive(abs_b)[0].casefold()
+    if drv_a and drv_b and drv_a != drv_b:
+        return False
+    try:
+        dev_a = os.stat(_existing_ancestor(abs_a)).st_dev
+        dev_b = os.stat(_existing_ancestor(abs_b)).st_dev
+        if dev_a and dev_b and dev_a != dev_b:
+            return False
+    except OSError:
+        return False
+    return True
 
 
 def _copy_preserving_bytes_and_stat(src: str, dst: str) -> None:
@@ -116,176 +162,65 @@ def _hardlink_or_copy(src: str, dst: str, require_hardlink: bool = False) -> str
 
 
 # ---------------------------------------------------------------------------
-# Lightweight TES4 / QUST / VMAD signature inspector for 1-line save warnings
+# Save-Swap Compatibility Check via fo4sf.save_safety
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
-class PluginSaveSignature:
-    plugin: str
-    masters: Tuple[str, ...]
-    quest_forms: Tuple[int, ...]
-    quest_stage_counts: Tuple[Tuple[int, int], ...]
-    quest_alias_counts: Tuple[Tuple[int, int], ...]
-    vmad_digest: str
+def _scan_prepacked_pex(ba2_paths: Sequence[str]) -> Dict[str, dict]:
+    found: Dict[str, dict] = {}
+    for bpath in ba2_paths:
+        if not bpath or not os.path.isfile(bpath):
+            continue
+        try:
+            archive = Ba2(bpath)
+        except Ba2Error:
+            continue
+        if archive.kind != "GNRL":
+            continue
+        bname = os.path.basename(bpath)
+        for idx, entry in enumerate(archive.entries):
+            norm_name = entry.name.replace("/", "\\")
+            if norm_name.lower().endswith(".pex"):
+                raw = archive.read(idx)
+                found.update(parse_pex_properties(raw, source=f"{bname}:{os.path.basename(norm_name)}"))
+    return found
 
 
-def _iter_subrecords(payload: bytes) -> Iterable[Tuple[bytes, bytes]]:
-    pos = 0
-    big: Optional[int] = None
-    n_len = len(payload)
-    while pos + 6 <= n_len:
-        typ = payload[pos : pos + 4]
-        sz = struct.unpack_from("<H", payload, pos + 4)[0]
-        pos += 6
-        if typ == b"XXXX":
-            if sz == 4 and pos + 4 <= n_len:
-                big = struct.unpack_from("<I", payload, pos)[0]
-                pos += 4
-                continue
-            break
-        if big is not None:
-            sz, big = big, None
-        if pos + sz > n_len:
-            break
-        yield typ, payload[pos : pos + sz]
-        pos += sz
-
-
-def inspect_plugin_save_signature(path: str) -> Optional[PluginSaveSignature]:
-    """Extract TES4 masters, QUST stage/alias counts, and VMAD property layout digest from an `.esm`/`.esp`."""
-    try:
-        with open(path, "rb") as fp:
-            blob = fp.read()
-    except OSError:
-        return None
-    if len(blob) < 24 or blob[:4] != b"TES4":
-        return None
-
-    masters: List[str] = []
-    quests: List[int] = []
-    stage_counts: List[Tuple[int, int]] = []
-    alias_counts: List[Tuple[int, int]] = []
-    vmad_hasher = hashlib.sha256()
-
-    def walk_region(start: int, end: int) -> None:
-        pos = start
-        while pos + 24 <= end:
-            rec_type = blob[pos : pos + 4]
-            if rec_type == b"GRUP":
-                grup_size = struct.unpack_from("<I", blob, pos + 4)[0]
-                if grup_size < 24 or pos + grup_size > end:
-                    break
-                walk_region(pos + 24, pos + grup_size)
-                pos += grup_size
-                continue
-            data_size, flags, form_id = struct.unpack_from("<III", blob, pos + 4)
-            rec_end = pos + 24 + data_size
-            if rec_end > end:
-                break
-            payload = blob[pos + 24 : rec_end]
-            if (flags & COMPRESSED_RECORD_FLAG) and len(payload) >= 4:
-                try:
-                    payload = zlib.decompress(payload[4:])
-                except zlib.error:
-                    payload = b""
-            if rec_type == b"TES4" and pos == 0:
-                for styp, sdata in _iter_subrecords(payload):
-                    if styp == b"MAST" and sdata.endswith(b"\x00"):
-                        masters.append(sdata[:-1].decode("utf-8", errors="replace"))
-            else:
-                stages = 0
-                aliases = 0
-                for styp, sdata in _iter_subrecords(payload):
-                    if styp == b"VMAD":
-                        vmad_hasher.update(rec_type)
-                        vmad_hasher.update(struct.pack("<I", form_id & 0x00FFFFFF))
-                        vmad_hasher.update(sdata)
-                    elif rec_type == b"QUST":
-                        if styp == b"INDX":
-                            stages += 1
-                        elif styp in (b"ALST", b"ALLS"):
-                            aliases += 1
-                if rec_type == b"QUST":
-                    local_fid = form_id & 0x00FFFFFF
-                    quests.append(local_fid)
-                    stage_counts.append((local_fid, stages))
-                    alias_counts.append((local_fid, aliases))
-            pos = rec_end
-
-    walk_region(0, len(blob))
-    return PluginSaveSignature(
-        plugin=os.path.basename(path),
-        masters=tuple(masters),
-        quest_forms=tuple(sorted(quests)),
-        quest_stage_counts=tuple(sorted(stage_counts)),
-        quest_alias_counts=tuple(sorted(alias_counts)),
-        vmad_digest=vmad_hasher.hexdigest(),
-    )
-
-
-def evaluate_save_swap_warning(
+def _evaluate_bundle_save_warning(
+    starfield_dir: str,
     prev_plugins: Sequence[str],
-    prev_plugin_paths: Mapping[str, str],
+    bundle_dir: str,
     new_plugins: Sequence[str],
-    new_plugin_paths: Mapping[str, str],
-) -> Optional[str]:
-    """Return a single-line save-invalidation warning if swapping `prev_plugins` -> `new_plugins` breaks saves."""
-    if not prev_plugins:
-        return None
+    prepacked_ba2: str = "",
+    prepacked_dir: str = "",
+) -> Tuple[Optional[str], Optional[dict]]:
+    """Delegate save-swap analysis directly to `fo4sf.save_safety`."""
+    data_dir = os.path.join(starfield_dir, "Data")
+    existing_prev = [p for p in prev_plugins if os.path.isfile(os.path.join(data_dir, p))]
+    if not existing_prev:
+        return None, None
 
-    reasons: List[str] = []
-    prev_lower = [p.casefold() for p in prev_plugins]
-    new_lower = [p.casefold() for p in new_plugins]
-    prev_map = {p.casefold(): p for p in prev_plugins}
+    before_snap = inspect_build(starfield_dir, plugins=existing_prev)
+    after_snap = inspect_build(bundle_dir, plugins=new_plugins)
 
-    removed = [prev_map[k] for k in prev_lower if k not in set(new_lower)]
-    if removed:
-        sample = ", ".join(removed[:3]) + ("..." if len(removed) > 3 else "")
-        reasons.append(f"removed {len(removed)} plugin(s) ({sample})")
+    extra_ba2s: List[str] = []
+    if prepacked_ba2 and os.path.isfile(prepacked_ba2):
+        extra_ba2s.append(prepacked_ba2)
+    elif prepacked_dir and os.path.isdir(prepacked_dir):
+        valid_stems = {os.path.splitext(p)[0].casefold() for p in new_plugins}
+        for fn in sorted(os.listdir(prepacked_dir)):
+            if fn.lower().endswith(".ba2") and fn.split(" - ", 1)[0].casefold() in valid_stems:
+                extra_ba2s.append(os.path.join(prepacked_dir, fn))
+    if extra_ba2s:
+        prepacked_pex = _scan_prepacked_pex(extra_ba2s)
+        if prepacked_pex:
+            merged_pex = dict(prepacked_pex)
+            merged_pex.update(after_snap["pex_scripts"])
+            after_snap["pex_scripts"] = merged_pex
+            after_snap["summary"]["pex_script_count"] = len(merged_pex)
+            after_snap["summary"]["pex_property_count"] = sum(len(sc["properties"]) for sc in merged_pex.values())
 
-    common_prev_order = [k for k in prev_lower if k in set(new_lower)]
-    common_new_order = [k for k in new_lower if k in set(prev_lower)]
-    if common_prev_order != common_new_order:
-        reasons.append("reordered active plugins (form-index shift)")
-    elif new_lower[: len(common_prev_order)] != common_prev_order:
-        reasons.append("inserted plugin(s) ahead of existing masters (form-index shift)")
-
-    prev_path_ci = {k.casefold(): v for k, v in prev_plugin_paths.items()}
-    new_path_ci = {k.casefold(): v for k, v in new_plugin_paths.items()}
-    changed_qust: List[str] = []
-    changed_vmad: List[str] = []
-    for k in common_prev_order:
-        p_old = prev_path_ci.get(k)
-        p_new = new_path_ci.get(k)
-        if not p_old or not p_new or not os.path.isfile(p_old) or not os.path.isfile(p_new):
-            continue
-        if sha256_file(p_old) == sha256_file(p_new):
-            continue
-        sig_old = inspect_plugin_save_signature(p_old)
-        sig_new = inspect_plugin_save_signature(p_new)
-        if sig_old and sig_new:
-            if (
-                sig_old.quest_forms != sig_new.quest_forms
-                or sig_old.quest_stage_counts != sig_new.quest_stage_counts
-                or sig_old.quest_alias_counts != sig_new.quest_alias_counts
-            ):
-                changed_qust.append(sig_new.plugin)
-            if sig_old.vmad_digest != sig_new.vmad_digest:
-                changed_vmad.append(sig_new.plugin)
-
-    if changed_qust:
-        sample = ", ".join(changed_qust[:3]) + ("..." if len(changed_qust) > 3 else "")
-        reasons.append(f"changed quest/stage/alias layout in {sample}")
-    if changed_vmad:
-        sample = ", ".join(changed_vmad[:3]) + ("..." if len(changed_vmad) > 3 else "")
-        reasons.append(f"changed VMAD script/property layout in {sample}")
-
-    if not reasons:
-        return None
-    return (
-        f"SAVE-WARNING: Swapping this bundle invalidates existing saves ({'; '.join(reasons)}); "
-        "start a New Game or roll back before loading prior saves."
-    )
+    report = compare_inspected_builds(before_snap, after_snap)
+    return one_line_swap_warning(report), report
 
 
 # ---------------------------------------------------------------------------
@@ -576,25 +511,82 @@ def install_bundle(
         if not os.path.isfile(os.path.join(bundle_abs, p)):
             raise BundleInstallRefused(f"Selected plugin missing from bundle folder: {p}")
 
-    # Estimate required bytes for space floor check
-    needed_bytes = sum(os.path.getsize(os.path.join(bundle_abs, p)) for p in plugins)
+    # Inspect prior install for owner hardlinks/fallback sizing and save-swap check
+    prev_exp_path = os.path.join(data_dir, "FO4SFExp.install.json")
+    prev_rec: Optional[Dict[str, object]] = None
+    prev_plugins: List[str] = []
+    owner_rel_files: List[str] = []
+    if os.path.isfile(prev_exp_path):
+        with open(prev_exp_path, encoding="utf-8") as fp:
+            prev_rec = json.load(fp)
+        prev_plugins = list(prev_rec.get("plugins") or [])
+        owner_rel_files = sorted((prev_rec.get("files") or {}).keys())
+
+    sidecar_rel_files: List[Tuple[str, str]] = []
+    existing_sidecars: List[str] = []
+    sidecar_root = os.path.join(bundle_abs, "sfse_sidecar", "SFSE", "Plugins")
+    if with_sfse_sidecar and os.path.isdir(sidecar_root):
+        for fn in sorted(os.listdir(sidecar_root)):
+            src_sc = os.path.join(sidecar_root, fn)
+            if os.path.isfile(src_sc):
+                rel_sc = f"SFSE/Plugins/{fn}"
+                dst_sc = os.path.join(data_dir, "SFSE", "Plugins", fn)
+                if os.path.exists(dst_sc):
+                    existing_sidecars.append(rel_sc)
+                else:
+                    sidecar_rel_files.append((rel_sc, src_sc))
+    if existing_sidecars:
+        existing_display = ", ".join(f"Data/{rel}" for rel in existing_sidecars)
+        manual_hint = (
+            f"MANUAL-SIDECAR: Back up and replace existing {existing_display} manually "
+            "(or omit --with-sfse-sidecar) before re-running install."
+        )
+        print(manual_hint)
+        raise BundleInstallRefused(
+            f"Refusing to overwrite existing SFSE plugin(s) in Data ({', '.join(existing_sidecars)}). {manual_hint}"
+        )
+
+    # Estimate required bytes for space floor check (including Archive2 temp BA2 and cross-volume/copy fallback)
+    plugin_bytes = sum(os.path.getsize(os.path.join(bundle_abs, p)) for p in plugins)
     bundle_data_dir = os.path.join(bundle_abs, "Data")
     has_loose_data = False
+    builds_new_archive = False
+    archive_bytes = 0
     if prepacked_ba2:
         if not os.path.isfile(prepacked_ba2):
             raise BundleInstallRefused(f"Prepacked BA2 not found: {prepacked_ba2}")
-        needed_bytes += os.path.getsize(prepacked_ba2)
+        archive_bytes = os.path.getsize(prepacked_ba2)
     elif prepacked_dir:
         if not os.path.isdir(prepacked_dir):
             raise BundleInstallRefused(f"Prepacked split directory not found: {prepacked_dir}")
         for fn in os.listdir(prepacked_dir):
             if fn.lower().endswith(".ba2"):
-                needed_bytes += os.path.getsize(os.path.join(prepacked_dir, fn))
+                archive_bytes += os.path.getsize(os.path.join(prepacked_dir, fn))
     elif os.path.isdir(bundle_data_dir):
         for r, _dirs, files in os.walk(bundle_data_dir):
             for fn in files:
                 has_loose_data = True
-                needed_bytes += os.path.getsize(os.path.join(r, fn))
+                archive_bytes += os.path.getsize(os.path.join(r, fn))
+        builds_new_archive = has_loose_data
+
+    archive2_temp_bytes = archive_bytes if builds_new_archive else 0
+    owner_files_bytes = 0
+    for rel_f in owner_rel_files:
+        src_owner = os.path.join(data_dir, *rel_f.replace("\\", "/").split("/"))
+        if os.path.isfile(src_owner):
+            owner_files_bytes += os.path.getsize(src_owner)
+    same_vol = _same_volume(work_abs, sf_abs)
+    owner_copy_fallback_bytes = owner_files_bytes if (not require_hardlinks or not same_vol) else 0
+    sidecar_bytes = sum(os.path.getsize(src_sc) for _rel_sc, src_sc in sidecar_rel_files)
+
+    needed_bytes_breakdown = {
+        "plugins": plugin_bytes,
+        "archive": archive_bytes,
+        "archive2_temp": archive2_temp_bytes,
+        "owner_copy_fallback": owner_copy_fallback_bytes,
+        "sidecars": sidecar_bytes,
+    }
+    needed_bytes = sum(needed_bytes_breakdown.values())
 
     get_free = free_bytes_fn if free_bytes_fn is not None else (lambda p: shutil.disk_usage(p).free)
     free_now = int(get_free(sf_abs))
@@ -606,37 +598,19 @@ def install_bundle(
             f"(free={free_now / (1024 ** 3):.2f} GiB, needed={needed_bytes / (1024 ** 3):.2f} GiB, floor={min_free_gb:.2f} GiB)"
         )
 
-    # Inspect prior install for owner hardlinks and 1-line save-invalidation warning
-    prev_exp_path = os.path.join(data_dir, "FO4SFExp.install.json")
-    prev_rec: Optional[Dict[str, object]] = None
-    prev_plugins: List[str] = []
-    owner_rel_files: List[str] = []
-    if os.path.isfile(prev_exp_path):
-        with open(prev_exp_path, encoding="utf-8") as fp:
-            prev_rec = json.load(fp)
-        prev_plugins = list(prev_rec.get("plugins") or [])
-        owner_rel_files = sorted((prev_rec.get("files") or {}).keys())
-
-    prev_plugin_paths = {p: os.path.join(data_dir, p) for p in prev_plugins if os.path.isfile(os.path.join(data_dir, p))}
-    new_plugin_paths = {p: os.path.join(bundle_abs, p) for p in plugins}
-    save_warning = evaluate_save_swap_warning(prev_plugins, prev_plugin_paths, plugins, new_plugin_paths)
+    save_warning, _safety_report = _evaluate_bundle_save_warning(
+        sf_abs,
+        prev_plugins,
+        bundle_abs,
+        plugins,
+        prepacked_ba2=prepacked_ba2,
+        prepacked_dir=prepacked_dir,
+    )
     if save_warning:
         print(save_warning)
 
     expected_primary_archive = f"{os.path.splitext(plugins[0])[0]} - Main.ba2" if (has_loose_data or prepacked_ba2 or prepacked_dir) else ""
     ini_paths = collect_ini_paths(sf_abs, my_games_dir)
-
-    sidecar_rel_files: List[Tuple[str, str]] = []
-    sidecar_root = os.path.join(bundle_abs, "sfse_sidecar", "SFSE", "Plugins")
-    if with_sfse_sidecar and os.path.isdir(sidecar_root):
-        for fn in sorted(os.listdir(sidecar_root)):
-            src_sc = os.path.join(sidecar_root, fn)
-            if os.path.isfile(src_sc):
-                rel_sc = f"SFSE/Plugins/{fn}"
-                dst_sc = os.path.join(data_dir, "SFSE", "Plugins", fn)
-                if os.path.exists(dst_sc):
-                    raise BundleInstallRefused(f"Refusing to overwrite existing SFSE plugin in Data: {rel_sc}")
-                sidecar_rel_files.append((rel_sc, src_sc))
 
     if dry_run:
         plan = {
@@ -651,6 +625,7 @@ def install_bundle(
             "ini_backups": [os.path.basename(p) for p in ini_paths if os.path.isfile(p)],
             "sidecar_files": [rel for rel, _ in sidecar_rel_files],
             "needed_bytes": needed_bytes,
+            "needed_bytes_breakdown": needed_bytes_breakdown,
             "free_bytes": free_now,
             "save_warning": save_warning or "",
         }
@@ -738,6 +713,35 @@ def install_bundle(
     with open(os.path.join(work_abs, "hashes-before.txt"), "w", encoding="utf-8") as fp:
         fp.write("\n".join(before_rows) + "\n")
 
+    # Write durable "pending" install_receipt.json BEFORE the first plugin_toggle or exp_install uninstall call
+    receipt_path = os.path.join(work_abs, "install_receipt.json")
+    started_at = _now_utc_iso()
+    pending_receipt: Dict[str, object] = {
+        "kind": "fo4sf-bundle-install-receipt",
+        "version": 1,
+        "status": "pending",
+        "started_at": started_at,
+        "bundle_dir": bundle_abs,
+        "starfield_dir": sf_abs,
+        "work_dir": work_abs,
+        "plugins_txt": ptxt_abs,
+        "my_games_dir": my_games_dir,
+        "planned_plugins": plugins,
+        "plugins": [],
+        "archives": [],
+        "verified_files": {},
+        "added_sidecars": {},
+        "backed_up_configs": backed_up_configs,
+        "ini_manifest": ini_manifest,
+        "meta_manifest": meta_manifest,
+        "owner_files_before": owner_manifest,
+        "hashes_before_rows": len(before_rows),
+        "needed_bytes": needed_bytes,
+        "needed_bytes_breakdown": needed_bytes_breakdown,
+        "save_warning": save_warning or "",
+    }
+    _write_json_atomic(receipt_path, pending_receipt)
+
     # 3. Execute swap through plugin_toggle.py and exp_install.py
     root = Path(repo_root).resolve() if repo_root else Path(__file__).resolve().parents[2]
     exp_script = str(root / "scripts" / "game" / "exp_install.py")
@@ -783,6 +787,9 @@ def install_bundle(
         dst_sc = os.path.join(data_dir, *rel_sc.split("/"))
         _copy_preserving_bytes_and_stat(src_sc, dst_sc)
         added_sidecars[rel_sc] = sha256_file(dst_sc)
+    if added_sidecars:
+        pending_receipt["added_sidecars"] = dict(added_sidecars)
+        _write_json_atomic(receipt_path, pending_receipt)
 
     # Restore non-experiment holds (such as FO4SFBridge.esm) that remain owned after swap
     new_plugin_set = {p.casefold() for p in plugins}
@@ -822,6 +829,8 @@ def install_bundle(
     receipt = {
         "kind": "fo4sf-bundle-install-receipt",
         "version": 1,
+        "status": "complete",
+        "started_at": started_at,
         "installed_at": _now_utc_iso(),
         "bundle_dir": bundle_abs,
         "starfield_dir": sf_abs,
@@ -838,11 +847,11 @@ def install_bundle(
         "owner_files_before": owner_manifest,
         "hashes_before_rows": len(before_rows),
         "hashes_after_rows": len(after_rows),
+        "needed_bytes": needed_bytes,
+        "needed_bytes_breakdown": needed_bytes_breakdown,
         "save_warning": save_warning or "",
     }
-    receipt_path = os.path.join(work_abs, "install_receipt.json")
-    with open(receipt_path, "w", encoding="utf-8") as fp:
-        json.dump(receipt, fp, indent=1)
+    _write_json_atomic(receipt_path, receipt)
 
     print(
         f"POST-CHECK OK: {len(post['plugins'])} plugin(s), "
@@ -869,6 +878,10 @@ def rollback_bundle(
 
     with open(receipt_path, encoding="utf-8") as fp:
         receipt = json.load(fp)
+
+    receipt_status = str(receipt.get("status") or "complete")
+    if receipt_status not in ("pending", "complete"):
+        raise BundleInstallRefused(f"Cannot roll back: unrecognized receipt status {receipt_status!r} in {receipt_path}")
 
     sf_abs = os.path.abspath(starfield_dir or receipt["starfield_dir"])
     ptxt_abs = os.path.abspath(plugins_txt_path or receipt["plugins_txt"])
@@ -904,6 +917,7 @@ def rollback_bundle(
         summary = {
             "mode": "dry-run",
             "action": "rollback",
+            "receipt_status": receipt_status,
             "starfield_dir": sf_abs,
             "work_dir": work_abs,
             "owner_files_verified": sorted(owner_manifest.keys()),
@@ -911,7 +925,7 @@ def rollback_bundle(
             "inis_to_compare": [m["name"] for m in (receipt.get("ini_manifest") or [])],
         }
         print(
-            f"DRY-RUN rollback: verified {len(owner_manifest)} backup owner file(s), "
+            f"DRY-RUN rollback (status={receipt_status}): verified {len(owner_manifest)} backup owner file(s), "
             f"sidecars_to_remove={len(summary['sidecars_to_remove'])}, writes=0"
         )
         return summary
@@ -926,11 +940,17 @@ def rollback_bundle(
     before_exp = os.path.join(before_dir, "FO4SFExp.install.json")
     exp_meta = (receipt.get("meta_manifest") or {}).get("FO4SFExp.install.json") or {}
     already_before = (
-        bool(exp_meta.get("present"))
-        and os.path.isfile(live_exp)
-        and os.path.isfile(before_exp)
-        and sha256_file(live_exp) == sha256_file(before_exp)
-    ) or (not exp_meta.get("present") and not os.path.exists(live_exp))
+        receipt_status == "complete"
+        and (
+            (
+                bool(exp_meta.get("present"))
+                and os.path.isfile(live_exp)
+                and os.path.isfile(before_exp)
+                and sha256_file(live_exp) == sha256_file(before_exp)
+            )
+            or (not exp_meta.get("present") and not os.path.exists(live_exp))
+        )
+    )
 
     if not already_before:
         live_toggle = os.path.join(data_dir, "FO4SF.toggle.json")
@@ -959,7 +979,12 @@ def rollback_bundle(
         for rel_f, info in sorted(owner_manifest.items()):
             dst_f = os.path.join(data_dir, *rel_f.replace("\\", "/").split("/"))
             if os.path.lexists(dst_f):
-                raise BundleInstallRefused(f"Rollback refused: {rel_f} still exists in Data after uninstall")
+                same_owner_bytes = (
+                    os.path.isfile(dst_f)
+                    and sha256_file(dst_f).lower() == str(info["sha256"]).lower()
+                )
+                if not same_owner_bytes:
+                    raise BundleInstallRefused(f"Rollback refused: {rel_f} still exists in Data after uninstall")
             saved_f = os.path.join(owner_dir, *rel_f.replace("\\", "/").split("/"))
             _hardlink_or_copy(saved_f, dst_f, require_hardlink=False)
             _make_writable_if_exists(dst_f)
@@ -1070,6 +1095,7 @@ def rollback_bundle(
 
     return {
         "ok": True,
+        "recovered_from_status": receipt_status,
         "rows_compared": len(rollback_rows),
         "owner_files_restored": len(owner_manifest),
         "comparisons": comparisons,

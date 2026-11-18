@@ -13,8 +13,10 @@ Earlier manual swap scripts hardcoded `$ba2 = "FO4TerrainCore - Main.ba2"` in bo
 ## Safety Gates
 
 - **Process & Launcher Lock Refusal:** Refuses immediately (`exit 2`) if `Starfield.exe`, `CreationKit.exe`, `sfse_loader.exe`, `FO4SFLauncher.exe`, or a launcher lockfile (`launcher.lock` / `fo4sf-launcher.lock`) is present.
-- **Disk Floor Guard:** Computes total incoming `.esm` + `.ba2`/`Data/` bytes (while hardlinks keep the prior archive alive on disk) and refuses if free space would drop below `--min-free-gb` (default `24.0` GiB).
-- **One-Line Save-Invalidation Warning:** Compares the prior active plugin list and binary TES4/`QUST`/`VMAD` signatures against the incoming bundle and prints a single `SAVE-WARNING:` line whenever removed/reordered plugins, quest stage/alias count deltas, or VMAD property changes invalidate existing saves.
+- **Disk Floor Guard:** Computes incoming `.esm`, `.ba2`/`Data/`, and sidecar bytes, plus `Archive2`'s `~1x` temporary `.ba2` when `--pack` builds a new archive and `owner-files` copy fallback bytes when `work_dir` and `starfield_dir` are on different volumes or `--require-hardlinks` is not set, refusing if free space would drop below `--min-free-gb` (default `24.0` GiB).
+- **One-Line Save-Safety Check (`fo4sf.save_safety`):** Delegates directly to `fo4sf.save_safety` (`compare_inspected_builds` + `one_line_swap_warning`) to emit a `WARNING:` line when removed plugins, removed quest stages/aliases, or removed/retyped `VMAD`/`.pex` script properties break saves, or a `NOTE:` line (`unverified, waits for a game test`) when plugin load-order slots shift without breaking changes.
+- **Pending Receipt Journaling:** Writes `<work_dir>/install_receipt.json` with `"status": "pending"` (recording `backed_up_configs`, `ini_manifest`, `meta_manifest`, and `owner_files_before`) before the first `plugin_toggle.py` or `exp_install.py uninstall` call, updating it to `"status": "complete"` only after `run_postcheck` passes. `rollback` recovers cleanly from both `"pending"` and `"complete"` receipts.
+- **SFSE Sidecar Overwrite Protection:** `--with-sfse-sidecar` refuses to overwrite any existing DLL in `Data/SFSE/Plugins/` and prints a one-line manual-backup/replace instruction naming the conflicting file(s).
 - **Dry-Run Mode (`--dry-run`):** Runs process checks, space checks, plugin/archive resolution, and save-swap analysis (or backup SHA-256 verification on `rollback --dry-run`) with zero disk writes.
 
 ## Commands

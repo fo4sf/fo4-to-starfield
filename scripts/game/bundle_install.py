@@ -62,7 +62,14 @@ def main(argv: list[str] | None = None) -> int:
     p_ins.add_argument("--launcher-settings", default="", help="Override launcher_settings.json path.")
     p_ins.add_argument("--prepacked", default="", help="Optional prepacked Main.ba2 path.")
     p_ins.add_argument("--prepacked-dir", default="", help="Optional prepacked split-archive directory.")
-    p_ins.add_argument("--split-archives", choices=("none", "size", "plugin"), default="none")
+    p_ins.add_argument(
+        "--split-archives",
+        nargs="?",
+        const="plugin",
+        choices=("none", "size", "plugin"),
+        default="none",
+        help="Split >4 GiB BA2 archives (bare --split-archives defaults to 'plugin').",
+    )
     p_ins.add_argument("--max-archive-bytes", type=int, default=3 * (1024 ** 3))
     p_ins.add_argument("--with-sfse-sidecar", action="store_true", help="Copy bundle sfse_sidecar/SFSE/Plugins DLLs if present.")
     p_ins.add_argument("--min-free-gb", type=float, default=24.0, help="Minimum free GiB required after staging (default: 24.0).")
