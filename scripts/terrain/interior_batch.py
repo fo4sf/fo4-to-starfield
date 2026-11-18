@@ -840,11 +840,20 @@ def build(a):
         inst_ids = load(os.path.join(installed_port, "formids.json")) if installed_port else load(os.path.join(a.base, "formids.json"))
         installed_moved = [k for k, v in inst_ids.items() if seed_ids.get(k) != v]
         core_path = os.path.join(a.core, CORE_PLUGIN)
+        seed_pass = len(installed_moved) == 0
         dry = {
             "dry_run": True,
-            "pass": len(installed_moved) == 0,
+            "check_kind": "seed_check",
+            "compares_run": False,
+            "note": (
+                "Seed check only (against reconciled seed_ids); the two plugin compares "
+                "(--compare-installed and --prev) run only in a real build."
+            ),
+            "pass": seed_pass,
+            "seed_check_pass": seed_pass,
             "batch": a.batch,
             "animated_doors": bool(getattr(a, "animated_doors", False)),
+            "animated_pex_checked": bool(getattr(a, "animated_pex", "")),
             "plugin_name": plugin_esm,
             "prefix": prefix,
             "base": os.path.abspath(a.base),
@@ -853,8 +862,10 @@ def build(a):
             "core_plugin_sha256": sha256(core_path) if os.path.isfile(core_path) else None,
             "cells": {"base": len(old_cells), "batch_cumulative": len(new_cells), "total": len(old_cells) + len(new_cells)},
             "formids": {
+                "check": "seed_id_map_only",
                 "installed_count": len(inst_ids),
                 "installed_moved": len(installed_moved),
+                "seed_installed_moved": len(installed_moved),
                 "prev_count": len(load(os.path.join(prev_port, "formids.json"))) if prev_port else 0,
                 "seed_count": len(seed_ids),
                 "kept_door_markers": len(marker_ids),

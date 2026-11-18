@@ -6,6 +6,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -18,6 +20,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "terrain"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from ba2_fixture import general_archive  # noqa: E402
+from pluginspike_fixture import ensure_pluginspike_dll  # noqa: E402
 from fo4sf import pipeline  # noqa: E402
 import interior_batch as ib  # noqa: E402
 import interior_dlc  # noqa: E402
@@ -401,23 +404,37 @@ class D5ScolMissingMeshAndFallbackTests(unittest.TestCase):
 class D4DlcInteriorsDriverTests(unittest.TestCase):
     @classmethod
     def _pluginspike_dll(cls) -> str:
-        for cfg in ("Release", "Debug"):
-            cand = ROOT / "dotnet" / "PluginSpike" / "bin" / cfg / "net9.0" / "PluginSpike.dll"
-            if cand.is_file():
-                return str(cand)
-        dotnet = shutil.which("dotnet")
-        if not dotnet:
-            raise unittest.SkipTest(".NET SDK required to build PluginSpike.dll")
-        subprocess.run(
-            [dotnet, "build", str(ROOT / "dotnet" / "PluginSpike" / "PluginSpike.csproj"), "-c", "Release", "--nologo"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        cand = ROOT / "dotnet" / "PluginSpike" / "bin" / "Release" / "net9.0" / "PluginSpike.dll"
-        if cand.is_file():
-            return str(cand)
-        raise FileNotFoundError("PluginSpike.dll not built")
+        return ensure_pluginspike_dll(ROOT)
+
+    def test_pluginspike_helper_skips_cleanly_without_dotnet_and_rebuilds_stale_dll(self):
+        with patch("pluginspike_fixture.shutil.which", return_value=None):
+            with self.assertRaises(unittest.SkipTest):
+                ensure_pluginspike_dll(ROOT)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_root = Path(tmp)
+            proj = fake_root / "dotnet" / "PluginSpike"
+            dll_dir = proj / "bin" / "Release" / "net9.0"
+            dll_dir.mkdir(parents=True)
+            csproj = proj / "PluginSpike.csproj"
+            cs = proj / "Program.cs"
+            dll = dll_dir / "PluginSpike.dll"
+            dll.write_bytes(b"OLD_DLL")
+            csproj.write_text("<Project/>", encoding="utf-8")
+            cs.write_text("// newer source", encoding="utf-8")
+            os.utime(dll, (1000.0, 1000.0))
+            os.utime(cs, (2000.0, 2000.0))
+
+            def fake_run(cmd, **_kwargs):
+                dll.write_bytes(b"REBUILT_DLL")
+                os.utime(dll, (3000.0, 3000.0))
+                return SimpleNamespace(returncode=0)
+
+            with patch("pluginspike_fixture.shutil.which", return_value="dotnet"), \
+                 patch("pluginspike_fixture.subprocess.run", side_effect=fake_run) as run_mock:
+                resolved = ensure_pluginspike_dll(fake_root)
+                self.assertEqual(resolved, str(dll))
+                self.assertEqual(run_mock.call_count, 1)
 
     def test_select_dlc_cells_excludes_fo4port_owned_and_builds_self_contained_test_station_stage(self):
         with tempfile.TemporaryDirectory() as tmp:

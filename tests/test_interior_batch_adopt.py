@@ -3,6 +3,7 @@ with zero installed FormIDs moved, and build --dry-run."""
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,13 +12,19 @@ import unittest
 from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (os.path.join(ROOT, "src"), os.path.join(ROOT, "scripts"), os.path.join(ROOT, "scripts", "terrain")):
+for _p in (
+    os.path.join(ROOT, "src"),
+    os.path.join(ROOT, "scripts"),
+    os.path.join(ROOT, "scripts", "terrain"),
+    os.path.join(ROOT, "tests"),
+):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import deploy_starfield  # noqa: E402
 import interior_batch as ib  # noqa: E402
 import pack_staging as ps  # noqa: E402
+from pluginspike_fixture import ensure_pluginspike_dll  # noqa: E402
 import vmad_patch  # noqa: E402
 from fo4sf import fo4land  # noqa: E402
 
@@ -35,15 +42,7 @@ def _sha256_file(path: str) -> str:
 
 
 def _pluginspike_dll() -> str:
-    for cfg in ("Release", "Debug"):
-        cand = os.path.join(ROOT, "dotnet", "PluginSpike", "bin", cfg, "net9.0", "PluginSpike.dll")
-        if os.path.isfile(cand):
-            return cand
-    subprocess.run(
-        ["dotnet", "build", os.path.join(ROOT, "dotnet", "PluginSpike", "PluginSpike.csproj"), "-c", "Release", "--nologo"],
-        check=True,
-    )
-    return os.path.join(ROOT, "dotnet", "PluginSpike", "bin", "Release", "net9.0", "PluginSpike.dll")
+    return ensure_pluginspike_dll(ROOT)
 
 
 class AdoptCoreAndAnimatedPrevTests(unittest.TestCase):
@@ -442,7 +441,14 @@ class AdoptCoreAndAnimatedPrevTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             dry_doc = ib.load(os.path.join(out_dry, "dry_run.json"))
             self.assertTrue(dry_doc["pass"])
+            self.assertTrue(dry_doc["seed_check_pass"])
+            self.assertEqual(dry_doc["check_kind"], "seed_check")
+            self.assertFalse(dry_doc["compares_run"])
+            self.assertIn("seed check", dry_doc["note"].lower())
+            self.assertIn("real build", dry_doc["note"].lower())
+            self.assertEqual(dry_doc["formids"]["check"], "seed_id_map_only")
             self.assertEqual(dry_doc["formids"]["installed_moved"], 0)
+            self.assertEqual(dry_doc["formids"]["seed_installed_moved"], 0)
             self.assertEqual(dry_doc["formids"]["installed_keys_adopted"], 1)
             self.assertEqual(dry_doc["formids"]["displaced_by_installed"], 2)
             # Confirm work dir stayed untouched during --dry-run!

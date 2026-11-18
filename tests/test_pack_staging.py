@@ -13,13 +13,19 @@ import unittest
 from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (os.path.join(ROOT, "src"), os.path.join(ROOT, "scripts"), os.path.join(ROOT, "scripts", "terrain")):
+for _p in (
+    os.path.join(ROOT, "src"),
+    os.path.join(ROOT, "scripts"),
+    os.path.join(ROOT, "scripts", "terrain"),
+    os.path.join(ROOT, "tests"),
+):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import deploy_starfield  # noqa: E402
 import interior_batch as ib  # noqa: E402
 import pack_staging as ps  # noqa: E402
+from pluginspike_fixture import ensure_pluginspike_dll  # noqa: E402
 import port_promote  # noqa: E402
 import vmad_patch  # noqa: E402
 
@@ -33,15 +39,7 @@ def _sha256(path: str) -> str:
 
 
 def _pluginspike_dll() -> str:
-    for cfg in ("Release", "Debug"):
-        cand = os.path.join(ROOT, "dotnet", "PluginSpike", "bin", cfg, "net9.0", "PluginSpike.dll")
-        if os.path.isfile(cand):
-            return cand
-    subprocess.run(
-        ["dotnet", "build", os.path.join(ROOT, "dotnet", "PluginSpike", "PluginSpike.csproj"), "-c", "Release", "--nologo"],
-        check=True,
-    )
-    return os.path.join(ROOT, "dotnet", "PluginSpike", "bin", "Release", "net9.0", "PluginSpike.dll")
+    return ensure_pluginspike_dll(ROOT)
 
 
 class PackStagingTests(unittest.TestCase):
