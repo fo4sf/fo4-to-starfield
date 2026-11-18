@@ -2,7 +2,7 @@
 
 Evaluates each of the 12 walk steps independently so a failure in one step never blocks reading the remaining steps:
   1. exit        - pod walk-out, gear door, carrying lift, Commonwealth surface landing (fo4sf_newgame.0.log)
-  2. hold        - hold-off pass 1 + pass 2 stopping 195 of 199 DefaultHold quests (fo4sf_newgame.0.log)
+  2. hold        - hold-off pass 1 + pass 2 stopping 196 of 199 DefaultHold quests, 0 remaining running (fo4sf_newgame.0.log)
   3. rads        - radiation exposure (> 0 rads) and RadAway cure reduction (FO4SFRadsCore.0.log)
   4. hardcore    - GPOF Hardcore toggle ON and OFF with sq_env_running=false (FO4SFHardcore.0.log)
   5. workshop    - junk scrap, station/beacon placement, and save-quit-reload persistence (FO4SFWorkshopCore.1.log + .0.log)
@@ -36,7 +36,7 @@ STEP_NAMES = (
     "pipboy",
 )
 
-EXPECTED_HOLD_STOPPED = 195
+EXPECTED_HOLD_STOPPED = 196
 EXPECTED_HOLD_TOTAL = 199
 
 

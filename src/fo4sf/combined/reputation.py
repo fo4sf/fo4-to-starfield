@@ -20,22 +20,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from fo4sf.reputation.tables import (
+    FNV_REPU_RECORDS,
+    NV_16_STATE_MATRIX,
+    STATE_BY_CODE,
+    ReputationStateSpec,
+    reputation_state_index,
+)
+
 from .model import Reputation, WorldState
 
 # Gain tiers 1-5 worth these points (settlements-factions-precedents.md, verified for New Vegas).
 GAIN_TIERS = (1, 2, 4, 7, 12)
 
-# Points at which fame or infamy reaches level 0..3. The note says NV thresholds are per faction but gives no
-# numbers: PLACEHOLDER, unverified, one table for every faction until a pack supplies its own.
+# Points at which fame or infamy reaches level 0..3 in the combined-core simulation prototype (FO4SFReputation uses
+# 15 / 40 / 75 on the 0..100 runtime axis; FalloutNV.esm REPU pool_max values are recorded in FNV_REPU_RECORDS).
 LEVEL_THRESHOLDS = (0, 10, 25, 50)
 LEVELS = len(LEVEL_THRESHOLDS)
 
-# Named states for the fame-only row and the infamy-only column (settlements-factions-precedents.md). The note
-# names two mixed states ("Smiling Troublemaker", "Dark Hero") but not their cells, so every mixed cell keeps a
-# neutral placeholder name (unverified) rather than a guessed one; MIXED_NAMES_FROM_NOTE records the cited names.
-NEUTRAL = "Neutral"
-FAME_STATES = (NEUTRAL, "Accepted", "Liked", "Idolized")
-INFAMY_STATES = (NEUTRAL, "Shunned", "Hated", "Vilified")
+# Canonical 16-state 4x4 grid shared with fo4sf.reputation.tables (index = fame_tier * 4 + infamy_tier).
+# Only (fame_tier=2, infamy_tier=3) carries measured GMST 0x0016951C sRepTitlePosTwoNegThreeDesc (verified_gmst_edid);
+# the other 15 cells stay esm_status="unverified" with clean code keys.
+NEUTRAL = NV_16_STATE_MATRIX[(0, 0)].title
+FAME_STATES = tuple(NV_16_STATE_MATRIX[(f, 0)].title for f in range(LEVELS))
+INFAMY_STATES = tuple(NV_16_STATE_MATRIX[(0, i)].title for i in range(LEVELS))
 MIXED_NAMES_FROM_NOTE = ("Smiling Troublemaker", "Dark Hero")   # cells unknown; not placed in the grid
 
 # Infamy a helped faction's enemies gain, as a divisor of the fame given (PLACEHOLDER; carried over from the first
@@ -79,14 +87,14 @@ def level(points: int) -> int:
     return max(i for i, t in enumerate(LEVEL_THRESHOLDS) if max(0, points) >= t)
 
 
+def grid_spec(rep: Reputation) -> ReputationStateSpec:
+    """Return the canonical ReputationStateSpec from NV_16_STATE_MATRIX for `rep`."""
+    return NV_16_STATE_MATRIX[(level(rep.fame), level(rep.infamy))]
+
+
 def state(rep: Reputation) -> str:
-    """Named state of the 4x4 grid; mixed cells carry placeholder names (see module docstring)."""
-    f, i = level(rep.fame), level(rep.infamy)
-    if i == 0:
-        return FAME_STATES[f]
-    if f == 0:
-        return INFAMY_STATES[i]
-    return f"mixed_fame{f}_infamy{i}"
+    """Named state of the shared 4x4 grid; mixed cells carry clean code keys (see module docstring)."""
+    return grid_spec(rep).title
 
 
 def standing(ws: WorldState, faction: str, region: str | None = None) -> Reputation:

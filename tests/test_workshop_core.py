@@ -23,6 +23,7 @@ from ba2_fixture import archive_from_tree  # noqa: E402
 import exp_install  # noqa: E402
 import make_workshop_core as mwc  # noqa: E402
 import workshop_core_install as wci  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.workshop import core_log  # noqa: E402
 
 PSC_PATH = ROOT / "scripts" / "workshop" / "FO4SF_WorkshopCoreQuest.psc"
@@ -308,11 +309,18 @@ class ScriptAndContractTests(unittest.TestCase):
         for hex_str in ("0x000800", "0x000810", "0x000818", "0x000820", "0x000840", "0x000847"):
             self.assertIn(hex_str, DOC_TEXT)
 
-    def test_zero_properties_and_starfield_only_master_contract(self):
-        self.assertIsNone(re.search(r"^\s*\w+(\[\])?\s+Property\s+\w+", PSC_TEXT, re.M | re.I))
-        self.assertIn("0 properties", CS_TEXT)
-        self.assertIn("expected [Starfield.esm]", CS_TEXT)
+    def test_core_values_test_mode_property_and_masters_contract(self):
+        props = re.findall(r"^\s*(\w+)\s+Property\s+(\w+)\s+Auto\s+Const\b", PSC_TEXT, re.M)
+        self.assertEqual(props, [("GlobalVariable", "TestModeGlobal")])
+        all_props = re.findall(r"\bProperty\s+(\w+)\b", PSC_TEXT)
+        self.assertEqual(all_props, ["TestModeGlobal"])
+        self.assertIn("if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", PSC_TEXT)
+        self.assertIn("1 property (TestModeGlobal)", CS_TEXT)
+        self.assertIn("expected [Starfield.esm, FO4SFCoreValues.esm]", CS_TEXT)
         self.assertIn('string WorkshopPlugin = "FO4SFWorkshop.esm"', PSC_TEXT)
+        self.assertEqual(CORE_VALUES_PLUGIN, "FO4SFCoreValues.esm")
+        self.assertEqual(mwc.TEST_MODE_GLOBAL_ID, core_form_id("FO4SF_TestModeEnabled"))
+        self.assertEqual(mwc.TEST_MODE_GLOBAL_ID, 0x860)
 
     def test_no_papyrus_variable_or_param_shadows_a_base_type(self):
         decls = re.findall(r"^\s*(?:[A-Za-z0-9_]+(?:\[\])?)\s+([A-Za-z0-9_]+)\s*(?:=|$)", PSC_TEXT, re.M)
@@ -493,7 +501,7 @@ class StageFoldAndInstallTests(unittest.TestCase):
             plugin_bytes = (selftest_dir / "b_full" / "FO4SFWorkshop.esm").read_bytes()
             flags, masters = parse_tes4_header(plugin_bytes)
             self.assertTrue(flags & 0x01, "TES4 Master flag 0x01 not set")
-            self.assertEqual(masters, ["Starfield.esm"])
+            self.assertEqual(masters, ["Starfield.esm", "FO4SFCoreValues.esm"])
             for grup_sig in (b"QUST", b"GLOB", b"MISC", b"ALCH", b"COBJ", b"FLST"):
                 self.assertIn(b"GRUP" + plugin_bytes[plugin_bytes.index(b"GRUP") + 4 : plugin_bytes.index(b"GRUP") + 4], plugin_bytes)
                 self.assertIn(grup_sig, plugin_bytes)
@@ -574,12 +582,17 @@ class StageFoldAndInstallTests(unittest.TestCase):
             (game_dir / "Data").mkdir(parents=True)
             (game_dir / "Starfield.exe").write_bytes(b"MZ")
             shutil.copy2(sf_esm, game_dir / "Data" / "Starfield.esm")
+            (game_dir / "Data" / "FO4SFCoreValues.esm").write_bytes(struct.pack("<4sIIIII", b"TES4", 0, 0x01, 0, 0, 0))
+            (game_dir / "Data" / "FO4TerrainCore.esm").write_bytes(struct.pack("<4sIIIII", b"TES4", 0, 0x01, 0, 0, 0))
             existing_exp = game_dir / "Data" / "FO4SFExp.install.json"
             existing_exp.write_text('{"keep": true}\n', encoding="utf-8")
             local_dir = tmp_path / "localappdata"
             (local_dir / "Starfield").mkdir(parents=True)
             plugins_txt = local_dir / "Starfield" / "Plugins.txt"
-            plugins_txt.write_text("# This file is used by Starfield\r\n*FO4TerrainCore.esm\r\n", encoding="utf-8")
+            plugins_txt.write_text(
+                "# This file is used by Starfield\r\n*FO4SFCoreValues.esm\r\n*FO4TerrainCore.esm\r\n",
+                encoding="utf-8",
+            )
 
             old_local = os.environ.get("LOCALAPPDATA")
             old_build = exp_install.build_ba2

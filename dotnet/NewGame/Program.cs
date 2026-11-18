@@ -122,7 +122,7 @@ static class NewGame
     // exactly one plugin of ours overriding it, at that id.
     public const string StartupEdid = "StartupQuest_DO";
     public const uint StartupId = 0x00562D;
-    public const uint SpecialAvifBase = 0x810;                  // the seven AVIF: 0x810 Strength to 0x816 Luck
+    public const string CoreValuesPlugin = "FO4SFCoreValues.esm", TestModeGlobEdid = "FO4SF_TestModeEnabled";
     // The save version check (NG-15 / NG-L2, the owner's decision 2026-10-19: a save version from v1). GLOB
     // FO4SF_NewGameVersion holds the build's version number (--build-version <n>, default DefaultBuildVersion;
     // make_newgame.py DEFAULT_BUILD_VERSION is held equal by tests/test_newgame.py). It is flagged Constant so the
@@ -146,7 +146,6 @@ static class NewGame
     public static readonly string[] SpecialNames = { "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck" };
     public static readonly string[] SpecialExtraButtons = { "Reset", "Confirm", "Leave" };
     public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
-    public const SF.ActorValueInformation.Flag SpecialAvifFlags = SF.ActorValueInformation.Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
     // names are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1) and do not describe Starfield's
     // menu; the in-game C1 session (with MQ101 stopped) settled the looks-only mode, the owner's decision NG-C3.
@@ -310,9 +309,57 @@ static class NewGame
     public const ushort Objective = 10;
     public const string ObjectiveText = "Leave Vault 111";
     public const float Units = 70f, MergeX = -1200f, MergeY = -2700f;   // FO4 units per metre; vmad_patch.MERGE_MEASURED
-    static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm"), CoreValuesEsm = ModKey.FromFileName(CoreValuesPlugin);
 
     public class Refusal(string m) : Exception(m);
+
+    public static string DefaultCoreValuesJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "core", "core_values.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "core_values.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/core/core_values.json; pass --core-values-json <path>");
+    }
+
+    public static (ModKey PluginKey, Dictionary<string, uint> Ids) LoadCoreValues(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultCoreValuesJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing core_values.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var plugin = root.GetProperty("plugin").GetString() ?? throw new Refusal("core_values.json missing plugin");
+        var key = ModKey.FromFileName(plugin);
+        if (key != CoreValuesEsm) throw new Refusal($"core_values.json plugin {key} != {CoreValuesEsm}");
+        var ids = new Dictionary<string, uint>(StringComparer.Ordinal);
+        foreach (var el in root.GetProperty("records").EnumerateArray())
+        {
+            var edid = el.GetProperty("edid").GetString() ?? throw new Refusal("core_values.json record missing edid");
+            var id = Convert.ToUInt32(el.GetProperty("id").GetString()!, 16);
+            ids[edid] = id;
+        }
+        return (key, ids);
+    }
+
+    public static uint RequireCoreId(IReadOnlyDictionary<string, uint> ids, string edid) =>
+        ids.TryGetValue(edid, out var id) ? id : throw new Refusal($"core_values.json missing {edid}");
+
+    static void WritePlugin(SF.StarfieldMod mod, string path)
+    {
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        masters.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
+        ((IModGetter)mod).WriteToBinary(path, new BinaryWriteParameters
+        {
+            ModKey = ModKeyOption.NoCheck,
+            MastersListOrdering = new MastersListOrderingByLoadOrder(new[] { SfEsm, CoreValuesEsm }),
+            MasterFlagsLookup = masters,
+        });
+    }
 
     public static int Usage()
     {
@@ -327,7 +374,7 @@ static class NewGame
 
     public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
                           bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor,
-                          int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false, bool O2Fill = DefaultO2Fill)
+                          int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false, bool O2Fill = DefaultO2Fill, string? CoreValuesJson = null)
     {
         public bool O2 => ClearInventory && O2Fill;   // a --keep-inventory player keeps Starfield's suit and its capacity
         public static Options From(string[] a)
@@ -352,7 +399,8 @@ static class NewGame
                 ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid,
                 clear, suit, !a.Contains("--allow-temporary-anchor"),
                 ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold,
-                a.Contains("--animated-exit-lift"), !a.Contains("--no-o2-fill"));
+                a.Contains("--animated-exit-lift"), !a.Contains("--no-o2-fill"),
+                ArgOrNull(a, "--core-values-json"));
         }
     }
 
@@ -671,6 +719,9 @@ static class NewGame
 
     public static int Write(string sfPath, string portPath, string portIds, string corePath, string pointsPath, string outDir, Options o)
     {
+        var (coreKey, coreIds) = LoadCoreValues(o.CoreValuesJson);
+        var specialKeys = SpecialNames.Select(n => new FormKey(coreKey, RequireCoreId(coreIds, SpecialAvifPrefix + n))).ToList();
+        var testModeKey = new FormKey(coreKey, RequireCoreId(coreIds, TestModeGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
@@ -709,8 +760,7 @@ static class NewGame
         start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
         start.MenuButtons.Add(new SF.MessageButton { Text = "Quick start" });
         mod.Messages.Add(start);
-        // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt, the allocation and the seven actor values
-        var avifs = new List<SF.ActorValueInformation>();
+        // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt and allocation MESGs (the seven AVIFs live in FO4SFCoreValues.esm)
         SF.Message? terminalMsg = null, specialMsg = null;
         if (o.Special)
         {
@@ -731,7 +781,6 @@ static class NewGame
             };
             foreach (var b in SpecialNames.Concat(SpecialExtraButtons)) specialMsg.MenuButtons.Add(new SF.MessageButton { Text = b });
             mod.Messages.Add(specialMsg);
-            for (int i = 0; i < SpecialNames.Length; i++) { var av = SpecialAvif(modKey, i); avifs.Add(av); mod.ActorValueInformation.Add(av); }
         }
 
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
@@ -761,6 +810,7 @@ static class NewGame
         script.Properties.Add(list);
         script.Properties.Add(Obj("ExitMessage", msg.FormKey));
         script.Properties.Add(Obj("O2Capacity", new FormKey(SfEsm, O2CapacityId)));   // linked by id: no AVIF record
+        script.Properties.Add(Obj("TestModeGlobal", testModeKey));
         foreach (var (name, value) in Properties(pts, places, o))
             script.Properties.Add(ValueProperty(name, value));
         quest.VirtualMachineAdapter = new SF.QuestAdapter
@@ -780,7 +830,7 @@ static class NewGame
         {
             var special = new SF.ScriptEntry { Name = SpecialScript, Flags = SF.ScriptEntry.Flag.Local };
             var avs = new SF.ScriptObjectListProperty { Name = "Special", Flags = SF.ScriptProperty.Flag.Edited };
-            foreach (var av in avifs) avs.Objects.Add(Obj("", av.FormKey));
+            foreach (var fk in specialKeys) avs.Objects.Add(Obj("", fk));
             special.Properties.Add(avs);
             special.Properties.Add(Obj("TerminalMessage", terminalMsg!.FormKey));
             special.Properties.Add(Obj("SpecialMessage", specialMsg!.FormKey));
@@ -819,10 +869,10 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = SpecialAvifBase + (uint)SpecialNames.Length;
+        mod.ModHeader.Stats.NextFormID = VersionGlobId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
-        mod.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+        WritePlugin(mod, path);
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): QUST {QuestEdid} {quest.FormKey} \"{quest.Name}\", " +
                           $"the startup quest: DFOB {StartupEdid} {startup.FormKey} -> {quest.FormKey} (was {OpeningEdid}); " +
                           $"hold [{string.Join(", ", o.Hold)}]; vault anchor FO4Port.esm:{places.VaultAnchor:X6} {places.AnchorMode} at {Show(places.AnchorPos)}, " +
@@ -830,7 +880,7 @@ static class NewGame
                           $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? $"on (race menu mode {o.RaceMenuMode})" : "off")}" +
                           (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden") +
                           (o.DebugAfterHold != 0 ? $"; the quest writes MQ101Debug = {o.DebugAfterHold} after the hold-off" : "; the quest never writes MQ101Debug") +
-                          (o.Special ? $"; SPECIAL on: terminal {TerminalText(places)}, {avifs.Count} AVIF" : "; SPECIAL off") +
+                          (o.Special ? $"; SPECIAL on: terminal {TerminalText(places)}, {specialKeys.Count} {CoreValuesPlugin} AVIF links" : "; SPECIAL off") +
                           (o.Version ? $"; version check on: GLOB {VersionGlobEdid} = {F(o.BuildVersion)}, alias {PlayerAlias} {PlayerAliasName} -> Starfield.esm:{PlayerRefId:X6}" : "; version check off") +
                           $"; inventory reset {InventoryText(o, places)}; {O2Text(o)}");
         return 0;
@@ -866,33 +916,28 @@ static class NewGame
     /// The allocation's text: one %.0f token per value, in Message.Show's argument order (the stats, then the points left).
     public static readonly string SpecialDescription = string.Join("  ", SpecialNames.Select(n => n[0] + " %.0f")) + "   Points left: %.0f";
 
-    /// One SPECIAL stat as our own actor value: a SpecialAttribute with FO4's range (default 1, 1 to 10, NG-C4), the
-    /// numbers and the flags that name them both. The minimal shape; which other fields a shipped Starfield AVIF
-    /// carries is unverified until the PC run.
-    public static SF.ActorValueInformation SpecialAvif(ModKey modKey, int i) => new(new FormKey(modKey, SpecialAvifBase + (uint)i), SF.StarfieldRelease.Starfield)
-    {
-        EditorID = SpecialAvifPrefix + SpecialNames[i], Name = SpecialNames[i], Abbreviation = SpecialNames[i][..1],
-        Type = SF.ActorValueInformation.Types.SpecialAttribute, DefaultValue = SpecialBase, Min = SpecialBase, Max = SpecialMax, Flags = SpecialAvifFlags,
-    };
-
     // ---------------------------------------------------------------- check
 
     public static int Check(string pluginPath, string sfPath, string portPath, string portIds, string corePath, string pointsPath, Options o)
     {
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
+        var (coreKey, coreIds) = LoadCoreValues(o.CoreValuesJson);
+        var specialKeys = SpecialNames.Select(n => new FormKey(coreKey, RequireCoreId(coreIds, SpecialAvifPrefix + n))).ToList();
+        var testModeKey = new FormKey(coreKey, RequireCoreId(coreIds, TestModeGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
-        using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+        using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm, CoreValuesEsm));
         var key = plug.ModKey;
         var masters = plug.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
         Console.WriteLine($"{key}: header {plug.ModHeader.Flags}, masters [{string.Join(", ", masters)}], {plug.Quests.Count} QUST, " +
                           $"{plug.Messages.Count} MESG, {plug.Globals.Count} GLOB, {plug.ActorValueInformation.Count} AVIF, " +
                           $"{plug.DefaultObjects.Count} DFOB, {plug.Quests.Sum(q => q.Aliases?.Count ?? 0)} alias(es)");
         Need(plug.ModHeader.Flags.HasFlag(SF.StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
-        Need(masters.SequenceEqual(new[] { "Starfield.esm" }), "masters are not Starfield.esm alone (the port and the core are resolved at run time)");
+        Need(masters.SequenceEqual(new[] { "Starfield.esm", CoreValuesPlugin }), $"masters [{string.Join(", ", masters)}] are not [Starfield.esm, {CoreValuesPlugin}]");
         Need(plug.Npcs.Count == 0 && plug.Worldspaces.Count == 0 && plug.Cells.Count == 0, "the plugin carries NPC_, WRLD or CELL records (it places nothing)");
+        Need(plug.ActorValueInformation.Count == 0, "the plugin carries AVIF records (S.P.E.C.I.A.L. AVIFs live in FO4SFCoreValues.esm)");
 
         var msg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, MessageId));
         Need(msg is { EditorID: MessageEdid } && msg.Flags.HasFlag(SF.Message.Flag.MessageBox) && msg.MenuButtons.Count == 2 &&
@@ -902,7 +947,6 @@ static class NewGame
              start.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{StartMessageId:X} is not {StartMessageEdid}, a message box with two buttons");
         var terminalMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, TerminalMessageId));
         var specialMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessageId));
-        var avifs = plug.ActorValueInformation.OrderBy(a => a.FormKey.ID).ToList();
         if (o.Special)
         {
             Need(terminalMsg is { EditorID: TerminalMessageEdid } && terminalMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) && terminalMsg.MenuButtons.Count == 2 &&
@@ -912,16 +956,11 @@ static class NewGame
                  specialMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(buttons) && specialMsg.Description?.String == SpecialDescription,
                  $"MESG 0x{SpecialMessageId:X} is not {SpecialMessageEdid}, a message box with the buttons [{string.Join(", ", buttons)}] and the allocation text");
             Need(plug.Messages.Count == 4, $"{plug.Messages.Count} MESG, expected 4");
-            Need(avifs.Count == SpecialNames.Length && avifs.Select((a, i) => a.FormKey == new FormKey(key, SpecialAvifBase + (uint)i) && a.EditorID == SpecialAvifPrefix + SpecialNames[i] &&
-                     a.Name?.String == SpecialNames[i] && a.Type == SF.ActorValueInformation.Types.SpecialAttribute && a.DefaultValue == SpecialBase && a.Min == SpecialBase && a.Max == SpecialMax &&
-                     a.Flags == SpecialAvifFlags).All(x => x),
-                 $"the AVIF are not the seven {SpecialAvifPrefix}<stat> SpecialAttributes, default {SpecialBase}, {SpecialBase} to {SpecialMax}, flags {SpecialAvifFlags}");
-            Console.WriteLine($"  AVIF [{string.Join(", ", avifs.Select(a => a.EditorID))}]; terminal {TerminalText(places)}");
+            Console.WriteLine($"  SPECIAL links [{string.Join(", ", specialKeys)}]; terminal {TerminalText(places)}");
         }
         else
         {
             Need(plug.Messages.Count == 2, $"{plug.Messages.Count} MESG, expected 2 in a --no-special build");
-            Need(avifs.Count == 0, "a --no-special build carries AVIF records");
         }
 
         // the GLOBs: Starfield's MQ101Debug overridden (or not), and our own version GLOB (or not); nothing else
@@ -1011,13 +1050,15 @@ static class NewGame
                 Need(props.TryGetValue("ExitMessage", out var mp) && mp is SF.IScriptObjectPropertyGetter mo && mo.Object.FormKey == msg?.FormKey, "property ExitMessage");
                 Need(props.TryGetValue("O2Capacity", out var cp) && cp is SF.IScriptObjectPropertyGetter co && co.Object.FormKey == new FormKey(SfEsm, O2CapacityId),
                      $"property O2Capacity is not Starfield.esm:{O2CapacityId:X6}");
+                Need(props.TryGetValue("TestModeGlobal", out var tm) && tm is SF.IScriptObjectPropertyGetter tmo && tmo.Object.FormKey == testModeKey,
+                     $"property TestModeGlobal is not {testModeKey}");
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
                      hl.Objects.Select(x => (FormKey?)x.Object.FormKey).SequenceEqual(want), $"property HoldOff is not [{string.Join(", ", o.Hold)}] in order");
                 var expected = Properties(pts, places, o);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 6, $"{props.Count} properties, expected {expected.Count + 6}");
+                Need(props.Count == expected.Count + 7, $"{props.Count} properties, expected {expected.Count + 7}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");
@@ -1040,8 +1081,8 @@ static class NewGame
                 var props = ss.Properties.ToDictionary(p => p.Name);
                 Console.WriteLine($"  script {ss.Name}: {props.Count} properties");
                 Need(props.TryGetValue("Special", out var ap) && ap is SF.IScriptObjectListPropertyGetter al &&
-                     al.Objects.Select(x => x.Object.FormKey).SequenceEqual(avifs.Select(a => a.FormKey)) && al.Objects.Count == SpecialNames.Length,
-                     "property Special is not the seven AVIF, Strength to Luck");
+                     al.Objects.Select(x => x.Object.FormKey).SequenceEqual(specialKeys) && al.Objects.Count == SpecialNames.Length,
+                     $"property Special is not the seven {CoreValuesPlugin} AVIF, Strength to Luck");
                 Need(props.TryGetValue("TerminalMessage", out var tp) && tp is SF.IScriptObjectPropertyGetter to && to.Object.FormKey == terminalMsg?.FormKey, "property TerminalMessage");
                 Need(props.TryGetValue("SpecialMessage", out var xp) && xp is SF.IScriptObjectPropertyGetter xo && xo.Object.FormKey == specialMsg?.FormKey, "property SpecialMessage");
                 var expected = SpecialProperties(pts, places);
@@ -1604,9 +1645,11 @@ static class NewGame
             ("the race menu mode changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.First(p => p.Name == "RaceMenuMode")).Data = 3),
             ("the looks script lost StartMessage", m => m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.RemoveAll(p => p.Name == "StartMessage")),
             ("the quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
-            ("an AVIF removed", m => m.ActorValueInformation.Remove(m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Luck").FormKey)),
-            ("an AVIF's maximum changed", m => m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Strength").Max = 11),
-            ("an AVIF's flags cleared", m => m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Charisma").Flags = 0),
+            ("a duplicate AVIF added", m => m.ActorValueInformation.Add(new SF.ActorValueInformation(new FormKey(m.ModKey, 0x810), rel) { EditorID = SpecialAvifPrefix + "Strength" })),
+            ("a SPECIAL link pointed off FO4SFCoreValues.esm", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "Special")).Objects[0].Object.SetTo(new FormKey(m.ModKey, 0x810))),
+            ("a SPECIAL link removed", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "Special")).Objects.RemoveAt(6)),
+            ("TestModeGlobal removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "TestModeGlobal")),
+            ("TestModeGlobal pointed at another global", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "TestModeGlobal")).Object.SetTo(new FormKey(SfEsm, GameDaysPassedId))),
             ("the allocation lost its Leave button", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).MenuButtons.RemoveAt(9)),
             ("the allocation's text lost a token", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).Description = "S.P.E.C.I.A.L."),
             ("the terminal prompt removed", m => m.Messages.Remove(m.Messages.First(x => x.EditorID == TerminalMessageEdid).FormKey)),
@@ -1623,11 +1666,11 @@ static class NewGame
         };
         foreach (var (name, edit) in mutations)
         {
-            var mod = SF.StarfieldMod.CreateFromBinary(good, rel, Full(SfEsm));
+            var mod = SF.StarfieldMod.CreateFromBinary(good, rel, Full(SfEsm, CoreValuesEsm));
             edit(mod);
             var md = Path.Combine(outDir, "mutated");
             Directory.CreateDirectory(md);
-            mod.BeginWrite.ToPath(Path.Combine(md, Plugin)).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+            WritePlugin(mod, Path.Combine(md, Plugin));
             if (Check(Path.Combine(md, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain) == 0) { Console.WriteLine($"FAIL  check passed a mutation: {name}"); return 1; }
             Console.WriteLine($"mutation rejected: {name}");
         }

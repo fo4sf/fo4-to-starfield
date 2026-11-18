@@ -118,7 +118,7 @@ def stitch_and_evaluate_logs(
         hard_fail = True
         reasons.append(f"{len(papyrus_errors)} Papyrus error/warning line(s) mentioning FO4SF_ReputationQuest")
 
-    # 1. Orthogonality check: Very Evil (karma <= -750, tier == -2) while Idolized (state 3, reaction 2, buy_mult ~0.75)
+    # 1. Orthogonality check: Very Evil (karma <= -750, tier == -2) while Idolized (state 12, reaction 2, buy_mult ~0.75)
     orthogonality_ok = False
     for r in all_records:
         f = r["fields"]
@@ -130,7 +130,8 @@ def stitch_and_evaluate_logs(
         except ValueError:
             continue
         if r["event"] == "orthogonality_proof":
-            if f.get("ok", "").lower() == "true" and karma_v <= -750.0 and tier_v == -2 and 0.74 < bm_v < 0.76:
+            st_v = f.get("state", "12")
+            if f.get("ok", "").lower() == "true" and st_v == "12" and karma_v <= -750.0 and tier_v == -2 and 0.74 < bm_v < 0.76:
                 orthogonality_ok = True
             else:
                 hard_fail = True
@@ -139,11 +140,11 @@ def stitch_and_evaluate_logs(
             states_csv = f.get("states", "")
             first_state = states_csv.split(",")[0] if states_csv else ""
             react0 = f.get("fac0_react", f.get("reaction", ""))
-            if karma_v <= -750.0 and tier_v == -2 and first_state == "3" and react0 == "2" and 0.74 < bm_v < 0.76:
+            if karma_v <= -750.0 and tier_v == -2 and first_state == "12" and react0 == "2" and 0.74 < bm_v < 0.76:
                 orthogonality_ok = True
 
     if not orthogonality_ok:
-        reasons.append("missing Evil+Idolized orthogonality proof (karma <= -750, state=3, reaction=2, buy_mult=0.75)")
+        reasons.append("missing Evil+Idolized orthogonality proof (karma <= -750, state=12, reaction=2, buy_mult=0.75)")
 
     # 2. Optional strict hooks check (quest_hook, kill_hook combat Karma decoupling, theft_hook)
     seen_events = {str(r["event"]) for r in all_records}

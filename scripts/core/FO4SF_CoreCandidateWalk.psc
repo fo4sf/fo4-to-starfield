@@ -1,16 +1,14 @@
 Scriptname FO4SF_CoreCandidateWalk extends Quest
-{Unified console-free exterior walk harness for gemini/core-candidate (docs/testing/core-candidate-pc-card.md).
- Attached to QUST FO4SF_CoreCandidateWalkQuest (0x800 in FO4SFCoreCandidate.esm, StartGameEnabled):
-   - Zero mandatory script properties: resolves FO4SFNewGame.esm, FO4SFRads.esm, FO4SFHardcore.esm,
-     FO4SFWorkshop.esm, FO4SFPowerArmor.esm, FO4SFListDialogue.esm, FO4SFProgression.esm, FO4SFCombat.esm,
-     FO4SFReputation.esm, FO4SFCompanions.esm, and FO4SFPipboyProbe.esm/FO4SFPipboyTravel.esm dynamically via
-     Game.GetFormFromFile so every slice remains decoupled.
-   - Polls gently (2.0 s) until FO4SFNewGame.esm QUST 0x800 completes stage 200 (Commonwealth landing),
-     then places a clean 7-station console-free verification line 12..56 m ahead of the player and adds the
-     starter field kit to inventory so all 12 walk steps run with zero console commands.}
+{Test-profile exterior walk harness for gemini/core-candidate (docs/testing/core-candidate-pc-card.md).
+ Refuses to run unless FO4SFCoreValues.esm FO4SF_TestModeEnabled (0x860) is non-zero, and is omitted
+ completely from the player bundle profile. Drives FO4SFProgression's ApplyCreationSheet on the shared
+ FO4SFCoreValues.esm store instead of maintaining parallel S.P.E.C.I.A.L. or ListDialogue skill copies.}
+
+GlobalVariable Property TestModeGlobal Auto Const
 
 string LogName = "FO4SFCoreCandidate"
 string OwnPlugin = "FO4SFCoreCandidate.esm"
+string CoreValuesPlugin = "FO4SFCoreValues.esm"
 string NewGamePlugin = "FO4SFNewGame.esm"
 string RadsPlugin = "FO4SFRads.esm"
 string HardcorePlugin = "FO4SFHardcore.esm"
@@ -23,7 +21,12 @@ string RepPlugin = "FO4SFReputation.esm"
 string CompPlugin = "FO4SFCompanions.esm"
 string PipboyProbePlugin = "FO4SFPipboyProbe.esm"
 string PipboyTravelPlugin = "FO4SFPipboyTravel.esm"
-string StarfieldPlugin = "Starfield.esm"
+
+int CoreTestModeGlobId = 0x860
+int CoreStimpakId = 0x851
+int CoreSpeechAvId = 0x82A
+int CoreScienceAvId = 0x828
+int CoreStrAvId = 0x810
 
 int OwnKioskActiId = 0x801
 int OwnMsgBgId = 0x802
@@ -33,6 +36,7 @@ int OwnChargenTokenId = 0x805
 int OwnSpeechTokenId = 0x806
 
 int NewGameQuestId = 0x800
+int ProgQuestId = 0x880
 
 int RadsEmitterId = 0x82A
 int RadAwayId = 0x820
@@ -40,7 +44,6 @@ int RadXId = 0x821
 int IrradFoodId = 0x822
 
 int HcRifleAmmoId = 0x826
-int HcStimpakId = 0x822
 int HcWaterId = 0x821
 int HcFoodId = 0x820
 
@@ -58,69 +61,73 @@ int PaSalvagedHelmId = 0x81B
 int PaFrameRefId = 0x822
 int PaExitChairRefId = 0x823
 
-int DlgSpeechAvId = 0x800
-int DlgScienceAvId = 0x801
-int DlgBgVaultDwellerId = 0x802
-int DlgTraitGoodNaturedId = 0x803
 int DlgSpeakerRefId = 0x808
 
-int ProgStrAvId = 0x800
-int ProgPerAvId = 0x801
-int ProgEndAvId = 0x802
-int ProgChaAvId = 0x803
-int ProgIntAvId = 0x804
-int ProgAgiAvId = 0x805
-int ProgLckAvId = 0x806
-int ProgKarmaAvId = 0x807
-int ProgCadenceGlobId = 0x809
-int ProgSkillBaseId = 0x810
-int ProgSpeechAvId = 0x81A
-int ProgScienceAvId = 0x818
-int ProgMedicineAvId = 0x815
-int ProgRepairAvId = 0x817
-int ProgLockpickAvId = 0x814
-int ProgSurvivalAvId = 0x81B
-int ProgGunsAvId = 0x813
-int ProgEnergyAvId = 0x811
+int CombatDoctorsBagId = 0x811
+int CombatVatsTokenId = 0x816
+int CombatAmmoTokenId = 0x817
+int CombatFirstTargetRefId = 0x860
 
-int ProgBgVaultDwellerId = 0x820
-int ProgBgScavengerId = 0x821
-int ProgBgMedicId = 0x823
-int ProgBgScribeId = 0x824
+int RepVendorBaseId = 0x888
+int RepTheftTokenId = 0x881
+int RepAidTokenId = 0x882
 
-int ProgTraitSmallFrameId = 0x830
-int ProgTraitTriggerDiscId = 0x831
-int ProgTraitFastShotId = 0x832
-int ProgTraitGoodNaturedId = 0x836
-int ProgTraitSkilledId = 0x837
-int ProgTraitWildWastelandId = 0x838
-
-int SfCarryWeightAvId = 0x0002DC
-int SfHealthAvId = 0x0002D4
-int SfStrengthAvId = 0x0002C2
+int CompQuestId = 0x800
+int CompRadioTokenId = 0x820
+int CompFirstRecruitRefId = 0x835
+int CompStoryRefId = 0x83A
 
 int TIMER_POLL = 1
 float POLL_S = 2.0
 
 bool FieldLineStaged = false
+bool RefusalLogged = false
 bool BusyChargen = false
 ObjectReference PlacedRadsRef = None
 ObjectReference PlacedKioskRef = None
 ObjectReference[] PlacedFireteamRefs
 int ChargenRuns = 0
 
-Event OnInit()
+bool Function IsTestModeActive()
+    if TestModeGlobal != None
+        return TestModeGlobal.GetValue() != 0.0
+    endif
+    if Game.IsPluginInstalled(CoreValuesPlugin)
+        GlobalVariable g = Game.GetFormFromFile(CoreTestModeGlobId, CoreValuesPlugin) as GlobalVariable
+        if g != None
+            return g.GetValue() != 0.0
+        endif
+    endif
+    return false
+EndFunction
+
+bool Initialized = false
+
+Event OnQuestInit()
+    if Initialized
+        return
+    endif
+    Initialized = true
     Debug.OpenUserLog(LogName)
+    if !IsTestModeActive()
+        RefusalLogged = true
+        Trace("walk_refused reason=test_mode_disabled")
+        return
+    endif
     Actor p = Game.GetPlayer()
     if p != None
         RegisterPlayerEvents(p)
     endif
-    Trace("init version=2 quest=" + GetFormID() + " ng=" + Game.IsPluginInstalled(NewGamePlugin) + " rads=" + Game.IsPluginInstalled(RadsPlugin) + " hc=" + Game.IsPluginInstalled(HardcorePlugin) + " ws=" + Game.IsPluginInstalled(WorkshopPlugin) + " pa=" + Game.IsPluginInstalled(PaPlugin) + " dlg=" + Game.IsPluginInstalled(ListDlgPlugin) + " prog=" + Game.IsPluginInstalled(ProgPlugin) + " combat=" + Game.IsPluginInstalled(CombatPlugin) + " rep=" + Game.IsPluginInstalled(RepPlugin) + " comp=" + Game.IsPluginInstalled(CompPlugin) + " pb=" + Game.IsPluginInstalled(PipboyProbePlugin) + " pb_travel=" + Game.IsPluginInstalled(PipboyTravelPlugin))
+    Trace("init version=3 quest=" + GetFormID() + " test_mode=1")
     StartTimer(POLL_S, TIMER_POLL)
 EndEvent
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    if !IsTestModeActive()
+        Trace("walk_refused reason=test_mode_disabled when=reload")
+        return
+    endif
     Actor p = Game.GetPlayer()
     if p != None
         RegisterPlayerEvents(p)
@@ -157,6 +164,14 @@ Function Trace(string msg)
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
+    if !IsTestModeActive()
+        Trace("walk_refused stage=" + auiStageID + " reason=test_mode_disabled")
+        return
+    endif
+    Actor p = Game.GetPlayer()
+    if p != None
+        RegisterPlayerEvents(p)
+    endif
     if auiStageID == 10 && !FieldLineStaged
         StageFieldLine("stage10")
     elseif auiStageID == 20
@@ -167,10 +182,14 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID != TIMER_POLL
+    if aiTimerID != TIMER_POLL || FieldLineStaged
         return
     endif
-    if FieldLineStaged
+    if !IsTestModeActive()
+        if !RefusalLogged
+            RefusalLogged = true
+            Trace("walk_refused reason=test_mode_disabled")
+        endif
         return
     endif
     if Game.IsPluginInstalled(NewGamePlugin)
@@ -197,6 +216,10 @@ Function GiveIfPresent(Actor p, string pluginName, int localId, int count)
 EndFunction
 
 Function StageFieldLine(string triggerReason)
+    if !IsTestModeActive()
+        Trace("walk_refused reason=test_mode_disabled trigger=" + triggerReason)
+        return
+    endif
     Actor p = Game.GetPlayer()
     if p == None
         return
@@ -209,13 +232,12 @@ Function StageFieldLine(string triggerReason)
     float rightX = Math.Cos(headingDeg)
     float rightY = -Math.Sin(headingDeg)
 
-    ; 1. Starter inventory kit for console-free Rads, Hardcore, Workshop, PA, Dialogue & Chargen
     GiveIfPresent(p, RadsPlugin, RadAwayId, 3)
     GiveIfPresent(p, RadsPlugin, RadXId, 1)
     GiveIfPresent(p, RadsPlugin, IrradFoodId, 2)
 
     GiveIfPresent(p, HardcorePlugin, HcRifleAmmoId, 100)
-    GiveIfPresent(p, HardcorePlugin, HcStimpakId, 2)
+    GiveIfPresent(p, CoreValuesPlugin, CoreStimpakId, 6)
     GiveIfPresent(p, HardcorePlugin, HcWaterId, 2)
     GiveIfPresent(p, HardcorePlugin, HcFoodId, 2)
 
@@ -234,44 +256,38 @@ Function StageFieldLine(string triggerReason)
     GiveIfPresent(p, OwnPlugin, OwnChargenTokenId, 1)
     GiveIfPresent(p, OwnPlugin, OwnSpeechTokenId, 1)
 
-    GiveIfPresent(p, CombatPlugin, 0x811, 4) ; FO4SF_DoctorsBag
-    GiveIfPresent(p, CombatPlugin, 0x813, 4) ; FO4SF_CombatStimpak
-    GiveIfPresent(p, CombatPlugin, 0x816, 1) ; FO4SF_VatsTriggerToken
-    GiveIfPresent(p, CombatPlugin, 0x817, 1) ; FO4SF_AmmoCycleToken
+    GiveIfPresent(p, CombatPlugin, CombatDoctorsBagId, 4)
+    GiveIfPresent(p, CombatPlugin, CombatVatsTokenId, 1)
+    GiveIfPresent(p, CombatPlugin, CombatAmmoTokenId, 1)
 
-    GiveIfPresent(p, CompPlugin, 0x820, 1)   ; FO4SF_SquadRadioToken
+    GiveIfPresent(p, CompPlugin, CompRadioTokenId, 1)
 
-    ; 2. Station A (12 m ahead): Radiation Emitter Zone
     bool radsPlaced = false
     if Game.IsPluginInstalled(RadsPlugin)
         Form radBase = Game.GetFormFromFile(RadsEmitterId, RadsPlugin)
         if radBase != None
             PlacedRadsRef = p.PlaceAtMe(radBase, 1, true, false, false)
             if PlacedRadsRef != None
-                PlacedRadsRef.MoveTo(p, fwdX * 12.0, fwdY * 12.0, 0.0, true)
+                PlacedRadsRef.MoveTo(p, fwdX * 22.0, fwdY * 22.0, 0.0, true)
                 PlacedRadsRef.EnableNoWait()
                 radsPlaced = true
             endif
         endif
     endif
 
-    ; 3. Station C (28 m ahead): Power Armor Climb-In Frame + Exit Chair (persistent refs in FO4SFPowerArmor.esm)
     bool paPlaced = false
     if Game.IsPluginInstalled(PaPlugin)
-        ObjectReference frameRef = Game.GetFormFromFile(PaFrameRefId, PaPlugin) as ObjectReference
-        ObjectReference chairRef = Game.GetFormFromFile(PaExitChairRefId, PaPlugin) as ObjectReference
-        if frameRef != None
-            frameRef.MoveTo(p, fwdX * 28.0, fwdY * 28.0, 0.0, true)
-            frameRef.EnableNoWait()
-            paPlaced = true
-        endif
-        if chairRef != None
-            chairRef.MoveTo(p, (fwdX * 28.0) + (rightX * 3.0), (fwdY * 28.0) + (rightY * 3.0), 0.0, true)
-            chairRef.EnableNoWait()
+        Form frameBase = Game.GetFormFromFile(0x801, PaPlugin)
+        if frameBase != None
+            ObjectReference dynFrame = p.PlaceAtMe(frameBase, 1, true, false, false)
+            if dynFrame != None
+                dynFrame.MoveTo(p, fwdX * 28.0, fwdY * 28.0, 0.0, true)
+                dynFrame.EnableNoWait()
+                paPlaced = true
+            endif
         endif
     endif
 
-    ; 4. Station D1 (34 m ahead): Silent-Player List Dialogue Speaker (persistent ref 0x808 in FO4SFListDialogue.esm)
     bool dlgPlaced = false
     if Game.IsPluginInstalled(ListDlgPlugin)
         ObjectReference speakerRef = Game.GetFormFromFile(DlgSpeakerRefId, ListDlgPlugin) as ObjectReference
@@ -282,7 +298,6 @@ Function StageFieldLine(string triggerReason)
         endif
     endif
 
-    ; 5. Station D2 (38 m ahead): Console-Free Wasteland Character Rebuild Kiosk
     bool kioskPlaced = false
     Form kioskBase = Game.GetFormFromFile(OwnKioskActiId, OwnPlugin)
     if kioskBase != None
@@ -295,76 +310,32 @@ Function StageFieldLine(string triggerReason)
         endif
     endif
 
-    ; 6. Station E (44 m ahead): Combat Core Firing Range (6-Zone Silhouette, DT=18 Target, VATS, Pedestals)
     bool combatPlaced = false
     if Game.IsPluginInstalled(CombatPlugin)
-        ObjectReference zHead = Game.GetFormFromFile(0x860, CombatPlugin) as ObjectReference
-        ObjectReference zTorso = Game.GetFormFromFile(0x861, CombatPlugin) as ObjectReference
-        ObjectReference zLArm = Game.GetFormFromFile(0x862, CombatPlugin) as ObjectReference
-        ObjectReference zRArm = Game.GetFormFromFile(0x863, CombatPlugin) as ObjectReference
-        ObjectReference zLLeg = Game.GetFormFromFile(0x864, CombatPlugin) as ObjectReference
-        ObjectReference zRLeg = Game.GetFormFromFile(0x865, CombatPlugin) as ObjectReference
-        ObjectReference armTgt = Game.GetFormFromFile(0x866, CombatPlugin) as ObjectReference
-        ObjectReference vatsTgt = Game.GetFormFromFile(0x867, CombatPlugin) as ObjectReference
-        ObjectReference ammoPed = Game.GetFormFromFile(0x868, CombatPlugin) as ObjectReference
-        ObjectReference legTrap = Game.GetFormFromFile(0x869, CombatPlugin) as ObjectReference
-        ObjectReference hcSw = Game.GetFormFromFile(0x86A, CombatPlugin) as ObjectReference
-        ObjectReference supRack = Game.GetFormFromFile(0x86B, CombatPlugin) as ObjectReference
-        if zHead != None
-            zHead.MoveTo(p, (fwdX * 44.0) - (rightX * 2.5), (fwdY * 44.0) - (rightY * 2.5), 1.85, true)
-            zHead.EnableNoWait()
-            combatPlaced = true
-        endif
-        if zTorso != None
-            zTorso.MoveTo(p, (fwdX * 44.0) - (rightX * 2.5), (fwdY * 44.0) - (rightY * 2.5), 1.15, true)
-            zTorso.EnableNoWait()
-        endif
-        if zLArm != None
-            zLArm.MoveTo(p, (fwdX * 44.0) - (rightX * 3.2), (fwdY * 44.0) - (rightY * 3.2), 1.25, true)
-            zLArm.EnableNoWait()
-        endif
-        if zRArm != None
-            zRArm.MoveTo(p, (fwdX * 44.0) - (rightX * 1.8), (fwdY * 44.0) - (rightY * 1.8), 1.25, true)
-            zRArm.EnableNoWait()
-        endif
-        if zLLeg != None
-            zLLeg.MoveTo(p, (fwdX * 44.0) - (rightX * 2.85), (fwdY * 44.0) - (rightY * 2.85), 0.45, true)
-            zLLeg.EnableNoWait()
-        endif
-        if zRLeg != None
-            zRLeg.MoveTo(p, (fwdX * 44.0) - (rightX * 2.15), (fwdY * 44.0) - (rightY * 2.15), 0.45, true)
-            zRLeg.EnableNoWait()
-        endif
-        if armTgt != None
-            armTgt.MoveTo(p, fwdX * 44.0, fwdY * 44.0, 1.0, true)
-            armTgt.EnableNoWait()
-        endif
-        if vatsTgt != None
-            vatsTgt.MoveTo(p, (fwdX * 44.0) + (rightX * 2.5), (fwdY * 44.0) + (rightY * 2.5), 1.0, true)
-            vatsTgt.EnableNoWait()
-        endif
-        if supRack != None
-            supRack.MoveTo(p, (fwdX * 41.0) - (rightX * 2.0), (fwdY * 41.0) - (rightY * 2.0), 0.0, true)
-            supRack.EnableNoWait()
-        endif
-        if ammoPed != None
-            ammoPed.MoveTo(p, fwdX * 41.0, fwdY * 41.0, 0.0, true)
-            ammoPed.EnableNoWait()
-        endif
-        if legTrap != None
-            legTrap.MoveTo(p, (fwdX * 41.0) + (rightX * 1.8), (fwdY * 41.0) + (rightY * 1.8), 0.0, true)
-            legTrap.EnableNoWait()
-        endif
-        if hcSw != None
-            hcSw.MoveTo(p, (fwdX * 41.0) + (rightX * 3.0), (fwdY * 41.0) + (rightY * 3.0), 0.0, true)
-            hcSw.EnableNoWait()
-        endif
+        int ci = 0
+        while ci < 12
+            ObjectReference cref = Game.GetFormFromFile(CombatFirstTargetRefId + ci, CombatPlugin) as ObjectReference
+            if cref != None
+                float dist = 44.0
+                if ci >= 8
+                    dist = 41.0
+                endif
+                float lat = ((ci % 4) as float - 1.5) * 1.5
+                float zOff = 0.0
+                if ci < 8
+                    zOff = 1.0
+                endif
+                cref.MoveTo(p, (fwdX * dist) + (rightX * lat), (fwdY * dist) + (rightY * lat), zOff, true)
+                cref.EnableNoWait()
+                combatPlaced = true
+            endif
+            ci += 1
+        endwhile
     endif
 
-    ; 7. Station F (50 m ahead): Reputation & Karma Vendor + Walk Tokens
     bool repPlaced = false
     if Game.IsPluginInstalled(RepPlugin)
-        ActorBase repVendorBase = Game.GetFormFromFile(0x888, RepPlugin) as ActorBase
+        ActorBase repVendorBase = Game.GetFormFromFile(RepVendorBaseId, RepPlugin) as ActorBase
         if repVendorBase != None
             Actor repVendor = p.PlaceActorAtMe(repVendorBase, 1, None, true, false, false)
             if repVendor != None
@@ -372,8 +343,8 @@ Function StageFieldLine(string triggerReason)
                 repPlaced = true
             endif
         endif
-        Form theftTok = Game.GetFormFromFile(0x881, RepPlugin)
-        Form aidTok = Game.GetFormFromFile(0x882, RepPlugin)
+        Form theftTok = Game.GetFormFromFile(RepTheftTokenId, RepPlugin)
+        Form aidTok = Game.GetFormFromFile(RepAidTokenId, RepPlugin)
         if theftTok != None
             ObjectReference t1 = p.PlaceAtMe(theftTok, 3, true, false, false)
             if t1 != None
@@ -388,13 +359,12 @@ Function StageFieldLine(string triggerReason)
         endif
     endif
 
-    ; 8. Station G (56 m ahead): 4-NPC Warfare Fireteam + Story Companion
     bool compPlaced = false
     if Game.IsPluginInstalled(CompPlugin)
         PlacedFireteamRefs = new ObjectReference[4]
         int fi = 0
         while fi < 4
-            ObjectReference ftRef = Game.GetFormFromFile(0x835 + fi, CompPlugin) as ObjectReference
+            ObjectReference ftRef = Game.GetFormFromFile(CompFirstRecruitRefId + fi, CompPlugin) as ObjectReference
             if ftRef != None
                 float lat = ((fi as float) - 1.5) * 1.6
                 ftRef.MoveTo(p, (fwdX * 56.0) + (rightX * lat), (fwdY * 56.0) + (rightY * lat), 0.0, true)
@@ -405,7 +375,7 @@ Function StageFieldLine(string triggerReason)
             endif
             fi += 1
         endwhile
-        ObjectReference storyRef = Game.GetFormFromFile(0x83A, CompPlugin) as ObjectReference
+        ObjectReference storyRef = Game.GetFormFromFile(CompStoryRefId, CompPlugin) as ObjectReference
         if storyRef != None
             storyRef.MoveTo(p, (fwdX * 56.0) + (rightX * 4.0), (fwdY * 56.0) + (rightY * 4.0), 0.0, true)
             storyRef.EnableNoWait()
@@ -413,7 +383,6 @@ Function StageFieldLine(string triggerReason)
     endif
 
     Trace("field_line_staged reason=" + triggerReason + " rads_zone=" + radsPlaced + " pa_frame=" + paPlaced + " list_speaker=" + dlgPlaced + " chargen_kiosk=" + kioskPlaced + " combat=" + combatPlaced + " rep=" + repPlaced + " comp=" + compPlaced)
-    Debug.Notification("FO4SF Core Walk ready ahead: Rads (12m)..Chargen (38m), Combat (44m), Reputation (50m), Squad (56m).")
 EndFunction
 
 bool Function IsPlacedFireteamRef(ObjectReference akCandidate)
@@ -431,23 +400,22 @@ bool Function IsPlacedFireteamRef(ObjectReference akCandidate)
 EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
-    if akActionRef != Game.GetPlayer()
+    if !IsTestModeActive() || akActionRef != Game.GetPlayer()
         return
     endif
     if akSender == PlacedKioskRef
         RunInteractiveChargen("kiosk_activate")
     elseif IsPlacedFireteamRef(akSender) && Game.IsPluginInstalled(CompPlugin)
-        Quest compQuest = Game.GetFormFromFile(0x800, CompPlugin) as Quest
+        Quest compQuest = Game.GetFormFromFile(CompQuestId, CompPlugin) as Quest
         if compQuest != None && !compQuest.GetStageDone(20)
             compQuest.SetStage(20)
             Trace("fireteam_muster_requested actor=" + akSender.GetFormID())
-            Debug.Notification("Mustering 4-NPC Warfare Fireteam (wait 2s, then drop Tactical Fireteam Radio).")
         endif
     endif
 EndEvent
 
 Event ObjectReference.OnItemRemoved(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akDestContainer, int aiTransferReason)
-    if akBaseItem == None || akDestContainer != None
+    if !IsTestModeActive() || akBaseItem == None || akDestContainer != None
         return
     endif
     Actor p = Game.GetPlayer()
@@ -472,66 +440,24 @@ Event ObjectReference.OnItemRemoved(ObjectReference akSender, Form akBaseItem, i
 EndEvent
 
 Function ApplySpeechPrimer(string reason)
+    if !IsTestModeActive()
+        return
+    endif
     Actor p = Game.GetPlayer()
-    if p == None
+    if p == None || !Game.IsPluginInstalled(CoreValuesPlugin)
         return
     endif
-    float dlgSpeech = 0.0
-    if Game.IsPluginInstalled(ListDlgPlugin)
-        ActorValue avDlg = Game.GetFormFromFile(DlgSpeechAvId, ListDlgPlugin) as ActorValue
-        if avDlg != None
-            p.SetValue(avDlg, 60.0)
-            dlgSpeech = p.GetValue(avDlg)
-        endif
+    ActorValue avSpeech = Game.GetFormFromFile(CoreSpeechAvId, CoreValuesPlugin) as ActorValue
+    float speechNow = 0.0
+    if avSpeech != None
+        p.SetValue(avSpeech, 60.0)
+        speechNow = p.GetValue(avSpeech)
     endif
-    if Game.IsPluginInstalled(ProgPlugin)
-        ActorValue avProg = Game.GetFormFromFile(ProgSpeechAvId, ProgPlugin) as ActorValue
-        if avProg != None
-            p.SetValue(avProg, 60.0)
-        endif
-    endif
-    Trace("speech_primer_applied reason=" + reason + " speech=" + dlgSpeech)
-    Debug.Notification("Speech raised to 60 ([Speech 50] list check unlocked).")
-EndFunction
-
-Function SetProgAv(Actor p, int localId, float val)
-    if !Game.IsPluginInstalled(ProgPlugin)
-        return
-    endif
-    ActorValue av = Game.GetFormFromFile(localId, ProgPlugin) as ActorValue
-    if av != None
-        p.SetValue(av, val)
-    endif
-EndFunction
-
-Function ClearAndAddPerk(Actor p, int[] poolIds, int chosenId1, int chosenId2)
-    if !Game.IsPluginInstalled(ProgPlugin)
-        return
-    endif
-    int i = 0
-    while i < poolIds.Length
-        Perk pk = Game.GetFormFromFile(poolIds[i], ProgPlugin) as Perk
-        if pk != None && p.HasPerk(pk)
-            p.RemovePerk(pk)
-        endif
-        i += 1
-    endwhile
-    if chosenId1 > 0
-        Perk pk1 = Game.GetFormFromFile(chosenId1, ProgPlugin) as Perk
-        if pk1 != None && !p.HasPerk(pk1)
-            p.AddPerk(pk1)
-        endif
-    endif
-    if chosenId2 > 0 && chosenId2 != chosenId1
-        Perk pk2 = Game.GetFormFromFile(chosenId2, ProgPlugin) as Perk
-        if pk2 != None && !p.HasPerk(pk2)
-            p.AddPerk(pk2)
-        endif
-    endif
+    Trace("speech_primer_applied reason=" + reason + " speech=" + speechNow)
 EndFunction
 
 Function RunInteractiveChargen(string triggerWay)
-    if BusyChargen
+    if !IsTestModeActive() || BusyChargen
         return
     endif
     Actor p = Game.GetPlayer()
@@ -564,183 +490,91 @@ Function RunInteractiveChargen(string triggerWay)
         endif
     endif
 
-    ; 40-point SPECIAL preset (STR=7, PER=5, END=6, CHA=6, INT=6, AGI=5, LCK=5 => sum = 40)
-    float sStr = 7.0
-    float sPer = 5.0
-    float sEnd = 6.0
-    float sCha = 6.0
-    float sInt = 6.0
-    float sAgi = 5.0
-    float sLck = 5.0
-    float specialSum = sStr + sPer + sEnd + sCha + sInt + sAgi + sLck
-
-    int bgPerkId = ProgBgVaultDwellerId
+    int bgIdx = 0
     string bgName = "VaultDweller"
     if bgChoice == 1
-        bgPerkId = ProgBgScavengerId
+        bgIdx = 1
         bgName = "WastelandScavenger"
     elseif bgChoice == 2
-        bgPerkId = ProgBgMedicId
+        bgIdx = 3
         bgName = "FieldMedic"
     elseif bgChoice == 3
-        bgPerkId = ProgBgScribeId
+        bgIdx = 4
         bgName = "BrotherhoodScribe"
     endif
 
-    int trait1Id = 0
+    int t0 = -1
     string trait1Name = "None"
     if t1Choice == 0
-        trait1Id = ProgTraitGoodNaturedId
+        t0 = 6
         trait1Name = "GoodNatured"
     elseif t1Choice == 1
-        trait1Id = ProgTraitSmallFrameId
+        t0 = 0
         trait1Name = "SmallFrame"
     elseif t1Choice == 2
-        trait1Id = ProgTraitSkilledId
+        t0 = 7
         trait1Name = "Skilled"
     elseif t1Choice == 3
-        trait1Id = ProgTraitTriggerDiscId
+        t0 = 1
         trait1Name = "TriggerDiscipline"
     endif
 
-    int trait2Id = 0
+    int t1 = -1
     string trait2Name = "None"
     if t2Choice == 0
-        trait2Id = ProgTraitSmallFrameId
+        t1 = 0
         trait2Name = "SmallFrame"
     elseif t2Choice == 1
-        trait2Id = ProgTraitGoodNaturedId
+        t1 = 6
         trait2Name = "GoodNatured"
     elseif t2Choice == 2
-        trait2Id = ProgTraitFastShotId
+        t1 = 2
         trait2Name = "FastShot"
     elseif t2Choice == 3
-        trait2Id = ProgTraitWildWastelandId
+        t1 = 8
         trait2Name = "WildWasteland"
     endif
-    if trait2Id == trait1Id
-        trait2Id = 0
+    if t1 == t0
+        t1 = -1
         trait2Name = "None"
     endif
 
-    bool hasSmallFrame = (trait1Id == ProgTraitSmallFrameId || trait2Id == ProgTraitSmallFrameId)
-    bool hasGoodNatured = (trait1Id == ProgTraitGoodNaturedId || trait2Id == ProgTraitGoodNaturedId)
-    bool hasSkilled = (trait1Id == ProgTraitSkilledId || trait2Id == ProgTraitSkilledId)
-
-    float effAgi = sAgi
-    if hasSmallFrame
-        effAgi += 1.0
-    endif
-
-    SetProgAv(p, ProgStrAvId, sStr)
-    SetProgAv(p, ProgPerAvId, sPer)
-    SetProgAv(p, ProgEndAvId, sEnd)
-    SetProgAv(p, ProgChaAvId, sCha)
-    SetProgAv(p, ProgIntAvId, sInt)
-    SetProgAv(p, ProgAgiAvId, effAgi)
-    SetProgAv(p, ProgLckAvId, sLck)
-
-    ActorValue sfStr = Game.GetFormFromFile(SfStrengthAvId, StarfieldPlugin) as ActorValue
-    if sfStr != None
-        p.SetValue(sfStr, sStr)
-    endif
-
-    int[] bgPool = new int[4]
-    bgPool[0] = ProgBgVaultDwellerId
-    bgPool[1] = ProgBgScavengerId
-    bgPool[2] = ProgBgMedicId
-    bgPool[3] = ProgBgScribeId
-    ClearAndAddPerk(p, bgPool, bgPerkId, 0)
-
-    int[] trPool = new int[6]
-    trPool[0] = ProgTraitSmallFrameId
-    trPool[1] = ProgTraitTriggerDiscId
-    trPool[2] = ProgTraitFastShotId
-    trPool[3] = ProgTraitGoodNaturedId
-    trPool[4] = ProgTraitSkilledId
-    trPool[5] = ProgTraitWildWastelandId
-    ClearAndAddPerk(p, trPool, trait1Id, trait2Id)
-
-    float skilledBonus = 0.0
-    if hasSkilled
-        skilledBonus = 5.0
-    endif
-    float socialBonus = 0.0
-    float combatDelta = 0.0
-    if hasGoodNatured
-        socialBonus = 5.0
-        combatDelta = -5.0
-    endif
-
-    ; Compute 13 NV skills (2 + 2*Gov + ceil(LCK/2)=3 + BG(+10) + Tag(+15 Speech/Science/Repair))
-    float speechVal = 5.0 + (2.0 * sCha) + 15.0 + skilledBonus + socialBonus
-    float scienceVal = 5.0 + (2.0 * sInt) + 15.0 + skilledBonus + socialBonus
-    float medicineVal = 5.0 + (2.0 * sInt) + skilledBonus + socialBonus
-    float repairVal = 5.0 + (2.0 * sInt) + 15.0 + skilledBonus + socialBonus
-    float gunsVal = 5.0 + (2.0 * effAgi) + skilledBonus + combatDelta
-    if bgPerkId == ProgBgVaultDwellerId
-        speechVal += 10.0
-        scienceVal += 10.0
-        medicineVal += 10.0
-    elseif bgPerkId == ProgBgScavengerId
-        repairVal += 10.0
-    elseif bgPerkId == ProgBgMedicId
-        medicineVal += 10.0
-        scienceVal += 10.0
-    elseif bgPerkId == ProgBgScribeId
-        scienceVal += 10.0
-        repairVal += 10.0
-    endif
-
-    int idx = 0
-    while idx < 13
-        SetProgAv(p, ProgSkillBaseId + idx, 18.0 + skilledBonus)
-        idx += 1
-    endwhile
-    SetProgAv(p, ProgSpeechAvId, speechVal)
-    SetProgAv(p, ProgScienceAvId, scienceVal)
-    SetProgAv(p, ProgMedicineAvId, medicineVal)
-    SetProgAv(p, ProgRepairAvId, repairVal)
-    SetProgAv(p, ProgGunsAvId, gunsVal)
-
-    ; Sync Speech, Science, Vault Dweller & Good Natured onto FO4SFListDialogue.esm so list checks match live sheet
-    if Game.IsPluginInstalled(ListDlgPlugin)
-        ActorValue dSp = Game.GetFormFromFile(DlgSpeechAvId, ListDlgPlugin) as ActorValue
-        ActorValue dSc = Game.GetFormFromFile(DlgScienceAvId, ListDlgPlugin) as ActorValue
-        Perk dBg = Game.GetFormFromFile(DlgBgVaultDwellerId, ListDlgPlugin) as Perk
-        Perk dGn = Game.GetFormFromFile(DlgTraitGoodNaturedId, ListDlgPlugin) as Perk
-        if dSp != None
-            p.SetValue(dSp, speechVal)
+    bool applied = false
+    if Game.IsPluginInstalled(ProgPlugin)
+        FO4SF_ProgressionQuest progQ = Game.GetFormFromFile(ProgQuestId, ProgPlugin) as FO4SF_ProgressionQuest
+        if progQ != None
+            ; Tag indices: 10=Speech, 8=Science, 7=Repair; 40-pt pool 7/5/6/6/6/5/5
+            applied = progQ.ApplyCreationSheet(p, bgIdx, t0, t1, 7, 5, 6, 6, 6, 5, 5, 10, 8, 7)
         endif
-        if dSc != None
-            p.SetValue(dSc, scienceVal)
+    endif
+
+    float speechVal = 0.0
+    float scienceVal = 0.0
+    float strVal = 0.0
+    if Game.IsPluginInstalled(CoreValuesPlugin)
+        ActorValue spAv = Game.GetFormFromFile(CoreSpeechAvId, CoreValuesPlugin) as ActorValue
+        ActorValue scAv = Game.GetFormFromFile(CoreScienceAvId, CoreValuesPlugin) as ActorValue
+        ActorValue stAv = Game.GetFormFromFile(CoreStrAvId, CoreValuesPlugin) as ActorValue
+        if spAv != None
+            speechVal = p.GetValue(spAv)
         endif
-        if dBg != None
-            if bgPerkId == ProgBgVaultDwellerId && !p.HasPerk(dBg)
-                p.AddPerk(dBg)
-            elseif bgPerkId != ProgBgVaultDwellerId && p.HasPerk(dBg)
-                p.RemovePerk(dBg)
-            endif
+        if scAv != None
+            scienceVal = p.GetValue(scAv)
         endif
-        if dGn != None
-            if hasGoodNatured && !p.HasPerk(dGn)
-                p.AddPerk(dGn)
-            elseif !hasGoodNatured && p.HasPerk(dGn)
-                p.RemovePerk(dGn)
-            endif
+        if stAv != None
+            strVal = p.GetValue(stAv)
         endif
     endif
 
     int traitCount = 0
-    if trait1Id > 0
+    if t0 >= 0
         traitCount += 1
     endif
-    if trait2Id > 0
+    if t1 >= 0
         traitCount += 1
     endif
     ChargenRuns += 1
     BusyChargen = false
 
-    Trace("chargen_applied run=" + ChargenRuns + " trigger=" + triggerWay + " bg=" + bgName + " trait1=" + trait1Name + " trait2=" + trait2Name + " traits_count=" + traitCount + " special_sum=" + specialSum + " speech=" + speechVal + " science=" + scienceVal + " str=" + sStr)
-    Debug.Notification("Character built: " + bgName + " (" + traitCount + " trait(s), Speech " + (speechVal as int) + ", 40-pt SPECIAL).")
+    Trace("chargen_applied ok=" + applied + " run=" + ChargenRuns + " trigger=" + triggerWay + " bg=" + bgName + " trait1=" + trait1Name + " trait2=" + trait2Name + " traits_count=" + traitCount + " special_sum=40 speech=" + speechVal + " science=" + scienceVal + " str=" + strVal)
 EndFunction

@@ -1,20 +1,25 @@
 Scriptname FO4SF_PowerArmorCoreQuest extends Quest
 {Fallout 4 climb-in Power Armor frame + 6-limb BPTD + FusionCore drain + prior outfit restore + save/reload re-sync +
  FNV Salvaged NCR worn heavy ARMO support (docs/powerarmor/power-armor-core.md).
- Attached to QUST FO4SF_PowerArmorCoreQuest (0x805) in FO4SFPowerArmor.esm (StartGameEnabled, zero properties; every form
- is resolved via Game.GetFormFromFile). Non-intrusive in normal gameplay: never teleports the player automatically.
- Stages:
+ Attached to QUST FO4SF_PowerArmorCoreQuest (0x805) in FO4SFPowerArmor.esm (StartGameEnabled; SpecialAgilityAV and
+ TestModeGlobal bound to FO4SFCoreValues.esm; local forms resolved via Game.GetFormFromFile). Non-intrusive in normal
+ gameplay: never teleports the player automatically, and stages 10/20/30/40 require TestModeGlobal != 0.
+ Stages (TestModeGlobal != 0):
    10 = climb into nearest / persistent FO4SF_PowerArmorFrameFurn
    20 = log status snapshot and apply a deterministic 50-point test drain pulse while in frame
    30 = exit frame anywhere in the world, leave FURN standing at exit spot, and restore prior worn outfit
    40 = deploy / move persistent FO4SF_PowerArmorFrameFurnRef in front of player anywhere in the world
  User log: My Games\Starfield\Logs\Script\User\FO4SFPACore.0.log ("FO4SFPACORE rt=<rt> <event> key=value ... end=true").}
 
+; ---------------------------------------------------------------- CoreValues properties (bound on QUST VMAD)
+
+ActorValue Property SpecialAgilityAV Auto Const
+GlobalVariable Property TestModeGlobal Auto Const
+
 ; ---------------------------------------------------------------- layout (held equal with dotnet/PowerArmorCore/Program.cs)
 
 string LogName = "FO4SFPACore"
 string CorePlugin = "FO4SFPowerArmor.esm"
-string NewGamePlugin = "FO4SFNewGame.esm"
 string StarfieldPlugin = "Starfield.esm"
 
 int CellId = 0x800
@@ -51,9 +56,7 @@ int CocRefId = 0x821
 int FrameFurnRefId = 0x822
 int ExitChairRefId = 0x823
 
-int SfAgilityAvId = 0x0002C7
 int SfCarryWeightAvId = 0x0002DC
-int NewGameSpecialAgiId = 0x0815
 
 ; ---------------------------------------------------------------- persistent runtime state (serialized in .sfs saves)
 
@@ -77,11 +80,13 @@ bool Stage10Handled = false
 bool Stage20Handled = false
 bool Stage30Handled = false
 bool Stage40Handled = false
+bool Initialized = false
 
 Form[] SavedWornGear = None
 int SavedWornCount = 0
 Race SavedOrigRace = None
 ObjectReference ActiveFrameRef = None
+bool ActiveFrameDynamic = false
 Cell LastPlayerCell = None
 float LastPosX = 0.0
 float LastPosY = 0.0
@@ -91,7 +96,11 @@ int Cycle = 0
 
 ; ---------------------------------------------------------------- init & logging
 
-Event OnInit()
+Event OnQuestInit()
+    if Initialized
+        return
+    endif
+    Initialized = true
     Debug.OpenUserLog(LogName)
     Actor p = Game.GetPlayer()
     if SavedWornGear == None
@@ -169,12 +178,11 @@ Function SetOwnAv(Actor p, int localId, float val)
     endif
 EndFunction
 
-float Function GetSfAvVal(Actor p, int sfLocalId)
-    ActorValue avObj = SfAv(sfLocalId)
-    if p == None || avObj == None
+float Function GetSpecialAgiVal(Actor p)
+    if p == None || SpecialAgilityAV == None
         return 0.0
     endif
-    return p.GetValue(avObj)
+    return p.GetValue(SpecialAgilityAV)
 EndFunction
 
 Function SyncLastPos(Actor p)
@@ -486,21 +494,20 @@ Function ExitFrame(string triggerWay)
         p.SetRace(SavedOrigRace)
     endif
 
-    if ActiveFrameRef == None
-        ActiveFrameRef = Ref(FrameFurnRefId)
+    if ActiveFrameRef != None
+        ActiveFrameRef.DisableNoWait()
+        if ActiveFrameDynamic && ActiveFrameRef != Ref(FrameFurnRefId)
+            ActiveFrameRef.Delete()
+        endif
+        ActiveFrameRef = None
+        ActiveFrameDynamic = false
     endif
     bool frameStanding = false
-    if ActiveFrameRef != None
-        ObjectReference exitChair = Ref(ExitChairRefId)
-        float offX = 0.0
-        float offY = 1.6
-        if exitChair != None && p.GetParentCell() == exitChair.GetParentCell() && p.GetDistance(exitChair) < 2.5
-            offX = 2.2
-            offY = 0.0
-        endif
-        ActiveFrameRef.MoveTo(p, offX, offY, 0.0, true)
-        ActiveFrameRef.EnableNoWait()
-        frameStanding = !ActiveFrameRef.IsDisabled()
+    Form frameBase = Thing(FrameFurnId)
+    if frameBase != None
+        ActiveFrameRef = p.PlaceAtMe(frameBase, 1, true, false, false)
+        ActiveFrameDynamic = (ActiveFrameRef != None)
+        frameStanding = (ActiveFrameRef != None && !ActiveFrameRef.IsDisabled())
     endif
 
     RestorePriorOutfit(p)
@@ -512,15 +519,20 @@ EndFunction
 
 Function DeployFrameAtPlayer()
     Actor p = Game.GetPlayer()
-    ObjectReference frameRef = Ref(FrameFurnRefId)
-    if p == None || frameRef == None
+    Form frameBase = Thing(FrameFurnId)
+    if p == None || frameBase == None
         return
     endif
-    ActiveFrameRef = frameRef
-    frameRef.MoveTo(p, 0.0, 2.0, 0.0, true)
-    frameRef.EnableNoWait()
-    Trace("frame_deployed ref=" + Id(frameRef) + " cell=" + Id(p.GetParentCell()))
-    Say("Power Armor frame deployed 2 m ahead.")
+    if ActiveFrameRef != None
+        ActiveFrameRef.DisableNoWait()
+        if ActiveFrameDynamic && ActiveFrameRef != Ref(FrameFurnRefId)
+            ActiveFrameRef.Delete()
+        endif
+    endif
+    ActiveFrameRef = p.PlaceAtMe(frameBase, 1, true, false, false)
+    ActiveFrameDynamic = (ActiveFrameRef != None)
+    Trace("frame_deployed ref=" + Id(ActiveFrameRef) + " cell=" + Id(p.GetParentCell()))
+    Say("Power Armor frame deployed at player.")
 EndFunction
 
 ; ---------------------------------------------------------------- remote events (outfit capture, salvaged NCR, climb-in, save/reload)
@@ -536,14 +548,13 @@ Event Actor.OnItemUnequipped(Actor akSender, Form akBaseObject, ObjectReference 
         Trace("captured_worn item=" + Id(akBaseObject) + " count=" + SavedWornCount)
     endif
     if akBaseObject == Thing(SalvagedBodyId)
-        if SalvagedSpecialAgiApplied && Game.IsPluginInstalled(NewGamePlugin)
-            ActorValue specialAgi = Game.GetFormFromFile(NewGameSpecialAgiId, NewGamePlugin) as ActorValue
-            if specialAgi != None
-                p.ModValue(specialAgi, 1.0)
+        if SalvagedSpecialAgiApplied
+            if SpecialAgilityAV != None
+                p.ModValue(SpecialAgilityAV, 1.0)
             endif
             SalvagedSpecialAgiApplied = false
         endif
-        Trace("salvaged_unequip item=" + Id(akBaseObject) + " inpa=" + InSuit + " pa_av=" + GetOwnAv(p, InPaAvId) + " agi=" + GetSfAvVal(p, SfAgilityAvId))
+        Trace("salvaged_unequip item=" + Id(akBaseObject) + " inpa=" + InSuit + " pa_av=" + GetOwnAv(p, InPaAvId) + " agi=" + GetSpecialAgiVal(p))
     endif
 EndEvent
 
@@ -553,14 +564,7 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
         return
     endif
     if IsSalvagedPiece(akBaseObject)
-        if akBaseObject == Thing(SalvagedBodyId) && !SalvagedSpecialAgiApplied && Game.IsPluginInstalled(NewGamePlugin)
-            ActorValue specialAgi = Game.GetFormFromFile(NewGameSpecialAgiId, NewGamePlugin) as ActorValue
-            if specialAgi != None
-                p.ModValue(specialAgi, -1.0)
-                SalvagedSpecialAgiApplied = true
-            endif
-        endif
-        Trace("salvaged_equip item=" + Id(akBaseObject) + " inpa=" + InSuit + " pa_av=" + GetOwnAv(p, InPaAvId) + " agi=" + GetSfAvVal(p, SfAgilityAvId) + " charge=" + GetOwnAv(p, FusionChargeAvId))
+        Trace("salvaged_equip item=" + Id(akBaseObject) + " inpa=" + InSuit + " pa_av=" + GetOwnAv(p, InPaAvId) + " agi=" + GetSpecialAgiVal(p) + " charge=" + GetOwnAv(p, FusionChargeAvId))
     endif
 EndEvent
 
@@ -630,25 +634,27 @@ Function Poll()
         return
     endif
 
-    ; Quest stage commands (usable anywhere in the world)
-    if GetStageDone(40) && !Stage40Handled
-        Stage40Handled = true
-        DeployFrameAtPlayer()
-    endif
-    if GetStageDone(10) && !Stage10Handled
-        Stage10Handled = true
-        EnterFrame(ActiveFrameRef, "stage10")
-    endif
-    if GetStageDone(20) && !Stage20Handled
-        Stage20Handled = true
-        Trace("status inpa=" + InSuit + " pa_av=" + GetOwnAv(p, InPaAvId) + " equipped_pa=" + EquippedPaCount(p) + " charge=" + GetOwnAv(p, FusionChargeAvId) + " saved_worn=" + SavedWornCount + " salvaged_worn=" + IsSalvagedWorn(p) + " limbs_min=" + MinLimbCondition(p))
-        if InSuit
-            ApplyChargeDrain(p, 50.0, "stage20")
+    ; Quest stage commands (gated behind FO4SF_TestModeEnabled != 0)
+    if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
+        if GetStageDone(40) && !Stage40Handled
+            Stage40Handled = true
+            DeployFrameAtPlayer()
         endif
-    endif
-    if GetStageDone(30) && !Stage30Handled
-        Stage30Handled = true
-        ExitFrame("stage30")
+        if GetStageDone(10) && !Stage10Handled
+            Stage10Handled = true
+            EnterFrame(ActiveFrameRef, "stage10")
+        endif
+        if GetStageDone(20) && !Stage20Handled
+            Stage20Handled = true
+            Trace("status inpa=" + InSuit + " pa_av=" + GetOwnAv(p, InPaAvId) + " equipped_pa=" + EquippedPaCount(p) + " charge=" + GetOwnAv(p, FusionChargeAvId) + " saved_worn=" + SavedWornCount + " salvaged_worn=" + IsSalvagedWorn(p) + " limbs_min=" + MinLimbCondition(p))
+            if InSuit
+                ApplyChargeDrain(p, 50.0, "stage20")
+            endif
+        endif
+        if GetStageDone(30) && !Stage30Handled
+            Stage30Handled = true
+            ExitFrame("stage30")
+        endif
     endif
 
     Cell curCell = p.GetParentCell()

@@ -206,6 +206,8 @@ ActorValue Property O2Capacity Auto Const
 float Property O2CapacityAmount = 0.0 Auto Const
 {With ClearInventory, what FillO2 tops O2Capacity up to, once, right after the reset (the writer's default 100;
  --no-o2-fill and --keep-inventory write 0: nothing). Logged as "o2 capacity added=<n> value=<read back>".}
+GlobalVariable Property TestModeGlobal Auto Const
+{FO4SFCoreValues.esm FO4SF_TestModeEnabled (0x860), linked by the writer so FO4SFNewGame.esm masters FO4SFCoreValues.esm.}
 
 string LogName = "fo4sf_newgame"
 int ticks = 0
@@ -239,6 +241,7 @@ float riderZ = 0.0
 bool rideActive = false
 bool rideDone = false
 bool rideTransferred = false
+InputEnableLayer scannerLayer = None
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -295,6 +298,7 @@ Function Begin(string route)
         return
     endif
     HoldOffPass(1)
+    DisableHandScanner()
     if DebugAfterHold != 0
         ; MQ101 never runs, so its stage 0 never reads this; the write opens the sustenance condition (DebugAfterHold)
         float was = DebugGlobal.GetValue()
@@ -363,7 +367,19 @@ Function FadeIn(string by)
     Game.FadeOutGame(False, True, 0.0, 0.1, False)
     Game.SetInChargen(false, false, false)
     Game.SetCharGenHUDMode(0)
+    DisableHandScanner()
     Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")
+EndFunction
+
+Function DisableHandScanner()
+{Disable Starfield's Chronomark hand scanner (F / MonocleMenu) on a Fallout 4 new game.}
+    if scannerLayer == None
+        scannerLayer = InputEnableLayer.Create()
+        if scannerLayer != None
+            scannerLayer.EnableHandscanner(false)
+            Trace("handscanner disabled=true")
+        endif
+    endif
 EndFunction
 
 Function AdvanceTo(int n)
@@ -587,6 +603,13 @@ Function ResetInventory(Actor player)
         player.AddItem(suit, 1, true)
         player.EquipItem(suit, false, true)
         Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
+    else
+        Armor fallbackSuit = Game.GetFormFromFile(0x0001D1D7, "Starfield.esm") as Armor
+        if fallbackSuit != None
+            player.AddItem(fallbackSuit, 1, true)
+            player.EquipItem(fallbackSuit, false, true)
+            Trace("vault suit fallback equipped " + fallbackSuit + " worn=" + player.IsEquipped(fallbackSuit))
+        endif
     endif
 EndFunction
 

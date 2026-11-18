@@ -27,6 +27,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "scripts", "newgame"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from make_newgame import declares, extract_sources, new_partial, run  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.progression import core_log  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "ProgressionCore")
@@ -34,6 +35,13 @@ PLUGIN = "FO4SFProgression.esm"
 SCRIPT = "FO4SF_ProgressionQuest"
 PSC = os.path.join(HERE, SCRIPT + ".psc")
 LOG_NAME = "FO4SFProgression.0.log"
+SHARED_CORE_IDS = {
+    "SpecialAVList": core_form_id("FO4SF_SpecialAVList"),
+    "SkillAVList": core_form_id("FO4SF_SkillAVList"),
+    "KarmaAV": core_form_id("FO4SF_Karma"),
+    "KarmaGlobal": core_form_id("FO4SF_KarmaValue"),
+    "TestModeGlobal": core_form_id("FO4SF_TestModeEnabled"),
+}
 INSTALL_LINE = re.compile(r"exp_install\.py install\b.*--plugins (?P<plugins>\S+)")
 
 REQUIRED = {
@@ -41,7 +49,6 @@ REQUIRED = {
         "GetValue", "SetValue", "ModValue", "GetLevel",
         "AddPerk", "RemovePerk", "HasPerk", "OnPlayerLoadGame",
     ],
-    "Faction": ["SetAlly", "SetEnemy"],
     "FormList": ["GetSize", "GetAt"],
     "GlobalVariable": ["GetValue", "SetValue"],
     "Game": ["GetPlayer", "GetFormFromFile"],
@@ -181,6 +188,8 @@ def stage(a):
         "plugin": PLUGIN,
         "plugin_sha256": outputs[PLUGIN],
         "plugins": [PLUGIN],
+        "masters": ["Starfield.esm", CORE_VALUES_PLUGIN],
+        "core_values": {k: f"0x{v:06X}" for k, v in SHARED_CORE_IDS.items()},
         "scripts": {SCRIPT: sha256(pex)},
         "outputs": outputs,
         "inputs": {"Starfield.esm": {"sha256": before}},
@@ -192,11 +201,11 @@ def stage(a):
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout Player Creation & Progression Core ({datetime.date.today().isoformat()}). docs/progression/progression-core.md
-{PLUGIN} (sha256 {plan['plugin_sha256']}):
-  21 AVIFs: 7 SPECIAL (0x800..0x806, 40-pt default / 28-pt GLOB={a.pool28}), 13 NV Skills (0x810..0x81C), Karma (0x807);
-  26 PERKs: 9 Backgrounds (0x820..0x828), 9 Traits (0x830..0x838, 0..2 + 1 exit respec), 8 Perks (0x840..0x847, GLOB cadence={a.cadence});
-  18 GLOBs + 6 FACTs: decoupled Karma + 6-faction Fame/Infamy REPU store (0x860..0x86B, 0x870..0x875);
-  QUST FO4SF_ProgressionQuest (0x880, stages 10..50) + Data/Scripts/{SCRIPT}.pex.
+{PLUGIN} (sha256 {plan['plugin_sha256']}, masters Starfield.esm + {CORE_VALUES_PLUGIN}):
+  Shared {CORE_VALUES_PLUGIN} links: SpecialAVList (0x0817), SkillAVList (0x082D), KarmaAV (0x0830), KarmaGlobal (0x0831), TestModeGlobal (0x0860);
+  26 PERKs + 3 FLSTs: 9 Backgrounds (0x820..0x828), 9 Traits (0x830..0x838, 0..2 + 1 exit respec), 8 Perks (0x840..0x847, GLOB cadence={a.cadence});
+  5 GLOBs: Pool28 (0x808={a.pool28}), PerkCadenceLevels (0x809={a.cadence}), QueuedPerkPoints (0x80A), TraitRespecUsed (0x80B), QueuedSkillPoints (0x80D);
+  QUST FO4SF_ProgressionQuest (0x880, stages 10..50 gated by TestModeGlobal; reads faction state from FO4SFReputation.esm) + Data/Scripts/{SCRIPT}.pex.
 NOTE: First in-game test is gated on Grok reviewing PR #806 or Claude (PC) go-ahead.
 """)
     os.replace(out, final)

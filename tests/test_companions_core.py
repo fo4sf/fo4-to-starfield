@@ -156,6 +156,7 @@ def make_fake_content_resources(zip_path):
                     "Scriptname Actor extends ObjectReference Native",
                     "float Function GetValue(ActorValue akAV) native",
                     "Function SetValue(ActorValue akAV, float afValue) native",
+                    "Function RestoreValue(ActorValue akAV, float afAmount) native",
                     "int Function GetLevel() native",
                     "bool Function HasPerk(Perk akPerk) native",
                     "Function AddPerk(Perk akPerk, bool abNotify = false) native",
@@ -204,6 +205,7 @@ def make_fake_content_resources(zip_path):
             "Scripts/Source/SQ_Groups_QuestScript.psc",
             "Scriptname SQ_Groups_QuestScript extends Quest\nint Function GetGroupFactionIDValueByActor(Actor ActorToGetGroupFor, bool ValidateActor = true)\n",
         )
+        z.writestr("Scripts/Source/ActorValue.psc", "Scriptname ActorValue extends Form Native\n")
         z.writestr("Scripts/Source/GlobalVariable.psc", "Scriptname GlobalVariable extends Form Native\nfloat Function GetValue() native\nFunction SetValue(float v) native\n")
         z.writestr("Scripts/Source/Message.psc", "Scriptname Message extends Form Native\nint Function Show() native\n")
         z.writestr("Scripts/Source/Math.psc", "Scriptname Math Native\nfloat Function Sin(float v) native global\nfloat Function Cos(float v) native global\n")
@@ -297,8 +299,14 @@ class GammaBalanceDocAndContractTests(unittest.TestCase):
         psc_props = re.findall(r"^\s*[A-Za-z0-9_\[\]]+\s+Property\s+(\w+)\s+Auto\b", PSC_TEXT, re.M)
         cs_props = re.findall(r'ObjProp\("(\w+)"', CS_TEXT) + re.findall(r'ScriptObjectListProperty\s*\{\s*Name\s*=\s*"(\w+)"', CS_TEXT)
         cs_props = [p for p in cs_props if p]
-        self.assertEqual(len(psc_props), 24)
+        self.assertEqual(len(psc_props), 26)
         self.assertEqual(sorted(psc_props), sorted(cs_props))
+        self.assertEqual(mcc.PLUGIN_MASTERS, ("Starfield.esm", "FO4SFCoreValues.esm"))
+        self.assertEqual(mcc.SHARED_CORE_FORM_IDS, {"CharismaAV": 0x000813, "TestModeGlobal": 0x000860})
+        self.assertNotIn("RepGoodwillGlobId", PSC_TEXT)
+        self.assertNotIn("ProgChaAvId", PSC_TEXT)
+        self.assertIn("akMember.RestoreValue(healthAv, 50.0)", PSC_TEXT)
+        self.assertIn("TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0", PSC_TEXT)
 
         for cp in core_log.TELEPORT_CHOKEPOINTS:
             self.assertIn(f'"{cp}"', PSC_TEXT)
@@ -460,13 +468,19 @@ class StageFoldVerifyAndDotnetTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("selftest: ok", r.stdout)
 
-            # 2. Raw binary TES4 header & GRUP checks
+            # 2. Raw binary TES4 header & GRUP checks (both full and --no-test-cell)
             plugin_bytes = (selftest_dir / "b_full" / "FO4SFCompanions.esm").read_bytes()
             flags, masters = parse_tes4_header(plugin_bytes)
             self.assertTrue(flags & 0x01, "TES4 Master flag 0x01 not set")
-            self.assertEqual(masters, ["Starfield.esm"])
+            self.assertEqual(masters, ["Starfield.esm", "FO4SFCoreValues.esm"])
             for sig in (b"QUST", b"GLOB", b"AVIF", b"PERK", b"MESG", b"FACT", b"MISC", b"FLST", b"CELL", b"NPC_"):
                 self.assertIn(sig, plugin_bytes)
+
+            player_bytes = (selftest_dir / "b_player" / "FO4SFCompanions.esm").read_bytes()
+            _, player_masters = parse_tes4_header(player_bytes)
+            self.assertEqual(player_masters, ["Starfield.esm", "FO4SFCoreValues.esm"])
+            self.assertNotIn(b"FO4SF_SquadTestCell", player_bytes)
+            self.assertNotIn(b"FO4SF_Fireteam_Alpha", player_bytes)
 
             # 3. Stage + verify + hardlink fold
             sf_esm = selftest_dir / "m_full" / "Starfield.esm"
@@ -493,6 +507,33 @@ class StageFoldVerifyAndDotnetTests(unittest.TestCase):
             )
             self.assertEqual(
                 mcc.main(["verify", "--exp-dir", str(stage_dir), "--plan", str(stage_dir / "plan.json"), "--starfield", str(sf_esm)]),
+                0,
+            )
+            self.assertEqual(
+                mcc.main(["verify", "--exp-dir", str(stage_dir), "--plan", str(stage_dir / "plan.json"), "--no-test-cell"]),
+                1,
+            )
+
+            stage_player = tmp_path / "stage_player"
+            self.assertEqual(
+                mcc.main(
+                    [
+                        "stage",
+                        "--out",
+                        str(stage_player),
+                        "--starfield",
+                        str(sf_esm),
+                        "--compiler",
+                        fake_comp,
+                        "--content-resources",
+                        str(cr_zip),
+                        "--no-test-cell",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                mcc.main(["verify", "--exp-dir", str(stage_player), "--plan", str(stage_player / "plan.json"), "--starfield", str(sf_esm), "--no-test-cell"]),
                 0,
             )
 
@@ -536,7 +577,7 @@ class StageFoldVerifyAndDotnetTests(unittest.TestCase):
             local_dir = tmp_path / "localappdata"
             (local_dir / "Starfield").mkdir(parents=True)
             plugins_txt = local_dir / "Starfield" / "Plugins.txt"
-            plugins_txt.write_text("# header\r\n*FO4TerrainCore.esm\r\n", encoding="utf-8")
+            plugins_txt.write_text("# header\r\n*FO4TerrainCore.esm\r\n*FO4SFCoreValues.esm\r\n", encoding="utf-8")
 
             old_local = os.environ.get("LOCALAPPDATA")
             old_build = exp_install.build_ba2

@@ -377,21 +377,22 @@ public static class ListDialogue
                 Flags = Cell.Flag.IsInteriorCell,
                 LightingTemplate = new FormLinkNullable<ILightingTemplateGetter>(Sf(LightingTemplateId)),
                 ImageSpace = new FormLinkNullable<IImageSpaceGetter>(Sf(ImageSpaceId)),
+                EnvironmentMap = "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds",
             };
 
             var arrivalRef = new PlacedObject(Own(ArrivalRefId), Release)
             {
                 EditorID = "FO4SF_ListArrivalRef",
-                Base = new FormLink<IPlaceableObjectGetter>(Sf(XMarkerId)),
-                Position = new P3Float(0f, 0f, 0.1f),
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(Sf(XMarkerId)),
+                Position = new P3Float(0f, 0f, 0.65f),
             };
             arrivalRef.MajorRecordFlagsRaw |= 0x400; // Persistent
             cell.Persistent.Add(arrivalRef);
 
             var cocRef = new PlacedObject(Own(CocRefId), Release)
             {
-                Base = new FormLink<IPlaceableObjectGetter>(Sf(CocMarkerId)),
-                Position = new P3Float(0f, 0f, 0.1f),
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(Sf(CocMarkerId)),
+                Position = new P3Float(0f, 0f, 0.65f),
             };
             cell.Temporary.Add(cocRef);
 
@@ -402,14 +403,14 @@ public static class ListDialogue
                 {
                     cell.Temporary.Add(new PlacedObject(Own(tileId++), Release)
                     {
-                        Base = new FormLink<IPlaceableObjectGetter>(Sf(FloorStaticId)),
-                        Position = new P3Float(gx * 8f, gy * 8f, 0f),
+                        Base = new FormLinkNullable<IPlaceableObjectGetter>(Sf(FloorStaticId)),
+                        Position = new P3Float(gx * 7.5f - 2.0f, gy * 7.5f, 0f),
                     });
                 }
             }
             cell.Temporary.Add(new PlacedObject(Own(tileId++), Release)
             {
-                Base = new FormLink<IPlaceableObjectGetter>(Sf(OmniLightId)),
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(Sf(OmniLightId)),
                 Position = new P3Float(0f, 0f, 4f),
             });
 
@@ -417,7 +418,7 @@ public static class ListDialogue
             {
                 EditorID = "FO4SF_ListSpeakerRef",
                 Base = new FormLink<INpcGetter>(speakerNpc.FormKey),
-                Position = new P3Float(0f, 2.5f, 0.1f),
+                Position = new P3Float(0f, 2.5f, 0.55f),
                 Rotation = new P3Float(0f, 0f, 3.14159f),
             };
             speakerRef.MajorRecordFlagsRaw |= 0x400; // Persistent

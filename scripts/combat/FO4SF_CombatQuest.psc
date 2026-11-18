@@ -13,10 +13,14 @@ GlobalVariable Property VatsSlowTimeActiveGlobal Auto Const
 GlobalVariable Property CombatTitleRuleGlobal Auto Const
 GlobalVariable Property HardcoreOverrideGlobal Auto Const
 GlobalVariable Property VatsApPoolGlobal Auto Const
+GlobalVariable Property HardcoreGlobal Auto Const
+GlobalVariable Property TestModeGlobal Auto Const
 ActorValue Property TargetDTAV Auto Const
 ActorValue Property TargetDRAV Auto Const
 ActorValue Property AimSwayPenaltyAV Auto Const
 ActorValue Property LimbCrippleMaskAV Auto Const
+ActorValue Property PerceptionAV Auto Const
+ActorValue Property GunsSkillAV Auto Const
 ActorValue Property HeadCondAV Auto Const
 ActorValue Property TorsoCondAV Auto Const
 ActorValue Property LeftArmCondAV Auto Const
@@ -32,6 +36,7 @@ Spell Property VatsSlowTimeAb Auto Const
 Message Property VatsLimbPickerMsg Auto Const
 MiscObject Property VatsTriggerToken Auto Const
 MiscObject Property AmmoCycleToken Auto Const
+FormList Property ActionTokensList Auto Const
 FormList Property CalibreBaseAmmoList Auto Const
 FormList Property SubtypeAPList Auto Const
 FormList Property SubtypeJHPList Auto Const
@@ -58,11 +63,18 @@ float appliedSpeedDelta = 0.0
 float appliedSwayPenalty = 0.0
 bool prevRightArmCrippled = false
 bool vatsBusy = false
+bool ran50 = false
 
 Function TraceCombat(string line)
     Debug.OpenUserLog("FO4SFCombat")
     Debug.TraceUser("FO4SFCombat", "[FO4SF_Combat] " + line)
     Debug.Trace("[FO4SF_Combat] " + line)
+EndFunction
+
+Function CompleteTestStage(int aiStage)
+    if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
+        SetStage(aiStage)
+    endif
 EndFunction
 
 bool Function IsHardcoreMode()
@@ -74,7 +86,10 @@ bool Function IsHardcoreMode()
             return false
         endif
     endif
-    GlobalVariable hcGlob = Game.GetFormFromFile(0x000802, "FO4SFHardcore.esm") as GlobalVariable
+    if HardcoreGlobal != None
+        return HardcoreGlobal.GetValue() >= 0.5
+    endif
+    GlobalVariable hcGlob = Game.GetFormFromFile(0x000840, "FO4SFCoreValues.esm") as GlobalVariable
     if hcGlob != None
         return hcGlob.GetValue() >= 0.5
     endif
@@ -82,10 +97,14 @@ bool Function IsHardcoreMode()
 EndFunction
 
 float Function ReadPlayerPerception()
-    ; Check FO4SFNewGame.esm SPECIAL Perception global if present, else baseline 6.0
-    GlobalVariable perGlob = Game.GetFormFromFile(0x000811, "FO4SFNewGame.esm") as GlobalVariable
-    if perGlob != None
-        float v = perGlob.GetValue()
+    ; Read FO4SFCoreValues.esm 0x000811 FO4SF_Special_Perception ActorValue on player, else baseline 6.0
+    Actor player = Game.GetPlayer()
+    ActorValue perAv = PerceptionAV
+    if perAv == None
+        perAv = Game.GetFormFromFile(0x000811, "FO4SFCoreValues.esm") as ActorValue
+    endif
+    if player != None && perAv != None
+        float v = player.GetValue(perAv)
         if v >= 1.0
             return v
         endif
@@ -94,9 +113,12 @@ float Function ReadPlayerPerception()
 EndFunction
 
 float Function ReadPlayerGunsSkill()
-    ; Check FO4SFProgression.esm Guns skill AVIF (0x000800) if present, else baseline 50.0
+    ; Read FO4SFCoreValues.esm 0x000823 FO4SF_Skill_Guns ActorValue on player, else baseline 50.0
     Actor player = Game.GetPlayer()
-    ActorValue gunsAv = Game.GetFormFromFile(0x000800, "FO4SFProgression.esm") as ActorValue
+    ActorValue gunsAv = GunsSkillAV
+    if gunsAv == None
+        gunsAv = Game.GetFormFromFile(0x000823, "FO4SFCoreValues.esm") as ActorValue
+    endif
     if player != None && gunsAv != None
         float s = player.GetValue(gunsAv)
         if s > 0.0
@@ -109,6 +131,10 @@ EndFunction
 Function RegisterAllTargets()
     Actor player = Game.GetPlayer()
     if player != None
+        RemoveAllInventoryEventFilters()
+        if ActionTokensList != None
+            AddInventoryEventFilter(ActionTokensList)
+        endif
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
         RegisterForRemoteEvent(player, "OnItemEquipped")
         RegisterForRemoteEvent(player as ObjectReference, "OnItemRemoved")
@@ -181,6 +207,10 @@ Event OnTimer(int aiTimerID)
                 endif
                 VatsApPoolGlobal.SetValue(nextAp)
             endif
+        endif
+        if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0 && !ran50 && GetStageDone(50)
+            ran50 = true
+            TraceCombat("summary status=ok test_mode=1")
         endif
         StartTimer(2.0, TimerIdApRegen)
     endif
@@ -337,7 +367,7 @@ Function CycleAmmoSubtype()
     ActiveAmmoSubtypeGlobal.SetValue(nextSlot as float)
     string subKey = SubtypeKeyFor(calIdx, nextSlot)
     string calName = "cal_" + calIdx
-    SetStage(20)
+    CompleteTestStage(20)
     Debug.Notification("Ammo Subtype: " + subKey)
     TraceCombat("PASS step=ammo_cycle calibre=" + calName + " slot=" + nextSlot + " subtype=" + subKey)
 EndFunction
@@ -420,10 +450,10 @@ Function ApplyZoneHitToTarget(ObjectReference akTarget, string zone, float targe
     endif
 
     if isHighDtStation
-        SetStage(20)
+        CompleteTestStage(20)
         TraceCombat("PASS step=high_dt_hit subtype=" + subKey + " target_dt=" + targetDt + " eff_dt=" + effDt + " damage=" + applied)
     else
-        SetStage(10)
+        CompleteTestStage(10)
         TraceCombat("PASS step=zone_hit zone=" + zone + " mult=" + zMult + " applied=" + applied + " subtype=" + subKey)
     endif
 EndFunction
@@ -529,7 +559,7 @@ Function InflictPlayerLimbCripple(string zone)
         player.SetValue(av, 0.0)
     endif
     SyncPlayerLimbPenalties(player)
-    SetStage(30)
+    CompleteTestStage(30)
     Debug.Notification("Limb Crippled: " + zone + " (Speed " + appliedSpeedDelta + "%)")
     TraceCombat("PASS step=limb_crippled zone=" + zone + " speed_delta=" + appliedSpeedDelta + " sway=" + appliedSwayPenalty)
 EndFunction
@@ -562,7 +592,7 @@ Function AttemptPlayerLimbCure(Actor player, string itemKind)
     player.SetValue(LeftLegCondAV, 100.0)
     player.SetValue(RightLegCondAV, 100.0)
     SyncPlayerLimbPenalties(player)
-    SetStage(30)
+    CompleteTestStage(30)
     Debug.Notification("All Crippled Limbs Restored (" + itemKind + ").")
     TraceCombat("PASS step=limb_cure item=" + itemKind + " hardcore=" + hcBit + " cured=1")
 EndFunction
@@ -665,7 +695,7 @@ Function ToggleVats()
             if roll <= chance
                 ApplyZoneHitToTarget(target, zone, 4.0, 5.0, false)
             endif
-            SetStage(40)
+            CompleteTestStage(40)
             TraceCombat("PASS step=vats_shot slow_time=1 zone=" + zone + " ap_cost=" + apCost + " chance=" + chance + " queued=1")
         else
             Debug.Notification("V.A.T.S.: Insufficient Action Points (" + (curAp as int) + "/" + apCost + ")")

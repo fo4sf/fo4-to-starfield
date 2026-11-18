@@ -19,6 +19,20 @@ def parse_lines(lines: Iterable[str]) -> list[dict]:
     return events
 
 
+def _karma_repu_ok(kr0: dict | None) -> bool:
+    if not kr0:
+        return False
+    if float(kr0.get("karma", "0")) > -750.0 or kr0.get("karma_tier") != "Very_Evil":
+        return False
+    if "rep_state" in kr0:
+        try:
+            st = int(kr0["rep_state"])
+        except ValueError:
+            return False
+        return -1 <= st <= 15 and st not in (2, 3, 7)
+    return kr0.get("repu_title") == "Idolized" and kr0.get("disposition") == "Ally"
+
+
 def summarize(lines: Iterable[str]) -> dict:
     events = parse_lines(lines)
     creations = [e["kv"] for e in events if e["kind"] == "creation"]
@@ -52,13 +66,7 @@ def summarize(lines: Iterable[str]) -> dict:
             and cad0.get("cad2_lvl4", "").lower() == "true"
             and cad0.get("cad1_lvl3", "").lower() == "true"
         ),
-        "karma_and_repu_independent": bool(
-            kr0
-            and float(kr0.get("karma", "0")) <= -750.0
-            and kr0.get("karma_tier") == "Very_Evil"
-            and kr0.get("repu_title") == "Idolized"
-            and kr0.get("disposition") == "Ally"
-        ),
+        "karma_and_repu_independent": _karma_repu_ok(kr0),
         "summary_ok": bool(summaries and summaries[-1].get("ok", "").lower() == "true"),
     }
 

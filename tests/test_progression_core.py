@@ -17,7 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.progression import core_log, tables  # noqa: E402
+from fo4sf.reputation import tables as rep_tables  # noqa: E402
 
 spec_mp = importlib.util.spec_from_file_location("make_progression", ROOT / "scripts" / "progression" / "make_progression.py")
 mp = importlib.util.module_from_spec(spec_mp)
@@ -33,7 +35,7 @@ SAMPLE_PASS_LOG = [
     "FO4SFPROG rt=2.0 creation ok=True bg=Vault_Dweller traits=2 special_sum=40 skills_count=13 speech=47 science=34 medicine=34 carry_mod=45.0 end=true",
     "FO4SFPROG rt=3.0 respec first_ok=True second_refused=True active_traits=1 end=true",
     "FO4SFPROG rt=4.0 cadence cad2_lvl2=True cad2_lvl3=False cad2_lvl4=True cad1_lvl3=True end=true",
-    "FO4SFPROG rt=5.0 karma_repu karma=-800.0 karma_tier=Very_Evil faction=Minutemen fame=85.0 infamy=0.0 repu_title=Idolized disposition=Ally end=true",
+    "FO4SFPROG rt=5.0 karma_repu karma=-800.0 karma_tier=Very_Evil faction_slot=0 rep_state=12 end=true",
     "FO4SFPROG rt=6.0 summary ok=true stages=10,20,30,40,50 end=true",
 ]
 
@@ -101,18 +103,31 @@ class DataTablesAndMathTests(unittest.TestCase):
         self.assertEqual(len(tables.BACKGROUNDS_TABLE), 9)
         self.assertEqual(len(tables.TRAITS_TABLE), 9)
         self.assertEqual(len(tables.PERKS_TABLE), 8)
-        self.assertEqual(len(tables.REPU_FACTIONS_TABLE), 6)
+        self.assertFalse(hasattr(tables, "REPU_FACTIONS_TABLE"))
+        self.assertFalse(hasattr(tables, "REPU_MATRIX"))
+        self.assertFalse(hasattr(tables, "evaluate_faction_repu"))
 
-        ids = (
-            [r["id"] for r in tables.SPECIAL_TABLE]
-            + [r["id"] for r in tables.SKILLS_TABLE]
-            + [r["id"] for r in tables.BACKGROUNDS_TABLE]
-            + [r["id"] for r in tables.TRAITS_TABLE]
-            + [r["id"] for r in tables.PERKS_TABLE]
-            + [r["fame_id"] for r in tables.REPU_FACTIONS_TABLE]
-            + [r["infamy_id"] for r in tables.REPU_FACTIONS_TABLE]
-        )
-        self.assertEqual(len(ids), len(set(ids)), "every table FormID must be unique")
+        for row in (*tables.SPECIAL_TABLE, *tables.SKILLS_TABLE):
+            self.assertEqual(row["plugin"], CORE_VALUES_PLUGIN)
+            self.assertEqual(row["id"], core_form_id(row["edid"]))
+
+        self.assertEqual(tables.SHARED_CORE_FORM_IDS["SpecialAVList"], 0x817)
+        self.assertEqual(tables.SHARED_CORE_FORM_IDS["SkillAVList"], 0x82D)
+        self.assertEqual(tables.SHARED_CORE_FORM_IDS["KarmaAV"], 0x830)
+        self.assertEqual(tables.SHARED_CORE_FORM_IDS["KarmaGlobal"], 0x831)
+        self.assertEqual(tables.SHARED_CORE_FORM_IDS["TestModeGlobal"], 0x860)
+
+        keyed_ids = [
+            (r["plugin"], r["id"])
+            for r in (
+                *tables.SPECIAL_TABLE,
+                *tables.SKILLS_TABLE,
+                *tables.BACKGROUNDS_TABLE,
+                *tables.TRAITS_TABLE,
+                *tables.PERKS_TABLE,
+            )
+        ]
+        self.assertEqual(len(keyed_ids), len(set(keyed_ids)), "every (plugin, FormID) pair must be unique")
 
     def test_special_40_pool_default_and_28_glob_option(self):
         alloc40 = {"STR": 6, "PER": 6, "END": 6, "CHA": 6, "INT": 6, "AGI": 5, "LCK": 5}
@@ -157,25 +172,31 @@ class DataTablesAndMathTests(unittest.TestCase):
         self.assertEqual([tables.grants_perk_at_level(lv, 1) for lv in (1, 2, 3, 4)], [False, True, True, True])
         self.assertEqual([tables.grants_perk_at_level(lv, 3) for lv in (1, 2, 3, 4, 5, 6)], [False, False, True, False, False, True])
 
-    def test_decoupled_karma_and_repu_16_state_matrix(self):
+    def test_decoupled_karma_and_reputation_single_authority(self):
         self.assertEqual(tables.karma_tier(-850), "Very Evil")
-        r_ally = tables.evaluate_faction_repu(85.0, 0.0)
-        self.assertEqual(r_ally["title"], "Idolized")
-        self.assertEqual(r_ally["disposition"], "Ally")
-        self.assertLess(r_ally["vendor_price_mult"], 1.0)
+        r_ally = rep_tables.evaluate_faction_reputation(85.0, 0.0)
+        self.assertEqual(r_ally.code, 12)
+        self.assertEqual(r_ally.title, "Idolized")
+        self.assertEqual(r_ally.disposition, "Ally")
+        self.assertLess(r_ally.buy_mult, 1.0)
 
         self.assertEqual(tables.karma_tier(900), "Very Good")
-        r_enemy = tables.evaluate_faction_repu(0.0, 90.0)
-        self.assertEqual(r_enemy["title"], "Vilified")
-        self.assertEqual(r_enemy["disposition"], "Enemy")
-        self.assertEqual(tables.evaluate_faction_repu(80.0, 80.0)["title"], "Wild Child")
+        r_enemy = rep_tables.evaluate_faction_reputation(0.0, 90.0)
+        self.assertEqual(r_enemy.code, 3)
+        self.assertEqual(r_enemy.title, "Vilified")
+        self.assertEqual(r_enemy.disposition, "Enemy")
+        self.assertEqual(rep_tables.evaluate_faction_reputation(80.0, 80.0).code, 15)
 
 
 class PluginParityAndStageTests(unittest.TestCase):
     def test_csharp_psc_and_python_tables_match_1_to_1(self):
         cs = (ROOT / "dotnet" / "ProgressionCore" / "Program.cs").read_text(encoding="utf-8")
-        for row in (*tables.SPECIAL_TABLE, *tables.SKILLS_TABLE, *tables.BACKGROUNDS_TABLE, *tables.TRAITS_TABLE, *tables.PERKS_TABLE):
+        for row in (*tables.BACKGROUNDS_TABLE, *tables.TRAITS_TABLE, *tables.PERKS_TABLE):
             self.assertIn(f'(0x{row["id"]:X}, "{row["edid"]}"', cs)
+        for row in (*tables.SPECIAL_TABLE, *tables.SKILLS_TABLE):
+            self.assertNotIn(f'"{row["edid"]}"', cs)
+        self.assertNotIn("FO4SF_Repu_", cs)
+        self.assertNotIn("FO4SF_Fact_", cs)
 
         m = re.search(r"PropNames\s*=\s*\{([^}]*)\}", cs, re.S)
         self.assertIsNotNone(m)
@@ -183,13 +204,23 @@ class PluginParityAndStageTests(unittest.TestCase):
         psc = (ROOT / "scripts" / "progression" / "FO4SF_ProgressionQuest.psc").read_text(encoding="utf-8")
         psc_props = [pm.group(1) for pm in re.finditer(r"^\s*\w+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)]
         self.assertEqual(cs_props, psc_props)
-        self.assertEqual(len(cs_props), 16)
+        self.assertEqual(len(cs_props), 15)
+        self.assertIn("TestModeGlobal", cs_props)
+        self.assertNotIn("RepuGlobalsList", cs_props)
+        self.assertNotIn("FactionList", cs_props)
+        self.assertNotIn("SyncFactionRepu", psc)
+        self.assertNotIn("RepuAxisTier", psc)
+        self.assertNotIn("0x0001C21C", psc)
+        self.assertIn("int Function ReadFactionRepState(int slotIndex)", psc)
+        self.assertIn('Game.GetFormFromFile(0x000870 + slotIndex, "FO4SFReputation.esm") as GlobalVariable', psc)
+        self.assertIn("bool Function ApplyCreationSheet(", psc)
+        self.assertIn("if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", psc)
         self.assertEqual(pi.RECORD, "FO4SFProgression.install.json")
 
     def test_log_summary_and_precheck_fold_verify(self):
         s = core_log.summarize(SAMPLE_PASS_LOG)
         self.assertTrue(s["passed"], s["checks"])
-        bad = [l.replace("disposition=Ally", "disposition=Enemy") for l in SAMPLE_PASS_LOG]
+        bad = [l.replace("rep_state=12", "rep_state=3") for l in SAMPLE_PASS_LOG]
         self.assertFalse(core_log.summarize(bad)["passed"])
 
         with tempfile.TemporaryDirectory() as tmp:

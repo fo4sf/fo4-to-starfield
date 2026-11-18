@@ -1,5 +1,5 @@
 Scriptname FO4SF_ProgressionQuest extends Quest
-{Player Creation & Progression Core controller (CF-6): 40-pt SPECIAL (with off-by-default 28-pt GLOB), 13 NV skills, 9 Backgrounds, 9 Traits (0..2 + 1 free exit respec), GLOB-driven Perk cadence, and decoupled Karma + 16-state REPU faction disposition sync.}
+{Player Creation & Progression Core controller (CF-6): 40-pt SPECIAL (with off-by-default 28-pt GLOB), 13 NV skills, 9 Backgrounds, 9 Traits (0..2 + 1 free exit respec), GLOB-driven Perk cadence, shared Karma in FO4SFCoreValues.esm, and read-only faction state queries from FO4SFReputation.esm.}
 
 ; Exact property order pinned by dotnet/ProgressionCore/Program.cs and tests/test_progression_core.py
 FormList Property SpecialAVList Auto Const
@@ -7,8 +7,6 @@ FormList Property SkillAVList Auto Const
 FormList Property BackgroundPerks Auto Const
 FormList Property TraitPerks Auto Const
 FormList Property PlayablePerks Auto Const
-FormList Property RepuGlobalsList Auto Const
-FormList Property FactionList Auto Const
 ActorValue Property KarmaAV Auto Const
 GlobalVariable Property KarmaGlobal Auto Const
 GlobalVariable Property Pool28Global Auto Const
@@ -18,6 +16,7 @@ GlobalVariable Property QueuedSkillPointsGlobal Auto Const
 GlobalVariable Property TraitRespecUsedGlobal Auto Const
 ActorValue Property CarryWeightAV Auto Const
 ActorValue Property HealthAV Auto Const
+GlobalVariable Property TestModeGlobal Auto Const
 
 int Property TimerIdPoll = 1 AutoReadOnly
 
@@ -286,58 +285,15 @@ string Function KarmaTierToken(float k)
     return "Very_Good"
 EndFunction
 
-int Function RepuAxisTier(float v)
-    if v >= 75.0
-        return 3
-    elseif v >= 45.0
-        return 2
-    elseif v >= 15.0
-        return 1
+int Function ReadFactionRepState(int slotIndex)
+    if slotIndex < 0 || slotIndex >= 15
+        return -1
     endif
-    return 0
-EndFunction
-
-string Function SyncFactionRepu(int factionIdx, float fame, float infamy)
-    int pairBase = factionIdx * 2
-    GlobalVariable fameG = RepuGlobalsList.GetAt(pairBase) as GlobalVariable
-    GlobalVariable infamyG = RepuGlobalsList.GetAt(pairBase + 1) as GlobalVariable
-    if fameG != None
-        fameG.SetValue(fame)
+    GlobalVariable stateGlob = Game.GetFormFromFile(0x000870 + slotIndex, "FO4SFReputation.esm") as GlobalVariable
+    if stateGlob == None
+        return -1
     endif
-    if infamyG != None
-        infamyG.SetValue(infamy)
-    endif
-
-    int ft = RepuAxisTier(fame)
-    int it = RepuAxisTier(infamy)
-    Faction fac = FactionList.GetAt(factionIdx) as Faction
-    Faction playerFac = Game.GetFormFromFile(0x0001C21C, "Starfield.esm") as Faction
-
-    string disp = "Neutral"
-    if it >= 2 && ft <= 1
-        disp = "Enemy"
-        if fac != None && playerFac != None
-            fac.SetEnemy(playerFac, false, false)
-        endif
-    elseif ft >= 2 && it == 0
-        disp = "Ally"
-        if fac != None && playerFac != None
-            fac.SetAlly(playerFac, false, false)
-        endif
-    else
-        if fac != None && playerFac != None
-            fac.SetEnemy(playerFac, true, true) ; Neutral
-        endif
-    endif
-
-    if ft == 3 && it == 0
-        return "Idolized:" + disp
-    elseif ft == 0 && it == 3
-        return "Vilified:" + disp
-    elseif ft == 3 && it == 3
-        return "Wild_Child:" + disp
-    endif
-    return "Standing_" + ft + "_" + it + ":" + disp
+    return stateGlob.GetValue() as int
 EndFunction
 
 Event OnQuestInit()
@@ -376,69 +332,64 @@ Function PollStages()
         endif
     endwhile
 
-    ; Stage 10: Run Creation Flow (Vault Dweller + Good Natured & Small Frame + 40-pt SPECIAL 6/5/5/6/7/6/5 + Tags Speech/Guns/Lockpick)
-    if !ran10 && GetStageDone(10)
-        ran10 = true
-        TraitRespecUsedGlobal.SetValue(0.0)
-        Pool28Global.SetValue(0.0)
-        bool ok = ApplyCreationSheet(player, 0, 6, 0, 6, 5, 5, 6, 7, 6, 5, 10, 3, 4)
-        float spc = player.GetValue(GetSkillAV(10))
-        float sci = player.GetValue(GetSkillAV(8))
-        float med = player.GetValue(GetSkillAV(5))
-        LogLine("creation", "ok=" + ok + " bg=Vault_Dweller traits=2 special_sum=40 skills_count=13 speech=" + (spc as int) + " science=" + (sci as int) + " medicine=" + (med as int) + " carry_mod=" + appliedCarryMod)
-    endif
-
-    ; Stage 20: Vault Exit Free Trait Respec (1st succeeds -> Trigger Discipline only; 2nd is refused because respec_used == 1)
-    if !ran20 && GetStageDone(20)
-        ran20 = true
-        bool firstOk = ApplyExitTraitRespec(player, 1, -1)
-        bool secondOk = ApplyExitTraitRespec(player, 2, -1)
-        LogLine("respec", "first_ok=" + firstOk + " second_refused=" + (!secondOk) + " active_traits=1")
-    endif
-
-    ; Stage 30: GLOB-Driven Perk Cadence (default 2 -> true/false/true at lv 2/3/4; switch GLOB to 1 -> true at lv 3)
-    if !ran30 && GetStageDone(30)
-        ran30 = true
-        PerkCadenceGlobal.SetValue(2.0)
-        bool c2_2 = GrantsPerkAtLevel(2)
-        bool c2_3 = GrantsPerkAtLevel(3)
-        bool c2_4 = GrantsPerkAtLevel(4)
-        PerkCadenceGlobal.SetValue(1.0)
-        bool c1_3 = GrantsPerkAtLevel(3)
-        PerkCadenceGlobal.SetValue(2.0)
-        LogLine("cadence", "cad2_lvl2=" + c2_2 + " cad2_lvl3=" + c2_3 + " cad2_lvl4=" + c2_4 + " cad1_lvl3=" + c1_3)
-    endif
-
-    ; Stage 40: Decoupled Karma (-800 Very Evil) + Minutemen REPU (Fame 85, Infamy 0 -> Idolized & Ally)
-    if !ran40 && GetStageDone(40)
-        ran40 = true
-        player.SetValue(KarmaAV, -800.0)
-        KarmaGlobal.SetValue(-800.0)
-        string kt = KarmaTierToken(-800.0)
-        string repuOut = SyncFactionRepu(0, 85.0, 0.0)
-        string rTitle = "Idolized"
-        string rDisp = "Ally"
-        if repuOut != "Idolized:Ally"
-            rTitle = repuOut
-            rDisp = "Mismatch"
+    if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
+        ; Stage 10: Run Creation Flow (Vault Dweller + Good Natured & Small Frame + 40-pt SPECIAL 6/5/5/6/7/6/5 + Tags Speech/Guns/Lockpick)
+        if !ran10 && GetStageDone(10)
+            ran10 = true
+            TraitRespecUsedGlobal.SetValue(0.0)
+            Pool28Global.SetValue(0.0)
+            bool ok = ApplyCreationSheet(player, 0, 6, 0, 6, 5, 5, 6, 7, 6, 5, 10, 3, 4)
+            float spc = player.GetValue(GetSkillAV(10))
+            float sci = player.GetValue(GetSkillAV(8))
+            float med = player.GetValue(GetSkillAV(5))
+            LogLine("creation", "ok=" + ok + " bg=Vault_Dweller traits=2 special_sum=40 skills_count=13 speech=" + (spc as int) + " science=" + (sci as int) + " medicine=" + (med as int) + " carry_mod=" + appliedCarryMod)
         endif
-        LogLine("karma_repu", "karma=-800.0 karma_tier=" + kt + " faction=Minutemen fame=85.0 infamy=0.0 repu_title=" + rTitle + " disposition=" + rDisp)
-    endif
 
-    ; Stage 50: Clean Reset
-    if !ran50 && GetStageDone(50)
-        ran50 = true
-        ClearListPerks(player, BackgroundPerks)
-        ClearListPerks(player, TraitPerks)
-        if appliedCarryMod > 0.01 || appliedCarryMod < -0.01
-            player.ModValue(CarryWeightAV, -appliedCarryMod)
-            appliedCarryMod = 0.0
+        ; Stage 20: Vault Exit Free Trait Respec (1st succeeds -> Trigger Discipline only; 2nd is refused because respec_used == 1)
+        if !ran20 && GetStageDone(20)
+            ran20 = true
+            bool firstOk = ApplyExitTraitRespec(player, 1, -1)
+            bool secondOk = ApplyExitTraitRespec(player, 2, -1)
+            LogLine("respec", "first_ok=" + firstOk + " second_refused=" + (!secondOk) + " active_traits=1")
         endif
-        player.SetValue(KarmaAV, 0.0)
-        KarmaGlobal.SetValue(0.0)
-        SyncFactionRepu(0, 0.0, 0.0)
-        TraitRespecUsedGlobal.SetValue(0.0)
-        LogLine("summary", "ok=true stages=10,20,30,40,50")
+
+        ; Stage 30: GLOB-Driven Perk Cadence (default 2 -> true/false/true at lv 2/3/4; switch GLOB to 1 -> true at lv 3)
+        if !ran30 && GetStageDone(30)
+            ran30 = true
+            PerkCadenceGlobal.SetValue(2.0)
+            bool c2_2 = GrantsPerkAtLevel(2)
+            bool c2_3 = GrantsPerkAtLevel(3)
+            bool c2_4 = GrantsPerkAtLevel(4)
+            PerkCadenceGlobal.SetValue(1.0)
+            bool c1_3 = GrantsPerkAtLevel(3)
+            PerkCadenceGlobal.SetValue(2.0)
+            LogLine("cadence", "cad2_lvl2=" + c2_2 + " cad2_lvl3=" + c2_3 + " cad2_lvl4=" + c2_4 + " cad1_lvl3=" + c1_3)
+        endif
+
+        ; Stage 40: Decoupled Karma (-800 Very Evil) + read-only faction state from FO4SFReputation.esm
+        if !ran40 && GetStageDone(40)
+            ran40 = true
+            player.SetValue(KarmaAV, -800.0)
+            KarmaGlobal.SetValue(-800.0)
+            string kt = KarmaTierToken(-800.0)
+            int repState = ReadFactionRepState(0)
+            LogLine("karma_repu", "karma=-800.0 karma_tier=" + kt + " faction_slot=0 rep_state=" + repState)
+        endif
+
+        ; Stage 50: Clean Reset
+        if !ran50 && GetStageDone(50)
+            ran50 = true
+            ClearListPerks(player, BackgroundPerks)
+            ClearListPerks(player, TraitPerks)
+            if appliedCarryMod > 0.01 || appliedCarryMod < -0.01
+                player.ModValue(CarryWeightAV, -appliedCarryMod)
+                appliedCarryMod = 0.0
+            endif
+            player.SetValue(KarmaAV, 0.0)
+            KarmaGlobal.SetValue(0.0)
+            TraitRespecUsedGlobal.SetValue(0.0)
+            LogLine("summary", "ok=true stages=10,20,30,40,50")
+        endif
     endif
 EndFunction
 

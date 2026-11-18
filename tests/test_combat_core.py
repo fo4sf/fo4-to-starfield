@@ -19,7 +19,9 @@ from fo4sf.combat import (  # noqa: E402
     AMMO_SUBTYPES,
     ARCHETYPE_ZONE_MULTS,
     CALIBRE_FAMILIES,
+    PLUGIN_MASTERS,
     RELOADING_BENCH_RECIPES,
+    SHARED_CORE_FORM_IDS,
     TITLE_COMBAT_TABLES,
     ZONES,
     compute_ballistic_dt_dr,
@@ -132,6 +134,10 @@ class CombatTablesAndFormulasTests(unittest.TestCase):
         self.assertEqual(cycle_ammo_subtype(3, "standard_ballistic").key, "standard")
         self.assertEqual(cycle_ammo_subtype(0, "shotgun").key, "slug")
         self.assertEqual(len(CALIBRE_FAMILIES), 5)
+        self.assertEqual(
+            CALIBRE_FAMILIES["Ammo50Cal"]["subtypes"],
+            ("Standard", "FO4SF_Ammo50Cal_AP", "FO4SF_Ammo50Cal_JHP", "FO4SF_Ammo50Cal_PlusP"),
+        )
         self.assertEqual(len(RELOADING_BENCH_RECIPES), 6)
         for rcpe in RELOADING_BENCH_RECIPES:
             self.assertEqual(rcpe["bench_keyword"], "WorkbenchIndustrialKeyword")
@@ -190,7 +196,24 @@ class CombatContractAndStagerTests(unittest.TestCase):
         cs_props = re.findall(r'"(\w+)"', m_block.group(1))
         psc_props = re.findall(r"^\w+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)
         self.assertEqual(cs_props, psc_props)
-        self.assertEqual(len(cs_props), 43)
+        self.assertEqual(len(cs_props), 48)
+
+    def test_shared_core_values_action_filter_and_stage_gating(self):
+        psc = (REPO / "scripts" / "combat" / "FO4SF_CombatQuest.psc").read_text(encoding="utf-8")
+        self.assertEqual(PLUGIN_MASTERS, ("Starfield.esm", "FO4SFCoreValues.esm"))
+        self.assertEqual(SHARED_CORE_FORM_IDS, {
+            "PerceptionAV": 0x000811,
+            "GunsSkillAV": 0x000823,
+            "HardcoreGlobal": 0x000840,
+            "CombatStimpak": 0x000851,
+            "TestModeGlobal": 0x000860,
+        })
+        self.assertNotIn("FO4SFNewGame.esm", psc)
+        self.assertNotIn("FO4SFProgression.esm", psc)
+        self.assertNotIn("FO4SFHardcore.esm", psc)
+        self.assertIn("AddInventoryEventFilter(ActionTokensList)", psc)
+        self.assertIn("TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", psc)
+        self.assertEqual(re.findall(r"\bSetStage\s*\(", psc), ["SetStage("])
 
     def test_stage_refuses_when_starfield_is_running(self):
         with tempfile.TemporaryDirectory() as td:

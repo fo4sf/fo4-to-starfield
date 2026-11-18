@@ -9,6 +9,18 @@ from dataclasses import dataclass, field
 import re
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id
+
+PLUGIN_NAME = "FO4SFCombat.esm"
+PLUGIN_MASTERS: Tuple[str, str] = ("Starfield.esm", CORE_VALUES_PLUGIN)
+SHARED_CORE_FORM_IDS: Dict[str, int] = {
+    "PerceptionAV": core_form_id("FO4SF_Special_Perception"),
+    "GunsSkillAV": core_form_id("FO4SF_Skill_Guns"),
+    "HardcoreGlobal": core_form_id("FO4SF_HardcoreEnabled"),
+    "CombatStimpak": core_form_id("FO4SF_Stimpak"),
+    "TestModeGlobal": core_form_id("FO4SF_TestModeEnabled"),
+}
+
 # Unified 8-zone body-part taxonomy shared across humans, robots, and creatures.
 # Maps directly onto Starfield's live limb-condition AVIFs (0x00036C..0x000372).
 ZONES: Tuple[str, ...] = (
@@ -231,7 +243,7 @@ CALIBRE_FAMILIES: Dict[str, Dict[str, object]] = {
         "starfield_form_id": 0x2B559A,
         "family": "standard_ballistic",
         "nv_analogue": ".50 MG / .308",
-        "subtypes": ("Standard", "FO4SF_Ammo50Cal_AP", "FO4SF_Ammo777_JHP", "FO4SF_Ammo777_PlusP"),
+        "subtypes": ("Standard", "FO4SF_Ammo50Cal_AP", "FO4SF_Ammo50Cal_JHP", "FO4SF_Ammo50Cal_PlusP"),
     },
 }
 

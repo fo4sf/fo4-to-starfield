@@ -31,6 +31,7 @@
 //   HardcoreToggle selftest <scratch dir>
 
 using System.Globalization;
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -42,6 +43,7 @@ try
 {
     var rest = args.ToList();
     int defaultHardcore = 0;
+    string? jsonPath = null;
 
     int idx = rest.IndexOf("--default-hardcore");
     if (idx >= 0)
@@ -51,9 +53,16 @@ try
         defaultHardcore = v;
         rest.RemoveRange(idx, 2);
     }
+    int jIdx = rest.IndexOf("--json");
+    if (jIdx >= 0)
+    {
+        if (jIdx + 1 >= rest.Count) throw new HardcoreToggle.Refusal("--json needs a path");
+        jsonPath = rest[jIdx + 1];
+        rest.RemoveRange(jIdx, 2);
+    }
 
-    if (rest.Count == 3 && rest[0] == "build") return HardcoreToggle.Build(rest[1], rest[2], defaultHardcore);
-    if (rest.Count == 3 && rest[0] == "check") return HardcoreToggle.Check(rest[1], rest[2], defaultHardcore);
+    if (rest.Count == 3 && rest[0] == "build") return HardcoreToggle.Build(rest[1], rest[2], defaultHardcore, jsonPath);
+    if (rest.Count == 3 && rest[0] == "check") return HardcoreToggle.Check(rest[1], rest[2], defaultHardcore, jsonPath);
     if (rest.Count == 2 && rest[0] == "fixture") return HardcoreToggle.Fixture(rest[1]);
     if (rest.Count == 2 && rest[0] == "selftest") return HardcoreToggle.SelfTest(rest[1]);
 }
@@ -63,8 +72,8 @@ catch (HardcoreToggle.Refusal r)
     return 1;
 }
 
-Console.Error.WriteLine("usage: HardcoreToggle build <Starfield.esm> <out dir> [--default-hardcore 0|1] | " +
-                        "check <plugin> <Starfield.esm> [--default-hardcore 0|1] | fixture <out dir> | selftest <scratch dir>");
+Console.Error.WriteLine("usage: HardcoreToggle build <Starfield.esm> <out dir> [--json <path>] [--default-hardcore 0|1] | " +
+                        "check <plugin> <Starfield.esm> [--json <path>] [--default-hardcore 0|1] | fixture <out dir> | selftest <scratch dir>");
 return 2;
 
 public static class HardcoreToggle
@@ -73,31 +82,22 @@ public static class HardcoreToggle
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    public static readonly ModKey CoreValuesEsm = ModKey.FromFileName("FO4SFCoreValues.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFHardcore.esm");
 
     // Vanilla SQ_ENV FormID in Starfield.esm — verified never overridden by Check()
     public const uint VanillaSqEnvId = 0x248D20;
 
-    // Deterministic local FormIDs
+    // Deterministic local FormIDs owned by FO4SFHardcore.esm (shared meters/stages/stimpak/test-mode live in FO4SFCoreValues.esm)
     public const uint HardcoreGpoId = 0x800;
     public const uint HardcoreGpogId = 0x801;
-    public const uint HardcoreGlobId = 0x802;
-    public const uint HungerAvifId = 0x803;
-    public const uint ThirstAvifId = 0x804;
-    public const uint SleepAvifId = 0x805;
     public const uint AmmoBurdenAvifId = 0x806;
-    public const uint HungerStageGlobId = 0x807;
-    public const uint ThirstStageGlobId = 0x808;
-    public const uint SleepStageGlobId = 0x809;
-    public const uint FastTravelBlockedGlobId = 0x80A;
 
     public const uint HungerReliefEffectId = 0x810;
     public const uint ThirstReliefEffectId = 0x811;
-    public const uint StimpakTriggerEffectId = 0x812;
 
     public const uint RationFoodId = 0x820;
     public const uint PurifiedWaterId = 0x821;
-    public const uint StimpakId = 0x822;
 
     public const uint CaliberLightId = 0x825;
     public const uint CaliberRifleId = 0x826;
@@ -107,7 +107,7 @@ public static class HardcoreToggle
     public const uint QuestId = 0x830;
     public const uint NextId = 0x831;
 
-    // EditorIDs
+    // EditorIDs (local + shared FO4SFCoreValues.esm lookup keys)
     public const string HardcoreGpoEdid = "FO4SF_GPO_Hardcore";
     public const string HardcoreGpogEdid = "FO4SF_GPOG_Hardcore";
     public const string HardcoreGlobEdid = "FO4SF_HardcoreEnabled";
@@ -122,11 +122,16 @@ public static class HardcoreToggle
 
     public const string HungerReliefEffectEdid = "FO4SF_HungerReliefEffect";
     public const string ThirstReliefEffectEdid = "FO4SF_ThirstReliefEffect";
-    public const string StimpakTriggerEffectEdid = "FO4SF_StimpakTriggerEffect";
 
     public const string RationFoodEdid = "FO4SF_RationFood";
     public const string PurifiedWaterEdid = "FO4SF_PurifiedWater";
     public const string StimpakEdid = "FO4SF_Stimpak";
+
+    public const string SpecialStrEdid = "FO4SF_Special_Strength";
+    public const string SpecialEndEdid = "FO4SF_Special_Endurance";
+    public const string SpecialIntEdid = "FO4SF_Special_Intelligence";
+    public const string SpecialAgiEdid = "FO4SF_Special_Agility";
+    public const string TestModeGlobEdid = "FO4SF_TestModeEnabled";
 
     public const string CaliberLightEdid = "FO4SF_CaliberLight";
     public const string CaliberRifleEdid = "FO4SF_CaliberRifle";
@@ -144,7 +149,7 @@ public static class HardcoreToggle
 
     public static readonly string[] RequiredSfAvifs =
     {
-        "Health", "CarryWeight", "Strength", "Endurance", "Agility", "Intelligence"
+        "Health", "CarryWeight"
     };
 
     // Quest script properties in exact declaration order (pinned by tests/test_hardcore_toggle.py)
@@ -158,17 +163,54 @@ public static class HardcoreToggle
         "HealthAV", "CarryWeightAV", "StrengthAV", "EnduranceAV", "AgilityAV", "IntelligenceAV",
         "RationFood", "PurifiedWater", "Stimpak",
         "CaliberLight", "CaliberRifle", "CaliberHeavy",
-        "WeightedAmmoList"
+        "WeightedAmmoList",
+        "TestModeGlobal"
     };
 
     static FormKey Own(uint id) => new(Plugin, id);
     static ActorValueInformation.Flag MeterFlags => ActorValueInformation.Flag.DefaultToZero | ActorValueInformation.Flag.DamageIsPositive;
     static ActorValueInformation.Flag ZeroFlags => ActorValueInformation.Flag.DefaultToZero;
 
-    static IStarfieldModDisposableGetter OpenMod(string path)
+    public static string DefaultJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "core", "core_values.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "core_values.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/core/core_values.json; pass --json <path>");
+    }
+
+    public static Dictionary<string, uint> LoadCoreValues(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing core_values.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var plugin = root.GetProperty("plugin").GetString() ?? throw new Refusal("core_values.json missing plugin");
+        if (ModKey.FromFileName(plugin) != CoreValuesEsm)
+            throw new Refusal($"core_values.json plugin {plugin} != {CoreValuesEsm}");
+        var ids = new Dictionary<string, uint>(StringComparer.Ordinal);
+        foreach (var el in root.GetProperty("records").EnumerateArray())
+        {
+            var edid = el.GetProperty("edid").GetString() ?? throw new Refusal("core_values.json record missing edid");
+            var id = Convert.ToUInt32(el.GetProperty("id").GetString()!, 16);
+            ids[edid] = id;
+        }
+        return ids;
+    }
+
+    static FormKey Core(IReadOnlyDictionary<string, uint> coreIds, string edid) =>
+        coreIds.TryGetValue(edid, out var id) ? new FormKey(CoreValuesEsm, id) : throw new Refusal($"core_values.json missing {edid}");
+
+    static IStarfieldModDisposableGetter OpenMod(string path, params ModKey[] masters)
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
-        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        foreach (var m in (masters.Length > 0 ? masters : new[] { SfEsm, CoreValuesEsm }))
+            styles.Set(new KeyedMasterStyle(m, MasterStyle.Full));
         return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
@@ -334,10 +376,11 @@ public static class HardcoreToggle
             var tmpPath = Path.Combine(tmpDir, Plugin.FileName);
             var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
             masters.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+            masters.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
             mod.WriteToBinary(tmpPath, new BinaryWriteParameters
             {
                 ModKey = ModKeyOption.NoCheck,
-                MastersListOrdering = new MastersListOrderingByLoadOrder(new[] { SfEsm }),
+                MastersListOrdering = new MastersListOrderingByLoadOrder(new[] { SfEsm, CoreValuesEsm }),
                 MasterFlagsLookup = masters,
             });
             File.Move(tmpPath, finalPath, overwrite: true);
@@ -348,9 +391,40 @@ public static class HardcoreToggle
         }
     }
 
-    public static int Build(string sfPath, string outDir, int defaultHardcore)
+    static Dictionary<string, FormKey> ExpectedProperties(
+        IReadOnlyDictionary<string, IActorValueInformationGetter> sfAvifs,
+        IReadOnlyDictionary<string, uint> coreIds) => new()
     {
-        using var sf = OpenMod(sfPath);
+        ["HardcoreOption"] = Own(HardcoreGpoId),
+        ["HardcoreEnabledGlobal"] = Core(coreIds, HardcoreGlobEdid),
+        ["FastTravelBlockedGlobal"] = Core(coreIds, FastTravelBlockedGlobEdid),
+        ["HungerAV"] = Core(coreIds, HungerAvifEdid),
+        ["ThirstAV"] = Core(coreIds, ThirstAvifEdid),
+        ["SleepAV"] = Core(coreIds, SleepAvifEdid),
+        ["AmmoBurdenAV"] = Own(AmmoBurdenAvifId),
+        ["HungerStageGlobal"] = Core(coreIds, HungerStageGlobEdid),
+        ["ThirstStageGlobal"] = Core(coreIds, ThirstStageGlobEdid),
+        ["SleepStageGlobal"] = Core(coreIds, SleepStageGlobEdid),
+        ["HealthAV"] = sfAvifs["Health"].FormKey,
+        ["CarryWeightAV"] = sfAvifs["CarryWeight"].FormKey,
+        ["StrengthAV"] = Core(coreIds, SpecialStrEdid),
+        ["EnduranceAV"] = Core(coreIds, SpecialEndEdid),
+        ["AgilityAV"] = Core(coreIds, SpecialAgiEdid),
+        ["IntelligenceAV"] = Core(coreIds, SpecialIntEdid),
+        ["RationFood"] = Own(RationFoodId),
+        ["PurifiedWater"] = Own(PurifiedWaterId),
+        ["Stimpak"] = Core(coreIds, StimpakEdid),
+        ["CaliberLight"] = Own(CaliberLightId),
+        ["CaliberRifle"] = Own(CaliberRifleId),
+        ["CaliberHeavy"] = Own(CaliberHeavyId),
+        ["WeightedAmmoList"] = Own(WeightedAmmoFlstId),
+        ["TestModeGlobal"] = Core(coreIds, TestModeGlobEdid),
+    };
+
+    public static int Build(string sfPath, string outDir, int defaultHardcore, string? jsonPath = null)
+    {
+        var coreIds = LoadCoreValues(jsonPath);
+        using var sf = OpenMod(sfPath, SfEsm);
         var sfAvifs = RequiredSfAvifs.ToDictionary(n => n, n =>
         {
             var av = One(sf.ActorValueInformation, n, "AVIF");
@@ -366,7 +440,7 @@ public static class HardcoreToggle
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
         mod.ModHeader.Author = "fo4-to-starfield HardcoreToggle";
 
-        // 1. GPOF + GPOG + GLOBs
+        // 1. GPOF + GPOG (shared survival/stimpak/test-mode GLOBs & AVIFs live in FO4SFCoreValues.esm)
         var gpo = new GameplayOption(Own(HardcoreGpoId), Release)
         {
             EditorID = HardcoreGpoEdid,
@@ -405,57 +479,24 @@ public static class HardcoreToggle
         };
         mod.GameplayOptionsGroups.Add(gpog);
 
-        var hcGlob = new Global(Own(HardcoreGlobId), Release) { EditorID = HardcoreGlobEdid, Data = defaultHardcore };
-        var hStageGlob = new Global(Own(HungerStageGlobId), Release) { EditorID = HungerStageGlobEdid, Data = 0f };
-        var tStageGlob = new Global(Own(ThirstStageGlobId), Release) { EditorID = ThirstStageGlobEdid, Data = 0f };
-        var sStageGlob = new Global(Own(SleepStageGlobId), Release) { EditorID = SleepStageGlobEdid, Data = 0f };
-        var ftGlob = new Global(Own(FastTravelBlockedGlobId), Release) { EditorID = FastTravelBlockedGlobEdid, Data = defaultHardcore };
-        mod.Globals.Add(hcGlob);
-        mod.Globals.Add(hStageGlob);
-        mod.Globals.Add(tStageGlob);
-        mod.Globals.Add(sStageGlob);
-        mod.Globals.Add(ftGlob);
-
-        // 2. AVIFs
-        var hungerAv = new ActorValueInformation(Own(HungerAvifId), Release)
-        {
-            EditorID = HungerAvifEdid, Name = "Hunger", Abbreviation = "Hng",
-            Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = MeterMax, Flags = MeterFlags,
-        };
-        var thirstAv = new ActorValueInformation(Own(ThirstAvifId), Release)
-        {
-            EditorID = ThirstAvifEdid, Name = "Thirst", Abbreviation = "Thr",
-            Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = MeterMax, Flags = MeterFlags,
-        };
-        var sleepAv = new ActorValueInformation(Own(SleepAvifId), Release)
-        {
-            EditorID = SleepAvifEdid, Name = "Sleep Deprivation", Abbreviation = "Slp",
-            Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = MeterMax, Flags = MeterFlags,
-        };
+        // 2. Local AVIF (FO4SF_AmmoWeightBurden)
         var ammoBurdenAv = new ActorValueInformation(Own(AmmoBurdenAvifId), Release)
         {
             EditorID = AmmoBurdenAvifEdid, Name = "Ammo Weight Burden", Abbreviation = "AWt",
             Type = ActorValueInformation.Types.Variable, DefaultValue = 0f, Min = 0f, Max = AmmoBurdenMax, Flags = ZeroFlags,
         };
-        mod.ActorValueInformation.Add(hungerAv);
-        mod.ActorValueInformation.Add(thirstAv);
-        mod.ActorValueInformation.Add(sleepAv);
         mod.ActorValueInformation.Add(ammoBurdenAv);
 
-        // 3. MagicEffects & Aid Ingestibles
-        var hungerEff = MakeReliefEffect(tpl.RestoreMgef, HungerReliefEffectId, HungerReliefEffectEdid, "Ration Relief", "Reduces hunger.", hungerAv.FormKey);
-        var thirstEff = MakeReliefEffect(tpl.RestoreMgef, ThirstReliefEffectId, ThirstReliefEffectEdid, "Hydration Relief", "Reduces thirst.", thirstAv.FormKey);
-        var stimEff = MakeReliefEffect(tpl.RestoreMgef, StimpakTriggerEffectId, StimpakTriggerEffectEdid, "Stimpak Trigger", "Triggers stimpak healing.", ammoBurdenAv.FormKey);
+        // 3. Relief MagicEffects targeting FO4SFCoreValues.esm Hunger/Thirst & Aid Ingestibles
+        var hungerEff = MakeReliefEffect(tpl.RestoreMgef, HungerReliefEffectId, HungerReliefEffectEdid, "Ration Relief", "Reduces hunger.", Core(coreIds, HungerAvifEdid));
+        var thirstEff = MakeReliefEffect(tpl.RestoreMgef, ThirstReliefEffectId, ThirstReliefEffectEdid, "Hydration Relief", "Reduces thirst.", Core(coreIds, ThirstAvifEdid));
         mod.MagicEffects.Add(hungerEff);
         mod.MagicEffects.Add(thirstEff);
-        mod.MagicEffects.Add(stimEff);
 
         var ration = MakeAid(tpl.Aid, RationFoodId, RationFoodEdid, "Field Ration", "Restores hunger (-250).", false, hungerEff.FormKey, 0f, tpl.RestoreEntry);
         var water = MakeAid(tpl.Aid, PurifiedWaterId, PurifiedWaterEdid, "Purified Water", "Restores thirst (-250).", false, thirstEff.FormKey, 0f, tpl.RestoreEntry);
-        var stimpak = MakeAid(tpl.Aid, StimpakId, StimpakEdid, "Stimpak", "Restores health instantly (Normal) or over 6 seconds (Hardcore).", true, stimEff.FormKey, 0f, tpl.RestoreEntry);
         mod.Ingestibles.Add(ration);
         mod.Ingestibles.Add(water);
-        mod.Ingestibles.Add(stimpak);
 
         // 4. Calibers & Weighted Ammo FormList
         var calLight = MakeCaliber(tpl.AmmoTpl, CaliberLightId, CaliberLightEdid, "Caliber Light Round");
@@ -484,32 +525,7 @@ public static class HardcoreToggle
         };
         foreach (var st in Stages) quest.Stages.Add(new QuestStage { Index = st });
         var se = new ScriptEntry { Name = ScriptName, Flags = ScriptEntry.Flag.Local };
-        var propMap = new Dictionary<string, FormKey>
-        {
-            ["HardcoreOption"] = gpo.FormKey,
-            ["HardcoreEnabledGlobal"] = hcGlob.FormKey,
-            ["FastTravelBlockedGlobal"] = ftGlob.FormKey,
-            ["HungerAV"] = hungerAv.FormKey,
-            ["ThirstAV"] = thirstAv.FormKey,
-            ["SleepAV"] = sleepAv.FormKey,
-            ["AmmoBurdenAV"] = ammoBurdenAv.FormKey,
-            ["HungerStageGlobal"] = hStageGlob.FormKey,
-            ["ThirstStageGlobal"] = tStageGlob.FormKey,
-            ["SleepStageGlobal"] = sStageGlob.FormKey,
-            ["HealthAV"] = sfAvifs["Health"].FormKey,
-            ["CarryWeightAV"] = sfAvifs["CarryWeight"].FormKey,
-            ["StrengthAV"] = sfAvifs["Strength"].FormKey,
-            ["EnduranceAV"] = sfAvifs["Endurance"].FormKey,
-            ["AgilityAV"] = sfAvifs["Agility"].FormKey,
-            ["IntelligenceAV"] = sfAvifs["Intelligence"].FormKey,
-            ["RationFood"] = ration.FormKey,
-            ["PurifiedWater"] = water.FormKey,
-            ["Stimpak"] = stimpak.FormKey,
-            ["CaliberLight"] = calLight.FormKey,
-            ["CaliberRifle"] = calRifle.FormKey,
-            ["CaliberHeavy"] = calHeavy.FormKey,
-            ["WeightedAmmoList"] = ammoFlst.FormKey,
-        };
+        var propMap = ExpectedProperties(sfAvifs, coreIds);
         foreach (var pn in PropNames) se.Properties.Add(ObjProp(pn, propMap[pn]));
 
         quest.VirtualMachineAdapter = new QuestAdapter
@@ -521,38 +537,37 @@ public static class HardcoreToggle
         mod.Quests.Add(quest);
 
         mod.ModHeader.Stats.NextFormID = NextId;
-        if (!mod.ModHeader.MasterReferences.Any(m => m.Master == SfEsm))
-            mod.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
 
         WriteMod(mod, outDir);
         var writtenPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"wrote {writtenPath} ({new FileInfo(writtenPath).Length:N0} bytes): " +
-                          $"1 GPOF, 1 GPOG, 5 GLOB, 4 AVIF, 3 MGEF, 3 ALCH, 3 AMMO, 1 FLST ({ammoFlst.Items.Count} items), 1 QUST ({PropNames.Length} properties); default_hardcore={defaultHardcore}");
+                          $"1 GPOF, 1 GPOG, 0 GLOB, 1 AVIF, 2 MGEF, 2 ALCH, 3 AMMO, 1 FLST ({ammoFlst.Items.Count} items), 1 QUST ({PropNames.Length} properties); default_hardcore={defaultHardcore}");
         return 0;
     }
 
-    public static int Check(string pluginPath, string sfPath, int defaultHardcore)
+    public static int Check(string pluginPath, string sfPath, int defaultHardcore, string? jsonPath = null)
     {
         if (!File.Exists(pluginPath)) throw new Refusal($"missing plugin: {pluginPath}");
-        using var sf = OpenMod(sfPath);
-        var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
-        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
-        styles.Set(new KeyedMasterStyle(Plugin, MasterStyle.Full));
-        using var mod = StarfieldMod.CreateFromBinaryOverlay(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+        var coreIds = LoadCoreValues(jsonPath);
+        using var sf = OpenMod(sfPath, SfEsm);
+        var sfAvifs = RequiredSfAvifs.ToDictionary(n => n, n => One(sf.ActorValueInformation, n, "AVIF"));
+        using var mod = OpenMod(pluginPath, SfEsm, CoreValuesEsm);
 
         if (!mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master))
             throw new Refusal("plugin lacks Master header flag");
-        var masters = mod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
-        if (masters.Count != 1 || !string.Equals(masters[0], "Starfield.esm", StringComparison.OrdinalIgnoreCase))
-            throw new Refusal($"expected sole master [Starfield.esm], got [{string.Join(", ", masters)}]");
+        var masters = mod.ModHeader.MasterReferences.Select(m => m.Master).ToList();
+        if (!masters.SequenceEqual(new[] { SfEsm, CoreValuesEsm }))
+            throw new Refusal($"expected masters [Starfield.esm, FO4SFCoreValues.esm], got [{string.Join(", ", masters)}]");
 
-        // Verify zero record overrides of Starfield.esm (including SQ_ENV 0x248D20)
+        // Verify zero record overrides of Starfield.esm (including SQ_ENV 0x248D20) and zero duplicate FO4SFCoreValues.esm EditorIDs
         foreach (var rec in mod.EnumerateMajorRecords())
         {
             if (rec.FormKey.ModKey != Plugin)
                 throw new Refusal($"plugin overrides foreign record {rec.FormKey} ({rec.EditorID}) — must add records only and never touch SQ_ENV");
             if (rec.FormKey.ID == VanillaSqEnvId)
                 throw new Refusal("plugin touches SQ_ENV FormID");
+            if (rec.EditorID != null && coreIds.ContainsKey(rec.EditorID))
+                throw new Refusal($"plugin duplicates FO4SFCoreValues.esm EditorID {rec.EditorID}");
         }
 
         if (mod.GameplayOptions.Count != 1) throw new Refusal($"expected 1 GPOF, found {mod.GameplayOptions.Count}");
@@ -570,22 +585,23 @@ public static class HardcoreToggle
         if (gpog.Options is not IGameplayOptionsGroupLeafGetter leaf || leaf.GameplayOptions.Count != 1 || leaf.GameplayOptions[0].FormKey != Own(HardcoreGpoId))
             throw new Refusal("GPOG leaf does not link FO4SF_GPO_Hardcore");
 
-        if (mod.Globals.Count != 5) throw new Refusal($"expected 5 GLOB, found {mod.Globals.Count}");
-        var hcGlob = mod.Globals.First(g => g.FormKey == Own(HardcoreGlobId));
-        if (Math.Abs((hcGlob.Data ?? -1f) - defaultHardcore) > 0.001f)
-            throw new Refusal($"FO4SF_HardcoreEnabled expected {defaultHardcore}, got {hcGlob.Data}");
+        if (mod.Globals.Count != 0) throw new Refusal($"expected 0 GLOB, found {mod.Globals.Count}");
 
-        if (mod.ActorValueInformation.Count != 4) throw new Refusal($"expected 4 AVIF, found {mod.ActorValueInformation.Count}");
-        foreach (var (id, edid) in new[] { (HungerAvifId, HungerAvifEdid), (ThirstAvifId, ThirstAvifEdid), (SleepAvifId, SleepAvifEdid) })
-        {
-            var av = mod.ActorValueInformation.FirstOrDefault(a => a.FormKey == Own(id)) ?? throw new Refusal($"missing AVIF {edid}");
-            if (av.EditorID != edid || !(av.Flags ?? 0).HasFlag(ActorValueInformation.Flag.DamageIsPositive) || Math.Abs((av.Max ?? -1f) - MeterMax) > 0.01f)
-                throw new Refusal($"AVIF {edid} flags/max mismatch");
-        }
+        if (mod.ActorValueInformation.Count != 1) throw new Refusal($"expected 1 AVIF, found {mod.ActorValueInformation.Count}");
+        var ammoAv = mod.ActorValueInformation.FirstOrDefault(a => a.FormKey == Own(AmmoBurdenAvifId)) ?? throw new Refusal($"missing AVIF {AmmoBurdenAvifEdid}");
+        if (ammoAv.EditorID != AmmoBurdenAvifEdid || Math.Abs((ammoAv.Max ?? -1f) - AmmoBurdenMax) > 0.01f)
+            throw new Refusal($"AVIF {AmmoBurdenAvifEdid} max/edid mismatch");
 
-        if (mod.Ingestibles.Count != 3) throw new Refusal($"expected 3 ALCH, found {mod.Ingestibles.Count}");
-        var stim = mod.Ingestibles.FirstOrDefault(i => i.FormKey == Own(StimpakId)) ?? throw new Refusal("missing FO4SF_Stimpak");
-        if (!stim.Flags.HasFlag(Ingestible.Flag.Medicine)) throw new Refusal("FO4SF_Stimpak lacks Medicine flag");
+        if (mod.MagicEffects.Count != 2) throw new Refusal($"expected 2 MGEF, found {mod.MagicEffects.Count}");
+        var hEff = mod.MagicEffects.FirstOrDefault(m => m.FormKey == Own(HungerReliefEffectId)) ?? throw new Refusal($"missing MGEF {HungerReliefEffectEdid}");
+        var tEff = mod.MagicEffects.FirstOrDefault(m => m.FormKey == Own(ThirstReliefEffectId)) ?? throw new Refusal($"missing MGEF {ThirstReliefEffectEdid}");
+        if (hEff.SecondActorValue.FormKey != Core(coreIds, HungerAvifEdid) || tEff.SecondActorValue.FormKey != Core(coreIds, ThirstAvifEdid))
+            throw new Refusal("Hunger/Thirst relief MGEFs do not target FO4SFCoreValues.esm 0x842/0x843");
+
+        if (mod.Ingestibles.Count != 2) throw new Refusal($"expected 2 ALCH, found {mod.Ingestibles.Count}");
+        if (mod.Ingestibles.FirstOrDefault(i => i.FormKey == Own(RationFoodId))?.EditorID != RationFoodEdid ||
+            mod.Ingestibles.FirstOrDefault(i => i.FormKey == Own(PurifiedWaterId))?.EditorID != PurifiedWaterEdid)
+            throw new Refusal("missing FO4SF_RationFood or FO4SF_PurifiedWater");
 
         if (mod.Ammunitions.Count != 3) throw new Refusal($"expected 3 AMMO, found {mod.Ammunitions.Count}");
         foreach (var a in mod.Ammunitions)
@@ -611,8 +627,15 @@ public static class HardcoreToggle
         var actualProps = scripts[0].Properties.Select(p => p.Name).ToArray();
         if (!actualProps.SequenceEqual(PropNames))
             throw new Refusal($"quest properties [{string.Join(",", actualProps)}] != expected [{string.Join(",", PropNames)}]");
+        var propTargets = ExpectedProperties(sfAvifs, coreIds);
+        var boundMap = scripts[0].Properties.OfType<IScriptObjectPropertyGetter>().ToDictionary(p => p.Name, p => p.Object.FormKey);
+        foreach (var (name, wantFk) in propTargets)
+        {
+            if (!boundMap.TryGetValue(name, out var gotFk) || gotFk != wantFk)
+                throw new Refusal($"quest property {name} -> {(boundMap.TryGetValue(name, out var g) ? g.ToString() : "missing")} != {wantFk}");
+        }
 
-        Console.WriteLine($"FO4SFHardcore.esm: header Master, masters [Starfield.esm], next 0x{mod.ModHeader.Stats.NextFormID:X}, zero foreign overrides (SQ_ENV 0x{VanillaSqEnvId:X6} untouched)");
+        Console.WriteLine($"FO4SFHardcore.esm: header Master, masters [Starfield.esm, FO4SFCoreValues.esm], next 0x{mod.ModHeader.Stats.NextFormID:X}, zero foreign overrides (SQ_ENV 0x{VanillaSqEnvId:X6} untouched)");
         Console.WriteLine("all checks pass");
         return 0;
     }
@@ -702,6 +725,27 @@ public static class HardcoreToggle
             catch (Refusal) { refused = true; }
             if (!refused) throw new Refusal("Check failed to refuse mismatched --default-hardcore");
         }
+
+        // Tamper checks: duplicate CoreValues record or re-pointed relief MGEF must fail Check()
+        var goodPlugin = Path.Combine(scratchDir, "out_0", Plugin.FileName);
+        void MustRefuse(string label, Action<StarfieldMod> mutate)
+        {
+            using var ro = OpenMod(goodPlugin, SfEsm, CoreValuesEsm);
+            var copy = new StarfieldMod(Plugin, Release);
+            copy.DeepCopyIn(ro);
+            mutate(copy);
+            var badDir = Path.Combine(scratchDir, "bad_" + label);
+            WriteMod(copy, badDir);
+            bool refused = false;
+            try { Check(Path.Combine(badDir, Plugin.FileName), sfPath, 0); }
+            catch (Refusal) { refused = true; }
+            if (!refused) throw new Refusal($"Check failed to refuse tamper '{label}'");
+        }
+        MustRefuse("dup_glob", m => m.Globals.Add(new Global(Own(0x802), Release) { EditorID = HardcoreGlobEdid, Data = 0f }));
+        MustRefuse("mgef_av", m => m.MagicEffects.First(x => x.FormKey == Own(HungerReliefEffectId)).SecondActorValue.SetTo(Own(AmmoBurdenAvifId)));
+        MustRefuse("stimpak_prop", m => ((ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "Stimpak")).Object.SetTo(Own(RationFoodId)));
+        MustRefuse("testmode_prop", m => ((ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "TestModeGlobal")).Object.SetTo(Own(HardcoreGpoId)));
+
         Console.WriteLine("selftest: ok");
         return 0;
     }

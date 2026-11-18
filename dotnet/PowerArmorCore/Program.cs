@@ -1,13 +1,13 @@
 // PowerArmorCore: Fallout 4 climb-in Power Armor frame + 6-limb BPTD + FusionCore drain + outfit restore + FNV Salvaged NCR worn ARMO.
 //
-// Writes FO4SFPowerArmor.esm (sole master Starfield.esm; adds records, overrides zero vanilla records by default, or overrides the 5
-// empty PowerArmor*_DO DFOB records when --override-dfob is explicitly passed):
-//   CELL  0x800  FO4SF_PATestCell                 interior test cell (`coc FO4SF_PATestCell`) with arrival marker, frame, exit chair, cores, salvaged NCR set
+// Writes FO4SFPowerArmor.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds records, overrides zero vanilla records by default, or
+// overrides the 5 empty PowerArmor*_DO DFOB records when --override-dfob is explicitly passed; omits FO4SF_PATestCell when --no-test-cell is passed):
+//   CELL  0x800  FO4SF_PATestCell                 interior test cell (`coc FO4SF_PATestCell`, omitted under --no-test-cell)
 //   FURN  0x801  FO4SF_PowerArmorFrameFurn        climb-in frame furniture (cloned from control chair + FO4SF_Kw_PowerArmorFrameFurn; + PA keywords with --override-dfob)
 //   RACE  0x802  FO4SF_PowerArmorRace             cloned from HumanRace, wired to FO4SF_PowerArmorBodyPartData and FO4SF_PowerArmorSkin (own skin + ARMA copies)
 //   BPTD  0x803  FO4SF_PowerArmorBodyPartData     cloned from HumanBodyPartData with 6 limb condition AVIFs (0x810..0x815) bound at 100% HealthPercent
 //   ARMO  0x804  FO4SF_PowerArmorSkin             cloned from Skin_Naked with cloned ARMAs naming both HumanRace and FO4SF_PowerArmorRace
-//   QUST  0x805  FO4SF_PowerArmorCoreQuest        StartGameEnabled quest, stages 10/20/30/40, script FO4SF_PowerArmorCoreQuest (zero properties)
+//   QUST  0x805  FO4SF_PowerArmorCoreQuest        StartGameEnabled quest, stages 10/20/30/40, script FO4SF_PowerArmorCoreQuest (SpecialAgilityAV, TestModeGlobal)
 //   KYWD  0x806  FO4SF_PAArmorKeyword             power armor modular piece keyword
 //   KYWD  0x807  FO4SF_Kw_SalvagedPowerArmor      FNV salvaged worn heavy armor keyword (no frame, no climb-in, no FusionCore drain)
 //   KYWD  0x808  FO4SF_Kw_PowerArmorFrameFurn     identifies climb-in frame furniture references anywhere in the world
@@ -18,14 +18,15 @@
 //   ARMO  0x816..0x819  FO4SF_PAFrameArmor / PATorso / PAHelmet / PAPack  4 disjoint slots (BODY, SSBODY, SSHelmet, SSBackpack) + cloned ARMAs for PA race
 //   ARMO  0x81A..0x81B  FO4SF_SalvagedNCRPowerArmor / Helmet              plain worn heavy ARMO on HumanRace (high ballistic DR, -1 AGI ENCH, zero frame kw)
 //   ENCH  0x81C  FO4SF_Ench_SalvagedNCRAgility    constant self -1 Agility enchantment on FO4SF_SalvagedNCRPowerArmor
-//   MGEF  0x81D  FO4SF_Mgef_SalvagedNCRAgility    ValueModifier detrimental effect targeting Agility (SecondActorValue, empty Archetype.Association)
+//   MGEF  0x81D  FO4SF_Mgef_SalvagedNCRAgility    ValueModifier detrimental effect targeting FO4SFCoreValues.esm FO4SF_Special_Agility (0x815)
 //
 // usage:
-//   PowerArmorCore build <Starfield.esm> <out_dir> [--control <FURN edid>] [--override-dfob]
-//   PowerArmorCore check <FO4SFPowerArmor.esm> <Starfield.esm> [--control <FURN edid>] [--override-dfob]
+//   PowerArmorCore build <Starfield.esm> <out_dir> [--control <FURN edid>] [--override-dfob] [--no-test-cell] [--json <core_values.json>]
+//   PowerArmorCore check <FO4SFPowerArmor.esm> <Starfield.esm> [--control <FURN edid>] [--override-dfob] [--no-test-cell] [--json <core_values.json>]
 //   PowerArmorCore fixture <out_dir>
 //   PowerArmorCore selftest <scratch_dir>
 using System.Globalization;
+using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
@@ -46,9 +47,11 @@ try
         return v;
     }
     control = Take("--control") ?? control;
+    string? jsonPath = Take("--json");
     bool overrideDfob = rest.Remove("--override-dfob");
-    if (rest.Count == 3 && rest[0] == "build") return PowerArmorCore.Build(rest[1], rest[2], control, overrideDfob);
-    if (rest.Count == 3 && rest[0] == "check") return PowerArmorCore.Check(rest[1], rest[2], control, overrideDfob);
+    bool noTestCell = rest.Remove("--no-test-cell");
+    if (rest.Count == 3 && rest[0] == "build") return PowerArmorCore.Build(rest[1], rest[2], control, overrideDfob, noTestCell, jsonPath);
+    if (rest.Count == 3 && rest[0] == "check") return PowerArmorCore.Check(rest[1], rest[2], control, overrideDfob, noTestCell, jsonPath);
     if (rest.Count == 2 && rest[0] == "fixture") return PowerArmorCore.Fixture(rest[1]);
     if (rest.Count == 2 && rest[0] == "selftest") return PowerArmorCore.SelfTest(rest[1]);
 }
@@ -58,8 +61,8 @@ catch (PowerArmorCore.Refusal r)
     return 1;
 }
 Console.Error.WriteLine(
-    "usage: PowerArmorCore build <Starfield.esm> <out_dir> [--control <edid>] [--override-dfob] | " +
-    "check <plugin> <Starfield.esm> [--control <edid>] [--override-dfob] | fixture <out_dir> | selftest <scratch_dir>");
+    "usage: PowerArmorCore build <Starfield.esm> <out_dir> [--control <edid>] [--override-dfob] [--no-test-cell] [--json <core_values.json>] | " +
+    "check <plugin> <Starfield.esm> [--control <edid>] [--override-dfob] [--no-test-cell] [--json <core_values.json>] | fixture <out_dir> | selftest <scratch_dir>");
 return 2;
 
 static class PowerArmorCore
@@ -68,6 +71,7 @@ static class PowerArmorCore
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    static readonly ModKey CoreValuesEsm = ModKey.FromFileName("FO4SFCoreValues.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFPowerArmor.esm");
 
     // Fixed local FormIDs (held equal by scripts/powerarmor/FO4SF_PowerArmorCoreQuest.psc and tests/test_power_armor_core.py)
@@ -156,13 +160,64 @@ static class PowerArmorCore
         0x00, 0x00, 0x00,
     };
 
+    const string SpecialAgilityEdid = "FO4SF_Special_Agility",
+        TestModeEdid = "FO4SF_TestModeEnabled";
+
     static FormKey Own(uint id) => new(Plugin, id);
     static FormKey Sf(uint id) => new(SfEsm, id);
+
+    public static string DefaultJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "core", "core_values.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "core_values.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/core/core_values.json; pass --json <path>");
+    }
+
+    public static Dictionary<string, uint> LoadCoreValues(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing core_values.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var plugin = root.GetProperty("plugin").GetString() ?? throw new Refusal("core_values.json missing plugin");
+        if (ModKey.FromFileName(plugin) != CoreValuesEsm)
+            throw new Refusal($"core_values.json plugin {plugin} != {CoreValuesEsm}");
+        var ids = new Dictionary<string, uint>(StringComparer.Ordinal);
+        foreach (var el in root.GetProperty("records").EnumerateArray())
+        {
+            var edid = el.GetProperty("edid").GetString() ?? throw new Refusal("core_values.json record missing edid");
+            var id = Convert.ToUInt32(el.GetProperty("id").GetString()!, 16);
+            ids[edid] = id;
+        }
+        return ids;
+    }
+
+    static FormKey Core(IReadOnlyDictionary<string, uint> coreIds, string edid) =>
+        coreIds.TryGetValue(edid, out var id) ? new FormKey(CoreValuesEsm, id) : throw new Refusal($"core_values.json missing {edid}");
+
+    static ScriptObjectProperty ObjProp(string name, FormKey fk) => new()
+    {
+        Name = name, Flags = ScriptProperty.Flag.Edited, Object = new FormLink<IStarfieldMajorRecordGetter>(fk),
+    };
 
     static IStarfieldModDisposableGetter OpenTemplate(string path)
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+    }
+
+    static IStarfieldModDisposableGetter OpenPlugin(string path)
+    {
+        var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
         return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
@@ -256,8 +311,12 @@ static class PowerArmorCore
 
     // ---------------------------------------------------------------- build
 
-    public static int Build(string templatePath, string outDir, string controlEdid, bool overrideDfob)
+    public static int Build(string templatePath, string outDir, string controlEdid, bool overrideDfob, bool noTestCell = false, string? jsonPath = null)
     {
+        var coreIds = LoadCoreValues(jsonPath);
+        var specialAgilityKey = Core(coreIds, SpecialAgilityEdid);
+        var testModeKey = Core(coreIds, TestModeEdid);
+
         using var sf = OpenTemplate(templatePath);
         var humanRace = One(sf.Races, HumanRaceEdid, "RACE");
         var humanBptd = One(sf.BodyParts, HumanBptdEdid, "BPTD");
@@ -271,7 +330,7 @@ static class PowerArmorCore
         var furnPaKw = One(sf.Keywords, FurnPaKeywordEdid, "KYWD");
         var frameKw = One(sf.Keywords, FrameKeywordEdid, "KYWD");
         var batteryKw = One(sf.Keywords, BatteryKeywordEdid, "KYWD");
-        var agilityAv = One(sf.ActorValueInformation, AgilityAvEdid, "AVIF");
+        _ = One(sf.ActorValueInformation, AgilityAvEdid, "AVIF");
         _ = One(sf.ActorValueInformation, CarryWeightAvEdid, "AVIF");
         _ = One(sf.ActorValueInformation, SpeedMultAvEdid, "AVIF");
 
@@ -436,7 +495,7 @@ static class PowerArmorCore
             TargetType = TargetType.Self,
             Flags = MagicEffect.Flag.Recover | MagicEffect.Flag.Detrimental | MagicEffect.Flag.NoDuration | MagicEffect.Flag.NoArea | MagicEffect.Flag.Painless,
         };
-        agiMgef.SecondActorValue.SetTo(agilityAv.FormKey);
+        agiMgef.SecondActorValue.SetTo(specialAgilityKey);
         mod.MagicEffects.Add(agiMgef);
 
         var agiEnch = new ObjectEffect(Own(SalvagedAgiEnchId), Release)
@@ -493,51 +552,57 @@ static class PowerArmorCore
             }
         }
 
-        // 10. Self-contained test room CELL FO4SF_PATestCell (`coc FO4SF_PATestCell`)
-        var cell = new Cell(Own(CellId), Release) { EditorID = CellEdid, Flags = Cell.Flag.IsInteriorCell };
-        cell.LightingTemplate.SetTo(Sf(LightingTemplate));
-        cell.ImageSpace.SetTo(Sf(ImageSpace));
-        cell.EnvironmentMap = "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds";
-
-        var zero = new P3Float(0, 0, 0);
-        PlacedObject MakeRef(uint id, FormKey b, P3Float pos, P3Float rot, string? edid = null, bool persistent = false)
+        // 10. Optional self-contained test room CELL FO4SF_PATestCell (`coc FO4SF_PATestCell`, omitted under --no-test-cell)
+        uint nextId = FirstCloneArmaId;
+        string cellSummary = "no-test-cell";
+        if (!noTestCell)
         {
-            var r = new PlacedObject(Own(id), Release)
+            var cell = new Cell(Own(CellId), Release) { EditorID = CellEdid, Flags = Cell.Flag.IsInteriorCell };
+            cell.LightingTemplate.SetTo(Sf(LightingTemplate));
+            cell.ImageSpace.SetTo(Sf(ImageSpace));
+            cell.EnvironmentMap = "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds";
+
+            var zero = new P3Float(0, 0, 0);
+            PlacedObject MakeRef(uint id, FormKey b, P3Float pos, P3Float rot, string? edid = null, bool persistent = false)
             {
-                EditorID = edid,
-                Base = new FormLinkNullable<IPlaceableObjectGetter>(b),
-                Position = pos,
-                Rotation = rot,
-            };
-            if (persistent) r.MajorRecordFlagsRaw |= 0x400;
-            return r;
+                var r = new PlacedObject(Own(id), Release)
+                {
+                    EditorID = edid,
+                    Base = new FormLinkNullable<IPlaceableObjectGetter>(b),
+                    Position = pos,
+                    Rotation = rot,
+                };
+                if (persistent) r.MajorRecordFlagsRaw |= 0x400;
+                return r;
+            }
+
+            cell.Persistent.Add(MakeRef(ArrivalRefId, Sf(XMarker), CocPos, new P3Float(0, 0, (float)(Math.PI / 2)), "FO4SF_PATestArrival", persistent: true));
+            cell.Persistent.Add(MakeRef(FrameFurnRefId, Own(FrameFurnId), FramePos, zero, "FO4SF_PowerArmorFrameFurnRef", persistent: true));
+            cell.Persistent.Add(MakeRef(ExitChairRefId, controlFurn.FormKey, ExitChairPos, zero, "FO4SF_PAExitChairRef", persistent: true));
+
+            cell.Temporary.Add(MakeRef(CocRefId, Sf(CocMarker), CocPos, new P3Float(0, 0, (float)(Math.PI / 2))));
+            cell.Temporary.Add(MakeRef(CoreRef1Id, Own(FusionCoreId), new P3Float(1.5f, -2.5f, 0.2f), zero, "FO4SF_FusionCoreRef01"));
+            cell.Temporary.Add(MakeRef(CoreRef2Id, Own(FusionCoreId), new P3Float(2.0f, -2.5f, 0.2f), zero, "FO4SF_FusionCoreRef02"));
+            cell.Temporary.Add(MakeRef(CoreRef3Id, Own(FusionCoreId), new P3Float(2.5f, -2.5f, 0.2f), zero, "FO4SF_FusionCoreRef03"));
+            cell.Temporary.Add(MakeRef(SalvagedBodyRefId, Own(SalvagedBodyId), new P3Float(-1.5f, -2.5f, 0.2f), zero, "FO4SF_SalvagedNCRBodyRef"));
+            cell.Temporary.Add(MakeRef(SalvagedHelmRefId, Own(SalvagedHelmId), new P3Float(-0.8f, -2.5f, 0.2f), zero, "FO4SF_SalvagedNCRHelmRef"));
+
+            nextId = FirstTileId;
+            for (float x = -TileStep; x <= TileStep; x += TileStep)
+                for (float y = -TileStep; y <= TileStep; y += TileStep)
+                    cell.Temporary.Add(MakeRef(nextId++, Sf(FloorStat), new P3Float(x - 2.0f, y, 0f), zero));
+            for (float x = -4f; x <= 4f; x += 8f)
+                for (float y = -4f; y <= 4f; y += 8f)
+                    cell.Temporary.Add(MakeRef(nextId++, Sf(OmniLight), new P3Float(x, y, LightZ), zero));
+
+            var cid = cell.FormKey.ID;
+            var block = new CellBlock { BlockNumber = (int)(cid % 10), GroupType = GroupTypeEnum.InteriorCellBlock };
+            var sub = new CellSubBlock { BlockNumber = (int)((cid / 10) % 10), GroupType = GroupTypeEnum.InteriorCellSubBlock };
+            sub.Cells.Add(cell);
+            block.SubBlocks.Add(sub);
+            mod.Cells.Records.Add(block);
+            cellSummary = $"CELL {CellEdid} {cell.FormKey}";
         }
-
-        cell.Persistent.Add(MakeRef(ArrivalRefId, Sf(XMarker), CocPos, new P3Float(0, 0, (float)(Math.PI / 2)), "FO4SF_PATestArrival", persistent: true));
-        cell.Persistent.Add(MakeRef(FrameFurnRefId, Own(FrameFurnId), FramePos, zero, "FO4SF_PowerArmorFrameFurnRef", persistent: true));
-        cell.Persistent.Add(MakeRef(ExitChairRefId, controlFurn.FormKey, ExitChairPos, zero, "FO4SF_PAExitChairRef", persistent: true));
-
-        cell.Temporary.Add(MakeRef(CocRefId, Sf(CocMarker), CocPos, new P3Float(0, 0, (float)(Math.PI / 2))));
-        cell.Temporary.Add(MakeRef(CoreRef1Id, Own(FusionCoreId), new P3Float(1.5f, -2.5f, 0.2f), zero, "FO4SF_FusionCoreRef01"));
-        cell.Temporary.Add(MakeRef(CoreRef2Id, Own(FusionCoreId), new P3Float(2.0f, -2.5f, 0.2f), zero, "FO4SF_FusionCoreRef02"));
-        cell.Temporary.Add(MakeRef(CoreRef3Id, Own(FusionCoreId), new P3Float(2.5f, -2.5f, 0.2f), zero, "FO4SF_FusionCoreRef03"));
-        cell.Temporary.Add(MakeRef(SalvagedBodyRefId, Own(SalvagedBodyId), new P3Float(-1.5f, -2.5f, 0.2f), zero, "FO4SF_SalvagedNCRBodyRef"));
-        cell.Temporary.Add(MakeRef(SalvagedHelmRefId, Own(SalvagedHelmId), new P3Float(-0.8f, -2.5f, 0.2f), zero, "FO4SF_SalvagedNCRHelmRef"));
-
-        uint nextId = FirstTileId;
-        for (float x = -TileStep; x <= TileStep; x += TileStep)
-            for (float y = -TileStep; y <= TileStep; y += TileStep)
-                cell.Temporary.Add(MakeRef(nextId++, Sf(FloorStat), new P3Float(x, y, 0f), zero));
-        for (float x = -4f; x <= 4f; x += 8f)
-            for (float y = -4f; y <= 4f; y += 8f)
-                cell.Temporary.Add(MakeRef(nextId++, Sf(OmniLight), new P3Float(x, y, LightZ), zero));
-
-        var cid = cell.FormKey.ID;
-        var block = new CellBlock { BlockNumber = (int)(cid % 10), GroupType = GroupTypeEnum.InteriorCellBlock };
-        var sub = new CellSubBlock { BlockNumber = (int)((cid / 10) % 10), GroupType = GroupTypeEnum.InteriorCellSubBlock };
-        sub.Cells.Add(cell);
-        block.SubBlocks.Add(sub);
-        mod.Cells.Records.Add(block);
 
         // 11. Quest FO4SF_PowerArmorCoreQuest (StartGameEnabled, stages 10/20/30/40, script FO4SF_PowerArmorCoreQuest)
         var quest = new Quest(Own(QuestId), Release)
@@ -550,6 +615,9 @@ static class PowerArmorCore
         };
         foreach (var s in QuestStages)
             quest.Stages.Add(new QuestStage { Index = s });
+        var se = new ScriptEntry { Name = QuestScript, Flags = ScriptEntry.Flag.Local };
+        se.Properties.Add(ObjProp("SpecialAgilityAV", specialAgilityKey));
+        se.Properties.Add(ObjProp("TestModeGlobal", testModeKey));
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
@@ -557,17 +625,18 @@ static class PowerArmorCore
             ExtraBindDataVersion = 3,
             Script = new ScriptEntry { Name = "", Flags = ScriptEntry.Flag.Local },
         };
-        quest.VirtualMachineAdapter.Scripts.Add(new ScriptEntry { Name = QuestScript, Flags = ScriptEntry.Flag.Local });
+        quest.VirtualMachineAdapter.Scripts.Add(se);
         mod.Quests.Add(quest);
 
         mod.ModHeader.Stats.NextFormID = Math.Max(nextId, nextArmaId);
-        WritePlugin(mod, outDir, SfEsm);
+        WritePlugin(mod, outDir, SfEsm, CoreValuesEsm);
         var writtenPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine(
             $"wrote {writtenPath} ({new FileInfo(writtenPath).Length:N0} bytes): " +
-            $"CELL {CellEdid} {cell.FormKey}, RACE {RaceEdid} -> BPTD {BodyPartDataEdid} (6 limb AVIFs) + Skin {SkinEdid}, " +
+            $"{cellSummary}, RACE {RaceEdid} -> BPTD {BodyPartDataEdid} (6 limb AVIFs) + Skin {SkinEdid}, " +
             $"FURN {FrameFurnEdid}, MISC {FusionCoreEdid}, 4 PA ARMOs ({armaMap.Count} cloned ARMAs), " +
-            $"2 Salvaged NCR ARMOs (-1 AGI ENCH {SalvagedAgiEnchEdid}), QUST {QuestEdid}, override_dfob={overrideDfob}");
+            $"2 Salvaged NCR ARMOs (-1 AGI ENCH {SalvagedAgiEnchEdid} -> {specialAgilityKey}), QUST {QuestEdid}, " +
+            $"override_dfob={overrideDfob}, no_test_cell={noTestCell}");
         return 0;
     }
 
@@ -580,10 +649,15 @@ static class PowerArmorCore
         {
             Directory.CreateDirectory(tmpDir);
             var tmp = Path.Combine(tmpDir, mod.ModKey.FileName);
-            mod.BeginWrite.ToPath(tmp)
-                .WithLoadOrder(masters)
-                .WithKnownMasters(masters.Select(m => new KeyedMasterStyle(m, MasterStyle.Full)).ToArray())
-                .Write();
+            var masterFlags = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+            foreach (var m in masters)
+                masterFlags.Set(new KeyedMasterStyle(m, MasterStyle.Full));
+            mod.WriteToBinary(tmp, new BinaryWriteParameters
+            {
+                ModKey = ModKeyOption.NoCheck,
+                MastersListOrdering = new MastersListOrderingByLoadOrder(masters),
+                MasterFlagsLookup = masterFlags,
+            });
             File.Move(tmp, path, overwrite: true);
         }
         finally
@@ -594,8 +668,12 @@ static class PowerArmorCore
 
     // ---------------------------------------------------------------- check
 
-    public static int Check(string pluginPath, string templatePath, string controlEdid, bool overrideDfob)
+    public static int Check(string pluginPath, string templatePath, string controlEdid, bool overrideDfob, bool noTestCell = false, string? jsonPath = null)
     {
+        var coreIds = LoadCoreValues(jsonPath);
+        var specialAgilityKey = Core(coreIds, SpecialAgilityEdid);
+        var testModeKey = Core(coreIds, TestModeEdid);
+
         using var sf = OpenTemplate(templatePath);
         var humanRace = One(sf.Races, HumanRaceEdid, "RACE");
         var bodyTmpl = One(sf.Armors, Mark1BodyEdid, "ARMO");
@@ -605,12 +683,10 @@ static class PowerArmorCore
         var furnPaKw = One(sf.Keywords, FurnPaKeywordEdid, "KYWD");
         var frameKw = One(sf.Keywords, FrameKeywordEdid, "KYWD");
         var batteryKw = One(sf.Keywords, BatteryKeywordEdid, "KYWD");
-        var agilityAv = One(sf.ActorValueInformation, AgilityAvEdid, "AVIF");
+        _ = One(sf.ActorValueInformation, AgilityAvEdid, "AVIF");
         var controlFurn = One(sf.Furniture, controlEdid, "FURN");
 
-        var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
-        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
-        using var mod = StarfieldMod.CreateFromBinaryOverlay(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+        using var mod = OpenPlugin(pluginPath);
 
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
@@ -619,7 +695,13 @@ static class PowerArmorCore
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
         Need(mod.ModKey == Plugin, $"plugin ModKey is {mod.ModKey}, expected {Plugin}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "plugin header lacks Master flag");
-        Need(masters.SequenceEqual(new[] { SfEsm }), $"masters [{string.Join(", ", masters)}] != [Starfield.esm]");
+        Need(masters.SequenceEqual(new[] { SfEsm, CoreValuesEsm }), $"masters [{string.Join(", ", masters)}] != [Starfield.esm, FO4SFCoreValues.esm]");
+
+        var dupCoreEdids = mod.EnumerateMajorRecords()
+            .Where(r => r.FormKey.ModKey == Plugin && r.EditorID != null && coreIds.ContainsKey(r.EditorID))
+            .Select(r => r.EditorID!)
+            .ToList();
+        Need(dupCoreEdids.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupCoreEdids)}");
 
         // Clean-room isolation: zero foreign overrides unless --override-dfob is explicitly active (and then ONLY the 5 PowerArmor*_DO DFOBs)
         var nonDfobForeign = mod.EnumerateMajorRecords()
@@ -782,27 +864,36 @@ static class PowerArmorCore
             var arch = salvMgef.Archetype as IMagicEffectArchetypeGetter;
             Need(arch?.Type == MagicEffectArchetype.TypeEnum.ValueModifier && arch.Association.IsNull,
                 $"{SalvagedAgiMgefEdid} must be ValueModifier with empty Archetype.Association");
-            Need(salvMgef.SecondActorValue.FormKey == agilityAv.FormKey && salvMgef.Flags.HasFlag(MagicEffect.Flag.Detrimental) &&
+            Need(salvMgef.SecondActorValue.FormKey == specialAgilityKey && salvMgef.Flags.HasFlag(MagicEffect.Flag.Detrimental) &&
                  salvMgef.CastType == CastType.ConstantEffect && salvMgef.TargetType == TargetType.Self,
-                $"{SalvagedAgiMgefEdid} must be ConstantEffect Self Detrimental targeting {AgilityAvEdid}");
+                $"{SalvagedAgiMgefEdid} must be ConstantEffect Self Detrimental targeting {specialAgilityKey}");
         }
 
-        // Verify Test Cell and Quest
-        var cell = mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).FirstOrDefault(c => c.FormKey == Own(CellId));
-        Need(cell != null && cell.EditorID == CellEdid, $"missing CELL {CellEdid}");
-        if (cell != null)
+        // Verify Test Cell (omitted under --no-test-cell) and Quest
+        var allCells = mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).ToList();
+        if (noTestCell)
         {
-            var pers = cell.Persistent.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
-            Need(pers.TryGetValue(Own(ArrivalRefId), out var arr) && (arr.MajorRecordFlagsRaw & 0x400) != 0, "missing persistent arrival marker");
-            Need(pers.TryGetValue(Own(FrameFurnRefId), out var fref) && fref.Base.FormKey == Own(FrameFurnId) && (fref.MajorRecordFlagsRaw & 0x400) != 0,
-                "missing persistent frame furniture reference");
-            Need(pers.TryGetValue(Own(ExitChairRefId), out var eref) && eref.Base.FormKey == controlFurn.FormKey && (eref.MajorRecordFlagsRaw & 0x400) != 0,
-                "missing persistent exit chair reference");
-            var temp = cell.Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
-            Need(temp.ContainsKey(Own(CoreRef1Id)) && temp.ContainsKey(Own(CoreRef2Id)) && temp.ContainsKey(Own(CoreRef3Id)),
-                "missing placed FusionCore references in test cell");
-            Need(temp.ContainsKey(Own(SalvagedBodyRefId)) && temp.ContainsKey(Own(SalvagedHelmRefId)),
-                "missing placed Salvaged NCR armor references in test cell");
+            Need(mod.Cells.Records.Count == 0 && allCells.Count == 0,
+                $"--no-test-cell expected 0 CELL records, found {allCells.Count} ({mod.Cells.Records.Count} cell blocks)");
+        }
+        else
+        {
+            var cell = allCells.FirstOrDefault(c => c.FormKey == Own(CellId));
+            Need(cell != null && cell.EditorID == CellEdid, $"missing CELL {CellEdid}");
+            if (cell != null)
+            {
+                var pers = cell.Persistent.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+                Need(pers.TryGetValue(Own(ArrivalRefId), out var arr) && (arr.MajorRecordFlagsRaw & 0x400) != 0, "missing persistent arrival marker");
+                Need(pers.TryGetValue(Own(FrameFurnRefId), out var fref) && fref.Base.FormKey == Own(FrameFurnId) && (fref.MajorRecordFlagsRaw & 0x400) != 0,
+                    "missing persistent frame furniture reference");
+                Need(pers.TryGetValue(Own(ExitChairRefId), out var eref) && eref.Base.FormKey == controlFurn.FormKey && (eref.MajorRecordFlagsRaw & 0x400) != 0,
+                    "missing persistent exit chair reference");
+                var temp = cell.Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+                Need(temp.ContainsKey(Own(CoreRef1Id)) && temp.ContainsKey(Own(CoreRef2Id)) && temp.ContainsKey(Own(CoreRef3Id)),
+                    "missing placed FusionCore references in test cell");
+                Need(temp.ContainsKey(Own(SalvagedBodyRefId)) && temp.ContainsKey(Own(SalvagedHelmRefId)),
+                    "missing placed Salvaged NCR armor references in test cell");
+            }
         }
 
         var quest = mod.Quests.FirstOrDefault(q => q.FormKey == Own(QuestId));
@@ -812,8 +903,17 @@ static class PowerArmorCore
         {
             Need(quest.Stages.Select(s => s.Index).SequenceEqual(QuestStages), $"{QuestEdid} stages != [{string.Join(",", QuestStages)}]");
             var scripts = quest.VirtualMachineAdapter?.Scripts;
-            Need(scripts != null && scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == 0,
-                $"{QuestEdid} must attach {QuestScript} with zero properties");
+            Need(scripts != null && scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == 2,
+                $"{QuestEdid} must attach {QuestScript} with 2 properties (SpecialAgilityAV, TestModeGlobal)");
+            if (scripts != null && scripts.Count == 1 && scripts[0].Properties.Count == 2)
+            {
+                var p0 = scripts[0].Properties[0] as IScriptObjectPropertyGetter;
+                var p1 = scripts[0].Properties[1] as IScriptObjectPropertyGetter;
+                Need(p0 != null && p0.Name == "SpecialAgilityAV" && p0.Object.FormKey == specialAgilityKey,
+                    $"{QuestEdid} property[0] must be SpecialAgilityAV -> {specialAgilityKey}");
+                Need(p1 != null && p1.Name == "TestModeGlobal" && p1.Object.FormKey == testModeKey,
+                    $"{QuestEdid} property[1] must be TestModeGlobal -> {testModeKey}");
+            }
         }
 
         if (problems.Count > 0)
@@ -821,7 +921,7 @@ static class PowerArmorCore
             foreach (var p in problems) Console.Error.WriteLine("check failed: " + p);
             return 1;
         }
-        Console.WriteLine($"check ok: {Plugin.FileName} verified (6-limb BPTD, PA race+skin, 4 disjoint PA slots, FusionCore, Salvaged NCR -1 AGI, override_dfob={overrideDfob})");
+        Console.WriteLine($"check ok: {Plugin.FileName} verified (6-limb BPTD, PA race+skin, 4 disjoint PA slots, FusionCore, Salvaged NCR -1 AGI -> {specialAgilityKey}, override_dfob={overrideDfob}, no_test_cell={noTestCell})");
         return 0;
     }
 
@@ -979,61 +1079,93 @@ static class PowerArmorCore
         Directory.CreateDirectory(scratchDir);
         var fixDir = Path.Combine(scratchDir, "fixture");
         var cleanDir = Path.Combine(scratchDir, "clean");
+        var noCellDir = Path.Combine(scratchDir, "no-test-cell");
         var dfobDir = Path.Combine(scratchDir, "dfob");
         if (Fixture(fixDir) != 0) return 1;
         var sfPath = Path.Combine(fixDir, "Starfield.esm");
 
-        // 1. Default clean-room build & check
-        if (Build(sfPath, cleanDir, DefaultControlEdid, overrideDfob: false) != 0) return 1;
+        // 1. Default clean-room build (with test cell) & check
+        if (Build(sfPath, cleanDir, DefaultControlEdid, overrideDfob: false, noTestCell: false) != 0) return 1;
         var cleanPlugin = Path.Combine(cleanDir, Plugin.FileName);
-        if (Check(cleanPlugin, sfPath, DefaultControlEdid, overrideDfob: false) != 0) return 1;
-        // Checking a clean build with --override-dfob must fail
-        if (Check(cleanPlugin, sfPath, DefaultControlEdid, overrideDfob: true) == 0)
+        if (Check(cleanPlugin, sfPath, DefaultControlEdid, overrideDfob: false, noTestCell: false) != 0) return 1;
+        // Checking a clean build with --override-dfob or --no-test-cell must fail
+        if (Check(cleanPlugin, sfPath, DefaultControlEdid, overrideDfob: true, noTestCell: false) == 0)
             throw new Refusal("selftest failed: clean build unexpectedly passed --override-dfob check");
+        if (Check(cleanPlugin, sfPath, DefaultControlEdid, overrideDfob: false, noTestCell: true) == 0)
+            throw new Refusal("selftest failed: default build with test cell unexpectedly passed --no-test-cell check");
 
-        // 2. Opt-in --override-dfob build & check
-        if (Build(sfPath, dfobDir, DefaultControlEdid, overrideDfob: true) != 0) return 1;
+        // 2. --no-test-cell build & check (omits FO4SF_PATestCell and placed test chairs/frame)
+        if (Build(sfPath, noCellDir, DefaultControlEdid, overrideDfob: false, noTestCell: true) != 0) return 1;
+        var noCellPlugin = Path.Combine(noCellDir, Plugin.FileName);
+        if (Check(noCellPlugin, sfPath, DefaultControlEdid, overrideDfob: false, noTestCell: true) != 0) return 1;
+        if (Check(noCellPlugin, sfPath, DefaultControlEdid, overrideDfob: false, noTestCell: false) == 0)
+            throw new Refusal("selftest failed: --no-test-cell build unexpectedly passed default test-cell check");
+
+        // 3. Opt-in --override-dfob build & check
+        if (Build(sfPath, dfobDir, DefaultControlEdid, overrideDfob: true, noTestCell: false) != 0) return 1;
         var dfobPlugin = Path.Combine(dfobDir, Plugin.FileName);
-        if (Check(dfobPlugin, sfPath, DefaultControlEdid, overrideDfob: true) != 0) return 1;
+        if (Check(dfobPlugin, sfPath, DefaultControlEdid, overrideDfob: true, noTestCell: false) != 0) return 1;
         // Checking a DFOB build without --override-dfob must fail (protects non-PA clean-room guarantee)
-        if (Check(dfobPlugin, sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+        if (Check(dfobPlugin, sfPath, DefaultControlEdid, overrideDfob: false, noTestCell: false) == 0)
             throw new Refusal("selftest failed: DFOB-overriding plugin unexpectedly passed clean-room check");
 
-        // 3. Negative mutation: strip a limb AVIF from BPTD -> Check must fail
+        // 4. Negative mutation: strip a limb AVIF from BPTD -> Check must fail
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
         var badBptdDir = Path.Combine(scratchDir, "bad-bptd");
         {
             var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
             mut.BodyParts.First().Parts[0].ActorValue.SetToNull();
-            WritePlugin(mut, badBptdDir, SfEsm);
+            WritePlugin(mut, badBptdDir, SfEsm, CoreValuesEsm);
             if (Check(Path.Combine(badBptdDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
                 throw new Refusal("selftest failed: missing limb AVIF on BPTD was not rejected");
         }
 
-        // 4. Negative mutation: leak isPowerArmorFrame onto FO4SF_SalvagedNCRPowerArmor -> Check must fail
+        // 5. Negative mutation: leak isPowerArmorFrame onto FO4SF_SalvagedNCRPowerArmor -> Check must fail
         var badSalvDir = Path.Combine(scratchDir, "bad-salvaged");
         {
             var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
             var salv = mut.Armors.First(a => a.FormKey == Own(SalvagedBodyId));
             salv.Keywords ??= new ExtendedList<IFormLinkGetter<IKeywordGetter>>();
             salv.Keywords.Add(new FormLink<IKeywordGetter>(Sf(0x15503F)));
-            WritePlugin(mut, badSalvDir, SfEsm);
+            WritePlugin(mut, badSalvDir, SfEsm, CoreValuesEsm);
             if (Check(Path.Combine(badSalvDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
                 throw new Refusal("selftest failed: Salvaged NCR armor carrying isPowerArmorFrame was not rejected");
         }
 
-        // 5. Negative mutation: remove FO4SF_PowerArmorRace from skin ARMA -> Check must fail
+        // 6. Negative mutation: remove FO4SF_PowerArmorRace from skin ARMA -> Check must fail
         var badSkinDir = Path.Combine(scratchDir, "bad-skin");
         {
             var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
             foreach (var aa in mut.ArmorAddons) aa.AdditionalRaces?.Clear();
-            WritePlugin(mut, badSkinDir, SfEsm);
+            WritePlugin(mut, badSkinDir, SfEsm, CoreValuesEsm);
             if (Check(Path.Combine(badSkinDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
                 throw new Refusal("selftest failed: missing FO4SF_PowerArmorRace on cloned ARMAs was not rejected");
         }
 
-        Console.WriteLine("selftest pass: clean build, --override-dfob build, and 3 negative tamper checks all verified");
+        // 7. Negative mutation: point SalvagedAgiMgef away from FO4SFCoreValues.esm:0x815 -> Check must fail
+        var badAgiDir = Path.Combine(scratchDir, "bad-agi");
+        {
+            var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+            mut.MagicEffects.First(m => m.FormKey == Own(SalvagedAgiMgefId)).SecondActorValue.SetTo(Sf(0x0012C7));
+            WritePlugin(mut, badAgiDir, SfEsm, CoreValuesEsm);
+            if (Check(Path.Combine(badAgiDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+                throw new Refusal("selftest failed: SalvagedAgiMgef targeting Starfield Agility instead of FO4SFCoreValues.esm was not rejected");
+        }
+
+        // 8. Negative mutation: corrupt TestModeGlobal VMAD property -> Check must fail
+        var badPropDir = Path.Combine(scratchDir, "bad-prop");
+        {
+            var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+            var props = mut.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties;
+            ((ScriptObjectProperty)props[1]).Object.SetTo(Own(QuestId));
+            WritePlugin(mut, badPropDir, SfEsm, CoreValuesEsm);
+            if (Check(Path.Combine(badPropDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+                throw new Refusal("selftest failed: tampered TestModeGlobal VMAD property was not rejected");
+        }
+
+        Console.WriteLine("selftest pass: default build, --no-test-cell build, --override-dfob build, and 5 negative tamper checks all verified");
         return 0;
     }
 }

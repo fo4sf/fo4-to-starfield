@@ -25,6 +25,7 @@ Ammo Property CaliberLight Auto Const
 Ammo Property CaliberRifle Auto Const
 Ammo Property CaliberHeavy Auto Const
 FormList Property WeightedAmmoList Auto Const
+GlobalVariable Property TestModeGlobal Auto Const
 
 int Property TimerIdPoll = 1 AutoReadOnly
 int Property TimerIdStimpakHoT = 2 AutoReadOnly
@@ -40,6 +41,7 @@ float stimpakTickHeal = 10.0
 float lastGameDays = -1.0
 float sleepStartDays = -1.0
 
+bool ran5 = false
 bool ran10 = false
 bool ran20 = false
 bool ran30 = false
@@ -388,68 +390,81 @@ Function PollStagesAndMeters()
         return
     endif
 
-    ; Stage 10: Enable Hardcore ON -> verify meters, stat penalties, ammo weight, stimpak HoT, & SQ_ENV stopped
-    if !ran10 && GetStageDone(10)
-        ran10 = true
-        inCardRun = true
-        HardcoreEnabledGlobal.SetValue(1.0)
-        player.SetValue(HungerAV, 450.0)
-        player.SetValue(ThirstAV, 650.0)
-        player.SetValue(SleepAV, 250.0)
-        player.AddItem(CaliberRifle, 100, true)
-        testAmmoAdded += 100
-        SyncAllSystems("stage10_on")
-        ApplySafeTestWound(player)
-        TriggerStimpakDose(player, "stage10_hot")
-        LogLine("stage", "id=10 ok=true hardcore=1 sq_env_running=" + ReadSqEnvRunning())
-    endif
-
-    ; Stage 20: Relief while Hardcore ON (food, water, 8h sleep relief)
-    if !ran20 && GetStageDone(20)
-        ran20 = true
-        player.SetValue(HungerAV, ClampMeter(player.GetValue(HungerAV) - 250.0))
-        player.SetValue(ThirstAV, ClampMeter(player.GetValue(ThirstAV) - 250.0))
-        player.SetValue(SleepAV, ClampMeter(player.GetValue(SleepAV) - 300.0))
-        SyncAllSystems("stage20_relief")
-        LogLine("stage", "id=20 ok=true h=" + player.GetValue(HungerAV) + " t=" + player.GetValue(ThirstAV) + " s=" + player.GetValue(SleepAV))
-    endif
-
-    ; Stage 30: Toggle Hardcore OFF -> verify all meter penalties & ammo carry burden revert cleanly to 0
-    if !ran30 && GetStageDone(30)
-        ran30 = true
-        HardcoreEnabledGlobal.SetValue(0.0)
-        SyncAllSystems("stage30_off")
-        LogLine("stage", "id=30 ok=true hardcore=0 ammo_burden=" + player.GetValue(AmmoBurdenAV) + " carry_mod=" + appliedAmmoCarryMod + " end_mod=" + appliedEndMod + " sq_env_running=" + ReadSqEnvRunning())
-    endif
-
-    ; Stage 40: Stimpak while Hardcore OFF -> verify instant heal (+60 HP now, 0 HoT ticks)
-    if !ran40 && GetStageDone(40)
-        ran40 = true
-        ApplySafeTestWound(player)
-        TriggerStimpakDose(player, "stage40_instant")
-        LogLine("stage", "id=40 ok=true hardcore=0")
-    endif
-
-    ; Stage 50: Cleanup test items & restore exact HP
-    if !ran50 && GetStageDone(50)
-        ran50 = true
-        stimpakTicksRemaining = 0
-        CancelTimer(TimerIdStimpakHoT)
-        if testAmmoAdded > 0
-            player.RemoveItem(CaliberRifle, testAmmoAdded, true, None)
-            testAmmoAdded = 0
+    if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
+        ; Stage 5: Optional by-hand starter kit (ration, purified water, stimpaks, rifle ammo)
+        if !ran5 && GetStageDone(5)
+            ran5 = true
+            player.AddItem(RationFood, 3, true)
+            player.AddItem(PurifiedWater, 3, true)
+            player.AddItem(Stimpak, 3, true)
+            player.AddItem(CaliberRifle, 50, true)
+            SyncAllSystems("stage5_kit")
+            LogLine("starter_kit", "id=5 ok=true")
         endif
-        player.SetValue(HungerAV, 0.0)
-        player.SetValue(ThirstAV, 0.0)
-        player.SetValue(SleepAV, 0.0)
-        if savedPreTestDamage > 0.0
-            player.RestoreValue(HealthAV, savedPreTestDamage)
-            savedPreTestDamage = 0.0
+
+        ; Stage 10: Enable Hardcore ON -> verify meters, stat penalties, ammo weight, stimpak HoT, & SQ_ENV stopped
+        if !ran10 && GetStageDone(10)
+            ran10 = true
+            inCardRun = true
+            HardcoreEnabledGlobal.SetValue(1.0)
+            player.SetValue(HungerAV, 450.0)
+            player.SetValue(ThirstAV, 650.0)
+            player.SetValue(SleepAV, 250.0)
+            player.AddItem(CaliberRifle, 100, true)
+            testAmmoAdded += 100
+            SyncAllSystems("stage10_on")
+            ApplySafeTestWound(player)
+            TriggerStimpakDose(player, "stage10_hot")
+            LogLine("stage", "id=10 ok=true hardcore=1 sq_env_running=" + ReadSqEnvRunning())
         endif
-        inCardRun = false
-        SyncAllSystems("stage50_reset")
-        LogLine("stage", "id=50 ok=true hardcore=0")
-        LogLine("summary", "ok=true stages=10,20,30,40,50 sq_env_running=" + ReadSqEnvRunning())
+
+        ; Stage 20: Relief while Hardcore ON (food, water, 8h sleep relief)
+        if !ran20 && GetStageDone(20)
+            ran20 = true
+            player.SetValue(HungerAV, ClampMeter(player.GetValue(HungerAV) - 250.0))
+            player.SetValue(ThirstAV, ClampMeter(player.GetValue(ThirstAV) - 250.0))
+            player.SetValue(SleepAV, ClampMeter(player.GetValue(SleepAV) - 300.0))
+            SyncAllSystems("stage20_relief")
+            LogLine("stage", "id=20 ok=true h=" + player.GetValue(HungerAV) + " t=" + player.GetValue(ThirstAV) + " s=" + player.GetValue(SleepAV))
+        endif
+
+        ; Stage 30: Toggle Hardcore OFF -> verify all meter penalties & ammo carry burden revert cleanly to 0
+        if !ran30 && GetStageDone(30)
+            ran30 = true
+            HardcoreEnabledGlobal.SetValue(0.0)
+            SyncAllSystems("stage30_off")
+            LogLine("stage", "id=30 ok=true hardcore=0 ammo_burden=" + player.GetValue(AmmoBurdenAV) + " carry_mod=" + appliedAmmoCarryMod + " end_mod=" + appliedEndMod + " sq_env_running=" + ReadSqEnvRunning())
+        endif
+
+        ; Stage 40: Stimpak while Hardcore OFF -> verify instant heal (+60 HP now, 0 HoT ticks)
+        if !ran40 && GetStageDone(40)
+            ran40 = true
+            ApplySafeTestWound(player)
+            TriggerStimpakDose(player, "stage40_instant")
+            LogLine("stage", "id=40 ok=true hardcore=0")
+        endif
+
+        ; Stage 50: Cleanup test items & restore exact HP
+        if !ran50 && GetStageDone(50)
+            ran50 = true
+            stimpakTicksRemaining = 0
+            CancelTimer(TimerIdStimpakHoT)
+            if testAmmoAdded > 0
+                player.RemoveItem(CaliberRifle, testAmmoAdded, true, None)
+                testAmmoAdded = 0
+            endif
+            player.SetValue(HungerAV, 0.0)
+            player.SetValue(ThirstAV, 0.0)
+            player.SetValue(SleepAV, 0.0)
+            if savedPreTestDamage > 0.0
+                player.RestoreValue(HealthAV, savedPreTestDamage)
+                savedPreTestDamage = 0.0
+            endif
+            inCardRun = false
+            SyncAllSystems("stage50_reset")
+            LogLine("stage", "id=50 ok=true hardcore=0")
+            LogLine("summary", "ok=true stages=10,20,30,40,50 sq_env_running=" + ReadSqEnvRunning())
+        endif
     endif
 
     ; Passive game-clock survival progression when Hardcore is ON outside automated card stages

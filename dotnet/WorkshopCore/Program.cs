@@ -1,17 +1,18 @@
 // WorkshopCore: Core Settlements, Junk Scrapping (CMPO -> IRES), FO4 COBJ + FNV RCPE Bench Recipes, and Portable C.A.M.P.s
 // (docs/workshop/workshop-camps.md)
 //
-// FO4SFWorkshop.esm (master Starfield.esm only; adds 32 records, overrides 0).
+// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 32 records, overrides 0).
 // The terrain core is NOT a master: FO4SF_WorkshopCoreQuest resolves FO4TerrainCore.esm / FO4TerrainCore_Mars.esm
 // workshop bases at runtime via Game.GetFormFromFile so FO4SFWorkshop.esm loads standalone or folded without cell overrides.
 //
 // usage:
-//   WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>]
-//   WorkshopCore check <plugin> <Starfield.esm> [--exclusion-radius <float>]
+//   WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>]
+//   WorkshopCore check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>]
 //   WorkshopCore fixture <out dir> [--mode full|minimal]
 //   WorkshopCore selftest <scratch dir>
 
 using System.Globalization;
+using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
@@ -39,9 +40,10 @@ try
             throw new WorkshopCore.Refusal($"--exclusion-radius must be in [0, 500], got {exclRaw}");
     }
     var mode = Opt("--mode") ?? "full";
+    var jsonPath = Opt("--json");
 
-    if (rest.Count == 3 && rest[0] == "build") return WorkshopCore.Build(rest[1], rest[2], exclRadius);
-    if (rest.Count == 3 && rest[0] == "check") return WorkshopCore.Check(rest[1], rest[2], exclRadius);
+    if (rest.Count == 3 && rest[0] == "build") return WorkshopCore.Build(rest[1], rest[2], exclRadius, jsonPath);
+    if (rest.Count == 3 && rest[0] == "check") return WorkshopCore.Check(rest[1], rest[2], exclRadius, jsonPath);
     if (rest.Count == 2 && rest[0] == "fixture") return WorkshopCore.Fixture(rest[1], mode);
     if (rest.Count == 2 && rest[0] == "selftest") return WorkshopCore.SelfTest(rest[1]);
 }
@@ -51,8 +53,8 @@ catch (WorkshopCore.Refusal r)
     return 1;
 }
 
-Console.Error.WriteLine("usage: WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] | " +
-                        "check <plugin> <Starfield.esm> [--exclusion-radius <float>] | " +
+Console.Error.WriteLine("usage: WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>] | " +
+                        "check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>] | " +
                         "fixture <out dir> [--mode full|minimal] | selftest <scratch dir>");
 return 2;
 
@@ -62,6 +64,7 @@ static class WorkshopCore
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    static readonly ModKey CoreValuesEsm = ModKey.FromFileName("FO4SFCoreValues.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFWorkshop.esm");
 
     // Locked local FormIDs shared with scripts/workshop/FO4SF_WorkshopCoreQuest.psc and tests/test_workshop_core.py
@@ -190,13 +193,63 @@ static class WorkshopCore
             BenchKind.Cooking,    CraftTrailRationId,    1, 23.0f, new[] { (1, 1u), (17, 1u), (16, 1u) }),
     };
 
+    const string TestModeEdid = "FO4SF_TestModeEnabled";
+
     static FormKey Own(uint id) => new(Plugin, id);
     static FormKey Sf(uint id) => new(SfEsm, id);
+
+    public static string DefaultJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "core", "core_values.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "core_values.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/core/core_values.json; pass --json <path>");
+    }
+
+    public static Dictionary<string, uint> LoadCoreValues(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing core_values.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var plugin = root.GetProperty("plugin").GetString() ?? throw new Refusal("core_values.json missing plugin");
+        if (ModKey.FromFileName(plugin) != CoreValuesEsm)
+            throw new Refusal($"core_values.json plugin {plugin} != {CoreValuesEsm}");
+        var ids = new Dictionary<string, uint>(StringComparer.Ordinal);
+        foreach (var el in root.GetProperty("records").EnumerateArray())
+        {
+            var edid = el.GetProperty("edid").GetString() ?? throw new Refusal("core_values.json record missing edid");
+            var id = Convert.ToUInt32(el.GetProperty("id").GetString()!, 16);
+            ids[edid] = id;
+        }
+        return ids;
+    }
+
+    static FormKey Core(IReadOnlyDictionary<string, uint> coreIds, string edid) =>
+        coreIds.TryGetValue(edid, out var id) ? new FormKey(CoreValuesEsm, id) : throw new Refusal($"core_values.json missing {edid}");
+
+    static ScriptObjectProperty ObjProp(string name, FormKey fk) => new()
+    {
+        Name = name, Flags = ScriptProperty.Flag.Edited, Object = new FormLink<IStarfieldMajorRecordGetter>(fk),
+    };
 
     static IStarfieldModDisposableGetter OpenTemplate(string path)
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+    }
+
+    static IStarfieldModDisposableGetter OpenPlugin(string path)
+    {
+        var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
         return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
@@ -399,7 +452,7 @@ static class WorkshopCore
         return flst;
     }
 
-    static Quest MakeQuest(uint id, string edid, string name, string script, IEnumerable<ushort> stages)
+    static Quest MakeQuest(uint id, string edid, string name, string script, IEnumerable<ushort> stages, FormKey testModeKey)
     {
         var quest = new Quest(Own(id), Release)
         {
@@ -411,6 +464,8 @@ static class WorkshopCore
         };
         foreach (var s in stages)
             quest.Stages.Add(new QuestStage { Index = s });
+        var se = new ScriptEntry { Name = script, Flags = ScriptEntry.Flag.Local };
+        se.Properties.Add(ObjProp("TestModeGlobal", testModeKey));
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
@@ -418,12 +473,14 @@ static class WorkshopCore
             ExtraBindDataVersion = 3,
             Script = new ScriptEntry { Name = "", Flags = ScriptEntry.Flag.Local },
         };
-        quest.VirtualMachineAdapter.Scripts.Add(new ScriptEntry { Name = script, Flags = ScriptEntry.Flag.Local });
+        quest.VirtualMachineAdapter.Scripts.Add(se);
         return quest;
     }
 
-    public static int Build(string templatePath, string outDir, float exclRadius)
+    public static int Build(string templatePath, string outDir, float exclRadius, string? jsonPath = null)
     {
+        var coreIds = LoadCoreValues(jsonPath);
+        var testModeKey = Core(coreIds, TestModeEdid);
         using var sf = OpenTemplate(templatePath);
         var tpl = ResolveTemplates(sf);
 
@@ -432,7 +489,7 @@ static class WorkshopCore
         mod.ModHeader.Author = "fo4-to-starfield";
 
         // 1. Quest & Globals
-        mod.Quests.Add(MakeQuest(QuestId, QuestEdid, "FO4SF Settlements and C.A.M.P.s", QuestScript, Stages));
+        mod.Quests.Add(MakeQuest(QuestId, QuestEdid, "FO4SF Settlements and C.A.M.P.s", QuestScript, Stages, testModeKey));
         mod.Globals.Add(MakeGlobal(CampExclusionRadiusGlobId, "FO4SF_CAMPExclusionRadiusM", exclRadius));
         mod.Globals.Add(MakeGlobal(ActiveCampCountGlobId, "FO4SF_ActiveCAMPCount", 0.0f));
         mod.Globals.Add(MakeGlobal(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f));
@@ -535,14 +592,12 @@ static class WorkshopCore
             new[] { Own(CampKitId), Own(CampPackTokenId), Own(SettlementKitId), Own(ScrapTokenId) }));
 
         mod.ModHeader.Stats.NextFormID = NextId;
-        if (!mod.ModHeader.MasterReferences.Any(m => m.Master == SfEsm))
-            mod.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
 
-        Write(mod, outDir, SfEsm);
+        Write(mod, outDir, SfEsm, CoreValuesEsm);
         var outPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-                          $"1 QUST, 4 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m), " +
+                          $"1 QUST (TestModeGlobal -> {testModeKey}), 4 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m), " +
                           $"10 MISC, 4 ALCH, 8 COBJ, 5 FLST (18 CMPO->IRES->MISC pairs)");
         return 0;
     }
@@ -556,9 +611,15 @@ static class WorkshopCore
         {
             Directory.CreateDirectory(tmpDir);
             var tmp = Path.Combine(tmpDir, mod.ModKey.FileName);
-            mod.BeginWrite.ToPath(tmp).WithLoadOrder(masters)
-                .WithKnownMasters(masters.Select(m => new KeyedMasterStyle(m, MasterStyle.Full)).ToArray())
-                .WithMastersListContent(MastersListContentOption.NoCheck).Write();
+            var masterFlags = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+            foreach (var m in masters)
+                masterFlags.Set(new KeyedMasterStyle(m, MasterStyle.Full));
+            mod.WriteToBinary(tmp, new BinaryWriteParameters
+            {
+                ModKey = ModKeyOption.NoCheck,
+                MastersListOrdering = new MastersListOrderingByLoadOrder(masters),
+                MasterFlagsLookup = masterFlags,
+            });
             File.Move(tmp, path, overwrite: true);
         }
         finally
@@ -569,14 +630,14 @@ static class WorkshopCore
 
     // ---------------------------------------------------------------- check
 
-    public static int Check(string pluginPath, string templatePath, float exclRadius)
+    public static int Check(string pluginPath, string templatePath, float exclRadius, string? jsonPath = null)
     {
+        var coreIds = LoadCoreValues(jsonPath);
+        var testModeKey = Core(coreIds, TestModeEdid);
         using var sf = OpenTemplate(templatePath);
         var tpl = ResolveTemplates(sf);
 
-        var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
-        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
-        using var mod = StarfieldMod.CreateFromBinaryOverlay(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+        using var mod = OpenPlugin(pluginPath);
 
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
@@ -585,11 +646,14 @@ static class WorkshopCore
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
         Need(mod.ModKey == Plugin, $"file ModKey is {mod.ModKey}, expected {Plugin}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "plugin header lacks Master flag");
-        Need(masters.SequenceEqual(new[] { SfEsm }), $"masters are [{string.Join(", ", masters)}], expected [Starfield.esm]");
+        Need(masters.SequenceEqual(new[] { SfEsm, CoreValuesEsm }), $"masters are [{string.Join(", ", masters)}], expected [Starfield.esm, FO4SFCoreValues.esm]");
 
         var allRecords = mod.EnumerateMajorRecords().ToList();
         var foreign = allRecords.Where(r => r.FormKey.ModKey != Plugin).Select(r => r.FormKey.ToString()).ToList();
         Need(foreign.Count == 0, $"plugin contains foreign override records: {string.Join(", ", foreign)}");
+        var dupCore = allRecords.Where(r => r.FormKey.ModKey == Plugin && r.EditorID != null && coreIds.ContainsKey(r.EditorID))
+            .Select(r => r.EditorID!).ToList();
+        Need(dupCore.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupCore)}");
         var lowRange = allRecords.Where(r => r.FormKey.ModKey == Plugin && r.FormKey.ID < 0x800).Select(r => r.FormKey.ToString()).ToList();
         Need(lowRange.Count == 0, $"plugin contains low-range FormIDs (<0x800): {string.Join(", ", lowRange)}");
         Need(allRecords.Count == ExpectedMajorRecordCount, $"expected {ExpectedMajorRecordCount} major records, found {allRecords.Count}");
@@ -602,8 +666,14 @@ static class WorkshopCore
             var scripts = q.VirtualMachineAdapter?.Scripts.ToList() ?? new();
             Need(q.Data?.Flags.HasFlag(Quest.Flag.StartGameEnabled) == true, $"{QuestEdid} lacks StartGameEnabled");
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), $"{QuestEdid} stages are [{string.Join(",", q.Stages.Select(s => s.Index))}], expected [{string.Join(",", Stages)}]");
-            Need(scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == 0,
-                $"{QuestEdid} script must be {QuestScript} with 0 properties");
+            Need(scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == 1,
+                $"{QuestEdid} script must be {QuestScript} with 1 property (TestModeGlobal)");
+            if (scripts.Count == 1 && scripts[0].Properties.Count == 1)
+            {
+                var p0 = scripts[0].Properties[0] as IScriptObjectPropertyGetter;
+                Need(p0 != null && p0.Name == "TestModeGlobal" && p0.Object.FormKey == testModeKey,
+                    $"{QuestEdid} property[0] must be TestModeGlobal -> {testModeKey}");
+            }
         }
 
         // 2. Globals check
@@ -846,6 +916,7 @@ static class WorkshopCore
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
         return StarfieldMod.CreateFromBinary(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
@@ -870,7 +941,7 @@ static class WorkshopCore
         if (Check(Path.Combine(optDir, Plugin.FileName), fullSf, 45.0f) == 0)
             throw new Refusal("check failed to reject mismatched --exclusion-radius");
 
-        // 7 tamper negative controls
+        // 8 tamper negative controls
         var cleanPlugin = Path.Combine(scratchDir, "b_full", Plugin.FileName);
         int tIdx = 0;
         void ExpectTamperFail(string label, Action<StarfieldMod> mutate)
@@ -879,7 +950,7 @@ static class WorkshopCore
             var tDir = Path.Combine(scratchDir, $"tamper_{tIdx}");
             var mod = OpenMutablePlugin(cleanPlugin);
             mutate(mod);
-            Write(mod, tDir, SfEsm);
+            Write(mod, tDir, SfEsm, CoreValuesEsm);
             if (Check(Path.Combine(tDir, Plugin.FileName), fullSf, 45.0f) == 0)
                 throw new Refusal($"tamper control #{tIdx} ({label}) unexpectedly passed Check");
         }
@@ -892,10 +963,15 @@ static class WorkshopCore
         ExpectTamperFail("quest_not_start_enabled", m =>
             m.Quests.First(q => q.FormKey == Own(QuestId)).Data!.Flags = 0);
 
-        // 3. Quest property injected (breaks zero-property rule)
-        ExpectTamperFail("quest_has_property", m =>
+        // 3. Extra quest property injected
+        ExpectTamperFail("quest_extra_property", m =>
             m.Quests.First(q => q.FormKey == Own(QuestId)).VirtualMachineAdapter!.Scripts[0].Properties
                 .Add(new ScriptIntProperty { Name = "BadProp", Data = 1 }));
+
+        // 4. TestModeGlobal property target corrupted
+        ExpectTamperFail("quest_bad_testmode_prop", m =>
+            ((ScriptObjectProperty)m.Quests.First(q => q.FormKey == Own(QuestId)).VirtualMachineAdapter!.Scripts[0].Properties[0])
+                .Object.SetTo(Own(CampExclusionRadiusGlobId)));
 
         // 4. CMPO -> IRES FormList truncated
         ExpectTamperFail("cmpo_ires_truncated", m =>

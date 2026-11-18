@@ -13,7 +13,7 @@ Scriptname FO4SF_NewGameSpecial extends Quest
  is read by the precheck), the %.0f tokens of SpecialMessage taking Show's float arguments, and a ten-button message box.}
 
 ActorValue[] Property Special Auto Const Mandatory
-{The seven AVIF FO4SF_Special_<stat> (FO4SFNewGame.esm 0x810 to 0x816), Strength, Perception, Endurance, Charisma,
+{The seven AVIF FO4SF_Special_<stat> (FO4SFCoreValues.esm 0x810 to 0x816), Strength, Perception, Endurance, Charisma,
  Intelligence, Agility, Luck: the button order of SpecialMessage and the argument order of its text.}
 
 Message Property TerminalMessage Auto Const Mandatory

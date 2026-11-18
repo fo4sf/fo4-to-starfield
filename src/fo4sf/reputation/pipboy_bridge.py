@@ -1,24 +1,27 @@
 """Pip-Boy STAT and DATA integration for FO4SFReputation.esm (both Stage=5 kit INI and Stage=2 AS3 shell).
 
-Both Pip-Boy routes in #817 consume the exact same AVIF records from FO4SFReputation.esm:
-  - 0x801 FO4SF_RepKarma (-1000..+1000)
-  - 0x805 FO4SF_VendorBuyMult (0.75..1.50)
-  - 0x820..0x827 FO4SF_Fame_* (0..100)
-  - 0x830..0x837 FO4SF_Infamy_* (0..100)
-  - 0x840..0x847 FO4SF_RepState_* (0..15 NV 16-state matrix code)
+Both Pip-Boy routes in #817 consume the shared Karma AVIF in FO4SFCoreValues.esm (0x830 FO4SF_Karma) plus
+the faction standing AVIF records in FO4SFReputation.esm:
+  - FO4SFCoreValues.esm:0x830 FO4SF_Karma (-1000..+1000)
+  - FO4SFReputation.esm:0x805 FO4SF_VendorBuyMult (0.75..1.50)
+  - FO4SFReputation.esm:0x820..0x82E FO4SF_Fame_* (0..100)
+  - FO4SFReputation.esm:0x830..0x83E FO4SF_Infamy_* (0..100)
+  - FO4SFReputation.esm:0x840..0x84E FO4SF_RepState_* (0..15 16-state matrix code)
 """
-import json
-from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Dict, List, Mapping, Tuple
+
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN
 
 from .tables import (
     CORE_FACTIONS,
     KARMA_TIERS,
-    NV_16_STATE_MATRIX,
     PLUGIN_NAME,
     RECORD_IDS,
+    SHARED_CORE_FORM_IDS,
     STATE_BY_CODE,
     evaluate_faction_reputation,
     evaluate_karma,
+    slot_factions,
 )
 
 # Exact character set and column limits enforced by scripts/ui/make_pipboy_kit.py & sfse/FO4SFPipboyMenu
@@ -55,14 +58,18 @@ def validate_kit_label(label: str, max_cols: int, what: str) -> str:
     return label
 
 
-def build_kit_page_sections(load_index: int = 0x0A) -> Tuple[str, str]:
+def build_kit_page_sections(
+    load_index: int = 0x0A,
+    core_load_index: int = 0x02,
+    slot_count: int = 8,
+) -> Tuple[str, str]:
     """Build [Page STAT/KARMA] and [Page DATA/REPUTATION] blocks valid for FO4SFPipboyMenu.ini Stage=5."""
     validate_kit_label("STAT", TAB_MAX_COLS, "tab")
     validate_kit_label("KARMA", SUB_MAX_COLS, "sub-tab")
     validate_kit_label("DATA", TAB_MAX_COLS, "tab")
     validate_kit_label("REPUTATION", SUB_MAX_COLS, "sub-tab")
 
-    karma_hex = runtime_av_hex(load_index, RECORD_IDS["RepKarmaAvId"])
+    karma_hex = runtime_av_hex(core_load_index, SHARED_CORE_FORM_IDS["KarmaAvId"])
     buy_hex = runtime_av_hex(load_index, RECORD_IDS["VendorBuyMultAvId"])
 
     stat_rows = [
@@ -82,7 +89,7 @@ def build_kit_page_sections(load_index: int = 0x0A) -> Tuple[str, str]:
     ]
 
     rep_rows: List[Tuple[str, str]] = []
-    for fac in CORE_FACTIONS:
+    for fac in slot_factions(slot_count):
         base_lbl = str(fac["pipboy_label"])
         fame_lbl = validate_kit_label(f"{base_lbl} FAME", ROW_LABEL_MAX_COLS, "DATA/REPUTATION row")
         inf_lbl = validate_kit_label(f"{base_lbl} INFAMY", ROW_LABEL_MAX_COLS, "DATA/REPUTATION row")
@@ -102,9 +109,14 @@ def build_kit_page_sections(load_index: int = 0x0A) -> Tuple[str, str]:
     return "\n".join(stat_lines), "\n".join(data_lines)
 
 
-def inject_pipboy_kit_pages(base_ini_text: str, load_index: int = 0x0A) -> str:
+def inject_pipboy_kit_pages(
+    base_ini_text: str,
+    load_index: int = 0x0A,
+    core_load_index: int = 0x02,
+    slot_count: int = 8,
+) -> str:
     """Insert or replace [Page STAT/KARMA] and [Page DATA/REPUTATION] in a FO4SFPipboyMenu.ini document."""
-    stat_sec, data_sec = build_kit_page_sections(load_index)
+    stat_sec, data_sec = build_kit_page_sections(load_index, core_load_index=core_load_index, slot_count=slot_count)
 
     # Strip any prior [Page STAT/KARMA] or [Page DATA/REPUTATION] blocks first for idempotency
     cleaned_lines: List[str] = []
@@ -146,15 +158,18 @@ def inject_pipboy_kit_pages(base_ini_text: str, load_index: int = 0x0A) -> str:
     return "\n".join(out_lines).rstrip("\n") + "\n"
 
 
-def build_shell_manifest() -> Dict[str, object]:
+def build_shell_manifest(slot_count: int = 8) -> Dict[str, object]:
     """Build JSON manifest for Stage=2 AS3 FO4SF_Fo4Shell (STAT -> PerksList, DATA -> StatsList)."""
+    factions = slot_factions(slot_count)
     return {
         "schema": 1,
         "plugin": PLUGIN_NAME,
+        "core_values_plugin": CORE_VALUES_PLUGIN,
         "stat_perks_karma": {
             "target": "Menu_mc.DataObj.PerksList",
-            "karma_av_id": f"0x{RECORD_IDS['RepKarmaAvId']:04X}",
-            "karma_tier_glob_id": f"0x{RECORD_IDS['KarmaTierGlobId']:04X}",
+            "karma_av_id": f"0x{SHARED_CORE_FORM_IDS['KarmaAvId']:04X}",
+            "karma_value_glob_id": f"0x{SHARED_CORE_FORM_IDS['KarmaValueGlobId']:04X}",
+            "karma_tier_glob_id": f"0x{SHARED_CORE_FORM_IDS['KarmaTierGlobId']:04X}",
             "vendor_buy_mult_av_id": f"0x{RECORD_IDS['VendorBuyMultAvId']:04X}",
             "tiers": [
                 {
@@ -181,16 +196,19 @@ def build_shell_manifest() -> Dict[str, object]:
                     "infamy_av_id": f"0x{int(fac['infamy_av_id']):04X}",
                     "state_av_id": f"0x{int(fac['state_av_id']):04X}",
                 }
-                for fac in CORE_FACTIONS
+                for fac in factions
             ],
             "states": [
                 {
                     "code": code,
+                    "state_id": STATE_BY_CODE[code].state_id,
                     "title": STATE_BY_CODE[code].title,
                     "disposition": STATE_BY_CODE[code].disposition,
                     "buy_mult": STATE_BY_CODE[code].buy_mult,
                     "sell_mult": STATE_BY_CODE[code].sell_mult,
                     "allow_trade": STATE_BY_CODE[code].allow_trade,
+                    "gmst_form_id": STATE_BY_CODE[code].gmst_form_id,
+                    "esm_status": STATE_BY_CODE[code].esm_status,
                 }
                 for code in sorted(STATE_BY_CODE)
             ],
@@ -198,17 +216,18 @@ def build_shell_manifest() -> Dict[str, object]:
     }
 
 
-def format_shell_tsv() -> str:
+def format_shell_tsv(slot_count: int = 8) -> str:
     """Serialize FO4SFPipboyReputation.tsv consumed by the Stage=2 shell bridge."""
+    karma_hex = f"0x{SHARED_CORE_FORM_IDS['KarmaAvId']:04X}"
     rows = [
         TSV_HEADER,
-        f"-1\tSTAT\tPerksList\tGlobalKarma\tKARMA\t0x0000\t0x0000\t0x0000\t0x{RECORD_IDS['RepKarmaAvId']:04X}",
+        f"-1\tSTAT\tPerksList\tGlobalKarma\tKARMA\t0x0000\t0x0000\t0x0000\t{karma_hex}",
     ]
-    for fac in CORE_FACTIONS:
+    for fac in slot_factions(slot_count):
         rows.append(
             f"{fac['index']}\tDATA\tStatsList\t{fac['key']}\t{fac['pipboy_label']}\t"
             f"0x{int(fac['fame_av_id']):04X}\t0x{int(fac['infamy_av_id']):04X}\t"
-            f"0x{int(fac['state_av_id']):04X}\t0x{RECORD_IDS['RepKarmaAvId']:04X}"
+            f"0x{int(fac['state_av_id']):04X}\t{karma_hex}"
         )
     return "\n".join(rows) + "\n"
 

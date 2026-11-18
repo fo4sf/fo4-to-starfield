@@ -29,9 +29,15 @@ sys.path.insert(0, os.path.join(REPO, "scripts", "newgame"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from make_newgame import declares, extract_sources, new_partial, run  # noqa: E402
 from fo4sf.companions import core_log  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "CompanionsCore")
 PLUGIN = "FO4SFCompanions.esm"
+PLUGIN_MASTERS = ("Starfield.esm", CORE_VALUES_PLUGIN)
+SHARED_CORE_FORM_IDS = {
+    "CharismaAV": core_form_id("FO4SF_Special_Charisma"),
+    "TestModeGlobal": core_form_id("FO4SF_TestModeEnabled"),
+}
 SCRIPT = "FO4SF_CompanionsQuest"
 PSC = os.path.join(HERE, SCRIPT + ".psc")
 LOG_NAME = "FO4SFCompanions.0.log"
@@ -39,7 +45,7 @@ INSTALL_LINE = re.compile(r"exp_install\.py install\b.*--plugins (?P<plugins>\S+
 
 REQUIRED = {
     "Actor": [
-        "GetValue", "SetValue", "GetLevel", "HasPerk", "AddPerk", "RemovePerk",
+        "GetValue", "SetValue", "RestoreValue", "GetLevel", "HasPerk", "AddPerk", "RemovePerk",
         "GetItemCount", "AddItem", "RemoveItem",
         "IsDead", "IsInCombat", "StopCombat", "IsBleedingOut",
         "IsInFaction", "AddToFaction", "IgnoreFriendlyHits",
@@ -196,13 +202,14 @@ def stage(a):
     work = os.path.join(out, "work")
     os.makedirs(work)
 
+    no_test_cell = bool(getattr(a, "no_test_cell", False))
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
     opts = [
         "--base-cap", str(a.base_cap),
         "--max-cap", str(a.max_cap),
         "--merc-cost", str(a.merc_cost),
         "--merc-share", str(a.merc_share),
-    ]
+    ] + (["--no-test-cell"] if no_test_cell else [])
     wrote = run(tool + ["build", a.starfield, out] + opts).stdout
     check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield] + opts).stdout
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
@@ -223,6 +230,8 @@ def stage(a):
         "plugin": PLUGIN,
         "plugin_sha256": outputs[PLUGIN],
         "plugins": [PLUGIN],
+        "masters": list(PLUGIN_MASTERS),
+        "no_test_cell": no_test_cell,
         "scripts": {SCRIPT: sha256(pex)},
         "outputs": outputs,
         "inputs": {"Starfield.esm": {"sha256": before}},
@@ -231,12 +240,18 @@ def stage(a):
             "max_cap": a.max_cap,
             "merc_cost": a.merc_cost,
             "merc_share": a.merc_share,
+            "no_test_cell": no_test_cell,
         },
         "templates": template_line(wrote),
         "log": "<My Games>/Starfield/Logs/Script/User/FO4SFCompanions.0.log",
     }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
+    cell_line = (
+        "MISC FO4SF_SquadRadioToken (0x820); player profile (--no-test-cell: 0 test CELL / test NPCs)."
+        if no_test_cell
+        else "MISC FO4SF_SquadRadioToken (0x820), CELL FO4SF_SquadTestCell (0x830: 4 persistent Fireteam NPCs + 1 Story Companion)."
+    )
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Companions, Crew, and Warfare Squads ({datetime.date.today().isoformat()}). docs/companions/companions-warfare-pc-card.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}):
@@ -248,8 +263,8 @@ def stage(a):
        FO4SF_SquadOrderState (0x80A), FO4SF_CompanionNerveBonus (0x80B);
   PERK FO4SF_CompPerk_UnitedWeStand (0x810), FO4SF_CompPerk_RobotSympathy (0x811), FO4SF_Perk_SquadCommander (0x812);
   MESG FO4SF_CompanionWheelMsg (0x815), FO4SF_FireteamCommandMsg (0x816), FO4SF_RecruitPromptMsg (0x817);
-  MISC FO4SF_SquadRadioToken (0x820), CELL FO4SF_SquadTestCell (0x830: 4 persistent Fireteam NPCs + 1 Story Companion).
-Sole master Starfield.esm ({before}); overrides 0 vanilla records (SQ_Followers & SQ_Groups referenced, never overridden).
+  {cell_line}
+Masters: {', '.join(PLUGIN_MASTERS)} (Starfield.esm sha256 {before}); overrides 0 vanilla records (SQ_Followers & SQ_Groups referenced, never overridden).
 Ride-along install (game closed):
   python scripts/companions/companions_core_install.py install --dir <stage dir> --starfield <game dir>
 Fold into core experiment set:
@@ -294,8 +309,10 @@ def verify_stage(stage_dir, plan, data_dir=None):
     return problems
 
 
-def verify_dir(exp_dir, plan, starfield=None):
+def verify_dir(exp_dir, plan, starfield=None, no_test_cell=False):
     problems = []
+    if no_test_cell and not plan.get("no_test_cell"):
+        problems.append("plan was not staged with --no-test-cell")
 
     def same(label, path, want):
         if not path or not os.path.isfile(path):
@@ -313,7 +330,7 @@ def verify_dir(exp_dir, plan, starfield=None):
 
 def verify(a):
     plan = load_plan(a.plan)
-    problems = verify_dir(a.exp_dir, plan, a.starfield or None)
+    problems = verify_dir(a.exp_dir, plan, a.starfield or None, no_test_cell=bool(getattr(a, "no_test_cell", False)))
     for p in problems:
         print("FAIL  " + p)
     print("verify: ok" if not problems else f"verify: {len(problems)} problem(s); do not install")
@@ -458,11 +475,13 @@ def main(argv=None):
     s.add_argument("--max-cap", type=int, default=4)
     s.add_argument("--merc-cost", type=int, default=250)
     s.add_argument("--merc-share", type=float, default=0.15)
+    s.add_argument("--no-test-cell", action="store_true")
 
     v = sub.add_parser("verify")
     v.add_argument("--exp-dir", required=True)
     v.add_argument("--plan", required=True)
     v.add_argument("--starfield", default="")
+    v.add_argument("--no-test-cell", action="store_true")
 
     fo = sub.add_parser("fold")
     fo.add_argument("--stage", required=True)

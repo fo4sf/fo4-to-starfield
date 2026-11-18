@@ -37,7 +37,7 @@ for _p in (
 
 import exp_install  # noqa: E402
 import make_newgame  # noqa: E402
-from fo4sf.combat import parse_combat_log  # noqa: E402
+from fo4sf.combat import PLUGIN_MASTERS, parse_combat_log  # noqa: E402
 from fo4sf.launcher.crashwatch import GAME_EXE, System  # noqa: E402
 
 PLUGIN = "FO4SFCombat.esm"
@@ -95,6 +95,7 @@ def stage_combat_core(
     out_dir: str,
     starfield_dir: str,
     sfse_build_dir: Optional[str] = None,
+    no_test_cell: bool = False,
     system=None,
 ) -> Dict[str, object]:
     ensure_game_closed(system=system)
@@ -112,14 +113,15 @@ def stage_combat_core(
 
     partial = make_newgame.new_partial(dst, create=True)
     proj = os.path.join(REPO, "dotnet", "CombatCore")
+    extra = ["--no-test-cell"] if no_test_cell else []
 
-    r_build = subprocess.run(["dotnet", "run", "--project", proj, "--", "build", sf_esm, partial],
+    r_build = subprocess.run(["dotnet", "run", "--project", proj, "--", "build", sf_esm, partial] + extra,
                              capture_output=True, text=True)
     if r_build.returncode != 0:
         raise CombatStageRefused(f"CombatCore build failed:\n{r_build.stdout}\n{r_build.stderr}")
 
     esm_path = os.path.join(partial, PLUGIN)
-    r_chk = subprocess.run(["dotnet", "run", "--project", proj, "--", "check", esm_path, sf_esm],
+    r_chk = subprocess.run(["dotnet", "run", "--project", proj, "--", "check", esm_path, sf_esm] + extra,
                            capture_output=True, text=True)
     if r_chk.returncode != 0:
         raise CombatStageRefused(f"CombatCore check failed:\n{r_chk.stdout}\n{r_chk.stderr}")
@@ -150,6 +152,8 @@ def stage_combat_core(
         "version": 1,
         "plugin": PLUGIN,
         "plugins": [PLUGIN],
+        "masters": list(PLUGIN_MASTERS),
+        "no_test_cell": bool(no_test_cell),
         "plugin_sha256": outputs[PLUGIN],
         "outputs": outputs,
         "sfse_sidecar": sidecar,
@@ -176,7 +180,11 @@ def stage_combat_core(
     return plan
 
 
-def verify_stage(stage_dir: str, starfield_esm: Optional[str] = None) -> Tuple[List[str], Dict[str, object]]:
+def verify_stage(
+    stage_dir: str,
+    starfield_esm: Optional[str] = None,
+    no_test_cell: bool = False,
+) -> Tuple[List[str], Dict[str, object]]:
     st = os.path.abspath(stage_dir)
     plan_p = os.path.join(st, "plan.json")
     if not os.path.isfile(plan_p):
@@ -185,6 +193,9 @@ def verify_stage(stage_dir: str, starfield_esm: Optional[str] = None) -> Tuple[L
         plan = json.load(f)
 
     problems: List[str] = []
+    if no_test_cell and not plan.get("no_test_cell"):
+        problems.append("plan was not staged with --no-test-cell")
+
     for rel, want in (plan.get("outputs") or {}).items():
         full = os.path.join(st, *rel.split("/"))
         if not os.path.isfile(full):
@@ -203,14 +214,16 @@ def verify_stage(stage_dir: str, starfield_esm: Optional[str] = None) -> Tuple[L
     if os.path.isfile(esm_p):
         try:
             masters = exp_install.plugin_masters(esm_p)
-            if masters != ["Starfield.esm"]:
-                problems.append(f"expected masters ['Starfield.esm'], got {masters}")
+            want_masters = list(PLUGIN_MASTERS)
+            if masters != want_masters:
+                problems.append(f"expected masters {want_masters}, got {masters}")
         except ValueError as err:
             problems.append(f"invalid TES4 header: {err}")
 
         if starfield_esm and os.path.isfile(starfield_esm):
             proj = os.path.join(REPO, "dotnet", "CombatCore")
-            r = subprocess.run(["dotnet", "run", "--project", proj, "--", "check", esm_p, starfield_esm],
+            extra = ["--no-test-cell"] if (no_test_cell or plan.get("no_test_cell")) else []
+            r = subprocess.run(["dotnet", "run", "--project", proj, "--", "check", esm_p, starfield_esm] + extra,
                                capture_output=True, text=True)
             if r.returncode != 0:
                 problems.append(f"CombatCore check failed: {r.stderr or r.stdout}".strip())
@@ -226,10 +239,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_st.add_argument("--out", required=True)
     p_st.add_argument("--starfield-dir", required=True)
     p_st.add_argument("--sfse-build", default=None)
+    p_st.add_argument("--no-test-cell", action="store_true")
 
     p_vf = sub.add_parser("verify")
     p_vf.add_argument("--stage-dir", required=True)
     p_vf.add_argument("--starfield", default=None)
+    p_vf.add_argument("--no-test-cell", action="store_true")
 
     p_lg = sub.add_parser("log")
     p_lg.add_argument("--file", required=True)
@@ -237,11 +252,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
     try:
         if args.cmd == "stage":
-            plan = stage_combat_core(args.out, args.starfield_dir, sfse_build_dir=args.sfse_build)
+            plan = stage_combat_core(
+                args.out,
+                args.starfield_dir,
+                sfse_build_dir=args.sfse_build,
+                no_test_cell=bool(args.no_test_cell),
+            )
             print(json.dumps(plan, indent=2))
             return 0
         if args.cmd == "verify":
-            probs, plan = verify_stage(args.stage_dir, starfield_esm=args.starfield)
+            probs, plan = verify_stage(
+                args.stage_dir,
+                starfield_esm=args.starfield,
+                no_test_cell=bool(args.no_test_cell),
+            )
             if probs:
                 for p in probs:
                     print(f"FAIL: {p}", file=sys.stderr)

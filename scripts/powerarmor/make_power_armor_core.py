@@ -3,10 +3,10 @@
 Subcommands:
   precheck --content-resources <ContentResources.zip> [--out <precheck.json>]
   stage    --out <stage_dir> --starfield <Starfield.esm> --compiler <PapyrusCompiler.exe>
-           --content-resources <ContentResources.zip> [--control <FURN edid>] [--override-dfob]
+           --content-resources <ContentResources.zip> [--control <FURN edid>] [--override-dfob] [--no-test-cell]
   fold     --core-dir <clean_core_dir> --stage <stage_dir> --out <folded_dir>
            [--hardlink] [--clean-prior] [--starfield <Starfield.esm>]
-  verify   --dir <stage_or_folded_dir> [--plan <plan.json>] [--starfield <Starfield.esm>]
+  verify   --dir <stage_or_folded_dir> [--plan <plan.json>] [--starfield <Starfield.esm>] [--no-test-cell]
   log      --file <FO4SFPACore.0.log> [--papyrus <Papyrus.0.log>]
 
 Nothing here launches Starfield or modifies the game folder; scripts/powerarmor/power_armor_core_install.py
@@ -29,6 +29,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "scripts", "newgame"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from make_newgame import declares, extract_sources, new_partial, run  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.powerarmor import core_log  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "PowerArmorCore")
@@ -37,6 +38,8 @@ SCRIPT = "FO4SF_PowerArmorCoreQuest"
 PSC = os.path.join(HERE, SCRIPT + ".psc")
 DEFAULT_CONTROL = "NPCChairTech03_Free_270"
 FOLDED_PLAN_NAME = "power_armor_core_plan.json"
+SPECIAL_AGILITY_ID = core_form_id("FO4SF_Special_Agility")
+TEST_MODE_GLOBAL_ID = core_form_id("FO4SF_TestModeEnabled")
 INSTALL_LINE = re.compile(r"exp_install\.py install\b.*--plugins (?P<plugins>\S+)")
 
 REQUIRED = {
@@ -71,6 +74,7 @@ REQUIRED = {
         "HasKeyword",
     ],
     "Game": ["GetPlayer", "GetFormFromFile", "IsPluginInstalled"],
+    "GlobalVariable": ["GetValue"],
     "Debug": ["OpenUserLog", "TraceUser", "Notification"],
     "Utility": ["GetCurrentRealTime"],
     "Quest": ["GetStageDone"],
@@ -188,11 +192,13 @@ def resolve_starfield_esm(starfield_arg):
     return starfield_arg
 
 
-def verify_stage(stage_dir, plan, data_or_sf=None):
-    """Verify an standalone stage directory against its plan.json and optional Starfield.esm / Data directory."""
+def verify_stage(stage_dir, plan, data_or_sf=None, no_test_cell=False):
+    """Verify a standalone stage directory against its plan.json and optional Starfield.esm / Data directory."""
     problems = []
     if plan.get("kind") != "power-armor-core" or plan.get("plugins") != [PLUGIN]:
         return [f"plan.json is not power-armor-core (kind={plan.get('kind')!r}, plugins={plan.get('plugins')!r})"]
+    if no_test_cell and not plan.get("no_test_cell", False):
+        problems.append("plan.json was staged without --no-test-cell")
     now = stage_files(stage_dir)
     for rel, want in plan.get("outputs", {}).items():
         if rel not in now:
@@ -204,6 +210,11 @@ def verify_stage(stage_dir, plan, data_or_sf=None):
         problems.append(f"unexpected files in stage: {extra}")
     if PLUGIN not in plan.get("outputs", {}):
         problems.append(f"{PLUGIN} not pinned in plan.json")
+    esm_path = os.path.join(stage_dir, PLUGIN)
+    if (no_test_cell or plan.get("no_test_cell", False)) and os.path.isfile(esm_path):
+        with open(esm_path, "rb") as ef:
+            if b"FO4SF_PATestCell" in ef.read():
+                problems.append(f"{PLUGIN} contains FO4SF_PATestCell despite no_test_cell=True")
     sf = resolve_starfield_esm(data_or_sf)
     if sf is not None:
         if not os.path.isfile(sf):
@@ -213,17 +224,23 @@ def verify_stage(stage_dir, plan, data_or_sf=None):
     return problems
 
 
-def verify_folded(folded_dir, plan, starfield_arg=None):
+def verify_folded(folded_dir, plan, starfield_arg=None, no_test_cell=False):
     """Verify a folded core+PA directory against its pinned power-armor-core plan."""
     problems = []
     if plan.get("kind") != "power-armor-core" or plan.get("plugin") != PLUGIN:
         return [f"plan is not power-armor-core (kind={plan.get('kind')!r}, plugin={plan.get('plugin')!r})"]
+    if no_test_cell and not plan.get("no_test_cell", False):
+        problems.append("folded plan was staged without --no-test-cell")
     esm_path = os.path.join(folded_dir, PLUGIN)
     want_esm = plan["outputs"].get(PLUGIN)
     if not os.path.isfile(esm_path):
         problems.append(f"plugin {PLUGIN} missing in {folded_dir}")
     elif sha256(esm_path) != want_esm:
         problems.append(f"plugin {PLUGIN} sha256 {sha256(esm_path)} != plan {want_esm}")
+    elif no_test_cell or plan.get("no_test_cell", False):
+        with open(esm_path, "rb") as ef:
+            if b"FO4SF_PATestCell" in ef.read():
+                problems.append(f"{PLUGIN} contains FO4SF_PATestCell despite no_test_cell=True")
 
     for sname, want_pex in plan.get("scripts", {}).items():
         rel = f"Data/Scripts/{sname}.pex"
@@ -274,7 +291,11 @@ def stage(a):
     os.makedirs(work)
 
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
-    opts = ["--control", a.control] + (["--override-dfob"] if a.override_dfob else [])
+    opts = (
+        ["--control", a.control]
+        + (["--override-dfob"] if a.override_dfob else [])
+        + (["--no-test-cell"] if a.no_test_cell else [])
+    )
     wrote = run(tool + ["build", a.starfield, out] + opts).stdout
     checked = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield] + opts).stdout
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
@@ -303,23 +324,32 @@ def stage(a):
         "version": 1,
         "plugin": PLUGIN,
         "plugins": [PLUGIN],
+        "masters": ["Starfield.esm", CORE_VALUES_PLUGIN],
+        "core_values": {
+            "plugin": CORE_VALUES_PLUGIN,
+            "SpecialAgilityAV": f"0x{SPECIAL_AGILITY_ID:06X}",
+            "TestModeGlobal": f"0x{TEST_MODE_GLOBAL_ID:06X}",
+        },
         "scripts": {SCRIPT: outputs[pex_rel]},
         "outputs": outputs,
         "inputs": {"Starfield.esm": {"sha256": before}},
         "control": a.control,
         "override_dfob": bool(a.override_dfob),
+        "no_test_cell": bool(a.no_test_cell),
         "log": "<My Games>/Starfield/Logs/Script/User/FO4SFPACore.0.log",
     }
+    cell_desc = "no test cell" if a.no_test_cell else "CELL FO4SF_PATestCell (coc FO4SF_PATestCell)"
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(
             f"Power Armor Core ({datetime.date.today().isoformat()}). docs/powerarmor/power-armor-core.md\n"
-            f"{PLUGIN} (sha256 {outputs[PLUGIN]}): CELL FO4SF_PATestCell (coc FO4SF_PATestCell), "
+            f"{PLUGIN} (sha256 {outputs[PLUGIN]}, masters Starfield.esm + {CORE_VALUES_PLUGIN}): {cell_desc}, "
             f"RACE FO4SF_PowerArmorRace -> BPTD FO4SF_PowerArmorBodyPartData (6 limb condition AVIFs) + "
             f"Skin FO4SF_PowerArmorSkin, FURN FO4SF_PowerArmorFrameFurn (control {a.control}), "
-            f"MISC FO4SF_FusionCore, 4 disjoint PA ARMOs, 2 FNV Salvaged NCR worn heavy ARMOs (-1 AGI), "
-            f"QUST FO4SF_PowerArmorCoreQuest (stages 10/20/30/40). override_dfob={bool(a.override_dfob)}.\n"
+            f"MISC FO4SF_FusionCore, 4 disjoint PA ARMOs, 2 FNV Salvaged NCR worn heavy ARMOs (-1 AGI -> {CORE_VALUES_PLUGIN}:0x{SPECIAL_AGILITY_ID:04X}), "
+            f"QUST FO4SF_PowerArmorCoreQuest (stages 10/20/30/40 gated by 0x{TEST_MODE_GLOBAL_ID:04X}). "
+            f"override_dfob={bool(a.override_dfob)}, no_test_cell={bool(a.no_test_cell)}.\n"
             f"Checked against Starfield.esm {before}.\n"
             f"Ride-along install (game closed):\n"
             f"  python scripts/powerarmor/power_armor_core_install.py install --dir <this folder> --starfield <game>\n"
@@ -329,7 +359,7 @@ def stage(a):
             f"  python scripts/powerarmor/make_power_armor_core.py log --file <FO4SFPACore.0.log>\n"
         )
     os.replace(out, final)
-    print(f"staged {final}: {PLUGIN}, {SCRIPT}.pex, offline_check.txt, plan.json, README.txt (override_dfob={bool(a.override_dfob)})")
+    print(f"staged {final}: {PLUGIN}, {SCRIPT}.pex, offline_check.txt, plan.json, README.txt (override_dfob={bool(a.override_dfob)}, no_test_cell={bool(a.no_test_cell)})")
     return 0
 
 
@@ -467,7 +497,12 @@ def verify(a):
         plan = load_plan(os.path.join(target, "plan.json"))
         is_folded = False
 
-    problems = verify_folded(target, plan, a.starfield) if is_folded else verify_stage(target, plan, a.starfield)
+    no_test_cell = bool(getattr(a, "no_test_cell", False))
+    problems = (
+        verify_folded(target, plan, a.starfield, no_test_cell=no_test_cell)
+        if is_folded
+        else verify_stage(target, plan, a.starfield, no_test_cell=no_test_cell)
+    )
     for p in problems:
         print("FAIL  " + p)
     print("verify: ok" if not problems else f"verify: {len(problems)} problem(s); do not install")
@@ -519,6 +554,7 @@ def main(argv=None):
     st.add_argument("--content-resources", default=sf_cr)
     st.add_argument("--control", default=DEFAULT_CONTROL)
     st.add_argument("--override-dfob", action="store_true", help="opt-in override of Starfield's 5 empty PowerArmor*_DO DFOBs")
+    st.add_argument("--no-test-cell", action="store_true", help="omit FO4SF_PATestCell and placed test chairs/frame")
 
     fd = sub.add_parser("fold")
     fd.add_argument("--core-dir", required=True)
@@ -532,6 +568,7 @@ def main(argv=None):
     vf.add_argument("--dir", required=True)
     vf.add_argument("--plan", default=None)
     vf.add_argument("--starfield", default=None)
+    vf.add_argument("--no-test-cell", action="store_true", help="require stage/folded plugin to omit FO4SF_PATestCell")
 
     lg = sub.add_parser("log")
     lg.add_argument("--file", default=default_log)

@@ -1,11 +1,11 @@
 Scriptname FO4SF_WorkshopCoreQuest extends Quest
 {Core Settlements, Junk Scrapping (CMPO -> IRES), Bench Recipes (FO4 COBJ + FNV RCPE), and Portable C.A.M.P.s
  (docs/workshop/workshop-camps.md). Attached to QUST FO4SF_WorkshopCoreQuest (0x000800 of FO4SFWorkshop.esm):
- StartGameEnabled, 0 properties (all base forms resolved via Game.GetFormFromFile so FO4SFWorkshop.esm masters
- Starfield.esm only and never overrides a core cell; persistent ObjectReference[] arrays live in quest state so
- placed settlement workbenches, portable C.A.M.P. beacons, and built crafting stations persist across save-quit-reload).
+ StartGameEnabled, TestModeGlobal bound to FO4SFCoreValues.esm (0x860); local and Starfield base forms resolved via
+ Game.GetFormFromFile so FO4SFWorkshop.esm never overrides a core cell; persistent ObjectReference[] arrays live in quest
+ state so placed settlement workbenches, portable C.A.M.P. beacons, and built crafting stations persist across save-quit-reload.
 
- Stages:
+ Stages (gated behind TestModeGlobal != 0):
    5   By-hand starter bundle (1 Settlement Kit, 1 Portable C.A.M.P. Kit, 1 Pack-Up Token, 1 Scrapper Kit, 4x each FO4 junk)
    10  Place persistent settlement workbench 2.5 m ahead (+3.0 m lateral offset if a C.A.M.P. beacon is already at 2.5 m)
    15  Deploy persistent Portable C.A.M.P. beacon (OutpostBeaconActivator 0x2C60E9) 2.5 m ahead + verify 45 m exclusion block & refund
@@ -17,6 +17,8 @@ Scriptname FO4SF_WorkshopCoreQuest extends Quest
 
  User log: My Games\Starfield\Logs\Script\User\FO4SFWorkshopCore.0.log
  Format:   FO4SFWSCORE rt=<real time s> <event> key=value ... end=true}
+
+GlobalVariable Property TestModeGlobal Auto Const
 
 ; ---------------------------------------------------------------- deterministic layout (dotnet/WorkshopCore/Program.cs)
 
@@ -79,7 +81,13 @@ bool CleanupDone = false
 
 ; ---------------------------------------------------------------- lifecycle & logging
 
-Event OnInit()
+bool Initialized = false
+
+Event OnQuestInit()
+    if Initialized
+        return
+    endif
+    Initialized = true
     Debug.OpenUserLog(LogName)
     InitArrays()
     Actor playerRef = Game.GetPlayer()
@@ -801,19 +809,21 @@ Function PollStages()
         endif
     endif
 
-    int i = 0
-    while i < StageList.Length
-        int stg = StageList[i]
-        if !DoneList[i] && GetStageDone(stg)
-            DoneList[i] = true
-            RunStage(stg, playerRef)
-        endif
-        i += 1
-    endwhile
+    if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
+        int i = 0
+        while i < StageList.Length
+            int stg = StageList[i]
+            if !DoneList[i] && GetStageDone(stg)
+                DoneList[i] = true
+                RunStage(stg, playerRef)
+            endif
+            i += 1
+        endwhile
 
-    if GetStageDone(60) && !CleanupDone
-        CleanupDone = true
-        CleanupAll()
+        if GetStageDone(60) && !CleanupDone
+            CleanupDone = true
+            CleanupAll()
+        endif
     endif
 EndFunction
 

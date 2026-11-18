@@ -21,7 +21,7 @@ Scriptname FO4SF_CompanionsQuest extends Quest
  User log: My Games\Starfield\Logs\Script\User\FO4SFCompanions.0.log
  Format:   FO4SFCOMP rt=<real time s> <event> key=value ... end=true}
 
-; ---------------------------------------------------------------- bound properties (24)
+; ---------------------------------------------------------------- bound properties (26; 24 under --no-test-cell)
 
 RefCollectionAlias Property ActiveSquad Auto Const Mandatory
 GlobalVariable Property SquadBaseCapGlob Auto Const Mandatory
@@ -30,7 +30,9 @@ GlobalVariable Property MercHireCostGlob Auto Const Mandatory
 GlobalVariable Property MercRewardShareGlob Auto Const Mandatory
 GlobalVariable Property ActiveSquadCountGlob Auto Const Mandatory
 GlobalVariable Property SquadStanceGlob Auto Const Mandatory
+GlobalVariable Property TestModeGlobal Auto Const
 
+ActorValue Property CharismaAV Auto Const
 ActorValue Property CompanionAffinityAV Auto Const Mandatory
 ActorValue Property SquadLoyaltyAV Auto Const Mandatory
 ActorValue Property RecruitRankTierAV Auto Const Mandatory
@@ -49,14 +51,15 @@ Message Property RecruitPromptMsg Auto Const Mandatory
 Faction Property SquadAllyFaction Auto Const Mandatory
 MiscObject Property SquadRadioToken Auto Const Mandatory
 FormList Property RadioFilterList Auto Const Mandatory
-Actor Property StoryCompanionRef Auto Const Mandatory
-Actor[] Property FireteamTestRefs Auto Const Mandatory
+Actor Property StoryCompanionRef Auto Const
+Actor[] Property FireteamTestRefs Auto Const
 
 ; ---------------------------------------------------------------- runtime FormID constants
 
 int Version = 1
 string LogName = "FO4SFCompanions"
 string OwnPlugin = "FO4SFCompanions.esm"
+string CoreValuesPlugin = "FO4SFCoreValues.esm"
 string ProgressionPlugin = "FO4SFProgression.esm"
 string ReputationPlugin = "FO4SFReputation.esm"
 string NewGamePlugin = "FO4SFNewGame.esm"
@@ -67,15 +70,19 @@ int SfCreditsId = 0x00000F
 int SfMedPackId = 0x00ABF9
 int SfGameDaysPassedId = 0x000039
 int SfCharismaAvId = 0x0002C5
+int SfHealthAvId = 0x0002D4
 int SfFollowerStateAvId = 0x000344
+int CoreCharismaAvId = 0x000813
 
-; Optional #815 FO4SFProgression.esm leadership records (resolved dynamically when installed)
-int ProgChaAvId = 0x000803
+; Optional FO4SFProgression.esm leadership records & FO4SFReputation.esm faction standing slots
 int ProgBgCaravanGuardId = 0x000822
 int ProgBgBrotherhoodScribeId = 0x000824
 int ProgBgDesertRangerId = 0x000827
 int ProgBgMinutemanId = 0x000828
-int RepGoodwillGlobId = 0x000801
+int RepFactFirstId = 0x000810
+int RepFameAvFirstId = 0x000820
+int RepFameGlobFirstId = 0x000850
+float GoodwillThreshold = 25.0
 int NewGameQuestId = 0x000800
 
 float LeashDistM = 120.0
@@ -102,7 +109,13 @@ bool StageAddedCommanderPerk = false
 
 ; ---------------------------------------------------------------- lifecycle & logging
 
-Event OnInit()
+bool Initialized = false
+
+Event OnQuestInit()
+    if Initialized
+        return
+    endif
+    Initialized = true
     Debug.OpenUserLog(LogName)
     InitState()
     Actor playerRef = Game.GetPlayer()
@@ -111,7 +124,11 @@ Event OnInit()
     SyncSquadGlobals(playerRef)
     Quest sqFol = Game.GetFormFromFile(SfFollowersQuestId, "Starfield.esm") as Quest
     Quest sqGrp = Game.GetFormFromFile(SfGroupsQuestId, "Starfield.esm") as Quest
-    Trace("init version=" + Version + " quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(OwnPlugin) + " sq_followers=" + Id(sqFol) + " sq_groups=" + Id(sqGrp) + " base_cap=" + (SquadBaseCapGlob.GetValue() as int) + " max_cap=" + (SquadMaxCapGlob.GetValue() as int) + " merc_cost=" + (MercHireCostGlob.GetValue() as int) + " merc_share=" + MercRewardShareGlob.GetValue() + " fireteam_refs=" + FireteamTestRefs.Length)
+    int ftRefsCount = 0
+    if FireteamTestRefs != None
+        ftRefsCount = FireteamTestRefs.Length
+    endif
+    Trace("init version=" + Version + " quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(OwnPlugin) + " sq_followers=" + Id(sqFol) + " sq_groups=" + Id(sqGrp) + " base_cap=" + (SquadBaseCapGlob.GetValue() as int) + " max_cap=" + (SquadMaxCapGlob.GetValue() as int) + " merc_cost=" + (MercHireCostGlob.GetValue() as int) + " merc_share=" + MercRewardShareGlob.GetValue() + " fireteam_refs=" + ftRefsCount)
     StartTimer(PollIntervalS, TIMER_POLL)
 EndEvent
 
@@ -225,13 +242,14 @@ float Function ReadPlayerCharisma(Actor playerRef)
     if playerRef == None
         return 5.0
     endif
-    if Game.IsPluginInstalled(ProgressionPlugin)
-        ActorValue progCha = Game.GetFormFromFile(ProgChaAvId, ProgressionPlugin) as ActorValue
-        if progCha != None
-            float pVal = playerRef.GetValue(progCha)
-            if pVal > 0.0
-                return pVal
-            endif
+    ActorValue coreCha = CharismaAV
+    if coreCha == None
+        coreCha = Game.GetFormFromFile(CoreCharismaAvId, CoreValuesPlugin) as ActorValue
+    endif
+    if coreCha != None
+        float cVal = playerRef.GetValue(coreCha)
+        if cVal > 0.0
+            return cVal
         endif
     endif
     ActorValue sfCha = Game.GetFormFromFile(SfCharismaAvId, "Starfield.esm") as ActorValue
@@ -306,13 +324,41 @@ int Function GetPlayerRankTier(Actor playerRef)
     return 0
 EndFunction
 
-bool Function HasFactionGoodwill(Actor playerRef)
+bool Function HasSlotGoodwill(Actor playerRef, int slotIdx)
+    GlobalVariable fameGlob = Game.GetFormFromFile(RepFameGlobFirstId + slotIdx, ReputationPlugin) as GlobalVariable
+    if fameGlob != None && fameGlob.GetValue() >= GoodwillThreshold
+        return true
+    endif
+    if playerRef != None
+        ActorValue fameAv = Game.GetFormFromFile(RepFameAvFirstId + slotIdx, ReputationPlugin) as ActorValue
+        if fameAv != None && playerRef.GetValue(fameAv) >= GoodwillThreshold
+            return true
+        endif
+    endif
+    return false
+EndFunction
+
+bool Function HasFactionGoodwill(Actor akCandidate)
+    Actor playerRef = Game.GetPlayer()
     if playerRef == None
         return false
     endif
     if Game.IsPluginInstalled(ReputationPlugin)
-        GlobalVariable repGlob = Game.GetFormFromFile(RepGoodwillGlobId, ReputationPlugin) as GlobalVariable
-        if repGlob != None && repGlob.GetValue() >= 25.0
+        bool matchedSlot = false
+        if akCandidate != None
+            int slot = 0
+            while slot < 8
+                Faction repFact = Game.GetFormFromFile(RepFactFirstId + slot, ReputationPlugin) as Faction
+                if repFact != None && akCandidate.IsInFaction(repFact)
+                    matchedSlot = true
+                    if HasSlotGoodwill(playerRef, slot)
+                        return true
+                    endif
+                endif
+                slot += 1
+            endwhile
+        endif
+        if !matchedSlot && HasSlotGoodwill(playerRef, 0)
             return true
         endif
     endif
@@ -400,7 +446,7 @@ bool Function TryRecruit(Actor akCandidate, bool abMercContract, bool abSilentPr
 
     int paidCost = 0
     bool isMerc = false
-    if abMercContract && !HasFactionGoodwill(playerRef)
+    if abMercContract && !HasFactionGoodwill(akCandidate)
         paidCost = MercHireCostGlob.GetValue() as int
         Form creditsForm = Game.GetFormFromFile(SfCreditsId, "Starfield.esm")
         if paidCost > 0 && creditsForm != None
@@ -909,14 +955,21 @@ bool Function StabilizeDownedMember(Actor akMember, string triggerStr)
         return false
     endif
     Form medPack = Game.GetFormFromFile(SfMedPackId, "Starfield.esm")
+    ActorValue healthAv = Game.GetFormFromFile(SfHealthAvId, "Starfield.esm") as ActorValue
     if medPack != None
         if akMember.GetItemCount(medPack) > 0
             akMember.RemoveItem(medPack, 1, true, None)
+            if healthAv != None
+                akMember.RestoreValue(healthAv, 50.0)
+            endif
             ModifyLoyalty(akMember, 5.0, "self_medpack")
             Trace("upkeep_revive actor=" + Id(akMember) + " source=member_medpack trigger=" + triggerStr)
             return true
         elseif playerRef.GetItemCount(medPack) > 0
             playerRef.RemoveItem(medPack, 1, true, None)
+            if healthAv != None
+                akMember.RestoreValue(healthAv, 50.0)
+            endif
             ModifyLoyalty(akMember, 10.0, "player_medpack_revive")
             Trace("upkeep_revive actor=" + Id(akMember) + " source=player_medpack trigger=" + triggerStr)
             return true
@@ -1013,6 +1066,10 @@ Function PollTick()
         TickSquadUpkeep(playerRef)
     endif
 
+    if TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0
+        return
+    endif
+
     int i = 0
     while i < StageList.Length
         int stg = StageList[i]
@@ -1030,7 +1087,7 @@ Function PollTick()
 EndFunction
 
 Function RunVerificationStage(int stageNum, Actor playerRef)
-    if playerRef == None || FireteamTestRefs.Length < 4
+    if playerRef == None || FireteamTestRefs == None || FireteamTestRefs.Length < 4 || StoryCompanionRef == None
         Trace("stage_error stage=" + stageNum + " reason=missing_player_or_fireteam_refs")
         return
     endif

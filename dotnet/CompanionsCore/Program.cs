@@ -1,16 +1,21 @@
 // CompanionsCore: Companions, Crew, and Warfare Squads over Starfield's kept SQ_Followers and SQ_Groups
 // (docs/research/gamma-squad-balance.md, docs/companions/companions-warfare-pc-card.md)
 //
-// FO4SFCompanions.esm (sole master Starfield.esm; adds records, overrides 0).
+// FO4SFCompanions.esm (masters [Starfield.esm, FO4SFCoreValues.esm]; adds records, overrides 0, zero duplicate
+// EditorIDs with FO4SFCoreValues.esm or FO4SFProgression.esm).
 // SQ_Followers (0x0000D773) and SQ_Groups (0x1A9565) are verified in Starfield.esm and referenced at runtime, never overridden.
+// Shared records from FO4SFCoreValues.esm (via src/fo4sf/core/core_values.json):
+//   0x813 AVIF FO4SF_Special_Charisma
+//   0x860 GLOB FO4SF_TestModeEnabled
 //
 // usage:
-//   CompanionsCore build <Starfield.esm> <out dir> [--base-cap <int>] [--max-cap <int>] [--merc-cost <int>] [--merc-share <float>]
+//   CompanionsCore build <Starfield.esm> <out dir> [--json <path>] [--base-cap <int>] [--max-cap <int>] [--merc-cost <int>] [--merc-share <float>] [--no-test-cell]
 //   CompanionsCore check <plugin> <Starfield.esm> [same options]
 //   CompanionsCore fixture <out dir> [--mode full|minimal]
 //   CompanionsCore selftest <scratch dir>
 
 using System.Globalization;
+using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
@@ -30,6 +35,14 @@ try
         return v;
     }
 
+    bool Flag(string name)
+    {
+        int i = rest.IndexOf(name);
+        if (i < 0) return false;
+        rest.RemoveAt(i);
+        return true;
+    }
+
     int ParseInt(string? raw, int defVal, int lo, int hi, string flag)
     {
         if (raw == null) return defVal;
@@ -46,11 +59,15 @@ try
         return v;
     }
 
+    var jsonPath = Opt("--json") ?? CompanionsCore.DefaultJsonPath();
+    bool noTestCell = Flag("--no-test-cell");
     var opts = new CompanionsCore.BuildOptions(
         BaseCap: ParseInt(Opt("--base-cap"), 2, 1, 8, "--base-cap"),
         MaxCap: ParseInt(Opt("--max-cap"), 4, 1, 12, "--max-cap"),
         MercCost: ParseInt(Opt("--merc-cost"), 250, 0, 10000, "--merc-cost"),
-        MercShare: ParseFloat(Opt("--merc-share"), 0.15f, 0.0f, 0.9f, "--merc-share")
+        MercShare: ParseFloat(Opt("--merc-share"), 0.15f, 0.0f, 0.9f, "--merc-share"),
+        NoTestCell: noTestCell,
+        JsonPath: jsonPath
     );
     if (opts.MaxCap < opts.BaseCap)
         throw new CompanionsCore.Refusal($"--max-cap ({opts.MaxCap}) must be >= --base-cap ({opts.BaseCap})");
@@ -68,8 +85,8 @@ catch (CompanionsCore.Refusal r)
     return 1;
 }
 
-Console.Error.WriteLine("usage: CompanionsCore build <Starfield.esm> <out dir> [--base-cap <int>] [--max-cap <int>] " +
-                        "[--merc-cost <int>] [--merc-share <float>] | check <plugin> <Starfield.esm> [same options] | " +
+Console.Error.WriteLine("usage: CompanionsCore build <Starfield.esm> <out dir> [--json <path>] [--base-cap <int>] [--max-cap <int>] " +
+                        "[--merc-cost <int>] [--merc-share <float>] [--no-test-cell] | check <plugin> <Starfield.esm> [same options] | " +
                         "fixture <out dir> [--mode full|minimal] | selftest <scratch dir>");
 return 2;
 
@@ -77,11 +94,20 @@ static class CompanionsCore
 {
     public class Refusal(string m) : Exception(m);
 
-    public record BuildOptions(int BaseCap, int MaxCap, int MercCost, float MercShare);
+    public record BuildOptions(
+        int BaseCap,
+        int MaxCap,
+        int MercCost,
+        float MercShare,
+        bool NoTestCell = false,
+        string? JsonPath = null);
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    static readonly ModKey CoreValuesEsm = ModKey.FromFileName("FO4SFCoreValues.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFCompanions.esm");
+
+    static readonly ModKey[] ExpectedMasters = { SfEsm, CoreValuesEsm };
 
     // Vanilla Starfield.esm FormIDs (verified against Starfield.esm; never overridden)
     public const uint SqFollowersQuestId = 0x0000D773;
@@ -192,12 +218,53 @@ static class CompanionsCore
     static FormKey Own(uint id) => new(Plugin, id);
     static FormKey Sf(uint id) => new(SfEsm, id);
 
-    static IStarfieldModDisposableGetter OpenTemplate(string path)
+    public static string DefaultJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "core", "core_values.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "core_values.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/core/core_values.json; pass --json <path>");
+    }
+
+    public static Dictionary<string, FormKey> LoadCoreValues(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing core_values.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var pluginName = root.GetProperty("plugin").GetString() ?? throw new Refusal("core_values.json missing plugin");
+        var modKey = ModKey.FromFileName(pluginName);
+        if (modKey != CoreValuesEsm)
+            throw new Refusal($"core_values.json plugin {modKey} != {CoreValuesEsm}");
+        var byEdid = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
+        foreach (var el in root.GetProperty("records").EnumerateArray())
+        {
+            uint id = Convert.ToUInt32(el.GetProperty("id").GetString()!, 16);
+            string edid = el.GetProperty("edid").GetString()!;
+            byEdid[edid] = new FormKey(modKey, id);
+        }
+        return byEdid;
+    }
+
+    static FormKey RequireCore(Dictionary<string, FormKey> core, string edid) =>
+        core.TryGetValue(edid, out var fk) ? fk : throw new Refusal($"core_values.json missing {edid}");
+
+    static Cache<IModMasterStyledGetter, ModKey> MasterStyles()
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
-        return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+        styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(Plugin, MasterStyle.Full));
+        return styles;
     }
+
+    static IStarfieldModDisposableGetter OpenTemplate(string path) =>
+        StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = MasterStyles() });
 
     sealed class ResolvedTemplates
     {
@@ -414,6 +481,10 @@ static class CompanionsCore
 
     public static int Build(string sfPath, string outDir, BuildOptions opts)
     {
+        var core = LoadCoreValues(opts.JsonPath);
+        var charismaAvKey = RequireCore(core, "FO4SF_Special_Charisma");
+        var testModeGlobKey = RequireCore(core, "FO4SF_TestModeEnabled");
+
         using var sf = OpenTemplate(sfPath);
         var tpl = ResolveTemplates(sf);
 
@@ -501,69 +572,87 @@ static class CompanionsCore
         radioFilter.Items.Add(radioToken.FormKey.ToLinkGetter<IStarfieldMajorRecordGetter>());
         mod.FormLists.Add(radioFilter);
 
-        // 6. Squad Test Cell (0x830) + 4 Persistent Warfare Recruits (0x831..0x838) + Story Companion (0x839..0x83A)
-        var cell = new Cell(Own(SquadTestCellId), Release)
-        {
-            EditorID = "FO4SF_SquadTestCell",
-            Name = "Warfare Fireteam Staging Room",
-            FormVersion = 581,
-            Flags = Cell.Flag.IsInteriorCell,
-            XILS = 1.0f,
-        };
-        var cocRef = new PlacedObject(Own(SquadTestCocRefId), Release)
-        {
-            EditorID = "FO4SF_SquadTestCell_COCMarker",
-            Base = new FormLinkNullable<IPlaceableObjectGetter>(tpl.CocMarkerStatic.FormKey),
-            Position = new P3Float(0f, 0f, 0f),
-            Rotation = new P3Float(0f, 0f, 0f),
-        };
-        var floorRef = new PlacedObject(Own(SquadTestFloorRefId), Release)
-        {
-            EditorID = "FO4SF_SquadTestCell_Floor",
-            Base = new FormLinkNullable<IPlaceableObjectGetter>(tpl.FloorStatic.FormKey),
-            Position = new P3Float(0f, 2.0f, -0.1f),
-            Rotation = new P3Float(0f, 0f, 0f),
-        };
-        cell.Temporary.Add(cocRef);
-        cell.Temporary.Add(floorRef);
-
+        // 6. Optional Squad Test Cell (0x830) + 4 Persistent Warfare Recruits + Story Companion
         var fireteamRefs = new List<PlacedNpc>();
-        foreach (var fs in FireteamSpecs)
+        PlacedNpc? storyRef = null;
+        if (!opts.NoTestCell)
         {
-            var rNpc = CloneRecruitNpc(tpl.HumanNpcTemplate, fs.NpcId, fs.NpcEdid, fs.Name, allyFaction.FormKey, essential: false);
-            mod.Npcs.Add(rNpc);
-            var rRef = new PlacedNpc(Own(fs.RefId), Release)
+            var cell = new Cell(Own(SquadTestCellId), Release)
             {
-                EditorID = fs.RefEdid,
-                Base = new FormLink<INpcGetter>(rNpc.FormKey),
-                Position = new P3Float(fs.PosX, fs.PosY, 0.05f),
+                EditorID = "FO4SF_SquadTestCell",
+                Name = "Warfare Fireteam Staging Room",
+                FormVersion = 581,
+                Flags = Cell.Flag.IsInteriorCell,
+                XILS = 1.0f,
+                EnvironmentMap = "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds",
+            };
+            if (sf.LightingTemplates.Any(l => l.FormKey == Sf(0x006658)))
+                cell.LightingTemplate.SetTo(Sf(0x006658));
+            if (sf.ImageSpaces.Any(i => i.FormKey == Sf(0x122393)))
+                cell.ImageSpace.SetTo(Sf(0x122393));
+            var cocRef = new PlacedObject(Own(SquadTestCocRefId), Release)
+            {
+                EditorID = "FO4SF_SquadTestCell_COCMarker",
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(tpl.CocMarkerStatic.FormKey),
+                Position = new P3Float(0f, 0f, 0.65f),
+                Rotation = new P3Float(0f, 0f, 0f),
+            };
+            var floorRef = new PlacedObject(Own(SquadTestFloorRefId), Release)
+            {
+                EditorID = "FO4SF_SquadTestCell_Floor",
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(tpl.FloorStatic.FormKey),
+                Position = new P3Float(-8.0f, 2.0f, 0f),
+                Rotation = new P3Float(0f, 0f, 0f),
+                Scale = 4.0f,
+            };
+            cell.Temporary.Add(cocRef);
+            cell.Temporary.Add(floorRef);
+            if (sf.Lights.Any(l => l.FormKey == Sf(0x03D38C)))
+            {
+                cell.Temporary.Add(new PlacedObject(Own(0x83Fu), Release)
+                {
+                    Base = new FormLinkNullable<IPlaceableObjectGetter>(Sf(0x03D38C)),
+                    Position = new P3Float(0f, 2.0f, 4.0f),
+                });
+            }
+
+            foreach (var fs in FireteamSpecs)
+            {
+                var rNpc = CloneRecruitNpc(tpl.HumanNpcTemplate, fs.NpcId, fs.NpcEdid, fs.Name, allyFaction.FormKey, essential: false);
+                mod.Npcs.Add(rNpc);
+                var rRef = new PlacedNpc(Own(fs.RefId), Release)
+                {
+                    EditorID = fs.RefEdid,
+                    Base = new FormLink<INpcGetter>(rNpc.FormKey),
+                    Position = new P3Float(fs.PosX, fs.PosY, 0.55f),
+                    Rotation = new P3Float(0f, 0f, 3.14159f),
+                };
+                rRef.MajorRecordFlagsRaw |= 0x400; // Persistent so exterior Commonwealth tests can MoveTo them
+                cell.Persistent.Add(rRef);
+                fireteamRefs.Add(rRef);
+            }
+
+            var storyNpc = CloneRecruitNpc(tpl.HumanNpcTemplate, StoryCompanionNpcId, "FO4SF_StoryCompanion_Minuteman",
+                "Minuteman Liaison", allyFaction.FormKey, essential: true);
+            mod.Npcs.Add(storyNpc);
+            storyRef = new PlacedNpc(Own(StoryCompanionRefId), Release)
+            {
+                EditorID = "FO4SF_StoryCompanionRef",
+                Base = new FormLink<INpcGetter>(storyNpc.FormKey),
+                Position = new P3Float(0f, 4.5f, 0.55f),
                 Rotation = new P3Float(0f, 0f, 3.14159f),
             };
-            rRef.MajorRecordFlagsRaw |= 0x400; // Persistent so exterior Commonwealth tests can MoveTo them
-            cell.Persistent.Add(rRef);
-            fireteamRefs.Add(rRef);
+            storyRef.MajorRecordFlagsRaw |= 0x400;
+            cell.Persistent.Add(storyRef);
+
+            int blockNum = (int)(SquadTestCellId % 10);
+            int subBlockNum = (int)((SquadTestCellId / 10) % 10);
+            var subBlock = new CellSubBlock { BlockNumber = subBlockNum, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+            subBlock.Cells.Add(cell);
+            var cellBlock = new CellBlock { BlockNumber = blockNum, GroupType = GroupTypeEnum.InteriorCellBlock };
+            cellBlock.SubBlocks.Add(subBlock);
+            mod.Cells.Add(cellBlock);
         }
-
-        var storyNpc = CloneRecruitNpc(tpl.HumanNpcTemplate, StoryCompanionNpcId, "FO4SF_StoryCompanion_Minuteman",
-            "Minuteman Liaison", allyFaction.FormKey, essential: true);
-        mod.Npcs.Add(storyNpc);
-        var storyRef = new PlacedNpc(Own(StoryCompanionRefId), Release)
-        {
-            EditorID = "FO4SF_StoryCompanionRef",
-            Base = new FormLink<INpcGetter>(storyNpc.FormKey),
-            Position = new P3Float(0f, 4.5f, 0.05f),
-            Rotation = new P3Float(0f, 0f, 3.14159f),
-        };
-        storyRef.MajorRecordFlagsRaw |= 0x400;
-        cell.Persistent.Add(storyRef);
-
-        int blockNum = (int)(SquadTestCellId % 10);
-        int subBlockNum = (int)((SquadTestCellId / 10) % 10);
-        var subBlock = new CellSubBlock { BlockNumber = subBlockNum, GroupType = GroupTypeEnum.InteriorCellSubBlock };
-        subBlock.Cells.Add(cell);
-        var cellBlock = new CellBlock { BlockNumber = blockNum, GroupType = GroupTypeEnum.InteriorCellBlock };
-        cellBlock.SubBlocks.Add(subBlock);
-        mod.Cells.Add(cellBlock);
 
         // 7. Quest FO4SF_CompanionsQuest (0x800) with RefCollectionAlias ActiveSquad + Script Properties
         var quest = new Quest(Own(QuestId), Release)
@@ -606,6 +695,8 @@ static class CompanionsCore
         script.Properties.Add(ObjProp("MercRewardShareGlob", gMercShare.FormKey));
         script.Properties.Add(ObjProp("ActiveSquadCountGlob", gActiveCnt.FormKey));
         script.Properties.Add(ObjProp("SquadStanceGlob", gStance.FormKey));
+        script.Properties.Add(ObjProp("TestModeGlobal", testModeGlobKey));
+        script.Properties.Add(ObjProp("CharismaAV", charismaAvKey));
         script.Properties.Add(ObjProp("CompanionAffinityAV", avAffinity.FormKey));
         script.Properties.Add(ObjProp("SquadLoyaltyAV", avLoyalty.FormKey));
         script.Properties.Add(ObjProp("RecruitRankTierAV", avRank.FormKey));
@@ -621,12 +712,15 @@ static class CompanionsCore
         script.Properties.Add(ObjProp("SquadAllyFaction", allyFaction.FormKey));
         script.Properties.Add(ObjProp("SquadRadioToken", radioToken.FormKey));
         script.Properties.Add(ObjProp("RadioFilterList", radioFilter.FormKey));
-        script.Properties.Add(ObjProp("StoryCompanionRef", storyRef.FormKey));
 
-        var ftListProp = new ScriptObjectListProperty { Name = "FireteamTestRefs", Flags = ScriptProperty.Flag.Edited };
-        foreach (var fr in fireteamRefs)
-            ftListProp.Objects.Add(ObjProp("", fr.FormKey));
-        script.Properties.Add(ftListProp);
+        if (!opts.NoTestCell && storyRef != null)
+        {
+            script.Properties.Add(ObjProp("StoryCompanionRef", storyRef.FormKey));
+            var ftListProp = new ScriptObjectListProperty { Name = "FireteamTestRefs", Flags = ScriptProperty.Flag.Edited };
+            foreach (var fr in fireteamRefs)
+                ftListProp.Objects.Add(ObjProp("", fr.FormKey));
+            script.Properties.Add(ftListProp);
+        }
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
@@ -638,17 +732,20 @@ static class CompanionsCore
         quest.VirtualMachineAdapter.Scripts.Add(script);
         mod.Quests.Add(quest);
 
-        mod.ModHeader.Stats.NextFormID = 0x840;
-        if (!mod.ModHeader.MasterReferences.Any(m => m.Master == SfEsm))
-            mod.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
+        mod.ModHeader.Stats.NextFormID = opts.NoTestCell ? 0x826u : 0x840u;
+        foreach (var mk in ExpectedMasters)
+        {
+            if (!mod.ModHeader.MasterReferences.Any(m => m.Master == mk))
+                mod.ModHeader.MasterReferences.Add(new MasterReference { Master = mk });
+        }
 
-        Write(mod, outDir, SfEsm);
+        Write(mod, outDir, ExpectedMasters);
         var outPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-                          $"1 QUST (RefCollectionAlias ActiveSquad + 24 props), 6 GLOB (cap={opts.BaseCap}..{opts.MaxCap}, " +
+                          $"1 QUST (RefCollectionAlias ActiveSquad + {script.Properties.Count} props), 6 GLOB (cap={opts.BaseCap}..{opts.MaxCap}, " +
                           $"merc={opts.MercCost}/{opts.MercShare.ToString("0.##", CultureInfo.InvariantCulture)}), " +
-                          $"5 AVIF, 4 PERK, 3 MESG, 1 FACT, 1 MISC, 1 FLST, 1 CELL (4 Fireteam NPCs + 1 Story Companion)");
+                          $"5 AVIF, 4 PERK, 3 MESG, 1 FACT, 1 MISC, 1 FLST, {(opts.NoTestCell ? 0 : 1)} CELL");
         return 0;
     }
 
@@ -676,12 +773,13 @@ static class CompanionsCore
 
     public static int Check(string pluginPath, string sfPath, BuildOptions opts)
     {
+        var core = LoadCoreValues(opts.JsonPath);
+        var charismaAvKey = RequireCore(core, "FO4SF_Special_Charisma");
+        var testModeGlobKey = RequireCore(core, "FO4SF_TestModeEnabled");
+
         using var sf = OpenTemplate(sfPath);
         var tpl = ResolveTemplates(sf);
-
-        var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
-        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
-        using var mod = StarfieldMod.CreateFromBinaryOverlay(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+        using var mod = StarfieldMod.CreateFromBinaryOverlay(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = MasterStyles() });
 
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
@@ -690,13 +788,15 @@ static class CompanionsCore
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
         Need(mod.ModKey == Plugin, $"ModKey is {mod.ModKey}, expected {Plugin}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "plugin header lacks Master flag");
-        Need(masters.SequenceEqual(new[] { SfEsm }), $"masters are [{string.Join(", ", masters)}], expected [Starfield.esm]");
+        Need(masters.SequenceEqual(ExpectedMasters), $"masters are [{string.Join(", ", masters)}], expected [{string.Join(", ", ExpectedMasters)}]");
 
         var allRecs = mod.EnumerateMajorRecords().ToList();
         var foreign = allRecs.Where(r => r.FormKey.ModKey != Plugin).Select(r => r.FormKey.ToString()).ToList();
         Need(foreign.Count == 0, $"plugin contains foreign override records (must never override SQ_Followers/SQ_Groups): {string.Join(", ", foreign)}");
         var lowIds = allRecs.Where(r => r.FormKey.ModKey == Plugin && r.FormKey.ID < 0x800).Select(r => r.FormKey.ToString()).ToList();
         Need(lowIds.Count == 0, $"plugin contains low-range FormIDs (<0x800): {string.Join(", ", lowIds)}");
+        var dupEdids = allRecs.Where(r => !string.IsNullOrEmpty(r.EditorID) && core.ContainsKey(r.EditorID)).Select(r => r.EditorID!).ToList();
+        Need(dupEdids.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupEdids)}");
 
         // 1. Quest & RefCollectionAlias ActiveSquad check
         var q = mod.Quests.FirstOrDefault(x => x.FormKey == Own(QuestId));
@@ -713,8 +813,16 @@ static class CompanionsCore
                  (ca.ReferenceAlias.PackageData?.Any(p => p.FormKey == tpl.FollowPackage) ?? false),
                 "ActiveSquad RefCollectionAlias missing Optional|AllowReserved or DefaultMaster_FollowPackage");
             var scripts = q.VirtualMachineAdapter?.Scripts.ToList() ?? new();
-            Need(scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == 24,
-                $"{QuestEdid} script {QuestScript} missing or property count != 24");
+            int wantPropCount = opts.NoTestCell ? 24 : 26;
+            Need(scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == wantPropCount,
+                $"{QuestEdid} script {QuestScript} missing or property count != {wantPropCount}");
+            if (scripts.Count == 1)
+            {
+                FormKey PropObj(string name) =>
+                    (scripts[0].Properties.FirstOrDefault(p => p.Name == name) as IScriptObjectPropertyGetter)?.Object.FormKey ?? FormKey.Null;
+                Need(PropObj("CharismaAV") == charismaAvKey, "CharismaAV not bound to FO4SFCoreValues.esm:0x813");
+                Need(PropObj("TestModeGlobal") == testModeGlobKey, "TestModeGlobal not bound to FO4SFCoreValues.esm:0x860");
+            }
         }
 
         // 2. Globals check
@@ -777,24 +885,33 @@ static class CompanionsCore
             "FACT FO4SF_SquadAllyFaction missing Ally relation to PlayerFaction");
 
         // 5. SquadTestCell + 4 Persistent Fireteam Recruits + 1 Story Companion check
-        var cell = mod.Cells.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).FirstOrDefault(c => c.FormKey == Own(SquadTestCellId));
-        Need(cell != null && cell.EditorID == "FO4SF_SquadTestCell" && (cell.Flags?.HasFlag(Cell.Flag.IsInteriorCell) == true),
-            "CELL 0x830 (FO4SF_SquadTestCell) missing or not flagged IsInteriorCell");
-        if (cell != null)
+        var cells = mod.Cells.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).ToList();
+        if (opts.NoTestCell)
         {
-            foreach (var fs in FireteamSpecs)
+            Need(cells.Count == 0, $"expected 0 CELL under --no-test-cell, got {cells.Count}");
+            Need(mod.Npcs.Count == 0, $"expected 0 test NPC_ under --no-test-cell, got {mod.Npcs.Count}");
+        }
+        else
+        {
+            var cell = cells.FirstOrDefault(c => c.FormKey == Own(SquadTestCellId));
+            Need(cell != null && cell.EditorID == "FO4SF_SquadTestCell" && (cell.Flags?.HasFlag(Cell.Flag.IsInteriorCell) == true),
+                "CELL 0x830 (FO4SF_SquadTestCell) missing or not flagged IsInteriorCell");
+            if (cell != null)
             {
-                var npc = mod.Npcs.FirstOrDefault(n => n.FormKey == Own(fs.NpcId));
-                var achr = cell.Persistent.OfType<IPlacedNpcGetter>().FirstOrDefault(r => r.FormKey == Own(fs.RefId));
-                Need(npc != null && npc.EditorID == fs.NpcEdid && !npc.Flags.HasFlag(Npc.Flag.Essential) && npc.Flags.HasFlag(Npc.Flag.Protected),
-                    $"Fireteam NPC {fs.NpcEdid} missing or not mortal/Protected");
-                Need(achr != null && achr.EditorID == fs.RefEdid && achr.Base.FormKey == Own(fs.NpcId) && (achr.MajorRecordFlagsRaw & 0x400) != 0,
-                    $"Fireteam ACHR {fs.RefEdid} missing or not Persistent");
+                foreach (var fs in FireteamSpecs)
+                {
+                    var npc = mod.Npcs.FirstOrDefault(n => n.FormKey == Own(fs.NpcId));
+                    var achr = cell.Persistent.OfType<IPlacedNpcGetter>().FirstOrDefault(r => r.FormKey == Own(fs.RefId));
+                    Need(npc != null && npc.EditorID == fs.NpcEdid && !npc.Flags.HasFlag(Npc.Flag.Essential) && npc.Flags.HasFlag(Npc.Flag.Protected),
+                        $"Fireteam NPC {fs.NpcEdid} missing or not mortal/Protected");
+                    Need(achr != null && achr.EditorID == fs.RefEdid && achr.Base.FormKey == Own(fs.NpcId) && (achr.MajorRecordFlagsRaw & 0x400) != 0,
+                        $"Fireteam ACHR {fs.RefEdid} missing or not Persistent");
+                }
+                var sNpc = mod.Npcs.FirstOrDefault(n => n.FormKey == Own(StoryCompanionNpcId));
+                var sRef = cell.Persistent.OfType<IPlacedNpcGetter>().FirstOrDefault(r => r.FormKey == Own(StoryCompanionRefId));
+                Need(sNpc != null && sNpc.Flags.HasFlag(Npc.Flag.Essential) && sRef != null && (sRef.MajorRecordFlagsRaw & 0x400) != 0,
+                    "Story Companion NPC/ACHR (0x839/0x83A) missing or not Essential+Persistent");
             }
-            var sNpc = mod.Npcs.FirstOrDefault(n => n.FormKey == Own(StoryCompanionNpcId));
-            var sRef = cell.Persistent.OfType<IPlacedNpcGetter>().FirstOrDefault(r => r.FormKey == Own(StoryCompanionRefId));
-            Need(sNpc != null && sNpc.Flags.HasFlag(Npc.Flag.Essential) && sRef != null && (sRef.MajorRecordFlagsRaw & 0x400) != 0,
-                "Story Companion NPC/ACHR (0x839/0x83A) missing or not Essential+Persistent");
         }
 
         foreach (var x in problems) Console.WriteLine("FAIL  " + x);
@@ -878,17 +995,15 @@ static class CompanionsCore
         return 0;
     }
 
-    static StarfieldMod OpenMutablePlugin(string pluginPath)
-    {
-        var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
-        styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
-        return StarfieldMod.CreateFromBinary(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
-    }
+    static StarfieldMod OpenMutablePlugin(string pluginPath) =>
+        StarfieldMod.CreateFromBinary(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = MasterStyles() });
 
     public static int SelfTest(string scratchDir)
     {
+        if (Directory.Exists(scratchDir)) Directory.Delete(scratchDir, true);
         Directory.CreateDirectory(scratchDir);
-        var defOpts = new BuildOptions(2, 4, 250, 0.15f);
+        var jsonPath = DefaultJsonPath();
+        var defOpts = new BuildOptions(2, 4, 250, 0.15f, NoTestCell: false, JsonPath: jsonPath);
         foreach (var mode in new[] { "full", "minimal" })
         {
             var mDir = Path.Combine(scratchDir, "m_" + mode);
@@ -900,7 +1015,26 @@ static class CompanionsCore
         }
 
         var fullSf = Path.Combine(scratchDir, "m_full", "Starfield.esm");
-        var customOpts = new BuildOptions(3, 6, 400, 0.20f);
+        var cleanPlugin = Path.Combine(scratchDir, "b_full", Plugin.FileName);
+
+        // Byte-identical determinism check
+        var bDir2 = Path.Combine(scratchDir, "b_full_2");
+        if (Build(fullSf, bDir2, defOpts) != 0) throw new Refusal("second full build failed");
+        if (!File.ReadAllBytes(cleanPlugin).SequenceEqual(File.ReadAllBytes(Path.Combine(bDir2, Plugin.FileName))))
+            throw new Refusal("default FO4SFCompanions.esm build is not byte-identical");
+
+        // --no-test-cell build & cross-mode rejection checks
+        var playerOpts = new BuildOptions(2, 4, 250, 0.15f, NoTestCell: true, JsonPath: jsonPath);
+        var playerDir = Path.Combine(scratchDir, "b_player");
+        if (Build(fullSf, playerDir, playerOpts) != 0) throw new Refusal("build --no-test-cell failed");
+        var playerPlugin = Path.Combine(playerDir, Plugin.FileName);
+        if (Check(playerPlugin, fullSf, playerOpts) != 0) throw new Refusal("check --no-test-cell failed");
+        if (Check(cleanPlugin, fullSf, playerOpts) == 0)
+            throw new Refusal("Check --no-test-cell failed to reject plugin containing test cell");
+        if (Check(playerPlugin, fullSf, defOpts) == 0)
+            throw new Refusal("default Check failed to reject plugin missing test cell");
+
+        var customOpts = new BuildOptions(3, 6, 400, 0.20f, NoTestCell: false, JsonPath: jsonPath);
         var optDir = Path.Combine(scratchDir, "b_opt");
         if (Build(fullSf, optDir, customOpts) != 0) throw new Refusal("build custom options failed");
         if (Check(Path.Combine(optDir, Plugin.FileName), fullSf, customOpts) != 0) throw new Refusal("check custom options failed");
@@ -908,7 +1042,6 @@ static class CompanionsCore
             throw new Refusal("check failed to reject mismatched cap/cost options");
 
         // 7 tamper negative controls
-        var cleanPlugin = Path.Combine(scratchDir, "b_full", Plugin.FileName);
         int tIdx = 0;
         void ExpectTamperFail(string label, Action<StarfieldMod> mutate)
         {
@@ -916,7 +1049,7 @@ static class CompanionsCore
             var tDir = Path.Combine(scratchDir, $"tamper_{tIdx}");
             var mod = OpenMutablePlugin(cleanPlugin);
             mutate(mod);
-            Write(mod, tDir, SfEsm);
+            Write(mod, tDir, ExpectedMasters);
             if (Check(Path.Combine(tDir, Plugin.FileName), fullSf, defOpts) == 0)
                 throw new Refusal($"tamper #{tIdx} ({label}) unexpectedly passed Check");
         }
@@ -952,7 +1085,7 @@ static class CompanionsCore
         ExpectTamperFail("missing_fireteam_achr", m =>
             m.Cells[0].SubBlocks[0].Cells[0].Persistent.RemoveAt(0));
 
-        Console.WriteLine("selftest: ok (full + minimal fixtures, custom cap/cost options, and 7 tamper controls passed)");
+        Console.WriteLine("selftest: ok (full + minimal fixtures, --no-test-cell, custom cap/cost options, and 7 tamper controls passed)");
         return 0;
     }
 }

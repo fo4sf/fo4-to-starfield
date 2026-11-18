@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import make_power_armor_core as mpac  # noqa: E402
 import power_armor_core_install as paci  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.powerarmor import core_log  # noqa: E402
 
 PSC_PATH = ROOT / "scripts" / "powerarmor" / "FO4SF_PowerArmorCoreQuest.psc"
@@ -60,6 +61,10 @@ def make_fake_content_resources(zip_path, omit=()):
             ] if key not in omit_set
         ) + "\nScriptname ScriptObject Native\n",
         "Scripts/Source/Form.psc": "Scriptname Form extends ScriptObject Native\nint Function GetFormID() native\n",
+        "Scripts/Source/GlobalVariable.psc": (
+            "Scriptname GlobalVariable extends Form Native\n"
+            + ("" if "GlobalVariable.GetValue" in omit_set else "float Function GetValue() native\n")
+        ),
         "Scripts/Source/Quest.psc": "Scriptname Quest extends Form Native\nbool Function GetStageDone(int aiStage)\nEndFunction\n",
         "Scripts/Source/ObjectReference.psc": (
             "Scriptname ObjectReference extends Form Native\n"
@@ -153,15 +158,27 @@ class PowerArmorCoreScriptAndContractTests(unittest.TestCase):
             self.assertIsNotNone(m, f"missing {name} in {PSC_PATH.name}")
             self.assertEqual(int(m.group(1), 16), cs_ids[name], f"FormID mismatch for {name}")
 
-    def test_psc_has_zero_properties_and_zero_reserved_type_variable_names(self):
+    def test_psc_has_exact_core_values_properties_and_zero_reserved_type_variable_names(self):
         self.assertTrue(PSC_TEXT.startswith("Scriptname FO4SF_PowerArmorCoreQuest extends Quest"))
-        self.assertNotIn(" Property ", PSC_TEXT)
-        self.assertIsNone(re.search(r"^\s*\w+(\[\])?\s+\w+\s+Auto\b", PSC_TEXT, re.M | re.I))
+        props = re.findall(r"^\s*(\w+)\s+Property\s+(\w+)\s+Auto\s+Const\b", PSC_TEXT, re.M)
+        self.assertEqual(
+            props,
+            [("ActorValue", "SpecialAgilityAV"), ("GlobalVariable", "TestModeGlobal")],
+        )
+        all_props = re.findall(r"\bProperty\s+(\w+)\b", PSC_TEXT)
+        self.assertEqual(all_props, ["SpecialAgilityAV", "TestModeGlobal"])
+        self.assertNotIn("FO4SFNewGame.esm", PSC_TEXT)
+        self.assertIn("if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", PSC_TEXT)
+        self.assertEqual(CORE_VALUES_PLUGIN, "FO4SFCoreValues.esm")
+        self.assertEqual(mpac.SPECIAL_AGILITY_ID, core_form_id("FO4SF_Special_Agility"))
+        self.assertEqual(mpac.SPECIAL_AGILITY_ID, 0x815)
+        self.assertEqual(mpac.TEST_MODE_GLOBAL_ID, core_form_id("FO4SF_TestModeEnabled"))
+        self.assertEqual(mpac.TEST_MODE_GLOBAL_ID, 0x860)
 
         reserved_types = {
             "race", "cell", "form", "actor", "quest", "furniture", "keyword", "spell",
             "game", "debug", "utility", "math", "objectreference", "scriptobject",
-            "actorvalue", "int", "float", "string", "bool",
+            "actorvalue", "globalvariable", "int", "float", "string", "bool",
         }
         decls = re.findall(r"^\s*(?:[A-Za-z:]+(?:\[\])?)\s+(\w+)\s*(?:=|$)", PSC_TEXT, re.M)
         params = [
@@ -210,36 +227,58 @@ class PowerArmorCoreScriptAndContractTests(unittest.TestCase):
 
 
 class StageFoldVerifyAndInstallTests(unittest.TestCase):
-    def _make_synthetic_stage(self, root_dir):
+    def _make_synthetic_stage(self, root_dir, no_test_cell=False, stage_name="stage-v1"):
         sf_path = os.path.join(root_dir, "Starfield.esm")
-        with open(sf_path, "wb") as f:
-            f.write(b"TES4-SYNTH-STARFIELD")
+        if not os.path.exists(sf_path):
+            with open(sf_path, "wb") as f:
+                f.write(b"TES4-SYNTH-STARFIELD")
         cr_zip = os.path.join(root_dir, "ContentResources.zip")
-        make_fake_content_resources(cr_zip)
+        if not os.path.exists(cr_zip):
+            make_fake_content_resources(cr_zip)
         comp = make_fake_compiler(root_dir)
-        stage_dir = os.path.join(root_dir, "stage-v1")
+        stage_dir = os.path.join(root_dir, stage_name)
+        seen_cmds = []
 
         def fake_dotnet_run(cmd, **kwargs):
+            seen_cmds.append(list(cmd))
             if "build" in cmd:
                 out_idx = cmd.index("build") + 2
                 out_d = cmd[out_idx]
                 os.makedirs(out_d, exist_ok=True)
+                payload = b"TES4-FO4SFPOWERARMOR-SYNTH"
+                if "--no-test-cell" not in cmd:
+                    payload += b":FO4SF_PATestCell"
                 with open(os.path.join(out_d, mpac.PLUGIN), "wb") as ef:
-                    ef.write(b"TES4-FO4SFPOWERARMOR-SYNTH")
+                    ef.write(payload)
                 return subprocess.CompletedProcess(cmd, 0, stdout="wrote synthetic FO4SFPowerArmor.esm\n", stderr="")
             return subprocess.CompletedProcess(cmd, 0, stdout="check ok\n", stderr="")
 
         from unittest import mock
+        argv = [
+            "stage",
+            "--out", stage_dir,
+            "--starfield", sf_path,
+            "--compiler", comp,
+            "--content-resources", cr_zip,
+        ] + (["--no-test-cell"] if no_test_cell else [])
         with mock.patch.object(mpac, "run", side_effect=fake_dotnet_run):
-            rc = mpac.main([
-                "stage",
-                "--out", stage_dir,
-                "--starfield", sf_path,
-                "--compiler", comp,
-                "--content-resources", cr_zip,
-            ])
+            rc = mpac.main(argv)
         self.assertEqual(rc, 0)
+        if no_test_cell:
+            self.assertTrue(all("--no-test-cell" in c for c in seen_cmds))
         return sf_path, cr_zip, stage_dir
+
+    def test_stage_and_verify_no_test_cell_mode(self):
+        with tempfile.TemporaryDirectory() as td:
+            sf_path, _, default_stage = self._make_synthetic_stage(td, no_test_cell=False, stage_name="stage-default")
+            _, _, nocell_stage = self._make_synthetic_stage(td, no_test_cell=True, stage_name="stage-nocell")
+            self.assertEqual(mpac.main(["verify", "--dir", default_stage, "--starfield", sf_path]), 0)
+            self.assertEqual(mpac.main(["verify", "--dir", default_stage, "--no-test-cell"]), 1)
+            self.assertEqual(mpac.main(["verify", "--dir", nocell_stage, "--starfield", sf_path]), 0)
+            self.assertEqual(mpac.main(["verify", "--dir", nocell_stage, "--no-test-cell", "--starfield", sf_path]), 0)
+            plan = json.loads(Path(nocell_stage, "plan.json").read_text(encoding="utf-8"))
+            self.assertTrue(plan["no_test_cell"])
+            self.assertEqual(plan["masters"], ["Starfield.esm", "FO4SFCoreValues.esm"])
 
     def test_precheck_passes_and_detects_missing_declarations(self):
         with tempfile.TemporaryDirectory() as td:

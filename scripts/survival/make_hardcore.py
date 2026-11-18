@@ -27,6 +27,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "scripts", "newgame"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from make_newgame import declares, extract_sources, new_partial, run  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.survival import hardcore_log  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "HardcoreToggle")
@@ -201,6 +202,14 @@ def stage(a):
         "options": {"default_hardcore": a.default_hardcore},
         "templates": template_line(wrote),
         "sq_env_boundary": "0x248D20 untouched (zero overrides; read-only IsRunning() check)",
+        "shared_core_values": {
+            "FO4SF_HardcoreEnabled": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_HardcoreEnabled'):03X}",
+            "FO4SF_Hunger": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_Hunger'):03X}",
+            "FO4SF_Thirst": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_Thirst'):03X}",
+            "FO4SF_SleepDeprivation": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_SleepDeprivation'):03X}",
+            "FO4SF_Stimpak": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_Stimpak'):03X}",
+            "FO4SF_TestModeEnabled": f"{CORE_VALUES_PLUGIN}:0x{core_form_id('FO4SF_TestModeEnabled'):03X}",
+        },
         "log": "<My Games>/Starfield/Logs/Script/User/FO4SFHardcore.0.log",
     }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -209,13 +218,14 @@ def stage(a):
         f.write(f"""Fallout Hardcore & Survival GPOF Toggle ({datetime.date.today().isoformat()}). docs/survival/hardcore-toggle.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}):
   GPOF FO4SF_GPO_Hardcore (0x800, default {a.default_hardcore}) in GPOG FO4SF_GPOG_Hardcore (0x801);
-  GLOB FO4SF_HardcoreEnabled (0x802), FO4SF_HungerStage (0x807), FO4SF_ThirstStage (0x808),
-       FO4SF_SleepStage (0x809), FO4SF_HardcoreFastTravelBlocked (0x80A);
-  AVIF FO4SF_Hunger (0x803), FO4SF_Thirst (0x804), FO4SF_SleepDeprivation (0x805), FO4SF_AmmoWeightBurden (0x806);
-  Aid & Ammo: ALCH FO4SF_RationFood (0x820), FO4SF_PurifiedWater (0x821), FO4SF_Stimpak (0x822),
+  Shared in {CORE_VALUES_PLUGIN}: FO4SF_HardcoreEnabled (0x840), FO4SF_HardcoreFastTravelBlocked (0x841),
+       FO4SF_Hunger/Thirst/SleepDeprivation (0x842..0x844), FO4SF_HungerStage/ThirstStage/SleepStage (0x845..0x847),
+       FO4SF_Stimpak (0x851), SPECIAL AVIFs, FO4SF_TestModeEnabled (0x860);
+  Local AVIF, Aid & Ammo: AVIF FO4SF_AmmoWeightBurden (0x806), MGEF FO4SF_HungerReliefEffect/ThirstReliefEffect (0x810..0x811),
+       ALCH FO4SF_RationFood (0x820), FO4SF_PurifiedWater (0x821),
        AMMO FO4SF_CaliberLight/Rifle/Heavy (0x825..0x827) in FLST FO4SF_WeightedAmmoList (0x828);
-  QUST FO4SF_HardcoreQuest (0x830, StartGameEnabled, stages 5 and 10..50) + Data/Scripts/{SCRIPT}.pex.
-Master Starfield.esm only ({before}); adds records, overrides none (SQ_ENV 0x248D20 untouched).
+  QUST FO4SF_HardcoreQuest (0x830, StartGameEnabled, stages 5 and 10..50 gated by FO4SF_TestModeEnabled) + Data/Scripts/{SCRIPT}.pex.
+Masters Starfield.esm ({before}) and {CORE_VALUES_PLUGIN}; adds records, overrides none (SQ_ENV 0x248D20 untouched).
 Ride-along install (game closed):
   python scripts/survival/hardcore_install.py install --dir <stage dir> --starfield <game dir>
 Fold into core experiment set:

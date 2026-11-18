@@ -114,7 +114,7 @@ Function Trace(string msg)
 EndFunction
 
 Event OnQuestInit()
-    Trace("init quest=" + XMarkerBase)
+    Trace("init quest=" + (self as Quest))
     Actor p = Game.GetPlayer()
     if p != None
         RegisterForRemoteEvent(p, "OnPlayerLoadGame")

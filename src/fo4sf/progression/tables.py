@@ -17,6 +17,11 @@ from __future__ import annotations
 import math
 from typing import Iterable
 
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id
+
+PLUGIN_NAME = "FO4SFProgression.esm"
+PLUGIN_MASTERS: tuple[str, str] = ("Starfield.esm", CORE_VALUES_PLUGIN)
+
 SPECIAL_POOL_DEFAULT = 40
 SPECIAL_POOL_FO4_OPT = 28
 SPECIAL_MIN = 1
@@ -27,88 +32,78 @@ BACKGROUND_SKILL_BONUS = 10
 MAX_TRAITS = 2
 DEFAULT_PERK_CADENCE = 2
 
-# 1. Seven S.P.E.C.I.A.L. Attributes (0x800..0x806)
+SHARED_CORE_FORM_IDS: dict[str, int] = {
+    "SpecialAVList": core_form_id("FO4SF_SpecialAVList"),
+    "SkillAVList": core_form_id("FO4SF_SkillAVList"),
+    "KarmaAV": core_form_id("FO4SF_Karma"),
+    "KarmaGlobal": core_form_id("FO4SF_KarmaValue"),
+    "TestModeGlobal": core_form_id("FO4SF_TestModeEnabled"),
+}
+
+# 1. Seven S.P.E.C.I.A.L. Attributes (owned by FO4SFCoreValues.esm, 0x810..0x816)
 SPECIAL_TABLE: tuple[dict, ...] = (
-    {"id": 0x800, "edid": "FO4SF_Special_Strength", "key": "STR", "name": "Strength", "abbr": "STR"},
-    {"id": 0x801, "edid": "FO4SF_Special_Perception", "key": "PER", "name": "Perception", "abbr": "PER"},
-    {"id": 0x802, "edid": "FO4SF_Special_Endurance", "key": "END", "name": "Endurance", "abbr": "END"},
-    {"id": 0x803, "edid": "FO4SF_Special_Charisma", "key": "CHA", "name": "Charisma", "abbr": "CHA"},
-    {"id": 0x804, "edid": "FO4SF_Special_Intelligence", "key": "INT", "name": "Intelligence", "abbr": "INT"},
-    {"id": 0x805, "edid": "FO4SF_Special_Agility", "key": "AGI", "name": "Agility", "abbr": "AGI"},
-    {"id": 0x806, "edid": "FO4SF_Special_Luck", "key": "LCK", "name": "Luck", "abbr": "LCK"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Special_Strength"), "edid": "FO4SF_Special_Strength", "key": "STR", "name": "Strength", "abbr": "STR"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Special_Perception"), "edid": "FO4SF_Special_Perception", "key": "PER", "name": "Perception", "abbr": "PER"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Special_Endurance"), "edid": "FO4SF_Special_Endurance", "key": "END", "name": "Endurance", "abbr": "END"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Special_Charisma"), "edid": "FO4SF_Special_Charisma", "key": "CHA", "name": "Charisma", "abbr": "CHA"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Special_Intelligence"), "edid": "FO4SF_Special_Intelligence", "key": "INT", "name": "Intelligence", "abbr": "INT"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Special_Agility"), "edid": "FO4SF_Special_Agility", "key": "AGI", "name": "Agility", "abbr": "AGI"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Special_Luck"), "edid": "FO4SF_Special_Luck", "key": "LCK", "name": "Luck", "abbr": "LCK"},
 )
 
-# 2. Thirteen New Vegas Skills (0x810..0x81C)
+# 2. Thirteen New Vegas Skills (owned by FO4SFCoreValues.esm, 0x820..0x82C)
 SKILLS_TABLE: tuple[dict, ...] = (
-    {"id": 0x810, "edid": "FO4SF_Skill_Barter", "name": "Barter", "abbr": "Bar", "gov": "CHA"},
-    {"id": 0x811, "edid": "FO4SF_Skill_EnergyWeapons", "name": "Energy Weapons", "abbr": "EWp", "gov": "PER"},
-    {"id": 0x812, "edid": "FO4SF_Skill_Explosives", "name": "Explosives", "abbr": "Exp", "gov": "PER"},
-    {"id": 0x813, "edid": "FO4SF_Skill_Guns", "name": "Guns", "abbr": "Gun", "gov": "AGI"},
-    {"id": 0x814, "edid": "FO4SF_Skill_Lockpick", "name": "Lockpick", "abbr": "Lck", "gov": "PER"},
-    {"id": 0x815, "edid": "FO4SF_Skill_Medicine", "name": "Medicine", "abbr": "Med", "gov": "INT"},
-    {"id": 0x816, "edid": "FO4SF_Skill_MeleeWeapons", "name": "Melee Weapons", "abbr": "Mel", "gov": "STR"},
-    {"id": 0x817, "edid": "FO4SF_Skill_Repair", "name": "Repair", "abbr": "Rep", "gov": "INT"},
-    {"id": 0x818, "edid": "FO4SF_Skill_Science", "name": "Science", "abbr": "Sci", "gov": "INT"},
-    {"id": 0x819, "edid": "FO4SF_Skill_Sneak", "name": "Sneak", "abbr": "Snk", "gov": "AGI"},
-    {"id": 0x81A, "edid": "FO4SF_Skill_Speech", "name": "Speech", "abbr": "Spc", "gov": "CHA"},
-    {"id": 0x81B, "edid": "FO4SF_Skill_Survival", "name": "Survival", "abbr": "Srv", "gov": "END"},
-    {"id": 0x81C, "edid": "FO4SF_Skill_Unarmed", "name": "Unarmed", "abbr": "Unm", "gov": "END"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Barter"), "edid": "FO4SF_Skill_Barter", "name": "Barter", "abbr": "Bar", "gov": "CHA"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_EnergyWeapons"), "edid": "FO4SF_Skill_EnergyWeapons", "name": "Energy Weapons", "abbr": "EWp", "gov": "PER"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Explosives"), "edid": "FO4SF_Skill_Explosives", "name": "Explosives", "abbr": "Exp", "gov": "PER"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Guns"), "edid": "FO4SF_Skill_Guns", "name": "Guns", "abbr": "Gun", "gov": "AGI"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Lockpick"), "edid": "FO4SF_Skill_Lockpick", "name": "Lockpick", "abbr": "Lck", "gov": "PER"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Medicine"), "edid": "FO4SF_Skill_Medicine", "name": "Medicine", "abbr": "Med", "gov": "INT"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_MeleeWeapons"), "edid": "FO4SF_Skill_MeleeWeapons", "name": "Melee Weapons", "abbr": "Mel", "gov": "STR"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Repair"), "edid": "FO4SF_Skill_Repair", "name": "Repair", "abbr": "Rep", "gov": "INT"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Science"), "edid": "FO4SF_Skill_Science", "name": "Science", "abbr": "Sci", "gov": "INT"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Sneak"), "edid": "FO4SF_Skill_Sneak", "name": "Sneak", "abbr": "Snk", "gov": "AGI"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Speech"), "edid": "FO4SF_Skill_Speech", "name": "Speech", "abbr": "Spc", "gov": "CHA"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Survival"), "edid": "FO4SF_Skill_Survival", "name": "Survival", "abbr": "Srv", "gov": "END"},
+    {"plugin": CORE_VALUES_PLUGIN, "id": core_form_id("FO4SF_Skill_Unarmed"), "edid": "FO4SF_Skill_Unarmed", "name": "Unarmed", "abbr": "Unm", "gov": "END"},
 )
 
-# 3. Nine Wasteland Backgrounds (0x820..0x828) — choose 1 at creation
+# 3. Nine Wasteland Backgrounds (owned by FO4SFProgression.esm, 0x820..0x828) — choose 1 at creation
 BACKGROUNDS_TABLE: tuple[dict, ...] = (
-    {"id": 0x820, "edid": "FO4SF_BG_VaultDweller", "name": "Vault Dweller", "skills": ("Science", "Medicine", "Speech")},
-    {"id": 0x821, "edid": "FO4SF_BG_WastelandScavenger", "name": "Wasteland Scavenger", "skills": ("Repair", "Lockpick", "Survival")},
-    {"id": 0x822, "edid": "FO4SF_BG_CaravanGuard", "name": "Caravan Guard", "skills": ("Guns", "Barter", "Survival")},
-    {"id": 0x823, "edid": "FO4SF_BG_FieldMedic", "name": "Field Medic", "skills": ("Medicine", "Science", "Survival")},
-    {"id": 0x824, "edid": "FO4SF_BG_BrotherhoodScribe", "name": "Brotherhood Scribe", "skills": ("Energy Weapons", "Science", "Repair")},
-    {"id": 0x825, "edid": "FO4SF_BG_EnclaveRemnant", "name": "Enclave Remnant", "skills": ("Energy Weapons", "Speech", "Science")},
-    {"id": 0x826, "edid": "FO4SF_BG_TribalHunter", "name": "Tribal Hunter", "skills": ("Melee Weapons", "Sneak", "Survival")},
-    {"id": 0x827, "edid": "FO4SF_BG_DesertRanger", "name": "Desert Ranger", "skills": ("Guns", "Sneak", "Survival")},
-    {"id": 0x828, "edid": "FO4SF_BG_MinutemanVolunteer", "name": "Minuteman Volunteer", "skills": ("Guns", "Repair", "Speech")},
+    {"plugin": PLUGIN_NAME, "id": 0x820, "edid": "FO4SF_BG_VaultDweller", "name": "Vault Dweller", "skills": ("Science", "Medicine", "Speech")},
+    {"plugin": PLUGIN_NAME, "id": 0x821, "edid": "FO4SF_BG_WastelandScavenger", "name": "Wasteland Scavenger", "skills": ("Repair", "Lockpick", "Survival")},
+    {"plugin": PLUGIN_NAME, "id": 0x822, "edid": "FO4SF_BG_CaravanGuard", "name": "Caravan Guard", "skills": ("Guns", "Barter", "Survival")},
+    {"plugin": PLUGIN_NAME, "id": 0x823, "edid": "FO4SF_BG_FieldMedic", "name": "Field Medic", "skills": ("Medicine", "Science", "Survival")},
+    {"plugin": PLUGIN_NAME, "id": 0x824, "edid": "FO4SF_BG_BrotherhoodScribe", "name": "Brotherhood Scribe", "skills": ("Energy Weapons", "Science", "Repair")},
+    {"plugin": PLUGIN_NAME, "id": 0x825, "edid": "FO4SF_BG_EnclaveRemnant", "name": "Enclave Remnant", "skills": ("Energy Weapons", "Speech", "Science")},
+    {"plugin": PLUGIN_NAME, "id": 0x826, "edid": "FO4SF_BG_TribalHunter", "name": "Tribal Hunter", "skills": ("Melee Weapons", "Sneak", "Survival")},
+    {"plugin": PLUGIN_NAME, "id": 0x827, "edid": "FO4SF_BG_DesertRanger", "name": "Desert Ranger", "skills": ("Guns", "Sneak", "Survival")},
+    {"plugin": PLUGIN_NAME, "id": 0x828, "edid": "FO4SF_BG_MinutemanVolunteer", "name": "Minuteman Volunteer", "skills": ("Guns", "Repair", "Speech")},
 )
 
-# 4. Nine Trade-Off Traits (0x830..0x838) — choose 0..2 at creation, 1 free exit respec
+# 4. Nine Trade-Off Traits (owned by FO4SFProgression.esm, 0x830..0x838) — choose 0..2 at creation, 1 free exit respec
 TRAITS_TABLE: tuple[dict, ...] = (
-    {"id": 0x830, "edid": "FO4SF_Trait_SmallFrame", "name": "Small Frame", "upside": "AGI +1", "downside": "CarryWeight -15"},
-    {"id": 0x831, "edid": "FO4SF_Trait_TriggerDiscipline", "name": "Trigger Discipline", "upside": "Guns/EWp +10", "downside": "ReloadSpeed -0.15"},
-    {"id": 0x832, "edid": "FO4SF_Trait_FastShot", "name": "Fast Shot", "upside": "ReloadSpeed +0.20", "downside": "Guns/EWp -5"},
-    {"id": 0x833, "edid": "FO4SF_Trait_Kamikaze", "name": "Kamikaze", "upside": "ActionPoints +15", "downside": "DamageResist -15"},
-    {"id": 0x834, "edid": "FO4SF_Trait_HeavyHanded", "name": "Heavy Handed", "upside": "Melee/Unarmed +10", "downside": "LCK -1"},
-    {"id": 0x835, "edid": "FO4SF_Trait_FourEyes", "name": "Four Eyes", "upside": "PER +2 with eyewear", "downside": "Base PER -1"},
-    {"id": 0x836, "edid": "FO4SF_Trait_GoodNatured", "name": "Good Natured", "upside": "Speech/Med/Repair/Sci/Barter +5", "downside": "Combat skills -5"},
-    {"id": 0x837, "edid": "FO4SF_Trait_Skilled", "name": "Skilled", "upside": "All 13 skills +5", "downside": "XP gain -10%"},
-    {"id": 0x838, "edid": "FO4SF_Trait_WildWasteland", "name": "Wild Wasteland", "upside": "Unlocks uncanny encounters", "downside": "Alters rare world events"},
+    {"plugin": PLUGIN_NAME, "id": 0x830, "edid": "FO4SF_Trait_SmallFrame", "name": "Small Frame", "upside": "AGI +1", "downside": "CarryWeight -15"},
+    {"plugin": PLUGIN_NAME, "id": 0x831, "edid": "FO4SF_Trait_TriggerDiscipline", "name": "Trigger Discipline", "upside": "Guns/EWp +10", "downside": "ReloadSpeed -0.15"},
+    {"plugin": PLUGIN_NAME, "id": 0x832, "edid": "FO4SF_Trait_FastShot", "name": "Fast Shot", "upside": "ReloadSpeed +0.20", "downside": "Guns/EWp -5"},
+    {"plugin": PLUGIN_NAME, "id": 0x833, "edid": "FO4SF_Trait_Kamikaze", "name": "Kamikaze", "upside": "ActionPoints +15", "downside": "DamageResist -15"},
+    {"plugin": PLUGIN_NAME, "id": 0x834, "edid": "FO4SF_Trait_HeavyHanded", "name": "Heavy Handed", "upside": "Melee/Unarmed +10", "downside": "LCK -1"},
+    {"plugin": PLUGIN_NAME, "id": 0x835, "edid": "FO4SF_Trait_FourEyes", "name": "Four Eyes", "upside": "PER +2 with eyewear", "downside": "Base PER -1"},
+    {"plugin": PLUGIN_NAME, "id": 0x836, "edid": "FO4SF_Trait_GoodNatured", "name": "Good Natured", "upside": "Speech/Med/Repair/Sci/Barter +5", "downside": "Combat skills -5"},
+    {"plugin": PLUGIN_NAME, "id": 0x837, "edid": "FO4SF_Trait_Skilled", "name": "Skilled", "upside": "All 13 skills +5", "downside": "XP gain -10%"},
+    {"plugin": PLUGIN_NAME, "id": 0x838, "edid": "FO4SF_Trait_WildWasteland", "name": "Wild Wasteland", "upside": "Unlocks uncanny encounters", "downside": "Alters rare world events"},
 )
 
-# 5. Eight Core Playable Perks (0x840..0x847) — unlocked on GLOB-driven cadence
+# 5. Eight Core Playable Perks (owned by FO4SFProgression.esm, 0x840..0x847) — unlocked on GLOB-driven cadence
 PERKS_TABLE: tuple[dict, ...] = (
-    {"id": 0x840, "edid": "FO4SF_Perk_Educated", "name": "Educated", "min_level": 4, "req_special": {"INT": 4}, "req_skills": {}},
-    {"id": 0x841, "edid": "FO4SF_Perk_Comprehension", "name": "Comprehension", "min_level": 4, "req_special": {"INT": 4}, "req_skills": {}},
-    {"id": 0x842, "edid": "FO4SF_Perk_StrongBack", "name": "Strong Back", "min_level": 8, "req_special": {"STR": 5, "END": 5}, "req_skills": {}},
-    {"id": 0x843, "edid": "FO4SF_Perk_Toughness", "name": "Toughness", "min_level": 6, "req_special": {"END": 5}, "req_skills": {}},
-    {"id": 0x844, "edid": "FO4SF_Perk_Finesse", "name": "Finesse", "min_level": 10, "req_special": {"LCK": 5}, "req_skills": {}},
-    {"id": 0x845, "edid": "FO4SF_Perk_Commando", "name": "Commando", "min_level": 8, "req_special": {"AGI": 6}, "req_skills": {"Guns": 45}},
-    {"id": 0x846, "edid": "FO4SF_Perk_JuryRigging", "name": "Jury Rigging", "min_level": 14, "req_special": {}, "req_skills": {"Repair": 90}},
-    {"id": 0x847, "edid": "FO4SF_Perk_ActionPerson", "name": "Action Boy", "min_level": 12, "req_special": {"AGI": 6}, "req_skills": {}},
-)
-
-# 6. Core Faction REPU Store Entries (0x860..0x86B Fame/Infamy GLOB pairs)
-REPU_FACTIONS_TABLE: tuple[dict, ...] = (
-    {"slug": "Minutemen", "fame_id": 0x860, "infamy_id": 0x861, "name": "Commonwealth Minutemen"},
-    {"slug": "Brotherhood", "fame_id": 0x862, "infamy_id": 0x863, "name": "Brotherhood of Steel"},
-    {"slug": "Railroad", "fame_id": 0x864, "infamy_id": 0x865, "name": "The Railroad"},
-    {"slug": "Institute", "fame_id": 0x866, "infamy_id": 0x867, "name": "The Institute"},
-    {"slug": "NCR", "fame_id": 0x868, "infamy_id": 0x869, "name": "New California Republic"},
-    {"slug": "WastelandSettlers", "fame_id": 0x86A, "infamy_id": 0x86B, "name": "Wasteland Settlers"},
-)
-
-# New Vegas 4x4 Reputation Title Matrix: REPU_MATRIX[fame_tier][infamy_tier]
-REPU_MATRIX: tuple[tuple[str, str, str, str], ...] = (
-    ("Neutral", "Shunned", "Hated", "Vilified"),
-    ("Accepted", "Sneering Punk", "Merciful Thug", "Soft-Hearted Devil"),
-    ("Liked", "Good-Natured Rascal", "Mixed", "Dark Hero"),
-    ("Idolized", "Smiling Troublemaker", "Unpredictable", "Wild Child"),
+    {"plugin": PLUGIN_NAME, "id": 0x840, "edid": "FO4SF_Perk_Educated", "name": "Educated", "min_level": 4, "req_special": {"INT": 4}, "req_skills": {}},
+    {"plugin": PLUGIN_NAME, "id": 0x841, "edid": "FO4SF_Perk_Comprehension", "name": "Comprehension", "min_level": 4, "req_special": {"INT": 4}, "req_skills": {}},
+    {"plugin": PLUGIN_NAME, "id": 0x842, "edid": "FO4SF_Perk_StrongBack", "name": "Strong Back", "min_level": 8, "req_special": {"STR": 5, "END": 5}, "req_skills": {}},
+    {"plugin": PLUGIN_NAME, "id": 0x843, "edid": "FO4SF_Perk_Toughness", "name": "Toughness", "min_level": 6, "req_special": {"END": 5}, "req_skills": {}},
+    {"plugin": PLUGIN_NAME, "id": 0x844, "edid": "FO4SF_Perk_Finesse", "name": "Finesse", "min_level": 10, "req_special": {"LCK": 5}, "req_skills": {}},
+    {"plugin": PLUGIN_NAME, "id": 0x845, "edid": "FO4SF_Perk_Commando", "name": "Commando", "min_level": 8, "req_special": {"AGI": 6}, "req_skills": {"Guns": 45}},
+    {"plugin": PLUGIN_NAME, "id": 0x846, "edid": "FO4SF_Perk_JuryRigging", "name": "Jury Rigging", "min_level": 14, "req_special": {}, "req_skills": {"Repair": 90}},
+    {"plugin": PLUGIN_NAME, "id": 0x847, "edid": "FO4SF_Perk_ActionPerson", "name": "Action Boy", "min_level": 12, "req_special": {"AGI": 6}, "req_skills": {}},
 )
 
 
@@ -242,37 +237,3 @@ def karma_tier(karma: float) -> str:
     if clamped < 750.0:
         return "Good"
     return "Very Good"
-
-
-def _repu_axis_tier(val: float) -> int:
-    v = max(0.0, min(100.0, float(val)))
-    if v >= 75.0:
-        return 3
-    if v >= 45.0:
-        return 2
-    if v >= 15.0:
-        return 1
-    return 0
-
-
-def evaluate_faction_repu(fame: float, infamy: float) -> dict[str, object]:
-    """Evaluate per-faction REPU independently of Karma (fame/infamy 0..100 -> 16-state NV matrix + disposition)."""
-    ft = _repu_axis_tier(fame)
-    it = _repu_axis_tier(infamy)
-    title = REPU_MATRIX[ft][it]
-    if it >= 2 and ft <= 1:
-        disposition = "Enemy"
-        price_mult = 1.35
-    elif ft >= 2 and it == 0:
-        disposition = "Ally"
-        price_mult = 0.85 if ft == 3 else 0.92
-    else:
-        disposition = "Neutral"
-        price_mult = 1.0 + 0.05 * it - 0.03 * ft
-    return {
-        "fame_tier": ft,
-        "infamy_tier": it,
-        "title": title,
-        "disposition": disposition,
-        "vendor_price_mult": round(price_mult, 3),
-    }

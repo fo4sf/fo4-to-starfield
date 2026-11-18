@@ -1,7 +1,7 @@
 // CoreCandidate: Unified console-free exterior walk harness for gemini/core-candidate (docs/testing/core-candidate-pc-card.md).
 //
-// Writes FO4SFCoreCandidate.esm (sole master Starfield.esm; adds records only, zero foreign overrides):
-//   0x800 QUST FO4SF_CoreCandidateWalkQuest    (StartGameEnabled, stages 10/20/30/40/50, script FO4SF_CoreCandidateWalk)
+// Writes FO4SFCoreCandidate.esm (masters Starfield.esm + FO4SFCoreValues.esm; zero foreign overrides):
+//   0x800 QUST FO4SF_CoreCandidateWalkQuest    (StartGameEnabled, stages 10/20/30/40/50, script FO4SF_CoreCandidateWalk, TestModeGlobal bound)
 //   0x801 ACTI FO4SF_ChargenRebuildKiosk       (cloned from vanilla activator 0x001CCAC2, console-free character creation kiosk)
 //   0x802 MESG FO4SF_Msg_ChargenBackground     (MessageBox: choose 1 Background)
 //   0x803 MESG FO4SF_Msg_ChargenTrait1         (MessageBox: choose Trait #1 or None)
@@ -15,6 +15,7 @@
 //   CoreCandidate fixture <out_dir>
 //   CoreCandidate selftest <scratch_dir>
 
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -44,6 +45,7 @@ public static class CoreCandidate
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    static readonly ModKey CoreValuesEsm = ModKey.FromFileName("FO4SFCoreValues.esm");
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFCoreCandidate.esm");
 
     public const uint TemplateActiId = 0x001CCAC2;
@@ -97,10 +99,31 @@ public static class CoreCandidate
     static FormKey Own(uint id) => new(Plugin, id);
     static FormKey Sf(uint id) => new(SfEsm, id);
 
+    static uint LoadCoreValueId(string edid)
+    {
+        var dir = AppContext.BaseDirectory;
+        string? jsonPath = null;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var cand = Path.Combine(dir, "src", "fo4sf", "core", "core_values.json");
+            if (File.Exists(cand)) { jsonPath = cand; break; }
+        }
+        jsonPath ??= Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "core_values.json");
+        if (!File.Exists(jsonPath)) throw new Refusal("missing src/fo4sf/core/core_values.json");
+        using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
+        foreach (var el in doc.RootElement.GetProperty("records").EnumerateArray())
+        {
+            if (string.Equals(el.GetProperty("edid").GetString(), edid, StringComparison.OrdinalIgnoreCase))
+                return Convert.ToUInt32(el.GetProperty("id").GetString()!, 16);
+        }
+        throw new Refusal($"core_values.json missing {edid}");
+    }
+
     static IStarfieldModDisposableGetter OpenMod(string path, ModKey expectedKey)
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
         styles.Set(new KeyedMasterStyle(expectedKey, MasterStyle.Full));
         return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
@@ -135,6 +158,7 @@ public static class CoreCandidate
     public static int Build(string sfPath, string outDir)
     {
         if (!File.Exists(sfPath)) throw new Refusal("Starfield.esm missing: " + sfPath);
+        uint testModeGlobId = LoadCoreValueId("FO4SF_TestModeEnabled");
         using var sf = OpenMod(sfPath, SfEsm);
 
         var tplActi = sf.Activators.FirstOrDefault(a => a.FormKey == Sf(TemplateActiId))
@@ -173,6 +197,13 @@ public static class CoreCandidate
         };
         foreach (var s in Stages)
             quest.Stages.Add(new QuestStage { Index = s });
+        var se = new ScriptEntry { Name = ScriptName, Flags = ScriptEntry.Flag.Local };
+        se.Properties.Add(new ScriptObjectProperty
+        {
+            Name = "TestModeGlobal",
+            Flags = ScriptProperty.Flag.Edited,
+            Object = new FormLink<IStarfieldMajorRecordGetter>(new FormKey(CoreValuesEsm, testModeGlobId)),
+        });
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
@@ -180,22 +211,25 @@ public static class CoreCandidate
             ExtraBindDataVersion = 3,
             Script = new ScriptEntry { Name = "", Flags = ScriptEntry.Flag.Local },
         };
-        quest.VirtualMachineAdapter.Scripts.Add(new ScriptEntry { Name = ScriptName, Flags = ScriptEntry.Flag.Local });
+        quest.VirtualMachineAdapter.Scripts.Add(se);
         mod.Quests.Add(quest);
 
         mod.ModHeader.Stats.NextFormID = NextId;
         mod.ModHeader.MasterReferences.Clear();
         mod.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm, FileSize = 0 });
+        mod.ModHeader.MasterReferences.Add(new MasterReference { Master = CoreValuesEsm, FileSize = 0 });
 
         Directory.CreateDirectory(outDir);
         string outPath = Path.Combine(outDir, Plugin.FileName);
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
         styles.Set(new KeyedMasterStyle(Plugin, MasterStyle.Full));
         mod.WriteToBinary(outPath, new BinaryWriteParameters
         {
             ModKey = ModKeyOption.NoCheck,
             MastersListContent = MastersListContentOption.NoCheck,
+            MastersListOrdering = new MastersListOrderingByLoadOrder(new[] { SfEsm, CoreValuesEsm }),
             MasterFlagsLookup = styles,
         });
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length} bytes)");
@@ -206,13 +240,15 @@ public static class CoreCandidate
     {
         if (!File.Exists(pluginPath)) throw new Refusal("plugin missing: " + pluginPath);
         if (!File.Exists(sfPath)) throw new Refusal("Starfield.esm missing: " + sfPath);
+        uint testModeGlobId = LoadCoreValueId("FO4SF_TestModeEnabled");
         using var mod = OpenMod(pluginPath, Plugin);
 
         if (!mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master))
             throw new Refusal("header missing Master flag");
         var masters = mod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
-        if (masters.Count != 1 || !string.Equals(masters[0], "Starfield.esm", StringComparison.OrdinalIgnoreCase))
-            throw new Refusal($"masters must be [Starfield.esm], got [{string.Join(", ", masters)}]");
+        var wantMasters = new[] { "Starfield.esm", "FO4SFCoreValues.esm" };
+        if (!masters.SequenceEqual(wantMasters, StringComparer.OrdinalIgnoreCase))
+            throw new Refusal($"masters must be [Starfield.esm, FO4SFCoreValues.esm], got [{string.Join(", ", masters)}]");
 
         foreach (var rec in mod.EnumerateMajorRecords())
         {
@@ -224,6 +260,12 @@ public static class CoreCandidate
 
         if (mod.Quests.Count != 1 || mod.Quests.First().FormKey != Own(QuestId))
             throw new Refusal("expected QUST 0x800 FO4SF_CoreCandidateWalkQuest");
+        var q = mod.Quests.First();
+        var tProp = q.VirtualMachineAdapter?.Scripts.FirstOrDefault()?.Properties.OfType<IScriptObjectPropertyGetter>()
+            .FirstOrDefault(p => p.Name == "TestModeGlobal");
+        if (tProp == null || tProp.Object.FormKey != new FormKey(CoreValuesEsm, testModeGlobId))
+            throw new Refusal("expected TestModeGlobal bound to FO4SFCoreValues.esm FO4SF_TestModeEnabled");
+
         if (mod.Activators.Count != 1 || mod.Activators.First().FormKey != Own(KioskActiId))
             throw new Refusal("expected ACTI 0x801 FO4SF_ChargenRebuildKiosk");
         if (mod.Messages.Count != 3)
@@ -231,7 +273,7 @@ public static class CoreCandidate
         if (mod.MiscItems.Count != 2)
             throw new Refusal($"expected 2 MISC token records, got {mod.MiscItems.Count}");
 
-        Console.WriteLine($"FO4SFCoreCandidate.esm: header Master, masters [Starfield.esm], 1 QUST, 1 ACTI, 3 MESG, 2 MISC, zero foreign overrides; all checks pass");
+        Console.WriteLine($"FO4SFCoreCandidate.esm: header Master, masters [Starfield.esm, FO4SFCoreValues.esm], 1 QUST, 1 ACTI, 3 MESG, 2 MISC, zero foreign overrides; all checks pass");
         return 0;
     }
 

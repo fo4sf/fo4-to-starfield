@@ -5,8 +5,8 @@ bool Function IsInPowerArmor(Actor akActor) Global
     if akActor == None
         return false
     endif
-    Perk paPerk = Game.GetFormFromFile(0x0001F8A9, "FO4SFPowerArmor.esm") as Perk
-    if paPerk != None && akActor.HasPerk(paPerk)
+    ActorValue paAv = Game.GetFormFromFile(0x00080A, "FO4SFPowerArmor.esm") as ActorValue
+    if paAv != None && akActor.GetValue(paAv) >= 1.0
         return true
     endif
     Keyword paKeyword = Game.GetFormFromFile(0x0004D8A1, "FO4Port.esm") as Keyword

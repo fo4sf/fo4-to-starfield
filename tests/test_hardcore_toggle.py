@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.survival import hardcore_log  # noqa: E402
 
 spec_mh = importlib.util.spec_from_file_location("make_hardcore", ROOT / "scripts" / "survival" / "make_hardcore.py")
@@ -134,7 +135,16 @@ class PropertyParityTests(unittest.TestCase):
             for pm in re.finditer(r"^\s*\w+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)
         ]
         self.assertEqual(cs_props, psc_props)
-        self.assertEqual(len(cs_props), 23)
+        self.assertEqual(len(cs_props), 24)
+        self.assertEqual(cs_props[-1], "TestModeGlobal")
+        self.assertIn("TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", psc)
+        self.assertIn(CORE_VALUES_PLUGIN, cs)
+        self.assertEqual(core_form_id("FO4SF_HardcoreEnabled"), 0x840)
+        self.assertEqual(core_form_id("FO4SF_Hunger"), 0x842)
+        self.assertEqual(core_form_id("FO4SF_Thirst"), 0x843)
+        self.assertEqual(core_form_id("FO4SF_SleepDeprivation"), 0x844)
+        self.assertEqual(core_form_id("FO4SF_Stimpak"), 0x851)
+        self.assertEqual(core_form_id("FO4SF_TestModeEnabled"), 0x860)
 
 
 class HardcoreLogTests(unittest.TestCase):

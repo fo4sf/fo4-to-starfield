@@ -1,10 +1,7 @@
-"""Unit tests for Global Karma (-1000..+1000) and 16-state Faction Reputation (FO4SFReputation.esm)."""
-import json
+"""Unit tests for Global Karma (-1000..+1000 in FO4SFCoreValues.esm) and 16-state Faction Reputation (FO4SFReputation.esm)."""
 import os
 import re
-import shutil
 import stat
-import subprocess
 import sys
 import tempfile
 import time
@@ -19,13 +16,17 @@ sys.path.insert(0, str(REPO / "scripts" / "reputation"))
 
 import make_pipboy_kit  # noqa: E402
 import make_reputation_core  # noqa: E402
+from fo4sf.combined import reputation as combined_rep  # noqa: E402
 from fo4sf.reputation import (  # noqa: E402
     CORE_FACTIONS,
+    FNV_REPU_RECORDS,
     FO76_TIER_TO_FAME_INFAMY,
     KARMA_TIERS,
     NV_16_STATE_MATRIX,
+    PLUGIN_MASTERS,
     PLUGIN_NAME,
     RECORD_IDS,
+    SHARED_CORE_FORM_IDS,
     STATE_BY_CODE,
     TITLE_REPUTATION_TABLES,
     build_shell_manifest,
@@ -39,7 +40,9 @@ from fo4sf.reputation import (  # noqa: E402
     format_shell_tsv,
     inject_pipboy_kit_pages,
     parse_single_log,
+    reputation_state_index,
     resolve_log_chain,
+    slot_factions,
     stitch_and_evaluate_logs,
 )
 
@@ -47,42 +50,85 @@ DOTNET_ENABLED = os.environ.get("FO4SF_DOTNET_TESTS") == "1"
 
 
 class MatrixAndKarmaTests(unittest.TestCase):
-    def test_all_16_new_vegas_matrix_cells(self) -> None:
+    def test_all_16_matrix_cells_canonical_index_and_measured_gmst(self) -> None:
         expected = [
-            # (fame, infamy, code, title, disposition, buy_mult, sell_mult, allow_trade)
-            (0, 0, 0, "Neutral", "Neutral", 1.00, 1.00, True),
-            (20, 0, 1, "Accepted", "Friend", 0.95, 1.05, True),
-            (50, 0, 2, "Liked", "Friend", 0.85, 1.15, True),
-            (85, 0, 3, "Idolized", "Ally", 0.75, 1.25, True),
-            (0, 20, 4, "Shunned", "Neutral", 1.25, 0.80, False),
-            (20, 20, 5, "Mixed", "Neutral", 1.00, 1.00, True),
-            (50, 20, 6, "Good-Natured Rascal", "Friend", 0.90, 1.10, True),
-            (85, 20, 7, "Smiling Troublemaker", "Ally", 0.85, 1.15, True),
-            (0, 50, 8, "Hated", "Enemy", 1.50, 0.50, False),
-            (20, 50, 9, "Sneering Punk", "Neutral", 1.25, 0.80, False),
-            (50, 50, 10, "Unpredictable", "Neutral", 1.05, 0.95, True),
-            (85, 50, 11, "Dark Hero", "Friend", 0.95, 1.05, True),
-            (0, 85, 12, "Vilified", "Enemy", 1.50, 0.00, False),
-            (20, 85, 13, "Merciful Thug", "Enemy", 1.40, 0.00, False),
-            (50, 85, 14, "Soft-Hearted Devil", "Neutral", 1.15, 0.85, True),
-            (85, 85, 15, "Wild Child", "Neutral", 1.00, 1.00, True),
+            # (fame, infamy, fame_t, inf_t, code, title, disposition, buy_mult, sell_mult, allow_trade)
+            (0, 0, 0, 0, 0, "Neutral", "Neutral", 1.00, 1.00, True),
+            (0, 20, 0, 1, 1, "Shunned", "Neutral", 1.25, 0.80, False),
+            (0, 50, 0, 2, 2, "Hated", "Enemy", 1.50, 0.50, False),
+            (0, 85, 0, 3, 3, "Vilified", "Enemy", 1.50, 0.00, False),
+            (20, 0, 1, 0, 4, "Accepted", "Friend", 0.95, 1.05, True),
+            (20, 20, 1, 1, 5, "mixed_fame1_infamy1", "Neutral", 1.00, 1.00, True),
+            (20, 50, 1, 2, 6, "mixed_fame1_infamy2", "Neutral", 1.25, 0.80, False),
+            (20, 85, 1, 3, 7, "mixed_fame1_infamy3", "Enemy", 1.40, 0.00, False),
+            (50, 0, 2, 0, 8, "Liked", "Friend", 0.85, 1.15, True),
+            (50, 20, 2, 1, 9, "mixed_fame2_infamy1", "Friend", 0.90, 1.10, True),
+            (50, 50, 2, 2, 10, "mixed_fame2_infamy2", "Neutral", 1.05, 0.95, True),
+            (50, 85, 2, 3, 11, "mixed_fame2_infamy3", "Neutral", 1.15, 0.85, True),
+            (85, 0, 3, 0, 12, "Idolized", "Ally", 0.75, 1.25, True),
+            (85, 20, 3, 1, 13, "mixed_fame3_infamy1", "Ally", 0.85, 1.15, True),
+            (85, 50, 3, 2, 14, "mixed_fame3_infamy2", "Friend", 0.95, 1.05, True),
+            (85, 85, 3, 3, 15, "mixed_fame3_infamy3", "Neutral", 1.00, 1.00, True),
         ]
         self.assertEqual(len(NV_16_STATE_MATRIX), 16)
         self.assertEqual(len(STATE_BY_CODE), 16)
-        for fame, infamy, code, title, disp, buy_m, sell_m, trade in expected:
+        # Single shared 16-state matrix across reputation and combined modules
+        self.assertIs(combined_rep.NV_16_STATE_MATRIX, NV_16_STATE_MATRIX)
+        self.assertIs(combined_rep.FNV_REPU_RECORDS, FNV_REPU_RECORDS)
+
+        for fame, infamy, ft, it, code, title, disp, buy_m, sell_m, trade in expected:
+            self.assertEqual(reputation_state_index(ft, it), code)
             spec = evaluate_faction_reputation(fame, infamy)
             self.assertEqual(spec.code, code)
+            self.assertEqual(spec.state_id, f"state_{code:02d}")
+            self.assertEqual((spec.fame_tier, spec.infamy_tier), (ft, it))
             self.assertEqual(spec.title, title)
             self.assertEqual(spec.disposition, disp)
             self.assertAlmostEqual(spec.buy_mult, buy_m)
             self.assertAlmostEqual(spec.sell_mult, sell_m)
             self.assertEqual(spec.allow_trade, trade)
+            if (ft, it) == (2, 3):
+                self.assertEqual(spec.gmst_form_id, 0x0016951C)
+                self.assertEqual(spec.gmst_edid, "sRepTitlePosTwoNegThreeDesc")
+                self.assertEqual(spec.esm_status, "verified_gmst_edid")
+            else:
+                self.assertIsNone(spec.gmst_form_id)
+                self.assertIsNone(spec.gmst_edid)
+                self.assertEqual(spec.esm_status, "unverified")
 
-        # Custom configurable thresholds also work deterministically
         custom = evaluate_faction_reputation(30.0, 5.0, thresholds=(10.0, 25.0, 60.0))
         self.assertEqual(custom.title, "Liked")
+        self.assertEqual(custom.code, 8)
         with self.assertRaises(ValueError):
             evaluate_faction_reputation(10.0, 10.0, thresholds=(50.0, 20.0, 80.0))
+
+    def test_measured_fnv_13_repu_records_and_slot_builder(self) -> None:
+        want_fnv = [
+            (0, 0x0F2406, "RepNVPrimm", 30.0),
+            (1, 0x0F43DD, "RepNVCaesarsLegion", 100.0),
+            (2, 0x0F43DE, "RepNVNCR", 80.0),
+            (3, 0x0FFAE8, "RepNVBoomer", 50.0),
+            (4, 0x104C22, "RepNVGoodsprings", 15.0),
+            (5, 0x116F16, "RepNVWhiteGloveSociety", 10.0),
+            (6, 0x118F61, "RepNVTheStrip", 40.0),
+            (7, 0x11989B, "RepNVGreatKhans", 30.0),
+            (8, 0x11E662, "RepNVBrotherhood", 20.0),
+            (9, 0x124AD1, "RepNVFollowers", 50.0),
+            (10, 0x129A79, "RepNVNovac", 20.0),
+            (11, 0x129A7A, "RepNVFreeside", 70.0),
+            (12, 0x1558E6, "RepNVPowderGanger", 30.0),
+        ]
+        got_fnv = [(r["fnv_slot"], r["form_id"], r["edid"], r["pool_max"]) for r in FNV_REPU_RECORDS]
+        self.assertEqual(got_fnv, want_fnv)
+        self.assertEqual(len(slot_factions(8)), 8)
+        fnv_slots = slot_factions(13)
+        self.assertEqual(len(fnv_slots), 13)
+        self.assertEqual([s["key"] for s in fnv_slots], [r[2] for r in want_fnv])
+        self.assertEqual(fnv_slots[12]["fact_id"], 0x81C)
+        with self.assertRaises(ValueError):
+            slot_factions(0)
+        with self.assertRaises(ValueError):
+            slot_factions(16)
 
     def test_karma_thresholds_companions_and_endings(self) -> None:
         cases = [
@@ -131,7 +177,8 @@ class MatrixAndKarmaTests(unittest.TestCase):
         self.assertEqual(karma["ending_slide"], 0)
         self.assertEqual(karma["good_companion"], "leave")
 
-        self.assertEqual(standing.code, 3)
+        self.assertEqual(standing.code, 12)
+        self.assertEqual(standing.state_id, "state_12")
         self.assertEqual(standing.title, "Idolized")
         self.assertEqual(standing.disposition, "Ally")
         self.assertAlmostEqual(standing.buy_mult, 0.75)
@@ -149,10 +196,9 @@ class MatrixAndKarmaTests(unittest.TestCase):
         self.assertEqual(fnv["native_repu_count"], 13)
         fnv_factions = list(fnv["factions"])
         self.assertEqual(len(fnv_factions), 13)
-        self.assertEqual(
-            len({entry["source_formid"] for entry in fnv_factions}),
-            13,
-        )
+        self.assertEqual(len({entry["form_id"] for entry in fnv_factions}), 13)
+        self.assertEqual([entry["fnv_slot"] for entry in fnv_factions], list(range(13)))
+        self.assertTrue(all(float(entry["pool_max"]) >= 10.0 for entry in fnv_factions))
 
         self.assertEqual(TITLE_REPUTATION_TABLES["FO3"]["native_fact_count"], 326)
         self.assertEqual(TITLE_REPUTATION_TABLES["FO4"]["native_fact_count"], 699)
@@ -162,10 +208,11 @@ class MatrixAndKarmaTests(unittest.TestCase):
         for title_key, table in TITLE_REPUTATION_TABLES.items():
             factions = list(table["factions"])
             self.assertGreaterEqual(len(factions), 1, title_key)
-            for fac in factions:
-                slot = int(fac["core_slot"])
-                self.assertGreaterEqual(slot, 0)
-                self.assertLess(slot, len(CORE_FACTIONS))
+            if title_key != "FNV":
+                for fac in factions:
+                    slot = int(fac["core_slot"])
+                    self.assertGreaterEqual(slot, 0)
+                    self.assertLess(slot, len(CORE_FACTIONS))
 
         self.assertEqual(len(FO76_TIER_TO_FAME_INFAMY), 7)
         self.assertEqual(fo76_tier_to_state("Hostile").disposition, "Enemy")
@@ -182,14 +229,24 @@ class CrossLayerParityAndPipboyTests(unittest.TestCase):
         cs_text = (REPO / "dotnet" / "ReputationCore" / "Program.cs").read_text(encoding="utf-8")
         psc_text = (REPO / "scripts" / "reputation" / "FO4SF_ReputationQuest.psc").read_text(encoding="utf-8")
 
+        self.assertEqual(PLUGIN_MASTERS, ("Starfield.esm", "FO4SFCoreValues.esm"))
+        self.assertEqual(SHARED_CORE_FORM_IDS, {
+            "KarmaAvId": 0x000830,
+            "KarmaValueGlobId": 0x000831,
+            "KarmaTierGlobId": 0x000832,
+            "TestModeGlobId": 0x000860,
+        })
+        for removed_key in ("RepKarmaAvId", "KarmaValueGlobId", "KarmaTierGlobId"):
+            self.assertNotIn(removed_key, RECORD_IDS)
+
         for const_name, val in RECORD_IDS.items():
             hex_pat = rf"\b{re.escape(const_name)}\s*=\s*0x0*{val:X}\b"
             self.assertRegex(cs_text, re.compile(hex_pat, re.IGNORECASE), f"C# FormID drift for {const_name}")
 
         psc_expected = {
-            "RepKarmaAvId": 0x801,
-            "KarmaValueGlobId": 0x802,
-            "KarmaTierGlobId": 0x803,
+            "CoreKarmaAvId": 0x830,
+            "CoreKarmaValueGlobId": 0x831,
+            "CoreKarmaTierGlobId": 0x832,
             "EndingSlideGlobId": 0x804,
             "VendorBuyMultAvId": 0x805,
             "RepVendorPerkId": 0x806,
@@ -206,16 +263,26 @@ class CrossLayerParityAndPipboyTests(unittest.TestCase):
             "TheftTokenId": 0x881,
             "FactionAidTokenId": 0x882,
             "FactionCrimeTokenId": 0x883,
+            "RepTokenListId": 0x88F,
         }
         for name, val in psc_expected.items():
             self.assertRegex(psc_text, re.compile(rf"\b{name}\s*=\s*0x0*{val:X}\b", re.IGNORECASE))
+
+        self.assertNotIn("FO4SFProgression.esm", psc_text)
+        self.assertIn("AddInventoryEventFilter(CachedTokenList)", psc_text)
+        self.assertIn("TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0", psc_text)
+
+        # Verify OnItemAdded does ZERO per-item GetFormFromFile lookups
+        m_item = re.search(r"Event\s+ObjectReference\.OnItemAdded\b.*?\nEndEvent", psc_text, re.S)
+        self.assertIsNotNone(m_item)
+        self.assertNotIn("GetFormFromFile", m_item.group(0))
 
         for hook in (
             "Function OnQuestStageEvent(",
             "Function OnFactionKill(",
             "Function OnTheftObserved(",
             "Event Actor.OnPlayerLoadGame(",
-            "FO4SFProgression.esm",
+            "FO4SFCoreValues.esm",
         ):
             self.assertIn(hook, psc_text)
 
@@ -223,12 +290,14 @@ class CrossLayerParityAndPipboyTests(unittest.TestCase):
         reserved = {"race", "cell", "form", "actor", "quest", "faction", "perk", "formlist"}
         decl_re = re.compile(r"^\s*(?:int|float|bool|string|Form|Actor|Faction|Perk|ActorValue|GlobalVariable)\s+([A-Za-z0-9_]+)", re.M)
         for ident in decl_re.findall(psc_text):
+            if ident == "Property":
+                continue
             self.assertNotIn(ident.lower(), reserved, f"reserved Papyrus identifier used: {ident}")
 
     def test_pipboy_kit_ini_and_as3_shell_formatters(self) -> None:
         shipped_ini = (REPO / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
-        injected_once = inject_pipboy_kit_pages(shipped_ini, load_index=0x0C)
-        injected_twice = inject_pipboy_kit_pages(injected_once, load_index=0x0C)
+        injected_once = inject_pipboy_kit_pages(shipped_ini, load_index=0x0C, core_load_index=0x02)
+        injected_twice = inject_pipboy_kit_pages(injected_once, load_index=0x0C, core_load_index=0x02)
         self.assertEqual(injected_once, injected_twice)
 
         kit = make_pipboy_kit.parse_kit(injected_once)
@@ -237,17 +306,24 @@ class CrossLayerParityAndPipboyTests(unittest.TestCase):
         self.assertIn(("DATA", "REPUTATION"), page_keys)
 
         stat_karma = next(p for p in kit["pages"] if (p["tab"], p["sub"]) == ("STAT", "KARMA"))
-        self.assertEqual(stat_karma["rows"][0], ("GLOBAL KARMA", "av:0C000801"))
+        self.assertEqual(stat_karma["rows"][0], ("GLOBAL KARMA", "av:02000830"))
         self.assertEqual(stat_karma["rows"][1], ("VENDOR BUY MULT", "av:0C000805"))
 
         data_rep = next(p for p in kit["pages"] if (p["tab"], p["sub"]) == ("DATA", "REPUTATION"))
         self.assertEqual(len(data_rep["rows"]), 24)
         self.assertEqual(data_rep["rows"][0], ("MINUTEMEN FAME", "av:0C000820"))
 
+        # 13-slot FNV Pip-Boy kit validation
+        fnv_ini = inject_pipboy_kit_pages(shipped_ini, load_index=0x0C, core_load_index=0x02, slot_count=13)
+        fnv_kit = make_pipboy_kit.parse_kit(fnv_ini)
+        fnv_rep = next(p for p in fnv_kit["pages"] if (p["tab"], p["sub"]) == ("DATA", "REPUTATION"))
+        self.assertEqual(len(fnv_rep["rows"]), 39)
+
         tsv = format_shell_tsv()
         self.assertEqual(len(tsv.strip().splitlines()), 10)  # header + GlobalKarma + 8 factions
         manifest = build_shell_manifest()
         self.assertEqual(manifest["plugin"], PLUGIN_NAME)
+        self.assertEqual(manifest["core_values_plugin"], "FO4SFCoreValues.esm")
         self.assertEqual(len(manifest["data_stats_reputation"]["states"]), 16)
 
         stat_obj = format_as3_stat_karma_entry(-800.0)
@@ -272,12 +348,12 @@ class LogStitchingAndStageCliTests(unittest.TestCase):
             log1.write_text(
                 "\n".join(
                     [
-                        "FO4SF_REPUTATION rt=10.1 init version=1 quest=167774208 installed=true prog_installed=false states=0,0,0,0,0,0,0,0 end=true",
-                        "FO4SF_REPUTATION rt=12.4 orthogonality_proof karma=-800 tier=-2 fac=0 state=3 disp=Ally reaction=2 buy_mult=0.75 ok=true end=true",
-                        "FO4SF_REPUTATION rt=14.0 quest_hook src=stage20 fac=1 state=2 reaction=3 buy_mult=0.85 karma=-500 tier=-1 states=3,2,0,0,0,0,0,0 end=true",
-                        "FO4SF_REPUTATION rt=15.5 kill_hook fac=6 innocent=false state=8 karma=-500 tier=-1 states=3,2,0,0,0,0,8,0 end=true",
-                        "FO4SF_REPUTATION rt=17.0 theft_hook fac=4 val=100 witnessed=true state=4 karma=-515 tier=-1 states=3,2,0,0,4,0,8,0 end=true",
-                        "FO4SF_REPUTATION rt=18.2 status_dump karma=-515 tier=-1 slide=1 comp=-2 active_fac=1 buy_mult=0.85 fac0_react=2 states=3,2,0,0,4,0,8,0 end=true",
+                        "FO4SF_REPUTATION rt=10.1 init version=1 quest=167774208 installed=true core_installed=true states=0,0,0,0,0,0,0,0 end=true",
+                        "FO4SF_REPUTATION rt=12.4 orthogonality_proof karma=-800 tier=-2 fac=0 state=12 disp=Ally reaction=2 buy_mult=0.75 ok=true end=true",
+                        "FO4SF_REPUTATION rt=14.0 quest_hook src=stage20 fac=1 state=8 reaction=3 buy_mult=0.85 karma=-500 tier=-1 states=12,8,0,0,0,0,0,0 end=true",
+                        "FO4SF_REPUTATION rt=15.5 kill_hook fac=6 innocent=false state=2 karma=-500 tier=-1 states=12,8,0,0,0,0,2,0 end=true",
+                        "FO4SF_REPUTATION rt=17.0 theft_hook fac=4 val=100 witnessed=true state=1 karma=-515 tier=-1 states=12,8,0,0,1,0,2,0 end=true",
+                        "FO4SF_REPUTATION rt=18.2 status_dump karma=-515 tier=-1 slide=1 comp=-2 active_fac=1 buy_mult=0.85 fac0_react=2 states=12,8,0,0,1,0,2,0 end=true",
                     ]
                 )
                 + "\n",
@@ -285,7 +361,7 @@ class LogStitchingAndStageCliTests(unittest.TestCase):
             )
             time.sleep(0.02)
             log0.write_text(
-                "FO4SF_REPUTATION rt=4.3 reload_audit karma=-515 tier=-1 slide=1 comp=-2 active_fac=1 buy_mult=0.85 fac0_react=2 states=3,2,0,0,4,0,8,0 ok=true end=true\n",
+                "FO4SF_REPUTATION rt=4.3 reload_audit karma=-515 tier=-1 slide=1 comp=-2 active_fac=1 buy_mult=0.85 fac0_react=2 states=12,8,0,0,1,0,2,0 ok=true end=true\n",
                 encoding="utf-8",
             )
             pap.write_text("[00:00:01] Papyrus log opened cleanly.\n", encoding="utf-8")
@@ -305,7 +381,7 @@ class LogStitchingAndStageCliTests(unittest.TestCase):
             self.assertEqual(rep_drift["verdict"], "FAIL")
 
             # Negative 2: Truncated line lacking end=true -> FAIL
-            recs, trunc = parse_single_log("FO4SF_REPUTATION rt=9.1 status_dump karma=-515 states=3,2,0,0,4,0,8,0")
+            recs, trunc = parse_single_log("FO4SF_REPUTATION rt=9.1 status_dump karma=-515 states=12,8,0,0,1,0,2,0")
             self.assertEqual(len(recs), 0)
             self.assertEqual(trunc, 1)
 
@@ -314,9 +390,9 @@ class LogStitchingAndStageCliTests(unittest.TestCase):
             bad_kill.write_text(
                 "\n".join(
                     [
-                        "FO4SF_REPUTATION rt=1.0 orthogonality_proof karma=-800 tier=-2 fac=0 state=3 disp=Ally reaction=2 buy_mult=0.75 ok=true end=true",
-                        "FO4SF_REPUTATION rt=2.0 kill_hook fac=6 innocent=false state=8 karma=-900 tier=-2 states=3,0,0,0,0,0,8,0 end=true",
-                        "FO4SF_REPUTATION rt=3.0 reload_audit karma=-900 tier=-2 states=3,0,0,0,0,0,8,0 buy_mult=0.75 ok=true end=true",
+                        "FO4SF_REPUTATION rt=1.0 orthogonality_proof karma=-800 tier=-2 fac=0 state=12 disp=Ally reaction=2 buy_mult=0.75 ok=true end=true",
+                        "FO4SF_REPUTATION rt=2.0 kill_hook fac=6 innocent=false state=2 karma=-900 tier=-2 states=12,0,0,0,0,0,2,0 end=true",
+                        "FO4SF_REPUTATION rt=3.0 reload_audit karma=-900 tier=-2 states=12,0,0,0,0,0,2,0 buy_mult=0.75 ok=true end=true",
                     ]
                 )
                 + "\n",
@@ -328,7 +404,7 @@ class LogStitchingAndStageCliTests(unittest.TestCase):
     def test_dotnet_selftest_and_stage_verify_tamper_guards(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            # 1. C# ReputationCore selftest (build + check + 3 negative tamper checks)
+            # 1. C# ReputationCore selftest (byte-identical 8-slot, 13-slot FNV, --no-test-cell, + 3 negative tamper checks)
             out_txt = make_reputation_core.run_dotnet_reputation("selftest", str(root / "selftest"))
             self.assertIn("selftest pass", out_txt)
 
@@ -389,6 +465,44 @@ class LogStitchingAndStageCliTests(unittest.TestCase):
                 ["verify", "--stage", str(stage_dir), "--starfield", str(sf_esm), "--run-dotnet-check"]
             )
             self.assertEqual(rc_ver, 0)
+
+            # 13-slot FNV + --no-test-cell stage & verify
+            stage_fnv = root / "stage_fnv_player"
+            self.assertEqual(
+                make_reputation_core.main(
+                    [
+                        "stage",
+                        "--out",
+                        str(stage_fnv),
+                        "--starfield",
+                        str(sf_esm),
+                        "--compiler",
+                        str(fake_comp),
+                        "--content-resources",
+                        str(res_zip),
+                        "--slot-count",
+                        "13",
+                        "--no-test-cell",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                make_reputation_core.main(
+                    [
+                        "verify",
+                        "--stage",
+                        str(stage_fnv),
+                        "--starfield",
+                        str(sf_esm),
+                        "--run-dotnet-check",
+                        "--slot-count",
+                        "13",
+                        "--no-test-cell",
+                    ]
+                ),
+                0,
+            )
 
             # Refusal on existing output directory
             self.assertEqual(

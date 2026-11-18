@@ -183,9 +183,12 @@ class TestFortHagenElevators(unittest.TestCase):
         self.assertIn("UpperLandingY = 66.200f", self.cs)
         self.assertIn("LowerCarZ = -3.550f", self.cs)
 
+        self.assertIn('Trace("init quest=" + (self as Quest))', self.psc)
+        self.assertNotIn('Trace("init quest=" + XMarkerBase)', self.psc)
+
     def test_end_to_end_journey_and_log_judge(self):
         sim = FortHagenControllerModel()
-        sim.log("init quest=XMarker")
+        sim.log("init quest=[FO4SF_FortHagenQuest < (0A000800)>]")
 
         # 1. Enter FortHagen01: stripped-XESP planks and duplicate door blockers clear automatically
         sim.enter_zone01()

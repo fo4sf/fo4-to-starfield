@@ -52,6 +52,10 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+if os.path.join(REPO, "src") not in sys.path:
+    sys.path.insert(0, os.path.join(REPO, "src"))
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
+
 PROJECT = os.path.join(REPO, "dotnet", "NewGame")
 PLUGIN = "FO4SFNewGame.esm"
 SCRIPT = "FO4SF_NewGameQuest"
@@ -184,6 +188,8 @@ DEFAULT_RACE_MENU_MODE = 2
 # script's MaxPresses: the allocation ends as Leave after that many presses without Confirm or Leave (about 22 per
 # pass; the guard against a message box that returns at once).
 SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck")
+SPECIAL_AVIF_IDS = tuple(core_form_id(f"FO4SF_Special_{s}") for s in SPECIAL_STATS)
+TEST_MODE_GLOBAL_ID = core_form_id("FO4SF_TestModeEnabled")
 SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
 SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
 SPECIAL_MAX_PRESSES = 300
@@ -240,6 +246,7 @@ NATIVES = {
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled"],
         "GlobalVariable": ["GetValue", "SetValueInt"],
+        "InputEnableLayer": ["Create", "EnableHandscanner"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
@@ -671,8 +678,8 @@ def stage(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout 4 new game (Claude-cloud, {datetime.date.today().isoformat()}). docs/newgame/vault111-start.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_NewGame "{pts['quest_name']}" (run once, Starfield's startup quest: DFOB StartupQuest_DO overridden),
-MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial, 7 AVIF FO4SF_Special_<stat>' if a.special else ''}{f', GLOB FO4SF_NewGameVersion = {build_version_option(a)} and a player alias (the save version check)' if a.version else ''};
-master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
+MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{f', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial (7 AVIF in {CORE_VALUES_PLUGIN})' if a.special else ''}{f', GLOB FO4SF_NewGameVersion = {build_version_option(a)} and a player alias (the save version check)' if a.version else ''};
+masters Starfield.esm and {CORE_VALUES_PLUGIN}. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.

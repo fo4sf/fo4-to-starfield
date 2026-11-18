@@ -26,6 +26,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "scripts", "newgame"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from make_newgame import declares, extract_sources, new_partial, run  # noqa: E402
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 from fo4sf.workshop import core_log  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "WorkshopCore")
@@ -33,6 +34,7 @@ PLUGIN = "FO4SFWorkshop.esm"
 SCRIPT = "FO4SF_WorkshopCoreQuest"
 PSC = os.path.join(HERE, SCRIPT + ".psc")
 LOG_NAME = "FO4SFWorkshopCore.0.log"
+TEST_MODE_GLOBAL_ID = core_form_id("FO4SF_TestModeEnabled")
 INSTALL_LINE = re.compile(r"exp_install\.py install\b.*--plugins (?P<plugins>\S+)")
 
 REQUIRED = {
@@ -205,6 +207,11 @@ def stage(a):
         "plugin": PLUGIN,
         "plugin_sha256": outputs[PLUGIN],
         "plugins": [PLUGIN],
+        "masters": ["Starfield.esm", CORE_VALUES_PLUGIN],
+        "core_values": {
+            "plugin": CORE_VALUES_PLUGIN,
+            "TestModeGlobal": f"0x{TEST_MODE_GLOBAL_ID:06X}",
+        },
         "scripts": {SCRIPT: sha256(pex)},
         "outputs": outputs,
         "inputs": {"Starfield.esm": {"sha256": before}},
@@ -217,14 +224,14 @@ def stage(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Settlements, Junk Scrapping, Bench Recipes, and Portable C.A.M.P.s ({datetime.date.today().isoformat()}). docs/workshop/workshop-camps.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}):
-  QUST FO4SF_WorkshopCoreQuest (0x800, StartGameEnabled, 0 properties, stages [5,10,15,20,30,40,50,60]) + Data/Scripts/{SCRIPT}.pex;
+  QUST FO4SF_WorkshopCoreQuest (0x800, StartGameEnabled, TestModeGlobal -> {CORE_VALUES_PLUGIN}:0x{TEST_MODE_GLOBAL_ID:04X}, stages [5,10,15,20,30,40,50,60]) + Data/Scripts/{SCRIPT}.pex;
   GLOB FO4SF_CAMPExclusionRadiusM (0x801, default {a.exclusion_radius}), FO4SF_ActiveCAMPCount (0x802),
        FO4SF_TrackedWorkshopCount (0x803), FO4SF_TrackedStationCount (0x804);
   Kits: MISC FO4SF_CAMPKit (0x810), FO4SF_CAMPPackToken (0x811), FO4SF_SettlementKit (0x812), FO4SF_ScrapToken (0x81B);
   CMPO -> IRES -> MISC: 18 archetypes in FLST FO4SF_CmpoIresList (0x818) & FO4SF_CmpoMiscList (0x819),
        4 clean-room FO4 scrap junk MISC items (0x820..0x823) in FLST FO4SF_ScrapJunkList (0x81A);
   Recipes: 4 FO4 COBJ + 4 FNV RCPE bench recipes (0x840..0x847) in FLST FO4SF_BenchRecipesList (0x81C).
-Master Starfield.esm only ({before}); adds 32 records, overrides none.
+Masters Starfield.esm ({before}) + {CORE_VALUES_PLUGIN}; adds 32 records, overrides none.
 Ride-along install (game closed):
   python scripts/workshop/workshop_core_install.py install --dir <stage dir> --starfield <game dir>
 Fold into core experiment set:

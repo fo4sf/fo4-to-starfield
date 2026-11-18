@@ -15,7 +15,9 @@ import unittest
 import zipfile
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "newgame"))
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 import make_newgame as ng  # noqa: E402
 
 PSC = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameQuest.psc")
@@ -190,6 +192,7 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(mandatory - written_here, set(), f"mandatory properties the plugin never fills ({psc})")
             self.assertEqual(written_here - set(declared), set(), f"properties the plugin writes that {psc} lacks")
         self.assertIn("HoldOff", written)
+        self.assertIn("TestModeGlobal", written)
         self.assertIn("LooksWait", written)                  # 0 in a --no-looks build, so the quest does not wait
         self.assertEqual(looks_written, {"StartMessage", "RaceMenuMode"})
         self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
@@ -655,9 +658,13 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("Special", psc.split("}", 1)[1])     # the quest script knows nothing of it
         self.assertIn('SpecialScript = "FO4SF_NewGameSpecial"', cs)
         self.assertIn('a.Contains("--no-special")', cs)
-        self.assertIn("Types.SpecialAttribute", cs)
-        self.assertIn("Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen", cs)
-        self.assertIn("Max = SpecialMax, Flags = SpecialAvifFlags", cs)
+        self.assertNotIn("Types.SpecialAttribute", cs)
+        self.assertIn("plug.ActorValueInformation.Count == 0", cs)
+        self.assertIn(f'CoreValuesPlugin = "{CORE_VALUES_PLUGIN}"', cs)
+        self.assertIn('Obj("TestModeGlobal", testModeKey)', cs)
+        self.assertEqual(ng.SPECIAL_AVIF_IDS, tuple(0x810 + i for i in range(7)))
+        self.assertEqual(ng.TEST_MODE_GLOBAL_ID, core_form_id("FO4SF_TestModeEnabled"))
+        self.assertEqual(ng.TEST_MODE_GLOBAL_ID, 0x860)
         self.assertIn('"TerminalId", (int)p.Terminal', cs)
         self.assertEqual(ng.tool_options(namespace(special=False)), ["--no-special"])
         self.assertEqual(ng.OPTIONAL, {ng.LOOKS: "--no-looks", ng.SPECIAL: "--no-special", ng.VERSION: "--no-version"})
@@ -1083,6 +1090,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                                               + CHARGEN + FADE + FAST_READ,
         "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\n",
+        "InputEnableLayer": "Scriptname InputEnableLayer extends ScriptObject\nInputEnableLayer Function Create() native global\nFunction EnableHandscanner(bool a = true) native\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
         "ObjectReference": objectreference if objectreference is not None else
                            "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
@@ -2005,6 +2013,13 @@ class PodStepOptionTests(unittest.TestCase):
 
     def test_the_stage_parser_takes_it(self):
         self.assertIn('"--pod-step", type=float, default=None', read(os.path.join(ROOT, "scripts", "newgame", "make_newgame.py")))
+
+    def test_handscanner_disabled_on_newgame(self):
+        psc = read(PSC)
+        self.assertIn("InputEnableLayer scannerLayer = None", psc)
+        self.assertIn("scannerLayer = InputEnableLayer.Create()", psc)
+        self.assertIn("scannerLayer.EnableHandscanner(false)", psc)
+        self.assertIn("DisableHandScanner()", psc)
 
 
 if __name__ == "__main__":

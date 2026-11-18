@@ -120,33 +120,44 @@ class CoreBundleTests(unittest.TestCase):
                 outputs[rel] = _sha256_bytes(raw)
             (st / "plan.json").write_text(json.dumps({"plugin": plugin, "plugins": [plugin], "outputs": outputs}, indent=1), encoding="utf-8")
 
+        add_stage("00-core-values", "FO4SFCoreValues.esm", masters=("Starfield.esm",))
         add_stage("01-cog-door", "FO4SFVaultGearDoor.esm", masters=("Starfield.esm", "FO4Port.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/door_anim.nif": b"DOOR_NIF"})
         add_stage("02-exit-lift", "FO4SFExitLift.esm", masters=("Starfield.esm", "FO4Port.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/lift_anim.nif": b"LIFT_NIF"})
-        add_stage("03-newgame", "FO4SFNewGame.esm", pex_name="FO4SF_NewGameQuest")
-        add_stage("04-rads", "FO4SFRads.esm", pex_name="FO4SF_RadsCoreQuest")
-        add_stage("05-hardcore", "FO4SFHardcore.esm", pex_name="FO4SF_HardcoreQuest")
-        add_stage("06-workshop", "FO4SFWorkshop.esm", pex_name="FO4SF_WorkshopCoreQuest")
-        add_stage("07-powerarmor", "FO4SFPowerArmor.esm", pex_name="FO4SF_PowerArmorCoreQuest")
-        add_stage("08-progression", "FO4SFProgression.esm", pex_name="FO4SF_ProgressionQuest")
-        add_stage("09-list-dialogue", "FO4SFListDialogue.esm", pex_name="FO4SF_ListDialogueQuest")
+        add_stage("03-newgame", "FO4SFNewGame.esm", pex_name="FO4SF_NewGameQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
+        add_stage("04-rads", "FO4SFRads.esm", pex_name="FO4SF_RadsCoreQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
+        add_stage("05-hardcore", "FO4SFHardcore.esm", pex_name="FO4SF_HardcoreQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
+        add_stage("06-workshop", "FO4SFWorkshop.esm", pex_name="FO4SF_WorkshopCoreQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
+        add_stage("07-powerarmor", "FO4SFPowerArmor.esm", pex_name="FO4SF_PowerArmorCoreQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
+        add_stage("08-progression", "FO4SFProgression.esm", pex_name="FO4SF_ProgressionQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
+        add_stage("09-list-dialogue", "FO4SFListDialogue.esm", pex_name="FO4SF_ListDialogueQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm", "FO4SFProgression.esm"))
 
         # 10-combat with FO4SFCombat.dll SFSE sidecar
         add_stage("10-combat", "FO4SFCombat.esm", pex_name="FO4SF_CombatQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"),
                   extra_files={"Data/Scripts/FO4SF_CombatInput.pex": b"PEX:FO4SF_CombatInput"})
         combat_sc = stages_root / "10-combat" / "sfse_sidecar"
         combat_sc.mkdir(parents=True, exist_ok=True)
         (combat_sc / "FO4SFCombat.dll").write_bytes(b"MZ_SYNTHETIC_COMBAT_DLL")
 
         # 11-reputation with Pip-Boy INI/JSON/TSV sidecar manifests
-        add_stage("11-reputation", "FO4SFReputation.esm", pex_name="FO4SF_ReputationQuest")
+        add_stage("11-reputation", "FO4SFReputation.esm", pex_name="FO4SF_ReputationQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
         (stages_root / "11-reputation" / "FO4SFPipboyMenu.reputation.ini").write_text("[Page STAT/KARMA]\n", encoding="utf-8")
 
         # 12-companions & 13-alife
-        add_stage("12-companions", "FO4SFCompanions.esm", pex_name="FO4SF_CompanionsQuest")
+        add_stage("12-companions", "FO4SFCompanions.esm", pex_name="FO4SF_CompanionsQuest",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
         add_stage("13-alife", "FO4SFALife.esm", pex_name="FO4SF_ALifeControllerQuest",
                   masters=("Starfield.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"))
 
@@ -169,7 +180,8 @@ class CoreBundleTests(unittest.TestCase):
             }, indent=1),
             encoding="utf-8",
         )
-        add_stage("15-candidate-walk", "FO4SFCoreCandidate.esm", pex_name="FO4SF_CoreCandidateWalk")
+        add_stage("15-candidate-walk", "FO4SFCoreCandidate.esm", pex_name="FO4SF_CoreCandidateWalk",
+                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
 
         return owner, stages_root, port_esm, shared_mat_sha
 
@@ -211,6 +223,10 @@ class CoreBundleTests(unittest.TestCase):
             (pb / "Data" / "Scripts" / "FO4SF_PipboyTravel.pex").write_bytes(pex_bytes)
             dll_bytes = b"MZ_SYNTHETIC_PIPBOY_DLL"
             (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").write_bytes(dll_bytes)
+            (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").write_text(
+                "[FO4SFPipboyMenu]\nStage=2\n\n[Kit]\nHeadingAt=88\n\n[Page STAT/STATUS]\nRow=HP|{health}\n",
+                encoding="utf-8",
+            )
             pb_plan = {
                 "kind": "pipboy-stack-stage",
                 "plugins": ["FO4SFPipboyProbe.esm", "FO4SFPipboyTravel.esm"],
@@ -248,16 +264,45 @@ class CoreBundleTests(unittest.TestCase):
             self.assertIn("--pack", install_lines[0])
 
             bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(bplan["plugins"]), 21)
+            self.assertEqual(len(bplan["plugins"]), 22)
+            self.assertIn("FO4SFCoreValues.esm", bplan["plugins"])
+            self.assertLess(bplan["plugins"].index("FO4SFCoreValues.esm"), bplan["plugins"].index("FO4SFNewGame.esm"))
             self.assertEqual(
                 bplan["plugins"][:4],
                 ["FO4ActorRaider.esm", "FO4TerrainCore.esm", "FO4SFMission.esm", "FO4TerrainCore_Mars.esm"],
             )
             # SFSE DLLs & Reputation manifests kept outside Data/ so Archive2 never packs them into Main.ba2
             self.assertTrue((out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").is_file())
+            shipped_pb_ini = (out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+            self.assertNotIn("[Kit]", shipped_pb_ini)
+            self.assertNotIn("[Page ", shipped_pb_ini)
+            self.assertIn("MapHeadingAt=88", shipped_pb_ini)
             self.assertTrue((out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFCombat.dll").is_file())
             self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyMenu.reputation.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
+
+            # Player profile omits FO4SFCoreCandidate.esm
+            out_player = root / "bundle-player"
+            rc_player = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(out_player), "--port", str(port_esm),
+                "--profile", "player", "--with-pipboy", "--pipboy-stage", str(pb),
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_player, 0)
+            pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(pplan["profile"], "player")
+            self.assertEqual(len(pplan["plugins"]), 21)
+            self.assertNotIn("FO4SFCoreCandidate.esm", pplan["plugins"])
+
+            # Empty/wrong --pipboy-stage is refused (never silently folds 0 Pip-Boy plugins)
+            empty_pb = root / "empty-pb"
+            empty_pb.mkdir()
+            rc_bad_pb = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(root / "bundle-bad-pb"), "--port", str(port_esm),
+                "--with-pipboy", "--pipboy-stage", str(empty_pb),
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_bad_pb, 2)
 
     def test_refuses_differing_core_asset_plugin_limit_and_4gib_archive_limit(self):
         with tempfile.TemporaryDirectory() as td:
@@ -287,8 +332,8 @@ class CoreBundleTests(unittest.TestCase):
     def test_bundle_log_evaluates_all_eight_steps_independently(self):
         with tempfile.TemporaryDirectory() as td:
             ldir = Path(td)
-            held_lines = [f"FO4SF_NEWGAME rt=1.5 held off Quest_{i:03d} running_after=False pass={(1 if i < 100 else 2)}"
-                          for i in range(195)]
+            held_lines = [f"FO4SF_NEWGAME rt=1.5 held off Quest_{i:03d} running_after=False pass={(1 if i < 41 else 2)}"
+                          for i in range(196)]
             ng_lines = [
                 "FO4SF_NEWGAME rt=0.5 init v=1",
                 "FO4SF_NEWGAME rt=1.0 stage 10",
@@ -388,6 +433,9 @@ class CoreBundleTests(unittest.TestCase):
         self.assertIn("PlacedFireteamRefs = new ObjectReference[4]", psc_txt)
         self.assertIn('RegisterForRemoteEvent(ftRef, "OnActivate")', psc_txt)
         self.assertIn("compQuest.SetStage(20)", psc_txt)
+        self.assertIn("walk_refused reason=test_mode_disabled", psc_txt)
+        self.assertIn("progQ.ApplyCreationSheet(", psc_txt)
+        self.assertNotIn("DlgSpeechAvId", psc_txt)
 
     def test_cf1_start_world_descriptor_table_covers_all_titles_and_faction_starts(self):
         for required in ("vault111", "vault101", "goodsprings", "vault76", "vault13", "arroyo", "bunkeralpha"):

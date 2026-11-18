@@ -68,6 +68,7 @@ MAX_BA2_BYTES = (4 * (1024 ** 3)) - 1  # 4,294,967,295 bytes (32-bit unsigned BA
 INSTALL_LINE_RE = re.compile(r"(exp_install\.py install\b.*?--plugins )(?P<plugins>\S+)(?P<tail>.*)")
 
 DROPPED_SLICE_ESMS = frozenset({
+    "fo4sfcorevalues.esm",
     "fo4sfnewgame.esm",
     "fo4sfvaultgeardoor.esm",
     "fo4sfexitlift.esm",
@@ -109,6 +110,7 @@ DROPPED_SLICE_PEX = frozenset({
 })
 
 ORDERED_COMPONENT_KEYS = (
+    "core_values",
     "cog_door",
     "exit_lift",
     "newgame",
@@ -126,6 +128,8 @@ ORDERED_COMPONENT_KEYS = (
     "candidate_walk",
     "pipboy",
 )
+
+TEST_CELL_SLICE_KEYS = frozenset({"powerarmor", "list_dialogue", "combat", "reputation", "companions"})
 
 
 class BundleRefused(RuntimeError):
@@ -414,6 +418,10 @@ def verify_bundle(
             if readme_plugins != plugins:
                 problems.append(f"README.txt --plugins {readme_plugins} != bundle_plan plugins {plugins}")
 
+    # 1b. Enforce player profile excludes FO4SFCoreCandidate.esm
+    if bplan.get("profile") == "player" and any(p.casefold() == "fo4sfcorecandidate.esm" for p in plugins):
+        problems.append("player profile must not include FO4SFCoreCandidate.esm")
+
     # 2. Verify every recorded file SHA-256 across all folded components & sidecar
     for comp, cinfo in (bplan.get("components") or {}).items():
         for rel, want in (cinfo.get("outputs") or {}).items():
@@ -517,6 +525,9 @@ def stage_candidate_walk(out_dir: str, starfield_esm: str, compiler: str, conten
     scripts_out = os.path.join(out_dir, "Data", "Scripts")
     with tempfile.TemporaryDirectory(prefix="fo4sf-cand-src-") as td:
         src_dir = make_newgame.extract_sources(content_resources, td)
+        prog_psc = os.path.join(REPO, "scripts", "progression", "FO4SF_ProgressionQuest.psc")
+        if os.path.isfile(prog_psc):
+            shutil.copy2(prog_psc, os.path.join(src_dir, "FO4SF_ProgressionQuest.psc"))
         ok, err = compile_text(compiler, psc_txt, src_dir, scripts_out, script="FO4SF_CoreCandidateWalk")
         if not ok:
             raise BundleRefused(f"FO4SF_CoreCandidateWalk.psc compile failed: {err}")
@@ -535,6 +546,46 @@ def stage_candidate_walk(out_dir: str, starfield_esm: str, compiler: str, conten
     with open(os.path.join(out_dir, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     return out_dir
+
+
+def build_sfse_dll_from_source(plugin_name: str, out_dir: str, commonlibsf: str, msvc_env: str) -> str:
+    """Compile an SFSE plugin from C++ source via build.ps1 into a fresh non-deleted folder."""
+    script_ps1 = os.path.join(REPO, "sfse", plugin_name, "build.ps1")
+    if not os.path.isfile(script_ps1):
+        raise BundleRefused(f"missing SFSE build script: {script_ps1}")
+    dll_path = os.path.join(out_dir, f"{plugin_name}.dll")
+    if os.path.isfile(dll_path):
+        return out_dir
+    cmd = [
+        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", script_ps1,
+        "-Out", os.path.abspath(out_dir),
+        "-Lib", os.path.abspath(commonlibsf),
+        "-Env", os.path.abspath(msvc_env),
+    ]
+    print("+ " + " ".join(cmd), flush=True)
+    proc = subprocess.run(cmd)
+    if proc.returncode != 0 or not os.path.isfile(dll_path):
+        raise BundleRefused(f"SFSE source build failed for {plugin_name} (exit {proc.returncode})")
+    return os.path.abspath(out_dir)
+
+
+def validate_pipboy_stage(stage_dir: str, has_override_dll: bool = False) -> None:
+    """Refuse --with-pipboy when --pipboy-stage holds no Pip-Boy .esm or .dll (T9/Q13)."""
+    st = os.path.abspath(stage_dir)
+    if not os.path.isdir(st):
+        raise BundleRefused(f"--with-pipboy: --pipboy-stage directory not found: {st}")
+    comp_plugins, _ = extract_component_outputs("pipboy", st)
+    pb_esms = [p for p in comp_plugins if "pipboy" in p.lower() and p.lower().endswith(".esm")]
+    if not pb_esms:
+        raise BundleRefused(f"--with-pipboy refused: {st} holds no FO4SFPipboy*.esm plugin (check --pipboy-stage path)")
+    dll_candidates = (
+        os.path.join(st, "SFSE", "Plugins", "FO4SFPipboyMenu.dll"),
+        os.path.join(st, "sfse", "FO4SFPipboyMenu.dll"),
+        os.path.join(st, "FO4SFPipboyMenu.dll"),
+    )
+    if not has_override_dll and not any(os.path.isfile(c) for c in dll_candidates):
+        raise BundleRefused(f"--with-pipboy refused: {st} holds no FO4SFPipboyMenu.dll (and no source build provided)")
 
 
 def _run_py(py_exe: str, script_rel: str, args: Sequence[str]) -> None:
@@ -560,8 +611,21 @@ def stage_from_checkout(a) -> Dict[str, str]:
     port_esm = os.path.abspath(a.port)
     port_dir = os.path.dirname(port_esm)
     core_esm = os.path.join(os.path.abspath(a.owner_set), "FO4TerrainCore.esm")
+    profile = getattr(a, "profile", "player")
+    commonlibsf = getattr(a, "commonlibsf", None)
+    msvc_env = getattr(a, "msvc_env", None)
 
     stages: Dict[str, str] = {}
+
+    cv_dir = os.path.join(work, "00-core-values")
+    if not os.path.exists(cv_dir):
+        _run_py(py_main, "scripts/core/make_core_values.py", [
+            "stage",
+            "--sf-data", sf_data,
+            "--out", cv_dir,
+            "--test-mode", "0",
+        ])
+    stages["core_values"] = cv_dir
 
     cog_dir = os.path.join(work, "01-cog-door")
     if not os.path.exists(cog_dir):
@@ -634,22 +698,38 @@ def stage_from_checkout(a) -> Dict[str, str]:
         ("companions", "12-companions", "scripts/companions/make_companions_core.py"),
     ]
     for key, folder, rel_script in slice_specs:
-        sdir = os.path.join(work, folder)
+        suffix = "-player" if (profile == "player" and key in TEST_CELL_SLICE_KEYS) else ""
+        sdir = os.path.join(work, folder + suffix)
         if not os.path.exists(sdir):
-            _run_py(py_main, rel_script, [
+            st_args = [
                 "stage",
                 "--out", sdir,
                 "--starfield", sf_esm,
                 "--compiler", compiler,
                 "--content-resources", cr_zip,
-            ])
+            ]
+            if profile == "player" and key in TEST_CELL_SLICE_KEYS:
+                st_args.append("--no-test-cell")
+            _run_py(py_main, rel_script, st_args)
         stages[key] = sdir
 
-    combat_dir = os.path.join(work, "10-combat")
+    combat_sfse_dir = getattr(a, "combat_sfse_build", None)
+    if not combat_sfse_dir and commonlibsf and msvc_env:
+        combat_sfse_dir = build_sfse_dll_from_source(
+            "FO4SFCombat",
+            os.path.join(work, "sfse-src-builds", "combat"),
+            commonlibsf,
+            msvc_env,
+        )
+
+    combat_folder = "10-combat-player" if profile == "player" else "10-combat"
+    combat_dir = os.path.join(work, combat_folder)
     if not os.path.exists(combat_dir):
         combat_args = ["stage", "--out", combat_dir, "--starfield-dir", sf_dir]
-        if getattr(a, "combat_sfse_build", None):
-            combat_args.extend(["--sfse-build", os.path.abspath(a.combat_sfse_build)])
+        if profile == "player":
+            combat_args.append("--no-test-cell")
+        if combat_sfse_dir:
+            combat_args.extend(["--sfse-build", os.path.abspath(combat_sfse_dir)])
         _run_py(py_main, "scripts/combat/make_combat_core.py", combat_args)
     stages["combat"] = combat_dir
 
@@ -684,7 +764,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
             ])
         stages["fort_hagen"] = fh_dir
 
-    if not getattr(a, "no_walk_harness", False):
+    if profile == "test" and not getattr(a, "no_walk_harness", False):
         cw_dir = os.path.join(work, "15-candidate-walk")
         if not os.path.exists(cw_dir):
             stage_candidate_walk(cw_dir, sf_esm, compiler, cr_zip)
@@ -693,9 +773,132 @@ def stage_from_checkout(a) -> Dict[str, str]:
     if getattr(a, "with_pipboy", False):
         if not getattr(a, "pipboy_stage", None):
             raise BundleRefused("--with-pipboy requires --pipboy-stage <dir>")
-        stages["pipboy"] = os.path.abspath(a.pipboy_stage)
+        pb_override = getattr(a, "pipboy_sfse_build", None)
+        has_src_pb = bool(pb_override or (commonlibsf and msvc_env))
+        validate_pipboy_stage(a.pipboy_stage, has_override_dll=has_src_pb)
+        pb_refreshed = os.path.join(work, "16-pipboy-refreshed")
+        if not os.path.exists(pb_refreshed):
+            refresh_pipboy_stage_for_bundle(
+                os.path.abspath(a.pipboy_stage),
+                pb_refreshed,
+                os.path.abspath(a.fo4_data),
+            )
+        stages["pipboy"] = pb_refreshed
+        if pb_override:
+            a._pipboy_sfse_override = os.path.abspath(pb_override)
+        elif commonlibsf and msvc_env:
+            pb_src_dir = build_sfse_dll_from_source(
+                "FO4SFPipboyMenu",
+                os.path.join(work, "sfse-src-builds", "pipboy"),
+                commonlibsf,
+                msvc_env,
+            )
+            a._pipboy_sfse_override = pb_src_dir
 
     return stages
+
+
+def refresh_pipboy_stage_for_bundle(src_stage: str, out_stage: str, fo4_data_dir: str) -> None:
+    """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT VaultBoy/Condition SWFs, and update plan.json."""
+    ui_dir = os.path.join(REPO, "scripts", "ui")
+    if ui_dir not in sys.path:
+        sys.path.insert(0, ui_dir)
+    import pipboy_map_store  # type: ignore
+
+    partial = out_stage + ".partial"
+    if os.path.exists(partial):
+        shutil.rmtree(partial)
+    shutil.copytree(src_stage, partial)
+
+    iface_dir = os.path.join(partial, "Data", "Interface")
+    os.makedirs(iface_dir, exist_ok=True)
+    updated_data_rels: List[str] = []
+
+    mappage_p = os.path.join(iface_dir, "Pipboy_MapPage.swf")
+    if os.path.isfile(mappage_p):
+        with open(mappage_p, "rb") as f:
+            raw_mp = f.read()
+        patched_mp, _ = pipboy_map_store.patch_map_page_swf(raw_mp)
+        with open(mappage_p, "wb") as f:
+            f.write(patched_mp)
+        updated_data_rels.append("Data/Interface/Pipboy_MapPage.swf")
+
+    fo4_iface_ba2 = os.path.join(fo4_data_dir, "Fallout4 - Interface.ba2")
+    if os.path.isfile(fo4_iface_ba2):
+        staged_specs = pipboy_map_store.stage_fo4_stat_components(fo4_iface_ba2, iface_dir)
+        for spec in staged_specs:
+            updated_data_rels.append(f"Data/Interface/{spec}.swf")
+
+    plan_p = os.path.join(partial, "plan.json")
+    if os.path.isfile(plan_p) and updated_data_rels:
+        with open(plan_p, encoding="utf-8") as f:
+            plan = json.load(f)
+        if isinstance(plan.get("outputs"), dict) and plan["outputs"]:
+            for rel in updated_data_rels:
+                full = os.path.join(partial, *rel.split("/"))
+                if os.path.isfile(full):
+                    plan["outputs"][rel] = sha256_file(full)
+        elif isinstance(plan.get("files"), dict) and plan["files"]:
+            for rel in updated_data_rels:
+                full = os.path.join(partial, *rel.split("/"))
+                if os.path.isfile(full):
+                    existing = plan["files"].get(rel)
+                    digest = sha256_file(full)
+                    plan["files"][rel] = {"sha256": digest, "bytes": os.path.getsize(full)} if isinstance(existing, dict) or existing is None else digest
+        with open(plan_p, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(plan, f, indent=2)
+            f.write("\n")
+
+    os.replace(partial, out_stage)
+
+
+def strip_pipboy_kit_sections(ini_text: str) -> str:
+    """Strip legacy Stage=5 [Kit] and [Page ...] sections from shipped FO4SFPipboyMenu.ini (G5)."""
+    heading_val: Optional[str] = None
+    has_map_heading = False
+    for raw in ini_text.splitlines():
+        s = raw.strip()
+        if s.startswith("MapHeadingAt="):
+            val = s.split("=", 1)[1].strip()
+            if val:
+                has_map_heading = True
+        elif s.startswith("HeadingAt=") and heading_val is None:
+            val = s.split("=", 1)[1].strip()
+            if val:
+                heading_val = val
+
+    out_lines: List[str] = []
+    skip_section = False
+    in_main_section = False
+    injected_heading = False
+    for line in ini_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main_section and not has_map_heading and heading_val and not injected_heading:
+                out_lines.append(f"MapHeadingAt={heading_val}")
+                injected_heading = True
+            sec = stripped[1:-1].strip()
+            in_main_section = sec == "FO4SFPipboyMenu"
+            skip_section = sec == "Kit" or sec.startswith("Page ")
+            if skip_section:
+                continue
+        if skip_section:
+            continue
+        out_lines.append(line)
+    if in_main_section and not has_map_heading and heading_val and not injected_heading:
+        out_lines.append(f"MapHeadingAt={heading_val}")
+    return "\n".join(out_lines).rstrip() + "\n"
+
+
+def _copy_or_strip_pipboy_ini(src_path: str, dst_path: str) -> None:
+    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+    if os.path.basename(dst_path).lower().endswith(".ini") and "pipboymenu" in os.path.basename(dst_path).lower():
+        with open(src_path, encoding="utf-8") as f:
+            cleaned = strip_pipboy_kit_sections(f.read())
+        with open(dst_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(cleaned)
+    else:
+        shutil.copy2(src_path, dst_path)
 
 
 def fold_bundle(
@@ -708,11 +911,15 @@ def fold_bundle(
     hardlink: bool = True,
     max_plugins: int = MAX_STARFIELD_PLUGINS,
     max_ba2_bytes: int = MAX_BA2_BYTES,
+    profile: str = "test",
+    pipboy_sfse_override: Optional[str] = None,
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
     final = os.path.abspath(out_dir)
     if os.path.exists(final):
         raise BundleRefused(f"output bundle directory already exists: {final}")
+    if profile == "player" and "candidate_walk" in stages:
+        stages = {k: v for k, v in stages.items() if k != "candidate_walk"}
 
     cc_dir = os.path.abspath(clean_core_out or (final + ".clean-core"))
     if os.path.exists(cc_dir):
@@ -769,10 +976,10 @@ def fold_bundle(
                 if os.path.isfile(sfile):
                     rel_sc = f"reputation/{fn}"
                     dst_sc = os.path.join(partial, "sfse_sidecar", "reputation", fn)
-                    os.makedirs(os.path.dirname(dst_sc), exist_ok=True)
-                    shutil.copy2(sfile, dst_sc)
+                    _copy_or_strip_pipboy_ini(sfile, dst_sc)
                     sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
         elif key == "pipboy":
+            validate_pipboy_stage(st_dir, has_override_dll=bool(pipboy_sfse_override))
             sfse_plugins_src = os.path.join(st_dir, "SFSE", "Plugins")
             sidecar_src = os.path.join(st_dir, "sfse")
             if os.path.isdir(sfse_plugins_src):
@@ -781,17 +988,27 @@ def fold_bundle(
                     if os.path.isfile(sfile):
                         rel_sc = f"SFSE/Plugins/{fn}"
                         dst_sc = os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", fn)
-                        os.makedirs(os.path.dirname(dst_sc), exist_ok=True)
-                        shutil.copy2(sfile, dst_sc)
+                        _copy_or_strip_pipboy_ini(sfile, dst_sc)
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
             elif os.path.isdir(sidecar_src):
                 for fn in sorted(os.listdir(sidecar_src)):
                     sfile = os.path.join(sidecar_src, fn)
                     if os.path.isfile(sfile):
                         dst_sc = os.path.join(partial, "sfse_sidecar", fn)
-                        os.makedirs(os.path.dirname(dst_sc), exist_ok=True)
-                        shutil.copy2(sfile, dst_sc)
+                        _copy_or_strip_pipboy_ini(sfile, dst_sc)
                         sfse_sidecar_hashes[fn] = sha256_file(dst_sc)
+            if pipboy_sfse_override and os.path.isdir(pipboy_sfse_override):
+                for src_fn, dst_fn in (
+                    ("FO4SFPipboyMenu.dll", "FO4SFPipboyMenu.dll"),
+                    ("FO4SFPipboyMenu.ini", "FO4SFPipboyMenu.ini"),
+                    ("build.json", "FO4SFPipboyMenu.build.json"),
+                ):
+                    sfile = os.path.join(pipboy_sfse_override, src_fn)
+                    if os.path.isfile(sfile):
+                        rel_sc = f"SFSE/Plugins/{dst_fn}"
+                        dst_sc = os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", dst_fn)
+                        _copy_or_strip_pipboy_ini(sfile, dst_sc)
+                        sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
 
         comp_plugins, comp_outputs = extract_component_outputs(key, st_dir)
         for plg in comp_plugins:
@@ -849,7 +1066,8 @@ def fold_bundle(
     install_cmd, rollback_cmd = install_and_rollback_commands(final, sf_placeholder, plugins)
     bplan = {
         "kind": "core-candidate-bundle",
-        "version": 1,
+        "version": 2,
+        "profile": profile,
         "base_plugins": base_plugins,
         "plugins": plugins,
         "components": components_record,
@@ -901,6 +1119,8 @@ def cmd_build(a, system=None) -> int:
         hardlink=not a.no_hardlink,
         max_plugins=a.max_plugins,
         max_ba2_bytes=a.max_ba2_bytes,
+        profile=a.profile,
+        pipboy_sfse_override=getattr(a, "_pipboy_sfse_override", None),
     )
     return 0
 
@@ -908,23 +1128,26 @@ def cmd_build(a, system=None) -> int:
 def cmd_fold(a, system=None) -> int:
     ensure_game_closed(system)
     root = os.path.abspath(a.stages_root)
+    profile = getattr(a, "profile", "test")
     mapping = {
+        "core_values": ("00-core-values",),
         "cog_door": ("01-cog-door",),
         "exit_lift": ("02-exit-lift",),
         "newgame": ("03-newgame",),
         "rads": ("04-rads",),
         "hardcore": ("05-hardcore",),
         "workshop": ("06-workshop",),
-        "powerarmor": ("07-powerarmor",),
+        "powerarmor": ("07-powerarmor-player", "07-powerarmor") if profile == "player" else ("07-powerarmor",),
         "progression": ("08-progression",),
-        "list_dialogue": ("09-list-dialogue",),
-        "combat": ("10-combat",),
-        "reputation": ("11-reputation",),
-        "companions": ("12-companions",),
+        "list_dialogue": ("09-list-dialogue-player", "09-list-dialogue") if profile == "player" else ("09-list-dialogue",),
+        "combat": ("10-combat-player", "10-combat") if profile == "player" else ("10-combat",),
+        "reputation": ("11-reputation-player", "11-reputation") if profile == "player" else ("11-reputation",),
+        "companions": ("12-companions-player", "12-companions") if profile == "player" else ("12-companions",),
         "alife": ("13-alife",),
         "fort_hagen": ("14-fort-hagen", "10-fort-hagen"),
-        "candidate_walk": ("15-candidate-walk", "11-candidate-walk"),
     }
+    if profile == "test":
+        mapping["candidate_walk"] = ("15-candidate-walk", "11-candidate-walk")
     stages: Dict[str, str] = {}
     for k, subs in mapping.items():
         for sub in subs:
@@ -935,6 +1158,8 @@ def cmd_fold(a, system=None) -> int:
     if a.with_pipboy:
         if not a.pipboy_stage:
             raise BundleRefused("--with-pipboy requires --pipboy-stage <dir>")
+        pb_override = getattr(a, "pipboy_sfse_build", None)
+        validate_pipboy_stage(a.pipboy_stage, has_override_dll=bool(pb_override))
         stages["pipboy"] = os.path.abspath(a.pipboy_stage)
     fold_bundle(
         owner_set=a.owner_set,
@@ -946,6 +1171,8 @@ def cmd_fold(a, system=None) -> int:
         hardlink=not a.no_hardlink,
         max_plugins=a.max_plugins,
         max_ba2_bytes=a.max_ba2_bytes,
+        profile=profile,
+        pipboy_sfse_override=os.path.abspath(a.pipboy_sfse_build) if getattr(a, "pipboy_sfse_build", None) else None,
     )
     return 0
 
@@ -1012,7 +1239,11 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--collision-template", required=True)
     b.add_argument("--texconv", required=True)
     b.add_argument("--render-python", default=None)
+    b.add_argument("--profile", choices=("player", "test"), default="player")
+    b.add_argument("--commonlibsf", default=None)
+    b.add_argument("--msvc-env", default=None)
     b.add_argument("--combat-sfse-build", default=None)
+    b.add_argument("--pipboy-sfse-build", default=None)
     b.add_argument("--no-alife", action="store_true")
     b.add_argument("--no-fort-hagen", action="store_true")
     b.add_argument("--no-walk-harness", action="store_true")
@@ -1029,8 +1260,10 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--clean-core-out", default=None)
     fo.add_argument("--port", default=None)
     fo.add_argument("--starfield-dir", default=None)
+    fo.add_argument("--profile", choices=("player", "test"), default="test")
     fo.add_argument("--with-pipboy", action="store_true")
     fo.add_argument("--pipboy-stage", default=None)
+    fo.add_argument("--pipboy-sfse-build", default=None)
     fo.add_argument("--no-hardlink", action="store_true")
     fo.add_argument("--max-plugins", type=int, default=MAX_STARFIELD_PLUGINS)
     fo.add_argument("--max-ba2-bytes", type=int, default=MAX_BA2_BYTES)
