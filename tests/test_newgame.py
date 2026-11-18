@@ -30,7 +30,7 @@ DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
                 version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, require_persistent_anchor=False,
-                allow_temporary_anchor=False, no_o2_fill=False)
+                allow_temporary_anchor=False, no_o2_fill=False, no_fade_hold=False, warfare_starts=None)
 
 
 def namespace(**kw):
@@ -142,22 +142,27 @@ class ContractTests(unittest.TestCase):
         self.assertLess(code.index("Game.FadeOutGame(False, True, 0.0, 0.1, False)"), code.index("Game.SetInChargen(false, false, false)"))
         self.assertLess(code.index("Game.SetInChargen(false, false, false)"), code.index("Game.SetCharGenHUDMode(0)"))
         self.assertIn('Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")', code)
+        hold_fade = psc[psc.index("Function HoldFadeForModeChoice"):psc.index("int Function RunModeChoiceChain")]
+        self.assertIn("Game.FadeOutGame(True, True, 0.0, 0.1, True)", hold_fade)
+        self.assertIn("Game.SetInChargen(true, true, false)", hold_fade)
+        self.assertIn('Trace("mode fade held")', hold_fade)
         code_only = re.sub(r"\{[^}]*\}", "", psc)          # the doc comments name the fade call too
-        for call in ("Game.FadeOutGame(", "Game.SetInChargen(", "Game.SetCharGenHUDMode("):
-            self.assertEqual(code_only.count(call), 1, call)  # in FadeIn alone
+        self.assertEqual(code_only.count("Game.FadeOutGame("), 2)   # FadeIn + HoldFadeForModeChoice
+        self.assertEqual(code_only.count("Game.SetInChargen("), 2)  # FadeIn + HoldFadeForModeChoice
+        self.assertEqual(code_only.count("Game.SetCharGenHUDMode("), 1)  # in FadeIn alone
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("StartTimer(1.0, 1)"), begin.index("player.WaitFor3DLoad()"))
         self.assertLess(begin.index("player.WaitFor3DLoad()"), begin.index('FadeIn("start")'))
         self.assertIn('    player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load\n'
                       '    bool ready = player.Is3DLoaded()\n    Trace("3d wait over loaded=" + ready)\n'
-                      '    if ready\n        FadeIn("start")', begin)
+                      '    if ready\n        if FadeHold\n            HoldFadeForModeChoice()\n        else\n            FadeIn("start")', begin)
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
         self.assertIn('        if !player.Is3DLoaded()\n', zero)
         self.assertIn('            StartTimer(1.0, 1)                               ; the game is still loading\n'
-                      '            return\n        endif\n        FadeIn("timer")', zero)
+                      '            return\n        endif\n        if FadeHold\n            HoldFadeForModeChoice()\n        else\n            FadeIn("timer")', zero)
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
-        self.assertEqual(len(re.findall(r'\bFadeIn\("', psc)), 2)   # the two calls, each behind its 3D check
+        self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story", "warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
 
@@ -749,11 +754,13 @@ class ContractTests(unittest.TestCase):
         listed = {int(m.group(1)): m.group(2).strip()
                   for m in re.finditer(r"^\s+(\d+) ([a-z].*)$", header[header.index("Stages are the published"):], re.M)}
         self.assertEqual(listed, ng.STAGE_CONTRACT)
-        self.assertEqual(ng.STAGES, (1, 10, 20, 30, 40, 200))
+        self.assertEqual(ng.STAGES, (1, 5, 10, 20, 30, 40, 200, 210))
         self.assertEqual(list(ng.STAGE_CONTRACT), [0] + list(ng.STAGES))
         doc = read(os.path.join(ROOT, "docs", "newgame", "vault111-start.md"))
+        audit = read(os.path.join(ROOT, "docs", "newgame", "lift-rules-audit.md"))
         for n, what in ng.STAGE_CONTRACT.items():
-            self.assertIn(f"| {n} | {what} |", doc)
+            target_doc = audit if n in (5, 210) else doc
+            self.assertIn(f"| {n} | {what} |", target_doc)
 
     def test_the_writer_defaults_match_the_python_ones(self):
         """NG-2: the default build writes NO GLOB MQ101Debug override (28 Oct run 2) and the quest writes 2 right after the
@@ -887,7 +894,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(begin.rindex("StandDown(loading, "), write)
         self.assertEqual(psc.count("SetValueInt("), 1)
         self.assertIn('Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)', psc)
-        self.assertEqual(ng.NATIVES[ng.SCRIPT]["GlobalVariable"], ["GetValue", "SetValueInt"])
+        self.assertEqual(ng.NATIVES[ng.SCRIPT]["GlobalVariable"], ["GetValue", "SetValueInt", "SetValue"])
         # the two values of 28 Oct stay buildable on purpose (--mq101debug) for experiments, never as the default
         self.assertIn('("debug10", idsPath, plain with { MQ101Debug = 10 })', cs)
         self.assertIn('("debug0", idsPath, plain with { MQ101Debug = 0 })', cs)
@@ -1005,12 +1012,15 @@ class ContractTests(unittest.TestCase):
 
     def test_every_native_the_script_calls_is_prechecked(self):
         psc = read(PSC)
-        calls = set(re.findall(r"\.(\w+)\(", psc))
+        calls = set(re.findall(r"\.(\w+)\(", psc)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer)\(", psc, re.M))
         listed = {f for bases in ng.NATIVES[ng.SCRIPT].values() for f in bases}
         own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", psc, re.M))
-        # GetPositionY/Z share GetPositionX's script; GetDistance is not used; the rest must be listed or our own
-        calls |= set(re.findall(r"^Event (On\w+)\(", psc, re.M)) - {"OnTimer"}   # the start events: OnQuestStarted, OnQuestInit
-        missing = calls - listed - own - {"GetPositionY", "GetPositionZ"}
+        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls live in our own repo scripts
+        calls |= set(re.findall(r"^Event (?:\w+\.)?(On\w+)\(", psc, re.M)) - {"OnTimer"}
+        fo4sf_methods = {"GetPositionY", "GetPositionZ", "EvaluateHardcore", "OpenAttributeAllocation",
+                         "ApplyWarfareBackground", "SetFactionScoresAbsolute", "SetKarmaAbsolute",
+                         "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"}
+        missing = calls - listed - own - fo4sf_methods
         self.assertEqual(missing, set())
         self.assertTrue({"OnQuestStarted", "OnQuestInit", "FadeOutGame", "WaitFor3DLoad", "StartNoWait", "IsStarting"} <= calls)
         self.assertNotIn("Start", ng.NATIVES[ng.SCRIPT]["Quest"])   # the hand back waits for nothing
@@ -1069,11 +1079,13 @@ ACTOR_O2 = ("Function ModValue(ActorValue akAV, float afAmount) native\n"
             "float Function GetValue(ActorValue akAV) native\n")
 ACTOR_CORE = ("int Function GetLevel() native\n"
               "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
-              "bool Function IsEquipped(Form akItem) native\n" + ACTOR_O2)
+              "bool Function IsEquipped(Form akItem) native\n"
+              "Function AddToFaction(Faction akFaction) native\n"
+              "Event OnPlayerLoadGame()\nEndEvent\n" + ACTOR_O2)
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
-             objectreference=None, quest=None, animation=True):
+             objectreference=None, quest=None, animation=True, remote=True):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -1089,7 +1101,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                                               + CHARGEN + FADE + FAST_READ,
-        "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\n",
+        "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\nFunction SetValue(float afNewValue) native\n",
         "InputEnableLayer": "Scriptname InputEnableLayer extends ScriptObject\nInputEnableLayer Function Create() native global\nFunction EnableHandscanner(bool a = true) native\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
         "ObjectReference": objectreference if objectreference is not None else
@@ -1109,6 +1121,9 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         base["ScriptObject"] += ("\nFunction RegisterForAnimationEvent(ObjectReference source, string name) native\n"
                                  "Function UnregisterForAnimationEvent(ObjectReference source, string name) native\n"
                                  "Event OnAnimationEvent(ObjectReference source, string name)\nEndEvent\n")
+    if remote:
+        base["ScriptObject"] += ("\nbool Function RegisterForRemoteEvent(ScriptObject source, string name) native\n"
+                                 "Function UnregisterForRemoteEvent(ScriptObject source, string name) native\n")
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)
@@ -1167,12 +1182,12 @@ class PrecheckTests(unittest.TestCase):
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
                     + CHARGEN + FADE + FAST_READ)
         r = ng.precheck_zip(z)
-        self.assertEqual(r["missing_core"], [])
+        self.assertEqual(r["missing_core"], ["Game.ShowRaceMenu"])
         self.assertFalse(r["natives"][ng.LOOKS]["Game.ShowRaceMenu"])
         out = os.path.join(self.tmp, "p.json")
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
             rc = ng.main(["precheck", "--content-resources", z, "--out", out])
-        self.assertEqual(rc, 0)
+        self.assertEqual(rc, 1)
         self.assertIn("--no-looks", o.getvalue())
         self.assertNotIn("--no-special", o.getvalue())
         self.assertTrue(os.path.isfile(out))
@@ -1224,7 +1239,8 @@ class PrecheckTests(unittest.TestCase):
         """The inventory reset lives in the quest script (its ClearInventory property is on by default, and
         --keep-inventory builds still compile it): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n" + ACTOR_O2 +
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+                          "Function AddToFaction(Faction akFaction) native\nEvent OnPlayerLoadGame()\nEndEvent\n" + ACTOR_O2 +
                           "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
@@ -1280,16 +1296,16 @@ class PrecheckTests(unittest.TestCase):
 
     def test_missing_menu_event_only_drops_the_looks(self):
         """The creator's close is awaited with RegisterForMenuOpenCloseEvent / OnMenuOpenCloseEvent (ScriptObject,
-        PC read 19 Oct): a source set without them fails only the looks script, and the precheck says --no-looks."""
+        PC read 19 Oct): both FO4SF_NewGameQuest (S5/X3) and FO4SF_NewGameLooks require them."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\n")
         r = ng.precheck_zip(z)
-        self.assertEqual(r["missing_core"], [])
+        self.assertEqual(r["missing_core"], ["ScriptObject.RegisterForMenuOpenCloseEvent", "ScriptObject.OnMenuOpenCloseEvent"])
         self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.RegisterForMenuOpenCloseEvent"])
         self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.OnMenuOpenCloseEvent"])
         self.assertTrue(r["natives"][ng.LOOKS]["ScriptObject.StartTimer"])
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
-            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
         self.assertIn("--no-looks", o.getvalue())
 
 
@@ -2020,6 +2036,178 @@ class PodStepOptionTests(unittest.TestCase):
         self.assertIn("scannerLayer = InputEnableLayer.Create()", psc)
         self.assertIn("scannerLayer.EnableHandscanner(false)", psc)
         self.assertIn("DisableHandScanner()", psc)
+
+
+class Phase2BeginningRealTests(unittest.TestCase):
+    """Tasks 3 & 4 contracts: S3-S5 mode choice & Warfare branch, X1-X4 console/Pip-Boy/lift/map-setup, R4 output guard."""
+
+    def test_2b_landing_handoff_starts_mission_quests_with_start_no_wait(self):
+        psc = read(PSC)
+        adv = psc[psc.index("Function AdvanceTo"):psc.index("Event OnTimer")]
+        self.assertIn("elseif n == 200\n        CompleteQuest()\n        StartLandingQuests()", adv)
+        self.assertIn("elseif n == 210\n        CompleteQuest()\n        StartLandingQuests()", adv)
+        handoff = psc[psc.index("Function StartLandingQuests"):psc.index("Function EnsureLoadHookRegistered")]
+        self.assertIn('Trace("mission gate mode=" + gm + " started=" + storyAllowed)', handoff)
+        self.assertIn('Game.GetFormFromFile(0x000800, "FO4SFMission.esm") as Quest', handoff)
+        self.assertIn('Game.GetFormFromFile(0x000814, "FO4SFMission.esm") as Quest', handoff)
+        self.assertIn("StartOptionalMissionQuest(0x000816)", handoff)
+        self.assertIn('Trace("landing quests started min00=" + min00Ok + " keeper=" + keeperOk + " codsworth01=" + codsworth01Ok)', handoff)
+        self.assertNotIn(".Start()", psc)
+        s = ng.summarize(["[x] FO4SF_NEWGAME rt=10.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n",
+                          "[x] FO4SF_NEWGAME rt=50.0 landing quests started min00=True keeper=True codsworth01=False\n"])
+        self.assertEqual(s["landing_quests"], "min00=True keeper=True codsworth01=False")
+
+    def test_s3_warfare_starts_table_and_refusal_of_unknown_marker(self):
+        from fo4sf.core import warfare_starts as ws
+        from fo4sf.core import start_worlds as sw
+        entries = ws.load_warfare_starts()
+        self.assertGreaterEqual(len(entries), 1)
+        first = entries[0]
+        self.assertEqual(first.key, "minutemen_sanctuary")
+        self.assertEqual(first.faction_slot, 0)
+        self.assertEqual(first.marker_edid, "FO4Core_CommonwealthMapMarkerSanctuary")
+        self.assertEqual((first.min_difficulty, first.max_difficulty), (0, 3))
+        self.assertEqual(first.squad_cap, 4)
+        self.assertGreaterEqual(len(first.gear), 1)
+        ws.load_warfare_starts(known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary"})
+        with self.assertRaisesRegex(ValueError, "unknown marker_edid"):
+            ws.load_warfare_starts(known_marker_edids={"FO4Core_CommonwealthMapMarkerVault111"})
+        # Legacy nonexistent-cell faction rows in start_worlds are marked inactive while world rows remain intact
+        self.assertFalse(sw.get_start_world("minuteman_volunteer").active)
+        self.assertTrue(sw.get_start_world("vault111").active)
+        self.assertTrue(sw.get_start_world("goodsprings").active)
+
+    def test_s4_mode_choice_chain_fade_hold_and_load_default(self):
+        cs, psc = read(CS), read(PSC)
+        self.assertIn('ModeButtons = { "Story", "Warfare" }', cs)
+        self.assertIn('SurvivalButtons = { "Survival: No", "Survival: Yes" }', cs)
+        self.assertIn('WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" }', cs)
+        self.assertIn("bool Property FadeHold = true Auto Const", psc)
+        self.assertEqual(ng.tool_options(namespace(no_fade_hold=True)), ["--no-fade-hold"])
+        self.assertIn('Trace("mode fade held")', psc)
+        self.assertIn('Trace("mode choice mode=story survival=" + survVal)', psc)
+        self.assertIn('Trace("mode choice mode=warfare survival=" + survVal)', psc)
+        self.assertIn('Trace("mode load default=story stage=" + GetStage())', psc)
+        self.assertIn('hc.EvaluateHardcore("start_choice")', psc)
+        s = ng.summarize([
+            "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n",
+            "[x] FO4SF_NEWGAME rt=3.0 mode fade held\n",
+            "[x] FO4SF_NEWGAME rt=5.0 mode choice mode=story survival=1\n",
+            "[x] FO4SF_NEWGAME rt=5.1 stage 5\n",
+            "[x] FO4SF_NEWGAME rt=5.2 stage 10\n",
+            "[x] FO4SF_NEWGAME rt=20.0 mode load default=story stage=10\n",
+        ])
+        self.assertTrue(s["mode_fade_held"])
+        self.assertEqual(s["mode_choice"], "mode=story survival=1")
+        self.assertEqual(s["mode_load_default"], "story stage=10")
+        self.assertEqual(s["stages"], [5, 10])
+
+    def test_s5_warfare_branch_shared_map_setup_and_stage_210(self):
+        psc = read(PSC)
+        self.assertEqual(psc.count("int Function RunSharedMapSetup()"), 1)
+        ascent = psc[psc.index("Function StartAscent"):psc.index("Event OnAnimationEvent")]
+        wf = psc[psc.index("Function RunWarfareBranch"):psc.index("Event OnMenuOpenCloseEvent")]
+        self.assertIn("RunSharedMapSetup()", ascent)
+        self.assertIn("RunSharedMapSetup()", wf)
+        self.assertIn('prog.OpenAttributeAllocation("warfare")', wf)
+        self.assertIn("prog.ApplyWarfareBackground(WarfareBgIndices[rowIdx])", wf)
+        self.assertIn('Trace("warfare gear n=" + gearAdded)', wf)
+        self.assertIn('Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())', wf)
+        self.assertIn("wmm.DiscoverSingleMarker(wMarker)", wf)
+        self.assertIn("rep.SetFactionScoresAbsolute(player, slot, fame, infamy)", wf)
+        self.assertIn("rep.SetKarmaAbsolute(player, karma)", wf)
+        self.assertIn("player.AddToFaction(fac)", wf)
+        self.assertIn('Trace("warfare standing slot=" + slot', wf)
+        self.assertIn('FadeIn("warfare")', wf)
+        self.assertIn("AdvanceTo(210)", wf)
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        log_path = os.path.join(tmp, "fo4sf_newgame.0.log")
+        with open(log_path, "w", encoding="utf-8") as fh:
+            fh.write(
+                "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
+                "[x] FO4SF_NEWGAME rt=3.0 mode fade held\n"
+                "[x] FO4SF_NEWGAME rt=4.0 mode choice mode=warfare survival=0\n"
+                "[x] FO4SF_NEWGAME rt=4.1 warfare pick faction=0 start=minutemen_sanctuary difficulty=1\n"
+                "[x] FO4SF_NEWGAME rt=4.2 stage 5\n"
+                "[x] FO4SF_NEWGAME rt=8.0 special set S=6 P=6 E=6 C=6 I=6 A=5 L=5 sum=40 source=warfare\n"
+                "[x] FO4SF_NEWGAME rt=9.0 warfare gear n=4\n"
+                "[x] FO4SF_NEWGAME rt=10.0 warfare move ok=True marker=[ObjectReference < (030A775A)>] dist=0.0 z=96.0\n"
+                "[x] FO4SF_NEWGAME rt=10.2 map setup done markers=4 elapsed=0.05\n"
+                "[x] FO4SF_NEWGAME rt=10.3 warfare standing slot=0 fame=45.0 infamy=0.0 karma=150.0 squad_cap=4\n"
+                "[x] FO4SF_NEWGAME rt=10.4 stage 210\n"
+            )
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as out:
+            rc = ng.main(["log", "--file", log_path])
+        self.assertEqual(rc, 0)
+        summary = json.loads(out.getvalue())
+        self.assertEqual(summary["stages"], [5, 210])
+        self.assertEqual(summary["warfare_pick"], "faction=0 start=minutemen_sanctuary difficulty=1")
+        self.assertEqual(summary["warfare_gear"], "4")
+        self.assertEqual(summary["map_setup"], "markers=4 elapsed=0.05")
+
+    def test_x1_console_only_gear_door_blocks_direct_activation_and_gates_shortcuts_on_test_mode(self):
+        cs, psc = read(CS), read(PSC)
+        self.assertIn('("ConsoleRefId", (int)p.Console)', cs)
+        invault = psc[psc.index("Function InVault"):psc.index("Function StartAscent")]
+        self.assertIn("if stage == 20 && CogDoorId > 0 && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", invault)
+        self.assertIn("cogDoorWatchedRef.BlockActivation(True, False)", psc)
+        self.assertIn('RegisterForRemoteEvent(cogDoorWatchedRef, "OnActivate")', psc)
+        self.assertIn('RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")', psc)
+        self.assertIn('Trace("cog door activate blocked by=player open_state=" + curState)', psc)
+        self.assertIn('Trace("cog door console activated ref=" + consoleWatchedRef + " before=" + before + " after=" + after)', psc)
+
+    def test_x2_pipboy_pickup_console_gate_and_pistol_picked(self):
+        cs, psc = read(CS), read(PSC)
+        self.assertIn("PipboyAcquiredGlobId = 0x80C", cs)
+        self.assertIn("PipboyWristArmorId = 0x80D", cs)
+        self.assertIn("PipboyCorpseActiId = 0x80E", cs)
+        self.assertIn("PipboyCorpseRefId = 0x80F", cs)
+        self.assertIn("NoPipboyMsgId = 0x811", cs)
+        self.assertIn("Fo4PipboyPickup = 0x075039", cs)
+        self.assertIn("Fo4PipboySkeleton = 0x0AB6AF", cs)
+        self.assertIn('["pipboy_corpse"]', cs)
+        self.assertIn('Trace("console refused: no pipboy")', psc)
+        self.assertIn('Trace("pipboy pickup equipped flag=1 worn=" + worn)', psc)
+        self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)', psc)
+        z = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        z.close()
+        try:
+            fake_zip(z.name, remote=False)
+            r = ng.precheck_zip(z.name)
+            self.assertIn("ScriptObject.RegisterForRemoteEvent", r["missing_core"])
+            self.assertIn("ScriptObject.UnregisterForRemoteEvent", r["missing_core"])
+        finally:
+            os.unlink(z.name)
+
+    def test_x3_four_button_lift_prompt_requires_40pt_special_before_continue_and_disables_special_skipped(self):
+        cs, psc, special = read(CS), read(PSC), read(SPECIAL)
+        self.assertIn('ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Character", "Stay" }', cs)
+        self.assertIn('ReturnMsgEdid = "FO4SF_NewGameReturn"', cs)
+        self.assertIn("ReturnMsgId = 0x80B", cs)
+        self.assertIn('"Ride down to Vault 111", "Stay"', cs)
+        self.assertIn('Trace("elevator continue refused: special unconfirmed")', psc)
+        self.assertIn("OpenLiftAttributeAllocation()", psc)
+        self.assertIn("OpenLiftCharacterRespec()", psc)
+        self.assertIn('Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest', psc)
+        self.assertIn("PrepareArrivalMarkerDuringRide()", psc)
+        self.assertIn("PreAttachArrivalMarker(player)", psc)
+        self.assertIn("CheckReturnLift(player)", psc)
+        self.assertIn("bool Property LegacyTerminalEnabled = false Auto Const", special)
+        self.assertIn("if aiTimerID != 3 || !LegacyTerminalEnabled\n        return", special)
+        audit = read(os.path.join(ROOT, "docs", "newgame", "lift-rules-audit.md"))
+        for rule_num in range(1, 8):
+            self.assertIn(f"### {rule_num}.", audit)
+        self.assertIn("NOT BUILT", audit)
+
+    def test_r4_stage_tools_refuse_worktree_and_game_output_folders(self):
+        with self.assertRaisesRegex(SystemExit, "inside Git worktree"):
+            ng.refuse_forbidden_out_dir(os.path.join(ROOT, "forbidden_stage_out"))
+        with self.assertRaisesRegex(SystemExit, "Starfield"):
+            ng.refuse_forbidden_out_dir(os.path.join(ng.STARFIELD, "Data", "forbidden_stage_out"))
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        ng.refuse_forbidden_out_dir(os.path.join(tmp, "allowed_stage_out"))
 
 
 if __name__ == "__main__":

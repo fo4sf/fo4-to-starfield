@@ -144,6 +144,7 @@ def stage(a, converter=None):
     if production and (control or ref.lower().removeprefix("0x").lstrip("0") != "126d"):
         sys.exit("--production-cog requires the original cog door 00126D and the converted DOOR override, never --control")
     final = os.path.abspath(a.out)
+    mac.refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
     port_data = a.port_data or a.starfield_data

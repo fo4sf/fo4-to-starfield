@@ -40,20 +40,23 @@ int Property MaxPresses = 300 Auto Const
 {The allocation ends as Leave after this many presses without Confirm or Leave (make_newgame.py SPECIAL_MAX_PRESSES).
  A player needs about 22 per pass; this is the guard against a message box that returns at once (the ten-button box is
  unverified), which would otherwise spin.}
+bool Property LegacyTerminalEnabled = false Auto Const
+{X3: Progression's 40-point allocation on the Vault 111 lift (and Warfare start) replaces this 21-point terminal picker
+ on normal runs, so this timer is off by default and 'special skipped' never fires on a normal run.}
 
 bool asked = false
 bool done = false
 
 Event OnQuestStarted()
-    StartTimer(1.0, 3)                                       ; the startup quest's start (FO4SF_NewGameQuest.Begin)
+    StartTimer(1.0, 3)                                       ; whichever of the two start events fires
 EndEvent
 
 Event OnQuestInit()
-    StartTimer(1.0, 3)                                       ; whichever start event comes, the timer runs; a second call restarts it
+    StartTimer(1.0, 3)                                       ; the other returns on LegacyTerminalEnabled / done / stage
 EndEvent
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID != 3
+    if aiTimerID != 3 || !LegacyTerminalEnabled
         return
     endif
     int stage = GetStage()

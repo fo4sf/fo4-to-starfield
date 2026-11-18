@@ -57,6 +57,10 @@ if os.path.join(REPO, "src") not in sys.path:
 from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "NewGame")
+PROGRESSION_SCRIPTS = os.path.join(REPO, "scripts", "progression")
+SURVIVAL_SCRIPTS = os.path.join(REPO, "scripts", "survival")
+REPUTATION_SCRIPTS = os.path.join(REPO, "scripts", "reputation")
+MAPMARKERS_SCRIPTS = os.path.join(REPO, "scripts", "mapmarkers")
 PLUGIN = "FO4SFNewGame.esm"
 SCRIPT = "FO4SF_NewGameQuest"
 LOOKS = "FO4SF_NewGameLooks"
@@ -68,11 +72,13 @@ VERSION = "FO4SF_NewGameVersion"
 STAGE_CONTRACT = {
     0: "started: as Starfield's startup quest, the guard, the move into the vault and the hold-off",
     1: "stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)",
+    5: "mode chosen: start mode and survival choice stored",
     10: "in the vault: the player stands at their pod",
     20: "looks done: character creation closed, or LooksWait passed",
     30: "cog door opened: from its console",
     40: "on the surface: the elevator ride is over",
     200: "complete: landed, or put on the fallback spot",
+    210: "warfare complete: landed at the faction start spot",
 }
 STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage records (Program.cs Stages)
 # the writer's default hold-off list (Program.cs DefaultHold, held equal by tests/test_newgame.py): the opening quests
@@ -242,20 +248,23 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue"],   # ModValue / GetValue: the O2 fill
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled"],
-        "GlobalVariable": ["GetValue", "SetValueInt"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu"],
+        "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
         "InputEnableLayer": ["Create", "EnableHandscanner"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
                             "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
-                            "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation", "Enable"],
+                            "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
+                            "BlockActivation", "OnActivate", "OnItemAdded"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
-        "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent"],
-        "Utility": ["GetCurrentRealTime"],
+        "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
+                         "RegisterForRemoteEvent", "UnregisterForRemoteEvent",
+                         "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
+        "Utility": ["GetCurrentRealTime", "Wait"],
     },
     LOOKS: {
         "Debug": ["TraceUser"],
@@ -448,7 +457,8 @@ def extract_sources(zip_path, work):
 
 def compile_script(compiler, name, src_dir, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    r = run([compiler, name + ".psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"],
+    inc = ";".join((HERE, PROGRESSION_SCRIPTS, SURVIVAL_SCRIPTS, REPUTATION_SCRIPTS, MAPMARKERS_SCRIPTS, src_dir))
+    r = run([compiler, name + ".psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={inc}", f"-o={out_dir}"],
             cwd=HERE, check=False)
     pex = os.path.join(out_dir, name + ".pex")
     if r.returncode != 0 or "Compilation succeeded" not in r.stdout or not os.path.exists(pex):
@@ -513,6 +523,10 @@ def tool_options(a):
         opts.append("--allow-temporary-anchor")
     if a.no_o2_fill:
         opts.append("--no-o2-fill")
+    if getattr(a, "no_fade_hold", False):
+        opts.append("--no-fade-hold")
+    if getattr(a, "warfare_starts", None):
+        opts += ["--warfare-starts", a.warfare_starts]
     return opts
 
 
@@ -606,8 +620,23 @@ def points_options(a):
             + (["--pod-step", repr(float(a.pod_step))] if getattr(a, "pod_step", None) is not None else []))
 
 
+def refuse_forbidden_out_dir(out_dir):
+    full = os.path.abspath(out_dir)
+    cur = full
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            sys.exit(f"refused: output folder inside Git worktree is forbidden ({full})")
+        if os.path.isfile(os.path.join(cur, "Starfield.exe")):
+            sys.exit(f"refused: output folder inside game install is forbidden ({full})")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+
+
 def stage(a):
     final = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
     before = pins(a)
@@ -665,6 +694,7 @@ def stage(a):
                         "build_version": build_version_option(a),
                         "clear_inventory": clear_inventory_option(a), "vault_suit": a.vault_suit if clear_inventory_option(a) else None,
                         "o2_fill": o2_fill_option(a),
+                        "fade_hold": not bool(getattr(a, "no_fade_hold", False)),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -778,6 +808,7 @@ def folded_readme(core_readme, stage_readme, plugins, plugin, stage):
 
 def fold(a):
     final = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: fold into a new folder")
     plan = load_plan(os.path.join(a.stage, "plan.json"))
@@ -914,10 +945,13 @@ def summarize(lines):
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
          "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False,
-         "arrival_discovery_requested": None, "exit_failure": None, "ascent": [], "looks_positions": []}
+         "arrival_discovery_requested": None, "exit_failure": None, "ascent": [], "looks_positions": [],
+         "landing_quests": None, "pipboy_pickup": None, "mode_fade_held": False, "mode_choice": None,
+         "mode_load_default": None, "warfare_pick": None, "warfare_gear": None,
+         "map_setup": None, "pistol_picked": None}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
-    s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
+    s["earlier_completed"] = any("stage 200" in r or "stage 210" in r for r in runs[:-1])
     for msg in runs[-1] if runs else []:
         if msg.startswith("stage "):
             n = int(msg.split()[1])
@@ -967,6 +1001,24 @@ def summarize(lines):
             s["landed"] = True
         elif msg.startswith("arrival discovery requested "):
             s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("landing quests started "):
+            s["landing_quests"] = msg[len("landing quests started "):]
+        elif msg.startswith("pipboy pickup "):
+            s["pipboy_pickup"] = msg[len("pipboy pickup "):]
+        elif msg == "mode fade held":
+            s["mode_fade_held"] = True
+        elif msg.startswith("mode choice "):
+            s["mode_choice"] = msg[len("mode choice "):]
+        elif msg.startswith("mode load default="):
+            s["mode_load_default"] = msg[len("mode load default="):]
+        elif msg.startswith("warfare pick "):
+            s["warfare_pick"] = msg[len("warfare pick "):]
+        elif msg.startswith("warfare gear n="):
+            s["warfare_gear"] = msg[len("warfare gear n="):]
+        elif msg.startswith("map setup done "):
+            s["map_setup"] = msg[len("map setup done "):]
+        elif msg.startswith("pistol picked "):
+            s["pistol_picked"] = msg[len("pistol picked "):]
         elif msg.startswith("ascent "):
             s["ascent"].append(msg[len("ascent "):])
         elif msg.startswith("exit failed reason="):
@@ -1007,7 +1059,7 @@ def log(a):
     with open(a.file, encoding="utf-8", errors="replace") as f:
         s = summarize(f)
     print(json.dumps(s, indent=1))
-    return 0 if 200 in s["stages"] and not s["stood_down"] and not s["exit_failure"] else 1
+    return 0 if (200 in s["stages"] or 210 in s["stages"]) and not s["stood_down"] and not s["exit_failure"] else 1
 
 
 def main(argv=None):
@@ -1065,6 +1117,10 @@ def main(argv=None):
     s.add_argument("--no-o2-fill", action="store_true",
                    help="no O2 capacity after the reset: with no suit the O2/CO2 dial then reads red (S13 row 2b; "
                         "on by default with the reset)")
+    s.add_argument("--no-fade-hold", action="store_true",
+                   help="disable S4 FadeHold (fade in before the mode choice chain instead of holding screen black)")
+    s.add_argument("--warfare-starts", default=None,
+                   help="path to warfare_starts.json (default: src/fo4sf/core/warfare_starts.json)")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

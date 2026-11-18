@@ -9,11 +9,13 @@ Scriptname FO4SF_NewGameQuest extends Quest
  the same numbers with the same meanings (tests/test_newgame.py) and the doc's stage table explains them:
    0 started: as Starfield's startup quest, the guard, the move into the vault and the hold-off
    1 stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)
+   5 mode chosen: start mode and survival choice stored
    10 in the vault: the player stands at their pod
    20 looks done: character creation closed, or LooksWait passed
    30 cog door opened: from its console
    40 on the surface: the elevator ride is over
-   200 complete: landed, or put on the fallback spot}
+   200 complete: landed, or put on the fallback spot
+   210 warfare complete: landed at the faction start spot}
 ; KEEP EVERY DOC COMMENT AND STRING OF THIS SCRIPT SHORT: tests/test_papyrus_strings.py holds each at or under 3,072.
 ; newgame_v11 crashed the game while it loaded its data files, before the main menu, on every launch (29 to 31 Oct
 ; 2026), and v10 did not: the crash dump's register held this script's doc comment bytes 4,096 to 4,103, from a doc
@@ -89,7 +91,23 @@ Quest[] Property HoldOff Auto Const Mandatory
  started MQ101. Each is stopped only if it runs; each stop is logged with its pass.}
 
 Message Property ExitMessage Auto Const Mandatory
-{The elevator prompt (FO4SFNewGame.esm 0x801): button 0 rides up, button 1 stays.}
+{The elevator prompt (FO4SFNewGame.esm 0x801): 0 Continue, 1 S.P.E.C.I.A.L., 2 Character, 3 Stay.}
+
+Message Property ReturnMessage Auto Const Mandatory
+{The surface lift pad return prompt (FO4SFNewGame.esm 0x80B): button 0 rides back down to Vault 111, button 1 stays.}
+
+Message Property ModePickMsg Auto Const Mandatory
+{S4 Box 1 (0x806): 0 Story, 1 Warfare.}
+Message Property SurvivalPickMsg Auto Const Mandatory
+{S4 Box 2 (0x807): 0 Survival: No, 1 Survival: Yes.}
+Message Property WarfareDiffMsg Auto Const Mandatory
+{S4 Box 3 (0x808): 0..3 starting difficulty.}
+Message Property WarfareGroupMsg Auto Const Mandatory
+{S4 Box 4 (0x809): starting Warfare faction.}
+Message Property WarfareSpotMsg Auto Const Mandatory
+{S4 Box 5 (0x80A): starting Warfare deployment spot.}
+Message Property NoPipboyMsg Auto Const Mandatory
+{X2 (0x811): shown when activating the Vault 111 console before picking up the Pip-Boy.}
 
 string Property VaultPlugin = "FO4Port.esm" Auto Const
 int Property VaultAnchorId Auto Const Mandatory
@@ -126,6 +144,10 @@ float Property PodDrop = 0.5 Auto Const
  and at most PodDrop under the start's z (PodZ + PodLift), is ok=true. Evidence only: nothing is moved again.}
 int Property CogDoorId = 0 Auto Const
 {The cog door VltGearDoor01 (FO4 000330C3) in the port, 0 when the port has none: opened from its console (no Pip-Boy).}
+int Property ConsoleRefId = 0 Auto Const
+{The gear door console MQ102GearDoorConsoleREF (FO4 00091A49) in the port, 0 when absent: activated with E to open the cog door.}
+int Property PortPipboyStaticId = 0 Auto Const
+{The ground Pip-Boy static MQ102PipboyTakeFurnitureREF (FO4 00075039) in the port, disabled when picked up.}
 float Property ConsoleX Auto Const Mandatory
 float Property ConsoleY Auto Const Mandatory
 float Property ConsoleZ Auto Const Mandatory
@@ -208,6 +230,54 @@ float Property O2CapacityAmount = 0.0 Auto Const
  --no-o2-fill and --keep-inventory write 0: nothing). Logged as "o2 capacity added=<n> value=<read back>".}
 GlobalVariable Property TestModeGlobal Auto Const
 {FO4SFCoreValues.esm FO4SF_TestModeEnabled (0x860), linked by the writer so FO4SFNewGame.esm masters FO4SFCoreValues.esm.}
+GlobalVariable Property GameModeGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_GameMode (0x870): 0 unset, 1 Story, 2 Warfare.}
+GlobalVariable Property SurvivalStartGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_SurvivalStart (0x871): 0 or 1.}
+GlobalVariable Property SurvivalLockedGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_SurvivalLocked (0x872): 0 or 1.}
+GlobalVariable Property StartDifficultyGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_StartDifficulty (0x873): 0..3.}
+GlobalVariable Property WarfareFactionGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_WarfareFaction (0x874): -1 or 0..7.}
+GlobalVariable Property WarfareStartIndexGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_WarfareStartIndex (0x875): -1 or row index.}
+GlobalVariable Property StartChoiceDoneGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_StartChoiceDone (0x876): 0 or 1.}
+GlobalVariable Property PipboyAcquiredGlobal Auto Const Mandatory
+{FO4SFNewGame.esm FO4SF_PipboyAcquired (0x80C), set to 1 once the Pip-Boy 3000 is picked up beside the Vault 111 console.}
+Armor Property PipboyWristArmor Auto Const Mandatory
+{FO4SFNewGame.esm FO4SF_PipboyWrist (0x80D), playable left-wrist Pip-Boy 3000 equipped on pickup.}
+ObjectReference Property PipboyCorpseRef Auto Const Mandatory
+{FO4SFNewGame.esm FO4SF_PipboyCorpsePickupRef (0x80F), placed persistent pickup beside the Vault-Tec scientist skeleton.}
+bool Property FadeHold = true Auto Const
+{S4: holds screen black and saving off from vault entry until start mode choice completes (--no-fade-hold sets false).}
+int Property RaceMenuMode = 2 Auto Const
+{Looks-only creator mode (2 = body and face) shared with FO4SF_NewGameLooks.}
+int[] Property CoreMarkerIds Auto Const
+{Persistent map marker FormIDs in FO4TerrainCore.esm prepared during shared map setup.}
+int[] Property MapMarkerQuestIds Auto Const
+{Optional FO4SFMapMarkers.esm quest FormIDs resolved during shared map setup.}
+string[] Property WarfareKeys Auto Const
+int[] Property WarfareFactionSlots Auto Const
+int[] Property WarfareDistinctFactionSlots Auto Const
+int[] Property WarfareMarkerIds Auto Const
+float[] Property WarfareMarkerX Auto Const
+float[] Property WarfareMarkerY Auto Const
+float[] Property WarfareMarkerZ Auto Const
+float[] Property WarfareHeadings Auto Const
+int[] Property WarfareMinDiffs Auto Const
+int[] Property WarfareMaxDiffs Auto Const
+int[] Property WarfareBgIndices Auto Const
+float[] Property WarfareFames Auto Const
+float[] Property WarfareInfamies Auto Const
+float[] Property WarfareKarmas Auto Const
+int[] Property WarfareSquadCaps Auto Const
+int[] Property WarfareGearRowIndices Auto Const
+string[] Property WarfareGearPlugins Auto Const
+int[] Property WarfareGearIds Auto Const
+int[] Property WarfareGearCounts Auto Const
+bool[] Property WarfareGearEquips Auto Const
 
 string LogName = "fo4sf_newgame"
 int ticks = 0
@@ -223,6 +293,9 @@ string lateRoute = ""                                        ; the other start e
 int vaultMoves = 0                                           ; MoveTo calls onto the vault anchor
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
+bool fadeHeld = false
+bool modeChoiceRan = false
+bool loadHookRegistered = false
 bool podChecked = false
 float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
 int surfaceMoves = 0
@@ -242,6 +315,24 @@ bool rideActive = false
 bool rideDone = false
 bool rideTransferred = false
 InputEnableLayer scannerLayer = None
+bool consoleRegistered = false
+ObjectReference consoleWatchedRef = None
+bool cogDoorRegistered = false
+ObjectReference cogDoorWatchedRef = None
+bool pipboyRegistered = false
+bool pipboyPickedUp = false
+bool itemWatchRegistered = false
+bool pistolPickedLogged = false
+bool liftSpecConfirmed = false
+bool liftCharRespecUsed = false
+bool liftWaitingCreator = false
+bool warfareWaitingCreator = false
+bool mapSetupDone = false
+bool rideMarkerPrepared = false
+bool leftArrivalPad = false
+bool returnAsked = false
+bool returnVaultAsked = false
+bool returnSurfacePending = false
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -305,12 +396,17 @@ Function Begin(string route)
         DebugGlobal.SetValueInt(DebugAfterHold)
         Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)
     endif
+    EnsureLoadHookRegistered(player)
     StartTimer(1.0, 1)
     player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load
     bool ready = player.Is3DLoaded()
     Trace("3d wait over loaded=" + ready)
     if ready
-        FadeIn("start")                                      ; else the timer fades in once the 3D is in
+        if FadeHold
+            HoldFadeForModeChoice()
+        else
+            FadeIn("start")                                  ; else the timer fades in once the 3D is in
+        endif
     endif
 EndFunction
 
@@ -397,6 +493,10 @@ Function AdvanceTo(int n)
         SetObjectiveCompleted(10)
     elseif n == 200
         CompleteQuest()
+        StartLandingQuests()
+    elseif n == 210
+        CompleteQuest()
+        StartLandingQuests()
     endif
 EndFunction
 
@@ -408,6 +508,7 @@ Event OnTimer(int aiTimerID)
         return
     endif
     Actor player = Game.GetPlayer()
+    EnsureLoadHookRegistered(player)
     int stage = GetStage()
     ticks += 1
     if stage == 0
@@ -420,7 +521,11 @@ Event OnTimer(int aiTimerID)
             StartTimer(1.0, 1)                               ; the game is still loading
             return
         endif
-        FadeIn("timer")                                      ; once: the start may still be in its 3D wait
+        if FadeHold
+            HoldFadeForModeChoice()
+        else
+            FadeIn("timer")                                  ; once: the start may still be in its 3D wait
+        endif
         if !entered
             if vaultMoves > 0 && StandsInVault(player)
                 ; the start's move took once the load was through (the cell check right after a MoveTo during the first
@@ -436,36 +541,62 @@ Event OnTimer(int aiTimerID)
             return
         endif
         HoldOffPass(2)                                       ; once the game runs: a quest that started after the first pass
+        int chosenMode = RunModeChoiceChain(player)
+        if chosenMode == 2
+            return
+        endif
         if ClearInventory
             ResetInventory(player)
             FillO2(player)
         endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
+    elseif stage == 5
+        if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 1
+            if ClearInventory
+                ResetInventory(player)
+                FillO2(player)
+            endif
+            AdvanceTo(10)
+            startedAt = Utility.GetCurrentRealTime()
+        endif
     elseif stage == 10
         if !podChecked && player.Is3DLoaded()
             CheckPod(player)
         endif
+        EnsureVaultInteractivesRegistered()
         if Utility.GetCurrentRealTime() - startedAt > LooksWait
             Trace("looks done: LooksWait fallback after " + LooksWait + " s")
             AdvanceTo(20)
         endif
     elseif stage == 20 || stage == 30
         if rideActive
+            PrepareArrivalMarkerDuringRide()
             CheckAscent(player)
         elseif surfaceMovedAt > 0.0
             FinishSurface(player)                            ; the ride's MoveTo is done: the arrival waits for this tick
+            if GetStage() >= 40
+                PreAttachArrivalMarker(player)
+            endif
         else
             InVault(player, stage)
         endif
     elseif stage == 40
         CheckLanding(player)
+    elseif stage == 200
+        CheckReturnLift(player)
     endif
-    if ticks % 5 == 0
+    if GetStage() < 200 && ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
     endif
     if GetStage() < 200 && GetStage() != 1 && !exitFailed
         StartTimer(1.0, 1)
+    elseif GetStage() == 200 && !exitFailed
+        if returnSurfacePending
+            StartTimer(1.0, 1)
+        else
+            StartTimer(5.0, 1)
+        endif
     endif
 EndEvent
 
@@ -633,7 +764,8 @@ Function InVault(Actor player, int stage)
     if !player.IsInInterior()
         return
     endif
-    if stage == 20 && CogDoorId > 0
+    EnsureVaultInteractivesRegistered()
+    if stage == 20 && CogDoorId > 0 && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
         ObjectReference cogDoor = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
         if Near(player, ConsoleX, ConsoleY, ConsoleZ, ConsoleRadius)
             if cogDoor != None
@@ -669,14 +801,30 @@ Function InVault(Actor player, int stage)
         return
     endif
     asked = true                                             ; asked once per visit to the platform
+    Trace("lift platform waiting cage_door=open")
     int button = ExitMessage.Show()
     Trace("elevator prompt button=" + button)
     if button == 0
+        if !liftSpecConfirmed && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
+            Debug.Notification("Confirm S.P.E.C.I.A.L. before leaving Vault 111.")
+            Trace("elevator continue refused: special unconfirmed")
+            asked = false
+            StartTimer(0.1, 1)
+            return
+        endif
+        Trace("lift cage_door=closing")
         if LiftId > 0
             StartAscent(player)
         else
+            RunSharedMapSetup()
             Surface(player)
         endif
+    elseif button == 1
+        OpenLiftAttributeAllocation()
+    elseif button == 2
+        OpenLiftCharacterRespec()
+    else
+        Trace("elevator stay")
     endif
 EndFunction
 
@@ -717,7 +865,9 @@ Function StartAscent(Actor player)
     Trace("ascent play accepted=" + accepted + " ref=" + lift + " from=" + riderZ + " rise=" + LiftRise + " seconds=" + LiftSeconds)
     if !accepted
         FailExit("lift_play_refused")
+        return
     endif
+    RunSharedMapSetup()
 EndFunction
 
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
@@ -971,4 +1121,643 @@ EndFunction
 
 Function Trace(string msg)
     Debug.TraceUser(LogName, "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)
+EndFunction
+
+bool Function StartOptionalMissionQuest(int questId)
+    Quest q = Game.GetFormFromFile(questId, "FO4SFMission.esm") as Quest
+    if q == None
+        return false
+    endif
+    if q.IsRunning()
+        return true
+    endif
+    return q.StartNoWait()
+EndFunction
+
+Function StartLandingQuests()
+{Stage 200 / 210 handoff: logs mission gate and starts Story quests via StartNoWait (or wakes them once in Warfare so they log mode=2 started=false and Stop).}
+    int gm = 1
+    if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) > 0
+        gm = GameModeGlobal.GetValue() as int
+    endif
+    bool storyAllowed = gm != 2
+    Trace("mission gate mode=" + gm + " started=" + storyAllowed)
+    bool min00Ok = false
+    Quest min00 = Game.GetFormFromFile(0x000800, "FO4SFMission.esm") as Quest
+    if min00 != None
+        if min00.IsRunning()
+            min00Ok = storyAllowed
+        else
+            min00Ok = min00.StartNoWait() && storyAllowed
+        endif
+    endif
+    bool keeperOk = false
+    Quest keeper = Game.GetFormFromFile(0x000814, "FO4SFMission.esm") as Quest
+    if keeper != None
+        if keeper.IsRunning()
+            keeperOk = storyAllowed
+        else
+            keeperOk = keeper.StartNoWait() && storyAllowed
+        endif
+    endif
+    bool codsworth01Ok = StartOptionalMissionQuest(0x000816) && storyAllowed
+    if storyAllowed
+        Trace("landing quests started min00=" + min00Ok + " keeper=" + keeperOk + " codsworth01=" + codsworth01Ok)
+    endif
+EndFunction
+
+Function EnsureLoadHookRegistered(Actor player)
+    if !loadHookRegistered && player != None
+        loadHookRegistered = true
+        RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+    endif
+EndFunction
+
+Event Actor.OnPlayerLoadGame(Actor akSender)
+    Debug.OpenUserLog(LogName)
+    if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 0 && GetStage() >= 10
+        GameModeGlobal.SetValue(1.0)
+        Trace("mode load default=story stage=" + GetStage())
+    endif
+EndEvent
+
+Function HoldFadeForModeChoice()
+    if fadeHeld || faded
+        return
+    endif
+    fadeHeld = true
+    Game.FadeOutGame(True, True, 0.0, 0.1, True)
+    Game.SetInChargen(true, true, false)
+    Trace("mode fade held")
+EndFunction
+
+int Function RunModeChoiceChain(Actor player)
+    if modeChoiceRan
+        if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
+            return 2
+        endif
+        return 1
+    endif
+    if StartChoiceDoneGlobal != None && StartChoiceDoneGlobal.GetValue() >= 0.5
+        modeChoiceRan = true
+        if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
+            return 2
+        endif
+        return 1
+    endif
+    modeChoiceRan = true
+    int mBtn = 0
+    if ModePickMsg != None
+        mBtn = ModePickMsg.Show()
+    endif
+    int modeVal = 1
+    if mBtn == 1
+        modeVal = 2
+    endif
+    int sBtn = 0
+    if SurvivalPickMsg != None
+        sBtn = SurvivalPickMsg.Show()
+    endif
+    int survVal = 0
+    if sBtn == 1
+        survVal = 1
+    endif
+    if GameModeGlobal != None
+        GameModeGlobal.SetValue(modeVal as float)
+    endif
+    if SurvivalStartGlobal != None
+        SurvivalStartGlobal.SetValue(survVal as float)
+    endif
+    if SurvivalLockedGlobal != None
+        SurvivalLockedGlobal.SetValue(survVal as float)
+    endif
+    FO4SF_HardcoreQuest hc = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm") as FO4SF_HardcoreQuest
+    if hc != None
+        hc.EvaluateHardcore("start_choice")
+    endif
+    if modeVal == 1
+        if StartChoiceDoneGlobal != None
+            StartChoiceDoneGlobal.SetValue(1.0)
+        endif
+        Trace("mode choice mode=story survival=" + survVal)
+        AdvanceTo(5)
+        FadeIn("mode_story")
+        return 1
+    endif
+    int diff = 1
+    if WarfareDiffMsg != None
+        diff = WarfareDiffMsg.Show()
+        if diff < 0 || diff > 3
+            diff = 1
+        endif
+    endif
+    int gBtn = 0
+    if WarfareGroupMsg != None
+        gBtn = WarfareGroupMsg.Show()
+        if gBtn < 0 || gBtn >= WarfareDistinctFactionSlots.Length
+            gBtn = 0
+        endif
+    endif
+    int pickedSlot = 0
+    if WarfareDistinctFactionSlots.Length > 0
+        pickedSlot = WarfareDistinctFactionSlots[gBtn]
+    endif
+    int sIdxBtn = 0
+    if WarfareSpotMsg != None && WarfareKeys.Length > 1
+        sIdxBtn = WarfareSpotMsg.Show()
+        if sIdxBtn < 0 || sIdxBtn >= WarfareKeys.Length
+            sIdxBtn = 0
+        endif
+    endif
+    int rowIdx = -1
+    int r = 0
+    while r < WarfareKeys.Length
+        if WarfareFactionSlots[r] == pickedSlot && diff >= WarfareMinDiffs[r] && diff <= WarfareMaxDiffs[r]
+            if rowIdx < 0 || r == sIdxBtn
+                rowIdx = r
+            endif
+        endif
+        r += 1
+    endwhile
+    if rowIdx < 0
+        rowIdx = 0
+    endif
+    if StartDifficultyGlobal != None
+        StartDifficultyGlobal.SetValue(diff as float)
+    endif
+    if WarfareFactionGlobal != None
+        WarfareFactionGlobal.SetValue(pickedSlot as float)
+    endif
+    if WarfareStartIndexGlobal != None
+        WarfareStartIndexGlobal.SetValue(rowIdx as float)
+    endif
+    if StartChoiceDoneGlobal != None
+        StartChoiceDoneGlobal.SetValue(1.0)
+    endif
+    Trace("mode choice mode=warfare survival=" + survVal)
+    Trace("warfare pick faction=" + pickedSlot + " start=" + WarfareKeys[rowIdx] + " difficulty=" + diff)
+    AdvanceTo(5)
+    RunWarfareBranch(player, rowIdx)
+    return 2
+EndFunction
+
+Function RunWarfareBranch(Actor player, int rowIdx)
+    if LooksWait > 0.0
+        RegisterForMenuOpenCloseEvent("ChargenMenu")
+        warfareWaitingCreator = true
+        Trace("warfare creator open mode=" + RaceMenuMode)
+        Game.ShowRaceMenu(None, RaceMenuMode)
+        float waited = 0.0
+        while warfareWaitingCreator && waited < LooksWait
+            Utility.Wait(0.5)
+            waited += 0.5
+        endwhile
+        warfareWaitingCreator = false
+    endif
+    FO4SF_ProgressionQuest prog = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest
+    if prog != None
+        int tries = 0
+        bool allocOk = false
+        while !allocOk && tries < 5
+            tries += 1
+            allocOk = prog.OpenAttributeAllocation("warfare")
+        endwhile
+        prog.ApplyWarfareBackground(WarfareBgIndices[rowIdx])
+    endif
+    player.RemoveAllItems(None, false, false)
+    FillO2(player)
+    if PipboyWristArmor != None
+        player.AddItem(PipboyWristArmor, 1, true)
+        player.EquipItem(PipboyWristArmor, false, true)
+    endif
+    if PipboyAcquiredGlobal != None
+        PipboyAcquiredGlobal.SetValue(1.0)
+    endif
+    int gearAdded = 0
+    int k = 0
+    while k < WarfareGearIds.Length
+        if WarfareGearRowIndices[k] == rowIdx
+            Form gForm = Game.GetFormFromFile(WarfareGearIds[k], WarfareGearPlugins[k])
+            if gForm != None
+                player.AddItem(gForm, WarfareGearCounts[k], true)
+                if WarfareGearEquips[k]
+                    player.EquipItem(gForm, false, true)
+                endif
+                gearAdded += 1
+            endif
+        endif
+        k += 1
+    endwhile
+    Trace("warfare gear n=" + gearAdded)
+    ObjectReference wMarker = Game.GetFormFromFile(WarfareMarkerIds[rowIdx], CorePlugin) as ObjectReference
+    float wx = WarfareMarkerX[rowIdx] + MergeOffsetX
+    float wy = WarfareMarkerY[rowIdx] + MergeOffsetY
+    float wz = WarfareMarkerZ[rowIdx] + 1.0
+    bool moveOk = false
+    float dist = 9999.0
+    if wMarker != None
+        player.MoveTo(wMarker, 0.0, 0.0, 0.0, True, False)
+        float mWait = 0.0
+        while (player.IsInInterior() || !player.Is3DLoaded()) && mWait < SurfaceWait
+            Utility.Wait(0.25)
+            mWait += 0.25
+        endwhile
+        int setTry = 0
+        while !moveOk && setTry < SurfaceTries
+            setTry += 1
+            player.SetPosition(wx, wy, wz)
+            player.SetAngle(0.0, 0.0, WarfareHeadings[rowIdx])
+            Cell wc = player.GetParentCell()
+            bool coreCell = false
+            if wc != None
+                coreCell = (wc.GetFormID() / 16777216) == (wMarker.GetFormID() / 16777216)
+            endif
+            float dx = player.GetPositionX() - wx
+            float dy = player.GetPositionY() - wy
+            float dz = player.GetPositionZ() - wz
+            dist = dx * dx + dy * dy
+            moveOk = dist <= 25.0 && dz > -FallDrop && dz < 3.0 && !player.IsInInterior() && coreCell
+            if !moveOk && setTry < SurfaceTries
+                Utility.Wait(0.25)
+            endif
+        endwhile
+    endif
+    Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())
+    RunSharedMapSetup()
+    if wMarker != None
+        WorldSpace pw = player.GetWorldSpace()
+        if pw != None
+            wMarker.Enable(False)
+            if wMarker.GetWorldSpace() != pw
+                wMarker.MoveTo(player, wx - player.GetPositionX(), wy - player.GetPositionY(), WarfareMarkerZ[rowIdx] - player.GetPositionZ(), False, False)
+            endif
+            if wMarker.GetWorldSpace() == pw
+                wMarker.SetPosition(wx, wy, WarfareMarkerZ[rowIdx])
+            endif
+        endif
+        FO4SF_MapMarkers wmm = None
+        if MapMarkerQuestIds.Length > 0
+            wmm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm") as FO4SF_MapMarkers
+        endif
+        if wmm != None
+            wmm.DiscoverSingleMarker(wMarker)
+        endif
+    endif
+    int slot = WarfareFactionSlots[rowIdx]
+    float fame = WarfareFames[rowIdx]
+    float infamy = WarfareInfamies[rowIdx]
+    float karma = WarfareKarmas[rowIdx]
+    int squadCap = WarfareSquadCaps[rowIdx]
+    FO4SF_ReputationQuest rep = Game.GetFormFromFile(0x000800, "FO4SFReputation.esm") as FO4SF_ReputationQuest
+    if rep != None
+        rep.SetFactionScoresAbsolute(player, slot, fame, infamy)
+        rep.SetKarmaAbsolute(player, karma)
+    endif
+    Faction fac = Game.GetFormFromFile(0x000810 + slot, "FO4SFReputation.esm") as Faction
+    if fac != None
+        player.AddToFaction(fac)
+    endif
+    GlobalVariable sqCapGlob = Game.GetFormFromFile(0x000801, "FO4SFCompanions.esm") as GlobalVariable
+    if sqCapGlob != None
+        sqCapGlob.SetValue(squadCap as float)
+    endif
+    Trace("warfare standing slot=" + slot + " fame=" + fame + " infamy=" + infamy + " karma=" + karma + " squad_cap=" + squadCap)
+    FadeIn("warfare")
+    AdvanceTo(210)
+EndFunction
+
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+    if asMenuName == "ChargenMenu" && !abOpening
+        if warfareWaitingCreator
+            warfareWaitingCreator = false
+            Trace("warfare creator closed")
+        endif
+        if liftWaitingCreator
+            liftWaitingCreator = false
+            asked = false
+            Trace("elevator character creator closed")
+            StartTimer(0.1, 1)
+        endif
+    endif
+EndEvent
+
+int Function RunSharedMapSetup()
+{X4 / S5 single shared map setup function: prepares all markers as known & undiscovered, logging count and elapsed time.}
+    if mapSetupDone
+        return CoreMarkerIds.Length
+    endif
+    mapSetupDone = true
+    float t0 = Utility.GetCurrentRealTime()
+    int count = 0
+    FO4SF_MapMarkers mm = None
+    if MapMarkerQuestIds.Length > 0
+        mm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm") as FO4SF_MapMarkers
+    endif
+    if mm != None
+        count = mm.PrepareKnownUndiscoveredAll()
+    endif
+    int i = 0
+    while i < CoreMarkerIds.Length
+        ObjectReference cm = Game.GetFormFromFile(CoreMarkerIds[i], CorePlugin) as ObjectReference
+        if cm != None
+            cm.Enable(False)
+            if mm == None
+                count += 1
+            endif
+        endif
+        i += 1
+    endwhile
+    float elapsed = Utility.GetCurrentRealTime() - t0
+    Trace("map setup done markers=" + count + " elapsed=" + elapsed)
+    return count
+EndFunction
+
+Function EnsureVaultInteractivesRegistered()
+    Actor player = Game.GetPlayer()
+    if !itemWatchRegistered && player != None
+        itemWatchRegistered = true
+        RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")
+    endif
+    if !pipboyRegistered && PipboyCorpseRef != None
+        pipboyRegistered = true
+        RegisterForRemoteEvent(PipboyCorpseRef, "OnActivate")
+    endif
+    if !cogDoorRegistered && CogDoorId > 0
+        cogDoorWatchedRef = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
+        if cogDoorWatchedRef != None
+            cogDoorRegistered = true
+            if TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0
+                cogDoorWatchedRef.BlockActivation(True, False)
+            endif
+            RegisterForRemoteEvent(cogDoorWatchedRef, "OnActivate")
+        endif
+    endif
+    if !consoleRegistered && ConsoleRefId > 0
+        consoleWatchedRef = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+        if consoleWatchedRef != None
+            consoleRegistered = true
+            RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")
+            Trace("console registered ref=" + consoleWatchedRef + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ())
+        endif
+    endif
+EndFunction
+
+Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
+    if pistolPickedLogged || GetStage() >= 40 || akBaseItem == None
+        return
+    endif
+    if akBaseItem as Weapon != None
+        pistolPickedLogged = true
+        Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)
+    endif
+EndEvent
+
+Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
+    Actor player = Game.GetPlayer()
+    if akSender == None || player == None || akActionRef != player
+        return
+    endif
+    if PipboyCorpseRef != None && akSender == PipboyCorpseRef
+        HandlePipboyPickup(player)
+        return
+    endif
+    if cogDoorWatchedRef != None && akSender == cogDoorWatchedRef
+        if GetStage() < 30 && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
+            int curState = cogDoorWatchedRef.GetOpenState()
+            if curState == 1 || curState == 2
+                cogDoorWatchedRef.SetOpen(False)
+                curState = cogDoorWatchedRef.GetOpenState()
+            endif
+            Trace("cog door activate blocked by=player open_state=" + curState)
+        endif
+        return
+    endif
+    if consoleWatchedRef != None && akSender == consoleWatchedRef
+        ActivateGearDoorConsole()
+    endif
+EndEvent
+
+Function ActivateGearDoorConsole()
+{Opens Vault 111's gear door from its console activation once the Pip-Boy is equipped, advancing to stage 30.}
+    int stage = GetStage()
+    if stage < 10 || stage >= 40
+        return
+    endif
+    bool hasPipboy = PipboyAcquiredGlobal != None && PipboyAcquiredGlobal.GetValue() >= 0.5
+    if !hasPipboy && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
+        if NoPipboyMsg != None
+            NoPipboyMsg.Show()
+        endif
+        Trace("console refused: no pipboy")
+        return
+    endif
+    ObjectReference cogDoor = None
+    if CogDoorId > 0
+        cogDoor = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
+    endif
+    if cogDoor != None
+        cogDoor.BlockActivation(False, False)
+        int before = cogDoor.GetOpenState()
+        if before != 1 && before != 2
+            cogDoor.SetOpen(True)
+        endif
+        int after = cogDoor.GetOpenState()
+        Trace("cog door console activated ref=" + consoleWatchedRef + " before=" + before + " after=" + after)
+    else
+        Trace("cog door " + VaultPlugin + ":" + CogDoorId + " does not resolve")
+    endif
+    if stage < 30
+        AdvanceTo(30)
+    endif
+EndFunction
+
+Function HandlePipboyPickup(Actor player)
+{Equips FO4SF_PipboyWrist, sets FO4SF_PipboyAcquired to 1, and disables the corpse pickup reference once.}
+    if pipboyPickedUp
+        return
+    endif
+    pipboyPickedUp = true
+    if PipboyCorpseRef != None
+        UnregisterForRemoteEvent(PipboyCorpseRef, "OnActivate")
+    endif
+    if PipboyWristArmor != None
+        player.AddItem(PipboyWristArmor, 1, true)
+        player.EquipItem(PipboyWristArmor, false, true)
+    endif
+    if PipboyAcquiredGlobal != None
+        PipboyAcquiredGlobal.SetValue(1.0)
+    endif
+    if PipboyCorpseRef != None
+        PipboyCorpseRef.DisableNoWait(False)
+    endif
+    if PortPipboyStaticId > 0
+        ObjectReference staticPipboy = Game.GetFormFromFile(PortPipboyStaticId, VaultPlugin) as ObjectReference
+        if staticPipboy != None
+            staticPipboy.DisableNoWait(False)
+        endif
+    endif
+    bool worn = false
+    if PipboyWristArmor != None
+        worn = player.IsEquipped(PipboyWristArmor)
+    endif
+    Trace("pipboy pickup equipped flag=1 worn=" + worn)
+EndFunction
+
+Function OpenLiftAttributeAllocation()
+    FO4SF_ProgressionQuest prog = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest
+    if prog != None
+        bool edited = prog.OpenAttributeAllocation("lift")
+        if edited
+            liftSpecConfirmed = true
+        endif
+        Trace("elevator attribute_allocation edited=" + edited + " confirmed=" + liftSpecConfirmed)
+    else
+        liftSpecConfirmed = true
+        Trace("elevator attribute_allocation missing FO4SFProgression.esm:0x000880")
+    endif
+    asked = false
+    StartTimer(0.1, 1)
+EndFunction
+
+Function OpenLiftCharacterRespec()
+    if liftCharRespecUsed
+        Debug.Notification("Character appearance can only be changed once on the lift.")
+        Trace("elevator character respec refused: limit_1")
+        asked = false
+        StartTimer(0.1, 1)
+        return
+    endif
+    liftCharRespecUsed = true
+    RegisterForMenuOpenCloseEvent("ChargenMenu")
+    liftWaitingCreator = true
+    Trace("elevator character respec used=1 mode=" + RaceMenuMode)
+    Game.ShowRaceMenu(None, RaceMenuMode)
+EndFunction
+
+Function PrepareArrivalMarkerDuringRide()
+{Pre-resolves and enables the Vault 111 map marker during the lift ascent so arrival needs no extra setup tick.}
+    if rideMarkerPrepared || ArrivalDiscoveryId == 0
+        return
+    endif
+    rideMarkerPrepared = true
+    ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
+    if marker != None
+        marker.Enable(False)
+        Trace("arrival marker prepared during ride ref=" + marker)
+    endif
+EndFunction
+
+Function PreAttachArrivalMarker(Actor player)
+    if discoveryMarkerMoved || ArrivalDiscoveryId == 0 || arrivalWorld == None
+        return
+    endif
+    ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
+    if marker == None || !player.Is3DLoaded() || player.IsInInterior() || player.GetWorldSpace() != arrivalWorld
+        return
+    endif
+    float mx = FallbackX + MergeOffsetX
+    float my = FallbackY + MergeOffsetY
+    float mz = FallbackZ
+    float dx = marker.GetPositionX() - mx
+    float dy = marker.GetPositionY() - my
+    float dz = marker.GetPositionZ() - mz
+    bool atMerged = marker.GetWorldSpace() == arrivalWorld && dx * dx + dy * dy <= 25.0 && dz >= -3.0 && dz <= 3.0
+    if !atMerged
+        discoveryMarkerMoved = true
+        float px = player.GetPositionX()
+        float py = player.GetPositionY()
+        float pz = player.GetPositionZ()
+        marker.Enable(False)
+        marker.MoveTo(player, mx - px, my - py, mz - pz, False, False)
+        if marker.GetWorldSpace() == arrivalWorld
+            marker.SetPosition(mx, my, mz)
+        endif
+        Trace("arrival discovery marker preattached ref=" + marker + " world=" + marker.GetWorldSpace() + " pos=" + marker.GetPositionX() + " " + marker.GetPositionY() + " " + marker.GetPositionZ() + " target=" + mx + " " + my + " " + mz)
+    endif
+EndFunction
+
+Function CheckReturnLift(Actor player)
+{Post-stage-200 return lift loop: prompts Ride down / Stay once the player leaves > 12 m and steps back onto the surface pad.}
+    if !player.Is3DLoaded()
+        return
+    endif
+    float sx = ArrivalX + MergeOffsetX
+    float sy = ArrivalY + MergeOffsetY
+    float sz = ArrivalZ
+    if returnSurfacePending
+        if !player.IsInInterior()
+            player.SetPosition(sx, sy, sz)
+            player.SetAngle(0.0, 0.0, ArrivalHeading)
+            returnSurfacePending = false
+            leftArrivalPad = false
+            returnAsked = true
+            Trace("return lift arrived surface pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
+        endif
+        return
+    endif
+    if player.IsInInterior()
+        if !StandsInVault(player)
+            return
+        endif
+        if !Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)
+            returnVaultAsked = false
+            return
+        endif
+        if returnVaultAsked
+            return
+        endif
+        returnVaultAsked = true
+        int ubtn = ExitMessage.Show()
+        Trace("return vault lift prompt button=" + ubtn)
+        if ubtn == 0
+            ObjectReference eAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+            if eAnchor != None
+                returnSurfacePending = true
+                player.MoveTo(eAnchor, 0.0, 0.0, 0.0, True, False)
+                Trace("return lift surface moveto requested")
+            endif
+        elseif ubtn == 1
+            OpenLiftAttributeAllocation()
+            returnVaultAsked = false
+        elseif ubtn == 2
+            OpenLiftCharacterRespec()
+            returnVaultAsked = false
+        endif
+        return
+    endif
+    float dx = player.GetPositionX() - sx
+    float dy = player.GetPositionY() - sy
+    float distSq = dx * dx + dy * dy
+    if !leftArrivalPad
+        if distSq > 144.0
+            leftArrivalPad = true
+            returnAsked = false
+            Trace("return lift armed dist_sq=" + distSq)
+        endif
+        return
+    endif
+    if !Near(player, sx, sy, sz, PlatformRadius)
+        returnAsked = false
+        return
+    endif
+    if returnAsked || ReturnMessage == None
+        return
+    endif
+    returnAsked = true
+    int rbtn = ReturnMessage.Show()
+    Trace("return lift prompt button=" + rbtn)
+    if rbtn == 0
+        ObjectReference vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if vAnchor != None
+            if LiftId > 0
+                ObjectReference lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
+                if lift != None && lift.Is3DLoaded()
+                    lift.PlayAnimation("Play02")
+                endif
+            endif
+            returnVaultAsked = true
+            player.MoveTo(vAnchor, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)
+            Trace("return lift moved to vault platform")
+        endif
+    endif
 EndFunction

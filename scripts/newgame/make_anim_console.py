@@ -286,6 +286,20 @@ def load_plan(stage_dir):
         return json.load(f)
 
 
+def refuse_forbidden_out_dir(out_dir):
+    full = os.path.abspath(out_dir)
+    cur = full
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            sys.exit(f"refused: output folder inside Git worktree is forbidden ({full})")
+        if os.path.isfile(os.path.join(cur, "Starfield.exe")):
+            sys.exit(f"refused: output folder inside game install is forbidden ({full})")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+
+
 def stage(a, converter=None):
     """converter: (a, staging) -> (src, conv) for tests; default build_converter."""
     states = anim_object.parse_states(a.states)
@@ -298,6 +312,7 @@ def stage(a, converter=None):
     if rest_after is not None and (getattr(a, "idles", "toggle") != "toggle" or rest_after not in states):
         sys.exit("--rest-after needs toggle idles and a mapped source sequence")
     final = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
     port_data = a.port_data or a.starfield_data
@@ -479,6 +494,104 @@ def finish_production_lift(a, out, final, work, tool, port, sf, before, original
     os.replace(out, final)
     print(f"staged {final}: {LIFT_PLUGIN}, {len(copied)} assets, no probe quest/scripts")
     return 0
+
+
+HAVOK_LAYER_NAMES = {
+    0: "L_UNIDENTIFIED",
+    1: "L_STATIC",
+    2: "L_ANIMSTATIC",
+    3: "L_TRANSPARENT",
+    4: "L_CLUTTER",
+    5: "L_WEAPON",
+    6: "L_PROJECTILE",
+    15: "L_NONCOLLIDABLE",
+}
+
+
+def inspect_tagfile_bodies(blob):
+    """Decode every Havok bodyCinfo entry in a `bhkPhysicsSystem` payload into `[{layer, layer_name, motion_type, shapes}]`."""
+    from fo4sf import hktagfile
+    tag_idx = blob.find(b"TAG0")
+    if tag_idx < 4:
+        raise ValueError("physics payload contains no TAG0 section header")
+    tf = hktagfile.Tagfile(blob[tag_idx - 4:])
+    shapes = sorted({
+        tf.types[it.type].name
+        for it in tf.items
+        if it.type < len(tf.types) and "Shape" in tf.types[it.type].name
+    })
+    out = []
+    for it in tf.items:
+        if it.type >= len(tf.types):
+            continue
+        tname = tf.types[it.type].name
+        if tname not in ("hknpBodyCinfo", "hknpPhysicsSystemData::bodyCinfoWithAttachment"):
+            continue
+        fields = {fd.name: fd for fd in tf.all_fields(it.type)}
+        f_cfi = fields.get("collisionFilterInfo")
+        f_mt = fields.get("motionType")
+        elem_sz = tf.size_of(it.type)
+        if f_cfi is None or elem_sz <= 0:
+            continue
+        for k in range(it.count):
+            base = tf.data_start + it.offset + k * elem_sz
+            cfi = struct.unpack_from("<I", tf.blob, base + f_cfi.offset)[0]
+            mt = struct.unpack_from("<B", tf.blob, base + f_mt.offset)[0] if f_mt is not None else 0
+            layer = cfi & 0x7F
+            out.append({
+                "body_index": k,
+                "collision_filter_info": cfi,
+                "layer": layer,
+                "layer_name": HAVOK_LAYER_NAMES.get(layer, f"LAYER_{layer}"),
+                "motion_type": mt,
+                "shapes": shapes,
+            })
+    return out
+
+
+def inspect_nif_collision_layers(nif_bytes):
+    """Return `[{node, bone, body_id, layer, layer_name, motion_type, shapes}]` for every collision body in a Starfield NIF."""
+    from fo4sf import nif
+    f = nif.parse(nif_bytes)
+    node_names = {}
+    parent_of = {}
+    for idx, blk in enumerate(f.blocks):
+        if f.type_of(idx) == "NiNode":
+            s_idx, num_extra = struct.unpack_from("<iI", blk, 0)
+            node_names[idx] = f.strings[s_idx].decode("latin-1") if 0 <= s_idx < len(f.strings) else f"Node_{idx}"
+            child_cnt_off = 8 + 4 * num_extra + 4 + 4 + 12 + 36 + 4 + 4
+            if child_cnt_off + 4 <= len(blk):
+                n_children = struct.unpack_from("<I", blk, child_cnt_off)[0]
+                if child_cnt_off + 4 + 4 * n_children <= len(blk):
+                    for ch in struct.unpack_from(f"<{n_children}i", blk, child_cnt_off + 4):
+                        if ch >= 0:
+                            parent_of[ch] = idx
+    rows = []
+    for idx, blk in enumerate(f.blocks):
+        if f.type_of(idx) != "bhkNPCollisionObject" or len(blk) < 14:
+            continue
+        target_idx, _flags, phys_idx, body_id = struct.unpack_from("<iHiI", blk, 0)
+        node_name = node_names.get(target_idx, f"Block_{target_idx}")
+        bone_name = node_name
+        p_idx = parent_of.get(target_idx)
+        if p_idx in node_names and ("_col_" in node_name or node_name.startswith("Collision")):
+            bone_name = node_names[p_idx]
+        if 0 <= phys_idx < len(f.blocks) and f.type_of(phys_idx) == "bhkPhysicsSystem":
+            pblk = f.blocks[phys_idx]
+            plen = struct.unpack_from("<I", pblk, 0)[0]
+            bodies = inspect_tagfile_bodies(pblk[4:4 + plen])
+            chosen = [b for b in bodies if b["body_index"] == body_id] if len(bodies) > 1 else bodies
+            for b in (chosen or bodies):
+                rows.append({
+                    "node": node_name,
+                    "bone": bone_name,
+                    "body_id": body_id,
+                    "layer": b["layer"],
+                    "layer_name": b["layer_name"],
+                    "motion_type": b["motion_type"],
+                    "shapes": b["shapes"],
+                })
+    return rows
 
 
 def model_bone_order(nif_bytes, rig_names):

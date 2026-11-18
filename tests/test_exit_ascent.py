@@ -1,8 +1,10 @@
 """Actual ascent and in-vault platform/door branches with substituted natives."""
 import copy
 import json
+import os
 from pathlib import Path
 import re
+import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -50,55 +52,83 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
         self.stages = []
         self.ascents = []
         self.surfaces = []
+        self.spec_calls = 0
+        self.char_calls = 0
+        self.notifications = []
         def show():
             self.prompts += 1
             return self.button
         self.ns = dict(
-            asked=False, CogDoorId=0x126D, VaultPlugin='FO4Port.esm',
+            asked=False, liftSpecConfirmed=False, TestModeGlobal=None,
+            CogDoorId=0x126D, VaultPlugin='FO4Port.esm',
             ConsoleX=-53.7, ConsoleY=-3.7, ConsoleZ=0.53, ConsoleRadius=2.5,
             PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
             LiftId=0x1618,
             Game=SimpleNamespace(GetFormFromFile=lambda i, _: self.door if i == 0x126D else None),
+            Debug=SimpleNamespace(Notification=self.notifications.append),
             ExitMessage=SimpleNamespace(Show=show),
+            EnsureVaultInteractivesRegistered=lambda: None,
+            StartTimer=lambda *_: None,
+            OpenLiftAttributeAllocation=lambda: setattr(self, 'spec_calls', self.spec_calls + 1),
+            OpenLiftCharacterRespec=lambda: setattr(self, 'char_calls', self.char_calls + 1),
+            RunSharedMapSetup=lambda: 4,
             AdvanceTo=self.stages.append,
             StartAscent=self.ascents.append,
             Surface=self.surfaces.append,
         )
-        exec(compile(translated_functions(read(PSC), ('InVault', 'Near'), 'asked'), PSC, 'exec'), self.ns)
+        exec(compile(translated_functions(read(PSC), ('InVault', 'Near'), 'asked, liftSpecConfirmed'), PSC, 'exec'), self.ns)
 
     def test_platform_marker_and_radius_constants(self):
         self.assertIn('Fo4PlatformMarker = 0x01B29E', read(CS))
         self.assertIn('float Property PlatformRadius = 2.0 Auto Const', read(PSC))
 
-    def test_never_prompts_at_console_or_catwalk_or_before_door_opens(self):
-        # At the console (-53.7, -3.7, 0.53): opens door -> stage 30, ZERO elevator prompts!
+    def test_console_stand_and_direct_door_open_do_nothing_when_test_mode_is_off(self):
+        # X1: With TestModeGlobal off, standing near the console does NOT open the door or advance to stage 30!
         self.ns['InVault'](self.player, 20)
-        self.assertEqual(self.door.set_open_calls, [True])
-        self.assertEqual(self.stages, [30])
+        self.assertEqual(self.door.set_open_calls, [])
+        self.assertEqual(self.stages, [])
         self.assertEqual(self.prompts, 0)
+        # Even if door open_state changes to 2 while TestModeGlobal is off, InVault does not advance stage 30 without console E!
+        self.door.open_state = 2
+        self.player.pos = (-60.0, -3.9, 0.0)
+        self.ns['InVault'](self.player, 20)
+        self.assertEqual(self.stages, [])
         # On the catwalk at 000244EB's NIF root (-70.392, -2.742, -0.114): 7.45 m from platform -> ZERO prompts!
         self.player.pos = (-70.392, -2.742, -0.114)
         self.ns['InVault'](self.player, 30)
         self.assertEqual(self.prompts, 0)
-        # Even at platform coordinates, if stage is still 20 and door is closed -> ZERO prompts!
-        self.door.open_state = 3
-        self.player.pos = (-77.742, -3.958, -1.751)
-        self.ns['InVault'](self.player, 20)
-        self.assertEqual(self.prompts, 0)
 
-    def test_direct_gear_door_e_activation_advances_stage_30_and_platform_starts_ascent(self):
-        # Pressing E directly on FO4SFVaultGearDoor.esm sets open_state to 2 (opening) or 1 (open) without visiting console.
-        self.door.open_state = 2
-        self.player.pos = (-60.0, -3.9, 0.0)
-        self.ns['InVault'](self.player, 20)
-        self.assertEqual(self.door.set_open_calls, [])
-        self.assertEqual(self.stages, [30])
-        self.assertEqual(self.prompts, 0)
-        # Stepping onto the platform floor (-77.742, -3.958, -1.751) prompts once and starts ascent.
+    def test_lift_prompt_blocks_continue_until_special_is_confirmed_then_starts_ascent(self):
+        # X3: Stepping onto platform at stage 30 shows ExitMessage; button 0 (Continue) is refused until S.P.E.C.I.A.L. confirmed!
         self.player.pos = (-77.742, -3.958, -1.751)
-        self.ns['InVault'](self.player, 30)
+        self.button = 0
         self.ns['InVault'](self.player, 30)
         self.assertEqual(self.prompts, 1)
+        self.assertEqual(self.ascents, [])
+        self.assertEqual(len(self.notifications), 1)
+        # Button 1 routes to OpenLiftAttributeAllocation; Button 2 routes to OpenLiftCharacterRespec
+        self.button = 1
+        self.ns['InVault'](self.player, 30)
+        self.assertEqual(self.spec_calls, 1)
+        self.ns['asked'] = False
+        self.button = 2
+        self.ns['InVault'](self.player, 30)
+        self.assertEqual(self.char_calls, 1)
+        # Once liftSpecConfirmed is True, button 0 (Continue) starts ascent once!
+        self.ns['asked'] = False
+        self.ns['liftSpecConfirmed'] = True
+        self.button = 0
+        self.ns['InVault'](self.player, 30)
+        self.ns['InVault'](self.player, 30)
+        self.assertEqual(self.ascents, [self.player])
+
+    def test_test_mode_global_enables_legacy_console_stand_and_continue_shortcut(self):
+        self.ns['TestModeGlobal'] = SimpleNamespace(GetValue=lambda: 1.0)
+        self.ns['InVault'](self.player, 20)
+        self.assertEqual(self.door.set_open_calls, [True])
+        self.assertEqual(self.stages, [30])
+        self.player.pos = (-77.742, -3.958, -1.751)
+        self.ns['InVault'](self.player, 30)
         self.assertEqual(self.ascents, [self.player])
 
 
@@ -113,6 +143,10 @@ class AscentExecutionTests(unittest.TestCase):
         self.lift.base, self.lift.plays, self.lift.accepted = self.base, [], True
         self.lift.cell = self.cell
         self.failures, self.transfers, self.registrations, self.unregistrations = [], [], [], []
+        self.map_setup_calls = 0
+        def run_map_setup():
+            self.map_setup_calls += 1
+            return 4
         self.ns = dict(ridingLift=None, ridingCell=None, rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
                        rideActive=False, rideDone=False, rideTransferred=False, exitFailed=False, asked=False,
                        PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
@@ -121,6 +155,7 @@ class AscentExecutionTests(unittest.TestCase):
                                             GetPlayer=lambda: self.player),
                        Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
                        StandsInVault=lambda _: True, Surface=self.transfers.append,
+                       RunSharedMapSetup=run_map_setup,
                        RegisterForAnimationEvent=lambda *args: self.registrations.append(args),
                        UnregisterForAnimationEvent=lambda *args: self.unregistrations.append(args))
         text = read(PSC)
@@ -140,6 +175,7 @@ class AscentExecutionTests(unittest.TestCase):
     def test_carries_before_exactly_one_arrival_and_never_moves_player_on_start(self):
         self.run_branch('StartAscent')
         self.assertEqual(self.lift.plays, ['Play01'])
+        self.assertEqual(self.map_setup_calls, 1)
         self.assertEqual(self.player.moves, [])
         self.assertEqual(self.transfers, [])
         self.now += 9.8
@@ -437,6 +473,81 @@ class ProductionRecipeTests(unittest.TestCase):
         self.assertIn('("LiftId", (int)p.Lift)', cs)
         self.assertIn('"PlayAnimation"', read(ng.__file__))
         self.assertIn('OnAnimationEvent', ng.NATIVES[ng.SCRIPT]['ScriptObject'])
+
+
+def _sec(tag, payload, leaf=True):
+    flags = 0x40000000 if leaf else 0
+    return struct.pack('>I', flags | (8 + len(payload))) + tag.encode('latin-1') + payload
+
+
+def _synthetic_tag0(layer, motion_type=1, shape_type='hknpConvexShape'):
+    tst1 = f'\0hknpBodyCinfo\0{shape_type}'.encode('latin-1')
+    fst1 = b'\0collisionFilterInfo\0motionType'
+    tna1 = bytes([3, 1, 0, 2, 0])
+    # Type 1 (hknpBodyCinfo): parent=0, opt=0x28 (size+align, fields), size=8, align=4, 2 fields:
+    #   field 1 ('collisionFilterInfo') flags=0 offset=0 type=0, field 2 ('motionType') flags=0 offset=4 type=0
+    tbdy = bytes([1, 0, 0x28, 8, 4, 2, 1, 0, 0, 0, 2, 0, 4, 0, 0])
+    type_sec = _sec('TYPE', _sec('TST1', tst1) + _sec('TNA1', tna1) + _sec('FST1', fst1) + _sec('TBDY', tbdy), leaf=False)
+    data = struct.pack('<IB3x', layer, motion_type)
+    items = struct.pack('<III', 1, 0, 1) + struct.pack('<III', 2, 8, 1)
+    indx_sec = _sec('INDX', _sec('ITEM', items) + _sec('PTCH', b''), leaf=False)
+    return _sec('TAG0', _sec('SDKV', b'20190200') + _sec('DATA', data) + type_sec + indx_sec, leaf=False)
+
+
+class BundleCollisionLayerTests(unittest.TestCase):
+    """X5 offline collision audit: lists each body with its Havok collision layer on synthetic and local bundle NIFs."""
+
+    def test_inspect_nif_collision_layers_lists_each_body_and_layer(self):
+        from fo4sf import nif
+        f = nif.NifFile(endian=1, user_version=12, bs_version=173, author=b'\0', unknown_int=0, export_script=b'\0', sf_data=b'\x7a\0')
+        identity = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+        pending = {}
+
+        def add_node(name, blob=None):
+            idx = f.add_block('NiNode', b'')
+            col = -1
+            if blob is not None:
+                col = f.add_block('bhkNPCollisionObject', struct.pack('<iHiI', idx, 0x80, len(f.blocks) + 1, 0))
+                f.add_block('bhkPhysicsSystem', struct.pack('<I', len(blob)) + blob)
+            pending[idx] = [f.string_index(name.encode('utf-8')), [], (0, 0, 0), identity, 1.0, col, []]
+            return idx
+
+        root = add_node('TestRoot')
+        gate = add_node('V111GearRoomGate01', _synthetic_tag0(1, motion_type=2))
+        lift_gate = add_node('b_Gate01')
+        lift_col = add_node('b_Gate01_col_1', _synthetic_tag0(2, motion_type=1))
+        cog = add_node('GearDoor', _synthetic_tag0(2, motion_type=1))
+        pending[lift_gate][-1].append(lift_col)
+        pending[root][-1].extend([gate, lift_gate, cog])
+        for idx, (nm, ex, t, r, sc, col, ch) in pending.items():
+            f.blocks[idx] = (struct.pack('<iI', nm, len(ex))
+                             + struct.pack('<iI3f9ffiI', -1, 0xE, *t, *r, sc, col, len(ch))
+                             + struct.pack(f'<{len(ch)}i', *ch))
+        f.footer = struct.pack('<II', 1, root)
+        rows = mac.inspect_nif_collision_layers(nif.serialize(f))
+        self.assertEqual([(r['bone'], r['layer'], r['layer_name']) for r in rows], [
+            ('V111GearRoomGate01', 1, 'L_STATIC'),
+            ('b_Gate01', 2, 'L_ANIMSTATIC'),
+            ('GearDoor', 2, 'L_ANIMSTATIC'),
+        ])
+
+    def test_local_port_and_bundle_collision_bodies_when_present(self):
+        port_ba2 = Path(mac.STARFIELD) / 'Data' / 'FO4Port - Main.ba2'
+        if port_ba2.is_file():
+            from fo4sf import ba2
+            archive = ba2.Ba2(str(port_ba2))
+            hit = next((n for n in archive.names if n.lower().endswith('v111gearroomgate01.nif')), None)
+            self.assertIsNotNone(hit)
+            gate_rows = mac.inspect_nif_collision_layers(archive.read(hit))
+            static_rows = [r for r in gate_rows if r['layer_name'] == 'L_STATIC']
+            self.assertEqual(len(static_rows), 4)
+            self.assertTrue(all('hknpConvexShape' in r['shapes'] for r in static_rows))
+        for env_var, want_count in (('FO4SF_EXIT_LIFT_NIF', 37), ('FO4SF_COG_DOOR_NIF', 26)):
+            nif_path = os.environ.get(env_var)
+            if nif_path and Path(nif_path).is_file():
+                rows = mac.inspect_nif_collision_layers(Path(nif_path).read_bytes())
+                self.assertEqual(len(rows), want_count)
+                self.assertTrue(all(r['layer_name'] == 'L_ANIMSTATIC' for r in rows))
 
 
 if __name__ == '__main__':

@@ -153,9 +153,24 @@ def landing(at, name, core_stage, ov, ground, lift, out):
     return path, spot
 
 
+def refuse_forbidden_out_dir(out_dir):
+    full = os.path.abspath(out_dir)
+    cur = full
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            sys.exit(f"refused: output folder inside Git worktree is forbidden ({full})")
+        if os.path.isfile(os.path.join(cur, "Starfield.exe")):
+            sys.exit(f"refused: output folder inside game install is forbidden ({full})")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+
+
 def stage(a):
     a.plugin = PLUGIN
     out = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(out)
     if os.path.exists(out) and os.listdir(out):
         sys.exit(f"{out} is not empty: stage into a new folder")
     if a.landing_undiscovered and not a.landing:
