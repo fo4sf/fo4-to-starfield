@@ -18,7 +18,14 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from fo4sf import btd, fo4land, overlay_grid as og  # noqa: E402
-from fo4sf.core.world_registry import load_world_registry, parse_world_registry  # noqa: E402
+from fo4sf.core.world_registry import (  # noqa: E402
+    HOME_EARTH_RADIUS_KM,
+    LANDING_HALF_WIDTH_CELLS,
+    MARS_RADIUS_KM,
+    load_world_registry,
+    parse_world_registry,
+    planet_separation_cells,
+)
 from fo4sf.terrain import overlay_postpatch as opp  # noqa: E402
 from fo4sf.terrain.path_guard import OutputPathRefusedError  # noqa: E402
 
@@ -52,11 +59,35 @@ class DlcTerrainWorldsTests(unittest.TestCase):
             self.assertIsNotNone(w.planned_starfield_world.planet_position)
             self.assertIsNone(w.planned_starfield_world.measured_merge_offset)
 
-        # Pairwise separation on host planet >= 2,000 cells between Commonwealth, FarHarbor, and NukaWorld
+        # Pairwise separation on Mars radius (3,390 km) AND Home-planet Earth radius (6,371 km) (C11)
         cw_pos = reg.get_world("Commonwealth").planned_starfield_world.planet_position
-        fh_pos = reg.get_world("FarHarbor").planned_starfield_world.planet_position
-        nw_pos = reg.get_world("NukaWorld").planned_starfield_world.planet_position
+        fh_psw = reg.get_world("FarHarbor").planned_starfield_world
+        nw_psw = reg.get_world("NukaWorld").planned_starfield_world
+        fh_pos = fh_psw.planet_position
+        nw_pos = nw_psw.planet_position
         assert cw_pos and fh_pos and nw_pos
+        self.assertEqual(fh_psw.reachability, "TEST-STATION (coc only)")
+        self.assertEqual(nw_psw.reachability, "TEST-STATION (coc only)")
+        self.assertEqual(fh_psw.coc_spawn, "FO4FH_FarHarborSpawn")
+        self.assertEqual(nw_psw.coc_spawn, "FO4NW_NukaWorldSpawn")
+        self.assertAlmostEqual(round(planet_separation_cells(cw_pos, fh_pos, MARS_RADIUS_KM), 1), 3563.1, places=1)
+        self.assertAlmostEqual(round(planet_separation_cells(cw_pos, fh_pos, HOME_EARTH_RADIUS_KM), 1), 6696.4, places=1)
+        self.assertAlmostEqual(round(planet_separation_cells(cw_pos, nw_pos, MARS_RADIUS_KM), 1), 4583.1, places=1)
+        self.assertAlmostEqual(round(planet_separation_cells(cw_pos, nw_pos, HOME_EARTH_RADIUS_KM), 1), 8613.3, places=1)
+        self.assertEqual(fh_psw.mars_separation_from_cw_cells, 3563.1)
+        self.assertEqual(fh_psw.home_separation_from_cw_cells, 6696.4)
+        self.assertEqual(nw_psw.mars_separation_from_cw_cells, 4583.1)
+        self.assertEqual(nw_psw.home_separation_from_cw_cells, 8613.3)
+        self.assertAlmostEqual(
+            round(planet_separation_cells(cw_pos, fh_pos, HOME_EARTH_RADIUS_KM) / LANDING_HALF_WIDTH_CELLS, 2),
+            fh_psw.landing_half_widths_home,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            round(planet_separation_cells(cw_pos, nw_pos, HOME_EARTH_RADIUS_KM) / LANDING_HALF_WIDTH_CELLS, 2),
+            nw_psw.landing_half_widths_home,
+            places=2,
+        )
         self.assertGreaterEqual(opp._latlon_distance_cells(cw_pos, fh_pos), 2000.0)
         self.assertGreaterEqual(opp._latlon_distance_cells(cw_pos, nw_pos), 2000.0)
         self.assertGreaterEqual(opp._latlon_distance_cells(fh_pos, nw_pos), 2000.0)
@@ -270,10 +301,15 @@ class DlcTerrainWorldsTests(unittest.TestCase):
             self.assertEqual(body_cnam, [b"\x01"])
 
             vrep = opp.verify_dlc_terrain_stage(stage, [fo4_path], "DLC03FarHarbor", n_probes=5, min_gap_cells=2000)
+            self.assertEqual(vrep["reachability"], "TEST-STATION (coc only)")
             self.assertEqual(vrep["wrld_count"], 1)
             self.assertEqual(vrep["water_exterior_cells_verified"], 16)
             self.assertLess(vrep["max_probe_abs_error_m"], 0.01)
             self.assertGreaterEqual(vrep["nearest_other_world_distance_cells"], 2000.0)
+            self.assertGreater(
+                vrep["home_earth_nearest_other_world_distance_cells"],
+                vrep["nearest_other_world_distance_cells"],
+            )
 
             # R4 path guard refuses fake worktree
             fake_wt = os.path.join(tmp, "wt")

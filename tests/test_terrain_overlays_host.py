@@ -24,6 +24,10 @@ if str(ROOT / "src") not in sys.path:
 
 from fo4sf.planet import esm, probe, records  # noqa: E402
 
+# Authentic cd03411a SHA-256 pins on the synthetic TerrainIdentityFixture + Mars master (R12 / C8)
+CD03411A_SYNTHETIC_CORE_ESM_SHA256 = "69705355ac4260e5ce68effef15611be4c6c08486c74059c372a95ad85963d5c"
+CD03411A_SYNTHETIC_MARS_ESM_SHA256 = "13342cf843d406acf0d4b7fa6726a2b7dfb1c57f197ff7f203e5cb3c360ce0b1"
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -179,8 +183,10 @@ class TerrainOverlaysHostTests(unittest.TestCase):
         s_def = self._run("mars-default", p_default)
         s_exp = self._run("mars-explicit", p_explicit)
 
-        self.assertEqual(_sha256(s_def / "SyntheticCore.esm"), _sha256(s_exp / "SyntheticCore.esm"))
-        self.assertEqual(_sha256(s_def / "SyntheticCore_Mars.esm"), _sha256(s_exp / "SyntheticCore_Mars.esm"))
+        self.assertEqual(_sha256(s_def / "SyntheticCore.esm"), CD03411A_SYNTHETIC_CORE_ESM_SHA256)
+        self.assertEqual(_sha256(s_def / "SyntheticCore_Mars.esm"), CD03411A_SYNTHETIC_MARS_ESM_SHA256)
+        self.assertEqual(_sha256(s_exp / "SyntheticCore.esm"), CD03411A_SYNTHETIC_CORE_ESM_SHA256)
+        self.assertEqual(_sha256(s_exp / "SyntheticCore_Mars.esm"), CD03411A_SYNTHETIC_MARS_ESM_SHA256)
 
         with esm.Plugin(str(s_def / "SyntheticCore_Mars.esm")) as reg:
             self.assertEqual(reg.masters, ["Starfield.esm", "SyntheticCore.esm"])
@@ -246,11 +252,11 @@ class TerrainOverlaysHostTests(unittest.TestCase):
     def test_optional_live_mars_registration_sha256_parity(self) -> None:
         live_data = os.environ.get("FO4SF_STARFIELD_DATA", "").strip()
         if not live_data:
-            return
+            self.skipTest("FO4SF_STARFIELD_DATA not set; skipping live FO4TerrainCore_Mars.esm parity check")
         sf_esm = Path(live_data) / "Starfield.esm"
         mars_esm = Path(live_data) / "FO4TerrainCore_Mars.esm"
         if not (sf_esm.is_file() and mars_esm.is_file()):
-            return
+            self.skipTest("Starfield.esm or FO4TerrainCore_Mars.esm not present in FO4SF_STARFIELD_DATA")
         prm = self._base_params()
         prm["plugin"] = "FO4TerrainCore.esm"
         prm["mars"] = {"plugin": "FO4TerrainCore_Mars.esm"}

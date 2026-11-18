@@ -5,8 +5,8 @@ and single host registration plugin (`FO4TerrainCore_Home.esm`), plus `WL1` loca
 Usage:
   python scripts/planet/make_home_planet.py stage --data <Starfield Data> --out <stage dir>
       [--worlds Commonwealth] [--star-name "FO4SF Home"] [--planet-name "Earth"]
-      [--temp 15.0] [--sky ATMO_Jemison|ATMO_Earth] [--lever-keywords K1,K2]
-      [--world-plugin-dir <extra dir>] [--map-markers <FO4SFMapMarkers.esm>]
+      [--body-name "fo4sf_home_earth"] [--temp 15.0] [--sky ATMO_Jemison|ATMO_Earth]
+      [--lever-keywords K1,K2] [--world-plugin-dir <extra dir>] [--map-markers <FO4SFMapMarkers.esm>]
   python scripts/planet/make_home_planet.py check --stage <stage dir> [--data <Starfield Data>]
   python scripts/planet/make_home_planet.py stage-wl1 --data <Starfield Data> --out <variants dir>
 
@@ -98,6 +98,7 @@ def stage_one(
     worlds: Sequence[str] = ("Commonwealth",),
     star_name: str = hspec.DEFAULT_STAR_NAME,
     planet_name: str = hspec.DEFAULT_PLANET_NAME,
+    body_name: str = hspec.DEFAULT_BODY_NAME,
     temp_c: float = hspec.DEFAULT_TEMP_C,
     sky_atmo: str = hspec.DEFAULT_SKY_ATMO,
     lever_keywords: Sequence[str] = (),
@@ -125,12 +126,14 @@ def stage_one(
     world_plugin_pins_before: Dict[str, str] = {}
 
     partial = _new_partial_dir(final)
+    clean_body_name = body_name.strip()
     with esm.Plugin(sf_path) as sf:
         master_writer, master_report = hspec.build_home_master(
             sf,
             data_dir=data_dir,
             star_name=star_name,
             planet_name=planet_name,
+            body_name=clean_body_name,
             temp_c=temp_c,
             sky_atmo=sky_atmo,
             lever_keywords=lever_keywords,
@@ -160,7 +163,7 @@ def stage_one(
                 break
 
     biome_fid = (1 << 24) | hspec.BIOME
-    biome_map_report = biom.stage_uniform_biome_map(biome_fid, planet_name, hspec.HOME_MASTER, partial)
+    biome_map_report = biom.stage_uniform_biome_map(biome_fid, clean_body_name, hspec.HOME_MASTER, partial)
 
     problems, check_summary = hspec.check_home_stage(
         sf_path,
@@ -208,6 +211,7 @@ def stage_one(
         "lever_keywords": list(lever_keywords),
         "star_name": star_name,
         "planet_name": planet_name,
+        "body_name": clean_body_name,
         "temp_c": float(temp_c),
         "sky_atmo": sky_atmo,
         "biome_profile": "no-life, Starfield-patterned",
@@ -268,10 +272,14 @@ def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] =
     if problems:
         return problems
 
-    # Verify both .biom paths exist and name our BIOM FormID
-    want_biom_paths = biom.stage_paths(plan["planet_name"], hspec.HOME_MASTER)
+    # Verify both .biom paths exist, carry TEST-STATION status, match PNDT ANAM, and name our BIOM FormID
+    biom_body_name = plan.get("body_name") or plan["planet_name"]
+    want_biom_paths = biom.stage_paths(biom_body_name, hspec.HOME_MASTER)
     want_biom_fid = f"{(1 << 24) | hspec.BIOME:08X}"
+    path_status = ((plan.get("biome_map") or {}).get("path_status") or {})
     for rel in want_biom_paths:
+        if path_status and path_status.get(rel) != "TEST-STATION":
+            problems.append(f"{rel} path_status {path_status.get(rel)!r} != 'TEST-STATION'")
         full = os.path.join(stage_dir, *rel.split("/"))
         if not os.path.isfile(full):
             problems.append(f"biome map missing at {rel}")
@@ -288,6 +296,15 @@ def verify_stage(stage_dir: str, plan: Dict[str, Any], data_dir: Optional[str] =
 
     master_path = os.path.join(stage_dir, hspec.HOME_MASTER)
     reg_path = os.path.join(stage_dir, hspec.HOME_REGISTRATION)
+    for label, ppath in ((hspec.HOME_MASTER, master_path), (hspec.HOME_REGISTRATION, reg_path)):
+        if os.path.isfile(ppath):
+            with esm.Plugin(ppath) as plug:
+                pndts = list(plug.records("PNDT", [b"PNDT"]))
+                if pndts:
+                    anam_b = records.body_get(pndts[0].subs, b"ANAM")
+                    actual_anam = esm.zstring(anam_b) if anam_b else ""
+                    if actual_anam != biom_body_name:
+                        problems.append(f"{label} PNDT ANAM {actual_anam!r} != {biom_body_name!r}")
     problems.extend(hspec.check_no_duplicate_overrides([master_path, reg_path]))
 
     if data_dir:
@@ -349,6 +366,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
         worlds=worlds,
         star_name=args.star_name,
         planet_name=args.planet_name,
+        body_name=args.body_name,
         temp_c=args.temp,
         sky_atmo=args.sky,
         lever_keywords=levers,
@@ -358,7 +376,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
     print(
         f"staged {os.path.abspath(args.out)}: plugins={plan['plugins']}, "
         f"system_id={plan['system_id']}, planet_id={plan['planet_id']}, "
-        f"biome={plan['biome_formid']}, levers={plan['lever_keywords']}"
+        f"body_name={plan['body_name']}, biome={plan['biome_formid']}, levers={plan['lever_keywords']}"
     )
     return 0
 
@@ -397,6 +415,7 @@ def cmd_stage_wl1(args: argparse.Namespace) -> int:
             data_dir=args.data,
             out_dir=vdir,
             worlds=worlds,
+            body_name=getattr(args, "body_name", hspec.DEFAULT_BODY_NAME),
             lever_keywords=levers,
             extra_world_dirs=extra_dirs,
             map_markers_path=getattr(args, "map_markers", ""),
@@ -452,6 +471,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     st.add_argument("--worlds", default="Commonwealth", help="Comma-separated world keys from world_registry.json")
     st.add_argument("--star-name", default=hspec.DEFAULT_STAR_NAME)
     st.add_argument("--planet-name", default=hspec.DEFAULT_PLANET_NAME)
+    st.add_argument(
+        "--body-name",
+        default=hspec.DEFAULT_BODY_NAME,
+        help="Internal PNDT ANAM body name and .biom stem (default: fo4sf_home_earth; control: Earth)",
+    )
     st.add_argument("--temp", type=float, default=hspec.DEFAULT_TEMP_C)
     st.add_argument("--sky", choices=hspec.SKY_ATMO_CHOICES, default=hspec.DEFAULT_SKY_ATMO)
     st.add_argument("--lever-keywords", default="", help="Comma-separated WL1 lever keyword EditorIDs")
@@ -470,6 +494,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     wl.add_argument("--data", required=True, help="Path to Starfield Data folder")
     wl.add_argument("--out", required=True, help="Output directory for WL1 variants")
     wl.add_argument("--worlds", default="Commonwealth")
+    wl.add_argument("--body-name", default=hspec.DEFAULT_BODY_NAME)
     wl.add_argument("--world-plugin-dir", default="")
     wl.add_argument("--map-markers", default="", help="Optional FO4SFMapMarkers.esm path to merge LCSR rows and pin sha256")
 

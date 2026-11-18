@@ -59,7 +59,9 @@
         "marker_index_range": [
           0,
           311
-        ]
+        ],
+        "reachability": "REACHABLE",
+        "coc_spawn": "FO4Core_RedRocketSpawn"
       },
       "status": {
         "terrain": {
@@ -72,11 +74,11 @@
         },
         "water": {
           "state": "none",
-          "evidence": "docs/world/three-way-study.md#L101-L106"
+          "evidence": "docs/world/three-way-study.md#L77-L81"
         },
         "ground_textures": {
           "state": "none",
-          "evidence": "scripts/terrain/make_cw_overlays.py#L397-L400"
+          "evidence": "scripts/terrain/make_cw_overlays.py#L491-L495"
         },
         "walk_mesh": {
           "state": "passed in game",
@@ -4197,7 +4199,13 @@
         "marker_index_range": [
           326,
           373
-        ]
+        ],
+        "reachability": "TEST-STATION (coc only)",
+        "coc_spawn": "FO4FH_FarHarborSpawn",
+        "mars_separation_from_cw_cells": 3563.1,
+        "home_separation_from_cw_cells": 6696.4,
+        "landing_half_widths_mars": 79.18,
+        "landing_half_widths_home": 148.81
       },
       "status": {
         "terrain": {
@@ -4791,7 +4799,13 @@
         "marker_index_range": [
           373,
           416
-        ]
+        ],
+        "reachability": "TEST-STATION (coc only)",
+        "coc_spawn": "FO4NW_NukaWorldSpawn",
+        "mars_separation_from_cw_cells": 4583.1,
+        "home_separation_from_cw_cells": 8613.3,
+        "landing_half_widths_mars": 101.85,
+        "landing_half_widths_home": 191.41
       },
       "status": {
         "terrain": {

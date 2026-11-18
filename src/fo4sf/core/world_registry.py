@@ -44,9 +44,34 @@ ALLOWED_WORLD_KINDS: Tuple[str, ...] = (
     "other_game_world",
 )
 
+ALLOWED_REACHABILITY_LABELS: Tuple[str, ...] = (
+    "REACHABLE",
+    "TEST-STATION",
+    "TEST-STATION (coc only)",
+    "RECORDS ONLY",
+    "NOT BUILT",
+)
+
+SF_CELL_M = 100.0
+MARS_RADIUS_KM = 3390.0
+HOME_EARTH_RADIUS_KM = 6371.0
+LANDING_HALF_WIDTH_CELLS = 45.0  # +/- 4,500 m playable landing area around a landing spot
+
 CURRENT_PIPBOY_DISC_GLOBALS = 14
 PIPBOY_BITS_PER_GLOBAL = 24
 CURRENT_PIPBOY_DISC_CAPACITY = CURRENT_PIPBOY_DISC_GLOBALS * PIPBOY_BITS_PER_GLOBAL  # 336
+
+
+def planet_separation_cells(
+    latlon_a: Tuple[float, float],
+    latlon_b: Tuple[float, float],
+    radius_km: float = HOME_EARTH_RADIUS_KM,
+) -> float:
+    """Compute separation in 100 m Starfield exterior cells between two `(lat_rad, lon_rad)` CNAM entries."""
+    cells_per_rad = (radius_km * 1000.0) / SF_CELL_M
+    dlon = (latlon_b[1] - latlon_a[1] + math.pi) % (2.0 * math.pi) - math.pi
+    mean_lat = (latlon_a[0] + latlon_b[0]) * 0.5
+    return math.hypot((latlon_b[0] - latlon_a[0]) * cells_per_rad, dlon * cells_per_rad * math.cos(mean_lat))
 
 
 class RegistryError(ValueError):
@@ -89,6 +114,12 @@ class PlannedStarfieldWorld:
     pipboy_plugin_code: Optional[int]
     map_picture: Optional[str]
     marker_index_range: Optional[Tuple[int, int]]
+    reachability: Optional[str] = None
+    coc_spawn: Optional[str] = None
+    mars_separation_from_cw_cells: Optional[float] = None
+    home_separation_from_cw_cells: Optional[float] = None
+    landing_half_widths_mars: Optional[float] = None
+    landing_half_widths_home: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -394,6 +425,22 @@ def parse_world_registry(doc: Mapping[str, Any]) -> WorldRegistry:
         pcode_raw = psw_raw.get("pipboy_plugin_code")
         if pcode_raw is not None and (isinstance(pcode_raw, bool) or not isinstance(pcode_raw, int)):
             raise RegistryError(f"{key}: pipboy_plugin_code must be int or null")
+        reach_raw = psw_raw.get("reachability")
+        if reach_raw is not None:
+            if not isinstance(reach_raw, str) or reach_raw not in ALLOWED_REACHABILITY_LABELS:
+                raise RegistryError(f"{key}: reachability must be one of {ALLOWED_REACHABILITY_LABELS} or null, got {reach_raw!r}")
+        coc_raw = psw_raw.get("coc_spawn")
+        if coc_raw is not None and (not isinstance(coc_raw, str) or not coc_raw.strip()):
+            raise RegistryError(f"{key}: coc_spawn must be a non-empty EditorID string or null")
+
+        def _opt_pos_float(field_name: str) -> Optional[float]:
+            val = psw_raw.get(field_name)
+            if val is None:
+                return None
+            if isinstance(val, bool) or not isinstance(val, (int, float)) or float(val) < 0.0:
+                raise RegistryError(f"{key}: {field_name} must be a non-negative number or null")
+            return float(val)
+
         psw = PlannedStarfieldWorld(
             world_edid=psw_raw.get("world_edid"),
             plugin=psw_raw.get("plugin"),
@@ -405,6 +452,12 @@ def parse_world_registry(doc: Mapping[str, Any]) -> WorldRegistry:
             pipboy_plugin_code=pcode_raw,
             map_picture=map_pic,
             marker_index_range=_opt_slice(psw_raw.get("marker_index_range"), f"{key}.marker_index_range"),
+            reachability=reach_raw,
+            coc_spawn=coc_raw,
+            mars_separation_from_cw_cells=_opt_pos_float("mars_separation_from_cw_cells"),
+            home_separation_from_cw_cells=_opt_pos_float("home_separation_from_cw_cells"),
+            landing_half_widths_mars=_opt_pos_float("landing_half_widths_mars"),
+            landing_half_widths_home=_opt_pos_float("landing_half_widths_home"),
         )
 
         st_raw = raw_w.get("status")

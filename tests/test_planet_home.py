@@ -26,6 +26,16 @@ from fo4sf.planet import biom, esm, home_planet_spec as hspec, probe, records  #
 import make_home_planet  # noqa: E402
 import sf_location_census  # noqa: E402
 
+# R12 control SHA-256 pins from Round-1 head b7dc7f52 (--body-name Earth control variant)
+B7DC7F52_HOME_MASTER_SHA256 = "513a0a1ef0bfa4bde6c83f9611ba1715a2081da0c8d2a0dd4be272c768291f5c"
+B7DC7F52_HOME_REG_SHA256 = "31f180babafa7e7c57a3d1aef888b558cd54735c9e417cbac643965aa5412596"
+B7DC7F52_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
+
+# parity not applicable: ordered by C9 (default PNDT ANAM changed from 'Earth' to non-colliding 'fo4sf_home_earth')
+C9_DEFAULT_HOME_MASTER_SHA256 = "4a206130c7a2aefa04295359ce1b6fb91604498a86ce695e789373d4f1077b0b"
+C9_DEFAULT_HOME_REG_SHA256 = "53a52534c0497bb20a392eb835a19fafeffe5d19c8140d110cf221073c091a64"
+C9_DEFAULT_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
+
 
 def _build_synthetic_starfield_data(data_dir: Path) -> Path:
     """Create a synthetic `Data/Starfield.esm` and `Data/FO4TerrainCore.esm` with zero game files read."""
@@ -199,6 +209,8 @@ class HomePlanetSpecTests(unittest.TestCase):
             self.assertAlmostEqual(phys["temp"], 16.5, places=3)
             inam = records.body_get(pndt.subs, b"INAM")
             self.assertEqual(struct.unpack_from("<I", inam, 0)[0], 0x00C9D1)  # ATMO_Earth selected
+            self.assertEqual(esm.zstring(records.body_get(pndt.subs, b"ANAM")), "fo4sf_home_earth")
+            self.assertEqual(esm.zstring(probe.component_fields(pndt, "TESFullName_Component")["FULL"]), "Earth")
             self.assertEqual(biom_rec.all(b"GNAM"), [])
             self.assertEqual(biom_rec.all(b"NAM1"), [])
 
@@ -220,16 +232,62 @@ class HomePlanetSpecTests(unittest.TestCase):
             self.assertEqual(struct.unpack("<I", ov["BNAM"])[0], 0x02000801)
             self.assertEqual(struct.unpack("<I", probe.top_level(wrlds[0], b"BNAM"))[0], 0x01000806)
 
-        # W4: verify both .biom files exist and carry TEST-STATION label on plugin subfolder
+        # W4 + C9: verify BOTH .biom files exist under fo4sf_home_earth.biom and BOTH carry TEST-STATION
         plan = make_home_planet.load_plan(str(stage_dir))
-        self.assertEqual(
-            plan["biome_map"]["path_status"]["Data/PlanetData/BiomeMaps/fo4sfhome.esm/earth.biom"],
-            "TEST-STATION",
-        )
-        for rel in ("Data/PlanetData/BiomeMaps/earth.biom", "Data/PlanetData/BiomeMaps/fo4sfhome.esm/earth.biom"):
+        self.assertEqual(plan["body_name"], "fo4sf_home_earth")
+        self.assertEqual(plan["planet_name"], "Earth")
+        self.assertNotIn("VERIFIED_ENGINE_ANAM_PATH", set(plan["biome_map"]["path_status"].values()))
+        for rel in (
+            "Data/PlanetData/BiomeMaps/fo4sf_home_earth.biom",
+            "Data/PlanetData/BiomeMaps/fo4sfhome.esm/fo4sf_home_earth.biom",
+        ):
+            self.assertEqual(plan["biome_map"]["path_status"][rel], "TEST-STATION")
             bpath = stage_dir / Path(*rel.split("/"))
             self.assertTrue(bpath.is_file(), rel)
             self.assertEqual(bpath.stat().st_size, 655406)
+
+    def test_r12_b7dc7f52_earth_control_and_c9_default_pinned_sha256(self) -> None:
+        # 1. Named b7dc7f52 control variant (--body-name Earth) reproduces exact Round-1 bytes
+        ctrl_dir = self.out_root / "r12-b7dc7f52-control"
+        self.assertEqual(
+            make_home_planet.main(
+                ["stage", "--data", str(self.data_dir), "--out", str(ctrl_dir), "--body-name", "Earth"]
+            ),
+            0,
+        )
+        self.assertEqual(
+            hashlib.sha256((ctrl_dir / hspec.HOME_MASTER).read_bytes()).hexdigest(),
+            B7DC7F52_HOME_MASTER_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256((ctrl_dir / hspec.HOME_REGISTRATION).read_bytes()).hexdigest(),
+            B7DC7F52_HOME_REG_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256((ctrl_dir / "Data" / "PlanetData" / "BiomeMaps" / "earth.biom").read_bytes()).hexdigest(),
+            B7DC7F52_HOME_BIOM_SHA256,
+        )
+
+        # 2. parity not applicable: ordered by C9 (default --body-name fo4sf_home_earth)
+        def_dir = self.out_root / "r12-c9-default"
+        self.assertEqual(
+            make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(def_dir)]),
+            0,
+        )
+        self.assertEqual(
+            hashlib.sha256((def_dir / hspec.HOME_MASTER).read_bytes()).hexdigest(),
+            C9_DEFAULT_HOME_MASTER_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256((def_dir / hspec.HOME_REGISTRATION).read_bytes()).hexdigest(),
+            C9_DEFAULT_HOME_REG_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                (def_dir / "Data" / "PlanetData" / "BiomeMaps" / "fo4sf_home_earth.biom").read_bytes()
+            ).hexdigest(),
+            C9_DEFAULT_HOME_BIOM_SHA256,
+        )
 
     def test_w2_system_id_bumps_when_preferred_id_is_taken_in_data(self) -> None:
         clash = esm.PluginWriter(["Starfield.esm"], esm.ESM)

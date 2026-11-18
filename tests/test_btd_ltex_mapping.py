@@ -4,6 +4,7 @@ Zero game files are read; all `LAND` subrecords, `.mat` templates, and `.btd` fi
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,9 @@ from fo4sf.planet import esm  # noqa: E402
 from fo4sf.terrain import ltex_map as lm, overlay_postpatch as opp  # noqa: E402
 from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path  # noqa: E402
 import make_wg1_redrocket as mwg1  # noqa: E402
+
+# R12 pinned SHA-256 of the synthetic 5x5 WG1 BTD window from Round-1 head b7dc7f52
+B7DC7F52_WG1_SYNTHETIC_BTD_SHA256 = "df256e0eb1c2a3c7b529123b8f59245605ab246e8d82009fafa9319341eb289c"
 
 SYNTH_TERRAIN_TEMPLATE = {
     "Import": ["Data\\MATERIALS\\Layered\\ShaderModels\\Terrain1Layer.mat"],
@@ -130,6 +134,7 @@ class BtdLtexMappingTests(unittest.TestCase):
 
         raw_h = np.zeros((n_cells * 128, n_cells * 128), dtype=np.uint16)
         btd_bytes = btd.write(btd.Btd(6, -10.0, 50.0, table, raw_h, weights, quad_map))
+        self.assertEqual(hashlib.sha256(btd_bytes).hexdigest(), B7DC7F52_WG1_SYNTHETIC_BTD_SHA256)
         decoded = btd.read(btd_bytes)
 
         vrep = lm.verify_btd_against_fo4_dominants(decoded, stats["quad_gt_dominant"], ltex_mapping)

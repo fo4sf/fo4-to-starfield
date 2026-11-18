@@ -23,8 +23,12 @@ import zlib
 
 import numpy as np
 
-from fo4sf import btd, fo4land, overlay_grid as og, terrain_grid as tg
-from fo4sf.terrain.path_guard import refuse_unsafe_output_path
+_SRC_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _SRC_ROOT not in sys.path:
+    sys.path.insert(0, _SRC_ROOT)
+
+from fo4sf import btd, fo4land, overlay_grid as og, terrain_grid as tg  # noqa: E402
+from fo4sf.terrain.path_guard import refuse_unsafe_output_path  # noqa: E402
 
 COMPRESSED_FLAG = 0x00040000
 CELL_HAS_WATER = 0x00000002
@@ -471,6 +475,10 @@ def patch_mars_plugin_extra_worlds(
     return {"added_entries": len(resolved_entries), "masters": plug.masters()}
 
 
+HOME_EARTH_RADIUS_KM = 6371.0
+LANDING_AREA_HALF_WIDTH_CELLS = 45.0
+
+
 def _latlon_distance_cells(a: Tuple[float, float], b: Tuple[float, float], radius_km: float = og.MARS_RADIUS_KM) -> float:
     k = og.cells_per_radian(radius_km)
     dlon = (b[1] - a[1] + math.pi) % (2.0 * math.pi) - math.pi
@@ -601,8 +609,13 @@ def verify_dlc_terrain_stage(
     if max_err_m >= 1.0:
         raise AssertionError(f"Probe height error {max_err_m:.4f} m >= 1.0 m")
 
-    # Planet separation check on Mars plugin
+    # Planet separation check on Mars plugin AND Home-planet Earth radius (6,371.0 km, C11)
     nearest_cells: Optional[float] = None
+    nearest_km: Optional[float] = None
+    nearest_half_widths: Optional[float] = None
+    home_nearest_cells: Optional[float] = None
+    home_nearest_km: Optional[float] = None
+    home_nearest_half_widths: Optional[float] = None
     nearest_fid: Optional[str] = None
     mars_entries_count = 0
     if prm.get("mars"):
@@ -633,7 +646,18 @@ def verify_dlc_terrain_stage(
         others = [e for e in ents if e[2] != own_wrld_ffid]
         radius_km = float(prm["mars"].get("radius_km", og.MARS_RADIUS_KM))
         near = min(others, key=lambda e: _latlon_distance_cells((mine[0], mine[1]), (e[0], e[1]), radius_km))
-        nearest_cells = round(_latlon_distance_cells((mine[0], mine[1]), (near[0], near[1]), radius_km), 1)
+        raw_mars_cells = _latlon_distance_cells((mine[0], mine[1]), (near[0], near[1]), radius_km)
+        nearest_cells = round(raw_mars_cells, 1)
+        nearest_km = round(raw_mars_cells * 0.1, 2)
+        nearest_half_widths = round(raw_mars_cells / LANDING_AREA_HALF_WIDTH_CELLS, 2)
+        near_home = min(
+            others,
+            key=lambda e: _latlon_distance_cells((mine[0], mine[1]), (e[0], e[1]), HOME_EARTH_RADIUS_KM),
+        )
+        raw_home_cells = _latlon_distance_cells((mine[0], mine[1]), (near_home[0], near_home[1]), HOME_EARTH_RADIUS_KM)
+        home_nearest_cells = round(raw_home_cells, 1)
+        home_nearest_km = round(raw_home_cells * 0.1, 2)
+        home_nearest_half_widths = round(raw_home_cells / LANDING_AREA_HALF_WIDTH_CELLS, 2)
         nearest_fid = f"{near[2]:08X}"
         if nearest_cells < min_gap_cells:
             raise AssertionError(f"Nearest world {nearest_fid} is {nearest_cells} cells away (< {min_gap_cells})")
@@ -642,6 +666,7 @@ def verify_dlc_terrain_stage(
         "plugin": prm["plugin"],
         "world": ov["world"],
         "fo4_world": fo4_world,
+        "reachability": "TEST-STATION (coc only)",
         "tile_cells": n,
         "wrld_count": len(wrlds),
         "exterior_cell_count": len(ext_cells),
@@ -660,6 +685,12 @@ def verify_dlc_terrain_stage(
         "mars_pndt_total_entries": mars_entries_count,
         "nearest_other_world_fid": nearest_fid,
         "nearest_other_world_distance_cells": nearest_cells,
+        "nearest_other_world_distance_km": nearest_km,
+        "nearest_other_world_landing_half_widths": nearest_half_widths,
+        "home_earth_radius_km": HOME_EARTH_RADIUS_KM,
+        "home_earth_nearest_other_world_distance_cells": home_nearest_cells,
+        "home_earth_nearest_other_world_distance_km": home_nearest_km,
+        "home_earth_landing_half_widths": home_nearest_half_widths,
     }
     out_json = os.path.join(stage_dir, "dlc_terrain_verification.json")
     refuse_unsafe_output_path(out_json)

@@ -18,21 +18,27 @@ A raw record survey of coastal, island, and ocean overlays in `Starfield.esm` (`
 
 `src/fo4sf/terrain/overlay_postpatch.py` applies these `WRLD`, `SFBK`, and exterior `CELL` water fields cleanly at the raw record level after `dotnet/TerrainOverlays` writes a terrain-only overlay plugin, without altering the default dry Commonwealth path.
 
-## 2. Staged Terrain-Only DLC Worlds (`WD2` Far Harbor, `WD3` Nuka-World)
+## 2. Staged Terrain-Only DLC Worlds (`WD2` Far Harbor, `WD3` Nuka-World — `TEST-STATION`, Console Only)
 
-Both Fallout 4 expansion worldspaces are staged offline (`TEST-STATION` / `RECORDS ONLY`) through the parameterized `scripts/terrain/make_cw_overlays.py` (`--fo4-world`, `--fo4-masters`, `--water-height-m`, `--planet-min-gap-cells`), `dotnet/TerrainOverlays`, and `src/fo4sf/terrain/overlay_postpatch.py`:
+Both Fallout 4 expansion worldspaces are staged offline as **`TEST-STATION (coc only)`** terrain-and-water probes through the parameterized `scripts/terrain/make_cw_overlays.py` (`--fo4-world`, `--fo4-masters`, `--water-height-m`, `--planet-min-gap-cells`), `dotnet/TerrainOverlays`, and `src/fo4sf/terrain/overlay_postpatch.py`. Each world currently holds `3` persistent `REFR` records (`XMarker` anchor, `COCMarkerHeading`, and `1` arrival `MapMarker`), `0` placed exterior objects, `0` ship landing markers, `0` exterior-to-world load doors, and unwired Pip-Boy travel codes (`pipboy_plugin_code = 5` and `6` are reserved in `src/fo4sf/core/world_registry.json`, while `scripts/mapmarkers/FO4SF_PipboyTravel.psc` handles `1..4` only today). Arrival is strictly via developer console (`coc FO4FH_FarHarborSpawn` and `coc FO4NW_NukaWorldSpawn`), and coastal sea-water rendering (`WRLD.DNAM`, `SFBK.WHGT`, `CELL.XCLW`) remains unproven in game until the swap probe:
 
-| Worldspace | Plugin | `WRLD` EditorID | Tile (`100 m` SF cells) | FO4 `LAND` Coverage | Height Range (`m`) | Water Height (`m`) | Host Planet Target Cell |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `DLC03FarHarbor` (`0x000B0F`, `DLCCoast.esm`) | `FO4WorldFarHarbor.esm` | `FO4FH_FarHarbor` | `34 x 34` (`1,156` cells, `--pad centre`) | `2,067` `VHGT` cells in `[-29..20, -21..31]` (`16,834` total cells) | `-22.51 .. 117.37` | `6.428571` (`450 / 70`) | `(2500, 2500)` |
-| `NukaWorld` (`0x00290F`, `DLCNukaWorld.esm`) | `FO4WorldNukaWorld.esm` | `FO4NW_NukaWorld` | `40 x 40` (`1,600` cells, `--pad origin`) | `4,225` `VHGT` cells in `[-32..32, -32..32]` (`100%` of cells) | `-0.57 .. 212.69` | `4.642857` (`325 / 70`) | `(-3500, -3000)` |
+| Worldspace | Plugin | `WRLD` EditorID & Console Spawn | Reachability | Tile (`100 m` SF cells) | FO4 `LAND` Coverage | Height Range (`m`) | Water Height (`m`) | `CNAM` `(lat, lon)` rad |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `DLC03FarHarbor` (`0x000B0F`, `DLCCoast.esm`) | `FO4WorldFarHarbor.esm` | `FO4FH_FarHarbor` (`coc FO4FH_FarHarborSpawn`) | `TEST-STATION (coc only)` | `34 x 34` (`1,156` cells, `--pad centre`) | `2,067` `VHGT` cells in `[-29..20, -21..31]` (`16,834` total cells) | `-22.51 .. 117.37` | `6.428571` (`450 / 70`, unproven in game) | `(0.374542773, -1.121475735)` |
+| `NukaWorld` (`0x00290F`, `DLCNukaWorld.esm`) | `FO4WorldNukaWorld.esm` | `FO4NW_NukaWorld` (`coc FO4NW_NukaWorldSpawn`) | `TEST-STATION (coc only)` | `40 x 40` (`1,600` cells, `--pad origin`) | `4,225` `VHGT` cells in `[-32..32, -32..32]` (`100%` of cells) | `-0.57 .. 212.69` | `4.642857` (`325 / 70`, unproven in game) | `(0.212300885, -1.306361158)` |
 
-Key geometric invariants:
+Key geometric and planet-separation invariants (`C11`):
 
 - **Coastal sea-floor continuity (`DLC03FarHarbor`):** `DLC03FarHarbor` stores `DNAM = (0.0, 450.0)` in FO4 units. Every coastal `VHGT` vertex bordering an ocean cell without a `LAND` record sits at exact `0.0` units (`7,788` border vertices verified), so filling missing ocean cells inside the `34 x 34` tile with `DNAM[0] = 0.0` joins the island coastline with zero step below the `6.43 m` sea plane.
 - **Outer desert border clamping (`NukaWorld`):** `NukaWorld` defines `VHGT` on all `65 x 65 = 4,225` cells in `[-32..32, -32..32]` (`52.34..117.26 m` along the outer ring) and `DNAM = (-2048.0, 325.0)`. Clamping bilinear sampling to the `[-32..32, -32..32]` vertex lattice preserves the exact `-0.57..212.69 m` height range across the `40 x 40` Starfield tile margin without introducing artificial `-2048` cliffs.
 - **Dry-land arrival spawn:** When `--water-height-m` is set, `make_cw_overlays.py` restricts flat arrival-vertex selection to vertices at least `1.0 m` above sea level so the persistent `XMarker` anchor and `COCMarkerHeading` never spawn underwater.
-- **Planet separation (`>= 2,000` cells):** Commonwealth sits near planet cell `(-12, -27)` (`lat = 0.3, lon = -1.2` rad) and all vanilla Mars `PNDT` `CNAM` entries lie within `lat = -0.51..+0.72, lon = -0.38..-0.09` rad. Placing `FO4FH_FarHarbor` at target cell `(2500, 2500)` and `FO4NW_NukaWorld` at `(-3500, -3000)` separates Commonwealth, Far Harbor, Nuka-World, and every vanilla worldspace by more than `2,000` planet cells pairwise.
+- **Planet separation on Mars radius vs. Home-planet Earth radius (`>= 2,000` cells; `±45`-cell = `±4,500 m` playable landing area):** Commonwealth sits at `(0.3, -1.2)` rad (`Mars` cell `(-12, -27)`) and all vanilla Mars `PNDT` `CNAM` entries lie within `lat = -0.51..+0.72, lon = -0.38..-0.09` rad. Evaluated across both `MarsPlanetData` (`R = 3,390.0 km` in `Starfield.esm` `FNAM`; `3,389.5 km` IAU mean radius differs by `0.5–0.7` cells) and `FO4SFHome.esm`'s Earth-radius home planet (`R = 6,371.0 km` in `PNDT` `FNAM`), both DLC worlds sit dozens to hundreds of `±45`-cell (`±4,500 m`) playable landing-area half-widths outside any Commonwealth landing:
+
+| World Pair | Mars Radius (`3,390.0 km` `FNAM` / `3,389.5 km` IAU) | Mars `±45`-Cell (`±4.5 km`) Half-Widths | Home Planet Earth Radius (`6,371.0 km` `FNAM`) | Home `±45`-Cell (`±4.5 km`) Half-Widths |
+| :--- | :--- | :--- | :--- | :--- |
+| `FO4FH_FarHarbor` <-> `FO4Core_Commonwealth` | `3,563.1` cells (`356.31 km`; `3,562.6` at `3,389.5 km`) | `79.18 x` (`79.17 x`) | **`6,696.4` cells (`669.64 km`)** | **`148.81 x`** |
+| `FO4NW_NukaWorld` <-> `FO4Core_Commonwealth` | `4,583.1` cells (`458.31 km`; `4,582.4` at `3,389.5 km`) | `101.85 x` (`101.83 x`) | **`8,613.3` cells (`861.33 km`)** | **`191.41 x`** |
+| `FO4FH_FarHarbor` <-> `FO4NW_NukaWorld` | `8,139.2` cells (`813.92 km`; `8,138.0` at `3,389.5 km`) | `180.87 x` (`180.84 x`) | **`15,296.4` cells (`1,529.64 km`)** | **`339.92 x`** |
 
 ## 3. BTD Land-Texture (`LTEX`) Encoding and Starfield `.mat` Materials (`WG1`)
 

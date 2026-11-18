@@ -1,13 +1,18 @@
-"""The planet's biome map, copied out of the user's own "Starfield - PlanetData.ba2" at stage time.
+"""Synthetic uniform `.biom` polar grids for our isolated home planet (`FO4SFHome.esm`), plus legacy
+archive-copy helpers retained for the original planet probe.
 
-Vanilla biome maps live in "Starfield - PlanetData.ba2" as planetdata/biomemaps/<body name, lower case>.biom, one per
-planet (1,438 files on 1.16.244; "agamon a.biom", "jemison.biom": verified). A file starts with u16 0x0105, a u32
-count and that many biome form ids; jemison.biom lists five (verified), the biomes of Jemison's PPBD records
-(supported: the planet record was not read in the cloud). A clone keeps the template's biomes, so a renamed copy of
-the template's map fits it. Which path the game reads for a plugin's planet is not known (supported hypothesis: the
-body name; a plugin subfolder is the other candidate), so the copy goes to both:
-  Data/PlanetData/BiomeMaps/<name>.biom  and  Data/PlanetData/BiomeMaps/<plugin>/<name>.biom
-The copy never enters the repo and never ships: it is made on the user's PC from the user's own archive.
+Vanilla biome maps live in "Starfield - PlanetData.ba2" as planetdata/biomemaps/<body ANAM lower case>.biom, one per
+planet (1,438 files on 1.16.244; "agamon a.biom", "earth.biom", "jemison.biom": verified). A `.biom` file starts with
+u16 0x0105, u32 biome_count, `biome_count` u32 BIOM FormIDs, and u32 face_count (2), followed by two polar grid faces
+(256 x 256 u32 BIOM FormIDs + u32 resource_count + 256 x 256 u8 resource indices = 655,406 bytes for a 1-biome map).
+
+`stage_uniform_biome_map` synthesises a uniform 1-biome `.biom` grid naming our custom `FO4SFHomeBiome` FormID at every
+pixel with zero Bethesda archive bytes copied, under a non-colliding planet body `ANAM` (default `fo4sf_home_earth`,
+absent from all 1,438 vanilla `PlanetData.ba2` entries so vanilla `earth.biom` can never be picked up). Until an
+in-game walk past the 64-cell edge confirms which candidate path `BSGalaxy::BiomeMapDB` reads for a plugin planet,
+`stage_uniform_biome_map` writes both candidate paths and labels BOTH `TEST-STATION`:
+  Data/PlanetData/BiomeMaps/<body_name_lower>.biom
+  Data/PlanetData/BiomeMaps/<plugin_lower>/<body_name_lower>.biom
 """
 import hashlib
 import os
@@ -145,7 +150,7 @@ def stage_uniform_biome_map(biome_formid, name, plugin, out, resource_byte=0):
     """Write a synthetic `.biom` map for `biome_formid` to both candidate paths under `out`:
       Data/PlanetData/BiomeMaps/<name_lower>.biom
       Data/PlanetData/BiomeMaps/<plugin_lower>/<name_lower>.biom
-    Returns a report dict with `label='TEST-STATION'` for the plugin-subfolder candidate."""
+    Returns a report dict labelling BOTH candidate paths `'TEST-STATION'` until verified in game (`C9`)."""
     data = build_uniform_biome_map(biome_formid, resource_byte=resource_byte)
     parsed = parse_biome_map(data)
     written = []
@@ -164,7 +169,7 @@ def stage_uniform_biome_map(biome_formid, name, plugin, out, resource_byte=0):
         "resource_values": parsed["faces"][0]["resource_values"],
         "files": written,
         "path_status": {
-            written[0]: "VERIFIED_ENGINE_ANAM_PATH",
+            written[0]: "TEST-STATION",
             written[1]: "TEST-STATION",
         },
     }

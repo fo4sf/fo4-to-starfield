@@ -50,6 +50,7 @@ DEFAULT_HOME_SYSTEM_ID = 0x000F04F2
 DEFAULT_HOME_PLANET_ID = 1
 DEFAULT_STAR_NAME = "FO4SF Home"
 DEFAULT_PLANET_NAME = "Earth"
+DEFAULT_BODY_NAME = "fo4sf_home_earth"
 DEFAULT_BIOME_EDID = "FO4SFHomeBiome"
 DEFAULT_BIOME_NAME = "FO4SF Home Biome"
 DEFAULT_TEMP_C = 15.0
@@ -216,8 +217,8 @@ PLANET_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "BDST..BDED/ANAM",
         "field": "body_name",
-        "value": "planet_name parameter (default 'Earth'; drives planetdata/biomemaps/<anam_lower>.biom)",
-        "source": "Plain body name parameter matched to staged .biom path (W4)",
+        "value": "body_name parameter (default 'fo4sf_home_earth'; control 'Earth'; drives planetdata/biomemaps/<anam_lower>.biom)",
+        "source": "Non-colliding internal body name parameter matched to staged .biom path so vanilla earth.biom cannot be picked up (HUD FULL stays planet_name 'Earth') (C9)",
     },
     {
         "subrecord": "BDST..BDED/CNAM",
@@ -674,10 +675,14 @@ def build_home_planet(
     planet_id: int,
     refs: Dict[str, Any],
     planet_name: str = DEFAULT_PLANET_NAME,
+    body_name: str = DEFAULT_BODY_NAME,
     star_name: str = DEFAULT_STAR_NAME,
     temp_c: float = DEFAULT_TEMP_C,
 ) -> esm.Record:
     """Author our own `PNDT` record (`0x805`) from `PLANET_FIELD_SPEC` with zero whole-record copy."""
+    clean_body = body_name.strip()
+    if not clean_body or "/" in clean_body or "\\" in clean_body:
+        raise records.PlanetError(f"invalid body_name {body_name!r}")
     planet_tag = records.tag(planet_name)
     star_tag = records.tag(star_name)
     edid = f"{planet_tag}PlanetData"
@@ -766,7 +771,7 @@ def build_home_planet(
         (b"FNAM", struct.pack("<I", refs["surface_tree_fid"])),
         (b"GNAM", struct.pack("<f", 0.56)),
         (b"BDST", b""),
-        (b"ANAM", esm.zbytes(planet_name)),
+        (b"ANAM", esm.zbytes(clean_body)),
         (b"CNAM", bytes([2])),
         (b"DNAM", struct.pack("<I", 0) + b"\0"),
         (b"ENAM", enam_orbital),
@@ -790,6 +795,7 @@ def build_home_master(
     data_dir: Optional[str] = None,
     star_name: str = DEFAULT_STAR_NAME,
     planet_name: str = DEFAULT_PLANET_NAME,
+    body_name: str = DEFAULT_BODY_NAME,
     temp_c: float = DEFAULT_TEMP_C,
     sky_atmo: str = DEFAULT_SKY_ATMO,
     lever_keywords: Sequence[str] = (),
@@ -840,6 +846,7 @@ def build_home_master(
         pid,
         refs,
         planet_name=planet_name,
+        body_name=body_name,
         star_name=star_name,
         temp_c=temp_c,
     )
@@ -863,6 +870,7 @@ def build_home_master(
             "formid": records.fid_hex(planet_rec.formid),
             "edid": planet_rec.edid,
             "name": planet_name,
+            "body_name": body_name.strip(),
             "temp_c": float(temp_c),
             "sky_atmo": sky_atmo,
             "sky_atmo_fid": records.fid_hex(refs["atmo_fid"]),
@@ -1552,6 +1560,10 @@ def check_home_stage(
                 problems.append(f"PNDT rotational_velocity {phys.get('rotational_velocity')} != 1.0")
 
             p_desc = records.describe_planet(planet_rec, kw_names)
+            anam_raw = records.body_get(planet_rec.subs, b"ANAM")
+            p_body_name = esm.zstring(anam_raw) if anam_raw else ""
+            if not p_body_name:
+                problems.append("PNDT BDST..BDED ANAM body_name is empty")
             p_kw_fids = {int(fid_s, 16) for fid_s, _ in p_desc["keywords"]}
             bad_present = sorted(kw_names.get(k, hex(k)) for k in (p_kw_fids & forbidden_ids))
             if bad_present:
@@ -1645,6 +1657,7 @@ def check_home_stage(
     summary = {
         "system_id": f"0x{sid:08X}",
         "planet_id": pid,
+        "body_name": p_body_name,
         "surface_gravity_g": round(phys.get("surface_gravity", 0.0), 4),
         "radius_km": round(phys.get("radius_km", 0.0), 2),
         "mean_orbit_km": round(phys.get("mean_orbit", 0.0), 1),
