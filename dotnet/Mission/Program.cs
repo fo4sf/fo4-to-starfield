@@ -136,7 +136,7 @@ static class Mission
     public const uint FirstCodsworthReplyTopicId = 0x960, FirstCodsworthReplyInfoId = 0x968;
 
     // Stages & Objectives
-    public static readonly ushort[] Stages = { 10, 20, 30, 40, 200 };
+    public static readonly ushort[] Stages = { 10, 20, 30, 35, 40, 200 };
     public static readonly ushort[] CodsworthQuestStages = { 10, 20, 30, 40, 100 };
     public static readonly ushort[] SanctuaryQuestStages = { 10, 100 };
     public static readonly short[] CodsworthChoiceEndStages = { 20, 30, 40, 100 };
@@ -962,10 +962,10 @@ static class Mission
                 });
             }
 
-            // 2g: Preston 3-exchange Starfield Scene on FO4SF_Min00 at stage 30 -> stage 40
+            // 2g / B6: Preston 3-exchange Starfield Scene on FO4SF_Min00 at stage 30 -> end stage 35 (advances to 40 by=info)
             string pGreet = "Synthetic Concord greeting.";
             var pChoices = SyntheticPrestonChoices.Select((c, idx) =>
-                (c.Prompt, c.Reply, EndStage: idx == 2 ? (short)40 : (short)-1, Goodbye: idx == 2, Wem: 0u)).ToArray();
+                (c.Prompt, c.Reply, EndStage: idx == 2 ? (short)35 : (short)-1, Goodbye: idx == 2, Wem: 0u)).ToArray();
             if (pts.TryGetProperty("preston_talk", out var ptEl) && ptEl.ValueKind == JsonValueKind.Object)
             {
                 if (ptEl.TryGetProperty("greeting", out var gEl) && gEl.GetString() is { Length: > 0 } gs) pGreet = gs;
@@ -976,7 +976,7 @@ static class Mission
                     {
                         var pr = ce.GetProperty("prompt").GetString() ?? SyntheticPrestonChoices[ci].Prompt;
                         var rp = ce.GetProperty("reply").GetString() ?? SyntheticPrestonChoices[ci].Reply;
-                        pChoices[ci] = (pr, rp, ci == 2 ? (short)40 : (short)-1, ci == 2, 0u);
+                        pChoices[ci] = (pr, rp, ci == 2 ? (short)35 : (short)-1, ci == 2, 0u);
                         ci++;
                     }
                 }
@@ -1438,8 +1438,8 @@ static class Mission
                     if (pda is not null && pda.DialogueList.Count == 3)
                     {
                         var endReply = q.DialogTopics.FirstOrDefault(t => t.FormKey == pda.DialogueList[2].NpcResponse.FormKey)?.Responses.FirstOrDefault();
-                        Need(endReply?.SetParentQuestStage?.OnEnd == 40 && endReply.Flags?.Flags == 1,
-                             "Preston talk scene exchange 3 does not end conversation at stage 40");
+                        Need(endReply?.SetParentQuestStage?.OnEnd == 35 && endReply.Flags?.Flags == 1,
+                             "Preston talk scene exchange 3 does not end conversation at stage 35");
                     }
                 }
             }

@@ -172,7 +172,8 @@ static class NewGame
                         StartDifficultyGlobEdid = "FO4SF_StartDifficulty",
                         WarfareFactionGlobEdid = "FO4SF_WarfareFaction",
                         WarfareStartIndexGlobEdid = "FO4SF_WarfareStartIndex",
-                        StartChoiceDoneGlobEdid = "FO4SF_StartChoiceDone";
+                        StartChoiceDoneGlobEdid = "FO4SF_StartChoiceDone",
+                        StartNeutralSpotGlobEdid = "FO4SF_StartNeutralSpot";
     // The save version check (NG-15 / NG-L2, the owner's decision 2026-10-19: a save version from v1). GLOB
     // FO4SF_NewGameVersion holds the build's version number (--build-version <n>, default DefaultBuildVersion;
     // make_newgame.py DEFAULT_BUILD_VERSION is held equal by tests/test_newgame.py). It is flagged Constant so the
@@ -1056,6 +1057,7 @@ static class NewGame
         var wfFactionKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareFactionGlobEdid));
         var wfStartIdxKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareStartIndexGlobEdid));
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
+        var startNeutralSpotKey = new FormKey(coreKey, RequireCoreId(coreIds, StartNeutralSpotGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
@@ -1263,6 +1265,7 @@ static class NewGame
         script.Properties.Add(Obj("WarfareFactionGlobal", wfFactionKey));
         script.Properties.Add(Obj("WarfareStartIndexGlobal", wfStartIdxKey));
         script.Properties.Add(Obj("StartChoiceDoneGlobal", choiceDoneKey));
+        script.Properties.Add(Obj("StartNeutralSpotGlobal", startNeutralSpotKey));
         script.Properties.Add(Obj("PipboyAcquiredGlobal", pipboyAcquiredKey));
         script.Properties.Add(Obj("PipboyWristArmor", pipboyWrist.FormKey));
         script.Properties.Add(Obj("PipboyCorpseRef", pipboyRef.FormKey));
@@ -1390,6 +1393,7 @@ static class NewGame
         var wfFactionKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareFactionGlobEdid));
         var wfStartIdxKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareStartIndexGlobEdid));
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
+        var startNeutralSpotKey = new FormKey(coreKey, RequireCoreId(coreIds, StartNeutralSpotGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
@@ -1611,6 +1615,8 @@ static class NewGame
                      $"property WarfareStartIndexGlobal is not {wfStartIdxKey}");
                 Need(props.TryGetValue("StartChoiceDoneGlobal", out var scdp) && scdp is SF.IScriptObjectPropertyGetter scdpo && scdpo.Object.FormKey == choiceDoneKey,
                      $"property StartChoiceDoneGlobal is not {choiceDoneKey}");
+                Need(props.TryGetValue("StartNeutralSpotGlobal", out var snsp) && snsp is SF.IScriptObjectPropertyGetter snspo && snspo.Object.FormKey == startNeutralSpotKey,
+                     $"property StartNeutralSpotGlobal is not {startNeutralSpotKey}");
                 Need(props.TryGetValue("PipboyAcquiredGlobal", out var pgp) && pgp is SF.IScriptObjectPropertyGetter pgo && pgo.Object.FormKey == pipboyAcquiredKey,
                      $"property PipboyAcquiredGlobal is not {pipboyAcquiredKey}");
                 Need(props.TryGetValue("PipboyWristArmor", out var pwp) && pwp is SF.IScriptObjectPropertyGetter pwo && pwo.Object.FormKey == pipboyWrist?.FormKey,
@@ -1627,7 +1633,7 @@ static class NewGame
                 var expected = Properties(pts, places, o, wf, vaultPistolId);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 27, $"{props.Count} properties, expected {expected.Count + 27}");
+                Need(props.Count == expected.Count + 28, $"{props.Count} properties, expected {expected.Count + 28}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");

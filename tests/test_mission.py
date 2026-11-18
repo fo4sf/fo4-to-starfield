@@ -289,7 +289,7 @@ class FindPrestonTests(unittest.TestCase):
         self.assertRegex(act, r"if stage < 20\s+FoundPreston\(\"activated\"\)")
         self.assertIn("elseif stage == 30", act)
         self.assertIn("PrestonTalkScene.Start()", act)
-        self.assertIn("AdvanceTo(40)", act)
+        self.assertIn('AdvanceTo(40, "fallback")', act)
 
     def test_standing_near_preston_before_the_fight_finds_him(self):
         tick = self.block("Event OnTimer(", "EndEvent")
@@ -1293,9 +1293,11 @@ class Phase2TrackBTests(unittest.TestCase):
         self.assertIn("if st == 20", load_ev)
         self.assertIn("CheckConcordRaidersWfc01(Game.GetPlayer(), False)", load_ev)
         wfc = function_body(psc, "CheckConcordRaidersWfc01")
+        writeoff = function_body(psc, "WriteOffRaider")
         self.assertIn('Trace("wfc01 rescue raider=" + i', wfc)
-        self.assertIn('raider cleared absent id=', wfc)
-        self.assertIn("raiderCleared[i] = True", wfc)
+        self.assertIn('WriteOffRaider(r, i, "absent"', wfc)
+        self.assertIn('Trace("wfc01 raider cleared " + reason + " id="', writeoff)
+        self.assertIn("raiderCleared[idx] = True", writeoff)
 
         # Negative/stall test (M3): 4 raiders dead + 1 raider far away (> 250 m) ends with 'raider cleared absent' and stage 30
         door = (-2011.14, -1697.54, 89.09)
@@ -1345,7 +1347,8 @@ class Phase2TrackBTests(unittest.TestCase):
         com = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_COMPreston.psc"))
         psc = read(PSC)
         self.assertIn('Trace("preston talk end info=0x092A -> stage 40")', psc)
-        self.assertIn('Trace("stage 40 by=fallback")', psc)
+        self.assertIn('AdvanceTo(40, "fallback")', psc)
+        self.assertIn('Trace("stage " + auiStageID + " by=" + by)', psc)
         for src in (com, function_body(psc, "BeginFollow")):
             self.assertIn('Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable', src)
             self.assertIn("follow preston test-only refused: test mode off", src)
@@ -1472,6 +1475,83 @@ class Phase2TrackBTests(unittest.TestCase):
             _write(os.path.join(d, "game", "Starfield.exe"), b"MZ")
             with self.assertRaises(SystemExit):
                 make_mission.refuse_forbidden_output_dir(game_sub)
+
+    def test_b6_b9_b12_stage_causes_preston_stage35_raider_stuck_writeoff_and_codsworth_objective_clear(self):
+        cs = read(CS)
+        self.assertIn("Stages = { 10, 20, 30, 35, 40, 200 }", cs)
+        self.assertIn("(short)35", cs)
+        self.assertIn("OnEnd == 35", cs)
+
+        psc = read(PSC)
+        c_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_Codsworth01Quest.psc"))
+        s_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_Sanctuary01Quest.psc"))
+
+        # B6: every quest script logs stage <n> by=<cause> and unexpected OnStageSet logs by=other
+        self.assertIn('Trace("stage " + auiStageID + " by=" + by)', psc)
+        self.assertIn('Trace("codsworth01 stage " + auiStageID + " by=" + cause)', c_psc)
+        self.assertIn('Trace("sanctuary01 stage " + auiStageID + " by=" + cause)', s_psc)
+        apply_fn = function_body(psc, "Apply")
+        self.assertIn("elseif auiStageID == 35", apply_fn)
+        self.assertIn('AdvanceTo(40, "info")', apply_fn)
+        self.assertIn('AdvanceTo(40, "other")', apply_fn)
+        scene_end = psc[psc.index("Event Scene.OnEnd("):psc.index("EndEvent", psc.index("Event Scene.OnEnd("))]
+        self.assertIn("GetStageDone(35) || st == 35", scene_end)
+        self.assertIn("reason=scene_incomplete", scene_end)
+
+        # B12: Concord route clears Codsworth's initial landing objective
+        self.assertIn("Function ClearObjectiveOnConcordStart()", c_psc)
+        self.assertIn("cods01.ClearObjectiveOnConcordStart()", function_body(psc, "ClearCodsworthObjectiveForConcord"))
+        self.assertEqual(psc.count("ClearCodsworthObjectiveForConcord()"), 3)
+
+        # B9: write-off stops combat and disables the raider, and rescued stuck raiders (< 2 m, no damage, 60 s) write off
+        writeoff_fn = function_body(psc, "WriteOffRaider")
+        self.assertIn("r.StopCombat()", writeoff_fn)
+        self.assertIn("r.DisableNoWait(False)", writeoff_fn)
+        wfc_fn = function_body(psc, "CheckConcordRaidersWfc01")
+        self.assertIn("Wfc01StuckMoveRadius", wfc_fn)
+        self.assertIn("Wfc01StuckLimit", wfc_fn)
+        self.assertIn('WriteOffRaider(r, i, "stuck", raiderRescueSec[i])', wfc_fn)
+
+        door = (-2011.14, -1697.54, 89.09)
+        player = (-2015.0, -1700.0, 89.1)
+        stuck_raiders = [
+            {"pos": (-2029.0, -1701.0, 75.0), "target": (-2029.0, -1701.0, 88.3), "dead": False, "loaded": True,
+             "absent_sec": 0.0, "cleared": False, "hp": 100.0},
+        ]
+        rescued, cleared = make_mission.wfc01_step(player, False, door, stuck_raiders)
+        self.assertEqual((rescued, cleared), ([0], []))
+        # Takes damage at t=30 -> resets stuck timer!
+        for _ in range(30):
+            _, cleared = make_mission.wfc01_step(player, False, door, stuck_raiders)
+            self.assertEqual(cleared, [])
+        stuck_raiders[0]["hp"] = 80.0
+        _, cleared = make_mission.wfc01_step(player, False, door, stuck_raiders)
+        self.assertEqual(cleared, [])
+        # Now stays within 2 m (moves 1.2 m) with no damage for 60 s -> cleared as stuck + stopped_combat + disabled!
+        stuck_raiders[0]["pos"] = (-2027.8, -1701.0, 88.3)
+        for _ in range(59):
+            _, cleared = make_mission.wfc01_step(player, False, door, stuck_raiders)
+            self.assertEqual(cleared, [])
+        _, cleared = make_mission.wfc01_step(player, False, door, stuck_raiders)
+        self.assertEqual(cleared, [0])
+        self.assertTrue(stuck_raiders[0]["stopped_combat"])
+        self.assertTrue(stuck_raiders[0]["disabled"])
+        self.assertEqual(stuck_raiders[0]["clear_reason"], "stuck")
+
+        s_causes = make_mission.summarize([
+            "FO4SF_MISSION rt=10.0 stage 10 by=info",
+            "FO4SF_MISSION rt=20.0 stage 20 by=trigger",
+            "FO4SF_MISSION rt=30.0 stage 30 by=trigger",
+            "FO4SF_MISSION rt=40.0 stage 35 by=info",
+            "FO4SF_MISSION rt=40.0 preston talk end info=0x092A -> stage 40",
+            "FO4SF_MISSION rt=40.0 stage 40 by=info",
+            "FO4SF_MISSION rt=41.0 stage 200 by=trigger",
+            "FO4SF_MISSION rt=42.0 wfc01 raider cleared stuck id=2051 raider=0 elapsed=60.0 disabled=true",
+        ])
+        self.assertEqual(s_causes["stages"], [10, 20, 30, 35, 40, 200])
+        self.assertEqual(s_causes["stage_causes"][35], "info")
+        self.assertEqual(s_causes["stage_causes"][40], "info")
+        self.assertEqual(s_causes["wfc01_stuck_cleared"], 1)
 
 
 @unittest.skipUnless(shutil.which("dotnet") and os.environ.get("FO4SF_DOTNET_TESTS"),

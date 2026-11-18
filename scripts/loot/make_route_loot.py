@@ -125,6 +125,12 @@ def verify_census_doc(census: Dict[str, object], min_ammo: int = 48, min_stimpak
     problems: List[str] = []
     non_credit = int(census.get("route_containers_with_non_credit_items", 0))  # type: ignore[arg-type]
     within = int(census.get("route_containers_within_600m", 0))  # type: ignore[arg-type]
+    core_cont_ov = int(census.get("overridden_core_cont_bases", 0))  # type: ignore[arg-type]
+    outside_mod = int(census.get("outside_corridor_containers_modified", 0))  # type: ignore[arg-type]
+    if core_cont_ov != 0:
+        problems.append(f"B10 violation: overridden_core_cont_bases={core_cont_ov} (expected 0)")
+    if outside_mod != 0:
+        problems.append(f"B10 violation: outside_corridor_containers_modified={outside_mod} (expected 0)")
     if within <= 0:
         problems.append(f"route_containers_within_600m={within} (expected > 0)")
     if non_credit <= 0:
@@ -239,9 +245,14 @@ def cmd_stage(args: argparse.Namespace) -> int:
         "route_summary": {
             "total_exterior_containers": census["total_exterior_containers"],
             "route_containers_within_600m": census["route_containers_within_600m"],
+            "route_containers_modified": census.get("route_containers_modified", 0),
             "route_containers_with_non_credit_items": census["route_containers_with_non_credit_items"],
             "route_containers_by_category": census["route_containers_by_category"],
+            "outside_corridor_containers": census.get("outside_corridor_containers", 0),
+            "outside_corridor_containers_modified": census.get("outside_corridor_containers_modified", 0),
             "overridden_core_cont_bases": census["overridden_core_cont_bases"],
+            "own_route_cont_bases": census.get("own_route_cont_bases", 0),
+            "overridden_route_container_refs": census.get("overridden_route_container_refs", 0),
         },
         "vault111": census["vault111"],
     }
@@ -253,7 +264,8 @@ def cmd_stage(args: argparse.Namespace) -> int:
         f"Masters: {', '.join(ROUTE_LOOT_MASTERS)}.\n"
         f"Corridor (<= {spec.corridor_radius_m:g} m): "
         f"{census['route_containers_with_non_credit_items']}/{census['route_containers_within_600m']} "
-        f"containers hold non-credit items ({census['overridden_core_cont_bases']} CONT base overrides).\n"
+        f"containers hold non-credit items ({census.get('overridden_route_container_refs', 0)} corridor REFR overrides, "
+        f"0 core CONT base overrides, {census.get('outside_corridor_containers_modified', 0)} outside containers modified).\n"
         f"Vault 111 (0x{spec.vault_cell_id:06X}): pistol 0x{spec.vault_pistol_id:06X} + "
         f"{census['vault111']['armory_case_ammo_rounds']} case rounds (0x{spec.vault_ammo_id:06X}) + "
         f"{census['vault111']['armory_case_stimpaks']} stimpaks (0x{spec.vault_stimpak_id:06X}).\n"

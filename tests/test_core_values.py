@@ -28,10 +28,10 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_native_core_value_refs,
 )
 
-# parity not applicable: ordered by S1, A6, and A12 (FO4SF_PipboyAcquired 0x000865 + start/mode GLOBs 0x000870..0x000876 + SpecialMenuPending 0x000880..0x000887)
-PINNED_CORE_VALUES_PLAYER_SHA256 = "a8e3063fae7e68e84cd3cbf9a33e4bf0ee6aecc5af0d971a36d0dee54dba1326"
-# parity not applicable: ordered by S1, A5, A6, and A12 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
-PINNED_CORE_VALUES_TEST_SHA256 = "320901d3d315b1f413b53c3af63f4a618ff6156325dd4daa8553a4e3867d91f6"
+# parity not applicable: ordered by S1, A6, A12, and B8 (FO4SF_PipboyAcquired 0x000865 + start/mode GLOBs 0x000870..0x000877 + SpecialMenuPending 0x000880..0x000887)
+PINNED_CORE_VALUES_PLAYER_SHA256 = "c37b1b9e2dc0db8f874671ad0fa2dd1cc2b6e440b25829289da97eb30d62109d"
+# parity not applicable: ordered by S1, A5, A6, A12, and B8 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
+PINNED_CORE_VALUES_TEST_SHA256 = "e2fe343d75db0f3e3ec628b952ca9bc572d1c15204bc29188a0d27962fb67b38"
 
 
 def _sha256_file(path: str) -> str:
@@ -68,7 +68,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_PipboyAcquired"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_PipboyAcquired"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_PipboyAcquired"].constant)
-        # S1: start & mode GLOBs 0x870..0x876
+        # S1 + B8: start & mode GLOBs 0x870..0x877
         expected_s1 = {
             "FO4SF_GameMode": (0x000870, 0.0),
             "FO4SF_SurvivalStart": (0x000871, 0.0),
@@ -77,6 +77,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
             "FO4SF_WarfareFaction": (0x000874, -1.0),
             "FO4SF_WarfareStartIndex": (0x000875, -1.0),
             "FO4SF_StartChoiceDone": (0x000876, 0.0),
+            "FO4SF_StartNeutralSpot": (0x000877, 0.0),
         }
         self.assertEqual(tuple(expected_s1.keys()), START_MODE_GLOB_EDIDS)
         for edid, (want_id, want_def) in expected_s1.items():
@@ -85,6 +86,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
             self.assertEqual(rec.record_type, "GLOB")
             self.assertEqual(rec.default, want_def)
             self.assertNotIn("Constant", rec.flags)
+        self.assertFalse(by_edid["FO4SF_StartNeutralSpot"].constant)
         # A12: 7 pending S.P.E.C.I.A.L. GLOBs (0x000880..0x000886) + commit flag (0x000887)
         for off, ltr in enumerate(("S", "P", "E", "C", "I", "A", "L")):
             ed = f"FO4SF_SpecialMenuPending{ltr}"
@@ -96,7 +98,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_SpecialMenuCommitRequested"].constant)
-        self.assertEqual(len(records), 58)
+        self.assertEqual(len(records), 59)
 
     def test_start_mode_globals_owned_exclusively_by_core_values(self) -> None:
         catalog, problems = build_writer_catalog(ROOT)

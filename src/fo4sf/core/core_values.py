@@ -24,6 +24,7 @@ START_MODE_GLOB_EDIDS: Tuple[str, ...] = (
     "FO4SF_WarfareFaction",
     "FO4SF_WarfareStartIndex",
     "FO4SF_StartChoiceDone",
+    "FO4SF_StartNeutralSpot",
 )
 
 

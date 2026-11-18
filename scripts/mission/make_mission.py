@@ -91,7 +91,7 @@ PRESTON_PLACEHOLDER_NOTE = (
     "Outfit_FreestarRanger_Vest_with_Hat (0x208E39) + Orion laser rifle (0x2773C8)"
 )
 
-STAGES = (10, 20, 30, 40, 200)
+STAGES = (10, 20, 30, 35, 40, 200)
 PROPERTIES = ("Preston", "Raiders", "Credits")
 SPOT_TOLERANCE = 0.5
 STARFIELD = os.environ.get("FO4SF_STARFIELD_DIR", "")
@@ -667,10 +667,11 @@ def next_stage(stage, dead, total, fighting, at_preston, found=False):
 
 
 def wfc01_step(player_pos, interior, door_pos, raiders, dt=1.0, check_radius=150.0, door_radius=100.0,
-               subterranean_drop=8.0, max_drift=140.0, absent_distance=250.0, absent_limit=60.0):
+               subterranean_drop=8.0, max_drift=140.0, absent_distance=250.0, absent_limit=60.0,
+               stuck_move_radius=2.0, stuck_limit=60.0):
     """Python mirror of CheckConcordRaidersWfc01 (FO4SF_Min00Quest.psc) at stage 20.
     Each raider dict holds {"pos": (x,y,z), "target": (tx,ty,tz), "dead": bool, "loaded": bool,
-    "absent_sec": float, "cleared": bool}. Mutates raiders in place and returns (rescued_indices, newly_cleared_indices)."""
+    "absent_sec": float, "cleared": bool, ...}. Mutates raiders in place and returns (rescued_indices, newly_cleared_indices)."""
     if interior:
         return [], []
     door_dist = math.dist(player_pos, door_pos)
@@ -678,6 +679,7 @@ def wfc01_step(player_pos, interior, door_pos, raiders, dt=1.0, check_radius=150
     for i, r in enumerate(raiders):
         if r.get("dead") or r.get("cleared"):
             r["absent_sec"] = 0.0
+            r["rescue_sec"] = 0.0
             continue
         tx, ty, tz = r["target"]
         rx, ry, rz = r["pos"]
@@ -686,6 +688,10 @@ def wfc01_step(player_pos, interior, door_pos, raiders, dt=1.0, check_radius=150
             if rz < tz - subterranean_drop or drift > max_drift:
                 r["pos"] = (tx, ty, tz)
                 rx, ry, rz = tx, ty, tz
+                r["rescued"] = True
+                r["rescue_sec"] = 0.0
+                r["rescue_pos"] = (rx, ry, rz)
+                r["rescue_hp"] = float(r.get("hp", 100.0))
                 rescued.append(i)
         if dt > 0.0:
             dist_p = math.dist(player_pos, (rx, ry, rz))
@@ -693,9 +699,32 @@ def wfc01_step(player_pos, interior, door_pos, raiders, dt=1.0, check_radius=150
                 r["absent_sec"] = r.get("absent_sec", 0.0) + dt
                 if r["absent_sec"] > absent_limit:
                     r["cleared"] = True
+                    r["clear_reason"] = "absent"
+                    r["stopped_combat"] = True
+                    r["disabled"] = True
+                    r["absent_sec"] = 0.0
+                    r["rescue_sec"] = 0.0
                     newly_cleared.append(i)
             else:
                 r["absent_sec"] = 0.0
+            if not r.get("cleared") and r.get("rescued") and r.get("loaded", True):
+                ref_pos = r.get("rescue_pos", (rx, ry, rz))
+                ref_hp = float(r.get("rescue_hp", r.get("hp", 100.0)))
+                cur_hp = float(r.get("hp", 100.0))
+                moved = math.dist((rx, ry, rz), ref_pos)
+                if moved >= stuck_move_radius or cur_hp < ref_hp - 0.01:
+                    r["rescue_sec"] = 0.0
+                    r["rescue_pos"] = (rx, ry, rz)
+                    r["rescue_hp"] = cur_hp
+                else:
+                    r["rescue_sec"] = r.get("rescue_sec", 0.0) + dt
+                    if r["rescue_sec"] >= stuck_limit:
+                        r["cleared"] = True
+                        r["clear_reason"] = "stuck"
+                        r["stopped_combat"] = True
+                        r["disabled"] = True
+                        r["rescue_sec"] = 0.0
+                        newly_cleared.append(i)
     return rescued, newly_cleared
 
 
@@ -733,11 +762,11 @@ def off_of(msg):
 
 def summarize(lines):
     """Summarize fo4sf_mission.0.log across FO4SF_Min00, FO4SF_CodsworthKeeper, FO4SF_Codsworth01, and FO4SF_Sanctuary01."""
-    s = {"stages": [], "status": None, "reward": None, "startcombat": 0, "activated": 0, "found": None,
+    s = {"stages": [], "stage_causes": {}, "status": None, "reward": None, "startcombat": 0, "activated": 0, "found": None,
          "preston_moves": 0, "keeper": None, "preston_off": None,
          "codsworth_moves": 0, "codsworth_keeper": None, "codsworth_off": None,
          "follow": None, "follow_package": None, "holds_after_follow": 0, "follow_refused_test_mode": False,
-         "reloads": 0, "wfc01_rescues": 0, "wfc01_absent_cleared": 0,
+         "reloads": 0, "wfc01_rescues": 0, "wfc01_absent_cleared": 0, "wfc01_stuck_cleared": 0,
          "mission_gate": None, "min00_given_by": None,
          "codsworth_talk_end": False, "codsworth01_complete": None,
          "preston_talk_end": None, "stage40_fallback": False,
@@ -749,10 +778,15 @@ def summarize(lines):
             continue
         msg = m.group("msg")
         low = msg.lower()
-        if low.startswith("stage 40 by=fallback"):
-            s["stage40_fallback"] = True
-        elif low.startswith("stage "):
-            s["stages"].append(int(msg.split()[1]))
+        if low.startswith("stage "):
+            parts = msg.split()
+            st_num = int(parts[1])
+            s["stages"].append(st_num)
+            m_by = re.search(r"\bby=([a-z0-9_]+)", low)
+            if m_by:
+                s["stage_causes"][st_num] = m_by.group(1)
+            if st_num == 40 and "by=fallback" in low:
+                s["stage40_fallback"] = True
         elif low.startswith("mission gate ") and "quest=" not in low:
             s["mission_gate"] = msg
         elif low.startswith("min00 given by="):
@@ -777,8 +811,11 @@ def summarize(lines):
             s["reloads"] += 1
         elif low.startswith("wfc01 rescue "):
             s["wfc01_rescues"] += 1
-        elif "raider cleared absent" in low or low.startswith("wfc01 absent_cleared "):
-            s["wfc01_absent_cleared"] += 1
+        elif "raider cleared absent" in low or "raider cleared stuck" in low or low.startswith("wfc01 absent_cleared "):
+            if "raider cleared stuck" in low:
+                s["wfc01_stuck_cleared"] += 1
+            else:
+                s["wfc01_absent_cleared"] += 1
         elif low.startswith("codsworth talk end -> min00 stage 10"):
             s["codsworth_talk_end"] = True
         elif low.startswith("codsworth01 complete "):

@@ -20,8 +20,35 @@ float SearchRadius = 15.0
 
 bool instanceStarted = False
 bool completed = False
+bool benchActivated = False
+int applied = 0
+int pendingStage = -1
+string pendingStageBy = "other"
 ObjectReference markerRef = None
 ObjectReference boundBench = None
+
+Function AdvanceTo(int n, string by = "trigger")
+    pendingStage = n
+    pendingStageBy = by
+    SetStage(n)
+    if n > applied
+        applied = n
+        Trace("sanctuary01 stage " + n + " by=" + by)
+    endif
+EndFunction
+
+Event OnStageSet(int auiStageID, int auiItemID)
+    if auiStageID > applied
+        string cause = "other"
+        if auiStageID == pendingStage
+            cause = pendingStageBy
+        elseif auiStageID == 100 && benchActivated
+            cause = "bench"
+        endif
+        applied = auiStageID
+        Trace("sanctuary01 stage " + auiStageID + " by=" + cause)
+    endif
+EndEvent
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -54,12 +81,12 @@ Function StartQuestInstance()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
-    SetStage(10)
+    AdvanceTo(10, "trigger")
     EnsureGuideMarker(player)
     TryBindBench(player)
     SetObjectiveDisplayed(10, True, True)
     SetActive(True)
-    Trace("min01 stage 10 objective bench")
+    Trace("min01 objective 10 bench")
     Trace("sanctuary01 init stage=10 bench_ref=0x005C50")
     StartTimer(1.0, 1)
 EndFunction
@@ -83,6 +110,17 @@ EndEvent
 Event OnTimer(int aiTimerID)
     if aiTimerID != 1
         return
+    endif
+    int st = GetStage()
+    if st > applied
+        string extCause = "other"
+        if st == pendingStage
+            extCause = pendingStageBy
+        elseif st == 100 && benchActivated
+            extCause = "bench"
+        endif
+        applied = st
+        Trace("sanctuary01 stage " + st + " by=" + extCause)
     endif
     if !completed
         Actor player = Game.GetPlayer()
@@ -193,7 +231,8 @@ Function CompleteSanctuaryObjective(ObjectReference refUsed)
         return
     endif
     completed = True
-    SetStage(100)
+    benchActivated = True
+    AdvanceTo(100, "bench")
     SetObjectiveCompleted(10)
     CompleteQuest()
     CancelTimer(1)

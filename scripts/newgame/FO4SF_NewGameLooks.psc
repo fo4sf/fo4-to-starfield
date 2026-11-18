@@ -84,10 +84,18 @@ Function Done(string how)
     if GetStage() >= 20
         return
     endif
+    string by = "trigger"
+    if how == "creator closed"
+        by = "scene"
+    endif
+    FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
+    if ngQuest != None
+        ngQuest.NoteLooksStage20()
+    endif
     TracePosition("done: " + how)
     Trace("looks done: " + how)
     SetStage(20)
-    Trace("stage 20")
+    Trace("stage 20 by=" + by)
 EndFunction
 
 Function TracePosition(string phase)

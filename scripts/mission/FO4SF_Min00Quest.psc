@@ -1,9 +1,10 @@
 Scriptname FO4SF_Min00Quest extends Quest
 {A cut-down "When Freedom Calls" (fo4-to-starfield, docs/mission/when-freedom-calls.md): the Concord raiders,
  Preston Garvey and the reward, started at FO4SFNewGame stage 200 via StartNoWait().
- Stages: 10 started (find Preston), 20 the fight started, 30 the raiders are cleared (talk to Preston), 40 talked to
- Preston (the reward), 200 complete (starts FO4SF_Sanctuary01 0x000817). Every stage change and a status line every
- 5 s go to the user log "fo4sf_mission" (My Games\Starfield\Logs\Script\User\fo4sf_mission.0.log).}
+ Stages: 10 started (find Preston), 20 the fight started, 30 the raiders are cleared (talk to Preston), 35 Preston's
+ final exchange (0x092A), 40 talked to Preston (the reward), 200 complete (starts FO4SF_Sanctuary01 0x000817). Every
+ stage change and a status line every 5 s go to the user log "fo4sf_mission"
+ (My Games\Starfield\Logs\Script\User\fo4sf_mission.0.log).}
 
 Actor Property Preston Auto Const Mandatory
 {Preston's placed actor (FO4SFMission.esm 0x802).}
@@ -89,6 +90,8 @@ float Property Wfc01SubterraneanDrop = 8.0 Auto Const
 float Property Wfc01MaxDrift = 140.0 Auto Const
 float Property Wfc01AbsentDistance = 250.0 Auto Const
 float Property Wfc01AbsentLimit = 60.0 Auto Const
+float Property Wfc01StuckMoveRadius = 2.0 Auto Const
+float Property Wfc01StuckLimit = 60.0 Auto Const
 
 string LogName = "fo4sf_mission"
 bool instanceStarted = False
@@ -113,8 +116,11 @@ int codsworthHolds = 0
 bool codsworthFighting = False
 bool codsworthKept = False
 int applied = 0
+int pendingStage = -1
+string pendingStageBy = "other"
 bool prestonFound = False
 bool talkActivated = False
+int talkFailures = 0
 float talkStartedAt = 0.0
 float talkNearSec = 0.0
 bool prestonUsedFallback = False
@@ -125,6 +131,13 @@ float[] raiderTargetY
 float[] raiderTargetZ
 float[] raiderAbsentSec
 bool[] raiderCleared
+bool[] raiderRescued
+float[] raiderRescueSec
+float[] raiderRescueX
+float[] raiderRescueY
+float[] raiderRescueZ
+float[] raiderRescueHp
+ActorValue healthAvCache
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -186,6 +199,13 @@ Function StartQuestInstance()
     KeepCodsworthStart()
 EndFunction
 
+Function ClearCodsworthObjectiveForConcord()
+    FO4SF_Codsworth01Quest cods01 = Game.GetFormFromFile(0x000816, "FO4SFMission.esm") as FO4SF_Codsworth01Quest
+    if cods01 != None
+        cods01.ClearObjectiveOnConcordStart()
+    endif
+EndFunction
+
 Function GiveFromCodsworth()
 {Called by FO4SF_Codsworth01Quest at stage 100 so Codsworth's last choice reveals FO4SF_Min00 objective 10.}
     if IsWarfareMode()
@@ -194,7 +214,7 @@ Function GiveFromCodsworth()
     if !min00Given && GetStage() < 10
         min00Given = True
         Trace("min00 given by=codsworth")
-        AdvanceTo(10)
+        AdvanceTo(10, "info")
     elseif GetStage() < 20
         SetObjectiveDisplayed(10)
         SetActive(True)
@@ -203,7 +223,7 @@ EndFunction
 
 Function InitRaiderTracking()
     int count = Raiders.Length
-    if raiderCleared != None && raiderCleared.Length == count
+    if raiderCleared != None && raiderCleared.Length == count && raiderRescued != None && raiderRescued.Length == count
         return
     endif
     raiderTargetX = new float[count]
@@ -211,6 +231,12 @@ Function InitRaiderTracking()
     raiderTargetZ = new float[count]
     raiderAbsentSec = new float[count]
     raiderCleared = new bool[count]
+    raiderRescued = new bool[count]
+    raiderRescueSec = new float[count]
+    raiderRescueX = new float[count]
+    raiderRescueY = new float[count]
+    raiderRescueZ = new float[count]
+    raiderRescueHp = new float[count]
     float doorX = PrestonLocalX + MergeOffsetX
     float doorY = PrestonLocalY + MergeOffsetY
     float doorZ = PrestonLocalZ
@@ -241,6 +267,12 @@ Function InitRaiderTracking()
         raiderTargetZ[i] = tz
         raiderAbsentSec[i] = 0.0
         raiderCleared[i] = False
+        raiderRescued[i] = False
+        raiderRescueSec[i] = 0.0
+        raiderRescueX[i] = tx
+        raiderRescueY[i] = ty
+        raiderRescueZ[i] = tz
+        raiderRescueHp[i] = -1.0
         i += 1
     endwhile
 EndFunction
@@ -305,26 +337,34 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     endif
 EndEvent
 
-Function AdvanceTo(int n)
+Function AdvanceTo(int n, string by = "trigger")
 {SetStage, then the stage's actions. Apply runs each stage once.}
+    pendingStage = n
+    pendingStageBy = by
     SetStage(n)
-    Apply(n)
+    Apply(n, by)
+    if pendingStage == n
+        pendingStage = -1
+    endif
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
-    Apply(auiStageID)
+    string cause = "other"
+    if auiStageID == pendingStage
+        cause = pendingStageBy
+        pendingStage = -1
+    elseif auiStageID == 35 && talkActivated && !prestonUsedFallback
+        cause = "info"
+    endif
+    Apply(auiStageID, cause)
 EndEvent
 
-Function Apply(int auiStageID)
+Function Apply(int auiStageID, string by = "other")
     if auiStageID <= applied
         return
     endif
     applied = auiStageID
-    if auiStageID == 40 && !prestonUsedFallback && !prestonTalkLogged
-        prestonTalkLogged = True
-        Trace("preston talk end info=0x092A -> stage 40")
-    endif
-    Trace("stage " + auiStageID)
+    Trace("stage " + auiStageID + " by=" + by)
     if auiStageID == 10
         min00Given = True
         SetObjectiveDisplayed(10)
@@ -336,6 +376,14 @@ Function Apply(int auiStageID)
         Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
         SetObjectiveDisplayed(86)
+    elseif auiStageID == 35
+        if by == "info" && !prestonUsedFallback && !prestonTalkLogged
+            prestonTalkLogged = True
+            Trace("preston talk end info=0x092A -> stage 40")
+            AdvanceTo(40, "info")
+        else
+            AdvanceTo(40, "other")
+        endif
     elseif auiStageID == 40
         SetObjectiveCompleted(86)
         Game.GetPlayer().AddItem(Credits, RewardCount)
@@ -365,11 +413,8 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
                 endif
                 Trace("preston talk scene triggered stage=30")
             else
-                if !prestonUsedFallback
-                    prestonUsedFallback = True
-                    Trace("stage 40 by=fallback")
-                endif
-                AdvanceTo(40)
+                prestonUsedFallback = True
+                AdvanceTo(40, "fallback")
             endif
         endif
     endif
@@ -378,15 +423,17 @@ EndEvent
 Event Scene.OnEnd(Scene akSender)
     if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene
         int st = GetStage()
-        if !prestonUsedFallback && !prestonTalkLogged
-            prestonTalkLogged = True
-            Trace("preston talk end info=0x092A -> stage 40")
-        endif
-        Trace("preston talk scene ended stage=" + st)
-        if st == 30
-            AdvanceTo(40)
-        elseif st >= 40
-            Apply(40)
+        bool endInfoDone = GetStageDone(35) || st == 35
+        Trace("preston talk scene ended stage=" + st + " end_info=" + endInfoDone)
+        if endInfoDone
+            if applied < 35
+                Apply(35, "info")
+            endif
+        elseif st == 30 && !prestonTalkLogged
+            talkFailures += 1
+            talkActivated = False
+            talkStartedAt = 0.0
+            Trace("preston talk retry n=" + talkFailures + " reason=scene_incomplete")
         endif
     endif
 EndEvent
@@ -395,7 +442,6 @@ bool Function MarkPrestonFallback(string why)
     if !prestonUsedFallback
         prestonUsedFallback = True
         Trace(why)
-        Trace("stage 40 by=fallback")
     endif
     return True
 EndFunction
@@ -413,15 +459,32 @@ bool Function TalkCompleteReady(int stage, float dp)
         endif
         return False
     endif
+    if talkFailures >= 3
+        return MarkPrestonFallback("preston talk fallback tries=" + talkFailures)
+    endif
     if PrestonTalkScene.IsPlaying()
         talkNearSec = 0.0
         if talkStartedAt > 0.0 && (Utility.GetCurrentRealTime() - talkStartedAt) > TalkSceneTimeout
-            return MarkPrestonFallback("preston talk timeout")
+            talkFailures += 1
+            PrestonTalkScene.Stop()
+            talkActivated = False
+            talkStartedAt = 0.0
+            Trace("preston talk retry n=" + talkFailures + " reason=timeout")
+            if talkFailures >= 3
+                return MarkPrestonFallback("preston talk timeout")
+            endif
         endif
         return False
     endif
     if talkActivated && talkStartedAt > 0.0 && (Utility.GetCurrentRealTime() - talkStartedAt) >= 15.0
-        return MarkPrestonFallback("preston talk fallback after_activate")
+        talkFailures += 1
+        talkActivated = False
+        talkStartedAt = 0.0
+        Trace("preston talk retry n=" + talkFailures + " reason=after_activate")
+        if talkFailures >= 3
+            return MarkPrestonFallback("preston talk fallback after_activate")
+        endif
+        return False
     endif
     if dp < TalkRadius
         talkNearSec += 1.0
@@ -447,11 +510,39 @@ Function FoundPreston(string how)
     endif
 EndFunction
 
+float Function GetRaiderHealth(Actor r)
+    if r == None
+        return 0.0
+    endif
+    if healthAvCache == None
+        healthAvCache = Game.GetFormFromFile(0x0002D4, "Starfield.esm") as ActorValue
+    endif
+    if healthAvCache != None
+        return r.GetValue(healthAvCache)
+    endif
+    return 0.0
+EndFunction
+
+Function WriteOffRaider(Actor r, int idx, string reason, float elapsed)
+    if r != None
+        r.StopCombat()
+        r.DisableNoWait(False)
+    endif
+    raiderCleared[idx] = True
+    raiderAbsentSec[idx] = 0.0
+    raiderRescueSec[idx] = 0.0
+    int fid = 0
+    if r != None
+        fid = r.GetFormID()
+    endif
+    Trace("wfc01 raider cleared " + reason + " id=" + fid + " raider=" + idx + " elapsed=" + elapsed + " disabled=true")
+EndFunction
+
 Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
 {WFC-01 anti-stall at stage 20: rescues living raiders that fell below terrain (z < targetZ - 8 m) or drifted far
- (> 140 m from their Concord street spot) while the player is within 150 m of the museum door, and marks any living
- raider that remains absent/unloaded (> 250 m or !Is3DLoaded) for > 60 consecutive seconds while the player is within
- 100 m of the Concord door as cleared so stage 20 -> 30 cannot stall.}
+ (> 140 m from their Concord street spot) while the player is within 150 m of the museum door, and writes off (stops
+ combat + disables) any living raider that remains absent/unloaded (> 250 m or !Is3DLoaded) for > 60 s within 100 m of
+ the Concord door or stays loaded within 2 m with no damage for 60 s after a rescue.}
     if player == None || player.IsInInterior()
         return
     endif
@@ -471,6 +562,7 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
         Actor r = Raiders[i]
         if r == None || r.IsDead() || raiderCleared[i]
             raiderAbsentSec[i] = 0.0
+            raiderRescueSec[i] = 0.0
         else
             float tx = raiderTargetX[i]
             float ty = raiderTargetY[i]
@@ -482,6 +574,12 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
                     r.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
                     r.SetPosition(tx, ty, tz)
                     r.EvaluatePackage()
+                    raiderRescued[i] = True
+                    raiderRescueSec[i] = 0.0
+                    raiderRescueX[i] = r.GetPositionX()
+                    raiderRescueY[i] = r.GetPositionY()
+                    raiderRescueZ[i] = r.GetPositionZ()
+                    raiderRescueHp[i] = GetRaiderHealth(r)
                     Trace("wfc01 rescue raider=" + i + " z=" + rz + " target_z=" + tz + " drift=" + drift)
                 endif
             endif
@@ -490,11 +588,34 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
                 if doorDist <= Wfc01DoorRadius && (!r.Is3DLoaded() || distToPlayer > Wfc01AbsentDistance)
                     raiderAbsentSec[i] = raiderAbsentSec[i] + 1.0
                     if raiderAbsentSec[i] > Wfc01AbsentLimit
-                        raiderCleared[i] = True
-                        Trace("wfc01 raider cleared absent id=" + r.GetFormID() + " raider=" + i + " elapsed=" + raiderAbsentSec[i])
+                        WriteOffRaider(r, i, "absent", raiderAbsentSec[i])
                     endif
                 else
                     raiderAbsentSec[i] = 0.0
+                endif
+                if !raiderCleared[i] && raiderRescued[i]
+                    if r.Is3DLoaded()
+                        float moved = SpotOff(r, raiderRescueX[i], raiderRescueY[i], raiderRescueZ[i])
+                        float hp = GetRaiderHealth(r)
+                        bool tookDamage = raiderRescueHp[i] > 0.0 && hp < raiderRescueHp[i] - 0.01
+                        if moved < Wfc01StuckMoveRadius && !tookDamage
+                            raiderRescueSec[i] = raiderRescueSec[i] + 1.0
+                            if hp > raiderRescueHp[i]
+                                raiderRescueHp[i] = hp
+                            endif
+                            if raiderRescueSec[i] >= Wfc01StuckLimit
+                                WriteOffRaider(r, i, "stuck", raiderRescueSec[i])
+                            endif
+                        else
+                            raiderRescueSec[i] = 0.0
+                            raiderRescueX[i] = r.GetPositionX()
+                            raiderRescueY[i] = r.GetPositionY()
+                            raiderRescueZ[i] = r.GetPositionZ()
+                            raiderRescueHp[i] = hp
+                        endif
+                    else
+                        raiderRescueSec[i] = 0.0
+                    endif
                 endif
             endif
         endif
@@ -524,12 +645,23 @@ Event OnTimer(int aiTimerID)
         if gdx * gdx + gdy * gdy + gdz * gdz <= GiveConcordRadius * GiveConcordRadius
             min00Given = True
             Trace("min00 given by=concord")
-            AdvanceTo(10)
+            ClearCodsworthObjectiveForConcord()
+            AdvanceTo(10, "trigger")
             stage = 10
         endif
     endif
+    if (GetStageDone(35) || stage == 35) && applied < 35
+        if talkActivated && !prestonUsedFallback
+            Apply(35, "info")
+        else
+            Apply(35, "other")
+        endif
+        stage = GetStage()
+    endif
     if stage >= 40 && applied < 40
-        Apply(40)
+        Apply(40, "other")
+    elseif stage > applied && stage < 35
+        Apply(stage, "other")
     endif
     float dp = player.GetDistance(Preston)
     if stage < 20 && dp < FindRadius
@@ -568,10 +700,12 @@ Event OnTimer(int aiTimerID)
     int target = NextStage(stage, dead, Raiders.Length, fighting, readyTalk, prestonFound)
     ; every stage on the way is set in order, so each one's objectives and log line happen
     while stage < target && stage < 40
+        string nextBy = "trigger"
         if stage < 10
             if !min00Given
                 min00Given = True
                 Trace("min00 given by=concord")
+                ClearCodsworthObjectiveForConcord()
             endif
             stage = 10
         elseif stage < 20
@@ -580,8 +714,15 @@ Event OnTimer(int aiTimerID)
             stage = 30
         else
             stage = 40
+            if prestonUsedFallback
+                nextBy = "fallback"
+            elseif prestonTalkLogged
+                nextBy = "info"
+            else
+                nextBy = "other"
+            endif
         endif
-        AdvanceTo(stage)
+        AdvanceTo(stage, nextBy)
     endwhile
     ticks += 1
     if ticks % 5 == 0
@@ -592,7 +733,7 @@ Event OnTimer(int aiTimerID)
         Trace("preston was targeting the player: stopcombat")
     endif
     if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
-        AdvanceTo(200)
+        AdvanceTo(200, "trigger")
         CompleteQuest()
         Trace("complete stage=" + GetStage())
     endif

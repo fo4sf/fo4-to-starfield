@@ -492,6 +492,13 @@
       "default": 0.0
     },
     {
+      "id": "0x000877",
+      "type": "GLOB",
+      "edid": "FO4SF_StartNeutralSpot",
+      "default": 0.0,
+      "constant": false
+    },
+    {
       "id": "0x000880",
       "type": "GLOB",
       "edid": "FO4SF_SpecialMenuPendingS",

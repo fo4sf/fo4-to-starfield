@@ -360,7 +360,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             RegisterForRemoteEvent=lambda target, ev: self.call_order.append(('register', target, ev)),
             HandlePipboyPickup=lambda p: None,
             GetStage=lambda: self.stage,
-            AdvanceTo=lambda n: (setattr(self, 'stage', n), self.stages.append(n)),
+            AdvanceTo=lambda n, by='trigger': (setattr(self, 'stage', n), self.stages.append((n, by))),
         )
         exec(compile(translated_functions(read(PSC), self.FUNCS, self.VARS), PSC, 'exec'), self.ns)
 
@@ -393,11 +393,11 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
         self.assertEqual(self.stages, [])
         self.assertEqual(self.stage, 20)
 
-        # Second press: console remains active, door opens (open_state=2 opening) -> advances to stage 30!
+        # Second press: console remains active, door opens (open_state=2 opening) -> advances to stage 30 by=vault_console!
         self.door.SetOpen = lambda val: (self.door.set_open_calls.append(val), setattr(self.door, 'open_state', 2))
         self.ns['OnActivate'](self.console_ref, self.player)
         self.assertEqual(self.waits, [2.0, 2.0])
-        self.assertEqual(self.stages, [30])
+        self.assertEqual(self.stages, [(30, 'vault_console')])
         self.assertEqual(self.stage, 30)
 
 
@@ -648,8 +648,9 @@ class BundleCollisionLayerTests(unittest.TestCase):
             ('GearDoor', 2, 'L_ANIMSTATIC'),
         ])
 
-    def test_local_port_and_bundle_collision_bodies_when_present(self):
-        port_ba2 = Path(mac.STARFIELD) / 'Data' / 'FO4Port - Main.ba2'
+    def _check_local_collision_bodies(self, starfield_dir, env_map):
+        checked = 0
+        port_ba2 = Path(starfield_dir) / 'Data' / 'FO4Port - Main.ba2'
         if port_ba2.is_file():
             from fo4sf import ba2
             archive = ba2.Ba2(str(port_ba2))
@@ -659,12 +660,26 @@ class BundleCollisionLayerTests(unittest.TestCase):
             static_rows = [r for r in gate_rows if r['layer_name'] == 'L_STATIC']
             self.assertEqual(len(static_rows), 4)
             self.assertTrue(all('hknpConvexShape' in r['shapes'] for r in static_rows))
+            checked += 1
         for env_var, want_count in (('FO4SF_EXIT_LIFT_NIF', 37), ('FO4SF_COG_DOOR_NIF', 26)):
-            nif_path = os.environ.get(env_var)
+            nif_path = env_map.get(env_var)
             if nif_path and Path(nif_path).is_file():
                 rows = mac.inspect_nif_collision_layers(Path(nif_path).read_bytes())
                 self.assertEqual(len(rows), want_count)
                 self.assertTrue(all(r['layer_name'] == 'L_ANIMSTATIC' for r in rows))
+                checked += 1
+        if checked == 0:
+            self.skipTest(
+                'FO4Port - Main.ba2 and FO4SF_EXIT_LIFT_NIF / FO4SF_COG_DOOR_NIF are not present in this environment'
+            )
+
+    def test_local_port_and_bundle_collision_bodies_when_present(self):
+        self._check_local_collision_bodies(mac.STARFIELD, os.environ)
+
+    def test_b14_r12_collision_check_skips_visibly_when_game_and_stage_files_absent(self):
+        with self.assertRaises(unittest.SkipTest) as ctx:
+            self._check_local_collision_bodies('__nonexistent_starfield_dir__', {})
+        self.assertIn('FO4Port - Main.ba2', str(ctx.exception))
 
 
 if __name__ == '__main__':

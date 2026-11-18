@@ -247,6 +247,8 @@ GlobalVariable Property WarfareStartIndexGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_WarfareStartIndex (0x875): -1 or row index.}
 GlobalVariable Property StartChoiceDoneGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_StartChoiceDone (0x876): 0 or 1.}
+GlobalVariable Property StartNeutralSpotGlobal Auto Const Mandatory
+{FO4SFCoreValues.esm FO4SF_StartNeutralSpot (0x877): 0 default, >= 0.5 holds the player at the neutral vault anchor during mode choice.}
 GlobalVariable Property PipboyAcquiredGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_PipboyAcquired (0x865), set to 1 once the Pip-Boy 3000 is picked up beside the Vault 111 console.}
 Armor Property PipboyWristArmor Auto Const Mandatory
@@ -303,7 +305,15 @@ int vaultMoves = 0                                           ; MoveTo calls onto
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
 bool fadeHeld = false
+bool fadeReheldAfterLoad = false
+bool loadingMenuOpen = false
+bool loadingMenuClosedSeen = false
 bool modeChoiceRan = false
+bool modeBoxWaiting = false
+int modeBoxWaitSeconds = 0
+int pendingStage = -1
+string pendingStageBy = "other"
+bool looksSetStage20 = false
 bool loadHookRegistered = false
 bool podChecked = false
 float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
@@ -408,6 +418,9 @@ Function Begin(string route)
         Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)
     endif
     EnsureLoadHookRegistered(player)
+    if FadeHold
+        RegisterForMenuOpenCloseEvent("LoadingMenu")
+    endif
     StartTimer(1.0, 1)
     player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load
     bool ready = player.Is3DLoaded()
@@ -489,14 +502,19 @@ Function DisableHandScanner()
     endif
 EndFunction
 
-Function AdvanceTo(int n)
-{SetStage, then the stage's actions (OnStageSet never fired on the mission's quest, 18 Oct, so nothing relies on it).}
-    SetStage(n)
+Function NoteLooksStage20()
+    looksSetStage20 = true
+    if applied < 20
+        applied = 20
+    endif
+EndFunction
+
+Function ApplyStage(int n, string by)
     if n <= applied
         return
     endif
     applied = n
-    Trace("stage " + n)
+    Trace("stage " + n + " by=" + by)
     if n == 10
         SetObjectiveDisplayed(10)
         SetActive(True)
@@ -511,13 +529,51 @@ Function AdvanceTo(int n)
     endif
 EndFunction
 
+Function AdvanceTo(int n, string by = "trigger")
+{SetStage, then the stage's actions with explicit B6 cause (OnStageSet never fired on the mission's quest, 18 Oct, so nothing relies on it).}
+    string cause = by
+    if n == 40 && exitUsedFallback
+        cause = "fallback"
+    endif
+    pendingStage = n
+    pendingStageBy = cause
+    SetStage(n)
+    ApplyStage(n, cause)
+EndFunction
+
+Event OnStageSet(int auiStageID, int auiItemID)
+    if auiStageID == 20 && looksSetStage20
+        return
+    endif
+    string cause = "other"
+    if auiStageID == pendingStage
+        cause = pendingStageBy
+    endif
+    ApplyStage(auiStageID, cause)
+EndEvent
+
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 2
+        if modeBoxWaiting
+            modeBoxWaitSeconds += 60
+            Trace("mode box waiting s=" + modeBoxWaitSeconds)
+            StartTimer(60.0, 2)
+        endif
+        return
+    endif
     if aiTimerID != 1
         return
     endif
     Actor player = Game.GetPlayer()
     EnsureLoadHookRegistered(player)
     int stage = GetStage()
+    if stage > applied && !(stage == 20 && looksSetStage20)
+        string extCause = "other"
+        if stage == pendingStage
+            extCause = pendingStageBy
+        endif
+        ApplyStage(stage, extCause)
+    endif
     ticks += 1
     if stage == 0
         ; Starfield's Utility.psc has no IsInMenuMode (PC precheck, 19 Oct): loaded 3D is the only wait
@@ -574,8 +630,13 @@ Event OnTimer(int aiTimerID)
         endif
         EnsureVaultInteractivesRegistered()
         if Utility.GetCurrentRealTime() - startedAt > LooksWait
-            Trace("looks done: LooksWait fallback after " + LooksWait + " s")
-            AdvanceTo(20)
+            if LooksWait > 0.0
+                Trace("looks done: LooksWait fallback after " + LooksWait + " s")
+                AdvanceTo(20, "fallback")
+            else
+                Trace("looks done: no-looks immediate start")
+                AdvanceTo(20, "trigger")
+            endif
         endif
     elseif stage == 20 || stage == 30
         if rideActive
@@ -792,7 +853,7 @@ Function InVault(Actor player, int stage)
             if doorState == 1 || doorState == 2
                 Trace("cog door opened directly open_state=" + doorState)
                 stage = 30
-                AdvanceTo(30)
+                AdvanceTo(30, "other")
             endif
         endif
     endif
@@ -1266,9 +1327,42 @@ Function HoldFadeForModeChoice()
         return
     endif
     fadeHeld = true
+    RegisterForMenuOpenCloseEvent("LoadingMenu")
     Game.FadeOutGame(True, True, 0.0, 0.1, True)
     Game.SetInChargen(true, true, false)
-    Trace("mode fade held")
+    Trace("mode fade held request=1")
+EndFunction
+
+Function ReassertBlackHoldAfterLoading()
+    if !FadeHold || fadeReheldAfterLoad || faded
+        return
+    endif
+    float lWait = 0.0
+    while loadingMenuOpen && lWait < 5.0
+        Utility.Wait(0.25)
+        lWait += 0.25
+    endwhile
+    Utility.Wait(1.0)
+    if faded
+        return
+    endif
+    fadeReheldAfterLoad = true
+    Game.FadeOutGame(True, True, 0.0, 0.1, True)
+    Trace("mode fade held request=2 delay=1.0s loading_closed=" + loadingMenuClosedSeen)
+EndFunction
+
+bool Function HoldNeutralSpotForModeChoice(Actor player)
+    if StartNeutralSpotGlobal == None || StartNeutralSpotGlobal.GetValue() < 0.5 || player == None
+        return false
+    endif
+    ObjectReference vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+    if vAnchor != None
+        player.MoveTo(vAnchor, 0.0, 0.0, 0.0, False, False)
+    else
+        player.SetPosition(AnchorX, AnchorY, AnchorZ)
+    endif
+    Trace("mode neutral spot active pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
+    return true
 EndFunction
 
 int Function RunModeChoiceChain(Actor player)
@@ -1286,9 +1380,15 @@ int Function RunModeChoiceChain(Actor player)
         return 1
     endif
     modeChoiceRan = true
+    bool usedNeutralSpot = HoldNeutralSpotForModeChoice(player)
+    ReassertBlackHoldAfterLoading()
     int mBtn = 0
     if ModePickMsg != None
+        modeBoxWaiting = true
+        modeBoxWaitSeconds = 0
+        StartTimer(60.0, 2)
         mBtn = ModePickMsg.Show()
+        modeBoxWaiting = false
     endif
     int modeVal = 1
     if mBtn == 1
@@ -1318,6 +1418,9 @@ int Function RunModeChoiceChain(Actor player)
     if modeVal == 1
         if StartChoiceDoneGlobal != None
             StartChoiceDoneGlobal.SetValue(1.0)
+        endif
+        if usedNeutralSpot
+            EnterVault(player)
         endif
         Trace("mode choice mode=story survival=" + survVal)
         AdvanceTo(5)
@@ -1510,6 +1613,16 @@ Function RunWarfareBranch(Actor player, int rowIdx)
 EndFunction
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+    if asMenuName == "LoadingMenu"
+        if abOpening
+            loadingMenuOpen = true
+        else
+            loadingMenuOpen = false
+            loadingMenuClosedSeen = true
+            Trace("mode loading menu closed")
+        endif
+        return
+    endif
     if asMenuName == "ChargenMenu" && !abOpening
         if warfareWaitingCreator
             warfareWaitingCreator = false
@@ -1668,7 +1781,7 @@ Function ActivateGearDoorConsole()
         endif
     endif
     if stage < 30
-        AdvanceTo(30)
+        AdvanceTo(30, "vault_console")
     endif
 EndFunction
 

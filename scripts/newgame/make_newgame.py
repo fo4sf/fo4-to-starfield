@@ -262,7 +262,7 @@ NATIVES = {
                             "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
                             "BlockActivation", "OnActivate", "OnItemAdded"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
-                  "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
+                  "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
                          "RegisterForRemoteEvent", "UnregisterForRemoteEvent", "AddInventoryEventFilter",
                          "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
@@ -951,15 +951,22 @@ def summarize(lines):
          "landing_quests": None, "pipboy_pickup": None, "mode_fade_held": False, "mode_choice": None,
          "mode_load_default": None, "warfare_pick": None, "warfare_gear": None,
          "map_setup": None, "pistol_picked": None, "exit_retries": [], "exit_fallback": None,
-         "arrival_discovery_failed": None, "special_default": None}
+         "arrival_discovery_failed": None, "special_default": None,
+         "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
-    s["earlier_completed"] = any("stage 200" in r or "stage 210" in r for r in runs[:-1])
+    s["earlier_completed"] = any(
+        any(m == "stage 200" or m.startswith("stage 200 ") or m == "stage 210" or m.startswith("stage 210 ") for m in r)
+        for r in runs[:-1]
+    )
     for msg in runs[-1] if runs else []:
         if msg.startswith("stage "):
-            n = int(msg.split()[1])
+            parts = msg.split()
+            n = int(parts[1])
             s["stages"].append(n)
             s["stages_named"].append(f"{n} {STAGE_CONTRACT.get(n, 'not in the contract')}")
+            by_val = next((p.split("=", 1)[1] for p in parts[2:] if p.startswith("by=")), None)
+            s["stage_causes"][n] = by_val
         elif msg.startswith("held off "):
             quest, _, rest = msg[len("held off "):].partition(" running_after=")
             s["held_off"].append(quest)
@@ -1016,8 +1023,13 @@ def summarize(lines):
             s["landing_quests"] = msg[len("landing quests started "):]
         elif msg.startswith("pipboy pickup "):
             s["pipboy_pickup"] = msg[len("pipboy pickup "):]
-        elif msg == "mode fade held":
+        elif msg.startswith("mode fade held"):
             s["mode_fade_held"] = True
+            s["mode_fade_requests"] += 1
+        elif msg.startswith("mode box waiting s="):
+            s["mode_box_waits"].append(int(msg[len("mode box waiting s="):].split()[0]))
+        elif msg.startswith("mode neutral spot active"):
+            s["mode_neutral_spot"] = True
         elif msg.startswith("mode choice "):
             s["mode_choice"] = msg[len("mode choice "):]
         elif msg.startswith("mode load default="):

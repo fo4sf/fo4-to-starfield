@@ -74,6 +74,9 @@ class RouteLootTableTests(unittest.TestCase):
 
 
 class RouteLootWriterAndStageTests(unittest.TestCase):
+    # parity not applicable: ordered by B10 (dedicated route CONT bases + corridor REFR overrides only; 0 core CONT overrides)
+    PINNED_SYNTH_ROUTE_LOOT_SHA256 = "e691530cecc1f67cf32d79839c28680de8dfc028605d869a50f69dd7d58f8a0e"
+
     def test_dotnet_selftest_and_make_route_loot_stage_verify(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             scratch = os.path.join(tmp, "selftest")
@@ -109,10 +112,15 @@ class RouteLootWriterAndStageTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(plugin_path))
             self.assertTrue(os.path.isfile(plan_path))
             self.assertTrue(os.path.isfile(census_path))
+            self.assertEqual(make_route_loot.sha256_file(plugin_path), self.PINNED_SYNTH_ROUTE_LOOT_SHA256)
 
             with open(census_path, encoding="utf-8") as f:
                 census = json.load(f)
-            self.assertGreater(census["route_containers_with_non_credit_items"], 0)
+            self.assertEqual(census["overridden_core_cont_bases"], 0)
+            self.assertEqual(census["outside_corridor_containers_modified"], 0)
+            self.assertEqual(census["outside_corridor_containers"], 2)
+            self.assertEqual(census["overridden_route_container_refs"], 4)
+            self.assertEqual(census["route_containers_with_non_credit_items"], 3)
             self.assertGreaterEqual(census["vault111"]["armory_case_pistols"], 1)
             self.assertGreaterEqual(census["vault111"]["armory_case_ammo_rounds"], 48)
             self.assertGreaterEqual(census["vault111"]["armory_case_stimpaks"], 2)

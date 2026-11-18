@@ -133,7 +133,7 @@ class ContractTests(unittest.TestCase):
         the timer does once it sees it (29 Oct review on #588: a fade under the loading screen, then never again). The
         timer's comes before it confirms the vault."""
         psc = read(PSC)
-        fade = psc[psc.index("Function FadeIn"):psc.index("Function AdvanceTo")]
+        fade = psc[psc.index("Function FadeIn"):psc.index("Function NoteLooksStage20")]
         code = fade[fade.index("    if faded"):]                  # past the doc comment
         self.assertTrue(code.startswith("    if faded\n        return\n    endif\n    faded = true\n"))
         # the pod's heading again while the screen is still dark, for a player the start moved into the vault
@@ -145,9 +145,10 @@ class ContractTests(unittest.TestCase):
         hold_fade = psc[psc.index("Function HoldFadeForModeChoice"):psc.index("int Function RunModeChoiceChain")]
         self.assertIn("Game.FadeOutGame(True, True, 0.0, 0.1, True)", hold_fade)
         self.assertIn("Game.SetInChargen(true, true, false)", hold_fade)
-        self.assertIn('Trace("mode fade held")', hold_fade)
+        self.assertIn('Trace("mode fade held request=1")', hold_fade)
+        self.assertIn('Trace("mode fade held request=2 delay=1.0s loading_closed=" + loadingMenuClosedSeen)', hold_fade)
         code_only = re.sub(r"\{[^}]*\}", "", psc)          # the doc comments name the fade call too
-        self.assertEqual(code_only.count("Game.FadeOutGame("), 3)   # FadeIn + HoldFadeForModeChoice + FallbackExitToSurface
+        self.assertEqual(code_only.count("Game.FadeOutGame("), 4)   # FadeIn + HoldFadeForModeChoice + ReassertBlackHoldAfterLoading + FallbackExitToSurface
         self.assertEqual(code_only.count("Game.SetInChargen("), 2)  # FadeIn + HoldFadeForModeChoice
         self.assertEqual(code_only.count("Game.SetCharGenHUDMode("), 1)  # in FadeIn alone
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
@@ -1038,7 +1039,7 @@ class ContractTests(unittest.TestCase):
         looks_calls |= set(re.findall(r"^Event (On\w+)\(", looks, re.M)) - {"OnTimer"}
         looks_own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", looks, re.M))
         looks_listed = {f for bases in ng.NATIVES[ng.LOOKS].values() for f in bases}
-        self.assertEqual(looks_calls - looks_listed - looks_own, set())
+        self.assertEqual(looks_calls - looks_listed - looks_own - {"NoteLooksStage20"}, set())
         self.assertEqual(set(ng.NATIVES[ng.LOOKS]["ScriptObject"]), {"StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"})
         # the SPECIAL script the same way; its Actor.SetValue / GetValue are the unverified pair the precheck reads
         special = read(SPECIAL)
@@ -1326,7 +1327,7 @@ NG_PLUS = ("start route=OnQuestStarted player_loaded=false cell=None loading=tru
            STOOD_DOWN,
            "handing back to Starfield's start: not a new game; mq101debug=0.000000",
            "handed back: requested=true opening starting=true running=false stage=0",
-           "stage 1")
+           "stage 1 by=trigger")
 
 
 class LogTests(unittest.TestCase):
@@ -1356,12 +1357,12 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 hold-off pass 2 stopped=1 of 4",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
-        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10 by=trigger",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 pod settle ok=true pos=11 20 1 dx=0.0 dy=0.0 drop=0.0",
         "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
         "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
-        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20",             # the looks script's Done, in its order
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20 by=scene",      # the looks script's Done, in its order
         "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 terminal prompt button=1",
         "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 special later",
         "[10/20/2026 - 09:00:58AM] FO4SF_NEWGAME rt=58.0 terminal prompt button=0",
@@ -1370,9 +1371,9 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.0 elevator prompt button=0",
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 surface moveto pos=-1250 1290 110 world=[WorldSpace <x>] moves=1",
         "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 surface setposition ok=true set=1 pos=-2450 -1410 110 target=-2450 -1410 110",
-        "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 stage 40",
+        "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 stage 40 by=trigger",
         "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 landed z=110.0",          # CheckLanding: 3 s after the arrival
-        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 stage 200",
+        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 stage 200 by=trigger",
     ]
 
     def test_summary(self):
@@ -1426,23 +1427,22 @@ class LogTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
     def test_stage_20_is_traced_by_whichever_script_sets_it(self):
-        """Codex review on #393 (P2): the quest's AdvanceTo is where "stage <n>" is traced, but the looks script sets
-        stage 20 itself (SetStage, not AdvanceTo), so a looks run logged no "stage 20" and the summary's "stages"
-        skipped it; the fixture above hid that with a line no script wrote. The looks script's Done now traces the same
-        line, to the same log in the same format, right after SetStage(20); the summary reads it, and a looks run
-        without it would still miss the stage."""
+        """Codex review on #393 (P2): the quest's AdvanceTo is where "stage <n> by=..." is traced, and the looks script sets
+        stage 20 itself (SetStage, not AdvanceTo), tracing "stage 20 by=<scene|trigger>" to the same log in the same format
+        right after SetStage(20); the summary reads it, and a looks run without it would still miss the stage."""
         quest, looks = read(PSC), read(LOOKS)
-        self.assertIn('Trace("stage " + n)', quest[quest.index("Function AdvanceTo"):quest.index("EndFunction", quest.index("Function AdvanceTo"))])
+        self.assertIn('Trace("stage " + n + " by=" + by)', quest[quest.index("Function ApplyStage"):quest.index("EndFunction", quest.index("Function ApplyStage"))])
         done = looks[looks.index("Function Done"):]
         done = done[:done.index("EndFunction")]
         self.assertLess(done.index('Trace("looks done: " + how)'), done.index("SetStage(20)"))
-        self.assertLess(done.index("SetStage(20)"), done.index('Trace("stage 20")'))
+        self.assertLess(done.index("SetStage(20)"), done.index('Trace("stage 20 by=" + by)'))
         # the same log and the same line format as the quest's Trace
         self.assertIn('string LogName = "fo4sf_newgame"', quest)
         self.assertIn('Debug.TraceUser(LogName, "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', quest)
         self.assertIn('Debug.TraceUser("fo4sf_newgame", "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', looks)
         self.assertIn(20, ng.summarize(self.LINES)["stages"])
-        without = [ln for ln in self.LINES if not ln.endswith(" stage 20")]
+        self.assertEqual(ng.summarize(self.LINES)["stage_causes"][20], "scene")
+        without = [ln for ln in self.LINES if " stage 20 " not in ln]
         self.assertEqual(ng.summarize(without)["stages"], [10, 40, 200])
 
     def test_inventory_lines(self):
@@ -1553,7 +1553,7 @@ class LogTests(unittest.TestCase):
         self.assertIsNone(s["mq101debug_written"])           # a hand back follows no write
         # the other tests' New Game+ (NG_PLUS) is this log
         self.assertEqual(NG_PLUS, ("start route=OnQuestStarted player_loaded=false cell=None loading=true",
-                                   guard.format(12), STOOD_DOWN, handing.format("not a new game"), handed, "stage 1"))
+                                   guard.format(12), STOOD_DOWN, handing.format("not a new game"), handed, "stage 1 by=trigger"))
         # no move into the vault: the same stand-down and hand back
         no_move = "no move into the vault: anchor FO4Port.esm:4920 does not resolve; standing down"
         no_move_log = (head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=true cell=None loading=true\n"
@@ -2050,7 +2050,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
 
     def test_2b_landing_handoff_starts_mission_quests_with_start_no_wait(self):
         psc = read(PSC)
-        adv = psc[psc.index("Function AdvanceTo"):psc.index("Event OnTimer")]
+        adv = psc[psc.index("Function ApplyStage"):psc.index("Event OnTimer")]
         self.assertIn("elseif n == 200\n        CompleteQuest()\n        StartLandingQuests()", adv)
         self.assertIn("elseif n == 210\n        CompleteQuest()\n        StartLandingQuests()", adv)
         handoff = psc[psc.index("Function StartLandingQuests"):psc.index("Function EnsureLoadHookRegistered")]
@@ -2091,7 +2091,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn('WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" }', cs)
         self.assertIn("bool Property FadeHold = true Auto Const", psc)
         self.assertEqual(ng.tool_options(namespace(no_fade_hold=True)), ["--no-fade-hold"])
-        self.assertIn('Trace("mode fade held")', psc)
+        self.assertIn('Trace("mode fade held request=1")', psc)
+        self.assertIn('Trace("mode fade held request=2 delay=1.0s loading_closed=" + loadingMenuClosedSeen)', psc)
         self.assertIn('Trace("mode choice mode=story survival=" + survVal)', psc)
         self.assertIn('Trace("mode choice mode=warfare survival=" + survVal)', psc)
         self.assertIn('Trace("mode load default=story stage=" + GetStage())', psc)
@@ -2236,6 +2237,129 @@ class Phase2BeginningRealTests(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         ng.refuse_forbidden_out_dir(os.path.join(tmp, "allowed_stage_out"))
+
+    def test_b6_and_b8_black_hold_after_loading_neutral_spot_waiting_timer_and_stage_causes(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        ev_menu = re.search(r"Event OnMenuOpenCloseEvent\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_stage = re.search(r"Event OnStageSet\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = (
+            psc
+            + f"\nFunction MenuEvent({ev_menu[1]})\n{ev_menu[2]}EndFunction\n"
+            + f"\nFunction StageEvent({ev_stage[1]})\n{ev_stage[2]}EndFunction\n"
+            + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+        )
+
+        logs, fades, waits, timers, moves = [], [], [], [], []
+        cur_stage = [0]
+        neutral_val = [0.0]
+        vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+        player = SimpleNamespace(
+            pos=(9.1, -6.6, -0.9),
+            GetPositionX=lambda: player.pos[0],
+            GetPositionY=lambda: player.pos[1],
+            GetPositionZ=lambda: player.pos[2],
+            SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+            SetAngle=lambda *a: None,
+            MoveTo=lambda ref, dx, dy, dz, *rest: (moves.append((dx, dy, dz)), setattr(player, "pos", (60.0 + dx, 25.0 + dy, 1.0 + dz))),
+            GetParentCell=lambda: "VaultCell",
+            Is3DLoaded=lambda: True,
+        )
+
+        def show_mode_box():
+            # Simulate 120 s of unanswered waiting on ModePickMsg (two 60 s timer-2 ticks) before answering Story (0)
+            ns["TimerEvent"](2)
+            ns["TimerEvent"](2)
+            return 0
+
+        ns = dict(
+            FadeHold=True, faded=False, fadeHeld=False, fadeReheldAfterLoad=False,
+            loadingMenuOpen=False, loadingMenuClosedSeen=False,
+            modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+            exitUsedFallback=False, vaultMoves=1, ticks=0,
+            VaultAnchorId=0x805, VaultPlugin="FO4Port.esm",
+            AnchorX=60.0, AnchorY=25.0, AnchorZ=1.0,
+            PodX=10.0, PodY=20.0, PodZ=1.0, PodLift=0.5, PodHeading=90.0,
+            StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: neutral_val[0]),
+            GameModeGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
+            SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+            TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+            ModePickMsg=SimpleNamespace(Show=show_mode_box),
+            SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player,
+                FadeOutGame=lambda *a: fades.append(a),
+                SetInChargen=lambda *a: None,
+                SetCharGenHUDMode=lambda *a: None,
+                GetFormFromFile=lambda fid, plg: vault_anchor if (fid, plg) == (0x805, "FO4Port.esm") else None,
+            ),
+            Utility=SimpleNamespace(Wait=lambda s: (waits.append(s), ns.__setitem__("loadingMenuOpen", False))),
+            Debug=SimpleNamespace(Notification=lambda *a: None),
+            InputEnableLayer=SimpleNamespace(Create=lambda: None),
+            scannerLayer=None,
+            RegisterForMenuOpenCloseEvent=lambda m: None,
+            StartTimer=lambda s, tid: timers.append((s, tid)),
+            SetStage=lambda n: cur_stage.__setitem__(0, n),
+            GetStage=lambda: cur_stage[0],
+            SetObjectiveDisplayed=lambda *a: None,
+            SetObjectiveCompleted=lambda *a: None,
+            SetActive=lambda *a: None,
+            CompleteQuest=lambda: None,
+            StartLandingQuests=lambda: None,
+            EnsureLoadHookRegistered=lambda p: None,
+            Trace=lambda m: logs.append(m),
+        )
+        funcs = (
+            "HoldFadeForModeChoice", "ReassertBlackHoldAfterLoading", "HoldNeutralSpotForModeChoice",
+            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "MenuEvent", "StageEvent", "TimerEvent",
+        )
+        vars_csv = (
+            "faded, fadeHeld, fadeReheldAfterLoad, loadingMenuOpen, loadingMenuClosedSeen, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, ticks, scannerLayer"
+        )
+        exec(compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec"), ns)
+
+        # 1. Request 1 + LoadingMenu open/close + neutral-spot fallback + 1.0 s wait + Request 2 + 2x60 s waiting logs
+        neutral_val[0] = 1.0
+        ns["HoldFadeForModeChoice"]()
+        ns["MenuEvent"]("LoadingMenu", True)
+        self.assertTrue(ns["loadingMenuOpen"])
+        ns["MenuEvent"]("LoadingMenu", False)
+        self.assertFalse(ns["loadingMenuOpen"])
+        self.assertTrue(ns["loadingMenuClosedSeen"])
+
+        chosen = ns["RunModeChoiceChain"](player)
+        self.assertEqual(chosen, 1)
+        self.assertIn("mode fade held request=1", logs)
+        self.assertIn("mode loading menu closed", logs)
+        self.assertTrue(any(l.startswith("mode neutral spot active ") for l in logs), logs)
+        self.assertIn("mode fade held request=2 delay=1.0s loading_closed=True", logs)
+        self.assertLess(
+            logs.index("mode fade held request=1"),
+            logs.index("mode fade held request=2 delay=1.0s loading_closed=True"),
+        )
+        self.assertIn(1.0, waits)
+        self.assertEqual([l for l in logs if l.startswith("mode box waiting ")], ["mode box waiting s=60", "mode box waiting s=120"])
+        # Once answered, a subsequent timer-2 tick logs nothing more
+        ns["TimerEvent"](2)
+        self.assertEqual([l for l in logs if l.startswith("mode box waiting ")], ["mode box waiting s=60", "mode box waiting s=120"])
+        self.assertIn("stage 5 by=trigger", logs)
+        # Neutral spot Story choice moved player back into the cryopod before FadeIn
+        self.assertAlmostEqual(player.pos[0], 10.0, places=3)
+        self.assertAlmostEqual(player.pos[1], 20.0, places=3)
+
+        # 2. B6 external console setstage (without AdvanceTo) logs by=other!
+        ns["StageEvent"](30, 0)
+        self.assertIn("stage 30 by=other", logs)
 
 
 if __name__ == "__main__":

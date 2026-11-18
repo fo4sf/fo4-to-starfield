@@ -40,6 +40,13 @@ def _strip_psc_line_comment(line: str) -> str:
     return re.sub(r'("(?:[^"\\]|\\.)*")|;.*', lambda m: m.group(1) or "", line)
 
 
+def _rewrite_outside_strings(expr: str, fn) -> str:
+    parts = re.split(r'("(?:[^"\\]|\\.)*")', expr)
+    for idx in range(0, len(parts), 2):
+        parts[idx] = fn(parts[idx])
+    return "".join(parts)
+
+
 def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
     clean_text = re.sub(r"\{[^}]*\}", "", text)
     out = [
@@ -91,7 +98,7 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
                 continue
             if line.startswith(("elseif ", "else")):
                 depth -= 1
-            if any(tok in line for tok in ("Trace(", "LogLine(", "LogNewGameLine(", "Debug.Notification(")):
+            if any(tok in line for tok in ("Trace(", "Debug.TraceUser(", "LogLine(", "LogNewGameLine(", "Debug.Notification(")):
                 line = _wrap_pstr_literals(line)
             if line.startswith(("bool ", "int ", "float ", "string ")) and "=" in line:
                 pass
@@ -109,10 +116,13 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
                 "",
                 line,
             )
-            line = re.sub(r"\b(\w+)\.Length\b", r"len(\1)", line)
-            line = re.sub(r"\btrue\b", "True", line, flags=re.I)
-            line = re.sub(r"\bfalse\b", "False", line, flags=re.I)
-            line = re.sub(r"!(?!=)", "not ", line).replace("&&", "and").replace("||", "or")
+            def _ops(seg: str) -> str:
+                seg = re.sub(r"\b(\w+)\.Length\b", r"len(\1)", seg)
+                seg = re.sub(r"\btrue\b", "True", seg, flags=re.I)
+                seg = re.sub(r"\bfalse\b", "False", seg, flags=re.I)
+                return re.sub(r"!(?!=)", "not ", seg).replace("&&", "and").replace("||", "or")
+
+            line = _rewrite_outside_strings(line, _ops)
             if line.startswith("elseif "):
                 line = "elif " + line[7:]
             if line.startswith(("if ", "elif ", "while ")) or line == "else":

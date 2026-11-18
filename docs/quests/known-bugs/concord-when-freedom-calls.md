@@ -14,6 +14,11 @@
 | `WFC-06` | Wave-2 Sewer Grate Deathclaw Snags Below Street Geometry | `Not applicable yet` | `Left / N-A in current cut-down stage` |
 | `WFC-07` | Silent `OnStageSet` Callback Drop Skips Objectives, UI Listing, and Reward | `Mitigated` | `Fix directly (ours)` |
 
+## Explicitly Cut / `NOT BUILT` Content in Current Slice
+
+- **Museum of Freedom interior quest chain (`NOT BUILT`):** laser musket, balcony talk, roof power armor + fusion core, minigun, second wave raiders, and civic-access Deathclaw emergence.
+- **Preston's group moving to Sanctuary (`NOT BUILT`, `B11`):** After `FO4SF_Min00` reaches stage `200`, nothing moves Preston Garvey or the Minutemen survivors from Concord to Sanctuary; `FO4SF_CodsworthKeeper` keeps Preston held at the Concord museum front door (`(-2011.14, -1697.54, 89.09)`), while `FO4SF_Sanctuary01` (`0x000817`) hands over the Sanctuary workbench (`0x005C50` / `0250FE`) directly.
+
 ---
 
 ## Detailed Bug Entries

@@ -149,6 +149,9 @@ class PropertyParityTests(unittest.TestCase):
         self.assertEqual(core_form_id("FO4SF_SurvivalLocked"), 0x872)
 
     def test_s2_evaluate_hardcore_obeys_start_choice_and_reload(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
         psc = (ROOT / "scripts" / "survival" / "FO4SF_HardcoreQuest.psc").read_text(encoding="utf-8")
         # All three GPOF sync sites delegate to EvaluateHardcore(why); HardcoreOption.GetValue() appears only there.
         self.assertEqual(psc.count("HardcoreOption.GetValue()"), 1)
@@ -157,30 +160,61 @@ class PropertyParityTests(unittest.TestCase):
         self.assertIn('EvaluateHardcore("gpof_menu")', psc)
         self.assertIn('"source gpof=" + gpof + " start=" + start + " enabled=" + enabled', psc)
 
-        def eval_hardcore(gpof_val: float, start_val: float, why: str) -> tuple[int, str]:
-            gpof = 1 if gpof_val >= 0.5 else 0
-            start = 1 if start_val >= 0.5 else 0
-            enabled = 1 if start == 1 else gpof
-            line = f"FO4SFHC rt=15.0 hardcore source gpof={gpof} start={start} enabled={enabled} why={why} end=true"
-            return enabled, line
+        # B14: Execute the real Papyrus EvaluateHardcore + LogLine functions via translated_functions.
+        class _Global:
+            def __init__(self, v: float = 0.0) -> None:
+                self.value = float(v)
+
+            def GetValue(self) -> float:
+                return self.value
+
+            def SetValue(self, v: float) -> None:
+                self.value = float(v)
+
+        py_src = translated_functions(
+            psc,
+            names=("LogLine", "IsHardcoreActive", "EvaluateHardcore"),
+            variables="",
+        )
+
+        def run_evaluate(gpof_val: float, start_val: float, why: str) -> tuple[int, str, list[str]]:
+            traces: list[str] = []
+            sync_reasons: list[str] = []
+            hardcore_enabled = _Global(0.0)
+            env: dict[str, object] = {
+                "HardcoreOption": _Global(gpof_val),
+                "SurvivalStartGlobal": _Global(start_val),
+                "HardcoreEnabledGlobal": hardcore_enabled,
+                "SyncAllSystems": lambda reason: sync_reasons.append(str(reason)),
+                "Debug": SimpleNamespace(
+                    OpenUserLog=lambda _name: None,
+                    TraceUser=lambda _log, msg: traces.append(str(msg)),
+                ),
+                "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 15.0),
+            }
+            exec(py_src, env)
+            env["EvaluateHardcore"](why)
+            self.assertEqual(sync_reasons, [why])
+            self.assertEqual(len(traces), 1)
+            return int(round(hardcore_enabled.GetValue())), traces[0], sync_reasons
 
         # Case 1 (S2): start=1 stays ON at start and after save & reload even when GPOF is 0
-        en_start, ln_start = eval_hardcore(0.0, 1.0, "start_choice")
-        en_reload, ln_reload = eval_hardcore(0.0, 1.0, "reload")
+        en_start, ln_start, _ = run_evaluate(0.0, 1.0, "start_choice")
+        en_reload, ln_reload, _ = run_evaluate(0.0, 1.0, "reload")
         self.assertEqual(en_start, 1)
         self.assertEqual(en_reload, 1)
-        self.assertIn("hardcore source gpof=0 start=1 enabled=1", ln_reload)
+        self.assertIn("hardcore source gpof=0 start=1 enabled=1 why=reload", ln_reload)
         parsed = hardcore_log.parse_lines([ln_start, ln_reload])
         self.assertEqual(len(parsed), 2)
         self.assertEqual(parsed[1]["kv"]["enabled"], "1")
 
         # Case 2 (S2): start=0 toggles ON and OFF cleanly with GPOF
-        en_on, ln_on = eval_hardcore(1.0, 0.0, "gpof_menu")
-        en_off, ln_off = eval_hardcore(0.0, 0.0, "gpof_menu")
+        en_on, ln_on, _ = run_evaluate(1.0, 0.0, "gpof_menu")
+        en_off, ln_off, _ = run_evaluate(0.0, 0.0, "gpof_menu")
         self.assertEqual(en_on, 1)
-        self.assertIn("hardcore source gpof=1 start=0 enabled=1", ln_on)
+        self.assertIn("hardcore source gpof=1 start=0 enabled=1 why=gpof_menu", ln_on)
         self.assertEqual(en_off, 0)
-        self.assertIn("hardcore source gpof=0 start=0 enabled=0", ln_off)
+        self.assertIn("hardcore source gpof=0 start=0 enabled=0 why=gpof_menu", ln_off)
 
     def test_r4_refuses_output_inside_git_worktree(self):
         with self.assertRaises(SystemExit):

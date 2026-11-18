@@ -1,225 +1,277 @@
-# Candidate 2 — Player-Profile Swap Test Cards (Cards 1–5)
+# Candidate 2b — Player-Profile Swap Test Cards (Cards 1–5)
 
-Target bundle: **Candidate 2 (`--profile player`, `22` plugins, `FO4SF_TestModeEnabled == 0`, `FO4SFCoreCandidate.esm` omitted)**, plus the staged `mapmarkers-full` ride-along (`FO4SFMapMarkers.esm` + updated `FO4SF_MapMarkers.pex` installed via `scripts/game/map_markers_install.py` right after `exp_install.py` so `X4` / `S5` / `1e` map-marker setup & discovery run with zero file collision).
+> **NEW GAME needed (`A16` / `R15`):** Candidate 2b requires a **NEW GAME**. Old saves are **not** carried (`FO4SFNewGame.esm` adds `FO4SFCoreValues.esm` as a master and moves shared values — including `FO4SF_PipboyAcquired` `0x000865`, S.P.E.C.I.A.L., skills, karma, rads, and survival meters — into `FO4SFCoreValues.esm`).
 
-## Truth Labels Before Swap Run
+## Recommended Lead Execution Order (`Candidate 2b`)
+1. **`Card A`** (`docs/testing/task0-task1-lead-cards.md`, `--profile test`, `FO4SF_TestModeEnabled == 1.0`): prove the `DialogueMenu` speaker/scene route first.
+2. **Switch to Candidate 2b `--profile player` (`FO4SF_TestModeEnabled == 0.0`) and start ONE New Game (`Story`, `Survival: No`):**
+   - Begin **`Card 2`** (black-fade mode choice -> Vault 111 cryo pod -> pistol & Pip-Boy pickup).
+   - **Run `Card 1` immediately after the Vault 111 Pip-Boy pickup** (`pipboy pickup equipped flag=1`), so `A1` (`pipboybootsequence.swf` loose under `Data/Interface/`), `A6` (`FO4SF_PipboyAcquired` `0x000865` in `FO4SFCoreValues.esm`), and `A7` (Fallout-only Stimpak count with zero Starfield Med Pack fallback) are all exercised in game.
+   - Finish **`Card 2`** (`FO4SF_GearDoorConsoleRef` `0x000819` / `ACTI` `0x000818` -> `stage 30 by=vault_console` -> `<= 7`-button `40`-point lift S.P.E.C.I.A.L. -> ascent & hilltop `stage 200 by=trigger`), then continue directly into **`Card 5`** (Sanctuary Codsworth -> Concord raiders with **`Quit to Desktop`** reload -> Preston `stage 35 by=info` -> `stage 40 by=info` -> Sanctuary workbench `0x005C50`).
+3. **`Card 3`** (New Game -> `Story` + `Survival: Yes` -> save, quit, reload).
+4. **`Card 4`** (New Game -> `Warfare` -> `Minutemen` -> `Sanctuary Hills`).
 
-- **`TEST-STATION` / `RECORDS ONLY` (Current Pre-Run Status):** Every Candidate-2 feature below is built and verified offline (unit tests, `16/16` Mutagen C# writer self-tests, cross-plugin FormID/EditorID/VMAD parity check, and `make_core_bundle.py verify`), and awaits the swap-session game run. No card upgrades to **`REACHABLE`** until its console-free game session writes the required PASS log lines with zero FAIL conditions.
-- **`OWNER TEST` Boundary:** Automated log checks verify state transitions, FormIDs, coordinates, and crash-free menu lifecycles. Visual appearance, UI readability, animation smoothness, lighting, sound, and gameplay feel are judged exclusively by the owner.
-- **Explicitly `NOT BUILT` in Candidate 2:**
-  - **Museum of Freedom interior quest chain (`Task 5`):** `laser musket`, `balcony talk`, `power armor + fusion core` on the museum roof (test-cell station only), `minigun`, `second wave` raiders, and `deathclaw` emergence.
-  - **Vault 111 lift character sheet extras (`X3`):** Tag skills, background selection, and trait selection from the Story lift prompt (Warfare sets faction background automatically; full creation sheet remains test-station).
-  - **Pip-Boy deferred steps (`Task 1` NEXT):** `1b` same-call real vitals fill order (gated until `1a` passes in game), `1i` first-person arm idle (`Arm=1`), `1j` STAT `UseStimpak` / `UseRadaway` actions, and `1k` `INV` / `DATA` pages.
+## Truth Labels & Explicit `NOT BUILT` / `NOT WIRED` Scope
+- **`REACHABLE` / `TEST-STATION` / `RECORDS ONLY` / `TOOLING` / `NOT BUILT` / `NOT WIRED`:** No card upgrades to **`REACHABLE`** until its console-free game run writes the PASS log lines below with zero FAIL conditions.
+- **Explicitly `NOT BUILT` this round:**
+  - **Museum of Freedom interior quest chain:** `laser musket`, `balcony talk`, `power armor + fusion core` on the museum roof (`NOT REACHABLE` in `--profile player`; no frame is placed outside the `--profile test` cell), `minigun`, `second wave` raiders, and `deathclaw` emergence.
+  - **Post-Concord group movement (`B11`):** **`Preston's group moving to Sanctuary`** (`NOT BUILT` — `FO4SF_CodsworthKeeper` holds Preston at the Concord museum door after `stage 200`).
+  - **Vault 111 lift extras (`X3`):** Tag skills, background selection, and trait selection from the Story lift prompt.
+- **Explicitly `NOT WIRED` this round (`R14`):**
+  - **Native `FO4SF_SpecialMenu` (`A3` / `A12`):** **`NOT WIRED`** to the Vault 111 lift or Warfare start this round (the lift uses `<= 7`-button `Message` pages `0x0870` / `0x0878`).
+  - **List Dialogue (`G4`):** Test cell `FO4SF_ListTalkCell` (`0x000807`) only; **`NOT WIRED`** to Preston or Codsworth.
 
 ---
 
-## Card 1 — Pip-Boy Crash Proof and Pages (`1a`, `1c`–`1g`, `X2`)
+## Card 1 — Pip-Boy Boot Movie, Crash Proof & Map Page (`1a`, `1c`–`1g`, `A1`, `A2`, `A6`, `A7`)
 
-- **Pre-Run Label:** **`TEST-STATION`** (upgraded to **`REACHABLE`** once `1a`–`1g` pass in game).
-- **Bundle & INI Preconditions:**
-  - Candidate-2 `player` bundle (`22` plugins + `FO4SFPipboyMenu.dll` + generated stage `FO4SFPipboyMenu.ini`).
-  - Shipped `FO4SFPipboyMenu.ini` contains `Pause=1`, `RequirePickup=0` (**default OFF** so `F7` and `M` keys remain free for the crash proof before Vault 111 Pip-Boy pickup), `kMaxCodeNames` up to `64` covering all movie-called code names, and **zero** `[Kit]` or `[Page ...]` sections.
+- **When to Run:** Inside the Candidate 2b `--profile player` New Game **right after picking up the Vault 111 Pip-Boy** (`FO4SF_PipboyAcquired` `0x000865 == 1`), and again outdoors on the Vault 111 hilltop for `MAP` fast-travel / marker verification.
+- **Stage Placeholders:** `<player-bundle-dir>`, `<mapmarkers-stage-dir>`, `<starfield-dir>`
+- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins` and `<starfield-dir>/Data/Interface/pipboybootsequence.swf`.
+- **Plugin List (`Plugins.txt`, `22` bundle plugins + `FO4SFMapMarkers.esm`):**
+  `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm` (plus `*FO4SFMapMarkers.esm` appended by `map_markers_install.py`).
 
-### Steps
-1. Launch a fresh session, wait until the character stands in gameplay (`Is3DLoaded == true`), press **`F7`** to open the Pip-Boy on **`STAT`**, and hold open for at least **`10 s`**.
-2. Press **`E`** on `STAT` and confirm the page does **not** advance (`ProcessUserEvent` Fallout 4 input routing). Switch across `STAT` subpages and `MAP` using the configured Pip-Boy navigation keys.
-3. On **`MAP`**, verify Commonwealth markers render, trigger a fast-travel confirmation box if standing outdoors with a discovered marker, and press **`Esc`** once to confirm **`Esc`** closes only the modal box rather than tearing down the whole menu prematurely; press **`Tab`** or **`Esc`** again to close the Pip-Boy cleanly.
-4. Re-open with **`M`** directly to **`MAP`**, then close with **`M`** / **`Tab`**.
-5. Attempt to open Starfield's hand scanner (**`F`**) and surface/star maps to confirm input-layer and menu-creation blocks hold without crashing.
-6. Open a text-entry or blocking menu (such as character naming or the console input line) and type `m`, `v`, and `n` to verify hotkeys are suppressed while another menu is open.
-7. *(Optional `X2` boot check during Card 2):* After picking up the Vault 111 Pip-Boy (`pipboy pickup equipped flag=1`), open the Pip-Boy once to play the first-open boot sequence.
+### Install Command (Game Closed)
+```bash
+python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
+python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+```
+
+### Console-Free Steps
+1. After activating the Vault 111 Pip-Boy pickup (`0x00080F`), press **`F7`**: confirm `pipboybootsequence.swf` plays on first open (`A1`, `A6`) and reopens directly onto **`STAT`**, staying up `>= 10 s` with zero crash.
+2. Verify `STAT` shows Fallout `FO4SF_Stimpak` (`0x000851`) count only (`0` when carrying none; Starfield Med Pack never counted, `A7`), and pressing **`E`** on `STAT` does **not** switch pages.
+3. Close with **`Tab`** or **`Esc`**; open Console (`` ` ``) briefly only to type `m`, `v`, `n` and confirm hotkeys are ignored while a blocking menu is open, then close Console without running any command.
+4. Once outdoors on the Commonwealth hilltop (after Card 2 `stage 200`), press **`M`** to open **`MAP`**, confirm only Vault 111 is discovered (`discovered=1`), check fast-travel hardcore gate (`source=FO4SFCoreValues.esm:000841`), and press Starfield's scanner (**`F`**) and Star/Surface Map keys to verify they stay blocked cleanly.
+
+### Undo Command (Game Closed)
+```bash
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
+python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+```
 
 ### Required PASS Log Lines (`FO4SFPipboyMenu.log` & `fo4sf_newgame.0.log`)
-- **Crash proof & code object (`1a`):**
-  - Menu stays up `>= 10 s` with zero Windows error events and zero `refuse step=` or `step=watchdog_busy` lines.
-  - Code-object holder line reports object type (`type=object`) and full code-name registration (`kMaxCodeNames` capacity `64`, `CheckHardcoreModeFastTravel` and `RefreshMapMarkers` bound).
-- **Clean teardown (`1c`, every close):**
-  - `code_obj_destruction called=1`
-  - `UnregisterMap` (whenever `MAP` was loaded during that open)
-  - `step=destroy` (with zero movie writes after `code_obj_destruction`)
-- **Key routing & menu-open guard (`1d`):**
-  - `ignored=menu_open menu=<name>` when `m`, `v`, or `n` is pressed inside an open blocking menu.
-- **Map page & Commonwealth markers (`1e`, after `X4` / `S5` arrival):**
-  - `step=map_markers ... discovered=1` (or `discovered>=1` after walking) with `corners_set=3/3 read_back=match`
-  - Zero `map_file ... skipped=` lines.
-- **Blocked Starfield scanner & maps (`1g`):**
-  - `handscanner disabled=true` / `blocked input=handscanner` (`fo4sf_newgame.0.log` / `FO4SFPipboyMenu.log`)
-  - `blocked menu=<name> route=create` (or `step=starmap_blocked ... route=create`) with zero crash.
-
-### Negative / FAIL Conditions
-- Any crash, freeze, `refuse step=`, `step=watchdog_busy`, `[Kit]` / `[Page ...]` contamination in shipped `FO4SFPipboyMenu.ini`, `map_file ... skipped=`, or `"FO4SF"` developer banner text on screen (`1h`).
+```log
+step=core_value_resolve name=FO4SF_PipboyAcquired source=FO4SFCoreValues.esm:000865 found=1 form=<hex>
+step=boot_sequence movie=pipboybootsequence first_open=1 page=<page>
+step=boot_sequence finished=1 reopen_page=<page>
+step=code_obj_holder type=object raw_type=8 is_closure=0 source=menu_mc members=49 of=49
+step=code_obj_destruction movie=<hex> called=1
+step=map_unregister ok=1
+step=destroy menu=<hex> flags=<flags>
+step=toggle n=<k> ignored=menu_open menu=Console
+step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corners_set=3/3 read_back=match
+step=map_check_hardcore idx=<idx> source=FO4SFCoreValues.esm:000841 allow=1
+blocked input=handscanner
+step=starmap_blocked n=<k> blocked menu=<menu> route=create
+```
 
 ### OWNER TEST Items
-- Visual inspection of the `STAT` Vault-Boy / condition presentation, tab header alignment, font legibility, `Pause=1` background world pause feel, Commonwealth map image alignment beneath map pins, and first-open boot sequence look.
+- Boot movie visual playback, `STAT` Vault-Boy / condition layout, font legibility, `Pause=1` feel, and Commonwealth map alignment under pins.
 
 ---
 
-## Card 2 — Story Start and Console-Free Vault 111 Exit (`S4`, `X1`–`X5`)
+## Card 2 — Story Start and Console-Free Vault 111 Exit (`S4`, `X1`–`X5`, `B1`–`B5`, `B8`)
 
-- **Pre-Run Label:** **`TEST-STATION`** (upgraded to **`REACHABLE`** after one uninterrupted console-free walk from New Game to Commonwealth hilltop landing).
-- **Setup:** Start a **New Game** from the main menu with `FO4SF_TestModeEnabled == 0`. Keep the developer console closed (`~` never pressed).
+- **Stage Placeholders:** `<player-bundle-dir>`, `<mapmarkers-stage-dir>`, `<starfield-dir>`
+- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` (`0 B` extra when already installed for Card 1).
+- **Plugin List (`Plugins.txt`, `22` bundle plugins + `FO4SFMapMarkers.esm`):**
+  Same 22-plugin `--profile player` list + `*FO4SFMapMarkers.esm` as Card 1.
+
+### Install Command (Game Closed)
+```bash
+python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
+python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+```
+
+### Console-Free Steps (Plus Optional First-Session Neutral-Spot Probe `B8`)
+1. **Black-fade mode box (`S4`, `B8`):** Start a **New Game** (`~` closed). After `LoadingMenu` closes + `1.0 s`, `FO4SF_NewGameQuest` re-requests the black hold (`request=2`) before showing `FO4SF_NewGameModeMsg` (`0x000806`; `0x000810`–`0x000816` stay reserved). Pick **`Story`** and **`Survival: No`** (`stage 5 by=trigger` -> `stage 10 by=trigger`). *(If `FO4SF_NewGameModeMsg` is left unanswered `>= 60 s`, `mode box waiting s=60` logs once per minute while continuing to wait.)*
+2. **Cryo pod, vault pistol & Pip-Boy (`B4`, `B5`, `X1`, `X2`):** Step out of the pod (`pod settle ok=True`), finish looks (`stage 20 by=scene`), pick up the Vault 111 pistol (`0x24561C` from `route_loot_ids.json` `vault111.pistol_id`, filtered via `AddInventoryEventFilter` -> `pistol picked`), verify pressing `E` on the gear door directly stays shut and pressing `E` on `FO4SF_GearDoorConsoleRef` (`0x000819`, `ACTI` `FO4SF_GearDoorConsole` `0x000818`) before the Pip-Boy refuses (`0x000817` `FO4SF_NoPipboyConsoleMsg`), then equip the Pip-Boy (`0x00080F`) and activate `FO4SF_GearDoorConsoleRef` (`0x000819`) to open the gear door (`stage 30 by=vault_console`).
+3. **Lift `<= 7`-button `40`-point S.P.E.C.I.A.L. & ascent (`B1`–`B3`, `X3`, `X4`):** Step onto the Vault 111 platform, confirm `Continue` is gated until `S.P.E.C.I.A.L.` is confirmed, allocate all `40` points across `FO4SF_ProgSpecialPage1Msg` (`0x000870`, `7` buttons) and `FO4SF_ProgSpecialPage2Msg` (`0x000878`, `7` buttons) and press `Confirm` (**do not** cancel 3 times into `special default`), then press `Continue` to ride `+21.6 m` (`ascent carried confirmed`) while `RunSharedMapSetup()` prepares Commonwealth markers, landing at `stage 40 by=trigger` -> `stage 200 by=trigger`.
+4. *(Optional standalone `B8` neutral-spot fallback check in a separate throwaway session only, never during the `REACHABLE` walk):* Inspect `FO4SF_StartNeutralSpot` (`0x000877` in `FO4SFCoreValues.esm`) via Console if testing neutral-spot staging:
+```console
+help FO4SF_StartNeutralSpot 4 GLOB
+```
+
+### Undo Command (Game Closed)
+```bash
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
+python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+```
+
+### Required PASS Log Lines (`fo4sf_newgame.0.log`)
+```log
+FO4SF_NEWGAME rt=<rt> mode fade held request=1
+FO4SF_NEWGAME rt=<rt> mode fade held request=2 delay=1.0s loading_closed=<bool>
+FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=0
+FO4SF_NEWGAME rt=<rt> stage 5 by=trigger
+FO4SF_NEWGAME rt=<rt> stage 10 by=trigger
+FO4SF_NEWGAME rt=<rt> hold-off pass 2 stopped=<stopped> of <total>
+FO4SF_NEWGAME rt=<rt> pod settle ok=True pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<drop> target=<tx> <ty> <tz> heading=<h> loaded=True cell=<cell> world=<world> sample_start=<t0> sample_end=<t1>
+FO4SF_NEWGAME rt=<rt> stage 20 by=scene
+FO4SF_NEWGAME rt=<rt> pistol filter added base=<form> id=<id>
+FO4SF_NEWGAME rt=<rt> console activator registered ref=<ref> id=<id> pos=<x> <y> <z>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>
+FO4SF_NEWGAME rt=<rt> cog door activate blocked by=player open_state=<state>
+FO4SF_NEWGAME rt=<rt> console refused: no pipboy
+FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=True
+FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>
+FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console
+FO4SF_NEWGAME rt=<rt> lift platform waiting cage_door=open
+FO4SF_NEWGAME rt=<rt> special box shown box=FO4SF_ProgSpecialPage1Msg buttons=7 unspent=<u0> step=1
+FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source=lift
+FO4SF_NEWGAME rt=<rt> lift cage_door=closing
+FO4SF_NEWGAME rt=<rt> ascent play accepted=True ref=<lift> from=<z0> rise=21.6 seconds=<sec>
+FO4SF_NEWGAME rt=<rt> map setup done markers=<n> elapsed=<sec>
+FO4SF_NEWGAME rt=<rt> ascent carried confirmed elapsed=<sec> z=<z1>
+FO4SF_NEWGAME rt=<rt> stage 40 by=trigger
+FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=False world=<world>
+FO4SF_NEWGAME rt=<rt> stage 200 by=trigger
+```
+
+### Negative / FAIL Conditions
+- Any stage with `by=other` or `by=fallback`, `cog door open failed state=`, `special default`, `special skipped`, `exit retry`, `exit fallback by=move`, `fallback=True`, or mission objectives appearing before `stage 200`.
+
+### OWNER TEST Items
+- Black-fade hold coverage after `LoadingMenu` closes, Vault 111 lighting/atmosphere, gear-door opening animation, `<= 7`-button S.P.E.C.I.A.L. box readability, lift ride feel, and hilltop arrival look.
+
+---
+
+## Card 3 — Story with Survival Across Save and Reload (`S2`, `B14`)
+
+- **Version Note (`S2`):** Picking `Survival: Yes` at New Game start locks Survival ON for that playthrough (`FO4SF_SurvivalStart == 1`, `FO4SF_SurvivalLocked == 1`); picking `Survival: No` leaves Survival unlocked for Gameplay Options toggling.
+- **Stage Placeholders:** `<player-bundle-dir>`, `<mapmarkers-stage-dir>`, `<starfield-dir>`
+- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` (`0 B` extra on existing Candidate 2b install).
+- **Plugin List (`Plugins.txt`, `22` bundle plugins + `FO4SFMapMarkers.esm`):**
+  Same 22-plugin `--profile player` list + `*FO4SFMapMarkers.esm` as Card 1.
+
+### Install Command (Game Closed)
+```bash
+python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
+python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+```
 
 ### Console-Free Steps
-1. **Black-screen mode prompt (`S4`):** While the screen fade is held black (`FadeHold = true`) and saving is disabled, select **`Story`** in Box 1 and **`Survival: No`** in Box 2. Confirm the screen fades in at the Vault 111 cryo pod (`stage 5` -> `stage 10`).
-2. **Vault armory & pre-Pip-Boy console gate (`M2`, `X1`, `X2`):**
-   - Walk through Vault 111 to the overseer/armory path and pick up the placeholder ballistic pistol, matching rounds, and `FO4SF_Stimpak`s (`FO4SFRouteLoot.esm`).
-   - Press **`E`** directly on the Vault 111 gear door (`VltGearDoor01`) and verify it stays shut.
-   - Press **`E`** on the gear-door console **before** picking up the Pip-Boy and verify `NoPipboyMsg` refuses opening.
-3. **Pip-Boy pickup & gear-door console (`X1`, `X2`):**
-   - Activate (`E`) the Pip-Boy 3000 pickup (`FO4SF_PipboyCorpsePickupRef` `0x080F`) beside the skeleton so `FO4SF_PipboyWrist` equips.
-   - Press **`E`** on the gear-door console (`MQ102GearDoorConsoleREF`) to open the gear door (`stage 30`) and walk through the doorway and yellow security gates (`X5` collision bodies).
-4. **Vault 111 lift `40`-point S.P.E.C.I.A.L. & optional Character respec (`X3`):**
-   - Step onto the floor-level Vault 111 elevator platform (`RespecMoveMarker`).
-   - Verify the 4-button prompt (`Continue`, `S.P.E.C.I.A.L.`, `Character`, `Stay`) keeps **`Continue`** gated until **`S.P.E.C.I.A.L.`** is confirmed once.
-   - Select **`S.P.E.C.I.A.L.`**, allocate all **`40` points** across the 10-button Progression allocator (`FO4SFCoreValues.esm` `0x0810`–`0x0816`), and confirm (`button=8`).
-   - Optionally select **`Character`** once (`RaceMenuMode = 2`, looks-only) and verify a second attempt logs the 1-use limit, then select **`Continue`**.
-5. **Carrying ascent, shared map setup & hilltop landing (`X4`):**
-   - Ride the elevator platform to the top of the shaft without console commands while shared map setup prepares all Commonwealth markers as known-undiscovered, then complete exterior hilltop arrival (`stage 40` -> `stage 200`) with only Vault 111 discovered (`discovered=1`).
+1. Start a **New Game**, pick **`Story`** and **`Survival: Yes`** (leave Starfield's Gameplay Options Hardcore toggle at `0`).
+2. After fade-in at the Vault 111 cryo pod (`stage 10 by=trigger`), create a manual save, choose **`Quit to Desktop`**, relaunch Starfield, reload that save, and wait `5 s`.
 
-### Required PASS Log Lines (`fo4sf_newgame.0.log`, `FO4SFProgression.0.log`, `FO4SFPipboyMenu.log`)
-- `mode fade held`
-- `mode choice mode=story survival=0`
-- `stage 5` -> `stage 10`
-- `pod settle ok=True`
-- `hold-off pass 2 stopped=196 of 199` (or `N - stopped <= 4` with zero `running_after=True` on pass 2)
-- `pistol picked item=... count=...`
-- `cog door activate blocked by=player open_state=...`
-- `console refused: no pipboy`
-- `pipboy pickup equipped flag=1 worn=True`
-- `cog door console activated ref=... before=... after=2` -> `stage 30`
-- `special box shown buttons=10 unspent=...` and per-press `special box press=...`
-- `special set S=... P=... E=... C=... I=... A=... L=... sum=40 source=lift` (between two elevator prompts; **never** `special skipped`)
-- `ascent play accepted=True`
-- `map setup done markers=<n> elapsed=<s>` (completed during the ride)
-- `ascent carried confirmed elapsed=... z=...`
-- `stage 40` -> `landed ... fallback=False` -> `stage 200`
-- `FO4SFPipboyMenu.log`: `step=map_markers ... discovered=1`
+### Undo Command (Game Closed)
+```bash
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
+python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+```
 
-### Negative / FAIL Conditions
-- Message boxes failing to draw over the held black fade (`S4` LEAD check), `cog door opened directly`, console opening without `pipboy pickup equipped flag=1`, `special skipped`, S.P.E.C.I.A.L. `sum != 40`, `exit failed reason=`, `fell z=`, `fallback=True`, walking through yellow gear-room or lift gates without collision (`X5`), or any mission objective banner appearing while still inside Vault 111 (`M1`).
-
-### OWNER TEST Items
-- How the start message boxes draw over the held black fade (`FadeHold`), Vault 111 interior lighting and atmosphere, gear-door opening animation/audio, yellow gate solid collision feel, 10-button S.P.E.C.I.A.L. box usability, elevator platform ride smoothness, and Commonwealth hilltop arrival look.
+### Required PASS Log Lines (`fo4sf_newgame.1.log`, `FO4SFHardcore.1.log`, `FO4SFHardcore.0.log`)
+```log
+FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=1
+FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why=start_choice end=true
+FO4SFHC rt=<rt> sync reason=start_choice hardcore=1 h=<h> hs=<hs> t=<t> ts=<ts> s=<s> ss=<ss> ammo_burden=<ab> carry_mod=<cm> end_mod=<em> str_mod=<sm> agi_mod=<am> int_mod=<im> ft_blocked=1 sq_env_running=False end=true
+FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why=reload end=true
+FO4SFHC rt=<rt> sync reason=reload hardcore=1 h=<h> hs=<hs> t=<t> ts=<ts> s=<s> ss=<ss> ammo_burden=<ab> carry_mod=<cm> end_mod=<em> str_mod=<sm> agi_mod=<am> int_mod=<im> ft_blocked=1 sq_env_running=False end=true
+```
 
 ---
 
-## Card 3 — Story with Survival Across Save and Reload (`S2`)
+## Card 4 — Warfare Start (`S3`, `S5`, `B3`, `B6`)
 
-- **Pre-Run Label:** **`TEST-STATION`** (upgraded to **`REACHABLE`** once save/quit/reload persistence passes in game).
-- **Version Disclosure (`S2` / Owner Defaults):**
-  > **Important:** In this version, **picking `Survival: Yes` at New Game start locks Survival ON for that character's playthrough** (`FO4SF_SurvivalStart == 1`, `FO4SF_SurvivalLocked == 1`) — turning the Starfield Gameplay Options Hardcore switch OFF will **not** disable Survival on that save. Conversely, choosing **`Survival: No`** at start leaves Survival unlocked so the Gameplay Options switch toggles Hardcore ON and OFF freely.
+- **Stage Placeholders:** `<player-bundle-dir>`, `<mapmarkers-stage-dir>`, `<starfield-dir>`
+- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` (`0 B` extra on existing Candidate 2b install).
+- **Plugin List (`Plugins.txt`, `22` bundle plugins + `FO4SFMapMarkers.esm`):**
+  Same 22-plugin `--profile player` list + `*FO4SFMapMarkers.esm` as Card 1.
+
+### Install Command (Game Closed)
+```bash
+python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
+python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+```
 
 ### Console-Free Steps
-1. Start a **New Game**, select **`Story`** in Box 1, and select **`Survival: Yes`** in Box 2 (keep Starfield's Gameplay Options Hardcore switch at its default OFF / `gpof=0`).
-2. Confirm fade-in at the Vault 111 cryo pod (`stage 10`), verify saving is re-enabled after mode selection, and create a normal manual save.
-3. Quit to desktop (or main menu), reload that save, and wait `5 s` for `OnPlayerLoadGame` evaluation.
-4. *(Optional unlocked check):* On a `Survival: No` save, toggle the Hardcore option ON then OFF in Starfield's Gameplay Options menu and confirm `enabled=1` -> `enabled=0`.
+1. Start a **New Game**, choose **`Warfare`**, **`Survival: No`** (or `Yes`), difficulty, **`Minutemen`**, and **`Sanctuary Hills`** (`minutemen_sanctuary`).
+2. Complete character looks (`ChargenMenu`) and allocate all `40` points across the `<= 7`-button S.P.E.C.I.A.L. boxes (`source=warfare`, **never** cancelling 3 times into `special default`).
+3. Confirm direct exterior fade-in at Sanctuary Hills (`stage 210 by=trigger`) with starter gear, wrist Pip-Boy, `discovered=1` on `MAP`, zero Vault 111 flash, and zero Story mission objectives.
 
-### Required PASS Log Lines (`fo4sf_newgame.0.log` & `FO4SFHardcore.0.log`)
-- At start choice (`fo4sf_newgame.0.log`):
-  - `mode choice mode=story survival=1`
-- Immediately upon start choice (`FO4SFHardcore.0.log`):
-  - `FO4SFHC ... hardcore source gpof=0 start=1 enabled=1 why=start_choice end=true`
-  - `FO4SFHC ... sync reason=start_choice hardcore=1 ... ft_blocked=1 sq_env_running=False end=true`
-- After save, quit, and reload (`FO4SFHardcore.0.log`):
-  - `FO4SFHC ... hardcore source gpof=0 start=1 enabled=1 why=reload end=true`
-  - `FO4SFHC ... sync reason=reload hardcore=1 ... ft_blocked=1 sq_env_running=False end=true`
+### Undo Command (Game Closed)
+```bash
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
+python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+```
 
-### Negative / FAIL Conditions
-- `enabled=0` after reload when `start=1`, `sq_env_running=True`, or saving remaining blocked after `FadeIn`.
-
-### OWNER TEST Items
-- Confirming the `Survival: Yes` prompt wording and HUD/Pip-Boy survival feel match expectations before and after reload.
-
----
-
-## Card 4 — Warfare Start (`S3`, `S5`)
-
-- **Pre-Run Label:** **`TEST-STATION`** (upgraded to **`REACHABLE`** once console-free Warfare deployment to Sanctuary Hills passes in game).
-- **Setup:** Start a **New Game** with `FO4SF_TestModeEnabled == 0` and no console commands.
-
-### Console-Free Steps
-1. At the start message-box chain (`S4` / `S5`):
-   - Box 1: **`Warfare`**
-   - Box 2: **`Survival: No`** (or `Yes`)
-   - Box 3: Select starting difficulty (e.g. `Normal`, `difficulty=1`)
-   - Box 4: **`Minutemen`** (`faction=0`)
-   - Box 5: **`Sanctuary Hills`** (`minutemen_sanctuary`, the single validated row in `warfare_starts.json` for Candidate 2)
-2. Complete the character looks creator (`ChargenMenu`, `RaceMenuMode = 2`) when it opens.
-3. Complete the **`40`-point S.P.E.C.I.A.L.** allocation (`source=warfare`) and confirm (`sum=40`).
-4. Verify the character fades in **directly outdoors at Sanctuary Hills** wearing Minutemen faction starter gear and the wrist Pip-Boy, having **never seen Vault 111**, with **zero Story mission objectives** in the HUD/Missions tab, and open the Pip-Boy `MAP` (`M`) to confirm only Sanctuary Hills is discovered (`discovered=1`).
-
-### Required PASS Log Lines (`fo4sf_newgame.0.log`, `FO4SFProgression.0.log`, `fo4sf_mission.0.log`, `FO4SFPipboyMenu.log`)
-- `mode fade held`
-- `mode choice mode=warfare survival=0` (or `1`)
-- `warfare pick faction=0 start=minutemen_sanctuary difficulty=<0..3>`
-- `warfare creator open mode=2` -> `warfare creator closed`
-- `special set S=... P=... E=... C=... I=... A=... L=... sum=40 source=warfare`
-- `FO4SFProgression.0.log`: `warfare_bg bg=8`
-- `warfare gear n=4`
-- `warfare move ok=True marker=... dist=... z=...`
-- `map setup done markers=<n> elapsed=<s>` (same shared function as `X4`)
-- `warfare standing slot=0 fame=... infamy=... karma=... squad_cap=4`
-- `fade in by=warfare ...` -> `stage 210`
-- Story mission suppression (`fo4sf_newgame.0.log` & `fo4sf_mission.0.log`):
-  - `mission gate mode=2 started=False`
-  - `mission gate mode=2 started=false` (`FO4SF_Min00`), `quest=keeper`, `quest=codsworth01` (all immediately `Stop()` with zero objectives shown)
-- `FO4SFPipboyMenu.log`:
-  - `step=map_markers ... discovered=1`
-
-### Negative / FAIL Conditions
-- Character Creator (`ShowRaceMenu`) failing to draw over held fade (`S4` LEAD check), `warfare move ok=False`, Vault 111 interior flashing on screen, `stage 20` / `stage 30` / `stage 40` running on Warfare, `discovered != 1`, or any Codsworth/Concord objective appearing in Warfare mode.
-
-### OWNER TEST Items
-- Character Creator visibility and transition during Warfare start, Sanctuary Hills spawn placement and facing, equipped faction outfit/weapon appearance, and absence of any Vault 111 flash.
+### Required PASS Log Lines (`fo4sf_newgame.0.log`, `fo4sf_mission.0.log`, `FO4SFPipboyMenu.log`)
+```log
+FO4SF_NEWGAME rt=<rt> mode choice mode=warfare survival=<0|1>
+FO4SF_NEWGAME rt=<rt> warfare pick faction=0 start=minutemen_sanctuary difficulty=<diff>
+FO4SF_NEWGAME rt=<rt> warfare creator open mode=2
+FO4SF_NEWGAME rt=<rt> warfare creator closed
+FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source=warfare
+FO4SF_NEWGAME rt=<rt> warfare gear n=4
+FO4SF_NEWGAME rt=<rt> warfare move ok=True marker=<marker> dist=<dist> z=<z>
+FO4SF_NEWGAME rt=<rt> map setup done markers=<n> elapsed=<sec>
+FO4SF_NEWGAME rt=<rt> warfare standing slot=0 fame=<fame> infamy=<inf> karma=<karma> squad_cap=4
+FO4SF_NEWGAME rt=<rt> stage 210 by=trigger
+FO4SF_NEWGAME rt=<rt> mission gate mode=2 started=False
+FO4SF_MISSION rt=<rt> mission gate mode=2 started=false
+step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corners_set=3/3 read_back=match
+```
 
 ---
 
-## Card 5 — Console-Free Mission Walk (`M1`–`M6`, `V1`, `#820`)
+## Card 5 — Console-Free Mission Walk, Desktop-Quit Reload & Beginning Verifier (`M1`–`M6`, `B6`–`B12`, `V1`)
 
-- **Pre-Run Label:** **`TEST-STATION` / `RECORDS ONLY` for `M4` & `M6` until `G4` in-game dialogue proof passes** (upgraded to **`REACHABLE`** only when both `E` conversations open `DialogueMenu` and complete without fallback in the same console-free session as Card 2).
-- **Critical `G4` Dependency (`M4` & `M6`):**
-  > On 18 Nov, pressing `E` on dialogue speakers did nothing before the `G4` scene/race/voice fix (`TopLevel` `PlayerDialogueSceneAction`, `HumanRace` + `AllowDefaultDialog` voice on Preston, `FO4SF_CodsworthRace` `AllowPcDialog` + `FO4SF_CodsworthVoice` `AllowDefaultDialog` on Codsworth). If `E` fails to open `DialogueMenu` in game, **`M4` and `M6` remain `NOT BUILT` for `REACHABLE`** regardless of offline record checks.
+- **Exact Quit Mode Required (`B7`):** At Step 4 (`stage 20` in Concord), save the game, choose **`Quit to Desktop`** (do **not** use `Quit to Main Menu`), and relaunch Starfield. Relaunching rotates `.0.log` -> `.1.log` (`fo4sf_newgame.1.log` + `fo4sf_newgame.0.log`, `fo4sf_mission.1.log` + `fo4sf_mission.0.log`), and `check_beginning_pilot.py` reads all rotated files per channel in chronological order (`*.3.log` -> `*.2.log` -> `*.1.log` -> `*.0.log`).
+- **Stage Placeholders:** `<player-bundle-dir>`, `<mapmarkers-stage-dir>`, `<starfield-dir>`, `<log-dir>`, `<newgame-log-1>`, `<newgame-log-0>`, `<mission-log-1>`, `<mission-log-0>`
+- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` (`0 B` extra when continuing directly from Card 2).
+- **Plugin List (`Plugins.txt`, `22` bundle plugins + `FO4SFMapMarkers.esm`):**
+  Same 22-plugin `--profile player` list + `*FO4SFMapMarkers.esm` as Card 1.
 
-### Console-Free Steps (Continuing Directly from Card 2 `stage 200` Landing)
-1. **Silent start on hilltop (`M1`):** At `stage 200` on the Vault 111 hilltop, confirm **no Concord objective** is displayed yet while `FO4SF_Codsworth01` points to Sanctuary Hills.
-2. **Route container loot (`M2`):** On the walk from Vault 111 through Sanctuary Hills and Red Rocket toward Concord (`<= 600 m` corridor), open at least `3` exterior containers (`FO4SFRouteLoot.esm`, `439` non-credit route containers over `83` `CONT` overrides) and confirm non-credit loot (`aid`, `ammo`, `junk`) spawns alongside credits.
-3. **Codsworth Sanctuary conversation (`M6`):**
-   - Approach Codsworth in Sanctuary Hills (`off <= 25 m`), verify his brushed-steel Mr. Handy model (non-black `.mat` fix) and talk prompt, and press **`E`**.
-   - Step through the 4-choice `DialogueMenu` scene (`stage 20`, `30`, `40`, `100`) so his final line reveals `FO4SF_Min00` `stage 10` (`min00 given by=codsworth`; or verify walking within `150 m` of the Concord museum door reveals `min00 given by=concord` if Codsworth was bypassed).
-4. **Concord street raider fight + `stage 20` save/reload (`M3`):**
-   - Walk down to Concord Museum street to engage the exterior raiders (`stage 20`, `DefaultCombatMasterPackage` `0x042240` + `DefaultSandboxCurrentLocation` `0x089605`).
-   - **Mid-fight reload check (`M3`):** While at `stage 20` with at least one raider remaining, save the game, quit, reload, confirm `reload mission stage=20 ... relocate_fails=0`, and eliminate the remaining raiders to reach `stage 30` (any subterranean/drifted raider is pulled back via `wfc01 rescue`, and any raider unreachable `> 60 s` auto-clears via `wfc01 raider cleared absent`).
-5. **Preston Garvey `DialogueMenu` turn-in (`M4`):**
-   - Approach Preston Garvey outside the museum (`HumanRace` + colonial/frontier placeholder outfit + `Orion` placeholder rifle), press **`E`**, and complete all `3` dialogue exchanges on Starfield's `DialogueMenu` to reach `stage 40` -> `100` credits reward -> `stage 200` (**do not** idle `120 s` for the proximity fallback: `stage 40 by=fallback` is an automatic **`FAIL`** for `REACHABLE`).
-6. **Sanctuary workbench hand-over (`M5`):**
-   - Follow the newly started `FO4SF_Sanctuary01` (`0x0817`) HUD marker back to the Sanctuary Hills workshop workbench (`0x005C50` / `0250FE`) and activate (`E`) the workbench to complete `stage 100`.
-7. **Run Beginning Pilot Verifier (`V1`):**
-   - Run `python scripts/testing/check_beginning_pilot.py check-logs --newgame-log <fo4sf_newgame.0.log> --mission-log <fo4sf_mission.0.log> --require-all-pass` and confirm `B1`–`B8` all report **`PASS`**.
+### Install & Post-Run Multi-Log Verifier Commands (Game Closed)
+```bash
+python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
+python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+python scripts/testing/check_beginning_pilot.py check-logs --log-dir <log-dir> --require-all-pass
+python scripts/testing/check_beginning_pilot.py check-logs --newgame-log <newgame-log-1> <newgame-log-0> --mission-log <mission-log-1> <mission-log-0> --require-all-pass
+```
 
-### Required PASS Log Lines (`fo4sf_mission.0.log`)
-- All mission log timestamps (`rt=`) appear **after** `fo4sf_newgame.0.log` `stage 200`.
-- `mission gate mode=1 started=true`
-- `codsworth01 init stage=10` -> `codsworth talk end -> min00 stage 10` -> `codsworth01 complete choices=... concord_pointed=true`
-- `min00 given by=codsworth` (or `min00 given by=concord` when testing the `< 150 m` proximity trigger)
-- `stage 10` -> `stage 20` -> `reload mission stage=20 ... relocate_fails=0` -> `stage 30` (plus `wfc01 rescue` / `wfc01 raider cleared absent` if triggered)
-- `preston talk end info=0x092A -> stage 40` -> `stage 40` -> `reward credits=100` -> `stage 200`
-- `min01 stage 10 objective bench` -> `sanctuary01 bench_bound ref=...` -> `min01 bench activated -> stage 100` -> `sanctuary01 bench_activated=true ... complete=true`
+### Console-Free Steps (Continuing Directly from Card 2 `stage 200 by=trigger`)
+1. **Silent start & route-only loot (`M1`, `M2`, `B10`, `B12`):** Confirm no Concord objective shows at hilltop landing while `FO4SF_Codsworth01` (`0x000816`) displays its Sanctuary objective (`B12`: cleared automatically via `codsworth01 objective 10 cleared by=concord` if the player bypasses Sanctuary to Concord). Along the `<= 600 m` Sanctuary -> Red Rocket -> Concord corridor, open at least `3` containers (`460` corridor `REFR` overrides pointing to `83` dedicated `FO4SFRouteLoot.esm` `CONT` bases, `439` non-credit; `0` `FO4TerrainCore.esm` `CONT` overrides so off-route containers stay unchanged).
+2. **Codsworth Sanctuary talk (`M6`, `B6`):** Press **`E`** on brushed-steel Codsworth (`0x000811`) in Sanctuary and complete Choice 4 (`codsworth01 stage 100 by=info` -> `min00 given by=codsworth` -> `stage 10 by=info`).
+3. **Concord raider fight + `Quit to Desktop` reload (`M3`, `B7`, `B9`):** Engage the Concord raiders (`stage 20 by=trigger`), create a manual save mid-fight, select **`Quit to Desktop`**, relaunch Starfield, reload that save (`reload mission stage=20 relocate_fails=0`), and clear the raiders (`stage 30 by=trigger`; any unreachable `> 60 s` or rescued-but-stuck `< 2 m` undamaged `60 s` raider stops combat, disables, and logs `wfc01 raider cleared <absent|stuck> ... disabled=true`).
+4. **Preston `DialogueMenu` final exchange (`M4`, `B6`, `B11`):** Press **`E`** on Preston (`0x000802`) and complete **all 3** `DialogueMenu` exchanges so exchange 3 (`0x092A`) sets **`stage 35 by=info`**, prints `preston talk end info=0x092A -> stage 40`, and advances to **`stage 40 by=info`** -> `100` placeholder credits -> **`stage 200 by=trigger`**. *(Preston remains held at the museum door after `stage 200`; `"Preston's group moving to Sanctuary"` is **`NOT BUILT`**.)*
+5. **Sanctuary workbench hand-over (`M5`, `B6`):** Follow `FO4SF_Sanctuary01` (`0x000817`) back to Sanctuary workbench `0x005C50` (`0250FE`) and press **`E`** (`sanctuary01 stage 100 by=bench`, `min01 bench activated -> stage 100`), then quit and run `check_beginning_pilot.py check-logs --log-dir <log-dir> --require-all-pass`.
+
+### Undo Command (Game Closed)
+```bash
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
+python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+```
+
+### Required PASS Log Lines (`fo4sf_mission.1.log` + `fo4sf_mission.0.log`)
+```log
+FO4SF_MISSION rt=<rt> mission gate mode=1 started=true
+FO4SF_MISSION rt=<rt> codsworth01 stage 10 by=trigger
+FO4SF_MISSION rt=<rt> codsworth01 stage 100 by=info
+FO4SF_MISSION rt=<rt> min00 given by=codsworth
+FO4SF_MISSION rt=<rt> stage 10 by=info
+FO4SF_MISSION rt=<rt> codsworth talk end -> min00 stage 10
+FO4SF_MISSION rt=<rt> codsworth01 complete choices=<n> concord_pointed=true
+FO4SF_MISSION rt=<rt> stage 20 by=trigger
+FO4SF_MISSION rt=<rt> reload mission stage=20 relocate_fails=0
+FO4SF_MISSION rt=<rt> stage 30 by=trigger
+FO4SF_MISSION rt=<rt> preston talk scene triggered stage=30
+FO4SF_MISSION rt=<rt> stage 35 by=info
+FO4SF_MISSION rt=<rt> preston talk end info=0x092A -> stage 40
+FO4SF_MISSION rt=<rt> stage 40 by=info
+FO4SF_MISSION rt=<rt> reward credits=100
+FO4SF_MISSION rt=<rt> stage 200 by=trigger
+FO4SF_MISSION rt=<rt> sanctuary01 stage 10 by=trigger
+FO4SF_MISSION rt=<rt> sanctuary01 init stage=10 bench_ref=0x005C50
+FO4SF_MISSION rt=<rt> sanctuary01 stage 100 by=bench
+FO4SF_MISSION rt=<rt> min01 bench activated -> stage 100
+FO4SF_MISSION rt=<rt> sanctuary01 bench_activated=true ref=<ref> complete=true
+```
 
 ### Negative / FAIL Conditions
-- Any mission line logged before `FO4SFNewGame` `stage 200`, `stage 40 by=fallback` (**counts as `FAIL` for `REACHABLE`**), `E` failing to open `DialogueMenu` on Codsworth or Preston, `relocate_fails >= 10`, Preston turning hostile on stray friendly fire, or Sanctuary workbench failing to complete `stage 100`.
-
-### Known-Bug Ledger Summary (`#820`) & Cut Scope (`NOT BUILT`)
-- **Fixed in Candidate 2:**
-  - `WFC-01` (Exterior raider straggler / unloaded-3D stall): fixed via `OnPlayerLoadGame` `relocateFails` reset, raider combat/sandbox packages, `wfc01 rescue` pullback, and `60 s` `wfc01 raider cleared absent` write-off (`M3`).
-  - `WFC-02` (Direct approach to Preston): retained `20 m` `FindRadius` + `OnActivate` combat start.
-  - `WFC-03` (Friendly-fire hostility): retained `FO4SF_MinutemenFaction` `Ally` relation + `IgnoreFriendlyHits(True)`.
-  - `WFC-05` (Post-completion / reload actor drift): `FO4SF_CodsworthKeeper` (`0x0814`) starts at `stage 200` in Story mode and maintains merged coordinates across reloads (`M1`).
-  - `WFC-07` (Silent `OnStageSet` drop / debug banners): synchronous `AdvanceTo` idempotency with developer `Debug.Notification` banners gated behind test mode (`1h`).
-- **Gated as `TEST-STATION`:**
-  - `COMP-01`..`COMP-06` (`FO4SF_COMPreston` follow stand-in): gated behind `FO4SF_TestModeEnabled != 0` (`follow preston test-only refused: test mode off` in normal play).
-- **Cut / Deferred (`NOT BUILT` in Candidate 2):**
-  - `WFC-04` (Museum balcony / upstairs door lockout) & `WFC-06` (Wave-2 sewer grate Deathclaw snag), together with all Museum of Freedom interior quest stages: **`laser musket`**, **`balcony talk`**, **`power armor + fusion core`**, **`minigun`**, **`second wave`**, and **`deathclaw`** (`NOT BUILT`).
-
-### OWNER TEST Items
-- Codsworth's brushed-steel material appearance (confirming the black-mesh bug is gone), Codsworth `.wem` voice playback and subtitle sync in `DialogueMenu`, outdoor container loot variety along the Sanctuary-to-Concord road, raider combat responsiveness in Concord, Preston's `HumanRace` placeholder appearance and `DialogueMenu` pacing, and Sanctuary workbench activation feel.
+- Any required stage missing `by=` or carrying `by=other` or `by=fallback`, Preston scene ending before exchange 3 (`preston talk scene ended stage=30 end_info=False`), `exit fallback by=move`, `special default`, mission starting before NewGame `stage 200`, or `check-logs --require-all-pass` exiting non-zero.

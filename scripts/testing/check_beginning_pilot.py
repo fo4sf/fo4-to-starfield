@@ -3,7 +3,10 @@
 
 Usage:
     python scripts/testing/check_beginning_pilot.py check-bundle --bundle-dir <staged_bundle>
-    python scripts/testing/check_beginning_pilot.py check-logs [--newgame-log <fo4sf_newgame.0.log>] [--mission-log <fo4sf_mission.0.log>]
+    python scripts/testing/check_beginning_pilot.py check-logs [--log-dir <Script/User dir>] \
+        [--newgame-log <fo4sf_newgame.1.log> <fo4sf_newgame.0.log>] \
+        [--mission-log <fo4sf_mission.1.log> <fo4sf_mission.0.log>] \
+        [--progression-log <FO4SFProgression.1.log> <FO4SFProgression.0.log>]
 """
 from __future__ import annotations
 
@@ -35,10 +38,31 @@ def main(argv: list[str] | None = None) -> int:
 
     p_log = sub.add_parser(
         "check-logs",
-        help="Evaluate fo4sf_newgame and fo4sf_mission logs into B1..B8 PASS/FAIL/IN_PROGRESS/UNTESTED lines.",
+        help="Evaluate fo4sf_newgame, fo4sf_mission, and FO4SFProgression logs (single or rotated multi-session) into B1..B8 verdicts.",
     )
-    p_log.add_argument("--newgame-log", default="")
-    p_log.add_argument("--mission-log", default="")
+    p_log.add_argument(
+        "--log-dir",
+        default="",
+        help="Directory holding rotated *.3.log .. *.0.log files; read in chronological order when per-channel paths are omitted.",
+    )
+    p_log.add_argument(
+        "--newgame-log",
+        nargs="+",
+        default=None,
+        help="One or more fo4sf_newgame log files in chronological order (e.g. fo4sf_newgame.1.log fo4sf_newgame.0.log).",
+    )
+    p_log.add_argument(
+        "--mission-log",
+        nargs="+",
+        default=None,
+        help="One or more fo4sf_mission log files in chronological order (e.g. fo4sf_mission.1.log fo4sf_mission.0.log).",
+    )
+    p_log.add_argument(
+        "--progression-log",
+        nargs="+",
+        default=None,
+        help="Optional FO4SFProgression log file(s) in chronological order.",
+    )
     p_log.add_argument(
         "--min-hold-pass2",
         type=int,
@@ -61,9 +85,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "check-logs":
         res = evaluate_beginning_logs(
-            newgame_log_path=args.newgame_log or None,
-            mission_log_path=args.newgame_log and (args.mission_log or None) or (args.mission_log or None),
+            newgame_log_path=args.newgame_log,
+            mission_log_path=args.mission_log,
             min_hold_pass2=args.min_hold_pass2,
+            progression_log_path=args.progression_log,
+            log_dir=args.log_dir or None,
         )
         for spec in BEGINNING_STEPS:
             info = res["steps"][spec.step_id]
