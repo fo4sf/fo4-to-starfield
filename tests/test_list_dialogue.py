@@ -85,6 +85,7 @@ def _build_synthetic_sources_zip(zip_path: Path) -> None:
         ),
         "Perk.psc": "Scriptname Perk extends Form Native\n",
         "ActorValue.psc": "Scriptname ActorValue extends Form Native\n",
+        "GlobalVariable.psc": "Scriptname GlobalVariable extends Form Native\nfloat Function GetValue() native\n",
         "Game.psc": "Scriptname Game Native\nActor Function GetPlayer() native global\n",
         "Debug.psc": (
             "Scriptname Debug Native\n"
@@ -194,7 +195,26 @@ class NonCollisionAndPropertyParityTests(unittest.TestCase):
         psc = (ROOT / "scripts" / "dialogue" / "FO4SF_ListDialogueQuest.psc").read_text(encoding="utf-8")
         psc_props = [pm.group(1) for pm in re.finditer(r"^\s*\w+\s+Property\s+(\w+)\s+Auto\s+Const\b", psc, re.M)]
         self.assertEqual(cs_props, psc_props)
-        self.assertEqual(len(cs_props), 8)
+        self.assertEqual(len(cs_props), 9)
+        self.assertIn("TestModeGlobal", psc_props)
+        self.assertIn("TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0", psc)
+
+    def test_shared_core_values_and_progression_masters_contract(self):
+        self.assertEqual(
+            list_checks.PLUGIN_MASTERS,
+            ("Starfield.esm", "FO4SFCoreValues.esm", "FO4SFProgression.esm"),
+        )
+        self.assertEqual(list_checks.SHARED_CORE_FORM_IDS, {
+            "SpeechAV": 0x00082A,
+            "ScienceAV": 0x000828,
+            "StrengthAV": 0x000810,
+            "IntelligenceAV": 0x000814,
+            "TestModeGlobal": 0x000860,
+        })
+        self.assertEqual(list_checks.PROGRESSION_PERK_FORM_IDS, {
+            "FO4SF_BG_VaultDweller": 0x000820,
+            "FO4SF_Trait_GoodNatured": 0x000836,
+        })
 
     def test_zero_overlap_with_pr792_files_and_separate_install_record(self):
         self.assertEqual(ldi.RECORD, "FO4SFListDialogue.install.json")
@@ -266,6 +286,10 @@ class LogAndStageVerifyTests(unittest.TestCase):
             self.assertEqual(
                 mld.main(["verify", "--exp-dir", str(folded), "--plan", str(stage_dir / "plan.json"), "--starfield", str(sf)]),
                 0,
+            )
+            self.assertEqual(
+                mld.main(["verify", "--exp-dir", str(folded), "--plan", str(stage_dir / "plan.json"), "--no-test-cell"]),
+                1,
             )
 
             # Injecting forbidden Interface/DialogueMenu.swf must fail verify!

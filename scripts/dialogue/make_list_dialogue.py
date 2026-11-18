@@ -44,6 +44,7 @@ REQUIRED = {
         "AddPerk", "RemovePerk", "HasPerk",
         "OnPlayerLoadGame",
     ],
+    "GlobalVariable": ["GetValue"],
     "Game": ["GetPlayer"],
     "Debug": ["OpenUserLog", "TraceUser"],
     "Utility": ["GetCurrentRealTime"],
@@ -160,8 +161,9 @@ def stage(a):
         sys.exit(f"base scripts do not declare {pre['missing']}: do not stage")
 
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
-    wrote = run(tool + ["build", a.starfield, out]).stdout
-    check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield]).stdout
+    extra_flags = ["--no-test-cell"] if getattr(a, "no_test_cell", False) else []
+    wrote = run(tool + ["build", a.starfield, out] + extra_flags).stdout
+    check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield] + extra_flags).stdout
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(wrote + check)
 
@@ -176,12 +178,15 @@ def stage(a):
     outputs = stage_files(out)
     list_checks.validate_no_host_movie_override(outputs.keys())
 
+    no_test_cell = bool(getattr(a, "no_test_cell", False))
     plan = {
         "kind": "list-dialogue",
         "version": 1,
         "plugin": PLUGIN,
         "plugin_sha256": outputs[PLUGIN],
         "plugins": [PLUGIN],
+        "masters": list(list_checks.PLUGIN_MASTERS),
+        "no_test_cell": no_test_cell,
         "scripts": {SCRIPT: sha256(pex)},
         "outputs": outputs,
         "inputs": {"Starfield.esm": {"sha256": before}},
@@ -192,18 +197,24 @@ def stage(a):
     }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
+    cell_note = (
+        "Player profile (--no-test-cell): zero test CELL / speaker NPC / test conversation records."
+        if no_test_cell
+        else "Test room CELL FO4SF_ListTalkCell (0x807) + NPC_ FO4SF_ListSpeakerNpc (0x806) + 8 list INFOs."
+    )
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout Silent-Player List Dialogue & Deterministic Skill Checks ({datetime.date.today().isoformat()}). docs/dialogue/list-skill-checks.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}):
-  AVIF FO4SF_Skill_Speech (0x800), FO4SF_Skill_Science (0x801);
-  PERK FO4SF_BG_VaultDweller (0x802), FO4SF_Trait_GoodNatured (0x803);
-  CELL FO4SF_ListTalkCell (0x807) + NPC_ FO4SF_ListSpeakerNpc (0x806, ACHR 0x808);
-  QUST FO4SF_ListDialogueQuest (0x810) + DLBR (0x811) + DIAL (0x812, 8 list INFOs) + Data/Scripts/{SCRIPT}.pex.
+  Masters: {', '.join(list_checks.PLUGIN_MASTERS)};
+  Shared AVIF/GLOBs in FO4SFCoreValues.esm (Speech 0x82A, Science 0x828, Strength 0x810, Intelligence 0x814, TestMode 0x860);
+  Shared PERKs in FO4SFProgression.esm (FO4SF_BG_VaultDweller 0x820, FO4SF_Trait_GoodNatured 0x836);
+  {cell_note}
+  QUST FO4SF_ListDialogueQuest (0x810) + Data/Scripts/{SCRIPT}.pex.
 Keeps Starfield's native DialogueMenu (0 Interface/DialogueMenu.swf replacement; coexists beside PR #792's wheel).
 Ride-along install (game closed):
   python scripts/dialogue/list_dialogue_install.py install --dir <stage dir> --starfield <game dir>
 Fold into core experiment set:
-  python scripts/dialogue/make_list_dialogue.py fold --stage <stage dir> --core-dir <core dir> --out <folded dir> --hardlink
+  python scripts/dialogue/make_list_dialogue.py fold --stage <stage dir> --core-dir <core exp dir> --out <folded dir> --hardlink
 """)
     os.replace(out, final)
     print(f"staged {final}: {PLUGIN}, Data/Scripts/{SCRIPT}.pex, offline_check.txt, plan.json, README.txt")
@@ -250,10 +261,12 @@ def verify_stage(stage_dir, plan, data_dir=None):
     return problems
 
 
-def verify_dir(exp_dir, plan, starfield=None):
+def verify_dir(exp_dir, plan, starfield=None, no_test_cell=False):
     problems = []
     if os.path.exists(os.path.join(exp_dir, "Data", "Interface", "DialogueMenu.swf")):
         problems.append("Interface/DialogueMenu.swf replacement present in exp_dir (forbidden)")
+    if no_test_cell and not plan.get("no_test_cell"):
+        problems.append("plan was not staged with --no-test-cell")
 
     def same(label, path, want):
         if not path or not os.path.isfile(path):
@@ -261,17 +274,26 @@ def verify_dir(exp_dir, plan, starfield=None):
         elif sha256(path) != want:
             problems.append(f"{label}: {path} sha256 {sha256(path)} != plan {want}")
 
-    same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
+    plug_path = os.path.join(exp_dir, plan["plugin"])
+    same("plugin", plug_path, plan["plugin_sha256"])
     for s, want in plan["scripts"].items():
         same("script", os.path.join(exp_dir, "Data", "Scripts", s + ".pex"), want)
     if starfield:
         same("Starfield.esm", starfield, plan["inputs"]["Starfield.esm"]["sha256"])
+        if not problems and os.path.getsize(plug_path) > 64 and os.path.getsize(starfield) > 64:
+            chk_flags = ["--no-test-cell"] if (no_test_cell or plan.get("no_test_cell")) else []
+            r = subprocess.run(
+                ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--", "check", plug_path, starfield] + chk_flags,
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                problems.append(f"ListDialogue check failed: {(r.stderr or r.stdout).strip()}")
     return problems
 
 
 def verify(a):
     plan = load_plan(a.plan)
-    problems = verify_dir(a.exp_dir, plan, a.starfield or None)
+    problems = verify_dir(a.exp_dir, plan, a.starfield or None, no_test_cell=bool(getattr(a, "no_test_cell", False)))
     for p in problems:
         print("FAIL  " + p)
     print("verify: ok" if not problems else f"verify: {len(problems)} problem(s); do not install")
@@ -391,11 +413,13 @@ def main(argv=None):
     p_st.add_argument("--starfield", default=env_game_path("Data", "Starfield.esm"))
     p_st.add_argument("--compiler", default=env_game_path("Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     p_st.add_argument("--content-resources", default=env_game_path("Tools", "ContentResources.zip"))
+    p_st.add_argument("--no-test-cell", action="store_true")
 
     p_ver = sub.add_parser("verify")
     p_ver.add_argument("--exp-dir", required=True)
     p_ver.add_argument("--plan", required=True)
     p_ver.add_argument("--starfield", default="")
+    p_ver.add_argument("--no-test-cell", action="store_true")
 
     p_fold = sub.add_parser("fold")
     p_fold.add_argument("--stage", required=True)

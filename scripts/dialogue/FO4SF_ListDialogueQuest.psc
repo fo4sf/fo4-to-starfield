@@ -8,6 +8,7 @@ ActorValue Property StrengthAV Auto Const
 ActorValue Property IntelligenceAV Auto Const
 Perk Property BgVaultDwellerPerk Auto Const
 Perk Property TraitGoodNaturedPerk Auto Const
+GlobalVariable Property TestModeGlobal Auto Const
 Actor Property SpeakerRef Auto Const
 ObjectReference Property ArrivalRef Auto Const
 
@@ -81,6 +82,9 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
 EndEvent
 
 Function PollStages()
+    if TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0
+        return
+    endif
     Actor player = Game.GetPlayer()
     if player == None
         return

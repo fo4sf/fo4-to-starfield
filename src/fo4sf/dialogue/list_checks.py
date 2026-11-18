@@ -12,6 +12,24 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id, core_values_by_edid
+
+PLUGIN = "FO4SFListDialogue.esm"
+PROGRESSION_PLUGIN = "FO4SFProgression.esm"
+PLUGIN_MASTERS = ("Starfield.esm", CORE_VALUES_PLUGIN, PROGRESSION_PLUGIN)
+
+SHARED_CORE_FORM_IDS = {
+    "SpeechAV": core_form_id("FO4SF_Skill_Speech"),
+    "ScienceAV": core_form_id("FO4SF_Skill_Science"),
+    "StrengthAV": core_form_id("FO4SF_Special_Strength"),
+    "IntelligenceAV": core_form_id("FO4SF_Special_Intelligence"),
+    "TestModeGlobal": core_form_id("FO4SF_TestModeEnabled"),
+}
+PROGRESSION_PERK_FORM_IDS = {
+    "FO4SF_BG_VaultDweller": 0x000820,
+    "FO4SF_Trait_GoodNatured": 0x000836,
+}
+
 HOST_MENU = "DialogueMenu"
 FORBIDDEN_HOST_MOVIE = "Interface/DialogueMenu.swf"
 WHEEL_OVERLAY_MOVIE = "Interface/FO4SF_DialogueWheel.swf"
@@ -20,14 +38,14 @@ CHOICES_KEY = "aChoices"
 SELECT_EVENT = "DialogueMenu_OnDialogueSelect"
 SELECT_KEY = "selectedIndex"
 
-NV_SKILLS = frozenset({
-    "Barter", "Energy Weapons", "Explosives", "Guns", "Lockpick", "Medicine",
-    "Melee Weapons", "Repair", "Science", "Sneak", "Speech", "Survival", "Unarmed",
-})
+_CORE_RECORDS = core_values_by_edid()
+NV_SKILLS = frozenset(
+    rec.name for edid, rec in _CORE_RECORDS.items() if edid.startswith("FO4SF_Skill_")
+)
 
-SPECIAL_ATTRIBUTES = frozenset({
-    "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck",
-})
+SPECIAL_ATTRIBUTES = frozenset(
+    rec.name for edid, rec in _CORE_RECORDS.items() if edid.startswith("FO4SF_Special_")
+)
 
 TAG_RE = re.compile(r"^\[(?P<inner>[^\]]+)\]\s*(?P<body>.*)$")
 THRESHOLD_INNER_RE = re.compile(r"^(?P<name>[A-Za-z][A-Za-z ]*?)\s+(?P<num>\d+)\+?$")
