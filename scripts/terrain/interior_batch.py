@@ -149,13 +149,77 @@ def free_gb(path):
 
 
 # ----------------------------------------------------------------------------------------------------------- compare
-def compare(old_dir, new_dir, plugin=PLUGIN):
-    """The new port against the old one: ids, records, cells. {"pass", "problems", ...}."""
+MAX_LOCAL_FORMID = 0x00FFFFFF
+
+
+def kept_door_marker_ids(doors_json_path):
+    """Set of local FormIDs reserved by an earlier build's doors.json (--keep-markers)."""
+    if not doors_json_path or not os.path.isfile(doors_json_path):
+        return set()
+    doc = load(doors_json_path)
+    return {int(d["marker"], 16) & MAX_LOCAL_FORMID for d in (doc.get("doors") or []) if "marker" in d}
+
+
+def reconcile_formids(prev_ids, authoritative_ids, prev_installed=False, reserved_ids=()):
+    """Seed FormID map combining `prev_ids` (--prev) and `authoritative_ids` (--base / --installed-port) so ZERO
+    authoritative/installed IDs move.
+    Returns (seed_ids, reconciled_map) where `reconciled_map` is {key: {"old": int, "new": int, "reason": str}} for any
+    uninstalled-prev keys whose ID was claimed by `authoritative_ids` or differed from `authoritative_ids[key]`.
+    Raises ValueError if `prev_installed` is True and any ID conflicts, or if FormID space is exhausted."""
+    auth_vals = set(authoritative_ids.values())
+    key_diffs = [k for k in prev_ids if k in authoritative_ids and prev_ids[k] != authoritative_ids[k]]
+    val_clashes = [k for k in prev_ids if k not in authoritative_ids and prev_ids[k] in auth_vals]
+    if not key_diffs and not val_clashes:
+        seed = dict(prev_ids)
+        seed.update(authoritative_ids)
+        return seed, {}
+    if prev_installed:
+        sample = (key_diffs + val_clashes)[:5]
+        raise ValueError(
+            f"--prev is marked installed and conflicts with the installed port's formids.json on "
+            f"{len(key_diffs) + len(val_clashes)} key(s) (first: {sample}): refusing to move installed IDs"
+        )
+    seed = dict(authoritative_ids)
+    used = set(authoritative_ids.values()) | set(reserved_ids)
+    reconciled = {}
+    for k in sorted(key_diffs):
+        reconciled[k] = {"old": prev_ids[k], "new": authoritative_ids[k], "reason": "installed_key"}
+    displaced = []
+    for k, pv in prev_ids.items():
+        if k in authoritative_ids:
+            continue
+        if pv in used:
+            displaced.append((pv, k))
+        else:
+            seed[k] = pv
+            used.add(pv)
+    next_id = max(used | set(prev_ids.values()), default=0x7FF) + 1
+    for old_v, k in sorted(displaced):
+        while next_id in used:
+            next_id += 1
+        if next_id > MAX_LOCAL_FORMID:
+            raise ValueError(f"FormID space exhausted while reconciling displaced key {k}")
+        seed[k] = next_id
+        used.add(next_id)
+        reconciled[k] = {"old": old_v, "new": next_id, "reason": "displaced_by_installed"}
+    return seed, reconciled
+
+
+def compare(old_dir, new_dir, plugin=PLUGIN, reconciled=None):
+    """The new port against the old one: ids, records, cells. {"pass", "problems", ...}.
+    When `reconciled` is None (default, always used for --base and --installed-port), every old key must keep its exact
+    FormID and record at that FormID. When `reconciled` ({key: {"old", "new", ...}}) is given for an uninstalled --prev
+    reconciled against an installed port, non-reconciled keys must stay at their exact FormIDs and reconciled keys must
+    sit at their exact reconciled FormIDs with preserved record signatures."""
     plugin_esm, _ = pack_staging.normalize_plugin_name(plugin)
     old_ids, new_ids = load(os.path.join(old_dir, "formids.json")), load(os.path.join(new_dir, "formids.json"))
+    rec_map = reconciled or {}
     problems = []
     missing = sorted(k for k in old_ids if k not in new_ids)
-    moved = sorted(k for k in old_ids if k in new_ids and new_ids[k] != old_ids[k])
+    moved = sorted(
+        k for k in old_ids
+        if k in new_ids and new_ids[k] != (rec_map[k]["new"] if k in rec_map else old_ids[k])
+    )
     if missing:
         problems.append(f"{len(missing)} base id key(s) missing from the new formids.json (first: {missing[:5]})")
     if moved:
@@ -164,16 +228,23 @@ def compare(old_dir, new_dir, plugin=PLUGIN):
     new_p = vmad_patch.Plugin.read(os.path.join(new_dir, plugin_esm))
     if old_p.masters() != new_p.masters():
         problems.append(f"masters {old_p.masters()} -> {new_p.masters()}")
+    own = len(old_p.masters()) << 24
+    local_remap = {
+        rec_map[k]["old"]: rec_map[k]["new"]
+        for k in rec_map
+        if k in old_ids and old_ids[k] == rec_map[k]["old"]
+    }
     old_r, new_r = old_p.records(), new_p.records()
     same, changed, removed, resig = Counter(), Counter(), [], []
     changed_ids = []
     for fid, (sig, flags, data, path) in old_r.items():
-        n = new_r.get(fid)
+        target_fid = (own | local_remap[fid & MAX_LOCAL_FORMID]) if ((fid >> 24) == len(old_p.masters()) and (fid & MAX_LOCAL_FORMID) in local_remap) else fid
+        n = new_r.get(target_fid)
         if n is None:
             removed.append(f"{sig.decode()} {fid:08X}")
         elif n[0] != sig:
             resig.append(f"{fid:08X} {sig.decode()} -> {n[0].decode()}")
-        elif (n[1], n[2]) == (flags, data):
+        elif target_fid == fid and (n[1], n[2]) == (flags, data):
             same[sig.decode()] += 1
         else:
             changed[sig.decode()] += 1
@@ -187,8 +258,11 @@ def compare(old_dir, new_dir, plugin=PLUGIN):
         problems.append(f"{len(resig)} base record(s) changed signature (first: {resig[:5]})")
     old_cells = {k[5:] for k in old_ids if k.startswith("CELL:")}
     new_cells = {k[5:] for k in new_ids if k.startswith("CELL:")}
+    ids_summary = {"old": len(old_ids), "new": len(new_ids), "missing": len(missing), "renumbered": len(moved)}
+    if reconciled is not None:
+        ids_summary["reconciled"] = len(rec_map)
     return {"old": os.path.abspath(old_dir), "new": os.path.abspath(new_dir), "pass": not problems, "problems": problems,
-            "ids": {"old": len(old_ids), "new": len(new_ids), "missing": len(missing), "renumbered": len(moved)},
+            "ids": ids_summary,
             "records": {"old": len(old_r), "new": len(new_r), "identical": dict(sorted(same.items())),
                         "changed": dict(sorted(changed.items())), "changed_first": changed_ids,
                         "removed": len(removed), "removed_causes": why, "added": dict(sorted(added.items()))},
@@ -235,16 +309,60 @@ def disk_need(plan, n, work_started):
     return round(b["archives_gb_est"] + max(0.0, grow), 2)
 
 
+def stage_ancestor_base_pin(port_or_stage):
+    """If `port_or_stage` is a stage or a stage's `port` folder, return its result.json pins.base_plugin (else None)."""
+    for d in (port_or_stage, os.path.dirname(os.path.abspath(port_or_stage))):
+        marker = os.path.join(d, MARKER)
+        if os.path.isfile(marker):
+            try:
+                return ((load(marker).get("pins") or {}).get("base_plugin"))
+            except (OSError, ValueError):
+                return None
+    return None
+
+
+def resolve_installed_port(a, plugin_esm):
+    """Resolve optional --installed-port / --compare-installed to a directory holding <plugin_esm> and formids.json."""
+    raw = getattr(a, "installed_port", "") or ""
+    if not raw:
+        return None
+    cand = os.path.join(raw, "port") if os.path.isfile(os.path.join(raw, "port", "formids.json")) else raw
+    for need in (plugin_esm, "formids.json"):
+        if not os.path.isfile(os.path.join(cand, need)):
+            sys.exit(f"--installed-port {raw} lacks {need}")
+    return cand
+
+
+def build_authoritative_formids(base_dir, installed_port=None):
+    """Return authoritative FormID map from --base (and optional --installed-port), refusing any disagreement between them."""
+    base_ids = load(os.path.join(base_dir, "formids.json"))
+    if not installed_port:
+        return dict(base_ids)
+    inst_ids = load(os.path.join(installed_port, "formids.json"))
+    clashes = sorted(k for k in base_ids if k in inst_ids and base_ids[k] != inst_ids[k])
+    if clashes:
+        raise ValueError(
+            f"--base and --installed-port disagree on {len(clashes)} FormID key(s) (first: {clashes[:5]})"
+        )
+    merged = dict(base_ids)
+    merged.update(inst_ids)
+    return merged
+
+
 def check_prev(a, n):
-    """The previous batch this one grows: a passing build of batch n - 1 over the same base port. Returns
-    (its port folder, its result.json)."""
+    """The previous batch this one grows (batch n - 1, or batch n when rebuilding with --animated-doors) over the same
+    base port (or a sibling base stage built over the same ancestor base_plugin). Returns (its port folder, its result.json)."""
     plugin_esm, _, _ = resolve_plugin_and_prefix(a)
     r = load(os.path.join(a.prev, MARKER))
     port = os.path.join(a.prev, "port")
-    if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] == n - 1):
+    allowed_batches = {n - 1} | ({n} if getattr(a, "animated_doors", False) else set())
+    if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] in allowed_batches):
         sys.exit(f"--prev {a.prev}: not a passing build of batch {n - 1} (batch {r.get('batch')}, pass {r.get('pass')}): "
                  f"batch {n} grows exactly the batch before it, so every id a skipped batch gave out is kept")
-    if r.get("pins", {}).get("base_plugin") != sha256(os.path.join(a.base, plugin_esm)):
+    prev_base_pin = (r.get("pins") or {}).get("base_plugin")
+    cur_base_sha = sha256(os.path.join(a.base, plugin_esm))
+    cur_base_ancestor = stage_ancestor_base_pin(a.base)
+    if prev_base_pin != cur_base_sha and (not cur_base_ancestor or prev_base_pin != cur_base_ancestor):
         sys.exit(f"--prev {a.prev} was built over another base port")
     for need in (plugin_esm, "formids.json"):
         if not os.path.isfile(os.path.join(port, need)):
@@ -648,6 +766,21 @@ def build(a):
         sys.exit(f"batch {a.batch} needs --prev, the passing build of batch {a.batch - 1}: without it the ids would be "
                  f"seeded from the base port alone and the earlier batches' records could be renumbered")
     prev_port, prev_result = check_prev(a, a.batch) if a.prev else (None, None)
+    installed_port = resolve_installed_port(a, plugin_esm)
+    try:
+        auth_ids = build_authoritative_formids(a.base, installed_port)
+        marker_ids = kept_door_marker_ids(os.path.join(a.base, "doors.json"))
+        if prev_port:
+            seed_ids, reconciled_map = reconcile_formids(
+                load(os.path.join(prev_port, "formids.json")),
+                auth_ids,
+                prev_installed=bool((prev_result or {}).get("installed")),
+                reserved_ids=marker_ids,
+            )
+        else:
+            seed_ids, reconciled_map = auth_ids, {}
+    except ValueError as e:
+        sys.exit(str(e))
     # the base cells a DLC overrides (none today): the sidecar reads their location data from the DLC too, so it is pinned
     old_plugins = base_plugins(old_cells, a.base_exports, a.census_data)
     # X8: the game files this batch reads are pinned; a chain built from other files is refused, since the
@@ -681,6 +814,43 @@ def build(a):
     work_status, work_diff = check_work(a, sources)
     if work_diff:
         source_change["--work"] = work_diff
+    if getattr(a, "dry_run", False):
+        inst_ids = load(os.path.join(installed_port, "formids.json")) if installed_port else load(os.path.join(a.base, "formids.json"))
+        installed_moved = [k for k, v in inst_ids.items() if seed_ids.get(k) != v]
+        core_path = os.path.join(a.core, CORE_PLUGIN)
+        dry = {
+            "dry_run": True,
+            "pass": len(installed_moved) == 0,
+            "batch": a.batch,
+            "animated_doors": bool(getattr(a, "animated_doors", False)),
+            "plugin_name": plugin_esm,
+            "prefix": prefix,
+            "base": os.path.abspath(a.base),
+            "prev": os.path.abspath(a.prev) if a.prev else None,
+            "installed_port": os.path.abspath(installed_port) if installed_port else None,
+            "core_plugin_sha256": sha256(core_path) if os.path.isfile(core_path) else None,
+            "cells": {"base": len(old_cells), "batch_cumulative": len(new_cells), "total": len(old_cells) + len(new_cells)},
+            "formids": {
+                "installed_count": len(inst_ids),
+                "installed_moved": len(installed_moved),
+                "prev_count": len(load(os.path.join(prev_port, "formids.json"))) if prev_port else 0,
+                "seed_count": len(seed_ids),
+                "kept_door_markers": len(marker_ids),
+                "reconciled_count": len(reconciled_map),
+                "installed_keys_adopted": sum(1 for v in reconciled_map.values() if v["reason"] == "installed_key"),
+                "displaced_by_installed": sum(1 for v in reconciled_map.values() if v["reason"] == "displaced_by_installed"),
+            },
+            "sources": {
+                "plugins": len(sources["plugins"]),
+                "archives": len(sources["archives"]),
+                "allowed_change": source_change or None,
+                "work_status": work_status,
+            },
+        }
+        os.makedirs(a.out)
+        save(os.path.join(a.out, "dry_run.json"), dry)
+        print(json.dumps(dry, indent=1))
+        return 0 if dry["pass"] else 1
     # the staging's record: its per-cell export plugins and its history (every adoption or allowed change, kept by
     # every later build, so result.json never calls a staging proven that once was not)
     work_old = work_record(a.work)[0] or {}
@@ -792,8 +962,19 @@ def build(a):
     # 4. plugin
     raw = os.path.join(a.out, "plugin")
     os.makedirs(raw)
-    shutil.copyfile(os.path.join(prev_port or a.base, "formids.json"), os.path.join(raw, "formids.json"))
-    steps["formids_seed"] = os.path.abspath(os.path.join(prev_port or a.base, "formids.json"))
+    source_seed_file = os.path.join(prev_port or a.base, "formids.json")
+    if not reconciled_map and not installed_port and (not prev_port or seed_ids == load(source_seed_file)):
+        shutil.copyfile(source_seed_file, os.path.join(raw, "formids.json"))
+    else:
+        save(os.path.join(raw, "formids.json"), seed_ids)
+    steps["formids_seed"] = os.path.abspath(source_seed_file)
+    if reconciled_map:
+        steps["formids_reconciled"] = {
+            "count": len(reconciled_map),
+            "installed_keys_adopted": sum(1 for v in reconciled_map.values() if v["reason"] == "installed_key"),
+            "displaced_by_installed": sum(1 for v in reconciled_map.values() if v["reason"] == "displaced_by_installed"),
+            "entries": reconciled_map,
+        }
     if os.path.isfile(os.path.join(a.base, "lighting.json")):
         shutil.copyfile(os.path.join(a.base, "lighting.json"), os.path.join(raw, "lighting.json"))
     # The base cells' pinned exports predate schema 3 (no location keys), and so may an earlier batch's export cached
@@ -846,12 +1027,22 @@ def build(a):
     save(os.path.join(port, "compare.json"), cmp_)
     steps["compare"] = {"pass": cmp_["pass"], "problems": cmp_["problems"], "records": cmp_["records"],
                         "cells_added": len(cmp_["cells_added"])}
+    inst_ok = True
+    if installed_port:
+        cmp_inst = compare(installed_port, port, plugin=plugin_esm)
+        save(os.path.join(port, "compare_installed.json"), cmp_inst)
+        steps["compare_installed"] = {"installed": os.path.abspath(installed_port), "pass": cmp_inst["pass"],
+                                      "problems": cmp_inst["problems"], "ids": cmp_inst["ids"],
+                                      "records": cmp_inst["records"], "cells_added": len(cmp_inst["cells_added"])}
+        inst_ok = cmp_inst["pass"]
     prev_ok = True
     if prev_port:
-        cmp_prev = compare(prev_port, port, plugin=plugin_esm)
+        cmp_prev = compare(prev_port, port, plugin=plugin_esm, reconciled=reconciled_map or None)
         save(os.path.join(port, "compare_prev.json"), cmp_prev)
         steps["compare_prev"] = {"prev": os.path.abspath(a.prev), "pass": cmp_prev["pass"], "problems": cmp_prev["problems"],
                                  "records": cmp_prev["records"], "cells_added": len(cmp_prev["cells_added"])}
+        if reconciled_map:
+            steps["compare_prev"]["reconciled"] = len(reconciled_map)
         prev_ok = cmp_prev["pass"]
     teleports = load(os.path.join(raw, "teleports.json")) if os.path.isfile(os.path.join(raw, "teleports.json")) else {}
     steps["teleports"] = {k: v for k, v in teleports.items() if not isinstance(v, list)}
@@ -865,7 +1056,7 @@ def build(a):
             mods = set()
         e["failed_models"] = sorted(m for m in mods if ("meshes\\" + m if not m.startswith("meshes\\") else m) in failed_models)
         e["result"] = ("converted" if e["in_plugin"] and e.get("exported") else "failed")
-        e["checked"] = bool(e["in_plugin"] and cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0)
+        e["checked"] = bool(e["in_plugin"] and cmp_["pass"] and inst_ok and prev_ok and steps["doors_check"]["exit"] == 0)
         if e["result"] == "failed":
             e["reason"] = "export failed" if not e.get("exported") else "cell not written by PluginSpike"
 
@@ -873,12 +1064,12 @@ def build(a):
     steps["cells_failed"] = unwritten
 
     # 7. pack (not for a batch with cells missing from its plugin: it fails anyway)
-    if not a.no_pack and cmp_["pass"] and prev_ok and not unwritten:
+    if not a.no_pack and cmp_["pass"] and inst_ok and prev_ok and not unwritten:
         try:
             steps["pack"] = pack(a, port, prev_port, prev_result, log)
         except ValueError as e:
             steps["pack"] = {"pass": False, "problem": str(e)}
-    ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports and not unwritten
+    ok = (cmp_["pass"] and inst_ok and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports and not unwritten
           and steps.get("pack", {}).get("pass", True))
     return finish_(None if ok else "checks failed (see steps)")
 
@@ -894,7 +1085,7 @@ def animated_args_problem(a):
         if getattr(a, "animated_pex", "") or getattr(a, "door_flags", False) or getattr(a, "doorsounds", ""):
             return "--animated-pex, --door-flags and --doorsounds need --animated-doors"
         return None
-    if not a.no_pack and not a.animated_pex:
+    if not a.no_pack and not getattr(a, "dry_run", False) and not a.animated_pex:
         return "--animated-doors needs --animated-pex (the compiled FO4SF_AnimatedLoadDoor.pex), or --no-pack"
     if a.animated_pex and (os.path.basename(a.animated_pex) != ANIMATED_PEX or not os.path.isfile(a.animated_pex)):
         return f"--animated-pex {a.animated_pex} is not an existing {ANIMATED_PEX}"
@@ -1365,6 +1556,110 @@ def prune(root, keep, delete):
     return drop
 
 
+# -------------------------------------------------------------------------------------------------------- adopt-core
+def adopt_core(stage, core_dir="", out_dir=""):
+    """Record `pins.core_plugin` SHA-256 from the core verified by `<stage>/port/doors_check.json` so
+    `deploy_starfield.py install --batch` accepts the stage without `--other-core` when the installed core matches.
+    When `out_dir` is given, writes a new adopted stage folder (hard-linking `port/` files) without modifying `stage`."""
+    stage = os.path.abspath(stage)
+    if out_dir:
+        out_dir = os.path.abspath(out_dir)
+        pipeline.refuse_unsafe_output_dir(out_dir, "--out")
+        if os.path.exists(out_dir):
+            raise ValueError(f"--out {out_dir} already exists")
+    else:
+        pipeline.refuse_unsafe_output_dir(stage, "--stage")
+
+    marker_path = os.path.join(stage, MARKER)
+    if not os.path.isfile(marker_path):
+        raise ValueError(f"{stage}: missing {MARKER}")
+    res = load(marker_path)
+    if res.get("pass") is not True:
+        raise ValueError(f"{stage}: stage did not pass (pass={res.get('pass')!r})")
+
+    plugin_esm = stage_plugin_name(stage)
+    port_dir = os.path.join(stage, "port")
+    plugin_path = os.path.join(port_dir, plugin_esm)
+    want_plugin = (res.get("pins") or {}).get("plugin")
+    if not want_plugin or not os.path.isfile(plugin_path) or sha256(plugin_path) != want_plugin:
+        raise ValueError(f"{stage}: port\\{plugin_esm} missing or does not match pins.plugin")
+
+    dc_path = os.path.join(port_dir, "doors_check.json")
+    if not os.path.isfile(dc_path):
+        raise ValueError(f"{stage}: missing port\\doors_check.json")
+    dc = load(dc_path)
+    checks = dc.get("checks") or []
+    if dc.get("pass") is not True or not checks or not all(isinstance(c, list) and len(c) >= 2 and c[1] is True for c in checks):
+        raise ValueError(f"{dc_path}: doors_check did not pass all checks")
+    if dc.get("plugin") and dc.get("plugin") != plugin_esm:
+        raise ValueError(f"{dc_path}: doors_check plugin {dc.get('plugin')!r} != {plugin_esm!r}")
+
+    checked_core = dc.get("core") or ""
+    chosen_core = os.path.abspath(core_dir or checked_core)
+    if not chosen_core or not os.path.isdir(chosen_core):
+        raise ValueError(f"verified core folder not found: {chosen_core!r}")
+    chosen_esm = os.path.join(chosen_core, CORE_PLUGIN)
+    if not os.path.isfile(chosen_esm):
+        raise ValueError(f"missing {CORE_PLUGIN} in {chosen_core}")
+    core_sha = sha256(chosen_esm)
+
+    if core_dir and checked_core and os.path.abspath(core_dir).lower() != os.path.abspath(checked_core).lower():
+        checked_esm = os.path.join(checked_core, CORE_PLUGIN)
+        if not os.path.isfile(checked_esm) or sha256(checked_esm) != core_sha:
+            raise ValueError(
+                f"--core {chosen_core} does not match the core verified in doors_check.json ({checked_core})"
+            )
+
+    existing_pin = (res.get("pins") or {}).get("core_plugin")
+    if existing_pin and existing_pin.lower() != core_sha.lower():
+        raise ValueError(
+            f"{stage}: pins.core_plugin already set to {existing_pin[:12]}, which differs from {core_sha[:12]}"
+        )
+
+    updated = json.loads(json.dumps(res))
+    updated.setdefault("pins", {})["core_plugin"] = core_sha
+    prev_core = updated.get("core")
+    updated["core"] = chosen_core
+    updated.setdefault("steps", {})["adopt_core"] = {
+        "core": chosen_core,
+        "core_plugin": core_sha,
+        "doors_check": os.path.abspath(dc_path),
+        "checks": len(checks),
+        "previous_core": prev_core,
+        "previous_core_plugin": existing_pin,
+    }
+
+    target_dir = out_dir or stage
+    copies = 0
+    if out_dir:
+        os.makedirs(os.path.join(out_dir, "port"), exist_ok=True)
+        for name in sorted(os.listdir(port_dir)):
+            s_file = os.path.join(port_dir, name)
+            if not os.path.isfile(s_file):
+                continue
+            d_file = os.path.join(out_dir, "port", name)
+            try:
+                os.link(s_file, d_file)
+            except OSError:
+                shutil.copyfile(s_file, d_file)
+                copies += 1
+        if os.path.isfile(os.path.join(stage, "README.txt")):
+            shutil.copyfile(os.path.join(stage, "README.txt"), os.path.join(out_dir, "README.txt"))
+        updated["name"] = os.path.basename(out_dir)
+        updated["steps"]["adopt_core"]["source_stage"] = stage
+        updated["steps"]["adopt_core"]["copied_files"] = copies
+
+    save(os.path.join(target_dir, MARKER), updated)
+    return {
+        "stage": target_dir,
+        "plugin": plugin_esm,
+        "core": chosen_core,
+        "core_plugin": core_sha,
+        "checks": len(checks),
+        "copied_files": copies,
+    }
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1377,6 +1672,10 @@ def main(argv=None):
     b.add_argument("--promote-arg", action="append", default=[])
     b.add_argument("--convert-arg", action="append", default=[])
     b.add_argument("--prev", default="")
+    b.add_argument("--installed-port", "--compare-installed", dest="installed_port", default="",
+                   help="installed port folder (or stage) whose formids.json and records must have zero IDs moved")
+    b.add_argument("--dry-run", action="store_true",
+                   help="verify --prev, --base, --installed-port, source pins, and FormID reconciliation without building")
     b.add_argument("--dlc-data", action="append", default=[],
                    help="a DLC's Data folder (repeatable): its plugin for that batch's cells, its DLC*.ba2 for the models")
     b.add_argument("--dlc-plugins", default="",
@@ -1399,6 +1698,10 @@ def main(argv=None):
     b.add_argument("--doorsounds", default="", help="with --animated-doors: SfInspect doorsounds TSV (load_door_anim sounds)")
     b.add_argument("--plugin-name", default=PLUGIN, help="target plugin file or stem (default: FO4Port.esm)")
     b.add_argument("--prefix", default=DEFAULT_PREFIX, help="asset/EditorID prefix slug (default: fo4port)")
+    ac = sub.add_parser("adopt-core")
+    ac.add_argument("--stage", required=True, help="stage directory with passed result.json and port/doors_check.json")
+    ac.add_argument("--core", default="", help="optional core directory (defaults to port/doors_check.json 'core')")
+    ac.add_argument("--out", default="", help="optional new stage directory (leaves --stage untouched)")
     c = sub.add_parser("compare")
     c.add_argument("--old", required=True)
     c.add_argument("--new", required=True)
@@ -1424,6 +1727,14 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "build":
         return build(a)
+    if a.cmd == "adopt-core":
+        try:
+            summary = adopt_core(a.stage, core_dir=a.core, out_dir=a.out)
+            print(json.dumps(summary, indent=1))
+            return 0
+        except ValueError as e:
+            print("refused: " + str(e), file=sys.stderr)
+            return 1
     if a.cmd == "compare":
         r = compare(a.old, a.new, plugin=a.plugin_name)
         if a.json:
