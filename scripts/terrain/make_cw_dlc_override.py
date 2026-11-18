@@ -1470,6 +1470,14 @@ def install_override_session(
         return ln.strip().lstrip("*").strip().casefold()
 
     active_low = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
+    if (data_dir / "FO4SF.toggle.json").exists():
+        raise ValueError(
+            "A plugin_toggle.py hold (Data/FO4SF.toggle.json) is active; run 'plugin_toggle.py on' before installing WB5/WB5b"
+        )
+    if (data_dir / "FO4SFBridge.esm").is_file() and "fo4sfbridge.esm" not in active_low:
+        raise ValueError(
+            "FO4SFBridge.esm (providing FO4SF_LoadDoor.pex for WB5b doors) is present in Data/ but inactive in Plugins.txt"
+        )
     if "fo4terraincore.esm" not in active_low:
         raise ValueError("FO4TerrainCore.esm must be active (*) in Plugins.txt before installing FO4TerrainCore_DLC.esm")
     if OVERRIDE_PLUGIN_NAME.casefold() in {_clean_name(ln) for ln in lines}:

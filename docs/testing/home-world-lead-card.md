@@ -254,9 +254,9 @@ python scripts/game/exp_install.py order --starfield <game-dir>
 ### Expected PASS Output
 
 ```text
-  bases        identical
-  containers   identical
-  lights       identical
+  bases        identical (<count>)
+  containers   identical (<count>)
+  lights       identical (<count>)
 CHECK PASS
 PASS 56, FAIL 0, INCONCLUSIVE 0, NOT_RUN 0; <door-queue>/door_rounds_judge.json
 ```
@@ -329,7 +329,7 @@ uninstalled
 - **Required `FO4DLC` Archives (`WB5`):** **This `TEST-STATION` session requires `FO4DLC.esm` and its archives (`FO4DLC - Main.ba2`, `FO4DLC - Textures.ba2`, `FO4DLCTextures2.esm`, `FO4DLCTextures2 - Textures.ba2`, `FO4DLCTextures3.esm`, `FO4DLCTextures3 - Textures.ba2`) installed.** `make_cw_dlc_override.py install` installs them together from `<fo4dlc-doors-stage>` (or swaps `FO4DLC.esm` against a backup if the `FO4DLC` archive set is already in `<game-dir>/Data`) and refuses any install missing the `FO4DLC` archives.
 - **Stage Placeholders:** `<cw-dlc-stage>` (`FO4TerrainCore_DLC.esm`, `objects.json`, `formids.json`, `overlays_params.json`, `wb5_report.json`), `<fo4dlc-doors-stage>` (patched `FO4DLC.esm` + hard-linked `FO4DLC` `.ba2` / companion `.esm` files), `<core-stage>` (`folded-v111-exit` core build), `<fo4dlc-stage>` (pinned `fo4dlc-stage/port`), and `<dlc-edits-json>` (`dlc_edits.json`).
 - **Disk Space Need:** `~6.65 GiB` in `<game-dir>/Data` when installing `FO4DLC.esm` and its `4` `.ba2` archives fresh from `<fo4dlc-doors-stage>` (hard-linked with zero extra disk allocation when `<fo4dlc-doors-stage>` and `<game-dir>/Data` share an NTFS volume), or `~9.5 MiB` (`FO4TerrainCore_DLC.esm` `0.46 MiB` + `FO4DLC.esm` backup `9.01 MiB`) when the `FO4DLC` archives are already installed.
-- **Active `Plugins.txt` Load List:** `*FO4Port.esm`, `*FO4PortTextures2.esm`, `*FO4TerrainCore.esm`, `*FO4DLC.esm`, `*FO4DLCTextures2.esm`, `*FO4DLCTextures3.esm`, `*FO4TerrainCore_DLC.esm`, `*FO4TerrainCore_Mars.esm` (placed after `FO4TerrainCore.esm` and before the world registration plugin; run on the Mars `TEST-STATION` load list with Card 1 undone so `FO4TerrainCore_DLC.esm`'s structural `WRLD` group header does not collide with Card 1's strict single-override `home_world_install.py` check).
+- **Active `Plugins.txt` Load List:** `*FO4Port.esm`, `*FO4PortTextures2.esm`, `*FO4SFBridge.esm` (supplying `FO4SF_LoadDoor.pex`), `*FO4TerrainCore.esm`, `*FO4DLC.esm`, `*FO4DLCTextures2.esm`, `*FO4DLCTextures3.esm`, `*FO4TerrainCore_DLC.esm`, `*FO4TerrainCore_Mars.esm` (placed after `FO4TerrainCore.esm` and before the world registration plugin; run `plugin_toggle.py on` first if `FO4SFBridge.esm` was held off, and run on the Mars `TEST-STATION` load list with Card 1 undone so `FO4TerrainCore_DLC.esm`'s structural `WRLD` group header does not collide with Card 1's strict single-override `home_world_install.py` check).
 
 ### Offline Build & Two-Way Door Check Commands
 

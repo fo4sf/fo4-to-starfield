@@ -927,7 +927,7 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
                 "entries": [dict(e) for e in entries],
                 "offline_check": check}
     for name, obj in (("plan.json", plan), ("expected.json", expected), ("overlays_params.json", params)):
-        with open(os.path.join(a.out, name), "w", encoding="utf-8") as f:
+        with open(os.path.join(a.out, name), "w", encoding="utf-8", newline="\n") as f:
             json.dump(obj, f, indent=1)
     readme(a, params, plan, masks)
     preview(tds, tiles, own, os.path.join(a.out, "preview.png"))
@@ -1014,7 +1014,7 @@ def readme_rays(a, params, plan, masks):
               "-> the overlay streams only near the arrival (compare the distances per direction).",
               "", "Masks: " + ", ".join(f"{k['file']} ({k['width']} px, ring on {k['outer_edges'] or 'none'}, "
                                          f"{k['pixels_differ']} px differ)" for k in masks)]
-    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
 
 
@@ -1075,7 +1075,7 @@ def readme(a, params, plan, masks):
               "  edges -> whether the outer ring blends with mask 255 and with mask 0.",
               "", "Masks: " + ", ".join(f"{k['file']} ({k['width']} px, ring on {k['outer_edges'] or 'none'}, "
                                          f"{k['pixels_differ']} px differ)" for k in masks)]
-    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
 
 
@@ -1145,7 +1145,7 @@ def check(a):
         if a.verbose:
             print(f"  {p['entry']:<5} {p['label']:<26} expect {p['expect']:9.4f} decoded {p['decoded']['bilinear']:9.4f} "
                   f"error {p['error_mm']:7.3f} mm (tile {p['tile']})")
-    with open(os.path.join(a.out, "offline_check.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(a.out, "offline_check.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(rep, f, indent=1)
     print(json.dumps({k: rep[k] for k in ("summary", "seams", "mars") if k in rep}, indent=1))
     print("CHECK", "PASS" if ok else "FAIL")
@@ -1620,7 +1620,7 @@ def analyse(a):
                    f"not found (best {tuple(top['d'])} {top['match']}/{top['inside']})" if top else "no read inside") +
                   (f"; also consistent: {alt}" if alt else ""))
     if a.json:
-        with open(a.json, "w", encoding="utf-8") as f:
+        with open(a.json, "w", encoding="utf-8", newline="\n") as f:
             json.dump(out, f, indent=1)
     return 0
 

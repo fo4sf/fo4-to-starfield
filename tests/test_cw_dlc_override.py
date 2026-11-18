@@ -759,6 +759,17 @@ class CwDlcOverrideTests(unittest.TestCase):
                         starfield_dir=fake_game,
                         system=_FakeRunningSys(),
                     )
+                # WB5b F1 guard: refuses when FO4SFBridge.esm (FO4SF_LoadDoor.pex) is on disk but unticked in Plugins.txt
+                (fake_data / "FO4SFBridge.esm").write_bytes(b"TES4")
+                with self.assertRaisesRegex(ValueError, "FO4SFBridge.esm"):
+                    cw_dlc.install_override_session(
+                        stage_dir=out_dir,
+                        dlc_doors_dir=doors_out_dir,
+                        starfield_dir=fake_game,
+                        system=_FakeClosedSys(),
+                    )
+                (fake_data / "FO4SFBridge.esm").unlink()
+
                 rec_ins = cw_dlc.install_override_session(
                     stage_dir=out_dir,
                     dlc_doors_dir=doors_out_dir,

@@ -394,7 +394,7 @@ def _sample_fo4_quadrant_coverages(
     fc = (u - c0).astype(np.float32)
     fr = (v - r0).astype(np.float32)
 
-    distinct_fqs = {(int(qx), int(qy)) for qx, qy in zip(fqx.ravel(), fqy.ravel())}
+    distinct_fqs = sorted({(int(qx), int(qy)) for qx, qy in zip(fqx.ravel(), fqy.ravel())})
     out: Dict[str, np.ndarray] = {}
     for qx_i, qy_i in distinct_fqs:
         mask = (fqx == qx_i) & (fqy == qy_i)

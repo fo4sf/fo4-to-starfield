@@ -31,11 +31,15 @@ from fo4sf import ba2, btd, fo4land  # noqa: E402
 from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path  # noqa: E402
 import make_cw_overlays as mco  # noqa: E402
 
-# Authentic cd03411a SHA-256 pins on the synthetic 4x4 Commonwealth LAND + BA2 fixture (R12 / C8)
+# Authentic cd03411a SHA-256 pins on the synthetic 4x4 Commonwealth LAND + BA2 fixture (R12 / C8 / E2).
+# Why overlays_params.json and plan.json previously differed between Windows (10c435cd... / bf15639d...) and Linux
+# (db912ae5... / 1bf5e884...): make_cw_overlays.py opened JSON/text outputs in default text mode without newline="\n",
+# writing CRLF on Windows and LF on Linux. make_cw_overlays.py now enforces newline="\n" so both platforms emit the
+# exact LF bytes reproduced from git archive cd03411a.
 CD03411A_DEFAULT_CW_BTD_SHA256 = "979ce44f03f32ffe12da7426d2ecfbe7c16b1a37d44754c717a0fc1f9a3efbf5"
 CD03411A_DEFAULT_CW_MASK_SHA256 = "8daa820a2aefcf6ff9810f471cc25fa587fccfc08ab071cb3e7bd5451a4d0fd7"
-CD03411A_DEFAULT_CW_PARAMS_SHA256 = "10c435cde40dfbfab3f3ddb61cd852490b27314d3a34a847c29a588110b36eea"
-CD03411A_DEFAULT_CW_PLAN_SHA256 = "bf15639d058d4d8d234c971c29308e5aa657731502d3ef5e9a7d52e6a70c049c"
+CD03411A_DEFAULT_CW_PARAMS_SHA256 = "db912ae555693a2337492f93e3fe665683610a66310d6008cf910ded2a9e01ef"
+CD03411A_DEFAULT_CW_PLAN_SHA256 = "1bf5e884d6bf412386545cf6d81494a360d6cb6ee7e7c979158626e0a560cb3e"
 
 _spec_mc = importlib.util.spec_from_file_location("make_core64c_wd1", ROOT / "scripts" / "terrain" / "make_core64c.py")
 mc64 = importlib.util.module_from_spec(_spec_mc)
@@ -581,6 +585,8 @@ class Wd1TerrainBuildersTests(unittest.TestCase):
                 mask_bytes = Path(stage_out, "Data", "textures", "terrain", "overlaymasks", "fo4cw3_t00.dds").read_bytes()
                 prm_bytes = Path(stage_out, "overlays_params.json").read_bytes()
                 plan_bytes = Path(stage_out, "plan.json").read_bytes()
+                self.assertNotIn(b"\r\n", prm_bytes)
+                self.assertNotIn(b"\r\n", plan_bytes)
                 self.assertEqual(hashlib.sha256(btd_bytes).hexdigest(), CD03411A_DEFAULT_CW_BTD_SHA256)
                 self.assertEqual(hashlib.sha256(mask_bytes).hexdigest(), CD03411A_DEFAULT_CW_MASK_SHA256)
                 self.assertEqual(hashlib.sha256(prm_bytes).hexdigest(), CD03411A_DEFAULT_CW_PARAMS_SHA256)

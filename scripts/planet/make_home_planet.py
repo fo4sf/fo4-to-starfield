@@ -592,6 +592,50 @@ def cmd_check(args: argparse.Namespace) -> int:
             f"  [{r['record']} {r['subrecord']}] {r['field']} -> "
             f"{r['owner']}:{r['record_type']} {r['form_id']} ({r['edid']})"
         )
+    print("=== Brings-Content Audit ===")
+    by_field = {r["field"]: r for r in live_refs}
+    clmt_r = by_field.get("climate")
+    wthr_r = by_field.get("climate_weather")
+    atmo_r = by_field.get("atmosphere")
+    ltex_r = by_field.get("ground_ltex")
+    sftr_r = by_field.get("surface_tree")
+    ptst_r = by_field.get("terrain_pattern")
+    for label, ref, staged_var in (
+        ("climate (BIOM.ENAM + WRLD.CNAM)", clmt_r, "wb1-variants/01-ours-clear-temperate vs 02-starfield-control"),
+        ("weather (CLMT.WLST)", wthr_r, "wb1-variants/01-ours-clear-temperate vs 02-starfield-control"),
+        ("atmosphere (PNDT.INAM)", atmo_r, "wb1-variants/01-ours-clear-temperate vs 02-starfield-control"),
+        ("land_texture (BIOM.LNAM[0..6])", ltex_r, "wb2-variants/01-fo4-ground-flat-nosftr"),
+        ("surface_tree (PNDT.FNAM)", sftr_r, "wb2-variants/01-fo4-ground-flat-nosftr vs 02-fo4-ground-flat-emptysftr"),
+    ):
+        if ref is None:
+            print(f"  {label}: empty (omitted) | variant: {staged_var}")
+        elif ref["owner"].lower() != "starfield.esm":
+            print(f"  {label}: empty (ours: {ref['owner']}:{ref['edid']} {ref['form_id']}) | variant: {staged_var}")
+        else:
+            print(f"  {label}: {ref['owner']}:{ref['record_type']} {ref['form_id']} ({ref['edid']}) | variant: {staged_var}")
+    if ptst_r and ptst_r["owner"].lower() == "starfield.esm":
+        print(
+            f"  planet_pattern (BIOM.NNAM): {ptst_r['owner']}:{ptst_r['record_type']} {ptst_r['form_id']} ({ptst_r['edid']}) "
+            "| reason: 46/46 PTST records hold only EDID (0 height fields; heights live in 258 SFPT->SFBK .btd banks "
+            "with 392 B SFBK.FNAM seam tables unproven offline, and 0/431 BIOM omit NNAM); smallest 38.11 m span chosen "
+            "| variant: wb2-variants/01-fo4-ground-flat-nosftr vs 03-fo4-ground-hills-control"
+        )
+    if plan.get("sun_preset", "SunPresetTypeG2") != "ours":
+        print(
+            "  sun_preset (STDT.PNAM): Starfield.esm:SUNP 0x00134249 (SunPresetTypeG2) "
+            "| reason: 14 Nov G2 solar daylight disc/illuminance rule "
+            "| variant: wb2-variants/04-no-orbital-meshes-ours-sunp (--sun-preset ours -> FO4SFHomeSunPreset 0x0100080D)"
+        )
+    else:
+        print("  sun_preset (STDT.PNAM): empty (ours: FO4SFHome.esm:FO4SFHomeSunPreset 0x0100080D)")
+    if plan.get("orbital_meshes", "starfield") != "none":
+        print(
+            "  orbital_meshes (PNDT.MODL, STDT.MODL): HoudiniPlanet.nif / HoudiniPlanet_star.nif "
+            "| reason: untextured BSGalaxy unit spheres (0 PCCC/XMPM blobs; star map blocked in play) "
+            "| variant: wb2-variants/04-no-orbital-meshes-ours-sunp (--orbital-meshes none)"
+        )
+    else:
+        print("  orbital_meshes (PNDT.MODL, STDT.MODL): empty (omitted: --orbital-meshes none)")
     if plan.get("climate") in ("ours", "ours_empty"):
         bad_cw = [
             r

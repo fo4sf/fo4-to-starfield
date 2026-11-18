@@ -12,6 +12,7 @@ import struct
 import sys
 import tempfile
 import unittest
+import zlib
 
 import numpy as np
 
@@ -27,8 +28,41 @@ from fo4sf.terrain import ltex_map as lm, overlay_postpatch as opp  # noqa: E402
 from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path  # noqa: E402
 import make_wg1_redrocket as mwg1  # noqa: E402
 
-# R12 pinned SHA-256 of the synthetic 5x5 WG1 BTD window from Round-1 head b7dc7f52
-B7DC7F52_WG1_SYNTHETIC_BTD_SHA256 = "df256e0eb1c2a3c7b529123b8f59245605ab246e8d82009fafa9319341eb289c"
+# R12 / E1 pinned SHA-256 of the complete platform-independent BTD payload (all uncompressed header, LTEX FormID table,
+# per-cell float32 min/max, quadrant LTEX index map, and LOD4 bytes + all 39 decompressed 65,536-byte LOD3..LOD0 blocks
+# = 2,563,372 bytes total) reproduced from Round-1 head b7dc7f52.
+# Why only the uncompressed header/tables/LOD4 + decompressed LOD3..LOD0 payload is pinned: Windows CPython 3.14 links
+# 1.3.1.zlib-ng (raw file sha256 df256e0e...), whereas Ubuntu 24.04 CPython links classic madler/zlib (raw file sha256
+# de5af59f...), whose level-9 DEFLATE match lengths and block-offset table entries differ while every decoded byte is
+# bit-for-bit identical across both platforms and b7dc7f52.
+B7DC7F52_WG1_SYNTHETIC_BTD_PAYLOAD_SHA256 = "92ce88bc981296eafda26c047e08e9d7ca8f92ceb4ed4530515167c6a216c9e4"
+
+
+def _btd_platform_independent_payload(b: bytes) -> bytes:
+    """Return all uncompressed BTD bytes before the zlib offset tables plus every decompressed LOD3..LOD0 block."""
+    if b[:4] != b"BTDB":
+        raise ValueError("not a BTDB buffer")
+    _ver, _hmin, _hmax, rx, ry, _x0, _y0, _x1, _y1, nlt = struct.unpack_from("<IffIIiiiiI", b, 4)
+    ncx, ncy = rx // 128, ry // 128
+    n = ncx * ncy
+    uncomp_end = 44 + 4 * nlt + (8 + 32 + 256) * n
+    p = uncomp_end
+    tables = {}
+    for lod in (3, 2, 1, 0):
+        cnt = ((ncy + (1 << lod) - 1) >> lod) * ((ncx + (1 << lod) - 1) >> lod)
+        tables[lod] = (p, cnt)
+        p += 8 * cnt
+    data_off = p
+    parts = [b[:uncomp_end]]
+    for lod in (3, 2, 1, 0):
+        off, cnt = tables[lod]
+        for i in range(cnt):
+            o, sz = struct.unpack_from("<II", b, off + 8 * i)
+            raw = zlib.decompress(b[data_off + o : data_off + o + sz])
+            if len(raw) != 65536:
+                raise ValueError(f"LOD{lod} block {i}: {len(raw)} bytes")
+            parts.append(raw)
+    return b"".join(parts)
 
 SYNTH_TERRAIN_TEMPLATE = {
     "Import": ["Data\\MATERIALS\\Layered\\ShaderModels\\Terrain1Layer.mat"],
@@ -134,7 +168,12 @@ class BtdLtexMappingTests(unittest.TestCase):
 
         raw_h = np.zeros((n_cells * 128, n_cells * 128), dtype=np.uint16)
         btd_bytes = btd.write(btd.Btd(6, -10.0, 50.0, table, raw_h, weights, quad_map))
-        self.assertEqual(hashlib.sha256(btd_bytes).hexdigest(), B7DC7F52_WG1_SYNTHETIC_BTD_SHA256)
+        # Pin the complete platform-independent BTD payload (uncompressed header/tables/LOD4 + all decompressed
+        # LOD3..LOD0 blocks), since zlib-ng on Windows and classic madler/zlib on Linux emit different compressed
+        # DEFLATE streams for identical 65,536-byte blocks.
+        btd_payload = _btd_platform_independent_payload(btd_bytes)
+        self.assertEqual(len(btd_payload), 2563372)
+        self.assertEqual(hashlib.sha256(btd_payload).hexdigest(), B7DC7F52_WG1_SYNTHETIC_BTD_PAYLOAD_SHA256)
         decoded = btd.read(btd_bytes)
 
         vrep = lm.verify_btd_against_fo4_dominants(decoded, stats["quad_gt_dominant"], ltex_mapping)
