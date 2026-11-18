@@ -201,6 +201,25 @@ def refuse_unsafe_output_dir(path: str, flag: str = "--staging") -> None:
         cur = parent
 
 
+def scol_archive_path(base_formkey: str) -> Optional[str]:
+    """Canonical Creation Kit BA2 path for a combined StaticCollection (SCOL) base record FormKey
+    (e.g. '008B79:DLCRobot.esm' -> 'meshes/scol/dlcrobot.esm/cm00008b79.nif')."""
+    if not isinstance(base_formkey, str) or ":" not in base_formkey:
+        return None
+    left, right = [s.strip() for s in base_formkey.split(":", 1)]
+    if "." in right:
+        hex_part, plugin = left, right
+    elif "." in left:
+        plugin, hex_part = left, right
+    else:
+        return None
+    if hex_part.lower().startswith("0x"):
+        hex_part = hex_part[2:]
+    if not hex_part or len(hex_part) > 8 or not re.fullmatch(r"[0-9A-Fa-f]+", hex_part):
+        return None
+    return f"meshes/scol/{plugin.lower()}/cm{int(hex_part, 16):08x}.nif"
+
+
 class Fo4Archives:
     def __init__(self, data_dir: str, extra_dirs=(), dlc_plugins=None):
         """Fallout4 - *.ba2 from data_dir, then (extra_dirs, e.g. a DLC's own Data folder) every DLC*.ba2 there
@@ -208,6 +227,7 @@ class Fo4Archives:
         restricts DLC archives to those stems in load order. Lookups try the base game's archives first, so a model
         the base game holds converts byte-identically with or without the DLC archives."""
         self.meshes, self.materials, self.textures = [], [], []
+        self.mesh_fallbacks: Dict[str, str] = {}
         self._add(data_dir, lambda low: low.startswith("fallout4 - "))
         for d in extra_dirs:
             for fn in select_dlc_archive_names(d, dlc_plugins=dlc_plugins, converter_only=True):
@@ -239,8 +259,23 @@ class Fo4Archives:
                 return a.read(i)
         return None
 
+    @staticmethod
+    def _norm_mesh_key(name: str) -> str:
+        n = name.replace("\\", "/").lstrip("/").lower()
+        return n if n.startswith("meshes/") else "meshes/" + n
+
+    def register_mesh_fallbacks(self, fallbacks: Dict[str, str]) -> None:
+        """Register {stale_modl_path: canonical_ba2_path} used ONLY when exact archive lookup returns None."""
+        for src_name, dst_name in (fallbacks or {}).items():
+            if src_name and dst_name:
+                self.mesh_fallbacks[self._norm_mesh_key(src_name)] = self._norm_mesh_key(dst_name)
+
     def mesh(self, name):
-        return self._read(self.meshes, name)
+        raw = self._read(self.meshes, name)
+        if raw is not None or not self.mesh_fallbacks:
+            return raw
+        alt = self.mesh_fallbacks.get(self._norm_mesh_key(name))
+        return self._read(self.meshes, alt) if alt else None
 
     def material(self, name):
         return self._read(self.materials, name)
@@ -737,6 +772,8 @@ class Converter:
         res = {"nif": nif_name, "ok": False}
         try:
             raw = self.src.mesh(nif_name)
+            if raw is None:
+                raise FileNotFoundError(f"mesh not in archives: {nif_name}")
             src = nif.parse(raw)
             # skinned props (lockers, cabinets, desks, skeletons) are converted in the NIF's node pose
             # (convert_static.pose_skinned_shapes), or in a placed reference's ragdoll pose when `pose` is given
@@ -906,6 +943,8 @@ class Converter:
             if rest_after is not None and (idles not in ("toggle", "chain") or rest_after not in states):
                 raise ValueError("rest_after needs toggle or chain idles and a mapped source sequence")
             raw = self.src.mesh(nif_name)
+            if raw is None:
+                raise FileNotFoundError(f"mesh not in archives: {nif_name}")
             src = nif.parse(raw)
             shapes = [s for s in nif.fo4_trishapes(src) if s.positions and s.triangles]
             if not shapes:

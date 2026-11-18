@@ -328,5 +328,74 @@ class D2PrefixEditorIdsAndManifestRewriterTests(unittest.TestCase):
                 ])
 
 
+class D5ScolMissingMeshAndFallbackTests(unittest.TestCase):
+    def test_missing_nif_reports_file_not_found_instead_of_none_startswith_attribute_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "Data"
+            data.mkdir()
+            (data / "Fallout4 - Meshes.ba2").write_bytes(general_archive({"meshes/other.nif": b"other"}))
+            src = pipeline.Fo4Archives(str(data))
+            conv = pipeline.Converter.__new__(pipeline.Converter)
+            conv.src = src
+            conv.stats = {"assets": 0, "failed": 0}
+            res = conv.convert_nif("meshes\\SCOL\\DLCRobot.esm\\CM0000DBF3.NIF")
+            self.assertFalse(res["ok"])
+            self.assertIn("FileNotFoundError", res["reason"])
+            self.assertNotIn("AttributeError", res["reason"])
+            self.assertNotIn("startswith", res["reason"])
+
+    def test_scol_fallbacks_resolve_developer_esp_folder_to_base_formkey_path(self):
+        self.assertEqual(pipeline.scol_archive_path("008B79:DLCRobot.esm"), "meshes/scol/dlcrobot.esm/cm00008b79.nif")
+        self.assertEqual(pipeline.scol_archive_path("DLCRobot.esm:0x008B79"), "meshes/scol/dlcrobot.esm/cm00008b79.nif")
+        self.assertIsNone(pipeline.scol_archive_path("invalid"))
+
+        cell = {
+            "cell": "DLC01Lair01",
+            "refs": [
+                {
+                    "type": "StaticCollection",
+                    "base_formkey": "008B79:DLCRobot.esm",
+                    "model": "SCOL\\DevMergeA.esp\\CM00083F.NIF",
+                },
+                {
+                    # Direct canonical path matches itself -> no redundant fallback entry needed
+                    "type": "StaticCollection",
+                    "base_formkey": "009999:DLCRobot.esm",
+                    "model": "SCOL\\DLCRobot.esm\\CM00009999.NIF",
+                },
+                {
+                    # Ambiguous 1-to-many MODL -> never guessed
+                    "type": "StaticCollection",
+                    "base_formkey": "00AAAA:DLCRobot.esm",
+                    "model": "SCOL\\DevMergeB.esp\\CM000111.NIF",
+                },
+                {
+                    "type": "StaticCollection",
+                    "base_formkey": "00BBBB:DLCRobot.esm",
+                    "model": "SCOL\\DevMergeB.esp\\CM000111.NIF",
+                },
+            ],
+        }
+        fb = convert_batch.scol_fallbacks(cell)
+        self.assertEqual(fb, {"meshes/scol/devmergea.esp/cm00083f.nif": "meshes/scol/dlcrobot.esm/cm00008b79.nif"})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "Data"
+            data.mkdir()
+            (data / "Fallout4 - Meshes.ba2").write_bytes(general_archive({"meshes/direct.nif": b"direct-bytes"}))
+            (data / "DLCRobot - Main.ba2").write_bytes(
+                general_archive({
+                    "meshes/scol/dlcrobot.esm/cm00008b79.nif": b"scol-combined-nif-bytes",
+                    "meshes/direct.nif": b"dlc-override-unused",
+                })
+            )
+            src = pipeline.Fo4Archives(str(data), [str(data)])
+            src.register_mesh_fallbacks(fb | {"meshes/direct.nif": "meshes/scol/dlcrobot.esm/cm00008b79.nif"})
+            # Direct archive hit MUST still win 100% unchanged (R3)
+            self.assertEqual(src.mesh("Meshes\\direct.nif"), b"direct-bytes")
+            # Missing developer-ESP SCOL resolves cleanly to its base FormKey path in DLCRobot - Main.ba2
+            self.assertEqual(src.mesh("meshes\\SCOL\\DevMergeA.esp\\CM00083F.NIF"), b"scol-combined-nif-bytes")
+
+
 if __name__ == "__main__":
     unittest.main()

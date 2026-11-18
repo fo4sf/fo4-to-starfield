@@ -333,6 +333,25 @@ def static_body_models(cell):
                   key=str.lower)
 
 
+def scol_fallbacks(cell):
+    """Unambiguous 1-to-1 {stale_modl_path: canonical_scol_ba2_path} for StaticCollection references whose MODL still
+    names a pre-merge developer plugin folder while Creation Kit packed the combined NIF under the SCOL base FormKey
+    (e.g. DLCRobot.esm's 58 merged SCOLs under Meshes\\SCOL\\DLCRobot.esm\\CM0000xxxx.NIF)."""
+    by_modl = {}
+    for r in cell.get("refs") or []:
+        if r.get("type") != "StaticCollection" or not r.get("model") or not r.get("base_formkey"):
+            continue
+        modl = "meshes/" + r["model"].replace("\\", "/").lstrip("/").lower()
+        cand = pipeline.scol_archive_path(r["base_formkey"])
+        if cand:
+            by_modl.setdefault(modl, set()).add(cand)
+    return {
+        modl: next(iter(cands))
+        for modl, cands in sorted(by_modl.items())
+        if len(cands) == 1 and next(iter(cands)) != modl
+    }
+
+
 def static_pattern_models(pattern, names):
     """--static-pattern: the candidate names matching a regex, or, for "@file", the names listed in that file (one mesh
     name per line, as a manifest prints them; case and slashes ignored)."""
@@ -347,6 +366,8 @@ def triangle_count(src_archives, name):
     """Rough triangle count from a FO4 NIF (sum of decoded BSTriShape triangles). Used by --max-tris."""
     try:
         raw = src_archives.mesh(name)
+        if raw is None:
+            return 0
         parsed = nif.parse(raw)
         shapes = nif.fo4_trishapes(parsed)
         return sum(len(s.triangles) for s in shapes if s.triangles)
@@ -670,6 +691,8 @@ def main(argv=None):
     if a.cell_json:
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
+        if hasattr(src, "register_mesh_fallbacks"):
+            src.register_mesh_fallbacks(scol_fallbacks(cell))
         names = cell_candidates(cell, set(a.types.split(",")))
         load_models = teleport_models(cell)
         static_models = static_body_models(cell)
