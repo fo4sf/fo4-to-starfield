@@ -127,6 +127,7 @@ REX_W32_IMPORT(std::uint32_t, waveOutReset, void*);
 REX_W32_IMPORT(std::uint32_t, waveOutUnprepareHeader, void*, void*, std::uint32_t);
 REX_W32_IMPORT(std::uint32_t, waveOutClose, void*);
 
+#include "blocking_menus.h"
 #include "pipboy_map.h"
 #include "world.h"   // FAL-250: the world-surface census and candidate (World=1; README.md, "World surface")
 
@@ -178,56 +179,6 @@ namespace
 		"FO4SF_Special_Agility",
 		"FO4SF_Special_Luck",
 	};
-	// All 46 native BGSCodeObj function names referenced across FO4's Pip-Boy AS3 movies (+ HideMenu for boot movie)
-	constexpr std::array<const char*, 47> kFo4ShellCodeObjNames{ {
-		"PopulatePipboyInfoObj",
-		"onNewPage",
-		"onNewTab",
-		"ShowPerksMenu",
-		"PlaySound",
-		"PlaySmallTransition",
-		"OnMobileSettingsLoaded",
-		"RegisterMovie",
-		"onBackButtonHandled",
-		"UseStimpak",
-		"UseRadaway",
-		"PlayPerkSound",
-		"StopPerkSound",
-		"onPerksTabOpen",
-		"onPerksTabClose",
-		"SelectItem",
-		"onInvItemSelection",
-		"updateItem3D",
-		"SetQuickkey",
-		"ItemDrop",
-		"SortItemList",
-		"ExamineItem",
-		"onComponentViewToggle",
-		"ToggleComponentFavorite",
-		"onShowHotKeys",
-		"toggleMovementToDirectional",
-		"onModalOpen",
-		"SetQuestActive",
-		"onQuestSelection",
-		"ShowQuestOnMap",
-		"ShowWorkshopOnMap",
-		"RegisterMap",
-		"UnregisterMap",
-		"FastTravel",
-		"CheckHardcoreModeFastTravel",
-		"RefreshMapMarkers",
-		"SetPlayerMarker",
-		"ClearPlayerMarker",
-		"onSwitchBetweenWorldLocalMap",
-		"CenterMarkerRequest",
-		"onScanButtonClicked",
-		"onManualModeButtonClicked",
-		"functiononGPSModeButtonClicked",
-		"onButtonPress",
-		"PlayFocusSound",
-		"ToggleRadioStationActiveStatus",
-		"HideMenu",
-	} };
 	constexpr std::uint32_t kMaxCodeObjTries = 40;           // tries per movie (load, show, then one per kUpdate)
 	constexpr std::uint32_t kLoggedCodeObjTries = 5;
 	constexpr std::size_t   kMaxSoundBytes = 32u << 20;      // FAL-614 proof 1d: one converted sound file, at most
@@ -254,6 +205,7 @@ namespace
 	constexpr std::uint32_t kCoreSpecialFirstLocalId = 0x810; // FO4SFCoreValues.esm AVIF FO4SF_Special_Strength..Luck (0x810..0x816)
 	constexpr std::uint32_t kCoreRadResistLocalId = 0x804;   // FO4SFCoreValues.esm AVIF FO4SF_RadResist
 	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
+	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
 	constexpr std::uint32_t kRadsRadawayLocalId = 0x820;     // FO4SFRads.esm ALCH FO4SF_RadAway
 	constexpr std::array<std::uint32_t, 6> kLimbConditionAvifIds{ 0x36C, 0x36D, 0x36E, 0x36F, 0x370, 0x371 };
 	constexpr std::size_t   kFormTypeAt = 0x2E;              // libxse RE::TESForm::formType (a u8)
@@ -563,13 +515,27 @@ namespace
 	std::size_t                              g_rootCallCount = 0;
 	std::string                              g_codeObjAt;               // FAL-614 S1-c: CodeObjAt=<path>, the stand-in also as <path>.BGSCodeObj
 	bool                                     g_codeObjPages = false;    // FAL-614 S1-c: CodeObjPages=1, onNewPage and onNewTab answered
+	bool                                     g_populateInCall = false;  // Task 1 step 1b: default 0 for 1a crash proof; 1 fills vitals in PopulatePipboyInfoObj
+	bool                                     g_lateInvalidate = false;  // Task 1 step 1b: optional late InvalidateData on kShow, default 0
+	bool                                     g_statActions = false;     // Task 1 step 1j: UseStimpak/UseRadaway, default 0 until THIS ROUND passes
+	bool                                     g_invDataAnswers = false;  // Task 1 step 1k: INV/DATA same-call answers, default 0 until THIS ROUND passes
+	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
+	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
+	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
 	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
 	std::atomic<std::uint32_t>               s_savedPage{ 0 };
 	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
+	std::atomic<bool>                        s_bootPlayed{ false };
 	// Per-movie FO4 shell session state (cleared in ClearMovieSessionState / before engine kHide)
 	RE::Scaleform::GFx::Value                g_dataObj;                 // menu thread only: Menu_mc.DataObj handed to PopulatePipboyInfoObj
+	std::atomic<bool>                        g_closing{ false };        // Task 1 step 1c: set first on kHide so nothing writes to movie/DataObj
+	std::atomic<bool>                        g_playingBootMovie{ false };
+	std::atomic<bool>                        g_inDestructionCall{ false };
+	std::mutex                               g_deferredLogLock;
+	std::vector<std::string>                 g_deferredDestructionLogs;
 	std::atomic<const void*>                 g_destroyedCodeObjMovie{ nullptr };
 	std::atomic<const void*>                 g_shownInvalidatedMovie{ nullptr };
+	std::atomic<const void*>                 g_populatedLogMovie{ nullptr };
 	std::atomic<const void*>                 g_createdCodeObjMovie{ nullptr };
 	std::atomic<std::int32_t>                g_currentShellPage{ -1 };
 	std::atomic<std::int32_t>                g_currentShellTab{ 0 };
@@ -3532,7 +3498,7 @@ namespace
 
 	bool IsFo4ShellActive()
 	{
-		return g_stage == 2 && g_codeObj && g_codeObjAt == "Menu_mc";
+		return g_stage == 2 && g_codeObj && g_codeObjAt == "Menu_mc" && !g_playingBootMovie.load();
 	}
 
 	bool ExtractShellIndex(const RE::Scaleform::GFx::Value& a_val, std::int32_t& a_out, std::int32_t a_max = 63)
@@ -3588,9 +3554,11 @@ namespace
 		}
 	}
 
-	void ClearMovieSessionState()
+	void ClearMovieSessionState(bool a_keepInstallTries = false)
 	{
 		g_open = false;
+		g_closing = false;
+		g_inDestructionCall = false;
 		g_cancelHeld = false;
 		g_keyInputHeld = false;
 		g_pendingCancelRelease = false;
@@ -3598,15 +3566,22 @@ namespace
 			std::scoped_lock lock(g_shellEventLock);
 			g_pendingUserEvents.clear();
 		}
+		{
+			std::scoped_lock lock(g_deferredLogLock);
+			g_deferredDestructionLogs.clear();
+		}
 		g_dataObj = RE::Scaleform::GFx::Value{};
 		g_listenedMovie = nullptr;
 		g_checkedMovie = nullptr;
 		g_codeObjMovie = nullptr;
 		g_destroyedCodeObjMovie = nullptr;
 		g_shownInvalidatedMovie = nullptr;
+		g_populatedLogMovie = nullptr;
 		g_createdCodeObjMovie = nullptr;
-		g_codeObjTriedMovie = nullptr;
-		g_codeObjTries = 0;
+		if (!a_keepInstallTries) {
+			g_codeObjTriedMovie = nullptr;
+			g_codeObjTries = 0;
+		}
 		g_shellKeyPending = 0;
 		g_answerPage = -1;
 		g_answerTab = -1;
@@ -3625,52 +3600,15 @@ namespace
 		PipboyMap::OnMenuDestroy();
 	}
 
-	constexpr std::array<const char*, 16> kBlockingOverlayMenus{ {
-		"Console",
-		"MessageBoxMenu",
-		"MainMenu",
-		"LoadingMenu",
-		"PauseMenu",
-		"ChargenMenu",
-		"DialogueMenu",
-		"InventoryMenu",
-		"DataMenu",
-		"ContainerMenu",
-		"BarterMenu",
-		"SleepWaitMenu",
-		"FavoritesMenu",
-		"LockpickingMenu",
-		"TerminalMenu",
-		"FaderMenu",
-	} };
-
 	const char* OpenBlockingOverlayMenu(RE::UI* a_ui, bool a_topModalOnly = false)
 	{
-		if (!a_ui) {
-			return nullptr;
-		}
-		static const auto* const names = [] {
-			auto* out = new std::vector<RE::BSFixedString>();
-			out->reserve(kBlockingOverlayMenus.size());
-			for (const auto* m : kBlockingOverlayMenus) {
-				out->emplace_back(m);
-			}
-			return out;
-		}();
-		const std::size_t limit = a_topModalOnly ? 5u : names->size();
-		for (std::size_t i = 0; i < limit; ++i) {
-			const auto& nm = (*names)[i];
-			if (a_ui->IsMenuRegistered(nm) && a_ui->IsMenuOpen(nm)) {
-				return kBlockingOverlayMenus[i];
-			}
-		}
-		return nullptr;
+		return fo4sf::FindOpenBlockingMenu(a_ui, a_topModalOnly, false);
 	}
 
 	void FailMovieCall(const char* a_where, const std::string& a_detail = "")
 	{
 		REX::ERROR("step=movie_call_failed where={}{}{} action=close_menu", a_where, a_detail.empty() ? "" : " ", a_detail);
-		ClearMovieSessionState();
+		ClearMovieSessionState(true);
 		if (g_task) {
 			g_task->AddTask([]() { Close(0, "movie_call_failed"); });
 		}
@@ -3680,6 +3618,7 @@ namespace
 	{
 		REX::INFO("step=destroy menu={} flags={}", Hex(reinterpret_cast<std::uintptr_t>(a_self)), a_flags);
 		// G1 fix: engine kHide clears uiMovie before MenuDestroy, so always clear session movie state unconditionally
+		g_codeObjMovie = nullptr;
 		ClearMovieSessionState();
 		g_engineDtor(a_self, a_flags & ~1u);   // the engine's IMenu destructor, without its delete: the memory is ours
 		if (a_flags & 1) {
@@ -3694,9 +3633,15 @@ namespace
 	// is counted and logged with the load (step=load_movie ... name_asks=)
 	const char* MenuGetName(const void*)
 	{
-		if (!g_movie.empty() && g_loadingMovie.load()) {
-			g_movieNameAsks.fetch_add(1);
-			return g_movie.c_str();
+		if (g_loadingMovie.load()) {
+			if (g_playingBootMovie.load() && !g_bootMovie.empty()) {
+				g_movieNameAsks.fetch_add(1);
+				return g_bootMovie.c_str();
+			}
+			if (!g_movie.empty()) {
+				g_movieNameAsks.fetch_add(1);
+				return g_movie.c_str();
+			}
 		}
 		return kMenuName;
 	}
@@ -3951,6 +3896,7 @@ namespace
 		double                     energyResist = 0.0;
 		double                     radResist = 0.0;
 		std::array<std::int32_t, 7> special{ 5, 5, 5, 5, 5, 5, 5 };
+		std::string                specialSource = "fallback";
 		std::uint32_t              stimpakFormId = 0;
 		std::uint32_t              radawayFormId = 0;
 	};
@@ -4048,6 +3994,7 @@ namespace
 		static std::uintptr_t               rrAvif = 0;
 		static std::array<std::uintptr_t, 6> limbAvifs{};
 		static std::array<std::uintptr_t, 7> specialAvifs{};
+		static std::string                  resolvedSpecialSource = "fallback";
 		static std::uint32_t                stimpakId = 0;
 		static std::uint32_t                radawayId = 0;
 		static double                       highWaterHp = 100.0;
@@ -4067,20 +4014,39 @@ namespace
 			} else {
 				rrAvif = LookupFormByEditorIdChecked("FO4SF_RadResist", "ActorValueInfo@@");
 			}
+			std::size_t fromCoreStore = 0;
+			std::size_t fromEditorId = 0;
+			std::size_t fromVanilla = 0;
 			for (std::size_t i = 0; i < kSpecialEditorIds.size(); ++i) {
 				std::string spDetail;
 				const auto  spId = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialFirstLocalId + static_cast<std::uint32_t>(i),
                     "ActorValueInfo@@", spDetail);
 				if (spId) {
 					AcceptById(spId, kSpecialEditorIds[i], "ActorValueInfo@@", kAvifEditorIdAt, specialAvifs[i]);
+					if (specialAvifs[i]) {
+						++fromCoreStore;
+					}
 				}
 				if (!specialAvifs[i]) {
 					specialAvifs[i] = LookupFormByEditorIdChecked(kSpecialEditorIds[i], "ActorValueInfo@@");
+					if (specialAvifs[i]) {
+						++fromEditorId;
+					}
 				}
 				if (!specialAvifs[i]) {
 					// Fallback to Starfield AVIF 0x2C2..0x2C8 if FO4SFCoreValues.esm is absent in a standalone probe
 					AcceptById(0x2C2u + static_cast<std::uint32_t>(i), kSpecialNames[i], "ActorValueInfo@@", kAvifEditorIdAt, specialAvifs[i]);
+					if (specialAvifs[i]) {
+						++fromVanilla;
+					}
 				}
+			}
+			if (fromCoreStore == 7) {
+				resolvedSpecialSource = "FO4SFCoreValues.esm";
+			} else if (fromCoreStore + fromEditorId == 7) {
+				resolvedSpecialSource = "LookupByEditorID";
+			} else if (fromVanilla > 0) {
+				resolvedSpecialSource = "Starfield.esm";
 			}
 			std::string stimDetail;
 			stimpakId = KitFileForm("FO4SFCoreValues.esm", kCoreStimpakLocalId, "AlchemyItem@@", stimDetail);
@@ -4111,6 +4077,7 @@ namespace
 
 		ShellVitalsSnapshot next;
 		next.ready = true;
+		next.specialSource = resolvedSpecialSource;
 		next.stimpakFormId = stimpakId;
 		next.radawayFormId = radawayId;
 
@@ -4519,16 +4486,32 @@ namespace
 
 		g_currentShellPage.store(static_cast<std::int32_t>(page));
 		g_currentShellTab.store(static_cast<std::int32_t>(tab));
+
+		if (g_populateInCall && std::string_view(a_when) == "PopulatePipboyInfoObj") {
+			const void* const movie = a_menu ? MovieOf(a_menu) : nullptr;
+			if (!movie || g_populatedLogMovie.exchange(movie) != movie) {
+				const int paused = (g_flags & kPauseFlag) != 0 ? 1 : 0;
+				REX::INFO("step=populate page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} level={} special={},{},{},{},{},{},{} source={} paused={}",
+					page, tab, snap.currHp, std::max(1.0, snap.maxHp), snap.currAp, std::max(1.0, snap.maxAp), snap.xpLevel,
+					snap.special[0], snap.special[1], snap.special[2], snap.special[3], snap.special[4], snap.special[5], snap.special[6],
+					snap.specialSource, paused);
+			}
+		}
+
 		REX::INFO("step=data_obj_fill when={} page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} lvl={} stim={} radaway={} rads={:.0f} date={}.{}.2{:03}",
 			a_when, page, tab, snap.currHp, snap.maxHp, snap.currAp, snap.maxAp, snap.xpLevel, snap.stimpakCount,
 			snap.radawayCount, snap.rads, snap.dateMonth, snap.dateDay, snap.dateYear);
 	}
 
 	bool ReadPath(const RE::Scaleform::GFx::Value& a_from, const std::string& a_path, RE::Scaleform::GFx::Value& a_out);
+	void SpecialReady(RE::Scaleform::GFx::ASMovieRootBase* a_root, const RE::Scaleform::GFx::Value& a_top, const char* a_when);
 
 	// Step 1: synchronous in-call answer for onNewPage(pageIdx) and onNewTab(tabIdx) on the menu thread
 	void AnswerPageOrTabSynchronously(bool a_isPage, std::int32_t a_idx)
 	{
+		if (g_closing.load()) {
+			return;
+		}
 		const void* const menu = g_activeShellMenu;
 		if (!menu || !MovieOf(menu)) {
 			return;
@@ -4559,7 +4542,18 @@ namespace
 		}
 
 		// Always set CurrentPage BEFORE CurrentTab, populate target page fields, then InvalidateData() ONCE
-		FillPipboyDataObj(menu, root, g_dataObj, targetPage, targetTab, a_isPage ? "onNewPage" : "onNewTab");
+		if (g_populateInCall) {
+			FillPipboyDataObj(menu, root, g_dataObj, targetPage, targetTab, a_isPage ? "onNewPage" : "onNewTab");
+		} else {
+			g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(targetPage));
+			g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(targetTab));
+			SpecialReady(root, top, "answer");
+			if (targetPage == PipboyMap::MapPageIndex()) {
+				PipboyMap::PopulateMapDataObj(menu, root, g_dataObj, static_cast<std::int32_t>(targetPage));
+			}
+			g_currentShellPage.store(static_cast<std::int32_t>(targetPage));
+			g_currentShellTab.store(static_cast<std::int32_t>(targetTab));
+		}
 		PipboyMap::NotifyShellPageTab(static_cast<std::int32_t>(targetPage), static_cast<std::int32_t>(targetTab));
 		if (a_isPage && targetPage == PipboyMap::MapPageIndex() && g_task) {
 			g_task->AddTask([]() {
@@ -4578,7 +4572,7 @@ namespace
 				targetPage, targetTab, invalidated ? 1 : 0);
 		}
 		if (!invalidated) {
-			FailMovieCall("code_answer_invalidate", std::format("page={} tab={}", targetPage, targetTab));
+			REX::INFO("step=movie_call_miss where=code_answer_invalidate page={} tab={}", targetPage, targetTab);
 		}
 	}
 
@@ -4606,6 +4600,8 @@ namespace
 		g_answerNow = true;
 	}
 
+	void RequestPipboyOpen(std::uint32_t a_targetPage, const char* a_by);
+
 	class CodeObjFunction final : public RE::Scaleform::GFx::FunctionHandler
 	{
 	public:
@@ -4614,24 +4610,61 @@ namespace
 		void Call(const Params& a_params) override
 		{
 			const auto n = ++g_codeCalls;
+			std::string callLogLine;
 			if (n <= kMaxCodeCalls) {
 				std::string args = a_params.argCount ? "" : " arg0=none";
 				for (std::uint32_t i = 0; i < a_params.argCount && i < kMaxCodeArgs; ++i) {
 					args += std::format(" arg{}={}", i, ArgText(a_params.args[i]));
 				}
-				REX::INFO("step=code_call n={} name={} args={}{}", n, _name, a_params.argCount, args);
+				callLogLine = std::format("step=code_call n={} name={} args={}{}", n, _name, a_params.argCount, args);
+				if (!(g_inDestructionCall.load() && _name == "UnregisterMap")) {
+					REX::INFO("{}", callLogLine);
+				}
 			}
 
-			// Step 1: PopulatePipboyInfoObj(dataObj) fills DataObj in place (NEVER calling InvalidateData on worker thread)
+			if (g_inDestructionCall.load() && _name == "UnregisterMap") {
+				PipboyMap::ReleaseMovieRefs();
+				std::scoped_lock lock(g_deferredLogLock);
+				if (!callLogLine.empty()) {
+					g_deferredDestructionLogs.push_back(std::move(callLogLine));
+				}
+				if (PipboyMap::Enabled()) {
+					g_deferredDestructionLogs.emplace_back("step=map_unregister ok=1");
+				}
+				return;
+			}
+
+			if (g_closing.load()) {
+				return;
+			}
+
+			// Step 1b (PopulateInCall=1): PopulatePipboyInfoObj(dataObj) fills real vitals in place and calls InvalidateData once
 			if (_name == "PopulatePipboyInfoObj") {
 				if (a_params.argCount > 0 && a_params.args[0].IsObject()) {
 					g_dataObj = a_params.args[0];
-					const void* const menu = g_activeShellMenu;
-					auto* const       root = menu ? RootOf(menu) : nullptr;
-					const auto        page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
-					const auto        tab = s_savedTabs[page].load();
-					if (root) {
-						FillPipboyDataObj(menu, root, g_dataObj, page, tab, "PopulatePipboyInfoObj");
+					if (g_populateInCall) {
+						const void* const menu = g_activeShellMenu;
+						const void* const movie = menu ? MovieOf(menu) : nullptr;
+						auto* const       root = menu ? RootOf(menu) : nullptr;
+						const auto        page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
+						const auto        tab = s_savedTabs[page].load();
+						if (root) {
+							FillPipboyDataObj(menu, root, g_dataObj, page, tab, "PopulatePipboyInfoObj");
+							PipboyMap::NotifyShellPageTab(static_cast<std::int32_t>(page), static_cast<std::int32_t>(tab));
+							RE::Scaleform::GFx::Value top;
+							RE::Scaleform::GFx::Value menuMc;
+							if (std::string_view(g_loadingMovie.load() ? "load" : "show") != "load" &&
+								root->GetVariable(&top, "root") && top.IsObject() &&
+								ReadPath(top, g_codeObjAt, menuMc) && menuMc.IsObject()) {
+								RE::Scaleform::GFx::Value invRes;
+								const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0,
+									"Menu_mc.InvalidateData");
+								if (invalidated && movie) {
+									g_shownInvalidatedMovie = movie;
+								}
+								REX::INFO("step=populate_invalidate page={} tab={} invalidated={}", page, tab, invalidated ? 1 : 0);
+							}
+						}
 					}
 				}
 				return;
@@ -4643,71 +4676,77 @@ namespace
 				return;
 			}
 
-			// Step 6: STAT aid consumption & perk/transition stubs
-			if (_name == "UseStimpak" && g_task) {
-				g_task->AddTask([]() { ConsumePipboyAidMainThread(true); });
-				return;
-			}
-			if (_name == "UseRadaway" && g_task) {
-				g_task->AddTask([]() { ConsumePipboyAidMainThread(false); });
-				return;
-			}
-			if (_name == "onInvItemSelection") {
-				if (a_params.argCount >= 4) {
-					RE::Scaleform::GFx::Value cardArr = a_params.args[1];
-					RE::Scaleform::GFx::Value dollArr = a_params.args[2];
-					RE::Scaleform::GFx::Value invPage = a_params.args[3];
-					ClearAs3ArrayInPlace(cardArr);
-					ClearAs3ArrayInPlace(dollArr);
-					if (invPage.IsObject()) {
-						RE::Scaleform::GFx::Value res;
-						InvokeMovieTracked(invPage, "onListSelectionChangeCallback", &res, nullptr, 0,
-							"InvPage.onListSelectionChangeCallback", false);
-					}
+			// Step 1j (gated behind StatActions=1 until THIS ROUND passes in game)
+			if (g_statActions) {
+				if (_name == "UseStimpak" && g_task) {
+					g_task->AddTask([]() { ConsumePipboyAidMainThread(true); });
+					return;
 				}
-				return;
-			}
-			if (_name == "SortItemList") {
-				g_invSortMode = (g_invSortMode + 1u) % 4u;
-				if (g_dataObj.IsObject()) {
-					g_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode));
+				if (_name == "UseRadaway" && g_task) {
+					g_task->AddTask([]() { ConsumePipboyAidMainThread(false); });
+					return;
 				}
-				if (a_params.argCount >= 1 && a_params.args[0].IsObject()) {
-					RE::Scaleform::GFx::Value invPage = a_params.args[0];
-					RE::Scaleform::GFx::Value zeroArg(std::uint32_t{ 0 });
-					RE::Scaleform::GFx::Value res;
-					InvokeMovieTracked(invPage, "onSortComplete", &res, &zeroArg, 1, "InvPage.onSortComplete");
-				}
-				return;
 			}
-			if (_name == "onQuestSelection") {
-				if (a_params.argCount >= 3) {
-					RE::Scaleform::GFx::Value objList = a_params.args[0];
-					RE::Scaleform::GFx::Value questsTab = a_params.args[2];
-					ClearAs3ArrayInPlace(objList);
-					if (questsTab.IsObject()) {
-						RE::Scaleform::GFx::Value res;
-						InvokeMovieTracked(questsTab, "onObjectivesReady", &res, nullptr, 0, "QuestsTab.onObjectivesReady", false);
-					}
-				}
-				return;
-			}
-			if (_name == "ShowQuestOnMap" || _name == "ShowWorkshopOnMap") {
-				s_savedPage.store(3u);
-				g_externalTargetPage.store(3);
-				if (g_task) {
-					g_task->AddTask([]() {
-						PipboyMap::CollectStateForPage(3);
-						if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-							queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+
+			// Step 1k (gated behind InvDataAnswers=1 until THIS ROUND passes in game)
+			if (g_invDataAnswers) {
+				if (_name == "onInvItemSelection") {
+					if (a_params.argCount >= 4) {
+						RE::Scaleform::GFx::Value cardArr = a_params.args[1];
+						RE::Scaleform::GFx::Value dollArr = a_params.args[2];
+						RE::Scaleform::GFx::Value invPage = a_params.args[3];
+						ClearAs3ArrayInPlace(cardArr);
+						ClearAs3ArrayInPlace(dollArr);
+						if (invPage.IsObject()) {
+							RE::Scaleform::GFx::Value res;
+							InvokeMovieTracked(invPage, "onListSelectionChangeCallback", &res, nullptr, 0,
+								"InvPage.onListSelectionChangeCallback", false);
 						}
-					});
+					}
+					return;
 				}
-				return;
-			}
-			if (_name == "ToggleRadioStationActiveStatus") {
-				REX::INFO("step=radio_toggle args={}", a_params.argCount);
-				return;
+				if (_name == "SortItemList") {
+					g_invSortMode = (g_invSortMode + 1u) % 4u;
+					if (g_dataObj.IsObject()) {
+						g_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode));
+					}
+					if (a_params.argCount >= 1 && a_params.args[0].IsObject()) {
+						RE::Scaleform::GFx::Value invPage = a_params.args[0];
+						RE::Scaleform::GFx::Value zeroArg(std::uint32_t{ 0 });
+						RE::Scaleform::GFx::Value res;
+						InvokeMovieTracked(invPage, "onSortComplete", &res, &zeroArg, 1, "InvPage.onSortComplete");
+					}
+					return;
+				}
+				if (_name == "onQuestSelection") {
+					if (a_params.argCount >= 3) {
+						RE::Scaleform::GFx::Value objList = a_params.args[0];
+						RE::Scaleform::GFx::Value questsTab = a_params.args[2];
+						ClearAs3ArrayInPlace(objList);
+						if (questsTab.IsObject()) {
+							RE::Scaleform::GFx::Value res;
+							InvokeMovieTracked(questsTab, "onObjectivesReady", &res, nullptr, 0, "QuestsTab.onObjectivesReady", false);
+						}
+					}
+					return;
+				}
+				if (_name == "ShowQuestOnMap" || _name == "ShowWorkshopOnMap") {
+					s_savedPage.store(3u);
+					g_externalTargetPage.store(3);
+					if (g_task) {
+						g_task->AddTask([]() {
+							PipboyMap::CollectStateForPage(3);
+							if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+								queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+							}
+						});
+					}
+					return;
+				}
+				if (_name == "ToggleRadioStationActiveStatus") {
+					REX::INFO("step=radio_toggle args={}", a_params.argCount);
+					return;
+				}
 			}
 
 			PipboyMap::OnCodeObjCall(_name, a_params);
@@ -4716,7 +4755,16 @@ namespace
 			}
 
 			if (g_codeObjHide && _name == "HideMenu" && g_task) {
-				g_task->AddTask([n]() { Close(n, "hide_menu"); });
+				if (g_playingBootMovie.exchange(false)) {
+					const auto reopenPage = s_savedPage.load();
+					REX::INFO("step=boot_sequence finished=1 reopen_page={}", reopenPage);
+					g_task->AddTask([n, reopenPage]() {
+						Close(n, "boot_done");
+						g_task->AddTask([reopenPage]() { RequestPipboyOpen(reopenPage, "boot_reopen"); });
+					});
+				} else {
+					g_task->AddTask([n]() { Close(n, "hide_menu"); });
+				}
 			}
 			if (g_codeObjSound && (_name == "PlaySound" || _name == "PlaySmallTransition" || _name == "PlayPerkSound" || _name == "PlayFocusSound")) {
 				StartSound(n, a_params.argCount > 0 ? &a_params.args[0] : nullptr);
@@ -4724,9 +4772,8 @@ namespace
 		}
 
 	private:
-		std::string _name = "BGSCodeObj";   // the holder itself, in case the movie calls it
+		std::string _name = "BGSCodeObj";
 	};
-	CodeObjFunction                                  g_codeObjSelf;
 	std::array<CodeObjFunction, kMaxCodeNames>       g_codeObjFunctions;
 	std::array<std::string, kMaxCodeNames>           g_codeObjNames;
 	std::size_t                                      g_codeObjCount = 0;
@@ -4831,6 +4878,9 @@ namespace
 
 	bool CodeObjInstall(const void* a_menu, const char* a_when)
 	{
+		if (g_closing.load()) {
+			return false;
+		}
 		const void* const movie = MovieOf(a_menu);
 		if (!movie || g_codeObjMovie.load() == movie) {
 			return true;
@@ -4849,41 +4899,60 @@ namespace
 		RE::Scaleform::GFx::Value back;
 		const bool  gotVariable = root && root->GetVariable(&top, "root");
 		const bool  gotRoot = gotVariable && top.IsObject();
+		const bool  bootMode = g_playingBootMovie.load();
 		std::size_t members = 0;
 		bool        topSet = false;
+		const char* holderSource = "none";
 		if (gotRoot) {
-			root->CreateFunction(&holder, &g_codeObjSelf);
-			for (std::size_t i = 0; i < g_codeObjCount && !holder.IsUndefined(); ++i) {
-				RE::Scaleform::GFx::Value function;
-				root->CreateFunction(&function, &g_codeObjFunctions[i]);
-				members += !function.IsUndefined() && holder.SetMember(g_codeObjNames[i].c_str(), function) ? 1 : 0;
+			// Task 1 step 1a (proven crash fix): NEVER use CreateFunction as the BGSCodeObj holder!
+			// Read Menu_mc's own plain Object (PipboyMenu.as:53 `this.BGSCodeObj = new Object()`) once Menu_mc exists,
+			// or construct a plain Object via root->CreateObject(&holder, "Object") when CodeObjAt= is empty / missing.
+			RE::Scaleform::GFx::Value atCandidate;
+			const bool needAtFirst = !bootMode && !g_codeObjAt.empty();
+			const bool haveAtFirst = !needAtFirst || (ReadPath(top, g_codeObjAt, atCandidate) && atCandidate.IsObject());
+			if (haveAtFirst) {
+				if (needAtFirst) {
+					RE::Scaleform::GFx::Value existing;
+					if (atCandidate.GetMember("BGSCodeObj", &existing) && existing.IsObject() &&
+						existing.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure) {
+						holder = existing;
+						holderSource = "menu_mc";
+					}
+				}
+				if (holder.IsUndefined() || !holder.IsObject() ||
+					holder.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure) {
+					root->CreateObject(&holder, "Object");
+					holderSource = "create_object";
+				}
+				for (std::size_t i = 0; i < g_codeObjCount && !holder.IsUndefined() && holder.IsObject(); ++i) {
+					RE::Scaleform::GFx::Value function;
+					root->CreateFunction(&function, &g_codeObjFunctions[i]);
+					members += !function.IsUndefined() && holder.SetMember(g_codeObjNames[i].c_str(), function) ? 1 : 0;
+				}
+				topSet = !holder.IsUndefined() && holder.IsObject() && top.SetMember("BGSCodeObj", holder);
 			}
-			topSet = !holder.IsUndefined() && top.SetMember("BGSCodeObj", holder);
 		}
 		const std::size_t set = members + (topSet ? 1 : 0);
-		const bool        readBack = gotRoot && top.GetMember("BGSCodeObj", &back) && back.IsObject();
+		const bool        readBack = gotRoot && top.GetMember("BGSCodeObj", &back) && back.IsObject() &&
+		                      back.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure;
 		const bool        holderReady = gotRoot && !holder.IsUndefined() && members == g_codeObjCount;
-		// FAL-614 S1-c (CodeObjAt=<path>): R1 found the shell's engine object on its placed instance, Menu_mc.BGSCodeObj
-		// (a public slot of the sealed PipboyMenu), not on the root, so the shell and its pages saw null there. The
-		// stand-in is set on that path too, and the hand-over is done only once it reads back: the instance may not
-		// exist yet at the load try, so the show and update tries go on until it does
 		bool atSet = false;
 		bool atReadBack = false;
 		if (holderReady && !g_codeObjAt.empty()) {
-			RE::Scaleform::GFx::Value at;
-			RE::Scaleform::GFx::Value atBack;
-			atSet = ReadPath(top, g_codeObjAt, at) && at.SetMember("BGSCodeObj", holder);
-			atReadBack = atSet && at.GetMember("BGSCodeObj", &atBack) &&
-			             (atBack.IsObject() || atBack.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure);   // our holder is a function
+			if (bootMode) {
+				atSet = true;
+				atReadBack = true;
+			} else {
+				RE::Scaleform::GFx::Value at;
+				RE::Scaleform::GFx::Value atBack;
+				atSet = ReadPath(top, g_codeObjAt, at) && at.SetMember("BGSCodeObj", holder);
+				atReadBack = atSet && at.GetMember("BGSCodeObj", &atBack) &&
+				             atBack.IsObject() && atBack.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure;
+			}
 		}
 		const bool atDone = g_codeObjAt.empty() || atReadBack;
-		// FAL-614 proof 2a (CodeObjInit=<name>): a page loaded alone has no shell to hand it its engine object (D2's
-		// STAT page names InitCodeObj and codeObj). Proof 2a's run: the page's root is its own sealed class, so
-		// root.BGSCodeObj could not be set (set=16 of=17 read_back=0). So once the stand-in is built the plugin calls
-		// root.<name>(stand-in) itself, whether or not root.BGSCodeObj took it, then reads root.codeObj back; a call
-		// that went through ends the tries for this movie
 		bool called = false;
-		if (holderReady && !g_codeObjInit.empty()) {
+		if (holderReady && !bootMode && !g_codeObjInit.empty()) {
 			RE::Scaleform::GFx::Value init;
 			RE::Scaleform::GFx::Value result;
 			RE::Scaleform::GFx::Value codeObj;
@@ -4906,10 +4975,14 @@ namespace
 		if (done) {
 			g_codeObjMovie = movie;
 			g_answers = 0;   // S1-c: this movie's answers
+			REX::INFO("step=code_obj_holder type=object raw_type={} is_closure={} source={} members={} of={}",
+				TypeCode(holder),
+				holder.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure ? 1 : 0,
+				holderSource, members, g_codeObjCount);
 		}
 		// FAL-614 proof 2b-ii (CodeObjCalls=<path>,...): once per movie on the try that finished the hand-over and before
 		// the probe, each path is called with no arguments (Step 1: never call InvalidateData on the LoadMovie worker thread)
-		for (std::size_t i = 0; done && i < g_rootCallCount; ++i) {
+		for (std::size_t i = 0; done && !bootMode && i < g_rootCallCount; ++i) {
 			if (std::string_view(a_when) == "load" && IsInvalidate(g_rootCallNames[i])) {
 				REX::INFO("step=code_obj_root_call n={} name={} skipped_on_load=1", i + 1, g_rootCallNames[i]);
 				continue;
@@ -4945,14 +5018,13 @@ namespace
 			REX::INFO("step=code_obj_root_call n={} name={} found={} type={} called={} result_type={}", i + 1, g_rootCallNames[i],
 				found ? 1 : 0, read ? TypeCode(function) : -1, rootCalled ? 1 : 0, TypeCode(result));
 			if (!rootCalled) {
-				FailMovieCall("code_obj_root_call", std::format("name={}", g_rootCallNames[i]));
-				return false;
+				REX::INFO("step=movie_call_miss where=code_obj_root_call name={} found={}", g_rootCallNames[i], found ? 1 : 0);
 			}
 		}
 		// FAL-614 proof 2b-i (CodeObjProbe=<path>,...): read-only. Once per movie, on the try that finished the
 		// hand-over, each path (a root member, or members joined by '.') is read with GetMember and its type logged,
 		// with the value only for a boolean or a number; nothing is set or called. type=-1: not found, nothing read
-		for (std::size_t i = 0; done && i < g_probeCount; ++i) {
+		for (std::size_t i = 0; done && !bootMode && i < g_probeCount; ++i) {
 			RE::Scaleform::GFx::Value at;
 			const bool                found = ReadPath(top, g_probeNames[i], at);
 			std::string value;
@@ -4997,14 +5069,11 @@ namespace
 	// ran, populate DataObj (CurrentPage before CurrentTab), and call Menu_mc.InvalidateData() ONCE
 	void ShellShowInit(const void* a_menu)
 	{
-		if (!IsFo4ShellActive()) {
+		if (g_closing.load() || !IsFo4ShellActive()) {
 			return;
 		}
 		const void* const movie = MovieOf(a_menu);
 		if (!movie || g_codeObjMovie.load() != movie) {
-			return;
-		}
-		if (g_shownInvalidatedMovie.exchange(movie) == movie) {
 			return;
 		}
 		g_activeShellMenu = a_menu;
@@ -5013,28 +5082,43 @@ namespace
 		RE::Scaleform::GFx::Value menuMc;
 		if (!root || !root->GetVariable(&top, "root") || !top.IsObject() ||
 			!ReadPath(top, g_codeObjAt, menuMc) || !menuMc.IsObject()) {
-			FailMovieCall("shell_show_root");
+			REX::INFO("step=movie_call_miss where=shell_show_root");
 			return;
 		}
 		if (g_createdCodeObjMovie.exchange(movie) != movie) {
 			RE::Scaleform::GFx::Value createRes;
 			if (!InvokeMovieTracked(menuMc, "onCodeObjCreate", &createRes, nullptr, 0, "Menu_mc.onCodeObjCreate")) {
-				FailMovieCall("onCodeObjCreate");
+				REX::INFO("step=movie_call_miss where=onCodeObjCreate");
 				return;
 			}
+		}
+		const bool alreadyInvalidated = (g_shownInvalidatedMovie.exchange(movie) == movie);
+		if (alreadyInvalidated && !g_lateInvalidate) {
+			return;
 		}
 		if (!g_dataObj.IsObject()) {
 			menuMc.GetMember("DataObj", &g_dataObj);
 		}
 		if (!g_dataObj.IsObject()) {
-			FailMovieCall("shell_show_data_obj");
+			REX::INFO("step=movie_call_miss where=shell_show_data_obj");
 			return;
 		}
 		const auto page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
 		const auto tab = s_savedTabs[page].load();
-		FillPipboyDataObj(a_menu, root, g_dataObj, page, tab, "kShow");
-		if (g_codeObjSpecial == kSpecialClear) {
+		if (g_populateInCall) {
+			FillPipboyDataObj(a_menu, root, g_dataObj, page, tab, "kShow");
+			if (g_codeObjSpecial == kSpecialClear) {
+				SpecialReady(root, top, "show");
+			}
+		} else {
+			g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(page));
+			g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(tab));
 			SpecialReady(root, top, "show");
+			if (page == PipboyMap::MapPageIndex()) {
+				PipboyMap::PopulateMapDataObj(a_menu, root, g_dataObj, static_cast<std::int32_t>(page));
+			}
+			g_currentShellPage.store(static_cast<std::int32_t>(page));
+			g_currentShellTab.store(static_cast<std::int32_t>(tab));
 		}
 		PipboyMap::NotifyShellPageTab(static_cast<std::int32_t>(page), static_cast<std::int32_t>(tab));
 
@@ -5042,14 +5126,17 @@ namespace
 		const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData");
 		REX::INFO("step=shell_show_invalidate page={} tab={} invalidated={}", page, tab, invalidated ? 1 : 0);
 		if (!invalidated) {
-			FailMovieCall("shell_show_invalidate");
+			REX::INFO("step=movie_call_miss where=shell_show_invalidate page={} tab={}", page, tab);
 		}
 	}
 
-	// Step 2: on kHide BEFORE g_engineProcessMessage (while MovieOf(a_menu) is still non-null, guarded once per movie),
-	// release C++ GFx::Value refs cleanly around Menu_mc.onCodeObjDestruction() (UnregisterMap fires inside it!)
+	// Step 1c: on kHide BEFORE g_engineProcessMessage (while MovieOf(a_menu) is still non-null, guarded once per movie),
+	// set g_closing first so nothing writes to DataObj or the movie, call Menu_mc.onCodeObjDestruction(), log
+	// code_obj_destruction called=1, then UnregisterMap (if MAP was loaded), then touch the movie no more before step=destroy
 	void ShellHideTeardown(const void* a_menu)
 	{
+		g_closing.store(true);
+		PipboyMap::SetClosing(true);
 		const void* const movie = MovieOf(a_menu);
 		if (!movie || !IsFo4ShellActive() || g_codeObjMovie.load() != movie) {
 			PipboyMap::ReleaseMovieRefs();
@@ -5062,6 +5149,10 @@ namespace
 		}
 		PipboyMap::ReleaseMovieRefs();
 		g_dataObj = RE::Scaleform::GFx::Value{};
+		{
+			std::scoped_lock lock(g_deferredLogLock);
+			g_deferredDestructionLogs.clear();
+		}
 
 		bool        called = false;
 		auto* const root = RootOf(a_menu);
@@ -5070,22 +5161,36 @@ namespace
 		if (root && root->GetVariable(&top, "root") && top.IsObject() &&
 			ReadPath(top, g_codeObjAt, menuMc) && menuMc.IsObject()) {
 			RE::Scaleform::GFx::Value res;
+			g_inDestructionCall.store(true);
 			called = InvokeMovieTracked(menuMc, "onCodeObjDestruction", &res, nullptr, 0, "Menu_mc.onCodeObjDestruction");
+			g_inDestructionCall.store(false);
 		}
 		PipboyMap::ReleaseMovieRefs();
 		g_dataObj = RE::Scaleform::GFx::Value{};
 		g_activeShellMenu = nullptr;
 		REX::INFO("step=code_obj_destruction movie={} called={}", Hex(reinterpret_cast<std::uintptr_t>(movie)), called ? 1 : 0);
+
+		std::vector<std::string> deferred;
+		{
+			std::scoped_lock lock(g_deferredLogLock);
+			deferred.swap(g_deferredDestructionLogs);
+		}
+		for (const auto& line : deferred) {
+			REX::INFO("{}", line);
+		}
 	}
 
 	// Steps 1, 3, 4: drain ProcessUserEvent queue (with Cancel release -> !consumed && CurrentPage.CanLowerPipboy()),
 	// external page switch guard (_IsLoadingPage == false && CurrentPage loaded), and throttled partial vitals refresh
 	bool ProcessPendingShellEvents(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root, RE::Scaleform::GFx::Value& a_top)
 	{
+		if (g_closing.load()) {
+			return false;
+		}
 		g_activeShellMenu = a_menu;
 		RE::Scaleform::GFx::Value menuMc;
 		if (!ReadPath(a_top, g_codeObjAt, menuMc) || !menuMc.IsObject()) {
-			FailMovieCall("shell_events_menu_mc");
+			REX::INFO("step=movie_call_miss where=shell_events_menu_mc");
 			return false;
 		}
 
@@ -5101,11 +5206,11 @@ namespace
 			};
 			RE::Scaleform::GFx::Value res;
 			if (!InvokeMovieTracked(menuMc, "ProcessUserEvent", &res, args, 2, "Menu_mc.ProcessUserEvent")) {
-				FailMovieCall("ProcessUserEvent", std::format("event={}", ev.name));
+				REX::INFO("step=movie_call_miss where=ProcessUserEvent event={}", ev.name);
 				return false;
 			}
 			const bool consumed = res.IsBoolean() && res.GetBoolean();
-			REX::INFO("step=shell_user_event event={} down={} consumed={}", ev.name, ev.isDown ? 1 : 0, consumed ? 1 : 0);
+			REX::INFO("step=process_user_event name={} handled={} down={}", ev.name, consumed ? 1 : 0, ev.isDown ? 1 : 0);
 
 			if (ev.name == "Cancel" && !ev.isDown) {
 				bool                      canLower = true;
@@ -5113,10 +5218,8 @@ namespace
 				if (menuMc.GetMember("CurrentPage", &curPageClip) && curPageClip.IsObject()) {
 					RE::Scaleform::GFx::Value canRes;
 					if (!InvokeMovieTracked(curPageClip, "CanLowerPipboy", &canRes, nullptr, 0, "CurrentPage.CanLowerPipboy")) {
-						FailMovieCall("CanLowerPipboy");
-						return false;
-					}
-					if (canRes.IsBoolean()) {
+						REX::INFO("step=movie_call_miss where=CanLowerPipboy");
+					} else if (canRes.IsBoolean()) {
 						canLower = canRes.GetBoolean();
 					}
 				}
@@ -5147,13 +5250,12 @@ namespace
 				RE::Scaleform::GFx::Value pageArg(static_cast<std::uint32_t>(extPage));
 				RE::Scaleform::GFx::Value tryRes;
 				if (!InvokeMovieTracked(menuMc, "TryToSetPage", &tryRes, &pageArg, 1, "Menu_mc.TryToSetPage")) {
-					FailMovieCall("TryToSetPage", std::format("page={}", extPage));
-					return false;
+					REX::INFO("step=movie_call_miss where=TryToSetPage page={}", extPage);
 				}
 			}
 		}
 
-		if (const auto mask = g_pendingPartialMask.exchange(0); mask != 0) {
+		if (const auto mask = g_pendingPartialMask.exchange(0); mask != 0 && g_populateInCall) {
 			if (!g_dataObj.IsObject()) {
 				menuMc.GetMember("DataObj", &g_dataObj);
 			}
@@ -5164,8 +5266,7 @@ namespace
 				RE::Scaleform::GFx::Value maskArg(mask);
 				RE::Scaleform::GFx::Value partRes;
 				if (!InvokeMovieTracked(menuMc, "InvalidatePartialData", &partRes, &maskArg, 1, "Menu_mc.InvalidatePartialData", false)) {
-					FailMovieCall("InvalidatePartialData", std::format("mask={:#x}", mask));
-					return false;
+					REX::INFO("step=movie_call_miss where=InvalidatePartialData mask={:#x}", mask);
 				}
 			}
 		}
@@ -5174,6 +5275,9 @@ namespace
 
 	void ShellUpdate(const void* a_menu)
 	{
+		if (g_closing.load()) {
+			return;
+		}
 		const void* const movie = MovieOf(a_menu);
 		if (!movie || g_codeObjMovie.load() != movie) {
 			return;
@@ -5182,7 +5286,7 @@ namespace
 		auto* const               root = RootOf(a_menu);
 		RE::Scaleform::GFx::Value top;
 		if (!root || !root->GetVariable(&top, "root") || !top.IsObject()) {
-			FailMovieCall("shell_update_root");
+			REX::INFO("step=movie_call_miss where=shell_update_root");
 			return;
 		}
 		if (IsFo4ShellActive() && !ProcessPendingShellEvents(a_menu, root, top)) {
@@ -5203,7 +5307,7 @@ namespace
 					g_shellKeys[i].path, found ? 1 : 0, called ? 1 : 0);
 			}
 			if (!called) {
-				FailMovieCall("shell_key", std::format("path={}", g_shellKeys[i].path));
+				REX::INFO("step=movie_call_miss where=shell_key path={}", g_shellKeys[i].path);
 				return;
 			}
 		}
@@ -5236,7 +5340,7 @@ namespace
 				  "invalidate_found={} invalidated={}",
 			n, page, tab, gotData ? 1 : 0, pageSet ? 1 : 0, tabSet ? 1 : 0, pageNow, tabNow, found ? 1 : 0, invalidated ? 1 : 0);
 		if (!invalidated) {
-			FailMovieCall("code_answer_invalidate", std::format("page={} tab={}", page, tab));
+			REX::INFO("step=movie_call_miss where=code_answer_invalidate page={} tab={}", page, tab);
 		}
 	}
 
@@ -5574,6 +5678,13 @@ namespace
 	RE::UI_MESSAGE_RESULT MenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
 	{
 		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_closing.store(false);
+			PipboyMap::SetClosing(false);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_closing.store(true);
+			PipboyMap::SetClosing(true);
+		}
 		if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kHide) {
 			// Step 2: invoke Menu_mc.onCodeObjDestruction() BEFORE g_engineProcessMessage destroys uiMovie
 			ShellHideTeardown(a_self);
@@ -6151,6 +6262,52 @@ namespace
 	std::atomic<std::int64_t>  g_stateCheckDueAt{ 0 };
 	std::atomic<std::uint32_t> g_stateCheckN{ 0 };
 
+	// Step X2 & Step 1f: checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x865 / LookupByEditorID) float value at +0x48
+	bool IsPipboyPickedUpMainThread(float& a_outVal)
+	{
+		a_outVal = 0.0f;
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCorePipboyAcquiredId, "TESGlobal@@", detail)) {
+			AcceptById(fid, "FO4SF_PipboyAcquired", "TESGlobal@@", kGlobalEditorIdAt, form);
+		}
+		if (!form) {
+			form = LookupFormByEditorIdChecked("FO4SF_PipboyAcquired", "TESGlobal@@");
+		}
+		if (!form) {
+			return false;
+		}
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		float             v = 0.0f;
+		if (!Peek(form + valAt, v) || !std::isfinite(v)) {
+			return false;
+		}
+		a_outVal = v;
+		return v >= 0.5f;
+	}
+
+	bool CheckOpenGateAndBootMainThread(std::uint32_t a_targetPage, const char* a_by)
+	{
+		if (g_stage != 2 || g_movie.empty()) {
+			return true;
+		}
+		float acqVal = 0.0f;
+		const bool needCheck = g_requirePickup || (g_bootOnFirstOpen && !g_bootMovie.empty() && !s_bootPlayed.load());
+		const bool acquired = needCheck ? IsPipboyPickedUpMainThread(acqVal) : false;
+		if (g_requirePickup && !acquired) {
+			REX::INFO("step=pipboy_pickup_required by={} page={} value={:.1f}", a_by ? a_by : "key", a_targetPage, acqVal);
+			return false;
+		}
+		if (g_bootOnFirstOpen && !g_bootMovie.empty() && acquired && std::string_view(a_by ? a_by : "") != "boot_reopen") {
+			if (!s_bootPlayed.exchange(true)) {
+				g_playingBootMovie.store(true);
+				REX::INFO("step=boot_sequence movie={} first_open=1 page={}", g_bootMovie, a_targetPage);
+			}
+		}
+		return true;
+	}
+
 	void Toggle(std::uint32_t a_n)
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -6165,11 +6322,12 @@ namespace
 				REX::INFO("step=toggle n={} ignored=menu_open menu={}", a_n, blocking);
 				return;
 			}
-		} else if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
-			if (std::string_view(topModal) == "Console") {
-				REX::INFO("step=toggle n={} ignored=console_open", a_n);
+			if (!CheckOpenGateAndBootMainThread(s_savedPage.load(), "toggle")) {
 				return;
 			}
+		} else if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
+			REX::INFO("step=toggle n={} ignored=menu_open menu={}", a_n, topModal);
+			return;
 		}
 		g_cancelHeld = false;   // FAL-414: a release heard while the page was closed must not keep the gate shut
 		if (g_stage == 2 && g_codeObj && !open) {
@@ -6223,6 +6381,9 @@ namespace
 	// stages c, d and e, every 500 ms while the menu is open (and throttled vitals refresh at Stage=2 with CodeObj=1)
 	void SendUpdate()
 	{
+		if (g_closing.load()) {
+			return;
+		}
 		auto* ui = RE::UI::GetSingleton();
 		auto* queue = RE::UIMessageQueue::GetSingleton();
 		if (!ui || !queue || !ui->IsMenuOpen(MenuName())) {
@@ -6320,6 +6481,9 @@ namespace
 		}
 		if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
 			REX::INFO("step=request_open by={} page={} ignored=menu_open menu={}", a_by ? a_by : "key", target, blocking);
+			return;
+		}
+		if (!CheckOpenGateAndBootMainThread(target, a_by)) {
 			return;
 		}
 
@@ -6686,26 +6850,6 @@ namespace
 		return true;
 	}
 
-	// Step 6: when CodeObj=1 and CodeObjAt=Menu_mc, ensure all 46 FO4 BGSCodeObj native names (+ HideMenu) are registered
-	void EnsureFo4ShellCodeObjNames()
-	{
-		if (!g_codeObj || g_codeObjAt != "Menu_mc") {
-			return;
-		}
-		for (const char* req : kFo4ShellCodeObjNames) {
-			if (g_codeObjCount >= kMaxCodeNames) {
-				break;
-			}
-			const std::string name(req);
-			if (std::ranges::find(g_codeObjNames.begin(), g_codeObjNames.begin() + g_codeObjCount, name) ==
-				g_codeObjNames.begin() + g_codeObjCount) {
-				g_codeObjNames[g_codeObjCount] = name;
-				g_codeObjFunctions[g_codeObjCount].Name(name);
-				++g_codeObjCount;
-			}
-		}
-	}
-
 	// stage c, FAL-246: ClickCall=<script>.<function>, two Papyrus names of up to 64 letters, digits and '_' (no digit
 	// first); "" = off. False if malformed
 	bool ParseClickCall(std::string_view a_call)
@@ -6934,6 +7078,13 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	const auto calls = ReadText(ini, L"CodeObjCalls");   // FAL-614 proof 2b-ii: with CodeObj=1 only
 	g_codeObjAt = ReadText(ini, L"CodeObjAt");   // FAL-614 S1-c: with CodeObj=1 only
 	g_codeObjPages = ReadNumber(ini, L"CodeObjPages", 0) != 0;   // S1-c: with CodeObjAt= only
+	g_populateInCall = ReadNumber(ini, L"PopulateInCall", 0) != 0;
+	g_lateInvalidate = ReadNumber(ini, L"LateInvalidate", 0) != 0;
+	g_statActions = ReadNumber(ini, L"StatActions", 0) != 0;
+	g_invDataAnswers = ReadNumber(ini, L"InvDataAnswers", 0) != 0;
+	g_requirePickup = ReadNumber(ini, L"RequirePickup", 0) != 0;
+	g_bootMovie = ReadText(ini, L"BootMovie");
+	g_bootOnFirstOpen = ReadNumber(ini, L"BootOnFirstOpen", 0) != 0;
 	const auto shellKeys = ReadText(ini, L"ShellKeys");   // S1-c: with CodeObj=1 only
 	const auto special = ReadText(ini, L"CodeObjSpecial");   // FAL-1025: with CodeObjAt= only
 	// FAL-414: up to four keyboard ids that close the menu while it is open (0 = unused)
@@ -6974,14 +7125,22 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 		Refuse("ini", "code_obj_hide=1 (with CodeObj=1 only)");
 		return true;
 	}
-	// FAL-614 S1-c: CodeObjAt=<path> (one path, as CodeObjCalls=), validated before EnsureFo4ShellCodeObjNames
+	// FAL-614 S1-c: CodeObjAt=<path> (one path, as CodeObjCalls=)
 	std::array<std::string, kMaxCodeNames> atPath{};
 	std::size_t                            atCount = 0;
 	if (!g_codeObjAt.empty() && (!g_codeObj || !ParsePaths(g_codeObjAt, atPath, atCount, "code_obj_at") || atCount != 1)) {
 		Refuse("ini", std::format("code_obj_at={} (with CodeObj=1 only; one path of letters, digits, _ and .)", g_codeObjAt));
 		return true;
 	}
-	EnsureFo4ShellCodeObjNames();
+	if (!g_bootMovie.empty()) {
+		const bool bootOk = g_stage == 2 && g_bootMovie.size() <= kMaxName && std::ranges::all_of(g_bootMovie, [](char a_c) {
+			return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') || (a_c >= '0' && a_c <= '9') || a_c == '_';
+		});
+		if (!bootOk) {
+			Refuse("ini", std::format("boot_movie={} (Stage=2 only; 1 to 64 letters, digits and _)", g_bootMovie));
+			return true;
+		}
+	}
 
 	// FAL-614 proof 1d: CodeObjSound=1, with CodeObj=1 and PlaySound among its names
 	if (g_codeObjSound && (!g_codeObj || std::ranges::find(g_codeObjNames.begin(), g_codeObjNames.begin() + g_codeObjCount,

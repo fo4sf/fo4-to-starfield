@@ -198,7 +198,7 @@ class CoreBundleTests(unittest.TestCase):
         # 11-reputation with Pip-Boy INI/JSON/TSV sidecar manifests
         add_stage("11-reputation", "FO4SFReputation.esm", pex_name="FO4SF_ReputationQuest",
                   masters=("Starfield.esm", "FO4SFCoreValues.esm"))
-        (stages_root / "11-reputation" / "FO4SFPipboyMenu.reputation.ini").write_text("[Page STAT/KARMA]\n", encoding="utf-8")
+        (stages_root / "11-reputation" / "FO4SFPipboyKit.ini").write_text("[Page STAT/KARMA]\n", encoding="utf-8")
 
         # 12-companions & 13-alife
         add_stage("12-companions", "FO4SFCompanions.esm", pex_name="FO4SF_CompanionsQuest",
@@ -341,7 +341,7 @@ class CoreBundleTests(unittest.TestCase):
             self.assertNotIn("[Page ", shipped_pb_ini)
             self.assertIn("MapHeadingAt=88", shipped_pb_ini)
             self.assertTrue((out / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFCombat.dll").is_file())
-            self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyMenu.reputation.ini").is_file())
+            self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyKit.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
 
             # Player profile omits FO4SFCoreCandidate.esm -> 22 plugins
@@ -450,6 +450,10 @@ class CoreBundleTests(unittest.TestCase):
             (ldir / "FO4SFListDialogue.0.log").write_text("choice stage=20 speech_pass=true\n", encoding="utf-8")
             (ldir / "FO4SFCoreCandidate.0.log").write_text(
                 "FO4SFCANDIDATE rt=50.0 chargen_applied run=1 trigger=kiosk_activate bg=VaultDweller trait1=GoodNatured trait2=SmallFrame traits_count=2 special_sum=40 speech=52 science=52 str=7 end=true\n",
+                encoding="utf-8",
+            )
+            (ldir / "FO4SFProgression.0.log").write_text(
+                "FO4SFPROG rt=50.5 creation_applied source=lift_prompt bg=0 traits=2 special_sum=40 skills_count=13 tags=10,3,4 carry_mod=45.0 end=true\n",
                 encoding="utf-8",
             )
             (ldir / "FO4SFCombat.0.log").write_text(

@@ -386,6 +386,11 @@ class SourceAndContractTests(unittest.TestCase):
         self.assertNotIn("OurMenuFixed()", sup)
         # Complete star-map lockout in UI::menuMap + BSInputEventUser swallow while open
         self.assertIn("entry.value.initFunc = &BlockedStarMapCreate;", self.cpp)
+        self.assertIn("entry.value.initFunc = kBlockedMapMenuCreators[slot];", self.cpp)
+        self.assertIn("kMaxMapMenus = 16;", self.cpp)
+        self.assertIn("blocked menu={} route=create", self.cpp)
+        self.assertIn("VerifyPluginCandidate(", self.cpp)
+        self.assertIn('#include "blocking_menus.h"', self.cpp)
         self.assertIn("step=starmap_blocked", self.cpp)
         self.assertIn("RE::InputEvent::Status::kStop", self.cpp)
         self.assertIn("PipboyMap::ShouldHandleInput(a_event)", self.main)

@@ -32,6 +32,8 @@ namespace PipboyMap
 
 	bool IsModalOpen();
 
+	void SetClosing(bool a_closing);
+
 	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn);
 
 	void Configure(const std::filesystem::path& a_ini, const std::filesystem::path& a_dir, int a_stage,

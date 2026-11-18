@@ -957,11 +957,17 @@ def stage_from_checkout(a) -> Dict[str, str]:
 
 
 def refresh_pipboy_stage_for_bundle(src_stage: str, out_stage: str, fo4_data_dir: str) -> None:
-    """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT VaultBoy/Condition SWFs, and update plan.json."""
+    """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT/boot SWFs, generate clean INI, and update plan.json."""
     ui_dir = os.path.join(REPO, "scripts", "ui")
     if ui_dir not in sys.path:
         sys.path.insert(0, ui_dir)
+    import make_pipboy_stage_ini  # type: ignore
     import pipboy_map_store  # type: ignore
+
+    try:
+        pipboy_map_store.refuse_unsafe_output_path(out_stage)
+    except pipboy_map_store.MapStoreError as exc:
+        raise BundleRefused(str(exc)) from exc
 
     partial = out_stage + ".partial"
     if os.path.exists(partial):
@@ -986,6 +992,15 @@ def refresh_pipboy_stage_for_bundle(src_stage: str, out_stage: str, fo4_data_dir
         staged_specs = pipboy_map_store.stage_fo4_stat_components(fo4_iface_ba2, iface_dir)
         for spec in staged_specs:
             updated_data_rels.append(f"Data/Interface/{spec}.swf")
+        boot_spec = pipboy_map_store.stage_fo4_boot_movie(fo4_iface_ba2, iface_dir)
+        updated_data_rels.append(f"Data/Interface/{boot_spec}.swf")
+
+    if any(p.lower().endswith(".swf") for _, _, fns in os.walk(iface_dir) for p in fns):
+        try:
+            make_pipboy_stage_ini.generate_stage_ini(partial)
+        except make_pipboy_stage_ini.StageIniError as exc:
+            raise BundleRefused(str(exc)) from exc
+        updated_data_rels.append("SFSE/Plugins/FO4SFPipboyMenu.ini")
 
     plan_p = os.path.join(partial, "plan.json")
     if os.path.isfile(plan_p) and updated_data_rels:
@@ -1143,12 +1158,14 @@ def fold_bundle(
                         shutil.copy2(sfile, dst_sc)
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
         elif key == "reputation":
-            for fn in ("FO4SFPipboyMenu.reputation.ini", "FO4SFPipboyReputation.json", "FO4SFPipboyReputation.tsv"):
+            for fn in ("FO4SFPipboyKit.ini", "FO4SFPipboyMenu.reputation.ini", "FO4SFPipboyReputation.json", "FO4SFPipboyReputation.tsv"):
                 sfile = os.path.join(st_dir, fn)
                 if os.path.isfile(sfile):
-                    rel_sc = f"reputation/{fn}"
-                    dst_sc = os.path.join(partial, "sfse_sidecar", "reputation", fn)
-                    _copy_or_strip_pipboy_ini(sfile, dst_sc)
+                    dst_name = "FO4SFPipboyKit.ini" if fn == "FO4SFPipboyMenu.reputation.ini" else fn
+                    rel_sc = f"reputation/{dst_name}"
+                    dst_sc = os.path.join(partial, "sfse_sidecar", "reputation", dst_name)
+                    os.makedirs(os.path.dirname(dst_sc), exist_ok=True)
+                    shutil.copy2(sfile, dst_sc)
                     sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
         elif key == "pipboy":
             validate_pipboy_stage(st_dir, has_override_dll=bool(pipboy_sfse_override))
@@ -1179,6 +1196,9 @@ def fold_bundle(
                     if os.path.isfile(sfile):
                         rel_sc = f"SFSE/Plugins/{dst_fn}"
                         dst_sc = os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", dst_fn)
+                        # Never overwrite a generated Stage=2 FO4SFPipboyMenu.ini with build.ps1's idle Stage=0 INI
+                        if dst_fn == "FO4SFPipboyMenu.ini" and os.path.isfile(dst_sc):
+                            continue
                         _copy_or_strip_pipboy_ini(sfile, dst_sc)
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
 

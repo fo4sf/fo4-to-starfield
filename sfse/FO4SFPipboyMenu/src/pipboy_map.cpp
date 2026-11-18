@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "pipboy_map.h"
+#include "blocking_menus.h"
 
 #include <algorithm>
 #include <array>
@@ -115,7 +116,7 @@ namespace
 	constexpr std::uint32_t kMaxLocationIconType = 84;  // 85 and 86 are reserved for PlayerSetMarker and PlayerLocMarker
 
 	constexpr std::size_t   kMaxStoreMarkers = kDiscGlobals * kBitsPerGlobal;
-	constexpr std::size_t   kMaxMapMenus = 8;
+	constexpr std::size_t   kMaxMapMenus = 16;
 	constexpr std::size_t   kMaxName = 64;
 	constexpr std::uint32_t kMaxLogLines = 64;
 	constexpr std::int64_t  kMapKeyCooldownMs = 350;
@@ -232,7 +233,6 @@ namespace
 	std::size_t                            g_verifiedGlobalValueAt = 0;
 	bool                                   g_globalLogged = false;
 	bool                                   g_headingLogged = false;
-	bool                                   g_fileSkipLogged = false;
 	std::uint32_t                          g_gameHourId = kDefaultGameHourId;
 	std::uint32_t                          g_gameDaysPassedId = kDefaultGameDaysPassedId;
 	std::size_t                            g_fileCollectionAt = kDefaultFileCollectionAt;
@@ -250,6 +250,7 @@ namespace
 	std::vector<StoreMarker>               g_store;
 
 	std::atomic<bool>                      g_menuOpen{ false };
+	std::atomic<bool>                      g_closing{ false };
 	std::atomic<bool>                      g_mapInputHeld{ false };
 	std::atomic<bool>                      g_keyDown{ false };
 	std::atomic<std::int64_t>              g_lastMapTransitionMs{ 0 };
@@ -677,15 +678,87 @@ namespace
 		return reinterpret_cast<std::uintptr_t>(fn(a_formId));
 	}
 
+	// Verifies a candidate plugin prefix against a known form + RTTI (as main.cpp KitFileForm does) so an unverified
+	// TESFile offset can never assign a wrong load-order prefix to a full or light plugin
+	bool VerifyPluginCandidate(std::string_view a_fileName, std::uint32_t a_prefix, bool a_small)
+	{
+		const std::uint32_t mask = a_small ? 0xFFFu : 0xFFFFFFu;
+		if (SameAscii(a_fileName, g_travelPlugin)) {
+			const auto form = LookupForm(a_prefix | (kGlobTravelTarget & mask));
+			return form && IsType(form, "TESGlobal@@");
+		}
+		for (const auto& m : g_store) {
+			if (m.pluginCode < kPluginSlotCount && SameAscii(a_fileName, kMarkerPluginFiles[m.pluginCode])) {
+				const auto refr = LookupForm(a_prefix | (m.localId & mask));
+				return refr && IsRefrType(refr);
+			}
+		}
+		return true;
+	}
+
+	bool ChooseVerifiedFilePrefix(std::string_view a_fileName, std::uintptr_t a_file, int a_listKind,
+		std::uint32_t& a_prefix, bool& a_small)
+	{
+		std::uint8_t                compileIdx = 0xFF;
+		std::uint32_t               recordFlags = 0;
+		std::array<std::uint8_t, 4> indexBytes{};
+		if (!Peek(a_file + g_fileCompileIndexAt, compileIdx) ||
+			!PeekBytes(a_file + g_fileIndexAt, indexBytes.data(), indexBytes.size())) {
+			return false;
+		}
+		Peek(a_file + kFileRecordFlagsAt, recordFlags);
+
+		struct Candidate
+		{
+			std::uint32_t prefix;
+			bool          small;
+		};
+		std::array<Candidate, 4> candidates{};
+		std::size_t              candCount = 0;
+		const auto addCandidate = [&](std::uint32_t p, bool s) {
+			for (std::size_t i = 0; i < candCount; ++i) {
+				if (candidates[i].prefix == p && candidates[i].small == s) {
+					return;
+				}
+			}
+			if (candCount < candidates.size()) {
+				candidates[candCount++] = { p, s };
+			}
+		};
+
+		if (a_listKind == 1 || compileIdx == 0xFE || indexBytes[0] == 0xFE || (recordFlags & 0x200u) != 0) {
+			const std::uint32_t smallIdx = static_cast<std::uint32_t>(indexBytes[2]) |
+			                               (static_cast<std::uint32_t>(indexBytes[3]) << 8);
+			addCandidate(0xFE000000u | ((smallIdx & 0xFFFu) << 12), true);
+		}
+		if (a_listKind == 2 || compileIdx == 0xFD || indexBytes[0] == 0xFD || (recordFlags & 0x400u) != 0) {
+			addCandidate(0xFD000000u | (static_cast<std::uint32_t>(indexBytes[1]) << 16), false);
+		}
+		if (compileIdx < 0xFD) {
+			addCandidate(static_cast<std::uint32_t>(compileIdx) << 24, false);
+		}
+		if ((a_listKind <= 0) && indexBytes[0] < 0xFD) {
+			addCandidate(static_cast<std::uint32_t>(indexBytes[0]) << 24, false);
+		}
+
+		for (std::size_t i = 0; i < candCount; ++i) {
+			if (VerifyPluginCandidate(a_fileName, candidates[i].prefix, candidates[i].small)) {
+				a_prefix = candidates[i].prefix;
+				a_small = candidates[i].small;
+				return true;
+			}
+		}
+		return false;
+	}
+
 	// Finds the runtime FormID prefix (upper bits) of an active plugin by file name in TESDataHandler::compiledFileCollection,
-	// checking TESFile@@ RTTI on every entry (as main.cpp KitFileForm does)
+	// checking TESFile@@ / TESPackedFile@@ RTTI and verifying the prefix against a known form's RTTI
 	bool ResolvePluginPrefix(std::string_view a_fileName, std::uint32_t& a_prefix, bool& a_small)
 	{
 		std::uintptr_t handler = 0;
 		if (!Peek(Address(kDataHandlerSingleton), handler) || !handler || !IsType(handler, "TESDataHandler@@")) {
 			return false;
 		}
-		std::size_t skipped = 0;
 		for (int listKind = 0; listKind < 3; ++listKind) {
 			ArrayHead list{};
 			if (!Peek(handler + g_fileCollectionAt + static_cast<std::size_t>(listKind) * sizeof(ArrayHead), list) ||
@@ -700,7 +773,6 @@ namespace
 				}
 				ObjectType fileType;
 				if (!TypeOf(file, fileType) || !IsFileType(fileType)) {
-					++skipped;
 					continue;
 				}
 				std::array<char, kFileNameSize> rawName{};
@@ -712,32 +784,7 @@ namespace
 				if (!SameAscii(fileView, a_fileName)) {
 					continue;
 				}
-				std::uint8_t                compileIdx = 0xFF;
-				std::array<std::uint8_t, 4> indexBytes{};
-				if (!Peek(file + g_fileCompileIndexAt, compileIdx) ||
-					!PeekBytes(file + g_fileIndexAt, indexBytes.data(), indexBytes.size())) {
-					return false;
-				}
-				if (listKind == 1 || compileIdx == 0xFE) {
-					const std::uint32_t smallIdx = static_cast<std::uint32_t>(indexBytes[2]) |
-					                               (static_cast<std::uint32_t>(indexBytes[3]) << 8);
-					a_small = true;
-					a_prefix = 0xFE000000u | ((smallIdx & 0xFFFu) << 12);
-					return true;
-				}
-				if (listKind == 2 || compileIdx == 0xFD) {
-					a_small = false;
-					a_prefix = 0xFD000000u | (static_cast<std::uint32_t>(indexBytes[1]) << 16);
-					return true;
-				}
-				if (compileIdx < 0xFD) {
-					a_small = false;
-					a_prefix = static_cast<std::uint32_t>(compileIdx) << 24;
-					return true;
-				}
-				if (listKind == 0 && indexBytes[0] < 0xFD) {
-					a_small = false;
-					a_prefix = static_cast<std::uint32_t>(indexBytes[0]) << 24;
+				if (ChooseVerifiedFilePrefix(a_fileName, file, listKind, a_prefix, a_small)) {
 					return true;
 				}
 			}
@@ -759,7 +806,6 @@ namespace
 				}
 				ObjectType fileType;
 				if (!TypeOf(file, fileType) || !IsFileType(fileType)) {
-					++skipped;
 					continue;
 				}
 				std::array<char, kFileNameSize> rawName{};
@@ -771,39 +817,10 @@ namespace
 				if (!SameAscii(fileView, a_fileName)) {
 					continue;
 				}
-				std::uint8_t                compileIdx = 0xFF;
-				std::uint32_t               recordFlags = 0;
-				std::array<std::uint8_t, 4> indexBytes{};
-				if (!Peek(file + g_fileCompileIndexAt, compileIdx) ||
-					!PeekBytes(file + g_fileIndexAt, indexBytes.data(), indexBytes.size()) ||
-					indexBytes[0] == 0xFF) {
-					continue;
-				}
-				Peek(file + kFileRecordFlagsAt, recordFlags);
-				if (compileIdx == 0xFE || indexBytes[0] == 0xFE || (recordFlags & 0x200u) != 0) {
-					const std::uint32_t smallIdx = static_cast<std::uint32_t>(indexBytes[2]) |
-					                               (static_cast<std::uint32_t>(indexBytes[3]) << 8);
-					a_small = true;
-					a_prefix = 0xFE000000u | ((smallIdx & 0xFFFu) << 12);
-					return true;
-				}
-				if (compileIdx == 0xFD || indexBytes[0] == 0xFD || (recordFlags & 0x400u) != 0) {
-					a_small = false;
-					a_prefix = 0xFD000000u | (static_cast<std::uint32_t>(indexBytes[1]) << 16);
-					return true;
-				}
-				const std::uint8_t fullIdx = (compileIdx < 0xFD) ? compileIdx : indexBytes[0];
-				if (fullIdx < 0xFD) {
-					a_small = false;
-					a_prefix = static_cast<std::uint32_t>(fullIdx) << 24;
+				if (ChooseVerifiedFilePrefix(a_fileName, file, -1, a_prefix, a_small)) {
 					return true;
 				}
 			}
-		}
-
-		if (skipped && !g_fileSkipLogged) {
-			g_fileSkipLogged = true;
-			REX::INFO("step=map_file file={} skipped={} (non-TESFile entries in compiledFileCollection)", a_fileName, skipped);
 		}
 		return false;
 	}
@@ -1075,16 +1092,59 @@ namespace
 		queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kUpdate);
 	}
 
-	// Complete star-map block (owner decision 16 Nov): any attempt to instantiate GalaxyStarMapMenu (M, G, DataMenu,
-	// MonocleMenu, console or script) constructs a null Ptr<IMenu>, so the vanilla star map can never open
-	RE::Scaleform::Ptr<RE::IMenu>* BlockedStarMapCreate(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	// Complete Starfield map-menu block (Task 1 step 1g): any attempt to instantiate a menu in MapMenus=
+	// (GalaxyStarMapMenu, SurfaceMap, MapMenu, etc.) constructs a null Ptr<IMenu> and logs blocked menu=<name> route=create
+	RE::Scaleform::Ptr<RE::IMenu>* BlockedMapMenuCreateForSlot(RE::Scaleform::Ptr<RE::IMenu>* a_out, std::size_t a_slot)
 	{
 		std::construct_at(a_out);
 		const auto n = ++g_starMapBlocks;
 		if (n <= kMaxLogLines) {
-			REX::INFO("step=starmap_blocked n={} route=create", n);
+			const char* menuName = (a_slot < g_mapMenus.size()) ? g_mapMenus[a_slot].c_str() : "GalaxyStarMapMenu";
+			REX::INFO("step=starmap_blocked n={} blocked menu={} route=create", n, menuName);
 		}
 		return a_out;
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* BlockedStarMapCreate(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		return BlockedMapMenuCreateForSlot(a_out, 0);
+	}
+
+	template <std::size_t Slot>
+	RE::Scaleform::Ptr<RE::IMenu>* BlockedStarMapCreateSlot(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		return BlockedMapMenuCreateForSlot(a_out, Slot);
+	}
+
+	using MenuCreateFn = RE::Scaleform::Ptr<RE::IMenu>* (*)(RE::Scaleform::Ptr<RE::IMenu>*);
+
+	constexpr std::array<MenuCreateFn, kMaxMapMenus> kBlockedMapMenuCreators{ {
+		&BlockedStarMapCreate,
+		&BlockedStarMapCreateSlot<1>,
+		&BlockedStarMapCreateSlot<2>,
+		&BlockedStarMapCreateSlot<3>,
+		&BlockedStarMapCreateSlot<4>,
+		&BlockedStarMapCreateSlot<5>,
+		&BlockedStarMapCreateSlot<6>,
+		&BlockedStarMapCreateSlot<7>,
+		&BlockedStarMapCreateSlot<8>,
+		&BlockedStarMapCreateSlot<9>,
+		&BlockedStarMapCreateSlot<10>,
+		&BlockedStarMapCreateSlot<11>,
+		&BlockedStarMapCreateSlot<12>,
+		&BlockedStarMapCreateSlot<13>,
+		&BlockedStarMapCreateSlot<14>,
+		&BlockedStarMapCreateSlot<15>,
+	} };
+
+	bool IsBlockedMapCreator(MenuCreateFn a_fn)
+	{
+		for (const auto fn : kBlockedMapMenuCreators) {
+			if (fn == a_fn) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	void InstallStarMapBlock()
@@ -1101,20 +1161,25 @@ namespace
 			if (!rawKey) {
 				continue;
 			}
-			for (const auto& blocked : g_mapMenus) {
+			for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
+				const auto& blocked = g_mapMenus[slot];
 				if (!SameAscii(rawKey, blocked)) {
 					continue;
 				}
 				const auto origAddr = reinterpret_cast<std::uintptr_t>(entry.value.initFunc);
-				if (entry.value.initFunc == &BlockedStarMapCreate) {
+				if (IsBlockedMapCreator(entry.value.initFunc)) {
 					break;
 				}
 				if (!InImage(origAddr, 1)) {
 					RefuseStep("starmap_block", std::format("menu={} init_func={} reason=outside_image", blocked, Hex(origAddr)));
 					break;
 				}
-				entry.value.initFunc = &BlockedStarMapCreate;
-				REX::INFO("step=starmap_block_install menu={} orig_rva={}", blocked, Hex(origAddr - g_base));
+				if (slot == 0) {
+					entry.value.initFunc = &BlockedStarMapCreate;
+				} else {
+					entry.value.initFunc = kBlockedMapMenuCreators[slot];
+				}
+				REX::INFO("step=starmap_block_install menu={} slot={} orig_rva={}", blocked, slot, Hex(origAddr - g_base));
 				break;
 			}
 		}
@@ -1145,46 +1210,9 @@ namespace
 		return suppressed;
 	}
 
-	constexpr std::array<const char*, 16> kBlockingMapMenus{ {
-		"Console",
-		"MessageBoxMenu",
-		"ChargenMenu",
-		"PauseMenu",
-		"LoadingMenu",
-		"FaderMenu",
-		"DataMenu",
-		"InventoryMenu",
-		"MainMenu",
-		"DialogueMenu",
-		"ContainerMenu",
-		"BarterMenu",
-		"SleepWaitMenu",
-		"FavoritesMenu",
-		"LockpickingMenu",
-		"TerminalMenu",
-	} };
-
 	const char* OpenBlockingMapMenu(RE::UI* a_ui, bool a_topModalOnly = false)
 	{
-		if (!a_ui) {
-			return nullptr;
-		}
-		static const auto* const names = [] {
-			auto* out = new std::vector<RE::BSFixedString>();
-			out->reserve(kBlockingMapMenus.size());
-			for (const auto* m : kBlockingMapMenus) {
-				out->emplace_back(m);
-			}
-			return out;
-		}();
-		const std::size_t limit = a_topModalOnly ? 5u : names->size();
-		for (std::size_t i = 0; i < limit; ++i) {
-			const auto& nm = (*names)[i];
-			if (a_ui->IsMenuRegistered(nm) && a_ui->IsMenuOpen(nm)) {
-				return kBlockingMapMenus[i];
-			}
-		}
-		return nullptr;
+		return fo4sf::FindOpenBlockingMenu(a_ui, a_topModalOnly, false);
 	}
 
 	// Main thread: opens FO4SF_PipboyMenu on MAP when pressed from gameplay (closed state)
@@ -1527,6 +1555,7 @@ namespace
 	void ResetMapMovieState()
 	{
 		g_menuOpen = false;
+		g_closing = false;
 		g_mapInputHeld = false;
 		g_modalOpen = false;
 		g_mapPageVal = RE::Scaleform::GFx::Value{};
@@ -1602,6 +1631,11 @@ namespace PipboyMap
 	bool IsModalOpen()
 	{
 		return g_on && g_modalOpen.load();
+	}
+
+	void SetClosing(bool a_closing)
+	{
+		g_closing.store(a_closing);
 	}
 
 	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn)
@@ -1971,7 +2005,7 @@ namespace PipboyMap
 	void PopulateMapDataObj(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root,
 		RE::Scaleform::GFx::Value& a_dataObj, std::int32_t a_targetPage)
 	{
-		if (!g_on || !a_menu || !a_root || !a_dataObj.IsObject()) {
+		if (!g_on || g_closing.load() || !a_menu || !a_root || !a_dataObj.IsObject()) {
 			return;
 		}
 		// G5 / Step 7: scope MAP markers and map time/texture fields strictly to MapPage (3)
@@ -2078,11 +2112,12 @@ namespace PipboyMap
 	void OnShellUpdate(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root, RE::Scaleform::GFx::Value& a_top,
 		const std::string& a_codeObjAt, std::atomic<std::int32_t>& a_answerPage, std::atomic<std::int32_t>& a_answerTab)
 	{
-		if (!g_on || !a_menu || !a_root || a_codeObjAt.empty()) {
+		if (!g_on || g_closing.load() || !a_menu || !a_root || a_codeObjAt.empty()) {
 			return;
 		}
 		const void* const movie = static_cast<const RE::IMenu*>(a_menu)->uiMovie.get();
 		if (!CheckCreateObjectSlot(movie, a_root)) {
+			CloseMenuOnFailedMovieCall("map_create_object_slot");
 			return;
 		}
 
@@ -2159,7 +2194,7 @@ namespace PipboyMap
 			RE::Scaleform::GFx::Value invRes;
 			if (!InvokeMapMovie(menuMc, "InvalidatePartialData", &invRes, &maskArg, 1, "Menu_mc.InvalidatePartialData") &&
 				!InvokeMapMovie(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData")) {
-				CloseMenuOnFailedMovieCall("map_invalidate_markers");
+				REX::INFO("step=movie_call_miss where=map_invalidate_markers");
 				return;
 			}
 			dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(false));
@@ -2170,15 +2205,14 @@ namespace PipboyMap
 				// Deliver WorldMapTextureName + corners to newly registered Pipboy_MapPage before onMapTexturesLoaded()
 				RE::Scaleform::GFx::Value invRes;
 				if (!InvokeMapMovie(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData")) {
-					CloseMenuOnFailedMovieCall("map_register_invalidate");
-					return;
+					REX::INFO("step=movie_call_miss where=map_register_invalidate");
 				}
 				dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(false));
 				RE::Scaleform::GFx::Value res;
 				const bool called = InvokeMapMovie(g_mapPageVal, "onMapTexturesLoaded", &res, nullptr, 0, "MapPage.onMapTexturesLoaded");
 				REX::INFO("step=map_textures_loaded called={}", called ? 1 : 0);
 				if (!called) {
-					CloseMenuOnFailedMovieCall("onMapTexturesLoaded");
+					REX::INFO("step=movie_call_miss where=onMapTexturesLoaded");
 					return;
 				}
 			}
@@ -2207,7 +2241,7 @@ namespace PipboyMap
 				const bool called = InvokeMapMovie(g_mapPageVal, "SetCenterMarker", &res, &idxArg, 1, "MapPage.SetCenterMarker");
 				REX::INFO("step=map_center idx={} called={}", g_lastPlayerArrayIdx, called ? 1 : 0);
 				if (!called) {
-					CloseMenuOnFailedMovieCall("SetCenterMarker");
+					REX::INFO("step=movie_call_miss where=SetCenterMarker");
 					return;
 				}
 			}
