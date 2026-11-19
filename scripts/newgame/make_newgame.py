@@ -252,7 +252,7 @@ NATIVES = {
     SCRIPT: {
         "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu", "ShowFirstPersonGeometry"],
         "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
         "InputEnableLayer": ["Create", "EnableHandscanner"],
         "Message": ["Show"],
@@ -527,8 +527,12 @@ def tool_options(a):
         opts.append("--no-o2-fill")
     if getattr(a, "no_fade_hold", False):
         opts.append("--no-fade-hold")
+    if getattr(a, "start_choice_backdrop", None):
+        opts += ["--start-choice-backdrop", str(a.start_choice_backdrop)]
     if getattr(a, "warfare_starts", None):
         opts += ["--warfare-starts", a.warfare_starts]
+    if getattr(a, "start_places", None):
+        opts += ["--start-places", a.start_places]
     return opts
 
 
@@ -697,6 +701,7 @@ def stage(a):
                         "clear_inventory": clear_inventory_option(a), "vault_suit": a.vault_suit if clear_inventory_option(a) else None,
                         "o2_fill": o2_fill_option(a),
                         "fade_hold": not bool(getattr(a, "no_fade_hold", False)),
+                        "start_choice_backdrop": getattr(a, "start_choice_backdrop", None) or "empty_cell",
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -953,6 +958,7 @@ def summarize(lines):
          "map_setup": None, "pistol_picked": None, "exit_retries": [], "exit_fallback": None,
          "arrival_discovery_failed": None, "special_default": None,
          "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False,
+         "mode_fade_lifted": None, "start_record": None, "entered_start_room": None,
          "h00_suspects": {}, "surface_pre_setposition": None}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
@@ -1038,6 +1044,14 @@ def summarize(lines):
             s["mode_box_waits"].append(int(msg[len("mode box waiting s="):].split()[0]))
         elif msg.startswith("mode neutral spot active"):
             s["mode_neutral_spot"] = True
+        elif msg.startswith("mode fade lifted "):
+            s["mode_fade_lifted"] = msg[len("mode fade lifted "):]
+        elif msg.startswith("enter start room ok="):
+            s["entered_start_room"] = msg.split()[3].lower() == "ok=true"
+        elif msg.startswith("enter start room confirmed "):
+            s["entered_start_room"] = True
+        elif msg.startswith("start record "):
+            s["start_record"] = msg[len("start record "):]
         elif msg.startswith("mode choice "):
             s["mode_choice"] = msg[len("mode choice "):]
         elif msg.startswith("mode load default="):
@@ -1149,9 +1163,13 @@ def main(argv=None):
                    help="no O2 capacity after the reset: with no suit the O2/CO2 dial then reads red (S13 row 2b; "
                         "on by default with the reset)")
     s.add_argument("--no-fade-hold", action="store_true",
-                   help="disable S4 FadeHold (fade in before the mode choice chain instead of holding screen black)")
+                   help="disable pre-world start room setup and enter Vault 111 directly")
+    s.add_argument("--start-choice-backdrop", choices=("empty_cell", "title_card", "none"), default=None,
+                   help="N2 backdrop variant (R5): empty_cell (default), title_card (FO4SF_StartCardMenu), or none")
     s.add_argument("--warfare-starts", default=None,
                    help="path to warfare_starts.json (default: src/fo4sf/core/warfare_starts.json)")
+    s.add_argument("--start-places", default=None,
+                   help="path to start_places.json (default: src/fo4sf/core/start_places.json)")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

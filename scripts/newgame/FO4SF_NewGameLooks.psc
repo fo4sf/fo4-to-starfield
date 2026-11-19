@@ -48,6 +48,9 @@ Event OnTimer(int aiTimerID)
     if stage == 10 && !shown
         shown = true
         Utility.Wait(MenuDelay)
+        if GetStage() >= 20
+            return
+        endif
         int button = StartMessage.Show()
         Trace("start choice button=" + button)
         if button == 1
@@ -84,7 +87,7 @@ Function Done(string how)
     if GetStage() >= 20
         return
     endif
-    string by = "trigger"
+    string by = "Trigger"
     if how == "creator closed"
         by = "scene"
     endif

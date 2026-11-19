@@ -104,6 +104,8 @@ Message Property ReturnMessage Auto Const Mandatory
 
 Message Property ModePickMsg Auto Const Mandatory
 {S4 Box 1 (0x806): 0 Story, 1 Warfare.}
+Message Property StoryLineMsg Auto Const
+{N2 Story choice (0x81E): available story campaigns from start_places.json.}
 Message Property SurvivalPickMsg Auto Const Mandatory
 {S4 Box 2 (0x807): 0 Survival: No, 1 Survival: Yes.}
 Message Property WarfareDiffMsg Auto Const Mandatory
@@ -112,6 +114,8 @@ Message Property WarfareGroupMsg Auto Const Mandatory
 {S4 Box 4 (0x809): starting Warfare faction.}
 Message Property WarfareSpotMsg Auto Const Mandatory
 {S4 Box 5 (0x80A): starting Warfare deployment spot.}
+Message Property StartPickMsg Auto Const
+{N2 pre-world appearance prompt (0x802): 0 Create character, 1 Quick start.}
 Message Property NoPipboyMsg Auto Const Mandatory
 {X2 / A16 (0x817): shown when activating the Vault 111 console before picking up the Pip-Boy.}
 
@@ -236,6 +240,8 @@ float Property O2CapacityAmount = 0.0 Auto Const
  --no-o2-fill and --keep-inventory write 0: nothing). Logged as "o2 capacity added=<n> value=<read back>".}
 GlobalVariable Property TestModeGlobal Auto Const
 {FO4SFCoreValues.esm FO4SF_TestModeEnabled (0x860), linked by the writer so FO4SFNewGame.esm masters FO4SFCoreValues.esm.}
+GlobalVariable Property StartCardOpenGlobal Auto Const
+{FO4SFCoreValues.esm FO4SF_StartCardOpen (0x866), drives non-modal FO4SF_StartCardMenu when StartChoiceBackdrop is 2.}
 GlobalVariable Property GameModeGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_GameMode (0x870): 0 unset, 1 Story, 2 Warfare.}
 GlobalVariable Property SurvivalStartGlobal Auto Const Mandatory
@@ -251,7 +257,11 @@ GlobalVariable Property WarfareStartIndexGlobal Auto Const Mandatory
 GlobalVariable Property StartChoiceDoneGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_StartChoiceDone (0x876): 0 or 1.}
 GlobalVariable Property StartNeutralSpotGlobal Auto Const Mandatory
-{FO4SFCoreValues.esm FO4SF_StartNeutralSpot (0x877): 0 default, >= 0.5 holds the player at the neutral vault anchor during mode choice.}
+{FO4SFCoreValues.esm FO4SF_StartNeutralSpot (0x877): 0 default, >= 0.5 logs neutral-room hold during pre-world mode choice.}
+GlobalVariable Property StoryLineGlobal Auto Const
+{FO4SFCoreValues.esm FO4SF_StoryLine (0x878): selected Story campaign index.}
+GlobalVariable Property StartPlaceRowGlobal Auto Const
+{FO4SFCoreValues.esm FO4SF_StartPlaceRow (0x879): selected active row in StartPlaceIds.}
 GlobalVariable Property PipboyAcquiredGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_PipboyAcquired (0x865), set to 1 once the Pip-Boy 3000 is picked up beside the Vault 111 console.}
 GlobalVariable Property H00SkipLoadingHookGlobal Auto Const
@@ -268,12 +278,18 @@ ObjectReference Property PipboyCorpseRef Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyCorpsePickupRef (0x80F), placed persistent pickup beside the Vault-Tec scientist skeleton.}
 ObjectReference Property GearDoorConsoleRef Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_GearDoorConsoleRef (0x819), placed persistent named activator at the gear-door console.}
+ObjectReference Property StartRoomMarkerRef Auto Const
+{FO4SFNewGame.esm FO4SF_StartRoomMarkerRef (0x81D), persistent marker in owned empty FO4SF_StartRoomCell (0x81C).}
 Weapon Property VaultPistolBase Auto Const Mandatory
 {Starfield.esm WEAP for vault111.pistol_id from route_loot_ids.json, filtered for OnItemAdded.}
 int Property VaultPistolId = 0 Auto Const
 {Plugin-local FormID of VaultPistolBase in Starfield.esm, logged when adding the inventory event filter.}
 bool Property FadeHold = true Auto Const
-{S4: holds screen black and saving off from vault entry until start mode choice completes (--no-fade-hold sets false).}
+{N2 / S4: runs pre-world start set-up before entering any game location (--no-fade-hold sets false).}
+int Property StartChoiceBackdrop = 1 Auto Const
+{N2 / R5 backdrop variant: 1 empty_cell (default), 2 title_card (FO4SF_StartCardMenu), 0 none.}
+float Property StartLoadTimeout = 15.0 Auto Const
+{H0 / R10 hard ceiling (seconds) waiting for LoadingMenu close before forcing fade lift and showing set-up prompts.}
 int Property RaceMenuMode = 2 Auto Const
 {Looks-only creator mode (2 = body and face) shared with FO4SF_NewGameLooks.}
 int[] Property CoreMarkerIds Auto Const
@@ -302,6 +318,19 @@ string[] Property WarfareGearPlugins Auto Const
 int[] Property WarfareGearIds Auto Const
 int[] Property WarfareGearCounts Auto Const
 bool[] Property WarfareGearEquips Auto Const
+string[] Property StoryChoiceIds Auto Const
+string[] Property StartPlaceIds Auto Const
+int[] Property StartPlaceModes Auto Const
+string[] Property StartPlaceStories Auto Const
+string[] Property StartPlacePlugins Auto Const
+int[] Property StartPlaceMarkerIds Auto Const
+float[] Property StartPlaceX Auto Const
+float[] Property StartPlaceY Auto Const
+float[] Property StartPlaceZ Auto Const
+float[] Property StartPlaceHeadings Auto Const
+bool[] Property StartPlaceIsInterior Auto Const
+int[] Property StartPlaceQuestMasks Auto Const
+int[] Property StartPlaceWarfareRows Auto Const
 
 string LogName = "fo4sf_newgame"
 int ticks = 0
@@ -314,11 +343,12 @@ int centered = 0
 bool begun = false                                           ; Begin ran (from OnQuestStarted or OnQuestInit)
 bool routed = false                                          ; the start's "start route=" line is written
 string lateRoute = ""                                        ; the other start event, when it came before that line
+int startRoomMoves = 0                                       ; MoveTo calls onto FO4SF_StartRoomMarkerRef
+bool startRoomEntered = false                                ; the player stands in FO4SF_StartRoomCell after a move
+bool startRoomUiPrepared = false                             ; fade lifted + body/HUD hidden in FO4SF_StartRoomCell
 int vaultMoves = 0                                           ; MoveTo calls onto the vault anchor
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
-bool fadeHeld = false
-bool fadeReheldAfterLoad = false
 bool loadingMenuOpen = false
 bool loadingMenuClosedSeen = false
 bool loadingHookRegistered = false
@@ -334,6 +364,10 @@ bool h00SkipSetPos = false
 bool modeChoiceRan = false
 bool modeBoxWaiting = false
 int modeBoxWaitSeconds = 0
+bool preworldLooksDone = false
+string preworldLooksHow = ""
+string preworldLooksBy = "Trigger"
+bool setupWaitingCreator = false
 int pendingStage = -1
 string pendingStageBy = "other"
 bool looksSetStage20 = false
@@ -425,8 +459,12 @@ Function Begin(string route)
         StandDown(loading, "not a new game")
         return
     endif
-    entered = EnterVault(player)
-    if vaultMoves == 0 && centered == 0
+    if UsePreworldRoom()
+        startRoomEntered = EnterStartRoom(player)
+    else
+        entered = EnterVault(player)
+    endif
+    if startRoomMoves == 0 && vaultMoves == 0 && centered == 0
         ; nothing moved the player, so the first load would never end (28 Oct run 2)
         Trace("no move into the vault: anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve; standing down")
         StandDown(loading, "no move into the vault")
@@ -449,8 +487,8 @@ Function Begin(string route)
     bool ready = player.Is3DLoaded()
     Trace("3d wait over loaded=" + ready)
     if ready
-        if FadeHold
-            HoldFadeForModeChoice()
+        if UsePreworldRoom()
+            PrepareStartRoomUi("start")
         else
             FadeIn("start")                                  ; else the timer fades in once the 3D is in
         endif
@@ -508,6 +546,7 @@ Function FadeIn(string by)
     if vaultMoves > 0 && StandsInVault(player)
         player.SetAngle(0.0, 0.0, PodHeading)
     endif
+    Game.ShowFirstPersonGeometry(true)
     Game.FadeOutGame(False, True, 0.0, 0.1, False)
     Game.SetInChargen(false, false, false)
     Game.SetCharGenHUDMode(0)
@@ -609,28 +648,40 @@ Event OnTimer(int aiTimerID)
             StartTimer(1.0, 1)                               ; the game is still loading
             return
         endif
-        if FadeHold
-            HoldFadeForModeChoice()
+        if UsePreworldRoom()
+            PrepareStartRoomUi("timer")
+            if !startRoomEntered
+                if startRoomMoves > 0 && StandsInStartRoom(player)
+                    startRoomEntered = true
+                    Trace("enter start room confirmed after the load pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell())
+                else
+                    startRoomEntered = EnterStartRoom(player)
+                endif
+            endif
+            if !startRoomEntered
+                StartTimer(1.0, 1)
+                return
+            endif
         else
             FadeIn("timer")                                  ; once: the start may still be in its 3D wait
-        endif
-        if !entered
-            if vaultMoves > 0 && StandsInVault(player)
-                ; the start's move took once the load was through (the cell check right after a MoveTo during the first
-                ; load is unverified): no second move, which would be a second loading screen
-                entered = true
-                Trace("enter vault confirmed after the load pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell())
-            else
-                entered = EnterVault(player)                 ; the temporary-anchor mode after its centering, or a missed move
+            if !entered
+                if vaultMoves > 0 && StandsInVault(player)
+                    ; the start's move took once the load was through (the cell check right after a MoveTo during the first
+                    ; load is unverified): no second move, which would be a second loading screen
+                    entered = true
+                    Trace("enter vault confirmed after the load pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell())
+                else
+                    entered = EnterVault(player)             ; the temporary-anchor mode after its centering, or a missed move
+                endif
             endif
-        endif
-        if !entered
-            StartTimer(1.0, 1)                               ; retried each second
-            return
+            if !entered
+                StartTimer(1.0, 1)                           ; retried each second
+                return
+            endif
         endif
         HoldOffPass(2)                                       ; once the game runs: a quest that started after the first pass
         int chosenMode = RunModeChoiceChain(player)
-        if chosenMode == 2
+        if chosenMode == 2 || GetStage() >= 10
             return
         endif
         if ClearInventory
@@ -641,6 +692,13 @@ Event OnTimer(int aiTimerID)
         startedAt = Utility.GetCurrentRealTime()
     elseif stage == 5
         if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 1
+            if !entered
+                entered = EnterVault(player)
+            endif
+            if !entered
+                StartTimer(1.0, 1)
+                return
+            endif
             if ClearInventory
                 ResetInventory(player)
                 FillO2(player)
@@ -653,7 +711,12 @@ Event OnTimer(int aiTimerID)
             CheckPod(player)
         endif
         EnsureVaultInteractivesRegistered()
-        if Utility.GetCurrentRealTime() - startedAt > LooksWait
+        if preworldLooksDone
+            preworldLooksDone = false
+            NoteLooksStage20()
+            Trace("looks done: " + preworldLooksHow)
+            AdvanceTo(20, preworldLooksBy)
+        elseif Utility.GetCurrentRealTime() - startedAt > LooksWait
             if LooksWait > 0.0
                 Trace("looks done: LooksWait fallback after " + LooksWait + " s")
                 AdvanceTo(20, "fallback")
@@ -1482,47 +1545,234 @@ Function ApplyH00PreSurfaceOverrides()
     endif
 EndFunction
 
-Function HoldFadeForModeChoice()
-    if fadeHeld || faded
-        return
+string Function BackdropName()
+    if StartChoiceBackdrop == 2
+        return "title_card"
+    elseif StartChoiceBackdrop == 0
+        return "none"
     endif
-    fadeHeld = true
-    RegisterStartLoadingHook()
-    Game.FadeOutGame(True, True, 0.0, 0.1, True)
-    Game.SetInChargen(true, true, false)
-    Trace("mode fade held request=1")
+    return "empty_cell"
 EndFunction
 
-Function ReassertBlackHoldAfterLoading()
-    if !FadeHold || fadeReheldAfterLoad || faded
+bool Function UsePreworldRoom()
+    if !FadeHold || StartChoiceBackdrop <= 0 || StartRoomMarkerRef == None
+        return false
+    endif
+    if StartChoiceDoneGlobal != None && StartChoiceDoneGlobal.GetValue() >= 0.5
+        return false
+    endif
+    return true
+EndFunction
+
+bool Function StandsInStartRoom(Actor player)
+    return StartRoomMarkerRef != None && player != None && player.GetParentCell() == StartRoomMarkerRef.GetParentCell()
+EndFunction
+
+bool Function EnterStartRoom(Actor player)
+{Moves the player into our owned empty interior cell FO4SF_StartRoomCell (0x00081C) during New Game setup so nothing of choosing happens in Vault 111 or any game location.}
+    if StartRoomMarkerRef == None || player == None
+        return false
+    endif
+    player.MoveTo(StartRoomMarkerRef, 0.0, 0.0, 0.0, False, False)
+    startRoomMoves += 1
+    player.SetAngle(0.0, 0.0, 0.0)
+    bool ok = player.GetParentCell() == StartRoomMarkerRef.GetParentCell()
+    Trace("enter start room ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell())
+    return ok
+EndFunction
+
+Function PrepareStartRoomUi(string by)
+{Lifts main-menu fade immediately in FO4SF_StartRoomCell so LoadingMenu completes its close handoff and every prompt is visible, while hiding player body and Starfield HUD.}
+    if startRoomUiPrepared
         return
     endif
-    float lWait = 0.0
-    while loadingMenuOpen && lWait < 5.0
+    startRoomUiPrepared = true
+    Actor player = Game.GetPlayer()
+    Game.ShowFirstPersonGeometry(false)
+    Game.FadeOutGame(False, True, 0.0, 0.1, False)
+    Game.SetInChargen(false, false, false)
+    Game.SetCharGenHUDMode(3)
+    DisableHandScanner()
+    Trace("start room ready by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + " backdrop=" + BackdropName())
+EndFunction
+
+Function SetStartCardBackdrop(bool showCard)
+    if StartChoiceBackdrop != 2 || StartCardOpenGlobal == None
+        return
+    endif
+    if showCard
+        StartCardOpenGlobal.SetValue(1.0)
+        Utility.Wait(0.1)
+    else
+        StartCardOpenGlobal.SetValue(0.0)
+    endif
+EndFunction
+
+Function WaitForStartUiReady()
+{H0 / N2: never show a prompt while LoadingMenu is open or under a fade; hard timeout lifts fade and logs mode fade lifted by=timeout.}
+    Game.FadeOutGame(False, True, 0.0, 0.1, False)
+    Game.SetInChargen(false, false, false)
+    float waitedLoad = 0.0
+    while loadingMenuOpen && waitedLoad < StartLoadTimeout
         Utility.Wait(0.25)
-        lWait += 0.25
+        waitedLoad += 0.25
     endwhile
-    Utility.Wait(1.0)
-    if faded
-        return
+    if loadingMenuOpen
+        loadingMenuOpen = false
+        UnregisterStartLoadingHook()
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+        Game.SetInChargen(false, false, false)
+        Trace("mode fade lifted by=timeout s=" + (StartLoadTimeout as int))
+    else
+        UnregisterStartLoadingHook()
     endif
-    fadeReheldAfterLoad = true
-    Game.FadeOutGame(True, True, 0.0, 0.1, True)
-    Trace("mode fade held request=2 delay=1.0s loading_closed=" + loadingMenuClosedSeen)
 EndFunction
 
 bool Function HoldNeutralSpotForModeChoice(Actor player)
     if StartNeutralSpotGlobal == None || StartNeutralSpotGlobal.GetValue() < 0.5 || player == None
         return false
     endif
-    ObjectReference vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
-    if vAnchor != None
-        player.MoveTo(vAnchor, 0.0, 0.0, 0.0, False, False)
+    if StartRoomMarkerRef != None
+        if !StandsInStartRoom(player)
+            EnterStartRoom(player)
+        endif
     else
-        player.SetPosition(AnchorX, AnchorY, AnchorZ)
+        ObjectReference vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if vAnchor != None
+            player.MoveTo(vAnchor, 0.0, 0.0, 0.0, False, False)
+        else
+            player.SetPosition(AnchorX, AnchorY, AnchorZ)
+        endif
     endif
     Trace("mode neutral spot active pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
     return true
+EndFunction
+
+int Function FindStoryStartPlaceRow(string storyId)
+    int idx = 0
+    while StartPlaceIds != None && idx < StartPlaceIds.Length
+        if StartPlaceModes[idx] == 1 && StartPlaceStories[idx] == storyId
+            return idx
+        endif
+        idx += 1
+    endwhile
+    return 0
+EndFunction
+
+int Function FindWarfareStartPlaceRow(int wfRowIdx, string wfKey)
+    int idx = 0
+    while StartPlaceIds != None && idx < StartPlaceIds.Length
+        if StartPlaceModes[idx] == 2 && (StartPlaceWarfareRows[idx] == wfRowIdx || StartPlaceIds[idx] == wfKey)
+            return idx
+        endif
+        idx += 1
+    endwhile
+    return 0
+EndFunction
+
+Function RunPreworldLooksChoice(Actor player, bool isWarfare)
+    SetStartCardBackdrop(false)
+    if LooksWait <= 0.0
+        preworldLooksDone = true
+        preworldLooksHow = "no-looks immediate start"
+        preworldLooksBy = "Trigger"
+        return
+    endif
+    int cBtn = 0
+    if StartPickMsg != None
+        cBtn = StartPickMsg.Show()
+        Trace("start choice button=" + cBtn)
+    elseif !isWarfare
+        preworldLooksDone = true
+        preworldLooksHow = "quick start"
+        preworldLooksBy = "Trigger"
+        return
+    endif
+    if cBtn == 1
+        Trace("quick start: preset kept, creator skipped")
+        preworldLooksDone = true
+        preworldLooksHow = "quick start"
+        preworldLooksBy = "Trigger"
+        return
+    endif
+    Game.ShowFirstPersonGeometry(true)
+    RegisterForMenuOpenCloseEvent("ChargenMenu")
+    setupWaitingCreator = true
+    if isWarfare
+        warfareWaitingCreator = true
+        Trace("warfare creator open mode=" + RaceMenuMode)
+    else
+        Trace("looks menu mode=" + RaceMenuMode)
+    endif
+    Game.ShowRaceMenu(None, RaceMenuMode)
+    float waitedCreator = 0.0
+    while (setupWaitingCreator || warfareWaitingCreator) && waitedCreator < LooksWait
+        Utility.Wait(0.5)
+        waitedCreator += 0.5
+    endwhile
+    UnregisterForMenuOpenCloseEvent("ChargenMenu")
+    bool timedOut = setupWaitingCreator || warfareWaitingCreator
+    setupWaitingCreator = false
+    warfareWaitingCreator = false
+    Utility.Wait(2.0)
+    Game.SetInChargen(false, false, false)
+    preworldLooksDone = true
+    if timedOut
+        preworldLooksHow = "LooksWait fallback after " + LooksWait + " s"
+        preworldLooksBy = "fallback"
+    else
+        preworldLooksHow = "creator closed"
+        preworldLooksBy = "scene"
+    endif
+EndFunction
+
+Function SpawnAtStoryStartPlace(Actor player, int placeRow)
+    string placeId = "fo4_vault111"
+    if StartPlaceIds != None && placeRow >= 0 && placeRow < StartPlaceIds.Length
+        placeId = StartPlaceIds[placeRow]
+    endif
+    bool movedOk = entered && StandsInVault(player)
+    if !movedOk
+        if placeId == "fo4_vault111" || StartPlacePlugins == None || placeRow < 0 || placeRow >= StartPlacePlugins.Length
+            int vTry = 0
+            while !movedOk && vTry < 3
+                vTry += 1
+                movedOk = EnterVault(player)
+                if !movedOk
+                    Utility.Wait(0.25)
+                    movedOk = StandsInVault(player)
+                endif
+            endwhile
+        else
+            ObjectReference rowMarker = Game.GetFormFromFile(StartPlaceMarkerIds[placeRow], StartPlacePlugins[placeRow]) as ObjectReference
+            int rTry = 0
+            while rowMarker != None && !movedOk && rTry < 3
+                rTry += 1
+                player.MoveTo(rowMarker, 0.0, 0.0, 0.0, True, False)
+                Utility.Wait(0.25)
+                movedOk = player.GetParentCell() == rowMarker.GetParentCell()
+            endwhile
+            if !movedOk
+                Trace("start place move failed place=" + placeId + " fallback=fo4_vault111")
+                movedOk = EnterVault(player)
+            endif
+        endif
+    endif
+    float w3d = 0.0
+    while !player.Is3DLoaded() && w3d < StartLoadTimeout
+        Utility.Wait(0.25)
+        w3d += 0.25
+    endwhile
+    entered = movedOk || StandsInVault(player)
+    FadeIn("mode_story")
+    if startRoomMoves > 0
+        if ClearInventory
+            ResetInventory(player)
+            FillO2(player)
+        endif
+        AdvanceTo(10)
+        startedAt = Utility.GetCurrentRealTime()
+    endif
 EndFunction
 
 int Function RunModeChoiceChain(Actor player)
@@ -1541,7 +1791,8 @@ int Function RunModeChoiceChain(Actor player)
     endif
     modeChoiceRan = true
     bool usedNeutralSpot = HoldNeutralSpotForModeChoice(player)
-    ReassertBlackHoldAfterLoading()
+    WaitForStartUiReady()
+    SetStartCardBackdrop(true)
     int mBtn = 0
     if ModePickMsg != None
         modeBoxWaiting = true
@@ -1554,6 +1805,79 @@ int Function RunModeChoiceChain(Actor player)
     if mBtn == 1
         modeVal = 2
     endif
+    int storyBtn = 0
+    string storyId = "fo4_commonwealth"
+    int diff = 1
+    int pickedSlot = -1
+    int rowIdx = -1
+    int placeRow = 0
+    string placeId = "fo4_vault111"
+    string modeTag = "story"
+    if modeVal == 1
+        if StoryLineMsg != None
+            storyBtn = StoryLineMsg.Show()
+        endif
+        if StoryChoiceIds != None && StoryChoiceIds.Length > 0
+            if storyBtn < 0 || storyBtn >= StoryChoiceIds.Length
+                storyBtn = 0
+            endif
+            storyId = StoryChoiceIds[storyBtn]
+        else
+            storyBtn = 0
+        endif
+        placeRow = FindStoryStartPlaceRow(storyId)
+        if StartPlaceIds != None && placeRow >= 0 && placeRow < StartPlaceIds.Length
+            placeId = StartPlaceIds[placeRow]
+        endif
+    else
+        modeTag = "warfare"
+        storyBtn = -1
+        storyId = "none"
+        if WarfareDiffMsg != None
+            diff = WarfareDiffMsg.Show()
+            if diff < 0 || diff > 3
+                diff = 1
+            endif
+        endif
+        int gBtn = 0
+        if WarfareGroupMsg != None
+            gBtn = WarfareGroupMsg.Show()
+            if gBtn < 0 || gBtn >= WarfareDistinctFactionSlots.Length
+                gBtn = 0
+            endif
+        endif
+        pickedSlot = 0
+        if WarfareDistinctFactionSlots != None && WarfareDistinctFactionSlots.Length > 0
+            pickedSlot = WarfareDistinctFactionSlots[gBtn]
+        endif
+        int sIdxBtn = 0
+        if WarfareSpotMsg != None && WarfareKeys != None && WarfareKeys.Length > 1
+            sIdxBtn = WarfareSpotMsg.Show()
+            if sIdxBtn < 0 || sIdxBtn >= WarfareKeys.Length
+                sIdxBtn = 0
+            endif
+        endif
+        int r = 0
+        while WarfareKeys != None && r < WarfareKeys.Length
+            if WarfareFactionSlots[r] == pickedSlot && diff >= WarfareMinDiffs[r] && diff <= WarfareMaxDiffs[r]
+                if rowIdx < 0 || r == sIdxBtn
+                    rowIdx = r
+                endif
+            endif
+            r += 1
+        endwhile
+        if rowIdx < 0
+            rowIdx = 0
+        endif
+        placeId = "minutemen_sanctuary"
+        if WarfareKeys != None && rowIdx < WarfareKeys.Length
+            placeId = WarfareKeys[rowIdx]
+        endif
+        placeRow = FindWarfareStartPlaceRow(rowIdx, placeId)
+        if StartPlaceIds != None && placeRow >= 0 && placeRow < StartPlaceIds.Length
+            placeId = StartPlaceIds[placeRow]
+        endif
+    endif
     int sBtn = 0
     if SurvivalPickMsg != None
         sBtn = SurvivalPickMsg.Show()
@@ -1562,70 +1886,18 @@ int Function RunModeChoiceChain(Actor player)
     if sBtn == 1
         survVal = 1
     endif
+    SetStartCardBackdrop(false)
     if GameModeGlobal != None
         GameModeGlobal.SetValue(modeVal as float)
+    endif
+    if StoryLineGlobal != None
+        StoryLineGlobal.SetValue(storyBtn as float)
     endif
     if SurvivalStartGlobal != None
         SurvivalStartGlobal.SetValue(survVal as float)
     endif
     if SurvivalLockedGlobal != None
         SurvivalLockedGlobal.SetValue(survVal as float)
-    endif
-    FO4SF_HardcoreQuest hc = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm") as FO4SF_HardcoreQuest
-    if hc != None
-        hc.EvaluateHardcore("start_choice")
-    endif
-    if modeVal == 1
-        if StartChoiceDoneGlobal != None
-            StartChoiceDoneGlobal.SetValue(1.0)
-        endif
-        UnregisterStartLoadingHook()
-        if usedNeutralSpot
-            EnterVault(player)
-        endif
-        Trace("mode choice mode=story survival=" + survVal)
-        AdvanceTo(5)
-        FadeIn("mode_story")
-        return 1
-    endif
-    UnregisterStartLoadingHook()
-    int diff = 1
-    if WarfareDiffMsg != None
-        diff = WarfareDiffMsg.Show()
-        if diff < 0 || diff > 3
-            diff = 1
-        endif
-    endif
-    int gBtn = 0
-    if WarfareGroupMsg != None
-        gBtn = WarfareGroupMsg.Show()
-        if gBtn < 0 || gBtn >= WarfareDistinctFactionSlots.Length
-            gBtn = 0
-        endif
-    endif
-    int pickedSlot = 0
-    if WarfareDistinctFactionSlots.Length > 0
-        pickedSlot = WarfareDistinctFactionSlots[gBtn]
-    endif
-    int sIdxBtn = 0
-    if WarfareSpotMsg != None && WarfareKeys.Length > 1
-        sIdxBtn = WarfareSpotMsg.Show()
-        if sIdxBtn < 0 || sIdxBtn >= WarfareKeys.Length
-            sIdxBtn = 0
-        endif
-    endif
-    int rowIdx = -1
-    int r = 0
-    while r < WarfareKeys.Length
-        if WarfareFactionSlots[r] == pickedSlot && diff >= WarfareMinDiffs[r] && diff <= WarfareMaxDiffs[r]
-            if rowIdx < 0 || r == sIdxBtn
-                rowIdx = r
-            endif
-        endif
-        r += 1
-    endwhile
-    if rowIdx < 0
-        rowIdx = 0
     endif
     if StartDifficultyGlobal != None
         StartDifficultyGlobal.SetValue(diff as float)
@@ -1636,29 +1908,35 @@ int Function RunModeChoiceChain(Actor player)
     if WarfareStartIndexGlobal != None
         WarfareStartIndexGlobal.SetValue(rowIdx as float)
     endif
+    if StartPlaceRowGlobal != None
+        StartPlaceRowGlobal.SetValue(placeRow as float)
+    endif
     if StartChoiceDoneGlobal != None
         StartChoiceDoneGlobal.SetValue(1.0)
     endif
-    Trace("mode choice mode=warfare survival=" + survVal)
-    Trace("warfare pick faction=" + pickedSlot + " start=" + WarfareKeys[rowIdx] + " difficulty=" + diff)
+    FO4SF_HardcoreQuest hc = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm") as FO4SF_HardcoreQuest
+    if hc != None
+        hc.EvaluateHardcore("start_choice")
+    endif
+    Trace("mode choice mode=" + modeTag + " survival=" + survVal)
+    if modeVal == 2
+        Trace("warfare pick faction=" + pickedSlot + " start=" + placeId + " difficulty=" + diff)
+    endif
+    Trace("start record mode=" + modeTag + " story=" + storyId + " faction=" + pickedSlot + " place=" + placeId + " survival=" + survVal + " difficulty=" + diff + " backdrop=" + BackdropName())
     AdvanceTo(5)
+    if modeVal == 1
+        if startRoomMoves > 0 || usedNeutralSpot
+            RunPreworldLooksChoice(player, false)
+        endif
+        SpawnAtStoryStartPlace(player, placeRow)
+        return 1
+    endif
     RunWarfareBranch(player, rowIdx)
     return 2
 EndFunction
 
 Function RunWarfareBranch(Actor player, int rowIdx)
-    if LooksWait > 0.0
-        RegisterForMenuOpenCloseEvent("ChargenMenu")
-        warfareWaitingCreator = true
-        Trace("warfare creator open mode=" + RaceMenuMode)
-        Game.ShowRaceMenu(None, RaceMenuMode)
-        float waited = 0.0
-        while warfareWaitingCreator && waited < LooksWait
-            Utility.Wait(0.5)
-            waited += 0.5
-        endwhile
-        warfareWaitingCreator = false
-    endif
+    Game.SetInChargen(false, false, false)
     FO4SF_ProgressionQuest prog = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest
     if prog != None
         int tries = 0
@@ -1672,6 +1950,9 @@ Function RunWarfareBranch(Actor player, int rowIdx)
         endif
         prog.ApplyWarfareBackground(WarfareBgIndices[rowIdx])
     endif
+    RunPreworldLooksChoice(player, true)
+    Game.ShowFirstPersonGeometry(true)
+    Game.SetCharGenHUDMode(0)
     player.RemoveAllItems(None, false, false)
     FillO2(player)
     if PipboyWristArmor != None
@@ -1697,7 +1978,14 @@ Function RunWarfareBranch(Actor player, int rowIdx)
         k += 1
     endwhile
     Trace("warfare gear n=" + gearAdded)
-    ObjectReference wMarker = Game.GetFormFromFile(WarfareMarkerIds[rowIdx], CorePlugin) as ObjectReference
+    string markerPlugin = CorePlugin
+    int markerId = WarfareMarkerIds[rowIdx]
+    int spRow = FindWarfareStartPlaceRow(rowIdx, WarfareKeys[rowIdx])
+    if StartPlacePlugins != None && spRow >= 0 && spRow < StartPlacePlugins.Length && StartPlaceModes[spRow] == 2
+        markerPlugin = StartPlacePlugins[spRow]
+        markerId = StartPlaceMarkerIds[spRow]
+    endif
+    ObjectReference wMarker = Game.GetFormFromFile(markerId, markerPlugin) as ObjectReference
     float wx = WarfareMarkerX[rowIdx] + MergeOffsetX
     float wy = WarfareMarkerY[rowIdx] + MergeOffsetY
     float wz = WarfareMarkerZ[rowIdx] + 1.0
@@ -1817,7 +2105,11 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     if asMenuName == "ChargenMenu" && !abOpening
         if warfareWaitingCreator
             warfareWaitingCreator = false
+            setupWaitingCreator = false
             Trace("warfare creator closed")
+        elseif setupWaitingCreator
+            setupWaitingCreator = false
+            Trace("setup creator closed")
         endif
     endif
 EndEvent

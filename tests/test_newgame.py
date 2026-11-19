@@ -30,7 +30,7 @@ DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
                 version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, require_persistent_anchor=False,
-                allow_temporary_anchor=False, no_o2_fill=False, no_fade_hold=False, warfare_starts=None)
+                allow_temporary_anchor=False, no_o2_fill=False, no_fade_hold=False, start_choice_backdrop=None, warfare_starts=None, start_places=None)
 
 
 def namespace(**kw):
@@ -142,29 +142,28 @@ class ContractTests(unittest.TestCase):
         self.assertLess(code.index("Game.FadeOutGame(False, True, 0.0, 0.1, False)"), code.index("Game.SetInChargen(false, false, false)"))
         self.assertLess(code.index("Game.SetInChargen(false, false, false)"), code.index("Game.SetCharGenHUDMode(0)"))
         self.assertIn('Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")', code)
-        hold_fade = psc[psc.index("Function HoldFadeForModeChoice"):psc.index("int Function RunModeChoiceChain")]
-        self.assertIn("Game.FadeOutGame(True, True, 0.0, 0.1, True)", hold_fade)
-        self.assertIn("Game.SetInChargen(true, true, false)", hold_fade)
-        self.assertIn('Trace("mode fade held request=1")', hold_fade)
-        self.assertIn('Trace("mode fade held request=2 delay=1.0s loading_closed=" + loadingMenuClosedSeen)', hold_fade)
-        code_only = re.sub(r"\{[^}]*\}", "", psc)          # the doc comments name the fade call too
-        self.assertEqual(code_only.count("Game.FadeOutGame("), 5)   # FadeIn + HoldFadeForModeChoice + ReassertBlackHoldAfterLoading + FallbackExitToSurface + ApplyH00PreSurfaceOverrides
-        self.assertEqual(code_only.count("Game.SetInChargen("), 3)  # FadeIn + HoldFadeForModeChoice + ApplyH00PreSurfaceOverrides
-        self.assertEqual(code_only.count("Game.SetCharGenHUDMode("), 2)  # FadeIn + ApplyH00PreSurfaceOverrides
+        prep_ui = psc[psc.index("Function PrepareStartRoomUi"):psc.index("int Function RunModeChoiceChain")]
+        self.assertNotIn("Game.FadeOutGame(True, True, 0.0, 0.1, True)", prep_ui)
+        self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.1, False)", prep_ui)
+        self.assertIn("Game.SetInChargen(false, false, false)", prep_ui)
+        self.assertIn("Game.ShowFirstPersonGeometry(false)", prep_ui)
+        self.assertIn("Game.SetCharGenHUDMode(3)", prep_ui)
+        self.assertIn('Trace("mode fade lifted by=timeout s=" + (StartLoadTimeout as int))', prep_ui)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("StartTimer(1.0, 1)"), begin.index("player.WaitFor3DLoad()"))
         self.assertLess(begin.index("player.WaitFor3DLoad()"), begin.index('FadeIn("start")'))
         self.assertIn('    player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load\n'
                       '    bool ready = player.Is3DLoaded()\n    Trace("3d wait over loaded=" + ready)\n'
-                      '    if ready\n        if FadeHold\n            HoldFadeForModeChoice()\n        else\n            FadeIn("start")', begin)
+                      '    if ready\n        if UsePreworldRoom()\n            PrepareStartRoomUi("start")\n        else\n            FadeIn("start")', begin)
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
         self.assertIn('        if !player.Is3DLoaded()\n', zero)
         self.assertIn('            StartTimer(1.0, 1)                               ; the game is still loading\n'
-                      '            return\n        endif\n        if FadeHold\n            HoldFadeForModeChoice()\n        else\n            FadeIn("timer")', zero)
+                      '            return\n        endif\n        if UsePreworldRoom()\n            PrepareStartRoomUi("timer")', zero)
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
         self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story", "warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
+        self.assertIn("ShowFirstPersonGeometry", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
 
     def test_the_timers_wait_for_the_3d_writes_a_line(self):
@@ -264,7 +263,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn(f"bool Property ClearInventory = {str(ng.DEFAULT_CLEAR_INVENTORY).lower()} Auto Const", psc)
         self.assertIn("int Property VaultSuitId = 0 Auto Const", psc)
         body = psc[psc.index("Event OnTimer"):]
-        enter = body.index("if !entered\n            StartTimer(1.0, 1)")
+        enter = body.index("if !entered\n                StartTimer(1.0, 1)")
         self.assertLess(enter, body.index("if ClearInventory\n            ResetInventory(player)"))
         self.assertLess(body.index("ResetInventory(player)"), body.index("AdvanceTo(10)"))
         self.assertNotIn("ResetInventory(", psc[psc.index("Function Begin"):psc.index("Function StandDown")])   # never during the first load
@@ -537,8 +536,8 @@ class ContractTests(unittest.TestCase):
         # reason the mode is built only on request)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("if !IsNewGame(days, level)"), begin.index("entered = EnterVault(player)"))
-        self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("if vaultMoves == 0 && centered == 0"))
-        self.assertLess(begin.index("if vaultMoves == 0 && centered == 0"), begin.index("HoldOffPass(1)"))
+        self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("if startRoomMoves == 0 && vaultMoves == 0 && centered == 0"))
+        self.assertLess(begin.index("if startRoomMoves == 0 && vaultMoves == 0 && centered == 0"), begin.index("HoldOffPass(1)"))
         self.assertIn("anchor_temporary=", begin)
         # the precheck reads the native; the stage option, the plan and the README carry the mode
         self.assertIn("CenterOnCell", ng.NATIVES[ng.SCRIPT]["Debug"])
@@ -812,7 +811,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("HoldOffPass(1)"))
         self.assertLess(begin.rindex("StandDown(loading, "), begin.index("HoldOffPass(1)"))
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
-        self.assertLess(zero.index("if !entered\n            StartTimer(1.0, 1)"), zero.index("HoldOffPass(2)"))
+        self.assertLess(zero.index("if !entered\n                StartTimer(1.0, 1)"), zero.index("HoldOffPass(2)"))
         self.assertLess(zero.index("HoldOffPass(2)"), zero.index("AdvanceTo(10)"))
         self.assertEqual((psc.count("HoldOffPass(1)"), psc.count("HoldOffPass(2)"), len(re.findall(r"^\s+HoldOffPass\(", psc, re.M))), (1, 1, 2))
         self.assertIn('" pass=" + pass', psc)
@@ -1070,7 +1069,8 @@ class ContractTests(unittest.TestCase):
 
 # Starfield's Game.psc declarations (PC read, 19 Oct): the fade in turns saving and the HUD on with both
 CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, bool abShowControlsDisabledMessage) "
-           "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
+           "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n"
+           "Function ShowFirstPersonGeometry(bool abShow = true) native global\n")
 # Game.FadeOutGame, our own start's fade in: the five-argument call Roleplayers' Alternate Start makes (FO4's parameter
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
@@ -2098,23 +2098,36 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn('SurvivalButtons = { "Survival: No", "Survival: Yes" }', cs)
         self.assertIn('WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" }', cs)
         self.assertIn("bool Property FadeHold = true Auto Const", psc)
+        self.assertIn("int Property StartChoiceBackdrop = 1 Auto Const", psc)
+        self.assertIn("float Property StartLoadTimeout = 15.0 Auto Const", psc)
         self.assertEqual(ng.tool_options(namespace(no_fade_hold=True)), ["--no-fade-hold"])
-        self.assertIn('Trace("mode fade held request=1")', psc)
-        self.assertIn('Trace("mode fade held request=2 delay=1.0s loading_closed=" + loadingMenuClosedSeen)', psc)
-        self.assertIn('Trace("mode choice mode=story survival=" + survVal)', psc)
-        self.assertIn('Trace("mode choice mode=warfare survival=" + survVal)', psc)
+        self.assertEqual(
+            ng.tool_options(namespace(start_choice_backdrop="title_card")),
+            ["--start-choice-backdrop", "title_card"],
+        )
+        self.assertIn('Trace("start room ready by=" + by', psc)
+        self.assertIn('Trace("mode fade lifted by=timeout s=" + (StartLoadTimeout as int))', psc)
+        self.assertIn('Trace("mode choice mode=" + modeTag + " survival=" + survVal)', psc)
+        self.assertIn('Trace("start record mode=" + modeTag + " story=" + storyId', psc)
         self.assertIn('Trace("mode load default=story stage=" + GetStage())', psc)
         self.assertIn('hc.EvaluateHardcore("start_choice")', psc)
         s = ng.summarize([
             "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n",
-            "[x] FO4SF_NEWGAME rt=3.0 mode fade held\n",
+            "[x] FO4SF_NEWGAME rt=2.2 enter start room ok=True pos=0.0 0.0 0.0 cell=[Cell <FO4SF_StartRoomCell>]\n",
+            "[x] FO4SF_NEWGAME rt=3.0 mode fade lifted by=timeout s=15\n",
             "[x] FO4SF_NEWGAME rt=5.0 mode choice mode=story survival=1\n",
-            "[x] FO4SF_NEWGAME rt=5.1 stage 5\n",
-            "[x] FO4SF_NEWGAME rt=5.2 stage 10\n",
+            "[x] FO4SF_NEWGAME rt=5.05 start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=1 difficulty=1 backdrop=empty_cell\n",
+            "[x] FO4SF_NEWGAME rt=5.1 stage 5 by=Trigger\n",
+            "[x] FO4SF_NEWGAME rt=5.2 stage 10 by=Trigger\n",
             "[x] FO4SF_NEWGAME rt=20.0 mode load default=story stage=10\n",
         ])
-        self.assertTrue(s["mode_fade_held"])
+        self.assertTrue(s["entered_start_room"])
+        self.assertEqual(s["mode_fade_lifted"], "by=timeout s=15")
         self.assertEqual(s["mode_choice"], "mode=story survival=1")
+        self.assertEqual(
+            s["start_record"],
+            "mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=1 difficulty=1 backdrop=empty_cell",
+        )
         self.assertEqual(s["mode_load_default"], "story stage=10")
         self.assertEqual(s["stages"], [5, 10])
 
@@ -2266,55 +2279,92 @@ class Phase2BeginningRealTests(unittest.TestCase):
 
         logs, fades, waits, timers, moves = [], [], [], [], []
         cur_stage = [0]
-        neutral_val = [0.0]
+        neutral_val = [1.0]
+        start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
         vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
         player = SimpleNamespace(
             pos=(9.1, -6.6, -0.9),
+            cell="InitCell",
             GetPositionX=lambda: player.pos[0],
             GetPositionY=lambda: player.pos[1],
             GetPositionZ=lambda: player.pos[2],
             SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
             SetAngle=lambda *a: None,
-            MoveTo=lambda ref, dx, dy, dz, *rest: (moves.append((dx, dy, dz)), setattr(player, "pos", (60.0 + dx, 25.0 + dy, 1.0 + dz))),
-            GetParentCell=lambda: "VaultCell",
+            MoveTo=lambda ref, dx, dy, dz, *rest: (
+                moves.append((ref, dx, dy, dz)),
+                setattr(player, "cell", ref.GetParentCell()),
+                setattr(
+                    player,
+                    "pos",
+                    (0.0 + dx, 0.0 + dy, 0.0 + dz)
+                    if ref is start_room_marker
+                    else (60.0 + dx, 25.0 + dy, 1.0 + dz),
+                ),
+            ),
+            GetParentCell=lambda: player.cell,
             Is3DLoaded=lambda: True,
         )
 
         def show_mode_box():
-            # Simulate 120 s of unanswered waiting on ModePickMsg (two 60 s timer-2 ticks) before answering Story (0)
+            # At ModePickMsg.Show(): player must be in StartRoomCell (never VaultCell) with fade lifted!
+            self.assertEqual(player.cell, "StartRoomCell")
+            self.assertEqual(fades[-1], (False, True, 0.0, 0.1, False))
             ns["TimerEvent"](2)
             ns["TimerEvent"](2)
             return 0
 
         ns = dict(
-            FadeHold=True, faded=False, fadeHeld=False, fadeReheldAfterLoad=False,
-            loadingMenuOpen=False, loadingMenuClosedSeen=False,
+            FadeHold=True, StartChoiceBackdrop=1, StartLoadTimeout=15.0, LooksWait=0.0, RaceMenuMode=2,
+            ClearInventory=False, AnchorTemporary=False,
+            faded=False, entered=False, startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
+            loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, h00SkipLoading=False,
             modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+            setupWaitingCreator=False, warfareWaitingCreator=False,
             applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
-            exitUsedFallback=False, vaultMoves=1, ticks=0,
-            VaultAnchorId=0x805, VaultPlugin="FO4Port.esm",
+            exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+            VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
             AnchorX=60.0, AnchorY=25.0, AnchorZ=1.0,
             PodX=10.0, PodY=20.0, PodZ=1.0, PodLift=0.5, PodHeading=90.0,
+            StartRoomMarkerRef=start_room_marker,
+            StartCardOpenGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
             StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
             StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: neutral_val[0]),
             GameModeGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            StoryLineGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            StartPlaceRowGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
             SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
             SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+            StartDifficultyGlobal=SimpleNamespace(SetValue=lambda v: None),
+            WarfareFactionGlobal=SimpleNamespace(SetValue=lambda v: None),
+            WarfareStartIndexGlobal=SimpleNamespace(SetValue=lambda v: None),
+            H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
             TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
             ModePickMsg=SimpleNamespace(Show=show_mode_box),
+            StoryLineMsg=SimpleNamespace(Show=lambda: 0),
             SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
+            StartPickMsg=None,
+            StoryChoiceIds=["fo4_commonwealth"],
+            StartPlaceIds=["fo4_vault111"],
+            StartPlaceModes=[1],
+            StartPlaceStories=["fo4_commonwealth"],
+            StartPlacePlugins=["FO4Port.esm"],
+            StartPlaceMarkerIds=[0x805],
+            StartPlaceWarfareRows=[-1],
             Game=SimpleNamespace(
                 GetPlayer=lambda: player,
+                ShowFirstPersonGeometry=lambda *a: None,
                 FadeOutGame=lambda *a: fades.append(a),
                 SetInChargen=lambda *a: None,
                 SetCharGenHUDMode=lambda *a: None,
                 GetFormFromFile=lambda fid, plg: vault_anchor if (fid, plg) == (0x805, "FO4Port.esm") else None,
             ),
-            Utility=SimpleNamespace(Wait=lambda s: (waits.append(s), ns.__setitem__("loadingMenuOpen", False))),
+            Utility=SimpleNamespace(Wait=lambda s: waits.append(s), GetCurrentRealTime=lambda: 12.0),
             Debug=SimpleNamespace(Notification=lambda *a: None),
             InputEnableLayer=SimpleNamespace(Create=lambda: None),
             scannerLayer=None,
             RegisterForMenuOpenCloseEvent=lambda m: None,
+            UnregisterForMenuOpenCloseEvent=lambda m: None,
             StartTimer=lambda s, tid: timers.append((s, tid)),
             SetStage=lambda n: cur_stage.__setitem__(0, n),
             GetStage=lambda: cur_stage[0],
@@ -2327,21 +2377,26 @@ class Phase2BeginningRealTests(unittest.TestCase):
             Trace=lambda m: logs.append(m),
         )
         funcs = (
-            "HoldFadeForModeChoice", "ReassertBlackHoldAfterLoading", "HoldNeutralSpotForModeChoice",
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
             "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
             "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
             "MenuEvent", "StageEvent", "TimerEvent",
         )
         vars_csv = (
-            "faded, fadeHeld, fadeReheldAfterLoad, loadingMenuOpen, loadingMenuClosedSeen, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, applied, pendingStage, pendingStageBy, "
-            "looksSetStage20, exitUsedFallback, vaultMoves, ticks, scannerLayer"
+            "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, h00SkipLoading, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
         )
         exec(compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec"), ns)
 
-        # 1. Request 1 + LoadingMenu open/close + neutral-spot fallback + 1.0 s wait + Request 2 + 2x60 s waiting logs
-        neutral_val[0] = 1.0
-        ns["HoldFadeForModeChoice"]()
+        ns["EnterStartRoom"](player)
+        ns["PrepareStartRoomUi"]("start")
+        ns["RegisterStartLoadingHook"]()
         ns["MenuEvent"]("LoadingMenu", True)
         self.assertTrue(ns["loadingMenuOpen"])
         ns["MenuEvent"]("LoadingMenu", False)
@@ -2350,27 +2405,400 @@ class Phase2BeginningRealTests(unittest.TestCase):
 
         chosen = ns["RunModeChoiceChain"](player)
         self.assertEqual(chosen, 1)
-        self.assertIn("mode fade held request=1", logs)
+        self.assertIn("start room ready by=start loaded=True cell=StartRoomCell backdrop=empty_cell", logs)
         self.assertIn("mode loading menu closed", logs)
         self.assertTrue(any(l.startswith("mode neutral spot active ") for l in logs), logs)
-        self.assertIn("mode fade held request=2 delay=1.0s loading_closed=True", logs)
-        self.assertLess(
-            logs.index("mode fade held request=1"),
-            logs.index("mode fade held request=2 delay=1.0s loading_closed=True"),
-        )
-        self.assertIn(1.0, waits)
         self.assertEqual([l for l in logs if l.startswith("mode box waiting ")], ["mode box waiting s=60", "mode box waiting s=120"])
-        # Once answered, a subsequent timer-2 tick logs nothing more
         ns["TimerEvent"](2)
         self.assertEqual([l for l in logs if l.startswith("mode box waiting ")], ["mode box waiting s=60", "mode box waiting s=120"])
+        self.assertIn(
+            "start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell",
+            logs,
+        )
         self.assertIn("stage 5 by=Trigger", logs)
-        # Neutral spot Story choice moved player back into the cryopod before FadeIn
+        self.assertIn("stage 10 by=Trigger", logs)
+        # Only AFTER start record does Story move the player into Vault 111 at the pod
+        self.assertEqual(player.cell, "VaultCell")
         self.assertAlmostEqual(player.pos[0], 10.0, places=3)
         self.assertAlmostEqual(player.pos[1], 20.0, places=3)
 
-        # 2. B6 external console setstage (without AdvanceTo) logs by=other!
+        # B6 external console setstage (without AdvanceTo) logs by=other
         ns["StageEvent"](30, 0)
         self.assertIn("stage 30 by=other", logs)
+
+    def test_h0_loading_menu_close_never_arrives_lifts_fade_and_shows_box(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        wrapped = psc
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
+            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+        )
+        vars_csv = (
+            "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, h00SkipLoading, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        # Test BOTH default path (neutral=0.0) and B8 neutral-spot path (neutral=1.0) when LoadingMenu close NEVER arrives
+        for neutral_setting in (0.0, 1.0):
+            with self.subTest(neutral=neutral_setting):
+                logs, fades, waits, unregs, shown = [], [], [], [], []
+                cur_stage = [0]
+                start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+                vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+                player = SimpleNamespace(
+                    pos=(0.0, 0.0, 0.0),
+                    cell="StartRoomCell",
+                    GetPositionX=lambda: player.pos[0],
+                    GetPositionY=lambda: player.pos[1],
+                    GetPositionZ=lambda: player.pos[2],
+                    SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                    SetAngle=lambda *a: None,
+                    MoveTo=lambda ref, dx, dy, dz, *rest: (
+                        setattr(player, "cell", ref.GetParentCell()),
+                        setattr(
+                            player,
+                            "pos",
+                            (0.0 + dx, 0.0 + dy, 0.0 + dz)
+                            if ref is start_room_marker
+                            else (60.0 + dx, 25.0 + dy, 1.0 + dz),
+                        ),
+                    ),
+                    GetParentCell=lambda: player.cell,
+                    Is3DLoaded=lambda: True,
+                )
+
+                def on_mode_box_show():
+                    # H0 acceptance: fade MUST be lifted and timeout logged BEFORE ModePickMsg.Show() blocks for input!
+                    self.assertFalse(ns["loadingMenuOpen"])
+                    self.assertFalse(ns["loadingHookRegistered"])
+                    self.assertIn("LoadingMenu", unregs)
+                    self.assertEqual(fades[-1], (False, True, 0.0, 0.1, False))
+                    self.assertFalse(any(f[0] is True for f in fades), fades)
+                    self.assertIn("mode fade lifted by=timeout s=15", logs)
+                    shown.append("ModePickMsg")
+                    return 0
+
+                ns = dict(
+                    FadeHold=True, StartChoiceBackdrop=1, StartLoadTimeout=15.0, LooksWait=0.0, RaceMenuMode=2,
+                    ClearInventory=False, AnchorTemporary=False,
+                    faded=False, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+                    loadingMenuOpen=True, loadingMenuClosedSeen=False, loadingHookRegistered=True, h00SkipLoading=False,
+                    modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                    setupWaitingCreator=False, warfareWaitingCreator=False,
+                    applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+                    exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+                    VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
+                    AnchorX=60.0, AnchorY=25.0, AnchorZ=1.0,
+                    PodX=10.0, PodY=20.0, PodZ=1.0, PodLift=0.5, PodHeading=90.0,
+                    StartRoomMarkerRef=start_room_marker,
+                    StartCardOpenGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: neutral_setting),
+                    GameModeGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StoryLineGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartPlaceRowGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    StartDifficultyGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareFactionGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareStartIndexGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    ModePickMsg=SimpleNamespace(Show=on_mode_box_show),
+                    StoryLineMsg=SimpleNamespace(Show=lambda: (shown.append("StoryLineMsg"), 0)[1]),
+                    SurvivalPickMsg=SimpleNamespace(Show=lambda: (shown.append("SurvivalPickMsg"), 0)[1]),
+                    StartPickMsg=None,
+                    StoryChoiceIds=["fo4_commonwealth"],
+                    StartPlaceIds=["fo4_vault111"],
+                    StartPlaceModes=[1],
+                    StartPlaceStories=["fo4_commonwealth"],
+                    StartPlacePlugins=["FO4Port.esm"],
+                    StartPlaceMarkerIds=[0x805],
+                    StartPlaceWarfareRows=[-1],
+                    Game=SimpleNamespace(
+                        GetPlayer=lambda: player,
+                        ShowFirstPersonGeometry=lambda *a: None,
+                        FadeOutGame=lambda *a: fades.append(a),
+                        SetInChargen=lambda *a: None,
+                        SetCharGenHUDMode=lambda *a: None,
+                        GetFormFromFile=lambda fid, plg: vault_anchor if (fid, plg) == (0x805, "FO4Port.esm") else None,
+                    ),
+                    # LoadingMenu close event NEVER fires during Wait!
+                    Utility=SimpleNamespace(Wait=lambda s: waits.append(s), GetCurrentRealTime=lambda: 20.0),
+                    Debug=SimpleNamespace(Notification=lambda *a: None),
+                    InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                    scannerLayer=None,
+                    RegisterForMenuOpenCloseEvent=lambda m: None,
+                    UnregisterForMenuOpenCloseEvent=lambda m: unregs.append(m),
+                    StartTimer=lambda *a: None,
+                    SetStage=lambda n: cur_stage.__setitem__(0, n),
+                    GetStage=lambda: cur_stage[0],
+                    SetObjectiveDisplayed=lambda *a: None,
+                    SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    EnsureLoadHookRegistered=lambda p: None,
+                    Trace=lambda m: logs.append(m),
+                )
+                exec(compiled, ns)
+
+                chosen = ns["RunModeChoiceChain"](player)
+                self.assertEqual(chosen, 1)
+                self.assertAlmostEqual(sum(waits), 15.0, places=2)
+                self.assertEqual(shown, ["ModePickMsg", "StoryLineMsg", "SurvivalPickMsg"])
+                self.assertIn("mode fade lifted by=timeout s=15", logs)
+                if neutral_setting >= 0.5:
+                    self.assertTrue(any(l.startswith("mode neutral spot active ") for l in logs), logs)
+                self.assertEqual(player.cell, "VaultCell")
+                self.assertEqual(cur_stage[0], 10)
+
+    def test_n2_and_card4_start_places_table_and_warfare_pre_creator_special(self):
+        from types import SimpleNamespace
+        from fo4sf.core import start_places as sp
+        from tests.test_exit_arrival import translated_functions
+
+        # 1. Start-places table validation: available vs unbuilt rows, and refusal of unresolvable available rows
+        all_rows = sp.load_start_places()
+        avail_rows = sp.load_start_places(
+            available_only=True,
+            known_plugins={"FO4Port.esm", "FO4TerrainCore.esm"},
+            known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary"},
+        )
+        self.assertEqual([r.id for r in avail_rows], ["fo4_vault111", "minutemen_sanctuary"])
+        unavail_ids = {r.id for r in all_rows if not r.available}
+        self.assertIn("fnv_goodsprings", unavail_ids)
+        self.assertIn("fo3_vault101", unavail_ids)
+        self.assertEqual(sp.available_story_choices(all_rows), [("fo4_commonwealth", "Fallout 4: Commonwealth")])
+
+        with self.assertRaisesRegex(ValueError, "not loaded"):
+            sp.load_start_places(known_plugins={"FO4Port.esm"})
+        with self.assertRaisesRegex(ValueError, "marker_edid"):
+            sp.load_start_places(
+                known_plugins={"FO4Port.esm", "FO4TerrainCore.esm"},
+                known_marker_edids=set(),
+            )
+
+        # 2. N2 + Card 4 translated execution: Warfare with title_card backdrop + S.P.E.C.I.A.L. BEFORE ShowRaceMenu + R10 fallback
+        psc = read(PSC)
+        ev_menu = re.search(r"Event OnMenuOpenCloseEvent\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = psc + f"\nFunction MenuEvent({ev_menu[1]})\n{ev_menu[2]}EndFunction\n"
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
+            "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
+        )
+        vars_csv = (
+            "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, h00SkipLoading, h00SkipMap, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        for cancel_all_tries in (False, True):
+            with self.subTest(cancel_all_tries=cancel_all_tries):
+                logs, events, card_vals, chargen_state = [], [], [], [False]
+                cur_stage = [0]
+                start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+                sanctuary_cell = SimpleNamespace(GetFormID=lambda: 0x03001000)
+                sanctuary_marker = SimpleNamespace(
+                    GetFormID=lambda: 0x030A775A,
+                    GetParentCell=lambda: sanctuary_cell,
+                    GetWorldSpace=lambda: "CommonwealthWorld",
+                    Enable=lambda *a: None,
+                    MoveTo=lambda *a: None,
+                    SetPosition=lambda *a: None,
+                )
+                player = SimpleNamespace(
+                    pos=(0.0, 0.0, 0.0),
+                    cell="StartRoomCell",
+                    interior=True,
+                    GetPositionX=lambda: player.pos[0],
+                    GetPositionY=lambda: player.pos[1],
+                    GetPositionZ=lambda: player.pos[2],
+                    SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                    SetAngle=lambda *a: None,
+                    MoveTo=lambda ref, dx, dy, dz, *rest: (
+                        events.append("MoveToWarfareStart" if ref is sanctuary_marker else "MoveToStartRoom"),
+                        setattr(player, "cell", ref.GetParentCell()),
+                        setattr(player, "interior", ref is start_room_marker),
+                    ),
+                    GetParentCell=lambda: player.cell,
+                    GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
+                    IsInInterior=lambda: player.interior,
+                    Is3DLoaded=lambda: True,
+                    RemoveAllItems=lambda *a: None,
+                    AddItem=lambda *a: None,
+                    EquipItem=lambda *a: None,
+                    GetValue=lambda av: 100.0,
+                    ModValue=lambda av, d: None,
+                    AddToFaction=lambda f: None,
+                )
+
+                def open_alloc(src):
+                    # Card 4: S.P.E.C.I.A.L. runs BEFORE ShowRaceMenu while SetInChargen is False and still in StartRoomCell!
+                    self.assertEqual(src, "warfare")
+                    self.assertFalse(chargen_state[0])
+                    self.assertEqual(player.cell, "StartRoomCell")
+                    self.assertNotIn("ShowRaceMenu", events)
+                    events.append("OpenAttributeAllocation")
+                    return False if cancel_all_tries else True
+
+                def offer_spread(src, allow_back):
+                    self.assertEqual((src, allow_back), ("warfare", False))
+                    events.append("OfferStandardSpread")
+                    return True
+
+                prog = SimpleNamespace(
+                    OpenAttributeAllocation=open_alloc,
+                    OfferStandardSpread=offer_spread,
+                    ApplyWarfareBackground=lambda idx: events.append(f"Bg:{idx}"),
+                )
+
+                def show_race_menu(*a):
+                    events.append("ShowRaceMenu")
+                    chargen_state[0] = True
+                    ns["MenuEvent"]("ChargenMenu", False)
+
+                ns = dict(
+                    FadeHold=True, StartChoiceBackdrop=2, StartLoadTimeout=15.0, LooksWait=10.0, RaceMenuMode=2,
+                    ClearInventory=True, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
+                    SurfaceWait=1.0, SurfaceTries=3, FallDrop=3.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+                    ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=0.0,
+                    ExitAnchorId=0x0A7759, CorePlugin="FO4TerrainCore.esm",
+                    VaultAnchorId=0x805, VaultPlugin="FO4Port.esm",
+                    faded=False, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+                    loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False,
+                    h00SkipLoading=False, h00SkipMap=False,
+                    modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                    setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
+                    applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+                    exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+                    StartRoomMarkerRef=start_room_marker,
+                    PipboyWristArmor=SimpleNamespace(),
+                    PipboyAcquiredGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    StartCardOpenGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: card_vals.append(v)),
+                    StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    GameModeGlobal=SimpleNamespace(GetValue=lambda: 2.0, SetValue=lambda v: None),
+                    StoryLineGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartPlaceRowGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    StartDifficultyGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareFactionGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareStartIndexGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    ModePickMsg=SimpleNamespace(Show=lambda: 1),
+                    StoryLineMsg=SimpleNamespace(Show=lambda: 0),
+                    SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
+                    WarfareDiffMsg=SimpleNamespace(Show=lambda: 0),
+                    WarfareGroupMsg=SimpleNamespace(Show=lambda: 0),
+                    WarfareSpotMsg=SimpleNamespace(Show=lambda: 0),
+                    StartPickMsg=SimpleNamespace(Show=lambda: 0),
+                    StoryChoiceIds=["fo4_commonwealth"],
+                    StartPlaceIds=["fo4_vault111", "minutemen_sanctuary"],
+                    StartPlaceModes=[1, 2],
+                    StartPlaceStories=["fo4_commonwealth", "none"],
+                    StartPlacePlugins=["FO4Port.esm", "FO4TerrainCore.esm"],
+                    StartPlaceMarkerIds=[0x805, 0x0A775A],
+                    StartPlaceWarfareRows=[-1, 0],
+                    WarfareKeys=["minutemen_sanctuary"],
+                    WarfareFactionSlots=[0],
+                    WarfareDistinctFactionSlots=[0],
+                    WarfareMarkerIds=[0x0A775A],
+                    WarfareMarkerX=[100.0],
+                    WarfareMarkerY=[200.0],
+                    WarfareMarkerZ=[95.0],
+                    WarfareHeadings=[180.0],
+                    WarfareMinDiffs=[0],
+                    WarfareMaxDiffs=[3],
+                    WarfareBgIndices=[0],
+                    WarfareFames=[45.0],
+                    WarfareInfamies=[0.0],
+                    WarfareKarmas=[150.0],
+                    WarfareSquadCaps=[4],
+                    WarfareGearRowIndices=[0],
+                    WarfareGearPlugins=["Starfield.esm"],
+                    WarfareGearIds=[0x100],
+                    WarfareGearCounts=[1],
+                    WarfareGearEquips=[True],
+                    CoreMarkerIds=[0x0A775A],
+                    MapMarkerQuestIds=[],
+                    Game=SimpleNamespace(
+                        GetPlayer=lambda: player,
+                        ShowFirstPersonGeometry=lambda *a: None,
+                        FadeOutGame=lambda *a: None,
+                        SetInChargen=lambda a, b, c: chargen_state.__setitem__(0, bool(a or b or c)),
+                        SetCharGenHUDMode=lambda *a: None,
+                        ShowRaceMenu=show_race_menu,
+                        GetFormFromFile=lambda fid, plg: (
+                            prog if (fid, plg) == (0x000880, "FO4SFProgression.esm")
+                            else sanctuary_marker if (fid, plg) == (0x0A775A, "FO4TerrainCore.esm")
+                            else SimpleNamespace() if plg == "Starfield.esm"
+                            else None
+                        ),
+                    ),
+                    Utility=SimpleNamespace(
+                        Wait=lambda s: events.append(f"Wait({s})") if s == 2.0 else None,
+                        GetCurrentRealTime=lambda: 30.0,
+                    ),
+                    Debug=SimpleNamespace(Notification=lambda *a: None),
+                    InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                    scannerLayer=None,
+                    RegisterForMenuOpenCloseEvent=lambda m: None,
+                    UnregisterForMenuOpenCloseEvent=lambda m: None,
+                    StartTimer=lambda *a: None,
+                    SetStage=lambda n: (cur_stage.__setitem__(0, n), events.append(f"Stage{n}")),
+                    GetStage=lambda: cur_stage[0],
+                    SetObjectiveDisplayed=lambda *a: None,
+                    SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    Trace=lambda m: logs.append(m),
+                )
+                exec(compiled, ns)
+
+                chosen = ns["RunModeChoiceChain"](player)
+                self.assertEqual(chosen, 2)
+                self.assertEqual(ns["vaultMoves"], 0)
+                self.assertEqual(card_vals[0], 1.0)
+                self.assertEqual(card_vals[-1], 0.0)
+                self.assertIn(
+                    "start record mode=warfare story=none faction=0 place=minutemen_sanctuary survival=0 difficulty=0 backdrop=title_card",
+                    logs,
+                )
+                self.assertLess(events.index("OpenAttributeAllocation"), events.index("ShowRaceMenu"))
+                self.assertLess(events.index("ShowRaceMenu"), events.index("Wait(2.0)"))
+                self.assertLess(events.index("Wait(2.0)"), events.index("MoveToWarfareStart"))
+                if cancel_all_tries:
+                    self.assertEqual(events.count("OpenAttributeAllocation"), 3)
+                    self.assertIn("OfferStandardSpread", events)
+                else:
+                    self.assertEqual(events.count("OpenAttributeAllocation"), 1)
+                    self.assertNotIn("OfferStandardSpread", events)
+                self.assertFalse(chargen_state[0])
+                self.assertEqual(cur_stage[0], 210)
 
 
 if __name__ == "__main__":

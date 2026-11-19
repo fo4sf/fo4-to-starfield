@@ -1166,7 +1166,24 @@ namespace
 		return false;
 	}
 
-	void InstallStarMapBlock()
+	std::array<bool, kMaxMapMenus> g_mapSlotInstalled{};
+	std::uint32_t                  g_mapInstallRetryCount = 0;
+	bool                           g_loggedPostHudMapRetry = false;
+
+	bool HasPendingMapBlockSlots()
+	{
+		if (!g_blockStarMap) {
+			return false;
+		}
+		for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
+			if (!g_mapSlotInstalled[slot] && !SameAscii(g_mapMenus[slot].c_str(), "MapMenu")) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void InstallStarMapBlock(bool a_isRetry = false)
 	{
 		if (!g_blockStarMap) {
 			return;
@@ -1175,7 +1192,12 @@ namespace
 		if (!ui) {
 			return;
 		}
+		const std::uint32_t retryNum = a_isRetry ? ++g_mapInstallRetryCount : 0;
+		std::uint32_t       newlyInstalled = 0;
 		for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
+			if (a_isRetry && g_mapSlotInstalled[slot]) {
+				continue;
+			}
 			const auto& blocked = g_mapMenus[slot];
 			bool        found = false;
 			for (auto& entry : ui->menuMap) {
@@ -1186,7 +1208,10 @@ namespace
 				found = true;
 				const auto origAddr = reinterpret_cast<std::uintptr_t>(entry.value.initFunc);
 				if (IsBlockedMapCreator(entry.value.initFunc)) {
-					REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva=already_installed", blocked, slot);
+					g_mapSlotInstalled[slot] = true;
+					if (!a_isRetry) {
+						REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva=already_installed", blocked, slot);
+					}
 					break;
 				}
 				if (!InImage(origAddr, 1)) {
@@ -1198,12 +1223,34 @@ namespace
 				} else {
 					entry.value.initFunc = kBlockedMapMenuCreators[slot];
 				}
-				REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva={}", blocked, slot, Hex(origAddr - g_base));
+				g_mapSlotInstalled[slot] = true;
+				++newlyInstalled;
+				if (a_isRetry) {
+					REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva={} retry={}",
+						blocked, slot, Hex(origAddr - g_base), retryNum);
+				} else {
+					REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva={}",
+						blocked, slot, Hex(origAddr - g_base));
+				}
 				break;
 			}
-			if (!found) {
+			if (!found && !a_isRetry) {
 				REX::INFO("step=starmap_block_install menu={} found=0", blocked);
 			}
+		}
+		if (a_isRetry && (newlyInstalled > 0 || !g_loggedPostHudMapRetry)) {
+			g_loggedPostHudMapRetry = true;
+			std::string pending;
+			for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
+				if (!g_mapSlotInstalled[slot]) {
+					if (!pending.empty()) {
+						pending += ',';
+					}
+					pending += g_mapMenus[slot];
+				}
+			}
+			REX::INFO("step=starmap_block_retry try={} newly_installed={} pending={}",
+				retryNum, newlyInstalled, pending.empty() ? "none" : pending);
 		}
 	}
 
@@ -1798,11 +1845,23 @@ namespace PipboyMap
 		if (!raw) {
 			return;
 		}
+		const bool retryNeeded = HasPendingMapBlockSlots();
+		bool       isBlockedMenu = false;
 		for (const auto& blocked : g_mapMenus) {
 			if (SameAscii(raw, blocked)) {
-				g_task->AddTask([]() { SuppressVanillaMapMenus(); });
-				return;
+				isBlockedMenu = true;
+				break;
 			}
+		}
+		if (retryNeeded || isBlockedMenu) {
+			g_task->AddTask([retryNeeded, isBlockedMenu]() {
+				if (retryNeeded) {
+					InstallStarMapBlock(true);
+				}
+				if (isBlockedMenu) {
+					SuppressVanillaMapMenus();
+				}
+			});
 		}
 	}
 

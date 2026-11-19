@@ -25,6 +25,8 @@ START_MODE_GLOB_EDIDS: Tuple[str, ...] = (
     "FO4SF_WarfareStartIndex",
     "FO4SF_StartChoiceDone",
     "FO4SF_StartNeutralSpot",
+    "FO4SF_StoryLine",
+    "FO4SF_StartPlaceRow",
 )
 
 H00_SUSPECT_GLOB_EDIDS: Tuple[str, ...] = (

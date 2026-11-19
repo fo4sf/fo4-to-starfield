@@ -493,6 +493,18 @@ class BeginningPilotTests(unittest.TestCase):
             self.assertFalse(res_bad["ok"])
             self.assertEqual(res_bad["steps"]["B7_preston_turnin"]["status"], "FAIL")
 
+            # H0 check: 'mode fade lifted by=timeout s=15' marks B1_pod FAIL for REACHABLE even if later walk continues
+            ng_timeout = [
+                "FO4SF_NEWGAME rt=5.0 mode fade lifted by=timeout s=15",
+                *_handwritten_newgame_lines(),
+            ]
+            ng_s1.write_text("\n".join(ng_timeout[:12]) + "\n", encoding="utf-8")
+            ms_s2.write_text("\n".join(ms_s2_lines) + "\n", encoding="utf-8")
+            res_to = evaluate_beginning_logs(log_dir=str(tdir))
+            self.assertFalse(res_to["ok"])
+            self.assertEqual(res_to["steps"]["B1_pod"]["status"], "FAIL")
+            self.assertIn("mode fade lifted by=timeout", res_to["steps"]["B1_pod"]["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

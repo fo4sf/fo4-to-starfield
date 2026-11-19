@@ -126,6 +126,9 @@ static class NewGame
                         GearDoorConsoleActiEdid = "FO4SF_GearDoorConsole",
                         GearDoorConsoleRefEdid = "FO4SF_GearDoorConsoleRef",
                         ExitFallbackMsgEdid = "FO4SF_NewGameExitFallbackMsg",
+                        StartRoomCellEdid = "FO4SF_StartRoomCell",
+                        StartRoomMarkerRefEdid = "FO4SF_StartRoomMarkerRef",
+                        StoryLineMsgEdid = "FO4SF_NewGameStoryLineMsg",
                         ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
     public const uint ModePickMsgId = 0x806,
@@ -144,10 +147,14 @@ static class NewGame
                       GearDoorConsoleRefId = 0x819,
                       ExitFallbackMsgId = 0x81A,
                       SpecialMessagePage2Id = 0x81B,
+                      StartRoomCellId = 0x81C,
+                      StartRoomMarkerRefId = 0x81D,
+                      StoryLineMsgId = 0x81E,
                       ExitNeedSpecialMsgId = 0x81F;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
     public const int MaxMessageButtons = 7;
+    public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, DefaultStartChoiceBackdrop = BackdropEmptyCell;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
     public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" };
@@ -169,6 +176,7 @@ static class NewGame
     public const string StartupEdid = "StartupQuest_DO";
     public const uint StartupId = 0x00562D;
     public const string CoreValuesPlugin = "FO4SFCoreValues.esm", TestModeGlobEdid = "FO4SF_TestModeEnabled",
+                        StartCardOpenGlobEdid = "FO4SF_StartCardOpen",
                         GameModeGlobEdid = "FO4SF_GameMode",
                         SurvivalStartGlobEdid = "FO4SF_SurvivalStart",
                         SurvivalLockedGlobEdid = "FO4SF_SurvivalLocked",
@@ -177,6 +185,8 @@ static class NewGame
                         WarfareStartIndexGlobEdid = "FO4SF_WarfareStartIndex",
                         StartChoiceDoneGlobEdid = "FO4SF_StartChoiceDone",
                         StartNeutralSpotGlobEdid = "FO4SF_StartNeutralSpot",
+                        StoryLineGlobEdid = "FO4SF_StoryLine",
+                        StartPlaceRowGlobEdid = "FO4SF_StartPlaceRow",
                         H00SkipLoadingHookGlobEdid = "FO4SF_H00_SkipLoadingHook",
                         H00ClearChargenGlobEdid = "FO4SF_H00_ClearChargenBeforeSurface",
                         H00SkipArrivalDiscoveryGlobEdid = "FO4SF_H00_SkipArrivalDiscovery",
@@ -670,6 +680,180 @@ static class NewGame
             gearRows.ToArray(), gearPlugins.ToArray(), gearIds.ToArray(), gearCounts.ToArray(), gearEquips.ToArray());
     }
 
+    public static string DefaultStartPlacesJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "core", "start_places.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "core", "start_places.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/core/start_places.json; pass --start-places <path>");
+    }
+
+    public record StartPlaceTable(
+        string[] StoryIds, string[] StoryLabels,
+        string[] PlaceIds, int[] PlaceModes, string[] PlaceStories, string[] PlacePlugins,
+        int[] PlaceMarkerIds, float[] PlaceX, float[] PlaceY, float[] PlaceZ, float[] PlaceHeadings,
+        bool[] PlaceIsInterior, int[] PlaceQuestMasks, int[] PlaceWarfareRows);
+
+    public static StartPlaceTable LoadStartPlaces(string? jsonPath, JsonElement pts, Places places, WarfareTable wf, string portPath, string corePath)
+    {
+        var path = jsonPath ?? DefaultStartPlacesJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing start_places.json: {path}");
+        using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+        using var core = SF.StarfieldMod.CreateFromBinaryOverlay(corePath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+
+        var portRefs = new List<SF.IPlacedObjectGetter>();
+        foreach (var blk in port.Cells.Records)
+            foreach (var sub in blk.SubBlocks)
+                foreach (var c in sub.Cells)
+                    portRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+
+        var coreRefs = new List<SF.IPlacedObjectGetter>();
+        foreach (var w in core.Worldspaces)
+        {
+            if (w.TopCell is { } top) coreRefs.AddRange(top.Persistent.Concat(top.Temporary).OfType<SF.IPlacedObjectGetter>());
+            foreach (var b in w.SubCells) foreach (var s in b.Items) foreach (var c in s.Items)
+                coreRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+        }
+
+        var pod = Floats(pts.GetProperty("pod").GetProperty("pos"));
+        float podHeading = pts.GetProperty("pod").GetProperty("heading").GetSingle();
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("schema_version", out var sv) || sv.GetInt32() != 1)
+            throw new Refusal($"unsupported start_places schema_version in {path}");
+
+        var storyIds = new List<string>();
+        var storyLabels = new List<string>();
+        var placeIds = new List<string>();
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var placeModes = new List<int>();
+        var placeStories = new List<string>();
+        var placePlugins = new List<string>();
+        var placeMarkerIds = new List<int>();
+        var placeX = new List<float>();
+        var placeY = new List<float>();
+        var placeZ = new List<float>();
+        var placeHeadings = new List<float>();
+        var placeIsInterior = new List<bool>();
+        var placeQuestMasks = new List<int>();
+        var placeWfRows = new List<int>();
+
+        foreach (var el in root.GetProperty("places").EnumerateArray())
+        {
+            var pid = el.GetProperty("id").GetString()?.Trim() ?? "";
+            if (pid.Length == 0 || !seenIds.Add(pid))
+                throw new Refusal($"start_places.json invalid or duplicate id '{pid}'");
+            string modeStr = (el.GetProperty("mode").GetString()?.Trim() ?? "").ToLowerInvariant();
+            int modeCode = modeStr switch
+            {
+                "story" => 1,
+                "warfare" => 2,
+                _ => throw new Refusal($"start place '{pid}': invalid mode '{modeStr}'"),
+            };
+            bool available = el.TryGetProperty("available", out var avEl) && avEl.GetBoolean();
+            if (!available) continue;   // N2: unbuilt future rows stay in table metadata but are never offered in game
+
+            string plg = el.GetProperty("plugin").GetString()?.Trim() ?? "";
+            bool isPort = string.Equals(plg, PortPlugin, StringComparison.OrdinalIgnoreCase);
+            bool isCore = string.Equals(plg, CorePluginFile, StringComparison.OrdinalIgnoreCase);
+            if (!isPort && !isCore)
+                throw new Refusal($"start place '{pid}': marked available=true on unloaded plugin '{plg}'");
+
+            string storyId = el.TryGetProperty("story_id", out var sidEl) ? (sidEl.GetString()?.Trim() ?? "none") : "none";
+            string storyLabel = el.TryGetProperty("story_label", out var slEl) ? (slEl.GetString()?.Trim() ?? "") : "";
+            bool isInterior = el.TryGetProperty("is_interior", out var intEl) && intEl.GetBoolean();
+            int questMask = el.TryGetProperty("quest_mask", out var qmEl) ? qmEl.GetInt32() : 0;
+            string markerSrc = el.TryGetProperty("marker_source", out var msEl) ? (msEl.GetString()?.Trim() ?? "") : "";
+            string markerEdid = el.TryGetProperty("marker_edid", out var meEl) ? (meEl.GetString()?.Trim() ?? "") : "";
+            string wfKey = el.TryGetProperty("warfare_key", out var wkEl) ? (wkEl.GetString()?.Trim() ?? "") : "";
+
+            int resolvedMarkerId;
+            float rx, ry, rz, rh;
+            if (markerSrc == "vault_anchor")
+            {
+                if (!isPort) throw new Refusal($"start place '{pid}': vault_anchor requires {PortPlugin}");
+                resolvedMarkerId = (int)places.VaultAnchor;
+                rx = pod[0];
+                ry = pod[1];
+                rz = pod[2] + 0.3f;
+                rh = podHeading;
+            }
+            else
+            {
+                if (markerEdid.Length == 0)
+                    throw new Refusal($"start place '{pid}': missing marker_source or marker_edid");
+                var pool = isPort ? portRefs : coreRefs;
+                var ownerKey = isPort ? port.ModKey : core.ModKey;
+                var hits = pool.Where(r => string.Equals(r.EditorID, markerEdid, StringComparison.Ordinal)).ToList();
+                if (hits.Count != 1)
+                    throw new Refusal($"start place '{pid}': marked available=true but marker_edid '{markerEdid}' is absent in {plg}");
+                Owned(hits[0], ownerKey, $"start place marker {markerEdid}");
+                if (!IsPersistent(hits[0]))
+                    throw new Refusal($"start place '{pid}': marker '{markerEdid}' is not persistent");
+                resolvedMarkerId = (int)hits[0].FormKey.ID;
+                rx = hits[0].Position.X;
+                ry = hits[0].Position.Y;
+                rz = hits[0].Position.Z;
+                rh = Deg(hits[0].Rotation.Z);
+            }
+
+            int wfRow = -1;
+            if (modeCode == 1)
+            {
+                if (storyId.Length == 0 || storyId == "none" || storyLabel.Length == 0)
+                    throw new Refusal($"start place '{pid}': story row needs story_id and story_label");
+                if (!storyIds.Contains(storyId))
+                {
+                    storyIds.Add(storyId);
+                    storyLabels.Add(storyLabel);
+                }
+            }
+            else
+            {
+                wfRow = Array.IndexOf(wf.Keys, wfKey);
+                if (wfRow < 0)
+                    throw new Refusal($"start place '{pid}': warfare_key '{wfKey}' not found in warfare_starts.json");
+                rh = wf.Headings[wfRow];
+            }
+
+            placeIds.Add(pid);
+            placeModes.Add(modeCode);
+            placeStories.Add(storyId);
+            placePlugins.Add(isPort ? PortPlugin : CorePluginFile);
+            placeMarkerIds.Add(resolvedMarkerId);
+            placeX.Add(rx);
+            placeY.Add(ry);
+            placeZ.Add(rz);
+            placeHeadings.Add(rh);
+            placeIsInterior.Add(isInterior);
+            placeQuestMasks.Add(questMask);
+            placeWfRows.Add(wfRow);
+        }
+
+        if (storyIds.Count == 0 || storyLabels.Count > MaxMessageButtons)
+            throw new Refusal($"start_places.json has {storyLabels.Count} available story choices (need 1..{MaxMessageButtons})");
+
+        return new StartPlaceTable(
+            storyIds.ToArray(), storyLabels.ToArray(),
+            placeIds.ToArray(), placeModes.ToArray(), placeStories.ToArray(), placePlugins.ToArray(),
+            placeMarkerIds.ToArray(), placeX.ToArray(), placeY.ToArray(), placeZ.ToArray(), placeHeadings.ToArray(),
+            placeIsInterior.ToArray(), placeQuestMasks.ToArray(), placeWfRows.ToArray());
+    }
+
+    public static int ParseStartChoiceBackdrop(string? raw) => (raw?.Trim().ToLowerInvariant()) switch
+    {
+        null or "" or "empty_cell" or "1" => BackdropEmptyCell,
+        "title_card" or "2" => BackdropTitleCard,
+        "none" or "0" => BackdropNone,
+        _ => throw new Refusal($"--start-choice-backdrop must be empty_cell, title_card, or none (got '{raw}')"),
+    };
+
     static void RefuseForbiddenOutDir(string outDir)
     {
         var full = Path.GetFullPath(outDir);
@@ -710,7 +894,8 @@ static class NewGame
     public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, bool Version, float BuildVersion, string ExitAnchor,
                           bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor,
                           int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false, bool O2Fill = DefaultO2Fill, string? CoreValuesJson = null,
-                          bool FadeHold = DefaultFadeHold, string? WarfareStartsJson = null, string? RouteLootJson = null)
+                          bool FadeHold = DefaultFadeHold, string? WarfareStartsJson = null, string? RouteLootJson = null,
+                          int StartChoiceBackdrop = DefaultStartChoiceBackdrop, string? StartPlacesJson = null)
     {
         public bool O2 => ClearInventory && O2Fill;   // a --keep-inventory player keeps Starfield's suit and its capacity
         public static Options From(string[] a)
@@ -729,6 +914,13 @@ static class NewGame
             var rlJson = ArgOrNull(a, "--route-loot-json");
             if (a.Contains("--route-loot-json") && (rlJson is null || rlJson.StartsWith("--")))
                 throw new Refusal("--route-loot-json needs a JSON path");
+            var spJson = ArgOrNull(a, "--start-places");
+            if (a.Contains("--start-places") && (spJson is null || spJson.StartsWith("--")))
+                throw new Refusal("--start-places needs a JSON path");
+            var bdRaw = ArgOrNull(a, "--start-choice-backdrop");
+            if (a.Contains("--start-choice-backdrop") && (bdRaw is null || bdRaw.StartsWith("--")))
+                throw new Refusal("--start-choice-backdrop needs empty_cell, title_card, or none");
+            int backdrop = ParseStartChoiceBackdrop(bdRaw);
             return new(
                 ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
                 (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
@@ -745,7 +937,9 @@ static class NewGame
                 ArgOrNull(a, "--core-values-json"),
                 !a.Contains("--no-fade-hold"),
                 wfJson,
-                rlJson);
+                rlJson,
+                backdrop,
+                spJson);
         }
     }
 
@@ -1057,7 +1251,7 @@ static class NewGame
     }
 
     /// Every script property the plugin writes, by name: what the check compares and the Python contract test reads.
-    public static List<(string Name, object Value)> Properties(JsonElement pts, Places p, Options o, WarfareTable wf, uint vaultPistolId, int[]? routeLootRefIds = null)
+    public static List<(string Name, object Value)> Properties(JsonElement pts, Places p, Options o, WarfareTable wf, StartPlaceTable sp, uint vaultPistolId, int[]? routeLootRefIds = null)
     {
         var pod = Floats(pts.GetProperty("pod").GetProperty("pos"));
         var con = Floats(pts.GetProperty("console").GetProperty("pos"));
@@ -1081,6 +1275,7 @@ static class NewGame
             ("DebugAfterHold", o.DebugAfterHold),           // written into MQ101Debug right after the hold-off (0: never)
             ("O2CapacityAmount", o.O2 ? O2CapacityAmount : 0f),   // added to O2Capacity right after the reset (0: never)
             ("FadeHold", o.FadeHold), ("RaceMenuMode", o.RaceMenuMode),
+            ("StartChoiceBackdrop", o.StartChoiceBackdrop),
             ("CoreMarkerIds", p.CoreMarkers ?? Array.Empty<int>()),
             ("RouteLootRefIds", routeLootRefIds ?? Array.Empty<int>()),
             ("MapMarkerQuestIds", new[] { 0x800 }),
@@ -1091,6 +1286,11 @@ static class NewGame
             ("WarfareKarmas", wf.Karmas), ("WarfareSquadCaps", wf.SquadCaps),
             ("WarfareGearRowIndices", wf.GearRowIndices), ("WarfareGearPlugins", wf.GearPlugins),
             ("WarfareGearIds", wf.GearIds), ("WarfareGearCounts", wf.GearCounts), ("WarfareGearEquips", wf.GearEquips),
+            ("StoryChoiceIds", sp.StoryIds),
+            ("StartPlaceIds", sp.PlaceIds), ("StartPlaceModes", sp.PlaceModes), ("StartPlaceStories", sp.PlaceStories),
+            ("StartPlacePlugins", sp.PlacePlugins), ("StartPlaceMarkerIds", sp.PlaceMarkerIds),
+            ("StartPlaceX", sp.PlaceX), ("StartPlaceY", sp.PlaceY), ("StartPlaceZ", sp.PlaceZ), ("StartPlaceHeadings", sp.PlaceHeadings),
+            ("StartPlaceIsInterior", sp.PlaceIsInterior), ("StartPlaceQuestMasks", sp.PlaceQuestMasks), ("StartPlaceWarfareRows", sp.PlaceWarfareRows),
         };
     }
 
@@ -1141,6 +1341,7 @@ static class NewGame
         var (coreKey, coreIds) = LoadCoreValues(o.CoreValuesJson);
         var specialKeys = SpecialNames.Select(n => new FormKey(coreKey, RequireCoreId(coreIds, SpecialAvifPrefix + n))).ToList();
         var testModeKey = new FormKey(coreKey, RequireCoreId(coreIds, TestModeGlobEdid));
+        var startCardOpenKey = new FormKey(coreKey, RequireCoreId(coreIds, StartCardOpenGlobEdid));
         var gameModeKey = new FormKey(coreKey, RequireCoreId(coreIds, GameModeGlobEdid));
         var survStartKey = new FormKey(coreKey, RequireCoreId(coreIds, SurvivalStartGlobEdid));
         var survLockedKey = new FormKey(coreKey, RequireCoreId(coreIds, SurvivalLockedGlobEdid));
@@ -1149,6 +1350,8 @@ static class NewGame
         var wfStartIdxKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareStartIndexGlobEdid));
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
         var startNeutralSpotKey = new FormKey(coreKey, RequireCoreId(coreIds, StartNeutralSpotGlobEdid));
+        var storyLineKey = new FormKey(coreKey, RequireCoreId(coreIds, StoryLineGlobEdid));
+        var startPlaceRowKey = new FormKey(coreKey, RequireCoreId(coreIds, StartPlaceRowGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
         var h00SkipLoadingHookKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLoadingHookGlobEdid));
         var h00ClearChargenKey = new FormKey(coreKey, RequireCoreId(coreIds, H00ClearChargenGlobEdid));
@@ -1162,6 +1365,7 @@ static class NewGame
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
+        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
@@ -1209,7 +1413,8 @@ static class NewGame
             mod.Messages.Add(m);
             return m;
         }
-        var modePickMsg = MakeMsg(ModePickMsgId, ModePickMsgEdid, "Select Game Mode", "Choose how you want to start in the Commonwealth:", ModeButtons);
+        var modePickMsg = MakeMsg(ModePickMsgId, ModePickMsgEdid, "Select Game Mode", "Choose how you want to start:", ModeButtons);
+        var storyLineMsg = MakeMsg(StoryLineMsgId, StoryLineMsgEdid, "Select Story", "Choose which story campaign to begin:", sp.StoryLabels);
         var survPickMsg = MakeMsg(SurvivalPickMsgId, SurvivalPickMsgEdid, "Survival Mode", "Enable Survival mode for this character?", SurvivalButtons);
         var wfDiffMsg = MakeMsg(WarfareDiffMsgId, WarfareDiffMsgEdid, "Warfare Difficulty", "Choose your starting difficulty:", WarfareDiffButtons);
         var wfGroupMsg = MakeMsg(WarfareGroupMsgId, WarfareGroupMsgEdid, "Warfare Allegiance", "Choose your starting allegiance:", wf.FactionButtons);
@@ -1320,8 +1525,49 @@ static class NewGame
         var cBlock = new SF.CellBlock { BlockNumber = places.CellBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var cSub = new SF.CellSubBlock { BlockNumber = places.CellSubBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         cSub.Cells.Add(cellOver);
-        cBlock.SubBlocks.Add(cSub);
-        mod.Cells.Records.Add(cBlock);
+
+        // N2: Owned empty pre-world staging room FO4SF_StartRoomCell (0x00081C) with persistent FO4SF_StartRoomMarkerRef (0x00081D)
+        var startRoomCell = new SF.Cell(new FormKey(modKey, StartRoomCellId), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = StartRoomCellEdid,
+            Name = "Start Setup",
+            Flags = SF.Cell.Flag.IsInteriorCell,
+            Lighting = new SF.CellLighting
+            {
+                AmbientColor = System.Drawing.Color.FromArgb(255, 18, 22, 18),
+                DirectionalColor = System.Drawing.Color.FromArgb(255, 24, 28, 24),
+                FogNearColor = System.Drawing.Color.FromArgb(255, 12, 14, 12),
+                DirectionalFade = 1f,
+                FogClipDistance = 200f,
+                FogPower = 1f,
+            },
+        };
+        var startRoomMarkerRef = new SF.PlacedObject(new FormKey(modKey, StartRoomMarkerRefId), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = StartRoomMarkerRefEdid,
+            Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, CocMarkerId)),
+            Position = new P3Float(0f, 0f, 0f),
+            Rotation = new P3Float(0f, 0f, 0f),
+        };
+        startRoomMarkerRef.MajorRecordFlagsRaw |= 0x400;
+        startRoomCell.Persistent.Add(startRoomMarkerRef);
+
+        if (places.CellBlockNum == 0 && places.CellSubBlockNum == 0)
+        {
+            cSub.Cells.Add(startRoomCell);
+            cBlock.SubBlocks.Add(cSub);
+            mod.Cells.Records.Add(cBlock);
+        }
+        else
+        {
+            cBlock.SubBlocks.Add(cSub);
+            mod.Cells.Records.Add(cBlock);
+            var sBlock = new SF.CellBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
+            var sSub = new SF.CellSubBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
+            sSub.Cells.Add(startRoomCell);
+            sBlock.SubBlocks.Add(sSub);
+            mod.Cells.Records.Add(sBlock);
+        }
 
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
         {
@@ -1353,13 +1599,16 @@ static class NewGame
         script.Properties.Add(Obj("ExitFallbackMessage", exitFallbackMsg.FormKey));
         script.Properties.Add(Obj("ReturnMessage", returnMsg.FormKey));
         script.Properties.Add(Obj("ModePickMsg", modePickMsg.FormKey));
+        script.Properties.Add(Obj("StoryLineMsg", storyLineMsg.FormKey));
         script.Properties.Add(Obj("SurvivalPickMsg", survPickMsg.FormKey));
         script.Properties.Add(Obj("WarfareDiffMsg", wfDiffMsg.FormKey));
         script.Properties.Add(Obj("WarfareGroupMsg", wfGroupMsg.FormKey));
         script.Properties.Add(Obj("WarfareSpotMsg", wfSpotMsg.FormKey));
+        script.Properties.Add(Obj("StartPickMsg", start.FormKey));
         script.Properties.Add(Obj("NoPipboyMsg", noPipboyMsg.FormKey));
         script.Properties.Add(Obj("O2Capacity", new FormKey(SfEsm, O2CapacityId)));   // linked by id: no AVIF record
         script.Properties.Add(Obj("TestModeGlobal", testModeKey));
+        script.Properties.Add(Obj("StartCardOpenGlobal", startCardOpenKey));
         script.Properties.Add(Obj("GameModeGlobal", gameModeKey));
         script.Properties.Add(Obj("SurvivalStartGlobal", survStartKey));
         script.Properties.Add(Obj("SurvivalLockedGlobal", survLockedKey));
@@ -1368,6 +1617,8 @@ static class NewGame
         script.Properties.Add(Obj("WarfareStartIndexGlobal", wfStartIdxKey));
         script.Properties.Add(Obj("StartChoiceDoneGlobal", choiceDoneKey));
         script.Properties.Add(Obj("StartNeutralSpotGlobal", startNeutralSpotKey));
+        script.Properties.Add(Obj("StoryLineGlobal", storyLineKey));
+        script.Properties.Add(Obj("StartPlaceRowGlobal", startPlaceRowKey));
         script.Properties.Add(Obj("PipboyAcquiredGlobal", pipboyAcquiredKey));
         script.Properties.Add(Obj("H00SkipLoadingHookGlobal", h00SkipLoadingHookKey));
         script.Properties.Add(Obj("H00ClearChargenGlobal", h00ClearChargenKey));
@@ -1380,8 +1631,9 @@ static class NewGame
         script.Properties.Add(Obj("PipboyWristArmor", pipboyWrist.FormKey));
         script.Properties.Add(Obj("PipboyCorpseRef", pipboyRef.FormKey));
         script.Properties.Add(Obj("GearDoorConsoleRef", gearConsoleRef.FormKey));
+        script.Properties.Add(Obj("StartRoomMarkerRef", startRoomMarkerRef.FormKey));
         script.Properties.Add(Obj("VaultPistolBase", vaultPistolKey));
-        foreach (var (name, value) in Properties(pts, places, o, wf, vaultPistolId, routeLootRefIds))
+        foreach (var (name, value) in Properties(pts, places, o, wf, sp, vaultPistolId, routeLootRefIds))
             script.Properties.Add(ValueProperty(name, value));
         quest.VirtualMachineAdapter = new SF.QuestAdapter
         {
@@ -1496,6 +1748,7 @@ static class NewGame
         var (coreKey, coreIds) = LoadCoreValues(o.CoreValuesJson);
         var specialKeys = SpecialNames.Select(n => new FormKey(coreKey, RequireCoreId(coreIds, SpecialAvifPrefix + n))).ToList();
         var testModeKey = new FormKey(coreKey, RequireCoreId(coreIds, TestModeGlobEdid));
+        var startCardOpenKey = new FormKey(coreKey, RequireCoreId(coreIds, StartCardOpenGlobEdid));
         var gameModeKey = new FormKey(coreKey, RequireCoreId(coreIds, GameModeGlobEdid));
         var survStartKey = new FormKey(coreKey, RequireCoreId(coreIds, SurvivalStartGlobEdid));
         var survLockedKey = new FormKey(coreKey, RequireCoreId(coreIds, SurvivalLockedGlobEdid));
@@ -1504,6 +1757,8 @@ static class NewGame
         var wfStartIdxKey = new FormKey(coreKey, RequireCoreId(coreIds, WarfareStartIndexGlobEdid));
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
         var startNeutralSpotKey = new FormKey(coreKey, RequireCoreId(coreIds, StartNeutralSpotGlobEdid));
+        var storyLineKey = new FormKey(coreKey, RequireCoreId(coreIds, StoryLineGlobEdid));
+        var startPlaceRowKey = new FormKey(coreKey, RequireCoreId(coreIds, StartPlaceRowGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
         var h00SkipLoadingHookKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLoadingHookGlobEdid));
         var h00ClearChargenKey = new FormKey(coreKey, RequireCoreId(coreIds, H00ClearChargenGlobEdid));
@@ -1517,6 +1772,7 @@ static class NewGame
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
+        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
@@ -1546,14 +1802,17 @@ static class NewGame
              gearConsoleActi.ActivateTextOverride?.String == "Activate",
              $"ACTIs are not {PipboyCorpseActiEdid} (0x{PipboyCorpseActiId:X}) and named {GearDoorConsoleActiEdid} (0x{GearDoorConsoleActiId:X})");
 
-        var cellOver = plug.Cells.Records.Count == 1 && plug.Cells.Records[0].SubBlocks.Count == 1 && plug.Cells.Records[0].SubBlocks[0].Cells.Count == 1
-            ? plug.Cells.Records[0].SubBlocks[0].Cells[0] : null;
+        var allPlugCells = plug.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).ToList();
+        var cellOver = allPlugCells.FirstOrDefault(c => c.FormKey == new FormKey(PortEsm, places.PortCellId));
+        var startRoomCell = allPlugCells.FirstOrDefault(c => c.FormKey == new FormKey(key, StartRoomCellId));
         var pipboyRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, PipboyCorpseRefId));
         var gearConsoleRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, GearDoorConsoleRefId));
+        var startRoomMarkerRef = startRoomCell?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, StartRoomMarkerRefId));
         var (wantPbPos, _) = PipboyPlacement(pts);
         var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
         var wantConPos = new P3Float(conCoords[0], conCoords[1], conCoords[2]);
-        Need(cellOver is not null && cellOver.FormKey == new FormKey(PortEsm, places.PortCellId) && cellOver.EditorID == VaultCell &&
+        Need(allPlugCells.Count == 2 &&
+             cellOver is not null && cellOver.FormKey == new FormKey(PortEsm, places.PortCellId) && cellOver.EditorID == VaultCell &&
              cellOver.Temporary.Count == 0 && cellOver.Persistent.Count == 2 &&
              pipboyRef is { EditorID: PipboyCorpseRefEdid } && IsPersistent(pipboyRef) &&
              pipboyRef.Base.FormKey == new FormKey(key, PipboyCorpseActiId) &&
@@ -1566,6 +1825,11 @@ static class NewGame
              MathF.Abs(gearConsoleRef.Position.Y - wantConPos.Y) <= 1e-3f &&
              MathF.Abs(gearConsoleRef.Position.Z - wantConPos.Z) <= 1e-3f,
              $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X}) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X})");
+        Need(startRoomCell is { EditorID: StartRoomCellEdid } && (startRoomCell.Flags & SF.Cell.Flag.IsInteriorCell) != 0 &&
+             startRoomCell.Temporary.Count == 0 && startRoomCell.Persistent.Count == 1 &&
+             startRoomMarkerRef is { EditorID: StartRoomMarkerRefEdid } && IsPersistent(startRoomMarkerRef) &&
+             startRoomMarkerRef.Base.FormKey == new FormKey(SfEsm, CocMarkerId),
+             $"CELL 0x{StartRoomCellId:X} is not interior {StartRoomCellEdid} carrying persistent {StartRoomMarkerRefEdid} (0x{StartRoomMarkerRefId:X})");
         Console.WriteLine($"  gear door console ACTI {GearDoorConsoleActiEdid} {gearConsoleActi?.FormKey} -> REFR {GearDoorConsoleRefEdid} {gearConsoleRef?.FormKey} persistent at {Show(wantConPos)} (port ref FO4Port.esm:{places.Console:X6})");
 
         foreach (var anyMsg in plug.Messages)
@@ -1586,6 +1850,9 @@ static class NewGame
         var modePickMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, ModePickMsgId));
         Need(modePickMsg is { EditorID: ModePickMsgEdid } && modePickMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              modePickMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(ModeButtons), $"MESG 0x{ModePickMsgId:X} is not {ModePickMsgEdid}");
+        var storyLineMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, StoryLineMsgId));
+        Need(storyLineMsg is { EditorID: StoryLineMsgEdid } && storyLineMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+             storyLineMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(sp.StoryLabels), $"MESG 0x{StoryLineMsgId:X} is not {StoryLineMsgEdid}");
         var survPickMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SurvivalPickMsgId));
         Need(survPickMsg is { EditorID: SurvivalPickMsgEdid } && survPickMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              survPickMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(SurvivalButtons), $"MESG 0x{SurvivalPickMsgId:X} is not {SurvivalPickMsgEdid}");
@@ -1617,12 +1884,12 @@ static class NewGame
             Need(specialMsgPage2 is { EditorID: SpecialMessagePage2Edid } && specialMsgPage2.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
                  specialMsgPage2.MenuButtons.Select(b => b.Text?.String).SequenceEqual(SpecialPage2Buttons) && specialMsgPage2.Description?.String == SpecialDescription,
                  $"MESG 0x{SpecialMessagePage2Id:X} is not {SpecialMessagePage2Edid}, a <=7-button message box with [{string.Join(", ", SpecialPage2Buttons)}] and the allocation text");
-            Need(plug.Messages.Count == 14, $"{plug.Messages.Count} MESG, expected 14");
+            Need(plug.Messages.Count == 15, $"{plug.Messages.Count} MESG, expected 15");
             Console.WriteLine($"  SPECIAL links [{string.Join(", ", specialKeys)}]; terminal {TerminalText(places)}");
         }
         else
         {
-            Need(plug.Messages.Count == 11, $"{plug.Messages.Count} MESG, expected 11 in a --no-special build");
+            Need(plug.Messages.Count == 12, $"{plug.Messages.Count} MESG, expected 12 in a --no-special build");
         }
 
         // the GLOBs: Starfield's MQ101Debug overridden (or not), and our own version GLOB (or not); FO4SF_PipboyAcquired lives in FO4SFCoreValues.esm:000865
@@ -1715,15 +1982,19 @@ static class NewGame
                 Need(props.TryGetValue("ExitFallbackMessage", out var efmp) && efmp is SF.IScriptObjectPropertyGetter efmo && efmo.Object.FormKey == exitFallbackMsg?.FormKey, "property ExitFallbackMessage");
                 Need(props.TryGetValue("ReturnMessage", out var rmp) && rmp is SF.IScriptObjectPropertyGetter rmo && rmo.Object.FormKey == returnMsg?.FormKey, "property ReturnMessage");
                 Need(props.TryGetValue("ModePickMsg", out var mpm) && mpm is SF.IScriptObjectPropertyGetter mpmo && mpmo.Object.FormKey == modePickMsg?.FormKey, "property ModePickMsg");
+                Need(props.TryGetValue("StoryLineMsg", out var slmp) && slmp is SF.IScriptObjectPropertyGetter slmo && slmo.Object.FormKey == storyLineMsg?.FormKey, "property StoryLineMsg");
                 Need(props.TryGetValue("SurvivalPickMsg", out var spm) && spm is SF.IScriptObjectPropertyGetter spmo && spmo.Object.FormKey == survPickMsg?.FormKey, "property SurvivalPickMsg");
                 Need(props.TryGetValue("WarfareDiffMsg", out var wdm) && wdm is SF.IScriptObjectPropertyGetter wdmo && wdmo.Object.FormKey == wfDiffMsg?.FormKey, "property WarfareDiffMsg");
                 Need(props.TryGetValue("WarfareGroupMsg", out var wgm) && wgm is SF.IScriptObjectPropertyGetter wgmo && wgmo.Object.FormKey == wfGroupMsg?.FormKey, "property WarfareGroupMsg");
                 Need(props.TryGetValue("WarfareSpotMsg", out var wsm) && wsm is SF.IScriptObjectPropertyGetter wsmo && wsmo.Object.FormKey == wfSpotMsg?.FormKey, "property WarfareSpotMsg");
+                Need(props.TryGetValue("StartPickMsg", out var stpm) && stpm is SF.IScriptObjectPropertyGetter stpmo && stpmo.Object.FormKey == start?.FormKey, "property StartPickMsg");
                 Need(props.TryGetValue("NoPipboyMsg", out var npm) && npm is SF.IScriptObjectPropertyGetter npmo && npmo.Object.FormKey == noPipboyMsg?.FormKey, "property NoPipboyMsg");
                 Need(props.TryGetValue("O2Capacity", out var cp) && cp is SF.IScriptObjectPropertyGetter co && co.Object.FormKey == new FormKey(SfEsm, O2CapacityId),
                      $"property O2Capacity is not Starfield.esm:{O2CapacityId:X6}");
                 Need(props.TryGetValue("TestModeGlobal", out var tm) && tm is SF.IScriptObjectPropertyGetter tmo && tmo.Object.FormKey == testModeKey,
                      $"property TestModeGlobal is not {testModeKey}");
+                Need(props.TryGetValue("StartCardOpenGlobal", out var scop) && scop is SF.IScriptObjectPropertyGetter scoo && scoo.Object.FormKey == startCardOpenKey,
+                     $"property StartCardOpenGlobal is not {startCardOpenKey}");
                 Need(props.TryGetValue("GameModeGlobal", out var gmp) && gmp is SF.IScriptObjectPropertyGetter gmpo && gmpo.Object.FormKey == gameModeKey,
                      $"property GameModeGlobal is not {gameModeKey}");
                 Need(props.TryGetValue("SurvivalStartGlobal", out var ssp) && ssp is SF.IScriptObjectPropertyGetter sspo && sspo.Object.FormKey == survStartKey,
@@ -1740,6 +2011,10 @@ static class NewGame
                      $"property StartChoiceDoneGlobal is not {choiceDoneKey}");
                 Need(props.TryGetValue("StartNeutralSpotGlobal", out var snsp) && snsp is SF.IScriptObjectPropertyGetter snspo && snspo.Object.FormKey == startNeutralSpotKey,
                      $"property StartNeutralSpotGlobal is not {startNeutralSpotKey}");
+                Need(props.TryGetValue("StoryLineGlobal", out var stlgp) && stlgp is SF.IScriptObjectPropertyGetter stlgo && stlgo.Object.FormKey == storyLineKey,
+                     $"property StoryLineGlobal is not {storyLineKey}");
+                Need(props.TryGetValue("StartPlaceRowGlobal", out var sprgp) && sprgp is SF.IScriptObjectPropertyGetter sprgo && sprgo.Object.FormKey == startPlaceRowKey,
+                     $"property StartPlaceRowGlobal is not {startPlaceRowKey}");
                 Need(props.TryGetValue("PipboyAcquiredGlobal", out var pgp) && pgp is SF.IScriptObjectPropertyGetter pgo && pgo.Object.FormKey == pipboyAcquiredKey,
                      $"property PipboyAcquiredGlobal is not {pipboyAcquiredKey}");
                 Need(props.TryGetValue("H00SkipLoadingHookGlobal", out var h0p) && h0p is SF.IScriptObjectPropertyGetter h0o && h0o.Object.FormKey == h00SkipLoadingHookKey,
@@ -1764,15 +2039,17 @@ static class NewGame
                      "property PipboyCorpseRef");
                 Need(props.TryGetValue("GearDoorConsoleRef", out var gcrp) && gcrp is SF.IScriptObjectPropertyGetter gcro && gcro.Object.FormKey == gearConsoleRef?.FormKey,
                      "property GearDoorConsoleRef");
+                Need(props.TryGetValue("StartRoomMarkerRef", out var srmp) && srmp is SF.IScriptObjectPropertyGetter srmo && srmo.Object.FormKey == startRoomMarkerRef?.FormKey,
+                     "property StartRoomMarkerRef");
                 Need(props.TryGetValue("VaultPistolBase", out var vpbp) && vpbp is SF.IScriptObjectPropertyGetter vpbo && vpbo.Object.FormKey == vaultPistolKey,
                      $"property VaultPistolBase is not {vaultPistolKey}");
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
                      hl.Objects.Select(x => (FormKey?)x.Object.FormKey).SequenceEqual(want), $"property HoldOff is not [{string.Join(", ", o.Hold)}] in order");
-                var expected = Properties(pts, places, o, wf, vaultPistolId, routeLootRefIds);
+                var expected = Properties(pts, places, o, wf, sp, vaultPistolId, routeLootRefIds);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 37, $"{props.Count} properties, expected {expected.Count + 37}");
+                Need(props.Count == expected.Count + 43, $"{props.Count} properties, expected {expected.Count + 43}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");
@@ -1783,7 +2060,7 @@ static class NewGame
             {
                 var props = ls.Properties.ToDictionary(p => p.Name);
                 Console.WriteLine($"  script {ls.Name}: {props.Count} properties, RaceMenuMode {(props.TryGetValue("RaceMenuMode", out var rm) && rm is SF.IScriptIntPropertyGetter ri ? ri.Data.ToString() : "missing")}");
-                Need(props.TryGetValue("StartMessage", out var sp) && sp is SF.IScriptObjectPropertyGetter so && so.Object.FormKey == start?.FormKey, "property StartMessage");
+                Need(props.TryGetValue("StartMessage", out var smp) && smp is SF.IScriptObjectPropertyGetter so && so.Object.FormKey == start?.FormKey, "property StartMessage");
                 var expected = LooksProperties(o);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"looks property {name} is not {value}");
@@ -2600,6 +2877,23 @@ static class NewGame
             File.WriteAllText(badRlPath, "{\"schema_version\": 1, \"vault111\": {\"pistol_id\": \"0x3FFFFF\"}}");
             try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused_rl"), plain with { RouteLootJson = badRlPath }); Console.WriteLine("FAIL  write accepted unknown vault111.pistol_id"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected (unknown vault111.pistol_id): {e.Message}"); }
+        }
+        // N2: title_card backdrop variant + start_places.json refusal when an unbuilt plugin or missing marker is marked available=true
+        {
+            var tcDir = Path.Combine(outDir, "titlecard");
+            var tcOpt = plain with { StartChoiceBackdrop = BackdropTitleCard };
+            if (Write(sfPath, portPath, idsPath, corePath, pointsPath, tcDir, tcOpt) != 0 ||
+                Check(Path.Combine(tcDir, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, tcOpt) != 0 ||
+                Check(Path.Combine(tcDir, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain) == 0)
+            { Console.WriteLine("FAIL  title_card backdrop variant"); return 1; }
+            var badSpPlugin = Path.Combine(dir, "bad_start_places_plugin.json");
+            File.WriteAllText(badSpPlugin, File.ReadAllText(DefaultStartPlacesJsonPath()).Replace("\"available\": false", "\"available\": true"));
+            try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused_sp"), plain with { StartPlacesJson = badSpPlugin }); Console.WriteLine("FAIL  write accepted unbuilt start_places plugin"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (unbuilt start_places plugin): {e.Message}"); }
+            var badSpMarker = Path.Combine(dir, "bad_start_places_marker.json");
+            File.WriteAllText(badSpMarker, File.ReadAllText(DefaultStartPlacesJsonPath()).Replace("FO4Core_CommonwealthMapMarkerSanctuary", "FO4Core_NoSuchStartPlaceMarker"));
+            try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused_sp2"), plain with { StartPlacesJson = badSpMarker }); Console.WriteLine("FAIL  write accepted missing start_places marker"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (missing start_places marker): {e.Message}"); }
         }
         // the records reader (Records.cs): its own synthetic plugins, under this scratch dir
         if (NewGameRecords.SelfTest(Path.Combine(dir, "records")) != 0) return 1;

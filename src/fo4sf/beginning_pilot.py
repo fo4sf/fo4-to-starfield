@@ -144,13 +144,13 @@ SESSION2_SHEET_PASS_SPECS: Tuple[Tuple[str, str], ...] = (
     ("Card A", "FO4SFLIST rt=<rt> init speaker_present=True arrival_present=True end=true"),
     ("Card A", "FO4SFLIST rt=<rt> summary ok=true host_menu=DialogueMenu replaced_swf=false end=true"),
     ("Card 1", "step=core_value_resolve name=FO4SF_PipboyAcquired source=FO4SFCoreValues.esm:000865 found=1 form=<hex>"),
-    ("Card 1", "step=boot_sequence movie=pipboybootsequence first_open=1 page=<page>"),
+    ("Card 1", "step=boot_sequence movie=pipboybootsequence first_open=1 page=<page> loose=<0|1>"),
     ("Card 1", "step=boot_sequence finished=1 reopen_page=<page>"),
     ("Card 1", "step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corners_set=3/3 read_back=match"),
     ("Card 1", "step=map_check_hardcore idx=<idx> source=FO4SFCoreValues.esm:000841 allow=1"),
-    ("Card 2", "FO4SF_NEWGAME rt=<rt> mode fade held request=1"),
-    ("Card 2", "FO4SF_NEWGAME rt=<rt> mode fade held request=2 delay=1.0s loading_closed=<bool>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> start room ready by=<by> loaded=true cell=<cell> backdrop=empty_cell"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=0"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell"),
     ("Card 2", f"FO4SF_NEWGAME rt=<rt> stage 10 by={CANONICAL_CAUSE_TRIGGER}"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 20 by=scene"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>"),
@@ -179,6 +179,7 @@ SESSION2_SHEET_PASS_SPECS: Tuple[Tuple[str, str], ...] = (
     ("Card 3", "FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why=start_choice end=true"),
     ("Card 3", f"FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why={CANONICAL_WHY_RELOAD} end=true"),
     ("Card 4", "FO4SF_NEWGAME rt=<rt> warfare pick faction=0 start=minutemen_sanctuary difficulty=<diff>"),
+    ("Card 4", "FO4SF_NEWGAME rt=<rt> start record mode=warfare story=none faction=0 place=minutemen_sanctuary survival=<0|1> difficulty=<diff> backdrop=empty_cell"),
     ("Card 4", f"FO4SF_NEWGAME rt=<rt> stage 210 by={CANONICAL_CAUSE_TRIGGER}"),
     ("Card 4", "FO4SF_MISSION rt=<rt> mission gate mode=2 started=false"),
 )
@@ -331,6 +332,8 @@ _NG_LANDED_FALLBACK_RE = re.compile(r"\blanded z=[-\d.]+.*?\bfallback=true\b", r
 _NG_EXIT_ANCHOR_FAIL_RE = re.compile(r"\bexit anchor\s+\S+\s+does not resolve\b", re.IGNORECASE)
 _NG_SURFACE_MOVETO_RE = re.compile(r"\bsurface moveto\b", re.IGNORECASE)
 _NG_SURFACE_MISSED_RE = re.compile(r"\bsurface missed:\s*still inside\b", re.IGNORECASE)
+_NG_FADE_TIMEOUT_RE = re.compile(r"\bmode fade lifted by=timeout\b", re.IGNORECASE)
+_NG_START_PLACE_FAIL_RE = re.compile(r"\bstart place move failed\b", re.IGNORECASE)
 
 _MS_RT_RE = re.compile(r"FO4SF_MISSION\s+rt=([-\d.]+)\s+", re.IGNORECASE)
 _MS_STAGE_RE = re.compile(
@@ -516,6 +519,8 @@ def evaluate_beginning_logs(
     hold_total: Optional[int] = None
     hold2_still_running = False
     saw_stand_down = False
+    saw_fade_timeout = False
+    saw_start_place_fail = False
 
     pistol_picked_idx: Optional[int] = None
     pipboy_pickup_idx: Optional[int] = None
@@ -573,6 +578,10 @@ def evaluate_beginning_logs(
             hold2_still_running = True
         if _NG_STAND_DOWN_RE.search(ln):
             saw_stand_down = True
+        if _NG_FADE_TIMEOUT_RE.search(ln):
+            saw_fade_timeout = True
+        if _NG_START_PLACE_FAIL_RE.search(ln):
+            saw_start_place_fail = True
 
         if _NG_PISTOL_PICKED_RE.search(ln) and pistol_picked_idx is None:
             pistol_picked_idx = idx
@@ -828,6 +837,16 @@ def evaluate_beginning_logs(
         verdicts["B1_pod"] = {"status": "UNTESTED", "detail": "no fo4sf_newgame log supplied"}
     elif 1 in ng_stages or saw_stand_down:
         verdicts["B1_pod"] = {"status": "FAIL", "detail": "FO4SF_NewGameQuest stood down (stage 1 / no vault move)"}
+    elif saw_fade_timeout:
+        verdicts["B1_pod"] = {
+            "status": "FAIL",
+            "detail": "LoadingMenu close timed out before start choice ('mode fade lifted by=timeout')",
+        }
+    elif saw_start_place_fail:
+        verdicts["B1_pod"] = {
+            "status": "FAIL",
+            "detail": "chosen Story start place failed to load and fell back ('start place move failed')",
+        }
     elif b1_bad_stage:
         verdicts["B1_pod"] = {
             "status": "FAIL",

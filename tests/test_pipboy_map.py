@@ -481,10 +481,33 @@ class SourceAndContractTests(unittest.TestCase):
         self.assertFalse(allow_on)
         self.assertEqual(line_on, "step=map_check_hardcore idx=7 source=FO4SFCoreValues.esm:000841 allow=0")
 
-        # A10: InstallStarMapBlock logs one step=starmap_block_install menu=<name> found=<0|1> line per listed menu
-        install_fn = self.cpp[self.cpp.index("void InstallStarMapBlock()"):self.cpp.index("bool SuppressVanillaMapMenus()")]
+        # A10 / H0b: InstallStarMapBlock logs one step=starmap_block_install menu=<name> found=<0|1> line per listed menu,
+        # and retries late-registered map menus (SurfaceMap) with step=starmap_block_retry.
+        install_fn = self.cpp[self.cpp.index("void InstallStarMapBlock("):self.cpp.index("bool SuppressVanillaMapMenus()")]
         self.assertIn("step=starmap_block_install menu={} found=1 slot={} orig_rva={}", install_fn)
         self.assertIn("step=starmap_block_install menu={} found=0", install_fn)
+        self.assertIn("step=starmap_block_retry try={} newly_installed={} pending={}", install_fn)
+
+    def test_h0b_h0c_and_n2_start_card_native_contracts(self):
+        main_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp").read_text(encoding="utf-8")
+        # H0c: boot movie loads both loose Data\Interface\<BootMovie>.swf and BA2-packed Interface\<BootMovie>.swf via g_engineLoadMovie
+        self.assertIn('REX::INFO("step=boot_sequence movie={} first_open=1 page={} loose={}"', main_cpp)
+        self.assertIn("(acquired || !g_requirePickup)", main_cpp)
+        self.assertIn('REX::INFO("step=boot_skip reason=missing movie={} file=Interface\\\\{}.swf"', main_cpp)
+        # N2 Variant (b): non-modal depth=0 FO4SF_StartCardMenu reading FO4SFCoreValues.esm:0x000866 (R13)
+        self.assertIn("constexpr std::uint32_t kCoreStartCardOpenId = 0x866;", main_cpp)
+        self.assertIn('KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)', main_cpp)
+        self.assertIn('AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form)', main_cpp)
+        self.assertIn("step=start_card_register result={} name={} movie=FO4SF_StartCard", main_cpp)
+        self.assertIn("*reinterpret_cast<std::uint8_t*>(base + 0x110) = 0;", main_cpp)
+        # Verify make_probe_swf --start-card builds a valid compressed SWF
+        import sys as _sys
+        if str(ROOT / "scripts" / "ui") not in _sys.path:
+            _sys.path.insert(0, str(ROOT / "scripts" / "ui"))
+        import make_probe_swf as mps
+        sc_swf = mps.movie_bytes(start_card=True)
+        self.assertTrue(sc_swf.startswith(b"CWS"), sc_swf[:8])
+        info = mps.summary(mps.read_movie_bytes(sc_swf) if hasattr(mps, "read_movie_bytes") else mps.unpack(sc_swf)[2]) if hasattr(mps, "unpack") else None
 
 
 if __name__ == "__main__":
