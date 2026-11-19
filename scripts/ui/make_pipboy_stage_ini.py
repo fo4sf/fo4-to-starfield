@@ -36,6 +36,7 @@ DEFAULT_MAP_MENUS = "GalaxyStarMapMenu,SurfaceMap,MapMenu"
 DEFAULT_BOOT_MOVIE = "pipboybootsequence"
 DEFAULT_SPECIAL_MOVIE = "fo4sf_specialmenu"
 SPECIAL_MENU_SWFS = frozenset({"specialmenu.swf", "fo4sf_specialmenu.swf"})
+NON_SHELL_AUX_SWFS = frozenset({"fo4sf_startcard.swf", "fo4sf_setupscreen.swf"})
 SPECIAL_MENU_SUPPORTED_CODEOBJ = frozenset({
     "initMenu",
     "modValue",
@@ -333,7 +334,7 @@ def _movie_sort_key(rel_posix: str) -> Tuple[int, str]:
 def collect_stage_codeobj_calls(
     interface_dir: os.PathLike | str,
     *,
-    exclude_swfs: Iterable[str] = SPECIAL_MENU_SWFS,
+    exclude_swfs: Iterable[str] = SPECIAL_MENU_SWFS | NON_SHELL_AUX_SWFS,
 ) -> Tuple[Dict[str, List[str]], List[str]]:
     """Scan all Pip-Boy `.swf` files under `<interface_dir>` and return `(per_movie_calls, ordered_union)`."""
     iface = Path(interface_dir)
@@ -493,6 +494,7 @@ def format_stage_ini(
     map_enabled: int = 1,
     map_menus: str = DEFAULT_MAP_MENUS,
     map_heading_at: str = "88",
+    setup_show_unavailable: int = 0,
 ) -> str:
     """Format a clean Stage=2 FO4SFPipboyMenu.ini with zero [Kit], [Page ...], or Kit* entries."""
     if not code_obj_names:
@@ -577,6 +579,7 @@ def format_stage_ini(
         "MapExtraListAt=0xC8",
         "MapMarkerFlagsAt=0x18",
         "MapMarkerDiscoveredMask=0x20",
+        f"SetupShowUnavailable={1 if setup_show_unavailable else 0}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -618,6 +621,7 @@ def generate_stage_ini(
     special_movie_name: str = DEFAULT_SPECIAL_MOVIE,
     special_max_points: int = 40,
     map_menus: str = DEFAULT_MAP_MENUS,
+    setup_show_unavailable: int = 0,
     omit: Sequence[str] = (),
     allow_omit: Sequence[str] = (),
     expect_file: Optional[os.PathLike | str] = None,
@@ -650,7 +654,7 @@ def generate_stage_ini(
     boot_swf_present = (iface_dir / f"{boot_movie_name}.swf").is_file()
     special_swf_path = iface_dir / f"{special_movie_name}.swf"
     special_swf_present = special_swf_path.is_file()
-    excluded_swfs = set(SPECIAL_MENU_SWFS) | {f"{special_movie_name.lower()}.swf"}
+    excluded_swfs = set(SPECIAL_MENU_SWFS) | set(NON_SHELL_AUX_SWFS) | {f"{special_movie_name.lower()}.swf"}
     per_movie, discovered = collect_stage_codeobj_calls(iface_dir, exclude_swfs=excluded_swfs)
     if expect_file is not None:
         check_expect_file_against_stage(iface_dir, per_movie, parse_expect_file(expect_file))
@@ -693,6 +697,7 @@ def generate_stage_ini(
         special_max_points=special_max_points,
         code_obj_sound=1 if has_sounds else 0,
         map_menus=map_menus,
+        setup_show_unavailable=setup_show_unavailable,
     )
     assert_no_kit_entries(ini_text)
 
@@ -740,6 +745,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--special-movie", default=DEFAULT_SPECIAL_MOVIE, help="Staged SPECIALMenu SWF base name")
     ap.add_argument("--special-max-points", type=int, default=40, help="S.P.E.C.I.A.L. point pool (default 40)")
     ap.add_argument("--map-menus", default=DEFAULT_MAP_MENUS, help="Comma-separated Starfield map menus to block")
+    ap.add_argument(
+        "--setup-show-unavailable",
+        type=int,
+        choices=(0, 1),
+        default=0,
+        help="Show available:false start rows greyed out on FO4SF_SetupMenu (default 0: leave off)",
+    )
     ap.add_argument("--expect-file", default=None, help="Optional file of expected BGSCodeObj names to cross-check against SWF string pools")
     ap.add_argument("--omit", action="append", default=[], help="Omit a BGSCodeObj name from CodeObjNames= (repeatable)")
     ap.add_argument(
@@ -773,6 +785,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             special_movie_name=args.special_movie,
             special_max_points=args.special_max_points,
             map_menus=args.map_menus,
+            setup_show_unavailable=args.setup_show_unavailable,
             omit=args.omit,
             allow_omit=args.allow_omit,
             expect_file=args.expect_file,

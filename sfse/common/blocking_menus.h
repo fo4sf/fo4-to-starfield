@@ -15,6 +15,7 @@ namespace fo4sf
 	inline constexpr const char* kOurPipboyMenuName = "FO4SF_PipboyMenu";
 	inline constexpr const char* kOurSpecialMenuName = "FO4SF_SpecialMenu";
 	inline constexpr const char* kOurStartCardMenuName = "FO4SF_StartCardMenu";
+	inline constexpr const char* kOurSetupMenuName = "FO4SF_SetupMenu";
 
 	// First kTopModalMenuCount entries are top-level modal / text-entry overlays that take priority even when
 	// FO4SF_PipboyMenu is already open underneath them.
@@ -87,6 +88,12 @@ namespace fo4sf
 		return *s;
 	}
 
+	inline const RE::BSFixedString& OurSetupMenuFixed()
+	{
+		static const auto* const s = new RE::BSFixedString(kOurSetupMenuName);
+		return *s;
+	}
+
 	inline void LogRegisteredMenusOnce(RE::UI* a_ui)
 	{
 		if (!a_ui) {
@@ -123,6 +130,12 @@ namespace fo4sf
 		for (std::size_t i = 0; i < limit; ++i) {
 			if (a_ui->IsMenuRegistered(names[i]) && a_ui->IsMenuOpen(names[i])) {
 				return kBlockingMenus[i];
+			}
+		}
+		if (!a_topModalOnly) {
+			const auto& setup = OurSetupMenuFixed();
+			if (a_ui->IsMenuRegistered(setup) && a_ui->IsMenuOpen(setup)) {
+				return kOurSetupMenuName;
 			}
 		}
 		if (!a_topModalOnly && a_includeOurPipboy) {

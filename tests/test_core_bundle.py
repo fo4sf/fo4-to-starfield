@@ -1113,6 +1113,74 @@ class CoreBundleTests(unittest.TestCase):
                 2,
             )
 
+    def test_s1_refresh_pipboy_stage_stages_setup_screen_start_card_and_start_places_json(self):
+        ui_dir = str(REPO / "scripts" / "ui")
+        if ui_dir not in sys.path:
+            sys.path.insert(0, ui_dir)
+        import make_probe_swf  # type: ignore
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src_pb = root / "src-pb"
+            (src_pb / "Data" / "Interface").mkdir(parents=True)
+            (src_pb / "Data" / "Scripts").mkdir(parents=True)
+            (src_pb / "SFSE" / "Plugins").mkdir(parents=True)
+            p1_sha = _make_tes4_esm(src_pb / "FO4SFPipboyProbe.esm", extra_tag=b"pbprobe")
+            p2_sha = _make_tes4_esm(src_pb / "FO4SFPipboyTravel.esm", extra_tag=b"pbtravel")
+            shell_swf = make_probe_swf.movie_bytes()
+            (src_pb / "Data" / "Interface" / "FO4SF_Fo4Shell.swf").write_bytes(shell_swf)
+            pex_bytes = b"PEX_TRAVEL"
+            (src_pb / "Data" / "Scripts" / "FO4SF_PipboyTravel.pex").write_bytes(pex_bytes)
+            (src_pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").write_bytes(b"MZ_SYNTHETIC_PIPBOY_DLL")
+            (src_pb / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "kind": "pipboy-stack-stage",
+                        "plugins": ["FO4SFPipboyProbe.esm", "FO4SFPipboyTravel.esm"],
+                        "files": {
+                            "FO4SFPipboyProbe.esm": {"sha256": p1_sha},
+                            "FO4SFPipboyTravel.esm": {"sha256": p2_sha},
+                            "Data/Interface/FO4SF_Fo4Shell.swf": {"sha256": _sha256_bytes(shell_swf)},
+                            "Data/Scripts/FO4SF_PipboyTravel.pex": {"sha256": _sha256_bytes(pex_bytes)},
+                        },
+                    },
+                    indent=1,
+                ),
+                encoding="utf-8",
+            )
+
+            refreshed = root / "16-pipboy-refreshed"
+            mcb.refresh_pipboy_stage_for_bundle(str(src_pb), str(refreshed), str(root / "no-fo4-data"))
+            self.assertTrue((refreshed / "Data" / "Interface" / "FO4SF_StartCard.swf").is_file())
+            self.assertTrue((refreshed / "Data" / "Interface" / "FO4SF_SetupScreen.swf").is_file())
+            self.assertTrue((refreshed / "SFSE" / "Plugins" / "FO4SFStartPlaces.json").is_file())
+            ini_txt = (refreshed / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
+            self.assertIn("SetupShowUnavailable=0", ini_txt)
+
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+            out_b = root / "bundle-s1"
+            self.assertEqual(
+                mcb.main(
+                    [
+                        "fold",
+                        "--owner-set", str(owner),
+                        "--stages-root", str(stages_root),
+                        "--out", str(out_b),
+                        "--port", str(port_esm),
+                        "--with-pipboy",
+                        "--pipboy-stage", str(refreshed),
+                    ],
+                    system=_FakeSystemClosed(),
+                ),
+                0,
+            )
+            self.assertTrue((out_b / "Data" / "Interface" / "FO4SF_SetupScreen.swf").is_file())
+            self.assertTrue((out_b / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFStartPlaces.json").is_file())
+            bplan = json.loads((out_b / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertIn("Data/Interface/FO4SF_SetupScreen.swf", bplan["components"]["pipboy"]["outputs"])
+            self.assertIn("SFSE/Plugins/FO4SFStartPlaces.json", bplan["sfse_sidecar"])
+            self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out_b), "--port", str(port_esm)]), 0)
+
     @unittest.skipUnless(os.environ.get("FO4SF_DOTNET_TESTS") == "1", "FO4SF_DOTNET_TESTS!=1")
     def test_dotnet_core_candidate_selftest(self):
         with tempfile.TemporaryDirectory() as td:
