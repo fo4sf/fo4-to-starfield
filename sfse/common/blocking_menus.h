@@ -14,6 +14,7 @@ namespace fo4sf
 {
 	inline constexpr const char* kOurPipboyMenuName = "FO4SF_PipboyMenu";
 	inline constexpr const char* kOurSpecialMenuName = "FO4SF_SpecialMenu";
+	inline constexpr const char* kOurStartCardMenuName = "FO4SF_StartCardMenu";
 
 	// First kTopModalMenuCount entries are top-level modal / text-entry overlays that take priority even when
 	// FO4SF_PipboyMenu is already open underneath them.

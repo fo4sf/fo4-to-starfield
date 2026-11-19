@@ -211,6 +211,7 @@ namespace
 	constexpr std::uint32_t kCoreHardcoreFastTravelBlockedId = 0x841; // FO4SFCoreValues.esm GLOB FO4SF_HardcoreFastTravelBlocked (A2)
 	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
 	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
+	constexpr std::uint32_t kCoreStartCardOpenId = 0x866;    // FO4SFCoreValues.esm GLOB FO4SF_StartCardOpen (N2, R13)
 	constexpr std::uint32_t kCoreSpecialMenuPendingFirstId = 0x880; // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuPendingS..L (0x880..0x886)
 	constexpr std::uint32_t kCoreSpecialMenuCommitReqId = 0x887;    // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuCommitRequested
 	constexpr std::uint32_t kRadsRadawayLocalId = 0x820;     // FO4SFRads.esm ALCH FO4SF_RadAway
@@ -559,6 +560,13 @@ namespace
 	std::atomic<bool>                        g_loadingSpecialMovie{ false };
 	std::atomic<const void*>                 g_specialCodeObjMovie{ nullptr };
 	std::atomic<std::uint32_t>               g_specialCreated{ 0 };
+	// N2 Variant (b): non-modal depth=0 start title card (FO4SF_StartCardMenu -> Interface/FO4SF_StartCard.swf)
+	PrimaryVtable                            g_startCardVtbl{};
+	InputVtable                              g_startCardInputVtbl{};
+	std::atomic<bool>                        g_startCardOpen{ false };
+	std::atomic<bool>                        g_loadingStartCardMovie{ false };
+	std::atomic<bool>                        g_startCardMissing{ false };
+	std::atomic<std::uint32_t>               g_startCardCreated{ 0 };
 	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
 	std::atomic<std::uint32_t>               s_savedPage{ 0 };
 	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
@@ -6525,26 +6533,37 @@ namespace
 			REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b result=already_loaded", menu, a_dispatcher, a_arg2);
 			return true;
 		}
-		// The bundle ships <BootMovie>.swf as a loose file under Data\Interface\; if absent on disk at load time, log
-		// step=boot_skip reason=missing once and skip the boot movie cleanly so the main Pip-Boy movie opens directly.
-		if (g_playingBootMovie.load() && !g_bootMovie.empty() && !BootMovieLooseFileExists()) {
-			g_playingBootMovie.store(false);
-			if (!g_loggedBootSkipMissing.exchange(true)) {
-				REX::INFO("step=boot_skip reason=missing movie={} file=Data\\Interface\\{}.swf", g_bootMovie, g_bootMovie);
-			}
-		}
-		const char* targetMovie = (g_playingBootMovie.load() && !g_bootMovie.empty())
+		const bool attemptingBoot = g_playingBootMovie.load() && !g_bootMovie.empty();
+		const char* targetMovie = attemptingBoot
 		                              ? g_bootMovie.c_str()
 		                              : (g_movie.empty() ? kMenuName : g_movie.c_str());
 		REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b calling movie_name={}", menu, a_dispatcher, a_arg2,
 			targetMovie);
 		g_movieNameAsks.store(0);
 		g_loadingMovie.store(true);
-		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
 		g_loadingMovie.store(false);
 		REX::INFO("step=load_movie menu={} stage=b result={} movie={} movie_name={} name_asks={}", menu, loaded ? 1 : 0,
 			Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), targetMovie,
 			g_movieNameAsks.load());
+		// H0c / R10: g_engineLoadMovie resolves both loose Data\Interface\<BootMovie>.swf and BA2-packed Interface\<BootMovie>.swf;
+		// if absent from both, log step=boot_skip reason=missing once and immediately load the main Pip-Boy movie.
+		if (attemptingBoot && (!loaded || !MovieOf(a_self))) {
+			g_playingBootMovie.store(false);
+			if (!g_loggedBootSkipMissing.exchange(true)) {
+				REX::INFO("step=boot_skip reason=missing movie={} file=Interface\\{}.swf", g_bootMovie, g_bootMovie);
+			}
+			const char* fallbackMovie = g_movie.empty() ? kMenuName : g_movie.c_str();
+			REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b calling movie_name={}", menu, a_dispatcher,
+				a_arg2, fallbackMovie);
+			g_movieNameAsks.store(0);
+			g_loadingMovie.store(true);
+			loaded = g_engineLoadMovie(a_self, false, a_arg2);
+			g_loadingMovie.store(false);
+			REX::INFO("step=load_movie menu={} stage=b result={} movie={} movie_name={} name_asks={}", menu, loaded ? 1 : 0,
+				Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), fallbackMovie,
+				g_movieNameAsks.load());
+		}
 		if (!loaded || !MovieOf(a_self)) {
 			FailMovieCall("load_movie");
 			return false;
@@ -7901,6 +7920,138 @@ namespace
 		REX::INFO("step=special_open by={} movie={} max_points={}", a_by ? a_by : "trigger", g_specialMovie, g_specialMaxPoints);
 	}
 
+	const RE::BSFixedString& StartCardMenuName()
+	{
+		static const RE::BSFixedString s{ fo4sf::kOurStartCardMenuName };
+		return s;
+	}
+
+	void* StartCardMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_startCardOpen.store(false);
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* StartCardMenuGetName(const void*)
+	{
+		if (g_loadingStartCardMovie.load()) {
+			return "FO4SF_StartCard";
+		}
+		return fo4sf::kOurStartCardMenuName;
+	}
+
+	bool StartCardMenuLoadMovie(void* a_self, bool, bool a_arg2)
+	{
+		if (MovieOf(a_self)) {
+			return true;
+		}
+		g_loadingStartCardMovie.store(true);
+		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingStartCardMovie.store(false);
+		const bool ok = loaded && MovieOf(a_self) != nullptr;
+		if (!ok && !g_startCardMissing.exchange(true)) {
+			REX::INFO("step=start_card_skip reason=missing movie=FO4SF_StartCard");
+		} else if (ok) {
+			REX::INFO("step=start_card_load_movie result=1 movie=FO4SF_StartCard");
+		}
+		return ok;
+	}
+
+	RE::UI_MESSAGE_RESULT StartCardMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow && !MovieOf(a_self)) {
+			if (!StartCardMenuLoadMovie(a_self, false, false)) {
+				g_startCardOpen.store(false);
+				return RE::UI_MESSAGE_RESULT::kHandled;
+			}
+		}
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_startCardOpen.store(true);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_startCardOpen.store(false);
+		}
+		return result;
+	}
+
+	bool StartCardShouldHandleEvent(void*, const void*)
+	{
+		// Non-modal background card at depth=0: never consume keyboard, mouse, or controller input.
+		return false;
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* CreateStartCardMenu(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		const auto n = ++g_startCardCreated;
+		void*      menu = std::calloc(1, kMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=start_card n={} reason=out_of_memory", n);
+			std::construct_at(a_out);
+			return a_out;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_startCardVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_startCardInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = StartCardMenuName();
+		// Strictly bottom UI layer (depth=0) with zero modal/pause/cursor flags so MessageBoxMenu & Console sit above it.
+		*reinterpret_cast<std::uint8_t*>(base + 0x110) = 0;
+		if (g_keepAlive && ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
+		REX::INFO("step=start_card_create n={} menu={} flags={} depth=0", n, Hex(base), Hex(imenu->flags));
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return a_out;
+	}
+
+	void PollStartCardGlobalMainThread()
+	{
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue || !ui->IsMenuRegistered(StartCardMenuName())) {
+			return;
+		}
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		const auto     fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail);
+		if (fid) {
+			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
+		}
+		static bool s_loggedStartCardResolve = false;
+		if (!s_loggedStartCardResolve && fid) {
+			s_loggedStartCardResolve = true;
+			LogCoreValueResolve("FO4SF_StartCardOpen", kCoreStartCardOpenId, form ? fid : 0u);
+		}
+		float v = 0.0f;
+		if (form) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			if (!Peek(form + valAt, v) || !std::isfinite(v)) {
+				v = 0.0f;
+			}
+		}
+		static const RE::BSFixedString kLoadingMenu{ "LoadingMenu" };
+		static const RE::BSFixedString kChargenMenu{ "ChargenMenu" };
+		const bool wantOpen = v >= 0.5f && !g_startCardMissing.load() &&
+		                      !ui->IsMenuOpen(kLoadingMenu) && !ui->IsMenuOpen(kChargenMenu);
+		const bool isOpen = ui->IsMenuOpen(StartCardMenuName());
+		if (wantOpen && !isOpen) {
+			queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kShow);
+			REX::INFO("step=start_card open=1 depth=0");
+		} else if (!wantOpen && isOpen) {
+			queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=start_card open=0");
+		}
+	}
+
 	void PollSpecialTriggerGlobalMainThread()
 	{
 		if (!g_specialMenu || g_specialOpen.load()) {
@@ -8212,6 +8363,20 @@ namespace
 			g_specialInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&SpecialShouldHandleEvent);
 			g_specialInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&SpecialOnButtonEvent);
 		}
+		if (g_stage >= 2) {
+			g_startCardVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_startCardVtbl.slots.begin());
+			g_startCardVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&StartCardMenuDestroy);
+			g_startCardVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&StartCardMenuGetName);
+			g_startCardVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_startCardVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_startCardVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&StartCardMenuLoadMovie);
+			g_startCardVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&StartCardMenuProcessMessage);
+			const auto* input = reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput));
+			g_startCardInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_startCardInputVtbl.slots.begin());
+			g_startCardInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&StartCardShouldHandleEvent);
+		}
 		if (g_stage == 1) {
 			g_vtbl.slots[0x0A] = reinterpret_cast<std::uintptr_t>(&MenuIsMovieLoaded);
 		}
@@ -8262,18 +8427,16 @@ namespace
 		const bool needCheck = g_requirePickup || (g_bootOnFirstOpen && !g_bootMovie.empty() && !s_bootPlayed.load());
 		const bool acquired = needCheck ? IsPipboyPickedUpMainThread(acqVal) : false;
 		if (g_requirePickup && !acquired) {
+			s_bootPlayed.store(false);
 			REX::INFO("step=pipboy_pickup_required by={} page={} value={:.1f}", a_by ? a_by : "key", a_targetPage, acqVal);
 			return false;
 		}
-		if (g_bootOnFirstOpen && !g_bootMovie.empty() && acquired && std::string_view(a_by ? a_by : "") != "boot_reopen") {
-			// The bundle ships Data\Interface\<BootMovie>.swf as a loose file; if absent on disk, log once and skip boot.
-			if (!BootMovieLooseFileExists()) {
-				if (!g_loggedBootSkipMissing.exchange(true)) {
-					REX::INFO("step=boot_skip reason=missing movie={} file=Data\\Interface\\{}.swf", g_bootMovie, g_bootMovie);
-				}
-			} else if (!s_bootPlayed.exchange(true)) {
+		if (g_bootOnFirstOpen && !g_bootMovie.empty() && (acquired || !g_requirePickup) &&
+			std::string_view(a_by ? a_by : "") != "boot_reopen") {
+			if (!s_bootPlayed.exchange(true)) {
 				g_playingBootMovie.store(true);
-				REX::INFO("step=boot_sequence movie={} first_open=1 page={}", g_bootMovie, a_targetPage);
+				REX::INFO("step=boot_sequence movie={} first_open=1 page={} loose={}",
+					g_bootMovie, a_targetPage, BootMovieLooseFileExists() ? 1 : 0);
 			}
 		}
 		return true;
@@ -8616,6 +8779,12 @@ namespace
 				g_task->AddTask([]() { SendUpdate(); });
 			}
 			PipboyMap::Tick();
+			if (g_stage >= 2) {
+				static std::uint32_t startCardTicks = 0;
+				if (++startCardTicks % 8 == 0) {
+					g_task->AddTask([]() { PollStartCardGlobalMainThread(); });
+				}
+			}
 			if (g_specialMenu) {
 				if (g_specialKey != 0) {
 					const bool spNow = (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_specialKey)) & 0x8000) != 0;
@@ -8698,6 +8867,11 @@ namespace
 			REX::INFO("step=special_register result={} name={} movie={} max_points={}",
 				ui->IsMenuRegistered(SpecialMenuName()) ? "ok" : "failed",
 				fo4sf::kOurSpecialMenuName, g_specialMovie, g_specialMaxPoints);
+		}
+		if (g_stage >= 2 && !ui->IsMenuRegistered(StartCardMenuName())) {
+			ui->RegisterMenu(fo4sf::kOurStartCardMenuName, &CreateStartCardMenu);
+			REX::INFO("step=start_card_register result={} name={} movie=FO4SF_StartCard",
+				ui->IsMenuRegistered(StartCardMenuName()) ? "ok" : "failed", fo4sf::kOurStartCardMenuName);
 		}
 		World::Start(g_task);
 		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit);

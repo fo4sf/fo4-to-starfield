@@ -408,28 +408,63 @@ def page_tags(box, color, ink):
     return defs, places
 
 
+START_CARD_BG = 0x07130B
+START_CARD_TITLE = "FALLOUT: COMMONWEALTH"
+START_CARD_BORDER_ID, START_CARD_TITLE_ID = 2, 3
+
+
+def start_card_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, title=START_CARD_TITLE):
+    """Full-stage non-modal start title card (N2 Variant b): opaque dark slate backdrop, Pip-Boy green frame + top
+    header, leaving the centre clear behind Starfield's MessageBoxMenu."""
+    m = 32 * TWIPS
+    t = 4 * TWIPS
+    header_y = 156 * TWIPS
+    defs = define_shape3(RECT_ID, [(0, 0, W, H)], bg_color)
+    bars = [
+        (m, m, W - 2 * m, t),
+        (m, H - m - t, W - 2 * m, t),
+        (m, m + t, t, H - 2 * m - 2 * t),
+        (W - m - t, m + t, t, H - 2 * m - 2 * t),
+        (2 * m, header_y, W - 4 * m, 3 * TWIPS),
+    ]
+    defs += define_shape3(START_CARD_BORDER_ID, bars, border_color)
+    places = [place_object2(RECT_ID, 1), place_object2(START_CARD_BORDER_ID, 2)]
+    if title:
+        title_box = (160 * TWIPS, 60 * TWIPS, W - 320 * TWIPS, 72 * TWIPS)
+        defs += define_shape3(START_CARD_TITLE_ID, label_squares(title, title_box), border_color)
+        places.append(place_object2(START_CARD_TITLE_ID, 3))
+    return defs, places
+
+
 def movie_bytes(width=1920, height=1080, color=PIPBOY_GREEN, ink=INK, label=LABEL, compressed=True, channel=False,
-                page=False):
+                page=False, start_card=False):
     """The whole movie. width/height in pixels; label None or "" for the rectangle alone; channel adds the data
     channel's field and button (FAL-216). Without channel the bytes are stage (b)'s. page is the STAT page (FAL-272)
-    instead: its own panel, title and fields, no label shape."""
+    instead: its own panel, title and fields, no label shape. start_card is the full-stage start title card (N2)."""
     if width <= 0 or height <= 0:
         raise SwfError("the stage needs a positive size")
     if channel and page:
         raise SwfError("--channel and --page are two different movies")
+    if start_card and (channel or page):
+        raise SwfError("--start-card, --channel and --page are mutually exclusive movies")
     W, H = width * TWIPS, height * TWIPS
-    box = page_box(W, H) if page else ((W - W * 3 // 5) // 2, (H - H // 2) // 2, W * 3 // 5, H // 2)
     body = rect(0, W, 0, H) + struct.pack("<HH", FRAME_RATE << 8, 1)
     body += tag(FILE_ATTRIBUTES, bytes([AS3, 0, 0, 0]))
-    body += define_shape3(RECT_ID, [box], color)
-    tags = [place_object2(RECT_ID, 1)]
-    if label and not page:
-        body += define_shape3(LABEL_ID, label_squares(label, box), ink)
-        tags.append(place_object2(LABEL_ID, 2))
-    if channel or page:
-        defs, places = page_tags(box, color, ink) if page else channel_tags(box, color, ink)
+    if start_card:
+        defs, tags = start_card_tags(W, H, border_color=color, bg_color=START_CARD_BG,
+                                     title=START_CARD_TITLE if label == LABEL else label)
         body += defs
-        tags += places
+    else:
+        box = page_box(W, H) if page else ((W - W * 3 // 5) // 2, (H - H // 2) // 2, W * 3 // 5, H // 2)
+        body += define_shape3(RECT_ID, [box], color)
+        tags = [place_object2(RECT_ID, 1)]
+        if label and not page:
+            body += define_shape3(LABEL_ID, label_squares(label, box), ink)
+            tags.append(place_object2(LABEL_ID, 2))
+        if channel or page:
+            defs, places = page_tags(box, color, ink) if page else channel_tags(box, color, ink)
+            body += defs
+            tags += places
     body += b"".join(tags) + tag(SHOW_FRAME) + tag(END)
     length = 8 + len(body)
     if compressed:
@@ -700,6 +735,8 @@ def main(argv=None):
     ap.add_argument("--page", action="store_true",
                     help=f"the STAT page instead (FAL-272): {PAGE_LINES} lines, the buttons {TAB_BUTTON!r} and "
                          f"{CLOSE_BUTTON!r}")
+    ap.add_argument("--start-card", action="store_true",
+                    help="full-stage non-modal Commonwealth start title card (N2 Variant b)")
     a = ap.parse_args(argv)
     try:
         if a.read:
@@ -709,7 +746,7 @@ def main(argv=None):
             ap.error("--out or --read is needed")
         data = write_movie(a.out, width=a.width, height=a.height, color=int(a.color, 16), ink=int(a.ink, 16),
                            label=None if a.no_label else a.label, compressed=not a.uncompressed,
-                           channel=a.channel, page=a.page)
+                           channel=a.channel, page=a.page, start_card=a.start_card)
     except (SwfError, ValueError, OSError, zlib.error) as e:
         print(f"make_probe_swf: {e}", file=sys.stderr)
         return 1

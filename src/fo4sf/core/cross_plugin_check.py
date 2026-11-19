@@ -23,6 +23,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     "Starfield.esm": {
         0x00000F: ("MISC", "Credits"),
         0x000014: ("ACHR", "PlayerRef"),
+        0x000032: ("STAT", "COCMarkerHeading"),
         0x000038: ("GLOB", "GameHour"),
         0x000039: ("GLOB", "GameDaysPassed"),
         0x0002C2: ("AVIF", "Strength"),
@@ -1091,6 +1092,14 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
         0x000865,
         "GLOB",
         "FO4SF_PipboyAcquired",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/main.cpp",
+        "kCoreStartCardOpenId",
+        "FO4SFCoreValues.esm",
+        0x000866,
+        "GLOB",
+        "FO4SF_StartCardOpen",
     ),
     NativeCoreValueSpec(
         "sfse/FO4SFPipboyMenu/src/main.cpp",

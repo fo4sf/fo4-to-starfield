@@ -450,6 +450,13 @@
       "constant": false
     },
     {
+      "id": "0x000866",
+      "type": "GLOB",
+      "edid": "FO4SF_StartCardOpen",
+      "default": 0.0,
+      "constant": false
+    },
+    {
       "id": "0x000880",
       "type": "GLOB",
       "edid": "FO4SF_SpecialMenuPendingS",

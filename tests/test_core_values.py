@@ -27,10 +27,10 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_native_core_value_refs,
 )
 
-# parity not applicable: ordered by A6 & A12 (FO4SF_PipboyAcquired 0x000865 + FO4SF_SpecialMenuPendingS..CommitRequested 0x000880..0x000887)
-PINNED_CORE_VALUES_PLAYER_SHA256 = "17cc094fae17fe7875f4313dcdc74618e92a9b4fe10bfb5c8c45e43660948ca4"
-# parity not applicable: ordered by A5 & A12 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
-PINNED_CORE_VALUES_TEST_SHA256 = "6cd864fa2dc58f1d047c2eadc264a01f3b4e52b5c1be8df5abf8036d125d143d"
+# parity not applicable: ordered by A6, A12 & N2 (FO4SF_PipboyAcquired 0x000865 + FO4SF_StartCardOpen 0x000866 + FO4SF_SpecialMenuPendingS..CommitRequested 0x000880..0x000887)
+PINNED_CORE_VALUES_PLAYER_SHA256 = "949f4c6bd4c7b167ae5f31ba7091758c453c4d3ac5a99705c8b8950514a61042"
+# parity not applicable: ordered by A5, A12 & N2 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
+PINNED_CORE_VALUES_TEST_SHA256 = "cbaf1de5546af00f72f4a19b4a44111f8abcffa46bca22de28e4b26fb2659c69"
 
 
 def _sha256_file(path: str) -> str:
@@ -66,6 +66,11 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_PipboyAcquired"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_PipboyAcquired"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_PipboyAcquired"].constant)
+        # N2 (R13): FO4SF_StartCardOpen owned in FO4SFCoreValues.esm at 0x000866, default 0.0, constant=False
+        self.assertEqual(core_form_id("FO4SF_StartCardOpen"), 0x000866)
+        self.assertEqual(by_edid["FO4SF_StartCardOpen"].record_type, "GLOB")
+        self.assertEqual(by_edid["FO4SF_StartCardOpen"].default, 0.0)
+        self.assertFalse(by_edid["FO4SF_StartCardOpen"].constant)
         # A12: 7 pending S.P.E.C.I.A.L. GLOBs (0x000880..0x000886) + commit flag (0x000887)
         for off, ltr in enumerate(("S", "P", "E", "C", "I", "A", "L")):
             ed = f"FO4SF_SpecialMenuPending{ltr}"
@@ -77,7 +82,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_SpecialMenuCommitRequested"].constant)
-        self.assertEqual(len(records), 51)
+        self.assertEqual(len(records), 52)
 
     def test_r13_native_core_value_lookups_match_schema_and_catch_wrong_or_split_ids(self) -> None:
         catalog, dup_errors = build_writer_catalog(ROOT)
@@ -85,6 +90,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
         native_errors = validate_native_core_value_refs(ROOT, catalog)
         self.assertEqual(native_errors, [], "\n".join(native_errors))
         self.assertTrue(any(s.edid == "FO4SF_PipboyAcquired" and s.local_id == 0x000865 for s in NATIVE_CORE_VALUE_SPECS))
+        self.assertTrue(any(s.edid == "FO4SF_StartCardOpen" and s.local_id == 0x000866 for s in NATIVE_CORE_VALUE_SPECS))
 
         main_rel = "sfse/FO4SFPipboyMenu/src/main.cpp"
         main_txt = (Path(ROOT) / main_rel).read_text(encoding="utf-8")
