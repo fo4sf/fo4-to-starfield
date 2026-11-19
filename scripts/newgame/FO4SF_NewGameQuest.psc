@@ -287,7 +287,7 @@ int Property VaultPistolId = 0 Auto Const
 bool Property FadeHold = true Auto Const
 {N2 / S4: runs pre-world start set-up before entering any game location (--no-fade-hold sets false).}
 int Property StartChoiceBackdrop = 1 Auto Const
-{N2 / R5 backdrop variant: 1 empty_cell (default), 2 title_card (FO4SF_StartCardMenu), 0 none.}
+{N2 / S1 / R5 backdrop variant: 1 empty_cell (default), 2 title_card (FO4SF_StartCardMenu), 3 setup_menu (FO4SF_SetupMenu), 0 none.}
 float Property StartLoadTimeout = 15.0 Auto Const
 {H0 / R10 hard ceiling (seconds) waiting for LoadingMenu close before forcing fade lift and showing set-up prompts.}
 int Property RaceMenuMode = 2 Auto Const
@@ -1546,7 +1546,9 @@ Function ApplyH00PreSurfaceOverrides()
 EndFunction
 
 string Function BackdropName()
-    if StartChoiceBackdrop == 2
+    if StartChoiceBackdrop == 3
+        return "setup_menu"
+    elseif StartChoiceBackdrop == 2
         return "title_card"
     elseif StartChoiceBackdrop == 0
         return "none"
@@ -1792,31 +1794,180 @@ int Function RunModeChoiceChain(Actor player)
     modeChoiceRan = true
     bool usedNeutralSpot = HoldNeutralSpotForModeChoice(player)
     WaitForStartUiReady()
-    SetStartCardBackdrop(true)
-    int mBtn = 0
-    if ModePickMsg != None
-        modeBoxWaiting = true
-        modeBoxWaitSeconds = 0
-        StartTimer(60.0, 2)
-        mBtn = ModePickMsg.Show()
-        modeBoxWaiting = false
-    endif
+    string effectiveBackdrop = BackdropName()
+    bool usedSetupMenu = false
     int modeVal = 1
-    if mBtn == 1
-        modeVal = 2
-    endif
     int storyBtn = 0
-    string storyId = "fo4_commonwealth"
+    int survVal = 0
     int diff = 1
     int pickedSlot = -1
     int rowIdx = -1
     int placeRow = 0
-    string placeId = "fo4_vault111"
-    string modeTag = "story"
-    if modeVal == 1
-        if StoryLineMsg != None
-            storyBtn = StoryLineMsg.Show()
+    if StartChoiceBackdrop == 3 && StartCardOpenGlobal != None && StartChoiceDoneGlobal != None
+        StartCardOpenGlobal.SetValue(2.0)
+        float ackWait = 0.0
+        while StartCardOpenGlobal.GetValue() < 2.5 && StartChoiceDoneGlobal.GetValue() < 0.5 && ackWait < 2.0
+            Utility.Wait(0.25)
+            ackWait += 0.25
+        endwhile
+        if StartCardOpenGlobal.GetValue() >= 2.5 || StartChoiceDoneGlobal.GetValue() >= 0.5
+            usedSetupMenu = true
+            if StartChoiceDoneGlobal.GetValue() < 0.5
+                modeBoxWaiting = true
+                modeBoxWaitSeconds = 0
+                StartTimer(60.0, 2)
+                while StartChoiceDoneGlobal.GetValue() < 0.5
+                    Utility.Wait(0.25)
+                endwhile
+                modeBoxWaiting = false
+            endif
+            StartCardOpenGlobal.SetValue(0.0)
+            if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
+                modeVal = 2
+            endif
+            if StoryLineGlobal != None
+                storyBtn = StoryLineGlobal.GetValue() as int
+            endif
+            if SurvivalStartGlobal != None && SurvivalStartGlobal.GetValue() >= 0.5
+                survVal = 1
+            endif
+            if SurvivalLockedGlobal != None
+                SurvivalLockedGlobal.SetValue(survVal as float)
+            endif
+            if StartDifficultyGlobal != None
+                diff = StartDifficultyGlobal.GetValue() as int
+            endif
+            if WarfareFactionGlobal != None
+                pickedSlot = WarfareFactionGlobal.GetValue() as int
+            endif
+            if WarfareStartIndexGlobal != None
+                rowIdx = WarfareStartIndexGlobal.GetValue() as int
+            endif
+            if StartPlaceRowGlobal != None
+                placeRow = StartPlaceRowGlobal.GetValue() as int
+            endif
+        else
+            StartCardOpenGlobal.SetValue(0.0)
+            effectiveBackdrop = "empty_cell"
+            Trace("setup menu unavailable: falling back to empty_cell boxes")
         endif
+    endif
+    if !usedSetupMenu
+        SetStartCardBackdrop(true)
+        int mBtn = 0
+        if ModePickMsg != None
+            modeBoxWaiting = true
+            modeBoxWaitSeconds = 0
+            StartTimer(60.0, 2)
+            mBtn = ModePickMsg.Show()
+            modeBoxWaiting = false
+        endif
+        if mBtn == 1
+            modeVal = 2
+        endif
+        if modeVal == 1
+            if StoryLineMsg != None
+                storyBtn = StoryLineMsg.Show()
+            endif
+            string boxStoryId = "fo4_commonwealth"
+            if StoryChoiceIds != None && StoryChoiceIds.Length > 0
+                if storyBtn < 0 || storyBtn >= StoryChoiceIds.Length
+                    storyBtn = 0
+                endif
+                boxStoryId = StoryChoiceIds[storyBtn]
+            else
+                storyBtn = 0
+            endif
+            placeRow = FindStoryStartPlaceRow(boxStoryId)
+        else
+            storyBtn = -1
+            if WarfareDiffMsg != None
+                diff = WarfareDiffMsg.Show()
+                if diff < 0 || diff > 3
+                    diff = 1
+                endif
+            endif
+            int gBtn = 0
+            if WarfareGroupMsg != None
+                gBtn = WarfareGroupMsg.Show()
+                if gBtn < 0 || gBtn >= WarfareDistinctFactionSlots.Length
+                    gBtn = 0
+                endif
+            endif
+            pickedSlot = 0
+            if WarfareDistinctFactionSlots != None && WarfareDistinctFactionSlots.Length > 0
+                pickedSlot = WarfareDistinctFactionSlots[gBtn]
+            endif
+            int sIdxBtn = 0
+            if WarfareSpotMsg != None && WarfareKeys != None && WarfareKeys.Length > 1
+                sIdxBtn = WarfareSpotMsg.Show()
+                if sIdxBtn < 0 || sIdxBtn >= WarfareKeys.Length
+                    sIdxBtn = 0
+                endif
+            endif
+            int r = 0
+            while WarfareKeys != None && r < WarfareKeys.Length
+                if WarfareFactionSlots[r] == pickedSlot && diff >= WarfareMinDiffs[r] && diff <= WarfareMaxDiffs[r]
+                    if rowIdx < 0 || r == sIdxBtn
+                        rowIdx = r
+                    endif
+                endif
+                r += 1
+            endwhile
+            if rowIdx < 0
+                rowIdx = 0
+            endif
+            string wfPlaceKey = "minutemen_sanctuary"
+            if WarfareKeys != None && rowIdx < WarfareKeys.Length
+                wfPlaceKey = WarfareKeys[rowIdx]
+            endif
+            placeRow = FindWarfareStartPlaceRow(rowIdx, wfPlaceKey)
+        endif
+        int sBtn = 0
+        if SurvivalPickMsg != None
+            sBtn = SurvivalPickMsg.Show()
+        endif
+        if sBtn == 1
+            survVal = 1
+        endif
+        SetStartCardBackdrop(false)
+        if GameModeGlobal != None
+            GameModeGlobal.SetValue(modeVal as float)
+        endif
+        if StoryLineGlobal != None
+            StoryLineGlobal.SetValue(storyBtn as float)
+        endif
+        if SurvivalStartGlobal != None
+            SurvivalStartGlobal.SetValue(survVal as float)
+        endif
+        if SurvivalLockedGlobal != None
+            SurvivalLockedGlobal.SetValue(survVal as float)
+        endif
+        if StartDifficultyGlobal != None
+            StartDifficultyGlobal.SetValue(diff as float)
+        endif
+        if WarfareFactionGlobal != None
+            WarfareFactionGlobal.SetValue(pickedSlot as float)
+        endif
+        if WarfareStartIndexGlobal != None
+            WarfareStartIndexGlobal.SetValue(rowIdx as float)
+        endif
+        if StartPlaceRowGlobal != None
+            StartPlaceRowGlobal.SetValue(placeRow as float)
+        endif
+        if StartChoiceDoneGlobal != None
+            StartChoiceDoneGlobal.SetValue(1.0)
+        endif
+    endif
+    if diff < 0 || diff > 3
+        diff = 1
+    endif
+    string modeTag = "story"
+    string storyId = "fo4_commonwealth"
+    string placeId = "fo4_vault111"
+    if modeVal == 1
+        pickedSlot = -1
+        rowIdx = -1
         if StoryChoiceIds != None && StoryChoiceIds.Length > 0
             if storyBtn < 0 || storyBtn >= StoryChoiceIds.Length
                 storyBtn = 0
@@ -1825,7 +1976,9 @@ int Function RunModeChoiceChain(Actor player)
         else
             storyBtn = 0
         endif
-        placeRow = FindStoryStartPlaceRow(storyId)
+        if StartPlaceIds == None || placeRow < 0 || placeRow >= StartPlaceIds.Length || StartPlaceModes[placeRow] != 1
+            placeRow = FindStoryStartPlaceRow(storyId)
+        endif
         if StartPlaceIds != None && placeRow >= 0 && placeRow < StartPlaceIds.Length
             placeId = StartPlaceIds[placeRow]
         endif
@@ -1833,86 +1986,28 @@ int Function RunModeChoiceChain(Actor player)
         modeTag = "warfare"
         storyBtn = -1
         storyId = "none"
-        if WarfareDiffMsg != None
-            diff = WarfareDiffMsg.Show()
-            if diff < 0 || diff > 3
-                diff = 1
-            endif
-        endif
-        int gBtn = 0
-        if WarfareGroupMsg != None
-            gBtn = WarfareGroupMsg.Show()
-            if gBtn < 0 || gBtn >= WarfareDistinctFactionSlots.Length
-                gBtn = 0
-            endif
-        endif
-        pickedSlot = 0
-        if WarfareDistinctFactionSlots != None && WarfareDistinctFactionSlots.Length > 0
-            pickedSlot = WarfareDistinctFactionSlots[gBtn]
-        endif
-        int sIdxBtn = 0
-        if WarfareSpotMsg != None && WarfareKeys != None && WarfareKeys.Length > 1
-            sIdxBtn = WarfareSpotMsg.Show()
-            if sIdxBtn < 0 || sIdxBtn >= WarfareKeys.Length
-                sIdxBtn = 0
-            endif
-        endif
-        int r = 0
-        while WarfareKeys != None && r < WarfareKeys.Length
-            if WarfareFactionSlots[r] == pickedSlot && diff >= WarfareMinDiffs[r] && diff <= WarfareMaxDiffs[r]
-                if rowIdx < 0 || r == sIdxBtn
-                    rowIdx = r
-                endif
-            endif
-            r += 1
-        endwhile
-        if rowIdx < 0
+        if WarfareKeys != None && (rowIdx < 0 || rowIdx >= WarfareKeys.Length)
+            rowIdx = 0
+        elseif rowIdx < 0
             rowIdx = 0
         endif
+        if pickedSlot < 0
+            if WarfareFactionSlots != None && rowIdx >= 0 && rowIdx < WarfareFactionSlots.Length
+                pickedSlot = WarfareFactionSlots[rowIdx]
+            else
+                pickedSlot = 0
+            endif
+        endif
         placeId = "minutemen_sanctuary"
-        if WarfareKeys != None && rowIdx < WarfareKeys.Length
+        if WarfareKeys != None && rowIdx >= 0 && rowIdx < WarfareKeys.Length
             placeId = WarfareKeys[rowIdx]
         endif
-        placeRow = FindWarfareStartPlaceRow(rowIdx, placeId)
+        if StartPlaceIds == None || placeRow < 0 || placeRow >= StartPlaceIds.Length || StartPlaceModes[placeRow] != 2
+            placeRow = FindWarfareStartPlaceRow(rowIdx, placeId)
+        endif
         if StartPlaceIds != None && placeRow >= 0 && placeRow < StartPlaceIds.Length
             placeId = StartPlaceIds[placeRow]
         endif
-    endif
-    int sBtn = 0
-    if SurvivalPickMsg != None
-        sBtn = SurvivalPickMsg.Show()
-    endif
-    int survVal = 0
-    if sBtn == 1
-        survVal = 1
-    endif
-    SetStartCardBackdrop(false)
-    if GameModeGlobal != None
-        GameModeGlobal.SetValue(modeVal as float)
-    endif
-    if StoryLineGlobal != None
-        StoryLineGlobal.SetValue(storyBtn as float)
-    endif
-    if SurvivalStartGlobal != None
-        SurvivalStartGlobal.SetValue(survVal as float)
-    endif
-    if SurvivalLockedGlobal != None
-        SurvivalLockedGlobal.SetValue(survVal as float)
-    endif
-    if StartDifficultyGlobal != None
-        StartDifficultyGlobal.SetValue(diff as float)
-    endif
-    if WarfareFactionGlobal != None
-        WarfareFactionGlobal.SetValue(pickedSlot as float)
-    endif
-    if WarfareStartIndexGlobal != None
-        WarfareStartIndexGlobal.SetValue(rowIdx as float)
-    endif
-    if StartPlaceRowGlobal != None
-        StartPlaceRowGlobal.SetValue(placeRow as float)
-    endif
-    if StartChoiceDoneGlobal != None
-        StartChoiceDoneGlobal.SetValue(1.0)
     endif
     FO4SF_HardcoreQuest hc = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm") as FO4SF_HardcoreQuest
     if hc != None
@@ -1922,7 +2017,7 @@ int Function RunModeChoiceChain(Actor player)
     if modeVal == 2
         Trace("warfare pick faction=" + pickedSlot + " start=" + placeId + " difficulty=" + diff)
     endif
-    Trace("start record mode=" + modeTag + " story=" + storyId + " faction=" + pickedSlot + " place=" + placeId + " survival=" + survVal + " difficulty=" + diff + " backdrop=" + BackdropName())
+    Trace("start record mode=" + modeTag + " story=" + storyId + " faction=" + pickedSlot + " place=" + placeId + " survival=" + survVal + " difficulty=" + diff + " backdrop=" + effectiveBackdrop)
     AdvanceTo(5)
     if modeVal == 1
         if startRoomMoves > 0 || usedNeutralSpot

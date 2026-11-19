@@ -702,6 +702,7 @@ def stage(a):
                         "o2_fill": o2_fill_option(a),
                         "fade_hold": not bool(getattr(a, "no_fade_hold", False)),
                         "start_choice_backdrop": getattr(a, "start_choice_backdrop", None) or "empty_cell",
+                        "show_unavailable_starts": bool(getattr(a, "show_unavailable_starts", 0)),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -1164,8 +1165,10 @@ def main(argv=None):
                         "on by default with the reset)")
     s.add_argument("--no-fade-hold", action="store_true",
                    help="disable pre-world start room setup and enter Vault 111 directly")
-    s.add_argument("--start-choice-backdrop", choices=("empty_cell", "title_card", "none"), default=None,
-                   help="N2 backdrop variant (R5): empty_cell (default), title_card (FO4SF_StartCardMenu), or none")
+    s.add_argument("--start-choice-backdrop", choices=("empty_cell", "title_card", "setup_menu", "none"), default=None,
+                   help="N2/S1 backdrop variant (R5): empty_cell (default), title_card (FO4SF_StartCardMenu), setup_menu (FO4SF_SetupMenu), or none")
+    s.add_argument("--show-unavailable-starts", type=int, choices=(0, 1), default=0,
+                   help="S3 unavailable-start policy: 0 leaves available:false rows off (default), 1 displays them greyed out on FO4SF_SetupMenu")
     s.add_argument("--warfare-starts", default=None,
                    help="path to warfare_starts.json (default: src/fo4sf/core/warfare_starts.json)")
     s.add_argument("--start-places", default=None,

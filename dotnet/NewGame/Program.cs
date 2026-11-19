@@ -154,7 +154,7 @@ static class NewGame
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
     public const int MaxMessageButtons = 7;
-    public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, DefaultStartChoiceBackdrop = BackdropEmptyCell;
+    public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, BackdropSetupMenu = 3, DefaultStartChoiceBackdrop = BackdropEmptyCell;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
     public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" };
@@ -757,7 +757,13 @@ static class NewGame
                 _ => throw new Refusal($"start place '{pid}': invalid mode '{modeStr}'"),
             };
             bool available = el.TryGetProperty("available", out var avEl) && avEl.GetBoolean();
-            if (!available) continue;   // N2: unbuilt future rows stay in table metadata but are never offered in game
+            if (!available)
+            {
+                string reason = el.TryGetProperty("unavailable_reason", out var urEl) ? (urEl.GetString()?.Trim() ?? "") : "";
+                if (reason.Length == 0 || reason.Contains('\n') || reason.Contains('\r'))
+                    throw new Refusal($"start place '{pid}': available=false requires a non-empty single-line unavailable_reason");
+                continue;   // N2 / S3: unbuilt future rows stay in table metadata with 1-line reason but are never offered as loadable targets
+            }
 
             string plg = el.GetProperty("plugin").GetString()?.Trim() ?? "";
             bool isPort = string.Equals(plg, PortPlugin, StringComparison.OrdinalIgnoreCase);
@@ -850,8 +856,9 @@ static class NewGame
     {
         null or "" or "empty_cell" or "1" => BackdropEmptyCell,
         "title_card" or "2" => BackdropTitleCard,
+        "setup_menu" or "3" => BackdropSetupMenu,
         "none" or "0" => BackdropNone,
-        _ => throw new Refusal($"--start-choice-backdrop must be empty_cell, title_card, or none (got '{raw}')"),
+        _ => throw new Refusal($"--start-choice-backdrop must be empty_cell, title_card, setup_menu, or none (got '{raw}')"),
     };
 
     static void RefuseForbiddenOutDir(string outDir)
@@ -919,7 +926,7 @@ static class NewGame
                 throw new Refusal("--start-places needs a JSON path");
             var bdRaw = ArgOrNull(a, "--start-choice-backdrop");
             if (a.Contains("--start-choice-backdrop") && (bdRaw is null || bdRaw.StartsWith("--")))
-                throw new Refusal("--start-choice-backdrop needs empty_cell, title_card, or none");
+                throw new Refusal("--start-choice-backdrop needs empty_cell, title_card, setup_menu, or none");
             int backdrop = ParseStartChoiceBackdrop(bdRaw);
             return new(
                 ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
@@ -2511,13 +2518,18 @@ static class NewGame
             !Options.From(new[] { "--require-persistent-anchor" }).RequirePersistentAnchor) { Console.WriteLine("FAIL  the anchor option"); return 1; }
         try { Options.From(new[] { "--allow-temporary-anchor", "--require-persistent-anchor" }); Console.WriteLine("FAIL  options accepted both anchor options"); return 1; }
         catch (Refusal e) { Console.WriteLine($"refused as expected (both anchor options): {e.Message}"); }
+        if (plain.StartChoiceBackdrop != BackdropEmptyCell ||
+            Options.From(new[] { "--start-choice-backdrop", "setup_menu" }).StartChoiceBackdrop != BackdropSetupMenu ||
+            Options.From(new[] { "--start-choice-backdrop", "title_card" }).StartChoiceBackdrop != BackdropTitleCard)
+            { Console.WriteLine("FAIL  the start-choice-backdrop options"); return 1; }
         var keep = plain with { ClearInventory = false };
         var suit = plain with { VaultSuit = SuitEdid };
         var variants = new (string Name, string Ids, Options O)[]
         {
             ("keep", idsPath, keep), ("suit", idsPath, suit),
             ("lift", idsPath, lift), ("liftkeep", idsPath, liftKeep), ("liftnoo2", idsPath, liftNoO2),
-            ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }), ("nofadehold", idsPath, plain with { FadeHold = false }),
+            ("default", idsPath, plain), ("setupmenu", idsPath, plain with { StartChoiceBackdrop = BackdropSetupMenu }),
+            ("nolooks", idsPath, plain with { Looks = false }), ("nofadehold", idsPath, plain with { FadeHold = false }),
             ("debug0", idsPath, plain with { MQ101Debug = 0 }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nowrite", idsPath, plain with { DebugAfterHold = 0 }),
             ("debug10", idsPath, plain with { MQ101Debug = 10 }),   // the first build's value, still buildable on purpose

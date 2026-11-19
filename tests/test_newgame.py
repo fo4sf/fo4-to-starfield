@@ -2800,6 +2800,252 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 self.assertFalse(chargen_state[0])
                 self.assertEqual(cur_stage[0], 210)
 
+    def test_s1_s2_s3_s4_setup_menu_swap_parity_fallback_and_study_docs(self):
+        from types import SimpleNamespace
+        from fo4sf.core import start_places as sp
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "ResetInventory",
+            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
+            "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+        )
+        vars_csv = (
+            "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, h00SkipLoading, h00SkipMap, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+        )
+        compiled = compile(translated_functions(psc, funcs, vars_csv), PSC, "exec")
+        rows = sp.load_start_places()
+
+        def run_flow(backdrop_val: int, mode_is_warfare: bool, survival_on: bool, diff_val: int, native_setup_ack: bool = True):
+            store = {
+                "StartCardOpen": 0.0,
+                "GameMode": 0.0,
+                "StoryLine": 0.0,
+                "SurvivalStart": 0.0,
+                "SurvivalLocked": 0.0,
+                "StartDifficulty": 0.0,
+                "WarfareFaction": -1.0,
+                "WarfareStartIndex": -1.0,
+                "StartChoiceDone": 0.0,
+                "StartPlaceRow": 0.0,
+            }
+
+            def make_glob(key):
+                def _set(v):
+                    store[key] = float(v)
+                    if key == "StartCardOpen" and float(v) >= 1.5 and native_setup_ack:
+                        # Native FO4SF_SetupMenu opens (ack 3.0) and commits exact SetupScreenModel payload!
+                        model = sp.SetupScreenModel(rows)
+                        if mode_is_warfare:
+                            model.adjust_row(0, 1)
+                        if survival_on:
+                            model.adjust_row(3, 1)
+                        while model.difficulty != diff_val:
+                            model.adjust_row(4, 1)
+                        payload = model.confirm()
+                        assert payload is not None
+                        store["GameMode"] = float(payload.mode_val)
+                        store["StoryLine"] = float(payload.story_choice_idx)
+                        store["SurvivalStart"] = float(payload.survival)
+                        store["SurvivalLocked"] = float(payload.survival)
+                        store["StartDifficulty"] = float(payload.difficulty)
+                        store["WarfareFaction"] = float(payload.warfare_faction_slot)
+                        store["WarfareStartIndex"] = float(payload.warfare_start_idx)
+                        store["StartPlaceRow"] = float(payload.start_place_row)
+                        store["StartCardOpen"] = 3.0
+                        store["StartChoiceDone"] = 1.0
+
+                return SimpleNamespace(GetValue=lambda: store[key], SetValue=_set)
+
+            logs, cur_stage, msg_calls = [], [0], []
+            start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+            vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+            sanctuary_cell = SimpleNamespace(GetFormID=lambda: 0x03001000)
+            sanctuary_marker = SimpleNamespace(
+                GetFormID=lambda: 0x030A775A,
+                GetParentCell=lambda: sanctuary_cell,
+                GetWorldSpace=lambda: "CommonwealthWorld",
+                Enable=lambda *a: None,
+                MoveTo=lambda *a: None,
+                SetPosition=lambda *a: None,
+            )
+            player = SimpleNamespace(
+                pos=(0.0, 0.0, 0.0),
+                cell="StartRoomCell",
+                interior=True,
+                GetPositionX=lambda: player.pos[0],
+                GetPositionY=lambda: player.pos[1],
+                GetPositionZ=lambda: player.pos[2],
+                SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                SetAngle=lambda *a: None,
+                MoveTo=lambda ref, *rest: (
+                    setattr(player, "cell", ref.GetParentCell()),
+                    setattr(player, "interior", ref is not sanctuary_marker),
+                ),
+                GetParentCell=lambda: player.cell,
+                GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
+                IsInInterior=lambda: player.interior,
+                Is3DLoaded=lambda: True,
+                GetItemCount=lambda *a: 0,
+                RemoveAllItems=lambda *a: None,
+                AddItem=lambda *a: None,
+                EquipItem=lambda *a: None,
+                IsEquipped=lambda *a: True,
+                GetValue=lambda av: 100.0,
+                ModValue=lambda av, d: None,
+                AddToFaction=lambda f: None,
+            )
+            ns = dict(
+                FadeHold=True, StartChoiceBackdrop=backdrop_val, StartLoadTimeout=15.0, LooksWait=0.0, RaceMenuMode=2,
+                ClearInventory=True, VaultSuitId=0, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
+                SurfaceWait=1.0, SurfaceTries=3, FallDrop=3.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+                ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=0.0,
+                AnchorX=0.0, AnchorY=0.0, AnchorZ=0.0, PodX=0.0, PodY=0.0, PodZ=0.0, PodLift=0.3, PodHeading=0.0,
+                ExitAnchorId=0x0A7759, CorePlugin="FO4TerrainCore.esm",
+                VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
+                faded=False, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+                loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False,
+                h00SkipLoading=False, h00SkipMap=False,
+                modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
+                applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+                exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+                StartRoomMarkerRef=start_room_marker,
+                PipboyWristArmor=SimpleNamespace(),
+                PipboyAcquiredGlobal=SimpleNamespace(SetValue=lambda v: None),
+                StartCardOpenGlobal=make_glob("StartCardOpen"),
+                StartChoiceDoneGlobal=make_glob("StartChoiceDone"),
+                StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                GameModeGlobal=make_glob("GameMode"),
+                StoryLineGlobal=make_glob("StoryLine"),
+                StartPlaceRowGlobal=make_glob("StartPlaceRow"),
+                SurvivalStartGlobal=make_glob("SurvivalStart"),
+                SurvivalLockedGlobal=make_glob("SurvivalLocked"),
+                StartDifficultyGlobal=make_glob("StartDifficulty"),
+                WarfareFactionGlobal=make_glob("WarfareFaction"),
+                WarfareStartIndexGlobal=make_glob("WarfareStartIndex"),
+                H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                ModePickMsg=SimpleNamespace(Show=lambda: (msg_calls.append("ModePickMsg"), 1 if mode_is_warfare else 0)[1]),
+                StoryLineMsg=SimpleNamespace(Show=lambda: (msg_calls.append("StoryLineMsg"), 0)[1]),
+                SurvivalPickMsg=SimpleNamespace(Show=lambda: (msg_calls.append("SurvivalPickMsg"), 1 if survival_on else 0)[1]),
+                WarfareDiffMsg=SimpleNamespace(Show=lambda: (msg_calls.append("WarfareDiffMsg"), diff_val)[1]),
+                WarfareGroupMsg=SimpleNamespace(Show=lambda: (msg_calls.append("WarfareGroupMsg"), 0)[1]),
+                WarfareSpotMsg=SimpleNamespace(Show=lambda: 0),
+                StartPickMsg=None,
+                StoryChoiceIds=["fo4_commonwealth"],
+                StartPlaceIds=["fo4_vault111", "minutemen_sanctuary"],
+                StartPlaceModes=[1, 2],
+                StartPlaceStories=["fo4_commonwealth", "none"],
+                StartPlacePlugins=["FO4Port.esm", "FO4TerrainCore.esm"],
+                StartPlaceMarkerIds=[0x805, 0x0A775A],
+                StartPlaceWarfareRows=[-1, 0],
+                WarfareKeys=["minutemen_sanctuary"],
+                WarfareFactionSlots=[0],
+                WarfareDistinctFactionSlots=[0],
+                WarfareMarkerIds=[0x0A775A],
+                WarfareMarkerX=[100.0],
+                WarfareMarkerY=[200.0],
+                WarfareMarkerZ=[95.0],
+                WarfareHeadings=[180.0],
+                WarfareMinDiffs=[0],
+                WarfareMaxDiffs=[3],
+                WarfareBgIndices=[0],
+                WarfareFames=[45.0],
+                WarfareInfamies=[0.0],
+                WarfareKarmas=[150.0],
+                WarfareSquadCaps=[4],
+                WarfareGearRowIndices=[0],
+                WarfareGearPlugins=["Starfield.esm"],
+                WarfareGearIds=[0x100],
+                WarfareGearCounts=[1],
+                WarfareGearEquips=[True],
+                CoreMarkerIds=[0x0A775A],
+                MapMarkerQuestIds=[],
+                Game=SimpleNamespace(
+                    GetPlayer=lambda: player,
+                    ShowFirstPersonGeometry=lambda *a: None,
+                    FadeOutGame=lambda *a: None,
+                    SetInChargen=lambda *a: None,
+                    SetCharGenHUDMode=lambda *a: None,
+                    GetFormFromFile=lambda fid, plg: (
+                        vault_anchor if (fid, plg) == (0x805, "FO4Port.esm")
+                        else sanctuary_marker if (fid, plg) == (0x0A775A, "FO4TerrainCore.esm")
+                        else SimpleNamespace() if plg == "Starfield.esm"
+                        else None
+                    ),
+                ),
+                Utility=SimpleNamespace(Wait=lambda s: None, GetCurrentRealTime=lambda: 10.0),
+                Debug=SimpleNamespace(Notification=lambda *a: None),
+                InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                scannerLayer=None,
+                RegisterForMenuOpenCloseEvent=lambda m: None,
+                UnregisterForMenuOpenCloseEvent=lambda m: None,
+                StartTimer=lambda *a: None,
+                SetStage=lambda n: cur_stage.__setitem__(0, n),
+                GetStage=lambda: cur_stage[0],
+                SetObjectiveDisplayed=lambda *a: None,
+                SetObjectiveCompleted=lambda *a: None,
+                SetActive=lambda *a: None,
+                CompleteQuest=lambda: None,
+                StartLandingQuests=lambda: None,
+                Trace=lambda m: logs.append(m),
+            )
+            exec(compiled, ns)
+            chosen = ns["RunModeChoiceChain"](player)
+            cell_tag = player.cell if isinstance(player.cell, str) else f"0x{player.cell.GetFormID():08X}"
+            return chosen, store, logs, cur_stage[0], msg_calls, cell_tag
+
+        # 1. Exact Variant (a) vs Variant (b) store + start-record + stage parity across Story & Warfare
+        for wf_flag, surv_flag, diff_v, want_stage, want_cell in (
+            (False, True, 1, 10, "VaultCell"),
+            (True, True, 2, 210, sanctuary_cell := None),
+        ):
+            c_a, st_a, logs_a, stg_a, msgs_a, cell_a = run_flow(1, wf_flag, surv_flag, diff_v)
+            c_b, st_b, logs_b, stg_b, msgs_b, cell_b = run_flow(3, wf_flag, surv_flag, diff_v)
+            self.assertEqual(c_a, c_b)
+            self.assertEqual(stg_a, want_stage)
+            self.assertEqual(stg_b, want_stage)
+            self.assertEqual(cell_a, cell_b)
+            self.assertTrue(msgs_a)
+            self.assertEqual(msgs_b, [])  # Variant (b) showed ZERO sequential MessageBox prompts!
+            for k in ("GameMode", "StoryLine", "SurvivalStart", "SurvivalLocked", "StartDifficulty", "WarfareFaction", "WarfareStartIndex", "StartChoiceDone", "StartPlaceRow"):
+                self.assertEqual(st_a[k], st_b[k], k)
+            rec_a = next(l for l in logs_a if l.startswith("start record "))
+            rec_b = next(l for l in logs_b if l.startswith("start record "))
+            self.assertEqual(rec_a.replace("backdrop=empty_cell", "backdrop=setup_menu"), rec_b)
+
+        # 2. R10 fallback: when FO4SF_SetupMenu does not open (no native ack), falls back cleanly to Variant (a) boxes
+        c_fb, st_fb, logs_fb, stg_fb, msgs_fb, _ = run_flow(3, False, False, 1, native_setup_ack=False)
+        self.assertEqual((c_fb, stg_fb), (1, 10))
+        self.assertIn("setup menu unavailable: falling back to empty_cell boxes", logs_fb)
+        self.assertEqual(msgs_fb, ["ModePickMsg", "StoryLineMsg", "SurvivalPickMsg"])
+        self.assertIn(
+            "start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell",
+            logs_fb,
+        )
+
+        # 3. S2 & S4 study documents exist, hold zero local paths, and carry required truth/scope markers
+        s2_doc = read(os.path.join(ROOT, "docs", "newgame", "setup-options-proposal.md"))
+        s4_doc = read(os.path.join(ROOT, "docs", "newgame", "character-looks-study.md"))
+        for doc_txt in (s2_doc, s4_doc):
+            self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", doc_txt))
+        self.assertIn("BUILD NONE OF THE NEW OPTIONS THIS ROUND", s2_doc)
+        for effort_tag in ("**`exists`**", "**`small`**", "**`large`**"):
+            self.assertIn(effort_tag, s2_doc)
+        self.assertIn("STUDY ONLY", s4_doc)
+        self.assertIn("NOT OURS", s4_doc)
+
 
 if __name__ == "__main__":
     unittest.main()
