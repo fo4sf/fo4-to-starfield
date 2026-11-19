@@ -57,6 +57,7 @@ python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2b-pla
 python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why session1-bridge-off
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0 --omit StopPerkSound --allow-omit StopPerkSound
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0
+python scripts/testing/check_lead_sessions.py --log-dir <log-dir> --session 1 --require-all-pass
 ```
 
 ### PASS Lines to Read in Logs (`FO4SFPipboyMenu.log`, `FO4SFCombat.log`, `fo4sf_newgame.0.log`)
@@ -251,6 +252,7 @@ python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/planet/home_world_install.py undo --starfield <starfield-dir>
 python scripts/planet/home_world_install.py status --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
+python scripts/testing/check_lead_sessions.py --log-dir <log-dir> --session 3 --require-all-pass
 ```
 
 ### Stop Point if a Card Fails
@@ -334,6 +336,7 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py install --exp-dir <cw-exp-dir> --starfield <starfield-dir> --pack --plugins <cw-plugins>
 python scripts/game/exp_install.py order --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
+python scripts/testing/check_lead_sessions.py --log-dir <log-dir> --session 4 --require-all-pass
 ```
 
 ### Stop Point if a Card Fails

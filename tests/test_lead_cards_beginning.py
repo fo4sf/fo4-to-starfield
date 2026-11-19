@@ -41,6 +41,7 @@ for _p in (
 import make_core_bundle as mcb  # noqa: E402
 from fo4sf.beginning_pilot import SESSION2_SHEET_PASS_SPECS  # noqa: E402
 from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
+from fo4sf.testing.lead_session_specs import expected_sheet_pass_lines  # noqa: E402
 import tests.test_core_bundle as _tcb  # noqa: E402
 
 # R11 / G1: read ONLY the four card & run-order files owned by gemini/beginning-real (#833)
@@ -762,6 +763,12 @@ def validate_lead_run_order_markdown(
                         errors.append(
                             f"{card_rel} [{stitle}]: Session 2 PASS block diverges from SESSION2_SHEET_PASS_SPECS table"
                         )
+                elif snum in (1, 3, 4):
+                    want_sn = expected_sheet_pass_lines(snum)
+                    if lines != want_sn:
+                        errors.append(
+                            f"{card_rel} [{stitle}]: Session {snum} PASS block diverges from SESSION_PASS_SPECS table"
+                        )
                 for pline in lines:
                     sample = _sample_from_card_line(pline)
                     fixed_toks = _extract_fixed_tokens(pline)
@@ -774,6 +781,12 @@ def validate_lead_run_order_markdown(
                 continue
             if lang_low == "text":
                 has_pass = True
+                if snum in (1, 3, 4):
+                    want_sn = expected_sheet_pass_lines(snum)
+                    if lines != want_sn:
+                        errors.append(
+                            f"{card_rel} [{stitle}]: Session {snum} PASS block diverges from SESSION_PASS_SPECS table"
+                        )
                 for pline in lines:
                     if not any(pline.startswith(pref) for pref in CROSS_BRANCH_PASS_PREFIXES):
                         errors.append(f"{card_rel} [{stitle}]: unrecognized CLI PASS output line: {pline!r}")
