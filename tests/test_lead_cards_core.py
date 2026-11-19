@@ -35,11 +35,15 @@ CONSOLE_VERBS = frozenset({
     "setstage",
     "setgs",
     "set",
+    "getglobalvalue",
     "help",
     "player.additem",
     "additem",
     "setpqv",
     "sqv",
+    "sqs",
+    "getstage",
+    "bat",
     "startquest",
     "stopquest",
 })
@@ -282,7 +286,13 @@ def validate_lead_card_markdown(
 
         for lang, block_body in blocks:
             lang_low = lang.strip().lower()
-            lines = [ln.strip() for ln in block_body.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+            lines = [
+                ln.strip()
+                for ln in block_body.splitlines()
+                if ln.strip()
+                and not ln.strip().startswith("#")
+                and not (lang_low == "bat" and ln.strip().startswith(";"))
+            ]
             if lang_low == "log":
                 has_pass_block = True
                 for pline in lines:
@@ -331,7 +341,15 @@ def validate_lead_card_markdown(
                     continue
 
                 first_word = cline.split()[0].lower()
-                if lang_low == "console" or first_word in CONSOLE_VERBS:
+                if lang_low in ("console", "bat") or first_word in CONSOLE_VERBS:
+                    if lang_low == "console" and re.search(r"[mnv]", cline, re.I):
+                        errors.append(
+                            f"{card_rel} [{card_title}]: P3 forbids M/N/V letters in interactive console line: {cline!r}"
+                        )
+                    if re.match(r"^(?:set|help)\s+FO4SF_", cline, re.I):
+                        errors.append(
+                            f"{card_rel} [{card_title}]: P3 forbids stripped mod GLOB/QUST EditorID in console/bat: {cline!r}"
+                        )
                     parts = cline.split()
                     verb = parts[0].lower()
                     if verb == "coc" and len(parts) >= 2:
@@ -349,6 +367,16 @@ def validate_lead_card_markdown(
                                     errors.append(
                                         f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg}' stage not in any writer Stages"
                                     )
+                        elif re.fullmatch(r"[0-9A-Fa-f]{8}", q_edid):
+                            local_q = int(q_edid, 16) & 0xFFFFFF
+                            if local_q not in writer_fids:
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console 'setstage {q_edid}' local FormID 0x{local_q:06X} not in writer constants"
+                                )
+                            if stg_raw.isdigit() and not any(int(stg_raw, 10) in stgs for stgs in quest_stages.values()):
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg_raw}' stage not in any writer Stages"
+                                )
                         elif q_edid not in writer_edids:
                             errors.append(
                                 f"{card_rel} [{card_title}]: console 'setstage {q_edid}' Quest EditorID not in writer constants"

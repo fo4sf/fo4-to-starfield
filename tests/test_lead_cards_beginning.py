@@ -44,9 +44,10 @@ from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 from fo4sf.testing.lead_session_specs import expected_sheet_pass_lines  # noqa: E402
 import tests.test_core_bundle as _tcb  # noqa: E402
 
-# R11 / G1: read ONLY the four card & run-order files owned by gemini/beginning-real (#833)
+# R11 / G1 / P2: read ONLY the five card & run-order files owned by gemini/beginning-real (#833)
 CARD_PATHS: Tuple[str, ...] = (
     "docs/testing/candidate-2-cards.md",
+    "docs/testing/candidate-2c-card.md",
     "docs/testing/fo4-beginning-pilot.md",
     "docs/testing/sanctuary-workbench-card.md",
     "docs/testing/lead-run-order.md",
@@ -127,11 +128,15 @@ CONSOLE_VERBS = frozenset({
     "setstage",
     "setgs",
     "set",
+    "getglobalvalue",
     "help",
     "player.additem",
     "additem",
     "setpqv",
     "sqv",
+    "sqs",
+    "getstage",
+    "bat",
     "startquest",
     "stopquest",
     "cgf",
@@ -302,6 +307,10 @@ def collect_writer_symbols(repo_root: Path) -> Tuple[Set[str], Set[int], Dict[st
             txt = cpp.read_text(encoding="utf-8", errors="replace")
             for mm in re.finditer(r'"(FO4SF_[A-Za-z0-9_]+)"', txt):
                 edids.add(mm.group(1))
+    for py_script in sorted((repo_root / "scripts" / "ui").glob("*.py")):
+        txt = py_script.read_text(encoding="utf-8", errors="replace")
+        for mm in re.finditer(r'"(FO4SF_[A-Za-z0-9_]+)"', txt):
+            edids.add(mm.group(1))
 
     return edids, form_ids, quest_stages
 
@@ -414,6 +423,7 @@ def validate_lead_card_markdown(
     writer_edids: Set[str],
     writer_fids: Set[int],
     quest_stages: Dict[str, Set[int]],
+    bundle_fixtures: Optional[Dict[str, Path]] = None,
 ) -> List[str]:
     errors: List[str] = []
     top_header = "\n".join(md_text.splitlines()[:12])
@@ -451,7 +461,13 @@ def validate_lead_card_markdown(
 
         for lang, block_body in blocks:
             lang_low = lang.strip().lower()
-            lines = [ln.strip() for ln in block_body.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+            lines = [
+                ln.strip()
+                for ln in block_body.splitlines()
+                if ln.strip()
+                and not ln.strip().startswith("#")
+                and not (lang_low == "bat" and ln.strip().startswith(";"))
+            ]
             if lang_low == "log":
                 has_pass_block = True
                 for pline in lines:
@@ -476,6 +492,24 @@ def validate_lead_card_markdown(
                 if "exp_install.py uninstall" in cline:
                     has_undo = True
 
+                if bundle_fixtures is not None:
+                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bc]-[^>\s]+>)", cline)
+                    if m_ver:
+                        b_ph = m_ver.group(1)
+                        if b_ph not in bundle_fixtures:
+                            errors.append(f"{card_rel} [{card_title}]: bundle {b_ph} has no registered verify fixture")
+                        else:
+                            port_p = bundle_fixtures.get("__port__")
+                            v_probs, _ = mcb.verify_bundle(
+                                str(bundle_fixtures[b_ph]),
+                                port_esm=str(port_p) if port_p else None,
+                            )
+                            if v_probs:
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: bundle {b_ph} refused by make_core_bundle.py verify "
+                                    f"({len(v_probs)} problem(s); first: {v_probs[0]})"
+                                )
+
                 if cline.startswith(("python ", "dotnet ")):
                     sanitized = re.sub(r"<[^>\s]+>", "PLACEHOLDER", cline)
                     tokens = shlex.split(sanitized, posix=True)
@@ -494,12 +528,20 @@ def validate_lead_card_markdown(
                     continue
 
                 first_word = cline.split()[0].lower()
-                if lang_low == "console" or first_word in CONSOLE_VERBS:
+                if lang_low in ("console", "bat") or first_word in CONSOLE_VERBS:
+                    if lang_low == "console" and re.search(r"[mnv]", cline, re.I):
+                        errors.append(
+                            f"{card_rel} [{card_title}]: P3 forbids M/N/V letters in interactive console line: {cline!r}"
+                        )
+                    if re.match(r"^(?:set|help)\s+FO4SF_", cline, re.I):
+                        errors.append(
+                            f"{card_rel} [{card_title}]: P3 forbids stripped mod GLOB/QUST EditorID in console/bat: {cline!r}"
+                        )
                     parts = cline.split()
                     verb = parts[0].lower()
                     if verb == "coc" and len(parts) >= 2:
                         cell_edid = parts[1]
-                        if cell_edid not in writer_edids:
+                        if cell_edid not in writer_edids and cell_edid not in CROSS_BRANCH_COC_TARGETS:
                             errors.append(
                                 f"{card_rel} [{card_title}]: console 'coc {cell_edid}' EditorID not in writer constants"
                             )
@@ -512,6 +554,16 @@ def validate_lead_card_markdown(
                                     errors.append(
                                         f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg}' stage not in any writer Stages"
                                     )
+                        elif re.fullmatch(r"[0-9A-Fa-f]{8}", q_edid):
+                            local_q = int(q_edid, 16) & 0xFFFFFF
+                            if local_q not in writer_fids:
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console 'setstage {q_edid}' local FormID 0x{local_q:06X} not in writer constants"
+                                )
+                            if stg_raw.isdigit() and not any(int(stg_raw, 10) in stgs for stgs in quest_stages.values()):
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg_raw}' stage not in any writer Stages"
+                                )
                         elif q_edid not in writer_edids:
                             errors.append(
                                 f"{card_rel} [{card_title}]: console 'setstage {q_edid}' Quest EditorID not in writer constants"
@@ -521,6 +573,25 @@ def validate_lead_card_markdown(
                             if stg not in quest_stages[q_edid.lower()]:
                                 errors.append(
                                     f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg}' stage not in writer Stages"
+                                )
+                    elif verb == "set" and len(parts) >= 2:
+                        if len(parts) < 4 or parts[2].lower() != "to":
+                            errors.append(
+                                f"{card_rel} [{card_title}]: console 'set' requires 'set <hex-formid> to <val>': {cline!r}"
+                            )
+                        elif re.fullmatch(r"[0-9A-Fa-f]{8}", parts[1]):
+                            local_fid = int(parts[1], 16) & 0xFFFFFF
+                            if local_fid not in writer_fids:
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console 'set {parts[1]}' local FormID 0x{local_fid:06X} not in writer constants"
+                                )
+                    elif verb in ("getglobalvalue", "sqv", "sqs", "startquest", "stopquest") and len(parts) >= 2:
+                        arg1 = parts[1]
+                        if re.fullmatch(r"[0-9A-Fa-f]{8}", arg1):
+                            local_fid = int(arg1, 16) & 0xFFFFFF
+                            if local_fid not in writer_fids:
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console '{verb} {arg1}' local FormID 0x{local_fid:06X} not in writer constants"
                                 )
                     elif verb == "help" and len(parts) >= 2:
                         rest_help = cline.split(None, 1)[1].lstrip()
@@ -642,6 +713,8 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
     return {
         "<cand2b-player-bundle>": cand2b_player,
         "<cand2b-test-bundle>": cand2b_test,
+        "<cand2c-player-bundle>": cand2b_player,
+        "<cand2c-test-bundle>": cand2b_test,
         "<cand2-player-bundle>": cand2_broken,
         "__port__": port_esm,
     }
@@ -754,7 +827,13 @@ def validate_lead_run_order_markdown(
 
         for lang, block_body in blocks:
             lang_low = lang.strip().lower()
-            lines = [ln.strip() for ln in block_body.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+            lines = [
+                ln.strip()
+                for ln in block_body.splitlines()
+                if ln.strip()
+                and not ln.strip().startswith("#")
+                and not (lang_low == "bat" and ln.strip().startswith(";"))
+            ]
             if lang_low == "log":
                 has_pass = True
                 if snum == 2:
@@ -854,7 +933,15 @@ def validate_lead_run_order_markdown(
                     continue
 
                 first_word = cline.split()[0].lower()
-                if lang_low == "console" or first_word in CONSOLE_VERBS:
+                if lang_low in ("console", "bat") or first_word in CONSOLE_VERBS:
+                    if lang_low == "console" and re.search(r"[mnv]", cline, re.I):
+                        errors.append(
+                            f"{card_rel} [{stitle}]: P3 forbids M/N/V letters in interactive console line: {cline!r}"
+                        )
+                    if re.match(r"^(?:set|help)\s+FO4SF_", cline, re.I):
+                        errors.append(
+                            f"{card_rel} [{stitle}]: P3 forbids stripped mod GLOB/QUST EditorID in console/bat: {cline!r}"
+                        )
                     cparts = cline.split()
                     verb = cparts[0].lower()
                     if verb == "coc" and len(cparts) >= 2:
@@ -866,10 +953,21 @@ def validate_lead_run_order_markdown(
                         if re.fullmatch(r"<[A-Za-z0-9_-]+>", q_edid):
                             if stg_raw.isdigit() and not any(int(stg_raw, 10) in stgs for stgs in quest_stages.values()):
                                 errors.append(f"{card_rel} [{stitle}]: unknown stage {q_edid} {stg_raw}")
+                        elif re.fullmatch(r"[0-9A-Fa-f]{8}", q_edid):
+                            local_q = int(q_edid, 16) & 0xFFFFFF
+                            if local_q not in writer_fids:
+                                errors.append(f"{card_rel} [{stitle}]: unknown quest FormID {q_edid!r}")
+                            if stg_raw.isdigit() and not any(int(stg_raw, 10) in stgs for stgs in quest_stages.values()):
+                                errors.append(f"{card_rel} [{stitle}]: unknown stage {q_edid} {stg_raw}")
                         elif q_edid not in writer_edids:
                             errors.append(f"{card_rel} [{stitle}]: unknown quest {q_edid!r}")
                         elif q_edid.lower() in quest_stages and stg_raw.isdigit() and int(stg_raw, 10) not in quest_stages[q_edid.lower()]:
                             errors.append(f"{card_rel} [{stitle}]: unknown stage {q_edid} {stg_raw}")
+                    elif verb in ("getglobalvalue", "sqv", "sqs", "startquest", "stopquest") and len(cparts) >= 2:
+                        if re.fullmatch(r"[0-9A-Fa-f]{8}", cparts[1]):
+                            local_fid = int(cparts[1], 16) & 0xFFFFFF
+                            if local_fid not in writer_fids:
+                                errors.append(f"{card_rel} [{stitle}]: unknown FormID {cparts[1]!r}")
                     elif verb == "help" and len(cparts) >= 2:
                         rest_help = cline.split(None, 1)[1].lstrip()
                         if not rest_help.startswith('"'):
@@ -905,6 +1003,7 @@ class LeadCardsBeginningTests(unittest.TestCase):
             CARD_PATHS,
             (
                 "docs/testing/candidate-2-cards.md",
+                "docs/testing/candidate-2c-card.md",
                 "docs/testing/fo4-beginning-pilot.md",
                 "docs/testing/sanctuary-workbench-card.md",
                 "docs/testing/lead-run-order.md",
@@ -938,8 +1037,39 @@ class LeadCardsBeginningTests(unittest.TestCase):
                     writer_edids=self.writer_edids,
                     writer_fids=self.writer_fids,
                     quest_stages=self.quest_stages,
+                    bundle_fixtures=self.bundle_fixtures,
                 )
             self.assertEqual(errors, [], "\n".join(errors))
+
+    def test_p2_p3_candidate_2c_card_order_and_zero_mnv_console_guard(self) -> None:
+        c2c = (ROOT / "docs/testing/candidate-2c-card.md").read_text(encoding="utf-8")
+        headings = re.findall(r"(?m)^##\s+(Card\s+2c-\d+[^\r\n]*)$", c2c)
+        self.assertEqual(len(headings), 5)
+        self.assertTrue(headings[0].startswith("Card 2c-1"))
+        self.assertTrue(headings[1].startswith("Card 2c-2"))
+        self.assertTrue(headings[2].startswith("Card 2c-3"))
+        self.assertTrue(headings[3].startswith("Card 2c-4"))
+        self.assertTrue(headings[4].startswith("Card 2c-5"))
+        for req in ("sidecar-install", "sidecar-undo", "start record", "07000890", "07000897", "Arm=1", "OWNER TEST"):
+            self.assertIn(req, c2c)
+
+        # Mutate a fenced console line to contain 'v' (`sqv 12000810`) and stripped `set FO4SF_H00_SkipMapSetup to 1`
+        bad_c2c = c2c.replace("\nsqs <quest-hex>\n", "\nsqv 12000810\n", 1).replace(
+            "\nbat h00a\n", "\nset FO4SF_H00_SkipMapSetup to 1\n", 1
+        )
+        errs = validate_lead_card_markdown(
+            "docs/testing/candidate-2c-card.md",
+            bad_c2c,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
+        self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
 
     def test_h1_h5_run_sheet_bundle_verify_fixture_and_preflight_guard(self) -> None:
         port_p = str(self.bundle_fixtures["__port__"])

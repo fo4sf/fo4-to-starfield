@@ -299,6 +299,84 @@ class LeadSessionJudgeTests(unittest.TestCase):
                 k.split("/", 1)[1]: v for k, v in before_root.items() if k.startswith("logs/")
             })
 
+    def test_session4_requires_final_uninstalled_after_nuka_world_install(self) -> None:
+        """Grok review #5972170433 finding 1: pre-FH / pre-NW `uninstalled` must NOT satisfy post-NW undo."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_dir = Path(tmp) / "logs"
+            log_dir.mkdir()
+            # Real 4C sequence WITH pre-FH and inter-FH-NW `uninstalled`, but missing final post-NW `uninstalled`.
+            s4_left_nw_installed = "\n".join(
+                [
+                    "install batch synthetic-fo4dlc-stage: ['FO4DLC.esm', 'FO4DLC - Main.ba2', 'FO4DLC - Textures.ba2', "
+                    "'FO4DLCTextures2.esm', 'FO4DLCTextures2 - Textures.ba2', 'FO4DLCTextures3.esm', "
+                    "'FO4DLCTextures3 - Textures.ba2'] -> /synth-game-dir/Data (7.10 GB)",
+                    "installed. Undo with: python deploy_starfield.py uninstall --starfield /synth-game-dir --plugin-name FO4DLC.esm",
+                    "installed port as recorded: FO4Port.esm deadbeef",
+                    "installed wb5 session: added=8, plugins=['FO4DLC.esm', 'FO4DLCTextures2.esm', "
+                    "'FO4DLCTextures3.esm', 'FO4TerrainCore_DLC.esm']",
+                    "uninstalled wb5 session: removed=8, restored_fo4dlc=False",
+                    "uninstalled",
+                    "installed 3 files, plugins ['FO4WorldFarHarbor.esm', 'FO4WorldFarHarbor_Mars.esm']",
+                    "uninstalled",
+                    "installed 3 files, plugins ['FO4WorldNukaWorld.esm', 'FO4WorldNukaWorld_Mars.esm']",
+                ]
+            ) + "\n"
+            _write_files(log_dir, {"session4_cli.txt": s4_left_nw_installed})
+
+            report_bad = evaluate_session_logs(log_dir, sessions=(4,))
+            self.assertFalse(report_bad["all_pass"])
+            self.assertEqual(report_bad["sessions"]["4"]["verdict"], "FAIL")
+            s4_cards = {c["card"]: c for c in report_bad["sessions"]["4"]["cards"]}
+            self.assertEqual(s4_cards["Sub-session 4C"]["verdict"], "FAIL")
+            missing_4c = [r["expected"] for r in s4_cards["Sub-session 4C"]["pass_lines"] if r["status"] == "MISSING"]
+            self.assertEqual(missing_4c, ["uninstalled"])
+
+            # Appending final post-NW `uninstalled` + Commonwealth restore passes cleanly.
+            _write_files(
+                log_dir,
+                {
+                    "session4_cli.txt": s4_left_nw_installed
+                    + "uninstalled\ninstalled 3 files, plugins ['FO4TerrainCore.esm', 'FO4TerrainCore_Mars.esm']\n"
+                },
+            )
+            report_ok = evaluate_session_logs(log_dir, sessions=(4,))
+            self.assertTrue(report_ok["all_pass"])
+            self.assertEqual(report_ok["sessions"]["4"]["verdict"], "PASS")
+
+    def test_session3_rejects_cross_file_exp_install_and_planet_probe_lines(self) -> None:
+        """Grok review #5972170433 finding 2: Session 4 / planet_probe lines must NOT satisfy Session 3."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_dir = Path(tmp) / "logs"
+            log_dir.mkdir()
+            _write_files(
+                log_dir,
+                {
+                    "00_planet_probe.txt": "make_planet_probe.py stage\ncheck: ok\n",
+                    # Session 3 installed FO4SFHome.esm twice (default + WB1) and forgot final undo/status!
+                    "01_session3_cli.txt": "\n".join(
+                        [
+                            "installed 3 files, plugins ['FO4SFHome.esm', 'FO4TerrainCore_Home.esm']",
+                            "uninstalled",
+                            "nothing installed",
+                            "installed 3 files, plugins ['FO4SFHome.esm', 'FO4TerrainCore_Home.esm']",
+                        ]
+                    )
+                    + "\n",
+                    # Session 4 ran exp_install.py status (`nothing installed`) + uninstall (`uninstalled`)
+                    "02_session4_cli.txt": "nothing installed\n" + SYNTHETIC_SESSION_4_LOGS["session4_cli.txt"],
+                },
+            )
+            report = evaluate_session_logs(log_dir, sessions=(3, 4))
+            self.assertEqual(report["sessions"]["4"]["verdict"], "PASS")
+            self.assertEqual(report["sessions"]["3"]["verdict"], "FAIL")
+            s3_missing = [
+                r["expected"]
+                for c in report["sessions"]["3"]["cards"]
+                for r in c["pass_lines"]
+                if r["status"] == "MISSING"
+            ]
+            self.assertEqual(s3_missing, ["check: ok", "uninstalled", "nothing installed"])
+
 
 if __name__ == "__main__":
     unittest.main()

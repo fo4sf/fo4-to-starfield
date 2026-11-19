@@ -497,6 +497,173 @@ def _format_hit(rel: str, lineno: int, text: str) -> str:
     return f"{rel}:{lineno}: {text}"
 
 
+_S3_INSTALL_SPEC_LINE = "installed 3 files, plugins ['FO4SFHome.esm', 'FO4TerrainCore_Home.esm']"
+_S4_WB5_INSTALL_SPEC_LINE = (
+    "installed wb5 session: added=8, plugins=['FO4DLC.esm', 'FO4DLCTextures2.esm', "
+    "'FO4DLCTextures3.esm', 'FO4TerrainCore_DLC.esm']"
+)
+_S4_FH_INSTALL_SPEC_LINE = "installed 3 files, plugins ['FO4WorldFarHarbor.esm', 'FO4WorldFarHarbor_Mars.esm']"
+_S4_NW_INSTALL_SPEC_LINE = "installed 3 files, plugins ['FO4WorldNukaWorld.esm', 'FO4WorldNukaWorld_Mars.esm']"
+_S4_FILE_SIGNATURE_RE = re.compile(
+    r"(?:FO4DLC\.esm|wb5 session:|FO4WorldFarHarbor\.esm|FO4WorldNukaWorld\.esm)"
+)
+_PLANET_PROBE_SIGNATURE_RE = re.compile(r"(?:make_planet_probe|FO4PlanetProbe)", re.IGNORECASE)
+
+
+def _match_session3_pass_specs(
+    specs: Sequence[SessionPassSpec],
+    all_lines: Sequence[Tuple[str, int, str]],
+) -> List[Optional[Tuple[str, int, str]]]:
+    """Match Session 3 CLI PASS lines with file-scoping and post-last-install undo ordering."""
+    s3_install_pat = compile_spec_pattern(_S3_INSTALL_SPEC_LINE, "text")
+    files_with_s3: set[str] = set()
+    files_with_s4: set[str] = set()
+    files_with_probe: set[str] = set()
+    for rel, _ln, txt in all_lines:
+        if s3_install_pat.search(txt):
+            files_with_s3.add(rel)
+        if _S4_FILE_SIGNATURE_RE.search(txt):
+            files_with_s4.add(rel)
+        if _PLANET_PROBE_SIGNATURE_RE.search(txt):
+            files_with_probe.add(rel)
+
+    # Exclude pure Session 4 CLI files that never install FO4SFHome.esm.
+    scoped: List[Tuple[str, int, str]] = [
+        item for item in all_lines if not (item[0] in files_with_s4 and item[0] not in files_with_s3)
+    ]
+
+    install_indices = [i for i, (_r, _l, txt) in enumerate(scoped) if s3_install_pat.search(txt)]
+    first_install_idx = install_indices[0] if install_indices else None
+    last_install_idx = install_indices[-1] if install_indices else None
+
+    # If a combined transcript runs Session 4 after Session 3, cap Session 3 undo search before Session 4 starts.
+    post_install_end = len(scoped)
+    if last_install_idx is not None:
+        for idx in range(last_install_idx + 1, len(scoped)):
+            if _S4_FILE_SIGNATURE_RE.search(scoped[idx][2]):
+                post_install_end = idx
+                break
+
+    results: List[Optional[Tuple[str, int, str]]] = []
+    undo_hit_idx: Optional[int] = None
+    for spec in specs:
+        pat = compile_spec_pattern(spec.line, spec.block_kind)
+        hit: Optional[Tuple[str, int, str]] = None
+        if spec.line == "check: ok":
+            limit = first_install_idx if first_install_idx is not None else len(scoped)
+            for idx in range(0, limit):
+                rel, ln, txt = scoped[idx]
+                if rel in files_with_probe and rel not in files_with_s3:
+                    continue
+                if pat.search(txt):
+                    hit = (rel, ln, txt)
+                    break
+        elif spec.line == _S3_INSTALL_SPEC_LINE:
+            if first_install_idx is not None:
+                hit = scoped[first_install_idx]
+        elif spec.line == "uninstalled":
+            # Must follow the LAST FO4SFHome.esm install so neither Session 4's exp_install.py
+            # nor an earlier WB1/WB2/WL1 swap can mask an un-undone final Home install.
+            if last_install_idx is not None:
+                for idx in range(last_install_idx + 1, post_install_end):
+                    rel, ln, txt = scoped[idx]
+                    if files_with_s3 and rel not in files_with_s3 and (rel in files_with_s4 or rel in files_with_probe):
+                        continue
+                    if pat.search(txt):
+                        hit = (rel, ln, txt)
+                        undo_hit_idx = idx
+                        break
+        elif spec.line == "nothing installed":
+            if undo_hit_idx is not None:
+                for idx in range(undo_hit_idx + 1, post_install_end):
+                    rel, ln, txt = scoped[idx]
+                    if pat.search(txt):
+                        hit = (rel, ln, txt)
+                        break
+        else:
+            for item in scoped:
+                if pat.search(item[2]):
+                    hit = item
+                    break
+        results.append(hit)
+    return results
+
+
+def _match_session4_pass_specs(
+    specs: Sequence[SessionPassSpec],
+    all_lines: Sequence[Tuple[str, int, str]],
+) -> List[Optional[Tuple[str, int, str]]]:
+    """Match Session 4 CLI PASS lines with sub-session ordering and post-Nuka-World final undo."""
+    s3_install_pat = compile_spec_pattern(_S3_INSTALL_SPEC_LINE, "text")
+    files_with_s3: set[str] = set()
+    files_with_s4: set[str] = set()
+    for rel, _ln, txt in all_lines:
+        if s3_install_pat.search(txt):
+            files_with_s3.add(rel)
+        if _S4_FILE_SIGNATURE_RE.search(txt):
+            files_with_s4.add(rel)
+
+    # Exclude pure Session 3 CLI files so `home_world_install.py undo` never satisfies Session 4.
+    scoped: List[Tuple[str, int, str]] = [
+        item for item in all_lines if not (item[0] in files_with_s3 and item[0] not in files_with_s4)
+    ]
+
+    wb5_pat = compile_spec_pattern(_S4_WB5_INSTALL_SPEC_LINE, "text")
+    fh_pat = compile_spec_pattern(_S4_FH_INSTALL_SPEC_LINE, "text")
+    nw_pat = compile_spec_pattern(_S4_NW_INSTALL_SPEC_LINE, "text")
+
+    wb5_install_indices = [i for i, (_r, _l, txt) in enumerate(scoped) if wb5_pat.search(txt)]
+    fh_install_indices = [i for i, (_r, _l, txt) in enumerate(scoped) if fh_pat.search(txt)]
+    nw_install_indices = [i for i, (_r, _l, txt) in enumerate(scoped) if nw_pat.search(txt)]
+
+    last_wb5_install_idx = wb5_install_indices[-1] if wb5_install_indices else None
+    last_4c_world_install_idx: Optional[int] = None
+    if nw_install_indices:
+        # Final 4C undo must occur strictly after the last Nuka-World (and any later Far Harbor) install.
+        candidates = list(nw_install_indices) + list(fh_install_indices)
+        last_4c_world_install_idx = max(candidates)
+
+    results: List[Optional[Tuple[str, int, str]]] = []
+    s4a_cursor = 0
+    for spec in specs:
+        pat = compile_spec_pattern(spec.line, spec.block_kind)
+        hit: Optional[Tuple[str, int, str]] = None
+        if spec.card == "Sub-session 4A":
+            for idx in range(s4a_cursor, len(scoped)):
+                if pat.search(scoped[idx][2]):
+                    hit = scoped[idx]
+                    s4a_cursor = idx + 1
+                    break
+        elif spec.line == _S4_WB5_INSTALL_SPEC_LINE:
+            if wb5_install_indices:
+                hit = scoped[wb5_install_indices[0]]
+        elif spec.line.startswith("uninstalled wb5 session:"):
+            if last_wb5_install_idx is not None:
+                for idx in range(last_wb5_install_idx + 1, len(scoped)):
+                    if pat.search(scoped[idx][2]):
+                        hit = scoped[idx]
+                        break
+        elif spec.line == _S4_FH_INSTALL_SPEC_LINE:
+            if fh_install_indices:
+                hit = scoped[fh_install_indices[0]]
+        elif spec.line == _S4_NW_INSTALL_SPEC_LINE:
+            if nw_install_indices:
+                hit = scoped[nw_install_indices[0]]
+        elif spec.line == "uninstalled":
+            if last_4c_world_install_idx is not None:
+                for idx in range(last_4c_world_install_idx + 1, len(scoped)):
+                    if pat.search(scoped[idx][2]):
+                        hit = scoped[idx]
+                        break
+        else:
+            for item in scoped:
+                if pat.search(item[2]):
+                    hit = item
+                    break
+        results.append(hit)
+    return results
+
+
 def evaluate_session_logs(
     log_dir: Path | str,
     sessions: Sequence[int] = SUPPORTED_SESSIONS,
@@ -536,14 +703,24 @@ def evaluate_session_logs(
         # 1. Evaluate every PASS line from the single declarative table.
         found_count = 0
         missing_count = 0
-        for spec in SESSION_PASS_SPECS[snum]:
+        specs_for_session = SESSION_PASS_SPECS[snum]
+        precomputed_hits: Optional[List[Optional[Tuple[str, int, str]]]] = None
+        if snum == 3:
+            precomputed_hits = _match_session3_pass_specs(specs_for_session, all_lines)
+        elif snum == 4:
+            precomputed_hits = _match_session4_pass_specs(specs_for_session, all_lines)
+
+        for spec_idx, spec in enumerate(specs_for_session):
             card_entry = _ensure_card(spec.card)
-            pat = compile_spec_pattern(spec.line, spec.block_kind)
             first_hit: Optional[Tuple[str, int, str]] = None
-            for rel, lineno, text in all_lines:
-                if pat.search(text):
-                    first_hit = (rel, lineno, text)
-                    break
+            if precomputed_hits is not None:
+                first_hit = precomputed_hits[spec_idx]
+            else:
+                pat = compile_spec_pattern(spec.line, spec.block_kind)
+                for rel, lineno, text in all_lines:
+                    if pat.search(text):
+                        first_hit = (rel, lineno, text)
+                        break
 
             status = "FOUND" if first_hit is not None else "MISSING"
             hit_str = _format_hit(*first_hit) if first_hit is not None else None

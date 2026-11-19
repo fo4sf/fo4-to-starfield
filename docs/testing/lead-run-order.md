@@ -110,10 +110,10 @@ python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <
      - **`Card 2` -> `Card 5` (`2/5` continuous console-free walk):** Activate `FO4SF_GearDoorConsoleRef` (`0x000819`) -> `stage 30 by=vault_console` -> lift box (`Continue`, `S.P.E.C.I.A.L.`, `Stay`; choosing `Continue` first shows `FO4SF_NewGameExitNeedSpecialMsg` `0x00081F`) -> `<= 7`-button `40`-point S.P.E.C.I.A.L. (`FO4SF_ProgSpecialPage1Msg` `0x000870` / `FO4SF_ProgSpecialPage2Msg` `0x000878`, `source=Lift`) -> `+21.6 m` ascent -> hilltop `stage 200 by=Trigger` -> outdoor `Card 1` `MAP` (`discovered=1`, `FO4SFCoreValues.esm:000841`) -> Sanctuary Codsworth (`stage 10 by=info`) -> Concord raiders (`stage 20 by=Trigger`) -> manual save + **`Quit to Desktop`** + relaunch + reload (`reload mission stage=20 relocate_fails=0`) -> clear raiders (`stage 30 by=Trigger`) -> Preston 3 exchanges (`stage 35 by=info` -> `stage 40 by=info` -> `stage 200 by=Trigger`) -> Sanctuary workbench `0x005C50` (`sanctuary01 stage 100 by=bench`), then run `check_beginning_pilot.py check-logs --log-dir <log-dir> --require-all-pass`.
   3. **`Card 3` (same `--profile player` install, New Game #2):** `Story` + `Survival: Yes` (`gpof=0`, `start=1`, `enabled=1`, `why=start_choice`) -> save at cryo pod -> **`Quit to Desktop`** -> relaunch & reload (`why=Reload`, `hardcore=1`).
   4. **`Card 4` (same `--profile player` install, New Game #3):** Pre-world `FO4SF_StartRoomCell` (`Warfare` -> difficulty -> `Minutemen` -> `Sanctuary Hills` -> `Survival` -> `<= 7`-button `40`-point S.P.E.C.I.A.L. `source=warfare` *before* `ChargenMenu` -> character choice) -> direct exterior Sanctuary spawn without ever entering Vault 111 (`stage 210 by=Trigger`, `mission gate mode=2 started=false`).
-  5. **`H00` One-Session Surface-Arrival Bisect (Console in Vault 111 Before the Lift Ride Only, Default `0` Keeps Today's Behaviour):**
-     Quicksave at the Vault 111 lift before pressing `Continue`, then toggle one store global (`FO4SFCoreValues.esm` `0x000890`–`0x000897`) per run (`set FO4SF_H00_SkipMissionActors to 1`, `set FO4SF_H00_SkipRouteLoot to 1`, `set FO4SF_H00_SkipSurfaceSetPos to 1`, `set FO4SF_H00_SkipMapSetup to 1`, `set FO4SF_H00_SkipArrivalDiscovery to 1`, `set FO4SF_H00_ClearChargenBeforeSurface to 1`, `set FO4SF_H00_SkipLoadingHook to 1`, `set FO4SF_H00_SkipLandingQuests to 1`); each is read and logged once (`h00 suspect <EDID>=<0|1>`) before `surface moveto`.
+  5. **`H00` One-Session Surface-Arrival Bisect (Console Batch Files in Vault 111 Before the Lift Ride Only, Default `0` Keeps Today's Behaviour; Full Schedule on `docs/testing/candidate-2c-card.md`):**
+     Quicksave at the Vault 111 lift before pressing `Continue`, confirm `FO4SFCoreValues.esm`'s runtime index (`0x07` via `help "Health Cap" 4` — Starfield strips mod `GLOB` EditorIDs so `set FO4SF_H00_SkipLoadingHook` does not resolve), and bisect the `8` suspects (`07000890`–`07000897`) in **at most `4` rides** via `<starfield-dir>/h00a.txt`..`h00s6.txt` (`bat h00a`, `bat h00a1`, `bat h00s0`, `bat h00s2`, `bat h00b`, `bat h00b1`, `bat h00s4`, `bat h00s6` — each using `set 0700089x to 1` + `getglobalvalue 0700089x`, zero `M`, `N`, or `V` typed in Console); each is read and logged once (`h00 suspect <EDID>=<0|1>`) before `surface moveto`.
 
-### Exact Install, Sidecar, Console (`Card A` Only), & Log-Judge Commands (Game Closed for CLI)
+### Exact Install, Sidecar, Console (`Card A` Only, Zero `M`/`N`/`V` Typed), & Log-Judge Commands (Game Closed for CLI)
 Sub-session 2A (`Card A`, `--profile test`):
 ```bash
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
@@ -124,14 +124,33 @@ python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <
 ```
 
 ```console
-help "Silent-Player List Dialogue" 0
-help FO4SF_ListDialogueQuest 4 QUST
-sqv <quest-hex>
+help "List Dialogue" 4 QUST
+sqs <quest-hex>
+bat carda0
+bat carda1
+bat carda2
+bat carda3
 startquest <quest-hex>
 coc FO4SF_ListTalkCell
 setstage <quest-hex> 10
 setstage <quest-hex> 15
 setstage <quest-hex> 70
+```
+
+```bat
+; <starfield-dir>/carda0.txt (confirm <XX> == 12 via help "List Dialogue" 4 QUST)
+sqv 12000810
+startquest 12000810
+coc FO4SF_ListTalkCell
+
+; <starfield-dir>/carda1.txt
+setstage 12000810 10
+
+; <starfield-dir>/carda2.txt
+setstage 12000810 15
+
+; <starfield-dir>/carda3.txt
+setstage 12000810 70
 ```
 
 Swap from Sub-session 2A to Sub-session 2B (`Cards 2, 1, 2/5, 3, 4`, `--profile player`, console-free):
@@ -232,6 +251,14 @@ python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <
 ```
 
 ```console
+bat s3rr
+player.getpos x
+player.getpos y
+player.getpos z
+```
+
+```bat
+; <starfield-dir>/s3rr.txt (zero M/N/V typed interactively)
 coc FO4Core_RedRocketSpawn
 player.getpos x
 player.getpos y
@@ -287,7 +314,15 @@ python scripts/deploy_starfield.py install --batch <fo4dlc-stage> --starfield <s
 
 ```console
 coc FO4DLC_DLC03Acadia
+bat s4a2
+bat s4a3
+```
+
+```bat
+; <starfield-dir>/s4a2.txt
 coc FO4DLC_DLC04BradbertonsOffice01
+
+; <starfield-dir>/s4a3.txt
 coc FO4DLC_DLC06VaultWorkshop
 ```
 
@@ -310,7 +345,15 @@ python scripts/game/exp_install.py order --starfield <starfield-dir>
 ```
 
 ```console
+bat s4cfh
+bat s4crk
+```
+
+```bat
+; <starfield-dir>/s4cfh.txt
 coc FO4FH_FarHarborSpawn
+
+; <starfield-dir>/s4crk.txt
 coc FO4NW_NukaWorldSpawn
 ```
 

@@ -94,9 +94,15 @@ python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bun
 1. **Pre-world set-up (`N2`, `H0`, `B8`):** Start a **New Game** (`~` closed). `FO4SF_NewGameQuest` stages the player in owned empty interior `FO4SF_StartRoomCell` (`0x00081C` / `FO4SF_StartRoomMarkerRef` `0x00081D`), immediately lifts `FaderMenu` so `LoadingMenu` finishes cleanly (with `StartLoadTimeout = 15 s` hard fallback `mode fade lifted by=timeout s=15`, `R10`), hides first-person body & HUD, and presents `FO4SF_NewGameModeMsg` (`0x000806`), `FO4SF_NewGameStoryLineMsg` (`0x00081E`), `FO4SF_NewGameSurvivalMsg` (`0x000807`), and `FO4SF_NewGameStart` (`0x000802`, `NOT OURS` `ShowRaceMenu` if `Create character` is picked) BEFORE moving to Vault 111 (`stage 5 by=Trigger` -> `start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell` -> `stage 10 by=Trigger`). *(If `FO4SF_NewGameModeMsg` is left unanswered `>= 60 s`, `mode box waiting s=60` logs once per minute while continuing to wait.)*
 2. **Cryo pod, vault pistol & Pip-Boy (`B4`, `B5`, `X1`, `X2`):** Step out of the pod (`pod settle ok=true`), finish looks (`stage 20 by=scene`), pick up the Vault 111 pistol (`0x24561C` from `route_loot_ids.json` `vault111.pistol_id`, filtered via `AddInventoryEventFilter` -> `pistol picked`), verify pressing `E` on the gear door directly stays shut and pressing `E` on `FO4SF_GearDoorConsoleRef` (`0x000819`, `ACTI` `FO4SF_GearDoorConsole` `0x000818`) before the Pip-Boy refuses (`0x000817` `FO4SF_NoPipboyConsoleMsg`), then equip the Pip-Boy (`0x00080F`) and activate `FO4SF_GearDoorConsoleRef` (`0x000819`) to open the gear door (`stage 30 by=vault_console`).
 3. **Lift `<= 7`-button `40`-point S.P.E.C.I.A.L. & ascent (`B1`–`B3`, `X3`, `X4`, `H00`):** Step onto the Vault 111 platform (`FO4SF_NewGameElevator` `0x000801`: `Continue`, `S.P.E.C.I.A.L.`, `Stay` — Starfield's Enhance character screen is removed from the lift), confirm `Continue` shows `FO4SF_NewGameExitNeedSpecialMsg` (`0x00081F`) until `S.P.E.C.I.A.L.` is confirmed, allocate all `40` points across `FO4SF_ProgSpecialPage1Msg` (`0x000870`, `7` buttons) and `FO4SF_ProgSpecialPage2Msg` (`0x000878`, `7` buttons) and press `Confirm` (**do not** cancel 3 times into `special default`), then press `Continue` to ride `+21.6 m` (`ascent carried confirmed`) while `RunSharedMapSetup()` prepares Commonwealth markers, landing at `stage 40 by=Trigger` -> `stage 200 by=Trigger`.
-4. *(Optional standalone `B8` neutral-spot fallback check in a separate throwaway session only, never during the `REACHABLE` walk):* Inspect `FO4SF_StartNeutralSpot` (`0x000877` in `FO4SFCoreValues.esm`) via Console if testing neutral-spot staging:
+4. *(Optional standalone `B8` neutral-spot fallback check in a separate throwaway session only, never during the `REACHABLE` walk):* Confirm `FO4SFCoreValues.esm`'s load index (`0x07` via `help "Health Cap" 4`) and inspect `FO4SF_StartNeutralSpot` (`0x000877` -> `07000877`) via `<starfield-dir>/b8chk.txt` (`P3` zero `M`, `N`, `V` typed in Console):
 ```console
-help FO4SF_StartNeutralSpot 4 GLOB
+help "Health Cap" 4
+bat b8chk
+```
+
+```bat
+; <starfield-dir>/b8chk.txt (FO4SF_StartNeutralSpot = 07000877 at store index 0x07)
+getglobalvalue 07000877
 ```
 
 ### Undo Command (Game Closed)
