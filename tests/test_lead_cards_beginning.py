@@ -717,10 +717,21 @@ def validate_lead_run_order_markdown(
         if req not in sessions[3][1] and req not in s4_body:
             errors.append(f"{card_rel} [Session 4]: missing {req!r}")
 
+    # H3: Run sheet must never instruct manual sfse_sidecar copies and must state reputation/ is not installed
+    if re.search(r"\bcopy\b[^\r\n]*sfse_sidecar", md_text, re.I):
+        errors.append(f"{card_rel}: H3 forbids manual sfse_sidecar copy; use make_core_bundle.py sidecar-install / sidecar-undo")
+    if "reputation" not in md_text or "not installed" not in md_text.lower():
+        errors.append(f"{card_rel}: H3 missing explicit statement that sfse_sidecar/reputation/ is not installed")
+
     for snum, stitle, raw_body in sessions:
         body = re.split(r"(?m)^##\s+(?!Session\b)", raw_body, maxsplit=1)[0]
         if not re.search(r"gemini/[a-z0-9-]+", body) or not re.search(r"\b[0-9a-f]{8}\b", body):
             errors.append(f"{card_rel} [{stitle}]: missing branch name + 8-char commit head")
+        if "FO4SFBridge.esm` State" not in body or "owner-standing-bridge-off" not in body:
+            errors.append(f"{card_rel} [{stitle}]: H4 missing explicit per-session FO4SFBridge.esm state + owner-standing-bridge-off restore")
+        if snum in (1, 2):
+            if "make_core_bundle.py sidecar-install" not in body or "make_core_bundle.py sidecar-undo" not in body:
+                errors.append(f"{card_rel} [{stitle}]: H3 missing make_core_bundle.py sidecar-install / sidecar-undo commands")
         if "New-Game Note" not in body:
             errors.append(f"{card_rel} [{stitle}]: missing New-Game Note")
         if "Disk Need" not in body or not re.search(r"\b\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|GiB|MiB)\b", body):
@@ -983,6 +994,24 @@ class LeadCardsBeginningTests(unittest.TestCase):
         self.assertIn("H1 forbids naming unverified Round-1", joined)
         self.assertIn("bundle <cand2-player-bundle> refused by make_core_bundle.py verify", joined)
         self.assertIn("pipboybootsequence.swf", joined)
+
+        # H3 & H4 negative mutation checks
+        h3_h4_bad = (
+            good_txt.replace("make_core_bundle.py sidecar-install", "copy <cand2b-player-bundle>/sfse_sidecar", 1)
+            .replace("owner-standing-bridge-off", "left-active")
+        )
+        errs_h34 = validate_lead_run_order_markdown(
+            "docs/testing/lead-run-order.md",
+            h3_h4_bad,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+        )
+        joined_h34 = "\n".join(errs_h34)
+        self.assertIn("H3 forbids manual sfse_sidecar copy", joined_h34)
+        self.assertIn("H4 missing explicit per-session FO4SFBridge.esm state", joined_h34)
 
     def test_lead_run_order_validator_rejects_missing_stop_point_and_bad_order(self) -> None:
         bad_sheet = """# Run Sheet

@@ -71,25 +71,27 @@ FO4SFLIST rt=<rt> summary ok=true host_menu=DialogueMenu replaced_swf=false end=
 
 - **Purpose:** Prove in isolation (`PopulateInCall=0`, `LateInvalidate=0`, `StatActions=0`, `InvDataAnswers=0`, `RequirePickup=0`) that the plain `Object` `BGSCodeObj` holder (`CreateObject`, never `CreateFunction`) eliminates the `PerksTab` `StopPerkSound` crash and survives `10` open/close cycles cleanly.
 - **Stage Placeholders:** `<player-bundle-dir>`, `<pipboy-stage-dir>`, `<stage-ini-path>`, `<starfield-dir>`
-- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~3 MB` under `<starfield-dir>/Data/SFSE/Plugins` (copy `<player-bundle-dir>/sfse_sidecar/SFSE/Plugins/*` and format-5 `versionlib-1-16-244-0.bin` beside `FO4SFPipboyMenu.dll`).
+- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~3 MB` under `<starfield-dir>/Data/SFSE/Plugins` (installed and backed up via `make_core_bundle.py sidecar-install` -> `Data/FO4SFSidecar.install.json`, keeping format-5 `versionlib-1-16-244-0.bin` untouched beside `FO4SFPipboyMenu.dll`; `<player-bundle-dir>/sfse_sidecar/reputation/*` is reference-only and **not installed**).
 - **Plugin List (`Plugins.txt`, `--profile player`, `21` plugins):**
   `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
 
-### Install & INI Generation Commands (Game Closed)
+### Install, Sidecar & INI Generation Commands (Game Closed)
 ```bash
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bundle-dir> --starfield <starfield-dir>
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0 --omit StopPerkSound --allow-omit StopPerkSound
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0
 ```
 
 ### In-Game Steps
-1. **Part 1 (Negative `StopPerkSound` omission):** With the `--arm 0 --omit StopPerkSound --allow-omit StopPerkSound` INI copied to `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini`, press `F7`, cycle `STAT` subtabs (`Status`, `SPECIAL`, `Perks`), hold `10 s`, and close with `Tab` or `Esc`.
-2. **Part 2 (Full `49`-name INI, `10` cycles):** Copy the full `49`-name `--arm 0` isolation INI to `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini`, press `F7`, verify `E` on `STAT` does **not** switch top-level pages, close with `Tab`/`Esc`, and repeat `10` times.
+1. **Part 1 (Negative `StopPerkSound` omission):** With the `--arm 0 --omit StopPerkSound --allow-omit StopPerkSound` INI written over `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini` (`sidecar-install` already backed up any pre-existing owner `FO4SFPipboyMenu.ini` bytes), press `F7`, cycle `STAT` subtabs (`Status`, `SPECIAL`, `Perks`), hold `10 s`, and close with `Tab` or `Esc`.
+2. **Part 2 (Full `49`-name INI, `10` cycles):** Write the full `49`-name `--arm 0` isolation INI over `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini`, press `F7`, verify `E` on `STAT` does **not** switch top-level pages, close with `Tab`/`Esc`, and repeat `10` times.
 3. Open Console (`` ` ``) and press `m`, `v`, and `n`; confirm neither Pip-Boy nor combat hotkeys fire while `Console` is open.
 
-### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
+### Undo Command (Game Closed — Restore Sidecar Backups & Release Any `plugin_toggle.py` Hold)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
@@ -119,10 +121,11 @@ step=dispatch n=<k> fn=FO4SF_CombatInput.OnAmmoKey ignored=menu_open menu=Consol
 - **Plugin List (`Plugins.txt`, `--profile player`, `21` plugins):**
   `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
 
-### Install Command (Game Closed)
+### Install & Sidecar Command (Game Closed)
 ```bash
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bundle-dir> --starfield <starfield-dir>
 ```
 
 ### In-Game Steps
@@ -130,8 +133,9 @@ python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starf
 2. Confirm no Starfield map menu opens, no crash occurs, and zero `"FO4SF"` developer banner text (`1h`) appears on screen.
 3. *(Fallback only if `MapBlockStarMap=1` needs bypass)* Set `MapBlockStarMap=0` in `FO4SFPipboyMenu.ini`, relaunch, press the map keys once, and verify `step=map_suppress n=<k> name=<menu> sent=hide`.
 
-### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
+### Undo Command (Game Closed — Restore Sidecar Backups & Release Any `plugin_toggle.py` Hold)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
@@ -199,15 +203,18 @@ step=arm_lower n=<k> send=none (the raise's clip carries on) accepted=0 lock_ms=
   1. In first person with weapon holstered after picking up the Pip-Boy, press `F7`: judge whether `idleexaminewatch` raises the wrist to a natural angle at `ArmRaiseMs=2000` before `FO4SF_Fo4Shell` (`STAT`) appears, and whether `Tab` / `F7` lowers the arm smoothly over `ArmLowerMs=3500`.
   2. In third person or with a weapon drawn, press `F7`: confirm the Pip-Boy still opens cleanly without hanging (`accepted=0` fallback) and closes with `0 ms` lock.
 
-### Install & Opt-In INI Commands (Game Closed)
+### Install, Sidecar & Opt-In INI Commands (Game Closed)
+- **Sidecar & `reputation/` Note (`H3`):** `sidecar-install` installs `<test-bundle-dir>/sfse_sidecar/SFSE/Plugins/*` with SHA-256 byte backups (`Data/FO4SFSidecar.install.json`) and restores/removes them on `sidecar-undo`. `<test-bundle-dir>/sfse_sidecar/reputation/*` (`FO4SFPipboyKit.ini` / `FO4SFPipboyReputation.*`) is reference-only and **not installed** into `<starfield-dir>/Data`.
 ```bash
 python scripts/core/make_core_bundle.py verify --bundle-dir <test-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <test-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <test-bundle-dir> --starfield <starfield-dir>
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --populate-in-call 1 --arm 1 --stat-actions 1 --inv-data-answers 1 --special-menu 1 --special-max-points 40
 ```
 
-### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
+### Undo Command (Game Closed — Restore Sidecar Backups & Release Any `plugin_toggle.py` Hold)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```

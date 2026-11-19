@@ -30,25 +30,31 @@ python scripts/ui/pipboy_probe_install.py install --dir <prior-probe-stage> --st
 python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why <prior-hold-reason>
 ```
 
-**Important limitation (`H5`):** Without `sidecar-undo`, hand-copied `Data/SFSE/Plugins/*` files (`FO4SFPipboyMenu.dll`, `.ini`, `FO4SFBorder.*`), private `--extra-movie` / `--page-movie` / `--component-movie` probe options (recorded in `FO4SFPipboyProbe.install.json` only as `source_inputs` paths rather than CLI arguments), or exact pre-session `Plugins.txt` line positions cannot be reconstructed byte-identically by `exp_install.py` / `pipboy_probe_install.py` alone. **Use Lead's pre-session rollback set (`<prestate-backup>`) for a byte-identical restore of the owner's exit build.**
+**Important limitation (`H5`):** `make_core_bundle.py sidecar-undo` restores backed-up `Data/SFSE/Plugins/*` files overwritten by `sidecar-install`, whereas private `--extra-movie` / `--page-movie` / `--component-movie` probe options (recorded in `FO4SFPipboyProbe.install.json` only as `source_inputs` paths rather than CLI arguments) or exact pre-session `Plugins.txt` line positions cannot be reconstructed byte-identically by `exp_install.py` / `pipboy_probe_install.py` alone. **Use Lead's pre-session rollback set (`<prestate-backup>`) for a byte-identical restore of the owner's exit build.**
+
+> **Bridge Hold Note (`H4`):** The owner's standing launcher setting holds `FO4SFBridge.esm` **OFF** (`Data/FO4SF.toggle.json`). Because `exp_install.py` and `home_world_install.py` refuse any `install` or `uninstall` while `FO4SF.toggle.json` is active, preflight and each swap temporarily run `plugin_toggle.py on` — which leaves `*FO4SFBridge.esm` **ACTIVE** in `Plugins.txt` until toggled back off! Each session below therefore states explicitly whether `FO4SFBridge.esm` must be **OFF** or **ON** in game and ends with `plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off` so the owner's standing launcher setting is always put back.
 
 ---
 
 ## Session 1 — Candidate 2b Cards B and C (`1a`/`1c`/`1d` F7 `STAT` Crash-Proof Isolation & `1g` Scanner/Map Block)
 
-- **Branch, Bundle & Verifier Head (`H1`):** Install **`<cand2b-player-bundle>`** (**`Candidate 2b` `--profile player`**, `22` plugins) and run `make_core_bundle.py verify` from **`gemini/beginning-real` (`#833`, at `8bdafe6f`+)**, where `<cand2b-player-bundle>` passes (`verify: ok`). `gemini/beginning-real` (`#833`) merges `gemini/core-integration` (`#831` at `bb174d7d`) with **`0` `sfse/` diff**, so `<cand2b-player-bundle>` carries the exact `#831` `FO4SFPipboyMenu.dll` and `FO4SFCombat.dll` code under test. **Do NOT use the Round 1 `Candidate 2` bundle (`72f903b9`)**: `#831` `b03a534d`'s `make_core_bundle.py verify` refuses it (`verify: 69 problem(s); do not install`, starting with missing `Data/Interface/pipboybootsequence.swf` from `A1`), and `#831`'s `verify` must not be run against `<cand2b-player-bundle>` (whose beginning/mission/loot `.esm` records use `#833`'s writer catalog).
+- **Branch, Bundle & Verifier Head (`H1` / `H2`):** Install **`<cand2b-player-bundle>`** (**`Candidate 2b` `--profile player`**, `22` plugins) and run `make_core_bundle.py verify` from **`gemini/beginning-real` (`#833`, at `8bdafe6f`+)**, where `<cand2b-player-bundle>` passes (`verify: ok`). `gemini/beginning-real` (`#833`) merges `gemini/core-integration` (`#831` at `a21ea083`) with **`0` `sfse/` diff**, so `<cand2b-player-bundle>` carries the exact `#831` `FO4SFPipboyMenu.dll` and `FO4SFCombat.dll` code under test. **Do NOT use the Round 1 `Candidate 2` bundle (`72f903b9`)**: `#831` `b03a534d`'s `make_core_bundle.py verify` refuses it (`verify: 69 problem(s); do not install`, starting with missing `Data/Interface/pipboybootsequence.swf` from `A1`), and `#831`'s `verify` now refuses cross-head bundles in one line (`this bundle was built at <head>; this tool is at <head>`, `H2`).
+- **`FO4SFBridge.esm` State (`H4`):** **MUST BE OFF** in game (`plugin_toggle.py off --plugins FO4SFBridge.esm` run immediately after `exp_install.py install`), matching the owner's standing launcher setting (Cards B and C test `FO4SFPipboyMenu`, `FO4SFCombat`, and scanner/map suppression without port load doors). At Session 1 end, release via `plugin_toggle.py on` for `exp_install.py uninstall`, then re-apply `plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off` so the owner's bridge-off setting is put back.
 - **New-Game Note:** **NEW GAME needed** — start one fresh `--profile player` New Game (`RequirePickup=0` and `--arm 0` in Card B's isolation INI let `F7` open immediately across `10` rapid cycles without carrying old saves).
-- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins` (copy `<cand2b-player-bundle>/sfse_sidecar/SFSE/Plugins/*` and format-5 `versionlib-1-16-244-0.bin` beside `FO4SFPipboyMenu.dll`).
+- **Disk Need & Sidecar (`H3`):** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins` (installed and backed up via `make_core_bundle.py sidecar-install` -> `Data/FO4SFSidecar.install.json`, keeping format-5 `versionlib-1-16-244-0.bin` untouched beside `FO4SFPipboyMenu.dll`; `<cand2b-player-bundle>/sfse_sidecar/reputation/*` is reference-only and **not installed**).
 - **Plugin List (`Plugins.txt`, `22` plugins in `<cand2b-player-bundle>`):**
   `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
 - **Cards to Run in Order (`docs/testing/task0-task1-lead-cards.md`):**
   1. **`Card B` (`1a` / `1c` / `1d` F7 `STAT` Crash-Proof Isolation):** Part 1 negative `--arm 0 --omit StopPerkSound --allow-omit StopPerkSound` check, then Part 2 full `49`-name `--arm 0` plain-`Object` `BGSCodeObj` (`raw_type=8`, `is_closure=0`) check across `10` `F7` open/close cycles (`E` on `STAT` does not switch pages; `m`, `v`, `n` ignored while `Console` is open).
   2. **`Card C` (`1g` Starfield Scanner & Map Menus Block):** Outdoors in the same session (`MapBlockStarMap=1`), press Star Map, Surface Map, Planet Map, and `F` (`handscanner`); verify null-menu block (`route=create`) and zero `"FO4SF"` HUD developer banner (`1h`). (`MapBlockStarMap=0` hide-only fallback `sent=hide` is available in `FO4SFPipboyMenu.ini` if needed.)
 
-### Exact Install & INI Commands (Run from `gemini/beginning-real` Worktree, Game Closed)
+### Exact Install, Sidecar & INI Commands (Run from `gemini/beginning-real` Worktree, Game Closed)
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/core/make_core_bundle.py verify --bundle-dir <cand2b-player-bundle>
 python scripts/game/exp_install.py install --exp-dir <cand2b-player-bundle> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2b-player-bundle> --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why session1-bridge-off
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0 --omit StopPerkSound --allow-omit StopPerkSound
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0
 ```
@@ -70,10 +76,12 @@ step=starmap_block_install menu=<menu> found=1 slot=<slot> orig_rva=<rva>
 step=starmap_blocked n=<k> blocked menu=<menu> route=create
 ```
 
-### Exact Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
+### Exact Undo Command (Game Closed — Restore Sidecar Backups, Uninstall & Restore Standing Bridge-Off)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Stop Point if a Card Fails
@@ -84,9 +92,10 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 
 ## Session 2 — Candidate 2b Card A, then Cards 2, 1, 2/5, 3, 4
 
-- **Branch & Head:** `gemini/beginning-real` (`#833`, Candidate 2b built over `350bc4bb` + Round 3 `F1`/`G1` head on `gemini/beginning-real`, `0` `sfse/` diff from `#831` `b03a534d`).
+- **Branch & Head:** `gemini/beginning-real` (`#833`, Candidate 2b built over `350bc4bb` + Round 3/4 head on `gemini/beginning-real`, `0` `sfse/` diff from `#831` `a21ea083`).
+- **`FO4SFBridge.esm` State (`H4`):** **MUST BE OFF** in game during both Sub-session 2A (`Card A`) and Sub-session 2B (`Cards 2, 1, 2/5, 3, 4`), matching the owner's standing launcher setting (Candidate 2b tests `FO4SF_ListTalkCell` and Vault 111 -> Sanctuary -> Concord without port load doors). Release `plugin_toggle.py on` before each `exp_install.py install`/`uninstall`, run `plugin_toggle.py off --plugins FO4SFBridge.esm` right after each install, and end Session 2 with `plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off`.
 - **New-Game Note:** **NEW GAME needed (`A16` / `R15`)** — start a fresh New Game for `Card A`, for the continuous `Card 2 -> Card 1 -> Card 2/5` Story walk, for `Card 3`, and for `Card 4`. At `Card 5` Concord `stage 20`, choose **`Quit to Desktop`** (never `Quit to Main Menu`) so `.0.log` rotates to `.1.log` (`B7`).
-- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins` and `<starfield-dir>/Data/Interface/pipboybootsequence.swf` (`copy` `<cand2b-player-bundle>/sfse_sidecar/SFSE/Plugins/*` to `<starfield-dir>/Data/SFSE/Plugins/`).
+- **Disk Need & Sidecar (`H3`):** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins` and `<starfield-dir>/Data/Interface/pipboybootsequence.swf` (installed and backed up via `make_core_bundle.py sidecar-install` -> `Data/FO4SFSidecar.install.json`; `<cand2b-player-bundle>/sfse_sidecar/reputation/*` is reference-only and **not installed**).
 - **Plugin Lists (`Plugins.txt`):**
   - **Sub-session 2A (`Card A`, `<cand2b-test-bundle>`, `--profile test`, `23` plugins, `FO4SF_TestModeEnabled == 1.0`):**
     `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
@@ -103,11 +112,14 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
   5. **`H00` One-Session Surface-Arrival Bisect (Console in Vault 111 Before the Lift Ride Only, Default `0` Keeps Today's Behaviour):**
      Quicksave at the Vault 111 lift before pressing `Continue`, then toggle one store global (`FO4SFCoreValues.esm` `0x000890`–`0x000897`) per run (`set FO4SF_H00_SkipMissionActors to 1`, `set FO4SF_H00_SkipRouteLoot to 1`, `set FO4SF_H00_SkipSurfaceSetPos to 1`, `set FO4SF_H00_SkipMapSetup to 1`, `set FO4SF_H00_SkipArrivalDiscovery to 1`, `set FO4SF_H00_ClearChargenBeforeSurface to 1`, `set FO4SF_H00_SkipLoadingHook to 1`, `set FO4SF_H00_SkipLandingQuests to 1`); each is read and logged once (`h00 suspect <EDID>=<0|1>`) before `surface moveto`.
 
-### Exact Install, Console (`Card A` Only), & Log-Judge Commands (Game Closed for CLI)
+### Exact Install, Sidecar, Console (`Card A` Only), & Log-Judge Commands (Game Closed for CLI)
 Sub-session 2A (`Card A`, `--profile test`):
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/core/make_core_bundle.py verify --bundle-dir <cand2b-test-bundle>
 python scripts/game/exp_install.py install --exp-dir <cand2b-test-bundle> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2b-test-bundle> --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why session2a-bridge-off
 ```
 
 ```console
@@ -123,12 +135,15 @@ setstage <quest-hex> 70
 
 Swap from Sub-session 2A to Sub-session 2B (`Cards 2, 1, 2/5, 3, 4`, `--profile player`, console-free):
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 python scripts/core/make_core_bundle.py verify --bundle-dir <cand2b-player-bundle>
 python scripts/testing/check_beginning_pilot.py check-bundle --bundle-dir <cand2b-player-bundle>
 python scripts/game/exp_install.py install --exp-dir <cand2b-player-bundle> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2b-player-bundle> --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why session2b-bridge-off
 python scripts/testing/check_beginning_pilot.py check-logs --log-dir <log-dir> --require-all-pass
 ```
 
@@ -177,11 +192,13 @@ FO4SF_NEWGAME rt=<rt> stage 210 by=Trigger
 FO4SF_MISSION rt=<rt> mission gate mode=2 started=false
 ```
 
-### Exact Undo Command (Game Closed)
+### Exact Undo Command (Game Closed — Restore Sidecar Backups, Uninstall & Restore Standing Bridge-Off)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Stop Point if a Card Fails
@@ -193,10 +210,11 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ## Session 3 — The Home Planet Pair and Its Variants (`FO4SFHome.esm` + `FO4TerrainCore_Home.esm`, `WB1`, `WB2`, `WL1`)
 
 - **Branch & Head:** `gemini/world-own-space` (`#832`) at `44855053`.
+- **`FO4SFBridge.esm` State (`H4`):** **MUST BE OFF** in game (`plugin_toggle.py off --plugins FO4SFBridge.esm` run after `home_world_install.py order`), matching the owner's standing launcher setting (Session 3 tests exterior sky, weather, ground, and outer-ring exclusion via `coc FO4Core_RedRocketSpawn`, never interior load doors; release `plugin_toggle.py on` only across `home_world_install.py install` and `undo`, which delegate to `exp_install.py`, and end Session 3 with `plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off`).
 - **New-Game Note:** **No New Game required** (`TEST-STATION` / `OWNER TEST` host swap: restore the baseline installed `FO4TerrainCore.esm` + `FO4Port.esm` set after Session 2's undo, load a clean test save, and arrive via Console `coc FO4Core_RedRocketSpawn`). **Do NOT install `Card 4`'s Round-1 `<i3-stage>/port` (`HELD FOR WB4`).**
 - **Disk Need:** `~5 MiB` in `<starfield-dir>/Data` per active swap (`FO4SFHome - Main.ba2` + `FO4SFHome.esm` + `FO4TerrainCore_Home.esm`); `~42 MiB` on staging disk across `<home-stage>`, `<wb1-stage>`, `<wb2-stage>`, and `<wl1-stage>`.
 - **Plugin List (`Plugins.txt`):**
-  `*FO4Port.esm`, `*FO4PortTextures2.esm` (as installed), `*FO4SFBridge.esm`, `*FO4TerrainCore.esm` (installed `15`-door core), `*FO4SFMapMarkers.esm` (merged & pinned via `--map-markers`), `*FO4SFHome.esm`, `*FO4TerrainCore_Home.esm` (`FO4TerrainCore_Mars.esm` unticked automatically by `home_world_install.py`; `FO4SFMission.esm` not installed).
+  `*FO4Port.esm`, `*FO4PortTextures2.esm` (as installed), `FO4SFBridge.esm` (unticked / held off via `plugin_toggle.py off`), `*FO4TerrainCore.esm` (installed `15`-door core), `*FO4SFMapMarkers.esm` (merged & pinned via `--map-markers`), `*FO4SFHome.esm`, `*FO4TerrainCore_Home.esm` (`FO4TerrainCore_Mars.esm` unticked automatically by `home_world_install.py`; `FO4SFMission.esm` not installed).
 - **Cards to Run in Order (`docs/testing/home-world-lead-card.md`):**
   1. **`Card 1` (Default `<home-stage>`, 2 fresh launches):** Launch 1 & Launch 2 `coc FO4Core_RedRocketSpawn` to confirm reproducible `merge_offset`, persistent refs, `WB3` overrides (Commonwealth HUD name, silent `_NONE` music, dry `-200 m` LOD water, cleared `LCTN` level cap), and outer-ring FO4 ground (`FO4SFHomeGroundDirt01` + `38.11 m` `PatternStyleFieldsHillsFieldsFlat`), then `undo`.
   2. **`Card 1` (`WB1` Weather & Sky Variants, game closed between swaps):** Swap `<wb1-stage>/01-ours-clear-temperate` vs `<wb1-stage>/02-starfield-control` for Owner screenshots (`R8`), running `undo` after each.
@@ -205,9 +223,11 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 
 ### Exact Stage, Check & Install Commands (Run from `gemini/world-own-space` Worktree, Game Closed)
 ```powershell
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/planet/make_home_planet.py check --stage <home-stage> --data <starfield-dir>/Data
 python scripts/planet/home_world_install.py install --dir <home-stage> --starfield <starfield-dir>
 python scripts/planet/home_world_install.py order --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why session3-bridge-off
 ```
 
 ```console
@@ -225,10 +245,12 @@ uninstalled
 nothing installed
 ```
 
-### Exact Undo Command (Game Closed)
+### Exact Undo Command (Game Closed — Restore Host & Standing Bridge-Off)
 ```powershell
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/planet/home_world_install.py undo --starfield <starfield-dir>
 python scripts/planet/home_world_install.py status --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Stop Point if a Card Fails
@@ -239,6 +261,10 @@ python scripts/planet/home_world_install.py status --starfield <starfield-dir>
 ## Session 4 — The DLC Worlds (`FO4DLC.esm`, Commonwealth DLC Override & Two-Way Doors, Far Harbor & Nuka-World)
 
 - **Branch & Head:** `gemini/dlc-and-interiors` (`#834`) at `3b1c4110` (`Card 1` `FO4DLC.esm`) and `gemini/world-own-space` (`#832`) at `44855053` (`Card 6` `FO4TerrainCore_DLC.esm` `WB5`/`WB5b` and `Card 3` `FO4WorldFarHarbor.esm` / `FO4WorldNukaWorld.esm`).
+- **`FO4SFBridge.esm` State (`H4`):**
+  - **Sub-session 4A (`FO4DLC.esm` `Card 1`):** **OFF** (keep the owner's standing `plugin_toggle.py off --plugins FO4SFBridge.esm` hold; `deploy_starfield.py` tests `coc FO4DLC_*` interiors directly without port load doors).
+  - **Sub-session 4B (`WB5` & `WB5b` `Card 6`):** **MUST BE ON (`ACTIVE`)** (`plugin_toggle.py on --starfield <starfield-dir>`), because `WB5b`'s two-way Nuka-World Transit & Vault 88 doors execute `FO4SF_LoadDoor.pex` from `FO4SFBridge - Main.ba2` and `make_cw_dlc_override.py install` refuses whenever `FO4SFBridge.esm` is inactive or held off in `Data/FO4SF.toggle.json`.
+  - **Sub-session 4C (`Far Harbor` & `Nuka-World` `Card 3`) & Session 4 End State:** Keep `plugin_toggle.py` released while `exp_install.py` swaps `<fh-stage>` / `<nw-stage>` and restores `<cw-exp-dir>`, with `FO4SFBridge.esm` **OFF** in game (`plugin_toggle.py off --plugins FO4SFBridge.esm` after each `order`), and finish Session 4 with **`python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off`** so the owner's standing launcher bridge-off setting is restored.
 - **New-Game Note:** **No New Game required** (`TEST-STATION`, Console `coc` only on a clean test save). **Mars Planet-Record Replacement Warning (`C5`/`C7`):** `FO4WorldFarHarbor_Mars.esm` and `FO4WorldNukaWorld_Mars.esm` override the whole `MarsPlanetData` record and replace the Commonwealth `exp_install.py` set for that sub-session; record `<cw-exp-dir>` and `<cw-plugins>` via `exp_install.py status` first and restore Commonwealth at the end of Session 4.
 - **Disk Need:** `--min-free-gb 40` free-space floor on `<starfield-dir>`'s drive (`~7.1 GB` for `FO4DLC.esm` + `4` `.ba2`s, `~9.5 MiB` extra when `FO4TerrainCore_DLC.esm` swaps onto `FO4DLC`, `~26 MiB` for Far Harbor, `~54 MiB` for Nuka-World).
 - **Plugin Lists (`Plugins.txt` per sub-session):**
@@ -298,14 +324,16 @@ installed 3 files, plugins ['FO4WorldNukaWorld.esm', 'FO4WorldNukaWorld_Mars.esm
 uninstalled
 ```
 
-### Exact Undo Commands (Game Closed — Always Pass `--plugin-name FO4DLC.esm` on 4A)
+### Exact Undo Commands (Game Closed — Always Pass `--plugin-name FO4DLC.esm` on 4A & Restore Standing Bridge-Off)
 ```powershell
 python scripts/deploy_starfield.py uninstall --starfield <starfield-dir> --plugin-name FO4DLC.esm
 python scripts/deploy_starfield.py verify --starfield <starfield-dir>
 python scripts/terrain/make_cw_dlc_override.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py install --exp-dir <cw-exp-dir> --starfield <starfield-dir> --pack --plugins <cw-plugins>
 python scripts/game/exp_install.py order --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Stop Point if a Card Fails

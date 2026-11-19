@@ -36,6 +36,7 @@
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bundle-dir> --starfield <starfield-dir>
 ```
 
 ### Console-Free Steps
@@ -46,8 +47,11 @@ python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> 
 
 ### Undo Command (Game Closed)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Required PASS Log Lines (`FO4SFPipboyMenu.log` & `fo4sf_newgame.0.log`)
@@ -83,6 +87,7 @@ step=starmap_blocked n=<k> blocked menu=<menu> route=create
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bundle-dir> --starfield <starfield-dir>
 ```
 
 ### Console-Free Steps (Plus Optional First-Session Neutral-Spot Probe `B8`)
@@ -96,8 +101,11 @@ help FO4SF_StartNeutralSpot 4 GLOB
 
 ### Undo Command (Game Closed)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Required PASS Log Lines (`fo4sf_newgame.0.log`)
@@ -152,6 +160,7 @@ FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bundle-dir> --starfield <starfield-dir>
 ```
 
 ### Console-Free Steps
@@ -160,8 +169,11 @@ python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> 
 
 ### Undo Command (Game Closed)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Required PASS Log Lines (`fo4sf_newgame.1.log`, `FO4SFHardcore.1.log`, `FO4SFHardcore.0.log`)
@@ -187,6 +199,7 @@ FO4SFHC rt=<rt> sync reason=Reload hardcore=1 h=<h> hs=<hs> t=<t> ts=<ts> s=<s> 
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bundle-dir> --starfield <starfield-dir>
 ```
 
 ### Console-Free Steps
@@ -196,8 +209,11 @@ python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> 
 
 ### Undo Command (Game Closed)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Required PASS Log Lines (`fo4sf_newgame.0.log`, `fo4sf_mission.0.log`, `FO4SFPipboyMenu.log`)
@@ -233,6 +249,7 @@ step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corner
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bundle-dir> --starfield <starfield-dir>
 python scripts/testing/check_beginning_pilot.py check-logs --log-dir <log-dir> --require-all-pass
 python scripts/testing/check_beginning_pilot.py check-logs --newgame-log <newgame-log-1> <newgame-log-0> --mission-log <mission-log-1> <mission-log-0> --require-all-pass
 ```
@@ -246,8 +263,11 @@ python scripts/testing/check_beginning_pilot.py check-logs --newgame-log <newgam
 
 ### Undo Command (Game Closed)
 ```bash
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why owner-standing-bridge-off
 ```
 
 ### Required PASS Log Lines (`fo4sf_mission.1.log` + `fo4sf_mission.0.log`)

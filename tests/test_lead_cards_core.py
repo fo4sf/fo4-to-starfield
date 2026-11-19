@@ -267,8 +267,13 @@ def validate_lead_card_markdown(
 
         has_install = False
         has_undo = False
+        has_sidecar_install = False
+        has_sidecar_undo = False
         has_plugins_flag = False
         has_pass_block = False
+
+        if re.search(r"\bcopy\b[^\r\n]*sfse_sidecar", body, re.I):
+            errors.append(f"{card_rel} [{card_title}]: H3 forbids manual sfse_sidecar copy; use sidecar-install / sidecar-undo")
 
         if not re.search(r"<[A-Za-z0-9_-]+>", body):
             errors.append(f"{card_rel} [{card_title}]: missing <placeholder> stage/game path")
@@ -303,6 +308,10 @@ def validate_lead_card_markdown(
                         has_plugins_flag = True
                 if "exp_install.py uninstall" in cline:
                     has_undo = True
+                if "make_core_bundle.py sidecar-install" in cline:
+                    has_sidecar_install = True
+                if "make_core_bundle.py sidecar-undo" in cline:
+                    has_sidecar_undo = True
 
                 if cline.startswith(("python ", "dotnet ")):
                     sanitized = re.sub(r"<[^>\s]+>", "PLACEHOLDER", cline)
@@ -378,8 +387,16 @@ def validate_lead_card_markdown(
             errors.append(f"{card_rel} [{card_title}]: install command missing --plugins list")
         if not has_undo:
             errors.append(f"{card_rel} [{card_title}]: missing fenced undo command")
+        if card_title.startswith(("Card B", "Card C", "Card D")):
+            if not has_sidecar_install:
+                errors.append(f"{card_rel} [{card_title}]: H3 missing make_core_bundle.py sidecar-install command")
+            if not has_sidecar_undo:
+                errors.append(f"{card_rel} [{card_title}]: H3 missing make_core_bundle.py sidecar-undo command")
         if not has_pass_block:
             errors.append(f"{card_rel} [{card_title}]: missing fenced ```log PASS block")
+
+    if "reputation" not in md_text or "not installed" not in md_text.lower():
+        errors.append(f"{card_rel}: H3 missing explicit statement that sfse_sidecar/reputation/ is not installed")
 
     return errors
 
@@ -450,6 +467,7 @@ step=stat_stub fn=ShowPerksMenu
         self.assertIn("code_obj_late_call", joined)
         self.assertIn("count=37", joined)
         self.assertIn("fn=ShowPerksMenu", joined)
+        self.assertIn("H3 missing explicit statement", joined)
 
 
 if __name__ == "__main__":
