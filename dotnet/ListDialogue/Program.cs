@@ -378,6 +378,15 @@ public static class ListDialogue
                 LightingTemplate = new FormLinkNullable<ILightingTemplateGetter>(Sf(LightingTemplateId)),
                 ImageSpace = new FormLinkNullable<IImageSpaceGetter>(Sf(ImageSpaceId)),
                 EnvironmentMap = "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds",
+                Lighting = new CellLighting
+                {
+                    AmbientColor = System.Drawing.Color.FromArgb(255, 192, 196, 204),
+                    DirectionalColor = System.Drawing.Color.FromArgb(255, 230, 228, 220),
+                    FogNearColor = System.Drawing.Color.FromArgb(255, 64, 68, 74),
+                    DirectionalFade = 1f,
+                    FogClipDistance = 400f,
+                    FogPower = 1f,
+                },
             };
 
             var arrivalRef = new PlacedObject(Own(ArrivalRefId), Release)
@@ -408,11 +417,21 @@ public static class ListDialogue
                     });
                 }
             }
-            cell.Temporary.Add(new PlacedObject(Own(tileId++), Release)
+            // Card A lighting fix: front key light between player (0, 0) and speaker (0, 2.5), left/right fills, and back rim
+            foreach (var lpos in new[]
+                     {
+                         new P3Float(0f, 1.4f, 2.2f),
+                         new P3Float(-2.0f, 2.0f, 2.6f),
+                         new P3Float(2.0f, 2.0f, 2.6f),
+                         new P3Float(0f, 3.8f, 3.0f),
+                     })
             {
-                Base = new FormLinkNullable<IPlaceableObjectGetter>(Sf(OmniLightId)),
-                Position = new P3Float(0f, 0f, 4f),
-            });
+                cell.Temporary.Add(new PlacedObject(Own(tileId++), Release)
+                {
+                    Base = new FormLinkNullable<IPlaceableObjectGetter>(Sf(OmniLightId)),
+                    Position = lpos,
+                });
+            }
 
             var speakerRef = new PlacedNpc(Own(SpeakerRefId), Release)
             {
@@ -438,12 +457,15 @@ public static class ListDialogue
             });
 
             quest.Aliases ??= new ExtendedList<AQuestAlias>();
+            // Card A fix: ForcedReference binds directly to persistent 0x000808 (FO4SF_ListSpeakerRef) before cell load,
+            // and Optional guarantees StartGameEnabled never aborts quest startup if an unloaded interior ref resolves late.
             quest.Aliases.Add(new QuestReferenceAlias
             {
                 ID = 0,
                 Name = "Speaker",
-                Flags = QuestReferenceAlias.Flag.AllowDisabled | QuestReferenceAlias.Flag.AllowReserved | QuestReferenceAlias.Flag.UsesStoredText,
-                UniqueActor = new FormLinkNullable<INpcGetter>(speakerNpc.FormKey),
+                Flags = QuestReferenceAlias.Flag.Optional | QuestReferenceAlias.Flag.AllowDisabled |
+                        QuestReferenceAlias.Flag.AllowReserved | QuestReferenceAlias.Flag.UsesStoredText,
+                ForcedReference = new FormLinkNullable<IPlacedGetter>(speakerRef.FormKey),
             });
 
             var greetTopic = new DialogTopic(Own(GreetingTopicId), Release)
@@ -736,8 +758,18 @@ public static class ListDialogue
                 !spkVoice.Flags.HasFlag(VoiceType.Flag.AllowDefaultDialog))
                 throw new Refusal($"speaker VoiceType {spkVoice.EditorID} lacks AllowDefaultDialog");
 
-            if (q.Aliases == null || !q.Aliases.OfType<IQuestReferenceAliasGetter>().Any(a => a.ID == 0 && a.UniqueActor.FormKey == Own(SpeakerNpcId)))
-                throw new Refusal("quest missing ID=0 Speaker QuestReferenceAlias targeting FO4SF_ListSpeakerNpc");
+            if (cells[0].Lighting == null)
+                throw new Refusal("FO4SF_ListTalkCell missing explicit CellLighting (XCLL)");
+            var lightCount = cells[0].Temporary.OfType<IPlacedObjectGetter>().Count(r => r.Base.FormKey == Sf(OmniLightId));
+            if (lightCount < 4)
+                throw new Refusal($"FO4SF_ListTalkCell expected >= 4 OmniLight placements, found {lightCount}");
+
+            if (q.Aliases == null || !q.Aliases.OfType<IQuestReferenceAliasGetter>().Any(a =>
+                    a.ID == 0 &&
+                    a.ForcedReference.FormKey == Own(SpeakerRefId) &&
+                    a.Flags != null &&
+                    a.Flags.Value.HasFlag(QuestReferenceAlias.Flag.Optional)))
+                throw new Refusal("quest missing Optional ID=0 Speaker QuestReferenceAlias ForcedReference -> FO4SF_ListSpeakerRef (0x808)");
             if (q.Scenes.Count != 1 || q.Scenes[0].FormKey != Own(TopSceneId))
                 throw new Refusal($"expected 1 SCEN {Own(TopSceneId)}, found {q.Scenes.Count}");
             var topScene = q.Scenes[0];

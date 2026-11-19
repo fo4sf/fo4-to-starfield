@@ -39,6 +39,7 @@ CONSOLE_VERBS = frozenset({
     "player.additem",
     "additem",
     "setpqv",
+    "sqv",
     "startquest",
     "stopquest",
 })
@@ -332,7 +333,14 @@ def validate_lead_card_markdown(
                             )
                     elif verb == "setstage" and len(parts) >= 3:
                         q_edid, stg_raw = parts[1], parts[2]
-                        if q_edid not in writer_edids:
+                        if re.fullmatch(r"<[A-Za-z0-9_-]+>", q_edid):
+                            if stg_raw.isdigit():
+                                stg = int(stg_raw, 10)
+                                if not any(stg in stgs for stgs in quest_stages.values()):
+                                    errors.append(
+                                        f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg}' stage not in any writer Stages"
+                                    )
+                        elif q_edid not in writer_edids:
                             errors.append(
                                 f"{card_rel} [{card_title}]: console 'setstage {q_edid}' Quest EditorID not in writer constants"
                             )
@@ -343,11 +351,13 @@ def validate_lead_card_markdown(
                                     f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg}' stage not in writer Stages"
                                 )
                     elif verb == "help" and len(parts) >= 2:
-                        target_edid = parts[1].strip('"')
-                        if target_edid not in writer_edids:
-                            errors.append(
-                                f"{card_rel} [{card_title}]: console 'help {target_edid}' EditorID not in writer constants"
-                            )
+                        rest_help = cline.split(None, 1)[1].lstrip()
+                        if not rest_help.startswith('"'):
+                            target_edid = parts[1].strip('"')
+                            if target_edid not in writer_edids:
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console 'help {target_edid}' EditorID not in writer constants"
+                                )
 
                     # Also verify any FO4SF_* EditorID or concrete 0x... FormID anywhere on the console line
                     for ed_tok in re.findall(r"\bFO4SF_[A-Za-z0-9_]+\b", cline):

@@ -48,7 +48,7 @@ REQUIRED = {
     "Game": ["GetPlayer"],
     "Debug": ["OpenUserLog", "TraceUser"],
     "Utility": ["GetCurrentRealTime"],
-    "Quest": ["GetStageDone"],
+    "Quest": ["GetStageDone", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
     "ScriptObject": ["StartTimer", "RegisterForRemoteEvent"],
 }
 

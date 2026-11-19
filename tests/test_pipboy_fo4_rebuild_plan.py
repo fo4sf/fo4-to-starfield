@@ -709,13 +709,15 @@ class RebuildPlanTests(unittest.TestCase):
         hide = hide[:hide.index("\n\t}\n")]
         self.assertLess(hide.index("g_armShown.exchange(false)"), hide.index("ArmLowerSet()"))
         self.assertIn("send=none (the raise's clip carries on)", hide)
-        # the show waits for the raise's outcome; a refused arm does not open the screen
+        # N1 / R10: the show waits for the raise's outcome, and a missing/refused animation still opens the screen
         raise_fn = self.main[self.main.index("void ArmRaise("):]
         raise_fn = raise_fn[:raise_fn.index("\n\t}\n")]
         self.assertLess(raise_fn.index("if (outcome.empty()) {"), raise_fn.index("g_armShowAt = NowMs() + g_armRaiseMs;"))
         show = self.main[self.main.index("void ArmShow("):]
         show = show[:show.index("\n\t}\n")]
-        self.assertLess(show.index("reason=not_ready"), show.index("Toggle(a_n);"))
+        self.assertNotIn("reason=not_ready", show)
+        self.assertLess(show.index('"already_open"'), show.index("Toggle(a_n);"))
+        self.assertIn("arm_ready={}", show)
         # every log line the card's PASS names is one the plugin writes
         for line, source in (("step=load_b pause=1", "step=load_b pause=1 flags={}"),
                              ("step=load_arm key=", "step=load_arm key={} raise_idle={} lower={} raise_ms={}"),

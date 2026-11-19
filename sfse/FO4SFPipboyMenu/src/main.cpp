@@ -575,6 +575,8 @@ namespace
 	RE::Scaleform::GFx::Value                g_dataObj;                 // menu thread only: Menu_mc.DataObj handed to PopulatePipboyInfoObj
 	std::atomic<bool>                        g_closing{ false };        // Task 1 step 1c: set first on kHide so nothing writes to movie/DataObj
 	std::atomic<bool>                        g_playingBootMovie{ false };
+	std::atomic<std::int32_t>                g_bootReopenPage{ -1 };    // N1/H0c: >= 0 while boot_done kHide transitions directly to FO4SF_Fo4Shell
+	std::atomic<bool>                        g_armDispatching{ false }; // N1: main-thread gate check in flight from ArmKey
 	std::atomic<bool>                        g_inDestructionCall{ false };
 	std::mutex                               g_deferredLogLock;
 	std::vector<std::string>                 g_deferredDestructionLogs;
@@ -3676,6 +3678,7 @@ namespace
 	{
 		REX::ERROR("step=movie_call_failed where={}{}{} action=close_menu", a_where, a_detail.empty() ? "" : " ", a_detail);
 		g_playingBootMovie = false;
+		g_bootReopenPage = -1;
 		ClearMovieSessionState(true);
 		if (g_task) {
 			g_task->AddTask([]() { Close(0, "movie_call_failed"); });
@@ -5908,10 +5911,8 @@ namespace
 				if (g_playingBootMovie.exchange(false)) {
 					const auto reopenPage = s_savedPage.load();
 					REX::INFO("step=boot_sequence finished=1 reopen_page={}", reopenPage);
-					g_task->AddTask([n, reopenPage]() {
-						Close(n, "boot_done");
-						g_task->AddTask([reopenPage]() { RequestPipboyOpen(reopenPage, "boot_reopen"); });
-					});
+					g_bootReopenPage.store(static_cast<std::int32_t>(reopenPage));
+					g_task->AddTask([n]() { Close(n, "boot_done"); });
 				} else {
 					g_task->AddTask([n]() { Close(n, "hide_menu"); });
 				}
@@ -6663,6 +6664,11 @@ namespace
 		                        (ui->IsMenuRegistered(*kLoadingNewLocFixed) && ui->IsMenuOpen(*kLoadingNewLocFixed));
 		if (loadingNow && !g_armSawLoadingMenu) {
 			g_armSawLoadingMenu = true;
+			g_raiseRetry.state = kRetryIdle;
+			g_armShowAt = 0;
+			g_armWaitingRaiseGraph = false;
+			g_armDispatching = false;
+			g_bootReopenPage = -1;
 			const auto gen = ++g_armGraphLoadGen;
 			if (g_armWatchedGraph != 0) {
 				g_armWatchedGraph = 0;
@@ -7089,8 +7095,11 @@ namespace
 			(type == RE::UI_MESSAGE_TYPE::kShow || type == RE::UI_MESSAGE_TYPE::kUpdate)) {   // FAL-614 proof 1b
 			CodeObjInstall(a_self, type == RE::UI_MESSAGE_TYPE::kShow ? "show" : "update");
 		}
-		if (g_arm && showOrHide) {   // FAL-852: the lower follows every hide of the screen
-			ArmMessage(type == RE::UI_MESSAGE_TYPE::kShow);
+		const std::int32_t bootReopen = (type == RE::UI_MESSAGE_TYPE::kHide) ? g_bootReopenPage.exchange(-1) : -1;
+		if (g_arm && showOrHide && bootReopen < 0) {   // FAL-852 / N1: skip arm lower across boot_done -> FO4SF_Fo4Shell transition
+			if (!(type == RE::UI_MESSAGE_TYPE::kShow && g_armShown.load())) {
+				ArmMessage(type == RE::UI_MESSAGE_TYPE::kShow);
+			}
 		}
 		if (showOrHide) {
 			g_open = (type == RE::UI_MESSAGE_TYPE::kShow);
@@ -7101,6 +7110,26 @@ namespace
 			}
 			if (type == RE::UI_MESSAGE_TYPE::kHide) {
 				ClearMovieSessionState();
+				if (bootReopen >= 0 && g_task) {
+					const auto targetPage = static_cast<std::uint32_t>(std::min<std::int32_t>(bootReopen, 4));
+					g_task->AddTask([targetPage]() {
+						s_savedPage.store(targetPage);
+						auto* ui = RE::UI::GetSingleton();
+						auto* queue = RE::UIMessageQueue::GetSingleton();
+						if (!ui || !queue || ui->IsMenuOpen(MenuName()) || OpenBlockingOverlayMenu(ui)) {
+							if (g_arm && g_armShown.load()) {
+								ArmMessage(false);
+							}
+							return;
+						}
+						if (g_stage == 2 && g_codeObj) {
+							CollectShellVitalsMainThread(targetPage);
+						}
+						g_expectOpen = 1;
+						queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
+						REX::INFO("step=boot_reopen page={} sent=show", targetPage);
+					});
+				}
 			}
 		}
 		if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kUpdate) {   // FAL-614 S1-c: keys, then answers
@@ -8576,24 +8605,20 @@ namespace
 		}
 	}
 
-	// main thread, ArmRaiseMs after the raise: the screen's show. Not if the arm was refused (the refuse line says why),
-	// nor if the screen was opened another way meanwhile (then a set lower is sent at once)
+	// main thread, ArmRaiseMs after the raise (or immediately on accepted=0 / refused): the screen's show.
+	// N1 / R10: a missing or refused animation NEVER blocks the Pip-Boy; Toggle(a_n) always opens the shell unless already open.
 	void ArmShow(std::uint32_t a_n)
 	{
 		auto* ui = RE::UI::GetSingleton();
-		if (g_armState != 1) {
-			REX::INFO("step=arm_show n={} result=skipped reason=not_ready t_ms={}", a_n, SincePress());
-			return;
-		}
 		if (!ui || ui->IsMenuOpen(MenuName())) {
-			const auto lower = !ArmLowerSet() ? std::string("none") : g_lowerIdle ? ArmPlayIdle(g_lowerIdle) : ArmNotify(*g_lowerEvent);
+			const auto lower = (g_armState != 1 || !ArmLowerSet()) ? std::string("none") : g_lowerIdle ? ArmPlayIdle(g_lowerIdle) : ArmNotify(*g_lowerEvent);
 			REX::INFO("step=arm_show n={} result=skipped reason={} lower={} t_ms={}", a_n, ui ? "already_open" : "no_ui", lower,
 				SincePress());
 			return;
 		}
 		Toggle(a_n);
-		REX::INFO("step=arm_show n={} sent=show raise={} t_ms={}", a_n, g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome,
-			SincePress());
+		REX::INFO("step=arm_show n={} sent=show raise={} arm_ready={} t_ms={}", a_n,
+			g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome, g_armState == 1 ? 1 : 0, SincePress());
 	}
 
 	// FAL-852, the key thread's state check after an arm open or close: due at `at` (0 = none), for press n
@@ -8624,7 +8649,7 @@ namespace
 		const auto n = ++g_openPressSeq;
 		if (g_arm) {
 			const auto at = NowMs();
-			const bool opening = g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0;
+			const bool opening = g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0;
 			if (g_lowerRetry.state.load() != kRetryIdle) {
 				REX::INFO("step=arm_key by={} ignored=lowering pending=1 t_ms={}", a_by ? a_by : "key", at - g_armPressAt.load());
 				return;
@@ -8652,12 +8677,12 @@ namespace
 		g_stateCheckDueAt.store(NowMs() + 750);
 	}
 
-	// FAL-852, Key at Arm=1 (game in front): the raise while the screen is closed, the close while it is shown (our kHide
-	// handling then sends the lower). Ignored while a lower is pending or locked, or a raise, its show or a check is due
+	// FAL-852 / N1, Key at Arm=1 (game in front): checks Console/blocking menus and RequirePickup on the main thread
+	// BEFORE raising or closing, so F7 with Console open logs step=toggle ignored=menu_open menu=Console and never raises bare wrist.
 	void ArmKey(std::uint32_t& a_presses, ArmCheck& a_check)
 	{
 		const auto at = NowMs();
-		const bool opening = g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0 || a_check.at != 0;
+		const bool opening = g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0 || a_check.at != 0;
 		if (g_lowerRetry.state.load() != kRetryIdle) {
 			REX::INFO("step=arm_key ignored=lowering pending=1 t_ms={}", at - g_armPressAt.load());
 		} else if (at < g_armLowerUntil.load()) {
@@ -8668,15 +8693,44 @@ namespace
 			const auto n = ++a_presses;
 			const bool shown = g_armShown.load();
 			if (shown) {
-				REX::INFO("step=arm_key n={} open=1 t_ms={}", n, at - g_armPressAt.load());
-				g_task->AddTask([n]() { Close(n, "key"); });
+				g_armDispatching = true;
 				a_check = { n, at + 750 };   // the engine handles the message on a later frame
+				g_task->AddTask([n, at]() {
+					g_armDispatching = false;
+					auto* ui = RE::UI::GetSingleton();
+					if (ui) {
+						if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
+							REX::INFO("step=toggle n={} ignored=menu_open menu={}", n, topModal);
+							return;
+						}
+					}
+					REX::INFO("step=arm_key n={} open=1 t_ms={}", n, at - g_armPressAt.load());
+					Close(n, "key");
+				});
 			} else {
-				g_armPressAt = at;
-				g_armN = n;
-				REX::INFO("step=arm_key n={} open=0 t_ms=0", n);
-				ArmRetryStart(g_raiseRetry, n);
-				g_task->AddTask([n]() {
+				g_armDispatching = true;
+				g_task->AddTask([n, at]() {
+					g_armDispatching = false;
+					auto* ui = RE::UI::GetSingleton();
+					if (!ui) {
+						return;
+					}
+					if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
+						REX::INFO("step=toggle n={} ignored=menu_open menu={}", n, blocking);
+						return;
+					}
+					if (g_requirePickup) {
+						float acqVal = 0.0f;
+						if (!IsPipboyPickedUpMainThread(acqVal)) {
+							s_bootPlayed.store(false);
+							REX::INFO("step=pipboy_pickup_required by=arm_key page={} value={:.1f}", s_savedPage.load(), acqVal);
+							return;
+						}
+					}
+					g_armPressAt = at;
+					g_armN = n;
+					REX::INFO("step=arm_key n={} open=0 t_ms=0", n);
+					ArmRetryStart(g_raiseRetry, n);
 					CollectShellVitalsMainThread(s_savedPage.load());
 					ArmRaise(n);
 				});

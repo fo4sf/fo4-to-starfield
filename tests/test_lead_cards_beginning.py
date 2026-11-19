@@ -16,21 +16,32 @@ Verifies that:
 """
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Dict, List, Optional, Pattern, Sequence, Set, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+for _p in (
+    str(ROOT / "src"),
+    str(ROOT / "scripts" / "core"),
+    str(ROOT / "scripts" / "game"),
+    str(ROOT / "scripts" / "newgame"),
+    str(ROOT / "scripts" / "planet"),
+):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
+import make_core_bundle as mcb  # noqa: E402
 from fo4sf.beginning_pilot import SESSION2_SHEET_PASS_SPECS  # noqa: E402
 from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
+import tests.test_core_bundle as _tcb  # noqa: E402
 
 # R11 / G1: read ONLY the four card & run-order files owned by gemini/beginning-real (#833)
 CARD_PATHS: Tuple[str, ...] = (
@@ -119,6 +130,7 @@ CONSOLE_VERBS = frozenset({
     "player.additem",
     "additem",
     "setpqv",
+    "sqv",
     "startquest",
     "stopquest",
     "cgf",
@@ -492,7 +504,14 @@ def validate_lead_card_markdown(
                             )
                     elif verb == "setstage" and len(parts) >= 3:
                         q_edid, stg_raw = parts[1], parts[2]
-                        if q_edid not in writer_edids:
+                        if re.fullmatch(r"<[A-Za-z0-9_-]+>", q_edid):
+                            if stg_raw.isdigit():
+                                stg = int(stg_raw, 10)
+                                if not any(stg in stgs for stgs in quest_stages.values()):
+                                    errors.append(
+                                        f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg}' stage not in any writer Stages"
+                                    )
+                        elif q_edid not in writer_edids:
                             errors.append(
                                 f"{card_rel} [{card_title}]: console 'setstage {q_edid}' Quest EditorID not in writer constants"
                             )
@@ -503,11 +522,13 @@ def validate_lead_card_markdown(
                                     f"{card_rel} [{card_title}]: console 'setstage {q_edid} {stg}' stage not in writer Stages"
                                 )
                     elif verb == "help" and len(parts) >= 2:
-                        target_edid = parts[1].strip('"')
-                        if target_edid not in writer_edids:
-                            errors.append(
-                                f"{card_rel} [{card_title}]: console 'help {target_edid}' EditorID not in writer constants"
-                            )
+                        rest_help = cline.split(None, 1)[1].lstrip()
+                        if not rest_help.startswith('"'):
+                            target_edid = parts[1].strip('"')
+                            if target_edid not in writer_edids:
+                                errors.append(
+                                    f"{card_rel} [{card_title}]: console 'help {target_edid}' EditorID not in writer constants"
+                                )
 
                     for ed_tok in re.findall(r"\bFO4SF_[A-Za-z0-9_]+\b", cline):
                         if ed_tok not in writer_edids:
@@ -533,6 +554,98 @@ def validate_lead_card_markdown(
     return errors
 
 
+def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
+    """Build synthetic Candidate 2b player/test bundles + broken pre-A1 Candidate 2 fixture for H1/R11 verify."""
+    helper = _tcb.CoreBundleTests()
+    owner, stages_root, port_esm, _ = helper._build_synthetic_owner_and_stages(tmp_root)
+
+    pb = stages_root / "pipboy-stage"
+    (pb / "Data" / "Interface").mkdir(parents=True, exist_ok=True)
+    (pb / "Data" / "Scripts").mkdir(parents=True, exist_ok=True)
+    (pb / "SFSE" / "Plugins").mkdir(parents=True, exist_ok=True)
+    p1_sha = _tcb._make_tes4_esm(pb / "FO4SFPipboyProbe.esm", extra_tag=b"pbprobe")
+    p2_sha = _tcb._make_tes4_esm(pb / "FO4SFPipboyTravel.esm", extra_tag=b"pbtravel")
+    shell_bytes = b"FWS_SYNTHETIC_PIPBOY_SHELL"
+    boot_bytes = b"FWS_SYNTHETIC_BOOT_SEQUENCE"
+    pex_bytes = b"PEX_TRAVEL"
+    dll_bytes = b"MZ_SYNTHETIC_PIPBOY_DLL"
+    (pb / "Data" / "Interface" / "FO4SF_Fo4Shell.swf").write_bytes(shell_bytes)
+    (pb / "Data" / "Interface" / "pipboybootsequence.swf").write_bytes(boot_bytes)
+    (pb / "Data" / "Scripts" / "FO4SF_PipboyTravel.pex").write_bytes(pex_bytes)
+    (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").write_bytes(dll_bytes)
+    (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").write_text(
+        "[FO4SFPipboyMenu]\n"
+        "Stage=2\n"
+        "Movie=FO4SF_Fo4Shell\n"
+        "BootMovie=pipboybootsequence\n"
+        "Arm=1\n",
+        encoding="utf-8",
+    )
+    pb_plan = {
+        "kind": "pipboy-stack-stage",
+        "plugins": ["FO4SFPipboyProbe.esm", "FO4SFPipboyTravel.esm"],
+        "files": {
+            "FO4SFPipboyProbe.esm": {"sha256": p1_sha},
+            "FO4SFPipboyTravel.esm": {"sha256": p2_sha},
+            "Data/Interface/FO4SF_Fo4Shell.swf": {"sha256": _tcb._sha256_bytes(shell_bytes)},
+            "Data/Interface/pipboybootsequence.swf": {"sha256": _tcb._sha256_bytes(boot_bytes)},
+            "Data/Scripts/FO4SF_PipboyTravel.pex": {"sha256": _tcb._sha256_bytes(pex_bytes)},
+        },
+    }
+    (pb / "plan.json").write_text(json.dumps(pb_plan, indent=1), encoding="utf-8")
+
+    cand2b_player = tmp_root / "cand2b-player-bundle"
+    rc_p = mcb.main(
+        [
+            "fold",
+            "--owner-set", str(owner),
+            "--stages-root", str(stages_root),
+            "--clean-core-out", str(tmp_root / "clean-player"),
+            "--out", str(cand2b_player),
+            "--port", str(port_esm),
+            "--profile", "player",
+            "--with-pipboy",
+            "--pipboy-stage", str(pb),
+        ],
+        system=_tcb._FakeSystemClosed(),
+    )
+    if rc_p != 0:
+        raise RuntimeError(f"failed folding synthetic cand2b-player-bundle (rc={rc_p})")
+
+    cand2b_test = tmp_root / "cand2b-test-bundle"
+    rc_t = mcb.main(
+        [
+            "fold",
+            "--owner-set", str(owner),
+            "--stages-root", str(stages_root),
+            "--clean-core-out", str(tmp_root / "clean-test"),
+            "--out", str(cand2b_test),
+            "--port", str(port_esm),
+            "--profile", "test",
+            "--with-pipboy",
+            "--pipboy-stage", str(pb),
+        ],
+        system=_tcb._FakeSystemClosed(),
+    )
+    if rc_t != 0:
+        raise RuntimeError(f"failed folding synthetic cand2b-test-bundle (rc={rc_t})")
+
+    # Broken Round-1 Candidate 2 player fixture: lacks Data/Interface/pipboybootsequence.swf (A1 / H1)
+    cand2_broken = tmp_root / "cand2-player-bundle"
+    shutil.copytree(cand2b_player, cand2_broken)
+    (cand2_broken / "Data" / "Interface" / "pipboybootsequence.swf").unlink()
+    bplan_broken = json.loads((cand2_broken / "bundle_plan.json").read_text(encoding="utf-8"))
+    bplan_broken["components"]["pipboy"]["outputs"].pop("Data/Interface/pipboybootsequence.swf", None)
+    (cand2_broken / "bundle_plan.json").write_text(json.dumps(bplan_broken, indent=1), encoding="utf-8")
+
+    return {
+        "<cand2b-player-bundle>": cand2b_player,
+        "<cand2b-test-bundle>": cand2b_test,
+        "<cand2-player-bundle>": cand2_broken,
+        "__port__": port_esm,
+    }
+
+
 def validate_lead_run_order_markdown(
     card_rel: str,
     md_text: str,
@@ -542,8 +655,9 @@ def validate_lead_run_order_markdown(
     writer_edids: Set[str],
     writer_fids: Set[int],
     quest_stages: Dict[str, Set[int]],
+    bundle_fixtures: Optional[Dict[str, Path]] = None,
 ) -> List[str]:
-    """Validate `docs/testing/lead-run-order.md` (`G1` / `R11`) across Sessions 1–4 in exact order."""
+    """Validate `docs/testing/lead-run-order.md` (`G1` / `H1` / `H5` / `R11`) across Sessions 1–4 in exact order."""
     errors: List[str] = []
     top_header = "\n".join(md_text.splitlines()[:15])
     if "NEW GAME needed" not in top_header:
@@ -563,11 +677,34 @@ def validate_lead_run_order_markdown(
         errors.append(f"{card_rel}: expected Sessions [1, 2, 3, 4] in exact order, got {[s[0] for s in sessions]}")
         return errors
 
-    # G1 exact session order content invariants
+    # H5: Preflight must plainly warn that it removes the owner's installed build, and validate preamble CLI flags
+    preamble = parts[0]
+    if "removes the owner's" not in preamble.lower():
+        errors.append(f"{card_rel} [Preflight]: H5 missing plain-words warning that preflight removes the owner's installed build")
+    for req_pre in ("pipboy_probe_install.py uninstall", "exp_install.py uninstall", "experiment-receipts", "rollback"):
+        if req_pre not in preamble:
+            errors.append(f"{card_rel} [Preflight]: H5 missing {req_pre!r} in preflight / owner-restore section")
+    for _plang, pblock in FENCED_BLOCK_RE.findall(preamble):
+        for pline in [ln.strip() for ln in pblock.splitlines() if ln.strip() and not ln.strip().startswith("#")]:
+            if pline.startswith("python "):
+                sanitized = re.sub(r"<[^>\s]+>", "PLACEHOLDER", pline)
+                tokens = shlex.split(sanitized, posix=True)
+                used_flags = [t.split("=", 1)[0] for t in tokens if t.startswith("--") and t != "--"]
+                allowed_flags, err = help_runner.get_help_flags(tokens)
+                if err:
+                    errors.append(f"{card_rel} [Preflight]: {err}")
+                else:
+                    for fl in used_flags:
+                        if fl not in allowed_flags:
+                            errors.append(f"{card_rel} [Preflight]: flag {fl!r} not in --help for command: {pline}")
+
+    # G1 + H1 exact session order content invariants
     s1_body, s2_body, s3_body, s4_body = (s[2] for s in sessions)
-    for req in ("Candidate 2", "Card B", "Card C", "gemini/core-integration"):
+    for req in ("Candidate 2b", "<cand2b-player-bundle>", "Card B", "Card C", "gemini/beginning-real", "gemini/core-integration"):
         if req not in sessions[0][1] and req not in s1_body:
             errors.append(f"{card_rel} [Session 1]: missing {req!r}")
+    if "<cand2-player-bundle>" in s1_body or "<cand2-test-bundle>" in s1_body:
+        errors.append(f"{card_rel} [Session 1]: H1 forbids naming unverified Round-1 <cand2-*-bundle>")
     for req in ("Candidate 2b", "Card A", "Card 2", "Card 1", "Card 5", "Card 3", "Card 4", "gemini/beginning-real"):
         if req not in sessions[1][1] and req not in s2_body:
             errors.append(f"{card_rel} [Session 2]: missing {req!r}")
@@ -601,6 +738,7 @@ def validate_lead_run_order_markdown(
         has_install = False
         has_undo = False
         has_pass = False
+        verified_placeholders: Dict[str, List[str]] = {}
 
         for lang, block_body in blocks:
             lang_low = lang.strip().lower()
@@ -631,10 +769,46 @@ def validate_lead_run_order_markdown(
                 continue
 
             for cline in lines:
-                if " install " in f" {cline} ":
+                if " install " in f" {cline} " or " sidecar-install " in f" {cline} ":
                     has_install = True
-                if " uninstall " in f" {cline} " or " undo " in f" {cline} ":
+                if " uninstall " in f" {cline} " or " undo " in f" {cline} " or " sidecar-undo " in f" {cline} ":
                     has_undo = True
+
+                # H1: Run real make_core_bundle.py verify on the fixture mapped to any named bundle placeholder
+                if bundle_fixtures is not None:
+                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<[^>\s]+>)", cline)
+                    if m_ver:
+                        b_ph = m_ver.group(1)
+                        if b_ph not in bundle_fixtures:
+                            errors.append(f"{card_rel} [{stitle}]: bundle {b_ph} has no registered verify fixture")
+                        else:
+                            port_p = bundle_fixtures.get("__port__")
+                            v_probs, v_metrics = mcb.verify_bundle(
+                                str(bundle_fixtures[b_ph]),
+                                port_esm=str(port_p) if port_p else None,
+                            )
+                            if v_probs:
+                                errors.append(
+                                    f"{card_rel} [{stitle}]: bundle {b_ph} refused by make_core_bundle.py verify "
+                                    f"({len(v_probs)} problem(s); first: {v_probs[0]})"
+                                )
+                            else:
+                                verified_placeholders[b_ph] = list(v_metrics.get("plugins") or [])
+
+                    m_inst = re.search(
+                        r"exp_install\.py\s+install\s+--exp-dir\s+(<cand[^>\s]+>).*?--plugins\s+([^\s]+)",
+                        cline,
+                    )
+                    if m_inst:
+                        i_ph, i_csv = m_inst.group(1), m_inst.group(2)
+                        if i_ph not in verified_placeholders:
+                            errors.append(
+                                f"{card_rel} [{stitle}]: exp_install.py installs bundle {i_ph} without a passing make_core_bundle.py verify before it"
+                            )
+                        elif i_csv.split(",") != verified_placeholders[i_ph]:
+                            errors.append(
+                                f"{card_rel} [{stitle}]: exp_install.py --plugins for {i_ph} != verified bundle plugin list"
+                            )
 
                 if cline.startswith("python "):
                     sanitized = re.sub(r"<[^>\s]+>", "PLACEHOLDER", cline)
@@ -665,14 +839,19 @@ def validate_lead_run_order_markdown(
                             errors.append(f"{card_rel} [{stitle}]: unknown coc target {cell_edid!r}")
                     elif verb == "setstage" and len(cparts) >= 3:
                         q_edid, stg_raw = cparts[1], cparts[2]
-                        if q_edid not in writer_edids:
+                        if re.fullmatch(r"<[A-Za-z0-9_-]+>", q_edid):
+                            if stg_raw.isdigit() and not any(int(stg_raw, 10) in stgs for stgs in quest_stages.values()):
+                                errors.append(f"{card_rel} [{stitle}]: unknown stage {q_edid} {stg_raw}")
+                        elif q_edid not in writer_edids:
                             errors.append(f"{card_rel} [{stitle}]: unknown quest {q_edid!r}")
                         elif q_edid.lower() in quest_stages and stg_raw.isdigit() and int(stg_raw, 10) not in quest_stages[q_edid.lower()]:
                             errors.append(f"{card_rel} [{stitle}]: unknown stage {q_edid} {stg_raw}")
                     elif verb == "help" and len(cparts) >= 2:
-                        t_edid = cparts[1].strip('"')
-                        if t_edid not in writer_edids:
-                            errors.append(f"{card_rel} [{stitle}]: unknown help target {t_edid!r}")
+                        rest_help = cline.split(None, 1)[1].lstrip()
+                        if not rest_help.startswith('"'):
+                            t_edid = cparts[1].strip('"')
+                            if t_edid not in writer_edids:
+                                errors.append(f"{card_rel} [{stitle}]: unknown help target {t_edid!r}")
 
         if not has_install:
             errors.append(f"{card_rel} [{stitle}]: missing fenced install command")
@@ -690,6 +869,12 @@ class LeadCardsBeginningTests(unittest.TestCase):
         cls.help_runner = HelpRunner(ROOT)
         cls.source_patterns = collect_source_format_patterns(ROOT)
         cls.writer_edids, cls.writer_fids, cls.quest_stages = collect_writer_symbols(ROOT)
+        cls._bundle_tmp = tempfile.TemporaryDirectory(prefix="fo4sf-r11-bundles-")
+        cls.bundle_fixtures = build_run_sheet_bundle_fixtures(Path(cls._bundle_tmp.name))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._bundle_tmp.cleanup()
 
     def test_beginning_lead_cards_pass_r11(self) -> None:
         self.assertEqual(
@@ -709,17 +894,95 @@ class LeadCardsBeginningTests(unittest.TestCase):
             self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", txt), f"local path leaked in {rel}")
             for stale_token in ("by=trigger", "source=lift\n", "source=lift ", "source=lift`", "source=lift)", "why=reload"):
                 self.assertNotIn(stale_token, txt, f"H00(a) lowercase BSFixedString mismatch {stale_token!r} in {rel}")
-            validator = validate_lead_run_order_markdown if rel.endswith("lead-run-order.md") else validate_lead_card_markdown
-            errors = validator(
-                rel,
-                txt,
-                help_runner=self.help_runner,
-                source_patterns=self.source_patterns,
-                writer_edids=self.writer_edids,
-                writer_fids=self.writer_fids,
-                quest_stages=self.quest_stages,
-            )
+            if rel.endswith("lead-run-order.md"):
+                errors = validate_lead_run_order_markdown(
+                    rel,
+                    txt,
+                    help_runner=self.help_runner,
+                    source_patterns=self.source_patterns,
+                    writer_edids=self.writer_edids,
+                    writer_fids=self.writer_fids,
+                    quest_stages=self.quest_stages,
+                    bundle_fixtures=self.bundle_fixtures,
+                )
+            else:
+                errors = validate_lead_card_markdown(
+                    rel,
+                    txt,
+                    help_runner=self.help_runner,
+                    source_patterns=self.source_patterns,
+                    writer_edids=self.writer_edids,
+                    writer_fids=self.writer_fids,
+                    quest_stages=self.quest_stages,
+                )
             self.assertEqual(errors, [], "\n".join(errors))
+
+    def test_h1_h5_run_sheet_bundle_verify_fixture_and_preflight_guard(self) -> None:
+        port_p = str(self.bundle_fixtures["__port__"])
+        r_ok = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "core" / "make_core_bundle.py"),
+                "verify",
+                "--bundle-dir",
+                str(self.bundle_fixtures["<cand2b-player-bundle>"]),
+                "--port",
+                port_p,
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r_ok.returncode, 0, r_ok.stdout + r_ok.stderr)
+        self.assertIn("verify: ok", r_ok.stdout)
+
+        r_bad = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "core" / "make_core_bundle.py"),
+                "verify",
+                "--bundle-dir",
+                str(self.bundle_fixtures["<cand2-player-bundle>"]),
+                "--port",
+                port_p,
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(r_bad.returncode, 0)
+        self.assertIn("pipboybootsequence.swf", r_bad.stdout + r_bad.stderr)
+        self.assertIn("do not install", r_bad.stdout + r_bad.stderr)
+
+        good_txt = (ROOT / "docs/testing/lead-run-order.md").read_text(encoding="utf-8")
+        stale_s1_txt = (
+            good_txt.replace(
+                "make_core_bundle.py verify --bundle-dir <cand2b-player-bundle>",
+                "make_core_bundle.py verify --bundle-dir <cand2-player-bundle>",
+                1,
+            )
+            .replace(
+                "exp_install.py install --exp-dir <cand2b-player-bundle>",
+                "exp_install.py install --exp-dir <cand2-player-bundle>",
+                1,
+            )
+            .replace("removes the owner's", "updates the")
+        )
+        errs = validate_lead_run_order_markdown(
+            "docs/testing/lead-run-order.md",
+            stale_s1_txt,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("H5 missing plain-words warning", joined)
+        self.assertIn("H1 forbids naming unverified Round-1", joined)
+        self.assertIn("bundle <cand2-player-bundle> refused by make_core_bundle.py verify", joined)
+        self.assertIn("pipboybootsequence.swf", joined)
 
     def test_lead_run_order_validator_rejects_missing_stop_point_and_bad_order(self) -> None:
         bad_sheet = """# Run Sheet

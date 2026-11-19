@@ -5,36 +5,52 @@
 Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`RECORDS ONLY`**, **`TOOLING`**, **`NOT BUILT`**, **`NOT WIRED`**.
 
 ## Pre-Session Clean-Slate Preflight (Run Once Before Session 1, Game Closed)
-If an earlier crash-split toggle hold (`FO4SF.toggle.json`), standalone Pip-Boy UI probe (`FO4SFPipboyProbe.install.json`), or prior experiment (`FO4SFExp.install.json`) is present in `<starfield-dir>/Data`, release and uninstall them cleanly in order before installing Session 1 (`IB2`'s `plugins_restore_pending = true` on completed manifests is benign and neither blocks `exp_install.py` nor reverts `Plugins.txt`):
+
+> **PLAIN-WORDS WARNING (`H5`):** Running this preflight **removes the owner's currently installed build** from `<starfield-dir>/Data` and `Plugins.txt`: it releases any `plugin_toggle.py` hold (`FO4SF.toggle.json`), **uninstalls the standalone Pip-Boy probe kit** (`FO4SFPipboyProbe.install.json` + `FO4SFPipboyProbe.esm` + `FO4SFPipboyProbe - Main.ba2`), uninstalls `FO4SFMapMarkers.esm` before the core swap, and **uninstalls the installed experiment set** (`FO4SFExp.install.json`, e.g. the 7-plugin Vault 111 exit build and its `Main.ba2`). (`FO4Port.esm` and `FO4SFBridge.esm` stay on disk unless explicitly uninstalled; `IB2`'s `plugins_restore_pending = true` on completed manifests is benign.)
 
 ```bash
 python scripts/game/plugin_toggle.py status --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/ui/pipboy_probe_install.py status --starfield <starfield-dir>
 python scripts/ui/pipboy_probe_install.py uninstall --starfield <starfield-dir>
+python scripts/game/map_markers_install.py status --starfield <starfield-dir>
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py status --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
+### Putting the Owner's Installed Build Back Afterwards (`H5`)
+Each `uninstall` above archives a content-addressed `.json.gz` receipt into `<localappdata>/FO4SF/experiment-receipts/` (recording the staged `exp_dir` / `dir` and `plugins`). When those prior staged folders (`<prior-exp-dir>`, `<prior-mapmarkers-stage>`, `<prior-probe-stage>`) remain intact on disk, the CLI sequence from the preserved receipts is:
+
+```bash
+python scripts/game/exp_install.py install --exp-dir <prior-exp-dir> --starfield <starfield-dir> --plugins <prior-exp-plugins> --pack
+python scripts/game/exp_install.py order --starfield <starfield-dir>
+python scripts/game/map_markers_install.py install --dir <prior-mapmarkers-stage> --starfield <starfield-dir>
+python scripts/ui/pipboy_probe_install.py install --dir <prior-probe-stage> --starfield <starfield-dir>
+python scripts/game/plugin_toggle.py off --plugins FO4SFBridge.esm --starfield <starfield-dir> --why <prior-hold-reason>
+```
+
+**Important limitation (`H5`):** Without `sidecar-undo`, hand-copied `Data/SFSE/Plugins/*` files (`FO4SFPipboyMenu.dll`, `.ini`, `FO4SFBorder.*`), private `--extra-movie` / `--page-movie` / `--component-movie` probe options (recorded in `FO4SFPipboyProbe.install.json` only as `source_inputs` paths rather than CLI arguments), or exact pre-session `Plugins.txt` line positions cannot be reconstructed byte-identically by `exp_install.py` / `pipboy_probe_install.py` alone. **Use Lead's pre-session rollback set (`<prestate-backup>`) for a byte-identical restore of the owner's exit build.**
+
 ---
 
-## Session 1 — Candidate 2 Cards B and C (`1a`/`1c`/`1d` F7 `STAT` Crash-Proof Isolation & `1g` Scanner/Map Block)
+## Session 1 — Candidate 2b Cards B and C (`1a`/`1c`/`1d` F7 `STAT` Crash-Proof Isolation & `1g` Scanner/Map Block)
 
-- **Branch & Head:** `gemini/core-integration` (`#831`) at `b03a534d` (`Candidate 2` player bundle built at `72f903b9` / verified on `b03a534d`).
-- **New-Game Note:** **NEW GAME needed** — start one fresh `--profile player` New Game (`RequirePickup=0` in Card B's isolation INI lets `F7` open immediately without carrying old saves).
-- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins` (copy `<cand2-player-bundle>/sfse_sidecar/SFSE/Plugins/*` and format-5 `versionlib-1-16-244-0.bin` beside `FO4SFPipboyMenu.dll`).
-- **Plugin List (`Plugins.txt`, `22` plugins in `<cand2-player-bundle>`):**
+- **Branch, Bundle & Verifier Head (`H1`):** Install **`<cand2b-player-bundle>`** (**`Candidate 2b` `--profile player`**, `22` plugins) and run `make_core_bundle.py verify` from **`gemini/beginning-real` (`#833`, at `8bdafe6f`+)**, where `<cand2b-player-bundle>` passes (`verify: ok`). `gemini/beginning-real` (`#833`) merges `gemini/core-integration` (`#831` at `bb174d7d`) with **`0` `sfse/` diff**, so `<cand2b-player-bundle>` carries the exact `#831` `FO4SFPipboyMenu.dll` and `FO4SFCombat.dll` code under test. **Do NOT use the Round 1 `Candidate 2` bundle (`72f903b9`)**: `#831` `b03a534d`'s `make_core_bundle.py verify` refuses it (`verify: 69 problem(s); do not install`, starting with missing `Data/Interface/pipboybootsequence.swf` from `A1`), and `#831`'s `verify` must not be run against `<cand2b-player-bundle>` (whose beginning/mission/loot `.esm` records use `#833`'s writer catalog).
+- **New-Game Note:** **NEW GAME needed** — start one fresh `--profile player` New Game (`RequirePickup=0` and `--arm 0` in Card B's isolation INI let `F7` open immediately across `10` rapid cycles without carrying old saves).
+- **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` plus `~5 MB` under `<starfield-dir>/Data/SFSE/Plugins` (copy `<cand2b-player-bundle>/sfse_sidecar/SFSE/Plugins/*` and format-5 `versionlib-1-16-244-0.bin` beside `FO4SFPipboyMenu.dll`).
+- **Plugin List (`Plugins.txt`, `22` plugins in `<cand2b-player-bundle>`):**
   `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
 - **Cards to Run in Order (`docs/testing/task0-task1-lead-cards.md`):**
-  1. **`Card B` (`1a` / `1c` / `1d` F7 `STAT` Crash-Proof Isolation):** Part 1 negative `--omit StopPerkSound --allow-omit StopPerkSound` check, then Part 2 full `49`-name plain-`Object` `BGSCodeObj` (`raw_type=8`, `is_closure=0`) check across `10` `F7` open/close cycles (`E` on `STAT` does not switch pages; `m`, `v`, `n` ignored while `Console` is open).
+  1. **`Card B` (`1a` / `1c` / `1d` F7 `STAT` Crash-Proof Isolation):** Part 1 negative `--arm 0 --omit StopPerkSound --allow-omit StopPerkSound` check, then Part 2 full `49`-name `--arm 0` plain-`Object` `BGSCodeObj` (`raw_type=8`, `is_closure=0`) check across `10` `F7` open/close cycles (`E` on `STAT` does not switch pages; `m`, `v`, `n` ignored while `Console` is open).
   2. **`Card C` (`1g` Starfield Scanner & Map Menus Block):** Outdoors in the same session (`MapBlockStarMap=1`), press Star Map, Surface Map, Planet Map, and `F` (`handscanner`); verify null-menu block (`route=create`) and zero `"FO4SF"` HUD developer banner (`1h`). (`MapBlockStarMap=0` hide-only fallback `sent=hide` is available in `FO4SFPipboyMenu.ini` if needed.)
 
-### Exact Install & INI Commands (Game Closed)
+### Exact Install & INI Commands (Run from `gemini/beginning-real` Worktree, Game Closed)
 ```bash
-python scripts/core/make_core_bundle.py verify --bundle-dir <cand2-player-bundle>
-python scripts/game/exp_install.py install --exp-dir <cand2-player-bundle> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
-python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --omit StopPerkSound --allow-omit StopPerkSound
-python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path>
+python scripts/core/make_core_bundle.py verify --bundle-dir <cand2b-player-bundle>
+python scripts/game/exp_install.py install --exp-dir <cand2b-player-bundle> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFRouteLoot.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0 --omit StopPerkSound --allow-omit StopPerkSound
+python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0
 ```
 
 ### PASS Lines to Read in Logs (`FO4SFPipboyMenu.log`, `FO4SFCombat.log`, `fo4sf_newgame.0.log`)
@@ -54,8 +70,9 @@ step=starmap_block_install menu=<menu> found=1 slot=<slot> orig_rva=<rva>
 step=starmap_blocked n=<k> blocked menu=<menu> route=create
 ```
 
-### Exact Undo Command (Game Closed)
+### Exact Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
@@ -94,15 +111,19 @@ python scripts/game/exp_install.py install --exp-dir <cand2b-test-bundle> --star
 ```
 
 ```console
-help FO4SF_TestModeEnabled 4 GLOB
+help "Silent-Player List Dialogue" 0
+help FO4SF_ListDialogueQuest 4 QUST
+sqv <quest-hex>
+startquest <quest-hex>
 coc FO4SF_ListTalkCell
-setstage FO4SF_ListDialogueQuest 10
-setstage FO4SF_ListDialogueQuest 15
-setstage FO4SF_ListDialogueQuest 70
+setstage <quest-hex> 10
+setstage <quest-hex> 15
+setstage <quest-hex> 70
 ```
 
 Swap from Sub-session 2A to Sub-session 2B (`Cards 2, 1, 2/5, 3, 4`, `--profile player`, console-free):
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 python scripts/core/make_core_bundle.py verify --bundle-dir <cand2b-player-bundle>
 python scripts/testing/check_beginning_pilot.py check-bundle --bundle-dir <cand2b-player-bundle>
@@ -158,6 +179,7 @@ FO4SF_MISSION rt=<rt> mission gate mode=2 started=false
 
 ### Exact Undo Command (Game Closed)
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```

@@ -458,6 +458,11 @@ class StageIniGeneratorTests(unittest.TestCase):
                 "RequirePickup=0",
                 "BootMovie=pipboybootsequence",
                 "BootOnFirstOpen=1",
+                "Arm=1",
+                "ArmRaiseIdle=idleexaminewatch",
+                "ArmRaiseMs=2000",
+                "ArmLowerMs=3500",
+                "ArmRetryMs=2000",
                 "ShellKeys=",
                 "Map=1",
                 "MapMenus=GalaxyStarMapMenu,SurfaceMap,MapMenu",
@@ -931,6 +936,20 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
         miss_tail = loop_body[loop_body.index("where=ProcessUserEvent"):]
         self.assertLess(miss_tail.index("continue;"), miss_tail.index("const bool consumed"))
         self.assertNotIn("return false;", miss_tail[:miss_tail.index("const bool consumed")])
+
+        # N1: ArmShow always opens shell even when g_armState != 1 (R10), g_bootReopenPage suppresses arm lower across boot,
+        # and ArmKey checks Console / RequirePickup on main thread before raising
+        arm_show_fn = main_cpp[main_cpp.index("void ArmShow("):main_cpp.index("struct ArmCheck")]
+        self.assertNotIn("reason=not_ready", arm_show_fn)
+        self.assertIn("Toggle(a_n);", arm_show_fn)
+        self.assertIn("step=arm_show n={} sent=show raise={} arm_ready={} t_ms={}", arm_show_fn)
+        self.assertIn("g_bootReopenPage", main_cpp)
+        self.assertIn("step=boot_reopen page={} sent=show", main_cpp)
+        arm_key_fn = main_cpp[main_cpp.index("void ArmKey("):main_cpp.index("void ArmTick(")]
+        self.assertIn('REX::INFO("step=toggle n={} ignored=menu_open menu={}", n, blocking);', arm_key_fn)
+        self.assertIn("step=pipboy_pickup_required by=arm_key", arm_key_fn)
+        self.assertIn("### N1 — Player-Build First-Person Pip-Boy Arm", cards_doc)
+        self.assertIn("OWNER TEST", cards_doc)
 
 
 if __name__ == "__main__":

@@ -8,9 +8,12 @@ Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`RECORDS ON
 
 ## Card A — `G4` List-Dialogue Scene & Speaker Route Proof (`TEST-STATION`)
 
-- **Purpose:** Verify in game that pressing `E` on `FO4SF_ListSpeakerNpc` (`0x000806` in `FO4SFListDialogue.esm`, placed as ref `0x000808` inside `FO4SF_ListTalkCell` `0x000807`, allied with the player via `FO4SF_ListSpeakerFaction` `0x000805` and reusing a human template whose own `VoiceType` carries `AllowDefaultDialog`) opens Starfield's `DialogueMenu`, renders silent-player list choices, and sets quest `FO4SF_ListDialogueQuest` (`0x000810`) outcome stages on selection.
+- **Purpose:** Verify in game that pressing `E` on `FO4SF_ListSpeakerNpc` (`0x000806` in `FO4SFListDialogue.esm`, placed as persistent ref `0x000808` `FO4SF_ListSpeakerRef` inside lit `FO4SF_ListTalkCell` `0x000807`, bound to `Optional` alias `0` `Speaker` via `ForcedReference -> 0x000808`, allied with the player via `FO4SF_ListSpeakerFaction` `0x000805`, and reusing a human template whose own `VoiceType` carries `AllowDefaultDialog`) opens Starfield's `DialogueMenu`, renders silent-player list choices, and sets quest `FO4SF_ListDialogueQuest` (`0x000810`) outcome stages on selection.
+- **Why Session 2 Saw No `init` Log and Silent `TALK` (Fixed Here):**
+  1. In `--profile player` (`--no-test-cell`), `FO4SF_ListDialogueQuest` had `0` aliases so `StartGameEnabled` started it immediately and logged `init`. In `--profile test`, alias `0` (`Speaker`) previously used `UniqueActor` without `QuestReferenceAlias.Flag.Optional` on an NPC inside an unloaded interior cell; when `UniqueActor` resolution failed at startup, Starfield aborted starting the quest (`IsRunning() == false`), so neither `OnQuestInit()` nor `FO4SF_ListTopScene` (`0x2814` top-level activate scene) could run. Alias `0` now uses `ForcedReference -> 0x000808` + `QuestReferenceAlias.Flag.Optional`, and `FO4SF_ListDialogueQuest.psc` logs `init` unconditionally on `OnQuestStarted` / `OnQuestInit` / `OnStageSet` and runs `PollStages()` directly inside `OnStageSet`.
+  2. `FO4SF_ListTalkCell` (`0x000807`) now carries explicit `CellLighting` (`XCLL`) plus `4` `OmniLight` placements (front key `(0, 1.4, 2.2)` between player and speaker, left/right fills, and back rim) so the speaker is evenly lit rather than silhouetted.
 - **Wiring Status:** List dialogue stays a **`TEST-STATION`** cell this round; it is **`NOT WIRED`** to Preston or Codsworth.
-- **Stage Placeholders:** `<test-bundle-dir>`, `<starfield-dir>`
+- **Stage Placeholders:** `<test-bundle-dir>`, `<starfield-dir>`, `<quest-hex>`
 - **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` (`FO4ActorRaider - Main.ba2` plus `22` `.esm` plugins; `FO4SFCoreValues.esm` is built with `--test-mode 1` so `FO4SF_TestModeEnabled` `0x000860` defaults to `1.0`).
 - **Plugin List (`Plugins.txt`, `--profile test`, `22` plugins):**
   `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
@@ -21,19 +24,24 @@ python scripts/core/make_core_bundle.py verify --bundle-dir <test-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <test-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 ```
 
-### In-Game Steps & Console Commands
-1. Start a new session on the `--profile test` bundle (`FO4SF_TestModeEnabled` `0x000860` in `FO4SFCoreValues.esm` is `1.0`; if running against an unbundled manual install where test mode is `0`, inspect the runtime FormID via `help FO4SF_TestModeEnabled 4 GLOB` and set it to `1` in Console).
-2. Move to the list-dialogue room (`FO4SF_ListTalkCell` `0x000807`, arrival marker `0x000809`, `COC` marker `0x00080A`), snapshot the low baseline sheet (`stage 10`), press `E` on `FO4SF_ListSpeakerNpc` (`0x000808`) to exercise failing checks (`21`, `31`), qualify the high sheet (`stage 15`), press `E` again to exercise passing checks (`20`, `22`, `30`, `40`, `50`) and goodbye (`60`), then restore the player sheet (`stage 70`):
+### In-Game Steps & Console Commands (Runtime FormID Read + Editor-Name-Free Stage Lines)
+1. Start a new session on the `--profile test` bundle (`FO4SF_TestModeEnabled` `0x000860` defaults to `1.0`).
+2. **Read `<quest-hex>` in game (never guess the load-order byte):** Open Console and run **`help "Silent-Player List Dialogue" 0`** (works by display name without any editor ID) or `help FO4SF_ListDialogueQuest 4 QUST`. Starfield prints `QUST: (<quest-hex>) 'FO4SF Silent-Player List Dialogue'` — its low `6` hex digits are always `000810` (`<XX>000810`). Run `sqv <quest-hex>` to confirm `Enabled? Yes`, `State: Running`, and `REF 'Speaker'->'(...000808)'` (if stopped, `startquest <quest-hex>` starts it by hex ID).
+3. Move to `FO4SF_ListTalkCell` (`0x000807`), set baseline low sheet (`setstage <quest-hex> 10`), press `E` on `Relay Operator` (`0x000808`) to exercise failing checks (`21`, `31`), set qualified high sheet (`setstage <quest-hex> 15`), press `E` again to exercise passing checks (`20`, `22`, `30`, `40`, `50`) and goodbye (`60`), then restore the player sheet (`setstage <quest-hex> 70`):
 ```console
-help FO4SF_TestModeEnabled 4 GLOB
+help "Silent-Player List Dialogue" 0
+help FO4SF_ListDialogueQuest 4 QUST
+sqv <quest-hex>
+startquest <quest-hex>
 coc FO4SF_ListTalkCell
-setstage FO4SF_ListDialogueQuest 10
-setstage FO4SF_ListDialogueQuest 15
-setstage FO4SF_ListDialogueQuest 70
+setstage <quest-hex> 10
+setstage <quest-hex> 15
+setstage <quest-hex> 70
 ```
 
-### Undo Command (Game Closed)
+### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
@@ -71,17 +79,18 @@ FO4SFLIST rt=<rt> summary ok=true host_menu=DialogueMenu replaced_swf=false end=
 ```bash
 python scripts/core/make_core_bundle.py verify --bundle-dir <player-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
-python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --omit StopPerkSound --allow-omit StopPerkSound
-python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path>
+python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0 --omit StopPerkSound --allow-omit StopPerkSound
+python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --arm 0
 ```
 
 ### In-Game Steps
-1. **Part 1 (Negative `StopPerkSound` omission):** With the `--omit StopPerkSound --allow-omit StopPerkSound` INI copied to `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini`, press `F7`, cycle `STAT` subtabs (`Status`, `SPECIAL`, `Perks`), hold `10 s`, and close with `Tab` or `Esc`.
-2. **Part 2 (Full `49`-name INI, `10` cycles):** Copy the full `49`-name INI to `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini`, press `F7`, verify `E` on `STAT` does **not** switch top-level pages, close with `Tab`/`Esc`, and repeat `10` times.
+1. **Part 1 (Negative `StopPerkSound` omission):** With the `--arm 0 --omit StopPerkSound --allow-omit StopPerkSound` INI copied to `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini`, press `F7`, cycle `STAT` subtabs (`Status`, `SPECIAL`, `Perks`), hold `10 s`, and close with `Tab` or `Esc`.
+2. **Part 2 (Full `49`-name INI, `10` cycles):** Copy the full `49`-name `--arm 0` isolation INI to `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini`, press `F7`, verify `E` on `STAT` does **not** switch top-level pages, close with `Tab`/`Esc`, and repeat `10` times.
 3. Open Console (`` ` ``) and press `m`, `v`, and `n`; confirm neither Pip-Boy nor combat hotkeys fire while `Console` is open.
 
-### Undo Command (Game Closed)
+### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
@@ -121,8 +130,9 @@ python scripts/game/exp_install.py install --exp-dir <player-bundle-dir> --starf
 2. Confirm no Starfield map menu opens, no crash occurs, and zero `"FO4SF"` developer banner text (`1h`) appears on screen.
 3. *(Fallback only if `MapBlockStarMap=1` needs bypass)* Set `MapBlockStarMap=0` in `FO4SFPipboyMenu.ini`, relaunch, press the map keys once, and verify `step=map_suppress n=<k> name=<menu> sent=hide`.
 
-### Undo Command (Game Closed)
+### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
@@ -141,10 +151,10 @@ step=map_suppress n=<k> name=<menu> sent=hide
 
 ---
 
-## Card D — `1b`, `1i`, `1j`, `1k` In-Call Vitals, Arm Idle, `STAT` Aid Actions, `INV`/`DATA` Answers & Standalone `SpecialMenu` (`TEST-STATION`, Gated Off Until Card B Passes)
+## Card D — `N1`, `1b`, `1i`, `1j`, `1k` Player-Build Pip-Boy Arm (`Arm=1`), In-Call Vitals, `STAT` Aid Actions, `INV`/`DATA` Answers & Standalone `SpecialMenu` (`REACHABLE` Arm / `TEST-STATION` Opt-In Switches)
 
 - **Default Safety & Scope Notes:**
-  - Default `make_pipboy_stage_ini.py` keeps `PopulateInCall=0`, `Arm=0`, `StatActions=0`, `InvDataAnswers=0`, and `SpecialMenu=0` so Card B runs untouched first. Enable switches only after Card B passes in game.
+  - **Card B passed in game (`Session 1`, `10/10` cycles):** `make_pipboy_stage_ini.py` now ships **`Arm=1`** by default in the player build (`Stage=2`, `Movie=FO4SF_Fo4Shell`, `Key=0x76` `F7`, `Pause=1` — zero `[Kit]` or `[Page ...]` entries), while keeping `PopulateInCall=0`, `StatActions=0`, `InvDataAnswers=0`, and `SpecialMenu=0` opt-in for Card D.
   - Native `FO4SF_SpecialMenu` is **`NOT WIRED`** to the Vault 111 lift or start flow this round (`R14`; testable standalone only via `SpecialMenu=1` and `SpecialKey`). It refuses increments when `pointsRemaining <= 0` and writes chosen values to `FO4SFCoreValues.esm` (`0x000880..0x000887`) for `FO4SF_ProgressionQuest` to apply (`source=fo4_menu`).
   - `WorkshopsList` on `DATA` is an explicit static **placeholder** (`Sanctuary Hills (Placeholder)`) this round.
   - `DropItem` (`inv_drop`, documented in `docs/ui/pipboy-inv-drop-note.md`) is withheld from Card D until tried separately on a throwaway item.
@@ -154,6 +164,41 @@ step=map_suppress n=<k> name=<menu> sent=hide
 - **Plugin List (`Plugins.txt`, `--profile test`, `22` plugins):**
   `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
 
+### N1 — Player-Build First-Person Pip-Boy Arm (`Arm=1`, `idleexaminewatch`, `Stage=2` `FO4SF_Fo4Shell` Only)
+- **Shipped INI Lines (Generated by Default in `make_pipboy_stage_ini.py`, Never `[Kit]` / `[Page ...]`):**
+```ini
+Stage=2
+Movie=FO4SF_Fo4Shell
+Key=0x76
+Pause=1
+Arm=1
+ArmRaiseIdle=idleexaminewatch
+ArmRaiseMs=2000
+ArmLowerIdle=
+ArmLowerEvent=
+ArmLowerMs=3500
+ArmRetryMs=2000
+```
+- **Why These Timings:** `idleexaminewatch` (`0x000C154F`) brings the left wrist face-on at `~1.9 s–4.3 s`, so `ArmRaiseMs=2000` opens `FO4SF_Fo4Shell` as the wrist settles in view and `Pause=1` holds that frame while browsing. Leaving `ArmLowerIdle=` and `ArmLowerEvent=` empty lets closing (`Tab`/`Esc`/`F7`) unpause the clip to carry on and lower naturally over the remaining `~3.5 s` (`ArmLowerMs=3500` guards re-entry until lowered; `ArmRetryMs=2000` retries a transient `result=0` every `100 ms` up to `2.0 s` before opening immediately).
+- **Proved Offline vs. Only In Game:**
+  - **Proved offline:** `FO4SFPipboyMenu.dll` compiles cleanly against `1.16.244` RVAs (`Actor::PlayIdle` `102136`, context `35720`, graph sink `123821`/`123822`, `0x000C154F` `idleexaminewatch` fallback), `A4` load-screen sink generation tracking (`ArmPollLoadingTransitionMainThread` + `g_armGraphLoadGen`) resets watched graph pointers and cancels in-flight raises across loads without calling `UnregisterSink` on freed graphs, `g_bootReopenPage` suppresses `ArmMessage(false)` across `pipboybootsequence` -> `FO4SF_Fo4Shell` reopen so `BootOnFirstOpen=1` never triggers a `3500 ms` lower lockout, `ArmKey` checks `Console` and `RequirePickup` on the main thread before raising, and `ArmShow` unconditionally opens `FO4SF_Fo4Shell` even when `g_armState != 1` or `accepted=0` (`R10`: a missing or refused animation never blocks the Pip-Boy).
+  - **Only the game can show:** Live `1stPerson` animation graph acceptance (`accepted=1`) on `F7` after pickup, visual alignment of `ArmRaiseMs=2000` when `Pause=1` freezes the wrist, natural lower when unpaused on close, and third-person / weapon-drawn `accepted=0` immediate open.
+- **N1 Required PASS Log Lines (Raise, Page Showing, Lower & Failed-Raise `R10` Fallback in `FO4SFPipboyMenu.log`):**
+```log
+step=arm_raise n=<k> result=1 try=1 accepted=1 t_ms=<ms>
+step=arm_raise_done n=<k> result=1 accepted=1 tries=<t> waited_ms=<w> show_in_ms=2000 t_ms=<ms>
+step=arm_show n=<k> sent=show raise=1 arm_ready=1 t_ms=<ms>
+step=arm_shown n=<k> accepted=1 t_ms=<ms>
+step=arm_lower n=<k> send=none (the raise's clip carries on) accepted=1 lock_ms=3500 t_ms=<ms>
+step=arm_raise_done n=<k> result=<gave_up|refused> accepted=0 tries=<t> waited_ms=<w> show_in_ms=0 t_ms=<ms>
+step=arm_show n=<k> sent=show raise=<gave_up|refused> arm_ready=<0|1> t_ms=<ms>
+step=arm_shown n=<k> accepted=0 t_ms=<ms>
+step=arm_lower n=<k> send=none (the raise's clip carries on) accepted=0 lock_ms=0 t_ms=<ms>
+```
+- **OWNER TEST (Visual & Feel — Recorded by Lead):**
+  1. In first person with weapon holstered after picking up the Pip-Boy, press `F7`: judge whether `idleexaminewatch` raises the wrist to a natural angle at `ArmRaiseMs=2000` before `FO4SF_Fo4Shell` (`STAT`) appears, and whether `Tab` / `F7` lowers the arm smoothly over `ArmLowerMs=3500`.
+  2. In third person or with a weapon drawn, press `F7`: confirm the Pip-Boy still opens cleanly without hanging (`accepted=0` fallback) and closes with `0 ms` lock.
+
 ### Install & Opt-In INI Commands (Game Closed)
 ```bash
 python scripts/core/make_core_bundle.py verify --bundle-dir <test-bundle-dir>
@@ -161,8 +206,9 @@ python scripts/game/exp_install.py install --exp-dir <test-bundle-dir> --starfie
 python scripts/ui/make_pipboy_stage_ini.py --stage <pipboy-stage-dir> --out <stage-ini-path> --populate-in-call 1 --arm 1 --stat-actions 1 --inv-data-answers 1 --special-menu 1 --special-max-points 40
 ```
 
-### Undo Command (Game Closed)
+### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)
 ```bash
+python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
