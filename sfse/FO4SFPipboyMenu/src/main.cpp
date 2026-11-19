@@ -113,6 +113,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "setup_places.h"
+
 // Win32 calls that libxse's REX::W32 does not wrap, imported the way REX/W32.cpp imports its own (REX/W32/BASE.h):
 // libxse refuses a <windows.h> included before it
 REX_W32_IMPORT(std::int16_t, GetAsyncKeyState, std::int32_t);
@@ -212,6 +214,15 @@ namespace
 	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
 	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
 	constexpr std::uint32_t kCoreStartCardOpenId = 0x866;    // FO4SFCoreValues.esm GLOB FO4SF_StartCardOpen (N2, R13)
+	constexpr std::uint32_t kCoreGameModeId = 0x870;         // FO4SFCoreValues.esm GLOB FO4SF_GameMode (S1, R13)
+	constexpr std::uint32_t kCoreSurvivalStartId = 0x871;    // FO4SFCoreValues.esm GLOB FO4SF_SurvivalStart (S1, R13)
+	constexpr std::uint32_t kCoreSurvivalLockedId = 0x872;   // FO4SFCoreValues.esm GLOB FO4SF_SurvivalLocked (S1, R13)
+	constexpr std::uint32_t kCoreStartDifficultyId = 0x873;  // FO4SFCoreValues.esm GLOB FO4SF_StartDifficulty (S1, R13)
+	constexpr std::uint32_t kCoreWarfareFactionId = 0x874;   // FO4SFCoreValues.esm GLOB FO4SF_WarfareFaction (S1, R13)
+	constexpr std::uint32_t kCoreWarfareStartIndexId = 0x875;// FO4SFCoreValues.esm GLOB FO4SF_WarfareStartIndex (S1, R13)
+	constexpr std::uint32_t kCoreStartChoiceDoneId = 0x876;  // FO4SFCoreValues.esm GLOB FO4SF_StartChoiceDone (S1, R13)
+	constexpr std::uint32_t kCoreStoryLineId = 0x878;        // FO4SFCoreValues.esm GLOB FO4SF_StoryLine (S1, R13)
+	constexpr std::uint32_t kCoreStartPlaceRowId = 0x879;    // FO4SFCoreValues.esm GLOB FO4SF_StartPlaceRow (S1, R13)
 	constexpr std::uint32_t kCoreSpecialMenuPendingFirstId = 0x880; // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuPendingS..L (0x880..0x886)
 	constexpr std::uint32_t kCoreSpecialMenuCommitReqId = 0x887;    // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuCommitRequested
 	constexpr std::uint32_t kRadsRadawayLocalId = 0x820;     // FO4SFRads.esm ALCH FO4SF_RadAway
@@ -567,6 +578,19 @@ namespace
 	std::atomic<bool>                        g_loadingStartCardMovie{ false };
 	std::atomic<bool>                        g_startCardMissing{ false };
 	std::atomic<std::uint32_t>               g_startCardCreated{ 0 };
+	// S1 / S3 Variant (b): interactive single-page New-Game Setup Screen (FO4SF_SetupMenu -> Interface/FO4SF_SetupScreen.swf)
+	std::filesystem::path                    g_pluginDir;
+	bool                                     g_setupShowUnavailable = false;
+	PrimaryVtable                            g_setupVtbl{};
+	InputVtable                              g_setupInputVtbl{};
+	std::atomic<bool>                        g_setupOpen{ false };
+	std::atomic<bool>                        g_loadingSetupMovie{ false };
+	std::atomic<bool>                        g_setupMissing{ false };
+	std::atomic<const void*>                 g_setupListenedMovie{ nullptr };
+	std::atomic<std::uint32_t>               g_setupCreated{ 0 };
+	std::mutex                               g_setupLock;
+	fo4sf::setup::SetupScreenModel           g_setupModel;
+	bool                                     g_setupModelLoaded = false;
 	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
 	std::atomic<std::uint32_t>               s_savedPage{ 0 };
 	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
@@ -741,7 +765,7 @@ namespace
 
 	// FAL-614 proof 1b: stage b with CodeObj=1 reaches the movie's root as stage c does (RootOf's RTTI, the Value
 	// functions), so it reads and checks stage c's ids too; without them RootOf compared against an unread RTTI address
-	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }   // FAL-852: the arm's player
+	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }   // FAL-852: the arm too
 
 	std::size_t IdCount() { return g_stage >= 4 ? kIdCount : ChannelIdsNeeded() ? kIdCountC : kIdCountB; }   // (e): (d)'s ids
 
@@ -8041,6 +8065,393 @@ namespace
 		return a_out;
 	}
 
+	const RE::BSFixedString& SetupMenuName()
+	{
+		static const RE::BSFixedString s{ fo4sf::kOurSetupMenuName };
+		return s;
+	}
+
+	void WriteStoreGlobalFloat(std::uintptr_t a_form, float a_value)
+	{
+		if (!a_form) {
+			return;
+		}
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		*reinterpret_cast<float*>(a_form + valAt) = a_value;
+	}
+
+	void CommitSetupMenuMainThread()
+	{
+		std::optional<fo4sf::setup::SetupCommitPayload> payload;
+		std::string                                     lockedId;
+		{
+			std::scoped_lock lock(g_setupLock);
+			payload = g_setupModel.Confirm();
+			if (!payload.has_value()) {
+				lockedId = g_setupModel.CurrentPlaceRow().id;
+			}
+		}
+		if (!payload.has_value()) {
+			REX::INFO("step=setup_confirm_refused id={} reason=unavailable", lockedId);
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+			}
+			return;
+		}
+
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreGameModeId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_GameMode", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->modeVal));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStoryLineId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StoryLine", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->storyChoiceIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalStartId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalStart", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalLockedId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalLocked", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartDifficultyId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartDifficulty", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->difficulty));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareFactionId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareFaction", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareFactionSlot));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareStartIndexId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareStartIndex", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareStartIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartPlaceRowId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartPlaceRow", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->startPlaceRow));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, 0.0f);
+		}
+		// Commit FO4SF_StartChoiceDone last so Papyrus observes all 8 choice globals settled.
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartChoiceDoneId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartChoiceDone", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, 1.0f);
+		}
+
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+		}
+		REX::INFO("step=setup_confirm mode={} story={} faction={} place={} survival={} difficulty={} row={}",
+			payload->modeTag, payload->storyId, payload->warfareFactionSlot, payload->placeId,
+			payload->survival, payload->difficulty, payload->startPlaceRow);
+	}
+
+	enum class SetupClickKind : std::uint8_t
+	{
+		kSelectRow,
+		kPrevValue,
+		kNextValue,
+		kConfirm,
+	};
+
+	class SetupButtonHandler final : public RE::Scaleform::GFx::FunctionHandler
+	{
+	public:
+		void Configure(SetupClickKind a_kind, int a_row)
+		{
+			_kind = a_kind;
+			_row = a_row;
+		}
+
+		void Call(const Params&) override
+		{
+			if (_kind == SetupClickKind::kConfirm) {
+				if (g_task) {
+					g_task->AddTask([]() { CommitSetupMenuMainThread(); });
+				}
+				return;
+			}
+			{
+				std::scoped_lock lock(g_setupLock);
+				g_setupModel.SelectRow(_row);
+				if (_kind == SetupClickKind::kPrevValue) {
+					g_setupModel.AdjustRow(_row, -1);
+				} else if (_kind == SetupClickKind::kNextValue) {
+					g_setupModel.AdjustRow(_row, 1);
+				}
+			}
+			if (g_task) {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+
+	private:
+		SetupClickKind _kind = SetupClickKind::kSelectRow;
+		int            _row = 0;
+	};
+	std::array<SetupButtonHandler, 16> g_setupButtonHandlers;
+
+	void SetupListen(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		const auto  movie = MovieOf(a_menu);
+		if (!root || !movie || g_setupListenedMovie.load() == movie) {
+			return;
+		}
+		g_setupListenedMovie.store(movie);
+		RE::Scaleform::GFx::Value top;
+		const bool                gotRoot = root->GetVariable(&top, "root") && top.IsObject();
+		if (!gotRoot) {
+			return;
+		}
+		std::size_t hIdx = 0;
+		const auto  attach = [&](const std::string& a_name, SetupClickKind a_kind, int a_row) {
+			if (hIdx >= g_setupButtonHandlers.size()) {
+				return;
+			}
+			auto& handler = g_setupButtonHandlers[hIdx++];
+			handler.Configure(a_kind, a_row);
+			RE::Scaleform::GFx::Value btn, fn;
+			if (ChildOf(top, a_name.c_str(), btn)) {
+				root->CreateFunction(&fn, &handler);
+				if (!fn.IsUndefined()) {
+					std::array<RE::Scaleform::GFx::Value, 2> args{ "click", fn };
+					btn.Invoke("addEventListener", nullptr, args.data(), args.size());
+				}
+			}
+		};
+		for (int i = 0; i < static_cast<int>(fo4sf::setup::kSetupRows); ++i) {
+			attach(std::format("fo4sfSetupHit{}", i), SetupClickKind::kSelectRow, i);
+			attach(std::format("fo4sfSetupPrev{}", i), SetupClickKind::kPrevValue, i);
+			attach(std::format("fo4sfSetupNext{}", i), SetupClickKind::kNextValue, i);
+		}
+		attach("fo4sfSetupConfirm", SetupClickKind::kConfirm, 0);
+	}
+
+	void SetupWrite(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		if (!root) {
+			return;
+		}
+		RE::Scaleform::GFx::Value top;
+		if (!root->GetVariable(&top, "root") || !top.IsObject()) {
+			return;
+		}
+		std::array<std::string, fo4sf::setup::kSetupRows> rows{};
+		std::string                                       status;
+		{
+			std::scoped_lock lock(g_setupLock);
+			g_setupModel.RenderLines(rows, status);
+		}
+		for (std::size_t i = 0; i < rows.size(); ++i) {
+			RE::Scaleform::GFx::Value field;
+			const auto                fname = std::format("fo4sfSetupRow{}", i);
+			if (ChildOf(top, fname.c_str(), field)) {
+				field.SetMember("text", RE::Scaleform::GFx::Value(rows[i].c_str()));
+			}
+		}
+		RE::Scaleform::GFx::Value statusField;
+		if (ChildOf(top, "fo4sfSetupStatus", statusField)) {
+			statusField.SetMember("text", RE::Scaleform::GFx::Value(status.c_str()));
+		}
+	}
+
+	void* SetupMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_setupOpen.store(false);
+		g_setupListenedMovie.store(nullptr);
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* SetupMenuGetName(const void*)
+	{
+		if (g_loadingSetupMovie.load()) {
+			return "FO4SF_SetupScreen";
+		}
+		return fo4sf::kOurSetupMenuName;
+	}
+
+	bool SetupMenuLoadMovie(void* a_self, bool, bool a_arg2)
+	{
+		if (MovieOf(a_self)) {
+			return true;
+		}
+		g_loadingSetupMovie.store(true);
+		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingSetupMovie.store(false);
+		const bool ok = loaded && MovieOf(a_self) != nullptr;
+		if (!ok && !g_setupMissing.exchange(true)) {
+			REX::INFO("step=setup_skip reason=missing movie=FO4SF_SetupScreen");
+		} else if (ok) {
+			REX::INFO("step=setup_load_movie result=1 movie=FO4SF_SetupScreen");
+		}
+		return ok;
+	}
+
+	RE::UI_MESSAGE_RESULT SetupMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow && !MovieOf(a_self)) {
+			if (!SetupMenuLoadMovie(a_self, false, false)) {
+				g_setupOpen.store(false);
+				return RE::UI_MESSAGE_RESULT::kHandled;
+			}
+		}
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_setupOpen.store(true);
+			SetupListen(a_self);
+			SetupWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kUpdate) {
+			SetupListen(a_self);
+			SetupWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_setupOpen.store(false);
+			g_setupListenedMovie.store(nullptr);
+		}
+		return result;
+	}
+
+	bool SetupShouldHandleEvent(void* a_input, const void* a_event)
+	{
+		if (!a_event || !g_setupOpen.load()) {
+			return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType == RE::InputEvent::EventType::kButton &&
+		    (base->deviceType == RE::InputEvent::DeviceType::kKeyboard ||
+		     base->deviceType == RE::InputEvent::DeviceType::kGamepad) &&
+		    base->status != RE::InputEvent::Status::kStop) {
+			return true;
+		}
+		return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+	}
+
+	void SetupOnButtonEvent(void* a_input, const void* a_event)
+	{
+		if (g_engineOnButton) {
+			g_engineOnButton(a_input, a_event);
+		}
+		if (!a_event || !g_setupOpen.load()) {
+			return;
+		}
+		if (OpenBlockingOverlayMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType != RE::InputEvent::EventType::kButton ||
+		    base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
+			return;
+		}
+		const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+		if (!(button->value > 0.0f && button->heldDownSecs == 0.0f)) {
+			return;
+		}
+		const auto vk = static_cast<std::uint32_t>(button->idCode);
+		bool       handled = false;
+		bool       wantCommit = false;
+		{
+			std::scoped_lock lock(g_setupLock);
+			switch (vk) {
+			case 0x26:   // VK_UP
+			case 0x57:   // W
+				g_setupModel.MoveCursor(-1);
+				handled = true;
+				break;
+			case 0x28:   // VK_DOWN
+			case 0x53:   // S
+				g_setupModel.MoveCursor(1);
+				handled = true;
+				break;
+			case 0x25:   // VK_LEFT
+			case 0x41:   // A
+				g_setupModel.AdjustRow(g_setupModel.SelectedRow(), -1);
+				handled = true;
+				break;
+			case 0x27:   // VK_RIGHT
+			case 0x44:   // D
+				g_setupModel.AdjustRow(g_setupModel.SelectedRow(), 1);
+				handled = true;
+				break;
+			case 0x0D:   // VK_RETURN
+			case 0x45:   // E
+				handled = true;
+				wantCommit = true;
+				break;
+			default:
+				break;
+			}
+		}
+		if (!handled) {
+			return;
+		}
+		const_cast<RE::InputEvent*>(base)->status = RE::InputEvent::Status::kStop;
+		if (g_task) {
+			if (wantCommit) {
+				g_task->AddTask([]() { CommitSetupMenuMainThread(); });
+			} else {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* CreateSetupMenu(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		const auto n = ++g_setupCreated;
+		void*      menu = std::calloc(1, kMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=setup n={} reason=out_of_memory", n);
+			std::construct_at(a_out);
+			return a_out;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_setupVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_setupInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = SetupMenuName();
+		imenu->flags |= (0x19u | kPauseFlag);
+		imenu->flagsUpdated = true;
+		if (g_keepAlive && ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
+		REX::INFO("step=setup_create n={} menu={} flags={}", n, Hex(base), Hex(imenu->flags));
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return a_out;
+	}
+
 	void PollStartCardGlobalMainThread()
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -8069,8 +8480,49 @@ namespace
 		}
 		static const RE::BSFixedString kLoadingMenu{ "LoadingMenu" };
 		static const RE::BSFixedString kChargenMenu{ "ChargenMenu" };
-		const bool wantOpen = v >= 0.5f && !g_startCardMissing.load() &&
-		                      !ui->IsMenuOpen(kLoadingMenu) && !ui->IsMenuOpen(kChargenMenu);
+		const bool blockedLoadOrChargen = ui->IsMenuOpen(kLoadingMenu) || ui->IsMenuOpen(kChargenMenu);
+
+		// S1 Variant (b): FO4SF_StartCardOpen == 2.0 requests FO4SF_SetupMenu (acked as 3.0 once open).
+		const bool wantSetup = (v >= 1.5f) && ui->IsMenuRegistered(SetupMenuName());
+		const bool setupIsOpen = ui->IsMenuRegistered(SetupMenuName()) && ui->IsMenuOpen(SetupMenuName());
+		if (wantSetup) {
+			if (ui->IsMenuOpen(StartCardMenuName())) {
+				queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			}
+			if (g_setupMissing.load()) {
+				// R10: FO4SF_SetupScreen.swf missing -> clear request immediately so Papyrus falls back to Variant (a).
+				WriteStoreGlobalFloat(form, 0.0f);
+				return;
+			}
+			if (!blockedLoadOrChargen) {
+				if (!setupIsOpen) {
+					std::size_t totalRows = 0;
+					std::size_t availRows = 0;
+					bool        fromFile = false;
+					{
+						std::scoped_lock lock(g_setupLock);
+						auto rows = fo4sf::setup::LoadStartPlacesFileOrFallback(
+							g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+						g_setupModel.Reset(std::move(rows), g_setupShowUnavailable);
+						g_setupModelLoaded = true;
+						totalRows = g_setupModel.TotalRows();
+						availRows = g_setupModel.AvailableRows();
+					}
+					queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kShow);
+					REX::INFO("step=setup_open rows={} available={} show_unavailable={} source={}",
+						totalRows, availRows, g_setupShowUnavailable ? 1 : 0, fromFile ? "json" : "fallback");
+				} else if (v < 2.5f) {
+					WriteStoreGlobalFloat(form, 3.0f);
+				}
+			}
+			return;
+		}
+		if (setupIsOpen) {
+			queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=setup_open open=0");
+		}
+
+		const bool wantOpen = (v >= 0.5f && v < 1.5f) && !g_startCardMissing.load() && !blockedLoadOrChargen;
 		const bool isOpen = ui->IsMenuOpen(StartCardMenuName());
 		if (wantOpen && !isOpen) {
 			queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kShow);
@@ -8405,6 +8857,19 @@ namespace
 			g_startCardInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
 			std::copy_n(input, kInputSlots, g_startCardInputVtbl.slots.begin());
 			g_startCardInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&StartCardShouldHandleEvent);
+
+			g_setupVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_setupVtbl.slots.begin());
+			g_setupVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&SetupMenuDestroy);
+			g_setupVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&SetupMenuGetName);
+			g_setupVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_setupVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_setupVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&SetupMenuLoadMovie);
+			g_setupVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&SetupMenuProcessMessage);
+			g_setupInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_setupInputVtbl.slots.begin());
+			g_setupInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&SetupShouldHandleEvent);
+			g_setupInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&SetupOnButtonEvent);
 		}
 		if (g_stage == 1) {
 			g_vtbl.slots[0x0A] = reinterpret_cast<std::uintptr_t>(&MenuIsMovieLoaded);
@@ -8927,6 +9392,12 @@ namespace
 			REX::INFO("step=start_card_register result={} name={} movie=FO4SF_StartCard",
 				ui->IsMenuRegistered(StartCardMenuName()) ? "ok" : "failed", fo4sf::kOurStartCardMenuName);
 		}
+		if (g_stage >= 2 && !ui->IsMenuRegistered(SetupMenuName())) {
+			ui->RegisterMenu(fo4sf::kOurSetupMenuName, &CreateSetupMenu);
+			REX::INFO("step=setup_register result={} name={} movie=FO4SF_SetupScreen show_unavailable={}",
+				ui->IsMenuRegistered(SetupMenuName()) ? "ok" : "failed",
+				fo4sf::kOurSetupMenuName, g_setupShowUnavailable ? 1 : 0);
+		}
 		World::Start(g_task);
 		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit);
 		PipboyMap::Start(g_task);
@@ -9311,7 +9782,9 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	std::array<wchar_t, 1024> path{};
 	const auto len = REX::W32::GetModuleFileNameW(REX::W32::GetCurrentModule(), path.data(), static_cast<std::uint32_t>(path.size()));
 	const auto dir = std::filesystem::path(std::wstring(path.data(), len)).parent_path();
+	g_pluginDir = dir;
 	const auto ini = dir / "FO4SFPipboyMenu.ini";
+	g_setupShowUnavailable = ReadNumber(ini, L"SetupShowUnavailable", 0) != 0;
 	g_stage = static_cast<int>(ReadNumber(ini, L"Stage", 0));
 	g_key = ReadNumber(ini, L"Key", 0x79);
 	g_flags = ReadNumber(ini, L"Flags", 0);

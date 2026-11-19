@@ -255,6 +255,56 @@ class ChannelTest(unittest.TestCase):
             self.assertEqual(font["glyphs"], len(swf.FONT))
 
 
+class SetupScreenTest(unittest.TestCase):
+    """--setup-screen (S1 Variant b): single-page interactive New-Game Setup Screen movie."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = swf.movie_bytes(setup_screen=True)
+        cls.movie = swf.read_movie(cls.raw)
+        cls.tags = cls.movie["tags"]
+        cls.by_name = {}
+        for t in cls.tags:
+            cls.by_name.setdefault(t["name"], []).append(t)
+
+    def test_header_and_zero_code_tags(self):
+        self.assertEqual((self.movie["signature"], self.movie["version"]), ("CWS", 12))
+        self.assertEqual(self.movie["frame"], (0, 1920 * 20, 0, 1080 * 20))
+        body = zlib.decompress(self.raw[8:])
+        codes = [c for c, _ in raw_tags(body)[0]]
+        for code in (12, 59, 72, 76, 82, 9):
+            self.assertNotIn(code, codes)
+
+    def test_named_rows_arrows_status_hint_and_confirm_button(self):
+        instances = [t.get("instance") for t in self.by_name["PlaceObject2"] if t.get("instance")]
+        expected = []
+        for i in range(5):
+            expected.extend([
+                f"fo4sfSetupHit{i}",
+                f"fo4sfSetupRow{i}",
+                f"fo4sfSetupPrev{i}",
+                f"fo4sfSetupNext{i}",
+            ])
+        expected.extend(["fo4sfSetupStatus", "fo4sfSetupHint", "fo4sfSetupConfirm"])
+        self.assertEqual(instances, expected)
+
+    def test_embedded_setup_font_covers_brackets_and_arrows(self):
+        font = self.by_name["DefineFont3"][0]
+        self.assertEqual(font["codes"], "".join(sorted(swf.SETUP_FONT)))
+        for ch in ("<", ">", "[", "]"):
+            self.assertIn(ch, font["codes"])
+
+    def test_cli_setup_screen_and_mutually_exclusive_flags(self):
+        with self.assertRaises(swf.SwfError):
+            swf.movie_bytes(start_card=True, setup_screen=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "FO4SF_SetupScreen.swf")
+            r = subprocess.run([sys.executable, SCRIPT, "--out", out, "--setup-screen"], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out, "rb") as f:
+                self.assertEqual(f.read(), self.raw)
+
+
 class RefusalTest(unittest.TestCase):
     def test_unknown_character(self):
         with self.assertRaises(swf.SwfError):

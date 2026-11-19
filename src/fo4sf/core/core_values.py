@@ -16,6 +16,19 @@ from typing import Dict, List, Tuple
 CORE_VALUES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core_values.json")
 CORE_VALUES_PLUGIN = "FO4SFCoreValues.esm"
 
+START_MODE_GLOB_EDIDS: Tuple[str, ...] = (
+    "FO4SF_GameMode",
+    "FO4SF_SurvivalStart",
+    "FO4SF_SurvivalLocked",
+    "FO4SF_StartDifficulty",
+    "FO4SF_WarfareFaction",
+    "FO4SF_WarfareStartIndex",
+    "FO4SF_StartChoiceDone",
+    "FO4SF_StartNeutralSpot",
+    "FO4SF_StoryLine",
+    "FO4SF_StartPlaceRow",
+)
+
 
 @dataclass(frozen=True)
 class CoreValueRecord:

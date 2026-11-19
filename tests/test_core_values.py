@@ -17,6 +17,7 @@ if os.path.join(ROOT, "src") not in sys.path:
 
 from fo4sf.core.core_values import (  # noqa: E402
     CORE_VALUES_PLUGIN,
+    START_MODE_GLOB_EDIDS,
     core_form_id,
     core_values_by_edid,
     load_core_values,
@@ -27,10 +28,10 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_native_core_value_refs,
 )
 
-# parity not applicable: ordered by A6, A12 & N2 (FO4SF_PipboyAcquired 0x000865 + FO4SF_StartCardOpen 0x000866 + FO4SF_SpecialMenuPendingS..CommitRequested 0x000880..0x000887)
-PINNED_CORE_VALUES_PLAYER_SHA256 = "949f4c6bd4c7b167ae5f31ba7091758c453c4d3ac5a99705c8b8950514a61042"
-# parity not applicable: ordered by A5, A12 & N2 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
-PINNED_CORE_VALUES_TEST_SHA256 = "cbaf1de5546af00f72f4a19b4a44111f8abcffa46bca22de28e4b26fb2659c69"
+# parity not applicable: ordered by S1, A6, A12 & N2 (0x000865..0x000866 + 0x000870..0x000879 start/mode GLOBs + 0x000880..0x000887 SpecialMenuPending)
+PINNED_CORE_VALUES_PLAYER_SHA256 = "bb117bd75d2913cb36f7c90ee19ae9d22cadfd0d94c0331dbb2201bcb97d849f"
+# parity not applicable: ordered by S1, A5, A12 & N2 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
+PINNED_CORE_VALUES_TEST_SHA256 = "3183d6f2ff56fdcf1725933b4429d22b699b61c542b2d60c2d7a10748786d16e"
 
 
 def _sha256_file(path: str) -> str:
@@ -71,6 +72,26 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_StartCardOpen"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_StartCardOpen"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_StartCardOpen"].constant)
+        # S1 + B8 + N2: start & mode GLOBs 0x000870..0x000879
+        expected_s1 = {
+            "FO4SF_GameMode": (0x000870, 0.0),
+            "FO4SF_SurvivalStart": (0x000871, 0.0),
+            "FO4SF_SurvivalLocked": (0x000872, 0.0),
+            "FO4SF_StartDifficulty": (0x000873, 0.0),
+            "FO4SF_WarfareFaction": (0x000874, -1.0),
+            "FO4SF_WarfareStartIndex": (0x000875, -1.0),
+            "FO4SF_StartChoiceDone": (0x000876, 0.0),
+            "FO4SF_StartNeutralSpot": (0x000877, 0.0),
+            "FO4SF_StoryLine": (0x000878, 0.0),
+            "FO4SF_StartPlaceRow": (0x000879, 0.0),
+        }
+        self.assertEqual(tuple(expected_s1.keys()), START_MODE_GLOB_EDIDS)
+        for edid, (want_id, want_def) in expected_s1.items():
+            self.assertEqual(core_form_id(edid), want_id)
+            rec = by_edid[edid]
+            self.assertEqual(rec.record_type, "GLOB")
+            self.assertEqual(rec.default, want_def)
+            self.assertFalse(rec.constant)
         # A12: 7 pending S.P.E.C.I.A.L. GLOBs (0x000880..0x000886) + commit flag (0x000887)
         for off, ltr in enumerate(("S", "P", "E", "C", "I", "A", "L")):
             ed = f"FO4SF_SpecialMenuPending{ltr}"
@@ -82,7 +103,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_SpecialMenuCommitRequested"].constant)
-        self.assertEqual(len(records), 52)
+        self.assertEqual(len(records), 62)
 
     def test_r13_native_core_value_lookups_match_schema_and_catch_wrong_or_split_ids(self) -> None:
         catalog, dup_errors = build_writer_catalog(ROOT)

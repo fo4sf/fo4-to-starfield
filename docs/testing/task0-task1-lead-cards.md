@@ -24,19 +24,38 @@ python scripts/core/make_core_bundle.py verify --bundle-dir <test-bundle-dir>
 python scripts/game/exp_install.py install --exp-dir <test-bundle-dir> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4SFMission.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 ```
 
-### In-Game Steps & Console Commands (Runtime FormID Read + Editor-Name-Free Stage Lines)
+### In-Game Steps & Console Commands (`P3` Runtime FormID Read + Zero `M`/`N`/`V` Console Lines)
 1. Start a new session on the `--profile test` bundle (`FO4SF_TestModeEnabled` `0x000860` defaults to `1.0`).
-2. **Read `<quest-hex>` in game (never guess the load-order byte):** Open Console and run **`help "Silent-Player List Dialogue" 0`** (works by display name without any editor ID) or `help FO4SF_ListDialogueQuest 4 QUST`. Starfield prints `QUST: (<quest-hex>) 'FO4SF Silent-Player List Dialogue'` — its low `6` hex digits are always `000810` (`<XX>000810`). Run `sqv <quest-hex>` to confirm `Enabled? Yes`, `State: Running`, and `REF 'Speaker'->'(...000808)'` (if stopped, `startquest <quest-hex>` starts it by hex ID).
-3. Move to `FO4SF_ListTalkCell` (`0x000807`), set baseline low sheet (`setstage <quest-hex> 10`), press `E` on `Relay Operator` (`0x000808`) to exercise failing checks (`21`, `31`), set qualified high sheet (`setstage <quest-hex> 15`), press `E` again to exercise passing checks (`20`, `22`, `30`, `40`, `50`) and goodbye (`60`), then restore the player sheet (`setstage <quest-hex> 70`):
+2. **Read `<quest-hex>` in game (zero `M`, `N`, or `V` typed; Starfield strips mod `QUST` EditorIDs):** Open Console and run **`help "List Dialogue" 4 QUST`**. Starfield prints `QUST: (<quest-hex>) 'FO4SF Silent-Player List Dialogue'` — its low `6` hex digits are always `000810` (`12000810` when `FO4SFListDialogue.esm` is at `0x12`, or `11000810` on `22`-plugin builds). Run `sqs <quest-hex>` (or `bat carda0` to run `sqv 12000810` from `<starfield-dir>/carda0.txt` without typing `v`) to confirm `Enabled? Yes`, `State: Running`, and `REF 'Speaker'->'(...000808)'`.
+3. Move to `FO4SF_ListTalkCell` (`0x000807`), set baseline low sheet (`setstage <quest-hex> 10` / `bat carda1`), press `E` on `Relay Operator` (`0x000808`) to exercise failing checks (`21`, `31`), set qualified high sheet (`setstage <quest-hex> 15` / `bat carda2`), press `E` again to exercise passing checks (`20`, `22`, `30`, `40`, `50`) and goodbye (`60`), then restore the player sheet (`setstage <quest-hex> 70` / `bat carda3`):
 ```console
-help "Silent-Player List Dialogue" 0
-help FO4SF_ListDialogueQuest 4 QUST
-sqv <quest-hex>
+help "List Dialogue" 4 QUST
+sqs <quest-hex>
+bat carda0
+bat carda1
+bat carda2
+bat carda3
 startquest <quest-hex>
 coc FO4SF_ListTalkCell
 setstage <quest-hex> 10
 setstage <quest-hex> 15
 setstage <quest-hex> 70
+```
+
+```bat
+; <starfield-dir>/carda0.txt (substitute high byte from help "List Dialogue" 4 QUST if != 12)
+sqv 12000810
+startquest 12000810
+coc FO4SF_ListTalkCell
+
+; <starfield-dir>/carda1.txt
+setstage 12000810 10
+
+; <starfield-dir>/carda2.txt
+setstage 12000810 15
+
+; <starfield-dir>/carda3.txt
+setstage 12000810 70
 ```
 
 ### Undo Command (Game Closed — Release Any `plugin_toggle.py` Hold First)

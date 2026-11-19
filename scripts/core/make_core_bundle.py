@@ -1017,12 +1017,19 @@ def stage_from_checkout(a) -> Dict[str, str]:
     return stages
 
 
-def refresh_pipboy_stage_for_bundle(src_stage: str, out_stage: str, fo4_data_dir: str) -> None:
-    """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT/boot SWFs, generate clean INI, and update plan.json."""
+def refresh_pipboy_stage_for_bundle(
+    src_stage: str,
+    out_stage: str,
+    fo4_data_dir: str,
+    *,
+    setup_show_unavailable: int = 0,
+) -> None:
+    """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT/boot/Setup SWFs, generate clean INI, and update plan.json."""
     ui_dir = os.path.join(REPO, "scripts", "ui")
     if ui_dir not in sys.path:
         sys.path.insert(0, ui_dir)
     import make_pipboy_stage_ini  # type: ignore
+    import make_probe_swf  # type: ignore
     import pipboy_map_store  # type: ignore
 
     try:
@@ -1058,10 +1065,31 @@ def refresh_pipboy_stage_for_bundle(src_stage: str, out_stage: str, fo4_data_dir
 
     if any(p.lower().endswith(".swf") for _, _, fns in os.walk(iface_dir) for p in fns):
         try:
-            make_pipboy_stage_ini.generate_stage_ini(partial)
+            make_pipboy_stage_ini.generate_stage_ini(
+                partial,
+                setup_show_unavailable=setup_show_unavailable,
+            )
         except make_pipboy_stage_ini.StageIniError as exc:
             raise BundleRefused(str(exc)) from exc
         updated_data_rels.append("SFSE/Plugins/FO4SFPipboyMenu.ini")
+
+    for aux_name, aux_kw in (
+        ("FO4SF_StartCard.swf", {"start_card": True}),
+        ("FO4SF_SetupScreen.swf", {"setup_screen": True}),
+    ):
+        aux_p = os.path.join(iface_dir, aux_name)
+        if not os.path.isfile(aux_p):
+            make_probe_swf.write_movie(aux_p, **aux_kw)
+        rel_aux = f"Data/Interface/{aux_name}"
+        if rel_aux not in updated_data_rels:
+            updated_data_rels.append(rel_aux)
+
+    start_places_src = os.path.join(REPO, "src", "fo4sf", "core", "start_places.json")
+    if os.path.isfile(start_places_src):
+        sfse_plugins_dst = os.path.join(partial, "SFSE", "Plugins")
+        os.makedirs(sfse_plugins_dst, exist_ok=True)
+        shutil.copy2(start_places_src, os.path.join(sfse_plugins_dst, "FO4SFStartPlaces.json"))
+        updated_data_rels.append("SFSE/Plugins/FO4SFStartPlaces.json")
 
     stage_ini_p = os.path.join(partial, "SFSE", "Plugins", "FO4SFPipboyMenu.ini")
     if os.path.isfile(stage_ini_p):
@@ -1079,7 +1107,7 @@ def refresh_pipboy_stage_for_bundle(src_stage: str, out_stage: str, fo4_data_dir
         if isinstance(plan.get("outputs"), dict) and plan["outputs"]:
             for rel in updated_data_rels:
                 full = os.path.join(partial, *rel.split("/"))
-                if os.path.isfile(full):
+                if rel.startswith("Data/") and os.path.isfile(full):
                     plan["outputs"][rel] = sha256_file(full)
         elif isinstance(plan.get("files"), dict) and plan["files"]:
             for rel in updated_data_rels:
