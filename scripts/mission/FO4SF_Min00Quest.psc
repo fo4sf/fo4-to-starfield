@@ -337,7 +337,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     endif
 EndEvent
 
-Function AdvanceTo(int n, string by = "trigger")
+Function AdvanceTo(int n, string by = "Trigger")
 {SetStage, then the stage's actions. Apply runs each stage once.}
     pendingStage = n
     pendingStageBy = by
@@ -646,7 +646,7 @@ Event OnTimer(int aiTimerID)
             min00Given = True
             Trace("min00 given by=concord")
             ClearCodsworthObjectiveForConcord()
-            AdvanceTo(10, "trigger")
+            AdvanceTo(10, "Trigger")
             stage = 10
         endif
     endif
@@ -700,7 +700,7 @@ Event OnTimer(int aiTimerID)
     int target = NextStage(stage, dead, Raiders.Length, fighting, readyTalk, prestonFound)
     ; every stage on the way is set in order, so each one's objectives and log line happen
     while stage < target && stage < 40
-        string nextBy = "trigger"
+        string nextBy = "Trigger"
         if stage < 10
             if !min00Given
                 min00Given = True
@@ -733,7 +733,7 @@ Event OnTimer(int aiTimerID)
         Trace("preston was targeting the player: stopcombat")
     endif
     if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
-        AdvanceTo(200, "trigger")
+        AdvanceTo(200, "Trigger")
         CompleteQuest()
         Trace("complete stage=" + GetStage())
     endif

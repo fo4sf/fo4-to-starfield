@@ -36,13 +36,13 @@ python scripts/testing/check_beginning_pilot.py check-logs --log-dir <log-dir> -
 ```
 
 ### Step Matrix (`B1`–`B8`)
-1. **`B1_pod` (`REACHABLE`):** Pick `Story` + `Survival: No` over the held black fade (`request=1` + `request=2` `1.0 s` after `LoadingMenu` closes), settle at the cryo pod (`stage 10 by=trigger`), and complete looks (`stage 20 by=scene`).
+1. **`B1_pod` (`REACHABLE`):** Pick `Story` + `Survival: No` over the held black fade (`request=1` + `request=2` `1.0 s` after `LoadingMenu` closes), settle at the cryo pod (`stage 10 by=Trigger`), and complete looks (`stage 20 by=scene`).
 2. **`B2_gear_door` (`REACHABLE`):** Pick up Vault pistol (`0x24561C`) and Pip-Boy (`0x00080F`), then activate `FO4SF_GearDoorConsoleRef` (`0x000819`, `ACTI` `0x000818`) to open the gear door (`stage 30 by=vault_console`).
-3. **`B3_exit_lift` (`REACHABLE`):** Confirm `40` S.P.E.C.I.A.L. points across the `<= 7`-button boxes (`source=lift`), press `Continue`, and complete `+21.6 m` ascent (`ascent carried confirmed`) with `map setup done`.
-4. **`B4_surface_landing` (`REACHABLE`):** Reach `stage 40 by=trigger` -> `landed ... fallback=False` -> `stage 200 by=trigger` on the Commonwealth hilltop.
+3. **`B3_exit_lift` (`REACHABLE`):** Confirm `40` S.P.E.C.I.A.L. points across the `<= 7`-button boxes (`source=Lift`), press `Continue`, and complete `+21.6 m` ascent (`ascent carried confirmed`) with `map setup done`.
+4. **`B4_surface_landing` (`REACHABLE`):** Reach `stage 40 by=Trigger` -> `landed ... fallback=false` -> `stage 200 by=Trigger` on the Commonwealth hilltop.
 5. **`B5_codsworth_sanctuary` (`REACHABLE`):** After `stage 200`, talk to Codsworth (`0x000811`) in Sanctuary and complete Choice 4 (`codsworth talk end -> min00 stage 10`, `stage 10 by=info`).
-6. **`B6_concord_raiders` (`REACHABLE`):** Fight Concord raiders (`stage 20 by=trigger`), save, **`Quit to Desktop`**, relaunch & reload (`reload mission stage=20 relocate_fails=0`), and clear hostiles (`stage 30 by=trigger`).
-7. **`B7_preston_turnin` (`REACHABLE`):** Complete all 3 exchanges on Preston (`0x000802`) so `0x092A` sets `stage 35 by=info` -> `preston talk end info=0x092A -> stage 40` -> `stage 40 by=info` -> `100` Credits -> `stage 200 by=trigger`.
+6. **`B6_concord_raiders` (`REACHABLE`):** Fight Concord raiders (`stage 20 by=Trigger`), save, **`Quit to Desktop`**, relaunch & reload (`reload mission stage=20 relocate_fails=0`), and clear hostiles (`stage 30 by=Trigger`).
+7. **`B7_preston_turnin` (`REACHABLE`):** Complete all 3 exchanges on Preston (`0x000802`) so `0x092A` sets `stage 35 by=info` -> `preston talk end info=0x092A -> stage 40` -> `stage 40 by=info` -> `100` Credits -> `stage 200 by=Trigger`.
 8. **`B8_sanctuary_bench` (`REACHABLE`):** Activate Sanctuary workbench `0x005C50` (`0250FE`) to complete `sanctuary01 stage 100 by=bench` (`min01 bench activated -> stage 100`).
 
 ### Undo Command (Game Closed)
@@ -55,32 +55,33 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```log
 FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=0
 FO4SF_NEWGAME rt=<rt> hold-off pass 2 stopped=<stopped> of <total>
-FO4SF_NEWGAME rt=<rt> stage 10 by=trigger
-FO4SF_NEWGAME rt=<rt> pod settle ok=True pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<drop> target=<tx> <ty> <tz> heading=<h> loaded=True cell=<cell> world=<world> sample_start=<t0> sample_end=<t1>
+FO4SF_NEWGAME rt=<rt> stage 10 by=Trigger
+FO4SF_NEWGAME rt=<rt> pod settle ok=true pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<drop> target=<tx> <ty> <tz> heading=<h> loaded=true cell=<cell> world=<world> sample_start=<t0> sample_end=<t1>
 FO4SF_NEWGAME rt=<rt> stage 20 by=scene
 FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>
-FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=True
+FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
 FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console
-FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source=lift
-FO4SF_NEWGAME rt=<rt> ascent play accepted=True ref=<lift> from=<z0> rise=21.6 seconds=<sec>
+FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source=Lift
+FO4SF_NEWGAME rt=<rt> ascent play accepted=true ref=<lift> from=<z0> rise=21.6 seconds=<sec>
 FO4SF_NEWGAME rt=<rt> map setup done markers=<n> elapsed=<sec>
 FO4SF_NEWGAME rt=<rt> ascent carried confirmed elapsed=<sec> z=<z1>
-FO4SF_NEWGAME rt=<rt> stage 40 by=trigger
-FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=False world=<world>
-FO4SF_NEWGAME rt=<rt> stage 200 by=trigger
+FO4SF_NEWGAME rt=<rt> surface pre_setposition target=<tx> <ty> <tz> cell=<cell> world=<world>
+FO4SF_NEWGAME rt=<rt> stage 40 by=Trigger
+FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=false world=<world>
+FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
 FO4SF_MISSION rt=<rt> mission gate mode=1 started=true
 FO4SF_MISSION rt=<rt> codsworth talk end -> min00 stage 10
 FO4SF_MISSION rt=<rt> min00 given by=codsworth
 FO4SF_MISSION rt=<rt> stage 10 by=info
-FO4SF_MISSION rt=<rt> stage 20 by=trigger
+FO4SF_MISSION rt=<rt> stage 20 by=Trigger
 FO4SF_MISSION rt=<rt> reload mission stage=20 relocate_fails=0
-FO4SF_MISSION rt=<rt> stage 30 by=trigger
+FO4SF_MISSION rt=<rt> stage 30 by=Trigger
 FO4SF_MISSION rt=<rt> stage 35 by=info
 FO4SF_MISSION rt=<rt> preston talk end info=0x092A -> stage 40
 FO4SF_MISSION rt=<rt> stage 40 by=info
 FO4SF_MISSION rt=<rt> reward credits=100
-FO4SF_MISSION rt=<rt> stage 200 by=trigger
+FO4SF_MISSION rt=<rt> stage 200 by=Trigger
 FO4SF_MISSION rt=<rt> sanctuary01 stage 100 by=bench
 FO4SF_MISSION rt=<rt> min01 bench activated -> stage 100
 ```

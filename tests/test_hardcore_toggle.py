@@ -156,7 +156,7 @@ class PropertyParityTests(unittest.TestCase):
         # All three GPOF sync sites delegate to EvaluateHardcore(why); HardcoreOption.GetValue() appears only there.
         self.assertEqual(psc.count("HardcoreOption.GetValue()"), 1)
         self.assertIn('EvaluateHardcore("init")', psc)
-        self.assertIn('EvaluateHardcore("reload")', psc)
+        self.assertIn('EvaluateHardcore("Reload")', psc)
         self.assertIn('EvaluateHardcore("gpof_menu")', psc)
         self.assertIn('"source gpof=" + gpof + " start=" + start + " enabled=" + enabled', psc)
 

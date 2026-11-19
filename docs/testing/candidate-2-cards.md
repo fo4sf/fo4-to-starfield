@@ -7,7 +7,7 @@
 2. **Switch to Candidate 2b `--profile player` (`FO4SF_TestModeEnabled == 0.0`) and start ONE New Game (`Story`, `Survival: No`):**
    - Begin **`Card 2`** (black-fade mode choice -> Vault 111 cryo pod -> pistol & Pip-Boy pickup).
    - **Run `Card 1` immediately after the Vault 111 Pip-Boy pickup** (`pipboy pickup equipped flag=1`), so `A1` (`pipboybootsequence.swf` loose under `Data/Interface/`), `A6` (`FO4SF_PipboyAcquired` `0x000865` in `FO4SFCoreValues.esm`), and `A7` (Fallout-only Stimpak count with zero Starfield Med Pack fallback) are all exercised in game.
-   - Finish **`Card 2`** (`FO4SF_GearDoorConsoleRef` `0x000819` / `ACTI` `0x000818` -> `stage 30 by=vault_console` -> `<= 7`-button `40`-point lift S.P.E.C.I.A.L. -> ascent & hilltop `stage 200 by=trigger`), then continue directly into **`Card 5`** (Sanctuary Codsworth -> Concord raiders with **`Quit to Desktop`** reload -> Preston `stage 35 by=info` -> `stage 40 by=info` -> Sanctuary workbench `0x005C50`).
+   - Finish **`Card 2`** (`FO4SF_GearDoorConsoleRef` `0x000819` / `ACTI` `0x000818` -> `stage 30 by=vault_console` -> `<= 7`-button `40`-point lift S.P.E.C.I.A.L. -> ascent & hilltop `stage 200 by=Trigger`), then continue directly into **`Card 5`** (Sanctuary Codsworth -> Concord raiders with **`Quit to Desktop`** reload -> Preston `stage 35 by=info` -> `stage 40 by=info` -> Sanctuary workbench `0x005C50`).
 3. **`Card 3`** (New Game -> `Story` + `Survival: Yes` -> save, quit, reload).
 4. **`Card 4`** (New Game -> `Warfare` -> `Minutemen` -> `Sanctuary Hills`).
 
@@ -86,9 +86,9 @@ python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> 
 ```
 
 ### Console-Free Steps (Plus Optional First-Session Neutral-Spot Probe `B8`)
-1. **Black-fade mode box (`S4`, `B8`):** Start a **New Game** (`~` closed). After `LoadingMenu` closes + `1.0 s`, `FO4SF_NewGameQuest` re-requests the black hold (`request=2`) before showing `FO4SF_NewGameModeMsg` (`0x000806`; `0x000810`–`0x000816` stay reserved). Pick **`Story`** and **`Survival: No`** (`stage 5 by=trigger` -> `stage 10 by=trigger`). *(If `FO4SF_NewGameModeMsg` is left unanswered `>= 60 s`, `mode box waiting s=60` logs once per minute while continuing to wait.)*
-2. **Cryo pod, vault pistol & Pip-Boy (`B4`, `B5`, `X1`, `X2`):** Step out of the pod (`pod settle ok=True`), finish looks (`stage 20 by=scene`), pick up the Vault 111 pistol (`0x24561C` from `route_loot_ids.json` `vault111.pistol_id`, filtered via `AddInventoryEventFilter` -> `pistol picked`), verify pressing `E` on the gear door directly stays shut and pressing `E` on `FO4SF_GearDoorConsoleRef` (`0x000819`, `ACTI` `FO4SF_GearDoorConsole` `0x000818`) before the Pip-Boy refuses (`0x000817` `FO4SF_NoPipboyConsoleMsg`), then equip the Pip-Boy (`0x00080F`) and activate `FO4SF_GearDoorConsoleRef` (`0x000819`) to open the gear door (`stage 30 by=vault_console`).
-3. **Lift `<= 7`-button `40`-point S.P.E.C.I.A.L. & ascent (`B1`–`B3`, `X3`, `X4`):** Step onto the Vault 111 platform, confirm `Continue` is gated until `S.P.E.C.I.A.L.` is confirmed, allocate all `40` points across `FO4SF_ProgSpecialPage1Msg` (`0x000870`, `7` buttons) and `FO4SF_ProgSpecialPage2Msg` (`0x000878`, `7` buttons) and press `Confirm` (**do not** cancel 3 times into `special default`), then press `Continue` to ride `+21.6 m` (`ascent carried confirmed`) while `RunSharedMapSetup()` prepares Commonwealth markers, landing at `stage 40 by=trigger` -> `stage 200 by=trigger`.
+1. **Black-fade mode box (`S4`, `B8`):** Start a **New Game** (`~` closed). After `LoadingMenu` closes + `1.0 s`, `FO4SF_NewGameQuest` re-requests the black hold (`request=2`) before showing `FO4SF_NewGameModeMsg` (`0x000806`; `0x000810`–`0x000816` stay reserved). Pick **`Story`** and **`Survival: No`** (`stage 5 by=Trigger` -> `stage 10 by=Trigger`). *(If `FO4SF_NewGameModeMsg` is left unanswered `>= 60 s`, `mode box waiting s=60` logs once per minute while continuing to wait.)*
+2. **Cryo pod, vault pistol & Pip-Boy (`B4`, `B5`, `X1`, `X2`):** Step out of the pod (`pod settle ok=true`), finish looks (`stage 20 by=scene`), pick up the Vault 111 pistol (`0x24561C` from `route_loot_ids.json` `vault111.pistol_id`, filtered via `AddInventoryEventFilter` -> `pistol picked`), verify pressing `E` on the gear door directly stays shut and pressing `E` on `FO4SF_GearDoorConsoleRef` (`0x000819`, `ACTI` `FO4SF_GearDoorConsole` `0x000818`) before the Pip-Boy refuses (`0x000817` `FO4SF_NoPipboyConsoleMsg`), then equip the Pip-Boy (`0x00080F`) and activate `FO4SF_GearDoorConsoleRef` (`0x000819`) to open the gear door (`stage 30 by=vault_console`).
+3. **Lift `<= 7`-button `40`-point S.P.E.C.I.A.L. & ascent (`B1`–`B3`, `X3`, `X4`, `H00`):** Step onto the Vault 111 platform (`FO4SF_NewGameElevator` `0x000801`: `Continue`, `S.P.E.C.I.A.L.`, `Stay` — Starfield's Enhance character screen is removed from the lift), confirm `Continue` shows `FO4SF_NewGameExitNeedSpecialMsg` (`0x00081F`) until `S.P.E.C.I.A.L.` is confirmed, allocate all `40` points across `FO4SF_ProgSpecialPage1Msg` (`0x000870`, `7` buttons) and `FO4SF_ProgSpecialPage2Msg` (`0x000878`, `7` buttons) and press `Confirm` (**do not** cancel 3 times into `special default`), then press `Continue` to ride `+21.6 m` (`ascent carried confirmed`) while `RunSharedMapSetup()` prepares Commonwealth markers, landing at `stage 40 by=Trigger` -> `stage 200 by=Trigger`.
 4. *(Optional standalone `B8` neutral-spot fallback check in a separate throwaway session only, never during the `REACHABLE` walk):* Inspect `FO4SF_StartNeutralSpot` (`0x000877` in `FO4SFCoreValues.esm`) via Console if testing neutral-spot staging:
 ```console
 help FO4SF_StartNeutralSpot 4 GLOB
@@ -105,29 +105,30 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 FO4SF_NEWGAME rt=<rt> mode fade held request=1
 FO4SF_NEWGAME rt=<rt> mode fade held request=2 delay=1.0s loading_closed=<bool>
 FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=0
-FO4SF_NEWGAME rt=<rt> stage 5 by=trigger
-FO4SF_NEWGAME rt=<rt> stage 10 by=trigger
+FO4SF_NEWGAME rt=<rt> stage 5 by=Trigger
+FO4SF_NEWGAME rt=<rt> stage 10 by=Trigger
 FO4SF_NEWGAME rt=<rt> hold-off pass 2 stopped=<stopped> of <total>
-FO4SF_NEWGAME rt=<rt> pod settle ok=True pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<drop> target=<tx> <ty> <tz> heading=<h> loaded=True cell=<cell> world=<world> sample_start=<t0> sample_end=<t1>
+FO4SF_NEWGAME rt=<rt> pod settle ok=true pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<drop> target=<tx> <ty> <tz> heading=<h> loaded=true cell=<cell> world=<world> sample_start=<t0> sample_end=<t1>
 FO4SF_NEWGAME rt=<rt> stage 20 by=scene
 FO4SF_NEWGAME rt=<rt> pistol filter added base=<form> id=<id>
 FO4SF_NEWGAME rt=<rt> console activator registered ref=<ref> id=<id> pos=<x> <y> <z>
 FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>
 FO4SF_NEWGAME rt=<rt> cog door activate blocked by=player open_state=<state>
 FO4SF_NEWGAME rt=<rt> console refused: no pipboy
-FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=True
+FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
 FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console
 FO4SF_NEWGAME rt=<rt> lift platform waiting cage_door=open
 FO4SF_NEWGAME rt=<rt> special box shown box=FO4SF_ProgSpecialPage1Msg buttons=7 unspent=<u0> step=1
-FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source=lift
+FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source=Lift
 FO4SF_NEWGAME rt=<rt> lift cage_door=closing
-FO4SF_NEWGAME rt=<rt> ascent play accepted=True ref=<lift> from=<z0> rise=21.6 seconds=<sec>
+FO4SF_NEWGAME rt=<rt> ascent play accepted=true ref=<lift> from=<z0> rise=21.6 seconds=<sec>
 FO4SF_NEWGAME rt=<rt> map setup done markers=<n> elapsed=<sec>
 FO4SF_NEWGAME rt=<rt> ascent carried confirmed elapsed=<sec> z=<z1>
-FO4SF_NEWGAME rt=<rt> stage 40 by=trigger
-FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=False world=<world>
-FO4SF_NEWGAME rt=<rt> stage 200 by=trigger
+FO4SF_NEWGAME rt=<rt> surface pre_setposition target=<tx> <ty> <tz> cell=<cell> world=<world>
+FO4SF_NEWGAME rt=<rt> stage 40 by=Trigger
+FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=false world=<world>
+FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
 ```
 
 ### Negative / FAIL Conditions
@@ -155,7 +156,7 @@ python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> 
 
 ### Console-Free Steps
 1. Start a **New Game**, pick **`Story`** and **`Survival: Yes`** (leave Starfield's Gameplay Options Hardcore toggle at `0`).
-2. After fade-in at the Vault 111 cryo pod (`stage 10 by=trigger`), create a manual save, choose **`Quit to Desktop`**, relaunch Starfield, reload that save, and wait `5 s`.
+2. After fade-in at the Vault 111 cryo pod (`stage 10 by=Trigger`), create a manual save, choose **`Quit to Desktop`**, relaunch Starfield, reload that save, and wait `5 s`.
 
 ### Undo Command (Game Closed)
 ```bash
@@ -167,9 +168,9 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```log
 FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=1
 FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why=start_choice end=true
-FO4SFHC rt=<rt> sync reason=start_choice hardcore=1 h=<h> hs=<hs> t=<t> ts=<ts> s=<s> ss=<ss> ammo_burden=<ab> carry_mod=<cm> end_mod=<em> str_mod=<sm> agi_mod=<am> int_mod=<im> ft_blocked=1 sq_env_running=False end=true
-FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why=reload end=true
-FO4SFHC rt=<rt> sync reason=reload hardcore=1 h=<h> hs=<hs> t=<t> ts=<ts> s=<s> ss=<ss> ammo_burden=<ab> carry_mod=<cm> end_mod=<em> str_mod=<sm> agi_mod=<am> int_mod=<im> ft_blocked=1 sq_env_running=False end=true
+FO4SFHC rt=<rt> sync reason=start_choice hardcore=1 h=<h> hs=<hs> t=<t> ts=<ts> s=<s> ss=<ss> ammo_burden=<ab> carry_mod=<cm> end_mod=<em> str_mod=<sm> agi_mod=<am> int_mod=<im> ft_blocked=1 sq_env_running=false end=true
+FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why=Reload end=true
+FO4SFHC rt=<rt> sync reason=Reload hardcore=1 h=<h> hs=<hs> t=<t> ts=<ts> s=<s> ss=<ss> ammo_burden=<ab> carry_mod=<cm> end_mod=<em> str_mod=<sm> agi_mod=<am> int_mod=<im> ft_blocked=1 sq_env_running=false end=true
 ```
 
 ---
@@ -191,7 +192,7 @@ python scripts/game/map_markers_install.py install --dir <mapmarkers-stage-dir> 
 ### Console-Free Steps
 1. Start a **New Game**, choose **`Warfare`**, **`Survival: No`** (or `Yes`), difficulty, **`Minutemen`**, and **`Sanctuary Hills`** (`minutemen_sanctuary`).
 2. Complete character looks (`ChargenMenu`) and allocate all `40` points across the `<= 7`-button S.P.E.C.I.A.L. boxes (`source=warfare`, **never** cancelling 3 times into `special default`).
-3. Confirm direct exterior fade-in at Sanctuary Hills (`stage 210 by=trigger`) with starter gear, wrist Pip-Boy, `discovered=1` on `MAP`, zero Vault 111 flash, and zero Story mission objectives.
+3. Confirm direct exterior fade-in at Sanctuary Hills (`stage 210 by=Trigger`) with starter gear, wrist Pip-Boy, `discovered=1` on `MAP`, zero Vault 111 flash, and zero Story mission objectives.
 
 ### Undo Command (Game Closed)
 ```bash
@@ -207,11 +208,11 @@ FO4SF_NEWGAME rt=<rt> warfare creator open mode=2
 FO4SF_NEWGAME rt=<rt> warfare creator closed
 FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source=warfare
 FO4SF_NEWGAME rt=<rt> warfare gear n=4
-FO4SF_NEWGAME rt=<rt> warfare move ok=True marker=<marker> dist=<dist> z=<z>
+FO4SF_NEWGAME rt=<rt> warfare move ok=true marker=<marker> dist=<dist> z=<z>
 FO4SF_NEWGAME rt=<rt> map setup done markers=<n> elapsed=<sec>
 FO4SF_NEWGAME rt=<rt> warfare standing slot=0 fame=<fame> infamy=<inf> karma=<karma> squad_cap=4
-FO4SF_NEWGAME rt=<rt> stage 210 by=trigger
-FO4SF_NEWGAME rt=<rt> mission gate mode=2 started=False
+FO4SF_NEWGAME rt=<rt> stage 210 by=Trigger
+FO4SF_NEWGAME rt=<rt> mission gate mode=2 started=false
 FO4SF_MISSION rt=<rt> mission gate mode=2 started=false
 step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corners_set=3/3 read_back=match
 ```
@@ -235,11 +236,11 @@ python scripts/testing/check_beginning_pilot.py check-logs --log-dir <log-dir> -
 python scripts/testing/check_beginning_pilot.py check-logs --newgame-log <newgame-log-1> <newgame-log-0> --mission-log <mission-log-1> <mission-log-0> --require-all-pass
 ```
 
-### Console-Free Steps (Continuing Directly from Card 2 `stage 200 by=trigger`)
+### Console-Free Steps (Continuing Directly from Card 2 `stage 200 by=Trigger`)
 1. **Silent start & route-only loot (`M1`, `M2`, `B10`, `B12`):** Confirm no Concord objective shows at hilltop landing while `FO4SF_Codsworth01` (`0x000816`) displays its Sanctuary objective (`B12`: cleared automatically via `codsworth01 objective 10 cleared by=concord` if the player bypasses Sanctuary to Concord). Along the `<= 600 m` Sanctuary -> Red Rocket -> Concord corridor, open at least `3` containers (`460` corridor `REFR` overrides pointing to `83` dedicated `FO4SFRouteLoot.esm` `CONT` bases, `439` non-credit; `0` `FO4TerrainCore.esm` `CONT` overrides so off-route containers stay unchanged).
 2. **Codsworth Sanctuary talk (`M6`, `B6`):** Press **`E`** on brushed-steel Codsworth (`0x000811`) in Sanctuary and complete Choice 4 (`codsworth01 stage 100 by=info` -> `min00 given by=codsworth` -> `stage 10 by=info`).
-3. **Concord raider fight + `Quit to Desktop` reload (`M3`, `B7`, `B9`):** Engage the Concord raiders (`stage 20 by=trigger`), create a manual save mid-fight, select **`Quit to Desktop`**, relaunch Starfield, reload that save (`reload mission stage=20 relocate_fails=0`), and clear the raiders (`stage 30 by=trigger`; any unreachable `> 60 s` or rescued-but-stuck `< 2 m` undamaged `60 s` raider stops combat, disables, and logs `wfc01 raider cleared <absent|stuck> ... disabled=true`).
-4. **Preston `DialogueMenu` final exchange (`M4`, `B6`, `B11`):** Press **`E`** on Preston (`0x000802`) and complete **all 3** `DialogueMenu` exchanges so exchange 3 (`0x092A`) sets **`stage 35 by=info`**, prints `preston talk end info=0x092A -> stage 40`, and advances to **`stage 40 by=info`** -> `100` placeholder credits -> **`stage 200 by=trigger`**. *(Preston remains held at the museum door after `stage 200`; `"Preston's group moving to Sanctuary"` is **`NOT BUILT`**.)*
+3. **Concord raider fight + `Quit to Desktop` reload (`M3`, `B7`, `B9`):** Engage the Concord raiders (`stage 20 by=Trigger`), create a manual save mid-fight, select **`Quit to Desktop`**, relaunch Starfield, reload that save (`reload mission stage=20 relocate_fails=0`), and clear the raiders (`stage 30 by=Trigger`; any unreachable `> 60 s` or rescued-but-stuck `< 2 m` undamaged `60 s` raider stops combat, disables, and logs `wfc01 raider cleared <absent|stuck> ... disabled=true`).
+4. **Preston `DialogueMenu` final exchange (`M4`, `B6`, `B11`):** Press **`E`** on Preston (`0x000802`) and complete **all 3** `DialogueMenu` exchanges so exchange 3 (`0x092A`) sets **`stage 35 by=info`**, prints `preston talk end info=0x092A -> stage 40`, and advances to **`stage 40 by=info`** -> `100` placeholder credits -> **`stage 200 by=Trigger`**. *(Preston remains held at the museum door after `stage 200`; `"Preston's group moving to Sanctuary"` is **`NOT BUILT`**.)*
 5. **Sanctuary workbench hand-over (`M5`, `B6`):** Follow `FO4SF_Sanctuary01` (`0x000817`) back to Sanctuary workbench `0x005C50` (`0250FE`) and press **`E`** (`sanctuary01 stage 100 by=bench`, `min01 bench activated -> stage 100`), then quit and run `check_beginning_pilot.py check-logs --log-dir <log-dir> --require-all-pass`.
 
 ### Undo Command (Game Closed)
@@ -251,22 +252,22 @@ python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ### Required PASS Log Lines (`fo4sf_mission.1.log` + `fo4sf_mission.0.log`)
 ```log
 FO4SF_MISSION rt=<rt> mission gate mode=1 started=true
-FO4SF_MISSION rt=<rt> codsworth01 stage 10 by=trigger
+FO4SF_MISSION rt=<rt> codsworth01 stage 10 by=Trigger
 FO4SF_MISSION rt=<rt> codsworth01 stage 100 by=info
 FO4SF_MISSION rt=<rt> min00 given by=codsworth
 FO4SF_MISSION rt=<rt> stage 10 by=info
 FO4SF_MISSION rt=<rt> codsworth talk end -> min00 stage 10
 FO4SF_MISSION rt=<rt> codsworth01 complete choices=<n> concord_pointed=true
-FO4SF_MISSION rt=<rt> stage 20 by=trigger
+FO4SF_MISSION rt=<rt> stage 20 by=Trigger
 FO4SF_MISSION rt=<rt> reload mission stage=20 relocate_fails=0
-FO4SF_MISSION rt=<rt> stage 30 by=trigger
+FO4SF_MISSION rt=<rt> stage 30 by=Trigger
 FO4SF_MISSION rt=<rt> preston talk scene triggered stage=30
 FO4SF_MISSION rt=<rt> stage 35 by=info
 FO4SF_MISSION rt=<rt> preston talk end info=0x092A -> stage 40
 FO4SF_MISSION rt=<rt> stage 40 by=info
 FO4SF_MISSION rt=<rt> reward credits=100
-FO4SF_MISSION rt=<rt> stage 200 by=trigger
-FO4SF_MISSION rt=<rt> sanctuary01 stage 10 by=trigger
+FO4SF_MISSION rt=<rt> stage 200 by=Trigger
+FO4SF_MISSION rt=<rt> sanctuary01 stage 10 by=Trigger
 FO4SF_MISSION rt=<rt> sanctuary01 init stage=10 bench_ref=0x005C50
 FO4SF_MISSION rt=<rt> sanctuary01 stage 100 by=bench
 FO4SF_MISSION rt=<rt> min01 bench activated -> stage 100

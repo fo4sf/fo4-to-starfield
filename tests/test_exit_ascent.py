@@ -54,11 +54,14 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
         self.ascents = []
         self.surfaces = []
         self.spec_calls = 0
-        self.char_calls = 0
+        self.need_attr_modals = 0
         self.notifications = []
         def show():
             self.prompts += 1
             return self.button
+        def show_need_attr():
+            self.need_attr_modals += 1
+            return 0
         self.ns = dict(
             asked=False, liftSpecConfirmed=False, exitFailures=0, TestModeGlobal=None,
             CogDoorId=0x126D, VaultPlugin='FO4Port.esm',
@@ -68,11 +71,11 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             Game=SimpleNamespace(GetFormFromFile=lambda i, _: self.door if i == 0x126D else None),
             Debug=SimpleNamespace(Notification=self.notifications.append),
             ExitMessage=SimpleNamespace(Show=show),
+            ExitNeedAttrMsg=SimpleNamespace(Show=show_need_attr),
             ExitFallbackMessage=SimpleNamespace(Show=lambda: 0),
             EnsureVaultInteractivesRegistered=lambda: None,
             StartTimer=lambda *_: None,
             OpenLiftAttributeAllocation=lambda: setattr(self, 'spec_calls', self.spec_calls + 1),
-            OpenLiftCharacterRespec=lambda: setattr(self, 'char_calls', self.char_calls + 1),
             RunSharedMapSetup=lambda: 4,
             AdvanceTo=self.stages.append,
             StartAscent=self.ascents.append,
@@ -102,21 +105,22 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
         self.assertEqual(self.prompts, 0)
 
     def test_lift_prompt_blocks_continue_until_special_is_confirmed_then_starts_ascent(self):
-        # X3: Stepping onto platform at stage 30 shows ExitMessage; button 0 (Continue) is refused until S.P.E.C.I.A.L. confirmed!
+        # X3 / H00(b)-(c): Stepping onto platform at stage 30 shows 3-button ExitMessage; button 0 (Continue) shows ExitNeedAttrMsg until S.P.E.C.I.A.L. confirmed!
         self.player.pos = (-77.742, -3.958, -1.751)
         self.button = 0
         self.ns['InVault'](self.player, 30)
         self.assertEqual(self.prompts, 1)
         self.assertEqual(self.ascents, [])
-        self.assertEqual(len(self.notifications), 1)
-        # Button 1 routes to OpenLiftAttributeAllocation; Button 2 routes to OpenLiftCharacterRespec
+        self.assertEqual(self.need_attr_modals, 1)
+        self.assertEqual(self.notifications, [])
+        # Button 1 routes to OpenLiftAttributeAllocation; Button 2 stays in Vault 111 (no Starfield Enhance creator on the lift!)
         self.button = 1
         self.ns['InVault'](self.player, 30)
         self.assertEqual(self.spec_calls, 1)
         self.ns['asked'] = False
         self.button = 2
         self.ns['InVault'](self.player, 30)
-        self.assertEqual(self.char_calls, 1)
+        self.assertEqual(self.ascents, [])
         # Once liftSpecConfirmed is True, button 0 (Continue) starts ascent once!
         self.ns['asked'] = False
         self.ns['liftSpecConfirmed'] = True

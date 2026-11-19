@@ -27,7 +27,7 @@ Function ClearObjectiveOnConcordStart()
     endif
 EndFunction
 
-Function AdvanceTo(int n, string by = "trigger")
+Function AdvanceTo(int n, string by = "Trigger")
     pendingStage = n
     pendingStageBy = by
     SetStage(n)
@@ -69,7 +69,7 @@ Function StartQuestInstance()
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
     RegisterForMenuOpenCloseEvent("DialogueMenu")
-    AdvanceTo(10, "trigger")
+    AdvanceTo(10, "Trigger")
     SetObjectiveDisplayed(10, True, False)
     SetActive(True)
     Trace("codsworth01 init stage=10")

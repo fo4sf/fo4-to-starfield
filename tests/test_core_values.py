@@ -17,6 +17,7 @@ if os.path.join(ROOT, "src") not in sys.path:
 
 from fo4sf.core.core_values import (  # noqa: E402
     CORE_VALUES_PLUGIN,
+    H00_SUSPECT_GLOB_EDIDS,
     START_MODE_GLOB_EDIDS,
     core_form_id,
     core_values_by_edid,
@@ -28,10 +29,10 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_native_core_value_refs,
 )
 
-# parity not applicable: ordered by S1, A6, A12, and B8 (FO4SF_PipboyAcquired 0x000865 + start/mode GLOBs 0x000870..0x000877 + SpecialMenuPending 0x000880..0x000887)
-PINNED_CORE_VALUES_PLAYER_SHA256 = "c37b1b9e2dc0db8f874671ad0fa2dd1cc2b6e440b25829289da97eb30d62109d"
-# parity not applicable: ordered by S1, A5, A6, A12, and B8 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
-PINNED_CORE_VALUES_TEST_SHA256 = "e2fe343d75db0f3e3ec628b952ca9bc572d1c15204bc29188a0d27962fb67b38"
+# parity not applicable: ordered by S1, A6, A12, B8, and H00 (FO4SF_PipboyAcquired 0x000865 + start/mode GLOBs 0x000870..0x000877 + SpecialMenuPending 0x000880..0x000887 + H00 suspect GLOBs 0x000890..0x000897)
+PINNED_CORE_VALUES_PLAYER_SHA256 = "82ac519653b8f059c673baf4c7ab517b265027d5a1a246c496105fcabc645de2"
+# parity not applicable: ordered by S1, A5, A6, A12, B8, and H00 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
+PINNED_CORE_VALUES_TEST_SHA256 = "122024c64840993bbe50f50851677ce56196de05e814220547e817f2606364d3"
 
 
 def _sha256_file(path: str) -> str:
@@ -44,10 +45,10 @@ def _sha256_file(path: str) -> str:
 
 class CoreValuesSchemaTests(unittest.TestCase):
     def test_schema_invariants_and_pipboy_shared_ids(self) -> None:
-        # parity not applicable: ordered by S1, A6, and A12 (0x000870..0x000876 beginning-real start/mode GLOBs + 0x000880..0x000887 SpecialMenu store handoff)
+        # parity not applicable: ordered by S1, A6, A12, B8, and H00 (0x000870..0x000877 beginning-real start/mode GLOBs + 0x000880..0x000887 SpecialMenu + 0x000890..0x000897 H00 surface suspects)
         plugin, next_id, records = load_core_values()
         self.assertEqual(plugin, CORE_VALUES_PLUGIN)
-        self.assertEqual(next_id, 0x000888)
+        self.assertEqual(next_id, 0x000898)
         by_edid = core_values_by_edid()
         # Pip-Boy native lookup reads local id 0x800 for FO4SF_Rads
         self.assertEqual(core_form_id("FO4SF_Rads"), 0x000800)
@@ -98,17 +99,26 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_SpecialMenuCommitRequested"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_SpecialMenuCommitRequested"].constant)
-        self.assertEqual(len(records), 59)
+        # H00: 8 per-suspect store globals (0x000890..0x000897, default 0.0, mutable for console setting in Vault 111)
+        self.assertEqual(len(H00_SUSPECT_GLOB_EDIDS), 8)
+        for off, ed in enumerate(H00_SUSPECT_GLOB_EDIDS):
+            self.assertEqual(core_form_id(ed), 0x000890 + off)
+            self.assertEqual(by_edid[ed].record_type, "GLOB")
+            self.assertEqual(by_edid[ed].default, 0.0)
+            self.assertFalse(by_edid[ed].constant)
+        self.assertEqual(len(records), 67)
 
     def test_start_mode_globals_owned_exclusively_by_core_values(self) -> None:
         catalog, problems = build_writer_catalog(ROOT)
         self.assertEqual(problems, [])
 
+        tracked = START_MODE_GLOB_EDIDS + H00_SUSPECT_GLOB_EDIDS
+
         def find_duplicate_owners(cat: dict[str, dict[int, tuple[str, str]]]) -> dict[str, list[str]]:
-            owners: dict[str, set[str]] = {edid: set() for edid in START_MODE_GLOB_EDIDS}
+            owners: dict[str, set[str]] = {edid: set() for edid in tracked}
             for plugin, recs in cat.items():
                 for _, (_, edid) in recs.items():
-                    for target in START_MODE_GLOB_EDIDS:
+                    for target in tracked:
                         if edid.lower() == target.lower():
                             owners[target].add(plugin)
             return {edid: sorted(plugs) for edid, plugs in owners.items() if plugs != {CORE_VALUES_PLUGIN}}

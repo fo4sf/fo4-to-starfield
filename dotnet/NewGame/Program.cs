@@ -125,7 +125,8 @@ static class NewGame
                         PipboyCorpseRefEdid = "FO4SF_PipboyCorpsePickupRef",
                         GearDoorConsoleActiEdid = "FO4SF_GearDoorConsole",
                         GearDoorConsoleRefEdid = "FO4SF_GearDoorConsoleRef",
-                        ExitFallbackMsgEdid = "FO4SF_NewGameExitFallbackMsg";
+                        ExitFallbackMsgEdid = "FO4SF_NewGameExitFallbackMsg",
+                        ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
     public const uint ModePickMsgId = 0x806,
                       SurvivalPickMsgId = 0x807,
@@ -142,13 +143,15 @@ static class NewGame
                       GearDoorConsoleActiId = 0x818,
                       GearDoorConsoleRefId = 0x819,
                       ExitFallbackMsgId = 0x81A,
-                      SpecialMessagePage2Id = 0x81B;
+                      SpecialMessagePage2Id = 0x81B,
+                      ExitNeedSpecialMsgId = 0x81F;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
     public const int MaxMessageButtons = 7;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
-    public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Character", "Stay" };
+    public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" };
+    public static readonly string[] ExitNeedSpecialButtons = { "OK" };
     public static readonly string[] ExitFallbackButtons = { "Go up to the Commonwealth", "Retry lift" };
     public static readonly string[] ReturnButtons = { "Ride down to Vault 111", "Stay" };
     public static readonly string[] ModeButtons = { "Story", "Warfare" };
@@ -173,7 +176,15 @@ static class NewGame
                         WarfareFactionGlobEdid = "FO4SF_WarfareFaction",
                         WarfareStartIndexGlobEdid = "FO4SF_WarfareStartIndex",
                         StartChoiceDoneGlobEdid = "FO4SF_StartChoiceDone",
-                        StartNeutralSpotGlobEdid = "FO4SF_StartNeutralSpot";
+                        StartNeutralSpotGlobEdid = "FO4SF_StartNeutralSpot",
+                        H00SkipLoadingHookGlobEdid = "FO4SF_H00_SkipLoadingHook",
+                        H00ClearChargenGlobEdid = "FO4SF_H00_ClearChargenBeforeSurface",
+                        H00SkipArrivalDiscoveryGlobEdid = "FO4SF_H00_SkipArrivalDiscovery",
+                        H00SkipMapSetupGlobEdid = "FO4SF_H00_SkipMapSetup",
+                        H00SkipRouteLootGlobEdid = "FO4SF_H00_SkipRouteLoot",
+                        H00SkipMissionActorsGlobEdid = "FO4SF_H00_SkipMissionActors",
+                        H00SkipLandingQuestsGlobEdid = "FO4SF_H00_SkipLandingQuests",
+                        H00SkipSurfaceSetPosGlobEdid = "FO4SF_H00_SkipSurfaceSetPos";
     // The save version check (NG-15 / NG-L2, the owner's decision 2026-10-19: a save version from v1). GLOB
     // FO4SF_NewGameVersion holds the build's version number (--build-version <n>, default DefaultBuildVersion;
     // make_newgame.py DEFAULT_BUILD_VERSION is held equal by tests/test_newgame.py). It is flagged Constant so the
@@ -430,6 +441,85 @@ static class NewGame
         if (pid == 0 || !sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, pid)))
             throw new Refusal($"Starfield.esm has no WEAP 0x{pid:X6} for vault111.pistol_id in {path}");
         return pid;
+    }
+
+    public static int[] LoadRouteLootRefIds(string? jsonPath, string corePath, P3Float exitPos)
+    {
+        var path = jsonPath ?? DefaultRouteLootJsonPath();
+        if (!File.Exists(path)) return Array.Empty<int>();
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("corridor_radius_m", out var radEl) ||
+            !root.TryGetProperty("corridor_polyline_m", out var polyEl) ||
+            !root.TryGetProperty("fo4_container_categories", out var catEl))
+            return Array.Empty<int>();
+
+        double radius = radEl.GetDouble();
+        var poly = polyEl.EnumerateArray()
+            .Select(pt => { var xy = pt.EnumerateArray().Select(v => v.GetDouble()).ToArray(); return (X: xy[0], Y: xy[1]); })
+            .ToArray();
+        if (poly.Length < 2) return Array.Empty<int>();
+
+        var mappedFo4Ids = new HashSet<uint>();
+        foreach (var prop in catEl.EnumerateObject())
+        {
+            var s = prop.Name.Trim();
+            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) s = s[2..];
+            if (uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint fid))
+                mappedFo4Ids.Add(fid);
+        }
+
+        using var core = SF.StarfieldMod.CreateFromBinaryOverlay(corePath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+        var contRx = new System.Text.RegularExpressions.Regex(@"^(?:FO4Core|FO4SF_RouteLoot)_cont_([0-9a-fA-F]{6})_");
+        var mappedCoreBases = new HashSet<FormKey>();
+        foreach (var c in core.Containers.Where(c => (c.MajorRecordFlagsRaw & 0x20) == 0))
+        {
+            var ed = c.EditorID;
+            if (!string.IsNullOrEmpty(ed) && contRx.Match(ed) is { Success: true } m &&
+                uint.TryParse(m.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint fo4Id) &&
+                mappedFo4Ids.Contains(fo4Id))
+                mappedCoreBases.Add(c.FormKey);
+        }
+        if (mappedCoreBases.Count == 0) return Array.Empty<int>();
+
+        static double SegDist(double px, double py, (double X, double Y) a, (double X, double Y) b)
+        {
+            double dx = b.X - a.X, dy = b.Y - a.Y, len2 = dx * dx + dy * dy;
+            double t = len2 > 0.0 ? Math.Clamp(((px - a.X) * dx + (py - a.Y) * dy) / len2, 0.0, 1.0) : 0.0;
+            double qx = a.X + t * dx, qy = a.Y + t * dy;
+            return Math.Sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
+        }
+
+        var hits = new List<(double ExitDist, uint Id)>();
+        void ScanCell(SF.ICellGetter? cell)
+        {
+            if (cell == null) return;
+            foreach (var r in cell.Persistent.Concat(cell.Temporary).OfType<SF.IPlacedObjectGetter>())
+            {
+                if ((r.MajorRecordFlagsRaw & 0x20) != 0 || (r.MajorRecordFlagsRaw & 0x800) != 0) continue;
+                if (r.FormKey.ModKey != core.ModKey || !mappedCoreBases.Contains(r.Base.FormKey)) continue;
+                double best = double.MaxValue;
+                for (int i = 0; i < poly.Length - 1; i++)
+                {
+                    double d = SegDist(r.Position.X, r.Position.Y, poly[i], poly[i + 1]);
+                    if (d < best) best = d;
+                }
+                if (best <= radius)
+                {
+                    double ed = Math.Sqrt(Math.Pow(r.Position.X - exitPos.X, 2) + Math.Pow(r.Position.Y - exitPos.Y, 2));
+                    hits.Add((ed, r.FormKey.ID));
+                }
+            }
+        }
+        foreach (var w in core.Worldspaces)
+        {
+            ScanCell(w.TopCell);
+            foreach (var blk in w.SubCells)
+                foreach (var sub in blk.Items)
+                    foreach (var ec in sub.Items)
+                        ScanCell(ec);
+        }
+        return hits.OrderBy(h => h.ExitDist).ThenBy(h => h.Id).Select(h => (int)h.Id).Distinct().ToArray();
     }
 
     public static string DefaultWarfareStartsJsonPath()
@@ -967,7 +1057,7 @@ static class NewGame
     }
 
     /// Every script property the plugin writes, by name: what the check compares and the Python contract test reads.
-    public static List<(string Name, object Value)> Properties(JsonElement pts, Places p, Options o, WarfareTable wf, uint vaultPistolId)
+    public static List<(string Name, object Value)> Properties(JsonElement pts, Places p, Options o, WarfareTable wf, uint vaultPistolId, int[]? routeLootRefIds = null)
     {
         var pod = Floats(pts.GetProperty("pod").GetProperty("pos"));
         var con = Floats(pts.GetProperty("console").GetProperty("pos"));
@@ -992,6 +1082,7 @@ static class NewGame
             ("O2CapacityAmount", o.O2 ? O2CapacityAmount : 0f),   // added to O2Capacity right after the reset (0: never)
             ("FadeHold", o.FadeHold), ("RaceMenuMode", o.RaceMenuMode),
             ("CoreMarkerIds", p.CoreMarkers ?? Array.Empty<int>()),
+            ("RouteLootRefIds", routeLootRefIds ?? Array.Empty<int>()),
             ("MapMarkerQuestIds", new[] { 0x800 }),
             ("WarfareKeys", wf.Keys), ("WarfareFactionSlots", wf.FactionSlots), ("WarfareDistinctFactionSlots", wf.DistinctFactionSlots),
             ("WarfareMarkerIds", wf.MarkerIds), ("WarfareMarkerX", wf.MarkerX), ("WarfareMarkerY", wf.MarkerY), ("WarfareMarkerZ", wf.MarkerZ),
@@ -1059,11 +1150,20 @@ static class NewGame
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
         var startNeutralSpotKey = new FormKey(coreKey, RequireCoreId(coreIds, StartNeutralSpotGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
+        var h00SkipLoadingHookKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLoadingHookGlobEdid));
+        var h00ClearChargenKey = new FormKey(coreKey, RequireCoreId(coreIds, H00ClearChargenGlobEdid));
+        var h00SkipArrivalDiscoveryKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipArrivalDiscoveryGlobEdid));
+        var h00SkipMapSetupKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipMapSetupGlobEdid));
+        var h00SkipRouteLootKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipRouteLootGlobEdid));
+        var h00SkipMissionActorsKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipMissionActorsGlobEdid));
+        var h00SkipLandingQuestsKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLandingQuestsGlobEdid));
+        var h00SkipSurfaceSetPosKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipSurfaceSetPosGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
+        var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
         var modKey = ModKey.FromFileName(o.Plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
@@ -1085,7 +1185,7 @@ static class NewGame
         var msg = new SF.Message(new FormKey(modKey, MessageId), SF.StarfieldRelease.Starfield)
         {
             EditorID = MessageEdid, Name = "Vault 111 elevator",
-            Description = "Leave Vault 111 for the Commonwealth, or revise your S.P.E.C.I.A.L. and character first?",
+            Description = "Leave Vault 111 for the Commonwealth, or revise your S.P.E.C.I.A.L. first?",
             Flags = SF.Message.Flag.MessageBox,
         };
         foreach (var b in ExitButtons) msg.MenuButtons.Add(new SF.MessageButton { Text = b });
@@ -1116,6 +1216,7 @@ static class NewGame
         var wfSpotMsg = MakeMsg(WarfareSpotMsgId, WarfareSpotMsgEdid, "Warfare Deployment", "Choose your starting deployment:", wf.SpotButtons);
         var noPipboyMsg = MakeMsg(NoPipboyMsgId, NoPipboyMsgEdid, "Vault Door Controls", "A Pip-Boy is required to interface with the Vault 111 door controls.", NoPipboyButtons);
         var exitFallbackMsg = MakeMsg(ExitFallbackMsgId, ExitFallbackMsgEdid, "Vault 111 elevator", "The elevator platform did not reach the surface. Go up to the Commonwealth directly, or try the lift again?", ExitFallbackButtons);
+        var exitNeedSpecialMsg = MakeMsg(ExitNeedSpecialMsgId, ExitNeedSpecialMsgEdid, "Vault 111 elevator", "Confirm your S.P.E.C.I.A.L. attributes before leaving Vault 111.", ExitNeedSpecialButtons);
         // the opening choice (NG-6, NG-C9): button 0 opens the creator, button 1 keeps the preset and skips it. A
         // message box, so it needs no voice: the player is silent
         var start = new SF.Message(new FormKey(modKey, StartMessageId), SF.StarfieldRelease.Starfield)
@@ -1248,6 +1349,7 @@ static class NewGame
         foreach (var q in hold) list.Objects.Add(Obj("", q.FormKey));
         script.Properties.Add(list);
         script.Properties.Add(Obj("ExitMessage", msg.FormKey));
+        script.Properties.Add(Obj("ExitNeedAttrMsg", exitNeedSpecialMsg.FormKey));
         script.Properties.Add(Obj("ExitFallbackMessage", exitFallbackMsg.FormKey));
         script.Properties.Add(Obj("ReturnMessage", returnMsg.FormKey));
         script.Properties.Add(Obj("ModePickMsg", modePickMsg.FormKey));
@@ -1267,11 +1369,19 @@ static class NewGame
         script.Properties.Add(Obj("StartChoiceDoneGlobal", choiceDoneKey));
         script.Properties.Add(Obj("StartNeutralSpotGlobal", startNeutralSpotKey));
         script.Properties.Add(Obj("PipboyAcquiredGlobal", pipboyAcquiredKey));
+        script.Properties.Add(Obj("H00SkipLoadingHookGlobal", h00SkipLoadingHookKey));
+        script.Properties.Add(Obj("H00ClearChargenGlobal", h00ClearChargenKey));
+        script.Properties.Add(Obj("H00SkipArrivalDiscoveryGlobal", h00SkipArrivalDiscoveryKey));
+        script.Properties.Add(Obj("H00SkipMapSetupGlobal", h00SkipMapSetupKey));
+        script.Properties.Add(Obj("H00SkipRouteLootGlobal", h00SkipRouteLootKey));
+        script.Properties.Add(Obj("H00SkipMissionActorsGlobal", h00SkipMissionActorsKey));
+        script.Properties.Add(Obj("H00SkipLandingQuestsGlobal", h00SkipLandingQuestsKey));
+        script.Properties.Add(Obj("H00SkipSurfaceSetPosGlobal", h00SkipSurfaceSetPosKey));
         script.Properties.Add(Obj("PipboyWristArmor", pipboyWrist.FormKey));
         script.Properties.Add(Obj("PipboyCorpseRef", pipboyRef.FormKey));
         script.Properties.Add(Obj("GearDoorConsoleRef", gearConsoleRef.FormKey));
         script.Properties.Add(Obj("VaultPistolBase", vaultPistolKey));
-        foreach (var (name, value) in Properties(pts, places, o, wf, vaultPistolId))
+        foreach (var (name, value) in Properties(pts, places, o, wf, vaultPistolId, routeLootRefIds))
             script.Properties.Add(ValueProperty(name, value));
         quest.VirtualMachineAdapter = new SF.QuestAdapter
         {
@@ -1330,7 +1440,7 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = SpecialMessagePage2Id + 1;
+        mod.ModHeader.Stats.NextFormID = ExitNeedSpecialMsgId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         WritePlugin(mod, path);
@@ -1395,11 +1505,20 @@ static class NewGame
         var choiceDoneKey = new FormKey(coreKey, RequireCoreId(coreIds, StartChoiceDoneGlobEdid));
         var startNeutralSpotKey = new FormKey(coreKey, RequireCoreId(coreIds, StartNeutralSpotGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
+        var h00SkipLoadingHookKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLoadingHookGlobEdid));
+        var h00ClearChargenKey = new FormKey(coreKey, RequireCoreId(coreIds, H00ClearChargenGlobEdid));
+        var h00SkipArrivalDiscoveryKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipArrivalDiscoveryGlobEdid));
+        var h00SkipMapSetupKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipMapSetupGlobEdid));
+        var h00SkipRouteLootKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipRouteLootGlobEdid));
+        var h00SkipMissionActorsKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipMissionActorsGlobEdid));
+        var h00SkipLandingQuestsKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLandingQuestsGlobEdid));
+        var h00SkipSurfaceSetPosKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipSurfaceSetPosGlobEdid));
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
+        var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm, PortEsm, CoreValuesEsm));
         var key = plug.ModKey;
@@ -1455,6 +1574,9 @@ static class NewGame
         var msg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, MessageId));
         Need(msg is { EditorID: MessageEdid } && msg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              msg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(ExitButtons), $"MESG 0x{MessageId:X} is not {MessageEdid} with buttons [{string.Join(", ", ExitButtons)}]");
+        var exitNeedSpecialMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, ExitNeedSpecialMsgId));
+        Need(exitNeedSpecialMsg is { EditorID: ExitNeedSpecialMsgEdid } && exitNeedSpecialMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+             exitNeedSpecialMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(ExitNeedSpecialButtons), $"MESG 0x{ExitNeedSpecialMsgId:X} is not {ExitNeedSpecialMsgEdid} with buttons [{string.Join(", ", ExitNeedSpecialButtons)}]");
         var exitFallbackMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, ExitFallbackMsgId));
         Need(exitFallbackMsg is { EditorID: ExitFallbackMsgEdid } && exitFallbackMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              exitFallbackMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(ExitFallbackButtons), $"MESG 0x{ExitFallbackMsgId:X} is not {ExitFallbackMsgEdid} with buttons [{string.Join(", ", ExitFallbackButtons)}]");
@@ -1495,12 +1617,12 @@ static class NewGame
             Need(specialMsgPage2 is { EditorID: SpecialMessagePage2Edid } && specialMsgPage2.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
                  specialMsgPage2.MenuButtons.Select(b => b.Text?.String).SequenceEqual(SpecialPage2Buttons) && specialMsgPage2.Description?.String == SpecialDescription,
                  $"MESG 0x{SpecialMessagePage2Id:X} is not {SpecialMessagePage2Edid}, a <=7-button message box with [{string.Join(", ", SpecialPage2Buttons)}] and the allocation text");
-            Need(plug.Messages.Count == 13, $"{plug.Messages.Count} MESG, expected 13");
+            Need(plug.Messages.Count == 14, $"{plug.Messages.Count} MESG, expected 14");
             Console.WriteLine($"  SPECIAL links [{string.Join(", ", specialKeys)}]; terminal {TerminalText(places)}");
         }
         else
         {
-            Need(plug.Messages.Count == 10, $"{plug.Messages.Count} MESG, expected 10 in a --no-special build");
+            Need(plug.Messages.Count == 11, $"{plug.Messages.Count} MESG, expected 11 in a --no-special build");
         }
 
         // the GLOBs: Starfield's MQ101Debug overridden (or not), and our own version GLOB (or not); FO4SF_PipboyAcquired lives in FO4SFCoreValues.esm:000865
@@ -1589,6 +1711,7 @@ static class NewGame
                 Need(props.TryGetValue("DebugGlobal", out var dg) && dg is SF.IScriptObjectPropertyGetter dgo &&
                      dgo.Object.FormKey == sf.Globals.FirstOrDefault(x => x.EditorID == DebugGlobEdid)?.FormKey, $"property DebugGlobal is not {DebugGlobEdid}");
                 Need(props.TryGetValue("ExitMessage", out var mp) && mp is SF.IScriptObjectPropertyGetter mo && mo.Object.FormKey == msg?.FormKey, "property ExitMessage");
+                Need(props.TryGetValue("ExitNeedAttrMsg", out var ensmp) && ensmp is SF.IScriptObjectPropertyGetter ensmo && ensmo.Object.FormKey == exitNeedSpecialMsg?.FormKey, "property ExitNeedAttrMsg");
                 Need(props.TryGetValue("ExitFallbackMessage", out var efmp) && efmp is SF.IScriptObjectPropertyGetter efmo && efmo.Object.FormKey == exitFallbackMsg?.FormKey, "property ExitFallbackMessage");
                 Need(props.TryGetValue("ReturnMessage", out var rmp) && rmp is SF.IScriptObjectPropertyGetter rmo && rmo.Object.FormKey == returnMsg?.FormKey, "property ReturnMessage");
                 Need(props.TryGetValue("ModePickMsg", out var mpm) && mpm is SF.IScriptObjectPropertyGetter mpmo && mpmo.Object.FormKey == modePickMsg?.FormKey, "property ModePickMsg");
@@ -1619,6 +1742,22 @@ static class NewGame
                      $"property StartNeutralSpotGlobal is not {startNeutralSpotKey}");
                 Need(props.TryGetValue("PipboyAcquiredGlobal", out var pgp) && pgp is SF.IScriptObjectPropertyGetter pgo && pgo.Object.FormKey == pipboyAcquiredKey,
                      $"property PipboyAcquiredGlobal is not {pipboyAcquiredKey}");
+                Need(props.TryGetValue("H00SkipLoadingHookGlobal", out var h0p) && h0p is SF.IScriptObjectPropertyGetter h0o && h0o.Object.FormKey == h00SkipLoadingHookKey,
+                     $"property H00SkipLoadingHookGlobal is not {h00SkipLoadingHookKey}");
+                Need(props.TryGetValue("H00ClearChargenGlobal", out var h1p) && h1p is SF.IScriptObjectPropertyGetter h1o && h1o.Object.FormKey == h00ClearChargenKey,
+                     $"property H00ClearChargenGlobal is not {h00ClearChargenKey}");
+                Need(props.TryGetValue("H00SkipArrivalDiscoveryGlobal", out var h2p) && h2p is SF.IScriptObjectPropertyGetter h2o && h2o.Object.FormKey == h00SkipArrivalDiscoveryKey,
+                     $"property H00SkipArrivalDiscoveryGlobal is not {h00SkipArrivalDiscoveryKey}");
+                Need(props.TryGetValue("H00SkipMapSetupGlobal", out var h3p) && h3p is SF.IScriptObjectPropertyGetter h3o && h3o.Object.FormKey == h00SkipMapSetupKey,
+                     $"property H00SkipMapSetupGlobal is not {h00SkipMapSetupKey}");
+                Need(props.TryGetValue("H00SkipRouteLootGlobal", out var h4p) && h4p is SF.IScriptObjectPropertyGetter h4o && h4o.Object.FormKey == h00SkipRouteLootKey,
+                     $"property H00SkipRouteLootGlobal is not {h00SkipRouteLootKey}");
+                Need(props.TryGetValue("H00SkipMissionActorsGlobal", out var h5p) && h5p is SF.IScriptObjectPropertyGetter h5o && h5o.Object.FormKey == h00SkipMissionActorsKey,
+                     $"property H00SkipMissionActorsGlobal is not {h00SkipMissionActorsKey}");
+                Need(props.TryGetValue("H00SkipLandingQuestsGlobal", out var h6p) && h6p is SF.IScriptObjectPropertyGetter h6o && h6o.Object.FormKey == h00SkipLandingQuestsKey,
+                     $"property H00SkipLandingQuestsGlobal is not {h00SkipLandingQuestsKey}");
+                Need(props.TryGetValue("H00SkipSurfaceSetPosGlobal", out var h7p) && h7p is SF.IScriptObjectPropertyGetter h7o && h7o.Object.FormKey == h00SkipSurfaceSetPosKey,
+                     $"property H00SkipSurfaceSetPosGlobal is not {h00SkipSurfaceSetPosKey}");
                 Need(props.TryGetValue("PipboyWristArmor", out var pwp) && pwp is SF.IScriptObjectPropertyGetter pwo && pwo.Object.FormKey == pipboyWrist?.FormKey,
                      "property PipboyWristArmor");
                 Need(props.TryGetValue("PipboyCorpseRef", out var prp) && prp is SF.IScriptObjectPropertyGetter pro && pro.Object.FormKey == pipboyRef?.FormKey,
@@ -1630,10 +1769,10 @@ static class NewGame
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
                      hl.Objects.Select(x => (FormKey?)x.Object.FormKey).SequenceEqual(want), $"property HoldOff is not [{string.Join(", ", o.Hold)}] in order");
-                var expected = Properties(pts, places, o, wf, vaultPistolId);
+                var expected = Properties(pts, places, o, wf, vaultPistolId, routeLootRefIds);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 28, $"{props.Count} properties, expected {expected.Count + 28}");
+                Need(props.Count == expected.Count + 37, $"{props.Count} properties, expected {expected.Count + 37}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");

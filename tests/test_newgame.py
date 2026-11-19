@@ -148,9 +148,9 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Trace("mode fade held request=1")', hold_fade)
         self.assertIn('Trace("mode fade held request=2 delay=1.0s loading_closed=" + loadingMenuClosedSeen)', hold_fade)
         code_only = re.sub(r"\{[^}]*\}", "", psc)          # the doc comments name the fade call too
-        self.assertEqual(code_only.count("Game.FadeOutGame("), 4)   # FadeIn + HoldFadeForModeChoice + ReassertBlackHoldAfterLoading + FallbackExitToSurface
-        self.assertEqual(code_only.count("Game.SetInChargen("), 2)  # FadeIn + HoldFadeForModeChoice
-        self.assertEqual(code_only.count("Game.SetCharGenHUDMode("), 1)  # in FadeIn alone
+        self.assertEqual(code_only.count("Game.FadeOutGame("), 5)   # FadeIn + HoldFadeForModeChoice + ReassertBlackHoldAfterLoading + FallbackExitToSurface + ApplyH00PreSurfaceOverrides
+        self.assertEqual(code_only.count("Game.SetInChargen("), 3)  # FadeIn + HoldFadeForModeChoice + ApplyH00PreSurfaceOverrides
+        self.assertEqual(code_only.count("Game.SetCharGenHUDMode("), 2)  # FadeIn + ApplyH00PreSurfaceOverrides
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("StartTimer(1.0, 1)"), begin.index("player.WaitFor3DLoad()"))
         self.assertLess(begin.index("player.WaitFor3DLoad()"), begin.index('FadeIn("start")'))
@@ -1115,6 +1115,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         # ScriptObject.psc (PC read 19 Oct): RegisterForMenuOpenCloseEvent is native; the event's signature is FO4's
         "ScriptObject": scriptobject if scriptobject is not None else
                         "Function StartTimer(float a, int b = 0) native\nFunction RegisterForMenuOpenCloseEvent(string asMenuName) native\n"
+                        "Function UnregisterForMenuOpenCloseEvent(string asMenuName) native\n"
                         "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\nEvent OnInit()\nEndEvent\n",
         # ReferenceAlias.psc (PC read 19 Oct, NG-L3): OnPlayerLoadGame, the version script's event
         "ReferenceAlias": referencealias if referencealias is not None else
@@ -1307,7 +1308,14 @@ class PrecheckTests(unittest.TestCase):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\n")
         r = ng.precheck_zip(z)
-        self.assertEqual(r["missing_core"], ["ScriptObject.RegisterForMenuOpenCloseEvent", "ScriptObject.OnMenuOpenCloseEvent"])
+        self.assertEqual(
+            r["missing_core"],
+            [
+                "ScriptObject.RegisterForMenuOpenCloseEvent",
+                "ScriptObject.UnregisterForMenuOpenCloseEvent",
+                "ScriptObject.OnMenuOpenCloseEvent",
+            ],
+        )
         self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.RegisterForMenuOpenCloseEvent"])
         self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.OnMenuOpenCloseEvent"])
         self.assertTrue(r["natives"][ng.LOOKS]["ScriptObject.StartTimer"])
@@ -2209,15 +2217,18 @@ class Phase2BeginningRealTests(unittest.TestCase):
         finally:
             os.unlink(z.name)
 
-    def test_x3_four_button_lift_prompt_requires_40pt_special_before_continue_and_disables_special_skipped(self):
+    def test_x3_three_button_lift_prompt_requires_40pt_special_before_continue_and_disables_special_skipped(self):
         cs, psc, special = read(CS), read(PSC), read(SPECIAL)
-        self.assertIn('ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Character", "Stay" }', cs)
+        self.assertIn('ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" }', cs)
+        self.assertIn('ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg"', cs)
+        self.assertIn("ExitNeedSpecialMsgId = 0x81F", cs)
         self.assertIn('ReturnMsgEdid = "FO4SF_NewGameReturn"', cs)
         self.assertIn("ReturnMsgId = 0x80B", cs)
         self.assertIn('"Ride down to Vault 111", "Stay"', cs)
         self.assertIn('Trace("elevator continue refused: special unconfirmed")', psc)
+        self.assertIn("ExitNeedAttrMsg.Show()", psc)
         self.assertIn("OpenLiftAttributeAllocation()", psc)
-        self.assertIn("OpenLiftCharacterRespec()", psc)
+        self.assertNotIn("OpenLiftCharacterRespec()", psc)
         self.assertIn('Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest', psc)
         self.assertIn("PrepareArrivalMarkerDuringRide()", psc)
         self.assertIn("PreAttachArrivalMarker(player)", psc)
@@ -2352,7 +2363,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         # Once answered, a subsequent timer-2 tick logs nothing more
         ns["TimerEvent"](2)
         self.assertEqual([l for l in logs if l.startswith("mode box waiting ")], ["mode box waiting s=60", "mode box waiting s=120"])
-        self.assertIn("stage 5 by=trigger", logs)
+        self.assertIn("stage 5 by=Trigger", logs)
         # Neutral spot Story choice moved player back into the cryopod before FadeIn
         self.assertAlmostEqual(player.pos[0], 10.0, places=3)
         self.assertAlmostEqual(player.pos[1], 20.0, places=3)

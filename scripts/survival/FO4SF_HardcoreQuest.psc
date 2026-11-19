@@ -320,7 +320,7 @@ EndEvent
 Event Actor.OnPlayerLoadGame(Actor akSender)
     RegisterHooks()
     lastGameDays = Utility.GetCurrentGameTime()
-    EvaluateHardcore("reload")
+    EvaluateHardcore("Reload")
     StartTimer(1.0, TimerIdPoll)
 EndEvent
 

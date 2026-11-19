@@ -60,7 +60,7 @@ BEGINNING_STEPS: Tuple[BeginningStepSpec, ...] = (
         plugins=("FO4SFExitLift.esm", "FO4SFNewGame.esm", "FO4SFProgression.esm"),
         scripts=("FO4SF_NewGameQuest.pex", "FO4SF_ProgressionQuest.pex"),
         actor="claude_pc_then_owner",
-        owner_pass="Lift offers S.P.E.C.I.A.L. and Character before Continue; S.P.E.C.I.A.L. confirms 40 points; map setup finishes during +21.6 m ascent ('ascent carried confirmed').",
+        owner_pass="Lift offers S.P.E.C.I.A.L. before Continue (showing a modal notice if Continue is chosen first); S.P.E.C.I.A.L. confirms 40 points; map setup finishes during +21.6 m ascent ('ascent carried confirmed').",
         owner_fail="'special skipped' logged, S.P.E.C.I.A.L. sum != 40, missing 'map setup done', or 'exit failed reason=lift_*'.",
     ),
     BeginningStepSpec(
@@ -133,6 +133,87 @@ NOT_BUILT_MUSEUM_CONTENT: Tuple[str, ...] = (
 VALID_STAGE_CAUSES: frozenset[str] = frozenset(
     {"scene", "info", "trigger", "bench", "vault_console"}
 )
+
+CANONICAL_CAUSE_TRIGGER = "Trigger"
+CANONICAL_SOURCE_LIFT = "Lift"
+CANONICAL_WHY_RELOAD = "Reload"
+
+# H00(a): Single canonical Session 2 PASS table shared by `docs/testing/lead-run-order.md`,
+# `check_beginning_pilot.py`, and `tests/test_lead_cards_beginning.py`.
+SESSION2_SHEET_PASS_SPECS: Tuple[Tuple[str, str], ...] = (
+    ("Card A", "FO4SFLIST rt=<rt> init speaker_present=True arrival_present=True end=true"),
+    ("Card A", "FO4SFLIST rt=<rt> summary ok=true host_menu=DialogueMenu replaced_swf=false end=true"),
+    ("Card 1", "step=core_value_resolve name=FO4SF_PipboyAcquired source=FO4SFCoreValues.esm:000865 found=1 form=<hex>"),
+    ("Card 1", "step=boot_sequence movie=pipboybootsequence first_open=1 page=<page>"),
+    ("Card 1", "step=boot_sequence finished=1 reopen_page=<page>"),
+    ("Card 1", "step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corners_set=3/3 read_back=match"),
+    ("Card 1", "step=map_check_hardcore idx=<idx> source=FO4SFCoreValues.esm:000841 allow=1"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> mode fade held request=1"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> mode fade held request=2 delay=1.0s loading_closed=<bool>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=0"),
+    ("Card 2", f"FO4SF_NEWGAME rt=<rt> stage 10 by={CANONICAL_CAUSE_TRIGGER}"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 20 by=scene"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> special box shown box=FO4SF_ProgSpecialPage1Msg buttons=7 unspent=<u0> step=1"),
+    ("Card 2", f"FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> sum=40 source={CANONICAL_SOURCE_LIFT}"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> ascent carried confirmed elapsed=<sec> z=<z1>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> surface pre_setposition target=<tx> <ty> <tz> cell=<cell> world=<world>"),
+    ("Card 2", f"FO4SF_NEWGAME rt=<rt> stage 40 by={CANONICAL_CAUSE_TRIGGER}"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=false world=<world>"),
+    ("Card 2", f"FO4SF_NEWGAME rt=<rt> stage 200 by={CANONICAL_CAUSE_TRIGGER}"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> mission gate mode=1 started=true"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> min00 given by=codsworth"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> stage 10 by=info"),
+    ("Card 5", f"FO4SF_MISSION rt=<rt> stage 20 by={CANONICAL_CAUSE_TRIGGER}"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> reload mission stage=20 relocate_fails=0"),
+    ("Card 5", f"FO4SF_MISSION rt=<rt> stage 30 by={CANONICAL_CAUSE_TRIGGER}"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> stage 35 by=info"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> preston talk end info=0x092A -> stage 40"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> stage 40 by=info"),
+    ("Card 5", f"FO4SF_MISSION rt=<rt> stage 200 by={CANONICAL_CAUSE_TRIGGER}"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> sanctuary01 stage 100 by=bench"),
+    ("Card 5", "FO4SF_MISSION rt=<rt> min01 bench activated -> stage 100"),
+    ("Card 3", "FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why=start_choice end=true"),
+    ("Card 3", f"FO4SFHC rt=<rt> hardcore source gpof=0 start=1 enabled=1 why={CANONICAL_WHY_RELOAD} end=true"),
+    ("Card 4", "FO4SF_NEWGAME rt=<rt> warfare pick faction=0 start=minutemen_sanctuary difficulty=<diff>"),
+    ("Card 4", f"FO4SF_NEWGAME rt=<rt> stage 210 by={CANONICAL_CAUSE_TRIGGER}"),
+    ("Card 4", "FO4SF_MISSION rt=<rt> mission gate mode=2 started=false"),
+)
+
+
+def compile_sheet_line_pattern(sheet_line: str) -> re.Pattern[str]:
+    """Compile a case-sensitive regex from a sheet PASS template (`<...>` -> non-empty inline value)."""
+    parts = re.split(r"<[^>\r\n]+>", sheet_line)
+    regex_str = r"[^\r\n]+?".join(re.escape(p) for p in parts) + r"\s*$"
+    return re.compile(regex_str)
+
+
+def evaluate_session2_sheet_lines(log_dir: str) -> List[Dict[str, Optional[str]]]:
+    """Match every `SESSION2_SHEET_PASS_SPECS` entry against all `.log` files in `log_dir` (read-only)."""
+    all_lines: List[str] = []
+    if log_dir and os.path.isdir(log_dir):
+        for entry in sorted(os.listdir(log_dir)):
+            if entry.lower().endswith(".log"):
+                full = os.path.join(log_dir, entry)
+                if os.path.isfile(full):
+                    with open(full, encoding="utf-8", errors="replace") as fp:
+                        all_lines.extend(ln.rstrip("\r\n") for ln in fp)
+    out: List[Dict[str, Optional[str]]] = []
+    for card_id, spec_line in SESSION2_SHEET_PASS_SPECS:
+        pat = compile_sheet_line_pattern(spec_line)
+        first_hit = next((ln for ln in all_lines if pat.search(ln)), None)
+        out.append(
+            {
+                "card": card_id,
+                "expected": spec_line,
+                "status": "found" if first_hit is not None else "missing",
+                "match": first_hit,
+            }
+        )
+    return out
 
 
 def _is_tes4_plugin(path: str) -> bool:

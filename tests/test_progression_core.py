@@ -522,33 +522,33 @@ class SpecialBoxAndStandardSpreadExecutionTests(unittest.TestCase):
             any("special box press=1 box=FO4SF_ProgSpecialPage1Msg button=0" in l for l in self.ng_logs),
             self.ng_logs,
         )
-        self.assertIn("special set S=7 P=6 E=5 C=5 I=7 A=5 L=5 sum=40 source=lift", self.ng_logs)
+        self.assertIn("special set S=7 P=6 E=5 C=5 I=7 A=5 L=5 sum=40 source=Lift", self.ng_logs)
         self.assertFalse(any("special default " in l for l in self.ng_logs))
 
     def test_b3_three_cancelled_lift_tries_offer_standard_spread_sum_40_and_28(self):
         # 40-point pool: 2 cancels return False; 3rd cancel offers SpecialDefaultMsg ("Use the standard spread" = 0)
         self.page1_queue = [6, 6, 6]  # Cancel 3 times
         self.default_queue = [0]
-        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
-        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("Lift"))
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("Lift"))
         self.assertEqual(self.written_stats, {})
-        self.assertTrue(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertTrue(self.ns["OpenAttributeAllocation"]("Lift"))
         self.assertEqual([int(self.written_stats[av]) for av in self.avs], [6, 5, 5, 6, 7, 6, 5])
-        self.assertIn("special set S=6 P=5 E=5 C=6 I=7 A=6 L=5 sum=40 source=lift", self.ng_logs)
-        self.assertIn("special default sum=40 source=lift", self.ng_logs)
-        self.assertIn("special_default sum=40 source=lift", self.prog_logs)
+        self.assertIn("special set S=6 P=5 E=5 C=6 I=7 A=6 L=5 sum=40 source=Lift", self.ng_logs)
+        self.assertIn("special default sum=40 source=Lift", self.ng_logs)
+        self.assertIn("special_default sum=40 source=Lift", self.prog_logs)
 
         # 28-point pool: 3 cancels on lift apply 4/4/4/4/4/4/4 (= 28) through the same CommitSpecialAllocation write path
         self.setUp()
         self.pool28 = 1.0
         self.page1_queue = [-1, -1, -1]
         self.default_queue = [0]
-        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
-        self.assertFalse(self.ns["OpenAttributeAllocation"]("lift"))
-        self.assertTrue(self.ns["OpenAttributeAllocation"]("lift"))
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("Lift"))
+        self.assertFalse(self.ns["OpenAttributeAllocation"]("Lift"))
+        self.assertTrue(self.ns["OpenAttributeAllocation"]("Lift"))
         self.assertEqual([int(self.written_stats[av]) for av in self.avs], [4, 4, 4, 4, 4, 4, 4])
-        self.assertIn("special set S=4 P=4 E=4 C=4 I=4 A=4 L=4 sum=28 source=lift", self.ng_logs)
-        self.assertIn("special default sum=28 source=lift", self.ng_logs)
+        self.assertIn("special set S=4 P=4 E=4 C=4 I=4 A=4 L=4 sum=28 source=Lift", self.ng_logs)
+        self.assertIn("special default sum=28 source=Lift", self.ng_logs)
 
     def test_b3_warfare_three_tries_then_standard_spread_logs_source_warfare(self):
         self.page1_queue = [6, 6, 6]

@@ -22,6 +22,7 @@ if str(SRC) not in sys.path:
 from fo4sf.beginning_pilot import (  # noqa: E402
     BEGINNING_STEPS,
     evaluate_beginning_logs,
+    evaluate_session2_sheet_lines,
     verify_bundle_beginning_readiness,
 )
 
@@ -94,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
         for spec in BEGINNING_STEPS:
             info = res["steps"][spec.step_id]
             print(f"{info['status']:11s}  {spec.step_id}: {info['detail']}")
+        if args.log_dir:
+            sheet_rows = evaluate_session2_sheet_lines(args.log_dir)
+            found_cnt = sum(1 for r in sheet_rows if r["status"] == "found")
+            print(f"session2 sheet lines: {found_cnt}/{len(sheet_rows)} found")
         if not res["ok"]:
             return 1
         if args.require_all_pass and not res["all_pass"]:

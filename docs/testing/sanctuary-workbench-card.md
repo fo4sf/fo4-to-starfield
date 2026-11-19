@@ -34,8 +34,8 @@ python scripts/testing/check_beginning_pilot.py check-logs --log-dir <log-dir> -
 
 ### Console-Free Steps (`<= 5` Minutes After Hilltop `stage 200`)
 1. **Sanctuary `Codsworth01` check (`~45 s`):** Walk to Codsworth (`0x000811`) in Sanctuary, press `E` to open `DialogueMenu`, and select Choice 4 (`codsworth talk end -> min00 stage 10` -> `stage 10 by=info`).
-2. **Concord `stage 20` `Quit to Desktop` reload (`~90 s`):** Trigger the Concord street fight (`stage 20 by=trigger`), save mid-fight, select **`Quit to Desktop`**, relaunch Starfield, reload that save (`reload mission stage=20 relocate_fails=0`), and clear the raiders (`stage 30 by=trigger`).
-3. **Preston `DialogueMenu` turn-in (`~45 s`):** Press `E` on Preston (`0x000802`) and complete all 3 exchanges (`0x000900`, Choice 3 `0x092A` -> `stage 35 by=info` -> `preston talk end info=0x092A -> stage 40` -> `stage 40 by=info` -> `stage 200 by=trigger`).
+2. **Concord `stage 20` `Quit to Desktop` reload (`~90 s`):** Trigger the Concord street fight (`stage 20 by=Trigger`), save mid-fight, select **`Quit to Desktop`**, relaunch Starfield, reload that save (`reload mission stage=20 relocate_fails=0`), and clear the raiders (`stage 30 by=Trigger`).
+3. **Preston `DialogueMenu` turn-in (`~45 s`):** Press `E` on Preston (`0x000802`) and complete all 3 exchanges (`0x000900`, Choice 3 `0x092A` -> `stage 35 by=info` -> `preston talk end info=0x092A -> stage 40` -> `stage 40 by=info` -> `stage 200 by=Trigger`).
 4. **Sanctuary Workbench (`0250FE` / `0x005C50`, `~90 s`):** Follow `FO4SF_Sanctuary01` (`0x000817`) back to the Sanctuary carport (`(-2329.25, -1420.19, 112.09)` m) and press `E` on workbench `0x005C50` (`sanctuary01 stage 100 by=bench`, `min01 bench activated -> stage 100`).
 
 ### Undo Command (Game Closed)
@@ -51,14 +51,14 @@ FO4SF_MISSION rt=<rt> min00 given by=codsworth
 FO4SF_MISSION rt=<rt> codsworth talk end -> min00 stage 10
 FO4SF_MISSION rt=<rt> codsworth01 complete choices=<n> concord_pointed=true
 FO4SF_MISSION rt=<rt> stage 10 by=info
-FO4SF_MISSION rt=<rt> stage 20 by=trigger
+FO4SF_MISSION rt=<rt> stage 20 by=Trigger
 FO4SF_MISSION rt=<rt> reload mission stage=20 relocate_fails=0
-FO4SF_MISSION rt=<rt> stage 30 by=trigger
+FO4SF_MISSION rt=<rt> stage 30 by=Trigger
 FO4SF_MISSION rt=<rt> stage 35 by=info
 FO4SF_MISSION rt=<rt> preston talk end info=0x092A -> stage 40
 FO4SF_MISSION rt=<rt> stage 40 by=info
 FO4SF_MISSION rt=<rt> reward credits=100
-FO4SF_MISSION rt=<rt> stage 200 by=trigger
+FO4SF_MISSION rt=<rt> stage 200 by=Trigger
 FO4SF_MISSION rt=<rt> min01 objective 10 bench
 FO4SF_MISSION rt=<rt> sanctuary01 init stage=10 bench_ref=0x005C50
 FO4SF_MISSION rt=<rt> sanctuary01 bench_bound ref=<ref> loaded=True

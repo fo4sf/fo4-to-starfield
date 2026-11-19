@@ -27,6 +27,17 @@ START_MODE_GLOB_EDIDS: Tuple[str, ...] = (
     "FO4SF_StartNeutralSpot",
 )
 
+H00_SUSPECT_GLOB_EDIDS: Tuple[str, ...] = (
+    "FO4SF_H00_SkipLoadingHook",
+    "FO4SF_H00_ClearChargenBeforeSurface",
+    "FO4SF_H00_SkipArrivalDiscovery",
+    "FO4SF_H00_SkipMapSetup",
+    "FO4SF_H00_SkipRouteLoot",
+    "FO4SF_H00_SkipMissionActors",
+    "FO4SF_H00_SkipLandingQuests",
+    "FO4SF_H00_SkipSurfaceSetPos",
+)
+
 
 @dataclass(frozen=True)
 class CoreValueRecord:

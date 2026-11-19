@@ -54,6 +54,12 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "    def __add__(self, other): return _PStr(super().__add__(str(other)))",
         "    def __radd__(self, other): return _PStr(str(other) + str(self))",
         "if 'Trace' not in globals(): Trace = lambda *_: None",
+        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False)):",
+        "    if _k not in globals(): globals()[_k] = _v",
+        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook'):",
+        "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
+        "if 'ReadH00Glob' not in globals(): globals()['ReadH00Glob'] = lambda g, _fid: bool(g is not None and g.GetValue() >= 0.5)",
+        "if 'BoolBit' not in globals(): globals()['BoolBit'] = lambda f: 1 if f else 0",
     ]
     for name in names:
         esc = re.escape(name)
@@ -682,6 +688,136 @@ class ArrivalReceiptTests(unittest.TestCase):
                            "FO4SF_NEWGAME rt=5 stage 200\n", encoding="utf-8")
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(ng.main(["log", "--file", str(log)]), 1)
+
+
+class H00SurfaceSuspectIsolationTests(unittest.TestCase):
+    """H00: 8 store globals isolate surface-arrival suspects in one session without rebuilding; LoadingMenu unregisters once mode is chosen."""
+
+    def test_eight_suspects_log_once_per_ride_and_isolate_loading_actors_loot_discovery_and_setposition(self):
+        from fo4sf.core.core_values import H00_SUSPECT_GLOB_EDIDS, core_form_id
+
+        self.assertEqual(len(H00_SUSPECT_GLOB_EDIDS), 8)
+        self.assertEqual([core_form_id(e) for e in H00_SUSPECT_GLOB_EDIDS], list(range(0x000890, 0x000898)))
+
+        psc = read(PSC)
+        ev_menu = re.search(r"Event OnMenuOpenCloseEvent\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = psc + f"\nFunction MenuEvent({ev_menu[1]})\n{ev_menu[2]}EndFunction\n"
+
+        traces, menu_regs, menu_unregs, fades, disabled_forms = [], [], [], [], []
+        glob_vals = {fid: 0.0 for fid in range(0x000890, 0x000898)}
+        world = object()
+        player = Reference(world, (-1275.3, 1305.3, 119.4))
+        anchor = Reference(world, (-1275.3, 1305.3, 119.4), form_id=0x030A775B)
+
+        class _DisableableRef:
+            def __init__(self, key):
+                self.key = key
+            def DisableNoWait(self, fade=False):
+                disabled_forms.append(self.key)
+
+        def get_form(fid, plg):
+            if plg == "FO4SFCoreValues.esm" and fid in glob_vals:
+                return SimpleNamespace(GetValue=lambda f=fid: glob_vals[f])
+            if (fid, plg) == (0x0A775B, "FO4TerrainCore.esm"):
+                return anchor
+            if plg == "FO4SFMission.esm" or (plg == "FO4TerrainCore.esm" and fid in (0x016780, 0x016781)):
+                return _DisableableRef((plg, fid))
+            return None
+
+        stages = []
+        ns = dict(
+            _PStr=_PStr,
+            Trace=traces.append,
+            faded=False, modeChoiceRan=False, warfareWaitingCreator=False,
+            loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False,
+            h00SuspectsRead=False, h00SkipLoading=False, h00ClearChargen=False,
+            h00SkipDiscovery=False, h00SkipMap=False, h00SkipLoot=False,
+            h00SkipActors=False, h00SkipQuests=False, h00SkipSetPos=False,
+            H00SkipLoadingHookGlobal=None, H00ClearChargenGlobal=None,
+            H00SkipArrivalDiscoveryGlobal=None, H00SkipMapSetupGlobal=None,
+            H00SkipRouteLootGlobal=None, H00SkipMissionActorsGlobal=None,
+            H00SkipLandingQuestsGlobal=None, H00SkipSurfaceSetPosGlobal=None,
+            RouteLootRefIds=[0x016780, 0x016781],
+            ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x0A775B, CorePlugin="FO4TerrainCore.esm",
+            LiftId=0x1618, ArrivalX=-1267.8, ArrivalY=1293.1, ArrivalZ=128.1, ArrivalHeading=0.0,
+            MergeOffsetX=-1200.0, MergeOffsetY=-2700.0, FallbackX=-10.0, FallbackY=-20.0, FallbackZ=95.0,
+            FallDrop=3.0, SurfaceWait=10.0, SurfaceTries=3,
+            surfaceMoves=0, surfaceSets=0, surfaceMovedAt=0.0, arrivedAt=0.0,
+            arrivalWorld=None, fallbackPending=False, discoveryMarkerMoved=False,
+            discoveryAttachPending=False, landingChecks=0, rideMarkerPrepared=False, mapSetupDone=False,
+            CoreMarkerIds=[0x0A775B], MapMarkerQuestIds=[],
+            Game=SimpleNamespace(
+                GetFormFromFile=get_form,
+                FadeOutGame=lambda *a: fades.append(a),
+                SetInChargen=lambda *a: None,
+                SetCharGenHUDMode=lambda *a: None,
+                IsFastTravelEnabled=lambda: True,
+            ),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: 20.0),
+            RegisterForMenuOpenCloseEvent=menu_regs.append,
+            UnregisterForMenuOpenCloseEvent=menu_unregs.append,
+            GetStage=lambda: stages[-1] if stages else 0,
+            FailExit=lambda r: AssertionError(r),
+            AdvanceTo=stages.append,
+        )
+        funcs = (
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob", "BoolBit",
+            "ReadH00SuspectsOnce", "ApplyH00PreSurfaceOverrides", "MenuEvent",
+            "Surface", "FinishSurface", "PrepareArrivalMarkerDuringRide",
+            "PreAttachArrivalMarker", "RequestArrivalDiscovery", "RunSharedMapSetup",
+        )
+        vars_csv = (
+            "faded, modeChoiceRan, warfareWaitingCreator, loadingMenuOpen, loadingMenuClosedSeen, "
+            "loadingHookRegistered, h00SuspectsRead, h00SkipLoading, h00ClearChargen, h00SkipDiscovery, "
+            "h00SkipMap, h00SkipLoot, h00SkipActors, h00SkipQuests, h00SkipSetPos, "
+            "surfaceMoves, surfaceSets, surfaceMovedAt, arrivedAt, arrivalWorld, fallbackPending, "
+            "discoveryMarkerMoved, discoveryAttachPending, landingChecks, rideMarkerPrepared, mapSetupDone"
+        )
+        exec(compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec"), ns)
+
+        # 1. Start-choice LoadingMenu hook registers at stage 0, then unregisters & ignores arrival LoadingMenu once modeChoiceRan/faded!
+        ns["RegisterStartLoadingHook"]()
+        self.assertEqual(menu_regs, ["LoadingMenu"])
+        ns["modeChoiceRan"] = True
+        ns["faded"] = True
+        ns["MenuEvent"]("LoadingMenu", False)
+        self.assertEqual(menu_unregs, ["LoadingMenu"])
+        self.assertNotIn("mode loading menu closed", traces)
+
+        # 2. Default (all 0.0) logs all 8 H00 globals ONCE and does not re-log on second call in the same ride
+        ns["ReadH00SuspectsOnce"]()
+        ns["ReadH00SuspectsOnce"]()
+        h00_lines = [t for t in traces if t.startswith("h00 suspect ")]
+        self.assertEqual(len(h00_lines), 8)
+        self.assertTrue(all(t.endswith("=0") for t in h00_lines), h00_lines)
+
+        # 3. Quicksave reload reset (h00SuspectsRead = False) + setting suspects by console isolates actors, loot, discovery, map, chargen & setpos
+        traces.clear()
+        ns["h00SuspectsRead"] = False
+        for fid in (0x000891, 0x000892, 0x000893, 0x000894, 0x000895, 0x000897):
+            glob_vals[fid] = 1.0
+        ns["Surface"](player)
+        h00_lines2 = [t for t in traces if t.startswith("h00 suspect ")]
+        self.assertEqual(len(h00_lines2), 8)
+        self.assertIn("h00 suspect FO4SF_H00_SkipMissionActors=1", h00_lines2)
+        self.assertIn("h00 suspect FO4SF_H00_SkipRouteLoot=1", h00_lines2)
+        self.assertIn("h00 cleared chargen and fade before surface", traces)
+        # Codsworth (0x811) + Preston (0x802) + 8 Concord raiders (0x803..0x80A) + 2 RouteLoot refs disabled before MoveTo
+        self.assertIn(("FO4SFMission.esm", 0x000811), disabled_forms)
+        self.assertIn(("FO4SFMission.esm", 0x000802), disabled_forms)
+        self.assertEqual(len([d for d in disabled_forms if d[0] == "FO4SFMission.esm"]), 10)
+        self.assertEqual([d for d in disabled_forms if d[0] == "FO4TerrainCore.esm"], [("FO4TerrainCore.esm", 0x016780), ("FO4TerrainCore.esm", 0x016781)])
+        self.assertEqual(ns["RunSharedMapSetup"](), 0)
+        ns["PrepareArrivalMarkerDuringRide"]()
+        self.assertEqual(anchor.enables, [])
+
+        # FinishSurface logs surface pre_setposition and skips SetPosition when FO4SF_H00_SkipSurfaceSetPos=1
+        player.moves.clear()
+        ns["FinishSurface"](player)
+        self.assertEqual(player.moves, [])
+        self.assertTrue(any(t.startswith("surface pre_setposition ") for t in traces), traces)
+        self.assertTrue(any(t.startswith("h00 skipped surface setposition ") for t in traces), traces)
+        self.assertEqual(stages, [40])
 
 
 if __name__ == "__main__":

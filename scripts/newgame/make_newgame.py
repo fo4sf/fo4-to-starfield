@@ -265,7 +265,7 @@ NATIVES = {
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
                          "RegisterForRemoteEvent", "UnregisterForRemoteEvent", "AddInventoryEventFilter",
-                         "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
+                         "RegisterForMenuOpenCloseEvent", "UnregisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["GetCurrentRealTime", "Wait"],
     },
     LOOKS: {
@@ -952,7 +952,8 @@ def summarize(lines):
          "mode_load_default": None, "warfare_pick": None, "warfare_gear": None,
          "map_setup": None, "pistol_picked": None, "exit_retries": [], "exit_fallback": None,
          "arrival_discovery_failed": None, "special_default": None,
-         "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False}
+         "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False,
+         "h00_suspects": {}, "surface_pre_setposition": None}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any(
@@ -1005,6 +1006,13 @@ def summarize(lines):
                 s["pod_settle"] = msg[len("pod settle "):]
         elif msg.startswith("looks position "):
             s["looks_positions"].append(msg[len("looks position "):])
+        elif msg.startswith("surface pre_setposition "):
+            s["surface_pre_setposition"] = msg
+        elif msg.startswith("h00 suspect "):
+            kv = msg[len("h00 suspect "):].strip()
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                s["h00_suspects"][k.strip()] = int(v.strip().split()[0])
         elif msg.startswith("surface setposition "):
             s["surfaced"] = msg
         elif msg.startswith("landed "):

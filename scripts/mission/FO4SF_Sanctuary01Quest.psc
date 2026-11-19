@@ -30,7 +30,7 @@ float benchNearSec = 0.0
 float BenchFallbackRadius = 3.0
 float BenchFallbackLimit = 120.0
 
-Function AdvanceTo(int n, string by = "trigger")
+Function AdvanceTo(int n, string by = "Trigger")
     pendingStage = n
     pendingStageBy = by
     SetStage(n)
@@ -84,7 +84,7 @@ Function StartQuestInstance()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
-    AdvanceTo(10, "trigger")
+    AdvanceTo(10, "Trigger")
     EnsureGuideMarker(player)
     TryBindBench(player)
     SetObjectiveDisplayed(10, True, True)

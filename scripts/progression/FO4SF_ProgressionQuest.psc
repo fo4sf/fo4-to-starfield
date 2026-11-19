@@ -527,7 +527,7 @@ bool Function OfferStandardSpread(string sourceTag, bool allowDecline = true)
         LogNewGameLine("special default declined source=" + sourceTag)
         return false
     endif
-    if sourceTag == "lift"
+    if sourceTag == "Lift" || sourceTag == "lift"
         liftSpecialFailures = 0
     endif
     return ApplyStandardSpread(player, sourceTag)
@@ -539,22 +539,26 @@ bool Function OpenSpecialAllocationOnly(string sourceTag)
     if player == None
         return false
     endif
+    string normSource = sourceTag
+    if normSource == "lift"
+        normSource = "Lift"
+    endif
     int[] stats = new int[7]
     if !RunSpecialMenu(player, specialAllocatedOnce, stats)
-        LogLine("special_cancelled", "source=" + sourceTag)
-        LogNewGameLine("special cancelled source=" + sourceTag)
-        if sourceTag == "lift"
+        LogLine("special_cancelled", "source=" + normSource)
+        LogNewGameLine("special cancelled source=" + normSource)
+        if normSource == "Lift"
             liftSpecialFailures += 1
             if liftSpecialFailures >= 3
-                return OfferStandardSpread("lift", true)
+                return OfferStandardSpread("Lift", true)
             endif
         endif
         return false
     endif
-    if sourceTag == "lift"
+    if normSource == "Lift"
         liftSpecialFailures = 0
     endif
-    return CommitSpecialAllocation(player, stats, sourceTag, false)
+    return CommitSpecialAllocation(player, stats, normSource, false)
 EndFunction
 
 bool Function OpenAttributeAllocation(string sourceTag)

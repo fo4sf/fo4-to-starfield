@@ -91,7 +91,10 @@ Quest[] Property HoldOff Auto Const Mandatory
  started MQ101. Each is stopped only if it runs; each stop is logged with its pass.}
 
 Message Property ExitMessage Auto Const Mandatory
-{The elevator prompt (FO4SFNewGame.esm 0x801): 0 Continue, 1 S.P.E.C.I.A.L., 2 Character, 3 Stay.}
+{The elevator prompt (FO4SFNewGame.esm 0x801): 0 Continue, 1 S.P.E.C.I.A.L., 2 Stay.}
+
+Message Property ExitNeedAttrMsg Auto Const
+{H00(b) modal notice (FO4SFNewGame.esm 0x81F): shown when Continue is picked before S.P.E.C.I.A.L. is confirmed.}
 
 Message Property ExitFallbackMessage Auto Const Mandatory
 {The lift fallback prompt (FO4SFNewGame.esm 0x81A): 0 Go up to the Commonwealth, 1 Retry lift.}
@@ -251,6 +254,14 @@ GlobalVariable Property StartNeutralSpotGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_StartNeutralSpot (0x877): 0 default, >= 0.5 holds the player at the neutral vault anchor during mode choice.}
 GlobalVariable Property PipboyAcquiredGlobal Auto Const Mandatory
 {FO4SFCoreValues.esm FO4SF_PipboyAcquired (0x865), set to 1 once the Pip-Boy 3000 is picked up beside the Vault 111 console.}
+GlobalVariable Property H00SkipLoadingHookGlobal Auto Const
+GlobalVariable Property H00ClearChargenGlobal Auto Const
+GlobalVariable Property H00SkipArrivalDiscoveryGlobal Auto Const
+GlobalVariable Property H00SkipMapSetupGlobal Auto Const
+GlobalVariable Property H00SkipRouteLootGlobal Auto Const
+GlobalVariable Property H00SkipMissionActorsGlobal Auto Const
+GlobalVariable Property H00SkipLandingQuestsGlobal Auto Const
+GlobalVariable Property H00SkipSurfaceSetPosGlobal Auto Const
 Armor Property PipboyWristArmor Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyWrist (0x80D), playable left-wrist Pip-Boy 3000 equipped on pickup.}
 ObjectReference Property PipboyCorpseRef Auto Const Mandatory
@@ -267,6 +278,8 @@ int Property RaceMenuMode = 2 Auto Const
 {Looks-only creator mode (2 = body and face) shared with FO4SF_NewGameLooks.}
 int[] Property CoreMarkerIds Auto Const
 {Persistent map marker FormIDs in FO4TerrainCore.esm prepared during shared map setup.}
+int[] Property RouteLootRefIds Auto Const
+{Exterior corridor container REFR FormIDs in FO4TerrainCore.esm overridden by FO4SFRouteLoot.esm, nearest to exit anchor first.}
 int[] Property MapMarkerQuestIds Auto Const
 {Optional FO4SFMapMarkers.esm quest FormIDs resolved during shared map setup.}
 string[] Property WarfareKeys Auto Const
@@ -308,6 +321,16 @@ bool fadeHeld = false
 bool fadeReheldAfterLoad = false
 bool loadingMenuOpen = false
 bool loadingMenuClosedSeen = false
+bool loadingHookRegistered = false
+bool h00SuspectsRead = false
+bool h00SkipLoading = false
+bool h00ClearChargen = false
+bool h00SkipDiscovery = false
+bool h00SkipMap = false
+bool h00SkipLoot = false
+bool h00SkipActors = false
+bool h00SkipQuests = false
+bool h00SkipSetPos = false
 bool modeChoiceRan = false
 bool modeBoxWaiting = false
 int modeBoxWaitSeconds = 0
@@ -345,8 +368,6 @@ bool pipboyPickedUp = false
 bool itemWatchRegistered = false
 bool pistolPickedLogged = false
 bool liftSpecConfirmed = false
-bool liftCharRespecUsed = false
-bool liftWaitingCreator = false
 bool warfareWaitingCreator = false
 bool mapSetupDone = false
 bool rideMarkerPrepared = false
@@ -421,7 +442,7 @@ Function Begin(string route)
     endif
     EnsureLoadHookRegistered(player)
     if FadeHold
-        RegisterForMenuOpenCloseEvent("LoadingMenu")
+        RegisterStartLoadingHook()
     endif
     StartTimer(1.0, 1)
     player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load
@@ -482,6 +503,7 @@ Function FadeIn(string by)
         return
     endif
     faded = true
+    UnregisterStartLoadingHook()
     Actor player = Game.GetPlayer()
     if vaultMoves > 0 && StandsInVault(player)
         player.SetAngle(0.0, 0.0, PodHeading)
@@ -531,7 +553,7 @@ Function ApplyStage(int n, string by)
     endif
 EndFunction
 
-Function AdvanceTo(int n, string by = "trigger")
+Function AdvanceTo(int n, string by = "Trigger")
 {SetStage, then the stage's actions with explicit B6 cause (OnStageSet never fired on the mission's quest, 18 Oct, so nothing relies on it).}
     string cause = by
     if n == 40 && exitUsedFallback
@@ -637,7 +659,7 @@ Event OnTimer(int aiTimerID)
                 AdvanceTo(20, "fallback")
             else
                 Trace("looks done: no-looks immediate start")
-                AdvanceTo(20, "trigger")
+                AdvanceTo(20, "Trigger")
             endif
         endif
     elseif stage == 20 || stage == 30
@@ -877,12 +899,17 @@ Function InVault(Actor player, int stage)
     Trace("elevator prompt button=" + button)
     if button == 0
         if !liftSpecConfirmed && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
-            Debug.Notification("Confirm S.P.E.C.I.A.L. before leaving Vault 111.")
             Trace("elevator continue refused: special unconfirmed")
+            if ExitNeedAttrMsg != None
+                ExitNeedAttrMsg.Show()
+            else
+                Debug.Notification("Confirm S.P.E.C.I.A.L. before leaving Vault 111.")
+            endif
             asked = false
             StartTimer(0.1, 1)
             return
         endif
+        ReadH00SuspectsOnce()
         if LiftId > 0
             if exitFailures >= 3
                 int fbBtn = 0
@@ -907,8 +934,6 @@ Function InVault(Actor player, int stage)
         endif
     elseif button == 1
         OpenLiftAttributeAllocation()
-    elseif button == 2
-        OpenLiftCharacterRespec()
     else
         Trace("elevator stay")
     endif
@@ -919,6 +944,7 @@ Function StartAscent(Actor player)
     if rideActive || rideTransferred
         return
     endif
+    ReadH00SuspectsOnce()
     ObjectReference lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
     Form base = Game.GetFormFromFile(LiftBaseId, VaultPlugin)
     Cell vault = player.GetParentCell()
@@ -1015,6 +1041,7 @@ EndFunction
 Function Surface(Actor player)
 {The ride up, first half: MoveTo the core anchor, which puts the player at its LOCAL position. FinishSurface places
  them on the merged arrival on a later tick.}
+    ReadH00SuspectsOnce()
     ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
     if anchor == None
         Trace("exit anchor " + CorePlugin + ":" + ExitAnchorId + " does not resolve")
@@ -1023,6 +1050,7 @@ Function Surface(Actor player)
         endif
         return
     endif
+    ApplyH00PreSurfaceOverrides()
     surfaceSets = 0
     arrivalWorld = None
     fallbackPending = false
@@ -1069,9 +1097,12 @@ Function FinishSurface(Actor player)
     endif
     float x = ArrivalX + MergeOffsetX
     float y = ArrivalY + MergeOffsetY
-    player.SetPosition(x, y, ArrivalZ)
-    player.SetAngle(0.0, 0.0, ArrivalHeading)
-    surfaceSets += 1
+    Trace("surface pre_setposition target=" + x + " " + y + " " + ArrivalZ + " cell=" + player.GetParentCell() + " world=" + w)
+    if !h00SkipSetPos
+        player.SetPosition(x, y, ArrivalZ)
+        player.SetAngle(0.0, 0.0, ArrivalHeading)
+        surfaceSets += 1
+    endif
     WorldSpace afterWorld = player.GetWorldSpace()
     Cell afterCell = player.GetParentCell()
     ; Check core cell ownership AFTER SetPosition shifts from the unmerged persistent anchor into the merged core grid.
@@ -1085,7 +1116,12 @@ Function FinishSurface(Actor player)
     float dy = player.GetPositionY() - y
     float dz = player.GetPositionZ() - ArrivalZ
     bool ok = dx * dx + dy * dy <= 25.0 && dz > -FallDrop && dz < 3.0 && !player.IsInInterior() && afterWorld != None && coreCell
-    Trace("surface setposition ok=" + ok + " set=" + surfaceSets + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + x + " " + y + " " + ArrivalZ + " core_cell=" + coreCell + " cell=" + afterCell + " world=" + afterWorld)
+    if h00SkipSetPos
+        Trace("h00 skipped surface setposition pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + afterCell + " world=" + afterWorld)
+        ok = afterWorld != None && !player.IsInInterior()
+    else
+        Trace("surface setposition ok=" + ok + " set=" + surfaceSets + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + x + " " + y + " " + ArrivalZ + " core_cell=" + coreCell + " cell=" + afterCell + " world=" + afterWorld)
+    endif
     if ok
         arrivalWorld = afterWorld
         surfaceMovedAt = 0.0
@@ -1131,6 +1167,10 @@ EndFunction
 
 bool Function RequestArrivalDiscovery(Actor player)
     discoveryAttachPending = false
+    if h00SkipDiscovery
+        Trace("h00 skipped arrival discovery")
+        return true
+    endif
     if ArrivalDiscoveryId == 0
         Trace("arrival discovery disabled: custom exit anchor")
         return true
@@ -1255,6 +1295,10 @@ EndFunction
 
 Function StartLandingQuests()
 {Stage 200 / 210 handoff: logs mission gate and starts Story quests via StartNoWait (or wakes them once in Warfare so they log mode=2 started=false and Stop).}
+    if h00SkipQuests
+        Trace("h00 skipped landing quests")
+        return
+    endif
     int gm = 1
     if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) > 0
         gm = GameModeGlobal.GetValue() as int
@@ -1300,6 +1344,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         Trace("mode load default=story stage=" + GetStage())
     endif
     if st >= 10 && st < 40
+        h00SuspectsRead = false
         bool wasMidExit = rideActive || rideTransferred || surfaceMovedAt > 0.0
         if ridingLift != None
             UnregisterForAnimationEvent(ridingLift, "Done")
@@ -1331,12 +1376,118 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     endif
 EndEvent
 
+Function RegisterStartLoadingHook()
+    if loadingHookRegistered || faded || modeChoiceRan
+        return
+    endif
+    if ReadH00Glob(H00SkipLoadingHookGlobal, 0x000890)
+        return
+    endif
+    loadingHookRegistered = true
+    RegisterForMenuOpenCloseEvent("LoadingMenu")
+EndFunction
+
+Function UnregisterStartLoadingHook()
+    if loadingHookRegistered
+        loadingHookRegistered = false
+        UnregisterForMenuOpenCloseEvent("LoadingMenu")
+    endif
+EndFunction
+
+bool Function ReadH00Glob(GlobalVariable propGlob, int fallbackCoreId)
+    GlobalVariable g = propGlob
+    if g == None
+        g = Game.GetFormFromFile(fallbackCoreId, "FO4SFCoreValues.esm") as GlobalVariable
+    endif
+    return g != None && g.GetValue() >= 0.5
+EndFunction
+
+int Function BoolBit(bool flag)
+    if flag
+        return 1
+    endif
+    return 0
+EndFunction
+
+Function ReadH00SuspectsOnce()
+    if h00SuspectsRead
+        return
+    endif
+    h00SuspectsRead = true
+    h00SkipLoading = ReadH00Glob(H00SkipLoadingHookGlobal, 0x000890)
+    h00ClearChargen = ReadH00Glob(H00ClearChargenGlobal, 0x000891)
+    h00SkipDiscovery = ReadH00Glob(H00SkipArrivalDiscoveryGlobal, 0x000892)
+    h00SkipMap = ReadH00Glob(H00SkipMapSetupGlobal, 0x000893)
+    h00SkipLoot = ReadH00Glob(H00SkipRouteLootGlobal, 0x000894)
+    h00SkipActors = ReadH00Glob(H00SkipMissionActorsGlobal, 0x000895)
+    h00SkipQuests = ReadH00Glob(H00SkipLandingQuestsGlobal, 0x000896)
+    h00SkipSetPos = ReadH00Glob(H00SkipSurfaceSetPosGlobal, 0x000897)
+    Trace("h00 suspect FO4SF_H00_SkipLoadingHook=" + BoolBit(h00SkipLoading))
+    Trace("h00 suspect FO4SF_H00_ClearChargenBeforeSurface=" + BoolBit(h00ClearChargen))
+    Trace("h00 suspect FO4SF_H00_SkipArrivalDiscovery=" + BoolBit(h00SkipDiscovery))
+    Trace("h00 suspect FO4SF_H00_SkipMapSetup=" + BoolBit(h00SkipMap))
+    Trace("h00 suspect FO4SF_H00_SkipRouteLoot=" + BoolBit(h00SkipLoot))
+    Trace("h00 suspect FO4SF_H00_SkipMissionActors=" + BoolBit(h00SkipActors))
+    Trace("h00 suspect FO4SF_H00_SkipLandingQuests=" + BoolBit(h00SkipQuests))
+    Trace("h00 suspect FO4SF_H00_SkipSurfaceSetPos=" + BoolBit(h00SkipSetPos))
+EndFunction
+
+Function ApplyH00PreSurfaceOverrides()
+    if h00SkipLoading
+        UnregisterStartLoadingHook()
+    endif
+    if h00ClearChargen
+        UnregisterStartLoadingHook()
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+        Game.SetInChargen(false, false, false)
+        Game.SetCharGenHUDMode(0)
+        Trace("h00 cleared chargen and fade before surface")
+    endif
+    if h00SkipActors
+        int disabledActors = 0
+        ObjectReference cods = Game.GetFormFromFile(0x000811, "FO4SFMission.esm") as ObjectReference
+        if cods != None
+            cods.DisableNoWait(False)
+            disabledActors += 1
+        endif
+        ObjectReference preston = Game.GetFormFromFile(0x000802, "FO4SFMission.esm") as ObjectReference
+        if preston != None
+            preston.DisableNoWait(False)
+            disabledActors += 1
+        endif
+        int rOff = 0
+        while rOff < 8
+            int raiderId = 0x000803 + rOff
+            ObjectReference raider = Game.GetFormFromFile(raiderId, "FO4SFMission.esm") as ObjectReference
+            if raider != None
+                raider.DisableNoWait(False)
+                disabledActors += 1
+            endif
+            rOff += 1
+        endwhile
+        Trace("h00 disabled mission exterior actors count=" + disabledActors)
+    endif
+    if h00SkipLoot
+        int disabledLoot = 0
+        int li = 0
+        while RouteLootRefIds != None && li < RouteLootRefIds.Length
+            ObjectReference rlRef = Game.GetFormFromFile(RouteLootRefIds[li], CorePlugin) as ObjectReference
+            if rlRef != None
+                rlRef.DisableNoWait(False)
+                disabledLoot += 1
+            endif
+            li += 1
+        endwhile
+        Trace("h00 disabled route loot refs count=" + disabledLoot)
+    endif
+EndFunction
+
 Function HoldFadeForModeChoice()
     if fadeHeld || faded
         return
     endif
     fadeHeld = true
-    RegisterForMenuOpenCloseEvent("LoadingMenu")
+    RegisterStartLoadingHook()
     Game.FadeOutGame(True, True, 0.0, 0.1, True)
     Game.SetInChargen(true, true, false)
     Trace("mode fade held request=1")
@@ -1428,6 +1579,7 @@ int Function RunModeChoiceChain(Actor player)
         if StartChoiceDoneGlobal != None
             StartChoiceDoneGlobal.SetValue(1.0)
         endif
+        UnregisterStartLoadingHook()
         if usedNeutralSpot
             EnterVault(player)
         endif
@@ -1436,6 +1588,7 @@ int Function RunModeChoiceChain(Actor player)
         FadeIn("mode_story")
         return 1
     endif
+    UnregisterStartLoadingHook()
     int diff = 1
     if WarfareDiffMsg != None
         diff = WarfareDiffMsg.Show()
@@ -1648,6 +1801,10 @@ EndFunction
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     if asMenuName == "LoadingMenu"
+        if faded || modeChoiceRan || GetStage() >= 5 || h00SkipLoading
+            UnregisterStartLoadingHook()
+            return
+        endif
         if abOpening
             loadingMenuOpen = true
         else
@@ -1662,17 +1819,15 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             warfareWaitingCreator = false
             Trace("warfare creator closed")
         endif
-        if liftWaitingCreator
-            liftWaitingCreator = false
-            asked = false
-            Trace("elevator character creator closed")
-            StartTimer(0.1, 1)
-        endif
     endif
 EndEvent
 
 int Function RunSharedMapSetup()
 {X4 / S5 single shared map setup function: prepares all markers as known & undiscovered, logging count and elapsed time.}
+    if h00SkipMap
+        Trace("h00 skipped shared map setup")
+        return 0
+    endif
     if mapSetupDone
         return CoreMarkerIds.Length
     endif
@@ -1854,7 +2009,7 @@ EndFunction
 Function OpenLiftAttributeAllocation()
     FO4SF_ProgressionQuest prog = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest
     if prog != None
-        bool edited = prog.OpenAttributeAllocation("lift")
+        bool edited = prog.OpenAttributeAllocation("Lift")
         if edited
             liftSpecConfirmed = true
         endif
@@ -1867,24 +2022,9 @@ Function OpenLiftAttributeAllocation()
     StartTimer(0.1, 1)
 EndFunction
 
-Function OpenLiftCharacterRespec()
-    if liftCharRespecUsed
-        Debug.Notification("Character appearance can only be changed once on the lift.")
-        Trace("elevator character respec refused: limit_1")
-        asked = false
-        StartTimer(0.1, 1)
-        return
-    endif
-    liftCharRespecUsed = true
-    RegisterForMenuOpenCloseEvent("ChargenMenu")
-    liftWaitingCreator = true
-    Trace("elevator character respec used=1 mode=" + RaceMenuMode)
-    Game.ShowRaceMenu(None, RaceMenuMode)
-EndFunction
-
 Function PrepareArrivalMarkerDuringRide()
 {Pre-resolves and enables the Vault 111 map marker during the lift ascent so arrival needs no extra setup tick.}
-    if rideMarkerPrepared || ArrivalDiscoveryId == 0
+    if h00SkipDiscovery || rideMarkerPrepared || ArrivalDiscoveryId == 0
         return
     endif
     rideMarkerPrepared = true
@@ -1896,7 +2036,7 @@ Function PrepareArrivalMarkerDuringRide()
 EndFunction
 
 Function PreAttachArrivalMarker(Actor player)
-    if discoveryMarkerMoved || ArrivalDiscoveryId == 0 || arrivalWorld == None
+    if h00SkipDiscovery || discoveryMarkerMoved || ArrivalDiscoveryId == 0 || arrivalWorld == None
         return
     endif
     ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
@@ -1986,9 +2126,6 @@ Function CheckReturnLift(Actor player)
             endif
         elseif ubtn == 1
             OpenLiftAttributeAllocation()
-            returnVaultAsked = false
-        elseif ubtn == 2
-            OpenLiftCharacterRespec()
             returnVaultAsked = false
         endif
         return

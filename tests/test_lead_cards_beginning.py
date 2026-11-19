@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from fo4sf.beginning_pilot import SESSION2_SHEET_PASS_SPECS  # noqa: E402
 from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 
 # R11 / G1: read ONLY the four card & run-order files owned by gemini/beginning-real (#833)
@@ -606,6 +607,12 @@ def validate_lead_run_order_markdown(
             lines = [ln.strip() for ln in block_body.splitlines() if ln.strip() and not ln.strip().startswith("#")]
             if lang_low == "log":
                 has_pass = True
+                if snum == 2:
+                    want_s2 = [spec_line for _card, spec_line in SESSION2_SHEET_PASS_SPECS]
+                    if lines != want_s2:
+                        errors.append(
+                            f"{card_rel} [{stitle}]: Session 2 PASS block diverges from SESSION2_SHEET_PASS_SPECS table"
+                        )
                 for pline in lines:
                     sample = _sample_from_card_line(pline)
                     fixed_toks = _extract_fixed_tokens(pline)
@@ -700,6 +707,8 @@ class LeadCardsBeginningTests(unittest.TestCase):
             self.assertTrue(card_path.is_file(), f"missing lead card: {rel}")
             txt = card_path.read_text(encoding="utf-8")
             self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", txt), f"local path leaked in {rel}")
+            for stale_token in ("by=trigger", "source=lift\n", "source=lift ", "source=lift`", "source=lift)", "why=reload"):
+                self.assertNotIn(stale_token, txt, f"H00(a) lowercase BSFixedString mismatch {stale_token!r} in {rel}")
             validator = validate_lead_run_order_markdown if rel.endswith("lead-run-order.md") else validate_lead_card_markdown
             errors = validator(
                 rel,
