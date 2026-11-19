@@ -795,6 +795,230 @@ class CoreBundleTests(unittest.TestCase):
         self.assertEqual(rc_f, 0)
         self.assertEqual(captured, [("build", "player"), ("fold", "player")])
 
+    def test_h2_verify_refuses_cross_head_bundle_with_single_clear_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+            out = root / "bundle-h2"
+            rc = mcb.main(
+                [
+                    "fold",
+                    "--owner-set", str(owner),
+                    "--stages-root", str(stages_root),
+                    "--out", str(out),
+                    "--port", str(port_esm),
+                ],
+                system=_FakeSystemClosed(),
+            )
+            self.assertEqual(rc, 0)
+
+            tool_head = mcb.current_git_head(str(REPO))
+            self.assertIsNotNone(tool_head)
+            bplan_p = out / "bundle_plan.json"
+            bplan = json.loads(bplan_p.read_text(encoding="utf-8"))
+            self.assertEqual(bplan["build_head"], tool_head)
+
+            # Simulate a bundle built at a different commit head (#833 8bdafe6f...)
+            other_head = "8bdafe6f3895d7ce6641f7677496a38d571dadac"
+            if tool_head.startswith("8bdafe6f"):
+                other_head = "b03a534da17d830eaf3a47512849aceb56cd2ba6"
+            bplan["build_head"] = other_head
+            bplan_p.write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+
+            r_sub = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO / "scripts" / "core" / "make_core_bundle.py"),
+                    "verify",
+                    "--bundle-dir", str(out),
+                    "--port", str(port_esm),
+                ],
+                cwd=str(REPO),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r_sub.returncode, 1)
+            out_lines = [ln for ln in r_sub.stdout.splitlines() if ln.strip()]
+            self.assertEqual(
+                out_lines,
+                [f"this bundle was built at {other_head[:8]}; this tool is at {tool_head[:8]}"],
+            )
+            self.assertNotIn("FAIL", r_sub.stdout)
+            self.assertNotIn("missing in catalog", r_sub.stdout)
+
+            # Also verify pre-H2 bundles lacking build_head with cross-branch component keys refuse in 1 line
+            bplan.pop("build_head", None)
+            bplan["components"]["__future_branch_component__"] = {"plugins": [], "outputs": {}}
+            bplan_p.write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+            probs_legacy, _ = mcb.verify_bundle(str(out), port_esm=str(port_esm), tool_head=tool_head)
+            self.assertEqual(
+                probs_legacy,
+                [f"this bundle was built at <other-head (__future_branch_component__)>; this tool is at {tool_head[:8]}"],
+            )
+
+    def test_h3_sidecar_install_and_undo_backup_refusals_and_byte_restore(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+
+            pb = stages_root / "pipboy-stage"
+            (pb / "Data" / "Interface").mkdir(parents=True)
+            (pb / "Data" / "Scripts").mkdir(parents=True)
+            (pb / "SFSE" / "Plugins").mkdir(parents=True)
+            p1_sha = _make_tes4_esm(pb / "FO4SFPipboyProbe.esm", extra_tag=b"pbprobe")
+            p2_sha = _make_tes4_esm(pb / "FO4SFPipboyTravel.esm", extra_tag=b"pbtravel")
+            shell_bytes = b"FWS_SYNTHETIC_PIPBOY"
+            boot_bytes = b"FWS_SYNTHETIC_BOOT"
+            pex_bytes = b"PEX_TRAVEL"
+            bundle_pb_dll = b"MZ_BUNDLE_NEW_PIPBOY_DLL"
+            bundle_pb_ini = b"[FO4SFPipboyMenu]\nStage=2\nMovie=FO4SF_Fo4Shell\nBootMovie=pipboybootsequence\n"
+            bundle_markers = b"edid\tx\ty\n"
+            bundle_build_json = b"{\"built\":true}\n"
+            (pb / "Data" / "Interface" / "FO4SF_Fo4Shell.swf").write_bytes(shell_bytes)
+            (pb / "Data" / "Interface" / "pipboybootsequence.swf").write_bytes(boot_bytes)
+            (pb / "Data" / "Scripts" / "FO4SF_PipboyTravel.pex").write_bytes(pex_bytes)
+            (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").write_bytes(bundle_pb_dll)
+            (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini").write_bytes(bundle_pb_ini)
+            (pb / "SFSE" / "Plugins" / "FO4SFPipboyMapMarkers.tsv").write_bytes(bundle_markers)
+            (pb / "SFSE" / "Plugins" / "FO4SFPipboyMenu.build.json").write_bytes(bundle_build_json)
+            (pb / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "kind": "pipboy-stack-stage",
+                        "plugins": ["FO4SFPipboyProbe.esm", "FO4SFPipboyTravel.esm"],
+                        "files": {
+                            "FO4SFPipboyProbe.esm": {"sha256": p1_sha},
+                            "FO4SFPipboyTravel.esm": {"sha256": p2_sha},
+                            "Data/Interface/FO4SF_Fo4Shell.swf": {"sha256": _sha256_bytes(shell_bytes)},
+                            "Data/Interface/pipboybootsequence.swf": {"sha256": _sha256_bytes(boot_bytes)},
+                            "Data/Scripts/FO4SF_PipboyTravel.pex": {"sha256": _sha256_bytes(pex_bytes)},
+                        },
+                    },
+                    indent=1,
+                ),
+                encoding="utf-8",
+            )
+
+            bundle_dir = root / "bundle-h3"
+            self.assertEqual(
+                mcb.main(
+                    [
+                        "fold",
+                        "--owner-set", str(owner),
+                        "--stages-root", str(stages_root),
+                        "--out", str(bundle_dir),
+                        "--port", str(port_esm),
+                        "--with-pipboy",
+                        "--pipboy-stage", str(pb),
+                    ],
+                    system=_FakeSystemClosed(),
+                ),
+                0,
+            )
+
+            # Synthetic game fixture with pre-existing owner Pip-Boy DLL/INI + unrelated Border/AddressLibrary files
+            fake_sf = root / "FakeStarfield"
+            sf_plugins = fake_sf / "Data" / "SFSE" / "Plugins"
+            sf_plugins.mkdir(parents=True)
+            owner_pb_dll = b"MZ_OWNER_ORIGINAL_PIPBOY_DLL_BYTES"
+            owner_pb_ini = b"[FO4SFPipboyMenu]\nOwnerCustomKey=1\n"
+            owner_border_dll = b"MZ_OWNER_BORDER_DLL"
+            owner_addrlib = b"ADDRLIB_1_16_244_0_BIN"
+            (sf_plugins / "FO4SFPipboyMenu.dll").write_bytes(owner_pb_dll)
+            (sf_plugins / "FO4SFPipboyMenu.ini").write_bytes(owner_pb_ini)
+            (sf_plugins / "FO4SFBorder.dll").write_bytes(owner_border_dll)
+            (sf_plugins / "versionlib-1-16-244-0.bin").write_bytes(owner_addrlib)
+
+            # 1. Refuses when Starfield.exe is running or process check fails
+            self.assertEqual(
+                mcb.main(
+                    ["sidecar-install", "--bundle-dir", str(bundle_dir), "--starfield", str(fake_sf)],
+                    system=_FakeSystemOpen(),
+                ),
+                2,
+            )
+            self.assertEqual(
+                mcb.main(
+                    ["sidecar-install", "--bundle-dir", str(bundle_dir), "--starfield", str(fake_sf)],
+                    system=_FakeSystemBroken(),
+                ),
+                2,
+            )
+            self.assertFalse((fake_sf / "Data" / mcb.SIDECAR_RECEIPT_NAME).exists())
+            self.assertEqual((sf_plugins / "FO4SFPipboyMenu.dll").read_bytes(), owner_pb_dll)
+
+            # 2. Installs sidecar, backs up overwritten files outside SFSE/Plugins, skips reputation/
+            self.assertEqual(
+                mcb.main(
+                    ["sidecar-install", "--bundle-dir", str(bundle_dir), "--starfield", str(fake_sf)],
+                    system=_FakeSystemClosed(),
+                ),
+                0,
+            )
+            rec_path = fake_sf / "Data" / mcb.SIDECAR_RECEIPT_NAME
+            bak_dir = fake_sf / "Data" / "SFSE" / mcb.SIDECAR_BACKUP_DIRNAME
+            self.assertTrue(rec_path.is_file())
+            self.assertTrue(bak_dir.is_dir())
+            rec = json.loads(rec_path.read_text(encoding="utf-8"))
+            self.assertTrue(rec["complete"])
+            self.assertEqual(len(rec["overwritten"]), 2)
+            self.assertEqual(len(rec["added"]), 3)  # FO4SFCombat.dll,MapMarkers.tsv,build.json
+            self.assertIn("reputation/FO4SFPipboyKit.ini", rec["not_installed_reference_only"])
+            self.assertFalse((sf_plugins / "FO4SFPipboyKit.ini").exists())
+            self.assertFalse((fake_sf / "Data" / "reputation").exists())
+            self.assertEqual([p.name for p in sf_plugins.glob("*.bak")], [])
+            self.assertEqual((sf_plugins / "FO4SFPipboyMenu.dll").read_bytes(), bundle_pb_dll)
+            self.assertEqual((sf_plugins / "FO4SFCombat.dll").read_bytes(), b"MZ_SYNTHETIC_COMBAT_DLL")
+            self.assertEqual((sf_plugins / "FO4SFBorder.dll").read_bytes(), owner_border_dll)
+            self.assertEqual((sf_plugins / "versionlib-1-16-244-0.bin").read_bytes(), owner_addrlib)
+
+            # 3. Second sidecar-install refuses when receipt already exists
+            self.assertEqual(
+                mcb.main(
+                    ["sidecar-install", "--bundle-dir", str(bundle_dir), "--starfield", str(fake_sf)],
+                    system=_FakeSystemClosed(),
+                ),
+                2,
+            )
+
+            # 4. Simulate mid-session INI edit (Card B / Card C) and verify undo refuses running game
+            (sf_plugins / "FO4SFPipboyMenu.ini").write_bytes(b"[FO4SFPipboyMenu]\nRequirePickup=0\n")
+            self.assertEqual(
+                mcb.main(["sidecar-undo", "--starfield", str(fake_sf)], system=_FakeSystemOpen()),
+                2,
+            )
+            self.assertTrue(rec_path.is_file())
+
+            # 5. Corrupting backup sha256 refuses undo BEFORE mutating target files
+            first_bak = bak_dir / rec["overwritten"][0]["backup_file"]
+            orig_bak_bytes = first_bak.read_bytes()
+            first_bak.write_bytes(b"CORRUPTED_BACKUP")
+            self.assertEqual(
+                mcb.main(["sidecar-undo", "--starfield", str(fake_sf)], system=_FakeSystemClosed()),
+                2,
+            )
+            self.assertEqual((sf_plugins / "FO4SFCombat.dll").read_bytes(), b"MZ_SYNTHETIC_COMBAT_DLL")
+            first_bak.write_bytes(orig_bak_bytes)
+
+            # 6. Clean sidecar-undo restores backed-up owner bytes, removes only added files, keeps neighbors
+            self.assertEqual(
+                mcb.main(["sidecar-undo", "--starfield", str(fake_sf)], system=_FakeSystemClosed()),
+                0,
+            )
+            self.assertFalse(rec_path.exists())
+            self.assertFalse(bak_dir.exists())
+            self.assertEqual((sf_plugins / "FO4SFPipboyMenu.dll").read_bytes(), owner_pb_dll)
+            self.assertEqual((sf_plugins / "FO4SFPipboyMenu.ini").read_bytes(), owner_pb_ini)
+            self.assertFalse((sf_plugins / "FO4SFCombat.dll").exists())
+            self.assertFalse((sf_plugins / "FO4SFPipboyMapMarkers.tsv").exists())
+            self.assertFalse((sf_plugins / "FO4SFPipboyMenu.build.json").exists())
+            self.assertEqual((sf_plugins / "FO4SFBorder.dll").read_bytes(), owner_border_dll)
+            self.assertEqual((sf_plugins / "versionlib-1-16-244-0.bin").read_bytes(), owner_addrlib)
+            self.assertEqual(
+                mcb.main(["sidecar-undo", "--starfield", str(fake_sf)], system=_FakeSystemClosed()),
+                2,
+            )
+
     @unittest.skipUnless(os.environ.get("FO4SF_DOTNET_TESTS") == "1", "FO4SF_DOTNET_TESTS!=1")
     def test_dotnet_core_candidate_selftest(self):
         with tempfile.TemporaryDirectory() as td:

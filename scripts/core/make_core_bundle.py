@@ -26,6 +26,10 @@ usage:
       [--plan <bundle-dir>/bundle_plan.json] [--port <FO4Port.esm>]
       [--max-plugins 245] [--max-ba2-bytes 4294967295]
 
+  python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <bundle-dir> --starfield <Starfield>
+  python scripts/core/make_core_bundle.py sidecar-undo --starfield <Starfield>
+  python scripts/core/make_core_bundle.py sidecar-status --starfield <Starfield>
+
   python scripts/core/make_core_bundle.py log [--log-dir <My Games/Starfield/Logs/Script/User>]
       [--sfse-log-dir <My Games/Starfield/SFSE/Logs>] [--no-pipboy]
       [--step all|exit|hold|rads|hardcore|workshop|powerarmor|dialogue|progression|combat|reputation|companions|pipboy]
@@ -67,8 +71,11 @@ from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin  # noqa: E402
 
 MAX_STARFIELD_PLUGINS = 245
 MAX_BA2_BYTES = (4 * (1024 ** 3)) - 1  # 4,294,967,295 bytes (32-bit unsigned BA2 ceiling)
+SIDECAR_RECEIPT_NAME = "FO4SFSidecar.install.json"
+SIDECAR_BACKUP_DIRNAME = ".fo4sf_sidecar_backup"
 
 INSTALL_LINE_RE = re.compile(r"(exp_install\.py install\b.*?--plugins )(?P<plugins>\S+)(?P<tail>.*)")
+HEX_HEAD_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 DROPPED_SLICE_ESMS = frozenset({
     "fo4sfcorevalues.esm",
@@ -157,6 +164,35 @@ def ensure_game_closed(system=None) -> None:
     if pids:
         joined = ", ".join(str(p) for p in pids)
         raise BundleRefused(f"bundle refused: {GAME_EXE} is running (pid {joined}); close the game first")
+
+
+def current_git_head(repo_dir: str = REPO) -> Optional[str]:
+    """Return the current checkout's 40-char git commit SHA, or None outside a git checkout."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", repo_dir, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    sha = r.stdout.strip().lower()
+    return sha if HEX_HEAD_RE.match(sha) else None
+
+
+def _heads_match(bundle_head: str, tool_head: str) -> bool:
+    bh = bundle_head.strip().lower()
+    th = tool_head.strip().lower()
+    if not bh or not th:
+        return True
+    if bh == th:
+        return True
+    if HEX_HEAD_RE.match(bh) and HEX_HEAD_RE.match(th):
+        return bh.startswith(th) or th.startswith(bh)
+    return False
 
 
 def link_or_copy(src: str, dst: str, hardlink: bool = True) -> None:
@@ -458,6 +494,7 @@ def verify_bundle(
     port_esm: Optional[str] = None,
     max_plugins: int = MAX_STARFIELD_PLUGINS,
     max_ba2_bytes: int = MAX_BA2_BYTES,
+    tool_head: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, object]]:
     """Verify every component hash, TES4 master chain, plugin count, Data root cleanliness, and 4 GiB BA2 ceiling."""
     bdir = os.path.abspath(bundle_dir)
@@ -468,6 +505,24 @@ def verify_bundle(
 
     with open(ppath, encoding="utf-8") as f:
         bplan = json.load(f)
+
+    # H2: Refuse immediately with ONE clear line when bundle build_head differs from this checkout's git head
+    effective_tool_head = current_git_head(REPO) if tool_head is None else tool_head
+    recorded_head = str(bplan.get("build_head") or "").strip()
+    if recorded_head and effective_tool_head and not _heads_match(recorded_head, effective_tool_head):
+        b_disp = recorded_head[:8] if HEX_HEAD_RE.match(recorded_head) else recorded_head
+        t_disp = effective_tool_head[:8] if HEX_HEAD_RE.match(effective_tool_head) else effective_tool_head
+        return [f"this bundle was built at {b_disp}; this tool is at {t_disp}"], {
+            "build_head": recorded_head,
+            "tool_head": effective_tool_head,
+        }
+    if not recorded_head and effective_tool_head:
+        unknown_comps = sorted(k for k in (bplan.get("components") or {}) if k not in ORDERED_COMPONENT_KEYS)
+        if unknown_comps:
+            t_disp = effective_tool_head[:8] if HEX_HEAD_RE.match(effective_tool_head) else effective_tool_head
+            return [
+                f"this bundle was built at <other-head ({','.join(unknown_comps)})>; this tool is at {t_disp}"
+            ], {"build_head": None, "tool_head": effective_tool_head}
 
     plugins: List[str] = list(bplan.get("plugins") or [])
     if not plugins:
@@ -1277,6 +1332,7 @@ def fold_bundle(
     bplan = {
         "kind": "core-candidate-bundle",
         "version": 2,
+        "build_head": current_git_head(REPO),
         "profile": profile,
         "base_plugins": base_plugins,
         "plugins": plugins,
@@ -1387,6 +1443,307 @@ def cmd_fold(a, system=None) -> int:
     return 0
 
 
+def _atomic_write_file(dst_path: str, payload: bytes, prefix: str = ".fo4sf-sidecar-") -> None:
+    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+    exp_install.deployment.atomic_write_bytes(dst_path, payload, prefix)
+
+
+def _safe_sidecar_rel_target(data_dir: str, rel: str) -> str:
+    norm = rel.replace("\\", "/")
+    parts = [p for p in norm.split("/") if p]
+    if len(parts) != 3 or parts[0] != "SFSE" or parts[1] != "Plugins" or parts[2] in (".", ".."):
+        raise BundleRefused(f"sidecar path must be SFSE/Plugins/<filename>, got {rel!r}")
+    data_real = os.path.realpath(data_dir)
+    target = os.path.abspath(os.path.join(data_dir, *parts))
+    parent_real = os.path.realpath(os.path.dirname(target)) if os.path.exists(os.path.dirname(target)) else data_real
+    if os.path.commonpath((data_real, parent_real)) != data_real:
+        raise BundleRefused(f"sidecar target escapes Data/: {rel!r}")
+    return target
+
+
+def sidecar_install(bundle_dir: str, starfield_dir: str, system=None) -> Dict[str, object]:
+    """H3: Install `<bundle>/sfse_sidecar/SFSE/Plugins/*` into `<starfield>/Data/SFSE/Plugins/` with byte backups."""
+    ensure_game_closed(system)
+    bdir = os.path.abspath(bundle_dir)
+    sf_dir = os.path.abspath(starfield_dir)
+    if not os.path.isdir(bdir):
+        raise BundleRefused(f"sidecar install refused: bundle directory not found: {bdir}")
+    data_dir = os.path.join(sf_dir, "Data")
+    if not os.path.isdir(data_dir) or os.path.islink(sf_dir) or os.path.islink(data_dir):
+        raise BundleRefused(f"sidecar install refused: <starfield>/Data directory not found: {data_dir}")
+
+    b_real = os.path.realpath(bdir)
+    sf_real = os.path.realpath(sf_dir)
+    try:
+        common = os.path.commonpath((b_real, sf_real))
+    except ValueError:
+        common = ""
+    if common in (b_real, sf_real):
+        raise BundleRefused("sidecar install refused: --bundle-dir and --starfield must not overlap")
+
+    rec_path = os.path.join(data_dir, SIDECAR_RECEIPT_NAME)
+    sfse_dir = os.path.join(data_dir, "SFSE")
+    plugins_dir = os.path.join(sfse_dir, "Plugins")
+    backup_dir = os.path.join(sfse_dir, SIDECAR_BACKUP_DIRNAME)
+
+    if os.path.lexists(rec_path):
+        raise BundleRefused(f"sidecar install refused: receipt already exists ({rec_path}); run sidecar-undo first")
+    if os.path.lexists(backup_dir):
+        raise BundleRefused(f"sidecar install refused: backup folder already exists ({backup_dir}); run sidecar-undo first")
+    for chk_d in (sfse_dir, plugins_dir):
+        if os.path.islink(chk_d) or (os.path.exists(chk_d) and not os.path.isdir(chk_d)):
+            raise BundleRefused(f"sidecar install refused: unsafe target path {chk_d}")
+
+    ppath = os.path.join(bdir, "bundle_plan.json")
+    if not os.path.isfile(ppath):
+        raise BundleRefused(f"sidecar install refused: bundle_plan.json missing in {bdir}")
+    with open(ppath, encoding="utf-8") as f:
+        bplan = json.load(f)
+
+    sidecar_map: Dict[str, str] = dict(bplan.get("sfse_sidecar") or {})
+    install_entries: List[Tuple[str, str, str]] = []
+    skipped_reputation: List[str] = []
+    for rel, want_sha in sorted(sidecar_map.items()):
+        norm = rel.replace("\\", "/")
+        if norm.startswith("reputation/"):
+            skipped_reputation.append(norm)
+            continue
+        if not norm.startswith("SFSE/Plugins/"):
+            raise BundleRefused(f"sidecar install refused: unexpected sfse_sidecar entry {rel!r}")
+        src_p = os.path.join(bdir, "sfse_sidecar", *norm.split("/"))
+        if os.path.islink(src_p) or not os.path.isfile(src_p):
+            raise BundleRefused(f"sidecar install refused: staged file missing or symlink: {norm}")
+        got_sha = sha256_file(src_p)
+        if got_sha != want_sha:
+            raise BundleRefused(f"sidecar install refused: {norm} sha256 {got_sha} != manifest {want_sha}")
+        install_entries.append((norm, src_p, want_sha))
+
+    if not install_entries:
+        raise BundleRefused(f"sidecar install refused: bundle has zero SFSE/Plugins sidecar files ({bdir})")
+
+    staged_plugins_dir = os.path.join(bdir, "sfse_sidecar", "SFSE", "Plugins")
+    if os.path.isdir(staged_plugins_dir):
+        expected_names = {os.path.basename(norm) for norm, _, _ in install_entries}
+        actual_names = set(os.listdir(staged_plugins_dir))
+        untracked = sorted(actual_names - expected_names)
+        if untracked:
+            raise BundleRefused(f"sidecar install refused: untracked files in sfse_sidecar/SFSE/Plugins: {untracked}")
+
+    created_sfse_dir = not os.path.exists(sfse_dir)
+    created_plugins_dir = not os.path.exists(plugins_dir)
+
+    added: List[Dict[str, object]] = []
+    overwritten: List[Dict[str, object]] = []
+
+    # Validate targets & take byte-exact backups BEFORE writing any target file
+    os.makedirs(backup_dir, exist_ok=False)
+    try:
+        for idx, (norm, _src_p, want_sha) in enumerate(install_entries):
+            dst_p = _safe_sidecar_rel_target(data_dir, norm)
+            if os.path.islink(dst_p) or os.path.isdir(dst_p):
+                raise BundleRefused(f"sidecar install refused: target is a symlink or directory: {dst_p}")
+            if os.path.isfile(dst_p):
+                with open(dst_p, "rb") as rf:
+                    orig_bytes = rf.read()
+                orig_sha = hashlib.sha256(orig_bytes).hexdigest()
+                bak_name = f"{idx:02d}_{os.path.basename(dst_p)}.bak"
+                bak_p = os.path.join(backup_dir, bak_name)
+                _atomic_write_file(bak_p, orig_bytes, prefix=".fo4sf-scbak-")
+                if sha256_file(bak_p) != orig_sha:
+                    raise BundleRefused(f"sidecar install refused: backup verification failed for {norm}")
+                overwritten.append(
+                    {
+                        "rel": norm,
+                        "backup_file": bak_name,
+                        "original_sha256": orig_sha,
+                        "original_size": len(orig_bytes),
+                        "installed_sha256": want_sha,
+                    }
+                )
+            else:
+                added.append({"rel": norm, "installed_sha256": want_sha})
+
+        receipt: Dict[str, object] = {
+            "kind": "fo4sf-sidecar-install",
+            "schema": 1,
+            "complete": False,
+            "bundle_dir": bdir,
+            "build_head": bplan.get("build_head"),
+            "created_sfse_dir": created_sfse_dir,
+            "created_plugins_dir": created_plugins_dir,
+            "added": added,
+            "overwritten": overwritten,
+            "not_installed_reference_only": skipped_reputation,
+        }
+        _atomic_write_file(rec_path, (json.dumps(receipt, indent=2) + "\n").encode("utf-8"))
+    except Exception:
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        if created_sfse_dir and os.path.isdir(sfse_dir) and not os.listdir(sfse_dir):
+            try:
+                os.rmdir(sfse_dir)
+            except OSError:
+                pass
+        raise
+
+    published_added: List[str] = []
+    published_overwritten: List[Dict[str, object]] = []
+    ow_by_rel = {str(e["rel"]): e for e in overwritten}
+    try:
+        os.makedirs(plugins_dir, exist_ok=True)
+        for norm, src_p, want_sha in install_entries:
+            dst_p = _safe_sidecar_rel_target(data_dir, norm)
+            with open(src_p, "rb") as sf_f:
+                payload = sf_f.read()
+            _atomic_write_file(dst_p, payload)
+            if sha256_file(dst_p) != want_sha:
+                raise BundleRefused(f"sidecar install failed post-write hash check: {norm}")
+            if norm in ow_by_rel:
+                published_overwritten.append(ow_by_rel[norm])
+            else:
+                published_added.append(dst_p)
+
+        receipt["complete"] = True
+        _atomic_write_file(rec_path, (json.dumps(receipt, indent=2) + "\n").encode("utf-8"))
+    except Exception:
+        # Roll back partial publication from verified backups
+        for ow in published_overwritten:
+            bak_p = os.path.join(backup_dir, str(ow["backup_file"]))
+            dst_p = _safe_sidecar_rel_target(data_dir, str(ow["rel"]))
+            if os.path.isfile(bak_p):
+                with open(bak_p, "rb") as bf:
+                    _atomic_write_file(dst_p, bf.read())
+        for ad_p in published_added:
+            if os.path.isfile(ad_p):
+                try:
+                    os.remove(ad_p)
+                except OSError:
+                    pass
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        if os.path.isfile(rec_path):
+            try:
+                os.remove(rec_path)
+            except OSError:
+                pass
+        if created_plugins_dir and os.path.isdir(plugins_dir) and not os.listdir(plugins_dir):
+            try:
+                os.rmdir(plugins_dir)
+            except OSError:
+                pass
+        if created_sfse_dir and os.path.isdir(sfse_dir) and not os.listdir(sfse_dir):
+            try:
+                os.rmdir(sfse_dir)
+            except OSError:
+                pass
+        raise
+
+    print(
+        f"installed sidecar: {len(install_entries)} file(s) "
+        f"(added={len(added)}, overwritten={len(overwritten)}, not_installed_reputation={len(skipped_reputation)})"
+    )
+    return receipt
+
+
+def sidecar_undo(starfield_dir: str, system=None) -> Dict[str, object]:
+    """H3: Restore every backed-up sidecar file byte-for-byte and remove only what sidecar-install added."""
+    ensure_game_closed(system)
+    sf_dir = os.path.abspath(starfield_dir)
+    data_dir = os.path.join(sf_dir, "Data")
+    rec_path = os.path.join(data_dir, SIDECAR_RECEIPT_NAME)
+    sfse_dir = os.path.join(data_dir, "SFSE")
+    plugins_dir = os.path.join(sfse_dir, "Plugins")
+    backup_dir = os.path.join(sfse_dir, SIDECAR_BACKUP_DIRNAME)
+
+    if os.path.islink(rec_path) or not os.path.isfile(rec_path):
+        raise BundleRefused(f"sidecar undo refused: receipt not found ({rec_path})")
+
+    try:
+        with open(rec_path, encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError) as err:
+        raise BundleRefused(f"sidecar undo refused: unreadable receipt ({err})") from err
+
+    if not isinstance(rec, dict) or rec.get("kind") != "fo4sf-sidecar-install" or rec.get("schema") != 1:
+        raise BundleRefused("sidecar undo refused: unrecognized FO4SFSidecar.install.json schema")
+
+    added = list(rec.get("added") or [])
+    overwritten = list(rec.get("overwritten") or [])
+
+    # Pre-verify ALL backup files & target safety BEFORE mutating Data/SFSE/Plugins
+    restored_payloads: List[Tuple[str, bytes, str]] = []
+    for ow in overwritten:
+        rel = str(ow.get("rel") or "")
+        bak_name = str(ow.get("backup_file") or "")
+        want_orig_sha = str(ow.get("original_sha256") or "")
+        dst_p = _safe_sidecar_rel_target(data_dir, rel)
+        if os.path.islink(dst_p) or os.path.isdir(dst_p):
+            raise BundleRefused(f"sidecar undo refused: target is a symlink or directory: {dst_p}")
+        if not bak_name or "/" in bak_name or "\\" in bak_name:
+            raise BundleRefused(f"sidecar undo refused: invalid backup_file {bak_name!r}")
+        bak_p = os.path.join(backup_dir, bak_name)
+        if os.path.islink(bak_p) or not os.path.isfile(bak_p):
+            raise BundleRefused(f"sidecar undo refused: backup file missing ({bak_p})")
+        with open(bak_p, "rb") as bf:
+            raw_orig = bf.read()
+        got_sha = hashlib.sha256(raw_orig).hexdigest()
+        if got_sha != want_orig_sha:
+            raise BundleRefused(
+                f"sidecar undo refused: backup {bak_name} sha256 {got_sha} != recorded {want_orig_sha}"
+            )
+        restored_payloads.append((dst_p, raw_orig, want_orig_sha))
+
+    added_targets: List[str] = []
+    for ad in added:
+        rel = str(ad.get("rel") or "")
+        dst_p = _safe_sidecar_rel_target(data_dir, rel)
+        if os.path.islink(dst_p) or os.path.isdir(dst_p):
+            raise BundleRefused(f"sidecar undo refused: added target is a symlink or directory: {dst_p}")
+        added_targets.append(dst_p)
+
+    # 1. Restore every backed-up file and verify its restored SHA-256
+    for dst_p, raw_orig, want_orig_sha in restored_payloads:
+        _atomic_write_file(dst_p, raw_orig)
+        if sha256_file(dst_p) != want_orig_sha:
+            raise BundleRefused(f"sidecar undo failed post-restore hash check: {dst_p}")
+
+    # 2. Remove ONLY the files added by sidecar-install
+    removed_count = 0
+    for dst_p in added_targets:
+        if os.path.isfile(dst_p):
+            os.remove(dst_p)
+            removed_count += 1
+
+    # 3. Clean up backup dir, receipt, and any empty SFSE dirs created by sidecar-install
+    if os.path.isdir(backup_dir):
+        shutil.rmtree(backup_dir)
+    os.remove(rec_path)
+    if rec.get("created_plugins_dir") and os.path.isdir(plugins_dir) and not os.listdir(plugins_dir):
+        try:
+            os.rmdir(plugins_dir)
+        except OSError:
+            pass
+    if rec.get("created_sfse_dir") and os.path.isdir(sfse_dir) and not os.listdir(sfse_dir):
+        try:
+            os.rmdir(sfse_dir)
+        except OSError:
+            pass
+
+    print(f"uninstalled sidecar: removed={removed_count}, restored={len(restored_payloads)}")
+    return {"removed": removed_count, "restored": len(restored_payloads)}
+
+
+def cmd_sidecar_status(a) -> int:
+    rec_path = os.path.join(os.path.abspath(a.starfield), "Data", SIDECAR_RECEIPT_NAME)
+    if not os.path.exists(rec_path):
+        print("sidecar status: nothing installed")
+        return 0
+    with open(rec_path, encoding="utf-8") as f:
+        rec = json.load(f)
+    added = len(rec.get("added") or [])
+    overwritten = len(rec.get("overwritten") or [])
+    print(f"sidecar status: complete={rec.get('complete')} added={added} overwritten={overwritten}")
+    return 0 if rec.get("complete") is True else 1
+
+
 def cmd_verify(a) -> int:
     problems, metrics = verify_bundle(
         a.bundle_dir,
@@ -1395,6 +1752,9 @@ def cmd_verify(a) -> int:
         max_plugins=a.max_plugins,
         max_ba2_bytes=a.max_ba2_bytes,
     )
+    if len(problems) == 1 and problems[0].startswith("this bundle was built at "):
+        print(problems[0])
+        return 1
     for p in problems:
         print("FAIL  " + p)
     if problems:
@@ -1485,6 +1845,16 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     v.add_argument("--max-plugins", type=int, default=MAX_STARFIELD_PLUGINS)
     v.add_argument("--max-ba2-bytes", type=int, default=MAX_BA2_BYTES)
 
+    sci = sub.add_parser("sidecar-install")
+    sci.add_argument("--bundle-dir", required=True)
+    sci.add_argument("--starfield", required=True)
+
+    scu = sub.add_parser("sidecar-undo")
+    scu.add_argument("--starfield", required=True)
+
+    scs = sub.add_parser("sidecar-status")
+    scs.add_argument("--starfield", required=True)
+
     default_logs = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User")
     lg = sub.add_parser("log")
     lg.add_argument("--log-dir", default=default_logs)
@@ -1500,6 +1870,14 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
             return cmd_fold(args, system=system)
         if args.cmd == "verify":
             return cmd_verify(args)
+        if args.cmd == "sidecar-install":
+            sidecar_install(args.bundle_dir, args.starfield, system=system)
+            return 0
+        if args.cmd == "sidecar-undo":
+            sidecar_undo(args.starfield, system=system)
+            return 0
+        if args.cmd == "sidecar-status":
+            return cmd_sidecar_status(args)
         if args.cmd == "log":
             return cmd_log(args)
     except BundleRefused as err:
