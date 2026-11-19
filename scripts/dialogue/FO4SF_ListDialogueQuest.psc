@@ -14,6 +14,8 @@ ObjectReference Property ArrivalRef Auto Const
 
 int Property TimerIdPoll = 1 AutoReadOnly
 
+bool initLogged = false
+bool loadHookRegistered = false
 bool ran10 = false
 bool ran15 = false
 bool ran20 = false
@@ -68,24 +70,45 @@ Function LogSheetEval(Actor player, string phase)
     LogLine("eval", "phase=" + phase + " speech=" + sp + " speech50=" + s50 + " science=" + sc + " science40=" + sc40 + " strength=" + st + " strength7=" + st7 + " bg_vaultdweller=" + bgState + " trait_goodnatured=" + trState)
 EndFunction
 
-Event OnQuestInit()
-    Actor player = Game.GetPlayer()
-    if player != None
-        RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+Function EnsureInit()
+    if !initLogged
+        initLogged = true
         LogLine("init", "speaker_present=" + (SpeakerRef != None) + " arrival_present=" + (ArrivalRef != None))
     endif
+    Actor player = Game.GetPlayer()
+    if !loadHookRegistered && player != None
+        loadHookRegistered = true
+        RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+    endif
     StartTimer(1.0, TimerIdPoll)
+EndFunction
+
+Event OnQuestStarted()
+    EnsureInit()
+EndEvent
+
+Event OnQuestInit()
+    EnsureInit()
+EndEvent
+
+Event OnStageSet(int auiStageID, int auiItemID)
+    EnsureInit()
+    PollStages()
 EndEvent
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
-    StartTimer(1.0, TimerIdPoll)
+    EnsureInit()
 EndEvent
 
 Function PollStages()
+    Actor player = Game.GetPlayer()
+    if !loadHookRegistered && player != None
+        loadHookRegistered = true
+        RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+    endif
     if TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0
         return
     endif
-    Actor player = Game.GetPlayer()
     if player == None
         return
     endif

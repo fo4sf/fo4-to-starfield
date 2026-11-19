@@ -93,7 +93,13 @@ def _build_synthetic_sources_zip(zip_path: Path) -> None:
             "bool Function TraceUser(string asUserLog, string asTextToPrint, int aiSeverity = 0) native global\n"
         ),
         "Utility.psc": "Scriptname Utility Native\nfloat Function GetCurrentRealTime() native global\n",
-        "Quest.psc": "Scriptname Quest extends Form Native\nbool Function GetStageDone(int aiStage) native\n",
+        "Quest.psc": (
+            "Scriptname Quest extends Form Native\n"
+            "bool Function GetStageDone(int aiStage) native\n"
+            "Event OnQuestStarted()\nEndEvent\n"
+            "Event OnQuestInit()\nEndEvent\n"
+            "Event OnStageSet(int auiStageID, int auiItemID)\nEndEvent\n"
+        ),
     }
     with zipfile.ZipFile(zip_path, "w") as z:
         z.writestr("Scripts/Source/Starfield_Papyrus_Flags.flg", "")
@@ -198,6 +204,13 @@ class NonCollisionAndPropertyParityTests(unittest.TestCase):
         self.assertEqual(len(cs_props), 9)
         self.assertIn("TestModeGlobal", psc_props)
         self.assertIn("TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0", psc)
+        # Card A fixes: Optional + ForcedReference Speaker alias, CellLighting + 4 OmniLights, unconditional init + OnQuestStarted + OnStageSet
+        self.assertIn("QuestReferenceAlias.Flag.Optional", cs)
+        self.assertIn("ForcedReference = new FormLinkNullable<IPlacedGetter>(speakerRef.FormKey)", cs)
+        self.assertIn("Lighting = new CellLighting", cs)
+        self.assertIn("Event OnQuestStarted()", psc)
+        self.assertIn("Event OnStageSet(int auiStageID, int auiItemID)", psc)
+        self.assertIn("Function EnsureInit()", psc)
 
     def test_shared_core_values_and_progression_masters_contract(self):
         self.assertEqual(
