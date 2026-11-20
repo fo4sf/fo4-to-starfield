@@ -394,7 +394,7 @@ class CoreBundleTests(unittest.TestCase):
             self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyKit.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
 
-            # A17: Default profile for fold (when --profile is omitted) is 'player', omitting FO4SFCoreCandidate.esm -> 22 plugins
+            # A17 + T1: Default profile for fold (when --profile is omitted) is 'player', omitting FO4SFCoreCandidate.esm AND FO4SFRouteLoot.esm -> 21 plugins
             out_player = root / "bundle-player"
             rc_player = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
@@ -406,9 +406,31 @@ class CoreBundleTests(unittest.TestCase):
             self.assertEqual(rc_player, 0)
             pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
             self.assertEqual(pplan["profile"], "player")
-            self.assertEqual(len(pplan["plugins"]), 22)
+            self.assertFalse(pplan["with_route_loot"])
+            self.assertEqual(len(pplan["plugins"]), 21)
             self.assertEqual(pplan["plugins"], list(mcb.PLAYER_BUNDLE_PLUGINS))
             self.assertNotIn("FO4SFCoreCandidate.esm", pplan["plugins"])
+            self.assertNotIn("FO4SFRouteLoot.esm", pplan["plugins"])
+
+            # T1 opt-in: --with-route-loot explicitly folds FO4SFRouteLoot.esm into player profile -> 22 plugins
+            out_player_rl = root / "bundle-player-with-rl"
+            rc_player_rl = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--mission-stage", str(stages_root / "02b-mission"),
+                "--route-loot-stage", str(stages_root / "17-route-loot"),
+                "--out", str(out_player_rl), "--port", str(port_esm),
+                "--with-pipboy", "--pipboy-stage", str(pb), "--with-route-loot",
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_player_rl, 0)
+            pplan_rl = json.loads((out_player_rl / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertTrue(pplan_rl["with_route_loot"])
+            self.assertEqual(len(pplan_rl["plugins"]), 22)
+            self.assertEqual(pplan_rl["plugins"], list(mcb.PLAYER_WITH_ROUTE_LOOT_PLUGINS))
+            # Tampering with_route_loot=False on a player bundle holding FO4SFRouteLoot.esm must fail verify
+            pplan_rl["with_route_loot"] = False
+            (out_player_rl / "bundle_plan.json").write_text(json.dumps(pplan_rl, indent=1), encoding="utf-8")
+            v_probs_rl, _ = mcb.verify_bundle(str(out_player_rl), port_esm=str(port_esm))
+            self.assertTrue(any("FO4SFRouteLoot.esm" in p for p in v_probs_rl))
 
             # Empty/wrong --pipboy-stage is refused (never silently folds 0 Pip-Boy plugins)
             empty_pb = root / "empty-pb"

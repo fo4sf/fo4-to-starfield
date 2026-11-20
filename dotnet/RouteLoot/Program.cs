@@ -39,13 +39,14 @@ try
 
     var jsonPath = Opt("--json");
     var outCensus = Opt("--out");
+    var split = RouteLoot.ParseSplit(Opt("--split"));
 
     if (rest.Count == 5 && rest[0] == "build")
-        return RouteLoot.Build(rest[1], rest[2], rest[3], rest[4], jsonPath);
+        return RouteLoot.Build(rest[1], rest[2], rest[3], rest[4], jsonPath, split);
     if (rest.Count == 5 && rest[0] == "check")
-        return RouteLoot.Check(rest[1], rest[2], rest[3], rest[4], jsonPath);
+        return RouteLoot.Check(rest[1], rest[2], rest[3], rest[4], jsonPath, split);
     if (rest.Count == 5 && rest[0] == "census")
-        return RouteLoot.Census(rest[1], rest[2], rest[3], rest[4], outCensus, jsonPath);
+        return RouteLoot.Census(rest[1], rest[2], rest[3], rest[4], outCensus, jsonPath, split);
     if (rest.Count == 2 && rest[0] == "selftest")
         return RouteLoot.SelfTest(rest[1]);
 }
@@ -56,15 +57,38 @@ catch (RouteLoot.Refusal r)
 }
 
 Console.Error.WriteLine(
-    "usage: RouteLoot build <Starfield.esm> <FO4TerrainCore.esm> <FO4Port.esm> <out dir> [--json <path>] | " +
-    "check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4Port.esm> [--json <path>] | " +
-    "census <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4Port.esm> [--out <census.json>] [--json <path>] | " +
+    "usage: RouteLoot build <Starfield.esm> <FO4TerrainCore.esm> <FO4Port.esm> <out dir> [--json <path>] [--split full|bases-only|ext-overrides-only] | " +
+    "check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4Port.esm> [--json <path>] [--split full|bases-only|ext-overrides-only] | " +
+    "census <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4Port.esm> [--out <census.json>] [--json <path>] [--split full|bases-only|ext-overrides-only] | " +
     "selftest <scratch dir>");
 return 2;
 
 static class RouteLoot
 {
     public sealed class Refusal(string m) : Exception(m);
+
+    public enum SplitMode
+    {
+        Full,
+        BasesOnly,
+        ExtOverridesOnly,
+    }
+
+    public static SplitMode ParseSplit(string? raw) => (raw ?? "full").Trim() switch
+    {
+        "full" => SplitMode.Full,
+        "bases-only" => SplitMode.BasesOnly,
+        "ext-overrides-only" => SplitMode.ExtOverridesOnly,
+        _ => throw new Refusal($"--split expected full|bases-only|ext-overrides-only, got '{raw}'"),
+    };
+
+    public static string SplitLabel(SplitMode mode) => mode switch
+    {
+        SplitMode.Full => "full",
+        SplitMode.BasesOnly => "bases-only",
+        SplitMode.ExtOverridesOnly => "ext-overrides-only",
+        _ => "full",
+    };
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
@@ -78,6 +102,23 @@ static class RouteLoot
     static readonly ModKey[] ExpectedMasters =
     {
         SfEsm, CoreValuesEsm, RadsEsm, WorkshopEsm, TerrainCoreEsm, PortEsm
+    };
+
+    static readonly ModKey[] BasesOnlyMasters =
+    {
+        SfEsm, CoreValuesEsm, RadsEsm, WorkshopEsm, PortEsm
+    };
+
+    static readonly ModKey[] ExtOverridesOnlyMasters =
+    {
+        SfEsm, TerrainCoreEsm
+    };
+
+    static ModKey[] ExpectedMastersForSplit(SplitMode split) => split switch
+    {
+        SplitMode.BasesOnly => BasesOnlyMasters,
+        SplitMode.ExtOverridesOnly => ExtOverridesOnlyMasters,
+        _ => ExpectedMasters,
     };
 
     const string ArmoryCaseEdid = "FO4SF_Vault111ArmoryCase";
@@ -437,21 +478,37 @@ static class RouteLoot
         return new RouteScan(totalExtConts, routeRefs.Count, mappedCategories, routeRefCategories, byCat);
     }
 
-    static void WriteAtomic(StarfieldMod mod, string outDir)
+    static void WriteAtomic(StarfieldMod mod, string outDir, SplitMode split = SplitMode.Full)
     {
         Directory.CreateDirectory(outDir);
         var finalPath = Path.Combine(outDir, mod.ModKey.FileName);
         var tmpDir = Path.Combine(outDir, ".tmp-" + Guid.NewGuid().ToString("N"));
+        var wantMasters = ExpectedMastersForSplit(split);
+        if (split != SplitMode.Full)
+        {
+            mod.ModHeader.MasterReferences.Clear();
+            foreach (var mk in wantMasters)
+                mod.ModHeader.MasterReferences.Add(new MasterReference { Master = mk });
+        }
         try
         {
             Directory.CreateDirectory(tmpDir);
             var tmpPath = Path.Combine(tmpDir, mod.ModKey.FileName);
-            mod.WriteToBinary(tmpPath, new BinaryWriteParameters
-            {
-                ModKey = ModKeyOption.NoCheck,
-                MastersListOrdering = new MastersListOrderingByLoadOrder(ExpectedMasters),
-                MasterFlagsLookup = Styles(ExpectedMasters),
-            });
+            var writeParams = split == SplitMode.Full
+                ? new BinaryWriteParameters
+                {
+                    ModKey = ModKeyOption.NoCheck,
+                    MastersListOrdering = new MastersListOrderingByLoadOrder(ExpectedMasters),
+                    MasterFlagsLookup = Styles(ExpectedMasters),
+                }
+                : new BinaryWriteParameters
+                {
+                    ModKey = ModKeyOption.NoCheck,
+                    MastersListContent = MastersListContentOption.NoCheck,
+                    MastersListOrdering = new MastersListOrderingByLoadOrder(wantMasters),
+                    MasterFlagsLookup = Styles(wantMasters),
+                };
+            mod.WriteToBinary(tmpPath, writeParams);
             File.Move(tmpPath, finalPath, overwrite: true);
         }
         finally
@@ -463,7 +520,7 @@ static class RouteLoot
     static string OwnRouteContEdid(uint fo4Id, uint coreLocalId) =>
         $"FO4SF_RouteLoot_cont_{fo4Id:x6}_{coreLocalId:x6}";
 
-    public static int Build(string sfPath, string corePath, string portPath, string outDir, string? jsonPath = null)
+    public static int Build(string sfPath, string corePath, string portPath, string outDir, string? jsonPath = null, SplitMode split = SplitMode.Full)
     {
         var spec = LoadSpec(jsonPath);
         using var sf = OpenMod(sfPath, SfEsm);
@@ -483,160 +540,184 @@ static class RouteLoot
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
         mod.ModHeader.Author = "fo4-to-starfield";
 
-        // 1 (B10). Create dedicated FO4SFRouteLoot.esm CONT base records (0x000820+) and override ONLY corridor REFRs.
+        // 1 (B10 / T1). Create dedicated FO4SFRouteLoot.esm CONT base records (0x000820+) unless --split ext-overrides-only.
         var coreContByKey = core.Containers.ToDictionary(c => c.FormKey);
         var ownRouteContByCoreKey = new Dictionary<FormKey, FormKey>();
         uint nextOwnId = FirstRouteContBaseId;
-        foreach (var (bfk, info) in scan.MappedContCategories.OrderBy(kv => kv.Key.ID))
+        if (split != SplitMode.ExtOverridesOnly)
         {
-            var srcCont = coreContByKey[bfk];
-            var ownKey = new FormKey(Plugin, nextOwnId++);
-            var ownCont = (Container)srcCont.Duplicate(ownKey);
-            ownCont.EditorID = OwnRouteContEdid(info.Fo4Id, bfk.ID);
-            ownCont.Items = MakeContainerItems(spec.Categories[info.Category]);
-            mod.Containers.Add(ownCont);
-            ownRouteContByCoreKey[bfk] = ownKey;
+            foreach (var (bfk, info) in scan.MappedContCategories.OrderBy(kv => kv.Key.ID))
+            {
+                var srcCont = coreContByKey[bfk];
+                var ownKey = new FormKey(Plugin, nextOwnId++);
+                var ownCont = (Container)srcCont.Duplicate(ownKey);
+                ownCont.EditorID = OwnRouteContEdid(info.Fo4Id, bfk.ID);
+                ownCont.Items = MakeContainerItems(spec.Categories[info.Category]);
+                mod.Containers.Add(ownCont);
+                ownRouteContByCoreKey[bfk] = ownKey;
+            }
         }
 
-        Cell? BuildCorridorCellOverride(ICellGetter? srcCell)
+        int writtenExtRefs = 0;
+        if (split != SplitMode.BasesOnly)
         {
-            if (srcCell == null) return null;
-            var pers = new List<PlacedObject>();
-            var temp = new List<PlacedObject>();
-            foreach (var r in srcCell.Persistent.OfType<IPlacedObjectGetter>())
+            bool TryTargetBase(FormKey coreContKey, out FormKey targetBase)
             {
-                if (scan.RouteRefCategories.TryGetValue(r.FormKey, out var ri) &&
-                    ownRouteContByCoreKey.TryGetValue(ri.CoreContKey, out var ownBase))
+                if (split == SplitMode.ExtOverridesOnly)
                 {
-                    var ov = r.DeepCopy();
-                    ov.Base = new FormLinkNullable<IPlaceableObjectGetter>(ownBase);
-                    pers.Add(ov);
+                    targetBase = coreContKey;
+                    return true;
                 }
+                return ownRouteContByCoreKey.TryGetValue(coreContKey, out targetBase);
             }
-            foreach (var r in srcCell.Temporary.OfType<IPlacedObjectGetter>())
-            {
-                if (scan.RouteRefCategories.TryGetValue(r.FormKey, out var ri) &&
-                    ownRouteContByCoreKey.TryGetValue(ri.CoreContKey, out var ownBase))
-                {
-                    var ov = r.DeepCopy();
-                    ov.Base = new FormLinkNullable<IPlaceableObjectGetter>(ownBase);
-                    temp.Add(ov);
-                }
-            }
-            if (pers.Count == 0 && temp.Count == 0) return null;
-            var cellOut = CellOnly(srcCell);
-            foreach (var p in pers) cellOut.Persistent.Add(p);
-            foreach (var t in temp) cellOut.Temporary.Add(t);
-            return cellOut;
-        }
 
-        foreach (var srcWorld in core.Worldspaces)
-        {
-            var topOut = BuildCorridorCellOverride(srcWorld.TopCell);
-            var blocksOut = new List<WorldspaceBlock>();
-            foreach (var srcBlk in srcWorld.SubCells)
+            Cell? BuildCorridorCellOverride(ICellGetter? srcCell)
             {
-                var subsOut = new List<WorldspaceSubBlock>();
-                foreach (var srcSub in srcBlk.Items)
+                if (srcCell == null) return null;
+                var pers = new List<PlacedObject>();
+                var temp = new List<PlacedObject>();
+                foreach (var r in srcCell.Persistent.OfType<IPlacedObjectGetter>())
                 {
-                    var cellsOut = new List<Cell>();
-                    foreach (var srcCell in srcSub.Items)
+                    if (scan.RouteRefCategories.TryGetValue(r.FormKey, out var ri) &&
+                        TryTargetBase(ri.CoreContKey, out var targetBase))
                     {
-                        var ecOut = BuildCorridorCellOverride(srcCell);
-                        if (ecOut != null) cellsOut.Add(ecOut);
+                        var ov = r.DeepCopy();
+                        ov.Base = new FormLinkNullable<IPlaceableObjectGetter>(targetBase);
+                        pers.Add(ov);
                     }
-                    if (cellsOut.Count > 0)
+                }
+                foreach (var r in srcCell.Temporary.OfType<IPlacedObjectGetter>())
+                {
+                    if (scan.RouteRefCategories.TryGetValue(r.FormKey, out var ri) &&
+                        TryTargetBase(ri.CoreContKey, out var targetBase))
                     {
-                        var subOut = new WorldspaceSubBlock
+                        var ov = r.DeepCopy();
+                        ov.Base = new FormLinkNullable<IPlaceableObjectGetter>(targetBase);
+                        temp.Add(ov);
+                    }
+                }
+                if (pers.Count == 0 && temp.Count == 0) return null;
+                writtenExtRefs += pers.Count + temp.Count;
+                var cellOut = CellOnly(srcCell);
+                foreach (var p in pers) cellOut.Persistent.Add(p);
+                foreach (var t in temp) cellOut.Temporary.Add(t);
+                return cellOut;
+            }
+
+            foreach (var srcWorld in core.Worldspaces)
+            {
+                var topOut = BuildCorridorCellOverride(srcWorld.TopCell);
+                var blocksOut = new List<WorldspaceBlock>();
+                foreach (var srcBlk in srcWorld.SubCells)
+                {
+                    var subsOut = new List<WorldspaceSubBlock>();
+                    foreach (var srcSub in srcBlk.Items)
+                    {
+                        var cellsOut = new List<Cell>();
+                        foreach (var srcCell in srcSub.Items)
                         {
-                            BlockNumberX = srcSub.BlockNumberX,
-                            BlockNumberY = srcSub.BlockNumberY,
-                            GroupType = srcSub.GroupType,
+                            var ecOut = BuildCorridorCellOverride(srcCell);
+                            if (ecOut != null) cellsOut.Add(ecOut);
+                        }
+                        if (cellsOut.Count > 0)
+                        {
+                            var subOut = new WorldspaceSubBlock
+                            {
+                                BlockNumberX = srcSub.BlockNumberX,
+                                BlockNumberY = srcSub.BlockNumberY,
+                                GroupType = srcSub.GroupType,
+                            };
+                            foreach (var c in cellsOut) subOut.Items.Add(c);
+                            subsOut.Add(subOut);
+                        }
+                    }
+                    if (subsOut.Count > 0)
+                    {
+                        var blkOut = new WorldspaceBlock
+                        {
+                            BlockNumberX = srcBlk.BlockNumberX,
+                            BlockNumberY = srcBlk.BlockNumberY,
+                            GroupType = srcBlk.GroupType,
                         };
-                        foreach (var c in cellsOut) subOut.Items.Add(c);
-                        subsOut.Add(subOut);
+                        foreach (var s in subsOut) blkOut.Items.Add(s);
+                        blocksOut.Add(blkOut);
                     }
                 }
-                if (subsOut.Count > 0)
+                if (topOut != null || blocksOut.Count > 0)
                 {
-                    var blkOut = new WorldspaceBlock
-                    {
-                        BlockNumberX = srcBlk.BlockNumberX,
-                        BlockNumberY = srcBlk.BlockNumberY,
-                        GroupType = srcBlk.GroupType,
-                    };
-                    foreach (var s in subsOut) blkOut.Items.Add(s);
-                    blocksOut.Add(blkOut);
+                    var worldOut = WorldOnly(srcWorld);
+                    worldOut.TopCell = topOut;
+                    foreach (var b in blocksOut) worldOut.SubCells.Add(b);
+                    mod.Worldspaces.Add(worldOut);
                 }
             }
-            if (topOut != null || blocksOut.Count > 0)
+        }
+
+        if (split != SplitMode.ExtOverridesOnly)
+        {
+            // 2. Override Vault 111 security locker CONT in FO4Port.esm (when present) + add dedicated Armory Case CONT.
+            var portLockerFk = new FormKey(PortEsm, spec.PortLockerContId);
+            var portLocker = port.Containers.FirstOrDefault(c => c.FormKey == portLockerFk);
+            if (portLocker != null)
             {
-                var worldOut = WorldOnly(srcWorld);
-                worldOut.TopCell = topOut;
-                foreach (var b in blocksOut) worldOut.SubCells.Add(b);
-                mod.Worldspaces.Add(worldOut);
+                var lockerOv = portLocker.DeepCopy();
+                lockerOv.Items = MakeContainerItems(spec.Categories["vault_armory"]);
+                mod.Containers.Add(lockerOv);
             }
-        }
 
-        // 2. Override Vault 111 security locker CONT in FO4Port.esm (when present) + add dedicated Armory Case CONT.
-        var portLockerFk = new FormKey(PortEsm, spec.PortLockerContId);
-        var portLocker = port.Containers.FirstOrDefault(c => c.FormKey == portLockerFk);
-        if (portLocker != null)
-        {
-            var lockerOv = portLocker.DeepCopy();
-            lockerOv.Items = MakeContainerItems(spec.Categories["vault_armory"]);
-            mod.Containers.Add(lockerOv);
-        }
+            var caseTpl = sf.Containers.First(c => c.FormKey.ID == spec.VaultCaseTemplateId);
+            var ownCaseKey = new FormKey(Plugin, spec.OwnCaseBaseId);
+            var armoryCase = (Container)caseTpl.Duplicate(ownCaseKey);
+            armoryCase.EditorID = ArmoryCaseEdid;
+            armoryCase.VirtualMachineAdapter = null;
+            armoryCase.Keywords?.Clear();
+            armoryCase.Items = MakeContainerItems(spec.Categories["vault_armory"]);
+            mod.Containers.Add(armoryCase);
 
-        var caseTpl = sf.Containers.First(c => c.FormKey.ID == spec.VaultCaseTemplateId);
-        var ownCaseKey = new FormKey(Plugin, spec.OwnCaseBaseId);
-        var armoryCase = (Container)caseTpl.Duplicate(ownCaseKey);
-        armoryCase.EditorID = ArmoryCaseEdid;
-        armoryCase.VirtualMachineAdapter = null;
-        armoryCase.Keywords?.Clear();
-        armoryCase.Items = MakeContainerItems(spec.Categories["vault_armory"]);
-        mod.Containers.Add(armoryCase);
-
-        // 3. Override Vault 111 interior cell (CellOnly) with placed Armory Case + visible pistol/ammo/stimpak pickups.
-        var v111Cell = CellOnly(v111Src);
-        var caseRef = new PlacedObject(new FormKey(Plugin, spec.OwnCaseRefId), Release)
-        {
-            Base = new FormLinkNullable<IPlaceableObjectGetter>(ownCaseKey),
-            Position = spec.CasePos,
-            Rotation = spec.CaseRot,
-        };
-        v111Cell.Temporary.Add(caseRef);
-
-        foreach (var pk in spec.Pickups)
-        {
-            var pObj = new PlacedObject(new FormKey(Plugin, pk.OwnRefId), Release)
+            // 3. Override Vault 111 interior cell (CellOnly) with placed Armory Case + visible pistol/ammo/stimpak pickups.
+            var v111Cell = CellOnly(v111Src);
+            var caseRef = new PlacedObject(new FormKey(Plugin, spec.OwnCaseRefId), Release)
             {
-                Base = new FormLinkNullable<IPlaceableObjectGetter>(pk.BaseKey),
-                Position = pk.Pos,
-                Rotation = pk.Rot,
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(ownCaseKey),
+                Position = spec.CasePos,
+                Rotation = spec.CaseRot,
             };
-            if (pk.Count > 1) pObj.Count = pk.Count;
-            v111Cell.Temporary.Add(pObj);
-        }
+            v111Cell.Temporary.Add(caseRef);
 
-        var cid = v111Cell.FormKey.ID;
-        var block = new CellBlock { BlockNumber = (int)(cid % 10), GroupType = GroupTypeEnum.InteriorCellBlock };
-        var sub = new CellSubBlock { BlockNumber = (int)((cid / 10) % 10), GroupType = GroupTypeEnum.InteriorCellSubBlock };
-        sub.Cells.Add(v111Cell);
-        block.SubBlocks.Add(sub);
-        mod.Cells.Records.Add(block);
+            foreach (var pk in spec.Pickups)
+            {
+                var pObj = new PlacedObject(new FormKey(Plugin, pk.OwnRefId), Release)
+                {
+                    Base = new FormLinkNullable<IPlaceableObjectGetter>(pk.BaseKey),
+                    Position = pk.Pos,
+                    Rotation = pk.Rot,
+                };
+                if (pk.Count > 1) pObj.Count = pk.Count;
+                v111Cell.Temporary.Add(pObj);
+            }
+
+            var cid = v111Cell.FormKey.ID;
+            var block = new CellBlock { BlockNumber = (int)(cid % 10), GroupType = GroupTypeEnum.InteriorCellBlock };
+            var sub = new CellSubBlock { BlockNumber = (int)((cid / 10) % 10), GroupType = GroupTypeEnum.InteriorCellSubBlock };
+            sub.Cells.Add(v111Cell);
+            block.SubBlocks.Add(sub);
+            mod.Cells.Records.Add(block);
+        }
 
         mod.ModHeader.Stats.NextFormID = Math.Max(NextId, nextOwnId);
-        WriteAtomic(mod, outDir);
+        WriteAtomic(mod, outDir, split);
 
-        int nonCreditRoute = scan.RouteContainersByCategory["ammo"] +
-                             scan.RouteContainersByCategory["aid"] +
-                             scan.RouteContainersByCategory["junk"];
+        int nonCreditRoute = split == SplitMode.Full
+            ? (scan.RouteContainersByCategory["ammo"] +
+               scan.RouteContainersByCategory["aid"] +
+               scan.RouteContainersByCategory["junk"])
+            : 0;
         var outPath = Path.Combine(outDir, Plugin.FileName);
+        var splitNote = split == SplitMode.Full ? "" : $" [split={SplitLabel(split)}]";
         Console.WriteLine(
-            $"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-            $"{ownRouteContByCoreKey.Count} own route CONT bases, {scan.RouteRefCategories.Count} corridor REFR overrides (0 core CONT overrides; {nonCreditRoute}/{scan.RouteContainersWithinRadius} route containers non-credit), " +
-            $"Vault 111 CELL 0x{spec.VaultCellId:X6} armory CONT 0x{spec.OwnCaseBaseId:X6} + {1 + spec.Pickups.Length} REFRs");
+            $"wrote {outPath}{splitNote} ({new FileInfo(outPath).Length:N0} bytes): " +
+            $"{ownRouteContByCoreKey.Count} own route CONT bases, {writtenExtRefs} corridor REFR overrides (0 core CONT overrides; {nonCreditRoute}/{scan.RouteContainersWithinRadius} route containers non-credit), " +
+            $"Vault 111 CELL 0x{spec.VaultCellId:X6} armory CONT 0x{spec.OwnCaseBaseId:X6} + {(split == SplitMode.ExtOverridesOnly ? 0 : 1 + spec.Pickups.Length)} REFRs");
         return 0;
     }
 
@@ -666,13 +747,14 @@ static class RouteLoot
         return dict;
     }
 
-    public static int Check(string pluginPath, string sfPath, string corePath, string portPath, string? jsonPath = null)
+    public static int Check(string pluginPath, string sfPath, string corePath, string portPath, string? jsonPath = null, SplitMode split = SplitMode.Full)
     {
         var spec = LoadSpec(jsonPath);
         using var sf = OpenMod(sfPath, SfEsm);
         using var core = OpenMod(corePath, SfEsm);
         using var port = OpenMod(portPath, SfEsm);
-        using var mod = OpenMod(pluginPath, ExpectedMasters);
+        var wantMasters = ExpectedMastersForSplit(split);
+        using var mod = OpenMod(pluginPath, wantMasters);
 
         ValidateStarfieldAssets(sf, spec);
         var scan = ScanTerrainCore(core, spec);
@@ -683,8 +765,8 @@ static class RouteLoot
         Need(mod.ModKey == Plugin, $"ModKey {mod.ModKey} != {Plugin}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "plugin lacks Master header flag");
         var masters = mod.ModHeader.MasterReferences.Select(m => m.Master).ToArray();
-        Need(masters.SequenceEqual(ExpectedMasters),
-            $"masters [{string.Join(", ", masters)}] != [{string.Join(", ", ExpectedMasters)}]");
+        Need(masters.SequenceEqual(wantMasters),
+            $"masters [{string.Join(", ", masters)}] != [{string.Join(", ", wantMasters)}]");
 
         var lowOwn = mod.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == Plugin && r.FormKey.ID < 0x800).ToList();
         Need(lowOwn.Count == 0, $"plugin has own records with ID < 0x800: {string.Join(", ", lowOwn.Select(r => r.FormKey))}");
@@ -698,23 +780,31 @@ static class RouteLoot
             .ToDictionary(c => c.EditorID!, StringComparer.OrdinalIgnoreCase);
         var expectedOwnBaseByCoreKey = new Dictionary<FormKey, FormKey>();
 
-        foreach (var (bfk, info) in scan.MappedContCategories)
+        if (split != SplitMode.ExtOverridesOnly)
         {
-            var wantEdid = OwnRouteContEdid(info.Fo4Id, bfk.ID);
-            if (!modContByEdid.TryGetValue(wantEdid, out var ownCont))
+            foreach (var (bfk, info) in scan.MappedContCategories)
             {
-                problems.Add($"missing dedicated route CONT base '{wantEdid}' for {bfk}");
-                continue;
+                var wantEdid = OwnRouteContEdid(info.Fo4Id, bfk.ID);
+                if (!modContByEdid.TryGetValue(wantEdid, out var ownCont))
+                {
+                    problems.Add($"missing dedicated route CONT base '{wantEdid}' for {bfk}");
+                    continue;
+                }
+                expectedOwnBaseByCoreKey[bfk] = ownCont.FormKey;
+                var src = coreContByKey[bfk];
+                var ovModel = ownCont.Model?.File?.ToString();
+                var srcModel = src.Model?.File?.ToString();
+                Need(string.Equals(ovModel, srcModel, StringComparison.OrdinalIgnoreCase),
+                    $"CONT {ownCont.FormKey} ({wantEdid}) changed Model ({ovModel} != {srcModel})");
+                var gotItems = ReadContItems(ownCont);
+                var wantItems = spec.Categories[info.Category].Select(e => (e.Key, e.Count)).ToList();
+                Need(gotItems.SequenceEqual(wantItems), $"CONT {ownCont.FormKey} ({wantEdid}) items mismatch for category '{info.Category}'");
             }
-            expectedOwnBaseByCoreKey[bfk] = ownCont.FormKey;
-            var src = coreContByKey[bfk];
-            var ovModel = ownCont.Model?.File?.ToString();
-            var srcModel = src.Model?.File?.ToString();
-            Need(string.Equals(ovModel, srcModel, StringComparison.OrdinalIgnoreCase),
-                $"CONT {ownCont.FormKey} ({wantEdid}) changed Model ({ovModel} != {srcModel})");
-            var gotItems = ReadContItems(ownCont);
-            var wantItems = spec.Categories[info.Category].Select(e => (e.Key, e.Count)).ToList();
-            Need(gotItems.SequenceEqual(wantItems), $"CONT {ownCont.FormKey} ({wantEdid}) items mismatch for category '{info.Category}'");
+        }
+        else
+        {
+            Need(mod.Containers.Count == 0,
+                $"ext-overrides-only must contain 0 CONT records, found {mod.Containers.Count}");
         }
 
         // Verify Worldspace & exterior Cell headers match FO4TerrainCore.esm and ONLY corridor REFRs are overridden.
@@ -739,77 +829,100 @@ static class RouteLoot
                     }
         }
 
-        foreach (var mw in mod.Worldspaces)
-        {
-            Need(coreWorldByKey.TryGetValue(mw.FormKey, out var sw) && WorldOnly(sw).Equals(WorldOnly(mw)),
-                $"Worldspace {mw.FormKey} header differs from FO4TerrainCore.esm");
-            void CheckExtCell(ICellGetter? mc)
-            {
-                if (mc == null) return;
-                Need(coreCellsByKey.TryGetValue(mc.FormKey, out var sc) && CellOnly(sc).Equals(CellOnly(mc)),
-                    $"Exterior CELL {mc.FormKey} header differs from FO4TerrainCore.esm");
-            }
-            CheckExtCell(mw.TopCell);
-            foreach (var blk in mw.SubCells)
-                foreach (var sub in blk.Items)
-                    foreach (var ec in sub.Items)
-                        CheckExtCell(ec);
-        }
-
         var modExtRefs = CollectWorldspacePlacedObjects(mod);
-        Need(modExtRefs.Count == scan.RouteRefCategories.Count,
-            $"overridden exterior REFR count {modExtRefs.Count} != expected corridor count {scan.RouteRefCategories.Count}");
-        foreach (var (rfk, ri) in scan.RouteRefCategories)
+        if (split == SplitMode.BasesOnly)
         {
-            if (!modExtRefs.TryGetValue(rfk, out var mref))
-            {
-                problems.Add($"missing corridor REFR override {rfk}");
-                continue;
-            }
-            var srcRef = coreRefsByKey[rfk];
-            Need(expectedOwnBaseByCoreKey.TryGetValue(ri.CoreContKey, out var wantBase) && mref.Base.FormKey == wantBase,
-                $"REFR {rfk} Base {mref.Base.FormKey} != dedicated route CONT base");
-            Need(Near(mref.Position, srcRef.Position), $"REFR {rfk} moved position ({mref.Position} != {srcRef.Position})");
+            Need(mod.Worldspaces.Count == 0 && modExtRefs.Count == 0,
+                $"bases-only must contain 0 Worldspace / exterior REFR overrides, found worldspaces={mod.Worldspaces.Count}, refs={modExtRefs.Count}");
         }
-        foreach (var extraRef in modExtRefs.Keys.Where(k => !scan.RouteRefCategories.ContainsKey(k)))
-            problems.Add($"unexpected non-corridor REFR override in Worldspaces: {extraRef}");
-
-        var modContByKey = mod.Containers.ToDictionary(c => c.FormKey);
-        var ownCaseKey = new FormKey(Plugin, spec.OwnCaseBaseId);
-        Need(modContByKey.TryGetValue(ownCaseKey, out var armoryCase) && armoryCase.EditorID == ArmoryCaseEdid,
-            $"missing own CONT {ownCaseKey} ({ArmoryCaseEdid})");
-        if (armoryCase != null)
+        else
         {
-            var gotArmory = ReadContItems(armoryCase);
-            var wantArmory = spec.Categories["vault_armory"].Select(e => (e.Key, e.Count)).ToList();
-            Need(gotArmory.SequenceEqual(wantArmory), $"{ArmoryCaseEdid} items do not match vault_armory");
-            int pistolCnt = gotArmory.Where(x => x.Item == new FormKey(SfEsm, spec.PistolId)).Sum(x => x.Count);
-            int ammoCnt = gotArmory.Where(x => x.Item == new FormKey(SfEsm, spec.AmmoId)).Sum(x => x.Count);
-            int stimCnt = gotArmory.Where(x => x.Item == new FormKey(CoreValuesEsm, spec.StimpakId)).Sum(x => x.Count);
-            Need(pistolCnt >= 1 && ammoCnt >= spec.MinAmmoRounds && stimCnt >= spec.MinStimpaks,
-                $"{ArmoryCaseEdid} holds pistol={pistolCnt}, ammo={ammoCnt}, stimpaks={stimCnt}");
+            foreach (var mw in mod.Worldspaces)
+            {
+                Need(coreWorldByKey.TryGetValue(mw.FormKey, out var sw) && WorldOnly(sw).Equals(WorldOnly(mw)),
+                    $"Worldspace {mw.FormKey} header differs from FO4TerrainCore.esm");
+                void CheckExtCell(ICellGetter? mc)
+                {
+                    if (mc == null) return;
+                    Need(coreCellsByKey.TryGetValue(mc.FormKey, out var sc) && CellOnly(sc).Equals(CellOnly(mc)),
+                        $"Exterior CELL {mc.FormKey} header differs from FO4TerrainCore.esm");
+                }
+                CheckExtCell(mw.TopCell);
+                foreach (var blk in mw.SubCells)
+                    foreach (var sub in blk.Items)
+                        foreach (var ec in sub.Items)
+                            CheckExtCell(ec);
+            }
+
+            Need(modExtRefs.Count == scan.RouteRefCategories.Count,
+                $"overridden exterior REFR count {modExtRefs.Count} != expected corridor count {scan.RouteRefCategories.Count}");
+            foreach (var (rfk, ri) in scan.RouteRefCategories)
+            {
+                if (!modExtRefs.TryGetValue(rfk, out var mref))
+                {
+                    problems.Add($"missing corridor REFR override {rfk}");
+                    continue;
+                }
+                var srcRef = coreRefsByKey[rfk];
+                if (split == SplitMode.ExtOverridesOnly)
+                {
+                    Need(mref.Base.FormKey == ri.CoreContKey,
+                        $"ext-overrides-only REFR {rfk} Base {mref.Base.FormKey} != core CONT base {ri.CoreContKey}");
+                }
+                else
+                {
+                    Need(expectedOwnBaseByCoreKey.TryGetValue(ri.CoreContKey, out var wantBase) && mref.Base.FormKey == wantBase,
+                        $"REFR {rfk} Base {mref.Base.FormKey} != dedicated route CONT base");
+                }
+                Need(Near(mref.Position, srcRef.Position), $"REFR {rfk} moved position ({mref.Position} != {srcRef.Position})");
+            }
+            foreach (var extraRef in modExtRefs.Keys.Where(k => !scan.RouteRefCategories.ContainsKey(k)))
+                problems.Add($"unexpected non-corridor REFR override in Worldspaces: {extraRef}");
         }
 
         var cells = mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).ToList();
-        var v111Fk = new FormKey(PortEsm, spec.VaultCellId);
-        Need(cells.Count == 1 && cells[0].FormKey == v111Fk,
-            $"expected 1 interior CELL override ({v111Fk}), found [{string.Join(", ", cells.Select(c => c.FormKey))}]");
-        if (cells.Count == 1)
+        if (split == SplitMode.ExtOverridesOnly)
         {
-            var srcCell = port.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells)
-                .FirstOrDefault(c => c.FormKey == v111Fk);
-            Need(srcCell != null && CellOnly(srcCell).Equals(CellOnly(cells[0])),
-                $"CELL {v111Fk} header/fields differ from FO4Port.esm");
-            var placed = cells[0].Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
-            var caseRefFk = new FormKey(Plugin, spec.OwnCaseRefId);
-            Need(placed.TryGetValue(caseRefFk, out var cr) && cr.Base.FormKey == ownCaseKey && Near(cr.Position, spec.CasePos),
-                $"missing or misplaced Vault 111 armory case REFR {caseRefFk}");
-            foreach (var pk in spec.Pickups)
+            Need(cells.Count == 0, $"ext-overrides-only must contain 0 interior CELL overrides, found {cells.Count}");
+        }
+        else
+        {
+            var modContByKey = mod.Containers.ToDictionary(c => c.FormKey);
+            var ownCaseKey = new FormKey(Plugin, spec.OwnCaseBaseId);
+            Need(modContByKey.TryGetValue(ownCaseKey, out var armoryCase) && armoryCase.EditorID == ArmoryCaseEdid,
+                $"missing own CONT {ownCaseKey} ({ArmoryCaseEdid})");
+            if (armoryCase != null)
             {
-                var pfk = new FormKey(Plugin, pk.OwnRefId);
-                Need(placed.TryGetValue(pfk, out var pr) && pr.Base.FormKey == pk.BaseKey &&
-                     Near(pr.Position, pk.Pos) && (pk.Count == 1 ? (pr.Count ?? 1) == 1 : pr.Count == pk.Count),
-                    $"missing or mismatched Vault 111 pickup REFR {pfk}");
+                var gotArmory = ReadContItems(armoryCase);
+                var wantArmory = spec.Categories["vault_armory"].Select(e => (e.Key, e.Count)).ToList();
+                Need(gotArmory.SequenceEqual(wantArmory), $"{ArmoryCaseEdid} items do not match vault_armory");
+                int pistolCnt = gotArmory.Where(x => x.Item == new FormKey(SfEsm, spec.PistolId)).Sum(x => x.Count);
+                int ammoCnt = gotArmory.Where(x => x.Item == new FormKey(SfEsm, spec.AmmoId)).Sum(x => x.Count);
+                int stimCnt = gotArmory.Where(x => x.Item == new FormKey(CoreValuesEsm, spec.StimpakId)).Sum(x => x.Count);
+                Need(pistolCnt >= 1 && ammoCnt >= spec.MinAmmoRounds && stimCnt >= spec.MinStimpaks,
+                    $"{ArmoryCaseEdid} holds pistol={pistolCnt}, ammo={ammoCnt}, stimpaks={stimCnt}");
+            }
+
+            var v111Fk = new FormKey(PortEsm, spec.VaultCellId);
+            Need(cells.Count == 1 && cells[0].FormKey == v111Fk,
+                $"expected 1 interior CELL override ({v111Fk}), found [{string.Join(", ", cells.Select(c => c.FormKey))}]");
+            if (cells.Count == 1)
+            {
+                var srcCell = port.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells)
+                    .FirstOrDefault(c => c.FormKey == v111Fk);
+                Need(srcCell != null && CellOnly(srcCell).Equals(CellOnly(cells[0])),
+                    $"CELL {v111Fk} header/fields differ from FO4Port.esm");
+                var placed = cells[0].Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+                var caseRefFk = new FormKey(Plugin, spec.OwnCaseRefId);
+                Need(placed.TryGetValue(caseRefFk, out var cr) && cr.Base.FormKey == ownCaseKey && Near(cr.Position, spec.CasePos),
+                    $"missing or misplaced Vault 111 armory case REFR {caseRefFk}");
+                foreach (var pk in spec.Pickups)
+                {
+                    var pfk = new FormKey(Plugin, pk.OwnRefId);
+                    Need(placed.TryGetValue(pfk, out var pr) && pr.Base.FormKey == pk.BaseKey &&
+                         Near(pr.Position, pk.Pos) && (pk.Count == 1 ? (pr.Count ?? 1) == 1 : pr.Count == pk.Count),
+                        $"missing or mismatched Vault 111 pickup REFR {pfk}");
+                }
             }
         }
 
@@ -820,17 +933,17 @@ static class RouteLoot
         }
         Console.WriteLine(
             $"check: ok ({mod.Containers.Count} CONT records, 0 core CONT overrides, {modExtRefs.Count} corridor REFR overrides, " +
-            $"1 interior CELL override, {1 + spec.Pickups.Length} Vault 111 REFRs)");
+            $"{cells.Count} interior CELL override, {(split == SplitMode.ExtOverridesOnly ? 0 : 1 + spec.Pickups.Length)} Vault 111 REFRs)");
         return 0;
     }
 
-    public static int Census(string pluginPath, string sfPath, string corePath, string portPath, string? outJson, string? jsonPath = null)
+    public static int Census(string pluginPath, string sfPath, string corePath, string portPath, string? outJson, string? jsonPath = null, SplitMode split = SplitMode.Full)
     {
         var spec = LoadSpec(jsonPath);
         using var sf = OpenMod(sfPath, SfEsm);
         using var core = OpenMod(corePath, SfEsm);
         using var port = OpenMod(portPath, SfEsm);
-        using var mod = OpenMod(pluginPath, ExpectedMasters);
+        using var mod = OpenMod(pluginPath, ExpectedMastersForSplit(split));
 
         ValidateStarfieldAssets(sf, spec);
 
@@ -906,11 +1019,14 @@ static class RouteLoot
         }
 
         var v111Cell = mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells)
-            .FirstOrDefault(c => c.FormKey == new FormKey(PortEsm, spec.VaultCellId))
-            ?? throw new Refusal($"FO4SFRouteLoot.esm lacks Vault 111 CELL 0x{spec.VaultCellId:X6}");
+            .FirstOrDefault(c => c.FormKey == new FormKey(PortEsm, spec.VaultCellId));
+        if (split != SplitMode.ExtOverridesOnly && v111Cell == null)
+            throw new Refusal($"FO4SFRouteLoot.esm lacks Vault 111 CELL 0x{spec.VaultCellId:X6}");
 
         var ownCaseKey = new FormKey(Plugin, spec.OwnCaseBaseId);
-        var caseItems = winningConts.TryGetValue(ownCaseKey, out var ac) ? ReadContItems(ac) : new();
+        var caseItems = (split != SplitMode.ExtOverridesOnly && winningConts.TryGetValue(ownCaseKey, out var ac))
+            ? ReadContItems(ac)
+            : new();
         var pistolFk = new FormKey(SfEsm, spec.PistolId);
         var ammoFk = new FormKey(SfEsm, spec.AmmoId);
         var stimFk = new FormKey(CoreValuesEsm, spec.StimpakId);
@@ -919,7 +1035,7 @@ static class RouteLoot
         int caseAmmo = caseItems.Where(x => x.Item == ammoFk).Sum(x => x.Count);
         int caseStims = caseItems.Where(x => x.Item == stimFk).Sum(x => x.Count);
 
-        var placedV111 = v111Cell.Temporary.OfType<IPlacedObjectGetter>().ToList();
+        var placedV111 = v111Cell != null ? v111Cell.Temporary.OfType<IPlacedObjectGetter>().ToList() : new List<IPlacedObjectGetter>();
         int pickupPistols = placedV111.Where(r => r.Base.FormKey == pistolFk).Sum(r => r.Count ?? 1);
         int pickupAmmo = placedV111.Where(r => r.Base.FormKey == ammoFk).Sum(r => r.Count ?? 1);
         int pickupStims = placedV111.Where(r => r.Base.FormKey == stimFk).Sum(r => r.Count ?? 1);
@@ -928,55 +1044,81 @@ static class RouteLoot
         int portContOverrides = mod.Containers.Count(c => c.FormKey.ModKey == PortEsm);
         int ownRouteContBases = mod.Containers.Count(c => c.FormKey.ModKey == Plugin && c.FormKey.ID != spec.OwnCaseBaseId);
 
-        var report = new
+        var v111Report = new
         {
-            schema_version = 1,
-            plugin = Plugin.FileName.String,
-            corridor_radius_m = spec.CorridorRadiusM,
-            corridor_polyline_m = spec.Polyline.Select(p => new[] { p.X, p.Y }).ToArray(),
-            total_exterior_containers = totalExtConts,
-            route_containers_within_600m = routeWithin,
-            route_containers_modified = routeModified,
-            route_containers_with_non_credit_items = routeNonCredit,
-            route_containers_credits_only = routeCreditsOnly,
-            route_containers_empty = routeEmpty,
-            route_containers_by_category = catCounts,
-            outside_corridor_containers = outsideTotal,
-            outside_corridor_containers_modified = outsideModified,
-            overridden_core_cont_bases = coreContOverrides,
-            own_route_cont_bases = ownRouteContBases,
-            overridden_route_container_refs = modExtRefs.Count,
-            overridden_port_cont_bases = portContOverrides,
-            vault111 = new
-            {
-                cell_id = $"0x{spec.VaultCellId:X6}",
-                pistol_id = $"0x{spec.PistolId:X6}",
-                ammo_id = $"0x{spec.AmmoId:X6}",
-                stimpak_id = $"0x{spec.StimpakId:X6}",
-                armory_case_base_id = $"0x{spec.OwnCaseBaseId:X6}",
-                armory_case_ref_id = $"0x{spec.OwnCaseRefId:X6}",
-                armory_case_pos_m = new[] { spec.CasePos.X, spec.CasePos.Y, spec.CasePos.Z },
-                armory_case_pistols = casePistols,
-                armory_case_ammo_rounds = caseAmmo,
-                armory_case_stimpaks = caseStims,
-                pickup_pistols = pickupPistols,
-                pickup_ammo_rounds = pickupAmmo,
-                pickup_stimpaks = pickupStims,
-                total_pistols = casePistols + pickupPistols,
-                total_ammo_rounds = caseAmmo + pickupAmmo,
-                total_stimpaks = caseStims + pickupStims,
-                pickups = placedV111.Where(r => r.FormKey.ModKey == Plugin && r.FormKey.ID != spec.OwnCaseRefId)
-                    .OrderBy(r => r.FormKey.ID)
-                    .Select(r => new
-                    {
-                        ref_id = $"0x{r.FormKey.ID:X6}",
-                        base_plugin = r.Base.FormKey.ModKey.FileName.String,
-                        base_id = $"0x{r.Base.FormKey.ID:X6}",
-                        count = r.Count ?? 1,
-                        pos_m = new[] { Math.Round(r.Position.X, 4), Math.Round(r.Position.Y, 4), Math.Round(r.Position.Z, 4) },
-                    }).ToArray(),
-            },
+            cell_id = $"0x{spec.VaultCellId:X6}",
+            pistol_id = $"0x{spec.PistolId:X6}",
+            ammo_id = $"0x{spec.AmmoId:X6}",
+            stimpak_id = $"0x{spec.StimpakId:X6}",
+            armory_case_base_id = $"0x{spec.OwnCaseBaseId:X6}",
+            armory_case_ref_id = $"0x{spec.OwnCaseRefId:X6}",
+            armory_case_pos_m = new[] { spec.CasePos.X, spec.CasePos.Y, spec.CasePos.Z },
+            armory_case_pistols = casePistols,
+            armory_case_ammo_rounds = caseAmmo,
+            armory_case_stimpaks = caseStims,
+            pickup_pistols = pickupPistols,
+            pickup_ammo_rounds = pickupAmmo,
+            pickup_stimpaks = pickupStims,
+            total_pistols = casePistols + pickupPistols,
+            total_ammo_rounds = caseAmmo + pickupAmmo,
+            total_stimpaks = caseStims + pickupStims,
+            pickups = placedV111.Where(r => r.FormKey.ModKey == Plugin && r.FormKey.ID != spec.OwnCaseRefId)
+                .OrderBy(r => r.FormKey.ID)
+                .Select(r => new
+                {
+                    ref_id = $"0x{r.FormKey.ID:X6}",
+                    base_plugin = r.Base.FormKey.ModKey.FileName.String,
+                    base_id = $"0x{r.Base.FormKey.ID:X6}",
+                    count = r.Count ?? 1,
+                    pos_m = new[] { Math.Round(r.Position.X, 4), Math.Round(r.Position.Y, 4), Math.Round(r.Position.Z, 4) },
+                }).ToArray(),
         };
+
+        object report = split == SplitMode.Full
+            ? new
+            {
+                schema_version = 1,
+                plugin = Plugin.FileName.String,
+                corridor_radius_m = spec.CorridorRadiusM,
+                corridor_polyline_m = spec.Polyline.Select(p => new[] { p.X, p.Y }).ToArray(),
+                total_exterior_containers = totalExtConts,
+                route_containers_within_600m = routeWithin,
+                route_containers_modified = routeModified,
+                route_containers_with_non_credit_items = routeNonCredit,
+                route_containers_credits_only = routeCreditsOnly,
+                route_containers_empty = routeEmpty,
+                route_containers_by_category = catCounts,
+                outside_corridor_containers = outsideTotal,
+                outside_corridor_containers_modified = outsideModified,
+                overridden_core_cont_bases = coreContOverrides,
+                own_route_cont_bases = ownRouteContBases,
+                overridden_route_container_refs = modExtRefs.Count,
+                overridden_port_cont_bases = portContOverrides,
+                vault111 = v111Report,
+            }
+            : new
+            {
+                schema_version = 1,
+                plugin = Plugin.FileName.String,
+                split = SplitLabel(split),
+                corridor_radius_m = spec.CorridorRadiusM,
+                corridor_polyline_m = spec.Polyline.Select(p => new[] { p.X, p.Y }).ToArray(),
+                total_exterior_containers = totalExtConts,
+                route_containers_within_600m = routeWithin,
+                route_containers_modified = routeModified,
+                route_containers_with_non_credit_items = routeNonCredit,
+                route_containers_credits_only = routeCreditsOnly,
+                route_containers_empty = routeEmpty,
+                route_containers_by_category = catCounts,
+                outside_corridor_containers = outsideTotal,
+                outside_corridor_containers_modified = outsideModified,
+                overridden_core_cont_bases = coreContOverrides,
+                own_route_cont_bases = ownRouteContBases,
+                overridden_route_container_refs = modExtRefs.Count,
+                overridden_worldspaces = mod.Worldspaces.Count,
+                overridden_port_cont_bases = portContOverrides,
+                vault111 = v111Report,
+            };
 
         if (outJson != null)
         {
@@ -984,14 +1126,21 @@ static class RouteLoot
             File.WriteAllText(outJson, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }) + "\n");
         }
 
-        if (coreContOverrides != 0 || outsideModified != 0 ||
-            routeNonCredit <= 0 || casePistols < 1 || caseAmmo < spec.MinAmmoRounds || caseStims < spec.MinStimpaks)
+        if (coreContOverrides != 0 || outsideModified != 0)
+            throw new Refusal($"census failed acceptance: core_cont_overrides={coreContOverrides}, outside_modified={outsideModified}");
+        if (split == SplitMode.Full && (routeNonCredit <= 0 || casePistols < 1 || caseAmmo < spec.MinAmmoRounds || caseStims < spec.MinStimpaks))
             throw new Refusal(
-                $"census failed acceptance: core_cont_overrides={coreContOverrides}, outside_modified={outsideModified}, " +
-                $"route_non_credit={routeNonCredit}, case_pistols={casePistols}, case_ammo={caseAmmo}, case_stims={caseStims}");
+                $"census failed acceptance: route_non_credit={routeNonCredit}, case_pistols={casePistols}, case_ammo={caseAmmo}, case_stims={caseStims}");
+        if (split == SplitMode.BasesOnly && (ownRouteContBases <= 0 || modExtRefs.Count != 0 || mod.Worldspaces.Count != 0 ||
+            casePistols < 1 || caseAmmo < spec.MinAmmoRounds || caseStims < spec.MinStimpaks))
+            throw new Refusal(
+                $"census failed bases-only acceptance: own_bases={ownRouteContBases}, ext_refs={modExtRefs.Count}, worldspaces={mod.Worldspaces.Count}, case_pistols={casePistols}");
+        if (split == SplitMode.ExtOverridesOnly && (ownRouteContBases != 0 || mod.Containers.Count != 0 || modExtRefs.Count <= 0 || mod.Worldspaces.Count <= 0))
+            throw new Refusal(
+                $"census failed ext-overrides-only acceptance: own_bases={ownRouteContBases}, conts={mod.Containers.Count}, ext_refs={modExtRefs.Count}, worldspaces={mod.Worldspaces.Count}");
 
         Console.WriteLine(
-            $"census: ok (exterior={totalExtConts}, <=600m={routeWithin}, route_modified={routeModified}, non_credit={routeNonCredit}, " +
+            $"census: ok (split={SplitLabel(split)}, exterior={totalExtConts}, <=600m={routeWithin}, route_modified={routeModified}, non_credit={routeNonCredit}, " +
             $"outside_modified={outsideModified}/{outsideTotal}, Vault111 pistol=0x{spec.PistolId:X6} case_ammo={caseAmmo} total_ammo={caseAmmo + pickupAmmo})");
         return 0;
     }
@@ -1160,6 +1309,31 @@ static class RouteLoot
         WriteAtomic(badMod, badDir);
         if (Check(Path.Combine(badDir, Plugin.FileName), sfPath, corePath, portPath) == 0)
             throw new Refusal("selftest Check accepted tampered <48 ammo plugin");
+
+        // 6. T1 split builds: bases-only vs ext-overrides-only + negative tamper controls.
+        var basesDir = Path.Combine(scratchDir, "stage-bases-only");
+        var basesCensus = Path.Combine(basesDir, "census.json");
+        if (Build(sfPath, corePath, portPath, basesDir, split: SplitMode.BasesOnly) != 0)
+            throw new Refusal("selftest Build bases-only failed");
+        var basesPlugin = Path.Combine(basesDir, Plugin.FileName);
+        if (Check(basesPlugin, sfPath, corePath, portPath, split: SplitMode.BasesOnly) != 0)
+            throw new Refusal("selftest Check bases-only failed");
+        if (Census(basesPlugin, sfPath, corePath, portPath, basesCensus, split: SplitMode.BasesOnly) != 0)
+            throw new Refusal("selftest Census bases-only failed");
+        if (Check(basesPlugin, sfPath, corePath, portPath, split: SplitMode.Full) == 0)
+            throw new Refusal("selftest Check full accepted bases-only plugin");
+
+        var extDir = Path.Combine(scratchDir, "stage-ext-overrides-only");
+        var extCensus = Path.Combine(extDir, "census.json");
+        if (Build(sfPath, corePath, portPath, extDir, split: SplitMode.ExtOverridesOnly) != 0)
+            throw new Refusal("selftest Build ext-overrides-only failed");
+        var extPlugin = Path.Combine(extDir, Plugin.FileName);
+        if (Check(extPlugin, sfPath, corePath, portPath, split: SplitMode.ExtOverridesOnly) != 0)
+            throw new Refusal("selftest Check ext-overrides-only failed");
+        if (Census(extPlugin, sfPath, corePath, portPath, extCensus, split: SplitMode.ExtOverridesOnly) != 0)
+            throw new Refusal("selftest Census ext-overrides-only failed");
+        if (Check(extPlugin, sfPath, corePath, portPath, split: SplitMode.Full) == 0)
+            throw new Refusal("selftest Check full accepted ext-overrides-only plugin");
 
         Console.WriteLine("selftest: PASS");
         return 0;

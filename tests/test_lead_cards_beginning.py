@@ -676,6 +676,7 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
             "--out", str(cand2b_player),
             "--port", str(port_esm),
             "--profile", "player",
+            "--with-route-loot",
             "--with-pipboy",
             "--pipboy-stage", str(pb),
         ],

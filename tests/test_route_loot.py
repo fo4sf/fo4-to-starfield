@@ -148,6 +148,115 @@ class RouteLootWriterAndStageTests(unittest.TestCase):
             bad_problems = make_route_loot.verify_stage_dir(stage_out, plan_path, sf_esm, core_esm, port_esm)
             self.assertTrue(any("plugin sha256" in p for p in bad_problems))
 
+            # T1 isolation splits: bases-only vs ext-overrides-only
+            bases_out = os.path.join(tmp, "staged-bases-only")
+            self.assertEqual(
+                make_route_loot.main(
+                    [
+                        "stage",
+                        "--out",
+                        bases_out,
+                        "--starfield",
+                        sf_esm,
+                        "--core",
+                        core_esm,
+                        "--port",
+                        port_esm,
+                        "--split",
+                        "bases-only",
+                    ]
+                ),
+                0,
+            )
+            with open(os.path.join(bases_out, "census.json"), encoding="utf-8") as f:
+                bc = json.load(f)
+            self.assertEqual(bc["split"], "bases-only")
+            self.assertGreater(bc["own_route_cont_bases"], 0)
+            self.assertEqual(bc["overridden_route_container_refs"], 0)
+            self.assertEqual(bc["overridden_worldspaces"], 0)
+            self.assertGreaterEqual(bc["vault111"]["armory_case_pistols"], 1)
+            self.assertEqual(
+                make_route_loot.main(
+                    [
+                        "verify",
+                        "--exp-dir",
+                        bases_out,
+                        "--plan",
+                        os.path.join(bases_out, "plan.json"),
+                        "--starfield",
+                        sf_esm,
+                        "--core",
+                        core_esm,
+                        "--port",
+                        port_esm,
+                        "--split",
+                        "bases-only",
+                    ]
+                ),
+                0,
+            )
+            self.assertNotEqual(
+                make_route_loot.main(
+                    [
+                        "verify",
+                        "--exp-dir",
+                        bases_out,
+                        "--plan",
+                        os.path.join(bases_out, "plan.json"),
+                        "--split",
+                        "ext-overrides-only",
+                    ]
+                ),
+                0,
+            )
+
+            ext_out = os.path.join(tmp, "staged-ext-overrides-only")
+            self.assertEqual(
+                make_route_loot.main(
+                    [
+                        "stage",
+                        "--out",
+                        ext_out,
+                        "--starfield",
+                        sf_esm,
+                        "--core",
+                        core_esm,
+                        "--port",
+                        port_esm,
+                        "--split",
+                        "ext-overrides-only",
+                    ]
+                ),
+                0,
+            )
+            with open(os.path.join(ext_out, "census.json"), encoding="utf-8") as f:
+                ec = json.load(f)
+            self.assertEqual(ec["split"], "ext-overrides-only")
+            self.assertEqual(ec["own_route_cont_bases"], 0)
+            self.assertEqual(ec["overridden_route_container_refs"], 4)
+            self.assertEqual(ec["overridden_worldspaces"], 1)
+            self.assertEqual(ec["vault111"]["armory_case_pistols"], 0)
+            self.assertEqual(
+                make_route_loot.main(
+                    [
+                        "verify",
+                        "--exp-dir",
+                        ext_out,
+                        "--plan",
+                        os.path.join(ext_out, "plan.json"),
+                        "--starfield",
+                        sf_esm,
+                        "--core",
+                        core_esm,
+                        "--port",
+                        port_esm,
+                        "--split",
+                        "ext-overrides-only",
+                    ]
+                ),
+                0,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

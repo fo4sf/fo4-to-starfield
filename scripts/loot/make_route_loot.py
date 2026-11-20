@@ -121,20 +121,57 @@ def read_tes4_header_info(esm_path: str) -> Tuple[int, List[str]]:
     return hflags, masters
 
 
-def verify_census_doc(census: Dict[str, object], min_ammo: int = 48, min_stimpaks: int = 2) -> List[str]:
+SPLIT_MODES = ("full", "bases-only", "ext-overrides-only")
+
+
+def expected_masters_for_split(split: str = "full") -> Tuple[str, ...]:
+    if split == "bases-only":
+        return tuple(m for m in ROUTE_LOOT_MASTERS if m != "FO4TerrainCore.esm")
+    if split == "ext-overrides-only":
+        return ("Starfield.esm", "FO4TerrainCore.esm")
+    return ROUTE_LOOT_MASTERS
+
+
+def verify_census_doc(
+    census: Dict[str, object],
+    min_ammo: int = 48,
+    min_stimpaks: int = 2,
+    split: str = "full",
+) -> List[str]:
     problems: List[str] = []
+    if split not in SPLIT_MODES:
+        return [f"unsupported split mode: {split!r}"]
     non_credit = int(census.get("route_containers_with_non_credit_items", 0))  # type: ignore[arg-type]
     within = int(census.get("route_containers_within_600m", 0))  # type: ignore[arg-type]
     core_cont_ov = int(census.get("overridden_core_cont_bases", 0))  # type: ignore[arg-type]
     outside_mod = int(census.get("outside_corridor_containers_modified", 0))  # type: ignore[arg-type]
+    own_bases = int(census.get("own_route_cont_bases", 0))  # type: ignore[arg-type]
+    ext_refs = int(census.get("overridden_route_container_refs", 0))  # type: ignore[arg-type]
+    wrld_ov = int(census.get("overridden_worldspaces", 0))  # type: ignore[arg-type]
     if core_cont_ov != 0:
         problems.append(f"B10 violation: overridden_core_cont_bases={core_cont_ov} (expected 0)")
     if outside_mod != 0:
         problems.append(f"B10 violation: outside_corridor_containers_modified={outside_mod} (expected 0)")
     if within <= 0:
         problems.append(f"route_containers_within_600m={within} (expected > 0)")
-    if non_credit <= 0:
-        problems.append(f"route_containers_with_non_credit_items={non_credit} (expected > 0)")
+
+    if split == "full":
+        if non_credit <= 0:
+            problems.append(f"route_containers_with_non_credit_items={non_credit} (expected > 0)")
+        if own_bases <= 0 or ext_refs <= 0:
+            problems.append(f"full split requires own_route_cont_bases>0 and overridden_route_container_refs>0 (got {own_bases}, {ext_refs})")
+    elif split == "bases-only":
+        if own_bases <= 0:
+            problems.append(f"bases-only requires own_route_cont_bases>0, got {own_bases}")
+        if ext_refs != 0 or wrld_ov != 0:
+            problems.append(f"bases-only requires 0 exterior REFR/WRLD overrides, got refs={ext_refs}, worldspaces={wrld_ov}")
+    elif split == "ext-overrides-only":
+        if own_bases != 0:
+            problems.append(f"ext-overrides-only requires own_route_cont_bases=0, got {own_bases}")
+        if ext_refs <= 0 or wrld_ov <= 0:
+            problems.append(f"ext-overrides-only requires exterior REFR/WRLD overrides > 0, got refs={ext_refs}, worldspaces={wrld_ov}")
+        return problems
+
     v111 = census.get("vault111")
     if not isinstance(v111, dict):
         problems.append("census missing vault111 block")
@@ -159,6 +196,10 @@ def cmd_stage(args: argparse.Namespace) -> int:
     if os.path.exists(final_dir):
         sys.exit(f"{final_dir} exists: stage into a new folder (existing stages are never overwritten)")
 
+    split = getattr(args, "split", "full") or "full"
+    if split not in SPLIT_MODES:
+        sys.exit(f"unsupported --split: {split!r}")
+
     json_path = os.path.abspath(args.json) if args.json else ROUTE_LOOT_IDS_JSON
     for flag, path in (
         ("--starfield", args.starfield),
@@ -181,9 +222,10 @@ def cmd_stage(args: argparse.Namespace) -> int:
     out = new_partial_dir(final_dir)
     plugin_path = os.path.join(out, ROUTE_LOOT_PLUGIN)
     census_path = os.path.join(out, "census.json")
+    split_args = ["--split", split] if split != "full" else []
 
-    b_res = run_cmd(["dotnet", dll, "build", args.starfield, args.core, args.port, out, "--json", json_path])
-    c_res = run_cmd(["dotnet", dll, "check", plugin_path, args.starfield, args.core, args.port, "--json", json_path])
+    b_res = run_cmd(["dotnet", dll, "build", args.starfield, args.core, args.port, out, "--json", json_path, *split_args])
+    c_res = run_cmd(["dotnet", dll, "check", plugin_path, args.starfield, args.core, args.port, "--json", json_path, *split_args])
     n_res = run_cmd(
         [
             "dotnet",
@@ -197,6 +239,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
             census_path,
             "--json",
             json_path,
+            *split_args,
         ]
     )
 
@@ -206,12 +249,13 @@ def cmd_stage(args: argparse.Namespace) -> int:
     with open(census_path, encoding="utf-8") as f:
         census = json.load(f)
 
-    problems = verify_census_doc(census, spec.vault_min_ammo_rounds, spec.vault_min_stimpaks)
+    problems = verify_census_doc(census, spec.vault_min_ammo_rounds, spec.vault_min_stimpaks, split=split)
+    want_masters = expected_masters_for_split(split)
     hflags, masters = read_tes4_header_info(plugin_path)
     if not (hflags & 0x01):
         problems.append("TES4 Master flag (0x01) missing")
-    if tuple(masters) != ROUTE_LOOT_MASTERS:
-        problems.append(f"TES4 masters {masters} != {list(ROUTE_LOOT_MASTERS)}")
+    if tuple(masters) != want_masters:
+        problems.append(f"TES4 masters {masters} != {list(want_masters)}")
     if problems:
         sys.exit(f"stage verification failed ({'; '.join(problems)}); attempt kept in {out}")
 
@@ -231,7 +275,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
         "plugin": ROUTE_LOOT_PLUGIN,
         "plugin_sha256": sha256_file(plugin_path),
         "plugin_bytes": os.path.getsize(plugin_path),
-        "masters": list(ROUTE_LOOT_MASTERS),
+        "masters": list(want_masters),
         "census_file": "census.json",
         "census_sha256": sha256_file(census_path),
         "checked_against_sha256": {
@@ -256,12 +300,14 @@ def cmd_stage(args: argparse.Namespace) -> int:
         },
         "vault111": census["vault111"],
     }
+    if split != "full":
+        plan["split"] = split
     save_json_atomic(os.path.join(out, "plan.json"), plan)
 
     readme = (
-        f"Route & Vault 111 Loot stage ({datetime.date.today().isoformat()}). NOT installed, NOT deployed.\n"
+        f"Route & Vault 111 Loot stage ({datetime.date.today().isoformat()}, split={split}). NOT installed, NOT deployed.\n"
         f"Plugin: {ROUTE_LOOT_PLUGIN} ({plan['plugin_bytes']:,} bytes, sha256 {plan['plugin_sha256']}).\n"
-        f"Masters: {', '.join(ROUTE_LOOT_MASTERS)}.\n"
+        f"Masters: {', '.join(want_masters)}.\n"
         f"Corridor (<= {spec.corridor_radius_m:g} m): "
         f"{census['route_containers_with_non_credit_items']}/{census['route_containers_within_600m']} "
         f"containers hold non-credit items ({census.get('overridden_route_container_refs', 0)} corridor REFR overrides, "
@@ -287,6 +333,7 @@ def verify_stage_dir(
     starfield_esm: Optional[str] = None,
     core_esm: Optional[str] = None,
     port_esm: Optional[str] = None,
+    expected_split: Optional[str] = None,
 ) -> List[str]:
     problems: List[str] = []
     if not os.path.isfile(plan_path):
@@ -296,6 +343,12 @@ def verify_stage_dir(
     if plan.get("kind") != "route-loot" or plan.get("plugin") != ROUTE_LOOT_PLUGIN:
         return [f"{plan_path}: not a route-loot plan"]
 
+    split = str(plan.get("split") or "full")
+    if split not in SPLIT_MODES:
+        problems.append(f"invalid split in plan.json: {split!r}")
+    if expected_split and split != expected_split:
+        problems.append(f"plan split {split!r} != expected {expected_split!r}")
+
     plugin_path = os.path.join(exp_dir, plan["plugin"])
     if not os.path.isfile(plugin_path):
         problems.append(f"missing plugin: {plugin_path}")
@@ -303,11 +356,12 @@ def verify_stage_dir(
         actual_sha = sha256_file(plugin_path)
         if actual_sha != plan.get("plugin_sha256"):
             problems.append(f"plugin sha256 {actual_sha} != expected {plan.get('plugin_sha256')}")
+        want_masters = expected_masters_for_split(split if split in SPLIT_MODES else "full")
         hflags, masters = read_tes4_header_info(plugin_path)
         if not (hflags & 0x01):
             problems.append("plugin TES4 header lacks Master flag (0x01)")
-        if tuple(masters) != ROUTE_LOOT_MASTERS:
-            problems.append(f"plugin TES4 masters {masters} != {list(ROUTE_LOOT_MASTERS)}")
+        if tuple(masters) != want_masters:
+            problems.append(f"plugin TES4 masters {masters} != {list(want_masters)}")
 
     census_path = os.path.join(exp_dir, plan.get("census_file", "census.json"))
     if not os.path.isfile(census_path):
@@ -318,7 +372,7 @@ def verify_stage_dir(
             problems.append(f"census sha256 {c_sha} != expected {plan.get('census_sha256')}")
         with open(census_path, encoding="utf-8") as f:
             census = json.load(f)
-        problems.extend(verify_census_doc(census))
+        problems.extend(verify_census_doc(census, split=split if split in SPLIT_MODES else "full"))
 
     pinned = plan.get("checked_against_sha256") or {}
     for label, arg_path in (
@@ -336,7 +390,7 @@ def verify_stage_dir(
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    problems = verify_stage_dir(args.exp_dir, args.plan, args.starfield, args.core, args.port)
+    problems = verify_stage_dir(args.exp_dir, args.plan, args.starfield, args.core, args.port, expected_split=args.split)
     for p in problems:
         print("FAIL  " + p)
     print("verify: ok" if not problems else f"verify: {len(problems)} problem(s)")
@@ -347,6 +401,8 @@ def cmd_census(args: argparse.Namespace) -> int:
     json_path = os.path.abspath(args.json) if args.json else ROUTE_LOOT_IDS_JSON
     dll = build_routeloot_dll()
     cmd = ["dotnet", dll, "census", args.plugin, args.starfield, args.core, args.port, "--json", json_path]
+    if getattr(args, "split", "full") != "full":
+        cmd.extend(["--split", args.split])
     if args.out:
         cmd.extend(["--out", args.out])
     res = run_cmd(cmd)
@@ -355,7 +411,7 @@ def cmd_census(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Stage and verify FO4SFRouteLoot.esm (2i)")
+    p = argparse.ArgumentParser(description="Stage and verify FO4SFRouteLoot.esm (2i / T1)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp_st = sub.add_parser("stage", help="build FO4SFRouteLoot.esm, run check + census, write plan.json")
@@ -364,6 +420,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp_st.add_argument("--core", required=True)
     sp_st.add_argument("--port", required=True)
     sp_st.add_argument("--json", help="optional path to route_loot_ids.json")
+    sp_st.add_argument(
+        "--split",
+        choices=SPLIT_MODES,
+        default="full",
+        help="T1 isolation split: full (default), bases-only (CONT bases + Vault 111 interior, 0 WRLD/exterior overrides), or ext-overrides-only (WRLD + exterior CELL/REFR overrides only, 0 CONT/interior records)",
+    )
     sp_st.set_defaults(func=cmd_stage)
 
     sp_vf = sub.add_parser("verify", help="verify staged FO4SFRouteLoot.esm + census.json + plan.json")
@@ -372,6 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp_vf.add_argument("--starfield")
     sp_vf.add_argument("--core")
     sp_vf.add_argument("--port")
+    sp_vf.add_argument("--split", choices=SPLIT_MODES, default=None, help="optional expected split mode assertion")
     sp_vf.set_defaults(func=cmd_verify)
 
     sp_cn = sub.add_parser("census", help="run offline route + Vault 111 loot census")
@@ -381,6 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp_cn.add_argument("--port", required=True)
     sp_cn.add_argument("--out")
     sp_cn.add_argument("--json")
+    sp_cn.add_argument("--split", choices=SPLIT_MODES, default="full")
     sp_cn.set_defaults(func=cmd_census)
 
     return p

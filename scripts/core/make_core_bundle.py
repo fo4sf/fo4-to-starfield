@@ -175,7 +175,6 @@ PLAYER_BUNDLE_PLUGINS = (
     "FO4SFRads.esm",
     "FO4SFHardcore.esm",
     "FO4SFWorkshop.esm",
-    "FO4SFRouteLoot.esm",
     "FO4SFPowerArmor.esm",
     "FO4SFProgression.esm",
     "FO4SFListDialogue.esm",
@@ -188,10 +187,16 @@ PLAYER_BUNDLE_PLUGINS = (
     "FO4SFPipboyTravel.esm",
 )
 
+PLAYER_WITH_ROUTE_LOOT_PLUGINS = (
+    *PLAYER_BUNDLE_PLUGINS[:11],
+    "FO4SFRouteLoot.esm",
+    *PLAYER_BUNDLE_PLUGINS[11:],
+)
+
 CORE_BUNDLE_PLUGINS = (
-    *PLAYER_BUNDLE_PLUGINS[:20],
+    *PLAYER_WITH_ROUTE_LOOT_PLUGINS[:20],
     "FO4SFCoreCandidate.esm",
-    *PLAYER_BUNDLE_PLUGINS[20:],
+    *PLAYER_WITH_ROUTE_LOOT_PLUGINS[20:],
 )
 
 TEST_CELL_SLICE_KEYS = frozenset({"powerarmor", "list_dialogue", "combat", "reputation", "companions"})
@@ -652,9 +657,15 @@ def verify_bundle(
             if readme_plugins != plugins:
                 problems.append(f"README.txt --plugins {readme_plugins} != bundle_plan plugins {plugins}")
 
-    # 1b. Enforce player profile excludes FO4SFCoreCandidate.esm
+    # 1b. Enforce player profile excludes FO4SFCoreCandidate.esm and (until T1 is proven) FO4SFRouteLoot.esm
     if bplan.get("profile") == "player" and any(p.casefold() == "fo4sfcorecandidate.esm" for p in plugins):
         problems.append("player profile must not include FO4SFCoreCandidate.esm")
+    if (
+        bplan.get("profile") == "player"
+        and not bplan.get("with_route_loot", False)
+        and any(p.casefold() == "fo4sfrouteloot.esm" for p in plugins)
+    ):
+        problems.append("player profile must not include FO4SFRouteLoot.esm unless --with-route-loot is set (T1)")
 
     # 2. Verify every recorded file SHA-256 across all folded components & sidecar
     for comp, cinfo in (bplan.get("components") or {}).items():
@@ -1108,12 +1119,16 @@ def stage_from_checkout(a) -> Dict[str, str]:
             ])
         stages["alife"] = alife_dir
 
-    if getattr(a, "route_loot_stage", None):
+    include_route_loot = (
+        not getattr(a, "no_route_loot", False)
+        and (profile == "test" or getattr(a, "with_route_loot", False))
+    )
+    if include_route_loot and getattr(a, "route_loot_stage", None):
         rl_override = os.path.abspath(a.route_loot_stage)
         if not os.path.isdir(rl_override):
             raise BundleRefused(f"--route-loot-stage directory not found: {rl_override}")
         stages["route_loot"] = rl_override
-    elif not getattr(a, "no_route_loot", False):
+    elif include_route_loot:
         rl_script = os.path.join(REPO, "scripts", "loot", "make_route_loot.py")
         if os.path.isfile(rl_script):
             rl_dir = os.path.join(work, "17-route-loot")
@@ -1343,6 +1358,7 @@ def fold_bundle(
     max_ba2_bytes: int = MAX_BA2_BYTES,
     profile: str = "player",
     pipboy_sfse_override: Optional[str] = None,
+    with_route_loot: bool = False,
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
     final = os.path.abspath(out_dir)
@@ -1351,8 +1367,11 @@ def fold_bundle(
     refuse_unsafe_output_dir(cc_dir, label="--clean-core-out", game_dirs=(starfield_dir,))
     if os.path.exists(final):
         raise BundleRefused(f"output bundle directory already exists: {final}")
-    if profile == "player" and "candidate_walk" in stages:
-        stages = {k: v for k, v in stages.items() if k != "candidate_walk"}
+    if profile == "player":
+        dropped_player_keys = {"candidate_walk"}
+        if not with_route_loot:
+            dropped_player_keys.add("route_loot")
+        stages = {k: v for k, v in stages.items() if k not in dropped_player_keys}
 
     has_mission_stage = "mission" in stages
     mission_data_rels: List[str] = []
@@ -1535,6 +1554,7 @@ def fold_bundle(
         "version": 2,
         "build_head": current_git_head(REPO),
         "profile": profile,
+        "with_route_loot": bool(with_route_loot) if profile == "player" else ("route_loot" in components_record),
         "base_plugins": base_plugins,
         "plugins": plugins,
         "components": components_record,
@@ -1588,6 +1608,7 @@ def cmd_build(a, system=None) -> int:
         max_ba2_bytes=a.max_ba2_bytes,
         profile=a.profile,
         pipboy_sfse_override=getattr(a, "_pipboy_sfse_override", None),
+        with_route_loot=bool(getattr(a, "with_route_loot", False)),
     )
     return 0
 
@@ -1599,6 +1620,7 @@ def cmd_fold(a, system=None) -> int:
         refuse_unsafe_output_dir(a.clean_core_out, label="--clean-core-out", game_dirs=(a.starfield_dir,))
     root = os.path.abspath(a.stages_root)
     profile = getattr(a, "profile", "player")
+    with_route_loot = bool(getattr(a, "with_route_loot", False))
     mapping = {
         "core_values": (
             ("00-core-values-player", "00-core-values-r2", "00-core-values")
@@ -1612,7 +1634,6 @@ def cmd_fold(a, system=None) -> int:
         "rads": ("04-rads-r2", "04-rads"),
         "hardcore": ("05-hardcore-r2", "05-hardcore"),
         "workshop": ("06-workshop-r2", "06-workshop"),
-        "route_loot": ("17-route-loot-r2", "17-route-loot"),
         "powerarmor": ("07-powerarmor-player", "07-powerarmor") if profile == "player" else ("07-powerarmor",),
         "progression": ("08-progression-r2", "08-progression"),
         "list_dialogue": ("09-list-dialogue-player", "09-list-dialogue") if profile == "player" else ("09-list-dialogue",),
@@ -1622,6 +1643,8 @@ def cmd_fold(a, system=None) -> int:
         "alife": ("13-alife-r2", "13-alife"),
         "fort_hagen": ("14-fort-hagen", "10-fort-hagen"),
     }
+    if (profile == "test" or with_route_loot) and not getattr(a, "no_route_loot", False):
+        mapping["route_loot"] = ("17-route-loot-r2", "17-route-loot")
     if profile == "test":
         mapping["candidate_walk"] = ("15-candidate-walk", "11-candidate-walk")
     stages: Dict[str, str] = {}
@@ -1636,7 +1659,7 @@ def cmd_fold(a, system=None) -> int:
         if not os.path.isdir(ms_dir):
             raise BundleRefused(f"--mission-stage directory not found: {ms_dir}")
         stages["mission"] = ms_dir
-    if getattr(a, "route_loot_stage", None):
+    if getattr(a, "route_loot_stage", None) and (profile == "test" or with_route_loot) and not getattr(a, "no_route_loot", False):
         rl_dir = os.path.abspath(a.route_loot_stage)
         if not os.path.isdir(rl_dir):
             raise BundleRefused(f"--route-loot-stage directory not found: {rl_dir}")
@@ -1659,6 +1682,7 @@ def cmd_fold(a, system=None) -> int:
         max_ba2_bytes=a.max_ba2_bytes,
         profile=profile,
         pipboy_sfse_override=os.path.abspath(a.pipboy_sfse_build) if getattr(a, "pipboy_sfse_build", None) else None,
+        with_route_loot=with_route_loot,
     )
     return 0
 
@@ -2038,6 +2062,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--route-loot-stage", default=None)
     b.add_argument("--no-mission", action="store_true")
     b.add_argument("--no-route-loot", action="store_true")
+    b.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm on --profile player (held out by default per T1)")
     b.add_argument("--no-alife", action="store_true")
     b.add_argument("--no-fort-hagen", action="store_true")
     b.add_argument("--no-walk-harness", action="store_true")
@@ -2057,6 +2082,8 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--profile", choices=("player", "test"), default="player")
     fo.add_argument("--mission-stage", default=None)
     fo.add_argument("--route-loot-stage", default=None)
+    fo.add_argument("--no-route-loot", action="store_true")
+    fo.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm on --profile player (held out by default per T1)")
     fo.add_argument("--with-pipboy", action="store_true")
     fo.add_argument("--pipboy-stage", default=None)
     fo.add_argument("--pipboy-sfse-build", default=None)
