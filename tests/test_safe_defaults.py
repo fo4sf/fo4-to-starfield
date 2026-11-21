@@ -580,7 +580,8 @@ class SafeDefaultsTests(unittest.TestCase):
             self.assertIn((own_console, "OnActivate"), regs)
             self.assertIn((port_console, "OnActivate"), regs)
             self.assertTrue(any("pipboy activator registered ref=" in m and "pos=-55.0488 -0.9224 0.7759" in m for m in logs), logs)
-            self.assertTrue(any("console activator registered ref=" in m and "port_ref=" in m for m in logs), logs)
+            self.assertTrue(any("console activator registered ref=" in m and "pos=-54.3644 -1.8147 1.7541" in m for m in logs), logs)
+            self.assertTrue(any("console port activator registered ref=" in m for m in logs), logs)
 
             # First-person E on PipboyCorpseRef routes to HandlePipboyPickup
             ns["OnActivate"](pipboy_ref, player)

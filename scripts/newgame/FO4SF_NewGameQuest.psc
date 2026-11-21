@@ -2424,14 +2424,14 @@ Function EnsureVaultInteractivesRegistered()
         consoleWatchedRef = GearDoorConsoleRef
         consoleRegistered = true
         RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")
-        ObjectReference portCon = None
+        Trace("console activator registered ref=" + consoleWatchedRef + " id=" + consoleWatchedRef.GetFormID() + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ())
         if ConsoleRefId > 0
-            portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+            ObjectReference portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
             if portCon != None && portCon != consoleWatchedRef
                 RegisterForRemoteEvent(portCon, "OnActivate")
+                Trace("console port activator registered ref=" + portCon)
             endif
         endif
-        Trace("console activator registered ref=" + consoleWatchedRef + " id=" + consoleWatchedRef.GetFormID() + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ() + " port_ref=" + portCon)
     endif
 EndFunction
 
