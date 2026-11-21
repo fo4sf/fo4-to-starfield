@@ -433,7 +433,7 @@ class StageIniGeneratorTests(unittest.TestCase):
 
             staged_boot = iface / "pipboybootsequence.swf"
             self.assertTrue(staged_boot.is_file())
-            self.assertEqual(staged_boot.read_bytes(), boot_bytes)
+            self.assertEqual(staged_boot.read_bytes(), mpsi.pipboy_map_store.patch_boot_movie_swf(boot_bytes))
 
             ini_path = stage / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini"
             self.assertTrue(ini_path.is_file())

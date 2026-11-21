@@ -232,6 +232,47 @@ class WorldMapSwfAndPatcherTests(unittest.TestCase):
             )
             self.assertEqual(problems, [])
 
+    def test_patch_boot_movie_swf_rewrites_terminal_font_to_console_font(self):
+        # Synthetic SWF with DefineEditText (tag 37, HasText=1, Multiline=1, ReadOnly=1, HasTextColor=1, HasFontClass=1)
+        edit_bounds = swf.rect(0, 800 * 20, 0, 480 * 20)
+        flags0 = 0xAC  # HasText | Multiline | ReadOnly | HasTextColor (HasFont=0)
+        flags1 = 0x85  # HasFontClass | WasStatic | UseOutlines
+        rgba = struct.pack("<BBBB", 0x1A, 0xFF, 0x80, 0xFF)
+        edit_payload = (
+            struct.pack("<H", 10)
+            + edit_bounds
+            + bytes([flags0, flags1])
+            + b"$Terminal_Font\x00"
+            + rgba
+            + b"\x00"  # VariableName
+            + b"SYNTHETIC BOOT LINE\x00"  # InitialText
+        )
+        body = (
+            swf.rect(0, 876 * 20, 0, 700 * 20)
+            + struct.pack("<HH", 30 << 8, 1)
+            + swf.tag(swf.FILE_ATTRIBUTES, struct.pack("<I", swf.AS3))
+            + swf.tag(store.DEFINE_EDIT_TEXT, edit_payload)
+            + swf.tag(swf.SHOW_FRAME)
+            + swf.tag(swf.END)
+        )
+        raw_swf = b"CWS" + bytes([12]) + struct.pack("<I", 8 + len(body)) + zlib.compress(body, 6)
+
+        patched = store.patch_boot_movie_swf(raw_swf)
+        self.assertTrue(patched.startswith(b"CWS"))
+        with tempfile.TemporaryDirectory() as tmp:
+            out_p = os.path.join(tmp, "pipboybootsequence.swf")
+            Path(out_p).write_bytes(patched)
+            self.assertIsNone(pbi.swf_problem(out_p))
+
+        patched_body = zlib.decompress(patched[8:])
+        self.assertEqual(struct.unpack_from("<I", patched, 4)[0], 8 + len(patched_body))
+        self.assertIn(b"$ConsoleFont\x00", patched_body)
+        self.assertNotIn(b"$Terminal_Font\x00", patched_body)
+        self.assertIn(b"SYNTHETIC BOOT LINE\x00", patched_body)
+        # Re-running on an already-patched SWF stays valid and idempotent
+        rep = store.patch_boot_movie_swf(patched)
+        self.assertEqual(zlib.decompress(rep[8:]), patched_body)
+
 
 class TravelPluginAndStoreTests(unittest.TestCase):
     def test_travel_plugin_writes_valid_esm_with_21_globals_and_no_static_survival_authority(self):

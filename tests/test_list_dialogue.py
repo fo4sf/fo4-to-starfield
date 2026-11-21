@@ -211,6 +211,15 @@ class NonCollisionAndPropertyParityTests(unittest.TestCase):
         self.assertIn("Event OnQuestStarted()", psc)
         self.assertIn("Event OnStageSet(int auiStageID, int auiItemID)", psc)
         self.assertIn("Function EnsureInit()", psc)
+        # T6 fix: direct E-Talk NPC scene uses Flags = 0x1814 (not 0x2814), SCPI = null, and only SceneActor ID = 0
+        self.assertIn("Flags = (Scene.Flag)0x1814", cs)
+        self.assertIn("SCPI = null", cs)
+        self.assertIn("sceneFlags != 0x1814u", cs)
+        self.assertIn("topScene.SCPI != null", cs)
+        self.assertIn("topScene.Actors.Count != 1 || topScene.Actors[0].ID != 0", cs)
+        build_body = cs[cs.index("public static int Build("):cs.index("public static int Check(")]
+        self.assertNotIn("0x2814", build_body)
+        self.assertNotIn("unchecked((uint)-2)", build_body)
 
     def test_shared_core_values_and_progression_masters_contract(self):
         self.assertEqual(
