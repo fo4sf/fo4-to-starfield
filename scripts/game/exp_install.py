@@ -32,11 +32,13 @@ import tempfile
 
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))
 # cycle.ps1 uses isolated Python, which omits this script's own directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import deploy_starfield as deployment  # noqa: E402
 from verify_packed_experiment import verify_archive, verify_texture_archive  # noqa: E402
 from experiment_receipts import preserve_receipt  # noqa: E402
+from fo4sf import archive_split  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
 TOGGLE = "FO4SF.toggle.json"                             # plugin_toggle.py: our plugins held off for a test
@@ -150,6 +152,22 @@ def order_lines(lines, plugins, masters):
     return out, moved, missing
 
 
+def _held_split_carriers(rec, plugins, held):
+    """Carrier plugins for recorded split archives (`<Stem> - Main.ba2`) that are held off in FO4SF.toggle.json."""
+    archives = rec.get("archives") or []
+    if not archives or not held:
+        return []
+    arc_stems = {
+        arc[:-len(" - Main.ba2")].casefold()
+        for arc in archives
+        if isinstance(arc, str) and arc.lower().endswith(" - main.ba2")
+    }
+    return [
+        p for p in plugins
+        if p.casefold() in held and os.path.splitext(p)[0].casefold() in arc_stems
+    ]
+
+
 def order(a):
     """Plugins.txt: the plugins this install activated after their masters (module doc). 0 ok, 6 a master missing."""
     data = os.path.join(a.starfield, "Data")
@@ -168,6 +186,10 @@ def order(a):
             plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
             plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
         held = held_off(data)
+        bad_carriers = _held_split_carriers(rec, plugins, held)
+        if bad_carriers:
+            raise ValueError(f"split archive carrier plugin(s) held off in FO4SF.toggle.json: "
+                             f"{', '.join(bad_carriers)}; run plugin_toggle.py on")
         if any(p.casefold() in held for p in plugins):
             ticked = {ln.strip()[1:].strip().casefold() for ln in read_plugins(plugins_txt())[0]
                       if ln.strip().startswith("*")}
@@ -239,6 +261,10 @@ def active(a):
     if plugins is None:
         plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
         plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
+    bad_carriers = _held_split_carriers(rec, plugins, held)
+    if bad_carriers:
+        print(f"split archive carrier plugin(s) held off in FO4SF.toggle.json: {', '.join(bad_carriers)}")
+        return 8
     off = [p for p in plugins if p.casefold() not in on and p.casefold() not in held]
     if off:
         print(f"inactive in Plugins.txt: {', '.join(off)}")
@@ -371,7 +397,15 @@ def verify_relaunch(a, data, plugins, packed, rec, held=frozenset()):
     if again:
         sys.exit(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(again)}; "
                  f"run plugin_toggle.py on, or off again, before relaunching")
-    if packed and os.path.splitext(plugins[0])[0] + " - Main.ba2" not in rec["files"]:
+    bad_carriers = _held_split_carriers(rec, plugins, held)
+    if packed and bad_carriers:
+        sys.exit(f"split archive carrier plugin(s) held off in FO4SF.toggle.json: {', '.join(bad_carriers)}; "
+                 f"run plugin_toggle.py on before relaunching")
+    expected_archives = rec.get("archives")
+    if packed and expected_archives:
+        if any(arc not in rec["files"] for arc in expected_archives):
+            sys.exit("packed experiment split archive is not recorded; uninstall before relaunching")
+    elif packed and os.path.splitext(plugins[0])[0] + " - Main.ba2" not in rec["files"]:
         sys.exit("packed experiment archive is not recorded; uninstall before relaunching")
     if packed and has_textures(a) and os.path.splitext(plugins[0])[0] + " - Textures.ba2" not in rec["files"]:
         sys.exit("packed experiment texture archive is not recorded; uninstall before relaunching")
@@ -578,10 +612,19 @@ def refuse_while_held(data, what):
                  f"plugin_toggle.py on first")
 
 
+def _split_mode(a) -> str:
+    mode = (getattr(a, "split_archives", "none") or "none").strip().lower()
+    if getattr(a, "prepacked_dir", "") and mode == "none":
+        return "prepacked"
+    return mode
+
+
 def install(a):
-    if getattr(a, "prepacked", "") and not getattr(a, "pack", False):
-        sys.exit("--prepacked requires --pack; nothing installed")
-    if getattr(a, "pack", False) and not getattr(a, "prepacked", ""):
+    if (getattr(a, "prepacked", "") or getattr(a, "prepacked_dir", "")) and not getattr(a, "pack", False):
+        sys.exit("--prepacked / --prepacked-dir requires --pack; nothing installed")
+    if getattr(a, "prepacked", "") and getattr(a, "prepacked_dir", ""):
+        sys.exit("specify at most one of --prepacked and --prepacked-dir; nothing installed")
+    if getattr(a, "pack", False) and not getattr(a, "prepacked", "") and not getattr(a, "prepacked_dir", ""):
         with tempfile.TemporaryDirectory(prefix="fo4sf-exp-pack-") as packing_dir:
             return _install(a, packing_dir)
     return _install(a)
@@ -597,8 +640,15 @@ def _install(a, packing_dir=None):
     plugins = [p.strip() for p in a.plugins.split(",") if p.strip()] if a.plugins else \
         sorted(f for f in os.listdir(a.exp_dir) if f.lower().endswith(".esm"))[:1]
     requested_pack = bool(getattr(a, "pack", False))
+    split_mode = _split_mode(a)
+    max_arc_bytes = int(getattr(a, "max_archive_bytes", archive_split.DEFAULT_MAX_ARCHIVE_BYTES)
+                        or archive_split.DEFAULT_MAX_ARCHIVE_BYTES)
     if requested_pack and not plugins:
         sys.exit("packing requires at least one experiment plugin")
+    if split_mode != "none" and not requested_pack:
+        sys.exit("--split-archives requires --pack; nothing installed")
+    if split_mode != "none" and has_textures(a):
+        sys.exit("--split-archives cannot be combined with --textures-archive; split General archives already carry Data/Textures")
     files = staged_files(a.exp_dir, plugins)
     packed = requested_pack and any(rel not in plugins for _, rel in files)
     if os.path.exists(rec_p):
@@ -609,7 +659,7 @@ def _install(a, packing_dir=None):
         same = os.path.normcase(rec.get("exp_dir", "")) == os.path.normcase(os.path.abspath(a.exp_dir)) and \
             all(p in rec["files"] for p in plugins)
         if same:                                          # a relaunch of the same experiment: nothing to do
-            if bool(rec.get("pack", False)) != requested_pack:
+            if bool(rec.get("pack", False)) != requested_pack or (rec.get("split_mode") or "none") != split_mode:
                 sys.exit("experiment packing mode changed; uninstall it before changing modes")
             try:
                 held = held_off(data)
@@ -621,17 +671,60 @@ def _install(a, packing_dir=None):
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     refuse_while_held(data, "experiment not installed")
+    inputs_early = source_inventory(a.exp_dir, plugins) if (packed and split_mode != "none") else None
+    split_buckets = None
     names = [rel for _, rel in files]
     if packed:
         # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
         # 2026-10-11, got procedural planet ground because its loose BTDs were never seen). A plugin's own
-        # "<name> - Main.ba2" loads with it, so the staged Data tree goes into that archive instead.
-        ba2 = os.path.splitext(plugins[0])[0] + " - Main.ba2"
+        # "<name> - Main.ba2" loads with it, so the staged Data tree goes into one or more plugin-named archives.
         files = [(s, r) for s, r in files if r in plugins]
-        names = [rel for _, rel in files] + [ba2]
-        tex_ba2 = os.path.splitext(plugins[0])[0] + " - Textures.ba2" if has_textures(a) else None
-        if tex_ba2:
-            names.append(tex_ba2)
+        if split_mode != "none":
+            try:
+                resources = archive_split.scan_data_resources(a.exp_dir, precomputed_inputs=inputs_early)
+                by_key = {r.data_key: r for r in resources}
+                prepacked_dir = getattr(a, "prepacked_dir", "")
+                if prepacked_dir:
+                    plan_file = os.path.join(prepacked_dir, "archive_split_plan.json")
+                    manifest = read_json(plan_file)
+                    split_buckets = [
+                        archive_split.ArchiveBucket(
+                            plugin=item["plugin"],
+                            archive_name=item["archive"],
+                            resources=tuple(by_key[k] for k in sorted(item["inputs"]) if k in by_key),
+                        )
+                        for item in manifest["archives"]
+                    ]
+                    if any(len(b.resources) != len(m["inputs"]) for b, m in zip(split_buckets, manifest["archives"])):
+                        raise ValueError("prepacked archive_split_plan.json does not match staged Data inventory")
+                    archive_split.refuse_held_carrier_buckets(split_buckets, starfield_dir=a.starfield)
+                elif split_mode == "size":
+                    split_buckets = archive_split.plan_split_by_size(
+                        resources, plugins, max_archive_bytes=max_arc_bytes, starfield_dir=a.starfield
+                    )
+                elif split_mode == "plugin":
+                    bplan_p = os.path.join(a.exp_dir, "bundle_plan.json")
+                    bplan_obj = read_json(bplan_p) if os.path.isfile(bplan_p) else None
+                    split_buckets = archive_split.plan_split_by_plugin(
+                        resources,
+                        plugins,
+                        bundle_plan=bplan_obj,
+                        max_archive_bytes=max_arc_bytes,
+                        starfield_dir=a.starfield,
+                    )
+                else:
+                    raise ValueError(f"unknown --split-archives mode: {split_mode!r}")
+            except (OSError, ValueError, KeyError) as error:
+                sys.exit(f"experiment archive split planning failed; nothing installed: {error}")
+            ba2 = None
+            tex_ba2 = None
+            names = [rel for _, rel in files] + [b.archive_name for b in split_buckets]
+        else:
+            ba2 = os.path.splitext(plugins[0])[0] + " - Main.ba2"
+            names = [rel for _, rel in files] + [ba2]
+            tex_ba2 = os.path.splitext(plugins[0])[0] + " - Textures.ba2" if has_textures(a) else None
+            if tex_ba2:
+                names.append(tex_ba2)
     targets = {rel: data_path(data, rel) for rel in names}
     destinations = [os.path.normcase(targets[rel]) for rel in names]
     if len(destinations) != len(set(destinations)):
@@ -654,33 +747,57 @@ def _install(a, packing_dir=None):
         plugin = plugin_sources.get(os.path.abspath(src))
         key = "plugin/" + plugin if plugin is not None else "Data/" + relative.replace("\\", "/")
         identities[relative] = inputs[key]
+    split_built_paths = {}
     if packed:
         try:
-            prepacked = getattr(a, "prepacked", "")
-            if prepacked:
-                built = prepacked
-                if tex_ba2:
-                    built_tex = os.path.join(os.path.dirname(prepacked), tex_ba2)
+            if split_buckets is not None:
+                prepacked_dir = getattr(a, "prepacked_dir", "")
+                exp_data_dir = os.path.join(a.exp_dir, "Data")
+                for idx, bucket in enumerate(split_buckets):
+                    if prepacked_dir:
+                        bpath = os.path.join(prepacked_dir, bucket.archive_name)
+                    else:
+                        bucket_stage = os.path.join(packing_dir, f"split_{idx:02d}", "Data")
+                        archive_split.stage_bucket_tree(exp_data_dir, bucket, bucket_stage, hardlink=True)
+                        bpath = build_ba2(a, bucket_stage, os.path.join(packing_dir, bucket.archive_name))
+                    split_built_paths[bucket.archive_name] = bpath
+                    files.append((bpath, bucket.archive_name))
+                    identities[bucket.archive_name] = digest(bpath)
             else:
-                built = (build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(packing_dir, ba2), textures=False)
-                         if tex_ba2 else build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(packing_dir, ba2)))
+                prepacked = getattr(a, "prepacked", "")
+                if prepacked:
+                    built = prepacked
+                    if tex_ba2:
+                        built_tex = os.path.join(os.path.dirname(prepacked), tex_ba2)
+                else:
+                    built = (build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(packing_dir, ba2), textures=False)
+                             if tex_ba2 else build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(packing_dir, ba2)))
+                    if tex_ba2:
+                        built_tex = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(packing_dir, tex_ba2), textures=True)
+                files.append((built, ba2))
+                identities[ba2] = digest(built)
                 if tex_ba2:
-                    built_tex = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(packing_dir, tex_ba2), textures=True)
-            files.append((built, ba2))
-            identities[ba2] = digest(built)
-            if tex_ba2:
-                files.append((built_tex, tex_ba2))
-                identities[tex_ba2] = digest(built_tex)
+                    files.append((built_tex, tex_ba2))
+                    identities[tex_ba2] = digest(built_tex)
         except (OSError, ValueError) as error:
             sys.exit(f"experiment archive preparation failed; nothing installed: {error}")
     if source_inventory(a.exp_dir, plugins) != inputs:
         sys.exit("experiment source inputs changed during preparation; nothing installed")
     if packed:
         try:
-            tex_prefix = "Data/" + TEXTURES + "/"
-            verify_archive(built, {k: v for k, v in inputs.items() if not (tex_ba2 and k.startswith(tex_prefix))})
-            if tex_ba2:
-                verify_texture_archive(built_tex, {k: v for k, v in inputs.items() if k.startswith(tex_prefix)})
+            if split_buckets is not None:
+                archive_split.verify_split_archives(
+                    split_built_paths,
+                    split_buckets,
+                    inputs,
+                    verify_archive_fn=verify_archive,
+                    max_archive_bytes=max_arc_bytes,
+                )
+            else:
+                tex_prefix = "Data/" + TEXTURES + "/"
+                verify_archive(built, {k: v for k, v in inputs.items() if not (tex_ba2 and k.startswith(tex_prefix))})
+                if tex_ba2:
+                    verify_texture_archive(built_tex, {k: v for k, v in inputs.items() if k.startswith(tex_prefix)})
         except (OSError, ValueError) as error:
             sys.exit(f"experiment archive validation failed; nothing installed: {error}")
     p = plugins_txt()
@@ -694,6 +811,9 @@ def _install(a, packing_dir=None):
            "published_files": [], "plugins_txt": p,
            "plugins_original": base64.b64encode(original).decode("ascii") if original is not None else None,
            "plugins_restore_pending": False}
+    if split_buckets is not None:
+        rec["archives"] = [b.archive_name for b in split_buckets]
+        rec["split_mode"] = split_mode
     activated = deployment.render_lines(lines, original)
     rec["plugins_activated"] = base64.b64encode(activated).decode("ascii")
     deployment.write_manifest(rec_p, rec)
@@ -782,6 +902,12 @@ def main(argv=None):
     ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
     ap.add_argument("--prepacked", default="", help="with --pack, verify and install this existing Main archive; never build. "
                     "With --textures-archive and staged textures, also require '<first plugin> - Textures.ba2' beside it")
+    ap.add_argument("--split-archives", nargs="?", const="plugin", choices=("none", "size", "plugin"), default="none",
+                    help="with --pack: split Data across multiple '<plugin> - Main.ba2' archives (default when bare: plugin)")
+    ap.add_argument("--max-archive-bytes", type=int, default=archive_split.DEFAULT_MAX_ARCHIVE_BYTES,
+                    help="maximum BA2 byte size per split archive (default 3 GiB, max 4294967295)")
+    ap.add_argument("--prepacked-dir", default="",
+                    help="with --pack, verify and install split BA2s from a directory holding archive_split_plan.json")
     ap.add_argument("--needs", default="", help="runner features the queue needs (runner_features.py); refuse without")
     a = ap.parse_args(argv)
     if a.cmd == "install":
