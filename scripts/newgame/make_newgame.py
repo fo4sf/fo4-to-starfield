@@ -52,9 +52,12 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 if os.path.join(REPO, "src") not in sys.path:
     sys.path.insert(0, os.path.join(REPO, "src"))
 from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
+import vault_fo4_activators as vfa  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "NewGame")
 PROGRESSION_SCRIPTS = os.path.join(REPO, "scripts", "progression")
@@ -689,7 +692,8 @@ def stage(a):
     drift = [f"{n}: {before[n]} at the start, {h} now" for n, h in pins(a).items() if h != before[n]]
     if drift:
         sys.exit("an input changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
-    staged_assets = {}
+    act_assets = vfa.stage_vault_activators(out, a.port, a.starfield)
+    staged_assets = dict(act_assets)
     for label, comp, folder, checker in (("cog door", cog, cog_folder, cog_door_component),
                                          ("lift", lift, lift_folder, exit_lift_component)):
         if comp:
@@ -709,8 +713,14 @@ def stage(a):
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
     o_show_unavailable = getattr(a, "show_unavailable_starts", 0)
-    plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
-            "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
+    plugin_sha = sha256(os.path.join(out, PLUGIN))
+    script_hashes = {s: sha256(p) for s, p in pex.items()}
+    ng_outputs = {PLUGIN: plugin_sha, **{f"Data/Scripts/{s}.pex": h for s, h in script_hashes.items()}, **act_assets}
+    plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": plugin_sha,
+            "scripts": script_hashes,
+            "activator_assets": act_assets,
+            "outputs": ng_outputs,
+            "checked_against_sha256": before,
             "options": {"hold": hold_option(a), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
@@ -772,6 +782,8 @@ def verify_dir(exp_dir, plan, port=None, core=None):
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     for s, want in plan["scripts"].items():
         same("script", os.path.join(exp_dir, "Data", "Scripts", s + ".pex"), want)
+    for rel, want in plan.get("activator_assets", {}).items():
+        same("vault activator", os.path.join(exp_dir, *rel.split("/")), want)
     for rel, want in plan.get("cog_door", {}).get("outputs", {}).items():
         same("cog door", os.path.join(exp_dir, *rel.split("/")), want)
     for rel, want in plan.get("exit_lift", {}).get("outputs", {}).items():
@@ -841,6 +853,7 @@ def fold(a):
         sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
     core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
     stage_readme = read_text(os.path.join(a.stage, "README.txt"))
+    act_outputs = plan.get("activator_assets", {})
     cog_outputs = plan.get("cog_door", {}).get("outputs", {})
     cog_plugins = plan.get("cog_door", {}).get("plugins", [])
     lift_outputs = plan.get("exit_lift", {}).get("outputs", {})
@@ -854,7 +867,7 @@ def fold(a):
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
     folded_assets = {}
-    for label, outputs in (("cog door", cog_outputs), ("lift", lift_outputs)):
+    for label, outputs in (("vault activator", act_outputs), ("cog door", cog_outputs), ("lift", lift_outputs)):
         for rel, want in outputs.items():
             dst = os.path.join(out, *rel.split("/"))
             core_src = os.path.join(a.core_dir, *rel.split("/"))
