@@ -457,8 +457,8 @@ class StageIniGeneratorTests(unittest.TestCase):
                 "InvDataAnswers=0",
                 "RequirePickup=0",
                 "BootMovie=pipboybootsequence",
-                "BootOnFirstOpen=1",
-                "Arm=1",
+                "BootOnFirstOpen=0",
+                "Arm=0",
                 "ArmRaiseIdle=idleexaminewatch",
                 "ArmRaiseMs=2000",
                 "ArmLowerMs=3500",
@@ -466,6 +466,7 @@ class StageIniGeneratorTests(unittest.TestCase):
                 "ShellKeys=",
                 "Map=1",
                 "MapMenus=GalaxyStarMapMenu,SurfaceMap,MapMenu",
+                "MapBlockStarMap=0",
             ):
                 self.assertIn(f"\n{required_line}\n", "\n" + ini_txt, required_line)
 
@@ -569,6 +570,7 @@ class StageIniGeneratorTests(unittest.TestCase):
                     "--stage", str(stage),
                     "--fo4-ba2", str(ba2_path),
                     "--arm", "1",
+                    "--boot-on-first-open", "1",
                     "--stat-actions", "1",
                     "--inv-data-answers", "1",
                     "--special-menu", "1",
@@ -584,6 +586,7 @@ class StageIniGeneratorTests(unittest.TestCase):
             mpsi.assert_no_kit_entries(ini_txt)
             for req in (
                 "Arm=1",
+                "BootOnFirstOpen=1",
                 "StatActions=1",
                 "InvDataAnswers=1",
                 "SpecialMenu=1",

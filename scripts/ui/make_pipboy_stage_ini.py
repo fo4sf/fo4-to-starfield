@@ -481,7 +481,7 @@ def format_stage_ini(
     pause: int = 1,
     populate_in_call: int = 0,
     late_invalidate: int = 0,
-    arm: int = 1,
+    arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
     require_pickup: int = 0,
@@ -612,12 +612,12 @@ def generate_stage_ini(
     pause: int = 1,
     populate_in_call: int = 0,
     late_invalidate: int = 0,
-    arm: int = 1,
+    arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
     require_pickup: int = 0,
     boot_movie_name: str = DEFAULT_BOOT_MOVIE,
-    boot_on_first_open: int = 1,
+    boot_on_first_open: int = 0,
     special_menu: int = 0,
     special_movie_name: str = DEFAULT_SPECIAL_MOVIE,
     special_max_points: int = 40,
@@ -738,12 +738,12 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--pause", type=int, choices=(0, 1), default=1, help="Pause game while open (default 1)")
     ap.add_argument("--populate-in-call", type=int, choices=(0, 1), default=0, help="Enable 1b PopulateInCall (default 0)")
     ap.add_argument("--late-invalidate", type=int, choices=(0, 1), default=0, help="Enable LateInvalidate (default 0)")
-    ap.add_argument("--arm", type=int, choices=(0, 1), default=1, help="Enable 1i/N1 first-person arm PlayIdle (default 1)")
+    ap.add_argument("--arm", type=int, choices=(0, 1), default=0, help="Opt-in 1i/N1 first-person arm PlayIdle (default 0: T7 off)")
     ap.add_argument("--stat-actions", type=int, choices=(0, 1), default=0, help="Enable 1j STAT actions (default 0)")
     ap.add_argument("--inv-data-answers", type=int, choices=(0, 1), default=0, help="Enable 1k INV/DATA answers (default 0)")
     ap.add_argument("--require-pickup", type=int, choices=(0, 1), default=0, help="Enable X2 RequirePickup (default 0)")
     ap.add_argument("--boot-movie", default=DEFAULT_BOOT_MOVIE, help="Boot sequence SWF base name")
-    ap.add_argument("--boot-on-first-open", type=int, choices=(0, 1), default=1, help="Play boot movie once after pickup")
+    ap.add_argument("--boot-on-first-open", type=int, choices=(0, 1), default=0, help="Opt-in boot movie once after pickup (default 0: T7 off)")
     ap.add_argument("--special-menu", type=int, choices=(0, 1), default=0, help="Enable 1k FO4SF_SpecialMenu host (default 0)")
     ap.add_argument("--special-movie", default=DEFAULT_SPECIAL_MOVIE, help="Staged SPECIALMenu SWF base name")
     ap.add_argument("--special-max-points", type=int, default=40, help="S.P.E.C.I.A.L. point pool (default 40)")
