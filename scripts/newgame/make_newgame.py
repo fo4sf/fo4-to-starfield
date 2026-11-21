@@ -976,7 +976,8 @@ def summarize(lines):
          "arrival_discovery_failed": None, "special_default": None,
          "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False,
          "mode_fade_lifted": None, "start_record": None, "entered_start_room": None,
-         "h00_suspects": {}, "surface_pre_setposition": None}
+         "h00_suspects": {}, "surface_pre_setposition": None,
+         "story_landing_fade": None, "story_fade_reassert_ticks": [], "warfare_fade_reassert_ticks": []}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any(
@@ -1108,6 +1109,12 @@ def summarize(lines):
         elif msg.startswith("fade in by="):
             if s["fade"] is None:                            # the script fades in once
                 s["fade"] = msg[len("fade in "):]
+            if msg.startswith("fade in by=story_landing "):
+                s["story_landing_fade"] = msg[len("fade in "):]
+        elif msg.startswith("story fade reassert tick="):
+            s["story_fade_reassert_ticks"].append(int(msg[len("story fade reassert tick="):].split()[0]))
+        elif msg.startswith("warfare fade reassert tick="):
+            s["warfare_fade_reassert_ticks"].append(int(msg[len("warfare fade reassert tick="):].split()[0]))
         elif msg.startswith("guard "):
             s["guard"] = msg[len("guard "):]
         elif msg.startswith("mq101debug written="):

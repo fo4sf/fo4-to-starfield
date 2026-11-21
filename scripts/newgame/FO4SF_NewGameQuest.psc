@@ -350,6 +350,7 @@ int vaultMoves = 0                                           ; MoveTo calls onto
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
 int warfareFadeTicks = 0
+int storyFadeTicks = 0
 bool loadingMenuOpen = false
 bool loadingMenuClosedSeen = false
 bool loadingHookRegistered = false
@@ -597,6 +598,7 @@ Function ApplyStage(int n, string by)
     elseif n == 200
         CompleteQuest()
         StartLandingQuests()
+        ReleaseStoryLandingFade()
     elseif n == 210
         CompleteQuest()
         StartLandingQuests()
@@ -627,6 +629,24 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 5
+        Actor storyPlayer = Game.GetPlayer()
+        if storyPlayer == None || storyPlayer.IsInInterior()
+            return
+        endif
+        storyFadeTicks += 1
+        if storyPlayer.Is3DLoaded()
+            Game.ShowFirstPersonGeometry(true)
+            Game.FadeOutGame(False, True, 0.0, 0.1, False)
+            Game.SetInChargen(false, false, false)
+            Game.SetCharGenHUDMode(0)
+            Trace("story fade reassert tick=" + storyFadeTicks)
+        endif
+        if storyFadeTicks < 3
+            StartTimer(2.5, 5)
+        endif
+        return
+    endif
     if aiTimerID == 4
         warfareFadeTicks += 1
         Game.ShowFirstPersonGeometry(true)
@@ -2143,6 +2163,29 @@ Function ForceFadeIn(string by)
     Game.SetCharGenHUDMode(0)
     DisableHandScanner()
     Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")
+EndFunction
+
+Function ReleaseStoryLandingFade()
+{V1: Release Starfield's interior-to-exterior LoadingMenu black fade after Story exterior arrival and 3D streaming settle, then arm bounded Timer 5 re-asserts.}
+    Actor player = Game.GetPlayer()
+    if player == None || player.IsInInterior()
+        return
+    endif
+    float w3d = 0.0
+    while !player.Is3DLoaded() && w3d < StartLoadTimeout
+        Utility.Wait(0.25)
+        w3d += 0.25
+    endwhile
+    if player.IsInInterior() || !player.Is3DLoaded()
+        return
+    endif
+    Utility.Wait(0.5)
+    if player.IsInInterior() || !player.Is3DLoaded()
+        return
+    endif
+    ForceFadeIn("story_landing")
+    storyFadeTicks = 0
+    StartTimer(1.5, 5)
 EndFunction
 
 Function RunWarfareBranch(Actor player, int rowIdx)

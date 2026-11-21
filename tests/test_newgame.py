@@ -162,7 +162,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
         self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story"])
-        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["warfare"])
+        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("ShowFirstPersonGeometry", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
@@ -3486,6 +3486,214 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertEqual(len(fades), fades_before + 2)
         self.assertIn("warfare fade reassert tick=1", logs)
         self.assertIn("warfare fade reassert tick=2", logs)
+
+    def test_r8_v1_story_landing_releases_fade_after_streaming_and_reasserts_bounded(self):
+        """R8 V1 translated execution + negative regression:
+        1) Negative regression: without ReleaseStoryLandingFade() on stage 200 (after Vault 111 FadeIn('start')
+           already set faded=True), Story exterior landing never logs fade in by=story_landing or arms Timer 5.
+        2) With V1: Story landing waits until exterior + Is3DLoaded() + 0.5s settle, forces fade-in even with
+           faded=True (logging 'fade in by=story_landing ...; saving and HUD on'), arms Timer 5 for bounded
+           ticks 1..3 (1.5s, 2.5s, 2.5s) re-asserting geometry/fade/chargen/HUD, refuses to fire indoors,
+           leaves Warfare Timer 4 intact, and populates make_newgame.summarize() keys cleanly.
+        """
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = psc + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+        funcs = (
+            "FadeIn", "ForceFadeIn", "ReleaseStoryLandingFade", "DisableHandScanner",
+            "StandsInVault", "FinishSurface", "CheckLanding", "RequestArrivalDiscovery",
+            "ApplyStage", "AdvanceTo", "TimerEvent",
+        )
+        vars_csv = (
+            "faded, warfareFadeTicks, storyFadeTicks, loadingHookRegistered, vaultMoves, "
+            "applied, pendingStage, pendingStageBy, exitUsedFallback, scannerLayer, "
+            "arrivalWorld, surfaceSets, surfaceMovedAt, surfaceMoves, arrivedAt, fallbackPending, "
+            "discoveryMarkerMoved, discoveryAttachPending, landingChecks, asked, "
+            "h00SkipDiscovery, h00SkipSetPos"
+        )
+
+        def run_story_landing(source_text, *, stay_interior=False, delay_3d_once=False):
+            compiled = compile(translated_functions(source_text, funcs, vars_csv), PSC, "exec")
+            logs, fades, chargens, huds, geom, timers, waits = [], [], [], [], [], [], []
+            cur_stage = [30]
+            now = [100.0]
+            world = SimpleNamespace(__repr__=lambda self: "[WorldSpace <Commonwealth>]")
+            vault_cell = SimpleNamespace(GetFormID=lambda: 0x02000100, __repr__=lambda self: "[Cell <FO4Port_Vault111Cryo>]")
+            core_cell = SimpleNamespace(GetFormID=lambda: 0x03000CF0, __repr__=lambda self: "[Cell <FO4Core_Vault111Ext>]")
+            vault_anchor = SimpleNamespace(GetParentCell=lambda: vault_cell)
+            exit_anchor = SimpleNamespace(
+                GetFormID=lambda: 0x030A775B,
+                GetWorldSpace=lambda: world,
+                GetPositionX=lambda: -1210.0,
+                GetPositionY=lambda: -2720.0,
+                GetPositionZ=lambda: 127.0,
+                Enable=lambda *a: None,
+                MoveTo=lambda *a: None,
+                SetPosition=lambda *a: None,
+                SetMarkerDiscovered=lambda: None,
+            )
+            loaded_state = [True]
+            delayed_done = [False]
+
+            def is_3d_loaded():
+                if delay_3d_once and cur_stage[0] == 200 and not delayed_done[0]:
+                    delayed_done[0] = True
+                    return False
+                return loaded_state[0]
+
+            player = SimpleNamespace(
+                pos=(-1200.0, -2700.0, 127.45),
+                cell=vault_cell if stay_interior else core_cell,
+                interior=stay_interior,
+                GetPositionX=lambda: player.pos[0],
+                GetPositionY=lambda: player.pos[1],
+                GetPositionZ=lambda: player.pos[2],
+                SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                SetAngle=lambda *a: None,
+                GetParentCell=lambda: player.cell,
+                GetWorldSpace=lambda: None if player.interior else world,
+                IsInInterior=lambda: player.interior,
+                Is3DLoaded=is_3d_loaded,
+            )
+
+            ns = dict(
+                faded=False, warfareFadeTicks=0, storyFadeTicks=0, loadingHookRegistered=False,
+                vaultMoves=1, applied=30, pendingStage=-1, pendingStageBy="other",
+                exitUsedFallback=False, scannerLayer=None,
+                arrivalWorld=None, surfaceSets=0, surfaceMovedAt=99.0, surfaceMoves=1,
+                arrivedAt=0.0, fallbackPending=False, discoveryMarkerMoved=False,
+                discoveryAttachPending=False, landingChecks=0, asked=False,
+                h00SkipDiscovery=False, h00SkipSetPos=False,
+                VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", PodHeading=0.0,
+                CorePlugin="FO4TerrainCore.esm", ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x0A775B,
+                ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=127.45, ArrivalHeading=180.0,
+                FallbackX=-10.0, FallbackY=-20.0, FallbackZ=127.0,
+                MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+                FallDrop=3.0, SurfaceWait=10.0, SurfaceTries=3, StartLoadTimeout=15.0, LiftId=0,
+                Game=SimpleNamespace(
+                    GetPlayer=lambda: player,
+                    ShowFirstPersonGeometry=lambda v: geom.append(v),
+                    FadeOutGame=lambda *a: fades.append(a),
+                    SetInChargen=lambda *a: chargens.append(a),
+                    SetCharGenHUDMode=lambda m: huds.append(m),
+                    IsFastTravelEnabled=lambda: True,
+                    GetFormFromFile=lambda fid, plg: (
+                        vault_anchor if (fid, plg) == (0x805, "FO4Port.esm")
+                        else exit_anchor if (fid, plg) == (0x0A775B, "FO4TerrainCore.esm")
+                        else None
+                    ),
+                ),
+                Utility=SimpleNamespace(Wait=lambda s: waits.append(s), GetCurrentRealTime=lambda: now[0]),
+                InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                UnregisterStartLoadingHook=lambda: None,
+                StartTimer=lambda s, tid: timers.append((s, tid)),
+                SetStage=lambda n: cur_stage.__setitem__(0, n),
+                GetStage=lambda: cur_stage[0],
+                SetObjectiveDisplayed=lambda *a: None,
+                SetObjectiveCompleted=lambda *a: None,
+                SetActive=lambda *a: None,
+                CompleteQuest=lambda: None,
+                StartLandingQuests=lambda: logs.append("landing quests started min00=True keeper=True codsworth01=True"),
+                FailExit=lambda r: logs.append(f"fail {r}"),
+                Trace=lambda m: logs.append(m),
+            )
+            exec(compiled, ns)
+
+            # Vault 111 start already called FadeIn("start"), setting faded=True!
+            ns["FadeIn"]("start")
+            self.assertTrue(ns["faded"])
+            fades_after_start = len(fades)
+
+            if stay_interior:
+                ns["AdvanceTo"](200)
+            else:
+                ns["FinishSurface"](player)
+                self.assertEqual(cur_stage[0], 40)
+                now[0] += 3.5
+                ns["CheckLanding"](player)
+                self.assertEqual(cur_stage[0], 200)
+
+            return ns, player, logs, fades[fades_after_start:], chargens, huds, geom, timers, waits
+
+        # 1) Negative regression: removing ReleaseStoryLandingFade() leaves Story landing with NO post-surface fade-in!
+        without_v1 = wrapped.replace("        ReleaseStoryLandingFade()\n", "")
+        self.assertNotEqual(without_v1, wrapped)
+        _, _, logs_old, fades_old, _, _, _, timers_old, _ = run_story_landing(without_v1)
+        self.assertFalse(any(l.startswith("fade in by=story_landing ") for l in logs_old), logs_old)
+        self.assertEqual(fades_old, [])
+        self.assertEqual(timers_old, [])
+
+        # 2) Positive V1: waits for Is3DLoaded() + 0.5s settle, forces fade-in even with faded=True, arms Timer 5 ticks 1..3
+        ns, player, logs, post_fades, chargens, huds, geom, timers, waits = run_story_landing(
+            wrapped, delay_3d_once=True
+        )
+        self.assertEqual(waits, [0.25, 0.5])
+        self.assertTrue(
+            any(l.startswith("fade in by=story_landing loaded=True ") and l.endswith("; saving and HUD on") for l in logs),
+            logs,
+        )
+        self.assertEqual(post_fades, [(False, True, 0.0, 0.1, False)])
+        self.assertEqual(timers, [(1.5, 5)])
+
+        # Drive Timer 5 ticks 1, 2, 3 -> stops after tick 3 (no 4th timer!)
+        ns["TimerEvent"](5)
+        self.assertEqual(timers, [(1.5, 5), (2.5, 5)])
+        ns["TimerEvent"](5)
+        self.assertEqual(timers, [(1.5, 5), (2.5, 5), (2.5, 5)])
+        ns["TimerEvent"](5)
+        self.assertEqual(timers, [(1.5, 5), (2.5, 5), (2.5, 5)])  # Strictly bounded at 3 ticks!
+        self.assertIn("story fade reassert tick=1", logs)
+        self.assertIn("story fade reassert tick=2", logs)
+        self.assertIn("story fade reassert tick=3", logs)
+        self.assertEqual(geom[-3:], [True, True, True])
+        self.assertEqual(chargens[-3:], [(False, False, False)] * 3)
+        self.assertEqual(huds[-3:], [0, 0, 0])
+
+        # Warfare Timer 4 stays completely intact and independent (ticks 1..2 only)
+        ns["warfareFadeTicks"] = 0
+        ns["TimerEvent"](4)
+        ns["TimerEvent"](4)
+        self.assertIn("warfare fade reassert tick=1", logs)
+        self.assertIn("warfare fade reassert tick=2", logs)
+        self.assertEqual(timers[-1], (2.5, 4))
+
+        # 3) Interior guard: stage 200 while still indoors never forces an exterior story_landing fade
+        _, _, logs_in, fades_in, _, _, _, timers_in, _ = run_story_landing(wrapped, stay_interior=True)
+        self.assertFalse(any(l.startswith("fade in by=story_landing ") for l in logs_in), logs_in)
+        self.assertEqual(fades_in, [])
+        self.assertEqual(timers_in, [])
+
+        # 4) Interior abort mid-reassert: if player enters an interior before tick 2, Timer 5 stops immediately
+        ns2, player2, logs2, _, _, _, _, timers2, _ = run_story_landing(wrapped)
+        self.assertEqual(timers2, [(1.5, 5)])
+        ns2["TimerEvent"](5)
+        self.assertEqual(timers2, [(1.5, 5), (2.5, 5)])
+        player2.interior = True
+        ns2["TimerEvent"](5)
+        self.assertEqual(timers2, [(1.5, 5), (2.5, 5)])  # Did NOT re-arm once indoors!
+        self.assertNotIn("story fade reassert tick=2", logs2)
+
+        # 5) make_newgame.summarize() preserves initial fade and captures story_landing_fade + reassert ticks
+        sample_log = [
+            "[x] FO4SF_NEWGAME rt=1.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n",
+            "[x] FO4SF_NEWGAME rt=2.0 fade in by=start loaded=true cell=[Cell <FO4Port_Vault111Cryo>]; saving and HUD on\n",
+            "[x] FO4SF_NEWGAME rt=50.0 stage 200 by=Trigger\n",
+            "[x] FO4SF_NEWGAME rt=50.5 fade in by=story_landing loaded=true cell=[Cell <FO4Core_Vault111Ext>]; saving and HUD on\n",
+            "[x] FO4SF_NEWGAME rt=52.0 story fade reassert tick=1\n",
+            "[x] FO4SF_NEWGAME rt=54.5 story fade reassert tick=2\n",
+            "[x] FO4SF_NEWGAME rt=57.0 story fade reassert tick=3\n",
+        ]
+        summary = ng.summarize(sample_log)
+        self.assertEqual(summary["fade"], "by=start loaded=true cell=[Cell <FO4Port_Vault111Cryo>]; saving and HUD on")
+        self.assertEqual(
+            summary["story_landing_fade"],
+            "by=story_landing loaded=true cell=[Cell <FO4Core_Vault111Ext>]; saving and HUD on",
+        )
+        self.assertEqual(summary["story_fade_reassert_ticks"], [1, 2, 3])
+        self.assertEqual(summary["warfare_fade_reassert_ticks"], [])
 
 
 if __name__ == "__main__":
