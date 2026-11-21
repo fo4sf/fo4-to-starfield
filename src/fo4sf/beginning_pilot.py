@@ -242,14 +242,29 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
 
     for spec in BEGINNING_STEPS:
         step_issues: List[str] = []
-        for p in spec.plugins:
+        use_player_special_fallback = (
+            spec.step_id == "B3_exit_lift"
+            and bool(active_plugins)
+            and "fo4sfprogression.esm" not in active_plugins
+        )
+        req_plugins = (
+            tuple(p for p in spec.plugins if p.casefold() != "fo4sfprogression.esm")
+            if use_player_special_fallback
+            else spec.plugins
+        )
+        req_scripts = (
+            tuple("FO4SF_NewGameSpecial.pex" if s == "FO4SF_ProgressionQuest.pex" else s for s in spec.scripts)
+            if use_player_special_fallback
+            else spec.scripts
+        )
+        for p in req_plugins:
             p_full = os.path.join(b_abs, p)
             if not _is_tes4_plugin(p_full):
                 step_issues.append(f"missing or invalid TES4 plugin: {p}")
             elif active_plugins and p.casefold() not in active_plugins:
                 step_issues.append(f"plugin {p} missing from bundle_plan.json plugins list")
 
-        for sc in spec.scripts:
+        for sc in req_scripts:
             sc_full = os.path.join(b_abs, "Data", "Scripts", sc)
             if not os.path.isfile(sc_full) or os.path.getsize(sc_full) < 16:
                 step_issues.append(f"missing compiled Papyrus script: Data/Scripts/{sc}")
@@ -320,6 +335,10 @@ _NG_SPECIAL_SET_7_RE = re.compile(
     re.IGNORECASE,
 )
 _NG_SPECIAL_SET_SUM_RE = re.compile(r"\bspecial set\b.*?\b(?:special_sum|sum)=(\d+)\b", re.IGNORECASE)
+_NG_SPECIAL_FALLBACK_LIFT_RE = re.compile(
+    r"\belevator attribute_allocation fallback=FO4SF_NewGameSpecial\b",
+    re.IGNORECASE,
+)
 _NG_MAP_SETUP_RE = re.compile(r"\bmap setup done\b(?:.*?\bmarkers=(\d+))?", re.IGNORECASE)
 
 _NG_ASCENT_PLAY_RE = re.compile(r"\bascent play accepted=(true|false)\b", re.IGNORECASE)
@@ -531,6 +550,7 @@ def evaluate_beginning_logs(
 
     saw_special_skipped = False
     saw_special_default = any(_SPECIAL_DEFAULT_RE.search(ln) for ln in pr_lines)
+    saw_special_fallback_lift = False
     special_sums: List[int] = []
     map_setup_idx: Optional[int] = None
     map_setup_markers: Optional[int] = None
@@ -601,6 +621,8 @@ def evaluate_beginning_logs(
             saw_special_skipped = True
         if _SPECIAL_DEFAULT_RE.search(ln):
             saw_special_default = True
+        if _NG_SPECIAL_FALLBACK_LIFT_RE.search(ln):
+            saw_special_fallback_lift = True
         ms7 = _NG_SPECIAL_SET_7_RE.search(ln)
         if ms7:
             special_sums.append(sum(int(ms7.group(g)) for g in range(1, 8)))
@@ -935,12 +957,14 @@ def evaluate_beginning_logs(
     else:
         verdicts["B2_gear_door"] = {"status": "UNTESTED", "detail": "stage 30 not reached in log"}
 
-    # B3: Exit lift (40-point S.P.E.C.I.A.L., never 'special skipped'/'special default'/'exit fallback by=move')
+    # B3: Exit lift (40-point S.P.E.C.I.A.L. or 28-point player fallback, never 'special skipped'/'special default'/'exit fallback by=move')
     later_lift_fails = [
         r for i, r in lift_fail_reasons if ascent_confirmed_idx is None or i >= ascent_confirmed_idx
     ]
-    bad_special = [s for s in special_sums if s != 40]
-    has_special_40 = 40 in special_sums
+    allowed_special_sums = {40, 28} if saw_special_fallback_lift else {40}
+    bad_special = [s for s in special_sums if s not in allowed_special_sums]
+    matched_special = next((s for s in reversed(special_sums) if s in allowed_special_sums), None)
+    has_valid_special = matched_special is not None
     map_ok = map_setup_idx is not None and (map_setup_markers is None or map_setup_markers > 0)
     if not ng_lines:
         verdicts["B3_exit_lift"] = {"status": "UNTESTED", "detail": "no fo4sf_newgame log supplied"}
@@ -950,33 +974,34 @@ def evaluate_beginning_logs(
         verdicts["B3_exit_lift"] = {"status": "FAIL", "detail": "'special default' standard spread fallback used"}
     elif saw_special_skipped:
         verdicts["B3_exit_lift"] = {"status": "FAIL", "detail": "'special skipped' logged on normal walk"}
-    elif bad_special and not has_special_40:
+    elif bad_special and not has_valid_special:
+        req_desc = "28 or 40" if saw_special_fallback_lift else "40"
         verdicts["B3_exit_lift"] = {
             "status": "FAIL",
-            "detail": f"S.P.E.C.I.A.L. sum {bad_special[-1]} != required 40 points",
+            "detail": f"S.P.E.C.I.A.L. sum {bad_special[-1]} != required {req_desc} points",
         }
     elif later_lift_fails or ascent_play_refused:
         reasons = ", ".join(later_lift_fails) if later_lift_fails else "ascent play accepted=false"
         verdicts["B3_exit_lift"] = {"status": "FAIL", "detail": f"Vault 111 lift exit failed (reason={reasons})"}
-    elif (ascent_confirmed_idx is not None or 40 in ng_stages) and not has_special_40:
+    elif (ascent_confirmed_idx is not None or 40 in ng_stages) and not has_valid_special:
         verdicts["B3_exit_lift"] = {
             "status": "FAIL",
-            "detail": "lift ascent completed without 40-point 'special set' confirmation",
+            "detail": "lift ascent completed without 'special set' confirmation",
         }
     elif (ascent_confirmed_idx is not None or 40 in ng_stages) and not map_ok:
         verdicts["B3_exit_lift"] = {
             "status": "FAIL",
             "detail": "lift ascent completed without 'map setup done' (markers > 0)",
         }
-    elif ascent_confirmed_idx is not None and has_special_40 and map_ok:
+    elif ascent_confirmed_idx is not None and has_valid_special and map_ok:
         verdicts["B3_exit_lift"] = {
             "status": "PASS",
-            "detail": f"special set (sum=40), map setup done (markers={map_setup_markers}), ascent carried confirmed",
+            "detail": f"special set (sum={matched_special}), map setup done (markers={map_setup_markers}), ascent carried confirmed",
         }
-    elif saw_ascent_play or has_special_40 or map_ok:
+    elif saw_ascent_play or has_valid_special or map_ok:
         verdicts["B3_exit_lift"] = {
             "status": "IN_PROGRESS",
-            "detail": "lift sequence started; awaiting special=40, map setup done, and ascent carried confirmed",
+            "detail": "lift sequence started; awaiting special set, map setup done, and ascent carried confirmed",
         }
     else:
         verdicts["B3_exit_lift"] = {"status": "UNTESTED", "detail": "lift ascent not started in log"}

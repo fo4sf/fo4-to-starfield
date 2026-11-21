@@ -97,7 +97,19 @@ Function AtTerminal(Actor player)
     Allocate(player)
 EndFunction
 
-Function Allocate(Actor player)
+bool Function AllocateFromLift(Actor player)
+{Vault 111 elevator S.P.E.C.I.A.L. allocation when FO4SFProgression.esm is absent (--profile player).}
+    Actor target = player
+    if target == None
+        target = Game.GetPlayer()
+    endif
+    if target == None
+        return false
+    endif
+    return Allocate(target)
+EndFunction
+
+bool Function Allocate(Actor player)
 {The two-page <= 7-button allocation loop: Confirm is reachable from Page 1.}
     int[] values = new int[7]
     int left = ResetValues(values)
@@ -126,11 +138,11 @@ Function Allocate(Actor player)
                     Debug.Notification(left + " points left to spend")
                 else
                     Apply(player, values)
-                    return
+                    return true
                 endif
             else
                 Trace("special left: defaults kept, " + left + " points unspent")
-                return
+                return false
             endif
         else
             button = SpecialMessagePage2.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
@@ -151,15 +163,16 @@ Function Allocate(Actor player)
                     Debug.Notification(left + " points left to spend")
                 else
                     Apply(player, values)
-                    return
+                    return true
                 endif
             else
                 Trace("special left: defaults kept, " + left + " points unspent")
-                return
+                return false
             endif
         endif
     endwhile
     Trace("special left: defaults kept, " + MaxPresses + " presses without Confirm or Leave")
+    return false
 EndFunction
 
 int Function ResetValues(int[] values)

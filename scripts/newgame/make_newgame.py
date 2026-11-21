@@ -224,6 +224,7 @@ DEFAULT_CLEAR_INVENTORY = True
 # reset the quest tops 0002E2 (a pack's O2 capacity) up to 100 with ModValue right after it, which clears the dial
 # (PC, 15 Nov), and logs "o2 capacity added=<n> value=<n>". --no-o2-fill leaves it out; --keep-inventory has none.
 DEFAULT_O2_FILL = True
+DEFAULT_FADE_HOLD = False
 # The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
 # installed on 21 Oct had no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
 # terminal temporary), and a temporary reference of an unloaded cell resolves to None (verified 16 Oct), so the writer
@@ -265,6 +266,7 @@ NATIVES = {
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
                          "RegisterForRemoteEvent", "UnregisterForRemoteEvent", "AddInventoryEventFilter",
+                         "CastAs", "CallFunction",
                          "RegisterForMenuOpenCloseEvent", "UnregisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["GetCurrentRealTime", "Wait"],
     },
@@ -459,7 +461,7 @@ def extract_sources(zip_path, work):
 
 def compile_script(compiler, name, src_dir, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    inc = ";".join((HERE, PROGRESSION_SCRIPTS, SURVIVAL_SCRIPTS, REPUTATION_SCRIPTS, MAPMARKERS_SCRIPTS, src_dir))
+    inc = ";".join((HERE, src_dir))
     r = run([compiler, name + ".psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={inc}", f"-o={out_dir}"],
             cwd=HERE, check=False)
     pex = os.path.join(out_dir, name + ".pex")
@@ -487,6 +489,17 @@ def hold_option(a):
     if omit:
         return ",".join(OMIT_HOLD_GROUPS[omit])
     return a.hold or ",".join(DEFAULT_HOLD)
+
+
+def fade_hold_option(a):
+    """Whether the build holds in pre-world start setup before entering Vault 111: DEFAULT_FADE_HOLD (False) unless --fade-hold."""
+    if getattr(a, "fade_hold", False) and getattr(a, "no_fade_hold", False):
+        sys.exit("--fade-hold and --no-fade-hold contradict each other")
+    if getattr(a, "fade_hold", False):
+        return True
+    if getattr(a, "no_fade_hold", False):
+        return False
+    return DEFAULT_FADE_HOLD
 
 
 def tool_options(a):
@@ -525,7 +538,9 @@ def tool_options(a):
         opts.append("--allow-temporary-anchor")
     if a.no_o2_fill:
         opts.append("--no-o2-fill")
-    if getattr(a, "no_fade_hold", False):
+    if fade_hold_option(a):
+        opts.append("--fade-hold")
+    elif getattr(a, "no_fade_hold", False):
         opts.append("--no-fade-hold")
     if getattr(a, "start_choice_backdrop", None):
         opts += ["--start-choice-backdrop", str(a.start_choice_backdrop)]
@@ -701,7 +716,7 @@ def stage(a):
                         "build_version": build_version_option(a),
                         "clear_inventory": clear_inventory_option(a), "vault_suit": a.vault_suit if clear_inventory_option(a) else None,
                         "o2_fill": o2_fill_option(a),
-                        "fade_hold": not bool(getattr(a, "no_fade_hold", False)),
+                        "fade_hold": fade_hold_option(a),
                         "start_choice_backdrop": getattr(a, "start_choice_backdrop", None) or "empty_cell",
                         "show_unavailable_starts": int(bool(o_show_unavailable)),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
@@ -1164,8 +1179,10 @@ def main(argv=None):
     s.add_argument("--no-o2-fill", action="store_true",
                    help="no O2 capacity after the reset: with no suit the O2/CO2 dial then reads red (S13 row 2b; "
                         "on by default with the reset)")
+    s.add_argument("--fade-hold", action="store_true",
+                   help="opt-in pre-world start room setup before entering a game location (off by default per T3)")
     s.add_argument("--no-fade-hold", action="store_true",
-                   help="disable pre-world start room setup and enter Vault 111 directly")
+                   help="kept as a no-op alias: the default already skips pre-world start room setup and enters Vault 111 directly")
     s.add_argument("--start-choice-backdrop", choices=("empty_cell", "title_card", "setup_menu", "none"), default=None,
                    help="N2/S1 backdrop variant (R5): empty_cell (default), title_card (FO4SF_StartCardMenu), setup_menu (FO4SF_SetupMenu), or none")
     s.add_argument("--show-unavailable-starts", type=int, choices=(0, 1), default=0,

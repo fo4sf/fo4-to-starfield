@@ -54,6 +54,9 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "    def __add__(self, other): return _PStr(super().__add__(str(other)))",
         "    def __radd__(self, other): return _PStr(str(other) + str(self))",
         "if 'Trace' not in globals(): Trace = lambda *_: None",
+        "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
+        "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
+        "if 'self' not in globals(): globals()['self'] = None",
         "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False)):",
         "    if _k not in globals(): globals()[_k] = _v",
         "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook'):",
@@ -109,19 +112,24 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
             if line.startswith(("bool ", "int ", "float ", "string ")) and "=" in line:
                 pass
             line = re.sub(r"\bint\[\]\s+(\w+)\s*=\s*new\s+int\[(\d+)\]", r"\1 = [0] * \2", line)
+            line = re.sub(r"\bVar\[\]\s+(\w+)\s*=\s*new\s+Var\[(\d+)\]", r"\1 = [None] * \2", line)
+            line = re.sub(r"\bnew\s+Var\[0\]", "[]", line)
             line = re.sub(r"^int\s+(\w+)\s*=\s*(.+)", r"\1 = int(\2)", line)
             line = re.sub(
-                r"\b(?:bool|float|string|WorldSpace|Cell|Form|ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|FO4SF_\w+)\s+(\w+)\s*=",
+                r"^(?:bool|float|string|WorldSpace|Cell|Form|ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|FO4SF_\w+)\s+(\w+)\s*=",
                 r"\1 =",
                 line,
             )
-            line = re.sub(r"([\w.\[\]]+(?:\([^()]*(?:\([^()]*\))?\))?)\s+as\s+float\b", r"float(\1)", line)
-            line = re.sub(r"([\w.\[\]]+(?:\([^()]*(?:\([^()]*\))?\))?)\s+as\s+int\b", r"int(\1)", line)
             line = re.sub(
-                r"\s+as\s+(?:ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|FO4SF_\w+)\b",
+                r"\s+as\s+(?:ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|FO4SF_\w+)\b",
                 "",
                 line,
             )
+            line = re.sub(r"(\(\w+\)|\b\w+)\.CastAs\(([^()]+)\)", r"_p_cast_as(\1, \2)", line)
+            line = re.sub(r"(\(\w+\)|\b\w+)\.CallFunction\(([^,]+),\s*([^\n)]+)\)", r"_p_call_fn(\1, \2, \3)", line)
+            line = re.sub(r"((?:_p_call_fn\([^)]+\)|[\w.\[\]]+(?:\([^()]*(?:\([^()]*\))?\))?))\s+as\s+float\b", r"float(\1)", line)
+            line = re.sub(r"((?:_p_call_fn\([^)]+\)|[\w.\[\]]+(?:\([^()]*(?:\([^()]*\))?\))?))\s+as\s+int\b", r"int(\1)", line)
+            line = re.sub(r"((?:_p_call_fn\([^)]+\)|[\w.\[\]]+(?:\([^()]*(?:\([^()]*\))?\))?))\s+as\s+bool\b", r"bool(\1)", line)
             def _ops(seg: str) -> str:
                 seg = re.sub(r"\b(\w+)\.Length\b", r"len(\1)", seg)
                 seg = re.sub(r"\btrue\b", "True", seg, flags=re.I)

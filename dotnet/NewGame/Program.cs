@@ -172,7 +172,8 @@ static class NewGame
     public static readonly string[] SurvivalButtons = { "Survival: No", "Survival: Yes" };
     public static readonly string[] WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" };
     public static readonly string[] NoPipboyButtons = { "OK" };
-    public const bool DefaultFadeHold = true;
+    public const bool DefaultFadeHold = false;
+    public const float PipboyLocalOffsetX = 0.01f, PipboyLocalOffsetY = 0.83f, PipboyLocalOffsetZ = 0.07f;
     // Our own start (the owner's pick F, 29 Oct): Starfield's DefaultObject StartupQuest_DO (Starfield.esm 00562D;
     // verified, the 21 Oct records report: it names MQ101) names the quest the engine starts on a New Game (supported
     // hypothesis: what reads the record is not in that report, NG-N4; the shipped precedents below rely on it). The
@@ -934,7 +935,10 @@ static class NewGame
             var bdRaw = ArgOrNull(a, "--start-choice-backdrop");
             if (a.Contains("--start-choice-backdrop") && (bdRaw is null || bdRaw.StartsWith("--")))
                 throw new Refusal("--start-choice-backdrop needs empty_cell, title_card, setup_menu, or none");
+            if (a.Contains("--fade-hold") && a.Contains("--no-fade-hold"))
+                throw new Refusal("--fade-hold and --no-fade-hold contradict each other");
             int backdrop = ParseStartChoiceBackdrop(bdRaw);
+            bool fadeHold = a.Contains("--fade-hold") ? true : (a.Contains("--no-fade-hold") ? false : DefaultFadeHold);
             return new(
                 ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
                 (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
@@ -949,7 +953,7 @@ static class NewGame
                 ArgOrNull(a, "--debug-after-hold") is { } w ? int.Parse(w, CultureInfo.InvariantCulture) : DefaultDebugAfterHold,
                 a.Contains("--animated-exit-lift"), !a.Contains("--no-o2-fill"),
                 ArgOrNull(a, "--core-values-json"),
-                !a.Contains("--no-fade-hold"),
+                fadeHold,
                 wfJson,
                 rlJson,
                 backdrop,
@@ -1252,6 +1256,15 @@ static class NewGame
 
     static float[] Floats(JsonElement e) => e.EnumerateArray().Select(x => x.GetSingle()).ToArray();
 
+    public static P3Float PipboyWorldCenter(P3Float pbPos, float rz)
+    {
+        float c = MathF.Cos(rz), s = MathF.Sin(rz);
+        return new P3Float(
+            pbPos.X + PipboyLocalOffsetX * c - PipboyLocalOffsetY * s,
+            pbPos.Y + PipboyLocalOffsetX * s + PipboyLocalOffsetY * c,
+            pbPos.Z + PipboyLocalOffsetZ);
+    }
+
     static (P3Float Pos, P3Float Rot) PipboyPlacement(JsonElement pts)
     {
         if (pts.TryGetProperty("pipboy_corpse", out var pb))
@@ -1497,9 +1510,7 @@ static class NewGame
         pipboyActi.Name = "Pip-Boy 3000";
         pipboyActi.ActivateTextOverride = "Take";
         pipboyActi.VirtualMachineAdapter = null;
-        var portPipboyStat = port.Statics.FirstOrDefault(s => s.EditorID == PortPipboyStaticEdid && s.Model is not null);
-        if (portPipboyStat?.Model is not null)
-            pipboyActi.Model = SF.ModelMixIn.DeepCopy(portPipboyStat.Model);
+        // U1: keep Starfield.esm:0x1CCAC2's native activator model & collision (never overwrite with FO4Port_NpcPipboyGroundTake01's COL_STATIC NIF)
         mod.Activators.Add(pipboyActi);
 
         var gearConsoleActi = actiTpl is not null
@@ -1516,13 +1527,14 @@ static class NewGame
         cellOver.Persistent.Clear();
         cellOver.Temporary.Clear();
         var (pbPos, pbRot) = PipboyPlacement(pts);
+        var pbCenter = PipboyWorldCenter(pbPos, pbRot.Z);
         var pipboyRef = new SF.PlacedObject(new FormKey(modKey, PipboyCorpseRefId), SF.StarfieldRelease.Starfield)
         {
             EditorID = PipboyCorpseRefEdid,
             Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pipboyActi.FormKey),
-            Position = pbPos,
+            Position = pbCenter,
             Rotation = pbRot,
-            Scale = 1.05f,
+            Scale = 1.0f,
         };
         pipboyRef.MajorRecordFlagsRaw |= 0x400;
         cellOver.Persistent.Add(pipboyRef);
@@ -1840,13 +1852,19 @@ static class NewGame
         var pipboyWrist = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyWristArmorId));
         Need(plug.Armors.Count == 1 && pipboyWrist is { EditorID: PipboyWristArmorEdid } && (pipboyWrist.MajorRecordFlagsRaw & 0x4) == 0,
              $"ARMO 0x{PipboyWristArmorId:X} is not playable {PipboyWristArmorEdid}");
+        var actiTpl = sf.Activators.FirstOrDefault(a => a.FormKey == new FormKey(SfEsm, SfConsoleActiTemplateId));
         var pipboyActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyCorpseActiId));
         var gearConsoleActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, GearDoorConsoleActiId));
+        string? tplNif = actiTpl?.Model?.File?.GivenPath;
+        string? pbNif = pipboyActi?.Model?.File?.GivenPath;
         Need(plug.Activators.Count == 2 && pipboyActi is { EditorID: PipboyCorpseActiEdid } &&
+             pipboyActi.Name?.String == "Pip-Boy 3000" &&
+             pipboyActi.ActivateTextOverride?.String == "Take" &&
+             (string.IsNullOrEmpty(tplNif) || pbNif == tplNif) &&
              gearConsoleActi is { EditorID: GearDoorConsoleActiEdid } &&
              gearConsoleActi.Name?.String == "Vault Door Controls" &&
              gearConsoleActi.ActivateTextOverride?.String == "Activate",
-             $"ACTIs are not {PipboyCorpseActiEdid} (0x{PipboyCorpseActiId:X}) and named {GearDoorConsoleActiEdid} (0x{GearDoorConsoleActiId:X})");
+             $"ACTIs are not {PipboyCorpseActiEdid} (0x{PipboyCorpseActiId:X}, retaining template {SfConsoleActiTemplateId:X6} model) and named {GearDoorConsoleActiEdid} (0x{GearDoorConsoleActiId:X})");
 
         var allPlugCells = plug.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).ToList();
         var cellOver = allPlugCells.FirstOrDefault(c => c.FormKey == new FormKey(PortEsm, places.PortCellId));
@@ -1854,17 +1872,19 @@ static class NewGame
         var pipboyRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, PipboyCorpseRefId));
         var gearConsoleRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, GearDoorConsoleRefId));
         var startRoomMarkerRef = startRoomCell?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, StartRoomMarkerRefId));
-        var (wantPbPos, _) = PipboyPlacement(pts);
+        var (rawPbPos, rawPbRot) = PipboyPlacement(pts);
+        var wantPbPos = PipboyWorldCenter(rawPbPos, rawPbRot.Z);
         var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
         var wantConPos = new P3Float(conCoords[0], conCoords[1], conCoords[2]);
         bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
-                                     sf.Ammunitions.Any(a => a.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
+                                     sf.Ammunitions.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
         int wantVaultTempCount = hasVaultPistolAndAmmo ? 2 : 0;
         Need(allPlugCells.Count == 2 &&
              cellOver is not null && cellOver.FormKey == new FormKey(PortEsm, places.PortCellId) && cellOver.EditorID == VaultCell &&
              cellOver.Temporary.Count == wantVaultTempCount && cellOver.Persistent.Count == 2 &&
              pipboyRef is { EditorID: PipboyCorpseRefEdid } && IsPersistent(pipboyRef) &&
              pipboyRef.Base.FormKey == new FormKey(key, PipboyCorpseActiId) &&
+             MathF.Abs((pipboyRef.Scale ?? 1f) - 1f) <= 1e-4f &&
              MathF.Abs(pipboyRef.Position.X - wantPbPos.X) <= 1e-3f &&
              MathF.Abs(pipboyRef.Position.Y - wantPbPos.Y) <= 1e-3f &&
              MathF.Abs(pipboyRef.Position.Z - wantPbPos.Z) <= 1e-3f &&
@@ -1873,7 +1893,7 @@ static class NewGame
              MathF.Abs(gearConsoleRef.Position.X - wantConPos.X) <= 1e-3f &&
              MathF.Abs(gearConsoleRef.Position.Y - wantConPos.Y) <= 1e-3f &&
              MathF.Abs(gearConsoleRef.Position.Z - wantConPos.Z) <= 1e-3f,
-             $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X}) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X})");
+             $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X} at mesh center {Show(wantPbPos)} scale 1.0) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X})");
         if (hasVaultPistolAndAmmo)
         {
             var pistolRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultPistolRefId));
@@ -2434,7 +2454,7 @@ static class NewGame
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, 0x24561C), rel) { EditorID = "SynthPistol" });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, 0x2B5598), rel) { EditorID = "SynthPistolAmmo" });
         sf.Ingestibles.Add(new SF.Ingestible(new FormKey(SfEsm, 0x00ABF9), rel) { EditorID = "MedPack" });
-        sf.Activators.Add(new SF.Activator(new FormKey(SfEsm, SfConsoleActiTemplateId), rel) { EditorID = "IndIntAddonArtifactHolder01" });
+        sf.Activators.Add(new SF.Activator(new FormKey(SfEsm, SfConsoleActiTemplateId), rel) { EditorID = "IndIntAddonArtifactHolder01", Model = new SF.Model { File = @"SetDressing\NativeConsole.nif" } });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, SfMapMarkerStaticId), rel) { EditorID = "MapMarker" });
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
         startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
@@ -2469,7 +2489,7 @@ static class NewGame
         port.Activators.Add(plift);
         var pconsole = new SF.Activator(new FormKey(portKey, 0x812), rel) { EditorID = "FO4Port_acti_091a48_fallout4", Name = "Vault Door Controls" };
         port.Activators.Add(pconsole);
-        var ppipboy = new SF.Static(new FormKey(portKey, 0x813), rel) { EditorID = PortPipboyStaticEdid };
+        var ppipboy = new SF.Static(new FormKey(portKey, 0x813), rel) { EditorID = PortPipboyStaticEdid, Model = new SF.Model { File = @"FO4Port\SetDressing\PipboyGroundTake01.nif" } };
         port.Statics.Add(ppipboy);
         // the vault suit the inventory reset may equip (--vault-suit): the port's own ARMO, named by EditorID
         const string SuitEdid = "FO4Port_VaultSuit111";
@@ -2600,6 +2620,11 @@ static class NewGame
             Options.From(new[] { "--start-choice-backdrop", "setup_menu" }).StartChoiceBackdrop != BackdropSetupMenu ||
             Options.From(new[] { "--start-choice-backdrop", "title_card" }).StartChoiceBackdrop != BackdropTitleCard)
             { Console.WriteLine("FAIL  the start-choice-backdrop options"); return 1; }
+        if (DefaultFadeHold || plain.FadeHold || !Options.From(new[] { "--fade-hold" }).FadeHold ||
+            Options.From(new[] { "--no-fade-hold" }).FadeHold)
+            { Console.WriteLine("FAIL  the fade-hold options"); return 1; }
+        try { Options.From(new[] { "--fade-hold", "--no-fade-hold" }); Console.WriteLine("FAIL  options accepted both fade-hold options"); return 1; }
+        catch (Refusal e) { Console.WriteLine($"refused as expected (both fade-hold options): {e.Message}"); }
         var keep = plain with { ClearInventory = false };
         var suit = plain with { VaultSuit = SuitEdid };
         var variants = new (string Name, string Ids, Options O)[]
@@ -2607,7 +2632,7 @@ static class NewGame
             ("keep", idsPath, keep), ("suit", idsPath, suit),
             ("lift", idsPath, lift), ("liftkeep", idsPath, liftKeep), ("liftnoo2", idsPath, liftNoO2),
             ("default", idsPath, plain), ("setupmenu", idsPath, plain with { StartChoiceBackdrop = BackdropSetupMenu }),
-            ("nolooks", idsPath, plain with { Looks = false }), ("nofadehold", idsPath, plain with { FadeHold = false }),
+            ("nolooks", idsPath, plain with { Looks = false }), ("fadehold", idsPath, plain with { FadeHold = true }),
             ("debug0", idsPath, plain with { MQ101Debug = 0 }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nowrite", idsPath, plain with { DebugAfterHold = 0 }),
             ("debug10", idsPath, plain with { MQ101Debug = 10 }),   // the first build's value, still buildable on purpose
@@ -2643,8 +2668,8 @@ static class NewGame
             ("lift", liftNoO2, idsPath, "an O2 lift build as a no-O2 one"),
             ("default", plain with { Looks = false }, idsPath, "a looks build as a no-looks one"),
             ("nolooks", plain, idsPath, "a no-looks build as a looks one"),
-            ("default", plain with { FadeHold = false }, idsPath, "a fade-hold build as a no-fade-hold one"),
-            ("nofadehold", plain, idsPath, "a no-fade-hold build as a fade-hold one"),
+            ("default", plain with { FadeHold = true }, idsPath, "a direct-vault default build as a fade-hold one"),
+            ("fadehold", plain, idsPath, "a fade-hold build as a direct-vault default one"),
             ("default", plain with { MQ101Debug = 0 }, idsPath, "the default (no override) build as an explicit MQ101Debug 0 one"),
             ("debug0", plain, idsPath, "an explicit MQ101Debug 0 build as the default one"),
             ("default", plain with { DebugAfterHold = 0 }, idsPath, "the default build as one that never writes MQ101Debug"),
@@ -2701,6 +2726,8 @@ static class NewGame
         var mutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
         {
             ("start game enabled again", m => m.Quests.First().Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("pipboy activator model overwritten with COL_STATIC static NIF", m => m.Activators.First(a => a.EditorID == PipboyCorpseActiEdid).Model = new SF.Model { File = @"FO4Port\SetDressing\PipboyGroundTake01.nif" }),
+            ("pipboy pickup ref left at furniture origin instead of mesh center", m => m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First(c => c.EditorID == VaultCell).Persistent.OfType<SF.PlacedObject>().First(r => r.EditorID == PipboyCorpseRefEdid).Position = new P3Float(49.857f, 11f, 0.643f)),
             ("the startup override removed", m => m.DefaultObjects.Clear()),
             ("the startup override names Starfield's opening again", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x902))),
             ("the startup override names MQ00", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x901))),

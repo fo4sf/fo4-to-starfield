@@ -30,7 +30,7 @@ DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
                 version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, require_persistent_anchor=False,
-                allow_temporary_anchor=False, no_o2_fill=False, no_fade_hold=False, start_choice_backdrop=None, warfare_starts=None, start_places=None)
+                allow_temporary_anchor=False, no_o2_fill=False, fade_hold=False, no_fade_hold=False, start_choice_backdrop=None, warfare_starts=None, start_places=None)
 
 
 def namespace(**kw):
@@ -665,7 +665,9 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Trace("special left: ', special)
         self.assertIn("ActorValue[] Property Special Auto Const Mandatory", special)
         self.assertIn('string Property VaultPlugin = "FO4Port.esm" Auto Const', special)
-        self.assertNotIn("Special", psc.split("}", 1)[1])     # the quest script knows nothing of it
+        self.assertNotIn("as FO4SF_NewGameSpecial", psc)     # dynamic CastAs only; --no-special still compiles without it
+        self.assertIn('CastAs("FO4SF_NewGameSpecial")', psc)
+        self.assertIn("bool Function AllocateFromLift(Actor player)", special)
         self.assertIn('SpecialScript = "FO4SF_NewGameSpecial"', cs)
         self.assertIn('a.Contains("--no-special")', cs)
         self.assertNotIn("Types.SpecialAttribute", cs)
@@ -1025,11 +1027,9 @@ class ContractTests(unittest.TestCase):
         calls = set(re.findall(r"\.(\w+)\(", psc)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer|AddInventoryEventFilter)\(", psc, re.M))
         listed = {f for bases in ng.NATIVES[ng.SCRIPT].values() for f in bases}
         own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", psc, re.M))
-        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls live in our own repo scripts
+        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls go through CastAs + CallFunction
         calls |= set(re.findall(r"^Event (?:\w+\.)?(On\w+)\(", psc, re.M)) - {"OnTimer"}
-        fo4sf_methods = {"GetPositionY", "GetPositionZ", "EvaluateHardcore", "OpenAttributeAllocation",
-                         "OfferStandardSpread", "ApplyWarfareBackground", "SetFactionScoresAbsolute", "SetKarmaAbsolute",
-                         "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"}
+        fo4sf_methods = {"GetPositionY", "GetPositionZ"}
         missing = calls - listed - own - fo4sf_methods
         self.assertEqual(missing, set())
         self.assertTrue({"OnQuestStarted", "OnQuestInit", "FadeOutGame", "WaitFor3DLoad", "StartNoWait", "IsStarting"} <= calls)
@@ -1096,7 +1096,7 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
-             objectreference=None, quest=None, animation=True, remote=True, inventory_filter=True):
+             objectreference=None, quest=None, animation=True, remote=True, inventory_filter=True, dynamic_cast=True):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -1138,6 +1138,9 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                                  "Function UnregisterForRemoteEvent(ScriptObject source, string name) native\n")
     if inventory_filter:
         base["ScriptObject"] += "\nFunction AddInventoryEventFilter(Form akFilter) native\n"
+    if dynamic_cast:
+        base["ScriptObject"] += ("\nScriptObject Function CastAs(string asScriptName) native\n"
+                                 "Var Function CallFunction(string asFuncName, Var[] aParams) native\n")
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)
@@ -2103,9 +2106,11 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn('ModeButtons = { "Story", "Warfare" }', cs)
         self.assertIn('SurvivalButtons = { "Survival: No", "Survival: Yes" }', cs)
         self.assertIn('WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" }', cs)
-        self.assertIn("bool Property FadeHold = true Auto Const", psc)
+        self.assertIn("bool Property FadeHold = false Auto Const", psc)
         self.assertIn("int Property StartChoiceBackdrop = 1 Auto Const", psc)
         self.assertIn("float Property StartLoadTimeout = 15.0 Auto Const", psc)
+        self.assertEqual(ng.tool_options(namespace()), [])
+        self.assertEqual(ng.tool_options(namespace(fade_hold=True)), ["--fade-hold"])
         self.assertEqual(ng.tool_options(namespace(no_fade_hold=True)), ["--no-fade-hold"])
         self.assertEqual(
             ng.tool_options(namespace(start_choice_backdrop="title_card")),
@@ -2116,7 +2121,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn('Trace("mode choice mode=" + modeTag + " survival=" + survVal)', psc)
         self.assertIn('Trace("start record mode=" + modeTag + " story=" + storyId', psc)
         self.assertIn('Trace("mode load default=story stage=" + GetStage())', psc)
-        self.assertIn('hc.EvaluateHardcore("start_choice")', psc)
+        self.assertIn('CastAs("FO4SF_HardcoreQuest")', psc)
+        self.assertIn('CallFunction("EvaluateHardcore"', psc)
         s = ng.summarize([
             "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n",
             "[x] FO4SF_NEWGAME rt=2.2 enter start room ok=True pos=0.0 0.0 0.0 cell=[Cell <FO4SF_StartRoomCell>]\n",
@@ -2144,13 +2150,14 @@ class Phase2BeginningRealTests(unittest.TestCase):
         wf = psc[psc.index("Function RunWarfareBranch"):psc.index("Event OnMenuOpenCloseEvent")]
         self.assertIn("RunSharedMapSetup()", ascent)
         self.assertIn("RunSharedMapSetup()", wf)
-        self.assertIn('prog.OpenAttributeAllocation("warfare")', wf)
-        self.assertIn("prog.ApplyWarfareBackground(WarfareBgIndices[rowIdx])", wf)
+        self.assertIn('CastAs("FO4SF_ProgressionQuest")', wf)
+        self.assertIn('CallFunction("OpenAttributeAllocation"', wf)
+        self.assertIn('CallFunction("ApplyWarfareBackground"', wf)
         self.assertIn('Trace("warfare gear n=" + gearAdded)', wf)
         self.assertIn('Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())', wf)
-        self.assertIn("wmm.DiscoverSingleMarker(wMarker)", wf)
-        self.assertIn("rep.SetFactionScoresAbsolute(player, slot, fame, infamy)", wf)
-        self.assertIn("rep.SetKarmaAbsolute(player, karma)", wf)
+        self.assertIn('CallFunction("DiscoverSingleMarker"', wf)
+        self.assertIn('CallFunction("SetFactionScoresAbsolute"', wf)
+        self.assertIn('CallFunction("SetKarmaAbsolute"', wf)
         self.assertIn("player.AddToFaction(fac)", wf)
         self.assertIn('Trace("warfare standing slot=" + slot', wf)
         self.assertIn('ForceFadeIn("warfare")', wf)
@@ -2248,7 +2255,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn("ExitNeedAttrMsg.Show()", psc)
         self.assertIn("OpenLiftAttributeAllocation()", psc)
         self.assertNotIn("OpenLiftCharacterRespec()", psc)
-        self.assertIn('Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest', psc)
+        self.assertIn('Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")', psc)
+        self.assertIn('CastAs("FO4SF_ProgressionQuest")', psc)
+        self.assertIn('CastAs("FO4SF_NewGameSpecial")', psc)
+        self.assertNotIn("as FO4SF_ProgressionQuest", psc)
         self.assertIn("PrepareArrivalMarkerDuringRide()", psc)
         self.assertIn("PreAttachArrivalMarker(player)", psc)
         self.assertIn("CheckReturnLift(player)", psc)

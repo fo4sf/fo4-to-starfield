@@ -505,6 +505,43 @@ class BeginningPilotTests(unittest.TestCase):
             self.assertEqual(res_to["steps"]["B1_pod"]["status"], "FAIL")
             self.assertIn("mode fade lifted by=timeout", res_to["steps"]["B1_pod"]["detail"])
 
+    def test_player_profile_13_plugin_bundle_and_28pt_special_fallback_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = Path(tmp)
+            bundle = self._build_synthetic_bundle(tdir)
+            (bundle / "FO4SFProgression.esm").unlink()
+            (bundle / "Data" / "Scripts" / "FO4SF_ProgressionQuest.pex").unlink()
+            (bundle / "Data" / "Scripts" / "FO4SF_NewGameSpecial.pex").write_bytes(b"PEX_SYNTHETIC_SPECIAL_PAYLOAD")
+            player_plan = json.loads((bundle / "bundle_plan.json").read_text(encoding="utf-8"))
+            player_plan["plugins"] = [p for p in player_plan["plugins"] if p != "FO4SFProgression.esm"]
+            (bundle / "bundle_plan.json").write_text(json.dumps(player_plan), encoding="utf-8")
+
+            ok_player = verify_bundle_beginning_readiness(str(bundle))
+            self.assertTrue(ok_player["ok"], ok_player["problems"])
+
+            (bundle / "Data" / "Scripts" / "FO4SF_NewGameSpecial.pex").unlink()
+            missing_spec = verify_bundle_beginning_readiness(str(bundle))
+            self.assertFalse(missing_spec["ok"])
+            self.assertEqual(missing_spec["steps"]["B3_exit_lift"]["status"], "FAIL")
+
+            ng_log = tdir / "fo4sf_newgame.0.log"
+            ms_log = tdir / "fo4sf_mission.0.log"
+            ms_log.write_text("\n".join(_handwritten_mission_lines()) + "\n", encoding="utf-8")
+            player_ng: list[str] = []
+            for ln in _handwritten_newgame_lines():
+                if "special set" in ln:
+                    player_ng.append("FO4SF_NEWGAME rt=75.0 special set S=4 P=4 E=4 C=4 I=4 A=4 L=4 readback=4.0 4.0")
+                    player_ng.append(
+                        "FO4SF_NEWGAME rt=75.2 elevator attribute_allocation fallback=FO4SF_NewGameSpecial edited=True confirmed=True"
+                    )
+                else:
+                    player_ng.append(ln)
+            ng_log.write_text("\n".join(player_ng) + "\n", encoding="utf-8")
+            res_player_log = evaluate_beginning_logs(str(ng_log), str(ms_log))
+            self.assertTrue(res_player_log["ok"], res_player_log)
+            self.assertTrue(res_player_log["all_pass"], res_player_log)
+            self.assertEqual(res_player_log["steps"]["B3_exit_lift"]["status"], "PASS")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -284,8 +284,8 @@ Weapon Property VaultPistolBase Auto Const Mandatory
 {Starfield.esm WEAP for vault111.pistol_id from route_loot_ids.json, filtered for OnItemAdded.}
 int Property VaultPistolId = 0 Auto Const
 {Plugin-local FormID of VaultPistolBase in Starfield.esm, logged when adding the inventory event filter.}
-bool Property FadeHold = true Auto Const
-{N2 / S4: runs pre-world start set-up before entering any game location (--no-fade-hold sets false).}
+bool Property FadeHold = false Auto Const
+{W1 / T3: false by default so New Game enters Vault 111 Story mode directly (--fade-hold opts in to pre-world start setup).}
 int Property StartChoiceBackdrop = 1 Auto Const
 {N2 / S1 / R5 backdrop variant: 1 empty_cell (default), 2 title_card (FO4SF_StartCardMenu), 3 setup_menu (FO4SF_SetupMenu), 0 none.}
 float Property StartLoadTimeout = 15.0 Auto Const
@@ -577,6 +577,9 @@ Function NoteLooksStage20()
 EndFunction
 
 bool Function IsPreworldLooksHandled()
+    if !FadeHold
+        return looksSetStage20
+    endif
     return preworldLooksDone || looksSetStage20 || UsePreworldRoom()
 EndFunction
 
@@ -1829,6 +1832,53 @@ int Function RunModeChoiceChain(Actor player)
         endif
         return 1
     endif
+    if !FadeHold
+        modeChoiceRan = true
+        int directRow = FindStoryStartPlaceRow("fo4_commonwealth")
+        string directPlace = "fo4_vault111"
+        if StartPlaceIds != None && directRow >= 0 && directRow < StartPlaceIds.Length
+            directPlace = StartPlaceIds[directRow]
+        endif
+        if GameModeGlobal != None
+            GameModeGlobal.SetValue(1.0)
+        endif
+        if StoryLineGlobal != None
+            StoryLineGlobal.SetValue(0.0)
+        endif
+        if SurvivalStartGlobal != None
+            SurvivalStartGlobal.SetValue(0.0)
+        endif
+        if SurvivalLockedGlobal != None
+            SurvivalLockedGlobal.SetValue(0.0)
+        endif
+        if StartDifficultyGlobal != None
+            StartDifficultyGlobal.SetValue(1.0)
+        endif
+        if WarfareFactionGlobal != None
+            WarfareFactionGlobal.SetValue(-1.0)
+        endif
+        if WarfareStartIndexGlobal != None
+            WarfareStartIndexGlobal.SetValue(-1.0)
+        endif
+        if StartPlaceRowGlobal != None
+            StartPlaceRowGlobal.SetValue(directRow as float)
+        endif
+        if StartChoiceDoneGlobal != None
+            StartChoiceDoneGlobal.SetValue(1.0)
+        endif
+        Form directHcForm = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm")
+        if directHcForm != None
+            ScriptObject directHc = directHcForm.CastAs("FO4SF_HardcoreQuest")
+            if directHc != None
+                Var[] directHcArgs = new Var[1]
+                directHcArgs[0] = "start_choice"
+                directHc.CallFunction("EvaluateHardcore", directHcArgs)
+            endif
+        endif
+        Trace("mode choice mode=story survival=0")
+        Trace("start record mode=story story=fo4_commonwealth faction=-1 place=" + directPlace + " survival=0 difficulty=1 backdrop=none")
+        return 1
+    endif
     modeChoiceRan = true
     bool usedNeutralSpot = HoldNeutralSpotForModeChoice(player)
     WaitForStartUiReady()
@@ -2056,9 +2106,14 @@ int Function RunModeChoiceChain(Actor player)
             placeId = StartPlaceIds[placeRow]
         endif
     endif
-    FO4SF_HardcoreQuest hc = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm") as FO4SF_HardcoreQuest
-    if hc != None
-        hc.EvaluateHardcore("start_choice")
+    Form hcForm = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm")
+    if hcForm != None
+        ScriptObject hc = hcForm.CastAs("FO4SF_HardcoreQuest")
+        if hc != None
+            Var[] hcArgs = new Var[1]
+            hcArgs[0] = "start_choice"
+            hc.CallFunction("EvaluateHardcore", hcArgs)
+        endif
     endif
     Trace("mode choice mode=" + modeTag + " survival=" + survVal)
     if modeVal == 2
@@ -2092,18 +2147,29 @@ EndFunction
 
 Function RunWarfareBranch(Actor player, int rowIdx)
     Game.SetInChargen(false, false, false)
-    FO4SF_ProgressionQuest prog = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest
+    Form progForm = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")
+    ScriptObject prog = None
+    if progForm != None
+        prog = progForm.CastAs("FO4SF_ProgressionQuest")
+    endif
     if prog != None
+        Var[] allocArgs = new Var[1]
+        allocArgs[0] = "warfare"
         int tries = 0
         bool allocOk = false
         while !allocOk && tries < 3
             tries += 1
-            allocOk = prog.OpenAttributeAllocation("warfare")
+            allocOk = prog.CallFunction("OpenAttributeAllocation", allocArgs) as bool
         endwhile
         if !allocOk
-            allocOk = prog.OfferStandardSpread("warfare", false)
+            Var[] spreadArgs = new Var[2]
+            spreadArgs[0] = "warfare"
+            spreadArgs[1] = false
+            allocOk = prog.CallFunction("OfferStandardSpread", spreadArgs) as bool
         endif
-        prog.ApplyWarfareBackground(WarfareBgIndices[rowIdx])
+        Var[] bgArgs = new Var[1]
+        bgArgs[0] = WarfareBgIndices[rowIdx]
+        prog.CallFunction("ApplyWarfareBackground", bgArgs)
     endif
     RunPreworldLooksChoice(player, true)
     Game.ShowFirstPersonGeometry(true)
@@ -2217,12 +2283,17 @@ Function RunWarfareBranch(Actor player, int rowIdx)
                 wMarker.SetPosition(wx, wy, WarfareMarkerZ[rowIdx])
             endif
         endif
-        FO4SF_MapMarkers wmm = None
+        ScriptObject wmm = None
         if MapMarkerQuestIds.Length > 0
-            wmm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm") as FO4SF_MapMarkers
+            Form wmmForm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm")
+            if wmmForm != None
+                wmm = wmmForm.CastAs("FO4SF_MapMarkers")
+            endif
         endif
         if wmm != None
-            wmm.DiscoverSingleMarker(wMarker)
+            Var[] wmmArgs = new Var[1]
+            wmmArgs[0] = wMarker
+            wmm.CallFunction("DiscoverSingleMarker", wmmArgs)
         endif
     endif
     int slot = WarfareFactionSlots[rowIdx]
@@ -2230,10 +2301,21 @@ Function RunWarfareBranch(Actor player, int rowIdx)
     float infamy = WarfareInfamies[rowIdx]
     float karma = WarfareKarmas[rowIdx]
     int squadCap = WarfareSquadCaps[rowIdx]
-    FO4SF_ReputationQuest rep = Game.GetFormFromFile(0x000800, "FO4SFReputation.esm") as FO4SF_ReputationQuest
-    if rep != None
-        rep.SetFactionScoresAbsolute(player, slot, fame, infamy)
-        rep.SetKarmaAbsolute(player, karma)
+    Form repForm = Game.GetFormFromFile(0x000800, "FO4SFReputation.esm")
+    if repForm != None
+        ScriptObject rep = repForm.CastAs("FO4SF_ReputationQuest")
+        if rep != None
+            Var[] repFacArgs = new Var[4]
+            repFacArgs[0] = player
+            repFacArgs[1] = slot
+            repFacArgs[2] = fame
+            repFacArgs[3] = infamy
+            rep.CallFunction("SetFactionScoresAbsolute", repFacArgs)
+            Var[] repKarmaArgs = new Var[2]
+            repKarmaArgs[0] = player
+            repKarmaArgs[1] = karma
+            rep.CallFunction("SetKarmaAbsolute", repKarmaArgs)
+        endif
     endif
     Faction fac = Game.GetFormFromFile(0x000810 + slot, "FO4SFReputation.esm") as Faction
     if fac != None
@@ -2289,12 +2371,15 @@ int Function RunSharedMapSetup()
     mapSetupDone = true
     float t0 = Utility.GetCurrentRealTime()
     int count = 0
-    FO4SF_MapMarkers mm = None
+    ScriptObject mm = None
     if MapMarkerQuestIds.Length > 0
-        mm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm") as FO4SF_MapMarkers
+        Form mmForm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm")
+        if mmForm != None
+            mm = mmForm.CastAs("FO4SF_MapMarkers")
+        endif
     endif
     if mm != None
-        count = mm.PrepareKnownUndiscoveredAll()
+        count = mm.CallFunction("PrepareKnownUndiscoveredAll", new Var[0]) as int
     endif
     int i = 0
     while i < CoreMarkerIds.Length
@@ -2323,6 +2408,7 @@ Function EnsureVaultInteractivesRegistered()
     if !pipboyRegistered && PipboyCorpseRef != None
         pipboyRegistered = true
         RegisterForRemoteEvent(PipboyCorpseRef, "OnActivate")
+        Trace("pipboy activator registered ref=" + PipboyCorpseRef + " id=" + PipboyCorpseRef.GetFormID() + " pos=" + PipboyCorpseRef.GetPositionX() + " " + PipboyCorpseRef.GetPositionY() + " " + PipboyCorpseRef.GetPositionZ())
     endif
     if !cogDoorRegistered && CogDoorId > 0
         cogDoorWatchedRef = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
@@ -2354,11 +2440,14 @@ EndEvent
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     Actor player = Game.GetPlayer()
-    if akSender == None || player == None || akActionRef != player
+    if akSender == None || player == None
         return
     endif
-    if PipboyCorpseRef != None && akSender == PipboyCorpseRef
+    if PipboyCorpseRef != None && akSender == PipboyCorpseRef && (akActionRef == player || akActionRef == None)
         HandlePipboyPickup(player)
+        return
+    endif
+    if akActionRef != player
         return
     endif
     if cogDoorWatchedRef != None && akSender == cogDoorWatchedRef
@@ -2462,16 +2551,34 @@ Function HandlePipboyPickup(Actor player)
 EndFunction
 
 Function OpenLiftAttributeAllocation()
-    FO4SF_ProgressionQuest prog = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest
+    Form progForm = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")
+    ScriptObject prog = None
+    if progForm != None
+        prog = progForm.CastAs("FO4SF_ProgressionQuest")
+    endif
     if prog != None
-        bool edited = prog.OpenAttributeAllocation("Lift")
+        Var[] liftArgs = new Var[1]
+        liftArgs[0] = "Lift"
+        bool edited = prog.CallFunction("OpenAttributeAllocation", liftArgs) as bool
         if edited
             liftSpecConfirmed = true
         endif
         Trace("elevator attribute_allocation edited=" + edited + " confirmed=" + liftSpecConfirmed)
     else
-        liftSpecConfirmed = true
-        Trace("elevator attribute_allocation missing FO4SFProgression.esm:0x000880")
+        ScriptObject specScript = (self as ScriptObject).CastAs("FO4SF_NewGameSpecial")
+        if specScript != None
+            Actor player = Game.GetPlayer()
+            Var[] specArgs = new Var[1]
+            specArgs[0] = player
+            bool specEdited = specScript.CallFunction("AllocateFromLift", specArgs) as bool
+            if specEdited
+                liftSpecConfirmed = true
+            endif
+            Trace("elevator attribute_allocation fallback=FO4SF_NewGameSpecial edited=" + specEdited + " confirmed=" + liftSpecConfirmed)
+        else
+            liftSpecConfirmed = true
+            Trace("elevator attribute_allocation missing FO4SFProgression.esm:0x000880 and FO4SF_NewGameSpecial")
+        endif
     endif
     asked = false
     StartTimer(0.1, 1)

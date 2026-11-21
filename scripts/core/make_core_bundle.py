@@ -81,6 +81,7 @@ INSTALL_LINE_RE = re.compile(r"(exp_install\.py install\b.*?--plugins )(?P<plugi
 HEX_HEAD_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 DROPPED_SLICE_ESMS = frozenset({
+    "fo4sfbridge.esm",
     "fo4sfcorevalues.esm",
     "fo4sfnewgame.esm",
     "fo4sfvaultgeardoor.esm",
@@ -163,7 +164,45 @@ ORDERED_COMPONENT_KEYS = (
     "pipboy",
 )
 
+EXPERIMENTAL_CORE_COMPONENT_KEYS = frozenset({
+    "rads",
+    "hardcore",
+    "progression",
+    "list_dialogue",
+    "combat",
+    "reputation",
+    "companions",
+    "alife",
+})
+
+EXPERIMENTAL_CORE_ESMS = frozenset({
+    "fo4sfrads.esm",
+    "fo4sfhardcore.esm",
+    "fo4sfprogression.esm",
+    "fo4sflistdialogue.esm",
+    "fo4sfcombat.esm",
+    "fo4sfreputation.esm",
+    "fo4sfcompanions.esm",
+    "fo4sfalife.esm",
+})
+
 PLAYER_BUNDLE_PLUGINS = (
+    "FO4ActorRaider.esm",
+    "FO4TerrainCore.esm",
+    "FO4TerrainCore_Mars.esm",
+    "FO4SFCoreValues.esm",
+    "FO4SFVaultGearDoor.esm",
+    "FO4SFExitLift.esm",
+    "FO4SFMission.esm",
+    "FO4SFNewGame.esm",
+    "FO4SFWorkshop.esm",
+    "FO4SFPowerArmor.esm",
+    "FO4SFFortHagen.esm",
+    "FO4SFPipboyProbe.esm",
+    "FO4SFPipboyTravel.esm",
+)
+
+PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS = (
     "FO4ActorRaider.esm",
     "FO4TerrainCore.esm",
     "FO4TerrainCore_Mars.esm",
@@ -188,12 +227,18 @@ PLAYER_BUNDLE_PLUGINS = (
 )
 
 PLAYER_WITH_ROUTE_LOOT_PLUGINS = (
-    *PLAYER_BUNDLE_PLUGINS[:11],
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[:11],
     "FO4SFRouteLoot.esm",
-    *PLAYER_BUNDLE_PLUGINS[11:],
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[11:],
 )
 
 CORE_BUNDLE_PLUGINS = (
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[:19],
+    "FO4SFCoreCandidate.esm",
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[19:],
+)
+
+CORE_WITH_ROUTE_LOOT_PLUGINS = (
     *PLAYER_WITH_ROUTE_LOOT_PLUGINS[:20],
     "FO4SFCoreCandidate.esm",
     *PLAYER_WITH_ROUTE_LOOT_PLUGINS[20:],
@@ -657,15 +702,20 @@ def verify_bundle(
             if readme_plugins != plugins:
                 problems.append(f"README.txt --plugins {readme_plugins} != bundle_plan plugins {plugins}")
 
-    # 1b. Enforce player profile excludes FO4SFCoreCandidate.esm and (until T1 is proven) FO4SFRouteLoot.esm
+    # 1b. Enforce safe W1 defaults: FO4SFBridge.esm OFF everywhere, FO4SFRouteLoot.esm OFF unless --with-route-loot,
+    # and Track 2 experimental core slices OFF in player profile unless --with-experimental-core
+    if any(p.casefold() == "fo4sfbridge.esm" for p in plugins):
+        problems.append("bundle must not include held FO4SFBridge.esm")
     if bplan.get("profile") == "player" and any(p.casefold() == "fo4sfcorecandidate.esm" for p in plugins):
         problems.append("player profile must not include FO4SFCoreCandidate.esm")
+    if not bplan.get("with_route_loot", False) and any(p.casefold() == "fo4sfrouteloot.esm" for p in plugins):
+        problems.append("bundle must not include FO4SFRouteLoot.esm unless --with-route-loot is set (T1)")
     if (
         bplan.get("profile") == "player"
-        and not bplan.get("with_route_loot", False)
-        and any(p.casefold() == "fo4sfrouteloot.esm" for p in plugins)
+        and not bplan.get("with_experimental_core", False)
+        and any(p.casefold() in EXPERIMENTAL_CORE_ESMS for p in plugins)
     ):
-        problems.append("player profile must not include FO4SFRouteLoot.esm unless --with-route-loot is set (T1)")
+        problems.append("player profile must not include Track 2 experimental core plugins unless --with-experimental-core is set")
 
     # 2. Verify every recorded file SHA-256 across all folded components & sidecar
     for comp, cinfo in (bplan.get("components") or {}).items():
@@ -1032,7 +1082,12 @@ def stage_from_checkout(a) -> Dict[str, str]:
             _run_py(py_main, "scripts/mission/make_mission.py", ms_args)
         stages["mission"] = mission_dir
 
-    ng_dir = os.path.join(work, "03-newgame")
+    want_fade_hold = (
+        not getattr(a, "no_fade_hold", False)
+        and (profile == "test" or bool(getattr(a, "fade_hold", False)))
+    )
+    ng_folder = "03-newgame-fadehold" if want_fade_hold else "03-newgame"
+    ng_dir = os.path.join(work, ng_folder)
     if not os.path.exists(ng_dir):
         ng_args = [
             "stage",
@@ -1047,10 +1102,12 @@ def stage_from_checkout(a) -> Dict[str, str]:
             "--compiler", compiler,
             "--content-resources", cr_zip,
         ]
+        if want_fade_hold:
+            ng_args.append("--fade-hold")
         if getattr(a, "show_unavailable_starts", None) is not None:
             ng_args.extend(["--show-unavailable-starts", str(int(a.show_unavailable_starts))])
         _run_py(py_main, "scripts/newgame/make_newgame.py", ng_args)
-    # Verify hold 199 and pod_step -2.5 in staged NewGame plan
+    # Verify hold 199, pod_step -2.5, and fade_hold policy in staged NewGame plan
     with open(os.path.join(ng_dir, "plan.json"), encoding="utf-8") as f:
         ng_plan = json.load(f)
     hold_cnt = len(ng_plan["options"]["hold"].split(","))
@@ -1059,8 +1116,11 @@ def stage_from_checkout(a) -> Dict[str, str]:
         raise BundleRefused(f"NewGame hold count is {hold_cnt}, expected 199")
     if abs(pod_step - (-2.5)) > 1e-4:
         raise BundleRefused(f"NewGame pod_step is {pod_step}, expected -2.5")
+    if bool(ng_plan["options"].get("fade_hold", False)) != want_fade_hold:
+        raise BundleRefused(f"NewGame fade_hold is {ng_plan['options'].get('fade_hold')}, expected {want_fade_hold}")
     stages["newgame"] = ng_dir
 
+    include_experimental_core = profile == "test" or bool(getattr(a, "with_experimental_core", False))
     slice_specs = [
         ("rads", "04-rads", "scripts/rads/make_rads_core.py"),
         ("hardcore", "05-hardcore", "scripts/survival/make_hardcore.py"),
@@ -1072,6 +1132,8 @@ def stage_from_checkout(a) -> Dict[str, str]:
         ("companions", "12-companions", "scripts/companions/make_companions_core.py"),
     ]
     for key, folder, rel_script in slice_specs:
+        if key in EXPERIMENTAL_CORE_COMPONENT_KEYS and not include_experimental_core:
+            continue
         suffix = "-player" if (profile == "player" and key in TEST_CELL_SLICE_KEYS) else ""
         sdir = os.path.join(work, folder + suffix)
         if not os.path.exists(sdir):
@@ -1087,44 +1149,45 @@ def stage_from_checkout(a) -> Dict[str, str]:
             _run_py(py_main, rel_script, st_args)
         stages[key] = sdir
 
-    combat_sfse_dir = getattr(a, "combat_sfse_build", None)
-    if not combat_sfse_dir and commonlibsf and msvc_env:
-        combat_sfse_dir = build_sfse_dll_from_source(
-            "FO4SFCombat",
-            os.path.join(work, "sfse-src-builds", "combat"),
-            commonlibsf,
-            msvc_env,
-        )
+    if include_experimental_core:
+        combat_sfse_dir = getattr(a, "combat_sfse_build", None)
+        if not combat_sfse_dir and commonlibsf and msvc_env:
+            combat_sfse_dir = build_sfse_dll_from_source(
+                "FO4SFCombat",
+                os.path.join(work, "sfse-src-builds", "combat"),
+                commonlibsf,
+                msvc_env,
+            )
 
-    combat_folder = "10-combat-player" if profile == "player" else "10-combat"
-    combat_dir = os.path.join(work, combat_folder)
-    if not os.path.exists(combat_dir):
-        combat_args = ["stage", "--out", combat_dir, "--starfield-dir", sf_dir]
-        if profile == "player":
-            combat_args.append("--no-test-cell")
-        if combat_sfse_dir:
-            combat_args.extend(["--sfse-build", os.path.abspath(combat_sfse_dir)])
-        _run_py(py_main, "scripts/combat/make_combat_core.py", combat_args)
-    stages["combat"] = combat_dir
+        combat_folder = "10-combat-player" if profile == "player" else "10-combat"
+        combat_dir = os.path.join(work, combat_folder)
+        if not os.path.exists(combat_dir):
+            combat_args = ["stage", "--out", combat_dir, "--starfield-dir", sf_dir]
+            if profile == "player":
+                combat_args.append("--no-test-cell")
+            if combat_sfse_dir:
+                combat_args.extend(["--sfse-build", os.path.abspath(combat_sfse_dir)])
+            _run_py(py_main, "scripts/combat/make_combat_core.py", combat_args)
+        stages["combat"] = combat_dir
 
-    alife_script = os.path.join(REPO, "scripts", "alife", "make_alife.py")
-    if not getattr(a, "no_alife", False) and os.path.isfile(alife_script) and os.path.isfile(raider_esm):
-        alife_dir = os.path.join(work, "13-alife")
-        if not os.path.exists(alife_dir):
-            _run_py(py_main, "scripts/alife/make_alife.py", [
-                "stage",
-                "--out", alife_dir,
-                "--starfield", sf_esm,
-                "--core", core_esm,
-                "--raider", raider_esm,
-                "--compiler", compiler,
-                "--content-resources", cr_zip,
-            ])
-        stages["alife"] = alife_dir
+        alife_script = os.path.join(REPO, "scripts", "alife", "make_alife.py")
+        if not getattr(a, "no_alife", False) and os.path.isfile(alife_script) and os.path.isfile(raider_esm):
+            alife_dir = os.path.join(work, "13-alife")
+            if not os.path.exists(alife_dir):
+                _run_py(py_main, "scripts/alife/make_alife.py", [
+                    "stage",
+                    "--out", alife_dir,
+                    "--starfield", sf_esm,
+                    "--core", core_esm,
+                    "--raider", raider_esm,
+                    "--compiler", compiler,
+                    "--content-resources", cr_zip,
+                ])
+            stages["alife"] = alife_dir
 
     include_route_loot = (
         not getattr(a, "no_route_loot", False)
-        and (profile == "test" or getattr(a, "with_route_loot", False))
+        and bool(getattr(a, "with_route_loot", False))
     )
     if include_route_loot and getattr(a, "route_loot_stage", None):
         rl_override = os.path.abspath(a.route_loot_stage)
@@ -1429,6 +1492,7 @@ def fold_bundle(
     profile: str = "player",
     pipboy_sfse_override: Optional[str] = None,
     with_route_loot: bool = False,
+    with_experimental_core: bool = False,
     setup_show_unavailable: Optional[int] = None,
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
@@ -1438,11 +1502,15 @@ def fold_bundle(
     refuse_unsafe_output_dir(cc_dir, label="--clean-core-out", game_dirs=(starfield_dir,))
     if os.path.exists(final):
         raise BundleRefused(f"output bundle directory already exists: {final}")
+    dropped_keys: set[str] = set()
+    if not with_route_loot:
+        dropped_keys.add("route_loot")
     if profile == "player":
-        dropped_player_keys = {"candidate_walk"}
-        if not with_route_loot:
-            dropped_player_keys.add("route_loot")
-        stages = {k: v for k, v in stages.items() if k not in dropped_player_keys}
+        dropped_keys.add("candidate_walk")
+        if not with_experimental_core:
+            dropped_keys.update(EXPERIMENTAL_CORE_COMPONENT_KEYS)
+    if dropped_keys:
+        stages = {k: v for k, v in stages.items() if k not in dropped_keys}
 
     has_mission_stage = "mission" in stages
     mission_data_rels: List[str] = []
@@ -1641,7 +1709,8 @@ def fold_bundle(
         "version": 2,
         "build_head": current_git_head(REPO),
         "profile": profile,
-        "with_route_loot": bool(with_route_loot) if profile == "player" else ("route_loot" in components_record),
+        "with_route_loot": bool(with_route_loot),
+        "with_experimental_core": True if profile == "test" else bool(with_experimental_core),
         "base_plugins": base_plugins,
         "plugins": plugins,
         "components": components_record,
@@ -1696,6 +1765,7 @@ def cmd_build(a, system=None) -> int:
         profile=a.profile,
         pipboy_sfse_override=getattr(a, "_pipboy_sfse_override", None),
         with_route_loot=bool(getattr(a, "with_route_loot", False)),
+        with_experimental_core=bool(getattr(a, "with_experimental_core", False)),
         setup_show_unavailable=getattr(a, "show_unavailable_starts", None),
     )
     return 0
@@ -1708,7 +1778,12 @@ def cmd_fold(a, system=None) -> int:
         refuse_unsafe_output_dir(a.clean_core_out, label="--clean-core-out", game_dirs=(a.starfield_dir,))
     root = os.path.abspath(a.stages_root)
     profile = getattr(a, "profile", "player")
-    with_route_loot = bool(getattr(a, "with_route_loot", False))
+    with_route_loot = bool(getattr(a, "with_route_loot", False)) and not getattr(a, "no_route_loot", False)
+    with_experimental_core = bool(getattr(a, "with_experimental_core", False))
+    want_fade_hold = (
+        not getattr(a, "no_fade_hold", False)
+        and (profile == "test" or bool(getattr(a, "fade_hold", False)))
+    )
     mapping = {
         "core_values": (
             ("00-core-values-player", "00-core-values-r2", "00-core-values")
@@ -1718,20 +1793,27 @@ def cmd_fold(a, system=None) -> int:
         "cog_door": ("01-cog-door-r2", "01-cog-door"),
         "exit_lift": ("02-exit-lift-r2", "02-exit-lift"),
         "mission": ("02b-mission-r2", "02b-mission"),
-        "newgame": ("03-newgame-r2", "03-newgame"),
-        "rads": ("04-rads-r2", "04-rads"),
-        "hardcore": ("05-hardcore-r2", "05-hardcore"),
+        "newgame": (
+            ("03-newgame-fadehold", "03-newgame-r2", "03-newgame")
+            if want_fade_hold
+            else ("03-newgame", "03-newgame-r2")
+        ),
         "workshop": ("06-workshop-r2", "06-workshop"),
         "powerarmor": ("07-powerarmor-player", "07-powerarmor") if profile == "player" else ("07-powerarmor",),
-        "progression": ("08-progression-r2", "08-progression"),
-        "list_dialogue": ("09-list-dialogue-player", "09-list-dialogue") if profile == "player" else ("09-list-dialogue",),
-        "combat": ("10-combat-player", "10-combat") if profile == "player" else ("10-combat",),
-        "reputation": ("11-reputation-player", "11-reputation") if profile == "player" else ("11-reputation",),
-        "companions": ("12-companions-player", "12-companions") if profile == "player" else ("12-companions",),
-        "alife": ("13-alife-r2", "13-alife"),
         "fort_hagen": ("14-fort-hagen", "10-fort-hagen"),
     }
-    if (profile == "test" or with_route_loot) and not getattr(a, "no_route_loot", False):
+    if profile == "test" or with_experimental_core:
+        mapping.update({
+            "rads": ("04-rads-r2", "04-rads"),
+            "hardcore": ("05-hardcore-r2", "05-hardcore"),
+            "progression": ("08-progression-r2", "08-progression"),
+            "list_dialogue": ("09-list-dialogue-player", "09-list-dialogue") if profile == "player" else ("09-list-dialogue",),
+            "combat": ("10-combat-player", "10-combat") if profile == "player" else ("10-combat",),
+            "reputation": ("11-reputation-player", "11-reputation") if profile == "player" else ("11-reputation",),
+            "companions": ("12-companions-player", "12-companions") if profile == "player" else ("12-companions",),
+            "alife": ("13-alife-r2", "13-alife"),
+        })
+    if with_route_loot:
         mapping["route_loot"] = ("17-route-loot-r2", "17-route-loot")
     if profile == "test":
         mapping["candidate_walk"] = ("15-candidate-walk", "11-candidate-walk")
@@ -1747,7 +1829,7 @@ def cmd_fold(a, system=None) -> int:
         if not os.path.isdir(ms_dir):
             raise BundleRefused(f"--mission-stage directory not found: {ms_dir}")
         stages["mission"] = ms_dir
-    if getattr(a, "route_loot_stage", None) and (profile == "test" or with_route_loot) and not getattr(a, "no_route_loot", False):
+    if getattr(a, "route_loot_stage", None) and with_route_loot:
         rl_dir = os.path.abspath(a.route_loot_stage)
         if not os.path.isdir(rl_dir):
             raise BundleRefused(f"--route-loot-stage directory not found: {rl_dir}")
@@ -1771,6 +1853,7 @@ def cmd_fold(a, system=None) -> int:
         profile=profile,
         pipboy_sfse_override=os.path.abspath(a.pipboy_sfse_build) if getattr(a, "pipboy_sfse_build", None) else None,
         with_route_loot=with_route_loot,
+        with_experimental_core=with_experimental_core,
         setup_show_unavailable=getattr(a, "show_unavailable_starts", None),
     )
     return 0
@@ -2151,7 +2234,10 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--route-loot-stage", default=None)
     b.add_argument("--no-mission", action="store_true")
     b.add_argument("--no-route-loot", action="store_true")
-    b.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm on --profile player (held out by default per T1)")
+    b.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm (held out by default on both player and test per T1)")
+    b.add_argument("--with-experimental-core", action="store_true", help="Opt-in Track 2 experimental core slices on --profile player (off by default)")
+    b.add_argument("--fade-hold", action="store_true", help="Opt-in pre-world start setup room in NewGame (off by default on --profile player per T3)")
+    b.add_argument("--no-fade-hold", action="store_true", help="Disable pre-world start setup room even on --profile test")
     b.add_argument("--no-alife", action="store_true")
     b.add_argument("--no-fort-hagen", action="store_true")
     b.add_argument("--no-walk-harness", action="store_true")
@@ -2179,7 +2265,10 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--mission-stage", default=None)
     fo.add_argument("--route-loot-stage", default=None)
     fo.add_argument("--no-route-loot", action="store_true")
-    fo.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm on --profile player (held out by default per T1)")
+    fo.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm (held out by default on both player and test per T1)")
+    fo.add_argument("--with-experimental-core", action="store_true", help="Opt-in Track 2 experimental core slices on --profile player (off by default)")
+    fo.add_argument("--fade-hold", action="store_true", help="Prefer 03-newgame-fadehold when folding --profile player")
+    fo.add_argument("--no-fade-hold", action="store_true", help="Prefer direct-vault 03-newgame even when folding --profile test")
     fo.add_argument("--with-pipboy", action="store_true")
     fo.add_argument("--pipboy-stage", default=None)
     fo.add_argument("--pipboy-sfse-build", default=None)

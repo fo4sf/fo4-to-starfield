@@ -363,14 +363,14 @@ class CoreBundleTests(unittest.TestCase):
             self.assertIn("--pack", install_lines[0])
 
             bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(bplan["plugins"]), 23)
+            self.assertFalse(bplan["with_route_loot"])
+            self.assertEqual(len(bplan["plugins"]), 22)
             self.assertEqual(bplan["plugins"], list(mcb.CORE_BUNDLE_PLUGINS))
             self.assertIn("FO4SFCoreValues.esm", bplan["plugins"])
             self.assertIn("FO4SFMission.esm", bplan["plugins"])
-            self.assertIn("FO4SFRouteLoot.esm", bplan["plugins"])
+            self.assertNotIn("FO4SFRouteLoot.esm", bplan["plugins"])
             self.assertLess(bplan["plugins"].index("FO4SFCoreValues.esm"), bplan["plugins"].index("FO4SFNewGame.esm"))
             self.assertLess(bplan["plugins"].index("FO4TerrainCore.esm"), bplan["plugins"].index("FO4SFMission.esm"))
-            self.assertLess(bplan["plugins"].index("FO4SFMission.esm"), bplan["plugins"].index("FO4SFRouteLoot.esm"))
             self.assertEqual(
                 bplan["plugins"][:3],
                 ["FO4ActorRaider.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"],
@@ -394,7 +394,21 @@ class CoreBundleTests(unittest.TestCase):
             self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyKit.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
 
-            # A17 + T1: Default profile for fold (when --profile is omitted) is 'player', omitting FO4SFCoreCandidate.esm AND FO4SFRouteLoot.esm -> 21 plugins
+            # T1 opt-in on --profile test: --with-route-loot folds FO4SFRouteLoot.esm -> 23 plugins
+            out_test_rl = root / "bundle-test-with-rl"
+            rc_test_rl = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(out_test_rl), "--port", str(port_esm),
+                "--profile", "test", "--with-route-loot", "--with-pipboy", "--pipboy-stage", str(pb),
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_test_rl, 0)
+            tplan_rl = json.loads((out_test_rl / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertTrue(tplan_rl["with_route_loot"])
+            self.assertEqual(len(tplan_rl["plugins"]), 23)
+            self.assertEqual(tplan_rl["plugins"], list(mcb.CORE_WITH_ROUTE_LOOT_PLUGINS))
+            self.assertLess(tplan_rl["plugins"].index("FO4SFMission.esm"), tplan_rl["plugins"].index("FO4SFRouteLoot.esm"))
+
+            # W1 + A17 + T1: Default profile for fold (when --profile is omitted) is Track-1 'player' -> 13 plugins
             out_player = root / "bundle-player"
             rc_player = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
@@ -407,23 +421,26 @@ class CoreBundleTests(unittest.TestCase):
             pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
             self.assertEqual(pplan["profile"], "player")
             self.assertFalse(pplan["with_route_loot"])
-            self.assertEqual(len(pplan["plugins"]), 21)
+            self.assertFalse(pplan["with_experimental_core"])
+            self.assertEqual(len(pplan["plugins"]), 13)
             self.assertEqual(pplan["plugins"], list(mcb.PLAYER_BUNDLE_PLUGINS))
             self.assertNotIn("FO4SFCoreCandidate.esm", pplan["plugins"])
             self.assertNotIn("FO4SFRouteLoot.esm", pplan["plugins"])
+            self.assertFalse((out_player / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFCombat.dll").exists())
 
-            # T1 opt-in: --with-route-loot explicitly folds FO4SFRouteLoot.esm into player profile -> 22 plugins
+            # Opt-in --with-experimental-core + --with-route-loot on player profile -> 22 plugins
             out_player_rl = root / "bundle-player-with-rl"
             rc_player_rl = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
                 "--mission-stage", str(stages_root / "02b-mission"),
                 "--route-loot-stage", str(stages_root / "17-route-loot"),
                 "--out", str(out_player_rl), "--port", str(port_esm),
-                "--with-pipboy", "--pipboy-stage", str(pb), "--with-route-loot",
+                "--with-pipboy", "--pipboy-stage", str(pb), "--with-experimental-core", "--with-route-loot",
             ], system=_FakeSystemClosed())
             self.assertEqual(rc_player_rl, 0)
             pplan_rl = json.loads((out_player_rl / "bundle_plan.json").read_text(encoding="utf-8"))
             self.assertTrue(pplan_rl["with_route_loot"])
+            self.assertTrue(pplan_rl["with_experimental_core"])
             self.assertEqual(len(pplan_rl["plugins"]), 22)
             self.assertEqual(pplan_rl["plugins"], list(mcb.PLAYER_WITH_ROUTE_LOOT_PLUGINS))
             # Tampering with_route_loot=False on a player bundle holding FO4SFRouteLoot.esm must fail verify
@@ -1024,6 +1041,7 @@ class CoreBundleTests(unittest.TestCase):
                         "--stages-root", str(stages_root),
                         "--out", str(bundle_dir),
                         "--port", str(port_esm),
+                        "--with-experimental-core",
                         "--with-pipboy",
                         "--pipboy-stage", str(pb),
                     ],
