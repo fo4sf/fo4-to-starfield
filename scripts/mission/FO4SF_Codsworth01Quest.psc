@@ -1,14 +1,39 @@
 Scriptname FO4SF_Codsworth01Quest extends Quest
 {MQ102-lite Sanctuary conversation quest (FO4SFMission.esm 0x000816, started via StartNoWait at FO4SFNewGame stage 200).
- Story mode only (FO4SF_GameMode 0x000870 != 2). Drives objective 10 on Codsworth and tracks the 4-choice Scene (0x0940):
+ Story mode only (FO4SF_GameMode 0x000870 != 2). Drives objective 10 on Codsworth and runs the 4-choice Sanctuary talk:
    stage 20 = choice 1 (date / what happened)
    stage 30 = choice 2 (Sanctuary / family)
    stage 40 = choice 3 (nearby survivors)
    stage 100 = choice 4 (head to Concord -> completes FO4SF_Codsworth01 and gives FO4SF_Min00 stage 10).}
 
+Actor Property Codsworth Auto Const
+Activator Property CodsworthTalkActi Auto Const
+Message Property CodsworthTalkMsg Auto Const
+Message Property CodsworthReply0Msg Auto Const
+Message Property CodsworthReply1Msg Auto Const
+Message Property CodsworthReply2Msg Auto Const
+
 string LogName = "fo4sf_mission"
+float CodsworthLocalX = -1146.709
+float CodsworthLocalY = 1293.837
+float CodsworthLocalZ = 111.734
+float MergeOffsetX = -1200.0
+float MergeOffsetY = -2700.0
+float ProxyHoldRadius = 25.0
+float ProxyBindRadius = 180.0
+float ProxyZOffset = 1.36
+float ProxyScale = 1.6
+float ProxyResyncDrift = 0.25
+
 bool instanceStarted = False
 bool dialogueSeen = False
+bool dialogueMenuOpen = False
+bool talkBoxOpen = False
+ObjectReference talkProxy = None
+bool proxyLogged = False
+float proxyLastX = 0.0
+float proxyLastY = 0.0
+float proxyLastZ = 0.0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
@@ -18,6 +43,117 @@ bool choice3Seen = False
 bool choice4Seen = False
 int choicesCount = 0
 bool completed = False
+
+Actor Function ResolveCodsworth()
+    if Codsworth != None
+        return Codsworth
+    endif
+    return Game.GetFormFromFile(0x000811, "FO4SFMission.esm") as Actor
+EndFunction
+
+Activator Function ResolveTalkActi()
+    if CodsworthTalkActi != None
+        return CodsworthTalkActi
+    endif
+    return Game.GetFormFromFile(0x000970, "FO4SFMission.esm") as Activator
+EndFunction
+
+Message Function ResolveTalkMsg(int slot)
+    if slot == 0
+        if CodsworthReply0Msg != None
+            return CodsworthReply0Msg
+        endif
+        return Game.GetFormFromFile(0x000972, "FO4SFMission.esm") as Message
+    elseif slot == 1
+        if CodsworthReply1Msg != None
+            return CodsworthReply1Msg
+        endif
+        return Game.GetFormFromFile(0x000973, "FO4SFMission.esm") as Message
+    elseif slot == 2
+        if CodsworthReply2Msg != None
+            return CodsworthReply2Msg
+        endif
+        return Game.GetFormFromFile(0x000974, "FO4SFMission.esm") as Message
+    endif
+    if CodsworthTalkMsg != None
+        return CodsworthTalkMsg
+    endif
+    return Game.GetFormFromFile(0x000971, "FO4SFMission.esm") as Message
+EndFunction
+
+Function BindCodsworthActivation()
+    Actor cods = ResolveCodsworth()
+    if cods != None
+        cods.AllowPCDialogue(True)
+        cods.BlockActivation(False, False)
+        RegisterForRemoteEvent(cods, "OnActivate")
+    endif
+    if talkProxy != None && !talkProxy.IsDeleted()
+        talkProxy.BlockActivation(False, False)
+        RegisterForRemoteEvent(talkProxy, "OnActivate")
+    endif
+    EnsureTalkProxy(Game.GetPlayer())
+    Trace("codsworth01 talk ready codsworth=" + cods + " proxy=" + talkProxy)
+EndFunction
+
+Function EnsureTalkProxy(Actor player)
+    if player == None || player.IsInInterior()
+        return
+    endif
+    Actor cods = ResolveCodsworth()
+    if cods == None || cods.IsDisabled() || cods.IsDead()
+        return
+    endif
+    cods.AllowPCDialogue(True)
+    cods.BlockActivation(False, False)
+    float tx = CodsworthLocalX + MergeOffsetX
+    float ty = CodsworthLocalY + MergeOffsetY
+    float tz = CodsworthLocalZ
+    float cx = cods.GetPositionX()
+    float cy = cods.GetPositionY()
+    float cz = cods.GetPositionZ()
+    float ex = cx - tx
+    float ey = cy - ty
+    float ez = cz - tz
+    if ex * ex + ey * ey + ez * ez > ProxyHoldRadius * ProxyHoldRadius
+        return
+    endif
+    float dx = player.GetPositionX() - cx
+    float dy = player.GetPositionY() - cy
+    if dx * dx + dy * dy > ProxyBindRadius * ProxyBindRadius || !cods.Is3DLoaded()
+        return
+    endif
+    if talkProxy == None || talkProxy.IsDeleted()
+        Activator acti = ResolveTalkActi()
+        if acti != None
+            talkProxy = cods.PlaceAtMe(acti, 1, True, True, False)
+            if talkProxy != None
+                talkProxy.SetScale(ProxyScale)
+                talkProxy.SetPosition(cx, cy, cz + ProxyZOffset)
+                talkProxy.EnableNoWait(False)
+                talkProxy.BlockActivation(False, False)
+                RegisterForRemoteEvent(talkProxy, "OnActivate")
+                proxyLastX = cx
+                proxyLastY = cy
+                proxyLastZ = cz
+                if !proxyLogged
+                    proxyLogged = True
+                    Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
+                endif
+            endif
+        endif
+    else
+        float mx = cx - proxyLastX
+        float my = cy - proxyLastY
+        float mz = cz - proxyLastZ
+        if mx * mx + my * my + mz * mz > ProxyResyncDrift * ProxyResyncDrift
+            talkProxy.SetPosition(cx, cy, cz + ProxyZOffset)
+            proxyLastX = cx
+            proxyLastY = cy
+            proxyLastZ = cz
+        endif
+    endif
+EndFunction
 
 Function ClearObjectiveOnConcordStart()
     if !completed && instanceStarted
@@ -69,6 +205,7 @@ Function StartQuestInstance()
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
     RegisterForMenuOpenCloseEvent("DialogueMenu")
+    BindCodsworthActivation()
     AdvanceTo(10, "Trigger")
     SetObjectiveDisplayed(10, True, False)
     SetActive(True)
@@ -78,18 +215,94 @@ EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    dialogueMenuOpen = False
+    talkBoxOpen = False
     Trace("codsworth01 reload stage=" + GetStage() + " choices=" + choicesCount)
+    BindCodsworthActivation()
     if !completed
         RegisterForMenuOpenCloseEvent("DialogueMenu")
+        StartTimer(1.0, 1)
+    elseif talkProxy == None || talkProxy.IsDeleted()
         StartTimer(1.0, 1)
     endif
 EndEvent
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
-    if asMenuName == "DialogueMenu" && abOpening
-        dialogueSeen = True
+    if asMenuName == "DialogueMenu"
+        dialogueMenuOpen = abOpening
+        if abOpening
+            dialogueSeen = True
+        endif
     endif
 EndEvent
+
+Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
+    Actor player = Game.GetPlayer()
+    if player == None || akActionRef != player
+        return
+    endif
+    Actor cods = ResolveCodsworth()
+    if akSender == cods || (talkProxy != None && akSender == talkProxy)
+        if !dialogueMenuOpen
+            RunCodsworthTalk()
+        endif
+    endif
+EndEvent
+
+Function RunCodsworthTalk()
+    if talkBoxOpen || IsWarfareMode()
+        return
+    endif
+    Message curMsg = ResolveTalkMsg(-1)
+    if curMsg == None
+        return
+    endif
+    talkBoxOpen = True
+    dialogueSeen = True
+    Trace("codsworth talk opened stage=" + GetStage())
+    int steps = 0
+    bool doneLoop = False
+    while !doneLoop && steps < 16
+        steps += 1
+        int btn = curMsg.Show()
+        Trace("codsworth choice button=" + btn)
+        if btn == 0
+            if !completed
+                AdvanceTo(20, "info")
+                SyncProgress()
+            endif
+            Message r0 = ResolveTalkMsg(0)
+            if r0 != None
+                curMsg = r0
+            endif
+        elseif btn == 1
+            if !completed
+                AdvanceTo(30, "info")
+                SyncProgress()
+            endif
+            Message r1 = ResolveTalkMsg(1)
+            if r1 != None
+                curMsg = r1
+            endif
+        elseif btn == 2
+            if !completed
+                AdvanceTo(40, "info")
+                SyncProgress()
+            endif
+            Message r2 = ResolveTalkMsg(2)
+            if r2 != None
+                curMsg = r2
+            endif
+        else
+            if btn == 3 && !completed
+                AdvanceTo(100, "info")
+                SyncProgress()
+            endif
+            doneLoop = True
+        endif
+    endwhile
+    talkBoxOpen = False
+EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
     if auiStageID > applied
@@ -109,9 +322,12 @@ Event OnTimer(int aiTimerID)
     if aiTimerID != 1
         return
     endif
+    EnsureTalkProxy(Game.GetPlayer())
     SyncProgress()
     if !completed
         StartTimer(1.0, 1)
+    elseif talkProxy == None || talkProxy.IsDeleted()
+        StartTimer(5.0, 1)
     endif
 EndEvent
 
@@ -173,7 +389,9 @@ Function SyncProgress()
             pointedStr = "true"
         endif
         CompleteQuest()
-        CancelTimer(1)
+        if talkProxy != None && !talkProxy.IsDeleted()
+            CancelTimer(1)
+        endif
         if dialogueSeen
             Trace("codsworth talk end -> min00 stage 10")
         endif
