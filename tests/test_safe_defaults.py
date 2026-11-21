@@ -537,13 +537,23 @@ class SafeDefaultsTests(unittest.TestCase):
                 SetOpen=lambda open_flag: door_state.__setitem__(0, 2 if open_flag else 3),
             )
 
+            port_ready = [not trigger_via_port_console]
+
             def _get_form(fid: int, plg: str):
                 if plg == "FO4Port.esm":
                     if fid == 0x126D:
                         return cog_door
                     if fid == 0x1319:
-                        return port_console
+                        return port_console if port_ready[0] else None
                 return None
+
+            sender = port_console if trigger_via_port_console else own_console
+            double_tapped = [False]
+
+            def _wait_with_double_tap(_s: float) -> None:
+                if not double_tapped[0]:
+                    double_tapped[0] = True
+                    ns["OnActivate"](sender, player)
 
             ns = dict(
                 itemWatchRegistered=True,
@@ -552,6 +562,9 @@ class SafeDefaultsTests(unittest.TestCase):
                 cogDoorWatchedRef=None,
                 consoleRegistered=False,
                 consoleWatchedRef=None,
+                portConsoleRegistered=False,
+                portConsoleWatchedRef=None,
+                consoleOpening=False,
                 pistolPickedLogged=False,
                 VaultPistolBase=None,
                 VaultPistolId=0,
@@ -564,7 +577,7 @@ class SafeDefaultsTests(unittest.TestCase):
                 PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),
                 NoPipboyMsg=SimpleNamespace(Show=lambda: 0),
                 Game=SimpleNamespace(GetPlayer=lambda: player, GetFormFromFile=_get_form),
-                Utility=SimpleNamespace(Wait=lambda _s: None),
+                Utility=SimpleNamespace(Wait=_wait_with_double_tap),
                 Debug=SimpleNamespace(Notification=lambda msg: notifs.append(str(msg))),
                 RegisterForRemoteEvent=lambda ref, ev: regs.append((ref, str(ev))),
                 HandlePipboyPickup=lambda p: pipboy_pickups.append(p),
@@ -574,6 +587,12 @@ class SafeDefaultsTests(unittest.TestCase):
             )
             exec(compiled, ns)
             ns["EnsureVaultInteractivesRegistered"]()
+            if not port_ready[0]:
+                # Early pre-3D tick: persistent own_console registered, temporary port_console still pending retry!
+                self.assertIn((own_console, "OnActivate"), regs)
+                self.assertNotIn((port_console, "OnActivate"), regs)
+                port_ready[0] = True
+                ns["EnsureVaultInteractivesRegistered"]()
 
             # Both own 0A000819 AND FO4Port's ConsoleRefId (portCon) must be registered for OnActivate
             self.assertIn((pipboy_ref, "OnActivate"), regs)
@@ -587,13 +606,15 @@ class SafeDefaultsTests(unittest.TestCase):
             ns["OnActivate"](pipboy_ref, player)
             self.assertEqual(pipboy_pickups, [player])
 
-            # First-person E on EITHER own_console (0A000819) OR port_console (02001319) opens cog door, advances to stage 30, and shows V4 catwalk hint!
-            sender = port_console if trigger_via_port_console else own_console
+            # First-person E on EITHER own_console (0A000819) OR port_console (02001319) opens cog door, advances to stage 30,
+            # and shows V4 catwalk hint strictly once even when double-tapped during Utility.Wait(2.0) and after stage 30!
             ns["OnActivate"](sender, player)
+            ns["OnActivate"](sender, player)
+            self.assertTrue(double_tapped[0])
             self.assertEqual(cur_stage[0], 30)
             self.assertEqual(stages, [(30, "vault_console")])
             self.assertEqual(notifs, ["Vault door open - follow the catwalk to the elevator platform."])
-            self.assertIn("catwalk hint shown", logs)
+            self.assertEqual(logs.count("catwalk hint shown"), 1)
             if trigger_via_port_console:
                 self.assertTrue(any("console port ref activated ref=" in m for m in logs), logs)
 

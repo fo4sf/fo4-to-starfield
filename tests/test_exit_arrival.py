@@ -58,7 +58,7 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
-        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False)):",
+        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False)):",
         "    if _k not in globals(): globals()[_k] = _v",
         "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook'):",
         "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
@@ -96,7 +96,7 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         fn_py_name = name.split(".")[-1]
         out.append(f"def {fn_py_name}({', '.join(py_args)}):")
         if variables.strip():
-            out.append("    global " + variables)
+            out.append("    global " + variables + ", portConsoleRegistered, portConsoleWatchedRef, consoleOpening")
         depth = 1
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
         for line in body.splitlines():
