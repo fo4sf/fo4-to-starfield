@@ -1458,3 +1458,60 @@ where a player can stand, so the quest gives the door a trigger.
 Alternatives: prove a later plugin's archive wins for the same path (unread, a session of its own, leaves a shadowed file behind); extend the ACTI probe to
 DOORs (its check asserts exactly an ACTI and a quest); replace the archived files (forbidden by the installer).
 
+## 2026-11-15: Dialogue KEEP class, REPLACE movie (Scribe, FAL-865)
+
+Decision: keep Starfield's `DialogueMenu` class and its select/list events; replace `Interface/DialogueMenu.swf` with a
+four-slot movie. Do not add a second menu class. Do not copy Fallout 4's movie into Git. The first slice generates a
+stand-in (ONE/TWO/THREE/FOUR). Native work is naming the host movie's children; if they are not our four names, bind
+later rather than dropping Fallout 4's movie on a class that will not fill it.
+Why: engine PASS (FAL-862) — `DialogueMenu` is present as a list; no four-option wheel class. Fallout 4 uses the same
+class name with a different interface file. Owner 19 Oct "no own menu file" is KEEP the class, not KEEP the list layout.
+A Starfield list is not the Concord result.
+Alternatives: keep the list and show full player lines (older UI note; fails the four-option result); a new SFSE menu
+class (heavier, and the host class already exists); copy Fallout 4's movie from the player's install this slice
+(unverified against host clip names).
+
+## 2026-11-15: DialogueMenu REPLACE needs the data shuttle, not named clips (Scribe, FAL-865)
+
+Decision: keep the `DialogueMenu` class and its data shuttle. Do not install the no-AS3 `fo4sfOpt*` twin. Do not
+drop Fallout 4's `Question`/`Neutral`/`Negative`/`Positive` movie on the host class. Next movie is AS3 that binds
+the shuttle into four slots, or a native bind.
+Why: PC PARTIAL at 44ba71ac — host fills `DialogueList_mc` from the movie's own code; native does not fill by name.
+Fallout 4's four clips are a different native path.
+Alternatives: keep the Starfield list (fails the four-option result); copy Fallout 4's movie (wrong native path).
+
+## 2026-11-15: DialogueMenu shuttle payload stays UNREAD until a names-only dump (Scribe, FAL-865)
+
+Decision: do not invent shuttle payload field names. Do not compile or install a guessed DoABC movie. The
+installer refuses a twin with no DoABC. Our AS3 file names host shuttle types and KEEP events only.
+Why: PC PARTIAL named the shuttle types, not the payload layout. A guessed bind would cost an owner-game
+session to learn the names a file read can give.
+Alternatives: guess `entryList`/`text` from other Bethesda menus (unverified on this movie); native bind
+(listed, not this slice).
+
+## 2026-11-15: DialogueMenu four slots bind aChoices sChoiceText (Scribe, FAL-865)
+
+Decision: map slots N/E/S/W to `DialogueListData.aChoices[0..3].sChoiceText`. On select send
+`DialogueMenu_OnDialogueSelect` with `selectedIndex` set to that row's `uEntryID`. Still no compiled
+DoABC on this host; do not install until a movie with DoABC exists.
+Why: PC PASS §1b (FAL-879) listed those names from a file read. The no-AS3 twin remains killed.
+Alternatives: keep the Starfield list (fails the four-option result); invent ABC (unverified).
+
+## 2026-11-15: DialogueMenuFour uses empty host members, not a host overlay (Scribe, FAL-916)
+
+Decision: shape (b) — our movie declares `Menu_mc` and the host child instance names as empty clips
+and members. Do not overlay our slots on the player's host movie. Do not copy the host movie into
+Git. First in-game target is four slots on any vanilla talk (PARTIAL). Concord stays a later
+synthetic topic in this empty plugin; the Vault 111 exit card is not that topic.
+Why: PC FAIL 48a3eb3d crashed on first talk with only `fo4sfOpt*`. Overlay (a) would keep
+`DialogueList_mc` as a list (a fail) and needs the host movie at stage time.
+Alternatives: (a) overlay on the host movie (list remains); wait on Vault 111 exit for Concord
+(geography, not topics).
+
+## 2026-11-15: KEEP host DialogueMenu movie; overlay four slots (Scribe, FAL-865)
+
+Decision: do not REPLACE `Interface/DialogueMenu.swf`. Keep the host movie. Four slots overlay it.
+Why: PC FAIL 48a3eb3d (no host roots) and 69ee810a (host-root stubs): control list OK, kit crash on
+the same vanilla talk. Host names on a replacement are not enough.
+Alternatives: keep replacing the movie (verified crash); copy the host movie into Git (forbidden).
+

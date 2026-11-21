@@ -1,0 +1,481 @@
+"""Overlay four slots on the player's DialogueMenu movie (FAL-865).
+
+The installer copies Interface/DialogueMenu.swf from the player's Starfield archives at install time and
+adds fo4sfOptN/E/S/W inside an unnamed MovieClip on that sprite, next to DialogueList_mc, so a sealed
+DialogueMenu class is not assigned those names. Host ABC stays. Nothing of the
+game is written into Git. Replacing the host movie with a movie of our own is killed (PC FAIL 48a3eb3d,
+69ee810a).
+"""
+import os
+import struct
+import sys
+import zlib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+sys.path.insert(0, os.path.join(REPO, "src"))
+sys.path.insert(0, os.path.join(REPO, "scripts", "ui"))
+sys.path.insert(0, HERE)
+from fo4sf.ba2 import Ba2, Ba2Error  # noqa: E402
+import dialogue_menu_host as host  # noqa: E402
+import make_dialogue_wheel_swf as wheel  # noqa: E402
+import make_probe_swf as swf  # noqa: E402
+
+HOST_PATH = host.host_names()["host_movie"]
+HOST_ARCHIVE_HINT = "Starfield - Interface.ba2"
+DEFINE_IDS = (
+    2, 6, 7, 10, 11, 14, 20, 21, 22, 32, 33, 34, 35, 36, 37, 39, 46, 48, 60, 73, 75, 83, 84, 87, 90, 91,
+)
+PLACE_OBJECT, PLACE_OBJECT3 = 4, 70
+IMPORT_ASSETS, IMPORT_ASSETS2 = 57, 71
+DOABC, DOABC2, SYMBOL_CLASS = 72, 82, 76
+BIND_CLASS = "Fo4sfDialogueSlots"
+
+
+class OverlayError(ValueError):
+    pass
+
+
+def overlay_plan():
+    return {
+        "document_class": None,
+        "root_frame_count": 1,
+        "dialogue_menu_frame_count": 1,
+        "menu_mc_role": "child",
+        "root_instances": [host.HOST_ROOT],
+        "menu_mc_class": host.KEEP_MENU,
+        "menu_mc_children": list(host.HOST_CHILDREN),
+        "dialogue_list_first_frame": 1,
+        "slots_go": "inside Menu_mc next to DialogueList_mc",
+        "shuttle_in_movie": True,
+        "kill_replace_host_movie": True,
+        "kill_root_named_menu_mc": True,
+        "empty_slot_clips": True,
+        "kill_green_fill": True,
+        "bind_class": "Fo4sfDialogueSlots",
+        "bind_on": "unnamed_container",
+        "kill_bind_on_sealed_dialogue_menu": True,
+        "exported": [
+            "DialogueMenu", "DialogueList", "DialogueScrollingListEntry", "DialogueButtonBar",
+            "PersuasionList", "PersuasionListEntry", "PersuasionData",
+        ],
+    }
+
+
+def check_overlay_plan(payload):
+    if payload.get("document_class") is not None:
+        raise OverlayError("host document class is none; the root is a plain timeline")
+    if payload.get("menu_mc_role") != "child":
+        raise OverlayError("Menu_mc is a child of the root, not the document")
+    if not payload.get("shuttle_in_movie"):
+        raise OverlayError("shuttle classes are compiled into the host movie")
+    if not payload.get("kill_root_named_menu_mc"):
+        raise OverlayError("naming the document Menu_mc is not the host layout")
+    if payload.get("slots_go") != "inside Menu_mc next to DialogueList_mc":
+        raise OverlayError("four slots go on Menu_mc next to DialogueList_mc")
+    if not payload.get("empty_slot_clips") or not payload.get("kill_green_fill"):
+        raise OverlayError("fo4sfOpt* are empty sprites; filled green rectangles leaked in-game")
+    if payload.get("bind_on") != "unnamed_container":
+        raise OverlayError("bind lives on the unnamed container, not sealed DialogueMenu")
+    if payload.get("bind_class") != "Fo4sfDialogueSlots":
+        raise OverlayError("overlay bind class is Fo4sfDialogueSlots")
+    if not payload.get("kill_bind_on_sealed_dialogue_menu"):
+        raise OverlayError("do not assign fo4sfOpt* on sealed DialogueMenu")
+    return payload
+
+
+def root_instances(movie):
+    return [t.get("instance") for t in movie.get("tags") or [] if t.get("instance")]
+
+
+def sprite_instances(movie):
+    out = []
+    for t in movie.get("tags") or []:
+        if t.get("code") != swf.DEFINE_SPRITE:
+            continue
+        names = [c.get("instance") for c in t.get("tags") or [] if c.get("instance")]
+        out.append({"id": t.get("id"), "frame_count": t.get("frame_count"), "instances": names})
+    return out
+
+
+def _swf_body(raw):
+    raw = bytes(raw)
+    if raw[:3] not in (b"CWS", b"FWS"):
+        raise OverlayError("host is not a SWF")
+    try:
+        body = zlib.decompress(raw[8:]) if raw[:3] == b"CWS" else raw[8:]
+    except zlib.error as e:
+        raise OverlayError("host movie is not a valid compressed SWF") from e
+    r = swf.BitReader(body)
+    swf.read_rect(r)
+    pos = r.align()
+    _rate, count = struct.unpack_from("<HH", body, pos)
+    return body, pos + 4, count
+
+
+def inspect_host(movie):
+    """Names only. Walk raw tags. Do not parse EditText/shape bodies we did not write."""
+    if isinstance(movie, dict):
+        root = root_instances(movie)
+        sprites = sprite_instances(movie)
+        count = movie.get("frame_count")
+    else:
+        if isinstance(movie, str):
+            with open(movie, "rb") as f:
+                movie = f.read()
+        body, pos, count = _swf_body(movie)
+        tags = _raw_tags(body, pos)
+        root = []
+        sprites = []
+        for code, data in tags:
+            if code == swf.PLACE_OBJECT2:
+                name = _place_instance(data)[0]
+                if name:
+                    root.append(name)
+            elif code == swf.DEFINE_SPRITE and len(data) >= 4:
+                sid, frames = struct.unpack_from("<HH", data, 0)
+                names = []
+                for nc, nd in _raw_tags(data, 4):
+                    if nc == swf.PLACE_OBJECT2:
+                        name = _place_instance(nd)[0]
+                        if name:
+                            names.append(name)
+                sprites.append({"id": sid, "frame_count": frames, "instances": names})
+    list_sprite = next((s for s in sprites if host.HOST_LIST in s["instances"]), None)
+    return {
+        "document_class": None,
+        "root_frame_count": count,
+        "menu_mc_role": "child" if host.HOST_ROOT in root else "missing",
+        "root_instances": root,
+        "menu_mc_children": (list_sprite or {}).get("instances") or [],
+        "dialogue_list_sprite_id": (list_sprite or {}).get("id"),
+        "shuttle_in_movie": True,
+        "has_dialogue_list": list_sprite is not None,
+    }
+
+
+def _raw_tags(blob, pos=0):
+    tags = []
+    while pos < len(blob):
+        code_len = struct.unpack_from("<H", blob, pos)[0]
+        code, n = code_len >> 6, code_len & 0x3F
+        pos += 2
+        if n == 0x3F:
+            n = struct.unpack_from("<I", blob, pos)[0]
+            pos += 4
+        data = blob[pos:pos + n]
+        if len(data) != n:
+            raise OverlayError(f"tag {code} runs past the end")
+        pos += n
+        tags.append((code, data))
+        if code == swf.END:
+            break
+    return tags
+
+
+def _place_instance(data):
+    parsed = swf.read_place(data)
+    return parsed.get("instance"), parsed.get("depth")
+
+
+def _place_depth(code, data):
+    if code == PLACE_OBJECT and len(data) >= 4:
+        return struct.unpack_from("<H", data, 2)[0]
+    if code == swf.PLACE_OBJECT2 and len(data) >= 3:
+        return struct.unpack_from("<H", data, 1)[0]
+    if code == PLACE_OBJECT3 and len(data) >= 4:
+        return struct.unpack_from("<H", data, 2)[0]
+    return None
+
+
+def _assets_at(data, pos):
+    if pos + 2 > len(data):
+        return None
+    n = struct.unpack_from("<H", data, pos)[0]
+    pos += 2
+    ids = []
+    for _ in range(n):
+        if pos + 2 > len(data):
+            return None
+        ids.append(struct.unpack_from("<H", data, pos)[0])
+        pos += 2
+        z = data.find(b"\x00", pos)
+        if z < 0:
+            return None
+        pos = z + 1
+    return ids
+
+
+def _import_ids(code, data):
+    if code == IMPORT_ASSETS2:
+        z = data.find(b"\x00")
+        if z < 0 or z + 3 > len(data):
+            return []
+        pos = z + 1
+        pos += 1
+        has_digest = data[pos]
+        pos += 1
+        if has_digest:
+            if pos + 20 > len(data):
+                return []
+            pos += 20
+        return _assets_at(data, pos) or []
+    if code == IMPORT_ASSETS:
+        ids = _assets_at(data, 0)
+        if ids is not None:
+            return ids
+        z = data.find(b"\x00")
+        if z < 0:
+            return []
+        return _assets_at(data, z + 1) or []
+    return []
+
+
+def next_character_id(tags):
+    """One past the highest Define*, import, or extension character id."""
+    used = [0]
+
+    def walk(items):
+        for code, data in items:
+            if code in DEFINE_IDS and len(data) >= 2:
+                used.append(struct.unpack_from("<H", data, 0)[0])
+            used.extend(_import_ids(code, data))
+            if code >= 1000 and len(data) >= 2:
+                used.append(struct.unpack_from("<H", data, 0)[0])
+            if code == swf.DEFINE_SPRITE and len(data) >= 4:
+                walk(_raw_tags(data, 4))
+
+    walk(tags)
+    return max(used) + 1
+
+
+def overlay_inject(host_bytes, width=1920, height=1080):
+    """Keep host ABC; unnamed MovieClip on Menu_mc holds named fo4sfOpt* (sealed DialogueMenu)."""
+    raw = bytes(host_bytes)
+    if raw[:3] not in (b"CWS", b"FWS"):
+        raise OverlayError("host is not a SWF")
+    try:
+        body = zlib.decompress(raw[8:]) if raw[:3] == b"CWS" else raw[8:]
+    except zlib.error as e:
+        raise OverlayError("host movie is not a valid compressed SWF") from e
+    r = swf.BitReader(body)
+    swf.read_rect(r)
+    pos = r.align()
+    rate, count = struct.unpack_from("<HH", body, pos)
+    pos += 4
+    header = body[:pos]
+    tags = _raw_tags(body, pos)
+    target = None
+    for i, (code, data) in enumerate(tags):
+        if code != swf.DEFINE_SPRITE:
+            continue
+        nested = _raw_tags(data, 4)
+        if any(_place_instance(nd)[0] == host.HOST_LIST for nc, nd in nested if nc == swf.PLACE_OBJECT2):
+            target = i
+            break
+    if target is None:
+        raise OverlayError("host has no sprite that places DialogueList_mc")
+    sprite_id, frame_count = struct.unpack_from("<HH", tags[target][1], 0)
+    nested = _raw_tags(tags[target][1], 4)
+    depths = [d for nc, nd in nested for d in [_place_depth(nc, nd)] if d]
+    depth = (max(depths) if depths else 0) + 1
+    extras = []
+    inner = []
+    cid = next_character_id(tags)
+    boxes = wheel.slot_boxes(width * swf.TWIPS, height * swf.TWIPS)
+    for i, name in enumerate(wheel.SLOT_NAMES):
+        extras.append(swf.define_sprite(cid, []))
+        x, y, _w, _h = boxes[wheel.SLOTS[i]]
+        inner.append(_place_named_xy(cid, i + 1, name, x, y))
+        cid += 1
+    extras.append(swf.define_sprite(cid, inner))
+    host_place = swf.place_object2(cid, depth)
+    new_nested = []
+    inserted = False
+    for nc, nd in nested:
+        if nc == swf.SHOW_FRAME and not inserted:
+            new_nested.append(host_place)
+            inserted = True
+        new_nested.append(swf.tag(nc, nd))
+    if not inserted:
+        raise OverlayError("DialogueMenu sprite has no ShowFrame")
+    new_sprite = swf.tag(swf.DEFINE_SPRITE, struct.pack("<HH", sprite_id, frame_count) + b"".join(new_nested))
+    out_tags = []
+    for i, (code, data) in enumerate(tags):
+        if i == target:
+            out_tags.extend(extras)
+            out_tags.append(new_sprite)
+        else:
+            out_tags.append(swf.tag(code, data))
+    new_body = header + b"".join(out_tags)
+    length = 8 + len(new_body)
+    return b"CWS" + bytes([raw[3]]) + struct.pack("<I", length) + zlib.compress(new_body, 9)
+
+
+def _symbol_entries(data):
+    if len(data) < 2:
+        return []
+    n = struct.unpack_from("<H", data, 0)[0]
+    pos = 2
+    out = []
+    for _ in range(n):
+        if pos + 2 > len(data):
+            break
+        cid = struct.unpack_from("<H", data, pos)[0]
+        pos += 2
+        z = data.find(b"\x00", pos)
+        if z < 0:
+            break
+        out.append((cid, data[pos:z].decode("ascii", "replace")))
+        pos = z + 1
+    return out
+
+
+def _place_named_xy(char_id, depth, name, x, y):
+    """PLACE_OBJECT2 with HasName and a translate. Empty clips at 0,0 drew nothing (FAL-1040)."""
+    nbits = swf.sb_bits(x, y)
+    b = swf.Bits()
+    b.ub(0, 1)
+    b.ub(0, 1)
+    b.ub(nbits, 5)
+    b.sb(x, nbits)
+    b.sb(y, nbits)
+    return swf.tag(
+        swf.PLACE_OBJECT2,
+        bytes([0x26]) + struct.pack("<HH", depth, char_id) + b.align() + name.encode("ascii") + b"\x00",
+    )
+
+
+def _place_translate(data):
+    """Translate x, y from a HasMatrix PlaceObject2, or (0, 0)."""
+    if not data or not (data[0] & 0x04):
+        return (0, 0)
+    pos = 3
+    if data[0] & 0x02:
+        pos = 5
+    r = swf.BitReader(data, pos)
+    for _ in range(2):
+        if r.ub(1):
+            n = r.ub(5)
+            r.sb(n)
+            r.sb(n)
+    n = r.ub(5)
+    return (r.sb(n), r.sb(n))
+
+
+def _write_symbol_class(entries):
+    body = struct.pack("<H", len(entries))
+    for cid, name in entries:
+        body += struct.pack("<H", cid) + name.encode("ascii") + b"\x00"
+    return swf.tag(SYMBOL_CLASS, body)
+
+
+def _unnamed_container_id(tags):
+    best, best_depth = None, -1
+    for code, data in tags:
+        if code != swf.DEFINE_SPRITE or len(data) < 4:
+            continue
+        nested = _raw_tags(data, 4)
+        if not any(_place_instance(nd)[0] == host.HOST_LIST for nc, nd in nested if nc == swf.PLACE_OBJECT2):
+            continue
+        for nc, nd in nested:
+            if nc != swf.PLACE_OBJECT2:
+                continue
+            parsed = swf.read_place(nd)
+            if parsed.get("instance"):
+                continue
+            ch, dep = parsed.get("character"), parsed.get("depth") or 0
+            if ch and dep >= best_depth:
+                best, best_depth = ch, dep
+    return best
+
+
+def bind_slots_abc(host_bytes, slots_bytes):
+    """Copy Fo4sfDialogueSlots DoABC onto the overlaid movie; SymbolClass the unnamed container."""
+    if refuse_own_replacement(slots_bytes) is None:
+        raise OverlayError("slots SWF must not be a host DialogueMenu")
+    sbody, spos, _ = _swf_body(slots_bytes)
+    stags = _raw_tags(sbody, spos)
+    abc = [swf.tag(c, d) for c, d in stags if c in (DOABC, DOABC2)]
+    if not abc:
+        raise OverlayError("slots SWF has no DoABC")
+    exported = []
+    for c, d in stags:
+        if c == SYMBOL_CLASS:
+            exported.extend(n for _, n in _symbol_entries(d))
+    if BIND_CLASS not in exported:
+        raise OverlayError(f"slots SWF does not export {BIND_CLASS}")
+    hbody, hpos, _ = _swf_body(host_bytes)
+    header = hbody[:hpos]
+    htags = _raw_tags(hbody, hpos)
+    container = _unnamed_container_id(htags)
+    if container is None:
+        raise OverlayError("overlay has no unnamed slot container")
+    existing_sc = []
+    for c, d in htags:
+        if c == SYMBOL_CLASS:
+            existing_sc.extend((cid, n) for cid, n in _symbol_entries(d) if n != BIND_CLASS)
+    existing_sc.append((container, BIND_CLASS))
+    out = []
+    abc_put = False
+    saw_end = False
+    for c, d in htags:
+        if c == SYMBOL_CLASS:
+            continue
+        if c == swf.SHOW_FRAME and not abc_put:
+            out.extend(abc)
+            out.append(_write_symbol_class(existing_sc))
+            abc_put = True
+        if c == swf.END:
+            saw_end = True
+            if not abc_put:
+                raise OverlayError("host movie has no ShowFrame")
+        out.append(swf.tag(c, d))
+    if not saw_end:
+        raise OverlayError("host movie has no End tag")
+    if not abc_put:
+        raise OverlayError("host movie has no ShowFrame")
+    new_body = header + b"".join(out)
+    raw = bytes(host_bytes)
+    return b"CWS" + bytes([raw[3]]) + struct.pack("<I", 8 + len(new_body)) + zlib.compress(new_body, 9)
+
+
+def archive_search_order(names):
+    """Starfield - Interface.ba2 first when present; never first-sorted AAA-mod.ba2."""
+    ba2 = [n for n in names if n.lower().endswith(".ba2")]
+    hint = [n for n in ba2 if n.lower() == HOST_ARCHIVE_HINT.lower()]
+    rest = sorted(n for n in ba2 if n.lower() != HOST_ARCHIVE_HINT.lower())
+    return hint + rest
+
+
+def extract_host_movie(starfield):
+    """Player's Interface/DialogueMenu.swf from their archives. Never written to Git."""
+    data = os.path.join(starfield, "Data") if os.path.basename(starfield) != "Data" else starfield
+    if not os.path.isdir(data):
+        raise OverlayError(f"no Data folder at {starfield}")
+    last_err = None
+    for name in archive_search_order(os.listdir(data)):
+        path = os.path.join(data, name)
+        try:
+            archive = Ba2(path)
+        except (Ba2Error, OSError, struct.error, ValueError) as e:
+            last_err = e
+            continue
+        if archive.find(HOST_PATH) is None:
+            continue
+        try:
+            return archive.read(HOST_PATH)
+        except Ba2Error as e:
+            last_err = e
+            continue
+    raise OverlayError(f"{HOST_PATH} not in the player's archives" + (f" ({last_err})" if last_err else ""))
+
+
+def refuse_own_replacement(movie):
+    """None if this is a host (or host+overlay) movie; else a short refuse."""
+    info = inspect_host(movie)
+    if info["menu_mc_role"] != "child":
+        return "Menu_mc is not a child of a plain root; do not pack a replacement movie"
+    if not info["has_dialogue_list"]:
+        return "host sprite must still place DialogueList_mc"
+    return None

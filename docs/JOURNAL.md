@@ -2930,3 +2930,176 @@ receipts are tracked in FAL-743 document reconciliation. Independent delta revie
 Minuteman FAL-741 landing gates remain. Earlier PC PASS dde84927 covers only the core
 receipt/Play-eligibility regression; actual kit/archive/Remove/instance/bridge gates
 remain separate. No native Windows, game, deploy or real-kit action in this run.
+
+## 2026-11-15 — Scribe: Concord four-option DialogueMenu movie (FAL-865)
+
+First slice of the dialogue core on scribe/fal865-concord-dialogue, base origin/main 6ebb7a0d.
+KEEP the host DialogueMenu class and its select events; REPLACE the movie with a generated four-slot
+stand-in (N/E/S/W, prompts ONE TWO THREE FOUR). Empty plugin FO4SFConcordTalk.esm loads the packed
+twin at Interface/DialogueMenu.swf. Smallest INFO set for DialogueConcordArea 000179F3 is one
+greeting plus four player INFOs; no Fallout lines in Git. Installer refuses a loose DialogueMenu.swf
+already in the game folder. 21 focused tests OK; guard/diff clean. Native Windows/game NOT_RUN.
+Independent review: Courier Copy. This does not reach the owner's game until that review, checks,
+and the PC session card.
+
+## 2026-11-15 — Scribe: PC PARTIAL kills the no-AS3 DialogueMenu twin (FAL-865)
+
+Claude PC dump at 44ba71ac (no launch, no install): host DialogueMenu root Menu_mc, list
+DialogueList_mc filled by the movie's data shuttle, not by instance name. Fallout 4 four clips
+are Question/Neutral/Negative/Positive via a different native path. Stand-in fo4sfOpt* matches
+neither. SCEN on 000179F3 is 8. Next source is an AS3 shuttle bind or a native bind; §2–§3 wait
+on that new head. Host names encoded in scripts/dialogue/dialogue_menu_host.py.
+
+## 2026-11-15 — Scribe: DialogueMenu shuttle bind contract (FAL-865)
+
+Payload field names UNREAD. Contract in scripts/dialogue/dialogue_menu_shuttle.py: KEEP shuttle, map four
+list rows N/E/S/W, DoABC required, Fallout 4 clips are not the bind. Installer refuses the no-DoABC twin.
+scripts/ui/DialogueMenuFour.as is our names-only AS3, not a compiled movie. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: DialogueMenu shuttle payload names (FAL-865 / FAL-879)
+
+PC PASS §1b at 55eeb2f0 (file read, no install): DialogueListData.aChoices rows expose sChoiceText,
+bCanBeChosen, bWasAlreadySaid, uEntryID. No index field. Select event DialogueMenu_OnDialogueSelect,
+key selectedIndex carries uEntryID. Encoded in scripts/dialogue/dialogue_menu_shuttle.py. Still no
+compiled DoABC. §2–§3 wait that movie. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: DialogueMenu four-slot bind functions (FAL-865)
+
+FAL-882 CLEAR 1681ff84. bind_slots maps aChoices[0..3].sChoiceText to N/E/S/W; select_payload uses uEntryID.
+DialogueMenuFour.as now has onChoiceListUpdate and selectSlot. This host has no ActionScript compiler; no DoABC
+movie. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-886 FINDING — stage --movie, selectSlot bounds (FAL-865)
+
+PC card no longer says replace-then-stage. stage --movie copies a DoABC movie as the twin. select_payload
+refuses a null uEntryID; selectSlot caps at MAP_ROWS and names DialogueMenu_OnDialogueSelect. Outer aChoices
+wins when both keys exist. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: fillSlot / sendSelect bodies (FAL-865 / FAL-893)
+
+fillSlot sets fo4sfOpt* TextField text (blank if unused). sendSelect calls BSUIDataManager.Dispatch with
+DialogueMenu_OnDialogueSelect and selectedIndex. Compile command on the PC card: Apache Flex SDK 4.16.1 mxmlc,
+playerglobal only. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-895 FINDING — create slots, look up shuttle (FAL-894)
+
+FAL-895 FINDING 9a5a75cc: compiling DialogueMenuFour.as alone had no fo4sfOpt* children, and mxmlc -strict could
+not see BSUIDataManager. The class now creates the four named TextFields and resolves the shuttle with
+getDefinitionByName. Card compile line names playerglobal only, plus -default-size 1920 1080. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: PC FAIL compile — shuttle return and player 32.0 (FAL-865)
+
+PC FAIL at 77ebc085: shuttle() needed a trailing return null under -strict; 11.1 playerglobal is no longer served.
+Card now uses -target-player=32.0. playerglobal32_0.swc from Adobe's download host goes in the SDK as
+frameworks/libs/player/32.0/playerglobal.swc. FAL-905 FINDING: set PLAYERGLOBAL_HOME to frameworks/libs/player
+(the directory that contains 32.0/). Select is mouse-click only. No install, no launch. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: PC FAIL 48a3eb3d — replacement without host roots (FAL-865)
+
+Compiled movie opened a vanilla talk and crashed (null read in the UI render path). No four slots drawn.
+Concord talk is not on the owner's current set. Next: empty Menu_mc + host children on the replacement
+(not converted art), or overlay on the host movie. Owner set restored. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: DialogueMenuFour shape (b) members + vanilla-talk PARTIAL (FAL-916)
+
+Chose (b) over overlay: KEEP class / REPLACE movie; overlay would keep the host list. Public var
+Menu_mc plus dynamic child members (empty clips, not converted art). PC card is control then kit on
+the same vanilla talk; stop on first crash. Concord reachability is a later synthetic topic in this
+plugin, not the Vault 111 exit card. Stated target until then: four slots on any vanilla talk
+(PARTIAL). Do not install 48a3eb3d. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-917 FINDING — Menu_mc is the movie root (FAL-865)
+
+ensureHostRoots no longer nests a Menu_mc child. The document is named Menu_mc; DialogueList_mc and the
+other host children sit on that root. Class is dynamic. Empty clips, not converted art. Do not install
+48a3eb3d. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: wrap this.name write (FAL-921 note)
+
+ensureHostRoots writes this.name inside try/catch so Error #2078 cannot abort the constructor before
+slots and shuttle subscribe. this.Menu_mc = this still. Do not install 48a3eb3d. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: PC FAIL 69ee810a — REPLACE host movie is killed (FAL-865)
+
+Control (no kit): Chunks vendor talk opened Starfield's list, no crash. Kit at 69ee810a (host-root stubs,
+compiled sha256 f6e58827…f4f2): same talk crashed at the same UI render null read as 48a3eb3d. No four
+slots. Owner set restored. Stage/install no longer write or pack Interface/DialogueMenu.swf. Overlay on
+the host movie is next. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: overlay inject on player's DialogueMenu (FAL-934 PASS)
+
+PC PASS names only: document class none; Menu_mc is a child, class DialogueMenu; DialogueList_mc on that
+sprite frame 1; shuttle classes live in the movie. overlay_inject adds fo4sfOpt* there and keeps host ABC.
+Do not install 48a3eb3d or 69ee810a. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-938 FINDING — archive, ids, stage, card
+
+extract prefers Starfield - Interface.ba2. Slot character ids are max(host)+1. Install packs a
+patched copy from a temp tree so the stage is not left holding DialogueMenu.swf. Card §3 no longer
+says stage --movie or four slots not a list. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-972 FINDING — character ids any depth
+
+next_character_id walks every Define* tag, nested sprites included (Font2, Text, two sprites
+deep). A short Interface.ba2 does not abort extract. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-980 FINDING — DefineFont and DefineVideoStream
+
+Character-id scan includes tag 10 (DefineFont) and tag 60 (DefineVideoStream), including nested
+in Menu_mc. Tag 13 is FontInfo and is not an allocator. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-984 PC FAIL — inspect without writer-only parse
+
+inspect_host walks raw tags. It does not parse EditText or shape bodies the writer never emits.
+Installer maps SwfError to "not installed". Native/game NOT_RUN. Do not install 48a3eb3d or 69ee810a.
+
+## 2026-11-15 — Scribe: Gemini P1–P3 — unnamed slot clip, depths, import ids
+
+Named fo4sfOpt* live in an unnamed MovieClip on Menu_mc (sealed DialogueMenu). Depths include
+PlaceObject/PlaceObject3. Character ids include ImportAssets and tags >= 1000. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-999 FINDING — ImportAssets URL and LZ4 BA2 read
+
+ImportAssets2 skips the URL then reserved bytes. ImportAssets retries after a leading URL.
+extract_host_movie maps Ba2Error on read (v3 LZ4) to OverlayError. Native/game NOT_RUN.
+
+## 2026-11-15 — Scribe: FAL-1011 FINDING — ImportAssets2 hasDigest
+
+ImportAssets2 skips 20 SHA1 bytes when hasDigest is 1. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1020 PARTIAL — empty slot clips, no green fill
+
+PC PARTIAL 3d06cbb0: kit did not crash; host list still draws. A green rectangle at lower right
+was the filled fo4sfOpt* shapes. Slots are now empty named sprites. Bind is next. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1029 PARTIAL — no green leak
+
+PC PARTIAL 1cd7d9ad: kit did not crash; host list still draws; no green rectangle. Empty fo4sfOpt*
+show nothing (unbound). Bind sChoiceText next. Native/game NOT_RUN here.
+
+## 2026-11-16 — Scribe: Fo4sfDialogueSlots bind source
+
+Bind class Fo4sfDialogueSlots on the unnamed container, not sealed DialogueMenu. Source only;
+no compiled ABC in Git; overlay_inject does not replace DialogueMenu. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: bind_slots_abc SymbolClass unnamed container
+
+Installer --slots-swf copies Fo4sfDialogueSlots DoABC onto the overlaid host and SymbolClass
+the unnamed container. Compiled SWF is not in Git. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1037 FINDING — DoABC before ShowFrame
+
+bind_slots_abc writes DoABC and SymbolClass before the root ShowFrame. No End is an error.
+Missing --slots-swf is "not installed". Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1038 FINDING — End is not ShowFrame
+
+A host with End and no root ShowFrame is an error. ABC is not written before End.
+Install of that host with --slots-swf is not installed. Native/game NOT_RUN.
+
+## 2026-11-16 — Scribe: FAL-1040 PARTIAL — bind drew nothing
+
+PC PARTIAL 162fe3ad: compiled Fo4sfDialogueSlots (1924 B), overlay --slots-swf, no crash on a
+2-option vanilla talk. Slots drew nothing. Bind is aChoices on any talk, not Concord-only.
+Empty clips were stacked at 0,0. Next: N/E/S/W translate; hide DialogueList_mc from the bind
+class. Native/game NOT_RUN here.
