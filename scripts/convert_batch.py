@@ -49,10 +49,14 @@ def checkpoint_signature(a):
     if getattr(a, "rig_load_doors", False) and a.starfield_data:   # load doors rigged; off keeps checkpoints valid
         sig["rig_load_doors"] = True
     extra = [Path(d) for d in getattr(a, "extra_data", None) or []]
+    dlc_plugins = pipeline.parse_dlc_plugins(getattr(a, "dlc_plugins", None))
     if extra:                                           # DLC archives, in lookup order; none keeps existing checkpoints valid
-        sig["extra_archives"] = [[str(d.resolve()), [checkpoints.archive_identity(p) for p in sorted(
-            (p for p in d.iterdir() if p.name.lower().startswith("dlc") and p.suffix.lower() == ".ba2"),
-            key=lambda p: p.name.lower())]] for d in extra]
+        sig["extra_archives"] = [[str(d.resolve()), [
+            checkpoints.archive_identity(d / fn)
+            for fn in pipeline.select_dlc_archive_names(str(d), dlc_plugins=dlc_plugins, converter_only=True)
+        ]] for d in extra]
+    if dlc_plugins:                                     # explicit DLC load order; unset keeps existing checkpoints valid
+        sig["dlc_plugins"] = dlc_plugins
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
     if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
@@ -117,12 +121,12 @@ def load_editor_ids(staging):
     return ids
 
 
-def editor_id(source, ids):
+def editor_id(source, ids, prefix="fo4port"):
     key = source_identity(source)
     if key not in ids:
         basename = key.rsplit("/", 1)[-1]
         stem = re.sub(r"[^A-Za-z0-9_]", "_", os.path.splitext(basename)[0])
-        name = "FO4Port_" + stem
+        name = pipeline.editor_id_prefix(prefix) + "_" + stem
         reserved = {v.lower() for v in ids.values()}
         if name.lower() in reserved:
             name += "_" + hashlib.sha256(key.encode()).hexdigest()[:16]
@@ -130,6 +134,173 @@ def editor_id(source, ids):
             raise ValueError(f"editor ID collision for {key}")
         ids[key] = name
     return ids[key]
+
+
+def rewrite_eid_for_prefix(old_eid, prefix, old_prefix="FO4Port"):
+    target = pipeline.editor_id_prefix(prefix)
+    if target == old_prefix:
+        return old_eid
+    head = old_prefix + "_"
+    if old_eid.startswith(head) or old_eid.lower().startswith(head.lower()):
+        return target + "_" + old_eid[len(head):]
+    if old_eid.startswith(target + "_"):
+        return old_eid
+    return target + "_" + old_eid
+
+
+def merge_manifests(docs):
+    """Merge multiple rewritten or converted manifests deterministically by item_identity without reconverting."""
+    items = []
+    by_ident = {}
+    failures = []
+    seen_fail = set()
+    fallbacks = {}
+    converted_mats = set()
+    has_converted_mats = True
+    for doc in docs:
+        for it in doc.get("items") or []:
+            ident = item_identity(it)
+            if not ident:
+                continue
+            row = dict(it)
+            if ident in by_ident:
+                existing = items[by_ident[ident]]
+                if existing.get("editor_id") != row.get("editor_id"):
+                    raise ValueError(f"conflicting editor_id across manifests for {ident}: "
+                                     f"{existing.get('editor_id')} vs {row.get('editor_id')}")
+                # Prefer an entry carrying load_door / door / movable metadata if one came from a cell run
+                for k in ("load_door", "door", "movable", "door_not_opening", "door_frozen_parts", "door_error"):
+                    if k in row and k not in existing:
+                        existing[k] = row[k]
+            else:
+                row["form_index"] = len(items)
+                by_ident[ident] = len(items)
+                items.append(row)
+        for f in doc.get("failures") or []:
+            ident = retry_nif_identity(f.get("nif", "")) if isinstance(f, dict) else None
+            if ident and ident not in seen_fail and ident not in by_ident:
+                seen_fail.add(ident)
+                failures.append(dict(f))
+        for k, v in (doc.get("material_fallbacks") or {}).items():
+            fallbacks.setdefault(k, v)
+        if isinstance(doc.get("materials_converted"), list):
+            converted_mats.update(doc["materials_converted"])
+        else:
+            has_converted_mats = False
+    failures = [f for f in failures if retry_nif_identity(f.get("nif", "")) not in by_ident]
+    out = {
+        "items": items,
+        "failures": failures,
+        "material_fallbacks": fallbacks,
+        **({"materials_converted": sorted(converted_mats)} if has_converted_mats and docs else {}),
+        "stats": {
+            "assets": len(items),
+            "failed": len(failures),
+            "materials_ok": len(converted_mats) if has_converted_mats else sum(
+                (d.get("stats") or {}).get("materials_ok", 0) for d in docs),
+            "materials_fallback": len(fallbacks),
+        },
+        "seconds": round(sum(float(d.get("seconds") or 0.0) for d in docs), 1),
+    }
+    return out
+
+
+def rewrite_manifest_prefix(manifests, out_dir, prefix, editorids_path="", old_prefix="FO4Port", merge_out=""):
+    """Rewrite FO4Port_* EditorIDs in existing manifest(s) and editorids.json to <Prefix>_* into a separate out_dir
+    without reconverting models. Never modifies input files in place."""
+    if not re.fullmatch(r"[a-z0-9_]+", prefix):
+        raise ValueError("--prefix: lower-case letters, digits and _ only")
+    pipeline.refuse_unsafe_output_dir(out_dir, "--out-dir")
+    if not manifests:
+        raise ValueError("at least one --manifest is required")
+    abs_out = os.path.normcase(os.path.abspath(out_dir))
+    inputs = list(manifests) + ([editorids_path] if editorids_path else [])
+    for p in inputs:
+        if not os.path.isfile(p):
+            raise FileNotFoundError(f"input file not found: {p}")
+        if os.path.normcase(os.path.abspath(os.path.dirname(p))) == abs_out:
+            raise ValueError(f"--out-dir {out_dir} must be separate from input folder {os.path.dirname(p)}")
+    if len({os.path.basename(p).lower() for p in manifests}) != len(manifests):
+        raise ValueError("manifest basenames collide; pass distinct file names")
+
+    new_ids = {}
+    if editorids_path:
+        with open(editorids_path, encoding="utf-8") as f:
+            src_ids = json.load(f)
+        if not isinstance(src_ids, dict):
+            raise ValueError("editorids.json must be an object")
+        for src, eid in src_ids.items():
+            new_ids[src] = rewrite_eid_for_prefix(eid, prefix, old_prefix=old_prefix)
+    norm_ids = {source_identity(k): v for k, v in new_ids.items()}
+
+    rewritten_docs = []
+    os.makedirs(out_dir, exist_ok=True)
+    for mp in manifests:
+        with open(mp, encoding="utf-8") as f:
+            doc = json.load(f)
+        out_doc = dict(doc)
+        new_items = []
+        for it in doc.get("items") or []:
+            row = dict(it)
+            new_eid = rewrite_eid_for_prefix(row["editor_id"], prefix, old_prefix=old_prefix)
+            if "pose" not in row:
+                key = source_identity(row["source"])
+                if key in norm_ids and norm_ids[key] != new_eid:
+                    raise ValueError(f"conflicting rewritten editor_id for {key}: {norm_ids[key]} vs {new_eid}")
+                norm_ids[key] = new_eid
+                if not editorids_path:
+                    new_ids[key] = new_eid
+            row["editor_id"] = new_eid
+            new_items.append(row)
+        seen_eids = [it["editor_id"].lower() for it in new_items]
+        if len(set(seen_eids)) != len(seen_eids):
+            raise ValueError(f"duplicate rewritten EditorIDs in {os.path.basename(mp)}")
+        out_doc["items"] = new_items
+        rewritten_docs.append(out_doc)
+        write_json_atomic(os.path.join(out_dir, os.path.basename(mp)), out_doc)
+
+    if len({v.lower() for v in norm_ids.values()}) != len(norm_ids):
+        raise ValueError("duplicate rewritten EditorIDs across editorids mapping")
+    write_json_atomic(os.path.join(out_dir, "editorids.json"), new_ids if editorids_path else norm_ids)
+
+    merged_doc = None
+    if merge_out:
+        merged_doc = merge_manifests(rewritten_docs)
+        merge_dst = merge_out if os.path.isabs(merge_out) else os.path.join(out_dir, merge_out)
+        pipeline.refuse_unsafe_output_dir(os.path.dirname(merge_dst), "--merge-out")
+        if any(os.path.normcase(os.path.abspath(os.path.dirname(p))) == os.path.normcase(os.path.abspath(os.path.dirname(merge_dst)))
+               for p in inputs):
+            raise ValueError("--merge-out must not write into an input folder")
+        os.makedirs(os.path.dirname(merge_dst), exist_ok=True)
+        write_json_atomic(merge_dst, merged_doc)
+
+    return {
+        "prefix": prefix,
+        "editor_id_prefix": pipeline.editor_id_prefix(prefix),
+        "editorids": len(norm_ids),
+        "manifests": {os.path.basename(mp): len(d.get("items") or []) for mp, d in zip(manifests, rewritten_docs)},
+        **({"merged_assets": len(merged_doc["items"]), "merged_failed": len(merged_doc["failures"])}
+           if merged_doc is not None else {}),
+    }
+
+
+def main_rewrite_manifest_prefix(argv):
+    ap = argparse.ArgumentParser(prog="convert_batch.py rewrite-manifest-prefix",
+                                 description="Rewrite EditorIDs of existing staging manifest(s) without reconverting.")
+    ap.add_argument("--manifest", action="append", default=[], required=True, help="input manifest JSON (repeatable)")
+    ap.add_argument("--editorids", default="", help="optional input editorids.json")
+    ap.add_argument("--prefix", required=True, help="target prefix (e.g. fo4dlc -> FO4DLC_*, fo4port -> FO4Port_*)")
+    ap.add_argument("--old-prefix", default="FO4Port", help="source EditorID prefix to replace (default: FO4Port)")
+    ap.add_argument("--out-dir", required=True, help="separate output directory (never modifies input folder)")
+    ap.add_argument("--merge-out", default="", help="optional merged manifest filename or path")
+    a = ap.parse_args(argv)
+    try:
+        report = rewrite_manifest_prefix(a.manifest, a.out_dir, a.prefix, editorids_path=a.editorids,
+                                         old_prefix=a.old_prefix, merge_out=a.merge_out)
+    except (OSError, ValueError) as e:
+        sys.exit(f"rewrite-manifest-prefix: {e}")
+    print(json.dumps(report))
+    return 0
 
 
 DEFAULT_CELL_TYPES = "Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal"
@@ -162,6 +333,25 @@ def static_body_models(cell):
                   key=str.lower)
 
 
+def scol_fallbacks(cell):
+    """Unambiguous 1-to-1 {stale_modl_path: canonical_scol_ba2_path} for StaticCollection references whose MODL still
+    names a pre-merge developer plugin folder while Creation Kit packed the combined NIF under the SCOL base FormKey
+    (e.g. DLCRobot.esm's 58 merged SCOLs under Meshes\\SCOL\\DLCRobot.esm\\CM0000xxxx.NIF)."""
+    by_modl = {}
+    for r in cell.get("refs") or []:
+        if r.get("type") != "StaticCollection" or not r.get("model") or not r.get("base_formkey"):
+            continue
+        modl = "meshes/" + r["model"].replace("\\", "/").lstrip("/").lower()
+        cand = pipeline.scol_archive_path(r["base_formkey"])
+        if cand:
+            by_modl.setdefault(modl, set()).add(cand)
+    return {
+        modl: next(iter(cands))
+        for modl, cands in sorted(by_modl.items())
+        if len(cands) == 1 and next(iter(cands)) != modl
+    }
+
+
 def static_pattern_models(pattern, names):
     """--static-pattern: the candidate names matching a regex, or, for "@file", the names listed in that file (one mesh
     name per line, as a manifest prints them; case and slashes ignored)."""
@@ -176,6 +366,8 @@ def triangle_count(src_archives, name):
     """Rough triangle count from a FO4 NIF (sum of decoded BSTriShape triangles). Used by --max-tris."""
     try:
         raw = src_archives.mesh(name)
+        if raw is None:
+            return 0
         parsed = nif.parse(raw)
         shapes = nif.fo4_trishapes(parsed)
         return sum(len(s.triangles) for s in shapes if s.triangles)
@@ -383,7 +575,10 @@ def merge_material_evidence(prior, conv, retried_ids=frozenset()):
     return None, merged, ok_count, fallback_count, sorted((counted | recovered) - lost)
 
 
-def main():
+def main(argv=None):
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+    if raw_argv[:1] == ["rewrite-manifest-prefix"]:
+        return main_rewrite_manifest_prefix(raw_argv[1:])
     ap = argparse.ArgumentParser()
     ap.add_argument("--fo4-data", required=True)
     ap.add_argument("--staging", required=True)
@@ -403,6 +598,11 @@ def main():
                     help="another Data folder whose DLC*.ba2 archives are read after the base game's (a DLC's depot "
                          "Data); base-game models keep converting from Fallout4 - *.ba2 first. The folders and their "
                          "DLC*.ba2 identities, in order, join the checkpoint signature (none: existing checkpoints stay valid)")
+    ap.add_argument("--dlc-plugins", default="",
+                    help="comma-separated DLC plugin names or stems in load order (e.g. "
+                         "DLCRobot,DLCworkshop01,DLCCoast,DLCworkshop02,DLCworkshop03,DLCNukaWorld); restricts DLC "
+                         "archive lookup and checkpoint signatures to those stems in order. DLCUltraHighResolution is "
+                         "always skipped")
     ap.add_argument("--rig-load-doors", action="store_true",
                     help="with --starfield-data: FO4 load doors whose model animates are rigged like other doors and "
                          "open before the trip (manifest load_door.anim; docs/spikes/load-door-animations.md). Off by "
@@ -441,7 +641,7 @@ def main():
                          "stay rough; default off (the gloss alone, as every build so far)")
     ap.add_argument("--mass-scale", type=float, default=1.0,
                     help="scale FO4 dynamic body masses (playtest row 26: FO4 small items 2-10x Starfield; try 0.2-0.5 so grab works)")
-    a = ap.parse_args()
+    a = ap.parse_args(raw_argv)
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
     try:
@@ -458,11 +658,20 @@ def main():
         ap.error("--door-anim-dll needs --starfield-data (doors are rigged only with the vanilla donor body)")
     if a.rig_load_doors and not a.starfield_data:
         ap.error("--rig-load-doors needs --starfield-data (doors are rigged only with the vanilla donor body)")
+    try:
+        dlc_plugins = pipeline.parse_dlc_plugins(a.dlc_plugins)
+    except ValueError as e:
+        ap.error(f"--dlc-plugins: {e}")
+    try:
+        pipeline.refuse_unsafe_output_dir(a.staging, "--staging")
+    except ValueError as e:
+        ap.error(str(e))
 
     ids = load_editor_ids(a.staging)
 
     t0 = time.time()
-    src = pipeline.Fo4Archives(a.fo4_data, a.extra_data)
+    src = (pipeline.Fo4Archives(a.fo4_data, a.extra_data, dlc_plugins=dlc_plugins)
+           if dlc_plugins else pipeline.Fo4Archives(a.fo4_data, a.extra_data))
     with open(a.collision_template, "rb") as f:
         template = convert_static.collision_template_from_nif(f.read())
     donor = None
@@ -482,6 +691,8 @@ def main():
     if a.cell_json:
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
+        if hasattr(src, "register_mesh_fallbacks"):
+            src.register_mesh_fallbacks(scol_fallbacks(cell))
         names = cell_candidates(cell, set(a.types.split(",")))
         load_models = teleport_models(cell)
         static_models = static_body_models(cell)
@@ -561,7 +772,7 @@ def main():
             if not r["ok"]:
                 failures.append({"nif": name, "reason": r["reason"]})
             else:
-                eid = editor_id(name, ids)
+                eid = editor_id(name, ids, a.prefix)
                 if cache:
                     os.makedirs(a.staging, exist_ok=True)
                     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
