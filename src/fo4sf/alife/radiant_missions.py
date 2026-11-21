@@ -69,12 +69,8 @@ PAPYRUS_ARRAY_LIMIT = 128
 
 
 def cross_os_basename(raw_path: str) -> str:
-    """Split on both '/' and '\\' on every OS so log/CLI labels never leak foreign paths."""
-    cleaned = str(raw_path).rstrip("/\\")
-    if not cleaned:
-        return ""
-    idx = max(cleaned.rfind("/"), cleaned.rfind("\\"))
-    return cleaned[idx + 1:] if idx >= 0 else cleaned
+    """Delegate to schema.path_basename so Windows drive, UNC, POSIX, and mixed paths behave identically."""
+    return schema.path_basename(raw_path)
 
 
 @dataclass(frozen=True)

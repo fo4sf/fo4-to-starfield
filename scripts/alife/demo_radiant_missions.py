@@ -23,7 +23,7 @@ from fo4sf.alife import radiant_missions, schema  # noqa: E402
 
 
 def format_report(summary: dict, source_label: str) -> str:
-    safe_source = radiant_missions.cross_os_basename(source_label)
+    safe_source = radiant_missions.cross_os_basename(source_label) or "<config>"
     lines = [
         f"X9 Radiant Missions Offline Verification ({safe_source})",
         f"  seeds={summary['num_seeds']} ticks={summary['ticks_per_seed']} "
@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.json:
         out = dict(summary)
-        out["source"] = radiant_missions.cross_os_basename(source_label)
+        out["source"] = radiant_missions.cross_os_basename(source_label) or "<config>"
         print(json.dumps(out, indent=2, sort_keys=True))
     else:
         print(format_report(summary, source_label))

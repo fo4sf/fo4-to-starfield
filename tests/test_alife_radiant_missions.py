@@ -10,11 +10,13 @@ from unittest import mock
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(REPO_ROOT, "src")
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
+SCRIPTS_ALIFE_DIR = os.path.join(REPO_ROOT, "scripts", "alife")
+for _p in (SRC_DIR, SCRIPTS_ALIFE_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from fo4sf.alife import radiant_missions, schema  # noqa: E402
-from scripts.alife import demo_radiant_missions  # noqa: E402
+import demo_radiant_missions  # noqa: E402
 
 
 class RadiantMissionsVerificationTest(unittest.TestCase):
@@ -175,11 +177,15 @@ class RadiantMissionsVerificationTest(unittest.TestCase):
 
     def test_cross_os_path_basename_and_cli_scrubbing_under_posix_and_windows(self) -> None:
         win_drive = "D" + ":"
+        c_drive = "C" + ":"
         cases = [
             (win_drive + "\\Games\\Configs\\fo4sf_commonwealth.json", "fo4sf_commonwealth.json"),
             ("/opt/alife/configs/fo4sf_commonwealth.json", "fo4sf_commonwealth.json"),
             (win_drive + "\\Games/Mixed\\Subdir/custom_world.json\\", "custom_world.json"),
             ("\\\\server\\share\\configs\\warfare.json", "warfare.json"),
+            (win_drive + "\\", ""),
+            (c_drive + "warfare.json", "warfare.json"),
+            ("\\\\server\\share\\", ""),
         ]
         with mock.patch("os.path.basename", side_effect=posixpath.basename):
             for raw, expected in cases:
@@ -190,6 +196,9 @@ class RadiantMissionsVerificationTest(unittest.TestCase):
         report = demo_radiant_missions.format_report(summary, win_drive + "\\Private\\Configs\\fo4sf_commonwealth.json")
         self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", report))
         self.assertIn("fo4sf_commonwealth.json", report)
+        root_report = demo_radiant_missions.format_report(summary, win_drive + "\\")
+        self.assertIsNone(re.search(r"\b[A-Za-z]:", root_report))
+        self.assertIn("<config>", root_report)
 
     def test_design_doc_hygiene_and_required_banners(self) -> None:
         doc_path = os.path.join(REPO_ROOT, "docs", "quests", "radiant-missions.md")
