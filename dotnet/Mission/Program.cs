@@ -135,6 +135,24 @@ static class Mission
     public const uint FirstCodsworthChoiceTopicId = 0x950, FirstCodsworthChoiceInfoId = 0x958;
     public const uint FirstCodsworthReplyTopicId = 0x960, FirstCodsworthReplyInfoId = 0x968;
 
+    // V2: Codsworth eye-level talk activator + 4-choice MessageBox records for Codsworth & Preston (0x970..0x978)
+    public const uint CodsworthTalkActiId = 0x970;
+    public const string CodsworthTalkActiEdid = "FO4SF_CodsworthTalkActi";
+    public const string CodsworthTalkActiModel = "Effects\\sfbgs006\\SFBGS006_SBShipDecoratorMarker.nif";
+
+    public const uint CodsworthTalkMsgId = 0x971, CodsworthReply0MsgId = 0x972, CodsworthReply1MsgId = 0x973, CodsworthReply2MsgId = 0x974;
+    public const string CodsworthTalkMsgEdid = "FO4SF_Codsworth01_TalkMsg",
+                        CodsworthReply0MsgEdid = "FO4SF_Codsworth01_Reply0Msg",
+                        CodsworthReply1MsgEdid = "FO4SF_Codsworth01_Reply1Msg",
+                        CodsworthReply2MsgEdid = "FO4SF_Codsworth01_Reply2Msg";
+
+    public const uint PrestonTalkMsgId = 0x975, PrestonReply0MsgId = 0x976, PrestonReply1MsgId = 0x977, PrestonReply2MsgId = 0x978;
+    public const string PrestonTalkMsgEdid = "FO4SF_Min00_PrestonTalkMsg",
+                        PrestonReply0MsgEdid = "FO4SF_Min00_PrestonReply0Msg",
+                        PrestonReply1MsgEdid = "FO4SF_Min00_PrestonReply1Msg",
+                        PrestonReply2MsgEdid = "FO4SF_Min00_PrestonReply2Msg";
+    public const int MaxTalkButtons = 4;
+
     // Stages & Objectives
     public static readonly ushort[] Stages = { 10, 20, 30, 35, 40, 200 };
     public static readonly ushort[] CodsworthQuestStages = { 10, 20, 30, 40, 100 };
@@ -153,6 +171,8 @@ static class Mission
         ("Synthetic choice 2: ask where they are going.", "Synthetic response 2: heading north."),
         ("Synthetic choice 3: finish conversation.", "Synthetic response 3: conversation complete."),
     };
+    const string SyntheticPrestonCampButton = "Ask about setting up a safe camp.";
+    const string SyntheticPrestonCampReply = "Once the street is clear, check the workshop bench back in the northern neighborhood.";
     static readonly (string Prompt, string Reply)[] SyntheticCodsworthChoices =
     {
         ("Synthetic choice 1: ask what happened and the date.", "Synthetic response 1: elapsed years summary."),
@@ -340,6 +360,13 @@ static class Mission
             return string.IsNullOrWhiteSpace(t) ? fallback : StripTokens(t!);
         }
 
+        string InfoButtonText(uint infoId, int respNum, string fallback)
+        {
+            if (infoById.TryGetValue(infoId, out var inf) && !string.IsNullOrWhiteSpace(inf.Prompt?.String))
+                return ShortButtonText(inf.Prompt!.String!);
+            return ShortButtonText(InfoRespText(infoId, respNum, fallback));
+        }
+
         cache.TryResolve<F4.INpcGetter>(new FormKey(fo4Key, PrestonFo4), out var preston);
         cache.TryResolve<F4.IQuestGetter>(new FormKey(fo4Key, Min00), out var min00);
         cache.TryResolve<F4.IQuestGetter>(new FormKey(fo4Key, Mq102Fo4), out var mq102);
@@ -373,16 +400,19 @@ static class Mission
             {
                 new Dictionary<string, string>
                 {
+                    ["button"] = InfoButtonText(0x01C238, 1, SyntheticPrestonChoices[0].Prompt),
                     ["prompt"] = InfoRespText(0x01C238, 1, SyntheticPrestonChoices[0].Prompt),
                     ["reply"] = InfoRespText(0x05DF11, 2, SyntheticPrestonChoices[0].Reply),
                 },
                 new Dictionary<string, string>
                 {
+                    ["button"] = InfoButtonText(0x01C22C, 1, SyntheticPrestonChoices[1].Prompt),
                     ["prompt"] = InfoRespText(0x01C22C, 1, SyntheticPrestonChoices[1].Prompt),
                     ["reply"] = InfoRespText(0x05DF0D, 1, SyntheticPrestonChoices[1].Reply),
                 },
                 new Dictionary<string, string>
                 {
+                    ["button"] = InfoButtonText(0x01C237, 1, SyntheticPrestonChoices[2].Prompt),
                     ["prompt"] = InfoRespText(0x01C237, 1, SyntheticPrestonChoices[2].Prompt),
                     ["reply"] = InfoRespText(0x05DF1B, 1, SyntheticPrestonChoices[2].Reply),
                 },
@@ -402,24 +432,28 @@ static class Mission
                 new Dictionary<string, object>
                 {
                     ["prompt_info"] = "000A1814", ["reply_info"] = "000A1818", ["reply_response"] = 1,
+                    ["button"] = InfoButtonText(0x0A1814, 1, SyntheticCodsworthChoices[0].Prompt),
                     ["prompt"] = InfoRespText(0x0A1814, 1, SyntheticCodsworthChoices[0].Prompt),
                     ["reply"] = InfoRespText(0x0A1818, 1, SyntheticCodsworthChoices[0].Reply),
                 },
                 new Dictionary<string, object>
                 {
                     ["prompt_info"] = "000A519B", ["reply_info"] = "000A51A3", ["reply_response"] = 1,
+                    ["button"] = InfoButtonText(0x0A519B, 1, SyntheticCodsworthChoices[1].Prompt),
                     ["prompt"] = InfoRespText(0x0A519B, 1, SyntheticCodsworthChoices[1].Prompt),
                     ["reply"] = InfoRespText(0x0A51A3, 1, SyntheticCodsworthChoices[1].Reply),
                 },
                 new Dictionary<string, object>
                 {
                     ["prompt_info"] = "0019E113", ["reply_info"] = "0019E112", ["reply_response"] = 1,
+                    ["button"] = InfoButtonText(0x19E113, 1, SyntheticCodsworthChoices[2].Prompt),
                     ["prompt"] = InfoRespText(0x19E113, 1, SyntheticCodsworthChoices[2].Prompt),
                     ["reply"] = InfoRespText(0x19E112, 1, SyntheticCodsworthChoices[2].Reply),
                 },
                 new Dictionary<string, object>
                 {
                     ["prompt_info"] = "0019E70A", ["reply_info"] = "0019E711", ["reply_response"] = 1,
+                    ["button"] = InfoButtonText(0x19E70A, 1, SyntheticCodsworthChoices[3].Prompt),
                     ["prompt"] = InfoRespText(0x19E70A, 1, SyntheticCodsworthChoices[3].Prompt),
                     ["reply"] = InfoRespText(0x19E711, 1, SyntheticCodsworthChoices[3].Reply),
                 },
@@ -514,6 +548,28 @@ static class Mission
         var t = System.Text.RegularExpressions.Regex.Replace(text, @"<[A-Za-z]+=[^>]*>", "");
         t = System.Text.RegularExpressions.Regex.Replace(t, @"\(\s*/?\s*\)", "");
         return System.Text.RegularExpressions.Regex.Replace(t, @"\s{2,}", " ").Trim();
+    }
+
+    public static string ShortButtonText(string text, int maxLen = 48)
+    {
+        var clean = StripTokens(text);
+        if (clean.Length <= maxLen) return clean;
+        int cut = clean.LastIndexOf(' ', maxLen - 3);
+        if (cut < 12) cut = maxLen - 3;
+        return clean[..cut].TrimEnd() + "...";
+    }
+
+    static SF.Message MakeTalkMessage(ModKey modKey, uint id, string edid, string title, string desc, IReadOnlyList<string> buttons)
+    {
+        var msg = new SF.Message(new FormKey(modKey, id), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = edid,
+            Name = title,
+            Description = desc,
+            Flags = SF.Message.Flag.MessageBox,
+        };
+        foreach (var b in buttons) msg.MenuButtons.Add(new SF.MessageButton { Text = b });
+        return msg;
     }
 
     // ---------------------------------------------------------------- write (Starfield)
@@ -785,8 +841,10 @@ static class Mission
         npc.Voice.SetTo(prestonVoice.FormKey);
         npc.VirtualMachineAdapter = null;
         npc.Packages.Clear();
+        npc.DefaultTemplate.Clear();
         npc.TemplateActors = null;
         npc.CrimeFaction.Clear();
+        npc.ActivateTextOverride = "Talk";
         npc.DefaultOutfit.SetTo(prestonOutfit.FormKey);
         npc.Items ??= new ExtendedList<SF.ContainerEntry>();
         npc.Items.Clear();
@@ -874,6 +932,17 @@ static class Mission
             cods.Voice.SetTo(codsVoice.FormKey);
             cods.Flags = (cods.Flags | SF.Npc.Flag.Essential | SF.Npc.Flag.Unique) & ~SF.Npc.Flag.Respawn;
             cods.Factions.Clear();
+            cods.Packages.Clear();
+            cods.DefaultTemplate.Clear();
+            cods.TemplateActors = null;
+            cods.CrimeFaction.Clear();
+            cods.Keywords?.Clear();
+            cods.ActivateTextOverride = "Talk";
+            cods.ObjectBounds = new SF.ObjectBounds
+            {
+                First = new P3Float(-0.65f, -0.65f, 0f),
+                Second = new P3Float(0.65f, 0.65f, 1.80f),
+            };
             cods.VirtualMachineAdapter = null;
             if (codsworthModel is not null)
             {
@@ -963,6 +1032,13 @@ static class Mission
             string pGreet = "Synthetic Concord greeting.";
             var pChoices = SyntheticPrestonChoices.Select((c, idx) =>
                 (c.Prompt, c.Reply, EndStage: idx == 2 ? (short)35 : (short)-1, Goodbye: idx == 2, Wem: 0u)).ToArray();
+            var pButtons = new[]
+            {
+                ShortButtonText(SyntheticPrestonChoices[0].Prompt),
+                ShortButtonText(SyntheticPrestonChoices[1].Prompt),
+                ShortButtonText(SyntheticPrestonCampButton),
+                ShortButtonText(SyntheticPrestonChoices[2].Prompt),
+            };
             if (pts.TryGetProperty("preston_talk", out var ptEl) && ptEl.ValueKind == JsonValueKind.Object)
             {
                 if (ptEl.TryGetProperty("greeting", out var gEl) && gEl.GetString() is { Length: > 0 } gs) pGreet = gs;
@@ -973,7 +1049,11 @@ static class Mission
                     {
                         var pr = ce.GetProperty("prompt").GetString() ?? SyntheticPrestonChoices[ci].Prompt;
                         var rp = ce.GetProperty("reply").GetString() ?? SyntheticPrestonChoices[ci].Reply;
+                        var btn = ce.TryGetProperty("button", out var bEl) && bEl.GetString() is { Length: > 0 } bs ? ShortButtonText(bs) : ShortButtonText(pr);
                         pChoices[ci] = (pr, rp, ci == 2 ? (short)35 : (short)-1, ci == 2, 0u);
+                        if (ci == 0) pButtons[0] = btn;
+                        else if (ci == 1) pButtons[1] = btn;
+                        else if (ci == 2) pButtons[3] = btn;
                         ci++;
                     }
                 }
@@ -988,10 +1068,20 @@ static class Mission
                 FirstPrestonChoiceTopicId, FirstPrestonChoiceInfoId,
                 FirstPrestonReplyTopicId, FirstPrestonReplyInfoId,
                 "FO4SF_Min00_Preston", 50f, pChoices);
+
+            string pTitle = npc.Name?.String ?? "Preston Garvey";
+            mod.Messages.Add(MakeTalkMessage(modKey, PrestonTalkMsgId, PrestonTalkMsgEdid, pTitle, pGreet, pButtons));
+            mod.Messages.Add(MakeTalkMessage(modKey, PrestonReply0MsgId, PrestonReply0MsgEdid, pTitle, pChoices[0].Reply, pButtons));
+            mod.Messages.Add(MakeTalkMessage(modKey, PrestonReply1MsgId, PrestonReply1MsgEdid, pTitle, pChoices[1].Reply, pButtons));
+            mod.Messages.Add(MakeTalkMessage(modKey, PrestonReply2MsgId, PrestonReply2MsgEdid, pTitle, SyntheticPrestonCampReply, pButtons));
         }
 
         var script = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
         SF.ScriptObjectProperty Obj(string name, FormKey fk) => new()
+        {
+            Name = name, Flags = SF.ScriptProperty.Flag.Edited, Object = new FormLink<SF.IStarfieldMajorRecordGetter>(fk), Alias = -1, Unused = 0,
+        };
+        SF.ScriptObjectProperty CodsworthProp(string name, FormKey fk) => new()
         {
             Name = name, Flags = SF.ScriptProperty.Flag.Edited, Object = new FormLink<SF.IStarfieldMajorRecordGetter>(fk), Alias = -1, Unused = 0,
         };
@@ -1009,7 +1099,13 @@ static class Mission
         }
         MissionProps(script);
         if (prestonScene is not null)
+        {
             script.Properties.Add(Obj("PrestonTalkScene", prestonScene.FormKey));
+            script.Properties.Add(Obj("PrestonTalkMsg", new FormKey(modKey, PrestonTalkMsgId)));
+            script.Properties.Add(Obj("PrestonReply0Msg", new FormKey(modKey, PrestonReply0MsgId)));
+            script.Properties.Add(Obj("PrestonReply1Msg", new FormKey(modKey, PrestonReply1MsgId)));
+            script.Properties.Add(Obj("PrestonReply2Msg", new FormKey(modKey, PrestonReply2MsgId)));
+        }
 
         SF.QuestAdapter Adapter(SF.ScriptEntry entry)
         {
@@ -1027,6 +1123,28 @@ static class Mission
         SF.Quest? codsworthQuest = null;
         if (codsRef is not null && cods is not null)
         {
+            // V2: Invisible 360-degree eye-level talk sphere matching Codsworth's z = +1.36 m Mr. Handy body
+            var codsTalkActi = new SF.Activator(new FormKey(modKey, CodsworthTalkActiId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = CodsworthTalkActiEdid,
+                Name = cods.Name?.String ?? "Codsworth",
+                ActivateTextOverride = "Talk",
+                MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+                Flags = (SF.Activator.Flag)0,
+                ActivationAngle = 360,
+                InvertFacing = false,
+                ObjectBounds = new SF.ObjectBounds
+                {
+                    First = new P3Float(-0.25f, -0.25f, -0.25f),
+                    Second = new P3Float(0.25f, 0.25f, 0.25f),
+                },
+                Model = new SF.Model
+                {
+                    File = new AssetLink<StarfieldModelAssetType>(CodsworthTalkActiModel),
+                },
+            };
+            mod.Activators.Add(codsTalkActi);
+
             // 2b: FO4SF_CodsworthKeeper (0x814) — non-StartGameEnabled (started via StartNoWait at FO4SFNewGame stage 200)
             keeper = new SF.Quest(new FormKey(modKey, KeeperQuestId), SF.StarfieldRelease.Starfield)
             {
@@ -1046,6 +1164,7 @@ static class Mission
             var mqWem = codsworthMqVoice is null ? null : LoadMqVoice(codsworthMqVoice);
             var cqChoices = SyntheticCodsworthChoices.Select((c, idx) =>
                 (c.Prompt, c.Reply, EndStage: CodsworthChoiceEndStages[idx], Goodbye: idx == 3, Wem: mqWem?.ChoiceReplyWems[idx] ?? 0u)).ToArray();
+            var cqButtons = SyntheticCodsworthChoices.Select(c => ShortButtonText(c.Prompt)).ToArray();
 
             if (pts.TryGetProperty("codsworth_quest", out var cqEl) && cqEl.ValueKind == JsonValueKind.Object)
             {
@@ -1059,11 +1178,19 @@ static class Mission
                     {
                         var pr = ce.GetProperty("prompt").GetString() ?? SyntheticCodsworthChoices[ci].Prompt;
                         var rp = ce.GetProperty("reply").GetString() ?? SyntheticCodsworthChoices[ci].Reply;
+                        var btn = ce.TryGetProperty("button", out var bEl) && bEl.GetString() is { Length: > 0 } bs ? ShortButtonText(bs) : ShortButtonText(pr);
                         cqChoices[ci] = (pr, rp, CodsworthChoiceEndStages[ci], ci == 3, mqWem?.ChoiceReplyWems[ci] ?? 0u);
+                        cqButtons[ci] = btn;
                         ci++;
                     }
                 }
             }
+
+            string cTitle = cods.Name?.String ?? "Codsworth";
+            mod.Messages.Add(MakeTalkMessage(modKey, CodsworthTalkMsgId, CodsworthTalkMsgEdid, cTitle, cqGreet, cqButtons));
+            mod.Messages.Add(MakeTalkMessage(modKey, CodsworthReply0MsgId, CodsworthReply0MsgEdid, cTitle, cqChoices[0].Reply, cqButtons));
+            mod.Messages.Add(MakeTalkMessage(modKey, CodsworthReply1MsgId, CodsworthReply1MsgEdid, cTitle, cqChoices[1].Reply, cqButtons));
+            mod.Messages.Add(MakeTalkMessage(modKey, CodsworthReply2MsgId, CodsworthReply2MsgEdid, cTitle, cqChoices[2].Reply, cqButtons));
 
             codsworthQuest = new SF.Quest(new FormKey(modKey, CodsworthQuestId), SF.StarfieldRelease.Starfield)
             {
@@ -1103,7 +1230,14 @@ static class Mission
                 FirstCodsworthReplyTopicId, FirstCodsworthReplyInfoId,
                 "FO4SF_Codsworth01", 55f, cqChoices);
 
-            codsworthQuest.VirtualMachineAdapter = Adapter(new SF.ScriptEntry { Name = CodsworthScriptName, Flags = SF.ScriptEntry.Flag.Local });
+            var cwScript = new SF.ScriptEntry { Name = CodsworthScriptName, Flags = SF.ScriptEntry.Flag.Local };
+            cwScript.Properties.Add(CodsworthProp("Codsworth", codsRef.FormKey));
+            cwScript.Properties.Add(CodsworthProp("CodsworthTalkActi", new FormKey(modKey, CodsworthTalkActiId)));
+            cwScript.Properties.Add(CodsworthProp("CodsworthTalkMsg", new FormKey(modKey, CodsworthTalkMsgId)));
+            cwScript.Properties.Add(CodsworthProp("CodsworthReply0Msg", new FormKey(modKey, CodsworthReply0MsgId)));
+            cwScript.Properties.Add(CodsworthProp("CodsworthReply1Msg", new FormKey(modKey, CodsworthReply1MsgId)));
+            cwScript.Properties.Add(CodsworthProp("CodsworthReply2Msg", new FormKey(modKey, CodsworthReply2MsgId)));
+            codsworthQuest.VirtualMachineAdapter = Adapter(cwScript);
         }
 
         var lines = codsworthVoice is null ? [] : VoiceLines(codsworthVoice);
@@ -1188,8 +1322,8 @@ static class Mission
         mod.Quests.Add(sanctuaryQuest);
 
         uint maxId = Math.Max(SanctuaryQuestId + 1, MinutemenFactionId + 1);
-        if (alias) maxId = Math.Max(maxId, FirstPrestonReplyInfoId + 3);
-        if (codsworthQuest is not null) maxId = Math.Max(maxId, FirstCodsworthReplyInfoId + 4);
+        if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
+        if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
         mod.ModHeader.Stats.NextFormID = maxId;
 
@@ -1296,6 +1430,8 @@ static class Mission
         Need(prestonItems.Contains(new FormKey(SfEsm, SfPrestonWeaponId)) && prestonItems.Contains(new FormKey(SfEsm, SfPrestonAmmoId)),
              $"Preston lacks {SfPrestonWeaponEdid} ({SfPrestonWeaponId:X6}) or {SfPrestonAmmoEdid} ({SfPrestonAmmoId:X6})");
         Need(npc is not null && npc.CalcMinLevel >= 10, "Preston CalcMinLevel < 10");
+        Need(npc is not null && npc.ActivateTextOverride?.String == "Talk", "Preston lacks ActivateTextOverride == \"Talk\"");
+        Need(npc is not null && npc.DefaultTemplate.IsNull && npc.TemplateActors is null, "Preston retains DefaultTemplate or TemplateActors");
 
         var world = FindWorld(m.Core, World);
         var w = plug.Worldspaces.FirstOrDefault();
@@ -1317,10 +1453,26 @@ static class Mission
         var codsRef = refs.FirstOrDefault(r => r.FormKey.ID == CodsworthRefId);
         var codsRace = plug.Races.FirstOrDefault(r => r.FormKey == new FormKey(key, CodsworthRaceId));
         var codsVoice = plug.VoiceTypes.FirstOrDefault(v => v.FormKey == new FormKey(key, CodsworthVoiceId));
+        var codsTalkActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, CodsworthTalkActiId));
+
+        void CheckTalkMessages(IReadOnlyList<(uint Id, string Edid)> specs, string ownerLabel)
+        {
+            foreach (var (mid, medid) in specs)
+            {
+                var msg = plug.Messages.FirstOrDefault(x => x.FormKey == new FormKey(key, mid));
+                Need(msg is not null && msg.EditorID == medid && msg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+                     !string.IsNullOrWhiteSpace(msg.Name?.String) && !string.IsNullOrWhiteSpace(msg.Description.String) &&
+                     msg.MenuButtons.Count == MaxTalkButtons && msg.MenuButtons.Count <= 7 &&
+                     msg.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)),
+                     $"{ownerLabel} lacks valid 4-button MessageBox {medid} (0x{mid:X})");
+            }
+        }
 
         if (!codsworth)
         {
-            Need(cods is null && codsRef is null && codsRace is null && codsVoice is null, "a --no-codsworth build carries Codsworth records");
+            Need(cods is null && codsRef is null && codsRace is null && codsVoice is null && codsTalkActi is null &&
+                 !plug.Messages.Any(x => x.FormKey.ID is >= CodsworthTalkMsgId and <= CodsworthReply2MsgId),
+                 "a --no-codsworth build carries Codsworth records");
         }
         else
         {
@@ -1329,6 +1481,22 @@ static class Mission
                  !cods.Flags.HasFlag(SF.Npc.Flag.Respawn) && cods.Factions.Count == 0 &&
                  cods.VirtualMachineAdapter is null && !string.IsNullOrWhiteSpace(cods.Name?.String),
                  "NPC_ 0x810 is not an essential, unique, non-respawning, named FO4_Codsworth without factions and scripts");
+            Need(cods is not null && cods.ActivateTextOverride?.String == "Talk", "Codsworth lacks ActivateTextOverride == \"Talk\"");
+            Need(cods is not null && cods.DefaultTemplate.IsNull && cods.TemplateActors is null && (cods.Keywords?.Count ?? 0) == 0,
+                 "Codsworth retains vanilla MiniBot DefaultTemplate, TemplateActors, or Outpost keywords");
+            Need(cods is not null && cods.ObjectBounds.Second.Z >= 1.75f, "Codsworth ObjectBounds.Second.Z < 1.75 m");
+            Need(codsTalkActi is { EditorID: CodsworthTalkActiEdid, ActivationAngle: 360, InvertFacing: false, Flags: 0, MajorRecordFlagsRaw: 0 } &&
+                 codsTalkActi.ActivateTextOverride?.String == "Talk" &&
+                 codsTalkActi.VirtualMachineAdapter is null && (codsTalkActi.Keywords?.Count ?? 0) == 0 && codsTalkActi.Components.Count == 0 &&
+                 string.Equals(codsTalkActi.Model?.File?.GivenPath, CodsworthTalkActiModel, StringComparison.OrdinalIgnoreCase),
+                 $"ACTI 0x{CodsworthTalkActiId:X} is not clean {CodsworthTalkActiEdid} with Talk prompt and {CodsworthTalkActiModel}");
+            CheckTalkMessages(new[]
+            {
+                (CodsworthTalkMsgId, CodsworthTalkMsgEdid),
+                (CodsworthReply0MsgId, CodsworthReply0MsgEdid),
+                (CodsworthReply1MsgId, CodsworthReply1MsgEdid),
+                (CodsworthReply2MsgId, CodsworthReply2MsgEdid),
+            }, CodsworthQuestEdid);
             Need(codsRace is { EditorID: CodsworthRaceEdid } && codsRace.Flags.HasFlag(SF.Race.Flag.AllowPcDialog) &&
                  cods?.Race.FormKey == codsRace.FormKey,
                  $"Codsworth lacks local RACE {CodsworthRaceEdid} (0x{CodsworthRaceId:X}) with AllowPcDialog");
@@ -1460,10 +1628,27 @@ static class Mission
                 Need(props.TryGetValue("Raiders", out var rp) && rp is SF.IScriptObjectListPropertyGetter rl &&
                      rl.Objects.Select(o => o.Object.FormKey).SequenceEqual(raiders.Select(r => r.FormKey)), "property Raiders lists the raider ACHRs in order");
                 if (alias)
+                {
+                    CheckTalkMessages(new[]
+                    {
+                        (PrestonTalkMsgId, PrestonTalkMsgEdid),
+                        (PrestonReply0MsgId, PrestonReply0MsgEdid),
+                        (PrestonReply1MsgId, PrestonReply1MsgEdid),
+                        (PrestonReply2MsgId, PrestonReply2MsgEdid),
+                    }, QuestEdid);
                     Need(props.TryGetValue("PrestonTalkScene", out var sp) && sp is SF.IScriptObjectPropertyGetter spo && spo.Object.FormKey == new FormKey(key, PrestonTalkSceneId),
                          "property PrestonTalkScene not bound to 0x900");
+                    Need(props.TryGetValue("PrestonTalkMsg", out var ptm) && ptm is SF.IScriptObjectPropertyGetter ptmo && ptmo.Object.FormKey == new FormKey(key, PrestonTalkMsgId) &&
+                         props.TryGetValue("PrestonReply0Msg", out var pr0) && pr0 is SF.IScriptObjectPropertyGetter pr0o && pr0o.Object.FormKey == new FormKey(key, PrestonReply0MsgId) &&
+                         props.TryGetValue("PrestonReply1Msg", out var pr1) && pr1 is SF.IScriptObjectPropertyGetter pr1o && pr1o.Object.FormKey == new FormKey(key, PrestonReply1MsgId) &&
+                         props.TryGetValue("PrestonReply2Msg", out var pr2) && pr2 is SF.IScriptObjectPropertyGetter pr2o && pr2o.Object.FormKey == new FormKey(key, PrestonReply2MsgId),
+                         "FO4SF_Min00 lacks PrestonTalkMsg / PrestonReply0..2Msg bindings");
+                }
                 else
-                    Need(!props.ContainsKey("PrestonTalkScene"), "--no-alias binds PrestonTalkScene");
+                {
+                    Need(!plug.Messages.Any(x => x.FormKey.ID is >= PrestonTalkMsgId and <= PrestonReply2MsgId), "--no-alias carries Preston talk messages");
+                    Need(!props.ContainsKey("PrestonTalkScene") && !props.ContainsKey("PrestonTalkMsg"), "--no-alias binds PrestonTalkScene or PrestonTalkMsg");
+                }
                 Need(!props.ContainsKey("Codsworth") && !props.ContainsKey("KeeperOnly"), "FO4SF_Min00 sets Codsworth or KeeperOnly");
             }
         }
@@ -1512,7 +1697,19 @@ static class Mission
                      $"{CodsworthQuestEdid} lacks objective 10 targeting alias 0");
                 var cal0 = (cwq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == CodsworthAlias);
                 Need(cal0 is not null && cal0.ForcedReference.FormKey == codsRef?.FormKey, $"{CodsworthQuestEdid} alias 0 is not forced to Codsworth ACHR");
-                Need(cwq.VirtualMachineAdapter?.Scripts.Any(x => x.Name == CodsworthScriptName) == true, $"{CodsworthQuestEdid} lacks script {CodsworthScriptName}");
+                var cws = cwq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == CodsworthScriptName);
+                Need(cws is not null, $"{CodsworthQuestEdid} lacks script {CodsworthScriptName}");
+                if (cws is not null)
+                {
+                    var cprops = cws.Properties.ToDictionary(p => p.Name);
+                    Need(cprops.TryGetValue("Codsworth", out var cwp) && cwp is SF.IScriptObjectPropertyGetter cwo && cwo.Object.FormKey == codsRef?.FormKey &&
+                         cprops.TryGetValue("CodsworthTalkActi", out var cap) && cap is SF.IScriptObjectPropertyGetter cao && cao.Object.FormKey == new FormKey(key, CodsworthTalkActiId) &&
+                         cprops.TryGetValue("CodsworthTalkMsg", out var cmp) && cmp is SF.IScriptObjectPropertyGetter cmo && cmo.Object.FormKey == new FormKey(key, CodsworthTalkMsgId) &&
+                         cprops.TryGetValue("CodsworthReply0Msg", out var cr0) && cr0 is SF.IScriptObjectPropertyGetter cr0o && cr0o.Object.FormKey == new FormKey(key, CodsworthReply0MsgId) &&
+                         cprops.TryGetValue("CodsworthReply1Msg", out var cr1) && cr1 is SF.IScriptObjectPropertyGetter cr1o && cr1o.Object.FormKey == new FormKey(key, CodsworthReply1MsgId) &&
+                         cprops.TryGetValue("CodsworthReply2Msg", out var cr2) && cr2 is SF.IScriptObjectPropertyGetter cr2o && cr2o.Object.FormKey == new FormKey(key, CodsworthReply2MsgId),
+                         $"{CodsworthQuestEdid} lacks Codsworth / CodsworthTalkActi / CodsworthTalkMsg..Reply2Msg properties");
+                }
                 Need(cwq.Scenes.Count == 1 && cwq.Scenes[0].FormKey == new FormKey(key, CodsworthSceneId), $"{CodsworthQuestEdid} lacks scene 0x{CodsworthSceneId:X}");
                 if (cwq.Scenes.Count == 1)
                 {
@@ -1804,6 +2001,14 @@ static class Mission
             ("FO4SF_Sanctuary01 removed", m => m.Quests.Remove(new FormKey(m.ModKey, SanctuaryQuestId))),
             ("Codsworth race lacks AllowPcDialog", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Flags &= ~SF.Race.Flag.AllowPcDialog),
             ("Codsworth voice lacks AllowDefaultDialog", m => m.VoiceTypes[new FormKey(m.ModKey, CodsworthVoiceId)].Flags &= ~SF.VoiceType.Flag.AllowDefaultDialog),
+            ("Codsworth missing Talk prompt", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].ActivateTextOverride = null),
+            ("Codsworth retains DefaultTemplate", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].DefaultTemplate.SetTo(new FormKey(SfEsm, 0x902))),
+            ("Codsworth talk activator removed", m => m.Activators.Remove(new FormKey(m.ModKey, CodsworthTalkActiId))),
+            ("Codsworth talk message removed", m => m.Messages.Remove(new FormKey(m.ModKey, CodsworthTalkMsgId))),
+            ("Codsworth talk message != 4 buttons", m => m.Messages[new FormKey(m.ModKey, CodsworthTalkMsgId)].MenuButtons.Add(new SF.MessageButton { Text = "Extra5" })),
+            ("Preston missing Talk prompt", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].ActivateTextOverride = null),
+            ("Preston talk message removed", m => m.Messages.Remove(new FormKey(m.ModKey, PrestonTalkMsgId))),
+            ("Preston talk message != 4 buttons", m => m.Messages[new FormKey(m.ModKey, PrestonTalkMsgId)].MenuButtons.RemoveAt(0)),
             ("Preston race reverted to robot race", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].Race.SetTo(new FormKey(SfEsm, 0x900))),
             ("Preston missing colonial outfit", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].DefaultOutfit.Clear()),
             ("Preston talk scene removed", m => Min00Q(m).Scenes.Clear()),

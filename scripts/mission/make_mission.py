@@ -768,7 +768,9 @@ def summarize(lines):
          "follow": None, "follow_package": None, "holds_after_follow": 0, "follow_refused_test_mode": False,
          "reloads": 0, "wfc01_rescues": 0, "wfc01_absent_cleared": 0, "wfc01_stuck_cleared": 0,
          "mission_gate": None, "min00_given_by": None,
+         "codsworth_talk_opened": 0, "codsworth_choices": [],
          "codsworth_talk_end": False, "codsworth01_complete": None,
+         "preston_talk_opened": 0, "preston_choices": [],
          "preston_talk_end": None, "stage40_fallback": False,
          "min01_bench_activated": False, "sanctuary01_complete": None}
     follow_seen = False
@@ -799,6 +801,10 @@ def summarize(lines):
             s["startcombat"] += 1
         elif low.startswith("preston activated"):
             s["activated"] += 1
+        elif low.startswith("preston talk opened"):
+            s["preston_talk_opened"] += 1
+        elif low.startswith("preston choice button="):
+            s["preston_choices"].append(int(msg.split("=", 1)[1].split()[0]))
         elif low.startswith("preston talk end "):
             s["preston_talk_end"] = msg
         elif low.startswith("found preston ") and s["found"] is None:
@@ -816,6 +822,10 @@ def summarize(lines):
                 s["wfc01_stuck_cleared"] += 1
             else:
                 s["wfc01_absent_cleared"] += 1
+        elif low.startswith("codsworth talk opened"):
+            s["codsworth_talk_opened"] += 1
+        elif low.startswith("codsworth choice button="):
+            s["codsworth_choices"].append(int(msg.split("=", 1)[1].split()[0]))
         elif low.startswith("codsworth talk end -> min00 stage 10"):
             s["codsworth_talk_end"] = True
         elif low.startswith("codsworth01 complete "):

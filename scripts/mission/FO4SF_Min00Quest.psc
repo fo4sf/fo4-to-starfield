@@ -27,6 +27,11 @@ Scene Property PrestonTalkScene Auto Const
 {Short 3-exchange Starfield player-dialogue Scene (0x900) on FO4SF_Min00 when built with --alias; None on --no-alias
  and on FO4SF_CodsworthKeeper.}
 
+Message Property PrestonTalkMsg Auto Const
+Message Property PrestonReply0Msg Auto Const
+Message Property PrestonReply1Msg Auto Const
+Message Property PrestonReply2Msg Auto Const
+
 float Property MergeOffsetX = -1200.0 Auto Const
 float Property MergeOffsetY = -2700.0 Auto Const
 {The core world's merge offset (vmad_patch.MERGE_MEASURED): the world the player walks in places the core's records at
@@ -125,6 +130,7 @@ float talkStartedAt = 0.0
 float talkNearSec = 0.0
 bool prestonUsedFallback = False
 bool prestonTalkLogged = False
+bool prestonTalkBoxOpen = False
 
 float[] raiderTargetX
 float[] raiderTargetY
@@ -189,6 +195,7 @@ Function StartQuestInstance()
     InitRaiderTracking()
     Trace("init raiders=" + Raiders.Length)
     RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
+    EnsureActorTalkable(Preston)
     RegisterForRemoteEvent(Preston, "OnActivate")
     if PrestonTalkScene != None
         RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
@@ -294,10 +301,12 @@ Function KeepCodsworthLoad()
             Codsworth.Enable()
             Trace("codsworth was disabled: enabled")
         endif
+        EnsureActorTalkable(Codsworth)
         codsworthFails = 0
         codsworthKept = True
         codsworthHeld = False
     endif
+    EnsureActorTalkable(Preston)
     prestonFails = 0
     prestonHeld = False
     ; prestonFollow stays as the save left it. Clearing it here would put the door hold back over a follow.
@@ -322,11 +331,13 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     endif
     relocateFails = 0
     prestonHeld = False
+    prestonTalkBoxOpen = False
+    EnsureActorTalkable(Preston)
+    RegisterForRemoteEvent(Preston, "OnActivate")
     InitRaiderTracking()
     int st = GetStage()
     Trace("reload mission stage=" + st + " relocate_fails=" + relocateFails)
     if st < 200
-        RegisterForRemoteEvent(Preston, "OnActivate")
         if PrestonTalkScene != None
             RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
         endif
@@ -398,14 +409,88 @@ Function Apply(int auiStageID, string by = "other")
     endif
 EndFunction
 
+Message Function ResolvePrestonMsg(int slot)
+    if slot == 0
+        if PrestonReply0Msg != None
+            return PrestonReply0Msg
+        endif
+        return Game.GetFormFromFile(0x000976, "FO4SFMission.esm") as Message
+    elseif slot == 1
+        if PrestonReply1Msg != None
+            return PrestonReply1Msg
+        endif
+        return Game.GetFormFromFile(0x000977, "FO4SFMission.esm") as Message
+    elseif slot == 2
+        if PrestonReply2Msg != None
+            return PrestonReply2Msg
+        endif
+        return Game.GetFormFromFile(0x000978, "FO4SFMission.esm") as Message
+    endif
+    if PrestonTalkMsg != None
+        return PrestonTalkMsg
+    endif
+    return Game.GetFormFromFile(0x000975, "FO4SFMission.esm") as Message
+EndFunction
+
+Function RunPrestonTalk(int stage, Message startMsg)
+    if prestonTalkBoxOpen || startMsg == None || IsWarfareMode()
+        return
+    endif
+    prestonTalkBoxOpen = True
+    Message curMsg = startMsg
+    Trace("preston talk opened stage=" + stage)
+    int steps = 0
+    bool doneLoop = False
+    while !doneLoop && steps < 16
+        steps += 1
+        int btn = curMsg.Show()
+        Trace("preston choice button=" + btn)
+        if btn == 0
+            Message r0 = ResolvePrestonMsg(0)
+            if r0 != None
+                curMsg = r0
+            endif
+        elseif btn == 1
+            Message r1 = ResolvePrestonMsg(1)
+            if r1 != None
+                curMsg = r1
+            endif
+        elseif btn == 2
+            Message r2 = ResolvePrestonMsg(2)
+            if r2 != None
+                curMsg = r2
+            endif
+        else
+            if btn == 3 && GetStage() == 30
+                talkActivated = True
+                prestonUsedFallback = False
+                AdvanceTo(35, "info")
+                if GetStage() == 40
+                    AdvanceTo(200, "Trigger")
+                    CompleteQuest()
+                    Trace("complete stage=" + GetStage())
+                endif
+            endif
+            doneLoop = True
+        endif
+    endwhile
+    prestonTalkBoxOpen = False
+EndFunction
+
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if akSender == Preston && akActionRef == Game.GetPlayer()
+        if prestonTalkBoxOpen
+            return
+        endif
         int stage = GetStage()
         Trace("preston activated at stage " + stage)
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
-            if PrestonTalkScene != None
+            Message talkMsg = ResolvePrestonMsg(-1)
+            if talkMsg != None
+                RunPrestonTalk(stage, talkMsg)
+            elseif PrestonTalkScene != None
                 talkActivated = True
                 talkStartedAt = Utility.GetCurrentRealTime()
                 if !PrestonTalkScene.IsPlaying()
@@ -415,6 +500,11 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             else
                 prestonUsedFallback = True
                 AdvanceTo(40, "fallback")
+            endif
+        elseif stage >= 200
+            Message postMsg = ResolvePrestonMsg(-1)
+            if postMsg != None
+                RunPrestonTalk(stage, postMsg)
             endif
         endif
     endif
@@ -452,6 +542,10 @@ bool Function TalkCompleteReady(int stage, float dp)
     endif
     if prestonTalkLogged
         return True
+    endif
+    if prestonTalkBoxOpen
+        talkNearSec = 0.0
+        return False
     endif
     if PrestonTalkScene == None
         if dp < TalkRadius
@@ -948,9 +1042,17 @@ Function HoldCodsworth(string who)
     codsworthHolds += 1
 EndFunction
 
+Function EnsureActorTalkable(Actor a)
+    if a != None
+        a.AllowPCDialogue(True)
+        a.BlockActivation(False, False)
+    endif
+EndFunction
+
 Function HoldActor(Actor a, string name, string who, float off)
-{SetRestrained(True) and one log line, "hold <name> by=<who> off=<m> ok=<bool>".}
+{SetRestrained(True), keep player talk activation unblocked, and one log line, "hold <name> by=<who> off=<m> ok=<bool>".}
     bool ok = a.SetRestrained(True)
+    EnsureActorTalkable(a)
     Trace("hold " + name + " by=" + who + " off=" + off + " ok=" + ok)
 EndFunction
 
