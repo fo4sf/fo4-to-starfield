@@ -71,44 +71,68 @@ def plugin_name(line):
     return value[1:] if value.startswith("*") else value
 
 
-def deployable(rel):
+def plugin_bundle_spec(plugin_name=PLUGIN):
+    raw = (plugin_name or PLUGIN).strip()
+    if raw.lower().endswith((".esp", ".esl")):
+        raise ValueError(f"plugin must be an .esm: {plugin_name!r}")
+    stem = raw[:-4] if raw.lower().endswith(".esm") else raw
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", stem):
+        raise ValueError(f"invalid plugin name: {plugin_name!r}")
+    plugin_esm = f"{stem}.esm"
+    if plugin_esm.casefold() == PLUGIN.casefold():
+        return {
+            "plugin": PLUGIN, "plugin_esm": PLUGIN, "stem": "FO4Port", "archive": ARCHIVE, "tex_archive": TEX_ARCHIVE,
+            "manifest": MANIFEST, "deployed": DEPLOYED_FILES, "companion_rx": COMPANION_RX,
+        }
+    main_ba2 = f"{stem} - Main.ba2"
+    tex_ba2 = f"{stem} - Textures.ba2"
+    return {
+        "plugin": plugin_esm, "plugin_esm": plugin_esm, "stem": stem, "archive": main_ba2, "tex_archive": tex_ba2,
+        "manifest": f"{stem}.deploy.json", "deployed": frozenset((plugin_esm, main_ba2, tex_ba2)),
+        "companion_rx": re.compile(rf"^{re.escape(stem)}Textures([2-9]|[1-9]\d+)(\.esm| - Textures\.ba2)$"),
+    }
+
+
+def deployable(rel, spec=None):
     """A file name this deployment may own in Data: the port's three, or a texture companion's plugin or archive."""
-    return rel in DEPLOYED_FILES or COMPANION_RX.match(rel) is not None
+    s = spec or plugin_bundle_spec()
+    return rel in s["deployed"] or s["companion_rx"].match(rel) is not None
 
 
-def is_companion_plugin(name):
-    m = COMPANION_RX.match(name)
+def is_companion_plugin(name, spec=None):
+    s = spec or plugin_bundle_spec()
+    m = s["companion_rx"].match(name)
     return m is not None and m.group(2) == ".esm"
 
 
-def plan_plugin_activation(lines, companions=()):
+def plan_plugin_activation(lines, companions=(), plugin_esm=PLUGIN):
     """Return the activated list plus the exact plugin lines this install owns. Companions (texture companion plugins,
-    in load order) are added as active lines right after FO4Port.esm's; a list that already names one is refused, since
+    in load order) are added as active lines right after the plugin's; a list that already names one is refused, since
     that line is not this install's to own."""
-    updated, added, replaced = plan_port_activation(lines)
+    updated, added, replaced = plan_port_activation(lines, plugin_esm=plugin_esm)
     if not companions:
         return updated, added, replaced
     stale = [plugin_name(ln) for ln in updated if plugin_name(ln).casefold() in {c.casefold() for c in companions}]
     if stale:
         raise ValueError(f"Plugins.txt already lists {', '.join(stale)}; remove those lines (an earlier hand install?) "
                          "and install again")
-    at = next(i for i, ln in enumerate(updated) if plugin_name(ln).casefold() == PLUGIN.casefold())
+    at = next(i for i, ln in enumerate(updated) if plugin_name(ln).casefold() == plugin_esm.casefold())
     lines_added = [f"*{c}" for c in companions]
     return updated[:at + 1] + lines_added + updated[at + 1:], added + lines_added, replaced
 
 
-def plan_port_activation(lines):
-    """FO4Port.esm's own line: already active, activated in place, or appended."""
+def plan_port_activation(lines, plugin_esm=PLUGIN):
+    """The plugin's own line: already active, activated in place, or appended."""
     for line in lines:
-        if line.strip().startswith("*") and plugin_name(line).casefold() == PLUGIN.casefold():
+        if line.strip().startswith("*") and plugin_name(line).casefold() == plugin_esm.casefold():
             return list(lines), [], []
     for index, line in enumerate(lines):
-        if plugin_name(line).casefold() == PLUGIN.casefold():
+        if plugin_name(line).casefold() == plugin_esm.casefold():
             active = f"*{plugin_name(line)}"
             updated = list(lines)
             updated[index] = active
             return updated, [active], [{"active": active, "original": line}]
-    active = f"*{PLUGIN}"
+    active = f"*{plugin_esm}"
     return [*lines, active], [active], []
 
 
@@ -166,12 +190,14 @@ def restore_plugins(state):
         atomic_write_bytes(p, original_bytes, ".fo4port-plugins-", expected_current=current)
 
 
-def validate_plugin_cleanup(manifest):
+def validate_plugin_cleanup(manifest, spec=None):
+    s = spec or plugin_bundle_spec(manifest.get("plugin_name") if isinstance(manifest, dict) else PLUGIN)
+    plug = s["plugin"]
     added = manifest.get("plugins_added", [])
     replaced = manifest.get("plugins_replaced", [])
     if (not isinstance(added, list) or
             any(not isinstance(line, str) or not line.startswith("*") or
-                (line.casefold() != f"*{PLUGIN}".casefold() and not is_companion_plugin(line[1:]))
+                (line.casefold() != f"*{plug}".casefold() and not is_companion_plugin(line[1:], s))
                 for line in added) or
             len({line.casefold() for line in added}) != len(added)):
         sys.exit("unexpected plugin cleanup entry in manifest; refusing cleanup")
@@ -180,10 +206,10 @@ def validate_plugin_cleanup(manifest):
     for item in replaced:
         if (not isinstance(item, dict) or
                 not isinstance(item.get("active"), str) or
-                item["active"].casefold() != f"*{PLUGIN}".casefold() or
+                item["active"].casefold() != f"*{plug}".casefold() or
                 not isinstance(item.get("original"), str) or
                 item["original"].strip().startswith("*") or
-                plugin_name(item["original"]).casefold() != PLUGIN.casefold()):
+                plugin_name(item["original"]).casefold() != plug.casefold()):
             sys.exit("unexpected plugin restoration entry in manifest; refusing cleanup")
 def render_lines(lines, original=None):
     if original is None:
@@ -333,12 +359,14 @@ def install_recorded(a):
             {name: identity for _, name, identity in items}, companions, pinned=True)
 
 
-def publish(data, man_path, built, targets, identities, companions=(), *, pinned=False):
+def publish(data, man_path, built, targets, identities, companions=(), *, pinned=False, plugin_esm=PLUGIN):
     """Record intent first, then copy built[i] to targets[i]; any failure rolls back what was copied. identities:
-    {target name: artifact_identity} each copy must match. companions: plugins activated right after FO4Port.esm."""
+    {target name: artifact_identity} each copy must match. companions: plugins activated right after plugin_esm."""
     pt = plugins_txt_path()
     state = {"files": [], "published_files": [], "plugins_txt": pt, "plugins_added": [],
              "plugins_replaced": [], "complete": False, "artifacts": identities}
+    if plugin_esm.casefold() != PLUGIN.casefold():
+        state["plugin_name"] = plugin_esm
     plugins_existed = os.path.exists(pt)
     plugins_original = None
     if plugins_existed:
@@ -348,7 +376,7 @@ def publish(data, man_path, built, targets, identities, companions=(), *, pinned
     # not the preflight snapshot from before the build.
     pl = plugins_original.decode("utf-8-sig").splitlines() if plugins_original is not None else []
     try:
-        activated, pl_add, pl_replaced = plan_plugin_activation(pl, companions)
+        activated, pl_add, pl_replaced = plan_plugin_activation(pl, companions, plugin_esm=plugin_esm)
     except ValueError as error:
         sys.exit(f"nothing installed: {error}")
     state["plugins_added"] = pl_add
@@ -413,7 +441,8 @@ def publish(data, man_path, built, targets, identities, companions=(), *, pinned
                      f"Retry uninstall after resolving: {'; '.join(errors)}")
         os.remove(man_path)
         sys.exit(f"install failed and was rolled back: {type(e).__name__}: {e}")
-    print("installed. Undo with: python deploy_starfield.py uninstall --starfield <game dir>")
+    undo_flag = f" --plugin-name {plugin_esm}" if plugin_esm.casefold() != PLUGIN.casefold() else ""
+    print(f"installed. Undo with: python deploy_starfield.py uninstall --starfield <game dir>{undo_flag}")
 
 
 def read_head(path, n=4):
@@ -431,19 +460,21 @@ def batch_install_set(stage):
             result = json.load(f)
         files = result["install"]["files"]
         order = result["install"]["plugins_txt"]
+        spec = plugin_bundle_spec(result.get("plugin_name") or PLUGIN)
     except (OSError, ValueError, KeyError, TypeError) as error:
         sys.exit(f"not an interior batch stage ({path}: {error})")
     if result.get("pass") is not True:
         sys.exit(f"batch {result.get('batch')} did not pass ({result.get('error')}); nothing installed")
-    if (not isinstance(files, list) or not all(isinstance(n, str) and deployable(n) for n in files)
-            or len(set(files)) != len(files) or PLUGIN not in files or ARCHIVE not in files):
+    plug, main_ba2 = spec["plugin"], spec["archive"]
+    if (not isinstance(files, list) or not all(isinstance(n, str) and deployable(n, spec) for n in files)
+            or len(set(files)) != len(files) or plug not in files or main_ba2 not in files):
         sys.exit(f"{path}: install.files is not a port's set: {files!r}")
-    companions = [n for n in files if is_companion_plugin(n)]
-    archives = {n for n in files if COMPANION_RX.match(n) and not is_companion_plugin(n)}
-    if order != [PLUGIN] + companions or archives != {n[:-4] + " - Textures.ba2" for n in companions}:
+    companions = [n for n in files if is_companion_plugin(n, spec)]
+    archives = {n for n in files if spec["companion_rx"].match(n) and not is_companion_plugin(n, spec)}
+    if order != [plug] + companions or archives != {n[:-4] + " - Textures.ba2" for n in companions}:
         sys.exit(f"{path}: install.plugins_txt {order!r} does not match the files' companions")
     pins = dict(((result.get("steps") or {}).get("pack") or {}).get("sha256") or {})
-    pins[PLUGIN] = (result.get("pins") or {}).get("plugin")
+    pins[plug] = (result.get("pins") or {}).get("plugin")
     port = os.path.join(stage, "port")
     out = []
     for name in files:
@@ -463,6 +494,8 @@ def core_check(result, data):
     """None when Data's core is the one the batch's door returns were wired to (result.json pins.core_plugin, the
     sha256 interior_batch.py took of --core's plugin at build time), else why not: a return door made against another
     core build may name an arrival marker that core lacks."""
+    if result.get("core") is None and result.get("plugin_name") and result.get("plugin_name") != PLUGIN:
+        return None                                            # standalone DLC interior stage with no core door wiring
     live = os.path.join(data, CORE_PLUGIN)
     if not os.path.isfile(live):
         return None                                            # no core installed: nothing to land on either way
@@ -477,10 +510,34 @@ def core_check(result, data):
 
 def install_batch(a):
     data = os.path.join(a.starfield, "Data")
-    man_path = os.path.join(data, MANIFEST)
+    raw_req = (getattr(a, "plugin_name", "") or "").strip()
+    req_spec = None
+    if raw_req:
+        try:
+            req_spec = plugin_bundle_spec(raw_req)
+        except ValueError as error:
+            sys.exit(f"nothing installed: {error}")
+    first_man = os.path.join(data, plugin_bundle_spec(raw_req or PLUGIN)["manifest"])
+    if os.path.exists(first_man) and not raw_req:
+        # preserve fast check for FO4Port before opening result.json unless result.json names a different plugin
+        try:
+            with open(os.path.join(a.batch, BATCH_RESULT), encoding="utf-8") as f:
+                pre_plug = (json.load(f) or {}).get("plugin_name") or PLUGIN
+        except Exception:
+            pre_plug = PLUGIN
+        if pre_plug.casefold() == PLUGIN.casefold():
+            sys.exit("already installed (manifest exists); uninstall first")
+    items, companions, result = batch_install_set(a.batch)
+    stage_spec = plugin_bundle_spec(result.get("plugin_name") or PLUGIN)
+    if req_spec is not None and req_spec["plugin_esm"].casefold() != stage_spec["plugin_esm"].casefold():
+        sys.exit(
+            f"nothing installed: --plugin-name {req_spec['plugin_esm']} does not match "
+            f"stage plugin {stage_spec['plugin_esm']} in {os.path.join(a.batch, BATCH_RESULT)}"
+        )
+    spec = stage_spec
+    man_path = os.path.join(data, spec["manifest"])
     if os.path.exists(man_path):
         sys.exit("already installed (manifest exists); uninstall first")
-    items, companions, result = batch_install_set(a.batch)
     problem = core_check(result, data)
     if problem and not a.other_core:
         sys.exit(f"nothing installed: {problem}")
@@ -496,11 +553,11 @@ def install_batch(a):
         sys.exit(f"nothing installed: {need / 1024 ** 3:.1f} GB to copy would leave {(free - need) / 1024 ** 3:.1f} GB "
                  f"free on the game's drive, under --min-free-gb {a.min_free_gb}")
     try:
-        plan_plugin_activation(read_lines(plugins_txt_path()), companions)
+        plan_plugin_activation(read_lines(plugins_txt_path()), companions, plugin_esm=spec["plugin"])
     except ValueError as error:
         sys.exit(f"nothing installed: {error}")
     print(f"install batch {a.batch}: {[name for _, name, _ in items]} -> {data} ({need / 1024 ** 3:.2f} GB)\n"
-          f"Plugins.txt ({plugins_txt_path()}): *{PLUGIN} then {['*' + c for c in companions]}")
+          f"Plugins.txt ({plugins_txt_path()}): *{spec['plugin']} then {['*' + c for c in companions]}")
     if a.dry_run:
         return
     identities = {}
@@ -509,7 +566,7 @@ def install_batch(a):
         if identities[name]["sha256"] != want:
             sys.exit(f"nothing installed: {src} is not the file the build pinned "
                      f"(sha256 {identities[name]['sha256'][:12]}..., pinned {want[:12]}...)")
-    publish(data, man_path, [src for src, _, _ in items], targets, identities, companions)
+    publish(data, man_path, [src for src, _, _ in items], targets, identities, companions, plugin_esm=spec["plugin"])
 
 
 def installed_port(data, plugins_txt):
@@ -559,19 +616,41 @@ def verify(a):
 
 
 def uninstall(a):
+    try:
+        spec = plugin_bundle_spec(getattr(a, "plugin_name", "") or PLUGIN)
+    except ValueError as error:
+        sys.exit(f"nothing uninstalled: {error}")
     data = os.path.join(a.starfield, "Data")
-    man_path = os.path.join(data, MANIFEST)
+    man_path = os.path.join(data, spec["manifest"])
     if not os.path.exists(man_path):
         sys.exit("nothing to uninstall (no manifest)")
-    with open(man_path) as f:
+    with open(man_path, encoding="utf-8") as f:
         m = json.load(f)
+    if not isinstance(m, dict):
+        sys.exit("invalid deployment manifest; refusing cleanup")
+    raw_recorded_plugin = m.get("plugin_name")
+    if raw_recorded_plugin is None or raw_recorded_plugin == "":
+        recorded_plugin = PLUGIN
+    elif not isinstance(raw_recorded_plugin, str):
+        sys.exit("invalid plugin_name in deployment manifest; refusing cleanup")
+    else:
+        try:
+            recorded_plugin = plugin_bundle_spec(raw_recorded_plugin)["plugin_esm"]
+        except ValueError as error:
+            sys.exit(f"invalid plugin_name in deployment manifest ({error}); refusing cleanup")
+    if recorded_plugin.casefold() != spec["plugin_esm"].casefold():
+        sys.exit(
+            f"manifest plugin_name {recorded_plugin} does not match requested --plugin-name {spec['plugin_esm']}; "
+            "refusing cleanup"
+        )
+    spec = plugin_bundle_spec(recorded_plugin)
     expected_plugins = plugins_txt_path()
     recorded_plugins = m.get("plugins_txt") if isinstance(m, dict) else None
     if (not isinstance(recorded_plugins, str) or
             os.path.normcase(os.path.abspath(recorded_plugins)) !=
             os.path.normcase(os.path.abspath(expected_plugins))):
         sys.exit("Plugins.txt path in manifest does not match the current user path; refusing cleanup")
-    validate_plugin_cleanup(m)
+    validate_plugin_cleanup(m, spec)
     print(f"removing {m['files']} and Plugins.txt entries {m['plugins_added']}")
     if a.dry_run:
         return
@@ -579,7 +658,7 @@ def uninstall(a):
     published = m.get("published_files", [])
     published = {item for item in published if isinstance(item, str)} if isinstance(published, list) else set()
     for rel in m["files"]:
-        if not isinstance(rel, str) or not deployable(rel):
+        if not isinstance(rel, str) or not deployable(rel, spec):
             remaining.append(rel)
             errors.append(f"unexpected deployment path; preserved: {rel!r}")
             continue
@@ -657,6 +736,7 @@ if __name__ == "__main__":
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--plugin-sha256", default="", help="verify: the FO4Port.esm the run pinned")
+    ap.add_argument("--plugin-name", default="", help="plugin name for non-default batch/uninstall (default: FO4Port.esm)")
     args = ap.parse_args()
     if args.restore_stdin and (args.action != "install" or args.batch or not args.staging):
         ap.error("--restore-stdin requires install --staging and cannot be combined with --batch")

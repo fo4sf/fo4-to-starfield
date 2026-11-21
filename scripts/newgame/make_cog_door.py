@@ -52,6 +52,8 @@ PLUGIN = "FO4SFCogDoor.esm"
 SCRIPT = "FO4SF_CogDoorQuest"
 PSC = os.path.join(HERE, SCRIPT + ".psc")
 KIND = "cog-door"
+COG_KIND = "cog-door-production"
+COG_PLUGIN = "FO4SFVaultGearDoor.esm"
 STARFIELD = mac.STARFIELD
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User", "FO4SFCogDoor.0.log")
 DEFAULT_REF = "00126D"
@@ -136,11 +138,15 @@ def load_plan(stage_dir):
 
 def stage(a, converter=None):
     """converter: (a, staging) -> (src, conv) for tests; default make_anim_console.build_converter."""
-    final = os.path.abspath(a.out)
-    if os.path.exists(final):
-        sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
+    production = bool(getattr(a, "production_cog", False))
     control = bool(getattr(a, "control", False))
     ref = getattr(a, "ref", DEFAULT_REF) or DEFAULT_REF
+    if production and (control or ref.lower().removeprefix("0x").lstrip("0") != "126d"):
+        sys.exit("--production-cog requires the original cog door 00126D and the converted DOOR override, never --control")
+    final = os.path.abspath(a.out)
+    mac.refuse_forbidden_out_dir(final)
+    if os.path.exists(final):
+        sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
     port_data = a.port_data or a.starfield_data
     sf_esm, port_esm = os.path.join(a.starfield_data, "Starfield.esm"), os.path.join(port_data, "FO4Port.esm")
     before = {"Starfield.esm": sha256(sf_esm), "FO4Port.esm": sha256(port_esm)}
@@ -173,6 +179,8 @@ def stage(a, converter=None):
         margs = model_args(model_path, door)
         manifest.update(original=original, model=model_path, door={k: v for k, v in door.items() if k not in ("shapes", "attachments", "pose_boxes_m")},
                         kit_files=copied, textures_not_shipped=textures)
+    if production:
+        return finish_production_cog(out, final, work, tool, port_esm, sf_esm, before, ref, margs, manifest, copied)
     kind_arg = ["--control"] if control else margs
     wrote = run(tool + ["build", port_esm, sf_esm, out, "--ref", ref, *kind_arg]).stdout
     check = run(tool + ["check", os.path.join(out, PLUGIN), port_esm, sf_esm, "--ref", ref, *kind_arg]).stdout
@@ -222,6 +230,32 @@ THROWAWAY STATE ONLY, NO SAVE.
 """)
     os.replace(out, final)
     print(f"staged {final}: {PLUGIN}, {SCRIPT}.pex, {len(copied)} files, cog_manifest.json, plan.json, README.txt; control={control}")
+    return 0
+
+
+def finish_production_cog(out, final, work, tool, port_esm, sf_esm, before, ref, margs, manifest, copied):
+    """One DOOR override and asset files; no probe quest, script or standalone installer."""
+    opts = ["--ref", ref, *margs, "--production-cog"]
+    wrote = run(tool + ["build", port_esm, sf_esm, out, *opts]).stdout
+    check = run(tool + ["check", os.path.join(out, COG_PLUGIN), port_esm, sf_esm, *opts]).stdout
+    with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
+        f.write(wrote + check)
+    manifest["production_cog"] = True
+    with open(os.path.join(out, "cog_manifest.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=1)
+    shutil.rmtree(work)
+    if {"Starfield.esm": sha256(sf_esm), "FO4Port.esm": sha256(port_esm)} != before:
+        sys.exit(f"cog door inputs changed during conversion; attempt kept in {out}")
+    plan = {"kind": COG_KIND, "version": 1, "plugins": [COG_PLUGIN], "outputs": probe_a.stage_files(out),
+            "inputs": {k: {"sha256": v} for k, v in before.items()}, "ref": ref}
+    with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
+        json.dump(plan, f, indent=1)
+    with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
+        f.write("Production Vault 111 gear door asset component: one DOOR override; no test quest or PEX.\n"
+                "Seam-repaired animated door and catwalk bridge on _anim path; base graph/flags/sounds preserved.\n"
+                "Pair through make_newgame.py stage --cog-door <this folder>.\n")
+    os.replace(out, final)
+    print(f"staged {final}: {COG_PLUGIN}, {len(copied)} assets, no probe quest/scripts")
     return 0
 
 
@@ -289,6 +323,7 @@ def main(argv=None):
     s.add_argument("--ref", default=DEFAULT_REF, help="the cog door reference's local id in FO4Port.esm (default 00126D)")
     s.add_argument("--model", default="", help="the Fallout 4 mesh path when the port path's candidates do not find it")
     s.add_argument("--control", action="store_true", help="the quest alone: no conversion, no DOOR override (the SetOpen control on the installed door)")
+    s.add_argument("--production-cog", action="store_true", help="build the Vault 111 gear door asset component without the test quest or PEX")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     a = p.parse_args(argv)

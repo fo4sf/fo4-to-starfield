@@ -45,6 +45,7 @@ sys.path.insert(0, HERE)
 from fo4sf import btd, fo4land, overlay  # noqa: E402
 from fo4sf import overlay_grid as og  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
+from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path  # noqa: E402
 import overlay_records as orc  # noqa: E402
 
 SPAWN_ABOVE = 2.0
@@ -92,11 +93,35 @@ def m(units):
 
 # ---------------------------------------------------------------------------------------------------------------- FO4
 class Fo4Heights:
-    """Decoded FO4 LAND vertex grids {(cx, cy): (33, 33) FO4 units} from Fallout4.esm or a cached .npz
+    """Decoded FO4 LAND vertex grids {(cx, cy): (33, 33) FO4 units} from Fallout4.esm (or a load order) or a cached .npz
     (arrays 'grid' (N, 2) cell coordinates and 'heights' (N, 33, 33))."""
 
-    def __init__(self, esm=None, npz=None):
+    def __init__(self, esm=None, npz=None, fo4_world="Commonwealth", fo4_masters=()):
         self.esm, self.npz, self.grids = esm, npz, {}
+        self.fo4_world = fo4_world or "Commonwealth"
+        self.fo4_masters = tuple(fo4_masters or ())
+        self._is_default_cw = (self.fo4_world == "Commonwealth" and not self.fo4_masters)
+        self._meta = None
+
+    @property
+    def grid_bounds(self):
+        """(xmin, xmax, ymin, ymax) inclusive FO4 cell bounds to clamp tile sampling against."""
+        if self._is_default_cw or self.npz:
+            return (FO4_GRID[0], FO4_GRID[1], FO4_GRID[0], FO4_GRID[1])
+        if self._meta is None:
+            self._meta = fo4land.world_grid_meta([*self.fo4_masters, self.esm], self.fo4_world)
+        cb = self._meta["cell_bbox"] or self._meta["land_bbox"]
+        if cb is None:
+            sys.exit(f"worldspace {self.fo4_world!r} has no exterior cells")
+        return cb
+
+    @property
+    def default_land_units(self):
+        if self._is_default_cw or self.npz:
+            return None
+        if self._meta is None:
+            self._meta = fo4land.world_grid_meta([*self.fo4_masters, self.esm], self.fo4_world)
+        return float(self._meta["dnam"][0])
 
     def load(self, cells):
         want = {c for c in cells if c not in self.grids}
@@ -107,22 +132,34 @@ class Fo4Heights:
             for (x, y), h in zip(z["grid"].tolist(), z["heights"]):
                 if (x, y) in want:
                     self.grids[(x, y)] = h.astype(np.float64)
-        else:
+        elif self._is_default_cw:
             with fo4land.Plugin(self.esm) as p:
                 world = p.read_world("Commonwealth", cells=want, refs=False)
+            for xy, c in world["cells"].items():
+                if c["vhgt"]:
+                    self.grids[xy] = fo4land.decode_vhgt(c["vhgt"])
+        else:
+            paths = [*self.fo4_masters, self.esm]
+            world = fo4land.read_world_load_order(paths, self.fo4_world, cells=want, refs=False)
             for xy, c in world["cells"].items():
                 if c["vhgt"]:
                     self.grids[xy] = fo4land.decode_vhgt(c["vhgt"])
 
     def merged(self, x0, x1, y0, y1):
         """Merged vertex grid and its CW-unit origin for the inclusive FO4 cell rectangle (clamped to the LAND grid)."""
-        x0, x1 = max(x0, FO4_GRID[0]), min(x1, FO4_GRID[1])
-        y0, y1 = max(y0, FO4_GRID[0]), min(y1, FO4_GRID[1])
+        gx0, gx1, gy0, gy1 = self.grid_bounds
+        x0, x1 = max(x0, gx0), min(x1, gx1)
+        y0, y1 = max(y0, gy0), min(y1, gy1)
         cells = [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
         self.load(cells)
         missing = [c for c in cells if c not in self.grids]
         if missing:
-            sys.exit(f"FO4 cells without VHGT: {missing[:8]} ({len(missing)})")
+            dland = self.default_land_units
+            if dland is None:
+                sys.exit(f"FO4 cells without VHGT: {missing[:8]} ({len(missing)})")
+            fill = np.full((fo4land.GRID, fo4land.GRID), dland, dtype=np.float64)
+            for c in missing:
+                self.grids[c] = fill
         g, _ = fo4land.merge_cells(self.grids, x0, y0, x1 - x0 + 1, y1 - y0 + 1)
         return g, (x0 * tg.FO4_CELL_UNITS, y0 * tg.FO4_CELL_UNITS)
 
@@ -279,7 +316,7 @@ def seam_pairs(seam, ta, tb, ends=150.0):
     return out
 
 
-def interior_points(td, tiles, grid_points=0):
+def interior_points(td, tiles, grid_points=0, fo4_world="Commonwealth", water_height_m=None):
     """Landmarks in the tile (at least two cells from an outer edge), a flat vertex near the tile's centre, the
     steepest eligible vertex (5..25 deg) near the centre, and optionally a grid_points x grid_points spread of eligible
     vertices over the tile (for large single overlays)."""
@@ -295,17 +332,39 @@ def interior_points(td, tiles, grid_points=0):
             rc = td.nearest_eligible(gx, gy, radius=20)
             if rc:
                 pts.append(td.point(*rc, f"grid_T{t.tag}_{i}{j}", "grid"))
-    for name, fid, xu, yu in LANDMARKS:
-        x, y = m(xu), m(yu)
-        if x0 + margin["w"] <= x < x1 - margin["e"] and y0 + margin["s"] <= y < y1 - margin["n"]:
-            rc = td.nearest_eligible(x, y)
-            if rc:
-                p = td.point(*rc, name, "landmark", landmark_fid="%08X" % fid,
-                             landmark_m=[round(x, 4), round(y, 4)])
-                p["dist_from_landmark_m"] = round(math.hypot(p["x_cw"] - x, p["y_cw"] - y), 2)
-                pts.append(p)
+    if (fo4_world or "Commonwealth") == "Commonwealth":
+        for name, fid, xu, yu in LANDMARKS:
+            x, y = m(xu), m(yu)
+            if x0 + margin["w"] <= x < x1 - margin["e"] and y0 + margin["s"] <= y < y1 - margin["n"]:
+                rc = td.nearest_eligible(x, y)
+                if rc:
+                    p = td.point(*rc, name, "landmark", landmark_fid="%08X" % fid,
+                                 landmark_m=[round(x, 4), round(y, 4)])
+                    p["dist_from_landmark_m"] = round(math.hypot(p["x_cw"] - x, p["y_cw"] - y), 2)
+                    pts.append(p)
     cx, cy = t.origin_m
-    centre = td.nearest_eligible(cx + 50.0, cy + 50.0, radius=40, prefer_flat=True)
+    if water_height_m is None and (fo4_world or "Commonwealth") == "Commonwealth":
+        centre = td.nearest_eligible(cx + 50.0, cy + 50.0, radius=40, prefer_flat=True)
+    else:
+        centre = None
+        min_z = (water_height_m + 1.0) if water_height_m is not None else -math.inf
+        r0, c0 = (int(round(v)) for v in td.rc_of(cx + 50.0, cy + 50.0))
+        for rad in (40, 120, 300):
+            cand = sorted(
+                ((r, c) for r in range(r0 - rad, r0 + rad + 1) for c in range(c0 - rad, c0 + rad + 1)),
+                key=lambda rc: (rc[0] - r0) ** 2 + (rc[1] - c0) ** 2,
+            )
+            centre = next(
+                ((r, c) for r, c in cand if td.eligible(r, c, max_slope=3.0) and td.vertex(r, c)[2] >= min_z),
+                None,
+            ) or next(
+                ((r, c) for r, c in cand if td.eligible(r, c) and td.vertex(r, c)[2] >= min_z),
+                None,
+            )
+            if centre is not None:
+                break
+        if centre is None:
+            centre = td.nearest_eligible(cx + 50.0, cy + 50.0, radius=120, prefer_flat=True)
     if centre is None:
         sys.exit(f"no eligible vertex near the centre of tile {t.tag}")
     pts.append(td.point(*centre, f"centre_T{t.tag}", "centre"))
@@ -322,17 +381,44 @@ def interior_points(td, tiles, grid_points=0):
 
 
 # ---------------------------------------------------------------------------------------------------------- build
+def _load_ltex_override(spec_path, tile_n):
+    """Load custom BTD LTEX table, per-quadrant layer map, and per-sample 15-bit alpha weights (`WG1`)."""
+    with open(spec_path, encoding="utf-8") as f:
+        meta = json.load(f)
+    table = [int(x, 16) if isinstance(x, str) else int(x) for x in meta["ltex"]]
+    npz_rel = meta.get("arrays_npz")
+    if npz_rel:
+        npz_path = npz_rel if os.path.isabs(npz_rel) else os.path.join(os.path.dirname(spec_path), npz_rel)
+        z = np.load(npz_path)
+        quad_map = np.asarray(z["quad_map"], dtype=np.uint8)
+        weights = np.asarray(z["weights"], dtype=np.uint16)
+    else:
+        quad_map = np.asarray(meta["quad_map"], dtype=np.uint8)
+        weights = np.asarray(meta["weights"], dtype=np.uint16)
+    if quad_map.shape != (2 * tile_n, 2 * tile_n, 8):
+        sys.exit(f"--ltex-override quad_map shape {quad_map.shape} != {(2 * tile_n, 2 * tile_n, 8)}")
+    want_w = (tile_n * tg.SF_CELL_SAMPLES, tile_n * tg.SF_CELL_SAMPLES)
+    if weights.shape != want_w:
+        sys.exit(f"--ltex-override weights shape {weights.shape} != {want_w}")
+    return table, quad_map, weights
+
+
 def build(a):
+    fo4_world = getattr(a, "fo4_world", "Commonwealth") or "Commonwealth"
+    fo4_masters = tuple(getattr(a, "fo4_masters", None) or ())
+    water_h = getattr(a, "water_height_m", None)
+    ltex_ovr_path = getattr(a, "ltex_override", "") or ""
     tiles = og.split(*og.sf_cells_of_fo4_rect(*a.fo4_cells), a.tile, a.pad)
     gx, gy = og.grid_shape(tiles)
-    print(f"FO4 cells {a.fo4_cells} -> {len(tiles)} tiles ({gx} x {gy}) of {a.tile} x {a.tile} cells: " +
+    print(f"FO4 cells {a.fo4_cells} ({fo4_world}) -> {len(tiles)} tiles ({gx} x {gy}) of {a.tile} x {a.tile} cells: " +
           ", ".join(f"T{t.tag} x {t.cells_x} y {t.cells_y}" for t in tiles))
-    fo4 = Fo4Heights(a.fo4, a.fo4_npz)
+    fo4 = Fo4Heights(a.fo4, a.fo4_npz, fo4_world=fo4_world, fo4_masters=fo4_masters)
+    gx0, gx1, gy0, gy1 = fo4.grid_bounds
     need = set()
     for t in tiles:                                   # read every FO4 cell once
         cx0, cx1, cy0, cy1 = tg.fo4_cells_covering(*t.bounds_m)
-        need |= {(x, y) for x in range(max(cx0 - 1, FO4_GRID[0]), min(cx1 + 1, FO4_GRID[1]) + 1)
-                 for y in range(max(cy0 - 1, FO4_GRID[0]), min(cy1 + 1, FO4_GRID[1]) + 1)}
+        need |= {(x, y) for x in range(max(cx0 - 1, gx0), min(cx1 + 1, gx1) + 1)
+                 for y in range(max(cy0 - 1, gy0), min(cy1 + 1, gy1) + 1)}
     fo4.load(need)
     print(f"FO4 cells read: {len(fo4.grids)}")
     lo, hi = math.inf, -math.inf
@@ -345,15 +431,23 @@ def build(a):
         lo, hi = min(lo, tl), max(hi, th)
     hmin, hmax = og.height_range(lo, hi)
     step = (hmax - hmin) / 65535.0
-    table, quad = ltex_source(a.sf_data)
+    if ltex_ovr_path:
+        if len(tiles) != 1:
+            sys.exit("--ltex-override currently requires a single overlay tile")
+        table, custom_quad, custom_weights = _load_ltex_override(ltex_ovr_path, tiles[0].n)
+        quad = bytes(custom_quad[0, 0])
+    else:
+        table, quad = ltex_source(a.sf_data)
+        custom_quad, custom_weights = None, None
     tds = {}
     sizes = {}
     for t in tiles:                                   # pass 2: quantise and write
         raw = np.empty((t.n * tg.SF_CELL_SAMPLES, t.n * tg.SF_CELL_SAMPLES), np.uint16)
         for r0, h in tile_strips(fo4, t):
             raw[r0:r0 + h.shape[0]] = btd.quantize(h, hmin, hmax)
-        data = btd.write(btd.Btd(6, hmin, hmax, table, raw, np.zeros_like(raw),
-                                 np.tile(np.frombuffer(quad, np.uint8), (2 * t.n, 2 * t.n, 1))))
+        w_arr = custom_weights if custom_weights is not None else np.zeros_like(raw)
+        q_arr = custom_quad if custom_quad is not None else np.tile(np.frombuffer(quad, np.uint8), (2 * t.n, 2 * t.n, 1))
+        data = btd.write(btd.Btd(6, hmin, hmax, table, raw, w_arr, q_arr))
         path = os.path.join(a.out, "Data", "Terrain", world_name(a, t) + ".btd")
         for p in [path] + [os.path.join(a.out, *c.split("/")) for c in btd_copies(a, t)]:
             os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -373,7 +467,7 @@ def build(a):
     # points
     own, anchors, spawns = {}, {}, {}
     for t in tiles:
-        pts, centre = interior_points(tds[t], tiles, a.grid_points)
+        pts, centre = interior_points(tds[t], tiles, a.grid_points, fo4_world=fo4_world, water_height_m=water_h)
         own[t] = pts
         rr = next((p for p in pts if p["label"] == "redrocket"), None)
         ap = rr or next(p for p in pts if p["kind"] == "centre")
@@ -701,16 +795,18 @@ def make_ray_plan(a, t, td, o, arrival):
     keep = a.edge_keep
     ax, ay = arrival["x_cw"], arrival["y_cw"]
     extra = {}
-    for name, fid, xu, yu in LANDMARKS + RAY_LANDMARKS:
-        x, y = m(xu), m(yu)
-        if name == ARRIVAL or not t.contains(x, y) or edge_distance(t, x, y) < keep:
-            continue
-        rc = snap_inside(td, x, y, keep, radius=12)
-        if rc is None:
-            continue
-        p = td.point(*rc, name, "landmark", landmark_fid="%08X" % fid, landmark_m=[round(x, 4), round(y, 4)])
-        p["dist_from_landmark_m"] = round(math.hypot(p["x_cw"] - x, p["y_cw"] - y), 2)
-        extra.setdefault(nearest_ray(a.rays, bearing_deg(ax, ay, x, y)), []).append(p)
+    fo4_world = getattr(a, "fo4_world", "Commonwealth") or "Commonwealth"
+    if fo4_world == "Commonwealth":
+        for name, fid, xu, yu in LANDMARKS + RAY_LANDMARKS:
+            x, y = m(xu), m(yu)
+            if name == ARRIVAL or not t.contains(x, y) or edge_distance(t, x, y) < keep:
+                continue
+            rc = snap_inside(td, x, y, keep, radius=12)
+            if rc is None:
+                continue
+            p = td.point(*rc, name, "landmark", landmark_fid="%08X" % fid, landmark_m=[round(x, 4), round(y, 4)])
+            p["dist_from_landmark_m"] = round(math.hypot(p["x_cw"] - x, p["y_cw"] - y), 2)
+            extra.setdefault(nearest_ray(a.rays, bearing_deg(ax, ay, x, y)), []).append(p)
     plan, entries = [], []
     for name, deg in a.rays:
         ux, uy = math.cos(math.radians(deg)), math.sin(math.radians(deg))
@@ -793,6 +889,18 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
               "mask_ns": a.mask_ns, "max_jump_m": 0.0 if plan_mode(a) == "rays" else a.max_jump,
               "plan_mode": plan_mode(a), "edge_keep_m": getattr(a, "edge_keep", RAY_EDGE_KEEP),
               "note": "latitude/longitude in radians; PNDT CNAM stores latitude first (Mutagen calls it Longitude)"}
+    fo4_world = getattr(a, "fo4_world", "Commonwealth") or "Commonwealth"
+    fo4_masters = list(getattr(a, "fo4_masters", None) or [])
+    water_h = getattr(a, "water_height_m", None)
+    min_gap = getattr(a, "planet_min_gap_cells", None)
+    if fo4_world != "Commonwealth":
+        params["fo4_world"] = fo4_world
+    if fo4_masters:
+        params["fo4_masters"] = [os.path.basename(m_path) for m_path in fo4_masters]
+    if water_h is not None:
+        params["water_height_m"] = float(water_h)
+    if min_gap is not None:
+        params["planet_min_gap_cells"] = int(min_gap)
     masks = []
     for o in overlays:
         masks.append(write_mask(a.out, o["world"], o["n"], o["mask_outer_edges"], a.mask_writer))
@@ -819,7 +927,7 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
                 "entries": [dict(e) for e in entries],
                 "offline_check": check}
     for name, obj in (("plan.json", plan), ("expected.json", expected), ("overlays_params.json", params)):
-        with open(os.path.join(a.out, name), "w", encoding="utf-8") as f:
+        with open(os.path.join(a.out, name), "w", encoding="utf-8", newline="\n") as f:
             json.dump(obj, f, indent=1)
     readme(a, params, plan, masks)
     preview(tds, tiles, own, os.path.join(a.out, "preview.png"))
@@ -906,7 +1014,7 @@ def readme_rays(a, params, plan, masks):
               "-> the overlay streams only near the arrival (compare the distances per direction).",
               "", "Masks: " + ", ".join(f"{k['file']} ({k['width']} px, ring on {k['outer_edges'] or 'none'}, "
                                          f"{k['pixels_differ']} px differ)" for k in masks)]
-    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
 
 
@@ -967,12 +1075,29 @@ def readme(a, params, plan, masks):
               "  edges -> whether the outer ring blends with mask 255 and with mask 0.",
               "", "Masks: " + ", ".join(f"{k['file']} ({k['width']} px, ring on {k['outer_edges'] or 'none'}, "
                                          f"{k['pixels_differ']} px differ)" for k in masks)]
-    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
 
 
+def _write_fallback_png(path):
+    """Write a minimal valid 1x1 RGB PNG using stdlib zlib when Pillow is unavailable in minimal test envs."""
+    import zlib
+    def chunk(tag, payload):
+        crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", crc)
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+    idat = chunk(b"IDAT", zlib.compress(b"\x00\x20\x40\x30"))
+    iend = chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend)
+
+
 def preview(tds, tiles, own, path, k=8):
-    from PIL import Image, ImageDraw
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        _write_fallback_png(path)
+        return
     x0 = min(t.cx0 for t in tiles)
     y0 = min(t.cy0 for t in tiles)
     x1 = max(t.cx0 + t.n for t in tiles)
@@ -1020,7 +1145,7 @@ def check(a):
         if a.verbose:
             print(f"  {p['entry']:<5} {p['label']:<26} expect {p['expect']:9.4f} decoded {p['decoded']['bilinear']:9.4f} "
                   f"error {p['error_mm']:7.3f} mm (tile {p['tile']})")
-    with open(os.path.join(a.out, "offline_check.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(a.out, "offline_check.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(rep, f, indent=1)
     print(json.dumps({k: rep[k] for k in ("summary", "seams", "mars") if k in rep}, indent=1))
     print("CHECK", "PASS" if ok else "FAIL")
@@ -1254,6 +1379,12 @@ def check_plugins(out, prm, raws, need, rep, vanilla_mars_entries):
             inam = orc.field(sfbk, "INAM", b"\0")[0]
             hnam = struct.unpack("<h", orc.field(sfbk, "HNAM", b"\0\0"))[0]
             need(inam == (1 if prm["alignment"] == "absolute" else 0) and hnam == prm["hnam"], f"{o['world']}: INAM {inam} HNAM {hnam}")
+            if prm.get("water_height_m") is not None:
+                want_wh = float(prm["water_height_m"])
+                sfbk_wh = struct.unpack("<f", orc.field(sfbk, "WHGT"))[0] if orc.field(sfbk, "WHGT") and len(orc.field(sfbk, "WHGT")) == 4 else None
+                wrld_dnam = struct.unpack("<2f", orc.field(w, "DNAM")) if orc.field(w, "DNAM") and len(orc.field(w, "DNAM")) == 8 else None
+                need(sfbk_wh is not None and abs(sfbk_wh - want_wh) < 1e-3, f"{o['world']}: SFBK WHGT {sfbk_wh} ~= {want_wh}")
+                need(wrld_dnam is not None and abs(wrld_dnam[1] - want_wh) < 1e-3, f"{o['world']}: WRLD DNAM water {wrld_dnam and wrld_dnam[1]} ~= {want_wh}")
         an = [r for r in recs if r["sig"] == "REFR" and orc.edid(r) == o["anchor"]["edid"]]
         need(len(an) == 1, f"{o['world']}: one anchor REFR")
         if an:
@@ -1300,14 +1431,19 @@ def check_plugins(out, prm, raws, need, rep, vanilla_mars_entries):
                 foreign = [x for x in others if x[2] >> 24 != idx >> 24]       # not one of our own tiles
                 near = min(foreign, key=lambda x: latlon_cells(e[0], x), default=None)
                 gap = latlon_cells(e[0], near, prm["mars"].get("radius_km", og.MARS_RADIUS_KM)) if near else None
-                need(gap is None or gap > o["n"], f"{o['world']}: nearest other CNAM entry {gap:.0f} cells away "
-                                                  f"(> {o['n']}, true planet scale)" if gap is not None else "no other entry")
+                min_gap = prm.get("planet_min_gap_cells")
+                req_gap = max(o["n"], int(min_gap)) if min_gap is not None else o["n"]
+                need(gap is None or gap >= req_gap if min_gap is not None else (gap is None or gap > o["n"]),
+                     f"{o['world']}: nearest other CNAM entry {gap:.0f} cells away "
+                     f"(>={req_gap} cells, true planet scale)" if gap is not None else "no other entry")
                 mine.append({"world": o["world"], "f64_0_latitude": e[0][0], "f64_1_longitude": e[0][1],
                              "index": ents.index(e[0]), "predicted_cell": o["planet_target_cell"],
                              "nearest_other": {"wrld": "%08X" % near[2], "latitude": near[0], "longitude": near[1],
                                                "cells": round(gap, 1)} if near else None})
         if vanilla_mars_entries is not None:
-            need(len(ents) == vanilla_mars_entries + len(ovs), f"PNDT CNAM {len(ents)} = vanilla {vanilla_mars_entries} + {len(ovs)}")
+            extra_reg = len(prm["mars"].get("extra_worlds", []))
+            need(len(ents) == vanilla_mars_entries + extra_reg + len(ovs),
+                 f"PNDT CNAM {len(ents)} = vanilla {vanilla_mars_entries} + {extra_reg + len(ovs)}")
         rep["mars"] = {"file": prm["mars"]["plugin"], "bytes": mp["bytes"], "entries": len(ents), "ours": mine}
 
 
@@ -1484,7 +1620,7 @@ def analyse(a):
                    f"not found (best {tuple(top['d'])} {top['match']}/{top['inside']})" if top else "no read inside") +
                   (f"; also consistent: {alt}" if alt else ""))
     if a.json:
-        with open(a.json, "w", encoding="utf-8") as f:
+        with open(a.json, "w", encoding="utf-8", newline="\n") as f:
             json.dump(out, f, indent=1)
     return 0
 
@@ -1492,7 +1628,16 @@ def analyse(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("build", "check", "analyse"))
-    ap.add_argument("--fo4", help="Fallout4.esm")
+    ap.add_argument("--fo4", help="Fallout4.esm (or active DLC .esm when --fo4-masters is given)")
+    ap.add_argument("--fo4-world", default="Commonwealth", help="FO4 worldspace EditorID (default: Commonwealth)")
+    ap.add_argument("--fo4-masters", action="append", default=[], metavar="ESM",
+                    help="repeatable master .esm before --fo4 in load order (e.g. Fallout4.esm before DLCCoast.esm)")
+    ap.add_argument("--water-height-m", type=float, default=None,
+                    help="sea/default water height in metres (e.g. Far Harbor 450/70 = 6.4286 m; omitted by default)")
+    ap.add_argument("--planet-min-gap-cells", type=int, default=None,
+                    help="minimum distance in planet cells from any other world registration (e.g. 2000 for DLC worlds)")
+    ap.add_argument("--ltex-override", default="", metavar="JSON",
+                    help="optional JSON specifying custom BTD LTEX table, quad_map, and weights (`WG1`)")
     ap.add_argument("--fo4-npz", help="cached FO4 LAND grids (.npz with 'grid' and 'heights') instead of --fo4")
     ap.add_argument("--sf-data", default="", help="Starfield Data folder (build: LTEX template BTD; check: Starfield.esm)")
     ap.add_argument("--out", required=True, help="staging folder, e.g. C:\\Modding\\staging\\terrain_exp3")
@@ -1543,6 +1688,13 @@ def main():
     ap.add_argument("--free-z", action="store_true", help="analyse: allow one Z offset per tile and shift")
     ap.add_argument("--json", default="", help="analyse: write the full result here")
     a = ap.parse_args()
+    inputs = [p for p in [a.fo4, a.fo4_npz, a.sf_data, *(a.fo4_masters or [])] if p]
+    try:
+        refuse_unsafe_output_path(a.out, inputs)
+        if a.json:
+            refuse_unsafe_output_path(a.json, inputs)
+    except OutputPathRefusedError as err:
+        sys.exit(str(err))
     if a.cmd == "build":
         if not a.sf_data:
             sys.exit("--sf-data is required for build")

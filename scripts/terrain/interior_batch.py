@@ -106,8 +106,40 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import vmad_patch  # noqa: E402
 import deploy_starfield  # noqa: E402
+import pack_staging  # noqa: E402
+from fo4sf import pipeline  # noqa: E402
 
 PLUGIN = "FO4Port.esm"
+DEFAULT_PREFIX = "fo4port"
+DEFAULT_ROOT_LOCATION_PARENT = "Starfield.esm:01B736"
+
+
+def normalize_parent_formkey(spec):
+    """Normalize 'Plugin.esm:HexId' or 'HexId:Plugin.esm' to canonical 'Plugin.esm:XXXXXX'."""
+    raw = (spec or DEFAULT_ROOT_LOCATION_PARENT).strip()
+    parts = raw.split(":")
+    if len(parts) != 2:
+        raise ValueError(f"--root-location-parent {spec!r}: expected Plugin.esm:HexId or HexId:Plugin.esm")
+    if "." in parts[0]:
+        mod_part, hex_part = parts[0].strip(), parts[1].strip()
+    elif "." in parts[1]:
+        hex_part, mod_part = parts[0].strip(), parts[1].strip()
+    else:
+        raise ValueError(f"--root-location-parent {spec!r}: missing plugin extension")
+    plugin_esm, _ = pack_staging.normalize_plugin_name(mod_part)
+    if hex_part.lower().startswith("0x"):
+        hex_part = hex_part[2:]
+    if not hex_part or len(hex_part) > 6 or not re.fullmatch(r"[0-9A-Fa-f]+", hex_part):
+        raise ValueError(f"--root-location-parent {spec!r}: invalid 24-bit hex FormID {hex_part!r}")
+    return f"{plugin_esm}:{int(hex_part, 16):06X}"
+
+
+def resolve_plugin_and_prefix(a):
+    plugin_esm, _ = pack_staging.normalize_plugin_name(getattr(a, "plugin_name", "") or PLUGIN)
+    prefix = (getattr(a, "prefix", "") or DEFAULT_PREFIX).strip()
+    if not re.fullmatch(r"[a-z0-9_]+", prefix):
+        raise ValueError(f"--prefix {prefix!r}: lower-case letters, digits and _ only")
+    return plugin_esm, prefix, pipeline.editor_id_prefix(prefix)
 MARKER = "result.json"
 CORE_PLUGIN = "FO4TerrainCore.esm"   # the --core build's plugin; pins.core_plugin (deploy_starfield.py install --batch)
 BATCH_DIR = re.compile(r"^interiors_b(\d{2})$")
@@ -138,29 +170,102 @@ def free_gb(path):
 
 
 # ----------------------------------------------------------------------------------------------------------- compare
-def compare(old_dir, new_dir):
-    """The new port against the old one: ids, records, cells. {"pass", "problems", ...}."""
+MAX_LOCAL_FORMID = 0x00FFFFFF
+
+
+def kept_door_marker_ids(doors_json_path):
+    """Set of local FormIDs reserved by an earlier build's doors.json (--keep-markers)."""
+    if not doors_json_path or not os.path.isfile(doors_json_path):
+        return set()
+    doc = load(doors_json_path)
+    return {int(d["marker"], 16) & MAX_LOCAL_FORMID for d in (doc.get("doors") or []) if "marker" in d}
+
+
+def reconcile_formids(prev_ids, authoritative_ids, prev_installed=False, reserved_ids=()):
+    """Seed FormID map combining `prev_ids` (--prev) and `authoritative_ids` (--base / --installed-port) so ZERO
+    authoritative/installed IDs move.
+    Returns (seed_ids, reconciled_map) where `reconciled_map` is {key: {"old": int, "new": int, "reason": str}} for any
+    uninstalled-prev keys whose ID was claimed by `authoritative_ids` or differed from `authoritative_ids[key]`.
+    Raises ValueError if `prev_installed` is True and any ID conflicts, or if FormID space is exhausted."""
+    auth_vals = set(authoritative_ids.values())
+    key_diffs = [k for k in prev_ids if k in authoritative_ids and prev_ids[k] != authoritative_ids[k]]
+    val_clashes = [k for k in prev_ids if k not in authoritative_ids and prev_ids[k] in auth_vals]
+    if not key_diffs and not val_clashes:
+        seed = dict(prev_ids)
+        seed.update(authoritative_ids)
+        return seed, {}
+    if prev_installed:
+        sample = (key_diffs + val_clashes)[:5]
+        raise ValueError(
+            f"--prev is marked installed and conflicts with the installed port's formids.json on "
+            f"{len(key_diffs) + len(val_clashes)} key(s) (first: {sample}): refusing to move installed IDs"
+        )
+    seed = dict(authoritative_ids)
+    used = set(authoritative_ids.values()) | set(reserved_ids)
+    reconciled = {}
+    for k in sorted(key_diffs):
+        reconciled[k] = {"old": prev_ids[k], "new": authoritative_ids[k], "reason": "installed_key"}
+    displaced = []
+    for k, pv in prev_ids.items():
+        if k in authoritative_ids:
+            continue
+        if pv in used:
+            displaced.append((pv, k))
+        else:
+            seed[k] = pv
+            used.add(pv)
+    next_id = max(used | set(prev_ids.values()), default=0x7FF) + 1
+    for old_v, k in sorted(displaced):
+        while next_id in used:
+            next_id += 1
+        if next_id > MAX_LOCAL_FORMID:
+            raise ValueError(f"FormID space exhausted while reconciling displaced key {k}")
+        seed[k] = next_id
+        used.add(next_id)
+        reconciled[k] = {"old": old_v, "new": next_id, "reason": "displaced_by_installed"}
+    return seed, reconciled
+
+
+def compare(old_dir, new_dir, plugin=PLUGIN, reconciled=None):
+    """The new port against the old one: ids, records, cells. {"pass", "problems", ...}.
+    When `reconciled` is None (default, always used for --base and --installed-port), every old key must keep its exact
+    FormID and record at that FormID. When `reconciled` ({key: {"old", "new", ...}}) is given for an uninstalled --prev
+    reconciled against an installed port, non-reconciled keys must stay at their exact FormIDs and reconciled keys must
+    sit at their exact reconciled FormIDs with preserved record signatures."""
+    plugin_esm, _ = pack_staging.normalize_plugin_name(plugin)
     old_ids, new_ids = load(os.path.join(old_dir, "formids.json")), load(os.path.join(new_dir, "formids.json"))
+    rec_map = reconciled or {}
     problems = []
     missing = sorted(k for k in old_ids if k not in new_ids)
-    moved = sorted(k for k in old_ids if k in new_ids and new_ids[k] != old_ids[k])
+    moved = sorted(
+        k for k in old_ids
+        if k in new_ids and new_ids[k] != (rec_map[k]["new"] if k in rec_map else old_ids[k])
+    )
     if missing:
         problems.append(f"{len(missing)} base id key(s) missing from the new formids.json (first: {missing[:5]})")
     if moved:
         problems.append(f"{len(moved)} base id key(s) renumbered (first: {moved[:5]})")
-    old_p, new_p = vmad_patch.Plugin.read(os.path.join(old_dir, PLUGIN)), vmad_patch.Plugin.read(os.path.join(new_dir, PLUGIN))
+    old_p = vmad_patch.Plugin.read(os.path.join(old_dir, plugin_esm))
+    new_p = vmad_patch.Plugin.read(os.path.join(new_dir, plugin_esm))
     if old_p.masters() != new_p.masters():
         problems.append(f"masters {old_p.masters()} -> {new_p.masters()}")
+    own = len(old_p.masters()) << 24
+    local_remap = {
+        rec_map[k]["old"]: rec_map[k]["new"]
+        for k in rec_map
+        if k in old_ids and old_ids[k] == rec_map[k]["old"]
+    }
     old_r, new_r = old_p.records(), new_p.records()
     same, changed, removed, resig = Counter(), Counter(), [], []
     changed_ids = []
     for fid, (sig, flags, data, path) in old_r.items():
-        n = new_r.get(fid)
+        target_fid = (own | local_remap[fid & MAX_LOCAL_FORMID]) if ((fid >> 24) == len(old_p.masters()) and (fid & MAX_LOCAL_FORMID) in local_remap) else fid
+        n = new_r.get(target_fid)
         if n is None:
             removed.append(f"{sig.decode()} {fid:08X}")
         elif n[0] != sig:
             resig.append(f"{fid:08X} {sig.decode()} -> {n[0].decode()}")
-        elif (n[1], n[2]) == (flags, data):
+        elif target_fid == fid and (n[1], n[2]) == (flags, data):
             same[sig.decode()] += 1
         else:
             changed[sig.decode()] += 1
@@ -174,8 +279,11 @@ def compare(old_dir, new_dir):
         problems.append(f"{len(resig)} base record(s) changed signature (first: {resig[:5]})")
     old_cells = {k[5:] for k in old_ids if k.startswith("CELL:")}
     new_cells = {k[5:] for k in new_ids if k.startswith("CELL:")}
+    ids_summary = {"old": len(old_ids), "new": len(new_ids), "missing": len(missing), "renumbered": len(moved)}
+    if reconciled is not None:
+        ids_summary["reconciled"] = len(rec_map)
     return {"old": os.path.abspath(old_dir), "new": os.path.abspath(new_dir), "pass": not problems, "problems": problems,
-            "ids": {"old": len(old_ids), "new": len(new_ids), "missing": len(missing), "renumbered": len(moved)},
+            "ids": ids_summary,
             "records": {"old": len(old_r), "new": len(new_r), "identical": dict(sorted(same.items())),
                         "changed": dict(sorted(changed.items())), "changed_first": changed_ids,
                         "removed": len(removed), "removed_causes": why, "added": dict(sorted(added.items()))},
@@ -222,22 +330,67 @@ def disk_need(plan, n, work_started):
     return round(b["archives_gb_est"] + max(0.0, grow), 2)
 
 
+def stage_ancestor_base_pin(port_or_stage):
+    """If `port_or_stage` is a stage or a stage's `port` folder, return its result.json pins.base_plugin (else None)."""
+    for d in (port_or_stage, os.path.dirname(os.path.abspath(port_or_stage))):
+        marker = os.path.join(d, MARKER)
+        if os.path.isfile(marker):
+            try:
+                return ((load(marker).get("pins") or {}).get("base_plugin"))
+            except (OSError, ValueError):
+                return None
+    return None
+
+
+def resolve_installed_port(a, plugin_esm):
+    """Resolve optional --installed-port / --compare-installed to a directory holding <plugin_esm> and formids.json."""
+    raw = getattr(a, "installed_port", "") or ""
+    if not raw:
+        return None
+    cand = os.path.join(raw, "port") if os.path.isfile(os.path.join(raw, "port", "formids.json")) else raw
+    for need in (plugin_esm, "formids.json"):
+        if not os.path.isfile(os.path.join(cand, need)):
+            sys.exit(f"--installed-port {raw} lacks {need}")
+    return cand
+
+
+def build_authoritative_formids(base_dir, installed_port=None):
+    """Return authoritative FormID map from --base (and optional --installed-port), refusing any disagreement between them."""
+    base_ids = load(os.path.join(base_dir, "formids.json"))
+    if not installed_port:
+        return dict(base_ids)
+    inst_ids = load(os.path.join(installed_port, "formids.json"))
+    clashes = sorted(k for k in base_ids if k in inst_ids and base_ids[k] != inst_ids[k])
+    if clashes:
+        raise ValueError(
+            f"--base and --installed-port disagree on {len(clashes)} FormID key(s) (first: {clashes[:5]})"
+        )
+    merged = dict(base_ids)
+    merged.update(inst_ids)
+    return merged
+
+
 def check_prev(a, n):
-    """The previous batch this one grows: a passing build of batch n - 1 over the same base port. Returns
-    (its port folder, its result.json)."""
+    """The previous batch this one grows (batch n - 1, or batch n when rebuilding with --animated-doors) over the same
+    base port (or a sibling base stage built over the same ancestor base_plugin). Returns (its port folder, its result.json)."""
+    plugin_esm, _, _ = resolve_plugin_and_prefix(a)
     r = load(os.path.join(a.prev, MARKER))
     port = os.path.join(a.prev, "port")
-    if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] == n - 1):
+    allowed_batches = {n - 1} | ({n} if getattr(a, "animated_doors", False) else set())
+    if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] in allowed_batches):
         sys.exit(f"--prev {a.prev}: not a passing build of batch {n - 1} (batch {r.get('batch')}, pass {r.get('pass')}): "
                  f"batch {n} grows exactly the batch before it, so every id a skipped batch gave out is kept")
-    if r.get("pins", {}).get("base_plugin") != sha256(os.path.join(a.base, PLUGIN)):
+    prev_base_pin = (r.get("pins") or {}).get("base_plugin")
+    cur_base_sha = sha256(os.path.join(a.base, plugin_esm))
+    cur_base_ancestor = stage_ancestor_base_pin(a.base)
+    if prev_base_pin != cur_base_sha and (not cur_base_ancestor or prev_base_pin != cur_base_ancestor):
         sys.exit(f"--prev {a.prev} was built over another base port")
-    for need in (PLUGIN, "formids.json"):
+    for need in (plugin_esm, "formids.json"):
         if not os.path.isfile(os.path.join(port, need)):
             sys.exit(f"--prev {a.prev} lacks port\\{need}")
     want = (r.get("pins") or {}).get("plugin")
-    if not want or sha256(os.path.join(port, PLUGIN)) != want:
-        sys.exit(f"--prev {a.prev}: port\\{PLUGIN} is not the plugin that build passed with "
+    if not want or sha256(os.path.join(port, plugin_esm)) != want:
+        sys.exit(f"--prev {a.prev}: port\\{plugin_esm} is not the plugin that build passed with "
                  f"(pins.plugin {str(want)[:12]}): refusing to grow a changed or unpinned stage")
     return port, r
 
@@ -253,18 +406,27 @@ def source_pins(a, plan, n, extra=None):
     plugins = {}
     fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
     lists = list(cell_plugins(plan, n, getattr(a, "census_data", None)).values()) + list((extra or {}).values())
-    others = {p for ps in lists for p in ps if p.lower() != "fallout4.esm"}
+    others = {p for ps in lists for p in ps if p.lower() != "fallout4.esm" and not pipeline.is_excluded_dlc_name(p)}
     names = ["Fallout4.esm"] + sorted(others, key=str.casefold)
     for name in names:
         path = fo4 if name == "Fallout4.esm" else find_plugin(a.dlc_data, name)
         plugins[name] = ({"sha256": sha256(path), "bytes": os.path.getsize(path)} if path and os.path.isfile(path) else None)
+    dlc_stems = pipeline.parse_dlc_plugins(getattr(a, "dlc_plugins", None))
     archives = {}
     for d in [a.fo4_data] + list(a.dlc_data):
         if not os.path.isdir(d):
             continue
-        for f in sorted(os.listdir(d), key=str.casefold):
+        if dlc_stems is not None:
+            non_dlc = [f for f in sorted(os.listdir(d), key=str.casefold)
+                       if f.lower().endswith(".ba2") and not f.lower().startswith("dlc") and not pipeline.is_excluded_dlc_name(f)]
+            dlc_files = pipeline.select_dlc_archive_names(d, dlc_plugins=dlc_stems, converter_only=False)
+            candidates = non_dlc + dlc_files
+        else:
+            candidates = [f for f in sorted(os.listdir(d), key=str.casefold)
+                          if f.lower().endswith(".ba2") and not pipeline.is_excluded_dlc_name(f)]
+        for f in candidates:
             p = os.path.join(d, f)
-            if f.lower().endswith(".ba2") and os.path.isfile(p):
+            if os.path.isfile(p):
                 st = os.stat(p)
                 archives[f] = {"bytes": st.st_size, "mtime": st.st_mtime, "folder": os.path.abspath(d)}
     return {"plugins": plugins, "archives": archives}
@@ -320,7 +482,7 @@ def plugins_of(row):
     if not plugins:
         owner = (row.get("formkey") or "").partition(":")[2]
         plugins = [owner] if owner else []
-    return [FO4] + [p for p in plugins if p.lower() != FO4.lower()]
+    return [FO4] + [p for p in plugins if p.lower() != FO4.lower() and not pipeline.is_excluded_dlc_name(p)]
 
 
 def cell_plugins(plan, n, census=None):
@@ -598,12 +760,20 @@ def base_plugins(old_cells, base_exports, census):
 
 
 def build(a):
+    try:
+        plugin_esm, prefix, edid_prefix = resolve_plugin_and_prefix(a)
+        root_parent = normalize_parent_formkey(getattr(a, "root_location_parent", ""))
+        pipeline.parse_dlc_plugins(getattr(a, "dlc_plugins", None))
+        pipeline.refuse_unsafe_output_dir(a.out, "--out")
+        pipeline.refuse_unsafe_output_dir(a.work, "--work")
+    except ValueError as e:
+        sys.exit(str(e))
     plan = load(a.plan)
     a.census_data = load(a.census) if getattr(a, "census", "") else None
     t0 = time.time()
     if os.path.exists(a.out):
         sys.exit(f"{a.out} exists: every batch is a new folder")
-    for need in (PLUGIN, "formids.json", "doors.json"):
+    for need in (plugin_esm, "formids.json", "doors.json"):
         if not os.path.isfile(os.path.join(a.base, need)):
             sys.exit(f"--base {a.base} lacks {need} (the installed port's doors staging)")
     anim_problem = animated_args_problem(a)
@@ -618,6 +788,21 @@ def build(a):
         sys.exit(f"batch {a.batch} needs --prev, the passing build of batch {a.batch - 1}: without it the ids would be "
                  f"seeded from the base port alone and the earlier batches' records could be renumbered")
     prev_port, prev_result = check_prev(a, a.batch) if a.prev else (None, None)
+    installed_port = resolve_installed_port(a, plugin_esm)
+    try:
+        auth_ids = build_authoritative_formids(a.base, installed_port)
+        marker_ids = kept_door_marker_ids(os.path.join(a.base, "doors.json"))
+        if prev_port:
+            seed_ids, reconciled_map = reconcile_formids(
+                load(os.path.join(prev_port, "formids.json")),
+                auth_ids,
+                prev_installed=bool((prev_result or {}).get("installed")),
+                reserved_ids=marker_ids,
+            )
+        else:
+            seed_ids, reconciled_map = auth_ids, {}
+    except ValueError as e:
+        sys.exit(str(e))
     # the base cells a DLC overrides (none today): the sidecar reads their location data from the DLC too, so it is pinned
     old_plugins = base_plugins(old_cells, a.base_exports, a.census_data)
     # X8: the game files this batch reads are pinned; a chain built from other files is refused, since the
@@ -651,6 +836,54 @@ def build(a):
     work_status, work_diff = check_work(a, sources)
     if work_diff:
         source_change["--work"] = work_diff
+    if getattr(a, "dry_run", False):
+        inst_ids = load(os.path.join(installed_port, "formids.json")) if installed_port else load(os.path.join(a.base, "formids.json"))
+        installed_moved = [k for k, v in inst_ids.items() if seed_ids.get(k) != v]
+        core_path = os.path.join(a.core, CORE_PLUGIN)
+        seed_pass = len(installed_moved) == 0
+        dry = {
+            "dry_run": True,
+            "check_kind": "seed_check",
+            "compares_run": False,
+            "note": (
+                "Seed check only (against reconciled seed_ids); the two plugin compares "
+                "(--compare-installed and --prev) run only in a real build."
+            ),
+            "pass": seed_pass,
+            "seed_check_pass": seed_pass,
+            "batch": a.batch,
+            "animated_doors": bool(getattr(a, "animated_doors", False)),
+            "animated_pex_checked": bool(getattr(a, "animated_pex", "")),
+            "plugin_name": plugin_esm,
+            "prefix": prefix,
+            "base": os.path.abspath(a.base),
+            "prev": os.path.abspath(a.prev) if a.prev else None,
+            "installed_port": os.path.abspath(installed_port) if installed_port else None,
+            "core_plugin_sha256": sha256(core_path) if os.path.isfile(core_path) else None,
+            "cells": {"base": len(old_cells), "batch_cumulative": len(new_cells), "total": len(old_cells) + len(new_cells)},
+            "formids": {
+                "check": "seed_id_map_only",
+                "installed_count": len(inst_ids),
+                "installed_moved": len(installed_moved),
+                "seed_installed_moved": len(installed_moved),
+                "prev_count": len(load(os.path.join(prev_port, "formids.json"))) if prev_port else 0,
+                "seed_count": len(seed_ids),
+                "kept_door_markers": len(marker_ids),
+                "reconciled_count": len(reconciled_map),
+                "installed_keys_adopted": sum(1 for v in reconciled_map.values() if v["reason"] == "installed_key"),
+                "displaced_by_installed": sum(1 for v in reconciled_map.values() if v["reason"] == "displaced_by_installed"),
+            },
+            "sources": {
+                "plugins": len(sources["plugins"]),
+                "archives": len(sources["archives"]),
+                "allowed_change": source_change or None,
+                "work_status": work_status,
+            },
+        }
+        os.makedirs(a.out)
+        save(os.path.join(a.out, "dry_run.json"), dry)
+        print(json.dumps(dry, indent=1))
+        return 0 if dry["pass"] else 1
     # the staging's record: its per-cell export plugins and its history (every adoption or allowed change, kept by
     # every later build, so result.json never calls a staging proven that once was not)
     work_old = work_record(a.work)[0] or {}
@@ -739,6 +972,10 @@ def build(a):
         cmd.append("--spec-mask-roughness")
     for d in a.dlc_data:
         cmd += ["--extra-data", d]
+    if getattr(a, "dlc_plugins", ""):
+        cmd += ["--dlc-plugins", a.dlc_plugins]
+    if prefix != DEFAULT_PREFIX:
+        cmd += ["--prefix", prefix]
     cmd += a.convert_arg
     if getattr(a, "animated_doors", False) and "--rig-load-doors" not in a.convert_arg:
         cmd.append("--rig-load-doors")
@@ -758,8 +995,19 @@ def build(a):
     # 4. plugin
     raw = os.path.join(a.out, "plugin")
     os.makedirs(raw)
-    shutil.copyfile(os.path.join(prev_port or a.base, "formids.json"), os.path.join(raw, "formids.json"))
-    steps["formids_seed"] = os.path.abspath(os.path.join(prev_port or a.base, "formids.json"))
+    source_seed_file = os.path.join(prev_port or a.base, "formids.json")
+    if not reconciled_map and not installed_port and (not prev_port or seed_ids == load(source_seed_file)):
+        shutil.copyfile(source_seed_file, os.path.join(raw, "formids.json"))
+    else:
+        save(os.path.join(raw, "formids.json"), seed_ids)
+    steps["formids_seed"] = os.path.abspath(source_seed_file)
+    if reconciled_map:
+        steps["formids_reconciled"] = {
+            "count": len(reconciled_map),
+            "installed_keys_adopted": sum(1 for v in reconciled_map.values() if v["reason"] == "installed_key"),
+            "displaced_by_installed": sum(1 for v in reconciled_map.values() if v["reason"] == "displaced_by_installed"),
+            "entries": reconciled_map,
+        }
     if os.path.isfile(os.path.join(a.base, "lighting.json")):
         shutil.copyfile(os.path.join(a.base, "lighting.json"), os.path.join(raw, "lighting.json"))
     # The base cells' pinned exports predate schema 3 (no location keys), and so may an earlier batch's export cached
@@ -770,19 +1018,71 @@ def build(a):
     if rc != 0:
         return finish_("locations failed")
     tables = os.path.join(ROOT, "scripts", "terrain", "clusters")
+    promote_prefix = ["--prefix", prefix] if prefix != DEFAULT_PREFIX else []
+    fo4_loot_on = bool(getattr(a, "fo4_loot", False))
+    beds_benches_on = bool(getattr(a, "usable_beds_benches", False))
+    fidelity_on = bool(getattr(a, "interactive_fidelity", False))
+    promote_switches = []
+    if fo4_loot_on:
+        promote_switches += [
+            "--fo4-loot",
+            "--manifest", plugin_manifest,
+            "--loot-fallbacks-out", os.path.join(raw, "loot_fallbacks.json"),
+        ]
+        fo4_esm_path = os.path.join(a.fo4_data, FO4)
+        if os.path.isfile(fo4_esm_path):
+            promote_switches += ["--fo4-plugin", fo4_esm_path]
+        for pname in sorted((sources.get("plugins") or {}).keys(), key=str.casefold):
+            if pname.casefold() == FO4.casefold():
+                continue
+            dlc_p = find_plugin(a.dlc_data, pname)
+            if dlc_p:
+                promote_switches += ["--fo4-plugin", dlc_p]
+    if beds_benches_on:
+        promote_switches.append("--usable-beds-benches")
+        has_fo4_arg = any(tok == "--fo4-data" or tok.startswith("--fo4-data=") for tok in a.promote_arg)
+        if not has_fo4_arg and a.fo4_data:
+            promote_switches += ["--fo4-data", a.fo4_data]
     rc, s = run([sys.executable, os.path.join(HERE, "port_promote.py"), "--out", os.path.join(raw, "promote.json"),
                  "--containers-table", os.path.join(tables, "container_table.json"),
                  "--items-table", os.path.join(tables, "item_table.json"), "--starfield-data", sf_data]
-                + a.promote_arg + export_paths, log, cwd=ROOT)
+                + promote_prefix + promote_switches + a.promote_arg + export_paths, log, cwd=ROOT)
     steps["promote"] = {"exit": rc, "seconds": s}
     if rc != 0:
         return finish_("port_promote failed")
+    if fo4_loot_on and os.path.isfile(os.path.join(raw, "loot_fallbacks.json")):
+        lf_doc = load(os.path.join(raw, "loot_fallbacks.json"))
+        steps["fo4_loot"] = {k: v for k, v in lf_doc.items() if k != "fallbacks"} | {
+            "fallbacks_file": os.path.abspath(os.path.join(raw, "loot_fallbacks.json")),
+        }
+    if beds_benches_on and os.path.isfile(os.path.join(raw, "promote.json")):
+        p_rep = (load(os.path.join(raw, "promote.json")).get("report") or {})
+        steps["usable_beds_benches"] = {
+            "beds": int((p_rep.get("furniture") or {}).get("beds", 0)),
+            "benches": int((p_rep.get("benches") or {}).get("benches", 0)),
+            "benches_report": p_rep.get("benches") or {},
+        }
     env = dict(os.environ, STARFIELD_DATA=sf_data)
-    rc, s = run(["dotnet", a.pluginspike, raw, plugin_manifest] + export_paths, log, env=env)
+    spike_flags = []
+    if plugin_esm != PLUGIN:
+        spike_flags += ["--plugin-name", plugin_esm]
+    if edid_prefix != "FO4Port":
+        spike_flags += ["--edid-prefix", edid_prefix]
+    if root_parent.lower() != DEFAULT_ROOT_LOCATION_PARENT.lower():
+        spike_flags += ["--root-location-parent", root_parent]
+    if fidelity_on:
+        spike_flags.append("--interactive-fidelity")
+    rc, s = run(["dotnet", a.pluginspike, raw, plugin_manifest] + spike_flags + export_paths, log, env=env)
     steps["pluginspike"] = {"exit": rc, "seconds": s}
     if rc != 0:
         return finish_("PluginSpike failed")
-    placed = placed_counts(log)
+    if fidelity_on and os.path.isfile(os.path.join(raw, "interactive_fidelity.json")):
+        if_doc = load(os.path.join(raw, "interactive_fidelity.json"))
+        steps["interactive_fidelity"] = {k: v for k, v in if_doc.items() if k != "Issues"} | {
+            "issues_count": len(if_doc.get("Issues") or []),
+            "report_file": os.path.abspath(os.path.join(raw, "interactive_fidelity.json")),
+        }
+    placed = placed_counts(log, edid_prefix=edid_prefix)
     for c in new_cells:
         if c in cells and c in placed:
             cells[c].update(placed[c])
@@ -802,30 +1102,40 @@ def build(a):
     steps["doors_check"] = {"exit": rc, "seconds": s}
 
     # 6. compare
-    cmp_ = compare(a.base, port)
+    cmp_ = compare(a.base, port, plugin=plugin_esm)
     save(os.path.join(port, "compare.json"), cmp_)
     steps["compare"] = {"pass": cmp_["pass"], "problems": cmp_["problems"], "records": cmp_["records"],
                         "cells_added": len(cmp_["cells_added"])}
+    inst_ok = True
+    if installed_port:
+        cmp_inst = compare(installed_port, port, plugin=plugin_esm)
+        save(os.path.join(port, "compare_installed.json"), cmp_inst)
+        steps["compare_installed"] = {"installed": os.path.abspath(installed_port), "pass": cmp_inst["pass"],
+                                      "problems": cmp_inst["problems"], "ids": cmp_inst["ids"],
+                                      "records": cmp_inst["records"], "cells_added": len(cmp_inst["cells_added"])}
+        inst_ok = cmp_inst["pass"]
     prev_ok = True
     if prev_port:
-        cmp_prev = compare(prev_port, port)
+        cmp_prev = compare(prev_port, port, plugin=plugin_esm, reconciled=reconciled_map or None)
         save(os.path.join(port, "compare_prev.json"), cmp_prev)
         steps["compare_prev"] = {"prev": os.path.abspath(a.prev), "pass": cmp_prev["pass"], "problems": cmp_prev["problems"],
                                  "records": cmp_prev["records"], "cells_added": len(cmp_prev["cells_added"])}
+        if reconciled_map:
+            steps["compare_prev"]["reconciled"] = len(reconciled_map)
         prev_ok = cmp_prev["pass"]
     teleports = load(os.path.join(raw, "teleports.json")) if os.path.isfile(os.path.join(raw, "teleports.json")) else {}
     steps["teleports"] = {k: v for k, v in teleports.items() if not isinstance(v, list)}
     added = {c.casefold() for c in cmp_["cells_added"]}
     for c in new_cells:
         e = cells.setdefault(c, {})
-        e["in_plugin"] = f"fo4port_{c}".casefold() in added
+        e["in_plugin"] = f"{edid_prefix}_{c}".casefold() in added
         try:
             mods = {r.get("model", "").replace("/", "\\").lower() for r in load(os.path.join(exports, c + ".json"))["refs"]}
         except (OSError, ValueError, KeyError):
             mods = set()
         e["failed_models"] = sorted(m for m in mods if ("meshes\\" + m if not m.startswith("meshes\\") else m) in failed_models)
         e["result"] = ("converted" if e["in_plugin"] and e.get("exported") else "failed")
-        e["checked"] = bool(e["in_plugin"] and cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0)
+        e["checked"] = bool(e["in_plugin"] and cmp_["pass"] and inst_ok and prev_ok and steps["doors_check"]["exit"] == 0)
         if e["result"] == "failed":
             e["reason"] = "export failed" if not e.get("exported") else "cell not written by PluginSpike"
 
@@ -833,12 +1143,12 @@ def build(a):
     steps["cells_failed"] = unwritten
 
     # 7. pack (not for a batch with cells missing from its plugin: it fails anyway)
-    if not a.no_pack and cmp_["pass"] and prev_ok and not unwritten:
+    if not a.no_pack and cmp_["pass"] and inst_ok and prev_ok and not unwritten:
         try:
             steps["pack"] = pack(a, port, prev_port, prev_result, log)
         except ValueError as e:
             steps["pack"] = {"pass": False, "problem": str(e)}
-    ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports and not unwritten
+    ok = (cmp_["pass"] and inst_ok and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports and not unwritten
           and steps.get("pack", {}).get("pass", True))
     return finish_(None if ok else "checks failed (see steps)")
 
@@ -854,7 +1164,7 @@ def animated_args_problem(a):
         if getattr(a, "animated_pex", "") or getattr(a, "door_flags", False) or getattr(a, "doorsounds", ""):
             return "--animated-pex, --door-flags and --doorsounds need --animated-doors"
         return None
-    if not a.no_pack and not a.animated_pex:
+    if not a.no_pack and not getattr(a, "dry_run", False) and not a.animated_pex:
         return "--animated-doors needs --animated-pex (the compiled FO4SF_AnimatedLoadDoor.pex), or --no-pack"
     if a.animated_pex and (os.path.basename(a.animated_pex) != ANIMATED_PEX or not os.path.isfile(a.animated_pex)):
         return f"--animated-pex {a.animated_pex} is not an existing {ANIMATED_PEX}"
@@ -900,265 +1210,61 @@ def door_anim_manifest(a, manifest, export_paths, log):
 # -------------------------------------------------------------------------------------------------------------- pack
 # Every vanilla Starfield archive stays under 4 GiB and no source shows the engine reading a larger one
 # (research/framework/interiors.md X3), so a batch whose archive reaches this fails its check.
-ARCHIVE_LIMIT = 4095 * 2 ** 20
-ARCHIVE_WARN = 0.9
-# The textures beyond the first archive ride companion plugins: Starfield loads "<plugin> - Textures.ba2" for a loaded
-# plugin (verified for FO4Port.esm, docs/JOURNAL.md 2026-09 "renders with its original texture", and for the vanilla
-# SFBGS003 / SFBGS00D pairs, docs/terrain/core64c.md); that an archive named after an empty plugin loads the same way
-# is a hypothesis until the PC test in docs/terrain/interior-batches.md runs.
+# Packing implementation lives in scripts/pack_staging.py; module constants stay exposed here so existing callers and
+# unit tests (e.g. monkeypatching ARCHIVE_LIMIT or deploy_starfield.build_archive) behave identically.
+ARCHIVE_LIMIT = pack_staging.ARCHIVE_LIMIT
+ARCHIVE_WARN = pack_staging.ARCHIVE_WARN
 COMPANION_PLUGIN = "FO4PortTextures{n}.esm"
 COMPANION_ARCHIVE = "FO4PortTextures{n} - Textures.ba2"
 COMPANION_RX = re.compile(r"^FO4PortTextures(\d+)( - Textures\.ba2|\.esm)$")
-PARTS = "textures_parts.json"
+PARTS = pack_staging.PARTS
+PACK_ATTEMPTS = pack_staging.PACK_ATTEMPTS
 
-
-def companion_plugin_bytes():
-    """An empty full-master Starfield plugin, byte for byte what Mutagen.Bethesda.Starfield 0.55.0-alpha.67 writes for
-    `new StarfieldMod(key, StarfieldRelease.Starfield)` with HeaderFlag.Master and no records (verified: the probe
-    under scratchpad/probe-companion wrote 42 bytes, TES4 flags 0x1, form version 576, HEDR 0.96 / 0 records / next
-    id 0, no MAST; the same writer and header layout as the FO4Port.esm the game loads, docs/spikes/S2-S4-S9).
-    Full master per X2: FO4Port.esm's own type; whether the game accepts a smaller type for a record-less plugin is
-    the in-game test docs/ai/decisions.md 2026-10-20 names."""
-    return vmad_patch.record_bytes(b"TES4", 0, 1, [(b"HEDR", struct.pack("<fII", 0.96, 0, 0))]).serialize()
-
-
-def texture_sizes(work):
-    """{relative path under <work>/textures (forward slashes): bytes} of every file there, sorted case-insensitively."""
-    root = os.path.join(work, "textures")
-    out = {}
-    for d, _dirs, files in os.walk(root):
-        for f in files:
-            p = os.path.join(d, f)
-            out[os.path.relpath(p, root).replace("\\", "/")] = os.path.getsize(p)
-    return dict(sorted(out.items(), key=lambda kv: kv[0].casefold()))
-
-
-def plan_parts(sizes, cap, previous=None):
-    """Split {path: bytes} into parts of at most cap bytes each (loose bytes; a file is never split): a list of
-    sorted path lists, part 0 the main textures archive. Deterministic: a file that `previous` ({path: part index})
-    placed keeps its part when that part still has room, taken in sorted path order; every other file goes, in sorted
-    path order, to the lowest part with room, a new part when none has. So a file keeps its archive across batches
-    unless its old part filled up around it. A file larger than cap raises ValueError."""
-    previous = previous or {}
-    parts, used = [], []
-    paths = sorted(sizes, key=str.casefold)
-    big = [p for p in paths if sizes[p] > cap]
-    if big:
-        raise ValueError(f"{len(big)} texture(s) larger than one archive part ({cap:,} bytes): {big[:3]}")
-    rest = []
-    for p in paths:
-        k = previous.get(p)
-        if isinstance(k, int) and k >= 0:
-            while len(parts) <= k:
-                parts.append([])
-                used.append(0)
-            if used[k] + sizes[p] <= cap:
-                parts[k].append(p)
-                used[k] += sizes[p]
-                continue
-        rest.append(p)
-    for p in rest:
-        k = next((i for i, u in enumerate(used) if u + sizes[p] <= cap), None)
-        if k is None:
-            parts.append([])
-            used.append(0)
-            k = len(parts) - 1
-        parts[k].append(p)
-        used[k] += sizes[p]
-    # A part emptied by the previous assignment (every file of it gone or moved) is dropped and the parts after it
-    # move down one number (their files count as moved): a part is never empty, so no archive is packed from nothing
-    # and no companion ships without textures.
-    return [sorted(p, key=str.casefold) for p in parts if p]
-
-
-def pack_ratio(prev_result, loose_total=None):
-    """Packed bytes per loose byte of the previous batch's texture archives, the largest over its parts (the least
-    compressed part bounds the others; above 1.0 when an archive came out larger than its files, which then plans
-    tighter); 1.0 without a previous measurement, so a first build plans by loose bytes (Archive2's DDS format packs
-    the batch 4 textures to under half their loose size, docs/terrain/interior-batches.md, so that plan is only
-    conservative)."""
-    parts = ((prev_result or {}).get("steps") or {}).get("pack", {}).get("parts") or []
-    ratios = [p["bytes"] / p["loose_bytes"] for p in parts if p.get("loose_bytes") and p.get("bytes")]
-    if ratios:
-        return max(ratios)
-    # A previous batch built before the split (batches 0 to 4) recorded only its one textures archive's size: that
-    # size over this batch's loose bytes (a superset of the previous batch's) is a lower bound, so the plan may come
-    # out optimistic; an over-limit part is then replanned (pack()). Without it batch 5 would plan by loose bytes and
-    # split into a companion archive it does not need.
-    legacy = ((prev_result or {}).get("steps") or {}).get("pack", {}).get("bytes", {}).get(deploy_starfield.TEX_ARCHIVE)
-    if legacy and loose_total:
-        return min(1.0, legacy / loose_total)
-    return 1.0
-
-
-def measured_ratio(recorded):
-    """The largest packed/loose ratio over this attempt's parts (None when nothing was measured)."""
-    ratios = [p["bytes"] / p["loose_bytes"] for p in recorded if p["loose_bytes"]]
-    return max(ratios) if ratios else None
-
-
-def part_names(k):
-    """(archive, companion plugin or None) of texture part k (0 = the port's own textures archive)."""
-    if k == 0:
-        return deploy_starfield.TEX_ARCHIVE, None
-    return COMPANION_ARCHIVE.format(n=k + 1), COMPANION_PLUGIN.format(n=k + 1)
-
-
-def link_tree(work, rels, dst):
-    """<dst>/textures/<rel> for every rel of the part: a hard link to the work staging's file (no copy, the same
-    bytes), or a copy where the volume refuses links (counted, reported). Returns the copies made."""
-    copies = 0
-    for rel in rels:
-        src = os.path.join(work, "textures", *rel.split("/"))
-        to = os.path.join(dst, "textures", *rel.split("/"))
-        os.makedirs(os.path.dirname(to), exist_ok=True)
-        try:
-            os.link(src, to)
-        except OSError:
-            shutil.copyfile(src, to)
-            copies += 1
-    return copies
-
-
-PACK_ATTEMPTS = 3
+companion_plugin_bytes = pack_staging.companion_plugin_bytes
+texture_sizes = pack_staging.texture_sizes
+plan_parts = pack_staging.plan_parts
+pack_ratio = pack_staging.pack_ratio
+measured_ratio = pack_staging.measured_ratio
+part_names = pack_staging.part_names
+link_tree = pack_staging.link_tree
 
 
 def pack(a, port, prev_port, prev_result, log):
-    """Step 7: "FO4Port - Main.ba2" from the work staging's model folders, then the textures in as many DDS archives as
-    plan_parts needs under ARCHIVE_WARN of the limit (the previous batch's assignment from <prev port>/textures_parts.json
-    and its packed/loose ratio, or --pack-ratio, tighten the plan). One part is packed straight from the work staging,
-    as before; several are each packed from a link tree under <out>/pack_parts/<k> (removed after). Every further part
-    gets its companion plugin next to it.
-    The ratio is measured on the parts the previous batch packed, never on the files this batch adds, so a part can
-    come out over the limit when the new textures pack worse: then the plan is redone with the ratio this attempt
-    measured (its least packed part's, always above the ratio planned with, since an over-limit part packed more than
-    cap * ratio bytes), only the parts whose file list changed are packed again, up to PACK_ATTEMPTS times; a batch
-    that is still over fails (archive_check), and the measured ratio is in steps.pack for the next plan.
-    Returns steps.pack: archive_check's fields over every archive and plugin, plus "sha256" of each (pinned for
-    successor_check), "parts", "ratio" / "cap_loose_bytes" (the plan that was kept), "ratio_source", "attempts",
-    "moved" (files whose part changed from the previous batch's) and "copies" (link fallbacks). Raises ValueError for
-    an unsplittable file."""
-    t = time.time()
-    packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
-    main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
+    """Step 7: delegate BA2 + texture-companion packing to scripts/pack_staging.py."""
+    plugin_esm, _prefix, _edid_prefix = resolve_plugin_and_prefix(a)
     pex = getattr(a, "animated_pex_snapshot", "") if getattr(a, "animated_doors", False) else ""
-    scripts = os.path.join(a.work, "scripts")
-    if pex:
-        # The PEX rides this build's Main archive: door_anim_manifest's snapshot, checked against the sha256 result.json
-        # records, is put into the work staging for Archive2 and taken out after, so a later build from the same
-        # staging without the switch packs no script.
-        if os.path.exists(scripts):
-            raise ValueError(f"{scripts} exists: the work staging must not hold scripts of its own")
-        os.makedirs(scripts)
-        staged = os.path.join(scripts, ANIMATED_PEX)
-        shutil.copyfile(pex, staged)
-        if sha256(staged) != a.animated_pex_sha256:
-            shutil.rmtree(scripts, ignore_errors=True)
-            raise ValueError(f"{pex} changed since it was pinned (sha256 {a.animated_pex_sha256[:12]}): refusing to pack it")
-        main_dirs.append("scripts")
-    try:
-        deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.ARCHIVE), main_dirs, "General")
-    finally:
-        if pex:
-            shutil.rmtree(scripts, ignore_errors=True)
-    sizes = texture_sizes(a.work)
-    previous = {}
-    if prev_port and os.path.isfile(os.path.join(prev_port, PARTS)):
-        previous = load(os.path.join(prev_port, PARTS)).get("assignment") or {}
-    forced = getattr(a, "pack_ratio", None)
-    ratio = forced or pack_ratio(prev_result, sum(sizes.values()))
-    ratio_source = "--pack-ratio" if forced else ("prev" if prev_result else "default")
-    copies, attempts, packed = 0, [], {}                      # packed: part k -> the rels its archive on disk holds
-    while True:
-        cap = int(ARCHIVE_WARN * ARCHIVE_LIMIT / ratio)
-        try:
-            parts = plan_parts(sizes, cap, previous) or [[]]           # no textures: one (empty) archive, as before
-        except ValueError as e:
-            if not attempts:
-                raise
-            raise ValueError(f"{e} after replanning at ratio {ratio:.3f} (attempts: {attempts})")
-        recorded = []
-        for k, rels in enumerate(parts):
-            archive, plugin = part_names(k)
-            if packed.get(k) != tuple(rels):
-                if len(parts) == 1:
-                    deploy_starfield.build_archive(packer, os.path.join(port, archive), ["textures"], "DDS")
-                else:
-                    tree_root = os.path.join(a.out, "pack_parts", str(k))
-                    copies += link_tree(a.work, rels, tree_root)
-                    deploy_starfield.build_archive(argparse.Namespace(starfield=a.starfield, staging=tree_root),
-                                                   os.path.join(port, archive), ["textures"], "DDS")
-                    shutil.rmtree(tree_root, ignore_errors=True)
-                packed[k] = tuple(rels)
-            if plugin:
-                with open(os.path.join(port, plugin), "wb") as f:
-                    f.write(companion_plugin_bytes())
-            recorded.append({"archive": archive, "plugin": plugin, "files": len(rels), "loose_bytes": sum(sizes[r] for r in rels),
-                             "bytes": os.path.getsize(os.path.join(port, archive))})
-        over = [p["archive"] for p in recorded if p["bytes"] >= ARCHIVE_LIMIT]
-        attempts.append({"ratio": ratio, "cap_loose_bytes": cap, "parts": len(parts), "over": over})
-        if not over or len(attempts) >= PACK_ATTEMPTS:
-            break
-        ratio = max(measured_ratio(recorded), ratio)              # the measured one is larger (docstring); max for safety
-        with open(log, "a", encoding="utf-8") as f:
-            f.write(f"pack: {', '.join(over)} over the limit at ratio {attempts[-1]['ratio']:.3f}; replanning at {ratio:.3f}\n")
-    for k in sorted(packed):                                      # parts an earlier attempt packed and the kept plan has not
-        if k >= len(parts):
-            for n in part_names(k):
-                if n and os.path.isfile(os.path.join(port, n)):
-                    os.remove(os.path.join(port, n))
-    shutil.rmtree(os.path.join(a.out, "pack_parts"), ignore_errors=True)
-    files = [deploy_starfield.ARCHIVE] + [n for p in recorded for n in (p["archive"], p["plugin"]) if n]
-    assignment = {r: k for k, rels in enumerate(parts) for r in rels}
-    save(os.path.join(port, PARTS), {"schema_version": 1, "cap_loose_bytes": cap, "ratio": ratio,
-                                     "parts": [p["archive"] for p in recorded], "assignment": assignment})
-    out = archive_check({n: os.path.getsize(os.path.join(port, n)) for n in files})
-    # Pinned at build time: a later release checks this batch's archives and companions against these when it stands
-    # in for an older batch's (successor_check).
-    out["sha256"] = {n: sha256(os.path.join(port, n)) for n in files}
-    out.update({"parts": recorded, "ratio": ratio, "ratio_source": ratio_source, "cap_loose_bytes": cap, "attempts": attempts,
-                "copies": copies, "moved": sum(1 for r, k in assignment.items() if r in previous and previous[r] != k),
-                "seconds": round(time.time() - t, 1)})
-    with open(log, "a", encoding="utf-8") as f:
-        f.write(f"pack: {len(parts)} texture part(s), cap {cap:,} loose bytes (ratio {ratio:.3f} from {ratio_source}, "
-                f"{len(attempts)} attempt(s)), {out['moved']} file(s) moved from the previous batch's part, {copies} copied "
-                f"where a hard link failed\n")
-    return out
+    return pack_staging.pack_staging(
+        staging=a.work,
+        out_dir=port,
+        starfield=a.starfield,
+        plugin=plugin_esm,
+        prev_port=prev_port,
+        prev_result=prev_result,
+        pack_ratio_override=getattr(a, "pack_ratio", None),
+        animated_pex=pex,
+        animated_pex_sha256=getattr(a, "animated_pex_sha256", "") if pex else "",
+        log_path=log,
+        scratch_parent=a.out,
+        limit=ARCHIVE_LIMIT,
+        warn=ARCHIVE_WARN,
+        build_archive_fn=deploy_starfield.build_archive,
+    )
 
 
 def archive_check(sizes):
     """{"bytes", "pass", "near_limit"} for the packed archives' sizes."""
-    over = sorted(n for n, s in sizes.items() if s >= ARCHIVE_LIMIT)
-    near = sorted(n for n, s in sizes.items() if ARCHIVE_WARN * ARCHIVE_LIMIT <= s < ARCHIVE_LIMIT)
-    out = {"bytes": sizes, "limit": ARCHIVE_LIMIT, "pass": not over, "near_limit": near}
-    if over:
-        out["problem"] = (f"over {ARCHIVE_LIMIT:,} bytes: {', '.join(over)} (a texture part packed worse than planned "
-                          f"even after replanning: see steps.pack.attempts, or plan tighter with --pack-ratio)")
-    return out
+    return pack_staging.archive_check(sizes, limit=ARCHIVE_LIMIT, warn=ARCHIVE_WARN)
 
 
-def install_set(port):
-    """What a port folder installs: {"files": [...], "plugins_txt": [...]} from the files there, the plugin first, then
-    its archives, then each companion plugin and its archive in number order; Plugins.txt lists FO4Port.esm and then
-    the companions in that order (a companion must load for its archive to, and nothing masters it)."""
-    if not os.path.isdir(port):
-        return {"files": [], "plugins_txt": []}
-    have = set(os.listdir(port))
-    files = [n for n in (PLUGIN, deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE) if n in have]
-    plugins = [PLUGIN] if PLUGIN in have else []
-    nums = sorted({int(m.group(1)) for n in have for m in [COMPANION_RX.match(n)] if m})
-    for n in nums:
-        plugin, archive = COMPANION_PLUGIN.format(n=n), COMPANION_ARCHIVE.format(n=n)
-        files += [x for x in (plugin, archive) if x in have]
-        if plugin in have:
-            plugins.append(plugin)
-    return {"files": files, "plugins_txt": plugins}
+def install_set(port, plugin=PLUGIN):
+    """What a port folder installs: {"files": [...], "plugins_txt": [...]}."""
+    return pack_staging.install_set(port, plugin=plugin)
 
 
-def placed_counts(log):
+def placed_counts(log, edid_prefix="FO4Port"):
     """{cell: {"placed", "lights", "skipped"}} from PluginSpike's per-cell lines."""
     out = {}
-    rx = re.compile(r"cell FO4Port_(\S+) \S+: placed (\d+) references \+ (\d+) lights .*skipped (\d+)")
+    rx = re.compile(rf"cell {re.escape(edid_prefix)}_(\S+) \S+: placed (\d+) references .*?\+ (\d+) lights .*?skipped (\d+)")
     with open(log, encoding="utf-8", errors="replace") as f:
         for line in f:
             m = rx.search(line)
@@ -1168,8 +1274,12 @@ def placed_counts(log):
 
 
 def finish(a, plan, steps, cells, t0, error, sources=None):
+    plugin_esm, prefix, _edid_prefix = resolve_plugin_and_prefix(a)
     port = os.path.join(a.out, "port")
-    pins = {"commit": git_head(), "plan": sha256(a.plan), "base_plugin": sha256(os.path.join(a.base, PLUGIN)),
+    base_plugin_path = os.path.join(a.base, plugin_esm)
+    if not os.path.isfile(base_plugin_path) and os.path.isfile(os.path.join(a.base, PLUGIN)):
+        base_plugin_path = os.path.join(a.base, PLUGIN)
+    pins = {"commit": git_head(), "plan": sha256(a.plan), "base_plugin": sha256(base_plugin_path),
             "base_formids": sha256(os.path.join(a.base, "formids.json"))}
     core_pin = getattr(a, "core_pin", None)                  # the core vmad_patch wired the door returns to
     if core_pin:
@@ -1177,29 +1287,42 @@ def finish(a, plan, steps, cells, t0, error, sources=None):
         if (sha256(core_plugin) if os.path.isfile(core_plugin) else None) != core_pin:
             error = error or f"--core's {CORE_PLUGIN} changed while the batch was built (doors wired to {core_pin[:8]})"
         pins["core_plugin"] = core_pin
-    if os.path.isfile(os.path.join(port, PLUGIN)):
-        pins["plugin"] = sha256(os.path.join(port, PLUGIN))
-        pins["plugin_bytes"] = os.path.getsize(os.path.join(port, PLUGIN))
+    if os.path.isfile(os.path.join(port, plugin_esm)):
+        pins["plugin"] = sha256(os.path.join(port, plugin_esm))
+        pins["plugin_bytes"] = os.path.getsize(os.path.join(port, plugin_esm))
     pinned = os.path.join(a.out, "base_exports")              # the copies this build read, not --base-exports now
     if os.path.isdir(pinned):
         pins["base_exports"] = base_export_pins(pinned, base_cells(pinned))
-    install = install_set(port)
+    install = install_set(port, plugin=plugin_esm)
     result = {"batch": a.batch, "name": os.path.basename(os.path.abspath(a.out)), "pass": error is None, "error": error,
               "installed": False, "base": os.path.abspath(a.base), "core": os.path.abspath(a.core),
               "work": os.path.abspath(a.work), "pins": pins, "sources": sources, "install": install,
               "steps": steps, "cells": cells,
               "totals": dict(Counter(c.get("result", "pending") for c in cells.values())),
               "seconds": round(time.time() - t0, 1), "free_gb_after": round(free_gb(a.out), 1)}
+    if plugin_esm != PLUGIN or prefix != DEFAULT_PREFIX:
+        result["plugin_name"] = plugin_esm
+        result["prefix"] = prefix
+    root_parent = normalize_parent_formkey(getattr(a, "root_location_parent", ""))
+    if root_parent.lower() != DEFAULT_ROOT_LOCATION_PARENT.lower():
+        result["root_location_parent"] = root_parent
+    ib1_switches = {
+        "fo4_loot": bool(getattr(a, "fo4_loot", False)),
+        "usable_beds_benches": bool(getattr(a, "usable_beds_benches", False)),
+        "interactive_fidelity": bool(getattr(a, "interactive_fidelity", False)),
+    }
+    if any(ib1_switches.values()):
+        result["start_path_switches"] = ib1_switches
     save(os.path.join(a.out, MARKER), result)
     with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"Interior batch {a.batch} (scripts/terrain/interior_batch.py build; docs/terrain/interior-batches.md).\n"
                 f"{'PASS' if error is None else 'FAIL: ' + error}. NOT installed, NOT queued. The port to install is port\\ "
-                f"(FO4Port.esm + archives); plugin\\ is PluginSpike's output before the door patch.\n")
+                f"({plugin_esm} + archives); plugin\\ is PluginSpike's output before the door patch.\n")
         if install["files"]:
             f.write("Files to install into Starfield\\Data, all of them (a texture archive beyond the first is named after "
                     "the companion plugin next to it, which must be active for the game to load it: unverified in game, "
                     "docs/terrain/interior-batches.md PC tests):\n" + "".join(f"  port\\{n}\n" for n in install["files"])
-                    + "Plugins.txt order (the companions right after FO4Port.esm):\n"
+                    + f"Plugins.txt order (the companions right after {plugin_esm}):\n"
                     + "".join(f"  *{n}\n" for n in install["plugins_txt"]))
     print(json.dumps({k: result[k] for k in ("batch", "pass", "error", "totals", "seconds", "free_gb_after")}, indent=1))
     return 0 if error is None else 1
@@ -1213,8 +1336,9 @@ def git_head():
 
 
 # ------------------------------------------------------------------------------------------------------------- doors
-def doors(plan, census, n):
+def doors(plan, census, n, prefix=DEFAULT_PREFIX):
     """The door-round selection of batch n: door_rounds.py stage --only, and the doors it covers."""
+    edid_prefix = pipeline.editor_id_prefix(prefix)
     rows = {r["editor_id"]: r for r in census["cells"]}
     batch = plan["batches"][n - 1]
     cells, only = [], []
@@ -1224,10 +1348,10 @@ def doors(plan, census, n):
         cw = [d for d in ins if d.get("from") == "Commonwealth"]
         other_worlds = sorted({d["from"] for d in ins if d.get("from") in census.get("worlds", {}).values()} - {"Commonwealth"})
         interiors = sorted({d["from"] for d in ins if d.get("from") and d["from"] not in census.get("worlds", {}).values()})
-        cells.append({"cell": c["editor_id"], "coc": f"FO4Port_{c['editor_id']}", "commonwealth_doors": [d["door"] for d in cw],
+        cells.append({"cell": c["editor_id"], "coc": f"{edid_prefix}_{c['editor_id']}", "commonwealth_doors": [d["door"] for d in cw],
                       "other_worldspace_doors": other_worlds, "interior_doors_from": interiors})
         if cw:
-            only.append(f"FO4Port_{c['editor_id']}")
+            only.append(f"{edid_prefix}_{c['editor_id']}")
     return {"batch": n, "name": batch["name"], "only": ",".join(only), "cells": cells,
             "commonwealth_door_count": sum(len(c["commonwealth_doors"]) for c in cells),
             "needs": ("this batch's port installed together with a core build whose doors cluster was made against it "
@@ -1282,6 +1406,17 @@ def references(path, roots):
     return sorted(hits)
 
 
+def stage_plugin_name(stage):
+    """Plugin filename recorded in <stage>/result.json, defaulting to FO4Port.esm."""
+    try:
+        raw = load(os.path.join(stage, MARKER)).get("plugin_name")
+        if raw:
+            return pack_staging.normalize_plugin_name(raw)[0]
+    except (OSError, ValueError):
+        pass
+    return PLUGIN
+
+
 def dependencies(stage, check_refs, starfield):
     """Raise ValueError when stage is still needed now: its plugin is the installed one, or a text file under check_refs
     names it. A missing or unreadable check refuses too. Returns the stage plugin's sha256 (None without one)."""
@@ -1291,12 +1426,13 @@ def dependencies(stage, check_refs, starfield):
     data = os.path.join(starfield, "Data")
     if not os.path.isdir(data):
         raise ValueError(f"{data} is missing, so the installed plugin cannot be checked")
-    plugin = os.path.join(stage, "port", PLUGIN)
+    plugin_esm = stage_plugin_name(stage)
+    plugin = os.path.join(stage, "port", plugin_esm)
     digest = sha256(plugin) if os.path.isfile(plugin) else None
-    installed = theirs = os.path.join(data, PLUGIN)
+    installed = theirs = os.path.join(data, plugin_esm)
     try:
         if digest and os.path.isfile(installed) and sha256(installed) == digest:
-            raise ValueError(f"{name}: its {PLUGIN} is the one installed in {installed}")
+            raise ValueError(f"{name}: its {plugin_esm} is the one installed in {installed}")
         # The archives too: a companion plugin is the same 42 bytes in every stage, so only its archive (and the
         # port's own two) can say whose textures the game has. Same size first, so a different archive costs no hash.
         for rel in superseded_files(stage):
@@ -1319,16 +1455,14 @@ def dependencies(stage, check_refs, starfield):
 SUPERSEDED = ("port/" + PLUGIN, "port/FO4Port - Main.ba2", "port/FO4Port - Textures.ba2")
 
 
-def is_superseded(rel):
+def is_superseded(rel, plugin=PLUGIN):
     """True for a stage file (relative, forward slashes) the successor carries: SUPERSEDED or a texture companion."""
-    return rel in SUPERSEDED or (rel.startswith("port/") and rel.count("/") == 1 and bool(COMPANION_RX.match(rel[5:])))
+    return pack_staging.is_superseded(rel, plugin=plugin)
 
 
-def superseded_files(stage):
+def superseded_files(stage, plugin=""):
     """The superseded files a stage has, sorted: the port's plugin and archives, then each companion plugin and archive."""
-    port = os.path.join(stage, "port")
-    have = os.listdir(port) if os.path.isdir(port) else []
-    return sorted("port/" + n for n in have if is_superseded("port/" + n))
+    return pack_staging.superseded_files(stage, plugin=plugin or stage_plugin_name(stage))
 
 
 def tree(stage):
@@ -1365,13 +1499,16 @@ def successor_check(stage, successor):
         raise ValueError(f"successor {os.path.basename(successor)} did not pass")
     if os.path.abspath(cp.get("prev") or "").lower() != os.path.abspath(stage).lower() or cp.get("pass") is not True:
         raise ValueError(f"successor {os.path.basename(successor)} was not built with --prev {name} and a passing compare")
-    plugin = os.path.join(successor, "port", PLUGIN)
+    plugin_esm = stage_plugin_name(stage)
+    if stage_plugin_name(successor) != plugin_esm:
+        raise ValueError(f"successor {os.path.basename(successor)} builds {stage_plugin_name(successor)}, not {plugin_esm}")
+    plugin = os.path.join(successor, "port", plugin_esm)
     want = (nxt.get("pins") or {}).get("plugin")
     if not want or not os.path.isfile(plugin) or sha256(plugin) != want:
-        raise ValueError(f"successor {os.path.basename(successor)}: its {PLUGIN} is missing or not the one it built")
+        raise ValueError(f"successor {os.path.basename(successor)}: its {plugin_esm} is missing or not the one it built")
     packed = (steps.get("pack") or {}).get("sha256") or {}
-    for f in superseded_files(stage):
-        if f == "port/" + PLUGIN:
+    for f in superseded_files(stage, plugin=plugin_esm):
+        if f == "port/" + plugin_esm:
             continue                                                    # checked above against pins.plugin
         got = os.path.join(successor, *f.split("/"))
         want = packed.get(f.split("/")[-1])
@@ -1384,7 +1521,8 @@ def successor_check(stage, successor):
 def archived_check(rec):
     """Raise ValueError unless every file of the released tree is either superseded (is_superseded) or still in its
     archive copy, byte for byte. Nothing else may be deleted, whatever its size."""
-    missing = sorted(f for f in set(rec.get("tree", {})) - set(rec.get("archived", {})) if not is_superseded(f))
+    plugin_esm = rec.get("plugin_name") or PLUGIN
+    missing = sorted(f for f in set(rec.get("tree", {})) - set(rec.get("archived", {})) if not is_superseded(f, plugin=plugin_esm))
     if missing:
         raise ValueError("not archived: " + ", ".join(missing[:5]))
     for rel, (size, digest) in rec.get("archived", {}).items():
@@ -1414,6 +1552,7 @@ def release(stage, reason, check_refs, starfield, successor, archive):
         raise ValueError(f"{name}: a failed build is evidence; keep it (delete it by hand once archived)")
     if not reason.strip():
         raise ValueError("a reason is required")
+    plugin_esm = stage_plugin_name(stage)
     successor_check(stage, successor)
     digest = dependencies(stage, check_refs, starfield)
     files = tree(stage)
@@ -1425,7 +1564,7 @@ def release(stage, reason, check_refs, starfield, successor, archive):
         raise ValueError("the archive must be outside the stage")
     archived = {}
     for rel, (size, sha) in files.items():
-        if is_superseded(rel):
+        if is_superseded(rel, plugin=plugin_esm):
             continue
         cp = os.path.join(dest, rel)
         os.makedirs(os.path.dirname(cp), exist_ok=True)
@@ -1443,6 +1582,8 @@ def release(stage, reason, check_refs, starfield, successor, archive):
            "plugin_sha256": digest, "starfield": os.path.abspath(starfield),
            "checked_refs": [os.path.abspath(r) for r in check_refs], "successor": os.path.abspath(successor),
            "archive": dest, "archived": archived, "tree": files}
+    if plugin_esm != PLUGIN:
+        rec["plugin_name"] = plugin_esm
     archived_check(rec)
     receipt = os.path.join(dest, RELEASE)
     if not os.path.exists(receipt):                                     # the generation's own copy of its first receipt
@@ -1504,6 +1645,110 @@ def prune(root, keep, delete):
     return drop
 
 
+# -------------------------------------------------------------------------------------------------------- adopt-core
+def adopt_core(stage, core_dir="", out_dir=""):
+    """Record `pins.core_plugin` SHA-256 from the core verified by `<stage>/port/doors_check.json` so
+    `deploy_starfield.py install --batch` accepts the stage without `--other-core` when the installed core matches.
+    When `out_dir` is given, writes a new adopted stage folder (hard-linking `port/` files) without modifying `stage`."""
+    stage = os.path.abspath(stage)
+    if out_dir:
+        out_dir = os.path.abspath(out_dir)
+        pipeline.refuse_unsafe_output_dir(out_dir, "--out")
+        if os.path.exists(out_dir):
+            raise ValueError(f"--out {out_dir} already exists")
+    else:
+        pipeline.refuse_unsafe_output_dir(stage, "--stage")
+
+    marker_path = os.path.join(stage, MARKER)
+    if not os.path.isfile(marker_path):
+        raise ValueError(f"{stage}: missing {MARKER}")
+    res = load(marker_path)
+    if res.get("pass") is not True:
+        raise ValueError(f"{stage}: stage did not pass (pass={res.get('pass')!r})")
+
+    plugin_esm = stage_plugin_name(stage)
+    port_dir = os.path.join(stage, "port")
+    plugin_path = os.path.join(port_dir, plugin_esm)
+    want_plugin = (res.get("pins") or {}).get("plugin")
+    if not want_plugin or not os.path.isfile(plugin_path) or sha256(plugin_path) != want_plugin:
+        raise ValueError(f"{stage}: port\\{plugin_esm} missing or does not match pins.plugin")
+
+    dc_path = os.path.join(port_dir, "doors_check.json")
+    if not os.path.isfile(dc_path):
+        raise ValueError(f"{stage}: missing port\\doors_check.json")
+    dc = load(dc_path)
+    checks = dc.get("checks") or []
+    if dc.get("pass") is not True or not checks or not all(isinstance(c, list) and len(c) >= 2 and c[1] is True for c in checks):
+        raise ValueError(f"{dc_path}: doors_check did not pass all checks")
+    if dc.get("plugin") and dc.get("plugin") != plugin_esm:
+        raise ValueError(f"{dc_path}: doors_check plugin {dc.get('plugin')!r} != {plugin_esm!r}")
+
+    checked_core = dc.get("core") or ""
+    chosen_core = os.path.abspath(core_dir or checked_core)
+    if not chosen_core or not os.path.isdir(chosen_core):
+        raise ValueError(f"verified core folder not found: {chosen_core!r}")
+    chosen_esm = os.path.join(chosen_core, CORE_PLUGIN)
+    if not os.path.isfile(chosen_esm):
+        raise ValueError(f"missing {CORE_PLUGIN} in {chosen_core}")
+    core_sha = sha256(chosen_esm)
+
+    if core_dir and checked_core and os.path.abspath(core_dir).lower() != os.path.abspath(checked_core).lower():
+        checked_esm = os.path.join(checked_core, CORE_PLUGIN)
+        if not os.path.isfile(checked_esm) or sha256(checked_esm) != core_sha:
+            raise ValueError(
+                f"--core {chosen_core} does not match the core verified in doors_check.json ({checked_core})"
+            )
+
+    existing_pin = (res.get("pins") or {}).get("core_plugin")
+    if existing_pin and existing_pin.lower() != core_sha.lower():
+        raise ValueError(
+            f"{stage}: pins.core_plugin already set to {existing_pin[:12]}, which differs from {core_sha[:12]}"
+        )
+
+    updated = json.loads(json.dumps(res))
+    updated.setdefault("pins", {})["core_plugin"] = core_sha
+    prev_core = updated.get("core")
+    updated["core"] = chosen_core
+    updated.setdefault("steps", {})["adopt_core"] = {
+        "core": chosen_core,
+        "core_plugin": core_sha,
+        "doors_check": os.path.abspath(dc_path),
+        "checks": len(checks),
+        "previous_core": prev_core,
+        "previous_core_plugin": existing_pin,
+    }
+
+    target_dir = out_dir or stage
+    copies = 0
+    if out_dir:
+        os.makedirs(os.path.join(out_dir, "port"), exist_ok=True)
+        for name in sorted(os.listdir(port_dir)):
+            s_file = os.path.join(port_dir, name)
+            if not os.path.isfile(s_file):
+                continue
+            d_file = os.path.join(out_dir, "port", name)
+            try:
+                os.link(s_file, d_file)
+            except OSError:
+                shutil.copyfile(s_file, d_file)
+                copies += 1
+        if os.path.isfile(os.path.join(stage, "README.txt")):
+            shutil.copyfile(os.path.join(stage, "README.txt"), os.path.join(out_dir, "README.txt"))
+        updated["name"] = os.path.basename(out_dir)
+        updated["steps"]["adopt_core"]["source_stage"] = stage
+        updated["steps"]["adopt_core"]["copied_files"] = copies
+
+    save(os.path.join(target_dir, MARKER), updated)
+    return {
+        "stage": target_dir,
+        "plugin": plugin_esm,
+        "core": chosen_core,
+        "core_plugin": core_sha,
+        "checks": len(checks),
+        "copied_files": copies,
+    }
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1516,8 +1761,14 @@ def main(argv=None):
     b.add_argument("--promote-arg", action="append", default=[])
     b.add_argument("--convert-arg", action="append", default=[])
     b.add_argument("--prev", default="")
+    b.add_argument("--installed-port", "--compare-installed", dest="installed_port", default="",
+                   help="installed port folder (or stage) whose formids.json and records must have zero IDs moved")
+    b.add_argument("--dry-run", action="store_true",
+                   help="verify --prev, --base, --installed-port, source pins, and FormID reconciliation without building")
     b.add_argument("--dlc-data", action="append", default=[],
                    help="a DLC's Data folder (repeatable): its plugin for that batch's cells, its DLC*.ba2 for the models")
+    b.add_argument("--dlc-plugins", default="",
+                   help="comma-separated DLC plugin stems in load order (DLCUltraHighResolution is always skipped)")
     b.add_argument("--min-free-gb", type=float, default=40.0)
     b.add_argument("--no-pack", action="store_true")
     b.add_argument("--jobs", type=int, default=2)
@@ -1534,15 +1785,43 @@ def main(argv=None):
     b.add_argument("--animated-pex", default="", help="with --animated-doors: the compiled FO4SF_AnimatedLoadDoor.pex to pack")
     b.add_argument("--door-flags", action="store_true", help="with --animated-doors: copy FO4's door flags (load_door_anim flags)")
     b.add_argument("--doorsounds", default="", help="with --animated-doors: SfInspect doorsounds TSV (load_door_anim sounds)")
+    b.add_argument("--plugin-name", default=PLUGIN, help="target plugin file or stem (default: FO4Port.esm)")
+    b.add_argument("--prefix", default=DEFAULT_PREFIX, help="asset/EditorID prefix slug (default: fo4port)")
+    b.add_argument("--root-location-parent", default=DEFAULT_ROOT_LOCATION_PARENT,
+                   help="parent LCTN FormKey for <Prefix>_InteriorsLocation (default: Starfield.esm:01B736)")
+    b.add_argument("--fo4-loot", action="store_true",
+                   help="off by default (IB1): populate interior containers from FO4 CNTO/LVLI where converted items exist, logging fallbacks")
+    b.add_argument("--usable-beds-benches", action="store_true",
+                   help="off by default (IB1): promote FO4 beds and crafting workbenches alongside chairs")
+    b.add_argument("--interactive-fidelity", action="store_true",
+                   help="off by default (IB1): pass --interactive-fidelity (XLOC, XESP, XLKR, XAPR) to PluginSpike")
+    ac = sub.add_parser("adopt-core")
+    ac.add_argument("--stage", required=True, help="stage directory with passed result.json and port/doors_check.json")
+    ac.add_argument("--core", default="", help="optional core directory (defaults to port/doors_check.json 'core')")
+    ac.add_argument("--out", default="", help="optional new stage directory (leaves --stage untouched)")
+    import interior_dlc
+    bd = sub.add_parser("build-dlc")
+    interior_dlc.add_cli_arguments(bd)
+    import interior_start_census
+    sc = sub.add_parser("start-census", help="IB1 per-cell census (non-credit loot, usable furniture, XLOC, XESP, XLKR)")
+    sc_grp = sc.add_mutually_exclusive_group(required=True)
+    sc_grp.add_argument("--plugin", default="", help="path to built FO4Port.esm")
+    sc_grp.add_argument("--stage", default="", help="interior batch stage directory")
+    sc.add_argument("--plugin-name", default=PLUGIN)
+    sc.add_argument("--cells", action="append", default=[])
+    sc.add_argument("--start-path-only", action="store_true")
+    sc.add_argument("--out", default="")
     c = sub.add_parser("compare")
     c.add_argument("--old", required=True)
     c.add_argument("--new", required=True)
     c.add_argument("--json", default="")
+    c.add_argument("--plugin-name", default=PLUGIN)
     d = sub.add_parser("doors")
     d.add_argument("--plan", required=True)
     d.add_argument("--census", required=True)
     d.add_argument("--batch", type=int, required=True)
     d.add_argument("--out", required=True)
+    d.add_argument("--prefix", default=DEFAULT_PREFIX)
     p = sub.add_parser("prune")
     p.add_argument("--staging-root", required=True)
     p.add_argument("--keep", type=int, default=2)
@@ -1557,15 +1836,31 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "build":
         return build(a)
+    if a.cmd == "build-dlc":
+        return interior_dlc.run_from_namespace(a)
+    if a.cmd == "start-census":
+        try:
+            return interior_start_census.run_from_namespace(a)
+        except (OSError, ValueError) as e:
+            print("refused: " + str(e), file=sys.stderr)
+            return 1
+    if a.cmd == "adopt-core":
+        try:
+            summary = adopt_core(a.stage, core_dir=a.core, out_dir=a.out)
+            print(json.dumps(summary, indent=1))
+            return 0
+        except ValueError as e:
+            print("refused: " + str(e), file=sys.stderr)
+            return 1
     if a.cmd == "compare":
-        r = compare(a.old, a.new)
+        r = compare(a.old, a.new, plugin=a.plugin_name)
         if a.json:
             save(a.json, r)
         print(json.dumps({k: r[k] for k in ("pass", "problems", "ids", "records", "hedr")}, indent=1))
         print(f"cells added: {len(r['cells_added'])}, removed: {r['cells_removed']}")
         return 0 if r["pass"] else 1
     if a.cmd == "doors":
-        save(a.out, doors(load(a.plan), load(a.census), a.batch))
+        save(a.out, doors(load(a.plan), load(a.census), a.batch, prefix=a.prefix))
         return 0
     if a.cmd == "release":
         try:

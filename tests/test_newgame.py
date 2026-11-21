@@ -15,7 +15,9 @@ import unittest
 import zipfile
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "newgame"))
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
 import make_newgame as ng  # noqa: E402
 
 PSC = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameQuest.psc")
@@ -28,7 +30,7 @@ DOC = os.path.join(ROOT, "docs", "newgame", "vault111-start.md")
 # the stage options as argparse hands them to tool_options / the plan: every build switch, at its default
 DEFAULTS = dict(hold=None, mq101debug=None, no_mq101debug=False, debug_after_hold=None, looks=True, race_menu_mode=None, special=True,
                 version=True, build_version=None, keep_inventory=False, clear_inventory=False, vault_suit=None, require_persistent_anchor=False,
-                allow_temporary_anchor=False, no_o2_fill=False)
+                allow_temporary_anchor=False, no_o2_fill=False, fade_hold=False, no_fade_hold=False, start_choice_backdrop=None, warfare_starts=None, start_places=None)
 
 
 def namespace(**kw):
@@ -64,6 +66,21 @@ def written_properties(cs):
 
 
 class ContractTests(unittest.TestCase):
+    def test_lift_and_s13_inventory_o2_switches_remain_independent(self):
+        """Combining the S3/S13 branches must not let the lift flag change inventory or O2 policy."""
+        for lift in (False, True):
+            for keep in (False, True):
+                for no_o2 in (False, True):
+                    with self.subTest(lift=lift, keep=keep, no_o2=no_o2):
+                        args = namespace(exit_lift="private-lift-stage" if lift else None,
+                                         keep_inventory=keep, no_o2_fill=no_o2)
+                        options = ng.tool_options(args)
+                        self.assertEqual("--animated-exit-lift" in options, lift)
+                        self.assertEqual("--keep-inventory" in options, keep)
+                        self.assertEqual("--no-o2-fill" in options, no_o2)
+                        self.assertEqual(ng.clear_inventory_option(args), not keep)
+                        self.assertEqual(ng.o2_fill_option(args), not keep and not no_o2)
+
     def test_no_variable_shares_a_property_name(self):
         """Papyrus names are case-insensitive: a script variable or local named like a property fails to compile
         (newgame_v4 on the PC, 21 Oct: CenterTicks and centerTicks)."""
@@ -116,7 +133,7 @@ class ContractTests(unittest.TestCase):
         the timer does once it sees it (29 Oct review on #588: a fade under the loading screen, then never again). The
         timer's comes before it confirms the vault."""
         psc = read(PSC)
-        fade = psc[psc.index("Function FadeIn"):psc.index("Function AdvanceTo")]
+        fade = psc[psc.index("Function FadeIn"):psc.index("Function NoteLooksStage20")]
         code = fade[fade.index("    if faded"):]                  # past the doc comment
         self.assertTrue(code.startswith("    if faded\n        return\n    endif\n    faded = true\n"))
         # the pod's heading again while the screen is still dark, for a player the start moved into the vault
@@ -125,23 +142,29 @@ class ContractTests(unittest.TestCase):
         self.assertLess(code.index("Game.FadeOutGame(False, True, 0.0, 0.1, False)"), code.index("Game.SetInChargen(false, false, false)"))
         self.assertLess(code.index("Game.SetInChargen(false, false, false)"), code.index("Game.SetCharGenHUDMode(0)"))
         self.assertIn('Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")', code)
-        code_only = re.sub(r"\{[^}]*\}", "", psc)          # the doc comments name the fade call too
-        for call in ("Game.FadeOutGame(", "Game.SetInChargen(", "Game.SetCharGenHUDMode("):
-            self.assertEqual(code_only.count(call), 1, call)  # in FadeIn alone
+        prep_ui = psc[psc.index("Function PrepareStartRoomUi"):psc.index("int Function RunModeChoiceChain")]
+        self.assertNotIn("Game.FadeOutGame(True, True, 0.0, 0.1, True)", prep_ui)
+        self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.1, False)", prep_ui)
+        self.assertIn("Game.SetInChargen(false, false, false)", prep_ui)
+        self.assertIn("Game.ShowFirstPersonGeometry(false)", prep_ui)
+        self.assertIn("Game.SetCharGenHUDMode(2)", prep_ui)
+        self.assertIn('Trace("mode fade lifted by=timeout s=" + (StartLoadTimeout as int))', prep_ui)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("StartTimer(1.0, 1)"), begin.index("player.WaitFor3DLoad()"))
         self.assertLess(begin.index("player.WaitFor3DLoad()"), begin.index('FadeIn("start")'))
         self.assertIn('    player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load\n'
                       '    bool ready = player.Is3DLoaded()\n    Trace("3d wait over loaded=" + ready)\n'
-                      '    if ready\n        FadeIn("start")', begin)
+                      '    if ready\n        if UsePreworldRoom()\n            PrepareStartRoomUi("start")\n            Game.ShowFirstPersonGeometry(false)\n        else\n            FadeIn("start")', begin)
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
         self.assertIn('        if !player.Is3DLoaded()\n', zero)
         self.assertIn('            StartTimer(1.0, 1)                               ; the game is still loading\n'
-                      '            return\n        endif\n        FadeIn("timer")', zero)
+                      '            return\n        endif\n        if UsePreworldRoom()\n            PrepareStartRoomUi("timer")', zero)
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
-        self.assertEqual(len(re.findall(r'\bFadeIn\("', psc)), 2)   # the two calls, each behind its 3D check
+        self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story"])
+        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
+        self.assertIn("ShowFirstPersonGeometry", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
 
     def test_the_timers_wait_for_the_3d_writes_a_line(self):
@@ -175,9 +198,10 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(mandatory - written_here, set(), f"mandatory properties the plugin never fills ({psc})")
             self.assertEqual(written_here - set(declared), set(), f"properties the plugin writes that {psc} lacks")
         self.assertIn("HoldOff", written)
+        self.assertIn("TestModeGlobal", written)
         self.assertIn("LooksWait", written)                  # 0 in a --no-looks build, so the quest does not wait
         self.assertEqual(looks_written, {"StartMessage", "RaceMenuMode"})
-        self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
+        self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "SpecialMessagePage2", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
         self.assertEqual(version_written, {"BuildVersion"})   # SavedVersion is the script's own, written in game, never by the plugin
         self.assertFalse(ng.declared_properties(read(VERSION))["SavedVersion"])
 
@@ -240,8 +264,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn(f"bool Property ClearInventory = {str(ng.DEFAULT_CLEAR_INVENTORY).lower()} Auto Const", psc)
         self.assertIn("int Property VaultSuitId = 0 Auto Const", psc)
         body = psc[psc.index("Event OnTimer"):]
-        enter = body.index("if !entered\n            StartTimer(1.0, 1)")
-        self.assertLess(enter, body.index("if ClearInventory\n            ResetInventory(player)"))
+        enter = body.index("if !entered\n                StartTimer(1.0, 1)")
+        self.assertLess(enter, body.index("if ClearInventory\n                ResetInventory(player)"))
         self.assertLess(body.index("ResetInventory(player)"), body.index("AdvanceTo(10)"))
         self.assertNotIn("ResetInventory(", psc[psc.index("Function Begin"):psc.index("Function StandDown")])   # never during the first load
         reset = psc[psc.index("Function ResetInventory"):psc.index("Function InVault")]
@@ -317,7 +341,8 @@ class ContractTests(unittest.TestCase):
         main-quest AlwaysOn quests and the follower, crew and group plumbing (the owner's Warfare boundary) stay out.
         The selftest builds the list without them, cross-checks both ways and rejects one that lost DialogueCydonia."""
         cs = read(CS)
-        self.assertEqual(ng.DEFAULT_HOLD, ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION)
+        self.assertEqual(ng.DEFAULT_HOLD[:len(ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION)],
+                         ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION)
         self.assertEqual(len(ng.HOLD_CITY_FACTION), 80)
         self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
         for q in ng.HOLD_CITY_FACTION:
@@ -327,10 +352,76 @@ class ContractTests(unittest.TestCase):
             self.assertIn(f'EditorID = "{q}"', cs)
         for q in ("SQ_Followers", "SQ_Groups", "SQ_COM_CREW_AngerCombatOverride", "DialogueGeneric", "DialogueCrowds",
                   "DialogueGenericPlayer", "SQ_PlayerShip", "DialogueShipServices", "MQ105_AlwaysOnDialogueNeon"):
-            self.assertNotIn(q, ng.DEFAULT_HOLD)
+            self.assertNotIn(q, ng.HOLD_CITY_FACTION)
         self.assertIn('("nocity", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).ToArray() })', cs)
         self.assertIn('"a hold list without the city and faction group as the default one"', cs)
         self.assertIn('("the hold list lost DialogueCydonia"', cs)
+
+    def test_generic_dialogue_and_activities_held_off(self):
+        """S13 row 5, the fourth group (FAL-1041): the rest of Gemini's city and faction dialogue batches (32), then the
+        rest of its activities and misc batches (16), join the default hold list after the city and faction group. The
+        five quests the Warfare boundary keeps running and the seven never to stop stay out, and so do the radiant, ship
+        and system batches. The selftest builds the list without the group and without the activities, cross-checks
+        each both ways and rejects a list that lost DialogueCrowds or SQ_Doctors."""
+        cs = read(CS)
+        prefix = (ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS + ng.HOLD_CITY_FACTION
+                  + ng.HOLD_GENERIC_DIALOGUE + ng.HOLD_ACTIVITIES)
+        self.assertEqual(ng.DEFAULT_HOLD[:len(prefix)], prefix)
+        self.assertEqual((len(ng.HOLD_GENERIC_DIALOGUE), len(ng.HOLD_ACTIVITIES)), (32, 16))
+        self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
+        for q in ng.HOLD_GENERIC_DIALOGUE + ng.HOLD_ACTIVITIES:
+            self.assertNotIn("Ships", q)                                      # the ship dialogue is the ships group
+            self.assertIn(f'EditorID = "{q}"', cs)
+        for q in ng.HOLD_GENERIC_DIALOGUE:
+            self.assertTrue("Dial" in q or q.startswith("LC082_"), q)        # DialgoueSSNNScenes: Starfield's spelling
+        for q in ("SQ_Followers", "SQ_Groups", "SQ_COM_CREW_AngerCombatOverride", "SQ_Captive", "SQ_Airlock",  # Warfare
+                  "SQ_PlayerShip", "SQ_Parent", "PlayerSkills", "DialogueGenericPlayer", "DialogueGeneric",
+                  "SpeechChallenge", "Achievements_Quest",                                     # never to stop
+                  "MB_Parent", "RE_Parent", "DialogueShipServices", "SQ_Traits"):              # later groups
+            self.assertNotIn(q, ng.HOLD_GENERIC_DIALOGUE + ng.HOLD_ACTIVITIES)
+        self.assertIn('("nodialogue", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray() })', cs)
+        self.assertIn('"a hold list without the generic dialogue and activities group as the default one"', cs)
+        self.assertIn('"a hold list without the activities as the default one"', cs)
+        self.assertIn('("the hold list lost DialogueCrowds"', cs)
+        self.assertIn('("the hold list lost SQ_Doctors"', cs)
+
+    def test_radiant_ships_and_system_held_off(self):
+        """S13 row 5, the fifth group (section 4i): the remaining 9 radiant quests, 21 holdable ship quests and 4
+        Starfield-only system quests join the default hold list after the activities list (199 held total). The 5
+        Warfare boundary quests and 7 core engine quests never to stop remain excluded."""
+        cs, doc = read(CS), read(DOC)
+        self.assertEqual(ng.DEFAULT_HOLD, ng.HOLD_CORE + ng.HOLD_COMPANIONS + ng.HOLD_AUDIO_TUTORIALS
+                         + ng.HOLD_CITY_FACTION + ng.HOLD_GENERIC_DIALOGUE + ng.HOLD_ACTIVITIES
+                         + ng.HOLD_RADIANT + ng.HOLD_SHIPS + ng.HOLD_SYSTEM)
+        self.assertEqual((len(ng.HOLD_RADIANT), len(ng.HOLD_SHIPS), len(ng.HOLD_SYSTEM)), (9, 21, 4))
+        self.assertEqual(len(ng.DEFAULT_HOLD), 199)
+        self.assertEqual(len(set(ng.DEFAULT_HOLD)), len(ng.DEFAULT_HOLD))
+        for q in ng.HOLD_RADIANT + ng.HOLD_SHIPS + ng.HOLD_SYSTEM:
+            self.assertIn(f'EditorID = "{q}"', cs)
+            self.assertIn(f"`{q}`", doc)
+        for q in ("SQ_Followers", "SQ_Groups", "SQ_COM_CREW_AngerCombatOverride", "SQ_Captive", "SQ_Airlock",
+                  "SQ_PlayerShip", "SQ_Parent", "PlayerSkills", "DialogueGenericPlayer", "DialogueGeneric",
+                  "SpeechChallenge", "Achievements_Quest"):
+            self.assertNotIn(q, ng.DEFAULT_HOLD)
+        self.assertIn('("noradiant", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).Concat(HoldGenericDialogue).Concat(HoldActivities).ToArray() })', cs)
+        self.assertIn('("noships", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).Concat(HoldGenericDialogue).Concat(HoldActivities).Concat(HoldRadiant).ToArray() })', cs)
+        self.assertIn('("nosystem", idsPath, plain with { Hold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).Concat(HoldGenericDialogue).Concat(HoldActivities).Concat(HoldRadiant).Concat(HoldShips).ToArray() })', cs)
+        self.assertIn('"a hold list without the radiant, ship and system group as the default one"', cs)
+        self.assertIn('"a hold list without the ships and system lists as the default one"', cs)
+        self.assertIn('"a hold list without the system list as the default one"', cs)
+        self.assertIn('("the hold list lost MB_Parent"', cs)
+        self.assertIn('("the hold list lost DialogueShipServices"', cs)
+        self.assertIn('("the hold list lost SQ_Traits"', cs)
+        self.assertEqual(len(ng.OMIT_HOLD_GROUPS["radiant"]), 190)
+        self.assertEqual(len(ng.OMIT_HOLD_GROUPS["ships"]), 178)
+        self.assertEqual(len(ng.OMIT_HOLD_GROUPS["system"]), 195)
+        for group_name, omitted in (("radiant", ng.HOLD_RADIANT), ("ships", ng.HOLD_SHIPS), ("system", ng.HOLD_SYSTEM)):
+            ns_opt = namespace(omit_hold_group=group_name)
+            expected = ",".join(q for q in ng.DEFAULT_HOLD if q not in set(omitted))
+            self.assertEqual(ng.hold_option(ns_opt), expected)
+            self.assertEqual(ng.tool_options(ns_opt), ["--hold", expected])
+        with self.assertRaises(SystemExit):
+            ng.hold_option(namespace(hold="MQ00", omit_hold_group="system"))
 
     def test_no_starfield_environment(self):
         """S13 row 2b (FAL-883, owner decision 15 Nov): with the empty start the player takes no Starfield environment
@@ -446,8 +537,8 @@ class ContractTests(unittest.TestCase):
         # reason the mode is built only on request)
         begin = psc[psc.index("Function Begin"):psc.index("Function StandDown")]
         self.assertLess(begin.index("if !IsNewGame(days, level)"), begin.index("entered = EnterVault(player)"))
-        self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("if vaultMoves == 0 && centered == 0"))
-        self.assertLess(begin.index("if vaultMoves == 0 && centered == 0"), begin.index("HoldOffPass(1)"))
+        self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("if startRoomMoves == 0 && vaultMoves == 0 && centered == 0"))
+        self.assertLess(begin.index("if startRoomMoves == 0 && vaultMoves == 0 && centered == 0"), begin.index("HoldOffPass(1)"))
         self.assertIn("anchor_temporary=", begin)
         # the precheck reads the native; the stage option, the plan and the README carry the mode
         self.assertIn("CenterOnCell", ng.NATIVES[ng.SCRIPT]["Debug"])
@@ -490,12 +581,13 @@ class ContractTests(unittest.TestCase):
         self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
         check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
         self.assertIn("podChecked = true", check)
-        self.assertIn("float drop = PodZ + PodLift - player.GetPositionZ()", check)
+        self.assertIn("float targetZ = PodZ + PodLift", check)
+        self.assertIn("float drop = targetZ - sampleZ", check)
         self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
         self.assertIn('Trace("pod settle ok=" + ok + " pos="', check)
         for call in ("MoveTo(", "SetPosition(", "CenterOnCell("):
             self.assertNotIn(call, check)                    # evidence only
-        self.assertEqual(psc.count("CheckPod(player)"), 1)
+        self.assertEqual(psc.count("CheckPod(player)"), 2)   # stage 10 legacy wait + InVault for pre-world Story jump to stage 20
 
     def test_the_surface_arrival_waits_a_tick(self):
         """Run 3 of 28 Oct: the ride's SetPosition, called in the MoveTo's own tick, was ignored (the "surface
@@ -521,9 +613,12 @@ class ContractTests(unittest.TestCase):
         self.assertLess(finish.index("if !player.Is3DLoaded()"), finish.index("player.SetPosition(x, y, ArrivalZ)"))
         self.assertNotIn("Is3DLoaded", inside)               # an outside player still loading is never a missed move
         self.assertIn("bool ok = dx * dx + dy * dy <= 25.0", finish)
-        self.assertIn('Trace("surface setposition ok=" + ok + " set=" + surfaceSets', finish)
-        self.assertIn("if ok || surfaceSets >= SurfaceTries", finish)
-        self.assertLess(finish.index("if ok || surfaceSets >= SurfaceTries"), finish.index("AdvanceTo(40)"))
+        self.assertIn('Trace("surface setposition ok=" + ok +', finish)
+        self.assertNotIn("if ok || surfaceSets >= SurfaceTries", finish)
+        self.assertIn('elseif surfaceSets >= SurfaceTries', finish)
+        self.assertIn('FailExit("surface_cell_not_core")', finish)
+        self.assertIn('FailExit("surface_position_not_confirmed")', finish)
+        self.assertLess(finish.index("if ok\n"), finish.index("AdvanceTo(40)"))
         self.assertIn("if surfaceMoves < 2", finish)
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
@@ -533,7 +628,7 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("SetPosition(", invault)
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         branch = body[body.index("elseif stage == 20 || stage == 30"):body.index("elseif stage == 40")]
-        self.assertIn("if surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
+        self.assertIn("elseif surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
         self.assertLess(branch.index("FinishSurface(player)"), branch.index("InVault(player, stage)"))
         land = psc[psc.index("Function CheckLanding"):psc.index("bool Function Near")]
         self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 3.0", land)   # three seconds after the arrival that took
@@ -554,10 +649,14 @@ class ContractTests(unittest.TestCase):
         self.assertIn("while presses < MaxPresses", special)   # the loop is bounded: no spin on a box that returns at once
         self.assertNotIn("while true", special)
         self.assertGreater(ng.SPECIAL_MAX_PRESSES, 10 * (ng.SPECIAL_POINTS + 1))   # ten full passes with a Reset each
-        self.assertEqual(len(ng.SPECIAL_BUTTONS), 10)         # FO4's MESG limit; the script's button indices
-        self.assertIn("if button >= 0 && button < 7", special)
-        self.assertIn("elseif button == 7", special)         # Reset
-        self.assertIn("elseif button == 8", special)         # Confirm
+        self.assertEqual(len(ng.SPECIAL_BUTTONS), 10)
+        self.assertLessEqual(len(ng.SPECIAL_PAGE1_BUTTONS), 7)
+        self.assertLessEqual(len(ng.SPECIAL_PAGE2_BUTTONS), 7)
+        self.assertIn("Confirm", ng.SPECIAL_PAGE1_BUTTONS)    # B3: Confirm reachable from the first box
+        self.assertIn("if button >= 0 && button < 3", special)
+        self.assertIn("if button >= 0 && button < 4", special)
+        self.assertIn("elseif button == 5", special)          # Confirm on both <=7-button pages
+        self.assertIn("Message Property SpecialMessagePage2 Auto Const Mandatory", special)
         self.assertIn("int[] values = new int[7]", special)
         self.assertIn("player.SetValue(Special[i], values[i] as float)", special)
         self.assertIn('Trace("special set S="', special)
@@ -566,12 +665,18 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Trace("special left: ', special)
         self.assertIn("ActorValue[] Property Special Auto Const Mandatory", special)
         self.assertIn('string Property VaultPlugin = "FO4Port.esm" Auto Const', special)
-        self.assertNotIn("Special", psc.split("}", 1)[1])     # the quest script knows nothing of it
+        self.assertNotIn("as FO4SF_NewGameSpecial", psc)     # dynamic CastAs only; --no-special still compiles without it
+        self.assertIn('CastAs("FO4SF_NewGameSpecial")', psc)
+        self.assertIn("bool Function AllocateFromLift(Actor player)", special)
         self.assertIn('SpecialScript = "FO4SF_NewGameSpecial"', cs)
         self.assertIn('a.Contains("--no-special")', cs)
-        self.assertIn("Types.SpecialAttribute", cs)
-        self.assertIn("Flag.DefaultToOne | SF.ActorValueInformation.Flag.MinimumOne | SF.ActorValueInformation.Flag.MaximumTen", cs)
-        self.assertIn("Max = SpecialMax, Flags = SpecialAvifFlags", cs)
+        self.assertNotIn("Types.SpecialAttribute", cs)
+        self.assertIn("plug.ActorValueInformation.Count == 0", cs)
+        self.assertIn(f'CoreValuesPlugin = "{CORE_VALUES_PLUGIN}"', cs)
+        self.assertIn('Obj("TestModeGlobal", testModeKey)', cs)
+        self.assertEqual(ng.SPECIAL_AVIF_IDS, tuple(0x810 + i for i in range(7)))
+        self.assertEqual(ng.TEST_MODE_GLOBAL_ID, core_form_id("FO4SF_TestModeEnabled"))
+        self.assertEqual(ng.TEST_MODE_GLOBAL_ID, 0x860)
         self.assertIn('"TerminalId", (int)p.Terminal', cs)
         self.assertEqual(ng.tool_options(namespace(special=False)), ["--no-special"])
         self.assertEqual(ng.OPTIONAL, {ng.LOOKS: "--no-looks", ng.SPECIAL: "--no-special", ng.VERSION: "--no-version"})
@@ -609,8 +714,13 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(code.count("ShowRaceMenu("), 1)
         self.assertIn("Game.ShowRaceMenu(None, RaceMenuMode)", code)
         self.assertIn('StartMessageEdid = "FO4SF_NewGameStart"', cs)
+        self.assertIn('Name = "Character Appearance"', cs)
         self.assertIn('Text = "Create character"', cs)
         self.assertIn('Text = "Quick start"', cs)
+        self.assertLess(cs.index('Text = "Quick start"'), cs.index('Text = "Create character"'))
+        self.assertIn("if button == 0", looks)
+        self.assertIn("if cBtn == 0", psc)
+        self.assertIn("ngQuest.IsPreworldLooksHandled()", looks)
         self.assertIn("Message Property StartMessage Auto Const Mandatory", looks)
         body = looks[looks.index("Event OnTimer"):]
         self.assertLess(body.index("StartMessage.Show()"), body.index("RegisterForMenuOpenCloseEvent(MenuName)"))
@@ -656,11 +766,13 @@ class ContractTests(unittest.TestCase):
         listed = {int(m.group(1)): m.group(2).strip()
                   for m in re.finditer(r"^\s+(\d+) ([a-z].*)$", header[header.index("Stages are the published"):], re.M)}
         self.assertEqual(listed, ng.STAGE_CONTRACT)
-        self.assertEqual(ng.STAGES, (1, 10, 20, 30, 40, 200))
+        self.assertEqual(ng.STAGES, (1, 5, 10, 20, 30, 40, 200, 210))
         self.assertEqual(list(ng.STAGE_CONTRACT), [0] + list(ng.STAGES))
         doc = read(os.path.join(ROOT, "docs", "newgame", "vault111-start.md"))
+        audit = read(os.path.join(ROOT, "docs", "newgame", "lift-rules-audit.md"))
         for n, what in ng.STAGE_CONTRACT.items():
-            self.assertIn(f"| {n} | {what} |", doc)
+            target_doc = audit if n in (5, 210) else doc
+            self.assertIn(f"| {n} | {what} |", target_doc)
 
     def test_the_writer_defaults_match_the_python_ones(self):
         """NG-2: the default build writes NO GLOB MQ101Debug override (28 Oct run 2) and the quest writes 2 right after the
@@ -668,9 +780,13 @@ class ContractTests(unittest.TestCase):
         default hold list has the two quests MQ101's stage 9000 starts on stop."""
         cs = read(CS)
         self.assertIn("HoldCore = { " + ", ".join(f'"{q}"' for q in ng.HOLD_CORE) + " }", cs)
-        self.assertIn("DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction).ToArray();", cs)
+        self.assertIn("DefaultHold = HoldCore.Concat(HoldCompanions).Concat(HoldAudioTutorials).Concat(HoldCityFaction)\n"
+                      "        .Concat(HoldGenericDialogue).Concat(HoldActivities)\n"
+                      "        .Concat(HoldRadiant).Concat(HoldShips).Concat(HoldSystem).ToArray();", cs)
         for name, group in (("HoldCompanions", ng.HOLD_COMPANIONS), ("HoldAudioTutorials", ng.HOLD_AUDIO_TUTORIALS),
-                            ("HoldCityFaction", ng.HOLD_CITY_FACTION)):
+                            ("HoldCityFaction", ng.HOLD_CITY_FACTION), ("HoldGenericDialogue", ng.HOLD_GENERIC_DIALOGUE),
+                            ("HoldActivities", ng.HOLD_ACTIVITIES), ("HoldRadiant", ng.HOLD_RADIANT),
+                            ("HoldShips", ng.HOLD_SHIPS), ("HoldSystem", ng.HOLD_SYSTEM)):
             block = cs[cs.index(name + " = {"):]
             self.assertEqual(re.findall(r'"([^"]+)"', block[:block.index("};")]), list(group))
         self.assertNotIn("DefaultMQ101Debug", cs)
@@ -703,13 +819,14 @@ class ContractTests(unittest.TestCase):
         self.assertLess(begin.index("entered = EnterVault(player)"), begin.index("HoldOffPass(1)"))
         self.assertLess(begin.rindex("StandDown(loading, "), begin.index("HoldOffPass(1)"))
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
-        self.assertLess(zero.index("if !entered\n            StartTimer(1.0, 1)"), zero.index("HoldOffPass(2)"))
+        self.assertLess(zero.index("if !entered\n                StartTimer(1.0, 1)"), zero.index("HoldOffPass(2)"))
         self.assertLess(zero.index("HoldOffPass(2)"), zero.index("AdvanceTo(10)"))
         self.assertEqual((psc.count("HoldOffPass(1)"), psc.count("HoldOffPass(2)"), len(re.findall(r"^\s+HoldOffPass\(", psc, re.M))), (1, 1, 2))
         self.assertIn('" pass=" + pass', psc)
         for q in ng.HOLD_CORE:
             self.assertIn(q, psc)                            # the HoldOff property's doc names the core list
-        for name in ("HoldCompanions", "HoldAudioTutorials", "HoldCityFaction"):
+        for name in ("HoldCompanions", "HoldAudioTutorials", "HoldCityFaction", "HoldGenericDialogue", "HoldActivities",
+                     "HoldRadiant", "HoldShips", "HoldSystem"):
             self.assertIn(name, psc)                         # and the row 5 groups by their writer list
 
     def test_script_names_and_log_name(self):
@@ -789,7 +906,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(begin.rindex("StandDown(loading, "), write)
         self.assertEqual(psc.count("SetValueInt("), 1)
         self.assertIn('Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)', psc)
-        self.assertEqual(ng.NATIVES[ng.SCRIPT]["GlobalVariable"], ["GetValue", "SetValueInt"])
+        self.assertEqual(ng.NATIVES[ng.SCRIPT]["GlobalVariable"], ["GetValue", "SetValueInt", "SetValue"])
         # the two values of 28 Oct stay buildable on purpose (--mq101debug) for experiments, never as the default
         self.assertIn('("debug10", idsPath, plain with { MQ101Debug = 10 })', cs)
         self.assertIn('("debug0", idsPath, plain with { MQ101Debug = 0 })', cs)
@@ -907,12 +1024,13 @@ class ContractTests(unittest.TestCase):
 
     def test_every_native_the_script_calls_is_prechecked(self):
         psc = read(PSC)
-        calls = set(re.findall(r"\.(\w+)\(", psc))
+        calls = set(re.findall(r"\.(\w+)\(", psc)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer|AddInventoryEventFilter)\(", psc, re.M))
         listed = {f for bases in ng.NATIVES[ng.SCRIPT].values() for f in bases}
         own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", psc, re.M))
-        # GetPositionY/Z share GetPositionX's script; GetDistance is not used; the rest must be listed or our own
-        calls |= set(re.findall(r"^Event (On\w+)\(", psc, re.M)) - {"OnTimer"}   # the start events: OnQuestStarted, OnQuestInit
-        missing = calls - listed - own - {"GetPositionY", "GetPositionZ"}
+        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls go through CastAs + CallFunction
+        calls |= set(re.findall(r"^Event (?:\w+\.)?(On\w+)\(", psc, re.M)) - {"OnTimer"}
+        fo4sf_methods = {"GetPositionY", "GetPositionZ"}
+        missing = calls - listed - own - fo4sf_methods
         self.assertEqual(missing, set())
         self.assertTrue({"OnQuestStarted", "OnQuestInit", "FadeOutGame", "WaitFor3DLoad", "StartNoWait", "IsStarting"} <= calls)
         self.assertNotIn("Start", ng.NATIVES[ng.SCRIPT]["Quest"])   # the hand back waits for nothing
@@ -926,7 +1044,7 @@ class ContractTests(unittest.TestCase):
         looks_calls |= set(re.findall(r"^Event (On\w+)\(", looks, re.M)) - {"OnTimer"}
         looks_own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", looks, re.M))
         looks_listed = {f for bases in ng.NATIVES[ng.LOOKS].values() for f in bases}
-        self.assertEqual(looks_calls - looks_listed - looks_own, set())
+        self.assertEqual(looks_calls - looks_listed - looks_own - {"NoteLooksStage20", "IsPreworldLooksHandled"}, set())
         self.assertEqual(set(ng.NATIVES[ng.LOOKS]["ScriptObject"]), {"StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"})
         # the SPECIAL script the same way; its Actor.SetValue / GetValue are the unverified pair the precheck reads
         special = read(SPECIAL)
@@ -957,11 +1075,13 @@ class ContractTests(unittest.TestCase):
 
 # Starfield's Game.psc declarations (PC read, 19 Oct): the fade in turns saving and the HUD on with both
 CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, bool abShowControlsDisabledMessage) "
-           "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
+           "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n"
+           "Function ShowFirstPersonGeometry(bool abShow = true) native global\n")
 # Game.FadeOutGame, our own start's fade in: the five-argument call Roleplayers' Alternate Start makes (FO4's parameter
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
         "bool abStayFaded = false) native global\n")
+FAST_READ = "bool Function IsFastTravelEnabled() native global\n"
 # Actor.psc's declarations the quest script itself needs: the guard's GetLevel, the inventory reset's EquipItem /
 # IsEquipped and the O2 fill's ModValue / GetValue (FO4's signatures; Starfield's are what the precheck reads: its
 # Actor.psc declares GetValue on a parent, 28 Oct). ObjectReference's RemoveAllItems, GetItemCount and AddItem are
@@ -970,11 +1090,13 @@ ACTOR_O2 = ("Function ModValue(ActorValue akAV, float afAmount) native\n"
             "float Function GetValue(ActorValue akAV) native\n")
 ACTOR_CORE = ("int Function GetLevel() native\n"
               "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
-              "bool Function IsEquipped(Form akItem) native\n" + ACTOR_O2)
+              "bool Function IsEquipped(Form akItem) native\n"
+              "Function AddToFaction(Faction akFaction) native\n"
+              "Event OnPlayerLoadGame()\nEndEvent\n" + ACTOR_O2)
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
-             objectreference=None, quest=None):
+             objectreference=None, quest=None, animation=True, remote=True, inventory_filter=True, dynamic_cast=True):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -989,8 +1111,9 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
-                                              + CHARGEN + FADE,
-        "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\n",
+                                              + CHARGEN + FADE + FAST_READ,
+        "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\nFunction SetValue(float afNewValue) native\n",
+        "InputEnableLayer": "Scriptname InputEnableLayer extends ScriptObject\nInputEnableLayer Function Create() native global\nFunction EnableHandscanner(bool a = true) native\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
         "ObjectReference": objectreference if objectreference is not None else
                            "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
@@ -998,6 +1121,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         # ScriptObject.psc (PC read 19 Oct): RegisterForMenuOpenCloseEvent is native; the event's signature is FO4's
         "ScriptObject": scriptobject if scriptobject is not None else
                         "Function StartTimer(float a, int b = 0) native\nFunction RegisterForMenuOpenCloseEvent(string asMenuName) native\n"
+                        "Function UnregisterForMenuOpenCloseEvent(string asMenuName) native\n"
                         "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\nEvent OnInit()\nEndEvent\n",
         # ReferenceAlias.psc (PC read 19 Oct, NG-L3): OnPlayerLoadGame, the version script's event
         "ReferenceAlias": referencealias if referencealias is not None else
@@ -1005,6 +1129,18 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
     }
+    if animation:
+        base["ScriptObject"] += ("\nFunction RegisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Function UnregisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Event OnAnimationEvent(ObjectReference source, string name)\nEndEvent\n")
+    if remote:
+        base["ScriptObject"] += ("\nbool Function RegisterForRemoteEvent(ScriptObject source, string name) native\n"
+                                 "Function UnregisterForRemoteEvent(ScriptObject source, string name) native\n")
+    if inventory_filter:
+        base["ScriptObject"] += "\nFunction AddInventoryEventFilter(Form akFilter) native\n"
+    if dynamic_cast:
+        base["ScriptObject"] += ("\nScriptObject Function CastAs(string asScriptName) native\n"
+                                 "Var Function CallFunction(string asFuncName, Var[] aParams) native\n")
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)
@@ -1061,14 +1197,14 @@ class PrecheckTests(unittest.TestCase):
     def test_missing_show_race_menu_only_drops_the_looks(self):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                    + CHARGEN + FADE)
+                    + CHARGEN + FADE + FAST_READ)
         r = ng.precheck_zip(z)
-        self.assertEqual(r["missing_core"], [])
+        self.assertEqual(r["missing_core"], ["Game.ShowRaceMenu"])
         self.assertFalse(r["natives"][ng.LOOKS]["Game.ShowRaceMenu"])
         out = os.path.join(self.tmp, "p.json")
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
             rc = ng.main(["precheck", "--content-resources", z, "--out", out])
-        self.assertEqual(rc, 0)
+        self.assertEqual(rc, 1)
         self.assertIn("--no-looks", o.getvalue())
         self.assertNotIn("--no-special", o.getvalue())
         self.assertTrue(os.path.isfile(out))
@@ -1120,7 +1256,8 @@ class PrecheckTests(unittest.TestCase):
         """The inventory reset lives in the quest script (its ClearInventory property is on by default, and
         --keep-inventory builds still compile it): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n" + ACTOR_O2 +
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+                          "Function AddToFaction(Faction akFaction) native\nEvent OnPlayerLoadGame()\nEndEvent\n" + ACTOR_O2 +
                           "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
@@ -1152,7 +1289,7 @@ class PrecheckTests(unittest.TestCase):
         without the second is too, and it drops the looks and SPECIAL scripts as well, which start their timers on it."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN)
+                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN + FAST_READ)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Game.FadeOutGame"])
         self.assertEqual(r["drop"], [])
@@ -1176,16 +1313,23 @@ class PrecheckTests(unittest.TestCase):
 
     def test_missing_menu_event_only_drops_the_looks(self):
         """The creator's close is awaited with RegisterForMenuOpenCloseEvent / OnMenuOpenCloseEvent (ScriptObject,
-        PC read 19 Oct): a source set without them fails only the looks script, and the precheck says --no-looks."""
+        PC read 19 Oct): both FO4SF_NewGameQuest (S5/X3) and FO4SF_NewGameLooks require them."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\n")
         r = ng.precheck_zip(z)
-        self.assertEqual(r["missing_core"], [])
+        self.assertEqual(
+            r["missing_core"],
+            [
+                "ScriptObject.RegisterForMenuOpenCloseEvent",
+                "ScriptObject.UnregisterForMenuOpenCloseEvent",
+                "ScriptObject.OnMenuOpenCloseEvent",
+            ],
+        )
         self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.RegisterForMenuOpenCloseEvent"])
         self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.OnMenuOpenCloseEvent"])
         self.assertTrue(r["natives"][ng.LOOKS]["ScriptObject.StartTimer"])
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
-            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
         self.assertIn("--no-looks", o.getvalue())
 
 
@@ -1200,7 +1344,7 @@ NG_PLUS = ("start route=OnQuestStarted player_loaded=false cell=None loading=tru
            STOOD_DOWN,
            "handing back to Starfield's start: not a new game; mq101debug=0.000000",
            "handed back: requested=true opening starting=true running=false stage=0",
-           "stage 1")
+           "stage 1 by=trigger")
 
 
 class LogTests(unittest.TestCase):
@@ -1230,12 +1374,12 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 hold-off pass 2 stopped=1 of 4",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 inventory cleared removed=14 left=2",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 vault suit equipped [Armor < (0A000820)>] worn=True",
-        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
+        "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10 by=trigger",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 pod settle ok=true pos=11 20 1 dx=0.0 dy=0.0 drop=0.0",
         "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
         "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
-        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20",             # the looks script's Done, in its order
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20 by=scene",      # the looks script's Done, in its order
         "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 terminal prompt button=1",
         "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 special later",
         "[10/20/2026 - 09:00:58AM] FO4SF_NEWGAME rt=58.0 terminal prompt button=0",
@@ -1244,9 +1388,9 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.0 elevator prompt button=0",
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 surface moveto pos=-1250 1290 110 world=[WorldSpace <x>] moves=1",
         "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 surface setposition ok=true set=1 pos=-2450 -1410 110 target=-2450 -1410 110",
-        "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 stage 40",
+        "[10/20/2026 - 09:02:01AM] FO4SF_NEWGAME rt=121.1 stage 40 by=trigger",
         "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 landed z=110.0",          # CheckLanding: 3 s after the arrival
-        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 stage 200",
+        "[10/20/2026 - 09:02:04AM] FO4SF_NEWGAME rt=124.2 stage 200 by=trigger",
     ]
 
     def test_summary(self):
@@ -1300,23 +1444,22 @@ class LogTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
     def test_stage_20_is_traced_by_whichever_script_sets_it(self):
-        """Codex review on #393 (P2): the quest's AdvanceTo is where "stage <n>" is traced, but the looks script sets
-        stage 20 itself (SetStage, not AdvanceTo), so a looks run logged no "stage 20" and the summary's "stages"
-        skipped it; the fixture above hid that with a line no script wrote. The looks script's Done now traces the same
-        line, to the same log in the same format, right after SetStage(20); the summary reads it, and a looks run
-        without it would still miss the stage."""
+        """Codex review on #393 (P2): the quest's AdvanceTo is where "stage <n> by=..." is traced, and the looks script sets
+        stage 20 itself (SetStage, not AdvanceTo), tracing "stage 20 by=<scene|trigger>" to the same log in the same format
+        right after SetStage(20); the summary reads it, and a looks run without it would still miss the stage."""
         quest, looks = read(PSC), read(LOOKS)
-        self.assertIn('Trace("stage " + n)', quest[quest.index("Function AdvanceTo"):quest.index("EndFunction", quest.index("Function AdvanceTo"))])
+        self.assertIn('Trace("stage " + n + " by=" + by)', quest[quest.index("Function ApplyStage"):quest.index("EndFunction", quest.index("Function ApplyStage"))])
         done = looks[looks.index("Function Done"):]
         done = done[:done.index("EndFunction")]
         self.assertLess(done.index('Trace("looks done: " + how)'), done.index("SetStage(20)"))
-        self.assertLess(done.index("SetStage(20)"), done.index('Trace("stage 20")'))
+        self.assertLess(done.index("SetStage(20)"), done.index('Trace("stage 20 by=" + by)'))
         # the same log and the same line format as the quest's Trace
         self.assertIn('string LogName = "fo4sf_newgame"', quest)
         self.assertIn('Debug.TraceUser(LogName, "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', quest)
         self.assertIn('Debug.TraceUser("fo4sf_newgame", "FO4SF_NEWGAME rt=" + Utility.GetCurrentRealTime() + " " + msg)', looks)
         self.assertIn(20, ng.summarize(self.LINES)["stages"])
-        without = [ln for ln in self.LINES if not ln.endswith(" stage 20")]
+        self.assertEqual(ng.summarize(self.LINES)["stage_causes"][20], "scene")
+        without = [ln for ln in self.LINES if " stage 20 " not in ln]
         self.assertEqual(ng.summarize(without)["stages"], [10, 40, 200])
 
     def test_inventory_lines(self):
@@ -1427,7 +1570,7 @@ class LogTests(unittest.TestCase):
         self.assertIsNone(s["mq101debug_written"])           # a hand back follows no write
         # the other tests' New Game+ (NG_PLUS) is this log
         self.assertEqual(NG_PLUS, ("start route=OnQuestStarted player_loaded=false cell=None loading=true",
-                                   guard.format(12), STOOD_DOWN, handing.format("not a new game"), handed, "stage 1"))
+                                   guard.format(12), STOOD_DOWN, handing.format("not a new game"), handed, "stage 1 by=trigger"))
         # no move into the vault: the same stand-down and hand back
         no_move = "no move into the vault: anchor FO4Port.esm:4920 does not resolve; standing down"
         no_move_log = (head + "[x] FO4SF_NEWGAME rt=2.0 start route=OnQuestStarted player_loaded=true cell=None loading=true\n"
@@ -1817,6 +1960,61 @@ class VerifyFoldTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.fold(out, port=self.port)
 
+    def test_fold_accepts_same_sha256_core_assets_and_pex_and_refuses_differing_ones(self):
+        plan_path = os.path.join(self.stage, "plan.json")
+        stage_pex = os.path.join(self.stage, "Data", "Scripts", "FO4SF_NewGameQuest.pex")
+        core_pex = os.path.join(self.core_dir, "Data", "Scripts", "FO4SF_NewGameQuest.pex")
+        os.makedirs(os.path.dirname(core_pex), exist_ok=True)
+        with open(core_pex, "wb") as f:
+            f.write(b"pex1")
+        stage_copies = []
+        real_copy2 = shutil.copy2
+        def spy_copy2(src, dst, *a, **kw):
+            if os.path.abspath(src).startswith(os.path.abspath(self.stage) + os.sep):
+                stage_copies.append(os.path.abspath(src))
+            return real_copy2(src, dst, *a, **kw)
+        out_same_pex = os.path.join(self.tmp, "folded_same_pex")
+        with unittest.mock.patch.object(ng.shutil, "copy2", side_effect=spy_copy2):
+            self.assertEqual(self.fold(out_same_pex, port=self.port), 0)
+        self.assertNotIn(os.path.abspath(stage_pex), stage_copies)
+        self.assertEqual(ng.verify_dir(out_same_pex, ng.load_plan(plan_path), self.port), [])
+        with open(core_pex, "wb") as f:
+            f.write(b"differing_pex")
+        out_diff_pex = os.path.join(self.tmp, "folded_diff_pex")
+        with self.assertRaisesRegex(SystemExit, r"Data/Scripts/FO4SF_NewGameQuest\.pex"):
+            self.fold(out_diff_pex, port=self.port)
+        self.assertFalse(os.path.exists(out_diff_pex))
+        with open(core_pex, "rb") as f:
+            self.assertEqual(f.read(), b"differing_pex")
+        os.remove(core_pex)
+        rel = "Data/materials/fo4port/_neutral.mat"
+        stage_mat = os.path.join(self.stage, *rel.split("/"))
+        core_mat = os.path.join(self.core_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(stage_mat), exist_ok=True)
+        os.makedirs(os.path.dirname(core_mat), exist_ok=True)
+        with open(stage_mat, "wb") as f:
+            f.write(b"neutral_bytes")
+        with open(core_mat, "wb") as f:
+            f.write(b"neutral_bytes")
+        plan = ng.load_plan(plan_path)
+        plan["cog_door"] = {"plugins": [], "outputs": {rel: ng.sha256(stage_mat)}}
+        with open(plan_path, "w", encoding="utf-8") as f:
+            json.dump(plan, f)
+        stage_copies.clear()
+        out_same_mat = os.path.join(self.tmp, "folded_same_mat")
+        with unittest.mock.patch.object(ng.shutil, "copy2", side_effect=spy_copy2):
+            self.assertEqual(self.fold(out_same_mat, port=self.port), 0)
+        self.assertNotIn(os.path.abspath(stage_mat), stage_copies)
+        self.assertEqual(ng.verify_dir(out_same_mat, ng.load_plan(plan_path), self.port), [])
+        with open(core_mat, "wb") as f:
+            f.write(b"differing_neutral")
+        out_diff_mat = os.path.join(self.tmp, "folded_diff_mat")
+        with self.assertRaisesRegex(SystemExit, r"Data/materials/fo4port/_neutral\.mat"):
+            self.fold(out_diff_mat, port=self.port)
+        self.assertFalse(os.path.exists(out_diff_mat))
+        with open(core_mat, "rb") as f:
+            self.assertEqual(f.read(), b"differing_neutral")
+
 
 @unittest.skipUnless(shutil.which("dotnet"), "no dotnet SDK on PATH")
 class WriterSelfTest(unittest.TestCase):
@@ -1827,6 +2025,1467 @@ class WriterSelfTest(unittest.TestCase):
                             "selftest", tmp], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-2000:])
         self.assertIn("selftest pass", r.stdout)
+
+
+class PodStepOptionTests(unittest.TestCase):
+    """Default pod step is -2.5 m (stand 9.143, -6.614, -1.029 m; heading unchanged), and stage's --pod-step overrides."""
+
+    def args(self, **kw):
+        base = dict(pod_ref=None, terminal_ref=None, pod_step=None)
+        base.update(kw)
+        return type("A", (), base)()
+
+    def test_default_constant_matches_writer(self):
+        self.assertEqual(ng.DEFAULT_POD_STEP, -2.5)
+        self.assertIn("DefaultPodStep = -2.5f;", read(CS))
+        self.assertIn('NewGame.Opt(args, "--pod-step", NewGame.DefaultPodStep)', read(CS))
+
+    def test_unset_adds_nothing_so_writer_uses_default_minus_two_point_five(self):
+        self.assertEqual(ng.points_options(self.args()), [])
+        self.assertEqual(ng.points_options(self.args(pod_ref="4A011", terminal_ref="23CCD")),
+                         ["--pod-ref", "4A011", "--terminal-ref", "23CCD"])
+
+    def test_explicit_step_is_passed_verbatim(self):
+        self.assertEqual(ng.points_options(self.args(pod_step=-2.5)), ["--pod-step", "-2.5"])
+        self.assertEqual(ng.points_options(self.args(pod_step=1.0)), ["--pod-step", "1.0"])
+        self.assertEqual(ng.points_options(self.args(pod_step=0.0)), ["--pod-step", "0.0"])
+
+    def test_the_stage_parser_takes_it(self):
+        self.assertIn('"--pod-step", type=float, default=None', read(os.path.join(ROOT, "scripts", "newgame", "make_newgame.py")))
+
+    def test_handscanner_disabled_on_newgame(self):
+        psc = read(PSC)
+        self.assertIn("InputEnableLayer scannerLayer = None", psc)
+        self.assertIn("scannerLayer = InputEnableLayer.Create()", psc)
+        self.assertIn("scannerLayer.EnableHandscanner(false)", psc)
+        self.assertIn('Trace("blocked input=handscanner")', psc)
+        self.assertIn("DisableHandScanner()", psc)
+
+
+class Phase2BeginningRealTests(unittest.TestCase):
+    """Tasks 3 & 4 contracts: S3-S5 mode choice & Warfare branch, X1-X4 console/Pip-Boy/lift/map-setup, R4 output guard."""
+
+    def test_2b_landing_handoff_starts_mission_quests_with_start_no_wait(self):
+        psc = read(PSC)
+        adv = psc[psc.index("Function ApplyStage"):psc.index("Event OnTimer")]
+        self.assertIn("elseif n == 200\n        CompleteQuest()\n        StartLandingQuests()", adv)
+        self.assertIn("elseif n == 210\n        CompleteQuest()\n        StartLandingQuests()", adv)
+        handoff = psc[psc.index("Function StartLandingQuests"):psc.index("Function EnsureLoadHookRegistered")]
+        self.assertIn('Trace("mission gate mode=" + gm + " started=" + storyAllowed)', handoff)
+        self.assertIn('Game.GetFormFromFile(0x000800, "FO4SFMission.esm") as Quest', handoff)
+        self.assertIn('Game.GetFormFromFile(0x000814, "FO4SFMission.esm") as Quest', handoff)
+        self.assertIn("StartOptionalMissionQuest(0x000816)", handoff)
+        self.assertIn('Trace("landing quests started min00=" + min00Ok + " keeper=" + keeperOk + " codsworth01=" + codsworth01Ok)', handoff)
+        self.assertNotIn(".Start()", psc)
+        s = ng.summarize(["[x] FO4SF_NEWGAME rt=10.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n",
+                          "[x] FO4SF_NEWGAME rt=50.0 landing quests started min00=True keeper=True codsworth01=False\n"])
+        self.assertEqual(s["landing_quests"], "min00=True keeper=True codsworth01=False")
+
+    def test_s3_warfare_starts_table_and_refusal_of_unknown_marker(self):
+        from fo4sf.core import warfare_starts as ws
+        from fo4sf.core import start_worlds as sw
+        entries = ws.load_warfare_starts()
+        self.assertGreaterEqual(len(entries), 1)
+        first = entries[0]
+        self.assertEqual(first.key, "minutemen_sanctuary")
+        self.assertEqual(first.faction_slot, 0)
+        self.assertEqual(first.marker_edid, "FO4Core_CommonwealthMapMarkerSanctuary")
+        self.assertEqual((first.min_difficulty, first.max_difficulty), (0, 3))
+        self.assertEqual(first.squad_cap, 4)
+        self.assertGreaterEqual(len(first.gear), 1)
+        ws.load_warfare_starts(known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary"})
+        with self.assertRaisesRegex(ValueError, "unknown marker_edid"):
+            ws.load_warfare_starts(known_marker_edids={"FO4Core_CommonwealthMapMarkerVault111"})
+        # Legacy nonexistent-cell faction rows in start_worlds are marked inactive while world rows remain intact
+        self.assertFalse(sw.get_start_world("minuteman_volunteer").active)
+        self.assertTrue(sw.get_start_world("vault111").active)
+        self.assertTrue(sw.get_start_world("goodsprings").active)
+
+    def test_s4_mode_choice_chain_fade_hold_and_load_default(self):
+        cs, psc = read(CS), read(PSC)
+        self.assertIn('ModeButtons = { "Story", "Warfare" }', cs)
+        self.assertIn('SurvivalButtons = { "Survival: No", "Survival: Yes" }', cs)
+        self.assertIn('WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" }', cs)
+        self.assertIn("bool Property FadeHold = false Auto Const", psc)
+        self.assertIn("int Property StartChoiceBackdrop = 1 Auto Const", psc)
+        self.assertIn("float Property StartLoadTimeout = 15.0 Auto Const", psc)
+        self.assertEqual(ng.tool_options(namespace()), [])
+        self.assertEqual(ng.tool_options(namespace(fade_hold=True)), ["--fade-hold"])
+        self.assertEqual(ng.tool_options(namespace(no_fade_hold=True)), ["--no-fade-hold"])
+        self.assertEqual(
+            ng.tool_options(namespace(start_choice_backdrop="title_card")),
+            ["--start-choice-backdrop", "title_card"],
+        )
+        self.assertIn('Trace("start room ready by=" + by', psc)
+        self.assertIn('Trace("mode fade lifted by=timeout s=" + (StartLoadTimeout as int))', psc)
+        self.assertIn('Trace("mode choice mode=" + modeTag + " survival=" + survVal)', psc)
+        self.assertIn('Trace("start record mode=" + modeTag + " story=" + storyId', psc)
+        self.assertIn('Trace("mode load default=story stage=" + GetStage())', psc)
+        self.assertIn('CastAs("FO4SF_HardcoreQuest")', psc)
+        self.assertIn('CallFunction("EvaluateHardcore"', psc)
+        s = ng.summarize([
+            "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n",
+            "[x] FO4SF_NEWGAME rt=2.2 enter start room ok=True pos=0.0 0.0 0.0 cell=[Cell <FO4SF_StartRoomCell>]\n",
+            "[x] FO4SF_NEWGAME rt=3.0 mode fade lifted by=timeout s=15\n",
+            "[x] FO4SF_NEWGAME rt=5.0 mode choice mode=story survival=1\n",
+            "[x] FO4SF_NEWGAME rt=5.05 start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=1 difficulty=1 backdrop=empty_cell\n",
+            "[x] FO4SF_NEWGAME rt=5.1 stage 5 by=Trigger\n",
+            "[x] FO4SF_NEWGAME rt=5.2 stage 10 by=Trigger\n",
+            "[x] FO4SF_NEWGAME rt=20.0 mode load default=story stage=10\n",
+        ])
+        self.assertTrue(s["entered_start_room"])
+        self.assertEqual(s["mode_fade_lifted"], "by=timeout s=15")
+        self.assertEqual(s["mode_choice"], "mode=story survival=1")
+        self.assertEqual(
+            s["start_record"],
+            "mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=1 difficulty=1 backdrop=empty_cell",
+        )
+        self.assertEqual(s["mode_load_default"], "story stage=10")
+        self.assertEqual(s["stages"], [5, 10])
+
+    def test_s5_warfare_branch_shared_map_setup_and_stage_210(self):
+        psc = read(PSC)
+        self.assertEqual(psc.count("int Function RunSharedMapSetup()"), 1)
+        ascent = psc[psc.index("Function StartAscent"):psc.index("Event OnAnimationEvent")]
+        wf = psc[psc.index("Function RunWarfareBranch"):psc.index("Event OnMenuOpenCloseEvent")]
+        self.assertIn("RunSharedMapSetup()", ascent)
+        self.assertIn("RunSharedMapSetup()", wf)
+        self.assertIn('CastAs("FO4SF_ProgressionQuest")', wf)
+        self.assertIn('CallFunction("OpenAttributeAllocation"', wf)
+        self.assertIn('CallFunction("ApplyWarfareBackground"', wf)
+        self.assertIn('Trace("warfare gear n=" + gearAdded)', wf)
+        self.assertIn('Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())', wf)
+        self.assertIn('CallFunction("DiscoverSingleMarker"', wf)
+        self.assertIn('CallFunction("SetFactionScoresAbsolute"', wf)
+        self.assertIn('CallFunction("SetKarmaAbsolute"', wf)
+        self.assertIn("player.AddToFaction(fac)", wf)
+        self.assertIn('Trace("warfare standing slot=" + slot', wf)
+        self.assertIn('ForceFadeIn("warfare")', wf)
+        self.assertIn("AdvanceTo(210)", wf)
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        log_path = os.path.join(tmp, "fo4sf_newgame.0.log")
+        with open(log_path, "w", encoding="utf-8") as fh:
+            fh.write(
+                "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
+                "[x] FO4SF_NEWGAME rt=3.0 mode fade held\n"
+                "[x] FO4SF_NEWGAME rt=4.0 mode choice mode=warfare survival=0\n"
+                "[x] FO4SF_NEWGAME rt=4.1 warfare pick faction=0 start=minutemen_sanctuary difficulty=1\n"
+                "[x] FO4SF_NEWGAME rt=4.2 stage 5\n"
+                "[x] FO4SF_NEWGAME rt=8.0 special set S=6 P=6 E=6 C=6 I=6 A=5 L=5 sum=40 source=warfare\n"
+                "[x] FO4SF_NEWGAME rt=9.0 warfare gear n=4\n"
+                "[x] FO4SF_NEWGAME rt=10.0 warfare move ok=True marker=[ObjectReference < (030A775A)>] dist=0.0 z=96.0\n"
+                "[x] FO4SF_NEWGAME rt=10.2 map setup done markers=4 elapsed=0.05\n"
+                "[x] FO4SF_NEWGAME rt=10.3 warfare standing slot=0 fame=45.0 infamy=0.0 karma=150.0 squad_cap=4\n"
+                "[x] FO4SF_NEWGAME rt=10.4 stage 210\n"
+            )
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as out:
+            rc = ng.main(["log", "--file", log_path])
+        self.assertEqual(rc, 0)
+        summary = json.loads(out.getvalue())
+        self.assertEqual(summary["stages"], [5, 210])
+        self.assertEqual(summary["warfare_pick"], "faction=0 start=minutemen_sanctuary difficulty=1")
+        self.assertEqual(summary["warfare_gear"], "4")
+        self.assertEqual(summary["map_setup"], "markers=4 elapsed=0.05")
+
+    def test_x1_console_only_gear_door_blocks_direct_activation_and_gates_shortcuts_on_test_mode(self):
+        cs, psc = read(CS), read(PSC)
+        self.assertIn('("ConsoleRefId", (int)p.Console)', cs)
+        self.assertIn('GearDoorConsoleActiEdid = "FO4SF_GearDoorConsole"', cs)
+        self.assertIn('GearDoorConsoleRefEdid = "FO4SF_GearDoorConsoleRef"', cs)
+        self.assertIn("GearDoorConsoleActiId = 0x818", cs)
+        self.assertIn("GearDoorConsoleRefId = 0x819", cs)
+        self.assertIn('if (console == 0)\n            throw new Refusal(', cs)
+        invault = psc[psc.index("Function InVault"):psc.index("Function StartAscent")]
+        self.assertIn("if stage == 20 && CogDoorId > 0 && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", invault)
+        self.assertIn("cogDoorWatchedRef.BlockActivation(True, False)", psc)
+        self.assertIn('RegisterForRemoteEvent(cogDoorWatchedRef, "OnActivate")', psc)
+        self.assertIn("consoleWatchedRef = GearDoorConsoleRef", psc)
+        self.assertIn('RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")', psc)
+        self.assertIn('Trace("console activator registered ref=" + consoleWatchedRef', psc)
+        self.assertIn('Trace("cog door activate blocked by=player open_state=" + curState)', psc)
+        self.assertIn("Utility.Wait(2.0)", psc)
+        self.assertIn('Trace("cog door console activated ref=" + consoleWatchedRef + " before=" + before + " after=" + after)', psc)
+        self.assertIn('Trace("cog door open failed state=" + after)', psc)
+
+    def test_x2_pipboy_pickup_console_gate_and_pistol_picked(self):
+        cs, psc = read(CS), read(PSC)
+        # A6 & A16: FO4SF_PipboyAcquired lives solely in FO4SFCoreValues.esm:000865; 0x80C and 0x810..0x816 stay reserved
+        self.assertNotIn("PipboyAcquiredGlobId =", cs)
+        self.assertIn('var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));', cs)
+        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 }", cs)
+        self.assertIn("PipboyWristArmorId = 0x80D", cs)
+        self.assertIn("PipboyCorpseActiId = 0x80E", cs)
+        self.assertIn("PipboyCorpseRefId = 0x80F", cs)
+        self.assertIn("NoPipboyMsgId = 0x817", cs)
+        self.assertIn("MaxMessageButtons = 7", cs)
+        self.assertIn("Fo4PipboyPickup = 0x075039", cs)
+        self.assertIn("Fo4PipboySkeleton = 0x0AB6AF", cs)
+        self.assertIn('["pipboy_corpse"]', cs)
+        self.assertIn("AddInventoryEventFilter(VaultPistolBase)", psc)
+        self.assertLess(
+            psc.index("AddInventoryEventFilter(VaultPistolBase)"),
+            psc.index('RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")'),
+        )
+        self.assertIn('Trace("pistol filter added base=" + VaultPistolBase + " id=" + VaultPistolId)', psc)
+        self.assertIn("if akBaseItem == VaultPistolBase", psc)
+        self.assertIn('Trace("console refused: no pipboy")', psc)
+        self.assertIn('Trace("pipboy pickup equipped flag=1 worn=" + worn)', psc)
+        self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)', psc)
+        z = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        z.close()
+        try:
+            fake_zip(z.name, remote=False, inventory_filter=False)
+            r = ng.precheck_zip(z.name)
+            self.assertIn("ScriptObject.RegisterForRemoteEvent", r["missing_core"])
+            self.assertIn("ScriptObject.UnregisterForRemoteEvent", r["missing_core"])
+            self.assertIn("ScriptObject.AddInventoryEventFilter", r["missing_core"])
+        finally:
+            os.unlink(z.name)
+
+    def test_x3_three_button_lift_prompt_requires_40pt_special_before_continue_and_disables_special_skipped(self):
+        cs, psc, special = read(CS), read(PSC), read(SPECIAL)
+        self.assertIn('ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" }', cs)
+        self.assertIn('ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg"', cs)
+        self.assertIn("ExitNeedSpecialMsgId = 0x81F", cs)
+        self.assertIn('ReturnMsgEdid = "FO4SF_NewGameReturn"', cs)
+        self.assertIn("ReturnMsgId = 0x80B", cs)
+        self.assertIn('"Ride down to Vault 111", "Stay"', cs)
+        self.assertIn('Trace("elevator continue refused: special unconfirmed")', psc)
+        self.assertIn("ExitNeedAttrMsg.Show()", psc)
+        self.assertIn("OpenLiftAttributeAllocation()", psc)
+        self.assertNotIn("OpenLiftCharacterRespec()", psc)
+        self.assertIn('Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")', psc)
+        self.assertIn('CastAs("FO4SF_ProgressionQuest")', psc)
+        self.assertIn('CastAs("FO4SF_NewGameSpecial")', psc)
+        self.assertNotIn("as FO4SF_ProgressionQuest", psc)
+        self.assertIn("PrepareArrivalMarkerDuringRide()", psc)
+        self.assertIn("PreAttachArrivalMarker(player)", psc)
+        self.assertIn("CheckReturnLift(player)", psc)
+        self.assertIn("bool Property LegacyTerminalEnabled = false Auto Const", special)
+        self.assertIn("if aiTimerID != 3 || !LegacyTerminalEnabled\n        return", special)
+        audit = read(os.path.join(ROOT, "docs", "newgame", "lift-rules-audit.md"))
+        for rule_num in range(1, 8):
+            self.assertIn(f"### {rule_num}.", audit)
+        self.assertIn("NOT BUILT", audit)
+
+    def test_r4_stage_tools_refuse_worktree_and_game_output_folders(self):
+        with self.assertRaisesRegex(SystemExit, "inside Git worktree"):
+            ng.refuse_forbidden_out_dir(os.path.join(ROOT, "forbidden_stage_out"))
+        with self.assertRaisesRegex(SystemExit, "Starfield"):
+            ng.refuse_forbidden_out_dir(os.path.join(ng.STARFIELD, "Data", "forbidden_stage_out"))
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        ng.refuse_forbidden_out_dir(os.path.join(tmp, "allowed_stage_out"))
+
+    def test_b6_and_b8_black_hold_after_loading_neutral_spot_waiting_timer_and_stage_causes(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        ev_menu = re.search(r"Event OnMenuOpenCloseEvent\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_stage = re.search(r"Event OnStageSet\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = (
+            psc
+            + f"\nFunction MenuEvent({ev_menu[1]})\n{ev_menu[2]}EndFunction\n"
+            + f"\nFunction StageEvent({ev_stage[1]})\n{ev_stage[2]}EndFunction\n"
+            + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+        )
+
+        logs, fades, waits, timers, moves = [], [], [], [], []
+        cur_stage = [0]
+        neutral_val = [1.0]
+        start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+        vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+        player = SimpleNamespace(
+            pos=(9.1, -6.6, -0.9),
+            cell="InitCell",
+            GetPositionX=lambda: player.pos[0],
+            GetPositionY=lambda: player.pos[1],
+            GetPositionZ=lambda: player.pos[2],
+            SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+            SetAngle=lambda *a: None,
+            MoveTo=lambda ref, dx, dy, dz, *rest: (
+                moves.append((ref, dx, dy, dz)),
+                setattr(player, "cell", ref.GetParentCell()),
+                setattr(
+                    player,
+                    "pos",
+                    (0.0 + dx, 0.0 + dy, 0.0 + dz)
+                    if ref is start_room_marker
+                    else (60.0 + dx, 25.0 + dy, 1.0 + dz),
+                ),
+            ),
+            GetParentCell=lambda: player.cell,
+            Is3DLoaded=lambda: True,
+        )
+
+        def show_mode_box():
+            # At ModePickMsg.Show(): player must be in StartRoomCell (never VaultCell) with fade lifted!
+            self.assertEqual(player.cell, "StartRoomCell")
+            self.assertEqual(fades[-1], (False, True, 0.0, 0.1, False))
+            ns["TimerEvent"](2)
+            ns["TimerEvent"](2)
+            return 0
+
+        ns = dict(
+            FadeHold=True, StartChoiceBackdrop=1, StartLoadTimeout=15.0, LooksWait=0.0, RaceMenuMode=2,
+            ClearInventory=False, AnchorTemporary=False,
+            faded=False, warfareFadeTicks=0, entered=False, startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
+            loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False, h00SkipLoading=False,
+            modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+            setupWaitingCreator=False, warfareWaitingCreator=False,
+            applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+            exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+            VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
+            AnchorX=60.0, AnchorY=25.0, AnchorZ=1.0,
+            PodX=10.0, PodY=20.0, PodZ=1.0, PodLift=0.5, PodHeading=90.0,
+            StartRoomMarkerRef=start_room_marker,
+            StartCardOpenGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: neutral_val[0]),
+            GameModeGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            StoryLineGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            StartPlaceRowGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+            SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
+            SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+            StartDifficultyGlobal=SimpleNamespace(SetValue=lambda v: None),
+            WarfareFactionGlobal=SimpleNamespace(SetValue=lambda v: None),
+            WarfareStartIndexGlobal=SimpleNamespace(SetValue=lambda v: None),
+            H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+            TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+            ModePickMsg=SimpleNamespace(Show=show_mode_box),
+            StoryLineMsg=SimpleNamespace(Show=lambda: 0),
+            SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
+            StartPickMsg=None,
+            StoryChoiceIds=["fo4_commonwealth"],
+            StartPlaceIds=["fo4_vault111"],
+            StartPlaceModes=[1],
+            StartPlaceStories=["fo4_commonwealth"],
+            StartPlacePlugins=["FO4Port.esm"],
+            StartPlaceMarkerIds=[0x805],
+            StartPlaceWarfareRows=[-1],
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player,
+                ShowFirstPersonGeometry=lambda *a: None,
+                FadeOutGame=lambda *a: fades.append(a),
+                SetInChargen=lambda *a: None,
+                SetCharGenHUDMode=lambda *a: None,
+                GetFormFromFile=lambda fid, plg: vault_anchor if (fid, plg) == (0x805, "FO4Port.esm") else None,
+            ),
+            Utility=SimpleNamespace(Wait=lambda s: waits.append(s), GetCurrentRealTime=lambda: 12.0),
+            Debug=SimpleNamespace(Notification=lambda *a: None),
+            InputEnableLayer=SimpleNamespace(Create=lambda: None),
+            scannerLayer=None,
+            RegisterForMenuOpenCloseEvent=lambda m: None,
+            UnregisterForMenuOpenCloseEvent=lambda m: None,
+            StartTimer=lambda s, tid: timers.append((s, tid)),
+            SetStage=lambda n: cur_stage.__setitem__(0, n),
+            GetStage=lambda: cur_stage[0],
+            SetObjectiveDisplayed=lambda *a: None,
+            SetObjectiveCompleted=lambda *a: None,
+            SetActive=lambda *a: None,
+            CompleteQuest=lambda: None,
+            StartLandingQuests=lambda: None,
+            EnsureLoadHookRegistered=lambda p: None,
+            Trace=lambda m: logs.append(m),
+        )
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
+            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "MenuEvent", "StageEvent", "TimerEvent",
+        )
+        vars_csv = (
+            "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+        )
+        exec(compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec"), ns)
+
+        ns["EnterStartRoom"](player)
+        ns["PrepareStartRoomUi"]("start")
+        ns["RegisterStartLoadingHook"]()
+        ns["MenuEvent"]("LoadingMenu", True)
+        self.assertTrue(ns["loadingMenuOpen"])
+        ns["MenuEvent"]("LoadingMenu", False)
+        self.assertFalse(ns["loadingMenuOpen"])
+        self.assertTrue(ns["loadingMenuClosedSeen"])
+
+        chosen = ns["RunModeChoiceChain"](player)
+        self.assertEqual(chosen, 1)
+        self.assertIn("start room ready by=start loaded=True cell=StartRoomCell backdrop=empty_cell", logs)
+        self.assertIn("mode loading menu closed", logs)
+        self.assertTrue(any(l.startswith("mode neutral spot active ") for l in logs), logs)
+        self.assertEqual([l for l in logs if l.startswith("mode box waiting ")], ["mode box waiting s=60", "mode box waiting s=120"])
+        ns["TimerEvent"](2)
+        self.assertEqual([l for l in logs if l.startswith("mode box waiting ")], ["mode box waiting s=60", "mode box waiting s=120"])
+        self.assertIn(
+            "start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell",
+            logs,
+        )
+        self.assertIn("stage 5 by=Trigger", logs)
+        self.assertIn("stage 10 by=Trigger", logs)
+        # Only AFTER start record does Story move the player into Vault 111 at the pod
+        self.assertEqual(player.cell, "VaultCell")
+        self.assertAlmostEqual(player.pos[0], 10.0, places=3)
+        self.assertAlmostEqual(player.pos[1], 20.0, places=3)
+
+        # B6 external console setstage (without AdvanceTo) logs by=other
+        ns["StageEvent"](30, 0)
+        self.assertIn("stage 30 by=other", logs)
+
+    def test_h0_loading_menu_close_never_arrives_lifts_fade_and_shows_box(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        wrapped = psc
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
+            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+        )
+        vars_csv = (
+            "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        # Test BOTH default path (neutral=0.0) and B8 neutral-spot path (neutral=1.0) when LoadingMenu close NEVER arrives
+        for neutral_setting in (0.0, 1.0):
+            with self.subTest(neutral=neutral_setting):
+                logs, fades, waits, unregs, shown = [], [], [], [], []
+                cur_stage = [0]
+                start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+                vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+                player = SimpleNamespace(
+                    pos=(0.0, 0.0, 0.0),
+                    cell="StartRoomCell",
+                    GetPositionX=lambda: player.pos[0],
+                    GetPositionY=lambda: player.pos[1],
+                    GetPositionZ=lambda: player.pos[2],
+                    SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                    SetAngle=lambda *a: None,
+                    MoveTo=lambda ref, dx, dy, dz, *rest: (
+                        setattr(player, "cell", ref.GetParentCell()),
+                        setattr(
+                            player,
+                            "pos",
+                            (0.0 + dx, 0.0 + dy, 0.0 + dz)
+                            if ref is start_room_marker
+                            else (60.0 + dx, 25.0 + dy, 1.0 + dz),
+                        ),
+                    ),
+                    GetParentCell=lambda: player.cell,
+                    Is3DLoaded=lambda: True,
+                )
+
+                def on_mode_box_show():
+                    # H0 acceptance: fade MUST be lifted and timeout logged BEFORE ModePickMsg.Show() blocks for input!
+                    self.assertFalse(ns["loadingMenuOpen"])
+                    self.assertFalse(ns["loadingHookRegistered"])
+                    self.assertIn("LoadingMenu", unregs)
+                    self.assertEqual(fades[-1], (False, True, 0.0, 0.1, False))
+                    self.assertFalse(any(f[0] is True for f in fades), fades)
+                    self.assertIn("mode fade lifted by=timeout s=15", logs)
+                    shown.append("ModePickMsg")
+                    return 0
+
+                ns = dict(
+                    FadeHold=True, StartChoiceBackdrop=1, StartLoadTimeout=15.0, LooksWait=0.0, RaceMenuMode=2,
+                    ClearInventory=False, AnchorTemporary=False,
+                    faded=False, warfareFadeTicks=0, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+                    loadingMenuOpen=True, loadingMenuClosedSeen=False, loadingHookRegistered=True, startUiReady=False, h00SkipLoading=False,
+                    modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                    setupWaitingCreator=False, warfareWaitingCreator=False,
+                    applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+                    exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+                    VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
+                    AnchorX=60.0, AnchorY=25.0, AnchorZ=1.0,
+                    PodX=10.0, PodY=20.0, PodZ=1.0, PodLift=0.5, PodHeading=90.0,
+                    StartRoomMarkerRef=start_room_marker,
+                    StartCardOpenGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: neutral_setting),
+                    GameModeGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StoryLineGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartPlaceRowGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    StartDifficultyGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareFactionGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareStartIndexGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    ModePickMsg=SimpleNamespace(Show=on_mode_box_show),
+                    StoryLineMsg=SimpleNamespace(Show=lambda: (shown.append("StoryLineMsg"), 0)[1]),
+                    SurvivalPickMsg=SimpleNamespace(Show=lambda: (shown.append("SurvivalPickMsg"), 0)[1]),
+                    StartPickMsg=None,
+                    StoryChoiceIds=["fo4_commonwealth"],
+                    StartPlaceIds=["fo4_vault111"],
+                    StartPlaceModes=[1],
+                    StartPlaceStories=["fo4_commonwealth"],
+                    StartPlacePlugins=["FO4Port.esm"],
+                    StartPlaceMarkerIds=[0x805],
+                    StartPlaceWarfareRows=[-1],
+                    Game=SimpleNamespace(
+                        GetPlayer=lambda: player,
+                        ShowFirstPersonGeometry=lambda *a: None,
+                        FadeOutGame=lambda *a: fades.append(a),
+                        SetInChargen=lambda *a: None,
+                        SetCharGenHUDMode=lambda *a: None,
+                        GetFormFromFile=lambda fid, plg: vault_anchor if (fid, plg) == (0x805, "FO4Port.esm") else None,
+                    ),
+                    # LoadingMenu close event NEVER fires during Wait!
+                    Utility=SimpleNamespace(Wait=lambda s: waits.append(s), GetCurrentRealTime=lambda: 20.0),
+                    Debug=SimpleNamespace(Notification=lambda *a: None),
+                    InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                    scannerLayer=None,
+                    RegisterForMenuOpenCloseEvent=lambda m: None,
+                    UnregisterForMenuOpenCloseEvent=lambda m: unregs.append(m),
+                    StartTimer=lambda *a: None,
+                    SetStage=lambda n: cur_stage.__setitem__(0, n),
+                    GetStage=lambda: cur_stage[0],
+                    SetObjectiveDisplayed=lambda *a: None,
+                    SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    EnsureLoadHookRegistered=lambda p: None,
+                    Trace=lambda m: logs.append(m),
+                )
+                exec(compiled, ns)
+
+                chosen = ns["RunModeChoiceChain"](player)
+                self.assertEqual(chosen, 1)
+                self.assertAlmostEqual(sum(waits), 15.75, places=2)
+                self.assertEqual(shown, ["ModePickMsg", "StoryLineMsg", "SurvivalPickMsg"])
+                self.assertIn("mode fade lifted by=timeout s=15", logs)
+                self.assertTrue(any(l.startswith("start ui ready released_by=timeout_delay waited_s=") for l in logs), logs)
+                if neutral_setting >= 0.5:
+                    self.assertTrue(any(l.startswith("mode neutral spot active ") for l in logs), logs)
+                self.assertEqual(player.cell, "VaultCell")
+                self.assertEqual(cur_stage[0], 20)
+
+    def test_n2_and_card4_start_places_table_and_warfare_pre_creator_special(self):
+        from types import SimpleNamespace
+        from fo4sf.core import start_places as sp
+        from tests.test_exit_arrival import translated_functions
+
+        # 1. Start-places table validation: available vs unbuilt rows, and refusal of unresolvable available rows
+        all_rows = sp.load_start_places()
+        avail_rows = sp.load_start_places(
+            available_only=True,
+            known_plugins={"FO4Port.esm", "FO4TerrainCore.esm"},
+            known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary"},
+        )
+        self.assertEqual([r.id for r in avail_rows], ["fo4_vault111", "minutemen_sanctuary"])
+        unavail_ids = {r.id for r in all_rows if not r.available}
+        self.assertIn("fnv_goodsprings", unavail_ids)
+        self.assertIn("fo3_vault101", unavail_ids)
+        self.assertEqual(sp.available_story_choices(all_rows), [("fo4_commonwealth", "Fallout 4: Commonwealth")])
+
+        with self.assertRaisesRegex(ValueError, "not loaded"):
+            sp.load_start_places(known_plugins={"FO4Port.esm"})
+        with self.assertRaisesRegex(ValueError, "marker_edid"):
+            sp.load_start_places(
+                known_plugins={"FO4Port.esm", "FO4TerrainCore.esm"},
+                known_marker_edids=set(),
+            )
+
+        # 2. N2 + Card 4 translated execution: Warfare with title_card backdrop + S.P.E.C.I.A.L. BEFORE ShowRaceMenu + R10 fallback
+        psc = read(PSC)
+        ev_menu = re.search(r"Event OnMenuOpenCloseEvent\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = psc + f"\nFunction MenuEvent({ev_menu[1]})\n{ev_menu[2]}EndFunction\n"
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
+        )
+        vars_csv = (
+            "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        for cancel_all_tries in (False, True):
+            with self.subTest(cancel_all_tries=cancel_all_tries):
+                logs, events, card_vals, chargen_state = [], [], [], [False]
+                cur_stage = [0]
+                start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+                sanctuary_cell = SimpleNamespace(GetFormID=lambda: 0x03001000)
+                sanctuary_marker = SimpleNamespace(
+                    GetFormID=lambda: 0x030A775A,
+                    GetParentCell=lambda: sanctuary_cell,
+                    GetWorldSpace=lambda: "CommonwealthWorld",
+                    Enable=lambda *a: None,
+                    MoveTo=lambda *a: None,
+                    SetPosition=lambda *a: None,
+                )
+                player = SimpleNamespace(
+                    pos=(0.0, 0.0, 0.0),
+                    cell="StartRoomCell",
+                    interior=True,
+                    GetPositionX=lambda: player.pos[0],
+                    GetPositionY=lambda: player.pos[1],
+                    GetPositionZ=lambda: player.pos[2],
+                    SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                    SetAngle=lambda *a: None,
+                    MoveTo=lambda ref, dx, dy, dz, *rest: (
+                        events.append("MoveToWarfareStart" if ref is sanctuary_marker else "MoveToStartRoom"),
+                        setattr(player, "cell", ref.GetParentCell()),
+                        setattr(player, "interior", ref is start_room_marker),
+                    ),
+                    GetParentCell=lambda: player.cell,
+                    GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
+                    IsInInterior=lambda: player.interior,
+                    Is3DLoaded=lambda: True,
+                    RemoveAllItems=lambda *a: None,
+                    AddItem=lambda *a: None,
+                    EquipItem=lambda *a: None,
+                    GetValue=lambda av: 100.0,
+                    ModValue=lambda av, d: None,
+                    AddToFaction=lambda f: None,
+                )
+
+                def open_alloc(src):
+                    # Card 4: S.P.E.C.I.A.L. runs BEFORE ShowRaceMenu while SetInChargen is False and still in StartRoomCell!
+                    self.assertEqual(src, "warfare")
+                    self.assertFalse(chargen_state[0])
+                    self.assertEqual(player.cell, "StartRoomCell")
+                    self.assertNotIn("ShowRaceMenu", events)
+                    events.append("OpenAttributeAllocation")
+                    return False if cancel_all_tries else True
+
+                def offer_spread(src, allow_back):
+                    self.assertEqual((src, allow_back), ("warfare", False))
+                    events.append("OfferStandardSpread")
+                    return True
+
+                prog = SimpleNamespace(
+                    OpenAttributeAllocation=open_alloc,
+                    OfferStandardSpread=offer_spread,
+                    ApplyWarfareBackground=lambda idx: events.append(f"Bg:{idx}"),
+                )
+
+                def show_race_menu(*a):
+                    events.append("ShowRaceMenu")
+                    chargen_state[0] = True
+                    ns["MenuEvent"]("ChargenMenu", False)
+
+                ns = dict(
+                    FadeHold=True, StartChoiceBackdrop=2, StartLoadTimeout=15.0, LooksWait=10.0, RaceMenuMode=2,
+                    ClearInventory=True, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
+                    SurfaceWait=1.0, SurfaceTries=3, FallDrop=3.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+                    ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=0.0,
+                    ExitAnchorId=0x0A7759, CorePlugin="FO4TerrainCore.esm",
+                    VaultAnchorId=0x805, VaultPlugin="FO4Port.esm",
+                    faded=False, warfareFadeTicks=0, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+                    loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False, startUiReady=False,
+                    h00SkipLoading=False, h00SkipMap=False,
+                    modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                    setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
+                    applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+                    exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+                    StartRoomMarkerRef=start_room_marker,
+                    PipboyWristArmor=SimpleNamespace(),
+                    PipboyAcquiredGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    StartCardOpenGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: card_vals.append(v)),
+                    StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    GameModeGlobal=SimpleNamespace(GetValue=lambda: 2.0, SetValue=lambda v: None),
+                    StoryLineGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartPlaceRowGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    StartDifficultyGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareFactionGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareStartIndexGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    ModePickMsg=SimpleNamespace(Show=lambda: 1),
+                    StoryLineMsg=SimpleNamespace(Show=lambda: 0),
+                    SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
+                    WarfareDiffMsg=SimpleNamespace(Show=lambda: 0),
+                    WarfareGroupMsg=SimpleNamespace(Show=lambda: 0),
+                    WarfareSpotMsg=SimpleNamespace(Show=lambda: 0),
+                    StartPickMsg=SimpleNamespace(Show=lambda: 1),
+                    StoryChoiceIds=["fo4_commonwealth"],
+                    StartPlaceIds=["fo4_vault111", "minutemen_sanctuary"],
+                    StartPlaceModes=[1, 2],
+                    StartPlaceStories=["fo4_commonwealth", "none"],
+                    StartPlacePlugins=["FO4Port.esm", "FO4TerrainCore.esm"],
+                    StartPlaceMarkerIds=[0x805, 0x0A775A],
+                    StartPlaceWarfareRows=[-1, 0],
+                    WarfareKeys=["minutemen_sanctuary"],
+                    WarfareFactionSlots=[0],
+                    WarfareDistinctFactionSlots=[0],
+                    WarfareMarkerIds=[0x0A775A],
+                    WarfareMarkerX=[100.0],
+                    WarfareMarkerY=[200.0],
+                    WarfareMarkerZ=[95.0],
+                    WarfareHeadings=[180.0],
+                    WarfareMinDiffs=[0],
+                    WarfareMaxDiffs=[3],
+                    WarfareBgIndices=[0],
+                    WarfareFames=[45.0],
+                    WarfareInfamies=[0.0],
+                    WarfareKarmas=[150.0],
+                    WarfareSquadCaps=[4],
+                    WarfareGearRowIndices=[0],
+                    WarfareGearPlugins=["Starfield.esm"],
+                    WarfareGearIds=[0x100],
+                    WarfareGearCounts=[1],
+                    WarfareGearEquips=[True],
+                    CoreMarkerIds=[0x0A775A],
+                    MapMarkerQuestIds=[],
+                    Game=SimpleNamespace(
+                        GetPlayer=lambda: player,
+                        ShowFirstPersonGeometry=lambda *a: None,
+                        FadeOutGame=lambda *a: None,
+                        SetInChargen=lambda a, b, c: chargen_state.__setitem__(0, bool(a or b or c)),
+                        SetCharGenHUDMode=lambda *a: None,
+                        ShowRaceMenu=show_race_menu,
+                        GetFormFromFile=lambda fid, plg: (
+                            prog if (fid, plg) == (0x000880, "FO4SFProgression.esm")
+                            else sanctuary_marker if (fid, plg) == (0x0A775A, "FO4TerrainCore.esm")
+                            else SimpleNamespace() if plg == "Starfield.esm"
+                            else None
+                        ),
+                    ),
+                    Utility=SimpleNamespace(
+                        Wait=lambda s: events.append(f"Wait({s})") if s == 2.0 else None,
+                        GetCurrentRealTime=lambda: 30.0,
+                    ),
+                    Debug=SimpleNamespace(Notification=lambda *a: None),
+                    InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                    scannerLayer=None,
+                    RegisterForMenuOpenCloseEvent=lambda m: None,
+                    UnregisterForMenuOpenCloseEvent=lambda m: None,
+                    StartTimer=lambda *a: None,
+                    SetStage=lambda n: (cur_stage.__setitem__(0, n), events.append(f"Stage{n}")),
+                    GetStage=lambda: cur_stage[0],
+                    SetObjectiveDisplayed=lambda *a: None,
+                    SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    Trace=lambda m: logs.append(m),
+                )
+                exec(compiled, ns)
+
+                chosen = ns["RunModeChoiceChain"](player)
+                self.assertEqual(chosen, 2)
+                self.assertEqual(ns["vaultMoves"], 0)
+                self.assertEqual(card_vals[0], 1.0)
+                self.assertEqual(card_vals[-1], 0.0)
+                self.assertIn(
+                    "start record mode=warfare story=none faction=0 place=minutemen_sanctuary survival=0 difficulty=0 backdrop=title_card",
+                    logs,
+                )
+                self.assertLess(events.index("OpenAttributeAllocation"), events.index("ShowRaceMenu"))
+                self.assertLess(events.index("ShowRaceMenu"), events.index("Wait(2.0)"))
+                self.assertLess(events.index("Wait(2.0)"), events.index("MoveToWarfareStart"))
+                if cancel_all_tries:
+                    self.assertEqual(events.count("OpenAttributeAllocation"), 3)
+                    self.assertIn("OfferStandardSpread", events)
+                else:
+                    self.assertEqual(events.count("OpenAttributeAllocation"), 1)
+                    self.assertNotIn("OfferStandardSpread", events)
+                self.assertFalse(chargen_state[0])
+                self.assertEqual(cur_stage[0], 210)
+
+    def test_s1_s2_s3_s4_setup_menu_swap_parity_fallback_and_study_docs(self):
+        from types import SimpleNamespace
+        from fo4sf.core import start_places as sp
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "ResetInventory",
+            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+        )
+        vars_csv = (
+            "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+        )
+        compiled = compile(translated_functions(psc, funcs, vars_csv), PSC, "exec")
+        rows = sp.load_start_places()
+
+        def run_flow(backdrop_val: int, mode_is_warfare: bool, survival_on: bool, diff_val: int, native_setup_ack: bool = True):
+            store = {
+                "StartCardOpen": 0.0,
+                "GameMode": 0.0,
+                "StoryLine": 0.0,
+                "SurvivalStart": 0.0,
+                "SurvivalLocked": 0.0,
+                "StartDifficulty": 0.0,
+                "WarfareFaction": -1.0,
+                "WarfareStartIndex": -1.0,
+                "StartChoiceDone": 0.0,
+                "StartPlaceRow": 0.0,
+            }
+
+            def make_glob(key):
+                def _set(v):
+                    store[key] = float(v)
+                    if key == "StartCardOpen" and float(v) >= 1.5 and native_setup_ack:
+                        # Native FO4SF_SetupMenu opens (ack 3.0) and commits exact SetupScreenModel payload!
+                        model = sp.SetupScreenModel(rows)
+                        if mode_is_warfare:
+                            model.adjust_row(0, 1)
+                        if survival_on:
+                            model.adjust_row(3, 1)
+                        while model.difficulty != diff_val:
+                            model.adjust_row(4, 1)
+                        payload = model.confirm()
+                        assert payload is not None
+                        store["GameMode"] = float(payload.mode_val)
+                        store["StoryLine"] = float(payload.story_choice_idx)
+                        store["SurvivalStart"] = float(payload.survival)
+                        store["SurvivalLocked"] = float(payload.survival)
+                        store["StartDifficulty"] = float(payload.difficulty)
+                        store["WarfareFaction"] = float(payload.warfare_faction_slot)
+                        store["WarfareStartIndex"] = float(payload.warfare_start_idx)
+                        store["StartPlaceRow"] = float(payload.start_place_row)
+                        store["StartCardOpen"] = 3.0
+                        store["StartChoiceDone"] = 1.0
+
+                return SimpleNamespace(GetValue=lambda: store[key], SetValue=_set)
+
+            logs, cur_stage, msg_calls = [], [0], []
+            start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+            vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+            sanctuary_cell = SimpleNamespace(GetFormID=lambda: 0x03001000)
+            sanctuary_marker = SimpleNamespace(
+                GetFormID=lambda: 0x030A775A,
+                GetParentCell=lambda: sanctuary_cell,
+                GetWorldSpace=lambda: "CommonwealthWorld",
+                Enable=lambda *a: None,
+                MoveTo=lambda *a: None,
+                SetPosition=lambda *a: None,
+            )
+            player = SimpleNamespace(
+                pos=(0.0, 0.0, 0.0),
+                cell="StartRoomCell",
+                interior=True,
+                GetPositionX=lambda: player.pos[0],
+                GetPositionY=lambda: player.pos[1],
+                GetPositionZ=lambda: player.pos[2],
+                SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                SetAngle=lambda *a: None,
+                MoveTo=lambda ref, *rest: (
+                    setattr(player, "cell", ref.GetParentCell()),
+                    setattr(player, "interior", ref is not sanctuary_marker),
+                ),
+                GetParentCell=lambda: player.cell,
+                GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
+                IsInInterior=lambda: player.interior,
+                Is3DLoaded=lambda: True,
+                GetItemCount=lambda *a: 0,
+                RemoveAllItems=lambda *a: None,
+                AddItem=lambda *a: None,
+                EquipItem=lambda *a: None,
+                IsEquipped=lambda *a: True,
+                GetValue=lambda av: 100.0,
+                ModValue=lambda av, d: None,
+                AddToFaction=lambda f: None,
+            )
+            ns = dict(
+                FadeHold=True, StartChoiceBackdrop=backdrop_val, StartLoadTimeout=15.0, LooksWait=0.0, RaceMenuMode=2,
+                ClearInventory=True, VaultSuitId=0, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
+                SurfaceWait=1.0, SurfaceTries=3, FallDrop=3.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+                ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=0.0,
+                AnchorX=0.0, AnchorY=0.0, AnchorZ=0.0, PodX=0.0, PodY=0.0, PodZ=0.0, PodLift=0.3, PodHeading=0.0,
+                ExitAnchorId=0x0A7759, CorePlugin="FO4TerrainCore.esm",
+                VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
+                faded=False, warfareFadeTicks=0, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+                loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False, startUiReady=False,
+                h00SkipLoading=False, h00SkipMap=False,
+                modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
+                applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+                exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+                StartRoomMarkerRef=start_room_marker,
+                PipboyWristArmor=SimpleNamespace(),
+                PipboyAcquiredGlobal=SimpleNamespace(SetValue=lambda v: None),
+                StartCardOpenGlobal=make_glob("StartCardOpen"),
+                StartChoiceDoneGlobal=make_glob("StartChoiceDone"),
+                StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                GameModeGlobal=make_glob("GameMode"),
+                StoryLineGlobal=make_glob("StoryLine"),
+                StartPlaceRowGlobal=make_glob("StartPlaceRow"),
+                SurvivalStartGlobal=make_glob("SurvivalStart"),
+                SurvivalLockedGlobal=make_glob("SurvivalLocked"),
+                StartDifficultyGlobal=make_glob("StartDifficulty"),
+                WarfareFactionGlobal=make_glob("WarfareFaction"),
+                WarfareStartIndexGlobal=make_glob("WarfareStartIndex"),
+                H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                ModePickMsg=SimpleNamespace(Show=lambda: (msg_calls.append("ModePickMsg"), 1 if mode_is_warfare else 0)[1]),
+                StoryLineMsg=SimpleNamespace(Show=lambda: (msg_calls.append("StoryLineMsg"), 0)[1]),
+                SurvivalPickMsg=SimpleNamespace(Show=lambda: (msg_calls.append("SurvivalPickMsg"), 1 if survival_on else 0)[1]),
+                WarfareDiffMsg=SimpleNamespace(Show=lambda: (msg_calls.append("WarfareDiffMsg"), diff_val)[1]),
+                WarfareGroupMsg=SimpleNamespace(Show=lambda: (msg_calls.append("WarfareGroupMsg"), 0)[1]),
+                WarfareSpotMsg=SimpleNamespace(Show=lambda: 0),
+                StartPickMsg=None,
+                StoryChoiceIds=["fo4_commonwealth"],
+                StartPlaceIds=["fo4_vault111", "minutemen_sanctuary"],
+                StartPlaceModes=[1, 2],
+                StartPlaceStories=["fo4_commonwealth", "none"],
+                StartPlacePlugins=["FO4Port.esm", "FO4TerrainCore.esm"],
+                StartPlaceMarkerIds=[0x805, 0x0A775A],
+                StartPlaceWarfareRows=[-1, 0],
+                WarfareKeys=["minutemen_sanctuary"],
+                WarfareFactionSlots=[0],
+                WarfareDistinctFactionSlots=[0],
+                WarfareMarkerIds=[0x0A775A],
+                WarfareMarkerX=[100.0],
+                WarfareMarkerY=[200.0],
+                WarfareMarkerZ=[95.0],
+                WarfareHeadings=[180.0],
+                WarfareMinDiffs=[0],
+                WarfareMaxDiffs=[3],
+                WarfareBgIndices=[0],
+                WarfareFames=[45.0],
+                WarfareInfamies=[0.0],
+                WarfareKarmas=[150.0],
+                WarfareSquadCaps=[4],
+                WarfareGearRowIndices=[0],
+                WarfareGearPlugins=["Starfield.esm"],
+                WarfareGearIds=[0x100],
+                WarfareGearCounts=[1],
+                WarfareGearEquips=[True],
+                CoreMarkerIds=[0x0A775A],
+                MapMarkerQuestIds=[],
+                Game=SimpleNamespace(
+                    GetPlayer=lambda: player,
+                    ShowFirstPersonGeometry=lambda *a: None,
+                    FadeOutGame=lambda *a: None,
+                    SetInChargen=lambda *a: None,
+                    SetCharGenHUDMode=lambda *a: None,
+                    GetFormFromFile=lambda fid, plg: (
+                        vault_anchor if (fid, plg) == (0x805, "FO4Port.esm")
+                        else sanctuary_marker if (fid, plg) == (0x0A775A, "FO4TerrainCore.esm")
+                        else SimpleNamespace() if plg == "Starfield.esm"
+                        else None
+                    ),
+                ),
+                Utility=SimpleNamespace(Wait=lambda s: None, GetCurrentRealTime=lambda: 10.0),
+                Debug=SimpleNamespace(Notification=lambda *a: None),
+                InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                scannerLayer=None,
+                RegisterForMenuOpenCloseEvent=lambda m: None,
+                UnregisterForMenuOpenCloseEvent=lambda m: None,
+                StartTimer=lambda *a: None,
+                SetStage=lambda n: cur_stage.__setitem__(0, n),
+                GetStage=lambda: cur_stage[0],
+                SetObjectiveDisplayed=lambda *a: None,
+                SetObjectiveCompleted=lambda *a: None,
+                SetActive=lambda *a: None,
+                CompleteQuest=lambda: None,
+                StartLandingQuests=lambda: None,
+                Trace=lambda m: logs.append(m),
+            )
+            exec(compiled, ns)
+            chosen = ns["RunModeChoiceChain"](player)
+            cell_tag = player.cell if isinstance(player.cell, str) else f"0x{player.cell.GetFormID():08X}"
+            return chosen, store, logs, cur_stage[0], msg_calls, cell_tag
+
+        # 1. Exact Variant (a) vs Variant (b) store + start-record + stage parity across Story & Warfare
+        for wf_flag, surv_flag, diff_v, want_stage, want_cell in (
+            (False, True, 1, 20, "VaultCell"),
+            (True, True, 2, 210, sanctuary_cell := None),
+        ):
+            c_a, st_a, logs_a, stg_a, msgs_a, cell_a = run_flow(1, wf_flag, surv_flag, diff_v)
+            c_b, st_b, logs_b, stg_b, msgs_b, cell_b = run_flow(3, wf_flag, surv_flag, diff_v)
+            self.assertEqual(c_a, c_b)
+            self.assertEqual(stg_a, want_stage)
+            self.assertEqual(stg_b, want_stage)
+            self.assertEqual(cell_a, cell_b)
+            self.assertTrue(msgs_a)
+            self.assertEqual(msgs_b, [])  # Variant (b) showed ZERO sequential MessageBox prompts!
+            for k in ("GameMode", "StoryLine", "SurvivalStart", "SurvivalLocked", "StartDifficulty", "WarfareFaction", "WarfareStartIndex", "StartChoiceDone", "StartPlaceRow"):
+                self.assertEqual(st_a[k], st_b[k], k)
+            rec_a = next(l for l in logs_a if l.startswith("start record "))
+            rec_b = next(l for l in logs_b if l.startswith("start record "))
+            self.assertEqual(rec_a.replace("backdrop=empty_cell", "backdrop=setup_menu"), rec_b)
+
+        # 2. R10 fallback: when FO4SF_SetupMenu does not open (no native ack), falls back cleanly to Variant (a) boxes
+        c_fb, st_fb, logs_fb, stg_fb, msgs_fb, _ = run_flow(3, False, False, 1, native_setup_ack=False)
+        self.assertEqual((c_fb, stg_fb), (1, 20))
+        self.assertIn("setup menu unavailable: falling back to empty_cell boxes", logs_fb)
+        self.assertEqual(msgs_fb, ["ModePickMsg", "StoryLineMsg", "SurvivalPickMsg"])
+        self.assertIn(
+            "start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell",
+            logs_fb,
+        )
+
+        # 3. S2 & S4 study documents exist, hold zero local paths, and carry required truth/scope markers
+        s2_doc = read(os.path.join(ROOT, "docs", "newgame", "setup-options-proposal.md"))
+        s4_doc = read(os.path.join(ROOT, "docs", "newgame", "character-looks-study.md"))
+        for doc_txt in (s2_doc, s4_doc):
+            self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", doc_txt))
+        self.assertIn("BUILD NONE OF THE NEW OPTIONS THIS ROUND", s2_doc)
+        for effort_tag in ("**`exists`**", "**`small`**", "**`large`**"):
+            self.assertIn(effort_tag, s2_doc)
+        self.assertIn("STUDY ONLY", s4_doc)
+        self.assertIn("NOT OURS", s4_doc)
+
+    def test_r6_t4_t3_story_timer1_alive_single_looks_box_and_loading_menu_wait(self):
+        """R6 T4 + T3 translated execution:
+        1) Story preworld start keeps Timer 1 alive after RunModeChoiceChain returns 1 with GetStage() >= 10,
+           advances straight to stage 20 inside SpawnAtStoryStartPlace, and blocks FO4SF_NewGameLooks from
+           showing 0x802 a second time in Vault 111.
+        2) T3 LoadingMenu close arriving while WaitForStartUiReady waits (after modeChoiceRan=true) is NOT
+           dropped, runs 0.75s settle, and logs start ui ready released_by=... for close/already_loaded/timeout.
+        """
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        looks_psc = read(LOOKS)
+        cs = read(CS)
+        self.assertIn("VaultPistolRefId = 0x820", cs)
+        self.assertIn("VaultAmmoRefId = 0x821", cs)
+        self.assertIn("VaultAmmoCount = 48", cs)
+
+        ev_menu = re.search(r"Event OnMenuOpenCloseEvent\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = (
+            psc
+            + f"\nFunction MenuEvent({ev_menu[1]})\n{ev_menu[2]}EndFunction\n"
+            + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+        )
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "FillO2",
+            "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
+            "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
+        )
+        vars_csv = (
+            "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, "
+            "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        for scenario in ("loading_menu_close_delay", "already_loaded_delay", "timeout_delay"):
+            with self.subTest(scenario=scenario):
+                logs, timers, waits, start_msg_calls = [], [], [], []
+                cur_stage = [0]
+                start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+                vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+                player = SimpleNamespace(
+                    pos=(0.0, 0.0, 0.0),
+                    cell="StartRoomCell",
+                    GetPositionX=lambda: player.pos[0],
+                    GetPositionY=lambda: player.pos[1],
+                    GetPositionZ=lambda: player.pos[2],
+                    SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+                    SetAngle=lambda *a: None,
+                    MoveTo=lambda ref, dx, dy, dz, *rest: (
+                        setattr(player, "cell", ref.GetParentCell()),
+                        setattr(player, "pos", (60.0 + dx, 25.0 + dy, 1.0 + dz) if ref is vault_anchor else (0.0 + dx, 0.0 + dy, 0.0 + dz)),
+                    ),
+                    GetParentCell=lambda: player.cell,
+                    GetWorldSpace=lambda: None,
+                    GetAngleZ=lambda: 90.0,
+                    IsInInterior=lambda: True,
+                    Is3DLoaded=lambda: True,
+                    GetItemCount=lambda *a: 0,
+                    RemoveAllItems=lambda *a: None,
+                    AddItem=lambda *a: None,
+                    EquipItem=lambda *a: None,
+                    IsEquipped=lambda *a: True,
+                    GetValue=lambda *a: 100.0,
+                    ModValue=lambda *a: None,
+                )
+
+                def on_wait(secs):
+                    waits.append(secs)
+                    if scenario == "loading_menu_close_delay" and len(waits) == 1:
+                        # LoadingMenu closes AFTER modeChoiceRan is already true!
+                        self.assertTrue(ns["modeChoiceRan"])
+                        self.assertFalse(ns["startUiReady"])
+                        ns["MenuEvent"]("LoadingMenu", False)
+
+                ns = dict(
+                    FadeHold=True, StartChoiceBackdrop=1, StartLoadTimeout=15.0, LooksWait=120.0, RaceMenuMode=2,
+                    ClearInventory=False, VaultSuitId=0, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
+                    faded=False, warfareFadeTicks=0, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+                    loadingMenuOpen=(scenario != "already_loaded_delay"),
+                    loadingMenuClosedSeen=False,
+                    loadingHookRegistered=(scenario != "already_loaded_delay"),
+                    startUiReady=False, h00SkipLoading=False,
+                    modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                    setupWaitingCreator=False, warfareWaitingCreator=False,
+                    applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+                    exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+                    podChecked=False, rideActive=False, surfaceMovedAt=0.0, returnSurfacePending=False,
+                    VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
+                    AnchorX=60.0, AnchorY=25.0, AnchorZ=1.0,
+                    PodX=10.0, PodY=20.0, PodZ=1.0, PodLift=0.3, PodHeading=90.0, PodRadius=1.0, PodDrop=0.5,
+                    CogDoorId=0, PlatformX=0.0, PlatformY=0.0, PlatformZ=0.0, PlatformRadius=2.0,
+                    asked=False,
+                    StartRoomMarkerRef=start_room_marker,
+                    StartCardOpenGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartChoiceDoneGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    GameModeGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StoryLineGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    StartPlaceRowGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValue=lambda v: None),
+                    SurvivalStartGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    SurvivalLockedGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    StartDifficultyGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareFactionGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    WarfareStartIndexGlobal=SimpleNamespace(SetValue=lambda v: None),
+                    H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    ModePickMsg=SimpleNamespace(Show=lambda: 0),
+                    StoryLineMsg=SimpleNamespace(Show=lambda: 0),
+                    SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
+                    # Button 0 is now Quick start!
+                    StartPickMsg=SimpleNamespace(Show=lambda: (start_msg_calls.append("preworld"), 0)[1]),
+                    StoryChoiceIds=["fo4_commonwealth"],
+                    StartPlaceIds=["fo4_vault111"],
+                    StartPlaceModes=[1],
+                    StartPlaceStories=["fo4_commonwealth"],
+                    StartPlacePlugins=["FO4Port.esm"],
+                    StartPlaceMarkerIds=[0x805],
+                    StartPlaceWarfareRows=[-1],
+                    Game=SimpleNamespace(
+                        GetPlayer=lambda: player,
+                        ShowFirstPersonGeometry=lambda *a: None,
+                        FadeOutGame=lambda *a: None,
+                        SetInChargen=lambda *a: None,
+                        SetCharGenHUDMode=lambda *a: None,
+                        GetFormFromFile=lambda fid, plg: vault_anchor if (fid, plg) == (0x805, "FO4Port.esm") else None,
+                    ),
+                    Utility=SimpleNamespace(Wait=on_wait, GetCurrentRealTime=lambda: 10.0),
+                    Debug=SimpleNamespace(Notification=lambda *a: None),
+                    InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                    scannerLayer=None,
+                    RegisterForMenuOpenCloseEvent=lambda m: None,
+                    UnregisterForMenuOpenCloseEvent=lambda m: None,
+                    StartTimer=lambda s, tid: timers.append((s, tid)),
+                    SetStage=lambda n: cur_stage.__setitem__(0, n),
+                    GetStage=lambda: cur_stage[0],
+                    SetObjectiveDisplayed=lambda *a: None,
+                    SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    EnsureLoadHookRegistered=lambda p: None,
+                    EnsureVaultInteractivesRegistered=lambda: None,
+                    Near=lambda *a: False,
+                    HoldOffPass=lambda p: None,
+                    Trace=lambda m: logs.append(m),
+                )
+                exec(compiled, ns)
+
+                # Drive stage 0 via OnTimer(1) just like in-game!
+                ns["TimerEvent"](1)
+                self.assertEqual(cur_stage[0], 20)
+                self.assertEqual(start_msg_calls, ["preworld"])
+                self.assertTrue(ns["IsPreworldLooksHandled"]())
+                # T4 critical proof: Timer 1 MUST be re-armed (1.0, 1) after Story mode completes stage 0 -> 20!
+                self.assertIn((1.0, 1), timers)
+                self.assertIn("looks done: quick start", logs)
+                self.assertIn("stage 20 by=Trigger", logs)
+                # Second Timer 1 tick at stage 20 must run CheckPod(player) inside InVault so pod settle ok= is logged!
+                self.assertFalse(ns["podChecked"])
+                ns["TimerEvent"](1)
+                self.assertTrue(ns["podChecked"])
+                self.assertTrue(any(l.startswith("pod settle ok=True ") for l in logs), logs)
+                self.assertTrue(
+                    any(l.startswith(f"start ui ready released_by={scenario} waited_s=") for l in logs),
+                    logs,
+                )
+                if scenario == "loading_menu_close_delay":
+                    self.assertIn("mode loading menu closed", logs)
+                    self.assertEqual(waits[-1], 0.75)
+                elif scenario == "already_loaded_delay":
+                    self.assertEqual(waits, [0.75])
+                else:
+                    self.assertIn("mode fade lifted by=timeout s=15", logs)
+                    self.assertEqual(waits[-1], 0.75)
+
+        # Verify FO4SF_NewGameLooks suppresses StartMessage.Show() when IsPreworldLooksHandled() is True
+        looks_ev = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", looks_psc, re.S)
+        looks_wrap = looks_psc + f"\nFunction LooksTimer({looks_ev[1]})\n{looks_ev[2]}EndFunction\n"
+        looks_compiled = compile(translated_functions(looks_wrap, ("LooksTimer",), "shown, waiting"), LOOKS, "exec")
+        shown_in_vault = []
+        fake_quest = SimpleNamespace(IsPreworldLooksHandled=lambda: True)
+        lns = dict(
+            self=fake_quest,
+            shown=False, waiting=False, MenuDelay=2.0, MenuName="ChargenMenu", RaceMenuMode=2,
+            GetStage=lambda: 10,
+            StartMessage=SimpleNamespace(Show=lambda: (shown_in_vault.append(1), 0)[1]),
+            Utility=SimpleNamespace(Wait=lambda s: None),
+            StartTimer=lambda *a: None,
+            Trace=lambda m: None,
+        )
+        exec(looks_compiled, lns)
+        lns["LooksTimer"](2)
+        self.assertEqual(shown_in_vault, [])
+
+    def test_r6_t5_t8_and_grok_warfare_fade_hud_gmst_and_setup_row_resolution(self):
+        """R6 T5 + T8 + Grok #5984954658:
+        1) T5: RunWarfareBranch waits for Is3DLoaded + 0.5s settle, calls ForceFadeIn('warfare') even when
+           faded was already True, and arms Timer 4 (1.5s then 2.5s = 2 ticks) re-asserting fade/chargen/HUD.
+        2) T8: PrepareStartRoomUi uses SetCharGenHUDMode(2), Begin() re-asserts ShowFirstPersonGeometry(false),
+           and Program.cs overrides iXPRewardDiscoverSecretArea to 0.
+        3) Grok #5984954658: usedSetupMenu + modeVal==2 resolves rowIdx from StartPlaceWarfareRows[placeRow]
+           and writes it back to WarfareStartIndexGlobal; make_newgame.py writes int(bool(o_show_unavailable)).
+        """
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        cs = read(CS)
+        mk = read(os.path.join(os.path.dirname(PSC), "make_newgame.py")) if os.path.isfile(os.path.join(os.path.dirname(PSC), "make_newgame.py")) else read(ng.__file__)
+        self.assertIn('DiscoverSecretAreaXpGmstEdid = "iXPRewardDiscoverSecretArea"', cs)
+        self.assertIn('"show_unavailable_starts": int(bool(o_show_unavailable))', mk)
+
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = psc + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+        funcs = (
+            "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "ForceFadeIn", "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
+            "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+        )
+        vars_csv = (
+            "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
+            "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, "
+            "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        logs, fades, chargens, huds, timers, waits = [], [], [], [], [], []
+        cur_stage = [0]
+        # Start with faded=True to prove ForceFadeIn STILL forces fade-in!
+        # Also simulate WarfareStartIndexGlobal stale (-1.0) while StartPlaceRowGlobal selects placeRow=2 -> wfRow=1!
+        store = {
+            "StartCardOpen": 0.0,
+            "GameMode": 2.0,
+            "StoryLine": -1.0,
+            "SurvivalStart": 0.0,
+            "SurvivalLocked": 0.0,
+            "StartDifficulty": 1.0,
+            "WarfareFaction": 1.0,
+            "WarfareStartIndex": -1.0,
+            "StartChoiceDone": 0.0,
+            "StartPlaceRow": 2.0,
+        }
+
+        def make_glob(key):
+            def _set(v):
+                store[key] = float(v)
+                if key == "StartCardOpen" and float(v) >= 1.5:
+                    store["StartCardOpen"] = 3.0
+                    store["StartChoiceDone"] = 1.0
+            return SimpleNamespace(GetValue=lambda: store[key], SetValue=_set)
+
+        start_room_marker = SimpleNamespace(GetParentCell=lambda: "StartRoomCell")
+        bunker_cell = SimpleNamespace(GetFormID=lambda: 0x03002000)
+        bunker_marker = SimpleNamespace(
+            GetFormID=lambda: 0x030A775C,
+            GetParentCell=lambda: bunker_cell,
+            GetWorldSpace=lambda: "CommonwealthWorld",
+            Enable=lambda *a: None,
+            MoveTo=lambda *a: None,
+            SetPosition=lambda *a: None,
+        )
+        load_checks = [0]
+        def is_3d_loaded():
+            load_checks[0] += 1
+            # Return False on first post-SetPosition check to exercise the StartLoadTimeout wait loop
+            return load_checks[0] != 2
+
+        player = SimpleNamespace(
+            pos=(0.0, 0.0, 0.0),
+            cell="StartRoomCell",
+            interior=True,
+            GetPositionX=lambda: player.pos[0],
+            GetPositionY=lambda: player.pos[1],
+            GetPositionZ=lambda: player.pos[2],
+            SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
+            SetAngle=lambda *a: None,
+            MoveTo=lambda ref, *rest: (
+                setattr(player, "cell", ref.GetParentCell()),
+                setattr(player, "interior", ref is start_room_marker),
+            ),
+            GetParentCell=lambda: player.cell,
+            GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
+            IsInInterior=lambda: player.interior,
+            Is3DLoaded=is_3d_loaded,
+            RemoveAllItems=lambda *a: None,
+            AddItem=lambda *a: None,
+            EquipItem=lambda *a: None,
+            GetValue=lambda av: 100.0,
+            ModValue=lambda av, d: None,
+            AddToFaction=lambda f: None,
+        )
+        ns = dict(
+            FadeHold=True, StartChoiceBackdrop=3, StartLoadTimeout=15.0, LooksWait=0.0, RaceMenuMode=2,
+            ClearInventory=True, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
+            SurfaceWait=1.0, SurfaceTries=3, FallDrop=3.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+            ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=0.0,
+            ExitAnchorId=0x0A7759, CorePlugin="FO4TerrainCore.esm",
+            VaultAnchorId=0x805, VaultPlugin="FO4Port.esm",
+            faded=True, warfareFadeTicks=0, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
+            loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False, startUiReady=False,
+            h00SkipLoading=False, h00SkipMap=False,
+            modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+            setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
+            applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+            exitUsedFallback=False, vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0,
+            podChecked=False, rideActive=False, surfaceMovedAt=0.0, returnSurfacePending=False,
+            StartRoomMarkerRef=start_room_marker,
+            PipboyWristArmor=SimpleNamespace(),
+            PipboyAcquiredGlobal=SimpleNamespace(SetValue=lambda v: None),
+            StartCardOpenGlobal=make_glob("StartCardOpen"),
+            StartChoiceDoneGlobal=make_glob("StartChoiceDone"),
+            StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+            GameModeGlobal=make_glob("GameMode"),
+            StoryLineGlobal=make_glob("StoryLine"),
+            StartPlaceRowGlobal=make_glob("StartPlaceRow"),
+            SurvivalStartGlobal=make_glob("SurvivalStart"),
+            SurvivalLockedGlobal=make_glob("SurvivalLocked"),
+            StartDifficultyGlobal=make_glob("StartDifficulty"),
+            WarfareFactionGlobal=make_glob("WarfareFaction"),
+            WarfareStartIndexGlobal=make_glob("WarfareStartIndex"),
+            H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+            TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+            ModePickMsg=None, StoryLineMsg=None, SurvivalPickMsg=None, StartPickMsg=None,
+            StoryChoiceIds=["fo4_commonwealth"],
+            StartPlaceIds=["fo4_vault111", "minutemen_sanctuary", "bos_cambridge"],
+            StartPlaceModes=[1, 2, 2],
+            StartPlaceStories=["fo4_commonwealth", "none", "none"],
+            StartPlacePlugins=["FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore.esm"],
+            StartPlaceMarkerIds=[0x805, 0x0A775A, 0x0A775C],
+            StartPlaceWarfareRows=[-1, 0, 1],
+            WarfareKeys=["minutemen_sanctuary", "bos_cambridge"],
+            WarfareFactionSlots=[0, 1],
+            WarfareDistinctFactionSlots=[0, 1],
+            WarfareMarkerIds=[0x0A775A, 0x0A775C],
+            WarfareMarkerX=[100.0, 300.0],
+            WarfareMarkerY=[200.0, 400.0],
+            WarfareMarkerZ=[95.0, 105.0],
+            WarfareHeadings=[180.0, 90.0],
+            WarfareMinDiffs=[0, 0],
+            WarfareMaxDiffs=[3, 3],
+            WarfareBgIndices=[0, 1],
+            WarfareFames=[45.0, 55.0],
+            WarfareInfamies=[0.0, 0.0],
+            WarfareKarmas=[150.0, 100.0],
+            WarfareSquadCaps=[4, 4],
+            WarfareGearRowIndices=[0, 1],
+            WarfareGearPlugins=["Starfield.esm", "Starfield.esm"],
+            WarfareGearIds=[0x100, 0x101],
+            WarfareGearCounts=[1, 1],
+            WarfareGearEquips=[True, True],
+            CoreMarkerIds=[0x0A775A, 0x0A775C],
+            MapMarkerQuestIds=[],
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player,
+                ShowFirstPersonGeometry=lambda *a: None,
+                FadeOutGame=lambda *a: fades.append(a),
+                SetInChargen=lambda *a: chargens.append(a),
+                SetCharGenHUDMode=lambda m: huds.append(m),
+                GetFormFromFile=lambda fid, plg: (
+                    bunker_marker if (fid, plg) == (0x0A775C, "FO4TerrainCore.esm")
+                    else SimpleNamespace() if plg == "Starfield.esm"
+                    else None
+                ),
+            ),
+            Utility=SimpleNamespace(Wait=lambda s: waits.append(s), GetCurrentRealTime=lambda: 40.0),
+            Debug=SimpleNamespace(Notification=lambda *a: None),
+            InputEnableLayer=SimpleNamespace(Create=lambda: None),
+            scannerLayer=None,
+            RegisterForMenuOpenCloseEvent=lambda m: None,
+            UnregisterForMenuOpenCloseEvent=lambda m: None,
+            StartTimer=lambda s, tid: timers.append((s, tid)),
+            SetStage=lambda n: cur_stage.__setitem__(0, n),
+            GetStage=lambda: cur_stage[0],
+            SetObjectiveDisplayed=lambda *a: None,
+            SetObjectiveCompleted=lambda *a: None,
+            SetActive=lambda *a: None,
+            CompleteQuest=lambda: None,
+            StartLandingQuests=lambda: None,
+            EnsureLoadHookRegistered=lambda p: None,
+            Trace=lambda m: logs.append(m),
+        )
+        exec(compiled, ns)
+
+        chosen = ns["RunModeChoiceChain"](player)
+        self.assertEqual(chosen, 2)
+        self.assertEqual(cur_stage[0], 210)
+        # Grok #5984954658: resolved rowIdx=1 via StartPlaceWarfareRows[2] and wrote back to WarfareStartIndexGlobal!
+        self.assertEqual(store["WarfareStartIndex"], 1.0)
+        self.assertIn("warfare pick faction=1 start=bos_cambridge difficulty=1", logs)
+        # T5: waited 0.5s post-SetPosition, ran ForceFadeIn even with faded=True, and armed Timer 4 at 1.5s
+        self.assertIn(0.5, waits)
+        self.assertTrue(any(l.startswith("fade in by=warfare ") for l in logs), logs)
+        self.assertEqual(timers, [(1.5, 4)])
+        # Fire Timer 4 tick 1 (+1.5s) -> re-arms at +2.5s; fire tick 2 (+2.5s) -> stops!
+        fades_before = len(fades)
+        ns["TimerEvent"](4)
+        self.assertEqual(timers, [(1.5, 4), (2.5, 4)])
+        self.assertEqual(fades[-1], (False, True, 0.0, 0.1, False))
+        self.assertEqual(chargens[-1], (False, False, False))
+        self.assertEqual(huds[-1], 0)
+        ns["TimerEvent"](4)
+        self.assertEqual(timers, [(1.5, 4), (2.5, 4)])  # No 3rd timer!
+        self.assertEqual(len(fades), fades_before + 2)
+        self.assertIn("warfare fade reassert tick=1", logs)
+        self.assertIn("warfare fade reassert tick=2", logs)
 
 
 if __name__ == "__main__":

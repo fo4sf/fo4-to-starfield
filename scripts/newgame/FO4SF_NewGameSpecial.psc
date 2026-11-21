@@ -13,14 +13,17 @@ Scriptname FO4SF_NewGameSpecial extends Quest
  is read by the precheck), the %.0f tokens of SpecialMessage taking Show's float arguments, and a ten-button message box.}
 
 ActorValue[] Property Special Auto Const Mandatory
-{The seven AVIF FO4SF_Special_<stat> (FO4SFNewGame.esm 0x810 to 0x816), Strength, Perception, Endurance, Charisma,
+{The seven AVIF FO4SF_Special_<stat> (FO4SFCoreValues.esm 0x810 to 0x816), Strength, Perception, Endurance, Charisma,
  Intelligence, Agility, Luck: the button order of SpecialMessage and the argument order of its text.}
 
 Message Property TerminalMessage Auto Const Mandatory
 {The prompt at the terminal (FO4SFNewGame.esm 0x803): button 0 sets SPECIAL, button 1 is later.}
 
 Message Property SpecialMessage Auto Const Mandatory
-{The allocation (FO4SFNewGame.esm 0x804): buttons 0 to 6 add a point to that stat, 7 resets, 8 confirms, 9 leaves.}
+{Page 1 of the allocation (FO4SFNewGame.esm 0x804, 7 buttons): S, P, E, Next, Reset, Confirm, Leave.}
+
+Message Property SpecialMessagePage2 Auto Const Mandatory
+{Page 2 of the allocation (FO4SFNewGame.esm 0x81B, 7 buttons): C, I, A, L, Back, Confirm, Leave.}
 
 string Property VaultPlugin = "FO4Port.esm" Auto Const
 int Property TerminalId = 0 Auto Const
@@ -40,20 +43,23 @@ int Property MaxPresses = 300 Auto Const
 {The allocation ends as Leave after this many presses without Confirm or Leave (make_newgame.py SPECIAL_MAX_PRESSES).
  A player needs about 22 per pass; this is the guard against a message box that returns at once (the ten-button box is
  unverified), which would otherwise spin.}
+bool Property LegacyTerminalEnabled = false Auto Const
+{X3: Progression's 40-point allocation on the Vault 111 lift (and Warfare start) replaces this 21-point terminal picker
+ on normal runs, so this timer is off by default and 'special skipped' never fires on a normal run.}
 
 bool asked = false
 bool done = false
 
 Event OnQuestStarted()
-    StartTimer(1.0, 3)                                       ; the startup quest's start (FO4SF_NewGameQuest.Begin)
+    StartTimer(1.0, 3)                                       ; whichever of the two start events fires
 EndEvent
 
 Event OnQuestInit()
-    StartTimer(1.0, 3)                                       ; whichever start event comes, the timer runs; a second call restarts it
+    StartTimer(1.0, 3)                                       ; the other returns on LegacyTerminalEnabled / done / stage
 EndEvent
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID != 3
+    if aiTimerID != 3 || !LegacyTerminalEnabled
         return
     endif
     int stage = GetStage()
@@ -91,38 +97,82 @@ Function AtTerminal(Actor player)
     Allocate(player)
 EndFunction
 
-Function Allocate(Actor player)
-{The allocation loop: the message shows the seven values and the points left, and returns the button pressed.}
+bool Function AllocateFromLift(Actor player)
+{Vault 111 elevator S.P.E.C.I.A.L. allocation when FO4SFProgression.esm is absent (--profile player).}
+    Actor target = player
+    if target == None
+        target = Game.GetPlayer()
+    endif
+    if target == None
+        return false
+    endif
+    return Allocate(target)
+EndFunction
+
+bool Function Allocate(Actor player)
+{The two-page <= 7-button allocation loop: Confirm is reachable from Page 1.}
     int[] values = new int[7]
     int left = ResetValues(values)
+    int page = 0
     int presses = 0
     while presses < MaxPresses
         presses += 1
-        int button = SpecialMessage.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
-        if button >= 0 && button < 7
-            if left <= 0
-                Debug.Notification("No points left")
-            elseif values[button] >= SpecialMax
-                Debug.Notification(SpecialMax + " is the most in one stat")
+        int button = -1
+        if page == 0
+            button = SpecialMessage.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
+            if button >= 0 && button < 3
+                if left <= 0
+                    Debug.Notification("No points left")
+                elseif values[button] >= SpecialMax
+                    Debug.Notification(SpecialMax + " is the most in one stat")
+                else
+                    values[button] += 1
+                    left -= 1
+                endif
+            elseif button == 3
+                page = 1
+            elseif button == 4
+                left = ResetValues(values)
+            elseif button == 5
+                if left > 0
+                    Debug.Notification(left + " points left to spend")
+                else
+                    Apply(player, values)
+                    return true
+                endif
             else
-                values[button] += 1
-                left -= 1
-            endif
-        elseif button == 7
-            left = ResetValues(values)
-        elseif button == 8
-            if left > 0
-                Debug.Notification(left + " points left to spend")
-            else
-                Apply(player, values)
-                return
+                Trace("special left: defaults kept, " + left + " points unspent")
+                return false
             endif
         else
-            Trace("special left: defaults kept, " + left + " points unspent")
-            return
+            button = SpecialMessagePage2.Show(values[0], values[1], values[2], values[3], values[4], values[5], values[6], left)
+            if button >= 0 && button < 4
+                int idx = 3 + button
+                if left <= 0
+                    Debug.Notification("No points left")
+                elseif values[idx] >= SpecialMax
+                    Debug.Notification(SpecialMax + " is the most in one stat")
+                else
+                    values[idx] += 1
+                    left -= 1
+                endif
+            elseif button == 4
+                page = 0
+            elseif button == 5
+                if left > 0
+                    Debug.Notification(left + " points left to spend")
+                else
+                    Apply(player, values)
+                    return true
+                endif
+            else
+                Trace("special left: defaults kept, " + left + " points unspent")
+                return false
+            endif
         endif
     endwhile
     Trace("special left: defaults kept, " + MaxPresses + " presses without Confirm or Leave")
+    return false
 EndFunction
 
 int Function ResetValues(int[] values)

@@ -1,17 +1,30 @@
-"""BA2 archive reader for Fallout 4 (v1, and v7/v8 from the 2024 next-gen update, same layout as v1) and Starfield
-(v2, v3): general files and DX10 textures.
+"""BA2 archive reader for Fallout 4 (v1, v7, v8) and Starfield (v2, v3): general files (GNRL) and DX10 textures.
+
+Binary header layout after the 24-byte `BTDX` common prefix (`<4sI4sIQ`: magic, version, kind, entry_count, name_offset):
+  - v1, v7, v8: 0 extra header bytes (entry table begins at byte 24; payloads are uncompressed or zlib-compressed).
+  - v2:         8 extra header bytes (entry table begins at byte 32; payloads are uncompressed or zlib-compressed).
+  - v3:         12 extra header bytes (`<III`, uint32 compression method at +8; 0 = zlib/stored, 3 = LZ4).
 
     a = Ba2("Fallout4 - Textures1.ba2")
     a.names                    # file names as stored (backslashes)
     data = a.read(name)        # general file bytes, or a complete DDS (DX10 header) for a texture
 Lookup is case-insensitive and slash-agnostic: a.find("textures/setdressing/x_d.dds").
-Starfield v3 (LZ4) textures are not supported (raises); v1/v2 zlib and uncompressed are.
+Starfield v3 LZ4-compressed entries raise Ba2Error; v1/v2/v3(non-LZ4)/v7/v8 zlib and uncompressed entries are supported.
 """
 import os
 import struct
 import zlib
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+
+HEADER_EXTRA_BYTES: Dict[int, int] = {
+    1: 0,
+    2: 8,
+    3: 12,
+    7: 0,
+    8: 0,
+}
 
 
 class Ba2Error(ValueError):
@@ -35,6 +48,23 @@ class Entry:
     chunks: Optional[list] = None      # (offset, packed, unpacked, start_mip, end_mip)
 
 
+def _read_exact(f, size: int, path: str, what: str) -> bytes:
+    buf = f.read(size)
+    if len(buf) != size:
+        raise Ba2Error(f"{path}: truncated BA2 while reading {what} (wanted {size} bytes, got {len(buf)})")
+    return buf
+
+
+def _decompress_zlib(raw: bytes, expected_unpacked: int, path: str, name: str) -> bytes:
+    try:
+        out = zlib.decompress(raw)
+    except zlib.error as exc:
+        raise Ba2Error(f"{path}: corrupt zlib stream in {name}: {exc}") from exc
+    if expected_unpacked and len(out) != expected_unpacked:
+        raise Ba2Error(f"{path}: unpacked length mismatch in {name} (got {len(out)}, expected {expected_unpacked})")
+    return out
+
+
 def _dds_header_dx10(width, height, mips, dxgi, cubemap):
     flags = 0x1 | 0x2 | 0x4 | 0x1000 | (0x20000 if mips > 1 else 0)
     caps = 0x1000 | (0x8 | 0x400000 if mips > 1 else 0)
@@ -51,35 +81,42 @@ class Ba2:
         self.path = path
         self._size = os.path.getsize(path)
         with open(path, "rb") as f:
-            magic, version, kind, count, name_off = struct.unpack("<4sI4sIQ", f.read(24))
+            hdr = _read_exact(f, 24, path, "header")
+            magic, version, kind, count, name_off = struct.unpack("<4sI4sIQ", hdr)
             if magic != b"BTDX":
                 raise Ba2Error(f"{path}: not a BA2")
-            self.version, self.kind = version, kind.decode()
+            self.version = version
+            self.kind = kind.decode("ascii", "replace")
             if self.kind not in ("GNRL", "DX10"):
                 raise Ba2Error(f"{path}: unsupported archive type {self.kind}")
-            # Fallout 4 next-gen and Anniversary archives say 7 or 8 but keep the v1 layout (xEdit and OpenMW read
-            # them the same way; research/framework/findings/versions-performance.md)
-            extra = {1: 0, 7: 0, 8: 0, 2: 8, 3: 12}.get(version)
+            extra = HEADER_EXTRA_BYTES.get(version)
             if extra is None:
                 raise Ba2Error(f"{path}: unsupported version {version}")
-            self.compression = struct.unpack("<I", f.read(12)[8:12])[0] if version == 3 else 0
-            if version == 2:
-                f.read(8)
+            extra_bytes = _read_exact(f, extra, path, f"v{version} extended header") if extra else b""
+            self.compression = struct.unpack_from("<I", extra_bytes, 8)[0] if version == 3 else 0
             f.seek(24 + extra)
             raw = []
-            for _ in range(count):
+            for i in range(count):
                 if self.kind == "GNRL":
-                    _h, _e, _d, _fl, off, pk, up, _al = struct.unpack("<I4sIIQIII", f.read(36))
+                    rec = _read_exact(f, 36, path, f"GNRL entry {i}")
+                    _h, _e, _d, _fl, off, pk, up, _al = struct.unpack("<I4sIIQIII", rec)
                     raw.append(("GNRL", off, pk, up))
                 else:
-                    _h, _e, _d, _u, nch, _chsz, hgt, wid, mips, fmt, fl, _tile = struct.unpack("<I4sIBBHHHBBBB", f.read(24))
-                    chunks = [struct.unpack("<QIIHHI", f.read(24))[:5] for _ in range(nch)]
+                    rec = _read_exact(f, 24, path, f"DX10 entry {i}")
+                    _h, _e, _d, _u, nch, _chsz, hgt, wid, mips, fmt, fl, _tile = struct.unpack("<I4sIBBHHHBBBB", rec)
+                    chunks = [
+                        struct.unpack("<QIIHHI", _read_exact(f, 24, path, f"DX10 entry {i} chunk {j}"))[:5]
+                        for j in range(nch)
+                    ]
                     raw.append(("DX10", wid, hgt, mips, fmt, bool(fl & 1), chunks))
-            f.seek(name_off)
+            if count > 0 and (name_off < 24 + extra or name_off >= self._size):
+                raise Ba2Error(f"{path}: invalid name table offset {name_off}")
+            if count > 0:
+                f.seek(name_off)
             names = []
-            for _ in range(count):
-                n, = struct.unpack("<H", f.read(2))
-                names.append(f.read(n).decode("utf-8", "replace"))
+            for i in range(count):
+                n, = struct.unpack("<H", _read_exact(f, 2, path, f"name length {i}"))
+                names.append(_read_exact(f, n, path, f"name {i}").decode("utf-8", "replace"))
         self.entries: List[Entry] = []
         for name, r in zip(names, raw):
             if r[0] == "GNRL":
@@ -153,7 +190,7 @@ class Ba2:
         def unpacked_of(e: Entry) -> int:
             if e.kind == "GNRL":
                 return e.unpacked
-            return sum(c[2] for c in (e.chunks or []))   # c[2] is unpacked
+            return sum(c[2] for c in (e.chunks or []))
 
         def packed_of(e: Entry) -> int:
             if e.kind == "GNRL":
@@ -185,14 +222,16 @@ class Ba2:
         e = self.entries[i]
         with open(self.path, "rb") as f:
             if e.kind == "GNRL":
+                if e.packed and self.version == 3 and self.compression == 3:
+                    raise Ba2Error("LZ4-compressed (v3) entries are not supported")
                 f.seek(e.offset)
-                raw = f.read(e.packed or e.unpacked)
-                return zlib.decompress(raw) if e.packed else raw
-            if self.version == 3 and self.compression == 3:
+                raw = _read_exact(f, e.packed or e.unpacked, self.path, f"payload {e.name}")
+                return _decompress_zlib(raw, e.unpacked, self.path, e.name) if e.packed else raw
+            if self.version == 3 and self.compression == 3 and any(pk > 0 for _, pk, _, _, _ in (e.chunks or [])):
                 raise Ba2Error("LZ4-compressed (v3) textures are not supported")
             out = [_dds_header_dx10(e.width, e.height, e.mips, e.dxgi, e.cubemap)]
-            for off, pk, up, _s, _e in e.chunks:
+            for off, pk, up, _s, _e in (e.chunks or []):
                 f.seek(off)
-                raw = f.read(pk or up)
-                out.append(zlib.decompress(raw) if pk else raw)
+                raw = _read_exact(f, pk or up, self.path, f"chunk {e.name}")
+                out.append(_decompress_zlib(raw, up, self.path, e.name) if pk else raw)
             return b"".join(out)

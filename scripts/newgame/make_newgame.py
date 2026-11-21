@@ -52,7 +52,15 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+if os.path.join(REPO, "src") not in sys.path:
+    sys.path.insert(0, os.path.join(REPO, "src"))
+from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
+
 PROJECT = os.path.join(REPO, "dotnet", "NewGame")
+PROGRESSION_SCRIPTS = os.path.join(REPO, "scripts", "progression")
+SURVIVAL_SCRIPTS = os.path.join(REPO, "scripts", "survival")
+REPUTATION_SCRIPTS = os.path.join(REPO, "scripts", "reputation")
+MAPMARKERS_SCRIPTS = os.path.join(REPO, "scripts", "mapmarkers")
 PLUGIN = "FO4SFNewGame.esm"
 SCRIPT = "FO4SF_NewGameQuest"
 LOOKS = "FO4SF_NewGameLooks"
@@ -64,11 +72,13 @@ VERSION = "FO4SF_NewGameVersion"
 STAGE_CONTRACT = {
     0: "started: as Starfield's startup quest, the guard, the move into the vault and the hold-off",
     1: "stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)",
+    5: "mode chosen: start mode and survival choice stored",
     10: "in the vault: the player stands at their pod",
     20: "looks done: character creation closed, or LooksWait passed",
     30: "cog door opened: from its console",
     40: "on the surface: the elevator ride is over",
     200: "complete: landed, or put on the fallback spot",
+    210: "warfare complete: landed at the faction start spot",
 }
 STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage records (Program.cs Stages)
 # the writer's default hold-off list (Program.cs DefaultHold, held equal by tests/test_newgame.py): the opening quests
@@ -119,7 +129,44 @@ HOLD_CITY_FACTION = ("City_AkilaLife07", "DialogueConstellation", "DialogueCrims
                      "City_AC_FAB_Quest11", "City_AC_FAB_Quest09", "City_AC_FAB_Quest07", "City_AC_FAB_Quest08",
                      "City_AC_FAB_Quest10", "City_AC_FAB_Quest12", "City_AC_FAB_Quest16", "City_AC_FAB_Quest14",
                      "City_AC_FAB_Quest13", "City_AC_FAB_Quest15", "City_AC_FAB_Quest17", "City_AC_FAB_Quest19")
-DEFAULT_HOLD = HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS + HOLD_CITY_FACTION
+# S13 row 5, the fourth group (Program.cs HoldGenericDialogue, HoldActivities): the rest of Gemini's city and faction
+# dialogue batches, then the rest of its activities and misc batches. Radiant, ships and system stay for later groups.
+HOLD_GENERIC_DIALOGUE = ("DialogueCrowds", "DialgoueSSNNScenes", "CR_Dialogue_Turret",
+                         "DialogueTerrormorphThrallHuman", "DialogueGeneric_LISTOutpost", "DialogueGenericSpacers",
+                         "DialogueGenericUnique_Crime_TheKey", "DialogueGenericChildren",
+                         "CR_Dialogue_Terrormorph_Base", "DialogueGenericStarborn_Unique", "CR_Dialogue_QuadrupedB",
+                         "DialogueMiniBot", "DialogueSettleBartenderRumors", "DialogueCrimeGuards",
+                         "MQ105_AlwaysOnDialogueNeon", "DialogueGenericVendor_Chunks",
+                         "DialogueGenericVendor_Terrabrew", "Staryard_StroudEklund_Dialogue",
+                         "Staryard_Taiyo_Dialogue", "Staryard_Deimos_Dialogue", "DialogueGenericEclipticANDSoldiers",
+                         "DialogueGenericUnique_Combat", "Staryard_TridentLuxury_Dialogue", "DialogueGenericCitizens",
+                         "DialogueGenericScum", "DialogueGenericGuards", "DialogueGenericRobotModelA",
+                         "DialogueGenericStarborn", "DialogueGenericRobotModelS", "DialogueGenericUnique_Crime",
+                         "LC082_SuspiciousActors", "DialogueStarstations")
+HOLD_ACTIVITIES = ("MQ207C_AlwaysOn", "Trait_RaisedEnlightenedBoxEnabler", "Traits_Shared", "MQ207C_Support_Fix01",
+                   "Trait_RaisedUniversalBoxEnabler", "MQ206B_AlwaysOn", "SQ_Doctors", "AspirationalItems", "MS04",
+                   "Patch_Hotfix", "Patch_Update03_FixFollower", "StarbornTempleQuest",
+                   "SkillMag_CyberRunner_Handler", "SQ_PEO_SustenanceDialogue", "Patch_Update05", "SQ_Hoteliers")
+# S13 row 5, the fifth and final holdable group (Program.cs HoldRadiant, HoldShips, HoldSystem): the remaining 9
+# radiant quests, 21 holdable ship quests and 4 Starfield-only system/trait quests. Leaves only the 5 Warfare squad
+# quests and 7 core engine quests running out of the 207 cold-start quests.
+HOLD_RADIANT = ("MB_Parent", "SQ_PlayerClearedReward", "SE_AC01", "RE_Parent", "RQ_Parent", "OE_Dialogue", "SEDebug",
+                "Rad01_LIST", "RQ_Dialogue")
+HOLD_SHIPS = ("DialogueCrimeGuardShips", "DialogueCrimsonFleetShips", "DialogueGenericCitizensShips_MuddledChatter",
+              "DialogueGenericGuardsShips_MuddledChatter", "DialogueGenericVendor_LIST", "DialogueGenericPiracyShips",
+              "DialogueGenericSpacersShips", "DialogueGenericStarbornShips_Unique", "DialogueShipServices",
+              "SQ_ShipVendors", "DialogueGenericGuardsShips", "DialogueGenericHouseVaruunShips",
+              "DialogueTheFirstShips", "SE_Player_Attack_SharedLines", "SQ_OutpostCargoLink",
+              "DialogueGenericCitizensShips", "DialogueGenericEclipticANDSoldierShips", "DialogueGenericScumShips",
+              "DialogueGenericStarbornShips", "DialogueGenericUCGuardsShips", "SQ_CargoShips")
+HOLD_SYSTEM = ("SQ_GravitationalTraits", "SQ_Traits", "SQ_ApplyVoices_OBSOLETE", "LDMasterQuest")
+DEFAULT_HOLD = (HOLD_CORE + HOLD_COMPANIONS + HOLD_AUDIO_TUTORIALS + HOLD_CITY_FACTION + HOLD_GENERIC_DIALOGUE
+                + HOLD_ACTIVITIES + HOLD_RADIANT + HOLD_SHIPS + HOLD_SYSTEM)
+OMIT_HOLD_GROUPS = {
+    "radiant": tuple(q for q in DEFAULT_HOLD if q not in set(HOLD_RADIANT)),
+    "ships": tuple(q for q in DEFAULT_HOLD if q not in set(HOLD_SHIPS)),
+    "system": tuple(q for q in DEFAULT_HOLD if q not in set(HOLD_SYSTEM)),
+}
 # GLOB MQ101Debug (Starfield.esm 0A7D31) at the start: the build overrides it NOT AT ALL by default (None). Each of MQ101's
 # stage-0 entries that matches moves the player into the game (the intro's Item_02: moveto CharGenStartMarker, then
 # WaitFor3dLoad); a value no entry matches moves nobody and the new game never leaves its loading screen (28 Oct run 2,
@@ -147,7 +194,11 @@ DEFAULT_RACE_MENU_MODE = 2
 # script's MaxPresses: the allocation ends as Leave after that many presses without Confirm or Leave (about 22 per
 # pass; the guard against a message box that returns at once).
 SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck")
+SPECIAL_AVIF_IDS = tuple(core_form_id(f"FO4SF_Special_{s}") for s in SPECIAL_STATS)
+TEST_MODE_GLOBAL_ID = core_form_id("FO4SF_TestModeEnabled")
 SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
+SPECIAL_PAGE1_BUTTONS = ("Strength", "Perception", "Endurance", "Next (C / I / A / L)", "Reset", "Confirm", "Leave")
+SPECIAL_PAGE2_BUTTONS = ("Charisma", "Intelligence", "Agility", "Luck", "Back (S / P / E)", "Confirm", "Leave")
 SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
 SPECIAL_MAX_PRESSES = 300
 # The save version check (NG-15 / NG-L2; Program.cs DefaultBuildVersion, held equal by tests/test_newgame.py): the
@@ -156,6 +207,9 @@ SPECIAL_MAX_PRESSES = 300
 # mismatch" and a notification when they differ. --build-version sets another number; bump it when a save made under
 # the old build must not go on under the new one.
 DEFAULT_BUILD_VERSION = 1
+# Default pod stand step (Program.cs DefaultPodStep = -2.5f): steps 2.5 m along -Y out of REFR 0004A011 onto
+# (9.143, -6.614, -1.029) m (walkable on PC, settle drop 0.12 m); heading stays 0 (do not turn the pod).
+DEFAULT_POD_STEP = -2.5
 # The starting inventory reset (NG-K8 / NG-N3; Program.cs DefaultClearInventory, held equal by tests/test_newgame.py):
 # ON by default since S13 row 2: the strip-down rule takes Starfield's own new-game items (outfit, gear, credits) out,
 # as FO4's MQ101 empties the inventory, and what Starfield leaves when MQ101 never runs is unresolved (run 4). The
@@ -170,6 +224,7 @@ DEFAULT_CLEAR_INVENTORY = True
 # reset the quest tops 0002E2 (a pack's O2 capacity) up to 100 with ModValue right after it, which clears the dial
 # (PC, 15 Nov), and logs "o2 capacity added=<n> value=<n>". --no-o2-fill leaves it out; --keep-inventory has none.
 DEFAULT_O2_FILL = True
+DEFAULT_FADE_HOLD = False
 # The vault anchor's mode (Program.cs DefaultRequirePersistentAnchor, held equal by tests/test_newgame.py). The port
 # installed on 21 Oct had no persistent reference in FO4Port_Vault111Cryo (0 of 1,166; its COC marker 001338 and every
 # terminal temporary), and a temporary reference of an unloaded cell resolves to None (verified 16 Oct), so the writer
@@ -196,23 +251,30 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue"],   # ModValue / GetValue: the O2 fill
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame"],
-        "GlobalVariable": ["GetValue", "SetValueInt"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu", "ShowFirstPersonGeometry"],
+        "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
+        "InputEnableLayer": ["Create", "EnableHandscanner"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
-                            "GetItemCount", "AddItem"],
+                            "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
+                            "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
+                            "BlockActivation", "OnActivate", "OnItemAdded"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
-                  "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit"],
-        "ScriptObject": ["StartTimer"],
-        "Utility": ["GetCurrentRealTime"],
+                  "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
+        "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
+                         "RegisterForRemoteEvent", "UnregisterForRemoteEvent", "AddInventoryEventFilter",
+                         "CastAs", "CallFunction",
+                         "RegisterForMenuOpenCloseEvent", "UnregisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
+        "Utility": ["GetCurrentRealTime", "Wait"],
     },
     LOOKS: {
         "Debug": ["TraceUser"],
-        "Game": ["ShowRaceMenu"],
+        "Game": ["ShowRaceMenu", "GetPlayer"],
         "Message": ["Show"],
+        "ObjectReference": ["GetPositionX", "GetPositionY", "GetPositionZ", "GetAngleZ", "Is3DLoaded", "GetParentCell", "GetWorldSpace"],
         "Quest": ["SetStage", "GetStage", "OnQuestStarted", "OnQuestInit"],
         "ScriptObject": ["StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["Wait", "GetCurrentRealTime"],
@@ -399,7 +461,8 @@ def extract_sources(zip_path, work):
 
 def compile_script(compiler, name, src_dir, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    r = run([compiler, name + ".psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"],
+    inc = ";".join((HERE, src_dir))
+    r = run([compiler, name + ".psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={inc}", f"-o={out_dir}"],
             cwd=HERE, check=False)
     pex = os.path.join(out_dir, name + ".pex")
     if r.returncode != 0 or "Compilation succeeded" not in r.stdout or not os.path.exists(pex):
@@ -418,10 +481,33 @@ def new_partial(final, create=True):
     return out
 
 
+def hold_option(a):
+    """Comma-joined hold list for the writer and plan.json: --hold, --omit-hold-group, or DEFAULT_HOLD."""
+    omit = getattr(a, "omit_hold_group", None)
+    if a.hold and omit:
+        sys.exit("--hold and --omit-hold-group contradict each other")
+    if omit:
+        return ",".join(OMIT_HOLD_GROUPS[omit])
+    return a.hold or ",".join(DEFAULT_HOLD)
+
+
+def fade_hold_option(a):
+    """Whether the build holds in pre-world start setup before entering Vault 111: DEFAULT_FADE_HOLD (False) unless --fade-hold."""
+    if getattr(a, "fade_hold", False) and getattr(a, "no_fade_hold", False):
+        sys.exit("--fade-hold and --no-fade-hold contradict each other")
+    if getattr(a, "fade_hold", False):
+        return True
+    if getattr(a, "no_fade_hold", False):
+        return False
+    return DEFAULT_FADE_HOLD
+
+
 def tool_options(a):
     opts = []
-    if a.hold:
-        opts += ["--hold", a.hold]
+    if getattr(a, "exit_lift", None):
+        opts.append("--animated-exit-lift")
+    if a.hold or getattr(a, "omit_hold_group", None):
+        opts += ["--hold", hold_option(a)]
     if a.no_mq101debug:
         opts.append("--no-mq101debug")
     elif a.mq101debug is not None:
@@ -452,6 +538,16 @@ def tool_options(a):
         opts.append("--allow-temporary-anchor")
     if a.no_o2_fill:
         opts.append("--no-o2-fill")
+    if fade_hold_option(a):
+        opts.append("--fade-hold")
+    elif getattr(a, "no_fade_hold", False):
+        opts.append("--no-fade-hold")
+    if getattr(a, "start_choice_backdrop", None):
+        opts += ["--start-choice-backdrop", str(a.start_choice_backdrop)]
+    if getattr(a, "warfare_starts", None):
+        opts += ["--warfare-starts", a.warfare_starts]
+    if getattr(a, "start_places", None):
+        opts += ["--start-places", a.start_places]
     return opts
 
 
@@ -498,18 +594,83 @@ def pins(a):
     return {"FO4Port.esm": sha256(a.port), "formids.json": sha256(a.port_ids), "FO4TerrainCore.esm": sha256(a.core)}
 
 
+def cog_door_component(folder, port, starfield):
+    """Validate the separate production Vault 111 gear-door stage, refusing probe kits and file drift."""
+    import make_anim_probe as probe_a
+    import make_cog_door as mcd
+    with open(os.path.join(folder, "plan.json"), encoding="utf-8") as f:
+        plan = json.load(f)
+    ref = str(plan.get("ref") or "").lower().removeprefix("0x").lstrip("0")
+    if plan.get("kind") != mcd.COG_KIND or plan.get("plugins") != [mcd.COG_PLUGIN] or ref != "126d":
+        sys.exit("--cog-door needs the production Vault 111 gear door component, never a cog-door probe")
+    files = probe_a.stage_files(folder)
+    if files != plan.get("outputs") or any(p != mcd.COG_PLUGIN and not p.startswith(("Data/meshes/", "Data/geometries/", "Data/materials/")) for p in files):
+        sys.exit("cog door assets changed, are missing, or include a probe script")
+    if mcd.COG_PLUGIN not in files or len(files) < 2:
+        sys.exit("cog door component has no plugin/assets")
+    for name, path in (("FO4Port.esm", port), ("Starfield.esm", starfield)):
+        if plan.get("inputs", {}).get(name, {}).get("sha256") != sha256(path):
+            sys.exit(f"cog door was built against different {name} bytes")
+    return plan
+
+
+def exit_lift_component(folder, port, starfield):
+    """Validate the separate production asset stage, refusing all probe kits and any file drift."""
+    import make_anim_console as mac
+    with open(os.path.join(folder, "plan.json"), encoding="utf-8") as f:
+        plan = json.load(f)
+    if (plan.get("kind") != mac.LIFT_KIND or plan.get("plugins") != [mac.LIFT_PLUGIN]
+            or plan.get("states") != mac.LIFT_STATES or plan.get("rise_m") != 21.6
+            or plan.get("seconds") != 9.8667 or plan.get("event") != "Play01"):
+        sys.exit("--exit-lift needs the production floor-start lift component, never an animation probe")
+    files = mac.probe_a.stage_files(folder)
+    if files != plan.get("outputs") or any(p != mac.LIFT_PLUGIN and not p.startswith(("Data/meshes/", "Data/geometries/", "Data/materials/")) for p in files):
+        sys.exit("exit lift assets changed, are missing, or include a probe script")
+    if mac.LIFT_PLUGIN not in files or len(files) < 2:
+        sys.exit("exit lift component has no plugin/assets")
+    for name, path in (("FO4Port.esm", port), ("Starfield.esm", starfield)):
+        if plan.get("inputs", {}).get(name, {}).get("sha256") != sha256(path):
+            sys.exit(f"exit lift was built against different {name} bytes")
+    return plan
+
+
+def points_options(a):
+    """The optional flags `stage` hands to `dotnet NewGame points` (none given: the tool's DefaultPodStep = -2.5)."""
+    return ((["--pod-ref", a.pod_ref] if a.pod_ref else [])
+            + (["--terminal-ref", a.terminal_ref] if a.terminal_ref else [])
+            + (["--pod-step", repr(float(a.pod_step))] if getattr(a, "pod_step", None) is not None else []))
+
+
+def refuse_forbidden_out_dir(out_dir):
+    full = os.path.abspath(out_dir)
+    cur = full
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            sys.exit(f"refused: output folder inside Git worktree is forbidden ({full})")
+        if os.path.isfile(os.path.join(cur, "Starfield.exe")):
+            sys.exit(f"refused: output folder inside game install is forbidden ({full})")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+
+
 def stage(a):
     final = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
     before = pins(a)
+    cog_folder = getattr(a, "cog_door", None)
+    cog = cog_door_component(cog_folder, a.port, a.starfield) if cog_folder else None
+    lift_folder = getattr(a, "exit_lift", None)
+    lift = exit_lift_component(lift_folder, a.port, a.starfield) if lift_folder else None
     out = new_partial(final)
     work = os.path.join(out, "work")
     os.makedirs(work)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
     points = os.path.join(work, "points.json")
-    run(tool + ["points", a.fo4, points] + (["--pod-ref", a.pod_ref] if a.pod_ref else [])
-        + (["--terminal-ref", a.terminal_ref] if a.terminal_ref else []))
+    run(tool + ["points", a.fo4, points] + points_options(a))
     opts = tool_options(a)
     masters = [a.starfield, a.port, a.port_ids, a.core, points]
     run(tool + ["write", a.starfield, a.port, a.port_ids, a.core, points, out] + opts)
@@ -527,31 +688,56 @@ def stage(a):
     drift = [f"{n}: {before[n]} at the start, {h} now" for n, h in pins(a).items() if h != before[n]]
     if drift:
         sys.exit("an input changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
+    staged_assets = {}
+    for label, comp, folder, checker in (("cog door", cog, cog_folder, cog_door_component),
+                                         ("lift", lift, lift_folder, exit_lift_component)):
+        if comp:
+            if checker(folder, a.port, a.starfield) != comp:
+                sys.exit(f"{label} component changed during the build")
+            for rel, want in comp["outputs"].items():
+                dest = os.path.join(out, *rel.split("/"))
+                if os.path.exists(dest):
+                    if rel.startswith("Data/") and staged_assets.get(rel) == want and sha256(dest) == want:
+                        continue
+                    sys.exit(f"{label} asset collides with staged output: {rel}")
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.copyfile(os.path.join(folder, *rel.split("/")), dest)
+                if sha256(dest) != want:
+                    sys.exit(f"{label} asset changed while copying: {rel}")
+                staged_assets[rel] = want
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
+    o_show_unavailable = getattr(a, "show_unavailable_starts", 0)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
-            "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
+            "options": {"hold": hold_option(a), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
                         "build_version": build_version_option(a),
                         "clear_inventory": clear_inventory_option(a), "vault_suit": a.vault_suit if clear_inventory_option(a) else None,
                         "o2_fill": o2_fill_option(a),
+                        "fade_hold": fade_hold_option(a),
+                        "start_choice_backdrop": getattr(a, "start_choice_backdrop", None) or "empty_cell",
+                        "show_unavailable_starts": int(bool(o_show_unavailable)),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
+    if cog:
+        plan["cog_door"] = cog
+    if lift:
+        plan["exit_lift"] = lift
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout 4 new game (Claude-cloud, {datetime.date.today().isoformat()}). docs/newgame/vault111-start.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_NewGame "{pts['quest_name']}" (run once, Starfield's startup quest: DFOB StartupQuest_DO overridden),
-MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial, 7 AVIF FO4SF_Special_<stat>' if a.special else ''}{f', GLOB FO4SF_NewGameVersion = {build_version_option(a)} and a player alias (the save version check)' if a.version else ''};
-master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
+MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{f', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial (7 AVIF in {CORE_VALUES_PLUGIN})' if a.special else ''}{f', GLOB FO4SF_NewGameVersion = {build_version_option(a)} and a player alias (the save version check)' if a.version else ''};
+masters Starfield.esm and {CORE_VALUES_PLUGIN}. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
 Inventory reset at the pod: {('ON, the default (whether quest items stay is unverified; left= says how many stayed, not which), vault suit ' + (a.vault_suit or 'none: the player should start with nothing; unverified until the first run')) if clear_inventory_option(a) else 'off (--keep-inventory: the player keeps what Starfield gives)'}.
-Starfield environment: {'SQ_ENV held off (its 17 ENV abilities: suit, hazard soak, water and O2; unverified until the PC run; placed local hazards and the race hit-spell abilities do not come from SQ_ENV)' if 'SQ_ENV' in (a.hold or ','.join(DEFAULT_HOLD)).split(',') else 'SQ_ENV runs (Starfield hazards on)'}; O2 capacity {'topped up to 100 after the reset (clears the O2/CO2 dial)' if o2_fill_option(a) else 'untouched'}.
+Starfield environment: {'SQ_ENV held off (its 17 ENV abilities: suit, hazard soak, water and O2; unverified until the PC run; placed local hazards and the race hit-spell abilities do not come from SQ_ENV)' if 'SQ_ENV' in hold_option(a).split(',') else 'SQ_ENV runs (Starfield hazards on)'}; O2 capacity {'topped up to 100 after the reset (clears the O2/CO2 dial)' if o2_fill_option(a) else 'untouched'}.
 Vault anchor FO4Port.esm:{anchor['id']} {anchor['mode']}{' (the script centers on the vault cell first: the log says "centered on ...")' if anchor['mode'] == 'temporary' else ''}.
 Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set (the folded README gives the exp_install.py
@@ -585,6 +771,10 @@ def verify_dir(exp_dir, plan, port=None, core=None):
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     for s, want in plan["scripts"].items():
         same("script", os.path.join(exp_dir, "Data", "Scripts", s + ".pex"), want)
+    for rel, want in plan.get("cog_door", {}).get("outputs", {}).items():
+        same("cog door", os.path.join(exp_dir, *rel.split("/")), want)
+    for rel, want in plan.get("exit_lift", {}).get("outputs", {}).items():
+        same("exit lift", os.path.join(exp_dir, *rel.split("/")), want)
     pinned = plan["checked_against_sha256"]
     for name, given in (("FO4Port.esm", port), ("FO4TerrainCore.esm", core)):
         path = os.path.join(exp_dir, name)
@@ -642,6 +832,7 @@ def folded_readme(core_readme, stage_readme, plugins, plugin, stage):
 
 def fold(a):
     final = os.path.abspath(a.out)
+    refuse_forbidden_out_dir(final)
     if os.path.exists(final):
         sys.exit(f"{final} exists: fold into a new folder")
     plan = load_plan(os.path.join(a.stage, "plan.json"))
@@ -649,16 +840,42 @@ def fold(a):
         sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
     core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
     stage_readme = read_text(os.path.join(a.stage, "README.txt"))
-    plugins = core_plugins(a.core_dir, core_readme) + [plan["plugin"]]
+    cog_outputs = plan.get("cog_door", {}).get("outputs", {})
+    cog_plugins = plan.get("cog_door", {}).get("plugins", [])
+    lift_outputs = plan.get("exit_lift", {}).get("outputs", {})
+    lift_plugins = plan.get("exit_lift", {}).get("plugins", [])
+    plugins = core_plugins(a.core_dir, core_readme) + cog_plugins + lift_plugins + [plan["plugin"]]
+    if len(set(plugins)) != len(plugins):
+        sys.exit("fold refused: duplicate cog/lift/new-game plugins in core set")
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
-    for s in plan["scripts"]:
+    folded_assets = {}
+    for label, outputs in (("cog door", cog_outputs), ("lift", lift_outputs)):
+        for rel, want in outputs.items():
+            dst = os.path.join(out, *rel.split("/"))
+            core_src = os.path.join(a.core_dir, *rel.split("/"))
+            if os.path.exists(core_src):
+                if (rel.startswith("Data/") and os.path.isfile(core_src) and sha256(core_src) == want
+                        and os.path.isfile(dst) and sha256(dst) == want):
+                    folded_assets[rel] = want
+                    continue
+                sys.exit(f"fold refused: core set already has {label} asset {rel} with differing sha256 (attempt kept in {out})")
+            if os.path.exists(dst):
+                if rel.startswith("Data/") and os.path.isfile(dst) and folded_assets.get(rel) == want and sha256(dst) == want:
+                    continue
+                sys.exit(f"fold refused: {label} asset {rel} collides with differing staged asset (attempt kept in {out})")
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(a.stage, *rel.split("/")), dst)
+            folded_assets[rel] = want
+    for s, want in plan["scripts"].items():
         dst = os.path.join(out, "Data", "Scripts", s + ".pex")
         if os.path.exists(dst):
-            sys.exit(f"fold refused: the core set already has Data/Scripts/{s}.pex (attempt kept in {out})")
+            if os.path.isfile(dst) and sha256(dst) == want:
+                continue
+            sys.exit(f"fold refused: the core set already has Data/Scripts/{s}.pex with differing sha256 (attempt kept in {out})")
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(os.path.join(a.stage, "Data", "Scripts", s + ".pex"), dst)
     problems = verify_dir(out, plan, a.port, a.core)
@@ -751,15 +968,29 @@ def summarize(lines):
          "entered_vault": None, "pod_settle": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False,
          "stand_down": None, "handing_back": None, "handed_back": None, "start": None, "start_events": [],
          "start_wait": None, "waiting_3d": None, "fade": None,
-         "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False}
+         "guard": None, "mq101debug_written": None, "last_status": None, "runs": 0, "earlier_completed": False,
+         "arrival_discovery_requested": None, "exit_failure": None, "ascent": [], "looks_positions": [],
+         "landing_quests": None, "pipboy_pickup": None, "mode_fade_held": False, "mode_choice": None,
+         "mode_load_default": None, "warfare_pick": None, "warfare_gear": None,
+         "map_setup": None, "pistol_picked": None, "exit_retries": [], "exit_fallback": None,
+         "arrival_discovery_failed": None, "special_default": None,
+         "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False,
+         "mode_fade_lifted": None, "start_record": None, "entered_start_room": None,
+         "h00_suspects": {}, "surface_pre_setposition": None}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
-    s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
+    s["earlier_completed"] = any(
+        any(m == "stage 200" or m.startswith("stage 200 ") or m == "stage 210" or m.startswith("stage 210 ") for m in r)
+        for r in runs[:-1]
+    )
     for msg in runs[-1] if runs else []:
         if msg.startswith("stage "):
-            n = int(msg.split()[1])
+            parts = msg.split()
+            n = int(parts[1])
             s["stages"].append(n)
             s["stages_named"].append(f"{n} {STAGE_CONTRACT.get(n, 'not in the contract')}")
+            by_val = next((p.split("=", 1)[1] for p in parts[2:] if p.startswith("by=")), None)
+            s["stage_causes"][n] = by_val
         elif msg.startswith("held off "):
             quest, _, rest = msg[len("held off "):].partition(" running_after=")
             s["held_off"].append(quest)
@@ -796,10 +1027,64 @@ def summarize(lines):
         elif msg.startswith("pod settle "):
             if s["pod_settle"] is None:                      # the script checks once
                 s["pod_settle"] = msg[len("pod settle "):]
+        elif msg.startswith("looks position "):
+            s["looks_positions"].append(msg[len("looks position "):])
+        elif msg.startswith("surface pre_setposition "):
+            s["surface_pre_setposition"] = msg
+        elif msg.startswith("h00 suspect "):
+            kv = msg[len("h00 suspect "):].strip()
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                s["h00_suspects"][k.strip()] = int(v.strip().split()[0])
         elif msg.startswith("surface setposition "):
             s["surfaced"] = msg
         elif msg.startswith("landed "):
             s["landed"] = True
+        elif msg.startswith("arrival discovery requested "):
+            s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("arrival discovery failed "):
+            s["arrival_discovery_failed"] = msg[len("arrival discovery failed "):]
+        elif msg.startswith("special default "):
+            s["special_default"] = msg[len("special default "):]
+        elif msg.startswith("exit retry "):
+            s["exit_retries"].append(msg[len("exit retry "):])
+        elif msg.startswith("exit fallback "):
+            s["exit_fallback"] = msg[len("exit fallback "):]
+        elif msg.startswith("landing quests started "):
+            s["landing_quests"] = msg[len("landing quests started "):]
+        elif msg.startswith("pipboy pickup "):
+            s["pipboy_pickup"] = msg[len("pipboy pickup "):]
+        elif msg.startswith("mode fade held"):
+            s["mode_fade_held"] = True
+            s["mode_fade_requests"] += 1
+        elif msg.startswith("mode box waiting s="):
+            s["mode_box_waits"].append(int(msg[len("mode box waiting s="):].split()[0]))
+        elif msg.startswith("mode neutral spot active"):
+            s["mode_neutral_spot"] = True
+        elif msg.startswith("mode fade lifted "):
+            s["mode_fade_lifted"] = msg[len("mode fade lifted "):]
+        elif msg.startswith("enter start room ok="):
+            s["entered_start_room"] = msg.split()[3].lower() == "ok=true"
+        elif msg.startswith("enter start room confirmed "):
+            s["entered_start_room"] = True
+        elif msg.startswith("start record "):
+            s["start_record"] = msg[len("start record "):]
+        elif msg.startswith("mode choice "):
+            s["mode_choice"] = msg[len("mode choice "):]
+        elif msg.startswith("mode load default="):
+            s["mode_load_default"] = msg[len("mode load default="):]
+        elif msg.startswith("warfare pick "):
+            s["warfare_pick"] = msg[len("warfare pick "):]
+        elif msg.startswith("warfare gear n="):
+            s["warfare_gear"] = msg[len("warfare gear n="):]
+        elif msg.startswith("map setup done "):
+            s["map_setup"] = msg[len("map setup done "):]
+        elif msg.startswith("pistol picked "):
+            s["pistol_picked"] = msg[len("pistol picked "):]
+        elif msg.startswith("ascent "):
+            s["ascent"].append(msg[len("ascent "):])
+        elif msg.startswith("exit failed reason="):
+            s["exit_failure"] = msg[len("exit failed reason="):]
         elif msg.startswith("fell "):
             s["fell"] = True
         elif msg.startswith("not a new game") or msg.startswith("no move into the vault"):
@@ -836,7 +1121,7 @@ def log(a):
     with open(a.file, encoding="utf-8", errors="replace") as f:
         s = summarize(f)
     print(json.dumps(s, indent=1))
-    return 0 if 200 in s["stages"] and not s["stood_down"] else 1
+    return 0 if (200 in s["stages"] or 210 in s["stages"]) and not s["stood_down"] and not s["exit_failure"] else 1
 
 
 def main(argv=None):
@@ -848,6 +1133,8 @@ def main(argv=None):
     pc.add_argument("--out", default=None)
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
+    s.add_argument("--cog-door", default=None, help="validated make_cog_door.py --production-cog stage; includes FO4SFVaultGearDoor.esm and its assets")
+    s.add_argument("--exit-lift", default=None, help="validated make_anim_console.py --production-lift stage; enables the carrying ascent and includes its assets")
     s.add_argument("--fo4", required=True)
     s.add_argument("--port", required=True)
     s.add_argument("--port-ids", required=True)
@@ -867,6 +1154,8 @@ def main(argv=None):
     s.add_argument("--build-version", type=int, default=None,
                    help=f"the build's version number, GLOB FO4SF_NewGameVersion (default {DEFAULT_BUILD_VERSION})")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
+    s.add_argument("--omit-hold-group", choices=tuple(OMIT_HOLD_GROUPS), default=None,
+                   help="narrowing flag omitting one Group 5 list from DEFAULT_HOLD: radiant (190), ships (178), or system (195)")
     s.add_argument("--mq101debug", type=float, default=None,
                    help=f"override GLOB MQ101Debug, experiments only (default: no override). MQ101 never runs with our own "
                         f"start, so it matters only when the start hands back to MQ101 (a New Game+, or no move into the vault): "
@@ -877,6 +1166,7 @@ def main(argv=None):
     s.add_argument("--debug-after-hold", type=int, default=None,
                    help=f"the value the quest writes into MQ101Debug right after the hold-off's first pass (default "
                         f"{DEBUG_AFTER_HOLD}, the developer skip-start value, which opens the sustenance condition; 0 writes nothing)")
+    s.add_argument("--pod-step", type=float, default=None, help=f"metres from the pod to the start point along the pod's facing (tool default {DEFAULT_POD_STEP})")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     s.add_argument("--keep-inventory", action="store_true",
                    help="no inventory reset: the player keeps what Starfield gives. By default the quest empties the "
@@ -889,6 +1179,18 @@ def main(argv=None):
     s.add_argument("--no-o2-fill", action="store_true",
                    help="no O2 capacity after the reset: with no suit the O2/CO2 dial then reads red (S13 row 2b; "
                         "on by default with the reset)")
+    s.add_argument("--fade-hold", action="store_true",
+                   help="opt-in pre-world start room setup before entering a game location (off by default per T3)")
+    s.add_argument("--no-fade-hold", action="store_true",
+                   help="kept as a no-op alias: the default already skips pre-world start room setup and enters Vault 111 directly")
+    s.add_argument("--start-choice-backdrop", choices=("empty_cell", "title_card", "setup_menu", "none"), default=None,
+                   help="N2/S1 backdrop variant (R5): empty_cell (default), title_card (FO4SF_StartCardMenu), setup_menu (FO4SF_SetupMenu), or none")
+    s.add_argument("--show-unavailable-starts", type=int, choices=(0, 1), default=0,
+                   help="S3 unavailable-start policy: 0 leaves available:false rows off (default), 1 displays them greyed out on FO4SF_SetupMenu")
+    s.add_argument("--warfare-starts", default=None,
+                   help="path to warfare_starts.json (default: src/fo4sf/core/warfare_starts.json)")
+    s.add_argument("--start-places", default=None,
+                   help="path to start_places.json (default: src/fo4sf/core/start_places.json)")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

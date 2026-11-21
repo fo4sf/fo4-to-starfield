@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 import test_vmad_patch as fixture
+from fo4sf.terrain.path_guard import OutputPathRefusedError
 
 vp = fixture.vp
 
@@ -140,13 +141,15 @@ class DoorStagePreservationTests(unittest.TestCase):
     def test_nested_output_refuses_before_recursive_linking(self):
         # Bound the old regression at the copy boundary rather than let os.walk
         # recursively link its own newly-created output into the pinned input.
+        # C4 moved this nested-output refusal earlier into path_guard.refuse_unsafe_output_path at vmad_patch.py:710.
         for parent in (self.port, self.core):
             with self.subTest(parent=parent.name):
                 before = self.snapshot(parent)
                 output = parent / 'nested-output'
                 with mock.patch.object(vp, 'link_folder', side_effect=AssertionError('recursive copy attempted')) as copy:
-                    with self.assertRaisesRegex(ValueError, 'inside input'):
+                    with self.assertRaisesRegex(SystemExit, r'refused: output path .* lies inside input') as cm:
                         vp.main(['port', '--port', str(self.port), '--core', str(self.core), '--out', str(output)])
+                    self.assertIsInstance(cm.exception.__context__, OutputPathRefusedError)
                     copy.assert_not_called()
                 self.assertFalse(output.exists())
                 self.assertEqual(before, self.snapshot(parent))

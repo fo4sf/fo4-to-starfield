@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "plugin": "FO4SFRouteLoot.esm",
+  "masters": [
+    "Starfield.esm",
+    "FO4SFCoreValues.esm",
+    "FO4SFRads.esm",
+    "FO4SFWorkshop.esm",
+    "FO4TerrainCore.esm",
+    "FO4Port.esm"
+  ],
+  "currency": {
+    "plugin": "Starfield.esm",
+    "id": "0x00000F"
+  },
+  "corridor_radius_m": 600.0,
+  "corridor_polyline_m": [
+    [-1129.25043, 1279.80729],
+    [-1005.49043, 1135.99929],
+    [-811.14286, 1002.45714]
+  ],
+  "categories": {
+    "vault_armory": [
+      {"plugin": "Starfield.esm", "id": "0x24561C", "count": 1},
+      {"plugin": "Starfield.esm", "id": "0x2B5598", "count": 64},
+      {"plugin": "FO4SFCoreValues.esm", "id": "0x000851", "count": 2},
+      {"plugin": "Starfield.esm", "id": "0x00000F", "count": 25}
+    ],
+    "ammo": [
+      {"plugin": "Starfield.esm", "id": "0x2B5598", "count": 24},
+      {"plugin": "Starfield.esm", "id": "0x04AD3E", "count": 30},
+      {"plugin": "Starfield.esm", "id": "0x2B5599", "count": 14},
+      {"plugin": "Starfield.esm", "id": "0x2B558D", "count": 18},
+      {"plugin": "Starfield.esm", "id": "0x00000F", "count": 15}
+    ],
+    "aid": [
+      {"plugin": "FO4SFCoreValues.esm", "id": "0x000851", "count": 2},
+      {"plugin": "FO4SFRads.esm", "id": "0x000820", "count": 1},
+      {"plugin": "FO4SFRads.esm", "id": "0x000821", "count": 1},
+      {"plugin": "Starfield.esm", "id": "0x00000F", "count": 12}
+    ],
+    "junk": [
+      {"plugin": "FO4SFWorkshop.esm", "id": "0x000820", "count": 1},
+      {"plugin": "FO4SFWorkshop.esm", "id": "0x000821", "count": 1},
+      {"plugin": "FO4SFWorkshop.esm", "id": "0x000822", "count": 1},
+      {"plugin": "FO4SFWorkshop.esm", "id": "0x000823", "count": 2},
+      {"plugin": "Starfield.esm", "id": "0x00000F", "count": 8}
+    ],
+    "caps": [
+      {"plugin": "Starfield.esm", "id": "0x00000F", "count": 35}
+    ]
+  },
+  "vault111": {
+    "cell_id": "0x0011F3",
+    "case_template_id": "0x105688",
+    "own_case_base_id": "0x000800",
+    "own_case_ref_id": "0x000801",
+    "case_pos_m": [-49.55, 27.15, 0.805],
+    "case_rot_rad": [0.0, 0.0, 4.712389],
+    "port_locker_cont_id": "0x00E0D6",
+    "pistol_id": "0x24561C",
+    "ammo_id": "0x2B5598",
+    "stimpak_id": "0x000851",
+    "min_ammo_rounds": 48,
+    "min_stimpaks": 2,
+    "pickups": [
+      {
+        "own_ref_id": "0x000802",
+        "plugin": "Starfield.esm",
+        "id": "0x24561C",
+        "count": 1,
+        "pos_m": [-49.1206, 26.8671, 0.82],
+        "rot_rad": [-1.572, 0.369, 1.558]
+      },
+      {
+        "own_ref_id": "0x000803",
+        "plugin": "Starfield.esm",
+        "id": "0x2B5598",
+        "count": 48,
+        "pos_m": [-48.778, 26.9279, 0.79],
+        "rot_rad": [0.0, 0.0, 1.825]
+      },
+      {
+        "own_ref_id": "0x000804",
+        "plugin": "FO4SFCoreValues.esm",
+        "id": "0x000851",
+        "count": 1,
+        "pos_m": [-47.3772, 28.0584, 0.84],
+        "rot_rad": [3.139, 0.002, 3.175]
+      },
+      {
+        "own_ref_id": "0x000805",
+        "plugin": "FO4SFCoreValues.esm",
+        "id": "0x000851",
+        "count": 1,
+        "pos_m": [-47.6189, 27.9754, 0.84],
+        "rot_rad": [-3.138, -0.001, 0.827]
+      },
+      {
+        "own_ref_id": "0x000806",
+        "plugin": "Starfield.esm",
+        "id": "0x24561C",
+        "count": 1,
+        "pos_m": [-57.0338, 30.006, 1.29],
+        "rot_rad": [-1.444, 0.412, 4.831]
+      },
+      {
+        "own_ref_id": "0x000807",
+        "plugin": "Starfield.esm",
+        "id": "0x2B5598",
+        "count": 48,
+        "pos_m": [-57.0522, 30.3703, 0.696],
+        "rot_rad": [0.001, 0.0, 2.835]
+      }
+    ]
+  },
+  "fo4_container_categories": {
+    "0x017C0D": "junk",
+    "0x017E84": "aid",
+    "0x018F7B": "junk",
+    "0x01F435": "junk",
+    "0x01F450": "junk",
+    "0x01F453": "junk",
+    "0x021E7A": "junk",
+    "0x0222CF": "junk",
+    "0x023869": "junk",
+    "0x034D44": "aid",
+    "0x036929": "aid",
+    "0x038A0A": "aid",
+    "0x038C1B": "ammo",
+    "0x038C1D": "junk",
+    "0x038C1E": "ammo",
+    "0x038C1F": "ammo",
+    "0x038C21": "ammo",
+    "0x038C22": "junk",
+    "0x038C23": "ammo",
+    "0x03D3E3": "junk",
+    "0x0482DF": "junk",
+    "0x049622": "junk",
+    "0x049D9C": "junk",
+    "0x049D9F": "junk",
+    "0x049DA0": "junk",
+    "0x049DA1": "junk",
+    "0x049DA2": "junk",
+    "0x049DA3": "junk",
+    "0x04B6E9": "aid",
+    "0x04B6EA": "aid",
+    "0x050DC8": "ammo",
+    "0x058801": "ammo",
+    "0x058814": "ammo",
+    "0x059A9A": "junk",
+    "0x05D8F8": "aid",
+    "0x060CB4": "ammo",
+    "0x064A35": "aid",
+    "0x064A36": "caps",
+    "0x064A39": "caps",
+    "0x064A3C": "junk",
+    "0x064A47": "ammo",
+    "0x0655D6": "junk",
+    "0x0670B1": "junk",
+    "0x06D4C3": "caps",
+    "0x07132E": "aid",
+    "0x072315": "ammo",
+    "0x076442": "junk",
+    "0x08CD00": "caps",
+    "0x08F6B7": "junk",
+    "0x0913F6": "junk",
+    "0x0913F7": "junk",
+    "0x0913F9": "junk",
+    "0x0913FB": "junk",
+    "0x0913FC": "aid",
+    "0x091431": "aid",
+    "0x09F428": "junk",
+    "0x09F42A": "junk",
+    "0x09FE56": "junk",
+    "0x09FE59": "junk",
+    "0x0A158B": "junk",
+    "0x0AE536": "junk",
+    "0x0AEBB6": "junk",
+    "0x0BD52B": "junk",
+    "0x0BD52E": "junk",
+    "0x0BD531": "junk",
+    "0x0BD538": "junk",
+    "0x0BD53C": "junk",
+    "0x0CD29D": "junk",
+    "0x0CF88C": "ammo",
+    "0x10274D": "caps",
+    "0x143B1C": "junk",
+    "0x16628C": "junk",
+    "0x175500": "ammo",
+    "0x180A15": "caps",
+    "0x1846B5": "ammo",
+    "0x18B217": "caps",
+    "0x1939CA": "ammo",
+    "0x1939CB": "ammo",
+    "0x19EDE2": "ammo",
+    "0x1A037F": "junk",
+    "0x1A0380": "junk",
+    "0x1E0989": "aid",
+    "0x21A172": "aid"
+  }
+}

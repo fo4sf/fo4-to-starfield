@@ -58,10 +58,31 @@
 // formids.json "doors" maps each source to {"base", "ref", "arrival"}.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 using Noggog;
 using StarfieldActivator = Mutagen.Bethesda.Starfield.Activator;   // not System.Activator (implicit usings)
+
+static FormKey ParseHostFormKey(string raw, ModKey defaultMod)
+{
+    var s = raw.Trim();
+    int colon = s.IndexOf(':');
+    if (colon < 0)
+    {
+        var hex = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s;
+        return new FormKey(defaultMod, Convert.ToUInt32(hex, 16));
+    }
+    var left = s[..colon].Trim();
+    var right = s[(colon + 1)..].Trim();
+    if (left.Contains('.'))
+    {
+        var hex = right.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? right[2..] : right;
+        return new FormKey(ModKey.FromNameAndExtension(left), Convert.ToUInt32(hex, 16));
+    }
+    var lhex = left.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? left[2..] : left;
+    return new FormKey(ModKey.FromNameAndExtension(right), Convert.ToUInt32(lhex, 16));
+}
 
 var sfPath = args[0];
 var outDir = args[1];
@@ -72,6 +93,40 @@ var sfData = Path.GetDirectoryName(Path.GetFullPath(sfPath))!;
 var release = StarfieldRelease.Starfield;
 var sfEsm = ModKey.FromNameAndExtension("Starfield.esm");
 using var sf = StarfieldMod.CreateFromBinaryOverlay(sfPath, release);
+
+// Optional "host" parameterises the host planet, surface LCTN, system/planet IDs, optional WRLD biome, and optional LCTN lever keywords.
+// Default (when "host" is omitted) is Mars: Starfield.esm MarsPlanetData (0x03F59A), SSol_PMars_Surface (0x01B736), system 0, planet 4.
+bool hasHost = Has(prm, "host");
+JsonElement hostEl = hasHost ? prm.GetProperty("host") : default;
+var hostPlanetPlugin = hasHost && hostEl.TryGetProperty("planet_plugin", out var hpp) && hpp.ValueKind == JsonValueKind.String
+    ? ModKey.FromNameAndExtension(hpp.GetString()!)
+    : sfEsm;
+string hostPlanetEdid = hasHost && hostEl.TryGetProperty("planet_edid", out var hpe) && hpe.ValueKind == JsonValueKind.String
+    ? hpe.GetString()!
+    : "MarsPlanetData";
+FormKey hostSurfaceLoc = hasHost && hostEl.TryGetProperty("surface_location", out var hsl) && hsl.ValueKind == JsonValueKind.String
+    ? ParseHostFormKey(hsl.GetString()!, hostPlanetPlugin)
+    : new FormKey(sfEsm, 0x01B736);                                             // SSol_PMars_Surface
+int hostSystemId = hasHost && hostEl.TryGetProperty("system_id", out var hsid) ? hsid.GetInt32() : 0;
+int hostPlanetId = hasHost && hostEl.TryGetProperty("planet_id", out var hpid) ? hpid.GetInt32() : 4;
+FormKey? hostBiome = hasHost && hostEl.TryGetProperty("biome", out var hbm) && hbm.ValueKind == JsonValueKind.String
+    ? ParseHostFormKey(hbm.GetString()!, hostPlanetPlugin)
+    : null;
+var hostLeverKeywords = new List<FormKey>();
+if (hasHost && hostEl.TryGetProperty("lever_keywords", out var hlk) && hlk.ValueKind == JsonValueKind.Array)
+{
+    var kwByEdid = sf.Keywords
+        .Where(k => !string.IsNullOrEmpty(k.EditorID))
+        .ToDictionary(k => k.EditorID!, k => k.FormKey, StringComparer.OrdinalIgnoreCase);
+    foreach (var kwItem in hlk.EnumerateArray())
+    {
+        var kwEdid = kwItem.GetString() ?? throw new InvalidDataException("host.lever_keywords holds a non-string entry");
+        if (!kwByEdid.TryGetValue(kwEdid, out var kwFk))
+            throw new InvalidDataException($"host.lever_keywords: keyword {kwEdid} not found in Starfield.esm");
+        if (!hostLeverKeywords.Contains(kwFk))
+            hostLeverKeywords.Add(kwFk);
+    }
+}
 
 var templateWorld = sf.Worldspaces.First(w => w.FormKey.ID == 0x02DF8C);                                   // LC172World (Mars)
 var templateBlock = sf.EnumerateMajorRecords<ISurfaceBlockGetter>().First(b => b.FormKey.ID == 0x102382);   // OverlayBlockLC172World
@@ -123,7 +178,10 @@ foreach (var o in overlays)
     loc.MasterSpecialReferences?.Clear();
     loc.MasterInitiallyDisabledReferences?.Clear();
     loc.Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(new FormKey(sfEsm, 0x2CA99D)) };
-    loc.ParentLocation.SetTo(new FormKey(sfEsm, 0x01B736));                  // SSol_PMars_Surface
+    foreach (var kwFk in hostLeverKeywords)
+        if (!loc.Keywords.Any(k => k.FormKey == kwFk))
+            loc.Keywords.Add(new FormLink<IKeywordGetter>(kwFk));
+    loc.ParentLocation.SetTo(hostSurfaceLoc);                                // default: SSol_PMars_Surface
     mod.Locations.Add(loc);
 
     var w = (Worldspace)templateWorld.Duplicate(NewKey());
@@ -141,7 +199,14 @@ foreach (var o in overlays)
             w.HNAM = new MemorySlice<byte>(new byte[] { checked((byte)wh.GetInt32()) });
     }
     w.Location.SetTo(loc.FormKey);
-    w.Components.OfType<WorldSpaceOverlayComponent>().First().SurfaceBlock.SetTo(block.FormKey);
+    if (hostBiome is FormKey hb) w.Biome.SetTo(hb);
+    var ovComp = w.Components.OfType<WorldSpaceOverlayComponent>().First();
+    if (hasHost)
+    {
+        ovComp.SNAM = BitConverter.GetBytes(hostSystemId);
+        ovComp.PNAM = BitConverter.GetBytes(hostPlanetId);
+    }
+    ovComp.SurfaceBlock.SetTo(block.FormKey);
     // object bounds are raw metres; Mutagen shows them divided by 4096
     float bmin = o.GetProperty("bounds_min_m").GetSingle() / 4096f, bmax = o.GetProperty("bounds_max_m").GetSingle() / 4096f;
     w.ObjectBoundsMin = new P2Float(bmin, bmin);
@@ -1243,8 +1308,20 @@ if (ids != null)
     File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 mod.ModHeader.Stats.NextFormID = next;
 var path = Path.Combine(outDir, modKey.FileName);
-mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
-    .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
+var modMasters = new List<ModKey> { sfEsm };
+void AddModMaster(ModKey mk) { if (mk != modKey && !modMasters.Contains(mk)) modMasters.Add(mk); }
+AddModMaster(hostSurfaceLoc.ModKey);
+if (hostBiome is FormKey hbk) AddModMaster(hbk.ModKey);
+if (modMasters.Count == 1)
+{
+    mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
+        .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
+}
+else
+{
+    mod.BeginWrite.ToPath(path).WithLoadOrder(modMasters.ToArray())
+        .WithKnownMasters(modMasters.Select(m => new KeyedMasterStyle(m, MasterStyle.Full)).ToArray()).Write();
+}
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
                   (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nMstt} MSTT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nWkshp} workshop ACTI, {nFlor} FLOR, {nBench} bench REFR on vanilla FURN, {nRef} REFR ({nDisabled} initially disabled, {nOpenDoor} doors open by default)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
@@ -1252,16 +1329,41 @@ Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds
                   (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : "") +
                   (nMap > 0 ? $"; map markers: {nMap}" : ""));
 
+string? regPluginName = null;
 if (Has(prm, "mars"))
+    regPluginName = prm.GetProperty("mars").GetProperty("plugin").GetString()!;
+else if (hasHost && hostEl.TryGetProperty("registration_plugin", out var regProp) && regProp.ValueKind == JsonValueKind.String)
+    regPluginName = regProp.GetString()!;
+
+if (regPluginName != null)
 {
-    var m = prm.GetProperty("mars");
-    var marsKey = ModKey.FromNameAndExtension(m.GetProperty("plugin").GetString()!);
+    var marsKey = ModKey.FromNameAndExtension(regPluginName);
     var mars = new StarfieldMod(marsKey, release);
     mars.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
-    var planet = (Planet)sf.Planets.First(pl => pl.EditorID == "MarsPlanetData").DeepCopy();   // same FormKey = override
+    Planet planet;
+    if (hostPlanetPlugin == sfEsm)
+    {
+        var srcPlanet = sf.Planets.FirstOrDefault(pl => pl.EditorID == hostPlanetEdid)
+            ?? throw new InvalidDataException($"host planet {hostPlanetEdid} not found in Starfield.esm");
+        planet = (Planet)srcPlanet.DeepCopy();                                   // same FormKey = override
+    }
+    else
+    {
+        var candidateOut = Path.Combine(outDir, hostPlanetPlugin.FileName);
+        var hostPlanetPath = File.Exists(candidateOut) ? candidateOut : Path.Combine(sfData, hostPlanetPlugin.FileName);
+        if (!File.Exists(hostPlanetPath))
+            throw new InvalidDataException($"host planet plugin {hostPlanetPlugin.FileName} not found in {outDir} or {sfData}");
+        var hostStyles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        hostStyles.Set(new KeyedMasterStyle(sfEsm, MasterStyle.Full));
+        using var hostMod = StarfieldMod.CreateFromBinaryOverlay(hostPlanetPath, release, new BinaryReadParameters { MasterFlagsLookup = hostStyles });
+        var srcPlanet = hostMod.Planets.FirstOrDefault(pl => pl.EditorID == hostPlanetEdid)
+            ?? throw new InvalidDataException($"host planet {hostPlanetEdid} not found in {hostPlanetPlugin.FileName}");
+        planet = (Planet)srcPlanet.DeepCopy();
+    }
     mars.Planets.Add(planet);
+    planet.MasterWorldspaces ??= new ExtendedList<MasterWorldspace>();
     foreach (var (w, o) in worlds)
-        planet.MasterWorldspaces!.Add(new MasterWorldspace
+        planet.MasterWorldspaces.Add(new MasterWorldspace
         {
             Worldspace = new FormLink<IWorldspaceGetter>(w.FormKey),
             Longitude = o.GetProperty("latitude").GetDouble(),     // first f64 of the entry = latitude
@@ -1269,7 +1371,11 @@ if (Has(prm, "mars"))
         });
     mars.ModHeader.Stats.NextFormID = 0x800;
     var marsPath = Path.Combine(outDir, marsKey.FileName);
-    mars.BeginWrite.ToPath(marsPath).WithLoadOrder(sfEsm, modKey)
-        .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full), new KeyedMasterStyle(modKey, MasterStyle.Full)).Write();
-    Console.WriteLine($"wrote {marsPath} ({new FileInfo(marsPath).Length:N0} bytes); Mars master worldspaces now {planet.MasterWorldspaces!.Count}");
+    var regMasters = hostPlanetPlugin == sfEsm ? new[] { sfEsm, modKey } : new[] { sfEsm, hostPlanetPlugin, modKey };
+    var regWrite = mars.BeginWrite.ToPath(marsPath).WithLoadOrder(regMasters)
+        .WithKnownMasters(regMasters.Select(m => new KeyedMasterStyle(m, MasterStyle.Full)).ToArray());
+    if (hostPlanetPlugin != sfEsm)
+        regWrite = regWrite.WithExtraIncludedMasters(sfEsm);
+    regWrite.Write();
+    Console.WriteLine($"wrote {marsPath} ({new FileInfo(marsPath).Length:N0} bytes); {hostPlanetEdid} master worldspaces now {planet.MasterWorldspaces.Count}");
 }

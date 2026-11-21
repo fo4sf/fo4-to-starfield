@@ -28,9 +28,17 @@ HEDR_VERSION = 0.96
 HEADER_FORM_VERSION = 576           # the TES4 header of every Mutagen-written plugin of ours that loads in game
 _REC = struct.Struct("<4sIIIIHH")   # sig, size, flags, form id, version control, form version, unknown
 _GRP = struct.Struct("<4sI4siII")   # "GRUP", size, label, type, two u32
-# top-group order of xEdit's SF1 definitions (AddGroupOrder), for the groups this package writes
-GROUP_ORDER = ("GMST", "KYWD", "LCRT", "GLOB", "FACT", "STAT", "NPC_", "CLMT", "CELL", "WRLD", "QUST", "LCTN",
-               "SFBK", "PNDT", "STDT")
+# Canonical top-group order of Starfield.esm 1.16.244 (176 top groups; verified read-only by file offset):
+# GMST(0) < KYWD(1) < LCRT(3) < GLOB(7) < FACT(10) < LTEX(19) < ACTI(23) < CONT(28) < DOOR(29) < LIGH(30)
+# < MISC(31) < STAT(32) < MSTT(35) < FLOR(37) < FURN(38) < NPC_(41) < TERM(51) < WTHR(56) < WTHS(57) < CLMT(58)
+# < NAVI(61) < CELL(62) < WRLD(63) < QUST(67) < WATR(73) < MATT(87) < LCTN(91) < MUSC(96) < MUST(103) < BIOM(125)
+# < ATMO(136) < SFBK(141) < SFPT(143) < SFTR(144) < PNDT(148) < STDT(152) < PTST(158) < TMLM(161) < SUNP(170) < TODD(172)
+GROUP_ORDER = (
+    "GMST", "KYWD", "LCRT", "GLOB", "FACT", "LTEX", "ACTI", "CONT", "DOOR", "LIGH",
+    "MISC", "STAT", "MSTT", "FLOR", "FURN", "NPC_", "TERM", "WTHR", "WTHS", "CLMT",
+    "NAVI", "CELL", "WRLD", "QUST", "WATR", "MATT", "LCTN", "MUSC", "MUST", "BIOM",
+    "ATMO", "SFBK", "SFPT", "SFTR", "PNDT", "STDT", "PTST", "TMLM", "SUNP", "TODD",
+)
 
 
 class EsmError(ValueError):

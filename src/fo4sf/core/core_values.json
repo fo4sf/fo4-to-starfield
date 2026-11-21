@@ -1,0 +1,642 @@
+{
+  "schema_version": 1,
+  "plugin": "FO4SFCoreValues.esm",
+  "next_form_id": "0x000898",
+  "records": [
+    {
+      "id": "0x000800",
+      "type": "AVIF",
+      "edid": "FO4SF_Rads",
+      "name": "Radiation",
+      "abbr": "Rad",
+      "av_type": "Variable",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1000.0,
+      "flags": ["DefaultToZero", "DamageIsPositive"]
+    },
+    {
+      "id": "0x000801",
+      "type": "AVIF",
+      "edid": "FO4SF_RadsCapPct",
+      "name": "Radiation Health Cap",
+      "abbr": "RCp",
+      "av_type": "Variable",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 100.0,
+      "flags": ["DefaultToZero"]
+    },
+    {
+      "id": "0x000802",
+      "type": "GLOB",
+      "edid": "FO4SF_RadsDisplayPct",
+      "default": 0.0
+    },
+    {
+      "id": "0x000803",
+      "type": "GLOB",
+      "edid": "FO4SF_RadsStage",
+      "default": 0.0
+    },
+    {
+      "id": "0x000804",
+      "type": "AVIF",
+      "edid": "FO4SF_RadResist",
+      "name": "Radiation Resistance",
+      "abbr": "RRs",
+      "av_type": "Variable",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1000.0,
+      "flags": ["DefaultToZero"]
+    },
+    {
+      "id": "0x000805",
+      "type": "GLOB",
+      "edid": "FO4SF_RadsRule",
+      "default": 0.0
+    },
+    {
+      "id": "0x000810",
+      "type": "AVIF",
+      "edid": "FO4SF_Special_Strength",
+      "name": "Strength",
+      "abbr": "STR",
+      "av_type": "Variable",
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "flags": []
+    },
+    {
+      "id": "0x000811",
+      "type": "AVIF",
+      "edid": "FO4SF_Special_Perception",
+      "name": "Perception",
+      "abbr": "PER",
+      "av_type": "Variable",
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "flags": []
+    },
+    {
+      "id": "0x000812",
+      "type": "AVIF",
+      "edid": "FO4SF_Special_Endurance",
+      "name": "Endurance",
+      "abbr": "END",
+      "av_type": "Variable",
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "flags": []
+    },
+    {
+      "id": "0x000813",
+      "type": "AVIF",
+      "edid": "FO4SF_Special_Charisma",
+      "name": "Charisma",
+      "abbr": "CHA",
+      "av_type": "Variable",
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "flags": []
+    },
+    {
+      "id": "0x000814",
+      "type": "AVIF",
+      "edid": "FO4SF_Special_Intelligence",
+      "name": "Intelligence",
+      "abbr": "INT",
+      "av_type": "Variable",
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "flags": []
+    },
+    {
+      "id": "0x000815",
+      "type": "AVIF",
+      "edid": "FO4SF_Special_Agility",
+      "name": "Agility",
+      "abbr": "AGI",
+      "av_type": "Variable",
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "flags": []
+    },
+    {
+      "id": "0x000816",
+      "type": "AVIF",
+      "edid": "FO4SF_Special_Luck",
+      "name": "Luck",
+      "abbr": "LCK",
+      "av_type": "Variable",
+      "default": 5.0,
+      "min": 1.0,
+      "max": 15.0,
+      "flags": []
+    },
+    {
+      "id": "0x000817",
+      "type": "FLST",
+      "edid": "FO4SF_SpecialAVList",
+      "items": [
+        "FO4SF_Special_Strength",
+        "FO4SF_Special_Perception",
+        "FO4SF_Special_Endurance",
+        "FO4SF_Special_Charisma",
+        "FO4SF_Special_Intelligence",
+        "FO4SF_Special_Agility",
+        "FO4SF_Special_Luck"
+      ]
+    },
+    {
+      "id": "0x000820",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Barter",
+      "name": "Barter",
+      "abbr": "Brt",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000821",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_EnergyWeapons",
+      "name": "Energy Weapons",
+      "abbr": "EnW",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000822",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Explosives",
+      "name": "Explosives",
+      "abbr": "Exp",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000823",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Guns",
+      "name": "Guns",
+      "abbr": "Gun",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000824",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Lockpick",
+      "name": "Lockpick",
+      "abbr": "Lck",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000825",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Medicine",
+      "name": "Medicine",
+      "abbr": "Med",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000826",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_MeleeWeapons",
+      "name": "Melee Weapons",
+      "abbr": "Mel",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000827",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Repair",
+      "name": "Repair",
+      "abbr": "Rpr",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000828",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Science",
+      "name": "Science",
+      "abbr": "Sci",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x000829",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Sneak",
+      "name": "Sneak",
+      "abbr": "Snk",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x00082A",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Speech",
+      "name": "Speech",
+      "abbr": "Spc",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x00082B",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Survival",
+      "name": "Survival",
+      "abbr": "Srv",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x00082C",
+      "type": "AVIF",
+      "edid": "FO4SF_Skill_Unarmed",
+      "name": "Unarmed",
+      "abbr": "Unm",
+      "av_type": "Variable",
+      "default": 15.0,
+      "min": 1.0,
+      "max": 100.0,
+      "flags": []
+    },
+    {
+      "id": "0x00082D",
+      "type": "FLST",
+      "edid": "FO4SF_SkillAVList",
+      "items": [
+        "FO4SF_Skill_Barter",
+        "FO4SF_Skill_EnergyWeapons",
+        "FO4SF_Skill_Explosives",
+        "FO4SF_Skill_Guns",
+        "FO4SF_Skill_Lockpick",
+        "FO4SF_Skill_Medicine",
+        "FO4SF_Skill_MeleeWeapons",
+        "FO4SF_Skill_Repair",
+        "FO4SF_Skill_Science",
+        "FO4SF_Skill_Sneak",
+        "FO4SF_Skill_Speech",
+        "FO4SF_Skill_Survival",
+        "FO4SF_Skill_Unarmed"
+      ]
+    },
+    {
+      "id": "0x000830",
+      "type": "AVIF",
+      "edid": "FO4SF_Karma",
+      "name": "Karma",
+      "abbr": "Krm",
+      "av_type": "Variable",
+      "default": 0.0,
+      "min": -1000.0,
+      "max": 1000.0,
+      "flags": ["DefaultToZero"]
+    },
+    {
+      "id": "0x000831",
+      "type": "GLOB",
+      "edid": "FO4SF_KarmaValue",
+      "default": 0.0
+    },
+    {
+      "id": "0x000832",
+      "type": "GLOB",
+      "edid": "FO4SF_KarmaTier",
+      "default": 0.0
+    },
+    {
+      "id": "0x000840",
+      "type": "GLOB",
+      "edid": "FO4SF_HardcoreEnabled",
+      "default": 0.0
+    },
+    {
+      "id": "0x000841",
+      "type": "GLOB",
+      "edid": "FO4SF_HardcoreFastTravelBlocked",
+      "default": 0.0
+    },
+    {
+      "id": "0x000842",
+      "type": "AVIF",
+      "edid": "FO4SF_Hunger",
+      "name": "Hunger",
+      "abbr": "Hng",
+      "av_type": "Variable",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1000.0,
+      "flags": ["DefaultToZero", "DamageIsPositive"]
+    },
+    {
+      "id": "0x000843",
+      "type": "AVIF",
+      "edid": "FO4SF_Thirst",
+      "name": "Thirst",
+      "abbr": "Thr",
+      "av_type": "Variable",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1000.0,
+      "flags": ["DefaultToZero", "DamageIsPositive"]
+    },
+    {
+      "id": "0x000844",
+      "type": "AVIF",
+      "edid": "FO4SF_SleepDeprivation",
+      "name": "Sleep Deprivation",
+      "abbr": "Slp",
+      "av_type": "Variable",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1000.0,
+      "flags": ["DefaultToZero", "DamageIsPositive"]
+    },
+    {
+      "id": "0x000845",
+      "type": "GLOB",
+      "edid": "FO4SF_HungerStage",
+      "default": 0.0
+    },
+    {
+      "id": "0x000846",
+      "type": "GLOB",
+      "edid": "FO4SF_ThirstStage",
+      "default": 0.0
+    },
+    {
+      "id": "0x000847",
+      "type": "GLOB",
+      "edid": "FO4SF_SleepStage",
+      "default": 0.0
+    },
+    {
+      "id": "0x000850",
+      "type": "MGEF",
+      "edid": "FO4SF_StimpakEffect",
+      "name": "Stimpak Trigger",
+      "desc": "Triggers Fallout stimpak healing and limb care."
+    },
+    {
+      "id": "0x000851",
+      "type": "ALCH",
+      "edid": "FO4SF_Stimpak",
+      "name": "Stimpak",
+      "desc": "Restores health instantly (Normal) or over time (Hardcore); cures crippled limbs in Normal mode.",
+      "effect": "FO4SF_StimpakEffect"
+    },
+    {
+      "id": "0x000860",
+      "type": "GLOB",
+      "edid": "FO4SF_TestModeEnabled",
+      "default": 0.0
+    },
+    {
+      "id": "0x000865",
+      "type": "GLOB",
+      "edid": "FO4SF_PipboyAcquired",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000866",
+      "type": "GLOB",
+      "edid": "FO4SF_StartCardOpen",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000870",
+      "type": "GLOB",
+      "edid": "FO4SF_GameMode",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000871",
+      "type": "GLOB",
+      "edid": "FO4SF_SurvivalStart",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000872",
+      "type": "GLOB",
+      "edid": "FO4SF_SurvivalLocked",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000873",
+      "type": "GLOB",
+      "edid": "FO4SF_StartDifficulty",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000874",
+      "type": "GLOB",
+      "edid": "FO4SF_WarfareFaction",
+      "default": -1.0,
+      "constant": false
+    },
+    {
+      "id": "0x000875",
+      "type": "GLOB",
+      "edid": "FO4SF_WarfareStartIndex",
+      "default": -1.0,
+      "constant": false
+    },
+    {
+      "id": "0x000876",
+      "type": "GLOB",
+      "edid": "FO4SF_StartChoiceDone",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000877",
+      "type": "GLOB",
+      "edid": "FO4SF_StartNeutralSpot",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000878",
+      "type": "GLOB",
+      "edid": "FO4SF_StoryLine",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000879",
+      "type": "GLOB",
+      "edid": "FO4SF_StartPlaceRow",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000880",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuPendingS",
+      "default": 5.0,
+      "constant": false
+    },
+    {
+      "id": "0x000881",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuPendingP",
+      "default": 5.0,
+      "constant": false
+    },
+    {
+      "id": "0x000882",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuPendingE",
+      "default": 5.0,
+      "constant": false
+    },
+    {
+      "id": "0x000883",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuPendingC",
+      "default": 5.0,
+      "constant": false
+    },
+    {
+      "id": "0x000884",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuPendingI",
+      "default": 5.0,
+      "constant": false
+    },
+    {
+      "id": "0x000885",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuPendingA",
+      "default": 5.0,
+      "constant": false
+    },
+    {
+      "id": "0x000886",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuPendingL",
+      "default": 5.0,
+      "constant": false
+    },
+    {
+      "id": "0x000887",
+      "type": "GLOB",
+      "edid": "FO4SF_SpecialMenuCommitRequested",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000890",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_SkipLoadingHook",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000891",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_ClearChargenBeforeSurface",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000892",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_SkipArrivalDiscovery",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000893",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_SkipMapSetup",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000894",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_SkipRouteLoot",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000895",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_SkipMissionActors",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000896",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_SkipLandingQuests",
+      "default": 0.0,
+      "constant": false
+    },
+    {
+      "id": "0x000897",
+      "type": "GLOB",
+      "edid": "FO4SF_H00_SkipSurfaceSetPos",
+      "default": 0.0,
+      "constant": false
+    }
+  ]
+}

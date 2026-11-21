@@ -220,10 +220,10 @@ def place_object2(char_id, depth):
     return tag(PLACE_OBJECT2, bytes([0x06]) + struct.pack("<HH", depth, char_id) + bytes([0x00]))
 
 
-def label_squares(text, box):
+def label_squares(text, box, table=FONT):
     """One square per lit pixel of `text` in the 5 x 7 font, centred in box (x, y, w, h, twips): the text's cell is
     the largest whole twip size that fits 85 % of the box's width and 30 % of its height."""
-    unknown = sorted({c for c in text if c not in FONT})
+    unknown = sorted({c for c in text if c not in table})
     if unknown:
         raise SwfError(f"label has characters the font lacks: {unknown} (A-Z, 0-9, space and - . : /)")
     bx, by, bw, bh = box
@@ -236,7 +236,7 @@ def label_squares(text, box):
     y0 = by + (bh - 7 * cell) // 2
     out = []
     for i, ch in enumerate(text):
-        for row, bits in enumerate(FONT[ch]):
+        for row, bits in enumerate(table[ch]):
             for col in range(5):
                 if bits >> (4 - col) & 1:
                     out.append((x0 + (i * 6 + col) * cell, y0 + row * cell, dot, dot))
@@ -408,28 +408,180 @@ def page_tags(box, color, ink):
     return defs, places
 
 
+START_CARD_BG = 0x07130B
+START_CARD_TITLE = "FALLOUT: COMMONWEALTH"
+START_CARD_BORDER_ID, START_CARD_TITLE_ID = 2, 3
+
+SETUP_GLYPHS = {
+    "[": (0x0E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x0E),
+    "]": (0x0E, 0x02, 0x02, 0x02, 0x02, 0x02, 0x0E),
+    "<": (0x02, 0x04, 0x08, 0x10, 0x08, 0x04, 0x02),
+    ">": (0x08, 0x04, 0x02, 0x01, 0x02, 0x04, 0x08),
+}
+SETUP_FONT = {**PAGE_FONT, **SETUP_GLYPHS}
+SETUP_TITLE = "FALLOUT: NEW GAME SETUP"
+SETUP_ROWS = 5
+SETUP_ROW_PREFIX = "fo4sfSetupRow"
+SETUP_HIT_PREFIX = "fo4sfSetupHit"
+SETUP_PREV_PREFIX = "fo4sfSetupPrev"
+SETUP_NEXT_PREFIX = "fo4sfSetupNext"
+SETUP_STATUS_FIELD = "fo4sfSetupStatus"
+SETUP_HINT_FIELD = "fo4sfSetupHint"
+SETUP_CONFIRM_BUTTON = "fo4sfSetupConfirm"
+SETUP_PANEL_DARK = 0x0C2214
+SETUP_DEFAULT_ROWS = (
+    "> MODE: STORY",
+    "  STORY LINE: FALLOUT 4: COMMONWEALTH",
+    "  START PLACE: VAULT 111 (COMMONWEALTH)",
+    "  SURVIVAL: OFF",
+    "  DIFFICULTY: NORMAL",
+)
+SETUP_DEFAULT_STATUS = "READY: PRESS CONFIRM (ENTER) TO BEGIN"
+SETUP_DEFAULT_HINT = "UP/DOWN SELECT ROW   LEFT/RIGHT CHANGE   ENTER OR CLICK CONFIRM"
+
+
+def start_card_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, title=START_CARD_TITLE):
+    """Full-stage non-modal start title card (N2 Variant b): opaque dark slate backdrop, Pip-Boy green frame + top
+    header, leaving the centre clear behind Starfield's MessageBoxMenu."""
+    m = 32 * TWIPS
+    t = 4 * TWIPS
+    header_y = 156 * TWIPS
+    defs = define_shape3(RECT_ID, [(0, 0, W, H)], bg_color)
+    bars = [
+        (m, m, W - 2 * m, t),
+        (m, H - m - t, W - 2 * m, t),
+        (m, m + t, t, H - 2 * m - 2 * t),
+        (W - m - t, m + t, t, H - 2 * m - 2 * t),
+        (2 * m, header_y, W - 4 * m, 3 * TWIPS),
+    ]
+    defs += define_shape3(START_CARD_BORDER_ID, bars, border_color)
+    places = [place_object2(RECT_ID, 1), place_object2(START_CARD_BORDER_ID, 2)]
+    if title:
+        title_box = (160 * TWIPS, 60 * TWIPS, W - 320 * TWIPS, 72 * TWIPS)
+        defs += define_shape3(START_CARD_TITLE_ID, label_squares(title, title_box), border_color)
+        places.append(place_object2(START_CARD_TITLE_ID, 3))
+    return defs, places
+
+
+def setup_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, panel_color=SETUP_PANEL_DARK,
+                      title=SETUP_TITLE):
+    """Single-page interactive New-Game Setup Screen (S1 Variant b): Mode, Story Line / Faction, Start Place,
+    Survival, Difficulty, availability status line, and one Confirm button."""
+    defs, places = start_card_tags(W, H, border_color=border_color, bg_color=bg_color, title=title)
+    next_id = 4
+    depth = len(places) + 1
+
+    font_id = next_id
+    next_id += 1
+    defs += define_font3(font_id, SETUP_FONT)
+
+    row_px = 28
+    row_h = 84 * TWIPS
+    row_gap = 20 * TWIPS
+    first_y = 216 * TWIPS
+    arrow_w = 88 * TWIPS
+    left_x = 140 * TWIPS
+    right_x = W - 140 * TWIPS - arrow_w
+    bar_x = left_x + arrow_w + 18 * TWIPS
+    bar_w = right_x - 18 * TWIPS - bar_x
+    text_h = row_px * TWIPS
+
+    for i in range(SETUP_ROWS):
+        ry = first_y + i * (row_h + row_gap)
+        prev_box = (left_x, ry, arrow_w, row_h)
+        hit_box = (bar_x, ry, bar_w, row_h)
+        next_box = (right_x, ry, arrow_w, row_h)
+        field_box = (bar_x + 20 * TWIPS, ry + (row_h - (text_h * 3 // 2)) // 2,
+                     bar_w - 40 * TWIPS, text_h * 3 // 2)
+
+        # Row background hit sprite (`fo4sfSetupHit<i>`)
+        hit_rect_id, hit_sprite_id = next_id, next_id + 1
+        next_id += 2
+        defs += define_shape3(hit_rect_id, [hit_box], panel_color)
+        defs += define_sprite(hit_sprite_id, [place_object2(hit_rect_id, 1)])
+        places.append(place_named(hit_sprite_id, depth, f"{SETUP_HIT_PREFIX}{i}"))
+        depth += 1
+
+        # Row dynamic text field (`fo4sfSetupRow<i>`)
+        field_id = next_id
+        next_id += 1
+        defs += define_edit_text(field_id, field_box, font_id, text_h, border_color, SETUP_DEFAULT_ROWS[i])
+        places.append(place_named(field_id, depth, f"{SETUP_ROW_PREFIX}{i}"))
+        depth += 1
+
+        # `<` and `>` buttons (`fo4sfSetupPrev<i>`, `fo4sfSetupNext<i>`)
+        for btn_name, btn_label, bbox in (
+            (f"{SETUP_PREV_PREFIX}{i}", "<", prev_box),
+            (f"{SETUP_NEXT_PREFIX}{i}", ">", next_box),
+        ):
+            brect_id, blbl_id, bspr_id = next_id, next_id + 1, next_id + 2
+            next_id += 3
+            defs += define_shape3(brect_id, [bbox], panel_color)
+            defs += define_shape3(blbl_id, label_squares(btn_label, bbox, SETUP_FONT), border_color)
+            defs += define_sprite(bspr_id, [place_object2(brect_id, 1), place_object2(blbl_id, 2)])
+            places.append(place_named(bspr_id, depth, btn_name))
+            depth += 1
+
+    status_y = first_y + SETUP_ROWS * (row_h + row_gap) + 12 * TWIPS
+    status_box = (left_x, status_y, W - 2 * left_x, 24 * TWIPS * 3 // 2)
+    status_id = next_id
+    next_id += 1
+    defs += define_edit_text(status_id, status_box, font_id, 24 * TWIPS, border_color, SETUP_DEFAULT_STATUS)
+    places.append(place_named(status_id, depth, SETUP_STATUS_FIELD))
+    depth += 1
+
+    hint_y = status_y + 48 * TWIPS
+    hint_box = (left_x, hint_y, W - 2 * left_x, 20 * TWIPS * 3 // 2)
+    hint_id = next_id
+    next_id += 1
+    defs += define_edit_text(hint_id, hint_box, font_id, 20 * TWIPS, border_color, SETUP_DEFAULT_HINT)
+    places.append(place_named(hint_id, depth, SETUP_HINT_FIELD))
+    depth += 1
+
+    confirm_w, confirm_h = 420 * TWIPS, 92 * TWIPS
+    confirm_box = ((W - confirm_w) // 2, H - 64 * TWIPS - confirm_h, confirm_w, confirm_h)
+    crect_id, clbl_id, cspr_id = next_id, next_id + 1, next_id + 2
+    next_id += 3
+    defs += define_shape3(crect_id, [confirm_box], border_color)
+    defs += define_shape3(clbl_id, label_squares("CONFIRM", confirm_box, SETUP_FONT), bg_color)
+    defs += define_sprite(cspr_id, [place_object2(crect_id, 1), place_object2(clbl_id, 2)])
+    places.append(place_named(cspr_id, depth, SETUP_CONFIRM_BUTTON))
+    return defs, places
+
+
 def movie_bytes(width=1920, height=1080, color=PIPBOY_GREEN, ink=INK, label=LABEL, compressed=True, channel=False,
-                page=False):
+                page=False, start_card=False, setup_screen=False):
     """The whole movie. width/height in pixels; label None or "" for the rectangle alone; channel adds the data
     channel's field and button (FAL-216). Without channel the bytes are stage (b)'s. page is the STAT page (FAL-272)
-    instead: its own panel, title and fields, no label shape."""
+    instead: its own panel, title and fields, no label shape. start_card is the full-stage start title card (N2).
+    setup_screen is the single-page interactive New-Game Setup Screen (S1 Variant b)."""
     if width <= 0 or height <= 0:
         raise SwfError("the stage needs a positive size")
-    if channel and page:
-        raise SwfError("--channel and --page are two different movies")
+    modes = sum(bool(x) for x in (channel, page, start_card, setup_screen))
+    if modes > 1:
+        raise SwfError("--setup-screen, --start-card, --channel and --page are two different movies (mutually exclusive)")
     W, H = width * TWIPS, height * TWIPS
-    box = page_box(W, H) if page else ((W - W * 3 // 5) // 2, (H - H // 2) // 2, W * 3 // 5, H // 2)
     body = rect(0, W, 0, H) + struct.pack("<HH", FRAME_RATE << 8, 1)
     body += tag(FILE_ATTRIBUTES, bytes([AS3, 0, 0, 0]))
-    body += define_shape3(RECT_ID, [box], color)
-    tags = [place_object2(RECT_ID, 1)]
-    if label and not page:
-        body += define_shape3(LABEL_ID, label_squares(label, box), ink)
-        tags.append(place_object2(LABEL_ID, 2))
-    if channel or page:
-        defs, places = page_tags(box, color, ink) if page else channel_tags(box, color, ink)
+    if setup_screen:
+        defs, tags = setup_screen_tags(W, H, border_color=color, bg_color=START_CARD_BG,
+                                       title=SETUP_TITLE if label == LABEL else label)
         body += defs
-        tags += places
+    elif start_card:
+        defs, tags = start_card_tags(W, H, border_color=color, bg_color=START_CARD_BG,
+                                     title=START_CARD_TITLE if label == LABEL else label)
+        body += defs
+    else:
+        box = page_box(W, H) if page else ((W - W * 3 // 5) // 2, (H - H // 2) // 2, W * 3 // 5, H // 2)
+        body += define_shape3(RECT_ID, [box], color)
+        tags = [place_object2(RECT_ID, 1)]
+        if label and not page:
+            body += define_shape3(LABEL_ID, label_squares(label, box), ink)
+            tags.append(place_object2(LABEL_ID, 2))
+        if channel or page:
+            defs, places = page_tags(box, color, ink) if page else channel_tags(box, color, ink)
+            body += defs
+            tags += places
     body += b"".join(tags) + tag(SHOW_FRAME) + tag(END)
     length = 8 + len(body)
     if compressed:
@@ -700,6 +852,10 @@ def main(argv=None):
     ap.add_argument("--page", action="store_true",
                     help=f"the STAT page instead (FAL-272): {PAGE_LINES} lines, the buttons {TAB_BUTTON!r} and "
                          f"{CLOSE_BUTTON!r}")
+    ap.add_argument("--start-card", action="store_true",
+                    help="full-stage non-modal Commonwealth start title card (N2 Variant b)")
+    ap.add_argument("--setup-screen", action="store_true",
+                    help="single-page interactive New-Game Setup Screen (S1 Variant b)")
     a = ap.parse_args(argv)
     try:
         if a.read:
@@ -709,7 +865,7 @@ def main(argv=None):
             ap.error("--out or --read is needed")
         data = write_movie(a.out, width=a.width, height=a.height, color=int(a.color, 16), ink=int(a.ink, 16),
                            label=None if a.no_label else a.label, compressed=not a.uncompressed,
-                           channel=a.channel, page=a.page)
+                           channel=a.channel, page=a.page, start_card=a.start_card, setup_screen=a.setup_screen)
     except (SwfError, ValueError, OSError, zlib.error) as e:
         print(f"make_probe_swf: {e}", file=sys.stderr)
         return 1

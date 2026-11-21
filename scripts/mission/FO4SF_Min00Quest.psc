@@ -1,9 +1,10 @@
 Scriptname FO4SF_Min00Quest extends Quest
 {A cut-down "When Freedom Calls" (fo4-to-starfield, docs/mission/when-freedom-calls.md): the Concord raiders,
- Preston Garvey and the reward, driven by a one-second check instead of FO4's triggers, scenes and fragments.
- Stages: 10 started (find Preston), 20 the fight started, 30 the raiders are dead (talk to Preston), 40 talked to
- Preston (the reward), 200 complete. Every stage change and a status line every 5 s go to the user log
- "fo4sf_mission" (My Games\Starfield\Logs\Script\User\fo4sf_mission.0.log), the evidence of a run.}
+ Preston Garvey and the reward, started at FO4SFNewGame stage 200 via StartNoWait().
+ Stages: 10 started (find Preston), 20 the fight started, 30 the raiders are cleared (talk to Preston), 35 Preston's
+ final exchange (0x092A), 40 talked to Preston (the reward), 200 complete (starts FO4SF_Sanctuary01 0x000817). Every
+ stage change and a status line every 5 s go to the user log "fo4sf_mission"
+ (My Games\Starfield\Logs\Script\User\fo4sf_mission.0.log).}
 
 Actor Property Preston Auto Const Mandatory
 {Preston's placed actor (FO4SFMission.esm 0x802).}
@@ -20,57 +21,41 @@ Actor Property Codsworth Auto Const
 
 bool Property KeeperOnly = False Auto Const
 {True on FO4SF_CodsworthKeeper: this instance only keeps Codsworth (enabled, put back at his merged spot, PlaceCodsworth)
- and Preston (put back at his merged spot, KeepPreston) and never runs the mission. A quest of its own because a new
- start-game-enabled quest starts on an existing save, where FO4SF_Min00 had already ended (stage 200 cancels timer 1,
- which started his timer) or ran OnQuestInit before his timer existed: the owner's save, 22 Oct, had him unmoved and no
- mission log.}
+ and Preston (put back at his merged spot, KeepPreston) and never runs the mission.}
+
+Scene Property PrestonTalkScene Auto Const
+{Short 3-exchange Starfield player-dialogue Scene (0x900) on FO4SF_Min00 when built with --alias; None on --no-alias
+ and on FO4SF_CodsworthKeeper.}
 
 float Property MergeOffsetX = -1200.0 Auto Const
 float Property MergeOffsetY = -2700.0 Auto Const
-{The core world's merge offset (vmad_patch.MERGE_MEASURED, measured in game): the world the player walks in places the
- core's records at their local position + this; z unchanged. Persistent references of the core's persistent cell stay
- at their LOCAL position in the base world (probe (a), 16 Oct; in game 18 Oct: GetDistance to Preston stayed at float max
- with the player standing on his merged spot), so the quest moves its actors over (Relocate).}
+{The core world's merge offset (vmad_patch.MERGE_MEASURED): the world the player walks in places the core's records at
+ their local position + this; z unchanged.}
 
 float Property RelocateRadius = 800.0 Auto Const
-{Move an actor only when the player stands outdoors within this many units of that actor's merged spot (its position +
- the merge offset). Coordinates alone cannot tell two exterior worlds apart; see docs/mission/when-freedom-calls.md.}
+{Move an actor only when the player stands outdoors within this many units of that actor's merged spot.}
 
 float Property RelocateGap = 1500.0 Auto Const
-{...and Preston is farther than this from the player. Unmoved he reads float max (another world, 18 Oct 13:25) or about
- 2,955 (the offset's length: same world at his local spot, 18 Oct 14:40); moved he is within RelocateRadius.}
+{...and Preston is farther than this from the player.}
 
 float Property PrestonLocalX = -811.14 Auto Const
 float Property PrestonLocalY = 1002.46 Auto Const
 float Property PrestonLocalZ = 89.09 Auto Const
-{Preston's spot in the plugin (ACHR 0x802, the museum door's outside arrival: points.json "preston" pos). His merged spot
- is this + the merge offset, (-2011.14, -1697.54, 89.09), where the moves put him in game 28 Oct. Fixed, so a Preston
- who drifted or was offset twice goes back to the same spot (PlacePreston). make_mission.py stage refuses a build whose
- points differ from these.}
+{Preston's spot in the plugin (ACHR 0x802, the museum door's outside arrival: points.json "preston" pos).}
 
 float Property CodsworthLocalX = -1146.709 Auto Const
 float Property CodsworthLocalY = 1293.837 Auto Const
 float Property CodsworthLocalZ = 111.734 Auto Const
-{Codsworth's spot in the plugin (ACHR 0x811, Fallout 4's ACHR 01CA7D: points.json "codsworth" pos). His merged spot is
- this + the merge offset, (-2346.709, -1406.163, 111.734), where every logged move put him (23 and 31 Oct). Fixed, as
- Preston's (PlaceCodsworth, FAL-163). make_mission.py stage refuses a build whose points differ from these.}
+{Codsworth's spot in the plugin (ACHR 0x811, Fallout 4's ACHR 01CA7D: points.json "codsworth" pos).}
 
 float Property PlaceRadius = 300.0 Auto Const
-{Preston and Codsworth are placed only when the player stands outdoors within this many m of their merged spot, so they
- land in a loaded cell. PC logs of 31 Oct: moves made from 488 to 545 m away ended with cell=None and did not hold; the
- raiders' moves from 198 to 353 m away ended in a loaded cell (Surface 04000DEF) and held; Codsworth's, from 122 m,
- ended in a loaded cell (Surface 04000D30). Chosen below 353.}
+{Preston and Codsworth are placed only when the player stands outdoors within this many m of their merged spot.}
 
 float Property HoldRadius = 25.0 Auto Const
-{Preston (Codsworth) counts as at his spot within this many m of it (and within RelocateGap of the player); farther, he
- is put back, except while he fights. On 31 Oct Preston stood 100 to 450 m off it and nothing moved him again. Chosen
- above FindRadius.}
+{Preston (Codsworth) counts as at his spot within this many m of it (and within RelocateGap of the player).}
 
 float Property HeldRadius = 3.0 Auto Const
-{...and he is held there (HoldPreston, HoldCodsworth) when calm and within this many m of it, though no move ran: a
- load whose hold the engine did not keep, a save where he already stands there. Farther, up to HoldRadius, he is left
- until his put-back, which holds him. In game 10 Nov (f9cae827, the 9 Nov save) Preston's placement landed 1.5 m off.
- Chosen.}
+{...and he is held there (HoldPreston, HoldCodsworth) when calm and within this many m of it.}
 
 int Property RewardCount = 100 Auto Const
 {Fallout 4 gives 100 caps (DialogueConcordArea stage 40).}
@@ -79,21 +64,38 @@ float Property CodsworthCheck = 5.0 Auto Const
 {Seconds between the keeper's relocation checks (KeepCodsworth, KeepPreston).}
 
 int Property KeeperStatusEvery = 12 Auto Const
-{The keeper logs where Preston and Codsworth are every this many checks (12 x 5 s = a minute), and at each save load.
- Chosen.}
+{The keeper logs where Preston and Codsworth are every this many checks (12 x 5 s = a minute), and at each save load.}
 
 float Property EngageRadius = 60.0 Auto Const
 {The fight starts when the player comes this close (m) to a living raider, as FO4's DN092 StartCombat on its ambush.}
 
 float Property FindRadius = 20.0 Auto Const
-{...or, before the fight, comes this close (m) to Preston or activates him: the stage 10 objective ("Find the Last
- Minutemen") is met. In game 28 Oct (new game run 3) the player walked to Preston's marker and activated him five times
- at stage 10 with every raider 91 to 129 m away, past EngageRadius, so nothing started the fight. Chosen, not copied.}
+{...or, before the fight, comes this close (m) to Preston or activates him.}
 
 float Property TalkRadius = 3.0 Auto Const
-{Standing this close (m) to Preston counts as talking to him once the raiders are dead (no dialogue ported yet).}
+{Standing this close (m) to Preston counts as the fallback talk completion if the scene cannot start or times out.}
+
+float Property TalkFallbackSeconds = 120.0 Auto Const
+{Seconds within TalkRadius with no active scene before fallback completion triggers (logged as stage 40 by=fallback).}
+
+float Property TalkSceneTimeout = 120.0 Auto Const
+{Maximum seconds an active Preston talk scene blocks the proximity fallback before timeout.}
+
+float Property GiveConcordRadius = 150.0 Auto Const
+{Distance (m) from the Concord museum door at which FO4SF_Min00 displays its first objective if Codsworth has not given it yet.}
+
+float Property Wfc01CheckRadius = 150.0 Auto Const
+float Property Wfc01DoorRadius = 100.0 Auto Const
+float Property Wfc01SubterraneanDrop = 8.0 Auto Const
+float Property Wfc01MaxDrift = 140.0 Auto Const
+float Property Wfc01AbsentDistance = 250.0 Auto Const
+float Property Wfc01AbsentLimit = 60.0 Auto Const
+float Property Wfc01StuckMoveRadius = 2.0 Auto Const
+float Property Wfc01StuckLimit = 60.0 Auto Const
 
 string LogName = "fo4sf_mission"
+bool instanceStarted = False
+bool min00Given = False
 int ticks = 0
 int relocateFails = 0
 int codsworthFails = 0
@@ -114,24 +116,166 @@ int codsworthHolds = 0
 bool codsworthFighting = False
 bool codsworthKept = False
 int applied = 0
+int pendingStage = -1
+string pendingStageBy = "other"
 bool prestonFound = False
+bool talkActivated = False
+int talkFailures = 0
+float talkStartedAt = 0.0
+float talkNearSec = 0.0
+bool prestonUsedFallback = False
+bool prestonTalkLogged = False
+
+float[] raiderTargetX
+float[] raiderTargetY
+float[] raiderTargetZ
+float[] raiderAbsentSec
+bool[] raiderCleared
+bool[] raiderRescued
+float[] raiderRescueSec
+float[] raiderRescueX
+float[] raiderRescueY
+float[] raiderRescueZ
+float[] raiderRescueHp
+ActorValue healthAvCache
+
+bool Function IsWarfareMode()
+    GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
+    if gm != None && (gm.GetValue() as int) == 2
+        return True
+    endif
+    return False
+EndFunction
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+Event OnQuestStarted()
+    StartQuestInstance()
+EndEvent
 
 Event OnQuestInit()
+    StartQuestInstance()
+EndEvent
+
+Function LogWarfareStop()
+    if KeeperOnly
+        Trace("mission gate mode=2 started=false quest=keeper")
+    else
+        Trace("mission gate mode=2 started=false")
+    endif
+EndFunction
+
+Function StartQuestInstance()
+    if instanceStarted
+        return
+    endif
+    instanceStarted = True
+    Debug.OpenUserLog(LogName)
+    if IsWarfareMode()
+        LogWarfareStop()
+        Stop()
+        return
+    endif
     if KeeperOnly
         Trace("keeper init codsworth=" + Codsworth)
         RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
         KeepCodsworthLoad()
         return
     endif
-    Debug.OpenUserLog(LogName)
+    Trace("mission gate mode=1 started=true")
+    InitRaiderTracking()
     Trace("init raiders=" + Raiders.Length)
+    RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
     RegisterForRemoteEvent(Preston, "OnActivate")
+    if PrestonTalkScene != None
+        RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
+    endif
     Preston.IgnoreFriendlyHits(True)                     ; a stray shot in the fight must not turn him (in game 18 Oct 15:16)
-    AdvanceTo(10)
-    SetActive(True)                                      ; tracked, so the objectives show (in game 18 Oct: none seen)
+    ; M1: starts silent with NO objective shown until Codsworth's talk finishes or the player reaches <= 150 m of Concord
     StartTimer(1.0, 1)
     KeepCodsworthStart()
-EndEvent
+EndFunction
+
+Function ClearCodsworthObjectiveForConcord()
+    FO4SF_Codsworth01Quest cods01 = Game.GetFormFromFile(0x000816, "FO4SFMission.esm") as FO4SF_Codsworth01Quest
+    if cods01 != None
+        cods01.ClearObjectiveOnConcordStart()
+    endif
+EndFunction
+
+Function GiveFromCodsworth()
+{Called by FO4SF_Codsworth01Quest at stage 100 so Codsworth's last choice reveals FO4SF_Min00 objective 10.}
+    if IsWarfareMode()
+        return
+    endif
+    if !min00Given && GetStage() < 10
+        min00Given = True
+        Trace("min00 given by=codsworth")
+        AdvanceTo(10, "info")
+    elseif GetStage() < 20
+        SetObjectiveDisplayed(10)
+        SetActive(True)
+    endif
+EndFunction
+
+Function InitRaiderTracking()
+    int count = Raiders.Length
+    if raiderCleared != None && raiderCleared.Length == count && raiderRescued != None && raiderRescued.Length == count
+        return
+    endif
+    raiderTargetX = new float[count]
+    raiderTargetY = new float[count]
+    raiderTargetZ = new float[count]
+    raiderAbsentSec = new float[count]
+    raiderCleared = new bool[count]
+    raiderRescued = new bool[count]
+    raiderRescueSec = new float[count]
+    raiderRescueX = new float[count]
+    raiderRescueY = new float[count]
+    raiderRescueZ = new float[count]
+    raiderRescueHp = new float[count]
+    float doorX = PrestonLocalX + MergeOffsetX
+    float doorY = PrestonLocalY + MergeOffsetY
+    float doorZ = PrestonLocalZ
+    int i = 0
+    while i < count
+        Actor r = Raiders[i]
+        float tx = doorX - 18.0
+        float ty = doorY
+        float tz = doorZ
+        if r != None
+            float rx = r.GetPositionX()
+            float ry = r.GetPositionY()
+            float rz = r.GetPositionZ()
+            float ux = rx + MergeOffsetX
+            float uy = ry + MergeOffsetY
+            if (ux - doorX) * (ux - doorX) + (uy - doorY) * (uy - doorY) <= RelocateRadius * RelocateRadius
+                tx = ux
+                ty = uy
+                tz = rz
+            elseif (rx - doorX) * (rx - doorX) + (ry - doorY) * (ry - doorY) <= Wfc01MaxDrift * Wfc01MaxDrift && rz >= doorZ - Wfc01SubterraneanDrop
+                tx = rx
+                ty = ry
+                tz = rz
+            endif
+        endif
+        raiderTargetX[i] = tx
+        raiderTargetY[i] = ty
+        raiderTargetZ[i] = tz
+        raiderAbsentSec[i] = 0.0
+        raiderCleared[i] = False
+        raiderRescued[i] = False
+        raiderRescueSec[i] = 0.0
+        raiderRescueX[i] = tx
+        raiderRescueY[i] = ty
+        raiderRescueZ[i] = tz
+        raiderRescueHp[i] = -1.0
+        i += 1
+    endwhile
+EndFunction
 
 Function KeepCodsworthStart()
 {Starts Codsworth's own check once (review 20 Oct); also from the mission timer, for a save that ran OnQuestInit before
@@ -144,9 +288,7 @@ EndFunction
 
 Function KeepCodsworthLoad()
 {The keeper's start, at its init and on every save load: Codsworth enabled, fresh budgets of failed moves for him and
- Preston, one line each of where they are (in the log and on screen), the timer (re)started. A load also restarts a
- check that spent its budget in an earlier session. A missing Codsworth no longer stops Preston's keeping (FAL-128).
- Both count as not held, so the first check after a load holds them again, whatever the engine kept (FAL-170, FAL-163).}
+ Preston, one line each of where they are (in the log and on screen), the timer (re)started.}
     if Codsworth != None
         if Codsworth.IsDisabled()
             Codsworth.Enable()
@@ -160,56 +302,99 @@ Function KeepCodsworthLoad()
     prestonHeld = False
     ; prestonFollow stays as the save left it. Clearing it here would put the door hold back over a follow.
     TracePreston("keeper load")
-    Debug.Notification("FO4SF keeper: Preston " + (prestonOff as int) + " m from his spot (last: " + prestonState + ", moves " + prestonMoves + ")")
+    if IsTestModeEnabled()
+        Debug.Notification("FO4SF keeper: Preston " + (prestonOff as int) + " m from his spot (last: " + prestonState + ", moves " + prestonMoves + ")")
+    endif
     if Codsworth != None
         TraceCodsworth("keeper load")
-        Debug.Notification("FO4SF keeper: Codsworth " + (codsworthOff as int) + " m from his spot (last: " + codsworthState + ", moves " + codsworthMoves + ")")
+        if IsTestModeEnabled()
+            Debug.Notification("FO4SF keeper: Codsworth " + (codsworthOff as int) + " m from his spot (last: " + codsworthState + ", moves " + codsworthMoves + ")")
+        endif
     endif
     StartTimer(CodsworthCheck, 2)
 EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
+    Debug.OpenUserLog(LogName)
     if KeeperOnly
         KeepCodsworthLoad()
+        return
+    endif
+    relocateFails = 0
+    prestonHeld = False
+    InitRaiderTracking()
+    int st = GetStage()
+    Trace("reload mission stage=" + st + " relocate_fails=" + relocateFails)
+    if st < 200
+        RegisterForRemoteEvent(Preston, "OnActivate")
+        if PrestonTalkScene != None
+            RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
+        endif
+        if st == 20
+            CheckConcordRaidersWfc01(Game.GetPlayer(), False)
+        endif
+        StartTimer(1.0, 1)
     endif
 EndEvent
 
-Function AdvanceTo(int n)
-{SetStage, then the stage's actions. In game 18 Oct the stages reached 40 but OnStageSet never ran (no "stage" line, no
- objectives, no reward), so the actions do not rely on it; it still calls Apply, and Apply runs each stage once.}
+Function AdvanceTo(int n, string by = "Trigger")
+{SetStage, then the stage's actions. Apply runs each stage once.}
+    pendingStage = n
+    pendingStageBy = by
     SetStage(n)
-    Apply(n)
+    Apply(n, by)
+    if pendingStage == n
+        pendingStage = -1
+    endif
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
-    Apply(auiStageID)
+    string cause = "other"
+    if auiStageID == pendingStage
+        cause = pendingStageBy
+        pendingStage = -1
+    elseif auiStageID == 35 && talkActivated && !prestonUsedFallback
+        cause = "info"
+    endif
+    Apply(auiStageID, cause)
 EndEvent
 
-Function Apply(int auiStageID)
+Function Apply(int auiStageID, string by = "other")
     if auiStageID <= applied
         return
     endif
     applied = auiStageID
-    Trace("stage " + auiStageID)
+    Trace("stage " + auiStageID + " by=" + by)
     if auiStageID == 10
+        min00Given = True
         SetObjectiveDisplayed(10)
-        Debug.Notification("When Freedom Calls: find the Last Minutemen")
+        SetActive(True)
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
         SetObjectiveDisplayed(85)
-        Debug.Notification("When Freedom Calls: kill the raiders")
     elseif auiStageID == 30
         Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
         SetObjectiveDisplayed(86)
-        Debug.Notification("When Freedom Calls: talk to Preston Garvey")
+    elseif auiStageID == 35
+        if by == "info" && !prestonUsedFallback && !prestonTalkLogged
+            prestonTalkLogged = True
+            Trace("preston talk end info=0x092A -> stage 40")
+            AdvanceTo(40, "info")
+        else
+            AdvanceTo(40, "other")
+        endif
     elseif auiStageID == 40
         SetObjectiveCompleted(86)
         Game.GetPlayer().AddItem(Credits, RewardCount)
         Trace("reward credits=" + RewardCount)
     elseif auiStageID == 200
-        Debug.Notification("When Freedom Calls: complete")
         CancelTimer(1)
+        Quest sanctuaryQuest = Game.GetFormFromFile(0x000817, "FO4SFMission.esm") as Quest
+        if sanctuaryQuest != None && !sanctuaryQuest.IsRunning()
+            bool startedSanctuary = sanctuaryQuest.StartNoWait()
+            Trace("sanctuary01 start_requested ok=" + startedSanctuary)
+        endif
     endif
 EndFunction
 
@@ -220,19 +405,222 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
-            AdvanceTo(40)
+            if PrestonTalkScene != None
+                talkActivated = True
+                talkStartedAt = Utility.GetCurrentRealTime()
+                if !PrestonTalkScene.IsPlaying()
+                    PrestonTalkScene.Start()
+                endif
+                Trace("preston talk scene triggered stage=30")
+            else
+                prestonUsedFallback = True
+                AdvanceTo(40, "fallback")
+            endif
         endif
     endif
 EndEvent
 
+Event Scene.OnEnd(Scene akSender)
+    if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene
+        int st = GetStage()
+        bool endInfoDone = GetStageDone(35) || st == 35
+        Trace("preston talk scene ended stage=" + st + " end_info=" + endInfoDone)
+        if endInfoDone
+            if applied < 35
+                Apply(35, "info")
+            endif
+        elseif st == 30 && !prestonTalkLogged
+            talkFailures += 1
+            talkActivated = False
+            talkStartedAt = 0.0
+            Trace("preston talk retry n=" + talkFailures + " reason=scene_incomplete")
+        endif
+    endif
+EndEvent
+
+bool Function MarkPrestonFallback(string why)
+    if !prestonUsedFallback
+        prestonUsedFallback = True
+        Trace(why)
+    endif
+    return True
+EndFunction
+
+bool Function TalkCompleteReady(int stage, float dp)
+    if stage != 30
+        return False
+    endif
+    if prestonTalkLogged
+        return True
+    endif
+    if PrestonTalkScene == None
+        if dp < TalkRadius
+            return MarkPrestonFallback("preston talk fallback no_scene")
+        endif
+        return False
+    endif
+    if talkFailures >= 3
+        return MarkPrestonFallback("preston talk fallback tries=" + talkFailures)
+    endif
+    if PrestonTalkScene.IsPlaying()
+        talkNearSec = 0.0
+        if talkStartedAt > 0.0 && (Utility.GetCurrentRealTime() - talkStartedAt) > TalkSceneTimeout
+            talkFailures += 1
+            PrestonTalkScene.Stop()
+            talkActivated = False
+            talkStartedAt = 0.0
+            Trace("preston talk retry n=" + talkFailures + " reason=timeout")
+            if talkFailures >= 3
+                return MarkPrestonFallback("preston talk timeout")
+            endif
+        endif
+        return False
+    endif
+    if talkActivated && talkStartedAt > 0.0 && (Utility.GetCurrentRealTime() - talkStartedAt) >= 15.0
+        talkFailures += 1
+        talkActivated = False
+        talkStartedAt = 0.0
+        Trace("preston talk retry n=" + talkFailures + " reason=after_activate")
+        if talkFailures >= 3
+            return MarkPrestonFallback("preston talk fallback after_activate")
+        endif
+        return False
+    endif
+    if dp < TalkRadius
+        talkNearSec += 1.0
+        float limit = TalkFallbackSeconds
+        if IsTestModeEnabled()
+            limit = 8.0
+        endif
+        if talkNearSec >= limit
+            return MarkPrestonFallback("preston talk fallback near_sec=" + talkNearSec)
+        endif
+    else
+        talkNearSec = 0.0
+    endif
+    return False
+EndFunction
+
 Function FoundPreston(string how)
 {The player reached Preston before the fight (activated him, or came within FindRadius): the fight starts at the next
- check, with every raider put into combat with the player. Logged once. A dead Preston is never found (his death is
- the quest's failure path).}
+ check, with every raider put into combat with the player. Logged once. A dead Preston is never found.}
     if !prestonFound && !Preston.IsDead()
         prestonFound = True
         Trace("found preston " + how)
     endif
+EndFunction
+
+float Function GetRaiderHealth(Actor r)
+    if r == None
+        return 0.0
+    endif
+    if healthAvCache == None
+        healthAvCache = Game.GetFormFromFile(0x0002D4, "Starfield.esm") as ActorValue
+    endif
+    if healthAvCache != None
+        return r.GetValue(healthAvCache)
+    endif
+    return 0.0
+EndFunction
+
+Function WriteOffRaider(Actor r, int idx, string reason, float elapsed)
+    if r != None
+        r.StopCombat()
+        r.DisableNoWait(False)
+    endif
+    raiderCleared[idx] = True
+    raiderAbsentSec[idx] = 0.0
+    raiderRescueSec[idx] = 0.0
+    int fid = 0
+    if r != None
+        fid = r.GetFormID()
+    endif
+    Trace("wfc01 raider cleared " + reason + " id=" + fid + " raider=" + idx + " elapsed=" + elapsed + " disabled=true")
+EndFunction
+
+Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
+{WFC-01 anti-stall at stage 20: rescues living raiders that fell below terrain (z < targetZ - 8 m) or drifted far
+ (> 140 m from their Concord street spot) while the player is within 150 m of the museum door, and writes off (stops
+ combat + disables) any living raider that remains absent/unloaded (> 250 m or !Is3DLoaded) for > 60 s within 100 m of
+ the Concord door or stays loaded within 2 m with no damage for 60 s after a rescue.}
+    if player == None || player.IsInInterior()
+        return
+    endif
+    InitRaiderTracking()
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float pz = player.GetPositionZ()
+    float doorX = PrestonLocalX + MergeOffsetX
+    float doorY = PrestonLocalY + MergeOffsetY
+    float doorZ = PrestonLocalZ
+    float ddx = px - doorX
+    float ddy = py - doorY
+    float ddz = pz - doorZ
+    float doorDist = Math.Sqrt(ddx * ddx + ddy * ddy + ddz * ddz)
+    int i = 0
+    while i < Raiders.Length
+        Actor r = Raiders[i]
+        if r == None || r.IsDead() || raiderCleared[i]
+            raiderAbsentSec[i] = 0.0
+            raiderRescueSec[i] = 0.0
+        else
+            float tx = raiderTargetX[i]
+            float ty = raiderTargetY[i]
+            float tz = raiderTargetZ[i]
+            if doorDist < Wfc01CheckRadius
+                float rz = r.GetPositionZ()
+                float drift = SpotOff(r, tx, ty, tz)
+                if rz < tz - Wfc01SubterraneanDrop || drift > Wfc01MaxDrift
+                    r.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
+                    r.SetPosition(tx, ty, tz)
+                    r.EvaluatePackage()
+                    raiderRescued[i] = True
+                    raiderRescueSec[i] = 0.0
+                    raiderRescueX[i] = r.GetPositionX()
+                    raiderRescueY[i] = r.GetPositionY()
+                    raiderRescueZ[i] = r.GetPositionZ()
+                    raiderRescueHp[i] = GetRaiderHealth(r)
+                    Trace("wfc01 rescue raider=" + i + " z=" + rz + " target_z=" + tz + " drift=" + drift)
+                endif
+            endif
+            if advanceClock
+                float distToPlayer = player.GetDistance(r)
+                if doorDist <= Wfc01DoorRadius && (!r.Is3DLoaded() || distToPlayer > Wfc01AbsentDistance)
+                    raiderAbsentSec[i] = raiderAbsentSec[i] + 1.0
+                    if raiderAbsentSec[i] > Wfc01AbsentLimit
+                        WriteOffRaider(r, i, "absent", raiderAbsentSec[i])
+                    endif
+                else
+                    raiderAbsentSec[i] = 0.0
+                endif
+                if !raiderCleared[i] && raiderRescued[i]
+                    if r.Is3DLoaded()
+                        float moved = SpotOff(r, raiderRescueX[i], raiderRescueY[i], raiderRescueZ[i])
+                        float hp = GetRaiderHealth(r)
+                        bool tookDamage = raiderRescueHp[i] > 0.0 && hp < raiderRescueHp[i] - 0.01
+                        if moved < Wfc01StuckMoveRadius && !tookDamage
+                            raiderRescueSec[i] = raiderRescueSec[i] + 1.0
+                            if hp > raiderRescueHp[i]
+                                raiderRescueHp[i] = hp
+                            endif
+                            if raiderRescueSec[i] >= Wfc01StuckLimit
+                                WriteOffRaider(r, i, "stuck", raiderRescueSec[i])
+                            endif
+                        else
+                            raiderRescueSec[i] = 0.0
+                            raiderRescueX[i] = r.GetPositionX()
+                            raiderRescueY[i] = r.GetPositionY()
+                            raiderRescueZ[i] = r.GetPositionZ()
+                            raiderRescueHp[i] = hp
+                        endif
+                    else
+                        raiderRescueSec[i] = 0.0
+                    endif
+                endif
+            endif
+        endif
+        i += 1
+    endwhile
 EndFunction
 
 Event OnTimer(int aiTimerID)
@@ -243,15 +631,44 @@ Event OnTimer(int aiTimerID)
         return
     endif
     Actor player = Game.GetPlayer()
+    InitRaiderTracking()
     KeepCodsworthStart()
     ReleaseInFight("mission")                            ; every check, whatever the budget or where the player is
     if relocateFails < 10
         Relocate(player)
     endif
     int stage = GetStage()
+    if !min00Given && stage < 10 && player != None && !player.IsInInterior()
+        float gdx = player.GetPositionX() - (PrestonLocalX + MergeOffsetX)
+        float gdy = player.GetPositionY() - (PrestonLocalY + MergeOffsetY)
+        float gdz = player.GetPositionZ() - PrestonLocalZ
+        if gdx * gdx + gdy * gdy + gdz * gdz <= GiveConcordRadius * GiveConcordRadius
+            min00Given = True
+            Trace("min00 given by=concord")
+            ClearCodsworthObjectiveForConcord()
+            AdvanceTo(10, "Trigger")
+            stage = 10
+        endif
+    endif
+    if (GetStageDone(35) || stage == 35) && applied < 35
+        if talkActivated && !prestonUsedFallback
+            Apply(35, "info")
+        else
+            Apply(35, "other")
+        endif
+        stage = GetStage()
+    endif
+    if stage >= 40 && applied < 40
+        Apply(40, "other")
+    elseif stage > applied && stage < 35
+        Apply(stage, "other")
+    endif
     float dp = player.GetDistance(Preston)
     if stage < 20 && dp < FindRadius
         FoundPreston("near d=" + dp)
+    endif
+    if stage == 20
+        CheckConcordRaidersWfc01(player, True)
     endif
     bool everyone = prestonFound || stage >= 20          ; once the fight is on, no raider stands by
     int dead = 0
@@ -260,7 +677,7 @@ Event OnTimer(int aiTimerID)
     int i = 0
     while i < Raiders.Length
         Actor r = Raiders[i]
-        if r.IsDead()
+        if r.IsDead() || raiderCleared[i]
             dead += 1
         else
             float d = player.GetDistance(r)
@@ -279,17 +696,33 @@ Event OnTimer(int aiTimerID)
         endif
         i += 1
     endwhile
-    int target = NextStage(stage, dead, Raiders.Length, fighting, dp < TalkRadius, prestonFound)
+    bool readyTalk = TalkCompleteReady(stage, dp)
+    int target = NextStage(stage, dead, Raiders.Length, fighting, readyTalk, prestonFound)
     ; every stage on the way is set in order, so each one's objectives and log line happen
     while stage < target && stage < 40
-        if stage < 20
+        string nextBy = "Trigger"
+        if stage < 10
+            if !min00Given
+                min00Given = True
+                Trace("min00 given by=concord")
+                ClearCodsworthObjectiveForConcord()
+            endif
+            stage = 10
+        elseif stage < 20
             stage = 20
         elseif stage < 30
             stage = 30
         else
             stage = 40
+            if prestonUsedFallback
+                nextBy = "fallback"
+            elseif prestonTalkLogged
+                nextBy = "info"
+            else
+                nextBy = "other"
+            endif
         endif
-        AdvanceTo(stage)
+        AdvanceTo(stage, nextBy)
     endwhile
     ticks += 1
     if ticks % 5 == 0
@@ -300,7 +733,7 @@ Event OnTimer(int aiTimerID)
         Trace("preston was targeting the player: stopcombat")
     endif
     if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
-        AdvanceTo(200)
+        AdvanceTo(200, "Trigger")
         CompleteQuest()
         Trace("complete stage=" + GetStage())
     endif
@@ -311,10 +744,8 @@ EndEvent
 
 int Function NextStage(int stage, int dead, int total, bool fighting, bool atPreston, bool found)
 {The stage the encounter has reached, whoever started the fight (scripts/mission/make_mission.py next_stage is the
- same rule, tested there): the fight counts as started when a raider fights or is dead, so a quest that starts or
- reloads mid-fight, or after the raiders died between two checks, still advances, and when the player has found
- Preston (FoundPreston), even before a raider's 3D is loaded; all raiders dead is stage 30; standing at Preston after
- that is stage 40. Never goes back.}
+ same rule, tested there): the fight counts as started when a raider fights or is dead, or when the player has found
+ Preston (FoundPreston); all raiders dead or cleared is stage 30; completing talk at Preston after that is stage 40.}
     int s = stage
     if s < 20 && (fighting || dead > 0 || found)
         s = 20
@@ -330,11 +761,7 @@ EndFunction
 
 Function Relocate(Actor player)
 {Moves the raiders (Codsworth: KeepCodsworth) from their unmerged local position to the same spot in the merged world the
- player walks in: each actor's local position + the merge offset, z kept (MoveTo onto the player with the difference as
- the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe; MoveOver), and puts Preston at his fixed spot
- (PlacePreston). Decided per actor and by position, every check: in game 18 Oct 14:40 the unmoved actors read a finite
- distance (same world, local spot), so "finite means reachable" skipped the move. An actor a move missed is tried
- again (Codex 5564899342), up to 10 failed moves in all. Never from an interior.}
+ player walks in, and puts Preston at his fixed spot (PlacePreston). Never from an interior.}
     if player.IsInInterior()
         return
     endif
@@ -354,13 +781,8 @@ Function Relocate(Actor player)
 EndFunction
 
 Function KeepCodsworth()
-{Codsworth is not part of the quest, so he has his own check every CodsworthCheck seconds with its own budget of 10
- failed moves. It keeps running after stage 200, which ends the mission's timer: the player may reach Sanctuary only
- after the mission, and he goes back to his unmerged spot (in game 18 Oct 15:17; 29 Oct, within about three minutes).
- He has Preston's rule, one fixed spot (PlaceCodsworth, FAL-163); a spent budget is logged and shown on screen, and where
- he is goes to the log every KeeperStatusEvery checks. On the keeper, Preston's check runs whether or not Codsworth is
- there (FAL-128); FO4SF_Min00 (no Codsworth) on a save that ran this timer before the keeper does nothing and lets it
- end. A fight releases him first, on every check and with a spent budget too (ReleaseCodsworthInFight, FAL-163).}
+{Codsworth has his own check every CodsworthCheck seconds with its own budget of 10 failed moves. It keeps running after
+ stage 200, which ends the mission's timer.}
     Actor player = Game.GetPlayer()
     if Codsworth != None
         ReleaseCodsworthInFight("keeper")
@@ -371,7 +793,9 @@ Function KeepCodsworth()
             if codsworthFails >= 10
                 codsworthState = "gave up"
                 Trace("keeper gave up codsworth fails=" + codsworthFails)
-                Debug.Notification("FO4SF keeper: Codsworth not placed after 10 tries; stopped until the next load")
+                if IsTestModeEnabled()
+                    Debug.Notification("FO4SF keeper: Codsworth not placed after 10 tries; stopped until the next load")
+                endif
             endif
         endif
     endif
@@ -387,13 +811,7 @@ Function KeepCodsworth()
 EndFunction
 
 Function KeepPreston(Actor player)
-{The keeper keeps Preston at his merged spot after the mission too. Stage 200 ends the mission's 1 s check and with it
- Relocate, while in game 19 Oct he read his unmerged spot again 5 times in one session (snap-back, supported
- hypothesis: he returns to his editor location as his cell reloads). So once the mission was complete, nothing put him
- back: the owner's report of 7 Nov, "no preston garvy after misson finshes". No new placement: the same fixed spot and
- rule as the mission (PlacePreston), with its own budget of 10 failed moves; a spent budget is logged and shown on
- screen. Where he is goes to the log every KeeperStatusEvery checks. A fight releases him first, on every check and
- with a spent budget too (ReleaseInFight).}
+{The keeper keeps Preston at his merged spot after the mission too.}
     ReleaseInFight("keeper")
     if prestonFails < 10
         if PlacePreston(player, "keeper")
@@ -401,7 +819,9 @@ Function KeepPreston(Actor player)
             if prestonFails >= 10
                 prestonState = "gave up"
                 Trace("keeper gave up preston fails=" + prestonFails)
-                Debug.Notification("FO4SF keeper: Preston not placed after 10 tries; stopped until the next load")
+                if IsTestModeEnabled()
+                    Debug.Notification("FO4SF keeper: Preston not placed after 10 tries; stopped until the next load")
+                endif
             endif
         endif
     endif
@@ -412,10 +832,13 @@ Function KeepPreston(Actor player)
 EndFunction
 
 Function BeginFollow()
-{FO4SF_COMPreston.FollowTest (test-only until the Concord talk) arms this instance. While prestonFollow is set,
- PlacePreston neither moves him back to the museum door nor restrains him. The flag is per instance: the mission and
- the keeper both have to be armed, or the one that was not puts the hold back. A later load keeps the flag
- (KeepCodsworthLoad clears prestonHeld only).}
+{FO4SF_COMPreston.FollowTest (test-only, gated behind FO4SF_TestModeEnabled != 0) arms this instance. While prestonFollow
+ is set, PlacePreston neither moves him back to the museum door nor restrains him.}
+    GlobalVariable testMode = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    if testMode == None || testMode.GetValue() == 0.0
+        Trace("follow preston test-only refused: test mode off")
+        return
+    endif
     prestonFollow = True
     prestonHeld = False
     prestonState = HeldState("follow", False)
@@ -427,14 +850,8 @@ Function BeginFollow()
 EndFunction
 
 bool Function PlacePreston(Actor player, string who)
-{Preston's fixed spot (FAL-128): PrestonLocalX/Y/Z + the merge offset, by PlaceAt. Returns True for a failed move: one
- that leaves him off his spot. The PC's 31 Oct logs: MoveOver judged "already moved" by his distance to the PLAYER (under
- RelocateGap), so a Preston who landed or wandered 100 to 450 m off his spot was never moved again, and it took his
- target from where he stood, so a moved actor could be offset a second time, about 2,955 m away (the raiders were,
- 31 Oct 16:33). The state stays readable without a log: sqv shows prestonState, prestonOff and prestonMoves.
- FAL-170, in game 10 Nov: once placed he walked off and was put back every 29 s, so he is held (HoldPreston) after
- every move that lands and at his spot within HeldRadius, never in a fight (the caller's ReleaseInFight runs first).
- FAL-866: once BeginFollow has armed this instance, none of that runs. Follow is not a door hold.}
+{Preston's fixed spot (FAL-128): PrestonLocalX/Y/Z + the merge offset, by PlaceAt. FAL-866: once BeginFollow has armed
+ this instance, none of that runs.}
     if prestonFollow
         prestonState = HeldState("follow", False)
         return False
@@ -457,12 +874,7 @@ EndFunction
 
 bool Function PlaceCodsworth(Actor player)
 {Codsworth's fixed spot (FAL-163): CodsworthLocalX/Y/Z + the merge offset, by PlaceAt, Preston's rule; only the keeper
- places him. Returns True for a failed move. The PC's 31 Oct logs: MoveOver moved him once per session, from 122 m, and
- never again, since under RelocateGap from the player counted as "already moved"; it moved from up to RelocateRadius
- (800) away, where Preston's moves ended with cell=None; and on 29 Oct he was back at his unmerged spot within about
- three minutes. sqv shows codsworthState, codsworthOff and codsworthMoves. The PC's saves of 7 to 9 Nov: he walks
- straight back towards his editor coordinates, so he is held as Preston is (HoldCodsworth), never in a fight (the
- caller's ReleaseCodsworthInFight runs first).}
+ places him.}
     float tx = CodsworthLocalX + MergeOffsetX
     float ty = CodsworthLocalY + MergeOffsetY
     float tz = CodsworthLocalZ
@@ -480,13 +892,7 @@ bool Function PlaceCodsworth(Actor player)
 EndFunction
 
 string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Actor player, string who, string where, bool fighting)
-{The fixed-spot rule of Preston (FAL-128) and Codsworth (FAL-163): puts the actor at its merged spot (tx, ty, tz) when it
- is not there, the player stands outdoors within PlaceRadius of it and it is not fighting. At its spot means within
- HoldRadius of it and within RelocateGap of the player. Returns the actor's state: "at spot", "off, player inside", "off,
- player away", "off, fighting", "placed", or "move failed" (a move that leaves it off its spot); the caller holds it
- (HoldDue). Each move is logged ("moved <name> ... by=<who>") and shown on screen. The game prints a name as the
- property it matches (31 Oct: "moved Codsworth" from the literal "codsworth"), so make_mission.py log reads the lines
- case-insensitively.}
+{The fixed-spot rule of Preston (FAL-128) and Codsworth (FAL-163).}
     float dp = player.GetDistance(a)                      ; float max: another world
     float off = SpotOff(a, tx, ty, tz)
     if off <= HoldRadius && dp < RelocateGap
@@ -511,7 +917,9 @@ string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Acto
     bool failed = after > HoldRadius || d >= RelocateGap
     Trace("world " + name + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     Trace("moved " + name + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + tx + " " + ty + " " + tz + " before=" + dp + " off=" + off + " d=" + d + " failed=" + failed + " by=" + who)
-    Debug.Notification("FO4SF: " + name + " put back " + where + " (" + who + ", was " + (off as int) + " m off, failed=" + failed + ")")
+    if IsTestModeEnabled()
+        Debug.Notification("FO4SF: " + name + " put back " + where + " (" + who + ", was " + (off as int) + " m off, failed=" + failed + ")")
+    endif
     if failed
         return "move failed"
     endif
@@ -519,8 +927,7 @@ string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Acto
 EndFunction
 
 bool Function HoldDue(string s, bool fighting, bool held, float off)
-{Whether PlaceAt's result s calls for a hold (FAL-170, FAL-163): after a move that lands, at once, before the actor's AI
- walks it off; at its spot when this instance does not hold it yet and it is within HeldRadius. Never while it fights.}
+{Whether PlaceAt's result s calls for a hold (FAL-170, FAL-163).}
     if fighting
         return False
     endif
@@ -528,41 +935,27 @@ bool Function HoldDue(string s, bool fighting, bool held, float off)
 EndFunction
 
 Function HoldPreston(string who)
-{Holds Preston where he stands. In game 10 Nov (f9cae827, the 9 Nov save, logging on): placed 1.5 m off his spot, he
- walked off east-north-east at about 0.9 m/s, not fighting, and was put back every 29 s (7 times in 175 s); held from
- the console (setrestrained 1) he stayed, 0 put-backs in 100 s, and the player's activation (check 2) and the 3 m
- rule (check 2b) still completed the mission. Check 3 (79c9ba81, 10 Nov): held by this script he stayed 0.2 m from his
- spot for 90 s and the 3 m rule completed the mission. Papyrus has no getter for it, so prestonHeld is this instance's
- own flag: it limits the at-spot hold to once per instance and session and gives the state its ", held"; the release
- does not trust it (ReleaseInFight). The mission and the keeper may both hold him. No notification: only a move is
- shown on screen.}
+{Holds Preston where he stands.}
     HoldActor(Preston, "preston", who, prestonOff)
     prestonHeld = True
     prestonHolds += 1
 EndFunction
 
 Function HoldCodsworth(string who)
-{Holds Codsworth where he stands, as Preston (HoldPreston): codsworthHeld is this instance's own flag.}
+{Holds Codsworth where he stands, as Preston (HoldPreston).}
     HoldActor(Codsworth, "codsworth", who, codsworthOff)
     codsworthHeld = True
     codsworthHolds += 1
 EndFunction
 
 Function HoldActor(Actor a, string name, string who, float off)
-{SetRestrained(True) and one log line, "hold <name> by=<who> off=<m> ok=<bool>". ok= is SetRestrained's return, logged
- as is; a repeat call also returned true (check 3, 10 Nov).}
+{SetRestrained(True) and one log line, "hold <name> by=<who> off=<m> ok=<bool>".}
     bool ok = a.SetRestrained(True)
     Trace("hold " + name + " by=" + who + " off=" + off + " ok=" + ok)
 EndFunction
 
 bool Function ReleaseInFight(string who)
-{Lets Preston go while he fights (his death stays the quest's failure path), whatever this instance's prestonHeld says:
- the flag is per instance and can be False while he is held, by the other instance, by this one before a load (the
- keeper clears its flag; the engine very likely keeps the restraint: the game's own quests set it once and clear it
- stages later with no load handler), or after a hold 3 to 25 m off. So both instances call this on every check,
- before PlacePreston and whatever the budget, the interior or the stage: SetRestrained(False) on each check of a
- fight, one log line per fight and instance (prestonFighting). Held again once calm, at his spot or by his next
- put-back. Returns whether he fights.}
+{Lets Preston go while he fights, whatever this instance's prestonHeld says.}
     if ReleaseActor(Preston, "preston", who, prestonFighting)
         prestonHeld = False
         prestonFighting = True
@@ -605,8 +998,7 @@ string Function HeldState(string s, bool held)
 EndFunction
 
 float Function SpotOff(Actor a, float tx, float ty, float tz)
-{An actor's distance (m) from a point, by position only: positions cannot tell two worlds apart, so PlaceAt also wants
- it within RelocateGap of the player.}
+{An actor's distance (m) from a point, by position only.}
     float ex = a.GetPositionX() - tx
     float ey = a.GetPositionY() - ty
     float ez = a.GetPositionZ() - tz
@@ -624,19 +1016,13 @@ Function TraceCodsworth(string what)
 EndFunction
 
 Function TraceSpot(string what, Actor a, string name, float off, string spotState, int moves, bool held, int holds, int fails)
-{One keeper line of where an actor is: "<what> <name> d= off= state= moves= held= holds= at x y z disabled= dead= fails=
- player=x y z interior=" (keeper load / keeper status). (State is a Papyrus keyword, so the parameter is spotState.)}
+{One keeper line of where an actor is (State is a Papyrus keyword, so the parameter is spotState).}
     Actor player = Game.GetPlayer()
     Trace(what + " " + name + " d=" + player.GetDistance(a) + " off=" + off + " state=" + spotState + " moves=" + moves + " held=" + held + " holds=" + holds + " at " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " disabled=" + a.IsDisabled() + " dead=" + a.IsDead() + " fails=" + fails + " player=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " interior=" + player.IsInInterior())
 EndFunction
 
 bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
-{Moves one raider (Preston: PlacePreston; Codsworth: PlaceCodsworth) when the player is within RelocateRadius of its
- merged spot and it is still farther than RelocateGap. Returns True for a failed move: one that leaves it farther than
- RelocateGap. Its target is where the raider stands + the offset, so it moves only a raider at its unmerged spot, whose
- target is within RelocateRadius of Preston's merged spot (the plugin takes the raiders within 120 m of his spot). A
- raider already moved stands about one offset length (2,955 m) from there: the PC's 31 Oct logs (16:33, the player about
- that far south-west of them) had all five offset a second time, to (-3000..-3150, -4500..-4600) (FAL-163).}
+{Moves one raider when the player is within RelocateRadius of its merged spot and it is still farther than RelocateGap.}
     float before = player.GetDistance(a)                  ; float max: another world; finite: this world (the world proof)
     if before < RelocateGap
         return False                                      ; already where the player is
@@ -662,11 +1048,13 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     bool failed = d >= RelocateGap
     Trace("world " + what + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
+    if !failed
+        a.EvaluatePackage()
+    endif
     return failed
 EndFunction
 
 Function Trace(string msg)
-    ; OnQuestInit's open does not survive a save load (the 21 Oct crash runs logged nothing); a no-op when already open
-    Debug.OpenUserLog(LogName)
+    ; User log is opened once at start and once on OnPlayerLoadGame (2f)
     Debug.TraceUser(LogName, "FO4SF_MISSION rt=" + Utility.GetCurrentRealTime() + " " + msg)
 EndFunction

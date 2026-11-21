@@ -268,6 +268,84 @@ class TerrainDoorsWriterTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0)
             self.assertEqual({n: (stage / n).read_bytes() for n in pinned}, pinned)
 
+    def test_incremental_add_doors_and_only_filter_keep_every_existing_id(self):
+        """I3: promoting a second exterior door via make_core64c.add_doors_to_core on top of an already-built core
+        (after map_markers) keeps every existing FormID (containers, lights, first door, map marker) unchanged, moves
+        the second door's REFR from refs to doors in place, and passes make_core64c + vmad_patch checks."""
+        import make_cluster as mc
+        import test_vmad_patch as tvp
+
+        base = tlw.TerrainLightsWriterTests.with_lights(self, self.promote([0]))
+        first_only = copy.deepcopy(base)
+        r0, r1 = first_only["refs"]
+        d0 = self.door(r0, 1, 0x0804)
+        d0["destination"].update(ref="000802", cell="000801")
+        first_only["doors"] = [d0]
+        first_only["refs"] = [r1]  # 000003:Synthetic.esm remains a plain STAT ref in stage 1
+        proc, stage1 = self.run_writer(first_only, "doors-delta-s1")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+        # Synthetic make_cluster.doors --only + keep_markers test
+        port_stub = {
+            "plugin": "FO4Port.esm",
+            "next": 0x0810,
+            "cells": {"FO4Port_Test": 0x0801},
+            "refs": {"0EE5D6:Fallout4.esm": ("FO4Port_Test", 0x0802), "000001:Fallout4.esm": ("FO4Port_Test", 0x0803)},
+            "exported": {
+                "0EE5D6:Fallout4.esm": ("FO4Port_Test", {"formkey": "0EE5D6:Fallout4.esm", "teleport_destination": {"door": "000002:Synthetic.esm", "pos": [10500.0, 11200.0, 140.0], "rot": [0, 0, 2.5812]}}),
+                "000001:Fallout4.esm": ("FO4Port_Test", {"formkey": "000001:Fallout4.esm", "teleport_destination": {"door": "000003:Synthetic.esm", "pos": [2100.0, 9800.0, 280.0], "rot": [0, 0, 1.0]}}),
+            },
+        }
+        fo4_refs = [
+            {"type": "Door", "formkey": "000002:Synthetic.esm", "base_formkey": "018C8B:Synthetic.esm", "base_editor_id": "SynthDoorA", "model": "a.nif", "pos": [0, 0, 0], "rot": [0, 0, 0],
+             "teleport_destination": {"door": "0EE5D6:Fallout4.esm", "pos": [381.43, 1210.37, -255.78], "rot": [0, 0, 4.7124]}},
+            {"type": "Door", "formkey": "000003:Synthetic.esm", "base_formkey": "099999:Synthetic.esm", "base_editor_id": "SynthDoorB", "model": "b.nif", "pos": [0, 0, 0], "rot": [0, 0, 0],
+             "teleport_destination": {"door": "000001:Fallout4.esm", "pos": [700.0, 700.0, 0.0], "rot": [0, 0, 0.0]}},
+        ]
+        cl_only, _ = mc.doors(fo4_refs, ["000001:Synthetic.esm", "000002:Synthetic.esm", "000003:Synthetic.esm"], port_stub,
+                              only=["000003:Synthetic.esm"], keep_markers={"000002:Synthetic.esm": 0x0804})
+        self.assertEqual([d["src"] for d in cl_only["doors"]], ["000003:Synthetic.esm"])
+        self.assertEqual(cl_only["doors"][0]["destination"]["id"], "000810")
+
+        cl_both, _ = mc.doors(fo4_refs, ["000001:Synthetic.esm", "000002:Synthetic.esm", "000003:Synthetic.esm"], port_stub,
+                              only=["000002:Synthetic.esm", "000003:Synthetic.esm"], keep_markers={"000002:Synthetic.esm": 0x0804})
+        self.assertEqual([d["destination"]["id"] for d in cl_both["doors"]], ["000804", "000810"])
+
+        stage2 = self.root / "doors-delta-s2"
+        rep = mk.add_doors_to_core(str(stage1), cl_both, str(stage2))
+        self.assertEqual(rep["existing_doors"], 1)
+        self.assertEqual(rep["added_doors"], 1)
+        self.assertEqual(rep["added_acti_bases"], 1)
+
+        ids1 = json.loads((stage1 / "formids.json").read_text())
+        ids2 = json.loads((stage2 / "formids.json").read_text())
+        obj2 = json.loads((stage2 / "objects.json").read_text())
+        diff = mk.formids_diff(ids1, ids2)
+        for sec in ("bases", "containers", "lights", "plugin", "world"):
+            if sec in diff:
+                self.assertEqual(diff[sec]["status"], "identical", sec)
+        self.assertEqual((diff["doors"]["same"], diff["doors"]["changed"], diff["doors"]["only_new"]), (1, 0, 1))
+        self.assertEqual((diff["refs"]["same"], diff["refs"]["changed"], diff["refs"]["only_old"]), (0, 0, 1))
+        self.assertEqual(ids2["doors"]["000003:Synthetic.esm"]["ref"], ids1["refs"]["000003:Synthetic.esm"])
+
+        walked2 = mk.overlay_records.walk_plugin(str(stage2 / "Synthetic.esm"))
+        own = len(walked2["masters"]) << 24
+        self.assertEqual(mk.door_record_problems(walked2["records"], own, obj2, ids2), [])
+        pchecks = mk.promotion_checks(walked2["records"], own, obj2, ids2, {"objects": {"exported": 6, "skipped": {}}})
+        self.assertTrue(all(ok for _w, ok in pchecks), pchecks)
+
+        # Also verify vmad_patch port_edits + check_port with --keep-markers --allow-new-doors on a grown synthetic port
+        extra_rec = tvp.rec(b"REFR", tvp.OWN | 0x080F, [(b"NAME", struct.pack("<I", tvp.OWN | 0x0800)), (b"DATA", struct.pack("<6f", 1, 1, 1, 0, 0, 0))])
+        port_before = vmad_patch.Plugin(tvp.tiny_plugin(next_id=0x0810, extra=[extra_rec]))
+        port_after = vmad_patch.Plugin(port_before.serialize())
+        _, cdoors = vmad_patch.core_doors(str(stage2))
+        edits = vmad_patch.port_edits("Synthetic.esm", cdoors, "FO4Port.esm", 0x0810, vmad_patch.MERGE_MEASURED,
+                                      keep={"000002:Synthetic.esm": 0x0804}, allow_new_doors=True)
+        self.assertEqual([ed["marker"] for ed in edits], [0x0804, 0x0810])
+        vmad_patch.patch_port(port_after, edits, 1)
+        checks = vmad_patch.check_port(port_before, port_after, cdoors, "Synthetic.esm", vmad_patch.MERGE_MEASURED, kept=True)
+        self.assertTrue(all(ok for _w, ok in checks), checks)
+
 
 if __name__ == "__main__":
     unittest.main()

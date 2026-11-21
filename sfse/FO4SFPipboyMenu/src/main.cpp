@@ -84,21 +84,36 @@
 // menu's through `text` and `visible` only, each change read back. Keys (polled while the page is open and the game in
 // front) and clicks (one listener on the movie's root, which reads the click's target name) move the selection, the
 // sub-tab and the main tab; CLOSE keeps stage d's handler. Stage (d)'s checks and ids; nothing new is called.
+//
+// Stage=2 with Movie= and Arm=1, FAL-852 (S1-arm; README "The arm"; off by default): Key, which may not be F10 (the
+// owner's faction device), plays the raise first and opens Fallout 4's screen ArmRaiseMs later, and every close of it is
+// followed by the lower. The raise and the lower are idles named by editor id, found with the engine's own lookup
+// (TESForm::LookupByEditorID, libxse id 47403, checked in the Address Library file like the others), and their
+// animation events are sent to the player (IAnimationGraphManagerHolder at +0x60, slot 0x01 NotifyAnimationGraphImpl,
+// checked by RTTI): #776's route (FAL-714, FAL-725), taken over for this screen. Pause=1 adds the pause bit to Flags.
 
 #include "pch.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iterator>
+#include <limits>
+#include <memory>
 #include <mutex>
+#include <numbers>
 #include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "setup_places.h"
 
 // Win32 calls that libxse's REX::W32 does not wrap, imported the way REX/W32.cpp imports its own (REX/W32/BASE.h):
 // libxse refuses a <windows.h> included before it
@@ -106,7 +121,16 @@ REX_W32_IMPORT(std::int16_t, GetAsyncKeyState, std::int32_t);
 REX_W32_IMPORT(void*, GetForegroundWindow);
 REX_W32_IMPORT(std::uint32_t, GetWindowThreadProcessId, void*, std::uint32_t*);
 REX_W32_IMPORT(std::uint32_t, GetCurrentProcessId);
+// FAL-614 proof 1d (CodeObjSound=1): Windows audio's waveOut calls (winmm, xmake.lua add_syslinks)
+REX_W32_IMPORT(std::uint32_t, waveOutOpen, void**, std::uint32_t, const void*, std::uintptr_t, std::uintptr_t, std::uint32_t);
+REX_W32_IMPORT(std::uint32_t, waveOutPrepareHeader, void*, void*, std::uint32_t);
+REX_W32_IMPORT(std::uint32_t, waveOutWrite, void*, void*, std::uint32_t);
+REX_W32_IMPORT(std::uint32_t, waveOutReset, void*);
+REX_W32_IMPORT(std::uint32_t, waveOutUnprepareHeader, void*, void*, std::uint32_t);
+REX_W32_IMPORT(std::uint32_t, waveOutClose, void*);
 
+#include "blocking_menus.h"
+#include "pipboy_map.h"
 #include "world.h"   // FAL-250: the world-surface census and candidate (World=1; README.md, "World surface")
 
 namespace
@@ -125,6 +149,7 @@ namespace
 	constexpr auto          kFieldName = "fo4sfPosition";    // make_probe_swf.py FIELD_NAME
 	constexpr auto          kButtonName = "fo4sfButton";     // make_probe_swf.py BUTTON_NAME
 	constexpr std::size_t   kMovieRootAt = 0x18;             // GFx::Movie: RefCountBase 0x00, StateBag 0x10, root 0x18
+	constexpr std::size_t   kCreateObjectSlot = 0x2E;        // GFx::ASMovieRootBase::CreateObject (checked InImage in RootOf)
 	constexpr std::size_t   kCreateFunctionSlot = 0x30;      // GFx::ASMovieRootBase (libxse and SFSE 0.2.21 agree)
 	constexpr std::size_t   kGetVariableSlot = 0x32;
 	constexpr std::size_t   kMainPausedAt = 0x448;           // libxse RE::Main::isGameMenuPaused
@@ -135,6 +160,101 @@ namespace
 	constexpr std::size_t   kGameVmImplAt = 0xE0;            // libxse RE::GameVM::impl (BSTSmartPointer<IVirtualMachine>)
 	constexpr std::size_t   kDispatchStaticCallSlot = 0x2F;  // libxse IVirtualMachine::DispatchStaticCall
 	constexpr std::size_t   kMaxName = 64;                   // ClickCall: each of the script's and function's names
+	constexpr std::uint32_t kMaxCodeCalls = 256;             // FAL-614 proof 1b: stand-in BGSCodeObj calls logged (S1-c: 256, paging)
+	constexpr std::size_t   kMaxCodeArg = 64;                // and the first characters of a string argument
+	constexpr std::uint32_t kMaxCodeArgs = 4;                // FAL-614 S1-c: the arguments logged per call
+	constexpr std::size_t   kMaxCodeNames = 64;              // CodeObjNames: up to 64 (holds all 46 FO4 BGSCodeObj functions + HideMenu)
+	constexpr std::size_t   kMaxShellKeys = 8;               // FAL-614 S1-c: ShellKeys=, keys that call a shell path
+	constexpr std::uint32_t kMaxAnswers = 512;               // FAL-614 S1-c: page and tab answers per movie
+	constexpr std::int64_t  kMaxAnswerIndex = 63;            // the highest page or tab index answered
+	constexpr std::uint32_t kMaxSpecialLines = 16;           // FAL-1025: step=code_obj_special lines logged
+	constexpr std::uint32_t kMaxGfxFreqLines = 128;          // step=gfx_enter/gfx_exit cap for frequent read/probe movie calls
+	constexpr std::int64_t  kWatchdogBusyMs = 2000;          // step=watchdog_busy threshold for stuck movie calls
+	constexpr std::array<const char*, 7> kSpecialNames{ "STRENGTH", "PERCEPTION", "ENDURANCE", "CHARISMA", "INTELLIGENCE",
+		"AGILITY", "LUCK" };                                     // FAL-1025: CodeObjSpecial=fill's entries, in DataObj's order
+	constexpr std::array<const char*, 7> kSpecialEditorIds{
+		"FO4SF_Special_Strength",
+		"FO4SF_Special_Perception",
+		"FO4SF_Special_Endurance",
+		"FO4SF_Special_Charisma",
+		"FO4SF_Special_Intelligence",
+		"FO4SF_Special_Agility",
+		"FO4SF_Special_Luck",
+	};
+	constexpr std::uint32_t kMaxCodeObjTries = 40;           // tries per movie (load, show, then one per kUpdate)
+	constexpr std::uint32_t kLoggedCodeObjTries = 5;
+	constexpr std::size_t   kMaxSoundBytes = 32u << 20;      // FAL-614 proof 1d: one converted sound file, at most
+	constexpr std::uint32_t kMaxSoundsPlaying = 4;           // sounds at once (the boot sequence overlaps two)
+	constexpr std::uint32_t kMaxSoundLines = 64;             // step=sound lines logged
+	constexpr auto          kSoundFolder = "FO4SFPipboyMenuSounds";   // beside the dll: the player's converted files         // the first tries logged; the one that sets it always
+
+	// FAL-852, the arm (Arm=1 at Stage=2 with Movie= only; README, "The arm"). #776's ids and offsets (FAL-714, FAL-719),
+	// read there on the PC at 1.16.244. The idles are named by editor id, never by form id: step 3a's playidle by form id
+	// showed nothing
+	constexpr std::uint32_t kLookupByEditorId = 47403;       // libxse 9d090c4 ID::TESForm::LookupByEditorID (not in kIds)
+	constexpr std::uint32_t kActorPlayIdleId = 102136;       // Papyrus Actor.PlayIdle internal helper (RVA 0x19BFFD0)
+	constexpr std::uint32_t kPlayIdleContextId = 35720;      // PlayIdle thread context getter (RVA 0x2B7DD0)
+	constexpr std::uint32_t kRegisterSinkId = 123821;        // libxse ID::BSTEventSource::RegisterSink
+	constexpr std::uint32_t kUnregisterSinkId = 123822;      // libxse ID::BSTEventSource::UnregisterSink
+	constexpr std::uint32_t kIdleExamineWatchFormId = 0x000C154F; // Starfield.esm IDLE IdleExamineWatch
+	constexpr std::size_t   kActorCurrentProcessAt = 0x228;  // Actor::currentProcess (verified in Papyrus Actor.PlayIdle)
+	constexpr std::uint32_t kEquipManagerSingletonId = 938503; // ID::ActorEquipManager::Singleton
+	constexpr std::uint32_t kEquipManagerRttiId = 860014;    // RTTI::ActorEquipManager
+	constexpr std::uint32_t kEquipObjectId = 101949;         // ID::ActorEquipManager::EquipObject
+	constexpr std::uint32_t kUnequipObjectId = 101951;       // ID::ActorEquipManager::UnequipObject
+	constexpr std::uint32_t kObjectInstanceCtorId = 59786;   // ID::BGSObjectInstance::ctor
+	constexpr std::uint32_t kAlchemyItemRttiId = 845251;     // RTTI::AlchemyItem
+	constexpr std::uint32_t kOxygenAvifId = 0x2E2;           // Starfield.esm AVIF Oxygen (AP dial)
+	constexpr std::uint32_t kDamageResistAvifId = 0x2E3;     // Starfield.esm AVIF DamageResist
+	constexpr std::uint32_t kEnergyResistAvifId = 0x2EB;     // Starfield.esm AVIF EnergyResist
+	constexpr std::uint32_t kCreditsFormId = 0x0000000F;     // Starfield.esm MISC Credits (Caps)
+	constexpr std::uint32_t kCoreSpecialFirstLocalId = 0x810; // FO4SFCoreValues.esm AVIF FO4SF_Special_Strength..Luck (0x810..0x816)
+	constexpr std::uint32_t kCoreRadResistLocalId = 0x804;   // FO4SFCoreValues.esm AVIF FO4SF_RadResist
+	constexpr std::uint32_t kCoreHardcoreFastTravelBlockedId = 0x841; // FO4SFCoreValues.esm GLOB FO4SF_HardcoreFastTravelBlocked (A2)
+	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
+	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
+	constexpr std::uint32_t kCoreStartCardOpenId = 0x866;    // FO4SFCoreValues.esm GLOB FO4SF_StartCardOpen (N2, R13)
+	constexpr std::uint32_t kCoreGameModeId = 0x870;         // FO4SFCoreValues.esm GLOB FO4SF_GameMode (S1, R13)
+	constexpr std::uint32_t kCoreSurvivalStartId = 0x871;    // FO4SFCoreValues.esm GLOB FO4SF_SurvivalStart (S1, R13)
+	constexpr std::uint32_t kCoreSurvivalLockedId = 0x872;   // FO4SFCoreValues.esm GLOB FO4SF_SurvivalLocked (S1, R13)
+	constexpr std::uint32_t kCoreStartDifficultyId = 0x873;  // FO4SFCoreValues.esm GLOB FO4SF_StartDifficulty (S1, R13)
+	constexpr std::uint32_t kCoreWarfareFactionId = 0x874;   // FO4SFCoreValues.esm GLOB FO4SF_WarfareFaction (S1, R13)
+	constexpr std::uint32_t kCoreWarfareStartIndexId = 0x875;// FO4SFCoreValues.esm GLOB FO4SF_WarfareStartIndex (S1, R13)
+	constexpr std::uint32_t kCoreStartChoiceDoneId = 0x876;  // FO4SFCoreValues.esm GLOB FO4SF_StartChoiceDone (S1, R13)
+	constexpr std::uint32_t kCoreStoryLineId = 0x878;        // FO4SFCoreValues.esm GLOB FO4SF_StoryLine (S1, R13)
+	constexpr std::uint32_t kCoreStartPlaceRowId = 0x879;    // FO4SFCoreValues.esm GLOB FO4SF_StartPlaceRow (S1, R13)
+	constexpr std::uint32_t kCoreSpecialMenuPendingFirstId = 0x880; // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuPendingS..L (0x880..0x886)
+	constexpr std::uint32_t kCoreSpecialMenuCommitReqId = 0x887;    // FO4SFCoreValues.esm GLOB FO4SF_SpecialMenuCommitRequested
+	constexpr std::uint32_t kRadsRadawayLocalId = 0x820;     // FO4SFRads.esm ALCH FO4SF_RadAway
+	constexpr std::array<const char*, 7> kSpecialPendingEditorIds{
+		"FO4SF_SpecialMenuPendingS",
+		"FO4SF_SpecialMenuPendingP",
+		"FO4SF_SpecialMenuPendingE",
+		"FO4SF_SpecialMenuPendingC",
+		"FO4SF_SpecialMenuPendingI",
+		"FO4SF_SpecialMenuPendingA",
+		"FO4SF_SpecialMenuPendingL",
+	};
+	constexpr std::array<std::uint32_t, 6> kLimbConditionAvifIds{ 0x36C, 0x36D, 0x36E, 0x370 - 1, 0x370, 0x371 };
+	constexpr std::array<const char*, 7> kSpecialTitleNames{
+		"Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck"
+	};
+	constexpr std::size_t   kRefrRemoveItemSlot = 0x8B;      // libxse RE::TESObjectREFR::RemoveItem (docs/ui/pipboy-inv-drop-note.md)
+	constexpr std::size_t   kFormTypeAt = 0x2E;              // libxse RE::TESForm::formType (a u8)
+	constexpr std::uint8_t  kIdleType = 0x5C;                // libxse FormType kIDLE (TESIdleForm)
+	constexpr std::size_t   kIdleGraphAt = 0x68;             // FAL-719, the 3b session at 1.16.244 (the Sep 2025 libxse header:
+	constexpr std::size_t   kIdleEventAt = 0x70;             //   0x60 and 0x68)
+	constexpr std::size_t   kIdleSlotFirst = 0x58;           // FAL-719: step=arm_idle_slots reads s58 to s80, 8 bytes apart
+	constexpr std::size_t   kIdleSlotLast = 0x80;
+	constexpr std::uint32_t kAnimHolderAt = 0x60;            // libxse RE::TESObjectREFR: IAnimationGraphManagerHolder base
+	constexpr std::size_t   kNotifyGraphSlot = 0x01;         // libxse IAnimationGraphManagerHolder::NotifyAnimationGraphImpl
+	constexpr std::size_t   kGetGraphMgrSlot = 0x03;         // libxse IAnimationGraphManagerHolder::GetAnimationGraphManagerImpl
+	constexpr std::size_t   kMaxIdleName = 96;               // an idle's editor id or an event's name: letters, digits, '_'
+	constexpr std::uint32_t kMaxArmMs = 6000;                // ArmRaiseMs, ArmLowerMs and ArmRetryMs, at most
+	constexpr std::int64_t  kArmRetryEveryMs = 100;          // FAL-725: a refused raise or lower is resent this often
+	constexpr std::uint32_t kF10 = 0x79;                     // the owner's faction device (14 Nov): never Key at Arm=1
+	constexpr std::uint32_t kQuickSaveKey = 0x74;            // FAL-719: F5 Quick Save and F9 Quick Load; the key thread only
+	constexpr std::uint32_t kQuickLoadKey = 0x78;            //   polls, so a press with the screen closed reaches the game too
 
 	// stage d (the STAT page)
 	constexpr std::uint32_t kDataHandlerRva = 0x5FD9B28;     // SFSE 0.2.21 sfse/GameData.h: TESDataHandler::GetSingleton
@@ -163,7 +283,17 @@ namespace
 	constexpr std::size_t   kAvifEditorIdAt = 0x40;          // libxse RE::ActorValueInfo::editorID
 	constexpr std::size_t   kBaseObjectAt = 0x80 + 0x18;     // libxse RE::TESObjectREFR::data, OBJ_REFR::objectReference
 	constexpr std::size_t   kParentCellAt = 0xB0;            // libxse RE::TESObjectREFR::parentCell
-	constexpr std::size_t   kCellWorldAt = 0x118;            // libxse RE::TESObjectCELL::cellWorldspace
+	constexpr std::size_t   kLoadedDataAt = 0xB8;            // libxse RE::TESObjectREFR::loadedData (BSGuarded<LOADED_REF_DATA*, ...>)
+	constexpr std::size_t   kLoadedData3DAt = 0x08;          // libxse RE::LOADED_REF_DATA::data3D (NiPointer<NiAVObject>)
+	constexpr std::size_t   kCellWorldAt = 0x110;            // FAL-595, PC at 4d1e7641: kit_map_world at=+110 "Mars" outdoors in two
+	                                                         // cells, found=0 indoors (libxse names +0x118, which read 0)
+	constexpr std::size_t   kCellScanEnd = 0x200;            // FAL-595: F11 looks for the worldspace in the cell's +0x38 to here
+	constexpr std::size_t   kAngleAt = 0x80;                 // FAL-595: libxse OBJ_REFR::angle, three floats (radians)
+	constexpr std::size_t   kMapDumpBytes = 0x40;            // F11: the player's +0x80 to +0xC0 (angle, location, ... parentCell)
+	constexpr std::size_t   kCellFlagsAt = 0x40;             // libxse RE::TESObjectCELL::cellFlags (kInterior = 1)
+	constexpr std::size_t   kCellDataAt = 0x58;              // libxse RE::TESObjectCELL::cellData: EXTERIOR_DATA*, cellX, cellY
+	constexpr std::uint32_t kGridUnitsMin = 1;               // [Kit] GridUnits=: a cell's width in game units, 1 ...
+	constexpr std::uint32_t kGridUnitsMax = 65536;           // ... to 65536 (the PC, 12 Nov: cell_x is x over 100)
 	constexpr std::size_t   kLevelAt = 0x08 + 0x06;          // libxse RE::TESActorBaseData::actorData, ACTOR_BASE_DATA::level
 	constexpr std::size_t   kFullNameAt = 0x08;              // libxse RE::TESFullName::fullName (a BSFixedStringCS)
 	constexpr std::size_t   kPageLines = 7;                  // make_probe_swf.py PAGE_LINES
@@ -245,8 +375,8 @@ namespace
 	constexpr auto          kKitClose = "fo4sfClose";
 	constexpr auto          kKitId = "fo4sfKitId";
 	// VALUE_PROVIDERS and LIST_PROVIDERS; av:<hex> is the actor value of that form id
-	constexpr std::array<std::string_view, 10> kKitValues{ "health", "level", "xp", "carry_max", "rads", "cell", "world",
-		"time", "days", "position" };
+	constexpr std::array<std::string_view, 12> kKitValues{ "health", "level", "xp", "carry_max", "rads", "cell", "world",
+		"time", "days", "position", "heading", "grid" };
 	constexpr std::array<std::string_view, 3> kKitLists{ "kit_test", "inventory", "quests" };
 	constexpr std::string_view kKitActorValue = "av:";
 	// the menus a main-thread snapshot asks the engine about (IsMenuRegistered, IsMenuOpen); only Console is named by
@@ -391,6 +521,7 @@ namespace
 	std::uint32_t g_key = 0x79;     // F10
 	std::uint32_t g_flags = 0;      // OR'ed into the flags the constructor set
 	bool          g_keepAlive = true;
+	std::string   g_movie;          // FAL-614, Stage=2 only: Movie=, the movie Interface/<Movie>.swf instead of ours; "" = ours
 
 	std::uintptr_t                           g_base = 0;
 	std::size_t                              g_imageSize = 0;
@@ -407,6 +538,192 @@ namespace
 	Ctor_t                                   g_ctor = nullptr;
 	Dtor_t                                   g_engineDtor = nullptr;
 	LoadMovie_t                              g_engineLoadMovie = nullptr;
+	std::atomic<bool>                        g_loadingMovie{ false };   // FAL-614: inside our call of the engine's LoadMovie
+	std::atomic<std::uint32_t>               g_movieNameAsks{ 0 };      // GetName calls answered with Movie= in that call
+	bool                                     g_codeObj = false;         // FAL-614 proof 1b: CodeObj=1, the stand-in BGSCodeObj
+	bool                                     g_codeObjHide = false;     // FAL-614 proof 1c: CodeObjHide=1, HideMenu closes our menu
+	bool                                     g_codeObjSound = false;    // FAL-614 proof 1d: CodeObjSound=1, PlaySound plays a file
+	std::string                              g_codeObjInit;             // FAL-614 proof 2a: CodeObjInit=<root function>, handed the stand-in
+	std::array<std::string, kMaxCodeNames>   g_probeNames;              // FAL-614 proof 2b-i: CodeObjProbe=, read once after the hand-over
+	std::size_t                              g_probeCount = 0;
+	std::array<std::string, kMaxCodeNames>   g_rootCallNames;           // FAL-614 proof 2b-ii: CodeObjCalls=, called once after the hand-over
+	std::size_t                              g_rootCallCount = 0;
+	std::string                              g_codeObjAt;               // FAL-614 S1-c: CodeObjAt=<path>, the stand-in also as <path>.BGSCodeObj
+	bool                                     g_codeObjPages = false;    // FAL-614 S1-c: CodeObjPages=1, onNewPage and onNewTab answered
+	bool                                     g_populateInCall = false;  // Task 1 step 1b: default 0 for 1a crash proof; 1 fills vitals in PopulatePipboyInfoObj
+	bool                                     g_lateInvalidate = false;  // Task 1 step 1b: optional late InvalidateData on kShow, default 0
+	bool                                     g_statActions = false;     // Task 1 step 1j: UseStimpak/UseRadaway, default 0 until THIS ROUND passes
+	bool                                     g_invDataAnswers = false;  // Task 1 step 1k: INV/DATA same-call answers, default 0 until THIS ROUND passes
+	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
+	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
+	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
+	std::filesystem::path                    g_gameDir;                 // Game root (<Starfield>/) for Data\Interface\<BootMovie>.swf check
+	std::atomic<bool>                        g_loggedBootSkipMissing{ false };
+	// Task 1 step 1k (UI-3): opt-in FO4SF_SpecialMenu host for SPECIALMenu.swf
+	bool                                     g_specialMenu = false;
+	std::string                              g_specialMovie;
+	std::uint32_t                            g_specialMaxPoints = 40;
+	std::uint32_t                            g_specialKey = 0;
+	PrimaryVtable                            g_specialVtbl{};
+	InputVtable                              g_specialInputVtbl{};
+	std::atomic<bool>                        g_specialOpen{ false };
+	std::atomic<bool>                        g_specialClosing{ false };
+	std::atomic<bool>                        g_loadingSpecialMovie{ false };
+	std::atomic<const void*>                 g_specialCodeObjMovie{ nullptr };
+	std::atomic<std::uint32_t>               g_specialCreated{ 0 };
+	// N2 Variant (b): non-modal depth=0 start title card (FO4SF_StartCardMenu -> Interface/FO4SF_StartCard.swf)
+	PrimaryVtable                            g_startCardVtbl{};
+	InputVtable                              g_startCardInputVtbl{};
+	std::atomic<bool>                        g_startCardOpen{ false };
+	std::atomic<bool>                        g_loadingStartCardMovie{ false };
+	std::atomic<bool>                        g_startCardMissing{ false };
+	std::atomic<std::uint32_t>               g_startCardCreated{ 0 };
+	// S1 / S3 Variant (b): interactive single-page New-Game Setup Screen (FO4SF_SetupMenu -> Interface/FO4SF_SetupScreen.swf)
+	std::filesystem::path                    g_pluginDir;
+	bool                                     g_setupShowUnavailable = false;
+	PrimaryVtable                            g_setupVtbl{};
+	InputVtable                              g_setupInputVtbl{};
+	// T2 (Round 6): non-null minimal self-hiding IMenu for optional MapBlockStarMap=1 create-time block
+	PrimaryVtable                            g_blockedMapVtbl{};
+	InputVtable                              g_blockedMapInputVtbl{};
+	std::atomic<std::uint32_t>               g_blockedMapCreated{ 0 };
+	std::atomic<bool>                        g_setupOpen{ false };
+	std::atomic<bool>                        g_loadingSetupMovie{ false };
+	std::atomic<bool>                        g_setupMissing{ false };
+	std::atomic<const void*>                 g_setupListenedMovie{ nullptr };
+	std::atomic<std::uint32_t>               g_setupCreated{ 0 };
+	std::mutex                               g_setupLock;
+	fo4sf::setup::SetupScreenModel           g_setupModel;
+	bool                                     g_setupModelLoaded = false;
+	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
+	std::atomic<std::uint32_t>               s_savedPage{ 0 };
+	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
+	std::atomic<bool>                        s_bootPlayed{ false };
+	// Per-movie FO4 shell session state (cleared in ClearMovieSessionState / before engine kHide)
+	RE::Scaleform::GFx::Value                g_dataObj;                 // menu thread only: Menu_mc.DataObj handed to PopulatePipboyInfoObj
+	std::atomic<bool>                        g_closing{ false };        // Task 1 step 1c: set first on kHide so nothing writes to movie/DataObj
+	std::atomic<bool>                        g_playingBootMovie{ false };
+	std::atomic<std::int32_t>                g_bootReopenPage{ -1 };    // N1/H0c: >= 0 while boot_done kHide transitions directly to FO4SF_Fo4Shell
+	std::atomic<bool>                        g_armDispatching{ false }; // N1: main-thread gate check in flight from ArmKey
+	std::atomic<bool>                        g_inDestructionCall{ false };
+	std::mutex                               g_deferredLogLock;
+	std::vector<std::string>                 g_deferredDestructionLogs;
+	std::atomic<const void*>                 g_destroyedCodeObjMovie{ nullptr };
+	std::atomic<const void*>                 g_shownInvalidatedMovie{ nullptr };
+	std::atomic<const void*>                 g_populatedLogMovie{ nullptr };
+	std::atomic<const void*>                 g_createdCodeObjMovie{ nullptr };
+	std::atomic<std::int32_t>                g_currentShellPage{ -1 };
+	std::atomic<std::int32_t>                g_currentShellTab{ 0 };
+	std::atomic<std::int32_t>                g_externalTargetPage{ -1 };
+	std::atomic<std::uint32_t>               g_pendingPartialMask{ 0 };
+	std::atomic<bool>                        g_keyInputHeld{ false };
+	std::atomic<bool>                        g_pendingCancelRelease{ false };
+	std::uint32_t                            g_invSortMode = 0;
+	// Watchdog & movie call entry/exit diagnostics (Step 5)
+	std::atomic<std::uint64_t>               g_gfxCallSeq{ 0 };
+	std::atomic<std::int64_t>                g_gfxBusySinceMs{ 0 };
+	std::atomic<const char*>                 g_gfxBusyName{ nullptr };
+	std::atomic<std::uint64_t>               g_gfxWatchdogLoggedSeq{ 0 };
+	std::atomic<std::uint32_t>               g_gfxFreqLines{ 0 };
+	// Extra checked RVAs for FO4 shell stats/aid & native PlayIdle (not in kIds so Stage 1..3 step=id counts stay exact)
+	std::uint32_t                            g_shellLookupEditorIdRva = 0;
+	std::uint32_t                            g_equipMgrSingletonRva = 0;
+	std::uint32_t                            g_equipMgrRttiRva = 0;
+	std::uint32_t                            g_equipObjectRva = 0;
+	std::uint32_t                            g_unequipObjectRva = 0;
+	std::uint32_t                            g_objInstanceCtorRva = 0;
+	std::uint32_t                            g_alchemyRttiRva = 0;
+	bool                                     g_shellExtraIdsReady = false;
+	std::mutex                               g_perkSoundLock;
+	void*                                    g_activePerkWaveOut = nullptr;
+	enum : int
+	{
+		kSpecialOff,
+		kSpecialFill,
+		kSpecialClear
+	};
+	int                                      g_codeObjSpecial = kSpecialOff;   // FAL-1025: CodeObjSpecial=fill or clear
+	std::atomic<std::uint32_t>               g_specialLines{ 0 };
+	std::atomic<std::uint32_t>               g_invFillLogs{ 0 };
+	std::atomic<std::uint32_t>               g_questFillLogs{ 0 };
+	std::atomic<std::uint32_t>               g_invSelectLogs{ 0 };
+	struct ShellKey   // FAL-614 S1-c: ShellKeys=<key>:<path>,...
+	{
+		std::uint32_t vk = 0;
+		std::string   path;
+	};
+	std::array<ShellKey, kMaxShellKeys>      g_shellKeys;
+	std::size_t                              g_shellKeyCount = 0;
+	std::atomic<std::uint32_t>               g_shellKeyPending{ 0 };    // key thread: one bit per ShellKeys entry pressed
+	std::atomic<std::uint32_t>               g_shellKeyLines{ 0 };
+	std::atomic<std::int32_t>                g_answerPage{ -1 };        // menu's thread: the page the shell asked for, -1 = none
+	std::atomic<std::int32_t>                g_answerTab{ -1 };         // and the tab
+	std::atomic<bool>                        g_answerNow{ false };      // key thread: send a kUpdate to answer
+	std::atomic<std::uint32_t>               g_answers{ 0 };            // answers on g_codeObjMovie
+	std::filesystem::path                    g_soundDir;                // <dll folder>/FO4SFPipboyMenuSounds
+	std::atomic<std::uint32_t>               g_soundsPlaying{ 0 };
+	std::atomic<std::uint32_t>               g_soundLines{ 0 };
+	std::atomic<std::uint32_t>               g_codeCalls{ 0 };          // calls of the stand-in's functions, logged up to kMaxCodeCalls
+	std::atomic<const void*>                 g_codeObjMovie{ nullptr }; // the movie the stand-in is set on (done for it)
+	std::atomic<const void*>                 g_codeObjTriedMovie{ nullptr };
+	std::atomic<std::uint32_t>               g_codeObjTries{ 0 };       // tries on g_codeObjTriedMovie
+
+	// FAL-852, the arm (INI Arm ... ArmRetryMs; read at Stage=2 with Movie= only, used only at Arm=1)
+	bool                                     g_arm = false;
+	std::string                              g_armRaiseIdle;            // an editor id
+	std::string                              g_armLowerIdle;            // an editor id, or empty
+	std::string                              g_armLowerEvent;           // an event's name (ActionInterrupt), or empty
+	std::uint32_t                            g_armRaiseMs = 2000;
+	std::uint32_t                            g_armLowerMs = 3500;
+	std::uint32_t                            g_armRetryMs = 2000;
+	std::uint32_t                            g_armLookupRva = 0;        // TESForm::LookupByEditorID, CheckArmId
+	std::uint32_t                            g_armPlayIdleRva = 0;      // Actor.PlayIdle helper (REL::ID 102136), CheckArmId
+	std::uint32_t                            g_armPlayIdleCtxRva = 0;   // PlayIdle context getter (REL::ID 35720), CheckArmId
+	std::uint32_t                            g_armRegSinkRva = 0;       // BSTEventSource::RegisterSink (REL::ID 123821), CheckArmId
+	std::uint32_t                            g_armUnregSinkRva = 0;     // BSTEventSource::UnregisterSink (REL::ID 123822), CheckArmId
+	std::atomic<std::int64_t>                g_armPressAt{ 0 };         // the last Key press that started a raise, steady ms
+	std::atomic<std::uint32_t>               g_armN{ 0 };               // that press's n
+	std::atomic<std::int64_t>                g_armLowerUntil{ 0 };      // Key ignored until then (ArmLowerMs)
+	std::atomic<bool>                        g_armRaiseAccepted{ false };
+	std::atomic<bool>                        g_armWaitingRaiseGraph{ false };
+
+	// FAL-725: one pending send (the raise or the lower). The main thread sends and writes the outcome; the key thread's
+	// 30 ms tick queues the next try at nextAt. kIdle: nothing pending; kInFlight: a try is queued on the main thread;
+	// kWaiting: the last try gave 0 and the next is due at nextAt
+	enum : int
+	{
+		kRetryIdle,
+		kRetryInFlight,
+		kRetryWaiting
+	};
+	struct ArmRetry
+	{
+		std::atomic<int>           state{ kRetryIdle };
+		std::atomic<std::uint32_t> n{ 0 };
+		std::atomic<std::int64_t>  firstAt{ 0 };    // the first try, steady ms
+		std::atomic<std::int64_t>  nextAt{ 0 };
+		std::atomic<std::int64_t>  deadline{ 0 };   // firstAt + ArmRetryMs
+		std::atomic<std::uint32_t> tries{ 0 };
+	};
+	ArmRetry                                 g_raiseRetry;
+	ArmRetry                                 g_lowerRetry;
+	std::atomic<std::int64_t>                g_armShowAt{ 0 };          // the screen's show due (0 = none), set by the raise's outcome
+	std::string                              g_armRaiseOutcome;         // main thread only: "1", "gave_up", or a stop word
+	std::atomic<bool>                        g_armShown{ false };       // our ProcessMessage saw kShow and no kHide since
+	int                                      g_armState = -1;           // main thread only: -1 unresolved, 0 refused, 1 ready
+	std::uintptr_t                           g_raiseIdle = 0;           // main thread only: the TESIdleForms
+	std::uintptr_t                           g_lowerIdle = 0;
+	RE::BSFixedString*                       g_lowerEvent = nullptr;    // main thread only: ArmLowerEvent's string, never freed
+	std::uintptr_t                           g_armHolderVtable = 0;     // the player's IAnimationGraphManagerHolder vtable
+	std::uintptr_t                           g_armNotify = 0;           // its checked slot 0x01
+	std::uintptr_t                           g_armGetGraphMgr = 0;      // its checked slot 0x03 (GetAnimationGraphManagerImpl)
+	std::uintptr_t                           g_armWatchedGraph = 0;     // BSAnimationGraph* with ArmAnimGraphSink registered
+	std::uintptr_t                           g_armWatchedMgrAddr = 0;   // BSAnimationGraphManager* identity for g_armWatchedGraph
+	std::uintptr_t                           g_armWatchedPlayer3D = 0;  // Player data3D identity when g_armWatchedGraph registered
+	std::uint64_t                            g_armWatchedGen = 0;       // Load generation counter when g_armWatchedGraph registered
+	std::atomic<std::uint64_t>               g_armGraphLoadGen{ 1 };    // Incremented on LoadingMenu / cell transition (A4)
+	bool                                     g_armSawLoadingMenu = false;
+	std::atomic<bool>                        g_shellHardcoreFastTravelBlocked{ false };
 	ProcessMessage_t                         g_engineProcessMessage = nullptr;
 	const SFSE::TaskInterface*               g_task = nullptr;
 	std::atomic<bool>                        g_registered{ false };
@@ -450,7 +767,11 @@ namespace
 
 	std::uintptr_t Address(std::size_t a_id) { return g_base + g_rva[a_id]; }
 
-	std::size_t IdCount() { return g_stage >= 4 ? kIdCount : g_stage == 3 ? kIdCountC : kIdCountB; }   // (e): (d)'s ids
+	// FAL-614 proof 1b: stage b with CodeObj=1 reaches the movie's root as stage c does (RootOf's RTTI, the Value
+	// functions), so it reads and checks stage c's ids too; without them RootOf compared against an unread RTTI address
+	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }   // FAL-852: the arm too
+
+	std::size_t IdCount() { return g_stage >= 4 ? kIdCount : ChannelIdsNeeded() ? kIdCountC : kIdCountB; }   // (e): (d)'s ids
 
 	bool InImage(std::uintptr_t a_addr, std::size_t a_len)
 	{
@@ -756,14 +1077,14 @@ namespace
 			}
 			Peek(root, vt);
 			const auto* slot = reinterpret_cast<const std::uintptr_t*>(vt);
-			if (!InImage(vt, (kGetVariableSlot + 1) * 8) || !InImage(slot[kCreateFunctionSlot], 1) || !InImage(slot[kGetVariableSlot], 1)) {
+			if (!InImage(vt, (kGetVariableSlot + 1) * 8) || !InImage(slot[kCreateObjectSlot], 1) || !InImage(slot[kCreateFunctionSlot], 1) || !InImage(slot[kGetVariableSlot], 1)) {
 				g_channelOff = true;
 				Refuse("channel", std::format("what=root_slots root={} vtable={}", Hex(root), Hex(vt)));
 				return nullptr;
 			}
-			REX::INFO("step=movie_root movie={} movie_type={} root={} root_type={} root_offset={} create_function={} get_variable={}",
+			REX::INFO("step=movie_root movie={} movie_type={} root={} root_type={} root_offset={} create_object={} create_function={} get_variable={}",
 				Hex(movie), movieKnown ? movieType.name : "unreadable", Hex(root), rootType.name, Hex(rootType.offset),
-				Hex(slot[kCreateFunctionSlot] - g_base), Hex(slot[kGetVariableSlot] - g_base));
+				Hex(slot[kCreateObjectSlot] - g_base), Hex(slot[kCreateFunctionSlot] - g_base), Hex(slot[kGetVariableSlot] - g_base));
 			g_checkedMovie = MovieOf(a_menu);
 		} else {
 			Peek(movie + kMovieRootAt, root);
@@ -1226,7 +1547,7 @@ namespace
 
 	// the page's forms by form id: the globals and actor values by their fixed ids and RTTI type (AcceptById); every
 	// ActorValueInfo among Starfield.esm's ids 0x001 to 0xFFF listed with its editor ID as read, once; FO4SF_Rads by its
-	// editor ID at local id 0x800 of each full plugin (01 to FD) and each light plugin (FE000 to FEFFF)
+	// FO4SF_Rads is owned by FO4SFCoreValues.esm at local id 0x800; scan 0x800 of each full (01..FD) and light (FE000..FEFFF) plugin and log the resolved id
 	void FindForms()
 	{
 		std::string known = AcceptById(kGameHourId, "GameHour", "TESGlobal@@", kGlobalEditorIdAt, g_forms.gameHour);
@@ -1385,7 +1706,7 @@ namespace
 		if (!Peek(cell + kCellWorldAt, world)) {
 			return { cellText, Unknown("world", "reason=fault") };
 		}
-		if (!world) {
+		if (!world) {   // FAL-595: 0 at +0x110 indoors, a TESWorldSpace outdoors (the PC, 12 Nov)
 			return { cellText, "NONE (INTERIOR)" };
 		}
 		if (!IsType(world, "TESWorldSpace@@", worldType)) {
@@ -1663,6 +1984,9 @@ namespace
 		std::uint32_t                                  missionId = 0;   // and its form's local id in that file
 		std::size_t                                    missionStageAt = 0;   // MissionStageAt=: its stage's u16, or 0 (STAGE ?)
 		std::vector<KitObjective>                      objectives;   // MissionObjective=: each objective's state, or none
+		std::size_t                                    headingAt = 0;   // HeadingAt=: the player's heading float, or 0 (HEADING ?)
+		bool                                           headingTurnsDown = false;   // HeadingAt=-<hex>: it falls turning right
+		std::uint32_t                                  gridUnits = 0;   // GridUnits=: a cell's width in game units, or 0 (GRID ?)
 		std::vector<KitPage>                           pages;
 		std::vector<std::string>                       tabs;     // in the order of their first page
 		std::array<std::vector<std::size_t>, kKitTabs> subs;     // each tab's pages, in order
@@ -1830,6 +2154,38 @@ namespace
 		return true;
 	}
 
+	// parse_kit's check_heading_at (FAL-595): [-]<80, 84 or 88>, the player's angle float that is the heading, as
+	// scripts/ui/pipboy_map_bytes.py names it from two F11 dumps around a turn to the right; '-' when it falls
+	bool KitHeadingAt(std::string_view a_text)
+	{
+		const bool down = a_text.starts_with('-');
+		if (down) {
+			a_text.remove_prefix(1);
+		}
+		if (a_text != "80" && a_text != "84" && a_text != "88") {
+			return false;
+		}
+		g_kit.headingAt = static_cast<std::size_t>(std::strtoul(std::string(a_text).c_str(), nullptr, 16));
+		g_kit.headingTurnsDown = down;
+		return true;
+	}
+
+	// parse_kit's check_grid_units (FAL-595): <decimal>, a cell's width in game units (1 to 65536), as
+	// scripts/ui/pipboy_map_bytes.py names it from F11 dumps in two cells
+	bool KitGridUnits(std::string_view a_text)
+	{
+		if (a_text.empty() || a_text.size() > 5 ||
+			!std::ranges::all_of(a_text, [](char a_c) { return a_c >= '0' && a_c <= '9'; })) {
+			return false;
+		}
+		const auto units = static_cast<std::uint32_t>(std::strtoul(std::string(a_text).c_str(), nullptr, 10));
+		if (units < kGridUnitsMin || units > kGridUnitsMax) {
+			return false;
+		}
+		g_kit.gridUnits = units;
+		return true;
+	}
+
 	// parse_kit's check_objective (FAL-571): <index>|<path>, the objective's number (1 to 5 decimal digits, at most 65535,
 	// once) and where its state is, as scripts/ui/pipboy_quest_bytes.py --objective prints it from the F11 dumps: 2 or 3
 	// offsets of 1 to 3 hex digits joined by '/', the first a pointer in the quest's dump (a multiple of 8, 38 to 330),
@@ -1965,6 +2321,10 @@ namespace
 					// KitStageAt kept it
 				} else if (key == "MissionObjective" && KitObjectiveLine(value)) {
 					// KitObjectiveLine kept it
+				} else if (key == "HeadingAt" && !g_kit.headingAt && KitHeadingAt(value)) {
+					// KitHeadingAt kept it
+				} else if (key == "GridUnits" && !g_kit.gridUnits && KitGridUnits(value)) {
+					// KitGridUnits kept it
 				} else {
 					return KitRefuse(n, std::format("kit_key key={}", key));
 				}
@@ -2106,6 +2466,64 @@ namespace
 		return form;
 	}
 
+	// FAL-595: the player's heading in compass degrees (0 to 359), the float at [Kit] HeadingAt= (Peek only; ? without
+	// the setting), negated for HeadingAt=-<hex>; logged once: step=kit_heading heading_at= rad= deg=
+	std::string HeadingText()
+	{
+		if (!g_kit.headingAt) {
+			return Unknown("heading", "reason=no_heading_at (HeadingAt= in [Kit])");
+		}
+		float rad = 0.0f;
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk) ||
+			!Peek(Singleton(kPlayerSingleton) + g_kit.headingAt, rad) || !std::isfinite(rad) || std::abs(rad) > 1000.0f) {
+			return Unknown("heading", std::format("reason=unreadable heading_at=+{:03X}", g_kit.headingAt));
+		}
+		const auto turned = g_kit.headingTurnsDown ? -rad : rad;
+		auto       deg = static_cast<int>(std::lround(std::fmod(turned * 180.0 / std::numbers::pi, 360.0)));
+		deg = (deg % 360 + 360) % 360;
+		static bool logged = false;
+		if (!logged) {
+			logged = true;
+			REX::INFO("step=kit_heading heading_at={}+{:03X} rad={:.4f} deg={}", g_kit.headingTurnsDown ? "-" : "",
+				g_kit.headingAt, rad, deg);
+		}
+		return std::to_string(deg);
+	}
+
+	// FAL-595: the player's cell on the grid, POSITION's x and y over [Kit] GridUnits=, rounded down (? without the
+	// setting; NONE (INTERIOR) where WORLD says so: the PC's indoor press had libxse's kInterior clear); logged at the
+	// first read and at each change:
+	// step=kit_grid units= x= y=
+	std::string GridText()
+	{
+		if (!g_kit.gridUnits) {
+			return Unknown("grid", "reason=no_grid_units (GridUnits= in [Kit])");
+		}
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			return Unknown("grid", "reason=no_player");
+		}
+		const auto world = PlaceText().second;
+		if (world == "NONE (INTERIOR)") {
+			return world;
+		}
+		if (world == "?") {
+			return Unknown("grid", "reason=world");
+		}
+		std::array<float, 3> xyz{};
+		if (!ReadPosition(xyz) || !std::isfinite(xyz[0]) || !std::isfinite(xyz[1])) {
+			return Unknown("grid", "reason=no_player");
+		}
+		const auto  x = static_cast<std::int64_t>(std::floor(xyz[0] / static_cast<double>(g_kit.gridUnits)));
+		const auto  y = static_cast<std::int64_t>(std::floor(xyz[1] / static_cast<double>(g_kit.gridUnits)));
+		constexpr auto none = std::numeric_limits<std::int64_t>::min();
+		static auto    logged = std::pair<std::int64_t, std::int64_t>{ none, none };
+		if (logged != std::pair{ x, y }) {
+			logged = { x, y };
+			REX::INFO("step=kit_grid units={} x={} y={}", g_kit.gridUnits, x, y);
+		}
+		return std::format("{} {}", x, y);
+	}
+
 	// one value provider's text (README, "Stage (e)": what each reads, and its step=page_unknown line when it cannot);
 	// main thread only
 	std::string KitValueRead(std::string_view a_spec)
@@ -2152,6 +2570,12 @@ namespace
 			return ReadPosition(xyz) && std::isfinite(xyz[0]) && std::isfinite(xyz[1]) && std::isfinite(xyz[2]) ?
 			           std::format("{:.0f} {:.0f} {:.0f}", xyz[0], xyz[1], xyz[2]) :
 			           Unknown("position", "reason=no_player");
+		}
+		if (a_spec == "heading") {
+			return HeadingText();
+		}
+		if (a_spec == "grid") {
+			return GridText();
 		}
 		if (a_spec.starts_with(kKitActorValue)) {   // ReadKit checked the hex
 			const auto id = static_cast<std::uint32_t>(std::strtoul(std::string(a_spec.substr(kKitActorValue.size())).c_str(), nullptr, 16));
@@ -2598,6 +3022,60 @@ namespace
 			REX::INFO("step=kit_quest_bytes n={} form={:08X} at=+{:03X} bytes={}", n, formId, at, KitBytes(g_kitQuest + at, 0x40));
 		}
 		LogKitQuestObjectives(n, formId);
+	}
+
+	// FAL-595, main thread, on the snapshot key at stage (e): the player's bytes from +0x80 to +0xC0 (OBJ_REFR's angle
+	// and location, ... parentCell at +0xB0) and the six floats at +0x80 (step=kit_map_bytes n= at=+080 bytes= floats=),
+	// then the player's cell and its own grid (libxse TESObjectCELL::cellData at +0x58, EXTERIOR_DATA's cellX and cellY:
+	// step=kit_map_cell n= cell= world= flags= data= cell_x= cell_y=), so F11 before and after a turn shows which float
+	// is the heading and F11 in two cells which GridUnits= POSITION needs (scripts/ui/pipboy_map_bytes.py). Peek only.
+	void LogKitMapBytes()
+	{
+		const auto n = g_snapshots.load();
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			REX::INFO("step=kit_map_bytes n={} reason=no_player", n);
+			return;
+		}
+		const auto           player = Singleton(kPlayerSingleton);
+		std::array<float, 6> floats{};
+		std::string          floatText = "unreadable";
+		if (Peek(player + kAngleAt, floats)) {
+			floatText.clear();
+			for (std::size_t i = 0; i < floats.size(); ++i) {
+				floatText += std::format("{}{:.4f}", i ? "," : "", floats[i]);
+			}
+		}
+		REX::INFO("step=kit_map_bytes n={} at=+{:03X} bytes={} floats={}", n, kAngleAt, KitBytes(player + kAngleAt, kMapDumpBytes),
+			floatText);
+		std::uintptr_t cell = 0;
+		ObjectType     cellType;
+		if (!Peek(player + kParentCellAt, cell) || !IsType(cell, "TESObjectCELL@@", cellType)) {
+			REX::INFO("step=kit_map_cell n={} reason=cell cell={}", n, Hex(cell));
+			return;
+		}
+		std::uintptr_t               world = 0;
+		std::uint32_t                flags = 0;
+		std::uintptr_t               data = 0;
+		std::array<std::int32_t, 2>  xy{};
+		const bool                   gotWorld = Peek(cell + kCellWorldAt, world);
+		const bool                   gotFlags = Peek(cell + kCellFlagsAt, flags);
+		const bool                   gotXy = Peek(cell + kCellDataAt, data) && data && Peek(data, xy);
+		REX::INFO("step=kit_map_cell n={} cell={} world={} flags={} data={} {}", n, Hex(cell), gotWorld ? Hex(world) : "unreadable",
+			gotFlags ? Hex(flags) : "unreadable", Hex(data), gotXy ? std::format("cell_x={} cell_y={}", xy[0], xy[1]) : "cell_xy=unreadable");
+		// FAL-595: where the cell keeps its worldspace (+0x118 read 0 outdoors): each 8-byte word from +0x38 to +0x200 that
+		// is a heap object whose RTTI is TESWorldSpace, step=kit_map_world n= at=+<offset> world=<addr> name="<name>";
+		// then step=kit_map_worlds n= found=<k>. Peek and VirtualQuery only
+		std::size_t found = 0;
+		for (auto at = std::size_t{ 0x38 }; at < kCellScanEnd; at += 8) {
+			std::uintptr_t word = 0;
+			ObjectType     worldType;
+			if (!Peek(cell + at, word) || !Followable(word) || !IsType(word, "TESWorldSpace@@", worldType)) {
+				continue;
+			}
+			++found;
+			REX::INFO("step=kit_map_world n={} at=+{:03X} world={} name=\"{}\"", n, at, Hex(word), NameText("world_name", word, worldType));
+		}
+		REX::INFO("step=kit_map_worlds n={} cell={} found={}", n, Hex(cell), found);
 	}
 
 	// a_text in lines of at most a_columns, each broken after its last space, '_', '-', '/' or '|' when the rest does
@@ -3058,17 +3536,189 @@ namespace
 	}
 
 	// ------------------------------------------------------------------------------------------- the menu's slots
+	void Close(std::uint32_t a_n, const char* a_by);
+
+	std::int64_t NowMs()
+	{
+		return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	}
+
+	std::uint64_t GfxWatchdogEnter(const char* a_what, bool a_uncapped)
+	{
+		const auto seq = ++g_gfxCallSeq;
+		g_gfxBusyName.store(a_what);
+		g_gfxBusySinceMs.store(NowMs());
+		if (a_uncapped || ++g_gfxFreqLines <= kMaxGfxFreqLines) {
+			REX::INFO("step=gfx_enter seq={} call={}", seq, a_what ? a_what : "unknown");
+		}
+		return seq;
+	}
+
+	void GfxWatchdogExit(std::uint64_t a_seq, const char* a_what, bool a_ok, std::int64_t a_startMs, bool a_uncapped)
+	{
+		g_gfxBusySinceMs.store(0);
+		const auto tookMs = NowMs() - a_startMs;
+		if (a_uncapped || !a_ok || g_gfxFreqLines.load() <= kMaxGfxFreqLines) {
+			REX::INFO("step=gfx_exit seq={} call={} ok={} took_ms={}", a_seq, a_what ? a_what : "unknown", a_ok ? 1 : 0, tookMs);
+		}
+	}
+
+	struct MovieCallGuard
+	{
+		const char*   what = nullptr;
+		std::uint64_t seq = 0;
+		std::int64_t  startMs = 0;
+		bool          uncapped = true;
+		bool          ok = false;
+
+		MovieCallGuard(const char* a_what, bool a_uncapped = true) :
+			what(a_what), seq(GfxWatchdogEnter(a_what, a_uncapped)), startMs(NowMs()), uncapped(a_uncapped)
+		{}
+
+		~MovieCallGuard()
+		{
+			GfxWatchdogExit(seq, what, ok, startMs, uncapped);
+		}
+	};
+
+	bool InvokeMovieTracked(RE::Scaleform::GFx::Value& a_target, const char* a_method, RE::Scaleform::GFx::Value* a_ret,
+		const RE::Scaleform::GFx::Value* a_args, std::size_t a_count, const char* a_label, bool a_uncapped = true)
+	{
+		MovieCallGuard guard(a_label, a_uncapped);
+		guard.ok = a_target.Invoke(a_method, a_ret, a_args, a_count);
+		return guard.ok;
+	}
+
+	bool IsFo4ShellActive()
+	{
+		return g_stage == 2 && g_codeObj && g_codeObjAt == "Menu_mc" && !g_playingBootMovie.load();
+	}
+
+	bool ExtractShellIndex(const RE::Scaleform::GFx::Value& a_val, std::int32_t& a_out, std::int32_t a_max = 63)
+	{
+		if (a_val.IsUInt()) {
+			const auto u = a_val.GetUInt();
+			if (u <= static_cast<std::uint32_t>(a_max)) {
+				a_out = static_cast<std::int32_t>(u);
+				return true;
+			}
+			return false;
+		}
+		if (a_val.IsInt()) {
+			const auto i = a_val.GetInt();
+			if (i >= 0 && i <= a_max) {
+				a_out = i;
+				return true;
+			}
+			return false;
+		}
+		if (a_val.IsNumber() && std::isfinite(a_val.GetNumber())) {
+			const double d = a_val.GetNumber();
+			if (d >= 0.0 && d <= static_cast<double>(a_max) && std::floor(d) == d) {
+				a_out = static_cast<std::int32_t>(d);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	struct PendingUserEvent
+	{
+		std::string name;
+		bool        isDown = false;
+	};
+	std::mutex                      g_shellEventLock;
+	std::vector<PendingUserEvent>   g_pendingUserEvents;
+
+	void QueueShellUserEvent(std::string_view a_name, bool a_isDown)
+	{
+		{
+			std::scoped_lock lock(g_shellEventLock);
+			if (g_pendingUserEvents.size() < 32) {
+				g_pendingUserEvents.push_back({ std::string(a_name), a_isDown });
+			}
+		}
+		if (g_task) {
+			g_task->AddTask([]() {
+				if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+					queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+				}
+			});
+		}
+	}
+
+	void ClearMovieSessionState(bool a_keepInstallTries = false)
+	{
+		g_open = false;
+		g_closing = false;
+		g_playingBootMovie = false;
+		g_inDestructionCall = false;
+		g_cancelHeld = false;
+		g_keyInputHeld = false;
+		g_pendingCancelRelease = false;
+		{
+			std::scoped_lock lock(g_shellEventLock);
+			g_pendingUserEvents.clear();
+		}
+		{
+			std::scoped_lock lock(g_deferredLogLock);
+			g_deferredDestructionLogs.clear();
+		}
+		g_dataObj = RE::Scaleform::GFx::Value{};
+		g_listenedMovie = nullptr;
+		g_checkedMovie = nullptr;
+		g_codeObjMovie = nullptr;
+		g_destroyedCodeObjMovie = nullptr;
+		g_shownInvalidatedMovie = nullptr;
+		g_populatedLogMovie = nullptr;
+		g_createdCodeObjMovie = nullptr;
+		if (!a_keepInstallTries) {
+			g_codeObjTriedMovie = nullptr;
+			g_codeObjTries = 0;
+		}
+		g_shellKeyPending = 0;
+		g_answerPage = -1;
+		g_answerTab = -1;
+		g_externalTargetPage = -1;
+		g_pendingPartialMask = 0;
+		g_otherMessages = 0;
+		g_codeCalls = 0;
+		g_answers = 0;
+		g_specialLines = 0;
+		g_invFillLogs = 0;
+		g_questFillLogs = 0;
+		g_invSelectLogs = 0;
+		g_shellKeyLines = 0;
+		g_soundLines = 0;
+		g_cancelLogged = 0;
+		g_gfxFreqLines = 0;
+		g_currentShellPage = -1;
+		g_currentShellTab = 0;
+		PipboyMap::OnMenuDestroy();
+	}
+
+	const char* OpenBlockingOverlayMenu(RE::UI* a_ui, bool a_topModalOnly = false)
+	{
+		return fo4sf::FindOpenBlockingMenu(a_ui, a_topModalOnly, false);
+	}
+
+	void FailMovieCall(const char* a_where, const std::string& a_detail = "")
+	{
+		REX::ERROR("step=movie_call_failed where={}{}{} action=close_menu", a_where, a_detail.empty() ? "" : " ", a_detail);
+		g_playingBootMovie = false;
+		g_bootReopenPage = -1;
+		ClearMovieSessionState(true);
+		if (g_task) {
+			g_task->AddTask([]() { Close(0, "movie_call_failed"); });
+		}
+	}
+
 	void* MenuDestroy(void* a_self, std::uint32_t a_flags)
 	{
 		REX::INFO("step=destroy menu={} flags={}", Hex(reinterpret_cast<std::uintptr_t>(a_self)), a_flags);
-		if (const auto movie = MovieOf(a_self)) {   // stage c: a later movie at the same address is checked again
-			if (g_listenedMovie == movie) {
-				g_listenedMovie = nullptr;
-			}
-			if (g_checkedMovie == movie) {
-				g_checkedMovie = nullptr;
-			}
-		}
+		// G1 fix: engine kHide clears uiMovie before MenuDestroy, so always clear session movie state unconditionally
+		g_codeObjMovie = nullptr;
+		ClearMovieSessionState();
 		g_engineDtor(a_self, a_flags & ~1u);   // the engine's IMenu destructor, without its delete: the memory is ours
 		if (a_flags & 1) {
 			std::free(a_self);
@@ -3077,12 +3727,2829 @@ namespace
 		return a_self;
 	}
 
-	const char* MenuGetName(const void*) { return kMenuName; }
+	// the menu's name; while our LoadMovie runs the engine's, Movie= when set (FAL-614: the engine names the movie
+	// file Interface/<name>.swf after it, as it loads Interface/FO4SF_PipboyMenu.swf for ours). Each answer with Movie=
+	// is counted and logged with the load (step=load_movie ... name_asks=)
+	const char* MenuGetName(const void*)
+	{
+		if (g_loadingMovie.load()) {
+			if (g_playingBootMovie.load() && !g_bootMovie.empty()) {
+				g_movieNameAsks.fetch_add(1);
+				return g_bootMovie.c_str();
+			}
+			if (!g_movie.empty()) {
+				g_movieNameAsks.fetch_add(1);
+				return g_movie.c_str();
+			}
+		}
+		return kMenuName;
+	}
 
 	// "" binds no menu object in the movie: our movie has no code (a file path here is read as a clip path)
 	const char* MenuGetRootPath(const void*) { return ""; }
 
 	std::int32_t MenuGetViewScaleMode(void*) { return 1; }   // Scaleform ShowAll: the whole stage, aspect kept
+
+	// FAL-614 proof 1b (CodeObj=1, Stage=2 with Movie=): a Fallout 4 movie calls its engine through the object at
+	// root.BGSCodeObj (D2's names: BGSCodeObj, BGSExternalInterface, PlaySound, HideMenu). The stand-in answers each
+	// function named in CodeObjNames with a log line and does nothing else: no sound plays and the menu stays open (F10
+	// closes it). A name not listed is not there, as for a movie with no engine object.
+	void Close(std::uint32_t a_n, const char* a_by);
+
+	// FAL-614 proof 1d (CodeObjSound=1, with CodeObj=1): route S2. The stand-in's PlaySound plays the player's own
+	// converted file <dll folder>/FO4SFPipboyMenuSounds/<name>.wav through Windows audio. Read D4: the boot sequence's
+	// three sounds are SNDR records whose files sit in Fallout4 - Sounds.ba2 as XWMA, mono, 44100 Hz; the PC converts
+	// them to PCM 16 bit WAVE, named by the editor id the movie passes, and they never enter Git. Each call plays on a
+	// waveOut stream and a thread of its own, so the sounds overlap and Windows mixes them (each runs about a second
+	// into the next), and closing the menu does not cut one (C ends about 2 s after HideMenu). It does not follow the
+	// game's volume sliders.
+#pragma pack(push, 1)
+	struct WaveFormat   // WAVEFORMATEX
+	{
+		std::uint16_t tag;
+		std::uint16_t channels;
+		std::uint32_t rate;
+		std::uint32_t bytesPerSecond;
+		std::uint16_t blockAlign;
+		std::uint16_t bits;
+		std::uint16_t extra;
+	};
+#pragma pack(pop)
+	static_assert(sizeof(WaveFormat) == 18);
+
+	struct WaveHeader   // WAVEHDR
+	{
+		char*          data;
+		std::uint32_t  length;
+		std::uint32_t  recorded;
+		std::uintptr_t user;
+		std::uint32_t  flags;
+		std::uint32_t  loops;
+		WaveHeader*    next;
+		std::uintptr_t reserved;
+	};
+	static_assert(sizeof(WaveHeader) == 48);
+	constexpr std::uint32_t kWaveMapper = 0xFFFFFFFF;   // WAVE_MAPPER: the default output
+	constexpr std::uint32_t kWaveHeaderDone = 0x1;      // WHDR_DONE
+
+	// why the file is not PCM 16 bit RIFF/WAVE with 1 or 2 channels (empty: it is), with its format and the data's place;
+	// the chunks are walked by their sizes, "fmt " before "data", the data cut to whole frames and to the file
+	std::string WaveProblem(const std::vector<char>& a_file, WaveFormat& a_wave, std::size_t& a_at, std::size_t& a_bytes)
+	{
+		const auto u32 = [&](std::size_t a_p) {
+			std::uint32_t v;
+			std::memcpy(&v, a_file.data() + a_p, sizeof v);
+			return v;
+		};
+		if (a_file.size() < 12 || std::memcmp(a_file.data(), "RIFF", 4) != 0 || std::memcmp(a_file.data() + 8, "WAVE", 4) != 0) {
+			return "not_riff_wave";
+		}
+		bool fmt = false;
+		a_bytes = 0;
+		for (std::size_t p = 12; p + 8 <= a_file.size();) {
+			const std::size_t size = u32(p + 4);
+			const auto        body = p + 8;
+			const auto        room = a_file.size() - body;
+			if (std::memcmp(a_file.data() + p, "fmt ", 4) == 0 && size >= 16 && size <= room) {
+				std::memcpy(&a_wave, a_file.data() + body, 16);
+				a_wave.extra = 0;
+				fmt = true;
+			} else if (std::memcmp(a_file.data() + p, "data", 4) == 0 && fmt) {
+				a_at = body;
+				a_bytes = std::min(size, room);
+				break;
+			}
+			if (size > room) {
+				break;
+			}
+			p = body + size + (size & 1);
+		}
+		if (!fmt) {
+			return "no_fmt";
+		}
+		if (a_wave.tag != 1 || a_wave.bits != 16) {   // read D4's XWMA is 0x0161: converted on the PC first
+			return std::format("not_pcm16 tag={} bits={}", Hex(a_wave.tag), a_wave.bits);
+		}
+		if (a_wave.channels < 1 || a_wave.channels > 2 || a_wave.rate < 8000 || a_wave.rate > 192000 ||
+			a_wave.blockAlign != a_wave.channels * 2) {
+			return std::format("bad_format channels={} rate={} block_align={}", a_wave.channels, a_wave.rate, a_wave.blockAlign);
+		}
+		a_bytes -= a_bytes % a_wave.blockAlign;
+		if (a_bytes == 0 || a_bytes > 0xFFFFFFFFu) {
+			return "no_data";
+		}
+		a_wave.bytesPerSecond = a_wave.rate * a_wave.blockAlign;
+		return {};
+	}
+
+	struct Sound
+	{
+		std::uint32_t n;
+		std::string   name;
+		bool          isPerkSound = false;
+	};
+
+	// one sound, start to end, on its own thread: read, check, play, wait for the end, close
+	std::uint32_t SoundThread(void* a_sound)
+	{
+		const std::unique_ptr<Sound> sound(static_cast<Sound*>(a_sound));
+		const auto                   start = std::chrono::steady_clock::now();
+		const auto                   ms = [&]() {
+			return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+		};
+		const auto line = [&](std::string_view a_result, const std::string& a_more) {
+			if (++g_soundLines <= kMaxSoundLines) {
+				REX::INFO("step=sound n={} name={} result={}{}", sound->n, sound->name, a_result, a_more);
+			}
+		};
+		const auto end = [&](std::string_view a_result, const std::string& a_more) {
+			line(a_result, a_more);
+			--g_soundsPlaying;
+			return 0u;
+		};
+		std::ifstream in(g_soundDir / (sound->name + ".wav"), std::ios::binary | std::ios::ate);
+		if (!in) {
+			return end("missing", std::format(" file={}/{}.wav", kSoundFolder, sound->name));
+		}
+		const auto size = static_cast<std::streamoff>(in.tellg());
+		if (size <= 0 || static_cast<std::size_t>(size) > kMaxSoundBytes) {
+			return end("bad_size", std::format(" bytes={}", static_cast<long long>(size)));
+		}
+		std::vector<char> file(static_cast<std::size_t>(size));
+		in.seekg(0);
+		if (!in.read(file.data(), size)) {
+			return end("unreadable", "");
+		}
+		WaveFormat  wave{};
+		std::size_t at = 0;
+		std::size_t bytes = 0;
+		if (const auto why = WaveProblem(file, wave, at, bytes); !why.empty()) {
+			return end(why, "");
+		}
+		const auto length = bytes * 1000 / wave.bytesPerSecond;
+		void*      out = nullptr;
+		if (const auto r = W32_IMPL_waveOutOpen(&out, kWaveMapper, &wave, std::uintptr_t{ 0 }, std::uintptr_t{ 0 }, 0u); r != 0) {
+			return end("open_failed", std::format(" mmresult={}", r));
+		}
+		if (sound->isPerkSound) {
+			std::scoped_lock lock(g_perkSoundLock);
+			if (g_activePerkWaveOut) {
+				W32_IMPL_waveOutReset(g_activePerkWaveOut);
+			}
+			g_activePerkWaveOut = out;
+		}
+		WaveHeader header{};
+		header.data = file.data() + at;
+		header.length = static_cast<std::uint32_t>(bytes);
+		auto r = W32_IMPL_waveOutPrepareHeader(out, &header, static_cast<std::uint32_t>(sizeof header));
+		if (r == 0) {
+			r = W32_IMPL_waveOutWrite(out, &header, static_cast<std::uint32_t>(sizeof header));
+		}
+		if (r == 0) {
+			line("start", std::format(" rate={} channels={} ms={} playing={}", wave.rate, wave.channels, length, g_soundsPlaying.load()));
+			const std::atomic_ref<std::uint32_t> flags(header.flags);   // Windows sets WHDR_DONE from its own thread
+			while (!(flags.load() & kWaveHeaderDone) && ms() < static_cast<long long>(length) + 2000) {
+				REX::W32::Sleep(20);
+			}
+		}
+		if (sound->isPerkSound) {
+			std::scoped_lock lock(g_perkSoundLock);
+			if (g_activePerkWaveOut == out) {
+				g_activePerkWaveOut = nullptr;
+			}
+		}
+		W32_IMPL_waveOutReset(out);
+		W32_IMPL_waveOutUnprepareHeader(out, &header, static_cast<std::uint32_t>(sizeof header));
+		W32_IMPL_waveOutClose(out);
+		return r == 0 ? end("end", std::format(" took_ms={}", ms())) : end("write_failed", std::format(" mmresult={}", r));
+	}
+
+	bool StopActivePerkSound()
+	{
+		std::scoped_lock lock(g_perkSoundLock);
+		if (!g_activePerkWaveOut) {
+			return false;
+		}
+		W32_IMPL_waveOutReset(g_activePerkWaveOut);
+		g_activePerkWaveOut = nullptr;
+		return true;
+	}
+
+	// the stand-in's PlaySound with CodeObjSound=1: its first argument names the file (1 to 64 letters, digits and _)
+	void StartSound(std::uint32_t a_n, const RE::Scaleform::GFx::Value* a_arg, bool a_isPerkSound = false)
+	{
+		std::string name = a_arg && a_arg->IsString() ? std::string(a_arg->GetString()) : std::string();
+		const bool  ok = !name.empty() && name.size() <= kMaxName && std::ranges::all_of(name, [](char a_c) {
+			return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') || (a_c >= '0' && a_c <= '9') || a_c == '_';
+		});
+		if (!ok) {
+			if (++g_soundLines <= kMaxSoundLines) {
+				REX::INFO("step=sound n={} result=bad_name", a_n);
+			}
+			return;
+		}
+		if (++g_soundsPlaying > kMaxSoundsPlaying) {
+			--g_soundsPlaying;
+			if (++g_soundLines <= kMaxSoundLines) {
+				REX::INFO("step=sound n={} name={} result=busy playing={}", a_n, name, kMaxSoundsPlaying);
+			}
+			return;
+		}
+		auto       sound = std::make_unique<Sound>(Sound{ a_n, std::move(name), a_isPerkSound });
+		const auto thread = REX::W32::CreateThread(nullptr, 0, &SoundThread, sound.get(), 0, nullptr);
+		if (!thread) {
+			--g_soundsPlaying;
+			REX::INFO("step=sound n={} name={} result=no_thread", a_n, sound->name);
+			return;
+		}
+		sound.release();   // the thread owns it now
+		REX::W32::CloseHandle(thread);
+	}
+
+	// FAL-614 S1-c: one argument of a stand-in call as logged: a string's first 64 characters, a boolean or a number after
+	// '#' (#true, #2), else its type (type<n>: an object such as the shell's DataObj, null, undefined)
+	std::string ArgText(const RE::Scaleform::GFx::Value& a_arg)
+	{
+		if (a_arg.IsString()) {
+			return std::string(a_arg.GetString()).substr(0, kMaxCodeArg);
+		}
+		if (a_arg.IsBoolean()) {
+			return a_arg.GetBoolean() ? "#true" : "#false";
+		}
+		if (a_arg.IsInt()) {
+			return std::format("#{}", a_arg.GetInt());
+		}
+		if (a_arg.IsUInt()) {
+			return std::format("#{}", a_arg.GetUInt());
+		}
+		if (a_arg.IsNumber()) {
+			return std::format("#{}", a_arg.GetNumber());
+		}
+		return std::format("type{}", static_cast<int>(a_arg.GetType()));
+	}
+
+	// FAL-614 S1-c (CodeObjPages=1): the shell asks its engine for another page or tab (R1: TryToSetPage calls onNewPage,
+	// TryToSetTab onNewTab, through BGSExternalInterface; the index is taken to be the one argument, a **hypothesis** the
+	// code_call line shows). Noted here, on the menu's thread inside the shell's call, and answered at the menu's next
+	// kUpdate (ShellUpdate), after the shell's own call has returned
+	struct ShellVitalsSnapshot
+	{
+		bool                       ready = false;
+		double                     currHp = 100.0;
+		double                     maxHp = 100.0;
+		double                     currAp = 100.0;
+		double                     maxAp = 100.0;
+		std::uint32_t              xpLevel = 1;
+		double                     xpProgressPct = 0.0;
+		double                     currWeight = 0.0;
+		double                     maxWeight = 150.0;
+		std::uint32_t              caps = 0;
+		std::string                playerName = "Sole Survivor";
+		std::uint32_t              dateMonth = 10;
+		std::uint32_t              dateDay = 23;
+		std::uint32_t              dateYear = 287;   // DateYear = year - 2000 (fixes 10.23.22287 -> 10.23.2287)
+		double                     timeHour = 9.0;
+		std::string                locationName = "Commonwealth";
+		std::uint32_t              stimpakCount = 0;
+		std::uint32_t              radawayCount = 0;
+		std::array<double, 6>      limbCondition{ 100.0, 100.0, 100.0, 100.0, 100.0, 100.0 };
+		std::uint32_t              headFlags = 0;
+		std::uint32_t              bodyFlags = 0;
+		double                     rads = 0.0;
+		double                     damageResist = 0.0;
+		double                     energyResist = 0.0;
+		double                     radResist = 0.0;
+		std::array<std::int32_t, 7> special{ 5, 5, 5, 5, 5, 5, 5 };
+		std::string                specialSource = "fallback";
+		std::uint32_t              stimpakFormId = 0;
+		std::uint32_t              radawayFormId = 0;
+	};
+	std::mutex                  g_shellSnapLock;
+	ShellVitalsSnapshot         g_shellSnap;
+	const void*                 g_activeShellMenu = nullptr;
+
+	using ShellAvCall_t = float (*)(void*, const void*);
+	using ShellLookupEdid_t = void* (*)(const RE::BSFixedString&);
+
+	bool ReadShellActorValue(std::uintptr_t a_avif, float& a_out)
+	{
+		if (!a_avif || !g_forms.getActorValue) {
+			return false;
+		}
+		const auto     player = Singleton(kPlayerSingleton);
+		std::uintptr_t vtable = 0;
+		if (!player || !Peek(player + g_forms.ownerOffset, vtable) || vtable != g_forms.ownerVtable) {
+			return false;
+		}
+		const float v = reinterpret_cast<ShellAvCall_t>(g_forms.getActorValue)(
+			reinterpret_cast<void*>(player + g_forms.ownerOffset), reinterpret_cast<const void*>(a_avif));
+		if (!std::isfinite(v)) {
+			return false;
+		}
+		a_out = v;
+		return true;
+	}
+
+	std::uintptr_t LookupFormByEditorIdChecked(const char* a_editorId, std::string_view a_rttiTail)
+	{
+		const std::uint32_t rva = g_shellLookupEditorIdRva ? g_shellLookupEditorIdRva : g_armLookupRva;
+		if (!rva || !a_editorId || !*a_editorId) {
+			return 0;
+		}
+		static std::unordered_map<std::string, RE::BSFixedString*> interned;
+		auto it = interned.find(a_editorId);
+		if (it == interned.end()) {
+			it = interned.emplace(a_editorId, new RE::BSFixedString(a_editorId)).first;
+		}
+		const auto form = reinterpret_cast<std::uintptr_t>(
+			reinterpret_cast<ShellLookupEdid_t>(g_base + rva)(*it->second));
+		ObjectType t;
+		return (form && IsType(form, a_rttiTail, t)) ? form : 0;
+	}
+
+	void ShellCalendarFromDays(float a_daysPassed, std::uint32_t& a_month, std::uint32_t& a_day, std::uint32_t& a_yearShort)
+	{
+		static constexpr std::array<int, 12> kMonthDays{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+		int total = std::max(0, static_cast<int>(std::floor(a_daysPassed)));
+		int y = 2287;
+		int m = 9;   // October 23, 2287
+		int d = 23 + total;
+		while (d > kMonthDays[static_cast<std::size_t>(m)]) {
+			d -= kMonthDays[static_cast<std::size_t>(m)];
+			if (++m == 12) {
+				m = 0;
+				++y;
+			}
+		}
+		a_month = static_cast<std::uint32_t>(m + 1);
+		a_day = static_cast<std::uint32_t>(d);
+		a_yearShort = static_cast<std::uint32_t>(y >= 2000 ? (y - 2000) : y);
+	}
+
+	std::string CleanDisplayName(const std::string& a_formatted)
+	{
+		if (a_formatted.empty() || a_formatted == "?" || a_formatted.starts_with("NO NAME")) {
+			return {};
+		}
+		const auto paren = a_formatted.rfind(" (");
+		if (paren != std::string::npos && a_formatted.back() == ')' && paren + 11 == a_formatted.size()) {
+			return a_formatted.substr(0, paren);
+		}
+		return a_formatted;
+	}
+
+	struct ShellInvEntry
+	{
+		std::uint32_t nodeId = 0;
+		std::uint32_t invIndex = 0;
+		std::uint32_t formId = 0;
+		std::uint8_t  formType = 0;
+		std::string   name;
+		std::uint32_t count = 1;
+		std::uint32_t equipState = 0;
+		std::uint32_t filterFlag = 0x08u;
+		double        weight = 0.0;
+		std::int32_t  value = 0;
+		std::int32_t  favorite = -1;
+		bool          canFavorite = false;
+	};
+
+	struct ShellObjectiveEntry
+	{
+		std::uint16_t number = 0;
+		std::uint8_t  state = 1;   // 1 = shown/active, 3 = completed
+		std::string   text;
+	};
+
+	struct ShellQuestEntry
+	{
+		std::uint32_t                    formId = 0;
+		std::string                      name;
+		std::string                      description;
+		bool                             completed = false;
+		bool                             active = true;
+		std::int32_t                     sortVal = 0;
+		std::vector<ShellObjectiveEntry> objectives;
+	};
+
+	struct ShellWorkshopEntry
+	{
+		std::string   name;
+		std::int32_t  mapMarkerId = -1;
+		std::array<std::int32_t, 7> values{ 5, 80, 6, 6, 5, 8, 6 };
+	};
+
+	struct ShellStatCategory
+	{
+		std::string                                      name;
+		std::vector<std::pair<std::string, std::string>> rows;
+	};
+
+	struct ShellInvDataSnapshot
+	{
+		std::vector<ShellInvEntry>      items;
+		std::uint64_t                   totalItemCount = 0;
+		std::vector<ShellQuestEntry>    quests;
+		std::vector<ShellWorkshopEntry> workshops;
+		std::vector<ShellStatCategory>  statCategories;
+	};
+	std::mutex                         g_invDataLock;
+	ShellInvDataSnapshot               g_invDataSnap;
+	std::array<std::int32_t, 7>        g_invSelectedPerTab{ 0, 0, 0, 0, 0, 0, 0 };
+	std::array<std::uint32_t, 12>      g_quickkeyFormIds{};
+	std::set<std::uint32_t>            g_inactiveQuestFormIds;
+	std::set<std::uint32_t>            g_taggedComponentFormIds;
+
+	void SortShellInvEntries(std::vector<ShellInvEntry>& a_items, std::uint32_t a_sortMode)
+	{
+		std::ranges::stable_sort(a_items, [a_sortMode](const ShellInvEntry& a, const ShellInvEntry& b) {
+			if (a_sortMode == 1u) {   // Type / Equip state
+				if (a.equipState != b.equipState) {
+					return a.equipState > b.equipState;
+				}
+				if (a.filterFlag != b.filterFlag) {
+					return a.filterFlag < b.filterFlag;
+				}
+			} else if (a_sortMode == 2u) {   // Weight descending
+				if (std::abs(a.weight - b.weight) > 1e-4) {
+					return a.weight > b.weight;
+				}
+			} else if (a_sortMode == 3u) {   // Value descending
+				if (a.value != b.value) {
+					return a.value > b.value;
+				}
+			}
+			return a.name < b.name;
+		});
+		for (std::uint32_t idx = 0; idx < a_items.size(); ++idx) {
+			a_items[idx].nodeId = idx;
+		}
+	}
+
+	std::uint32_t InvFilterFlagForForm(std::uintptr_t a_obj, const ObjectType& a_type, std::uint8_t a_formType)
+	{
+		switch (a_formType) {
+		case 0x30: return 1u << 0;   // kWEAP -> Weapons (tab 0)
+		case 0x22: return 1u << 1;   // kARMO -> Apparel (tab 1)
+		case 0x36:                   // kALCH -> Aid (tab 2)
+		case 0x26: return 1u << 2;   // kINGR -> Aid (tab 2)
+		case 0x98: return 1u << 5;   // kOMOD -> Mods (tab 5)
+		case 0x31: return 1u << 6;   // kAMMO -> Ammo (tab 6)
+		case 0x9F: return 1u << 4;   // kIRES (BGSResource) -> Junk (tab 4)
+		case 0x28:                   // kMISC
+		case 0x23:                   // kBOOK
+		case 0x35:                   // kKEYM
+		case 0x39:                   // kNOTE
+		case 0x3D:                   // kSLGM
+		{
+			if (a_formType == 0x28) {
+				std::uintptr_t edEntry = 0;
+				std::string    edid;
+				if (Peek(a_obj + 0x30, edEntry) && ReadPoolString(edEntry, edid)) {
+					if (edid.find("Junk") != std::string::npos || edid.find("junk") != std::string::npos ||
+						edid.find("Scrap") != std::string::npos || edid.find("scrap") != std::string::npos) {
+						return 1u << 4;   // Junk (tab 4)
+					}
+				}
+			}
+			(void)a_type;
+			return 1u << 3;   // Misc (tab 3)
+		}
+		default:
+			return 0u;
+		}
+	}
+
+	std::string ReadObjectiveDisplayText(std::uintptr_t a_objective, std::uint16_t a_number)
+	{
+		for (const std::size_t off : { std::size_t{ 0x00 }, std::size_t{ 0x08 }, std::size_t{ 0x10 } }) {
+			std::uintptr_t entry = 0;
+			std::string    txt;
+			if (!Peek(a_objective + off, entry) || !entry || !ReadPoolString(entry, txt) || txt.size() < 2 || txt.size() > 120) {
+				continue;
+			}
+			const bool printable = std::ranges::all_of(txt, [](unsigned char c) { return c >= 0x20 && c < 0x7F; });
+			if (printable) {
+				return txt;
+			}
+		}
+		return std::format("Objective {}", a_number);
+	}
+
+	std::uintptr_t ShellFormLookup(std::uint32_t a_formId)
+	{
+		if (!a_formId || !g_rva[kLookupById]) {
+			return 0;
+		}
+		return reinterpret_cast<std::uintptr_t>(reinterpret_cast<LookupById_t>(Address(kLookupById))(a_formId));
+	}
+
+	void CollectQuestAndStatsMainThread(const ShellVitalsSnapshot& a_vitals, float a_daysPassed, ShellInvDataSnapshot& a_out)
+	{
+		std::set<std::uint32_t> inactiveCopy;
+		{
+			std::scoped_lock lock(g_invDataLock);
+			inactiveCopy = g_inactiveQuestFormIds;
+		}
+
+		const auto handler = Singleton(kDataHandlerSingleton);
+		ObjectType hType;
+		std::set<std::uint32_t> seenQuests;
+		bool workshopPluginLoaded = false;
+
+		const auto tryQuestForm = [&](std::uint32_t a_fid) {
+			if (!a_fid || seenQuests.contains(a_fid)) {
+				return;
+			}
+			const auto form = ShellFormLookup(a_fid);
+			ObjectType qType;
+			if (!form || !IsType(form, "TESQuest@@", qType)) {
+				return;
+			}
+			std::uint16_t qFlags = 0;
+			if (!Peek(form + kQuestFlagsAt, qFlags)) {
+				return;
+			}
+			ArrayHead head{};
+			std::vector<ShellObjectiveEntry> objs;
+			if (Peek(form + kQuestObjectivesAt, head) && head.size <= head.capacity && head.size <= kQuestObjectivesMax &&
+				(!head.size || head.data)) {
+				for (std::uint32_t oi = 0; oi < head.size; ++oi) {
+					std::uintptr_t objPtr = 0;
+					std::uintptr_t owner = 0;
+					std::uint16_t  num = 0;
+					std::uint8_t   st = 0;
+					if (Peek(head.data + 8ull * oi, objPtr) && objPtr &&
+						Peek(objPtr + kObjectiveOwnerAt, owner) && owner == form &&
+						Peek(objPtr + kObjectiveNumberAt, num) && Peek(objPtr + kObjectiveStateAt, st) &&
+						(st == 1 || st == 3)) {
+						objs.push_back({ num, st, ReadObjectiveDisplayText(objPtr, num) });
+					}
+				}
+			}
+			const bool running = (qFlags & 0x0001u) != 0;
+			const bool completed = (qFlags & 0x0002u) != 0;
+			if (!running && !completed && objs.empty()) {
+				return;
+			}
+			std::string qName;
+			if (const auto fnAt = BaseOffset(qType, "TESFullName@@"); fnAt && CheckSubobject(form, qType, *fnAt)) {
+				std::uintptr_t fnEntry = 0;
+				if (Peek(form + *fnAt + kFullNameAt, fnEntry)) {
+					ReadPoolString(fnEntry, qName);
+				}
+			}
+			if (qName.empty()) {
+				qName = EditorIdOf(form, "TESQuest@@", 0x30);
+			}
+			if (qName.empty() || qName.find("_Probe") != std::string::npos || qName.find("_Bootstrap") != std::string::npos) {
+				if (objs.empty() && qName.find("FO4SF_") == 0) {
+					return;   // Skip silent internal utility quests with no display name and no shown objectives
+				}
+				if (qName.empty()) {
+					qName = std::format("Quest {:08X}", a_fid);
+				}
+			}
+			seenQuests.insert(a_fid);
+			ShellQuestEntry qe;
+			qe.formId = a_fid;
+			qe.name = std::move(qName);
+			qe.completed = completed && !running;
+			qe.active = !qe.completed && !inactiveCopy.contains(a_fid);
+			qe.sortVal = qe.completed ? 1 : 0;
+			qe.objectives = std::move(objs);
+			qe.description = qe.objectives.empty() ? std::string{} : qe.objectives.front().text;
+			a_out.quests.push_back(std::move(qe));
+		};
+
+		if (IsType(handler, "TESDataHandler@@", hType)) {
+			for (std::size_t kind = 0; kind < 3; ++kind) {
+				ArrayHead files{};
+				if (!Peek(handler + kFileCollectionAt + kind * 0x10, files) || files.size > files.capacity ||
+					files.size > kKitMaxFiles || (files.size && !files.data)) {
+					continue;
+				}
+				for (std::uint32_t fi = 0; fi < files.size; ++fi) {
+					std::uintptr_t                  file = 0;
+					ObjectType                      fileType;
+					std::array<char, kFileNameSize> fname{};
+					if (!Peek(files.data + fi * sizeof(std::uintptr_t), file) || !file ||
+						!TypeOf(file, fileType) || !IsFileType(fileType) ||
+						!Peek(file + kFileNameAt, fname.data(), fname.size())) {
+						continue;
+					}
+					const std::string_view sv(fname.data(), strnlen(fname.data(), fname.size()));
+					if (sv.size() < 6 || !(SameText(sv.substr(0, 5), "FO4SF") || SameText(sv.substr(0, 7), "FO4Core"))) {
+						continue;
+					}
+					if (SameText(sv, "FO4SFWorkshop.esm")) {
+						workshopPluginLoaded = true;
+					}
+					std::uint8_t                compile = 0;
+					std::array<std::uint8_t, 4> fidx{};
+					Peek(file + kFileCompileIndexAt, compile);
+					Peek(file + kFileIndexAt, fidx.data(), fidx.size());
+					const std::uint32_t smallIdx = fidx[2] | (fidx[3] << 8);
+					for (std::uint32_t localId = 0x800; localId <= 0x8FF; ++localId) {
+						std::uint32_t fid = 0;
+						if (kind == 0) {
+							const std::uint8_t topByte = compile != 0xFF && compile != 0 ? compile : fidx[0];
+							if (topByte == 0 || topByte >= 0xFE) {
+								continue;
+							}
+							fid = (std::uint32_t{ topByte } << 24) | localId;
+						} else if (kind == 1) {
+							fid = 0xFE000000u | ((smallIdx & 0xFFF) << 12) | (localId & 0xFFF);
+						} else {
+							fid = 0xFD000000u | (std::uint32_t{ fidx[1] } << 16) | (localId & 0xFFFF);
+						}
+						tryQuestForm(fid);
+					}
+				}
+			}
+		}
+
+		std::ranges::stable_sort(a_out.quests, [](const ShellQuestEntry& a, const ShellQuestEntry& b) {
+			if (a.completed != b.completed) {
+				return !a.completed;
+			}
+			return a.name < b.name;
+		});
+
+		// PLACEHOLDER (A13): WorkshopsList is a fixed static placeholder row when FO4SFWorkshop.esm is loaded; not live settlement data
+		if (workshopPluginLoaded) {
+			ShellWorkshopEntry ws;
+			ws.name = "Sanctuary Hills (Placeholder)";
+			ws.mapMarkerId = 0;
+			ws.values = { 5, 80, 6, 6, 5, 8, 6 };
+			a_out.workshops.push_back(std::move(ws));
+		}
+
+		std::size_t activeQuests = 0;
+		std::size_t completedQuests = 0;
+		for (const auto& q : a_out.quests) {
+			q.completed ? ++completedQuests : ++activeQuests;
+		}
+		a_out.statCategories = {
+			{ "General", {
+				{ "Days Passed", std::format("{}", std::max(0, static_cast<int>(std::floor(a_daysPassed)))) },
+				{ "Caps Carried", std::format("{}", a_vitals.caps) },
+				{ "Items Carried", std::format("{}", a_out.totalItemCount) },
+				{ "Stimpaks Carried", std::format("{}", a_vitals.stimpakCount) },
+			} },
+			{ "Quest", {
+				{ "Active Quests", std::format("{}", activeQuests) },
+				{ "Quests Completed", std::format("{}", completedQuests) },
+			} },
+			{ "Combat", {
+				{ "Player Level", std::format("{}", a_vitals.xpLevel) },
+				{ "Radiation (RADS)", std::format("{:.0f}", a_vitals.rads) },
+			} },
+		};
+	}
+
+	void LogCoreValueResolve(std::string_view a_name, std::uint32_t a_localId, std::uint32_t a_resolvedFormId)
+	{
+		REX::INFO("step=core_value_resolve name={} source=FO4SFCoreValues.esm:{:06X} found={} form={:08X}",
+			a_name, a_localId, a_resolvedFormId ? 1 : 0, a_resolvedFormId);
+	}
+
+	// Main thread only: collects player vitals, S.P.E.C.I.A.L. (FO4SFCoreValues.esm 0x810..0x816), Rads (0x800),
+	// Stimpak/RadAway/Caps counts, limb conditions, and (only when a_targetPage == 3) MAP state before kShow / throttled update
+	void CollectShellVitalsMainThread(std::uint32_t a_targetPage)
+	{
+		if ((!g_codeObj && !g_specialMenu) || !g_shellExtraIdsReady) {
+			PipboyMap::CollectStateForPage(static_cast<std::int32_t>(a_targetPage));
+			return;
+		}
+		PageScan();
+		FindGlobalValue();
+
+		static bool                         extraResolved = false;
+		static bool                         radsFormLogged = false;
+		static bool                         specialLogged = false;
+		static std::uintptr_t               oxygenAvif = 0;
+		static std::uintptr_t               drAvif = 0;
+		static std::uintptr_t               erAvif = 0;
+		static std::uintptr_t               rrAvif = 0;
+		static std::uintptr_t               hardcoreBlockedGlob = 0;
+		static std::array<std::uintptr_t, 6> limbAvifs{};
+		static std::array<std::uintptr_t, 7> specialAvifs{};
+		static std::string                  resolvedSpecialSource = "fallback";
+		static std::uint32_t                stimpakId = 0;
+		static std::uint32_t                radawayId = 0;
+		static double                       highWaterHp = 100.0;
+		static double                       highWaterAp = 100.0;
+
+		if (!extraResolved) {
+			extraResolved = true;
+			AcceptById(kOxygenAvifId, "Oxygen", "ActorValueInfo@@", kAvifEditorIdAt, oxygenAvif);
+			AcceptById(kDamageResistAvifId, "DamageResist", "ActorValueInfo@@", kAvifEditorIdAt, drAvif);
+			AcceptById(kEnergyResistAvifId, "EnergyResist", "ActorValueInfo@@", kAvifEditorIdAt, erAvif);
+			for (std::size_t i = 0; i < kLimbConditionAvifIds.size(); ++i) {
+				AcceptById(kLimbConditionAvifIds[i], "LimbCondition", "ActorValueInfo@@", kAvifEditorIdAt, limbAvifs[i]);
+			}
+			std::string radsDetail;
+			const auto  radsStoreId = KitFileForm("FO4SFCoreValues.esm", kRadsLocalId, "ActorValueInfo@@", radsDetail);
+			if (radsStoreId) {
+				AcceptById(radsStoreId, "FO4SF_Rads", "ActorValueInfo@@", kAvifEditorIdAt, g_forms.rads);
+			}
+			LogCoreValueResolve("FO4SF_Rads", kRadsLocalId, g_forms.rads ? radsStoreId : 0u);
+
+			std::string detail;
+			const auto  rrId = KitFileForm("FO4SFCoreValues.esm", kCoreRadResistLocalId, "ActorValueInfo@@", detail);
+			if (rrId) {
+				AcceptById(rrId, "FO4SF_RadResist", "ActorValueInfo@@", kAvifEditorIdAt, rrAvif);
+			} else {
+				rrAvif = LookupFormByEditorIdChecked("FO4SF_RadResist", "ActorValueInfo@@");
+			}
+			LogCoreValueResolve("FO4SF_RadResist", kCoreRadResistLocalId, rrAvif ? rrId : 0u);
+
+			std::size_t fromCoreStore = 0;
+			std::size_t fromEditorId = 0;
+			std::size_t fromVanilla = 0;
+			for (std::size_t i = 0; i < kSpecialEditorIds.size(); ++i) {
+				std::string        spDetail;
+				const std::uint32_t spLocalId = kCoreSpecialFirstLocalId + static_cast<std::uint32_t>(i);
+				const auto         spId = KitFileForm("FO4SFCoreValues.esm", spLocalId, "ActorValueInfo@@", spDetail);
+				if (spId) {
+					AcceptById(spId, kSpecialEditorIds[i], "ActorValueInfo@@", kAvifEditorIdAt, specialAvifs[i]);
+					if (specialAvifs[i]) {
+						++fromCoreStore;
+					}
+				}
+				LogCoreValueResolve(kSpecialEditorIds[i], spLocalId, specialAvifs[i] ? spId : 0u);
+				if (!specialAvifs[i]) {
+					specialAvifs[i] = LookupFormByEditorIdChecked(kSpecialEditorIds[i], "ActorValueInfo@@");
+					if (specialAvifs[i]) {
+						++fromEditorId;
+					}
+				}
+				if (!specialAvifs[i]) {
+					// Fallback to Starfield AVIF 0x2C2..0x2C8 if FO4SFCoreValues.esm is absent in a standalone probe
+					AcceptById(0x2C2u + static_cast<std::uint32_t>(i), kSpecialNames[i], "ActorValueInfo@@", kAvifEditorIdAt, specialAvifs[i]);
+					if (specialAvifs[i]) {
+						++fromVanilla;
+					}
+				}
+			}
+			if (fromCoreStore == 7) {
+				resolvedSpecialSource = "FO4SFCoreValues.esm";
+			} else if (fromCoreStore + fromEditorId == 7) {
+				resolvedSpecialSource = "LookupByEditorID";
+			} else if (fromVanilla > 0) {
+				resolvedSpecialSource = "Starfield.esm";
+			}
+			std::string stimDetail;
+			stimpakId = KitFileForm("FO4SFCoreValues.esm", kCoreStimpakLocalId, "AlchemyItem@@", stimDetail);
+			LogCoreValueResolve("FO4SF_Stimpak", kCoreStimpakLocalId, stimpakId);
+			if (!stimpakId) {
+				if (const auto f = LookupFormByEditorIdChecked("FO4SF_Stimpak", "AlchemyItem@@")) {
+					Peek(f + kFormIdAt, stimpakId);
+				}
+			}
+			std::string radDetail;
+			radawayId = KitFileForm("FO4SFRads.esm", kRadsRadawayLocalId, "AlchemyItem@@", radDetail);
+			if (!radawayId) {
+				if (const auto f = LookupFormByEditorIdChecked("FO4SF_RadAway", "AlchemyItem@@")) {
+					Peek(f + kFormIdAt, radawayId);
+				}
+			}
+			std::string hcDetail;
+			const auto  hcId = KitFileForm("FO4SFCoreValues.esm", kCoreHardcoreFastTravelBlockedId, "TESGlobal@@", hcDetail);
+			if (hcId) {
+				AcceptById(hcId, "FO4SF_HardcoreFastTravelBlocked", "TESGlobal@@", kGlobalEditorIdAt, hardcoreBlockedGlob);
+			}
+			LogCoreValueResolve("FO4SF_HardcoreFastTravelBlocked", kCoreHardcoreFastTravelBlockedId, hardcoreBlockedGlob ? hcId : 0u);
+		}
+
+		bool hcBlocked = false;
+		if (hardcoreBlockedGlob) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			float             hcVal = 0.0f;
+			if (Peek(hardcoreBlockedGlob + valAt, hcVal) && std::isfinite(hcVal)) {
+				hcBlocked = hcVal >= 0.5f;
+			}
+		}
+		g_shellHardcoreFastTravelBlocked.store(hcBlocked);
+
+		if (!g_forms.rads) {
+			g_forms.rads = LookupFormByEditorIdChecked("FO4SF_Rads", "ActorValueInfo@@");
+		}
+		if (g_forms.rads && !radsFormLogged) {
+			std::uint32_t radsFid = 0;
+			if (Peek(g_forms.rads + kFormIdAt, radsFid) && radsFid != 0) {
+				radsFormLogged = true;
+				REX::INFO("step=shell_rads_form editor_id=FO4SF_Rads form={:08X}", radsFid);
+			}
+		}
+
+		ShellVitalsSnapshot next;
+		next.ready = true;
+		next.specialSource = resolvedSpecialSource;
+		next.stimpakFormId = stimpakId;
+		next.radawayFormId = radawayId;
+
+		ShellInvDataSnapshot invDataNext;
+		std::array<std::uint32_t, 12> quickkeysCopy{};
+		{
+			std::scoped_lock lock(g_invDataLock);
+			quickkeysCopy = g_quickkeyFormIds;
+		}
+
+		// 1. S.P.E.C.I.A.L. (7 values, safe fallback 5)
+		std::string spSummary;
+		for (std::size_t i = 0; i < 7; ++i) {
+			float sv = 5.0f;
+			int   iv = 5;
+			if (ReadShellActorValue(specialAvifs[i], sv) && sv >= 1.0f && sv <= 99.0f) {
+				iv = static_cast<int>(std::lround(sv));
+			}
+			next.special[i] = iv;
+			if (!specialLogged) {
+				std::uint32_t sfid = 0;
+				if (specialAvifs[i]) {
+					Peek(specialAvifs[i] + kFormIdAt, sfid);
+				}
+				spSummary += std::format("{}{}:{}:{:08X}", i ? "," : "", kSpecialNames[i], iv, sfid);
+			}
+		}
+		if (!specialLogged) {
+			specialLogged = true;
+			REX::INFO("step=shell_special values={}", spSummary);
+		}
+
+		// 2. Player Level, Name, XPProgressPct (0..1), Inventory & Aid counts
+		double carriedWeight = 0.0;
+		if (CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			const auto     player = Singleton(kPlayerSingleton);
+			std::uintptr_t base = 0;
+			ObjectType     npcType;
+			if (Peek(player + kBaseObjectAt, base) && IsType(base, "TESNPC@@", npcType)) {
+				if (const auto at = BaseOffset(npcType, "TESActorBaseData@@"); at && CheckSubobject(base, npcType, *at)) {
+					std::uint16_t lvl = 1;
+					if (Peek(base + *at + kLevelAt, lvl) && lvl >= 1) {
+						next.xpLevel = lvl;
+					}
+				}
+				const auto nm = CleanDisplayName(NameText("player_name", base, npcType));
+				if (!nm.empty()) {
+					next.playerName = nm;
+				}
+			}
+
+			// Inventory scan: Caps (0xF), FO4SF_Stimpak, FO4SF_RadAway, and UI-2 InvItems (Fallout items only)
+			std::uint32_t  fo4StimpakCount = 0;
+			std::uintptr_t invList = 0;
+			ObjectType     listType;
+			ArrayHead      items{};
+			if (Peek(player + kInventoryListAt, invList) && IsType(invList, "BGSInventoryList@@", listType) &&
+				Peek(invList + kInventoryDataAt, items) && items.size <= items.capacity && items.size <= kKitMaxItems &&
+				(!items.size || items.data)) {
+				for (std::uint32_t i = 0; i < items.size; ++i) {
+					const auto     item = items.data + i * kInventoryItemSize;
+					std::uintptr_t obj = 0;
+					ObjectType     objType;
+					if (!Peek(item, obj) || !obj || !TypeOf(obj, objType)) {
+						continue;
+					}
+					std::uint32_t fid = 0;
+					if (!Peek(obj + kFormIdAt, fid) || !fid) {
+						continue;
+					}
+					const bool isAidOrCaps = (fid == kCreditsFormId || (stimpakId && fid == stimpakId) ||
+					                          (radawayId && fid == radawayId));
+					if (!isAidOrCaps && !g_invDataAnswers) {
+						continue;
+					}
+					ArrayHead     stacks{};
+					std::uint64_t total = 0;
+					bool          okStacks = Peek(item + kItemStacksAt, stacks) && stacks.size <= stacks.capacity &&
+					                         stacks.size <= kKitMaxItems && (!stacks.size || stacks.data);
+					for (std::uint32_t s = 0; okStacks && s < stacks.size; ++s) {
+						std::uint32_t cnt = 0;
+						okStacks = Peek(stacks.data + s * kStackSize + kStackCountAt, cnt);
+						total += cnt;
+					}
+					if (!okStacks || total == 0) {
+						continue;
+					}
+					const auto clamped = static_cast<std::uint32_t>(std::min<std::uint64_t>(total, 999999999ull));
+					if (fid == kCreditsFormId) {
+						next.caps += clamped;
+						continue;
+					}
+					if (stimpakId && fid == stimpakId) {
+						fo4StimpakCount += clamped;
+					} else if (radawayId && fid == radawayId) {
+						next.radawayCount += clamped;
+					}
+
+					if (g_invDataAnswers && BaseOffset(objType, "TESBoundObject@@")) {
+						std::uint8_t ftype = 0;
+						Peek(obj + kFormTypeAt, ftype);
+						const auto filterFlag = InvFilterFlagForForm(obj, objType, ftype);
+						if (filterFlag != 0) {
+							std::string itemName;
+							if (const auto fnAt = BaseOffset(objType, "TESFullName@@"); fnAt && CheckSubobject(obj, objType, *fnAt)) {
+								std::uintptr_t fnEntry = 0;
+								if (Peek(obj + *fnAt + kFullNameAt, fnEntry)) {
+									ReadPoolString(fnEntry, itemName);
+								}
+							}
+							if (itemName.empty()) {
+								continue;   // Skip nameless internal token forms
+							}
+							float itemWt = 0.0f;
+							if (const auto wtAt = BaseOffset(objType, "TESWeightForm@@"); wtAt && CheckSubobject(obj, objType, *wtAt)) {
+								float rawWt = 0.0f;
+								if (Peek(obj + *wtAt + 0x08, rawWt) && std::isfinite(rawWt) && rawWt >= 0.0f) {
+									itemWt = rawWt;
+								}
+							}
+							std::int32_t itemVal = 0;
+							if (const auto valAt = BaseOffset(objType, "TESValueForm@@"); valAt && CheckSubobject(obj, objType, *valAt)) {
+								std::int32_t rawVal = 0;
+								if (Peek(obj + *valAt + 0x08, rawVal) && rawVal >= 0) {
+									itemVal = rawVal;
+								}
+							}
+							std::uint32_t itemFlags = 0;
+							const bool equipped = Peek(item + kItemFlagsAt, itemFlags) && (itemFlags & 0x7u) != 0;
+							std::int32_t favSlot = -1;
+							for (std::size_t qs = 0; qs < quickkeysCopy.size(); ++qs) {
+								if (quickkeysCopy[qs] == fid) {
+									favSlot = static_cast<std::int32_t>(qs);
+									break;
+								}
+							}
+							const bool favAllowed = (ftype == 0x30 || ftype == 0x22 || ftype == 0x36 || ftype == 0x26);
+							carriedWeight += static_cast<double>(itemWt) * static_cast<double>(clamped);
+							invDataNext.totalItemCount += clamped;
+							invDataNext.items.push_back({
+								0u,
+								i,
+								fid,
+								ftype,
+								std::move(itemName),
+								clamped,
+								equipped ? 1u : 0u,
+								filterFlag,
+								static_cast<double>(itemWt),
+								itemVal,
+								favSlot,
+								favAllowed,
+							});
+						}
+					}
+				}
+			}
+			if (fo4StimpakCount > 0 && stimpakId != 0) {
+				next.stimpakCount = fo4StimpakCount;
+				next.stimpakFormId = stimpakId;
+			}
+		}
+
+		// 3. Health, AP, Rads, CarryWeight, XP, Limb conditions, Resists
+		float radsVal = 0.0f;
+		if (ReadShellActorValue(g_forms.rads, radsVal) && radsVal > 0.0f) {
+			next.rads = std::clamp(static_cast<double>(radsVal), 0.0, 1000.0);
+		}
+		float hpVal = 100.0f;
+		const double formulaMaxHp = std::max(80.0 + static_cast<double>(next.special[2]) * 5.0 +
+		                                         static_cast<double>(next.xpLevel - 1) * (static_cast<double>(next.special[2]) * 0.5 + 2.5),
+			1.0);
+		if (ReadShellActorValue(g_forms.health, hpVal)) {
+			next.currHp = std::max(0.0, static_cast<double>(hpVal));
+			highWaterHp = std::max({ highWaterHp, next.currHp, formulaMaxHp });
+			next.maxHp = std::max(1.0, highWaterHp);
+		} else {
+			next.maxHp = std::max(1.0, formulaMaxHp);
+			next.currHp = next.maxHp;
+		}
+
+		float apVal = 0.0f;
+		const double formulaMaxAp = std::max(60.0 + static_cast<double>(next.special[5]) * 10.0, 1.0);
+		if (ReadShellActorValue(oxygenAvif, apVal) && apVal > 0.0f) {
+			next.currAp = static_cast<double>(apVal);
+			highWaterAp = std::max({ highWaterAp, next.currAp, formulaMaxAp });
+			next.maxAp = std::max(1.0, highWaterAp);
+		} else {
+			next.maxAp = formulaMaxAp;
+			next.currAp = formulaMaxAp;
+		}
+
+		float cwVal = 0.0f;
+		if (ReadShellActorValue(g_forms.carryWeight, cwVal) && cwVal > 0.0f) {
+			next.maxWeight = static_cast<double>(cwVal);
+		} else {
+			next.maxWeight = std::max(1.0, 150.0 + static_cast<double>(next.special[0]) * 10.0);
+		}
+		next.currWeight = std::clamp(carriedWeight, 0.0, 99999.0);
+
+		float xpVal = 0.0f;
+		if (ReadShellActorValue(g_forms.experience, xpVal) && xpVal >= 0.0f) {
+			const double l = static_cast<double>(next.xpLevel);
+			const double xpStart = 37.5 * (l - 1.0) * l + 125.0 * (l - 1.0);
+			const double xpSpan = std::max(1.0, 75.0 * l + 125.0);
+			if (static_cast<double>(xpVal) >= xpStart) {
+				next.xpProgressPct = std::clamp((static_cast<double>(xpVal) - xpStart) / xpSpan, 0.0, 1.0);
+			} else {
+				next.xpProgressPct = std::clamp(static_cast<double>(xpVal) / xpSpan, 0.0, 1.0);
+			}
+		}
+
+		bool anyLimbCrippled = false;
+		for (std::size_t i = 0; i < 6; ++i) {
+			float lv = 100.0f;
+			if (ReadShellActorValue(limbAvifs[i], lv)) {
+				if (lv == 0.0f && next.currHp >= next.maxHp * 0.99) {
+					lv = 100.0f;
+				}
+				next.limbCondition[i] = std::clamp(static_cast<double>(lv), 0.0, 100.0);
+			} else {
+				next.limbCondition[i] = 100.0;
+			}
+			if (next.limbCondition[i] <= 0.5) {
+				anyLimbCrippled = true;
+			}
+		}
+		next.headFlags = (next.limbCondition[0] <= 0.5) ? 1u : 0u;
+		next.bodyFlags = anyLimbCrippled ? 1u : 0u;
+
+		float rv = 0.0f;
+		if (ReadShellActorValue(drAvif, rv) && rv > 0.0f) {
+			next.damageResist = static_cast<double>(rv);
+		}
+		if (ReadShellActorValue(erAvif, rv) && rv > 0.0f) {
+			next.energyResist = static_cast<double>(rv);
+		}
+		if (ReadShellActorValue(rrAvif, rv) && rv > 0.0f) {
+			next.radResist = static_cast<double>(rv);
+		}
+
+		// 4. Date (DateYear = year - 2000), TimeHour, CurrLocationName
+		float hour = 9.0f;
+		float days = 0.0f;
+		if (ReadTime(g_forms.globalValueAt, hour, days)) {
+			next.timeHour = std::clamp(static_cast<double>(hour), 0.0, 23.999);
+			ShellCalendarFromDays(days, next.dateMonth, next.dateDay, next.dateYear);
+		}
+		const auto [cellRaw, worldRaw] = PlaceText();
+		const auto cellClean = CleanDisplayName(cellRaw);
+		const auto worldClean = (worldRaw == "NONE (INTERIOR)") ? std::string{} : CleanDisplayName(worldRaw);
+		if (!cellClean.empty()) {
+			next.locationName = cellClean;
+		} else if (!worldClean.empty()) {
+			next.locationName = worldClean;
+		}
+
+		if (g_invDataAnswers) {
+			SortShellInvEntries(invDataNext.items, g_invSortMode);
+			CollectQuestAndStatsMainThread(next, days, invDataNext);
+			std::scoped_lock invLock(g_invDataLock);
+			g_invDataSnap = std::move(invDataNext);
+		}
+
+		bool changed = false;
+		{
+			std::scoped_lock lock(g_shellSnapLock);
+			changed = !g_shellSnap.ready ||
+			          std::abs(g_shellSnap.currHp - next.currHp) >= 0.5 ||
+			          std::abs(g_shellSnap.maxHp - next.maxHp) >= 0.5 ||
+			          std::abs(g_shellSnap.currAp - next.currAp) >= 0.5 ||
+			          std::abs(g_shellSnap.maxAp - next.maxAp) >= 0.5 ||
+			          std::abs(g_shellSnap.rads - next.rads) >= 0.5 ||
+			          std::abs(g_shellSnap.currWeight - next.currWeight) >= 0.1 ||
+			          std::abs(g_shellSnap.timeHour - next.timeHour) >= (1.0 / 60.0) ||
+			          g_shellSnap.xpLevel != next.xpLevel ||
+			          g_shellSnap.caps != next.caps ||
+			          g_shellSnap.stimpakCount != next.stimpakCount ||
+			          g_shellSnap.radawayCount != next.radawayCount ||
+			          g_shellSnap.dateDay != next.dateDay ||
+			          g_shellSnap.locationName != next.locationName ||
+			          g_shellSnap.special != next.special;
+			g_shellSnap = std::move(next);
+		}
+		if (changed && g_open.load()) {
+			g_pendingPartialMask.fetch_or(0x2u);
+		}
+		PipboyMap::CollectStateForPage(static_cast<std::int32_t>(a_targetPage));
+	}
+
+	struct RawObjectInstance
+	{
+		void*          object = nullptr;
+		std::uintptr_t instanceData = 0;
+	};
+	static_assert(sizeof(RawObjectInstance) == 0x10);
+
+	struct RawRemoveItemRequest
+	{
+		void*          object = nullptr;          // 00
+		std::uintptr_t instanceData = 0;          // 08
+		void*          extra = nullptr;           // 10
+		std::int32_t   inventoryIndex = -1;       // 18
+		std::int32_t   count = 1;                 // 1C
+		std::uint32_t  reason = 3;                // 20 (ITEM_TRANSFER_REASON::kDropping)
+		std::uint32_t  pad24 = 0;                 // 24
+		void*          moveTo = nullptr;          // 28
+		void*          dropLocation = nullptr;    // 30
+		void*          dropRotation = nullptr;    // 38
+	};
+	static_assert(sizeof(RawRemoveItemRequest) == 0x40);
+
+	using ObjInstanceCtor_t = RawObjectInstance* (*)(RawObjectInstance*, void*, void*);
+	using EquipObjectCall_t = bool (*)(void*, void*, const RawObjectInstance&, const void*, bool, bool, bool, bool, bool);
+	using UnequipObjectCall_t = bool (*)(void*, void*, const RawObjectInstance&, const void*, bool, bool, bool, bool, const void*);
+	using RefrRemoveItemCall_t = void (*)(void*, std::uint32_t&, const RawRemoveItemRequest&);
+
+	void ConsumePipboyAidMainThread(bool a_stimpak)
+	{
+		const char* const label = a_stimpak ? "stimpak" : "radaway";
+		if (!g_shellExtraIdsReady || !g_equipMgrSingletonRva || !g_equipObjectRva || !g_objInstanceCtorRva) {
+			REX::INFO("step=shell_aid kind={} result=ids_not_ready", label);
+			return;
+		}
+		CollectShellVitalsMainThread(s_savedPage.load());
+		ShellVitalsSnapshot snap;
+		{
+			std::scoped_lock lock(g_shellSnapLock);
+			snap = g_shellSnap;
+		}
+		const std::uint32_t count = a_stimpak ? snap.stimpakCount : snap.radawayCount;
+		const std::uint32_t fid = a_stimpak ? snap.stimpakFormId : snap.radawayFormId;
+		if (count == 0 || fid == 0) {
+			if (a_stimpak) {
+				REX::INFO("step=stat_use item={:08X} hp_before={:.0f} hp_after={:.0f} used=0 reason=none_in_inventory",
+					fid, snap.currHp, snap.currHp);
+			} else {
+				REX::INFO("step=stat_use item={:08X} rads_before={:.0f} rads_after={:.0f} used=0 reason=none_in_inventory",
+					fid, snap.rads, snap.rads);
+			}
+			return;
+		}
+		if (a_stimpak && snap.currHp >= snap.maxHp - 0.05) {
+			REX::INFO("step=stat_use item={:08X} hp_before={:.0f} hp_after={:.0f} used=0 reason=full_hp",
+				fid, snap.currHp, snap.currHp);
+			return;
+		}
+		const auto player = Singleton(kPlayerSingleton);
+		if (!player || !CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			REX::INFO("step=shell_aid kind={} result=no_player", label);
+			return;
+		}
+		std::uintptr_t equipMgr = 0;
+		ObjectType     mgrType;
+		if (!Peek(g_base + g_equipMgrSingletonRva, equipMgr) || !equipMgr || !IsType(equipMgr, "ActorEquipManager@@", mgrType)) {
+			REX::INFO("step=shell_aid kind={} result=no_equip_manager", label);
+			return;
+		}
+		std::uintptr_t alchForm = 0;
+		AcceptById(fid, label, "AlchemyItem@@", 0x30, alchForm);
+		if (!alchForm) {
+			REX::INFO("step=shell_aid kind={} result=form_not_alchemy form={:08X}", label, fid);
+			return;
+		}
+		RawObjectInstance inst{};
+		reinterpret_cast<ObjInstanceCtor_t>(g_base + g_objInstanceCtorRva)(&inst, reinterpret_cast<void*>(alchForm), nullptr);
+		const bool equipped = reinterpret_cast<EquipObjectCall_t>(g_base + g_equipObjectRva)(
+			reinterpret_cast<void*>(equipMgr), reinterpret_cast<void*>(player), inst, nullptr, false, false, true, true, false);
+
+		CollectShellVitalsMainThread(s_savedPage.load());
+		ShellVitalsSnapshot after;
+		{
+			std::scoped_lock lock(g_shellSnapLock);
+			after = g_shellSnap;
+		}
+		if (a_stimpak) {
+			REX::INFO("step=stat_use item={:08X} hp_before={:.0f} hp_after={:.0f} used={}",
+				fid, snap.currHp, after.currHp, equipped ? 1 : 0);
+		} else {
+			REX::INFO("step=stat_use item={:08X} rads_before={:.0f} rads_after={:.0f} used={}",
+				fid, snap.rads, after.rads, equipped ? 1 : 0);
+		}
+		g_pendingPartialMask.fetch_or(0x2u);   // PipboyUpdateMask.Stats (0x2) + BottomBar
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+		}
+	}
+
+	void ToggleEquipInvItemMainThread(std::uint32_t a_nodeId)
+	{
+		if (!g_shellExtraIdsReady || !g_equipMgrSingletonRva || !g_equipObjectRva || !g_objInstanceCtorRva) {
+			return;
+		}
+		ShellInvEntry target;
+		bool          found = false;
+		{
+			std::scoped_lock lock(g_invDataLock);
+			if (a_nodeId < g_invDataSnap.items.size()) {
+				target = g_invDataSnap.items[a_nodeId];
+				found = true;
+			}
+		}
+		if (!found || !target.formId) {
+			return;
+		}
+		const auto player = Singleton(kPlayerSingleton);
+		std::uintptr_t equipMgr = 0;
+		ObjectType     mgrType;
+		const auto     objForm = ShellFormLookup(target.formId);
+		ObjectType     objType;
+		if (!player || !CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk) ||
+			!Peek(g_base + g_equipMgrSingletonRva, equipMgr) || !equipMgr || !IsType(equipMgr, "ActorEquipManager@@", mgrType) ||
+			!objForm || !TypeOf(objForm, objType) || !BaseOffset(objType, "TESBoundObject@@")) {
+			return;
+		}
+		RawObjectInstance inst{};
+		reinterpret_cast<ObjInstanceCtor_t>(g_base + g_objInstanceCtorRva)(&inst, reinterpret_cast<void*>(objForm), nullptr);
+		bool ok = false;
+		const char* action = "equip";
+		if (target.equipState != 0 && (target.formType == 0x30 || target.formType == 0x22)) {
+			if (!g_unequipObjectRva) {
+				REX::INFO("step=inv_equip node={} form={:08X} action=unequip ok=0 reason=no_unequip_rva", a_nodeId, target.formId);
+				return;
+			}
+			action = "unequip";
+			ok = reinterpret_cast<UnequipObjectCall_t>(g_base + g_unequipObjectRva)(
+				reinterpret_cast<void*>(equipMgr), reinterpret_cast<void*>(player), inst, nullptr, false, false, true, true, nullptr);
+		} else {
+			ok = reinterpret_cast<EquipObjectCall_t>(g_base + g_equipObjectRva)(
+				reinterpret_cast<void*>(equipMgr), reinterpret_cast<void*>(player), inst, nullptr, false, false, true, true, false);
+		}
+		REX::INFO("step=inv_equip node={} form={:08X} action={} ok={}", a_nodeId, target.formId, action, ok ? 1 : 0);
+		CollectShellVitalsMainThread(s_savedPage.load());
+		g_pendingPartialMask.fetch_or(0x6u);   // Stats | Inv
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+		}
+	}
+
+	constexpr bool IsDroppableItemFormType(std::uint8_t a_formType) noexcept
+	{
+		switch (a_formType) {
+		case 0x22:   // kARMO (TESObjectARMO)
+		case 0x23:   // kBOOK (TESObjectBOOK)
+		case 0x26:   // kINGR (IngredientItem)
+		case 0x28:   // kMISC (TESObjectMISC)
+		case 0x30:   // kWEAP (TESObjectWEAP)
+		case 0x31:   // kAMMO (TESAmmo)
+		case 0x35:   // kKEYM (TESKey)
+		case 0x36:   // kALCH (AlchemyItem)
+		case 0x39:   // kNOTE (BGSNote)
+		case 0x3D:   // kSLGM (TESSoulGem)
+		case 0x98:   // kOMOD (BGSMod::Attachment::Mod)
+		case 0x9F:   // kIRES (BGSResource)
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	// Virtual slot 0x8B (RE::TESObjectREFR::RemoveItem) and 0x40-byte RE::RemoveItemRequest layout documented in
+	// docs/ui/pipboy-inv-drop-note.md (CommonLibSF include/RE/T/TESObjectREFR.h:102-115, 201).
+	void DropInvItemMainThread(std::uint32_t a_nodeId, std::uint32_t a_count)
+	{
+		ShellInvEntry target;
+		bool          found = false;
+		{
+			std::scoped_lock lock(g_invDataLock);
+			if (a_nodeId < g_invDataSnap.items.size()) {
+				target = g_invDataSnap.items[a_nodeId];
+				found = true;
+			}
+		}
+		if (!found || !target.formId || a_count == 0) {
+			return;
+		}
+		const auto     player = Singleton(kPlayerSingleton);
+		std::uintptr_t primaryVt = 0;
+		const auto     objForm = ShellFormLookup(target.formId);
+		ObjectType     objType;
+		std::uint8_t   formType = 0;
+		if (!player || !CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk) ||
+			!Peek(player, primaryVt) || !InImage(primaryVt, (kRefrRemoveItemSlot + 1) * 8) ||
+			!objForm || !TypeOf(objForm, objType) || !BaseOffset(objType, "TESBoundObject@@") ||
+			!Peek(objForm + kFormTypeAt, formType) || !IsDroppableItemFormType(formType)) {
+			return;
+		}
+		std::array<float, 3> worldPos{};
+		std::array<float, 3> worldRot{};
+		if (!Peek(player + kPositionAt, worldPos.data(), sizeof(worldPos)) ||
+			!std::isfinite(worldPos[0]) || !std::isfinite(worldPos[1]) || !std::isfinite(worldPos[2])) {
+			return;
+		}
+		const bool haveRot = Peek(player + kAngleAt, worldRot.data(), sizeof(worldRot)) &&
+		                     std::isfinite(worldRot[0]) && std::isfinite(worldRot[1]) && std::isfinite(worldRot[2]);
+		const auto removeFn = reinterpret_cast<const std::uintptr_t*>(primaryVt)[kRefrRemoveItemSlot];
+		if (!InImage(removeFn, 1)) {
+			return;
+		}
+		RawRemoveItemRequest req{};
+		req.object = reinterpret_cast<void*>(objForm);
+		req.inventoryIndex = static_cast<std::int32_t>(target.invIndex);
+		req.count = static_cast<std::int32_t>(std::min(a_count, target.count));
+		req.reason = 3u;   // ITEM_TRANSFER_REASON::kDropping
+		req.dropLocation = worldPos.data();
+		req.dropRotation = haveRot ? worldRot.data() : nullptr;
+		std::uint32_t outHandle = 0;
+		reinterpret_cast<RefrRemoveItemCall_t>(removeFn)(reinterpret_cast<void*>(player), outHandle, req);
+		REX::INFO("step=inv_drop node={} form={:08X} form_type={:#x} count={} handle={:#x}",
+			a_nodeId, target.formId, formType, req.count, outHandle);
+		CollectShellVitalsMainThread(s_savedPage.load());
+		g_pendingPartialMask.fetch_or(0x6u);   // Stats | Inv
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+		}
+	}
+
+	bool ClearAs3ArrayInPlace(RE::Scaleform::GFx::Value& a_arr)
+	{
+		if (!a_arr.IsArray() && !a_arr.IsObject()) {
+			return false;
+		}
+		RE::Scaleform::GFx::Value res;
+		const RE::Scaleform::GFx::Value zero(std::uint32_t{ 0 });
+		return a_arr.Invoke("splice", &res, &zero, 1) || a_arr.SetMember("length", zero);
+	}
+
+	void FillInvAndDataIntoDataObj(RE::Scaleform::GFx::ASMovieRootBase* a_root, RE::Scaleform::GFx::Value& a_dataObj,
+		std::uint32_t a_page, std::uint32_t a_tab, const char* a_when)
+	{
+		if (!g_invDataAnswers || !a_root || !a_dataObj.IsObject()) {
+			return;
+		}
+		const std::uint32_t invTab = std::min<std::uint32_t>(a_tab, 6u);
+		const std::int32_t  invFilter = (a_page == 1u) ? static_cast<std::int32_t>(1u << invTab) : 1;
+		a_dataObj.SetMember("InvFilter", RE::Scaleform::GFx::Value(invFilter));
+		a_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode));
+
+		RE::Scaleform::GFx::Value selArr, pushRes;
+		if (a_dataObj.GetMember("InvSelectedItems", &selArr) && ClearAs3ArrayInPlace(selArr)) {
+			for (std::size_t ti = 0; ti < g_invSelectedPerTab.size(); ++ti) {
+				RE::Scaleform::GFx::Value sv(g_invSelectedPerTab[ti]);
+				selArr.Invoke("push", &pushRes, &sv, 1);
+			}
+		}
+
+		if (a_page == 1u) {
+			ShellInvDataSnapshot snap;
+			{
+				std::scoped_lock lock(g_invDataLock);
+				snap = g_invDataSnap;
+			}
+			RE::Scaleform::GFx::Value invArr;
+			std::uint32_t             pushed = 0;
+			if (a_dataObj.GetMember("InvItems", &invArr) && ClearAs3ArrayInPlace(invArr)) {
+				for (const auto& it : snap.items) {
+					RE::Scaleform::GFx::Value entry;
+					a_root->CreateObject(&entry);
+					if (!entry.IsObject()) {
+						break;
+					}
+					entry.SetMember("text", RE::Scaleform::GFx::Value(it.name.c_str()));
+					entry.SetMember("count", RE::Scaleform::GFx::Value(it.count));
+					entry.SetMember("equipState", RE::Scaleform::GFx::Value(it.equipState));
+					entry.SetMember("filterFlag", RE::Scaleform::GFx::Value(it.filterFlag));
+					entry.SetMember("favorite", RE::Scaleform::GFx::Value(it.favorite));
+					entry.SetMember("canFavorite", RE::Scaleform::GFx::Value(it.canFavorite));
+					entry.SetMember("isLegendary", RE::Scaleform::GFx::Value(false));
+					entry.SetMember("taggedForSearch", RE::Scaleform::GFx::Value(false));
+					entry.SetMember("nodeID", RE::Scaleform::GFx::Value(it.nodeId));
+					entry.SetMember("formID", RE::Scaleform::GFx::Value(it.formId));
+					entry.SetMember("weight", RE::Scaleform::GFx::Value(it.weight));
+					entry.SetMember("value", RE::Scaleform::GFx::Value(it.value));
+					if (invArr.Invoke("push", &pushRes, &entry, 1)) {
+						++pushed;
+					}
+				}
+			}
+			RE::Scaleform::GFx::Value compArr;
+			if (a_dataObj.GetMember("InvComponents", &compArr)) {
+				ClearAs3ArrayInPlace(compArr);
+			}
+			RE::Scaleform::GFx::Value favArr;
+			if (a_dataObj.GetMember("FavoritesList", &favArr) && ClearAs3ArrayInPlace(favArr)) {
+				for (std::size_t slot = 0; slot < g_quickkeyFormIds.size(); ++slot) {
+					RE::Scaleform::GFx::Value favVal(nullptr);
+					if (g_quickkeyFormIds[slot] != 0) {
+						for (const auto& it : snap.items) {
+							if (it.formId == g_quickkeyFormIds[slot]) {
+								a_root->CreateObject(&favVal);
+								if (favVal.IsObject()) {
+									favVal.SetMember("text", RE::Scaleform::GFx::Value(it.name.c_str()));
+									favVal.SetMember("nodeID", RE::Scaleform::GFx::Value(it.nodeId));
+									favVal.SetMember("formID", RE::Scaleform::GFx::Value(it.formId));
+								}
+								break;
+							}
+						}
+					}
+					favArr.Invoke("push", &pushRes, &favVal, 1);
+				}
+			}
+			if (++g_invFillLogs <= 64) {
+				REX::INFO("step=inv_fill when={} tab={} filter={:#x} n={} total_count={}",
+					a_when, invTab, invFilter, pushed, snap.totalItemCount);
+			}
+		} else if (a_page == 2u) {
+			ShellInvDataSnapshot snap;
+			{
+				std::scoped_lock lock(g_invDataLock);
+				snap = g_invDataSnap;
+			}
+			RE::Scaleform::GFx::Value questsArr;
+			std::uint32_t             qPushed = 0;
+			std::uint32_t             qActive = 0;
+			std::uint32_t             qCompleted = 0;
+			if (a_dataObj.GetMember("QuestsList", &questsArr) && ClearAs3ArrayInPlace(questsArr)) {
+				for (const auto& q : snap.quests) {
+					RE::Scaleform::GFx::Value entry;
+					a_root->CreateObject(&entry);
+					if (!entry.IsObject()) {
+						break;
+					}
+					entry.SetMember("text", RE::Scaleform::GFx::Value(q.name.c_str()));
+					entry.SetMember("formID", RE::Scaleform::GFx::Value(q.formId));
+					entry.SetMember("enabled", RE::Scaleform::GFx::Value(!q.completed));
+					entry.SetMember("completed", RE::Scaleform::GFx::Value(q.completed));
+					entry.SetMember("active", RE::Scaleform::GFx::Value(q.active));
+					entry.SetMember("sortval", RE::Scaleform::GFx::Value(q.sortVal));
+					entry.SetMember("swfFile", RE::Scaleform::GFx::Value(""));
+					entry.SetMember("description", RE::Scaleform::GFx::Value(q.description.c_str()));
+					if (questsArr.Invoke("push", &pushRes, &entry, 1)) {
+						++qPushed;
+						if (q.completed) {
+							++qCompleted;
+						} else if (q.active) {
+							++qActive;
+						}
+					}
+				}
+			}
+			RE::Scaleform::GFx::Value wsArr;
+			if (a_dataObj.GetMember("WorkshopsList", &wsArr) && ClearAs3ArrayInPlace(wsArr)) {
+				for (const auto& ws : snap.workshops) {
+					RE::Scaleform::GFx::Value entry, dataArr;
+					a_root->CreateObject(&entry);
+					a_root->CreateObject(&dataArr, "Array");
+					if (!entry.IsObject() || !(dataArr.IsArray() || dataArr.IsObject())) {
+						break;
+					}
+					for (std::size_t wi = 0; wi < ws.values.size(); ++wi) {
+						RE::Scaleform::GFx::Value cell;
+						a_root->CreateObject(&cell);
+						if (cell.IsObject()) {
+							cell.SetMember("value", RE::Scaleform::GFx::Value(ws.values[wi]));
+							cell.SetMember("rating", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
+							dataArr.Invoke("push", &pushRes, &cell, 1);
+						}
+					}
+					entry.SetMember("text", RE::Scaleform::GFx::Value(ws.name.c_str()));
+					entry.SetMember("mapMarkerID", RE::Scaleform::GFx::Value(ws.mapMarkerId));
+					entry.SetMember("workshopData", dataArr);
+					wsArr.Invoke("push", &pushRes, &entry, 1);
+				}
+			}
+			RE::Scaleform::GFx::Value statsArr;
+			if (a_dataObj.GetMember("GeneralStatsList", &statsArr) && ClearAs3ArrayInPlace(statsArr)) {
+				for (const auto& cat : snap.statCategories) {
+					RE::Scaleform::GFx::Value catObj, rowArr;
+					a_root->CreateObject(&catObj);
+					a_root->CreateObject(&rowArr, "Array");
+					if (!catObj.IsObject() || !(rowArr.IsArray() || rowArr.IsObject())) {
+						break;
+					}
+					for (const auto& [rLabel, rVal] : cat.rows) {
+						RE::Scaleform::GFx::Value rObj;
+						a_root->CreateObject(&rObj);
+						if (rObj.IsObject()) {
+							rObj.SetMember("text", RE::Scaleform::GFx::Value(rLabel.c_str()));
+							rObj.SetMember("value", RE::Scaleform::GFx::Value(rVal.c_str()));
+							rowArr.Invoke("push", &pushRes, &rObj, 1);
+						}
+					}
+					catObj.SetMember("text", RE::Scaleform::GFx::Value(cat.name.c_str()));
+					catObj.SetMember("statArray", rowArr);
+					statsArr.Invoke("push", &pushRes, &catObj, 1);
+				}
+			}
+			if (++g_questFillLogs <= 64) {
+				REX::INFO("step=quests_fill when={} tab={} n={} active={} completed={}",
+					a_when, a_tab, qPushed, qActive, qCompleted);
+			}
+		}
+	}
+
+	void FillPipboyDataObj(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root,
+		RE::Scaleform::GFx::Value& a_dataObj, std::uint32_t a_targetPage, std::uint32_t a_targetTab, const char* a_when)
+	{
+		if (!a_root || !a_dataObj.IsObject()) {
+			return;
+		}
+		const std::uint32_t page = std::min<std::uint32_t>(a_targetPage, 4u);
+		const std::uint32_t tab = std::min<std::uint32_t>(a_targetTab, 16u);
+
+		ShellVitalsSnapshot snap;
+		{
+			std::scoped_lock lock(g_shellSnapLock);
+			snap = g_shellSnap;
+		}
+
+		// Step 1 critical order: CurrentPage MUST be set BEFORE CurrentTab (_StoredTabs[_CurrentPage])
+		a_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(page));
+		a_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(tab));
+
+		a_dataObj.SetMember("ReadOnlyMode", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
+		a_dataObj.SetMember("bPipboyEffectInitialized", RE::Scaleform::GFx::Value(true));
+		a_dataObj.SetMember("PlayerName", RE::Scaleform::GFx::Value(snap.playerName.c_str()));
+		a_dataObj.SetMember("CurrHP", RE::Scaleform::GFx::Value(snap.currHp));
+		a_dataObj.SetMember("MaxHP", RE::Scaleform::GFx::Value(std::max(1.0, snap.maxHp)));
+		a_dataObj.SetMember("CurrAP", RE::Scaleform::GFx::Value(snap.currAp));
+		a_dataObj.SetMember("MaxAP", RE::Scaleform::GFx::Value(std::max(1.0, snap.maxAp)));
+		a_dataObj.SetMember("XPLevel", RE::Scaleform::GFx::Value(snap.xpLevel));
+		a_dataObj.SetMember("XPProgressPct", RE::Scaleform::GFx::Value(std::clamp(snap.xpProgressPct, 0.0, 1.0)));
+		a_dataObj.SetMember("CurrWeight", RE::Scaleform::GFx::Value(snap.currWeight));
+		a_dataObj.SetMember("MaxWeight", RE::Scaleform::GFx::Value(std::max(1.0, snap.maxWeight)));
+		a_dataObj.SetMember("Caps", RE::Scaleform::GFx::Value(snap.caps));
+		a_dataObj.SetMember("PerkPoints", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
+		a_dataObj.SetMember("StimpakCount", RE::Scaleform::GFx::Value(snap.stimpakCount));
+		a_dataObj.SetMember("RadawayCount", RE::Scaleform::GFx::Value(snap.radawayCount));
+		a_dataObj.SetMember("DateMonth", RE::Scaleform::GFx::Value(snap.dateMonth));
+		a_dataObj.SetMember("DateDay", RE::Scaleform::GFx::Value(snap.dateDay));
+		a_dataObj.SetMember("DateYear", RE::Scaleform::GFx::Value(snap.dateYear));
+		a_dataObj.SetMember("TimeHour", RE::Scaleform::GFx::Value(snap.timeHour));
+		a_dataObj.SetMember("CurrLocationName", RE::Scaleform::GFx::Value(snap.locationName.c_str()));
+		a_dataObj.SetMember("HeadCondition", RE::Scaleform::GFx::Value(snap.limbCondition[0]));
+		a_dataObj.SetMember("TorsoCondition", RE::Scaleform::GFx::Value(snap.limbCondition[1]));
+		a_dataObj.SetMember("LArmCondition", RE::Scaleform::GFx::Value(snap.limbCondition[2]));
+		a_dataObj.SetMember("RArmCondition", RE::Scaleform::GFx::Value(snap.limbCondition[3]));
+		a_dataObj.SetMember("LLegCondition", RE::Scaleform::GFx::Value(snap.limbCondition[4]));
+		a_dataObj.SetMember("RLegCondition", RE::Scaleform::GFx::Value(snap.limbCondition[5]));
+		a_dataObj.SetMember("HeadFlags", RE::Scaleform::GFx::Value(snap.headFlags));
+		a_dataObj.SetMember("BodyFlags", RE::Scaleform::GFx::Value(snap.bodyFlags));
+		a_dataObj.SetMember("UnderwearType", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
+		a_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode));
+
+		// Mutate getter-only SPECIALList Array in place (7 entries {text, value, modifier, description})
+		RE::Scaleform::GFx::Value specialArr, pushRes;
+		if (a_dataObj.GetMember("SPECIALList", &specialArr) && ClearAs3ArrayInPlace(specialArr) &&
+			g_codeObjSpecial != kSpecialClear) {
+			for (std::size_t i = 0; i < kSpecialNames.size(); ++i) {
+				RE::Scaleform::GFx::Value entry;
+				a_root->CreateObject(&entry);
+				if (!entry.IsObject()) {
+					break;
+				}
+				entry.SetMember("text", RE::Scaleform::GFx::Value(kSpecialNames[i]));
+				entry.SetMember("value", RE::Scaleform::GFx::Value(static_cast<std::int32_t>(snap.special[i])));
+				entry.SetMember("modifier", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
+				entry.SetMember("description", RE::Scaleform::GFx::Value(""));
+				specialArr.Invoke("push", &pushRes, &entry, 1);
+			}
+		}
+
+		// Mutate getter-only SlotResists Array in place (9 sub-arrays 0..8 for PaperDoll)
+		RE::Scaleform::GFx::Value slotResists;
+		if (a_dataObj.GetMember("SlotResists", &slotResists) && ClearAs3ArrayInPlace(slotResists)) {
+			for (std::size_t s = 0; s < 9; ++s) {
+				RE::Scaleform::GFx::Value subArr;
+				a_root->CreateObject(&subArr, "Array");
+				if (subArr.IsObject() || subArr.IsArray()) {
+					slotResists.Invoke("push", &pushRes, &subArr, 1);
+				}
+			}
+		}
+
+		// TotalResists (Ballistic=1, Energy=4, Radiation=6) & ActiveEffects (RADS when > 0)
+		RE::Scaleform::GFx::Value totalResists;
+		if (a_dataObj.GetMember("TotalResists", &totalResists) && ClearAs3ArrayInPlace(totalResists)) {
+			const std::array<std::pair<std::uint32_t, double>, 3> resists{ {
+				{ 1u, snap.damageResist },
+				{ 4u, snap.energyResist },
+				{ 6u, snap.radResist },
+			} };
+			for (const auto& [rtype, rval] : resists) {
+				RE::Scaleform::GFx::Value entry;
+				a_root->CreateObject(&entry);
+				if (entry.IsObject()) {
+					entry.SetMember("type", RE::Scaleform::GFx::Value(rtype));
+					entry.SetMember("value", RE::Scaleform::GFx::Value(rval));
+					totalResists.Invoke("push", &pushRes, &entry, 1);
+				}
+			}
+		}
+
+		RE::Scaleform::GFx::Value activeEffects;
+		if (a_dataObj.GetMember("ActiveEffects", &activeEffects) && ClearAs3ArrayInPlace(activeEffects) && snap.rads >= 1.0) {
+			RE::Scaleform::GFx::Value eff;
+			a_root->CreateObject(&eff);
+			if (eff.IsObject()) {
+				eff.SetMember("EffectName", RE::Scaleform::GFx::Value("RADS"));
+				eff.SetMember("Magnitude", RE::Scaleform::GFx::Value(std::round(snap.rads)));
+				eff.SetMember("Duration", RE::Scaleform::GFx::Value(0.0));
+				eff.SetMember("elapsed", RE::Scaleform::GFx::Value(0.0));
+				eff.SetMember("isTimed", RE::Scaleform::GFx::Value(false));
+				eff.SetMember("inactive", RE::Scaleform::GFx::Value(false));
+				activeEffects.Invoke("push", &pushRes, &eff, 1);
+			}
+		}
+
+		// Ensure PerksList & StatsCategories are clean Arrays so PERKS / DATA never encounter malformed elements
+		for (const char* arrName : { "PerksList", "StatsCategories" }) {
+			RE::Scaleform::GFx::Value arr;
+			if (a_dataObj.GetMember(arrName, &arr)) {
+				ClearAs3ArrayInPlace(arr);
+			}
+		}
+
+		// Step 1k (UI-2): populate InvItems / QuestsList / WorkshopsList / GeneralStatsList in place when InvDataAnswers=1
+		if (g_invDataAnswers) {
+			FillInvAndDataIntoDataObj(a_root, a_dataObj, page, tab, a_when);
+		}
+
+		// Build WorldMapMarkers ONLY when targetPage == 3 (MAP)
+		if (a_menu && page == PipboyMap::MapPageIndex()) {
+			PipboyMap::PopulateMapDataObj(a_menu, a_root, a_dataObj, static_cast<std::int32_t>(page));
+		}
+
+		g_currentShellPage.store(static_cast<std::int32_t>(page));
+		g_currentShellTab.store(static_cast<std::int32_t>(tab));
+
+		if (g_populateInCall && std::string_view(a_when) == "PopulatePipboyInfoObj") {
+			const void* const movie = a_menu ? MovieOf(a_menu) : nullptr;
+			if (!movie || g_populatedLogMovie.exchange(movie) != movie) {
+				const int paused = (g_flags & kPauseFlag) != 0 ? 1 : 0;
+				REX::INFO("step=populate page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} level={} special={},{},{},{},{},{},{} source={} paused={}",
+					page, tab, snap.currHp, std::max(1.0, snap.maxHp), snap.currAp, std::max(1.0, snap.maxAp), snap.xpLevel,
+					snap.special[0], snap.special[1], snap.special[2], snap.special[3], snap.special[4], snap.special[5], snap.special[6],
+					snap.specialSource, paused);
+			}
+		}
+
+		REX::INFO("step=data_obj_fill when={} page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} lvl={} stim={} radaway={} rads={:.0f} date={}.{}.2{:03}",
+			a_when, page, tab, snap.currHp, snap.maxHp, snap.currAp, snap.maxAp, snap.xpLevel, snap.stimpakCount,
+			snap.radawayCount, snap.rads, snap.dateMonth, snap.dateDay, snap.dateYear);
+	}
+
+	bool ReadPath(const RE::Scaleform::GFx::Value& a_from, const std::string& a_path, RE::Scaleform::GFx::Value& a_out);
+	void SpecialReady(RE::Scaleform::GFx::ASMovieRootBase* a_root, const RE::Scaleform::GFx::Value& a_top, const char* a_when);
+
+	// Step 1: synchronous in-call answer for onNewPage(pageIdx) and onNewTab(tabIdx) on the menu thread
+	void AnswerPageOrTabSynchronously(bool a_isPage, std::int32_t a_idx)
+	{
+		if (g_closing.load()) {
+			return;
+		}
+		const void* const menu = g_activeShellMenu;
+		if (!menu || !MovieOf(menu)) {
+			return;
+		}
+		auto* const               root = RootOf(menu);
+		RE::Scaleform::GFx::Value top;
+		RE::Scaleform::GFx::Value menuMc;
+		if (!root || !root->GetVariable(&top, "root") || !top.IsObject() ||
+			!ReadPath(top, g_codeObjAt, menuMc) || !menuMc.IsObject()) {
+			return;
+		}
+		if (!g_dataObj.IsObject()) {
+			menuMc.GetMember("DataObj", &g_dataObj);
+		}
+		if (!g_dataObj.IsObject()) {
+			return;
+		}
+		std::uint32_t targetPage = s_savedPage.load();
+		std::uint32_t targetTab = s_savedTabs[std::min<std::uint32_t>(targetPage, 4u)].load();
+		if (a_isPage) {
+			targetPage = static_cast<std::uint32_t>(std::clamp(a_idx, 0, 4));
+			s_savedPage.store(targetPage);
+			targetTab = s_savedTabs[targetPage].load();
+		} else {
+			targetPage = std::min<std::uint32_t>(targetPage, 4u);
+			targetTab = static_cast<std::uint32_t>(std::clamp(a_idx, 0, 16));
+			s_savedTabs[targetPage].store(targetTab);
+		}
+
+		// Always set CurrentPage BEFORE CurrentTab, populate target page fields, then InvalidateData() ONCE
+		if (g_populateInCall) {
+			FillPipboyDataObj(menu, root, g_dataObj, targetPage, targetTab, a_isPage ? "onNewPage" : "onNewTab");
+		} else {
+			g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(targetPage));
+			g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(targetTab));
+			SpecialReady(root, top, "answer");
+			if (g_invDataAnswers) {
+				FillInvAndDataIntoDataObj(root, g_dataObj, targetPage, targetTab, a_isPage ? "onNewPage" : "onNewTab");
+			}
+			if (targetPage == PipboyMap::MapPageIndex()) {
+				PipboyMap::PopulateMapDataObj(menu, root, g_dataObj, static_cast<std::int32_t>(targetPage));
+			}
+			g_currentShellPage.store(static_cast<std::int32_t>(targetPage));
+			g_currentShellTab.store(static_cast<std::int32_t>(targetTab));
+		}
+		PipboyMap::NotifyShellPageTab(static_cast<std::int32_t>(targetPage), static_cast<std::int32_t>(targetTab));
+		if (a_isPage && targetPage == PipboyMap::MapPageIndex() && g_task) {
+			g_task->AddTask([]() {
+				PipboyMap::CollectStateForPage(static_cast<std::int32_t>(PipboyMap::MapPageIndex()));
+				if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+					queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+				}
+			});
+		}
+
+		RE::Scaleform::GFx::Value invRes;
+		const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData");
+		const auto n = ++g_answers;
+		if (n <= kMaxAnswers) {
+			REX::INFO("step=code_answer n={} kind={} page={} tab={} invalidated={}", n, a_isPage ? "page" : "tab",
+				targetPage, targetTab, invalidated ? 1 : 0);
+		}
+		if (!invalidated) {
+			REX::INFO("step=movie_call_miss where=code_answer_invalidate page={} tab={}", targetPage, targetTab);
+		}
+	}
+
+	void NoteAnswer(const std::string& a_name, const RE::Scaleform::GFx::FunctionHandler::Params& a_params)
+	{
+		const bool page = a_name == "onNewPage";
+		if ((!g_codeObjPages && !IsFo4ShellActive()) || (!page && a_name != "onNewTab")) {
+			return;
+		}
+		std::int32_t index = -1;
+		if (a_params.argCount > 0) {
+			ExtractShellIndex(a_params.args[0], index, static_cast<std::int32_t>(kMaxAnswerIndex));
+		}
+		if (index < 0 || index > kMaxAnswerIndex) {
+			if (g_answers.load() < kMaxAnswers) {
+				REX::INFO("step=code_answer name={} result=bad_index args={}", a_name, a_params.argCount);
+			}
+			return;
+		}
+		if (IsFo4ShellActive()) {
+			AnswerPageOrTabSynchronously(page, index);
+			return;
+		}
+		(page ? g_answerPage : g_answerTab).store(index);
+		g_answerNow = true;
+	}
+
+	void RequestPipboyOpen(std::uint32_t a_targetPage, const char* a_by);
+
+	class CodeObjFunction final : public RE::Scaleform::GFx::FunctionHandler
+	{
+	public:
+		void Name(const std::string& a_name) { _name = a_name; }
+
+		void Call(const Params& a_params) override
+		{
+			const auto n = ++g_codeCalls;
+			std::string callLogLine;
+			if (n <= kMaxCodeCalls) {
+				std::string args = a_params.argCount ? "" : " arg0=none";
+				for (std::uint32_t i = 0; i < a_params.argCount && i < kMaxCodeArgs; ++i) {
+					args += std::format(" arg{}={}", i, ArgText(a_params.args[i]));
+				}
+				callLogLine = std::format("step=code_call n={} name={} args={}{}", n, _name, a_params.argCount, args);
+				if (!(g_inDestructionCall.load() && _name == "UnregisterMap")) {
+					REX::INFO("{}", callLogLine);
+				}
+			}
+
+			if (g_inDestructionCall.load() && _name == "UnregisterMap") {
+				PipboyMap::ReleaseMovieRefs();
+				std::scoped_lock lock(g_deferredLogLock);
+				if (!callLogLine.empty()) {
+					g_deferredDestructionLogs.push_back(std::move(callLogLine));
+				}
+				if (PipboyMap::Enabled()) {
+					g_deferredDestructionLogs.emplace_back("step=map_unregister ok=1");
+				}
+				return;
+			}
+
+			if (g_closing.load()) {
+				return;
+			}
+
+			// Step 1b (PopulateInCall=1) & Step 1k (InvDataAnswers=1): PopulatePipboyInfoObj(dataObj) fills in place and calls InvalidateData once
+			if (_name == "PopulatePipboyInfoObj") {
+				if (a_params.argCount > 0 && a_params.args[0].IsObject()) {
+					g_dataObj = a_params.args[0];
+					if (g_populateInCall || g_invDataAnswers) {
+						const void* const menu = g_activeShellMenu;
+						const void* const movie = menu ? MovieOf(menu) : nullptr;
+						auto* const       root = menu ? RootOf(menu) : nullptr;
+						const auto        page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
+						const auto        tab = s_savedTabs[page].load();
+						if (root) {
+							if (g_populateInCall) {
+								FillPipboyDataObj(menu, root, g_dataObj, page, tab, "PopulatePipboyInfoObj");
+							} else {
+								g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(page));
+								g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(tab));
+								FillInvAndDataIntoDataObj(root, g_dataObj, page, tab, "PopulatePipboyInfoObj");
+								if (page == PipboyMap::MapPageIndex()) {
+									PipboyMap::PopulateMapDataObj(menu, root, g_dataObj, static_cast<std::int32_t>(page));
+								}
+							}
+							PipboyMap::NotifyShellPageTab(static_cast<std::int32_t>(page), static_cast<std::int32_t>(tab));
+							RE::Scaleform::GFx::Value top;
+							RE::Scaleform::GFx::Value menuMc;
+							if (std::string_view(g_loadingMovie.load() ? "load" : "show") != "load" &&
+								root->GetVariable(&top, "root") && top.IsObject() &&
+								ReadPath(top, g_codeObjAt, menuMc) && menuMc.IsObject()) {
+								if (!g_populateInCall) {
+									SpecialReady(root, top, "populate");
+								}
+								RE::Scaleform::GFx::Value invRes;
+								const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0,
+									"Menu_mc.InvalidateData");
+								if (invalidated && movie) {
+									g_shownInvalidatedMovie = movie;
+								}
+								REX::INFO("step=populate_invalidate page={} tab={} invalidated={}", page, tab, invalidated ? 1 : 0);
+							}
+						}
+					}
+				}
+				return;
+			}
+
+			// Step 1: onNewPage / onNewTab answered synchronously inside CodeObjFunction::Call
+			if (_name == "onNewPage" || _name == "onNewTab") {
+				NoteAnswer(_name, a_params);
+				return;
+			}
+
+			// Step 1j (StatActions=1): UseStimpak, UseRadaway, PlayPerkSound, StopPerkSound, PlaySmallTransition, ShowPerksMenu
+			if (g_statActions) {
+				if (_name == "UseStimpak" && g_task) {
+					g_task->AddTask([]() { ConsumePipboyAidMainThread(true); });
+					return;
+				}
+				if (_name == "UseRadaway" && g_task) {
+					g_task->AddTask([]() { ConsumePipboyAidMainThread(false); });
+					return;
+				}
+				if (_name == "PlayPerkSound") {
+					const std::string snd = (a_params.argCount > 0 && a_params.args[0].IsString()) ?
+					                            std::string(a_params.args[0].GetString()).substr(0, kMaxCodeArg) :
+					                            std::string("none");
+					REX::INFO("step=stat_sound action=play_perk_sound name={}", snd);
+					if (g_codeObjSound) {
+						StartSound(n, a_params.argCount > 0 ? &a_params.args[0] : nullptr, true);
+					}
+					return;
+				}
+				if (_name == "StopPerkSound") {
+					const bool stopped = StopActivePerkSound();
+					REX::INFO("step=stat_sound action=stop_perk_sound stopped={}", stopped ? 1 : 0);
+					return;
+				}
+				if (_name == "PlaySmallTransition") {
+					const std::string arg0 = a_params.argCount > 0 ? ArgText(a_params.args[0]) : std::string("none");
+					REX::INFO("step=stat_sound action=play_small_transition arg={}", arg0);
+					if (g_codeObjSound && a_params.argCount > 0 && a_params.args[0].IsString()) {
+						StartSound(n, &a_params.args[0], false);
+					}
+					return;
+				}
+				if (_name == "ShowPerksMenu") {
+					REX::INFO("step=stat_stub name=ShowPerksMenu");
+					return;
+				}
+			}
+
+			// Step 1k (UI-2, InvDataAnswers=1): INV and DATA same-call & main-thread handlers
+			if (g_invDataAnswers) {
+				if (_name == "onInvItemSelection") {
+					if (a_params.argCount >= 4) {
+						std::int32_t selNode = -1;
+						ExtractShellIndex(a_params.args[0], selNode, 4096);
+						const auto curTab = std::min<std::size_t>(s_savedTabs[1].load(), 6u);
+						if (selNode >= 0) {
+							g_invSelectedPerTab[curTab] = selNode;
+						}
+						RE::Scaleform::GFx::Value cardArr = a_params.args[1];
+						RE::Scaleform::GFx::Value dollArr = a_params.args[2];
+						RE::Scaleform::GFx::Value invPage = a_params.args[3];
+						ClearAs3ArrayInPlace(cardArr);
+						ClearAs3ArrayInPlace(dollArr);
+
+						auto* const root = g_activeShellMenu ? RootOf(g_activeShellMenu) : nullptr;
+						ShellInvEntry chosen;
+						bool          haveItem = false;
+						{
+							std::scoped_lock lock(g_invDataLock);
+							if (selNode >= 0 && static_cast<std::size_t>(selNode) < g_invDataSnap.items.size()) {
+								chosen = g_invDataSnap.items[static_cast<std::size_t>(selNode)];
+								haveItem = true;
+							}
+						}
+						if (root && haveItem && (cardArr.IsArray() || cardArr.IsObject())) {
+							RE::Scaleform::GFx::Value pushRes;
+							const auto pushCard = [&](const char* a_text, double a_val, std::uint32_t a_prec) {
+								RE::Scaleform::GFx::Value c;
+								root->CreateObject(&c);
+								if (c.IsObject()) {
+									c.SetMember("text", RE::Scaleform::GFx::Value(a_text));
+									c.SetMember("value", RE::Scaleform::GFx::Value(a_val));
+									c.SetMember("difference", RE::Scaleform::GFx::Value(0.0));
+									c.SetMember("precision", RE::Scaleform::GFx::Value(a_prec));
+									c.SetMember("DamageType", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
+									cardArr.Invoke("push", &pushRes, &c, 1);
+								}
+							};
+							pushCard("$WT", chosen.weight, 1u);
+							pushCard("$VAL", static_cast<double>(chosen.value), 0u);
+							if (dollArr.IsArray() || dollArr.IsObject()) {
+								for (std::size_t si = 0; si < 9; ++si) {
+									RE::Scaleform::GFx::Value b(chosen.formType == 0x22 && si == 0);
+									dollArr.Invoke("push", &pushRes, &b, 1);
+								}
+							}
+							if (++g_invSelectLogs <= 64) {
+								REX::INFO("step=inv_select node={} form={:08X} wt={:.1f} val={}",
+									chosen.nodeId, chosen.formId, chosen.weight, chosen.value);
+							}
+						}
+						if (invPage.IsObject()) {
+							RE::Scaleform::GFx::Value res;
+							InvokeMovieTracked(invPage, "onListSelectionChangeCallback", &res, nullptr, 0,
+								"InvPage.onListSelectionChangeCallback", false);
+						}
+					}
+					return;
+				}
+				if (_name == "SelectItem") {
+					std::int32_t nodeId = -1;
+					if (a_params.argCount >= 1 && ExtractShellIndex(a_params.args[0], nodeId, 4096) && nodeId >= 0 && g_task) {
+						const auto uNode = static_cast<std::uint32_t>(nodeId);
+						g_task->AddTask([uNode]() { ToggleEquipInvItemMainThread(uNode); });
+					}
+					return;
+				}
+				if (_name == "ItemDrop") {
+					std::int32_t nodeId = -1;
+					std::int32_t dropCount = 1;
+					if (a_params.argCount >= 1 && ExtractShellIndex(a_params.args[0], nodeId, 4096) && nodeId >= 0 && g_task) {
+						if (a_params.argCount >= 2) {
+							ExtractShellIndex(a_params.args[1], dropCount, 999999);
+						}
+						const auto uNode = static_cast<std::uint32_t>(nodeId);
+						const auto uCnt = static_cast<std::uint32_t>(std::max(1, dropCount));
+						g_task->AddTask([uNode, uCnt]() { DropInvItemMainThread(uNode, uCnt); });
+					}
+					return;
+				}
+				if (_name == "SortItemList") {
+					g_invSortMode = (g_invSortMode + 1u) % 4u;
+					{
+						std::scoped_lock lock(g_invDataLock);
+						SortShellInvEntries(g_invDataSnap.items, g_invSortMode);
+					}
+					auto* const root = g_activeShellMenu ? RootOf(g_activeShellMenu) : nullptr;
+					if (root && g_dataObj.IsObject()) {
+						FillInvAndDataIntoDataObj(root, g_dataObj, 1u, s_savedTabs[1].load(), "SortItemList");
+					}
+					REX::INFO("step=inv_sort mode={}", g_invSortMode);
+					if (a_params.argCount >= 1 && a_params.args[0].IsObject()) {
+						RE::Scaleform::GFx::Value invPage = a_params.args[0];
+						RE::Scaleform::GFx::Value zeroArg(std::uint32_t{ 0 });
+						RE::Scaleform::GFx::Value res;
+						InvokeMovieTracked(invPage, "onSortComplete", &res, &zeroArg, 1, "InvPage.onSortComplete");
+					}
+					g_pendingPartialMask.fetch_or(0x4u);
+					if (g_task) {
+						g_task->AddTask([]() {
+							if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+								queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+							}
+						});
+					}
+					return;
+				}
+				if (_name == "SetQuickkey") {
+					std::int32_t nodeId = -1;
+					std::int32_t slotIdx = -1;
+					if (a_params.argCount >= 2 && ExtractShellIndex(a_params.args[0], nodeId, 4096) &&
+						ExtractShellIndex(a_params.args[1], slotIdx, 11) && nodeId >= 0 && slotIdx >= 0) {
+						std::uint32_t assignedFid = 0;
+						{
+							std::scoped_lock lock(g_invDataLock);
+							if (static_cast<std::size_t>(nodeId) < g_invDataSnap.items.size()) {
+								assignedFid = g_invDataSnap.items[static_cast<std::size_t>(nodeId)].formId;
+								for (auto& existing : g_quickkeyFormIds) {
+									if (existing == assignedFid) {
+										existing = 0;
+									}
+								}
+								g_quickkeyFormIds[static_cast<std::size_t>(slotIdx)] = assignedFid;
+								for (auto& it : g_invDataSnap.items) {
+									if (it.formId == assignedFid) {
+										it.favorite = slotIdx;
+									} else if (it.favorite == slotIdx) {
+										it.favorite = -1;
+									}
+								}
+							}
+						}
+						REX::INFO("step=inv_quickkey node={} slot={} form={:08X}", nodeId, slotIdx, assignedFid);
+						g_pendingPartialMask.fetch_or(0x4u);
+						if (g_task) {
+							g_task->AddTask([]() {
+								if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+									queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+								}
+							});
+						}
+					}
+					return;
+				}
+				if (_name == "ToggleComponentFavorite") {
+					std::int32_t compFid = -1;
+					if (a_params.argCount >= 1 && ExtractShellIndex(a_params.args[0], compFid, 0x7FFFFFFF) && compFid > 0) {
+						const auto uFid = static_cast<std::uint32_t>(compFid);
+						bool tagged = false;
+						{
+							std::scoped_lock lock(g_invDataLock);
+							if (g_taggedComponentFormIds.contains(uFid)) {
+								g_taggedComponentFormIds.erase(uFid);
+							} else {
+								g_taggedComponentFormIds.insert(uFid);
+								tagged = true;
+							}
+						}
+						REX::INFO("step=inv_component_tag form={:08X} tagged={}", uFid, tagged ? 1 : 0);
+					}
+					return;
+				}
+				if (_name == "ExamineItem" || _name == "updateItem3D" || _name == "onShowHotKeys" ||
+					_name == "onComponentViewToggle" || _name == "toggleMovementToDirectional") {
+					if (_name != "updateItem3D" && _name != "toggleMovementToDirectional") {
+						REX::INFO("step=inv_action name={} arg0={}", _name, a_params.argCount > 0 ? ArgText(a_params.args[0]) : "none");
+					}
+					return;
+				}
+				if (_name == "onQuestSelection") {
+					if (a_params.argCount >= 3) {
+						RE::Scaleform::GFx::Value objList = a_params.args[0];
+						RE::Scaleform::GFx::Value qEntry = a_params.args[1];
+						RE::Scaleform::GFx::Value questsTab = a_params.args[2];
+						ClearAs3ArrayInPlace(objList);
+
+						std::uint32_t qFid = 0;
+						RE::Scaleform::GFx::Value fidVal;
+						if (qEntry.IsObject() && qEntry.GetMember("formID", &fidVal)) {
+							if (fidVal.IsUInt()) {
+								qFid = fidVal.GetUInt();
+							} else if (fidVal.IsInt() && fidVal.GetInt() >= 0) {
+								qFid = static_cast<std::uint32_t>(fidVal.GetInt());
+							} else if (fidVal.IsNumber() && fidVal.GetNumber() >= 0.0) {
+								qFid = static_cast<std::uint32_t>(fidVal.GetNumber());
+							}
+						}
+						auto* const root = g_activeShellMenu ? RootOf(g_activeShellMenu) : nullptr;
+						std::uint32_t objCount = 0;
+						if (root && qFid != 0 && (objList.IsArray() || objList.IsObject())) {
+							std::vector<ShellObjectiveEntry> objsCopy;
+							bool qActive = true;
+							{
+								std::scoped_lock lock(g_invDataLock);
+								for (const auto& q : g_invDataSnap.quests) {
+									if (q.formId == qFid) {
+										objsCopy = q.objectives;
+										qActive = q.active;
+										break;
+									}
+								}
+							}
+							RE::Scaleform::GFx::Value pushRes;
+							for (const auto& ob : objsCopy) {
+								RE::Scaleform::GFx::Value obVal;
+								root->CreateObject(&obVal);
+								if (obVal.IsObject()) {
+									const bool done = (ob.state == 3);
+									obVal.SetMember("text", RE::Scaleform::GFx::Value(ob.text.c_str()));
+									obVal.SetMember("enabled", RE::Scaleform::GFx::Value(!done));
+									obVal.SetMember("completed", RE::Scaleform::GFx::Value(done));
+									obVal.SetMember("active", RE::Scaleform::GFx::Value(!done && qActive));
+									obVal.SetMember("formID", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(ob.number)));
+									if (objList.Invoke("push", &pushRes, &obVal, 1)) {
+										++objCount;
+									}
+								}
+							}
+						}
+						REX::INFO("step=quest_select form={:08X} objectives={}", qFid, objCount);
+						if (questsTab.IsObject()) {
+							RE::Scaleform::GFx::Value res;
+							InvokeMovieTracked(questsTab, "onObjectivesReady", &res, nullptr, 0, "QuestsTab.onObjectivesReady", false);
+						}
+					}
+					return;
+				}
+				if (_name == "SetQuestActive") {
+					if (a_params.argCount >= 1 && a_params.args[0].IsObject()) {
+						RE::Scaleform::GFx::Value qEntry = a_params.args[0];
+						RE::Scaleform::GFx::Value fidVal;
+						std::uint32_t qFid = 0;
+						if (qEntry.GetMember("formID", &fidVal)) {
+							if (fidVal.IsUInt()) {
+								qFid = fidVal.GetUInt();
+							} else if (fidVal.IsInt() && fidVal.GetInt() >= 0) {
+								qFid = static_cast<std::uint32_t>(fidVal.GetInt());
+							} else if (fidVal.IsNumber() && fidVal.GetNumber() >= 0.0) {
+								qFid = static_cast<std::uint32_t>(fidVal.GetNumber());
+							}
+						}
+						if (qFid != 0) {
+							bool nowActive = true;
+							{
+								std::scoped_lock lock(g_invDataLock);
+								if (g_inactiveQuestFormIds.contains(qFid)) {
+									g_inactiveQuestFormIds.erase(qFid);
+									nowActive = true;
+								} else {
+									g_inactiveQuestFormIds.insert(qFid);
+									nowActive = false;
+								}
+								for (auto& q : g_invDataSnap.quests) {
+									if (q.formId == qFid && !q.completed) {
+										q.active = nowActive;
+									}
+								}
+							}
+							qEntry.SetMember("active", RE::Scaleform::GFx::Value(nowActive));
+							REX::INFO("step=quest_active form={:08X} active={}", qFid, nowActive ? 1 : 0);
+							g_pendingPartialMask.fetch_or(0x10u);
+							if (g_task) {
+								g_task->AddTask([]() {
+									if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+										queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+									}
+								});
+							}
+						}
+					}
+					return;
+				}
+				if (_name == "ShowQuestOnMap" || _name == "ShowWorkshopOnMap") {
+					std::int32_t targetId = -1;
+					if (a_params.argCount >= 1) {
+						ExtractShellIndex(a_params.args[0], targetId, 0x7FFFFFFF);
+					}
+					REX::INFO("step=data_show_on_map kind={} id={:#x}", _name == "ShowQuestOnMap" ? "quest" : "workshop",
+						targetId >= 0 ? targetId : 0);
+					PipboyMap::RequestCenterMarker(targetId);
+					s_savedPage.store(3u);
+					s_savedTabs[3].store(0u);
+					g_externalTargetPage.store(3);
+					if (g_task) {
+						g_task->AddTask([]() {
+							PipboyMap::CollectStateForPage(3);
+							if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+								queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+							}
+						});
+					}
+					return;
+				}
+				if (_name == "ToggleRadioStationActiveStatus") {
+					REX::INFO("step=radio_toggle args={}", a_params.argCount);
+					return;
+				}
+			}
+
+			PipboyMap::OnCodeObjCall(_name, a_params);
+			if (_name == "CheckHardcoreModeFastTravel" && !PipboyMap::Enabled()) {
+				const bool allow = !g_shellHardcoreFastTravelBlocked.load();
+				if (a_params.ret) {
+					*a_params.ret = RE::Scaleform::GFx::Value(allow);
+				}
+				std::int32_t idx = 0;
+				if (a_params.argCount >= 1) {
+					ExtractShellIndex(a_params.args[0], idx, 0x7FFFFFFF);
+				}
+				REX::INFO("step=map_check_hardcore idx={} source=FO4SFCoreValues.esm:000841 allow={}",
+					idx >= 0 ? idx : 0, allow ? 1 : 0);
+			}
+
+			if (g_codeObjHide && _name == "HideMenu" && g_task) {
+				if (g_playingBootMovie.exchange(false)) {
+					const auto reopenPage = s_savedPage.load();
+					REX::INFO("step=boot_sequence finished=1 reopen_page={}", reopenPage);
+					g_bootReopenPage.store(static_cast<std::int32_t>(reopenPage));
+					g_task->AddTask([n]() { Close(n, "boot_done"); });
+				} else {
+					g_task->AddTask([n]() { Close(n, "hide_menu"); });
+				}
+			}
+			if (g_codeObjSound && (_name == "PlaySound" || _name == "PlaySmallTransition" || _name == "PlayPerkSound" || _name == "PlayFocusSound")) {
+				StartSound(n, a_params.argCount > 0 ? &a_params.args[0] : nullptr);
+			}
+		}
+
+	private:
+		std::string _name = "BGSCodeObj";
+	};
+	std::array<CodeObjFunction, kMaxCodeNames>       g_codeObjFunctions;
+	std::array<std::string, kMaxCodeNames>           g_codeObjNames;
+	std::size_t                                      g_codeObjCount = 0;
+
+	// a function object as the holder (an ActionScript 3 Function is dynamic, so it takes members) with one function per
+	// name on it, set as root.BGSCodeObj, then read back. Proof 1b found no root right after the engine's LoadMovie
+	// returned (root=0 in the same millisecond), so it is tried there ("load"), after the engine's own kShow ("show") and
+	// after each kUpdate ("update", sent while it is not set), on the menu's thread, up to kMaxCodeObjTries per movie;
+	// the first tries and the one that sets it are logged with what was found
+	// FAL-614 proof 2b: a path (members joined by '.') read from a_from with GetMember, one member at a time; false
+	// when a member is missing or the value on the way is not an object or a function
+	bool ReadPath(const RE::Scaleform::GFx::Value& a_from, const std::string& a_path, RE::Scaleform::GFx::Value& a_out)
+	{
+		RE::Scaleform::GFx::Value at = a_from;
+		for (std::size_t start = 0; start <= a_path.size();) {
+			const auto end = std::min(a_path.find('.', start), a_path.size());
+			RE::Scaleform::GFx::Value next;
+			if (!(at.IsObject() || at.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure) ||
+				!at.GetMember(a_path.substr(start, end - start), &next)) {
+				return false;
+			}
+			at = next;
+			start = end + 1;
+		}
+		a_out = at;
+		return true;
+	}
+
+	// FAL-614 S1-c: the function at a path from a_from (as CodeObjCalls= reads it) called on its owner with a_args;
+	// a_found when the path ends in a function
+	bool CallPath(const RE::Scaleform::GFx::Value& a_from, const std::string& a_path, const RE::Scaleform::GFx::Value* a_args,
+		std::size_t a_count, bool& a_found)
+	{
+		RE::Scaleform::GFx::Value owner = a_from;
+		RE::Scaleform::GFx::Value function;
+		RE::Scaleform::GFx::Value result;
+		const auto                last = a_path.rfind('.');
+		const auto                name = last == std::string::npos ? a_path : a_path.substr(last + 1);
+		const bool                read = (last == std::string::npos || ReadPath(a_from, a_path.substr(0, last), owner)) &&
+		                  ReadPath(owner, name, function);
+		a_found = read && function.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure;
+		return a_found && InvokeMovieTracked(owner, name.c_str(), &result, a_args, a_count, a_path.c_str());
+	}
+
+	// FAL-1025: a path whose last member is InvalidateData, the call that loads a page and dispatches the change event
+	bool IsInvalidate(const std::string& a_path)
+	{
+		const auto last = a_path.rfind('.');
+		return (last == std::string::npos ? a_path : a_path.substr(last + 1)) == "InvalidateData";
+	}
+
+	// FAL-1025 (CodeObjSpecial=fill or clear, with CodeObjAt=): Gemini's PC read of Fallout 4's movies (REPORT 4 to 6),
+	// checked in the decompiled AS3: PipboyMenu's DataObj starts SPECIALList as 7 empty objects, the STAT page's hidden
+	// SPECIAL tab takes that list on each change event InvalidateData dispatches, and SPECIALListEntry.SetEntryText calls
+	// value.toString() on each entry: an AS3 TypeError (#1010) inside the dispatch, which has no try/catch. Fallout 4's
+	// engine fills the list first (PopulatePipboyInfoObj); our stand-in only logs. So right before each InvalidateData the
+	// plugin calls, <CodeObjAt>.DataObj.SPECIALList is emptied (splice(0), else length = 0) and, with fill, given 7
+	// entries {text, value, modifier, description}: the attribute's name, 1, 0 and "" (placeholders, not the player's).
+	// Only the root's CreateObject (a virtual) and Value's GetMember, SetMember and Invoke: no new Address Library id
+	void SpecialReady(RE::Scaleform::GFx::ASMovieRootBase* a_root, const RE::Scaleform::GFx::Value& a_top, const char* a_when)
+	{
+		if (g_codeObjSpecial == kSpecialOff || !a_root) {
+			return;
+		}
+		RE::Scaleform::GFx::Value list;
+		RE::Scaleform::GFx::Value result;
+		const bool                found = ReadPath(a_top, g_codeObjAt + ".DataObj.SPECIALList", list);
+		const RE::Scaleform::GFx::Value start(std::uint32_t{ 0 });
+		const auto clearList = [&]() -> std::string_view {
+			if (list.Invoke("splice", &result, &start, 1)) {
+				return "splice";
+			}
+			if (list.SetMember("length", start)) {
+				return "length";
+			}
+			return "none";
+		};
+		std::string_view by = found && list.IsArray() ? clearList() : "none";
+		std::size_t      pushed = 0;
+		for (std::size_t i = 0; by != "none" && g_codeObjSpecial == kSpecialFill && i < kSpecialNames.size(); ++i) {
+			RE::Scaleform::GFx::Value entry;
+			a_root->CreateObject(&entry);
+			const bool made = entry.IsObject() && entry.SetMember("text", RE::Scaleform::GFx::Value(kSpecialNames[i])) &&
+			                  entry.SetMember("value", RE::Scaleform::GFx::Value(std::uint32_t{ 1 })) &&
+			                  entry.SetMember("modifier", RE::Scaleform::GFx::Value(std::int32_t{ 0 })) &&
+			                  entry.SetMember("description", RE::Scaleform::GFx::Value(""));
+			if (!made || !list.Invoke("push", &result, &entry, 1)) {
+				break;
+			}
+			++pushed;
+		}
+		if (by != "none" && g_codeObjSpecial == kSpecialFill && pushed > 0 && pushed < kSpecialNames.size()) {
+			by = clearList();   // partial fill rolled back so incomplete entries never reach InvalidateData
+		}
+		RE::Scaleform::GFx::Value length;
+		const auto now = found && list.IsArray() && list.GetMember("length", &length) ? ArgText(length) : std::string("none");
+		if (const auto n = ++g_specialLines; n <= kMaxSpecialLines) {
+			REX::INFO("step=code_obj_special n={} when={} mode={} found={} type={} cleared_by={} pushed={} length={}", n, a_when, g_codeObjSpecial == kSpecialFill ? "fill" : "clear", found ? 1 : 0,
+				found ? TypeCode(list) : -1, by, pushed, now);
+		}
+	}
+
+	bool CodeObjInstall(const void* a_menu, const char* a_when)
+	{
+		if (g_closing.load()) {
+			return false;
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (!movie || g_codeObjMovie.load() == movie) {
+			return true;
+		}
+		g_activeShellMenu = a_menu;
+		if (g_codeObjTriedMovie.exchange(movie) != movie) {
+			g_codeObjTries.store(0);
+		}
+		const auto attempt = ++g_codeObjTries;
+		if (attempt > kMaxCodeObjTries) {
+			return false;
+		}
+		auto* const root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top;
+		RE::Scaleform::GFx::Value holder;
+		RE::Scaleform::GFx::Value back;
+		const bool  gotVariable = root && root->GetVariable(&top, "root");
+		const bool  gotRoot = gotVariable && top.IsObject();
+		const bool  bootMode = g_playingBootMovie.load();
+		std::size_t members = 0;
+		bool        topSet = false;
+		const char* holderSource = "none";
+		if (gotRoot) {
+			// Task 1 step 1a (proven crash fix): NEVER use CreateFunction as the BGSCodeObj holder!
+			// Read Menu_mc's own plain Object (PipboyMenu.as:53 `this.BGSCodeObj = new Object()`) once Menu_mc exists,
+			// or construct a plain Object via root->CreateObject(&holder, "Object") when CodeObjAt= is empty / missing.
+			RE::Scaleform::GFx::Value atCandidate;
+			const bool needAtFirst = !bootMode && !g_codeObjAt.empty();
+			const bool haveAtFirst = !needAtFirst || (ReadPath(top, g_codeObjAt, atCandidate) && atCandidate.IsObject());
+			if (haveAtFirst) {
+				if (needAtFirst) {
+					RE::Scaleform::GFx::Value existing;
+					if (atCandidate.GetMember("BGSCodeObj", &existing) && existing.IsObject() &&
+						existing.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure) {
+						holder = existing;
+						holderSource = "menu_mc";
+					}
+				}
+				if (holder.IsUndefined() || !holder.IsObject() ||
+					holder.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure) {
+					root->CreateObject(&holder, "Object");
+					holderSource = "create_object";
+				}
+				for (std::size_t i = 0; i < g_codeObjCount && !holder.IsUndefined() && holder.IsObject(); ++i) {
+					RE::Scaleform::GFx::Value function;
+					root->CreateFunction(&function, &g_codeObjFunctions[i]);
+					members += !function.IsUndefined() && holder.SetMember(g_codeObjNames[i].c_str(), function) ? 1 : 0;
+				}
+				topSet = !holder.IsUndefined() && holder.IsObject() && top.SetMember("BGSCodeObj", holder);
+			}
+		}
+		const std::size_t set = members + (topSet ? 1 : 0);
+		const bool        readBack = gotRoot && top.GetMember("BGSCodeObj", &back) && back.IsObject() &&
+		                      back.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure;
+		const bool        holderReady = gotRoot && !holder.IsUndefined() && members == g_codeObjCount;
+		bool atSet = false;
+		bool atReadBack = false;
+		if (holderReady && !g_codeObjAt.empty()) {
+			if (bootMode) {
+				atSet = true;
+				atReadBack = true;
+			} else {
+				RE::Scaleform::GFx::Value at;
+				RE::Scaleform::GFx::Value atBack;
+				atSet = ReadPath(top, g_codeObjAt, at) && at.SetMember("BGSCodeObj", holder);
+				atReadBack = atSet && at.GetMember("BGSCodeObj", &atBack) &&
+				             atBack.IsObject() && atBack.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure;
+			}
+		}
+		const bool atDone = g_codeObjAt.empty() || atReadBack;
+		bool called = false;
+		if (holderReady && !bootMode && !g_codeObjInit.empty()) {
+			RE::Scaleform::GFx::Value init;
+			RE::Scaleform::GFx::Value result;
+			RE::Scaleform::GFx::Value codeObj;
+			const bool got = top.GetMember(g_codeObjInit.c_str(), &init);
+			const bool found = got && (init.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure || init.IsObject());
+			{
+				MovieCallGuard initGuard(g_codeObjInit.c_str());
+				called = found && top.Invoke(g_codeObjInit.c_str(), &result, &holder, 1);
+				initGuard.ok = called;
+			}
+			const bool gotCodeObj = called && top.GetMember("codeObj", &codeObj);
+			if (called || attempt <= kLoggedCodeObjTries || attempt == kMaxCodeObjTries) {
+				REX::INFO("step=code_obj_init when={} try={} name={} got={} found={} type={} called={} result_type={} "
+						  "code_obj={} code_obj_type={}",
+					a_when, attempt, g_codeObjInit, got ? 1 : 0, found ? 1 : 0, TypeCode(init), called ? 1 : 0, TypeCode(result),
+					gotCodeObj ? 1 : 0, TypeCode(codeObj));
+			}
+		}
+		const bool done = holderReady && ((readBack && topSet) || called) && atDone;
+		if (done) {
+			g_codeObjMovie = movie;
+			g_answers = 0;   // S1-c: this movie's answers
+			REX::INFO("step=code_obj_holder type=object raw_type={} is_closure={} source={} members={} of={}",
+				TypeCode(holder),
+				holder.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure ? 1 : 0,
+				holderSource, members, g_codeObjCount);
+		}
+		// FAL-614 proof 2b-ii (CodeObjCalls=<path>,...): once per movie on the try that finished the hand-over and before
+		// the probe, each path is called with no arguments (Step 1: never call InvalidateData on the LoadMovie worker thread)
+		for (std::size_t i = 0; done && !bootMode && i < g_rootCallCount; ++i) {
+			if (std::string_view(a_when) == "load" && IsInvalidate(g_rootCallNames[i])) {
+				REX::INFO("step=code_obj_root_call n={} name={} skipped_on_load=1", i + 1, g_rootCallNames[i]);
+				continue;
+			}
+			RE::Scaleform::GFx::Value owner;
+			RE::Scaleform::GFx::Value function;
+			RE::Scaleform::GFx::Value result;
+			const auto                last = g_rootCallNames[i].rfind('.');
+			const auto                name = last == std::string::npos ? g_rootCallNames[i] : g_rootCallNames[i].substr(last + 1);
+			bool                      read = false;
+			if (last == std::string::npos) {
+				read = ReadPath(top, name, function);
+				owner = top;
+			} else {
+				read = ReadPath(top, g_rootCallNames[i].substr(0, last), owner) && ReadPath(owner, name, function);
+			}
+			if (IsInvalidate(g_rootCallNames[i])) {
+				SpecialReady(root, top, "calls");   // FAL-1025
+			}
+			const bool found = read && function.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure;
+			bool       rootCalled = false;
+			{
+				MovieCallGuard rootGuard(g_rootCallNames[i].c_str());
+				rootCalled = found && owner.Invoke(name.c_str(), &result, nullptr, 0);
+				rootGuard.ok = rootCalled;
+			}
+			if (rootCalled && g_rootCallNames[i] == "Menu_mc.onCodeObjCreate") {
+				g_createdCodeObjMovie = movie;
+			}
+			if (rootCalled && g_rootCallNames[i] == "Menu_mc.InvalidateData") {
+				g_shownInvalidatedMovie = movie;
+			}
+			REX::INFO("step=code_obj_root_call n={} name={} found={} type={} called={} result_type={}", i + 1, g_rootCallNames[i],
+				found ? 1 : 0, read ? TypeCode(function) : -1, rootCalled ? 1 : 0, TypeCode(result));
+			if (!rootCalled) {
+				REX::INFO("step=movie_call_miss where=code_obj_root_call name={} found={}", g_rootCallNames[i], found ? 1 : 0);
+			}
+		}
+		// FAL-614 proof 2b-i (CodeObjProbe=<path>,...): read-only. Once per movie, on the try that finished the
+		// hand-over, each path (a root member, or members joined by '.') is read with GetMember and its type logged,
+		// with the value only for a boolean or a number; nothing is set or called. type=-1: not found, nothing read
+		for (std::size_t i = 0; done && !bootMode && i < g_probeCount; ++i) {
+			RE::Scaleform::GFx::Value at;
+			const bool                found = ReadPath(top, g_probeNames[i], at);
+			std::string value;
+			if (found && at.IsBoolean()) {
+				value = std::format(" value={}", at.GetBoolean() ? 1 : 0);
+			} else if (found && at.IsInt()) {
+				value = std::format(" value={}", at.GetInt());
+			} else if (found && at.IsUInt()) {
+				value = std::format(" value={}", at.GetUInt());
+			} else if (found && at.IsNumber()) {
+				value = std::format(" value={}", at.GetNumber());
+			}
+			REX::INFO("step=code_obj_probe n={} name={} found={} type={}{}", i + 1, g_probeNames[i], found ? 1 : 0,
+				found ? TypeCode(at) : -1, value);
+		}
+		if (done || attempt <= kLoggedCodeObjTries || attempt == kMaxCodeObjTries) {
+			std::string names;
+			for (std::size_t i = 0; i < g_codeObjCount; ++i) {
+				names += std::format("{}{}", i ? "," : "", g_codeObjNames[i]);
+			}
+			REX::INFO("step=code_obj when={} try={} root_of={} get_variable={} root={} root_type={} holder_type={} set={} of={} "
+					  "read_back={} names={} at={} at_set={} at_read_back={}",
+				a_when, attempt, root ? 1 : 0, gotVariable ? 1 : 0, gotRoot ? 1 : 0, TypeCode(top), TypeCode(holder), set,
+				g_codeObjCount + 1, readBack ? 1 : 0, names, g_codeObjAt.empty() ? "none" : g_codeObjAt, atSet ? 1 : 0,
+				atReadBack ? 1 : 0);
+		}
+		if (!done && attempt >= kMaxCodeObjTries) {
+			FailMovieCall("code_obj_install", std::format("tries={}", attempt));
+			return false;
+		}
+		return done;
+	}
+
+	// stage b with CodeObj=1: true while the menu's movie has no stand-in yet and tries are left (the key thread then
+	// sends kUpdate, which stage b does not otherwise get)
+	bool CodeObjPending()
+	{
+		return g_codeObj && g_codeObjMovie.load() == nullptr && g_codeObjTries.load() < kMaxCodeObjTries;
+	}
+
+	// Step 1: on kShow (menu thread, after g_engineProcessMessage and CodeObjInstall), ensure Menu_mc.onCodeObjCreate()
+	// ran, populate DataObj (CurrentPage before CurrentTab), and call Menu_mc.InvalidateData() ONCE
+	void ShellShowInit(const void* a_menu)
+	{
+		if (g_closing.load() || !IsFo4ShellActive()) {
+			return;
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (!movie || g_codeObjMovie.load() != movie) {
+			return;
+		}
+		g_activeShellMenu = a_menu;
+		auto* const               root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top;
+		RE::Scaleform::GFx::Value menuMc;
+		if (!root || !root->GetVariable(&top, "root") || !top.IsObject() ||
+			!ReadPath(top, g_codeObjAt, menuMc) || !menuMc.IsObject()) {
+			REX::INFO("step=movie_call_miss where=shell_show_root");
+			return;
+		}
+		if (g_createdCodeObjMovie.exchange(movie) != movie) {
+			RE::Scaleform::GFx::Value createRes;
+			if (!InvokeMovieTracked(menuMc, "onCodeObjCreate", &createRes, nullptr, 0, "Menu_mc.onCodeObjCreate")) {
+				REX::INFO("step=movie_call_miss where=onCodeObjCreate");
+				return;
+			}
+		}
+		const bool alreadyInvalidated = (g_shownInvalidatedMovie.exchange(movie) == movie);
+		if (alreadyInvalidated && !g_lateInvalidate) {
+			return;
+		}
+		if (!g_dataObj.IsObject()) {
+			menuMc.GetMember("DataObj", &g_dataObj);
+		}
+		if (!g_dataObj.IsObject()) {
+			REX::INFO("step=movie_call_miss where=shell_show_data_obj");
+			return;
+		}
+		const auto page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
+		const auto tab = s_savedTabs[page].load();
+		if (g_populateInCall) {
+			FillPipboyDataObj(a_menu, root, g_dataObj, page, tab, "kShow");
+			if (g_codeObjSpecial == kSpecialClear) {
+				SpecialReady(root, top, "show");
+			}
+		} else {
+			g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(page));
+			g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(tab));
+			SpecialReady(root, top, "show");
+			if (g_invDataAnswers) {
+				FillInvAndDataIntoDataObj(root, g_dataObj, page, tab, "kShow");
+			}
+			if (page == PipboyMap::MapPageIndex()) {
+				PipboyMap::PopulateMapDataObj(a_menu, root, g_dataObj, static_cast<std::int32_t>(page));
+			}
+			g_currentShellPage.store(static_cast<std::int32_t>(page));
+			g_currentShellTab.store(static_cast<std::int32_t>(tab));
+		}
+		PipboyMap::NotifyShellPageTab(static_cast<std::int32_t>(page), static_cast<std::int32_t>(tab));
+
+		RE::Scaleform::GFx::Value invRes;
+		const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData");
+		REX::INFO("step=shell_show_invalidate page={} tab={} invalidated={}", page, tab, invalidated ? 1 : 0);
+		if (!invalidated) {
+			REX::INFO("step=movie_call_miss where=shell_show_invalidate page={} tab={}", page, tab);
+		}
+	}
+
+	// Step 1c: on kHide BEFORE g_engineProcessMessage (while MovieOf(a_menu) is still non-null, guarded once per movie),
+	// set g_closing first so nothing writes to DataObj or the movie, call Menu_mc.onCodeObjDestruction(), log
+	// code_obj_destruction called=1, then UnregisterMap (if MAP was loaded), then touch the movie no more before step=destroy
+	void ShellHideTeardown(const void* a_menu)
+	{
+		g_closing.store(true);
+		PipboyMap::SetClosing(true);
+		const void* const movie = MovieOf(a_menu);
+		if (!movie || !IsFo4ShellActive() || g_codeObjMovie.load() != movie) {
+			PipboyMap::ReleaseMovieRefs();
+			g_dataObj = RE::Scaleform::GFx::Value{};
+			g_activeShellMenu = nullptr;
+			return;
+		}
+		if (g_destroyedCodeObjMovie.exchange(movie) == movie) {
+			return;
+		}
+		PipboyMap::ReleaseMovieRefs();
+		g_dataObj = RE::Scaleform::GFx::Value{};
+		{
+			std::scoped_lock lock(g_deferredLogLock);
+			g_deferredDestructionLogs.clear();
+		}
+
+		bool        called = false;
+		auto* const root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top;
+		RE::Scaleform::GFx::Value menuMc;
+		if (root && root->GetVariable(&top, "root") && top.IsObject() &&
+			ReadPath(top, g_codeObjAt, menuMc) && menuMc.IsObject()) {
+			RE::Scaleform::GFx::Value res;
+			g_inDestructionCall.store(true);
+			called = InvokeMovieTracked(menuMc, "onCodeObjDestruction", &res, nullptr, 0, "Menu_mc.onCodeObjDestruction");
+			g_inDestructionCall.store(false);
+		}
+		PipboyMap::ReleaseMovieRefs();
+		g_dataObj = RE::Scaleform::GFx::Value{};
+		g_activeShellMenu = nullptr;
+		REX::INFO("step=code_obj_destruction movie={} called={}", Hex(reinterpret_cast<std::uintptr_t>(movie)), called ? 1 : 0);
+
+		std::vector<std::string> deferred;
+		{
+			std::scoped_lock lock(g_deferredLogLock);
+			deferred.swap(g_deferredDestructionLogs);
+		}
+		for (const auto& line : deferred) {
+			REX::INFO("{}", line);
+		}
+	}
+
+	// Steps 1, 3, 4: drain ProcessUserEvent queue (with Cancel release -> !consumed && CurrentPage.CanLowerPipboy()),
+	// external page switch guard (_IsLoadingPage == false && CurrentPage loaded), and throttled partial vitals refresh
+	bool ProcessPendingShellEvents(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root, RE::Scaleform::GFx::Value& a_top)
+	{
+		if (g_closing.load()) {
+			return false;
+		}
+		g_activeShellMenu = a_menu;
+		RE::Scaleform::GFx::Value menuMc;
+		if (!ReadPath(a_top, g_codeObjAt, menuMc) || !menuMc.IsObject()) {
+			REX::INFO("step=movie_call_miss where=shell_events_menu_mc");
+			return false;
+		}
+
+		std::vector<PendingUserEvent> batch;
+		{
+			std::scoped_lock lock(g_shellEventLock);
+			batch.swap(g_pendingUserEvents);
+		}
+		for (const auto& ev : batch) {
+			if (g_closing.load()) {
+				break;
+			}
+			RE::Scaleform::GFx::Value args[2]{
+				RE::Scaleform::GFx::Value(ev.name.c_str()),
+				RE::Scaleform::GFx::Value(ev.isDown),
+			};
+			RE::Scaleform::GFx::Value res;
+			if (!InvokeMovieTracked(menuMc, "ProcessUserEvent", &res, args, 2, "Menu_mc.ProcessUserEvent")) {
+				REX::INFO("step=movie_call_miss where=ProcessUserEvent event={}", ev.name);
+				continue;
+			}
+			const bool consumed = res.IsBoolean() && res.GetBoolean();
+			REX::INFO("step=process_user_event name={} handled={} down={}", ev.name, consumed ? 1 : 0, ev.isDown ? 1 : 0);
+
+			if (ev.name == "Cancel" && !ev.isDown) {
+				bool                      canLower = true;
+				RE::Scaleform::GFx::Value curPageClip;
+				if (menuMc.GetMember("CurrentPage", &curPageClip) && curPageClip.IsObject()) {
+					RE::Scaleform::GFx::Value canRes;
+					if (!InvokeMovieTracked(curPageClip, "CanLowerPipboy", &canRes, nullptr, 0, "CurrentPage.CanLowerPipboy")) {
+						REX::INFO("step=movie_call_miss where=CanLowerPipboy");
+					} else if (canRes.IsBoolean()) {
+						canLower = canRes.GetBoolean();
+					}
+				}
+				const bool modalOpen = PipboyMap::IsModalOpen();
+				const bool allowClose = !consumed && canLower && !modalOpen;
+				REX::INFO("step=shell_cancel_check consumed={} can_lower={} map_modal={} close={}",
+					consumed ? 1 : 0, canLower ? 1 : 0, modalOpen ? 1 : 0, allowClose ? 1 : 0);
+				if (allowClose) {
+					g_cancelNow = true;
+				}
+			}
+		}
+
+		if (const auto extPage = g_externalTargetPage.load(); extPage >= 0) {
+			RE::Scaleform::GFx::Value loadingVal;
+			RE::Scaleform::GFx::Value curPageClip;
+			const bool loadingFlag = menuMc.GetMember("_IsLoadingPage", &loadingVal) && loadingVal.IsBoolean() && loadingVal.GetBoolean();
+			const bool pageClipReady = menuMc.GetMember("CurrentPage", &curPageClip) && curPageClip.IsObject();
+			if (loadingFlag || !pageClipReady) {
+				if (g_task) {
+					g_task->AddTask([]() {
+						if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+							queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+						}
+					});
+				}
+			} else if (g_externalTargetPage.compare_exchange_strong(const_cast<std::int32_t&>(extPage), -1)) {
+				RE::Scaleform::GFx::Value pageArg(static_cast<std::uint32_t>(extPage));
+				RE::Scaleform::GFx::Value tryRes;
+				if (!InvokeMovieTracked(menuMc, "TryToSetPage", &tryRes, &pageArg, 1, "Menu_mc.TryToSetPage")) {
+					REX::INFO("step=movie_call_miss where=TryToSetPage page={}", extPage);
+				}
+			}
+		}
+
+		if (const auto mask = g_pendingPartialMask.exchange(0); mask != 0 && (g_populateInCall || g_statActions || g_invDataAnswers)) {
+			if (!g_dataObj.IsObject()) {
+				menuMc.GetMember("DataObj", &g_dataObj);
+			}
+			if (g_dataObj.IsObject()) {
+				const auto page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
+				const auto tab = s_savedTabs[page].load();
+				if (g_populateInCall || g_statActions) {
+					FillPipboyDataObj(a_menu, a_root, g_dataObj, page, tab, "partial");
+				} else if (g_invDataAnswers) {
+					FillInvAndDataIntoDataObj(a_root, g_dataObj, page, tab, "partial");
+				}
+				RE::Scaleform::GFx::Value maskArg(mask);
+				RE::Scaleform::GFx::Value partRes;
+				if (!InvokeMovieTracked(menuMc, "InvalidatePartialData", &partRes, &maskArg, 1, "Menu_mc.InvalidatePartialData", false)) {
+					REX::INFO("step=movie_call_miss where=InvalidatePartialData mask={:#x}", mask);
+				}
+			}
+		}
+		return true;
+	}
+
+	void ShellUpdate(const void* a_menu)
+	{
+		if (g_closing.load()) {
+			return;
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (!movie || g_codeObjMovie.load() != movie) {
+			return;
+		}
+		g_activeShellMenu = a_menu;
+		auto* const               root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top;
+		if (!root || !root->GetVariable(&top, "root") || !top.IsObject()) {
+			REX::INFO("step=movie_call_miss where=shell_update_root");
+			return;
+		}
+		if (IsFo4ShellActive() && !ProcessPendingShellEvents(a_menu, root, top)) {
+			return;
+		}
+		const auto keys = g_shellKeyPending.exchange(0);
+		for (std::size_t i = 0; i < g_shellKeyCount; ++i) {
+			if (!(keys & (1u << i))) {
+				continue;
+			}
+			if (IsInvalidate(g_shellKeys[i].path)) {
+				SpecialReady(root, top, "keys");   // FAL-1025
+			}
+			bool       found = false;
+			const bool called = CallPath(top, g_shellKeys[i].path, nullptr, 0, found);
+			if (const auto line = ++g_shellKeyLines; line <= kMaxCodeCalls) {
+				REX::INFO("step=shell_key n={} vk={} path={} found={} called={}", line, Hex(g_shellKeys[i].vk),
+					g_shellKeys[i].path, found ? 1 : 0, called ? 1 : 0);
+			}
+			if (!called) {
+				REX::INFO("step=movie_call_miss where=shell_key path={}", g_shellKeys[i].path);
+				return;
+			}
+		}
+		PipboyMap::OnShellUpdate(a_menu, root, top, g_codeObjAt, g_answerPage, g_answerTab);
+		const auto page = g_answerPage.exchange(-1);
+		const auto tab = g_answerTab.exchange(-1);
+		if ((page < 0 && tab < 0) || g_codeObjAt.empty()) {
+			return;
+		}
+		const auto n = ++g_answers;
+		if (n > kMaxAnswers) {
+			return;   // the cap, against a shell that asks again at every InvalidateData
+		}
+		RE::Scaleform::GFx::Value data;
+		RE::Scaleform::GFx::Value now;
+		const bool                gotData = ReadPath(top, g_codeObjAt + ".DataObj", data) && data.IsObject();
+		const bool pageSet = page >= 0 && gotData && data.SetMember("CurrentPage", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(page)));
+		const bool tabSet = tab >= 0 && gotData && data.SetMember("CurrentTab", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(tab)));
+		const auto read = [&](const char* a_member) {
+			return gotData && data.GetMember(a_member, &now) ? ArgText(now) : std::string("none");
+		};
+		const auto pageNow = read("CurrentPage");
+		const auto tabNow = read("CurrentTab");
+		if (gotData) {
+			SpecialReady(root, top, "answer");   // FAL-1025
+		}
+		bool       found = false;
+		const bool invalidated = gotData && CallPath(top, g_codeObjAt + ".InvalidateData", nullptr, 0, found);
+		REX::INFO("step=code_answer n={} page={} tab={} data={} page_set={} tab_set={} page_now={} tab_now={} "
+				  "invalidate_found={} invalidated={}",
+			n, page, tab, gotData ? 1 : 0, pageSet ? 1 : 0, tabSet ? 1 : 0, pageNow, tabNow, found ? 1 : 0, invalidated ? 1 : 0);
+		if (!invalidated) {
+			REX::INFO("step=movie_call_miss where=code_answer_invalidate page={} tab={}", page, tab);
+		}
+	}
+
+	// The bundle ships Data\Interface\<BootMovie>.swf as a loose file under Data\Interface\ (and verify_bundle enforces
+	// its presence). Check that loose file on disk before attempting a boot movie load so a missing file never locks
+	// g_playingBootMovie or prevents the main Pip-Boy movie from opening.
+	bool BootMovieLooseFileExists()
+	{
+		if (g_bootMovie.empty()) {
+			return false;
+		}
+		const std::string relName = g_bootMovie + ".swf";
+		std::error_code   ec;
+		if (!g_gameDir.empty()) {
+			if (std::filesystem::is_regular_file(g_gameDir / "Data" / "Interface" / relName, ec)) {
+				return true;
+			}
+		}
+		return std::filesystem::is_regular_file(std::filesystem::path("Data") / "Interface" / relName, ec);
+	}
 
 	bool MenuLoadMovie(void* a_self, bool a_dispatcher, bool a_arg2)
 	{
@@ -3095,16 +6562,544 @@ namespace
 			REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b result=already_loaded", menu, a_dispatcher, a_arg2);
 			return true;
 		}
-		REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b calling", menu, a_dispatcher, a_arg2);
-		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
-		REX::INFO("step=load_movie menu={} stage=b result={} movie={}", menu, loaded ? 1 : 0,
-			Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))));
+		const bool attemptingBoot = g_playingBootMovie.load() && !g_bootMovie.empty();
+		const char* targetMovie = attemptingBoot
+		                              ? g_bootMovie.c_str()
+		                              : (g_movie.empty() ? kMenuName : g_movie.c_str());
+		REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b calling movie_name={}", menu, a_dispatcher, a_arg2,
+			targetMovie);
+		g_movieNameAsks.store(0);
+		g_loadingMovie.store(true);
+		bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingMovie.store(false);
+		REX::INFO("step=load_movie menu={} stage=b result={} movie={} movie_name={} name_asks={}", menu, loaded ? 1 : 0,
+			Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), targetMovie,
+			g_movieNameAsks.load());
+		// H0c / R10: g_engineLoadMovie resolves both loose Data\Interface\<BootMovie>.swf and BA2-packed Interface\<BootMovie>.swf;
+		// if absent from both, log step=boot_skip reason=missing once and immediately load the main Pip-Boy movie.
+		if (attemptingBoot && (!loaded || !MovieOf(a_self))) {
+			g_playingBootMovie.store(false);
+			if (!g_loggedBootSkipMissing.exchange(true)) {
+				REX::INFO("step=boot_skip reason=missing movie={} file=Interface\\{}.swf", g_bootMovie, g_bootMovie);
+			}
+			const char* fallbackMovie = g_movie.empty() ? kMenuName : g_movie.c_str();
+			REX::INFO("step=load_movie menu={} dispatcher={} arg2={} stage=b calling movie_name={}", menu, a_dispatcher,
+				a_arg2, fallbackMovie);
+			g_movieNameAsks.store(0);
+			g_loadingMovie.store(true);
+			loaded = g_engineLoadMovie(a_self, false, a_arg2);
+			g_loadingMovie.store(false);
+			REX::INFO("step=load_movie menu={} stage=b result={} movie={} movie_name={} name_asks={}", menu, loaded ? 1 : 0,
+				Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), fallbackMovie,
+				g_movieNameAsks.load());
+		}
+		if (!loaded || !MovieOf(a_self)) {
+			FailMovieCall("load_movie");
+			return false;
+		}
+		if (g_codeObj) {
+			CodeObjInstall(a_self, "load");
+		}
 		return loaded;
+	}
+
+	// ------------------------------------------------------------------------------------------- FAL-852: the arm
+	// Arm=1 at Stage=2 with Movie= (README, "The arm"). Key while the screen is closed sends the raise idle's animation
+	// event to the player and opens the screen ArmRaiseMs after the graph took it; every close of a screen opened that
+	// way (Key, or the movie's HideMenu with CodeObjHide=1) is followed by the lower: the lower idle's event, ArmLowerEvent
+	// by name, or nothing, and then the raise's own clip, held by the pause while the screen was up, carries on and lowers
+	// the arm by itself (PB-HOLD-1: the clip resumes from its frozen frame). Every arm line carries t_ms, the milliseconds
+	// since the press that started the raise (steady clock). #776's code (FAL-714, FAL-719, FAL-725), written there for
+	// its kit, taken over for Fallout 4's screen. At Arm=0 none of it runs and none of its lines is logged.
+	std::int64_t SincePress() { return NowMs() - g_armPressAt.load(); }
+
+	using LookupByEditorId_t = void* (*)(const RE::BSFixedString&);
+	using NotifyGraph_t = bool (*)(void*, const RE::BSFixedString&);
+	using GetGraphMgr_t = bool (*)(void*, RE::BSTSmartPointer<RE::BSAnimationGraphManager>&);
+	using RegisterAnimSink_t = void (*)(void*, RE::BSTEventSink<RE::BSAnimationGraphEvent>*);
+	using PlayIdleCtx_t = void* (*)();
+	using ActorPlayIdle_t = bool (*)(void*, void*, std::uint32_t, void*, bool, void*, void*);
+
+	class ArmAnimGraphSink final : public RE::BSTEventSink<RE::BSAnimationGraphEvent>
+	{
+	public:
+		RE::BSEventNotifyControl ProcessEvent(const RE::BSAnimationGraphEvent& a_event,
+			RE::BSTEventSource<RE::BSAnimationGraphEvent>*) override
+		{
+			const bool waitingRaise = g_armWaitingRaiseGraph.load();
+			const auto lowerUntil = g_armLowerUntil.load();
+			const auto now = NowMs();
+			if (!waitingRaise && now >= lowerUntil) {
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			const auto evAddr = reinterpret_cast<std::uintptr_t>(&a_event);
+			std::string tag;
+			for (const std::size_t off : { std::size_t{ 0x00 }, std::size_t{ 0x08 }, std::size_t{ 0x10 } }) {
+				std::uintptr_t entry = 0;
+				std::string    cand;
+				if (Peek(evAddr + off, entry) && entry && ReadPoolString(entry, cand) &&
+					!cand.empty() && cand.size() <= 96 &&
+					std::ranges::all_of(cand, [](unsigned char c) { return c >= 0x20 && c < 0x7F; })) {
+					tag = std::move(cand);
+					break;
+				}
+			}
+			if (tag.empty()) {
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			if (waitingRaise) {
+				const bool raiseReady = SameText(tag, "pipboyOpened") || SameText(tag, "WatchUp") ||
+				                        SameText(tag, "AnimObjDraw") || SameText(tag, "IdleStop") ||
+				                        (tag.find("Watch") != std::string::npos && SincePress() >= 350);
+				if (raiseReady && g_armWaitingRaiseGraph.exchange(false)) {
+					g_armShowAt.store(now);
+					REX::INFO("step=arm_graph_event phase=raise event={} action=show_now t_ms={}", tag, SincePress());
+				}
+			} else if (now < lowerUntil) {
+				const bool lowerDone = SameText(tag, "IdleStop") || SameText(tag, "pipboyClosed") ||
+				                       SameText(tag, "AnimComplete") || SameText(tag, "WatchDown");
+				if (lowerDone) {
+					g_armLowerUntil.store(0);
+					REX::INFO("step=arm_graph_event phase=lower event={} action=unlock t_ms={}", tag, SincePress());
+				}
+			}
+			return RE::BSEventNotifyControl::kContinue;
+		}
+	};
+	ArmAnimGraphSink g_armGraphSink;
+
+	std::uintptr_t ReadPlayer3DRoot(std::uintptr_t a_player)
+	{
+		std::uintptr_t loadedData = 0;
+		std::uintptr_t data3D = 0;
+		if (a_player && Peek(a_player + kLoadedDataAt, loadedData) && loadedData) {
+			Peek(loadedData + kLoadedData3DAt, data3D);
+		}
+		return data3D;
+	}
+
+	// A4: Clear g_armWatchedGraph WITHOUT unregistering through a potentially freed pointer whenever LoadingMenu /
+	// LoadingMenuNewLocation opens, and bump g_armGraphLoadGen so a newly allocated graph reusing the same address re-registers.
+	void ArmPollLoadingTransitionMainThread()
+	{
+		auto* const ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		static auto* const kLoadingMenuFixed = new RE::BSFixedString("LoadingMenu");
+		static auto* const kLoadingNewLocFixed = new RE::BSFixedString("LoadingMenuNewLocation");
+		const bool loadingNow = (ui->IsMenuRegistered(*kLoadingMenuFixed) && ui->IsMenuOpen(*kLoadingMenuFixed)) ||
+		                        (ui->IsMenuRegistered(*kLoadingNewLocFixed) && ui->IsMenuOpen(*kLoadingNewLocFixed));
+		if (loadingNow && !g_armSawLoadingMenu) {
+			g_armSawLoadingMenu = true;
+			g_raiseRetry.state = kRetryIdle;
+			g_armShowAt = 0;
+			g_armWaitingRaiseGraph = false;
+			g_armDispatching = false;
+			g_bootReopenPage = -1;
+			const auto gen = ++g_armGraphLoadGen;
+			if (g_armWatchedGraph != 0) {
+				g_armWatchedGraph = 0;
+				g_armWatchedMgrAddr = 0;
+				g_armWatchedPlayer3D = 0;
+				REX::INFO("step=arm_graph_sink_reset reason=loading_menu gen={}", gen);
+			}
+		} else if (!loadingNow && g_armSawLoadingMenu) {
+			g_armSawLoadingMenu = false;
+		}
+	}
+
+	void ArmSyncGraphSink()
+	{
+		ArmPollLoadingTransitionMainThread();
+		if (!g_armGetGraphMgr || !g_armRegSinkRva) {
+			return;
+		}
+		const auto     player = Singleton(kPlayerSingleton);
+		std::uintptr_t holder = 0;
+		if (!player || !Peek(player + kAnimHolderAt, holder) || holder != g_armHolderVtable) {
+			if (g_armWatchedGraph != 0) {
+				g_armWatchedGraph = 0;
+				g_armWatchedMgrAddr = 0;
+				g_armWatchedPlayer3D = 0;
+				++g_armGraphLoadGen;
+			}
+			return;
+		}
+		const std::uintptr_t player3D = ReadPlayer3DRoot(player);
+		RE::BSTSmartPointer<RE::BSAnimationGraphManager> mgr;
+		if (!reinterpret_cast<GetGraphMgr_t>(g_armGetGraphMgr)(reinterpret_cast<void*>(player + kAnimHolderAt), mgr) || !mgr) {
+			if (g_armWatchedGraph != 0) {
+				g_armWatchedGraph = 0;
+				g_armWatchedMgrAddr = 0;
+				g_armWatchedPlayer3D = 0;
+				++g_armGraphLoadGen;
+			}
+			return;
+		}
+		const auto mgrAddr = reinterpret_cast<std::uintptr_t>(mgr.get());
+		const auto curGen = g_armGraphLoadGen.load();
+		// A4: If LoadingMenu fired or player 3D / animation graph manager changed, drop g_armWatchedGraph WITHOUT calling
+		// UnregisterSink on the potentially freed graph, and force re-registration even if the new graph reuses the address.
+		if (g_armWatchedGraph != 0 &&
+			(curGen != g_armWatchedGen || mgrAddr != g_armWatchedMgrAddr || player3D != g_armWatchedPlayer3D)) {
+			g_armWatchedGraph = 0;
+			g_armWatchedMgrAddr = 0;
+			g_armWatchedPlayer3D = 0;
+			REX::INFO("step=arm_graph_sink_reset reason=player3d_or_mgr_changed gen={}", curGen);
+		}
+		std::uint32_t gSize = 0;
+		std::uint32_t activeIdx = 0;
+		std::uint32_t capBits = 0;
+		if (!Peek(mgrAddr + 0x30, gSize) || gSize == 0 || gSize > 16 ||
+			!Peek(mgrAddr + 0x38, capBits) || !Peek(mgrAddr + 0x78, activeIdx)) {
+			return;
+		}
+		const bool          isLocal = (capBits & 0x80000000u) != 0;
+		std::uintptr_t      dataPtr = 0;
+		if (isLocal) {
+			dataPtr = mgrAddr + 0x40;
+		} else if (!Peek(mgrAddr + 0x40, dataPtr) || !dataPtr) {
+			return;
+		}
+		const std::uint32_t idx = activeIdx < gSize ? activeIdx : 0u;
+		std::uintptr_t      graphPtr = 0;
+		if (!Peek(dataPtr + idx * sizeof(std::uintptr_t), graphPtr) || !graphPtr) {
+			return;
+		}
+		if (graphPtr == g_armWatchedGraph && curGen == g_armWatchedGen &&
+			mgrAddr == g_armWatchedMgrAddr && player3D == g_armWatchedPlayer3D) {
+			return;
+		}
+		ObjectType gType;
+		if (!TypeOf(graphPtr, gType)) {
+			return;
+		}
+		if (g_armWatchedGraph && g_armUnregSinkRva && curGen == g_armWatchedGen &&
+			mgrAddr == g_armWatchedMgrAddr && player3D == g_armWatchedPlayer3D) {
+			reinterpret_cast<RegisterAnimSink_t>(g_base + g_armUnregSinkRva)(reinterpret_cast<void*>(g_armWatchedGraph), &g_armGraphSink);
+		}
+		reinterpret_cast<RegisterAnimSink_t>(g_base + g_armRegSinkRva)(reinterpret_cast<void*>(graphPtr), &g_armGraphSink);
+		g_armWatchedGraph = graphPtr;
+		g_armWatchedMgrAddr = mgrAddr;
+		g_armWatchedPlayer3D = player3D;
+		g_armWatchedGen = curGen;
+		REX::INFO("step=arm_graph_sink graph={} type={} active_idx={} count={} gen={}",
+			Hex(graphPtr), gType.name, idx, gSize, curGen);
+	}
+
+	// FAL-719: an event name that looks like a file path: a '\' or '/', or ending .agx, .hkx or .hkt (any case)
+	bool EventIsPath(std::string_view a_event)
+	{
+		if (a_event.find_first_of("\\/") != std::string_view::npos) {
+			return true;
+		}
+		for (const std::string_view ext : { ".agx"sv, ".hkx"sv, ".hkt"sv }) {
+			if (a_event.size() >= ext.size() && SameText(a_event.substr(a_event.size() - ext.size()), ext)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// one idle by its editor id, through the engine's lookup (libxse TESForm::LookupByEditorID, CheckArmId), on the main
+	// thread: a TESIdleForm by its RTTI, form type IDLE (+0x2E), with an animation event. Its form id, graph and event are
+	// logged, and every pool string from +0x58 to +0x80 once, read only (FAL-719: the layout is shown, not assumed)
+	std::uintptr_t ArmIdleForm(std::string_view a_which, const std::string& a_editorId)
+	{
+		static std::vector<RE::BSFixedString*> names;   // process lifetime: a BSFixedString destructor calls the engine
+		names.push_back(new RE::BSFixedString(a_editorId.c_str()));
+		auto form = reinterpret_cast<std::uintptr_t>(
+			reinterpret_cast<LookupByEditorId_t>(g_base + g_armLookupRva)(*names.back()));
+		if (!form && SameText(a_editorId, "idleexaminewatch") && g_rva[kLookupById] != 0) {
+			form = ShellFormLookup(kIdleExamineWatchFormId);
+		}
+		if (!form) {
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=not_found t_ms={}", a_which, a_editorId, SincePress()));
+			return 0;
+		}
+		ObjectType    type;
+		std::uint32_t formId = 0;
+		std::uint8_t  formType = 0;
+		const bool    typed = IsType(form, "TESIdleForm@@", type);
+		Peek(form + kFormIdAt, formId);
+		Peek(form + kFormTypeAt, formType);
+		if (!typed || formType != kIdleType) {
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=not_idle form={:08X} type={:#x} rtti={} t_ms={}",
+				a_which, a_editorId, formId, formType, type.name.empty() ? "unreadable" : type.name, SincePress()));
+			return 0;
+		}
+		std::string slots;
+		for (std::size_t at = kIdleSlotFirst; at <= kIdleSlotLast; at += 8) {
+			std::uintptr_t entry = 0;
+			std::string    text;
+			const bool     read = Peek(form + at, entry) && ReadPoolString(entry, text);
+			slots += std::format(" s{:x}={}", at, read && !text.empty() ? text : "-");
+		}
+		REX::INFO("step=arm_idle_slots which={} form={:08X}{} t_ms={}", a_which, formId, slots, SincePress());
+		std::uintptr_t graphEntry = 0;
+		std::uintptr_t eventEntry = 0;
+		std::string    graph;
+		std::string    event;
+		const bool     gotGraph = Peek(form + kIdleGraphAt, graphEntry) && ReadPoolString(graphEntry, graph);
+		const bool     gotEvent = Peek(form + kIdleEventAt, eventEntry) && ReadPoolString(eventEntry, event);
+		if (!gotEvent || event.empty()) {
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=no_event form={:08X} type={:#x} graph={} t_ms={}",
+				a_which, a_editorId, formId, formType, gotGraph && !graph.empty() ? graph : "-", SincePress()));
+			return 0;
+		}
+		if (EventIsPath(event)) {   // FAL-719: a file path is not an animation event
+			Refuse("arm_idle", std::format("which={} editor_id={} reason=event_is_path slot={:#x} value={} form={:08X} t_ms={}",
+				a_which, a_editorId, kIdleEventAt, event, formId, SincePress()));
+			return 0;
+		}
+		REX::INFO("step=arm_idle which={} editor_id={} form={:08X} type={:#x} graph={} event={} t_ms={}", a_which, a_editorId,
+			formId, formType, gotGraph && !graph.empty() ? graph : "-", event, SincePress());
+		return form;
+	}
+
+	// the player's IAnimationGraphManagerHolder, as CheckActorValues checks ActorValueOwner: the base's offset from
+	// PlayerCharacter's RTTI hierarchy (libxse: 0x60), its vtable's locator naming PlayerCharacter there, slot 0x00 the
+	// adjustor thunk to the player's own destructor, and slots 0x01 / 0x03 inside the image
+	int ArmHolder()
+	{
+		ObjectType type;
+		const auto player = Singleton(kPlayerSingleton);
+		if (!player) {
+			return -1;
+		}
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk) || !TypeOf(player, type)) {
+			Refuse("arm_holder", std::format("reason=player_type t_ms={}", SincePress()));
+			return 0;
+		}
+		const auto     at = BaseOffset(type, "IAnimationGraphManagerHolder@@");
+		std::uintptr_t primary = 0;
+		std::uintptr_t holder = 0;
+		if (!at || *at != kAnimHolderAt || !CheckSubobject(player, type, *at) || !Peek(player, primary) ||
+			!Peek(player + *at, holder) || !InImage(primary, 8) || !InImage(holder, (kGetGraphMgrSlot + 1) * 8)) {
+			Refuse("arm_holder", std::format("reason=holder offset={} expected={} t_ms={}", at ? Hex(*at) : "none",
+				Hex(kAnimHolderAt), SincePress()));
+			return 0;
+		}
+		const auto* slots = reinterpret_cast<const std::uintptr_t*>(holder);
+		const auto  destructor = *reinterpret_cast<const std::uintptr_t*>(primary);
+		const auto  target0 = ThunkTarget(slots[0], *at);
+		const auto  rva = [](std::uintptr_t a_addr) { return InImage(a_addr, 1) ? Hex(a_addr - g_base) : Hex(a_addr); };
+		if (target0 != destructor || !InImage(slots[kNotifyGraphSlot], 1)) {
+			Refuse("arm_holder", std::format("reason=slots offset={} slot0={} target0={} destructor={} slot1={} t_ms={}",
+				Hex(*at), rva(slots[0]), rva(target0), rva(destructor), rva(slots[kNotifyGraphSlot]), SincePress()));
+			return 0;
+		}
+		g_armHolderVtable = holder;
+		g_armNotify = slots[kNotifyGraphSlot];
+		g_armGetGraphMgr = InImage(slots[kGetGraphMgrSlot], 1) ? slots[kGetGraphMgrSlot] : 0;
+		REX::INFO("step=arm_holder offset={} vtable={} destructor_slot=0x00 notify_slot=0x01 slot={} get_mgr_slot={} t_ms={}",
+			Hex(*at), rva(holder), rva(g_armNotify), g_armGetGraphMgr ? rva(g_armGetGraphMgr) : "none", SincePress());
+		return 1;
+	}
+
+	// main thread, once (on the first raise with a player): the player's holder, the raise idle, and the lower (an idle,
+	// an event by name, or none)
+	bool ArmResolve()
+	{
+		if (g_armState >= 0) {
+			return g_armState == 1;
+		}
+		const int holder = ArmHolder();
+		if (holder < 0) {
+			return false;   // no player yet: tried again on the next press
+		}
+		g_raiseIdle = ArmIdleForm("raise", g_armRaiseIdle);
+		bool lower = true;
+		if (!g_armLowerIdle.empty()) {
+			g_lowerIdle = ArmIdleForm("lower", g_armLowerIdle);
+			lower = g_lowerIdle != 0;
+		} else if (!g_armLowerEvent.empty()) {
+			g_lowerEvent = new RE::BSFixedString(g_armLowerEvent.c_str());   // process lifetime, as ArmIdleForm's
+			REX::INFO("step=arm_idle which=lower event={} (by name, no idle) t_ms={}", g_armLowerEvent, SincePress());
+		}
+		g_armState = holder == 1 && g_raiseIdle && lower ? 1 : 0;
+		return g_armState == 1;
+	}
+
+	// an animation event to the player (NotifyAnimationGraphImpl, called with this = player + 0x60), main thread only.
+	// Used ONLY for explicit ArmLowerEvent= override; raise/lower TESIdleForms use Actor.PlayIdle exclusively (Step 1i).
+	std::string ArmNotify(const RE::BSFixedString& a_event)
+	{
+		const auto     player = Singleton(kPlayerSingleton);
+		std::uintptr_t holder = 0;
+		if (!player) {
+			return "no_player";
+		}
+		if (!Peek(player + kAnimHolderAt, holder) || holder != g_armHolderVtable) {
+			return "holder_changed";
+		}
+		const bool sent = reinterpret_cast<NotifyGraph_t>(g_armNotify)(reinterpret_cast<void*>(player + kAnimHolderAt), a_event);
+		return sent ? "1" : "0";
+	}
+
+	// Task 1 step 1i: Starfield's own TESIdleForm / AIProcess::PlayIdle call (REL::ID 102136 + context REL::ID 35720)
+	// on Actor::currentProcess (+0x228) with action 0x36 (ActionIdle). Never falls back to refused DynamicIdle graph events.
+	std::string ArmPlayIdle(std::uintptr_t a_idle)
+	{
+		const auto player = Singleton(kPlayerSingleton);
+		if (!player) {
+			return "no_player";
+		}
+		ArmSyncGraphSink();
+		std::uint32_t formId = 0;
+		Peek(a_idle + kFormIdAt, formId);
+		void* process = nullptr;
+		if (!g_armPlayIdleRva || !g_armPlayIdleCtxRva || !Peek(player + kActorCurrentProcessAt, process) || !process) {
+			REX::INFO("step=arm_play_idle form={:08X} process=0 played=0 accepted=0 t_ms={}", formId, SincePress());
+			return "0";
+		}
+		void* const ctx = reinterpret_cast<PlayIdleCtx_t>(g_base + g_armPlayIdleCtxRva)();
+		const bool  played = reinterpret_cast<ActorPlayIdle_t>(g_base + g_armPlayIdleRva)(
+			process, reinterpret_cast<void*>(player), 0x36u, reinterpret_cast<void*>(a_idle), true, nullptr, ctx);
+		REX::INFO("step=arm_play_idle form={:08X} process={} played={} accepted={} t_ms={}", formId,
+			Hex(reinterpret_cast<std::uintptr_t>(process)), played ? 1 : 0, played ? 1 : 0, SincePress());
+		return played ? "1" : "0";
+	}
+
+	bool ArmLowerSet() { return !g_armLowerIdle.empty() || !g_armLowerEvent.empty(); }
+
+	void ArmRetryStart(ArmRetry& a_retry, std::uint32_t a_n)
+	{
+		const auto now = NowMs();
+		a_retry.n = a_n;
+		a_retry.firstAt = now;
+		a_retry.nextAt = now;
+		a_retry.deadline = now + g_armRetryMs;
+		a_retry.tries = 0;
+		a_retry.state = kRetryInFlight;
+	}
+
+	std::string ArmRetryOutcome(ArmRetry& a_retry, const std::string& a_result)
+	{
+		const auto now = NowMs();
+		if (a_result == "0" && now + kArmRetryEveryMs <= a_retry.deadline.load()) {
+			a_retry.nextAt = now + kArmRetryEveryMs;
+			a_retry.state = kRetryWaiting;
+			return {};
+		}
+		a_retry.state = kRetryIdle;
+		return a_result == "0" ? std::string("gave_up") : a_result;
+	}
+
+	// main thread: Key or MapKey while closed. Plays the watch raise idle; if accepted=1, waits for the raise graph event
+	// (with ArmRaiseMs timeout fallback); if accepted=0 (third person or weapon drawn), opens immediately without hanging.
+	void ArmRaise(std::uint32_t a_n)
+	{
+		if (const char* blocking = OpenBlockingOverlayMenu(RE::UI::GetSingleton())) {
+			g_raiseRetry.state = kRetryIdle;
+			g_armWaitingRaiseGraph = false;
+			g_armShowAt = 0;
+			REX::INFO("step=arm_raise n={} ignored=menu_open menu={} accepted=0 t_ms={}", a_n, blocking, SincePress());
+			return;
+		}
+		const auto  tries = ++g_raiseRetry.tries;
+		std::string result;
+		if (!ArmResolve()) {
+			result = g_armState == 0 ? "refused" : "no_player";
+		} else {
+			result = ArmPlayIdle(g_raiseIdle);
+		}
+		const int accepted = (result == "1") ? 1 : 0;
+		if (tries == 1) {
+			REX::INFO("step=arm_raise n={} result={} try=1 accepted={} t_ms={}", a_n, result, accepted, SincePress());
+		}
+		// A13: Retry refused raise (result == "0") every 100 ms up to ArmRetryMs (FO4SFPipboyMenu.ini); if it gives up,
+		// open the screen cleanly without stalling indefinitely.
+		if (g_armRetryMs == 0) {
+			g_raiseRetry.state = kRetryIdle;
+		}
+		const auto outcome = g_armRetryMs == 0 ? result : ArmRetryOutcome(g_raiseRetry, result);
+		if (outcome.empty()) {
+			return;
+		}
+		g_armRaiseOutcome = outcome;
+		g_armRaiseAccepted = (outcome == "1");
+		g_armWaitingRaiseGraph = (outcome == "1");
+		const auto showLeadMs = (outcome == "1") ? g_armRaiseMs : 0u;
+		REX::INFO("step=arm_raise_done n={} result={} accepted={} tries={} waited_ms={} show_in_ms={} t_ms={}", a_n, outcome,
+			outcome == "1" ? 1 : 0, tries, NowMs() - g_raiseRetry.firstAt.load(), showLeadMs, SincePress());
+		if (outcome == "1") {
+			g_armShowAt = NowMs() + g_armRaiseMs;
+		} else {
+			g_armShowAt = NowMs();
+		}
+	}
+
+	// main thread: the screen opened by the arm was hidden (any route), and a lower is set
+	void ArmLower(std::uint32_t a_n)
+	{
+		const auto tries = ++g_lowerRetry.tries;
+		std::string result = "refused";
+		if (g_armState == 1) {
+			result = g_lowerIdle ? ArmPlayIdle(g_lowerIdle) : g_lowerEvent ? ArmNotify(*g_lowerEvent) : std::string("refused");
+		}
+		const int accepted = (result == "1") ? 1 : 0;
+		if (tries == 1) {
+			REX::INFO("step=arm_lower n={} send={} result={} try=1 accepted={} t_ms={}", a_n, g_lowerIdle ? "idle" : "event",
+				result, accepted, SincePress());
+		}
+		if (g_armRetryMs == 0) {
+			g_lowerRetry.state = kRetryIdle;
+		}
+		const auto outcome = g_armRetryMs == 0 ? result : ArmRetryOutcome(g_lowerRetry, result);
+		if (outcome.empty()) {
+			return;
+		}
+		if (outcome == "1") {
+			g_armLowerUntil = NowMs() + g_armLowerMs;
+		} else {
+			g_armLowerUntil = 0;
+		}
+		REX::INFO("step=arm_lower_done n={} result={} accepted={} tries={} waited_ms={} lock_ms={} t_ms={}", a_n, outcome,
+			outcome == "1" ? 1 : 0, tries, NowMs() - g_lowerRetry.firstAt.load(), outcome == "1" ? g_armLowerMs : 0, SincePress());
+	}
+
+	// on the menu's thread, after the engine's own handling of kShow or kHide: logs step=arm_lower ... accepted=<0|1> on every close
+	void ArmMessage(bool a_show)
+	{
+		if (a_show) {
+			g_armWaitingRaiseGraph = false;
+			g_armShown = true;
+			REX::INFO("step=arm_shown n={} accepted={} t_ms={}", g_armN.load(), g_armRaiseAccepted.load() ? 1 : 0, SincePress());
+			return;
+		}
+		if (!g_armShown.exchange(false)) {
+			return;
+		}
+		g_armWaitingRaiseGraph = false;
+		const auto n = g_armN.load();
+		if (!ArmLowerSet()) {
+			const int  accepted = g_armRaiseAccepted.load() ? 1 : 0;
+			const auto lockMs = accepted ? g_armLowerMs : 0u;
+			g_armLowerUntil = accepted ? (NowMs() + g_armLowerMs) : 0;
+			REX::INFO("step=arm_lower n={} send=none (the raise's clip carries on) accepted={} lock_ms={} t_ms={}",
+				n, accepted, lockMs, SincePress());
+			return;
+		}
+		ArmRetryStart(g_lowerRetry, n);
+		g_task->AddTask([n]() { ArmLower(n); });
 	}
 
 	RE::UI_MESSAGE_RESULT MenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
 	{
 		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_closing.store(false);
+			PipboyMap::SetClosing(false);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_closing.store(true);
+			PipboyMap::SetClosing(true);
+		}
+		if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kHide) {
+			// Step 2: invoke Menu_mc.onCodeObjDestruction() BEFORE g_engineProcessMessage destroys uiMovie
+			ShellHideTeardown(a_self);
+		}
 		if (g_stage >= 3 && type == RE::UI_MESSAGE_TYPE::kShow) {
 			ApplyFlagSet(a_self, ++g_shows);
 		}
@@ -3123,6 +7118,50 @@ namespace
 			                                                         "other"sv;
 			REX::INFO("step=message menu={} type={} raw={} result={}", Hex(reinterpret_cast<std::uintptr_t>(a_self)), name,
 				static_cast<std::uint32_t>(type), static_cast<std::int64_t>(result));
+		}
+		if (g_stage == 2 && g_codeObj &&
+			(type == RE::UI_MESSAGE_TYPE::kShow || type == RE::UI_MESSAGE_TYPE::kUpdate)) {   // FAL-614 proof 1b
+			CodeObjInstall(a_self, type == RE::UI_MESSAGE_TYPE::kShow ? "show" : "update");
+		}
+		const std::int32_t bootReopen = (type == RE::UI_MESSAGE_TYPE::kHide) ? g_bootReopenPage.exchange(-1) : -1;
+		if (g_arm && showOrHide && bootReopen < 0) {   // FAL-852 / N1: skip arm lower across boot_done -> FO4SF_Fo4Shell transition
+			if (!(type == RE::UI_MESSAGE_TYPE::kShow && g_armShown.load())) {
+				ArmMessage(type == RE::UI_MESSAGE_TYPE::kShow);
+			}
+		}
+		if (showOrHide) {
+			g_open = (type == RE::UI_MESSAGE_TYPE::kShow);
+			g_cancelHeld = false;
+			PipboyMap::OnMenuMessage(type);
+			if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kShow) {
+				ShellShowInit(a_self);
+			}
+			if (type == RE::UI_MESSAGE_TYPE::kHide) {
+				ClearMovieSessionState();
+				if (bootReopen >= 0 && g_task) {
+					const auto targetPage = static_cast<std::uint32_t>(std::min<std::int32_t>(bootReopen, 4));
+					g_task->AddTask([targetPage]() {
+						s_savedPage.store(targetPage);
+						auto* ui = RE::UI::GetSingleton();
+						auto* queue = RE::UIMessageQueue::GetSingleton();
+						if (!ui || !queue || ui->IsMenuOpen(MenuName()) || OpenBlockingOverlayMenu(ui)) {
+							if (g_arm && g_armShown.load()) {
+								ArmMessage(false);
+							}
+							return;
+						}
+						if (g_stage == 2 && g_codeObj) {
+							CollectShellVitalsMainThread(targetPage);
+						}
+						g_expectOpen = 1;
+						queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
+						REX::INFO("step=boot_reopen page={} sent=show", targetPage);
+					});
+				}
+			}
+		}
+		if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kUpdate) {   // FAL-614 S1-c: keys, then answers
+			ShellUpdate(a_self);
 		}
 		if (g_stage >= 3) {   // stages c, d and e: after the engine's own handling, on its thread for this menu
 			if (type == RE::UI_MESSAGE_TYPE::kShow) {
@@ -3178,6 +7217,9 @@ namespace
 		if (!a_event || !g_open) {
 			return look;
 		}
+		if (OpenBlockingOverlayMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return look;   // Let Console / MessageBoxMenu / PauseMenu own Esc & Tab when stacked above PipboyMenu
+		}
 		const auto* base = static_cast<const RE::InputEvent*>(a_event);
 		if (base->eventType != RE::InputEvent::EventType::kButton || base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
 			return look;
@@ -3204,8 +7246,101 @@ namespace
 		return static_cast<const RE::ButtonEvent*>(a_event)->value == 0.0f;
 	}
 
+	struct ShellInputDecision
+	{
+		bool             intercept = false;
+		bool             passToScaleformToo = false;
+		bool             isToggleKey = false;
+		bool             isCancel = false;
+		bool             press = false;
+		bool             release = false;
+		std::uint32_t    code = 0;
+		std::string_view shellEvent;
+	};
+
+	ShellInputDecision InspectShellOpenButton(const void* a_event, bool a_log)
+	{
+		ShellInputDecision out;
+		if (!a_event || !g_open || !IsFo4ShellActive()) {
+			return out;
+		}
+		if (OpenBlockingOverlayMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return out;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType != RE::InputEvent::EventType::kButton ||
+			(base->deviceType != RE::InputEvent::DeviceType::kKeyboard && base->deviceType != RE::InputEvent::DeviceType::kGamepad)) {
+			return out;
+		}
+		const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+		out.code = static_cast<std::uint32_t>(button->idCode);
+		out.press = button->value > 0.0f && button->heldDownSecs == 0.0f;
+		out.release = a_eventValueIsRelease(a_event);
+		const std::string_view user = button->strUserEvent.c_str() ? std::string_view(button->strUserEvent.c_str()) : std::string_view{};
+
+		bool cancel = user == "Cancel";
+		if (base->deviceType == RE::InputEvent::DeviceType::kKeyboard) {
+			for (std::size_t i = 0; i < g_cancelCount; ++i) {
+				cancel = cancel || out.code == g_cancelCodes[i];
+			}
+			if (out.code == g_key) {
+				out.intercept = true;
+				out.isToggleKey = true;
+			} else if (cancel) {
+				out.intercept = true;
+				out.isCancel = true;
+				out.shellEvent = "Cancel"sv;
+			} else {
+				switch (out.code) {
+				case 0x57: out.intercept = true; out.shellEvent = "Forward"sv; break;       // W -> prev page (unless consumed by page)
+				case 0x53: out.intercept = true; out.shellEvent = "Back"sv; break;          // S -> next page
+				case 0x21: out.intercept = true; out.shellEvent = "LTrigger"sv; break;      // PageUp -> prev page
+				case 0x22: out.intercept = true; out.shellEvent = "RTrigger"sv; break;      // PageDown -> next page
+				case 0x41: out.intercept = true; out.shellEvent = "StrafeLeft"sv; break;    // A -> prev tab
+				case 0x44: out.intercept = true; out.shellEvent = "StrafeRight"sv; break;   // D -> next tab
+				case 0x54: out.intercept = true; out.shellEvent = "YButton"sv; break;       // T -> Perk Chart / Grid View
+				case 0x45: out.intercept = true; out.passToScaleformToo = true; break;      // E -> native Keyboard.E (UseStimpak)
+				case 0x51: out.intercept = true; out.passToScaleformToo = true; out.shellEvent = "RShoulder"sv; break; // Q -> ToggleShowingEffects
+				case 0x52: out.intercept = true; out.passToScaleformToo = true; out.shellEvent = "XButton"sv; break;   // R -> UseRadaway / Drop
+				default: break;
+				}
+			}
+		} else {
+			if (cancel) {
+				out.intercept = true;
+				out.isCancel = true;
+				out.shellEvent = "Cancel"sv;
+			} else if (user == "LTrigger" || user == "RTrigger" || user == "LShoulder" || user == "RShoulder" ||
+			           user == "XButton" || user == "YButton" || user == "StrafeLeft" || user == "StrafeRight" ||
+			           user == "Forward" || user == "Back") {
+				out.intercept = true;
+				out.shellEvent = user;
+			}
+		}
+
+		if (a_log && g_cancelLogged.load() < 40 && (out.intercept || out.press)) {
+			++g_cancelLogged;
+			REX::INFO("step=input id={} user_event=\"{}\" value={} held={} status={} cancel={} shell_event=\"{}\"",
+				Hex(out.code), user, button->value, button->heldDownSecs,
+				static_cast<std::uint32_t>(base->status), out.isCancel ? 1 : 0, out.shellEvent);
+		}
+		return out;
+	}
+
+	std::atomic<std::uint32_t> g_openPressSeq{ 0 };
+
 	bool MenuShouldHandleEvent(void* a_input, const void* a_event)
 	{
+		if (PipboyMap::ShouldHandleInput(a_event)) {
+			return true;
+		}
+		if (IsFo4ShellActive()) {
+			const auto dec = InspectShellOpenButton(a_event, false);
+			if (dec.intercept && static_cast<const RE::InputEvent*>(a_event)->status != RE::InputEvent::Status::kStop) {
+				return true;
+			}
+			return g_engineShouldHandle(a_input, a_event);
+		}
 		const auto look = LookAtEvent(a_event, false);
 		if (look.mine && static_cast<const RE::InputEvent*>(a_event)->status != RE::InputEvent::Status::kStop) {
 			return true;
@@ -3215,6 +7350,47 @@ namespace
 
 	void MenuOnButtonEvent(void* a_input, const void* a_event)
 	{
+		if (PipboyMap::OnButtonInput(a_event)) {
+			return;
+		}
+		if (IsFo4ShellActive()) {
+			const auto dec = InspectShellOpenButton(a_event, true);
+			if (!dec.intercept) {
+				g_engineOnButton(a_input, a_event);
+				return;
+			}
+			if (dec.passToScaleformToo) {
+				g_engineOnButton(a_input, a_event);
+			}
+			const_cast<RE::InputEvent*>(static_cast<const RE::InputEvent*>(a_event))->status = RE::InputEvent::Status::kStop;
+			if (dec.isToggleKey) {
+				if (dec.press && !g_keyInputHeld.exchange(true)) {
+					const auto n = ++g_openPressSeq;
+					if (g_task) {
+						g_task->AddTask([n]() { Close(n, "key"); });
+					}
+				} else if (dec.release) {
+					g_keyInputHeld = false;
+				}
+				return;
+			}
+			if (dec.isCancel) {
+				if (dec.press && !g_cancelHeld.exchange(true)) {
+					g_pendingCancelRelease = true;
+					QueueShellUserEvent("Cancel", true);
+				} else if (dec.release) {
+					const bool hadPress = g_cancelHeld.exchange(false) || g_pendingCancelRelease.exchange(false);
+					if (hadPress) {
+						QueueShellUserEvent("Cancel", false);
+					}
+				}
+				return;
+			}
+			if (!dec.shellEvent.empty() && (dec.press || dec.release)) {
+				QueueShellUserEvent(dec.shellEvent, dec.press);
+			}
+			return;
+		}
 		const auto look = LookAtEvent(a_event, true);
 		if (!look.mine) {
 			g_engineOnButton(a_input, a_event);
@@ -3228,6 +7404,1220 @@ namespace
 		} else if (a_eventValueIsRelease(a_event)) {
 			g_cancelHeld = false;
 		}
+	}
+
+	// ------------------------------------------------------------------------------------------- Task 1 step 1k (UI-3): FO4SF_SpecialMenu
+	// Opt-in second IMenu host (SpecialMenu=1, default 0, NOT WIRED to Vault 111 lift per R14) loading Fallout 4's
+	// SPECIALMenu.swf staged privately on the PC (Interface/<SpecialMovie>.swf), installing a plain-Object BGSCodeObj
+	// holder (Menu_mc.BGSCodeObj / CreateObject), enforcing SpecialMaxPoints=40 (refusing increments when pointsRemaining <= 0),
+	// and handing the 7 chosen S.P.E.C.I.A.L. values to FO4SF_ProgressionQuest via FO4SFCoreValues.esm globals (0x000880..0x000887).
+	const RE::BSFixedString& SpecialMenuName()
+	{
+		static auto* const name = new RE::BSFixedString(fo4sf::kOurSpecialMenuName);
+		return *name;
+	}
+
+	constexpr std::array<const char*, 11> kSpecialCodeObjNames{
+		"initMenu",
+		"modValue",
+		"startEditText",
+		"endEditText",
+		"confirmResetPoints",
+		"tryCloseMenu",
+		"playSound",
+		"PlayPerkSound",
+		"StopPerkSound",
+		"OnScrollingStarted",
+		"OnScrollingStopped",
+	};
+
+	const void*                 g_activeSpecialMenu = nullptr;
+	RE::Scaleform::GFx::Value   g_specialEntryList;
+	std::array<std::int32_t, 7> g_specialValues{ 1, 1, 1, 1, 1, 1, 1 };
+	std::string                 g_specialPlayerName = "Sole Survivor";
+	std::mutex                  g_specialEventLock;
+	std::vector<PendingUserEvent> g_pendingSpecialEvents;
+	std::atomic<bool>           g_specialCancelHeld{ false };
+	std::atomic<std::uint32_t>  g_specialCodeCalls{ 0 };
+
+	void QueueSpecialUserEvent(std::string_view a_name, bool a_isDown)
+	{
+		{
+			std::scoped_lock lock(g_specialEventLock);
+			if (g_pendingSpecialEvents.size() < 32) {
+				g_pendingSpecialEvents.push_back({ std::string(a_name), a_isDown });
+			}
+		}
+		if (g_task) {
+			g_task->AddTask([]() {
+				if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+					queue->AddMessage(SpecialMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+				}
+			});
+		}
+	}
+
+	bool WriteCoreGlobalFloatVerified(std::uintptr_t a_globForm, std::size_t a_valAt, float a_want)
+	{
+		if (!a_globForm || !a_valAt) {
+			return false;
+		}
+		float existing = 0.0f;
+		if (!Peek(a_globForm + a_valAt, existing)) {
+			return false;
+		}
+		*reinterpret_cast<float*>(a_globForm + a_valAt) = a_want;
+		float rb = 0.0f;
+		return Peek(a_globForm + a_valAt, rb) && std::isfinite(rb) && std::fabs(rb - a_want) <= 1e-4f;
+	}
+
+	// A3 & A12: Never call SetBaseActorValue directly in native code. Write the 7 chosen S.P.E.C.I.A.L. values into
+	// FO4SFCoreValues.esm (0x000880..0x000886) and set FO4SF_SpecialMenuCommitRequested (0x000887) = 1.0 so
+	// FO4SF_ProgressionQuest applies them through its single write path (recomputing skills & derived CarryWeight).
+	void CommitSpecialMenuMainThread(std::array<std::int32_t, 7> a_vals, std::string a_name)
+	{
+		PageScan();
+		FindGlobalValue();
+
+		static bool                         s_loggedSpecialStoreResolve = false;
+		static std::array<std::uintptr_t, 7> s_pendingGlobs{};
+		static std::uintptr_t               s_commitReqGlob = 0;
+
+		std::size_t fromCore = 0;
+		for (std::size_t i = 0; i < kSpecialPendingEditorIds.size(); ++i) {
+			std::string         detail;
+			const std::uint32_t localId = kCoreSpecialMenuPendingFirstId + static_cast<std::uint32_t>(i);
+			const auto          fid = KitFileForm("FO4SFCoreValues.esm", localId, "TESGlobal@@", detail);
+			if (fid) {
+				AcceptById(fid, kSpecialPendingEditorIds[i], "TESGlobal@@", kGlobalEditorIdAt, s_pendingGlobs[i]);
+				if (s_pendingGlobs[i]) {
+					++fromCore;
+				}
+			}
+			if (!s_loggedSpecialStoreResolve) {
+				LogCoreValueResolve(kSpecialPendingEditorIds[i], localId, s_pendingGlobs[i] ? fid : 0u);
+			}
+		}
+		{
+			std::string reqDetail;
+			const auto  reqFid = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialMenuCommitReqId, "TESGlobal@@", reqDetail);
+			if (reqFid) {
+				AcceptById(reqFid, "FO4SF_SpecialMenuCommitRequested", "TESGlobal@@", kGlobalEditorIdAt, s_commitReqGlob);
+			}
+			if (!s_loggedSpecialStoreResolve) {
+				LogCoreValueResolve("FO4SF_SpecialMenuCommitRequested", kCoreSpecialMenuCommitReqId, s_commitReqGlob ? reqFid : 0u);
+				s_loggedSpecialStoreResolve = true;
+			}
+		}
+
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		std::size_t       written = 0;
+		if (fromCore == 7 && s_commitReqGlob) {
+			for (std::size_t i = 0; i < 7; ++i) {
+				const float v = static_cast<float>(std::clamp(a_vals[i], 1, 10));
+				if (WriteCoreGlobalFloatVerified(s_pendingGlobs[i], valAt, v)) {
+					++written;
+				}
+			}
+			if (written == 7) {
+				if (!WriteCoreGlobalFloatVerified(s_commitReqGlob, valAt, 1.0f)) {
+					written = 0;
+				}
+			}
+		}
+
+		int sum = 0;
+		for (const int v : a_vals) {
+			sum += v;
+		}
+		const char* source = (written == 7) ? "FO4SFCoreValues.esm" : "unwritten";
+		REX::INFO("step=special_done sum={} max_points={} written={} values={},{},{},{},{},{},{} name=\"{}\" source={}",
+			sum, g_specialMaxPoints, written,
+			a_vals[0], a_vals[1], a_vals[2], a_vals[3], a_vals[4], a_vals[5], a_vals[6],
+			a_name, source);
+		if (auto* ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(SpecialMenuName())) {
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage(SpecialMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			}
+		}
+	}
+
+	class SpecialCodeObjFunction final : public RE::Scaleform::GFx::FunctionHandler
+	{
+	public:
+		void Name(const char* a_name) { _name = a_name; }
+
+		void Call(const Params& a_params) override
+		{
+			const auto callN = ++g_specialCodeCalls;
+			if (callN <= 128) {
+				REX::INFO("step=special_call n={} name={} args={}", callN, _name, a_params.argCount);
+			}
+			if (g_specialClosing.load()) {
+				return;
+			}
+			if (_name == "initMenu") {
+				ShellVitalsSnapshot snap;
+				{
+					std::scoped_lock lock(g_shellSnapLock);
+					snap = g_shellSnap;
+				}
+				g_specialPlayerName = snap.playerName.empty() ? "Sole Survivor" : snap.playerName;
+				int initSum = 0;
+				for (std::size_t i = 0; i < 7; ++i) {
+					g_specialValues[i] = std::clamp(snap.special[i], 1, 10);
+					initSum += g_specialValues[i];
+				}
+				if (initSum < 7 || static_cast<std::uint32_t>(initSum) >= g_specialMaxPoints) {
+					g_specialValues = { 1, 1, 1, 1, 1, 1, 1 };
+					initSum = 7;
+				}
+				auto* const root = g_activeSpecialMenu ? RootOf(g_activeSpecialMenu) : nullptr;
+				if (root && a_params.argCount >= 1 && (a_params.args[0].IsArray() || a_params.args[0].IsObject())) {
+					g_specialEntryList = a_params.args[0];
+					ClearAs3ArrayInPlace(g_specialEntryList);
+					RE::Scaleform::GFx::Value pushRes;
+					// entryList[0]: Name_ListEntry (MUST NOT define `value`, so entry.value === undefined in UpdateCounterAndButtons)
+					RE::Scaleform::GFx::Value nameRow;
+					root->CreateObject(&nameRow);
+					if (nameRow.IsObject()) {
+						nameRow.SetMember("text", RE::Scaleform::GFx::Value(g_specialPlayerName.c_str()));
+						g_specialEntryList.Invoke("push", &pushRes, &nameRow, 1);
+					}
+					for (std::size_t i = 0; i < 7; ++i) {
+						RE::Scaleform::GFx::Value spRow;
+						root->CreateObject(&spRow);
+						if (spRow.IsObject()) {
+							spRow.SetMember("text", RE::Scaleform::GFx::Value(kSpecialTitleNames[i]));
+							spRow.SetMember("value", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(g_specialValues[i])));
+							spRow.SetMember("description", RE::Scaleform::GFx::Value(""));
+							g_specialEntryList.Invoke("push", &pushRes, &spRow, 1);
+						}
+					}
+				}
+				if (a_params.ret) {
+					*a_params.ret = RE::Scaleform::GFx::Value(g_specialMaxPoints);
+				}
+				REX::INFO("step=special_init max_points={} initial_sum={} name=\"{}\"",
+					g_specialMaxPoints, initSum, g_specialPlayerName);
+				return;
+			}
+			if (_name == "modValue") {
+				std::int32_t entryIdx = -1;
+				std::int32_t delta = 0;
+				if (a_params.argCount >= 2 && ExtractShellIndex(a_params.args[0], entryIdx, 7)) {
+					if (a_params.args[1].IsInt()) {
+						delta = a_params.args[1].GetInt();
+					} else if (a_params.args[1].IsNumber() && std::isfinite(a_params.args[1].GetNumber())) {
+						delta = static_cast<std::int32_t>(std::lround(a_params.args[1].GetNumber()));
+					} else if (a_params.args[1].IsUInt()) {
+						delta = static_cast<std::int32_t>(a_params.args[1].GetUInt());
+					}
+				}
+				if (entryIdx >= 1 && entryIdx <= 7 && delta != 0) {
+					const auto attrIdx = static_cast<std::size_t>(entryIdx - 1);
+					int curSum = 0;
+					for (const int v : g_specialValues) {
+						curSum += v;
+					}
+					const int pointsRemaining = static_cast<int>(g_specialMaxPoints) - curSum;
+					if (delta > 0 && pointsRemaining <= 0) {
+						REX::INFO("step=special_mod_refused attr={} delta={} points_remaining={} sum={}/{}",
+							kSpecialTitleNames[attrIdx], delta, pointsRemaining, curSum, g_specialMaxPoints);
+						return;
+					}
+					const int cappedDelta = (delta > 0) ? std::min(delta, pointsRemaining) : delta;
+					const int nextVal = std::clamp(g_specialValues[attrIdx] + cappedDelta, 1, 10);
+					g_specialValues[attrIdx] = nextVal;
+					if (g_specialEntryList.IsArray() || g_specialEntryList.IsObject()) {
+						RE::Scaleform::GFx::Value elem;
+						const auto                idxKey = std::to_string(entryIdx);
+						if (g_specialEntryList.GetMember(idxKey.c_str(), &elem) && elem.IsObject()) {
+							elem.SetMember("value", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(nextVal)));
+						}
+					}
+					int sum = 0;
+					for (const int v : g_specialValues) {
+						sum += v;
+					}
+					REX::INFO("step=special_mod attr={} delta={} value={} sum={}/{}",
+						kSpecialTitleNames[attrIdx], cappedDelta, nextVal, sum, g_specialMaxPoints);
+				}
+				return;
+			}
+			if (_name == "startEditText") {
+				// Return Boolean(true) on PC so SPECIALMenu.onItemPress falls through 0x12 (iffalse) to this.StartEditText()
+				if (a_params.ret) {
+					*a_params.ret = RE::Scaleform::GFx::Value(true);
+				}
+				REX::INFO("step=special_edit_start allow_inline=1");
+				return;
+			}
+			if (_name == "endEditText") {
+				if (a_params.argCount >= 1 && a_params.args[0].IsString()) {
+					const std::string edited = std::string(a_params.args[0].GetString()).substr(0, 64);
+					if (!edited.empty()) {
+						g_specialPlayerName = edited;
+					}
+				}
+				REX::INFO("step=special_edit_end name=\"{}\"", g_specialPlayerName);
+				return;
+			}
+			if (_name == "confirmResetPoints") {
+				auto* const               root = g_activeSpecialMenu ? RootOf(g_activeSpecialMenu) : nullptr;
+				RE::Scaleform::GFx::Value top, menuMc, res;
+				bool                      called = false;
+				if (root && root->GetVariable(&top, "root") && top.IsObject() &&
+					top.GetMember("Menu_mc", &menuMc) && menuMc.IsObject()) {
+					called = InvokeMovieTracked(menuMc, "ResetPoints", &res, nullptr, 0, "SpecialMenu.ResetPoints");
+				}
+				REX::INFO("step=special_reset called={}", called ? 1 : 0);
+				return;
+			}
+			if (_name == "tryCloseMenu") {
+				int sum = 0;
+				for (const int v : g_specialValues) {
+					sum += v;
+				}
+				if (sum != static_cast<int>(g_specialMaxPoints)) {
+					REX::INFO("step=special_close_refused sum={} max_points={}", sum, g_specialMaxPoints);
+					return;
+				}
+				if (g_task) {
+					const auto valsCopy = g_specialValues;
+					const auto nameCopy = g_specialPlayerName;
+					g_task->AddTask([valsCopy, nameCopy]() { CommitSpecialMenuMainThread(valsCopy, nameCopy); });
+				}
+				return;
+			}
+			if (_name == "StopPerkSound") {
+				StopActivePerkSound();
+				return;
+			}
+			if (g_codeObjSound && (_name == "playSound" || _name == "PlayPerkSound") && a_params.argCount > 0) {
+				StartSound(callN, &a_params.args[0], _name == "PlayPerkSound");
+			}
+		}
+
+	private:
+		std::string _name = "BGSCodeObj";
+	};
+	std::array<SpecialCodeObjFunction, kSpecialCodeObjNames.size()> g_specialCodeObjFns;
+
+	void ClearSpecialSessionState()
+	{
+		g_specialOpen = false;
+		g_specialClosing = false;
+		g_specialCancelHeld = false;
+		g_specialCodeObjMovie = nullptr;
+		g_activeSpecialMenu = nullptr;
+		g_specialEntryList = RE::Scaleform::GFx::Value{};
+		g_specialCodeCalls = 0;
+		std::scoped_lock lock(g_specialEventLock);
+		g_pendingSpecialEvents.clear();
+	}
+
+	bool InstallSpecialCodeObjAndCreate(const void* a_menu)
+	{
+		if (g_specialClosing.load()) {
+			return false;
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (!movie) {
+			return false;
+		}
+		if (g_specialCodeObjMovie.load() == movie) {
+			return true;
+		}
+		g_activeSpecialMenu = a_menu;
+		auto* const               root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top, menuMc, holder;
+		if (!root || !root->GetVariable(&top, "root") || !top.IsObject() ||
+			!top.GetMember("Menu_mc", &menuMc) || !menuMc.IsObject()) {
+			return false;
+		}
+		const char* holderSource = "create_object";
+		RE::Scaleform::GFx::Value existing;
+		if (menuMc.GetMember("BGSCodeObj", &existing) && existing.IsObject() &&
+			existing.GetType() != RE::Scaleform::GFx::Value::ValueType::kClosure) {
+			holder = existing;
+			holderSource = "menu_mc";
+		} else {
+			root->CreateObject(&holder, "Object");
+		}
+		if (!holder.IsObject() || holder.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure) {
+			return false;
+		}
+		std::size_t attached = 0;
+		for (std::size_t i = 0; i < kSpecialCodeObjNames.size(); ++i) {
+			g_specialCodeObjFns[i].Name(kSpecialCodeObjNames[i]);
+			RE::Scaleform::GFx::Value fn;
+			root->CreateFunction(&fn, &g_specialCodeObjFns[i]);
+			if (!fn.IsUndefined() && holder.SetMember(kSpecialCodeObjNames[i], fn)) {
+				++attached;
+			}
+		}
+		top.SetMember("BGSCodeObj", holder);
+		menuMc.SetMember("BGSCodeObj", holder);
+		if (attached != kSpecialCodeObjNames.size()) {
+			return false;
+		}
+		g_specialCodeObjMovie = movie;
+		REX::INFO("step=special_code_obj type=object source={} members={}", holderSource, attached);
+		RE::Scaleform::GFx::Value res;
+		const bool created = InvokeMovieTracked(menuMc, "onCodeObjCreate", &res, nullptr, 0, "SpecialMenu.onCodeObjCreate");
+		REX::INFO("step=special_show_create called={}", created ? 1 : 0);
+		return created;
+	}
+
+	void SpecialHideTeardown(const void* a_menu)
+	{
+		g_specialClosing = true;
+		g_specialEntryList = RE::Scaleform::GFx::Value{};
+		const void* const movie = MovieOf(a_menu);
+		if (!movie || g_specialCodeObjMovie.load() != movie) {
+			g_activeSpecialMenu = nullptr;
+			return;
+		}
+		auto* const               root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top, menuMc, fn, res;
+		bool                      called = false;
+		if (root && root->GetVariable(&top, "root") && top.IsObject() &&
+			top.GetMember("Menu_mc", &menuMc) && menuMc.IsObject() &&
+			menuMc.GetMember("onCodeObjDestruction", &fn) &&
+			fn.GetType() == RE::Scaleform::GFx::Value::ValueType::kClosure) {
+			called = InvokeMovieTracked(menuMc, "onCodeObjDestruction", &res, nullptr, 0, "SpecialMenu.onCodeObjDestruction");
+		}
+		g_activeSpecialMenu = nullptr;
+		REX::INFO("step=special_hide movie={} called={}", Hex(reinterpret_cast<std::uintptr_t>(movie)), called ? 1 : 0);
+	}
+
+	void SpecialProcessPendingEvents(const void* a_menu)
+	{
+		if (g_specialClosing.load()) {
+			return;
+		}
+		if (g_specialCodeObjMovie.load() != MovieOf(a_menu)) {
+			InstallSpecialCodeObjAndCreate(a_menu);
+			return;
+		}
+		std::vector<PendingUserEvent> batch;
+		{
+			std::scoped_lock lock(g_specialEventLock);
+			batch.swap(g_pendingSpecialEvents);
+		}
+		if (batch.empty()) {
+			return;
+		}
+		auto* const               root = RootOf(a_menu);
+		RE::Scaleform::GFx::Value top, menuMc;
+		if (!root || !root->GetVariable(&top, "root") || !top.IsObject() ||
+			!top.GetMember("Menu_mc", &menuMc) || !menuMc.IsObject()) {
+			return;
+		}
+		for (const auto& ev : batch) {
+			RE::Scaleform::GFx::Value args[2]{
+				RE::Scaleform::GFx::Value(ev.name.c_str()),
+				RE::Scaleform::GFx::Value(ev.isDown),
+			};
+			RE::Scaleform::GFx::Value res;
+			InvokeMovieTracked(menuMc, "ProcessUserEvent", &res, args, 2, "SpecialMenu.ProcessUserEvent", false);
+		}
+	}
+
+	void* SpecialMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		ClearSpecialSessionState();
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* SpecialMenuGetName(const void*)
+	{
+		if (g_loadingSpecialMovie.load() && !g_specialMovie.empty()) {
+			return g_specialMovie.c_str();
+		}
+		return fo4sf::kOurSpecialMenuName;
+	}
+
+	bool SpecialMenuLoadMovie(void* a_self, bool, bool a_arg2)
+	{
+		if (MovieOf(a_self)) {
+			return true;
+		}
+		g_loadingSpecialMovie.store(true);
+		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingSpecialMovie.store(false);
+		REX::INFO("step=special_load_movie result={} movie={} movie_name={}",
+			loaded ? 1 : 0, Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_self))), g_specialMovie);
+		return loaded && MovieOf(a_self) != nullptr;
+	}
+
+	RE::UI_MESSAGE_RESULT SpecialMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_specialClosing = false;
+			if (!MovieOf(a_self)) {
+				SpecialMenuLoadMovie(a_self, false, false);
+			}
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			SpecialHideTeardown(a_self);
+		}
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_specialOpen = true;
+			if (!InstallSpecialCodeObjAndCreate(a_self) && g_task) {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(SpecialMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		} else if (type == RE::UI_MESSAGE_TYPE::kUpdate) {
+			SpecialProcessPendingEvents(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			ClearSpecialSessionState();
+		}
+		return result;
+	}
+
+	bool SpecialShouldHandleEvent(void* a_input, const void* a_event)
+	{
+		if (!a_event || !g_specialOpen.load()) {
+			return g_engineShouldHandle(a_input, a_event);
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType == RE::InputEvent::EventType::kButton &&
+			(base->deviceType == RE::InputEvent::DeviceType::kKeyboard || base->deviceType == RE::InputEvent::DeviceType::kGamepad) &&
+			base->status != RE::InputEvent::Status::kStop) {
+			return true;
+		}
+		return g_engineShouldHandle(a_input, a_event);
+	}
+
+	void SpecialOnButtonEvent(void* a_input, const void* a_event)
+	{
+		if (!a_event || !g_specialOpen.load()) {
+			g_engineOnButton(a_input, a_event);
+			return;
+		}
+		// Always forward to Scaleform first so inline Name TextField editing, arrow keys, and Enter work natively
+		g_engineOnButton(a_input, a_event);
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType != RE::InputEvent::EventType::kButton || base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
+			return;
+		}
+		const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+		const auto  vk = static_cast<std::uint32_t>(button->idCode);
+		const bool  press = button->value > 0.0f && button->heldDownSecs == 0.0f;
+		const bool  release = button->value == 0.0f;
+		if (!press && !release) {
+			return;
+		}
+		std::string_view mapped;
+		switch (vk) {
+		case 0x52: mapped = "XButton"sv; break;   // R -> Reset Points
+		case 0x54: mapped = "YButton"sv; break;   // T -> Confirm / Exit (when all points allocated)
+		case 0x1B:
+		case 0x09: mapped = "Cancel"sv; break;    // Esc / Tab -> Cancel edit or confirm exit
+		default: break;
+		}
+		if (!mapped.empty()) {
+			const_cast<RE::InputEvent*>(base)->status = RE::InputEvent::Status::kStop;
+			QueueSpecialUserEvent(mapped, press);
+		}
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* CreateSpecialMenu(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		const auto n = ++g_specialCreated;
+		void*      menu = std::calloc(1, kMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=special n={} reason=out_of_memory", n);
+			std::construct_at(a_out);
+			return a_out;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_specialVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_specialInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = SpecialMenuName();
+		imenu->flags |= (0x19u | kPauseFlag);
+		imenu->flagsUpdated = true;
+		if (g_keepAlive && ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
+		REX::INFO("step=special_create n={} menu={} flags={}", n, Hex(base), Hex(imenu->flags));
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return a_out;
+	}
+
+	void OpenSpecialMenuMainThread(const char* a_by)
+	{
+		if (!g_specialMenu) {
+			return;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue || !ui->IsMenuRegistered(SpecialMenuName()) || ui->IsMenuOpen(SpecialMenuName())) {
+			return;
+		}
+		if (ui->IsMenuOpen(MenuName())) {
+			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kHide);
+		}
+		CollectShellVitalsMainThread(s_savedPage.load());
+		queue->AddMessage(SpecialMenuName(), RE::UI_MESSAGE_TYPE::kShow);
+		REX::INFO("step=special_open by={} movie={} max_points={}", a_by ? a_by : "trigger", g_specialMovie, g_specialMaxPoints);
+	}
+
+	const RE::BSFixedString& StartCardMenuName()
+	{
+		static const RE::BSFixedString s{ fo4sf::kOurStartCardMenuName };
+		return s;
+	}
+
+	void* StartCardMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_startCardOpen.store(false);
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* StartCardMenuGetName(const void*)
+	{
+		if (g_loadingStartCardMovie.load()) {
+			return "FO4SF_StartCard";
+		}
+		return fo4sf::kOurStartCardMenuName;
+	}
+
+	bool StartCardMenuLoadMovie(void* a_self, bool, bool a_arg2)
+	{
+		if (MovieOf(a_self)) {
+			return true;
+		}
+		g_loadingStartCardMovie.store(true);
+		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingStartCardMovie.store(false);
+		const bool ok = loaded && MovieOf(a_self) != nullptr;
+		if (!ok && !g_startCardMissing.exchange(true)) {
+			REX::INFO("step=start_card_skip reason=missing movie=FO4SF_StartCard");
+		} else if (ok) {
+			REX::INFO("step=start_card_load_movie result=1 movie=FO4SF_StartCard");
+		}
+		return ok;
+	}
+
+	RE::UI_MESSAGE_RESULT StartCardMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow && !MovieOf(a_self)) {
+			if (!StartCardMenuLoadMovie(a_self, false, false)) {
+				g_startCardOpen.store(false);
+				return RE::UI_MESSAGE_RESULT::kHandled;
+			}
+		}
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_startCardOpen.store(true);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_startCardOpen.store(false);
+		}
+		return result;
+	}
+
+	bool StartCardShouldHandleEvent(void*, const void*)
+	{
+		// Non-modal background card at depth=0: never consume keyboard, mouse, or controller input.
+		return false;
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* CreateStartCardMenu(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		const auto n = ++g_startCardCreated;
+		void*      menu = std::calloc(1, kMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=start_card n={} reason=out_of_memory", n);
+			std::construct_at(a_out);
+			return a_out;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_startCardVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_startCardInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = StartCardMenuName();
+		// Strictly bottom UI layer (depth=0) with zero modal/pause/cursor flags so MessageBoxMenu & Console sit above it.
+		*reinterpret_cast<std::uint8_t*>(base + 0x110) = 0;
+		if (g_keepAlive && ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
+		REX::INFO("step=start_card_create n={} menu={} flags={} depth=0", n, Hex(base), Hex(imenu->flags));
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return a_out;
+	}
+
+	void* BlockedMapMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* BlockedMapMenuGetName(const void* a_self)
+	{
+		if (a_self) {
+			const auto* imenu = static_cast<const RE::IMenu*>(a_self);
+			if (const char* nm = imenu->menuName.c_str(); nm && *nm) {
+				return nm;
+			}
+		}
+		return "GalaxyStarMapMenu";
+	}
+
+	bool BlockedMapMenuLoadMovie(void*, bool, bool)
+	{
+		// Stage-1 style minimal menu: never loads Starfield's star-map movie and closes itself on kShow.
+		return true;
+	}
+
+	RE::UI_MESSAGE_RESULT BlockedMapMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow && a_self) {
+			auto* imenu = static_cast<RE::IMenu*>(a_self);
+			if (auto* queue = RE::UIMessageQueue::GetSingleton(); queue && !imenu->menuName.empty()) {
+				queue->AddMessage(imenu->menuName, RE::UI_MESSAGE_TYPE::kHide);
+			}
+		}
+		return result;
+	}
+
+	bool CreateBlockedMapMenuInstance(const char* a_menuName, RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		if (!a_out || !g_ctor || !g_blockedMapVtbl.slots[0]) {
+			return false;
+		}
+		constexpr std::size_t kBlockedMenuBytes = (kMenuBytes > 0x1000) ? kMenuBytes : 0x1000;
+		const auto            n = ++g_blockedMapCreated;
+		void*                 menu = std::calloc(1, kBlockedMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=blocked_map n={} reason=out_of_memory", n);
+			return false;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_blockedMapVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_blockedMapInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = RE::BSFixedString(a_menuName && *a_menuName ? a_menuName : "GalaxyStarMapMenu");
+		imenu->flags = 0;
+		imenu->flagsUpdated = true;
+		*reinterpret_cast<std::uint8_t*>(base + 0x110) = 0;
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return true;
+	}
+
+	const RE::BSFixedString& SetupMenuName()
+	{
+		static const RE::BSFixedString s{ fo4sf::kOurSetupMenuName };
+		return s;
+	}
+
+	void WriteStoreGlobalFloat(std::uintptr_t a_form, float a_value)
+	{
+		if (!a_form) {
+			return;
+		}
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		*reinterpret_cast<float*>(a_form + valAt) = a_value;
+	}
+
+	void CommitSetupMenuMainThread()
+	{
+		std::optional<fo4sf::setup::SetupCommitPayload> payload;
+		std::string                                     lockedId;
+		{
+			std::scoped_lock lock(g_setupLock);
+			payload = g_setupModel.Confirm();
+			if (!payload.has_value()) {
+				lockedId = g_setupModel.CurrentPlaceRow().id;
+			}
+		}
+		if (!payload.has_value()) {
+			REX::INFO("step=setup_confirm_refused id={} reason=unavailable", lockedId);
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+			}
+			return;
+		}
+
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreGameModeId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_GameMode", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->modeVal));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStoryLineId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StoryLine", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->storyChoiceIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalStartId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalStart", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalLockedId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalLocked", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartDifficultyId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartDifficulty", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->difficulty));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareFactionId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareFaction", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareFactionSlot));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareStartIndexId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareStartIndex", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareStartIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartPlaceRowId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartPlaceRow", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(payload->startPlaceRow));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, 0.0f);
+		}
+		// Commit FO4SF_StartChoiceDone last so Papyrus observes all 8 choice globals settled.
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartChoiceDoneId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartChoiceDone", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, 1.0f);
+		}
+
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+		}
+		REX::INFO("step=setup_confirm mode={} story={} faction={} place={} survival={} difficulty={} row={}",
+			payload->modeTag, payload->storyId, payload->warfareFactionSlot, payload->placeId,
+			payload->survival, payload->difficulty, payload->startPlaceRow);
+	}
+
+	enum class SetupClickKind : std::uint8_t
+	{
+		kSelectRow,
+		kPrevValue,
+		kNextValue,
+		kConfirm,
+	};
+
+	class SetupButtonHandler final : public RE::Scaleform::GFx::FunctionHandler
+	{
+	public:
+		void Configure(SetupClickKind a_kind, int a_row)
+		{
+			_kind = a_kind;
+			_row = a_row;
+		}
+
+		void Call(const Params&) override
+		{
+			if (_kind == SetupClickKind::kConfirm) {
+				if (g_task) {
+					g_task->AddTask([]() { CommitSetupMenuMainThread(); });
+				}
+				return;
+			}
+			{
+				std::scoped_lock lock(g_setupLock);
+				g_setupModel.SelectRow(_row);
+				if (_kind == SetupClickKind::kPrevValue) {
+					g_setupModel.AdjustRow(_row, -1);
+				} else if (_kind == SetupClickKind::kNextValue) {
+					g_setupModel.AdjustRow(_row, 1);
+				}
+			}
+			if (g_task) {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+
+	private:
+		SetupClickKind _kind = SetupClickKind::kSelectRow;
+		int            _row = 0;
+	};
+	std::array<SetupButtonHandler, 16> g_setupButtonHandlers;
+
+	void SetupListen(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		const auto  movie = MovieOf(a_menu);
+		if (!root || !movie || g_setupListenedMovie.load() == movie) {
+			return;
+		}
+		g_setupListenedMovie.store(movie);
+		RE::Scaleform::GFx::Value top;
+		const bool                gotRoot = root->GetVariable(&top, "root") && top.IsObject();
+		if (!gotRoot) {
+			return;
+		}
+		std::size_t hIdx = 0;
+		const auto  attach = [&](const std::string& a_name, SetupClickKind a_kind, int a_row) {
+			if (hIdx >= g_setupButtonHandlers.size()) {
+				return;
+			}
+			auto& handler = g_setupButtonHandlers[hIdx++];
+			handler.Configure(a_kind, a_row);
+			RE::Scaleform::GFx::Value btn, fn;
+			if (ChildOf(top, a_name.c_str(), btn)) {
+				root->CreateFunction(&fn, &handler);
+				if (!fn.IsUndefined()) {
+					std::array<RE::Scaleform::GFx::Value, 2> args{ "click", fn };
+					btn.Invoke("addEventListener", nullptr, args.data(), args.size());
+				}
+			}
+		};
+		for (int i = 0; i < static_cast<int>(fo4sf::setup::kSetupRows); ++i) {
+			attach(std::format("fo4sfSetupHit{}", i), SetupClickKind::kSelectRow, i);
+			attach(std::format("fo4sfSetupPrev{}", i), SetupClickKind::kPrevValue, i);
+			attach(std::format("fo4sfSetupNext{}", i), SetupClickKind::kNextValue, i);
+		}
+		attach("fo4sfSetupConfirm", SetupClickKind::kConfirm, 0);
+	}
+
+	void SetupWrite(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		if (!root) {
+			return;
+		}
+		RE::Scaleform::GFx::Value top;
+		if (!root->GetVariable(&top, "root") || !top.IsObject()) {
+			return;
+		}
+		std::array<std::string, fo4sf::setup::kSetupRows> rows{};
+		std::string                                       status;
+		{
+			std::scoped_lock lock(g_setupLock);
+			g_setupModel.RenderLines(rows, status);
+		}
+		for (std::size_t i = 0; i < rows.size(); ++i) {
+			RE::Scaleform::GFx::Value field;
+			const auto                fname = std::format("fo4sfSetupRow{}", i);
+			if (ChildOf(top, fname.c_str(), field)) {
+				field.SetMember("text", RE::Scaleform::GFx::Value(rows[i].c_str()));
+			}
+		}
+		RE::Scaleform::GFx::Value statusField;
+		if (ChildOf(top, "fo4sfSetupStatus", statusField)) {
+			statusField.SetMember("text", RE::Scaleform::GFx::Value(status.c_str()));
+		}
+	}
+
+	void* SetupMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_setupOpen.store(false);
+		g_setupListenedMovie.store(nullptr);
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* SetupMenuGetName(const void*)
+	{
+		if (g_loadingSetupMovie.load()) {
+			return "FO4SF_SetupScreen";
+		}
+		return fo4sf::kOurSetupMenuName;
+	}
+
+	bool SetupMenuLoadMovie(void* a_self, bool, bool a_arg2)
+	{
+		if (MovieOf(a_self)) {
+			return true;
+		}
+		g_loadingSetupMovie.store(true);
+		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingSetupMovie.store(false);
+		const bool ok = loaded && MovieOf(a_self) != nullptr;
+		if (!ok && !g_setupMissing.exchange(true)) {
+			REX::INFO("step=setup_skip reason=missing movie=FO4SF_SetupScreen");
+		} else if (ok) {
+			REX::INFO("step=setup_load_movie result=1 movie=FO4SF_SetupScreen");
+		}
+		return ok;
+	}
+
+	RE::UI_MESSAGE_RESULT SetupMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow && !MovieOf(a_self)) {
+			if (!SetupMenuLoadMovie(a_self, false, false)) {
+				g_setupOpen.store(false);
+				return RE::UI_MESSAGE_RESULT::kHandled;
+			}
+		}
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_setupOpen.store(true);
+			SetupListen(a_self);
+			SetupWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kUpdate) {
+			SetupListen(a_self);
+			SetupWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_setupOpen.store(false);
+			g_setupListenedMovie.store(nullptr);
+		}
+		return result;
+	}
+
+	bool SetupShouldHandleEvent(void* a_input, const void* a_event)
+	{
+		if (!a_event || !g_setupOpen.load()) {
+			return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType == RE::InputEvent::EventType::kButton &&
+		    (base->deviceType == RE::InputEvent::DeviceType::kKeyboard ||
+		     base->deviceType == RE::InputEvent::DeviceType::kGamepad) &&
+		    base->status != RE::InputEvent::Status::kStop) {
+			return true;
+		}
+		return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+	}
+
+	void SetupOnButtonEvent(void* a_input, const void* a_event)
+	{
+		if (g_engineOnButton) {
+			g_engineOnButton(a_input, a_event);
+		}
+		if (!a_event || !g_setupOpen.load()) {
+			return;
+		}
+		if (OpenBlockingOverlayMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType != RE::InputEvent::EventType::kButton ||
+		    base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
+			return;
+		}
+		const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+		if (!(button->value > 0.0f && button->heldDownSecs == 0.0f)) {
+			return;
+		}
+		const auto vk = static_cast<std::uint32_t>(button->idCode);
+		bool       handled = false;
+		bool       wantCommit = false;
+		{
+			std::scoped_lock lock(g_setupLock);
+			switch (vk) {
+			case 0x26:   // VK_UP
+			case 0x57:   // W
+				g_setupModel.MoveCursor(-1);
+				handled = true;
+				break;
+			case 0x28:   // VK_DOWN
+			case 0x53:   // S
+				g_setupModel.MoveCursor(1);
+				handled = true;
+				break;
+			case 0x25:   // VK_LEFT
+			case 0x41:   // A
+				g_setupModel.AdjustRow(g_setupModel.SelectedRow(), -1);
+				handled = true;
+				break;
+			case 0x27:   // VK_RIGHT
+			case 0x44:   // D
+				g_setupModel.AdjustRow(g_setupModel.SelectedRow(), 1);
+				handled = true;
+				break;
+			case 0x0D:   // VK_RETURN
+			case 0x45:   // E
+				handled = true;
+				wantCommit = true;
+				break;
+			default:
+				break;
+			}
+		}
+		if (!handled) {
+			return;
+		}
+		const_cast<RE::InputEvent*>(base)->status = RE::InputEvent::Status::kStop;
+		if (g_task) {
+			if (wantCommit) {
+				g_task->AddTask([]() { CommitSetupMenuMainThread(); });
+			} else {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* CreateSetupMenu(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		const auto n = ++g_setupCreated;
+		void*      menu = std::calloc(1, kMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=setup n={} reason=out_of_memory", n);
+			std::construct_at(a_out);
+			return a_out;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_setupVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_setupInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = SetupMenuName();
+		imenu->flags |= (0x19u | kPauseFlag);
+		imenu->flagsUpdated = true;
+		if (g_keepAlive && ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
+		REX::INFO("step=setup_create n={} menu={} flags={}", n, Hex(base), Hex(imenu->flags));
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return a_out;
+	}
+
+	void PollStartCardGlobalMainThread()
+	{
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue || !ui->IsMenuRegistered(StartCardMenuName())) {
+			return;
+		}
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		const auto     fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail);
+		if (fid) {
+			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
+		}
+		static bool s_loggedStartCardResolve = false;
+		if (!s_loggedStartCardResolve && fid) {
+			s_loggedStartCardResolve = true;
+			LogCoreValueResolve("FO4SF_StartCardOpen", kCoreStartCardOpenId, form ? fid : 0u);
+		}
+		float v = 0.0f;
+		if (form) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			if (!Peek(form + valAt, v) || !std::isfinite(v)) {
+				v = 0.0f;
+			}
+		}
+		static const RE::BSFixedString kLoadingMenu{ "LoadingMenu" };
+		static const RE::BSFixedString kChargenMenu{ "ChargenMenu" };
+		const bool blockedLoadOrChargen = ui->IsMenuOpen(kLoadingMenu) || ui->IsMenuOpen(kChargenMenu);
+
+		// S1 Variant (b): FO4SF_StartCardOpen == 2.0 requests FO4SF_SetupMenu (acked as 3.0 once open).
+		const bool wantSetup = (v >= 1.5f) && ui->IsMenuRegistered(SetupMenuName());
+		const bool setupIsOpen = ui->IsMenuRegistered(SetupMenuName()) && ui->IsMenuOpen(SetupMenuName());
+		if (wantSetup) {
+			if (ui->IsMenuOpen(StartCardMenuName())) {
+				queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			}
+			if (g_setupMissing.load()) {
+				// R10: FO4SF_SetupScreen.swf missing -> clear request immediately so Papyrus falls back to Variant (a).
+				WriteStoreGlobalFloat(form, 0.0f);
+				return;
+			}
+			if (!blockedLoadOrChargen) {
+				if (!setupIsOpen) {
+					std::size_t totalRows = 0;
+					std::size_t availRows = 0;
+					bool        fromFile = false;
+					{
+						std::scoped_lock lock(g_setupLock);
+						auto rows = fo4sf::setup::LoadStartPlacesFileOrFallback(
+							g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+						g_setupModel.Reset(std::move(rows), g_setupShowUnavailable);
+						g_setupModelLoaded = true;
+						totalRows = g_setupModel.TotalRows();
+						availRows = g_setupModel.AvailableRows();
+					}
+					queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kShow);
+					REX::INFO("step=setup_open rows={} available={} show_unavailable={} source={}",
+						totalRows, availRows, g_setupShowUnavailable ? 1 : 0, fromFile ? "json" : "fallback");
+				} else if (v < 2.5f) {
+					WriteStoreGlobalFloat(form, 3.0f);
+				}
+			}
+			return;
+		}
+		if (setupIsOpen) {
+			queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=setup_open open=0");
+		}
+
+		const bool wantOpen = (v >= 0.5f && v < 1.5f) && !g_startCardMissing.load() && !blockedLoadOrChargen;
+		const bool isOpen = ui->IsMenuOpen(StartCardMenuName());
+		if (wantOpen && !isOpen) {
+			queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kShow);
+			REX::INFO("step=start_card open=1 depth=0");
+		} else if (!wantOpen && isOpen) {
+			queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=start_card open=0");
+		}
+	}
+
+	void PollSpecialTriggerGlobalMainThread()
+	{
+		if (!g_specialMenu || g_specialOpen.load()) {
+			return;
+		}
+		FindGlobalValue();
+		const auto form = LookupFormByEditorIdChecked("FO4SF_OpenSpecialMenu", "TESGlobal@@");
+		if (!form) {
+			return;
+		}
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		float             v = 0.0f;
+		if (!Peek(form + valAt, v) || !std::isfinite(v) || v < 0.5f) {
+			return;
+		}
+		*reinterpret_cast<float*>(form + valAt) = 0.0f;
+		OpenSpecialMenuMainThread("global_FO4SF_OpenSpecialMenu");
 	}
 
 	RE::Scaleform::Ptr<RE::IMenu>* Create(RE::Scaleform::Ptr<RE::IMenu>* a_out)
@@ -3247,7 +8637,7 @@ namespace
 		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);   // Scaleform RefCountImplCore
 		const auto ctorRefs = *refs;
 		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_vtbl.slots.data());
-		if (g_stage >= 4) {
+		if (g_stage >= 2 || PipboyMap::Enabled()) {
 			*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_inputVtbl.slots.data());
 		}
 		// what the engine's dynamic_cast reads on our object: the locator one slot before its primary vtable
@@ -3477,7 +8867,7 @@ namespace
 		if (!CheckImage() || !ReadAddressLibrary(a_dir / "versionlib-1-16-244-0.bin") ||
 			!CheckVtable(kVtblPrimary, 0x00, "primary") || !CheckVtable(kVtblInput, 0x10, "BSInputEventUser") ||
 			!CheckVtable(kVtblSink, 0x50, "BSTEventSink") || !CheckSlots() || !CheckCtor() ||
-			(g_stage >= 3 && !CheckChannelIds()) || (g_stage >= 4 && !CheckPageIds())) {
+			(ChannelIdsNeeded() && !CheckChannelIds()) || (g_stage >= 4 && !CheckPageIds())) {
 			return false;
 		}
 		const auto* engine = reinterpret_cast<const std::uintptr_t*>(Address(kVtblPrimary));
@@ -3493,7 +8883,7 @@ namespace
 		g_vtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
 		g_vtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&MenuLoadMovie);
 		g_vtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&MenuProcessMessage);
-		if (g_stage >= 4) {   // FAL-414: copy the input vtable, replace [01] ShouldHandleEvent and [08] OnButtonEvent
+		if (g_stage >= 2 || g_specialMenu || PipboyMap::Requested(a_dir / "FO4SFPipboyMenu.ini")) {   // G2 / FAL-414: install cancel input vtable at Stage >= 2
 			const auto* input = reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput));
 			g_inputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);   // checked by CheckVtable
 			std::copy_n(input, kInputSlots, g_inputVtbl.slots.begin());
@@ -3507,6 +8897,61 @@ namespace
 			REX::INFO("step=input_vtable replaced=0x01,0x08 should_handle={} on_button={} cancel_codes={}", Hex(input[1] - g_base),
 				Hex(input[8] - g_base), g_cancelCount);
 		}
+		if (g_specialMenu) {
+			g_specialVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_specialVtbl.slots.begin());
+			g_specialVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&SpecialMenuDestroy);
+			g_specialVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&SpecialMenuGetName);
+			g_specialVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_specialVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_specialVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&SpecialMenuLoadMovie);
+			g_specialVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&SpecialMenuProcessMessage);
+			const auto* input = reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput));
+			g_specialInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_specialInputVtbl.slots.begin());
+			g_specialInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&SpecialShouldHandleEvent);
+			g_specialInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&SpecialOnButtonEvent);
+		}
+		if (g_stage >= 2) {
+			g_startCardVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_startCardVtbl.slots.begin());
+			g_startCardVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&StartCardMenuDestroy);
+			g_startCardVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&StartCardMenuGetName);
+			g_startCardVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_startCardVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_startCardVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&StartCardMenuLoadMovie);
+			g_startCardVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&StartCardMenuProcessMessage);
+			const auto* input = reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput));
+			g_startCardInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_startCardInputVtbl.slots.begin());
+			g_startCardInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&StartCardShouldHandleEvent);
+
+			g_setupVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_setupVtbl.slots.begin());
+			g_setupVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&SetupMenuDestroy);
+			g_setupVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&SetupMenuGetName);
+			g_setupVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_setupVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_setupVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&SetupMenuLoadMovie);
+			g_setupVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&SetupMenuProcessMessage);
+			g_setupInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_setupInputVtbl.slots.begin());
+			g_setupInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&SetupShouldHandleEvent);
+			g_setupInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&SetupOnButtonEvent);
+
+			g_blockedMapVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_blockedMapVtbl.slots.begin());
+			g_blockedMapVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuDestroy);
+			g_blockedMapVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuGetName);
+			g_blockedMapVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_blockedMapVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_blockedMapVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuLoadMovie);
+			g_blockedMapVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuProcessMessage);
+			g_blockedMapVtbl.slots[0x0A] = reinterpret_cast<std::uintptr_t>(&MenuIsMovieLoaded);
+			g_blockedMapInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_blockedMapInputVtbl.slots.begin());
+			g_blockedMapInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&StartCardShouldHandleEvent);
+		}
 		if (g_stage == 1) {
 			g_vtbl.slots[0x0A] = reinterpret_cast<std::uintptr_t>(&MenuIsMovieLoaded);
 		}
@@ -3517,6 +8962,61 @@ namespace
 	}
 
 	// ------------------------------------------------------------------------------------------- open, close, state
+	std::atomic<std::int64_t>  g_stateCheckDueAt{ 0 };
+	std::atomic<std::uint32_t> g_stateCheckN{ 0 };
+
+	// Step X2 & Step 1f (R13): checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) float value at +0x48
+	bool IsPipboyPickedUpMainThread(float& a_outVal)
+	{
+		a_outVal = 0.0f;
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		const auto     fid = KitFileForm("FO4SFCoreValues.esm", kCorePipboyAcquiredId, "TESGlobal@@", detail);
+		if (fid) {
+			AcceptById(fid, "FO4SF_PipboyAcquired", "TESGlobal@@", kGlobalEditorIdAt, form);
+		}
+		static bool s_loggedPipboyAcquiredResolve = false;
+		if (!s_loggedPipboyAcquiredResolve) {
+			s_loggedPipboyAcquiredResolve = true;
+			LogCoreValueResolve("FO4SF_PipboyAcquired", kCorePipboyAcquiredId, form ? fid : 0u);
+		}
+		if (!form) {
+			return false;
+		}
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		float             v = 0.0f;
+		if (!Peek(form + valAt, v) || !std::isfinite(v)) {
+			return false;
+		}
+		a_outVal = v;
+		return v >= 0.5f;
+	}
+
+	bool CheckOpenGateAndBootMainThread(std::uint32_t a_targetPage, const char* a_by)
+	{
+		if (g_stage != 2 || g_movie.empty()) {
+			return true;
+		}
+		float acqVal = 0.0f;
+		const bool needCheck = g_requirePickup || (g_bootOnFirstOpen && !g_bootMovie.empty() && !s_bootPlayed.load());
+		const bool acquired = needCheck ? IsPipboyPickedUpMainThread(acqVal) : false;
+		if (g_requirePickup && !acquired) {
+			s_bootPlayed.store(false);
+			REX::INFO("step=pipboy_pickup_required by={} page={} value={:.1f}", a_by ? a_by : "key", a_targetPage, acqVal);
+			return false;
+		}
+		if (g_bootOnFirstOpen && !g_bootMovie.empty() && (acquired || !g_requirePickup) &&
+			std::string_view(a_by ? a_by : "") != "boot_reopen") {
+			if (!s_bootPlayed.exchange(true)) {
+				g_playingBootMovie.store(true);
+				REX::INFO("step=boot_sequence movie={} first_open=1 page={} loose={}",
+					g_bootMovie, a_targetPage, BootMovieLooseFileExists() ? 1 : 0);
+			}
+		}
+		return true;
+	}
+
 	void Toggle(std::uint32_t a_n)
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -3526,7 +9026,22 @@ namespace
 			return;
 		}
 		const bool open = ui->IsMenuOpen(MenuName());
+		if (!open) {
+			if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
+				REX::INFO("step=toggle n={} ignored=menu_open menu={}", a_n, blocking);
+				return;
+			}
+			if (!CheckOpenGateAndBootMainThread(s_savedPage.load(), "toggle")) {
+				return;
+			}
+		} else if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
+			REX::INFO("step=toggle n={} ignored=menu_open menu={}", a_n, topModal);
+			return;
+		}
 		g_cancelHeld = false;   // FAL-414: a release heard while the page was closed must not keep the gate shut
+		if (g_stage == 2 && g_codeObj && !open) {
+			CollectShellVitalsMainThread(s_savedPage.load());
+		}
 		if (g_stage == 4 && !open) {
 			PageCollect();   // the page's text before the show
 		}
@@ -3539,6 +9054,7 @@ namespace
 	}
 
 	// stage d: the CLOSE button, heard on the menu's thread, closes the menu here, on the main thread, as F10 does
+	// (and, FAL-614 proof 1c, the movie's HideMenu through the stand-in BGSCodeObj)
 	void Close(std::uint32_t a_n, const char* a_by = "button")
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -3571,15 +9087,34 @@ namespace
 		}
 	}
 
-	// stages c, d and e, every 500 ms while the menu is open (and at once after NEXT TAB or a kit move): one kUpdate, on
-	// which our ProcessMessage refreshes the field, the page or the kit; their text is collected here first
+	// stages c, d and e, every 500 ms while the menu is open (and throttled vitals refresh at Stage=2 with CodeObj=1)
 	void SendUpdate()
 	{
+		if (g_closing.load()) {
+			return;
+		}
 		auto* ui = RE::UI::GetSingleton();
 		auto* queue = RE::UIMessageQueue::GetSingleton();
 		if (!ui || !queue || !ui->IsMenuOpen(MenuName())) {
 			g_open = false;
 			return;
+		}
+		if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
+			// Discard any Q/E/A/D shell keys pressed while Console or a modal popup is open
+			g_shellKeyPending = 0;
+			const std::string_view modalView(topModal);
+			if (modalView == "MessageBoxMenu" || modalView == "MainMenu" || modalView == "LoadingMenu") {
+				Close(0, "modal_preempt");
+			}
+			return;
+		}
+		if (g_stage == 2 && g_codeObj) {
+			static std::int64_t lastShellVitalsMs = 0;
+			const auto          now = NowMs();
+			if (now - lastShellVitalsMs >= 500) {
+				lastShellVitalsMs = now;
+				CollectShellVitalsMainThread(s_savedPage.load());
+			}
 		}
 		if (g_stage == 4) {
 			PageCollect();
@@ -3597,24 +9132,280 @@ namespace
 		return pid == W32_IMPL_GetCurrentProcessId();
 	}
 
+	// FAL-614 S1-c, every 30 ms on the key thread, stage b with ShellKeys=: a press (not a hold) of a shell key while the
+	// menu is open and the game in front is noted for the menu's thread, and a kUpdate is sent to carry it there
+	void ShellKeys(std::uint32_t& a_held)
+	{
+		const bool    live = g_open && GameInFront();
+		std::uint32_t held = 0;
+		for (std::size_t i = 0; live && i < g_shellKeyCount; ++i) {
+			if (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_shellKeys[i].vk)) & 0x8000) {
+				held |= 1u << i;
+			}
+		}
+		const auto pressed = held & ~a_held;
+		a_held = held;
+		if (pressed) {
+			g_shellKeyPending.fetch_or(pressed);
+			g_task->AddTask([]() { SendUpdate(); });
+		}
+	}
+
+	// main thread, ArmRaiseMs after the raise (or immediately on accepted=0 / refused): the screen's show.
+	// N1 / R10: a missing or refused animation NEVER blocks the Pip-Boy; Toggle(a_n) always opens the shell unless already open.
+	void ArmShow(std::uint32_t a_n)
+	{
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui || ui->IsMenuOpen(MenuName())) {
+			const auto lower = (g_armState != 1 || !ArmLowerSet()) ? std::string("none") : g_lowerIdle ? ArmPlayIdle(g_lowerIdle) : ArmNotify(*g_lowerEvent);
+			REX::INFO("step=arm_show n={} result=skipped reason={} lower={} t_ms={}", a_n, ui ? "already_open" : "no_ui", lower,
+				SincePress());
+			return;
+		}
+		Toggle(a_n);
+		REX::INFO("step=arm_show n={} sent=show raise={} arm_ready={} t_ms={}", a_n,
+			g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome, g_armState == 1 ? 1 : 0, SincePress());
+	}
+
+	// FAL-852, the key thread's state check after an arm open or close: due at `at` (0 = none), for press n
+	struct ArmCheck
+	{
+		std::uint32_t n = 0;
+		std::int64_t  at = 0;
+	};
+
+	// Step 1 & Step 8: shared main-thread open path for both Key (s_savedPage) and MapKey (page 3)
+	void RequestPipboyOpen(std::uint32_t a_targetPage, const char* a_by)
+	{
+		const std::uint32_t target = std::min<std::uint32_t>(a_targetPage, 4u);
+		s_savedPage.store(target);
+
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui || ui->IsMenuOpen(MenuName())) {
+			return;
+		}
+		if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
+			REX::INFO("step=request_open by={} page={} ignored=menu_open menu={}", a_by ? a_by : "key", target, blocking);
+			return;
+		}
+		if (!CheckOpenGateAndBootMainThread(target, a_by)) {
+			return;
+		}
+
+		const auto n = ++g_openPressSeq;
+		if (g_arm) {
+			const auto at = NowMs();
+			const bool opening = g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0;
+			if (g_lowerRetry.state.load() != kRetryIdle) {
+				REX::INFO("step=arm_key by={} ignored=lowering pending=1 t_ms={}", a_by ? a_by : "key", at - g_armPressAt.load());
+				return;
+			}
+			if (at < g_armLowerUntil.load()) {
+				REX::INFO("step=arm_key by={} ignored=lowering lock_left_ms={} t_ms={}", a_by ? a_by : "key",
+					g_armLowerUntil.load() - at, at - g_armPressAt.load());
+				return;
+			}
+			if (opening) {
+				REX::INFO("step=arm_key by={} ignored=opening pending=1 t_ms={}", a_by ? a_by : "key", at - g_armPressAt.load());
+				return;
+			}
+			g_armPressAt = at;
+			g_armN = n;
+			REX::INFO("step=arm_key n={} by={} page={} open=0 t_ms=0", n, a_by ? a_by : "key", target);
+			CollectShellVitalsMainThread(target);
+			ArmRetryStart(g_raiseRetry, n);
+			ArmRaise(n);
+			return;
+		}
+
+		Toggle(n);
+		g_stateCheckN.store(n);
+		g_stateCheckDueAt.store(NowMs() + 750);
+	}
+
+	// FAL-852 / N1, Key at Arm=1 (game in front): checks Console/blocking menus and RequirePickup on the main thread
+	// BEFORE raising or closing, so F7 with Console open logs step=toggle ignored=menu_open menu=Console and never raises bare wrist.
+	void ArmKey(std::uint32_t& a_presses, ArmCheck& a_check)
+	{
+		const auto at = NowMs();
+		const bool opening = g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0 || a_check.at != 0;
+		if (g_lowerRetry.state.load() != kRetryIdle) {
+			REX::INFO("step=arm_key ignored=lowering pending=1 t_ms={}", at - g_armPressAt.load());
+		} else if (at < g_armLowerUntil.load()) {
+			REX::INFO("step=arm_key ignored=lowering lock_left_ms={} t_ms={}", g_armLowerUntil.load() - at, at - g_armPressAt.load());
+		} else if (opening) {
+			REX::INFO("step=arm_key ignored=opening pending=1 t_ms={}", at - g_armPressAt.load());
+		} else {
+			const auto n = ++a_presses;
+			const bool shown = g_armShown.load();
+			if (shown) {
+				g_armDispatching = true;
+				a_check = { n, at + 750 };   // the engine handles the message on a later frame
+				g_task->AddTask([n, at]() {
+					g_armDispatching = false;
+					auto* ui = RE::UI::GetSingleton();
+					if (ui) {
+						if (const char* topModal = OpenBlockingOverlayMenu(ui, true)) {
+							REX::INFO("step=toggle n={} ignored=menu_open menu={}", n, topModal);
+							return;
+						}
+					}
+					REX::INFO("step=arm_key n={} open=1 t_ms={}", n, at - g_armPressAt.load());
+					Close(n, "key");
+				});
+			} else {
+				g_armDispatching = true;
+				g_task->AddTask([n, at]() {
+					g_armDispatching = false;
+					auto* ui = RE::UI::GetSingleton();
+					if (!ui) {
+						return;
+					}
+					if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
+						REX::INFO("step=toggle n={} ignored=menu_open menu={}", n, blocking);
+						return;
+					}
+					if (g_requirePickup) {
+						float acqVal = 0.0f;
+						if (!IsPipboyPickedUpMainThread(acqVal)) {
+							s_bootPlayed.store(false);
+							REX::INFO("step=pipboy_pickup_required by=arm_key page={} value={:.1f}", s_savedPage.load(), acqVal);
+							return;
+						}
+					}
+					g_armPressAt = at;
+					g_armN = n;
+					REX::INFO("step=arm_key n={} open=0 t_ms=0", n);
+					ArmRetryStart(g_raiseRetry, n);
+					CollectShellVitalsMainThread(s_savedPage.load());
+					ArmRaise(n);
+				});
+			}
+		}
+	}
+
+	// FAL-852 (FAL-725's tick, no sleep on the arm's path): every 30 ms, each due retry is queued (waiting -> in flight),
+	// the screen's show ArmRaiseMs after the raise, and the state check 750 ms after a show or close
+	void ArmTick(ArmCheck& a_check)
+	{
+		const auto tick = NowMs();
+		static std::uint32_t s_armLoadPollTicks = 0;
+		if (++s_armLoadPollTicks % 5 == 0 && g_task) {
+			g_task->AddTask([]() { ArmPollLoadingTransitionMainThread(); });
+		}
+		for (auto* retry : { &g_raiseRetry, &g_lowerRetry }) {
+			int waiting = kRetryWaiting;
+			if (retry->state.load() == kRetryWaiting && tick >= retry->nextAt.load() &&
+				retry->state.compare_exchange_strong(waiting, kRetryInFlight)) {
+				const auto rn = retry->n.load();
+				if (retry == &g_raiseRetry) {
+					g_task->AddTask([rn]() { ArmRaise(rn); });
+				} else {
+					g_task->AddTask([rn]() { ArmLower(rn); });
+				}
+			}
+		}
+		if (auto showAt = g_armShowAt.load(); showAt && tick >= showAt && g_armShowAt.compare_exchange_strong(showAt, 0)) {
+			const auto sn = g_armN.load();
+			g_task->AddTask([sn]() { ArmShow(sn); });
+			a_check = { sn, tick + 750 };
+		}
+		if (a_check.at && tick >= a_check.at) {
+			const auto cn = a_check.n;
+			a_check.at = 0;
+			g_task->AddTask([cn]() { CheckState(cn); });
+		}
+	}
+
 	std::uint32_t KeyThread(void*)
 	{
 		std::uint32_t presses = 0;
 		std::uint32_t ticks = 0;
+		std::uint32_t shellTicks = 0;
+		std::uint32_t specialTicks = 0;
 		bool          down = false;
+		bool          specialKeyDown = false;
 		bool          snapDown = false;
+		ArmCheck      armCheck;     // FAL-852
+		ArmCheck      stateCheck;   // non-blocking 750 ms state check (zero Sleep(750) on KeyThread)
 		std::array<std::uint32_t, 6> kitHeld{};   // stage e: how many 30 ms ticks each kit key has been held
+		std::uint32_t                shellHeld = 0;   // FAL-614 S1-c: the shell keys held at the last tick, one bit each
 		for (;;) {
 			REX::W32::Sleep(30);
+			const auto tickMs = NowMs();
+
+			// Step 5: 2 s busy watchdog around Scaleform movie calls
+			if (const auto busySince = g_gfxBusySinceMs.load(); busySince > 0) {
+				const auto busyMs = tickMs - busySince;
+				const auto seq = g_gfxCallSeq.load();
+				if (busyMs >= kWatchdogBusyMs && g_gfxWatchdogLoggedSeq.exchange(seq) != seq) {
+					const char* callName = g_gfxBusyName.load();
+					REX::ERROR("step=watchdog_busy seq={} call={} busy_ms={}", seq, callName ? callName : "unknown", busyMs);
+				}
+			}
+
+			if (auto due = g_stateCheckDueAt.load(); due && tickMs >= due && g_stateCheckDueAt.compare_exchange_strong(due, 0)) {
+				const auto cn = g_stateCheckN.load();
+				g_task->AddTask([cn]() { CheckState(cn); });
+			}
+			if (stateCheck.at && tickMs >= stateCheck.at) {
+				const auto cn = stateCheck.n;
+				stateCheck.at = 0;
+				g_task->AddTask([cn]() { CheckState(cn); });
+			}
+
 			const bool now = (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_key)) & 0x8000) != 0;
-			if (now && !down && GameInFront()) {
-				const auto n = ++presses;
-				g_task->AddTask([n]() { Toggle(n); });
-				REX::W32::Sleep(750);   // the engine handles the message on a later frame
-				g_task->AddTask([n]() { CheckState(n); });
+			const bool shellHandlesOpenKey = IsFo4ShellActive() && g_open.load();
+			if (!shellHandlesOpenKey) {
+				if (now && !down && GameInFront() && g_arm) {   // FAL-852: the raise first, or the close (then the lower)
+					ArmKey(presses, armCheck);
+				} else if (now && !down && GameInFront()) {
+					const auto n = ++presses;
+					g_task->AddTask([n]() { Toggle(n); });
+					stateCheck = { n, NowMs() + 750 };   // non-blocking state check on a later tick
+				}
 			}
 			down = now;
+			if (g_arm) {
+				ArmTick(armCheck);
+			}
+			if (g_stage == 2 && CodeObjPending() && ++ticks % 17 == 0) {   // FAL-614 proof 1b: retry the stand-in
+				g_task->AddTask([]() { SendUpdate(); });   // nothing while the menu is closed
+			}
+			if (g_stage == 2 && g_shellKeyCount && !IsFo4ShellActive()) {   // FAL-614 S1-c: standalone probe shell keys
+				ShellKeys(shellHeld);
+			}
+			if (g_stage == 2 && g_answerNow.exchange(false)) {   // S1-c: the shell asked for a page or tab (a click, a key)
+				g_task->AddTask([]() { SendUpdate(); });
+			}
+			PipboyMap::Tick();
+			if (g_stage >= 2) {
+				static std::uint32_t startCardTicks = 0;
+				if (++startCardTicks % 8 == 0) {
+					g_task->AddTask([]() { PollStartCardGlobalMainThread(); });
+				}
+			}
+			if (g_specialMenu) {
+				if (g_specialKey != 0) {
+					const bool spNow = (W32_IMPL_GetAsyncKeyState(static_cast<std::int32_t>(g_specialKey)) & 0x8000) != 0;
+					if (spNow && !specialKeyDown && GameInFront() && !g_specialOpen.load()) {
+						g_task->AddTask([]() { OpenSpecialMenuMainThread("special_key"); });
+					}
+					specialKeyDown = spNow;
+				}
+				if (++specialTicks % 17 == 0) {
+					g_task->AddTask([]() { PollSpecialTriggerGlobalMainThread(); });
+				}
+			}
+			if (g_stage >= 2 && g_cancelNow.exchange(false)) {   // G2 / FAL-414: Tab or Esc closes FO4SF_PipboyMenu at Stage >= 2
+				const auto n = ++presses;
+				g_task->AddTask([n]() { Close(n, "cancel"); });
+				stateCheck = { n, NowMs() + 750 };
+			}
 			if (g_stage < 3) {
+				if (g_stage == 2 && g_codeObj && g_open.load() && ++shellTicks % 17 == 0) {
+					g_task->AddTask([]() { SendUpdate(); });
+				}
 				continue;
 			}
 			if (g_stage == 5) {   // the kit's keys, only while the page is open and the game in front
@@ -3631,14 +9422,7 @@ namespace
 				if (g_closeNow.exchange(false)) {
 					const auto n = ++presses;
 					g_task->AddTask([n]() { Close(n); });
-					REX::W32::Sleep(750);
-					g_task->AddTask([n]() { CheckState(n); });
-				}
-				if (g_cancelNow.exchange(false)) {   // Tab or Esc heard by our input handler (FAL-414)
-					const auto n = ++presses;
-					g_task->AddTask([n]() { Close(n, "cancel"); });
-					REX::W32::Sleep(750);
-					g_task->AddTask([n]() { CheckState(n); });
+					stateCheck = { n, NowMs() + 750 };
 				}
 			}
 			// stage c: the snapshot key (a main-thread snapshot, the control), and the refresh while open
@@ -3648,6 +9432,7 @@ namespace
 					Snapshot("key", true);
 					if (g_stage == 5) {   // FAL-446: the mission's bytes, for the stage's offset
 						LogKitQuestBytes();
+						LogKitMapBytes();   // FAL-595: the player's angle and cell, for HeadingAt= and GridUnits=
 					}
 				});
 			}
@@ -3677,7 +9462,26 @@ namespace
 		g_registered = true;
 		const auto hooked = *reinterpret_cast<const std::uint8_t*>(Address(kLoadMovie)) == 0xE9;   // SFSE's branch
 		REX::INFO("step=register result=ok name={} load_movie_hooked_by_sfse={}", kMenuName, hooked ? "yes" : "no");
+		if (g_specialMenu && !ui->IsMenuRegistered(SpecialMenuName())) {
+			ui->RegisterMenu(fo4sf::kOurSpecialMenuName, &CreateSpecialMenu);
+			REX::INFO("step=special_register result={} name={} movie={} max_points={}",
+				ui->IsMenuRegistered(SpecialMenuName()) ? "ok" : "failed",
+				fo4sf::kOurSpecialMenuName, g_specialMovie, g_specialMaxPoints);
+		}
+		if (g_stage >= 2 && !ui->IsMenuRegistered(StartCardMenuName())) {
+			ui->RegisterMenu(fo4sf::kOurStartCardMenuName, &CreateStartCardMenu);
+			REX::INFO("step=start_card_register result={} name={} movie=FO4SF_StartCard",
+				ui->IsMenuRegistered(StartCardMenuName()) ? "ok" : "failed", fo4sf::kOurStartCardMenuName);
+		}
+		if (g_stage >= 2 && !ui->IsMenuRegistered(SetupMenuName())) {
+			ui->RegisterMenu(fo4sf::kOurSetupMenuName, &CreateSetupMenu);
+			REX::INFO("step=setup_register result={} name={} movie=FO4SF_SetupScreen show_unavailable={}",
+				ui->IsMenuRegistered(SetupMenuName()) ? "ok" : "failed",
+				fo4sf::kOurSetupMenuName, g_setupShowUnavailable ? 1 : 0);
+		}
 		World::Start(g_task);
+		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit, &CreateBlockedMapMenuInstance);
+		PipboyMap::Start(g_task);
 		const auto thread = REX::W32::CreateThread(nullptr, 0, &KeyThread, nullptr, 0, nullptr);
 		if (!thread) {
 			Refuse("key_thread", "reason=create_failed");
@@ -3690,6 +9494,7 @@ namespace
 	void OnMovieCreated(RE::IMenu* a_menu)
 	{
 		World::OnMovieCreated(a_menu);
+		PipboyMap::OnMovieCreated(a_menu);
 		if (IsOurs(a_menu)) {
 			REX::INFO("step=sfse_movie_created menu={} movie={}", Hex(reinterpret_cast<std::uintptr_t>(a_menu)),
 				Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_menu))));
@@ -3713,9 +9518,10 @@ namespace
 	}
 
 	// a value as ASCII; any other character as '?'
+	// FAL-614 proof 2a: long enough for CodeObjNames at its most, up to kMaxCodeNames names of 64 and their commas
 	std::string ReadText(const std::filesystem::path& a_ini, const wchar_t* a_key)
 	{
-		std::array<wchar_t, 160> text{};
+		std::array<wchar_t, kMaxCodeNames * (kMaxName + 1) + 1> text{};
 		REX::W32::GetPrivateProfileStringW(L"FO4SFPipboyMenu", a_key, L"", text.data(), static_cast<std::uint32_t>(text.size()),
 			a_ini.c_str());
 		std::string out;
@@ -3723,6 +9529,100 @@ namespace
 			out += (*at > 0x20 && *at < 0x7F) ? static_cast<char>(*at) : '?';
 		}
 		return out;
+	}
+
+	// FAL-614 proof 2b: CodeObjProbe= and CodeObjCalls=<path>,<path>,... (empty: none), 1 to kMaxCodeNames paths of 1 to 64
+	// letters, digits, '_' and '.', each part between dots not empty
+	bool ParsePaths(std::string_view a_list, std::array<std::string, kMaxCodeNames>& a_out, std::size_t& a_count,
+		std::string_view a_key)
+	{
+		a_count = 0;
+		if (a_list.empty()) {
+			return true;
+		}
+		const std::string list(a_list);
+		std::size_t       start = 0;
+		while (start <= list.size()) {
+			const auto end = std::min(list.find(',', start), list.size());
+			const auto name = list.substr(start, end - start);
+			const bool ok = !name.empty() && name.size() <= kMaxName && a_count < kMaxCodeNames && name.front() != '.' &&
+			                name.back() != '.' && name.find("..") == std::string::npos &&
+			                std::ranges::all_of(name, [](char a_c) {
+				                return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') || (a_c >= '0' && a_c <= '9') ||
+				                       a_c == '_' || a_c == '.';
+			                });
+			if (!ok) {
+				Refuse("ini", std::format("{}={} (with CodeObj=1 only; 1 to {} paths of letters, digits, _ and .)", a_key, list,
+					kMaxCodeNames));
+				return false;
+			}
+			a_out[a_count++] = name;
+			start = end + 1;
+		}
+		return true;
+	}
+
+	// FAL-614 S1-c: ShellKeys=<key>:<path>,... (empty: none), 1 to 8 entries; the key a virtual-key code (0x01 to 0xFE,
+	// not Key, none twice), the path as one of CodeObjCalls=
+	bool ParseShellKeys(std::string_view a_list)
+	{
+		g_shellKeyCount = 0;
+		if (a_list.empty()) {
+			return true;
+		}
+		const std::string list(a_list);
+		std::size_t       start = 0;
+		while (start <= list.size()) {
+			const auto  end = std::min(list.find(',', start), list.size());
+			const auto  entry = list.substr(start, end - start);
+			const auto  colon = entry.find(':');
+			char*       stop = nullptr;
+			const auto  vk = colon == std::string::npos ? 0 : static_cast<std::uint32_t>(std::strtoul(entry.c_str(), &stop, 0));
+			std::array<std::string, kMaxCodeNames> path{};
+			std::size_t count = 0;
+			const bool  ok = colon != std::string::npos && stop == entry.c_str() + colon && vk >= 1 && vk <= 0xFE && vk != g_key &&
+			                g_shellKeyCount < kMaxShellKeys && colon + 1 < entry.size() &&
+			                std::ranges::none_of(g_shellKeys.begin(), g_shellKeys.begin() + g_shellKeyCount,
+								[&](const ShellKey& a_key) { return a_key.vk == vk; }) &&
+			                ParsePaths(entry.substr(colon + 1), path, count, "shell_keys") && count == 1;
+			if (!ok) {
+				Refuse("ini", std::format("shell_keys={} (with CodeObj=1 only; 1 to {} <key>:<path>, the key 0x01 to 0xFE, not Key, "
+										  "none twice)", list, kMaxShellKeys));
+				g_shellKeyCount = 0;
+				return false;
+			}
+			g_shellKeys[g_shellKeyCount++] = { vk, path[0] };
+			start = end + 1;
+		}
+		return true;
+	}
+
+	// FAL-614 proof 1b: CodeObjNames=<name>,<name>,... (empty: PlaySound,HideMenu), 1 to 64 names of 1 to 64 letters,
+	// digits and '_', none twice; each becomes one function on the stand-in BGSCodeObj
+	bool ParseCodeObjNames(std::string_view a_list)
+	{
+		const std::string list = a_list.empty() ? std::string("PlaySound,HideMenu") : std::string(a_list);
+		g_codeObjCount = 0;
+		std::size_t start = 0;
+		while (start <= list.size()) {
+			const auto end = std::min(list.find(',', start), list.size());
+			const auto name = list.substr(start, end - start);
+			const bool ok = !name.empty() && name.size() <= kMaxName && g_codeObjCount < kMaxCodeNames &&
+			                std::ranges::all_of(name, [](char a_c) {
+				                return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') || (a_c >= '0' && a_c <= '9') || a_c == '_';
+			                }) &&
+			                std::ranges::find(g_codeObjNames.begin(), g_codeObjNames.begin() + g_codeObjCount, name) ==
+			                    g_codeObjNames.begin() + g_codeObjCount;
+			if (!ok) {
+				Refuse("ini", std::format("code_obj_names={} (1 to {} names of letters, digits and _, none twice)", list, kMaxCodeNames));
+				return false;
+			}
+			g_codeObjNames[g_codeObjCount] = name;
+			g_codeObjFunctions[g_codeObjCount].Name(name);
+			++g_codeObjCount;
+			start = end + 1;
+		}
+		return true;
 	}
 
 	// stage c, FAL-246: ClickCall=<script>.<function>, two Papyrus names of up to 64 letters, digits and '_' (no digit
@@ -3773,20 +9673,228 @@ namespace
 			}
 		}
 	}
+
+	// FAL-852: an idle's editor id or an event's name from the ini: 1 to 96 letters, digits and '_'
+	bool ArmName(std::string_view a_name)
+	{
+		return !a_name.empty() && a_name.size() <= kMaxIdleName && std::all_of(a_name.begin(), a_name.end(), [](char c) {
+			return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+		});
+	}
+
+	// FAL-852, the arm (Stage=2 with Movie= only): at Arm=0 nothing more is read and nothing is logged. At Arm=1 Key (not
+	// F10, the owner's faction device; not F5 or F9, the game's Quick Save and Quick Load; not WorldKey), the raise idle,
+	// the lower (an idle or an event, at most one) and the three times (0 to 6000 ms) are checked, and any wrong one is
+	// refused as the other ini checks are
+	bool ReadArm(const std::filesystem::path& a_ini)
+	{
+		if (ReadNumber(a_ini, L"Arm", 0) == 0) {
+			return true;
+		}
+		if (g_stage != 2 || g_movie.empty()) {
+			return Refuse("ini", std::format("reason=arm_stage stage={} movie={} (Arm=1 with Stage=2 and Movie= only)", g_stage,
+				g_movie.empty() ? "-" : g_movie));
+		}
+		const auto worldKey = ReadNumber(a_ini, L"WorldKey", 0x77);
+		if (g_key == kF10 || g_key == kQuickSaveKey || g_key == kQuickLoadKey || g_key == worldKey) {
+			return Refuse("ini", std::format("reason=arm_key key={} world_key={} (at Arm=1 the screen has its own key: not F10, "
+				"the faction device; not F5 or F9, the game's Quick Save and Quick Load; not WorldKey)", Hex(g_key), Hex(worldKey)));
+		}
+		g_armRaiseIdle = ReadText(a_ini, L"ArmRaiseIdle");
+		g_armLowerIdle = ReadText(a_ini, L"ArmLowerIdle");
+		g_armLowerEvent = ReadText(a_ini, L"ArmLowerEvent");
+		if (!ArmName(g_armRaiseIdle) || (!g_armLowerIdle.empty() && !ArmName(g_armLowerIdle)) ||
+			(!g_armLowerEvent.empty() && !ArmName(g_armLowerEvent)) || (!g_armLowerIdle.empty() && !g_armLowerEvent.empty())) {
+			return Refuse("ini", std::format("reason=arm_idle raise={} lower_idle={} lower_event={} (the raise an editor id; at "
+				"most one of ArmLowerIdle and ArmLowerEvent; letters, digits, _)", g_armRaiseIdle.empty() ? "-" : g_armRaiseIdle,
+				g_armLowerIdle.empty() ? "-" : g_armLowerIdle, g_armLowerEvent.empty() ? "-" : g_armLowerEvent));
+		}
+		g_armRaiseMs = ReadNumber(a_ini, L"ArmRaiseMs", 2000);
+		g_armLowerMs = ReadNumber(a_ini, L"ArmLowerMs", 3500);
+		g_armRetryMs = ReadNumber(a_ini, L"ArmRetryMs", 2000);
+		if (g_armRaiseMs > kMaxArmMs || g_armLowerMs > kMaxArmMs || g_armRetryMs > kMaxArmMs) {
+			return Refuse("ini", std::format("reason=arm_ms raise_ms={} lower_ms={} retry_ms={} (0 to {})", g_armRaiseMs, g_armLowerMs,
+				g_armRetryMs, kMaxArmMs));
+		}
+		g_arm = true;
+		REX::INFO("step=load_arm key={} raise_idle={} lower={} raise_ms={} lower_ms={} retry_ms={} flags={}", Hex(g_key),
+			g_armRaiseIdle, !g_armLowerIdle.empty() ? "idle:" + g_armLowerIdle : !g_armLowerEvent.empty() ? "event:" + g_armLowerEvent : "none",
+			g_armRaiseMs, g_armLowerMs, g_armRetryMs, Hex(g_flags));
+		return true;
+	}
+
+	// FAL-852 & Step 8, Arm=1: checks TESForm::LookupByEditorID (47403), Actor.PlayIdle helper (102136), and PlayIdle
+	// context getter (35720) in versionlib-1-16-244-0.bin and against libxse REL::ID
+	bool CheckArmId(const std::filesystem::path& a_file)
+	{
+		std::ifstream in(a_file, std::ios::binary);
+		std::uint32_t count = 0;
+		in.seekg(92);   // libxse HEADER_V5: the offset count (ReadAddressLibrary checked the header)
+		in.read(reinterpret_cast<char*>(&count), sizeof count);
+		if (!in) {
+			return Refuse("arm_id", "name=header reason=short_file");
+		}
+		struct ArmIdSpec
+		{
+			const char*    name;
+			std::uint32_t  id;
+			const char*    source;
+			std::uint32_t* out;
+		};
+		const std::array<ArmIdSpec, 5> specs{ {
+			{ "TESForm.LookupByEditorID", kLookupByEditorId, "libxse", &g_armLookupRva },
+			{ "Actor.PlayIdle", kActorPlayIdleId, "verified", &g_armPlayIdleRva },
+			{ "Actor.PlayIdleContext", kPlayIdleContextId, "verified", &g_armPlayIdleCtxRva },
+			{ "BSTEventSource.RegisterSink", kRegisterSinkId, "libxse", &g_armRegSinkRva },
+			{ "BSTEventSource.UnregisterSink", kUnregisterSinkId, "libxse", &g_armUnregSinkRva },
+		} };
+		for (const auto& s : specs) {
+			if (s.id >= count) {
+				return Refuse("arm_id", std::format("name={} id={} reason=beyond_count count={}", s.name, s.id, count));
+			}
+			std::uint32_t offset = 0;
+			in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * s.id));
+			in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+			if (!in || !offset || offset >= g_imageSize) {
+				return Refuse("arm_id", std::format("name={} id={} rva={} reason={}", s.name, s.id,
+					Hex(offset), !in ? "short_file" : !offset ? "missing" : "outside_image"));
+			}
+			const auto viaLibrary = REL::ID(s.id).offset();
+			if (viaLibrary != offset) {
+				return Refuse("arm_id", std::format("name={} id={} reason=library_mismatch file={} libxse={}",
+					s.name, s.id, Hex(offset), Hex(viaLibrary)));
+			}
+			*s.out = offset;
+			REX::INFO("step=arm_id name={} id={} rva={} source={}", s.name, s.id, Hex(offset), s.source);
+		}
+		return true;
+	}
+
+	// Steps 1 & 6: at Stage=2 with CodeObj=1, check TESDataHandler/LookupByID/LookupByEditorID and ActorEquipManager
+	// IDs + RTTIs in versionlib-1-16-244-0.bin before collecting stats or consuming Stimpak/RadAway
+	bool CheckShellIds(const std::filesystem::path& a_file)
+	{
+		std::ifstream in(a_file, std::ios::binary);
+		std::uint32_t count = 0;
+		in.seekg(92);
+		in.read(reinterpret_cast<char*>(&count), sizeof count);
+		if (!in) {
+			return Refuse("id", "name=shell_ids reason=short_file");
+		}
+		struct ShellIdSpec
+		{
+			const char*    name;
+			std::uint32_t  id;
+			std::uint32_t* out;
+			std::uint32_t  expectedRva;
+			const char*    rttiTail;
+		};
+		const std::array<ShellIdSpec, 8> specs{ {
+			{ "TESDataHandler.Singleton", 937572, &g_rva[kDataHandlerSingleton], kDataHandlerRva, nullptr },
+			{ "TESForm.LookupByID", 47401, &g_rva[kLookupById], kLookupByIdRva, nullptr },
+			{ "TESForm.LookupByEditorID", kLookupByEditorId, &g_shellLookupEditorIdRva, 0, nullptr },
+			{ "ActorEquipManager.Singleton", kEquipManagerSingletonId, &g_equipMgrSingletonRva, 0, nullptr },
+			{ "ActorEquipManager.RTTI", kEquipManagerRttiId, &g_equipMgrRttiRva, 0, "ActorEquipManager@@" },
+			{ "ActorEquipManager.EquipObject", kEquipObjectId, &g_equipObjectRva, 0, nullptr },
+			{ "BGSObjectInstance.ctor", kObjectInstanceCtorId, &g_objInstanceCtorRva, 0, nullptr },
+			{ "AlchemyItem.RTTI", kAlchemyItemRttiId, &g_alchemyRttiRva, 0, "AlchemyItem@@" },
+		} };
+		for (const auto& s : specs) {
+			if (s.id >= count) {
+				return Refuse("id", std::format("name={} id={} reason=beyond_count count={}", s.name, s.id, count));
+			}
+			std::uint32_t offset = 0;
+			in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * s.id));
+			in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+			if (!in || !offset || offset >= g_imageSize) {
+				return Refuse("id", std::format("name={} id={} rva={} reason={}", s.name, s.id, Hex(offset),
+					!in ? "short_file" : !offset ? "missing" : "outside_image"));
+			}
+			const auto viaLibrary = REL::ID(s.id).offset();
+			if (viaLibrary != offset) {
+				return Refuse("id", std::format("name={} id={} reason=library_mismatch file={} libxse={}", s.name, s.id,
+					Hex(offset), Hex(viaLibrary)));
+			}
+			if (s.expectedRva && offset != s.expectedRva) {
+				return Refuse("page_ids", std::format("name={} rva={} sfse_rva={}", s.name, Hex(offset), Hex(s.expectedRva)));
+			}
+			if (s.rttiTail) {
+				const auto seen = TypeNameAt(g_base + offset);
+				if (!NameIs(seen, s.rttiTail)) {
+					return Refuse("channel_ids", std::format("name={} type={} expected=.?AV{}", s.name,
+						seen.empty() ? "unreadable" : seen, s.rttiTail));
+				}
+			}
+			*s.out = offset;
+		}
+		// A8: ActorEquipManager.UnequipObject (101951) is checked ONLY when InvDataAnswers=1 and stays optional so 1a
+		// (InvDataAnswers=0) never depends on 101951 and missing 101951 skips unequip cleanly without aborting init.
+		g_unequipObjectRva = 0;
+		if (g_invDataAnswers) {
+			std::uint32_t unequipOff = 0;
+			bool          unequipOk = false;
+			if (kUnequipObjectId < count) {
+				in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * kUnequipObjectId));
+				if (in.read(reinterpret_cast<char*>(&unequipOff), sizeof unequipOff) && unequipOff > 0 && unequipOff < g_imageSize &&
+					REL::ID(kUnequipObjectId).offset() == unequipOff) {
+					g_unequipObjectRva = unequipOff;
+					unequipOk = true;
+				}
+			}
+			REX::INFO("step=shell_optional_id name=ActorEquipManager.UnequipObject id={} rva={} status={}",
+				kUnequipObjectId, Hex(g_unequipObjectRva), unequipOk ? "ok" : "unresolved");
+		}
+		g_shellExtraIdsReady = true;
+		REX::INFO("step=shell_ids result=ok equip_mgr={} equip_obj={} lookup_edid={}",
+			Hex(g_equipMgrSingletonRva), Hex(g_equipObjectRva), Hex(g_shellLookupEditorIdRva));
+		return true;
+	}
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 {
 	SFSE::Init(a_sfse, { .trampoline = false, .hook = false });
 
+	std::array<wchar_t, 1024> exePath{};
+	const auto exeLen = REX::W32::GetModuleFileNameW(nullptr, exePath.data(), static_cast<std::uint32_t>(exePath.size()));
+	if (exeLen > 0 && exeLen < exePath.size()) {
+		g_gameDir = std::filesystem::path(std::wstring(exePath.data(), exeLen)).parent_path();
+	}
 	std::array<wchar_t, 1024> path{};
 	const auto len = REX::W32::GetModuleFileNameW(REX::W32::GetCurrentModule(), path.data(), static_cast<std::uint32_t>(path.size()));
 	const auto dir = std::filesystem::path(std::wstring(path.data(), len)).parent_path();
+	g_pluginDir = dir;
 	const auto ini = dir / "FO4SFPipboyMenu.ini";
+	g_setupShowUnavailable = ReadNumber(ini, L"SetupShowUnavailable", 0) != 0;
 	g_stage = static_cast<int>(ReadNumber(ini, L"Stage", 0));
 	g_key = ReadNumber(ini, L"Key", 0x79);
 	g_flags = ReadNumber(ini, L"Flags", 0);
 	g_keepAlive = ReadNumber(ini, L"KeepAlive", 1) != 0;
+	g_movie = ReadText(ini, L"Movie");   // FAL-614: checked below, after the stage
+	g_codeObj = ReadNumber(ini, L"CodeObj", 0) != 0;   // FAL-614 proof 1b: with Movie= only
+	g_codeObjHide = ReadNumber(ini, L"CodeObjHide", 0) != 0;   // FAL-614 proof 1c: with CodeObj=1 only
+	g_codeObjSound = ReadNumber(ini, L"CodeObjSound", 0) != 0;   // FAL-614 proof 1d: with CodeObj=1 only
+	g_codeObjInit = ReadText(ini, L"CodeObjInit");   // FAL-614 proof 2a: with CodeObj=1 only
+	const auto probe = ReadText(ini, L"CodeObjProbe");   // FAL-614 proof 2b-i: with CodeObj=1 only
+	const auto calls = ReadText(ini, L"CodeObjCalls");   // FAL-614 proof 2b-ii: with CodeObj=1 only
+	g_codeObjAt = ReadText(ini, L"CodeObjAt");   // FAL-614 S1-c: with CodeObj=1 only
+	g_codeObjPages = ReadNumber(ini, L"CodeObjPages", 0) != 0;   // S1-c: with CodeObjAt= only
+	g_populateInCall = ReadNumber(ini, L"PopulateInCall", 0) != 0;
+	g_lateInvalidate = ReadNumber(ini, L"LateInvalidate", 0) != 0;
+	g_statActions = ReadNumber(ini, L"StatActions", 0) != 0;
+	g_invDataAnswers = ReadNumber(ini, L"InvDataAnswers", 0) != 0;
+	g_requirePickup = ReadNumber(ini, L"RequirePickup", 0) != 0;
+	g_bootMovie = ReadText(ini, L"BootMovie");
+	g_bootOnFirstOpen = ReadNumber(ini, L"BootOnFirstOpen", 0) != 0;
+	g_specialMenu = ReadNumber(ini, L"SpecialMenu", 0) != 0;
+	g_specialMovie = ReadText(ini, L"SpecialMovie");
+	if (g_specialMenu && g_specialMovie.empty()) {
+		g_specialMovie = "fo4sf_specialmenu";
+	}
+	g_specialMaxPoints = std::clamp(ReadNumber(ini, L"SpecialMaxPoints", 40), 7u, 70u);
+	g_specialKey = ReadNumber(ini, L"SpecialKey", 0);
+	const auto shellKeys = ReadText(ini, L"ShellKeys");   // S1-c: with CodeObj=1 only
+	const auto special = ReadText(ini, L"CodeObjSpecial");   // FAL-1025: with CodeObjAt= only
 	// FAL-414: up to four keyboard ids that close the menu while it is open (0 = unused)
 	g_cancelCodes = { ReadNumber(ini, L"CancelCode1", 0x1B), ReadNumber(ini, L"CancelCode2", 0x09), ReadNumber(ini, L"CancelCode3", 0),
 		ReadNumber(ini, L"CancelCode4", 0) };
@@ -3802,6 +9910,122 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	if (g_stage < 1 || g_stage > 5) {
 		REX::INFO("step=off (Stage=1, 2, 3, 4 or 5 in FO4SFPipboyMenu.ini to probe)");
 		return true;
+	}
+	// FAL-614: Movie=<name>, 1 to 64 letters, digits and '_', with Stage=2 only (no channel, page or kit drives it)
+	if (!g_movie.empty()) {
+		const bool name = g_movie.size() <= 64 && std::ranges::all_of(g_movie, [](char a_c) {
+			return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') || (a_c >= '0' && a_c <= '9') || a_c == '_';
+		});
+		if (!name || g_stage != 2) {
+			Refuse("ini", std::format("movie={} (Stage=2 only; 1 to 64 letters, digits and _)", g_movie));
+			return true;
+		}
+		REX::INFO("step=movie name={} file=Interface/{}.swf code_obj={}", g_movie, g_movie, g_codeObj ? 1 : 0);
+	}
+	if (g_codeObj && g_movie.empty()) {
+		Refuse("ini", "code_obj=1 (with Movie= only: our own movie has no code)");
+		return true;
+	}
+	if (g_codeObj && !ParseCodeObjNames(ReadText(ini, L"CodeObjNames"))) {
+		return true;
+	}
+	if (g_codeObjHide && !g_codeObj) {
+		Refuse("ini", "code_obj_hide=1 (with CodeObj=1 only)");
+		return true;
+	}
+	// FAL-614 S1-c: CodeObjAt=<path> (one path, as CodeObjCalls=)
+	std::array<std::string, kMaxCodeNames> atPath{};
+	std::size_t                            atCount = 0;
+	if (!g_codeObjAt.empty() && (!g_codeObj || !ParsePaths(g_codeObjAt, atPath, atCount, "code_obj_at") || atCount != 1)) {
+		Refuse("ini", std::format("code_obj_at={} (with CodeObj=1 only; one path of letters, digits, _ and .)", g_codeObjAt));
+		return true;
+	}
+	if (!g_bootMovie.empty()) {
+		const bool bootOk = g_stage == 2 && g_bootMovie.size() <= kMaxName && std::ranges::all_of(g_bootMovie, [](char a_c) {
+			return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') || (a_c >= '0' && a_c <= '9') || a_c == '_';
+		});
+		if (!bootOk) {
+			Refuse("ini", std::format("boot_movie={} (Stage=2 only; 1 to 64 letters, digits and _)", g_bootMovie));
+			return true;
+		}
+	}
+	if (g_specialMenu) {
+		const bool spMovieOk = g_stage == 2 && g_codeObj && !g_specialMovie.empty() && g_specialMovie.size() <= kMaxName &&
+		                       std::ranges::all_of(g_specialMovie, [](char a_c) {
+			                       return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') ||
+			                              (a_c >= '0' && a_c <= '9') || a_c == '_';
+		                       });
+		const bool spKeyOk = (g_specialKey == 0) || (g_specialKey <= 0xFE && g_specialKey != g_key && g_specialKey != kF10);
+		if (!spMovieOk || !spKeyOk) {
+			Refuse("ini", std::format("special_menu=1 movie={} key={} (Stage=2 and CodeObj=1; valid movie name; key 0 or 0x01..0xFE != Key/F10)",
+				g_specialMovie, Hex(g_specialKey)));
+			return true;
+		}
+	}
+
+	// FAL-614 proof 1d: CodeObjSound=1, with CodeObj=1 and PlaySound among its names
+	if (g_codeObjSound && (!g_codeObj || std::ranges::find(g_codeObjNames.begin(), g_codeObjNames.begin() + g_codeObjCount,
+	                                         std::string("PlaySound")) == g_codeObjNames.begin() + g_codeObjCount)) {
+		Refuse("ini", "code_obj_sound=1 (with CodeObj=1 and PlaySound in CodeObjNames only)");
+		return true;
+	}
+	// FAL-614 proof 2a: CodeObjInit=<name>, 1 to 64 letters, digits and '_', with CodeObj=1 only
+	if (!g_codeObjInit.empty() && (!g_codeObj || g_codeObjInit.size() > kMaxName || !std::ranges::all_of(g_codeObjInit, [](char a_c) {
+			return (a_c >= 'A' && a_c <= 'Z') || (a_c >= 'a' && a_c <= 'z') || (a_c >= '0' && a_c <= '9') || a_c == '_';
+		}))) {
+		Refuse("ini", std::format("code_obj_init={} (with CodeObj=1 only; 1 to 64 letters, digits and _)", g_codeObjInit));
+		return true;
+	}
+	if (!probe.empty() && !g_codeObj) {
+		Refuse("ini", std::format("code_obj_probe={} (with CodeObj=1 only; 1 to {} paths of letters, digits, _ and .)", probe,
+			kMaxCodeNames));
+		return true;
+	}
+	if (!calls.empty() && !g_codeObj) {
+		Refuse("ini", std::format("code_obj_calls={} (with CodeObj=1 only; 1 to {} paths of letters, digits, _ and .)", calls,
+			kMaxCodeNames));
+		return true;
+	}
+	if (!ParsePaths(probe, g_probeNames, g_probeCount, "code_obj_probe") ||
+		!ParsePaths(calls, g_rootCallNames, g_rootCallCount, "code_obj_calls")) {
+		return true;
+	}
+	const auto named = [](const char* a_name) {
+		return std::ranges::find(g_codeObjNames.begin(), g_codeObjNames.begin() + g_codeObjCount, std::string(a_name)) !=
+		       g_codeObjNames.begin() + g_codeObjCount;
+	};
+	if (g_codeObjPages && (g_codeObjAt.empty() || !named("onNewPage") || !named("onNewTab"))) {
+		Refuse("ini", "code_obj_pages=1 (with CodeObjAt= and onNewPage and onNewTab in CodeObjNames only)");
+		return true;
+	}
+	// FAL-1025: CodeObjSpecial=fill or clear (with CodeObjAt= only), <CodeObjAt>.DataObj.SPECIALList made safe before each
+	// InvalidateData the plugin calls (SpecialReady)
+	if (!special.empty()) {
+		if ((special != "fill" && special != "clear") || g_codeObjAt.empty()) {
+			Refuse("ini", std::format("code_obj_special={} (fill or clear, with CodeObjAt= only)", special));
+			return true;
+		}
+		g_codeObjSpecial = special == "fill" ? kSpecialFill : kSpecialClear;
+		REX::INFO("step=code_obj_special_ini mode={} list={}.DataObj.SPECIALList", special, g_codeObjAt);
+	}
+	if (!shellKeys.empty() && !g_codeObj) {
+		Refuse("ini", std::format("shell_keys={} (with CodeObj=1 only)", shellKeys));
+		return true;
+	}
+	if (!ParseShellKeys(shellKeys)) {
+		return true;
+	}
+	if (g_codeObj) {
+		std::string keys;
+		for (std::size_t i = 0; i < g_shellKeyCount; ++i) {
+			keys += std::format("{}{}:{}", i ? "," : "", Hex(g_shellKeys[i].vk), g_shellKeys[i].path);
+		}
+		REX::INFO("step=code_obj_shell at={} pages={} names_count={} shell_keys={}", g_codeObjAt.empty() ? "none" : g_codeObjAt,
+			g_codeObjPages ? 1 : 0, g_codeObjCount, keys.empty() ? "none" : keys);
+	}
+	if (g_codeObjSound) {
+		g_soundDir = dir / kSoundFolder;
+		REX::INFO("step=code_obj_sound folder={} max_playing={}", kSoundFolder, kMaxSoundsPlaying);
 	}
 	std::string clickCall;
 	bool        clickCallOk = true;
@@ -3845,10 +10069,26 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	if (g_stage == 5 && (!ReadKitKeys(ini) || !ReadKit(ini))) {   // the kit's keys and pages, before any check of the game
 		return true;
 	}
+	// FAL-852: Fallout 4's screen pauses the game as Fallout 4 does when Pause=1 (the owner's setting, read at stages d and
+	// e above): the same bit 0x2, here in Flags
+	if (g_stage == 2 && !g_movie.empty() && ReadNumber(ini, L"Pause", 0) != 0) {
+		g_flags |= kPauseFlag;
+		REX::INFO("step=load_b pause=1 flags={}", Hex(g_flags));
+	}
+	if (!ReadArm(ini)) {   // FAL-852: at Arm=0 (the default) nothing is read or logged
+		return true;
+	}
 	if (!CheckEverything(dir)) {
 		return true;
 	}
+	if (g_stage == 2 && (g_codeObj || g_specialMenu) && !CheckShellIds(dir / "versionlib-1-16-244-0.bin")) {
+		return true;
+	}
+	if (g_arm && !CheckArmId(dir / "versionlib-1-16-244-0.bin")) {
+		return true;
+	}
 	World::Configure(ini, g_stage, g_key, g_base, g_imageSize);
+	PipboyMap::Configure(ini, dir, g_stage, g_key, g_base, g_imageSize);
 	const auto messaging = SFSE::GetMessagingInterface();
 	g_task = SFSE::GetTaskInterface();
 	if (!messaging || !g_task || !messaging->RegisterListener(&OnMessage)) {

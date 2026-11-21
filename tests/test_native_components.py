@@ -203,6 +203,53 @@ class SourceTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(refuse_steps(folder_sources(plugin["folder"])), set(plugin["refuse_steps"]))
 
+    def test_pipboy_menu_g1_movie_lifecycle_and_fail_close(self):
+        main_cpp = text("sfse/FO4SFPipboyMenu/src/main.cpp")
+        map_cpp = text("sfse/FO4SFPipboyMenu/src/pipboy_map.cpp")
+        self.assertIn("ClearMovieSessionState()", main_cpp)
+        self.assertIn("FailMovieCall(", main_cpp)
+        self.assertIn('Close(0, "movie_call_failed")', main_cpp)
+        self.assertIn("ResetMapMovieState()", map_cpp)
+        self.assertIn("CloseMenuOnFailedMovieCall(", map_cpp)
+        self.assertIn("rebuiltMarkers && g_mapPageVal.IsObject()", map_cpp)
+        self.assertIn("ExtractNonNegIndex(curPageVal", map_cpp)
+        self.assertIn("IsFileType(fileType)", map_cpp)
+
+    def test_sfse_key_handlers_g2_menu_console_guards_and_stage2_cancel(self):
+        blocking_h = text("sfse/common/blocking_menus.h")
+        combat_cpp = text("sfse/FO4SFCombat/src/main.cpp")
+        main_cpp = text("sfse/FO4SFPipboyMenu/src/main.cpp")
+        map_cpp = text("sfse/FO4SFPipboyMenu/src/pipboy_map.cpp")
+        for menu_name in (
+            "Console",
+            "TextInputMenu",
+            "MonocleMenu",
+            "SecurityMenu",
+            "SkillsMenu",
+            "StatusMenu",
+            "WorkshopMenu",
+            "PhotoModeMenu",
+            "SurfaceMap",
+            "MapMenu",
+            "FO4SF_PipboyMenu",
+            "MessageBoxMenu",
+            "ChargenMenu",
+            "DialogueMenu",
+        ):
+            self.assertIn(f'"{menu_name}"', blocking_h)
+        self.assertNotIn('"FaderMenu"', blocking_h)
+        for src in (combat_cpp, main_cpp, map_cpp):
+            self.assertIn('#include "blocking_menus.h"', src)
+            self.assertIn("fo4sf::FindOpenBlockingMenu(", src)
+        self.assertIn("OpenBlockingMenu()", combat_cpp)
+        self.assertIn("OpenBlockingOverlayMenu(", main_cpp)
+        self.assertIn("OpenBlockingMapMenu(", map_cpp)
+        self.assertIn("g_stage >= 2 && g_cancelNow.exchange(false)", main_cpp)
+        self.assertIn("g_open = (type == RE::UI_MESSAGE_TYPE::kShow);", main_cpp)
+        cancel_idx = main_cpp.index("g_stage >= 2 && g_cancelNow.exchange(false)")
+        stage3_idx = main_cpp.index("if (g_stage < 3)", cancel_idx)
+        self.assertLess(cancel_idx, stage3_idx)
+
 
 class KnownRuntimeTests(unittest.TestCase):
     def test_known_runtimes_agree_with_the_declaration(self):

@@ -28,57 +28,125 @@ public static class ExteriorExport
     /// <summary>FO4 exterior cell grid of a position in game units (floor, so -0.5 is cell -1).</summary>
     public static (int X, int Y) CellOf(double x, double y) => ((int)Math.Floor(x / CellUnits), (int)Math.Floor(y / CellUnits));
 
-    public static int Run(string[] args)
+    public static int Run(string[] args, IReadOnlyList<string>? masterPaths = null)
     {
+        masterPaths ??= Array.Empty<string>();
         if (args.Length != 8)
         {
-            Console.Error.WriteLine("usage: Fo4Land <Fallout4.esm> export-exterior <WorldEditorId> <xmin> <ymin> <xmax> <ymax> <out.json>");
+            Console.Error.WriteLine("usage: Fo4Land <Fallout4.esm> [--master <master.esm>]... export-exterior <WorldEditorId> <xmin> <ymin> <xmax> <ymax> <out.json>");
             return 2;
         }
         int xmin = int.Parse(args[3]), ymin = int.Parse(args[4]), xmax = int.Parse(args[5]), ymax = int.Parse(args[6]);
         var outPath = args[7];
-        using var mod = Fallout4Mod.CreateFromBinaryOverlay(args[0], Fallout4Release.Fallout4);
-        var cache = mod.ToImmutableLinkCache();
-        var world = mod.Worldspaces.FirstOrDefault(w => w.EditorID == args[2]);
-        if (world is null)
-        {
-            Console.Error.WriteLine($"worldspace {args[2]} not found");
-            return 1;
-        }
+        try { Fo4LoadOrder.RefuseUnsafeOutput(outPath, masterPaths.Append(args[0])); }
+        catch (InvalidOperationException ex) { Console.Error.WriteLine(ex.Message); return 2; }
+
         bool InRange((int X, int Y) c) => c.X >= xmin && c.X <= xmax && c.Y >= ymin && c.Y <= ymax;
+        using var lo = Fo4LoadOrder.Open(args[0], masterPaths);
+        var cache = lo.Cache;
 
         // (placed, persistent, exterior cell, storing cell)
         var placements = new List<(IPlacedGetter Placed, bool Persistent, (int X, int Y) Cell, ICellGetter Source)>();
         var cellInfo = new List<object>();
-        foreach (var cell in world.SubCells.SelectMany(b => b.Items).SelectMany(sb => sb.Items))
-        {
-            if (cell.Grid is not { } grid) continue;
-            var xy = (grid.Point.X, grid.Point.Y);
-            if (!InRange(xy)) continue;
-            foreach (var p in cell.Temporary) placements.Add((p, false, xy, cell));
-            foreach (var p in cell.Persistent) placements.Add((p, true, xy, cell));
-            cellInfo.Add(new { x = xy.Item1, y = xy.Item2, formkey = cell.FormKey.ToString(), editor_id = cell.EditorID,
-                               temporary = cell.Temporary.Count, persistent_in_cell = cell.Persistent.Count });
-        }
         int fromTop = 0;
-        // persistent placements whose type has no position here cannot be range-tested: counted per type, never
-        // dropped silently (none in Fallout4.esm's Commonwealth persistent cell, 2026-10-11)
         var unpositioned = new Dictionary<string, int>();
-        if (world.TopCell is { } top)
+        string worldEdid;
+        string worldFormKey;
+        string? worldTopCellFormKey;
+
+        if (masterPaths.Count == 0)
         {
-            foreach (var p in top.Persistent)
+            var mod = lo.ActiveMod;
+            var world = mod.Worldspaces.FirstOrDefault(w => w.EditorID == args[2]);
+            if (world is null)
             {
-                var pos = Position(p);
-                if (pos is null)
-                {
-                    var t = p.GetType().Name.Replace("BinaryOverlay", "");
-                    unpositioned[t] = unpositioned.GetValueOrDefault(t) + 1;
-                    continue;
-                }
-                var xy = CellOf(pos.Value.X, pos.Value.Y);
+                Console.Error.WriteLine($"worldspace {args[2]} not found");
+                return 1;
+            }
+            worldEdid = world.EditorID!;
+            worldFormKey = world.FormKey.ToString();
+            worldTopCellFormKey = world.TopCell?.FormKey.ToString();
+            foreach (var cell in world.SubCells.SelectMany(b => b.Items).SelectMany(sb => sb.Items))
+            {
+                if (cell.Grid is not { } grid) continue;
+                var xy = (grid.Point.X, grid.Point.Y);
                 if (!InRange(xy)) continue;
-                placements.Add((p, true, xy, top));
-                fromTop++;
+                foreach (var p in cell.Temporary) placements.Add((p, false, xy, cell));
+                foreach (var p in cell.Persistent) placements.Add((p, true, xy, cell));
+                cellInfo.Add(new { x = xy.Item1, y = xy.Item2, formkey = cell.FormKey.ToString(), editor_id = cell.EditorID,
+                                   temporary = cell.Temporary.Count, persistent_in_cell = cell.Persistent.Count });
+            }
+            if (world.TopCell is { } top)
+            {
+                foreach (var p in top.Persistent)
+                {
+                    var pos = Position(p);
+                    if (pos is null)
+                    {
+                        var t = p.GetType().Name.Replace("BinaryOverlay", "");
+                        unpositioned[t] = unpositioned.GetValueOrDefault(t) + 1;
+                        continue;
+                    }
+                    var xy = CellOf(pos.Value.X, pos.Value.Y);
+                    if (!InRange(xy)) continue;
+                    placements.Add((p, true, xy, top));
+                    fromTop++;
+                }
+            }
+        }
+        else
+        {
+            var found = lo.FindWorld(args[2]);
+            if (found is null)
+            {
+                Console.Error.WriteLine($"worldspace {args[2]} not found");
+                return 1;
+            }
+            var (worldKey, winner, resolvedEdid, worldCopies) = found.Value;
+            worldEdid = resolvedEdid;
+            worldFormKey = worldKey.ToString();
+            var topKeys = worldCopies.Where(w => w.TopCell != null).Select(w => w.TopCell!.FormKey).ToHashSet();
+            worldTopCellFormKey = winner.TopCell?.FormKey.ToString() ?? worldCopies.Select(w => w.TopCell?.FormKey.ToString()).LastOrDefault(s => s != null);
+
+            var placedKeys = CellMerge.PlacedKeys(lo.Mods);
+            var allCopies = CellMerge.Copies(lo.Mods, worldspaces: true);
+            foreach (var (ck, copies) in allCopies)
+            {
+                if (copies[^1].Worldspace != worldFormKey) continue;
+                if (topKeys.Contains(ck)) continue;
+                var grid = copies.Select(c => c.Cell.Grid).LastOrDefault(g => g != null);
+                if (grid is null) continue;
+                var xy = (grid.Point.X, grid.Point.Y);
+                if (!InRange(xy)) continue;
+                var merged = CellMerge.Merge(copies, placedKeys);
+                int tempCnt = 0, persCnt = 0;
+                foreach (var ch in merged.Children)
+                {
+                    placements.Add((ch.Record, ch.Persistent, xy, merged.Cell));
+                    if (ch.Persistent) persCnt++; else tempCnt++;
+                }
+                cellInfo.Add(new { x = xy.Item1, y = xy.Item2, formkey = merged.Cell.FormKey.ToString(), editor_id = merged.EditorID,
+                                   temporary = tempCnt, persistent_in_cell = persCnt });
+            }
+            foreach (var tk in topKeys)
+            {
+                if (!allCopies.TryGetValue(tk, out var tcopies)) continue;
+                var mergedTop = CellMerge.Merge(tcopies, placedKeys);
+                foreach (var ch in mergedTop.Children)
+                {
+                    if (!ch.Persistent) continue;
+                    var pos = Position(ch.Record);
+                    if (pos is null)
+                    {
+                        var t = ch.Record.GetType().Name.Replace("BinaryOverlay", "");
+                        unpositioned[t] = unpositioned.GetValueOrDefault(t) + 1;
+                        continue;
+                    }
+                    var xy = CellOf(pos.Value.X, pos.Value.Y);
+                    if (!InRange(xy)) continue;
+                    placements.Add((ch.Record, true, xy, mergedTop.Cell));
+                    fromTop++;
+                }
             }
         }
 
@@ -124,27 +192,37 @@ public static class ExteriorExport
 
         IEnumerable<(ICellGetter Cell, string? Worldspace)> AllCells()
         {
-            foreach (var c in mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells)) yield return (c, null);
-            foreach (var w in mod.Worldspaces)
+            if (masterPaths.Count == 0)
             {
-                if (w.TopCell != null) yield return (w.TopCell, w.FormKey.ToString());
-                foreach (var c in w.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items))
-                    yield return (c, w.FormKey.ToString());
+                var mod = lo.ActiveMod;
+                foreach (var c in mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells)) yield return (c, null);
+                foreach (var w in mod.Worldspaces)
+                {
+                    if (w.TopCell != null) yield return (w.TopCell, w.FormKey.ToString());
+                    foreach (var c in w.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items))
+                        yield return (c, w.FormKey.ToString());
+                }
+            }
+            else
+            {
+                var pks = CellMerge.PlacedKeys(lo.Mods);
+                foreach (var m in CellMerge.All(lo.Mods, pks, worldspaces: true))
+                    yield return (m.Cell, m.Worldspace);
             }
         }
         var dependencies = TeleportDependencies.Build(placements.Select(p => p.Placed).OfType<IPlacedObjectGetter>(), AllCells());
 
-        var name = $"{world.EditorID}_x{xmin}_{xmax}_y{ymin}_{ymax}";
+        var name = $"{worldEdid}_x{xmin}_{xmax}_y{ymin}_{ymax}";
         var doc = new
         {
             schema_version = 2,
             cell = name,
-            formkey = world.FormKey.ToString(),
-            worldspace = new { editor_id = world.EditorID, formkey = world.FormKey.ToString() },
+            formkey = worldFormKey,
+            worldspace = new { editor_id = worldEdid, formkey = worldFormKey },
             exterior = new { xmin, ymin, xmax, ymax, cell_units = CellUnits, cells = cellInfo,
                              persistent_from_world_cell = fromTop,
                              persistent_unpositioned_by_type = unpositioned,
-                             world_persistent_cell = world.TopCell?.FormKey.ToString() },
+                             world_persistent_cell = worldTopCellFormKey },
             refs,
             deferred_refs = deferred,
             referenced_keywords = keywords.Values,

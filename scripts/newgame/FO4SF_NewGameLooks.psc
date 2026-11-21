@@ -12,7 +12,7 @@ Scriptname FO4SF_NewGameLooks extends Quest
  Fallout 4's signature (string asMenuName, bool abOpening); the compile on the PC is its check.}
 
 Message Property StartMessage Auto Const Mandatory
-{The opening choice (FO4SFNewGame.esm 0x802): button 0 creates the character, button 1 is the quick start.}
+{The opening choice (FO4SFNewGame.esm 0x802): button 0 is the quick start, button 1 creates the character.}
 
 int Property RaceMenuMode = 2 Auto Const
 {The uiMode passed to Game.ShowRaceMenu (the writer's --race-menu-mode). 0 is the full creator, with Starfield's
@@ -46,11 +46,21 @@ Event OnTimer(int aiTimerID)
         return                                               ; stood down, or already past the looks
     endif
     if stage == 10 && !shown
+        FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
+        if ngQuest != None && ngQuest.IsPreworldLooksHandled()
+            return
+        endif
         shown = true
         Utility.Wait(MenuDelay)
+        if GetStage() >= 20
+            return
+        endif
+        if ngQuest != None && ngQuest.IsPreworldLooksHandled()
+            return
+        endif
         int button = StartMessage.Show()
         Trace("start choice button=" + button)
-        if button == 1
+        if button == 0
             Trace("quick start: preset kept, creator skipped")
             Done("quick start")
             return
@@ -60,6 +70,7 @@ Event OnTimer(int aiTimerID)
         RegisterForMenuOpenCloseEvent(MenuName)
         waiting = true
         Trace("looks menu mode=" + RaceMenuMode)
+        TracePosition("before creator")
         Game.ShowRaceMenu(None, RaceMenuMode)
         Trace("looks returned stage=" + GetStage())
         return
@@ -83,9 +94,35 @@ Function Done(string how)
     if GetStage() >= 20
         return
     endif
+    string by = "Trigger"
+    if how == "creator closed"
+        by = "scene"
+    endif
+    FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
+    if ngQuest != None
+        ngQuest.NoteLooksStage20()
+    endif
+    TracePosition("done: " + how)
     Trace("looks done: " + how)
     SetStage(20)
-    Trace("stage 20")
+    Trace("stage 20 by=" + by)
+EndFunction
+
+Function TracePosition(string phase)
+{Evidence at the looks boundary, with each coordinate read once. The interval covers sequential native reads, not an
+ atomic snapshot. The quest's entry/settle lines supply the target; this optional script has no pod properties.}
+    Actor player = Game.GetPlayer()
+    float sampleStart = Utility.GetCurrentRealTime()
+    float sampleX = player.GetPositionX()
+    float sampleY = player.GetPositionY()
+    float sampleZ = player.GetPositionZ()
+    float sampledHeading = player.GetAngleZ()
+    bool sampledLoaded = player.Is3DLoaded()
+    Cell sampledCell = player.GetParentCell()
+    WorldSpace sampledWorld = player.GetWorldSpace()
+    int sampledStage = GetStage()
+    float sampleEnd = Utility.GetCurrentRealTime()
+    Trace("looks position phase=" + phase + " pos=" + sampleX + " " + sampleY + " " + sampleZ + " heading=" + sampledHeading + " loaded=" + sampledLoaded + " cell=" + sampledCell + " world=" + sampledWorld + " stage=" + sampledStage + " sample_start=" + sampleStart + " sample_end=" + sampleEnd)
 EndFunction
 
 Function Trace(string msg)

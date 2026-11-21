@@ -650,3 +650,42 @@ Function FastTravelLine(string when)
     endif
     Trace("fast travel, " + when + ": enabled=" + Game.IsFastTravelEnabled() + " controls=" + Game.IsFastTravelControlsEnabled() + " marker 0 visible=" + m.IsMapMarkerVisible() + " can=" + m.CanFastTravelToMarker())
 EndFunction
+
+int Function PrepareKnownUndiscoveredSingle()
+    int count = 0
+    int i = 0
+    while i < Markers.Length
+        ObjectReference m = Markers[i]
+        if m != None
+            if m.IsDisabled()
+                m.Enable(False)
+            endif
+            m.AddToMap(False)
+            count += 1
+        endif
+        i += 1
+    endwhile
+    return count
+EndFunction
+
+int Function PrepareKnownUndiscoveredAll()
+    int total = 0
+    int id = GetFormID()
+    FO4SF_MapMarkers q = Self
+    int k = 0
+    while q != None && k < 64
+        total += q.PrepareKnownUndiscoveredSingle()
+        k += 1
+        q = Game.GetForm(id + k) as FO4SF_MapMarkers
+    endwhile
+    return total
+EndFunction
+
+bool Function DiscoverSingleMarker(ObjectReference target)
+    if target == None
+        return false
+    endif
+    target.Enable(False)
+    target.SetMarkerDiscovered()
+    return true
+EndFunction

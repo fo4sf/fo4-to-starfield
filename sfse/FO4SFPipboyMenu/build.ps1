@@ -57,8 +57,10 @@ if (Get-Command git.exe -ErrorAction SilentlyContinue) {
   elseif ($sharedCommit -ne $PinnedShared) { "note: lib\commonlib-shared is at $sharedCommit, not the pinned $PinnedShared (recorded in build.json)" }
 }
 $src = $PSScriptRoot
-$sources = @('xmake.lua', 'src\main.cpp', 'src\pch.h', 'src\world.cpp', 'src\world.h', 'FO4SFPipboyMenu.ini')
+$commonHeader = Join-Path $src '..\common\blocking_menus.h'
+$sources = @('xmake.lua', 'src\main.cpp', 'src\pch.h', 'src\pipboy_map.cpp', 'src\pipboy_map.h', 'src\setup_places.h', 'src\world.cpp', 'src\world.h', 'FO4SFPipboyMenu.ini')
 foreach ($s in $sources) { if (-not (Test-Path (Join-Path $src $s))) { "missing $s in $src"; exit 1 } }
+if (-not (Test-Path $commonHeader)) { "missing ..\common\blocking_menus.h from $src"; exit 1 }
 if ($Sdk -and -not (Test-Path (Join-Path $Sdk 'VC\Tools\MSVC'))) { "-Sdk $Sdk has no VC\Tools\MSVC folder: xmake's --sdk takes a Visual Studio-shaped root"; exit 1 }
 
 $dll = Join-Path $Out 'FO4SFPipboyMenu.dll'
@@ -82,8 +84,10 @@ if (-not $Sdk -and $env:VCToolsInstallDir -and $env:WindowsSdkDir) {
 # directory junction to -Lib (no copy of the library, nothing written into it)
 $proj = Join-Path $Out 'proj'
 New-Item -ItemType Directory -Path (Join-Path $proj 'src') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $proj 'common') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $proj 'lib') -Force | Out-Null
 foreach ($s in $sources) { Copy-Item (Join-Path $src $s) (Join-Path $proj $s) }
+Copy-Item $commonHeader (Join-Path $proj 'common\blocking_menus.h')
 New-Junction (Join-Path $proj 'lib\commonlibsf') (Resolve-Path $Lib).Path
 # the commonlibsf.plugin rule would copy the dll into a folder named by these; none here, nothing is installed
 Remove-Item Env:XSE_SF_MODS_PATH -ErrorAction SilentlyContinue
@@ -124,6 +128,7 @@ $record = [ordered]@{
   install = 'copy FO4SFPipboyMenu.dll, FO4SFPipboyMenu.ini and versionlib-1-16-244-0.bin (format 5) to <Starfield>\Data\SFSE\Plugins\ by hand (game closed)'
 }
 foreach ($s in $sources) { $record.sources[$s] = (& $hash (Join-Path $src $s)) }
+$record.sources['common\blocking_menus.h'] = (& $hash $commonHeader)
 $json = $record | ConvertTo-Json -Depth 4
 $json | Set-Content -Encoding UTF8 (Join-Path $Out 'build.json')
 $json

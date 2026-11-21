@@ -56,3 +56,14 @@ class DoorCollisionOwnershipTests(unittest.TestCase):
         rig=door_rig.plan(source);rig['bones']=[b for b in rig['bones'] if b['node']!=0]
         with patch.object(door_collision.hkpackfile,'Packfile',return_value=SharedSystem()):
             with self.assertRaises(nif.NifError):door_collision.plan(source,rig)
+
+    def test_static_placeholder_tracks_do_not_mark_root_frame_bodies_moving(self):
+        from fo4sf import anim_object
+        source=fixture();data=source.add_block('bhkPhysicsSystem',struct.pack('<I',4)+b'test')
+        source.add_block('bhkNPCollisionObject',struct.pack('<iHiI',0,128,data,0))
+        source.add_block('bhkNPCollisionObject',struct.pack('<iHiI',1,128,data,1))
+        rig=anim_object.fill_static_tracks(door_rig.animated_identity_binds(door_rig.plan(source,placed=True)))
+        with patch.object(door_collision.hkpackfile,'Packfile',return_value=SharedSystem()):
+            result=door_collision.plan(source,rig)
+        by_node={a['node']:a['follows_animated_ancestor'] for a in result['attachments']}
+        self.assertEqual(by_node,{0:False,1:True})

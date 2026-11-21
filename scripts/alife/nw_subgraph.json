@@ -1,0 +1,439 @@
+{
+ "source": "item 22 extraction: fo4_places_smart_terrains.tsv + commonwealth_alife_graph_edges.tsv",
+ "frame": "core local metres (FO4 position / 70); merged world = local + merge_offset",
+ "merge_offset": [
+  -1200.0,
+  -2700.0
+ ],
+ "nodes": [
+  {
+   "id": "LCTN:0x0001F228",
+   "edid": "SanctuaryHillsLocation",
+   "kind": "settlement_base",
+   "x": -1089.76,
+   "y": 1334.48,
+   "z": 110.67,
+   "cap": 3,
+   "faction": "Settlers_Minutemen",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x0001F3FE",
+   "edid": "Vault111Location",
+   "kind": "territory_landmark",
+   "x": -1275.31,
+   "y": 1305.28,
+   "z": 127.49,
+   "cap": 1,
+   "faction": "Unheld",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FAB",
+   "edid": "RedRocketTruckStopLocation",
+   "kind": "settlement_base",
+   "x": -991.13,
+   "y": 1144.97,
+   "z": 104.88,
+   "cap": 3,
+   "faction": "Creature_Wildlife",
+   "spot": "xmrk_edid RedRocketTruckStopMapMarker"
+  },
+  {
+   "id": "LCTN:0x00017E00",
+   "edid": "ConcordLocation",
+   "kind": "territory_landmark",
+   "x": -861.23,
+   "y": 1042.54,
+   "z": 93.02,
+   "cap": 1,
+   "faction": "Unheld",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x0001D807",
+   "edid": "ConcordMuseumLocation",
+   "kind": "faction_camp_or_dungeon",
+   "x": -814.45,
+   "y": 1005.6,
+   "z": 88.71,
+   "cap": 2,
+   "faction": "Unheld",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x0006B4D0",
+   "edid": "AbernathyFarmLocation",
+   "kind": "settlement_base",
+   "x": -1094.86,
+   "y": 969.6,
+   "z": 115.43,
+   "cap": 3,
+   "faction": "Settlers_Minutemen",
+   "spot": "node_id XMRK:0x0006F5D4"
+  },
+  {
+   "id": "LCTN:0x00024FAA",
+   "edid": "RangerCabinLocation",
+   "kind": "faction_camp_or_dungeon",
+   "x": -1258.2,
+   "y": 1024.21,
+   "z": 110.7,
+   "cap": 2,
+   "faction": "Unheld",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FB0",
+   "edid": "WickedShippingFleetLockupLocation",
+   "kind": "creature_or_ghoul_lair",
+   "x": -1209.95,
+   "y": 919.65,
+   "z": 106.6,
+   "cap": 2,
+   "faction": "FeralGhouls",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x0005C523",
+   "edid": "USAFSatelliteLocation",
+   "kind": "military_or_checkpoint",
+   "x": -591.91,
+   "y": 1329.11,
+   "z": 116.11,
+   "cap": 3,
+   "faction": "Raiders",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FAC",
+   "edid": "RoboticsDisposalGroundLocation",
+   "kind": "resource_industrial",
+   "x": -763.59,
+   "y": 1418.74,
+   "z": 124.45,
+   "cap": 2,
+   "faction": "Unheld",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FAE",
+   "edid": "ThicketExcavationsLocation",
+   "kind": "resource_industrial",
+   "x": -645.21,
+   "y": 1174.87,
+   "z": 75.37,
+   "cap": 2,
+   "faction": "Raiders",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024F8D",
+   "edid": "BedfordStationLocation",
+   "kind": "creature_or_ghoul_lair",
+   "x": -422.89,
+   "y": 996.58,
+   "z": 57.95,
+   "cap": 2,
+   "faction": "FeralGhouls",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024F96",
+   "edid": "StarlightDriveInLocation",
+   "kind": "settlement_base",
+   "x": -560.13,
+   "y": 822.87,
+   "z": 59.4,
+   "cap": 3,
+   "faction": "Creature_Wildlife",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x000ED94E",
+   "edid": "DrumlinDinerLocation",
+   "kind": "faction_camp_or_dungeon",
+   "x": -718.45,
+   "y": 786.84,
+   "z": 68.11,
+   "cap": 2,
+   "faction": "Unheld",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FAF",
+   "edid": "WaldenPondLocation",
+   "kind": "creature_or_ghoul_lair",
+   "x": -990.38,
+   "y": 632.04,
+   "z": 64.3,
+   "cap": 2,
+   "faction": "Raiders",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FA9",
+   "edid": "GorskiCabinLocation",
+   "kind": "faction_camp_or_dungeon",
+   "x": -910.49,
+   "y": 831.19,
+   "z": 81.02,
+   "cap": 2,
+   "faction": "Unheld",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FAD",
+   "edid": "SunshineTidingsCoopLocation",
+   "kind": "settlement_base",
+   "x": -1238.36,
+   "y": 548.28,
+   "z": 100.52,
+   "cap": 3,
+   "faction": "FeralGhouls",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024FA8",
+   "edid": "LexingtonLocation",
+   "kind": "creature_or_ghoul_lair",
+   "x": -471.85,
+   "y": 585.8,
+   "z": 76.75,
+   "cap": 2,
+   "faction": "FeralGhouls",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x00024F93",
+   "edid": "CorvegaAssemblyPlantLocation",
+   "kind": "resource_industrial",
+   "x": -497.26,
+   "y": 458.98,
+   "z": 80.56,
+   "cap": 2,
+   "faction": "Raiders",
+   "spot": "place row"
+  },
+  {
+   "id": "LCTN:0x000DC941",
+   "edid": "POIJeffB04Location",
+   "kind": "faction_camp_or_dungeon",
+   "x": -789.94,
+   "y": 848.46,
+   "z": 0.0,
+   "cap": 2,
+   "faction": "Unheld",
+   "spot": "place row"
+  }
+ ],
+ "edges": [
+  {
+   "u": 0,
+   "v": 1,
+   "len_m": 187.83
+  },
+  {
+   "u": 0,
+   "v": 2,
+   "len_m": 239.58
+  },
+  {
+   "u": 0,
+   "v": 3,
+   "len_m": 379.07
+  },
+  {
+   "u": 1,
+   "v": 2,
+   "len_m": 354.76
+  },
+  {
+   "u": 1,
+   "v": 6,
+   "len_m": 281.59
+  },
+  {
+   "u": 2,
+   "v": 3,
+   "len_m": 143.42
+  },
+  {
+   "u": 2,
+   "v": 4,
+   "len_m": 202.87
+  },
+  {
+   "u": 3,
+   "v": 4,
+   "len_m": 59.6
+  },
+  {
+   "u": 3,
+   "v": 10,
+   "len_m": 302.36
+  },
+  {
+   "u": 4,
+   "v": 10,
+   "len_m": 259.01
+  },
+  {
+   "u": 4,
+   "v": 11,
+   "len_m": 399.13
+  },
+  {
+   "u": 5,
+   "v": 6,
+   "len_m": 185.23
+  },
+  {
+   "u": 5,
+   "v": 7,
+   "len_m": 135.43
+  },
+  {
+   "u": 5,
+   "v": 15,
+   "len_m": 335.81
+  },
+  {
+   "u": 5,
+   "v": 16,
+   "len_m": 451.31
+  },
+  {
+   "u": 6,
+   "v": 7,
+   "len_m": 115.15
+  },
+  {
+   "u": 7,
+   "v": 15,
+   "len_m": 336.65
+  },
+  {
+   "u": 7,
+   "v": 16,
+   "len_m": 452.15
+  },
+  {
+   "u": 8,
+   "v": 9,
+   "len_m": 193.67
+  },
+  {
+   "u": 8,
+   "v": 10,
+   "len_m": 163.19
+  },
+  {
+   "u": 9,
+   "v": 10,
+   "len_m": 271.08
+  },
+  {
+   "u": 10,
+   "v": 11,
+   "len_m": 315.55
+  },
+  {
+   "u": 11,
+   "v": 12,
+   "len_m": 221.38
+  },
+  {
+   "u": 12,
+   "v": 13,
+   "len_m": 162.37
+  },
+  {
+   "u": 12,
+   "v": 17,
+   "len_m": 358.23
+  },
+  {
+   "u": 12,
+   "v": 18,
+   "len_m": 424.59
+  },
+  {
+   "u": 12,
+   "v": 19,
+   "len_m": 259.77
+  },
+  {
+   "u": 13,
+   "v": 14,
+   "len_m": 392.94
+  },
+  {
+   "u": 13,
+   "v": 15,
+   "len_m": 200.24
+  },
+  {
+   "u": 13,
+   "v": 17,
+   "len_m": 452.27
+  },
+  {
+   "u": 13,
+   "v": 18,
+   "len_m": 458.98
+  },
+  {
+   "u": 13,
+   "v": 19,
+   "len_m": 94.38
+  },
+  {
+   "u": 14,
+   "v": 15,
+   "len_m": 214.58
+  },
+  {
+   "u": 14,
+   "v": 16,
+   "len_m": 301.36
+  },
+  {
+   "u": 15,
+   "v": 19,
+   "len_m": 121.78
+  },
+  {
+   "u": 17,
+   "v": 18,
+   "len_m": 129.34
+  }
+ ],
+ "rung1a": {
+  "from": 2,
+  "to": 3,
+  "from_edid": "RedRocketTruckStopLocation",
+  "to_edid": "ConcordLocation",
+  "straight_m": 165.43
+ },
+ "rung1b": {
+  "from": 2,
+  "goal": 12,
+  "from_edid": "RedRocketTruckStopLocation",
+  "goal_edid": "StarlightDriveInLocation",
+  "route": [
+   2,
+   4,
+   11,
+   12
+  ],
+  "route_edids": [
+   "RedRocketTruckStopLocation",
+   "ConcordMuseumLocation",
+   "BedfordStationLocation",
+   "StarlightDriveInLocation"
+  ],
+  "length_m": 823.38,
+  "expected_ticks": 610
+ }
+}

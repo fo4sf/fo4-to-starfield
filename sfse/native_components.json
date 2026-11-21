@@ -67,13 +67,30 @@
       "runtime_pin": "plugin",
       "reads_address_library": true,
       "needs_address_library": true,
-      "refuse_steps": ["address_library", "channel", "channel_ids", "close", "create", "ctor", "id", "image", "ini",
-                       "key_thread", "listen", "object", "page", "page_ids", "pages", "register", "rtti", "slots",
+      "refuse_steps": ["address_library", "arm_holder", "arm_id", "arm_idle", "channel", "channel_ids", "close",
+                       "create", "ctor", "id", "image", "ini", "key_thread", "listen", "object", "page", "page_ids", "pages", "register", "rtti", "slots",
                        "toggle", "version", "world", "world_key_thread", "world_toggle"]
+    },
+    "FO4SFCombat.dll": {
+      "folder": "sfse/FO4SFCombat",
+      "source": "sfse/FO4SFCombat/src/main.cpp",
+      "build": "libxse",
+      "role": "probe",
+      "required": false,
+      "address": "address_library",
+      "structure": "1.14.70_layout",
+      "sfse_compatible": "latest",
+      "runtime_pin": "plugin",
+      "reads_address_library": true,
+      "needs_address_library": true,
+      "refuse_steps": ["address_library", "id", "image", "ini", "key_thread", "listen", "object", "version"]
     }
   },
   "refuse_causes": {
     "address_library": "The Address Library file versionlib-1-16-244-0.bin is missing, unreadable, or for another game version.",
+    "arm_holder": "The player's animation graph holder is not where or what the Pip-Boy arm expects, so the raise and the lower are not sent.",
+    "arm_id": "The editor-id lookup the Pip-Boy arm needs failed its check against the game, so the arm stays off.",
+    "arm_idle": "A raise or lower idle named in the ini was not found, is not an idle, or has no usable animation event.",
     "channel": "The menu's data channel did not find the game objects it expects.",
     "channel_ids": "An id the menu's data channel needs failed its check against the game.",
     "close": "The game's interface was not there to close our menu.",

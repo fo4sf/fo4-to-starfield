@@ -526,9 +526,9 @@ def xmarker_ref(fid, pos, rot, version=0x0240):
 
 
 # --------------------------------------------------------------------------------------------------------- folders
-# a packed interior batch's texture companions (FO4PortTextures2.esm ..., deploy_starfield.py COMPANION_RX): empty
-# plugins that only load their archive, never the port
-TEXTURE_COMPANION = re.compile(r"^FO4PortTextures([2-9]|[1-9]\d+)\.esm$", re.I)
+# a packed interior/DLC batch's texture companions (FO4PortTextures2.esm / FO4DLCTextures2.esm ..., deploy_starfield.py):
+# empty plugins that only load their archive, never the port
+TEXTURE_COMPANION = re.compile(r"^FO4(?:Port|DLC)Textures([2-9]|[1-9]\d+)\.esm$", re.I)
 
 
 def plugin_in(folder):
@@ -614,27 +614,36 @@ def core_doors(core):
     return ids["plugin"], out
 
 
-def port_edits(core_plugin, doors, port_plugin, port_next, merge, keep=None, animated=None):
+def port_edits(core_plugin, doors, port_plugin, port_next, merge, keep=None, animated=None, allow_new_doors=False):
     """[{"src", "door": local id of the interior door REFR, "cell": its CELL id, "marker": the marker's id, "pos",
     "rot", "return_pos": the exterior marker's merged position, "vmad"}] in doors order; ValueError when a door's
     destination is not this plugin, its promised marker id is not the one this plugin allocates (port_next + k), or an
     id repeats. keep: {src: marker local id} (--keep-markers): the marker id per door instead of port_next + k (the
-    cluster must promise the same id; a door missing from keep is refused). merge = merge_offset(core): the return VMAD's
+    cluster must promise the same id; a door missing from keep is refused unless allow_new_doors is true, in which case
+    new doors take consecutive port_next + m). merge = merge_offset(core): the return VMAD's
     DestinationX / Y / Z = the exterior marker's position (objects.json "arrival", the marker's DATA) + merge. animated
     ({src: open seconds}, --animated-doors): those doors get FO4SF_AnimatedLoadDoor with OpenSeconds instead of
     FO4SF_LoadDoor; None (the default) changes nothing."""
     out, seen = [], set()
+    new_idx = 0
     for k, e in enumerate(doors):
         d = e["destination"]
         if str(d.get("plugin", "")).casefold() != port_plugin.casefold():
             raise ValueError(f"{e['src']}: destination plugin {d.get('plugin')!r} is not {port_plugin}")
         if keep is not None:
-            if e["src"] not in keep:
+            if e["src"] in keep:
+                want = keep[e["src"]]
+                if int(d["id"]) != want:
+                    raise ValueError(f"{e['src']}: the cluster promised marker id {int(d['id']):06X}, the kept doors build "
+                                     f"has {want:06X}")
+            elif allow_new_doors:
+                want = port_next + new_idx
+                new_idx += 1
+                if int(d["id"]) != want:
+                    raise ValueError(f"{e['src']}: the cluster promised marker id {int(d['id']):06X}, this plugin allocates "
+                                     f"{want:06X} (make_cluster.py doors --keep-markers against this port)")
+            else:
                 raise ValueError(f"{e['src']}: not in the kept doors build")
-            want = keep[e["src"]]
-            if int(d["id"]) != want:
-                raise ValueError(f"{e['src']}: the cluster promised marker id {int(d['id']):06X}, the kept doors build "
-                                 f"has {want:06X}")
         else:
             want = port_next + k
             if int(d["id"]) != want:
@@ -696,6 +705,11 @@ def patch_port(plugin, edits, own_index):
 
 
 def cmd_port(a):
+    from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path
+    try:
+        refuse_unsafe_output_path(a.out, [a.port, a.core])
+    except OutputPathRefusedError as err:
+        sys.exit(str(err))
     require_separate_output(a.out, a.port, a.core)
     if os.path.exists(a.out):
         sys.exit(f"{a.out} exists: every output is a new folder")
@@ -721,7 +735,16 @@ def cmd_port(a):
         with open(a.animated_doors, encoding="utf-8-sig") as f:
             animated = animated_doors(plugin, own_index, doors, json.load(f))
     try:
-        edits = port_edits(core_plugin, doors, name, port_next, merge, keep, animated)
+        edits = port_edits(
+            core_plugin,
+            doors,
+            name,
+            port_next,
+            merge,
+            keep,
+            animated,
+            allow_new_doors=bool(getattr(a, "allow_new_doors", False)),
+        )
     except ValueError as e:
         sys.exit(f"doors: {e}")
     if keep is not None:
@@ -942,6 +965,8 @@ def main(argv=None):
     p.add_argument("--core", required=True, help="the core build with doors (objects.json, formids.json)")
     p.add_argument("--out", required=True, help="a new folder")
     p.add_argument("--keep-markers", default="", help="an earlier doors build's doors.json: keep its marker ids")
+    p.add_argument("--allow-new-doors", action="store_true",
+                   help="with --keep-markers, allocate port_next + m for new doors not present in the kept doors.json")
     p.add_argument("--animated-doors", default="", metavar="MANIFEST",
                    help="off by default: doors whose interior DOOR base has load_door.anim in this manifest get "
                         f"{ANIMATED_SCRIPT} (open before the trip); docs/spikes/load-door-animations.md")

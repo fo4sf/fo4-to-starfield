@@ -44,7 +44,8 @@ summarises it (exit 0 when stage 200 was reached).
 - No dialogue, voice or scenes: "talk" is activation or proximity. Dialogue is the next step (DialogueConcordArea).
 - Preston and the raiders wear Starfield Spacer looks; Preston carries the calm probe's weapon.
 - The fight takes place in the street outside the museum; the museum interior, Preston's door, the power armor, the
-  minigun, the deathclaw and the waves are left out (B4 spike's cut list).
+  minigun, the deathclaw, the waves, and **Preston's group moving to Sanctuary** (`NOT BUILT` — Preston stays held at
+  the Concord museum door after stage 200) are left out (B4 spike's cut list).
 - **Unresolved:** whether the engine fills the alias and shows the markers from these records; whether persistent
   actors added to the core's persistent cell by a later plugin load there; the quest flags (StartGameEnabled,
   RunOnce, DisplaysInHud) were chosen, not copied from a vanilla quest.

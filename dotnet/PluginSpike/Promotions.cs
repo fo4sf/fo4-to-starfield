@@ -21,9 +21,10 @@ using StarfieldActivator = Mutagen.Bethesda.Starfield.Activator;   // not System
 
 public sealed class Promotions : IDisposable
 {
-    public static readonly string[] Kinds = { "containers", "items", "activators", "terminals", "furniture" };
+    public static readonly string[] Kinds = { "containers", "items", "activators", "terminals", "furniture", "benches" };
     readonly JsonDocument? doc;
     readonly Dictionary<string, (string Kind, JsonElement Entry)> bySrc = new();
+    readonly Dictionary<string, JsonElement> lootItemsByEdid = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, (FormKey Key, string Sig)> byEdid = new(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> menuEdids = new(StringComparer.OrdinalIgnoreCase);
     readonly string? starfieldEsm;
@@ -38,6 +39,14 @@ public sealed class Promotions : IDisposable
         doc = JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
         if (root.TryGetProperty("starfield_esm", out var se) && se.ValueKind == JsonValueKind.String) starfieldEsm = se.GetString();
+        if (root.TryGetProperty("loot_items", out var lootList) && lootList.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var li in lootList.EnumerateArray())
+            {
+                var liEdid = li.GetProperty("edid").GetString() ?? throw new InvalidDataException("promote.json loot_items: entry without edid");
+                lootItemsByEdid[liEdid] = li;
+            }
+        }
         foreach (var kind in Kinds)
         {
             if (!root.TryGetProperty(kind, out var list)) continue;
@@ -56,7 +65,10 @@ public sealed class Promotions : IDisposable
     public void Kept(string src, string why) { if (Has(src)) Count($"kept ({why})"); }
 
     static string Sig(JsonElement e, string model) =>
-        model.ToLowerInvariant() + "|" + string.Join(",", e.EnumerateObject().Where(p => p.Name != "src").Select(p => p.Name + "=" + p.Value.GetRawText()));
+        model.ToLowerInvariant() + "|" + string.Join(",",
+            e.EnumerateObject()
+             .Where(p => p.Name is not ("src" or "model" or "source_formkey"))
+             .Select(p => p.Name + "=" + p.Value.GetRawText()));
 
     static string? OneLine(JsonElement e, string k, bool optional)
     {
@@ -115,6 +127,49 @@ public sealed class Promotions : IDisposable
         return furnTemplates[id] = t;
     }
 
+    readonly Dictionary<uint, IFurnitureGetter> benchTemplates = new();
+    IFurnitureGetter BenchTemplate(string hex, StarfieldRelease release)
+    {
+        var id = Convert.ToUInt32(hex, 16);
+        if (benchTemplates.TryGetValue(id, out var t)) return t;
+        var sfEsm = ModKey.FromNameAndExtension("Starfield.esm");
+        t = Master(release, "benches").Furniture.FirstOrDefault(f => f.FormKey == new FormKey(sfEsm, id))
+            ?? throw new InvalidDataException($"benches: the template {hex}:Starfield.esm is not a FURN of the master");
+        if ((t.BenchType ?? Furniture.BenchTypes.None) == Furniture.BenchTypes.None)
+            throw new InvalidDataException($"benches: the template {hex} ({t.EditorID}) has BenchType None (not a crafting bench)");
+        return benchTemplates[id] = t;
+    }
+
+    FormKey ResolveLootMiscItem(string itemEdid, StarfieldMod mod, Func<string, FormKey> id, StarfieldRelease release)
+    {
+        if (!lootItemsByEdid.TryGetValue(itemEdid, out var li))
+        {
+            if (byEdid.TryGetValue(itemEdid, out var existing))
+                return existing.Key;
+            throw new InvalidDataException($"promote.json container references self:{itemEdid} which is not in loot_items");
+        }
+        var itemModel = li.GetProperty("model").GetString() ?? throw new InvalidDataException($"promote.json loot_items {itemEdid}: missing model");
+        var sig = "items|" + Sig(li, itemModel);
+        if (byEdid.TryGetValue(itemEdid, out var known))
+        {
+            if (known.Sig != sig)
+                throw new InvalidDataException($"promote.json loot_items {itemEdid}: asks for {sig} but shared record is {known.Sig}");
+            return known.Key;
+        }
+        var name = li.GetProperty("name").GetString();
+        if (string.IsNullOrWhiteSpace(name) || name.Contains('\n') || name.Contains('\r'))
+            throw new InvalidDataException($"promote.json loot_items {itemEdid}: invalid name");
+        int value = li.GetProperty("value").GetInt32();
+        float weight = li.GetProperty("weight").GetSingle();
+        if (value < 0 || !float.IsFinite(weight) || weight < 0)
+            throw new InvalidDataException($"promote.json loot_items {itemEdid}: needs value >= 0 and weight >= 0");
+        var misc = new MiscItem(id("MISC:" + itemEdid), release)
+            { EditorID = itemEdid, Model = new Model { File = itemModel }, Name = name, Value = value, Weight = weight };
+        mod.MiscItems.Add(misc);
+        byEdid[itemEdid] = (misc.FormKey, sig);
+        return misc.FormKey;
+    }
+
     /// The promoted base of a listed reference whose own base would carry `model`; shared per edid.
     public FormKey Base(string src, string model, StarfieldMod mod, Func<string, FormKey> id, StarfieldRelease release)
     {
@@ -140,10 +195,18 @@ public sealed class Promotions : IDisposable
                 };
                 foreach (var it in e.GetProperty("items").EnumerateArray())
                 {
-                    var form = it.GetProperty("form").GetString()!;               // "<plugin>:<6 hex>"
-                    var colon = form.IndexOf(':');
-                    if (colon < 1) throw new InvalidDataException($"promote.json {src}: item form '{form}' is not <plugin>:<hex>");
-                    var fk = new FormKey(ModKey.FromNameAndExtension(form.AsSpan(0, colon)), Convert.ToUInt32(form.Substring(colon + 1), 16));
+                    var form = it.GetProperty("form").GetString()!;               // "<plugin>:<6 hex>" or "self:<misc edid>"
+                    FormKey fk;
+                    if (form.StartsWith("self:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        fk = ResolveLootMiscItem(form.Substring(5), mod, id, release);
+                    }
+                    else
+                    {
+                        var colon = form.IndexOf(':');
+                        if (colon < 1) throw new InvalidDataException($"promote.json {src}: item form '{form}' is not <plugin>:<hex>");
+                        fk = new FormKey(ModKey.FromNameAndExtension(form.AsSpan(0, colon)), Convert.ToUInt32(form.Substring(colon + 1), 16));
+                    }
                     var count = it.GetProperty("count").GetInt32();
                     if (count < 1) throw new InvalidDataException($"promote.json {src}: count {count} for {form}");
                     cont.Items.Add(new ContainerEntry { Item = new ContainerItem { Item = new FormLink<IItemGetter>(fk), Count = count } });
@@ -211,6 +274,7 @@ public sealed class Promotions : IDisposable
             {
                 var template = FurnitureTemplate(e.GetProperty("template").GetString()!, release);
                 var furn = (Furniture)template.Duplicate(id("FURN:" + edid));
+                furn.MajorFlags &= ~(Furniture.MajorFlag.IsTemplate | Furniture.MajorFlag.PackInUseOnly);
                 furn.EditorID = edid;
                 furn.Model = new Model { File = model };
                 furn.Name = OneLine(e, "name", optional: false);
@@ -231,6 +295,19 @@ public sealed class Promotions : IDisposable
                         if (entry != null) furn.MarkerEntryPoints.Add(entry.DeepCopy());
                     }
                 }
+                mod.Furniture.Add(furn);
+                key = furn.FormKey;
+                break;
+            }
+            case "benches":
+            {
+                var template = BenchTemplate(e.GetProperty("template").GetString()!, release);
+                var furn = (Furniture)template.Duplicate(id("FURN:" + edid));
+                furn.MajorFlags &= ~(Furniture.MajorFlag.IsTemplate | Furniture.MajorFlag.PackInUseOnly);
+                furn.EditorID = edid;
+                furn.Model = new Model { File = model };
+                furn.Name = OneLine(e, "name", optional: false);
+                furn.VirtualMachineAdapter = null;
                 mod.Furniture.Add(furn);
                 key = furn.FormKey;
                 break;

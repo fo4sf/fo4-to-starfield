@@ -10,11 +10,13 @@ float Property DestinationX Auto
 float Property DestinationY Auto
 float Property DestinationZ Auto
 ; A missed trip (the player still in the cell they activated from, with the engine's
-; "BOUNDARY REACHED"; docs/terrain/border.md) is retried with the same MoveTo this many times, each after
-; RetryWaitSeconds. 0 turns retries off.
-int Property MoveRetries = 1 Auto
+; "BOUNDARY REACHED"; docs/terrain/border.md) is retried with the same MoveTo up to this many times, each after
+; RetryWaitSeconds (1 initial MoveTo + 2 MoveRetries = 3 total tries; 0 turns retries off). On failure after
+; the retry budget, the player is returned to this door (Self), SetPosition is skipped, and one failure line
+; is logged (R10).
+int Property MoveRetries = 2 Auto
 float Property RetryWaitSeconds = 0.5 Auto
-; With UseDestinationPosition, the wait between the MoveTo and the SetPosition. The BOUNDARY REACHED popup pauses
+; With UseDestinationPosition, the wait between a verified MoveTo and the SetPosition. The BOUNDARY REACHED popup pauses
 ; Papyrus, so whether the trace stops before or after phase=settled tells which step raised it (docs/terrain/border.md).
 float Property SettleSeconds = 1.0 Auto
 bool Moving = False
@@ -62,7 +64,17 @@ Event OnActivate(ObjectReference akActionRef)
         endif
     endwhile
     if retries > 0 && !Arrived(akActionRef, destination, origin)
-        Debug.Trace("FO4SF_LoadDoor retry gave up after " + retries)
+        Utility.Wait(RetryWaitSeconds)
+    endif
+    bool didArrive = Arrived(akActionRef, destination, origin)
+    if !didArrive
+        int attempts = 1 + retries
+        akActionRef.MoveTo(Self, 0.0, 0.0, 0.0, True, False)
+        string failedLine = "FO4SF_LoadDoor load door arrival failed n=" + attempts + " door=" + Self.GetFormID()
+        Debug.Trace(failedLine)
+        Debug.TraceUser("fo4sf", failedLine)
+        Moving = False
+        return
     endif
     if UseDestinationPosition
         ; Experimental: the writer must supply this runtime instance's measured
