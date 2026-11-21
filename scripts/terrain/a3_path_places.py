@@ -624,25 +624,25 @@ A4_NEXT_MISSIONS: list[dict[str, Any]] = [
         ],
         "transitions": [
             {"from": 10, "to": 50, "kind": "primary", "label": "Activate Sanctuary workbench 04005C50 / arrive at Sanctuary"},
-            {"from": 10, "to": 1000, "kind": "out_of_order", "label": "Talk to Sturges before touching workbench"},
+            {"from": 10, "to": 1000, "kind": "out_of_order", "npc_gated": True, "label": "Talk to Sturges before touching workbench"},
             {"from": 10, "to": 1000, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Sturges dead -> workbench checklist auto-starts beds milestone"},
-            {"from": 50, "to": 1000, "kind": "primary", "label": "Talk to Sturges -> start beds objective (5 beds)"},
+            {"from": 50, "to": 1000, "kind": "primary", "npc_gated": True, "label": "Talk to Sturges -> start beds objective (5 beds)"},
             {"from": 50, "to": 1000, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Sturges dead -> workbench auto-advances to beds milestone"},
             {"from": 1000, "to": 1050, "kind": "primary", "label": "Sanctuary beds >= 5 (Min01BedTotal=5)"},
             {"from": 1000, "to": 1200, "kind": "out_of_order", "label": "Pre-built >=5 beds detected on stage entry"},
-            {"from": 1050, "to": 1200, "kind": "primary", "label": "Report beds to Sturges -> start clean water objective (5 water)"},
+            {"from": 1050, "to": 1200, "kind": "primary", "npc_gated": True, "label": "Report beds to Sturges -> start clean water objective (5 water)"},
             {"from": 1050, "to": 1200, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Sturges dead -> workbench advances straight to water milestone"},
             {"from": 1200, "to": 1250, "kind": "primary", "label": "Sanctuary water >= 5 (Min01WaterTotal=5)"},
             {"from": 1200, "to": 1300, "kind": "out_of_order", "label": "Pre-built >=5 water detected on stage entry"},
-            {"from": 1250, "to": 1300, "kind": "primary", "label": "Report water to Sturges -> start food objective (5 food)"},
+            {"from": 1250, "to": 1300, "kind": "primary", "npc_gated": True, "label": "Report water to Sturges -> start food objective (5 food)"},
             {"from": 1250, "to": 1300, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Sturges dead -> workbench advances straight to food milestone"},
             {"from": 1300, "to": 1350, "kind": "primary", "label": "Sanctuary food >= 5 (Min01FoodTotal=5)"},
             {"from": 1300, "to": 1400, "kind": "out_of_order", "label": "Pre-built >=5 food detected on stage entry"},
-            {"from": 1350, "to": 1400, "kind": "primary", "label": "Report food to Sturges -> start defense objective (2 defense)"},
+            {"from": 1350, "to": 1400, "kind": "primary", "npc_gated": True, "label": "Report food to Sturges -> start defense objective (2 defense)"},
             {"from": 1350, "to": 1400, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Sturges dead -> workbench advances straight to defense milestone"},
             {"from": 1400, "to": 1450, "kind": "primary", "label": "Sanctuary defense >= 2 (Min01SafetyTotal=2)"},
             {"from": 1400, "to": 1500, "kind": "out_of_order", "label": "Pre-built >=2 defense completes final milestone"},
-            {"from": 1450, "to": 1500, "kind": "primary", "label": "Final report to Sturges -> complete Sanctuary & preserve legacy stage 100 compat"},
+            {"from": 1450, "to": 1500, "kind": "primary", "npc_gated": True, "label": "Final report to Sturges -> complete Sanctuary & preserve legacy stage 100 compat"},
             {"from": 1450, "to": 1500, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Sturges dead -> workbench finalizes Sanctuary at stage 1500"},
             {"from": 100, "to": 1500, "kind": "legacy_compat", "label": "Upgrade save/stub already at legacy stage 100 cleanly to completed 1500"},
         ],
@@ -676,17 +676,17 @@ A4_NEXT_MISSIONS: list[dict[str, Any]] = [
             "fast_travel_away_mid_dungeon",
         ],
         "transitions": [
-            {"from": 10, "to": 50, "kind": "primary", "label": "Preston briefs player on Tenpines Bluff help request"},
+            {"from": 10, "to": 50, "kind": "primary", "npc_gated": True, "label": "Preston briefs player on Tenpines Bluff help request"},
             {"from": 10, "to": 50, "kind": "out_of_order", "label": "Player discovers Tenpines Bluff (01A793) before talking to Preston"},
             {"from": 10, "to": 100, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Preston dead -> Tenpines workbench / note reveals Corvega raiders"},
-            {"from": 50, "to": 100, "kind": "primary", "label": "Talk to Tenpines Bluff spokesman -> target Corvega Assembly Plant (FO4Port:0x01535A)"},
+            {"from": 50, "to": 100, "kind": "primary", "npc_gated": True, "label": "Talk to Tenpines Bluff spokesman -> target Corvega Assembly Plant (FO4Port:0x01535A)"},
             {"from": 50, "to": 100, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Spokesman dead -> read Tenpines note / activate workbench 01A793"},
             {"from": 50, "to": 200, "kind": "out_of_order", "label": "Corvega raider boss (Jared) already dead before Tenpines talk"},
             {"from": 100, "to": 200, "kind": "primary", "label": "Kill Corvega raider boss inside FO4Port_CorvegaAssemblyPlant01"},
             {"from": 100, "to": 200, "kind": "out_of_order", "label": "Corvega boss pre-cleared -> immediate sync to stage 200"},
-            {"from": 200, "to": 450, "kind": "primary", "label": "Report success to Tenpines spokesman -> Tenpines aligns with Minutemen"},
+            {"from": 200, "to": 450, "kind": "primary", "npc_gated": True, "label": "Report success to Tenpines spokesman -> Tenpines aligns with Minutemen"},
             {"from": 200, "to": 450, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Spokesman dead -> claim Tenpines workbench 01A793 directly"},
-            {"from": 450, "to": 500, "kind": "primary", "label": "Report back to Preston -> join Minutemen, receive Flare Gun, unlock Min02 hook"},
+            {"from": 450, "to": 500, "kind": "primary", "npc_gated": True, "label": "Report back to Preston -> join Minutemen, receive Flare Gun, unlock Min02 hook"},
             {"from": 450, "to": 500, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Preston dead -> Sanctuary workshop locker awards Flare Gun & completes at stage 500"},
         ],
     },
@@ -724,14 +724,14 @@ A4_NEXT_MISSIONS: list[dict[str, Any]] = [
             "fast_travel_away_mid_gate_scene",
         ],
         "transitions": [
-            {"from": 10, "to": 20, "kind": "primary", "label": "Reach Diamond City gate (DmndGateREF 013E79) -> Piper & Mayor entrance scene opens gate"},
-            {"from": 10, "to": 20, "kind": "out_of_order", "label": "Walk straight to Diamond City gate without prior Mama Murphy / Codsworth lead"},
+            {"from": 10, "to": 20, "kind": "primary", "npc_gated": True, "label": "Reach Diamond City gate (DmndGateREF 013E79) -> Piper & Mayor entrance scene opens gate"},
+            {"from": 10, "to": 20, "kind": "out_of_order", "npc_gated": True, "label": "Walk straight to Diamond City gate without prior Mama Murphy / Codsworth lead"},
             {"from": 10, "to": 20, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Piper/Mayor dead -> intercom or gate manual override unlocks entry"},
-            {"from": 20, "to": 25, "kind": "primary", "label": "Enter Diamond City and ask Piper/residents/signs about Shaun"},
+            {"from": 20, "to": 25, "kind": "primary", "npc_gated": True, "label": "Enter Diamond City and ask Piper/residents/signs about Shaun"},
             {"from": 20, "to": 30, "kind": "out_of_order", "label": "Inspect DetectiveSign01/02 or enter Valentine Detective Agency (FO4Port:0x006B30) directly"},
-            {"from": 25, "to": 30, "kind": "primary", "label": "Directed to Nick Valentine's Detective Agency"},
+            {"from": 25, "to": 30, "kind": "primary", "npc_gated": True, "label": "Directed to Nick Valentine's Detective Agency"},
             {"from": 25, "to": 30, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Piper/informants dead -> Detective sign / agency door advances to stage 30"},
-            {"from": 30, "to": 100, "kind": "primary", "label": "Enter DmndValentines01 (0x006B30) and speak with Ellie Perkins -> handoff to MQ104 (Vault 114)"},
+            {"from": 30, "to": 100, "kind": "primary", "npc_gated": True, "label": "Enter DmndValentines01 (0x006B30) and speak with Ellie Perkins -> handoff to MQ104 (Vault 114)"},
             {"from": 30, "to": 100, "kind": "open_mode_fallback", "open_mode_only": True, "label": "Ellie dead -> read Park Street Station case dossier on agency desk -> stage 100 + MQ104 handoff"},
         ],
     },
@@ -972,10 +972,9 @@ def evaluate_a4_missions(missions: list[dict[str, Any]] | None = None) -> dict[s
             for t in transitions:
                 if t.get("open_mode_only") and not open_mode:
                     continue
-                if open_mode and t["kind"] == "primary":
-                    # In Open Mode worst case (all essential NPCs dead), primary NPC dialogue edges can be lost
-                    # unless a non-primary fallback or out_of_order edge still connects out of t["from"].
-                    pass
+                if open_mode and t.get("npc_gated"):
+                    # Open Mode worst-case dead-giver simulation: drop every NPC-dialogue-gated edge
+                    continue
                 adj[t["from"]].append(t["to"])
             # BFS forward from start
             seen = {start}
@@ -986,7 +985,7 @@ def evaluate_a4_missions(missions: list[dict[str, Any]] | None = None) -> dict[s
                     if v not in seen:
                         seen.add(v)
                         dq.append(v)
-            # Reverse BFS from completion stages to check every reachable stage can finish
+            # Reverse BFS from completion stages to check every stage can finish
             rev: dict[int, list[int]] = {s: [] for s in stages}
             for u, vs in adj.items():
                 for v in vs:
@@ -1000,26 +999,28 @@ def evaluate_a4_missions(missions: list[dict[str, Any]] | None = None) -> dict[s
                         can_finish.add(u)
                         rq.append(u)
             stuck = []
-            for s in sorted(seen):
+            # Every stage (whether entered from start or mid-quest before an NPC died) must reach completion
+            check_set = stages if open_mode else seen
+            for s in sorted(check_set):
                 if s not in can_finish:
                     stuck.append({"quest_id": q["id"], "stage": s, "mode": "open" if open_mode else "normal"})
             return stuck, can_finish
 
         normal_stuck, normal_finish = _check(open_mode=False)
-        open_stuck, _ = _check(open_mode=True)
+        open_stuck, open_finish = _check(open_mode=True)
         dead_ends.extend(normal_stuck)
 
-        # Open-Mode dead-giver check: if ALL primary NPC-gated edges are removed, must STILL reach completion
-        non_primary_adj: dict[int, list[int]] = {s: [] for s in stages}
-        for t in transitions:
-            # Keep non-dialogue combat/objective milestones plus open_mode_fallback & out_of_order edges
-            # Specifically check that every stage with a primary edge has an alternate route if NPCs die
-            non_primary_adj[t["from"]].append(t["to"])
-        # Verify every essential NPC has a non-empty fallback and quest has >=1 open_mode_only transition
+        # Open-Mode dead-giver check: every stage must reach completion with all npc_gated edges removed,
+        # and every essential NPC must carry a documented fallback.
         om_edges = [t for t in transitions if t.get("open_mode_only")]
-        om_ok = bool(om_edges) and all(len(n["open_mode_fallback"].strip()) >= 20 for n in q["essential_npcs"]) and not open_stuck
+        npc_fallbacks_ok = all(len(n["open_mode_fallback"].strip()) >= 20 for n in q["essential_npcs"])
+        om_ok = bool(om_edges) and npc_fallbacks_ok and not open_stuck and stages.issubset(open_finish)
         if not om_ok:
-            open_mode_failures.append({"quest_id": q["id"], "reason": "missing open_mode_fallback or dead end"})
+            open_mode_failures.append({
+                "quest_id": q["id"],
+                "stuck_stages": [s["stage"] for s in open_stuck],
+                "reason": "dead end with essential NPCs dead or missing open_mode_fallback",
+            })
 
         # Out-of-order check: must have >=1 out_of_order edge and every stage must reach completion
         ooo_edges = [t for t in transitions if t["kind"] == "out_of_order"]

@@ -1,6 +1,6 @@
 # Next Story Missions in Order (`A4` — Source-First Audit, Known-Bug Ledgers & `W6` Break-It Suite)
 
-> **Whole Scope:** Titles: Fallout 4 | Modes: Story & Warfare (+ Survival hardcore layer) | Track: Track 1 (playable path) — **source-first audit & offline `W6` verification, unproven in game (`R15`)**.
+> **Whole Scope:** Titles: Fallout 4 | Modes: Story & Warfare (+ Survival hardcore layer) | Track: Track 1 (playable path) — **design only / prototype, offline (source-first audit & `W6` verification; unproven in game, `R15`)**.
 >
 > **Source-First & Clean-Room Compliance:** All FormIDs, stages, objectives, aliases, global variables, scene structures, and Papyrus script names below were read directly from the owner's local `Fallout4.esm` and `Fallout4 - Misc.ba2` / `Fallout4 - Interface.ba2` (read-only). Zero verbatim copyrighted dialogue is copied into Git; all objective and stage descriptions are clean-room functional summaries. Zero third-party mod names appear anywhere in this document.
 >

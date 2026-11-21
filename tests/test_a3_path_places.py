@@ -304,6 +304,21 @@ class A4NextMissionsW6Tests(unittest.TestCase):
         self.assertFalse(rep_om["pass"])
         self.assertGreater(rep_om["open_mode_failure_count"], 0)
 
+        # Single-edge Open-Mode removal: dropping ONLY 1050 -> 1200 open_mode_fallback on Sanctuary
+        # must keep Normal Mode clean (0 dead ends) while failing Open Mode at stage 1050.
+        mutated_single = copy.deepcopy(a3.A4_NEXT_MISSIONS)
+        sanc_s = next(m for m in mutated_single if m["id"] == "FO4SF_Sanctuary01")
+        sanc_s["transitions"] = [
+            t
+            for t in sanc_s["transitions"]
+            if not (t["from"] == 1050 and t["to"] == 1200 and t.get("open_mode_only"))
+        ]
+        rep_single = a3.evaluate_a4_missions(mutated_single)
+        self.assertFalse(rep_single["pass"])
+        self.assertEqual(rep_single["dead_end_count"], 0)
+        self.assertEqual(rep_single["open_mode_failure_count"], 1)
+        self.assertIn(1050, rep_single["open_mode_failures"][0]["stuck_stages"])
+
 
 class A3A4DocsAndCliTests(unittest.TestCase):
     def test_docs_clean_room_p3_and_zero_drive_leaks(self) -> None:
@@ -317,6 +332,10 @@ class A3A4DocsAndCliTests(unittest.TestCase):
             text = doc.read_text(encoding="utf-8")
             self.assertIn("Titles: Fallout 4", text[:500])
             self.assertIn("unproven in game", text[:600].lower())
+            self.assertTrue(
+                "prototype, offline" in text[:500].lower() or "design only" in text[:500].lower(),
+                f"Missing canonical Round 9 header phrase in {doc.name}",
+            )
             # P3 zero M/N/V rule inside ```console``` blocks
             for lang, body in FENCED_BLOCK_RE.findall(text):
                 if lang.strip().lower() == "console":
