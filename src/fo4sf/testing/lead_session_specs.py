@@ -22,7 +22,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 SUPPORTED_SESSIONS: Tuple[int, ...] = (1, 3, 4)
 SUPPORTED_LOG_EXTENSIONS: frozenset[str] = frozenset({".log", ".txt", ".out"})
 MAP_SUPPRESS_FALLBACK_LINE = "step=map_suppress n=<k> name=<menu> sent=hide"
-CARD_C_STARMAP_BLOCKED_LINE = "step=starmap_blocked n=<k> blocked menu=<menu> route=create"
+CARD_C_STARMAP_BLOCKED_LINE = "step=starmap_blocked n=<k> blocked menu=<menu> route=create non_null=1"
 
 
 @dataclass(frozen=True)

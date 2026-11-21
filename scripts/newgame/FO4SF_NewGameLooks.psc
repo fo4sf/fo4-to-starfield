@@ -12,7 +12,7 @@ Scriptname FO4SF_NewGameLooks extends Quest
  Fallout 4's signature (string asMenuName, bool abOpening); the compile on the PC is its check.}
 
 Message Property StartMessage Auto Const Mandatory
-{The opening choice (FO4SFNewGame.esm 0x802): button 0 creates the character, button 1 is the quick start.}
+{The opening choice (FO4SFNewGame.esm 0x802): button 0 is the quick start, button 1 creates the character.}
 
 int Property RaceMenuMode = 2 Auto Const
 {The uiMode passed to Game.ShowRaceMenu (the writer's --race-menu-mode). 0 is the full creator, with Starfield's
@@ -46,14 +46,21 @@ Event OnTimer(int aiTimerID)
         return                                               ; stood down, or already past the looks
     endif
     if stage == 10 && !shown
+        FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
+        if ngQuest != None && ngQuest.IsPreworldLooksHandled()
+            return
+        endif
         shown = true
         Utility.Wait(MenuDelay)
         if GetStage() >= 20
             return
         endif
+        if ngQuest != None && ngQuest.IsPreworldLooksHandled()
+            return
+        endif
         int button = StartMessage.Show()
         Trace("start choice button=" + button)
-        if button == 1
+        if button == 0
             Trace("quick start: preset kept, creator skipped")
             Done("quick start")
             return

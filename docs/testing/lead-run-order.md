@@ -74,7 +74,7 @@ step=dispatch n=<k> fn=FO4SF_CombatInput.OnVatsKey ignored=menu_open menu=Consol
 step=dispatch n=<k> fn=FO4SF_CombatInput.OnAmmoKey ignored=menu_open menu=Console
 FO4SF_NEWGAME rt=<rt> blocked input=handscanner
 step=starmap_block_install menu=<menu> found=1 slot=<slot> orig_rva=<rva>
-step=starmap_blocked n=<k> blocked menu=<menu> route=create
+step=starmap_blocked n=<k> blocked menu=<menu> route=create non_null=1
 ```
 
 ### Exact Undo Command (Game Closed — Restore Sidecar Backups, Uninstall & Restore Standing Bridge-Off)

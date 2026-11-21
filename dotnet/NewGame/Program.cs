@@ -129,7 +129,9 @@ static class NewGame
                         StartRoomCellEdid = "FO4SF_StartRoomCell",
                         StartRoomMarkerRefEdid = "FO4SF_StartRoomMarkerRef",
                         StoryLineMsgEdid = "FO4SF_NewGameStoryLineMsg",
-                        ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg";
+                        ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg",
+                        VaultPistolRefEdid = "FO4SF_Vault111PistolRef",
+                        VaultAmmoRefEdid = "FO4SF_Vault111AmmoRef";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
     public const uint ModePickMsgId = 0x806,
                       SurvivalPickMsgId = 0x807,
@@ -151,12 +153,16 @@ static class NewGame
                       StartRoomMarkerRefId = 0x81D,
                       StoryLineMsgId = 0x81E,
                       ExitNeedSpecialMsgId = 0x81F;
+    public const uint VaultPistolRefId = 0x820, VaultAmmoRefId = 0x821;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
     public const int MaxMessageButtons = 7;
     public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, BackdropSetupMenu = 3, DefaultStartChoiceBackdrop = BackdropEmptyCell;
-    public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010;
+    public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010,
+                      SfVaultPistolId = 0x24561C, SfVaultAmmoId = 0x2B5598;
+    public const int VaultAmmoCount = 48;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
+    public static readonly string[] StartButtons = { "Quick start", "Create character" };
     public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" };
     public static readonly string[] ExitNeedSpecialButtons = { "OK" };
     public static readonly string[] ExitFallbackButtons = { "Go up to the Commonwealth", "Retry lift" };
@@ -1429,15 +1435,15 @@ static class NewGame
         var noPipboyMsg = MakeMsg(NoPipboyMsgId, NoPipboyMsgEdid, "Vault Door Controls", "A Pip-Boy is required to interface with the Vault 111 door controls.", NoPipboyButtons);
         var exitFallbackMsg = MakeMsg(ExitFallbackMsgId, ExitFallbackMsgEdid, "Vault 111 elevator", "The elevator platform did not reach the surface. Go up to the Commonwealth directly, or try the lift again?", ExitFallbackButtons);
         var exitNeedSpecialMsg = MakeMsg(ExitNeedSpecialMsgId, ExitNeedSpecialMsgEdid, "Vault 111 elevator", "Confirm your S.P.E.C.I.A.L. attributes before leaving Vault 111.", ExitNeedSpecialButtons);
-        // the opening choice (NG-6, NG-C9): button 0 opens the creator, button 1 keeps the preset and skips it. A
+        // the opening choice (NG-6, NG-C9, T4): button 0 keeps the preset and skips the creator, button 1 opens the creator. A
         // message box, so it needs no voice: the player is silent
         var start = new SF.Message(new FormKey(modKey, StartMessageId), SF.StarfieldRelease.Starfield)
         {
-            EditorID = StartMessageEdid, Name = "Vault 111", Description = "Create your character, or start quickly with the preset?",
+            EditorID = StartMessageEdid, Name = "Character Appearance", Description = "Start quickly with the preset, or create your character?",
             Flags = SF.Message.Flag.MessageBox,
         };
-        start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
         start.MenuButtons.Add(new SF.MessageButton { Text = "Quick start" });
+        start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
         mod.Messages.Add(start);
         // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt and two <=7-button allocation MESGs (the seven AVIFs live in FO4SFCoreValues.esm)
         SF.Message? terminalMsg = null, specialMsg = null, specialMsgPage2 = null;
@@ -1529,6 +1535,29 @@ static class NewGame
         };
         gearConsoleRef.MajorRecordFlagsRaw |= 0x400;
         cellOver.Persistent.Add(gearConsoleRef);
+        // T4 / T1: place Vault 111 pistol + 48 rounds in cellOver so Story pistol pickup works when FO4SFRouteLoot.esm is omitted
+        bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
+                                     sf.Ammunitions.Any(a => a.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
+        if (hasVaultPistolAndAmmo)
+        {
+            var pistolRef = new SF.PlacedObject(new FormKey(modKey, VaultPistolRefId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = VaultPistolRefEdid,
+                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfVaultPistolId)),
+                Position = new P3Float(-57.0338f, 30.006f, 1.29f),
+                Rotation = new P3Float(-1.444f, 0.412f, 4.831f),
+            };
+            cellOver.Temporary.Add(pistolRef);
+            var ammoRef = new SF.PlacedObject(new FormKey(modKey, VaultAmmoRefId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = VaultAmmoRefEdid,
+                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfVaultAmmoId)),
+                Position = new P3Float(-57.0522f, 30.3703f, 0.696f),
+                Rotation = new P3Float(0.001f, 0.0f, 2.835f),
+                Count = VaultAmmoCount,
+            };
+            cellOver.Temporary.Add(ammoRef);
+        }
         var cBlock = new SF.CellBlock { BlockNumber = places.CellBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var cSub = new SF.CellSubBlock { BlockNumber = places.CellSubBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         cSub.Cells.Add(cellOver);
@@ -1699,7 +1728,7 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = ExitNeedSpecialMsgId + 1;
+        mod.ModHeader.Stats.NextFormID = VaultAmmoRefId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         WritePlugin(mod, path);
@@ -1818,9 +1847,12 @@ static class NewGame
         var (wantPbPos, _) = PipboyPlacement(pts);
         var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
         var wantConPos = new P3Float(conCoords[0], conCoords[1], conCoords[2]);
+        bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
+                                     sf.Ammunitions.Any(a => a.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
+        int wantVaultTempCount = hasVaultPistolAndAmmo ? 2 : 0;
         Need(allPlugCells.Count == 2 &&
              cellOver is not null && cellOver.FormKey == new FormKey(PortEsm, places.PortCellId) && cellOver.EditorID == VaultCell &&
-             cellOver.Temporary.Count == 0 && cellOver.Persistent.Count == 2 &&
+             cellOver.Temporary.Count == wantVaultTempCount && cellOver.Persistent.Count == 2 &&
              pipboyRef is { EditorID: PipboyCorpseRefEdid } && IsPersistent(pipboyRef) &&
              pipboyRef.Base.FormKey == new FormKey(key, PipboyCorpseActiId) &&
              MathF.Abs(pipboyRef.Position.X - wantPbPos.X) <= 1e-3f &&
@@ -1832,6 +1864,24 @@ static class NewGame
              MathF.Abs(gearConsoleRef.Position.Y - wantConPos.Y) <= 1e-3f &&
              MathF.Abs(gearConsoleRef.Position.Z - wantConPos.Z) <= 1e-3f,
              $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X}) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X})");
+        if (hasVaultPistolAndAmmo)
+        {
+            var pistolRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultPistolRefId));
+            var ammoRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultAmmoRefId));
+            Need(pistolRef is { EditorID: VaultPistolRefEdid } && !IsPersistent(pistolRef) &&
+                 pistolRef.Base.FormKey == new FormKey(SfEsm, SfVaultPistolId) &&
+                 MathF.Abs(pistolRef.Position.X - (-57.0338f)) <= 1e-3f &&
+                 MathF.Abs(pistolRef.Position.Y - 30.006f) <= 1e-3f &&
+                 MathF.Abs(pistolRef.Position.Z - 1.29f) <= 1e-3f,
+                 $"CELL override lacks temporary {VaultPistolRefEdid} (0x{VaultPistolRefId:X}) -> Starfield.esm:{SfVaultPistolId:X6}");
+            Need(ammoRef is { EditorID: VaultAmmoRefEdid } && !IsPersistent(ammoRef) &&
+                 ammoRef.Base.FormKey == new FormKey(SfEsm, SfVaultAmmoId) &&
+                 ammoRef.Count == VaultAmmoCount &&
+                 MathF.Abs(ammoRef.Position.X - (-57.0522f)) <= 1e-3f &&
+                 MathF.Abs(ammoRef.Position.Y - 30.3703f) <= 1e-3f &&
+                 MathF.Abs(ammoRef.Position.Z - 0.696f) <= 1e-3f,
+                 $"CELL override lacks temporary {VaultAmmoRefEdid} (0x{VaultAmmoRefId:X}) -> Starfield.esm:{SfVaultAmmoId:X6} count {VaultAmmoCount}");
+        }
         Need(startRoomCell is { EditorID: StartRoomCellEdid } && (startRoomCell.Flags & SF.Cell.Flag.IsInteriorCell) != 0 &&
              startRoomCell.Temporary.Count == 0 && startRoomCell.Persistent.Count == 1 &&
              startRoomMarkerRef is { EditorID: StartRoomMarkerRefEdid } && IsPersistent(startRoomMarkerRef) &&
@@ -1876,8 +1926,10 @@ static class NewGame
         Need(noPipboyMsg is { EditorID: NoPipboyMsgEdid } && noPipboyMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              noPipboyMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(NoPipboyButtons), $"MESG 0x{NoPipboyMsgId:X} is not {NoPipboyMsgEdid}");
         var start = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, StartMessageId));
-        Need(start is { EditorID: StartMessageEdid } && start.Flags.HasFlag(SF.Message.Flag.MessageBox) && start.MenuButtons.Count == 2 &&
-             start.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{StartMessageId:X} is not {StartMessageEdid}, a message box with two buttons");
+        Need(start is { EditorID: StartMessageEdid } && start.Name?.String == "Character Appearance" &&
+             start.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+             start.MenuButtons.Select(b => b.Text?.String).SequenceEqual(StartButtons),
+             $"MESG 0x{StartMessageId:X} is not {StartMessageEdid} titled \"Character Appearance\" with buttons [{string.Join(", ", StartButtons)}]");
         var terminalMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, TerminalMessageId));
         var specialMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessageId));
         var specialMsgPage2 = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessagePage2Id));
@@ -2670,6 +2722,8 @@ static class NewGame
             ("the alias script renamed", m => m.Quests.First().VirtualMachineAdapter!.Aliases[0].Scripts[0].Name = "Other"),
             ("the elevator prompt has one button", m => m.Messages.First(x => x.EditorID == MessageEdid).MenuButtons.RemoveAt(1)),
             ("the opening choice has one button", m => m.Messages.First(x => x.EditorID == StartMessageEdid).MenuButtons.RemoveAt(1)),
+            ("the opening choice button order swapped", m => { var sm = m.Messages.First(x => x.EditorID == StartMessageEdid); (sm.MenuButtons[0], sm.MenuButtons[1]) = (sm.MenuButtons[1], sm.MenuButtons[0]); }),
+            ("the opening choice titled Vault 111", m => m.Messages.First(x => x.EditorID == StartMessageEdid).Name = "Vault 111"),
             ("the opening choice removed", m => m.Messages.Remove(m.Messages.First(x => x.EditorID == StartMessageEdid).FormKey)),
             ("the race menu mode changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.First(p => p.Name == "RaceMenuMode")).Data = 3),
             ("the looks script lost StartMessage", m => m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.RemoveAll(p => p.Name == "StartMessage")),
@@ -2704,6 +2758,8 @@ static class NewGame
             ("GearDoorConsoleRef made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent.First(x => x.EditorID == GearDoorConsoleRefEdid); r.MajorRecordFlagsRaw &= ~0x400; }),
             ("GearDoorConsoleActi lost its name", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).Name = ""),
             ("VaultPistolBase pointed at another form", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultPistolBase")).Object.SetTo(new FormKey(SfEsm, SfFallbackJumpsuitId))),
+            ("Vault111 temporary pistol removed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; c.Temporary.Remove(c.Temporary.First(x => x.EditorID == VaultPistolRefEdid)); }),
+            ("Vault111 temporary ammo count changed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; ((SF.PlacedObject)c.Temporary.First(x => x.EditorID == VaultAmmoRefEdid)).Count = 12; }),
             ("ConsoleRefId changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ConsoleRefId")).Data = 0x999),
         };
         foreach (var (name, edit) in mutations)
@@ -2906,6 +2962,23 @@ static class NewGame
             File.WriteAllText(badSpMarker, File.ReadAllText(DefaultStartPlacesJsonPath()).Replace("FO4Core_CommonwealthMapMarkerSanctuary", "FO4Core_NoSuchStartPlaceMarker"));
             try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused_sp2"), plain with { StartPlacesJson = badSpMarker }); Console.WriteLine("FAIL  write accepted missing start_places marker"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected (missing start_places marker): {e.Message}"); }
+        }
+        // T4: synthetic Starfield.esm without 0x24561C builds and passes Check with 0 temporary vault pickups
+        {
+            var sfAltPistol = SfVariant("sf_no_24561c", m =>
+            {
+                m.Weapons.Clear();
+                m.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, 0x2773C8), rel) { EditorID = "AltSynthWeapon" });
+            });
+            var altRlPath = Path.Combine(dir, "alt_route_loot_ids.json");
+            File.WriteAllText(altRlPath, "{\"schema_version\": 1, \"vault111\": {\"pistol_id\": \"0x2773C8\"}}");
+            var altWfPath = Path.Combine(dir, "alt_warfare_starts.json");
+            File.WriteAllText(altWfPath, File.ReadAllText(DefaultWarfareStartsJsonPath()).Replace("0x24561C", "0x2773C8"));
+            var altDir = Path.Combine(outDir, "no24561c");
+            var altOpt = plain with { RouteLootJson = altRlPath, WarfareStartsJson = altWfPath };
+            if (Write(sfAltPistol, portPath, idsPath, corePath, pointsPath, altDir, altOpt) != 0 ||
+                Check(Path.Combine(altDir, Plugin), sfAltPistol, portPath, idsPath, corePath, pointsPath, altOpt) != 0)
+            { Console.WriteLine("FAIL  synthetic Starfield.esm without 0x24561C"); return 1; }
         }
         // the records reader (Records.cs): its own synthetic plugins, under this scratch dir
         if (NewGameRecords.SelfTest(Path.Combine(dir, "records")) != 0) return 1;

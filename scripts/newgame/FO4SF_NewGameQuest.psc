@@ -115,7 +115,7 @@ Message Property WarfareGroupMsg Auto Const Mandatory
 Message Property WarfareSpotMsg Auto Const Mandatory
 {S4 Box 5 (0x80A): starting Warfare deployment spot.}
 Message Property StartPickMsg Auto Const
-{N2 pre-world appearance prompt (0x802): 0 Create character, 1 Quick start.}
+{N2 pre-world appearance prompt (0x802): 0 Quick start, 1 Create character.}
 Message Property NoPipboyMsg Auto Const Mandatory
 {X2 / A16 (0x817): shown when activating the Vault 111 console before picking up the Pip-Boy.}
 
@@ -352,6 +352,7 @@ bool faded = false
 bool loadingMenuOpen = false
 bool loadingMenuClosedSeen = false
 bool loadingHookRegistered = false
+bool startUiReady = false
 bool h00SuspectsRead = false
 bool h00SkipLoading = false
 bool h00ClearChargen = false
@@ -479,7 +480,8 @@ Function Begin(string route)
         Trace("mq101debug written=" + DebugGlobal.GetValue() + " was=" + was)
     endif
     EnsureLoadHookRegistered(player)
-    if FadeHold
+    loadingMenuOpen = loading
+    if UsePreworldRoom() || FadeHold
         RegisterStartLoadingHook()
     endif
     StartTimer(1.0, 1)
@@ -570,6 +572,10 @@ Function NoteLooksStage20()
     if applied < 20
         applied = 20
     endif
+EndFunction
+
+bool Function IsPreworldLooksHandled()
+    return preworldLooksDone || looksSetStage20 || UsePreworldRoom()
 EndFunction
 
 Function ApplyStage(int n, string by)
@@ -681,15 +687,16 @@ Event OnTimer(int aiTimerID)
         endif
         HoldOffPass(2)                                       ; once the game runs: a quest that started after the first pass
         int chosenMode = RunModeChoiceChain(player)
-        if chosenMode == 2 || GetStage() >= 10
+        if chosenMode == 2
             return
+        elseif GetStage() < 10
+            if ClearInventory
+                ResetInventory(player)
+                FillO2(player)
+            endif
+            AdvanceTo(10)
+            startedAt = Utility.GetCurrentRealTime()
         endif
-        if ClearInventory
-            ResetInventory(player)
-            FillO2(player)
-        endif
-        AdvanceTo(10)
-        startedAt = Utility.GetCurrentRealTime()
     elseif stage == 5
         if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 1
             if !entered
@@ -713,9 +720,10 @@ Event OnTimer(int aiTimerID)
         EnsureVaultInteractivesRegistered()
         if preworldLooksDone
             preworldLooksDone = false
-            NoteLooksStage20()
+            looksSetStage20 = true
             Trace("looks done: " + preworldLooksHow)
             AdvanceTo(20, preworldLooksBy)
+            NoteLooksStage20()
         elseif Utility.GetCurrentRealTime() - startedAt > LooksWait
             if LooksWait > 0.0
                 Trace("looks done: LooksWait fallback after " + LooksWait + " s")
@@ -726,6 +734,9 @@ Event OnTimer(int aiTimerID)
             endif
         endif
     elseif stage == 20 || stage == 30
+        if !podChecked && player.Is3DLoaded() && StandsInVault(player)
+            CheckPod(player)
+        endif
         if rideActive
             PrepareArrivalMarkerDuringRide()
             CheckAscent(player)
@@ -1611,23 +1622,29 @@ Function SetStartCardBackdrop(bool showCard)
 EndFunction
 
 Function WaitForStartUiReady()
-{H0 / N2: never show a prompt while LoadingMenu is open or under a fade; hard timeout lifts fade and logs mode fade lifted by=timeout.}
+{H0 / N2 / T3: never show a prompt while LoadingMenu is open or under a fade; waits for LoadingMenu close plus non-menu settle delay and logs which path released it.}
     Game.FadeOutGame(False, True, 0.0, 0.1, False)
     Game.SetInChargen(false, false, false)
     float waitedLoad = 0.0
-    while loadingMenuOpen && waitedLoad < StartLoadTimeout
+    bool wasLoading = loadingMenuOpen
+    while loadingMenuOpen && !loadingMenuClosedSeen && waitedLoad < StartLoadTimeout
         Utility.Wait(0.25)
         waitedLoad += 0.25
     endwhile
-    if loadingMenuOpen
+    string how = "already_loaded_delay"
+    if loadingMenuOpen && !loadingMenuClosedSeen
         loadingMenuOpen = false
-        UnregisterStartLoadingHook()
-        Game.FadeOutGame(False, True, 0.0, 0.1, False)
-        Game.SetInChargen(false, false, false)
+        how = "timeout_delay"
         Trace("mode fade lifted by=timeout s=" + (StartLoadTimeout as int))
-    else
-        UnregisterStartLoadingHook()
+    elseif loadingMenuClosedSeen || wasLoading
+        how = "loading_menu_close_delay"
     endif
+    UnregisterStartLoadingHook()
+    Utility.Wait(0.75)
+    Game.FadeOutGame(False, True, 0.0, 0.1, False)
+    Game.SetInChargen(false, false, false)
+    startUiReady = true
+    Trace("start ui ready released_by=" + how + " waited_s=" + waitedLoad)
 EndFunction
 
 bool Function HoldNeutralSpotForModeChoice(Actor player)
@@ -1680,7 +1697,7 @@ Function RunPreworldLooksChoice(Actor player, bool isWarfare)
         preworldLooksBy = "Trigger"
         return
     endif
-    int cBtn = 0
+    int cBtn = 1
     if StartPickMsg != None
         cBtn = StartPickMsg.Show()
         Trace("start choice button=" + cBtn)
@@ -1690,7 +1707,7 @@ Function RunPreworldLooksChoice(Actor player, bool isWarfare)
         preworldLooksBy = "Trigger"
         return
     endif
-    if cBtn == 1
+    if cBtn == 0
         Trace("quick start: preset kept, creator skipped")
         preworldLooksDone = true
         preworldLooksHow = "quick start"
@@ -1767,13 +1784,20 @@ Function SpawnAtStoryStartPlace(Actor player, int placeRow)
     endwhile
     entered = movedOk || StandsInVault(player)
     FadeIn("mode_story")
-    if startRoomMoves > 0
+    if startRoomMoves > 0 || preworldLooksDone
         if ClearInventory
             ResetInventory(player)
             FillO2(player)
         endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
+        if preworldLooksDone
+            preworldLooksDone = false
+            looksSetStage20 = true
+            Trace("looks done: " + preworldLooksHow)
+            AdvanceTo(20, preworldLooksBy)
+            NoteLooksStage20()
+        endif
     endif
 EndFunction
 
@@ -2184,7 +2208,7 @@ EndFunction
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     if asMenuName == "LoadingMenu"
-        if faded || modeChoiceRan || GetStage() >= 5 || h00SkipLoading
+        if faded || startUiReady || GetStage() >= 5 || h00SkipLoading
             UnregisterStartLoadingHook()
             return
         endif

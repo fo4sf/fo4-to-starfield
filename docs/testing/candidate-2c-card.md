@@ -209,7 +209,7 @@ getglobalvalue 07000896
 
 ### What to Do When a Ride LANDS
 1. Confirm `stage 40 by=Trigger`, `landed z=<z> confirmed=True fallback=false`, and `stage 200 by=Trigger` in `fo4sf_newgame.0.log`.
-2. **Run Card C Outdoor Checks on the Hilltop:** Press **`F`** (`blocked input=handscanner`), press Star Map / Surface Map keys (`step=starmap_blocked n=<k> blocked menu=<menu> route=create`), and press **`M`** (`step=map_markers ... discovered=1`, `step=map_check_hardcore ... source=FO4SFCoreValues.esm:000841`).
+2. **Run Card C Outdoor Checks on the Hilltop:** Press **`F`** (`blocked input=handscanner`) and press **`M`** (`step=map_suppress n=<k> name=<menu> sent=hide`, `step=map_markers ... discovered=1`, `step=map_check_hardcore ... source=FO4SFCoreValues.esm:000841`).
 3. **If Mission Actors & Quests Are Enabled (`07000895 == 0` and `07000896 == 0`):** Walk down into **Card 5** (Sanctuary Codsworth `0x000811` -> Concord raiders + `Quit to Desktop` reload -> Preston `0x000802` 3 exchanges -> Sanctuary workbench `0x005C50`).
 
 ### Undo Command (Game Closed)
@@ -236,7 +236,7 @@ FO4SF_NEWGAME rt=<rt> surface pre_setposition target=<tx> <ty> <tz> cell=<cell> 
 FO4SF_NEWGAME rt=<rt> stage 40 by=Trigger
 FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=false world=<world>
 FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
-step=starmap_blocked n=<k> blocked menu=<menu> route=create
+step=map_suppress n=<k> name=<menu> sent=hide
 step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corners_set=3/3 read_back=match
 ```
 

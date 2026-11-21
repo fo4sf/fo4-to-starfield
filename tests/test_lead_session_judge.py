@@ -52,8 +52,8 @@ SYNTHETIC_SESSION_1_LOGS = {
             "[00:00:08] [info] step=toggle n=1 ignored=menu_open menu=Console",
             "[00:00:09] [info] step=request_open by=map_key page=3 ignored=menu_open menu=Console",
             "[00:00:10] [info] step=starmap_block_install menu=GalaxyStarMapMenu found=1 slot=0 orig_rva=0x01AB20",
-            "[00:00:11] [info] step=starmap_blocked n=1 blocked menu=GalaxyStarMapMenu route=create",
-            "[00:00:12] [info] step=starmap_blocked n=2 blocked menu=GalaxyStarMapMenu route=create",
+            "[00:00:11] [info] step=starmap_blocked n=1 blocked menu=GalaxyStarMapMenu route=create non_null=1",
+            "[00:00:12] [info] step=starmap_blocked n=2 blocked menu=GalaxyStarMapMenu route=create non_null=1",
         ]
     )
     + "\n",

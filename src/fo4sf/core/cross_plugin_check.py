@@ -679,6 +679,9 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":
         records.setdefault(0x800, ("CONT", "FO4SF_Vault111ArmoryCase"))
+    if plugin == "FO4SFNewGame.esm":
+        records.setdefault(0x820, ("REFR", "FO4SF_Vault111PistolRef"))
+        records.setdefault(0x821, ("REFR", "FO4SF_Vault111AmmoRef"))
 
     return plugin, records
 

@@ -67,7 +67,7 @@ step=toggle n=<k> ignored=menu_open menu=Console
 step=map_markers n=<k> discovered=1 undiscovered=<u_cnt> player_idx=<idx> corners_set=3/3 read_back=match
 step=map_check_hardcore idx=<idx> source=FO4SFCoreValues.esm:000841 allow=1
 FO4SF_NEWGAME rt=<rt> blocked input=handscanner
-step=starmap_blocked n=<k> blocked menu=<menu> route=create
+step=map_suppress n=<k> name=<menu> sent=hide
 ```
 
 ### OWNER TEST Items
