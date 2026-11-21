@@ -113,7 +113,11 @@ namespace
 	// Special Pipboy_MapPage MarkerTypesA indices
 	constexpr std::uint32_t kPlayerSetMarkerType = 85;
 	constexpr std::uint32_t kPlayerLocMarkerType = 86;
+	constexpr std::uint32_t kQuestTargetMarkerType = kPlayerSetMarkerType;  // Proven valid MarkerTypesA target icon index
 	constexpr std::uint32_t kMaxLocationIconType = 84;  // 85 and 86 are reserved for PlayerSetMarker and PlayerLocMarker
+	constexpr std::uint32_t kQuestMarkerIdBase = 0xF00000u;
+	constexpr std::size_t   kMaxQuestObjectives = 64;
+	constexpr auto          kQuestObjectivesStoreDefault = "FO4SFPipboyQuestObjectives.tsv";
 
 	constexpr std::size_t   kMaxStoreMarkers = kDiscGlobals * kBitsPerGlobal;
 	constexpr std::size_t   kMaxMapMenus = 16;
@@ -268,6 +272,7 @@ namespace
 	std::atomic<bool>                      g_needTexturesLoaded{ false };
 	std::atomic<bool>                      g_needCenter{ false };
 	std::atomic<std::int32_t>              g_requestedCenterMarkerId{ -1 };
+	std::atomic<std::uint32_t>             g_requestedCenterQuestFormId{ 0 };
 	std::atomic<bool>                      g_textureLogged{ false };
 	std::atomic<bool>                      g_modalOpen{ false };
 	std::atomic<bool>                      g_hasCustomMarker{ false };
@@ -278,6 +283,7 @@ namespace
 	std::atomic<std::uint32_t>             g_hardcoreLogs{ 0 };
 	std::atomic<std::uint32_t>             g_refreshLogs{ 0 };
 	std::atomic<std::uint32_t>             g_markerLogs{ 0 };
+	std::atomic<std::uint32_t>             g_questMarkerLogs{ 0 };
 
 	std::atomic<int>                       g_playerOk{ -1 };
 	std::atomic<int>                       g_gameVmOk{ -1 };
@@ -290,9 +296,14 @@ namespace
 	RE::Scaleform::GFx::Value              g_mapPageVal;
 	const void*                            g_populatedMovie = nullptr;
 	std::int32_t                           g_lastPlayerArrayIdx = -1;
+	std::vector<std::pair<std::uint32_t, std::int32_t>> g_pushedQuestIndices;
 
 	std::mutex                             g_snapLock;
 	LiveSnapshot                           g_snap;
+	std::mutex                             g_questCatalogLock;
+	std::vector<PipboyMap::QuestObjectiveCatalogEntry> g_questCatalog;
+	std::mutex                             g_questMarkersLock;
+	std::vector<PipboyMap::QuestObjectiveMarker> g_questMarkers;
 
 	std::int64_t NowMs()
 	{
@@ -645,6 +656,91 @@ namespace
 		}
 		REX::INFO("step=map_store file={} status=loaded markers={}", a_storePath.filename().string(), g_store.size());
 		return true;
+	}
+
+	void SeedDefaultQuestObjectiveCatalog(std::vector<PipboyMap::QuestObjectiveCatalogEntry>& a_out)
+	{
+		// Canonical coordinates matching FO4SFPipboyMapMarkers.tsv & scripts/ui/pipboy_mission_catalog.py
+		// Vault 111 (-89271.98, 91369.30), Sanctuary Hills (-80768.19, 88174.80),
+		// Concord (-60286.01, 72977.79), Museum of Freedom (-57011.77, 70392.14),
+		// Tenpines Bluff (-22154.77, 89056.08), Corvega (-34808.25, 32128.49), Diamond City (-16384.00, -27852.80).
+		a_out = {
+			{ "FO4SFNewGame.esm", 0x000800u, 10u, -89271.98, 91369.30, "Vault 111", "Leave Vault 111" },
+			{ "FO4SFMission.esm", 0x000816u, 10u, -80768.19, 88174.80, "Sanctuary Hills", "Speak with Codsworth" },
+			{ "FO4SFMission.esm", 0x000800u, 10u, -60286.01, 72977.79, "Concord", "Investigate Concord" },
+			{ "FO4SFMission.esm", 0x000800u, 20u, -57011.77, 70392.14, "Museum of Freedom", "Clear the hostiles outside the museum" },
+			{ "FO4SFMission.esm", 0x000800u, 30u, -57011.77, 70392.14, "Museum of Freedom", "Speak with Preston Garvey" },
+			{ "FO4SFMission.esm", 0x000800u, 35u, -57011.77, 70392.14, "Museum of Freedom", "Speak with Preston Garvey" },
+			{ "FO4SFMission.esm", 0x000817u, 10u, -80768.19, 88174.80, "Sanctuary Hills", "Activate the Sanctuary workbench" },
+			// A4 reserved FormIDs (0x000A20 The First Step, 0x000A50 Jewel of the Commonwealth)
+			{ "FO4SFMission.esm", 0x000A20u, 10u, -22154.77, 89056.08, "Tenpines Bluff", "Talk to the settlers at Tenpines Bluff" },
+			{ "FO4SFMission.esm", 0x000A20u, 20u, -34808.25, 32128.49, "Corvega Assembly Plant", "Clear the raiders at Corvega Assembly Plant" },
+			{ "FO4SFMission.esm", 0x000A50u, 10u, -16384.00, -27852.80, "Diamond City", "Go to Diamond City" },
+		};
+	}
+
+	void LoadQuestObjectiveCatalog(const std::filesystem::path& a_tsvPath)
+	{
+		std::vector<PipboyMap::QuestObjectiveCatalogEntry> catalog;
+		SeedDefaultQuestObjectiveCatalog(catalog);
+		std::ifstream in(a_tsvPath);
+		std::size_t   extraLoaded = 0;
+		if (in) {
+			std::string line;
+			std::size_t lineNo = 0;
+			while (std::getline(in, line)) {
+				++lineNo;
+				if (!line.empty() && line.back() == '\r') {
+					line.pop_back();
+				}
+				if (line.empty() || line[0] == '#') {
+					continue;
+				}
+				if (lineNo == 1 && line.starts_with("plugin\t")) {
+					continue;
+				}
+				std::vector<std::string> cols;
+				std::stringstream        ss(line);
+				std::string              cell;
+				while (std::getline(ss, cell, '\t')) {
+					cols.push_back(cell);
+				}
+				if (cols.size() < 7) {
+					continue;
+				}
+				PipboyMap::QuestObjectiveCatalogEntry row;
+				row.pluginName = cols[0];
+				row.questLocalId = static_cast<std::uint32_t>(std::strtoul(cols[1].c_str(), nullptr, 16)) & 0x00FFFFFFu;
+				row.objectiveNumber = static_cast<std::uint16_t>(std::strtoul(cols[2].c_str(), nullptr, 10));
+				row.xFo4 = std::strtod(cols[3].c_str(), nullptr);
+				row.yFo4 = std::strtod(cols[4].c_str(), nullptr);
+				row.locationLabel = cols[5].substr(0, 96);
+				row.fallbackText = cols[6].substr(0, 120);
+				if (row.pluginName.empty() || !std::isfinite(row.xFo4) || !std::isfinite(row.yFo4)) {
+					continue;
+				}
+				bool replaced = false;
+				for (auto& existing : catalog) {
+					if (SameAscii(existing.pluginName, row.pluginName) &&
+						existing.questLocalId == row.questLocalId &&
+						existing.objectiveNumber == row.objectiveNumber) {
+						existing = row;
+						replaced = true;
+						break;
+					}
+				}
+				if (!replaced && catalog.size() < kMaxQuestObjectives * 4) {
+					catalog.push_back(std::move(row));
+				}
+				++extraLoaded;
+			}
+		}
+		{
+			std::scoped_lock lock(g_questCatalogLock);
+			g_questCatalog = std::move(catalog);
+		}
+		REX::INFO("step=quest_catalog file={} status={} rows={} tsv_rows={}",
+			a_tsvPath.filename().string(), in ? "loaded" : "defaults", g_questCatalog.size(), extraLoaded);
 	}
 
 	const RE::BSFixedString& OurMenuFixed()
@@ -1827,6 +1923,7 @@ namespace PipboyMap
 		if (!CheckMapAddressLibrary(a_dir / "versionlib-1-16-244-0.bin") || !LoadMarkerStore(a_dir / storeFile)) {
 			return;
 		}
+		LoadQuestObjectiveCatalog(a_dir / kQuestObjectivesStoreDefault);
 
 		g_on = true;
 		REX::INFO("step=map_config map_key={} map_page={} menus={} block_starmap={} store={} markers={} travel={}.{} survival={} heading_at={}+{:03X}",
@@ -1988,9 +2085,84 @@ namespace PipboyMap
 		if (!g_on) {
 			return;
 		}
+		g_requestedCenterQuestFormId.store(0u);
 		g_requestedCenterMarkerId.store(a_markerIdOrIndex);
 		g_needCenter = true;
 		g_markersDirty = true;
+	}
+
+	bool LookupQuestObjectiveCatalog(std::string_view a_pluginName, std::uint32_t a_questLocalId,
+		std::uint16_t a_objectiveNumber, QuestObjectiveCatalogEntry& a_out)
+	{
+		std::scoped_lock lock(g_questCatalogLock);
+		if (g_questCatalog.empty()) {
+			SeedDefaultQuestObjectiveCatalog(g_questCatalog);
+		}
+		const std::uint32_t local = a_questLocalId & 0x00FFFFFFu;
+		for (const auto& row : g_questCatalog) {
+			if (SameAscii(row.pluginName, a_pluginName) && row.questLocalId == local &&
+				row.objectiveNumber == a_objectiveNumber) {
+				a_out = row;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void SetActiveQuestObjectives(std::vector<QuestObjectiveMarker> a_markers)
+	{
+		if (a_markers.size() > kMaxQuestObjectives) {
+			a_markers.resize(kMaxQuestObjectives);
+		}
+		bool changed = false;
+		{
+			std::scoped_lock lock(g_questMarkersLock);
+			if (g_questMarkers.size() != a_markers.size()) {
+				changed = true;
+			} else {
+				for (std::size_t i = 0; i < a_markers.size(); ++i) {
+					const auto& a = g_questMarkers[i];
+					const auto& b = a_markers[i];
+					if (a.questFormId != b.questFormId || a.objectiveNumber != b.objectiveNumber ||
+						std::abs(a.xFo4 - b.xFo4) > 0.5 || std::abs(a.yFo4 - b.yFo4) > 0.5 ||
+						a.objectiveText != b.objectiveText) {
+						changed = true;
+						break;
+					}
+				}
+			}
+			if (changed) {
+				g_questMarkers = std::move(a_markers);
+			}
+		}
+		if (changed) {
+			g_markersDirty = true;
+		}
+	}
+
+	bool RequestCenterQuest(std::uint32_t a_questFormId)
+	{
+		if (!g_on || a_questFormId == 0) {
+			return false;
+		}
+		bool found = false;
+		{
+			std::scoped_lock lock(g_questMarkersLock);
+			for (const auto& qm : g_questMarkers) {
+				if (qm.questFormId == a_questFormId) {
+					found = true;
+					break;
+				}
+			}
+		}
+		if (!found) {
+			return false;
+		}
+		g_requestedCenterMarkerId.store(-1);
+		g_requestedCenterQuestFormId.store(a_questFormId);
+		g_needCenter = true;
+		g_markersDirty = true;
+		return true;
 	}
 
 	void ReleaseMovieRefs()
@@ -1998,6 +2170,8 @@ namespace PipboyMap
 		g_mapPageVal = RE::Scaleform::GFx::Value{};
 		g_needTexturesLoaded = false;
 		g_requestedCenterMarkerId = -1;
+		g_requestedCenterQuestFormId = 0;
+		g_pushedQuestIndices.clear();
 		g_modalOpen = false;
 	}
 
@@ -2170,6 +2344,45 @@ namespace PipboyMap
 				}
 			}
 
+			std::vector<PipboyMap::QuestObjectiveMarker> qMarkersCopy;
+			{
+				std::scoped_lock lock(g_questMarkersLock);
+				qMarkersCopy = g_questMarkers;
+			}
+			g_pushedQuestIndices.clear();
+			std::uint32_t pushedQuestCount = 0;
+			for (std::size_t qi = 0; qi < qMarkersCopy.size(); ++qi) {
+				const auto& qm = qMarkersCopy[qi];
+				RE::Scaleform::GFx::Value qEntry;
+				a_root->CreateObject(&qEntry, "Object");
+				if (!qEntry.IsObject()) {
+					continue;
+				}
+				const std::string label = qm.questName.empty()
+					? qm.objectiveText
+					: (qm.objectiveText.empty() ? qm.questName : (qm.questName + ": " + qm.objectiveText));
+				qEntry.SetMember("arrayIndex", RE::Scaleform::GFx::Value(arrIdx));
+				qEntry.SetMember("markerId", RE::Scaleform::GFx::Value(kQuestMarkerIdBase + static_cast<std::uint32_t>(qi)));
+				qEntry.SetMember("x", RE::Scaleform::GFx::Value(qm.xFo4));
+				qEntry.SetMember("y", RE::Scaleform::GFx::Value(qm.yFo4));
+				qEntry.SetMember("type", RE::Scaleform::GFx::Value(kQuestTargetMarkerType));
+				qEntry.SetMember("name", RE::Scaleform::GFx::Value(label.c_str()));
+				qEntry.SetMember("undiscovered", RE::Scaleform::GFx::Value(false));
+				qEntry.SetMember("isQuestTarget", RE::Scaleform::GFx::Value(true));
+				qEntry.SetMember("questFormID", RE::Scaleform::GFx::Value(qm.questFormId));
+				qEntry.SetMember("objectiveIndex", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(qm.objectiveNumber)));
+				if (PushMarkerObject(markersArr, qEntry)) {
+					g_pushedQuestIndices.emplace_back(qm.questFormId, static_cast<std::int32_t>(arrIdx));
+					++pushedQuestCount;
+					++arrIdx;
+				}
+			}
+			if (pushedQuestCount > 0 && ++g_questMarkerLogs <= kMaxLogLines) {
+				const auto& first = qMarkersCopy.front();
+				REX::INFO("step=map_quest_markers n={} first_quest={:08X} obj={} x={:.1f} y={:.1f}",
+					pushedQuestCount, first.questFormId, first.objectiveNumber, first.xFo4, first.yFo4);
+			}
+
 			if (g_hasCustomMarker.load()) {
 				RE::Scaleform::GFx::Value wp;
 				a_root->CreateObject(&wp, "Object");
@@ -2339,9 +2552,19 @@ namespace PipboyMap
 				}
 			}
 			if (g_needCenter.exchange(false) && g_lastPlayerArrayIdx >= 0) {
-				std::int32_t centerIdx = g_lastPlayerArrayIdx;
-				const auto   wantId = g_requestedCenterMarkerId.exchange(-1);
-				if (wantId >= 0) {
+				std::int32_t  centerIdx = g_lastPlayerArrayIdx;
+				const auto    wantQuest = g_requestedCenterQuestFormId.exchange(0u);
+				const auto    wantId = g_requestedCenterMarkerId.exchange(-1);
+				std::uint32_t centeredQuest = 0;
+				if (wantQuest != 0) {
+					for (const auto& [qFid, qArrIdx] : g_pushedQuestIndices) {
+						if (qFid == wantQuest) {
+							centerIdx = qArrIdx;
+							centeredQuest = qFid;
+							break;
+						}
+					}
+				} else if (wantId >= 0) {
 					for (std::size_t mi = 0; mi < g_store.size(); ++mi) {
 						if (static_cast<std::int32_t>(g_store[mi].localId) == (wantId & 0xFFFFFF) ||
 							static_cast<std::int32_t>(g_store[mi].index) == wantId) {
@@ -2353,7 +2576,11 @@ namespace PipboyMap
 				RE::Scaleform::GFx::Value idxArg(static_cast<std::uint32_t>(centerIdx));
 				RE::Scaleform::GFx::Value res;
 				const bool called = InvokeMapMovie(g_mapPageVal, "SetCenterMarker", &res, &idxArg, 1, "MapPage.SetCenterMarker");
-				REX::INFO("step=map_center idx={} called={}", centerIdx, called ? 1 : 0);
+				if (centeredQuest != 0) {
+					REX::INFO("step=map_center idx={} quest={:08X} called={}", centerIdx, centeredQuest, called ? 1 : 0);
+				} else {
+					REX::INFO("step=map_center idx={} called={}", centerIdx, called ? 1 : 0);
+				}
 				if (!called) {
 					REX::INFO("step=movie_call_miss where=SetCenterMarker");
 					return;

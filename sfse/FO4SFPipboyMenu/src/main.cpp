@@ -4255,9 +4255,11 @@ namespace
 		const auto handler = Singleton(kDataHandlerSingleton);
 		ObjectType hType;
 		std::set<std::uint32_t> seenQuests;
+		std::vector<PipboyMap::QuestObjectiveMarker> activeQuestMarkers;
+		std::size_t totalObjectives = 0;
 		bool workshopPluginLoaded = false;
 
-		const auto tryQuestForm = [&](std::uint32_t a_fid) {
+		const auto tryQuestForm = [&](std::string_view a_pluginName, std::uint32_t a_localId, std::uint32_t a_fid) {
 			if (!a_fid || seenQuests.contains(a_fid)) {
 				return;
 			}
@@ -4283,7 +4285,15 @@ namespace
 						Peek(objPtr + kObjectiveOwnerAt, owner) && owner == form &&
 						Peek(objPtr + kObjectiveNumberAt, num) && Peek(objPtr + kObjectiveStateAt, st) &&
 						(st == 1 || st == 3)) {
-						objs.push_back({ num, st, ReadObjectiveDisplayText(objPtr, num) });
+						std::string objText = ReadObjectiveDisplayText(objPtr, num);
+						if (objText == std::format("Objective {}", num)) {
+							PipboyMap::QuestObjectiveCatalogEntry cat{};
+							if (PipboyMap::LookupQuestObjectiveCatalog(a_pluginName, a_localId, num, cat) &&
+								!cat.fallbackText.empty()) {
+								objText = cat.fallbackText;
+							}
+						}
+						objs.push_back({ num, st, std::move(objText) });
 					}
 				}
 			}
@@ -4299,16 +4309,18 @@ namespace
 					ReadPoolString(fnEntry, qName);
 				}
 			}
-			if (qName.empty()) {
+			const bool hasDisplayName = !qName.empty();
+			if (!hasDisplayName) {
 				qName = EditorIdOf(form, "TESQuest@@", 0x30);
 			}
-			if (qName.empty() || qName.find("_Probe") != std::string::npos || qName.find("_Bootstrap") != std::string::npos) {
-				if (objs.empty() && qName.find("FO4SF_") == 0) {
-					return;   // Skip silent internal utility quests with no display name and no shown objectives
-				}
-				if (qName.empty()) {
-					qName = std::format("Quest {:08X}", a_fid);
-				}
+			if (objs.empty() && (!hasDisplayName || qName.find("_Probe") != std::string::npos ||
+				qName.find("_Bootstrap") != std::string::npos || qName.find("Keeper") != std::string::npos ||
+				qName.find("COMPreston") != std::string::npos || qName.find("_Travel") != std::string::npos ||
+				qName.find("_CoreCandidate") != std::string::npos)) {
+				return;   // Skip silent internal controller/utility quests with no player display name or objectives
+			}
+			if (qName.empty()) {
+				qName = std::format("Quest {:08X}", a_fid);
 			}
 			seenQuests.insert(a_fid);
 			ShellQuestEntry qe;
@@ -4318,7 +4330,31 @@ namespace
 			qe.active = !qe.completed && !inactiveCopy.contains(a_fid);
 			qe.sortVal = qe.completed ? 1 : 0;
 			qe.objectives = std::move(objs);
-			qe.description = qe.objectives.empty() ? std::string{} : qe.objectives.front().text;
+			totalObjectives += qe.objectives.size();
+			// Prefer the first active (uncompleted, state == 1) objective for the quest card summary
+			for (const auto& ob : qe.objectives) {
+				if (ob.state == 1) {
+					qe.description = ob.text;
+					if (qe.active && !qe.completed) {
+						PipboyMap::QuestObjectiveCatalogEntry cat{};
+						if (PipboyMap::LookupQuestObjectiveCatalog(a_pluginName, a_localId, ob.number, cat)) {
+							activeQuestMarkers.push_back({
+								qe.formId,
+								ob.number,
+								cat.xFo4,
+								cat.yFo4,
+								qe.name,
+								ob.text,
+								cat.locationLabel,
+							});
+						}
+					}
+					break;
+				}
+			}
+			if (qe.description.empty() && !qe.objectives.empty()) {
+				qe.description = qe.objectives.front().text;
+			}
 			a_out.quests.push_back(std::move(qe));
 		};
 
@@ -4350,7 +4386,7 @@ namespace
 					Peek(file + kFileCompileIndexAt, compile);
 					Peek(file + kFileIndexAt, fidx.data(), fidx.size());
 					const std::uint32_t smallIdx = fidx[2] | (fidx[3] << 8);
-					for (std::uint32_t localId = 0x800; localId <= 0x8FF; ++localId) {
+					for (std::uint32_t localId = 0x800; localId <= 0xAFF; ++localId) {
 						std::uint32_t fid = 0;
 						if (kind == 0) {
 							const std::uint8_t topByte = compile != 0xFF && compile != 0 ? compile : fidx[0];
@@ -4363,11 +4399,14 @@ namespace
 						} else {
 							fid = 0xFD000000u | (std::uint32_t{ fidx[1] } << 16) | (localId & 0xFFFF);
 						}
-						tryQuestForm(fid);
+						tryQuestForm(sv, localId, fid);
 					}
 				}
 			}
 		}
+
+		const std::size_t qmCount = activeQuestMarkers.size();
+		PipboyMap::SetActiveQuestObjectives(std::move(activeQuestMarkers));
 
 		std::ranges::stable_sort(a_out.quests, [](const ShellQuestEntry& a, const ShellQuestEntry& b) {
 			if (a.completed != b.completed) {
@@ -4389,6 +4428,18 @@ namespace
 		std::size_t completedQuests = 0;
 		for (const auto& q : a_out.quests) {
 			q.completed ? ++completedQuests : ++activeQuests;
+		}
+		static std::uint32_t s_questCollectLogs = 0;
+		static std::size_t   s_lastLoggedQ = static_cast<std::size_t>(-1);
+		static std::size_t   s_lastLoggedObj = static_cast<std::size_t>(-1);
+		static std::size_t   s_lastLoggedQm = static_cast<std::size_t>(-1);
+		if ((a_out.quests.size() != s_lastLoggedQ || totalObjectives != s_lastLoggedObj || qmCount != s_lastLoggedQm) &&
+			++s_questCollectLogs <= 64) {
+			s_lastLoggedQ = a_out.quests.size();
+			s_lastLoggedObj = totalObjectives;
+			s_lastLoggedQm = qmCount;
+			REX::INFO("step=quests_collect n={} active={} completed={} objectives={} quest_markers={}",
+				a_out.quests.size(), activeQuests, completedQuests, totalObjectives, qmCount);
 		}
 		a_out.statCategories = {
 			{ "General", {
@@ -4809,6 +4860,9 @@ namespace
 			CollectQuestAndStatsMainThread(next, days, invDataNext);
 			std::scoped_lock invLock(g_invDataLock);
 			g_invDataSnap = std::move(invDataNext);
+		} else if (PipboyMap::Enabled()) {
+			// A5: keep MAP active objective markers synced even when InvDataAnswers=0
+			CollectQuestAndStatsMainThread(next, days, invDataNext);
 		}
 
 		bool changed = false;
@@ -5899,9 +5953,12 @@ namespace
 					if (a_params.argCount >= 1) {
 						ExtractShellIndex(a_params.args[0], targetId, 0x7FFFFFFF);
 					}
-					REX::INFO("step=data_show_on_map kind={} id={:#x}", _name == "ShowQuestOnMap" ? "quest" : "workshop",
+					const bool isQuest = (_name == "ShowQuestOnMap");
+					REX::INFO("step=data_show_on_map kind={} id={:#x}", isQuest ? "quest" : "workshop",
 						targetId >= 0 ? targetId : 0);
-					PipboyMap::RequestCenterMarker(targetId);
+					if (!(isQuest && targetId > 0 && PipboyMap::RequestCenterQuest(static_cast<std::uint32_t>(targetId)))) {
+						PipboyMap::RequestCenterMarker(targetId);
+					}
 					s_savedPage.store(3u);
 					s_savedTabs[3].store(0u);
 					g_externalTargetPage.store(3);
@@ -9234,7 +9291,13 @@ namespace
 		} else if (at < g_armLowerUntil.load()) {
 			REX::INFO("step=arm_key ignored=lowering lock_left_ms={} t_ms={}", g_armLowerUntil.load() - at, at - g_armPressAt.load());
 		} else if (opening) {
-			REX::INFO("step=arm_key ignored=opening pending=1 t_ms={}", at - g_armPressAt.load());
+			// A5 / R10: pressing the Pip-Boy key again while the wrist is raising skips the remaining raise delay
+			if (auto pendingShow = g_armShowAt.load(); pendingShow > at) {
+				g_armShowAt.store(at);
+				REX::INFO("step=arm_raise_skip_wait n={} t_ms={}", g_armN.load(), at - g_armPressAt.load());
+			} else {
+				REX::INFO("step=arm_key ignored=opening pending=1 t_ms={}", at - g_armPressAt.load());
+			}
 		} else {
 			const auto n = ++a_presses;
 			const bool shown = g_armShown.load();
@@ -9304,6 +9367,20 @@ namespace
 					g_task->AddTask([rn]() { ArmLower(rn); });
 				}
 			}
+		}
+		// A5 / R10: hard non-blocking watchdog so a stalled wrist idle can NEVER block opening the Pip-Boy
+		constexpr std::int64_t kArmWatchdogSlackMs = 500;
+		const auto             pressAt = g_armPressAt.load();
+		const auto             maxWaitMs = static_cast<std::int64_t>(g_armRaiseMs) + static_cast<std::int64_t>(g_armRetryMs) + kArmWatchdogSlackMs;
+		if (pressAt > 0 && !g_armShown.load() && (tick - pressAt) >= maxWaitMs &&
+			(g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0)) {
+			g_armDispatching = false;
+			g_raiseRetry.state = kRetryIdle;
+			g_armShowAt = 0;
+			const auto sn = g_armN.load();
+			REX::INFO("step=arm_watchdog_open n={} elapsed_ms={}", sn, tick - pressAt);
+			g_task->AddTask([sn]() { ArmShow(sn); });
+			a_check = { sn, tick + 750 };
 		}
 		if (auto showAt = g_armShowAt.load(); showAt && tick >= showAt && g_armShowAt.compare_exchange_strong(showAt, 0)) {
 			const auto sn = g_armN.load();
