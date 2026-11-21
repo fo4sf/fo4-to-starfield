@@ -131,7 +131,8 @@ static class NewGame
                         StoryLineMsgEdid = "FO4SF_NewGameStoryLineMsg",
                         ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg",
                         VaultPistolRefEdid = "FO4SF_Vault111PistolRef",
-                        VaultAmmoRefEdid = "FO4SF_Vault111AmmoRef";
+                        VaultAmmoRefEdid = "FO4SF_Vault111AmmoRef",
+                        DiscoverSecretAreaXpGmstEdid = "iXPRewardDiscoverSecretArea";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
     public const uint ModePickMsgId = 0x806,
                       SurvivalPickMsgId = 0x807,
@@ -1728,6 +1729,15 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
+        // T8: suppress Starfield's 40 XP discovery popup in Vault 111 when Starfield.esm defines iXPRewardDiscoverSecretArea
+        var discoverXpGmst = sf.GameSettings.OfType<SF.IGameSettingIntGetter>()
+            .FirstOrDefault(g => string.Equals(g.EditorID, DiscoverSecretAreaXpGmstEdid, StringComparison.Ordinal));
+        if (discoverXpGmst is not null)
+        {
+            var gmstOver = (SF.GameSettingInt)discoverXpGmst.DeepCopy();
+            gmstOver.Data = 0;
+            mod.GameSettings.Add(gmstOver);
+        }
         mod.ModHeader.Stats.NextFormID = VaultAmmoRefId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
@@ -1969,6 +1979,21 @@ static class NewGame
             Console.WriteLine($"  GLOB {VersionGlobEdid} = {(ver?.Data is { } vd ? F(vd) : "missing")} flags {ver?.MajorFlags}");
         }
         else Need(own.Count == 0, "a --no-version build carries a local GLOB");
+
+        var sfDiscoverXp = sf.GameSettings.OfType<SF.IGameSettingIntGetter>()
+            .FirstOrDefault(g => string.Equals(g.EditorID, DiscoverSecretAreaXpGmstEdid, StringComparison.Ordinal));
+        if (sfDiscoverXp is not null)
+        {
+            var gmstOver = plug.GameSettings.OfType<SF.IGameSettingIntGetter>()
+                .FirstOrDefault(g => g.FormKey == sfDiscoverXp.FormKey);
+            Need(plug.GameSettings.Count == 1 && gmstOver is not null &&
+                 gmstOver.EditorID == sfDiscoverXp.EditorID && gmstOver.Data == 0,
+                 $"GMST {DiscoverSecretAreaXpGmstEdid} ({sfDiscoverXp.FormKey}) is not overridden to 0");
+        }
+        else
+        {
+            Need(plug.GameSettings.Count == 0, $"unexpected GMST override when Starfield.esm lacks {DiscoverSecretAreaXpGmstEdid}");
+        }
 
         // our own start: exactly one DFOB, Starfield's StartupQuest_DO overridden (same id and EditorID) to name our quest
         var opening = sf.Quests.FirstOrDefault(x => x.EditorID == OpeningEdid);
@@ -2414,6 +2439,7 @@ static class NewGame
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
         startupDo.Object.SetTo(new FormKey(SfEsm, 0x902));
         sf.DefaultObjects.Add(startupDo);
+        sf.GameSettings.Add(new SF.GameSettingInt(new FormKey(SfEsm, 0x001234), rel) { EditorID = DiscoverSecretAreaXpGmstEdid, Data = 40 });
         sf.ModHeader.Stats.NextFormID = 0x800;
         var sfPath = Path.Combine(dir, "Starfield.esm");
         sf.BeginWrite.ToPath(sfPath).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
@@ -2760,6 +2786,8 @@ static class NewGame
             ("VaultPistolBase pointed at another form", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultPistolBase")).Object.SetTo(new FormKey(SfEsm, SfFallbackJumpsuitId))),
             ("Vault111 temporary pistol removed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; c.Temporary.Remove(c.Temporary.First(x => x.EditorID == VaultPistolRefEdid)); }),
             ("Vault111 temporary ammo count changed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; ((SF.PlacedObject)c.Temporary.First(x => x.EditorID == VaultAmmoRefEdid)).Count = 12; }),
+            ("iXPRewardDiscoverSecretArea GMST removed", m => m.GameSettings.Clear()),
+            ("iXPRewardDiscoverSecretArea GMST nonzero", m => ((SF.GameSettingInt)m.GameSettings.First(g => g.EditorID == DiscoverSecretAreaXpGmstEdid)).Data = 40),
             ("ConsoleRefId changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ConsoleRefId")).Data = 0x999),
         };
         foreach (var (name, edit) in mutations)
@@ -2963,12 +2991,13 @@ static class NewGame
             try { Write(sfPath, portPath, idsPath, corePath, pointsPath, Path.Combine(outDir, "refused_sp2"), plain with { StartPlacesJson = badSpMarker }); Console.WriteLine("FAIL  write accepted missing start_places marker"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected (missing start_places marker): {e.Message}"); }
         }
-        // T4: synthetic Starfield.esm without 0x24561C builds and passes Check with 0 temporary vault pickups
+        // T4 / T8: synthetic Starfield.esm without 0x24561C or iXPRewardDiscoverSecretArea builds and passes Check cleanly
         {
             var sfAltPistol = SfVariant("sf_no_24561c", m =>
             {
                 m.Weapons.Clear();
                 m.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, 0x2773C8), rel) { EditorID = "AltSynthWeapon" });
+                m.GameSettings.Clear();
             });
             var altRlPath = Path.Combine(dir, "alt_route_loot_ids.json");
             File.WriteAllText(altRlPath, "{\"schema_version\": 1, \"vault111\": {\"pistol_id\": \"0x2773C8\"}}");

@@ -692,6 +692,7 @@ def stage(a):
                 staged_assets[rel] = want
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
+    o_show_unavailable = getattr(a, "show_unavailable_starts", 0)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
             "options": {"hold": hold_option(a), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
@@ -702,7 +703,7 @@ def stage(a):
                         "o2_fill": o2_fill_option(a),
                         "fade_hold": not bool(getattr(a, "no_fade_hold", False)),
                         "start_choice_backdrop": getattr(a, "start_choice_backdrop", None) or "empty_cell",
-                        "show_unavailable_starts": bool(getattr(a, "show_unavailable_starts", 0)),
+                        "show_unavailable_starts": int(bool(o_show_unavailable)),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,

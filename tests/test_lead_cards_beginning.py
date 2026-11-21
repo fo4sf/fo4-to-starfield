@@ -44,10 +44,11 @@ from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 from fo4sf.testing.lead_session_specs import expected_sheet_pass_lines  # noqa: E402
 import tests.test_core_bundle as _tcb  # noqa: E402
 
-# R11 / G1 / P2: read ONLY the five card & run-order files owned by gemini/beginning-real (#833)
+# R11 / G1 / P2: read ONLY the six card & run-order files owned by gemini/beginning-real (#833)
 CARD_PATHS: Tuple[str, ...] = (
     "docs/testing/candidate-2-cards.md",
     "docs/testing/candidate-2c-card.md",
+    "docs/testing/candidate-2d-card.md",
     "docs/testing/fo4-beginning-pilot.md",
     "docs/testing/sanctuary-workbench-card.md",
     "docs/testing/lead-run-order.md",
@@ -493,7 +494,7 @@ def validate_lead_card_markdown(
                     has_undo = True
 
                 if bundle_fixtures is not None:
-                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bc]-[^>\s]+>)", cline)
+                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bcd]-[^>\s]+>)", cline)
                     if m_ver:
                         b_ph = m_ver.group(1)
                         if b_ph not in bundle_fixtures:
@@ -703,6 +704,24 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
     if rc_t != 0:
         raise RuntimeError(f"failed folding synthetic cand2b-test-bundle (rc={rc_t})")
 
+    cand2d_player = tmp_root / "cand2d-player-bundle"
+    rc_2d_p = mcb.main(
+        [
+            "fold",
+            "--owner-set", str(owner),
+            "--stages-root", str(stages_root),
+            "--clean-core-out", str(tmp_root / "clean-player-2d"),
+            "--out", str(cand2d_player),
+            "--port", str(port_esm),
+            "--profile", "player",
+            "--with-pipboy",
+            "--pipboy-stage", str(pb),
+        ],
+        system=_tcb._FakeSystemClosed(),
+    )
+    if rc_2d_p != 0:
+        raise RuntimeError(f"failed folding synthetic cand2d-player-bundle (rc={rc_2d_p})")
+
     # Broken Round-1 Candidate 2 player fixture: lacks Data/Interface/pipboybootsequence.swf (A1 / H1)
     cand2_broken = tmp_root / "cand2-player-bundle"
     shutil.copytree(cand2b_player, cand2_broken)
@@ -716,6 +735,10 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
         "<cand2b-test-bundle>": cand2b_test,
         "<cand2c-player-bundle>": cand2b_player,
         "<cand2c-test-bundle>": cand2b_test,
+        "<cand2d-player-bundle>": cand2d_player,
+        "<cand2d-test-bundle>": cand2b_test,
+        "<cand2d-t1-bases-only>": cand2b_player,
+        "<cand2d-t1-ext-overrides-only>": cand2b_player,
         "<cand2-player-bundle>": cand2_broken,
         "__port__": port_esm,
     }
@@ -1005,6 +1028,7 @@ class LeadCardsBeginningTests(unittest.TestCase):
             (
                 "docs/testing/candidate-2-cards.md",
                 "docs/testing/candidate-2c-card.md",
+                "docs/testing/candidate-2d-card.md",
                 "docs/testing/fo4-beginning-pilot.md",
                 "docs/testing/sanctuary-workbench-card.md",
                 "docs/testing/lead-run-order.md",

@@ -1034,7 +1034,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
 
     ng_dir = os.path.join(work, "03-newgame")
     if not os.path.exists(ng_dir):
-        _run_py(py_main, "scripts/newgame/make_newgame.py", [
+        ng_args = [
             "stage",
             "--out", ng_dir,
             "--cog-door", cog_dir,
@@ -1046,7 +1046,10 @@ def stage_from_checkout(a) -> Dict[str, str]:
             "--starfield", sf_esm,
             "--compiler", compiler,
             "--content-resources", cr_zip,
-        ])
+        ]
+        if getattr(a, "show_unavailable_starts", None) is not None:
+            ng_args.extend(["--show-unavailable-starts", str(int(a.show_unavailable_starts))])
+        _run_py(py_main, "scripts/newgame/make_newgame.py", ng_args)
     # Verify hold 199 and pod_step -2.5 in staged NewGame plan
     with open(os.path.join(ng_dir, "plan.json"), encoding="utf-8") as f:
         ng_plan = json.load(f)
@@ -1171,10 +1174,15 @@ def stage_from_checkout(a) -> Dict[str, str]:
         validate_pipboy_stage(a.pipboy_stage, has_override_dll=has_src_pb)
         pb_refreshed = os.path.join(work, "16-pipboy-refreshed")
         if not os.path.exists(pb_refreshed):
+            resolved_show_unavail = resolve_setup_show_unavailable(
+                getattr(a, "show_unavailable_starts", None),
+                ng_plan,
+            )
             refresh_pipboy_stage_for_bundle(
                 os.path.abspath(a.pipboy_stage),
                 pb_refreshed,
                 os.path.abspath(a.fo4_data),
+                setup_show_unavailable=resolved_show_unavail or 0,
             )
         stages["pipboy"] = pb_refreshed
         if pb_override:
@@ -1264,6 +1272,12 @@ def refresh_pipboy_stage_for_bundle(
         os.makedirs(sfse_plugins_dst, exist_ok=True)
         shutil.copy2(start_places_src, os.path.join(sfse_plugins_dst, "FO4SFStartPlaces.json"))
         updated_data_rels.append("SFSE/Plugins/FO4SFStartPlaces.json")
+    warfare_starts_src = os.path.join(REPO, "src", "fo4sf", "core", "warfare_starts.json")
+    if os.path.isfile(warfare_starts_src):
+        sfse_plugins_dst = os.path.join(partial, "SFSE", "Plugins")
+        os.makedirs(sfse_plugins_dst, exist_ok=True)
+        shutil.copy2(warfare_starts_src, os.path.join(sfse_plugins_dst, "FO4SFWarfareStarts.json"))
+        updated_data_rels.append("SFSE/Plugins/FO4SFWarfareStarts.json")
 
     stage_ini_p = os.path.join(partial, "SFSE", "Plugins", "FO4SFPipboyMenu.ini")
     if os.path.isfile(stage_ini_p):
@@ -1335,11 +1349,67 @@ def strip_pipboy_kit_sections(ini_text: str) -> str:
     return "\n".join(out_lines).rstrip() + "\n"
 
 
-def _copy_or_strip_pipboy_ini(src_path: str, dst_path: str) -> None:
+def resolve_setup_show_unavailable(
+    cli_value: Optional[int],
+    ng_plan: Optional[dict],
+) -> Optional[int]:
+    """Resolve `SetupShowUnavailable` (`0|1`) from `--show-unavailable-starts` or `03-newgame/plan.json`."""
+    if cli_value is not None:
+        return 1 if int(cli_value) else 0
+    if isinstance(ng_plan, dict):
+        opts = ng_plan.get("options")
+        if isinstance(opts, dict) and "show_unavailable_starts" in opts:
+            return 1 if bool(opts["show_unavailable_starts"]) else 0
+        if "show_unavailable_starts" in ng_plan:
+            return 1 if bool(ng_plan["show_unavailable_starts"]) else 0
+    return None
+
+
+def set_pipboy_ini_setup_show_unavailable(ini_text: str, setup_show_unavailable: int) -> str:
+    """Update or insert `SetupShowUnavailable=<0|1>` inside `[FO4SFPipboyMenu]`."""
+    val_line = f"SetupShowUnavailable={1 if setup_show_unavailable else 0}"
+    out_lines: List[str] = []
+    in_main = False
+    replaced = False
+    saw_main = False
+    for line in ini_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main and not replaced:
+                out_lines.append(val_line)
+                replaced = True
+            sec = stripped[1:-1].strip()
+            in_main = sec == "FO4SFPipboyMenu"
+            if in_main:
+                saw_main = True
+            out_lines.append(line)
+            continue
+        if in_main and "=" in stripped and stripped.split("=", 1)[0].strip().lower() == "setupshowunavailable":
+            if not replaced:
+                out_lines.append(val_line)
+                replaced = True
+            continue
+        out_lines.append(line)
+    if in_main and not replaced:
+        out_lines.append(val_line)
+        replaced = True
+    elif not saw_main and not replaced:
+        out_lines.extend(["[FO4SFPipboyMenu]", val_line])
+    return "\n".join(out_lines).rstrip() + "\n"
+
+
+def _copy_or_strip_pipboy_ini(
+    src_path: str,
+    dst_path: str,
+    *,
+    setup_show_unavailable: Optional[int] = None,
+) -> None:
     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
     if os.path.basename(dst_path).lower().endswith(".ini") and "pipboymenu" in os.path.basename(dst_path).lower():
         with open(src_path, encoding="utf-8") as f:
             cleaned = strip_pipboy_kit_sections(f.read())
+        if setup_show_unavailable is not None:
+            cleaned = set_pipboy_ini_setup_show_unavailable(cleaned, setup_show_unavailable)
         with open(dst_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(cleaned)
     else:
@@ -1359,6 +1429,7 @@ def fold_bundle(
     profile: str = "player",
     pipboy_sfse_override: Optional[str] = None,
     with_route_loot: bool = False,
+    setup_show_unavailable: Optional[int] = None,
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
     final = os.path.abspath(out_dir)
@@ -1445,6 +1516,10 @@ def fold_bundle(
                     sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
         elif key == "pipboy":
             validate_pipboy_stage(st_dir, has_override_dll=bool(pipboy_sfse_override))
+            effective_setup_show_unavailable = resolve_setup_show_unavailable(
+                setup_show_unavailable,
+                ng_plan_obj,
+            )
             sfse_plugins_src = os.path.join(st_dir, "SFSE", "Plugins")
             sidecar_src = os.path.join(st_dir, "sfse")
             if os.path.isdir(sfse_plugins_src):
@@ -1453,14 +1528,22 @@ def fold_bundle(
                     if os.path.isfile(sfile):
                         rel_sc = f"SFSE/Plugins/{fn}"
                         dst_sc = os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", fn)
-                        _copy_or_strip_pipboy_ini(sfile, dst_sc)
+                        _copy_or_strip_pipboy_ini(
+                            sfile,
+                            dst_sc,
+                            setup_show_unavailable=effective_setup_show_unavailable,
+                        )
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
             elif os.path.isdir(sidecar_src):
                 for fn in sorted(os.listdir(sidecar_src)):
                     sfile = os.path.join(sidecar_src, fn)
                     if os.path.isfile(sfile):
                         dst_sc = os.path.join(partial, "sfse_sidecar", fn)
-                        _copy_or_strip_pipboy_ini(sfile, dst_sc)
+                        _copy_or_strip_pipboy_ini(
+                            sfile,
+                            dst_sc,
+                            setup_show_unavailable=effective_setup_show_unavailable,
+                        )
                         sfse_sidecar_hashes[fn] = sha256_file(dst_sc)
             if pipboy_sfse_override and os.path.isdir(pipboy_sfse_override):
                 for src_fn, dst_fn in (
@@ -1475,7 +1558,11 @@ def fold_bundle(
                         # Never overwrite a generated Stage=2 FO4SFPipboyMenu.ini with build.ps1's idle Stage=0 INI
                         if dst_fn == "FO4SFPipboyMenu.ini" and os.path.isfile(dst_sc):
                             continue
-                        _copy_or_strip_pipboy_ini(sfile, dst_sc)
+                        _copy_or_strip_pipboy_ini(
+                            sfile,
+                            dst_sc,
+                            setup_show_unavailable=effective_setup_show_unavailable,
+                        )
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
 
         comp_plugins, comp_outputs = extract_component_outputs(key, st_dir)
@@ -1609,6 +1696,7 @@ def cmd_build(a, system=None) -> int:
         profile=a.profile,
         pipboy_sfse_override=getattr(a, "_pipboy_sfse_override", None),
         with_route_loot=bool(getattr(a, "with_route_loot", False)),
+        setup_show_unavailable=getattr(a, "show_unavailable_starts", None),
     )
     return 0
 
@@ -1683,6 +1771,7 @@ def cmd_fold(a, system=None) -> int:
         profile=profile,
         pipboy_sfse_override=os.path.abspath(a.pipboy_sfse_build) if getattr(a, "pipboy_sfse_build", None) else None,
         with_route_loot=with_route_loot,
+        setup_show_unavailable=getattr(a, "show_unavailable_starts", None),
     )
     return 0
 
@@ -2068,6 +2157,13 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--no-walk-harness", action="store_true")
     b.add_argument("--with-pipboy", action="store_true")
     b.add_argument("--pipboy-stage", default=None)
+    b.add_argument(
+        "--show-unavailable-starts",
+        type=int,
+        choices=(0, 1),
+        default=None,
+        help="S3 unavailable-start policy (0|1) forwarded to NewGame and FO4SFPipboyMenu.ini SetupShowUnavailable (default: inherit 03-newgame/plan.json or 0)",
+    )
     b.add_argument("--no-hardlink", action="store_true")
     b.add_argument("--max-plugins", type=int, default=MAX_STARFIELD_PLUGINS)
     b.add_argument("--max-ba2-bytes", type=int, default=MAX_BA2_BYTES)
@@ -2087,6 +2183,13 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--with-pipboy", action="store_true")
     fo.add_argument("--pipboy-stage", default=None)
     fo.add_argument("--pipboy-sfse-build", default=None)
+    fo.add_argument(
+        "--show-unavailable-starts",
+        type=int,
+        choices=(0, 1),
+        default=None,
+        help="S3 unavailable-start policy (0|1) forwarded to FO4SFPipboyMenu.ini SetupShowUnavailable (default: inherit 03-newgame/plan.json or 0)",
+    )
     fo.add_argument("--no-hardlink", action="store_true")
     fo.add_argument("--max-plugins", type=int, default=MAX_STARFIELD_PLUGINS)
     fo.add_argument("--max-ba2-bytes", type=int, default=MAX_BA2_BYTES)

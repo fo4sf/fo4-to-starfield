@@ -1343,6 +1343,18 @@ class Phase2TrackBTests(unittest.TestCase):
         self.assertIn('SfPrestonWeaponEdid = "Orion"', cs)
         self.assertIn("PrestonTalkSceneId = 0x900", cs)
         self.assertNotIn("calm.Duplicate", cs)
+        # T6 fix: Preston & Codsworth direct E-Talk NPC scenes use 0x1814 (not 0x2814), SCPI = null, and only SceneActor ID = 0
+        build_scene = cs[cs.index("static SF.Scene BuildTopScene("):cs.index("public sealed record MqVoiceSpec")]
+        self.assertIn("Flags = (SF.Scene.Flag)0x1814", build_scene)
+        self.assertIn("SCPI = null", build_scene)
+        self.assertNotIn("0x2814", build_scene)
+        self.assertNotIn("unchecked((uint)-2)", build_scene)
+        self.assertIn("pscnFlags == 0x1814u", cs)
+        self.assertIn("pscn.SCPI is null", cs)
+        self.assertIn("pscn.Actors.Count == 1 && pscn.Actors[0].ID == 0", cs)
+        self.assertIn("cscnFlags == 0x1814u", cs)
+        self.assertIn("cscn.SCPI is null", cs)
+        self.assertIn("cscn.Actors.Count == 1 && cscn.Actors[0].ID == 0", cs)
 
         com = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_COMPreston.psc"))
         psc = read(PSC)

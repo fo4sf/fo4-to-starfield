@@ -349,6 +349,7 @@ bool startRoomUiPrepared = false                             ; fade lifted + bod
 int vaultMoves = 0                                           ; MoveTo calls onto the vault anchor
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
+int warfareFadeTicks = 0
 bool loadingMenuOpen = false
 bool loadingMenuClosedSeen = false
 bool loadingHookRegistered = false
@@ -491,6 +492,7 @@ Function Begin(string route)
     if ready
         if UsePreworldRoom()
             PrepareStartRoomUi("start")
+            Game.ShowFirstPersonGeometry(false)
         else
             FadeIn("start")                                  ; else the timer fades in once the 3D is in
         endif
@@ -622,6 +624,18 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 4
+        warfareFadeTicks += 1
+        Game.ShowFirstPersonGeometry(true)
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+        Game.SetInChargen(false, false, false)
+        Game.SetCharGenHUDMode(0)
+        Trace("warfare fade reassert tick=" + warfareFadeTicks)
+        if warfareFadeTicks < 2
+            StartTimer(2.5, 4)
+        endif
+        return
+    endif
     if aiTimerID == 2
         if modeBoxWaiting
             modeBoxWaitSeconds += 60
@@ -1604,7 +1618,7 @@ Function PrepareStartRoomUi(string by)
     Game.ShowFirstPersonGeometry(false)
     Game.FadeOutGame(False, True, 0.0, 0.1, False)
     Game.SetInChargen(false, false, false)
-    Game.SetCharGenHUDMode(3)
+    Game.SetCharGenHUDMode(2)
     DisableHandScanner()
     Trace("start room ready by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + " backdrop=" + BackdropName())
 EndFunction
@@ -1870,6 +1884,15 @@ int Function RunModeChoiceChain(Actor player)
             if StartPlaceRowGlobal != None
                 placeRow = StartPlaceRowGlobal.GetValue() as int
             endif
+            if modeVal == 2 && StartPlaceWarfareRows != None && placeRow >= 0 && placeRow < StartPlaceWarfareRows.Length
+                int mappedWfRow = StartPlaceWarfareRows[placeRow]
+                if mappedWfRow >= 0 && (WarfareKeys == None || mappedWfRow < WarfareKeys.Length)
+                    rowIdx = mappedWfRow
+                    if WarfareStartIndexGlobal != None
+                        WarfareStartIndexGlobal.SetValue(rowIdx as float)
+                    endif
+                endif
+            endif
         else
             StartCardOpenGlobal.SetValue(0.0)
             effectiveBackdrop = "empty_cell"
@@ -2054,6 +2077,19 @@ int Function RunModeChoiceChain(Actor player)
     return 2
 EndFunction
 
+Function ForceFadeIn(string by)
+{T5: Always re-asserts fade-in, saving, first-person geometry, and HUD even if faded was already true.}
+    faded = true
+    UnregisterStartLoadingHook()
+    Actor player = Game.GetPlayer()
+    Game.ShowFirstPersonGeometry(true)
+    Game.FadeOutGame(False, True, 0.0, 0.1, False)
+    Game.SetInChargen(false, false, false)
+    Game.SetCharGenHUDMode(0)
+    DisableHandScanner()
+    Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")
+EndFunction
+
 Function RunWarfareBranch(Actor player, int rowIdx)
     Game.SetInChargen(false, false, false)
     FO4SF_ProgressionQuest prog = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm") as FO4SF_ProgressionQuest
@@ -2162,6 +2198,12 @@ Function RunWarfareBranch(Actor player, int rowIdx)
             endif
         endwhile
     endif
+    float wPost3d = 0.0
+    while !player.Is3DLoaded() && wPost3d < StartLoadTimeout
+        Utility.Wait(0.25)
+        wPost3d += 0.25
+    endwhile
+    Utility.Wait(0.5)
     Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())
     RunSharedMapSetup()
     if wMarker != None
@@ -2202,7 +2244,9 @@ Function RunWarfareBranch(Actor player, int rowIdx)
         sqCapGlob.SetValue(squadCap as float)
     endif
     Trace("warfare standing slot=" + slot + " fame=" + fame + " infamy=" + infamy + " karma=" + karma + " squad_cap=" + squadCap)
-    FadeIn("warfare")
+    ForceFadeIn("warfare")
+    warfareFadeTicks = 0
+    StartTimer(1.5, 4)
     AdvanceTo(210)
 EndFunction
 

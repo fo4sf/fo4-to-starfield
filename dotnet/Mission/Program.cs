@@ -608,14 +608,17 @@ static class Mission
         (greetTopic.TopicInfoList ??= new()).Add(new FormLink<SF.IDialogResponsesGetter>(greetInfo.FormKey));
         quest.DialogTopics.Add(greetTopic);
 
+        // T6 fix: Direct E-Talk NPC scenes with Phase 0 NPC greeting + Phase 1 PlayerDialogueSceneAction use Flags = 0x1814
+        // (BeginOnPlayerActivate 0x1000 | DisableDialogueCamera 0x0800 | Interruptable 0x0010 | ShowAllText 0x0004),
+        // SCPI = null, and only SceneActor ID = 0 (0x2000 Top-Level Topic Branch + ID = -2 require a Player action in Phase 0).
         var topScene = new SF.Scene(new FormKey(modKey, sceneId), rel)
         {
             EditorID = sceneEdid,
             Quest = new FormLinkNullable<SF.IQuestGetter>(quest.FormKey),
-            Flags = (SF.Scene.Flag)0x2814,
+            Flags = (SF.Scene.Flag)0x1814,
             Index = 0,
             LastActionIndex = 2,
-            SCPI = new byte[] { 0x37, 0x00 },
+            SCPI = null,
             VNAM = new byte[] { 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0 },
         };
         topScene.Conditions.Add(SpeakerIs(speakerNpcKey));
@@ -623,12 +626,6 @@ static class Mission
         topScene.Actors.Add(new SF.SceneActor
         {
             ID = 0,
-            BehaviorFlags = (SF.SceneActor.BehaviorFlag)0x10A,
-            Flags = SF.SceneActor.Flag.NoCommandState,
-        });
-        topScene.Actors.Add(new SF.SceneActor
-        {
-            ID = unchecked((uint)-2),
             BehaviorFlags = (SF.SceneActor.BehaviorFlag)0x10A,
             Flags = SF.SceneActor.Flag.NoCommandState,
         });
@@ -1432,7 +1429,10 @@ static class Mission
                 if (q.Scenes.Count == 1)
                 {
                     var pscn = q.Scenes[0];
-                    Need(((uint)(pscn.Flags ?? 0) & 0x2814u) == 0x2814u, "Preston talk scene lacks 0x2814 flags");
+                    uint pscnFlags = (uint)(pscn.Flags ?? 0);
+                    Need((pscnFlags & 0x2000u) == 0 && pscnFlags == 0x1814u, $"Preston talk scene flags 0x{pscnFlags:X4} != 0x1814");
+                    Need(pscn.SCPI is null, "Preston talk scene must have SCPI == null");
+                    Need(pscn.Actors.Count == 1 && pscn.Actors[0].ID == 0, $"Preston talk scene expected 1 SceneActor (ID=0), found {pscn.Actors.Count}");
                     var pda = pscn.Actions?.OfType<SF.IPlayerDialogueSceneActionGetter>().FirstOrDefault();
                     Need(pda is not null && pda.DialogueList.Count == 3, "Preston talk scene does not carry 3 PlayerDialogueSceneAction exchanges");
                     if (pda is not null && pda.DialogueList.Count == 3)
@@ -1517,7 +1517,10 @@ static class Mission
                 if (cwq.Scenes.Count == 1)
                 {
                     var cscn = cwq.Scenes[0];
-                    Need(((uint)(cscn.Flags ?? 0) & 0x2814u) == 0x2814u, $"{CodsworthSceneEdid} lacks 0x2814 flags");
+                    uint cscnFlags = (uint)(cscn.Flags ?? 0);
+                    Need((cscnFlags & 0x2000u) == 0 && cscnFlags == 0x1814u, $"{CodsworthSceneEdid} flags 0x{cscnFlags:X4} != 0x1814");
+                    Need(cscn.SCPI is null, $"{CodsworthSceneEdid} must have SCPI == null");
+                    Need(cscn.Actors.Count == 1 && cscn.Actors[0].ID == 0, $"{CodsworthSceneEdid} expected 1 SceneActor (ID=0), found {cscn.Actors.Count}");
                     var pda = cscn.Actions?.OfType<SF.IPlayerDialogueSceneActionGetter>().FirstOrDefault();
                     Need(pda is not null && pda.DialogueList.Count == 4 && cwq.DialogTopics.Count == 9,
                          $"{CodsworthQuestEdid} must carry 4 player choices and 9 DIAL records");
@@ -1804,6 +1807,22 @@ static class Mission
             ("Preston race reverted to robot race", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].Race.SetTo(new FormKey(SfEsm, 0x900))),
             ("Preston missing colonial outfit", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].DefaultOutfit.Clear()),
             ("Preston talk scene removed", m => Min00Q(m).Scenes.Clear()),
+            ("Preston talk scene has 0x2814 flags", m => Min00Q(m).Scenes[0].Flags = (SF.Scene.Flag)0x2814),
+            ("Preston talk scene has non-null SCPI", m => Min00Q(m).Scenes[0].SCPI = new byte[] { 0x37, 0x00 }),
+            ("Preston talk scene has extra ID=-2 actor", m => Min00Q(m).Scenes[0].Actors.Add(new SF.SceneActor
+            {
+                ID = unchecked((uint)-2),
+                BehaviorFlags = (SF.SceneActor.BehaviorFlag)0x10A,
+                Flags = SF.SceneActor.Flag.NoCommandState,
+            })),
+            ("Codsworth scene has 0x2814 flags", m => Cods01(m).Scenes[0].Flags = (SF.Scene.Flag)0x2814),
+            ("Codsworth scene has non-null SCPI", m => Cods01(m).Scenes[0].SCPI = new byte[] { 0x37, 0x00 }),
+            ("Codsworth scene has extra ID=-2 actor", m => Cods01(m).Scenes[0].Actors.Add(new SF.SceneActor
+            {
+                ID = unchecked((uint)-2),
+                BehaviorFlags = (SF.SceneActor.BehaviorFlag)0x10A,
+                Flags = SF.SceneActor.Flag.NoCommandState,
+            })),
             ("raider alias lacks combat package", m => ((SF.QuestReferenceAlias)Min00Q(m).Aliases![1]).PackageData.Clear()),
             ("Codsworth NPC_ and ACHR removed", m =>
             {
