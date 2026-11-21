@@ -523,28 +523,23 @@ public static class ListDialogue
                     60, "plain", FormKey.Null, CompareOperator.EqualTo, 0f, Goodbye: true),
             };
 
-            // G4 fix: Starfield opens silent-player DialogueMenu via a Top-Level Scene (0x2000 | DisableDialogueCamera | Interruptable | ShowAllText = 0x2814)
-            // with Phase 0 DialogueSceneAction greeting and Phase 1 PlayerDialogueSceneAction (8 PlayerChoice -> NpcResponse pairs).
+            // T6 fix: Direct E-Talk NPC scenes with Phase 0 NPC greeting + Phase 1 PlayerDialogueSceneAction (8 choices)
+            // use Flags = 0x1814 (BeginOnPlayerActivate 0x1000 | DisableDialogueCamera 0x0800 | Interruptable 0x0010 | ShowAllText 0x0004),
+            // SCPI = null, and only SceneActor ID = 0 (0x2000 Top-Level Topic Branch + ID = -2 require a Player DialogueSceneAction in Phase 0).
             var topScene = new Scene(Own(TopSceneId), Release)
             {
                 EditorID = "FO4SF_ListTopScene",
                 Quest = new FormLinkNullable<IQuestGetter>(quest.FormKey),
-                Flags = (Scene.Flag)0x2814,
+                Flags = (Scene.Flag)0x1814,
                 Index = 0,
                 LastActionIndex = 2,
-                SCPI = new byte[] { 0x37, 0x00 },
+                SCPI = null,
                 VNAM = new byte[] { 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0 },
             };
             topScene.Conditions.Add(SpeakerIs(speakerNpc.FormKey));
             topScene.Actors.Add(new SceneActor
             {
                 ID = 0,
-                BehaviorFlags = (SceneActor.BehaviorFlag)0x10A,
-                Flags = SceneActor.Flag.NoCommandState,
-            });
-            topScene.Actors.Add(new SceneActor
-            {
-                ID = unchecked((uint)-2),
                 BehaviorFlags = (SceneActor.BehaviorFlag)0x10A,
                 Flags = SceneActor.Flag.NoCommandState,
             });
@@ -773,8 +768,13 @@ public static class ListDialogue
             if (q.Scenes.Count != 1 || q.Scenes[0].FormKey != Own(TopSceneId))
                 throw new Refusal($"expected 1 SCEN {Own(TopSceneId)}, found {q.Scenes.Count}");
             var topScene = q.Scenes[0];
-            if (((uint)(topScene.Flags ?? 0) & 0x2000u) == 0)
-                throw new Refusal("FO4SF_ListTopScene lacks Starfield top-level player-activate scene bit (0x2000)");
+            uint sceneFlags = (uint)(topScene.Flags ?? 0);
+            if ((sceneFlags & 0x2000u) != 0 || sceneFlags != 0x1814u)
+                throw new Refusal($"FO4SF_ListTopScene flags 0x{sceneFlags:X4} != expected 0x1814 (BeginOnPlayerActivate 0x1000, without Top-Level 0x2000)");
+            if (topScene.SCPI != null)
+                throw new Refusal("FO4SF_ListTopScene must have SCPI == null for direct player-activate NPC scene");
+            if (topScene.Actors.Count != 1 || topScene.Actors[0].ID != 0)
+                throw new Refusal($"FO4SF_ListTopScene expected 1 SceneActor (ID=0), found {topScene.Actors.Count}");
             var pda = topScene.Actions?.OfType<IPlayerDialogueSceneActionGetter>().FirstOrDefault()
                       ?? throw new Refusal("FO4SF_ListTopScene missing PlayerDialogueSceneAction");
             if (pda.DialogueList.Count != 8)
@@ -913,6 +913,30 @@ public static class ListDialogue
         try { Check(playerPlugin, sfPath, defOpts); }
         catch (Refusal) { rejected = true; }
         if (!rejected) throw new Refusal("default Check failed to reject plugin missing test cell");
+
+        // 4. T6 scene mutation rejection checks (0x2814 Top-Level bit, non-null SCPI, extra ID=-2 SceneActor)
+        var sceneMutations = new (string Name, Action<StarfieldMod> Edit)[]
+        {
+            ("0x2814 top-level flags", m => m.Quests.First().Scenes[0].Flags = (Scene.Flag)0x2814),
+            ("non-null SCPI", m => m.Quests.First().Scenes[0].SCPI = new byte[] { 0x37, 0x00 }),
+            ("extra ID=-2 SceneActor", m => m.Quests.First().Scenes[0].Actors.Add(new SceneActor
+            {
+                ID = unchecked((uint)-2),
+                BehaviorFlags = (SceneActor.BehaviorFlag)0x10A,
+                Flags = SceneActor.Flag.NoCommandState,
+            })),
+        };
+        foreach (var (mName, edit) in sceneMutations)
+        {
+            var mutated = StarfieldMod.CreateFromBinary(defPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = MasterStyles() });
+            edit(mutated);
+            var mutDir = Path.Combine(scratchDir, "mut_scene");
+            WriteMod(mutated, mutDir);
+            bool mutRejected = false;
+            try { Check(Path.Combine(mutDir, Plugin.FileName), sfPath, defOpts); }
+            catch (Refusal) { mutRejected = true; }
+            if (!mutRejected) throw new Refusal($"Check failed to reject T6 scene mutation: {mName}");
+        }
 
         Console.WriteLine("selftest: ok");
         return 0;

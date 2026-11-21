@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 START_PLACES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "start_places.json")
+WARFARE_STARTS_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "warfare_starts.json")
 DEFAULT_SHOW_UNAVAILABLE_STARTS = False
 DIFFICULTY_LABELS: Tuple[str, ...] = ("EASY", "NORMAL", "HARD", "VERY HARD")
 ALLOWED_SETUP_GLYPHS = " -.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',()?!+%&_#=[]<>"
@@ -73,7 +74,7 @@ class SetupCommitPayload:
     survival: int              # 0 | 1 -> FO4SF_SurvivalStart (0x000871) & FO4SF_SurvivalLocked (0x000872)
     difficulty: int            # 0..3 -> FO4SF_StartDifficulty (0x000873)
     warfare_faction_slot: int  # -1 for Story, 0..7 for Warfare -> FO4SF_WarfareFaction (0x000874)
-    warfare_start_idx: int     # -1 for Story, 0..K-1 among available Warfare rows -> FO4SF_WarfareStartIndex (0x000875)
+    warfare_start_idx: int     # -1 for Story, canonical row index in warfare_starts.json (or all warfare rows) -> FO4SF_WarfareStartIndex (0x000875)
     start_place_row: int       # 0..M-1 among available rows -> FO4SF_StartPlaceRow (0x000879)
     place_id: str              # e.g. "fo4_vault111" or "minutemen_sanctuary"
 
@@ -194,6 +195,37 @@ def load_start_places(
     return tuple(rows)
 
 
+def load_warfare_start_keys(path: str = WARFARE_STARTS_JSON) -> Tuple[str, ...]:
+    """Load canonical Warfare start keys in exact row order from `warfare_starts.json` / `FO4SFWarfareStarts.json`."""
+    with open(path, encoding="utf-8") as handle:
+        raw = json.load(handle)
+    if int(raw.get("schema_version", 0)) != 1:
+        raise ValueError(f"Unsupported warfare_starts schema_version in {path}")
+    keys: List[str] = []
+    seen: Set[str] = set()
+    for entry in raw.get("starts", ()):
+        key = str(entry.get("key", "")).strip()
+        if not key or key in seen:
+            raise ValueError(f"Invalid or duplicate warfare start key in {path}: {key!r}")
+        seen.add(key)
+        keys.append(key)
+    return tuple(keys)
+
+
+def _load_optional_warfare_keys(warfare_starts_path: Optional[str]) -> Tuple[str, ...]:
+    if not warfare_starts_path:
+        return ()
+    candidates = [warfare_starts_path]
+    parent = os.path.dirname(os.path.abspath(warfare_starts_path))
+    alt = os.path.join(parent, "FO4SFWarfareStarts.json")
+    if alt not in candidates:
+        candidates.append(alt)
+    for cand in candidates:
+        if os.path.isfile(cand):
+            return load_warfare_start_keys(cand)
+    return ()
+
+
 def available_story_choices(rows: Sequence[StartPlaceRow]) -> List[Tuple[str, str]]:
     """Return distinct `(story_id, story_label)` pairs among available Story rows."""
     out: List[Tuple[str, str]] = []
@@ -213,6 +245,8 @@ class SetupScreenModel:
         rows: Sequence[StartPlaceRow],
         *,
         show_unavailable: bool = DEFAULT_SHOW_UNAVAILABLE_STARTS,
+        warfare_keys: Optional[Sequence[str]] = None,
+        warfare_starts_path: Optional[str] = WARFARE_STARTS_JSON,
     ) -> None:
         self._all_rows: Tuple[StartPlaceRow, ...] = tuple(rows)
         self._avail_rows: Tuple[StartPlaceRow, ...] = tuple(r for r in rows if r.available)
@@ -224,6 +258,12 @@ class SetupScreenModel:
         self._visible_rows: Tuple[StartPlaceRow, ...] = (
             self._all_rows if self.show_unavailable else self._avail_rows
         )
+        if warfare_keys is not None:
+            self._warfare_keys: Tuple[str, ...] = tuple(
+                str(k).strip() for k in warfare_keys if str(k).strip()
+            )
+        else:
+            self._warfare_keys = _load_optional_warfare_keys(warfare_starts_path)
 
         self.selected_row = 0       # 0=Mode, 1=Story/Faction, 2=StartPlace, 3=Survival, 4=Difficulty
         self.mode_val = 1           # 1=Story, 2=Warfare
@@ -349,6 +389,19 @@ class SetupScreenModel:
             status = sanitize_setup_text(f"LOCKED: {cur.unavailable_reason}", 96)
         return (row0, row1, row2, row3, row4), status
 
+    def _resolve_warfare_start_idx(self, cur: StartPlaceRow) -> int:
+        """Return canonical `warfare_starts.json` row index for `cur` (fallback: canonical order across all warfare rows)."""
+        key = cur.warfare_key or cur.id
+        if self._warfare_keys:
+            for idx, wf_key in enumerate(self._warfare_keys):
+                if wf_key == key:
+                    return idx
+        all_warfare = [r for r in self._all_rows if r.mode == "warfare"]
+        for idx, r in enumerate(all_warfare):
+            if (r.warfare_key or r.id) == key or r.id == cur.id:
+                return idx
+        return 0
+
     def confirm(self) -> Optional[SetupCommitPayload]:
         """Return exact store payload if `current_place_row().available` is True, else `None` (refused)."""
         cur = self.current_place_row()
@@ -372,8 +425,7 @@ class SetupScreenModel:
                 place_id=cur.id,
             )
 
-        avail_warfare = [r for r in self._avail_rows if r.mode == "warfare"]
-        wf_idx = next((i for i, r in enumerate(avail_warfare) if r.id == cur.id), 0)
+        wf_idx = self._resolve_warfare_start_idx(cur)
         return SetupCommitPayload(
             mode_val=2,
             mode_tag="warfare",

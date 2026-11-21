@@ -39,6 +39,7 @@ namespace fo4sf::setup
 		int         maxDifficulty = 3;
 		bool        available = false;
 		std::string unavailableReason;
+		int         warfareStartIndex = -1; // optional pre-resolved row index in warfare_starts.json
 	};
 
 	struct SetupCommitPayload
@@ -50,7 +51,7 @@ namespace fo4sf::setup
 		int         survival = 0;           // 0 | 1 -> FO4SF_SurvivalStart (0x000871) & FO4SF_SurvivalLocked (0x000872)
 		int         difficulty = 1;         // 0..3 -> FO4SF_StartDifficulty (0x000873)
 		int         warfareFactionSlot = -1;// -1 for Story, 0..7 for Warfare -> FO4SF_WarfareFaction (0x000874)
-		int         warfareStartIdx = -1;   // -1 for Story, 0..K-1 among available Warfare rows -> FO4SF_WarfareStartIndex (0x000875)
+		int         warfareStartIdx = -1;   // -1 for Story, canonical row index in warfare_starts.json (fallback: all warfare rows) -> FO4SF_WarfareStartIndex (0x000875)
 		int         startPlaceRow = 0;      // 0..M-1 among available rows -> FO4SF_StartPlaceRow (0x000879)
 		std::string placeId = "fo4_vault111";
 	};
@@ -249,6 +250,45 @@ namespace fo4sf::setup
 			}
 			return !a_row.id.empty() && (a_row.mode == "story" || a_row.mode == "warfare") && !a_row.name.empty();
 		}
+
+		inline bool ParseWarfareStartObject(std::string_view a_src, std::size_t& a_pos, std::string& a_keyOut)
+		{
+			SkipWs(a_src, a_pos);
+			if (a_pos >= a_src.size() || a_src[a_pos] != '{') {
+				return false;
+			}
+			++a_pos;
+			a_keyOut.clear();
+			for (;;) {
+				SkipWs(a_src, a_pos);
+				if (a_pos >= a_src.size()) {
+					return false;
+				}
+				if (a_src[a_pos] == '}') {
+					++a_pos;
+					break;
+				}
+				std::string key;
+				if (!ParseJsonString(a_src, a_pos, key)) {
+					return false;
+				}
+				SkipWs(a_src, a_pos);
+				if (a_pos >= a_src.size() || a_src[a_pos] != ':') {
+					return false;
+				}
+				++a_pos;
+				if (key == "key") {
+					if (!ParseJsonString(a_src, a_pos, a_keyOut)) return false;
+				} else {
+					if (!SkipJsonValue(a_src, a_pos)) return false;
+				}
+				SkipWs(a_src, a_pos);
+				if (a_pos < a_src.size() && a_src[a_pos] == ',') {
+					++a_pos;
+				}
+			}
+			return !a_keyOut.empty();
+		}
 	}   // namespace detail
 
 	inline std::vector<StartPlaceRow> BuiltinFallbackStartPlaces()
@@ -354,6 +394,121 @@ namespace fo4sf::setup
 		return hasStory && hasWarfare;
 	}
 
+	inline bool ParseWarfareStartKeysJsonText(std::string_view a_json, std::vector<std::string>& a_out)
+	{
+		a_out.clear();
+		std::size_t pos = 0;
+		detail::SkipWs(a_json, pos);
+		if (pos >= a_json.size() || a_json[pos] != '{') {
+			return false;
+		}
+		++pos;
+		bool sawStarts = false;
+		for (;;) {
+			detail::SkipWs(a_json, pos);
+			if (pos >= a_json.size()) {
+				return false;
+			}
+			if (a_json[pos] == '}') {
+				break;
+			}
+			std::string topKey;
+			if (!detail::ParseJsonString(a_json, pos, topKey)) {
+				return false;
+			}
+			detail::SkipWs(a_json, pos);
+			if (pos >= a_json.size() || a_json[pos] != ':') {
+				return false;
+			}
+			++pos;
+			if (topKey == "starts") {
+				sawStarts = true;
+				detail::SkipWs(a_json, pos);
+				if (pos >= a_json.size() || a_json[pos] != '[') {
+					return false;
+				}
+				++pos;
+				for (;;) {
+					detail::SkipWs(a_json, pos);
+					if (pos >= a_json.size()) {
+						return false;
+					}
+					if (a_json[pos] == ']') {
+						++pos;
+						break;
+					}
+					std::string wfKey;
+					if (!detail::ParseWarfareStartObject(a_json, pos, wfKey)) {
+						return false;
+					}
+					if (std::ranges::find(a_out, wfKey) != a_out.end()) {
+						return false;
+					}
+					a_out.push_back(std::move(wfKey));
+					detail::SkipWs(a_json, pos);
+					if (pos < a_json.size() && a_json[pos] == ',') {
+						++pos;
+					}
+				}
+			} else {
+				if (!detail::SkipJsonValue(a_json, pos)) {
+					return false;
+				}
+			}
+			detail::SkipWs(a_json, pos);
+			if (pos < a_json.size() && a_json[pos] == ',') {
+				++pos;
+			}
+		}
+		return sawStarts && !a_out.empty();
+	}
+
+	inline std::vector<std::string> LoadWarfareStartKeysFile(const std::filesystem::path& a_path)
+	{
+		std::ifstream in(a_path, std::ios::binary);
+		if (in) {
+			std::ostringstream ss;
+			ss << in.rdbuf();
+			std::vector<std::string> parsed;
+			if (ParseWarfareStartKeysJsonText(ss.str(), parsed)) {
+				return parsed;
+			}
+		}
+		return {};
+	}
+
+	inline std::vector<std::string> LoadSiblingWarfareStartKeys(const std::filesystem::path& a_startPlacesPath)
+	{
+		const auto dir = a_startPlacesPath.parent_path();
+		constexpr std::array<const char*, 2> kNames{ "FO4SFWarfareStarts.json", "warfare_starts.json" };
+		for (const char* name : kNames) {
+			auto keys = LoadWarfareStartKeysFile(dir / name);
+			if (!keys.empty()) {
+				return keys;
+			}
+		}
+		return {};
+	}
+
+	inline void ApplyWarfareStartIndices(std::vector<StartPlaceRow>& a_rows, const std::vector<std::string>& a_warfareKeys)
+	{
+		if (a_warfareKeys.empty()) {
+			return;
+		}
+		for (auto& row : a_rows) {
+			if (row.mode != "warfare") {
+				continue;
+			}
+			const std::string& key = row.warfareKey.empty() ? row.id : row.warfareKey;
+			for (std::size_t i = 0; i < a_warfareKeys.size(); ++i) {
+				if (a_warfareKeys[i] == key) {
+					row.warfareStartIndex = static_cast<int>(i);
+					break;
+				}
+			}
+		}
+	}
+
 	inline std::vector<StartPlaceRow> LoadStartPlacesFileOrFallback(const std::filesystem::path& a_path, bool& a_fromFile)
 	{
 		a_fromFile = false;
@@ -364,6 +519,7 @@ namespace fo4sf::setup
 			std::vector<StartPlaceRow> parsed;
 			if (ParseStartPlacesJsonText(ss.str(), parsed)) {
 				a_fromFile = true;
+				ApplyWarfareStartIndices(parsed, LoadSiblingWarfareStartKeys(a_path));
 				return parsed;
 			}
 		}
@@ -387,9 +543,10 @@ namespace fo4sf::setup
 			bool        available = false;
 		};
 
-		void Reset(std::vector<StartPlaceRow> a_rows, bool a_showUnavailable)
+		void Reset(std::vector<StartPlaceRow> a_rows, bool a_showUnavailable, std::vector<std::string> a_warfareKeys = {})
 		{
 			_allRows = std::move(a_rows);
+			_warfareKeys = std::move(a_warfareKeys);
 			_availRows.clear();
 			for (const auto& r : _allRows) {
 				if (r.available) {
@@ -399,6 +556,7 @@ namespace fo4sf::setup
 			if (_availRows.empty()) {
 				_allRows = BuiltinFallbackStartPlaces();
 				_availRows = _allRows;
+				_warfareKeys.clear();
 			}
 			_showUnavailable = a_showUnavailable;
 			_visibleRows = _showUnavailable ? _allRows : _availRows;
@@ -554,17 +712,7 @@ namespace fo4sf::setup
 				};
 			}
 
-			int wfIdx = 0;
-			int wfCount = 0;
-			for (const auto& r : _availRows) {
-				if (r.mode == "warfare") {
-					if (r.id == cur.id) {
-						wfIdx = wfCount;
-						break;
-					}
-					++wfCount;
-				}
-			}
+			const int wfIdx = ResolveWarfareStartIdx(cur);
 			return SetupCommitPayload{
 				.modeVal = 2,
 				.modeTag = "warfare",
@@ -580,6 +728,32 @@ namespace fo4sf::setup
 		}
 
 	private:
+		int ResolveWarfareStartIdx(const StartPlaceRow& a_cur) const
+		{
+			const std::string& key = a_cur.warfareKey.empty() ? a_cur.id : a_cur.warfareKey;
+			if (!_warfareKeys.empty()) {
+				for (std::size_t i = 0; i < _warfareKeys.size(); ++i) {
+					if (_warfareKeys[i] == key) {
+						return static_cast<int>(i);
+					}
+				}
+			}
+			if (a_cur.warfareStartIndex >= 0) {
+				return a_cur.warfareStartIndex;
+			}
+			int wfCount = 0;
+			for (const auto& r : _allRows) {
+				if (r.mode == "warfare") {
+					const std::string& rKey = r.warfareKey.empty() ? r.id : r.warfareKey;
+					if (rKey == key || r.id == a_cur.id) {
+						return wfCount;
+					}
+					++wfCount;
+				}
+			}
+			return 0;
+		}
+
 		std::vector<StoryGroup> StoryGroups() const
 		{
 			std::vector<StoryGroup> out;
@@ -655,6 +829,7 @@ namespace fo4sf::setup
 		std::vector<StartPlaceRow> _allRows;
 		std::vector<StartPlaceRow> _availRows;
 		std::vector<StartPlaceRow> _visibleRows;
+		std::vector<std::string>   _warfareKeys;
 		bool                       _showUnavailable = false;
 		int                        _selectedRow = 0;
 		int                        _modeVal = 1;

@@ -36,7 +36,11 @@ import make_probe_swf as swf  # noqa: E402
 import pipboy_probe_install as pbi  # noqa: E402
 
 DEFINE_BITS_LOSSLESS2 = 36
+DEFINE_EDIT_TEXT = 37
 DO_ABC1, DO_ABC = 72, 82
+
+BOOT_FONT_ORIG = "$Terminal_Font"
+BOOT_FONT_PATCHED = "$ConsoleFont"
 
 # Canonical Fallout 4 Commonwealth world-map parameters (WRLD 0x0000003C MNAM outer cell edges)
 COMMONWEALTH_NW = (-135168.0, 106496.0)
@@ -681,8 +685,83 @@ def stage_fo4_stat_components(fo4_interface_ba2, out_interface_dir, include_perk
     return staged
 
 
+def _patch_define_edit_text_font(payload, orig_bytes, target_bytes):
+    """Rewrite a matching null-terminated `FontClass` string inside a SWF `DefineEditText` (tag 37) payload."""
+    if len(payload) < 5:
+        return payload, 0
+    nbits = payload[2] >> 3
+    rect_bytes = (5 + 4 * nbits + 7) // 8
+    flags_off = 2 + rect_bytes
+    if flags_off + 2 > len(payload):
+        return payload, 0
+    flags0 = payload[flags_off]
+    flags1 = payload[flags_off + 1]
+    has_font = bool(flags0 & 0x01)
+    has_font_class = bool(flags1 & 0x80)
+    if not has_font_class:
+        return payload, 0
+    fpos = flags_off + 2 + (2 if has_font else 0)
+    if fpos >= len(payload):
+        return payload, 0
+    nul = payload.find(b"\x00", fpos)
+    if nul < 0:
+        return payload, 0
+    if payload[fpos:nul] == orig_bytes:
+        return payload[:fpos] + target_bytes + b"\x00" + payload[nul + 1:], 1
+    return payload, 0
+
+
+def patch_boot_movie_swf(raw_bytes, orig_font=BOOT_FONT_ORIG, target_font=BOOT_FONT_PATCHED):
+    """Rewrite `orig_font` (`$Terminal_Font`) -> `target_font` (`$ConsoleFont`) inside `DefineEditText` (tag 37)
+    of `PipboyBootSequence.swf`, recalculating each tag header and the compressed CWS `FileLength` cleanly."""
+    if len(raw_bytes) < 8 or raw_bytes[:3] not in (b"CWS", b"FWS"):
+        raise MapStoreError("boot movie input is not a CWS or FWS SWF")
+    version = raw_bytes[3]
+    try:
+        body = zlib.decompress(raw_bytes[8:]) if raw_bytes[:3] == b"CWS" else raw_bytes[8:]
+    except zlib.error as exc:
+        raise MapStoreError(f"boot movie SWF failed to decompress: {exc}") from exc
+    if not body:
+        raise MapStoreError("empty boot movie SWF body")
+    nbits = body[0] >> 3
+    header_end = (5 + 4 * nbits + 7) // 8 + 4
+    if header_end > len(body):
+        raise MapStoreError("truncated boot movie SWF frame header")
+
+    orig_bytes = orig_font.encode("utf-8")
+    target_bytes = target_font.encode("utf-8")
+    out_tags = bytearray()
+    pos = header_end
+    saw_end = False
+    while pos + 2 <= len(body):
+        head = struct.unpack_from("<H", body, pos)[0]
+        code, size = head >> 6, head & 0x3F
+        pos += 2
+        if size == 0x3F:
+            if pos + 4 > len(body):
+                raise MapStoreError("truncated long tag header in boot movie SWF")
+            size = struct.unpack_from("<I", body, pos)[0]
+            pos += 4
+        if pos + size > len(body):
+            raise MapStoreError(f"tag {code} runs past boot movie SWF body")
+        payload = bytes(body[pos:pos + size])
+        pos += size
+        if code == DEFINE_EDIT_TEXT:
+            payload, _ = _patch_define_edit_text_font(payload, orig_bytes, target_bytes)
+        out_tags += swf.tag(code, payload)
+        if code == swf.END:
+            saw_end = True
+            break
+    if not saw_end:
+        raise MapStoreError("boot movie SWF missing End tag")
+
+    new_body = bytes(body[:header_end]) + bytes(out_tags)
+    return b"CWS" + bytes([version]) + struct.pack("<I", 8 + len(new_body)) + zlib.compress(new_body, 6)
+
+
 def stage_fo4_boot_movie(fo4_interface_ba2, out_interface_dir, dst_name="pipboybootsequence"):
-    """Extract `Interface/PipboyBootSequence.swf` from a local `Fallout4 - Interface.ba2` into `<out_interface_dir>/<dst_name>.swf`."""
+    """Extract `Interface/PipboyBootSequence.swf` from a local `Fallout4 - Interface.ba2` into `<out_interface_dir>/<dst_name>.swf`
+    and patch `$Terminal_Font` -> `$ConsoleFont` inside `DefineEditText` (tag 37) for Starfield's `fonts_en.swf`."""
     refuse_unsafe_output_path(out_interface_dir)
     if not dst_name or not re.fullmatch(r"[A-Za-z0-9_]{1,64}", dst_name):
         raise MapStoreError(f"invalid boot movie name: {dst_name!r}")
@@ -697,7 +776,7 @@ def stage_fo4_boot_movie(fo4_interface_ba2, out_interface_dir, dst_name="pipboyb
         raise MapStoreError("Interface/PipboyBootSequence.swf not found in archive")
     os.makedirs(out_interface_dir, exist_ok=True)
     dst = os.path.join(out_interface_dir, f"{dst_name}.swf")
-    raw = archive.read(matched_entry.name)
+    raw = patch_boot_movie_swf(archive.read(matched_entry.name))
     with open(dst, "wb") as f:
         f.write(raw)
     why = pbi.swf_problem(dst)
