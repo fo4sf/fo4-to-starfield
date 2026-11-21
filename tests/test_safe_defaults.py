@@ -462,20 +462,139 @@ class SafeDefaultsTests(unittest.TestCase):
         self.assertFalse(l_ns["asked"])
         self.assertTrue(any("fallback=FO4SF_NewGameSpecial edited=True confirmed=True" in m for m in lift_logs), lift_logs)
 
-        # 3. U1: pipboyActi retains Starfield.esm:0x1CCAC2 collision (never copies PortPipboyStaticEdid model) + mesh center offset
+        # 3. U1 / V3: pipboyActi & gearConsoleActi use compact Starfield.esm:0x143492 (WallTech08.nif) collision above 0x01001616 (z_max=0.7722 m)
         self.assertNotIn("pipboyActi.Model =", cs)
-        self.assertIn("Scale = 1.0f", cs)
+        self.assertIn("SfCompactActiTemplateId = 0x143492", cs)
+        self.assertIn("PipboyPickupScale = 1.25f", cs)
         self.assertIn("PipboyWorldCenter(pbPos, pbRot.Z)", cs)
+        self.assertIn("ConsoleWorldPos(", cs)
         pb_x, pb_y, pb_z = -54.455524, -0.324950, 0.630884
         rz = 3.804386
-        cx = pb_x + 0.01 * math.cos(rz) + 0.83 * math.sin(rz)
-        cy = pb_y - 0.01 * math.sin(rz) + 0.83 * math.cos(rz)
-        cz = pb_z + 0.07
+        cx = pb_x + 0.10 * math.cos(rz) + 0.836 * math.sin(rz)
+        cy = pb_y - 0.10 * math.sin(rz) + 0.836 * math.cos(rz)
+        cz = pb_z + 0.145
         dist_xy = math.hypot(cx - pb_x, cy - pb_y)
-        self.assertAlmostEqual(dist_xy, math.hypot(0.01, 0.83), places=4)
-        self.assertAlmostEqual(cx, -54.9741, places=3)
-        self.assertAlmostEqual(cy, -0.9731, places=3)
-        self.assertAlmostEqual(cz, 0.7009, places=3)
+        self.assertAlmostEqual(dist_xy, math.hypot(0.10, 0.836), places=4)
+        self.assertAlmostEqual(cx, -55.0488, places=3)
+        self.assertAlmostEqual(cy, -0.9224, places=3)
+        self.assertAlmostEqual(cz, 0.7759, places=3)
+        self.assertGreater(cz, 0.7722)  # strictly above FO4Port.esm:0x01001616 static collision top (0.7722 m)
+
+    def test_v3_v4_vault_interactives_dual_console_registration_and_catwalk_hint(self) -> None:
+        cs = (ROOT / "dotnet" / "NewGame" / "Program.cs").read_text(encoding="utf-8")
+        psc = (ROOT / "scripts" / "newgame" / "FO4SF_NewGameQuest.psc").read_text(encoding="utf-8")
+
+        # ConsoleWorldPos steps +0.085 m along the 45-deg console deck normal (0, +0.0601, +0.0601) m
+        con_x, con_y, con_z = -54.3644, -1.8748, 1.6940
+        rx, ry = math.pi / 4.0, 0.0
+        wx = con_x - math.sin(ry) * 0.085
+        wy = con_y + math.sin(rx) * math.cos(ry) * 0.085
+        wz = con_z + math.cos(rx) * math.cos(ry) * 0.085
+        self.assertAlmostEqual(wx, -54.3644, places=3)
+        self.assertAlmostEqual(wy, -1.8147, places=3)
+        self.assertAlmostEqual(wz, 1.7541, places=3)
+        self.assertIn('pipboyActi.ActivateTextOverride = "Take";', cs)
+        self.assertIn('gearConsoleActi.ActivateTextOverride = "Activate";', cs)
+
+        funcs = (
+            "EnsureVaultInteractivesRegistered",
+            "ObjectReference.OnActivate",
+            "ActivateGearDoorConsole",
+        )
+        vars_csv = (
+            "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
+            "consoleRegistered, consoleWatchedRef, pistolPickedLogged"
+        )
+        compiled = compile(translated_functions(psc, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
+
+        def _make_ref(label: str, fid: int, pos: tuple[float, float, float]):
+            return SimpleNamespace(
+                label=label,
+                GetFormID=lambda: fid,
+                GetPositionX=lambda: pos[0],
+                GetPositionY=lambda: pos[1],
+                GetPositionZ=lambda: pos[2],
+                PlayAnimation=lambda clip: anims.append((label, clip)),
+            )
+
+        for trigger_via_port_console in (False, True):
+            logs: list[str] = []
+            notifs: list[str] = []
+            regs: list[tuple[object, str]] = []
+            anims: list[tuple[str, str]] = []
+            stages: list[tuple[int, str]] = []
+            pipboy_pickups: list[object] = []
+            cur_stage = [20]
+            door_state = [3]
+
+            player = _make_ref("PlayerRef", 0x14, (-54.36, -0.90, 0.589))
+            pipboy_ref = _make_ref("FO4SF_PipboyCorpsePickupRef", 0x0A00080F, (-55.0488, -0.9224, 0.7759))
+            own_console = _make_ref("FO4SF_GearDoorConsoleRef", 0x0A000819, (-54.3644, -1.8147, 1.7541))
+            port_console = _make_ref("FO4Port_GearDoorConsoleRef", 0x02001319, (-54.3644, -1.8748, 1.6940))
+            cog_door = SimpleNamespace(
+                BlockActivation=lambda *a: None,
+                GetOpenState=lambda: door_state[0],
+                SetOpen=lambda open_flag: door_state.__setitem__(0, 2 if open_flag else 3),
+            )
+
+            def _get_form(fid: int, plg: str):
+                if plg == "FO4Port.esm":
+                    if fid == 0x126D:
+                        return cog_door
+                    if fid == 0x1319:
+                        return port_console
+                return None
+
+            ns = dict(
+                itemWatchRegistered=True,
+                pipboyRegistered=False,
+                cogDoorRegistered=False,
+                cogDoorWatchedRef=None,
+                consoleRegistered=False,
+                consoleWatchedRef=None,
+                pistolPickedLogged=False,
+                VaultPistolBase=None,
+                VaultPistolId=0,
+                PipboyCorpseRef=pipboy_ref,
+                GearDoorConsoleRef=own_console,
+                CogDoorId=0x126D,
+                ConsoleRefId=0x1319,
+                VaultPlugin="FO4Port.esm",
+                TestModeGlobal=None,
+                PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),
+                NoPipboyMsg=SimpleNamespace(Show=lambda: 0),
+                Game=SimpleNamespace(GetPlayer=lambda: player, GetFormFromFile=_get_form),
+                Utility=SimpleNamespace(Wait=lambda _s: None),
+                Debug=SimpleNamespace(Notification=lambda msg: notifs.append(str(msg))),
+                RegisterForRemoteEvent=lambda ref, ev: regs.append((ref, str(ev))),
+                HandlePipboyPickup=lambda p: pipboy_pickups.append(p),
+                GetStage=lambda: cur_stage[0],
+                AdvanceTo=lambda st, by="Trigger": (cur_stage.__setitem__(0, st), stages.append((st, str(by)))),
+                Trace=lambda m: logs.append(str(m)),
+            )
+            exec(compiled, ns)
+            ns["EnsureVaultInteractivesRegistered"]()
+
+            # Both own 0A000819 AND FO4Port's ConsoleRefId (portCon) must be registered for OnActivate
+            self.assertIn((pipboy_ref, "OnActivate"), regs)
+            self.assertIn((own_console, "OnActivate"), regs)
+            self.assertIn((port_console, "OnActivate"), regs)
+            self.assertTrue(any("pipboy activator registered ref=" in m and "pos=-55.0488 -0.9224 0.7759" in m for m in logs), logs)
+            self.assertTrue(any("console activator registered ref=" in m and "port_ref=" in m for m in logs), logs)
+
+            # First-person E on PipboyCorpseRef routes to HandlePipboyPickup
+            ns["OnActivate"](pipboy_ref, player)
+            self.assertEqual(pipboy_pickups, [player])
+
+            # First-person E on EITHER own_console (0A000819) OR port_console (02001319) opens cog door, advances to stage 30, and shows V4 catwalk hint!
+            sender = port_console if trigger_via_port_console else own_console
+            ns["OnActivate"](sender, player)
+            self.assertEqual(cur_stage[0], 30)
+            self.assertEqual(stages, [(30, "vault_console")])
+            self.assertEqual(notifs, ["Vault door open - follow the catwalk to the elevator platform."])
+            self.assertIn("catwalk hint shown", logs)
+            if trigger_via_port_console:
+                self.assertTrue(any("console port ref activated ref=" in m for m in logs), logs)
 
     def test_w1_known_issues_doc_exists_covers_all_breaks_and_stays_public_clean(self) -> None:
         ki_path = ROOT / "docs" / "known-issues.md"

@@ -2424,7 +2424,14 @@ Function EnsureVaultInteractivesRegistered()
         consoleWatchedRef = GearDoorConsoleRef
         consoleRegistered = true
         RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")
-        Trace("console activator registered ref=" + consoleWatchedRef + " id=" + consoleWatchedRef.GetFormID() + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ())
+        ObjectReference portCon = None
+        if ConsoleRefId > 0
+            portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+            if portCon != None && portCon != consoleWatchedRef
+                RegisterForRemoteEvent(portCon, "OnActivate")
+            endif
+        endif
+        Trace("console activator registered ref=" + consoleWatchedRef + " id=" + consoleWatchedRef.GetFormID() + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ() + " port_ref=" + portCon)
     endif
 EndFunction
 
@@ -2461,7 +2468,15 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         endif
         return
     endif
-    if consoleWatchedRef != None && akSender == consoleWatchedRef
+    bool isPortConsole = false
+    if ConsoleRefId > 0
+        ObjectReference portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+        isPortConsole = portCon != None && akSender == portCon
+    endif
+    if (consoleWatchedRef != None && akSender == consoleWatchedRef) || isPortConsole
+        if isPortConsole
+            Trace("console port ref activated ref=" + akSender)
+        endif
         ActivateGearDoorConsole()
     endif
 EndEvent
@@ -2515,6 +2530,8 @@ Function ActivateGearDoorConsole()
     endif
     if stage < 30
         AdvanceTo(30, "vault_console")
+        Debug.Notification("Vault door open - follow the catwalk to the elevator platform.")
+        Trace("catwalk hint shown")
     endif
 EndFunction
 

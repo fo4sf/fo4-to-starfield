@@ -54,6 +54,7 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "    def __add__(self, other): return _PStr(super().__add__(str(other)))",
         "    def __radd__(self, other): return _PStr(str(other) + str(self))",
         "if 'Trace' not in globals(): Trace = lambda *_: None",
+        "if 'Debug' not in globals(): globals()['Debug'] = type('_Dbg', (), {'Notification': staticmethod(lambda *_: None), 'TraceUser': staticmethod(lambda *_: True)})()",
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
