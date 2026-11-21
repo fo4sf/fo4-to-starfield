@@ -6,9 +6,13 @@ well under a second for 1,000 ticks, with no game:
   spawning   a base (NodeSpawnFaction >= 0) spawns one squad for its CURRENT owner (skipped while unowned) once
              per respawn_cooldown_s, while active squads (including defeated ones still cooling down) are below
              min(max_active_squads, 16). members = squad_size, strength = members * combat_power.
-  orders     a garrisoned squad dwells 45 s + U(0, 30) s, then draws Raid 40% (nearest node owned by a hostile
-             faction, or an unowned base/checkpoint, capacity > 0) / Reinforce 30% (nearest own node with free
-             capacity) / Patrol 30% (random reachable node with capacity); a missing target falls through to Patrol.
+  orders     a garrisoned squad dwells 45 s + U(0, 30) s, then picks its next order according to simulation.order_mode:
+             - "random" (default): draws Raid 40% (nearest node owned by a hostile faction, or an unowned
+               base/checkpoint, capacity > 0) / Reinforce 30% (nearest own node with free capacity) / Patrol 30%
+               (random reachable node with capacity); a missing target falls through to Patrol.
+             - "scored" (offline prototype, docs/alife/BETTER-METHODS.md): scores Raid, Reinforce, and Patrol
+               candidates by enemy weakness, own garrison gap, frontline threat, squad readiness/replenishment,
+               and graph distance, breaking close ties with bounded deterministic jitter (+/- 10%).
   movement   Dijkstra routes (ties: lower node index); squads pass through intermediate nodes whatever their
              garrisons; offline_step_m_per_s * tick_real_s metres per tick, remainder carried over nodes.
   arrival    a full goal (or a relay) reroutes to the nearest node with free capacity by graph distance from the
@@ -41,6 +45,8 @@ REPLENISH_DIVISOR = 4.0       # +1 member every respawn_cooldown_s / 4 at an own
 RAID_P, REINFORCE_P = 0.40, 0.30
 SQUAD_SLOTS = 16
 CAPTURABLE = ("base", "checkpoint")
+KIND_VALUE = {"base": 1.35, "checkpoint": 1.15, "resource": 1.00, "lair": 0.95, "relay": 0.0}
+SCORE_JITTER = 0.10           # +/- 10% deterministic jitter on scored utility for multi-seed variety
 
 
 class Graph:
@@ -122,15 +128,20 @@ def _load(cfg):
     return schema.checked(cfg)
 
 
-def simulate(cfg, ticks=1000, seed=42, record_events=False):
+def simulate(cfg, ticks=1000, seed=42, record_events=False, order_mode=None):
     """Run the offline simulation; returns a dict:
       squads_spawned, edges_traversed, battles, captures {faction_id: n}, garrison_utilization (mean occupied /
       capacity over ticks, 0..1), per_faction {faction_id: {spawned, losses, nodes_owned}}, plus ticks,
       sim_seconds, reroutes, replenishes, orders {raid, reinforce, patrol}, final_owners [faction id or None],
-      active_squads_end and, with record_events, events [(tick, step, {..})].
-    cfg is a config dict, a writer payload or a path; an invalid config raises schema.AlifeConfigError."""
+      active_squads_end, order_mode, flip_flops, early_max_share, final_max_share, factions_surviving and,
+      with record_events, events [(tick, step, {..})].
+    cfg is a config dict, a writer payload or a path; an invalid config raises schema.AlifeConfigError.
+    order_mode overrides simulation.order_mode when given ("random" | "scored")."""
     norm = _load(cfg)
     sim, facs, nodes = norm["simulation"], norm["factions"], norm["nodes"]
+    mode = sim.get("order_mode", "random") if order_mode is None else order_mode
+    if not isinstance(mode, str) or mode not in schema.ORDER_MODES:
+        raise schema.AlifeConfigError([f"order_mode {mode!r}: one of {', '.join(schema.ORDER_MODES)}"])
     g = Graph(nodes, norm["edges"])
     F, N = len(facs), len(nodes)
     rel = schema.relations_flat(norm)
@@ -145,6 +156,9 @@ def simulate(cfg, ticks=1000, seed=42, record_events=False):
     kind = [n["kind"] for n in nodes]
     owner = [n["initial_owner"] for n in nodes]
     bases = [i for i, n in enumerate(nodes) if n["spawn_faction"] >= 0]
+    neighbors = [tuple(sorted(g.adj[i].keys())) for i in range(N)]
+    edge_lens = [float(e["len_m"]) for e in norm["edges"] if float(e["len_m"]) > 0.0]
+    dist_scale = (sum(edge_lens) / len(edge_lens)) if edge_lens else 250.0
     next_spawn = {b: 0.0 for b in bases}
     next_replenish = {}
     rng = random.Random(seed)
@@ -157,8 +171,21 @@ def simulate(cfg, ticks=1000, seed=42, record_events=False):
     orders = {"raid": 0, "reinforce": 0, "patrol": 0}
     captures = {f["id"]: 0 for f in facs}
     per = {f["id"]: {"spawned": 0, "losses": 0, "nodes_owned": 0} for f in facs}
+    node_cap_count = [0] * N
+    flip_flops = 0
+    mid_tick = max(1, ticks // 2)
+    early_max_share = 0.0
     battling = set()
     util_sum, total_cap = 0.0, float(sum(cap)) or 1.0
+
+    def owner_max_share():
+        owned = [o for o in owner if o >= 0]
+        if not owned:
+            return 0.0
+        counts = {}
+        for o in owned:
+            counts[o] = counts.get(o, 0) + 1
+        return round(max(counts.values()) / len(owned), 6)
 
     def log(tick, step, **kw):
         if record_events:
@@ -193,7 +220,7 @@ def simulate(cfg, ticks=1000, seed=42, record_events=False):
         s.state, s.goal, s.path, s.hop, s.progress, s.order = "marching_offline", goal, path, 0, 0.0, order
         log(tick, "order", squad=s.sid, faction=facs[s.faction]["id"], node=s.node, goal=goal, order=order)
 
-    def give_order(s, tick):
+    def give_order_random(s, tick):
         f = s.faction
         r = rng.random()
         goal, order = None, None
@@ -213,11 +240,136 @@ def simulate(cfg, ticks=1000, seed=42, record_events=False):
         orders[order] += 1
         depart(s, goal, order, tick)
 
+    def give_order_scored(s, tick):
+        """Bannerlord-inspired utility scoring over (raid, reinforce, patrol) targets.
+
+        Weighs enemy garrison weakness, own garrison gaps, frontline threat, squad readiness/replenish
+        need, and graph distance. Keeps tie-breaking deterministic via bounded +/- 10% RNG jitter.
+        """
+        f = s.faction
+        src = s.node
+        full_str = size[f] * power[f]
+        hp_frac = min(1.0, max(0.0, s.strength / full_str)) if full_str > 0 else 1.0
+        readiness = 0.25 + 0.75 * hp_frac
+
+        # Snapshot current node occupancy, garrison strength, and inbound squads in O(squads).
+        occ_all = [0] * N
+        friendly_in = [0] * N
+        hostile_in = [0] * N
+        enemy_str = [0.0] * N
+        for q in squads:
+            if q.state == "dead_cooldown":
+                continue
+            if q.state == "garrisoned":
+                occ_all[q.node] += 1
+            if q.state in ("garrisoned", "in_combat_node") and hostile[f][q.faction]:
+                enemy_str[q.node] += q.strength
+            elif q.state == "marching_offline":
+                if q.faction == f:
+                    friendly_in[q.goal] += 1
+                elif hostile[f][q.faction]:
+                    hostile_in[q.goal] += 1
+
+        # Overextension dampening: factions already holding a majority of owned nodes prioritize
+        # holding & patrolling over distant raids, reducing runaway snowballing.
+        owned_total = sum(1 for o in owner if o >= 0)
+        own_nodes = sum(1 for o in owner if o == f)
+        own_share = (own_nodes / owned_total) if owned_total > 0 else 0.0
+        overext_mult = max(0.50, min(1.05, 1.15 - 0.85 * own_share))
+
+        # Penalty for abandoning an exposed own base or checkpoint when sole garrison.
+        src_hostile_adj = any(owner[nb] >= 0 and hostile[f][owner[nb]] for nb in neighbors[src])
+        leaving_exposed = (
+            owner[src] == f and kind[src] in CAPTURABLE and occ_all[src] <= 1 and (src_hostile_adj or hostile_in[src] > 0)
+        )
+        # Allow a battered or sole-defender squad at a threatened own base to hold and dwell instead of deserting.
+        best_score = 0.0
+        best_goal = None
+        best_order = None
+        if leaving_exposed and (kind[src] == "base" or hp_frac < 0.75):
+            hold_score = (1.15 if kind[src] == "base" else 0.70) * (1.0 + 0.6 * hostile_in[src])
+            if hp_frac < 0.85 and kind[src] == "base":
+                hold_score += 0.9 * (1.0 - hp_frac)
+            best_score = hold_score * (1.0 - SCORE_JITTER + 2.0 * SCORE_JITTER * rng.random())
+
+        for i in range(N):
+            if i == src or cap[i] <= 0:
+                continue
+            d = g.dist[src][i]
+            if math.isinf(d):
+                continue
+            dist_cost = 1.0 + d / dist_scale
+            own_i = owner[i]
+            adj_own = any(owner[nb] == f for nb in neighbors[i])
+            adj_hostile = sum(1 for nb in neighbors[i] if owner[nb] >= 0 and hostile[f][owner[nb]])
+
+            # 1) Raid score: hostile-owned node or unowned capturable node
+            if (own_i >= 0 and hostile[f][own_i]) or (own_i < 0 and kind[i] in CAPTURABLE):
+                weakness = s.strength / (s.strength + enemy_str[i] + 0.5 * power[f])
+                tval = KIND_VALUE.get(kind[i], 1.0)
+                if own_i < 0:
+                    tval += 0.30
+                front_mult = 1.25 if adj_own else 0.80
+                spread_mult = 0.70 ** friendly_in[i]
+                leave_mult = 0.65 if leaving_exposed else 1.0
+                sc = (readiness * tval * (0.40 + 1.35 * weakness) * front_mult * spread_mult
+                      * leave_mult * overext_mult / dist_cost)
+                sc *= (1.0 - SCORE_JITTER + 2.0 * SCORE_JITTER * rng.random())
+                if sc > best_score:
+                    best_score, best_goal, best_order = sc, i, "raid"
+
+            # 2) Reinforce score: own node with free capacity
+            elif own_i == f and occ_all[i] < cap[i]:
+                eff_occ = occ_all[i] + friendly_in[i]
+                gap = max(0.05, (cap[i] - eff_occ) / cap[i])
+                threat_mult = 0.75 + 0.50 * adj_hostile + 1.35 * hostile_in[i]
+                base_bonus = 0.0
+                if kind[i] == "base":
+                    if eff_occ == 0:
+                        base_bonus += 0.75
+                    if hp_frac < 0.85:
+                        base_bonus += 1.35 * (1.0 - hp_frac)
+                sc = ((0.30 + 1.05 * gap) * threat_mult + base_bonus) / dist_cost
+                sc *= (1.0 - SCORE_JITTER + 2.0 * SCORE_JITTER * rng.random())
+                if sc > best_score:
+                    best_score, best_goal, best_order = sc, i, "reinforce"
+
+            # 3) Patrol score: nearby border, unowned non-capturable (lair/resource), or low-occupancy node
+            free_ratio = max(0.05, (cap[i] - occ_all[i]) / cap[i])
+            if own_i < 0 and kind[i] not in CAPTURABLE:
+                border_mult = 1.35
+            elif adj_hostile > 0:
+                border_mult = 1.25
+            else:
+                border_mult = 0.75
+            patrol_spread = 0.75 ** (occ_all[i] + friendly_in[i])
+            sc_patrol = 0.90 * border_mult * free_ratio * patrol_spread / dist_cost
+            sc_patrol *= (1.0 - SCORE_JITTER + 2.0 * SCORE_JITTER * rng.random())
+            if sc_patrol > best_score:
+                best_score, best_goal, best_order = sc_patrol, i, "patrol"
+
+        if best_goal is None:
+            s.dwell = new_dwell()
+            return
+        orders[best_order] += 1
+        depart(s, best_goal, best_order, tick)
+
+    def give_order(s, tick):
+        if mode == "scored":
+            give_order_scored(s, tick)
+        else:
+            give_order_random(s, tick)
+
     def try_capture(s, tick):
+        nonlocal flip_flops
         n = s.node
         if kind[n] in CAPTURABLE and owner[n] != s.faction and not hostiles_at(n, s.faction):
-            log(tick, "capture", squad=s.sid, faction=facs[s.faction]["id"], node=n, owner_from=owner[n],
+            prev_owner = owner[n]
+            log(tick, "capture", squad=s.sid, faction=facs[s.faction]["id"], node=n, owner_from=prev_owner,
                 owner_to=s.faction)
+            if prev_owner >= 0 and node_cap_count[n] > 0:
+                flip_flops += 1
+            node_cap_count[n] += 1
             owner[n] = s.faction
             captures[facs[s.faction]["id"]] += 1
 
@@ -358,18 +510,59 @@ def simulate(cfg, ticks=1000, seed=42, record_events=False):
             if s.state == "garrisoned":
                 occ[s.node] = occ.get(s.node, 0) + 1
         util_sum += sum(min(c, cap[n]) for n, c in occ.items()) / total_cap
+        if tick == mid_tick:
+            early_max_share = owner_max_share()
     for i, o in enumerate(owner):
         if o >= 0:
             per[facs[o]["id"]]["nodes_owned"] += 1
+    live_end = alive()
+    alive_factions = {s.faction for s in live_end} | {o for o in owner if o >= 0}
     out = dict(stats)
     out.update({"captures": captures, "per_faction": per, "orders": orders,
                 "garrison_utilization": round(util_sum / ticks, 6) if ticks else 0.0,
                 "ticks": ticks, "sim_seconds": ticks * dt, "seed": seed,
+                "order_mode": mode, "flip_flops": flip_flops,
+                "early_max_share": early_max_share, "final_max_share": owner_max_share(),
+                "factions_surviving": len(alive_factions),
                 "final_owners": [facs[o]["id"] if o >= 0 else None for o in owner],
-                "active_squads_end": len(alive())})
+                "active_squads_end": len(live_end)})
     if record_events:
         out["events"] = events
     return out
+
+
+def benchmark_order_modes(cfg, seeds=range(1, 31), ticks=1000):
+    """Compare order_mode='random' vs 'scored' across a deterministic seed sweep."""
+    seed_list = list(seeds)
+    report = {"seeds": len(seed_list), "ticks": ticks, "modes": {}}
+    for mode in schema.ORDER_MODES:
+        runs = [simulate(cfg, ticks=ticks, seed=s, order_mode=mode) for s in seed_list]
+        n = len(runs) or 1
+        tot_caps = [sum(r["captures"].values()) for r in runs]
+        flips = [r["flip_flops"] for r in runs]
+        battles = [r["battles"] for r in runs]
+        replen = [r["replenishes"] for r in runs]
+        early = [r["early_max_share"] for r in runs]
+        final = [r["final_max_share"] for r in runs]
+        surv = [r["factions_surviving"] for r in runs]
+        util = [r["garrison_utilization"] for r in runs]
+        early_dom = sum(1 for x in early if x >= 0.75)
+        final_dom = sum(1 for x in final if x >= 0.75)
+        order_totals = {k: sum(r["orders"][k] for r in runs) for k in ("raid", "reinforce", "patrol")}
+        report["modes"][mode] = {
+            "mean_captures": round(sum(tot_caps) / n, 2),
+            "mean_flip_flops": round(sum(flips) / n, 2),
+            "mean_battles": round(sum(battles) / n, 2),
+            "mean_replenishes": round(sum(replen) / n, 2),
+            "mean_early_max_share": round(sum(early) / n, 4),
+            "mean_final_max_share": round(sum(final) / n, 4),
+            "early_dominance_ge75_count": early_dom,
+            "final_dominance_ge75_count": final_dom,
+            "mean_factions_surviving": round(sum(surv) / n, 2),
+            "mean_garrison_utilization": round(sum(util) / n, 4),
+            "order_totals": order_totals,
+        }
+    return report
 
 
 def main(argv=None):
@@ -377,10 +570,11 @@ def main(argv=None):
     ap.add_argument("config")
     ap.add_argument("--ticks", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--order-mode", choices=schema.ORDER_MODES, default=None)
     ap.add_argument("--events", action="store_true")
     a = ap.parse_args(argv)
     try:
-        res = simulate(a.config, a.ticks, a.seed, a.events)
+        res = simulate(a.config, a.ticks, a.seed, a.events, order_mode=a.order_mode)
     except schema.AlifeConfigError as e:
         print("\n".join(e.problems), file=sys.stderr)
         return 2

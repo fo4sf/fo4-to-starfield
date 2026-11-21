@@ -465,7 +465,7 @@ def cmd_validate(a):
 
 # ---------------------------------------------------------------- simulate
 
-def run_simulation(cfg, ticks, seed):
+def run_simulation(cfg, ticks, seed, order_mode=None):
     sim = _sim()
     for name in ("simulate", "run_simulation", "run"):
         fn = getattr(sim, name, None)
@@ -474,7 +474,7 @@ def run_simulation(cfg, ticks, seed):
     else:
         raise Refused("fo4sf.alife.sim_math has no simulate()/run_simulation()/run()")
     try:
-        res = fn(cfg, ticks=ticks, seed=seed)
+        res = fn(cfg, ticks=ticks, seed=seed, order_mode=order_mode) if order_mode is not None else fn(cfg, ticks=ticks, seed=seed)
     except TypeError:
         res = fn(cfg, ticks, seed)
     if not isinstance(res, dict):
@@ -497,7 +497,7 @@ def cmd_simulate(a):
             print("FAIL  " + p)
         raise Refused(f"{a.config} is not valid; fix it before simulating")
     t0 = time.perf_counter()
-    res = run_simulation(cfg, a.ticks, a.seed)
+    res = run_simulation(cfg, a.ticks, a.seed, order_mode=getattr(a, "order_mode", None))
     ms = (time.perf_counter() - t0) * 1000.0
     c = as_dict(cfg)
     captures = _first(res, "captures", "captures_by_faction", default={}) or {}
@@ -1194,6 +1194,7 @@ def main(argv=None):
     s.add_argument("--config", required=True)
     s.add_argument("--ticks", type=int, default=1000)
     s.add_argument("--seed", type=int, default=42)
+    s.add_argument("--order-mode", choices=("random", "scored"), default=None)
     s.add_argument("--json-out")
     k = sub.add_parser("package")
     k.add_argument("--config", required=True)

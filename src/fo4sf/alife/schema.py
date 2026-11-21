@@ -49,6 +49,7 @@ MIN_ROAD_RATIO = 0.75                # an edge may be shorter than the straight 
 BASE_MASTER = "Starfield.esm"
 NODE_KINDS = {"relay": 0, "base": 1, "checkpoint": 2, "lair": 3, "resource": 4}
 RELATIONS = {"ally": 1, "neutral": 0, "enemy": -1}
+ORDER_MODES = ("random", "scored")
 SIM_DEFAULTS = {
     "default_enabled": True,
     "tick_real_s": 2.0,
@@ -59,6 +60,7 @@ SIM_DEFAULTS = {
     "max_active_squads": 8,
     "respawn_cooldown_s": 120.0,
     "show_notifications": True,
+    "order_mode": "random",
 }
 TOP_KEYS = {"schema_version", "mod_name", "plugin_name", "light_master", "masters", "editor_prefix", "worldspace",
             "simulation", "factions", "nodes", "edges", "description", "author", "version", "$schema",
@@ -313,6 +315,14 @@ def normalize_alife_config(cfg):
         if isinstance(d, bool):
             if not isinstance(v, bool):
                 P(f"simulation.{k} must be true or false")
+                continue
+        elif isinstance(d, str):
+            if k == "order_mode":
+                if not isinstance(v, str) or v not in ORDER_MODES:
+                    P(f"simulation.order_mode {v!r}: one of {', '.join(ORDER_MODES)}")
+                    continue
+            elif not isinstance(v, str):
+                P(f"simulation.{k} must be a string")
                 continue
         elif isinstance(d, int):
             if not _is_int(v):
