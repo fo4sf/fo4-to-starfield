@@ -611,11 +611,11 @@ DOOR_NAME = "Door"                                    # the ACTI's FULL when --n
 PORT_PREFIX = "FO4Port_"                              # the port's CELL editor ids: FO4Port_<FO4 cell editor id>
 
 
-def port_index(port):
+def port_index(port, exports=()):
     """What the interior staging knows about doors: {"plugin": its .esm, "next": its next free local id (vmad_patch),
     "cells": {port CELL edid: local id}, "refs": {FO4 formkey: (port CELL edid, local id)} for every placed REFR,
     "exported": {FO4 formkey: (port CELL edid, exported reference)} for every reference of the converted cells'
-    exports (<FO4 cell edid>.json beside the plugin), placed or not}."""
+    exports (<FO4 cell edid>.json beside the plugin or in --exports), placed or not}."""
     name = vmad_patch.plugin_in(port)
     ids = load(os.path.join(port, "formids.json"))
     cells, refs = {}, {}
@@ -625,10 +625,14 @@ def port_index(port):
             cells[parts[1]] = v
         elif parts[0] == "REFR" and len(parts) == 4:
             refs[f"{parts[2]}:{parts[3]}"] = (parts[1], v)
+    search_dirs = [port, *(exports or ())]
     exported = {}
     for cell_edid in cells:
-        p = os.path.join(port, cell_edid[len(PORT_PREFIX):] + ".json") if cell_edid.startswith(PORT_PREFIX) else ""
-        if not p or not os.path.isfile(p):
+        if not cell_edid.startswith(PORT_PREFIX):
+            continue
+        fname = cell_edid[len(PORT_PREFIX):] + ".json"
+        p = next((os.path.join(d, fname) for d in search_dirs if d and os.path.isfile(os.path.join(d, fname))), "")
+        if not p:
             continue
         for r in load(p).get("refs", []):
             exported[r.get("formkey")] = (cell_edid, r)
@@ -637,10 +641,14 @@ def port_index(port):
 
 
 def placed_models(build, srcs):
-    """{source key: converted model} of the wanted placed references (objects.json refs -> bases)."""
+    """{source key: converted model} of the wanted placed references (objects.json refs -> bases, plus existing doors)."""
     o = load(os.path.join(build, "objects.json"))
     want = set(srcs)
-    return {r["src"]: o["bases"][r["base"]]["model"] for r in o["refs"] if r["src"] in want}
+    out = {r["src"]: o["bases"][r["base"]]["model"] for r in o["refs"] if r["src"] in want}
+    for d in o.get("doors") or []:
+        if d.get("src") in want and d.get("model"):
+            out.setdefault(d["src"], d["model"])
+    return out
 
 
 def door_pair(r, order, skipped, port):
@@ -668,17 +676,19 @@ def door_pair(r, order, skipped, port):
     return None, inner
 
 
-def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
+def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0, only=None, keep_markers=None):
     """({"doors_port": {...}, "doors": [...], "door_skipped": [...]}, report): every exterior Door reference with an
     XTEL into a converted interior of the port (port_index), in placement order (door_pair): src, base, editor_id,
     model (FO4), converted_model (the build's, when given), name (--names or DOOR_NAME), fo4_pos, rot, scale, slot,
     "destination" {plugin, door (the interior FO4 door), cell (port CELL edid), port_ref / port_cell (local ids, 6
     hex), arrival {pos (metres), rot} = the exterior door's XTEL arrival inside, flags, id = the interior arrival
-    marker's local id (port next + k)} and "return" {arrival = the interior door's XTEL arrival outside, flags}.
-    Doors with a missing side are in door_skipped with the reason."""
+    marker's local id (port next + k, or kept marker id for doors in keep_markers)} and "return" {arrival = the interior
+    door's XTEL arrival outside, flags}. Doors with a missing side are in door_skipped with the reason."""
     from fo4sf import exterior
     order = {src: i for i, src in enumerate(placed)}
     names, skipped = names or {}, skipped or {}
+    only_set = {str(s).strip().casefold() for s in only if str(s).strip()} if only else None
+    keep_map = {str(k).casefold(): int(v) for k, v in keep_markers.items()} if keep_markers else None
     entries, rep, left = [], Counter(), []
     for r in refs:
         if str(r.get("type")) not in DOOR_TYPES:
@@ -697,6 +707,9 @@ def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
             left.append({"src": src, "base": r.get("base_formkey"), "editor_id": edid, "model": r.get("model"),
                          "destination": tel.get("door"), "cell": port["exported"][tel["door"]][0], "reason": why})
             continue
+        if only_set is not None and str(src).casefold() not in only_set:
+            rep["filtered by --only"] += 1
+            continue
         cell_edid, port_ref = port["refs"][tel["door"]]
         name = names.get(r.get("base_formkey")) or DOOR_NAME               # the FO4 FULL when --names has it, else "Door"
         rep["name from fo4" if name != DOOR_NAME else "name 'Door'"] += 1
@@ -712,6 +725,11 @@ def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
                         "return": {"arrival": {"pos": [round(v, 6) for v in exterior.metres(back["pos"])],
                                                "rot": [float(v) for v in back["rot"]]},
                                    "flags": int(back.get("flags") or 0)}})
+    if only_set is not None:
+        found_set = {str(e["src"]).casefold() for e in entries}
+        missing_only = sorted(only_set - found_set)
+        if missing_only:
+            raise ValueError(f"--only door(s) missing or ineligible: {missing_only}")
     entries.sort(key=lambda e: e["slot"])
     if limit:
         rep["cut by --limit"] = max(0, len(entries) - limit)
@@ -720,8 +738,18 @@ def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
         models = placed_models(build, [e["src"] for e in entries])
         for e in entries:
             e["converted_model"] = models.get(e["src"])
-    for k, e in enumerate(entries):
-        e["destination"]["id"] = f"{port['next'] + k:06X}"
+    if keep_map is not None:
+        new_idx = 0
+        for e in entries:
+            k_low = str(e["src"]).casefold()
+            if k_low in keep_map:
+                e["destination"]["id"] = f"{keep_map[k_low]:06X}"
+            else:
+                e["destination"]["id"] = f"{port['next'] + new_idx:06X}"
+                new_idx += 1
+    else:
+        for k, e in enumerate(entries):
+            e["destination"]["id"] = f"{port['next'] + k:06X}"
     rep["doors"] = len(entries)
     rep["distinct bases"] = len({e["base"] for e in entries})
     rep["door_skipped"] = len(left)
@@ -801,6 +829,10 @@ def main(argv=None):
     p.add_argument("--work", required=True)
     p.add_argument("--build", required=True)
     p.add_argument("--port", required=True, help="the interior staging: FO4Port.esm, formids.json, <cell>.json exports")
+    p.add_argument("--exports", action="append", default=[], help="additional directory holding <cell>.json exports (repeatable)")
+    p.add_argument("--only", action="append", default=[], help="restrict to explicit FO4 door formkey(s) <6hex>:<plugin> (repeatable or comma-separated)")
+    p.add_argument("--keep-markers", default="", help="earlier doors.json whose marker ids stay fixed while new doors allocate port next + m")
+    p.add_argument("--include-kept", action="store_true", help="with --only and --keep-markers, automatically include the kept doors too")
     p.add_argument("--out", required=True)
     p.add_argument("--names", default="", help="FO4 display names (dotnet/Fo4Land export-names); else every door is 'Door'")
     p.add_argument("--limit", type=int, default=0)
@@ -808,13 +840,36 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p.add_argument("inputs", nargs="+", help="cluster files to merge (one class per input)")
     a = ap.parse_args(argv)
+    if getattr(a, "out", None):
+        from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path
+        try:
+            refuse_unsafe_output_path(a.out)
+        except OutputPathRefusedError as err:
+            sys.exit(str(err))
     if a.cmd == "doors":
         try:
-            port = port_index(a.port)
+            port = port_index(a.port, a.exports)
+            keep_m = vmad_patch.kept_markers(a.keep_markers) if a.keep_markers else None
         except (ValueError, OSError) as e:
             sys.exit(f"--port {a.port}: {e}")
+        only_keys = [part.strip() for raw in a.only for part in str(raw).split(",") if part.strip()]
+        if only_keys and keep_m and a.include_kept:
+            only_keys = list(dict.fromkeys([*keep_m.keys(), *only_keys]))
         refs = [r for r in band_refs(a.work) if str(r.get("type")) in DOOR_TYPES]
-        cl, rep = doors(refs, placed_sources(a.build), port, a.build, load_names(a.names), skipped_reasons(a.build), a.limit)
+        try:
+            cl, rep = doors(
+                refs,
+                placed_sources(a.build),
+                port,
+                a.build,
+                load_names(a.names),
+                skipped_reasons(a.build),
+                a.limit,
+                only=only_keys or None,
+                keep_markers=keep_m,
+            )
+        except ValueError as e:
+            sys.exit(f"doors: {e}")
         with open(a.out, "w", encoding="utf-8") as f:
             json.dump(cl, f, indent=1)
         print(json.dumps(rep, indent=1))

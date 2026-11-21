@@ -52,8 +52,11 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "src"))
+import contextlib
 from fo4sf import btd, exterior, map_markers  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
+from fo4sf.core import world_registry as wreg  # noqa: E402
+from fo4sf.terrain.path_guard import OutputPathRefusedError, refuse_unsafe_output_path  # noqa: E402
 
 sys.path.insert(0, HERE)
 import make_exp2c as x2c  # noqa: E402
@@ -62,6 +65,75 @@ import vmad_patch  # noqa: E402
 
 EDID_PREFIX = "FO4Core_"
 ASSET_PREFIX = "fo4core"
+
+
+def resolve_world_key(world_key, registry_path=None):
+    """Resolve a world row from `world_registry.py` into builder metadata (`source_worldspace`, `plugin`, `world_edid`,
+    `edid_prefix`, `asset_prefix`, `tile_cells`, `bounds`). Returns None when `world_key` is empty."""
+    if not world_key:
+        return None
+    reg = wreg.load_world_registry(registry_path) if registry_path else wreg.load_world_registry()
+    try:
+        row = reg.get_world(world_key)
+    except KeyError as err:
+        raise ValueError(f"unknown --world-key {world_key!r} in world_registry") from err
+    psw = row.planned_starfield_world
+    if row.kind in ("no_build", "dlc_edit") or not psw.plugin or not psw.world_edid:
+        raise ValueError(
+            f"--world-key {world_key!r} (kind={row.kind!r}) has no buildable Starfield overlay plugin/world_edid"
+        )
+    prefix_stem = psw.world_edid.split("_", 1)[0] if "_" in psw.world_edid else psw.world_edid
+    edid_prefix = prefix_stem + "_"
+    asset_prefix = prefix_stem.lower()
+    return {
+        "key": row.key,
+        "kind": row.kind,
+        "source_worldspace": row.source_worldspace.edid,
+        "source_plugins": list(row.source_plugins),
+        "plugin": psw.plugin,
+        "world_edid": psw.world_edid,
+        "tile_cells": psw.tile_cells,
+        "bounds": {
+            "cell_bbox": list(row.bounds.cell_bbox) if row.bounds.cell_bbox else None,
+            "land_bbox": list(row.bounds.land_bbox) if row.bounds.land_bbox else None,
+            "ref_bbox": list(row.bounds.ref_bbox) if row.bounds.ref_bbox else None,
+        },
+        "edid_prefix": edid_prefix,
+        "asset_prefix": asset_prefix,
+    }
+
+
+def check_core_matches_world_spec(prm, ov, spec):
+    """Verify a staged terrain overlay matches the registry row selected by `--world-key`."""
+    if spec is None:
+        return
+    if prm.get("plugin") != spec["plugin"]:
+        raise ValueError(
+            f"--world-key {spec['key']}: core plugin {prm.get('plugin')!r} != registry {spec['plugin']!r}"
+        )
+    if ov.get("world") != spec["world_edid"]:
+        raise ValueError(
+            f"--world-key {spec['key']}: overlay world {ov.get('world')!r} != registry {spec['world_edid']!r}"
+        )
+    if spec["tile_cells"] is not None and ov.get("n") != spec["tile_cells"]:
+        raise ValueError(
+            f"--world-key {spec['key']}: overlay tile n={ov.get('n')} != registry tile_cells={spec['tile_cells']}"
+        )
+
+
+@contextlib.contextmanager
+def world_prefixes(spec):
+    """Temporarily bind `EDID_PREFIX` and `ASSET_PREFIX` when `--world-key` selects a non-Commonwealth world."""
+    global EDID_PREFIX, ASSET_PREFIX
+    if spec is None:
+        yield
+        return
+    old_edid, old_asset = EDID_PREFIX, ASSET_PREFIX
+    EDID_PREFIX, ASSET_PREFIX = spec["edid_prefix"], spec["asset_prefix"]
+    try:
+        yield
+    finally:
+        EDID_PREFIX, ASSET_PREFIX = old_edid, old_asset
 DATA_TREES = ("meshes", "geometries", "materials", "textures")
 # fields of an exported reference that placing, reporting and the plan need (the export has about 25)
 SLIM_KEYS = ("formkey", "type", "base_editor_id", "base_formkey", "model", "pos", "rot", "scale", "disabled",
@@ -167,11 +239,28 @@ def convert_list(kept):
 
 def cmd_select(a):
     t0 = time.time()
+    try:
+        spec = resolve_world_key(getattr(a, "world_key", ""), getattr(a, "registry", None))
+    except ValueError as err:
+        sys.exit(str(err))
     paths = sorted(glob.glob(os.path.join(a.work, "export", "band_*.json")))
     if not paths:
         sys.exit(f"no export bands in {os.path.join(a.work, 'export')}")
+    if spec is not None:
+        for bp in paths:
+            bdoc = load(bp)
+            ws_edid = (bdoc.get("worldspace") or {}).get("editor_id")
+            if ws_edid and spec["source_worldspace"] and ws_edid != spec["source_worldspace"]:
+                sys.exit(
+                    f"--world-key {spec['key']}: band {os.path.basename(bp)} worldspace {ws_edid!r} "
+                    f"!= registry source_worldspace {spec['source_worldspace']!r}"
+                )
     kept, skipped, tot = select_bands(paths)
-    _prm, ov = core_params(a.core)
+    prm, ov = core_params(a.core)
+    try:
+        check_core_matches_world_spec(prm, ov, spec)
+    except ValueError as err:
+        sys.exit(str(err))
     cmin, cmax = ov["cell_min"], ov["cell_max"]
     regions, cells = {}, {}
     for r in kept:
@@ -180,8 +269,9 @@ def cmd_select(a):
         g = region_of(c)
         regions[g] = regions.get(g, 0) + 1
     models = convert_list(kept)
+    cell_label = spec["key"] if spec is not None else "core64c"
     save(os.path.join(a.work, "selected.json"), {"core": os.path.abspath(a.core), "refs": kept})
-    save(os.path.join(a.work, "convert_input.json"), {"schema_version": 2, "cell": "core64c", "refs": models})
+    save(os.path.join(a.work, "convert_input.json"), {"schema_version": 2, "cell": cell_label, "refs": models})
     rep = {"bands": [os.path.basename(p) for p in paths], **tot, "to_convert": len(kept), "models": len(models),
            "skipped": len(skipped), "skip_reasons": exterior.reason_counts(skipped),
            "skip_types": type_counts(skipped), "convert_types": list(exterior.CONVERT_TYPES),
@@ -192,6 +282,10 @@ def cmd_select(a):
                                and (c[0] in (cmin, cmax) or c[1] in (cmin, cmax))),
            "regions": {f"{g[0]},{g[1]}": n for g, n in sorted(regions.items())}, "region_cells": REGION_CELLS,
            "seconds": round(time.time() - t0, 1), "skipped_refs": skipped}
+    if spec is not None:
+        rep["world_key"] = spec["key"]
+        rep["source_worldspace"] = spec["source_worldspace"]
+        rep["edid_prefix"] = spec["edid_prefix"]
     save(os.path.join(a.work, "selection.json"), rep)
     print(f"{rep['refs']:,} references + {rep['deferred']:,} deferred in {rep['cells']:,} FO4 cells: convert "
           f"{rep['to_convert']:,} ({rep['models']:,} models), skip {rep['skipped']:,}: {rep['skip_reasons']}")
@@ -2284,10 +2378,31 @@ def appended_ids(ids, classes=APPENDED):
     return out
 
 
+def delta_door_appended_ids(objects, ids):
+    """Appended arrival-marker and new ACTI local ids allocated by an incremental `add-doors` pass after map_markers."""
+    dd = objects.get("doors_delta") if isinstance(objects, dict) else None
+    if not isinstance(dd, dict) or not dd.get("srcs"):
+        return set()
+    got = ids.get("doors") or {}
+    delta_srcs = set(dd["srcs"])
+    init_bases = {int(got[e["src"]]["base"], 16) for e in (objects.get("doors") or [])
+                  if e["src"] not in delta_srcs and e["src"] in got}
+    out = set()
+    for src in delta_srcs:
+        v = got.get(src)
+        if isinstance(v, dict):
+            if "arrival" in v:
+                out.add(int(v["arrival"], 16))
+            if "base" in v and int(v["base"], 16) not in init_bases:
+                out.add(int(v["base"], 16))
+    return out
+
+
 def check_door_identities(objects, ids):
     """Door REFRs keep their slots (check_reference_slots); the arrival markers take new ids after every other record
     formids.json declares, the lights included, consecutive in objects.json order; the ACTI bases follow, consecutive
-    in first-use order, one per edid. ValueError names the first problem."""
+    in first-use order, one per edid (and for an `add-doors` delta batch, consecutive after the pinned plugin's end).
+    ValueError names the first problem."""
     doors = objects.get("doors") or []
     if not doors:
         return
@@ -2298,16 +2413,50 @@ def check_door_identities(objects, ids):
         others = ids_before(ids, APPENDED)
         others += [int(c[k], 16) for c in (ids.get("lights") or {}).values() for k in ("ref", "base")]
         first = max(others) + 1
-        for k, e in enumerate(doors):
+        dd = objects.get("doors_delta") if isinstance(objects.get("doors_delta"), dict) else None
+        if not dd:
+            for k, e in enumerate(doors):
+                if int(got[e["src"]]["arrival"], 16) != first + k:
+                    raise ValueError(f"{e['src']}: arrival marker {got[e['src']]['arrival']} is not new id {first + k:06X}")
+            order = list(dict.fromkeys(e["edid"] for e in doors))
+            base_id = {}
+            for e in doors:
+                base_id.setdefault(e["edid"], set()).add(int(got[e["src"]]["base"], 16))
+            for k, edid in enumerate(order):
+                if base_id[edid] != {first + len(doors) + k}:
+                    raise ValueError(f"{edid}: ACTI {sorted(base_id[edid])} is not the one new id {first + len(doors) + k:06X}")
+            return
+
+        delta_list = list(dd.get("srcs") or [])
+        delta_set = set(delta_list)
+        init_doors = [e for e in doors if e["src"] not in delta_set]
+        by_src = {e["src"]: e for e in doors}
+        delta_doors = [by_src[s] for s in delta_list if s in by_src]
+        if len(delta_doors) != len(delta_set):
+            raise ValueError("doors_delta names unknown or duplicate door sources")
+        for k, e in enumerate(init_doors):
             if int(got[e["src"]]["arrival"], 16) != first + k:
                 raise ValueError(f"{e['src']}: arrival marker {got[e['src']]['arrival']} is not new id {first + k:06X}")
-        order = list(dict.fromkeys(e["edid"] for e in doors))
+        init_order = list(dict.fromkeys(e["edid"] for e in init_doors))
         base_id = {}
         for e in doors:
             base_id.setdefault(e["edid"], set()).add(int(got[e["src"]]["base"], 16))
-        for k, edid in enumerate(order):
-            if base_id[edid] != {first + len(doors) + k}:
-                raise ValueError(f"{edid}: ACTI {sorted(base_id[edid])} is not the one new id {first + len(doors) + k:06X}")
+        for k, edid in enumerate(init_order):
+            if base_id[edid] != {first + len(init_doors) + k}:
+                raise ValueError(f"{edid}: ACTI {sorted(base_id[edid])} is not the one new id {first + len(init_doors) + k:06X}")
+        prev_max = max(
+            others
+            + [int(got[e["src"]][fld], 16) for e in init_doors for fld in ("arrival", "base")]
+            + list(map_marker_ids(ids))
+        )
+        first_delta = prev_max + 1
+        for k, e in enumerate(delta_doors):
+            if int(got[e["src"]]["arrival"], 16) != first_delta + k:
+                raise ValueError(f"{e['src']}: delta arrival marker {got[e['src']]['arrival']} is not new id {first_delta + k:06X}")
+        new_order = [edid for edid in dict.fromkeys(e["edid"] for e in delta_doors) if edid not in set(init_order)]
+        for k, edid in enumerate(new_order):
+            if base_id[edid] != {first_delta + len(delta_doors) + k}:
+                raise ValueError(f"{edid}: delta ACTI {sorted(base_id[edid])} is not the one new id {first_delta + len(delta_doors) + k:06X}")
     except (KeyError, TypeError) as e:
         raise ValueError("missing or invalid declared door identities") from e
 
@@ -2440,7 +2589,7 @@ def with_world_data(rec, world_data, world):
     return {**rec, "fields": fields}
 
 
-def map_marker_problems(recs, own_index, ov, ids):
+def map_marker_problems(recs, own_index, ov, ids, post_marker_ids=()):
     """The map markers TerrainOverlays wrote for the overlay against its params (stage: "map_markers"; without them one
     at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
     MapMarkerRefType row per marker on the overlay's Location (this world, grid Y then X as the writer writes it, tail
@@ -2496,7 +2645,8 @@ def map_marker_problems(recs, own_index, ov, ids):
     if set(cell) & lcid:
         problems.append(f"{ov['location']}: LCID (initially disabled) lists {[f'{f:08X}' for f in sorted(set(cell) & lcid)]}")
     mm = {f & 0xFFFFFF for f in cell}
-    others = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in mm]
+    skip_after = mm | set(post_marker_ids or ())
+    others = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in skip_after]
     if mm and others and min(mm) < max(others):
         problems.append(f"map marker 0x{min(mm):06X} before the plugin's last other record 0x{max(others):06X}")
     return problems
@@ -2634,8 +2784,21 @@ def navmesh_input(nav, ov):
 
 
 def cmd_stage(a):
+    try:
+        spec = resolve_world_key(getattr(a, "world_key", ""), getattr(a, "registry", None))
+    except ValueError as err:
+        sys.exit(str(err))
+    with world_prefixes(spec):
+        return _cmd_stage_inner(a, spec)
+
+
+def _cmd_stage_inner(a, spec):
     t0 = time.time()
     prm, ov = core_params(a.core)
+    try:
+        check_core_matches_world_spec(prm, ov, spec)
+    except ValueError as err:
+        sys.exit(str(err))
     core_plan = load(os.path.join(a.core, "plan.json"))
     core_exp = load(os.path.join(a.core, "expected.json"))
     selrep = load(os.path.join(a.work, "selection.json"))
@@ -3043,10 +3206,23 @@ def archive_dry_run(archive2, out, scratch, files):
 
 
 def cmd_check(a):
+    try:
+        spec = resolve_world_key(getattr(a, "world_key", ""), getattr(a, "registry", None))
+    except ValueError as err:
+        sys.exit(str(err))
+    with world_prefixes(spec):
+        return _cmd_check_inner(a, spec)
+
+
+def _cmd_check_inner(a, spec):
     import make_cw_overlays as cwo
     t0 = time.time()
     out = a.out
     prm, ov = core_params(out)
+    try:
+        check_core_matches_world_spec(prm, ov, spec)
+    except ValueError as err:
+        sys.exit(str(err))
     cprm, _cov = core_params(a.core)
     plan = load(os.path.join(out, "plan.json"))
     exp = load(os.path.join(out, "expected.json"))
@@ -3202,7 +3378,7 @@ def cmd_check(a):
                                                          "fields": [[s.decode(), bytes(v).hex()] for s, v in r["fields"]]}
     if map_marker_ids(ids):
         # map markers (docs/terrain/map-markers.md): Red Rocket, Sanctuary, Vault 111, Concord (stage), persistent
-        mp = map_marker_problems(recs, own_index, ov, ids)
+        mp = map_marker_problems(recs, own_index, ov, ids, post_marker_ids=delta_door_appended_ids(objects, ids))
         need(not mp, f"{len(map_marker_ids(ids))} map markers: MapMarker REFRs at the params' positions, LCSR "
                      f"MapMarkerRefType + LCID on {ov['location']}, after every other record ({len(mp)} problems: {mp[:3]})")
         rep["map_markers"] = {"params": ov.get("map_markers"), "ids": (ids.get("map_marker_refs") or {}).get(ov["world"])}
@@ -3448,12 +3624,215 @@ def cmd_verify_data(a):
     return 0 if good else 1
 
 
+def add_doors_to_core(core_dir, cluster_doc, out_dir):
+    """Incrementally promote additional exterior load doors on top of an existing staged core build (`I3`),
+    keeping EVERY existing FormID (`0x000800 .. HEDR.next - 1`, including existing doors and map markers)
+    unchanged: each newly promoted door REFR keeps its exact existing REFR FormID in place, while only the new
+    arrival XMarker REFRs and any newly needed door ACTI bases are appended at `HEDR.next`."""
+    vmad_patch.require_separate_output(out_dir, core_dir)
+    if os.path.exists(out_dir):
+        raise ValueError(f"{out_dir} exists: every add-doors output must be a new folder")
+
+    prm, ov = core_params(core_dir)
+    objects = load(os.path.join(core_dir, "objects.json"))
+    ids = load(os.path.join(core_dir, "formids.json"))
+    exp_path = os.path.join(core_dir, "expected.json")
+    exp = load(exp_path) if os.path.isfile(exp_path) else None
+
+    existing_doors = list(objects.get("doors") or [])
+    existing_srcs = {e["src"] for e in existing_doors}
+    raw_cluster_doors = list(cluster_doc.get("doors") or [])
+    new_cluster_doors = [e for e in raw_cluster_doors if e["src"] not in existing_srcs]
+    if not new_cluster_doors:
+        raise ValueError("cluster contains no new doors beyond those already in objects.json")
+
+    first_ref = max(int(v, 16) for v in ids["bases"].values()) + 1
+    kept_placed, delta_doors = cluster_doors(objects["bases"], list(objects["refs"]), {"doors": new_cluster_doors})
+    for d in delta_doors:
+        d["reference_index"] = int(ids["refs"][d["src"]], 16) - first_ref
+    new_refs = list(kept_placed)
+
+    combined_doors = sorted(existing_doors + delta_doors, key=lambda e: e["reference_index"])
+    shared_base_agrees(combined_doors, "door", ("name", "model"))
+    seen_dest = {}
+    for e in combined_doors:
+        d = e["destination"]
+        for what, key, shown in (
+            ("destination", (d["plugin"].casefold(), d["id"]), f"{d['plugin']}:{d['id']:06X}"),
+            ("interior door", (d["plugin"].casefold(), d["ref"]), f"{d['plugin']}:{d['ref']}"),
+        ):
+            first = seen_dest.setdefault((what, key), e["src"])
+            if first != e["src"]:
+                raise ValueError(f"{e['src']} and {first} share the {what} {shown}")
+    bad_arr = door_arrivals_inside(delta_doors, ov)
+    if bad_arr:
+        raise ValueError(f"arrival marker(s) outside {ov['world']}: {bad_arr}")
+
+    plugin_path = os.path.join(core_dir, prm["plugin"])
+    plugin = vmad_patch.Plugin.read(plugin_path)
+    own_index = len(plugin.masters())
+    own_hi = own_index << 24
+    _ver, nrec, start_next = plugin.hedr()
+    cur_next = start_next
+
+    recs_map = plugin.records()
+    anchor_full = own_hi | int(ov["anchor"]["form_id"])
+    if anchor_full not in recs_map:
+        raise ValueError(f"anchor {anchor_full:08X} missing in {prm['plugin']}")
+    top_cell_fid = recs_map[anchor_full][3][-1][1]
+
+    acti_group = next(
+        (it for it in plugin.items if isinstance(it, vmad_patch.Group) and it.gtype == 0 and it.label == b"ACTI"),
+        None,
+    )
+    created_acti_group = False
+    if acti_group is None:
+        acti_group = vmad_patch.Group(b"ACTI", 0, b"\x00" * 8, [])
+        plugin.items.insert(0, acti_group)
+        created_acti_group = True
+
+    acti_by_edid = {e["edid"]: int(ids["doors"][e["src"]]["base"], 16) for e in existing_doors}
+    arrival_by_src = {}
+    for d in delta_doors:
+        arr_id = cur_next
+        cur_next += 1
+        arrival_by_src[d["src"]] = arr_id
+        mk = vmad_patch.xmarker_ref(own_hi | arr_id, d["arrival"]["pos"], d["arrival"]["rot"], 576)
+        plugin.add_persistent_ref(top_cell_fid, mk)
+
+    new_actis = 0
+    for d in delta_doors:
+        if d["edid"] not in acti_by_edid:
+            b_id = cur_next
+            cur_next += 1
+            new_actis += 1
+            acti_by_edid[d["edid"]] = b_id
+            acti_rec = vmad_patch.record_bytes(
+                b"ACTI",
+                own_hi | b_id,
+                0,
+                [
+                    (b"EDID", d["edid"].encode("cp1252") + b"\x00"),
+                    (b"OBND", bytes(24)),
+                    (b"ODTY", bytes(4)),
+                    (b"FULL", d["name"].encode("cp1252") + b"\x00"),
+                    (b"MODL", d["model"].encode("cp1252") + b"\x00"),
+                    (b"PNAM", bytes.fromhex("cc4c3300")),
+                    (b"FNAM", b"\x00\x00"),
+                    (b"JNAM", struct.pack("<H", 360)),
+                ],
+                version=576,
+            )
+            acti_group.children.append(acti_rec)
+
+    new_doors_ids = dict(ids.get("doors") or {})
+    new_refs_ids = dict(ids["refs"])
+    for d in delta_doors:
+        src = d["src"]
+        ref_hex = new_refs_ids.pop(src)
+        ref_local = int(ref_hex, 16)
+        ref_full = own_hi | ref_local
+        items_list, idx_in_list, ref_rec = plugin.find(ref_full)
+        if ref_rec.sig != b"REFR":
+            raise ValueError(f"{src}: {ref_full:08X} is not a REFR")
+        old_fields = ref_rec.fields()
+        if any(s == b"VMAD" for s, _ in old_fields):
+            raise ValueError(f"{src}: {ref_full:08X} already carries a VMAD")
+        base_local = acti_by_edid[d["edid"]]
+        vm = vmad_patch.load_door_vmad(
+            d["destination"]["plugin"],
+            d["destination"]["id"],
+            d["destination"]["arrival"]["pos"],
+        )
+        updated_fields = []
+        inserted_vmad = False
+        for s, val in old_fields:
+            if s == b"EDID":
+                updated_fields.append((s, val))
+                updated_fields.append((b"VMAD", vm))
+                inserted_vmad = True
+            elif s == b"NAME":
+                if not inserted_vmad:
+                    updated_fields.append((b"VMAD", vm))
+                    inserted_vmad = True
+                updated_fields.append((b"NAME", struct.pack("<I", own_hi | base_local)))
+            else:
+                updated_fields.append((s, val))
+        items_list[idx_in_list] = ref_rec.with_fields(updated_fields)
+        new_doors_ids[src] = {
+            "base": f"{base_local:06X}",
+            "ref": f"{ref_local:06X}",
+            "arrival": f"{arrival_by_src[src]:06X}",
+        }
+
+    added_records = (1 if created_acti_group else 0) + len(delta_doors) + new_actis
+    plugin.set_hedr(nrec + added_records, cur_next)
+
+    prev_dd = objects.get("doors_delta") if isinstance(objects.get("doors_delta"), dict) else None
+    all_delta_srcs = list((prev_dd.get("srcs") if prev_dd else []) or []) + [d["src"] for d in delta_doors]
+
+    new_objects = dict(objects)
+    new_objects["refs"] = new_refs
+    new_objects["doors"] = combined_doors
+    new_objects["doors_delta"] = {"srcs": all_delta_srcs}
+
+    new_ids = dict(ids)
+    new_ids["refs"] = new_refs_ids
+    new_ids["doors"] = new_doors_ids
+
+    check_reference_slots(new_objects, new_ids)
+    check_door_identities(new_objects, new_ids)
+
+    os.makedirs(out_dir, exist_ok=True)
+    skip_top = {
+        prm["plugin"].casefold(),
+        "objects.json",
+        "formids.json",
+        "formids_diff.json",
+        "expected.json",
+        "offline_check.json",
+        MANIFEST.casefold(),
+    }
+    vmad_patch.link_folder(core_dir, out_dir, skip=skip_top)
+    vmad_patch.write_output(os.path.join(out_dir, prm["plugin"]), plugin.serialize())
+    save(os.path.join(out_dir, "objects.json"), new_objects)
+    save(os.path.join(out_dir, "formids.json"), new_ids)
+    if exp is not None:
+        new_exp = json.loads(json.dumps(exp))
+        if isinstance(new_exp.get("objects"), dict):
+            new_exp["objects"]["placed"] = len(new_refs)
+            if isinstance(new_exp["objects"].get("promoted"), dict):
+                new_exp["objects"]["promoted"]["doors"] = len(combined_doors)
+                new_exp["objects"]["promoted"]["door_bases"] = len({e["edid"].casefold() for e in combined_doors})
+        save(os.path.join(out_dir, "expected.json"), new_exp, indent=1)
+    return {
+        "existing_doors": len(existing_doors),
+        "added_doors": len(delta_doors),
+        "total_doors": len(combined_doors),
+        "added_arrival_markers": len(delta_doors),
+        "added_acti_bases": new_actis,
+        "hedr_next_before": f"{start_next:06X}",
+        "hedr_next_after": f"{cur_next:06X}",
+    }
+
+
+def cmd_add_doors(a):
+    try:
+        rep = add_doors_to_core(a.core, load(a.cluster), a.out)
+    except ValueError as err:
+        sys.exit(f"add-doors: {err}")
+    print(json.dumps(rep, indent=2))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("select")
     s.add_argument("--work", required=True)
     s.add_argument("--core", required=True, help="the staged core64 terrain (overlays_params.json, plugins, Data)")
+    s.add_argument("--world-key", default="", help="world key from src/fo4sf/core/world_registry.py (default: Commonwealth)")
+    s.add_argument("--registry", default="", help="optional path to world_registry.json")
     s = sub.add_parser("measure")
     s.add_argument("--work", required=True)
     s.add_argument("--fo4-data", required=True)
@@ -3466,6 +3845,8 @@ def main():
         s.add_argument("--work", required=True)
         s.add_argument("--core", required=True)
         s.add_argument("--out", required=True)
+        s.add_argument("--world-key", default="", help="world key from src/fo4sf/core/world_registry.py (default: Commonwealth)")
+        s.add_argument("--registry", default="", help="optional path to world_registry.json")
         if name == "stage":
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
             s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json, "
@@ -3501,9 +3882,24 @@ def main():
     s = sub.add_parser("compare-ids", help="formids.json of --out against another build's, section by section (facts)")
     s.add_argument("--out", required=True)
     s.add_argument("--against", required=True, help="the input build (e.g. the one the cluster was generated from)")
+    s = sub.add_parser("add-doors", help="incrementally promote new exterior doors on top of an existing core build")
+    s.add_argument("--core", required=True, help="existing staged core build (FO4TerrainCore.esm, objects.json, formids.json)")
+    s.add_argument("--cluster", required=True, help="make_cluster.py doors JSON containing the new doors")
+    s.add_argument("--out", required=True, help="new output staging folder")
     a = ap.parse_args()
+    try:
+        if a.cmd in ("select", "measure"):
+            refuse_unsafe_output_path(a.work, [getattr(a, "core", ""), getattr(a, "fo4_data", "")])
+        elif a.cmd == "stage":
+            refuse_unsafe_output_path(a.out, [a.work, a.core, getattr(a, "sf_esm", "")])
+        elif a.cmd == "add-doors":
+            refuse_unsafe_output_path(a.out, [a.core, a.cluster])
+        elif a.cmd == "compare-ids":
+            refuse_unsafe_output_path(a.out, [a.against])
+    except OutputPathRefusedError as err:
+        sys.exit(str(err))
     return {"select": cmd_select, "measure": cmd_measure, "stage": cmd_stage, "check": cmd_check,
-            "verify-data": cmd_verify_data, "compare-ids": cmd_compare_ids}[a.cmd](a)
+            "verify-data": cmd_verify_data, "compare-ids": cmd_compare_ids, "add-doors": cmd_add_doors}[a.cmd](a)
 
 
 if __name__ == "__main__":

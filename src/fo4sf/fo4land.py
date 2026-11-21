@@ -143,6 +143,10 @@ class Plugin:
     def __exit__(self, *exc):
         self.close()
 
+    def masters(self):
+        """Return list of MAST filenames from the TES4 header in load order."""
+        return [zstring(d) for s, d in iter_subrecords(record_data(self.buf, 0)) if s == b"MAST"]
+
     def top_group(self, label):
         for item in iter_items(self.buf, self.body, len(self.buf)):
             if item[0] == "GRUP" and item[3] == label:
@@ -192,6 +196,28 @@ class Plugin:
                 name = next((zstring(d) for s, d in fields if s == b"EDID"), "")
                 pending = (fid, fields) if name == edid else None
         raise KeyError(f"worldspace {edid!r} not found")
+
+    def find_world_by_fid(self, target_fid):
+        """(form_id, world_children_start, end, fields) of the WRLD whose FormID equals `target_fid`, or None."""
+        grp = self.top_group(b"WRLD")
+        if grp is None:
+            return None
+        start, end = grp
+        pending = None
+        for item in iter_items(self.buf, start, end):
+            if item[0] == "GRUP":
+                if pending and item[4] == 1 and struct.unpack("<I", item[3])[0] == pending[0]:
+                    return pending[0], item[1] + 24, item[2], pending[1]
+                continue
+            typ, off, _flags, fid = item
+            if typ == b"WRLD":
+                if fid == target_fid:
+                    pending = (fid, list(iter_subrecords(record_data(self.buf, off))))
+                else:
+                    pending = None
+        if pending is not None:
+            return pending[0], end, end, pending[1]
+        return None
 
     def read_world(self, edid, cells=None, refs=True):
         """Walk one worldspace. `cells`: set of (x, y) to load LAND/refs for (None = all).
@@ -343,3 +369,232 @@ def slope_degrees(merged):
     """Per-vertex slope (degrees) from central differences at 128-unit spacing."""
     dz_dy, dz_dx = np.gradient(merged, VERTEX_SPACING)
     return np.degrees(np.arctan(np.hypot(dz_dx, dz_dy)))
+
+
+# ---------------------------------------------------------------------------------------------------- load order
+
+def _form_key_of(fid, masters, own_name):
+    idx = (fid >> 24) & 0xFF
+    owner = masters[idx] if idx < len(masters) else own_name
+    return (owner.lower(), fid & 0x00FFFFFF)
+
+
+def _local_fid_for(form_key, masters, own_name):
+    owner_low, local = form_key
+    if owner_low == own_name.lower():
+        return (len(masters) << 24) | local
+    for idx, m in enumerate(masters):
+        if m.lower() == owner_low:
+            return (idx << 24) | local
+    return None
+
+
+def world_grid_meta(paths, edid):
+    """Scan `WRLD` `edid` across `paths` (in load order) for `cell_bbox`, `land_bbox`, and `dnam` `(land, water)`."""
+    import os
+    target_key = None
+    winning_fields = []
+    xs_cell, ys_cell = [], []
+    xs_land, ys_land = [], []
+    for path in paths:
+        own = os.path.basename(path)
+        with Plugin(path) as p:
+            masters = p.masters()
+            hit = None
+            try:
+                wfid, start, end, wflds = p.find_world(edid)
+                hit = (wfid, start, end, wflds)
+                if target_key is None:
+                    target_key = _form_key_of(wfid, masters, own)
+            except KeyError:
+                if target_key is not None:
+                    local_fid = _local_fid_for(target_key, masters, own)
+                    if local_fid is not None:
+                        hit = p.find_world_by_fid(local_fid)
+            if hit is None:
+                continue
+            wfid, start, end, wflds = hit
+            winning_fields = wflds
+            wres = {"world_fid": wfid, "world_fields": wflds, "cells": {}, "persistent": []}
+            p._walk_world(start, end, None, False, wres, None, in_block=False)
+            for (cx, cy), c in wres["cells"].items():
+                xs_cell.append(cx)
+                ys_cell.append(cy)
+                if c["vhgt"]:
+                    xs_land.append(cx)
+                    ys_land.append(cy)
+    if target_key is None:
+        raise KeyError(f"worldspace {edid!r} not found in {[os.path.basename(x) for x in paths]}")
+    dnam = next(
+        (struct.unpack("<2f", d) for s, d in winning_fields if s == b"DNAM" and len(d) == 8),
+        (-2048.0, 0.0),
+    )
+    cell_bbox = (min(xs_cell), max(xs_cell), min(ys_cell), max(ys_cell)) if xs_cell else None
+    land_bbox = (min(xs_land), max(xs_land), min(ys_land), max(ys_land)) if xs_land else None
+    return {
+        "form_key": target_key,
+        "cell_bbox": cell_bbox,
+        "land_bbox": land_bbox,
+        "dnam": dnam,
+    }
+
+
+def _walk_world_flags(plugin, start, end, wanted, refs, result, cell, in_block):
+    for item in iter_items(plugin.buf, start, end):
+        if item[0] == "GRUP":
+            _g, off, gend, label, gtype = item
+            if gtype in (4, 5):
+                _walk_world_flags(plugin, off + 24, gend, wanted, refs, result, None, in_block=True)
+            elif gtype == 6:
+                if cell is not None and struct.unpack("<I", label)[0] == cell["fid"]:
+                    _walk_world_flags(plugin, off + 24, gend, wanted, refs, result, cell, in_block)
+            elif gtype in (8, 9) and cell is not None:
+                for ch in iter_items(plugin.buf, off + 24, gend):
+                    if ch[0] == "GRUP":
+                        continue
+                    ctyp, coff, cflags, cfid = ch
+                    if ctyp == b"LAND" and not (cflags & 0x20):
+                        for sig, d in iter_subrecords(record_data(plugin.buf, coff)):
+                            if sig == b"VHGT":
+                                cell["vhgt"], cell["land_fid"] = bytes(d), cfid
+                    elif refs and ctyp in REF_TYPES:
+                        r = {"fid": cfid, "type": ctyp.decode("ascii"), "deleted": bool(cflags & 0x20)}
+                        if not r["deleted"]:
+                            r.update(parse_ref(iter_subrecords(record_data(plugin.buf, coff))))
+                        else:
+                            r.update(base=None, pos=None, rot=None, scale=1.0)
+                        (cell["persistent_refs"] if gtype == 8 else cell["refs"]).append(r)
+            continue
+        typ, off, flags, fid = item
+        if typ != b"CELL" or (flags & 0x20):
+            continue
+        xy, name = None, ""
+        for sig, d in iter_subrecords(record_data(plugin.buf, off)):
+            if sig == b"XCLC" and len(d) >= 8:
+                xy = struct.unpack_from("<ii", d)
+            elif sig == b"EDID":
+                name = zstring(d)
+        new = {"fid": fid, "edid": name, "x": None, "y": None, "vhgt": None, "land_fid": None,
+               "refs": [], "persistent_refs": []}
+        if not in_block or xy is None:
+            new["persistent_cell"] = True
+            new["x"], new["y"] = xy if xy else (None, None)
+            cell = new
+            result["persistent_cell"] = new
+            result["persistent"] = new["persistent_refs"]
+            continue
+        new["x"], new["y"] = xy
+        if wanted is None or xy in wanted:
+            result["cells"][xy] = new
+            cell = new
+        else:
+            cell = None
+
+
+def read_world_load_order(paths, edid, cells=None, refs=True):
+    """Read and merge worldspace `edid` across `paths` (masters first, active plugin last).
+
+    Winning `LAND` `VHGT` per `(x, y)` cell wins; references are merged by canonical `(owner, local_id)` FormKey
+    with deleted references (`flags & 0x20`) removed.
+    """
+    import os
+    target_key = None
+    winning_wfid = None
+    winning_wfields = []
+    merged_cells = {}
+    pers_order = []
+    pers_by_key = {}
+    cell_ref_orders = {}
+    cell_ref_maps = {}
+
+    for path in paths:
+        own = os.path.basename(path)
+        with Plugin(path) as p:
+            masters = p.masters()
+            hit = None
+            try:
+                wfid, start, end, wflds = p.find_world(edid)
+                hit = (wfid, start, end, wflds)
+                if target_key is None:
+                    target_key = _form_key_of(wfid, masters, own)
+            except KeyError:
+                if target_key is not None:
+                    local_fid = _local_fid_for(target_key, masters, own)
+                    if local_fid is not None:
+                        hit = p.find_world_by_fid(local_fid)
+            if hit is None:
+                continue
+            wfid, start, end, wflds = hit
+            winning_wfid = wfid
+            winning_wfields = wflds
+            part = {"world_fid": wfid, "world_fields": wflds, "cells": {}, "persistent": []}
+            _walk_world_flags(p, start, end, cells, refs, part, None, in_block=False)
+            for xy, c in part["cells"].items():
+                dst = merged_cells.get(xy)
+                if dst is None:
+                    dst = {
+                        "fid": c["fid"],
+                        "edid": c["edid"],
+                        "x": c["x"],
+                        "y": c["y"],
+                        "vhgt": c["vhgt"],
+                        "land_fid": c["land_fid"],
+                        "refs": [],
+                        "persistent_refs": [],
+                    }
+                    merged_cells[xy] = dst
+                else:
+                    dst["fid"] = c["fid"]
+                    if c["edid"]:
+                        dst["edid"] = c["edid"]
+                    if c["vhgt"] is not None:
+                        dst["vhgt"] = c["vhgt"]
+                        dst["land_fid"] = c["land_fid"]
+                if refs:
+                    for kind_key, src_list in (("refs", c["refs"]), ("persistent_refs", c["persistent_refs"])):
+                        ord_list = cell_ref_orders.setdefault((xy, kind_key), [])
+                        rmap = cell_ref_maps.setdefault((xy, kind_key), {})
+                        for r in src_list:
+                            rk = _form_key_of(r["fid"], masters, own)
+                            if r.get("deleted"):
+                                if rk in rmap:
+                                    del rmap[rk]
+                                continue
+                            rcopy = {k: v for k, v in r.items() if k != "deleted"}
+                            rcopy["form_key"] = f"{r['fid'] & 0xFFFFFF:06X}:{rk[0]}"
+                            if r["base"] is not None:
+                                bk = _form_key_of(r["base"], masters, own)
+                                rcopy["base_form_key"] = f"{r['base'] & 0xFFFFFF:06X}:{bk[0]}"
+                            if rk not in rmap:
+                                ord_list.append(rk)
+                            rmap[rk] = rcopy
+            if refs:
+                for r in part["persistent"]:
+                    rk = _form_key_of(r["fid"], masters, own)
+                    if r.get("deleted"):
+                        if rk in pers_by_key:
+                            del pers_by_key[rk]
+                        continue
+                    rcopy = {k: v for k, v in r.items() if k != "deleted"}
+                    rcopy["form_key"] = f"{r['fid'] & 0xFFFFFF:06X}:{rk[0]}"
+                    if r["base"] is not None:
+                        bk = _form_key_of(r["base"], masters, own)
+                        rcopy["base_form_key"] = f"{r['base'] & 0xFFFFFF:06X}:{bk[0]}"
+                    if rk not in pers_by_key:
+                        pers_order.append(rk)
+                    pers_by_key[rk] = rcopy
+
+    if target_key is None:
+        raise KeyError(f"worldspace {edid!r} not found in {[os.path.basename(x) for x in paths]}")
+
+    if refs:
+        for (xy, kind_key), ord_list in cell_ref_orders.items():
+            rmap = cell_ref_maps[(xy, kind_key)]
+            merged_cells[xy][kind_key] = [rmap[k] for k in ord_list if k in rmap]
+
+    return {
+        "world_fid": winning_wfid,
+        "world_fields": winning_wfields,
+        "cells": merged_cells,
+        "persistent": [pers_by_key[k] for k in pers_order if k in pers_by_key],
+    }
