@@ -2930,3 +2930,53 @@ receipts are tracked in FAL-743 document reconciliation. Independent delta revie
 Minuteman FAL-741 landing gates remain. Earlier PC PASS dde84927 covers only the core
 receipt/Play-eligibility regression; actual kit/archive/Remove/instance/bridge gates
 remain separate. No native Windows, game, deploy or real-kit action in this run.
+
+## 2026-11-18 to 2026-11-20 (plus 21 Nov 02:45Z–03:01Z Candidate 2d run) — Candidate 1 through 2d in-game results, offline hardening, and Round 7 wrap-up
+
+Starfield `1.16.244.0`, SFSE `0.2.21`. All timestamps UTC. Game launches, installs, and measurements were executed exclusively by Claude (PC); Gemini (PC) worked strictly offline on `gemini/*` branches and verification/design artifacts.
+
+### 2026-11-18 — Candidate 1 baseline, Round 1–3 offline review & hardening
+
+- **In game (18 Nov):** The `21`-plugin Candidate 1 baseline (`cd03411a`) completed the Vault 111 Story surface move cleanly (`landed z=127.45 confirmed=True`, `stage 200`), establishing the reference landing baseline prior to Candidate 2b.
+- **Offline only (18 Nov, Rounds 1–3):** Claude (PC) reviewed `#831`, `#832`, `#833`, `#834` (`13:01Z–13:55Z`) and introduced rules `R10`–`R15` (never strand the player, card-as-code tests, pinned parity hashes, single `FO4SFCoreValues.esm` store for native + Papyrus). Gemini (PC) resolved all Part 1 findings (`A1`–`A21`, `B1`–`B14`, `C1`–`C11`, `D1`–`D7`), fixed `#832` Linux-runner parity/guard failures (`E1`–`E3`), built `WB1`–`WB3` / `WB5` / `IB1`–`IB2` offline, wrote `docs/testing/lead-run-order.md`, and staged Candidate 2b (`player` and `test` bundles) at `#833` `8bdafe6f`. Hosted CI passed on `#831`, `#832`, `#833`, `#834`; nothing from Rounds 1–3 merged into `main`.
+
+### 2026-11-19 — Candidate 2b Sessions 1 & 2, Round 4–5 fixes, and Candidate 2c Sessions
+
+- **In game — Candidate 2b Session 1 (`01:13Z–01:34Z`, `player` bundle):**
+  - **PASS:** Card B main proof (10 `F7` open/close cycles, `0` crashes, `members=49 of=49`, `STAT` draws, `Tab` closes) and Card B console guard (`M`/`V`/`N` ignored while `Console` open).
+  - **PARTIAL:** Card C (`blocked input=handscanner`; `M` opened MAP indoors; `GalaxyStarMapMenu found=1`, `SurfaceMap`/`MapMenu found=0`; outdoor star-map block not yet tested).
+  - **NOT SEEN / NOT RUN:** No `boot` log lines appeared on first open; Card B negative run (`StopPerkSound` omitted) not run.
+- **In game — Candidate 2b Session 2 (`01:42Z–02:42Z`, `player` + `test` bundles):**
+  - **PASS:** Story vault console Pip-Boy gate, Pip-Boy pickup (`worn=true`), gear-door console open (`stage 30 by=vault_console`), 7-button S.P.E.C.I.A.L. box (`sum=40 source=Lift`), lift ride (`ascent carried confirmed elapsed=10.17 z=19.81`), and **Card 3 (`02:02Z–02:09Z`)** Survival toggle ON on start choice + save/quit/reload persistence (`why=Reload`).
+  - **FAIL / CRASH:**
+    - `H0`: New Game stayed black `> 4 min` behind the fade hold (`mode box waiting s=180`) until cleared via console `FadeOutGame`.
+    - `H00`: **2 of 2 Story runs crashed** ~`4 s` after exterior `surface moveto` at `Starfield.exe+0x41efd6` (null-object read at `+0x1f0`).
+    - `Card 4` (`02:25Z–02:30Z`): Warfare S.P.E.C.I.A.L. box logged `shown=1` after Starfield's ENHANCE! creator closed, but never drew on screen (player stranded).
+    - `Card A` (`02:38Z–02:42Z`, `test` bundle): `FO4SF_ListTalkCell` loaded and `RELAY OPERATOR / TALK` turned to face the player, but no dialogue menu opened and `FO4SFListDialogue` wrote `0` init lines.
+- **Offline only (19 Nov, Rounds 4 & 5):** Implemented `H00` bisect globals (`0x000890..0x000897`), pre-world neutral start room `FO4SF_StartRoomCell` (`N2`), `sidecar-install` / `sidecar-undo` receipts (`H3`), `Arm=1` wrist-raise INI (`N1`), single-page `FO4SF_SetupMenu` + `setup-options-proposal.md` (`S1`–`S4`), `docs/design/gunplay-study.md` (`#835` `N3`, study only, on `HOLD`), load-door retry fix (`#836` `J1`), and Candidate 2c (`#833` `2e24d36e`).
+- **In game — Candidate 2c (`16:05Z–16:45Z`, `#833` `2e24d36e`, 5 sessions):**
+  - **PASS:** `2c-1` swap card (`verify`, `check-bundle`, `exp_install`, `sidecar-install`, `sidecar-undo`, 3 swaps); `FO4SF_StartRoomCell` backdrop with no vault/black screen during start picking; Warfare start landed cleanly in Sanctuary Hills (`stage 210`) once `FO4SFRouteLoot.esm` was held OFF; Pip-Boy boot movie played on first open (`15 s`, `boot_reopen`); Card A room lit and stage `10`/`15` eval lines logged.
+  - **FAIL / CRASH:**
+    - `T1`: Warfare start crashed at the exact same `Starfield.exe+0x41efd6` (`+0x1f0`) ~`5 s` after `warfare gear n=4` with `FO4SFRouteLoot.esm` ON, and landed cleanly with ONLY `FO4SFRouteLoot.esm` held OFF.
+    - `T2`: Outdoor `M` with `MapBlockStarMap=1` crashed at `Starfield.exe+0x2540dc6` (`+0xb0`) immediately after `step=starmap_blocked`.
+    - `T3`: First start-room message box stayed invisible until opening/closing console flushed Starfield's achievements warning.
+    - `T4`: Story showed the appearance prompt twice (start room + pod), then `FO4SF_NewGameQuest` went silent after `stage 20`.
+    - `T5`: Warfare stayed black behind a loading spinner for `100 s` until console fade lift.
+    - `T6`: Card A `TALK` opened `DialogueMenu` showing `"No Dialogue Action on Player in First Phase"` (no choice list).
+    - `T7` / `T8`: `idleexaminewatch` logged `accepted=1` with no arm/device visible in stills; health bar and `40 XP` toast remained visible.
+
+### 2026-11-20 — `T1`/`T2` confirmation in game, Round 6 offline build (`2d ready`), and Owner Two-Track direction
+
+- **In game — Candidate 2c repeat confirmation (`20 Nov 23:10Z`, 2 sessions on unchanged 2c install):**
+  - **T1 CONFIRMED `2/2` EACH WAY:** `FO4SFRouteLoot.esm` ON crashed a second time at `Starfield.exe+0x41efd6` (`+0x1f0`); `FO4SFRouteLoot.esm` OFF landed cleanly a second time (`stage 210`, Sanctuary Hills).
+  - **T2 HIDE-ONLY PASS:** With `MapBlockStarMap=0`, pressing `M` outdoors logged `step=map_suppress n=1..3 name=GalaxyStarMapMenu sent=hide` (`6` hides), opened the Commonwealth MAP (`map_markers n=310 discovered=2 ... read_back=match`), closed cleanly on `Tab` (`map_unregister ok=1`), and reopened on `M` with `0` crashes. Observed garbled text strips on the first outdoor `pipboybootsequence` open.
+- **Offline only (20 Nov, Round 6):** Root-caused `T1` (`+0x1F0` -> `TESWorldSpace::lightingTemplate` hypothesis) and added `--split bases-only|ext-overrides-only` plus player-profile omission of `FO4SFRouteLoot.esm` (`#833` `ba45b275`); switched `MapBlockStarMap=0` default + non-null `IMenu` fallback (`#831` `d188450d`); fixed `T4` single `"Character Appearance"` box (`Quick start` button `0`), stage-20 `Timer 1` continuation, and fallback Vault pistol (`#833` `51ad5714`); switched `SCEN` flags `0x2814 -> 0x1814` (`T6`), added `$ConsoleFont` boot SWF patch and `docs/ui/pipboy-arm-visibility-study.md` (`T7`), synced Grok `#5984954658` Warfare indices, and staged Candidate 2d (`#833` `d62af443`, `21`-plugin `player`, `23`-plugin `test`, and `T1` split bundles).
+- **Owner direction (20 Nov):** Established Track 1 (Fallout 4 playable path, `--profile player`) vs Track 2 (Experimental multi-title core, `--profile test`, Class B OFF by default on `main`), safe defaults (`W1`), full ~160-PR merge inventory (`W2`/`W3`), quest fragility & break-it test plan + Pimp-Boy 3 Billion reachability (`W6`), and the `W7` Survival/Hardcore Open Mode design contract (`docs/core/port-requirements.md`).
+
+### 2026-11-21 `02:45Z–03:01Z` — Candidate 2d first Story check in game
+
+- **In game (`#833` `d62af443`, `player` bundle, Story path only, `FO4SFBridge.esm` held off):**
+  - **PASS T4:** Single `"Character Appearance"` box with `"Quick start"` first; `stage 10` -> `stage 20`; `pod settle ok=true`; `pistol filter added`; `console activator registered`; stage-20 `status` kept logging every `6 s` for `5 min`; forced `setstage 0A000800 30` logged `stage 30 by=OTHER` (new-game quest shifted to index `0A` without `FO4SFRouteLoot.esm`).
+  - **FAIL T3:** First box still not drawn (`mode fade lifted by=timeout s=15`, `start ui ready released_by=timeout_delay waited_s=15.000000`, `50 s` blank until opening/closing console + `E` on Starfield's warning flushed the mode box).
+  - **NEW BREAK U1 (blocks Story):** Vault floor Pip-Boy beside the skeleton showed no activation prompt and did nothing on `E` (`0` `pipboy pickup` lines), keeping the gear-door console locked and preventing lift/landing progression by play.
+- **NOT RUN across 18–21 Nov (stay offline / unverified):** Candidate 2d lift ride, surface landing, outdoor `M`, Concord walk (`Card 5`), Warfare `T5`, Card A `T6` (`0x1814`), `T1` route-loot split runs (`bases-only` vs `ext-overrides-only`), live `T7` arm / `$ConsoleFont` boot test, Sessions 3 & 4 (home planet `#832` `WB1`–`WB3`, DLC worlds `#834`), and `N3` gunplay (`#835`, on `HOLD`).

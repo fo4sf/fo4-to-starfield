@@ -255,7 +255,7 @@ Nothing in Phase C (bulk interiors, DLCs, or *Fallout 3 / New Vegas / 1 / 2 / Ta
 ### CF-1 (Rank 1) — Clean Vault 111 Exit + Multi-World `StartWorld` Hook (`#803` + Hook)
 - **Why before volume:** Proves end-to-end New Game without console/`tcl` and replaces any hardcoded `Vault111Cryo` assumption with a `StartWorld` descriptor table (`vault111`, `vault101`, `goodsprings`, `vault76`, `vault13`, `arroyo`, `bunkeralpha`, plus faction starts).
 - **PC Card for Claude (PC):**
-  - *Stage/Install:* Already staged/installed for `#803` (`647635c8`) via `docs/newgame/vault111-exit-pc-card.md` Steps 1–4 (`make_cog_door.py stage --production-cog`, `make_anim_console.py stage --production-lift`, `make_newgame.py stage`, `make_newgame.py fold` + `verify`).
+  - *Stage/Install:* Already staged/installed for `#803` (`647635c8`) via `docs/history/vault111-exit-pc-card.md` Steps 1–4 (`make_cog_door.py stage --production-cog`, `make_anim_console.py stage --production-lift`, `make_newgame.py stage`, `make_newgame.py fold` + `verify`).
   - *Run:* Two fresh New Games (*Create character* and *Quick start*), zero console commands: walk from pod -> `E` on gear door -> walk onto open floor lift -> *Ride up* -> settle 3 s on Commonwealth surface.
   - *PASS:* `python scripts/newgame/make_newgame.py log` exits `0` on both sessions (`stages=[10,20,30,40,200]`, `pod_settle ok=true`, `ascent carried confirmed`, `core_cell=True`, `arrival_discovery_requested` non-null).
 

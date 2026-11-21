@@ -1258,10 +1258,11 @@ static class NewGame
 
     public static P3Float PipboyWorldCenter(P3Float pbPos, float rz)
     {
+        // Bethesda REFR.Rotation.Z turns clockwise seen from +Z (matching PluginSpike.RotateOffset).
         float c = MathF.Cos(rz), s = MathF.Sin(rz);
         return new P3Float(
-            pbPos.X + PipboyLocalOffsetX * c - PipboyLocalOffsetY * s,
-            pbPos.Y + PipboyLocalOffsetX * s + PipboyLocalOffsetY * c,
+            pbPos.X + PipboyLocalOffsetX * c + PipboyLocalOffsetY * s,
+            pbPos.Y - PipboyLocalOffsetX * s + PipboyLocalOffsetY * c,
             pbPos.Z + PipboyLocalOffsetZ);
     }
 

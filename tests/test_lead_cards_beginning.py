@@ -716,7 +716,6 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
             "--out", str(cand2d_player),
             "--port", str(port_esm),
             "--profile", "player",
-            "--with-experimental-core",
             "--with-pipboy",
             "--pipboy-stage", str(pb),
         ],
@@ -724,6 +723,24 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
     )
     if rc_2d_p != 0:
         raise RuntimeError(f"failed folding synthetic cand2d-player-bundle (rc={rc_2d_p})")
+
+    cand2d_test = tmp_root / "cand2d-test-bundle"
+    rc_2d_t = mcb.main(
+        [
+            "fold",
+            "--owner-set", str(owner),
+            "--stages-root", str(stages_root),
+            "--clean-core-out", str(tmp_root / "clean-test-2d"),
+            "--out", str(cand2d_test),
+            "--port", str(port_esm),
+            "--profile", "test",
+            "--with-pipboy",
+            "--pipboy-stage", str(pb),
+        ],
+        system=_tcb._FakeSystemClosed(),
+    )
+    if rc_2d_t != 0:
+        raise RuntimeError(f"failed folding synthetic cand2d-test-bundle (rc={rc_2d_t})")
 
     # Broken Round-1 Candidate 2 player fixture: lacks Data/Interface/pipboybootsequence.swf (A1 / H1)
     cand2_broken = tmp_root / "cand2-player-bundle"
@@ -739,7 +756,7 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
         "<cand2c-player-bundle>": cand2b_player,
         "<cand2c-test-bundle>": cand2b_test,
         "<cand2d-player-bundle>": cand2d_player,
-        "<cand2d-test-bundle>": cand2b_test,
+        "<cand2d-test-bundle>": cand2d_test,
         "<cand2d-t1-bases-only>": cand2b_player,
         "<cand2d-t1-ext-overrides-only>": cand2b_player,
         "<cand2-player-bundle>": cand2_broken,

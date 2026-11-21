@@ -26,7 +26,7 @@ Branch `gemini/pipboy-stack` rebases the complete four-PR Pip-Boy stack linearly
    - `InstallStarMapBlock` replaces `GalaxyStarMapMenu`'s creator in `RE::UI::menuMap` with `BlockedStarMapCreate` (`step=starmap_blocked n=... route=create`), blocking vanilla Star Map instantiation from `M`, scanner `G`, `DataMenu`, `MonocleMenu`, console, or script, while `MapKey` (`0x4D`) opens `FO4SF_PipboyMenu` directly on `MAP` (`page=3`) and swallows `M` while open so closing never bounces.
 4. **`INV` Drop & `DATA` `WorkshopsList` Placeholder (`InvDataAnswers=1`):**
    - `WorkshopsList` on the `DATA` page is an explicit static **placeholder** (`Sanctuary Hills (Placeholder)`), not live settlement telemetry.
-   - `TESObjectREFR::RemoveItem` virtual slot `0x8B` and `RawRemoveItemRequest` (`0x40` bytes) are documented in [pipboy-inv-drop-note.md](pipboy-inv-drop-note.md).
+   - `TESObjectREFR::RemoveItem` virtual slot `0x8B` and `RawRemoveItemRequest` (`0x40` bytes) are documented in [pipboy-inv-drop-note.md](../ui/pipboy-inv-drop-note.md).
 
 ---
 
@@ -95,7 +95,7 @@ $env:FO4SF_DOTNET_TESTS = "1"
 ## Integrated PC Verification Card (`S1-c4` + `MAP` Slices 1–4)
 
 > [!IMPORTANT]
-> Requires explicit owner game-launch release. Game closed during file copy and BA2 install. Follow the gated slice order in [pipboy-map-s1-s4.md](pipboy-map-s1-s4.md): verify shell + `STAT` (`S1-c3`/`S1-c4`) and `MAP` Slices 1–2 before claiming Slices 3–4 in-game marker/travel behavior.
+> Requires explicit owner game-launch release. Game closed during file copy and BA2 install. Follow the gated slice order in [pipboy-map-s1-s4.md](../ui/pipboy-map-s1-s4.md): verify shell + `STAT` (`S1-c3`/`S1-c4`) and `MAP` Slices 1–2 before claiming Slices 3–4 in-game marker/travel behavior.
 
 1. **Install Staged Artifacts (Game Closed):**
    - Copy staged `SFSE/Plugins/FO4SFPipboyMenu.dll`, `SFSE/Plugins/FO4SFPipboyMenu.ini` (`Stage=2`, `Movie=FO4SF_Fo4Shell`, `CodeObj=1`, `CodeObjAt=Menu_mc`, `CodeObjPages=1`, `CodeObjSpecial=fill`, `Map=1`, `MapKey=0x4D`, `MapPage=3`, `MapBlockStarMap=1`), and `SFSE/Plugins/FO4SFPipboyMapMarkers.tsv` beside `versionlib-1-16-244-0.bin` in `<SF_DIR>/Data/SFSE/Plugins/`.

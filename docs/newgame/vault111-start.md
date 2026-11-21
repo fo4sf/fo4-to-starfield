@@ -554,7 +554,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
 - **How, the way back:** `--hold` without one or more of the three lists. The selftest builds `noradiant`, `noships`
   and `nosystem`, cross-checks each both ways against `default`, and rejects a list that lost `MB_Parent`,
   `DialogueShipServices` or `SQ_Traits`.
-- **Unverified until the PC run:** that all `34` stop and stay stopped (`docs/newgame/hold-group5-pc-card.md`), and
+- **Unverified until the PC run:** that all `34` stop and stay stopped (`docs/history/hold-group5-pc-card.md`), and
   that stopping `DialogueShipServices` / `SQ_OutpostCargoLink` / `SQ_Traits` introduces no ground-world side effect
   while the `12` protected quests remain `1.00`.
 

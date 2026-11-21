@@ -468,13 +468,13 @@ class SafeDefaultsTests(unittest.TestCase):
         self.assertIn("PipboyWorldCenter(pbPos, pbRot.Z)", cs)
         pb_x, pb_y, pb_z = -54.455524, -0.324950, 0.630884
         rz = 3.804386
-        cx = pb_x + 0.01 * math.cos(rz) - 0.83 * math.sin(rz)
-        cy = pb_y + 0.01 * math.sin(rz) + 0.83 * math.cos(rz)
+        cx = pb_x + 0.01 * math.cos(rz) + 0.83 * math.sin(rz)
+        cy = pb_y - 0.01 * math.sin(rz) + 0.83 * math.cos(rz)
         cz = pb_z + 0.07
         dist_xy = math.hypot(cx - pb_x, cy - pb_y)
         self.assertAlmostEqual(dist_xy, math.hypot(0.01, 0.83), places=4)
-        self.assertAlmostEqual(cx, -53.9527, places=3)
-        self.assertAlmostEqual(cy, -0.9855, places=3)
+        self.assertAlmostEqual(cx, -54.9741, places=3)
+        self.assertAlmostEqual(cy, -0.9731, places=3)
         self.assertAlmostEqual(cz, 0.7009, places=3)
 
     def test_w1_known_issues_doc_exists_covers_all_breaks_and_stays_public_clean(self) -> None:

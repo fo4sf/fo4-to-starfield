@@ -29,7 +29,7 @@ python scripts/core/make_core_bundle.py build `
   --with-pipboy --pipboy-stage "<PIPBOY_STAGE_DIR>"
 ```
 
-*(If rebuilding `<COMBAT_SFSE_BUILD_DIR>` or `<PIPBOY_STAGE_DIR>` on a fresh folder first, see [combat-core-pc-card.md](../combat/combat-core-pc-card.md) Section 1 and [pipboy-stack-candidate.md](../ui/pipboy-stack-candidate.md) Offline Build & Stage Commands. Omitting `--with-pipboy --pipboy-stage` builds the `19`-plugin bundle at `3.740 GiB`.)*
+*(If rebuilding `<COMBAT_SFSE_BUILD_DIR>` or `<PIPBOY_STAGE_DIR>` on a fresh folder first, see [combat-core-pc-card.md](../combat/combat-core-pc-card.md) Section 1 and [pipboy-stack-candidate.md](pipboy-stack-candidate.md) Offline Build & Stage Commands. Omitting `--with-pipboy --pipboy-stage` builds the `19`-plugin bundle at `3.740 GiB`.)*
 
 - **Expected Offline `PASS` Lines & Capacity Margins (`21` Plugins With `--with-pipboy`):**
   - `folded plugins (21): FO4ActorRaider.esm, FO4TerrainCore.esm, FO4SFMission.esm, FO4TerrainCore_Mars.esm, FO4SFVaultGearDoor.esm, FO4SFExitLift.esm, FO4SFNewGame.esm, FO4SFRads.esm, FO4SFHardcore.esm, FO4SFWorkshop.esm, FO4SFPowerArmor.esm, FO4SFProgression.esm, FO4SFListDialogue.esm, FO4SFCombat.esm, FO4SFReputation.esm, FO4SFCompanions.esm, FO4SFALife.esm, FO4SFFortHagen.esm, FO4SFCoreCandidate.esm, FO4SFPipboyProbe.esm, FO4SFPipboyTravel.esm` (`21 <= 245` Starfield plugin ceiling)
