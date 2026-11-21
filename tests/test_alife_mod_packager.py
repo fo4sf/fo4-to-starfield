@@ -6,11 +6,13 @@ import contextlib
 import io
 import json
 import os
+import posixpath
 import shutil
 import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "alife"))
@@ -403,6 +405,63 @@ class VerifyDistTest(Tmp):
     def test_scrub_paths(self):
         s = bam.scrub_paths("check ok: " + "D:" + "\\Games\\Data\\Starfield.esm and /opt/build/x/SynthALife.esm")
         self.assertEqual(s, "check ok: Starfield.esm and SynthALife.esm")
+
+    def test_scrub_paths_cross_os_mixed_trailing_and_unc(self):
+        drv = "D:"
+        with mock.patch("os.path.basename", side_effect=posixpath.basename), \
+                mock.patch("os.path.split", side_effect=posixpath.split):
+            # Windows backslash path under POSIX os.path, plus POSIX path on Windows
+            self.assertEqual(
+                bam.scrub_paths(f"check ok: {drv}\\Games\\Data\\Starfield.esm and /opt/build/x/SynthALife.esm"),
+                "check ok: Starfield.esm and SynthALife.esm",
+            )
+            # Mixed separators in both directions
+            self.assertEqual(
+                bam.scrub_paths(f"mixed {drv}\\Games/Data\\Starfield.esm and /mnt/d\\Games/SynthALife.esm"),
+                "mixed Starfield.esm and SynthALife.esm",
+            )
+            # Trailing separators and bare root
+            self.assertEqual(
+                bam.scrub_paths(f"dirs {drv}\\Games\\Data\\ and /opt/build/data/ and {drv}\\"),
+                "dirs Data and data and <path>",
+            )
+            # UNC paths (backslash, forward slash, trailing slash, bare share root)
+            self.assertEqual(
+                bam.scrub_paths("unc \\\\nas\\mods\\Data\\Starfield.esm and //nas/mods/SynthALife.esm "
+                                "and \\\\nas\\mods\\Data\\ and \\\\nas\\mods\\"),
+                "unc Starfield.esm and SynthALife.esm and Data and <path>",
+            )
+            # Relative manifest paths, numeric ratios, and URLs stay untouched
+            rel = "keep Data/Scripts/FO4SF_ALifeSimQuest.pex ratio 4/128 https://example.com/a/b"
+            self.assertEqual(bam.scrub_paths(rel), rel)
+
+    def test_cross_os_tool_log_and_plugin_name_guard(self):
+        drv = "D:"
+        with mock.patch("os.path.basename", side_effect=posixpath.basename), \
+                mock.patch("subprocess.run") as mrun:
+            mrun.return_value = mock.Mock(returncode=0, stdout="ok\n", stderr="")
+            log = []
+            bam.run([f"{drv}\\Tools\\Papyrus Compiler\\PapyrusCompiler.exe", "FO4SF_ALifeAPI.psc",
+                     f"-o={drv}\\out"], log=log)
+            self.assertEqual(log, [{"tool": "PapyrusCompiler.exe", "args": ["FO4SF_ALifeAPI.psc"], "rc": 0}])
+
+            # Bare-filename guard rejects Windows backslash and drive-prefixed plugin_name on POSIX too
+            sf = os.path.join(self.tmp, "Starfield")
+            os.makedirs(os.path.join(sf, "Data"))
+            os.makedirs(os.path.join(sf, "Tools", "Papyrus Compiler"))
+            os.makedirs(os.path.join(sf, "Tools", "Archive2"))
+            for rel in (("Data", "Starfield.esm"), ("Tools", "ContentResources.zip"),
+                        ("Tools", "Papyrus Compiler", "PapyrusCompiler.exe")):
+                open(os.path.join(sf, *rel), "wb").close()
+            for bad_plugin in ("Data\\Evil.esm", "Data/Evil.esm", "C:Evil.esm"):
+                cfg = self.write_cfg(synthetic_config(plugin_name=bad_plugin),
+                                     name=f"bad_{len(bad_plugin)}_{bad_plugin[0]}.json")
+                with mock.patch.object(bam, "validation_problems", return_value=[]):
+                    rc, _, err = run_cli("package", "--config", cfg,
+                                         "--out", os.path.join(self.tmp, "out_" + str(abs(hash(bad_plugin)))),
+                                         "--starfield-dir", sf)
+                self.assertEqual(rc, 2, bad_plugin)
+                self.assertIn("bare .esm/.esp/.esl file name", err)
 
 
 LOG = """\

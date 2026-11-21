@@ -66,6 +66,25 @@ TES4_MASTER, TES4_SMALL = 0x1, 0x100
 GAME_EXES = {"starfield.exe", "fallout4.exe", "skyrimse.exe", "fallout76.exe", "skyrim.exe", "oblivion.exe"}
 GAME_PATH_PARTS = {"steamapps", "xboxgames", "windowsapps"}
 LOG_LINE = re.compile(r"ALIFE_MOD rt=(?P<rt>[-\d.]+) step=(?P<step>\w+)(?P<rest>.*)$")
+_UNC_PATH_RE = re.compile(r"(?<![:\w])(?:\\\\|//)[^\s\"'<>|/\\]+[\\/][^\s\"'<>|/\\]+(?:[\\/][^\s\"'<>|]*)?")
+_WIN_PATH_RE = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/][^\s\"'<>|]*")
+_POSIX_PATH_RE = re.compile(r"(?<![\w.\\/])/(?:[^\s\"'<>|/\\]+[\\/])+[^\s\"'<>|/\\]*[\\/]*")
+
+
+def path_basename(path):
+    """Cross-OS file name of a Windows drive, UNC, POSIX, or mixed-separator path string."""
+    s = str(path).rstrip("\\/")
+    if not s:
+        return ""
+    m_unc = re.match(r"^(?:\\\\|//)[^\\/]+[\\/][^\\/]+(.*)$", s)
+    if m_unc is not None:
+        s = m_unc.group(1).lstrip("\\/")
+        return re.split(r"[\\/]+", s)[-1] if s else ""
+    if len(s) >= 2 and s[0].isascii() and s[0].isalpha() and s[1] == ":":
+        s = s[2:].lstrip("\\/")
+        return re.split(r"[\\/]+", s)[-1] if s else ""
+    s = s.lstrip("\\/")
+    return re.split(r"[\\/]+", s)[-1] if s else ""
 
 
 class Refused(Exception):
@@ -369,7 +388,7 @@ def cmd_init(a):
         print("note: the starter needs editing before it validates:")
         for p in problems:
             print("  - " + p)
-    print("next: build_alife_mod.py validate --config " + os.path.basename(out))
+    print("next: build_alife_mod.py validate --config " + path_basename(out))
     return 0
 
 
@@ -402,7 +421,7 @@ def validate_report(path):
     spawners = [n for n in c.get("nodes", []) if _spawns(n)]
     if not spawners:
         warnings.append("no node has spawn_faction >= 0: no squad will ever spawn")
-    return {"config": os.path.basename(path), "valid": not problems, "problems": problems, "warnings": warnings,
+    return {"config": path_basename(path), "valid": not problems, "problems": problems, "warnings": warnings,
             "mod_name": c.get("mod_name"), "plugin_name": c.get("plugin_name"),
             "light_master": bool(c.get("light_master")), "worldspace": c.get("worldspace"),
             "graph": g, "factions": ids, "relations": rows, "player_relation": player, "masters": m,
@@ -595,10 +614,11 @@ def refuse_out(out, starfield_dir=None):
 # ---------------------------------------------------------------- hashing, plugin and pex readers
 
 def scrub_paths(text):
-    """`text` with every absolute Windows or POSIX path cut to its file name (the manifest is shipped publicly)."""
-    text = re.sub(r"[A-Za-z]:[\\/][^\s\"'<>|]*", lambda m: os.path.basename(m.group(0).rstrip("\\/")) or "<path>",
-                  text)
-    return re.sub(r"(?<![\w.])/(?:[^\s/\"']+/)+([^\s/\"']+)", r"\1", text)
+    """`text` with every absolute Windows, UNC, or POSIX path cut to its file name (the manifest is shipped publicly)."""
+    rep = lambda m: path_basename(m.group(0)) or "<path>"
+    text = _UNC_PATH_RE.sub(rep, text)
+    text = _WIN_PATH_RE.sub(rep, text)
+    return _POSIX_PATH_RE.sub(rep, text)
 
 
 def sha256(path):
@@ -614,11 +634,11 @@ def read_tes4(path):
     with open(path, "rb") as f:
         head = f.read(24)
         if len(head) < 24 or head[:4] != b"TES4":
-            raise ValueError(f"{os.path.basename(path)}: not a TES4 plugin")
+            raise ValueError(f"{path_basename(path)}: not a TES4 plugin")
         size, flags = struct.unpack_from("<II", head, 4)
         data = f.read(size)
     if len(data) != size:
-        raise ValueError(f"{os.path.basename(path)}: truncated TES4 header")
+        raise ValueError(f"{path_basename(path)}: truncated TES4 header")
     masters, records, pos, big = [], None, 0, None
     while pos + 6 <= len(data):
         sig, n = data[pos:pos + 4], struct.unpack_from("<H", data, pos + 4)[0]
@@ -655,18 +675,19 @@ def ba2_names(path):
 def run(cmd, cwd=None, log=None, timeout=900):
     shown = " ".join(f'"{c}"' if " " in str(c) else str(c) for c in cmd)
     print("+ " + shown, flush=True)
+    tool_name = path_basename(str(cmd[0]))
     try:                                # no console input: a tool that waits for a key must fail, not hang
         r = subprocess.run([str(c) for c in cmd], cwd=cwd, capture_output=True, text=True, errors="replace",
                            stdin=subprocess.DEVNULL, timeout=timeout)
     except subprocess.TimeoutExpired:
-        raise Refused(f"{os.path.basename(str(cmd[0]))} did not finish within {timeout} s")
+        raise Refused(f"{tool_name} did not finish within {timeout} s")
     if log is not None:                 # the manifest records tools and plain arguments only, never machine paths
         words = [str(c) for c in cmd[1:] if not re.search(r"[\\/:]", str(c))]
-        log.append({"tool": os.path.basename(str(cmd[0])), "args": words, "rc": r.returncode})
+        log.append({"tool": tool_name, "args": words, "rc": r.returncode})
     if r.returncode != 0:
         sys.stdout.write((r.stdout or "")[-4000:])
         sys.stdout.write((r.stderr or "")[-4000:])
-        raise Refused(f"{os.path.basename(str(cmd[0]))} exited {r.returncode}")
+        raise Refused(f"{tool_name} exited {r.returncode}")
     return r.stdout or ""
 
 
@@ -693,7 +714,7 @@ def extract_sources(zip_path, work):
                     shutil.copyfileobj(f, o)
                 n += 1
     if not os.path.exists(os.path.join(src, "Starfield_Papyrus_Flags.flg")) or n < 2:
-        raise Refused(f"{os.path.basename(zip_path)}: no Scripts/Source base scripts or flags file")
+        raise Refused(f"{path_basename(zip_path)}: no Scripts/Source base scripts or flags file")
     return src
 
 
@@ -734,9 +755,9 @@ def pack_ba2(archive2, pex_files, stem, work, dest_data, log):
     run([archive2, "Scripts", f"-create={ba2}", f"-root={root}", "-format=General", "-compression=None"],
         cwd=root, log=log)
     names = ba2_names(ba2)
-    want = {f"scripts/{os.path.basename(p).lower()}" for p in pex_files}
+    want = {f"scripts/{path_basename(p).lower()}" for p in pex_files}
     if names != want:
-        raise Refused(f"{os.path.basename(ba2)} entries {sorted(names)} differ from {sorted(want)}")
+        raise Refused(f"{path_basename(ba2)} entries {sorted(names)} differ from {sorted(want)}")
     return ba2
 
 
@@ -805,7 +826,8 @@ def cmd_package(a):
     if m["undeclared"]:
         raise Refused(f"plugins referenced but not declared in masters: {m['undeclared']}")
     plugin = c.get("plugin_name") or "StarfieldALife.esm"
-    if os.path.basename(plugin) != plugin or not plugin.lower().endswith((".esm", ".esp", ".esl")):
+    if re.search(r"[\\/:]", plugin) or path_basename(plugin) != plugin or \
+            not plugin.lower().endswith((".esm", ".esp", ".esl")):
         raise Refused(f"plugin_name {plugin!r} must be a bare .esm/.esp/.esl file name")
     stem = os.path.splitext(plugin)[0]
     extra_masters = {n: find_master(n, starfield, a.extra_data_dir) for n in m["expected"]
@@ -868,7 +890,7 @@ def _build_into(out, final, a, cfg, c, m, plugin, stem, sf_esm, compiler, zip_pa
         raise Refused(f"a master changed during the build ({drift}); attempt kept in {out}")
     sim = c.get("simulation", {}) or {}
     info = {"plugin": plugin, "masters": hdr["masters"], "standalone": [x.lower() for x in hdr["masters"]] ==
-            [BASE_MASTER], "ba2": os.path.basename(ba2) if ba2 else None,
+            [BASE_MASTER], "ba2": path_basename(ba2) if ba2 else None,
             "built": datetime.date.today().isoformat(),
             "online_m": float(sim.get("online_spawn_radius_m", 450.0)),
             "offline_m": float(sim.get("offline_despawn_radius_m", 620.0))}
@@ -1012,7 +1034,7 @@ def verify_dist(dist):
 def cmd_verify_dist(a):
     problems = verify_dist(a.dist_dir)
     if a.json:
-        print(json.dumps({"dist": os.path.basename(os.path.abspath(a.dist_dir)), "ok": not problems,
+        print(json.dumps({"dist": path_basename(os.path.abspath(a.dist_dir)), "ok": not problems,
                           "problems": problems}, indent=1))
     else:
         for x in problems:
@@ -1132,7 +1154,7 @@ def cmd_log_audit(a):
         print(json.dumps(res, indent=1))
         return 0 if res["pass"] else 1
     c = res["counts"]
-    print(f"A-Life log {os.path.basename(a.file)}: {res['alife_lines']} ALIFE_MOD lines, {res['sessions']} session(s)")
+    print(f"A-Life log {path_basename(a.file)}: {res['alife_lines']} ALIFE_MOD lines, {res['sessions']} session(s)")
     print(table(["event", "count"], [
         ["init", c["init"]], ["save loads", c["load"]], ["squads spawned", c["spawn"]],
         ["squads replenished", c["replenish"]], ["3D materializations", c["materialize"]],

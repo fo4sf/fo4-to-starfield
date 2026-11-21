@@ -119,7 +119,7 @@ def read_marker_json(path):
                 data = data[key]
                 break
     if not isinstance(data, list):
-        raise ValueError(f"{os.path.basename(path)}: no marker list")
+        raise ValueError(f"{schema.path_basename(path)}: no marker list")
     return [_node_from_row(r, i) for i, r in enumerate(data)]
 
 

@@ -8,12 +8,14 @@ import io
 import json
 import math
 import os
+import posixpath
 import re
 import sys
 import tempfile
 import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
@@ -348,6 +350,30 @@ class Presets(unittest.TestCase):
     def test_preset_path_unknown(self):
         with self.assertRaises(KeyError):
             schema.preset_path("nope")
+
+    def test_cross_os_path_basename_and_error_labels(self):
+        drv = "D:"
+        with mock.patch("os.path.basename", side_effect=posixpath.basename):
+            self.assertEqual(schema.path_basename(drv + "\\Mods\\Data\\SynthALife.esm"), "SynthALife.esm")
+            self.assertEqual(schema.path_basename(drv + "\\Mods/Data\\SynthALife.esm"), "SynthALife.esm")
+            self.assertEqual(schema.path_basename(drv + "\\Mods\\Data\\"), "Data")
+            self.assertEqual(schema.path_basename(drv + "\\"), "")
+            self.assertEqual(schema.path_basename("/opt/build/SynthALife.esm"), "SynthALife.esm")
+            self.assertEqual(schema.path_basename("/opt/build/data/"), "data")
+            self.assertEqual(schema.path_basename("\\\\nas\\mods\\Data\\SynthALife.esm"), "SynthALife.esm")
+            self.assertEqual(schema.path_basename("\\\\nas\\mods\\"), "")
+            self.assertEqual(schema.default_prefix(drv + "\\Mods\\Synth_ALife.esm"), "SynthALife")
+            self.assertEqual(schema.default_prefix("/opt/mods/Synth_ALife.esm"), "SynthALife")
+            with self.assertRaises(schema.AlifeConfigError) as cm:
+                schema.load_alife_config(drv + "\\missing_dir\\alife_config.json")
+            self.assertTrue(cm.exception.problems[0].startswith("alife_config.json:"), cm.exception.problems)
+            with tempfile.TemporaryDirectory() as tmp:
+                bad = os.path.join(tmp, "markers.json")
+                with open(bad, "w", encoding="utf-8") as f:
+                    f.write("42")
+                with self.assertRaises(ValueError) as vm:
+                    gb.read_marker_json(bad)
+                self.assertIn("markers.json: no marker list", str(vm.exception))
 
     def test_no_private_paths_or_names_in_owned_files(self):
         owned = [os.path.join(REPO, "src", "fo4sf", "alife", n) for n in

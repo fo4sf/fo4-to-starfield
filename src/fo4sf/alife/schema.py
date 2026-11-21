@@ -108,8 +108,24 @@ def parse_form_id(value, plugin=None):
     return f"0x{local:06X}"
 
 
+def path_basename(path):
+    """Cross-OS file name of a Windows drive, UNC, POSIX, or mixed-separator path string."""
+    s = str(path).rstrip("\\/")
+    if not s:
+        return ""
+    m_unc = re.match(r"^(?:\\\\|//)[^\\/]+[\\/][^\\/]+(.*)$", s)
+    if m_unc is not None:
+        s = m_unc.group(1).lstrip("\\/")
+        return re.split(r"[\\/]+", s)[-1] if s else ""
+    if len(s) >= 2 and s[0].isascii() and s[0].isalpha() and s[1] == ":":
+        s = s[2:].lstrip("\\/")
+        return re.split(r"[\\/]+", s)[-1] if s else ""
+    s = s.lstrip("\\/")
+    return re.split(r"[\\/]+", s)[-1] if s else ""
+
+
 def default_prefix(plugin_name):
-    stem = os.path.splitext(str(plugin_name))[0]
+    stem = os.path.splitext(path_basename(plugin_name))[0]
     p = "".join(ch for ch in stem if ch.isascii() and ch.isalnum())
     if not p:
         return "ALife"
@@ -138,9 +154,9 @@ def load_alife_config(path):
             with open(path, encoding="utf-8") as f:
                 raw = json.load(f)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
-            raise AlifeConfigError([f"{os.path.basename(str(path))}: {e}"]) from None
+            raise AlifeConfigError([f"{path_basename(path)}: {e}"]) from None
     if not isinstance(raw, dict):
-        raise AlifeConfigError([f"{os.path.basename(str(path))}: the top level is not a JSON object"])
+        raise AlifeConfigError([f"{path_basename(path)}: the top level is not a JSON object"])
     sim = raw.get("simulation")
     if sim is None:
         raw["simulation"] = dict(SIM_DEFAULTS)
