@@ -119,7 +119,7 @@ class QuestKnownBugsTests(unittest.TestCase):
 
     def test_zero_third_party_mod_names_or_pc_paths(self):
         files = sorted(BUGS_DIR.glob("*.md")) + [Path(__file__)]
-        self.assertEqual(len(files), 5)
+        self.assertEqual(len(files), 7)
         for p in files:
             txt = p.read_text(encoding="utf-8")
             self.assertIsNone(DRIVE_PATH_RX.search(txt), f"PC drive path found in {p.name}")
