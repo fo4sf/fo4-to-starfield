@@ -240,7 +240,8 @@ Function StartQuestInstance()
     SetObjectiveDisplayed(10, True, True)
     SetActive(True)
     Trace("min01 objective 10 bench")
-    Trace("sanctuary01 init stage=10 bench_ref=0x005C50 full_min01=" + HasFullMin01())
+    Trace("sanctuary01 init stage=10 bench_ref=0x005C50")
+    Trace("sanctuary01 min01_mode full_min01=" + HasFullMin01())
     StartTimer(1.0, 1)
 EndFunction
 
