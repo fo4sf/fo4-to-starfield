@@ -398,6 +398,9 @@ bool rideTransferred = false
 InputEnableLayer scannerLayer = None
 bool consoleRegistered = false
 ObjectReference consoleWatchedRef = None
+bool portConsoleRegistered = false
+ObjectReference portConsoleWatchedRef = None
+bool consoleOpening = false
 bool cogDoorRegistered = false
 ObjectReference cogDoorWatchedRef = None
 bool pipboyRegistered = false
@@ -2469,6 +2472,16 @@ Function EnsureVaultInteractivesRegistered()
         RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")
         Trace("console activator registered ref=" + consoleWatchedRef + " id=" + consoleWatchedRef.GetFormID() + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ())
     endif
+    if !portConsoleRegistered && ConsoleRefId > 0
+        portConsoleWatchedRef = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+        if portConsoleWatchedRef != None
+            portConsoleRegistered = true
+            if portConsoleWatchedRef != consoleWatchedRef
+                RegisterForRemoteEvent(portConsoleWatchedRef, "OnActivate")
+                Trace("console port activator registered ref=" + portConsoleWatchedRef)
+            endif
+        endif
+    endif
 EndFunction
 
 Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
@@ -2504,13 +2517,24 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         endif
         return
     endif
-    if consoleWatchedRef != None && akSender == consoleWatchedRef
+    bool isPortConsole = portConsoleWatchedRef != None && akSender == portConsoleWatchedRef
+    if !isPortConsole && ConsoleRefId > 0
+        ObjectReference portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+        isPortConsole = portCon != None && akSender == portCon
+    endif
+    if (consoleWatchedRef != None && akSender == consoleWatchedRef) || isPortConsole
+        if isPortConsole
+            Trace("console port ref activated ref=" + akSender)
+        endif
         ActivateGearDoorConsole()
     endif
 EndEvent
 
 Function ActivateGearDoorConsole()
 {Opens Vault 111's gear door from its console activation once the Pip-Boy is equipped, advancing to stage 30.}
+    if consoleOpening
+        return
+    endif
     int stage = GetStage()
     if stage < 10 || stage >= 40
         return
@@ -2523,6 +2547,7 @@ Function ActivateGearDoorConsole()
         Trace("console refused: no pipboy")
         return
     endif
+    consoleOpening = true
     if ConsoleRefId > 0
         ObjectReference portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
         if portCon != None
@@ -2547,17 +2572,22 @@ Function ActivateGearDoorConsole()
             if TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0
                 cogDoor.BlockActivation(True, False)
             endif
+            consoleOpening = false
             return
         endif
     else
         Trace("cog door " + VaultPlugin + ":" + CogDoorId + " does not resolve")
         if CogDoorId > 0
             Trace("cog door open failed state=-1")
+            consoleOpening = false
             return
         endif
     endif
-    if stage < 30
+    consoleOpening = false
+    if GetStage() < 30
         AdvanceTo(30, "vault_console")
+        Debug.Notification("Vault door open - follow the catwalk to the elevator platform.")
+        Trace("catwalk hint shown")
     endif
 EndFunction
 
