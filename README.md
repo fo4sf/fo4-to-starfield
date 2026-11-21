@@ -308,7 +308,8 @@ Measured research notes, not promises of complete format support: [format gap](d
 
 On 10 Nov the old pull requests and issues were sorted: 20 pull requests that newer merged work had replaced and 30
 finished issues were closed, each with a note naming the replacement or the proof. The older pull requests still open
-are October and November drafts by the project's own AI agents that hold work not yet on main. None come from outside
+are October and November drafts by the project's own AI agents that hold work not yet on main (about 160 on 20 Nov;
+a plan to bring the ready ones into main, in order, is under way). None come from outside
 contributors. The current work is in ["What we are working on now"](#what-we-are-working-on-now).
 
 ## Contributing
