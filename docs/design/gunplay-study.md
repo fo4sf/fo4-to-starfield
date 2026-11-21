@@ -2,7 +2,7 @@
 
 **Author:** Gemini (PC)  
 **Branch:** `gemini/gunplay-study` (cut from `main`)  
-**Scope:** Design and record-schema study only (`N3`, Round 4). Zero plugins built or modified; zero external mod dependencies; zero copied external mod files, text, or numbers.  
+**Scope:** Design and record-schema study only (`N3`, Rounds 4–5; **HOLD: zero proposals built until owner answers return**). Zero plugins built or modified; zero external mod dependencies; zero copied external mod files, text, or numbers.  
 **Evidence Labels:**
 - **Verified (schema / repo):** Confirmed directly in `Mutagen.Bethesda.Starfield` and `Mutagen.Bethesda.Fallout4` (`0.55.0-alpha.67`), `docs/measurements/esm_compare.json`, `dotnet/CombatCore/Program.cs`, `sfse/FO4SFCombat/`, `src/fo4sf/combat/tables.py`, or read-only `xEdit` / `SfInspect` probes recorded in `docs/`.
 - **Supported hypothesis:** Grounded in Creation Engine lineage, record layouts, or published community tool documentation, awaiting a targeted probe in our test cell.
@@ -348,6 +348,27 @@ All four proposals build strictly on **our own tools** (`dotnet/CombatCore`, new
 - **Offline Proof vs Claude (PC) In-Game Test:**
   - **Proven Offline:** Mutagen `check` + Python unit tests verify: (a) `0` `Quality_##` `OMOD` links on our weapons; (b) `BulletBendingConeAngleDegrees == 0.0` on all `AAMD` links; (c) semi-auto vs full-auto `OMOD` per-shot damage parity within `1%`; (d) every `BPTD` `ActorValue` resolves to `0x00036C..0x000372`; (e) `FormVersion == 581` and `scripts/guard.py` pass.
   - **Requires Claude (PC) In-Game Test:** One 10-minute session in `FO4SF_CombatTestCell` (`0x850`) + Concord raider encounter verifying shots-to-kill (head vs torso vs limbs), absence of bullet-bending magnetism, `AMDL` spring recovery feel, `WCIM` screen kick, and whether `AMMO.Damage` adds natively to `WEAP.AttackDamage`.
+
+- **Exact Record Bill & Installed-Plugin Footprint for Proposal 1 (`HOLD` — Not Built):**
+  1. **Total Records Written: `42–55` records (~20 KB `.esm` delta, `0` `.pex` scripts, `0` `.dll` native changes):**
+     - **`16–19` New Owned Records (`0x000860+`):**
+       - `10` `AMDL` (`AimModel`) class archetypes (`Pistol`, `Revolver`, `SMG`, `Carbine`, `BattleRifle`, `Shotgun`, `Sniper`, `Laser`, `Plasma`, `Heavy`).
+       - `1` `AAMD` (`AimAssistModel`: `FO4SF_AimAssistGrounded` with `BulletBendingConeAngleDegrees = 0.0f`).
+       - `3` `WBAR` (`WeaponBarrelModel`: `Short`, `Standard`, `Long`).
+       - `2` `IMAD` (`ImageSpaceAdapter` shot micro-impulses: ballistic & energy).
+       - *(Optional `+3` records if exposed in Starfield's Gameplay Options UI: `2` `GPOF` + `1` `GPOG`. Reuses the `3` repaired `BPTD` records `0x000840..0x000842` already owned by `FO4SFCombat.esm`, so `0` new `BPTD` records are needed.)*
+     - **`26–36` Override Records (targeting `Starfield.esm` forms used by our world/loot/actors):**
+       - `5` active `Starfield.esm` `WEAP` records (`0x24561C` Vault/route pistol, `0x26D96B` double-barrel shotgun, `0x2773C8` combat rifle, `0x028A02` sniper rifle, `0x0547A3` heavy weapon — or `8` if starter `Eon`, `Equinox`, and `Lawgiver` are included), updating `WDMG.AttackDamage`, `WAIM`, `WGEN.WeaponBarrel`, `WCIM`, and stripping `Quality_##` tier `OMOD`s from `OBTE`.
+       - `6–12` `Starfield.esm` automatic-receiver & quality-tier `OMOD` overrides (`1.0x` per-round damage on automatic receivers; `1.0x` neutralized tier multipliers on `Quality_01..04`).
+       - `12` `Starfield.esm` `GMST` overrides (`10` difficulty damage scalars `fDiffMultHPByPCVE`..`VH` & `fDiffMultHPToPCVE`..`VH` + `2` per-level NPC HP scalars `fNPCHealthLevelBonus` & `iAVDhmsLevelUp`).
+       - `1–2` `RACE` overrides (`Starfield.esm` `HumanRace` `0x00347D` -> `BodyPartData = FO4SFCombat.esm:0x000840`; optional `FO4SFMission.esm` `FO4SF_CodsworthRace` `0x000818` -> `0x000841`).
+       - `1–3` `Starfield.esm` `NPC_` template overrides (`EncSpacer01Template` `0x270255`, inherited by `FO4ActorRaider.esm`'s `FO4_LvlRaider` `0xF04800`, plus optional upper Spacer templates to cap base HP).
+  2. **Which of the Owner's Installed Plugins Proposal 1 Touches:**
+     - **Converted Asset, Terrain, Bridge & Quest Plugins Touched: `ZERO` (`0` bytes changed, `0` re-conversions, `0` BA2 repacks):**
+       - Leaves **`FO4Port.esm`, `FO4PortTextures2.esm`, `FO4TerrainCore.esm`, `FO4TerrainCore_Mars.esm`, `FO4DLC.esm`, `FO4SFBridge.esm`, `FO4ActorRaider.esm`, `FO4SFVaultGearDoor.esm`, `FO4SFExitLift.esm`, `FO4SFNewGame.esm`, `FO4SFRouteLoot.esm`, and `FO4SFCoreValues.esm` 100% untouched**.
+     - **Packaging Choice on the Owner's Load List (Candidate 2b/2c 22-plugin player set):**
+       - **In-place in `FO4SFCombat.esm`:** Touches **only `1` existing slice plugin (`FO4SFCombat.esm`)**, already active in the 22-plugin Candidate 2b/2c load list (`0` extra plugin slots).
+       - **Or as standalone `FO4SFWeaponBalance.esm`:** Touches **`0` existing plugins** and adds `1` ~20 KB overlay `.esm` at the end of `Plugins.txt` that can be toggled `on`/`off` cleanly via `plugin_toggle.py` for instant A/B comparison. *(Note: the older 7-plugin Vault-exit-only set does not load `FO4SFCombat.esm` or `FO4SFCoreValues.esm`, whereas Candidate 2b/2c already loads both.)*
 
 ---
 
