@@ -16,9 +16,12 @@ set of in-game screenshots: they show Bethesda-owned visuals and are excluded fr
 [What comes next](#what-comes-after-this-stage) · [Pictures](#see-the-work) · [How it works](#how-it-works) ·
 [Roadmap](docs/ROADMAP.md) · [Journal](docs/JOURNAL.md) · [Docs index](docs/README.md)
 
-**Where it stands:** the Commonwealth exterior, 16 interiors, a new game from Vault 111 and a cut-down first mission
-have run in Starfield on the owner's test PC (seen in game, first in October 2026). This stage works on the launcher and the
-hardest mechanics, such as the Pip-Boy, the map, radiation and power armor.
+**Where it stands (20 Nov 2026):** the Commonwealth exterior, 16 interiors, a new game from Vault 111 and a cut-down
+first mission have run in Starfield on the owner's test PC (seen in game, first in October 2026). This stage works on
+the launcher and the hardest mechanics. On 18 and 19 Nov a "candidate" build (a bundle of 21 to 22 of our plugins)
+ran in the game for the first time: the Pip-Boy crash is fixed, the start of a new game is being rebuilt as a set of
+choices made before anything loads, and two crashes were found and traced (details under "What is new"). Most of the
+work since 16 Nov sits in open draft pull requests, and the project is now preparing to bring what is ready into main.
 
 Every status on this page carries one of three labels: **seen in game** (on the owner's test PC, with the date),
 **offline tests only** (code and tests, nothing run in the game yet) or **not started**. Dates are UTC.
@@ -27,6 +30,31 @@ Every status on this page carries one of three labels: **seen in game** (on the 
 
 Newest first.
 
+- **18 to 20 Nov 2026: the first candidate build runs in the game.** Our plugins now share one store of values
+  (`FO4SFCoreValues.esm`) and a checker that refuses a bundle whose plugins disagree about ids
+  ([#831](https://github.com/fo4sf/fo4-to-starfield/pull/831), draft). Four bundles were tried on the owner's test PC;
+  the report below is of the third one (2c). Nothing of this is on main yet.
+  - **Pip-Boy: the crash is fixed.** Ten open and close cycles, no crash; Tab closes it; the map page shows the
+    Commonwealth picture with 309 markers. **Seen in game, 19 Nov.** The boot sequence plays on the first open, but as
+    flat strips over the world, and the wrist raise is accepted by the game and not visible. **Not working yet.**
+  - **A new game, vault part.** The vault door console refuses until the Pip-Boy is picked up, the pickup works, the gear
+    door opens from the console, the attribute box (S.P.E.C.I.A.L., seven attributes) draws, and the lift ride
+    completes. A Survival start survives a save, quit and reload. **Seen in game, 19 Nov.**
+  - **The start is being rebuilt (owner's direction, 19 Nov).** Nothing loads while the player chooses: a plain start
+    room asks for mode, story or faction, survival and difficulty first, then the chosen start loads (a Warfare start
+    lands in Sanctuary Hills, not in Vault 111). The room, the choice boxes and the Warfare landing **seen in game,
+    19 Nov**; the Story path stops after its second character box and the Warfare start does not fade in. **Partly
+    working.** A real set-up screen and an options list in the style of S.T.A.L.K.E.R. Anomaly and GAMMA are in study
+    ([#833](https://github.com/fo4sf/fo4-to-starfield/pull/833), draft).
+  - **Two crashes found, one traced.** Arriving outdoors crashed the game every time the route-loot plugin was loaded
+    (2 of 2) and never when it was held off (2 of 2). Pressing the map key outdoors crashed in Starfield's own star-map
+    code when our plugin tried to block it; hiding the star map instead passes (**seen in game, 20 Nov**).
+  - **Study and tools, offline tests only:** a Fallout-style gunplay and weapon-progression study with four proposals,
+    nothing built ([#835](https://github.com/fo4sf/fo4-to-starfield/pull/835)); a load-door arrival check
+    ([#836](https://github.com/fo4sf/fo4-to-starfield/pull/836)); a world-in-its-own-space census
+    ([#832](https://github.com/fo4sf/fo4-to-starfield/pull/832)); DLC tools and an interior batch chain
+    ([#834](https://github.com/fo4sf/fo4-to-starfield/pull/834)). Conversion of the other Fallout games' assets runs
+    locally and is not distributed.
 - **12 Nov 2026: Vault 111's exit scene, first steps: moving objects.** Fallout 4's vault exit plays on a few objects,
   among them the cog door and the control panel the player uses. We read the cog door in our converted Vault 111 and in
   Fallout 4's own files, and the control panel in our converted vault, changing nothing
@@ -113,7 +141,7 @@ Newest first.
 
 ## What we are working on now
 
-**This stage** (the owner, 10 Nov 2026): get the launcher ready, and take on the hardest Starfield mechanics first.
+**This stage** (the owner, 10 Nov 2026): get the launcher ready, and take on the hardest Starfield mechanics first. Updated 20 Nov: see the 18 to 20 Nov entry above for the candidate-build results; the table below still shows each track's last dated proof.
 In the table below, "settlements" are Fallout 4's and "C.A.M.P.s" are Fallout 76's player camps.
 
 | Track | What exists today | Where it was seen |
@@ -280,7 +308,8 @@ Measured research notes, not promises of complete format support: [format gap](d
 
 On 10 Nov the old pull requests and issues were sorted: 20 pull requests that newer merged work had replaced and 30
 finished issues were closed, each with a note naming the replacement or the proof. The older pull requests still open
-are October drafts by the project's own AI agents that hold work not yet on main. None come from outside
+are October and November drafts by the project's own AI agents that hold work not yet on main (about 160 on 20 Nov;
+a plan to bring the ready ones into main, in order, is under way). None come from outside
 contributors. The current work is in ["What we are working on now"](#what-we-are-working-on-now).
 
 ## Contributing
