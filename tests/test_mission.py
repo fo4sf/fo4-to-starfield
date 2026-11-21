@@ -2622,6 +2622,78 @@ class A1dRealTalkTests(unittest.TestCase):
             self.assertEqual([c["wem"] for c in pr_spec["reply_clips"][0]], ["00f4c202", "00f4c205", "00f4c206"])
             self.assertEqual([c["wem"] for c in pr_spec["reply_clips"][1]], ["00f4c203", "00f4c207"])
 
+    def test_a1d_phase1_begin_resets_1p5s_timer_avoiding_stale_phase0_tick_race(self):
+        h = self._build_harnesses(glob_val=0.0)
+        h.c_ns["BindCodsworthActivation"]()
+
+        # Codsworth Phase 0 plays across two 1.5 s ticks -> OnPhaseBegin(1) must CancelTimer(2) + StartTimer(1.5, 2)
+        h.c_ns["OnActivate"](h.cods, h.player)
+        h.c_ns["OnBegin"](h.cods_scene)
+        h.c_ns["CheckCodsworthSceneOpen"]()
+        h.c_ns["CheckCodsworthSceneOpen"]()
+        timers_before_c = len(h.c_timers)
+        cancelled_before_c = len(h.c_cancelled)
+        h.c_ns["OnPhaseBegin"](h.cods_scene, 1)
+        self.assertEqual(h.c_cancelled[cancelled_before_c:], [2])
+        self.assertEqual(h.c_timers[timers_before_c:], [(1.5, 2)])
+        # Scaleform opens DialogueMenu inside that fresh 1.5 s window -> scene is NOT stopped!
+        h.c_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertEqual(h.cods_scene.stop_calls, 0)
+        self.assertEqual(sum(m.shown for m in h.c_msgs), 0)
+
+        # Preston Phase 0 plays across two 1.5 s ticks -> OnPhaseBegin(1) must CancelTimer(3) + StartTimer(1.5, 3)
+        h.m_ns["AdvanceTo"](10, "Trigger")
+        h.m_ns["AdvanceTo"](20, "Trigger")
+        h.m_ns["AdvanceTo"](30, "Trigger")
+        h.m_ns["OnActivate"](h.preston, h.player)
+        h.m_ns["OnBegin"](h.preston_scene)
+        h.m_ns["CheckPrestonSceneOpen"]()
+        h.m_ns["CheckPrestonSceneOpen"]()
+        timers_before_m = len(h.m_timers)
+        cancelled_before_m = len(h.m_cancelled)
+        h.m_ns["OnPhaseBegin"](h.preston_scene, 1)
+        self.assertEqual(h.m_cancelled[cancelled_before_m:], [3])
+        self.assertNotIn(2, h.m_cancelled)
+        self.assertEqual(h.m_timers[timers_before_m:], [(1.5, 3)])
+        h.m_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertEqual(h.preston_scene.stop_calls, 0)
+        self.assertEqual(sum(m.shown for m in h.p_msgs), 0)
+
+    def test_a1d_devt_native_scene_begin_without_onactivate_arms_1p5s_fallback(self):
+        h = self._build_harnesses(glob_val=0.0)
+        h.c_ns["BindCodsworthActivation"]()
+
+        # C++ DEVT=true starts Codsworth 09000940 natively without firing ObjectReference.OnActivate
+        h.cods_scene.playing = True
+        h.c_ns["OnBegin"](h.cods_scene)
+        self.assertTrue(h.c_ns["sceneTalkPending"])
+        self.assertEqual(h.c_timers[-1], (1.5, 2))
+        self.assertTrue(any("codsworth scene talk requested" in ln and "via=devt" in ln for ln in h.logs))
+        # Scene ends incomplete before DialogueMenu ever opens -> R10 MessageBox fallback runs and completes stage 100!
+        h.cods_scene.playing = False
+        h.c_ns["OnEnd"](h.cods_scene)
+        self.assertTrue(h.c_ns["completed"])
+        self.assertEqual(h.m_cur[0], 10)
+
+        # C++ DEVT=true starts Preston 09000900 natively at stage 30 without firing ObjectReference.OnActivate
+        h.m_ns["AdvanceTo"](20, "Trigger")
+        h.m_ns["AdvanceTo"](30, "Trigger")
+        h.preston_scene.playing = True
+        h.m_ns["OnBegin"](h.preston_scene)
+        self.assertTrue(h.m_ns["prestonScenePending"])
+        self.assertEqual(h.m_timers[-1], (1.5, 3))
+        h.m_ns["OnPhaseBegin"](h.preston_scene, 1)
+        # DialogueMenu fails to open within the reset 1.5 s Phase-1 window -> R10 MessageBox fallback completes to 200!
+        h.m_ns["CheckPrestonSceneOpen"]()
+        self.assertEqual(h.preston_scene.stop_calls, 1)
+        self.assertEqual(h.m_cur[0], 200)
+
+        s = make_mission.summarize(h.logs)
+        self.assertEqual(s["codsworth_scene_requested"], 1)
+        self.assertEqual(s["preston_scene_requested"], 1)
+        self.assertEqual(s["codsworth_talk_fallbacks"], ["scene_incomplete"])
+        self.assertEqual(s["preston_talk_fallbacks"], ["dialogue_menu_timeout"])
+
 
 @unittest.skipUnless(shutil.which("dotnet") and os.environ.get("FO4SF_DOTNET_TESTS"),
                      "set FO4SF_DOTNET_TESTS=1 with a dotnet SDK on PATH to run the C# self-test")

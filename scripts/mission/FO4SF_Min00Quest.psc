@@ -583,6 +583,13 @@ Event Scene.OnBegin(Scene akSender)
         if talkStartedAt <= 0.0
             talkStartedAt = Utility.GetCurrentRealTime()
         endif
+        if !ShouldUseMessageBox() && GetStage() == 30 && !prestonTalkLogged && !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen && !prestonTalkBoxOpen
+            prestonScenePending = True
+            prestonScenePhase1 = False
+            prestonSceneChecks = 0
+            Trace("preston scene talk requested scene=" + PrestonTalkScene + " stage=30")
+            StartTimer(PrestonSceneCheckSeconds, 3)
+        endif
         Trace("preston talk scene started stage=" + GetStage())
     endif
 EndEvent
@@ -590,6 +597,10 @@ EndEvent
 Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
     if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene && auiPhaseIndex == 1
         prestonScenePhase1 = True
+        if prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
+            CancelTimer(3)
+            StartTimer(PrestonSceneCheckSeconds, 3)
+        endif
     endif
 EndEvent
 

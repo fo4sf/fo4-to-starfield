@@ -304,6 +304,13 @@ Event Scene.OnBegin(Scene akSender)
     Scene scn = ResolveCodsworthScene()
     if scn != None && akSender == scn
         dialogueSeen = True
+        if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && !completed
+            sceneTalkPending = True
+            scenePhase1Entered = False
+            sceneCheckTicks = 0
+            Trace("codsworth scene talk requested scene=" + scn + " via=devt stage=" + GetStage())
+            StartTimer(SceneOpenCheckSeconds, 2)
+        endif
         Trace("codsworth talk scene started stage=" + GetStage())
     endif
 EndEvent
@@ -312,6 +319,10 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
     Scene scn = ResolveCodsworthScene()
     if scn != None && akSender == scn && auiPhaseIndex == 1
         scenePhase1Entered = True
+        if sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen
+            CancelTimer(2)
+            StartTimer(SceneOpenCheckSeconds, 2)
+        endif
     endif
 EndEvent
 
