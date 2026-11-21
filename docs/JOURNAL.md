@@ -1,5 +1,25 @@
 # Evidence journal
 
+## 2026-11-15 — Codex: align S3 candidate with installed #794 defaults (FAL-848)
+
+Owner PC a22204c7 stopped build-only card2 at the baseline hash gate after installing merged #794/main
+13d85e9b: STALE_BASELINE, no build/compile/native checks or writes. Carry the net five-file #794 NewGame
+delta onto #790's 5a24a65f in an isolated candidate: inventory reset, SQ_ENV hold and O2 fill, preserving the
+coherent pod/Looks samples and guarded arrival/carrying functions. Resolve the two source/test conflicts
+by retaining both lift and O2 options and both precheck fixtures. Add combined lift/inventory/O2 CLI and
+synthetic writer/checker controls. This is source alignment, not a placement fix or main integration.
+Focused Python checks/guard and exact-head preservation checks apply; .NET writer execution, Windows,
+Papyrus/build/game/install stay NOT_RUN here. Sole Survivor independently reviews before remote #790
+integration or a replacement baseline-pinned PC recipe. See [pod position evidence](newgame/pod-position-evidence.md).
+
+## 2026-11-15 — Codex: preserve merged #791 creator default in #790 (FAL-848)
+
+After FAL-924 CLEAR at815ec1a2, carry the five-file net creator change from main snapshot44cf359e versus6ebb7a0d into the S3 branch: looks-only default2 in writer/Python/Looks, explicit full-creator0 override, matching parity tests and documented C1 decision. The patch applies cleanly; the new TracePosition/prechecks/parser and guarded exit components remain. This integrates already-merged #791 behavior into the author branch, not main. No placement patch, PC card, install or game release. Independent Courier Copy delta review and native/ContentResources/PEX/owner acceptance remain gates.
+
+## 2026-11-15 — Codex: coherent pod/creator position evidence (FAL-848, draft #790)
+
+Owner C1 transcription01a11d0b at0391417b shows pre-creator rise and stage20 at +2.378704/+2.378235m above the printed target. Old CheckPod reread XYZ after its delta calculations; its printed coordinates do not reproduce the logged drop. Creator causality and placement remain unresolved. Cache each coordinate once per settle sample, log its sequential-read interval/context, and add boundary samples before creator and in guarded Done(how). Parser keeps all current-run looks_positions, no invented samples for old/no-looks logs. No movement/control/height/default/record/lift/map change; #791 integration is preserved as a separate gate. See [pod position evidence](newgame/pod-position-evidence.md). Synthetic source-function/parser checks and guard are source evidence only; native/Windows/Papyrus/game/install NOT_RUN. Courier Copy exact-head review precedes any later integration or PC recipe.
+
 Newest last. Each entry: date, versions, what was done, the result, and where the evidence is.
 
 ## 2026-10-06: WP-00 recon (Fallout 4 1.10.163, Starfield 1.16.244)
@@ -2930,3 +2950,91 @@ receipts are tracked in FAL-743 document reconciliation. Independent delta revie
 Minuteman FAL-741 landing gates remain. Earlier PC PASS dde84927 covers only the core
 receipt/Play-eligibility regression; actual kit/archive/Remove/instance/bridge gates
 remain separate. No native Windows, game, deploy or real-kit action in this run.
+
+
+## 2026-11-14 — Codex: initial lift pose (FAL-848, first source slice)
+
+Added an opt-in mapped end pose for an animated object's initial idle. The existing
+moving clips, model and collision bindings remain; the manifest names the selected
+source sequence. Synthetic pose and converter controls cover the exported idle,
+unchanged moving clips/model, malformed input and pre-publication refusal.
+`python -m unittest discover -s tests`: 5,330 tests, OK (183 skipped: unavailable
+toolchains/platform checks). `python scripts/guard.py`: ok. Follow-up focused
+checks include the additional converter/preflight controls. This is source-only;
+no game version was exercised, no Papyrus/native compile or owner installation ran.
+Independent review and production ride/map/console integration remain outstanding.
+
+## 2026-11-15: FAL-848, confirmed-arrival discovery slice (Codex / Ubuntu)
+
+Consumed Claude PC's d6a04cf2 result on main 6ebb7a0d: indoor marker XYZ took but
+world/cell stayed None; outdoor repair and load persistence were separate. The map
+still showed UNKNOWN after indoor discovery. The reported 26 seconds includes a
+24.4-second dark hold and reload; no placement-only or hidden-ride budget is inferred.
+
+Production source now rejects exhausted/incorrect surface placement, learns the
+runtime world from a loaded core cell, checks fallback on a later tick and requests
+only the canonical Vault 111 marker's discovery after confirmed arrival/attachment.
+The log keeps a void discovery request distinct from evidence of discovered state.
+Synthetic execution substitutes native calls in the actual arrival branches: ignored
+placement/fallback, wrong player/marker world, wrong position/height, unloaded player,
+marker wait exhaustion, player movement during reads, primary success and custom-exit
+no-discovery cases. Focused 164 tests OK (four .NET skips), guard ok before commit.
+This is Python/source evidence, not Papyrus compilation or native placement/discovery.
+
+The new exit-arrival-pc-card first tests exterior discovery and listing without the
+old hop/hold, then requires a full exact-build final-ascent timing run after wiring.
+No wait/slowdown was added. Native ride, console/gates, full marker preparation and
+owner-build integration remain open; Windows/Papyrus/game NOT_RUN here. Reviewer:
+Courier Copy. Draft #790 remains draft. The earlier uncommitted warmed-anchor probe
+extension is preserved in the task tree, excluded from this production slice.
+
+## 2026-11-15: S3 carrying-ascent component and pod gate (Codex, FAL-848)
+
+Resumed the interrupted ascent edits at reviewed arrival head 3db19d72 in an isolated
+worktree. The opt-in production asset stage writes only the original lift ACTI override
+plus assets, no probe quest/PEX. New-game stage/fold/verify hash-pin and include it.
+The controller plays once on the original loaded lift, ignores early Done, requires the
+rider's measured rise on a later tick, then enters the reviewed arrival path. Failure
+and timeout do not request discovery. This is indoor carrying before arrival; the
+exterior-motion/all-marker timing window is still unbuilt. No hold/slowdown was added.
+
+Claude PC's FAL-858 comment 2979c931, relayed as FAL-848 bce87625, reports a wedged
+post-creator start on main and #791 (drop -1.41/-1.38). Added it to the exit plan as a
+separate small S3 pod-placement slice and a full-exit acceptance gate. CheckPod's
+one-sided fall check cannot prove walkability. No speculative pod height change.
+
+Synthetic branch/packaging controls and guard are recorded on FAL-848 with the exact
+head after commit. .NET writer fixtures, real Papyrus compilation, Windows, native
+carrying, game/install and save acceptance remain NOT_RUN here. Reviewer: Courier Copy.
+Draft #790 remains incomplete; see newgame/exit-ascent-pc-card.md and exit-lift.md.
+
+## 2026-11-15 — Codex: S3 marker ancestry reader (offline)
+
+FAL-848 / draft #790: consumed the PC's game-closed record comparison cd413e55 and Scribe FAL-887's pinned
+Mutagen audit. UNAM translated-string normalization, omitted initially-disabled LCID and the constructed core
+CELL do not establish a listing defect. The next missing read is the ordered enclosing GRUP chain.
+
+Added `ref_inspect.py --record-path <full stored ID>` using the existing read-only mmap walker: hashes, actual
+masters, record/group offsets and raw ordered labels, with master qualification for known form-labelled groups.
+It refuses short IDs, wrong/changed hashes, missing/duplicate targets and malformed boundaries; old `--ref`
+behavior remains covered. Synthetic fixtures cover sibling-world isolation and compressed headers without
+payload decoding. The game-closed recipe is [marker-ancestry.md](research/marker-ancestry.md).
+No record fix, setter, game/install action or native acceptance; listing/discovery and full S3 remain open.
+
+## 2026-11-15 — Codex: S3 vanilla control identity reader (offline)
+
+FAL-848 consumed FAL-898's concrete runtime-control design. Existing kits cannot
+observe a positively listed vanilla marker and pre-mover V111 state. Choose its
+Slice 0: the missing same-world CELL EditorID/COC identity pairing for the
+previously documented LandingOverlay01 marker, before building a runtime probe.
+
+Added read_overlay_control.py composing the existing census world/cell/COC
+reader, with pinned mapping hashes, stored vanilla IDs, raw flags and record
+offsets. Missing candidate is unresolved/stop; malformed, disabled/wrong-marker,
+duplicate or changed-input cases refuse without partial stdout. Synthetic
+controls exercise selected-world isolation and read-only CLI behavior. Recipe:
+[vanilla-overlay-control.md](research/vanilla-overlay-control.md).
+
+PC0945's matching ancestry closes topology, not runtime listing/discovery. No
+record patch, setter, game/installation action, native carrying or full S3 pass.
+Courier Copy reviews this exact source/card before any offline PC handoff.

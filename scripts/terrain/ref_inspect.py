@@ -8,10 +8,21 @@ other REFR of the same cell within --radius in xy (sorted by z, each with its ba
 with --manifest, that model's door and collision fields as door_audit reads them). Written for the Fort Hagen roof hatch
 (port 00C7A6, owner 2026-10-23: could not find or use it from inside): a base that is not a DOOR or ACTI cannot be
 activated; a door well above every nearby floor or ladder cannot be reached. Writes nothing.
+
+Ancestry only (no record payloads or neighbours):
+  python -I scripts/terrain/ref_inspect.py --plugin <plugin> --record-path <8-digit STORED id> [--record-path ...]
+         [--expect-sha256 <pinned hash>]
+Prints the actual masters, file hash, record header offsets and ordered enclosing GRUP headers. IDs are the full
+stored IDs qualified through this file's ordinary master table, never runtime load-order IDs. This mode uses the
+memory-mapped reader, scans every top group, and refuses missing/duplicate targets or changed inputs. Raw group
+labels are retained; only known form-labelled group types are master-qualified. It does not validate map listing,
+discovery, field semantics or runtime world membership. Writes nothing, including on error.
 """
 import argparse
+import hashlib
 import json
 import os
+import re
 import struct
 import sys
 
@@ -21,8 +32,82 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
 import door_audit  # noqa: E402
 import vmad_patch  # noqa: E402
 from fo4sf import fo4land  # noqa: E402
+from fo4sf.planet import esm  # noqa: E402
 
 CELL_GROUPS = (vmad_patch.GROUP_CELL_CHILDREN, 8, 9, 10)     # cell children, persistent, temporary, visible distant
+FORM_LABEL_GROUPS = (1, 6, 8, 9, 10)     # world children and the cell-children groups; block/grid labels stay raw
+
+
+def stored_id(text):
+    """Require a full stored ID: short/local IDs must not silently select a master's record."""
+    if not re.fullmatch(r"(?:0[xX])?[0-9a-fA-F]{8}", text):
+        raise argparse.ArgumentTypeError("--record-path needs an 8-digit stored hex ID, not a local/runtime ID")
+    return int(text, 16)
+
+
+def _stored_identity(fid, files):
+    index = fid >> 24
+    out = {"stored_id": f"{fid:08X}"}
+    if index >= len(files):
+        out["qualification_error"] = f"master index {index:02X} outside this file's master table (runtime/compact IDs are not decoded)"
+    else:
+        out.update(plugin=files[index], local_id=f"{fid & 0xFFFFFF:06X}")
+    return out
+
+
+def record_paths(plugin_path, ids, expected_sha256=None):
+    """Header-only ancestry using the existing bounded GRUP walk, with hashes over the same read-only mapping."""
+    if not ids or any(type(fid) is not int or not 0 <= fid <= 0xFFFFFFFF for fid in ids):
+        raise ValueError("record_paths requires at least one full stored uint32 ID")
+    if expected_sha256 is not None and not re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256):
+        raise ValueError("expected SHA-256 must be 64 hex digits")
+    with esm.Plugin(plugin_path) as p:
+        before = hashlib.sha256(p.buf).hexdigest()
+        if expected_sha256 is not None and before != expected_sha256.lower():
+            raise ValueError("plugin SHA-256 does not match the pinned input")
+        files = p.masters + [os.path.basename(plugin_path)]
+        for fid in ids:
+            if "qualification_error" in _stored_identity(fid, files):
+                raise ValueError(f"target {fid:08X}: cannot qualify through this file's master table")
+        hits = {fid: [] for fid in ids}
+
+        def group(offset, end):
+            label = bytes(p.buf[offset + 8:offset + 12])
+            gtype = struct.unpack_from("<i", p.buf, offset + 12)[0]
+            row = {"offset": offset, "end_offset": end, "type": gtype, "label_hex": label.hex()}
+            if gtype == 0:
+                row["label_text"] = label.decode("latin1")
+            elif gtype in FORM_LABEL_GROUPS:
+                row["label_form"] = _stored_identity(struct.unpack("<I", label)[0], files)
+            return row
+
+        spans = sorted(span for spans in p.groups.values() for span in spans)
+        for start, end in spans:
+            top = group(start - 24, end)
+            if top["type"] != 0:
+                raise ValueError(f"top GRUP at {start - 24} has nonzero type")
+            chain = [top]
+            for item in p.walk(start, end):
+                if item[0] == "GRUP":
+                    _, _, _, child_start, child_end, depth = item
+                    chain = chain[:depth + 1] + [group(child_start - 24, child_end)]
+                else:
+                    _, offset, sig, depth = item
+                    chain = chain[:depth + 1]
+                    size, flags, fid = struct.unpack_from("<III", p.buf, offset + 4)
+                    if fid in hits:
+                        hits[fid].append({"record": _stored_identity(fid, files), "signature": sig.decode("latin1"),
+                                          "offset": offset, "end_offset": offset + 24 + size,
+                                          "flags": f"{flags:08X}", "groups": list(chain)})
+        after = hashlib.sha256(p.buf).hexdigest()
+        if before != after:
+            raise ValueError("plugin changed during the ancestry read")
+        problems = [f"{fid:08X}: {len(rows)} matches (need exactly one)" for fid, rows in hits.items() if len(rows) != 1]
+        if problems:
+            raise ValueError("; ".join(problems))
+        return {"plugin": os.path.basename(plugin_path), "masters": p.masters, "sha256": before,
+                "sha256_after": after, "scan": "all top groups; headers only; file ancestry, not runtime membership",
+                "records": [hits[fid][0] for fid in hits]}
 
 
 def _cell(path):
@@ -94,12 +179,26 @@ def inspect(plugin_path, local_id, radius=4.0, manifests=()):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plugin", required=True)
-    ap.add_argument("--ref", required=True, type=lambda s: int(s, 16))
+    selector = ap.add_mutually_exclusive_group(required=True)
+    selector.add_argument("--ref", type=lambda s: int(s, 16))
+    selector.add_argument("--record-path", action="append", type=stored_id, help="ancestry only: full 8-digit stored ID (repeatable)")
+    ap.add_argument("--expect-sha256", help="with --record-path: refuse another input build")
     ap.add_argument("--radius", type=float, default=4.0)
     ap.add_argument("--manifest", action="append", default=[])
     a = ap.parse_args(argv)
-    print(json.dumps(inspect(a.plugin, a.ref, a.radius, a.manifest), indent=1))
+    if a.expect_sha256 is not None and not a.record_path:
+        ap.error("--expect-sha256 requires --record-path")
+    if a.record_path:
+        try:
+            out = record_paths(a.plugin, a.record_path, a.expect_sha256)
+        except (OSError, ValueError, struct.error) as e:
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            return 2
+    else:
+        out = inspect(a.plugin, a.ref, a.radius, a.manifest)
+    print(json.dumps(out, indent=1))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

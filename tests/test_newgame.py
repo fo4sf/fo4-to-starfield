@@ -64,6 +64,21 @@ def written_properties(cs):
 
 
 class ContractTests(unittest.TestCase):
+    def test_lift_and_s13_inventory_o2_switches_remain_independent(self):
+        """Combining the S3/S13 branches must not let the lift flag change inventory or O2 policy."""
+        for lift in (False, True):
+            for keep in (False, True):
+                for no_o2 in (False, True):
+                    with self.subTest(lift=lift, keep=keep, no_o2=no_o2):
+                        args = namespace(exit_lift="private-lift-stage" if lift else None,
+                                         keep_inventory=keep, no_o2_fill=no_o2)
+                        options = ng.tool_options(args)
+                        self.assertEqual("--animated-exit-lift" in options, lift)
+                        self.assertEqual("--keep-inventory" in options, keep)
+                        self.assertEqual("--no-o2-fill" in options, no_o2)
+                        self.assertEqual(ng.clear_inventory_option(args), not keep)
+                        self.assertEqual(ng.o2_fill_option(args), not keep and not no_o2)
+
     def test_no_variable_shares_a_property_name(self):
         """Papyrus names are case-insensitive: a script variable or local named like a property fails to compile
         (newgame_v4 on the PC, 21 Oct: CenterTicks and centerTicks)."""
@@ -490,7 +505,8 @@ class ContractTests(unittest.TestCase):
         self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
         check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
         self.assertIn("podChecked = true", check)
-        self.assertIn("float drop = PodZ + PodLift - player.GetPositionZ()", check)
+        self.assertIn("float targetZ = PodZ + PodLift", check)
+        self.assertIn("float drop = targetZ - sampleZ", check)
         self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
         self.assertIn('Trace("pod settle ok=" + ok + " pos="', check)
         for call in ("MoveTo(", "SetPosition(", "CenterOnCell("):
@@ -522,8 +538,9 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("Is3DLoaded", inside)               # an outside player still loading is never a missed move
         self.assertIn("bool ok = dx * dx + dy * dy <= 25.0", finish)
         self.assertIn('Trace("surface setposition ok=" + ok + " set=" + surfaceSets', finish)
-        self.assertIn("if ok || surfaceSets >= SurfaceTries", finish)
-        self.assertLess(finish.index("if ok || surfaceSets >= SurfaceTries"), finish.index("AdvanceTo(40)"))
+        self.assertNotIn("if ok || surfaceSets >= SurfaceTries", finish)
+        self.assertIn('elseif surfaceSets >= SurfaceTries\n        FailExit("surface_position_not_confirmed")', finish)
+        self.assertLess(finish.index("if ok\n"), finish.index("AdvanceTo(40)"))
         self.assertIn("if surfaceMoves < 2", finish)
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
@@ -962,6 +979,7 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
         "bool abStayFaded = false) native global\n")
+FAST_READ = "bool Function IsFastTravelEnabled() native global\n"
 # Actor.psc's declarations the quest script itself needs: the guard's GetLevel, the inventory reset's EquipItem /
 # IsEquipped and the O2 fill's ModValue / GetValue (FO4's signatures; Starfield's are what the precheck reads: its
 # Actor.psc declares GetValue on a parent, 28 Oct). ObjectReference's RemoveAllItems, GetItemCount and AddItem are
@@ -974,7 +992,7 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
-             objectreference=None, quest=None):
+             objectreference=None, quest=None, animation=True):
     base = {
         # Actor.psc: GetLevel (the guard), EquipItem / IsEquipped (the inventory reset's suit; FO4's signatures,
         # unverified in Starfield) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
@@ -989,7 +1007,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
-                                              + CHARGEN + FADE,
+                                              + CHARGEN + FADE + FAST_READ,
         "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
         "ObjectReference": objectreference if objectreference is not None else
@@ -1005,6 +1023,10 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
     }
+    if animation:
+        base["ScriptObject"] += ("\nFunction RegisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Function UnregisterForAnimationEvent(ObjectReference source, string name) native\n"
+                                 "Event OnAnimationEvent(ObjectReference source, string name)\nEndEvent\n")
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)
@@ -1061,7 +1083,7 @@ class PrecheckTests(unittest.TestCase):
     def test_missing_show_race_menu_only_drops_the_looks(self):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                    + CHARGEN + FADE)
+                    + CHARGEN + FADE + FAST_READ)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], [])
         self.assertFalse(r["natives"][ng.LOOKS]["Game.ShowRaceMenu"])
@@ -1152,7 +1174,7 @@ class PrecheckTests(unittest.TestCase):
         without the second is too, and it drops the looks and SPECIAL scripts as well, which start their timers on it."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN)
+                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN + FAST_READ)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Game.FadeOutGame"])
         self.assertEqual(r["drop"], [])

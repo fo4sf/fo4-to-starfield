@@ -243,6 +243,29 @@ def add_chain_idles(plan):
     return {**plan, "clips": clips}
 
 
+def rest_after(plan, play_slot):
+    """Start an object at a selected clip's end pose (the lift's floor).
+
+    Apply after add_toggle_idles or add_chain_idles. Only StateA_Idle changes; the selected clip and
+    all moving tracks/collision bindings remain intact. The caller must select
+    the floor clip from its measured recipe, not infer it from a sequence name.
+    This generates a candidate pose; native floor height/carrying need PC QA.
+    """
+    by = {c["name"]: c for c in plan["clips"]}
+    expected = (set(PLAY_SLOTS) | set(IDLE_OF.values()), set(PLAY_SLOTS4) | set(IDLE_OF4.values()))
+    if len(by) != len(plan["clips"]) or set(by) not in expected:
+        raise ValueError("rest_after needs a complete toggle or chain clip set")
+    source = by.get(play_slot)
+    if play_slot not in PLAY_SLOTS4 or source is None or source.get("spare"):
+        raise ValueError(f"rest_after needs a mapped Play clip, got {play_slot!r}")
+    if not source["tracks"] or any(not t["samples"] for t in source["tracks"]):
+        raise ValueError("rest_after needs a sample for every floor-pose track")
+    idle = _hold_frame(source, "StateA_Idle", -1)
+    for key in ("starts_from", "held_at_idle_pose"):
+        idle.pop(key, None)
+    return {**plan, "clips": [idle if c["name"] == "StateA_Idle" else c for c in plan["clips"]]}
+
+
 def swap_siblings(plan):
     """plan -> plan with the two sibling bones exchanged in the bone list (an experiment, FAL-489 session 6: does the game number the
     root's two children in another order than the rig file?). Exactly one group of two bones may share a parent, else ValueError.
