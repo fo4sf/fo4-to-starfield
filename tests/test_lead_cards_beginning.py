@@ -44,11 +44,12 @@ from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 from fo4sf.testing.lead_session_specs import expected_sheet_pass_lines  # noqa: E402
 import tests.test_core_bundle as _tcb  # noqa: E402
 
-# R11 / G1 / P2: read ONLY the six card & run-order files owned by gemini/beginning-real (#833)
+# R11 / G1 / P2 / X3: read ONLY the lead-card & run-order files
 CARD_PATHS: Tuple[str, ...] = (
     "docs/testing/candidate-2-cards.md",
     "docs/testing/candidate-2c-card.md",
     "docs/testing/candidate-2d-card.md",
+    "docs/testing/candidate-2e-card.md",
     "docs/testing/fo4-beginning-pilot.md",
     "docs/testing/sanctuary-workbench-card.md",
     "docs/testing/lead-run-order.md",
@@ -150,6 +151,23 @@ def _join_cpp_adjacent_strings(cpp_text: str) -> str:
     return re.sub(r'"\s*\r?\n\s*"', "", cpp_text)
 
 
+def _strip_psc_comment(raw_line: str) -> str:
+    """Strip a Papyrus `;` comment only when outside double-quoted string literals."""
+    in_str = False
+    i = 0
+    while i < len(raw_line):
+        ch = raw_line[i]
+        if ch == "\\" and in_str and i + 1 < len(raw_line):
+            i += 2
+            continue
+        if ch == '"':
+            in_str = not in_str
+        elif ch == ";" and not in_str:
+            return raw_line[:i].strip()
+        i += 1
+    return raw_line.strip()
+
+
 def _psc_concat_expr_to_template(expr: str) -> Optional[str]:
     """Convert a Papyrus string concatenation expression (`"a=" + x + " b=" + y`) into `a={} b={}`."""
     s = expr.strip()
@@ -226,7 +244,7 @@ def collect_source_format_patterns(repo_root: Path) -> List[Tuple[str, str, Patt
         has_log_ng = bool(re.search(r"Function\s+LogNewGameLine\(", txt, re.I))
 
         for raw_line in txt.splitlines():
-            code = raw_line.split(";", 1)[0].strip()
+            code = _strip_psc_comment(raw_line)
             if not code or code.startswith("Function "):
                 continue
 
@@ -494,7 +512,7 @@ def validate_lead_card_markdown(
                     has_undo = True
 
                 if bundle_fixtures is not None:
-                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bcd]-[^>\s]+>)", cline)
+                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bcde]-[^>\s]+>)", cline)
                     if m_ver:
                         b_ph = m_ver.group(1)
                         if b_ph not in bundle_fixtures:
@@ -757,6 +775,8 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
         "<cand2c-test-bundle>": cand2b_test,
         "<cand2d-player-bundle>": cand2d_player,
         "<cand2d-test-bundle>": cand2d_test,
+        "<cand2e-player-bundle>": cand2d_player,
+        "<cand2e-test-bundle>": cand2d_test,
         "<cand2d-t1-bases-only>": cand2b_player,
         "<cand2d-t1-ext-overrides-only>": cand2b_player,
         "<cand2-player-bundle>": cand2_broken,
@@ -1049,6 +1069,7 @@ class LeadCardsBeginningTests(unittest.TestCase):
                 "docs/testing/candidate-2-cards.md",
                 "docs/testing/candidate-2c-card.md",
                 "docs/testing/candidate-2d-card.md",
+                "docs/testing/candidate-2e-card.md",
                 "docs/testing/fo4-beginning-pilot.md",
                 "docs/testing/sanctuary-workbench-card.md",
                 "docs/testing/lead-run-order.md",
@@ -1105,6 +1126,53 @@ class LeadCardsBeginningTests(unittest.TestCase):
         errs = validate_lead_card_markdown(
             "docs/testing/candidate-2c-card.md",
             bad_c2c,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
+        self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
+
+    def test_x2_x3_candidate_2e_card_structure_and_zero_mnv_guard(self) -> None:
+        c2e = (ROOT / "docs/testing/candidate-2e-card.md").read_text(encoding="utf-8")
+        headings = re.findall(r"(?m)^##\s+(Card\s+2e-\d+[^\r\n]*)$", c2e)
+        self.assertEqual(len(headings), 4)
+        self.assertTrue(headings[0].startswith("Card 2e-1"))
+        self.assertTrue(headings[1].startswith("Card 2e-2"))
+        self.assertTrue(headings[2].startswith("Card 2e-3"))
+        self.assertTrue(headings[3].startswith("Card 2e-4"))
+        for req in (
+            "<cand2e-player-bundle>",
+            "<cand2e-test-bundle>",
+            "story_landing",
+            "story fade reassert tick=1",
+            "console port activator registered",
+            "catwalk hint shown",
+            "codsworth talk proxy ready",
+            "codsworth talk opened stage=10",
+            "preston talk opened stage=30",
+            "Throwaway_2e_Surface",
+            "09000800",
+            "09000811",
+            "09000802",
+            "09000970",
+            "0A00080F",
+            "0A000819",
+            "06000865",
+        ):
+            self.assertIn(req, c2e)
+
+        # Negative P3 control: injecting 'v' (`sqv 09000800`) and stripped `set FO4SF_PipboyAcquired to 1` must fail.
+        bad_c2e = c2e.replace("\nsqs 09000800\n", "\nsqv 09000800\n", 1).replace(
+            "\nbat r8stat\n", "\nset FO4SF_PipboyAcquired to 1\n", 1
+        )
+        errs = validate_lead_card_markdown(
+            "docs/testing/candidate-2e-card.md",
+            bad_c2e,
             help_runner=self.help_runner,
             source_patterns=self.source_patterns,
             writer_edids=self.writer_edids,
