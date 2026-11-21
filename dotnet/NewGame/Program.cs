@@ -216,10 +216,11 @@ static class NewGame
     public const string VersionGlobEdid = "FO4SF_NewGameVersion", VersionScript = "FO4SF_NewGameVersion", PlayerAliasName = "Player";
     public const uint VersionGlobId = 0x805, PlayerRefId = 0x000014, PlayerAlias = 0;
     public const float DefaultBuildVersion = 1f;
-    // SPECIAL at the vault terminal (NG-5 / NG-C4, the owner's decision 2026-10-19): FO4's numbers, base 1 each, 21
-    // points to spend, 10 at most per stat (make_newgame.py SPECIAL_*, held equal by tests/test_newgame.py; the script's
-    // defaults are the same). The buttons of MESG FO4SF_NewGameSpecial, in order: the seven stats, Reset, Confirm, Leave
-    // (ten buttons, FO4's MESG limit; whether Starfield's message box shows ten is unverified until the PC run). The
+    // SPECIAL at the vault terminal / lift fallback (NG-5 / NG-C4 / A1(b) "40 for all", GAP-J3-05): unified 40-point
+    // pool matching #806 (7 stats at base 1 + 33 points to spend = 40 total, 10 at most per stat; make_newgame.py
+    // SPECIAL_*, held equal by tests/test_newgame.py and tests/test_special_pool40.py; the script's defaults match).
+    // The buttons of MESG FO4SF_NewGameSpecial, in order: the seven stats, Reset, Confirm, Leave
+    // (split across two <=7-button pages SpecialPage1Buttons / SpecialPage2Buttons). The
     // AVIF shape is minimal (name, abbreviation, SpecialAttribute type, default 1, min 1, max 10, and the record's own
     // flags for those three numbers: DefaultToOne, MinimumOne, MaximumTen, Mutagen's names for Starfield's AVFL bits):
     // nothing in this repo reads a Starfield AVIF back in full, so the shape is unverified until the PC run (xEdit
@@ -228,7 +229,7 @@ static class NewGame
     public static readonly string[] SpecialExtraButtons = { "Reset", "Confirm", "Leave" };
     public static readonly string[] SpecialPage1Buttons = { "Strength", "Perception", "Endurance", "Next (C / I / A / L)", "Reset", "Confirm", "Leave" };
     public static readonly string[] SpecialPage2Buttons = { "Charisma", "Intelligence", "Agility", "Luck", "Back (S / P / E)", "Confirm", "Leave" };
-    public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
+    public const int SpecialBase = 1, SpecialPoints = 33, SpecialMax = 10;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
     // names are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1) and do not describe Starfield's
     // menu; the in-game C1 session (with MQ101 stopped) settled the looks-only mode, the owner's decision NG-C3.
@@ -2619,6 +2620,7 @@ static class NewGame
             Options.From(new[] { "--debug-after-hold", "0" }).DebugAfterHold != 0) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
         if (plain.RaceMenuMode != DefaultRaceMenuMode || DefaultRaceMenuMode == 0 || Options.From(new[] { "--race-menu-mode", "0" }).RaceMenuMode != 0) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
         if (!plain.Special || Options.From(new[] { "--no-special" }).Special) { Console.WriteLine("FAIL  the SPECIAL option"); return 1; }
+        if (SpecialBase != 1 || SpecialPoints != 33 || SpecialMax != 10 || SpecialNames.Length * SpecialBase + SpecialPoints != 40) { Console.WriteLine("FAIL  the SPECIAL pool of 40 constants"); return 1; }
         if (!plain.Version || plain.BuildVersion != DefaultBuildVersion || Options.From(new[] { "--no-version" }).Version ||
             Options.From(new[] { "--build-version", "2" }).BuildVersion != 2) { Console.WriteLine("FAIL  the version options"); return 1; }
         // the inventory reset is on by default (S13 row 2), --keep-inventory turns it off and --clear-inventory (old

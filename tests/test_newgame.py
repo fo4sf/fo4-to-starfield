@@ -682,18 +682,21 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.OPTIONAL, {ng.LOOKS: "--no-looks", ng.SPECIAL: "--no-special", ng.VERSION: "--no-version"})
 
     def test_the_allocation_rule(self):
-        """special_press is FO4SF_NewGameSpecial.Allocate's rule: base 1 each, 21 points, 10 at most per stat, Reset
-        starts over, Confirm only with every point spent, Leave (or a closed message) keeps the defaults."""
+        """special_press is FO4SF_NewGameSpecial.Allocate's rule: base 1 each, 33 points (pool of 40 total),
+        10 at most per stat, Reset starts over, Confirm only with every point spent, Leave (or a closed message)
+        keeps the defaults."""
         base, pts = [ng.SPECIAL_BASE] * 7, ng.SPECIAL_POINTS
+        self.assertEqual((ng.SPECIAL_BASE, ng.SPECIAL_POINTS, ng.SPECIAL_MAX), (1, 33, 10))
         values, left, end = ng.special_press(base, pts, 0)
-        self.assertEqual((values, left, end), ([2, 1, 1, 1, 1, 1, 1], 20, None))
+        self.assertEqual((values, left, end), ([2, 1, 1, 1, 1, 1, 1], 32, None))
         for _ in range(12):                                   # Strength stops at 10 and costs nothing past it
             values, left, end = ng.special_press(values, left, 0)
-        self.assertEqual((values[0], left, end), (ng.SPECIAL_MAX, 12, None))
-        self.assertEqual(ng.special_press(values, left, 8), (values, 12, None))          # Confirm with points left
-        for b in (1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 6):        # spend the rest
+        self.assertEqual((values[0], left, end), (ng.SPECIAL_MAX, 24, None))
+        self.assertEqual(ng.special_press(values, left, 8), (values, 24, None))          # Confirm with points left
+        for b in (1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6):   # spend remaining 24
             values, left, end = ng.special_press(values, left, b)
-        self.assertEqual((values, left, end), ([10, 2, 2, 2, 2, 2, 8], 0, None))
+        self.assertEqual((values, left, end), ([10, 5, 5, 5, 5, 5, 5], 0, None))
+        self.assertEqual(sum(values), 40)
         self.assertEqual(sum(values), 7 * ng.SPECIAL_BASE + ng.SPECIAL_POINTS)
         self.assertEqual(ng.special_press(values, 0, 3), (values, 0, None))              # no points left
         self.assertEqual(ng.special_press(values, 0, 8), (values, 0, "set"))
@@ -1782,7 +1785,7 @@ class LogTests(unittest.TestCase):
         """The SPECIAL ending: set at the terminal, or skipped when the player left the vault without it; "later" and
         "left" are not endings, and a run without one reads None."""
         head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
-        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n[x] FO4SF_NEWGAME rt=12.0 special left: defaults kept, 21 points unspent\n"
+        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n[x] FO4SF_NEWGAME rt=12.0 special left: defaults kept, 33 points unspent\n"
                                       "[x] FO4SF_NEWGAME rt=90.0 stage 40\n[x] FO4SF_NEWGAME rt=91.0 special skipped: left the vault with SPECIAL unset\n")
         self.assertEqual(s["special"], "skipped: left the vault with SPECIAL unset")
         self.assertIsNone(self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n")[1]["special"])

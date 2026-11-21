@@ -187,20 +187,21 @@ DEBUG_UNMATCHED = 2           # the second build's value: no entry, no move, an 
 # by the ChargenMenu event, stage 20; mode 1 still showed TRAITS). --race-menu-mode 0 builds the old full creator.
 FULL_CREATOR_MODE = 0
 DEFAULT_RACE_MENU_MODE = 2
-# SPECIAL at the vault terminal (NG-5 / NG-C4; Program.cs SpecialNames, SpecialExtraButtons, SpecialBase, SpecialPoints,
-# SpecialMax and the SPECIAL script's defaults, held equal by tests/test_newgame.py): Fallout 4's rule, 1 in each stat,
-# 21 points to spend, 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button order, the index
-# Message.Show returns; special_press is the script's rule for one press, tested in Python. SPECIAL_MAX_PRESSES is the
-# script's MaxPresses: the allocation ends as Leave after that many presses without Confirm or Leave (about 22 per
-# pass; the guard against a message box that returns at once).
+# SPECIAL at the vault terminal / lift fallback (NG-5 / NG-C4 / A1(b) "40 for all", GAP-J3-05; Program.cs SpecialNames,
+# SpecialExtraButtons, SpecialBase, SpecialPoints, SpecialMax and the SPECIAL script's defaults, held equal by
+# tests/test_newgame.py and tests/test_special_pool40.py): unified 40-point pool matching #806, 1 in each stat,
+# 33 points to spend (7 + 33 = 40 total), 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button
+# order, the index Message.Show returns; special_press is the script's rule for one press, tested in Python.
+# SPECIAL_MAX_PRESSES is the script's MaxPresses: the allocation ends as Leave after that many presses without Confirm
+# or Leave (about 34 per pass; the guard against a message box that returns at once).
 SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck")
 SPECIAL_AVIF_IDS = tuple(core_form_id(f"FO4SF_Special_{s}") for s in SPECIAL_STATS)
 TEST_MODE_GLOBAL_ID = core_form_id("FO4SF_TestModeEnabled")
 SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
 SPECIAL_PAGE1_BUTTONS = ("Strength", "Perception", "Endurance", "Next (C / I / A / L)", "Reset", "Confirm", "Leave")
 SPECIAL_PAGE2_BUTTONS = ("Charisma", "Intelligence", "Agility", "Luck", "Back (S / P / E)", "Confirm", "Leave")
-SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
-SPECIAL_MAX_PRESSES = 300
+SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 33, 10
+SPECIAL_MAX_PRESSES = 400
 # The save version check (NG-15 / NG-L2; Program.cs DefaultBuildVersion, held equal by tests/test_newgame.py): the
 # build's version number, written to GLOB FO4SF_NewGameVersion (constant) and recorded by the version script when a new
 # game starts; on every load the script compares the two and logs "version load saved=<n> installed=<n>", then "version
