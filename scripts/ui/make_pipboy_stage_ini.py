@@ -493,6 +493,7 @@ def format_stage_ini(
     code_obj_sound: int = 0,
     map_enabled: int = 1,
     map_menus: str = DEFAULT_MAP_MENUS,
+    map_block_starmap: int = 0,
     map_heading_at: str = "88",
     setup_show_unavailable: int = 0,
 ) -> str:
@@ -563,7 +564,7 @@ def format_stage_ini(
         "MapKey=0x4D",
         "MapPage=3",
         f"MapMenus={map_menus}",
-        "MapBlockStarMap=1",
+        f"MapBlockStarMap={1 if map_block_starmap else 0}",
         "MapStore=FO4SFPipboyMapMarkers.tsv",
         "MapTravelPlugin=FO4SFPipboyTravel.esm",
         "MapTravelScript=FO4SF_PipboyTravel.Go",
@@ -621,6 +622,7 @@ def generate_stage_ini(
     special_movie_name: str = DEFAULT_SPECIAL_MOVIE,
     special_max_points: int = 40,
     map_menus: str = DEFAULT_MAP_MENUS,
+    map_block_starmap: int = 0,
     setup_show_unavailable: int = 0,
     omit: Sequence[str] = (),
     allow_omit: Sequence[str] = (),
@@ -697,6 +699,7 @@ def generate_stage_ini(
         special_max_points=special_max_points,
         code_obj_sound=1 if has_sounds else 0,
         map_menus=map_menus,
+        map_block_starmap=map_block_starmap,
         setup_show_unavailable=setup_show_unavailable,
     )
     assert_no_kit_entries(ini_text)
@@ -746,6 +749,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--special-max-points", type=int, default=40, help="S.P.E.C.I.A.L. point pool (default 40)")
     ap.add_argument("--map-menus", default=DEFAULT_MAP_MENUS, help="Comma-separated Starfield map menus to block")
     ap.add_argument(
+        "--map-block-starmap",
+        type=int,
+        choices=(0, 1),
+        default=0,
+        help="T2: 0 = hide-only default via SuppressVanillaMapMenus (outdoor M-key safe); 1 = non-null minimal blocked IMenu",
+    )
+    ap.add_argument(
         "--setup-show-unavailable",
         type=int,
         choices=(0, 1),
@@ -785,6 +795,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             special_movie_name=args.special_movie,
             special_max_points=args.special_max_points,
             map_menus=args.map_menus,
+            map_block_starmap=args.map_block_starmap,
             setup_show_unavailable=args.setup_show_unavailable,
             omit=args.omit,
             allow_omit=args.allow_omit,

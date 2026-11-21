@@ -798,7 +798,10 @@ class RebuildPlanTests(unittest.TestCase):
         # Step 8: native Actor.PlayIdle (102136 + 35720) checked in CheckArmId & shared RequestPipboyOpen
         self.assertIn("constexpr std::uint32_t kActorPlayIdleId = 102136;", self.main)
         self.assertIn("constexpr std::uint32_t kPlayIdleContextId = 35720;", self.main)
-        self.assertIn("PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit);", self.main)
+        self.assertIn(
+            "PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit, &CreateBlockedMapMenuInstance);",
+            self.main,
+        )
 
 
 if __name__ == "__main__":
