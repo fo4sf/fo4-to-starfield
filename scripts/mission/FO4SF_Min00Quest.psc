@@ -31,6 +31,9 @@ Message Property PrestonTalkMsg Auto Const
 Message Property PrestonReply0Msg Auto Const
 Message Property PrestonReply1Msg Auto Const
 Message Property PrestonReply2Msg Auto Const
+GlobalVariable Property TalkUseMessageBox Auto Const
+float Property PrestonSceneCheckSeconds = 1.5 Auto Const
+int Property PrestonSceneMaxWaitChecks = 16 Auto Const
 
 float Property MergeOffsetX = -1200.0 Auto Const
 float Property MergeOffsetY = -2700.0 Auto Const
@@ -131,6 +134,11 @@ float talkNearSec = 0.0
 bool prestonUsedFallback = False
 bool prestonTalkLogged = False
 bool prestonTalkBoxOpen = False
+bool prestonDialogueMenuOpen = False
+bool prestonScenePending = False
+bool prestonSceneMenuOpened = False
+bool prestonScenePhase1 = False
+int prestonSceneChecks = 0
 
 float[] raiderTargetX
 float[] raiderTargetY
@@ -156,6 +164,35 @@ EndFunction
 bool Function IsTestModeEnabled()
     GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
     return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function ShouldUseMessageBox()
+    GlobalVariable g = TalkUseMessageBox
+    if g == None
+        g = Game.GetFormFromFile(0x000979, "FO4SFMission.esm") as GlobalVariable
+    endif
+    if g != None && g.GetValue() != 0.0
+        return True
+    endif
+    return False
+EndFunction
+
+Function EnsurePrestonAlias()
+    if Preston == None
+        return
+    endif
+    ReferenceAlias al = GetAlias(0) as ReferenceAlias
+    if al != None && al.GetActorRef() != Preston
+        al.ForceRefTo(Preston)
+    endif
+EndFunction
+
+Function RegisterPrestonSceneEvents()
+    if PrestonTalkScene != None
+        RegisterForRemoteEvent(PrestonTalkScene, "OnBegin")
+        RegisterForRemoteEvent(PrestonTalkScene, "OnPhaseBegin")
+        RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
+    endif
 EndFunction
 
 Event OnQuestStarted()
@@ -196,10 +233,10 @@ Function StartQuestInstance()
     Trace("init raiders=" + Raiders.Length)
     RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
     EnsureActorTalkable(Preston)
+    EnsurePrestonAlias()
+    RegisterForMenuOpenCloseEvent("DialogueMenu")
     RegisterForRemoteEvent(Preston, "OnActivate")
-    if PrestonTalkScene != None
-        RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
-    endif
+    RegisterPrestonSceneEvents()
     Preston.IgnoreFriendlyHits(True)                     ; a stray shot in the fight must not turn him (in game 18 Oct 15:16)
     ; M1: starts silent with NO objective shown until Codsworth's talk finishes or the player reaches <= 150 m of Concord
     StartTimer(1.0, 1)
@@ -332,15 +369,21 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     relocateFails = 0
     prestonHeld = False
     prestonTalkBoxOpen = False
+    prestonDialogueMenuOpen = False
+    prestonScenePending = False
+    prestonSceneMenuOpened = False
+    prestonScenePhase1 = False
+    prestonSceneChecks = 0
+    CancelTimer(3)
     EnsureActorTalkable(Preston)
     RegisterForRemoteEvent(Preston, "OnActivate")
     InitRaiderTracking()
     int st = GetStage()
     Trace("reload mission stage=" + st + " relocate_fails=" + relocateFails)
     if st < 200
-        if PrestonTalkScene != None
-            RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
-        endif
+        EnsurePrestonAlias()
+        RegisterForMenuOpenCloseEvent("DialogueMenu")
+        RegisterPrestonSceneEvents()
         if st == 20
             CheckConcordRaidersWfc01(Game.GetPlayer(), False)
         endif
@@ -477,9 +520,82 @@ Function RunPrestonTalk(int stage, Message startMsg)
     prestonTalkBoxOpen = False
 EndFunction
 
+Function FallbackPrestonToMessageBox(string reason)
+    prestonScenePending = False
+    prestonScenePhase1 = False
+    CancelTimer(3)
+    Trace("preston talk fallback=messagebox reason=" + reason)
+    Message talkMsg = ResolvePrestonMsg(-1)
+    if talkMsg != None
+        RunPrestonTalk(GetStage(), talkMsg)
+    elseif GetStage() == 30
+        prestonUsedFallback = True
+        AdvanceTo(40, "fallback")
+    endif
+EndFunction
+
+Function CheckPrestonSceneOpen()
+    if KeeperOnly || !prestonScenePending
+        return
+    endif
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonTalkLogged || GetStage() != 30
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        return
+    endif
+    prestonSceneChecks += 1
+    if PrestonTalkScene == None || !PrestonTalkScene.IsPlaying()
+        FallbackPrestonToMessageBox("scene_inactive")
+    elseif prestonScenePhase1 || prestonSceneChecks >= PrestonSceneMaxWaitChecks
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        PrestonTalkScene.Stop()
+        FallbackPrestonToMessageBox("dialogue_menu_timeout")
+    else
+        StartTimer(PrestonSceneCheckSeconds, 3)
+    endif
+EndFunction
+
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+    if KeeperOnly || asMenuName != "DialogueMenu"
+        return
+    endif
+    prestonDialogueMenuOpen = abOpening
+    if abOpening
+        if prestonScenePending || talkActivated || (PrestonTalkScene != None && PrestonTalkScene.IsPlaying())
+            talkActivated = True
+            prestonUsedFallback = False
+            prestonSceneMenuOpened = True
+            prestonScenePending = False
+            prestonScenePhase1 = False
+            CancelTimer(3)
+            Trace("preston dialogue menu opened")
+        endif
+    elseif prestonSceneMenuOpened
+        Trace("preston dialogue menu closed stage=" + GetStage())
+    endif
+EndEvent
+
+Event Scene.OnBegin(Scene akSender)
+    if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene
+        talkActivated = True
+        prestonUsedFallback = False
+        if talkStartedAt <= 0.0
+            talkStartedAt = Utility.GetCurrentRealTime()
+        endif
+        Trace("preston talk scene started stage=" + GetStage())
+    endif
+EndEvent
+
+Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
+    if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene && auiPhaseIndex == 1
+        prestonScenePhase1 = True
+    endif
+EndEvent
+
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if akSender == Preston && akActionRef == Game.GetPlayer()
-        if prestonTalkBoxOpen
+        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonScenePending
             return
         endif
         int stage = GetStage()
@@ -488,15 +604,35 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
             Message talkMsg = ResolvePrestonMsg(-1)
-            if talkMsg != None
-                RunPrestonTalk(stage, talkMsg)
+            if ShouldUseMessageBox()
+                if talkMsg != None
+                    Trace("preston talk fallback=messagebox reason=glob")
+                    RunPrestonTalk(stage, talkMsg)
+                else
+                    prestonUsedFallback = True
+                    AdvanceTo(40, "fallback")
+                endif
             elseif PrestonTalkScene != None
+                EnsurePrestonAlias()
                 talkActivated = True
+                prestonUsedFallback = False
                 talkStartedAt = Utility.GetCurrentRealTime()
+                prestonScenePending = True
+                prestonSceneMenuOpened = False
+                prestonScenePhase1 = False
+                prestonSceneChecks = 0
                 if !PrestonTalkScene.IsPlaying()
                     PrestonTalkScene.Start()
+                    if !PrestonTalkScene.IsPlaying()
+                        PrestonTalkScene.ForceStart()
+                    endif
                 endif
                 Trace("preston talk scene triggered stage=30")
+                Trace("preston scene talk requested scene=" + PrestonTalkScene + " stage=30")
+                StartTimer(PrestonSceneCheckSeconds, 3)
+            elseif talkMsg != None
+                Trace("preston talk fallback=messagebox reason=no_scene")
+                RunPrestonTalk(stage, talkMsg)
             else
                 prestonUsedFallback = True
                 AdvanceTo(40, "fallback")
@@ -516,14 +652,34 @@ Event Scene.OnEnd(Scene akSender)
         bool endInfoDone = GetStageDone(35) || st == 35
         Trace("preston talk scene ended stage=" + st + " end_info=" + endInfoDone)
         if endInfoDone
+            prestonScenePending = False
+            prestonSceneMenuOpened = False
+            prestonScenePhase1 = False
+            CancelTimer(3)
             if applied < 35
                 Apply(35, "info")
+            endif
+            if GetStage() == 40
+                AdvanceTo(200, "Trigger")
+                CompleteQuest()
+                Trace("complete stage=" + GetStage())
             endif
         elseif st == 30 && !prestonTalkLogged
             talkFailures += 1
             talkActivated = False
             talkStartedAt = 0.0
             Trace("preston talk retry n=" + talkFailures + " reason=scene_incomplete")
+            if prestonScenePending && !prestonSceneMenuOpened
+                FallbackPrestonToMessageBox("scene_incomplete")
+            else
+                prestonScenePending = False
+                prestonSceneMenuOpened = False
+                prestonScenePhase1 = False
+            endif
+        else
+            prestonScenePending = False
+            prestonSceneMenuOpened = False
+            prestonScenePhase1 = False
         endif
     endif
 EndEvent
@@ -543,7 +699,7 @@ bool Function TalkCompleteReady(int stage, float dp)
     if prestonTalkLogged
         return True
     endif
-    if prestonTalkBoxOpen
+    if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonScenePending
         talkNearSec = 0.0
         return False
     endif
@@ -720,6 +876,9 @@ EndFunction
 Event OnTimer(int aiTimerID)
     if aiTimerID == 2
         KeepCodsworth()
+        return
+    elseif aiTimerID == 3
+        CheckPrestonSceneOpen()
         return
     elseif aiTimerID != 1
         return

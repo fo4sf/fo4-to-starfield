@@ -7,11 +7,13 @@ Scriptname FO4SF_Codsworth01Quest extends Quest
    stage 100 = choice 4 (head to Concord -> completes FO4SF_Codsworth01 and gives FO4SF_Min00 stage 10).}
 
 Actor Property Codsworth Auto Const
+Scene Property CodsworthScene Auto Const
 Activator Property CodsworthTalkActi Auto Const
 Message Property CodsworthTalkMsg Auto Const
 Message Property CodsworthReply0Msg Auto Const
 Message Property CodsworthReply1Msg Auto Const
 Message Property CodsworthReply2Msg Auto Const
+GlobalVariable Property TalkUseMessageBox Auto Const
 
 string LogName = "fo4sf_mission"
 float CodsworthLocalX = -1146.709
@@ -24,11 +26,17 @@ float ProxyBindRadius = 180.0
 float ProxyZOffset = 1.36
 float ProxyScale = 1.6
 float ProxyResyncDrift = 0.25
+float SceneOpenCheckSeconds = 1.5
+int SceneMaxWaitChecks = 16
 
 bool instanceStarted = False
 bool dialogueSeen = False
 bool dialogueMenuOpen = False
 bool talkBoxOpen = False
+bool sceneTalkPending = False
+bool sceneMenuOpened = False
+bool scenePhase1Entered = False
+int sceneCheckTicks = 0
 ObjectReference talkProxy = None
 bool proxyLogged = False
 float proxyLastX = 0.0
@@ -81,11 +89,49 @@ Message Function ResolveTalkMsg(int slot)
     return Game.GetFormFromFile(0x000971, "FO4SFMission.esm") as Message
 EndFunction
 
+Scene Function ResolveCodsworthScene()
+    if CodsworthScene != None
+        return CodsworthScene
+    endif
+    return Game.GetFormFromFile(0x000940, "FO4SFMission.esm") as Scene
+EndFunction
+
+bool Function ShouldUseMessageBox()
+    GlobalVariable g = TalkUseMessageBox
+    if g == None
+        g = Game.GetFormFromFile(0x000979, "FO4SFMission.esm") as GlobalVariable
+    endif
+    if g != None && g.GetValue() != 0.0
+        return True
+    endif
+    return False
+EndFunction
+
+Function EnsureCodsworthAlias(Actor cods)
+    if cods == None
+        return
+    endif
+    ReferenceAlias al = GetAlias(0) as ReferenceAlias
+    if al != None && al.GetActorRef() != cods
+        al.ForceRefTo(cods)
+    endif
+EndFunction
+
+Function RegisterCodsworthSceneEvents()
+    Scene scn = ResolveCodsworthScene()
+    if scn != None
+        RegisterForRemoteEvent(scn, "OnBegin")
+        RegisterForRemoteEvent(scn, "OnPhaseBegin")
+        RegisterForRemoteEvent(scn, "OnEnd")
+    endif
+EndFunction
+
 Function BindCodsworthActivation()
     Actor cods = ResolveCodsworth()
     if cods != None
         cods.AllowPCDialogue(True)
         cods.BlockActivation(False, False)
+        EnsureCodsworthAlias(cods)
         RegisterForRemoteEvent(cods, "OnActivate")
     endif
     if talkProxy != None && !talkProxy.IsDeleted()
@@ -205,6 +251,7 @@ Function StartQuestInstance()
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
     RegisterForMenuOpenCloseEvent("DialogueMenu")
+    RegisterCodsworthSceneEvents()
     BindCodsworthActivation()
     AdvanceTo(10, "Trigger")
     SetObjectiveDisplayed(10, True, False)
@@ -217,10 +264,16 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     dialogueMenuOpen = False
     talkBoxOpen = False
+    sceneTalkPending = False
+    sceneMenuOpened = False
+    scenePhase1Entered = False
+    sceneCheckTicks = 0
+    CancelTimer(2)
     Trace("codsworth01 reload stage=" + GetStage() + " choices=" + choicesCount)
     BindCodsworthActivation()
     if !completed
         RegisterForMenuOpenCloseEvent("DialogueMenu")
+        RegisterCodsworthSceneEvents()
         StartTimer(1.0, 1)
     elseif talkProxy == None || talkProxy.IsDeleted()
         StartTimer(1.0, 1)
@@ -232,9 +285,81 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
         dialogueMenuOpen = abOpening
         if abOpening
             dialogueSeen = True
+            Scene scn = ResolveCodsworthScene()
+            if sceneTalkPending || (scn != None && scn.IsPlaying())
+                sceneMenuOpened = True
+                sceneTalkPending = False
+                scenePhase1Entered = False
+                CancelTimer(2)
+                Trace("codsworth dialogue menu opened")
+            endif
+        elseif sceneMenuOpened
+            Trace("codsworth dialogue menu closed stage=" + GetStage())
+            SyncProgress()
         endif
     endif
 EndEvent
+
+Event Scene.OnBegin(Scene akSender)
+    Scene scn = ResolveCodsworthScene()
+    if scn != None && akSender == scn
+        dialogueSeen = True
+        Trace("codsworth talk scene started stage=" + GetStage())
+    endif
+EndEvent
+
+Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
+    Scene scn = ResolveCodsworthScene()
+    if scn != None && akSender == scn && auiPhaseIndex == 1
+        scenePhase1Entered = True
+    endif
+EndEvent
+
+Event Scene.OnEnd(Scene akSender)
+    Scene scn = ResolveCodsworthScene()
+    if scn != None && akSender == scn
+        SyncProgress()
+        Trace("codsworth talk scene ended stage=" + GetStage() + " completed=" + completed)
+        if sceneTalkPending && !sceneMenuOpened && !completed
+            sceneTalkPending = False
+            scenePhase1Entered = False
+            CancelTimer(2)
+            Trace("codsworth talk fallback=messagebox reason=scene_incomplete")
+            RunCodsworthTalk()
+        else
+            sceneTalkPending = False
+            sceneMenuOpened = False
+            scenePhase1Entered = False
+        endif
+    endif
+EndEvent
+
+Function CheckCodsworthSceneOpen()
+    if !sceneTalkPending
+        return
+    endif
+    if dialogueMenuOpen || sceneMenuOpened || talkBoxOpen || completed
+        sceneTalkPending = False
+        scenePhase1Entered = False
+        return
+    endif
+    sceneCheckTicks += 1
+    Scene scn = ResolveCodsworthScene()
+    if scn == None || !scn.IsPlaying()
+        sceneTalkPending = False
+        scenePhase1Entered = False
+        Trace("codsworth talk fallback=messagebox reason=scene_inactive")
+        RunCodsworthTalk()
+    elseif scenePhase1Entered || sceneCheckTicks >= SceneMaxWaitChecks
+        sceneTalkPending = False
+        scenePhase1Entered = False
+        scn.Stop()
+        Trace("codsworth talk fallback=messagebox reason=dialogue_menu_timeout")
+        RunCodsworthTalk()
+    else
+        StartTimer(SceneOpenCheckSeconds, 2)
+    endif
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     Actor player = Game.GetPlayer()
@@ -242,11 +367,47 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     Actor cods = ResolveCodsworth()
-    if akSender == cods || (talkProxy != None && akSender == talkProxy)
-        if !dialogueMenuOpen
-            RunCodsworthTalk()
+    if akSender != cods && (talkProxy == None || akSender != talkProxy)
+        return
+    endif
+    if IsWarfareMode() || talkBoxOpen || dialogueMenuOpen || sceneTalkPending
+        return
+    endif
+    if ShouldUseMessageBox()
+        Trace("codsworth talk fallback=messagebox reason=glob")
+        RunCodsworthTalk()
+        return
+    endif
+    Scene scn = ResolveCodsworthScene()
+    if scn == None
+        Trace("codsworth talk fallback=messagebox reason=no_scene")
+        RunCodsworthTalk()
+        return
+    endif
+    if completed
+        if talkProxy != None && akSender == talkProxy && cods != None
+            cods.Activate(player, True)
+        endif
+        return
+    endif
+    EnsureCodsworthAlias(cods)
+    dialogueSeen = True
+    sceneTalkPending = True
+    sceneMenuOpened = False
+    scenePhase1Entered = False
+    sceneCheckTicks = 0
+    string via = "actor"
+    if talkProxy != None && akSender == talkProxy
+        via = "proxy"
+    endif
+    if !scn.IsPlaying()
+        scn.Start()
+        if !scn.IsPlaying()
+            scn.ForceStart()
         endif
     endif
+    Trace("codsworth scene talk requested scene=" + scn + " via=" + via + " stage=" + GetStage())
+    StartTimer(SceneOpenCheckSeconds, 2)
 EndEvent
 
 Function RunCodsworthTalk()
@@ -319,7 +480,10 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID != 1
+    if aiTimerID == 2
+        CheckCodsworthSceneOpen()
+        return
+    elseif aiTimerID != 1
         return
     endif
     EnsureTalkProxy(Game.GetPlayer())
