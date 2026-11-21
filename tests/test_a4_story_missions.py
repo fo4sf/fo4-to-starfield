@@ -3,10 +3,18 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import sys
 import unittest
 
 HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parents[1]
+
+for _p in (str(REPO_ROOT / "scripts" / "mission"), str(REPO_ROOT / "src")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import make_mission  # noqa: E402
+from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 
 A4_CS = REPO_ROOT / "dotnet" / "Mission" / "NextStoryMissionsA4.cs"
 PROGRAM_CS = REPO_ROOT / "dotnet" / "Mission" / "Program.cs"
@@ -173,6 +181,54 @@ class A4CSharpRecordTests(unittest.TestCase):
         mq_props_psc = _declared_psc_properties(MQ103_PSC.read_text(encoding="utf-8"))
         self.assertTrue(mq_props_cs, "no MQ103 properties found in C#")
         self.assertTrue(mq_props_cs.issubset(mq_props_psc), f"missing in MQ103 PSC: {mq_props_cs - mq_props_psc}")
+
+
+    def test_program_cs_and_make_mission_wire_a4_cleanly(self) -> None:
+        prog = PROGRAM_CS.read_text(encoding="utf-8")
+        self.assertIn("NextStoryMissionsA4.PopulateA4Missions(", prog)
+        self.assertIn("NextStoryMissionsA4.CheckA4Missions(", prog)
+        self.assertIn("NextStoryMissionsA4.IsA4ActorRefId(", prog)
+        for mutation in (
+            "duplicate second Sanctuary quest added",
+            "FO4SF_MinRecruit00 removed",
+            "FO4SF_MinRecruit00 has StartGameEnabled",
+            "FO4SF_MQ103 removed",
+            "FO4SF_MQ103 has StartGameEnabled",
+            "Min01 BedTotal GLOB mutated",
+        ):
+            self.assertIn(mutation, prog)
+
+        self.assertEqual(
+            make_mission.ALL_SCRIPTS,
+            (
+                "FO4SF_Min00Quest",
+                "FO4SF_COMPreston",
+                "FO4SF_Codsworth01Quest",
+                "FO4SF_Sanctuary01Quest",
+                "FO4SF_MinRecruit00Quest",
+                "FO4SF_MQ103Quest",
+            ),
+        )
+        summary = make_mission.summarize([
+            "FO4SF_MISSION rt=400.0 sanctuary01 stage 1500 by=sturges",
+            "FO4SF_MISSION rt=400.1 sanctuary01 finished stage=1500 by=sturges",
+            "FO4SF_MISSION rt=500.0 minrecruit00 stage 500 by=preston",
+            "FO4SF_MISSION rt=500.1 minrecruit00 complete stage=500 flare_gun=true min02_unlocked=1 by=preston",
+            "FO4SF_MISSION rt=600.0 mq103 stage 100 by=ellie",
+            "FO4SF_MISSION rt=600.1 mq103 complete stage=100 mq104_armed=1 by=ellie",
+        ])
+        self.assertEqual(summary["sanctuary01_stages"], [1500])
+        self.assertIn("stage=1500", summary["sanctuary01_finished"] or "")
+        self.assertEqual(summary["minrecruit00_stages"], [500])
+        self.assertIn("flare_gun=true", summary["minrecruit00_complete"] or "")
+        self.assertEqual(summary["mq103_stages"], [100])
+        self.assertIn("mq104_armed=1", summary["mq103_complete"] or "")
+
+        catalog, dup_errors = build_writer_catalog(str(REPO_ROOT))
+        self.assertEqual(dup_errors, [])
+        self.assertEqual(catalog["FO4SFMission.esm"][0x817], ("QUST", "FO4SF_Sanctuary01"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0xA20], ("QUST", "FO4SF_MinRecruit00"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0xA50], ("QUST", "FO4SF_MQ103"))
 
 
 class A4PapyrusContractTests(unittest.TestCase):

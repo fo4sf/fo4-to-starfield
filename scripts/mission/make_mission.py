@@ -62,7 +62,9 @@ SCRIPT = "FO4SF_Min00Quest"
 COM_SCRIPT = "FO4SF_COMPreston"
 CODSWORTH_SCRIPT = "FO4SF_Codsworth01Quest"
 SANCTUARY_SCRIPT = "FO4SF_Sanctuary01Quest"
-ALL_SCRIPTS = (SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT)
+MINRECRUIT00_SCRIPT = "FO4SF_MinRecruit00Quest"
+MQ103_SCRIPT = "FO4SF_MQ103Quest"
+ALL_SCRIPTS = (SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT, MINRECRUIT00_SCRIPT, MQ103_SCRIPT)
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
@@ -629,7 +631,9 @@ def stage(a):
 - QUST FO4SF_CodsworthKeeper (0x0814, started at FO4SFNewGame stage 200 via StartNoWait; NOT StartGameEnabled),
 - QUST FO4SF_COMPreston (0x0815, test-only follow alias gated behind FO4SF_TestModeEnabled != 0),
 - QUST FO4SF_Codsworth01 (0x0816, MQ102-lite 4-choice Sanctuary conversation pointing to Concord; NOT StartGameEnabled),
-- QUST FO4SF_Sanctuary01 (0x0817, First Settlement objective on Sanctuary workbench 0250FE / FO4TerrainCore.esm 0x005C50, started at FO4SF_Min00 stage 200).
+- QUST FO4SF_Sanctuary01 (0x0817, full Min01 Sanctuary settlement quest completed in place on workbench 0250FE / FO4TerrainCore.esm 0x005C50 + Sturges 0x0A00/0x0A01, started at FO4SF_Min00 stage 200),
+- QUST FO4SF_MinRecruit00 (0x0A20, The First Step — Tenpines Bluff / Corvega / Flare Gun 0x0A25, NOT StartGameEnabled),
+- QUST FO4SF_MQ103 (0x0A50, Jewel of the Commonwealth — Diamond City Gate / Piper / Mayor / Valentine Detective Agency, NOT StartGameEnabled).
 Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {PRESTON_PLACEHOLDER_NOTE}.
 Raiders: {len(pts['raiders'])} ACHR(s) of FO4_LvlRaider ({raiders}).
 Codsworth: {"NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + FO4SF_CodsworthVoice AllowDefaultDialog) at " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
@@ -925,7 +929,10 @@ def summarize(lines):
          "preston_scene_requested": 0, "preston_dialogue_menu_opened": 0, "preston_talk_fallbacks": [],
          "preston_talk_opened": 0, "preston_choices": [],
          "preston_talk_end": None, "stage40_fallback": False,
-         "min01_bench_activated": False, "sanctuary01_complete": None}
+         "min01_bench_activated": False, "sanctuary01_complete": None,
+         "sanctuary01_stages": [], "sanctuary01_finished": None,
+         "minrecruit00_stages": [], "minrecruit00_complete": None,
+         "mq103_stages": [], "mq103_complete": None}
     follow_seen = False
     for line in lines:
         m = LINE.search(line)
@@ -999,6 +1006,24 @@ def summarize(lines):
             s["min01_bench_activated"] = True
         elif low.startswith("sanctuary01 bench_activated=true "):
             s["sanctuary01_complete"] = msg
+        elif low.startswith("sanctuary01 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["sanctuary01_stages"].append(int(parts[2]))
+        elif low.startswith("sanctuary01 finished "):
+            s["sanctuary01_finished"] = msg
+        elif low.startswith("minrecruit00 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["minrecruit00_stages"].append(int(parts[2]))
+        elif low.startswith("minrecruit00 complete "):
+            s["minrecruit00_complete"] = msg
+        elif low.startswith("mq103 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq103_stages"].append(int(parts[2]))
+        elif low.startswith("mq103 complete "):
+            s["mq103_complete"] = msg
         elif low.startswith("follow preston test-only refused: test mode off"):
             s["follow"] = msg
             s["follow_refused_test_mode"] = True

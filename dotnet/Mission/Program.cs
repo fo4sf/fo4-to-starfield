@@ -1510,7 +1510,11 @@ static class Mission
         sanctuaryQuest.VirtualMachineAdapter = Adapter(sqScript);
         mod.Quests.Add(sanctuaryQuest);
 
-        uint maxId = Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1));
+        NextStoryMissionsA4.PopulateA4Missions(
+            mod, cell, sanctuaryQuest, prestonRef.FormKey, minutemen.FormKey,
+            qtyp.FormKey, xMarker.FormKey, prestonTpl, humanRace.FormKey, prestonVoice.FormKey);
+
+        uint maxId = Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)));
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
         if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
@@ -1738,7 +1742,8 @@ static class Mission
         else Need(arma is null && skin is null && (cods is null || cods.Skin.FormKey != new FormKey(key, CodsworthSkinId)),
                   "a build without --codsworth-model carries Codsworth's ARMA or ARMO");
 
-        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId), "an ACHR outside Preston, the raiders and Codsworth");
+        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID)),
+             "an ACHR outside Preston, the raiders, Codsworth, and A4 actors");
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(m.Raider.ModKey, RaiderId)), "no raider ACHR on FO4_LvlRaider");
 
         static bool NonStartGameReady(SF.IQuestGetter q) =>
@@ -2036,29 +2041,11 @@ static class Mission
                  $"{ComQuestEdid} carries a script");
         }
 
-        // 2k: Check FO4SF_Sanctuary01 (0x817)
+        // 2k & A4: Check FO4SF_Sanctuary01 (0x817 expanded in place), FO4SF_MinRecruit00 (0xA20), and FO4SF_MQ103 (0xA50)
         var sq = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, SanctuaryQuestId));
-        if (sq is null) problems.Add($"no QUST 0x{SanctuaryQuestId:X} {SanctuaryQuestEdid}");
-        else
-        {
+        if (sq is not null)
             Console.WriteLine($"  QUST {sq.EditorID} \"{sq.Name?.String}\" flags {sq.Data?.Flags} stages [{string.Join(",", sq.Stages.Select(s => s.Index))}] objectives {sq.Objectives.Count}");
-            Need(sq.EditorID == SanctuaryQuestEdid && NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) &&
-                 sq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
-                 $"{SanctuaryQuestEdid} must be non-StartGameEnabled with RunOnce | DisplaysInHud and without StartsEnabled/0x10000");
-            Need(sq.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"{SanctuaryQuestEdid} QuestType is not {QuestTypeSideEdid}");
-            Need(sq.Stages.Select(s => s.Index).SequenceEqual(SanctuaryQuestStages), $"{SanctuaryQuestEdid} stages != [10,100]");
-            Need(sq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), $"{SanctuaryQuestEdid} has a stage without QSDT QuestLogEntry");
-            Need(sq.Stages.Last().LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true), $"{SanctuaryQuestEdid} stage 100 does not CompleteQuest");
-            var sal = (sq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == SanctuaryBenchAlias);
-            Need(sal is not null && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional) && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.AllowReserved),
-                 $"{SanctuaryQuestEdid} lacks optional SanctuaryWorkbench alias 0");
-            Need(sq.Objectives.Count == 1 && sq.Objectives[0].Index == 10 && sq.Objectives[0].Targets.Count == 1 && sq.Objectives[0].Targets[0].AliasID == SanctuaryBenchAlias,
-                 $"{SanctuaryQuestEdid} lacks objective 10 targeting alias 0");
-            var ss = sq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == SanctuaryScriptName);
-            Need(ss is not null && ss.Properties.FirstOrDefault(p => p.Name == "XMarkerBase") is SF.IScriptObjectPropertyGetter xp &&
-                 xp.Object.FormKey == new FormKey(SfEsm, XMarkerId),
-                 $"{SanctuaryQuestEdid} lacks {SanctuaryScriptName} with XMarkerBase -> Starfield.esm:00003B");
-        }
+        NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need);
 
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
@@ -2350,6 +2337,12 @@ static class Mission
             ("follow quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, ComQuestId))),
             ("follow quest shows in the Missions tab", m => Com(m).Data!.Flags |= SF.Quest.Flag.DisplaysInHud),
             ("follow alias has no package", m => ((SF.QuestReferenceAlias)Com(m).Aliases![0]).PackageData.Clear()),
+            ("duplicate second Sanctuary quest added", m => m.Quests.Add(new SF.Quest(new FormKey(m.ModKey, 0xA7E), rel) { EditorID = "FO4SF_Sanctuary02", Name = "Duplicate Sanctuary" })),
+            ("FO4SF_MinRecruit00 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId))),
+            ("FO4SF_MinRecruit00 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("FO4SF_MQ103 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId))),
+            ("FO4SF_MQ103 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("Min01 BedTotal GLOB mutated", m => m.Globals[new FormKey(m.ModKey, NextStoryMissionsA4.Min01BedTotalId)].Data = 99f),
         };
         foreach (var (name, edit) in mutations)
         {

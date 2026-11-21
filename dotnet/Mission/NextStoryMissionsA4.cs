@@ -75,6 +75,9 @@ static class NextStoryMissionsA4
 
     public const uint MaxAllocatedId = 0xA64;
 
+    public static bool IsA4ActorRefId(uint id) =>
+        id is SturgesRefId or TenpinesRefId or CorvegaBossRefId or PiperRefId or MayorRefId or EllieRefId;
+
     // Exact FO4 Min01 resource target totals (verified from Fallout4.esm GLOBs 05FD8E/073041/073040/1DE910)
     public const float DefaultBedTotal = 5.0f;
     public const float DefaultWaterTotal = 5.0f;
@@ -556,6 +559,15 @@ static class NextStoryMissionsA4
                 "FO4SF_Sanctuary01 stage 1500 lacks CompleteQuest");
             need(sq.Objectives.Select(o => o.Index).SequenceEqual(SanctuaryObjectives.Select(o => o.Index)),
                 "FO4SF_Sanctuary01 objectives mismatch Min01 specification");
+            need(sq.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
+                "FO4SF_Sanctuary01 QuestType mismatch");
+            var sal = (sq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == 0);
+            need(sal is not null && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional) && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.AllowReserved),
+                "FO4SF_Sanctuary01 lacks optional SanctuaryWorkbench alias 0");
+            var ss = sq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == "FO4SF_Sanctuary01Quest");
+            need(ss is not null && ss.Properties.FirstOrDefault(p => p.Name == "XMarkerBase") is SF.IScriptObjectPropertyGetter xp &&
+                 xp.Object.FormKey == new FormKey(sfEsm, 0x00003B),
+                "FO4SF_Sanctuary01 lacks FO4SF_Sanctuary01Quest with XMarkerBase -> Starfield.esm:00003B");
         }
         need(plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, Min01BedTotalId))?.Data == DefaultBedTotal &&
              plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, Min01WaterTotalId))?.Data == DefaultWaterTotal &&
