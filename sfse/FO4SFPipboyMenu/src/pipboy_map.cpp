@@ -222,11 +222,13 @@ namespace
 	PipboyMap::CloseRequestFn              g_closeFn = nullptr;
 	PipboyMap::GfxEnterFn                  g_gfxEnterFn = nullptr;
 	PipboyMap::GfxExitFn                   g_gfxExitFn = nullptr;
+	PipboyMap::BlockedMenuFactoryFn        g_blockedFactoryFn = nullptr;
 
 	std::uint32_t                          g_mapKey = 0x4D;
 	std::uint32_t                          g_mapPage = 3;
+	std::uint32_t                          g_mapDefaultTab = 0;
 	bool                                   g_mapSurvival = false;
-	bool                                   g_blockStarMap = true;
+	bool                                   g_blockStarMap = false;
 	std::size_t                            g_headingAt = kDefaultHeadingAt;
 	bool                                   g_headingTurnsDown = false;
 	std::size_t                            g_configuredGlobalValueAt = 0;   // 0 = auto-verify via ChooseMapGlobalSlot
@@ -1111,15 +1113,21 @@ namespace
 		queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kUpdate);
 	}
 
-	// Complete Starfield map-menu block (Task 1 step 1g): any attempt to instantiate a menu in MapMenus=
-	// (GalaxyStarMapMenu, SurfaceMap, MapMenu, etc.) constructs a null Ptr<IMenu> and logs blocked menu=<name> route=create
+	// T2 (Round 6): default MapBlockStarMap=0 uses hide-only SuppressVanillaMapMenus() (proven outdoor M-key safe).
+	// When MapBlockStarMap=1 is opted in, BlockedMapMenuCreateForSlot constructs a real non-null minimal self-hiding
+	// IMenu via g_blockedFactoryFn so callers dereferencing [menu + 0xB0] immediately after initFunc never read nullptr.
 	RE::Scaleform::Ptr<RE::IMenu>* BlockedMapMenuCreateForSlot(RE::Scaleform::Ptr<RE::IMenu>* a_out, std::size_t a_slot)
 	{
-		std::construct_at(a_out);
+		const char* menuName = (a_slot < g_mapMenus.size()) ? g_mapMenus[a_slot].c_str() : "GalaxyStarMapMenu";
+		bool        nonNull = false;
+		if (g_blockedFactoryFn && g_blockedFactoryFn(menuName, a_out)) {
+			nonNull = true;
+		} else {
+			std::construct_at(a_out);
+		}
 		const auto n = ++g_starMapBlocks;
 		if (n <= kMaxLogLines) {
-			const char* menuName = (a_slot < g_mapMenus.size()) ? g_mapMenus[a_slot].c_str() : "GalaxyStarMapMenu";
-			REX::INFO("step=starmap_blocked n={} blocked menu={} route=create", n, menuName);
+			REX::INFO("step=starmap_blocked n={} blocked menu={} route=create non_null={}", n, menuName, nonNull ? 1 : 0);
 		}
 		return a_out;
 	}
@@ -1707,12 +1715,14 @@ namespace PipboyMap
 		g_closing.store(a_closing);
 	}
 
-	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn)
+	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn,
+		BlockedMenuFactoryFn a_blockedFactoryFn)
 	{
 		g_openFn = a_openFn;
 		g_closeFn = a_closeFn;
 		g_gfxEnterFn = a_gfxEnterFn;
 		g_gfxExitFn = a_gfxExitFn;
+		g_blockedFactoryFn = a_blockedFactoryFn;
 	}
 
 	void Configure(const std::filesystem::path& a_ini, const std::filesystem::path& a_dir, int a_stage,
@@ -1733,7 +1743,7 @@ namespace PipboyMap
 		g_mapKey = ReadIniNumber(a_ini, L"MapKey", 0x4D);
 		g_mapPage = ReadIniNumber(a_ini, L"MapPage", 3);
 		g_mapSurvival = ReadIniNumber(a_ini, L"MapSurvival", 0) != 0;
-		g_blockStarMap = ReadIniNumber(a_ini, L"MapBlockStarMap", 1) != 0;
+		g_blockStarMap = ReadIniNumber(a_ini, L"MapBlockStarMap", 0) != 0;
 		if (g_mapKey == 0 || g_mapKey > 0xFE || g_mapKey == a_menuKey || g_mapKey == kF10 ||
 			g_mapKey == kQuickSaveKey || g_mapKey == kQuickLoadKey || g_mapPage > 4) {
 			RefuseStep("ini", std::format("reason=map_key map_key={} key={} map_page={}", Hex(g_mapKey), Hex(a_menuKey), g_mapPage));
@@ -1939,7 +1949,8 @@ namespace PipboyMap
 			return;
 		}
 		const auto t = ++g_tickCount;
-		if (t % 3 == 0) {
+		const bool recentTransition = (NowMs() - g_lastMapTransitionMs.load()) < 2500;
+		if (recentTransition || (t % 3 == 0)) {
 			g_task->AddTask([]() { SuppressVanillaMapMenus(); });
 		}
 		if (t % 17 == 0 && g_menuOpen.load() && g_currentShellPage.load() == static_cast<std::int32_t>(g_mapPage)) {

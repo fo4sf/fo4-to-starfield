@@ -583,6 +583,10 @@ namespace
 	bool                                     g_setupShowUnavailable = false;
 	PrimaryVtable                            g_setupVtbl{};
 	InputVtable                              g_setupInputVtbl{};
+	// T2 (Round 6): non-null minimal self-hiding IMenu for optional MapBlockStarMap=1 create-time block
+	PrimaryVtable                            g_blockedMapVtbl{};
+	InputVtable                              g_blockedMapInputVtbl{};
+	std::atomic<std::uint32_t>               g_blockedMapCreated{ 0 };
 	std::atomic<bool>                        g_setupOpen{ false };
 	std::atomic<bool>                        g_loadingSetupMovie{ false };
 	std::atomic<bool>                        g_setupMissing{ false };
@@ -8065,6 +8069,70 @@ namespace
 		return a_out;
 	}
 
+	void* BlockedMapMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* BlockedMapMenuGetName(const void* a_self)
+	{
+		if (a_self) {
+			const auto* imenu = static_cast<const RE::IMenu*>(a_self);
+			if (const char* nm = imenu->menuName.c_str(); nm && *nm) {
+				return nm;
+			}
+		}
+		return "GalaxyStarMapMenu";
+	}
+
+	bool BlockedMapMenuLoadMovie(void*, bool, bool)
+	{
+		// Stage-1 style minimal menu: never loads Starfield's star-map movie and closes itself on kShow.
+		return true;
+	}
+
+	RE::UI_MESSAGE_RESULT BlockedMapMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow && a_self) {
+			auto* imenu = static_cast<RE::IMenu*>(a_self);
+			if (auto* queue = RE::UIMessageQueue::GetSingleton(); queue && !imenu->menuName.empty()) {
+				queue->AddMessage(imenu->menuName, RE::UI_MESSAGE_TYPE::kHide);
+			}
+		}
+		return result;
+	}
+
+	bool CreateBlockedMapMenuInstance(const char* a_menuName, RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		if (!a_out || !g_ctor || !g_blockedMapVtbl.slots[0]) {
+			return false;
+		}
+		constexpr std::size_t kBlockedMenuBytes = (kMenuBytes > 0x1000) ? kMenuBytes : 0x1000;
+		const auto            n = ++g_blockedMapCreated;
+		void*                 menu = std::calloc(1, kBlockedMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=blocked_map n={} reason=out_of_memory", n);
+			return false;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_blockedMapVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_blockedMapInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = RE::BSFixedString(a_menuName && *a_menuName ? a_menuName : "GalaxyStarMapMenu");
+		imenu->flags = 0;
+		imenu->flagsUpdated = true;
+		*reinterpret_cast<std::uint8_t*>(base + 0x110) = 0;
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return true;
+	}
+
 	const RE::BSFixedString& SetupMenuName()
 	{
 		static const RE::BSFixedString s{ fo4sf::kOurSetupMenuName };
@@ -8870,6 +8938,19 @@ namespace
 			std::copy_n(input, kInputSlots, g_setupInputVtbl.slots.begin());
 			g_setupInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&SetupShouldHandleEvent);
 			g_setupInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&SetupOnButtonEvent);
+
+			g_blockedMapVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_blockedMapVtbl.slots.begin());
+			g_blockedMapVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuDestroy);
+			g_blockedMapVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuGetName);
+			g_blockedMapVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_blockedMapVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_blockedMapVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuLoadMovie);
+			g_blockedMapVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuProcessMessage);
+			g_blockedMapVtbl.slots[0x0A] = reinterpret_cast<std::uintptr_t>(&MenuIsMovieLoaded);
+			g_blockedMapInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_blockedMapInputVtbl.slots.begin());
+			g_blockedMapInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&StartCardShouldHandleEvent);
 		}
 		if (g_stage == 1) {
 			g_vtbl.slots[0x0A] = reinterpret_cast<std::uintptr_t>(&MenuIsMovieLoaded);
@@ -9399,7 +9480,7 @@ namespace
 				fo4sf::kOurSetupMenuName, g_setupShowUnavailable ? 1 : 0);
 		}
 		World::Start(g_task);
-		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit);
+		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit, &CreateBlockedMapMenuInstance);
 		PipboyMap::Start(g_task);
 		const auto thread = REX::W32::CreateThread(nullptr, 0, &KeyThread, nullptr, 0, nullptr);
 		if (!thread) {

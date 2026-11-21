@@ -363,7 +363,7 @@ class SourceAndContractTests(unittest.TestCase):
             "MapKey=0x4D",
             "MapPage=3",
             "MapMenus=GalaxyStarMapMenu",
-            "MapBlockStarMap=1",
+            "MapBlockStarMap=0",
             "MapStore=FO4SFPipboyMapMarkers.tsv",
             "MapTravelPlugin=FO4SFPipboyTravel.esm",
             "MapTravelScript=FO4SF_PipboyTravel.Go",
@@ -386,11 +386,17 @@ class SourceAndContractTests(unittest.TestCase):
         sup = self.cpp[self.cpp.index("bool SuppressVanillaMapMenus()"):self.cpp.index("void HandleClosedMapKeyMainThread")]
         self.assertNotIn("kShow", sup)
         self.assertNotIn("OurMenuFixed()", sup)
-        # Complete star-map lockout in UI::menuMap + BSInputEventUser swallow while open
+        # T2: hide-only default (MapBlockStarMap=0) + non-null minimal self-hiding IMenu when MapBlockStarMap=1
+        self.assertIn("bool                                   g_blockStarMap = false;", self.cpp)
+        self.assertIn('g_blockStarMap = ReadIniNumber(a_ini, L"MapBlockStarMap", 0) != 0;', self.cpp)
         self.assertIn("entry.value.initFunc = &BlockedStarMapCreate;", self.cpp)
         self.assertIn("entry.value.initFunc = kBlockedMapMenuCreators[slot];", self.cpp)
         self.assertIn("kMaxMapMenus = 16;", self.cpp)
-        self.assertIn("blocked menu={} route=create", self.cpp)
+        self.assertIn("blocked menu={} route=create non_null={}", self.cpp)
+        self.assertIn("g_blockedFactoryFn && g_blockedFactoryFn(menuName, a_out)", self.cpp)
+        self.assertIn("CreateBlockedMapMenuInstance", self.main)
+        self.assertIn("BlockedMapMenuProcessMessage", self.main)
+        self.assertIn("queue->AddMessage(imenu->menuName, RE::UI_MESSAGE_TYPE::kHide);", self.main)
         self.assertIn("VerifyPluginCandidate(", self.cpp)
         self.assertIn('#include "blocking_menus.h"', self.cpp)
         self.assertIn("step=starmap_blocked", self.cpp)

@@ -951,6 +951,12 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
         self.assertIn("### N1 — Player-Build First-Person Pip-Boy Arm", cards_doc)
         self.assertIn("OWNER TEST", cards_doc)
 
+    def test_t2_map_block_starmap_defaults_to_zero_and_opt_in_one(self) -> None:
+        default_ini = mpsi.format_stage_ini(["HideMenu"])
+        self.assertIn("\nMapBlockStarMap=0\n", default_ini)
+        opt_in_ini = mpsi.format_stage_ini(["HideMenu"], map_block_starmap=1)
+        self.assertIn("\nMapBlockStarMap=1\n", opt_in_ini)
+
 
 if __name__ == "__main__":
     unittest.main()

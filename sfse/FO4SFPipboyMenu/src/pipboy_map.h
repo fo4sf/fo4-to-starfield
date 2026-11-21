@@ -23,6 +23,7 @@ namespace PipboyMap
 	using CloseRequestFn = void (*)(std::uint32_t a_n, const char* a_by);
 	using GfxEnterFn = std::uint64_t (*)(const char* a_what, bool a_uncapped);
 	using GfxExitFn = void (*)(std::uint64_t a_seq, const char* a_what, bool a_ok, std::int64_t a_startMs, bool a_uncapped);
+	using BlockedMenuFactoryFn = bool (*)(const char* a_menuName, RE::Scaleform::Ptr<RE::IMenu>* a_out);
 
 	bool Requested(const std::filesystem::path& a_ini);
 
@@ -34,7 +35,8 @@ namespace PipboyMap
 
 	void SetClosing(bool a_closing);
 
-	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn);
+	void SetHostCallbacks(OpenRequestFn a_openFn, CloseRequestFn a_closeFn, GfxEnterFn a_gfxEnterFn, GfxExitFn a_gfxExitFn,
+		BlockedMenuFactoryFn a_blockedFactoryFn = nullptr);
 
 	void Configure(const std::filesystem::path& a_ini, const std::filesystem::path& a_dir, int a_stage,
 		std::uint32_t a_menuKey, std::uintptr_t a_base, std::size_t a_imageSize);

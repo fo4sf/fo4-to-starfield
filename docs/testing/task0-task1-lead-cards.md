@@ -133,8 +133,8 @@ step=dispatch n=<k> fn=FO4SF_CombatInput.OnAmmoKey ignored=menu_open menu=Consol
 
 ## Card C — `1g` Starfield Scanner & Map Menus Block (`TEST-STATION`)
 
-- **Purpose:** Verify that `GalaxyStarMapMenu`, `SurfaceMap`, and `MapMenu` each log `step=starmap_block_install menu=<name> found=<0|1>` at startup and are blocked via per-slot null-menu creation (`MapBlockStarMap=1` default, `kMaxMapMenus = 16`) without crashing when each map shortcut key is pressed, and that `FO4SF_NewGameQuest` logs its hand-scanner input-layer block.
-- **Same-Session Hide-Only Fallback (`MapBlockStarMap=0`):** If returning an empty `Ptr<IMenu>` from `route=create` ever misbehaves in game, edit `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini` (game closed), set `MapBlockStarMap=0`, and rerun in the same install: `SuppressVanillaMapMenus()` hides any opened map menu on the main thread via `kHide` without replacing its creator (`step=map_suppress n=<k> name=<menu> sent=hide`).
+- **Purpose:** Verify that `SuppressVanillaMapMenus()` hides `GalaxyStarMapMenu`, `SurfaceMap`, and `MapMenu` on the main thread via `kHide` (`MapBlockStarMap=0` hide-only default, `step=map_suppress n=<k> name=<menu> sent=hide`, proven outdoor `M`-key safe on `20 Nov`) without crashing when each map shortcut key is pressed, and that `FO4SF_NewGameQuest` logs its hand-scanner input-layer block.
+- **Opt-In Create-Time Block (`MapBlockStarMap=1`, Unproven In Game):** Setting `MapBlockStarMap=1` in `<starfield-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.ini` (game closed) installs per-slot `BlockedMapMenuCreateForSlot` (`step=starmap_block_install menu=<name> found=<0|1>`) and returns a `g_ctor`-initialized non-null minimal self-hiding `IMenu` (`CreateBlockedMapMenuInstance`, `step=starmap_blocked n=<k> blocked menu=<menu> route=create non_null=1`).
 - **Stage Placeholders:** `<player-bundle-dir>`, `<starfield-dir>`
 - **Disk Need:** `~4.2 GB` free under `<starfield-dir>/Data` (`0 B` extra when run in the same session as Card B).
 - **Plugin List (`Plugins.txt`, `--profile player`, `21` plugins):**
@@ -148,9 +148,9 @@ python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <player-bun
 ```
 
 ### In-Game Steps
-1. Outdoors in a new `--profile player` session (`MapBlockStarMap=1`), press the Star Map, Surface Map, and Planet Map keys once each, and press `F` (hand scanner).
-2. Confirm no Starfield map menu opens, no crash occurs, and zero `"FO4SF"` developer banner text (`1h`) appears on screen.
-3. *(Fallback only if `MapBlockStarMap=1` needs bypass)* Set `MapBlockStarMap=0` in `FO4SFPipboyMenu.ini`, relaunch, press the map keys once, and verify `step=map_suppress n=<k> name=<menu> sent=hide`.
+1. Outdoors in a new `--profile player` session (`MapBlockStarMap=0` default), press `M` (and Surface Map / Planet Map keys once each), and press `F` (hand scanner).
+2. Confirm our Commonwealth `MAP` page opens on `M`, any vanilla map menu is hidden via `step=map_suppress n=<k> name=<menu> sent=hide`, no crash occurs, and zero `"FO4SF"` developer banner text (`1h`) appears on screen.
+3. *(Opt-in only if testing create-time block)* Set `MapBlockStarMap=1` in `FO4SFPipboyMenu.ini`, relaunch, press the map keys once, and verify `step=starmap_blocked n=<k> blocked menu=<menu> route=create non_null=1`.
 
 ### Undo Command (Game Closed — Restore Sidecar Backups & Release Any `plugin_toggle.py` Hold)
 ```bash
@@ -159,17 +159,17 @@ python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
-### Required PASS Log Lines (`FO4SF_NewGame.0.log` & `FO4SFPipboyMenu.log`)
+### Required PASS Log Lines (`FO4SF_NewGame.0.log` & `FO4SFPipboyMenu.log`, Default `MapBlockStarMap=0`)
 ```log
 blocked input=handscanner
-step=starmap_block_install menu=<menu> found=1 slot=<slot> orig_rva=<rva>
-step=starmap_block_install menu=<menu> found=0
-step=starmap_blocked n=<k> blocked menu=<menu> route=create
+step=map_suppress n=<k> name=<menu> sent=hide
 ```
 
-### Fallback PASS Log Line (`MapBlockStarMap=0` Hide-Only Mode, `FO4SFPipboyMenu.log`)
+### Opt-In PASS Log Lines (`MapBlockStarMap=1` Create-Time Minimal-Menu Mode, `FO4SFPipboyMenu.log`)
 ```log
-step=map_suppress n=<k> name=<menu> sent=hide
+step=starmap_block_install menu=<menu> found=1 slot=<slot> orig_rva=<rva>
+step=starmap_block_install menu=<menu> found=0
+step=starmap_blocked n=<k> blocked menu=<menu> route=create non_null=1
 ```
 
 ---
