@@ -51,6 +51,7 @@ CARD_PATHS: Tuple[str, ...] = (
     "docs/testing/candidate-2d-card.md",
     "docs/testing/candidate-2e-card.md",
     "docs/testing/candidate-2f-card.md",
+    "docs/testing/playable-path-a3-a7-card.md",
     "docs/testing/fo4-beginning-pilot.md",
     "docs/testing/sanctuary-workbench-card.md",
     "docs/testing/lead-run-order.md",
@@ -102,6 +103,11 @@ CROSS_BRANCH_COC_TARGETS = frozenset({
     "FO4DLC_DLC03Acadia",
     "FO4DLC_DLC04BradbertonsOffice01",
     "FO4DLC_DLC06VaultWorkshop",
+    "FO4Port_ConcordMuseum01",
+    "FO4Port_RedRocket01",
+    "FO4Port_Vault114",
+    "FO4Port_DmndStandsKellogg01",
+    "FO4Port_FortHagen01",
 })
 
 CROSS_BRANCH_PASS_PREFIXES: Tuple[str, ...] = (
@@ -329,6 +335,11 @@ def collect_writer_symbols(repo_root: Path) -> Tuple[Set[str], Set[int], Dict[st
                 edids.add(mm.group(1))
     for py_script in sorted((repo_root / "scripts" / "ui").glob("*.py")):
         txt = py_script.read_text(encoding="utf-8", errors="replace")
+        for mm in re.finditer(r'"(FO4SF_[A-Za-z0-9_]+)"', txt):
+            edids.add(mm.group(1))
+    a7_script = repo_root / "scripts" / "terrain" / "a7_valentine_places.py"
+    if a7_script.is_file():
+        txt = a7_script.read_text(encoding="utf-8", errors="replace")
         for mm in re.finditer(r'"(FO4SF_[A-Za-z0-9_]+)"', txt):
             edids.add(mm.group(1))
 
@@ -1074,6 +1085,7 @@ class LeadCardsBeginningTests(unittest.TestCase):
                 "docs/testing/candidate-2d-card.md",
                 "docs/testing/candidate-2e-card.md",
                 "docs/testing/candidate-2f-card.md",
+                "docs/testing/playable-path-a3-a7-card.md",
                 "docs/testing/fo4-beginning-pilot.md",
                 "docs/testing/sanctuary-workbench-card.md",
                 "docs/testing/lead-run-order.md",
@@ -1261,6 +1273,66 @@ class LeadCardsBeginningTests(unittest.TestCase):
         ki_txt = (ROOT / "docs/known-issues.md").read_text(encoding="utf-8")
         for req in ("| `B1` |", "| `B2` |", "| `B3` |", "| `B4` |", "086edc15", "FO4SF_MapMarkersHop"):
             self.assertIn(req, ki_txt, f"known-issues.md missing {req!r}")
+
+    def test_r9_playable_path_a3_a7_card_structure_and_zero_mnv_guard(self) -> None:
+        a37 = (ROOT / "docs/testing/playable-path-a3-a7-card.md").read_text(encoding="utf-8")
+        headings = re.findall(r"(?m)^##\s+(Card\s+A\d+[^\r\n]*)$", a37)
+        self.assertEqual(len(headings), 4)
+        self.assertTrue(headings[0].startswith("Card A3"))
+        self.assertTrue(headings[1].startswith("Card A4"))
+        self.assertTrue(headings[2].startswith("Card A5"))
+        self.assertTrue(headings[3].startswith("Card A7"))
+        for req in (
+            "NEW GAME needed",
+            "OFFLINE ONLY — UNPROVEN IN GAME",
+            "02012540",
+            "02011918",
+            "02002338",
+            "09000817",
+            "09000A15",
+            "09000A20",
+            "09000A50",
+            "09000A80",
+            "09000AB0",
+            "bat a3sf",
+            "bat a3rr",
+            "bat a4s1",
+            "bat a4r1",
+            "bat a4q1",
+            "--a5-playable",
+            "FO4SFPipboyQuestObjectives.tsv",
+            "step=quest_catalog",
+            "step=map_quest_markers",
+            "step=arm_watchdog_open",
+            "bat a7p1",
+            "bat a7p2",
+            "bat a7fh",
+            "bat a7u1",
+            "bat a7c1",
+            "Throwaway_A7_Vault114",
+            "Throwaway_A7_Kellogg",
+            "mq104 complete stage=200 mq105_armed=1",
+            "mq105 complete stage=200 mq106_armed=1",
+        ):
+            self.assertIn(req, a37, f"playable-path-a3-a7-card.md missing {req!r}")
+
+        # Negative P3 control: injecting 'v' (`sqv 09000A20`) and stripped `set FO4SF_PipboyAcquired to 1` must fail.
+        bad_a37 = a37.replace("\nsqs 09000A20\n", "\nsqv 09000A20\n", 1).replace(
+            "\nbat a4s1\n", "\nset FO4SF_PipboyAcquired to 1\n", 1
+        )
+        errs = validate_lead_card_markdown(
+            "docs/testing/playable-path-a3-a7-card.md",
+            bad_a37,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
+        self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
 
     def test_h1_h5_run_sheet_bundle_verify_fixture_and_preflight_guard(self) -> None:
         port_p = str(self.bundle_fixtures["__port__"])
