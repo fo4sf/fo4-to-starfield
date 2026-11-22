@@ -114,7 +114,7 @@ class A7CSharpRecordTests(unittest.TestCase):
 
         id_decls = re.findall(r"\b(\w+Id)\s*=\s*0x([0-9A-Fa-f]+)", cs)
         ids_by_name = {name: int(val, 16) for name, val in id_decls if name != "MaxAllocatedId"}
-        self.assertEqual(len(ids_by_name), 28)
+        self.assertEqual(len(ids_by_name), 32)
         for name, val in ids_by_name.items():
             self.assertGreaterEqual(val, 0xA80, f"{name} (0x{val:X}) overlaps A1/A4 0x800..0xA7F")
             self.assertLessEqual(val, 0xAFF, f"{name} (0x{val:X}) exceeds A7/A5 0xAFF ceiling")

@@ -54,18 +54,46 @@ float MergeOffsetY = -2700.0
 
 float PlaceRadius = 300.0
 float ArrivalRadius = 110.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool isoldePlaced = False
 bool virgilPlaced = False
 bool noteGranted = False
+bool radsDeferredLogged = False
 bool talkOpen = False
 int talkSessionId = 0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
+float talkNearSec = 0.0
 ObjectReference labTerminalProxyRef = None
+ObjectReference isoldeTalkProxy = None
+ObjectReference virgilTalkProxy = None
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, CoreValuesPlugin) as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function CheckPredecessorGate()
+{R5: MQ204 starts strictly behind MQ203 completion (stage >= 300 or FO4SF_MQ204Armed >= 1) unless TestMode is on.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    GlobalVariable armed = Game.GetFormFromFile(0x000AF5, MissionPlugin) as GlobalVariable
+    if armed != None && armed.GetValue() >= 1.0
+        return True
+    endif
+    Quest mq203 = Game.GetFormFromFile(0x000AF0, MissionPlugin) as Quest
+    if mq203 != None && (mq203.IsCompleted() || mq203.GetStage() >= 300)
+        return True
+    endif
+    return False
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, CoreValuesPlugin) as GlobalVariable
@@ -188,18 +216,23 @@ bool Function IsInGlowingSeaZone(Actor player)
     return player.GetPositionX() <= GlowingSeaMaxX && player.GetPositionY() <= GlowingSeaMaxY
 EndFunction
 
-Function ApplyTrack1GlowingSeaRads(Actor player)
+Function ApplyGlowingSeaRadsIfEnabled(Actor player)
+{R7 / 15 Nov owner environment-damage rule (S13 row 2b): Fallout radiation comes strictly from our S9 FO4SFRads.esm
+ system, never ad-hoc ambient damage in the 13-plugin player opening bundle. Gated OFF unless FO4SFRads.esm is loaded.}
     if player == None
         return
     endif
-    bool inZone = IsInGlowingSeaZone(player)
-    if Game.IsPluginInstalled(RadsPlugin)
-        ; Track 2: defer ambient Glowing Sea rads to FO4SFRads.esm so rads never double-stack
+    if !Game.IsPluginInstalled(RadsPlugin)
         if GlowingSeaRadsActive != None
             GlowingSeaRadsActive.SetValue(0.0)
         endif
+        if !radsDeferredLogged && IsInGlowingSeaZone(player)
+            radsDeferredLogged = True
+            Trace("mq204 rads_gated active=false reason=s9_fo4sfrads_absent")
+        endif
         return
     endif
+    bool inZone = IsInGlowingSeaZone(player)
     if !inZone
         if GlowingSeaRadsActive != None
             GlowingSeaRadsActive.SetValue(0.0)
@@ -308,9 +341,17 @@ Function ApplyStage(int n, string by)
         CancelTimer(1)
         Quest mq206 = Game.GetFormFromFile(0x000B30, MissionPlugin) as Quest
         bool started206 = False
-        if mq206 != None && !mq206.IsRunning() && !mq206.IsCompleted()
-            mq206.StartNoWait()
-            started206 = True
+        if mq206 != None && !mq206.IsCompleted()
+            if mq206.IsRunning()
+                FO4SF_MQ206Quest nextMq206 = mq206 as FO4SF_MQ206Quest
+                if nextMq206 != None
+                    nextMq206.WakeFromPredecessor()
+                endif
+                started206 = True
+            else
+                mq206.StartNoWait()
+                started206 = True
+            endif
         endif
         Trace("mq204 complete stage=200 mq206_armed=1 mq206_started=" + started206 + " rads_plugin=" + Game.IsPluginInstalled(RadsPlugin) + " by=" + by)
     endif
@@ -335,6 +376,17 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !CheckPredecessorGate()
+        Trace("mq204 gate_deferred reason=mq203_incomplete")
+        gateDeferred = True
+        instanceStarted = False
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
+        return
+    endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -354,12 +406,28 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq204 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
     talkSessionId += 1
     isoldePlaced = False
     virgilPlaced = False
+    talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq204 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -408,7 +476,7 @@ Function ReleaseIfInCombat(Actor a)
 EndFunction
 
 Function PlaceIsolde(Actor player)
-    if !IsCommonwealthExterior(player) || isoldePlaced
+    if !IsCommonwealthExterior(player) || isoldePlaced || EffectiveStage() < 15
         return
     endif
     Actor iso = ResolveIsolde()
@@ -416,6 +484,10 @@ Function PlaceIsolde(Actor player)
     float snapY = player.GetPositionY()
     float snapZ = player.GetPositionZ()
     if iso != None && !iso.IsDead()
+        if iso.IsDisabled()
+            iso.EnableNoWait(False)
+            BindRefs()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -425,6 +497,16 @@ Function PlaceIsolde(Actor player)
             iso.SetRestrained(True)
         endif
         iso.AllowPCDialogue(True)
+        if isoldeTalkProxy == None || isoldeTalkProxy.IsDeleted()
+            Activator iActi = Game.GetFormFromFile(0x000B19, MissionPlugin) as Activator
+            if iActi != None
+                isoldeTalkProxy = iso.PlaceAtMe(iActi, 1, True, False, False)
+                if isoldeTalkProxy != None
+                    isoldeTalkProxy.MoveTo(iso, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(isoldeTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
     if !IsPlayerStableAt(player, snapX, snapY, snapZ)
         return
@@ -434,7 +516,7 @@ Function PlaceIsolde(Actor player)
 EndFunction
 
 Function PlaceVirgil(Actor player)
-    if !IsCommonwealthExterior(player) || virgilPlaced
+    if !IsCommonwealthExterior(player) || virgilPlaced || EffectiveStage() < 20
         return
     endif
     Actor vg = ResolveVirgil()
@@ -442,6 +524,10 @@ Function PlaceVirgil(Actor player)
     float snapY = player.GetPositionY()
     float snapZ = player.GetPositionZ()
     if vg != None && !vg.IsDead()
+        if vg.IsDisabled()
+            vg.EnableNoWait(False)
+            BindRefs()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -452,6 +538,16 @@ Function PlaceVirgil(Actor player)
         endif
         vg.AllowPCDialogue(True)
         vg.IgnoreFriendlyHits(True)
+        if virgilTalkProxy == None || virgilTalkProxy.IsDeleted()
+            Activator vActi = Game.GetFormFromFile(0x000B1A, MissionPlugin) as Activator
+            if vActi != None
+                virgilTalkProxy = vg.PlaceAtMe(vActi, 1, True, False, False)
+                if virgilTalkProxy != None
+                    virgilTalkProxy.MoveTo(vg, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(virgilTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
     if !IsPlayerStableAt(player, snapX, snapY, snapZ)
         return
@@ -507,7 +603,7 @@ Event OnTimer(int aiTimerID)
 
     ReleaseIfInCombat(ResolveIsolde())
     KeepVirgilPeaceful(player)
-    ApplyTrack1GlowingSeaRads(player)
+    ApplyGlowingSeaRadsIfEnabled(player)
 
     if IsNearXY(player, CraterX, CraterY, PlaceRadius) && !isoldePlaced
         PlaceIsolde(player)
@@ -531,11 +627,44 @@ Event OnTimer(int aiTimerID)
         AdvanceTo(20, "out_of_order")
         st = EffectiveStage()
     endif
+    CheckTalkFallback(player, st)
 
     if !completed
         StartTimer(1.0, 1)
     endif
 EndEvent
+
+Function CheckTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Mother Isolde or Virgil is alive so topicless OnActivate never stalls.}
+    if talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    if st < 20
+        Actor iso = ResolveIsolde()
+        if iso != None && !iso.IsDead() && !iso.IsDisabled() && iso.Is3DLoaded() && player.GetDistance(iso) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq204 talk_fallback actor=isolde stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                RunIsoldeTalk()
+            endif
+            return
+        endif
+    elseif st < 200
+        Actor vg = ResolveVirgil()
+        if vg != None && !vg.IsDead() && !vg.IsDisabled() && vg.Is3DLoaded() && player.GetDistance(vg) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq204 talk_fallback actor=virgil stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                RunVirgilTalk()
+            endif
+            return
+        endif
+    endif
+    talkNearSec = 0.0
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if completed || akActionRef != Game.GetPlayer()
@@ -544,11 +673,11 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     int st = EffectiveStage()
     Actor iso = ResolveIsolde()
     Actor vg = ResolveVirgil()
-    if akSender == iso && st < 20
+    if ((iso != None && akSender == iso) || (isoldeTalkProxy != None && akSender == isoldeTalkProxy)) && st < 20
         RunIsoldeTalk()
         return
     endif
-    if akSender == vg && st < 200
+    if ((vg != None && akSender == vg) || (virgilTalkProxy != None && akSender == virgilTalkProxy)) && st < 200
         RunVirgilTalk()
         return
     endif

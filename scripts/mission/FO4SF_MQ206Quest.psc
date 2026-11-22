@@ -88,8 +88,11 @@ float MergeOffsetY = -2700.0
 
 float PlaceRadius = 260.0
 float EngageRadius = 45.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool courserPlaced = False
 bool railroadPlaced = False
@@ -102,9 +105,34 @@ int talkSessionId = 0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
+float talkNearSec = 0.0
 ObjectReference scannerProxyRef = None
 ObjectReference consoleProxyRef = None
 ObjectReference sanctuaryBenchRef = None
+ObjectReference tomTalkProxy = None
+ObjectReference desTalkProxy = None
+ObjectReference ingramTalkProxy = None
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function CheckPredecessorGate()
+{R5: MQ206 starts strictly behind MQ204 completion (stage >= 200 or FO4SF_MQ206Armed >= 1) unless TestMode is on.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    GlobalVariable armed = Game.GetFormFromFile(0x000B18, MissionPlugin) as GlobalVariable
+    if armed != None && armed.GetValue() >= 1.0
+        return True
+    endif
+    Quest mq204 = Game.GetFormFromFile(0x000B10, MissionPlugin) as Quest
+    if mq204 != None && (mq204.IsCompleted() || mq204.GetStage() >= 200)
+        return True
+    endif
+    return False
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -369,6 +397,17 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !CheckPredecessorGate()
+        Trace("mq206 gate_deferred reason=mq204_incomplete")
+        gateDeferred = True
+        instanceStarted = False
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
+        return
+    endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -387,6 +426,17 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq206 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
@@ -394,6 +444,11 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     courserPlaced = False
     railroadPlaced = False
     airportPlaced = False
+    talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq206 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -487,13 +542,18 @@ Function ReleaseIfInCombat(Actor a)
 EndFunction
 
 Function PlaceCourser(Actor player)
-    if !IsCommonwealthExterior(player) || courserPlaced
+    if !IsCommonwealthExterior(player) || courserPlaced || EffectiveStage() < 10
         return
     endif
     Actor crs = ResolveCourser()
     if crs == None || crs.IsDead()
         courserPlaced = True
         return
+    endif
+    if crs.IsDisabled()
+        crs.EnableNoWait(False)
+        BindRefs()
+        Trace("mq206 courser enabled stage=" + EffectiveStage())
     endif
     float snapX = player.GetPositionX()
     float snapY = player.GetPositionY()
@@ -511,7 +571,7 @@ Function PlaceCourser(Actor player)
 EndFunction
 
 Function PlaceRailroadActors(Actor player)
-    if !IsCommonwealthExterior(player) || railroadPlaced
+    if !IsCommonwealthExterior(player) || railroadPlaced || EffectiveStage() < 20
         return
     endif
     float snapX = player.GetPositionX()
@@ -519,6 +579,10 @@ Function PlaceRailroadActors(Actor player)
     float snapZ = player.GetPositionZ()
     Actor des = ResolveDesdemona()
     if des != None && !des.IsDead()
+        if des.IsDisabled()
+            des.EnableNoWait(False)
+            BindRefs()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -528,9 +592,23 @@ Function PlaceRailroadActors(Actor player)
             des.SetRestrained(True)
         endif
         des.AllowPCDialogue(True)
+        if desTalkProxy == None || desTalkProxy.IsDeleted()
+            Activator dActi = Game.GetFormFromFile(0x000B3E, MissionPlugin) as Activator
+            if dActi != None
+                desTalkProxy = des.PlaceAtMe(dActi, 1, True, False, False)
+                if desTalkProxy != None
+                    desTalkProxy.MoveTo(des, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(desTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
     Actor tom = ResolveTinkerTom()
     if tom != None && !tom.IsDead()
+        if tom.IsDisabled()
+            tom.EnableNoWait(False)
+            BindRefs()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -540,6 +618,16 @@ Function PlaceRailroadActors(Actor player)
             tom.SetRestrained(True)
         endif
         tom.AllowPCDialogue(True)
+        if tomTalkProxy == None || tomTalkProxy.IsDeleted()
+            Activator tActi = Game.GetFormFromFile(0x000B3F, MissionPlugin) as Activator
+            if tActi != None
+                tomTalkProxy = tom.PlaceAtMe(tActi, 1, True, False, False)
+                if tomTalkProxy != None
+                    tomTalkProxy.MoveTo(tom, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(tomTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
     if !IsPlayerStableAt(player, snapX, snapY, snapZ)
         return
@@ -549,7 +637,7 @@ Function PlaceRailroadActors(Actor player)
 EndFunction
 
 Function PlaceAirportActors(Actor player)
-    if !IsCommonwealthExterior(player) || airportPlaced
+    if !IsCommonwealthExterior(player) || airportPlaced || EffectiveStage() < 200
         return
     endif
     float snapX = player.GetPositionX()
@@ -557,6 +645,10 @@ Function PlaceAirportActors(Actor player)
     float snapZ = player.GetPositionZ()
     Actor ing = ResolveIngram()
     if ing != None && !ing.IsDead()
+        if ing.IsDisabled()
+            ing.EnableNoWait(False)
+            BindRefs()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -566,6 +658,16 @@ Function PlaceAirportActors(Actor player)
             ing.SetRestrained(True)
         endif
         ing.AllowPCDialogue(True)
+        if ingramTalkProxy == None || ingramTalkProxy.IsDeleted()
+            Activator iActi = Game.GetFormFromFile(0x000B48, MissionPlugin) as Activator
+            if iActi != None
+                ingramTalkProxy = ing.PlaceAtMe(iActi, 1, True, False, False)
+                if ingramTalkProxy != None
+                    ingramTalkProxy.MoveTo(ing, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(ingramTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
     if !IsPlayerStableAt(player, snapX, snapY, snapZ)
         return
@@ -622,20 +724,21 @@ Function EnsureConsoleProxy(Actor player)
 EndFunction
 
 Function FireRelayToInstitute(Actor player, string why)
+{R8 truth: NEVER complete MQ206 when FO4Port.esm or persistent marker 0x03D52E is absent and nobody moved!}
     if player == None
         return
     endif
-    AdvanceTo(1000, why)
     if Game.IsPluginInstalled(PortPlugin)
         ObjectReference concourseMarker = Game.GetFormFromFile(InstituteConcourseMarkerId, PortPlugin) as ObjectReference
         if concourseMarker != None
+            AdvanceTo(1000, why)
             player.MoveTo(concourseMarker)
             Trace("mq206 relay_move dest=0x03D52E ok=true")
-        else
-            Trace("mq206 relay_move cell=0x03D252 marker=fallback")
+            AdvanceTo(1200, why)
+            return
         endif
     endif
-    AdvanceTo(1200, why)
+    Trace("mq206 relay_blocked reason=missing_port_cell cell=0x03D252 marker=0x03D52E")
 EndFunction
 
 Event Actor.OnDeath(Actor akSender, ObjectReference akKiller)
@@ -693,7 +796,16 @@ Event OnTimer(int aiTimerID)
     if IsInCellId(player, RailroadHQCellId) || IsNearXY(player, RailroadX, RailroadY, PlaceRadius)
         EnsureScannerProxy(player)
     endif
+    if st >= 100 && vg != None && !vg.IsDead() && vg.IsDisabled()
+        vg.EnableNoWait(False)
+        BindTalkable(vg)
+    endif
     if st >= 200
+        Actor stgEn = ResolveSturges()
+        if stgEn != None && !stgEn.IsDead() && stgEn.IsDisabled()
+            stgEn.EnableNoWait(False)
+            BindTalkable(stgEn)
+        endif
         EnsureConsoleProxy(player)
         if IsNearXY(player, SanctuaryX, SanctuaryY, PlaceRadius) && (sanctuaryBenchRef == None || sanctuaryBenchRef.IsDeleted())
             TryBindSanctuaryBench(player)
@@ -730,11 +842,60 @@ Event OnTimer(int aiTimerID)
         AdvanceTo(1200, "institute_arrival")
         return
     endif
+    CheckTalkFallback(player, st)
 
     if !completed
         StartTimer(1.0, 1)
     endif
 EndEvent
+
+Function CheckTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Tinker Tom, Virgil, Desdemona, Ingram, or Sturges is alive so topicless OnActivate never stalls.}
+    if talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    if st == 20 || st == 65
+        Actor tom = ResolveTinkerTom()
+        if tom != None && !tom.IsDead() && !tom.IsDisabled() && tom.Is3DLoaded() && player.GetDistance(tom) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq206 talk_fallback actor=tinker_tom stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                RunTinkerDecode()
+            endif
+            return
+        endif
+    elseif st == 100
+        Actor vg = ResolveVirgil()
+        if vg != None && !vg.IsDead() && !vg.IsDisabled() && vg.Is3DLoaded() && player.GetDistance(vg) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq206 talk_fallback actor=virgil stage=100 near_sec=" + TalkFallbackSeconds)
+                RunVirgilPlans()
+            endif
+            return
+        endif
+    elseif st == 200
+        Actor des = ResolveDesdemona()
+        Actor ing = ResolveIngram()
+        Actor stg = ResolveSturges()
+        bool nearAlly = (des != None && !des.IsDead() && !des.IsDisabled() && des.Is3DLoaded() && player.GetDistance(des) <= TalkFallbackRadius) || \
+                        (ing != None && !ing.IsDead() && !ing.IsDisabled() && ing.Is3DLoaded() && player.GetDistance(ing) <= TalkFallbackRadius) || \
+                        (stg != None && !stg.IsDead() && !stg.IsDisabled() && stg.Is3DLoaded() && player.GetDistance(stg) <= TalkFallbackRadius)
+        if nearAlly
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq206 talk_fallback actor=faction_ally stage=200 near_sec=" + TalkFallbackSeconds)
+                RunFactionPick()
+            endif
+            return
+        endif
+    endif
+    talkNearSec = 0.0
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if completed || akActionRef != Game.GetPlayer()
@@ -747,7 +908,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     Actor stg = ResolveSturges()
     Actor vg = ResolveVirgil()
 
-    if akSender == tom
+    if (tom != None && akSender == tom) || (tomTalkProxy != None && akSender == tomTalkProxy)
         if st == 20 || st == 65
             RunTinkerDecode()
         elseif st >= 200 && st < 1000
@@ -765,7 +926,9 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         RunVirgilPlans()
         return
     endif
-    if (akSender == des || akSender == ing || akSender == stg) && st >= 200 && st < 1000
+    if ((des != None && akSender == des) || (desTalkProxy != None && akSender == desTalkProxy) || \
+        (ing != None && akSender == ing) || (ingramTalkProxy != None && akSender == ingramTalkProxy) || \
+        (stg != None && akSender == stg)) && st >= 200 && st < 1000
         RunFactionPick()
         return
     endif
@@ -939,15 +1102,19 @@ Function RunWorkbenchAssembly()
             keepOpen = False
         elseif btn == 0 && BuiltPlatform != None
             BuiltPlatform.SetValue(1.0)
+            Trace("mq206 stand_in_build part=platform kind=messagebox_counter")
             Trace("mq206 built part=platform")
         elseif btn == 1 && BuiltBeam != None
             BuiltBeam.SetValue(1.0)
+            Trace("mq206 stand_in_build part=beam kind=messagebox_counter")
             Trace("mq206 built part=beam")
         elseif btn == 2 && BuiltDish != None
             BuiltDish.SetValue(1.0)
+            Trace("mq206 stand_in_build part=dish kind=messagebox_counter")
             Trace("mq206 built part=dish")
         elseif btn == 3 && BuiltConsole != None
             BuiltConsole.SetValue(1.0)
+            Trace("mq206 stand_in_build part=console kind=messagebox_counter")
             Trace("mq206 built part=console")
         elseif btn == 4
             if AllFourPartsBuilt()

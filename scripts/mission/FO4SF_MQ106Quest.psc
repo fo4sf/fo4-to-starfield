@@ -60,8 +60,11 @@ float MergeOffsetY = -2700.0
 float PlaceRadius = 260.0
 float ArrivalRadius = 150.0
 float EngageRadius = 45.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool actorsPlaced = False
 bool talkOpen = False
@@ -69,11 +72,34 @@ int talkSessionId = 0
 bool brainGranted = False
 bool passwordGranted = False
 bool prydwenLogged = False
+float talkNearSec = 0.0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference terminalProxyRef = None
 ObjectReference roofDoorRef = None
+ObjectReference nickTalkProxy = None
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function CheckPredecessorGate()
+{R5: MQ106 starts strictly behind MQ105 completion (stage >= 200 or FO4SF_MQ106Armed >= 1) so Fort Hagen never starts MQ105 and MQ106 together while MQ105 is still at stage 100.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    GlobalVariable armed = Game.GetFormFromFile(0x000AB8, MissionPlugin) as GlobalVariable
+    if armed != None && armed.GetValue() >= 1.0
+        return True
+    endif
+    Quest mq105 = Game.GetFormFromFile(0x000AB0, MissionPlugin) as Quest
+    if mq105 != None && (mq105.IsCompleted() || mq105.GetStage() >= 200)
+        return True
+    endif
+    return False
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -226,6 +252,7 @@ Function MarkPrydwenArrived(string why)
     if !prydwenLogged
         prydwenLogged = True
         Trace("mq106 prydwen_arrived=1 by=" + why)
+        Trace("mq106 prydwen_stand_in=true kind=global_only")
     endif
 EndFunction
 
@@ -301,9 +328,17 @@ Function ApplyStage(int n, string by)
         CancelTimer(1)
         Quest mq203 = Game.GetFormFromFile(0x000AF0, MissionPlugin) as Quest
         bool started203 = False
-        if mq203 != None && !mq203.IsRunning() && !mq203.IsCompleted()
-            mq203.StartNoWait()
-            started203 = True
+        if mq203 != None && !mq203.IsCompleted()
+            if mq203.IsRunning()
+                FO4SF_MQ203Quest nextMq203 = mq203 as FO4SF_MQ203Quest
+                if nextMq203 != None
+                    nextMq203.WakeFromPredecessor()
+                endif
+                started203 = True
+            else
+                mq203.StartNoWait()
+                started203 = True
+            endif
         endif
         Trace("mq106 complete stage=500 mq203_armed=1 mq203_started=" + started203 + " prydwen=1 by=" + by)
     endif
@@ -328,6 +363,17 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !CheckPredecessorGate()
+        Trace("mq106 gate_deferred reason=mq105_incomplete")
+        gateDeferred = True
+        instanceStarted = False
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
+        return
+    endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -350,11 +396,27 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq106 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
+    talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq106 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -440,13 +502,18 @@ Function EnsureTerminalProxy(Actor player)
 EndFunction
 
 Function PlaceKelloggNearFortHagen(Actor player)
-    if !IsCommonwealthExterior(player) || actorsPlaced
+    if !IsCommonwealthExterior(player) || actorsPlaced || EffectiveStage() < 50
         return
     endif
     Actor kel = ResolveKellogg()
     if kel == None || kel.IsDead()
         actorsPlaced = True
         return
+    endif
+    if kel.IsDisabled()
+        kel.EnableNoWait(False)
+        BindRefs()
+        Trace("mq106 kellogg enabled stage=" + EffectiveStage())
     endif
     float snapX = player.GetPositionX()
     float snapY = player.GetPositionY()
@@ -461,6 +528,43 @@ Function PlaceKelloggNearFortHagen(Actor player)
     endif
     actorsPlaced = True
     Trace("mq106 kellogg placed forthagen=true")
+EndFunction
+
+Function CheckNickDebriefFallback(Actor player, int st)
+{R3/R4: Enable Nick at stage 200, spawn 360-degree talk proxy, and run timed proximity fallback while alive.}
+    if st != 200 || talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    Actor nick = ResolveNick()
+    if nick == None || nick.IsDead()
+        talkNearSec = 0.0
+        return
+    endif
+    if nick.IsDisabled()
+        nick.EnableNoWait(False)
+        BindRefs()
+    endif
+    if (nickTalkProxy == None || nickTalkProxy.IsDeleted()) && nick.Is3DLoaded()
+        Activator talkActi = Game.GetFormFromFile(0x000A8A, MissionPlugin) as Activator
+        if talkActi != None
+            nickTalkProxy = nick.PlaceAtMe(talkActi, 1, True, False, False)
+            if nickTalkProxy != None
+                nickTalkProxy.MoveTo(nick, 0.0, 0.0, 1.0, False, False)
+                RegisterForRemoteEvent(nickTalkProxy, "OnActivate")
+            endif
+        endif
+    endif
+    if nick.Is3DLoaded() && player.GetDistance(nick) <= TalkFallbackRadius
+        talkNearSec += 1.0
+        if talkNearSec >= TalkFallbackSeconds
+            talkNearSec = 0.0
+            Trace("mq106 talk_fallback actor=nick stage=200 near_sec=" + TalkFallbackSeconds)
+            RunDebriefTalk()
+        endif
+    else
+        talkNearSec = 0.0
+    endif
 EndFunction
 
 Event Actor.OnDeath(Actor akSender, ObjectReference akKiller)
@@ -553,6 +657,7 @@ Event OnTimer(int aiTimerID)
 
     ; REUN-05: Open-Mode completion when Nick is dead/unavailable at Diamond City OR direct arrival at Memory Den
     if st == 200
+        CheckNickDebriefFallback(player, st)
         if IsInCellId(player, MemoryDenCellId) || IsNearXY(player, GoodneighborX, GoodneighborY, 80.0)
             AdvanceTo(500, "open_mode")
             return
@@ -581,7 +686,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     Actor nick = ResolveNick()
-    if akSender == nick && st == 200
+    if ((nick != None && akSender == nick) || (nickTalkProxy != None && akSender == nickTalkProxy)) && st == 200
         RunDebriefTalk()
     endif
 EndEvent

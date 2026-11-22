@@ -56,17 +56,46 @@ float MergeOffsetY = -2700.0
 
 float PlaceRadius = 300.0
 float FortHagenArrivalRadius = 150.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool actorsPlaced = False
+bool dogmeatEnabled = False
 bool talkOpen = False
 int talkSessionId = 0
 bool cigarGranted = False
+float talkNearSec = 0.0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference fortHagenDoorRef = None
+ObjectReference nickTalkProxy = None
+ObjectReference genevaTalkProxy = None
+ObjectReference dogmeatTalkProxy = None
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function CheckPredecessorGate()
+{R5: MQ105 starts only after MQ104 completes (or FO4SF_MQ105Armed >= 1) or TestMode.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    GlobalVariable armed = Game.GetFormFromFile(0x000A89, MissionPlugin) as GlobalVariable
+    if armed != None && armed.GetValue() >= 1.0
+        return True
+    endif
+    Quest mq104 = Game.GetFormFromFile(0x000A80, MissionPlugin) as Quest
+    if mq104 != None && (mq104.IsCompleted() || mq104.GetStage() >= 200)
+        return True
+    endif
+    return False
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -296,9 +325,17 @@ Function ApplyStage(int n, string by)
         CancelTimer(1)
         Quest mq106 = Game.GetFormFromFile(0x000AD0, MissionPlugin) as Quest
         bool started106 = False
-        if mq106 != None && !mq106.IsRunning() && !mq106.IsCompleted()
-            mq106.StartNoWait()
-            started106 = True
+        if mq106 != None && !mq106.IsCompleted()
+            if mq106.IsRunning()
+                FO4SF_MQ106Quest nextMq106 = mq106 as FO4SF_MQ106Quest
+                if nextMq106 != None
+                    nextMq106.WakeFromPredecessor()
+                endif
+                started106 = True
+            else
+                mq106.StartNoWait()
+                started106 = True
+            endif
         endif
         Trace("mq105 complete stage=200 mq106_armed=1 forthagen_plugin=" + fhInstalled + " by=" + by)
         Trace("mq106 start_requested ok=" + started106)
@@ -324,6 +361,17 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !CheckPredecessorGate()
+        Trace("mq105 gate_deferred reason=mq104_incomplete")
+        gateDeferred = True
+        instanceStarted = False
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
+        return
+    endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -344,11 +392,27 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq105 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
+    talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq105 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -415,14 +479,36 @@ Function PlaceHubActors(Actor player)
     if !IsCommonwealthExterior(player)
         return
     endif
+    int st = EffectiveStage()
     float snapX = player.GetPositionX()
     float snapY = player.GetPositionY()
     float snapZ = player.GetPositionZ()
     float gx = DiamondCityLocalX + MergeOffsetX
     float gy = DiamondCityLocalY + MergeOffsetY
     float gz = DiamondCityLocalZ
+    Actor nick = ResolveNick()
+    if nick != None && !nick.IsDead()
+        if nick.IsDisabled()
+            nick.EnableNoWait(False)
+            BindRefs()
+        endif
+        if nickTalkProxy == None || nickTalkProxy.IsDeleted()
+            Activator nActi = Game.GetFormFromFile(0x000A8A, MissionPlugin) as Activator
+            if nActi != None
+                nickTalkProxy = nick.PlaceAtMe(nActi, 1, True, False, False)
+                if nickTalkProxy != None
+                    nickTalkProxy.MoveTo(nick, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(nickTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
+    endif
     Actor gen = ResolveGeneva()
     if gen != None && !gen.IsDead()
+        if gen.IsDisabled()
+            gen.EnableNoWait(False)
+            BindRefs()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -432,18 +518,45 @@ Function PlaceHubActors(Actor player)
             gen.SetRestrained(True)
         endif
         gen.AllowPCDialogue(True)
+        if genevaTalkProxy == None || genevaTalkProxy.IsDeleted()
+            Activator gActi = Game.GetFormFromFile(0x000AB9, MissionPlugin) as Activator
+            if gActi != None
+                genevaTalkProxy = gen.PlaceAtMe(gActi, 1, True, False, False)
+                if genevaTalkProxy != None
+                    genevaTalkProxy.MoveTo(gen, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(genevaTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
-    Actor dog = ResolveDogmeat()
-    if dog != None && !dog.IsDead()
-        if !IsPlayerStableAt(player, snapX, snapY, snapZ)
-            return
+    if st >= 80
+        Actor dog = ResolveDogmeat()
+        if dog != None && !dog.IsDead()
+            if dog.IsDisabled()
+                dog.EnableNoWait(False)
+                BindRefs()
+            endif
+            if !IsPlayerStableAt(player, snapX, snapY, snapZ)
+                return
+            endif
+            dog.SetRestrained(False)
+            dog.MoveTo(player, (gx - 5.5) - snapX, (gy - 5.5) - snapY, gz - snapZ, False, False)
+            if dog.GetCombatState() == 0
+                dog.SetRestrained(True)
+            endif
+            dog.AllowPCDialogue(True)
+            if dogmeatTalkProxy == None || dogmeatTalkProxy.IsDeleted()
+                Activator dActi = Game.GetFormFromFile(0x000ABA, MissionPlugin) as Activator
+                if dActi != None
+                    dogmeatTalkProxy = dog.PlaceAtMe(dActi, 1, True, False, False)
+                    if dogmeatTalkProxy != None
+                        dogmeatTalkProxy.MoveTo(dog, 0.0, 0.0, 1.0, False, False)
+                        RegisterForRemoteEvent(dogmeatTalkProxy, "OnActivate")
+                    endif
+                endif
+            endif
         endif
-        dog.SetRestrained(False)
-        dog.MoveTo(player, (gx - 5.5) - snapX, (gy - 5.5) - snapY, gz - snapZ, False, False)
-        if dog.GetCombatState() == 0
-            dog.SetRestrained(True)
-        endif
-        dog.AllowPCDialogue(True)
+        dogmeatEnabled = True
     endif
     if !IsPlayerStableAt(player, snapX, snapY, snapZ)
         return
@@ -476,7 +589,7 @@ Event OnTimer(int aiTimerID)
             float gy = DiamondCityLocalY + MergeOffsetY
             float dx = player.GetPositionX() - gx
             float dy = player.GetPositionY() - gy
-            if dx * dx + dy * dy <= PlaceRadius * PlaceRadius && !actorsPlaced
+            if dx * dx + dy * dy <= PlaceRadius * PlaceRadius && (!actorsPlaced || (st >= 80 && !dogmeatEnabled))
                 PlaceHubActors(player)
             endif
         endif
@@ -522,6 +635,7 @@ Event OnTimer(int aiTimerID)
             AdvanceTo(200, "fort_hagen_arrival")
             return
         endif
+        CheckTalkFallback(player, st)
     endif
     if fortHagenDoorRef == None
         BindRefs()
@@ -530,6 +644,115 @@ Event OnTimer(int aiTimerID)
         StartTimer(1.0, 1)
     endif
 EndEvent
+
+Function RunNickTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int myTalkSession = talkSessionId
+    if st == 10
+        int nbtn = 0
+        if AgencyBriefMsg != None
+            nbtn = AgencyBriefMsg.Show()
+            Trace("mq105 agency brief choice button=" + nbtn)
+        endif
+        if talkSessionId == myTalkSession && nbtn >= 0 && nbtn != 3
+            AdvanceTo(30, "nick_brief")
+        endif
+    elseif st == 60
+        int sbtn = 0
+        if SecretRoomMsg != None
+            sbtn = SecretRoomMsg.Show()
+        endif
+        if talkSessionId == myTalkSession && sbtn >= 0 && sbtn != 1
+            AdvanceTo(80, "secret_button")
+        endif
+    endif
+    talkOpen = False
+EndFunction
+
+Function RunGenevaTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int myTalkSession = talkSessionId
+    if st < 60
+        int gbtn = 0
+        if GenevaKeyMsg != None
+            gbtn = GenevaKeyMsg.Show()
+            Trace("mq105 geneva key choice button=" + gbtn)
+        endif
+        if talkSessionId == myTalkSession && gbtn >= 0 && gbtn != 3
+            AdvanceTo(60, "geneva_key")
+        endif
+    endif
+    talkOpen = False
+EndFunction
+
+Function RunDogmeatTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int myTalkSession = talkSessionId
+    int dbtn = 0
+    if TrailHandoffMsg != None
+        dbtn = TrailHandoffMsg.Show()
+        Trace("mq105 trail handoff choice button=" + dbtn)
+    endif
+    if talkSessionId == myTalkSession && dbtn >= 0
+        if st < 80
+            AdvanceTo(80, "out_of_order")
+        endif
+        AdvanceTo(100, "dogmeat_trail")
+    endif
+    talkOpen = False
+EndFunction
+
+Function CheckTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Nick, Geneva, or Dogmeat is alive so topicless OnActivate never stalls.}
+    if talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    if st == 10 || st == 60
+        Actor nick = ResolveNick()
+        if nick != None && !nick.IsDead() && !nick.IsDisabled() && nick.Is3DLoaded() && player.GetDistance(nick) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq105 talk_fallback actor=nick stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                RunNickTalk(st)
+            endif
+            return
+        endif
+    elseif st == 30
+        Actor gen = ResolveGeneva()
+        if gen != None && !gen.IsDead() && !gen.IsDisabled() && gen.Is3DLoaded() && player.GetDistance(gen) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq105 talk_fallback actor=geneva stage=30 near_sec=" + TalkFallbackSeconds)
+                RunGenevaTalk(st)
+            endif
+            return
+        endif
+    elseif st == 80
+        Actor dog = ResolveDogmeat()
+        if dog != None && !dog.IsDead() && !dog.IsDisabled() && dog.Is3DLoaded() && player.GetDistance(dog) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq105 talk_fallback actor=dogmeat stage=80 near_sec=" + TalkFallbackSeconds)
+                RunDogmeatTalk(st)
+            endif
+            return
+        endif
+    endif
+    talkNearSec = 0.0
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if completed || akActionRef != Game.GetPlayer() || talkOpen
@@ -540,57 +763,12 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     Actor gen = ResolveGeneva()
     Actor dog = ResolveDogmeat()
 
-    if nick != None && akSender == nick
-        talkOpen = True
-        int myTalkSession = talkSessionId
-        if st == 10
-            int nbtn = 0
-            if AgencyBriefMsg != None
-                nbtn = AgencyBriefMsg.Show()
-                Trace("mq105 agency brief choice button=" + nbtn)
-            endif
-            if talkSessionId == myTalkSession && nbtn >= 0 && nbtn != 3
-                AdvanceTo(30, "nick_brief")
-            endif
-        elseif st == 60
-            int sbtn = 0
-            if SecretRoomMsg != None
-                sbtn = SecretRoomMsg.Show()
-            endif
-            if talkSessionId == myTalkSession && sbtn >= 0 && sbtn != 1
-                AdvanceTo(80, "secret_button")
-            endif
-        endif
-        talkOpen = False
-    elseif gen != None && akSender == gen
-        talkOpen = True
-        int myTalkSession = talkSessionId
-        if st < 60
-            int gbtn = 0
-            if GenevaKeyMsg != None
-                gbtn = GenevaKeyMsg.Show()
-                Trace("mq105 geneva key choice button=" + gbtn)
-            endif
-            if talkSessionId == myTalkSession && gbtn >= 0 && gbtn != 3
-                AdvanceTo(60, "geneva_key")
-            endif
-        endif
-        talkOpen = False
-    elseif dog != None && akSender == dog
-        talkOpen = True
-        int myTalkSession = talkSessionId
-        int dbtn = 0
-        if TrailHandoffMsg != None
-            dbtn = TrailHandoffMsg.Show()
-            Trace("mq105 trail handoff choice button=" + dbtn)
-        endif
-        if talkSessionId == myTalkSession && dbtn >= 0
-            if st < 80
-                AdvanceTo(80, "out_of_order")
-            endif
-            AdvanceTo(100, "dogmeat_trail")
-        endif
-        talkOpen = False
+    if (nick != None && akSender == nick) || (nickTalkProxy != None && akSender == nickTalkProxy)
+        RunNickTalk(st)
+    elseif (gen != None && akSender == gen) || (genevaTalkProxy != None && akSender == genevaTalkProxy)
+        RunGenevaTalk(st)
+    elseif (dog != None && akSender == dog) || (dogmeatTalkProxy != None && akSender == dogmeatTalkProxy)
+        RunDogmeatTalk(st)
     elseif fortHagenDoorRef != None && akSender == fortHagenDoorRef
         ; Activating Fort Hagen roof load door (0x0547B0) completes MQ105 and hands off to FO4SFFortHagen.esm (0D)
         AdvanceTo(200, "fort_hagen_door")

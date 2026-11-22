@@ -942,6 +942,7 @@ def summarize(lines):
          "preston_talk_opened": 0, "preston_choices": [],
          "preston_talk_end": None, "stage40_fallback": False,
          "min01_bench_activated": False, "sanctuary01_complete": None,
+         "sanctuary01_bench_log": None,
          "sanctuary01_stages": [], "sanctuary01_finished": None,
          "minrecruit00_stages": [], "minrecruit00_complete": None,
          "mq103_stages": [], "mq103_complete": None,
@@ -950,7 +951,8 @@ def summarize(lines):
          "mq106_stages": [], "mq106_complete": None,
          "mq203_stages": [], "mq203_complete": None,
          "mq204_stages": [], "mq204_complete": None,
-         "mq206_stages": [], "mq206_complete": None}
+         "mq206_stages": [], "mq206_complete": None,
+         "stand_in_events": [], "blocked_missing_port": []}
     follow_seen = False
     for line in lines:
         m = LINE.search(line)
@@ -1023,7 +1025,13 @@ def summarize(lines):
         elif low.startswith("min01 bench activated -> stage 100"):
             s["min01_bench_activated"] = True
         elif low.startswith("sanctuary01 bench_activated=true "):
-            s["sanctuary01_complete"] = msg
+            s["sanctuary01_bench_log"] = msg
+            if "complete=true" in low:
+                s["sanctuary01_complete"] = msg
+        elif low.startswith("sanctuary01 stand_in_build_menu ") or low.startswith("mq106 prydwen_stand_in=true") or low.startswith("mq203 stand_in_scan=true") or low.startswith("mq206 stand_in_build "):
+            s["stand_in_events"].append(msg)
+        elif low.startswith("mq203 brain_move blocked=true") or low.startswith("mq206 relay_blocked "):
+            s["blocked_missing_port"].append(msg)
         elif low.startswith("sanctuary01 stage "):
             parts = msg.split()
             if len(parts) >= 3 and parts[2].isdigit():

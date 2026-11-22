@@ -49,6 +49,10 @@ static class NextStoryMissionsA7
     public const uint Vault114NickFreedGlobId = 0xA87;
     public const uint Vault114ExitUnlockedGlobId = 0xA88;
     public const uint Mq105ArmedGlobId = 0xA89;
+    public const uint NickTalkActiId = 0xA8A, MaloneTalkActiId = 0xA8B;
+    public const string NickTalkActiEdid = "FO4SF_MQ104_NickTalkActi",
+                        MaloneTalkActiEdid = "FO4SF_MQ104_MaloneTalkActi";
+    public const string TalkProxyActiModel = Mission.CodsworthTalkActiModel;
     public const uint Mq104NickCellTalkMsgId = 0xA90, Mq104CaseNotesMsgId = 0xA91,
                       Mq104MaloneTalkMsgId = 0xA92, Mq104DebriefMsgId = 0xA93;
 
@@ -61,6 +65,9 @@ static class NextStoryMissionsA7
     public const uint KelloggHouseUnlockedGlobId = 0xAB6;
     public const uint KelloggSecretOpenedGlobId = 0xAB7;
     public const uint Mq106ArmedGlobId = 0xAB8;
+    public const uint GenevaTalkActiId = 0xAB9, DogmeatTalkActiId = 0xABA;
+    public const string GenevaTalkActiEdid = "FO4SF_MQ105_GenevaTalkActi",
+                        DogmeatTalkActiEdid = "FO4SF_MQ105_DogmeatTalkActi";
     public const uint Mq105AgencyBriefMsgId = 0xAC0, Mq105AgencyDossierMsgId = 0xAC1,
                       Mq105GenevaKeyMsgId = 0xAC2, Mq105SecretRoomMsgId = 0xAC3,
                       Mq105TrailHandoffMsgId = 0xAC4;
@@ -204,7 +211,7 @@ static class NextStoryMissionsA7
             Position = new P3Float(x, y, z),
             Rotation = new P3Float(0f, 0f, rotZ),
         };
-        a.MajorRecordFlagsRaw |= 0x400; // Persistent
+        a.MajorRecordFlagsRaw |= 0x400 | 0x800; // Persistent | InitiallyDisabled (R3)
         persistentCell.Persistent.Add(a);
         return a;
     }
@@ -442,6 +449,32 @@ static class NextStoryMissionsA7
         mq105Script.Properties.Add(ObjProp("TrailHandoffMsg", trailHandoff.FormKey));
         mq105.VirtualMachineAdapter = MakeAdapter(mq105Script);
         mod.Quests.Add(mq105);
+
+        SF.Activator AddTalkProxyActi(uint id, string edid, string npcName)
+        {
+            var a = new SF.Activator(new FormKey(modKey, id), rel)
+            {
+                EditorID = edid,
+                Name = npcName,
+                ActivateTextOverride = "Talk",
+                MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+                Flags = (SF.Activator.Flag)0,
+                ActivationAngle = 360,
+                InvertFacing = false,
+                ObjectBounds = new SF.ObjectBounds
+                {
+                    First = new P3Float(-0.25f, -0.25f, -0.25f),
+                    Second = new P3Float(0.25f, 0.25f, 0.25f),
+                },
+                Model = new SF.Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>(TalkProxyActiModel) },
+            };
+            mod.Activators.Add(a);
+            return a;
+        }
+        AddTalkProxyActi(NickTalkActiId, NickTalkActiEdid, nickNpc.Name?.String ?? "Nick Valentine");
+        AddTalkProxyActi(MaloneTalkActiId, MaloneTalkActiEdid, maloneNpc.Name?.String ?? "Skinny Malone");
+        AddTalkProxyActi(GenevaTalkActiId, GenevaTalkActiEdid, genevaNpc.Name?.String ?? "Geneva");
+        AddTalkProxyActi(DogmeatTalkActiId, DogmeatTalkActiEdid, dogmeatNpc.Name?.String ?? "Dogmeat");
     }
 
     public static void CheckA7Missions(
@@ -506,5 +539,30 @@ static class NextStoryMissionsA7
              plug.Globals.Any(g => g.FormKey == new FormKey(key, KelloggSecretOpenedGlobId)) &&
              plug.Globals.Any(g => g.FormKey == new FormKey(key, Mq106ArmedGlobId)),
             "FO4SF_MQ105 GLOBs (0x000AB6 / 0x000AB7 / 0x000AB8) missing");
+
+        var a7Refs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
+            .Where(r => IsA7ActorRefId(r.FormKey.ID)).ToList() ?? [];
+        need(a7Refs.Count == 5 && a7Refs.All(r => (r.MajorRecordFlagsRaw & 0x800) != 0),
+            "A7 persistent ACHRs must all carry InitiallyDisabled (0x800, R3)");
+
+        foreach (var (actiId, edid, npcId) in new (uint, string, uint)[]
+        {
+            (NickTalkActiId, NickTalkActiEdid, NickNpcId),
+            (MaloneTalkActiId, MaloneTalkActiEdid, SkinnyMaloneNpcId),
+            (GenevaTalkActiId, GenevaTalkActiEdid, GenevaNpcId),
+            (DogmeatTalkActiId, DogmeatTalkActiEdid, DogmeatNpcId),
+        })
+        {
+            var talkActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, actiId));
+            var talkNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, npcId));
+            need(talkActi is not null && talkNpc is not null &&
+                 talkActi.EditorID == edid &&
+                 talkActi.ActivationAngle == 360 && !talkActi.InvertFacing &&
+                 talkActi.ActivateTextOverride?.String == "Talk" &&
+                 !string.IsNullOrEmpty(talkNpc.Name?.String) &&
+                 talkActi.Name?.String == talkNpc.Name?.String &&
+                 string.Equals(talkActi.Model?.File?.GivenPath, TalkProxyActiModel, StringComparison.OrdinalIgnoreCase),
+                $"A7 talk proxy {edid} (0x{actiId:X6}) missing or Name mismatch with NPC 0x{npcId:X6}");
+        }
     }
 }
