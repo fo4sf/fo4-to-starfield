@@ -3,6 +3,11 @@ Titles: Fallout 4 -> all 7 Fallout titles (FO4, FO3, FNV, FO1, FO2, Tactics, FO7
 # A7 — Next Two Story Missions & Places: *Unlikely Valentine* (`MQ104`) and *Getting a Clue* (`MQ105`)
 
 > **Status (`R15`):** `prototype, offline` / `design only` — source-first binary audit of `Fallout4.esm` and staged `FO4Port.esm` (`interiors_b10`, zero reconversion), plus deterministic `W6` 4-axis reachability checks in `scripts/terrain/a7_valentine_places.py`. Nothing here has run in the game yet.
+>
+> **Truth Labels (`R8` — Stand-Ins vs Real Implementation):** The `FO4SFMission.esm` implementations for `FO4SF_MQ104` (`0x000A80`) and `FO4SF_MQ105` (`0x000AB0`) include explicit **stand-ins** (never unqualified "executable"):
+> - **NPC conversations (Nick Valentine, Skinny Malone, Darla, Geneva):** **Stand-in** (`MessageBox` menus on actors without Starfield `SCEN`/`DIAL` topics). Real version requires voiced Starfield `DialogueMenu` `SCEN` + `DIAL`/`INFO` + `.wem` audio clips.
+> - **Dogmeat scent trail (`FO4SF_MQ105`):** **Stand-in** (waypoint/proximity progression without continuous multi-cell exterior companion navmesh tracking). Real version requires multi-cell companion navmesh following and trail clue activators.
+> - **Diamond City interior cells (`DmndValentines01` `02006B30`, `DmndStandsKellogg01` `0206B72C`):** Exterior hub proxy **stand-in** until `DiamondCityWorld` child worldspace and interior load doors are promoted and `FO4Port.esm` is bundled.
 
 ---
 
