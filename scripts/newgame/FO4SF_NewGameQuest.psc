@@ -412,6 +412,11 @@ bool warfareWaitingCreator = false
 bool mapSetupDone = false
 bool rideMarkerPrepared = false
 bool leftArrivalPad = false
+bool returnLiftArmed = false
+int returnArmTicks = 0
+bool returnHasExteriorSample = false
+float returnLastExteriorX = 0.0
+float returnLastExteriorY = 0.0
 bool returnAsked = false
 bool returnVaultAsked = false
 bool returnSurfacePending = false
@@ -2700,8 +2705,8 @@ Function PreAttachArrivalMarker(Actor player)
 EndFunction
 
 Function CheckReturnLift(Actor player)
-{Post-stage-200 return lift loop: prompts Ride down / Stay once the player leaves > 12 m and steps back onto the surface pad.}
-    if !player.Is3DLoaded()
+{Post-stage-200 return lift loop: prompts Ride down / Stay once the player leaves > 12 m for >= 2 valid Commonwealth exterior ticks and steps back onto the surface pad.}
+    if player == None || !player.Is3DLoaded()
         return
     endif
     float sx = ArrivalX + MergeOffsetX
@@ -2715,6 +2720,11 @@ Function CheckReturnLift(Actor player)
             returnSurfaceWaitTicks = 0
             returnSurfaceTries = 0
             leftArrivalPad = false
+            returnLiftArmed = false
+            returnArmTicks = 0
+            returnHasExteriorSample = true
+            returnLastExteriorX = sx
+            returnLastExteriorY = sy
             returnAsked = true
             Trace("return lift arrived surface pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
             return
@@ -2737,6 +2747,8 @@ Function CheckReturnLift(Actor player)
         return
     endif
     if player.IsInInterior()
+        returnArmTicks = 0
+        returnHasExteriorSample = false
         if !StandsInVault(player)
             return
         endif
@@ -2765,18 +2777,79 @@ Function CheckReturnLift(Actor player)
         endif
         return
     endif
-    float dx = player.GetPositionX() - sx
-    float dy = player.GetPositionY() - sy
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float pz = player.GetPositionZ()
+    Cell pCell = player.GetParentCell()
+    WorldSpace pWorld = player.GetWorldSpace()
+    if !player.Is3DLoaded() || player.IsInInterior() || pWorld == None || pCell == None
+        returnArmTicks = 0
+        returnHasExteriorSample = false
+        return
+    endif
+    ObjectReference cAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+    if cAnchor != None
+        int pCellMod = pCell.GetFormID() / 16777216
+        int cAnchorMod = cAnchor.GetFormID() / 16777216
+        if pCellMod != cAnchorMod
+            returnArmTicks = 0
+            returnHasExteriorSample = false
+            return
+        endif
+    elseif arrivalWorld != None && pWorld != arrivalWorld
+        returnArmTicks = 0
+        returnHasExteriorSample = false
+        return
+    endif
+    float minMapX = MergeOffsetX - 3200.0
+    float maxMapX = MergeOffsetX + 3200.0
+    float minMapY = MergeOffsetY - 3200.0
+    float maxMapY = MergeOffsetY + 3200.0
+    if px < minMapX || px > maxMapX || py < minMapY || py > maxMapY
+        returnArmTicks = 0
+        returnHasExteriorSample = false
+        return
+    endif
+    float prevX = sx
+    float prevY = sy
+    if returnHasExteriorSample
+        prevX = returnLastExteriorX
+        prevY = returnLastExteriorY
+    endif
+    returnHasExteriorSample = true
+    returnLastExteriorX = px
+    returnLastExteriorY = py
+    float stepDx = px - prevX
+    float stepDy = py - prevY
+    float stepSq = stepDx * stepDx + stepDy * stepDy
+    if stepSq > 40000.0
+        returnArmTicks = 0
+        return
+    endif
+    if leftArrivalPad && !returnLiftArmed
+        returnLiftArmed = true
+    endif
+    float dx = px - sx
+    float dy = py - sy
     float distSq = dx * dx + dy * dy
-    if !leftArrivalPad
+    if !returnLiftArmed
         if distSq > 144.0
-            leftArrivalPad = true
-            returnAsked = false
-            Trace("return lift armed dist_sq=" + distSq)
+            returnArmTicks += 1
+            if returnArmTicks >= 2
+                returnLiftArmed = true
+                leftArrivalPad = true
+                returnAsked = false
+                Trace("return lift armed dist_sq=" + distSq)
+            endif
+        else
+            returnArmTicks = 0
         endif
         return
     endif
-    if !Near(player, sx, sy, sz, PlatformRadius)
+    float padDx = px - sx
+    float padDy = py - sy
+    float padDz = pz - sz
+    if padDx * padDx + padDy * padDy > PlatformRadius * PlatformRadius || padDz <= -3.0 || padDz >= 3.0
         returnAsked = false
         return
     endif
