@@ -226,7 +226,7 @@ class WalkHeadingsAndTruthLabelsTests(unittest.TestCase):
         self.assertEqual(p_tbl.returncode, 0, p_tbl.stderr)
         walk_doc = WALK_DOC.read_text(encoding="utf-8")
         self.assertIn("navmesh-verified offline; terrain on converted Commonwealth unproven in game", walk_doc)
-        self.assertIn("in flight (`W1`)", walk_doc)
+        self.assertNotIn("in flight (`W1`)", walk_doc)
         # Ensure every single generated markdown table row appears verbatim in docs/testing/console-free-walk-list.md
         for line in p_tbl.stdout.splitlines():
             self.assertIn(line, walk_doc, f"Walk table row missing or drifted in console-free-walk-list.md: {line}")

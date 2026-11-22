@@ -284,7 +284,7 @@ Function StartMinRecruit00IfNeeded()
 EndFunction
 
 Function StartPostOpeningHandoffs()
-{R1/R5: Deliberate one-tracked-opening-mission design choice: in Fallout 4, MQ103 starts when MQ102 ends while Min01 is still running; here we defer MQ103 until Sanctuary01 finishes (or the player walks to Diamond City gate) so the opening keeps one active mission.}
+{R1/R5: Deliberate one-tracked-opening-mission design choice: in Fallout 4, MQ103 starts when MQ102 ends while Min01 is still running; here MQ103 waits until Sanctuary01 completes, and after that it can also start at the Diamond City gate.}
     StartMinRecruit00IfNeeded()
     if IsWarfareMode()
         return

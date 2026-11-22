@@ -374,7 +374,7 @@ class A4PapyrusContractTests(unittest.TestCase):
         self.assertIn("-3129.39", min00)
         self.assertIn("-1517.0", min00)
         self.assertIn("-1423.63", min00)
-        self.assertIn("CheckA4ProximityStarts(player)", min00)
+        self.assertEqual(min00.count("CheckA4ProximityStarts(player)"), 1)
         self.assertIn("Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest", sanc)
         self.assertIn("firstStep.StartNoWait()", sanc)
 

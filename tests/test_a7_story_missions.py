@@ -234,7 +234,7 @@ class A7PapyrusContractTests(unittest.TestCase):
         self.assertIn("Game.GetFormFromFile(0x000AB0, MissionPlugin) as Quest", mq104)
         self.assertIn('Trace("mq105 start_requested ok=" + startedMq105)', mq104)
         self.assertIn("Function CheckA7ProximityStarts(Actor player)", min00)
-        self.assertGreaterEqual(min00.count("CheckA7ProximityStarts(player)"), 2)
+        self.assertEqual(min00.count("CheckA7ProximityStarts(player)"), 1)
         self.assertIn("mq104ProxAttempted = True", min00)
         self.assertIn("mq105ProxAttempted = True", min00)
         self.assertIn('Trace("mq104 started by=proximity")', min00)
