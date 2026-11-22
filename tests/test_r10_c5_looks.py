@@ -354,6 +354,17 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
         ):
             self.assertIn(required_token, doc_text, f"Missing required C5 audit token '{required_token}' in doc")
 
+    def test_c3_raider_catalog_and_c5_bundle_verify_refusal(self):
+        from fo4sf.core import cross_plugin_check
+
+        sf_cat = cross_plugin_check.KNOWN_EXTERNAL_RECORDS["Starfield.esm"]
+        self.assertEqual(sf_cat.get(0x26D96B), ("WEAP", "Coachman"))
+        self.assertEqual(sf_cat.get(0x2B4AFB), ("AMMO", "AmmoShotshell"))
+
+        mcb_txt = (REPO_ROOT / "scripts" / "core" / "make_core_bundle.py").read_text(encoding="utf-8")
+        self.assertIn("mission_wants_c5", mcb_txt)
+        self.assertIn('b"prestongarveyoutfit_m.nif"', mcb_txt)
+
 
 if __name__ == "__main__":
     unittest.main()

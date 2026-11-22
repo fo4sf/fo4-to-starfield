@@ -862,7 +862,14 @@ def verify_bundle(
         if root_files:
             problems.append(f"Data/ contains root-level files refused by exp_install --pack: {root_files}")
         c5_probe = os.path.join(data_dir, "meshes", "fo4port", "armor", "preston_garvey", "prestongarveyoutfit_m.nif")
-        if os.path.isfile(c5_probe):
+        mission_esm_p = os.path.join(bdir, "FO4SFMission.esm")
+        mission_wants_c5 = False
+        if os.path.isfile(mission_esm_p):
+            try:
+                mission_wants_c5 = b"prestongarveyoutfit_m.nif" in Path(mission_esm_p).read_bytes().lower()
+            except OSError:
+                mission_wants_c5 = False
+        if os.path.isfile(c5_probe) or mission_wants_c5:
             try:
                 actors_dir = os.path.join(REPO, "scripts", "actors")
                 if actors_dir not in sys.path:
