@@ -144,6 +144,8 @@ bool prestonScenePhase1 = False
 float prestonPhase1At = 0.0
 int prestonSceneChecks = 0
 int sanctuaryStartRetries = 0
+bool mq103ProxAttempted = False
+bool minRecruitProxAttempted = False
 
 float[] raiderTargetX
 float[] raiderTargetY
@@ -1307,18 +1309,20 @@ Function CheckA4ProximityStarts(Actor player)
     float r2 = 150.0 * 150.0
     float dcx = px - (-1416.36)
     float dcy = py - (-3129.39)
-    if dcx * dcx + dcy * dcy <= r2
+    if !mq103ProxAttempted && dcx * dcx + dcy * dcy <= r2
         Quest mq103Quest = Game.GetFormFromFile(0x000A50, "FO4SFMission.esm") as Quest
         if mq103Quest != None && !mq103Quest.IsRunning() && !mq103Quest.IsCompleted()
+            mq103ProxAttempted = True
             mq103Quest.StartNoWait()
             Trace("mq103 started by=proximity")
         endif
     endif
     float tpx = px - (-1517.0)
     float tpy = py - (-1423.63)
-    if tpx * tpx + tpy * tpy <= r2
+    if !minRecruitProxAttempted && tpx * tpx + tpy * tpy <= r2
         Quest stepQuest = Game.GetFormFromFile(0x000A20, "FO4SFMission.esm") as Quest
         if stepQuest != None && !stepQuest.IsRunning() && !stepQuest.IsCompleted()
+            minRecruitProxAttempted = True
             stepQuest.StartNoWait()
             Trace("minrecruit00 started by=proximity")
         endif

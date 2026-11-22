@@ -25,8 +25,10 @@ Message Property NoteMsg Auto Const
 
 string LogName = "fo4sf_mission"
 string CorePlugin = "FO4TerrainCore.esm"
+string CoreFallbackPlugin = "FO4TerrainCore_Mars.esm"
 string MissionPlugin = "FO4SFMission.esm"
 int TenpinesBenchRefId = 0x01A793
+int BenchBaseId = 0x0A2ECD
 float TenpinesLocalX = -317.0
 float TenpinesLocalY = 1276.37
 float TenpinesLocalZ = 87.71
@@ -36,6 +38,8 @@ float CorvegaLocalZ = 54.0
 float MergeOffsetX = -1200.0
 float MergeOffsetY = -2700.0
 float PlaceRadius = 300.0
+float SearchRadius = 15.0
+float BossEngageRadius = 80.0
 float BossMinZ = 35.0
 
 bool instanceStarted = False
@@ -43,10 +47,12 @@ bool completed = False
 bool spokesmanHeld = False
 bool bossPlaced = False
 bool talkOpen = False
+int talkSessionId = 0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference tenpinesBench = None
+WorldSpace commonwealthWorld = None
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -65,12 +71,50 @@ int Function EffectiveStage()
     return raw
 EndFunction
 
+string Function ActiveCorePlugin()
+    if Game.IsPluginInstalled(CorePlugin)
+        return CorePlugin
+    endif
+    if Game.IsPluginInstalled(CoreFallbackPlugin)
+        return CoreFallbackPlugin
+    endif
+    return ""
+EndFunction
+
+WorldSpace Function ResolveCommonwealthWorld()
+    if commonwealthWorld != None
+        return commonwealthWorld
+    endif
+    string cName = ActiveCorePlugin()
+    if cName != ""
+        ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, cName) as ObjectReference
+        if v111Marker != None
+            commonwealthWorld = v111Marker.GetWorldSpace()
+            if commonwealthWorld != None
+                return commonwealthWorld
+            endif
+        endif
+        WorldSpace coreWs = Game.GetFormFromFile(0x000803, cName) as WorldSpace
+        if coreWs != None
+            commonwealthWorld = coreWs
+            return commonwealthWorld
+        endif
+    endif
+    return None
+EndFunction
+
 bool Function IsCommonwealthExterior(Actor player)
-{B2 guard: reject interiors (e.g. FO4SF_MapMarkersHop 100008F4), null WorldSpace, or out-of-Commonwealth XY before MoveTo.}
+{B2 + WorldSpace identity guard: rejects interiors (FO4SF_MapMarkersHop 100008F4), New Atlantis / alien planets,
+ and out-of-Commonwealth XY before MoveTo.}
     if player == None || player.IsInInterior()
         return False
     endif
-    if player.GetWorldSpace() == None
+    WorldSpace ws = player.GetWorldSpace()
+    if ws == None
+        return False
+    endif
+    WorldSpace wantWs = ResolveCommonwealthWorld()
+    if wantWs == None || ws != wantWs
         return False
     endif
     float px = player.GetPositionX()
@@ -166,6 +210,11 @@ Function ApplyStage(int n, string by)
             return
         endif
         completed = True
+        Actor spDone = ResolveSpokesman()
+        if spDone != None
+            spDone.SetRestrained(False)
+        endif
+        spokesmanHeld = False
         SetObjectiveCompleted(40)
         Actor player = Game.GetPlayer()
         if player != None
@@ -220,7 +269,10 @@ EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    talkSessionId += 1
     talkOpen = False
+    spokesmanHeld = False
+    bossPlaced = False
     int st = EffectiveStage()
     Trace("minrecruit00 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -247,8 +299,24 @@ Function BindRefs()
     if pr != None && !pr.IsDead()
         RegisterForRemoteEvent(pr, "OnActivate")
     endif
-    if Game.IsPluginInstalled(CorePlugin)
-        ObjectReference wb = Game.GetFormFromFile(TenpinesBenchRefId, CorePlugin) as ObjectReference
+    string cName = ActiveCorePlugin()
+    if cName != ""
+        ObjectReference wb = Game.GetFormFromFile(TenpinesBenchRefId, cName) as ObjectReference
+        if wb == None
+            Actor player = Game.GetPlayer()
+            if IsCommonwealthExterior(player)
+                float bx = TenpinesLocalX + MergeOffsetX
+                float by = TenpinesLocalY + MergeOffsetY
+                float dx = player.GetPositionX() - bx
+                float dy = player.GetPositionY() - by
+                if dx * dx + dy * dy <= PlaceRadius * PlaceRadius
+                    Form benchBase = Game.GetFormFromFile(BenchBaseId, cName)
+                    if benchBase != None
+                        wb = Game.FindClosestReferenceOfType(benchBase, bx, by, TenpinesLocalZ, SearchRadius)
+                    endif
+                endif
+            endif
+        endif
         if wb != None && wb != tenpinesBench
             tenpinesBench = wb
             RegisterForRemoteEvent(tenpinesBench, "OnActivate")
@@ -272,40 +340,65 @@ Event OnTimer(int aiTimerID)
         SetStage(applied)
     endif
     int st = EffectiveStage()
+    if st == 450 && IsPrestonDead()
+        Trace("minrecruit00 open_mode preston_dead -> autonomous completion")
+        AdvanceTo(500, "open_mode")
+        return
+    endif
     Actor player = Game.GetPlayer()
     if IsCommonwealthExterior(player)
-        ; Keep Tenpines spokesman placed when player approaches within PlaceRadius
+        ; Keep Tenpines spokesman placed when player approaches within PlaceRadius; release in combat
         Actor sp = ResolveSpokesman()
         if sp != None && !sp.IsDead()
-            float tx = TenpinesLocalX + MergeOffsetX + 2.0
-            float ty = TenpinesLocalY + MergeOffsetY + 1.5
-            float tz = TenpinesLocalZ
-            float pdx = player.GetPositionX() - tx
-            float pdy = player.GetPositionY() - ty
-            if pdx * pdx + pdy * pdy <= PlaceRadius * PlaceRadius && !spokesmanHeld
-                sp.MoveTo(player, tx - player.GetPositionX(), ty - player.GetPositionY(), tz - player.GetPositionZ(), False, False)
-                sp.SetRestrained(True)
-                sp.AllowPCDialogue(True)
-                spokesmanHeld = True
-                Trace("minrecruit00 tenpines spokesman placed")
+            if sp.GetCombatState() != 0
+                if spokesmanHeld
+                    sp.SetRestrained(False)
+                    spokesmanHeld = False
+                endif
+            else
+                float tx = TenpinesLocalX + MergeOffsetX + 2.0
+                float ty = TenpinesLocalY + MergeOffsetY + 1.5
+                float tz = TenpinesLocalZ
+                float pdx = player.GetPositionX() - tx
+                float pdy = player.GetPositionY() - ty
+                if pdx * pdx + pdy * pdy <= PlaceRadius * PlaceRadius
+                    float sdx = sp.GetPositionX() - tx
+                    float sdy = sp.GetPositionY() - ty
+                    if !spokesmanHeld || (sdx * sdx + sdy * sdy) > 625.0
+                        sp.SetRestrained(False)
+                        sp.MoveTo(player, tx - player.GetPositionX(), ty - player.GetPositionY(), tz - player.GetPositionZ(), False, False)
+                        sp.SetRestrained(True)
+                        sp.AllowPCDialogue(True)
+                        spokesmanHeld = True
+                        Trace("minrecruit00 tenpines spokesman placed")
+                    endif
+                endif
             endif
         endif
-        ; Keep Corvega boss placed & guarded against subterranean clipping (STEP-03)
+        ; Keep Corvega boss placed & guarded against subterranean clipping (STEP-02 pre-clear & STEP-03 leash)
         Actor boss = ResolveBoss()
-        if st == 100 && boss != None
+        if boss != None
             if boss.IsDead()
-                AdvanceTo(200, "boss_dead")
+                if st == 100
+                    AdvanceTo(200, "boss_dead")
+                endif
             else
                 float cx = CorvegaLocalX + MergeOffsetX
                 float cy = CorvegaLocalY + MergeOffsetY
                 float cz = CorvegaLocalZ
                 float bdx = player.GetPositionX() - cx
                 float bdy = player.GetPositionY() - cy
-                if bdx * bdx + bdy * bdy <= PlaceRadius * PlaceRadius
+                float bd2 = bdx * bdx + bdy * bdy
+                if bd2 <= PlaceRadius * PlaceRadius
                     if !bossPlaced || boss.GetPositionZ() < BossMinZ
+                        boss.SetRestrained(False)
                         boss.MoveTo(player, cx - player.GetPositionX(), cy - player.GetPositionY(), cz - player.GetPositionZ(), False, False)
                         bossPlaced = True
                         Trace("minrecruit00 corvega boss leashed z=" + cz)
+                    endif
+                    if st == 100 && bd2 <= BossEngageRadius * BossEngageRadius && boss.GetCombatState() == 0
+                        boss.SetRestrained(False)
+                        boss.StartCombat(player)
                     endif
                 endif
             endif
@@ -334,29 +427,59 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     Actor pr = ResolvePreston()
     if sp != None && akSender == sp
         talkOpen = True
+        int mySession = talkSessionId
         if st == 50
+            bool accepted = True
             if TalkMsg != None
-                int btn = TalkMsg.Show()
-                Trace("minrecruit00 tenpines choice button=" + btn)
-                if btn != 3 && BriefMsg != None
-                    BriefMsg.Show()
+                accepted = False
+                int steps = 0
+                bool doneLoop = False
+                while !doneLoop && steps < 8 && mySession == talkSessionId
+                    steps += 1
+                    int btn = TalkMsg.Show()
+                    Trace("minrecruit00 tenpines choice button=" + btn)
+                    if btn < 0 || btn == 3 || mySession != talkSessionId
+                        doneLoop = True
+                    elseif btn == 2
+                        if BriefMsg != None
+                            BriefMsg.Show()
+                        endif
+                        accepted = True
+                        doneLoop = True
+                    elseif BriefMsg != None
+                        BriefMsg.Show()
+                    endif
+                endwhile
+            endif
+            if accepted && mySession == talkSessionId
+                AdvanceTo(100, "spokesman")
+            endif
+        elseif st == 200
+            bool rwOk = True
+            if RewardMsg != None
+                if RewardMsg.Show() < 0
+                    rwOk = False
                 endif
             endif
-            AdvanceTo(100, "spokesman")
-        elseif st == 200
-            if RewardMsg != None
-                RewardMsg.Show()
+            if rwOk && mySession == talkSessionId
+                AdvanceTo(450, "spokesman")
             endif
-            AdvanceTo(450, "spokesman")
         endif
-        talkOpen = False
+        if mySession == talkSessionId
+            talkOpen = False
+        endif
     elseif tenpinesBench != None && akSender == tenpinesBench
         ; STEP-01 Open-Mode workbench/note fallback when spokesman is dead
         if st == 50 && IsSpokesmanDead()
+            bool noteOk = True
             if NoteMsg != None
-                NoteMsg.Show()
+                if NoteMsg.Show() < 0
+                    noteOk = False
+                endif
             endif
-            AdvanceTo(100, "open_mode")
+            if noteOk
+                AdvanceTo(100, "open_mode")
+            endif
         elseif st == 200 && IsSpokesmanDead()
             AdvanceTo(450, "open_mode")
         endif

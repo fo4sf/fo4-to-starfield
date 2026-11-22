@@ -282,9 +282,74 @@ class A4PapyrusContractTests(unittest.TestCase):
             "0x000A15",
             "KeepSturges",
             "0x000A20",
-            "if st == 100 && IsCompleted() && HasFullMin01() && !completed",
+            "if st == 100 && IsCompleted() && HasFullMin01() && !a4Upgraded",
         ):
             self.assertIn(tok, txt)
+        self.assertNotIn("if st == 100 && IsCompleted() && HasFullMin01() && !completed", txt)
+
+    def test_blind_audit_350_defects_fixed(self) -> None:
+        """Verifies all #350 blind-audit A4 fixes across C#, Papyrus, and cross-plugin catalog."""
+        a4_cs = A4_CS.read_text(encoding="utf-8")
+        sanc = SANC_PSC.read_text(encoding="utf-8")
+        step = STEP_PSC.read_text(encoding="utf-8")
+        mq103 = MQ103_PSC.read_text(encoding="utf-8")
+        min00 = MIN00_PSC.read_text(encoding="utf-8")
+
+        # 1. Persistent GateProxyActi (0x000A59) + gateRef.DisableNoWait(False) + Alias 0 XMarkerBase in MQ103
+        self.assertIn("GateProxyActiId = 0xA59", a4_cs)
+        self.assertIn('ObjProp("GateProxyActi"', a4_cs)
+        self.assertIn("Activator Property GateProxyActi Auto Const", mq103)
+        self.assertIn("gateRef.DisableNoWait(False)", mq103)
+        self.assertIn("Function EnsureGateMarkerAndProxy(Actor player)", mq103)
+        self.assertIn("gateAlias.ForceRefTo(gateMarker)", mq103)
+        self.assertIn("gateProxy = player.PlaceAtMe(proxyBase, 1, True, False, False)", mq103)
+        catalog, dup_errors = build_writer_catalog(str(REPO_ROOT))
+        self.assertEqual(dup_errors, [])
+        self.assertEqual(catalog["FO4SFMission.esm"][0xA59], ("ACTI", "FO4SF_MQ103_GateProxyActi"))
+        self.assertEqual(catalog["FO4TerrainCore.esm"][0x013E79], ("REFR", "FO4Core_DiamondCityGateRef"))
+        self.assertEqual(catalog["FO4TerrainCore.esm"][0x01A793], ("REFR", "FO4Core_TenpinesWorkbenchRef"))
+        self.assertEqual(catalog["FO4TerrainCore.esm"][0x000803], ("WRLD", "FO4Core_Commonwealth"))
+
+        # 2. Merged ACHR coordinates in C# + WorldSpace identity & _Mars core fallback in all 3 A4 scripts
+        self.assertIn("MergeOffsetX = -1200.0f", a4_cs)
+        self.assertIn("MergeOffsetY = -2700.0f", a4_cs)
+        self.assertIn("-192.0f + MergeOffsetX, -402.0f + MergeOffsetY", a4_cs)
+        for path, txt in ((SANC_PSC, sanc), (STEP_PSC, step), (MQ103_PSC, mq103)):
+            self.assertIn('CoreFallbackPlugin = "FO4TerrainCore_Mars.esm"', txt, path.name)
+            self.assertIn("string Function ActiveCorePlugin()", txt, path.name)
+            self.assertIn("WorldSpace Function ResolveCommonwealthWorld()", txt, path.name)
+            self.assertIn("if wantWs == None || ws != wantWs", txt, path.name)
+            self.assertIn("talkSessionId += 1", txt, path.name)
+            self.assertIn("SetRestrained(False)", txt, path.name)
+
+        # 3. Ellie post-gate (never in PlaceGateActors), AreGateNpcsDead uses &&, dead-Ellie st>=20&&st<=30
+        m_place = re.search(r"Function PlaceGateActors\(.*?EndFunction", mq103, re.S)
+        self.assertIsNotNone(m_place)
+        self.assertNotIn("ResolveEllie", m_place.group(0))
+        self.assertIn("Function PlaceEllieAtAgency(Actor player)", mq103)
+        self.assertIn("return pDead && mDead", mq103)
+        self.assertNotIn("return pDead || mDead", mq103)
+        self.assertIn("elseif st >= 20 && st <= 30 && IsEllieDead()", mq103)
+
+        # 4. CorvegaBoss hostile raider clone (weapon/ammo/!Protected/no Talk/combat+sandbox packages) + pre-clear placement
+        self.assertIn("CloneHostileBossNpc(", a4_cs)
+        self.assertIn("npc.ActivateTextOverride = null;", a4_cs)
+        self.assertIn("SF.Npc.Flag.Protected", a4_cs)
+        self.assertIn("raiderCombatPackKey", a4_cs)
+        self.assertIn("boss.StartCombat(player)", step)
+        self.assertIn("FindClosestReferenceOfType", step)
+        self.assertIn("if btn < 0 || btn == 3 || mySession != talkSessionId", step)
+        self.assertIn("if st == 450 && IsPrestonDead()", step)
+
+        # 5. Female template/voice/flag on Piper & Ellie
+        self.assertIn("PickFemaleTemplate(", a4_cs)
+        self.assertIn("PickFemaleVoice(", a4_cs)
+        self.assertIn("SF.Npc.Flag.Female", a4_cs)
+
+        # 6. Sanctuary01 hands off MQ103 too + Min00 proximity start guarded against 1 Hz RunOnce spam
+        self.assertIn("StartMq103StoryHandoffIfNeeded()", sanc)
+        self.assertIn("bool mq103ProxAttempted = False", min00)
+        self.assertIn("bool minRecruitProxAttempted = False", min00)
 
     def test_console_free_runtime_starts_and_full_completion_of_all_three_a4_missions(self) -> None:
         """Proves zero-console keyboard+mouse start and completion for Sanctuary01, MinRecruit00, and MQ103."""

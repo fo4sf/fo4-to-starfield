@@ -1512,7 +1512,8 @@ static class Mission
 
         NextStoryMissionsA4.PopulateA4Missions(
             mod, cell, sanctuaryQuest, prestonRef.FormKey, minutemen.FormKey,
-            qtyp.FormKey, xMarker.FormKey, prestonTpl, humanRace.FormKey, prestonVoice.FormKey);
+            qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey,
+            raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey, prestonWeapon.FormKey, prestonAmmo.FormKey);
 
         uint maxId = Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)));
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
@@ -2075,6 +2076,8 @@ static class Mission
         sf.Races.Add(humanRace);
         var maleVoice = new SF.VoiceType(new FormKey(SfEsm, 0x013AD2), rel) { EditorID = SfPrestonVoiceEdid, Flags = SF.VoiceType.Flag.AllowDefaultDialog };
         sf.VoiceTypes.Add(maleVoice);
+        var femaleVoice = new SF.VoiceType(new FormKey(SfEsm, 0x013AD3), rel) { EditorID = "GenericFemaleEvenToned", Flags = SF.VoiceType.Flag.AllowDefaultDialog };
+        sf.VoiceTypes.Add(femaleVoice);
         sf.Outfits.Add(new SF.Outfit(new FormKey(SfEsm, SfPrestonOutfitId), rel) { EditorID = SfPrestonOutfitEdid });
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfPrestonWeaponId), rel) { EditorID = SfPrestonWeaponEdid });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfPrestonAmmoId), rel) { EditorID = SfPrestonAmmoEdid });
@@ -2083,6 +2086,13 @@ static class Mission
             EditorID = SfPapaKatzEdid, Name = "Synthetic Male Template",
             Race = new FormLink<SF.IRaceGetter>(humanRace.FormKey),
             Voice = new FormLinkNullable<SF.IVoiceTypeGetter>(maleVoice.FormKey),
+        });
+        sf.Npcs.Add(new SF.Npc(new FormKey(SfEsm, 0x01169D), rel)
+        {
+            EditorID = "SyntheticFemaleTemplate", Name = "Synthetic Female Template",
+            Flags = SF.Npc.Flag.Female,
+            Race = new FormLink<SF.IRaceGetter>(humanRace.FormKey),
+            Voice = new FormLinkNullable<SF.IVoiceTypeGetter>(femaleVoice.FormKey),
         });
 
         // Codsworth's Garden Mini Bot body (intentionally lacks AllowPcDialog & AllowDefaultDialog in vanilla, which Write fixes)

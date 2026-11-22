@@ -56,11 +56,15 @@ bool benchActivated = False
 bool sturgesHeld = False
 bool talkBoxOpen = False
 bool benchMenuOpen = False
+bool a4Upgraded = False
+bool minRecruitHandoffDone = False
+int talkSessionId = 0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference markerRef = None
 ObjectReference boundBench = None
+WorldSpace commonwealthWorld = None
 float benchNearSec = 0.0
 
 Actor Function ResolveSturges()
@@ -113,12 +117,40 @@ int Function EffectiveStage()
     return raw
 EndFunction
 
+WorldSpace Function ResolveCommonwealthWorld()
+    if commonwealthWorld != None
+        return commonwealthWorld
+    endif
+    string cName = ActiveCorePlugin()
+    if cName != ""
+        ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, cName) as ObjectReference
+        if v111Marker != None
+            commonwealthWorld = v111Marker.GetWorldSpace()
+            if commonwealthWorld != None
+                return commonwealthWorld
+            endif
+        endif
+        WorldSpace coreWs = Game.GetFormFromFile(0x000803, cName) as WorldSpace
+        if coreWs != None
+            commonwealthWorld = coreWs
+            return commonwealthWorld
+        endif
+    endif
+    return None
+EndFunction
+
 bool Function IsCommonwealthExterior(Actor player)
-{B2 guard: reject interiors (e.g. FO4SF_MapMarkersHop 100008F4), null WorldSpace, or out-of-Commonwealth XY before MoveTo/PlaceAt.}
+{B2 + WorldSpace identity guard: rejects interiors (FO4SF_MapMarkersHop 100008F4), New Atlantis / alien planets,
+ and out-of-Commonwealth XY before any MoveTo/PlaceAt.}
     if player == None || player.IsInInterior()
         return False
     endif
-    if player.GetWorldSpace() == None
+    WorldSpace ws = player.GetWorldSpace()
+    if ws == None
+        return False
+    endif
+    WorldSpace wantWs = ResolveCommonwealthWorld()
+    if wantWs == None || ws != wantWs
         return False
     endif
     float px = player.GetPositionX()
@@ -172,6 +204,8 @@ Function ApplyStage(int n, string by)
             endif
         endif
     elseif n == 1000
+        SetObjectiveCompleted(10)
+        CleanupMarker()
         SetObjectiveCompleted(50)
         SetObjectiveDisplayed(1000, True, True)
         CheckMilestoneProgress(1000)
@@ -221,20 +255,51 @@ Function ApplyStage(int n, string by)
     endif
 EndFunction
 
+Function StartMinRecruit00IfNeeded()
+    if minRecruitHandoffDone || IsWarfareMode()
+        return
+    endif
+    Quest firstStep = Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest
+    if firstStep != None
+        if firstStep.IsRunning() || firstStep.IsCompleted()
+            minRecruitHandoffDone = True
+        else
+            bool startedStep = firstStep.StartNoWait()
+            if startedStep || firstStep.IsRunning()
+                minRecruitHandoffDone = True
+            endif
+            Trace("sanctuary01 handoff minrecruit00=started")
+        endif
+    endif
+EndFunction
+
+Function StartMq103StoryHandoffIfNeeded()
+    if IsWarfareMode()
+        return
+    endif
+    Quest mq103Quest = Game.GetFormFromFile(0x000A50, MissionPlugin) as Quest
+    if mq103Quest != None && !mq103Quest.IsRunning() && !mq103Quest.IsCompleted()
+        bool startedMq103 = mq103Quest.StartNoWait()
+        Trace("sanctuary01 handoff mq103 start_requested ok=" + startedMq103)
+    endif
+EndFunction
+
 Function FinishQuest(string by)
     if completed
+        StartMinRecruit00IfNeeded()
         return
     endif
     completed = True
+    Actor st = ResolveSturges()
+    if st != None
+        st.SetRestrained(False)
+    endif
+    sturgesHeld = False
     CompleteQuest()
     CancelTimer(1)
     CleanupMarker()
     Trace("sanctuary01 finished stage=" + EffectiveStage() + " by=" + by)
-    Quest firstStep = Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest
-    if firstStep != None && !firstStep.IsRunning() && !firstStep.IsCompleted()
-        firstStep.StartNoWait()
-        Trace("sanctuary01 handoff minrecruit00=started")
-    endif
+    StartMinRecruit00IfNeeded()
 EndFunction
 
 Event OnQuestStarted()
@@ -269,6 +334,7 @@ Function StartQuestInstance()
     TryBindBench(player)
     SetObjectiveDisplayed(10, True, True)
     SetActive(True)
+    StartMq103StoryHandoffIfNeeded()
     Trace("min01 objective 10 bench")
     Trace("sanctuary01 init stage=10 bench_ref=0x005C50")
     Trace("sanctuary01 min01_mode full_min01=" + HasFullMin01())
@@ -277,13 +343,22 @@ EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    talkSessionId += 1
     talkBoxOpen = False
     benchMenuOpen = False
+    sturgesHeld = False
     int st = EffectiveStage()
     Trace("sanctuary01 reload stage=" + st + " complete=" + completed)
-    if st == 100 && IsCompleted() && HasFullMin01() && !completed
-        ; Upgrade a saved legacy 2-stage stub cleanly to stage 1500
+    if st == 100 && IsCompleted() && HasFullMin01() && !a4Upgraded
+        ; Upgrade a saved legacy 2-stage stub cleanly (never gated on !completed, which serialized True in a1d)
+        a4Upgraded = True
+        completed = False
         AdvanceTo(1500, "legacy_compat")
+        StartMinRecruit00IfNeeded()
+        return
+    endif
+    if completed
+        StartMinRecruit00IfNeeded()
         return
     endif
     if !completed
@@ -371,12 +446,23 @@ Function BindSturges()
         st.AllowPCDialogue(True)
         st.BlockActivation(False, False)
         RegisterForRemoteEvent(st, "OnActivate")
+        ReferenceAlias sAlias = GetAlias(1) as ReferenceAlias
+        if sAlias != None
+            sAlias.ForceRefTo(st)
+        endif
     endif
 EndFunction
 
 Function KeepSturges(Actor player)
     Actor st = ResolveSturges()
     if st == None || st.IsDead() || !IsCommonwealthExterior(player)
+        return
+    endif
+    if st.GetCombatState() != 0
+        if sturgesHeld
+            st.SetRestrained(False)
+            sturgesHeld = False
+        endif
         return
     endif
     float sx = SturgesLocalX + MergeOffsetX
@@ -388,6 +474,7 @@ Function KeepSturges(Actor player)
         float sdx = st.GetPositionX() - sx
         float sdy = st.GetPositionY() - sy
         if !sturgesHeld || (sdx * sdx + sdy * sdy) > 625.0
+            st.SetRestrained(False)
             st.MoveTo(player, sx - player.GetPositionX(), sy - player.GetPositionY(), sz - player.GetPositionZ(), False, False)
             st.SetRestrained(True)
             st.AllowPCDialogue(True)
@@ -448,14 +535,18 @@ Function RunSturgesTalk()
         return
     endif
     talkBoxOpen = True
+    int mySession = talkSessionId
     int st = EffectiveStage()
     Trace("sanctuary01 sturges talk opened stage=" + st)
     if st == 10 || st == 50 || st == 100
+        bool okAdvance = True
         Message mTalk = ResolveMsg(SturgesTalkMsg, 0x000A10)
         if mTalk != None
             int btn = mTalk.Show()
             Trace("sanctuary01 sturges choice button=" + btn)
-            if btn == 0
+            if btn < 0
+                okAdvance = False
+            elseif btn == 0
                 Message r0 = ResolveMsg(SturgesReply0Msg, 0x000A11)
                 if r0 != None
                     r0.Show()
@@ -472,7 +563,13 @@ Function RunSturgesTalk()
                 endif
             endif
         endif
-        AdvanceTo(1000, "sturges")
+        if okAdvance && mySession == talkSessionId
+            if st < 100
+                SetObjectiveCompleted(10)
+                CleanupMarker()
+            endif
+            AdvanceTo(1000, "sturges")
+        endif
     elseif st == 1050
         AdvanceTo(1200, "sturges")
     elseif st == 1250
@@ -480,13 +577,20 @@ Function RunSturgesTalk()
     elseif st == 1350
         AdvanceTo(1400, "sturges")
     elseif st == 1450
+        bool doneOk = True
         Message mDone = ResolveMsg(SturgesDoneMsg, 0x000A14)
         if mDone != None
-            mDone.Show()
+            if mDone.Show() < 0
+                doneOk = False
+            endif
         endif
-        AdvanceTo(1500, "sturges")
+        if doneOk && mySession == talkSessionId
+            AdvanceTo(1500, "sturges")
+        endif
     endif
-    talkBoxOpen = False
+    if mySession == talkSessionId
+        talkBoxOpen = False
+    endif
 EndFunction
 
 string Function ActiveCorePlugin()
@@ -580,13 +684,16 @@ Function RunWorkbenchBuildMenu()
         return
     endif
     benchMenuOpen = True
+    int mySession = talkSessionId
     Trace("sanctuary01 bench build menu opened stage=" + EffectiveStage())
     int loops = 0
     bool finishedMenu = False
-    while !finishedMenu && !completed && loops < 16
+    while !finishedMenu && !completed && loops < 16 && mySession == talkSessionId
         loops += 1
         int btn = bm.Show()
-        if btn == 0
+        if btn < 0 || mySession != talkSessionId
+            finishedMenu = True
+        elseif btn == 0
             GlobalVariable gb = ResolveGlob(BedCount, 0x000A02)
             if gb != None
                 float nv = gb.GetValue() + 1.0
@@ -625,7 +732,9 @@ Function RunWorkbenchBuildMenu()
             CheckMilestoneProgress(EffectiveStage())
         endif
     endwhile
-    benchMenuOpen = False
+    if mySession == talkSessionId
+        benchMenuOpen = False
+    endif
 EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)

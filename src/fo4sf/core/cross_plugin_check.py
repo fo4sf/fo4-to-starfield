@@ -98,13 +98,20 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
     "FO4TerrainCore.esm": {
+        0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
+        0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
     "FO4TerrainCore_Mars.esm": {
+        0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
+        0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
+        0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
     "FO4ActorRaider.esm": {
         0xF04800: ("NPC_", "FO4_LvlRaider"),
@@ -142,6 +149,7 @@ CAST_EXPECTED_TYPES: Dict[str, Set[str]] = {
     "objectreference": {"REFR", "ACHR"},
     "gameplayoption": {"GPOF"},
     "scene": {"SCEN"},
+    "worldspace": {"WRLD"},
     "form": {
         "MISC", "ALCH", "AMMO", "ARMO", "ARMA", "OTFT", "WEAP", "ACTI", "FURN", "STAT",
         "CONT", "DOOR", "HAZD", "AVIF", "GLOB", "PERK", "QUST", "FACT", "FLST",
@@ -717,6 +725,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xA56, "ACHR", "FO4SF_Valentines_EllieREF"),
             (0xA57, "GLOB", "FO4SF_DCGateUnlocked"),
             (0xA58, "GLOB", "FO4SF_MQ104Armed"),
+            (0xA59, "ACTI", "FO4SF_MQ103_GateProxyActi"),
             (0xA60, "MESG", "FO4SF_MQ103_GateTalkMsg"),
             (0xA61, "MESG", "FO4SF_MQ103_GateOpenMsg"),
             (0xA62, "MESG", "FO4SF_MQ103_AgencyTalkMsg"),

@@ -69,11 +69,16 @@ static class NextStoryMissionsA4
     public const uint PiperNpcId = 0xA51, PiperRefId = 0xA52;
     public const uint MayorNpcId = 0xA53, MayorRefId = 0xA54;
     public const uint EllieNpcId = 0xA55, EllieRefId = 0xA56;
-    public const uint DcGateUnlockedGlobId = 0xA57, Mq104ArmedGlobId = 0xA58;
+    public const uint DcGateUnlockedGlobId = 0xA57, Mq104ArmedGlobId = 0xA58, GateProxyActiId = 0xA59;
+    public const string GateProxyActiEdid = "FO4SF_MQ103_GateProxyActi";
+    public const string GateProxyActiModel = "Meshes\\Markers\\MarkerError.nif";
     public const uint Mq103GateTalkMsgId = 0xA60, Mq103GateOpenMsgId = 0xA61,
                       Mq103AgencyTalkMsgId = 0xA62, Mq103DossierMsgId = 0xA63;
 
     public const uint MaxAllocatedId = 0xA64;
+
+    public const float MergeOffsetX = -1200.0f;
+    public const float MergeOffsetY = -2700.0f;
 
     public static bool IsA4ActorRefId(uint id) =>
         id is SturgesRefId or TenpinesRefId or CorvegaBossRefId or PiperRefId or MayorRefId or EllieRefId;
@@ -166,6 +171,23 @@ static class NextStoryMissionsA4
         return msg;
     }
 
+    static SF.INpcGetter PickFemaleTemplate(SF.IStarfieldModGetter sf, FormKey humanRace, SF.INpcGetter fallback) =>
+        sf.Npcs.FirstOrDefault(n =>
+            n.Race.FormKey == humanRace &&
+            n.Flags.HasFlag(SF.Npc.Flag.Female) &&
+            !string.IsNullOrEmpty(n.EditorID) &&
+            n.DefaultTemplate.IsNull)
+        ?? sf.Npcs.FirstOrDefault(n => n.Race.FormKey == humanRace && n.Flags.HasFlag(SF.Npc.Flag.Female))
+        ?? fallback;
+
+    static FormKey PickFemaleVoice(SF.IStarfieldModGetter sf, FormKey fallbackVoice) =>
+        sf.VoiceTypes.FirstOrDefault(v =>
+            v.EditorID == "GenericFemaleEvenToned" && v.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog))?.FormKey
+        ?? sf.VoiceTypes.FirstOrDefault(v =>
+            v.EditorID is not null && v.EditorID.Contains("Female", StringComparison.OrdinalIgnoreCase) &&
+            v.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog))?.FormKey
+        ?? fallbackVoice;
+
     static SF.Npc CloneHumanNpc(
         SF.StarfieldMod mod,
         ModKey modKey,
@@ -176,7 +198,9 @@ static class NextStoryMissionsA4
         FormKey humanRace,
         FormKey voiceType,
         FormKey? factionKey,
-        bool essential)
+        bool essential,
+        bool female = false,
+        string? activateTextOverride = "Talk")
     {
         var npc = (SF.Npc)template.Duplicate(new FormKey(modKey, id));
         npc.EditorID = edid;
@@ -188,13 +212,45 @@ static class NextStoryMissionsA4
         npc.DefaultTemplate.Clear();
         npc.TemplateActors = null;
         npc.CrimeFaction.Clear();
-        npc.ActivateTextOverride = "Talk";
-        var flags = (npc.Flags | SF.Npc.Flag.Unique | SF.Npc.Flag.AutoCalcStats) & ~SF.Npc.Flag.Respawn;
+        npc.ActivateTextOverride = activateTextOverride;
+        var flags = (npc.Flags | SF.Npc.Flag.Unique | SF.Npc.Flag.AutoCalcStats)
+                    & ~(SF.Npc.Flag.Respawn | SF.Npc.Flag.Protected);
         flags = essential ? (flags | SF.Npc.Flag.Essential) : (flags & ~SF.Npc.Flag.Essential);
+        flags = female ? (flags | SF.Npc.Flag.Female) : (flags & ~SF.Npc.Flag.Female);
         npc.Flags = flags;
         npc.Factions.Clear();
         if (factionKey is { } fk)
             npc.Factions.Add(new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(fk), Rank = 0 });
+        mod.Npcs.Add(npc);
+        return npc;
+    }
+
+    static SF.Npc CloneHostileBossNpc(
+        SF.StarfieldMod mod,
+        ModKey modKey,
+        uint id,
+        string edid,
+        string displayName,
+        SF.INpcGetter raiderTemplate,
+        FormKey weaponKey,
+        FormKey ammoKey)
+    {
+        var npc = (SF.Npc)raiderTemplate.Duplicate(new FormKey(modKey, id));
+        npc.EditorID = edid;
+        npc.Name = displayName;
+        npc.VirtualMachineAdapter = null;
+        npc.DefaultTemplate.Clear();
+        npc.TemplateActors = null;
+        npc.CrimeFaction.Clear();
+        npc.ActivateTextOverride = null;
+        var flags = (npc.Flags | SF.Npc.Flag.Unique | SF.Npc.Flag.AutoCalcStats)
+                    & ~(SF.Npc.Flag.Essential | SF.Npc.Flag.Protected | SF.Npc.Flag.Respawn);
+        npc.Flags = flags;
+        npc.Items ??= new ExtendedList<SF.ContainerEntry>();
+        if (!npc.Items.Any(i => i.Item.Item.FormKey == weaponKey))
+            npc.Items.Add(new SF.ContainerEntry { Item = new SF.ContainerItem { Item = new FormLink<SF.IItemGetter>(weaponKey), Count = 1 } });
+        if (!npc.Items.Any(i => i.Item.Item.FormKey == ammoKey))
+            npc.Items.Add(new SF.ContainerEntry { Item = new SF.ContainerItem { Item = new FormLink<SF.IItemGetter>(ammoKey), Count = 50 } });
         mod.Npcs.Add(npc);
         return npc;
     }
@@ -234,19 +290,27 @@ static class NextStoryMissionsA4
         FormKey minutemenFactionKey,
         FormKey questTypeSideKey,
         FormKey xMarkerKey,
+        SF.IStarfieldModGetter sfMod,
         SF.INpcGetter humanTemplate,
         FormKey humanRaceKey,
-        FormKey humanVoiceKey)
+        FormKey humanVoiceKey,
+        SF.INpcGetter raiderTemplate,
+        FormKey raiderCombatPackKey,
+        FormKey raiderSandboxPackKey,
+        FormKey weaponKey,
+        FormKey ammoKey)
     {
         var modKey = mod.ModKey;
         var rel = SF.StarfieldRelease.Starfield;
+        var femaleTemplate = PickFemaleTemplate(sfMod, humanRaceKey, humanTemplate);
+        var femaleVoiceKey = PickFemaleVoice(sfMod, humanVoiceKey);
 
         // ------------------------------------------------------------------ 1. Sanctuary (Min01 -> 0x000817 IN PLACE)
         var sturgesNpc = CloneHumanNpc(mod, modKey, SturgesNpcId, SturgesNpcEdid, "Sturges",
-            humanTemplate, humanRaceKey, humanVoiceKey, minutemenFactionKey, essential: false);
-        // Sanctuary Hills local coords beside workbench (-1129.25, 1279.81, 112.09)
+            humanTemplate, humanRaceKey, humanVoiceKey, minutemenFactionKey, essential: false, female: false);
+        // Merged Sanctuary Hills coords beside workbench (-1127.0 + -1200, 1281.5 + -2700, 112.1)
         var sturgesRef = PlacePersistentActor(persistentCell, modKey, SturgesRefId, SturgesRefEdid,
-            sturgesNpc.FormKey, -1127.0f, 1281.5f, 112.1f, 3.14f);
+            sturgesNpc.FormKey, -1127.0f + MergeOffsetX, 1281.5f + MergeOffsetY, 112.1f, 3.14f);
 
         var bedCount = AddGlob(mod, modKey, Min01BedCountId, "FO4SF_Min01BedCount", 0f);
         var bedTotal = AddGlob(mod, modKey, Min01BedTotalId, "FO4SF_Min01BedTotal", DefaultBedTotal);
@@ -349,14 +413,14 @@ static class NextStoryMissionsA4
 
         // ------------------------------------------------------------------ 2. The First Step (MinRecruit00 -> 0x000A20)
         var tenpinesNpc = CloneHumanNpc(mod, modKey, TenpinesNpcId, "FO4_TenpinesSpokesman", "Tenpines Settler",
-            humanTemplate, humanRaceKey, humanVoiceKey, null, essential: false);
+            humanTemplate, humanRaceKey, humanVoiceKey, null, essential: false, female: false);
         var tenpinesRef = PlacePersistentActor(persistentCell, modKey, TenpinesRefId, "FO4SF_Tenpines_SpokesmanREF",
-            tenpinesNpc.FormKey, -315.0f, 1278.0f, 87.8f, 3.0f);
+            tenpinesNpc.FormKey, -315.0f + MergeOffsetX, 1278.0f + MergeOffsetY, 87.8f, 3.0f);
 
-        var corvegaBossNpc = CloneHumanNpc(mod, modKey, CorvegaBossNpcId, "FO4_CorvegaBoss", "Raider Leader",
-            humanTemplate, humanRaceKey, humanVoiceKey, null, essential: false);
+        var corvegaBossNpc = CloneHostileBossNpc(mod, modKey, CorvegaBossNpcId, "FO4_CorvegaBoss", "Raider Leader",
+            raiderTemplate, weaponKey, ammoKey);
         var corvegaBossRef = PlacePersistentActor(persistentCell, modKey, CorvegaBossRefId, "FO4SF_Corvega_BossREF",
-            corvegaBossNpc.FormKey, -512.0f, 479.0f, 54.0f, 0.0f);
+            corvegaBossNpc.FormKey, -512.0f + MergeOffsetX, 479.0f + MergeOffsetY, 54.0f, 0.0f);
 
         var flareGun = new SF.MiscItem(new FormKey(modKey, FlareGunMiscId), rel)
         {
@@ -418,6 +482,11 @@ static class NextStoryMissionsA4
                 Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowReserved |
                         SF.AQuestAlias.Flag.AllowDisabled | SF.AQuestAlias.Flag.AllowDead,
                 ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(corvegaBossRef.FormKey),
+                PackageData =
+                {
+                    new FormLink<SF.IPackageGetter>(raiderCombatPackKey),
+                    new FormLink<SF.IPackageGetter>(raiderSandboxPackKey),
+                },
             },
             new SF.QuestReferenceAlias
             {
@@ -450,22 +519,32 @@ static class NextStoryMissionsA4
 
         // ------------------------------------------------------------------ 3. Jewel of the Commonwealth (MQ103 -> 0x000A50)
         var piperNpc = CloneHumanNpc(mod, modKey, PiperNpcId, "FO4_Piper", "Piper",
-            humanTemplate, humanRaceKey, humanVoiceKey, null, essential: false);
+            femaleTemplate, humanRaceKey, femaleVoiceKey, null, essential: false, female: true);
         var piperRef = PlacePersistentActor(persistentCell, modKey, PiperRefId, "FO4SF_DiamondCity_PiperREF",
-            piperNpc.FormKey, -224.0f, -433.0f, 19.3f, 0.5f);
+            piperNpc.FormKey, -224.0f + MergeOffsetX, -433.0f + MergeOffsetY, 19.3f, 0.5f);
 
         var mayorNpc = CloneHumanNpc(mod, modKey, MayorNpcId, "FO4_MayorMcDonough", "Mayor McDonough",
-            humanTemplate, humanRaceKey, humanVoiceKey, null, essential: false);
+            humanTemplate, humanRaceKey, humanVoiceKey, null, essential: false, female: false);
         var mayorRef = PlacePersistentActor(persistentCell, modKey, MayorRefId, "FO4SF_DiamondCity_MayorREF",
-            mayorNpc.FormKey, -219.0f, -431.0f, 19.3f, 3.6f);
+            mayorNpc.FormKey, -219.0f + MergeOffsetX, -431.0f + MergeOffsetY, 19.3f, 3.6f);
 
         var ellieNpc = CloneHumanNpc(mod, modKey, EllieNpcId, "FO4_ElliePerkins", "Ellie Perkins",
-            humanTemplate, humanRaceKey, humanVoiceKey, null, essential: false);
+            femaleTemplate, humanRaceKey, femaleVoiceKey, null, essential: false, female: true);
+        // Post-gate / Valentine's Agency side (past Diamond City main gate, never beside Piper outside the locked gate)
         var ellieRef = PlacePersistentActor(persistentCell, modKey, EllieRefId, "FO4SF_Valentines_EllieREF",
-            ellieNpc.FormKey, -214.0f, -427.0f, 19.3f, 0.0f);
+            ellieNpc.FormKey, -192.0f + MergeOffsetX, -402.0f + MergeOffsetY, 19.3f, 0.0f);
 
         var dcGateUnlocked = AddGlob(mod, modKey, DcGateUnlockedGlobId, "FO4SF_DCGateUnlocked", 0f);
         var mq104Armed = AddGlob(mod, modKey, Mq104ArmedGlobId, "FO4SF_MQ104Armed", 0f);
+        var gateProxyActi = new SF.Activator(new FormKey(modKey, GateProxyActiId), rel)
+        {
+            EditorID = GateProxyActiEdid,
+            Name = "Diamond City Gate Controls",
+            ActivateTextOverride = "Activate",
+            ActivationAngle = 360,
+            Model = new SF.Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>(GateProxyActiModel) },
+        };
+        mod.Activators.Add(gateProxyActi);
 
         var mqGateTalk = AddMessage(mod, modKey, Mq103GateTalkMsgId, "FO4SF_MQ103_GateTalkMsg",
             "Diamond City Gate", "A reporter at the intercom offers to help open the Diamond City gate.",
@@ -532,6 +611,7 @@ static class NextStoryMissionsA4
         }
         var mqScript = new SF.ScriptEntry { Name = Mq103ScriptName, Flags = SF.ScriptEntry.Flag.Local };
         mqScript.Properties.Add(ObjProp("XMarkerBase", xMarkerKey));
+        mqScript.Properties.Add(ObjProp("GateProxyActi", gateProxyActi.FormKey));
         mqScript.Properties.Add(ObjProp("Piper", piperRef.FormKey));
         mqScript.Properties.Add(ObjProp("Mayor", mayorRef.FormKey));
         mqScript.Properties.Add(ObjProp("Ellie", ellieRef.FormKey));
@@ -630,5 +710,26 @@ static class NextStoryMissionsA4
         need(plug.Globals.Any(g => g.FormKey == new FormKey(key, DcGateUnlockedGlobId)) &&
              plug.Globals.Any(g => g.FormKey == new FormKey(key, Mq104ArmedGlobId)),
              "FO4SF_MQ103 GLOBs (0x000A57 / 0x000A58) missing");
+        var gpActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, GateProxyActiId));
+        need(gpActi is { EditorID: GateProxyActiEdid, ActivationAngle: 360 } && gpActi.ActivateTextOverride?.String == "Activate",
+            "FO4SF_MQ103_GateProxyActi (0x000A59) missing or invalid");
+        var bossNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, CorvegaBossNpcId));
+        need(bossNpc is { EditorID: "FO4_CorvegaBoss" } &&
+             !bossNpc.Flags.HasFlag(SF.Npc.Flag.Essential) && !bossNpc.Flags.HasFlag(SF.Npc.Flag.Protected) && !bossNpc.Flags.HasFlag(SF.Npc.Flag.Respawn) &&
+             bossNpc.ActivateTextOverride is null && (bossNpc.Items?.Count ?? 0) >= 2,
+            "FO4_CorvegaBoss (0x000A23) must be hostile non-essential/non-protected armed boss without Talk override");
+        var bossAlias = (mr?.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == 1);
+        need(bossAlias is not null && bossAlias.PackageData.Count >= 2,
+            "FO4SF_MinRecruit00 CorvegaBoss alias 1 lacks combat/sandbox packages");
+        var piperNpcCheck = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, PiperNpcId));
+        var ellieNpcCheck = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, EllieNpcId));
+        need(piperNpcCheck is not null && piperNpcCheck.Flags.HasFlag(SF.Npc.Flag.Female) &&
+             ellieNpcCheck is not null && ellieNpcCheck.Flags.HasFlag(SF.Npc.Flag.Female),
+            "FO4_Piper (0x000A51) and FO4_ElliePerkins (0x000A55) must carry Female flag");
+        // Verify all 6 A4 persistent ACHRs are placed at merged Commonwealth coordinates (X < -1000, Y < -1000)
+        var topRefs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
+            .Where(r => IsA4ActorRefId(r.FormKey.ID)).ToList() ?? [];
+        need(topRefs.Count == 6 && topRefs.All(r => r.Position.X < -1000f && r.Position.Y < -1000f),
+            "A4 persistent ACHRs must all be placed at merged Commonwealth coordinates");
     }
 }
