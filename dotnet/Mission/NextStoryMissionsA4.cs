@@ -71,7 +71,7 @@ static class NextStoryMissionsA4
     public const uint EllieNpcId = 0xA55, EllieRefId = 0xA56;
     public const uint DcGateUnlockedGlobId = 0xA57, Mq104ArmedGlobId = 0xA58, GateProxyActiId = 0xA59;
     public const string GateProxyActiEdid = "FO4SF_MQ103_GateProxyActi";
-    public const string GateProxyActiModel = "Meshes\\Markers\\MarkerError.nif";
+    public const string GateProxyActiModel = Mission.CodsworthTalkActiModel;
     public const uint Mq103GateTalkMsgId = 0xA60, Mq103GateOpenMsgId = 0xA61,
                       Mq103AgencyTalkMsgId = 0xA62, Mq103DossierMsgId = 0xA63;
 
@@ -541,7 +541,15 @@ static class NextStoryMissionsA4
             EditorID = GateProxyActiEdid,
             Name = "Diamond City Gate Controls",
             ActivateTextOverride = "Activate",
+            MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+            Flags = (SF.Activator.Flag)0,
             ActivationAngle = 360,
+            InvertFacing = false,
+            ObjectBounds = new SF.ObjectBounds
+            {
+                First = new P3Float(-0.25f, -0.25f, -0.25f),
+                Second = new P3Float(0.25f, 0.25f, 0.25f),
+            },
             Model = new SF.Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>(GateProxyActiModel) },
         };
         mod.Activators.Add(gateProxyActi);
@@ -711,7 +719,10 @@ static class NextStoryMissionsA4
              plug.Globals.Any(g => g.FormKey == new FormKey(key, Mq104ArmedGlobId)),
              "FO4SF_MQ103 GLOBs (0x000A57 / 0x000A58) missing");
         var gpActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, GateProxyActiId));
-        need(gpActi is { EditorID: GateProxyActiEdid, ActivationAngle: 360 } && gpActi.ActivateTextOverride?.String == "Activate",
+        need(gpActi is { EditorID: GateProxyActiEdid, ActivationAngle: 360, InvertFacing: false } &&
+             gpActi.ActivateTextOverride?.String == "Activate" &&
+             string.Equals(gpActi.Model?.File?.GivenPath, GateProxyActiModel, StringComparison.OrdinalIgnoreCase) &&
+             gpActi.ObjectBounds is { First.X: -0.25f, Second.X: 0.25f },
             "FO4SF_MQ103_GateProxyActi (0x000A59) missing or invalid");
         var bossNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, CorvegaBossNpcId));
         need(bossNpc is { EditorID: "FO4_CorvegaBoss" } &&

@@ -297,6 +297,10 @@ class A4PapyrusContractTests(unittest.TestCase):
 
         # 1. Persistent GateProxyActi (0x000A59) + gateRef.DisableNoWait(False) + Alias 0 XMarkerBase in MQ103
         self.assertIn("GateProxyActiId = 0xA59", a4_cs)
+        self.assertIn("GateProxyActiModel = Mission.CodsworthTalkActiModel", a4_cs)
+        self.assertNotIn("Meshes\\\\Markers\\\\MarkerError.nif", a4_cs)
+        self.assertIn("InvertFacing = false", a4_cs)
+        self.assertIn("new P3Float(-0.25f, -0.25f, -0.25f)", a4_cs)
         self.assertIn('ObjProp("GateProxyActi"', a4_cs)
         self.assertIn("Activator Property GateProxyActi Auto Const", mq103)
         self.assertIn("gateRef.DisableNoWait(False)", mq103)
