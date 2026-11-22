@@ -287,6 +287,13 @@ Function ApplyStage(int n, string by)
         CompleteQuest()
         CancelTimer(1)
         Trace("mq103 complete stage=100 mq104_armed=1 by=" + by)
+        if !IsWarfareMode()
+            Quest mq104Quest = Game.GetFormFromFile(0x000A80, MissionPlugin) as Quest
+            if mq104Quest != None && !mq104Quest.IsRunning() && !mq104Quest.IsCompleted()
+                bool startedMq104 = mq104Quest.StartNoWait()
+                Trace("mq104 start_requested ok=" + startedMq104)
+            endif
+        endif
     endif
 EndFunction
 

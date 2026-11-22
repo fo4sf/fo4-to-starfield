@@ -146,6 +146,8 @@ int prestonSceneChecks = 0
 int sanctuaryStartRetries = 0
 bool mq103ProxAttempted = False
 bool minRecruitProxAttempted = False
+bool mq104ProxAttempted = False
+bool mq105ProxAttempted = False
 
 float[] raiderTargetX
 float[] raiderTargetY
@@ -1078,6 +1080,7 @@ Event OnTimer(int aiTimerID)
         Relocate(player)
     endif
     CheckA4ProximityStarts(player)
+    CheckA7ProximityStarts(player)
     int rawStage = GetStage()
     int stage = EffectiveStage()
     if !min00Given && stage < 10 && IsCommonwealthExterior(player)
@@ -1292,6 +1295,7 @@ Function KeepCodsworth()
             TraceCodsworth("keeper status")
         endif
         CheckA4ProximityStarts(player)
+        CheckA7ProximityStarts(player)
     endif
     if (Codsworth != None && (codsworthFails < 10 || codsworthHolds > 0)) || (KeeperOnly && (prestonFails < 10 || prestonHolds > 0))
         StartTimer(CodsworthCheck, 2)
@@ -1325,6 +1329,39 @@ Function CheckA4ProximityStarts(Actor player)
             minRecruitProxAttempted = True
             stepQuest.StartNoWait()
             Trace("minrecruit00 started by=proximity")
+        endif
+    endif
+EndFunction
+
+Function CheckA7ProximityStarts(Actor player)
+{A7 console-free out-of-order proximity starts (Park Street Station / Vault 114 for MQ104 & Fort Hagen for MQ105):
+ active from Story surface landing even if the player bypasses earlier missions. Uses IsCommonwealthExterior (B2).}
+    if !IsCommonwealthExterior(player) || IsWarfareMode()
+        return
+    endif
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float r2 = 150.0 * 150.0
+    float psx = px - (-987.46)
+    float psy = py - (-2927.73)
+    float v14x = px - (-1085.43)
+    float v14y = py - (-2958.22)
+    if !mq104ProxAttempted && ((psx * psx + psy * psy <= r2) || (v14x * v14x + v14y * v14y <= r2))
+        Quest mq104Quest = Game.GetFormFromFile(0x000A80, "FO4SFMission.esm") as Quest
+        if mq104Quest != None && !mq104Quest.IsRunning() && !mq104Quest.IsCompleted()
+            mq104ProxAttempted = True
+            mq104Quest.StartNoWait()
+            Trace("mq104 started by=proximity")
+        endif
+    endif
+    float fhx = px - (-2456.84)
+    float fhy = py - (-2781.07)
+    if !mq105ProxAttempted && fhx * fhx + fhy * fhy <= r2
+        Quest mq105Quest = Game.GetFormFromFile(0x000AB0, "FO4SFMission.esm") as Quest
+        if mq105Quest != None && !mq105Quest.IsRunning() && !mq105Quest.IsCompleted()
+            mq105ProxAttempted = True
+            mq105Quest.StartNoWait()
+            Trace("mq105 started by=proximity")
         endif
     endif
 EndFunction

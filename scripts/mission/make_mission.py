@@ -64,7 +64,12 @@ CODSWORTH_SCRIPT = "FO4SF_Codsworth01Quest"
 SANCTUARY_SCRIPT = "FO4SF_Sanctuary01Quest"
 MINRECRUIT00_SCRIPT = "FO4SF_MinRecruit00Quest"
 MQ103_SCRIPT = "FO4SF_MQ103Quest"
-ALL_SCRIPTS = (SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT, MINRECRUIT00_SCRIPT, MQ103_SCRIPT)
+MQ104_SCRIPT = "FO4SF_MQ104Quest"
+MQ105_SCRIPT = "FO4SF_MQ105Quest"
+ALL_SCRIPTS = (
+    SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT,
+    MINRECRUIT00_SCRIPT, MQ103_SCRIPT, MQ104_SCRIPT, MQ105_SCRIPT,
+)
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
@@ -633,7 +638,9 @@ def stage(a):
 - QUST FO4SF_Codsworth01 (0x0816, MQ102-lite 4-choice Sanctuary conversation pointing to Concord; NOT StartGameEnabled),
 - QUST FO4SF_Sanctuary01 (0x0817, full Min01 Sanctuary settlement quest completed in place on workbench 0250FE / FO4TerrainCore.esm 0x005C50 + Sturges 0x0A00/0x0A01, started at FO4SF_Min00 stage 200),
 - QUST FO4SF_MinRecruit00 (0x0A20, The First Step — Tenpines Bluff / Corvega / Flare Gun 0x0A25, NOT StartGameEnabled),
-- QUST FO4SF_MQ103 (0x0A50, Jewel of the Commonwealth — Diamond City Gate / Piper / Mayor / Valentine Detective Agency, NOT StartGameEnabled).
+- QUST FO4SF_MQ103 (0x0A50, Jewel of the Commonwealth — Diamond City Gate / Piper / Mayor / Valentine Detective Agency, NOT StartGameEnabled),
+- QUST FO4SF_MQ104 (0x0A80, Unlikely Valentine — Park Street Station / Vault 114 / Nick Valentine / Skinny Malone, NOT StartGameEnabled),
+- QUST FO4SF_MQ105 (0x0AB0, Getting a Clue — Valentine Agency / Kellogg's House / Cigar Trail / Fort Hagen 0D handoff, NOT StartGameEnabled).
 Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {PRESTON_PLACEHOLDER_NOTE}.
 Raiders: {len(pts['raiders'])} ACHR(s) of FO4_LvlRaider ({raiders}).
 Codsworth: {"NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + FO4SF_CodsworthVoice AllowDefaultDialog) at " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
@@ -932,7 +939,9 @@ def summarize(lines):
          "min01_bench_activated": False, "sanctuary01_complete": None,
          "sanctuary01_stages": [], "sanctuary01_finished": None,
          "minrecruit00_stages": [], "minrecruit00_complete": None,
-         "mq103_stages": [], "mq103_complete": None}
+         "mq103_stages": [], "mq103_complete": None,
+         "mq104_stages": [], "mq104_complete": None,
+         "mq105_stages": [], "mq105_complete": None}
     follow_seen = False
     for line in lines:
         m = LINE.search(line)
@@ -1024,6 +1033,18 @@ def summarize(lines):
                 s["mq103_stages"].append(int(parts[2]))
         elif low.startswith("mq103 complete "):
             s["mq103_complete"] = msg
+        elif low.startswith("mq104 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq104_stages"].append(int(parts[2]))
+        elif low.startswith("mq104 complete "):
+            s["mq104_complete"] = msg
+        elif low.startswith("mq105 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq105_stages"].append(int(parts[2]))
+        elif low.startswith("mq105 complete "):
+            s["mq105_complete"] = msg
         elif low.startswith("follow preston test-only refused: test mode off"):
             s["follow"] = msg
             s["follow_refused_test_mode"] = True

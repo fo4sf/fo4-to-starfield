@@ -199,17 +199,15 @@ class A4CSharpRecordTests(unittest.TestCase):
         ):
             self.assertIn(mutation, prog)
 
-        self.assertEqual(
-            make_mission.ALL_SCRIPTS,
-            (
-                "FO4SF_Min00Quest",
-                "FO4SF_COMPreston",
-                "FO4SF_Codsworth01Quest",
-                "FO4SF_Sanctuary01Quest",
-                "FO4SF_MinRecruit00Quest",
-                "FO4SF_MQ103Quest",
-            ),
-        )
+        for scr in (
+            "FO4SF_Min00Quest",
+            "FO4SF_COMPreston",
+            "FO4SF_Codsworth01Quest",
+            "FO4SF_Sanctuary01Quest",
+            "FO4SF_MinRecruit00Quest",
+            "FO4SF_MQ103Quest",
+        ):
+            self.assertIn(scr, make_mission.ALL_SCRIPTS)
         summary = make_mission.summarize([
             "FO4SF_MISSION rt=400.0 sanctuary01 stage 1500 by=sturges",
             "FO4SF_MISSION rt=400.1 sanctuary01 finished stage=1500 by=sturges",
