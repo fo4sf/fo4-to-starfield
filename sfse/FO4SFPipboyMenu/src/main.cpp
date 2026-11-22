@@ -612,17 +612,25 @@ namespace
 	std::atomic<const void*>                 g_shownInvalidatedMovie{ nullptr };
 	std::atomic<const void*>                 g_populatedLogMovie{ nullptr };
 	std::atomic<const void*>                 g_createdCodeObjMovie{ nullptr };
+	std::atomic<const void*>                 g_activeShellMenu{ nullptr };
 	std::atomic<std::int32_t>                g_currentShellPage{ -1 };
 	std::atomic<std::int32_t>                g_currentShellTab{ 0 };
 	std::atomic<std::int32_t>                g_externalTargetPage{ -1 };
 	std::atomic<std::uint32_t>               g_pendingPartialMask{ 0 };
 	std::atomic<bool>                        g_keyInputHeld{ false };
 	std::atomic<bool>                        g_pendingCancelRelease{ false };
-	std::uint32_t                            g_invSortMode = 0;
-	// Watchdog & movie call entry/exit diagnostics (Step 5)
+	std::atomic<std::uint32_t>               g_invSortMode{ 0 };
+	// Watchdog & movie call entry/exit diagnostics (Step 5, stack-aware & synchronized)
+	struct GfxWatchdogFrame
+	{
+		std::uint64_t seq = 0;
+		std::int64_t  startMs = 0;
+		const char*   what = nullptr;
+	};
 	std::atomic<std::uint64_t>               g_gfxCallSeq{ 0 };
-	std::atomic<std::int64_t>                g_gfxBusySinceMs{ 0 };
-	std::atomic<const char*>                 g_gfxBusyName{ nullptr };
+	std::mutex                               g_gfxWatchdogLock;
+	GfxWatchdogFrame                         g_gfxActiveFrame{};
+	thread_local std::vector<GfxWatchdogFrame> t_gfxWatchdogStack;
 	std::atomic<std::uint64_t>               g_gfxWatchdogLoggedSeq{ 0 };
 	std::atomic<std::uint32_t>               g_gfxFreqLines{ 0 };
 	// Extra checked RVAs for FO4 shell stats/aid & native PlayIdle (not in kIds so Stage 1..3 step=id counts stay exact)
@@ -683,6 +691,7 @@ namespace
 	std::uint32_t                            g_armUnregSinkRva = 0;     // BSTEventSource::UnregisterSink (REL::ID 123822), CheckArmId
 	std::atomic<std::int64_t>                g_armPressAt{ 0 };         // the last Key press that started a raise, steady ms
 	std::atomic<std::uint32_t>               g_armN{ 0 };               // that press's n
+	std::atomic<std::uint32_t>               g_armPendingOpenN{ 0 };    // active open cycle token consumed once by ArmShow/watchdog/Close
 	std::atomic<std::int64_t>                g_armLowerUntil{ 0 };      // Key ignored until then (ArmLowerMs)
 	std::atomic<bool>                        g_armRaiseAccepted{ false };
 	std::atomic<bool>                        g_armWaitingRaiseGraph{ false };
@@ -3545,18 +3554,36 @@ namespace
 
 	std::uint64_t GfxWatchdogEnter(const char* a_what, bool a_uncapped)
 	{
-		const auto seq = ++g_gfxCallSeq;
-		g_gfxBusyName.store(a_what);
-		g_gfxBusySinceMs.store(NowMs());
-		if (a_uncapped || ++g_gfxFreqLines <= kMaxGfxFreqLines) {
-			REX::INFO("step=gfx_enter seq={} call={}", seq, a_what ? a_what : "unknown");
+		const GfxWatchdogFrame frame{ ++g_gfxCallSeq, NowMs(), a_what };
+		t_gfxWatchdogStack.push_back(frame);
+		{
+			std::scoped_lock lock(g_gfxWatchdogLock);
+			g_gfxActiveFrame = frame;
 		}
-		return seq;
+		if (a_uncapped || ++g_gfxFreqLines <= kMaxGfxFreqLines) {
+			REX::INFO("step=gfx_enter seq={} call={}", frame.seq, a_what ? a_what : "unknown");
+		}
+		return frame.seq;
 	}
 
 	void GfxWatchdogExit(std::uint64_t a_seq, const char* a_what, bool a_ok, std::int64_t a_startMs, bool a_uncapped)
 	{
-		g_gfxBusySinceMs.store(0);
+		if (!t_gfxWatchdogStack.empty()) {
+			if (t_gfxWatchdogStack.back().seq == a_seq) {
+				t_gfxWatchdogStack.pop_back();
+			} else {
+				for (auto it = t_gfxWatchdogStack.rbegin(); it != t_gfxWatchdogStack.rend(); ++it) {
+					if (it->seq == a_seq) {
+						t_gfxWatchdogStack.erase(std::next(it).base());
+						break;
+					}
+				}
+			}
+		}
+		{
+			std::scoped_lock lock(g_gfxWatchdogLock);
+			g_gfxActiveFrame = t_gfxWatchdogStack.empty() ? GfxWatchdogFrame{} : t_gfxWatchdogStack.back();
+		}
 		const auto tookMs = NowMs() - a_startMs;
 		if (a_uncapped || !a_ok || g_gfxFreqLines.load() <= kMaxGfxFreqLines) {
 			REX::INFO("step=gfx_exit seq={} call={} ok={} took_ms={}", a_seq, a_what ? a_what : "unknown", a_ok ? 1 : 0, tookMs);
@@ -3592,6 +3619,26 @@ namespace
 	bool IsFo4ShellActive()
 	{
 		return g_stage == 2 && g_codeObj && g_codeObjAt == "Menu_mc" && !g_playingBootMovie.load();
+	}
+
+	bool ExtractShellUInt32(const RE::Scaleform::GFx::Value& a_val, std::uint32_t& a_out)
+	{
+		if (a_val.IsUInt()) {
+			a_out = a_val.GetUInt();
+			return true;
+		}
+		if (a_val.IsInt() && a_val.GetInt() >= 0) {
+			a_out = static_cast<std::uint32_t>(a_val.GetInt());
+			return true;
+		}
+		if (a_val.IsNumber() && std::isfinite(a_val.GetNumber())) {
+			const double d = a_val.GetNumber();
+			if (d >= 0.0 && d <= 4294967295.0 && std::floor(d) == d) {
+				a_out = static_cast<std::uint32_t>(d);
+				return true;
+			}
+		}
+		return false;
 	}
 
 	bool ExtractShellIndex(const RE::Scaleform::GFx::Value& a_val, std::int32_t& a_out, std::int32_t a_max = 63)
@@ -3665,6 +3712,7 @@ namespace
 			g_deferredDestructionLogs.clear();
 		}
 		g_dataObj = RE::Scaleform::GFx::Value{};
+		g_activeShellMenu = nullptr;
 		g_listenedMovie = nullptr;
 		g_checkedMovie = nullptr;
 		g_codeObjMovie = nullptr;
@@ -4026,7 +4074,7 @@ namespace
 	};
 	std::mutex                  g_shellSnapLock;
 	ShellVitalsSnapshot         g_shellSnap;
-	const void*                 g_activeShellMenu = nullptr;
+	// g_activeShellMenu declared above ClearMovieSessionState as std::atomic<const void*>
 
 	using ShellAvCall_t = float (*)(void*, const void*);
 	using ShellLookupEdid_t = void* (*)(const RE::BSFixedString&);
@@ -4856,9 +4904,9 @@ namespace
 		}
 
 		if (g_invDataAnswers) {
-			SortShellInvEntries(invDataNext.items, g_invSortMode);
 			CollectQuestAndStatsMainThread(next, days, invDataNext);
 			std::scoped_lock invLock(g_invDataLock);
+			SortShellInvEntries(invDataNext.items, g_invSortMode.load(std::memory_order_relaxed));
 			g_invDataSnap = std::move(invDataNext);
 		} else if (PipboyMap::Enabled()) {
 			// A5: keep MAP active objective markers synced even when InvDataAnswers=0
@@ -5137,7 +5185,7 @@ namespace
 		const std::uint32_t invTab = std::min<std::uint32_t>(a_tab, 6u);
 		const std::int32_t  invFilter = (a_page == 1u) ? static_cast<std::int32_t>(1u << invTab) : 1;
 		a_dataObj.SetMember("InvFilter", RE::Scaleform::GFx::Value(invFilter));
-		a_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode));
+		a_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode.load(std::memory_order_relaxed)));
 
 		RE::Scaleform::GFx::Value selArr, pushRes;
 		if (a_dataObj.GetMember("InvSelectedItems", &selArr) && ClearAs3ArrayInPlace(selArr)) {
@@ -5148,10 +5196,12 @@ namespace
 		}
 
 		if (a_page == 1u) {
-			ShellInvDataSnapshot snap;
+			ShellInvDataSnapshot           snap;
+			std::array<std::uint32_t, 12>  quickkeysCopy{};
 			{
 				std::scoped_lock lock(g_invDataLock);
 				snap = g_invDataSnap;
+				quickkeysCopy = g_quickkeyFormIds;
 			}
 			RE::Scaleform::GFx::Value invArr;
 			std::uint32_t             pushed = 0;
@@ -5185,11 +5235,11 @@ namespace
 			}
 			RE::Scaleform::GFx::Value favArr;
 			if (a_dataObj.GetMember("FavoritesList", &favArr) && ClearAs3ArrayInPlace(favArr)) {
-				for (std::size_t slot = 0; slot < g_quickkeyFormIds.size(); ++slot) {
+				for (std::size_t slot = 0; slot < quickkeysCopy.size(); ++slot) {
 					RE::Scaleform::GFx::Value favVal(nullptr);
-					if (g_quickkeyFormIds[slot] != 0) {
+					if (quickkeysCopy[slot] != 0) {
 						for (const auto& it : snap.items) {
-							if (it.formId == g_quickkeyFormIds[slot]) {
+							if (it.formId == quickkeysCopy[slot]) {
 								a_root->CreateObject(&favVal);
 								if (favVal.IsObject()) {
 									favVal.SetMember("text", RE::Scaleform::GFx::Value(it.name.c_str()));
@@ -5423,8 +5473,9 @@ namespace
 			FillInvAndDataIntoDataObj(a_root, a_dataObj, page, tab, a_when);
 		}
 
-		// Build WorldMapMarkers ONLY when targetPage == 3 (MAP)
-		if (a_menu && page == PipboyMap::MapPageIndex()) {
+		// Build WorldMapMarkers ONLY when targetPage == 3 (MAP) and NOT during a non-0x80 partial update
+		// (PipboyMap::OnShellUpdate owns 0x80 marker rebuilds and RemoveAllMapMarkers reset).
+		if (a_menu && page == PipboyMap::MapPageIndex() && std::string_view(a_when) != "partial") {
 			PipboyMap::PopulateMapDataObj(a_menu, a_root, a_dataObj, static_cast<std::int32_t>(page));
 		}
 
@@ -5456,7 +5507,7 @@ namespace
 		if (g_closing.load()) {
 			return;
 		}
-		const void* const menu = g_activeShellMenu;
+		const void* const menu = g_activeShellMenu.load();
 		if (!menu || !MovieOf(menu)) {
 			return;
 		}
@@ -5590,7 +5641,7 @@ namespace
 				if (a_params.argCount > 0 && a_params.args[0].IsObject()) {
 					g_dataObj = a_params.args[0];
 					if (g_populateInCall || g_invDataAnswers) {
-						const void* const menu = g_activeShellMenu;
+						const void* const menu = g_activeShellMenu.load();
 						const void* const movie = menu ? MovieOf(menu) : nullptr;
 						auto* const       root = menu ? RootOf(menu) : nullptr;
 						const auto        page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
@@ -5690,7 +5741,8 @@ namespace
 						ClearAs3ArrayInPlace(cardArr);
 						ClearAs3ArrayInPlace(dollArr);
 
-						auto* const root = g_activeShellMenu ? RootOf(g_activeShellMenu) : nullptr;
+						const void* const shellMenu = g_activeShellMenu.load();
+						auto* const root = shellMenu ? RootOf(shellMenu) : nullptr;
 						ShellInvEntry chosen;
 						bool          haveItem = false;
 						{
@@ -5757,16 +5809,19 @@ namespace
 					return;
 				}
 				if (_name == "SortItemList") {
-					g_invSortMode = (g_invSortMode + 1u) % 4u;
+					std::uint32_t nextSort = 0;
 					{
 						std::scoped_lock lock(g_invDataLock);
-						SortShellInvEntries(g_invDataSnap.items, g_invSortMode);
+						nextSort = (g_invSortMode.load(std::memory_order_relaxed) + 1u) % 4u;
+						g_invSortMode.store(nextSort, std::memory_order_relaxed);
+						SortShellInvEntries(g_invDataSnap.items, nextSort);
 					}
-					auto* const root = g_activeShellMenu ? RootOf(g_activeShellMenu) : nullptr;
+					const void* const shellMenu = g_activeShellMenu.load();
+					auto* const root = shellMenu ? RootOf(shellMenu) : nullptr;
 					if (root && g_dataObj.IsObject()) {
 						FillInvAndDataIntoDataObj(root, g_dataObj, 1u, s_savedTabs[1].load(), "SortItemList");
 					}
-					REX::INFO("step=inv_sort mode={}", g_invSortMode);
+					REX::INFO("step=inv_sort mode={}", nextSort);
 					if (a_params.argCount >= 1 && a_params.args[0].IsObject()) {
 						RE::Scaleform::GFx::Value invPage = a_params.args[0];
 						RE::Scaleform::GFx::Value zeroArg(std::uint32_t{ 0 });
@@ -5863,7 +5918,8 @@ namespace
 								qFid = static_cast<std::uint32_t>(fidVal.GetNumber());
 							}
 						}
-						auto* const root = g_activeShellMenu ? RootOf(g_activeShellMenu) : nullptr;
+						const void* const shellMenu = g_activeShellMenu.load();
+						auto* const root = shellMenu ? RootOf(shellMenu) : nullptr;
 						std::uint32_t objCount = 0;
 						if (root && qFid != 0 && (objList.IsArray() || objList.IsObject())) {
 							std::vector<ShellObjectiveEntry> objsCopy;
@@ -5939,6 +5995,7 @@ namespace
 							g_pendingPartialMask.fetch_or(0x10u);
 							if (g_task) {
 								g_task->AddTask([]() {
+									CollectShellVitalsMainThread(s_savedPage.load());
 									if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 										queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
 									}
@@ -5949,22 +6006,32 @@ namespace
 					return;
 				}
 				if (_name == "ShowQuestOnMap" || _name == "ShowWorkshopOnMap") {
-					std::int32_t targetId = -1;
+					const bool    isQuest = (_name == "ShowQuestOnMap");
+					std::uint32_t targetU32 = 0;
+					std::int32_t  targetIdx = -1;
 					if (a_params.argCount >= 1) {
-						ExtractShellIndex(a_params.args[0], targetId, 0x7FFFFFFF);
+						if (isQuest) {
+							ExtractShellUInt32(a_params.args[0], targetU32);
+						} else {
+							ExtractShellIndex(a_params.args[0], targetIdx, 0x7FFFFFFF);
+						}
 					}
-					const bool isQuest = (_name == "ShowQuestOnMap");
 					REX::INFO("step=data_show_on_map kind={} id={:#x}", isQuest ? "quest" : "workshop",
-						targetId >= 0 ? targetId : 0);
-					if (!(isQuest && targetId > 0 && PipboyMap::RequestCenterQuest(static_cast<std::uint32_t>(targetId)))) {
-						PipboyMap::RequestCenterMarker(targetId);
+						isQuest ? targetU32 : static_cast<std::uint32_t>(targetIdx >= 0 ? targetIdx : 0));
+					if (!isQuest) {
+						PipboyMap::RequestCenterMarker(targetIdx);
 					}
 					s_savedPage.store(3u);
 					s_savedTabs[3].store(0u);
 					g_externalTargetPage.store(3);
 					if (g_task) {
-						g_task->AddTask([]() {
-							PipboyMap::CollectStateForPage(3);
+						g_task->AddTask([isQuest, targetU32]() {
+							CollectShellVitalsMainThread(3u);
+							if (isQuest) {
+								if (targetU32 == 0 || !PipboyMap::RequestCenterQuest(targetU32)) {
+									PipboyMap::RequestCenterMarker(-1);
+								}
+							}
 							if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 								queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
 							}
@@ -6488,11 +6555,14 @@ namespace
 						}
 					});
 				}
-			} else if (g_externalTargetPage.compare_exchange_strong(const_cast<std::int32_t&>(extPage), -1)) {
-				RE::Scaleform::GFx::Value pageArg(static_cast<std::uint32_t>(extPage));
-				RE::Scaleform::GFx::Value tryRes;
-				if (!InvokeMovieTracked(menuMc, "TryToSetPage", &tryRes, &pageArg, 1, "Menu_mc.TryToSetPage")) {
-					REX::INFO("step=movie_call_miss where=TryToSetPage page={}", extPage);
+			} else {
+				auto expected = extPage;
+				if (g_externalTargetPage.compare_exchange_strong(expected, -1)) {
+					RE::Scaleform::GFx::Value pageArg(static_cast<std::uint32_t>(extPage));
+					RE::Scaleform::GFx::Value tryRes;
+					if (!InvokeMovieTracked(menuMc, "TryToSetPage", &tryRes, &pageArg, 1, "Menu_mc.TryToSetPage")) {
+						REX::INFO("step=movie_call_miss where=TryToSetPage page={}", extPage);
+					}
 				}
 			}
 		}
@@ -6651,7 +6721,18 @@ namespace
 				g_movieNameAsks.load());
 		}
 		if (!loaded || !MovieOf(a_self)) {
-			FailMovieCall("load_movie");
+			if (a_dispatcher) {
+				// Async LoadMovie worker thread: defer non-atomic GFx teardown to MenuDestroy/kHide on the menu thread.
+				REX::ERROR("step=movie_call_failed where=load_movie dispatcher=1 action=close_menu");
+				g_playingBootMovie = false;
+				g_bootReopenPage = -1;
+				g_open = false;
+				if (g_task) {
+					g_task->AddTask([]() { Close(0, "load_movie"); });
+				}
+			} else {
+				FailMovieCall("load_movie");
+			}
 			return false;
 		}
 		if (g_codeObj) {
@@ -6708,7 +6789,7 @@ namespace
 				const bool raiseReady = SameText(tag, "pipboyOpened") || SameText(tag, "WatchUp") ||
 				                        SameText(tag, "AnimObjDraw") || SameText(tag, "IdleStop") ||
 				                        (tag.find("Watch") != std::string::npos && SincePress() >= 350);
-				if (raiseReady && g_armWaitingRaiseGraph.exchange(false)) {
+				if (raiseReady && g_armPendingOpenN.load() != 0 && g_armWaitingRaiseGraph.exchange(false)) {
 					g_armShowAt.store(now);
 					REX::INFO("step=arm_graph_event phase=raise event={} action=show_now t_ms={}", tag, SincePress());
 				}
@@ -6753,6 +6834,8 @@ namespace
 			g_armShowAt = 0;
 			g_armWaitingRaiseGraph = false;
 			g_armDispatching = false;
+			g_armPendingOpenN = 0;
+			g_armPressAt = 0;
 			g_bootReopenPage = -1;
 			const auto gen = ++g_armGraphLoadGen;
 			if (g_armWatchedGraph != 0) {
@@ -6796,15 +6879,9 @@ namespace
 		}
 		const auto mgrAddr = reinterpret_cast<std::uintptr_t>(mgr.get());
 		const auto curGen = g_armGraphLoadGen.load();
-		// A4: If LoadingMenu fired or player 3D / animation graph manager changed, drop g_armWatchedGraph WITHOUT calling
-		// UnregisterSink on the potentially freed graph, and force re-registration even if the new graph reuses the address.
-		if (g_armWatchedGraph != 0 &&
-			(curGen != g_armWatchedGen || mgrAddr != g_armWatchedMgrAddr || player3D != g_armWatchedPlayer3D)) {
-			g_armWatchedGraph = 0;
-			g_armWatchedMgrAddr = 0;
-			g_armWatchedPlayer3D = 0;
-			REX::INFO("step=arm_graph_sink_reset reason=player3d_or_mgr_changed gen={}", curGen);
-		}
+		// A4: Inspect the live graph pointer first so 1st/3rd-person player3D swaps keeping the same live
+		// BSAnimationGraph* within the same load generation do not duplicate RegisterSink; otherwise drop
+		// g_armWatchedGraph WITHOUT calling UnregisterSink when load generation, manager, or 3D changed.
 		std::uint32_t gSize = 0;
 		std::uint32_t activeIdx = 0;
 		std::uint32_t capBits = 0;
@@ -6824,17 +6901,35 @@ namespace
 		if (!Peek(dataPtr + idx * sizeof(std::uintptr_t), graphPtr) || !graphPtr) {
 			return;
 		}
-		if (graphPtr == g_armWatchedGraph && curGen == g_armWatchedGen &&
-			mgrAddr == g_armWatchedMgrAddr && player3D == g_armWatchedPlayer3D) {
+		if (graphPtr == g_armWatchedGraph && curGen == g_armWatchedGen) {
+			g_armWatchedMgrAddr = mgrAddr;
+			g_armWatchedPlayer3D = player3D;
 			return;
+		}
+		if (g_armWatchedGraph != 0 &&
+			(curGen != g_armWatchedGen || mgrAddr != g_armWatchedMgrAddr || player3D != g_armWatchedPlayer3D)) {
+			g_armWatchedGraph = 0;
+			g_armWatchedMgrAddr = 0;
+			g_armWatchedPlayer3D = 0;
+			REX::INFO("step=arm_graph_sink_reset reason=player3d_or_mgr_changed gen={}", curGen);
 		}
 		ObjectType gType;
 		if (!TypeOf(graphPtr, gType)) {
 			return;
 		}
-		if (g_armWatchedGraph && g_armUnregSinkRva && curGen == g_armWatchedGen &&
-			mgrAddr == g_armWatchedMgrAddr && player3D == g_armWatchedPlayer3D) {
-			reinterpret_cast<RegisterAnimSink_t>(g_base + g_armUnregSinkRva)(reinterpret_cast<void*>(g_armWatchedGraph), &g_armGraphSink);
+		if (g_armWatchedGraph && g_armUnregSinkRva && curGen == g_armWatchedGen && mgrAddr == g_armWatchedMgrAddr) {
+			bool oldStillPresent = false;
+			for (std::uint32_t gi = 0; gi < gSize; ++gi) {
+				std::uintptr_t candidate = 0;
+				if (Peek(dataPtr + gi * sizeof(std::uintptr_t), candidate) && candidate == g_armWatchedGraph) {
+					oldStillPresent = true;
+					break;
+				}
+			}
+			ObjectType oldType;
+			if (oldStillPresent && TypeOf(g_armWatchedGraph, oldType)) {
+				reinterpret_cast<RegisterAnimSink_t>(g_base + g_armUnregSinkRva)(reinterpret_cast<void*>(g_armWatchedGraph), &g_armGraphSink);
+			}
 		}
 		reinterpret_cast<RegisterAnimSink_t>(g_base + g_armRegSinkRva)(reinterpret_cast<void*>(graphPtr), &g_armGraphSink);
 		g_armWatchedGraph = graphPtr;
@@ -7048,10 +7143,17 @@ namespace
 	// (with ArmRaiseMs timeout fallback); if accepted=0 (third person or weapon drawn), opens immediately without hanging.
 	void ArmRaise(std::uint32_t a_n)
 	{
+		if (g_armPendingOpenN.load() != a_n || g_armShown.load()) {
+			g_raiseRetry.state = kRetryIdle;
+			g_armWaitingRaiseGraph = false;
+			return;
+		}
 		if (const char* blocking = OpenBlockingOverlayMenu(RE::UI::GetSingleton())) {
 			g_raiseRetry.state = kRetryIdle;
 			g_armWaitingRaiseGraph = false;
 			g_armShowAt = 0;
+			g_armPendingOpenN = 0;
+			g_armPressAt = 0;
 			REX::INFO("step=arm_raise n={} ignored=menu_open menu={} accepted=0 t_ms={}", a_n, blocking, SincePress());
 			return;
 		}
@@ -7075,16 +7177,22 @@ namespace
 		if (outcome.empty()) {
 			return;
 		}
+		if (g_armPendingOpenN.load() != a_n || g_armShown.load()) {
+			g_armWaitingRaiseGraph = false;
+			return;
+		}
 		g_armRaiseOutcome = outcome;
 		g_armRaiseAccepted = (outcome == "1");
-		g_armWaitingRaiseGraph = (outcome == "1");
 		const auto showLeadMs = (outcome == "1") ? g_armRaiseMs : 0u;
 		REX::INFO("step=arm_raise_done n={} result={} accepted={} tries={} waited_ms={} show_in_ms={} t_ms={}", a_n, outcome,
 			outcome == "1" ? 1 : 0, tries, NowMs() - g_raiseRetry.firstAt.load(), showLeadMs, SincePress());
+		// Store g_armShowAt BEFORE arming g_armWaitingRaiseGraph so an immediate ArmAnimGraphSink event cannot be overwritten.
 		if (outcome == "1") {
-			g_armShowAt = NowMs() + g_armRaiseMs;
+			g_armShowAt.store(NowMs() + g_armRaiseMs, std::memory_order_release);
+			g_armWaitingRaiseGraph.store(true, std::memory_order_release);
 		} else {
-			g_armShowAt = NowMs();
+			g_armWaitingRaiseGraph.store(false, std::memory_order_release);
+			g_armShowAt.store(NowMs(), std::memory_order_release);
 		}
 	}
 
@@ -7122,6 +7230,7 @@ namespace
 	{
 		if (a_show) {
 			g_armWaitingRaiseGraph = false;
+			g_armPendingOpenN = 0;
 			g_armShown = true;
 			REX::INFO("step=arm_shown n={} accepted={} t_ms={}", g_armN.load(), g_armRaiseAccepted.load() ? 1 : 0, SincePress());
 			return;
@@ -7130,13 +7239,16 @@ namespace
 			return;
 		}
 		g_armWaitingRaiseGraph = false;
+		g_armPendingOpenN = 0;
+		const auto elapsed = SincePress();
+		g_armPressAt = 0;
 		const auto n = g_armN.load();
 		if (!ArmLowerSet()) {
 			const int  accepted = g_armRaiseAccepted.load() ? 1 : 0;
 			const auto lockMs = accepted ? g_armLowerMs : 0u;
 			g_armLowerUntil = accepted ? (NowMs() + g_armLowerMs) : 0;
 			REX::INFO("step=arm_lower n={} send=none (the raise's clip carries on) accepted={} lock_ms={} t_ms={}",
-				n, accepted, lockMs, SincePress());
+				n, accepted, lockMs, elapsed);
 			return;
 		}
 		ArmRetryStart(g_lowerRetry, n);
@@ -9122,6 +9234,10 @@ namespace
 		}
 		const bool open = ui->IsMenuOpen(MenuName());
 		g_cancelHeld = false;   // FAL-414: every close clears the cancel gate
+		g_armPendingOpenN = 0;
+		g_armWaitingRaiseGraph = false;
+		g_armShowAt = 0;
+		g_armPressAt = 0;
 		g_expectOpen = 0;
 		if (open) {
 			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kHide);
@@ -9268,6 +9384,7 @@ namespace
 			}
 			g_armPressAt = at;
 			g_armN = n;
+			g_armPendingOpenN = n;
 			REX::INFO("step=arm_key n={} by={} page={} open=0 t_ms=0", n, a_by ? a_by : "key", target);
 			CollectShellVitalsMainThread(target);
 			ArmRetryStart(g_raiseRetry, n);
@@ -9317,24 +9434,38 @@ namespace
 					Close(n, "key");
 				});
 			} else {
+				// Stamp press timestamp & active cycle token BEFORE arming g_armDispatching so ArmTick watchdog
+				// cannot fire prematurely on a stale g_armPressAt from an earlier open cycle.
+				g_armPressAt = at;
+				g_armN = n;
+				g_armPendingOpenN = n;
 				g_armDispatching = true;
 				g_task->AddTask([n, at]() {
 					g_armDispatching = false;
 					auto* ui = RE::UI::GetSingleton();
 					if (!ui) {
+						g_armPendingOpenN = 0;
+						g_armPressAt = 0;
 						return;
 					}
 					if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
+						g_armPendingOpenN = 0;
+						g_armPressAt = 0;
 						REX::INFO("step=toggle n={} ignored=menu_open menu={}", n, blocking);
 						return;
 					}
 					if (g_requirePickup) {
 						float acqVal = 0.0f;
 						if (!IsPipboyPickedUpMainThread(acqVal)) {
+							g_armPendingOpenN = 0;
+							g_armPressAt = 0;
 							s_bootPlayed.store(false);
 							REX::INFO("step=pipboy_pickup_required by=arm_key page={} value={:.1f}", s_savedPage.load(), acqVal);
 							return;
 						}
+					}
+					if (g_armPendingOpenN.load() != n) {
+						return;
 					}
 					g_armPressAt = at;
 					g_armN = n;
@@ -9374,18 +9505,23 @@ namespace
 		const auto             maxWaitMs = static_cast<std::int64_t>(g_armRaiseMs) + static_cast<std::int64_t>(g_armRetryMs) + kArmWatchdogSlackMs;
 		if (pressAt > 0 && !g_armShown.load() && (tick - pressAt) >= maxWaitMs &&
 			(g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0)) {
-			g_armDispatching = false;
-			g_raiseRetry.state = kRetryIdle;
-			g_armShowAt = 0;
-			const auto sn = g_armN.load();
-			REX::INFO("step=arm_watchdog_open n={} elapsed_ms={}", sn, tick - pressAt);
-			g_task->AddTask([sn]() { ArmShow(sn); });
-			a_check = { sn, tick + 750 };
+			if (const auto sn = g_armPendingOpenN.exchange(0); sn != 0) {
+				g_armDispatching = false;
+				g_raiseRetry.state = kRetryIdle;
+				g_armWaitingRaiseGraph = false;
+				g_armShowAt = 0;
+				g_armPressAt = 0;
+				REX::INFO("step=arm_watchdog_open n={} elapsed_ms={}", sn, tick - pressAt);
+				g_task->AddTask([sn]() { ArmShow(sn); });
+				a_check = { sn, tick + 750 };
+			}
 		}
 		if (auto showAt = g_armShowAt.load(); showAt && tick >= showAt && g_armShowAt.compare_exchange_strong(showAt, 0)) {
-			const auto sn = g_armN.load();
-			g_task->AddTask([sn]() { ArmShow(sn); });
-			a_check = { sn, tick + 750 };
+			if (const auto sn = g_armPendingOpenN.exchange(0); sn != 0) {
+				g_armWaitingRaiseGraph = false;
+				g_task->AddTask([sn]() { ArmShow(sn); });
+				a_check = { sn, tick + 750 };
+			}
 		}
 		if (a_check.at && tick >= a_check.at) {
 			const auto cn = a_check.n;
@@ -9411,13 +9547,17 @@ namespace
 			REX::W32::Sleep(30);
 			const auto tickMs = NowMs();
 
-			// Step 5: 2 s busy watchdog around Scaleform movie calls
-			if (const auto busySince = g_gfxBusySinceMs.load(); busySince > 0) {
-				const auto busyMs = tickMs - busySince;
-				const auto seq = g_gfxCallSeq.load();
-				if (busyMs >= kWatchdogBusyMs && g_gfxWatchdogLoggedSeq.exchange(seq) != seq) {
-					const char* callName = g_gfxBusyName.load();
-					REX::ERROR("step=watchdog_busy seq={} call={} busy_ms={}", seq, callName ? callName : "unknown", busyMs);
+			// Step 5: 2 s busy watchdog around Scaleform movie calls (lock-synchronized snapshot of top stack frame)
+			GfxWatchdogFrame activeGfx{};
+			{
+				std::scoped_lock lock(g_gfxWatchdogLock);
+				activeGfx = g_gfxActiveFrame;
+			}
+			if (activeGfx.startMs > 0) {
+				const auto busyMs = tickMs - activeGfx.startMs;
+				if (busyMs >= kWatchdogBusyMs && g_gfxWatchdogLoggedSeq.exchange(activeGfx.seq) != activeGfx.seq) {
+					REX::ERROR("step=watchdog_busy seq={} call={} busy_ms={}",
+						activeGfx.seq, activeGfx.what ? activeGfx.what : "unknown", busyMs);
 				}
 			}
 

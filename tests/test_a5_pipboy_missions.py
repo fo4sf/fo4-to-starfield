@@ -21,10 +21,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
-if str(ROOT / "scripts" / "ui") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts" / "ui"))
+for _p in (str(ROOT), str(ROOT / "src"), str(ROOT / "scripts" / "ui")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import make_pipboy_stage_ini as stage_ini  # noqa: E402
 import pipboy_mission_catalog as cat  # noqa: E402
@@ -57,22 +56,23 @@ class A5PipboyMissionTests(unittest.TestCase):
             self.assertIn(f'"{row.location_label}"', seed_block)
             self.assertIn(f'"{row.fallback_text}"', seed_block)
 
-        # Must cover Out of Time, Codsworth01, When Freedom Calls (10/20/30/35), Sanctuary01,
+        # Must cover Out of Time, Codsworth01, When Freedom Calls (10/85/86), Sanctuary01,
         # and A4 reserved FormIDs (0x000A20 The First Step, 0x000A50 Jewel of the Commonwealth)
         keys = {(r.plugin, r.quest_local_id, r.objective_num) for r in parsed}
         for req in (
             ("FO4SFNewGame.esm", 0x000800, 10),
             ("FO4SFMission.esm", 0x000816, 10),
             ("FO4SFMission.esm", 0x000800, 10),
-            ("FO4SFMission.esm", 0x000800, 20),
-            ("FO4SFMission.esm", 0x000800, 30),
-            ("FO4SFMission.esm", 0x000800, 35),
+            ("FO4SFMission.esm", 0x000800, 85),
+            ("FO4SFMission.esm", 0x000800, 86),
             ("FO4SFMission.esm", 0x000817, 10),
             ("FO4SFMission.esm", 0x000A20, 10),
             ("FO4SFMission.esm", 0x000A20, 20),
             ("FO4SFMission.esm", 0x000A50, 10),
         ):
             self.assertIn(req, keys)
+        for stale in (20, 30, 35):
+            self.assertNotIn(("FO4SFMission.esm", 0x000800, stale), keys)
 
     def test_mission_catalog_extensible_for_a4_and_refuses_bad_paths_or_bounds(self) -> None:
         tenpines_x, tenpines_y = cat.A4_KNOWN_LANDMARK_COORDS["Tenpines Bluff"]
@@ -227,8 +227,79 @@ class A5PipboyMissionTests(unittest.TestCase):
         self.assertIn("kArmWatchdogSlackMs", arm_tick_fn)
         self.assertIn("step=arm_watchdog_open n={} elapsed_ms={}", arm_tick_fn)
 
+    def test_cpp_sfse_concurrency_arm_watchdog_and_map_invariants(self) -> None:
+        """Verify all T3 C++ SFSE concurrency, Arm watchdog, and Map/Quest invariants."""
+        main_cpp = MAIN_CPP.read_text(encoding="utf-8")
+        map_cpp = MAP_CPP.read_text(encoding="utf-8")
+
+        # 1. Arm watchdog premature fire & stale double-open fencing
+        self.assertIn("std::atomic<std::uint32_t>               g_armPendingOpenN{ 0 };", main_cpp)
+        arm_key_fn = main_cpp[main_cpp.index("void ArmKey(") : main_cpp.index("void ArmTick(")]
+        self.assertLess(arm_key_fn.index("g_armPressAt = at;"), arm_key_fn.index("g_armDispatching = true;\n\t\t\t\tg_task->AddTask([n, at]() {"))
+        self.assertIn("g_armPendingOpenN = n;", arm_key_fn)
+        arm_raise_fn = main_cpp[main_cpp.index("void ArmRaise(") : main_cpp.index("void ArmLower(")]
+        self.assertIn("if (g_armPendingOpenN.load() != a_n || g_armShown.load())", arm_raise_fn)
+        self.assertLess(
+            arm_raise_fn.index("g_armShowAt.store(NowMs() + g_armRaiseMs, std::memory_order_release);"),
+            arm_raise_fn.index("g_armWaitingRaiseGraph.store(true, std::memory_order_release);"),
+        )
+        arm_tick_fn = main_cpp[main_cpp.index("void ArmTick(") : main_cpp.index("std::uint32_t KeyThread(")]
+        self.assertEqual(arm_tick_fn.count("g_armPendingOpenN.exchange(0)"), 2)
+        self.assertIn("g_armWaitingRaiseGraph = false;", arm_tick_fn)
+        arm_sink_fn = main_cpp[main_cpp.index("class ArmAnimGraphSink") : main_cpp.index("ArmAnimGraphSink g_armGraphSink;")]
+        self.assertIn("g_armPendingOpenN.load() != 0 && g_armWaitingRaiseGraph.exchange(false)", arm_sink_fn)
+
+        # 2. Thread-safety & lock fixes in main.cpp
+        self.assertIn("std::atomic<std::uint32_t>               g_invSortMode{ 0 };", main_cpp)
+        self.assertIn("std::atomic<const void*>                 g_activeShellMenu{ nullptr };", main_cpp)
+        self.assertNotIn("const_cast<std::int32_t&>(extPage)", main_cpp)
+        clear_fn = main_cpp[main_cpp.index("void ClearMovieSessionState(") : main_cpp.index("const char* OpenBlockingOverlayMenu(")]
+        self.assertIn("g_activeShellMenu = nullptr;", clear_fn)
+        load_fn = main_cpp[main_cpp.index("bool MenuLoadMovie(") : main_cpp.index("std::int64_t SincePress()")]
+        self.assertIn("if (a_dispatcher) {", load_fn)
+        sync_fn = main_cpp[main_cpp.index("void ArmSyncGraphSink()") : main_cpp.index("bool EventIsPath(")]
+        self.assertIn("bool oldStillPresent = false;", sync_fn)
+        self.assertIn("if (graphPtr == g_armWatchedGraph && curGen == g_armWatchedGen)", sync_fn)
+        self.assertIn("thread_local std::vector<GfxWatchdogFrame> t_gfxWatchdogStack;", main_cpp)
+        self.assertIn("std::mutex                               g_gfxWatchdogLock;", main_cpp)
+        fill_inv_fn = main_cpp[main_cpp.index("void FillInvAndDataIntoDataObj(") : main_cpp.index("void FillPipboyDataObj(")]
+        self.assertIn("quickkeysCopy = g_quickkeyFormIds;", fill_inv_fn)
+
+        # 3. SetQuestActive & ShowQuestOnMap fixes in main.cpp
+        set_quest_fn = main_cpp[
+            main_cpp.index('if (_name == "SetQuestActive")') : main_cpp.index('if (_name == "ShowQuestOnMap"')
+        ]
+        self.assertIn("CollectShellVitalsMainThread(s_savedPage.load());", set_quest_fn)
+        show_map_fn = main_cpp[
+            main_cpp.index('if (_name == "ShowQuestOnMap"') : main_cpp.index('if (_name == "ToggleRadioStationActiveStatus")')
+        ]
+        self.assertIn("ExtractShellUInt32(a_params.args[0], targetU32);", show_map_fn)
+        self.assertIn("CollectShellVitalsMainThread(3u);", show_map_fn)
+        self.assertIn("PipboyMap::RequestCenterMarker(-1);", show_map_fn)
+        fill_data_fn = main_cpp[main_cpp.index("void FillPipboyDataObj(") : main_cpp.index("bool ReadPath(")]
+        self.assertIn('std::string_view(a_when) != "partial"', fill_data_fn)
+
+        # 4. pipboy_map.cpp atomics, dirty-flag ownership, storeIdx<->arrIdx mapping & ResetMapMovieState
+        self.assertIn("std::array<std::atomic<bool>, kMaxMapMenus> g_mapSlotInstalled{};", map_cpp)
+        self.assertIn("std::vector<std::pair<std::uint32_t, std::int32_t>> g_pushedStoreIndices;", map_cpp)
+        load_cat_fn = map_cpp[map_cpp.index("void LoadQuestObjectiveCatalog(") : map_cpp.index("const RE::BSFixedString& OurMenuFixed()")]
+        self.assertIn("rows = g_questCatalog.size();", load_cat_fn)
+        self.assertNotIn("g_questCatalog.size(), extraLoaded", load_cat_fn)
+        reset_fn = map_cpp[map_cpp.index("void ResetMapMovieState()") : map_cpp.index("void CloseMenuOnFailedMovieCall(")]
+        self.assertIn("g_pushedStoreIndices.clear();", reset_fn)
+        self.assertIn("g_pushedQuestIndices.clear();", reset_fn)
+        self.assertIn("g_requestedCenterMarkerId = -1;", reset_fn)
+        self.assertIn("g_requestedCenterQuestFormId = 0;", reset_fn)
+        pop_fn = map_cpp[map_cpp.index("void PopulateMapDataObj(") : map_cpp.index("void OnShellUpdate(")]
+        self.assertNotIn("g_markersDirty = false;", pop_fn)
+        self.assertIn("g_pushedStoreIndices.emplace_back(", pop_fn)
+        shell_upd_fn = map_cpp[map_cpp.index("void OnShellUpdate(") : map_cpp.index("void OnMenuDestroy()")]
+        self.assertIn("if (g_lastPlayerArrayIdx >= 0 && g_needCenter.exchange(false))", shell_upd_fn)
+        self.assertNotIn("g_needCenter.exchange(false) && g_lastPlayerArrayIdx >= 0", shell_upd_fn)
+        self.assertIn("for (const auto& [storeIdx, pushedArrIdx] : g_pushedStoreIndices)", shell_upd_fn)
+
     def test_cross_os_path_safety_no_drive_letters_in_new_files(self) -> None:
-        for path in (Path(__file__), ROOT / "scripts" / "ui" / "pipboy_mission_catalog.py"):
+        for path in (Path(__file__), ROOT / "scripts" / "ui" / "pipboy_mission_catalog.py", MAIN_CPP, MAP_H, MAP_CPP):
             text = path.read_text(encoding="utf-8")
             self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", text), f"drive path leaked in {path.name}")
 

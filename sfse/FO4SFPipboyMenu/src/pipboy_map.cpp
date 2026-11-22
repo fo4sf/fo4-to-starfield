@@ -296,6 +296,7 @@ namespace
 	RE::Scaleform::GFx::Value              g_mapPageVal;
 	const void*                            g_populatedMovie = nullptr;
 	std::int32_t                           g_lastPlayerArrayIdx = -1;
+	std::vector<std::pair<std::uint32_t, std::int32_t>> g_pushedStoreIndices;
 	std::vector<std::pair<std::uint32_t, std::int32_t>> g_pushedQuestIndices;
 
 	std::mutex                             g_snapLock;
@@ -668,9 +669,8 @@ namespace
 			{ "FO4SFNewGame.esm", 0x000800u, 10u, -89271.98, 91369.30, "Vault 111", "Leave Vault 111" },
 			{ "FO4SFMission.esm", 0x000816u, 10u, -80768.19, 88174.80, "Sanctuary Hills", "Speak with Codsworth" },
 			{ "FO4SFMission.esm", 0x000800u, 10u, -60286.01, 72977.79, "Concord", "Investigate Concord" },
-			{ "FO4SFMission.esm", 0x000800u, 20u, -57011.77, 70392.14, "Museum of Freedom", "Clear the hostiles outside the museum" },
-			{ "FO4SFMission.esm", 0x000800u, 30u, -57011.77, 70392.14, "Museum of Freedom", "Speak with Preston Garvey" },
-			{ "FO4SFMission.esm", 0x000800u, 35u, -57011.77, 70392.14, "Museum of Freedom", "Speak with Preston Garvey" },
+			{ "FO4SFMission.esm", 0x000800u, 85u, -57011.77, 70392.14, "Museum of Freedom", "Clear the hostiles outside the museum" },
+			{ "FO4SFMission.esm", 0x000800u, 86u, -57011.77, 70392.14, "Museum of Freedom", "Speak with Preston Garvey" },
 			{ "FO4SFMission.esm", 0x000817u, 10u, -80768.19, 88174.80, "Sanctuary Hills", "Activate the Sanctuary workbench" },
 			// A4 reserved FormIDs (0x000A20 The First Step, 0x000A50 Jewel of the Commonwealth)
 			{ "FO4SFMission.esm", 0x000A20u, 10u, -22154.77, 89056.08, "Tenpines Bluff", "Talk to the settlers at Tenpines Bluff" },
@@ -735,12 +735,14 @@ namespace
 				++extraLoaded;
 			}
 		}
+		std::size_t rows = 0;
 		{
 			std::scoped_lock lock(g_questCatalogLock);
 			g_questCatalog = std::move(catalog);
+			rows = g_questCatalog.size();
 		}
 		REX::INFO("step=quest_catalog file={} status={} rows={} tsv_rows={}",
-			a_tsvPath.filename().string(), in ? "loaded" : "defaults", g_questCatalog.size(), extraLoaded);
+			a_tsvPath.filename().string(), in ? "loaded" : "defaults", rows, extraLoaded);
 	}
 
 	const RE::BSFixedString& OurMenuFixed()
@@ -1270,9 +1272,9 @@ namespace
 		return false;
 	}
 
-	std::array<bool, kMaxMapMenus> g_mapSlotInstalled{};
-	std::uint32_t                  g_mapInstallRetryCount = 0;
-	bool                           g_loggedPostHudMapRetry = false;
+	std::array<std::atomic<bool>, kMaxMapMenus> g_mapSlotInstalled{};
+	std::uint32_t                               g_mapInstallRetryCount = 0;
+	bool                                        g_loggedPostHudMapRetry = false;
 
 	bool HasPendingMapBlockSlots()
 	{
@@ -1280,7 +1282,7 @@ namespace
 			return false;
 		}
 		for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
-			if (!g_mapSlotInstalled[slot] && !SameAscii(g_mapMenus[slot].c_str(), "MapMenu")) {
+			if (!g_mapSlotInstalled[slot].load(std::memory_order_relaxed) && !SameAscii(g_mapMenus[slot].c_str(), "MapMenu")) {
 				return true;
 			}
 		}
@@ -1299,7 +1301,7 @@ namespace
 		const std::uint32_t retryNum = a_isRetry ? ++g_mapInstallRetryCount : 0;
 		std::uint32_t       newlyInstalled = 0;
 		for (std::size_t slot = 0; slot < g_mapMenus.size() && slot < kMaxMapMenus; ++slot) {
-			if (a_isRetry && g_mapSlotInstalled[slot]) {
+			if (a_isRetry && g_mapSlotInstalled[slot].load(std::memory_order_relaxed)) {
 				continue;
 			}
 			const auto& blocked = g_mapMenus[slot];
@@ -1312,7 +1314,7 @@ namespace
 				found = true;
 				const auto origAddr = reinterpret_cast<std::uintptr_t>(entry.value.initFunc);
 				if (IsBlockedMapCreator(entry.value.initFunc)) {
-					g_mapSlotInstalled[slot] = true;
+					g_mapSlotInstalled[slot].store(true, std::memory_order_relaxed);
 					if (!a_isRetry) {
 						REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva=already_installed", blocked, slot);
 					}
@@ -1327,7 +1329,7 @@ namespace
 				} else {
 					entry.value.initFunc = kBlockedMapMenuCreators[slot];
 				}
-				g_mapSlotInstalled[slot] = true;
+				g_mapSlotInstalled[slot].store(true, std::memory_order_relaxed);
 				++newlyInstalled;
 				if (a_isRetry) {
 					REX::INFO("step=starmap_block_install menu={} found=1 slot={} orig_rva={} retry={}",
@@ -1736,6 +1738,10 @@ namespace
 		g_checkedCreateObjMovie = nullptr;
 		g_needTexturesLoaded = false;
 		g_needCenter = false;
+		g_requestedCenterMarkerId = -1;
+		g_requestedCenterQuestFormId = 0;
+		g_pushedStoreIndices.clear();
+		g_pushedQuestIndices.clear();
 		g_textureLogged = false;
 		g_currentShellPage = -1;
 		g_currentShellTab = 0;
@@ -2171,6 +2177,7 @@ namespace PipboyMap
 		g_needTexturesLoaded = false;
 		g_requestedCenterMarkerId = -1;
 		g_requestedCenterQuestFormId = 0;
+		g_pushedStoreIndices.clear();
 		g_pushedQuestIndices.clear();
 		g_modalOpen = false;
 	}
@@ -2270,10 +2277,23 @@ namespace PipboyMap
 			return;
 		}
 		if (a_name == "FastTravel") {
-			std::uint32_t idx = 0;
-			if (ParseArgUInt(a_params, 0, idx) && g_task) {
-				REX::INFO("step=map_fast_travel_req idx={}", idx);
-				g_task->AddTask([idx]() { ExecuteFastTravelMainThread(idx); });
+			std::uint32_t arrIdxArg = 0;
+			if (ParseArgUInt(a_params, 0, arrIdxArg) && g_task) {
+				std::uint32_t storeIdx = 0;
+				bool          found = false;
+				for (const auto& [si, pushedArr] : g_pushedStoreIndices) {
+					if (pushedArr == static_cast<std::int32_t>(arrIdxArg)) {
+						storeIdx = si;
+						found = true;
+						break;
+					}
+				}
+				if (!found) {
+					REX::INFO("step=map_fast_travel_req arr_idx={} result=unknown_index", arrIdxArg);
+					return;
+				}
+				REX::INFO("step=map_fast_travel_req arr_idx={} store_idx={}", arrIdxArg, storeIdx);
+				g_task->AddTask([storeIdx]() { ExecuteFastTravelMainThread(storeIdx); });
 			}
 			return;
 		}
@@ -2321,10 +2341,12 @@ namespace PipboyMap
 			a_dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(true));
 			markersArr.SetMember("length", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
 
+			g_pushedStoreIndices.clear();
 			std::uint32_t arrIdx = 0;
 			std::uint32_t discCount = 0;
 			std::uint32_t undiscCount = 0;
-			for (const auto& m : g_store) {
+			for (std::size_t storeIdx = 0; storeIdx < g_store.size(); ++storeIdx) {
+				const auto& m = g_store[storeIdx];
 				RE::Scaleform::GFx::Value entry;
 				a_root->CreateObject(&entry, "Object");
 				if (!entry.IsObject()) {
@@ -2340,6 +2362,7 @@ namespace PipboyMap
 				entry.SetMember("name", RE::Scaleform::GFx::Value(m.label.c_str()));
 				entry.SetMember("undiscovered", RE::Scaleform::GFx::Value(!disc));
 				if (PushMarkerObject(markersArr, entry)) {
+					g_pushedStoreIndices.emplace_back(static_cast<std::uint32_t>(storeIdx), static_cast<std::int32_t>(arrIdx));
 					++arrIdx;
 				}
 			}
@@ -2415,8 +2438,9 @@ namespace PipboyMap
 				}
 			}
 
+			// Note: do NOT clear g_markersDirty here — OnShellUpdate consumes it via exchange(false)
+			// before calling PopulateMapDataObj so concurrent SetActiveQuestObjectives updates are never lost.
 			g_populatedMovie = movie;
-			g_markersDirty = false;
 			if (++g_markerLogs <= kMaxLogLines) {
 				REX::INFO("step=map_markers n={} discovered={} undiscovered={} player_idx={} corners_set={}/3 read_back={}",
 					arrIdx, discCount, undiscCount, g_lastPlayerArrayIdx, cornersOk,
@@ -2551,7 +2575,7 @@ namespace PipboyMap
 					REX::INFO("step=map_texture loaded=1 children={}", numChildren);
 				}
 			}
-			if (g_needCenter.exchange(false) && g_lastPlayerArrayIdx >= 0) {
+			if (g_lastPlayerArrayIdx >= 0 && g_needCenter.exchange(false)) {
 				std::int32_t  centerIdx = g_lastPlayerArrayIdx;
 				const auto    wantQuest = g_requestedCenterQuestFormId.exchange(0u);
 				const auto    wantId = g_requestedCenterMarkerId.exchange(-1);
@@ -2565,10 +2589,11 @@ namespace PipboyMap
 						}
 					}
 				} else if (wantId >= 0) {
-					for (std::size_t mi = 0; mi < g_store.size(); ++mi) {
-						if (static_cast<std::int32_t>(g_store[mi].localId) == (wantId & 0xFFFFFF) ||
-							static_cast<std::int32_t>(g_store[mi].index) == wantId) {
-							centerIdx = static_cast<std::int32_t>(mi);
+					for (const auto& [storeIdx, pushedArrIdx] : g_pushedStoreIndices) {
+						if (storeIdx < g_store.size() &&
+							(static_cast<std::int32_t>(g_store[storeIdx].localId) == (wantId & 0xFFFFFF) ||
+							 static_cast<std::int32_t>(g_store[storeIdx].index) == wantId)) {
+							centerIdx = pushedArrIdx;
 							break;
 						}
 					}

@@ -86,7 +86,7 @@ CANONICAL_MISSION_OBJECTIVES: tuple[MissionObjectiveRow, ...] = (
     MissionObjectiveRow(
         plugin="FO4SFMission.esm",
         quest_local_id=0x000800,
-        objective_num=20,
+        objective_num=85,
         x_fo4=-57011.77,
         y_fo4=70392.14,
         location_label="Museum of Freedom",
@@ -95,16 +95,7 @@ CANONICAL_MISSION_OBJECTIVES: tuple[MissionObjectiveRow, ...] = (
     MissionObjectiveRow(
         plugin="FO4SFMission.esm",
         quest_local_id=0x000800,
-        objective_num=30,
-        x_fo4=-57011.77,
-        y_fo4=70392.14,
-        location_label="Museum of Freedom",
-        fallback_text="Speak with Preston Garvey",
-    ),
-    MissionObjectiveRow(
-        plugin="FO4SFMission.esm",
-        quest_local_id=0x000800,
-        objective_num=35,
+        objective_num=86,
         x_fo4=-57011.77,
         y_fo4=70392.14,
         location_label="Museum of Freedom",
