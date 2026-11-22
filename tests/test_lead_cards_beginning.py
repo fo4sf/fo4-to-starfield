@@ -1223,6 +1223,13 @@ class LeadCardsBeginningTests(unittest.TestCase):
             "Throwaway_2f_MidWFC",
             "Throwaway_2f_PostWFC",
             "sanctuary01 reload stage=<st> complete=<c>",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "FO4SF_MapMarkersHop",
+            "100008F4",
+            "086edc15",
         ):
             self.assertIn(req, c2f, f"candidate-2f-card.md missing {req!r}")
 
@@ -1249,8 +1256,11 @@ class LeadCardsBeginningTests(unittest.TestCase):
         self.assertTrue(a2_path.is_file(), "missing docs/testing/console-free-walk-list.md")
         a2_txt = a2_path.read_text(encoding="utf-8")
         self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", a2_txt), "local path leaked in console-free-walk-list.md")
-        for req in ("u1pick", "u1cog", "r8csw", "r8prs", "PlatformRadius", "ReleaseStoryLandingFade", "ran in game", "pushed, not run"):
+        for req in ("u1pick", "u1cog", "r8csw", "r8prs", "PlatformRadius", "ReleaseStoryLandingFade", "ran in game", "pushed, not run", "B1", "B2", "B3", "B4", "086edc15"):
             self.assertIn(req, a2_txt, f"console-free-walk-list.md missing {req!r}")
+        ki_txt = (ROOT / "docs/known-issues.md").read_text(encoding="utf-8")
+        for req in ("| `B1` |", "| `B2` |", "| `B3` |", "| `B4` |", "086edc15", "FO4SF_MapMarkersHop"):
+            self.assertIn(req, ki_txt, f"known-issues.md missing {req!r}")
 
     def test_h1_h5_run_sheet_bundle_verify_fixture_and_preflight_guard(self) -> None:
         port_p = str(self.bundle_fixtures["__port__"])
