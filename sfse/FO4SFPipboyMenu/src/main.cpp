@@ -554,6 +554,10 @@ namespace
 	bool                                     g_lateInvalidate = false;  // Task 1 step 1b: optional late InvalidateData on kShow, default 0
 	bool                                     g_statActions = false;     // Task 1 step 1j: UseStimpak/UseRadaway, default 0 until THIS ROUND passes
 	bool                                     g_invDataAnswers = false;  // Task 1 step 1k: INV/DATA same-call answers, default 0 until THIS ROUND passes
+	bool                                     g_shellBackdrop = true;    // Round 10 C4-1: opaque CRT backdrop on FO4SF_Fo4Shell (default 1, rollback 0)
+	bool                                     g_shellVitalsFill = false; // Round 10 C4-2: FillPipboyDataObj on kShow/page/partial when PopulateInCall=0 (C++ default 0, staged 1, rollback 0 = exact 2f path)
+	bool                                     g_suppressDataMenu = false; // Round 10 C4-4: opt-in hide-only DataMenu suppression (default 0)
+	bool                                     g_tabOpensPipboy = false;   // Round 10 C4-4: opt-in closed-Pip-Boy Tab open with blocking-menu cooldown (default 0)
 	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
 	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
 	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
@@ -611,8 +615,18 @@ namespace
 	std::atomic<const void*>                 g_destroyedCodeObjMovie{ nullptr };
 	std::atomic<const void*>                 g_shownInvalidatedMovie{ nullptr };
 	std::atomic<const void*>                 g_populatedLogMovie{ nullptr };
+	std::atomic<const void*>                 g_vitalsLogMovie{ nullptr };
+	std::atomic<const void*>                 g_backdropMovie{ nullptr };
+	std::atomic<const void*>                 g_dateFixLogMovie{ nullptr };
 	std::atomic<const void*>                 g_createdCodeObjMovie{ nullptr };
 	std::atomic<const void*>                 g_activeShellMenu{ nullptr };
+	std::atomic<std::int64_t>                g_lastShellTransitionMs{ 0 };
+	std::atomic<bool>                        g_nonDataBlockingOpen{ false };
+	std::atomic<std::int64_t>                g_lastNonDataBlockingMs{ 0 };
+	std::atomic<std::uint32_t>               g_dataMenuSuppressions{ 0 };
+	std::atomic<std::uint32_t>               g_tabKeyPresses{ 0 };
+	constexpr std::int64_t                   kShellTabCooldownMs = 350;
+	constexpr std::int64_t                   kBlockingMenuCooldownMs = 500;
 	std::atomic<std::int32_t>                g_currentShellPage{ -1 };
 	std::atomic<std::int32_t>                g_currentShellTab{ 0 };
 	std::atomic<std::int32_t>                g_externalTargetPage{ -1 };
@@ -3719,6 +3733,9 @@ namespace
 		g_destroyedCodeObjMovie = nullptr;
 		g_shownInvalidatedMovie = nullptr;
 		g_populatedLogMovie = nullptr;
+		g_vitalsLogMovie = nullptr;
+		g_backdropMovie = nullptr;
+		g_dateFixLogMovie = nullptr;
 		g_createdCodeObjMovie = nullptr;
 		if (!a_keepInstallTries) {
 			g_codeObjTriedMovie = nullptr;
@@ -4069,6 +4086,8 @@ namespace
 		double                     radResist = 0.0;
 		std::array<std::int32_t, 7> special{ 5, 5, 5, 5, 5, 5, 5 };
 		std::string                specialSource = "fallback";
+		std::string                hpSource = "formula";
+		std::string                apSource = "formula";
 		std::uint32_t              stimpakFormId = 0;
 		std::uint32_t              radawayFormId = 0;
 	};
@@ -4292,6 +4311,18 @@ namespace
 		return reinterpret_cast<std::uintptr_t>(reinterpret_cast<LookupById_t>(Address(kLookupById))(a_formId));
 	}
 
+	struct CachedQuestForm
+	{
+		std::string    pluginName;
+		std::uint32_t  localId = 0;
+		std::uint32_t  formId = 0;
+		std::uintptr_t form = 0;
+	};
+	std::vector<CachedQuestForm> g_cachedQuestForms;
+	std::uintptr_t               g_questCacheHandler = 0;
+	bool                         g_questCacheBuilt = false;
+	bool                         g_questCacheWorkshopLoaded = false;
+
 	void CollectQuestAndStatsMainThread(const ShellVitalsSnapshot& a_vitals, float a_daysPassed, ShellInvDataSnapshot& a_out)
 	{
 		std::set<std::uint32_t> inactiveCopy;
@@ -4302,17 +4333,87 @@ namespace
 
 		const auto handler = Singleton(kDataHandlerSingleton);
 		ObjectType hType;
-		std::set<std::uint32_t> seenQuests;
+		const bool wantFullData = g_invDataAnswers;
 		std::vector<PipboyMap::QuestObjectiveMarker> activeQuestMarkers;
 		std::size_t totalObjectives = 0;
-		bool workshopPluginLoaded = false;
 
-		const auto tryQuestForm = [&](std::string_view a_pluginName, std::uint32_t a_localId, std::uint32_t a_fid) {
-			if (!a_fid || seenQuests.contains(a_fid)) {
-				return;
+		// R6: Discover FO4SF*/FO4Core* TESQuest* forms once after PostDataLoad (0x800..0xBFF per plugin) and cache them,
+		// instead of calling LookupById 1,024 times per plugin on every 500 ms vitals tick.
+		if (!g_questCacheBuilt || g_questCacheHandler != handler) {
+			g_cachedQuestForms.clear();
+			g_questCacheWorkshopLoaded = false;
+			g_questCacheHandler = handler;
+			std::set<std::uint32_t> seenCached;
+			std::size_t             pluginsScanned = 0;
+			std::size_t             idsScanned = 0;
+			if (IsType(handler, "TESDataHandler@@", hType)) {
+				for (std::size_t kind = 0; kind < 3; ++kind) {
+					ArrayHead files{};
+					if (!Peek(handler + kFileCollectionAt + kind * 0x10, files) || files.size > files.capacity ||
+						files.size > kKitMaxFiles || (files.size && !files.data)) {
+						continue;
+					}
+					for (std::uint32_t fi = 0; fi < files.size; ++fi) {
+						std::uintptr_t                  file = 0;
+						ObjectType                      fileType;
+						std::array<char, kFileNameSize> fname{};
+						if (!Peek(files.data + fi * sizeof(std::uintptr_t), file) || !file ||
+							!TypeOf(file, fileType) || !IsFileType(fileType) ||
+							!Peek(file + kFileNameAt, fname.data(), fname.size())) {
+							continue;
+						}
+						const std::string_view sv(fname.data(), strnlen(fname.data(), fname.size()));
+						if (sv.size() < 6 || !(SameText(sv.substr(0, 5), "FO4SF") || SameText(sv.substr(0, 7), "FO4Core"))) {
+							continue;
+						}
+						++pluginsScanned;
+						if (SameText(sv, "FO4SFWorkshop.esm")) {
+							g_questCacheWorkshopLoaded = true;
+						}
+						std::uint8_t                compile = 0;
+						std::array<std::uint8_t, 4> fidx{};
+						Peek(file + kFileCompileIndexAt, compile);
+						Peek(file + kFileIndexAt, fidx.data(), fidx.size());
+						const std::uint32_t smallIdx = fidx[2] | (fidx[3] << 8);
+						for (std::uint32_t localId = 0x800; localId <= 0xBFF; ++localId) {
+							++idsScanned;
+							std::uint32_t fid = 0;
+							if (kind == 0) {
+								const std::uint8_t topByte = compile != 0xFF && compile != 0 ? compile : fidx[0];
+								if (topByte == 0 || topByte >= 0xFE) {
+									continue;
+								}
+								fid = (std::uint32_t{ topByte } << 24) | localId;
+							} else if (kind == 1) {
+								fid = 0xFE000000u | ((smallIdx & 0xFFF) << 12) | (localId & 0xFFF);
+							} else {
+								fid = 0xFD000000u | (std::uint32_t{ fidx[1] } << 16) | (localId & 0xFFFF);
+							}
+							if (!fid || seenCached.contains(fid)) {
+								continue;
+							}
+							const auto form = ShellFormLookup(fid);
+							ObjectType qType;
+							if (!form || !IsType(form, "TESQuest@@", qType)) {
+								continue;
+							}
+							seenCached.insert(fid);
+							g_cachedQuestForms.push_back({ std::string(sv), localId, fid, form });
+						}
+					}
+				}
+				g_questCacheBuilt = true;
+				REX::INFO("step=quest_cache_build plugins={} quests={} workshop={} scanned={}",
+					pluginsScanned, g_cachedQuestForms.size(), g_questCacheWorkshopLoaded ? 1 : 0, idsScanned);
 			}
-			const auto form = ShellFormLookup(a_fid);
-			ObjectType qType;
+		}
+
+		const auto processCachedQuest = [&](const CachedQuestForm& a_cached) {
+			const std::string_view a_pluginName = a_cached.pluginName;
+			const std::uint32_t    a_localId = a_cached.localId;
+			const std::uint32_t    a_fid = a_cached.formId;
+			const auto             form = a_cached.form;
+			ObjectType             qType;
 			if (!form || !IsType(form, "TESQuest@@", qType)) {
 				return;
 			}
@@ -4370,28 +4471,24 @@ namespace
 			if (qName.empty()) {
 				qName = std::format("Quest {:08X}", a_fid);
 			}
-			seenQuests.insert(a_fid);
-			ShellQuestEntry qe;
-			qe.formId = a_fid;
-			qe.name = std::move(qName);
-			qe.completed = completed && !running;
-			qe.active = !qe.completed && !inactiveCopy.contains(a_fid);
-			qe.sortVal = qe.completed ? 1 : 0;
-			qe.objectives = std::move(objs);
-			totalObjectives += qe.objectives.size();
-			// Prefer the first active (uncompleted, state == 1) objective for the quest card summary
-			for (const auto& ob : qe.objectives) {
+			const bool isCompleted = completed && !running;
+			const bool isActive = !isCompleted && !inactiveCopy.contains(a_fid);
+			totalObjectives += objs.size();
+
+			// Prefer the first active (uncompleted, state == 1) objective for the quest card summary & map marker
+			std::string firstDesc;
+			for (const auto& ob : objs) {
 				if (ob.state == 1) {
-					qe.description = ob.text;
-					if (qe.active && !qe.completed) {
+					firstDesc = ob.text;
+					if (isActive && !isCompleted) {
 						PipboyMap::QuestObjectiveCatalogEntry cat{};
 						if (PipboyMap::LookupQuestObjectiveCatalog(a_pluginName, a_localId, ob.number, cat)) {
 							activeQuestMarkers.push_back({
-								qe.formId,
+								a_fid,
 								ob.number,
 								cat.xFo4,
 								cat.yFo4,
-								qe.name,
+								qName,
 								ob.text,
 								cat.locationLabel,
 							});
@@ -4400,61 +4497,30 @@ namespace
 					break;
 				}
 			}
-			if (qe.description.empty() && !qe.objectives.empty()) {
-				qe.description = qe.objectives.front().text;
+			if (!wantFullData) {
+				return;   // R6: skip DATA quest/workshop/stat list work when InvDataAnswers=0
 			}
+			ShellQuestEntry qe;
+			qe.formId = a_fid;
+			qe.name = std::move(qName);
+			qe.completed = isCompleted;
+			qe.active = isActive;
+			qe.sortVal = qe.completed ? 1 : 0;
+			qe.description = !firstDesc.empty() ? std::move(firstDesc) : (!objs.empty() ? objs.front().text : std::string{});
+			qe.objectives = std::move(objs);
 			a_out.quests.push_back(std::move(qe));
 		};
 
-		if (IsType(handler, "TESDataHandler@@", hType)) {
-			for (std::size_t kind = 0; kind < 3; ++kind) {
-				ArrayHead files{};
-				if (!Peek(handler + kFileCollectionAt + kind * 0x10, files) || files.size > files.capacity ||
-					files.size > kKitMaxFiles || (files.size && !files.data)) {
-					continue;
-				}
-				for (std::uint32_t fi = 0; fi < files.size; ++fi) {
-					std::uintptr_t                  file = 0;
-					ObjectType                      fileType;
-					std::array<char, kFileNameSize> fname{};
-					if (!Peek(files.data + fi * sizeof(std::uintptr_t), file) || !file ||
-						!TypeOf(file, fileType) || !IsFileType(fileType) ||
-						!Peek(file + kFileNameAt, fname.data(), fname.size())) {
-						continue;
-					}
-					const std::string_view sv(fname.data(), strnlen(fname.data(), fname.size()));
-					if (sv.size() < 6 || !(SameText(sv.substr(0, 5), "FO4SF") || SameText(sv.substr(0, 7), "FO4Core"))) {
-						continue;
-					}
-					if (SameText(sv, "FO4SFWorkshop.esm")) {
-						workshopPluginLoaded = true;
-					}
-					std::uint8_t                compile = 0;
-					std::array<std::uint8_t, 4> fidx{};
-					Peek(file + kFileCompileIndexAt, compile);
-					Peek(file + kFileIndexAt, fidx.data(), fidx.size());
-					const std::uint32_t smallIdx = fidx[2] | (fidx[3] << 8);
-					for (std::uint32_t localId = 0x800; localId <= 0xBFF; ++localId) {
-						std::uint32_t fid = 0;
-						if (kind == 0) {
-							const std::uint8_t topByte = compile != 0xFF && compile != 0 ? compile : fidx[0];
-							if (topByte == 0 || topByte >= 0xFE) {
-								continue;
-							}
-							fid = (std::uint32_t{ topByte } << 24) | localId;
-						} else if (kind == 1) {
-							fid = 0xFE000000u | ((smallIdx & 0xFFF) << 12) | (localId & 0xFFF);
-						} else {
-							fid = 0xFD000000u | (std::uint32_t{ fidx[1] } << 16) | (localId & 0xFFFF);
-						}
-						tryQuestForm(sv, localId, fid);
-					}
-				}
-			}
+		for (const auto& cached : g_cachedQuestForms) {
+			processCachedQuest(cached);
 		}
 
 		const std::size_t qmCount = activeQuestMarkers.size();
 		PipboyMap::SetActiveQuestObjectives(std::move(activeQuestMarkers));
+
+		if (!wantFullData) {
+			return;
+		}
 
 		std::ranges::stable_sort(a_out.quests, [](const ShellQuestEntry& a, const ShellQuestEntry& b) {
 			if (a.completed != b.completed) {
@@ -4464,7 +4530,7 @@ namespace
 		});
 
 		// PLACEHOLDER (A13): WorkshopsList is a fixed static placeholder row when FO4SFWorkshop.esm is loaded; not live settlement data
-		if (workshopPluginLoaded) {
+		if (g_questCacheWorkshopLoaded) {
 			ShellWorkshopEntry ws;
 			ws.name = "Sanctuary Hills (Placeholder)";
 			ws.mapMarkerId = 0;
@@ -4814,28 +4880,42 @@ namespace
 		if (ReadShellActorValue(g_forms.rads, radsVal) && radsVal > 0.0f) {
 			next.rads = std::clamp(static_cast<double>(radsVal), 0.0, 1000.0);
 		}
-		float hpVal = 100.0f;
-		const double formulaMaxHp = std::max(80.0 + static_cast<double>(next.special[2]) * 5.0 +
-		                                         static_cast<double>(next.xpLevel - 1) * (static_cast<double>(next.special[2]) * 0.5 + 2.5),
+		static bool   everPositiveHp = false;
+		static bool   everPositiveAp = false;
+		float         hpVal = 0.0f;
+		const bool    hpReadOk = ReadShellActorValue(g_forms.health, hpVal);
+		const double  formulaMaxHp = std::max(80.0 + static_cast<double>(next.special[2]) * 5.0 +
+		                                          static_cast<double>(next.xpLevel - 1) * (static_cast<double>(next.special[2]) * 0.5 + 2.5),
 			1.0);
-		if (ReadShellActorValue(g_forms.health, hpVal)) {
+		if (hpReadOk && (hpVal > 0.0f || everPositiveHp)) {
+			if (hpVal > 0.0f) {
+				everPositiveHp = true;
+			}
 			next.currHp = std::max(0.0, static_cast<double>(hpVal));
 			highWaterHp = std::max({ highWaterHp, next.currHp, formulaMaxHp });
 			next.maxHp = std::max(1.0, highWaterHp);
+			next.hpSource = "av";
 		} else {
 			next.maxHp = std::max(1.0, formulaMaxHp);
 			next.currHp = next.maxHp;
+			next.hpSource = hpReadOk ? "formula_zero_av" : "formula";
 		}
 
-		float apVal = 0.0f;
-		const double formulaMaxAp = std::max(60.0 + static_cast<double>(next.special[5]) * 10.0, 1.0);
-		if (ReadShellActorValue(oxygenAvif, apVal) && apVal > 0.0f) {
-			next.currAp = static_cast<double>(apVal);
+		float         apVal = 0.0f;
+		const bool    apReadOk = ReadShellActorValue(oxygenAvif, apVal);
+		const double  formulaMaxAp = std::max(60.0 + static_cast<double>(next.special[5]) * 10.0, 1.0);
+		if (apReadOk && (apVal > 0.0f || everPositiveAp)) {
+			if (apVal > 0.0f) {
+				everPositiveAp = true;
+			}
+			next.currAp = std::max(0.0, static_cast<double>(apVal));
 			highWaterAp = std::max({ highWaterAp, next.currAp, formulaMaxAp });
 			next.maxAp = std::max(1.0, highWaterAp);
+			next.apSource = "av";
 		} else {
 			next.maxAp = formulaMaxAp;
 			next.currAp = formulaMaxAp;
+			next.apSource = apReadOk ? "formula_zero_av" : "formula";
 		}
 
 		float cwVal = 0.0f;
@@ -5493,6 +5573,13 @@ namespace
 			}
 		}
 
+		const void* const vitalsMovie = a_menu ? MovieOf(a_menu) : nullptr;
+		if (!vitalsMovie || g_vitalsLogMovie.exchange(vitalsMovie) != vitalsMovie) {
+			REX::INFO("step=shell_vitals when={} page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} lvl={} hp_src={} ap_src={}",
+				a_when, page, tab, snap.currHp, std::max(1.0, snap.maxHp), snap.currAp, std::max(1.0, snap.maxAp),
+				snap.xpLevel, snap.hpSource, snap.apSource);
+		}
+
 		REX::INFO("step=data_obj_fill when={} page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} lvl={} stim={} radaway={} rads={:.0f} date={}.{}.2{:03}",
 			a_when, page, tab, snap.currHp, snap.maxHp, snap.currAp, snap.maxAp, snap.xpLevel, snap.stimpakCount,
 			snap.radawayCount, snap.rads, snap.dateMonth, snap.dateDay, snap.dateYear);
@@ -5500,6 +5587,7 @@ namespace
 
 	bool ReadPath(const RE::Scaleform::GFx::Value& a_from, const std::string& a_path, RE::Scaleform::GFx::Value& a_out);
 	void SpecialReady(RE::Scaleform::GFx::ASMovieRootBase* a_root, const RE::Scaleform::GFx::Value& a_top, const char* a_when);
+	void ApplyBottomBarDateFix(const void* a_menu, const RE::Scaleform::GFx::Value& a_menuMc, const char* a_when);
 
 	// Step 1: synchronous in-call answer for onNewPage(pageIdx) and onNewTab(tabIdx) on the menu thread
 	void AnswerPageOrTabSynchronously(bool a_isPage, std::int32_t a_idx)
@@ -5536,9 +5624,13 @@ namespace
 			s_savedTabs[targetPage].store(targetTab);
 		}
 
-		// Always set CurrentPage BEFORE CurrentTab, populate target page fields, then InvalidateData() ONCE
-		if (g_populateInCall) {
+		// Always set CurrentPage BEFORE CurrentTab, populate target page fields, then InvalidateData() ONCE.
+		// C4-2: ShellVitalsFill=1 (or PopulateInCall=1) populates full player HP/AP/SPECIAL/Date; 0 restores exact 2f path.
+		if (g_populateInCall || g_shellVitalsFill) {
 			FillPipboyDataObj(menu, root, g_dataObj, targetPage, targetTab, a_isPage ? "onNewPage" : "onNewTab");
+			if (g_codeObjSpecial == kSpecialClear) {
+				SpecialReady(root, top, "answer");
+			}
 		} else {
 			g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(targetPage));
 			g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(targetTab));
@@ -5564,6 +5656,9 @@ namespace
 
 		RE::Scaleform::GFx::Value invRes;
 		const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData");
+		if (invalidated) {
+			ApplyBottomBarDateFix(menu, menuMc, a_isPage ? "onNewPage" : "onNewTab");
+		}
 		const auto n = ++g_answers;
 		if (n <= kMaxAnswers) {
 			REX::INFO("step=code_answer n={} kind={} page={} tab={} invalidated={}", n, a_isPage ? "page" : "tab",
@@ -6368,8 +6463,146 @@ namespace
 		return g_codeObj && g_codeObjMovie.load() == nullptr && g_codeObjTries.load() < kMaxCodeObjTries;
 	}
 
+	// C4-1: Draw an opaque dark Pip-Boy CRT backing behind Menu_mc on root.graphics (fallback Menu_mc.graphics)
+	// so 3D world geometry never bleeds through STAT/INV/DATA/RADIO or the letterbox margins of MAP.
+	bool ApplyShellBackdrop(const void* a_menu, RE::Scaleform::GFx::Value& a_top, RE::Scaleform::GFx::Value& a_menuMc)
+	{
+		if (!g_shellBackdrop) {
+			return true;
+		}
+		const void* const movie = a_menu ? MovieOf(a_menu) : nullptr;
+		if (!movie || g_backdropMovie.load() == movie) {
+			return true;
+		}
+		RE::Scaleform::GFx::Value gfx;
+		const char*               target = "none";
+		if (a_top.IsObject() && a_top.GetMember("graphics", &gfx) && gfx.IsObject()) {
+			target = "root_graphics";
+		} else if (a_menuMc.IsObject() && a_menuMc.GetMember("graphics", &gfx) && gfx.IsObject()) {
+			target = "menu_mc_graphics";
+		} else {
+			REX::INFO("step=shell_backdrop movie={} ok=0 target=none color=0x041409 alpha=0.97",
+				Hex(reinterpret_cast<std::uintptr_t>(movie)));
+			return false;
+		}
+		RE::Scaleform::GFx::Value res;
+		bool                      ok = gfx.Invoke("clear", &res, nullptr, 0);
+		// 1. Full-viewport outer dim matte covering 16:9 and ultrawide margins around the 876x700 Pip-Boy stage
+		{
+			const RE::Scaleform::GFx::Value fillArgs[2]{
+				RE::Scaleform::GFx::Value(std::uint32_t{ 0x020804u }),
+				RE::Scaleform::GFx::Value(0.92),
+			};
+			const RE::Scaleform::GFx::Value rectArgs[4]{
+				RE::Scaleform::GFx::Value(-2000.0),
+				RE::Scaleform::GFx::Value(-1000.0),
+				RE::Scaleform::GFx::Value(4876.0),
+				RE::Scaleform::GFx::Value(2700.0),
+			};
+			ok = ok && gfx.Invoke("beginFill", &res, fillArgs, 2) &&
+			     gfx.Invoke("drawRect", &res, rectArgs, 4) &&
+			     gfx.Invoke("endFill", &res, nullptr, 0);
+		}
+		// 2. Opaque dark green-black Pip-Boy CRT backing directly behind the 876x700 stage
+		{
+			const RE::Scaleform::GFx::Value fillArgs[2]{
+				RE::Scaleform::GFx::Value(std::uint32_t{ 0x041409u }),
+				RE::Scaleform::GFx::Value(0.97),
+			};
+			const RE::Scaleform::GFx::Value rectArgs[4]{
+				RE::Scaleform::GFx::Value(-8.0),
+				RE::Scaleform::GFx::Value(-8.0),
+				RE::Scaleform::GFx::Value(892.0),
+				RE::Scaleform::GFx::Value(716.0),
+			};
+			ok = ok && gfx.Invoke("beginFill", &res, fillArgs, 2) &&
+			     gfx.Invoke("drawRect", &res, rectArgs, 4) &&
+			     gfx.Invoke("endFill", &res, nullptr, 0);
+		}
+		// 3. Subtle CRT bezel border framing the 876x700 Pip-Boy display
+		{
+			const RE::Scaleform::GFx::Value lineArgs[3]{
+				RE::Scaleform::GFx::Value(2.0),
+				RE::Scaleform::GFx::Value(std::uint32_t{ 0x185228u }),
+				RE::Scaleform::GFx::Value(0.80),
+			};
+			const RE::Scaleform::GFx::Value rectArgs[4]{
+				RE::Scaleform::GFx::Value(-8.0),
+				RE::Scaleform::GFx::Value(-8.0),
+				RE::Scaleform::GFx::Value(892.0),
+				RE::Scaleform::GFx::Value(716.0),
+			};
+			(void)gfx.Invoke("lineStyle", &res, lineArgs, 3);
+			(void)gfx.Invoke("drawRect", &res, rectArgs, 4);
+			(void)gfx.Invoke("lineStyle", &res, nullptr, 0);
+		}
+		if (ok) {
+			g_backdropMovie.store(movie);
+		}
+		REX::INFO("step=shell_backdrop movie={} ok={} target={} color=0x041409 alpha=0.97",
+			Hex(reinterpret_cast<std::uintptr_t>(movie)), ok ? 1 : 0, target);
+		return ok;
+	}
+
+	// C4-3: On DATA/MAP (BottomBar_Info_3 Frame 6), Date_tf starts at x=8.0 width=150.0 while Time_tf starts at
+	// x=207.0 (49 px unused gap). Starfield's wider fallback UI font clips "10.23.2287" to "10.23.228". Widen Date_tf
+	// to 194.0 with wordWrap=false and autoSize="left" (clear of Time_tf at 207.0) and widen Time_tf to 156.0.
+	void ApplyBottomBarDateFix(const void* a_menu, const RE::Scaleform::GFx::Value& a_menuMc, const char* a_when)
+	{
+		if (!a_menu || !a_menuMc.IsObject()) {
+			return;
+		}
+		RE::Scaleform::GFx::Value dateTf;
+		if (!ReadPath(a_menuMc, "BottomBar_mc.Info_mc.Date_tf", dateTf) || !dateTf.IsObject()) {
+			return;
+		}
+		double                    oldW = 0.0;
+		RE::Scaleform::GFx::Value wVal;
+		if (dateTf.GetMember("width", &wVal)) {
+			if (wVal.IsNumber()) {
+				oldW = wVal.GetNumber();
+			} else if (wVal.IsInt()) {
+				oldW = static_cast<double>(wVal.GetInt());
+			} else if (wVal.IsUInt()) {
+				oldW = static_cast<double>(wVal.GetUInt());
+			}
+		}
+		RE::Scaleform::GFx::Value autoVal;
+		const bool alreadyLeft = dateTf.GetMember("autoSize", &autoVal) && autoVal.IsString() &&
+		                         SameText(autoVal.GetString(), "left");
+		if (alreadyLeft && oldW >= 160.0) {
+			return;
+		}
+		const bool setWrap = dateTf.SetMember("wordWrap", RE::Scaleform::GFx::Value(false));
+		const bool setW = dateTf.SetMember("width", RE::Scaleform::GFx::Value(194.0));
+		const bool setAuto = dateTf.SetMember("autoSize", RE::Scaleform::GFx::Value("left"));
+		RE::Scaleform::GFx::Value timeTf;
+		if (ReadPath(a_menuMc, "BottomBar_mc.Info_mc.Time_tf", timeTf) && timeTf.IsObject()) {
+			RE::Scaleform::GFx::Value twVal;
+			double                    tw = 0.0;
+			if (timeTf.GetMember("width", &twVal) && twVal.IsNumber()) {
+				tw = twVal.GetNumber();
+			}
+			if (tw < 155.0) {
+				timeTf.SetMember("wordWrap", RE::Scaleform::GFx::Value(false));
+				timeTf.SetMember("width", RE::Scaleform::GFx::Value(156.0));
+			}
+		}
+		double                    newW = 0.0;
+		RE::Scaleform::GFx::Value nwVal;
+		if (dateTf.GetMember("width", &nwVal) && nwVal.IsNumber()) {
+			newW = nwVal.GetNumber();
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (movie && g_dateFixLogMovie.exchange(movie) != movie) {
+			REX::INFO("step=shell_date_fix when={} old_w={:.1f} new_w={:.1f} auto_size={} word_wrap={} width_set={}",
+				a_when ? a_when : "update", oldW, newW, setAuto ? 1 : 0, setWrap ? 1 : 0, setW ? 1 : 0);
+		}
+	}
+
 	// Step 1: on kShow (menu thread, after g_engineProcessMessage and CodeObjInstall), ensure Menu_mc.onCodeObjCreate()
-	// ran, populate DataObj (CurrentPage before CurrentTab), and call Menu_mc.InvalidateData() ONCE
+	// ran, draw the opaque Pip-Boy backdrop (C4-1), populate DataObj (CurrentPage before CurrentTab; C4-2 real vitals
+	// even when PopulateInCall=0), call Menu_mc.InvalidateData() ONCE, and widen BottomBar Date_tf (C4-3)
 	void ShellShowInit(const void* a_menu)
 	{
 		if (g_closing.load() || !IsFo4ShellActive()) {
@@ -6388,6 +6621,7 @@ namespace
 			REX::INFO("step=movie_call_miss where=shell_show_root");
 			return;
 		}
+		ApplyShellBackdrop(a_menu, top, menuMc);
 		if (g_createdCodeObjMovie.exchange(movie) != movie) {
 			RE::Scaleform::GFx::Value createRes;
 			if (!InvokeMovieTracked(menuMc, "onCodeObjCreate", &createRes, nullptr, 0, "Menu_mc.onCodeObjCreate")) {
@@ -6397,6 +6631,7 @@ namespace
 		}
 		const bool alreadyInvalidated = (g_shownInvalidatedMovie.exchange(movie) == movie);
 		if (alreadyInvalidated && !g_lateInvalidate) {
+			ApplyBottomBarDateFix(a_menu, menuMc, "kShow_existing");
 			return;
 		}
 		if (!g_dataObj.IsObject()) {
@@ -6408,7 +6643,8 @@ namespace
 		}
 		const auto page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
 		const auto tab = s_savedTabs[page].load();
-		if (g_populateInCall) {
+		// C4-2: ShellVitalsFill=1 (or PopulateInCall=1) populates real HP/AP/SPECIAL/Date on kShow; 0 restores exact 2f path
+		if (g_populateInCall || g_shellVitalsFill) {
 			FillPipboyDataObj(a_menu, root, g_dataObj, page, tab, "kShow");
 			if (g_codeObjSpecial == kSpecialClear) {
 				SpecialReady(root, top, "show");
@@ -6430,6 +6666,9 @@ namespace
 
 		RE::Scaleform::GFx::Value invRes;
 		const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData");
+		if (invalidated) {
+			ApplyBottomBarDateFix(a_menu, menuMc, "kShow");
+		}
 		REX::INFO("step=shell_show_invalidate page={} tab={} invalidated={}", page, tab, invalidated ? 1 : 0);
 		if (!invalidated) {
 			REX::INFO("step=movie_call_miss where=shell_show_invalidate page={} tab={}", page, tab);
@@ -6567,14 +6806,14 @@ namespace
 			}
 		}
 
-		if (const auto mask = g_pendingPartialMask.exchange(0); mask != 0 && (g_populateInCall || g_statActions || g_invDataAnswers)) {
+		if (const auto mask = g_pendingPartialMask.exchange(0); mask != 0 && (g_populateInCall || g_shellVitalsFill || g_statActions || g_invDataAnswers)) {
 			if (!g_dataObj.IsObject()) {
 				menuMc.GetMember("DataObj", &g_dataObj);
 			}
 			if (g_dataObj.IsObject()) {
 				const auto page = std::min<std::uint32_t>(s_savedPage.load(), 4u);
 				const auto tab = s_savedTabs[page].load();
-				if (g_populateInCall || g_statActions) {
+				if (g_populateInCall || g_shellVitalsFill || g_statActions) {
 					FillPipboyDataObj(a_menu, a_root, g_dataObj, page, tab, "partial");
 				} else if (g_invDataAnswers) {
 					FillInvAndDataIntoDataObj(a_root, g_dataObj, page, tab, "partial");
@@ -6583,6 +6822,8 @@ namespace
 				RE::Scaleform::GFx::Value partRes;
 				if (!InvokeMovieTracked(menuMc, "InvalidatePartialData", &partRes, &maskArg, 1, "Menu_mc.InvalidatePartialData", false)) {
 					REX::INFO("step=movie_call_miss where=InvalidatePartialData mask={:#x}", mask);
+				} else {
+					ApplyBottomBarDateFix(a_menu, menuMc, "partial");
 				}
 			}
 		}
@@ -6628,6 +6869,13 @@ namespace
 			}
 		}
 		PipboyMap::OnShellUpdate(a_menu, root, top, g_codeObjAt, g_answerPage, g_answerTab);
+		if (IsFo4ShellActive()) {
+			RE::Scaleform::GFx::Value menuMc;
+			if (ReadPath(top, g_codeObjAt, menuMc) && menuMc.IsObject()) {
+				ApplyShellBackdrop(a_menu, top, menuMc);
+				ApplyBottomBarDateFix(a_menu, menuMc, "update");
+			}
+		}
 		const auto page = g_answerPage.exchange(-1);
 		const auto tab = g_answerTab.exchange(-1);
 		if ((page < 0 && tab < 0) || g_codeObjAt.empty()) {
@@ -7300,6 +7548,7 @@ namespace
 		}
 		if (showOrHide) {
 			g_open = (type == RE::UI_MESSAGE_TYPE::kShow);
+			g_lastShellTransitionMs.store(NowMs());
 			g_cancelHeld = false;
 			PipboyMap::OnMenuMessage(type);
 			if (g_stage == 2 && g_codeObj && type == RE::UI_MESSAGE_TYPE::kShow) {
@@ -9233,6 +9482,7 @@ namespace
 			return;
 		}
 		const bool open = ui->IsMenuOpen(MenuName());
+		g_lastShellTransitionMs.store(NowMs());
 		g_cancelHeld = false;   // FAL-414: every close clears the cancel gate
 		g_armPendingOpenN = 0;
 		g_armWaitingRaiseGraph = false;
@@ -9347,7 +9597,36 @@ namespace
 		std::int64_t  at = 0;
 	};
 
-	// Step 1 & Step 8: shared main-thread open path for both Key (s_savedPage) and MapKey (page 3)
+	const RE::BSFixedString& DataMenuFixed()
+	{
+		static auto* const name = new RE::BSFixedString("DataMenu");
+		return *name;
+	}
+
+	// C4-4: Hide-only DataMenu suppression (same proven safe pattern as SuppressVanillaMapMenus, zero initFunc replacement).
+	// Never interferes with PauseMenu, Console, MainMenu, LoadingMenu, ChargenMenu, MessageBoxMenu, or save/load.
+	bool SuppressDataMenuMainThread()
+	{
+		if (!g_suppressDataMenu || !IsFo4ShellActive()) {
+			return false;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue || !ui->IsMenuRegistered(DataMenuFixed()) || !ui->IsMenuOpen(DataMenuFixed())) {
+			return false;
+		}
+		if (OpenBlockingOverlayMenu(ui, true) != nullptr) {
+			return false;
+		}
+		queue->AddMessage(DataMenuFixed(), RE::UI_MESSAGE_TYPE::kHide);
+		const auto n = ++g_dataMenuSuppressions;
+		if (n <= 64) {
+			REX::INFO("step=data_menu_suppress n={} menu=DataMenu sent=hide", n);
+		}
+		return true;
+	}
+
+	// Step 1 & Step 8: shared main-thread open path for both Key (s_savedPage), MapKey (page 3), and C4-4 Tab key
 	void RequestPipboyOpen(std::uint32_t a_targetPage, const char* a_by)
 	{
 		const std::uint32_t target = std::min<std::uint32_t>(a_targetPage, 4u);
@@ -9358,8 +9637,12 @@ namespace
 			return;
 		}
 		if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
-			REX::INFO("step=request_open by={} page={} ignored=menu_open menu={}", a_by ? a_by : "key", target, blocking);
-			return;
+			const bool allowDataMenuClose = g_suppressDataMenu && a_by && std::string_view(a_by) == "tab_key" &&
+			                                SameText(blocking, "DataMenu");
+			if (!allowDataMenuClose) {
+				REX::INFO("step=request_open by={} page={} ignored=menu_open menu={}", a_by ? a_by : "key", target, blocking);
+				return;
+			}
 		}
 		if (!CheckOpenGateAndBootMainThread(target, a_by)) {
 			return;
@@ -9392,9 +9675,73 @@ namespace
 			return;
 		}
 
-		Toggle(n);
+		g_lastShellTransitionMs.store(NowMs());
+		if (a_by && std::string_view(a_by) == "tab_key" && g_suppressDataMenu) {
+			// Ensure Toggle() does not bail on a DataMenu frame whose kHide is still in flight
+			if (g_stage == 2 && g_codeObj) {
+				CollectShellVitalsMainThread(target);
+			}
+			g_cancelHeld = false;
+			g_expectOpen = 1;
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
+				REX::INFO("step=toggle n={} was_open=0 sent=show by=tab_key", n);
+			}
+		} else {
+			Toggle(n);
+		}
 		g_stateCheckN.store(n);
 		g_stateCheckDueAt.store(NowMs() + 750);
+	}
+
+	// C4-4: Track whenever any non-DataMenu blocking menu (DialogueMenu, ContainerMenu, WorkshopMenu, PauseMenu,
+	// Console, etc.) is open on the main thread so pressing Tab to close a Starfield menu never pops the Pip-Boy.
+	void PollBlockingMenuStateMainThread()
+	{
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		const char* blocking = OpenBlockingOverlayMenu(ui);
+		const bool  nonDataBlocking = (blocking != nullptr) && !SameText(blocking, "DataMenu");
+		g_nonDataBlockingOpen.store(nonDataBlocking);
+		if (nonDataBlocking) {
+			g_lastNonDataBlockingMs.store(NowMs());
+		}
+	}
+
+	// C4-4: Main-thread handler for closed-Pip-Boy Tab press when TabOpensPipboy=1. Suppresses Starfield's DataMenu
+	// and opens FO4SF_PipboyMenu on the saved page unless another blocking menu (Dialogue/Container/Workshop/Pause/
+	// Console/etc.) is currently open OR was open within kBlockingMenuCooldownMs (500 ms, catching same-press Tab-back).
+	void HandleClosedTabKeyMainThread(std::uint32_t a_n)
+	{
+		if (!g_tabOpensPipboy || !IsFo4ShellActive()) {
+			return;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui || ui->IsMenuOpen(MenuName())) {
+			return;
+		}
+		if (const char* blocking = OpenBlockingOverlayMenu(ui)) {
+			if (!SameText(blocking, "DataMenu")) {
+				g_nonDataBlockingOpen.store(true);
+				g_lastNonDataBlockingMs.store(NowMs());
+				REX::INFO("step=tab_key n={} vk=0x9 ignored=menu_open menu={}", a_n, blocking);
+				return;
+			}
+		}
+		const auto now = NowMs();
+		const auto lastBlock = g_lastNonDataBlockingMs.load();
+		if (g_nonDataBlockingOpen.load() || (lastBlock > 0 && (now - lastBlock) < kBlockingMenuCooldownMs)) {
+			REX::INFO("step=tab_key n={} vk=0x9 ignored=recent_blocking_menu ago_ms={}", a_n,
+				lastBlock > 0 ? (now - lastBlock) : 0);
+			return;
+		}
+		SuppressDataMenuMainThread();
+		g_lastShellTransitionMs.store(now);
+		const auto page = s_savedPage.load();
+		REX::INFO("step=tab_key n={} vk=0x9 page={} sent=request_open", a_n, page);
+		RequestPipboyOpen(page, "tab_key");
 	}
 
 	// FAL-852 / N1, Key at Arm=1 (game in front): checks Console/blocking menus and RequirePickup on the main thread
@@ -9535,8 +9882,10 @@ namespace
 		std::uint32_t presses = 0;
 		std::uint32_t ticks = 0;
 		std::uint32_t shellTicks = 0;
+		std::uint32_t dataMenuTicks = 0;
 		std::uint32_t specialTicks = 0;
 		bool          down = false;
+		bool          tabDown = false;
 		bool          specialKeyDown = false;
 		bool          snapDown = false;
 		ArmCheck      armCheck;     // FAL-852
@@ -9583,6 +9932,34 @@ namespace
 				}
 			}
 			down = now;
+			// C4-4: Opt-in closed-Pip-Boy Tab open (TabOpensPipboy=1) and hide-only DataMenu suppression (SuppressDataMenu=1).
+			// Refreshes g_nonDataBlockingOpen / g_lastNonDataBlockingMs from main thread so Tab-closing a Starfield menu
+			// (DialogueMenu, ContainerMenu, WorkshopMenu, etc.) within 500 ms never pops the Pip-Boy.
+			if (IsFo4ShellActive()) {
+				const auto dt = ++dataMenuTicks;
+				if (g_tabOpensPipboy && !g_open.load() && (dt % 2 == 0)) {
+					g_task->AddTask([]() { PollBlockingMenuStateMainThread(); });
+				}
+				const bool tabNow = (W32_IMPL_GetAsyncKeyState(0x09) & 0x8000) != 0;
+				if (g_tabOpensPipboy && tabNow && !tabDown && !g_open.load() && GameInFront()) {
+					const auto lastBlock = g_lastNonDataBlockingMs.load();
+					const bool blockedAtDown = g_nonDataBlockingOpen.load() ||
+					                           (lastBlock > 0 && (tickMs - lastBlock) < kBlockingMenuCooldownMs);
+					const bool shellCooldown = (tickMs - g_lastShellTransitionMs.load()) < kShellTabCooldownMs;
+					if (!blockedAtDown && !shellCooldown) {
+						g_lastShellTransitionMs.store(tickMs);
+						const auto tn = ++g_tabKeyPresses;
+						g_task->AddTask([tn]() { HandleClosedTabKeyMainThread(tn); });
+					}
+				}
+				tabDown = tabNow;
+				if (g_suppressDataMenu) {
+					const bool recentShellTransition = (tickMs - g_lastShellTransitionMs.load()) < 2500;
+					if (recentShellTransition || (dt % 3 == 0)) {
+						g_task->AddTask([]() { SuppressDataMenuMainThread(); });
+					}
+				}
+			}
 			if (g_arm) {
 				ArmTick(armCheck);
 			}
@@ -9712,6 +10089,10 @@ namespace
 	{
 		World::OnMovieCreated(a_menu);
 		PipboyMap::OnMovieCreated(a_menu);
+		if (g_suppressDataMenu && IsFo4ShellActive() && g_task && a_menu && a_menu->menuName.c_str() &&
+			SameText(a_menu->menuName.c_str(), "DataMenu")) {
+			g_task->AddTask([]() { SuppressDataMenuMainThread(); });
+		}
 		if (IsOurs(a_menu)) {
 			REX::INFO("step=sfse_movie_created menu={} movie={}", Hex(reinterpret_cast<std::uintptr_t>(a_menu)),
 				Hex(reinterpret_cast<std::uintptr_t>(MovieOf(a_menu))));
@@ -10100,6 +10481,11 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_lateInvalidate = ReadNumber(ini, L"LateInvalidate", 0) != 0;
 	g_statActions = ReadNumber(ini, L"StatActions", 0) != 0;
 	g_invDataAnswers = ReadNumber(ini, L"InvDataAnswers", 0) != 0;
+	const bool fo4ShellIni = (g_stage == 2 && g_codeObj && g_codeObjAt == "Menu_mc");
+	g_shellBackdrop = ReadNumber(ini, L"ShellBackdrop", 1) != 0;
+	g_shellVitalsFill = ReadNumber(ini, L"ShellVitalsFill", 0) != 0;
+	g_suppressDataMenu = ReadNumber(ini, L"SuppressDataMenu", 0) != 0;
+	g_tabOpensPipboy = ReadNumber(ini, L"TabOpensPipboy", 0) != 0;
 	g_requirePickup = ReadNumber(ini, L"RequirePickup", 0) != 0;
 	g_bootMovie = ReadText(ini, L"BootMovie");
 	g_bootOnFirstOpen = ReadNumber(ini, L"BootOnFirstOpen", 0) != 0;
@@ -10239,6 +10625,10 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 		}
 		REX::INFO("step=code_obj_shell at={} pages={} names_count={} shell_keys={}", g_codeObjAt.empty() ? "none" : g_codeObjAt,
 			g_codeObjPages ? 1 : 0, g_codeObjCount, keys.empty() ? "none" : keys);
+		if (fo4ShellIni) {
+			REX::INFO("step=shell_c4_config shell_backdrop={} shell_vitals_fill={} suppress_data_menu={} tab_opens_pipboy={}",
+				g_shellBackdrop ? 1 : 0, g_shellVitalsFill ? 1 : 0, g_suppressDataMenu ? 1 : 0, g_tabOpensPipboy ? 1 : 0);
+		}
 	}
 	if (g_codeObjSound) {
 		g_soundDir = dir / kSoundFolder;

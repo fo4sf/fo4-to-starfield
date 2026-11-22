@@ -296,6 +296,9 @@ namespace
 	RE::Scaleform::GFx::Value              g_mapPageVal;
 	const void*                            g_populatedMovie = nullptr;
 	std::int32_t                           g_lastPlayerArrayIdx = -1;
+	// R6: Leaf mutex protecting g_pushedStoreIndices and g_pushedQuestIndices across menu/callback/teardown paths;
+	// never held while calling Scaleform GFx or game APIs.
+	std::mutex                             g_pushedIndicesLock;
 	std::vector<std::pair<std::uint32_t, std::int32_t>> g_pushedStoreIndices;
 	std::vector<std::pair<std::uint32_t, std::int32_t>> g_pushedQuestIndices;
 
@@ -1758,8 +1761,11 @@ namespace
 		g_needCenter = false;
 		g_requestedCenterMarkerId = -1;
 		g_requestedCenterQuestFormId = 0;
-		g_pushedStoreIndices.clear();
-		g_pushedQuestIndices.clear();
+		{
+			std::scoped_lock lock(g_pushedIndicesLock);
+			g_pushedStoreIndices.clear();
+			g_pushedQuestIndices.clear();
+		}
 		g_textureLogged = false;
 		g_currentShellPage = -1;
 		g_currentShellTab = 0;
@@ -2195,8 +2201,11 @@ namespace PipboyMap
 		g_needTexturesLoaded = false;
 		g_requestedCenterMarkerId = -1;
 		g_requestedCenterQuestFormId = 0;
-		g_pushedStoreIndices.clear();
-		g_pushedQuestIndices.clear();
+		{
+			std::scoped_lock lock(g_pushedIndicesLock);
+			g_pushedStoreIndices.clear();
+			g_pushedQuestIndices.clear();
+		}
 		g_modalOpen = false;
 	}
 
@@ -2299,11 +2308,14 @@ namespace PipboyMap
 			if (ParseArgUInt(a_params, 0, arrIdxArg) && g_task) {
 				std::uint32_t storeIdx = 0;
 				bool          found = false;
-				for (const auto& [si, pushedArr] : g_pushedStoreIndices) {
-					if (pushedArr == static_cast<std::int32_t>(arrIdxArg)) {
-						storeIdx = si;
-						found = true;
-						break;
+				{
+					std::scoped_lock lock(g_pushedIndicesLock);
+					for (const auto& [si, pushedArr] : g_pushedStoreIndices) {
+						if (pushedArr == static_cast<std::int32_t>(arrIdxArg)) {
+							storeIdx = si;
+							found = true;
+							break;
+						}
 					}
 				}
 				if (!found) {
@@ -2359,7 +2371,10 @@ namespace PipboyMap
 			a_dataObj.SetMember("RemoveAllMapMarkers", RE::Scaleform::GFx::Value(true));
 			markersArr.SetMember("length", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
 
-			g_pushedStoreIndices.clear();
+			{
+				std::scoped_lock lock(g_pushedIndicesLock);
+				g_pushedStoreIndices.clear();
+			}
 			std::uint32_t arrIdx = 0;
 			std::uint32_t discCount = 0;
 			std::uint32_t undiscCount = 0;
@@ -2380,7 +2395,10 @@ namespace PipboyMap
 				entry.SetMember("name", RE::Scaleform::GFx::Value(m.label.c_str()));
 				entry.SetMember("undiscovered", RE::Scaleform::GFx::Value(!disc));
 				if (PushMarkerObject(markersArr, entry)) {
-					g_pushedStoreIndices.emplace_back(static_cast<std::uint32_t>(storeIdx), static_cast<std::int32_t>(arrIdx));
+					{
+						std::scoped_lock lock(g_pushedIndicesLock);
+						g_pushedStoreIndices.emplace_back(static_cast<std::uint32_t>(storeIdx), static_cast<std::int32_t>(arrIdx));
+					}
 					++arrIdx;
 				}
 			}
@@ -2390,7 +2408,10 @@ namespace PipboyMap
 				std::scoped_lock lock(g_questMarkersLock);
 				qMarkersCopy = g_questMarkers;
 			}
-			g_pushedQuestIndices.clear();
+			{
+				std::scoped_lock lock(g_pushedIndicesLock);
+				g_pushedQuestIndices.clear();
+			}
 			std::uint32_t pushedQuestCount = 0;
 			for (std::size_t qi = 0; qi < qMarkersCopy.size(); ++qi) {
 				const auto& qm = qMarkersCopy[qi];
@@ -2413,7 +2434,10 @@ namespace PipboyMap
 				qEntry.SetMember("questFormID", RE::Scaleform::GFx::Value(qm.questFormId));
 				qEntry.SetMember("objectiveIndex", RE::Scaleform::GFx::Value(static_cast<std::uint32_t>(qm.objectiveNumber)));
 				if (PushMarkerObject(markersArr, qEntry)) {
-					g_pushedQuestIndices.emplace_back(qm.questFormId, static_cast<std::int32_t>(arrIdx));
+					{
+						std::scoped_lock lock(g_pushedIndicesLock);
+						g_pushedQuestIndices.emplace_back(qm.questFormId, static_cast<std::int32_t>(arrIdx));
+					}
 					++pushedQuestCount;
 					++arrIdx;
 				}
@@ -2599,6 +2623,7 @@ namespace PipboyMap
 				const auto    wantId = g_requestedCenterMarkerId.exchange(-1);
 				std::uint32_t centeredQuest = 0;
 				if (wantQuest != 0) {
+					std::scoped_lock lock(g_pushedIndicesLock);
 					for (const auto& [qFid, qArrIdx] : g_pushedQuestIndices) {
 						if (qFid == wantQuest) {
 							centerIdx = qArrIdx;
@@ -2607,6 +2632,7 @@ namespace PipboyMap
 						}
 					}
 				} else if (wantId >= 0) {
+					std::scoped_lock lock(g_pushedIndicesLock);
 					for (const auto& [storeIdx, pushedArrIdx] : g_pushedStoreIndices) {
 						if (storeIdx < g_store.size() &&
 							(static_cast<std::int32_t>(g_store[storeIdx].localId) == (wantId & 0xFFFFFF) ||
