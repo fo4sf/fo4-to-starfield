@@ -2,6 +2,11 @@
 
 > **Whole Scope:** Titles: Fallout 4 | Modes: Story & Warfare (+ Survival hardcore layer) | Track: Track 1 (playable path) — **prototype, offline (audit & two-way door wiring spec; unproven in game, `R15`)**.
 >
+> **Truth Labels (`R8` — Stand-Ins vs Real Implementation):** Every door promotion, roof set-piece, and interior bridge in this document is an **offline audit/spec or stand-in** until promoted and proven in game — never unqualified "executable":
+> - **Museum of Freedom, Sanctuary Root Cellar, Concord interiors & Corvega load doors:** Audit/spec only (staged in `interiors_b10`, not yet promoted into Track-1 `FO4TerrainCore.esm` / bundled `FO4Port.esm` + `FO4PortTextures2.esm`). Real version requires `--keep-markers --allow-new-doors` promotion preserving `00E175..00E183` and bundling `FO4Port.esm`.
+> - **Roof T-45 Power Armor (`0x008913`), Vertibird Minigun (`0x005119`), Laser Musket & Deathclaw emergence:** Design spec only (not yet wired into `FO4SFMission.esm`). Real version requires interactive `FO4SF_PowerArmorFrameFurn`, weapon/minigun rip-off script, and Concord Wave-2 Deathclaw actor/trigger scripts.
+> - **Diamond City Gate -> `DmndValentines01` (`02006B30`) bridge:** **Stand-in** until `DiamondCityWorld` child worldspace is converted and staged.
+>
 > **Zero-Reconversion Rule:** Every interior listed below is **already converted and staged on disk** in the `interiors_b10` port (`FO4Port.esm` + `FO4Port - Main.ba2` + `FO4Port - Textures.ba2` + `FO4PortTextures2.esm` + `FO4PortTextures2 - Textures.ba2`, built at commit `1b661304`, plugin SHA-256 `c12b141c2783...`, `HEDR.nextObjectId = 0x074CD3`, `477,066` records). Do **not** reconvert any interior cell.
 
 ---
