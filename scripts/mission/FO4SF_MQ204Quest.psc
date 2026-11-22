@@ -58,6 +58,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool isoldePlaced = False
 bool virgilPlaced = False
@@ -340,9 +341,17 @@ Function ApplyStage(int n, string by)
         CancelTimer(1)
         Quest mq206 = Game.GetFormFromFile(0x000B30, MissionPlugin) as Quest
         bool started206 = False
-        if mq206 != None && !mq206.IsRunning() && !mq206.IsCompleted()
-            mq206.StartNoWait()
-            started206 = True
+        if mq206 != None && !mq206.IsCompleted()
+            if mq206.IsRunning()
+                FO4SF_MQ206Quest nextMq206 = mq206 as FO4SF_MQ206Quest
+                if nextMq206 != None
+                    nextMq206.WakeFromPredecessor()
+                endif
+                started206 = True
+            else
+                mq206.StartNoWait()
+                started206 = True
+            endif
         endif
         Trace("mq204 complete stage=200 mq206_armed=1 mq206_started=" + started206 + " rads_plugin=" + Game.IsPluginInstalled(RadsPlugin) + " by=" + by)
     endif
@@ -369,10 +378,15 @@ Function StartQuestInstance()
     endif
     if !CheckPredecessorGate()
         Trace("mq204 gate_deferred reason=mq203_incomplete")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -392,6 +406,17 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq204 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
@@ -399,6 +424,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     isoldePlaced = False
     virgilPlaced = False
     talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq204 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -469,7 +498,7 @@ Function PlaceIsolde(Actor player)
         endif
         iso.AllowPCDialogue(True)
         if isoldeTalkProxy == None || isoldeTalkProxy.IsDeleted()
-            Activator iActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator iActi = Game.GetFormFromFile(0x000B19, MissionPlugin) as Activator
             if iActi != None
                 isoldeTalkProxy = iso.PlaceAtMe(iActi, 1, True, False, False)
                 if isoldeTalkProxy != None
@@ -510,7 +539,7 @@ Function PlaceVirgil(Actor player)
         vg.AllowPCDialogue(True)
         vg.IgnoreFriendlyHits(True)
         if virgilTalkProxy == None || virgilTalkProxy.IsDeleted()
-            Activator vActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator vActi = Game.GetFormFromFile(0x000B1A, MissionPlugin) as Activator
             if vActi != None
                 virgilTalkProxy = vg.PlaceAtMe(vActi, 1, True, False, False)
                 if virgilTalkProxy != None

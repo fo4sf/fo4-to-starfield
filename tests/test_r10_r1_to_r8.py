@@ -66,6 +66,11 @@ class Round10R1ToR8Tests(unittest.TestCase):
         self.assertIn("CheckPredecessorOrGateProximity(player)", mq103)
         self.assertIn('Trace("mq103 gate_deferred reason=opening_active")', mq103)
         self.assertIn("if !IsSanctuaryOpeningRunning()", mq103)
+        # R1 honesty (P2): explicitly notes FO4 MQ102 -> MQ103 vs deliberate one-tracked-opening-mission design
+        self.assertIn("one-tracked-opening-mission", sanc)
+        self.assertNotIn("matching Fallout 4's post-Sanctuary handoff", sanc)
+        self.assertIn("one-tracked-opening-mission", mq103)
+        self.assertNotIn("matching Fallout 4", mq103)
 
     def test_r2_sanctuary_workbench_no_modal_over_workshop_and_honest_complete_log(self) -> None:
         sanc = PSC_SANC.read_text(encoding="utf-8")
@@ -117,32 +122,130 @@ class Round10R1ToR8Tests(unittest.TestCase):
         mq106 = PSC_MQ106.read_text(encoding="utf-8")
         self.assertIn("|| EffectiveStage() < 50", mq106)
 
-    def test_r4_all_talk_steps_have_360_proxy_and_timed_proximity_fallback(self) -> None:
-        for psc_path in ALL_W2_PSCS:
+    def test_r4_all_talk_steps_have_per_npc_360_proxy_and_timed_proximity_fallback(self) -> None:
+        expected_proxies = (
+            (PSC_SANC, ("0x000A0E",)),
+            (PSC_STEP, ("0x000A27",)),
+            (PSC_MQ103, ("0x000A5A", "0x000A5C")),
+            (PSC_MQ104, ("0x000A8A", "0x000A8B")),
+            (PSC_MQ105, ("0x000A8A", "0x000AB9", "0x000ABA")),
+            (PSC_MQ106, ("0x000A8A",)),
+            (PSC_MQ203, ("0x000AF6",)),
+            (PSC_MQ204, ("0x000B19", "0x000B1A")),
+            (PSC_MQ206, ("0x000B3E", "0x000B3F", "0x000B48")),
+        )
+        for psc_path, form_ids in expected_proxies:
             txt = psc_path.read_text(encoding="utf-8")
-            self.assertIn("0x000970", txt, f"{psc_path.name} missing 360-degree CodsworthTalkActi (0x000970) talk proxy")
+            self.assertNotIn("0x000970", txt, f"{psc_path.name} must NOT reuse CodsworthTalkActi (0x000970)")
+            for fid in form_ids:
+                self.assertIn(fid, txt, f"{psc_path.name} missing dedicated per-NPC talk proxy {fid}")
             self.assertIn("TalkFallbackRadius", txt, f"{psc_path.name} missing TalkFallbackRadius")
             self.assertIn("TalkFallbackSeconds", txt, f"{psc_path.name} missing TalkFallbackSeconds")
             self.assertIn("talk_fallback", txt, f"{psc_path.name} missing talk_fallback trace")
 
-    def test_r5_strict_sequential_stage_gating_and_no_mq105_mq106_overlap(self) -> None:
-        gates = (
-            (PSC_STEP, "minrecruit00 gate_deferred reason=opening_incomplete"),
-            (PSC_MQ103, "mq103 gate_deferred reason=opening_active"),
-            (PSC_MQ104, "mq104 gate_deferred reason=mq103_incomplete"),
-            (PSC_MQ105, "mq105 gate_deferred reason=mq104_incomplete"),
-            (PSC_MQ106, "mq106 gate_deferred reason=mq105_incomplete"),
-            (PSC_MQ203, "mq203 gate_deferred reason=mq106_incomplete"),
-            (PSC_MQ204, "mq204 gate_deferred reason=mq203_incomplete"),
-            (PSC_MQ206, "mq206 gate_deferred reason=mq204_incomplete"),
+        # Verify every per-NPC talk proxy ACTI copies its NPC's exact Name and is self-checked in C#
+        cs_checks = (
+            (CS_A4, ("SturgesTalkActiId", "TenpinesTalkActiId", "PrestonTalkActiId", "PiperTalkActiId", "MayorTalkActiId", "EllieTalkActiId")),
+            (CS_A7, ("NickTalkActiId", "MaloneTalkActiId", "GenevaTalkActiId", "DogmeatTalkActiId")),
+            (CS_A7CD, ("AmariTalkActiId", "IsoldeTalkActiId", "VirgilTalkActiId", "DesdemonaTalkActiId", "TinkerTomTalkActiId", "IngramTalkActiId")),
         )
-        for psc_path, token in gates:
+        for cs_path, const_names in cs_checks:
+            txt = cs_path.read_text(encoding="utf-8")
+            for cname in const_names:
+                self.assertIn(cname, txt, f"{cs_path.name} missing {cname}")
+            self.assertIn("talkActi.Name?.String == talkNpc.Name?.String", txt, f"{cs_path.name} missing NPC Name equality check")
+            self.assertIn('talkActi.ActivateTextOverride?.String == "Talk"', txt, f"{cs_path.name} missing Talk prompt check")
+
+    def test_r5_early_start_stays_dormant_on_runonce_and_wakes_on_predecessor_complete(self) -> None:
+        gates = (
+            (PSC_STEP, PSC_SANC, "minrecruit00", "minrecruit00 gate_deferred reason=opening_incomplete", "FO4SF_MinRecruit00Quest", "AdvanceTo(10,"),
+            (PSC_MQ103, PSC_SANC, "mq103", "mq103 gate_deferred reason=opening_active", "FO4SF_MQ103Quest", "AdvanceTo(10,"),
+            (PSC_MQ104, PSC_MQ103, "mq104", "mq104 gate_deferred reason=mq103_incomplete", "FO4SF_MQ104Quest", "AdvanceTo(10,"),
+            (PSC_MQ105, PSC_MQ104, "mq105", "mq105 gate_deferred reason=mq104_incomplete", "FO4SF_MQ105Quest", "AdvanceTo(10,"),
+            (PSC_MQ106, PSC_MQ105, "mq106", "mq106 gate_deferred reason=mq105_incomplete", "FO4SF_MQ106Quest", "AdvanceTo(10,"),
+            (PSC_MQ203, PSC_MQ106, "mq203", "mq203 gate_deferred reason=mq106_incomplete", "FO4SF_MQ203Quest", "AdvanceTo(5,"),
+            (PSC_MQ204, PSC_MQ203, "mq204", "mq204 gate_deferred reason=mq203_incomplete", "FO4SF_MQ204Quest", "AdvanceTo(10,"),
+            (PSC_MQ206, PSC_MQ204, "mq206", "mq206 gate_deferred reason=mq204_incomplete", "FO4SF_MQ206Quest", "AdvanceTo(10,"),
+        )
+        for psc_path, pred_path, qtag, token, script_cls, first_stage_call in gates:
             txt = psc_path.read_text(encoding="utf-8")
             self.assertIn(token, txt, f"{psc_path.name} missing R5 gate token {token}")
 
-        # MQ106 specifically requires MQ105 >= 100 or completed
+            # 1. StartQuestInstance's gate_deferred branch MUST NOT call Stop() (RunOnce safety)
+            start_fn = re.search(r"Function StartQuestInstance\(\).*?EndFunction", txt, re.S)
+            self.assertIsNotNone(start_fn, f"{psc_path.name} missing StartQuestInstance")
+            sbody = start_fn.group(0).replace("\r\n", "\n")
+            defer_block = re.search(r"if !CheckPredecessor(?:Gate|OrGateProximity)\([^\n]*\)\s*\n(.*?)\breturn\b\s*\n\s*endif", sbody, re.S)
+            self.assertIsNotNone(defer_block, f"{psc_path.name} missing defer block")
+            defer_code = "\n".join(ln.split(";", 1)[0] for ln in defer_block.group(1).splitlines())
+            self.assertNotIn("Stop()", defer_code, f"{psc_path.name} must NOT call Stop() on RunOnce gate_deferred")
+            self.assertIn("gateDeferred = True", defer_code)
+            self.assertIn("instanceStarted = False", defer_code)
+            self.assertIn('RegisterForRemoteEvent(', defer_code)
+            self.assertIn('"OnPlayerLoadGame"', defer_code)
+            self.assertNotIn("SetObjectiveDisplayed", defer_code)
+            self.assertNotIn("SetActive(", defer_code)
+            self.assertNotIn("StartTimer(", defer_code)
+
+            # 2. WakeFromPredecessor exists and re-enters StartQuestInstance once gate passes
+            wake_fn = re.search(r"Function WakeFromPredecessor\(\).*?EndFunction", txt, re.S)
+            self.assertIsNotNone(wake_fn, f"{psc_path.name} missing WakeFromPredecessor()")
+            wbody = wake_fn.group(0)
+            self.assertIn(f'Trace("{qtag} gate_resumed")', wbody)
+            self.assertIn("StartQuestInstance()", wbody)
+
+            # 3. OnPlayerLoadGame re-checks dormant gateDeferred quests without starting timers prematurely
+            reload_ev = re.search(r"Event Actor\.OnPlayerLoadGame\(.*?EndEvent", txt, re.S)
+            self.assertIsNotNone(reload_ev, f"{psc_path.name} missing OnPlayerLoadGame")
+            self.assertIn("if gateDeferred && !instanceStarted", reload_ev.group(0))
+            self.assertIn("WakeFromPredecessor()", reload_ev.group(0))
+
+            # 4. Predecessor handoff wakes an already-running dormant RunOnce successor
+            pred_txt = pred_path.read_text(encoding="utf-8")
+            self.assertIn(f"as {script_cls}", pred_txt, f"{pred_path.name} does not cast to {script_cls} to wake dormant successor")
+            self.assertIn(".WakeFromPredecessor()", pred_txt, f"{pred_path.name} does not call WakeFromPredecessor()")
+
+            # 5. First stage exists in StartQuestInstance after gate clears
+            self.assertIn(first_stage_call, sbody)
+
+            # 6. Simulate RunOnce lifecycle: early start -> dormant -> predecessor completes -> reaches first stage
+            stopped_forever = False
+            pred_done = False
+            gate_deferred = False
+            instance_started = False
+            stage = 0
+            first_stage = 5 if "AdvanceTo(5," in first_stage_call else 10
+
+            def start_quest_instance() -> None:
+                nonlocal gate_deferred, instance_started, stage, stopped_forever
+                if stopped_forever or instance_started:
+                    return
+                instance_started = True
+                if not pred_done:
+                    gate_deferred = True
+                    instance_started = False
+                    # Never sets stopped_forever on RunOnce defer!
+                    return
+                gate_deferred = False
+                stage = first_stage
+
+            start_quest_instance()  # Early start before predecessor finishes
+            self.assertTrue(gate_deferred, f"{qtag} should defer when predecessor incomplete")
+            self.assertFalse(stopped_forever, f"{qtag} must not Stop() on RunOnce defer")
+            self.assertEqual(stage, 0, f"{qtag} must stay at stage 0 while dormant")
+
+            pred_done = True  # Predecessor completes and calls WakeFromPredecessor()
+            if not instance_started and pred_done:
+                gate_deferred = False
+                start_quest_instance()
+            self.assertFalse(gate_deferred)
+            self.assertTrue(instance_started)
+            self.assertEqual(stage, first_stage, f"{qtag} must reach first stage {first_stage} after predecessor completes")
+
+        # MQ106 specifically requires MQ105 completion (stage >= 200, NOT stage 100 trail)
         mq106 = PSC_MQ106.read_text(encoding="utf-8")
-        self.assertIn("mq105.GetStage() >= 100", mq106)
+        self.assertIn("mq105.GetStage() >= 200", mq106)
+        self.assertNotIn("mq105.GetStage() >= 100", mq106)
 
     def test_r7_mq204_rads_gated_by_fo4sfrads_and_sanctuary_alias_selfcheck_restored(self) -> None:
         mq204 = PSC_MQ204.read_text(encoding="utf-8")

@@ -88,6 +88,8 @@ static class NextStoryMissionsA7cd
     public const uint Mq203LoungerProxyActiId = 0xAF3;
     public const string Mq203LoungerProxyActiEdid = "FO4SF_MQ203_LoungerProxyActi";
     public const uint MemoriesCompletedGlobId = 0xAF4, Mq204ArmedGlobId = 0xAF5;
+    public const uint AmariTalkActiId = 0xAF6;
+    public const string AmariTalkActiEdid = "FO4SF_MQ203_AmariTalkActi";
     public const uint Mq203AmariTalkMsgId = 0xB00, Mq203LoungerMsgId = 0xB01,
                       Mq203MemoryWalkMsgId = 0xB02, Mq203LabTerminalMsgId = 0xB03;
 
@@ -100,6 +102,9 @@ static class NextStoryMissionsA7cd
     public const uint Mq204LabTerminalProxyActiId = 0xB16;
     public const string Mq204LabTerminalProxyActiEdid = "FO4SF_MQ204_LabTerminalProxyActi";
     public const uint GlowingSeaRadsActiveGlobId = 0xB17, Mq206ArmedGlobId = 0xB18;
+    public const uint IsoldeTalkActiId = 0xB19, VirgilTalkActiId = 0xB1A;
+    public const string IsoldeTalkActiEdid = "FO4SF_MQ204_IsoldeTalkActi",
+                        VirgilTalkActiEdid = "FO4SF_MQ204_VirgilTalkActi";
     public const uint Mq204IsoldeTalkMsgId = 0xB20, Mq204VirgilNoteMsgId = 0xB21,
                       Mq204VirgilTalkMsgId = 0xB22, Mq204LabTerminalMsgId = 0xB23;
 
@@ -115,6 +120,10 @@ static class NextStoryMissionsA7cd
     public const string Mq206ScannerProxyActiEdid = "FO4SF_MQ206_ScannerProxyActi";
     public const uint Mq206ConsoleProxyActiId = 0xB3D;
     public const string Mq206ConsoleProxyActiEdid = "FO4SF_MQ206_ConsoleProxyActi";
+    public const uint DesdemonaTalkActiId = 0xB3E, TinkerTomTalkActiId = 0xB3F, IngramTalkActiId = 0xB48;
+    public const string DesdemonaTalkActiEdid = "FO4SF_MQ206_DesdemonaTalkActi",
+                        TinkerTomTalkActiEdid = "FO4SF_MQ206_TinkerTomTalkActi",
+                        IngramTalkActiEdid = "FO4SF_MQ206_IngramTalkActi";
     public const uint Mq206TeleporterFactionGlobId = 0xB40, Mq206BuiltPlatformGlobId = 0xB41,
                       Mq206BuiltBeamGlobId = 0xB42, Mq206BuiltDishGlobId = 0xB43,
                       Mq206BuiltConsoleGlobId = 0xB44, Mq206ArrayPoweredGlobId = 0xB45,
@@ -706,6 +715,14 @@ static class NextStoryMissionsA7cd
         mq206Script.Properties.Add(ObjProp("OpenModeFallbackMsg", mq206OpenFallback.FormKey));
         mq206.VirtualMachineAdapter = MakeAdapter(mq206Script);
         mod.Quests.Add(mq206);
+
+        // R4: Per-NPC 360-degree talk proxies carrying each NPC's own display Name (never Codsworth's 0x970)
+        AddProxyActi(mod, modKey, AmariTalkActiId, AmariTalkActiEdid, amariNpc.Name?.String ?? "Doctor Amari", "Talk");
+        AddProxyActi(mod, modKey, IsoldeTalkActiId, IsoldeTalkActiEdid, isoldeNpc.Name?.String ?? "Mother Isolde", "Talk");
+        AddProxyActi(mod, modKey, VirgilTalkActiId, VirgilTalkActiEdid, virgilNpc.Name?.String ?? "Virgil", "Talk");
+        AddProxyActi(mod, modKey, DesdemonaTalkActiId, DesdemonaTalkActiEdid, desdemonaNpc.Name?.String ?? "Desdemona", "Talk");
+        AddProxyActi(mod, modKey, TinkerTomTalkActiId, TinkerTomTalkActiEdid, tinkerTomNpc.Name?.String ?? "Tinker Tom", "Talk");
+        AddProxyActi(mod, modKey, IngramTalkActiId, IngramTalkActiEdid, ingramNpc.Name?.String ?? "Proctor Ingram", "Talk");
     }
 
     public static void CheckA7cdMissions(
@@ -832,5 +849,27 @@ static class NextStoryMissionsA7cd
             .Where(r => IsA7cdActorRefId(r.FormKey.ID)).ToList() ?? [];
         need(a7cdRefs.Count == 8 && a7cdRefs.All(r => (r.MajorRecordFlagsRaw & 0x800) != 0),
             "A7cd persistent ACHRs must all carry InitiallyDisabled (0x800, R3)");
+
+        foreach (var (actiId, edid, npcId) in new (uint, string, uint)[]
+        {
+            (AmariTalkActiId, AmariTalkActiEdid, DoctorAmariNpcId),
+            (IsoldeTalkActiId, IsoldeTalkActiEdid, MotherIsoldeNpcId),
+            (VirgilTalkActiId, VirgilTalkActiEdid, VirgilNpcId),
+            (DesdemonaTalkActiId, DesdemonaTalkActiEdid, DesdemonaNpcId),
+            (TinkerTomTalkActiId, TinkerTomTalkActiEdid, TinkerTomNpcId),
+            (IngramTalkActiId, IngramTalkActiEdid, ProctorIngramNpcId),
+        })
+        {
+            var talkActi = plug.Activators.FirstOrDefault(x => x.FormKey == new FormKey(key, actiId));
+            var talkNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, npcId));
+            need(talkActi is not null && talkNpc is not null &&
+                 talkActi.EditorID == edid &&
+                 talkActi.ActivationAngle == 360 && !talkActi.InvertFacing &&
+                 talkActi.ActivateTextOverride?.String == "Talk" &&
+                 !string.IsNullOrEmpty(talkNpc.Name?.String) &&
+                 talkActi.Name?.String == talkNpc.Name?.String &&
+                 string.Equals(talkActi.Model?.File?.GivenPath, ProxyActiModel, StringComparison.OrdinalIgnoreCase),
+                $"A7cd talk proxy {edid} (0x{actiId:X6}) missing or Name mismatch with NPC 0x{npcId:X6}");
+        }
     }
 }

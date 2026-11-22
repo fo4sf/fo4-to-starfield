@@ -60,6 +60,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool actorsPlaced = False
 bool dogmeatEnabled = False
@@ -324,9 +325,17 @@ Function ApplyStage(int n, string by)
         CancelTimer(1)
         Quest mq106 = Game.GetFormFromFile(0x000AD0, MissionPlugin) as Quest
         bool started106 = False
-        if mq106 != None && !mq106.IsRunning() && !mq106.IsCompleted()
-            mq106.StartNoWait()
-            started106 = True
+        if mq106 != None && !mq106.IsCompleted()
+            if mq106.IsRunning()
+                FO4SF_MQ106Quest nextMq106 = mq106 as FO4SF_MQ106Quest
+                if nextMq106 != None
+                    nextMq106.WakeFromPredecessor()
+                endif
+                started106 = True
+            else
+                mq106.StartNoWait()
+                started106 = True
+            endif
         endif
         Trace("mq105 complete stage=200 mq106_armed=1 forthagen_plugin=" + fhInstalled + " by=" + by)
         Trace("mq106 start_requested ok=" + started106)
@@ -354,10 +363,15 @@ Function StartQuestInstance()
     endif
     if !CheckPredecessorGate()
         Trace("mq105 gate_deferred reason=mq104_incomplete")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -378,12 +392,27 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq105 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
     talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq105 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -464,7 +493,7 @@ Function PlaceHubActors(Actor player)
             BindRefs()
         endif
         if nickTalkProxy == None || nickTalkProxy.IsDeleted()
-            Activator nActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator nActi = Game.GetFormFromFile(0x000A8A, MissionPlugin) as Activator
             if nActi != None
                 nickTalkProxy = nick.PlaceAtMe(nActi, 1, True, False, False)
                 if nickTalkProxy != None
@@ -490,7 +519,7 @@ Function PlaceHubActors(Actor player)
         endif
         gen.AllowPCDialogue(True)
         if genevaTalkProxy == None || genevaTalkProxy.IsDeleted()
-            Activator gActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator gActi = Game.GetFormFromFile(0x000AB9, MissionPlugin) as Activator
             if gActi != None
                 genevaTalkProxy = gen.PlaceAtMe(gActi, 1, True, False, False)
                 if genevaTalkProxy != None
@@ -517,7 +546,7 @@ Function PlaceHubActors(Actor player)
             endif
             dog.AllowPCDialogue(True)
             if dogmeatTalkProxy == None || dogmeatTalkProxy.IsDeleted()
-                Activator dActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+                Activator dActi = Game.GetFormFromFile(0x000ABA, MissionPlugin) as Activator
                 if dActi != None
                     dogmeatTalkProxy = dog.PlaceAtMe(dActi, 1, True, False, False)
                     if dogmeatTalkProxy != None

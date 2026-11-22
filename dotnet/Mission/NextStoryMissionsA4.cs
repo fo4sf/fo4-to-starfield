@@ -51,6 +51,8 @@ static class NextStoryMissionsA4
     public const uint Min01WaterCountId = 0xA05, Min01WaterTotalId = 0xA06, Min01WaterPercentId = 0xA07;
     public const uint Min01FoodCountId = 0xA08, Min01FoodTotalId = 0xA09, Min01FoodPercentId = 0xA0A;
     public const uint Min01SafetyCountId = 0xA0B, Min01SafetyTotalId = 0xA0C, Min01SafetyPercentId = 0xA0D;
+    public const uint SturgesTalkActiId = 0xA0E;
+    public const string SturgesTalkActiEdid = "FO4SF_Sanctuary_SturgesTalkActi";
     public const uint SturgesTalkMsgId = 0xA10, SturgesReply0MsgId = 0xA11, SturgesReply1MsgId = 0xA12,
                       SturgesReply2MsgId = 0xA13, SturgesDoneMsgId = 0xA14, WorkbenchBuildMsgId = 0xA15;
 
@@ -60,6 +62,9 @@ static class NextStoryMissionsA4
     public const uint TenpinesNpcId = 0xA21, TenpinesRefId = 0xA22;
     public const uint CorvegaBossNpcId = 0xA23, CorvegaBossRefId = 0xA24;
     public const uint FlareGunMiscId = 0xA25, Min02UnlockedGlobId = 0xA26;
+    public const uint TenpinesTalkActiId = 0xA27, PrestonTalkActiId = 0xA2C;
+    public const string TenpinesTalkActiEdid = "FO4SF_MinRecruit00_TenpinesTalkActi",
+                        PrestonTalkActiEdid = "FO4SF_MinRecruit00_PrestonTalkActi";
     public const uint MinRecruitTalkMsgId = 0xA28, MinRecruitBriefMsgId = 0xA29,
                       MinRecruitRewardMsgId = 0xA2A, MinRecruitNoteMsgId = 0xA2B;
 
@@ -70,6 +75,10 @@ static class NextStoryMissionsA4
     public const uint MayorNpcId = 0xA53, MayorRefId = 0xA54;
     public const uint EllieNpcId = 0xA55, EllieRefId = 0xA56;
     public const uint DcGateUnlockedGlobId = 0xA57, Mq104ArmedGlobId = 0xA58, GateProxyActiId = 0xA59;
+    public const uint PiperTalkActiId = 0xA5A, MayorTalkActiId = 0xA5B, EllieTalkActiId = 0xA5C;
+    public const string PiperTalkActiEdid = "FO4SF_MQ103_PiperTalkActi",
+                        MayorTalkActiEdid = "FO4SF_MQ103_MayorTalkActi",
+                        EllieTalkActiEdid = "FO4SF_MQ103_EllieTalkActi";
     public const string GateProxyActiEdid = "FO4SF_MQ103_GateProxyActi";
     public const string GateProxyActiModel = Mission.CodsworthTalkActiModel;
     public const uint Mq103GateTalkMsgId = 0xA60, Mq103GateOpenMsgId = 0xA61,
@@ -554,6 +563,35 @@ static class NextStoryMissionsA4
         };
         mod.Activators.Add(gateProxyActi);
 
+        SF.Activator AddTalkProxyActi(uint id, string edid, string npcName)
+        {
+            var a = new SF.Activator(new FormKey(modKey, id), rel)
+            {
+                EditorID = edid,
+                Name = npcName,
+                ActivateTextOverride = "Talk",
+                MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+                Flags = (SF.Activator.Flag)0,
+                ActivationAngle = 360,
+                InvertFacing = false,
+                ObjectBounds = new SF.ObjectBounds
+                {
+                    First = new P3Float(-0.25f, -0.25f, -0.25f),
+                    Second = new P3Float(0.25f, 0.25f, 0.25f),
+                },
+                Model = new SF.Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>(GateProxyActiModel) },
+            };
+            mod.Activators.Add(a);
+            return a;
+        }
+        var prestonNpc = mod.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(modKey, Mission.PrestonNpcId));
+        AddTalkProxyActi(SturgesTalkActiId, SturgesTalkActiEdid, sturgesNpc.Name?.String ?? "Sturges");
+        AddTalkProxyActi(TenpinesTalkActiId, TenpinesTalkActiEdid, tenpinesNpc.Name?.String ?? "Tenpines Settler");
+        AddTalkProxyActi(PrestonTalkActiId, PrestonTalkActiEdid, prestonNpc?.Name?.String ?? "Preston Garvey");
+        AddTalkProxyActi(PiperTalkActiId, PiperTalkActiEdid, piperNpc.Name?.String ?? "Piper");
+        AddTalkProxyActi(MayorTalkActiId, MayorTalkActiEdid, mayorNpc.Name?.String ?? "Mayor McDonough");
+        AddTalkProxyActi(EllieTalkActiId, EllieTalkActiEdid, ellieNpc.Name?.String ?? "Ellie Perkins");
+
         var mqGateTalk = AddMessage(mod, modKey, Mq103GateTalkMsgId, "FO4SF_MQ103_GateTalkMsg",
             "Diamond City Gate", "A reporter at the intercom offers to help open the Diamond City gate.",
             "Play along to open the gate", "Ask about Diamond City", "Ask about missing people", "Use gate override");
@@ -743,6 +781,28 @@ static class NextStoryMissionsA4
         need(piperNpcCheck is not null && piperNpcCheck.Flags.HasFlag(SF.Npc.Flag.Female) &&
              ellieNpcCheck is not null && ellieNpcCheck.Flags.HasFlag(SF.Npc.Flag.Female),
             "FO4_Piper (0x000A51) and FO4_ElliePerkins (0x000A55) must carry Female flag");
+
+        foreach (var (actiId, edid, npcId) in new (uint, string, uint)[]
+        {
+            (SturgesTalkActiId, SturgesTalkActiEdid, SturgesNpcId),
+            (TenpinesTalkActiId, TenpinesTalkActiEdid, TenpinesNpcId),
+            (PrestonTalkActiId, PrestonTalkActiEdid, Mission.PrestonNpcId),
+            (PiperTalkActiId, PiperTalkActiEdid, PiperNpcId),
+            (MayorTalkActiId, MayorTalkActiEdid, MayorNpcId),
+            (EllieTalkActiId, EllieTalkActiEdid, EllieNpcId),
+        })
+        {
+            var talkActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, actiId));
+            var talkNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, npcId));
+            need(talkActi is not null && talkNpc is not null &&
+                 talkActi.EditorID == edid &&
+                 talkActi.ActivationAngle == 360 && !talkActi.InvertFacing &&
+                 talkActi.ActivateTextOverride?.String == "Talk" &&
+                 !string.IsNullOrEmpty(talkNpc.Name?.String) &&
+                 talkActi.Name?.String == talkNpc.Name?.String &&
+                 string.Equals(talkActi.Model?.File?.GivenPath, GateProxyActiModel, StringComparison.OrdinalIgnoreCase),
+                $"A4 talk proxy {edid} (0x{actiId:X6}) missing or Name mismatch with NPC 0x{npcId:X6}");
+        }
         // Verify all 6 A4 persistent ACHRs are placed at merged Commonwealth coordinates and InitiallyDisabled (R3)
         var topRefs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
             .Where(r => IsA4ActorRefId(r.FormKey.ID)).ToList() ?? [];

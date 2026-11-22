@@ -92,6 +92,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool courserPlaced = False
 bool railroadPlaced = False
@@ -398,10 +399,15 @@ Function StartQuestInstance()
     endif
     if !CheckPredecessorGate()
         Trace("mq206 gate_deferred reason=mq204_incomplete")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -420,6 +426,17 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq206 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
@@ -428,6 +445,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     railroadPlaced = False
     airportPlaced = False
     talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq206 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -572,7 +593,7 @@ Function PlaceRailroadActors(Actor player)
         endif
         des.AllowPCDialogue(True)
         if desTalkProxy == None || desTalkProxy.IsDeleted()
-            Activator dActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator dActi = Game.GetFormFromFile(0x000B3E, MissionPlugin) as Activator
             if dActi != None
                 desTalkProxy = des.PlaceAtMe(dActi, 1, True, False, False)
                 if desTalkProxy != None
@@ -598,7 +619,7 @@ Function PlaceRailroadActors(Actor player)
         endif
         tom.AllowPCDialogue(True)
         if tomTalkProxy == None || tomTalkProxy.IsDeleted()
-            Activator tActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator tActi = Game.GetFormFromFile(0x000B3F, MissionPlugin) as Activator
             if tActi != None
                 tomTalkProxy = tom.PlaceAtMe(tActi, 1, True, False, False)
                 if tomTalkProxy != None
@@ -638,7 +659,7 @@ Function PlaceAirportActors(Actor player)
         endif
         ing.AllowPCDialogue(True)
         if ingramTalkProxy == None || ingramTalkProxy.IsDeleted()
-            Activator iActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator iActi = Game.GetFormFromFile(0x000B48, MissionPlugin) as Activator
             if iActi != None
                 ingramTalkProxy = ing.PlaceAtMe(iActi, 1, True, False, False)
                 if ingramTalkProxy != None

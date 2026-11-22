@@ -52,6 +52,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool actorsPlaced = False
 bool talkOpen = False
@@ -247,9 +248,17 @@ Function ApplyStage(int n, string by)
         CancelTimer(1)
         Quest mq204 = Game.GetFormFromFile(0x000B10, MissionPlugin) as Quest
         bool started204 = False
-        if mq204 != None && !mq204.IsRunning() && !mq204.IsCompleted()
-            mq204.StartNoWait()
-            started204 = True
+        if mq204 != None && !mq204.IsCompleted()
+            if mq204.IsRunning()
+                FO4SF_MQ204Quest nextMq204 = mq204 as FO4SF_MQ204Quest
+                if nextMq204 != None
+                    nextMq204.WakeFromPredecessor()
+                endif
+                started204 = True
+            else
+                mq204.StartNoWait()
+                started204 = True
+            endif
         endif
         Trace("mq203 complete stage=300 memories=1 mq204_armed=1 mq204_started=" + started204 + " by=" + by)
     endif
@@ -276,10 +285,15 @@ Function StartQuestInstance()
     endif
     if !CheckPredecessorGate()
         Trace("mq203 gate_deferred reason=mq106_incomplete")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -300,12 +314,27 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq203 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
     talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq203 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -368,7 +397,7 @@ Function PlaceHubActors(Actor player)
         endif
         am.AllowPCDialogue(True)
         if amariTalkProxy == None || amariTalkProxy.IsDeleted()
-            Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator talkActi = Game.GetFormFromFile(0x000AF6, MissionPlugin) as Activator
             if talkActi != None
                 amariTalkProxy = am.PlaceAtMe(talkActi, 1, True, False, False)
                 if amariTalkProxy != None

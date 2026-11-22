@@ -57,6 +57,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool actorsPlaced = False
 bool maloneEnabled = False
@@ -304,9 +305,16 @@ Function ApplyStage(int n, string by)
         Trace("mq104 complete stage=200 mq105_armed=1 by=" + by)
         if !IsWarfareMode()
             Quest mq105Quest = Game.GetFormFromFile(0x000AB0, MissionPlugin) as Quest
-            if mq105Quest != None && !mq105Quest.IsRunning() && !mq105Quest.IsCompleted()
-                bool startedMq105 = mq105Quest.StartNoWait()
-                Trace("mq105 start_requested ok=" + startedMq105)
+            if mq105Quest != None && !mq105Quest.IsCompleted()
+                if mq105Quest.IsRunning()
+                    FO4SF_MQ105Quest nextMq105 = mq105Quest as FO4SF_MQ105Quest
+                    if nextMq105 != None
+                        nextMq105.WakeFromPredecessor()
+                    endif
+                else
+                    bool startedMq105 = mq105Quest.StartNoWait()
+                    Trace("mq105 start_requested ok=" + startedMq105)
+                endif
             endif
         endif
     endif
@@ -334,10 +342,14 @@ Function StartQuestInstance()
     Actor player = Game.GetPlayer()
     if !CheckPredecessorGate(player)
         Trace("mq104 gate_deferred reason=mq103_incomplete")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        if player != None
+            RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -353,12 +365,27 @@ Function StartQuestInstance()
     StartTimer(1.0, 1)
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate(Game.GetPlayer())
+        gateDeferred = False
+        Trace("mq104 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
     talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq104 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -443,7 +470,7 @@ Function PlaceExteriorActors(Actor player)
         endif
         nick.AllowPCDialogue(True)
         if nickTalkProxy == None || nickTalkProxy.IsDeleted()
-            Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator talkActi = Game.GetFormFromFile(0x000A8A, MissionPlugin) as Activator
             if talkActi != None
                 nickTalkProxy = nick.PlaceAtMe(talkActi, 1, True, False, False)
                 if nickTalkProxy != None
@@ -473,7 +500,7 @@ Function PlaceExteriorActors(Actor player)
             endif
             mal.AllowPCDialogue(True)
             if maloneTalkProxy == None || maloneTalkProxy.IsDeleted()
-                Activator mActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+                Activator mActi = Game.GetFormFromFile(0x000A8B, MissionPlugin) as Activator
                 if mActi != None
                     maloneTalkProxy = mal.PlaceAtMe(mActi, 1, True, False, False)
                     if maloneTalkProxy != None

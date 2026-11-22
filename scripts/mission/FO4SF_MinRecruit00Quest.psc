@@ -45,6 +45,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool spokesmanHeld = False
 bool bossPlaced = False
@@ -64,7 +65,7 @@ bool Function IsTestModeEnabled()
 EndFunction
 
 bool Function CheckPredecessorGate()
-{R5: MinRecruit00 starts only after Min00 finishes (stage >= 200) and Sanctuary01 has reached bench/completion, unless TestMode is on.}
+{R5: MinRecruit00 starts only after Min00 finishes (stage >= 200) and Sanctuary01 completes, unless TestMode is on.}
     if IsTestModeEnabled()
         return True
     endif
@@ -73,7 +74,7 @@ bool Function CheckPredecessorGate()
         return False
     endif
     Quest sanc = Game.GetFormFromFile(0x000817, MissionPlugin) as Quest
-    if sanc != None && !sanc.IsCompleted() && sanc.GetStage() < 100
+    if sanc != None && !sanc.IsCompleted()
         return False
     endif
     return True
@@ -280,10 +281,15 @@ Function StartQuestInstance()
     endif
     if !CheckPredecessorGate()
         Trace("minrecruit00 gate_deferred reason=opening_incomplete")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -298,6 +304,17 @@ Function StartQuestInstance()
     StartTimer(1.0, 1)
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("minrecruit00 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkSessionId += 1
@@ -305,6 +322,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     spokesmanHeld = False
     bossPlaced = False
     talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("minrecruit00 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -410,7 +431,7 @@ Event OnTimer(int aiTimerID)
                         Trace("minrecruit00 tenpines spokesman placed")
                     endif
                     if spokesmanTalkProxy == None || spokesmanTalkProxy.IsDeleted()
-                        Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+                        Activator talkActi = Game.GetFormFromFile(0x000A27, MissionPlugin) as Activator
                         if talkActi != None
                             spokesmanTalkProxy = sp.PlaceAtMe(talkActi, 1, True, False, False)
                             if spokesmanTalkProxy != None

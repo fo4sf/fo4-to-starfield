@@ -45,6 +45,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool gateActorsPlaced = False
 bool elliePlaced = False
@@ -72,7 +73,7 @@ bool Function IsSanctuaryOpeningRunning()
 EndFunction
 
 bool Function CheckPredecessorOrGateProximity(Actor player)
-{R1/R5: MQ103 never starts inside the opening; requires Sanctuary01 completion (matching Fallout 4) OR physical arrival at Diamond City gate (< 150 m) OR TestMode.}
+{R1/R5: Deliberate one-tracked-opening-mission design (in FO4 MQ103 starts when MQ102 ends while Min01 runs): requires Sanctuary01 completion OR physical arrival at Diamond City gate (< 150 m) OR TestMode.}
     if IsTestModeEnabled()
         return True
     endif
@@ -329,9 +330,16 @@ Function ApplyStage(int n, string by)
         Trace("mq103 complete stage=100 mq104_armed=1 by=" + by)
         if !IsWarfareMode()
             Quest mq104Quest = Game.GetFormFromFile(0x000A80, MissionPlugin) as Quest
-            if mq104Quest != None && !mq104Quest.IsRunning() && !mq104Quest.IsCompleted()
-                bool startedMq104 = mq104Quest.StartNoWait()
-                Trace("mq104 start_requested ok=" + startedMq104)
+            if mq104Quest != None && !mq104Quest.IsCompleted()
+                if mq104Quest.IsRunning()
+                    FO4SF_MQ104Quest nextMq104 = mq104Quest as FO4SF_MQ104Quest
+                    if nextMq104 != None
+                        nextMq104.WakeFromPredecessor()
+                    endif
+                else
+                    bool startedMq104 = mq104Quest.StartNoWait()
+                    Trace("mq104 start_requested ok=" + startedMq104)
+                endif
             endif
         endif
     endif
@@ -358,11 +366,17 @@ Function StartQuestInstance()
     endif
     Actor player = Game.GetPlayer()
     if !CheckPredecessorOrGateProximity(player)
+        ; R1: Deliberate one-tracked-opening-mission choice (in FO4 MQ103 starts after MQ102 while Min01 runs).
+        ; Stay dormant on RunOnce quest (never Stop()) so Sanctuary01 completion or reload can wake it.
         Trace("mq103 gate_deferred reason=opening_active")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        if player != None
+            RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -378,6 +392,17 @@ Function StartQuestInstance()
     StartTimer(1.0, 1)
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorOrGateProximity(Game.GetPlayer())
+        gateDeferred = False
+        Trace("mq103 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkSessionId += 1
@@ -386,6 +411,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     elliePlaced = False
     talkNearSec = 0.0
     commonwealthWorld = None
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq103 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -548,7 +577,7 @@ Function PlaceGateActors(Actor player, float gx, float gy, float gz)
                 p.BlockActivation(False, False)
             endif
             if piperTalkProxy == None || piperTalkProxy.IsDeleted()
-                Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+                Activator talkActi = Game.GetFormFromFile(0x000A5A, MissionPlugin) as Activator
                 if talkActi != None
                     piperTalkProxy = p.PlaceAtMe(talkActi, 1, True, False, False)
                     if piperTalkProxy != None
@@ -616,7 +645,7 @@ Function PlaceEllieAtAgency(Actor player)
         Trace("mq103 ellie placed post_gate")
     endif
     if ellieTalkProxy == None || ellieTalkProxy.IsDeleted()
-        Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+        Activator talkActi = Game.GetFormFromFile(0x000A5C, MissionPlugin) as Activator
         if talkActi != None
             ellieTalkProxy = e.PlaceAtMe(talkActi, 1, True, False, False)
             if ellieTalkProxy != None

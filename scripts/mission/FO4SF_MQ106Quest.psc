@@ -64,6 +64,7 @@ float TalkFallbackRadius = 3.5
 float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
+bool gateDeferred = False
 bool completed = False
 bool actorsPlaced = False
 bool talkOpen = False
@@ -85,7 +86,7 @@ bool Function IsTestModeEnabled()
 EndFunction
 
 bool Function CheckPredecessorGate()
-{R5: MQ106 starts strictly behind MQ105 >= 100 (or MQ105 completed / FO4SF_MQ106Armed >= 1) so Fort Hagen never starts MQ105 and MQ106 together.}
+{R5: MQ106 starts strictly behind MQ105 completion (stage >= 200 or FO4SF_MQ106Armed >= 1) so Fort Hagen never starts MQ105 and MQ106 together while MQ105 is still at stage 100.}
     if IsTestModeEnabled()
         return True
     endif
@@ -94,7 +95,7 @@ bool Function CheckPredecessorGate()
         return True
     endif
     Quest mq105 = Game.GetFormFromFile(0x000AB0, MissionPlugin) as Quest
-    if mq105 != None && (mq105.IsCompleted() || mq105.GetStage() >= 100)
+    if mq105 != None && (mq105.IsCompleted() || mq105.GetStage() >= 200)
         return True
     endif
     return False
@@ -327,9 +328,17 @@ Function ApplyStage(int n, string by)
         CancelTimer(1)
         Quest mq203 = Game.GetFormFromFile(0x000AF0, MissionPlugin) as Quest
         bool started203 = False
-        if mq203 != None && !mq203.IsRunning() && !mq203.IsCompleted()
-            mq203.StartNoWait()
-            started203 = True
+        if mq203 != None && !mq203.IsCompleted()
+            if mq203.IsRunning()
+                FO4SF_MQ203Quest nextMq203 = mq203 as FO4SF_MQ203Quest
+                if nextMq203 != None
+                    nextMq203.WakeFromPredecessor()
+                endif
+                started203 = True
+            else
+                mq203.StartNoWait()
+                started203 = True
+            endif
         endif
         Trace("mq106 complete stage=500 mq203_armed=1 mq203_started=" + started203 + " prydwen=1 by=" + by)
     endif
@@ -356,10 +365,15 @@ Function StartQuestInstance()
     endif
     if !CheckPredecessorGate()
         Trace("mq106 gate_deferred reason=mq105_incomplete")
+        gateDeferred = True
         instanceStarted = False
-        Stop()
+        Actor pDefer = Game.GetPlayer()
+        if pDefer != None
+            RegisterForRemoteEvent(pDefer, "OnPlayerLoadGame")
+        endif
         return
     endif
+    gateDeferred = False
     if !IsRunning()
         Start()
     endif
@@ -382,12 +396,27 @@ Function StartQuestInstance()
     endif
 EndFunction
 
+Function WakeFromPredecessor()
+    if completed || instanceStarted
+        return
+    endif
+    if CheckPredecessorGate()
+        gateDeferred = False
+        Trace("mq106 gate_resumed")
+        StartQuestInstance()
+    endif
+EndFunction
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
     talkNearSec = 0.0
+    if gateDeferred && !instanceStarted
+        WakeFromPredecessor()
+        return
+    endif
     int st = EffectiveStage()
     Trace("mq106 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -517,7 +546,7 @@ Function CheckNickDebriefFallback(Actor player, int st)
         BindRefs()
     endif
     if (nickTalkProxy == None || nickTalkProxy.IsDeleted()) && nick.Is3DLoaded()
-        Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+        Activator talkActi = Game.GetFormFromFile(0x000A8A, MissionPlugin) as Activator
         if talkActi != None
             nickTalkProxy = nick.PlaceAtMe(talkActi, 1, True, False, False)
             if nickTalkProxy != None

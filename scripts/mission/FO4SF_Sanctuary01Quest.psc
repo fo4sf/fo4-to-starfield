@@ -265,7 +265,13 @@ Function StartMinRecruit00IfNeeded()
     endif
     Quest firstStep = Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest
     if firstStep != None
-        if firstStep.IsRunning() || firstStep.IsCompleted()
+        if firstStep.IsCompleted()
+            minRecruitHandoffDone = True
+        elseif firstStep.IsRunning()
+            FO4SF_MinRecruit00Quest nextMr = firstStep as FO4SF_MinRecruit00Quest
+            if nextMr != None
+                nextMr.WakeFromPredecessor()
+            endif
             minRecruitHandoffDone = True
         else
             bool startedStep = firstStep.StartNoWait()
@@ -278,15 +284,22 @@ Function StartMinRecruit00IfNeeded()
 EndFunction
 
 Function StartPostOpeningHandoffs()
-{R1/R5: Only after Sanctuary01 finishes (matching Fallout 4's post-Sanctuary handoff) arm MinRecruit00 and MQ103.}
+{R1/R5: Deliberate one-tracked-opening-mission design choice: in Fallout 4, MQ103 starts when MQ102 ends while Min01 is still running; here we defer MQ103 until Sanctuary01 finishes (or the player walks to Diamond City gate) so the opening keeps one active mission.}
     StartMinRecruit00IfNeeded()
     if IsWarfareMode()
         return
     endif
     Quest mq103Quest = Game.GetFormFromFile(0x000A50, MissionPlugin) as Quest
-    if mq103Quest != None && !mq103Quest.IsRunning() && !mq103Quest.IsCompleted()
-        bool startedMq103 = mq103Quest.StartNoWait()
-        Trace("sanctuary01 post_complete handoff mq103 start_requested ok=" + startedMq103)
+    if mq103Quest != None && !mq103Quest.IsCompleted()
+        if mq103Quest.IsRunning()
+            FO4SF_MQ103Quest nextMq103 = mq103Quest as FO4SF_MQ103Quest
+            if nextMq103 != None
+                nextMq103.WakeFromPredecessor()
+            endif
+        else
+            bool startedMq103 = mq103Quest.StartNoWait()
+            Trace("sanctuary01 post_complete handoff mq103 start_requested ok=" + startedMq103)
+        endif
     endif
 EndFunction
 
@@ -508,7 +521,7 @@ Function KeepSturges(Actor player)
             Trace("sanctuary01 keeper sturges placed held=true")
         endif
         if sturgesTalkProxy == None || sturgesTalkProxy.IsDeleted()
-            Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            Activator talkActi = Game.GetFormFromFile(0x000A0E, MissionPlugin) as Activator
             if talkActi != None
                 sturgesTalkProxy = st.PlaceAtMe(talkActi, 1, True, False, False)
                 if sturgesTalkProxy != None
