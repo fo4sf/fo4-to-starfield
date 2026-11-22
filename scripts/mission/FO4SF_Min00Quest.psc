@@ -177,6 +177,49 @@ bool Function ShouldUseMessageBox()
     return False
 EndFunction
 
+int Function EffectiveStage()
+    int st = GetStage()
+    if applied > st
+        return applied
+    endif
+    return st
+EndFunction
+
+bool Function IsCommonwealthExterior(Actor player)
+    if player == None || player.IsInInterior()
+        return False
+    endif
+    WorldSpace ws = player.GetWorldSpace()
+    if ws == None
+        return False
+    endif
+    if Preston != None && !Preston.IsInInterior()
+        WorldSpace pws = Preston.GetWorldSpace()
+        if pws != None && ws != pws
+            return False
+        endif
+    endif
+    float cx = player.GetPositionX()
+    float cy = player.GetPositionY()
+    if cx < MergeOffsetX - 3600.0 || cx > MergeOffsetX + 3600.0
+        return False
+    endif
+    if cy < MergeOffsetY - 3600.0 || cy > MergeOffsetY + 3600.0
+        return False
+    endif
+    return True
+EndFunction
+
+bool Function IsPlayerStableAt(Actor player, float px, float py, float pz)
+    if !IsCommonwealthExterior(player)
+        return False
+    endif
+    float dx = player.GetPositionX() - px
+    float dy = player.GetPositionY() - py
+    float dz = player.GetPositionZ() - pz
+    return dx * dx + dy * dy + dz * dz <= 25.0
+EndFunction
+
 Function EnsurePrestonAlias()
     if Preston == None
         return
@@ -228,6 +271,9 @@ Function StartQuestInstance()
         KeepCodsworthLoad()
         return
     endif
+    if !IsRunning()
+        Start()
+    endif
     Trace("mission gate mode=1 started=true")
     InitRaiderTracking()
     Trace("init raiders=" + Raiders.Length)
@@ -252,15 +298,17 @@ EndFunction
 
 Function GiveFromCodsworth()
 {Called by FO4SF_Codsworth01Quest at stage 100 so Codsworth's last choice reveals FO4SF_Min00 objective 10.}
-    if IsWarfareMode()
+    if KeeperOnly || IsWarfareMode()
         return
     endif
-    if !min00Given && GetStage() < 10
+    int st = EffectiveStage()
+    if !min00Given && st < 10
         min00Given = True
         Trace("min00 given by=codsworth")
         AdvanceTo(10, "info")
-    elseif GetStage() < 20
+    elseif st < 20
         SetObjectiveDisplayed(10)
+        SetObjectiveDisplayed(10, True, True)
         SetActive(True)
     endif
 EndFunction
@@ -379,6 +427,9 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     RegisterForRemoteEvent(Preston, "OnActivate")
     InitRaiderTracking()
     int st = GetStage()
+    if applied > st
+        st = applied
+    endif
     Trace("reload mission stage=" + st + " relocate_fails=" + relocateFails)
     if st < 200
         EnsurePrestonAlias()
@@ -393,6 +444,9 @@ EndEvent
 
 Function AdvanceTo(int n, string by = "Trigger")
 {SetStage, then the stage's actions. Apply runs each stage once.}
+    if KeeperOnly
+        return
+    endif
     pendingStage = n
     pendingStageBy = by
     SetStage(n)
@@ -403,6 +457,9 @@ Function AdvanceTo(int n, string by = "Trigger")
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
+    if KeeperOnly
+        return
+    endif
     string cause = "other"
     if auiStageID == pendingStage
         cause = pendingStageBy
@@ -411,10 +468,15 @@ Event OnStageSet(int auiStageID, int auiItemID)
         cause = "info"
     endif
     Apply(auiStageID, cause)
+    if EffectiveStage() == 40 && (PrestonTalkScene == None || !PrestonTalkScene.IsPlaying())
+        AdvanceTo(200, "Trigger")
+        CompleteQuest()
+        Trace("complete stage=" + EffectiveStage())
+    endif
 EndEvent
 
 Function Apply(int auiStageID, string by = "other")
-    if auiStageID <= applied
+    if KeeperOnly || auiStageID <= applied
         return
     endif
     applied = auiStageID
@@ -422,14 +484,19 @@ Function Apply(int auiStageID, string by = "other")
     if auiStageID == 10
         min00Given = True
         SetObjectiveDisplayed(10)
+        SetObjectiveDisplayed(10, True, True)
         SetActive(True)
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
         SetObjectiveDisplayed(85)
+        SetObjectiveDisplayed(85, True, True)
+        SetActive(True)
     elseif auiStageID == 30
         Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
         SetObjectiveDisplayed(86)
+        SetObjectiveDisplayed(86, True, True)
+        SetActive(True)
     elseif auiStageID == 35
         if by == "info" && !prestonUsedFallback && !prestonTalkLogged
             prestonTalkLogged = True
@@ -504,14 +571,14 @@ Function RunPrestonTalk(int stage, Message startMsg)
                 curMsg = r2
             endif
         else
-            if btn == 3 && GetStage() == 30
+            if btn == 3 && EffectiveStage() == 30
                 talkActivated = True
                 prestonUsedFallback = False
                 AdvanceTo(35, "info")
-                if GetStage() == 40
+                if EffectiveStage() == 40
                     AdvanceTo(200, "Trigger")
                     CompleteQuest()
-                    Trace("complete stage=" + GetStage())
+                    Trace("complete stage=" + EffectiveStage())
                 endif
             endif
             doneLoop = True
@@ -527,8 +594,8 @@ Function FallbackPrestonToMessageBox(string reason)
     Trace("preston talk fallback=messagebox reason=" + reason)
     Message talkMsg = ResolvePrestonMsg(-1)
     if talkMsg != None
-        RunPrestonTalk(GetStage(), talkMsg)
-    elseif GetStage() == 30
+        RunPrestonTalk(EffectiveStage(), talkMsg)
+    elseif EffectiveStage() == 30
         prestonUsedFallback = True
         AdvanceTo(40, "fallback")
     endif
@@ -538,7 +605,7 @@ Function CheckPrestonSceneOpen()
     if KeeperOnly || !prestonScenePending
         return
     endif
-    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonTalkLogged || GetStage() != 30
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonTalkLogged || EffectiveStage() != 30
         prestonScenePending = False
         prestonScenePhase1 = False
         return
@@ -572,7 +639,7 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             Trace("preston dialogue menu opened")
         endif
     elseif prestonSceneMenuOpened
-        Trace("preston dialogue menu closed stage=" + GetStage())
+        Trace("preston dialogue menu closed stage=" + EffectiveStage())
     endif
 EndEvent
 
@@ -583,14 +650,14 @@ Event Scene.OnBegin(Scene akSender)
         if talkStartedAt <= 0.0
             talkStartedAt = Utility.GetCurrentRealTime()
         endif
-        if !ShouldUseMessageBox() && GetStage() == 30 && !prestonTalkLogged && !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen && !prestonTalkBoxOpen
+        if !ShouldUseMessageBox() && EffectiveStage() == 30 && !prestonTalkLogged && !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen && !prestonTalkBoxOpen
             prestonScenePending = True
             prestonScenePhase1 = False
             prestonSceneChecks = 0
             Trace("preston scene talk requested scene=" + PrestonTalkScene + " stage=30")
             StartTimer(PrestonSceneCheckSeconds, 3)
         endif
-        Trace("preston talk scene started stage=" + GetStage())
+        Trace("preston talk scene started stage=" + EffectiveStage())
     endif
 EndEvent
 
@@ -605,11 +672,14 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
 EndEvent
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
+    if KeeperOnly
+        return
+    endif
     if akSender == Preston && akActionRef == Game.GetPlayer()
         if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonScenePending
             return
         endif
-        int stage = GetStage()
+        int stage = EffectiveStage()
         Trace("preston activated at stage " + stage)
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
@@ -659,8 +729,8 @@ EndEvent
 
 Event Scene.OnEnd(Scene akSender)
     if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene
-        int st = GetStage()
-        bool endInfoDone = GetStageDone(35) || st == 35
+        int st = EffectiveStage()
+        bool endInfoDone = GetStageDone(35) || st == 35 || GetStage() == 35
         Trace("preston talk scene ended stage=" + st + " end_info=" + endInfoDone)
         if endInfoDone
             prestonScenePending = False
@@ -670,10 +740,10 @@ Event Scene.OnEnd(Scene akSender)
             if applied < 35
                 Apply(35, "info")
             endif
-            if GetStage() == 40
+            if EffectiveStage() == 40
                 AdvanceTo(200, "Trigger")
                 CompleteQuest()
-                Trace("complete stage=" + GetStage())
+                Trace("complete stage=" + EffectiveStage())
             endif
         elseif st == 30 && !prestonTalkLogged
             talkFailures += 1
@@ -804,13 +874,14 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
  (> 140 m from their Concord street spot) while the player is within 150 m of the museum door, and writes off (stops
  combat + disables) any living raider that remains absent/unloaded (> 250 m or !Is3DLoaded) for > 60 s within 100 m of
  the Concord door or stays loaded within 2 m with no damage for 60 s after a rescue.}
-    if player == None || player.IsInInterior()
+    if player == None || player.IsInInterior() || !IsCommonwealthExterior(player)
         return
     endif
     InitRaiderTracking()
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
+    WorldSpace pws = player.GetWorldSpace()
     float doorX = PrestonLocalX + MergeOffsetX
     float doorY = PrestonLocalY + MergeOffsetY
     float doorZ = PrestonLocalZ
@@ -831,7 +902,9 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
             if doorDist < Wfc01CheckRadius
                 float rz = r.GetPositionZ()
                 float drift = SpotOff(r, tx, ty, tz)
-                if rz < tz - Wfc01SubterraneanDrop || drift > Wfc01MaxDrift
+                WorldSpace rws = r.GetWorldSpace()
+                bool wrongWorld = r.IsInInterior() || rws == None || rws != pws
+                if (wrongWorld || rz < tz - Wfc01SubterraneanDrop || drift > Wfc01MaxDrift) && IsPlayerStableAt(player, px, py, pz)
                     r.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
                     r.SetPosition(tx, ty, tz)
                     r.EvaluatePackage()
@@ -894,6 +967,17 @@ Event OnTimer(int aiTimerID)
     elseif aiTimerID != 1
         return
     endif
+    if KeeperOnly
+        return
+    endif
+    if EffectiveStage() < 200
+        if !IsRunning()
+            Start()
+        endif
+        if applied > 0 && GetStage() < applied
+            SetStage(applied)
+        endif
+    endif
     Actor player = Game.GetPlayer()
     InitRaiderTracking()
     KeepCodsworthStart()
@@ -901,8 +985,9 @@ Event OnTimer(int aiTimerID)
     if relocateFails < 10
         Relocate(player)
     endif
-    int stage = GetStage()
-    if !min00Given && stage < 10 && player != None && !player.IsInInterior()
+    int rawStage = GetStage()
+    int stage = EffectiveStage()
+    if !min00Given && stage < 10 && IsCommonwealthExterior(player)
         float gdx = player.GetPositionX() - (PrestonLocalX + MergeOffsetX)
         float gdy = player.GetPositionY() - (PrestonLocalY + MergeOffsetY)
         float gdz = player.GetPositionZ() - PrestonLocalZ
@@ -914,18 +999,20 @@ Event OnTimer(int aiTimerID)
             stage = 10
         endif
     endif
-    if (GetStageDone(35) || stage == 35) && applied < 35
+    if (GetStageDone(35) || rawStage == 35) && applied < 35
         if talkActivated && !prestonUsedFallback
             Apply(35, "info")
         else
             Apply(35, "other")
         endif
-        stage = GetStage()
+        stage = EffectiveStage()
     endif
-    if stage >= 40 && applied < 40
+    if rawStage >= 40 && applied < 40
         Apply(40, "other")
-    elseif stage > applied && stage < 35
-        Apply(stage, "other")
+        stage = EffectiveStage()
+    elseif rawStage > applied && rawStage < 35
+        Apply(rawStage, "other")
+        stage = EffectiveStage()
     endif
     float dp = player.GetDistance(Preston)
     if stage < 20 && dp < FindRadius
@@ -933,6 +1020,8 @@ Event OnTimer(int aiTimerID)
     endif
     if stage == 20
         CheckConcordRaidersWfc01(player, True)
+    elseif stage < 20
+        CheckConcordRaidersWfc01(player, False)
     endif
     bool everyone = prestonFound || stage >= 20          ; once the fight is on, no raider stands by
     int dead = 0
@@ -996,12 +1085,12 @@ Event OnTimer(int aiTimerID)
         Preston.StopCombat()
         Trace("preston was targeting the player: stopcombat")
     endif
-    if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
+    if EffectiveStage() == 40                            ; in game 18 Oct the status stayed at 40 after the reward: set 200
         AdvanceTo(200, "Trigger")
         CompleteQuest()
-        Trace("complete stage=" + GetStage())
+        Trace("complete stage=" + EffectiveStage())
     endif
-    if GetStage() < 200                                  ; stage 200 cancels the timer (Apply)
+    if EffectiveStage() < 200                            ; stage 200 cancels the timer (Apply)
         StartTimer(1.0, 1)
     endif
 EndEvent
@@ -1029,6 +1118,9 @@ Function Relocate(Actor player)
     if player.IsInInterior()
         return
     endif
+    if !IsCommonwealthExterior(player)
+        return
+    endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
@@ -1037,6 +1129,9 @@ Function Relocate(Actor player)
     endif
     int i = 0
     while i < Raiders.Length
+        if !IsPlayerStableAt(player, px, py, pz)
+            return
+        endif
         if MoveOver(Raiders[i], player, px, py, pz, "raider " + i)
             relocateFails += 1
         endif
@@ -1165,6 +1260,9 @@ string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Acto
     if player.IsInInterior()
         return "off, player inside"
     endif
+    if !IsCommonwealthExterior(player)
+        return "off, player inside"
+    endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
@@ -1174,11 +1272,14 @@ string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Acto
     if dp < RelocateGap && fighting
         return "off, fighting"                            ; the fight moves it; it is put back once the fight is over
     endif
+    if !IsPlayerStableAt(player, px, py, pz)
+        return "off, player inside"
+    endif
     Trace("world " + name + " player=" + player.GetWorldSpace() + " actor=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     a.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
     float d = player.GetDistance(a)
     float after = SpotOff(a, tx, ty, tz)
-    bool failed = after > HoldRadius || d >= RelocateGap
+    bool failed = after > HoldRadius || d >= RelocateGap || a.IsInInterior() || a.GetWorldSpace() == None
     Trace("world " + name + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     Trace("moved " + name + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + tx + " " + ty + " " + tz + " before=" + dp + " off=" + off + " d=" + d + " failed=" + failed + " by=" + who)
     if IsTestModeEnabled()
@@ -1314,11 +1415,15 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     endif
     WorldSpace wa = a.GetWorldSpace()                     ; evidence for Codex's world-identity point (#353): which
     WorldSpace wp = player.GetWorldSpace()                ; world each side is in before a move (only moves: Codex 4331303552)
+    if wp == None || !IsPlayerStableAt(player, px, py, pz)
+        return False
+    endif
     Trace("world " + what + " player=" + wp + " actor=" + wa + " cell=" + a.GetParentCell())
     a.MoveTo(player, x - px, y - py, z - pz, True, False)
     float d = player.GetDistance(a)
-    bool failed = d >= RelocateGap
-    Trace("world " + what + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
+    WorldSpace afterWs = a.GetWorldSpace()
+    bool failed = d >= RelocateGap || a.IsInInterior() || afterWs == None || SpotOff(a, x, y, z) > HoldRadius
+    Trace("world " + what + " after=" + afterWs + " cell=" + a.GetParentCell())
     Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
     if !failed
         a.EvaluatePackage()

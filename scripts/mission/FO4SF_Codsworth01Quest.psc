@@ -52,6 +52,24 @@ bool choice4Seen = False
 int choicesCount = 0
 bool completed = False
 
+int Function EffectiveStage()
+    int st = GetStage()
+    if applied > st
+        return applied
+    endif
+    return st
+EndFunction
+
+Function ShowCodsworthObjective()
+    if !IsRunning()
+        Start()
+    endif
+    EnsureCodsworthAlias(ResolveCodsworth())
+    SetObjectiveDisplayed(10, True, True)
+    SetActive(True)
+    SetObjectiveDisplayedAtTop(10)
+EndFunction
+
 Actor Function ResolveCodsworth()
     if Codsworth != None
         return Codsworth
@@ -184,6 +202,11 @@ Function EnsureTalkProxy(Actor player)
                 proxyLastZ = cz
                 if !proxyLogged
                     proxyLogged = True
+                    if !completed
+                        EnsureCodsworthAlias(cods)
+                        SetObjectiveDisplayed(10, True, True)
+                        SetActive(True)
+                    endif
                     Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
                 endif
             endif
@@ -216,6 +239,12 @@ Function AdvanceTo(int n, string by = "Trigger")
     if n > applied
         applied = n
         Trace("codsworth01 stage " + n + " by=" + by)
+    endif
+    if n >= 20
+        SyncProgress()
+    endif
+    if pendingStage == n
+        pendingStage = -1
     endif
 EndFunction
 
@@ -254,8 +283,7 @@ Function StartQuestInstance()
     RegisterCodsworthSceneEvents()
     BindCodsworthActivation()
     AdvanceTo(10, "Trigger")
-    SetObjectiveDisplayed(10, True, False)
-    SetActive(True)
+    ShowCodsworthObjective()
     Trace("codsworth01 init stage=10")
     StartTimer(1.0, 1)
 EndFunction
@@ -269,9 +297,16 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     scenePhase1Entered = False
     sceneCheckTicks = 0
     CancelTimer(2)
-    Trace("codsworth01 reload stage=" + GetStage() + " choices=" + choicesCount)
+    int st = GetStage()
+    if applied > st
+        st = applied
+    endif
+    Trace("codsworth01 reload stage=" + st + " choices=" + choicesCount)
     BindCodsworthActivation()
     if !completed
+        if applied > 0 && GetStage() < applied
+            SetStage(applied)
+        endif
         RegisterForMenuOpenCloseEvent("DialogueMenu")
         RegisterCodsworthSceneEvents()
         StartTimer(1.0, 1)
@@ -294,7 +329,7 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 Trace("codsworth dialogue menu opened")
             endif
         elseif sceneMenuOpened
-            Trace("codsworth dialogue menu closed stage=" + GetStage())
+            Trace("codsworth dialogue menu closed stage=" + EffectiveStage())
             SyncProgress()
         endif
     endif
@@ -308,10 +343,10 @@ Event Scene.OnBegin(Scene akSender)
             sceneTalkPending = True
             scenePhase1Entered = False
             sceneCheckTicks = 0
-            Trace("codsworth scene talk requested scene=" + scn + " via=devt stage=" + GetStage())
+            Trace("codsworth scene talk requested scene=" + scn + " via=devt stage=" + EffectiveStage())
             StartTimer(SceneOpenCheckSeconds, 2)
         endif
-        Trace("codsworth talk scene started stage=" + GetStage())
+        Trace("codsworth talk scene started stage=" + EffectiveStage())
     endif
 EndEvent
 
@@ -330,7 +365,7 @@ Event Scene.OnEnd(Scene akSender)
     Scene scn = ResolveCodsworthScene()
     if scn != None && akSender == scn
         SyncProgress()
-        Trace("codsworth talk scene ended stage=" + GetStage() + " completed=" + completed)
+        Trace("codsworth talk scene ended stage=" + EffectiveStage() + " completed=" + completed)
         if sceneTalkPending && !sceneMenuOpened && !completed
             sceneTalkPending = False
             scenePhase1Entered = False
@@ -417,7 +452,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             scn.ForceStart()
         endif
     endif
-    Trace("codsworth scene talk requested scene=" + scn + " via=" + via + " stage=" + GetStage())
+    Trace("codsworth scene talk requested scene=" + scn + " via=" + via + " stage=" + EffectiveStage())
     StartTimer(SceneOpenCheckSeconds, 2)
 EndEvent
 
@@ -431,7 +466,7 @@ Function RunCodsworthTalk()
     endif
     talkBoxOpen = True
     dialogueSeen = True
-    Trace("codsworth talk opened stage=" + GetStage())
+    Trace("codsworth talk opened stage=" + EffectiveStage())
     int steps = 0
     bool doneLoop = False
     while !doneLoop && steps < 16
@@ -487,7 +522,15 @@ Event OnStageSet(int auiStageID, int auiItemID)
         applied = auiStageID
         Trace("codsworth01 stage " + auiStageID + " by=" + cause)
     endif
+    int prevPending = pendingStage
+    pendingStage = auiStageID
     SyncProgress()
+    if pendingStage == auiStageID
+        pendingStage = prevPending
+        if pendingStage == auiStageID
+            pendingStage = -1
+        endif
+    endif
 EndEvent
 
 Event OnTimer(int aiTimerID)
@@ -496,6 +539,17 @@ Event OnTimer(int aiTimerID)
         return
     elseif aiTimerID != 1
         return
+    endif
+    if !completed
+        if !IsRunning()
+            Start()
+        endif
+        if applied > 0 && GetStage() < applied
+            SetStage(applied)
+        endif
+        if applied >= 10 && !IsObjectiveDisplayed(10)
+            ShowCodsworthObjective()
+        endif
     endif
     EnsureTalkProxy(Game.GetPlayer())
     SyncProgress()
@@ -511,7 +565,7 @@ Function SyncProgress()
     if dialogueSeen
         infoCause = "info"
     endif
-    if GetStageDone(20) && !choice1Seen
+    if (GetStageDone(20) || pendingStage == 20 || applied == 20) && !choice1Seen
         choice1Seen = True
         choicesCount += 1
         if applied < 20
@@ -520,7 +574,7 @@ Function SyncProgress()
         endif
         Trace("codsworth01 choice=1 choices=" + choicesCount)
     endif
-    if GetStageDone(30) && !choice2Seen
+    if (GetStageDone(30) || pendingStage == 30 || applied == 30) && !choice2Seen
         choice2Seen = True
         choicesCount += 1
         if applied < 30
@@ -529,7 +583,7 @@ Function SyncProgress()
         endif
         Trace("codsworth01 choice=2 choices=" + choicesCount)
     endif
-    if GetStageDone(40) && !choice3Seen
+    if (GetStageDone(40) || pendingStage == 40 || applied == 40) && !choice3Seen
         choice3Seen = True
         choicesCount += 1
         if applied < 40
@@ -538,7 +592,7 @@ Function SyncProgress()
         endif
         Trace("codsworth01 choice=3 choices=" + choicesCount)
     endif
-    if !completed && (GetStageDone(100) || GetStage() >= 100)
+    if !completed && (GetStageDone(100) || GetStage() >= 100 || applied >= 100 || pendingStage == 100)
         completed = True
         if !choice4Seen
             choice4Seen = True

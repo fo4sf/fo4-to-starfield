@@ -1131,8 +1131,8 @@ static class Mission
             EditorID = QuestEdid, Name = pts.GetProperty("quest_name").GetString(), FormVersion = 581, Version2 = 12,
             Data = new SF.QuestData
             {
-                Flags = SF.Quest.Flag.StartsEnabled | SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
-                        SF.Quest.Flag.RunOnce | SF.Quest.Flag.HasDialogueData | (SF.Quest.Flag)0x10000,
+                Flags = SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
+                        SF.Quest.Flag.RunOnce | SF.Quest.Flag.HasDialogueData,
                 Priority = 50,
             },
         };
@@ -1140,12 +1140,20 @@ static class Mission
         foreach (var s in Stages)
         {
             var st = new SF.QuestStage { Index = s };
-            if (s == 200) st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
+            st.LogEntries.Add(new SF.QuestLogEntry
+            {
+                Flags = s == 200 ? SF.QuestLogEntry.Flag.CompleteQuest : (SF.QuestLogEntry.Flag)0,
+            });
             quest.Stages.Add(st);
         }
         foreach (var o in Objectives)
         {
-            var obj = new SF.QuestObjective { Index = o.Index, DisplayText = objText.GetProperty(o.Index.ToString(CultureInfo.InvariantCulture)).GetString() };
+            var obj = new SF.QuestObjective
+            {
+                Index = o.Index,
+                Flags = (SF.QuestObjective.Flag)0,
+                DisplayText = objText.GetProperty(o.Index.ToString(CultureInfo.InvariantCulture)).GetString(),
+            };
             if (alias && o.TargetsPreston) obj.Targets.Add(new SF.QuestObjectiveTarget { AliasID = PrestonAlias });
             quest.Objectives.Add(obj);
         }
@@ -1156,7 +1164,8 @@ static class Mission
             (quest.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
             {
                 ID = PrestonAlias, Name = "PrestonGarvey",
-                Flags = SF.AQuestAlias.Flag.AllowDisabled | SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
+                Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowDead | SF.AQuestAlias.Flag.AllowDisabled |
+                        SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
                 ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(prestonRef.FormKey),
             });
             for (int ri = 0; ri < raiderRefs.Count; ri++)
@@ -1307,11 +1316,11 @@ static class Mission
             };
             mod.Activators.Add(codsTalkActi);
 
-            // 2b: FO4SF_CodsworthKeeper (0x814) — non-StartGameEnabled (started via StartNoWait at FO4SFNewGame stage 200)
+            // 2b / B1: FO4SF_CodsworthKeeper (0x814) — non-StartGameEnabled, no StartsEnabled/0x10000 dormancy bits
             keeper = new SF.Quest(new FormKey(modKey, KeeperQuestId), SF.StarfieldRelease.Starfield)
             {
                 EditorID = KeeperEdid, FormVersion = 581, Version2 = 12,
-                Data = new SF.QuestData { Flags = SF.Quest.Flag.StartsEnabled | (SF.Quest.Flag)0x10000, Priority = 50 },
+                Data = new SF.QuestData { Flags = (SF.Quest.Flag)0, Priority = 50 },
             };
             var ks = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
             MissionProps(ks);
@@ -1363,8 +1372,8 @@ static class Mission
                 EditorID = CodsworthQuestEdid, Name = cqName, FormVersion = 581, Version2 = 12,
                 Data = new SF.QuestData
                 {
-                    Flags = SF.Quest.Flag.StartsEnabled | SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
-                            SF.Quest.Flag.HasDialogueData | (SF.Quest.Flag)0x10000,
+                    Flags = SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
+                            SF.Quest.Flag.RunOnce | SF.Quest.Flag.HasDialogueData,
                     Priority = 55,
                 },
             };
@@ -1372,16 +1381,20 @@ static class Mission
             foreach (var stIdx in CodsworthQuestStages)
             {
                 var st = new SF.QuestStage { Index = stIdx };
-                if (stIdx == 100) st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
+                st.LogEntries.Add(new SF.QuestLogEntry
+                {
+                    Flags = stIdx == 100 ? SF.QuestLogEntry.Flag.CompleteQuest : (SF.QuestLogEntry.Flag)0,
+                });
                 codsworthQuest.Stages.Add(st);
             }
             (codsworthQuest.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
             {
                 ID = CodsworthAlias, Name = "Codsworth",
-                Flags = SF.AQuestAlias.Flag.AllowDisabled | SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
+                Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowDead | SF.AQuestAlias.Flag.AllowDisabled |
+                        SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
                 ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(codsRef.FormKey),
             });
-            var cqObj = new SF.QuestObjective { Index = 10, DisplayText = cqObj10 };
+            var cqObj = new SF.QuestObjective { Index = 10, Flags = (SF.QuestObjective.Flag)0, DisplayText = cqObj10 };
             cqObj.Targets.Add(new SF.QuestObjectiveTarget { AliasID = CodsworthAlias });
             codsworthQuest.Objectives.Add(cqObj);
 
@@ -1466,8 +1479,8 @@ static class Mission
             EditorID = SanctuaryQuestEdid, Name = sqName, FormVersion = 581, Version2 = 12,
             Data = new SF.QuestData
             {
-                Flags = SF.Quest.Flag.StartsEnabled | SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
-                        SF.Quest.Flag.RunOnce | (SF.Quest.Flag)0x10000,
+                Flags = SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
+                        SF.Quest.Flag.RunOnce,
                 Priority = 50,
             },
         };
@@ -1475,7 +1488,10 @@ static class Mission
         foreach (var stIdx in SanctuaryQuestStages)
         {
             var st = new SF.QuestStage { Index = stIdx };
-            if (stIdx == 100) st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
+            st.LogEntries.Add(new SF.QuestLogEntry
+            {
+                Flags = stIdx == 100 ? SF.QuestLogEntry.Flag.CompleteQuest : (SF.QuestLogEntry.Flag)0,
+            });
             sanctuaryQuest.Stages.Add(st);
         }
         (sanctuaryQuest.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
@@ -1483,7 +1499,7 @@ static class Mission
             ID = SanctuaryBenchAlias, Name = "SanctuaryWorkbench",
             Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.AllowDisabled,
         });
-        var sqObj = new SF.QuestObjective { Index = 10, DisplayText = sqObj10 };
+        var sqObj = new SF.QuestObjective { Index = 10, Flags = (SF.QuestObjective.Flag)0, DisplayText = sqObj10 };
         sqObj.Targets.Add(new SF.QuestObjectiveTarget { AliasID = SanctuaryBenchAlias });
         sanctuaryQuest.Objectives.Add(sqObj);
         var sqScript = new SF.ScriptEntry { Name = SanctuaryScriptName, Flags = SF.ScriptEntry.Flag.Local };
@@ -1723,7 +1739,7 @@ static class Mission
 
         static bool NonStartGameReady(SF.IQuestGetter q) =>
             q.Data is not null && !q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) &&
-            q.Data.Flags.HasFlag(SF.Quest.Flag.StartsEnabled) && (((uint)q.Data.Flags & 0x10000u) != 0);
+            !q.Data.Flags.HasFlag(SF.Quest.Flag.StartsEnabled) && (((uint)q.Data.Flags & 0x10000u) == 0);
 
         // Check FO4SF_Min00 (0x800)
         var q = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, QuestId));
@@ -1732,7 +1748,9 @@ static class Mission
         {
             Console.WriteLine($"  QUST {q.EditorID} \"{q.Name?.String}\" flags {q.Data?.Flags} stages [{string.Join(",", q.Stages.Select(s => s.Index))}] " +
                               $"objectives [{string.Join("; ", q.Objectives.Select(o => $"{o.Index} \"{o.DisplayText?.String}\" targets {o.Targets.Count}"))}] aliases {q.Aliases?.Count ?? 0} scenes {q.Scenes.Count}");
-            Need(q.EditorID == QuestEdid && NonStartGameReady(q), "FO4SF_Min00 must NOT be StartGameEnabled and must carry StartsEnabled | 0x10000");
+            Need(q.EditorID == QuestEdid && NonStartGameReady(q) && q.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) &&
+                 q.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
+                 "FO4SF_Min00 must NOT carry StartGameEnabled / StartsEnabled / 0x10000 and must carry RunOnce | DisplaysInHud");
             Need(q.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"the quest's QuestType is not {QuestTypeSideEdid}");
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
 
@@ -1760,15 +1778,17 @@ static class Mission
                          && condsOk, $"INFO 0x{FirstCodsworthInfoId + i:X} is not line {want[i].Fo4Info}_{want[i].Response}");
                 }
             }
+            Need(q.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), "a FO4SF_Min00 stage lacks a QSDT QuestLogEntry");
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
             Need(q.Objectives.Select(o => o.Index).SequenceEqual(Objectives.Select(o => o.Index)), "objectives differ from the script's");
-            Need(q.Objectives.All(o => !string.IsNullOrWhiteSpace(o.DisplayText?.String) && !o.DisplayText!.String!.Contains('<')), "an objective has no text or an FO4 text token");
+            Need(q.Objectives.All(o => o.Flags is not null && !string.IsNullOrWhiteSpace(o.DisplayText?.String) && !o.DisplayText!.String!.Contains('<')), "an objective lacks Flags or has no text / FO4 token");
 
             if (alias)
             {
                 var refAliases = (q.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().ToList();
                 var al = refAliases.FirstOrDefault(a => a.ID == PrestonAlias);
-                Need(al is not null && al.ForcedReference.FormKey == preston?.FormKey, "alias 0 is not forced to Preston's ACHR");
+                Need(al is not null && al.ForcedReference.FormKey == preston?.FormKey && (al.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional),
+                     "alias 0 is not an Optional reference alias forced to Preston's ACHR");
                 var wantRaiderPacks = new[]
                 {
                     new FormKey(SfEsm, RaiderCombatPackageId),
@@ -1884,7 +1904,7 @@ static class Mission
                 Console.WriteLine($"  QUST {kq.EditorID} flags {kq.Data?.Flags} stages {kq.Stages.Count}");
                 Need(kq.EditorID == KeeperEdid && NonStartGameReady(kq) && !kq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) &&
                      !kq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
-                     $"{KeeperEdid} must NOT be StartGameEnabled, RunOnce, or DisplaysInHud, and must carry StartsEnabled | 0x10000");
+                     $"{KeeperEdid} must NOT carry StartGameEnabled, StartsEnabled, 0x10000, RunOnce, or DisplaysInHud");
                 var ks = kq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == ScriptName);
                 if (ks is null) problems.Add($"script {ScriptName} not attached to {KeeperEdid}");
                 else
@@ -1905,14 +1925,19 @@ static class Mission
             {
                 Console.WriteLine($"  QUST {cwq.EditorID} \"{cwq.Name?.String}\" flags {cwq.Data?.Flags} stages [{string.Join(",", cwq.Stages.Select(s => s.Index))}] scenes {cwq.Scenes.Count} dials {cwq.DialogTopics.Count}");
                 Need(cwq.EditorID == CodsworthQuestEdid && NonStartGameReady(cwq) && cwq.Data!.Flags.HasFlag(SF.Quest.Flag.AllowRepeatedStages) &&
-                     cwq.Data.Flags.HasFlag(SF.Quest.Flag.HasDialogueData) && cwq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
-                     $"{CodsworthQuestEdid} flags invalid (must be non-StartGameEnabled with StartsEnabled | AllowRepeatedStages | DisplaysInHud | HasDialogueData | 0x10000)");
+                     cwq.Data.Flags.HasFlag(SF.Quest.Flag.RunOnce) && cwq.Data.Flags.HasFlag(SF.Quest.Flag.HasDialogueData) &&
+                     cwq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
+                     $"{CodsworthQuestEdid} flags invalid (must match FO4SF_NewGame non-StartGameEnabled RunOnce | DisplaysInHud | AllowRepeatedStages | HasDialogueData without StartsEnabled/0x10000)");
                 Need(cwq.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"{CodsworthQuestEdid} QuestType is not {QuestTypeSideEdid}");
                 Need(cwq.Stages.Select(s => s.Index).SequenceEqual(CodsworthQuestStages), $"{CodsworthQuestEdid} stages != [10,20,30,40,100]");
-                Need(cwq.Objectives.Count == 1 && cwq.Objectives[0].Index == 10 && cwq.Objectives[0].Targets.Count == 1 && cwq.Objectives[0].Targets[0].AliasID == CodsworthAlias,
-                     $"{CodsworthQuestEdid} lacks objective 10 targeting alias 0");
+                Need(cwq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), $"{CodsworthQuestEdid} has a stage without QSDT QuestLogEntry");
+                Need(cwq.Stages.Last().LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true), $"{CodsworthQuestEdid} stage 100 does not CompleteQuest");
+                Need(cwq.Objectives.Count == 1 && cwq.Objectives[0].Index == 10 && cwq.Objectives[0].Flags is not null &&
+                     cwq.Objectives[0].Targets.Count == 1 && cwq.Objectives[0].Targets[0].AliasID == CodsworthAlias,
+                     $"{CodsworthQuestEdid} lacks objective 10 with Flags targeting alias 0");
                 var cal0 = (cwq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == CodsworthAlias);
-                Need(cal0 is not null && cal0.ForcedReference.FormKey == codsRef?.FormKey, $"{CodsworthQuestEdid} alias 0 is not forced to Codsworth ACHR");
+                Need(cal0 is not null && cal0.ForcedReference.FormKey == codsRef?.FormKey && (cal0.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional),
+                     $"{CodsworthQuestEdid} alias 0 is not an Optional reference alias forced to Codsworth ACHR");
                 var cws = cwq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == CodsworthScriptName);
                 Need(cws is not null, $"{CodsworthQuestEdid} lacks script {CodsworthScriptName}");
                 if (cws is not null)
@@ -2003,10 +2028,12 @@ static class Mission
         else
         {
             Console.WriteLine($"  QUST {sq.EditorID} \"{sq.Name?.String}\" flags {sq.Data?.Flags} stages [{string.Join(",", sq.Stages.Select(s => s.Index))}] objectives {sq.Objectives.Count}");
-            Need(sq.EditorID == SanctuaryQuestEdid && NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
-                 $"{SanctuaryQuestEdid} must be non-StartGameEnabled with StartsEnabled | DisplaysInHud | 0x10000");
+            Need(sq.EditorID == SanctuaryQuestEdid && NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) &&
+                 sq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
+                 $"{SanctuaryQuestEdid} must be non-StartGameEnabled with RunOnce | DisplaysInHud and without StartsEnabled/0x10000");
             Need(sq.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"{SanctuaryQuestEdid} QuestType is not {QuestTypeSideEdid}");
             Need(sq.Stages.Select(s => s.Index).SequenceEqual(SanctuaryQuestStages), $"{SanctuaryQuestEdid} stages != [10,100]");
+            Need(sq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), $"{SanctuaryQuestEdid} has a stage without QSDT QuestLogEntry");
             Need(sq.Stages.Last().LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true), $"{SanctuaryQuestEdid} stage 100 does not CompleteQuest");
             var sal = (sq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == SanctuaryBenchAlias);
             Need(sal is not null && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional) && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.AllowReserved),
@@ -2274,6 +2301,11 @@ static class Mission
             ("Codsworth01 missing CodsworthScene property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "CodsworthScene")),
             ("Codsworth01 missing TalkUseMessageBox property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "TalkUseMessageBox")),
             ("Min00 missing TalkUseMessageBox property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "TalkUseMessageBox")),
+            ("Min00 stage 30 lacks QSDT log entry", m => Min00Q(m).Stages.First(s => s.Index == 30).LogEntries.Clear()),
+            ("Codsworth01 stage 10 lacks QSDT log entry", m => Cods01(m).Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("Sanctuary01 stage 10 lacks QSDT log entry", m => Sanct01(m).Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("Preston alias not Optional", m => ((SF.QuestReferenceAlias)Min00Q(m).Aliases![0]).Flags &= ~SF.AQuestAlias.Flag.Optional),
+            ("Codsworth alias not Optional", m => ((SF.QuestReferenceAlias)Cods01(m).Aliases![0]).Flags &= ~SF.AQuestAlias.Flag.Optional),
             ("raider alias lacks combat package", m => ((SF.QuestReferenceAlias)Min00Q(m).Aliases![1]).PackageData.Clear()),
             ("Codsworth NPC_ and ACHR removed", m =>
             {
@@ -2286,7 +2318,8 @@ static class Mission
             ("Codsworth respawns", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags |= SF.Npc.Flag.Respawn),
             ("Codsworth script property removed", m => Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "Codsworth")),
             ("keeper quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, KeeperQuestId))),
-            ("keeper lacks StartsEnabled", m => Keeper(m).Data!.Flags &= ~SF.Quest.Flag.StartsEnabled),
+            ("keeper carries StartsEnabled", m => Keeper(m).Data!.Flags |= SF.Quest.Flag.StartsEnabled),
+            ("Min00 carries 0x10000 flag", m => Min00Q(m).Data!.Flags |= (SF.Quest.Flag)0x10000),
             ("keeper runs the mission", m => ((SF.ScriptBoolProperty)Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "KeeperOnly")).Data = false),
             ("Codsworth also set on the mission", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
             {
