@@ -471,7 +471,10 @@ def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_v
                 copied.append(rel)
                 text = hr["text"]
                 sex = "male" if re.search(r"\bsir\b", text, re.I) else "female" if re.search(r"\bmum\b", text, re.I) else None
-                lines.append({"info": hr["info"], "response": int(hr["response"]), "text": text, "wem": wem_hex, "sex": sex})
+                lines.append({
+                    "info": hr["info"], "response": int(hr["response"]), "text": text,
+                    "wem": wem_hex, "sex": sex, "duration": float(durations.get(stem, 0.0)),
+                })
             voice_json_out = os.path.join(tmp_dir, "auto_hello_voice.json")
             with open(voice_json_out, "w", encoding="utf-8") as f:
                 json.dump(lines, f, indent=1)

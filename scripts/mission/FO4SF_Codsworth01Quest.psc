@@ -36,7 +36,11 @@ bool talkBoxOpen = False
 bool sceneTalkPending = False
 bool sceneMenuOpened = False
 bool scenePhase1Entered = False
+float scenePhase1At = 0.0
 int sceneCheckTicks = 0
+int talkSessionId = 0
+bool codsworthTalkReloaded = False
+bool concordCleared = False
 ObjectReference talkProxy = None
 bool proxyLogged = False
 float proxyLastX = 0.0
@@ -61,6 +65,9 @@ int Function EffectiveStage()
 EndFunction
 
 Function ShowCodsworthObjective()
+    if completed || concordCleared
+        return
+    endif
     if !IsRunning()
         Start()
     endif
@@ -145,6 +152,7 @@ Function RegisterCodsworthSceneEvents()
 EndFunction
 
 Function BindCodsworthActivation()
+    talkSessionId += 1
     Actor cods = ResolveCodsworth()
     if cods != None
         cods.AllowPCDialogue(True)
@@ -166,6 +174,9 @@ Function EnsureTalkProxy(Actor player)
     endif
     Actor cods = ResolveCodsworth()
     if cods == None || cods.IsDisabled() || cods.IsDead()
+        if talkProxy != None && !talkProxy.IsDeleted()
+            talkProxy.DisableNoWait(False)
+        endif
         return
     endif
     cods.AllowPCDialogue(True)
@@ -176,6 +187,21 @@ Function EnsureTalkProxy(Actor player)
     float cx = cods.GetPositionX()
     float cy = cods.GetPositionY()
     float cz = cods.GetPositionZ()
+    if talkProxy != None && !talkProxy.IsDeleted()
+        if talkProxy.IsDisabled()
+            talkProxy.EnableNoWait(False)
+        endif
+        float mx = cx - proxyLastX
+        float my = cy - proxyLastY
+        float mz = cz - proxyLastZ
+        if mx * mx + my * my + mz * mz > ProxyResyncDrift * ProxyResyncDrift
+            talkProxy.SetPosition(cx, cy, cz + ProxyZOffset)
+            proxyLastX = cx
+            proxyLastY = cy
+            proxyLastZ = cz
+        endif
+        return
+    endif
     float ex = cx - tx
     float ey = cy - ty
     float ez = cz - tz
@@ -187,44 +213,33 @@ Function EnsureTalkProxy(Actor player)
     if dx * dx + dy * dy > ProxyBindRadius * ProxyBindRadius || !cods.Is3DLoaded()
         return
     endif
-    if talkProxy == None || talkProxy.IsDeleted()
-        Activator acti = ResolveTalkActi()
-        if acti != None
-            talkProxy = cods.PlaceAtMe(acti, 1, True, True, False)
-            if talkProxy != None
-                talkProxy.SetScale(ProxyScale)
-                talkProxy.SetPosition(cx, cy, cz + ProxyZOffset)
-                talkProxy.EnableNoWait(False)
-                talkProxy.BlockActivation(False, False)
-                RegisterForRemoteEvent(talkProxy, "OnActivate")
-                proxyLastX = cx
-                proxyLastY = cy
-                proxyLastZ = cz
-                if !proxyLogged
-                    proxyLogged = True
-                    if !completed
-                        EnsureCodsworthAlias(cods)
-                        SetObjectiveDisplayed(10, True, True)
-                        SetActive(True)
-                    endif
-                    Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
-                endif
-            endif
-        endif
-    else
-        float mx = cx - proxyLastX
-        float my = cy - proxyLastY
-        float mz = cz - proxyLastZ
-        if mx * mx + my * my + mz * mz > ProxyResyncDrift * ProxyResyncDrift
+    Activator acti = ResolveTalkActi()
+    if acti != None
+        talkProxy = cods.PlaceAtMe(acti, 1, True, True, False)
+        if talkProxy != None
+            talkProxy.EnableNoWait(False)
+            talkProxy.SetScale(ProxyScale)
             talkProxy.SetPosition(cx, cy, cz + ProxyZOffset)
+            talkProxy.BlockActivation(False, False)
+            RegisterForRemoteEvent(talkProxy, "OnActivate")
             proxyLastX = cx
             proxyLastY = cy
             proxyLastZ = cz
+            if !proxyLogged
+                proxyLogged = True
+                if !completed && !concordCleared
+                    EnsureCodsworthAlias(cods)
+                    SetObjectiveDisplayed(10, True, True)
+                    SetActive(True)
+                endif
+                Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
+            endif
         endif
     endif
 EndFunction
 
 Function ClearObjectiveOnConcordStart()
+    concordCleared = True
     if !completed && instanceStarted
         SetObjectiveDisplayed(10, False, False)
         SetActive(False)
@@ -292,9 +307,11 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     dialogueMenuOpen = False
     talkBoxOpen = False
+    codsworthTalkReloaded = True
     sceneTalkPending = False
     sceneMenuOpened = False
     scenePhase1Entered = False
+    scenePhase1At = 0.0
     sceneCheckTicks = 0
     CancelTimer(2)
     int st = GetStage()
@@ -325,10 +342,12 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 sceneMenuOpened = True
                 sceneTalkPending = False
                 scenePhase1Entered = False
+                scenePhase1At = 0.0
                 CancelTimer(2)
                 Trace("codsworth dialogue menu opened")
             endif
         elseif sceneMenuOpened
+            sceneMenuOpened = False
             Trace("codsworth dialogue menu closed stage=" + EffectiveStage())
             SyncProgress()
         endif
@@ -342,6 +361,7 @@ Event Scene.OnBegin(Scene akSender)
         if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && !completed
             sceneTalkPending = True
             scenePhase1Entered = False
+            scenePhase1At = 0.0
             sceneCheckTicks = 0
             Trace("codsworth scene talk requested scene=" + scn + " via=devt stage=" + EffectiveStage())
             StartTimer(SceneOpenCheckSeconds, 2)
@@ -354,6 +374,7 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
     Scene scn = ResolveCodsworthScene()
     if scn != None && akSender == scn && auiPhaseIndex == 1
         scenePhase1Entered = True
+        scenePhase1At = Utility.GetCurrentRealTime()
         if sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen
             CancelTimer(2)
             StartTimer(SceneOpenCheckSeconds, 2)
@@ -369,6 +390,7 @@ Event Scene.OnEnd(Scene akSender)
         if sceneTalkPending && !sceneMenuOpened && !completed
             sceneTalkPending = False
             scenePhase1Entered = False
+            scenePhase1At = 0.0
             CancelTimer(2)
             Trace("codsworth talk fallback=messagebox reason=scene_incomplete")
             RunCodsworthTalk()
@@ -376,6 +398,7 @@ Event Scene.OnEnd(Scene akSender)
             sceneTalkPending = False
             sceneMenuOpened = False
             scenePhase1Entered = False
+            scenePhase1At = 0.0
         endif
     endif
 EndEvent
@@ -387,18 +410,30 @@ Function CheckCodsworthSceneOpen()
     if dialogueMenuOpen || sceneMenuOpened || talkBoxOpen || completed
         sceneTalkPending = False
         scenePhase1Entered = False
+        scenePhase1At = 0.0
         return
     endif
     sceneCheckTicks += 1
+    bool phase1Elapsed = False
+    if scenePhase1Entered
+        float nowRt = Utility.GetCurrentRealTime()
+        if nowRt < scenePhase1At
+            scenePhase1At = nowRt
+        elseif (nowRt - scenePhase1At) >= (SceneOpenCheckSeconds - 0.05)
+            phase1Elapsed = True
+        endif
+    endif
     Scene scn = ResolveCodsworthScene()
     if scn == None || !scn.IsPlaying()
         sceneTalkPending = False
         scenePhase1Entered = False
+        scenePhase1At = 0.0
         Trace("codsworth talk fallback=messagebox reason=scene_inactive")
         RunCodsworthTalk()
-    elseif scenePhase1Entered || sceneCheckTicks >= SceneMaxWaitChecks
+    elseif phase1Elapsed || sceneCheckTicks >= SceneMaxWaitChecks
         sceneTalkPending = False
         scenePhase1Entered = False
+        scenePhase1At = 0.0
         scn.Stop()
         Trace("codsworth talk fallback=messagebox reason=dialogue_menu_timeout")
         RunCodsworthTalk()
@@ -441,6 +476,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     sceneTalkPending = True
     sceneMenuOpened = False
     scenePhase1Entered = False
+    scenePhase1At = 0.0
     sceneCheckTicks = 0
     string via = "actor"
     if talkProxy != None && akSender == talkProxy
@@ -464,6 +500,9 @@ Function RunCodsworthTalk()
     if curMsg == None
         return
     endif
+    codsworthTalkReloaded = False
+    talkSessionId += 1
+    int mySession = talkSessionId
     talkBoxOpen = True
     dialogueSeen = True
     Trace("codsworth talk opened stage=" + EffectiveStage())
@@ -472,43 +511,49 @@ Function RunCodsworthTalk()
     while !doneLoop && steps < 16
         steps += 1
         int btn = curMsg.Show()
-        Trace("codsworth choice button=" + btn)
-        if btn == 0
-            if !completed
-                AdvanceTo(20, "info")
-                SyncProgress()
-            endif
-            Message r0 = ResolveTalkMsg(0)
-            if r0 != None
-                curMsg = r0
-            endif
-        elseif btn == 1
-            if !completed
-                AdvanceTo(30, "info")
-                SyncProgress()
-            endif
-            Message r1 = ResolveTalkMsg(1)
-            if r1 != None
-                curMsg = r1
-            endif
-        elseif btn == 2
-            if !completed
-                AdvanceTo(40, "info")
-                SyncProgress()
-            endif
-            Message r2 = ResolveTalkMsg(2)
-            if r2 != None
-                curMsg = r2
-            endif
-        else
-            if btn == 3 && !completed
-                AdvanceTo(100, "info")
-                SyncProgress()
-            endif
+        if codsworthTalkReloaded || mySession != talkSessionId || btn < 0
             doneLoop = True
+        else
+            Trace("codsworth choice button=" + btn)
+            if btn == 0
+                if !completed
+                    AdvanceTo(20, "info")
+                    SyncProgress()
+                endif
+                Message r0 = ResolveTalkMsg(0)
+                if r0 != None
+                    curMsg = r0
+                endif
+            elseif btn == 1
+                if !completed
+                    AdvanceTo(30, "info")
+                    SyncProgress()
+                endif
+                Message r1 = ResolveTalkMsg(1)
+                if r1 != None
+                    curMsg = r1
+                endif
+            elseif btn == 2
+                if !completed
+                    AdvanceTo(40, "info")
+                    SyncProgress()
+                endif
+                Message r2 = ResolveTalkMsg(2)
+                if r2 != None
+                    curMsg = r2
+                endif
+            else
+                if btn == 3 && !completed
+                    AdvanceTo(100, "info")
+                    SyncProgress()
+                endif
+                doneLoop = True
+            endif
         endif
     endwhile
-    talkBoxOpen = False
+    if !codsworthTalkReloaded && mySession == talkSessionId
+        talkBoxOpen = False
+    endif
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
@@ -537,6 +582,10 @@ Event OnTimer(int aiTimerID)
     if aiTimerID == 2
         CheckCodsworthSceneOpen()
         return
+    elseif aiTimerID == 3
+        EnsureTalkProxy(Game.GetPlayer())
+        StartTimer(5.0, 3)
+        return
     elseif aiTimerID != 1
         return
     endif
@@ -547,7 +596,7 @@ Event OnTimer(int aiTimerID)
         if applied > 0 && GetStage() < applied
             SetStage(applied)
         endif
-        if applied >= 10 && !IsObjectiveDisplayed(10)
+        if applied >= 10 && !concordCleared && !IsObjectiveDisplayed(10)
             ShowCodsworthObjective()
         endif
     endif
@@ -555,8 +604,8 @@ Event OnTimer(int aiTimerID)
     SyncProgress()
     if !completed
         StartTimer(1.0, 1)
-    elseif talkProxy == None || talkProxy.IsDeleted()
-        StartTimer(5.0, 1)
+    else
+        StartTimer(5.0, 3)
     endif
 EndEvent
 
