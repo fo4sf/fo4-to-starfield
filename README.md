@@ -16,7 +16,7 @@ set of in-game screenshots: they show Bethesda-owned visuals and are excluded fr
 [What comes next](#what-comes-after-this-stage) · [Pictures](#see-the-work) · [How it works](#how-it-works) ·
 [Roadmap](docs/ROADMAP.md) · [Journal](docs/JOURNAL.md) · [Docs index](docs/README.md)
 
-**Where it stands (20 Nov 2026):** the Commonwealth exterior, 16 interiors, a new game from Vault 111 and a cut-down
+**Where it stands (21 Nov 2026):** the Commonwealth exterior, 16 interiors, a new game from Vault 111 and a cut-down
 first mission have run in Starfield on the owner's test PC (seen in game, first in October 2026). This stage works on
 the launcher and the hardest mechanics. On 18 and 19 Nov a "candidate" build (a bundle of 21 to 22 of our plugins)
 ran in the game for the first time: the Pip-Boy crash is fixed, the start of a new game is being rebuilt as a set of
@@ -30,6 +30,15 @@ Every status on this page carries one of three labels: **seen in game** (on the 
 
 Newest first.
 
+- **21 Nov 2026: the Fallout 4 start runs from a new game to the Commonwealth.** On a 13-plugin build (only what the
+  Fallout 4 story path needs), a new game starts in Vault 111, the character box appears once, the Pip-Boy and the
+  vault door console work, the exit lift rides up and the player lands on the hill above Sanctuary Hills with no crash,
+  the mission starts, and the Pip-Boy map page opens with the Commonwealth map when the map key is pressed outdoors.
+  **Seen in game, 21 Nov**, with three console shortcuts for the tester (picking up the Pip-Boy, activating the console,
+  and standing on the lift platform: pressing E on them directly did not work). Not working yet: the screen does not fade
+  in after the landing (lifted by console), and talking to Codsworth opens nothing, so the first mission cannot yet be
+  started by play. Main now holds the merged integration branch ([#838](https://github.com/fo4sf/fo4-to-starfield/pull/838)),
+  whose code is otherwise **offline tests only**; the survival and other experimental systems are off by default.
 - **18 to 20 Nov 2026: the first candidate build runs in the game.** Our plugins now share one store of values
   (`FO4SFCoreValues.esm`) and a checker that refuses a bundle whose plugins disagree about ids
   ([#831](https://github.com/fo4sf/fo4-to-starfield/pull/831), draft). Four bundles were tried on the owner's test PC;
