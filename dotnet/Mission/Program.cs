@@ -1426,10 +1426,13 @@ static class Mission
         var lines = codsworthVoice is null ? [] : VoiceLines(codsworthVoice);
         if (lines.Count > 0)
         {
-            if (cods is null) throw new Refusal("--codsworth-voice needs Codsworth (drop --no-codsworth)");
+            if (cods is null || keeper is null) throw new Refusal("--codsworth-voice needs Codsworth (drop --no-codsworth)");
+            keeper.Data!.Flags |= SF.Quest.Flag.HasDialogueData;
+            var codsVoiceKey = new FormKey(modKey, CodsworthVoiceId);
             var dial = new SF.DialogTopic(new FormKey(modKey, CodsworthDialId), SF.StarfieldRelease.Starfield)
             {
-                EditorID = CodsworthDialEdid, Quest = new FormLink<SF.IQuestGetter>(quest.FormKey), Priority = 50,
+                EditorID = CodsworthDialEdid, FormVersion = 581, Version2 = 1,
+                Quest = new FormLink<SF.IQuestGetter>(keeper.FormKey), Priority = 50,
                 Category = SF.DialogTopic.CategoryEnum.Misc, Subtype = SF.DialogTopic.SubtypeEnum.Hello,
                 SubtypeName = SF.DialogTopic.SubtypeNameEnum.Hello,
             };
@@ -1438,15 +1441,15 @@ static class Mission
             {
                 var info = new SF.DialogResponses(new FormKey(modKey, id++), SF.StarfieldRelease.Starfield)
                 {
-                    EditorID = $"FO4SF_Codsworth_{l.Fo4Info}_{l.Response}",
+                    EditorID = $"FO4SF_Codsworth_{l.Fo4Info}_{l.Response}", FormVersion = 581, Version2 = 2,
                     Flags = new SF.DialogResponseFlags { Flags = (short)SF.DialogResponses.Flag.Random },
                 };
-                info.Responses.Add(new SF.DialogResponse { ResponseText = l.Text, WEMFile = l.Wem });
+                info.Responses.Add(MakeNpcDialogResponse(l.Text, l.Wem, l.Duration, codsVoiceKey));
                 info.Conditions.AddRange(VoiceConditions(cods.FormKey, l.Sex));
                 dial.Responses.Add(info);
                 (dial.TopicInfoList ??= new()).Add(new FormLink<SF.IDialogResponsesGetter>(info.FormKey));
             }
-            quest.DialogTopics.Add(dial);
+            keeper.DialogTopics.Add(dial);
         }
 
         mod.Quests.Add(quest);
@@ -1535,7 +1538,7 @@ static class Mission
 
     // ---------------------------------------------------------------- check
 
-    public record VoiceLine(string Fo4Info, int Response, string Text, uint Wem, string? Sex);
+    public record VoiceLine(string Fo4Info, int Response, string Text, uint Wem, string? Sex, float Duration = 0f);
 
     public static List<VoiceLine> VoiceLines(string path)
     {
@@ -1543,7 +1546,8 @@ static class Mission
         var lines = doc.RootElement.EnumerateArray().Select(e => new VoiceLine(
             e.GetProperty("info").GetString()!, e.GetProperty("response").GetInt32(), e.GetProperty("text").GetString()!,
             uint.Parse(e.GetProperty("wem").GetString()!, NumberStyles.HexNumber, CultureInfo.InvariantCulture),
-            e.TryGetProperty("sex", out var sx) && sx.ValueKind == JsonValueKind.String ? sx.GetString() : null)).ToList();
+            e.TryGetProperty("sex", out var sx) && sx.ValueKind == JsonValueKind.String ? sx.GetString() : null,
+            e.TryGetProperty("duration", out var dur) && dur.ValueKind == JsonValueKind.Number ? (float)dur.GetDouble() : 0f)).ToList();
         if (lines.Count == 0 || lines.Count > 0xDF) throw new Refusal($"{path}: {lines.Count} voice lines");
         if (lines.Select(l => l.Wem).Distinct().Count() != lines.Count) throw new Refusal($"{path}: two lines share a wem id");
         if (lines.Any(l => string.IsNullOrWhiteSpace(l.Text) || l.Sex is not (null or "male" or "female"))) throw new Refusal($"{path}: a line has no text or a bad sex");
@@ -1755,29 +1759,9 @@ static class Mission
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
 
             var dials = q.DialogTopics.ToList();
-            var helloDial = dials.FirstOrDefault(d => d.FormKey == new FormKey(key, CodsworthDialId));
             int expectedSceneDials = alias ? 7 : 0; // 1 greeting + 3 choice + 3 reply
-            if (codsworthVoice is null)
-            {
-                Need(helloDial is null && dials.Count == expectedSceneDials, $"unexpected DIAL count {dials.Count} without --codsworth-voice (expected {expectedSceneDials})");
-            }
-            else
-            {
-                var want = VoiceLines(codsworthVoice);
-                Console.WriteLine($"  DIAL {helloDial?.EditorID} {helloDial?.Category}/{helloDial?.Subtype}/{helloDial?.SubtypeName} infos {helloDial?.Responses.Count}");
-                Need(dials.Count == expectedSceneDials + 1 && helloDial is { EditorID: CodsworthDialEdid, Subtype: SF.DialogTopic.SubtypeEnum.Hello, SubtypeName: SF.DialogTopic.SubtypeNameEnum.Hello }
-                     && helloDial.Quest.FormKey == q.FormKey, $"DIAL 0x{CodsworthDialId:X} is not his Hello topic in the quest");
-                var infos = helloDial?.Responses.ToList() ?? [];
-                Need(infos.Count == want.Count && (helloDial!.TopicInfoList ?? []).Select(t => t.FormKey).SequenceEqual(infos.Select(i => i.FormKey)), "his INFOs differ from voice.json or the topic's list");
-                for (int i = 0; i < Math.Min(infos.Count, want.Count); i++)
-                {
-                    var info = infos[i];
-                    var r = info.Responses.Count == 1 ? info.Responses[0] : null;
-                    bool condsOk = cods is not null && info.Conditions.Select(CondSig).SequenceEqual(VoiceConditions(cods.FormKey, want[i].Sex).Select(CondSig));
-                    Need(info.FormKey.ID == FirstCodsworthInfoId + i && r is not null && r.WEMFile == want[i].Wem && r.ResponseText?.String == want[i].Text
-                         && condsOk, $"INFO 0x{FirstCodsworthInfoId + i:X} is not line {want[i].Fo4Info}_{want[i].Response}");
-                }
-            }
+            Need(dials.Count == expectedSceneDials && !dials.Any(d => d.FormKey == new FormKey(key, CodsworthDialId)),
+                 $"FO4SF_Min00 DIAL count {dials.Count} != {expectedSceneDials} or still owns persistent Codsworth Hellos");
             Need(q.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), "a FO4SF_Min00 stage lacks a QSDT QuestLogEntry");
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
             Need(q.Objectives.Select(o => o.Index).SequenceEqual(Objectives.Select(o => o.Index)), "objectives differ from the script's");
@@ -1901,10 +1885,40 @@ static class Mission
             if (kq is null) problems.Add($"no QUST 0x{KeeperQuestId:X} {KeeperEdid}");
             else
             {
-                Console.WriteLine($"  QUST {kq.EditorID} flags {kq.Data?.Flags} stages {kq.Stages.Count}");
+                Console.WriteLine($"  QUST {kq.EditorID} flags {kq.Data?.Flags} stages {kq.Stages.Count} dials {kq.DialogTopics.Count}");
                 Need(kq.EditorID == KeeperEdid && NonStartGameReady(kq) && !kq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) &&
                      !kq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
                      $"{KeeperEdid} must NOT carry StartGameEnabled, StartsEnabled, 0x10000, RunOnce, or DisplaysInHud");
+                var helloDial = kq.DialogTopics.FirstOrDefault(d => d.FormKey == new FormKey(key, CodsworthDialId));
+                if (codsworthVoice is null)
+                {
+                    Need(helloDial is null && kq.DialogTopics.Count == 0 && !kq.Data!.Flags.HasFlag(SF.Quest.Flag.HasDialogueData),
+                         $"unexpected DIAL on {KeeperEdid} without --codsworth-voice");
+                }
+                else
+                {
+                    var want = VoiceLines(codsworthVoice);
+                    var wantVoiceKey = new FormKey(key, CodsworthVoiceId);
+                    Console.WriteLine($"  DIAL {helloDial?.EditorID} {helloDial?.Category}/{helloDial?.Subtype}/{helloDial?.SubtypeName} infos {helloDial?.Responses.Count}");
+                    Need(kq.Data!.Flags.HasFlag(SF.Quest.Flag.HasDialogueData) && kq.DialogTopics.Count == 1 &&
+                         helloDial is { EditorID: CodsworthDialEdid, FormVersion: 581, Subtype: SF.DialogTopic.SubtypeEnum.Hello, SubtypeName: SF.DialogTopic.SubtypeNameEnum.Hello } &&
+                         helloDial.Quest.FormKey == kq.FormKey,
+                         $"DIAL 0x{CodsworthDialId:X} is not his FormVersion-581 Hello topic on {KeeperEdid}");
+                    var infos = helloDial?.Responses.ToList() ?? [];
+                    Need(infos.Count == want.Count && (helloDial!.TopicInfoList ?? []).Select(t => t.FormKey).SequenceEqual(infos.Select(i => i.FormKey)),
+                         "his INFOs differ from voice.json or the topic's list");
+                    for (int i = 0; i < Math.Min(infos.Count, want.Count); i++)
+                    {
+                        var info = infos[i];
+                        var r = info.Responses.Count == 1 ? info.Responses[0] : null;
+                        bool condsOk = cods is not null && info.Conditions.Select(CondSig).SequenceEqual(VoiceConditions(cods.FormKey, want[i].Sex).Select(CondSig));
+                        bool trotOk = r is not null && r.TROTs.Count == 1 && r.TROTs[0].VoiceType.FormKey == wantVoiceKey &&
+                                      r.TROTs[0].EmotionOut > 0f && r.EmotionOut > 0f;
+                        Need(info.FormKey.ID == FirstCodsworthInfoId + i && info.FormVersion == 581 && r is not null &&
+                             r.WEMFile == want[i].Wem && r.ResponseText?.String == want[i].Text && condsOk && trotOk,
+                             $"INFO 0x{FirstCodsworthInfoId + i:X} is not voiced TROT FormVersion-581 line {want[i].Fo4Info}_{want[i].Response}");
+                    }
+                }
                 var ks = kq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == ScriptName);
                 if (ks is null) problems.Add($"script {ScriptName} not attached to {KeeperEdid}");
                 else
@@ -2216,11 +2230,12 @@ static class Mission
                 { Console.WriteLine("FAIL  check passed a plain build as a voice one"); return 1; }
 
             static SF.DialogTopic HelloDial(SF.StarfieldMod m) =>
-                m.Quests[new FormKey(m.ModKey, QuestId)].DialogTopics.First(d => d.FormKey.ID == CodsworthDialId);
+                m.Quests[new FormKey(m.ModKey, KeeperQuestId)].DialogTopics.First(d => d.FormKey.ID == CodsworthDialId);
 
             var voiceMutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
             {
                 ("a line's wem changed", m => HelloDial(m).Responses[1].Responses[0].WEMFile = 0x00F4C009),
+                ("a hello line's TROT cleared", m => HelloDial(m).Responses[0].Responses[0].TROTs.Clear()),
                 ("a line said by anyone", m => HelloDial(m).Responses[0].Conditions.Clear()),
                 ("a sir line for either sex", m => HelloDial(m).Responses[1].Conditions.RemoveAt(1)),
                 ("a line's text changed", m => HelloDial(m).Responses[2].Responses[0].ResponseText = "Synthetic wrong line"),

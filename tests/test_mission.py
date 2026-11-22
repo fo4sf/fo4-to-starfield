@@ -309,11 +309,11 @@ class FindPrestonTests(unittest.TestCase):
         self.assertEqual(re.findall(r"\b(\w+)\.StartCombat\((\w+)\)", self.psc), [("r", "player")])
 
     def test_dead_raiders_are_skipped(self):
-        """A dead or WFC-01 auto-cleared raider is counted and never put into combat."""
+        """A dead, None, or WFC-01 auto-cleared raider is counted and never put into combat."""
         tick = self.block("Event OnTimer(", "EndEvent")
-        self.assertRegex(tick, r"Actor r = Raiders\[i\]\s+if r\.IsDead\(\) \|\| raiderCleared\[i\]\s+dead \+= 1\s+else\s")
+        self.assertRegex(tick, r"Actor r = Raiders\[i\]\s+if r == None \|\| r\.IsDead\(\) \|\| raiderCleared\[i\]\s+dead \+= 1\s+else\s")
         loop = tick[tick.index("Actor r = Raiders[i]"):]
-        self.assertLess(loop.index("if r.IsDead() || raiderCleared[i]"), loop.index("r.StartCombat(player)"))
+        self.assertLess(loop.index("if r == None || r.IsDead() || raiderCleared[i]"), loop.index("r.StartCombat(player)"))
 
     def test_found_is_set_and_logged_once(self):
         found = self.block("Function FoundPreston(string how)", "EndFunction")
@@ -1772,6 +1772,9 @@ class V2MissionTalkTests(unittest.TestCase):
             def BlockActivation(self, blocked=True, hide=False):
                 self.block_args = (bool(blocked), bool(hide))
 
+            def IgnoreFriendlyHits(self, flag=True):
+                self.ignore_friendly = bool(flag)
+
             def SetRestrained(self, flag=True):
                 self.restrained = bool(flag)
                 return True
@@ -1851,6 +1854,7 @@ class V2MissionTalkTests(unittest.TestCase):
 
         m_ns = {
             "Trace": emit,
+            "LogName": "fo4sf_mission",
             "KeeperOnly": False,
             "Preston": preston,
             "Codsworth": cods,
@@ -1874,16 +1878,22 @@ class V2MissionTalkTests(unittest.TestCase):
             "prestonUsedFallback": False,
             "prestonTalkLogged": False,
             "prestonTalkBoxOpen": False,
+            "talkSessionId": 0,
+            "prestonTalkReloaded": False,
             "prestonDialogueMenuOpen": False,
             "prestonScenePending": False,
             "prestonSceneMenuOpened": False,
             "prestonScenePhase1": False,
+            "prestonPhase1At": 0.0,
             "prestonSceneChecks": 0,
+            "sanctuaryStartRetries": 0,
             "talkNearSec": 5.0,
             "talkFailures": 0,
             "TalkRadius": 3.0,
             "TalkFallbackSeconds": 120.0,
             "TalkSceneTimeout": 90.0,
+            "IsRunning": lambda: True,
+            "Start": lambda: True,
             "IsTestModeEnabled": lambda: True,
             "GetStage": lambda: m_cur_stage[0],
             "GetStageDone": lambda s: int(s) in m_stages,
@@ -1908,9 +1918,10 @@ class V2MissionTalkTests(unittest.TestCase):
              "HoldActor", "GiveFromCodsworth", "AdvanceTo", "Apply", "FoundPreston", "ResolvePrestonMsg",
              "RunPrestonTalk", "MarkPrestonFallback", "TalkCompleteReady", "ObjectReference.OnActivate"),
             ("min00Given", "applied", "pendingStage", "pendingStageBy", "prestonFound", "talkActivated",
-             "talkStartedAt", "prestonUsedFallback", "prestonTalkLogged", "prestonTalkBoxOpen",
-             "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened", "prestonScenePhase1",
-             "prestonSceneChecks", "talkNearSec", "talkFailures"),
+             "talkStartedAt", "prestonUsedFallback", "prestonTalkLogged", "prestonTalkBoxOpen", "talkSessionId",
+             "prestonTalkReloaded", "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened",
+             "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks", "sanctuaryStartRetries",
+             "talkNearSec", "talkFailures"),
         )
         exec(compile(m_code, "FO4SF_Min00Quest.psc", "exec"), m_ns)
         min00_obj = SimpleNamespace(
@@ -1937,6 +1948,7 @@ class V2MissionTalkTests(unittest.TestCase):
 
         c_ns = {
             "Trace": emit,
+            "LogName": "fo4sf_mission",
             "Codsworth": cods,
             "CodsworthScene": None,
             "CodsworthTalkActi": "FO4SF_CodsworthTalkActi(09000970)",
@@ -1961,9 +1973,13 @@ class V2MissionTalkTests(unittest.TestCase):
             "dialogueSeen": False,
             "dialogueMenuOpen": False,
             "talkBoxOpen": False,
+            "talkSessionId": 0,
+            "codsworthTalkReloaded": False,
+            "concordCleared": False,
             "sceneTalkPending": False,
             "sceneMenuOpened": False,
             "scenePhase1Entered": False,
+            "scenePhase1At": 0.0,
             "sceneCheckTicks": 0,
             "talkProxy": None,
             "proxyLogged": False,
@@ -2000,10 +2016,11 @@ class V2MissionTalkTests(unittest.TestCase):
             ("EffectiveStage", "ResolveCodsworth", "ResolveTalkActi", "ResolveTalkMsg", "ResolveCodsworthScene",
              "ShouldUseMessageBox", "EnsureCodsworthAlias", "BindCodsworthActivation", "EnsureTalkProxy", "AdvanceTo",
              "IsWarfareMode", "ObjectReference.OnActivate", "RunCodsworthTalk", "SyncProgress"),
-            ("dialogueSeen", "dialogueMenuOpen", "talkBoxOpen", "sceneTalkPending", "sceneMenuOpened",
-             "scenePhase1Entered", "sceneCheckTicks", "talkProxy", "proxyLogged", "proxyLastX", "proxyLastY",
-             "proxyLastZ", "applied", "pendingStage", "pendingStageBy", "choice1Seen", "choice2Seen", "choice3Seen",
-             "choice4Seen", "choicesCount", "completed"),
+            ("dialogueSeen", "dialogueMenuOpen", "talkBoxOpen", "talkSessionId", "codsworthTalkReloaded",
+             "concordCleared", "sceneTalkPending", "sceneMenuOpened", "scenePhase1Entered", "scenePhase1At",
+             "sceneCheckTicks", "talkProxy", "proxyLogged", "proxyLastX", "proxyLastY", "proxyLastZ", "applied",
+             "pendingStage", "pendingStageBy", "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen",
+             "choicesCount", "completed"),
         )
         exec(compile(c_code, "FO4SF_Codsworth01Quest.psc", "exec"), c_ns)
 
@@ -2146,6 +2163,12 @@ class A1dRealTalkTests(unittest.TestCase):
             def BlockActivation(self, *_args):
                 pass
 
+            def IgnoreFriendlyHits(self, flag=True):
+                self.ignore_friendly = bool(flag)
+
+            def DisableNoWait(self, _fade=False):
+                pass
+
             def StopCombat(self):
                 pass
 
@@ -2207,6 +2230,7 @@ class A1dRealTalkTests(unittest.TestCase):
         p_clicks = [0, 1, 3]
         p_msgs = [_MsgMock(p_clicks) for _ in range(4)]
 
+        rt = [80.0]
         m_stages = set()
         m_cur = [0]
         m_timers = []
@@ -2219,6 +2243,7 @@ class A1dRealTalkTests(unittest.TestCase):
 
         m_ns = {
             "Trace": emit,
+            "LogName": "fo4sf_mission",
             "KeeperOnly": False,
             "Preston": preston,
             "Codsworth": cods,
@@ -2242,16 +2267,25 @@ class A1dRealTalkTests(unittest.TestCase):
             "prestonUsedFallback": False,
             "prestonTalkLogged": False,
             "prestonTalkBoxOpen": False,
+            "talkSessionId": 0,
+            "prestonTalkReloaded": False,
             "prestonDialogueMenuOpen": False,
             "prestonScenePending": False,
             "prestonSceneMenuOpened": False,
             "prestonScenePhase1": False,
+            "prestonPhase1At": 0.0,
             "prestonSceneChecks": 0,
+            "sanctuaryStartRetries": 0,
+            "relocateFails": 0,
+            "prestonHeld": False,
             "talkNearSec": 4.0,
             "talkFailures": 0,
             "TalkRadius": 3.0,
             "TalkFallbackSeconds": 120.0,
             "TalkSceneTimeout": 120.0,
+            "IsRunning": lambda: True,
+            "Start": lambda: True,
+            "IsCompleted": lambda: m_cur[0] >= 200,
             "IsTestModeEnabled": lambda: True,
             "GetStage": lambda: m_cur[0],
             "GetStageDone": lambda s: int(s) in m_stages,
@@ -2265,7 +2299,10 @@ class A1dRealTalkTests(unittest.TestCase):
             "CompleteQuest": mock.MagicMock(),
             "RegisterForRemoteEvent": lambda *_: None,
             "RegisterForMenuOpenCloseEvent": lambda *_: None,
-            "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 80.0),
+            "Debug": SimpleNamespace(OpenUserLog=lambda *_: None),
+            "InitRaiderTracking": lambda: None,
+            "CheckConcordRaidersWfc01": lambda *_: None,
+            "Utility": SimpleNamespace(GetCurrentRealTime=lambda: rt[0]),
             "Game": SimpleNamespace(
                 GetPlayer=lambda: player,
                 GetFormFromFile=lambda fid, plg: (
@@ -2277,15 +2314,17 @@ class A1dRealTalkTests(unittest.TestCase):
         }
         m_code = _translate_mission_psc(
             m_psc,
-            ("IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias", "GiveFromCodsworth",
-             "AdvanceTo", "OnStageSet", "Apply", "FoundPreston", "ResolvePrestonMsg", "RunPrestonTalk",
-             "FallbackPrestonToMessageBox", "CheckPrestonSceneOpen", "OnMenuOpenCloseEvent",
+            ("IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias", "RegisterPrestonSceneEvents",
+             "EnsureActorTalkable", "GiveFromCodsworth", "Actor.OnPlayerLoadGame", "AdvanceTo", "OnStageSet", "Apply",
+             "EnsureSanctuaryStarted", "CheckPostConcordSanctuaryHandoff", "FoundPreston", "ResolvePrestonMsg",
+             "RunPrestonTalk", "FallbackPrestonToMessageBox", "CheckPrestonSceneOpen", "OnMenuOpenCloseEvent",
              "Scene.OnBegin", "Scene.OnPhaseBegin", "Scene.OnEnd", "MarkPrestonFallback",
              "TalkCompleteReady", "ObjectReference.OnActivate"),
             ("min00Given", "applied", "pendingStage", "pendingStageBy", "prestonFound", "talkActivated",
-             "talkStartedAt", "prestonUsedFallback", "prestonTalkLogged", "prestonTalkBoxOpen",
-             "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened", "prestonScenePhase1",
-             "prestonSceneChecks", "talkNearSec", "talkFailures"),
+             "talkStartedAt", "prestonUsedFallback", "prestonTalkLogged", "prestonTalkBoxOpen", "talkSessionId",
+             "prestonTalkReloaded", "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened",
+             "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks", "sanctuaryStartRetries",
+             "relocateFails", "prestonHeld", "talkNearSec", "talkFailures"),
         )
         exec(compile(m_code, "FO4SF_Min00Quest.psc", "exec"), m_ns)
 
@@ -2307,6 +2346,7 @@ class A1dRealTalkTests(unittest.TestCase):
 
         c_ns = {
             "Trace": emit,
+            "LogName": "fo4sf_mission",
             "Codsworth": cods,
             "CodsworthScene": cods_scene,
             "CodsworthTalkActi": "FO4SF_CodsworthTalkActi(09000970)",
@@ -2331,9 +2371,13 @@ class A1dRealTalkTests(unittest.TestCase):
             "dialogueSeen": False,
             "dialogueMenuOpen": False,
             "talkBoxOpen": False,
+            "talkSessionId": 0,
+            "codsworthTalkReloaded": False,
+            "concordCleared": False,
             "sceneTalkPending": False,
             "sceneMenuOpened": False,
             "scenePhase1Entered": False,
+            "scenePhase1At": 0.0,
             "sceneCheckTicks": 0,
             "talkProxy": None,
             "proxyLogged": False,
@@ -2352,8 +2396,11 @@ class A1dRealTalkTests(unittest.TestCase):
             "GetStage": lambda: c_cur[0],
             "GetStageDone": lambda s: int(s) in c_stages,
             "SetStage": c_set_stage,
+            "IsRunning": lambda: True,
+            "Start": lambda: True,
             "GetAlias": lambda idx: cods_alias if idx == 0 else None,
             "SetObjectiveDisplayed": lambda *_: None,
+            "SetObjectiveDisplayedAtTop": lambda *_: None,
             "SetObjectiveCompleted": lambda *_: None,
             "SetActive": lambda *_: None,
             "CompleteQuest": mock.MagicMock(),
@@ -2361,6 +2408,8 @@ class A1dRealTalkTests(unittest.TestCase):
             "CancelTimer": lambda tid: c_cancelled.append(int(tid)),
             "RegisterForRemoteEvent": lambda *_: None,
             "RegisterForMenuOpenCloseEvent": lambda *_: None,
+            "Debug": SimpleNamespace(OpenUserLog=lambda *_: None),
+            "Utility": SimpleNamespace(GetCurrentRealTime=lambda: rt[0]),
             "Game": SimpleNamespace(
                 GetPlayer=lambda: player,
                 GetFormFromFile=lambda fid, plg: (
@@ -2373,19 +2422,22 @@ class A1dRealTalkTests(unittest.TestCase):
         }
         c_code = _translate_mission_psc(
             c_psc,
-            ("EffectiveStage", "ResolveCodsworth", "ResolveTalkActi", "ResolveTalkMsg", "ResolveCodsworthScene",
-             "ShouldUseMessageBox", "EnsureCodsworthAlias", "BindCodsworthActivation", "EnsureTalkProxy", "AdvanceTo",
-             "IsWarfareMode", "OnMenuOpenCloseEvent", "Scene.OnBegin", "Scene.OnPhaseBegin", "Scene.OnEnd",
-             "CheckCodsworthSceneOpen", "ObjectReference.OnActivate", "RunCodsworthTalk", "OnStageSet", "SyncProgress"),
-            ("dialogueSeen", "dialogueMenuOpen", "talkBoxOpen", "sceneTalkPending", "sceneMenuOpened",
-             "scenePhase1Entered", "sceneCheckTicks", "talkProxy", "proxyLogged", "proxyLastX", "proxyLastY",
-             "proxyLastZ", "applied", "pendingStage", "pendingStageBy", "choice1Seen", "choice2Seen", "choice3Seen",
-             "choice4Seen", "choicesCount", "completed"),
+            ("EffectiveStage", "ShowCodsworthObjective", "ResolveCodsworth", "ResolveTalkActi", "ResolveTalkMsg",
+             "ResolveCodsworthScene", "ShouldUseMessageBox", "EnsureCodsworthAlias", "RegisterCodsworthSceneEvents",
+             "BindCodsworthActivation", "EnsureTalkProxy", "ClearObjectiveOnConcordStart", "AdvanceTo",
+             "IsWarfareMode", "Actor.OnPlayerLoadGame", "OnMenuOpenCloseEvent", "Scene.OnBegin",
+             "Scene.OnPhaseBegin", "Scene.OnEnd", "CheckCodsworthSceneOpen", "ObjectReference.OnActivate",
+             "RunCodsworthTalk", "OnStageSet", "SyncProgress"),
+            ("dialogueSeen", "dialogueMenuOpen", "talkBoxOpen", "talkSessionId", "codsworthTalkReloaded",
+             "concordCleared", "sceneTalkPending", "sceneMenuOpened", "scenePhase1Entered", "scenePhase1At",
+             "sceneCheckTicks", "talkProxy", "proxyLogged", "proxyLastX", "proxyLastY", "proxyLastZ", "applied",
+             "pendingStage", "pendingStageBy", "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen",
+             "choicesCount", "completed"),
         )
         exec(compile(c_code, "FO4SF_Codsworth01Quest.psc", "exec"), c_ns)
 
         return SimpleNamespace(
-            logs=logs, player=player, cods=cods, preston=preston,
+            rt=rt, logs=logs, player=player, cods=cods, preston=preston,
             cods_scene=cods_scene, preston_scene=preston_scene,
             cods_alias=cods_alias, preston_alias=preston_alias,
             c_msgs=c_msgs, p_msgs=p_msgs, sanctuary_q=sanctuary_q,
@@ -2513,6 +2565,7 @@ class A1dRealTalkTests(unittest.TestCase):
         h.m_ns["OnBegin"](h.preston_scene)
         h.m_ns["OnPhaseBegin"](h.preston_scene, 1)
         # 1.5 s Timer 3 check after Phase 1 entered with !prestonDialogueMenuOpen -> stops scene & opens MessageBox!
+        h.rt[0] += 1.5
         h.m_ns["CheckPrestonSceneOpen"]()
         self.assertEqual(h.preston_scene.stop_calls, 1)
         self.assertEqual(h.m_cur[0], 200)
@@ -2691,6 +2744,7 @@ class A1dRealTalkTests(unittest.TestCase):
         self.assertEqual(h.m_timers[-1], (1.5, 3))
         h.m_ns["OnPhaseBegin"](h.preston_scene, 1)
         # DialogueMenu fails to open within the reset 1.5 s Phase-1 window -> R10 MessageBox fallback completes to 200!
+        h.rt[0] += 1.5
         h.m_ns["CheckPrestonSceneOpen"]()
         self.assertEqual(h.preston_scene.stop_calls, 1)
         self.assertEqual(h.m_cur[0], 200)
@@ -2765,6 +2819,7 @@ class A1aInGame2eBreakTests(unittest.TestCase):
         # Scene enters Phase 1 without opening DialogueMenu -> 1.5 s fallback opens MessageBox and completes 35->40->200!
         h.m_ns["OnBegin"](h.preston_scene)
         h.m_ns["OnPhaseBegin"](h.preston_scene, 1)
+        h.rt[0] += 1.5
         h.m_ns["CheckPrestonSceneOpen"]()
         self.assertEqual(h.m_ns["EffectiveStage"](), 200)
         h.player.AddItem.assert_called_once_with("StarfieldCredits", 100)
@@ -2864,6 +2919,9 @@ class A1aInGame2eBreakTests(unittest.TestCase):
             def BlockActivation(self, *_a):
                 pass
 
+            def IgnoreFriendlyHits(self, *_a):
+                pass
+
             def StopCombat(self):
                 pass
 
@@ -2896,6 +2954,7 @@ class A1aInGame2eBreakTests(unittest.TestCase):
         ns = {
             "_PArray": _PArray,
             "Trace": lambda m: logs.append(str(m)),
+            "KeeperOnly": False,
             "Preston": preston,
             "Raiders": raiders,
             "MergeOffsetX": -1200.0,
@@ -2917,6 +2976,7 @@ class A1aInGame2eBreakTests(unittest.TestCase):
             "Wfc01StuckMoveRadius": 2.0,
             "Wfc01StuckLimit": 60.0,
             "relocateFails": 0,
+            "prestonPlaced": False,
             "prestonFollow": False,
             "prestonOff": -1.0,
             "prestonMoves": 0,
@@ -2938,16 +2998,16 @@ class A1aInGame2eBreakTests(unittest.TestCase):
             "Math": SimpleNamespace(Sqrt=math.sqrt),
             "IsTestModeEnabled": lambda: False,
             "Debug": SimpleNamespace(Notification=lambda *_: None),
-            "Game": SimpleNamespace(GetFormFromFile=lambda *_: "HealthAV"),
+            "Game": SimpleNamespace(GetFormFromFile=lambda fid, _plg: "HealthAV" if fid == 0x0002D4 else None),
         }
         code = _translate_mission_psc(
             m_psc,
-            ("IsCommonwealthExterior", "IsPlayerStableAt", "SpotOff", "HeldState", "HoldDue", "EnsureActorTalkable",
-             "HoldActor", "HoldPreston", "PlaceAt", "PlacePreston", "MoveOver", "Relocate", "GetRaiderHealth",
-             "WriteOffRaider", "CheckConcordRaidersWfc01"),
-            ("relocateFails", "prestonFollow", "prestonOff", "prestonMoves", "prestonHeld", "prestonHolds",
-             "prestonState", "raiderTargetX", "raiderTargetY", "raiderTargetZ", "raiderAbsentSec", "raiderCleared",
-             "raiderRescued", "raiderRescueSec", "raiderRescueX", "raiderRescueY", "raiderRescueZ",
+            ("ResolveCommonwealthWorld", "IsCommonwealthExterior", "IsPlayerStableAt", "SpotOff", "HeldState",
+             "HoldDue", "EnsureActorTalkable", "HoldActor", "HoldPreston", "PlaceAt", "PlacePreston", "MoveOver",
+             "Relocate", "GetRaiderHealth", "WriteOffRaider", "CheckConcordRaidersWfc01"),
+            ("relocateFails", "prestonPlaced", "prestonFollow", "prestonOff", "prestonMoves", "prestonHeld",
+             "prestonHolds", "prestonState", "raiderTargetX", "raiderTargetY", "raiderTargetZ", "raiderAbsentSec",
+             "raiderCleared", "raiderRescued", "raiderRescueSec", "raiderRescueX", "raiderRescueY", "raiderRescueZ",
              "raiderRescueHp", "healthAvCache"),
         )
         # Translate InitRaiderTracking array allocations for Python
@@ -3029,6 +3089,163 @@ class A1aInGame2eBreakTests(unittest.TestCase):
         self.assertTrue(any("codsworth talk end -> min00 stage 10" in ln for ln in h.logs))
         self.assertTrue(any("codsworth01 complete choices=3 concord_pointed=true" in ln for ln in h.logs))
         self.assertTrue(any("min00 given by=codsworth" in ln for ln in h.logs))
+
+        # 3. Verify Neon #1 fix: when player is in MarsPlanetWorld (FF00A6FF) and Preston starts unmoved in
+        # FO4_World (05000805), 0x0A775B Vault 111 marker resolves MarsPlanetWorld so Relocate succeeds, while
+        # NewAtlantisWorld (00012978) at (-2015, -1700) is strictly rejected!
+        from types import SimpleNamespace
+        mars_world = SimpleNamespace(name="MarsPlanetWorld(FF00A6FF)")
+        na_world = SimpleNamespace(name="NewAtlantisWorld(00012978)")
+        v111_marker = SimpleNamespace(GetWorldSpace=lambda: mars_world)
+
+        m_psc = read(PSC)
+        w_ns = {
+            "Preston": SimpleNamespace(IsInInterior=lambda: False, GetWorldSpace=lambda: SimpleNamespace(name="FO4_World(05000805)")),
+            "MergeOffsetX": -1200.0,
+            "MergeOffsetY": -2700.0,
+            "prestonPlaced": False,
+            "Game": SimpleNamespace(
+                GetFormFromFile=lambda fid, plg: v111_marker if fid == 0x0A775B and plg == "FO4TerrainCore_Mars.esm" else None
+            ),
+        }
+        exec(compile(_translate_mission_psc(
+            m_psc, ("ResolveCommonwealthWorld", "IsCommonwealthExterior"), ("prestonPlaced",)
+        ), "FO4SF_Min00Quest.psc", "exec"), w_ns)
+
+        mars_player = SimpleNamespace(
+            IsInInterior=lambda: False, GetWorldSpace=lambda: mars_world,
+            GetPositionX=lambda: -2015.0, GetPositionY=lambda: -1700.0,
+        )
+        na_player = SimpleNamespace(
+            IsInInterior=lambda: False, GetWorldSpace=lambda: na_world,
+            GetPositionX=lambda: -2015.0, GetPositionY=lambda: -1700.0,
+        )
+        self.assertTrue(w_ns["IsCommonwealthExterior"](mars_player))
+        self.assertFalse(w_ns["IsCommonwealthExterior"](na_player))
+
+    def test_preflight_concord_clear_phase1_stale_timer_reload_session_and_keeper_hellos(self):
+        from types import SimpleNamespace
+
+        # 1. Opus F1 / Neon #5: ClearObjectiveOnConcordStart sets concordCleared=True so ShowCodsworthObjective
+        # and EnsureTalkProxy NEVER re-display Objective 10 or steal SetActive(True) back to Sanctuary
+        h = A1dRealTalkTests()._build_harnesses(glob_val=0.0)
+        obj_calls = []
+        active_calls = []
+        h.c_ns["SetObjectiveDisplayed"] = lambda obj, disp=True, force=False: obj_calls.append((obj, bool(disp), bool(force)))
+        h.c_ns["SetActive"] = lambda act=True: active_calls.append(bool(act))
+        h.c_ns["ClearObjectiveOnConcordStart"]()
+        self.assertTrue(h.c_ns["concordCleared"])
+        self.assertEqual(obj_calls[-1][:2], (10, False))
+        self.assertEqual(active_calls[-1], False)
+        obj_calls.clear()
+        active_calls.clear()
+        h.c_ns["ShowCodsworthObjective"]()
+        h.c_ns["EnsureTalkProxy"](h.player)
+        self.assertEqual(obj_calls, [])
+        self.assertEqual(active_calls, [])
+        # Also verify talkProxy follows Codsworth even outside ProxyHoldRadius (> 25 m) during combat!
+        h.cods.SetPosition(-2400.0, -1450.0, 112.0)
+        h.c_ns["EnsureTalkProxy"](h.player)
+        self.assertAlmostEqual(h.c_ns["talkProxy"].GetPositionX(), -2400.0, places=2)
+        self.assertAlmostEqual(h.c_ns["talkProxy"].GetPositionZ(), 112.0 + 1.36, places=2)
+
+        # 2. Neon #6 & Carbon #8.3: stale queued OnTimer(2/3) arriving 0.05 s after OnPhaseBegin(1) does NOT abort
+        # healthy DialogueMenu scenes, and closing DialogueMenu resets sceneMenuOpened / prestonSceneMenuOpened
+        h2 = A1dRealTalkTests()._build_harnesses(glob_val=0.0)
+        h2.c_ns["BindCodsworthActivation"]()
+        h2.c_ns["OnActivate"](h2.cods, h2.player)
+        h2.c_ns["OnBegin"](h2.cods_scene)
+        h2.c_ns["OnPhaseBegin"](h2.cods_scene, 1)
+        h2.rt[0] += 0.05  # Stale pre-Phase-1 queued timer fires 50 ms after Phase 1 begins
+        h2.c_ns["CheckCodsworthSceneOpen"]()
+        self.assertEqual(h2.cods_scene.stop_calls, 0)
+        self.assertTrue(h2.c_ns["sceneTalkPending"])
+        h2.c_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertTrue(h2.c_ns["sceneMenuOpened"])
+        h2.c_ns["OnMenuOpenCloseEvent"]("DialogueMenu", False)
+        self.assertFalse(h2.c_ns["sceneMenuOpened"])
+
+        h2.m_ns["AdvanceTo"](10, "Trigger")
+        h2.m_ns["AdvanceTo"](20, "Trigger")
+        h2.m_ns["AdvanceTo"](30, "Trigger")
+        h2.m_ns["OnActivate"](h2.preston, h2.player)
+        h2.m_ns["OnBegin"](h2.preston_scene)
+        h2.m_ns["OnPhaseBegin"](h2.preston_scene, 1)
+        h2.rt[0] += 0.05  # Stale pre-Phase-1 queued timer fires 50 ms after Phase 1 begins
+        h2.m_ns["CheckPrestonSceneOpen"]()
+        self.assertEqual(h2.preston_scene.stop_calls, 0)
+        self.assertTrue(h2.m_ns["prestonScenePending"])
+        h2.m_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertTrue(h2.m_ns["prestonSceneMenuOpened"])
+        h2.m_ns["OnMenuOpenCloseEvent"]("DialogueMenu", False)
+        self.assertFalse(h2.m_ns["prestonSceneMenuOpened"])
+
+        # 3. Opus F7/F8, Neon #10/#11/#14/#15, Carbon #7.2:
+        # - Reload resets talkStartedAt/talkActivated/talkNearSec and re-applies Preston.IgnoreFriendlyHits(True)
+        # - Stale unwinding Message.Show() == -1 fiber after reload never clobbers a new talkSessionId's talkBoxOpen
+        # - PrestonTalkScene == None waits TalkFallbackSeconds (8 s in test mode) instead of auto-completing on tick 1
+        # - EnsureSanctuaryStarted retries StartNoWait until IsRunning()
+        h3 = A1dRealTalkTests()._build_harnesses(glob_val=1.0)
+        h3.m_ns["AdvanceTo"](10, "Trigger")
+        h3.m_ns["AdvanceTo"](20, "Trigger")
+        h3.m_ns["AdvanceTo"](30, "Trigger")
+        h3.m_ns["talkStartedAt"] = 3600.0
+        h3.m_ns["talkActivated"] = True
+        h3.m_ns["talkNearSec"] = 7.0
+        h3.preston.ignore_friendly = False
+        h3.m_ns["OnPlayerLoadGame"](h3.player)
+        self.assertEqual(h3.m_ns["talkStartedAt"], 0.0)
+        self.assertFalse(h3.m_ns["talkActivated"])
+        self.assertEqual(h3.m_ns["talkNearSec"], 0.0)
+        self.assertTrue(h3.preston.ignore_friendly)
+
+        # Simulate stale fiber waking from Show() == -1 AFTER reload AND AFTER a new session opened!
+        def stale_show_sim():
+            # While Fiber 1 is suspended inside Show(), player saves/reloads and starts Session 2 (talkSessionId += 1)
+            h3.m_ns["OnPlayerLoadGame"](h3.player)
+            h3.m_ns["prestonTalkReloaded"] = False
+            h3.m_ns["talkSessionId"] += 1
+            h3.m_ns["prestonTalkBoxOpen"] = True
+            return -1
+
+        stale_msg = SimpleNamespace(Show=stale_show_sim)
+        h3.m_ns["RunPrestonTalk"](30, stale_msg)
+        # Session 2's prestonTalkBoxOpen MUST remain True (not clobbered by stale Fiber 1)!
+        self.assertTrue(h3.m_ns["prestonTalkBoxOpen"])
+        h3.m_ns["prestonTalkBoxOpen"] = False
+
+        # --no-alias (PrestonTalkScene == None) must NOT auto-complete on tick 1..7 within TalkRadius; completes on tick 8
+        h3.m_ns["PrestonTalkScene"] = None
+        h3.m_ns["talkNearSec"] = 0.0
+        for _ in range(7):
+            self.assertFalse(h3.m_ns["TalkCompleteReady"](30, 1.5))
+        self.assertTrue(h3.m_ns["TalkCompleteReady"](30, 1.5))
+
+        # EnsureSanctuaryStarted retries when first StartNoWait returned False, then stops once IsRunning() is True
+        sanc_running = [False]
+        sanc_calls = []
+        h3.sanctuary_q.IsRunning = lambda: sanc_running[0]
+        h3.sanctuary_q.IsCompleted = lambda: False
+
+        def sanc_try():
+            sanc_calls.append(1)
+            if len(sanc_calls) >= 2:
+                sanc_running[0] = True
+                return True
+            return False
+
+        h3.sanctuary_q.StartNoWait = sanc_try
+        h3.m_ns["EnsureSanctuaryStarted"]()
+        self.assertFalse(sanc_running[0])
+        h3.m_ns["EnsureSanctuaryStarted"]()
+        self.assertTrue(sanc_running[0])
+        self.assertEqual(len(sanc_calls), 2)
+
+        # Codsworth Hellos (0x820) parented to persistent FO4SF_CodsworthKeeper (0x814) with MakeNpcDialogResponse TROT
+        cs = read(CS)
+        self.assertIn("keeper.DialogTopics.Add(dial);", cs)
+        self.assertIn("MakeNpcDialogResponse(l.Text, l.Wem, l.Duration, codsVoiceKey)", cs)
+        self.assertNotIn("quest.DialogTopics.Add(dial);", cs)
 
 
 @unittest.skipUnless(shutil.which("dotnet") and os.environ.get("FO4SF_DOTNET_TESTS"),
