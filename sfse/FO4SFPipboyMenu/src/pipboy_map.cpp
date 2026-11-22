@@ -676,6 +676,24 @@ namespace
 			{ "FO4SFMission.esm", 0x000A20u, 10u, -22154.77, 89056.08, "Tenpines Bluff", "Talk to the settlers at Tenpines Bluff" },
 			{ "FO4SFMission.esm", 0x000A20u, 20u, -34808.25, 32128.49, "Corvega Assembly Plant", "Clear the raiders at Corvega Assembly Plant" },
 			{ "FO4SFMission.esm", 0x000A50u, 10u, -16384.00, -27852.80, "Diamond City", "Go to Diamond City" },
+			// A7 missions (0x000A80 Unlikely Valentine, 0x000AB0 Getting a Clue)
+			{ "FO4SFMission.esm", 0x000A80u, 10u, 14877.80, -15941.10, "Park Street Station", "Search Park Street Station for Nick Valentine" },
+			{ "FO4SFMission.esm", 0x000AB0u, 10u, -16384.00, -27852.80, "Diamond City", "Sit down and brief Nick Valentine at his agency" },
+			{ "FO4SFMission.esm", 0x000AB0u, 80u, -87978.54, -5674.82, "Fort Hagen", "Follow the cigar trail to Fort Hagen" },
+			// A7cd Act II missions (0x000AD0 Reunions, 0x000AF0 Dangerous Minds, 0x000B10 The Glowing Sea, 0x000B30 The Molecular Level)
+			{ "FO4SFMission.esm", 0x000AD0u, 10u, -87978.54, -5674.82, "Fort Hagen", "Follow Dogmeat to Fort Hagen" },
+			{ "FO4SFMission.esm", 0x000AD0u, 100u, -87978.54, -5674.82, "Fort Hagen", "Confront and defeat Kellogg" },
+			{ "FO4SFMission.esm", 0x000AD0u, 200u, -16384.00, -27852.80, "Diamond City", "Return to Diamond City and report to Nick" },
+			{ "FO4SFMission.esm", 0x000AF0u, 10u, 20826.12, -11904.71, "Goodneighbor", "Speak with Doctor Amari in Goodneighbor's Memory Den" },
+			{ "FO4SFMission.esm", 0x000AF0u, 120u, -56092.31, -78515.81, "Edge of the Glowing Sea", "Speak with Doctor Amari and prepare for the Glowing Sea" },
+			{ "FO4SFMission.esm", 0x000B10u, 15u, -99710.89, -116049.78, "Crater of Atom", "Search the Glowing Sea for Virgil (Crater of Atom clue)" },
+			{ "FO4SFMission.esm", 0x000B10u, 20u, -116397.02, -136728.78, "Rocky Cave", "Reach Virgil inside the Rocky Cave" },
+			{ "FO4SFMission.esm", 0x000B30u, 10u, -2667.15, 882.45, "Greenetech Genetics", "Track and defeat the Institute Courser at Greenetech Genetics" },
+			{ "FO4SFMission.esm", 0x000B30u, 20u, 32562.10, 234.41, "Railroad HQ", "Have the Courser Chip decoded at Railroad HQ" },
+			{ "FO4SFMission.esm", 0x000B30u, 30u, -116397.02, -136728.78, "Rocky Cave", "Return the decoded Courser Chip to Virgil" },
+			{ "FO4SFMission.esm", 0x000B30u, 50u, -80768.19, 88174.80, "Sanctuary Hills", "Choose a faction ally or solo workbench to build the Signal Interceptor" },
+			{ "FO4SFMission.esm", 0x000B30u, 100u, -80768.19, 88174.80, "Sanctuary Hills", "Build and power the Signal Interceptor components" },
+			{ "FO4SFMission.esm", 0x000B30u, 150u, -80768.19, 88174.80, "Sanctuary Hills", "Use the Signal Interceptor console to teleport to the Institute" },
 		};
 	}
 

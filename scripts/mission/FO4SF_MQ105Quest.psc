@@ -294,7 +294,14 @@ Function ApplyStage(int n, string by)
         bool fhInstalled = Game.IsPluginInstalled(FortHagenPlugin)
         CompleteQuest()
         CancelTimer(1)
+        Quest mq106 = Game.GetFormFromFile(0x000AD0, MissionPlugin) as Quest
+        bool started106 = False
+        if mq106 != None && !mq106.IsRunning() && !mq106.IsCompleted()
+            mq106.StartNoWait()
+            started106 = True
+        endif
         Trace("mq105 complete stage=200 mq106_armed=1 forthagen_plugin=" + fhInstalled + " by=" + by)
+        Trace("mq106 start_requested ok=" + started106)
     endif
 EndFunction
 

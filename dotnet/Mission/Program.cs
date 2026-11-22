@@ -1518,7 +1518,11 @@ static class Mission
         NextStoryMissionsA7.PopulateA7Missions(
             mod, cell, qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey);
 
-        uint maxId = Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1))));
+        NextStoryMissionsA7cd.PopulateA7cdMissions(
+            mod, cell, qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey,
+            raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey, prestonWeapon.FormKey, prestonAmmo.FormKey);
+
+        uint maxId = Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))));
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
         if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
@@ -1746,8 +1750,8 @@ static class Mission
         else Need(arma is null && skin is null && (cods is null || cods.Skin.FormKey != new FormKey(key, CodsworthSkinId)),
                   "a build without --codsworth-model carries Codsworth's ARMA or ARMO");
 
-        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID)),
-             "an ACHR outside Preston, the raiders, Codsworth, A4, and A7 actors");
+        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID) || NextStoryMissionsA7cd.IsA7cdActorRefId(r.FormKey.ID)),
+             "an ACHR outside Preston, the raiders, Codsworth, A4, A7, and A7cd actors");
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(m.Raider.ModKey, RaiderId)), "no raider ACHR on FO4_LvlRaider");
 
         static bool NonStartGameReady(SF.IQuestGetter q) =>
@@ -2055,6 +2059,8 @@ static class Mission
         NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need);
         // A7: Check FO4SF_MQ104 (0xA80, Unlikely Valentine) and FO4SF_MQ105 (0xAB0, Getting a Clue)
         NextStoryMissionsA7.CheckA7Missions(plug, SfEsm, QuestTypeSideId, Need);
+        // A7cd: Check Act II FO4SF_MQ106 (0xAD0), FO4SF_MQ203 (0xAF0), FO4SF_MQ204 (0xB10), FO4SF_MQ206 (0xB30)
+        NextStoryMissionsA7cd.CheckA7cdMissions(plug, SfEsm, QuestTypeSideId, Need);
 
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
@@ -2376,6 +2382,20 @@ static class Mission
             ("FO4SF_MQ105 carries 0x10000 flag", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7.Mq105QuestId)].Data!.Flags |= (SF.Quest.Flag)0x10000),
             ("FO4SF_KelloggCigar removed", m => m.MiscItems.Remove(new FormKey(m.ModKey, NextStoryMissionsA7.KelloggCigarMiscId))),
             ("FO4SF_MQ106Armed GLOB removed", m => m.Globals.Remove(new FormKey(m.ModKey, NextStoryMissionsA7.Mq106ArmedGlobId))),
+            ("FO4SF_MQ106 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq106QuestId))),
+            ("FO4SF_MQ106 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq106QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("FO4SF_MQ106 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq106QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4_Kellogg marked Essential", m => m.Npcs[new FormKey(m.ModKey, NextStoryMissionsA7cd.KelloggNpcId)].Flags |= SF.Npc.Flag.Essential),
+            ("FO4SF_MQ203 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq203QuestId))),
+            ("FO4SF_MQ203 carries StartsEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq203QuestId)].Data!.Flags |= SF.Quest.Flag.StartsEnabled),
+            ("FO4_DoctorAmari lacks Female flag", m => m.Npcs[new FormKey(m.ModKey, NextStoryMissionsA7cd.DoctorAmariNpcId)].Flags &= ~SF.Npc.Flag.Female),
+            ("FO4SF_MQ204 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq204QuestId))),
+            ("FO4SF_MQ204 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq204QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4SF_MQ206 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq206QuestId))),
+            ("FO4SF_MQ206 carries 0x10000 flag", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq206QuestId)].Data!.Flags |= (SF.Quest.Flag)0x10000),
+            ("FO4_CourserZ247 marked Essential", m => m.Npcs[new FormKey(m.ModKey, NextStoryMissionsA7cd.CourserZ247NpcId)].Flags |= SF.Npc.Flag.Essential),
+            ("FO4SF_CourserChip removed", m => m.MiscItems.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.CourserChipMiscId))),
+            ("FO4SF_MQ207Armed GLOB removed", m => m.Globals.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq207ArmedGlobId))),
         };
         foreach (var (name, edit) in mutations)
         {

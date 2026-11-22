@@ -148,6 +148,10 @@ bool mq103ProxAttempted = False
 bool minRecruitProxAttempted = False
 bool mq104ProxAttempted = False
 bool mq105ProxAttempted = False
+bool mq106ProxAttempted = False
+bool mq203ProxAttempted = False
+bool mq204ProxAttempted = False
+bool mq206ProxAttempted = False
 
 float[] raiderTargetX
 float[] raiderTargetY
@@ -1081,6 +1085,7 @@ Event OnTimer(int aiTimerID)
     endif
     CheckA4ProximityStarts(player)
     CheckA7ProximityStarts(player)
+    CheckA7cdProximityStarts(player)
     int rawStage = GetStage()
     int stage = EffectiveStage()
     if !min00Given && stage < 10 && IsCommonwealthExterior(player)
@@ -1362,6 +1367,60 @@ Function CheckA7ProximityStarts(Actor player)
             mq105ProxAttempted = True
             mq105Quest.StartNoWait()
             Trace("mq105 started by=proximity")
+        endif
+    endif
+EndFunction
+
+Function CheckA7cdProximityStarts(Actor player)
+{Console-free proximity discovery for Act II missions (MQ106 Fort Hagen, MQ203 Goodneighbor, MQ204 Glowing Sea, MQ206 Greenetech/Railroad).}
+    if KeeperOnly || IsWarfareMode() || !IsCommonwealthExterior(player)
+        return
+    endif
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float r2 = 160.0 * 160.0
+    float fhx = px - (-2456.84)
+    float fhy = py - (-2781.07)
+    if !mq106ProxAttempted && fhx * fhx + fhy * fhy <= r2
+        Quest mq106Quest = Game.GetFormFromFile(0x000AD0, "FO4SFMission.esm") as Quest
+        if mq106Quest != None && !mq106Quest.IsRunning() && !mq106Quest.IsCompleted()
+            mq106ProxAttempted = True
+            mq106Quest.StartNoWait()
+            Trace("mq106 started by=proximity")
+        endif
+    endif
+    float gnx = px - (-902.48)
+    float gny = py - (-2870.07)
+    if !mq203ProxAttempted && gnx * gnx + gny * gny <= r2
+        Quest mq203Quest = Game.GetFormFromFile(0x000AF0, "FO4SFMission.esm") as Quest
+        if mq203Quest != None && !mq203Quest.IsRunning() && !mq203Quest.IsCompleted()
+            mq203ProxAttempted = True
+            mq203Quest.StartNoWait()
+            Trace("mq203 started by=proximity")
+        endif
+    endif
+    float crx = px - (-2624.44)
+    float cry = py - (-4357.85)
+    float rcx = px - (-2862.82)
+    float rcy = py - (-4653.27)
+    if !mq204ProxAttempted && ((crx * crx + cry * cry <= r2) || (rcx * rcx + rcy * rcy <= r2))
+        Quest mq204Quest = Game.GetFormFromFile(0x000B10, "FO4SFMission.esm") as Quest
+        if mq204Quest != None && !mq204Quest.IsRunning() && !mq204Quest.IsCompleted()
+            mq204ProxAttempted = True
+            mq204Quest.StartNoWait()
+            Trace("mq204 started by=proximity")
+        endif
+    endif
+    float gtx = px - (-1238.10)
+    float gty = py - (-2687.39)
+    float rrx = px - (-734.83)
+    float rry = py - (-2696.65)
+    if !mq206ProxAttempted && ((gtx * gtx + gty * gty <= r2) || (rrx * rrx + rry * rry <= r2))
+        Quest mq206Quest = Game.GetFormFromFile(0x000B30, "FO4SFMission.esm") as Quest
+        if mq206Quest != None && !mq206Quest.IsRunning() && !mq206Quest.IsCompleted()
+            mq206ProxAttempted = True
+            mq206Quest.StartNoWait()
+            Trace("mq206 started by=proximity")
         endif
     endif
 EndFunction

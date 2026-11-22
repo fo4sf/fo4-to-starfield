@@ -66,9 +66,14 @@ MINRECRUIT00_SCRIPT = "FO4SF_MinRecruit00Quest"
 MQ103_SCRIPT = "FO4SF_MQ103Quest"
 MQ104_SCRIPT = "FO4SF_MQ104Quest"
 MQ105_SCRIPT = "FO4SF_MQ105Quest"
+MQ106_SCRIPT = "FO4SF_MQ106Quest"
+MQ203_SCRIPT = "FO4SF_MQ203Quest"
+MQ204_SCRIPT = "FO4SF_MQ204Quest"
+MQ206_SCRIPT = "FO4SF_MQ206Quest"
 ALL_SCRIPTS = (
     SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT,
     MINRECRUIT00_SCRIPT, MQ103_SCRIPT, MQ104_SCRIPT, MQ105_SCRIPT,
+    MQ106_SCRIPT, MQ203_SCRIPT, MQ204_SCRIPT, MQ206_SCRIPT,
 )
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
@@ -941,7 +946,11 @@ def summarize(lines):
          "minrecruit00_stages": [], "minrecruit00_complete": None,
          "mq103_stages": [], "mq103_complete": None,
          "mq104_stages": [], "mq104_complete": None,
-         "mq105_stages": [], "mq105_complete": None}
+         "mq105_stages": [], "mq105_complete": None,
+         "mq106_stages": [], "mq106_complete": None,
+         "mq203_stages": [], "mq203_complete": None,
+         "mq204_stages": [], "mq204_complete": None,
+         "mq206_stages": [], "mq206_complete": None}
     follow_seen = False
     for line in lines:
         m = LINE.search(line)
@@ -1045,6 +1054,30 @@ def summarize(lines):
                 s["mq105_stages"].append(int(parts[2]))
         elif low.startswith("mq105 complete "):
             s["mq105_complete"] = msg
+        elif low.startswith("mq106 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq106_stages"].append(int(parts[2]))
+        elif low.startswith("mq106 complete "):
+            s["mq106_complete"] = msg
+        elif low.startswith("mq203 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq203_stages"].append(int(parts[2]))
+        elif low.startswith("mq203 complete "):
+            s["mq203_complete"] = msg
+        elif low.startswith("mq204 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq204_stages"].append(int(parts[2]))
+        elif low.startswith("mq204 complete "):
+            s["mq204_complete"] = msg
+        elif low.startswith("mq206 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq206_stages"].append(int(parts[2]))
+        elif low.startswith("mq206 complete "):
+            s["mq206_complete"] = msg
         elif low.startswith("follow preston test-only refused: test mode off"):
             s["follow"] = msg
             s["follow_refused_test_mode"] = True
