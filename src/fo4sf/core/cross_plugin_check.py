@@ -685,6 +685,15 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x942, "INFO", "FO4SF_Codsworth01_GreetInfo"),
             (0x970, "ACTI", "FO4SF_CodsworthTalkActi"),
             (0x979, "GLOB", "FO4SF_MissionTalkUseMessageBox"),
+            # C5: Preston & Concord Raider Fallout 4 outfits / armatures / armors (0x980..0x98A)
+            (0x980, "OTFT", "FO4_Outfit_PrestonMinuteman"),
+            (0x981, "ARMA", "FO4_AA_PrestonDuster"),
+            (0x983, "ARMO", "FO4_Armor_PrestonMinuteman"),
+            (0x984, "ARMA", "FO4_AA_PrestonHat"),
+            (0x985, "ARMO", "FO4_Armor_PrestonHat"),
+            (0x988, "OTFT", "FO4_Outfit_ConcordRaider"),
+            (0x989, "ARMA", "FO4_AA_ConcordRaider"),
+            (0x98A, "ARMO", "FO4_Armor_ConcordRaider"),
             # A4: Sanctuary01 (0x817 in place) + MinRecruit00 (0xA20) + MQ103 (0xA50)
             (0xA00, "NPC_", "FO4_Sturges"),
             (0xA01, "ACHR", "FO4SF_Sanctuary_SturgesREF"),

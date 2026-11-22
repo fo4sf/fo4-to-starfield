@@ -45,13 +45,15 @@ try
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
-                                                       Mission.ArgOrNull(args, "--preston-voice")),
+                                                       Mission.ArgOrNull(args, "--preston-voice"),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"),
                                                        !args.Contains("--no-codsworth"),
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
-                                                       Mission.ArgOrNull(args, "--preston-voice")),
+                                                       Mission.ArgOrNull(args, "--preston-voice"),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
@@ -949,7 +951,8 @@ static class Mission
 
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
                             string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null,
-                            string? codsworthVoice = null, string? codsworthMqVoice = null, string? prestonVoicePath = null)
+                            string? codsworthVoice = null, string? codsworthMqVoice = null, string? prestonVoicePath = null,
+                            string? actorLooksDir = null)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
@@ -1555,7 +1558,10 @@ static class Mission
             mod, cell, qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey,
             raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey, prestonWeapon.FormKey, prestonAmmo.FormKey);
 
-        uint maxId = Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))));
+        FalloutActorLooks.ApplyActorLooks(
+            mod, m.Sf, m.Raider, FalloutActorLooks.ActorLooksModels.FromDirectoryOrArgs(actorLooksDir));
+
+        uint maxId = Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1))))));
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
         if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
@@ -1635,7 +1641,7 @@ static class Mission
 
     public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true,
                             string? codsworthModel = null, string? codsworthVoice = null, string? codsworthMqVoice = null,
-                            string? prestonVoicePath = null)
+                            string? prestonVoicePath = null, string? actorLooksDir = null)
     {
         using var m = Open(sfPath, corePath, raiderPath);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
@@ -1683,8 +1689,8 @@ static class Mission
         Need(npc is not null && m.Sf.VoiceTypes.TryGetValue(npc.Voice.FormKey, out var pv) && pv.EditorID == SfPrestonVoiceEdid &&
              pv.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog),
              $"Preston's VoiceType is not {SfPrestonVoiceEdid} with AllowDefaultDialog");
-        Need(npc is not null && npc.DefaultOutfit.FormKey == new FormKey(SfEsm, SfPrestonOutfitId),
-             $"Preston's DefaultOutfit is not {SfPrestonOutfitEdid} ({SfPrestonOutfitId:X6})");
+        FalloutActorLooks.CheckActorLooks(
+            plug, m.Sf, m.Raider.ModKey, problems, FalloutActorLooks.ActorLooksModels.FromDirectoryOrArgs(actorLooksDir));
         var prestonItems = npc?.Items?.Select(i => i.Item.Item.FormKey).ToHashSet() ?? [];
         Need(prestonItems.Contains(new FormKey(SfEsm, SfPrestonWeaponId)) && prestonItems.Contains(new FormKey(SfEsm, SfPrestonAmmoId)),
              $"Preston lacks {SfPrestonWeaponEdid} ({SfPrestonWeaponId:X6}) or {SfPrestonAmmoEdid} ({SfPrestonAmmoId:X6})");
@@ -2189,6 +2195,15 @@ static class Mission
         sk.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 1, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(aa.FormKey) });
         sf.Armors.Add(sk);
         bot.Skin.SetTo(sk.FormKey);
+        var raiderKey = ModKey.FromFileName("FO4ActorRaider.esm");
+        var raider = new SF.StarfieldMod(raiderKey, rel);
+        raider.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+        raider.Npcs.Add(new SF.Npc(new FormKey(raiderKey, RaiderId), rel) { EditorID = "FO4_LvlRaider", Name = "Synthetic Raider", Flags = SF.Npc.Flag.Respawn });
+        raider.Npcs.Add(new SF.Npc(new FormKey(raiderKey, CalmProbeId), rel) { EditorID = "FO4_LvlRaider_Calm", Name = "Synthetic Raider", Flags = SF.Npc.Flag.Respawn });
+        raider.ModHeader.Stats.NextFormID = 0xF04802;
+
+        FalloutActorLooks.SeedSyntheticMasters(sf, raider, humanRace.FormKey, maleVoice.FormKey);
+
         sf.ModHeader.Stats.NextFormID = 0x800;
         var sfPath = Path.Combine(dir, "Starfield.esm");
         sf.BeginWrite.ToPath(sfPath).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
@@ -2205,12 +2220,6 @@ static class Mission
         var corePath = Path.Combine(dir, coreKey.FileName);
         core.BeginWrite.ToPath(corePath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
 
-        var raiderKey = ModKey.FromFileName("FO4ActorRaider.esm");
-        var raider = new SF.StarfieldMod(raiderKey, rel);
-        raider.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
-        raider.Npcs.Add(new SF.Npc(new FormKey(raiderKey, RaiderId), rel) { EditorID = "FO4_LvlRaider", Name = "Synthetic Raider", Flags = SF.Npc.Flag.Respawn });
-        raider.Npcs.Add(new SF.Npc(new FormKey(raiderKey, CalmProbeId), rel) { EditorID = "FO4_LvlRaider_Calm", Name = "Synthetic Raider", Flags = SF.Npc.Flag.Respawn });
-        raider.ModHeader.Stats.NextFormID = 0xF04802;
         var raiderPath = Path.Combine(dir, raiderKey.FileName);
         raider.BeginWrite.ToPath(raiderPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
 
@@ -2462,7 +2471,7 @@ static class Mission
             ("FO4SF_CourserChip removed", m => m.MiscItems.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.CourserChipMiscId))),
             ("FO4SF_MQ207Armed GLOB removed", m => m.Globals.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq207ArmedGlobId))),
         };
-        foreach (var (name, edit) in mutations)
+        foreach (var (name, edit) in mutations.Concat(FalloutActorLooks.GetSelfTestMutations(raiderKey)))
         {
             var mod = SF.StarfieldMod.CreateFromBinary(good, rel, Styles(SfEsm, coreKey, raiderKey));
             edit(mod);

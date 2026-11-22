@@ -579,8 +579,13 @@ def stage(a):
             if preston_voice_json:
                 alias = alias + ["--preston-voice", preston_voice_json]
 
-        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
-        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
+        looks_args = []
+        if getattr(a, "actor_looks_assets", None):
+            assets |= set(copy_actor_looks_assets(a.actor_looks_assets, os.path.join(out, "Data")))
+            looks_args = ["--actor-looks-dir", a.actor_looks_assets]
+
+        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods + looks_args)
+        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods + looks_args)
 
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
@@ -692,6 +697,30 @@ def copy_assets(src, data):
                         continue
                 shutil.copy2(os.path.join(src, rel), dst)
                 copied.append(rel_slash)
+    return copied
+
+
+def copy_actor_looks_assets(src, data):
+    """Verifies and copies staged C5 Fallout 4 Preston & Concord raider outfit assets (ASSET_DIRS) into Data."""
+    actors_dir = os.path.join(REPO, "scripts", "actors")
+    if actors_dir not in sys.path:
+        sys.path.insert(0, actors_dir)
+    import stage_c5_actor_looks  # noqa: E402
+
+    stage_c5_actor_looks.verify_staged_c5_assets(src, require_preston_mats=True)
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                dst = os.path.join(data, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), dst)
+                copied.append(rel.replace(os.sep, "/"))
+    stage_c5_actor_looks.verify_staged_c5_assets(data, require_preston_mats=True)
     return copied
 
 
@@ -1134,6 +1163,8 @@ def main(argv=None):
                    help="a codsworth_voice.py output folder (lines.tsv, wem): his Hello lines and their .wem files")
     s.add_argument("--codsworth-assets", default=None,
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
+    s.add_argument("--actor-looks-assets", default=None,
+                   help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")
