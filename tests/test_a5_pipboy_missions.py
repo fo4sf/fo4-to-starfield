@@ -128,8 +128,8 @@ class A5PipboyMissionTests(unittest.TestCase):
             main_cpp.index("void CollectQuestAndStatsMainThread(") : main_cpp.index("void LogCoreValueResolve(")
         ]
 
-        # Extensible 0x800..0xAFF quest scan window for current + A4 missions (0x000A20, 0x000A50)
-        self.assertIn("for (std::uint32_t localId = 0x800; localId <= 0xAFF; ++localId)", collect_fn)
+        # Extensible 0x800..0xBFF quest scan window for current + A4 + A7 + Act II (0x000AD0..0x000B30) missions
+        self.assertIn("for (std::uint32_t localId = 0x800; localId <= 0xBFF; ++localId)", collect_fn)
         # Silent background controller quests filtered when they lack display name and objectives
         self.assertIn("const bool hasDisplayName = !qName.empty();", collect_fn)
         self.assertIn('qName.find("Keeper") != std::string::npos', collect_fn)

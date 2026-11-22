@@ -4434,7 +4434,7 @@ namespace
 					Peek(file + kFileCompileIndexAt, compile);
 					Peek(file + kFileIndexAt, fidx.data(), fidx.size());
 					const std::uint32_t smallIdx = fidx[2] | (fidx[3] << 8);
-					for (std::uint32_t localId = 0x800; localId <= 0xAFF; ++localId) {
+					for (std::uint32_t localId = 0x800; localId <= 0xBFF; ++localId) {
 						std::uint32_t fid = 0;
 						if (kind == 0) {
 							const std::uint8_t topByte = compile != 0xFF && compile != 0 ? compile : fidx[0];
@@ -7192,7 +7192,7 @@ namespace
 			g_armWaitingRaiseGraph.store(true, std::memory_order_release);
 		} else {
 			g_armWaitingRaiseGraph.store(false, std::memory_order_release);
-			g_armShowAt.store(NowMs(), std::memory_order_release);
+			g_armShowAt = NowMs();
 		}
 	}
 
