@@ -1,3 +1,5 @@
+Titles: Fallout 4 -> all 7 Fallout titles (FO4, FO3, FNV, FO1, FO2, Tactics, FO76) | Modes: Story & Warfare (+ Survival hardcore layer) | Track: Track 1 (Fallout 4 playable path)
+
 # Next Story Missions (`A7b`): *Reunions* (`MQ106`) & *Dangerous Minds* (`MQ201`/`MQ202`)
 
 **Status:** `prototype, offline` / `design only` — whole-scope mission & places blueprint for the next two Fallout 4 main-story missions after *Getting a Clue* (`A7`), audited directly from `Fallout4.esm`, `FO4SFFortHagen.esm` (`0D`), and already-converted staged interiors (`interiors_b10`, zero reconversion). Offline verified via [`a7b_reunions_places.py`](../../scripts/terrain/a7b_reunions_places.py) (`W6` Normal + Open-Mode reachability); not yet implemented in `FO4SFMission.esm` and not yet run in Starfield (`OFFLINE ONLY — UNPROVEN IN GAME` per `R15`).

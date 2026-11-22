@@ -165,7 +165,11 @@ class A7bReunionsPlacesTests(unittest.TestCase):
 
     def test_doc_headers_ledgers_owner_questions_and_zero_drive_or_mod_leaks(self) -> None:
         doc_txt = A7B_DOC.read_text(encoding="utf-8")
-        top_lines = "\n".join(doc_txt.splitlines()[:6]).lower()
+        lines = doc_txt.splitlines()
+        self.assertIn("Titles: Fallout 4 -> all 7 Fallout titles", lines[0])
+        self.assertIn("Modes: Story & Warfare", lines[0])
+        self.assertIn("Track: Track 1", lines[0])
+        top_lines = "\n".join(lines[:8]).lower()
         self.assertIn("prototype, offline", top_lines)
         self.assertIn("design only", top_lines)
         self.assertIn("whole-scope", top_lines)
