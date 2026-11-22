@@ -20,13 +20,21 @@ Verifies offline (pushed, not run in game until candidate-2g):
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "scripts" / "ui") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts" / "ui"))
+
+import make_pipboy_stage_ini as stage_ini  # noqa: E402
+
 MAIN_CPP = ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp"
 MAP_CPP = ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "pipboy_map.cpp"
 MAP_H = ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "pipboy_map.h"
+SHIPPED_INI = ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini"
+STAGE_INI_PY = ROOT / "scripts" / "ui" / "make_pipboy_stage_ini.py"
 C4_DOC = ROOT / "docs" / "ui" / "pipboy-c4-fixes.md"
 
 
@@ -67,9 +75,11 @@ class Round10C4R6PipboyTests(unittest.TestCase):
         cls.c4_doc = C4_DOC.read_text(encoding="utf-8")
 
     def test_c4_1_opaque_shell_backdrop_and_session_reset(self) -> None:
+        self.assertIn('g_shellBackdrop = ReadNumber(ini, L"ShellBackdrop", 1) != 0;', self.main_cpp)
         fn = self.main_cpp[
             self.main_cpp.index("bool ApplyShellBackdrop(") : self.main_cpp.rindex("void ApplyBottomBarDateFix(")
         ]
+        self.assertIn("if (!g_shellBackdrop) {", fn)
         self.assertIn('a_top.GetMember("graphics", &gfx)', fn)
         self.assertIn('a_menuMc.GetMember("graphics", &gfx)', fn)
         self.assertIn('gfx.Invoke("beginFill"', fn)
@@ -156,7 +166,7 @@ class Round10C4R6PipboyTests(unittest.TestCase):
         self.assertIn('g_suppressDataMenu = ReadNumber(ini, L"SuppressDataMenu", 0) != 0;', self.main_cpp)
         self.assertIn('g_tabOpensPipboy = ReadNumber(ini, L"TabOpensPipboy", 0) != 0;', self.main_cpp)
         self.assertIn(
-            "step=shell_c4_config shell_vitals_fill={} suppress_data_menu={} tab_opens_pipboy={}",
+            "step=shell_c4_config shell_backdrop={} shell_vitals_fill={} suppress_data_menu={} tab_opens_pipboy={}",
             self.main_cpp,
         )
         self.assertIn("constexpr std::int64_t                   kBlockingMenuCooldownMs = 500;", self.main_cpp)
@@ -299,10 +309,42 @@ class Round10C4R6PipboyTests(unittest.TestCase):
         self.assertGreaterEqual(upd_fn.count("std::scoped_lock lock(g_pushedIndicesLock);"), 2)
         self.assertLess(upd_fn.rindex("g_pushedIndicesLock"), upd_fn.index("SetCenterMarker"))
 
+    def test_shipped_and_staged_ini_defaults_enable_backdrop_and_vitals_keep_datamenu_off(self) -> None:
+        shipped = "\n" + SHIPPED_INI.read_text(encoding="utf-8")
+        for req in (
+            "ShellBackdrop=1",
+            "ShellVitalsFill=1",
+            "SuppressDataMenu=0",
+            "TabOpensPipboy=0",
+            "MapBlockStarMap=0",
+            "Arm=0",
+            "BootOnFirstOpen=0",
+        ):
+            self.assertIn(f"\n{req}\n", shipped, req)
+
+        staged = "\n" + stage_ini.format_stage_ini(["HideMenu"])
+        for req in (
+            "ShellBackdrop=1",
+            "ShellVitalsFill=1",
+            "SuppressDataMenu=0",
+            "TabOpensPipboy=0",
+            "MapBlockStarMap=0",
+            "Arm=0",
+            "BootOnFirstOpen=0",
+        ):
+            self.assertIn(f"\n{req}\n", staged, req)
+
+        rolled_back = "\n" + stage_ini.format_stage_ini(
+            ["HideMenu"], shell_backdrop=0, shell_vitals_fill=0, suppress_data_menu=1, tab_opens_pipboy=0
+        )
+        for req in ("ShellBackdrop=0", "ShellVitalsFill=0", "SuppressDataMenu=1", "TabOpensPipboy=0"):
+            self.assertIn(f"\n{req}\n", rolled_back, req)
+
     def test_preserved_invariants_docs_and_no_drive_path_leaks(self) -> None:
         self.assertIn("g_armShowAt = NowMs() + g_armRaiseMs;", self.main_cpp)
         self.assertIn("all 7 Fallout titles", self.c4_doc)
         self.assertIn("pushed, not run", self.c4_doc)
+        self.assertIn("ShellBackdrop=0", self.c4_doc)
         self.assertIn("ShellVitalsFill=0", self.c4_doc)
         self.assertIn("TabOpensPipboy=0", self.c4_doc)
         self.assertNotIn("No changes to existing safe defaults", self.c4_doc)
@@ -317,7 +359,7 @@ class Round10C4R6PipboyTests(unittest.TestCase):
         ):
             self.assertIn(token, self.c4_doc, token)
 
-        for path in (Path(__file__), MAIN_CPP, MAP_H, MAP_CPP, C4_DOC):
+        for path in (Path(__file__), MAIN_CPP, MAP_H, MAP_CPP, SHIPPED_INI, STAGE_INI_PY, C4_DOC):
             txt = path.read_text(encoding="utf-8")
             self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", txt), f"drive path leaked in {path.name}")
 

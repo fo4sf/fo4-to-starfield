@@ -554,7 +554,8 @@ namespace
 	bool                                     g_lateInvalidate = false;  // Task 1 step 1b: optional late InvalidateData on kShow, default 0
 	bool                                     g_statActions = false;     // Task 1 step 1j: UseStimpak/UseRadaway, default 0 until THIS ROUND passes
 	bool                                     g_invDataAnswers = false;  // Task 1 step 1k: INV/DATA same-call answers, default 0 until THIS ROUND passes
-	bool                                     g_shellVitalsFill = false; // Round 10 C4-2: opt-in FillPipboyDataObj on kShow/page/partial when PopulateInCall=0 (0 = exact 2f path)
+	bool                                     g_shellBackdrop = true;    // Round 10 C4-1: opaque CRT backdrop on FO4SF_Fo4Shell (default 1, rollback 0)
+	bool                                     g_shellVitalsFill = false; // Round 10 C4-2: FillPipboyDataObj on kShow/page/partial when PopulateInCall=0 (C++ default 0, staged 1, rollback 0 = exact 2f path)
 	bool                                     g_suppressDataMenu = false; // Round 10 C4-4: opt-in hide-only DataMenu suppression (default 0)
 	bool                                     g_tabOpensPipboy = false;   // Round 10 C4-4: opt-in closed-Pip-Boy Tab open with blocking-menu cooldown (default 0)
 	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
@@ -6466,6 +6467,9 @@ namespace
 	// so 3D world geometry never bleeds through STAT/INV/DATA/RADIO or the letterbox margins of MAP.
 	bool ApplyShellBackdrop(const void* a_menu, RE::Scaleform::GFx::Value& a_top, RE::Scaleform::GFx::Value& a_menuMc)
 	{
+		if (!g_shellBackdrop) {
+			return true;
+		}
 		const void* const movie = a_menu ? MovieOf(a_menu) : nullptr;
 		if (!movie || g_backdropMovie.load() == movie) {
 			return true;
@@ -10478,6 +10482,7 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_statActions = ReadNumber(ini, L"StatActions", 0) != 0;
 	g_invDataAnswers = ReadNumber(ini, L"InvDataAnswers", 0) != 0;
 	const bool fo4ShellIni = (g_stage == 2 && g_codeObj && g_codeObjAt == "Menu_mc");
+	g_shellBackdrop = ReadNumber(ini, L"ShellBackdrop", 1) != 0;
 	g_shellVitalsFill = ReadNumber(ini, L"ShellVitalsFill", 0) != 0;
 	g_suppressDataMenu = ReadNumber(ini, L"SuppressDataMenu", 0) != 0;
 	g_tabOpensPipboy = ReadNumber(ini, L"TabOpensPipboy", 0) != 0;
@@ -10621,8 +10626,8 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 		REX::INFO("step=code_obj_shell at={} pages={} names_count={} shell_keys={}", g_codeObjAt.empty() ? "none" : g_codeObjAt,
 			g_codeObjPages ? 1 : 0, g_codeObjCount, keys.empty() ? "none" : keys);
 		if (fo4ShellIni) {
-			REX::INFO("step=shell_c4_config shell_vitals_fill={} suppress_data_menu={} tab_opens_pipboy={}",
-				g_shellVitalsFill ? 1 : 0, g_suppressDataMenu ? 1 : 0, g_tabOpensPipboy ? 1 : 0);
+			REX::INFO("step=shell_c4_config shell_backdrop={} shell_vitals_fill={} suppress_data_menu={} tab_opens_pipboy={}",
+				g_shellBackdrop ? 1 : 0, g_shellVitalsFill ? 1 : 0, g_suppressDataMenu ? 1 : 0, g_tabOpensPipboy ? 1 : 0);
 		}
 	}
 	if (g_codeObjSound) {
