@@ -143,7 +143,7 @@ def _iter_subrecords(body):
         p += 6 + ln
 
 
-def _run_c1_preston_activation_harness(min00_src, *, vmad_scene_none=True, glob_val=0.0, scene_opens=True):
+def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=True, file_scene_present=True, glob_val=0.0, scene_opens=True):
     """Execute FO4SF_Min00Quest's Preston activation/scene/fallback path from source.
     Used both to validate our current head AND to confirm the C1 test fails against 9b5327ff."""
     logs = []
@@ -213,7 +213,7 @@ def _run_c1_preston_activation_harness(min00_src, *, vmad_scene_none=True, glob_
         "Preston": preston,
         "Credits": "StarfieldCredits",
         "RewardCount": 100,
-        "PrestonTalkScene": None if vmad_scene_none else scene,
+        "PrestonTalkScene": None if runtime_scene_prop_none else scene,
         "PrestonTalkMsg": talk_msg,
         "PrestonReply0Msg": talk_msg,
         "PrestonReply1Msg": talk_msg,
@@ -259,7 +259,7 @@ def _run_c1_preston_activation_harness(min00_src, *, vmad_scene_none=True, glob_
         "Game": SimpleNamespace(
             GetPlayer=lambda: player,
             GetFormFromFile=lambda fid, plg: (
-                scene if (fid, plg) == (0x000900, "FO4SFMission.esm")
+                (scene if file_scene_present else None) if (fid, plg) == (0x000900, "FO4SFMission.esm")
                 else sanctuary_q if (fid, plg) == (0x000817, "FO4SFMission.esm")
                 else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                 else None
@@ -275,6 +275,8 @@ def _run_c1_preston_activation_harness(min00_src, *, vmad_scene_none=True, glob_
     ]
     if "Function ResolvePrestonScene(" in min00_src:
         fns.insert(4, "ResolvePrestonScene")
+    if "Function ResolvePrestonSceneLogged(" in min00_src:
+        fns.insert(5, "ResolvePrestonSceneLogged")
     globals_list = (
         "min00Given", "applied", "pendingStage", "pendingStageBy", "prestonFound",
         "talkActivated", "talkStartedAt", "prestonUsedFallback", "prestonTalkLogged",
@@ -292,21 +294,34 @@ def _run_c1_preston_activation_harness(min00_src, *, vmad_scene_none=True, glob_
 
 
 class R10OpeningFixTests(unittest.TestCase):
-    def test_c1_preston_single_real_talk_resolves_scene_even_when_vmad_none(self):
-        """C1: Must FAIL on 9b5327ff (where VMAD PrestonTalkScene==None caused reason=no_scene + double talk)
-        and PASS on current head (ResolvePrestonScene resolves 0x0900, starts DialogueMenu first, never both)."""
+    def test_c1_preston_single_real_talk_resolves_scene_when_property_is_none_at_runtime(self):
+        """C1: Must FAIL on 9b5327ff (where PrestonTalkScene evaluated to None at runtime despite QUST 0x800 VMAD
+        binding, causing reason=no_scene + double talk) and PASS on current head (ResolvePrestonScene falls back to
+        Game.GetFormFromFile 0x000900 like Codsworth01, starts DialogueMenu first, logs resolution route, never both)."""
         src = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("Scene Function ResolvePrestonScene()", src)
+        self.assertIn("Scene Function ResolvePrestonSceneLogged()", src)
         self.assertIn('Game.GetFormFromFile(0x000900, "FO4SFMission.esm") as Scene', src)
 
-        # 1. Exact candidate-2f failure condition: VMAD PrestonTalkScene is None, 0x0900 exists in FO4SFMission.esm
-        h = _run_c1_preston_activation_harness(src, vmad_scene_none=True, glob_val=0.0, scene_opens=True)
+        # 1. Exact candidate-2f runtime failure condition: PrestonTalkScene is None at runtime while 0x0900 exists
+        h = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, glob_val=0.0, scene_opens=True)
         h.ns["OnActivate"](h.preston, h.player)
 
         self.assertEqual(h.scene.start_calls, 1, f"expected SCEN 0x0900 to start once; logs={h.logs}")
         self.assertEqual(h.talk_msg.shown, 0, f"MessageBox must NOT open when real SCEN starts; logs={h.logs}")
         self.assertFalse(any("reason=no_scene" in ln for ln in h.logs), h.logs)
+        self.assertTrue(any("preston scene resolved via=file" in ln for ln in h.logs), h.logs)
         self.assertTrue(any("preston scene talk requested" in ln for ln in h.logs), h.logs)
+
+        # Verify via=property and via=none resolution trace lines as well
+        hp = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=False, glob_val=0.0, scene_opens=True)
+        hp.ns["OnActivate"](hp.preston, hp.player)
+        self.assertTrue(any("preston scene resolved via=property" in ln for ln in hp.logs), hp.logs)
+
+        hn = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, file_scene_present=False, glob_val=0.0)
+        hn.ns["OnActivate"](hn.preston, hn.player)
+        self.assertTrue(any("preston scene resolved via=none" in ln for ln in hn.logs), hn.logs)
+        self.assertTrue(any("reason=no_scene" in ln for ln in hn.logs), hn.logs)
 
         h.ns["OnBegin"](h.scene)
         h.ns["OnPhaseBegin"](h.scene, 0)
@@ -331,7 +346,7 @@ class R10OpeningFixTests(unittest.TestCase):
         self.assertTrue(any("preston scene suppressed reason=single_talk" in ln for ln in h.logs), h.logs)
 
         # 2. Timeout fallback path: stops scene BEFORE MessageBox, and suppresses any subsequent DEVT OnBegin
-        h2 = _run_c1_preston_activation_harness(src, vmad_scene_none=True, glob_val=0.0, scene_opens=True)
+        h2 = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, glob_val=0.0, scene_opens=True)
         h2.ns["OnActivate"](h2.preston, h2.player)
         h2.ns["OnBegin"](h2.scene)
         h2.ns["OnPhaseBegin"](h2.scene, 1)
@@ -348,7 +363,7 @@ class R10OpeningFixTests(unittest.TestCase):
         self.assertFalse(h2.scene.IsPlaying())
 
         # 3. GLOB == 1 path: stops any playing DEVT scene BEFORE MessageBox
-        h3 = _run_c1_preston_activation_harness(src, vmad_scene_none=True, glob_val=1.0, scene_opens=True)
+        h3 = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, glob_val=1.0, scene_opens=True)
         h3.scene.playing = True
         h3.ns["OnActivate"](h3.preston, h3.player)
         self.assertEqual(h3.scene.stop_calls, 1)
@@ -495,6 +510,7 @@ class R10OpeningFixTests(unittest.TestCase):
             "raiderRescued": None,
             "raiderEngaged": None,
             "raiderArmed": None,
+            "raiderStartCombatAt": None,
             "raiderRescueSec": None,
             "raiderRescueX": None,
             "raiderRescueY": None,
@@ -519,8 +535,8 @@ class R10OpeningFixTests(unittest.TestCase):
         code += "\n" + _translate_mission_psc(
             init_src + "\nEndFunction\n", ("InitRaiderTracking",),
             ("raiderTargetX", "raiderTargetY", "raiderTargetZ", "raiderAbsentSec", "raiderCleared",
-             "raiderRescued", "raiderEngaged", "raiderArmed", "raiderRescueSec", "raiderRescueX",
-             "raiderRescueY", "raiderRescueZ", "raiderRescueHp"),
+             "raiderRescued", "raiderEngaged", "raiderArmed", "raiderStartCombatAt", "raiderRescueSec",
+             "raiderRescueX", "raiderRescueY", "raiderRescueZ", "raiderRescueHp"),
         )
         exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
         ns["InitRaiderTracking"]()
@@ -539,23 +555,32 @@ class R10OpeningFixTests(unittest.TestCase):
             self.assertAlmostEqual(r.pos[0], want[0], places=2)
             self.assertAlmostEqual(r.pos[1], want[1], places=2)
 
-        # Engage combat: simulate raiders 1..4 faction-alerted (GetCombatState()==2) when raider 0 engages
+        # Engage combat: simulate raiders 1..4 faction-alerted (GetCombatState()==2) when raider 0 engages,
+        # and verify P3 rate-limiting (10 s cooldown) when a raider remains stuck in combat state 2.
         player.pos = [-2015.0, -1700.0, 88.4]
         for i in range(1, 5):
             raiders[i].combat_state = 2  # searching/alerted (the 2f bug skipped StartCombat here!)
 
-        # Run the exact OnTimer(1) combat engagement rules for all 5 raiders
-        stage = 10
-        everyone = True
-        for i, r in enumerate(raiders):
-            d = player.GetDistance(r)
-            if not ns["raiderArmed"][i] and stage < 30 and (everyone or d < 60.0) and r.Is3DLoaded():
-                ns["ArmRaiderForCombat"](r, i)
-            if not (r.GetCombatState() == 1 and ns["raiderEngaged"][i]):
-                if stage < 30 and (everyone or d < 60.0) and r.Is3DLoaded():
+        def run_combat_tick(now_rt, sticky_state2_idx=None):
+            stage = 10
+            everyone = True
+            for i, r in enumerate(raiders):
+                d = player.GetDistance(r)
+                if not ns["raiderArmed"][i] and stage < 30 and (everyone or d < 60.0) and r.Is3DLoaded():
+                    ns["ArmRaiderForCombat"](r, i)
+                if (r.GetCombatState() == 1 and ns["raiderEngaged"][i]) or (
+                    ns["raiderEngaged"][i] and now_rt >= ns["raiderStartCombatAt"][i] and (now_rt - ns["raiderStartCombatAt"][i]) < 10.0
+                ):
+                    pass
+                elif stage < 30 and (everyone or d < 60.0) and r.Is3DLoaded():
                     r.StartCombat(player)
+                    if sticky_state2_idx == i:
+                        r.combat_state = 2  # simulate raider stuck in state 2
                     ns["raiderEngaged"][i] = True
+                    ns["raiderStartCombatAt"][i] = now_rt
+                    logs.append(f"startcombat raider {i} d={d:.1f}")
 
+        run_combat_tick(100.0, sticky_state2_idx=2)
         for i, r in enumerate(raiders):
             self.assertFalse(r.restrained, f"raider {i} still restrained")
             self.assertEqual(r.avs.get("AggressionAV"), 2.0)
@@ -563,8 +588,19 @@ class R10OpeningFixTests(unittest.TestCase):
             self.assertGreaterEqual(r.inv.get("AmmoShotshell", 0), 60)
             self.assertIn("Coachman", r.equipped)
             self.assertEqual(r.start_combat_targets, [player], f"raider {i} never received StartCombat(player)")
-            self.assertEqual(r.combat_state, 1)
         self.assertEqual(sum(1 for ln in logs if ln.startswith("arm raider ")), 5)
+        self.assertEqual(sum(1 for ln in logs if ln.startswith("startcombat raider ")), 5)
+
+        # Next 9 ticks (t=101..109): raider 2 stuck in state 2 must NOT spam StartCombat or logs
+        for t in range(101, 110):
+            run_combat_tick(float(t), sticky_state2_idx=2)
+        self.assertEqual(len(raiders[2].start_combat_targets), 1)
+        self.assertEqual(sum(1 for ln in logs if ln.startswith("startcombat raider 2")), 1)
+
+        # At t=110.0 (10 s elapsed): exactly 1 rate-limited re-engage
+        run_combat_tick(110.0, sticky_state2_idx=2)
+        self.assertEqual(len(raiders[2].start_combat_targets), 2)
+        self.assertEqual(sum(1 for ln in logs if ln.startswith("startcombat raider 2")), 2)
 
     def test_c6_codsworth_camera_guard_steps_back_at_0p6m_and_keeps_2p0m_untouched(self):
         """C6: Close 0.62 m moveto activation steps player back along sightline to 1.85 m; 2.0 m walk-up untouched."""
@@ -621,19 +657,27 @@ class R10OpeningFixTests(unittest.TestCase):
         self.assertNotIn("0x000A50", apply_fn)
         self.assertNotIn("mq103 start_requested", apply_fn)
 
-        # R5: CheckA7cdProximityStarts is on KeepCodsworth() (KeeperOnly Timer 2), NOT OnTimer(1)
+        # R1/R5: ALL post-opening proximity starts (A4, A7, A7cd) run ONLY on KeeperOnly Timer 2, NEVER OnTimer(1)
         on_timer = m_psc[m_psc.index("Event OnTimer("):m_psc.index("EndEvent", m_psc.index("Event OnTimer("))]
-        self.assertNotIn("CheckA7cdProximityStarts(player)", on_timer)
+        for fn_call in ("CheckA4ProximityStarts(player)", "CheckA7ProximityStarts(player)", "CheckA7cdProximityStarts(player)"):
+            self.assertNotIn(fn_call, on_timer)
         keep_fn = function_body(m_psc, "KeepCodsworth")
-        self.assertIn("CheckA7cdProximityStarts(player)", keep_fn)
+        for fn_call in ("CheckA4ProximityStarts(player)", "CheckA7ProximityStarts(player)", "CheckA7cdProximityStarts(player)"):
+            self.assertIn(fn_call, keep_fn)
 
-        # Execute CheckA7cdProximityStarts under KeeperOnly=True with strict sequential gating
+        # Verify IsStoryQuestComplete uses strict IsCompleted() ONLY (never GetStage() >= 100!)
+        gate_fn = function_body(m_psc, "IsStoryQuestComplete")
+        self.assertIn("q.IsCompleted()", gate_fn)
+        self.assertNotIn("GetStage", gate_fn)
+
+        # Execute CheckA4/A7/A7cd under KeeperOnly=True with strict IsCompleted() sequential gating
         logs = []
         fo4_world = "WorldSpace<MarsPlanetWorld(FF008BF3)>"
         v111 = SimpleNamespace(GetWorldSpace=lambda: fo4_world)
+        all_fids = (0x000800, 0x000817, 0x000A20, 0x000A50, 0x000A80, 0x000AB0, 0x000AD0, 0x000AF0, 0x000B10, 0x000B30)
         quests = {
             fid: SimpleNamespace(completed=False, stage=0, running=False, starts=0)
-            for fid in (0x000AB0, 0x000AD0, 0x000AF0, 0x000B10, 0x000B30)
+            for fid in all_fids
         }
         for q in quests.values():
             q.IsCompleted = (lambda qq: lambda: qq.completed)(q)
@@ -648,7 +692,7 @@ class R10OpeningFixTests(unittest.TestCase):
                 return _st
             q.StartNoWait = _make_start(q)
 
-        p_pos = [-2456.84, -2781.07, 81.83]  # Fort Hagen (shared by MQ105 and MQ106)
+        p_pos = [-1416.36, -3129.39, 19.3]  # Diamond City gate
         player = SimpleNamespace(
             IsInInterior=lambda: False, GetWorldSpace=lambda: fo4_world,
             GetPositionX=lambda: p_pos[0], GetPositionY=lambda: p_pos[1], GetPositionZ=lambda: p_pos[2],
@@ -660,6 +704,10 @@ class R10OpeningFixTests(unittest.TestCase):
             "prestonPlaced": False,
             "MergeOffsetX": -1200.0,
             "MergeOffsetY": -2700.0,
+            "mq103ProxAttempted": False,
+            "minRecruitProxAttempted": False,
+            "mq104ProxAttempted": False,
+            "mq105ProxAttempted": False,
             "mq106ProxAttempted": False,
             "mq203ProxAttempted": False,
             "mq204ProxAttempted": False,
@@ -675,28 +723,75 @@ class R10OpeningFixTests(unittest.TestCase):
         code = _translate_mission_psc(
             m_psc,
             ("IsWarfareMode", "ResolveCommonwealthWorld", "IsCommonwealthExterior",
-             "IsStoryQuestComplete", "CheckA7cdProximityStarts"),
-            ("mq106ProxAttempted", "mq203ProxAttempted", "mq204ProxAttempted", "mq206ProxAttempted"),
+             "IsStoryQuestComplete", "CheckA4ProximityStarts", "CheckA7ProximityStarts",
+             "CheckA7cdProximityStarts"),
+            ("mq103ProxAttempted", "minRecruitProxAttempted", "mq104ProxAttempted", "mq105ProxAttempted",
+             "mq106ProxAttempted", "mq203ProxAttempted", "mq204ProxAttempted", "mq206ProxAttempted"),
         )
         exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
 
-        # At Fort Hagen BEFORE MQ105 completes: MQ106 must NOT start!
-        ns["CheckA7cdProximityStarts"](player)
-        self.assertEqual(quests[0x000AD0].starts, 0, "MQ106 must not start at Fort Hagen before MQ105 completes")
+        # A4 gate: during opening (Min00 incomplete or Sanctuary01 incomplete), DC gate & Tenpines do NOT start
+        ns["CheckA4ProximityStarts"](player)
+        self.assertEqual(quests[0x000A50].starts, 0, "MQ103 must not start before Min00+Sanctuary01 complete")
+        quests[0x000800].completed = True
+        quests[0x000817].stage = 100  # stage 100 != completed!
+        ns["CheckA4ProximityStarts"](player)
+        self.assertEqual(quests[0x000A50].starts, 0, "MQ103 must not start while Sanctuary01 is not completed")
+        quests[0x000817].completed = True
+        ns["CheckA4ProximityStarts"](player)
+        self.assertEqual(quests[0x000A50].starts, 1)
+        p_pos[:] = [-1517.0, -1423.63, 87.8]  # Tenpines Bluff
+        ns["CheckA4ProximityStarts"](player)
+        self.assertEqual(quests[0x000A20].starts, 1)
 
-        # Complete MQ105 -> now Fort Hagen starts MQ106
+        # A7 gate: MQ104 blocked until MQ103 completes; MQ105 blocked until MQ104 completes
+        p_pos[:] = [-987.46, -2927.73, 19.2]  # Park Street
+        ns["CheckA7ProximityStarts"](player)
+        self.assertEqual(quests[0x000A80].starts, 0)
+        quests[0x000A50].completed = True
+        ns["CheckA7ProximityStarts"](player)
+        self.assertEqual(quests[0x000A80].starts, 1)
+
+        p_pos[:] = [-2456.84, -2781.07, 81.83]  # Fort Hagen (shared by MQ105 and MQ106)
+        ns["CheckA7ProximityStarts"](player)
+        self.assertEqual(quests[0x000AB0].starts, 0, "MQ105 must not start before MQ104 completes")
+        quests[0x000A80].completed = True
+        ns["CheckA7ProximityStarts"](player)
+        self.assertEqual(quests[0x000AB0].starts, 1)
+
+        # R5 critical regression: MQ105 at stage 100 ("following trail to Fort Hagen", IsCompleted()==False)
+        # standing AT Fort Hagen MUST NOT start MQ106!
+        quests[0x000AB0].stage = 100
+        quests[0x000AB0].completed = False
+        ns["CheckA7cdProximityStarts"](player)
+        self.assertEqual(quests[0x000AD0].starts, 0, "MQ105@100 (in-progress) at Fort Hagen must NOT start MQ106!")
+        self.assertNotIn("mq106 started by=proximity", logs)
+
+        # Once MQ105 IsCompleted()==True -> now Fort Hagen starts MQ106
         quests[0x000AB0].completed = True
         ns["CheckA7cdProximityStarts"](player)
         self.assertEqual(quests[0x000AD0].starts, 1)
         self.assertIn("mq106 started by=proximity", logs)
 
-        # At Goodneighbor BEFORE MQ106 completes -> MQ203 blocked; after MQ106 completes -> MQ203 starts
+        # MQ106@100 (Kellogg fight, not completed) at Goodneighbor MUST NOT start MQ203
         p_pos[:] = [-902.48, -2870.07, 19.2]
+        quests[0x000AD0].stage = 100
+        quests[0x000AD0].completed = False
         ns["CheckA7cdProximityStarts"](player)
-        self.assertEqual(quests[0x000AF0].starts, 0)
+        self.assertEqual(quests[0x000AF0].starts, 0, "MQ106@100 must NOT start MQ203!")
         quests[0x000AD0].completed = True
         ns["CheckA7cdProximityStarts"](player)
         self.assertEqual(quests[0x000AF0].starts, 1)
+
+        # MQ203@100 (Memory Den lounger, not completed) at Glowing Sea MUST NOT start MQ204
+        p_pos[:] = [-2624.44, -4357.85, 107.64]
+        quests[0x000AF0].stage = 100
+        quests[0x000AF0].completed = False
+        ns["CheckA7cdProximityStarts"](player)
+        self.assertEqual(quests[0x000B10].starts, 0, "MQ203@100 must NOT start MQ204!")
+        quests[0x000AF0].completed = True
+        ns["CheckA7cdProximityStarts"](player)
+        self.assertEqual(quests[0x000B10].starts, 1)
 
         # R7: Program.cs restored 'no QUST 0x817' & Sanctuary bench-alias self-checks
         cs = PROGRAM_CS.read_text(encoding="utf-8")

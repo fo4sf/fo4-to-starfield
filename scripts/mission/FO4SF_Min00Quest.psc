@@ -164,6 +164,7 @@ bool[] raiderCleared
 bool[] raiderRescued
 bool[] raiderEngaged
 bool[] raiderArmed
+float[] raiderStartCombatAt
 float[] raiderRescueSec
 float[] raiderRescueX
 float[] raiderRescueY
@@ -265,10 +266,26 @@ Function EnsurePrestonAlias()
 EndFunction
 
 Scene Function ResolvePrestonScene()
+{C1: Return PrestonTalkScene when bound, otherwise resolve 0x000900 from FO4SFMission.esm (the same route that
+ resolved Codsworth's scene in 2f when PrestonTalkScene evaluated to None at runtime despite VMAD binding).}
     if PrestonTalkScene != None
         return PrestonTalkScene
     endif
     return Game.GetFormFromFile(0x000900, "FO4SFMission.esm") as Scene
+EndFunction
+
+Scene Function ResolvePrestonSceneLogged()
+    if PrestonTalkScene != None
+        Trace("preston scene resolved via=property scene=" + PrestonTalkScene)
+        return PrestonTalkScene
+    endif
+    Scene fileScn = Game.GetFormFromFile(0x000900, "FO4SFMission.esm") as Scene
+    if fileScn != None
+        Trace("preston scene resolved via=file scene=" + fileScn)
+        return fileScn
+    endif
+    Trace("preston scene resolved via=none")
+    return None
 EndFunction
 
 Function RegisterPrestonSceneEvents()
@@ -361,7 +378,7 @@ EndFunction
 
 Function InitRaiderTracking()
     int count = Raiders.Length
-    if raiderCleared != None && raiderCleared.Length == count && raiderRescued != None && raiderRescued.Length == count && raiderEngaged != None && raiderEngaged.Length == count && raiderArmed != None && raiderArmed.Length == count
+    if raiderCleared != None && raiderCleared.Length == count && raiderRescued != None && raiderRescued.Length == count && raiderEngaged != None && raiderEngaged.Length == count && raiderArmed != None && raiderArmed.Length == count && raiderStartCombatAt != None && raiderStartCombatAt.Length == count
         return
     endif
     raiderTargetX = new float[count]
@@ -372,6 +389,7 @@ Function InitRaiderTracking()
     raiderRescued = new bool[count]
     raiderEngaged = new bool[count]
     raiderArmed = new bool[count]
+    raiderStartCombatAt = new float[count]
     raiderRescueSec = new float[count]
     raiderRescueX = new float[count]
     raiderRescueY = new float[count]
@@ -410,6 +428,7 @@ Function InitRaiderTracking()
         raiderRescued[i] = False
         raiderEngaged[i] = False
         raiderArmed[i] = False
+        raiderStartCombatAt[i] = -999.0
         raiderRescueSec[i] = 0.0
         raiderRescueX[i] = tx
         raiderRescueY[i] = ty
@@ -814,7 +833,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
-            Scene scn = ResolvePrestonScene()
+            Scene scn = ResolvePrestonSceneLogged()
             if ShouldUseMessageBox()
                 FallbackPrestonToMessageBox("glob")
             elseif scn != None
@@ -1149,8 +1168,6 @@ Event OnTimer(int aiTimerID)
     if relocateFails < 10
         Relocate(player)
     endif
-    CheckA4ProximityStarts(player)
-    CheckA7ProximityStarts(player)
     int rawStage = GetStage()
     int stage = EffectiveStage()
     if !min00Given && stage < 10 && IsCommonwealthExterior(player)
@@ -1206,6 +1223,7 @@ Event OnTimer(int aiTimerID)
     int dead = 0
     bool fighting = false
     float nearest = -1.0
+    float nowCombatRt = Utility.GetCurrentRealTime()
     int i = 0
     while i < Raiders.Length
         Actor r = Raiders[i]
@@ -1219,13 +1237,14 @@ Event OnTimer(int aiTimerID)
             if !raiderArmed[i] && stage < 30 && (everyone || d < EngageRadius) && r.Is3DLoaded()
                 ArmRaiderForCombat(r, i)
             endif
-            if r.GetCombatState() == 1 && raiderEngaged[i]
+            if (r.GetCombatState() == 1 && raiderEngaged[i]) || (raiderEngaged[i] && nowCombatRt >= raiderStartCombatAt[i] && (nowCombatRt - raiderStartCombatAt[i]) < 10.0)
                 fighting = true
             elseif stage < 30 && (everyone || d < EngageRadius) && r.Is3DLoaded()
                 ; FO4's forced fight: every living loaded raider is put into combat with the player, even if
-                ; faction-alerted (GetCombatState == 2), so all 5 actively engage (C3).
+                ; faction-alerted (GetCombatState == 2), rate-limited to once per 10 s after initial engage (C3).
                 r.StartCombat(player)
                 raiderEngaged[i] = True
+                raiderStartCombatAt[i] = nowCombatRt
                 fighting = true
                 Trace("startcombat raider " + i + " d=" + d)
             elseif r.GetCombatState() != 0
@@ -1299,8 +1318,10 @@ int Function NextStage(int stage, int dead, int total, bool fighting, bool atPre
 EndFunction
 
 bool Function IsStoryQuestComplete(int formId)
+{R5: Strict IsCompleted() check only. Never treat intermediate stage >= 100 (e.g. MQ105@100 following trail to
+ Fort Hagen, MQ106@100 Kellogg, MQ203@100 lounger) as completed.}
     Quest q = Game.GetFormFromFile(formId, "FO4SFMission.esm") as Quest
-    return q != None && (q.IsCompleted() || q.GetStage() >= 100)
+    return q != None && q.IsCompleted()
 EndFunction
 
 Function CheckPostConcordSanctuaryHandoff()
@@ -1386,9 +1407,13 @@ Function KeepCodsworth()
 EndFunction
 
 Function CheckA4ProximityStarts(Actor player)
-{A4 console-free out-of-order proximity starts (JOTC-02 Diamond City gate & STEP Tenpines Bluff): active from Story
- surface landing even if the player bypasses Concord or completes FO4SF_Min00. Uses IsCommonwealthExterior (B2).}
+{R1/R5: Console-free proximity discovery for JOTC-02 Diamond City gate (MQ103) & Tenpines Bluff (MinRecruit00) on
+ KeeperOnly Timer 2, strictly gated behind BOTH FO4SF_Min00 (0x000800) AND FO4SF_Sanctuary01 (0x000817) completion so
+ First Settlement stays the sole active tracked opening mission (deliberate one-tracked-mission rule aligned with W2).}
     if !IsCommonwealthExterior(player) || IsWarfareMode()
+        return
+    endif
+    if !IsStoryQuestComplete(0x000800) || !IsStoryQuestComplete(0x000817)
         return
     endif
     float px = player.GetPositionX()
@@ -1417,8 +1442,8 @@ Function CheckA4ProximityStarts(Actor player)
 EndFunction
 
 Function CheckA7ProximityStarts(Actor player)
-{A7 console-free out-of-order proximity starts (Park Street Station / Vault 114 for MQ104 & Fort Hagen for MQ105):
- active from Story surface landing even if the player bypasses earlier missions. Uses IsCommonwealthExterior (B2).}
+{R5: Console-free proximity discovery for Park Street / Vault 114 (MQ104) & Fort Hagen (MQ105) on KeeperOnly Timer 2,
+ strictly gated behind prior quest completion (MQ103 -> MQ104 -> MQ105) so no post-opening quest fires early.}
     if !IsCommonwealthExterior(player) || IsWarfareMode()
         return
     endif
@@ -1429,7 +1454,7 @@ Function CheckA7ProximityStarts(Actor player)
     float psy = py - (-2927.73)
     float v14x = px - (-1085.43)
     float v14y = py - (-2958.22)
-    if !mq104ProxAttempted && ((psx * psx + psy * psy <= r2) || (v14x * v14x + v14y * v14y <= r2))
+    if !mq104ProxAttempted && IsStoryQuestComplete(0x000A50) && ((psx * psx + psy * psy <= r2) || (v14x * v14x + v14y * v14y <= r2))
         Quest mq104Quest = Game.GetFormFromFile(0x000A80, "FO4SFMission.esm") as Quest
         if mq104Quest != None && !mq104Quest.IsRunning() && !mq104Quest.IsCompleted()
             mq104ProxAttempted = True
@@ -1439,7 +1464,7 @@ Function CheckA7ProximityStarts(Actor player)
     endif
     float fhx = px - (-2456.84)
     float fhy = py - (-2781.07)
-    if !mq105ProxAttempted && fhx * fhx + fhy * fhy <= r2
+    if !mq105ProxAttempted && IsStoryQuestComplete(0x000A80) && fhx * fhx + fhy * fhy <= r2
         Quest mq105Quest = Game.GetFormFromFile(0x000AB0, "FO4SFMission.esm") as Quest
         if mq105Quest != None && !mq105Quest.IsRunning() && !mq105Quest.IsCompleted()
             mq105ProxAttempted = True
