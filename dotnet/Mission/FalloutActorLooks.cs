@@ -168,29 +168,7 @@ public static class FalloutActorLooks
         EnforceNoStarfieldSpacesuit(raiderOverride, sfMod, forceHideAvKey, raiderOutfit.FormKey, preserveIntentionalTemplates: true);
         mod.Npcs.Add(raiderOverride);
 
-        // 4. Enforce Triple-Lock spacesuit/helmet stripping across every remaining HumanRace NPC in FO4SFMission.esm
-        var fallbackFriendlyOutfitKey = prestonOutfit.FormKey;
-        if (sfMod.Outfits.TryGetValue(new FormKey(SfEsm, Mission.SfPrestonOutfitId), out var rangerOutfit))
-            fallbackFriendlyOutfitKey = rangerOutfit.FormKey;
-
-        foreach (var otherNpc in mod.Npcs)
-        {
-            if (otherNpc.FormKey == preston.FormKey || otherNpc.FormKey == raiderOverride.FormKey)
-                continue;
-            if (otherNpc.Race.FormKey != humanRaceKey)
-                continue;
-
-            bool isRaiderBoss = (otherNpc.EditorID ?? "").Contains("Raider", StringComparison.OrdinalIgnoreCase) ||
-                                (otherNpc.EditorID ?? "").Contains("CorvegaBoss", StringComparison.OrdinalIgnoreCase);
-            FormKey desiredClothes = isRaiderBoss
-                ? raiderOutfit.FormKey
-                : (!otherNpc.DefaultOutfit.IsNull && !IsSpacesuitOutfit(otherNpc.DefaultOutfit.FormKey, sfMod, mod)
-                    ? otherNpc.DefaultOutfit.FormKey
-                    : fallbackFriendlyOutfitKey);
-
-            EnforceNoStarfieldSpacesuit(otherNpc, sfMod, forceHideAvKey, desiredClothes);
-        }
-
+        // Strictly scoped to Preston (0x000801) + FO4_LvlRaider (0xF04800): other NPCs in mod.Npcs stay untouched.
         if (mod.ModHeader.Stats.NextFormID < MaxAllocatedId)
             mod.ModHeader.Stats.NextFormID = MaxAllocatedId;
     }
@@ -734,23 +712,13 @@ public static class FalloutActorLooks
                  $"FO4_LvlRaider override SpaceOutfit ({raiderOverride.SpaceOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
             Need(HasForceHideSpacesuitProperty(raiderOverride, forceHideAvKey),
                  $"FO4_LvlRaider override lacks {SfForceHideSpacesuitAvEdid} (0x{SfForceHideSpacesuitAvId:X6}) == 1.0");
-        }
-
-        // 4. Global rule across all HumanRace NPCs in FO4SFMission.esm: zero spacesuits on MarsPlanetWorld
-        foreach (var npc in plug.Npcs)
-        {
-            if (npc.Race.FormKey != humanRaceKey)
-                continue;
-            Need(!npc.DefaultOutfit.IsNull && !IsSpacesuitOutfit(npc.DefaultOutfit.FormKey, sfMod, plug),
-                 $"HumanRace NPC {npc.EditorID} ({npc.FormKey}) has null or spacesuit DefaultOutfit ({npc.DefaultOutfit.FormKey})");
-            Need(!npc.SpaceOutfit.IsNull && !IsSpacesuitOutfit(npc.SpaceOutfit.FormKey, sfMod, plug),
-                 $"HumanRace NPC {npc.EditorID} ({npc.FormKey}) has null or spacesuit SpaceOutfit ({npc.SpaceOutfit.FormKey})");
-            Need(HasForceHideSpacesuitProperty(npc, forceHideAvKey),
-                 $"HumanRace NPC {npc.EditorID} ({npc.FormKey}) lacks {SfForceHideSpacesuitAvEdid} == 1.0");
-            if (npc.Items is not null)
+            Need(!IsSpacesuitOutfit(raiderOverride.DefaultOutfit.FormKey, sfMod, plug) &&
+                 !IsSpacesuitOutfit(raiderOverride.SpaceOutfit.FormKey, sfMod, plug),
+                 "FO4_LvlRaider override carries a Starfield spacesuit outfit");
+            if (raiderOverride.Items is not null)
             {
-                Need(!npc.Items.Any(i => IsSpacesuitItem(i.Item.Item.FormKey, sfMod, plug)),
-                     $"HumanRace NPC {npc.EditorID} ({npc.FormKey}) carries a Starfield spacesuit item in inventory");
+                Need(!raiderOverride.Items.Any(i => IsSpacesuitItem(i.Item.Item.FormKey, sfMod, plug)),
+                     "FO4_LvlRaider override carries a Starfield spacesuit item in inventory");
             }
         }
     }
@@ -947,7 +915,8 @@ public static class FalloutActorLooks
                 throw new InvalidOperationException($"Expected 9b5327ff buggy plugin to fail >=4 C5 checks, got {probs2f.Count}");
         }
 
-        // Now apply C5 fix on a clean FO4SFMission.esm with staged Fallout 4 NIF paths + companion Sturges & CorvegaBoss NPCs
+        // Now apply C5 fix on a clean FO4SFMission.esm with staged Fallout 4 NIF paths + an unrelated FO4_Sturges NPC
+        // to prove C5 strictly scopes its mutations to Preston (0x801) and FO4_LvlRaider (0xF04800) only.
         var modFixed = new SF.StarfieldMod(missionKey, rel);
         modFixed.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         var prestonFixed = (SF.Npc)papa.Duplicate(new FormKey(missionKey, Mission.PrestonNpcId));
@@ -959,12 +928,15 @@ public static class FalloutActorLooks
         sturges.EditorID = "FO4_Sturges";
         modFixed.Npcs.Add(sturges);
 
-        var corvegaBoss = (SF.Npc)papa.Duplicate(new FormKey(missionKey, 0xA23));
-        corvegaBoss.EditorID = "FO4_CorvegaBoss";
-        modFixed.Npcs.Add(corvegaBoss);
-
         var models = new ActorLooksModels(StagedPrestonOutfitModel, StagedPrestonHatModel, StagedRaiderOutfitModel);
         ApplyActorLooks(modFixed, sf, raider, models);
+
+        if (!modFixed.Npcs[new FormKey(missionKey, 0xA00)].DefaultOutfit.IsNull ||
+            !modFixed.Npcs[new FormKey(missionKey, 0xA00)].SpaceOutfit.IsNull ||
+            modFixed.Npcs[new FormKey(missionKey, 0xA00)].UseTemplateActors != (SF.Npc.TemplateActorType)0x6C12)
+        {
+            throw new InvalidOperationException("ApplyActorLooks mutated non-C5 NPC FO4_Sturges");
+        }
 
         var pathFixed = Path.Combine(scratchDir, missionKey.FileName);
         modFixed.BeginWrite.ToPath(pathFixed).WithLoadOrder(lo)

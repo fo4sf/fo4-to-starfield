@@ -1,5 +1,5 @@
 """Round 10 Slice W3 (C5) unit tests: actor spacesuit stripping, FO4 outfit/face looks, SkinAttach rebind & HUD audit."""
-import os
+import json
 from pathlib import Path
 import re
 import shutil
@@ -43,7 +43,6 @@ def _make_synthetic_sf_human_template_nif(bone_names=("C_Chest", "C_Hips", "C_He
     sa_name_idx = nf.string_index(b"SkinAttach")
     sa_idx = nf.add_block("SkinAttach", stage_c5.build_skin_attach(sa_name_idx, bone_names))
 
-    # BSSkin::BoneData: u32 N + N * 68B (sphere 4f, identity rot 9f, zero tr 3f, scale 1f)
     ident_entry = struct.pack(
         "<4f9f3ff",
         0.0, 0.0, 0.0, 0.25,
@@ -69,24 +68,32 @@ def _make_synthetic_fo4_skinned_nif() -> bytes:
 
 
 class TestR10C5Looks(unittest.TestCase):
-    def test_skin_attach_roundtrip_and_human_rebind_synthetic(self):
+    def test_skin_attach_roundtrip_and_staged_bundle_verifier(self):
         tpl = _make_synthetic_sf_human_template_nif()
         fo4 = _make_synthetic_fo4_skinned_nif()
-        mat_path = "materials\\fo4port\\armor\\preston\\prestonbody1.mat"
+        preston_mat = "materials\\fo4port\\armor\\preston\\prestonbody1.mat"
+        hat_mat = "materials\\fo4port\\armor\\preston\\prestonhat1.mat"
+        raider_mat = stage_c5.EXISTING_FO4CORE_MATS["raider04"]
 
-        res = stage_c5.rebind_human_skin_attach(
-            tpl,
-            [("synthetic_preston.nif", fo4, {})],
-            unit_scale=stage_c5.FO4_TO_SF_HUMAN_SCALE,
-            weights_per_vertex=4,
-            default_material=mat_path,
+        res_body = stage_c5.rebind_human_skin_attach(
+            tpl, [("synthetic_preston.nif", fo4, {})],
+            unit_scale=stage_c5.FO4_TO_SF_HUMAN_SCALE, weights_per_vertex=4, default_material=preston_mat,
         )
-        out_nf = nifmod.parse(res.nif)
+        res_hat = stage_c5.rebind_human_skin_attach(
+            _make_synthetic_sf_human_template_nif(bone_names=("C_Head",)),
+            [("synthetic_hat.nif", fo4, {})],
+            unit_scale=stage_c5.FO4_TO_SF_HUMAN_SCALE, weights_per_vertex=1, default_material=hat_mat,
+        )
+        res_raider = stage_c5.rebind_human_skin_attach(
+            tpl, [("synthetic_raider.nif", fo4, {})],
+            unit_scale=stage_c5.FO4_TO_SF_HUMAN_SCALE, weights_per_vertex=4, default_material=raider_mat,
+        )
+
+        out_nf = nifmod.parse(res_body.nif)
         geoms = [i for i in range(len(out_nf.blocks)) if out_nf.type_of(i) == "BSGeometry"]
         self.assertEqual(len(geoms), 1)
         g = sfnif.parse_bsgeometry(out_nf.blocks[geoms[0]])
 
-        # Verify SkinAttach & BSSkin::Instance (-1 bone node indices) match
         sa_refs = [e for e in g.extra_refs if out_nf.type_of(e) == "SkinAttach"]
         self.assertEqual(len(sa_refs), 1)
         _, sa_bones = stage_c5.parse_skin_attach(out_nf.blocks[sa_refs[0]])
@@ -95,19 +102,16 @@ class TestR10C5Looks(unittest.TestCase):
         self.assertEqual(inst_bones, [-1] * 7)
         self.assertEqual(len(out_nf.blocks[bdata_idx]), 4 + 68 * 7)
 
-        # Verify MaterialID CRC32 & plain 12-byte shader block
         mat_id_refs = [
             e for e in g.extra_refs
             if out_nf.type_of(e) == "NiIntegerExtraData" and actor_rebind._name(out_nf, e) == "MaterialID"
         ]
         self.assertEqual(len(mat_id_refs), 1)
         got_crc, = struct.unpack_from("<I", out_nf.blocks[mat_id_refs[0]], 4)
-        self.assertEqual(got_crc, sfnif.material_id(mat_path))
+        self.assertEqual(got_crc, sfnif.material_id(preston_mat))
         self.assertEqual(len(out_nf.blocks[g.shader]), 12)
 
-        # Verify external BSMeshData v2 weights sum to 65535 per vertex and meshlets exist with zero tail
-        self.assertEqual(len(res.meshes), 1)
-        mesh_bytes = next(iter(res.meshes.values()))
+        mesh_bytes = next(iter(res_body.meshes.values()))
         sm = sfmesh.parse(mesh_bytes)
         self.assertEqual(sm.version, 2)
         self.assertEqual(sm.weights_per_vertex, 4)
@@ -121,6 +125,47 @@ class TestR10C5Looks(unittest.TestCase):
             self.assertEqual(sum(w for _, w in row), 65535)
             for sl, _ in row:
                 self.assertTrue(0 <= sl < len(sa_bones))
+
+        # Test verify_staged_c5_assets positive + negative missing-mesh / missing-texture detection
+        with tempfile.TemporaryDirectory(prefix="c5_stage_verify_") as tmp:
+            root = Path(tmp)
+            for rel, raw in (
+                (stage_c5.PRESTON_OUTFIT_REL, res_body.nif),
+                (stage_c5.PRESTON_HAT_REL, res_hat.nif),
+                (stage_c5.RAIDER_OUTFIT_REL, res_raider.nif),
+            ):
+                dst = root / "meshes" / Path(*rel.split("/"))
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(raw)
+            for res in (res_body, res_hat, res_raider):
+                for (d, f), mraw in res.meshes.items():
+                    mdst = root / "geometries" / d / f"{f}.mesh"
+                    mdst.parent.mkdir(parents=True, exist_ok=True)
+                    mdst.write_bytes(mraw)
+            tex_rel = "textures/fo4port/armor/preston/prestonbody1_color.dds"
+            tdst = root / Path(*tex_rel.split("/"))
+            tdst.parent.mkdir(parents=True, exist_ok=True)
+            tdst.write_bytes(b"DDS ")
+            for mrel in (preston_mat, hat_mat):
+                mp = root / Path(*mrel.replace("\\", "/").split("/"))
+                mp.parent.mkdir(parents=True, exist_ok=True)
+                mp.write_text(json.dumps({"Tex": tex_rel}), encoding="utf-8")
+
+            summary = stage_c5.verify_staged_c5_assets(str(root), require_preston_mats=True)
+            self.assertEqual(len(summary["nifs"]), 3)
+            self.assertIn(tex_rel, summary["local_textures"])
+
+            # Removing the referenced .dds texture must fail verify_staged_c5_assets
+            tdst.unlink()
+            with self.assertRaises(FileNotFoundError):
+                stage_c5.verify_staged_c5_assets(str(root), require_preston_mats=True)
+
+            # Removing a referenced .mesh must also fail verify_staged_c5_assets
+            tdst.write_bytes(b"DDS ")
+            any_mesh = next((root / "geometries").rglob("*.mesh"))
+            any_mesh.unlink()
+            with self.assertRaises(FileNotFoundError):
+                stage_c5.verify_staged_c5_assets(str(root), require_preston_mats=True)
 
     def test_bone_mapping_covers_fo4_preston_and_raider_skeleton(self):
         naked_bones = [
@@ -206,7 +251,6 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
             self.assertEqual(run_res.returncode, 0, f"C5 standalone selftest failed:\n{run_res.stdout}\n{run_res.stderr}")
             self.assertIn("C5_STANDALONE_SELFTEST_OK", run_res.stdout)
 
-            # Independently verify raw binary subrecords of 9b5327ff-buggy vs fixed FO4SFMission.esm in Python!
             with Plugin(str(esm_dir / "buggy2f" / "FO4SFMission.esm")) as p_buggy:
                 buggy_npcs = {r.formid: r for r in p_buggy.records("NPC_")}
                 preston_2f = next(r for r in buggy_npcs.values() if r.edid == "FO4_PrestonGarvey")
@@ -218,8 +262,6 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
                 otfts = {r.formid & 0xFFFFFF: r for r in p_fixed.records("OTFT")}
                 armos = {r.formid & 0xFFFFFF: r for r in p_fixed.records("ARMO")}
                 armas = {r.formid & 0xFFFFFF: r for r in p_fixed.records("ARMA")}
-                self.assertIn(0x980, otfts)
-                self.assertIn(0x988, otfts)
                 self.assertEqual(otfts[0x980].edid, "FO4_Outfit_PrestonMinuteman")
                 self.assertEqual(otfts[0x988].edid, "FO4_Outfit_ConcordRaider")
                 self.assertIn(0x981, armas)
@@ -233,13 +275,14 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
                 self.assertIn("FO4_PrestonGarvey", npcs_by_edid)
                 self.assertIn("FO4_LvlRaider", npcs_by_edid)
                 self.assertIn("FO4_Sturges", npcs_by_edid)
-                self.assertIn("FO4_CorvegaBoss", npcs_by_edid)
+
+                # Non-C5 NPCs (FO4_Sturges) must remain untouched (no SOFT/DOFT injected)
+                self.assertIsNone(npcs_by_edid["FO4_Sturges"].get(b"SOFT"))
+                self.assertIsNone(npcs_by_edid["FO4_Sturges"].get(b"DOFT"))
 
                 preston = npcs_by_edid["FO4_PrestonGarvey"]
-                doft_p = struct.unpack("<I", preston.get(b"DOFT"))[0] & 0xFFFFFF
-                soft_p = struct.unpack("<I", preston.get(b"SOFT"))[0] & 0xFFFFFF
-                self.assertEqual(doft_p, 0x980)
-                self.assertEqual(soft_p, 0x980)
+                self.assertEqual(struct.unpack("<I", preston.get(b"DOFT"))[0] & 0xFFFFFF, 0x980)
+                self.assertEqual(struct.unpack("<I", preston.get(b"SOFT"))[0] & 0xFFFFFF, 0x980)
                 self.assertGreaterEqual(preston.get(b"STON")[0], 5)
                 self.assertEqual((preston.get(b"HCOL") or b"").rstrip(b"\0"), b"Black")
                 self.assertEqual((preston.get(b"FHCL") or b"").rstrip(b"\0"), b"Black")
@@ -248,8 +291,7 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
                 self.assertAlmostEqual(mwgt[1], 0.3468, places=3)
                 self.assertAlmostEqual(mwgt[2], 0.2966, places=3)
 
-                # Verify AVIF 0x000B120E == 1.0f in PRPS (each entry is <IfI = 12 bytes: av_formid, value, curve)
-                for ed in ("FO4_PrestonGarvey", "FO4_LvlRaider", "FO4_Sturges", "FO4_CorvegaBoss"):
+                for ed in ("FO4_PrestonGarvey", "FO4_LvlRaider"):
                     prps = npcs_by_edid[ed].get(b"PRPS") or b""
                     self.assertEqual(len(prps) % 12, 0)
                     entries = [struct.unpack_from("<IfI", prps, off) for off in range(0, len(prps), 12)]
@@ -259,16 +301,20 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
                     )
 
                 raider_ov = npcs_by_edid["FO4_LvlRaider"]
-                # Master index 01 in standalone load order [Starfield.esm, FO4ActorRaider.esm] -> 0x01F04800
                 self.assertEqual(raider_ov.formid & 0xFFFFFF, 0xF04800)
                 self.assertEqual(struct.unpack("<I", raider_ov.get(b"DOFT"))[0] & 0xFFFFFF, 0x988)
                 self.assertEqual(struct.unpack("<I", raider_ov.get(b"SOFT"))[0] & 0xFFFFFF, 0x988)
 
     def test_c5_doc_and_source_hygiene(self):
+        self.assertFalse(
+            (REPO_ROOT / "docs" / "design" / "c5-actor-and-hud-looks.md").exists(),
+            "C5 report must live under docs/actors/c5-actor-and-hud-looks-report.md (not docs/design/)",
+        )
+        doc_path = REPO_ROOT / "docs" / "actors" / "c5-actor-and-hud-looks-report.md"
         owned = [
             REPO_ROOT / "dotnet" / "Mission" / "FalloutActorLooks.cs",
             REPO_ROOT / "scripts" / "actors" / "stage_c5_actor_looks.py",
-            REPO_ROOT / "docs" / "design" / "c5-actor-and-hud-looks.md",
+            doc_path,
             REPO_ROOT / "tests" / "test_r10_c5_looks.py",
         ]
         for path in owned:
@@ -280,9 +326,17 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
                 leaks = DRIVE_LEAK_RE.findall(text)
                 self.assertEqual(leaks, [], f"Local drive-letter path leak in {path.name}: {leaks}")
 
-        doc_text = (REPO_ROOT / "docs" / "design" / "c5-actor-and-hud-looks.md").read_text(encoding="utf-8")
+        doc_lines = doc_path.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(
+            doc_lines[0].startswith("Titles: Fallout 4") and "| Modes:" in doc_lines[0] and "| Track:" in doc_lines[0],
+            f"Line 1 lacks canonical Titles/Modes/Track header: {doc_lines[0]!r}",
+        )
+        self.assertIn("prototype, offline", doc_lines[0])
+
+        doc_text = "\n".join(doc_lines)
         for required_token in (
             "pushed, not run",
+            "Starfield chargen approximation, because the FO4 FaceGen head is not converted",
             "0x001A76BD",
             "0x0016D5E5",
             "0x00194ABF",
@@ -296,6 +350,7 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
             "O2Txt_mc",
             "CO2Txt_mc",
             "Planet_tf",
+            "## 5. Open Questions for the Owner",
         ):
             self.assertIn(required_token, doc_text, f"Missing required C5 audit token '{required_token}' in doc")
 

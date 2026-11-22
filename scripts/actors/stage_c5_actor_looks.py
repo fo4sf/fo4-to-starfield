@@ -569,17 +569,90 @@ def stage_c5_looks(
     if os.path.exists(staging):
         os.rmdir(staging)
     os.replace(partial, staging)
+    verify_staged_c5_assets(staging, require_preston_mats=conv is not None)
     return manifest
+
+
+def verify_staged_c5_assets(root_dir: str, require_preston_mats: bool = True) -> dict:
+    """Verify that a staged directory (or bundle Data root) contains all 3 C5 NIFs, every referenced external
+    geometries/<dir>/<file>.mesh, and every local fo4port .mat + .dds texture referenced by Preston's outfit/hat."""
+    checked_nifs: List[str] = []
+    checked_meshes: List[str] = []
+    checked_mats: List[str] = []
+    checked_textures: List[str] = []
+    fo4core_mats = {v.lower().replace("/", "\\") for v in EXISTING_FO4CORE_MATS.values()}
+
+    for nif_rel in (PRESTON_OUTFIT_REL, PRESTON_HAT_REL, RAIDER_OUTFIT_REL):
+        nif_disk = os.path.join(root_dir, "meshes", *nif_rel.split("/"))
+        if not os.path.isfile(nif_disk):
+            raise FileNotFoundError(f"Missing staged C5 NIF: {nif_disk}")
+        checked_nifs.append(posixpath.join("meshes", nif_rel))
+        with open(nif_disk, "rb") as fh:
+            nf = nifmod.parse(fh.read())
+        for i in range(len(nf.blocks)):
+            if nf.type_of(i) != "BSGeometry":
+                continue
+            g = sfnif.parse_bsgeometry(nf.blocks[i])
+            if g.meshes[0] is None:
+                raise ValueError(f"{nif_rel} BSGeometry[{i}] lacks LOD0 MeshRef")
+            m_rel = g.meshes[0].path.decode("latin-1").replace("\\", "/")
+            m_disk = os.path.join(root_dir, "geometries", *m_rel.split("/")) + ".mesh"
+            if not os.path.isfile(m_disk):
+                raise FileNotFoundError(f"{nif_rel} references missing external mesh: {m_disk}")
+            with open(m_disk, "rb") as mfh:
+                sm = sfmesh.parse(mfh.read())
+            if sm.weights_per_vertex < 1 or len(sm.tail) != 0:
+                raise ValueError(f"Invalid BSMeshData in {m_disk}: wpv={sm.weights_per_vertex}, tail={len(sm.tail)}")
+            checked_meshes.append(posixpath.join("geometries", f"{m_rel}.mesh"))
+
+            if g.shader >= 0:
+                sidx, = struct.unpack_from("<i", nf.blocks[g.shader], 0)
+                mat_rel_bs = nf.strings[sidx].decode("latin-1").replace("/", "\\")
+                if mat_rel_bs.lower() in fo4core_mats:
+                    continue
+                if mat_rel_bs == convert_static.PLACEHOLDER_MATERIAL and not require_preston_mats:
+                    continue
+                mat_rel = mat_rel_bs.replace("\\", "/")
+                mat_disk = os.path.join(root_dir, *mat_rel.split("/"))
+                if not os.path.isfile(mat_disk):
+                    raise FileNotFoundError(f"{nif_rel} references missing material: {mat_disk}")
+                checked_mats.append(mat_rel)
+                with open(mat_disk, encoding="utf-8") as mat_fh:
+                    mat_json = json.load(mat_fh)
+                # Verify any local textures/fo4port/*.dds referenced inside the .mat exist on disk
+                mat_text = json.dumps(mat_json)
+                for tok in set(mat_text.replace("\\\\", "/").replace("\\", "/").split('"')):
+                    tok_norm = tok[5:] if tok.lower().startswith("data/") else tok
+                    tl = tok_norm.lower()
+                    if tl.startswith("textures/fo4port/") and tl.endswith(".dds"):
+                        tex_disk = os.path.join(root_dir, *tok_norm.split("/"))
+                        if not os.path.isfile(tex_disk):
+                            raise FileNotFoundError(f"{mat_rel} references missing texture: {tex_disk}")
+                        checked_textures.append(tok_norm)
+
+    return {
+        "nifs": sorted(set(checked_nifs)),
+        "meshes": sorted(set(checked_meshes)),
+        "local_mats": sorted(set(checked_mats)),
+        "local_textures": sorted(set(checked_textures)),
+    }
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--fo4-data", required=True)
-    p.add_argument("--sf-data", required=True)
-    p.add_argument("--staging", required=True)
+    p.add_argument("--verify-only", default=None, help="Verify an already-staged directory or bundle Data root and exit")
+    p.add_argument("--fo4-data", default=None)
+    p.add_argument("--sf-data", default=None)
+    p.add_argument("--staging", default=None)
     p.add_argument("--content-resources", default=None)
     p.add_argument("--texconv", default=None)
     a = p.parse_args(argv)
+    if a.verify_only:
+        res = verify_staged_c5_assets(a.verify_only, require_preston_mats=True)
+        print(json.dumps(res, indent=2))
+        return 0
+    if not (a.fo4_data and a.sf_data and a.staging):
+        p.error("--fo4-data, --sf-data, and --staging are required unless --verify-only is passed")
     manifest = stage_c5_looks(a.fo4_data, a.sf_data, a.staging, a.content_resources, a.texconv)
     print(json.dumps({
         "preston_outfit_model": manifest["preston_outfit_model"],
