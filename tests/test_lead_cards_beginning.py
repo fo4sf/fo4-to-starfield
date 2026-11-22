@@ -50,6 +50,7 @@ CARD_PATHS: Tuple[str, ...] = (
     "docs/testing/candidate-2c-card.md",
     "docs/testing/candidate-2d-card.md",
     "docs/testing/candidate-2e-card.md",
+    "docs/testing/candidate-2f-card.md",
     "docs/testing/fo4-beginning-pilot.md",
     "docs/testing/sanctuary-workbench-card.md",
     "docs/testing/lead-run-order.md",
@@ -512,7 +513,7 @@ def validate_lead_card_markdown(
                     has_undo = True
 
                 if bundle_fixtures is not None:
-                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bcde]-[^>\s]+>)", cline)
+                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bcdef]-[^>\s]+>)", cline)
                     if m_ver:
                         b_ph = m_ver.group(1)
                         if b_ph not in bundle_fixtures:
@@ -777,6 +778,8 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
         "<cand2d-test-bundle>": cand2d_test,
         "<cand2e-player-bundle>": cand2d_player,
         "<cand2e-test-bundle>": cand2d_test,
+        "<cand2f-player-bundle>": cand2d_player,
+        "<cand2f-test-bundle>": cand2d_test,
         "<cand2d-t1-bases-only>": cand2b_player,
         "<cand2d-t1-ext-overrides-only>": cand2b_player,
         "<cand2-player-bundle>": cand2_broken,
@@ -1070,6 +1073,7 @@ class LeadCardsBeginningTests(unittest.TestCase):
                 "docs/testing/candidate-2c-card.md",
                 "docs/testing/candidate-2d-card.md",
                 "docs/testing/candidate-2e-card.md",
+                "docs/testing/candidate-2f-card.md",
                 "docs/testing/fo4-beginning-pilot.md",
                 "docs/testing/sanctuary-workbench-card.md",
                 "docs/testing/lead-run-order.md",
@@ -1183,6 +1187,80 @@ class LeadCardsBeginningTests(unittest.TestCase):
         joined = "\n".join(errs)
         self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
         self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
+
+    def test_r9_candidate_2f_card_structure_a1e_a6_a2_and_zero_mnv_guard(self) -> None:
+        c2f = (ROOT / "docs/testing/candidate-2f-card.md").read_text(encoding="utf-8")
+        headings = re.findall(r"(?m)^##\s+(Card\s+2f-\d+[^\r\n]*)$", c2f)
+        self.assertEqual(len(headings), 4)
+        self.assertTrue(headings[0].startswith("Card 2f-1"))
+        self.assertTrue(headings[1].startswith("Card 2f-2"))
+        self.assertTrue(headings[2].startswith("Card 2f-3"))
+        self.assertTrue(headings[3].startswith("Card 2f-4"))
+        for req in (
+            "<cand2f-player-bundle>",
+            "<cand2f-test-bundle>",
+            "33",
+            "Pool of 40",
+            "09000940",
+            "09000900",
+            "09000979",
+            "FO4SF_MissionTalkUseMessageBox",
+            "v111_pipboy_pickup.nif",
+            "v111_geardoor_console.nif",
+            "codsworth dialogue menu opened",
+            "preston dialogue menu opened",
+            "codsworth talk fallback=messagebox",
+            "preston talk fallback=messagebox",
+            "100009EC",
+            "040A775C",
+            "bat r9hop1",
+            "bat r9hop2",
+            "bat r9hop3",
+            "bat r9door",
+            "Throwaway_2f_Surface",
+            "Throwaway_2f_Sanctuary",
+            "Throwaway_2f_Concord",
+            "Throwaway_2f_MidWFC",
+            "Throwaway_2f_PostWFC",
+            "sanctuary01 reload stage=<st> complete=<c>",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "FO4SF_MapMarkersHop",
+            "100008F4",
+            "086edc15",
+        ):
+            self.assertIn(req, c2f, f"candidate-2f-card.md missing {req!r}")
+
+        # Negative P3 control: injecting 'v' (`sqv 09000800`) and stripped `set FO4SF_PipboyAcquired to 1` must fail.
+        bad_c2f = c2f.replace("\nsqs 09000800\n", "\nsqv 09000800\n", 1).replace(
+            "\nbat r9stat\n", "\nset FO4SF_PipboyAcquired to 1\n", 1
+        )
+        errs = validate_lead_card_markdown(
+            "docs/testing/candidate-2f-card.md",
+            bad_c2f,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
+        self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
+
+        # A2 console-free walk list must exist, stay path-leak free, and cover every historical console/batch point
+        a2_path = ROOT / "docs/testing/console-free-walk-list.md"
+        self.assertTrue(a2_path.is_file(), "missing docs/testing/console-free-walk-list.md")
+        a2_txt = a2_path.read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", a2_txt), "local path leaked in console-free-walk-list.md")
+        for req in ("u1pick", "u1cog", "r8csw", "r8prs", "PlatformRadius", "ReleaseStoryLandingFade", "ran in game", "pushed, not run", "B1", "B2", "B3", "B4", "086edc15"):
+            self.assertIn(req, a2_txt, f"console-free-walk-list.md missing {req!r}")
+        ki_txt = (ROOT / "docs/known-issues.md").read_text(encoding="utf-8")
+        for req in ("| `B1` |", "| `B2` |", "| `B3` |", "| `B4` |", "086edc15", "FO4SF_MapMarkersHop"):
+            self.assertIn(req, ki_txt, f"known-issues.md missing {req!r}")
 
     def test_h1_h5_run_sheet_bundle_verify_fixture_and_preflight_guard(self) -> None:
         port_p = str(self.bundle_fixtures["__port__"])
