@@ -2716,6 +2716,9 @@ Function CheckReturnLift(Actor player)
         if !player.IsInInterior()
             player.SetPosition(sx, sy, sz)
             player.SetAngle(0.0, 0.0, ArrivalHeading)
+            if player.GetWorldSpace() != None
+                arrivalWorld = player.GetWorldSpace()
+            endif
             returnSurfacePending = false
             returnSurfaceWaitTicks = 0
             returnSurfaceTries = 0
@@ -2787,16 +2790,14 @@ Function CheckReturnLift(Actor player)
         returnHasExteriorSample = false
         return
     endif
-    ObjectReference cAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
-    if cAnchor != None
-        int pCellMod = pCell.GetFormID() / 16777216
-        int cAnchorMod = cAnchor.GetFormID() / 16777216
-        if pCellMod != cAnchorMod
-            returnArmTicks = 0
-            returnHasExteriorSample = false
-            return
+    WorldSpace wantWorld = arrivalWorld
+    if wantWorld == None
+        ObjectReference cAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+        if cAnchor != None
+            wantWorld = cAnchor.GetWorldSpace()
         endif
-    elseif arrivalWorld != None && pWorld != arrivalWorld
+    endif
+    if wantWorld != None && pWorld != wantWorld
         returnArmTicks = 0
         returnHasExteriorSample = false
         return

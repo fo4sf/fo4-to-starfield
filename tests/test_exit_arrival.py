@@ -994,6 +994,31 @@ class ReturnLiftB3HopSpikeTests(unittest.TestCase):
         self.ns["CheckReturnLift"](self.player)
         self.assertTrue(self.ns["returnLiftArmed"])
 
+    def test_b3_unauthored_runtime_ff_exterior_cells_in_arrival_world_still_arm_cleanly(self):
+        # Unauthored exterior Commonwealth grid cells carry runtime temporary 0xFF00xxxx CELL FormIDs while keeping arrivalWorld
+        self.player.cell = SimpleNamespace(GetFormID=lambda: 0xFF00A492)
+        self.player.world = self.surface_world
+        self.player.pos = (-2450.0, -1406.92, 126.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertEqual(self.ns["returnArmTicks"], 1)
+        self.assertFalse(self.ns["returnLiftArmed"])
+
+        self.player.pos = (-2440.0, -1406.92, 125.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertTrue(self.ns["returnLiftArmed"])
+        self.assertTrue(self.ns["leftArrivalPad"])
+
+        # Fallback when arrivalWorld is None resolves wantWorld from ExitAnchorId
+        self.setUp()
+        self.ns["arrivalWorld"] = None
+        self.player.cell = SimpleNamespace(GetFormID=lambda: 0xFF00A492)
+        self.player.world = self.surface_world
+        self.player.pos = (-2450.0, -1406.92, 126.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.player.pos = (-2440.0, -1406.92, 125.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertTrue(self.ns["returnLiftArmed"])
+
 
 if __name__ == "__main__":
     unittest.main()
