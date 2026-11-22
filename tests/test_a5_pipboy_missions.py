@@ -240,7 +240,7 @@ class A5PipboyMissionTests(unittest.TestCase):
         arm_raise_fn = main_cpp[main_cpp.index("void ArmRaise(") : main_cpp.index("void ArmLower(")]
         self.assertIn("if (g_armPendingOpenN.load() != a_n || g_armShown.load())", arm_raise_fn)
         self.assertLess(
-            arm_raise_fn.index("g_armShowAt.store(NowMs() + g_armRaiseMs, std::memory_order_release);"),
+            arm_raise_fn.index("g_armShowAt = NowMs() + g_armRaiseMs;"),
             arm_raise_fn.index("g_armWaitingRaiseGraph.store(true, std::memory_order_release);"),
         )
         arm_tick_fn = main_cpp[main_cpp.index("void ArmTick(") : main_cpp.index("std::uint32_t KeyThread(")]

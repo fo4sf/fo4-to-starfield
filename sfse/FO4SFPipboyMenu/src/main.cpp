@@ -7188,7 +7188,7 @@ namespace
 			outcome == "1" ? 1 : 0, tries, NowMs() - g_raiseRetry.firstAt.load(), showLeadMs, SincePress());
 		// Store g_armShowAt BEFORE arming g_armWaitingRaiseGraph so an immediate ArmAnimGraphSink event cannot be overwritten.
 		if (outcome == "1") {
-			g_armShowAt.store(NowMs() + g_armRaiseMs, std::memory_order_release);
+			g_armShowAt = NowMs() + g_armRaiseMs;
 			g_armWaitingRaiseGraph.store(true, std::memory_order_release);
 		} else {
 			g_armWaitingRaiseGraph.store(false, std::memory_order_release);
