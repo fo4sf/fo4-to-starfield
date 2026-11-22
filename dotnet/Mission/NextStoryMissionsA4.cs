@@ -52,7 +52,7 @@ static class NextStoryMissionsA4
     public const uint Min01FoodCountId = 0xA08, Min01FoodTotalId = 0xA09, Min01FoodPercentId = 0xA0A;
     public const uint Min01SafetyCountId = 0xA0B, Min01SafetyTotalId = 0xA0C, Min01SafetyPercentId = 0xA0D;
     public const uint SturgesTalkMsgId = 0xA10, SturgesReply0MsgId = 0xA11, SturgesReply1MsgId = 0xA12,
-                      SturgesReply2MsgId = 0xA13, SturgesDoneMsgId = 0xA14;
+                      SturgesReply2MsgId = 0xA13, SturgesDoneMsgId = 0xA14, WorkbenchBuildMsgId = 0xA15;
 
     // The First Step (MinRecruit00): 0xA20..0xA4F
     public const uint MinRecruit00QuestId = 0xA20;
@@ -276,6 +276,9 @@ static class NextStoryMissionsA4
         var sturgesDone = AddMessage(mod, modKey, SturgesDoneMsgId, "FO4SF_Sanctuary01_SturgesDoneMsg",
             "Sturges", "Sanctuary has shelter, water, food, and defenses. Check in with Preston about nearby settlements.",
             "Finish");
+        var workbenchBuild = AddMessage(mod, modKey, WorkbenchBuildMsgId, "FO4SF_Sanctuary01_WorkbenchBuildMsg",
+            "Sanctuary Workbench", "Build supplies for Sanctuary settlers using the workshop bench.",
+            "Build Sheltered Bed (+1)", "Build Water Pump (+1)", "Plant Food Crops (+1)", "Build Settlement Defense (+1)", "Done");
 
         // Expand FO4SF_Sanctuary01 (0x000817) in place
         sanctuaryQuest.Name = "Sanctuary";
@@ -336,6 +339,7 @@ static class NextStoryMissionsA4
         SetProp(sEntry, "SturgesReply1Msg", sturgesReply1.FormKey);
         SetProp(sEntry, "SturgesReply2Msg", sturgesReply2.FormKey);
         SetProp(sEntry, "SturgesDoneMsg", sturgesDone.FormKey);
+        SetProp(sEntry, "WorkbenchBuildMsg", workbenchBuild.FormKey);
 
         // ------------------------------------------------------------------ 2. The First Step (MinRecruit00 -> 0x000A20)
         var tenpinesNpc = CloneHumanNpc(mod, modKey, TenpinesNpcId, "FO4_TenpinesSpokesman", "Tenpines Settler",
@@ -568,7 +572,13 @@ static class NextStoryMissionsA4
             need(ss is not null && ss.Properties.FirstOrDefault(p => p.Name == "XMarkerBase") is SF.IScriptObjectPropertyGetter xp &&
                  xp.Object.FormKey == new FormKey(sfEsm, 0x00003B),
                 "FO4SF_Sanctuary01 lacks FO4SF_Sanctuary01Quest with XMarkerBase -> Starfield.esm:00003B");
+            need(ss is not null && ss.Properties.FirstOrDefault(p => p.Name == "WorkbenchBuildMsg") is SF.IScriptObjectPropertyGetter wbp &&
+                 wbp.Object.FormKey == new FormKey(key, WorkbenchBuildMsgId),
+                "FO4SF_Sanctuary01 lacks WorkbenchBuildMsg -> 0x000A15");
         }
+        var wbMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, WorkbenchBuildMsgId));
+        need(wbMsg is { EditorID: "FO4SF_Sanctuary01_WorkbenchBuildMsg" } && wbMsg.MenuButtons.Count == 5,
+            "FO4SF_Sanctuary01_WorkbenchBuildMsg (0x000A15) missing or != 5 buttons");
         need(plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, Min01BedTotalId))?.Data == DefaultBedTotal &&
              plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, Min01WaterTotalId))?.Data == DefaultWaterTotal &&
              plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, Min01FoodTotalId))?.Data == DefaultFoodTotal &&

@@ -696,6 +696,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xA12, "MESG", "FO4SF_Sanctuary01_SturgesReply1Msg"),
             (0xA13, "MESG", "FO4SF_Sanctuary01_SturgesReply2Msg"),
             (0xA14, "MESG", "FO4SF_Sanctuary01_SturgesDoneMsg"),
+            (0xA15, "MESG", "FO4SF_Sanctuary01_WorkbenchBuildMsg"),
             (0xA20, "QUST", "FO4SF_MinRecruit00"),
             (0xA21, "NPC_", "FO4_TenpinesSpokesman"),
             (0xA22, "ACHR", "FO4SF_Tenpines_SpokesmanREF"),

@@ -549,6 +549,13 @@ Function Apply(int auiStageID, string by = "other")
                 StartTimer(5.0, 4)
             endif
         endif
+        if !IsWarfareMode()
+            Quest mq103Quest = Game.GetFormFromFile(0x000A50, "FO4SFMission.esm") as Quest
+            if mq103Quest != None && !mq103Quest.IsRunning() && !mq103Quest.IsCompleted()
+                bool startedMq103 = mq103Quest.StartNoWait()
+                Trace("mq103 start_requested ok=" + startedMq103)
+            endif
+        endif
     endif
 EndFunction
 
@@ -1068,6 +1075,7 @@ Event OnTimer(int aiTimerID)
     if relocateFails < 10
         Relocate(player)
     endif
+    CheckA4ProximityStarts(player)
     int rawStage = GetStage()
     int stage = EffectiveStage()
     if !min00Given && stage < 10 && IsCommonwealthExterior(player)
@@ -1281,9 +1289,39 @@ Function KeepCodsworth()
         if Codsworth != None && keeperChecks % KeeperStatusEvery == 0
             TraceCodsworth("keeper status")
         endif
+        CheckA4ProximityStarts(player)
     endif
     if (Codsworth != None && (codsworthFails < 10 || codsworthHolds > 0)) || (KeeperOnly && (prestonFails < 10 || prestonHolds > 0))
         StartTimer(CodsworthCheck, 2)
+    endif
+EndFunction
+
+Function CheckA4ProximityStarts(Actor player)
+{A4 console-free out-of-order proximity starts (JOTC-02 Diamond City gate & STEP Tenpines Bluff): active from Story
+ surface landing even if the player bypasses Concord or completes FO4SF_Min00.}
+    if player == None || player.IsInInterior() || IsWarfareMode()
+        return
+    endif
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float r2 = 150.0 * 150.0
+    float dcx = px - (-1416.36)
+    float dcy = py - (-3129.39)
+    if dcx * dcx + dcy * dcy <= r2
+        Quest mq103Quest = Game.GetFormFromFile(0x000A50, "FO4SFMission.esm") as Quest
+        if mq103Quest != None && !mq103Quest.IsRunning() && !mq103Quest.IsCompleted()
+            mq103Quest.StartNoWait()
+            Trace("mq103 started by=proximity")
+        endif
+    endif
+    float tpx = px - (-1517.0)
+    float tpy = py - (-1423.63)
+    if tpx * tpx + tpy * tpy <= r2
+        Quest stepQuest = Game.GetFormFromFile(0x000A20, "FO4SFMission.esm") as Quest
+        if stepQuest != None && !stepQuest.IsRunning() && !stepQuest.IsCompleted()
+            stepQuest.StartNoWait()
+            Trace("minrecruit00 started by=proximity")
+        endif
     endif
 EndFunction
 

@@ -2343,6 +2343,7 @@ static class Mission
             ("FO4SF_MQ103 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId))),
             ("FO4SF_MQ103 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
             ("Min01 BedTotal GLOB mutated", m => m.Globals[new FormKey(m.ModKey, NextStoryMissionsA4.Min01BedTotalId)].Data = 99f),
+            ("Sanctuary01 WorkbenchBuildMsg removed", m => m.Messages.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.WorkbenchBuildMsgId))),
         };
         foreach (var (name, edit) in mutations)
         {

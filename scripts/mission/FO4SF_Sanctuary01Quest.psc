@@ -29,6 +29,7 @@ Message Property SturgesReply0Msg Auto Const
 Message Property SturgesReply1Msg Auto Const
 Message Property SturgesReply2Msg Auto Const
 Message Property SturgesDoneMsg Auto Const
+Message Property WorkbenchBuildMsg Auto Const
 
 string LogName = "fo4sf_mission"
 string CorePlugin = "FO4TerrainCore.esm"
@@ -54,6 +55,7 @@ bool completed = False
 bool benchActivated = False
 bool sturgesHeld = False
 bool talkBoxOpen = False
+bool benchMenuOpen = False
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
@@ -247,10 +249,12 @@ EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    talkBoxOpen = False
+    benchMenuOpen = False
     int st = GetStage()
     Trace("sanctuary01 reload stage=" + st + " complete=" + completed)
-    if st == 100 && HasFullMin01() && !completed
-        ; Upgrade a saved legacy stub cleanly to stage 1500
+    if st == 100 && IsCompleted() && HasFullMin01() && !completed
+        ; Upgrade a saved legacy 2-stage stub cleanly to stage 1500
         AdvanceTo(1500, "legacy_compat")
         return
     endif
@@ -527,6 +531,66 @@ Function TryBindBench(Actor player)
     endif
 EndFunction
 
+Function RunWorkbenchBuildMenu()
+{Console-free Sanctuary workbench build menu (0xA15): increments Min01 Bed/Water/Food/Safety GLOBs (+1 per click),
+ refreshes percent GLOBs, and runs CheckMilestoneProgress so both normal Min01 and SANC-01 pre-building work via
+ keyboard+mouse without console commands.}
+    if completed || benchMenuOpen || IsWarfareMode()
+        return
+    endif
+    Message bm = ResolveMsg(WorkbenchBuildMsg, 0x000A15)
+    if bm == None
+        return
+    endif
+    benchMenuOpen = True
+    Trace("sanctuary01 bench build menu opened stage=" + GetStage())
+    int loops = 0
+    bool finishedMenu = False
+    while !finishedMenu && !completed && loops < 16
+        loops += 1
+        int btn = bm.Show()
+        if btn == 0
+            GlobalVariable gb = ResolveGlob(BedCount, 0x000A02)
+            if gb != None
+                float nv = gb.GetValue() + 1.0
+                gb.SetValue(nv)
+                UpdatePercent(gb, ResolveGlob(BedTotal, 0x000A03), ResolveGlob(BedPercent, 0x000A04), 5.0)
+                Trace("sanctuary01 bench build item=bed count=" + nv)
+            endif
+        elseif btn == 1
+            GlobalVariable gw = ResolveGlob(WaterCount, 0x000A05)
+            if gw != None
+                float nv = gw.GetValue() + 1.0
+                gw.SetValue(nv)
+                UpdatePercent(gw, ResolveGlob(WaterTotal, 0x000A06), ResolveGlob(WaterPercent, 0x000A07), 5.0)
+                Trace("sanctuary01 bench build item=water count=" + nv)
+            endif
+        elseif btn == 2
+            GlobalVariable gf = ResolveGlob(FoodCount, 0x000A08)
+            if gf != None
+                float nv = gf.GetValue() + 1.0
+                gf.SetValue(nv)
+                UpdatePercent(gf, ResolveGlob(FoodTotal, 0x000A09), ResolveGlob(FoodPercent, 0x000A0A), 5.0)
+                Trace("sanctuary01 bench build item=food count=" + nv)
+            endif
+        elseif btn == 3
+            GlobalVariable gs = ResolveGlob(SafetyCount, 0x000A0B)
+            if gs != None
+                float nv = gs.GetValue() + 1.0
+                gs.SetValue(nv)
+                UpdatePercent(gs, ResolveGlob(SafetyTotal, 0x000A0C), ResolveGlob(SafetyPercent, 0x000A0D), 2.0)
+                Trace("sanctuary01 bench build item=defense count=" + nv)
+            endif
+        else
+            finishedMenu = True
+        endif
+        if !finishedMenu
+            CheckMilestoneProgress(GetStage())
+        endif
+    endwhile
+    benchMenuOpen = False
+EndFunction
+
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if completed || akActionRef != Game.GetPlayer()
         return
@@ -539,7 +603,12 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     if boundBench != None && akSender == boundBench
         if GetStage() < 100
             CompleteSanctuaryObjective(akSender)
-        elseif IsSturgesDeadOrMissing()
+            if HasFullMin01() && !completed
+                RunWorkbenchBuildMenu()
+            endif
+            return
+        endif
+        if IsSturgesDeadOrMissing()
             ; Open-Mode workbench fallback advances resource report stages when Sturges is dead
             int cur = GetStage()
             if cur == 100
@@ -552,7 +621,11 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
                 AdvanceTo(1400, "open_mode")
             elseif cur == 1450
                 AdvanceTo(1500, "open_mode")
+                return
             endif
+        endif
+        if HasFullMin01() && !completed
+            RunWorkbenchBuildMenu()
         endif
     endif
 EndEvent

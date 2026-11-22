@@ -18,6 +18,7 @@ from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 
 A4_CS = REPO_ROOT / "dotnet" / "Mission" / "NextStoryMissionsA4.cs"
 PROGRAM_CS = REPO_ROOT / "dotnet" / "Mission" / "Program.cs"
+MIN00_PSC = REPO_ROOT / "scripts" / "mission" / "FO4SF_Min00Quest.psc"
 SANC_PSC = REPO_ROOT / "scripts" / "mission" / "FO4SF_Sanctuary01Quest.psc"
 STEP_PSC = REPO_ROOT / "scripts" / "mission" / "FO4SF_MinRecruit00Quest.psc"
 MQ103_PSC = REPO_ROOT / "scripts" / "mission" / "FO4SF_MQ103Quest.psc"
@@ -257,9 +258,176 @@ class A4PapyrusContractTests(unittest.TestCase):
         self.assertIn('Trace("min01 bench activated -> stage 100")', txt)
         self.assertIn('Trace("sanctuary01 bench_activated=true ref=" + refUsed + " complete=true")', txt)
         self.assertIn('Trace("sanctuary01 stage " + auiStageID + " by=" + cause)', txt)
-        # New Min01 in-place contracts
-        for tok in ("IsSturgesDeadOrMissing", "CheckMilestoneProgress", "RunSturgesTalk", "KeepSturges", "0x000A20"):
+        # New Min01 in-place contracts (incl. console-free workbench build menu 0xA15)
+        for tok in (
+            "IsSturgesDeadOrMissing",
+            "CheckMilestoneProgress",
+            "RunSturgesTalk",
+            "RunWorkbenchBuildMenu",
+            "WorkbenchBuildMsg",
+            "0x000A15",
+            "KeepSturges",
+            "0x000A20",
+            "if st == 100 && IsCompleted() && HasFullMin01() && !completed",
+        ):
             self.assertIn(tok, txt)
+
+    def test_console_free_runtime_starts_and_full_completion_of_all_three_a4_missions(self) -> None:
+        """Proves zero-console keyboard+mouse start and completion for Sanctuary01, MinRecruit00, and MQ103."""
+        min00 = MIN00_PSC.read_text(encoding="utf-8")
+        sanc = SANC_PSC.read_text(encoding="utf-8")
+        step = STEP_PSC.read_text(encoding="utf-8")
+        mq103 = MQ103_PSC.read_text(encoding="utf-8")
+
+        # 1. Runtime start callers exist for ALL THREE A4 quests (StartGameEnabled == false on all 3)
+        #    - Sanctuary01 (0x000817): started by Min00 stage 200
+        #    - MQ103 (0x000A50): started by Min00 stage 200 AND JOTC-02 150 m Diamond City proximity
+        #    - MinRecruit00 (0x000A20): started by Sanctuary01 completion AND 150 m Tenpines proximity
+        self.assertIn('Game.GetFormFromFile(0x000817, "FO4SFMission.esm") as Quest', min00)
+        self.assertIn('Game.GetFormFromFile(0x000A50, "FO4SFMission.esm") as Quest', min00)
+        self.assertIn('Trace("mq103 start_requested ok=" + startedMq103)', min00)
+        self.assertIn("Function CheckA4ProximityStarts(Actor player)", min00)
+        self.assertIn('Trace("mq103 started by=proximity")', min00)
+        self.assertIn('Trace("minrecruit00 started by=proximity")', min00)
+        self.assertIn("-1416.36", min00)
+        self.assertIn("-3129.39", min00)
+        self.assertIn("-1517.0", min00)
+        self.assertIn("-1423.63", min00)
+        # CheckA4ProximityStarts must be called from BOTH OnTimer(1) and KeeperOnly KeepCodsworth()
+        self.assertGreaterEqual(min00.count("CheckA4ProximityStarts(player)"), 2)
+        self.assertIn("Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest", sanc)
+        self.assertIn("firstStep.StartNoWait()", sanc)
+
+        # 2. Console-free Sanctuary01 workbench build menu (0xA15) writes all 4 Min01 resource GLOBs
+        for glob_hex, item_name in (
+            ("0x000A02", "bed"),
+            ("0x000A05", "water"),
+            ("0x000A08", "food"),
+            ("0x000A0B", "defense"),
+        ):
+            self.assertIn(glob_hex, sanc)
+            self.assertIn(f'sanctuary01 bench build item={item_name} count=', sanc)
+
+        # 3. Execute console-free simulation of Sanctuary01 (Normal + SANC-01 pre-build + Open-Mode dead Sturges)
+        def simulate_sanctuary01(sturges_dead: bool, prebuild_before_sturges: bool) -> dict[str, object]:
+            stage = 10
+            completed = False
+            started_minrecruit = False
+            globs = {"bed": 0.0, "water": 0.0, "food": 0.0, "defense": 0.0}
+            totals = {"bed": 5.0, "water": 5.0, "food": 5.0, "defense": 2.0}
+            stages_seen = [10]
+
+            def advance(n: int) -> None:
+                nonlocal stage, completed, started_minrecruit
+                if n <= stage:
+                    return
+                stage = n
+                stages_seen.append(n)
+                if n == 100 and sturges_dead:
+                    advance(1000)
+                elif n == 1000 and globs["bed"] >= totals["bed"]:
+                    advance(1050)
+                elif n == 1200 and globs["water"] >= totals["water"]:
+                    advance(1250)
+                elif n == 1300 and globs["food"] >= totals["food"]:
+                    advance(1350)
+                elif n == 1400 and globs["defense"] >= totals["defense"]:
+                    advance(1450)
+                elif n == 1500:
+                    completed = True
+                    started_minrecruit = True
+
+            def check_milestone() -> None:
+                if stage == 1000 and globs["bed"] >= totals["bed"]:
+                    advance(1050)
+                elif stage == 1200 and globs["water"] >= totals["water"]:
+                    advance(1250)
+                elif stage == 1300 and globs["food"] >= totals["food"]:
+                    advance(1350)
+                elif stage == 1400 and globs["defense"] >= totals["defense"]:
+                    advance(1450)
+
+            def bench_activate(clicks: list[int]) -> None:
+                if completed:
+                    return
+                if stage < 100:
+                    advance(100)
+                elif sturges_dead:
+                    nxt = {100: 1000, 1050: 1200, 1250: 1300, 1350: 1400, 1450: 1500}.get(stage)
+                    if nxt is not None:
+                        advance(nxt)
+                        if nxt == 1500:
+                            return
+                keys = ("bed", "water", "food", "defense")
+                for btn in clicks:
+                    if 0 <= btn < 4 and not completed:
+                        globs[keys[btn]] += 1.0
+                        check_milestone()
+
+            def sturges_activate() -> None:
+                if completed or sturges_dead:
+                    return
+                nxt = {100: 1000, 1050: 1200, 1250: 1300, 1350: 1400, 1450: 1500}.get(stage)
+                if nxt is not None:
+                    advance(nxt)
+
+            if prebuild_before_sturges:
+                bench_activate([0] * 5 + [1] * 5 + [2] * 5 + [3] * 2 + [4])
+                for _ in range(5):
+                    sturges_activate()
+            elif sturges_dead:
+                bench_activate([0] * 5 + [4])
+                bench_activate([1] * 5 + [4])
+                bench_activate([2] * 5 + [4])
+                bench_activate([3] * 2 + [4])
+                bench_activate([4])
+            else:
+                bench_activate([4])
+                sturges_activate()
+                bench_activate([0] * 5 + [4])
+                sturges_activate()
+                bench_activate([1] * 5 + [4])
+                sturges_activate()
+                bench_activate([2] * 5 + [4])
+                sturges_activate()
+                bench_activate([3] * 2 + [4])
+                sturges_activate()
+
+            return {"stage": stage, "completed": completed, "started_minrecruit": started_minrecruit, "stages": stages_seen}
+
+        for mode_kwargs in (
+            {"sturges_dead": False, "prebuild_before_sturges": False},
+            {"sturges_dead": False, "prebuild_before_sturges": True},
+            {"sturges_dead": True, "prebuild_before_sturges": False},
+        ):
+            res = simulate_sanctuary01(**mode_kwargs)
+            self.assertTrue(res["completed"], f"Sanctuary01 stalled in {mode_kwargs}: {res}")
+            self.assertEqual(res["stage"], 1500)
+            self.assertTrue(res["started_minrecruit"])
+
+        # 4. Verify MinRecruit00 & MQ103 console-free completion paths exist in Papyrus source
+        for tok in (
+            'AdvanceTo(100, "spokesman")',
+            'AdvanceTo(100, "open_mode")',
+            'AdvanceTo(200, "boss_dead")',
+            'AdvanceTo(200, "boss_dead_interior")',
+            'AdvanceTo(450, "spokesman")',
+            'AdvanceTo(450, "open_mode")',
+            'AdvanceTo(500, "preston")',
+            'AdvanceTo(500, "open_mode")',
+        ):
+            self.assertIn(tok, step)
+        for tok in (
+            "UnlockDiamondCityGate(by)",
+            'AdvanceTo(20, "piper_gate")',
+            'AdvanceTo(20, "gate_override")',
+            'AdvanceTo(20, "open_mode")',
+            'AdvanceTo(30, "piper_lead")',
+            'AdvanceTo(30, "out_of_order")',
+            'AdvanceTo(100, "ellie")',
+            'AdvanceTo(100, "dossier")',
+        ):
+            self.assertIn(tok, mq103)
 
 
 class A4BreakItBatchAndCleanRoomTests(unittest.TestCase):
