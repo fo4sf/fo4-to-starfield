@@ -150,10 +150,10 @@ class SaveReloadPathTests(unittest.TestCase):
         psc = CODSWORTH_PSC.read_text(encoding="utf-8")
         funcs = ("Actor.OnPlayerLoadGame", "SyncProgress")
         vars_csv = (
-            "dialogueMenuOpen, talkBoxOpen, choicesCount, completed, talkProxy, "
+            "dialogueMenuOpen, talkBoxOpen, codsworthTalkReloaded, choicesCount, completed, talkProxy, "
             "dialogueSeen, choice1Seen, choice2Seen, choice3Seen, choice4Seen, "
             "applied, pendingStage, pendingStageBy, "
-            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, sceneCheckTicks"
+            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, scenePhase1At, sceneCheckTicks"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(CODSWORTH_PSC), "exec")
 
@@ -178,9 +178,11 @@ class SaveReloadPathTests(unittest.TestCase):
                 LogName="fo4sf_mission",
                 dialogueMenuOpen=True,
                 talkBoxOpen=True,
+                codsworthTalkReloaded=False,
                 sceneTalkPending=True,
                 sceneMenuOpened=True,
                 scenePhase1Entered=True,
+                scenePhase1At=1.0,
                 sceneCheckTicks=5,
                 choicesCount=1 if 20 in done_stages else 0,
                 completed=completed,
@@ -251,11 +253,13 @@ class SaveReloadPathTests(unittest.TestCase):
         psc = MIN00_PSC.read_text(encoding="utf-8")
         funcs = ("Actor.OnPlayerLoadGame", "KeepCodsworthLoad", "Apply")
         vars_csv = (
-            "relocateFails, prestonHeld, prestonTalkBoxOpen, codsworthFails, codsworthKept, "
+            "relocateFails, prestonHeld, prestonTalkBoxOpen, prestonTalkReloaded, "
+            "talkActivated, talkStartedAt, talkNearSec, "
+            "codsworthFails, codsworthKept, "
             "codsworthHeld, prestonFails, prestonFollow, applied, min00Given, "
             "prestonUsedFallback, prestonTalkLogged, prestonOff, prestonState, prestonMoves, "
             "codsworthOff, codsworthState, codsworthMoves, "
-            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonSceneChecks"
+            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonPhase1At, prestonSceneChecks"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(MIN00_PSC), "exec")
 
@@ -305,11 +309,16 @@ class SaveReloadPathTests(unittest.TestCase):
                 CodsworthCheck=5.0,
                 relocateFails=7,
                 prestonHeld=True,
+                talkActivated=True,
+                talkStartedAt=1.0,
+                talkNearSec=1.0,
                 prestonTalkBoxOpen=True,
+                prestonTalkReloaded=False,
                 prestonDialogueMenuOpen=True,
                 prestonScenePending=True,
                 prestonSceneMenuOpened=True,
                 prestonScenePhase1=True,
+                prestonPhase1At=1.0,
                 prestonSceneChecks=4,
                 codsworthFails=8,
                 codsworthKept=False,
@@ -422,7 +431,10 @@ class SaveReloadPathTests(unittest.TestCase):
     def test_a6_sanctuary01_reload_and_completion_idempotency(self) -> None:
         psc = SANCTUARY_PSC.read_text(encoding="utf-8")
         funcs = ("Actor.OnPlayerLoadGame", "CompleteSanctuaryObjective")
-        vars_csv = "completed, boundBench, benchActivated"
+        vars_csv = (
+            "completed, boundBench, benchActivated, talkSessionId, talkBoxOpen, "
+            "benchMenuOpen, sturgesHeld, a4Upgraded, applied"
+        )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(SANCTUARY_PSC), "exec")
 
         def _make_sanc(*, stage: int, completed: bool, has_bench: bool):
@@ -443,10 +455,20 @@ class SaveReloadPathTests(unittest.TestCase):
                 completed=completed,
                 boundBench=old_bench,
                 benchActivated=completed,
+                talkSessionId=0,
+                talkBoxOpen=False,
                 benchMenuOpen=False,
+                sturgesHeld=False,
+                a4Upgraded=False,
+                applied=stage,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: ulogs.append(n)),
                 Game=SimpleNamespace(GetPlayer=lambda: player),
                 GetStage=lambda: stage,
+                EffectiveStage=lambda: stage,
+                IsRunning=lambda: True,
+                Start=lambda: None,
+                SetStage=lambda s: None,
+                StartMinRecruit00IfNeeded=lambda: None,
                 IsCompleted=lambda: completed,
                 HasFullMin01=lambda: False,
                 BindSturges=lambda: None,
