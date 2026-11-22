@@ -683,6 +683,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x940, "SCEN", "FO4SF_Codsworth01_Scene"),
             (0x941, "DIAL", "FO4SF_Codsworth01_GreetTopic"),
             (0x942, "INFO", "FO4SF_Codsworth01_GreetInfo"),
+            (0x970, "ACTI", "FO4SF_CodsworthTalkActi"),
             (0x979, "GLOB", "FO4SF_MissionTalkUseMessageBox"),
             # A4: Sanctuary01 (0x817 in place) + MinRecruit00 (0xA20) + MQ103 (0xA50)
             (0xA00, "NPC_", "FO4_Sturges"),

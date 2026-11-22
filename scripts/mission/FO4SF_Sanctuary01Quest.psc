@@ -49,6 +49,8 @@ float BindRadius = 300.0
 float SearchRadius = 15.0
 float BenchFallbackRadius = 3.0
 float BenchFallbackLimit = 120.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
 bool completed = False
@@ -63,6 +65,8 @@ int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference markerRef = None
+ObjectReference sturgesTalkProxy = None
+float sturgesNearSec = 0.0
 ObjectReference boundBench = None
 WorldSpace commonwealthWorld = None
 float benchNearSec = 0.0
@@ -273,20 +277,22 @@ Function StartMinRecruit00IfNeeded()
     endif
 EndFunction
 
-Function StartMq103StoryHandoffIfNeeded()
+Function StartPostOpeningHandoffs()
+{R1/R5: Only after Sanctuary01 finishes (matching Fallout 4's post-Sanctuary handoff) arm MinRecruit00 and MQ103.}
+    StartMinRecruit00IfNeeded()
     if IsWarfareMode()
         return
     endif
     Quest mq103Quest = Game.GetFormFromFile(0x000A50, MissionPlugin) as Quest
     if mq103Quest != None && !mq103Quest.IsRunning() && !mq103Quest.IsCompleted()
         bool startedMq103 = mq103Quest.StartNoWait()
-        Trace("sanctuary01 handoff mq103 start_requested ok=" + startedMq103)
+        Trace("sanctuary01 post_complete handoff mq103 start_requested ok=" + startedMq103)
     endif
 EndFunction
 
 Function FinishQuest(string by)
     if completed
-        StartMinRecruit00IfNeeded()
+        StartPostOpeningHandoffs()
         return
     endif
     completed = True
@@ -295,11 +301,16 @@ Function FinishQuest(string by)
         st.SetRestrained(False)
     endif
     sturgesHeld = False
+    if sturgesTalkProxy != None && !sturgesTalkProxy.IsDeleted()
+        sturgesTalkProxy.DisableNoWait(False)
+        sturgesTalkProxy.Delete()
+    endif
+    sturgesTalkProxy = None
     CompleteQuest()
     CancelTimer(1)
     CleanupMarker()
     Trace("sanctuary01 finished stage=" + EffectiveStage() + " by=" + by)
-    StartMinRecruit00IfNeeded()
+    StartPostOpeningHandoffs()
 EndFunction
 
 Event OnQuestStarted()
@@ -328,13 +339,12 @@ Function StartQuestInstance()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
-    BindSturges()
     AdvanceTo(10, "Trigger")
     EnsureGuideMarker(player)
     TryBindBench(player)
     SetObjectiveDisplayed(10, True, True)
     SetActive(True)
-    StartMq103StoryHandoffIfNeeded()
+    ; R1: Do NOT start FO4SF_MQ103 during the opening; First Settlement stays the sole active HUD objective.
     Trace("min01 objective 10 bench")
     Trace("sanctuary01 init stage=10 bench_ref=0x005C50")
     Trace("sanctuary01 min01_mode full_min01=" + HasFullMin01())
@@ -347,6 +357,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     talkBoxOpen = False
     benchMenuOpen = False
     sturgesHeld = False
+    sturgesNearSec = 0.0
     int st = EffectiveStage()
     Trace("sanctuary01 reload stage=" + st + " complete=" + completed)
     if st == 100 && IsCompleted() && HasFullMin01() && !a4Upgraded
@@ -374,10 +385,12 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
             boundBench = None
         endif
         Actor player = Game.GetPlayer()
-        BindSturges()
+        if st >= 100
+            BindSturges()
+            KeepSturges(player)
+        endif
         EnsureGuideMarker(player)
         TryBindBench(player)
-        KeepSturges(player)
         CheckMilestoneProgress(st)
         StartTimer(1.0, 1)
     endif
@@ -407,7 +420,10 @@ Event OnTimer(int aiTimerID)
     int st = EffectiveStage()
     if !completed
         Actor player = Game.GetPlayer()
-        KeepSturges(player)
+        if st >= 100
+            KeepSturges(player)
+            CheckSturgesTalkFallback(player, st)
+        endif
         if st >= 1000 && st < 1500
             CheckMilestoneProgress(st)
         endif
@@ -454,9 +470,18 @@ Function BindSturges()
 EndFunction
 
 Function KeepSturges(Actor player)
+    if EffectiveStage() < 100
+        ; R3: Sturges remains InitiallyDisabled during opening/stage 10 until workbench is activated
+        return
+    endif
     Actor st = ResolveSturges()
     if st == None || st.IsDead() || !IsCommonwealthExterior(player)
         return
+    endif
+    if st.IsDisabled()
+        st.EnableNoWait(False)
+        BindSturges()
+        Trace("sanctuary01 sturges enabled stage=" + EffectiveStage())
     endif
     if st.GetCombatState() != 0
         if sturgesHeld
@@ -482,6 +507,41 @@ Function KeepSturges(Actor player)
             sturgesHeld = True
             Trace("sanctuary01 keeper sturges placed held=true")
         endif
+        if sturgesTalkProxy == None || sturgesTalkProxy.IsDeleted()
+            Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            if talkActi != None
+                sturgesTalkProxy = st.PlaceAtMe(talkActi, 1, True, False, False)
+                if sturgesTalkProxy != None
+                    sturgesTalkProxy.MoveTo(st, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(sturgesTalkProxy, "OnActivate")
+                    Trace("sanctuary01 sturges talk_proxy spawned")
+                endif
+            endif
+        endif
+    endif
+EndFunction
+
+Function CheckSturgesTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Sturges is alive so a topicless OnActivate never stalls stages 100/1050/1250/1350/1450.}
+    if talkBoxOpen || benchMenuOpen || player == None
+        sturgesNearSec = 0.0
+        return
+    endif
+    bool talkStage = (st == 100 || st == 1050 || st == 1250 || st == 1350 || st == 1450)
+    Actor stActor = ResolveSturges()
+    if !talkStage || stActor == None || stActor.IsDead() || stActor.IsDisabled() || !stActor.Is3DLoaded()
+        sturgesNearSec = 0.0
+        return
+    endif
+    if player.GetDistance(stActor) <= TalkFallbackRadius
+        sturgesNearSec += 1.0
+        if sturgesNearSec >= TalkFallbackSeconds
+            sturgesNearSec = 0.0
+            Trace("sanctuary01 talk_fallback actor=sturges stage=" + st + " near_sec=" + TalkFallbackSeconds)
+            RunSturgesTalk()
+        endif
+    else
+        sturgesNearSec = 0.0
     endif
 EndFunction
 
@@ -576,6 +636,13 @@ Function RunSturgesTalk()
         AdvanceTo(1300, "sturges")
     elseif st == 1350
         AdvanceTo(1400, "sturges")
+    elseif st == 1000 || st == 1200 || st == 1300 || st == 1400
+        ; R2/R8: Stand-in build counter only via Sturges (never over the real workshop on bench OnActivate)
+        if mySession == talkSessionId
+            talkBoxOpen = False
+        endif
+        RunWorkbenchBuildMenu()
+        return
     elseif st == 1450
         bool doneOk = True
         Message mDone = ResolveMsg(SturgesDoneMsg, 0x000A14)
@@ -685,6 +752,7 @@ Function RunWorkbenchBuildMenu()
     endif
     benchMenuOpen = True
     int mySession = talkSessionId
+    Trace("sanctuary01 stand_in_build_menu opened stage=" + EffectiveStage())
     Trace("sanctuary01 bench build menu opened stage=" + EffectiveStage())
     int loops = 0
     bool finishedMenu = False
@@ -742,17 +810,15 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     Actor st = ResolveSturges()
-    if st != None && akSender == st
+    if (st != None && akSender == st) || (sturgesTalkProxy != None && akSender == sturgesTalkProxy)
         RunSturgesTalk()
         return
     endif
     if boundBench != None && akSender == boundBench
         int cur = EffectiveStage()
         if cur < 100
+            ; R2: Never pop a modal menu over the real workshop on bench activation.
             CompleteSanctuaryObjective(akSender)
-            if HasFullMin01() && !completed
-                RunWorkbenchBuildMenu()
-            endif
             return
         endif
         if IsSturgesDeadOrMissing()
@@ -770,7 +836,9 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
                 return
             endif
         endif
-        if HasFullMin01() && !completed
+        ; R2: Only open stand-in counter on bench activation when explicitly opted in via TestMode + Sturges dead
+        GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+        if HasFullMin01() && !completed && IsSturgesDeadOrMissing() && tm != None && tm.GetValue() != 0.0
             RunWorkbenchBuildMenu()
         endif
     endif
@@ -788,8 +856,13 @@ Function CompleteSanctuaryObjective(ObjectReference refUsed)
     endif
     benchActivated = True
     Trace("min01 bench activated -> stage 100")
-    Trace("sanctuary01 bench_activated=true ref=" + refUsed + " complete=true")
     AdvanceTo(100, "bench")
+    ; R2: Only log complete=true when CompleteQuest() truly completed the quest (legacy stub); otherwise log complete=false honestly.
+    if completed
+        Trace("sanctuary01 bench_activated=true ref=" + refUsed + " complete=true")
+    else
+        Trace("sanctuary01 bench_activated=true ref=" + refUsed + " complete=false stage=" + EffectiveStage())
+    endif
 EndFunction
 
 Function Trace(string msg)

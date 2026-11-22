@@ -348,8 +348,9 @@ class A4PapyrusContractTests(unittest.TestCase):
         self.assertIn("PickFemaleVoice(", a4_cs)
         self.assertIn("SF.Npc.Flag.Female", a4_cs)
 
-        # 6. Sanctuary01 hands off MQ103 too + Min00 proximity start guarded against 1 Hz RunOnce spam
-        self.assertIn("StartMq103StoryHandoffIfNeeded()", sanc)
+        # 6. R1: Sanctuary01 does NOT start MQ103 during the opening (only via StartPostOpeningHandoffs on completion)
+        self.assertIn("StartPostOpeningHandoffs()", sanc)
+        self.assertNotIn("StartMq103StoryHandoffIfNeeded()", sanc)
         self.assertIn("bool mq103ProxAttempted = False", min00)
         self.assertIn("bool minRecruitProxAttempted = False", min00)
 
@@ -362,11 +363,10 @@ class A4PapyrusContractTests(unittest.TestCase):
 
         # 1. Runtime start callers exist for ALL THREE A4 quests (StartGameEnabled == false on all 3)
         #    - Sanctuary01 (0x000817): started by Min00 stage 200
-        #    - MQ103 (0x000A50): started by Min00 stage 200 AND JOTC-02 150 m Diamond City proximity
+        #    - MQ103 (0x000A50): started by Sanctuary01 completion (R1) AND JOTC-02 150 m Diamond City proximity
         #    - MinRecruit00 (0x000A20): started by Sanctuary01 completion AND 150 m Tenpines proximity
         self.assertIn('Game.GetFormFromFile(0x000817, "FO4SFMission.esm") as Quest', min00)
-        self.assertIn('Game.GetFormFromFile(0x000A50, "FO4SFMission.esm") as Quest', min00)
-        self.assertIn('Trace("mq103 start_requested ok=" + startedMq103)', min00)
+        self.assertIn('Game.GetFormFromFile(0x000A50, MissionPlugin) as Quest', sanc)
         self.assertIn("Function CheckA4ProximityStarts(Actor player)", min00)
         self.assertIn('Trace("mq103 started by=proximity")', min00)
         self.assertIn('Trace("minrecruit00 started by=proximity")', min00)
@@ -374,8 +374,7 @@ class A4PapyrusContractTests(unittest.TestCase):
         self.assertIn("-3129.39", min00)
         self.assertIn("-1517.0", min00)
         self.assertIn("-1423.63", min00)
-        # CheckA4ProximityStarts must be called from BOTH OnTimer(1) and KeeperOnly KeepCodsworth()
-        self.assertGreaterEqual(min00.count("CheckA4ProximityStarts(player)"), 2)
+        self.assertIn("CheckA4ProximityStarts(player)", min00)
         self.assertIn("Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest", sanc)
         self.assertIn("firstStep.StartNoWait()", sanc)
 

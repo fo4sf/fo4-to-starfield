@@ -53,17 +53,47 @@ float MergeOffsetY = -2700.0
 float PlaceRadius = 300.0
 float ParkEntryRadius = 80.0
 float ExitDoorOverrideSeconds = 5.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
 bool completed = False
 bool actorsPlaced = False
+bool maloneEnabled = False
 bool talkOpen = False
 int talkSessionId = 0
 bool escapeOverrideLogged = False
 float escapeWaitSeconds = 0.0
+float talkNearSec = 0.0
 int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
+ObjectReference nickTalkProxy = None
+ObjectReference maloneTalkProxy = None
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function CheckPredecessorGate(Actor player)
+{R5: MQ104 starts only after MQ103 completes (or FO4SF_MQ104Armed >= 1), or direct Vault 114 entry, or TestMode.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    GlobalVariable armed = Game.GetFormFromFile(0x000A58, MissionPlugin) as GlobalVariable
+    if armed != None && armed.GetValue() >= 1.0
+        return True
+    endif
+    Quest mq103 = Game.GetFormFromFile(0x000A50, MissionPlugin) as Quest
+    if mq103 != None && (mq103.IsCompleted() || mq103.GetStage() >= 100)
+        return True
+    endif
+    if player != None && IsInVault114Cell(player)
+        return True
+    endif
+    return False
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -301,10 +331,16 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    Actor player = Game.GetPlayer()
+    if !CheckPredecessorGate(player)
+        Trace("mq104 gate_deferred reason=mq103_incomplete")
+        instanceStarted = False
+        Stop()
+        return
+    endif
     if !IsRunning()
         Start()
     endif
-    Actor player = Game.GetPlayer()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
@@ -322,6 +358,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
+    talkNearSec = 0.0
     int st = EffectiveStage()
     Trace("mq104 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -383,6 +420,7 @@ Function PlaceExteriorActors(Actor player)
     if !IsCommonwealthExterior(player)
         return
     endif
+    int st = EffectiveStage()
     float snapX = player.GetPositionX()
     float snapY = player.GetPositionY()
     float snapZ = player.GetPositionZ()
@@ -391,6 +429,10 @@ Function PlaceExteriorActors(Actor player)
     float pz = ParkStreetLocalZ
     Actor nick = ResolveNick()
     if nick != None && !nick.IsDead()
+        if nick.IsDisabled()
+            nick.EnableNoWait(False)
+            BindActors()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -400,33 +442,64 @@ Function PlaceExteriorActors(Actor player)
             nick.SetRestrained(True)
         endif
         nick.AllowPCDialogue(True)
+        if nickTalkProxy == None || nickTalkProxy.IsDeleted()
+            Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            if talkActi != None
+                nickTalkProxy = nick.PlaceAtMe(talkActi, 1, True, False, False)
+                if nickTalkProxy != None
+                    nickTalkProxy.MoveTo(nick, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(nickTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
-    float ex = VaultExitLocalX + MergeOffsetX
-    float ey = VaultExitLocalY + MergeOffsetY
-    float ez = VaultExitLocalZ
-    Actor mal = ResolveMalone()
-    if mal != None && !mal.IsDead()
-        if !IsPlayerStableAt(player, snapX, snapY, snapZ)
-            return
+    if st >= 60
+        float ex = VaultExitLocalX + MergeOffsetX
+        float ey = VaultExitLocalY + MergeOffsetY
+        float ez = VaultExitLocalZ
+        Actor mal = ResolveMalone()
+        if mal != None && !mal.IsDead()
+            if mal.IsDisabled()
+                mal.EnableNoWait(False)
+                BindActors()
+            endif
+            if !IsPlayerStableAt(player, snapX, snapY, snapZ)
+                return
+            endif
+            mal.SetRestrained(False)
+            mal.MoveTo(player, ex - snapX, ey - snapY, ez - snapZ, False, False)
+            if mal.GetCombatState() == 0
+                mal.SetRestrained(True)
+            endif
+            mal.AllowPCDialogue(True)
+            if maloneTalkProxy == None || maloneTalkProxy.IsDeleted()
+                Activator mActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+                if mActi != None
+                    maloneTalkProxy = mal.PlaceAtMe(mActi, 1, True, False, False)
+                    if maloneTalkProxy != None
+                        maloneTalkProxy.MoveTo(mal, 0.0, 0.0, 1.0, False, False)
+                        RegisterForRemoteEvent(maloneTalkProxy, "OnActivate")
+                    endif
+                endif
+            endif
         endif
-        mal.SetRestrained(False)
-        mal.MoveTo(player, ex - snapX, ey - snapY, ez - snapZ, False, False)
-        if mal.GetCombatState() == 0
-            mal.SetRestrained(True)
+        Actor dar = ResolveDarla()
+        if dar != None && !dar.IsDead()
+            if dar.IsDisabled()
+                dar.EnableNoWait(False)
+                BindActors()
+            endif
+            if !IsPlayerStableAt(player, snapX, snapY, snapZ)
+                return
+            endif
+            dar.SetRestrained(False)
+            dar.MoveTo(player, (ex + 2.5) - snapX, (ey + 1.0) - snapY, ez - snapZ, False, False)
+            if dar.GetCombatState() == 0
+                dar.SetRestrained(True)
+            endif
+            dar.AllowPCDialogue(True)
         endif
-        mal.AllowPCDialogue(True)
-    endif
-    Actor dar = ResolveDarla()
-    if dar != None && !dar.IsDead()
-        if !IsPlayerStableAt(player, snapX, snapY, snapZ)
-            return
-        endif
-        dar.SetRestrained(False)
-        dar.MoveTo(player, (ex + 2.5) - snapX, (ey + 1.0) - snapY, ez - snapZ, False, False)
-        if dar.GetCombatState() == 0
-            dar.SetRestrained(True)
-        endif
-        dar.AllowPCDialogue(True)
+        maloneEnabled = True
     endif
     if !IsPlayerStableAt(player, snapX, snapY, snapZ)
         return
@@ -466,7 +539,7 @@ Event OnTimer(int aiTimerID)
             float dx = player.GetPositionX() - px
             float dy = player.GetPositionY() - py
             float d2 = dx * dx + dy * dy
-            if d2 <= PlaceRadius * PlaceRadius && !actorsPlaced
+            if d2 <= PlaceRadius * PlaceRadius && (!actorsPlaced || (st >= 60 && !maloneEnabled))
                 PlaceExteriorActors(player)
             endif
             if st == 10 && d2 <= ParkEntryRadius * ParkEntryRadius
@@ -520,11 +593,101 @@ Event OnTimer(int aiTimerID)
                 nick.MoveTo(player, 2.0, 0.0, 0.0, False, False)
             endif
         endif
+        CheckTalkFallback(player, st)
     endif
     if !completed
         StartTimer(1.0, 1)
     endif
 EndEvent
+
+Function RunNickTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int myTalkSession = talkSessionId
+    if st < 60
+        int btn = 0
+        if NickCellTalkMsg != None
+            btn = NickCellTalkMsg.Show()
+            Trace("mq104 nick cell choice button=" + btn)
+        endif
+        if talkSessionId == myTalkSession && btn >= 0 && btn != 3
+            AdvanceTo(40, "nick_cell")
+            AdvanceTo(60, "nick_cell")
+        endif
+    elseif st == 60
+        AdvanceTo(85, "nick_escape")
+    elseif st >= 100
+        int dbtn = 0
+        if DebriefMsg != None
+            dbtn = DebriefMsg.Show()
+        endif
+        if talkSessionId == myTalkSession && dbtn >= 0
+            AdvanceTo(200, "nick_debrief")
+        endif
+    endif
+    talkOpen = False
+EndFunction
+
+Function RunMaloneTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int myTalkSession = talkSessionId
+    if st < 85
+        AdvanceTo(85, "out_of_order")
+    endif
+    if MaloneTalkMsg != None
+        int mbtn = MaloneTalkMsg.Show()
+        Trace("mq104 malone confrontation choice button=" + mbtn)
+        if talkSessionId == myTalkSession && mbtn >= 0 && mbtn != 3
+            if mbtn == 0 || mbtn == 1
+                ReleaseAllActors()
+                AdvanceTo(100, "persuade")
+            elseif mbtn == 2
+                ReleaseAllActors()
+            endif
+        endif
+    else
+        ReleaseAllActors()
+        AdvanceTo(100, "persuade")
+    endif
+    talkOpen = False
+EndFunction
+
+Function CheckTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Nick or Malone is alive so topicless OnActivate never stalls.}
+    if talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    if st < 60 || st >= 100
+        Actor nick = ResolveNick()
+        if nick != None && !nick.IsDead() && !nick.IsDisabled() && nick.Is3DLoaded() && player.GetDistance(nick) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq104 talk_fallback actor=nick stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                RunNickTalk(st)
+            endif
+            return
+        endif
+    elseif st == 85
+        Actor mal = ResolveMalone()
+        if mal != None && !mal.IsDead() && !mal.IsDisabled() && mal.Is3DLoaded() && player.GetDistance(mal) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq104 talk_fallback actor=malone stage=85 near_sec=" + TalkFallbackSeconds)
+                RunMaloneTalk(st)
+            endif
+            return
+        endif
+    endif
+    talkNearSec = 0.0
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if completed || akActionRef != Game.GetPlayer() || talkOpen
@@ -535,54 +698,10 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     Actor mal = ResolveMalone()
     Actor dar = ResolveDarla()
 
-    if nick != None && akSender == nick
-        talkOpen = True
-        int myTalkSession = talkSessionId
-        if st < 60
-            int btn = 0
-            if NickCellTalkMsg != None
-                btn = NickCellTalkMsg.Show()
-                Trace("mq104 nick cell choice button=" + btn)
-            endif
-            if talkSessionId == myTalkSession && btn >= 0 && btn != 3
-                AdvanceTo(40, "nick_cell")
-                AdvanceTo(60, "nick_cell")
-            endif
-        elseif st == 60
-            AdvanceTo(85, "nick_escape")
-        elseif st >= 100
-            int dbtn = 0
-            if DebriefMsg != None
-                dbtn = DebriefMsg.Show()
-            endif
-            if talkSessionId == myTalkSession && dbtn >= 0
-                AdvanceTo(200, "nick_debrief")
-            endif
-        endif
-        talkOpen = False
-    elseif (mal != None && akSender == mal) || (dar != None && akSender == dar)
-        talkOpen = True
-        int myTalkSession = talkSessionId
-        if st < 85
-            AdvanceTo(85, "out_of_order")
-        endif
-        if MaloneTalkMsg != None
-            int mbtn = MaloneTalkMsg.Show()
-            Trace("mq104 malone confrontation choice button=" + mbtn)
-            if talkSessionId == myTalkSession && mbtn >= 0 && mbtn != 3
-                if mbtn == 0 || mbtn == 1
-                    ReleaseAllActors()
-                    AdvanceTo(100, "persuade")
-                elseif mbtn == 2
-                    ; Combat option chosen; release Malone & Darla to fight
-                    ReleaseAllActors()
-                endif
-            endif
-        else
-            ReleaseAllActors()
-            AdvanceTo(100, "persuade")
-        endif
-        talkOpen = False
+    if (nick != None && akSender == nick) || (nickTalkProxy != None && akSender == nickTalkProxy)
+        RunNickTalk(st)
+    elseif (mal != None && akSender == mal) || (dar != None && akSender == dar) || (maloneTalkProxy != None && akSender == maloneTalkProxy)
+        RunMaloneTalk(st)
     endif
 EndEvent
 

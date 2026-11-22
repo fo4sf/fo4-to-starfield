@@ -41,6 +41,8 @@ float PlaceRadius = 300.0
 float SearchRadius = 15.0
 float BossEngageRadius = 80.0
 float BossMinZ = 35.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
 bool completed = False
@@ -52,7 +54,30 @@ int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference tenpinesBench = None
+ObjectReference spokesmanTalkProxy = None
+float talkNearSec = 0.0
 WorldSpace commonwealthWorld = None
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function CheckPredecessorGate()
+{R5: MinRecruit00 starts only after Min00 finishes (stage >= 200) and Sanctuary01 has reached bench/completion, unless TestMode is on.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    Quest min00 = Game.GetFormFromFile(0x000800, MissionPlugin) as Quest
+    if min00 != None && !min00.IsCompleted() && min00.GetStage() < 200
+        return False
+    endif
+    Quest sanc = Game.GetFormFromFile(0x000817, MissionPlugin) as Quest
+    if sanc != None && !sanc.IsCompleted() && sanc.GetStage() < 100
+        return False
+    endif
+    return True
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -253,6 +278,12 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !CheckPredecessorGate()
+        Trace("minrecruit00 gate_deferred reason=opening_incomplete")
+        instanceStarted = False
+        Stop()
+        return
+    endif
     if !IsRunning()
         Start()
     endif
@@ -273,6 +304,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     talkOpen = False
     spokesmanHeld = False
     bossPlaced = False
+    talkNearSec = 0.0
     int st = EffectiveStage()
     Trace("minrecruit00 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -347,9 +379,14 @@ Event OnTimer(int aiTimerID)
     endif
     Actor player = Game.GetPlayer()
     if IsCommonwealthExterior(player)
-        ; Keep Tenpines spokesman placed when player approaches within PlaceRadius; release in combat
+        ; R3: Enable and place Tenpines spokesman only when mission is at stage >= 50 and player is within PlaceRadius
         Actor sp = ResolveSpokesman()
-        if sp != None && !sp.IsDead()
+        if st >= 50 && sp != None && !sp.IsDead()
+            if sp.IsDisabled()
+                sp.EnableNoWait(False)
+                BindRefs()
+                Trace("minrecruit00 spokesman enabled stage=" + st)
+            endif
             if sp.GetCombatState() != 0
                 if spokesmanHeld
                     sp.SetRestrained(False)
@@ -372,12 +409,22 @@ Event OnTimer(int aiTimerID)
                         spokesmanHeld = True
                         Trace("minrecruit00 tenpines spokesman placed")
                     endif
+                    if spokesmanTalkProxy == None || spokesmanTalkProxy.IsDeleted()
+                        Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+                        if talkActi != None
+                            spokesmanTalkProxy = sp.PlaceAtMe(talkActi, 1, True, False, False)
+                            if spokesmanTalkProxy != None
+                                spokesmanTalkProxy.MoveTo(sp, 0.0, 0.0, 1.0, False, False)
+                                RegisterForRemoteEvent(spokesmanTalkProxy, "OnActivate")
+                            endif
+                        endif
+                    endif
                 endif
             endif
         endif
-        ; Keep Corvega boss placed & guarded against subterranean clipping (STEP-02 pre-clear & STEP-03 leash)
+        ; R3: Enable Corvega boss ONLY at stage >= 100 (never during opening / stage 50)
         Actor boss = ResolveBoss()
-        if boss != None
+        if st >= 100 && boss != None
             if boss.IsDead()
                 if st == 100
                     AdvanceTo(200, "boss_dead")
@@ -390,6 +437,10 @@ Event OnTimer(int aiTimerID)
                 float bdy = player.GetPositionY() - cy
                 float bd2 = bdx * bdx + bdy * bdy
                 if bd2 <= PlaceRadius * PlaceRadius
+                    if boss.IsDisabled()
+                        boss.EnableNoWait(False)
+                        Trace("minrecruit00 corvega boss enabled stage=" + st)
+                    endif
                     if !bossPlaced || boss.GetPositionZ() < BossMinZ
                         boss.SetRestrained(False)
                         boss.MoveTo(player, cx - player.GetPositionX(), cy - player.GetPositionY(), cz - player.GetPositionZ(), False, False)
@@ -403,6 +454,7 @@ Event OnTimer(int aiTimerID)
                 endif
             endif
         endif
+        CheckTalkFallback(player, st)
     elseif st == 100
         ; Also poll boss death inside CorvegaAssemblyPlant01 interior
         Actor bossIn = ResolveBoss()
@@ -418,6 +470,86 @@ Event OnTimer(int aiTimerID)
     endif
 EndEvent
 
+Function RunSpokesmanTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int mySession = talkSessionId
+    if st == 50
+        bool accepted = True
+        if TalkMsg != None
+            accepted = False
+            int steps = 0
+            bool doneLoop = False
+            while !doneLoop && steps < 8 && mySession == talkSessionId
+                steps += 1
+                int btn = TalkMsg.Show()
+                Trace("minrecruit00 tenpines choice button=" + btn)
+                if btn < 0 || btn == 3 || mySession != talkSessionId
+                    doneLoop = True
+                elseif btn == 2
+                    if BriefMsg != None
+                        BriefMsg.Show()
+                    endif
+                    accepted = True
+                    doneLoop = True
+                elseif BriefMsg != None
+                    BriefMsg.Show()
+                endif
+            endwhile
+        endif
+        if accepted && mySession == talkSessionId
+            AdvanceTo(100, "spokesman")
+        endif
+    elseif st == 200
+        bool rwOk = True
+        if RewardMsg != None
+            if RewardMsg.Show() < 0
+                rwOk = False
+            endif
+        endif
+        if rwOk && mySession == talkSessionId
+            AdvanceTo(450, "spokesman")
+        endif
+    endif
+    if mySession == talkSessionId
+        talkOpen = False
+    endif
+EndFunction
+
+Function CheckTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Tenpines spokesman or Preston is alive so topicless OnActivate never stalls.}
+    if talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    if st == 50 || st == 200
+        Actor sp = ResolveSpokesman()
+        if sp != None && !sp.IsDead() && !sp.IsDisabled() && sp.Is3DLoaded() && player.GetDistance(sp) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("minrecruit00 talk_fallback actor=spokesman stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                RunSpokesmanTalk(st)
+            endif
+            return
+        endif
+    elseif st == 450
+        Actor pr = ResolvePreston()
+        if pr != None && !pr.IsDead() && pr.Is3DLoaded() && player.GetDistance(pr) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("minrecruit00 talk_fallback actor=preston stage=450 near_sec=" + TalkFallbackSeconds)
+                AdvanceTo(500, "talk_fallback")
+            endif
+            return
+        endif
+    endif
+    talkNearSec = 0.0
+EndFunction
+
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if completed || akActionRef != Game.GetPlayer() || talkOpen
         return
@@ -425,49 +557,8 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     int st = EffectiveStage()
     Actor sp = ResolveSpokesman()
     Actor pr = ResolvePreston()
-    if sp != None && akSender == sp
-        talkOpen = True
-        int mySession = talkSessionId
-        if st == 50
-            bool accepted = True
-            if TalkMsg != None
-                accepted = False
-                int steps = 0
-                bool doneLoop = False
-                while !doneLoop && steps < 8 && mySession == talkSessionId
-                    steps += 1
-                    int btn = TalkMsg.Show()
-                    Trace("minrecruit00 tenpines choice button=" + btn)
-                    if btn < 0 || btn == 3 || mySession != talkSessionId
-                        doneLoop = True
-                    elseif btn == 2
-                        if BriefMsg != None
-                            BriefMsg.Show()
-                        endif
-                        accepted = True
-                        doneLoop = True
-                    elseif BriefMsg != None
-                        BriefMsg.Show()
-                    endif
-                endwhile
-            endif
-            if accepted && mySession == talkSessionId
-                AdvanceTo(100, "spokesman")
-            endif
-        elseif st == 200
-            bool rwOk = True
-            if RewardMsg != None
-                if RewardMsg.Show() < 0
-                    rwOk = False
-                endif
-            endif
-            if rwOk && mySession == talkSessionId
-                AdvanceTo(450, "spokesman")
-            endif
-        endif
-        if mySession == talkSessionId
-            talkOpen = False
-        endif
+    if (sp != None && akSender == sp) || (spokesmanTalkProxy != None && akSender == spokesmanTalkProxy)
+        RunSpokesmanTalk(st)
     elseif tenpinesBench != None && akSender == tenpinesBench
         ; STEP-01 Open-Mode workbench/note fallback when spokesman is dead
         if st == 50 && IsSpokesmanDead()

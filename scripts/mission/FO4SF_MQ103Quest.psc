@@ -41,6 +41,8 @@ float MergeOffsetY = -2700.0
 float PlaceRadius = 300.0
 float GateProximityRadius = 150.0
 float GateOverrideRadius = 8.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
 bool completed = False
@@ -54,7 +56,42 @@ string pendingStageBy = "other"
 ObjectReference gateRef = None
 ObjectReference gateMarker = None
 ObjectReference gateProxy = None
+ObjectReference piperTalkProxy = None
+ObjectReference ellieTalkProxy = None
+float talkNearSec = 0.0
 WorldSpace commonwealthWorld = None
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function IsSanctuaryOpeningRunning()
+    Quest sanc = Game.GetFormFromFile(0x000817, MissionPlugin) as Quest
+    return sanc != None && sanc.IsRunning() && !sanc.IsCompleted()
+EndFunction
+
+bool Function CheckPredecessorOrGateProximity(Actor player)
+{R1/R5: MQ103 never starts inside the opening; requires Sanctuary01 completion (matching Fallout 4) OR physical arrival at Diamond City gate (< 150 m) OR TestMode.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    Quest min00 = Game.GetFormFromFile(0x000800, MissionPlugin) as Quest
+    if min00 != None && !min00.IsCompleted() && min00.GetStage() < 200
+        return False
+    endif
+    if !IsSanctuaryOpeningRunning()
+        return True
+    endif
+    if IsCommonwealthExterior(player)
+        float dx = player.GetPositionX() - (GateLocalX + MergeOffsetX)
+        float dy = player.GetPositionY() - (GateLocalY + MergeOffsetY)
+        if dx * dx + dy * dy <= GateProximityRadius * GateProximityRadius
+            return True
+        endif
+    endif
+    return False
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -256,7 +293,10 @@ EndFunction
 Function ApplyStage(int n, string by)
     if n == 10
         SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
+        ; R1: Never steal HUD SetActive(True) while Sanctuary01 (First Settlement) is still active
+        if !IsSanctuaryOpeningRunning()
+            SetActive(True)
+        endif
     elseif n == 20
         UnlockDiamondCityGate(by)
         SetObjectiveCompleted(10)
@@ -316,10 +356,16 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    Actor player = Game.GetPlayer()
+    if !CheckPredecessorOrGateProximity(player)
+        Trace("mq103 gate_deferred reason=opening_active")
+        instanceStarted = False
+        Stop()
+        return
+    endif
     if !IsRunning()
         Start()
     endif
-    Actor player = Game.GetPlayer()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
@@ -338,6 +384,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     talkOpen = False
     gateActorsPlaced = False
     elliePlaced = False
+    talkNearSec = 0.0
     commonwealthWorld = None
     int st = EffectiveStage()
     Trace("mq103 reload stage=" + st + " complete=" + completed)
@@ -470,6 +517,7 @@ Event OnTimer(int aiTimerID)
         elseif st == 20 && AreGateNpcsDead()
             AdvanceTo(30, "open_mode")
         endif
+        CheckTalkFallback(player, st)
     endif
     if gateRef == None
         BindRefs()
@@ -480,33 +528,55 @@ Event OnTimer(int aiTimerID)
 EndEvent
 
 Function PlaceGateActors(Actor player, float gx, float gy, float gz)
-{Places only Piper and Mayor outside the Diamond City main gate. Ellie stays post-gate at Valentine's Agency.}
+{Places only Piper and Mayor outside the Diamond City main gate (R3: enables them only when MQ103 reaches DC). Ellie stays post-gate at Valentine's Agency.}
     Actor p = ResolvePiper()
-    if p != None && !p.IsDead() && p.GetCombatState() == 0
-        float txp = gx - 7.5
-        float typ = gy - 3.5
-        float dpx = p.GetPositionX() - txp
-        float dpy = p.GetPositionY() - typ
-        if !gateActorsPlaced || (dpx * dpx + dpy * dpy) > 625.0
-            p.SetRestrained(False)
-            p.MoveTo(player, txp - player.GetPositionX(), typ - player.GetPositionY(), gz - player.GetPositionZ(), False, False)
-            p.SetRestrained(True)
-            p.AllowPCDialogue(True)
-            p.BlockActivation(False, False)
+    if p != None && !p.IsDead()
+        if p.IsDisabled()
+            p.EnableNoWait(False)
+            BindRefs()
+        endif
+        if p.GetCombatState() == 0
+            float txp = gx - 7.5
+            float typ = gy - 3.5
+            float dpx = p.GetPositionX() - txp
+            float dpy = p.GetPositionY() - typ
+            if !gateActorsPlaced || (dpx * dpx + dpy * dpy) > 625.0
+                p.SetRestrained(False)
+                p.MoveTo(player, txp - player.GetPositionX(), typ - player.GetPositionY(), gz - player.GetPositionZ(), False, False)
+                p.SetRestrained(True)
+                p.AllowPCDialogue(True)
+                p.BlockActivation(False, False)
+            endif
+            if piperTalkProxy == None || piperTalkProxy.IsDeleted()
+                Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+                if talkActi != None
+                    piperTalkProxy = p.PlaceAtMe(talkActi, 1, True, False, False)
+                    if piperTalkProxy != None
+                        piperTalkProxy.MoveTo(p, 0.0, 0.0, 1.0, False, False)
+                        RegisterForRemoteEvent(piperTalkProxy, "OnActivate")
+                    endif
+                endif
+            endif
         endif
     endif
     Actor m = ResolveMayor()
-    if m != None && !m.IsDead() && m.GetCombatState() == 0
-        float txm = gx - 2.5
-        float tym = gy - 1.5
-        float dmx = m.GetPositionX() - txm
-        float dmy = m.GetPositionY() - tym
-        if !gateActorsPlaced || (dmx * dmx + dmy * dmy) > 625.0
-            m.SetRestrained(False)
-            m.MoveTo(player, txm - player.GetPositionX(), tym - player.GetPositionY(), gz - player.GetPositionZ(), False, False)
-            m.SetRestrained(True)
-            m.AllowPCDialogue(True)
-            m.BlockActivation(False, False)
+    if m != None && !m.IsDead()
+        if m.IsDisabled()
+            m.EnableNoWait(False)
+            BindRefs()
+        endif
+        if m.GetCombatState() == 0
+            float txm = gx - 2.5
+            float tym = gy - 1.5
+            float dmx = m.GetPositionX() - txm
+            float dmy = m.GetPositionY() - tym
+            if !gateActorsPlaced || (dmx * dmx + dmy * dmy) > 625.0
+                m.SetRestrained(False)
+                m.MoveTo(player, txm - player.GetPositionX(), tym - player.GetPositionY(), gz - player.GetPositionZ(), False, False)
+                m.SetRestrained(True)
+                m.AllowPCDialogue(True)
+                m.BlockActivation(False, False)
+            endif
         endif
     endif
     if !gateActorsPlaced
@@ -516,19 +586,24 @@ Function PlaceGateActors(Actor player, float gx, float gy, float gz)
 EndFunction
 
 Function PlaceEllieAtAgency(Actor player)
-{Places Ellie at her post-gate Valentine's Agency coordinates (never beside Piper outside the locked gate).}
+{Places Ellie at her post-gate Valentine's Agency coordinates (R3: enables Ellie only at stage >= 20).}
+    if EffectiveStage() < 20
+        return
+    endif
     Actor e = ResolveEllie()
-    if e == None || e.IsDead() || e.GetCombatState() != 0
+    if e == None || e.IsDead()
+        return
+    endif
+    if e.IsDisabled()
+        e.EnableNoWait(False)
+        BindRefs()
+    endif
+    if e.GetCombatState() != 0
         return
     endif
     float ex = EllieLocalX + MergeOffsetX
     float ey = EllieLocalY + MergeOffsetY
     float ez = EllieLocalZ
-    float pdx = player.GetPositionX() - ex
-    float pdy = player.GetPositionY() - ey
-    if EffectiveStage() < 20 && (pdx * pdx + pdy * pdy) > 900.0
-        return
-    endif
     float edx = e.GetPositionX() - ex
     float edy = e.GetPositionY() - ey
     if !elliePlaced || (edx * edx + edy * edy) > 625.0
@@ -540,6 +615,108 @@ Function PlaceEllieAtAgency(Actor player)
         elliePlaced = True
         Trace("mq103 ellie placed post_gate")
     endif
+    if ellieTalkProxy == None || ellieTalkProxy.IsDeleted()
+        Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+        if talkActi != None
+            ellieTalkProxy = e.PlaceAtMe(talkActi, 1, True, False, False)
+            if ellieTalkProxy != None
+                ellieTalkProxy.MoveTo(e, 0.0, 0.0, 1.0, False, False)
+                RegisterForRemoteEvent(ellieTalkProxy, "OnActivate")
+            endif
+        endif
+    endif
+EndFunction
+
+Function RunGateTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int mySession = talkSessionId
+    if st == 10
+        bool okAdvance = True
+        if GateTalkMsg != None
+            int btn = GateTalkMsg.Show()
+            Trace("mq103 gate choice button=" + btn)
+            if btn < 0 || mySession != talkSessionId
+                okAdvance = False
+            endif
+        endif
+        if okAdvance
+            if GateOpenMsg != None
+                GateOpenMsg.Show()
+            endif
+            if mySession == talkSessionId
+                AdvanceTo(20, "piper_gate")
+                AdvanceTo(30, "piper_lead")
+            endif
+        endif
+    elseif st == 20 || st == 25
+        AdvanceTo(30, "piper_lead")
+    endif
+    if mySession == talkSessionId
+        talkOpen = False
+    endif
+EndFunction
+
+Function RunEllieTalk(int st)
+    if talkOpen || completed
+        return
+    endif
+    talkOpen = True
+    int mySession = talkSessionId
+    bool okEllie = True
+    if AgencyTalkMsg != None
+        int abtn = AgencyTalkMsg.Show()
+        Trace("mq103 ellie choice button=" + abtn)
+        if abtn < 0 || mySession != talkSessionId
+            okEllie = False
+        endif
+    endif
+    if okEllie
+        if st < 30
+            AdvanceTo(30, "out_of_order")
+        endif
+        AdvanceTo(100, "ellie")
+    endif
+    if mySession == talkSessionId
+        talkOpen = False
+    endif
+EndFunction
+
+Function CheckTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Piper/Mayor or Ellie is alive so topicless OnActivate never stalls.}
+    if talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    if st == 10
+        Actor p = ResolvePiper()
+        Actor m = ResolveMayor()
+        bool nearP = (p != None && !p.IsDead() && !p.IsDisabled() && p.Is3DLoaded() && player.GetDistance(p) <= TalkFallbackRadius)
+        bool nearM = (m != None && !m.IsDead() && !m.IsDisabled() && m.Is3DLoaded() && player.GetDistance(m) <= TalkFallbackRadius)
+        if nearP || nearM
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq103 talk_fallback actor=piper_gate stage=10 near_sec=" + TalkFallbackSeconds)
+                RunGateTalk(st)
+            endif
+            return
+        endif
+    elseif st >= 20 && st <= 30
+        Actor e = ResolveEllie()
+        if e != None && !e.IsDead() && !e.IsDisabled() && e.Is3DLoaded() && player.GetDistance(e) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq103 talk_fallback actor=ellie stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                RunEllieTalk(st)
+            endif
+            return
+        endif
+    endif
+    talkNearSec = 0.0
 EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
@@ -550,33 +727,8 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     Actor p = ResolvePiper()
     Actor m = ResolveMayor()
     Actor e = ResolveEllie()
-    if (p != None && akSender == p) || (m != None && akSender == m)
-        talkOpen = True
-        int mySession = talkSessionId
-        if st == 10
-            bool okAdvance = True
-            if GateTalkMsg != None
-                int btn = GateTalkMsg.Show()
-                Trace("mq103 gate choice button=" + btn)
-                if btn < 0 || mySession != talkSessionId
-                    okAdvance = False
-                endif
-            endif
-            if okAdvance
-                if GateOpenMsg != None
-                    GateOpenMsg.Show()
-                endif
-                if mySession == talkSessionId
-                    AdvanceTo(20, "piper_gate")
-                    AdvanceTo(30, "piper_lead")
-                endif
-            endif
-        elseif st == 20 || st == 25
-            AdvanceTo(30, "piper_lead")
-        endif
-        if mySession == talkSessionId
-            talkOpen = False
-        endif
+    if (p != None && akSender == p) || (m != None && akSender == m) || (piperTalkProxy != None && akSender == piperTalkProxy)
+        RunGateTalk(st)
     elseif (gateProxy != None && akSender == gateProxy) || (gateRef != None && akSender == gateRef)
         ; JOTC-01 / JOTC-05: persistent GateProxyActi (and gateRef fallback) unlocks gate or reads dead-Ellie dossier
         talkOpen = True
@@ -608,26 +760,8 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         if mySession == talkSessionId
             talkOpen = False
         endif
-    elseif e != None && akSender == e
-        talkOpen = True
-        int mySession = talkSessionId
-        bool okEllie = True
-        if AgencyTalkMsg != None
-            int abtn = AgencyTalkMsg.Show()
-            Trace("mq103 ellie choice button=" + abtn)
-            if abtn < 0 || mySession != talkSessionId
-                okEllie = False
-            endif
-        endif
-        if okEllie
-            if st < 30
-                AdvanceTo(30, "out_of_order")
-            endif
-            AdvanceTo(100, "ellie")
-        endif
-        if mySession == talkSessionId
-            talkOpen = False
-        endif
+    elseif (e != None && akSender == e) || (ellieTalkProxy != None && akSender == ellieTalkProxy)
+        RunEllieTalk(st)
     endif
 EndEvent
 

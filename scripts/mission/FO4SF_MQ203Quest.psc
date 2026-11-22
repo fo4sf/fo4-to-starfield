@@ -48,6 +48,8 @@ float MergeOffsetY = -2700.0
 
 float PlaceRadius = 260.0
 float ArrivalRadius = 90.0
+float TalkFallbackRadius = 3.5
+float TalkFallbackSeconds = 8.0
 
 bool instanceStarted = False
 bool completed = False
@@ -58,7 +60,30 @@ int applied = 0
 int pendingStage = -1
 string pendingStageBy = "other"
 ObjectReference loungerProxyRef = None
+ObjectReference amariTalkProxy = None
 int memoryTicks = 0
+float talkNearSec = 0.0
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function CheckPredecessorGate()
+{R5: MQ203 starts strictly behind MQ106 completion (stage >= 500 or FO4SF_MQ203Armed >= 1) unless TestMode is on.}
+    if IsTestModeEnabled()
+        return True
+    endif
+    GlobalVariable armed = Game.GetFormFromFile(0x000AD7, MissionPlugin) as GlobalVariable
+    if armed != None && armed.GetValue() >= 1.0
+        return True
+    endif
+    Quest mq106 = Game.GetFormFromFile(0x000AD0, MissionPlugin) as Quest
+    if mq106 != None && (mq106.IsCompleted() || mq106.GetStage() >= 500)
+        return True
+    endif
+    return False
+EndFunction
 
 bool Function IsWarfareMode()
     GlobalVariable gm = Game.GetFormFromFile(0x000870, "FO4SFCoreValues.esm") as GlobalVariable
@@ -249,6 +274,12 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !CheckPredecessorGate()
+        Trace("mq203 gate_deferred reason=mq106_incomplete")
+        instanceStarted = False
+        Stop()
+        return
+    endif
     if !IsRunning()
         Start()
     endif
@@ -274,6 +305,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     talkOpen = False
     talkSessionId += 1
     actorsPlaced = False
+    talkNearSec = 0.0
     int st = EffectiveStage()
     Trace("mq203 reload stage=" + st + " complete=" + completed)
     if !completed
@@ -322,6 +354,10 @@ Function PlaceHubActors(Actor player)
     float snapY = player.GetPositionY()
     float snapZ = player.GetPositionZ()
     if am != None && !am.IsDead()
+        if am.IsDisabled()
+            am.EnableNoWait(False)
+            BindRefs()
+        endif
         if !IsPlayerStableAt(player, snapX, snapY, snapZ)
             return
         endif
@@ -331,6 +367,16 @@ Function PlaceHubActors(Actor player)
             am.SetRestrained(True)
         endif
         am.AllowPCDialogue(True)
+        if amariTalkProxy == None || amariTalkProxy.IsDeleted()
+            Activator talkActi = Game.GetFormFromFile(0x000970, MissionPlugin) as Activator
+            if talkActi != None
+                amariTalkProxy = am.PlaceAtMe(talkActi, 1, True, False, False)
+                if amariTalkProxy != None
+                    amariTalkProxy.MoveTo(am, 0.0, 0.0, 1.0, False, False)
+                    RegisterForRemoteEvent(amariTalkProxy, "OnActivate")
+                endif
+            endif
+        endif
     endif
     if !IsPlayerStableAt(player, snapX, snapY, snapZ)
         return
@@ -363,19 +409,21 @@ Function EnsureLoungerProxy(Actor player)
     endif
 EndFunction
 
-Function MovePlayerToKelloggBrain(Actor player)
+bool Function MovePlayerToKelloggBrain(Actor player)
+{R8 truth: only return True when FO4Port.esm persistent marker 0x00F2D3 actually resolves and moves the player.}
     if player == None
-        return
+        return False
     endif
     if Game.IsPluginInstalled(PortPlugin)
         ObjectReference dest = Game.GetFormFromFile(KelloggsBrainMarkerId, PortPlugin) as ObjectReference
         if dest != None
             player.MoveTo(dest)
             Trace("mq203 brain_move dest=0x00F2D3 ok=true")
-            return
+            return True
         endif
     endif
-    Trace("mq203 brain_move fallback=inline_scan")
+    Trace("mq203 brain_move blocked=true reason=missing_port_cell cell=0x00F23E marker=0x00F2D3")
+    return False
 EndFunction
 
 Function ReturnPlayerFromKelloggBrain(Actor player)
@@ -450,11 +498,37 @@ Event OnTimer(int aiTimerID)
         AdvanceTo(300, "open_mode")
         return
     endif
+    CheckAmariTalkFallback(player, st)
 
     if !completed
         StartTimer(1.0, 1)
     endif
 EndEvent
+
+Function CheckAmariTalkFallback(Actor player, int st)
+{R4: Timed proximity fallback while Doctor Amari is alive so topicless OnActivate never stalls.}
+    if talkOpen || completed || player == None
+        talkNearSec = 0.0
+        return
+    endif
+    if st <= 10 || st == 120
+        Actor am = ResolveAmari()
+        if am != None && !am.IsDead() && !am.IsDisabled() && am.Is3DLoaded() && player.GetDistance(am) <= TalkFallbackRadius
+            talkNearSec += 1.0
+            if talkNearSec >= TalkFallbackSeconds
+                talkNearSec = 0.0
+                Trace("mq203 talk_fallback actor=amari stage=" + st + " near_sec=" + TalkFallbackSeconds)
+                if st <= 10
+                    RunAmariTalk()
+                else
+                    RunLabTerminalOrDebrief("talk_fallback")
+                endif
+            endif
+            return
+        endif
+    endif
+    talkNearSec = 0.0
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if completed || akActionRef != Game.GetPlayer()
@@ -462,7 +536,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     endif
     int st = EffectiveStage()
     Actor am = ResolveAmari()
-    if akSender == am
+    if (am != None && akSender == am) || (amariTalkProxy != None && akSender == amariTalkProxy)
         if st <= 10
             RunAmariTalk()
         elseif st == 120
@@ -517,15 +591,18 @@ Function RunLoungerModal()
         return
     endif
     if btn == 0
-        AdvanceTo(110, "lounger")
-        MovePlayerToKelloggBrain(Game.GetPlayer())
-        RunMemoryWalkModal()
+        ; R8 truth: only advance into memory walk if FO4Port.esm persistent marker 0x00F2D3 actually moved the player
+        if MovePlayerToKelloggBrain(Game.GetPlayer())
+            AdvanceTo(110, "lounger")
+            RunMemoryWalkModal()
+        endif
     elseif btn == 1
-        ; MIND-01 / MIND-02 autonomous pod self-scan
-        AdvanceTo(110, "open_mode")
-        AdvanceTo(120, "open_mode")
+        ; MIND-01 / MIND-02 autonomous pod self-scan (explicitly logged as stand-in)
+        Trace("mq203 stand_in_scan=true reason=open_mode_autonomous_scan")
+        AdvanceTo(110, "open_mode_stand_in")
+        AdvanceTo(120, "open_mode_stand_in")
         if IsAmariUnavailable()
-            AdvanceTo(300, "open_mode")
+            AdvanceTo(300, "open_mode_stand_in")
         endif
     endif
 EndFunction

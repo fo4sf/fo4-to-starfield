@@ -351,7 +351,7 @@ static class NextStoryMissionsA7cd
             Position = new P3Float(x, y, z),
             Rotation = new P3Float(0f, 0f, rotZ),
         };
-        a.MajorRecordFlagsRaw |= 0x400; // Persistent
+        a.MajorRecordFlagsRaw |= 0x400 | 0x800; // Persistent | InitiallyDisabled (R3)
         persistentCell.Persistent.Add(a);
         return a;
     }
@@ -827,5 +827,10 @@ static class NextStoryMissionsA7cd
             need(plug.Globals.Any(g => g.FormKey == new FormKey(key, gid)),
                 $"FO4SF_MQ206 GLOB 0x{gid:X6} missing");
         }
+
+        var a7cdRefs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
+            .Where(r => IsA7cdActorRefId(r.FormKey.ID)).ToList() ?? [];
+        need(a7cdRefs.Count == 8 && a7cdRefs.All(r => (r.MajorRecordFlagsRaw & 0x800) != 0),
+            "A7cd persistent ACHRs must all carry InitiallyDisabled (0x800, R3)");
     }
 }

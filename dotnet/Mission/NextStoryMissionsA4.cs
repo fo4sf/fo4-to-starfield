@@ -273,7 +273,7 @@ static class NextStoryMissionsA4
             Position = new P3Float(x, y, z),
             Rotation = new P3Float(0f, 0f, rotZ),
         };
-        a.MajorRecordFlagsRaw |= 0x400; // Persistent
+        a.MajorRecordFlagsRaw |= 0x400 | 0x800; // Persistent | InitiallyDisabled (R3)
         persistentCell.Persistent.Add(a);
         return a;
     }
@@ -665,8 +665,14 @@ static class NextStoryMissionsA4
             need(sq.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
                 "FO4SF_Sanctuary01 QuestType mismatch");
             var sal = (sq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == 0);
-            need(sal is not null && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional) && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.AllowReserved),
-                "FO4SF_Sanctuary01 lacks optional SanctuaryWorkbench alias 0");
+            need(sal is not null && sal.Name == "SanctuaryWorkbench" && sal.ForcedReference.IsNull &&
+                 (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional) &&
+                 (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.AllowReserved) &&
+                 (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.AllowDisabled),
+                "FO4SF_Sanctuary01 lacks empty optional SanctuaryWorkbench alias 0 (Optional | AllowReserved | AllowDisabled)");
+            var sqObj10 = sq.Objectives.FirstOrDefault(o => o.Index == 10);
+            need(sqObj10 is not null && sqObj10.Targets.Count == 1 && sqObj10.Targets[0].AliasID == 0,
+                "FO4SF_Sanctuary01 objective 10 does not target SanctuaryWorkbench alias 0");
             var ss = sq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == "FO4SF_Sanctuary01Quest");
             need(ss is not null && ss.Properties.FirstOrDefault(p => p.Name == "XMarkerBase") is SF.IScriptObjectPropertyGetter xp &&
                  xp.Object.FormKey == new FormKey(sfEsm, 0x00003B),
@@ -737,10 +743,12 @@ static class NextStoryMissionsA4
         need(piperNpcCheck is not null && piperNpcCheck.Flags.HasFlag(SF.Npc.Flag.Female) &&
              ellieNpcCheck is not null && ellieNpcCheck.Flags.HasFlag(SF.Npc.Flag.Female),
             "FO4_Piper (0x000A51) and FO4_ElliePerkins (0x000A55) must carry Female flag");
-        // Verify all 6 A4 persistent ACHRs are placed at merged Commonwealth coordinates (X < -1000, Y < -1000)
+        // Verify all 6 A4 persistent ACHRs are placed at merged Commonwealth coordinates and InitiallyDisabled (R3)
         var topRefs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
             .Where(r => IsA4ActorRefId(r.FormKey.ID)).ToList() ?? [];
         need(topRefs.Count == 6 && topRefs.All(r => r.Position.X < -1000f && r.Position.Y < -1000f),
             "A4 persistent ACHRs must all be placed at merged Commonwealth coordinates");
+        need(topRefs.Count == 6 && topRefs.All(r => (r.MajorRecordFlagsRaw & 0x800) != 0),
+            "A4 persistent ACHRs must all carry InitiallyDisabled (0x800, R3)");
     }
 }
