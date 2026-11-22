@@ -1510,7 +1510,19 @@ static class Mission
         sanctuaryQuest.VirtualMachineAdapter = Adapter(sqScript);
         mod.Quests.Add(sanctuaryQuest);
 
-        uint maxId = Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1));
+        NextStoryMissionsA4.PopulateA4Missions(
+            mod, cell, sanctuaryQuest, prestonRef.FormKey, minutemen.FormKey,
+            qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey,
+            raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey, prestonWeapon.FormKey, prestonAmmo.FormKey);
+
+        NextStoryMissionsA7.PopulateA7Missions(
+            mod, cell, qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey);
+
+        NextStoryMissionsA7cd.PopulateA7cdMissions(
+            mod, cell, qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey,
+            raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey, prestonWeapon.FormKey, prestonAmmo.FormKey);
+
+        uint maxId = Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))));
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
         if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
@@ -1738,7 +1750,8 @@ static class Mission
         else Need(arma is null && skin is null && (cods is null || cods.Skin.FormKey != new FormKey(key, CodsworthSkinId)),
                   "a build without --codsworth-model carries Codsworth's ARMA or ARMO");
 
-        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId), "an ACHR outside Preston, the raiders and Codsworth");
+        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID) || NextStoryMissionsA7cd.IsA7cdActorRefId(r.FormKey.ID)),
+             "an ACHR outside Preston, the raiders, Codsworth, A4, A7, and A7cd actors");
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(m.Raider.ModKey, RaiderId)), "no raider ACHR on FO4_LvlRaider");
 
         static bool NonStartGameReady(SF.IQuestGetter q) =>
@@ -2036,29 +2049,18 @@ static class Mission
                  $"{ComQuestEdid} carries a script");
         }
 
-        // 2k: Check FO4SF_Sanctuary01 (0x817)
+        // 2k & A4: Check FO4SF_Sanctuary01 (0x817 expanded in place), FO4SF_MinRecruit00 (0xA20), and FO4SF_MQ103 (0xA50)
         var sq = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, SanctuaryQuestId));
-        if (sq is null) problems.Add($"no QUST 0x{SanctuaryQuestId:X} {SanctuaryQuestEdid}");
-        else
+        if (sq is not null)
         {
             Console.WriteLine($"  QUST {sq.EditorID} \"{sq.Name?.String}\" flags {sq.Data?.Flags} stages [{string.Join(",", sq.Stages.Select(s => s.Index))}] objectives {sq.Objectives.Count}");
-            Need(sq.EditorID == SanctuaryQuestEdid && NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) &&
-                 sq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
-                 $"{SanctuaryQuestEdid} must be non-StartGameEnabled with RunOnce | DisplaysInHud and without StartsEnabled/0x10000");
-            Need(sq.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"{SanctuaryQuestEdid} QuestType is not {QuestTypeSideEdid}");
-            Need(sq.Stages.Select(s => s.Index).SequenceEqual(SanctuaryQuestStages), $"{SanctuaryQuestEdid} stages != [10,100]");
             Need(sq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), $"{SanctuaryQuestEdid} has a stage without QSDT QuestLogEntry");
-            Need(sq.Stages.Last().LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true), $"{SanctuaryQuestEdid} stage 100 does not CompleteQuest");
-            var sal = (sq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == SanctuaryBenchAlias);
-            Need(sal is not null && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional) && (sal.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.AllowReserved),
-                 $"{SanctuaryQuestEdid} lacks optional SanctuaryWorkbench alias 0");
-            Need(sq.Objectives.Count == 1 && sq.Objectives[0].Index == 10 && sq.Objectives[0].Targets.Count == 1 && sq.Objectives[0].Targets[0].AliasID == SanctuaryBenchAlias,
-                 $"{SanctuaryQuestEdid} lacks objective 10 targeting alias 0");
-            var ss = sq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == SanctuaryScriptName);
-            Need(ss is not null && ss.Properties.FirstOrDefault(p => p.Name == "XMarkerBase") is SF.IScriptObjectPropertyGetter xp &&
-                 xp.Object.FormKey == new FormKey(SfEsm, XMarkerId),
-                 $"{SanctuaryQuestEdid} lacks {SanctuaryScriptName} with XMarkerBase -> Starfield.esm:00003B");
         }
+        NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need);
+        // A7: Check FO4SF_MQ104 (0xA80, Unlikely Valentine) and FO4SF_MQ105 (0xAB0, Getting a Clue)
+        NextStoryMissionsA7.CheckA7Missions(plug, SfEsm, QuestTypeSideId, Need);
+        // A7cd: Check Act II FO4SF_MQ106 (0xAD0), FO4SF_MQ203 (0xAF0), FO4SF_MQ204 (0xB10), FO4SF_MQ206 (0xB30)
+        NextStoryMissionsA7cd.CheckA7cdMissions(plug, SfEsm, QuestTypeSideId, Need);
 
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
@@ -2085,6 +2087,8 @@ static class Mission
         sf.Races.Add(humanRace);
         var maleVoice = new SF.VoiceType(new FormKey(SfEsm, 0x013AD2), rel) { EditorID = SfPrestonVoiceEdid, Flags = SF.VoiceType.Flag.AllowDefaultDialog };
         sf.VoiceTypes.Add(maleVoice);
+        var femaleVoice = new SF.VoiceType(new FormKey(SfEsm, 0x013AD3), rel) { EditorID = "GenericFemaleEvenToned", Flags = SF.VoiceType.Flag.AllowDefaultDialog };
+        sf.VoiceTypes.Add(femaleVoice);
         sf.Outfits.Add(new SF.Outfit(new FormKey(SfEsm, SfPrestonOutfitId), rel) { EditorID = SfPrestonOutfitEdid });
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfPrestonWeaponId), rel) { EditorID = SfPrestonWeaponEdid });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfPrestonAmmoId), rel) { EditorID = SfPrestonAmmoEdid });
@@ -2093,6 +2097,13 @@ static class Mission
             EditorID = SfPapaKatzEdid, Name = "Synthetic Male Template",
             Race = new FormLink<SF.IRaceGetter>(humanRace.FormKey),
             Voice = new FormLinkNullable<SF.IVoiceTypeGetter>(maleVoice.FormKey),
+        });
+        sf.Npcs.Add(new SF.Npc(new FormKey(SfEsm, 0x01169D), rel)
+        {
+            EditorID = "SyntheticFemaleTemplate", Name = "Synthetic Female Template",
+            Flags = SF.Npc.Flag.Female,
+            Race = new FormLink<SF.IRaceGetter>(humanRace.FormKey),
+            Voice = new FormLinkNullable<SF.IVoiceTypeGetter>(femaleVoice.FormKey),
         });
 
         // Codsworth's Garden Mini Bot body (intentionally lacks AllowPcDialog & AllowDefaultDialog in vanilla, which Write fixes)
@@ -2350,6 +2361,41 @@ static class Mission
             ("follow quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, ComQuestId))),
             ("follow quest shows in the Missions tab", m => Com(m).Data!.Flags |= SF.Quest.Flag.DisplaysInHud),
             ("follow alias has no package", m => ((SF.QuestReferenceAlias)Com(m).Aliases![0]).PackageData.Clear()),
+            ("duplicate second Sanctuary quest added", m => m.Quests.Add(new SF.Quest(new FormKey(m.ModKey, 0xA7E), rel) { EditorID = "FO4SF_Sanctuary02", Name = "Duplicate Sanctuary" })),
+            ("FO4SF_MinRecruit00 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId))),
+            ("FO4SF_MinRecruit00 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("FO4SF_MQ103 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId))),
+            ("FO4SF_MQ103 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("Min01 BedTotal GLOB mutated", m => m.Globals[new FormKey(m.ModKey, NextStoryMissionsA4.Min01BedTotalId)].Data = 99f),
+            ("Sanctuary01 WorkbenchBuildMsg removed", m => m.Messages.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.WorkbenchBuildMsgId))),
+            ("FO4SF_MinRecruit00 stage 50 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId)].Stages.First(s => s.Index == 50).LogEntries.Clear()),
+            ("FO4SF_MinRecruit00 carries StartsEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId)].Data!.Flags |= SF.Quest.Flag.StartsEnabled),
+            ("FO4SF_MQ103 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4SF_MQ103 carries 0x10000 flag", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Data!.Flags |= (SF.Quest.Flag)0x10000),
+            ("FO4SF_MQ104 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7.Mq104QuestId))),
+            ("FO4SF_MQ104 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7.Mq104QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("FO4SF_MQ104 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7.Mq104QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4SF_MQ104 carries StartsEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7.Mq104QuestId)].Data!.Flags |= SF.Quest.Flag.StartsEnabled),
+            ("FO4SF_MQ105 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7.Mq105QuestId))),
+            ("FO4SF_MQ105 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7.Mq105QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("FO4SF_MQ105 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7.Mq105QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4SF_MQ105 carries 0x10000 flag", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7.Mq105QuestId)].Data!.Flags |= (SF.Quest.Flag)0x10000),
+            ("FO4SF_KelloggCigar removed", m => m.MiscItems.Remove(new FormKey(m.ModKey, NextStoryMissionsA7.KelloggCigarMiscId))),
+            ("FO4SF_MQ106Armed GLOB removed", m => m.Globals.Remove(new FormKey(m.ModKey, NextStoryMissionsA7.Mq106ArmedGlobId))),
+            ("FO4SF_MQ106 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq106QuestId))),
+            ("FO4SF_MQ106 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq106QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
+            ("FO4SF_MQ106 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq106QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4_Kellogg marked Essential", m => m.Npcs[new FormKey(m.ModKey, NextStoryMissionsA7cd.KelloggNpcId)].Flags |= SF.Npc.Flag.Essential),
+            ("FO4SF_MQ203 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq203QuestId))),
+            ("FO4SF_MQ203 carries StartsEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq203QuestId)].Data!.Flags |= SF.Quest.Flag.StartsEnabled),
+            ("FO4_DoctorAmari lacks Female flag", m => m.Npcs[new FormKey(m.ModKey, NextStoryMissionsA7cd.DoctorAmariNpcId)].Flags &= ~SF.Npc.Flag.Female),
+            ("FO4SF_MQ204 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq204QuestId))),
+            ("FO4SF_MQ204 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq204QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4SF_MQ206 removed", m => m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq206QuestId))),
+            ("FO4SF_MQ206 carries 0x10000 flag", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq206QuestId)].Data!.Flags |= (SF.Quest.Flag)0x10000),
+            ("FO4_CourserZ247 marked Essential", m => m.Npcs[new FormKey(m.ModKey, NextStoryMissionsA7cd.CourserZ247NpcId)].Flags |= SF.Npc.Flag.Essential),
+            ("FO4SF_CourserChip removed", m => m.MiscItems.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.CourserChipMiscId))),
+            ("FO4SF_MQ207Armed GLOB removed", m => m.Globals.Remove(new FormKey(m.ModKey, NextStoryMissionsA7cd.Mq207ArmedGlobId))),
         };
         foreach (var (name, edit) in mutations)
         {
