@@ -1298,8 +1298,8 @@ EndFunction
 
 Function CheckA4ProximityStarts(Actor player)
 {A4 console-free out-of-order proximity starts (JOTC-02 Diamond City gate & STEP Tenpines Bluff): active from Story
- surface landing even if the player bypasses Concord or completes FO4SF_Min00.}
-    if player == None || player.IsInInterior() || IsWarfareMode()
+ surface landing even if the player bypasses Concord or completes FO4SF_Min00. Uses IsCommonwealthExterior (B2).}
+    if !IsCommonwealthExterior(player) || IsWarfareMode()
         return
     endif
     float px = player.GetPositionX()

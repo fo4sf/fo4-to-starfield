@@ -104,6 +104,31 @@ bool Function IsWarfareMode()
     return False
 EndFunction
 
+int Function EffectiveStage()
+{B1/B4 resilience: if engine GetStage() lags behind applied, use applied; if GetStage() advanced (e.g. console setstage), use GetStage().}
+    int raw = GetStage()
+    if applied > raw
+        return applied
+    endif
+    return raw
+EndFunction
+
+bool Function IsCommonwealthExterior(Actor player)
+{B2 guard: reject interiors (e.g. FO4SF_MapMarkersHop 100008F4), null WorldSpace, or out-of-Commonwealth XY before MoveTo/PlaceAt.}
+    if player == None || player.IsInInterior()
+        return False
+    endif
+    if player.GetWorldSpace() == None
+        return False
+    endif
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    if px < MergeOffsetX - 3200.0 || px > MergeOffsetX + 3200.0 || py < MergeOffsetY - 3200.0 || py > MergeOffsetY + 3200.0
+        return False
+    endif
+    return True
+EndFunction
+
 Function AdvanceTo(int n, string by = "Trigger")
     pendingStage = n
     pendingStageBy = by
@@ -204,7 +229,7 @@ Function FinishQuest(string by)
     CompleteQuest()
     CancelTimer(1)
     CleanupMarker()
-    Trace("sanctuary01 finished stage=" + GetStage() + " by=" + by)
+    Trace("sanctuary01 finished stage=" + EffectiveStage() + " by=" + by)
     Quest firstStep = Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest
     if firstStep != None && !firstStep.IsRunning() && !firstStep.IsCompleted()
         firstStep.StartNoWait()
@@ -231,6 +256,9 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !IsRunning()
+        Start()
+    endif
     Actor player = Game.GetPlayer()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
@@ -251,7 +279,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     talkBoxOpen = False
     benchMenuOpen = False
-    int st = GetStage()
+    int st = EffectiveStage()
     Trace("sanctuary01 reload stage=" + st + " complete=" + completed)
     if st == 100 && IsCompleted() && HasFullMin01() && !completed
         ; Upgrade a saved legacy 2-stage stub cleanly to stage 1500
@@ -259,6 +287,12 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         return
     endif
     if !completed
+        if !IsRunning()
+            Start()
+        endif
+        if applied > GetStage()
+            SetStage(applied)
+        endif
         if boundBench != None
             UnregisterForRemoteEvent(boundBench, "OnActivate")
             UnregisterForRemoteEvent(boundBench, "OnWorkshopMode")
@@ -278,18 +312,24 @@ Event OnTimer(int aiTimerID)
     if aiTimerID != 1
         return
     endif
-    int st = GetStage()
-    if st > applied
+    int raw = GetStage()
+    if raw > applied
         string extCause = "other"
-        if st == pendingStage
+        if raw == pendingStage
             extCause = pendingStageBy
-        elseif st == 100 && benchActivated
+        elseif raw == 100 && benchActivated
             extCause = "bench"
         endif
-        applied = st
-        Trace("sanctuary01 stage " + st + " by=" + extCause)
-        ApplyStage(st, extCause)
+        applied = raw
+        Trace("sanctuary01 stage " + raw + " by=" + extCause)
+        ApplyStage(raw, extCause)
+    elseif !completed && applied > raw
+        if !IsRunning()
+            Start()
+        endif
+        SetStage(applied)
     endif
+    int st = EffectiveStage()
     if !completed
         Actor player = Game.GetPlayer()
         KeepSturges(player)
@@ -299,7 +339,7 @@ Event OnTimer(int aiTimerID)
         if boundBench == None || boundBench.IsDeleted()
             EnsureGuideMarker(player)
             TryBindBench(player)
-            if st < 100 && (boundBench == None || boundBench.IsDeleted()) && player != None && !player.IsInInterior()
+            if st < 100 && (boundBench == None || boundBench.IsDeleted()) && IsCommonwealthExterior(player)
                 float dx = player.GetPositionX() - (BenchLocalX + MergeOffsetX)
                 float dy = player.GetPositionY() - (BenchLocalY + MergeOffsetY)
                 if dx * dx + dy * dy <= BenchFallbackRadius * BenchFallbackRadius
@@ -336,7 +376,7 @@ EndFunction
 
 Function KeepSturges(Actor player)
     Actor st = ResolveSturges()
-    if st == None || st.IsDead() || player == None || player.IsInInterior()
+    if st == None || st.IsDead() || !IsCommonwealthExterior(player)
         return
     endif
     float sx = SturgesLocalX + MergeOffsetX
@@ -408,7 +448,7 @@ Function RunSturgesTalk()
         return
     endif
     talkBoxOpen = True
-    int st = GetStage()
+    int st = EffectiveStage()
     Trace("sanctuary01 sturges talk opened stage=" + st)
     if st == 10 || st == 50 || st == 100
         Message mTalk = ResolveMsg(SturgesTalkMsg, 0x000A10)
@@ -460,10 +500,7 @@ string Function ActiveCorePlugin()
 EndFunction
 
 Function EnsureGuideMarker(Actor player)
-    if boundBench != None || player == None || XMarkerBase == None
-        return
-    endif
-    if player.IsInInterior()
+    if boundBench != None || XMarkerBase == None || !IsCommonwealthExterior(player)
         return
     endif
     float mx = BenchLocalX + MergeOffsetX
@@ -504,7 +541,7 @@ Function TryBindBench(Actor player)
     float my = BenchLocalY + MergeOffsetY
     float mz = BenchLocalZ
     ObjectReference cand = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
-    if cand == None && !player.IsInInterior()
+    if cand == None && IsCommonwealthExterior(player)
         float dx = player.GetPositionX() - mx
         float dy = player.GetPositionY() - my
         if dx * dx + dy * dy <= BindRadius * BindRadius
@@ -543,7 +580,7 @@ Function RunWorkbenchBuildMenu()
         return
     endif
     benchMenuOpen = True
-    Trace("sanctuary01 bench build menu opened stage=" + GetStage())
+    Trace("sanctuary01 bench build menu opened stage=" + EffectiveStage())
     int loops = 0
     bool finishedMenu = False
     while !finishedMenu && !completed && loops < 16
@@ -585,7 +622,7 @@ Function RunWorkbenchBuildMenu()
             finishedMenu = True
         endif
         if !finishedMenu
-            CheckMilestoneProgress(GetStage())
+            CheckMilestoneProgress(EffectiveStage())
         endif
     endwhile
     benchMenuOpen = False
@@ -601,7 +638,8 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     if boundBench != None && akSender == boundBench
-        if GetStage() < 100
+        int cur = EffectiveStage()
+        if cur < 100
             CompleteSanctuaryObjective(akSender)
             if HasFullMin01() && !completed
                 RunWorkbenchBuildMenu()
@@ -610,7 +648,6 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         endif
         if IsSturgesDeadOrMissing()
             ; Open-Mode workbench fallback advances resource report stages when Sturges is dead
-            int cur = GetStage()
             if cur == 100
                 AdvanceTo(1000, "open_mode")
             elseif cur == 1050
@@ -631,13 +668,13 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
 EndEvent
 
 Event ObjectReference.OnWorkshopMode(ObjectReference akSender, bool aStart)
-    if !completed && aStart && boundBench != None && akSender == boundBench && GetStage() < 100
+    if !completed && aStart && boundBench != None && akSender == boundBench && EffectiveStage() < 100
         CompleteSanctuaryObjective(akSender)
     endif
 EndEvent
 
 Function CompleteSanctuaryObjective(ObjectReference refUsed)
-    if completed || GetStage() >= 100
+    if completed || EffectiveStage() >= 100
         return
     endif
     benchActivated = True

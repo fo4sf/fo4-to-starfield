@@ -280,14 +280,20 @@ static class NextStoryMissionsA4
             "Sanctuary Workbench", "Build supplies for Sanctuary settlers using the workshop bench.",
             "Build Sheltered Bed (+1)", "Build Water Pump (+1)", "Plant Food Crops (+1)", "Build Settlement Defense (+1)", "Done");
 
-        // Expand FO4SF_Sanctuary01 (0x000817) in place
+        // Expand FO4SF_Sanctuary01 (0x000817) in place (B1/B4: QSDT on every stage, FNAM=0 on every objective, no StartsEnabled/0x10000)
         sanctuaryQuest.Name = "Sanctuary";
+        if (sanctuaryQuest.Data is not null)
+        {
+            sanctuaryQuest.Data.Flags = SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud | SF.Quest.Flag.RunOnce;
+        }
         sanctuaryQuest.Stages.Clear();
         foreach (var stIdx in SanctuaryFullStages)
         {
             var st = new SF.QuestStage { Index = stIdx };
-            if (stIdx == 1500)
-                st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
+            st.LogEntries.Add(new SF.QuestLogEntry
+            {
+                Flags = stIdx == 1500 ? SF.QuestLogEntry.Flag.CompleteQuest : (SF.QuestLogEntry.Flag)0,
+            });
             sanctuaryQuest.Stages.Add(st);
         }
         sanctuaryQuest.Aliases ??= new ExtendedList<SF.AQuestAlias>();
@@ -305,7 +311,7 @@ static class NextStoryMissionsA4
         sanctuaryQuest.Objectives.Clear();
         foreach (var (oid, otext, aliasId) in SanctuaryObjectives)
         {
-            var obj = new SF.QuestObjective { Index = oid, DisplayText = otext };
+            var obj = new SF.QuestObjective { Index = oid, Flags = (SF.QuestObjective.Flag)0, DisplayText = otext };
             obj.Targets.Add(new SF.QuestObjectiveTarget { AliasID = aliasId });
             sanctuaryQuest.Objectives.Add(obj);
         }
@@ -383,8 +389,7 @@ static class NextStoryMissionsA4
             Version2 = 12,
             Data = new SF.QuestData
             {
-                Flags = SF.Quest.Flag.StartsEnabled | SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
-                        SF.Quest.Flag.RunOnce | (SF.Quest.Flag)0x10000,
+                Flags = SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud | SF.Quest.Flag.RunOnce,
                 Priority = 76,
             },
         };
@@ -392,8 +397,10 @@ static class NextStoryMissionsA4
         foreach (var stIdx in MinRecruit00Stages)
         {
             var st = new SF.QuestStage { Index = stIdx };
-            if (stIdx == 500)
-                st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
+            st.LogEntries.Add(new SF.QuestLogEntry
+            {
+                Flags = stIdx == 500 ? SF.QuestLogEntry.Flag.CompleteQuest : (SF.QuestLogEntry.Flag)0,
+            });
             mrQuest.Stages.Add(st);
         }
         mrQuest.Aliases = new ExtendedList<SF.AQuestAlias>
@@ -422,7 +429,7 @@ static class NextStoryMissionsA4
         };
         foreach (var (oid, otext, aliasId) in MinRecruit00Objectives)
         {
-            var obj = new SF.QuestObjective { Index = oid, DisplayText = otext };
+            var obj = new SF.QuestObjective { Index = oid, Flags = (SF.QuestObjective.Flag)0, DisplayText = otext };
             obj.Targets.Add(new SF.QuestObjectiveTarget { AliasID = aliasId });
             mrQuest.Objectives.Add(obj);
         }
@@ -481,8 +488,7 @@ static class NextStoryMissionsA4
             Version2 = 12,
             Data = new SF.QuestData
             {
-                Flags = SF.Quest.Flag.StartsEnabled | SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud |
-                        SF.Quest.Flag.RunOnce | (SF.Quest.Flag)0x10000,
+                Flags = SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.DisplaysInHud | SF.Quest.Flag.RunOnce,
                 Priority = 70,
             },
         };
@@ -490,8 +496,10 @@ static class NextStoryMissionsA4
         foreach (var stIdx in Mq103Stages)
         {
             var st = new SF.QuestStage { Index = stIdx };
-            if (stIdx == 100)
-                st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
+            st.LogEntries.Add(new SF.QuestLogEntry
+            {
+                Flags = stIdx == 100 ? SF.QuestLogEntry.Flag.CompleteQuest : (SF.QuestLogEntry.Flag)0,
+            });
             mq103.Stages.Add(st);
         }
         mq103.Aliases = new ExtendedList<SF.AQuestAlias>
@@ -518,7 +526,7 @@ static class NextStoryMissionsA4
         };
         foreach (var (oid, otext, aliasId) in Mq103Objectives)
         {
-            var obj = new SF.QuestObjective { Index = oid, DisplayText = otext };
+            var obj = new SF.QuestObjective { Index = oid, Flags = (SF.QuestObjective.Flag)0, DisplayText = otext };
             obj.Targets.Add(new SF.QuestObjectiveTarget { AliasID = aliasId });
             mq103.Objectives.Add(obj);
         }
@@ -546,7 +554,7 @@ static class NextStoryMissionsA4
         var key = plug.ModKey;
         static bool NonStartGameReady(SF.IQuestGetter q) =>
             q.Data is not null && !q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) &&
-            q.Data.Flags.HasFlag(SF.Quest.Flag.StartsEnabled) && (((uint)q.Data.Flags & 0x10000u) != 0);
+            !q.Data.Flags.HasFlag(SF.Quest.Flag.StartsEnabled) && (((uint)q.Data.Flags & 0x10000u) == 0);
 
         // 1. Sanctuary01 (0x000817) expanded IN PLACE (zero duplicate Sanctuary quests)
         var sanctuaryQuests = plug.Quests.Where(q => q.EditorID is not null && q.EditorID.Contains("Sanctuary", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -555,14 +563,17 @@ static class NextStoryMissionsA4
         var sq = sanctuaryQuests.FirstOrDefault();
         if (sq is not null)
         {
-            need(NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
-                "FO4SF_Sanctuary01 flags invalid");
+            need(NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) && sq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
+                "FO4SF_Sanctuary01 flags invalid (must be RunOnce | DisplaysInHud without StartGameEnabled/StartsEnabled/0x10000)");
             need(sq.Stages.Select(s => s.Index).SequenceEqual(SanctuaryFullStages),
                 "FO4SF_Sanctuary01 stages mismatch SanctuaryFullStages");
+            need(sq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null),
+                "FO4SF_Sanctuary01 has a stage without QSDT QuestLogEntry");
             need(sq.Stages.Last().LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true),
                 "FO4SF_Sanctuary01 stage 1500 lacks CompleteQuest");
-            need(sq.Objectives.Select(o => o.Index).SequenceEqual(SanctuaryObjectives.Select(o => o.Index)),
-                "FO4SF_Sanctuary01 objectives mismatch Min01 specification");
+            need(sq.Objectives.Select(o => o.Index).SequenceEqual(SanctuaryObjectives.Select(o => o.Index)) &&
+                 sq.Objectives.All(o => o.Flags is not null),
+                "FO4SF_Sanctuary01 objectives mismatch Min01 specification or lack Flags");
             need(sq.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
                 "FO4SF_Sanctuary01 QuestType mismatch");
             var sal = (sq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == 0);
@@ -587,12 +598,16 @@ static class NextStoryMissionsA4
 
         // 2. MinRecruit00 (0x000A20)
         var mr = plug.Quests.FirstOrDefault(q => q.FormKey == new FormKey(key, MinRecruit00QuestId));
-        need(mr is { EditorID: MinRecruit00QuestEdid } && NonStartGameReady(mr) && mr.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
+        need(mr is { EditorID: MinRecruit00QuestEdid } && NonStartGameReady(mr) &&
+             mr.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) && mr.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud) &&
+             mr.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
             "FO4SF_MinRecruit00 (0x000A20) missing or invalid flags/QuestType");
         if (mr is not null)
         {
             need(mr.Stages.Select(s => s.Index).SequenceEqual(MinRecruit00Stages), "FO4SF_MinRecruit00 stages mismatch");
-            need(mr.Objectives.Select(o => o.Index).SequenceEqual(MinRecruit00Objectives.Select(o => o.Index)), "FO4SF_MinRecruit00 objectives mismatch");
+            need(mr.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), "FO4SF_MinRecruit00 has a stage without QSDT QuestLogEntry");
+            need(mr.Objectives.Select(o => o.Index).SequenceEqual(MinRecruit00Objectives.Select(o => o.Index)) &&
+                 mr.Objectives.All(o => o.Flags is not null), "FO4SF_MinRecruit00 objectives mismatch or lack Flags");
             need(mr.VirtualMachineAdapter?.Scripts.Any(s => s.Name == MinRecruit00ScriptName) == true, "FO4SF_MinRecruit00 lacks script binding");
         }
         need(plug.MiscItems.Any(m => m.FormKey == new FormKey(key, FlareGunMiscId) && m.EditorID == "FO4SF_FlareGun"),
@@ -600,12 +615,16 @@ static class NextStoryMissionsA4
 
         // 3. MQ103 (0x000A50)
         var mq = plug.Quests.FirstOrDefault(q => q.FormKey == new FormKey(key, Mq103QuestId));
-        need(mq is { EditorID: Mq103QuestEdid } && NonStartGameReady(mq) && mq.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
+        need(mq is { EditorID: Mq103QuestEdid } && NonStartGameReady(mq) &&
+             mq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) && mq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud) &&
+             mq.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
             "FO4SF_MQ103 (0x000A50) missing or invalid flags/QuestType");
         if (mq is not null)
         {
             need(mq.Stages.Select(s => s.Index).SequenceEqual(Mq103Stages), "FO4SF_MQ103 stages mismatch");
-            need(mq.Objectives.Select(o => o.Index).SequenceEqual(Mq103Objectives.Select(o => o.Index)), "FO4SF_MQ103 objectives mismatch");
+            need(mq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), "FO4SF_MQ103 has a stage without QSDT QuestLogEntry");
+            need(mq.Objectives.Select(o => o.Index).SequenceEqual(Mq103Objectives.Select(o => o.Index)) &&
+                 mq.Objectives.All(o => o.Flags is not null), "FO4SF_MQ103 objectives mismatch or lack Flags");
             need(mq.VirtualMachineAdapter?.Scripts.Any(s => s.Name == Mq103ScriptName) == true, "FO4SF_MQ103 lacks script binding");
         }
         need(plug.Globals.Any(g => g.FormKey == new FormKey(key, DcGateUnlockedGlobId)) &&

@@ -2044,7 +2044,10 @@ static class Mission
         // 2k & A4: Check FO4SF_Sanctuary01 (0x817 expanded in place), FO4SF_MinRecruit00 (0xA20), and FO4SF_MQ103 (0xA50)
         var sq = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, SanctuaryQuestId));
         if (sq is not null)
+        {
             Console.WriteLine($"  QUST {sq.EditorID} \"{sq.Name?.String}\" flags {sq.Data?.Flags} stages [{string.Join(",", sq.Stages.Select(s => s.Index))}] objectives {sq.Objectives.Count}");
+            Need(sq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), $"{SanctuaryQuestEdid} has a stage without QSDT QuestLogEntry");
+        }
         NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need);
 
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
@@ -2344,6 +2347,10 @@ static class Mission
             ("FO4SF_MQ103 has StartGameEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
             ("Min01 BedTotal GLOB mutated", m => m.Globals[new FormKey(m.ModKey, NextStoryMissionsA4.Min01BedTotalId)].Data = 99f),
             ("Sanctuary01 WorkbenchBuildMsg removed", m => m.Messages.Remove(new FormKey(m.ModKey, NextStoryMissionsA4.WorkbenchBuildMsgId))),
+            ("FO4SF_MinRecruit00 stage 50 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId)].Stages.First(s => s.Index == 50).LogEntries.Clear()),
+            ("FO4SF_MinRecruit00 carries StartsEnabled", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.MinRecruit00QuestId)].Data!.Flags |= SF.Quest.Flag.StartsEnabled),
+            ("FO4SF_MQ103 stage 10 lacks QSDT log entry", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Stages.First(s => s.Index == 10).LogEntries.Clear()),
+            ("FO4SF_MQ103 carries 0x10000 flag", m => m.Quests[new FormKey(m.ModKey, NextStoryMissionsA4.Mq103QuestId)].Data!.Flags |= (SF.Quest.Flag)0x10000),
         };
         foreach (var (name, edit) in mutations)
         {

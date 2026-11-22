@@ -52,6 +52,31 @@ bool Function IsWarfareMode()
     return False
 EndFunction
 
+int Function EffectiveStage()
+{B1/B4 resilience: max(GetStage(), applied) so lagged engine GetStage() never stalls gate talk or stage handlers.}
+    int raw = GetStage()
+    if applied > raw
+        return applied
+    endif
+    return raw
+EndFunction
+
+bool Function IsCommonwealthExterior(Actor player)
+{B2 guard: reject interiors (e.g. FO4SF_MapMarkersHop 100008F4), null WorldSpace, or out-of-Commonwealth XY before MoveTo.}
+    if player == None || player.IsInInterior()
+        return False
+    endif
+    if player.GetWorldSpace() == None
+        return False
+    endif
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    if px < MergeOffsetX - 3200.0 || px > MergeOffsetX + 3200.0 || py < MergeOffsetY - 3200.0 || py > MergeOffsetY + 3200.0
+        return False
+    endif
+    return True
+EndFunction
+
 Actor Function ResolvePiper()
     if Piper != None
         return Piper
@@ -168,6 +193,9 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !IsRunning()
+        Start()
+    endif
     Actor player = Game.GetPlayer()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
@@ -180,9 +208,16 @@ EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
-    int st = GetStage()
+    talkOpen = False
+    int st = EffectiveStage()
     Trace("mq103 reload stage=" + st + " complete=" + completed)
     if !completed
+        if !IsRunning()
+            Start()
+        endif
+        if applied > GetStage()
+            SetStage(applied)
+        endif
         gateRef = None
         BindRefs()
         if st >= 20
@@ -224,9 +259,19 @@ Event OnTimer(int aiTimerID)
     if aiTimerID != 1 || completed
         return
     endif
-    int st = GetStage()
+    int raw = GetStage()
+    if raw > applied
+        applied = raw
+        ApplyStage(raw, "other")
+    elseif applied > raw
+        if !IsRunning()
+            Start()
+        endif
+        SetStage(applied)
+    endif
+    int st = EffectiveStage()
     Actor player = Game.GetPlayer()
-    if player != None && !player.IsInInterior()
+    if IsCommonwealthExterior(player)
         float gx = GateLocalX + MergeOffsetX
         float gy = GateLocalY + MergeOffsetY
         float gz = GateLocalZ
@@ -277,7 +322,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     if completed || akActionRef != Game.GetPlayer() || talkOpen
         return
     endif
-    int st = GetStage()
+    int st = EffectiveStage()
     Actor p = ResolvePiper()
     Actor m = ResolveMayor()
     Actor e = ResolveEllie()

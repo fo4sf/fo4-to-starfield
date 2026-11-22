@@ -246,8 +246,22 @@ class A4PapyrusContractTests(unittest.TestCase):
             self.assertIn('RegisterForRemoteEvent(player, "OnPlayerLoadGame")', txt, path.name)
             self.assertIn("Event Actor.OnPlayerLoadGame(Actor akSender)", txt, path.name)
             self.assertIn("Function AdvanceTo(", txt, path.name)
+            self.assertIn("int Function EffectiveStage()", txt, path.name)
+            self.assertIn("bool Function IsCommonwealthExterior(Actor player)", txt, path.name)
+            self.assertIn("MergeOffsetX - 3200.0", txt, path.name)
             self.assertIn("Event OnStageSet(", txt, path.name)
             self.assertIn("open_mode", txt, path.name)
+
+    def test_b1_b2_b4_binary_qust_and_proximity_guards(self) -> None:
+        a4_cs = A4_CS.read_text(encoding="utf-8")
+        prog_cs = PROGRAM_CS.read_text(encoding="utf-8")
+        min00 = MIN00_PSC.read_text(encoding="utf-8")
+        self.assertIn("!q.Data.Flags.HasFlag(SF.Quest.Flag.StartsEnabled)", a4_cs)
+        self.assertIn("(((uint)q.Data.Flags & 0x10000u) == 0)", a4_cs)
+        self.assertIn("has a stage without QSDT QuestLogEntry", a4_cs)
+        self.assertIn("FO4SF_MinRecruit00 stage 50 lacks QSDT log entry", prog_cs)
+        self.assertIn("FO4SF_MQ103 stage 10 lacks QSDT log entry", prog_cs)
+        self.assertIn("if !IsCommonwealthExterior(player) || IsWarfareMode()", min00)
 
     def test_sanctuary01_preserves_legacy_contracts_and_adds_min01_in_place(self) -> None:
         txt = SANC_PSC.read_text(encoding="utf-8")
