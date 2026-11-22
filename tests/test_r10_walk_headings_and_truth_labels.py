@@ -59,6 +59,32 @@ def _write_synthetic_ref_esm(path: Path, group: str, refs: list[tuple[bytes, int
     path.write_bytes(tes4.to_bytes(compress=False) + top)
 
 
+def _write_synthetic_commonwealth_navm_esm(
+    path: Path,
+    quad_merged: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+) -> None:
+    """Build a minimal Fallout4-style TES4 plugin with WRLD 0x0000003C and a 2-triangle v15 NAVM quad."""
+    fo4_verts = [
+        ((p[0] - wh.MERGE_OFFSET_X) / wh.FO4_TO_SF_SCALE, (p[1] - wh.MERGE_OFFSET_Y) / wh.FO4_TO_SF_SCALE, p[2] / wh.FO4_TO_SF_SCALE)
+        for p in quad_merged
+    ]
+    nvnm = bytearray(struct.pack("<5I", 15, 0xA5E9A03C, 0x0000003C, 0, len(fo4_verts)))
+    for v in fo4_verts:
+        nvnm += struct.pack("<3f", *v)
+    nvnm += struct.pack("<I", 2)
+    # 21-byte FO4 v15 triangle stride: 3H verts + 3H edges + f32 height + 5 bytes flags
+    nvnm += struct.pack("<6Hf5B", 0, 1, 2, 0xFFFF, 1, 0xFFFF, 0.0, 0, 0, 0, 0, 0)
+    nvnm += struct.pack("<6Hf5B", 0, 2, 3, 0, 0xFFFF, 0xFFFF, 0.0, 0, 0, 0, 0, 0)
+
+    wrld_rec = Record(b"WRLD", 0x0000003C, [(b"EDID", zbytes("Commonwealth"))])
+    navm_rec = Record(b"NAVM", 0x00090001, [(b"NVNM", bytes(nvnm))])
+    wrld_children = group_bytes(struct.pack("<I", 0x0000003C), navm_rec.to_bytes(compress=False), gtype=1)
+    top = group_bytes("WRLD", wrld_rec.to_bytes(compress=False) + wrld_children, gtype=0)
+    hsubs = [(b"HEDR", struct.pack("<fII", HEDR_VERSION, 3, 0x001000))]
+    tes4 = Record(b"TES4", 0, hsubs, ESM, 0, HEADER_FORM_VERSION, 0)
+    path.write_bytes(tes4.to_bytes(compress=False) + top)
+
+
 class WalkHeadingsAndTruthLabelsTests(unittest.TestCase):
     def test_starfield_compass_heading_convention_matches_core_walk_script(self) -> None:
         origin = (0.0, 0.0, 0.0)
@@ -76,7 +102,7 @@ class WalkHeadingsAndTruthLabelsTests(unittest.TestCase):
     def test_opening_route_continuity_legs_and_safe_standoffs(self) -> None:
         cont = wh.check_route_continuity()
         self.assertTrue(cont["pass"], cont["issues"])
-        self.assertEqual(cont["segment_count"], 31)
+        self.assertEqual(cont["segment_count"], 34)
         self.assertEqual(set(cont["leg_totals_m"].keys()), {"L1", "L2", "L3", "L4", "L5"})
 
         rows = wh.compute_route_rows()
@@ -93,11 +119,11 @@ class WalkHeadingsAndTruthLabelsTests(unittest.TestCase):
         self.assertEqual(by_id["3f"]["target"], [-77.742, -3.958, -1.751])
         self.assertEqual(by_id["3d"]["heading_deg"], 0.0)
 
-        # Legs 4 & 5 stop at C6-safe ~2.8 m standoff from Codsworth (09000811) and Preston (09000802)
-        self.assertGreaterEqual(by_id["4d"]["aim_distance_m"], 2.0)
-        self.assertLessEqual(by_id["4d"]["aim_distance_m"], 3.5)
-        self.assertGreaterEqual(by_id["5m"]["aim_distance_m"], 2.0)
-        self.assertLessEqual(by_id["5m"]["aim_distance_m"], 3.5)
+        # Legs 4 & 5 stop at C6-safe ~2.83 m standoff from Codsworth (09000811) and Preston (09000802)
+        self.assertGreaterEqual(by_id["4i"]["aim_distance_m"], 2.0)
+        self.assertLessEqual(by_id["4i"]["aim_distance_m"], 3.5)
+        self.assertGreaterEqual(by_id["5k"]["aim_distance_m"], 2.0)
+        self.assertLessEqual(by_id["5k"]["aim_distance_m"], 3.5)
 
         # Negative continuity mutation must fail
         broken = list(wh.OPENING_WALK_SEGMENTS)
@@ -151,23 +177,56 @@ class WalkHeadingsAndTruthLabelsTests(unittest.TestCase):
             self.assertFalse(res_bad["pass"])
             self.assertTrue(any("v111_pipboy_pickup" in e for e in res_bad["issues"]))
 
+    def test_exterior_commonwealth_navm_verifier_passes_and_catches_off_navmesh_segment(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            fo4_syn = Path(td) / "Fallout4_syn.esm"
+            # Walkable corridor quad covering x in [-2470, -2450], y in [-1410, -1360]
+            _write_synthetic_commonwealth_navm_esm(
+                fo4_syn,
+                (
+                    (-2470.0, -1410.0, 125.0),
+                    (-2450.0, -1410.0, 125.0),
+                    (-2450.0, -1360.0, 120.0),
+                    (-2470.0, -1360.0, 120.0),
+                ),
+            )
+            on_seg = wh.WalkSegment(
+                "L4", "4_on", "exterior_commonwealth", "On navmesh",
+                (-2467.0, -1406.0, 125.0), (-2458.0, -1368.0, 121.0), 0.0, "ok", "surface_hilltop_arrival",
+            )
+            r_ok = wh.verify_exterior_navm_segments(fo4_syn, segments=(on_seg,), step_m=1.0)
+            self.assertTrue(r_ok["pass"], r_ok["issues"])
+            self.assertEqual(r_ok["hits"], r_ok["sampled_points"])
+
+            # Off-navmesh segment exits east of x=-2450 -> MUST fail!
+            off_seg = wh.WalkSegment(
+                "L4", "4_off", "exterior_commonwealth", "Off navmesh",
+                (-2467.0, -1406.0, 125.0), (-2405.0, -1402.0, 105.0), 0.0, "bad", "surface_hilltop_arrival",
+            )
+            r_bad = wh.verify_exterior_navm_segments(fo4_syn, segments=(off_seg,), step_m=1.0)
+            self.assertFalse(r_bad["pass"])
+            self.assertLess(r_bad["hits"], r_bad["sampled_points"])
+            self.assertTrue(any("4_off" in e for e in r_bad["issues"]))
+
     def test_cli_subcommands_table_json_and_walk_markers_spec(self) -> None:
         p_json = subprocess.run([sys.executable, str(WALK_SCRIPT), "json"], capture_output=True, text=True, check=False)
         self.assertEqual(p_json.returncode, 0, p_json.stderr)
         data = json.loads(p_json.stdout)
         self.assertTrue(data["continuity"]["pass"])
-        self.assertEqual(len(data["segments"]), 31)
+        self.assertEqual(len(data["segments"]), 34)
 
         p_mk = subprocess.run([sys.executable, str(WALK_SCRIPT), "export-markers-json"], capture_output=True, text=True, check=False)
         self.assertEqual(p_mk.returncode, 0, p_mk.stderr)
         mk = json.loads(p_mk.stdout)
         self.assertEqual(mk["schema"], "fo4sf_walk_markers_v1")
         self.assertTrue(mk["optional_diagnostic_only"])
-        self.assertEqual(mk["marker_count"], 31)
+        self.assertEqual(mk["marker_count"], 34)
 
         p_tbl = subprocess.run([sys.executable, str(WALK_SCRIPT), "table"], capture_output=True, text=True, encoding="utf-8", check=False)
         self.assertEqual(p_tbl.returncode, 0, p_tbl.stderr)
         walk_doc = WALK_DOC.read_text(encoding="utf-8")
+        self.assertIn("navmesh-verified offline; terrain on converted Commonwealth unproven in game", walk_doc)
+        self.assertIn("in flight (`W1`)", walk_doc)
         # Ensure every single generated markdown table row appears verbatim in docs/testing/console-free-walk-list.md
         for line in p_tbl.stdout.splitlines():
             self.assertIn(line, walk_doc, f"Walk table row missing or drifted in console-free-walk-list.md: {line}")

@@ -324,45 +324,101 @@ OPENING_WALK_SEGMENTS: Tuple[WalkSegment, ...] = (
         anchor_ref="v111_exit_lift_platform",
     ),
     # ---------------- LEG 4: Commonwealth Hilltop Arrival -> Sanctuary Hills (Codsworth 09000811)
+    # 100% verified offline against Fallout4.esm Commonwealth WRLD 0x0000003C NAVM (terrain unproven in game)
     WalkSegment(
         leg_id="L4",
         seg_id="4a",
         zone="exterior_commonwealth",
-        label="Vault 111 hilltop landing -> Vault 111 creek footbridge (04014BA7)",
+        label="Vault 111 hilltop landing -> Hilltop road north hairpin entry",
         start=(-2467.781, -1406.925, 127.451),
-        target=(-2404.680, -1401.770, 105.270),
+        target=(-2458.000, -1368.000, 123.582),
         start_yaw_deg=90.0,
-        action_at_target="Cross footbridge; bear SE (129.3 deg) onto Sanctuary west road (clears NW house)",
-        anchor_ref="v111_creek_footbridge",
+        action_at_target="Follow Vault 111 access road NNE (33.7 deg) around hilltop switchback",
+        anchor_ref="surface_hilltop_arrival",
     ),
     WalkSegment(
         leg_id="L4",
         seg_id="4b",
         zone="exterior_commonwealth",
-        label="Creek footbridge -> Sanctuary west road curve",
-        start=(-2404.680, -1401.770, 105.270),
-        target=(-2361.820, -1436.900, 110.220),
+        label="Hilltop road north hairpin entry -> Switchback crest",
+        start=(-2458.000, -1368.000, 123.582),
+        target=(-2454.000, -1362.000, 119.938),
         start_yaw_deg=None,
-        action_at_target="Turn NE (45.2 deg) straight up paved Sanctuary main street",
-        anchor_ref="sanctuary_codsworth",
+        action_at_target="Turn ESE (105.9 deg) down paved Vault 111 switchback trail",
+        anchor_ref="surface_hilltop_arrival",
     ),
     WalkSegment(
         leg_id="L4",
         seg_id="4c",
         zone="exterior_commonwealth",
-        label="Sanctuary west road curve -> Front of Player House on main street",
-        start=(-2361.820, -1436.900, 110.220),
-        target=(-2338.900, -1414.170, 111.860),
+        label="Switchback crest -> Mid-slope descent",
+        start=(-2454.000, -1362.000, 119.938),
+        target=(-2426.000, -1370.000, 113.000),
         start_yaw_deg=None,
-        action_at_target="Turn NW (316.0 deg) toward Codsworth driveway (stop at 2.8 m C6-safe standoff)",
-        anchor_ref="sanctuary_codsworth",
+        action_at_target="Continue East (90.0 deg) toward lower trail bend",
+        anchor_ref="v111_creek_footbridge",
     ),
     WalkSegment(
         leg_id="L4",
         seg_id="4d",
         zone="exterior_commonwealth",
-        label="Sanctuary main street -> Codsworth 2.8 m dialogue standoff",
-        start=(-2338.900, -1414.170, 111.860),
+        label="Mid-slope descent -> Lower trail bend",
+        start=(-2426.000, -1370.000, 113.000),
+        target=(-2420.000, -1370.000, 110.511),
+        start_yaw_deg=None,
+        action_at_target="Bear SE (135.0 deg) down to creek approach",
+        anchor_ref="v111_creek_footbridge",
+    ),
+    WalkSegment(
+        leg_id="L4",
+        seg_id="4e",
+        zone="exterior_commonwealth",
+        label="Lower trail bend -> Creek approach",
+        start=(-2420.000, -1370.000, 110.511),
+        target=(-2416.000, -1374.000, 108.542),
+        start_yaw_deg=None,
+        action_at_target="Descend SSE (157.8 deg) straight to Vault 111 creek footbridge (04014BA7)",
+        anchor_ref="v111_creek_footbridge",
+    ),
+    WalkSegment(
+        leg_id="L4",
+        seg_id="4f",
+        zone="exterior_commonwealth",
+        label="Creek approach -> Vault 111 creek footbridge (04014BA7)",
+        start=(-2416.000, -1374.000, 108.542),
+        target=(-2404.680, -1401.770, 105.270),
+        start_yaw_deg=None,
+        action_at_target="Cross footbridge SE (143.1 deg) onto Sanctuary west bank",
+        anchor_ref="v111_creek_footbridge",
+    ),
+    WalkSegment(
+        leg_id="L4",
+        seg_id="4g",
+        zone="exterior_commonwealth",
+        label="Creek footbridge -> Sanctuary west bank",
+        start=(-2404.680, -1401.770, 105.270),
+        target=(-2400.000, -1408.000, 105.497),
+        start_yaw_deg=None,
+        action_at_target="Climb SE (127.1 deg) onto paved Sanctuary west road (clears NW house)",
+        anchor_ref="sanctuary_codsworth",
+    ),
+    WalkSegment(
+        leg_id="L4",
+        seg_id="4h",
+        zone="exterior_commonwealth",
+        label="Sanctuary west bank -> Sanctuary west road curve",
+        start=(-2400.000, -1408.000, 105.497),
+        target=(-2361.820, -1436.900, 110.220),
+        start_yaw_deg=None,
+        action_at_target="Turn NNE (30.8 deg) up Sanctuary street to Codsworth 2.83 m C6-safe standoff",
+        anchor_ref="sanctuary_codsworth",
+    ),
+    WalkSegment(
+        leg_id="L4",
+        seg_id="4i",
+        zone="exterior_commonwealth",
+        label="Sanctuary west road curve -> Codsworth 2.83 m dialogue standoff",
+        start=(-2361.820, -1436.900, 110.220),
         target=(-2344.709, -1408.163, 111.734),
         start_yaw_deg=None,
         action_at_target="Aim 315.0 deg NW at Codsworth (09000811, 2.83 m away for safe C6 camera), press E & finish dialogue",
@@ -370,6 +426,7 @@ OPENING_WALK_SEGMENTS: Tuple[WalkSegment, ...] = (
         aim_target=(-2346.709, -1406.163, 111.734),
     ),
     # ---------------- LEG 5: Sanctuary (Codsworth) -> Sanctuary Bridge -> Red Rocket -> Concord Museum (Preston)
+    # 100% verified offline against Fallout4.esm Commonwealth WRLD 0x0000003C NAVM (terrain unproven in game)
     WalkSegment(
         leg_id="L5",
         seg_id="5a",
@@ -389,125 +446,103 @@ OPENING_WALK_SEGMENTS: Tuple[WalkSegment, ...] = (
         start=(-2361.820, -1436.900, 110.220),
         target=(-2350.290, -1473.690, 109.210),
         start_yaw_deg=None,
-        action_at_target="Bear ESE (115.9 deg) to Sanctuary North Bridge approach",
+        action_at_target="Turn East (91.0 deg) to Sanctuary North Bridge approach",
         anchor_ref="sanctuary_north_bridge",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5c",
         zone="exterior_commonwealth",
-        label="Sanctuary south road -> North Bridge west end",
+        label="Sanctuary south road -> Sanctuary North Bridge approach",
         start=(-2350.290, -1473.690, 109.210),
-        target=(-2315.380, -1490.660, 107.470),
+        target=(-2332.000, -1474.000, 108.327),
         start_yaw_deg=None,
-        action_at_target="Align SE (134.7 deg) across Sanctuary North Bridge (04005199)",
+        action_at_target="Align SE (137.0 deg) straight across Sanctuary North Bridge (04005199)",
         anchor_ref="sanctuary_north_bridge",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5d",
         zone="exterior_commonwealth",
-        label="Cross Sanctuary North Bridge -> Bridge deck center",
-        start=(-2315.380, -1490.660, 107.470),
-        target=(-2296.340, -1509.490, 111.370),
+        label="Across Sanctuary North Bridge (04005199) -> South bridge highway",
+        start=(-2332.000, -1474.000, 108.327),
+        target=(-2278.000, -1532.000, 107.743),
         start_yaw_deg=None,
-        action_at_target="Continue SE (144.2 deg) off bridge onto highway",
+        action_at_target="Follow paved highway East (86.8 deg) to Red Rocket Truck Stop",
         anchor_ref="sanctuary_north_bridge",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5e",
         zone="exterior_commonwealth",
-        label="Sanctuary North Bridge deck -> South bridge highway",
-        start=(-2296.340, -1509.490, 111.370),
-        target=(-2280.160, -1531.910, 107.660),
+        label="South bridge highway -> Red Rocket Truck Stop road",
+        start=(-2278.000, -1532.000, 107.743),
+        target=(-2206.000, -1528.000, 106.429),
         start_yaw_deg=None,
-        action_at_target="Follow paved highway East (87.1 deg) to Red Rocket Truck Stop",
+        action_at_target="Pass Red Rocket bearing SSE (145.2 deg) onto Concord highway",
         anchor_ref="concord_map_marker",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5f",
         zone="exterior_commonwealth",
-        label="South bridge highway -> Red Rocket highway curve",
-        start=(-2280.160, -1531.910, 107.660),
-        target=(-2206.130, -1528.100, 107.730),
+        label="Red Rocket Truck Stop road -> Concord descent upper",
+        start=(-2206.000, -1528.000, 106.429),
+        target=(-2174.000, -1574.000, 103.668),
         start_yaw_deg=None,
-        action_at_target="Pass Red Rocket Truck Stop bearing E (97.4 deg)",
+        action_at_target="Descend paved road SE (135.0 deg) toward Concord",
         anchor_ref="concord_map_marker",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5g",
         zone="exterior_commonwealth",
-        label="Red Rocket highway curve -> Red Rocket south exit",
-        start=(-2206.130, -1528.100, 107.730),
-        target=(-2176.190, -1531.980, 105.070),
+        label="Concord descent upper -> Concord north road",
+        start=(-2174.000, -1574.000, 103.668),
+        target=(-2140.000, -1608.000, 90.134),
         start_yaw_deg=None,
-        action_at_target="Descend paved road SSE (147.7 deg) toward Concord",
+        action_at_target="Continue SE (132.9 deg) into Concord outskirts",
         anchor_ref="concord_map_marker",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5h",
         zone="exterior_commonwealth",
-        label="Red Rocket south exit -> Concord downhill curve",
-        start=(-2176.190, -1531.980, 105.070),
-        target=(-2144.150, -1582.730, 94.460),
+        label="Concord north road -> Concord northern outskirts",
+        start=(-2140.000, -1608.000, 90.134),
+        target=(-2112.000, -1634.000, 88.228),
         start_yaw_deg=None,
-        action_at_target="Continue SSE (148.6 deg) down Concord north road",
+        action_at_target="Continue SE (128.7 deg) toward Concord Main Street junction",
         anchor_ref="concord_map_marker",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5i",
         zone="exterior_commonwealth",
-        label="Concord downhill curve -> Concord northern outskirts",
-        start=(-2144.150, -1582.730, 94.460),
-        target=(-2122.790, -1617.770, 88.320),
+        label="Concord northern outskirts -> Main Street junction",
+        start=(-2112.000, -1634.000, 88.228),
+        target=(-2102.000, -1642.000, 88.348),
         start_yaw_deg=None,
-        action_at_target="Enter Concord bearing ESE (122.8 deg) toward Main Street",
+        action_at_target="Turn ESE (110.8 deg) to Concord Map Marker (040A775C)",
         anchor_ref="concord_map_marker",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5j",
         zone="exterior_commonwealth",
-        label="Concord outskirts -> Concord Map Marker (040A775C)",
-        start=(-2122.790, -1617.770, 88.320),
+        label="Main Street junction -> Concord Map Marker (040A775C)",
+        start=(-2102.000, -1642.000, 88.348),
         target=(-2061.230, -1657.460, 86.930),
         start_yaw_deg=None,
-        action_at_target="Inside GiveConcordRadius (150 m); continue ESE (116.8 deg) down Main Street",
+        action_at_target="Inside GiveConcordRadius (150 m); defeat 5 raiders & advance SE (128.4 deg) down Main Street",
         anchor_ref="concord_map_marker",
     ),
     WalkSegment(
         leg_id="L5",
         seg_id="5k",
         zone="exterior_commonwealth",
-        label="Concord Map Marker -> Concord Main Street",
+        label="Concord Map Marker -> Preston Garvey 2.83 m dialogue standoff",
         start=(-2061.230, -1657.460, 86.930),
-        target=(-2044.750, -1665.790, 88.320),
-        start_yaw_deg=None,
-        action_at_target="Advance SE (130.0 deg) toward Museum of Freedom plaza (raiders engage)",
-        anchor_ref="concord_preston_museum_door",
-    ),
-    WalkSegment(
-        leg_id="L5",
-        seg_id="5l",
-        zone="exterior_commonwealth",
-        label="Concord Main Street -> Museum of Freedom plaza",
-        start=(-2044.750, -1665.790, 88.320),
-        target=(-2025.140, -1682.250, 88.320),
-        start_yaw_deg=None,
-        action_at_target="Defeat all 5 Concord street raiders (09000803..09000807), then advance SE (137.9 deg)",
-        anchor_ref="concord_preston_museum_door",
-    ),
-    WalkSegment(
-        leg_id="L5",
-        seg_id="5m",
-        zone="exterior_commonwealth",
-        label="Museum plaza -> Preston Garvey 2.8 m dialogue standoff",
-        start=(-2025.140, -1682.250, 88.320),
         target=(-2013.143, -1695.543, 89.086),
         start_yaw_deg=None,
         action_at_target="Aim 135.0 deg SE at Preston Garvey (09000802, 2.83 m away), press E & finish voiced talk",
@@ -628,6 +663,114 @@ def _pt_in_tri_2d(px: float, py: float, a: Point3, b: Point3, c: Point3) -> Opti
     if u >= -0.02 and v >= -0.02 and (u + v) <= 1.02:
         return a[2] + u * (c[2] - a[2]) + v * (b[2] - a[2])
     return None
+
+
+def verify_exterior_navm_segments(
+    fo4_esm: Path,
+    segments: Sequence[WalkSegment] = OPENING_WALK_SEGMENTS,
+    step_m: float = 0.5,
+) -> Dict[str, Any]:
+    """Read-only offline check: verify every exterior_commonwealth segment stays 100% on Fallout4.esm WRLD 0x3C NAVM."""
+    src_root = Path(__file__).resolve().parents[2] / "src"
+    if str(src_root) not in sys.path:
+        sys.path.insert(0, str(src_root))
+    from fo4sf.planet.esm import Plugin, Record  # noqa: E402
+
+    ext_segs = [s for s in segments if s.zone == "exterior_commonwealth"]
+    if not ext_segs:
+        return {"pass": True, "cells": 0, "triangles": 0, "sampled_points": 0, "hits": 0, "issues": []}
+
+    min_x = min(min(s.start[0], s.target[0]) for s in ext_segs) - 90.0
+    max_x = max(max(s.start[0], s.target[0]) for s in ext_segs) + 90.0
+    min_y = min(min(s.start[1], s.target[1]) for s in ext_segs) - 90.0
+    max_y = max(max(s.start[1], s.target[1]) for s in ext_segs) + 90.0
+
+    all_tris: List[Tuple[Point3, Point3, Point3]] = []
+    navm_cells = 0
+    with Plugin(str(fo4_esm)) as plg:
+        in_cw = False
+        for s, e in plg.groups.get("WRLD", []):
+            for item in plg.walk(s, e):
+                if item[0] != "REC":
+                    continue
+                _, off, sig, _ = item
+                if sig == b"WRLD":
+                    in_cw = (Record.parse(plg.buf, off).formid == 0x0000003C)
+                elif sig == b"NAVM" and in_cw:
+                    rec = Record.parse(plg.buf, off)
+                    nvnm = next((d for st, d in rec.subs if st == b"NVNM"), None)
+                    if not nvnm or len(nvnm) < 24:
+                        continue
+                    nv = struct.unpack_from("<I", nvnm, 16)[0]
+                    if nv == 0:
+                        continue
+                    vx0, vy0, _ = struct.unpack_from("<3f", nvnm, 20)
+                    mx0 = vx0 * FO4_TO_SF_SCALE + MERGE_OFFSET_X
+                    my0 = vy0 * FO4_TO_SF_SCALE + MERGE_OFFSET_Y
+                    if not (min_x <= mx0 <= max_x and min_y <= my0 <= max_y):
+                        continue
+                    verts = [
+                        (x * FO4_TO_SF_SCALE + MERGE_OFFSET_X, y * FO4_TO_SF_SCALE + MERGE_OFFSET_Y, z * FO4_TO_SF_SCALE)
+                        for x, y, z in (struct.unpack_from("<3f", nvnm, 20 + i * 12) for i in range(nv))
+                    ]
+                    nt_off = 20 + nv * 12
+                    nt = struct.unpack_from("<I", nvnm, nt_off)[0]
+                    navm_cells += 1
+                    for i in range(nt):
+                        v0, v1, v2 = struct.unpack_from("<3H", nvnm, nt_off + 4 + i * FO4_NAVM_V15_STRIDE)
+                        if v0 < nv and v1 < nv and v2 < nv:
+                            all_tris.append((verts[v0], verts[v1], verts[v2]))
+
+    issues: List[str] = []
+    if not all_tris:
+        issues.append("Fallout4.esm missing Commonwealth WRLD 0x0000003C NAVM triangles in route bounds")
+        return {"pass": False, "cells": 0, "triangles": 0, "sampled_points": 0, "hits": 0, "issues": issues}
+
+    cell_sz = 4.0
+    grid: Dict[Tuple[int, int], List[int]] = {}
+    for idx, (a, b, c) in enumerate(all_tris):
+        gx0 = int(math.floor(min(a[0], b[0], c[0]) / cell_sz))
+        gx1 = int(math.floor(max(a[0], b[0], c[0]) / cell_sz))
+        gy0 = int(math.floor(min(a[1], b[1], c[1]) / cell_sz))
+        gy1 = int(math.floor(max(a[1], b[1], c[1]) / cell_sz))
+        for gx in range(gx0, gx1 + 1):
+            for gy in range(gy0, gy1 + 1):
+                grid.setdefault((gx, gy), []).append(idx)
+
+    total_pts = 0
+    hit_pts = 0
+    for seg in ext_segs:
+        d = horizontal_distance(seg.start, seg.target)
+        steps = max(2, int(math.ceil(d / step_m)))
+        seg_miss = 0
+        for i in range(steps + 1):
+            t = i / steps
+            px = seg.start[0] + t * (seg.target[0] - seg.start[0])
+            py = seg.start[1] + t * (seg.target[1] - seg.start[1])
+            total_pts += 1
+            gx = int(math.floor(px / cell_sz))
+            gy = int(math.floor(py / cell_sz))
+            hit = False
+            for idx in grid.get((gx, gy), ()):
+                a, b, c = all_tris[idx]
+                if _pt_in_tri_2d(px, py, a, b, c) is not None:
+                    hit = True
+                    break
+            if hit:
+                hit_pts += 1
+            else:
+                seg_miss += 1
+        if seg_miss > 0:
+            issues.append(f"Commonwealth WRLD 0x3C NAVM miss on seg {seg.seg_id}: {seg_miss}/{steps + 1}")
+
+    return {
+        "pass": not issues,
+        "cells": navm_cells,
+        "triangles": len(all_tris),
+        "sampled_points": total_pts,
+        "hits": hit_pts,
+        "issues": issues,
+    }
 
 
 def verify_against_staged_esms(
@@ -772,10 +915,22 @@ def verify_against_staged_esms(
                     issues.append(f"Vault111Cryo NAVM miss on seg {seg.seg_id}: {seg_miss}/{steps + 1}")
             navm_summary = {"triangles": len(tris), "sampled_points": total_pts, "hits": hit_pts}
 
+    ext_navm_summary: Optional[Dict[str, Any]] = None
+    if fo4_esm is not None:
+        ext_res = verify_exterior_navm_segments(fo4_esm)
+        ext_navm_summary = {
+            "cells": ext_res["cells"],
+            "triangles": ext_res["triangles"],
+            "sampled_points": ext_res["sampled_points"],
+            "hits": ext_res["hits"],
+        }
+        issues.extend(ext_res["issues"])
+
     return {
         "pass": not issues,
         "checked_anchors": checked,
         "vault111_navm": navm_summary,
+        "commonwealth_navm": ext_navm_summary,
         "issues": issues,
     }
 
