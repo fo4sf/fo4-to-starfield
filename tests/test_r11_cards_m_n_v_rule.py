@@ -136,6 +136,8 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("equip it (`f7` -> `inv`)", txt.lower())
         # Old placeholder replaced by <cand2g-fix-player-bundle>
         self.assertNotIn("<cand-r11-player-bundle>", txt)
+        # In candidate-2g-fix (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
+        self.assertNotIn("sanctuary01 bench_activated=true ref=<ref> complete=true", txt)
 
         required_tokens = (
             "<cand2g-fix-player-bundle>",
@@ -169,6 +171,9 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "sanctuary01 clean_bench_swap self_heal reason=no_workshop_menu",
             "sanctuary01 clean_bench_swap active=false ref=<ref>",
             "sanctuary01 clean_bench_swap active=true ref=<ref>",
+            "FO4SF_MISSION rt=<rt> sanctuary01 open_mode sturges_unavailable -> stage 1000",
+            "FO4SF_MISSION rt=<rt> sanctuary01 bench_activated=true ref=<ref> complete=false stage=1000",
+            "post-`200` summary prompt cleanly without locking or re-running `stage 30` / rewards",
             "openMenuCount",
             "09000A23",
             "09000AD1",
@@ -266,6 +271,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
 
         r11_fix_pending_prefixes = (
             "console 'set 0B00084A' local FormID 0x00084A not in writer constants",
+            "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> sanctuary01 open_mode sturges_unavailable -> stage 1000'",
             "PASS line does not match any source format string: 'step=hud_watch_hide ",
         )
         unexpected = [e for e in errs if not any(p in e for p in r11_fix_pending_prefixes)]
