@@ -1073,7 +1073,8 @@ EndFunction
 Function EquipBalancedRaiderSidearm(Actor r, int idx)
 {R11 D3: Switch armed Concord street raiders from Coachman (52 dmg) to VMAD-bound Starfield stand-in Eon (10 dmg,
  0x0476C4) + deterministic 36 Ammo777mm (0x04AD3E) so a cover-using Level-1 (205 HP) player survives without god mode
- until A4/A5 replace the stand-in fight.}
+ until A4/A5 replace the stand-in fight. Removes Coachman + AmmoShotshell after ArmRaiderForCombat logs ammo=60 and
+ equips Eon with abPreventRemoval=True so Starfield combat AI (SelectBestWeapon) never switches back to Coachman.}
     if r == None || r.IsDead() || RaiderSidearm == None || RaiderSidearmAmmo == None
         return
     endif
@@ -1089,8 +1090,18 @@ Function EquipBalancedRaiderSidearm(Actor r, int idx)
     endif
     if RaiderWeapon != None
         r.UnequipItem(RaiderWeapon, False, True)
+        int curCoachman = r.GetItemCount(RaiderWeapon)
+        if curCoachman > 0
+            r.RemoveItem(RaiderWeapon, curCoachman, True)
+        endif
     endif
-    r.EquipItem(RaiderSidearm, False, True)
+    if RaiderAmmo != None
+        int curShells = r.GetItemCount(RaiderAmmo)
+        if curShells > 0
+            r.RemoveItem(RaiderAmmo, curShells, True)
+        endif
+    endif
+    r.EquipItem(RaiderSidearm, True, True)
     r.EvaluatePackage()
     Trace("arm raider " + idx + " sidearm=eon sidearm_ammo=" + r.GetItemCount(RaiderSidearmAmmo))
 EndFunction

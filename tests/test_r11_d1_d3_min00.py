@@ -204,7 +204,8 @@ class R11W1Tests(unittest.TestCase):
 
     def test_d3_raider_ammo_deterministic_60_and_balanced_eon_sidearm(self):
         """D3: LL_Ammo_Shotshell spawn rolls (30, 10, 30, 30, 20, plus >60 overflow) all normalize to exact 60,
-        and raiders equip Eon (10 dmg) + exact 36 Ammo777mm while unequipping Coachman (52 dmg)."""
+        then EquipBalancedRaiderSidearm removes Coachman + AmmoShotshell and locks Eon (abPreventRemoval=True) +
+        exact 36 Ammo777mm so SelectBestWeapon never reverts to Coachman; RaiderSidearm=None retains Coachman x60."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("SfRaiderSidearmId = 0x0476C4", cs)
@@ -217,7 +218,7 @@ class R11W1Tests(unittest.TestCase):
                 self.inv = {"Coachman": 1, "AmmoShotshell": shells}
                 if ammo777:
                     self.inv["Ammo777mm"] = ammo777
-                self.equipped = ["Coachman"]
+                self.equipped = [("Coachman", False)]
                 self.unequipped = []
                 self.restrained = True
                 self.avs = {}
@@ -230,7 +231,7 @@ class R11W1Tests(unittest.TestCase):
             def AddItem(self, item, cnt, _silent=False): self.inv[item] = self.inv.get(item, 0) + int(cnt)
             def RemoveItem(self, item, cnt, _silent=False): self.inv[item] = max(0, self.inv.get(item, 0) - int(cnt))
             def UnequipItem(self, item, *_): self.unequipped.append(item)
-            def EquipItem(self, item, *_): self.equipped.append(item)
+            def EquipItem(self, item, prevent_removal=False, _silent=False): self.equipped.append((item, bool(prevent_removal)))
             def EvaluatePackage(self): self.evals += 1
 
         # Exact candidate-2g LL_Ammo_Shotshell rolls + an overflow case (85)
@@ -255,16 +256,28 @@ class R11W1Tests(unittest.TestCase):
 
         for idx, r in enumerate(raiders):
             ns["ArmRaiderForCombat"](r, idx)
+            self.assertEqual(r.inv["AmmoShotshell"], 60, f"raider {idx} shell count != 60 after ArmRaiderForCombat")
             ns["EquipBalancedRaiderSidearm"](r, idx)
-            self.assertEqual(r.inv["AmmoShotshell"], 60, f"raider {idx} shell count != 60")
+            self.assertEqual(r.inv["Coachman"], 0, f"raider {idx} Coachman must be removed to prevent AI re-equip")
+            self.assertEqual(r.inv["AmmoShotshell"], 0, f"raider {idx} AmmoShotshell must be removed after sidearm swap")
             self.assertEqual(r.inv["Ammo777mm"], 36, f"raider {idx} 7.77mm count != 36")
             self.assertEqual(r.unequipped, ["Coachman"])
-            self.assertEqual(r.equipped[-1], "Eon")
+            self.assertEqual(r.equipped[-1], ("Eon", True))
             self.assertFalse(r.restrained)
             self.assertEqual(r.avs, {"Aggression": 2.0, "Confidence": 4.0})
             self.assertTrue(ns["raiderArmed"][idx])
             self.assertIn(f"arm raider {idx} ammo=60", logs[-2])
             self.assertIn(f"arm raider {idx} sidearm=eon sidearm_ammo=36", logs[-1])
+
+        # Fallback path when RaiderSidearm is None: retains Coachman (1) + deterministic AmmoShotshell (60)
+        fallback_r = _Raider(10)
+        ns["RaiderSidearm"] = None
+        ns["raiderArmed"].append(False)
+        ns["ArmRaiderForCombat"](fallback_r, len(raiders))
+        ns["EquipBalancedRaiderSidearm"](fallback_r, len(raiders))
+        self.assertEqual(fallback_r.inv["Coachman"], 1)
+        self.assertEqual(fallback_r.inv["AmmoShotshell"], 60)
+        self.assertEqual(fallback_r.equipped[-1], ("Coachman", False))
 
     def test_d5_preston_and_codsworth_choice_infos_carry_enam_zero_and_inam_low(self):
         """D5 Part 3: BuildTopScene sets explicit ENAM (Flags=0, ResetHours=0, DoNotGrayOut clear) and
