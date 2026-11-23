@@ -30,6 +30,8 @@ Message Property SturgesReply1Msg Auto Const
 Message Property SturgesReply2Msg Auto Const
 Message Property SturgesDoneMsg Auto Const
 Message Property WorkbenchBuildMsg Auto Const
+; R11-fix #2: Clean Sanctuary bench swap is OFF by default in candidate-2g-fix (also controlled by FO4SFWorkshop.esm:0x00084A)
+bool Property EnableCleanBenchSwap = False Auto
 
 string LogName = "fo4sf_mission"
 string CorePlugin = "FO4TerrainCore.esm"
@@ -39,6 +41,8 @@ string WorkshopPlugin = "FO4SFWorkshop.esm"
 int BenchRefId = 0x005C50
 int BenchBaseId = 0x0A2ECD
 int CleanBenchBaseId = 0x000849
+int CleanBenchSwapGlobId = 0x00084A
+float CleanBenchSelfHealSeconds = 3.5
 float BenchLocalX = -1129.250
 float BenchLocalY = 1279.807
 float BenchLocalZ = 112.086
@@ -63,7 +67,9 @@ bool talkBoxOpen = False
 bool benchMenuOpen = False
 bool workshopModeActive = False
 bool workshopMenuOpen = False
-int openMenuCount = 0
+bool cleanBenchVerifyPending = False
+bool cleanBenchSawWorkshop = False
+bool cleanBenchSelfHealed = False
 bool a4Upgraded = False
 bool minRecruitHandoffDone = False
 int talkSessionId = 0
@@ -105,11 +111,16 @@ bool Function HasFullMin01()
 EndFunction
 
 bool Function IsSturgesDeadOrMissing()
+{R11-fix #3: Treat Sturges not yet arrived from S9 (!IsSturgesReadyForSanctuary()) identically to missing/dead
+ so stage 100 never shows objective 50 ("Talk to Sturges") while Sturges is disabled.}
     Actor st = ResolveSturges()
-    if st == None
+    if st == None || st.IsDead()
         return True
     endif
-    return st.IsDead()
+    if !IsSturgesReadyForSanctuary()
+        return True
+    endif
+    return False
 EndFunction
 
 bool Function IsWarfareMode()
@@ -146,15 +157,14 @@ EndFunction
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     if abOpening
-        openMenuCount += 1
         sturgesNearSec = 0.0
         if asMenuName == "WorkshopMenu" || asMenuName == "WorkshopBuilderMenu" || asMenuName == "WorkshopQuickMenu" || asMenuName == "Workshop_BlueprintMenu"
             workshopMenuOpen = True
+            cleanBenchSawWorkshop = True
+            cleanBenchVerifyPending = False
+            CancelTimer(3)
         endif
     else
-        if openMenuCount > 0
-            openMenuCount -= 1
-        endif
         if asMenuName == "WorkshopMenu" || asMenuName == "WorkshopBuilderMenu" || asMenuName == "WorkshopQuickMenu" || asMenuName == "Workshop_BlueprintMenu"
             workshopMenuOpen = False
         endif
@@ -162,8 +172,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 bool Function IsAnyMenuOrWorkshopOpen()
-{A2.1: Multi-layer menu guard covering tracked menu events, workshop mode, Starfield pause state, dialogue, and control locks.}
-    if talkBoxOpen || benchMenuOpen || workshopModeActive || workshopMenuOpen || openMenuCount > 0
+{A2.1 / R11-fix #8: Multi-layer menu guard using native pause/dialogue/control checks and explicit boolean workshop/dialog flags (no sticky counter).}
+    if talkBoxOpen || benchMenuOpen || workshopModeActive || workshopMenuOpen
         return True
     endif
     if Utility.IsGameMenuPaused() || Game.IsPlayerInDialogue()
@@ -171,6 +181,24 @@ bool Function IsAnyMenuOrWorkshopOpen()
     endif
     if !Game.IsMovementControlsEnabled() || !Game.IsActivateControlsEnabled()
         return True
+    endif
+    return False
+EndFunction
+
+bool Function IsCleanBenchSwapEnabled()
+{R11-fix #2: Clean bench swap is OFF by default in candidate-2g-fix (EnableCleanBenchSwap == False and FO4SFWorkshop.esm:0x00084A == 0.0).
+ Returns True only when explicitly switched ON and not self-healed.}
+    if cleanBenchSelfHealed
+        return False
+    endif
+    if EnableCleanBenchSwap
+        return True
+    endif
+    if Game.IsPluginInstalled(WorkshopPlugin)
+        GlobalVariable sw = Game.GetFormFromFile(CleanBenchSwapGlobId, WorkshopPlugin) as GlobalVariable
+        if sw != None && sw.GetValue() != 0.0
+            return True
+        endif
     endif
     return False
 EndFunction
@@ -281,7 +309,12 @@ EndEvent
 
 Function ApplyStage(int n, string by)
     if n == 50
-        SetObjectiveDisplayed(50, True, True)
+        if IsSturgesDeadOrMissing()
+            Trace("sanctuary01 open_mode sturges_unavailable -> stage 1000")
+            AdvanceTo(1000, "open_mode")
+        else
+            SetObjectiveDisplayed(50, True, True)
+        endif
     elseif n == 100
         SetObjectiveCompleted(10)
         if !HasFullMin01()
@@ -461,7 +494,9 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     benchMenuOpen = False
     workshopModeActive = False
     workshopMenuOpen = False
-    openMenuCount = 0
+    cleanBenchVerifyPending = False
+    cleanBenchSawWorkshop = False
+    CancelTimer(3)
     sturgesHeld = False
     sturgesNearSec = 0.0
     int st = EffectiveStage()
@@ -503,6 +538,17 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 3
+        if cleanBenchVerifyPending && !cleanBenchSawWorkshop && !workshopModeActive && !workshopMenuOpen && sanctuaryBenchOverride != None && !cleanBenchSelfHealed
+            cleanBenchSelfHealed = True
+            cleanBenchVerifyPending = False
+            Trace("sanctuary01 clean_bench_swap self_heal reason=no_workshop_menu")
+            RestoreCoreBench("self_heal")
+        else
+            cleanBenchVerifyPending = False
+        endif
+        return
+    endif
     if aiTimerID != 1
         return
     endif
@@ -532,6 +578,12 @@ Event OnTimer(int aiTimerID)
         endif
         if st >= 1000 && st < 1500
             CheckMilestoneProgress(st)
+        endif
+        bool wantSwapNow = IsCleanBenchSwapEnabled()
+        if wantSwapNow && (sanctuaryBenchOverride == None || boundBench != sanctuaryBenchOverride)
+            TryBindBench(player)
+        elseif !wantSwapNow && sanctuaryBenchOverride != None && boundBench == sanctuaryBenchOverride
+            RestoreCoreBench("switch_off")
         endif
         if boundBench == None || boundBench.IsDeleted()
             EnsureGuideMarker(player)
@@ -833,12 +885,59 @@ Function CleanupMarker()
     markerRef = None
 EndFunction
 
+Function RestoreCoreBench(string reason)
+{R11-fix #2: Re-enable 04005C50, disable sanctuaryBenchOverride, and re-bind boundBench + Alias 0 back to 04005C50.}
+    cleanBenchVerifyPending = False
+    CancelTimer(3)
+    ObjectReference coreRef = coreBenchDisabled
+    if coreRef == None
+        string cName = ActiveCorePlugin()
+        if cName != ""
+            coreRef = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
+        endif
+    endif
+    if sanctuaryBenchOverride != None && !sanctuaryBenchOverride.IsDeleted()
+        UnregisterForRemoteEvent(sanctuaryBenchOverride, "OnActivate")
+        UnregisterForRemoteEvent(sanctuaryBenchOverride, "OnWorkshopMode")
+        sanctuaryBenchOverride.DisableNoWait(False)
+    endif
+    if boundBench != None && boundBench != coreRef
+        UnregisterForRemoteEvent(boundBench, "OnActivate")
+        UnregisterForRemoteEvent(boundBench, "OnWorkshopMode")
+    endif
+    if coreRef != None
+        if coreRef.IsDisabled()
+            coreRef.EnableNoWait(False)
+        endif
+        boundBench = coreRef
+        RegisterForRemoteEvent(boundBench, "OnActivate")
+        RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+        ReferenceAlias bAliasRestore = GetAlias(0) as ReferenceAlias
+        if bAliasRestore != None
+            bAliasRestore.ForceRefTo(boundBench)
+        endif
+        CleanupMarker()
+        Trace("sanctuary01 bench_bound ref=" + boundBench + " loaded=" + boundBench.Is3DLoaded())
+        Trace("sanctuary01 clean_bench_swap active=false ref=" + boundBench)
+    else
+        boundBench = None
+    endif
+EndFunction
+
 Function TryBindBench(Actor player)
     if player == None
         return
     endif
     RegisterMenuGuards()
-    if sanctuaryBenchOverride != None && !sanctuaryBenchOverride.IsDeleted()
+    bool wantSwap = IsCleanBenchSwapEnabled()
+    if !wantSwap && sanctuaryBenchOverride != None && !sanctuaryBenchOverride.IsDeleted()
+        RestoreCoreBench("load_switch_off")
+        return
+    endif
+    if wantSwap && sanctuaryBenchOverride != None && !sanctuaryBenchOverride.IsDeleted()
+        if sanctuaryBenchOverride.IsDisabled()
+            sanctuaryBenchOverride.EnableNoWait(False)
+        endif
         if coreBenchDisabled != None && !coreBenchDisabled.IsDisabled()
             coreBenchDisabled.DisableNoWait(False)
         endif
@@ -881,11 +980,12 @@ Function TryBindBench(Actor player)
     if cand == None
         return
     endif
-    ; R11 D4: Swap Starfield-category core bench (0x0A2ECD) for clean Sanctuary Hills Workshop bench
-    ; (FO4SFWorkshop.esm:0x000849, zero Starfield OutpostCategory* keywords) once 3D is loaded.
+    ; R11 D4 / fix #2: Only swap core bench (0x005C50) for clean bench (FO4SFWorkshop.esm:0x000849)
+    ; when explicitly switched ON (FO4SF_SanctuaryCleanBenchSwap 0x00084A == 1 or EnableCleanBenchSwap == True).
+    ; Default in candidate-2g-fix is OFF so 04005C50 stays enabled and bound.
     bool swappedClean = False
     ObjectReference targetBench = cand
-    if Game.IsPluginInstalled(WorkshopPlugin)
+    if wantSwap && Game.IsPluginInstalled(WorkshopPlugin)
         if !cand.Is3DLoaded()
             return
         endif
@@ -901,6 +1001,8 @@ Function TryBindBench(Actor player)
                 swappedClean = True
             endif
         endif
+    elseif cand.IsDisabled()
+        cand.EnableNoWait(False)
     endif
     if targetBench != None && targetBench != boundBench
         if boundBench != None
@@ -991,7 +1093,21 @@ Function RunWorkbenchBuildMenu()
 EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
-    if completed || akActionRef != Game.GetPlayer()
+    if akActionRef != Game.GetPlayer()
+        return
+    endif
+    if sanctuaryBenchOverride != None && akSender == sanctuaryBenchOverride
+        if !IsCleanBenchSwapEnabled()
+            RestoreCoreBench("switch_off")
+            return
+        elseif !cleanBenchSelfHealed
+            cleanBenchSawWorkshop = False
+            cleanBenchVerifyPending = True
+            CancelTimer(3)
+            StartTimer(CleanBenchSelfHealSeconds, 3)
+        endif
+    endif
+    if completed
         return
     endif
     Actor st = ResolveSturges()
@@ -1034,9 +1150,14 @@ Event ObjectReference.OnWorkshopMode(ObjectReference akSender, bool aStart)
         workshopModeActive = aStart
         if aStart
             sturgesNearSec = 0.0
+            cleanBenchSawWorkshop = True
+            cleanBenchVerifyPending = False
+            CancelTimer(3)
             if !completed && EffectiveStage() < 100
                 CompleteSanctuaryObjective(akSender)
             endif
+        else
+            workshopMenuOpen = False
         endif
     endif
 EndEvent
