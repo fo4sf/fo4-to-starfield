@@ -1,4 +1,4 @@
-"""Round 11 A2.7 / R11 / P3 / A3 card validator for candidate-2g-card.md and round11-a1-a3-card.md."""
+"""Round 11 A2.7 / R11 / P3 / A3 / candidate-2g-fix card validator."""
 
 from __future__ import annotations
 
@@ -116,6 +116,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
 
         top = "\n".join(txt.splitlines()[:14])
         self.assertIn("NEW GAME needed", top)
+        self.assertIn("candidate-2g-fix", top)
         self.assertIn("73ea9a4b", top)
         self.assertIn("7085816241", top)
         self.assertIn("prototype, offline", top)
@@ -133,8 +134,11 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("press `e` on the elevator", txt.lower())
         # InvDataAnswers=0 in --profile player: never instruct equipping via F7 -> INV
         self.assertNotIn("equip it (`f7` -> `inv`)", txt.lower())
+        # Old placeholder replaced by <cand2g-fix-player-bundle>
+        self.assertNotIn("<cand-r11-player-bundle>", txt)
 
         required_tokens = (
+            "<cand2g-fix-player-bundle>",
             "D1",
             "D2",
             "D3",
@@ -151,6 +155,36 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "A2.7",
             "A3",
             "HAND-PLAY",
+            # Review items #1-#10 coverage
+            "late_dialogue_open",
+            "post-`200`",
+            "--codsworth-race-framing 0",
+            "variants/codsworth-race-framing-on/FO4SFMission.esm",
+            "0B00084A",
+            "EnableCleanBenchSwap = False",
+            "bat r11swp1",
+            "bat r11swp0",
+            "set 0B00084A to 1",
+            "3.5 s",
+            "sanctuary01 clean_bench_swap self_heal reason=no_workshop_menu",
+            "sanctuary01 clean_bench_swap active=false ref=<ref>",
+            "sanctuary01 clean_bench_swap active=true ref=<ref>",
+            "openMenuCount",
+            "09000A23",
+            "09000AD1",
+            "09000B31",
+            "0x3D094D",
+            "ClimateUniqueCydonia",
+            "ClimateUniqueCydoniaFrozen",
+            "ATMO_Mars",
+            "Known Side Effect (`#4`)",
+            "Mars-wide",
+            "--commonwealth-weather 0",
+            "try=<n>",
+            "step=hud_watch_hide when=<when> try=<n> movie=<hex> ok=1 target=BottomLeftGroup_mc children_hidden=<n>",
+            "step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable",
+            "HandleLiftControlActivate",
+            # Core A1-A3 checks
             "thrusters",
             "codsworth talk dialogue_camera stopped phase=2",
             "wall_avoid=<true|false>",
@@ -167,7 +201,6 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "Research Lab",
             "WORKSHOP, MARS, SOL",
             "0B000849",
-            "sanctuary01 clean_bench_swap active=true ref=<ref>",
             "CheckSturgesTalkFallback",
             "RADAWAY (0)",
             "ButtonHintBar_mc.y",
@@ -181,8 +214,6 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "ShellBackdrop=0",
             "HideStarfieldWatch=1",
             "HideStarfieldWatch=0",
-            "--commonwealth-weather 0",
-            "step=hud_watch_hide when=on_movie_created movie=<hex> ok=1 target=BottomLeftGroup_mc children_hidden=<n>",
             "hide_starfield_watch=1",
             "4.8 m/s",
             "6.97 s",
@@ -223,30 +254,21 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             writer_fids=self.writer_fids,
             quest_stages=self.quest_stages,
         )
-        cods_src = (ROOT / "scripts/mission/FO4SF_Codsworth01Quest.psc").read_text(encoding="utf-8")
-        min00_src = (ROOT / "scripts/mission/FO4SF_Min00Quest.psc").read_text(encoding="utf-8")
-        sanc_src = (ROOT / "scripts/mission/FO4SF_Sanctuary01Quest.psc").read_text(encoding="utf-8")
+        workshop_src = (ROOT / "dotnet/WorkshopCore/Program.cs").read_text(encoding="utf-8")
         pipboy_src = (ROOT / "sfse/FO4SFPipboyMenu/src/main.cpp").read_text(encoding="utf-8")
 
-        w1_present = "dialogue_camera stopped phase=" in cods_src and "sidearm=eon sidearm_ammo=" in min00_src
-        w2_present = "clean_bench_swap active=true" in sanc_src
-        w4_present = "hide_starfield_watch=" in pipboy_src and "step=hud_watch_hide" in pipboy_src
+        w2_fix_present = "0x00084A" in workshop_src or "0x0000084A" in workshop_src or "0x84A" in workshop_src
+        w4_fix_present = "step=hud_watch_hide" in pipboy_src and "try=" in pipboy_src
 
-        if w1_present and w2_present and w4_present:
+        if w2_fix_present and w4_fix_present:
             self.assertEqual(errs, [], f"{CARD_R11_REL} failed live R11 validation:\n" + "\n".join(errs))
             return
 
-        r11_new_prefixes = (
-            "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> codsworth talk camera_guard prev_d=<d> safe_d=1.85 wall_avoid=<true|false>'",
-            "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> codsworth talk dialogue_camera stopped phase=2'",
-            "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> arm raider <i> sidearm=eon sidearm_ammo=36'",
-            "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> sanctuary01 clean_bench_swap active=true ref=<ref>'",
-            "PASS line does not match any source format string: 'step=shell_c4_config shell_backdrop=1 shell_vitals_fill=1 suppress_data_menu=0 tab_opens_pipboy=0 hide_starfield_watch=1'",
-            "PASS line does not match any source format string: 'step=hud_watch_hide when=on_movie_created movie=<hex> ok=1 target=BottomLeftGroup_mc children_hidden=<n>'",
-            "PASS line does not match any source format string: 'step=shell_hintbar_layout when=kShow old_y=575.0 new_y=672.0 ok=1'",
-            "PASS line does not match any source format string: 'step=shell_platform when=kShow platform=0 called=1 triggers_hidden=2'",
+        r11_fix_pending_prefixes = (
+            "console 'set 0B00084A' local FormID 0x00084A not in writer constants",
+            "PASS line does not match any source format string: 'step=hud_watch_hide ",
         )
-        unexpected = [e for e in errs if not any(p in e for p in r11_new_prefixes)]
+        unexpected = [e for e in errs if not any(p in e for p in r11_fix_pending_prefixes)]
         self.assertEqual(unexpected, [], "\n".join(unexpected))
 
 
