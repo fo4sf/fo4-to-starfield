@@ -512,5 +512,16 @@ The welded Codsworth that ships today is frozen because its mesh is welded, not 
 race. Whether the seams of section 7 item 4 are visible in play is for the owner's look test; they are Fallout 4's own
 deformation, and changing weights to hide them is a separate decision not taken here.
 
-Next: put Codsworth himself on this race and mesh; check whether the manifests are needed; then the other robots and
-creatures in first-mission order.
+**Codsworth himself (probe RA3, same day).** An override plugin on top of main's `FO4SFMission.esm` and the E2 plugin
+changed only two records: `FO4SF_CodsworthRace` (0x818) took the Handy race's skeleton, rig, clip folders, sub-graph
+folders, `ZNAM` bones (`Chest`) and body part data, keeping his own EDID, name fields, `DATA` and armor race; his
+armature `FO4_AA_Codsworth` (0x812) took the Handy mesh. Its archive held one file, the sub-graph text for
+`fo4sf_codsworthrace`. In a new game played from the cryo pod to the surface, Codsworth stood at his Sanctuary spot on
+the Mr. Handy body, idling and turning with his Fallout 4 clips. His four-line talk ran as a Starfield conversation
+from start to end: `codsworth talk scene ended stage=100 completed=true`, `codsworth01 complete choices=4`, `min00
+given by=codsworth`, zero `fallback` lines. The Starfield dialogue camera framed his body at its own height (the
+earlier view from under the welded Mini Bot is gone); it is close, and his greeting still replays after each choice
+as on main.
+
+Next: make this the build (Codsworth's race and mesh from the converter, the Handy files in the mission's archive);
+check whether the manifests are needed; then the other robots and creatures in first-mission order.
