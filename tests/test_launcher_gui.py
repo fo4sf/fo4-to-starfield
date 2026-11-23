@@ -567,6 +567,77 @@ gui.launch(sys.argv[2], settings_file)
         self.assertIn("--ticks", out["captured"][0]["argv"])
         self.assertTrue(out["log_has_sim"])
 
+    def test_x8_three_step_workflow_strip_and_cover_preview_in_real_window(self):
+        script = r"""
+import gc, json, os, sys, tempfile, time
+sys.path.insert(0, sys.argv[1])
+import tkinter as tk
+from fo4sf.launcher import gui, paths, start_cover
+d = tempfile.mkdtemp()
+sf = os.path.join(d, "Starfield")
+fo4 = os.path.join(d, "FO4Data")
+mg = os.path.join(d, "MyGames")
+sig = os.path.join(d, "ready.json")
+os.makedirs(sf); os.makedirs(fo4); os.makedirs(mg)
+open(os.path.join(sf, "Starfield.exe"), "wb").close()
+open(os.path.join(fo4, "Fallout4.esm"), "wb").close()
+settings_file = os.path.join(d, "settings.json")
+with open(settings_file, "w", encoding="utf-8") as fp:
+    json.dump({"starfield": sf, "fo4_data": fo4, "my_games": mg}, fp)
+paths.detect = lambda **_kw: {k: ("", "") for k in paths.KEYS}
+errors = []
+tk.Tk.report_callback_exception = lambda self, *a: errors.append(repr(a[1]))
+def pump(root, s):
+    end = time.time() + s
+    while time.time() < end:
+        root.update()
+        time.sleep(0.02)
+def run(root):
+    w = next(o for o in gc.get_objects() if type(o).__name__ == "Window")
+    pump(root, 0.3)
+    step_labels = [w.workflow_step_widgets[k]["button"].cget("text") for k, _t in gui.WORKFLOW_STEPS]
+    step_details = {k: w.workflow_step_widgets[k]["var"].get() for k, _t in gui.WORKFLOW_STEPS}
+    w.workflow_step_widgets["build"]["button"].invoke()
+    pump(root, 0.05)
+    selected_after_build = w.notebook.tab(w.notebook.select(), "text")
+    w.workflow_step_widgets["locate"]["button"].invoke()
+    pump(root, 0.05)
+    selected_after_locate = w.notebook.tab(w.notebook.select(), "text")
+    cover = w.open_start_cover(for_play=False, signal_path=sig, fullscreen=False)
+    pump(root, 0.1)
+    cover_opened = w.cover_window is not None
+    start_cover.write_fake_ready_signal(sig, stage="stage20")
+    pump(root, 0.4)
+    cover_closed = w.cover_window is None
+    print(json.dumps({
+        "step_labels": step_labels,
+        "step_details": step_details,
+        "start_cover_default": bool(w.vars["start_cover"].get()),
+        "selected_after_build": selected_after_build,
+        "selected_after_locate": selected_after_locate,
+        "cover_opened": cover_opened,
+        "cover_closed": cover_closed,
+        "footer_msg": w.message.get(),
+        "errors": errors,
+    }))
+    root.destroy()
+tk.Tk.mainloop = lambda self, n=0: run(self)
+gui.launch(sys.argv[2], settings_file)
+"""
+        result = subprocess.run([sys.executable, "-I", "-c", script, str(ROOT / "src"),
+                                 str(ROOT / "scripts" / "launcher.py")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["errors"], [])
+        self.assertEqual(out["step_labels"], ["1. Locate", "2. Build or Update", "3. Play"])
+        self.assertIn("3/3", out["step_details"]["locate"])
+        self.assertFalse(out["start_cover_default"])
+        self.assertIn("Status", out["selected_after_build"])
+        self.assertIn("Locations", out["selected_after_locate"])
+        self.assertTrue(out["cover_opened"])
+        self.assertTrue(out["cover_closed"])
+        self.assertIn("Start cover closed (ready)", out["footer_msg"])
+
 
 class TestCommandFeedback(unittest.TestCase):
     def test_refused_test_keeps_the_reason_in_the_footer_after_exit(self):

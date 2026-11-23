@@ -11,7 +11,7 @@ import subprocess
 import sys
 import threading
 
-from . import alife_tools, paths, recovery, settings, test_kits
+from . import alife_tools, paths, recovery, settings, start_cover, test_kits
 
 
 def controls():
@@ -514,6 +514,57 @@ def first_run_checklist(saved, statuses=None, *, found=None, prefer=()):
     }
 
 
+WORKFLOW_STEPS = (
+    ("locate", "1. Locate"),
+    ("build", "2. Build or Update"),
+    ("play", "3. Play"),
+)
+
+
+def workflow_steps(saved, *, loc_statuses=None, play_reason="", busy_action=""):
+    """Compute headless GAMMA-style 3-step workflow state (Locate -> Build or Update -> Play)."""
+    saved = saved or {}
+    chk = first_run_checklist(saved, loc_statuses)
+    locate_done = chk["ready"]
+    if locate_done:
+        locate_tone = "ok"
+        locate_detail = f"✓ {chk['confirmed']}/{chk['total']} folders confirmed"
+    else:
+        locate_tone = "warn" if chk["confirmed"] > 0 else "bad"
+        locate_detail = f"{chk['confirmed']}/{chk['total']} confirmed — open Locations"
+
+    build_running = busy_action in ("detect", "status", "update-check", "update") or busy_action.startswith(
+        ("tests-", "alife-")
+    )
+    if build_running:
+        build_tone = "warn"
+        build_detail = f"◐ running {busy_action}"
+    elif locate_done:
+        build_tone = "ok"
+        build_detail = "✓ ready to check / build / update"
+    else:
+        build_tone = "muted"
+        build_detail = "confirm folders in Step 1 first"
+
+    cover_note = " · cover on" if saved.get("start_cover") else ""
+    if busy_action == "play":
+        play_tone = "ok"
+        play_detail = f"► session running{cover_note}"
+    elif not play_reason:
+        play_tone = "ok"
+        play_detail = f"► ready to launch{cover_note}"
+    else:
+        play_tone = "muted" if busy_action else "warn"
+        short = play_reason if len(play_reason) <= 44 else play_reason[:41].rstrip() + "..."
+        play_detail = short
+
+    return [
+        {"key": "locate", "label": "1. Locate", "ready": locate_done, "tone": locate_tone, "detail": locate_detail},
+        {"key": "build", "label": "2. Build or Update", "ready": locate_done, "tone": build_tone, "detail": build_detail},
+        {"key": "play", "label": "3. Play", "ready": not play_reason, "tone": play_tone, "detail": play_detail},
+    ]
+
+
 def format_alife_metrics(metrics):
     """Format A-Life key numbers (nodes N/128, spawns, battles, captures) for display."""
     m = metrics or {}
@@ -781,11 +832,14 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.dirty = set()                     # locations the player typed or browsed and has not saved yet
             self.widgets, self.vars, self.loc = [], {}, {}
             self.alife_session = alife_session
+            self.cover_window = None
+            self.cover_controller = None
+            self.cover_crash_reason = ""
             root.title("FO4SF Launcher")
-            root.geometry("1040x810")
-            root.minsize(840, 620)
+            root.geometry("1040x840")
+            root.minsize(840, 650)
             root.columnconfigure(0, weight=1)
-            root.rowconfigure(2, weight=1)
+            root.rowconfigure(3, weight=1)
 
             # Top read-only header strip: title + live Starfield process state + crash-watcher / recovery state
             header = ttk.Frame(root, style="Panel.TFrame", padding=(18, 12))
@@ -801,9 +855,40 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.watcher_label = ttk.Label(status_strip, textvariable=self.watcher, style="Panel.muted.TLabel")
             self.watcher_label.pack(side="left")
 
+            # GAMMA-style three-step workflow strip: 1. Locate -> 2. Build or Update -> 3. Play (+ offline cover preview)
+            self.workflow_frame = ttk.Frame(root, style="Card.TFrame", padding=(14, 10))
+            self.workflow_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 0))
+            for col in range(3):
+                self.workflow_frame.columnconfigure(col, weight=1)
+            self.workflow_step_widgets = {}
+            step_commands = {
+                "locate": lambda: self.notebook.select(self.places_tab),
+                "build": lambda: self.notebook.select(self.status_tab),
+                "play": lambda: self.start("play"),
+            }
+            for col, (step_key, step_title) in enumerate(WORKFLOW_STEPS):
+                cell = ttk.Frame(self.workflow_frame, style="Panel.TFrame")
+                cell.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 10, 0))
+                btn_style = "Accent.TButton" if step_key == "play" else "Small.TButton"
+                step_btn = ttk.Button(cell, text=step_title, style=btn_style, command=step_commands[step_key])
+                step_btn.pack(side="left", padx=(0, 8))
+                detail_var = tk.StringVar(value="")
+                detail_lbl = ttk.Label(cell, textvariable=detail_var, style="PanelMuted.TLabel")
+                detail_lbl.pack(side="left", fill="x", expand=True)
+                self.workflow_step_widgets[step_key] = {"button": step_btn, "var": detail_var, "label": detail_lbl}
+                if step_key != "play":
+                    self.widgets.append((step_btn, "normal"))
+            self.step_play_btn = self.workflow_step_widgets["play"]["button"]
+            self.preview_cover_btn = ttk.Button(
+                self.workflow_frame, text="Preview cover", style="Small.TButton",
+                command=lambda: self.open_start_cover(for_play=False),
+            )
+            self.preview_cover_btn.grid(row=0, column=3, sticky="e", padx=(12, 0))
+            self.widgets.append((self.preview_cover_btn, "normal"))
+
             # Dismissible / auto-updating readable error banner (hidden until an error or refusal occurs)
             self.banner_frame = ttk.Frame(root, style="Banner.TFrame", padding=(14, 8))
-            self.banner_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 0))
+            self.banner_frame.grid(row=2, column=0, sticky="ew", padx=12, pady=(8, 0))
             self.banner_frame.columnconfigure(0, weight=1)
             self.banner_title_var = tk.StringVar()
             self.banner_body_var = tk.StringVar()
@@ -816,12 +901,13 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.banner_frame.grid_remove()
 
             self.notebook = ttk.Notebook(root)
-            self.notebook.grid(row=2, column=0, sticky="nsew", padx=12, pady=(8, 0))
+            self.notebook.grid(row=3, column=0, sticky="nsew", padx=12, pady=(8, 0))
             places, status, config, tests, mod_tools, logs = (ttk.Frame(self.notebook, padding=16) for _ in range(6))
             for frame, name in ((places, "Locations"), (status, "Status"), (config, "Settings"),
                                 (tests, "Tests"), (mod_tools, "Mod tools"), (logs, "Log")):
                 self.notebook.add(frame, text=tab_label(name))
             self.places_tab = places
+            self.status_tab = status
             self.mod_tools_tab = mod_tools
             self.build_locations(places)
             self.build_status(status)
@@ -831,7 +917,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.build_log(logs)
 
             footer = ttk.Frame(root, padding=(16, 12))
-            footer.grid(row=3, column=0, sticky="ew")
+            footer.grid(row=4, column=0, sticky="ew")
             footer.columnconfigure(0, weight=1)
             self.message = tk.StringVar(value="Looking for the game folders…")
             ttk.Label(footer, textvariable=self.message, wraplength=600).grid(row=0, column=0, sticky="w")
@@ -1413,15 +1499,73 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.refresh_play()
             self.refresh_tests()
 
+        def refresh_workflow_strip(self, play_reason=""):
+            loc_statuses = {k: item["status"] for k, item in self.loc.items()} if self.loc else None
+            rows = workflow_steps(
+                model.saved,
+                loc_statuses=loc_statuses,
+                play_reason=play_reason,
+                busy_action=self.action if self.busy else "",
+            )
+            for row in rows:
+                w = self.workflow_step_widgets.get(row["key"])
+                if w is not None:
+                    w["var"].set(row["detail"])
+                    w["label"].configure(style=f"Panel.{row['tone']}.TLabel")
+
+        def open_start_cover(self, *, for_play=False, signal_path="", fullscreen=True):
+            self.close_start_cover()
+            self.cover_crash_reason = ""
+            sig = signal_path or start_cover.default_signal_path()
+            timeout_s = model.saved.get("start_cover.timeout_s", start_cover.DEFAULT_TIMEOUT_S)
+            pids_fn = (lambda: list(self.pids or [])) if for_play else None
+            crash_fn = (lambda: self.cover_crash_reason or self.process_error) if for_play else None
+            ctrl = start_cover.StartCoverController(
+                sig,
+                timeout_s=timeout_s,
+                pids_fn=pids_fn,
+                crash_fn=crash_fn,
+            )
+            self.cover_controller = ctrl
+            face = pick_font(set(tkfont.families(root)))
+
+            def handle_closed(snap):
+                self.cover_window = None
+                if snap.get("reason") and not self.closed:
+                    self.message.set(f"Start cover closed ({snap['reason']})")
+
+            self.cover_window = start_cover.StartCoverWindow(
+                root,
+                ctrl,
+                palette=palette,
+                font_family=face,
+                fullscreen=fullscreen,
+                on_closed=handle_closed,
+            )
+            return self.cover_window
+
+        def close_start_cover(self, crash_reason=""):
+            if crash_reason and self.cover_controller is not None:
+                self.cover_crash_reason = crash_reason
+                self.cover_controller.notify_crash(crash_reason)
+            if self.cover_window is not None:
+                win = self.cover_window
+                self.cover_window = None
+                win.close()
+
         def refresh_play(self):
             if not hasattr(self, "play"):
                 return
             reason = "A command is still running" if self.busy else self.process_error or model.play_reason(
                 self.raw(), self.location_value("starfield"), self.pids)
             self.reason.set(reason)
-            self.play.configure(state="disabled" if reason else "normal")
+            play_state = "disabled" if reason else "normal"
+            self.play.configure(state=play_state)
+            if hasattr(self, "step_play_btn"):
+                self.step_play_btn.configure(state=play_state)
             self.refresh_kit_controls()
             self.refresh_header()
+            self.refresh_workflow_strip(play_reason=reason)
 
         def append(self, widget, text):
             widget.configure(state="normal")
@@ -1450,6 +1594,8 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                 self.clear_error_banner()
                 self.message.set("Nothing changed; nothing written")
                 return
+            if action == "play" and model.saved.get("start_cover"):
+                self.open_start_cover(for_play=True)
             self.launch_command(action, argv, part)
 
         def launch_command(self, action, argv, part="all", *, cwd=None):
@@ -1486,6 +1632,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                     self.pids, self.process_error = value, ""
                 elif kind == "process_error":
                     self.pids, self.process_error = None, "Cannot check game processes: " + value
+                    self.close_start_cover(self.process_error)
                     self.show_error_banner(format_error_banner(self.process_error, action="process"))
                 elif kind in ("found", "found_error"):
                     if kind == "found":
@@ -1529,6 +1676,11 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                             self.message.set(done["error"])
                             self.show_error_banner(alife_session.last_error)
                     else:
+                        if self.action == "play":
+                            if kind == "error" or value != 0:
+                                self.close_start_cover(f"Play stopped (exit {value})")
+                            else:
+                                self.close_start_cover()
                         self.message.set(self.feedback.finished(value) if kind == "done" else value)
                         if kind == "error":
                             self.show_error_banner(format_error_banner(value, action=self.action))
@@ -1593,6 +1745,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                                     "finishes. Play follows the game and crash watcher until they finish.")
                 return
             self.closed = True
+            self.close_start_cover()
             root.destroy()
 
     Window()
