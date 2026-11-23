@@ -25,8 +25,8 @@ Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`OWNER TEST
 | `0A` | `FO4SFNewGame.esm` | `FO4SFNewGame.esm` | **`0A000800`** `FO4SF_NewGame`, **`0A00080F`** `FO4SF_PipboyCorpsePickupRef`, **`0A000819`** `FO4SF_GearDoorConsoleRef`, `0A000820`/`0A000821` Vault 111 pistol + ammo |
 | `0B..10` | `0B` `Workshop`, `0C` `PowerArmor`, `0D` `FortHagen`, `0E` `PipboyProbe`, `0F` `PipboyTravel`, **`10` `FO4SFMapMarkers.esm`** (`100009EC` Museum of Freedom) | `0B` `Rads`, `0C` `Hardcore`, `0D` `Workshop`, `0E` `PowerArmor`, `0F` `Progression`, **`10` `FO4SFListDialogue.esm` (`10000810`)** ... `19` `FO4SFMapMarkers.esm` (`190009EC`) | Track 1 stays `13` plugins; `FO4SFRouteLoot.esm` and `FO4SFBridge.esm` stay OFF in both profiles |
 
-### `P3` Zero-`M`/`N`/`V` Console & `< 200 m`/Axis Hop Rules
-1. Every ```` ```console ```` block and every batch filename below contains **zero `M`, `N`, or `V` letters** (case-insensitive) and **zero stripped mod `GLOB`/`QUST` EditorIDs**.
+### `P3` Typed-Console & Batch-Filename Zero-`M`/`N`/`V` & `< 200 m`/Axis Hop Rules
+1. The zero-`M`/`N`/`V` (`P3`) rule applies **ONLY to typed interactive ```` ```console ```` lines and `<bat-id>.txt` batch filenames** (case-insensitive, because typing `M`, `N`, or `V` in the console can trigger menu hotkeys) — it does **NOT** apply to `.txt` batch file contents (```` ```bat ```` blocks intentionally contain `getglobalvalue`, `sqv`, `player.moveto`, etc., executed from disk without keystrokes). Both ```` ```console ```` and ```` ```bat ```` still forbid stripped mod `GLOB`/`QUST` EditorIDs (`set`/`help FO4SF_*`).
 2. Every diagnostic `player.setpos` hop (`r9hop1`, `r9hop2`, `r9hop3`) moves strictly **`< 180 m` (`< 200 m`) per axis** to avoid Starfield's `BOUNDARY REACHED` border throw (`docs/terrain/core64c.md`, `docs/terrain/border.md`).
 
 ---
@@ -150,7 +150,7 @@ python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2g-pla
    - **`C6` PASS:** If activated `< 1.65 m` away, `EnsureSafeCodsworthCameraDistance()` steps the player back to `1.85 m` along the sightline (`codsworth talk camera_guard prev_d=<d> safe_d=1.85`, outside his `0.65 m` chassis hull; `>= 1.65 m` walk-ups untouched). Camera frames Codsworth cleanly and NEVER clips under or inside his body.
    - **`C2` PASS (`INTV=1` Phase-1 Jump — `offline, unproven in game`):** Greeting plays **ONCE** (`phase=0` -> `phase=1`, `codsworth dialogue menu opened`); select a non-ending choice (e.g. `"Where can I go?"`) -> verify Codsworth answers and returns straight to `codsworth talk scene phase=1 stage=<st>` with **ZERO repeat of `phase=0`** and **ZERO 45 s greeting replay**! Pick the Concord lead -> `codsworth01 stage 100 by=info`, `min00 given by=codsworth`, `codsworth01 complete choices=<cnt> concord_pointed=true`, HUD `"New mission: When Freedom Calls"`.
 3. **`C3` — Concord Street Fight With GOD MODE OFF & Zero `2.85 km` Raider Return (`09000803..09000807`):**
-   - Walk (or `bat r9hop2` -> wait `3–5 s` -> `bat r9hop3`, both strictly `< 180 m`/axis) to the Museum of Freedom door `(-2011.14, -1697.54, 89.09)` m. Confirm **god mode (`tgm`) is OFF**!
+   - Walk (or `bat r9hop2` -> wait `3–5 s` -> `bat r9hop3`, both strictly `< 180 m`/axis) to the Museum of Freedom door `(-2011.14, -1697.54, 89.09)` m. Play with **god mode OFF** (do NOT enable god mode in the console; leave normal player damage active).
    - **`C3` Stay-Put PASS:** Raiders `0`–`4` (`09000803..09000807`) are authored at merged Concord coordinates (`(-2029, -1698)`), NOT unmerged `(-829, +1002)` — verify `fo4sf_mission.0.log` shows **ZERO `before=2846..2868` `2.85 km` snap-back re-placement passes**!
    - **`C3` Live Combat & Hits-To-Kill PASS (God Mode OFF):** All `5` live raiders arm with `WEAP 0026D96B` Coachman + `60` `AMMO 002B4AFB` `AmmoShotshell` (`arm raider 0..4 ammo=60`, `Aggression=2`, `Confidence=4`, `SetRestrained(False)`) and receive `startcombat raider 0..4 d=<d>` (all `5`, not just `raider 0`!). **Starting-Character Survivability (`offline record estimate` — armor, difficulty, and level scaling ignored; Level-1 Vault 111 player = `180 HP`):** Coachman deals `52.0` base damage (`<= 20 m`) falling linearly to `26.0` damage (`35 m`), giving an offline record estimate of **`4` close-range full blasts** (`<= 20 m`: `4 x 52 = 208 >= 180 HP`) up to **`7` max-range blasts** (`35 m`: `7 x 26 = 182 >= 180 HP`) to kill! Confirm raiders advance/fire and take real HP off the player; defeat `1–2` raiders (`stage 20`), then run Cold Reload #2 before killing the rest!
 4. **Cold Quit-to-Desktop & Reload #2 — Mid-Mission (`Throwaway_2g_MidWFC`):**
@@ -158,7 +158,7 @@ python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2g-pla
    - **Expected:** `reload mission stage=<20|30> relocate_fails=0`, dead raiders stay dead, living raiders stay at Concord, and Preston (`09000802`) stays held at the Museum door. Finish remaining raiders to reach `stage 30` (`Talk to Preston Garvey`).
 5. **`C1` & `C2` — Preston's SINGLE Real Voiced `DialogueMenu` Talk (`09000900` First, NEVER Both!):**
    - Aim at **Preston (`09000802`)** at `stage 30` and press **`E`**.
-   - **`C1` PASS:** `ResolvePrestonScene()` resolves `09000900` (`preston scene resolved via=<property|file>`) -> logs **`preston activated at stage 30`**, **`preston scene talk requested scene=<ref> stage=30`**, **`preston talk scene started stage=30`**, **`preston talk scene phase=0 stage=30`**, **`preston talk scene phase=1 stage=30`**, and **`preston dialogue menu opened`** — opens Starfield's real `DialogueMenu` FIRST with **ZERO `preston talk fallback=messagebox reason=no_scene`** and **ZERO four-button messagebox** before or after!
+   - **`C1` PASS:** `ResolvePrestonScene()` resolves `09000900` (`preston scene resolved via=<property|file> scene=<ref>` — either `via=property` **OR** `via=file` satisfies `C1`, never requiring both in one run) -> logs **`preston activated at stage 30`**, **`preston scene talk requested scene=<ref> stage=30`**, **`preston talk scene started stage=30`**, **`preston talk scene phase=0 stage=30`**, **`preston talk scene phase=1 stage=30`**, and **`preston dialogue menu opened`** — opens Starfield's real `DialogueMenu` FIRST with **ZERO `preston talk fallback=messagebox reason=no_scene`** and **ZERO four-button messagebox** before or after!
    - **`C2` PASS (`INTV=1` — `offline, unproven in game`):** Choosing any non-ending question returns directly to `preston talk scene phase=1 stage=30` with **ZERO repeat of `phase=0`**. Finish Preston's dialogue -> `stage 35 by=info`, `preston talk end info=0x092A -> stage 40`, `reward credits=100`, `stage 200 by=Trigger`, `complete stage=200`.
 6. **`R1` + `R2` + `R3` — *"First Settlement"* at Sanctuary Workbench (`09000817` & `04005C50`):**
    - **`R1` Sole HUD Mission PASS (Deliberate One-Tracked-Opening Choice):** In Fallout 4, `MQ103` starts when `MQ102` ends while `Min01` (*Sanctuary*) is still running; here we make a deliberate one-tracked-opening-mission design choice: **`FO4SF_MQ103` (`09000A50`) waits until `FO4SF_Sanctuary01` (`09000817`) completes; after that it can also start at the Diamond City gate.** After `FO4SF_Min00` reaches `stage 200`, verify ONLY **`"New mission: First Settlement"`** (`09000817`) tracks on the HUD — `09000A50` MUST stay `stage 0` (dormant if touched early, NOT stealing `SetActive(True)`). *(Note: with `InvDataAnswers=1`, an early-started dormant quest is still running with zero objectives and may appear by name on the A5 `DATA / Quests` page until its predecessor completes.)*
@@ -220,7 +220,7 @@ python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
 python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
 ```
 
-### Required PASS Log Lines (`fo4sf_mission.0.log`)
+### Required PASS Log Lines (`fo4sf_mission.0.log`; for `C1`, either `via=property` OR `via=file` passes, never both)
 ```log
 FO4SF_MISSION rt=<rt> codsworth01 reload stage=<st> choices=<cnt>
 FO4SF_MISSION rt=<rt> reload mission stage=<st> relocate_fails=0
@@ -237,8 +237,7 @@ FO4SF_MISSION rt=<rt> startcombat raider <i> d=<d>
 FO4SF_MISSION rt=<rt> stage 20 by=Trigger
 FO4SF_MISSION rt=<rt> stage 30 by=Trigger
 FO4SF_MISSION rt=<rt> preston activated at stage 30
-FO4SF_MISSION rt=<rt> preston scene resolved via=property scene=<ref>
-FO4SF_MISSION rt=<rt> preston scene resolved via=file scene=<ref>
+FO4SF_MISSION rt=<rt> preston scene resolved via=<property|file> scene=<ref>
 FO4SF_MISSION rt=<rt> preston scene talk requested scene=<ref> stage=30
 FO4SF_MISSION rt=<rt> preston talk scene started stage=30
 FO4SF_MISSION rt=<rt> preston talk scene phase=<n> stage=30
