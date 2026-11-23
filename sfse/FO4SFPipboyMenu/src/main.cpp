@@ -625,6 +625,9 @@ namespace
 	std::atomic<const void*>                 g_platformDoneMovie{ nullptr };  // Round 11 D5-2: SetPlatform(0, false) + trigger hide applied
 	std::atomic<const void*>                 g_staticListsInitMovie{ nullptr }; // Round 11 A2.6: static structural DataObj lists built for this movie
 	std::atomic<const void*>                 g_hudWatchHiddenMovie{ nullptr };  // Round 11 D7(b): HUDMenu movie whose BottomLeftGroup_mc watch was hidden
+	std::atomic<std::uint32_t>               g_hudWatchTryCount{ 0 };           // Round 11 Review #5: attempts for current HUDMenu movie
+	std::atomic<bool>                        g_hudWatchRetryPending{ false };   // Round 11 Review #5: retry across MenuOpenCloseEvent / UI poll until hidden or unloaded
+	constexpr std::uint32_t                  kMaxHudWatchTries = 40;
 	std::atomic<const void*>                 g_createdCodeObjMovie{ nullptr };
 	std::atomic<const void*>                 g_activeShellMenu{ nullptr };
 	std::atomic<std::int64_t>                g_lastShellTransitionMs{ 0 };
@@ -799,7 +802,7 @@ namespace
 
 	// FAL-614 proof 1b: stage b with CodeObj=1 reaches the movie's root as stage c does (RootOf's RTTI, the Value
 	// functions), so it reads and checks stage c's ids too; without them RootOf compared against an unread RTTI address
-	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm || g_hideStarfieldWatch)); }   // FAL-852: the arm too; D7(b): watch hide checks & uses channel RTTI/Value ids
+	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }   // FAL-852: the arm too
 
 	std::size_t IdCount() { return g_stage >= 4 ? kIdCount : ChannelIdsNeeded() ? kIdCountC : kIdCountB; }   // (e): (d)'s ids
 
@@ -9982,6 +9985,8 @@ namespace
 
 	// C4-4: Track whenever any non-DataMenu blocking menu (DialogueMenu, ContainerMenu, WorkshopMenu, PauseMenu,
 	// Console, etc.) is open on the main thread so pressing Tab to close a Starfield menu never pops the Pip-Boy.
+	void RetryHudWatchHideMainThread(const char* a_when);
+
 	void PollBlockingMenuStateMainThread()
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -9993,6 +9998,9 @@ namespace
 		g_nonDataBlockingOpen.store(nonDataBlocking);
 		if (nonDataBlocking) {
 			g_lastNonDataBlockingMs.store(NowMs());
+		}
+		if (g_hideStarfieldWatch && g_hudWatchRetryPending.load()) {
+			RetryHudWatchHideMainThread("ui_poll");
 		}
 	}
 
@@ -10259,6 +10267,12 @@ namespace
 				g_task->AddTask([]() { SendUpdate(); });
 			}
 			PipboyMap::Tick();
+			if (g_hideStarfieldWatch && g_hudWatchRetryPending.load()) {
+				static std::uint32_t hudWatchPollTicks = 0;
+				if (++hudWatchPollTicks % 5 == 0) {
+					g_task->AddTask([]() { RetryHudWatchHideMainThread("ui_poll"); });
+				}
+			}
 			if (g_stage >= 2) {
 				static std::uint32_t startCardTicks = 0;
 				if (++startCardTicks % 8 == 0) {
@@ -10323,12 +10337,56 @@ namespace
 		}
 	}
 
+	const RE::BSFixedString& HudMenuFixed()
+	{
+		static auto* const name = new RE::BSFixedString("HUDMenu");
+		return *name;
+	}
+
+	// Round 11 Review #5: Retry pending HUDMenu watch-hide across MenuOpenCloseEvent transitions and reset state
+	// when HUDMenu closes or LoadingMenu appears so retries never spin after HUDMenu unloads.
+	class HudWatchMenuEventSink final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
+	{
+	public:
+		RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent& a_event,
+			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
+		{
+			if (!g_hideStarfieldWatch || !a_event.menuName.c_str()) {
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			const char* name = a_event.menuName.c_str();
+			if (SameText(name, "LoadingMenu")) {
+				g_hudWatchHiddenMovie.store(nullptr);
+				g_hudWatchTryCount.store(0);
+				g_hudWatchRetryPending.store(false);
+			} else if (SameText(name, "HUDMenu")) {
+				if (!a_event.opening) {
+					g_hudWatchHiddenMovie.store(nullptr);
+					g_hudWatchTryCount.store(0);
+					g_hudWatchRetryPending.store(false);
+				} else if (g_hudWatchHiddenMovie.load() == nullptr || g_hudWatchRetryPending.load()) {
+					g_hudWatchRetryPending.store(true);
+					if (g_task) {
+						g_task->AddTask([]() { RetryHudWatchHideMainThread("menu_open_close"); });
+					}
+				}
+			} else if (g_hudWatchRetryPending.load() && g_task) {
+				g_task->AddTask([]() { RetryHudWatchHideMainThread("menu_transition"); });
+			}
+			return RE::BSEventNotifyControl::kContinue;
+		}
+	};
+	HudWatchMenuEventSink g_hudWatchMenuSink{};
+
 	void Register()
 	{
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui) {
 			Refuse("register", "reason=no_ui");
 			return;
+		}
+		if (g_hideStarfieldWatch) {
+			ui->RegisterSink<RE::MenuOpenCloseEvent>(&g_hudWatchMenuSink);
 		}
 		if (ui->IsMenuRegistered(MenuName())) {
 			Refuse("register", "reason=name_taken");
@@ -10393,9 +10451,11 @@ namespace
 		return reinterpret_cast<RE::Scaleform::GFx::ASMovieRootBase*>(root);
 	}
 
-	// Round 11 D7(b): Hide Starfield's bottom-left wrist watch (HUDMenu root.BottomLeftGroup_mc and its watch/planet/
-	// O2/CO2 child clips from playerhudcomponents.swf) while keeping RightMeters_mc (Health/Ammo), CenterGroup_mc
-	// (Crosshair), RolloverWidget_mc ([E] prompts), TopCenterGroup_mc, and EnemyHealthHolder_mc intact.
+	// Round 11 D7(b) + Review #5: Hide Starfield's bottom-left wrist watch (HUDMenu root.BottomLeftGroup_mc and its
+	// watch/planet/O2/CO2 child clips from playerhudcomponents.swf) while keeping RightMeters_mc (Health/Ammo),
+	// CenterGroup_mc (Crosshair), RolloverWidget_mc ([E] prompts), TopCenterGroup_mc, and EnemyHealthHolder_mc intact.
+	// If no_root or missing_bottom_left occurs on an early attempt, sets g_hudWatchRetryPending so MenuOpenCloseEvent
+	// transitions and the main-thread UI poll hook retry cleanly until hidden or HUDMenu unloads, logging try=<n>.
 	// Gated behind HideStarfieldWatch=1 (one-line HideStarfieldWatch=0 rollback).
 	void ApplyHudWatchHide(const RE::IMenu* a_menu, const char* a_when)
 	{
@@ -10403,21 +10463,33 @@ namespace
 			return;
 		}
 		const void* const movie = MovieOf(a_menu);
-		if (!movie || g_hudWatchHiddenMovie.load() == movie) {
+		if (!movie) {
+			g_hudWatchRetryPending.store(g_hudWatchTryCount.load() < kMaxHudWatchTries);
 			return;
 		}
+		if (g_hudWatchHiddenMovie.load() == movie) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		const auto attempt = ++g_hudWatchTryCount;
 		auto* const root = HudRootOf(a_menu);
 		if (!root) {
-			REX::INFO("step=hud_watch_hide when={} movie={} ok=0 reason=no_root",
-				a_when ? a_when : "on_movie_created", Hex(reinterpret_cast<std::uintptr_t>(movie)));
+			g_hudWatchRetryPending.store(attempt < kMaxHudWatchTries);
+			if (attempt <= 3 || attempt == kMaxHudWatchTries) {
+				REX::INFO("step=hud_watch_hide when={} try={} movie={} ok=0 reason=no_root",
+					a_when ? a_when : "on_movie_created", attempt, Hex(reinterpret_cast<std::uintptr_t>(movie)));
+			}
 			return;
 		}
 		RE::Scaleform::GFx::Value top;
 		RE::Scaleform::GFx::Value bottomLeft;
 		if (!root->GetVariable(&top, "root") || !top.IsObject() ||
 			!ReadPath(top, "BottomLeftGroup_mc", bottomLeft) || !bottomLeft.IsObject()) {
-			REX::INFO("step=hud_watch_hide when={} movie={} ok=0 reason=missing_bottom_left",
-				a_when ? a_when : "on_movie_created", Hex(reinterpret_cast<std::uintptr_t>(movie)));
+			g_hudWatchRetryPending.store(attempt < kMaxHudWatchTries);
+			if (attempt <= 3 || attempt == kMaxHudWatchTries) {
+				REX::INFO("step=hud_watch_hide when={} try={} movie={} ok=0 reason=missing_bottom_left",
+					a_when ? a_when : "on_movie_created", attempt, Hex(reinterpret_cast<std::uintptr_t>(movie)));
+			}
 			return;
 		}
 		const bool visOk = bottomLeft.SetMember("visible", RE::Scaleform::GFx::Value(false));
@@ -10455,12 +10527,38 @@ namespace
 				(void)child.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
 			}
 		}
-		if (visOk || childrenHidden > 0) {
+		const bool hidden = visOk || childrenHidden > 0;
+		if (hidden) {
 			g_hudWatchHiddenMovie.store(movie);
+			g_hudWatchRetryPending.store(false);
+		} else {
+			g_hudWatchRetryPending.store(attempt < kMaxHudWatchTries);
 		}
-		REX::INFO("step=hud_watch_hide when={} movie={} ok={} target=BottomLeftGroup_mc children_hidden={}",
-			a_when ? a_when : "on_movie_created", Hex(reinterpret_cast<std::uintptr_t>(movie)),
-			(visOk || childrenHidden > 0) ? 1 : 0, childrenHidden);
+		REX::INFO("step=hud_watch_hide when={} try={} movie={} ok={} target=BottomLeftGroup_mc children_hidden={}",
+			a_when ? a_when : "on_movie_created", attempt, Hex(reinterpret_cast<std::uintptr_t>(movie)),
+			hidden ? 1 : 0, childrenHidden);
+	}
+
+	void RetryHudWatchHideMainThread(const char* a_when)
+	{
+		if (!g_hideStarfieldWatch || !g_hudWatchRetryPending.load()) {
+			return;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui || !ui->IsMenuOpen(HudMenuFixed())) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		if (g_hudWatchTryCount.load() >= kMaxHudWatchTries) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		const auto hudMenu = ui->GetMenu(HudMenuFixed());
+		if (!hudMenu) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		ApplyHudWatchHide(hudMenu.get(), a_when);
 	}
 
 	void OnMovieCreated(RE::IMenu* a_menu)
@@ -10470,7 +10568,12 @@ namespace
 		if (g_hideStarfieldWatch && a_menu && a_menu->menuName.c_str()) {
 			if (SameText(a_menu->menuName.c_str(), "LoadingMenu")) {
 				g_hudWatchHiddenMovie.store(nullptr);
+				g_hudWatchTryCount.store(0);
+				g_hudWatchRetryPending.store(false);
 			} else if (SameText(a_menu->menuName.c_str(), "HUDMenu")) {
+				if (g_hudWatchHiddenMovie.load() != MovieOf(a_menu)) {
+					g_hudWatchTryCount.store(0);
+				}
 				ApplyHudWatchHide(a_menu, "on_movie_created");
 			}
 		}
@@ -10832,6 +10935,95 @@ namespace
 			Hex(g_equipMgrSingletonRva), Hex(g_equipObjectRva), Hex(g_shellLookupEditorIdRva));
 		return true;
 	}
+
+	// Round 11 Review #9: Optional non-fatal watch-hide channel ID resolver for Stage=2 when ChannelIdsNeeded() is false.
+	// Never aborts plugin load: if channel IDs (MovieRoot RTTI + SFSE Value functions) are unavailable, logs
+	// step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable and disables ONLY HideStarfieldWatch while
+	// FO4SFPipboyMenu.dll stays loaded.
+	void TryInitHudWatchIds(const std::filesystem::path& a_file)
+	{
+		if (!g_hideStarfieldWatch) {
+			return;
+		}
+		auto idsReady = [&]() -> bool {
+			if (g_rva[kMovieRootRtti] == 0) {
+				return false;
+			}
+			for (const auto& [id, rva] : kSfseRvas) {
+				if (g_rva[id] != rva) {
+					return false;
+				}
+			}
+			return NameIs(TypeNameAt(Address(kMovieRootRtti)), "MovieRoot@AS3@GFx@Scaleform@@");
+		};
+		if (idsReady()) {
+			REX::INFO("step=hud_watch_hide_init ok=1 source=channel_ids movie_root_rtti={}", Hex(g_rva[kMovieRootRtti]));
+			return;
+		}
+		bool ok = false;
+		std::ifstream in(a_file, std::ios::binary);
+		if (in) {
+			std::array<std::uint8_t, kHeaderBytes> head{};
+			in.read(reinterpret_cast<char*>(head.data()), head.size());
+			if (in) {
+				const auto u32 = [&](std::size_t a_at) {
+					std::uint32_t v;
+					std::memcpy(&v, head.data() + a_at, sizeof v);
+					return v;
+				};
+				const auto         format = u32(0);
+				const REL::Version version{ static_cast<std::uint16_t>(u32(4)), static_cast<std::uint16_t>(u32(8)),
+					static_cast<std::uint16_t>(u32(12)), static_cast<std::uint16_t>(u32(16)) };
+				const auto         pointerSize = u32(84);
+				const auto         count = u32(92);
+				if (format == 5 && version == kRuntime && pointerSize == 8) {
+					constexpr std::array<std::size_t, 6> kWatchIds{
+						kMovieRootRtti, kValueAddRef, kValueRelease, kValueGetMember, kValueSetMember, kValueInvoke
+					};
+					std::array<std::uint32_t, 6> resolved{};
+					ok = true;
+					for (std::size_t i = 0; i < kWatchIds.size(); ++i) {
+						const auto& id = kIds[kWatchIds[i]];
+						if (id.id >= count) {
+							ok = false;
+							break;
+						}
+						std::uint32_t offset = 0;
+						in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * id.id));
+						in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+						if (!in || !offset || offset >= g_imageSize || REL::ID(id.id).offset() != offset) {
+							ok = false;
+							break;
+						}
+						resolved[i] = offset;
+					}
+					if (ok) {
+						for (const auto& [id, rva] : kSfseRvas) {
+							const auto it = std::ranges::find(kWatchIds, id);
+							if (it == kWatchIds.end() || resolved[static_cast<std::size_t>(it - kWatchIds.begin())] != rva) {
+								ok = false;
+								break;
+							}
+						}
+					}
+					if (ok && !NameIs(TypeNameAt(g_base + resolved[0]), "MovieRoot@AS3@GFx@Scaleform@@")) {
+						ok = false;
+					}
+					if (ok) {
+						for (std::size_t i = 0; i < kWatchIds.size(); ++i) {
+							g_rva[kWatchIds[i]] = resolved[i];
+						}
+					}
+				}
+			}
+		}
+		if (!ok) {
+			g_hideStarfieldWatch = false;
+			REX::WARN("step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable");
+		} else {
+			REX::INFO("step=hud_watch_hide_init ok=1 source=optional_resolve movie_root_rtti={}", Hex(g_rva[kMovieRootRtti]));
+		}
+	}
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
@@ -11074,6 +11266,9 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	}
 	if (!CheckEverything(dir)) {
 		return true;
+	}
+	if (g_hideStarfieldWatch) {
+		TryInitHudWatchIds(dir / "versionlib-1-16-244-0.bin");
 	}
 	if (g_stage == 2 && (g_codeObj || g_specialMenu) && !CheckShellIds(dir / "versionlib-1-16-244-0.bin")) {
 		return true;
