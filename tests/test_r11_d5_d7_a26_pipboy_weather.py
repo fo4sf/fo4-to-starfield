@@ -115,9 +115,18 @@ class Round11PipboyWeatherTests(unittest.TestCase):
         # C++ fallback is 0 if omitted; shipped & staged INIs ship HideStarfieldWatch=1 with one-line rollback 0
         self.assertIn('g_hideStarfieldWatch = ReadNumber(ini, L"HideStarfieldWatch", 0) != 0;', self.main_cpp)
         self.assertIn("hide_starfield_watch={}", self.main_cpp)
-        self.assertIn("g_hideStarfieldWatch", self.main_cpp[
-            self.main_cpp.index("bool ChannelIdsNeeded()") : self.main_cpp.index("std::size_t IdCount()")
-        ])
+        # Review item #9: g_hideStarfieldWatch MUST NOT be in ChannelIdsNeeded() or IdCount(); use non-fatal TryInitHudWatchIds
+        chan_fn = self.main_cpp[
+            self.main_cpp.index("bool ChannelIdsNeeded()") : self.main_cpp.index("bool InImage(")
+        ]
+        self.assertNotIn("g_hideStarfieldWatch", chan_fn)
+        init_fn = self.main_cpp[
+            self.main_cpp.index("void TryInitHudWatchIds(") : self.main_cpp.index("SFSE_PLUGIN_LOAD(")
+        ]
+        self.assertNotIn("Refuse(", init_fn)
+        self.assertIn("g_hideStarfieldWatch = false;", init_fn)
+        self.assertIn("step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable", init_fn)
+        self.assertIn('TryInitHudWatchIds(dir / "versionlib-1-16-244-0.bin");', self.main_cpp)
         self.assertIn("\nHideStarfieldWatch=1\n", self.shipped_ini)
 
         # Stage INI generator emits HideStarfieldWatch=1 by default and supports one-line rollback 0
@@ -138,24 +147,41 @@ class Round11PipboyWeatherTests(unittest.TestCase):
         self.assertNotIn("g_checkedMovie", hud_root)
         self.assertNotIn("g_channelOff", hud_root)
 
-        # ApplyHudWatchHide hides BottomLeftGroup_mc & watch/O2/CO2 children, never touching RightMeters/CenterGroup/Rollover
+        # Review item #5: ApplyHudWatchHide tracks g_hudWatchTryCount, retries across MenuOpenCloseEvent + main-thread UI poll,
+        # stops retrying once hidden or unloaded, and logs try=<n> on success.
         hide_fn = self.main_cpp[
             self.main_cpp.index("void ApplyHudWatchHide(") : self.main_cpp.index("void OnMovieCreated(")
         ]
         self.assertIn("if (!g_hideStarfieldWatch || !a_menu)", hide_fn)
+        self.assertIn("const auto attempt = ++g_hudWatchTryCount;", hide_fn)
+        self.assertIn("g_hudWatchRetryPending.store(attempt < kMaxHudWatchTries);", hide_fn)
+        self.assertIn("g_hudWatchRetryPending.store(false);", hide_fn)
         self.assertIn('ReadPath(top, "BottomLeftGroup_mc", bottomLeft)', hide_fn)
         for child in ("WatchFaceComponent_mc", "WatchOutline_mc", "WatchIconsWidget_mc", "O2CO2_mc", "locationNameBase_mc"):
             self.assertIn(f'"{child}"', hide_fn)
         for keep in ("RightMeters_mc", "CenterGroup_mc", "RolloverWidget_mc", "TopCenterGroup_mc"):
             self.assertNotIn(keep, hide_fn)
-        self.assertIn("step=hud_watch_hide when={} movie={} ok={} target=BottomLeftGroup_mc children_hidden={}", hide_fn)
+        self.assertIn(
+            "step=hud_watch_hide when={} try={} movie={} ok={} target=BottomLeftGroup_mc children_hidden={}",
+            hide_fn,
+        )
+        self.assertIn("void RetryHudWatchHideMainThread(", hide_fn)
+        self.assertIn("!ui->IsMenuOpen(HudMenuFixed())", hide_fn)
 
-        # OnMovieCreated resets g_hudWatchHiddenMovie on LoadingMenu and hides on HUDMenu
+        # MenuOpenCloseEvent sink registered in Register() + main-thread UI poll hooks
+        self.assertIn("class HudWatchMenuEventSink final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>", self.main_cpp)
+        self.assertIn("ui->RegisterSink<RE::MenuOpenCloseEvent>(&g_hudWatchMenuSink);", self.main_cpp)
+        self.assertIn('RetryHudWatchHideMainThread("menu_open_close");', self.main_cpp)
+        self.assertIn('RetryHudWatchHideMainThread("ui_poll");', self.main_cpp)
+
+        # OnMovieCreated resets g_hudWatchHiddenMovie / retry state on LoadingMenu and hides on HUDMenu
         on_movie = self.main_cpp[
             self.main_cpp.index("void OnMovieCreated(") : self.main_cpp.index("void OnMessage(")
         ]
         self.assertIn('SameText(a_menu->menuName.c_str(), "LoadingMenu")', on_movie)
         self.assertIn("g_hudWatchHiddenMovie.store(nullptr);", on_movie)
+        self.assertIn("g_hudWatchTryCount.store(0);", on_movie)
+        self.assertIn("g_hudWatchRetryPending.store(false);", on_movie)
         self.assertIn('SameText(a_menu->menuName.c_str(), "HUDMenu")', on_movie)
         self.assertIn('ApplyHudWatchHide(a_menu, "on_movie_created");', on_movie)
 
@@ -223,15 +249,20 @@ class Round11PipboyWeatherTests(unittest.TestCase):
             self.assertIn(sym, clear_fn)
 
     def test_d7a_clear_commonwealth_weather_in_core_values_and_rollback(self) -> None:
-        # Exact binary-verified Starfield.esm FormIDs for Mars -> New Atlantis clear weather & Jemison blue-sky ATMO
+        # Exact binary-verified Starfield.esm FormIDs + EditorID validation + DeepCopy WeatherSettings (Review item #4)
         for token in (
             "0x00310DB1",  # ClimateUniqueCydonia
             "0x002EDEA5",  # ClimateUniqueCydoniaFrozen
             "0x0024E982",  # ClimateUniqueNewAtlantis
-            "0x001034AB",  # WeatherUniqueNA_Clear_Unique
-            "0x0009BC5A",  # WeatherUniqueNA_PartlyCloudy_C2_Unique
             "0x0000C9D2",  # ATMO_Mars
             "0x0000C010",  # ATMO_Jemison
+            'ExpectedClimateNewAtlantisEdid = "ClimateUniqueNewAtlantis"',
+            'ExpectedClimateCydoniaEdid = "ClimateUniqueCydonia"',
+            'ExpectedClimateCydoniaFrozenEdid = "ClimateUniqueCydoniaFrozen"',
+            'ExpectedAtmoMarsEdid = "ATMO_Mars"',
+            'ExpectedAtmoJemisonEdid = "ATMO_Jemison"',
+            "ValidateWeatherSourceEditorIds(",
+            "ov.WeatherSettings = naClmt.WeatherSettings?.Select(ws => ws.DeepCopy()).ToExtendedList();",
             "--commonwealth-weather",
         ):
             self.assertIn(token, self.core_cs)
@@ -243,7 +274,7 @@ class Round11PipboyWeatherTests(unittest.TestCase):
         ns_off = parser.parse_args(["stage", "--sf-data", "sf", "--out", "out", "--commonwealth-weather", "0"])
         self.assertEqual(ns_off.commonwealth_weather, 0)
 
-        # Run Mutagen CoreValues selftest (includes weather_fixture on/off/determinism/rejection checks) when dotnet exists
+        # Run Mutagen CoreValues selftest (includes weather_fixture on/off/determinism + mismatched EditorID refusal checks)
         if shutil.which("dotnet"):
             proj = str(ROOT / "dotnet" / "CoreValues" / "CoreValues.csproj")
             dll = ROOT / "dotnet" / "CoreValues" / "bin" / "Release" / "net9.0" / "CoreValues.dll"
@@ -258,6 +289,10 @@ class Round11PipboyWeatherTests(unittest.TestCase):
         self.assertIn("pushed, not run", self.doc_text)
         self.assertIn("HideStarfieldWatch=0", self.doc_text)
         self.assertIn("--commonwealth-weather 0", self.doc_text)
+        self.assertIn("Known side effect", self.doc_text)
+        self.assertIn("Mars-wide", self.doc_text)
+        self.assertIn("try=<n>", self.doc_text)
+        self.assertIn("step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable", self.doc_text)
         self.assertIsNone(WINDOWS_DRIVE_PATH_RE.search(self.doc_text), "drive path leak in pipboy-c4-fixes.md")
 
 
