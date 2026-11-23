@@ -1,7 +1,7 @@
 // WorkshopCore: Core Settlements, Junk Scrapping (CMPO -> IRES), FO4 COBJ + FNV RCPE Bench Recipes, and Portable C.A.M.P.s
 // (docs/workshop/workshop-camps.md)
 //
-// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 32 records, overrides 0).
+// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 34 own records + 4 scoped Mars/Sol location/star display-name overrides for D4).
 // The terrain core is NOT a master: FO4SF_WorkshopCoreQuest resolves FO4TerrainCore.esm / FO4TerrainCore_Mars.esm
 // workshop bases at runtime via Game.GetFormFromFile so FO4SFWorkshop.esm loads standalone or folded without cell overrides.
 //
@@ -106,8 +106,41 @@ static class WorkshopCore
     public const uint RcpeNvHandLoad777Id = 0x846;
     public const uint RcpeNvTrailRationId = 0x847;
 
+    // R11 D4: Clean Sanctuary Hills Workshop bench (zero Starfield OutpostCategory* keywords)
+    public const uint SanctuaryCategoryKwId = 0x848;
+    public const uint SanctuaryBenchActiId = 0x849;
+    public const string SanctuaryCategoryKwEdid = "FO4SF_WorkshopCategorySanctuary";
+    public const string SanctuaryBenchActiEdid = "FO4SF_SanctuaryWorkshopBench";
+    public const string SanctuaryBenchName = "Sanctuary Hills Workshop";
+    public const string SanctuaryBenchModel = "fo4core\\setdressing\\garage\\workbenchgarage01.nif";
+    public const float SanctuaryBenchRadius = 250.0f;
+
+    // R11 D4: Starfield.esm Mars/Sol LCTN + STDT display-name overrides (never touches PNDT 0x03F59A!)
+    public const uint SfLocMarsSurfaceId = 0x01B736;
+    public const uint SfLocMarsPlanetId = 0x01B735;
+    public const uint SfLocSolSystemId = 0x061527;
+    public const uint SfStarSolId = 0x05E5CB;
+    public const uint SfMustPersistKwId = 0x04AF68;
+    public const uint SfWorkshopKwId = 0x054BA7;
+    public const uint SfOutpostBuildAreaRadiusAvId = 0x063FC5;
+    public const string CommonwealthLocName = "Commonwealth";
+    public const string MassachusettsStarName = "Massachusetts";
+
+    static readonly uint[] ForbiddenStarfieldOutpostCategoryIds =
+    {
+        0x002CFDE6, // OutpostCategoryCrafting (Industrial/Spacesuit/Weapon/Chem/Food/Research)
+        0x002BE3B5, // OutpostCategoryFurniture
+        0x00293ADF, // OutpostCategoryDecorations
+        0x0002BD59, // OutpostCategoryTestAssets
+        0x00397027, // OutpostCategoryDisplays
+        0x0028F890, // OutpostCategoryPower_InteriorLights
+        0x000E6A3E, // OutpostCategoryMiscInterior
+    };
+
     public const uint NextId = 0x850;
-    public const int ExpectedMajorRecordCount = 32;
+    public const int ExpectedOwnRecordCount = 34;
+    public const int ExpectedOverrideRecordCount = 4;
+    public const int ExpectedMajorRecordCount = ExpectedOwnRecordCount + ExpectedOverrideRecordCount;
 
     const string QuestEdid = "FO4SF_WorkshopCoreQuest";
     const string QuestScript = "FO4SF_WorkshopCoreQuest";
@@ -591,6 +624,65 @@ static class WorkshopCore
         mod.FormLists.Add(MakeFormList(KitFilterListId, "FO4SF_KitFilterList",
             new[] { Own(CampKitId), Own(CampPackTokenId), Own(SettlementKitId), Own(ScrapTokenId) }));
 
+        // 7. R11 D4: Clean Sanctuary Hills Workshop bench (zero Starfield OutpostCategory* keywords)
+        var sancCatKw = new Keyword(Own(SanctuaryCategoryKwId), Release)
+        {
+            EditorID = SanctuaryCategoryKwEdid,
+            Name = "Sanctuary",
+            Type = Keyword.TypeEnum.RecipeFilter,
+        };
+        mod.Keywords.Add(sancCatKw);
+
+        var sancBenchActi = new Mutagen.Bethesda.Starfield.Activator(Own(SanctuaryBenchActiId), Release)
+        {
+            EditorID = SanctuaryBenchActiEdid,
+            Name = SanctuaryBenchName,
+            Model = new Model { File = SanctuaryBenchModel },
+            MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+            Flags = (Mutagen.Bethesda.Starfield.Activator.Flag)0,
+            ActivationAngle = 360,
+            InvertFacing = false,
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>>
+            {
+                new FormLink<IKeywordGetter>(Sf(SfMustPersistKwId)),
+                new FormLink<IKeywordGetter>(Sf(SfWorkshopKwId)),
+                new FormLink<IKeywordGetter>(sancCatKw.FormKey),
+            },
+            Properties = new ExtendedList<ObjectProperty>
+            {
+                new ObjectProperty
+                {
+                    ActorValue = new FormLink<IActorValueInformationGetter>(Sf(SfOutpostBuildAreaRadiusAvId)),
+                    Value = SanctuaryBenchRadius,
+                },
+            },
+        };
+        mod.Activators.Add(sancBenchActi);
+
+        // 8. R11 D4: Scoped display-name overrides for Mars/Sol LCTN & STDT (never touches PNDT 0x03F59A!)
+        void OverrideLocName(uint sfLocId, string newName, string label)
+        {
+            var src = sf.Locations.FirstOrDefault(x => x.FormKey == Sf(sfLocId))
+                ?? throw new Refusal($"Starfield.esm missing LCTN 0x{sfLocId:X6} ({label})");
+            var copy = src.DeepCopy();
+            copy.Name = newName;
+            mod.Locations.Add(copy);
+        }
+        OverrideLocName(SfLocMarsSurfaceId, CommonwealthLocName, "SSol_PMars_Surface");
+        OverrideLocName(SfLocMarsPlanetId, CommonwealthLocName, "SSol_PMars");
+        OverrideLocName(SfLocSolSystemId, MassachusettsStarName, "SSol");
+
+        var solStar = sf.Stars.FirstOrDefault(x => x.FormKey == Sf(SfStarSolId))
+            ?? throw new Refusal($"Starfield.esm missing STDT 0x{SfStarSolId:X6} (SolStar)");
+        var solCopy = solStar.DeepCopy();
+        solCopy.Name = MassachusettsStarName;
+        var solFullComp = solCopy.Components.OfType<FullNameComponent>().FirstOrDefault();
+        if (solFullComp != null)
+            solFullComp.Name = MassachusettsStarName;
+        else
+            solCopy.Components.Add(new FullNameComponent { Name = MassachusettsStarName });
+        mod.Stars.Add(solCopy);
+
         mod.ModHeader.Stats.NextFormID = NextId;
 
         Write(mod, outDir, SfEsm, CoreValuesEsm);
@@ -598,7 +690,8 @@ static class WorkshopCore
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
                           $"1 QUST (TestModeGlobal -> {testModeKey}), 4 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m), " +
-                          $"10 MISC, 4 ALCH, 8 COBJ, 5 FLST (18 CMPO->IRES->MISC pairs)");
+                          $"10 MISC, 4 ALCH, 8 COBJ, 5 FLST, 1 KYWD + 1 ACTI (Sanctuary Hills Workshop, 0 Starfield OutpostCategory* KWs), " +
+                          $"3 LCTN + 1 STDT D4 display-name overrides (Commonwealth / Massachusetts)");
         return 0;
     }
 
@@ -648,14 +741,26 @@ static class WorkshopCore
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "plugin header lacks Master flag");
         Need(masters.SequenceEqual(new[] { SfEsm, CoreValuesEsm }), $"masters are [{string.Join(", ", masters)}], expected [Starfield.esm, FO4SFCoreValues.esm]");
 
+        var allowedOverrides = new HashSet<FormKey>
+        {
+            Sf(SfLocMarsSurfaceId),
+            Sf(SfLocMarsPlanetId),
+            Sf(SfLocSolSystemId),
+            Sf(SfStarSolId),
+        };
         var allRecords = mod.EnumerateMajorRecords().ToList();
-        var foreign = allRecords.Where(r => r.FormKey.ModKey != Plugin).Select(r => r.FormKey.ToString()).ToList();
-        Need(foreign.Count == 0, $"plugin contains foreign override records: {string.Join(", ", foreign)}");
-        var dupCore = allRecords.Where(r => r.FormKey.ModKey == Plugin && r.EditorID != null && coreIds.ContainsKey(r.EditorID))
+        var ownRecords = allRecords.Where(r => r.FormKey.ModKey == Plugin).ToList();
+        var foreign = allRecords.Where(r => r.FormKey.ModKey != Plugin).ToList();
+        var badForeign = foreign.Where(r => !allowedOverrides.Contains(r.FormKey)).Select(r => r.FormKey.ToString()).ToList();
+        Need(badForeign.Count == 0, $"plugin contains unauthorized foreign override records: {string.Join(", ", badForeign)}");
+        Need(mod.Planets.Count == 0, $"plugin must never override Planet (PNDT 0x03F59A belongs to FO4TerrainCore_Mars.esm), found {mod.Planets.Count}");
+        var dupCore = ownRecords.Where(r => r.EditorID != null && coreIds.ContainsKey(r.EditorID))
             .Select(r => r.EditorID!).ToList();
         Need(dupCore.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupCore)}");
-        var lowRange = allRecords.Where(r => r.FormKey.ModKey == Plugin && r.FormKey.ID < 0x800).Select(r => r.FormKey.ToString()).ToList();
+        var lowRange = ownRecords.Where(r => r.FormKey.ID < 0x800).Select(r => r.FormKey.ToString()).ToList();
         Need(lowRange.Count == 0, $"plugin contains low-range FormIDs (<0x800): {string.Join(", ", lowRange)}");
+        Need(ownRecords.Count == ExpectedOwnRecordCount, $"expected {ExpectedOwnRecordCount} own major records, found {ownRecords.Count}");
+        Need(foreign.Count == ExpectedOverrideRecordCount, $"expected {ExpectedOverrideRecordCount} scoped D4 overrides, found {foreign.Count}");
         Need(allRecords.Count == ExpectedMajorRecordCount, $"expected {ExpectedMajorRecordCount} major records, found {allRecords.Count}");
 
         // 1. Quest check
@@ -780,6 +885,47 @@ static class WorkshopCore
                 new[] { Own(CampKitId), Own(CampPackTokenId), Own(SettlementKitId), Own(ScrapTokenId) }),
             "FLST FO4SF_KitFilterList does not list the 4 portable kit/token items in order");
 
+        // 8. R11 D4: Clean Sanctuary Hills Workshop bench + Mars/Sol LCTN/STDT overrides
+        var sancKw = mod.Keywords.FirstOrDefault(x => x.FormKey == Own(SanctuaryCategoryKwId));
+        Need(sancKw != null && sancKw.EditorID == SanctuaryCategoryKwEdid &&
+             sancKw.Name?.String == "Sanctuary" && sancKw.Type == Keyword.TypeEnum.RecipeFilter,
+            $"KYWD 0x{SanctuaryCategoryKwId:X} ({SanctuaryCategoryKwEdid}) missing or invalid");
+
+        var sancActi = mod.Activators.FirstOrDefault(x => x.FormKey == Own(SanctuaryBenchActiId));
+        Need(sancActi != null && sancActi.EditorID == SanctuaryBenchActiEdid &&
+             sancActi.Name?.String == SanctuaryBenchName &&
+             string.Equals(sancActi.Model?.File?.GivenPath, SanctuaryBenchModel, StringComparison.OrdinalIgnoreCase) &&
+             sancActi.ActivationAngle == 360 && !sancActi.InvertFacing,
+            $"ACTI 0x{SanctuaryBenchActiId:X} ({SanctuaryBenchActiEdid}) missing or invalid metadata/model");
+        if (sancActi != null)
+        {
+            var kwSet = (sancActi.Keywords ?? Enumerable.Empty<IFormLinkGetter<IKeywordGetter>>()).Select(k => k.FormKey).ToHashSet();
+            Need(kwSet.Contains(Sf(SfWorkshopKwId)) && kwSet.Contains(Own(SanctuaryCategoryKwId)),
+                $"{SanctuaryBenchActiEdid} must carry WorkshopKeyword and {SanctuaryCategoryKwEdid}");
+            var forbidden = ForbiddenStarfieldOutpostCategoryIds.Where(id => kwSet.Contains(Sf(id))).Select(id => $"0x{id:X6}").ToList();
+            Need(forbidden.Count == 0,
+                $"{SanctuaryBenchActiEdid} must carry ZERO Starfield OutpostCategory* keywords, found: {string.Join(", ", forbidden)}");
+            var radiusProp = sancActi.Properties?.FirstOrDefault(p => p.ActorValue.FormKey == Sf(SfOutpostBuildAreaRadiusAvId));
+            Need(radiusProp != null && Math.Abs(radiusProp.Value - SanctuaryBenchRadius) < 0.01f,
+                $"{SanctuaryBenchActiEdid} missing OutpostBuildAreaRadius={SanctuaryBenchRadius}");
+        }
+
+        void CheckLocOverride(uint id, string wantName, string label)
+        {
+            var loc = mod.Locations.FirstOrDefault(x => x.FormKey == Sf(id));
+            Need(loc != null && loc.Name?.String == wantName &&
+                 !string.Equals(loc.Name?.String, "Mars", StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(loc.Name?.String, "Sol", StringComparison.OrdinalIgnoreCase),
+                $"D4 LCTN override 0x{id:X6} ({label}) missing or Name != '{wantName}'");
+        }
+        CheckLocOverride(SfLocMarsSurfaceId, CommonwealthLocName, "SSol_PMars_Surface");
+        CheckLocOverride(SfLocMarsPlanetId, CommonwealthLocName, "SSol_PMars");
+        CheckLocOverride(SfLocSolSystemId, MassachusettsStarName, "SSol");
+        var starOv = mod.Stars.FirstOrDefault(x => x.FormKey == Sf(SfStarSolId));
+        var starFull = starOv?.Components.OfType<IFullNameComponentGetter>().FirstOrDefault()?.Name?.String;
+        Need(starOv != null && starOv.Name == MassachusettsStarName && starFull == MassachusettsStarName,
+            $"D4 STDT override 0x{SfStarSolId:X6} (SolStar) missing or ANAM/FULL != '{MassachusettsStarName}'");
+
         foreach (var x in problems) Console.WriteLine("FAIL  " + x);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
         return problems.Count == 0 ? 0 : 1;
@@ -795,14 +941,34 @@ static class WorkshopCore
         var mod = new StarfieldMod(SfEsm, Release);
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
 
-        // WorkshopKeyword (0x054BA7), AnimFurnWorkbench (0x01A21C), OutpostBeaconActivator (0x2C60E9)
-        mod.Keywords.Add(new Keyword(Sf(0x054BA7), Release) { EditorID = "WorkshopKeyword" });
+        // WorkshopKeyword (0x054BA7), MustPersist (0x04AF68), AnimFurnWorkbench (0x01A21C), OutpostBuildAreaRadius (0x063FC5), OutpostBeaconActivator (0x2C60E9)
+        mod.Keywords.Add(new Keyword(Sf(SfMustPersistKwId), Release) { EditorID = "MustPersist" });
+        mod.Keywords.Add(new Keyword(Sf(SfWorkshopKwId), Release) { EditorID = "WorkshopKeyword" });
         mod.Keywords.Add(new Keyword(Sf(0x01A21C), Release) { EditorID = "AnimFurnWorkbench" });
+        mod.ActorValueInformation.Add(new ActorValueInformation(Sf(SfOutpostBuildAreaRadiusAvId), Release) { EditorID = "OutpostBuildAreaRadius" });
         mod.Activators.Add(new Mutagen.Bethesda.Starfield.Activator(Sf(0x2C60E9), Release)
         {
             EditorID = "OutpostBeaconActivator",
             Model = new Model { File = "Meshes\\Outpost\\Beacon.nif" },
         });
+
+        // Mars/Sol LCTN & STDT templates for D4 display-name overrides
+        mod.Locations.Add(new Location(Sf(SfLocSolSystemId), Release) { EditorID = "SSol", Name = "Sol" });
+        mod.Locations.Add(new Location(Sf(SfLocMarsPlanetId), Release)
+        {
+            EditorID = "SSol_PMars",
+            Name = "Mars",
+            ParentLocation = new FormLinkNullable<ILocationGetter>(Sf(SfLocSolSystemId)),
+        });
+        mod.Locations.Add(new Location(Sf(SfLocMarsSurfaceId), Release)
+        {
+            EditorID = "SSol_PMars_Surface",
+            Name = "Mars",
+            ParentLocation = new FormLinkNullable<ILocationGetter>(Sf(SfLocMarsPlanetId)),
+        });
+        var fixStar = new Star(Sf(SfStarSolId), Release) { EditorID = "SolStar", Name = "Sol" };
+        fixStar.Components.Add(new FullNameComponent { Name = "Sol" });
+        mod.Stars.Add(fixStar);
 
         // Bench & RecipeFilter Keywords
         mod.Keywords.Add(new Keyword(Sf(0x0AA209), Release) { EditorID = "WorkbenchIndustrialKeyword" });
@@ -990,7 +1156,16 @@ static class WorkshopCore
             m.ConstructibleObjects.First(c => c.FormKey == Own(RcpeNvSurgicalBagId)).Conditions
                 .Add(new ConditionFloat { Data = new IsInWaterConditionData() }));
 
-        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 7 tamper controls passed)");
+        // 8. D4: Starfield OutpostCategoryCrafting leaked onto Sanctuary bench
+        ExpectTamperFail("d4_starfield_outpost_category_leaked", m =>
+            m.Activators.First(a => a.FormKey == Own(SanctuaryBenchActiId)).Keywords!
+                .Add(new FormLink<IKeywordGetter>(Sf(ForbiddenStarfieldOutpostCategoryIds[0]))));
+
+        // 9. D4: Mars location display name reverted to "Mars"
+        ExpectTamperFail("d4_mars_location_name_reverted", m =>
+            m.Locations.First(l => l.FormKey == Sf(SfLocMarsPlanetId)).Name = "Mars");
+
+        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 10 tamper controls passed)");
         return 0;
     }
 }

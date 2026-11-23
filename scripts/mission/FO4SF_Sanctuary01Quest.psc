@@ -35,8 +35,10 @@ string LogName = "fo4sf_mission"
 string CorePlugin = "FO4TerrainCore.esm"
 string CoreFallbackPlugin = "FO4TerrainCore_Mars.esm"
 string MissionPlugin = "FO4SFMission.esm"
+string WorkshopPlugin = "FO4SFWorkshop.esm"
 int BenchRefId = 0x005C50
 int BenchBaseId = 0x0A2ECD
+int CleanBenchBaseId = 0x000849
 float BenchLocalX = -1129.250
 float BenchLocalY = 1279.807
 float BenchLocalZ = 112.086
@@ -56,8 +58,12 @@ bool instanceStarted = False
 bool completed = False
 bool benchActivated = False
 bool sturgesHeld = False
+bool sturgesArrivedS9 = False
 bool talkBoxOpen = False
 bool benchMenuOpen = False
+bool workshopModeActive = False
+bool workshopMenuOpen = False
+int openMenuCount = 0
 bool a4Upgraded = False
 bool minRecruitHandoffDone = False
 int talkSessionId = 0
@@ -68,6 +74,8 @@ ObjectReference markerRef = None
 ObjectReference sturgesTalkProxy = None
 float sturgesNearSec = 0.0
 ObjectReference boundBench = None
+ObjectReference sanctuaryBenchOverride = None
+ObjectReference coreBenchDisabled = None
 WorldSpace commonwealthWorld = None
 float benchNearSec = 0.0
 
@@ -110,6 +118,87 @@ bool Function IsWarfareMode()
         return True
     endif
     return False
+EndFunction
+
+bool Function IsTestModeEnabled()
+    GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
+    return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+Function RegisterMenuGuards()
+{A2.1: Track workshop and interactive menus so Sturges talk fallback can NEVER count or fire while any menu is open.}
+    RegisterForMenuOpenCloseEvent("WorkshopMenu")
+    RegisterForMenuOpenCloseEvent("WorkshopBuilderMenu")
+    RegisterForMenuOpenCloseEvent("WorkshopQuickMenu")
+    RegisterForMenuOpenCloseEvent("Workshop_BlueprintMenu")
+    RegisterForMenuOpenCloseEvent("DialogueMenu")
+    RegisterForMenuOpenCloseEvent("MessageBoxMenu")
+    RegisterForMenuOpenCloseEvent("ContainerMenu")
+    RegisterForMenuOpenCloseEvent("BarterMenu")
+    RegisterForMenuOpenCloseEvent("TerminalMenu")
+    RegisterForMenuOpenCloseEvent("BookMenu")
+    RegisterForMenuOpenCloseEvent("DataMenu")
+    RegisterForMenuOpenCloseEvent("InventoryMenu")
+    RegisterForMenuOpenCloseEvent("PauseMenu")
+    RegisterForMenuOpenCloseEvent("Console")
+    RegisterForMenuOpenCloseEvent("FO4SF_PipboyMenu")
+EndFunction
+
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+    if abOpening
+        openMenuCount += 1
+        sturgesNearSec = 0.0
+        if asMenuName == "WorkshopMenu" || asMenuName == "WorkshopBuilderMenu" || asMenuName == "WorkshopQuickMenu" || asMenuName == "Workshop_BlueprintMenu"
+            workshopMenuOpen = True
+        endif
+    else
+        if openMenuCount > 0
+            openMenuCount -= 1
+        endif
+        if asMenuName == "WorkshopMenu" || asMenuName == "WorkshopBuilderMenu" || asMenuName == "WorkshopQuickMenu" || asMenuName == "Workshop_BlueprintMenu"
+            workshopMenuOpen = False
+        endif
+    endif
+EndEvent
+
+bool Function IsAnyMenuOrWorkshopOpen()
+{A2.1: Multi-layer menu guard covering tracked menu events, workshop mode, Starfield pause state, dialogue, and control locks.}
+    if talkBoxOpen || benchMenuOpen || workshopModeActive || workshopMenuOpen || openMenuCount > 0
+        return True
+    endif
+    if Utility.IsGameMenuPaused() || Game.IsPlayerInDialogue()
+        return True
+    endif
+    if !Game.IsMovementControlsEnabled() || !Game.IsActivateControlsEnabled()
+        return True
+    endif
+    return False
+EndFunction
+
+bool Function IsSturgesReadyForSanctuary()
+{A2.1 / S9: Sturges arrives with Preston's group in S9 and is NO LONGER placed at the bench by stage 100 in normal play.
+ Returns True only after S9 arrival (OnSturgesArrivedFromConcord or Sturges already enabled by S9) or explicit TestMode.}
+    if sturgesArrivedS9 || IsTestModeEnabled()
+        return True
+    endif
+    Actor st = ResolveSturges()
+    if st != None && !st.IsDisabled() && !st.IsDead()
+        return True
+    endif
+    return False
+EndFunction
+
+Function OnSturgesArrivedFromConcord()
+{S9 handoff entry point: called when Preston's group reaches Sanctuary from Concord so Sturges is ready for First Settlement.}
+    sturgesArrivedS9 = True
+    Actor st = ResolveSturges()
+    if st != None && !st.IsDead()
+        if st.IsDisabled()
+            st.EnableNoWait(False)
+            Trace("sanctuary01 sturges enabled by=s9_arrival")
+        endif
+        BindSturges()
+    endif
 EndFunction
 
 int Function EffectiveStage()
@@ -352,6 +441,7 @@ Function StartQuestInstance()
     if player != None
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
+    RegisterMenuGuards()
     AdvanceTo(10, "Trigger")
     EnsureGuideMarker(player)
     TryBindBench(player)
@@ -369,6 +459,9 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     talkSessionId += 1
     talkBoxOpen = False
     benchMenuOpen = False
+    workshopModeActive = False
+    workshopMenuOpen = False
+    openMenuCount = 0
     sturgesHeld = False
     sturgesNearSec = 0.0
     int st = EffectiveStage()
@@ -484,17 +577,26 @@ EndFunction
 
 Function KeepSturges(Actor player)
     if EffectiveStage() < 100
-        ; R3: Sturges remains InitiallyDisabled during opening/stage 10 until workbench is activated
+        ; R3: Sturges remains InitiallyDisabled during opening/stage 10 until S9 arrival
         return
     endif
     Actor st = ResolveSturges()
     if st == None || st.IsDead() || !IsCommonwealthExterior(player)
         return
     endif
+    ; A2.1 / S9: Sturges now arrives with Preston's group in S9 and is NO LONGER enabled or teleported
+    ; onto the workbench by stage 100 in normal play. Only S9 arrival (or TestMode) activates him here.
+    if !IsSturgesReadyForSanctuary()
+        return
+    endif
     if st.IsDisabled()
-        st.EnableNoWait(False)
-        BindSturges()
-        Trace("sanctuary01 sturges enabled stage=" + EffectiveStage())
+        if sturgesArrivedS9 || IsTestModeEnabled()
+            st.EnableNoWait(False)
+            BindSturges()
+            Trace("sanctuary01 sturges enabled stage=" + EffectiveStage())
+        else
+            return
+        endif
     endif
     if st.GetCombatState() != 0
         if sturgesHeld
@@ -509,16 +611,24 @@ Function KeepSturges(Actor player)
     float pdx = player.GetPositionX() - sx
     float pdy = player.GetPositionY() - sy
     if pdx * pdx + pdy * pdy <= BindRadius * BindRadius
-        float sdx = st.GetPositionX() - sx
-        float sdy = st.GetPositionY() - sy
-        if !sturgesHeld || (sdx * sdx + sdy * sdy) > 625.0
-            st.SetRestrained(False)
-            st.MoveTo(player, sx - player.GetPositionX(), sy - player.GetPositionY(), sz - player.GetPositionZ(), False, False)
-            st.SetRestrained(True)
-            st.AllowPCDialogue(True)
-            st.BlockActivation(False, False)
-            sturgesHeld = True
-            Trace("sanctuary01 keeper sturges placed held=true")
+        if IsTestModeEnabled()
+            float sdx = st.GetPositionX() - sx
+            float sdy = st.GetPositionY() - sy
+            if !sturgesHeld || (sdx * sdx + sdy * sdy) > 625.0
+                st.SetRestrained(False)
+                st.MoveTo(player, sx - player.GetPositionX(), sy - player.GetPositionY(), sz - player.GetPositionZ(), False, False)
+                st.SetRestrained(True)
+                st.AllowPCDialogue(True)
+                st.BlockActivation(False, False)
+                sturgesHeld = True
+                Trace("sanctuary01 keeper sturges placed held=true")
+            endif
+        else
+            ; S9 normal play: keep Sturges talkable at his S9 arrival spot without teleporting him onto the workbench
+            if !sturgesHeld
+                BindSturges()
+                sturgesHeld = True
+            endif
         endif
         if sturgesTalkProxy == None || sturgesTalkProxy.IsDeleted()
             Activator talkActi = Game.GetFormFromFile(0x000A0E, MissionPlugin) as Activator
@@ -535,8 +645,14 @@ Function KeepSturges(Actor player)
 EndFunction
 
 Function CheckSturgesTalkFallback(Actor player, int st)
-{R4: Timed proximity fallback while Sturges is alive so a topicless OnActivate never stalls stages 100/1050/1250/1350/1450.}
-    if talkBoxOpen || benchMenuOpen || player == None
+{R4 / A2.1: Timed proximity fallback while Sturges is alive & arrived from S9.
+ IMPOSSIBLE while ANY menu (WorkshopMenu, DialogueMenu, PauseMenu, Pip-Boy, etc.) is open:
+ resets sturgesNearSec to 0.0 and suppresses popup whenever IsAnyMenuOrWorkshopOpen() is True.}
+    if IsAnyMenuOrWorkshopOpen() || player == None
+        sturgesNearSec = 0.0
+        return
+    endif
+    if !IsSturgesReadyForSanctuary()
         sturgesNearSec = 0.0
         return
     endif
@@ -549,6 +665,10 @@ Function CheckSturgesTalkFallback(Actor player, int st)
     if player.GetDistance(stActor) <= TalkFallbackRadius
         sturgesNearSec += 1.0
         if sturgesNearSec >= TalkFallbackSeconds
+            if IsAnyMenuOrWorkshopOpen()
+                sturgesNearSec = 0.0
+                return
+            endif
             sturgesNearSec = 0.0
             Trace("sanctuary01 talk_fallback actor=sturges stage=" + st + " near_sec=" + TalkFallbackSeconds)
             RunSturgesTalk()
@@ -604,7 +724,7 @@ Function CheckMilestoneProgress(int st)
 EndFunction
 
 Function RunSturgesTalk()
-    if talkBoxOpen || completed
+    if IsAnyMenuOrWorkshopOpen() || completed
         return
     endif
     talkBoxOpen = True
@@ -717,6 +837,29 @@ Function TryBindBench(Actor player)
     if player == None
         return
     endif
+    RegisterMenuGuards()
+    if sanctuaryBenchOverride != None && !sanctuaryBenchOverride.IsDeleted()
+        if coreBenchDisabled != None && !coreBenchDisabled.IsDisabled()
+            coreBenchDisabled.DisableNoWait(False)
+        endif
+        if boundBench != sanctuaryBenchOverride
+            if boundBench != None
+                UnregisterForRemoteEvent(boundBench, "OnActivate")
+                UnregisterForRemoteEvent(boundBench, "OnWorkshopMode")
+            endif
+            boundBench = sanctuaryBenchOverride
+            RegisterForRemoteEvent(boundBench, "OnActivate")
+            RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+            ReferenceAlias bAliasRe = GetAlias(0) as ReferenceAlias
+            if bAliasRe != None
+                bAliasRe.ForceRefTo(boundBench)
+            endif
+            CleanupMarker()
+            Trace("sanctuary01 bench_bound ref=" + boundBench + " loaded=" + boundBench.Is3DLoaded())
+            Trace("sanctuary01 clean_bench_swap active=true ref=" + boundBench)
+        endif
+        return
+    endif
     string cName = ActiveCorePlugin()
     if cName == ""
         return
@@ -735,12 +878,36 @@ Function TryBindBench(Actor player)
             endif
         endif
     endif
-    if cand != None && cand != boundBench
+    if cand == None
+        return
+    endif
+    ; R11 D4: Swap Starfield-category core bench (0x0A2ECD) for clean Sanctuary Hills Workshop bench
+    ; (FO4SFWorkshop.esm:0x000849, zero Starfield OutpostCategory* keywords) once 3D is loaded.
+    bool swappedClean = False
+    ObjectReference targetBench = cand
+    if Game.IsPluginInstalled(WorkshopPlugin)
+        if !cand.Is3DLoaded()
+            return
+        endif
+        Activator cleanBase = Game.GetFormFromFile(CleanBenchBaseId, WorkshopPlugin) as Activator
+        if cleanBase != None
+            ObjectReference cleanRef = cand.PlaceAtMe(cleanBase, 1, True, False, False)
+            if cleanRef != None
+                cleanRef.MoveTo(cand, 0.0, 0.0, 0.0, True, False)
+                cand.DisableNoWait(False)
+                coreBenchDisabled = cand
+                sanctuaryBenchOverride = cleanRef
+                targetBench = cleanRef
+                swappedClean = True
+            endif
+        endif
+    endif
+    if targetBench != None && targetBench != boundBench
         if boundBench != None
             UnregisterForRemoteEvent(boundBench, "OnActivate")
             UnregisterForRemoteEvent(boundBench, "OnWorkshopMode")
         endif
-        boundBench = cand
+        boundBench = targetBench
         RegisterForRemoteEvent(boundBench, "OnActivate")
         RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
         ReferenceAlias benchAlias = GetAlias(0) as ReferenceAlias
@@ -749,6 +916,11 @@ Function TryBindBench(Actor player)
         endif
         CleanupMarker()
         Trace("sanctuary01 bench_bound ref=" + boundBench + " loaded=" + boundBench.Is3DLoaded())
+        if swappedClean
+            Trace("sanctuary01 clean_bench_swap active=true ref=" + boundBench)
+        else
+            Trace("sanctuary01 clean_bench_swap active=false ref=" + boundBench)
+        endif
     endif
 EndFunction
 
@@ -858,8 +1030,14 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
 EndEvent
 
 Event ObjectReference.OnWorkshopMode(ObjectReference akSender, bool aStart)
-    if !completed && aStart && boundBench != None && akSender == boundBench && EffectiveStage() < 100
-        CompleteSanctuaryObjective(akSender)
+    if boundBench != None && akSender == boundBench
+        workshopModeActive = aStart
+        if aStart
+            sturgesNearSec = 0.0
+            if !completed && EffectiveStage() < 100
+                CompleteSanctuaryObjective(akSender)
+            endif
+        endif
     endif
 EndEvent
 
