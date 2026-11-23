@@ -159,11 +159,25 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
             self.assertEqual(struct.unpack("<Q", armos[0x983][b"BO64"])[0], 0x68)
             self.assertEqual(struct.unpack("<Q", armos[0x98A][b"BO64"])[0], 0x68)
 
-            # 3. A2.3 checks: ZERO foreign NPC_ overrides of FO4ActorRaider.esm; local 0x986 FO4_ConcordRaider present;
-            #    Concord ACHRs (0x803..0x807) -> 0x03000986, while Corvega ACHR (0xA24) -> 0x02F04800!
+            # 3. A2.3 + Review #7 checks: ZERO foreign NPC_ overrides of FO4ActorRaider.esm; local 0x986 FO4_ConcordRaider
+            #    present; ZERO NPC_ records in FO4SFMission.esm carry 0x003D094D Spacer spacesuit outfit; all 3 later-mission
+            #    FO4_LvlRaider-cloned bosses (0x0A23 FO4_CorvegaBoss, 0x0AD1 FO4_Kellogg, 0x0B31 FO4_CourserZ247) wear 0x988
+            #    + PRPS 0x0B120E=1.0; non-raider FO4_Sturges (0x0A00) stays untouched; Concord ACHRs (0x803..0x807) -> 0x986
+            #    while non-Concord ACHR (0xA24) -> FO4ActorRaider.esm:0xF04800!
             npc_records = [(fid, fver, dict(subs)) for sig, fid, _, fver, subs in m_recs if sig == b"NPC_"]
             raider_overrides = [fid for fid, _, _ in npc_records if (fid >> 24) == raider_hi]
             self.assertEqual(raider_overrides, [], f"A2.3 violation: foreign FO4ActorRaider.esm overrides found: {raider_overrides}")
+
+            spacer_carriers = []
+            for fid, _, sd in npc_records:
+                for tag in (b"DOFT", b"SOFT"):
+                    if tag in sd and (struct.unpack("<I", sd[tag])[0] & 0xFFFFFF) == 0x3D094D:
+                        spacer_carriers.append((fid, sd.get(b"EDID", b"").rstrip(b"\x00").decode("utf-8", "replace"), tag))
+            self.assertEqual(
+                spacer_carriers,
+                [],
+                f"Review #7 regression: NPC_ records in FO4SFMission.esm still carry 0x003D094D Spacer spacesuit: {spacer_carriers}",
+            )
 
             local_npcs = {fid & 0xFFFFFF: (fver, sd) for fid, fver, sd in npc_records if (fid >> 24) == local_hi}
             self.assertIn(0x986, local_npcs, "Missing local 0x000986 FO4_ConcordRaider")
@@ -172,6 +186,28 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
             self.assertEqual(sd_986[b"EDID"].rstrip(b"\x00"), b"FO4_ConcordRaider")
             self.assertEqual(struct.unpack("<I", sd_986[b"DOFT"])[0], (local_hi << 24) | 0x988)
             self.assertEqual(struct.unpack("<I", sd_986[b"SOFT"])[0], (local_hi << 24) | 0x988)
+
+            for boss_id, boss_edid in (
+                (0x0A23, b"FO4_CorvegaBoss"),
+                (0x0AD1, b"FO4_Kellogg"),
+                (0x0B31, b"FO4_CourserZ247"),
+            ):
+                self.assertIn(boss_id, local_npcs, f"Missing seeded later-mission boss 0x{boss_id:04X}")
+                _, sd_boss = local_npcs[boss_id]
+                self.assertEqual(sd_boss[b"EDID"].rstrip(b"\x00"), boss_edid)
+                self.assertEqual(struct.unpack("<I", sd_boss[b"DOFT"])[0], (local_hi << 24) | 0x988)
+                self.assertEqual(struct.unpack("<I", sd_boss[b"SOFT"])[0], (local_hi << 24) | 0x988)
+                prps = sd_boss.get(b"PRPS", b"")
+                self.assertEqual(len(prps) % 12, 0)
+                entries = [struct.unpack_from("<IfI", prps, off) for off in range(0, len(prps), 12)]
+                self.assertTrue(
+                    any((av & 0xFFFFFF) == 0x0B120E and abs(val - 1.0) < 1e-4 for av, val, _ in entries),
+                    f"Review #7: 0x{boss_id:04X} ({boss_edid!r}) missing PRPS 0x0B120E == 1.0: {entries}",
+                )
+
+            _, sd_sturges = local_npcs[0x0A00]
+            self.assertNotIn(b"DOFT", sd_sturges)
+            self.assertNotIn(b"SOFT", sd_sturges)
 
             achrs = {fid & 0xFFFFFF: dict(subs) for sig, fid, _, _, subs in m_recs if sig == b"ACHR" and (fid >> 24) == local_hi}
             for rid in range(0x803, 0x808):
@@ -190,10 +226,13 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
                 f"Non-Concord ACHR 0xA24 base 0x{corvega_base:08X} was unexpectedly mutated away from FO4ActorRaider.esm:0xF04800",
             )
 
-            # Verifyfo4sf.esm.Plugin also parses cleanly
+            # Verify fo4sf.planet.esm.Plugin also parses cleanly
             with Plugin(str(mission_path)) as plug:
                 edids = {r.edid for r in plug.records("NPC_")}
                 self.assertIn("FO4_ConcordRaider", edids)
+                self.assertIn("FO4_CorvegaBoss", edids)
+                self.assertIn("FO4_Kellogg", edids)
+                self.assertIn("FO4_CourserZ247", edids)
                 self.assertNotIn("FO4_LvlRaider", edids)
 
     def test_r11_w3_owned_files_hygiene(self):
@@ -222,12 +261,16 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
             "prestongarveyhat_m_facebones.nif",
             "FO4_ConcordRaider",
             "0x000986",
+            "FO4_CorvegaBoss",
+            "FO4_Kellogg",
+            "FO4_CourserZ247",
+            "0x003D094D",
             "AA_Naked_Hands",
             "0x68",
             "ran in game",
             "pushed, not run",
         ):
-            self.assertIn(token, doc, f"Report missing required R11 D2/A2.3 forensic token: {token}")
+            self.assertIn(token, doc, f"Report missing required R11 D2/A2.3/Review-#7 forensic token: {token}")
 
 
 if __name__ == "__main__":
