@@ -1,7 +1,7 @@
 // WorkshopCore: Core Settlements, Junk Scrapping (CMPO -> IRES), FO4 COBJ + FNV RCPE Bench Recipes, and Portable C.A.M.P.s
 // (docs/workshop/workshop-camps.md)
 //
-// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 34 own records + 4 scoped Mars/Sol location/star display-name overrides for D4).
+// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 35 own records + 4 scoped Mars/Sol location/star display-name overrides for D4).
 // The terrain core is NOT a master: FO4SF_WorkshopCoreQuest resolves FO4TerrainCore.esm / FO4TerrainCore_Mars.esm
 // workshop bases at runtime via Game.GetFormFromFile so FO4SFWorkshop.esm loads standalone or folded without cell overrides.
 //
@@ -107,10 +107,13 @@ static class WorkshopCore
     public const uint RcpeNvTrailRationId = 0x847;
 
     // R11 D4: Clean Sanctuary Hills Workshop bench (zero Starfield OutpostCategory* keywords)
+    // and runtime swap switch GLOB 0x84A (default 0.0 = OFF in candidate-2g-fix)
     public const uint SanctuaryCategoryKwId = 0x848;
     public const uint SanctuaryBenchActiId = 0x849;
+    public const uint SanctuaryCleanBenchSwapGlobId = 0x84A;
     public const string SanctuaryCategoryKwEdid = "FO4SF_WorkshopCategorySanctuary";
     public const string SanctuaryBenchActiEdid = "FO4SF_SanctuaryWorkshopBench";
+    public const string SanctuaryCleanBenchSwapGlobEdid = "FO4SF_SanctuaryCleanBenchSwap";
     public const string SanctuaryBenchName = "Sanctuary Hills Workshop";
     public const string SanctuaryBenchModel = "fo4core\\setdressing\\garage\\workbenchgarage01.nif";
     public const float SanctuaryBenchRadius = 250.0f;
@@ -138,7 +141,7 @@ static class WorkshopCore
     };
 
     public const uint NextId = 0x850;
-    public const int ExpectedOwnRecordCount = 34;
+    public const int ExpectedOwnRecordCount = 35;
     public const int ExpectedOverrideRecordCount = 4;
     public const int ExpectedMajorRecordCount = ExpectedOwnRecordCount + ExpectedOverrideRecordCount;
 
@@ -527,6 +530,7 @@ static class WorkshopCore
         mod.Globals.Add(MakeGlobal(ActiveCampCountGlobId, "FO4SF_ActiveCAMPCount", 0.0f));
         mod.Globals.Add(MakeGlobal(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f));
         mod.Globals.Add(MakeGlobal(TrackedStationCountGlobId, "FO4SF_TrackedStationCount", 0.0f));
+        mod.Globals.Add(MakeGlobal(SanctuaryCleanBenchSwapGlobId, SanctuaryCleanBenchSwapGlobEdid, 0.0f));
 
         // 2. Portable C.A.M.P., Pack-Up, Settlement, and Scrapper Kits
         var campKitTpl = PickMiscTemplate(sf, new[] { "Tool_DuctTape01", "Deskfan03" }, tpl.DefaultMiscTemplate);
@@ -689,7 +693,7 @@ static class WorkshopCore
         var outPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-                          $"1 QUST (TestModeGlobal -> {testModeKey}), 4 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m), " +
+                          $"1 QUST (TestModeGlobal -> {testModeKey}), 5 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m, cleanSwap=0), " +
                           $"10 MISC, 4 ALCH, 8 COBJ, 5 FLST, 1 KYWD + 1 ACTI (Sanctuary Hills Workshop, 0 Starfield OutpostCategory* KWs), " +
                           $"3 LCTN + 1 STDT D4 display-name overrides (Commonwealth / Massachusetts)");
         return 0;
@@ -792,6 +796,7 @@ static class WorkshopCore
         CheckGlob(ActiveCampCountGlobId, "FO4SF_ActiveCAMPCount", 0.0f);
         CheckGlob(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f);
         CheckGlob(TrackedStationCountGlobId, "FO4SF_TrackedStationCount", 0.0f);
+        CheckGlob(SanctuaryCleanBenchSwapGlobId, SanctuaryCleanBenchSwapGlobEdid, 0.0f);
 
         // 3. CMPO -> IRES -> MISC FormLists check
         var iresList = mod.FormLists.FirstOrDefault(x => x.FormKey == Own(CmpoIresListId));
@@ -1161,11 +1166,15 @@ static class WorkshopCore
             m.Activators.First(a => a.FormKey == Own(SanctuaryBenchActiId)).Keywords!
                 .Add(new FormLink<IKeywordGetter>(Sf(ForbiddenStarfieldOutpostCategoryIds[0]))));
 
-        // 9. D4: Mars location display name reverted to "Mars"
+        // 10. D4: Mars location display name reverted to "Mars"
         ExpectTamperFail("d4_mars_location_name_reverted", m =>
             m.Locations.First(l => l.FormKey == Sf(SfLocMarsPlanetId)).Name = "Mars");
 
-        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 10 tamper controls passed)");
+        // 11. D4: Sanctuary clean bench swap switch defaults to non-zero (must default to 0.0 = OFF)
+        ExpectTamperFail("d4_clean_bench_swap_default_nonzero", m =>
+            m.Globals.First(g => g.FormKey == Own(SanctuaryCleanBenchSwapGlobId)).Data = 1.0f);
+
+        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 11 tamper controls passed)");
         return 0;
     }
 }

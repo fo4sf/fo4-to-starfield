@@ -75,6 +75,9 @@ class Round11D4AndA21Tests(unittest.TestCase):
         cs = WS_CS.read_text(encoding="utf-8")
         self.assertIn("public const uint SanctuaryCategoryKwId = 0x848;", cs)
         self.assertIn("public const uint SanctuaryBenchActiId = 0x849;", cs)
+        self.assertIn("public const uint SanctuaryCleanBenchSwapGlobId = 0x84A;", cs)
+        self.assertIn('public const string SanctuaryCleanBenchSwapGlobEdid = "FO4SF_SanctuaryCleanBenchSwap";', cs)
+        self.assertIn("public const int ExpectedOwnRecordCount = 35;", cs)
         self.assertIn('public const string SanctuaryBenchName = "Sanctuary Hills Workshop";', cs)
         self.assertIn('public const string SanctuaryBenchModel = "fo4core\\\\setdressing\\\\garage\\\\workbenchgarage01.nif";', cs)
         self.assertIn("public const uint SfLocMarsSurfaceId = 0x01B736;", cs)
@@ -91,18 +94,38 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("FullNameComponent", cs)
         self.assertIn("d4_starfield_outpost_category_leaked", cs)
         self.assertIn("d4_mars_location_name_reverted", cs)
+        self.assertIn("d4_clean_bench_swap_default_nonzero", cs)
 
-    def test_d4_sanctuary01_swaps_core_bench_for_clean_bench_and_reuses_on_reload(self) -> None:
+    def test_d4_sanctuary01_swap_off_by_default_with_self_heal_and_load_restore(self) -> None:
         psc = SANC_PSC.read_text(encoding="utf-8")
         self.assertIn('string WorkshopPlugin = "FO4SFWorkshop.esm"', psc)
         self.assertIn("int CleanBenchBaseId = 0x000849", psc)
+        self.assertIn("int CleanBenchSwapGlobId = 0x00084A", psc)
+        self.assertIn("bool Property EnableCleanBenchSwap = False Auto", psc)
+        self.assertIn("float CleanBenchSelfHealSeconds = 3.5", psc)
         self.assertIn("ObjectReference sanctuaryBenchOverride = None", psc)
         self.assertIn("ObjectReference coreBenchDisabled = None", psc)
+
+        sw_fn = re.search(r"bool Function IsCleanBenchSwapEnabled\(\).*?EndFunction", psc, re.S)
+        self.assertIsNotNone(sw_fn)
+        self.assertIn("if cleanBenchSelfHealed", sw_fn.group(0))
+        self.assertIn("if EnableCleanBenchSwap", sw_fn.group(0))
+        self.assertIn("Game.GetFormFromFile(CleanBenchSwapGlobId, WorkshopPlugin) as GlobalVariable", sw_fn.group(0))
+
+        restore_fn = re.search(r"Function RestoreCoreBench\(string reason\).*?EndFunction", psc, re.S)
+        self.assertIsNotNone(restore_fn)
+        rbody = restore_fn.group(0)
+        self.assertIn("sanctuaryBenchOverride.DisableNoWait(False)", rbody)
+        self.assertIn("coreRef.EnableNoWait(False)", rbody)
+        self.assertIn("boundBench = coreRef", rbody)
+        self.assertIn("bAliasRestore.ForceRefTo(boundBench)", rbody)
 
         bind_fn = re.search(r"Function TryBindBench\(Actor player\).*?EndFunction", psc, re.S)
         self.assertIsNotNone(bind_fn)
         body = bind_fn.group(0)
-        self.assertIn("if sanctuaryBenchOverride != None && !sanctuaryBenchOverride.IsDeleted()", body)
+        self.assertIn("bool wantSwap = IsCleanBenchSwapEnabled()", body)
+        self.assertIn('RestoreCoreBench("load_switch_off")', body)
+        self.assertIn("if wantSwap && Game.IsPluginInstalled(WorkshopPlugin)", body)
         self.assertIn("Game.GetFormFromFile(CleanBenchBaseId, WorkshopPlugin) as Activator", body)
         self.assertIn("cleanRef.MoveTo(cand, 0.0, 0.0, 0.0, True, False)", body)
         self.assertIn("cand.DisableNoWait(False)", body)
@@ -111,10 +134,81 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("sanctuary01 clean_bench_swap active=true ref=", body)
         self.assertIn("sanctuary01 clean_bench_swap active=false ref=", body)
 
-    def test_a21_sturges_talk_fallback_impossible_while_any_menu_is_open(self) -> None:
+        # OnActivate starts Timer 3 (3.5 s); OnTimer(3) self-heals back to 04005C50 if workshop did not open
+        act_ev = re.search(r"Event ObjectReference\.OnActivate\(.*?EndEvent", psc, re.S)
+        self.assertIsNotNone(act_ev)
+        self.assertIn("StartTimer(CleanBenchSelfHealSeconds, 3)", act_ev.group(0))
+
+        timer_ev = re.search(r"Event OnTimer\(int aiTimerID\).*?EndEvent", psc, re.S)
+        self.assertIsNotNone(timer_ev)
+        tbody = timer_ev.group(0)
+        self.assertIn("if aiTimerID == 3", tbody)
+        self.assertIn('Trace("sanctuary01 clean_bench_swap self_heal reason=no_workshop_menu")', tbody)
+        self.assertIn('RestoreCoreBench("self_heal")', tbody)
+
+        # Behavioral state-machine check: default OFF, opt-in ON -> 3.5 s no-menu self-heal -> load restore
+        core_disabled = False
+        override_disabled = True
+        override_exists = False
+        bound = None
+        alias0 = None
+        glob_swap = 0.0
+        prop_swap = False
+        self_healed = False
+        verify_pending = False
+        saw_workshop = False
+        logs: list[str] = []
+
+        def swap_enabled() -> bool:
+            return (not self_healed) and (prop_swap or glob_swap != 0.0)
+
+        # 1. Default in candidate-2g-fix: swap OFF -> 04005C50 stays enabled and bound
+        if swap_enabled():
+            override_exists = True
+            override_disabled = False
+            core_disabled = True
+            bound = "clean_0849"
+        else:
+            bound = "core_005C50"
+        alias0 = bound
+        self.assertFalse(override_exists)
+        self.assertFalse(core_disabled)
+        self.assertEqual(bound, "core_005C50")
+
+        # 2. Switch 0B00084A = 1 -> swaps to clean bench, disables 04005C50
+        glob_swap = 1.0
+        self.assertTrue(swap_enabled())
+        override_exists = True
+        override_disabled = False
+        core_disabled = True
+        bound = "clean_0849"
+        alias0 = bound
+
+        # 3. Activate clean bench; 3.5 s Timer 3 fires with no workshop menu -> self-heal back to 04005C50
+        verify_pending = True
+        saw_workshop = False
+        if verify_pending and not saw_workshop:
+            self_healed = True
+            verify_pending = False
+            logs.append("sanctuary01 clean_bench_swap self_heal reason=no_workshop_menu")
+            override_disabled = True
+            core_disabled = False
+            bound = "core_005C50"
+            alias0 = bound
+        self.assertIn("sanctuary01 clean_bench_swap self_heal reason=no_workshop_menu", logs)
+        self.assertFalse(core_disabled)
+        self.assertTrue(override_disabled)
+        self.assertEqual(bound, "core_005C50")
+        self.assertEqual(alias0, "core_005C50")
+        self.assertFalse(swap_enabled())
+
+    def test_a21_sturges_talk_fallback_impossible_while_any_menu_is_open_and_no_open_menu_count(self) -> None:
         psc = SANC_PSC.read_text(encoding="utf-8")
 
-        # Must register menu open/close events for WorkshopMenu and all interactive menus
+        # Review Item #8: openMenuCount MUST be completely removed (no sticky menu counter)
+        self.assertNotIn("openMenuCount", psc)
+
+        # Must register menu open/close events for WorkshopMenu and interactive menus
         reg_fn = re.search(r"Function RegisterMenuGuards\(\).*?EndFunction", psc, re.S)
         self.assertIsNotNone(reg_fn)
         for menu_name in (
@@ -132,18 +226,20 @@ class Round11D4AndA21Tests(unittest.TestCase):
         ):
             self.assertIn(f'RegisterForMenuOpenCloseEvent("{menu_name}")', reg_fn.group(0))
 
-        # Must have OnMenuOpenCloseEvent and OnWorkshopMode tracking workshopModeActive
+        # Must have OnMenuOpenCloseEvent and OnWorkshopMode tracking workshopModeActive + workshopMenuOpen
         ev_menu = re.search(r"Event OnMenuOpenCloseEvent\(.*?EndEvent", psc, re.S)
         self.assertIsNotNone(ev_menu)
         self.assertIn("sturgesNearSec = 0.0", ev_menu.group(0))
         self.assertIn("workshopMenuOpen = True", ev_menu.group(0))
+        self.assertIn("CancelTimer(3)", ev_menu.group(0))
 
         ev_ws = re.search(r"Event ObjectReference\.OnWorkshopMode\(.*?EndEvent", psc, re.S)
         self.assertIsNotNone(ev_ws)
         self.assertIn("workshopModeActive = aStart", ev_ws.group(0))
         self.assertIn("sturgesNearSec = 0.0", ev_ws.group(0))
+        self.assertIn("workshopMenuOpen = False", ev_ws.group(0))
 
-        # IsAnyMenuOrWorkshopOpen checks tracked menus + native game pause/dialogue/controls
+        # IsAnyMenuOrWorkshopOpen checks explicit boolean flags + native game pause/dialogue/controls
         guard_fn = re.search(r"bool Function IsAnyMenuOrWorkshopOpen\(\).*?EndFunction", psc, re.S)
         self.assertIsNotNone(guard_fn)
         gbody = guard_fn.group(0)
@@ -152,7 +248,6 @@ class Round11D4AndA21Tests(unittest.TestCase):
             "benchMenuOpen",
             "workshopModeActive",
             "workshopMenuOpen",
-            "openMenuCount > 0",
             "Utility.IsGameMenuPaused()",
             "Game.IsPlayerInDialogue()",
             "!Game.IsMovementControlsEnabled()",
@@ -170,23 +265,25 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("if IsAnyMenuOrWorkshopOpen() || completed", talk_fn.group(0))
 
         # Behavioral state-machine check: standing 2.2 m from Sturges for 20 ticks while WorkshopMenu
-        # or any menu is open NEVER increments sturgesNearSec and NEVER opens RunSturgesTalk.
-        for menu_flag in ("workshopModeActive", "workshopMenuOpen", "openMenuCount", "gameMenuPaused", "inDialogue"):
+        # or any menu/pause/dialogue is open NEVER increments sturgesNearSec and NEVER opens RunSturgesTalk.
+        for menu_flag in ("workshopModeActive", "workshopMenuOpen", "talkBoxOpen", "benchMenuOpen", "gameMenuPaused", "inDialogue"):
             state = {
                 "workshopModeActive": False,
                 "workshopMenuOpen": False,
-                "openMenuCount": 0,
+                "talkBoxOpen": False,
+                "benchMenuOpen": False,
                 "gameMenuPaused": False,
                 "inDialogue": False,
                 "sturgesNearSec": 0.0,
                 "talk_opened": 0,
             }
-            state[menu_flag] = 1 if menu_flag == "openMenuCount" else True
+            state[menu_flag] = True
             for _ in range(20):
                 blocked = (
                     state["workshopModeActive"]
                     or state["workshopMenuOpen"]
-                    or state["openMenuCount"] > 0
+                    or state["talkBoxOpen"]
+                    or state["benchMenuOpen"]
                     or state["gameMenuPaused"]
                     or state["inDialogue"]
                 )
@@ -200,10 +297,21 @@ class Round11D4AndA21Tests(unittest.TestCase):
             self.assertEqual(state["sturgesNearSec"], 0.0, menu_flag)
             self.assertEqual(state["talk_opened"], 0, menu_flag)
 
-    def test_a21_sturges_gated_for_s9_arrival_not_placed_on_bench_at_stage_100(self) -> None:
+    def test_a21_sturges_not_arrived_treated_as_missing_never_shows_obj50_or_stalls_at_100(self) -> None:
         psc = SANC_PSC.read_text(encoding="utf-8")
         self.assertIn("bool Function IsSturgesReadyForSanctuary()", psc)
         self.assertIn("Function OnSturgesArrivedFromConcord()", psc)
+
+        # Review Item #3: IsSturgesDeadOrMissing() treats !IsSturgesReadyForSanctuary() as missing
+        miss_fn = re.search(r"bool Function IsSturgesDeadOrMissing\(\).*?EndFunction", psc, re.S)
+        self.assertIsNotNone(miss_fn)
+        self.assertIn("if !IsSturgesReadyForSanctuary()", miss_fn.group(0))
+
+        apply_fn = re.search(r"Function ApplyStage\(int n, string by\).*?EndFunction", psc, re.S)
+        self.assertIsNotNone(apply_fn)
+        abody = apply_fn.group(0)
+        self.assertIn("if IsSturgesDeadOrMissing()", abody)
+        self.assertIn('AdvanceTo(1000, "open_mode")', abody)
 
         keep_fn = re.search(r"Function KeepSturges\(Actor player\).*?EndFunction", psc, re.S)
         self.assertIsNotNone(keep_fn)
@@ -219,28 +327,34 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("if !IsSturgesReadyForSanctuary()", fb_fn.group(0))
 
         # Behavioral simulation: stage 100 in normal play (TestMode=0, Sturges InitiallyDisabled)
-        # leaves Sturges disabled; after S9 calls OnSturgesArrivedFromConcord(), he is ready.
+        # treats Sturges as unavailable -> NEVER displays objective 50 ("Talk to Sturges") and advances to 1000.
         sturges_disabled = True
         sturges_arrived_s9 = False
         test_mode = False
-        moved_to_bench = False
+        displayed_objs: list[int] = []
+        stage = 100
 
         def is_ready() -> bool:
             return sturges_arrived_s9 or test_mode or (not sturges_disabled)
 
-        # Stage 100 tick before S9 arrival
-        if is_ready():
-            sturges_disabled = False
-            if test_mode:
-                moved_to_bench = True
-        self.assertTrue(sturges_disabled, "Stage 100 must NOT enable Sturges before S9 arrival")
-        self.assertFalse(moved_to_bench, "Stage 100 must NOT teleport Sturges onto the bench")
+        def is_dead_or_missing() -> bool:
+            return not is_ready()
 
-        # S9 arrival from Concord
+        if is_dead_or_missing():
+            stage = 1000
+            displayed_objs.append(1000)
+        else:
+            displayed_objs.append(50)
+
+        self.assertTrue(sturges_disabled, "Stage 100 must NOT enable Sturges before S9 arrival")
+        self.assertNotIn(50, displayed_objs, "Objective 50 must NEVER show while Sturges is disabled")
+        self.assertEqual(stage, 1000, "Stage 100 must advance cleanly to 1000 open_mode when Sturges has not arrived")
+
+        # After S9 arrival from Concord, Sturges is ready and no longer treated as missing
         sturges_arrived_s9 = True
         sturges_disabled = False
         self.assertTrue(is_ready())
-        self.assertFalse(moved_to_bench)
+        self.assertFalse(is_dead_or_missing())
 
     def test_d4_note_honesty_and_no_drive_leaks(self) -> None:
         self.assertTrue(DOC_D4.is_file(), "missing docs/workshop/sanctuary-bench-d4-note.md")
@@ -251,6 +365,9 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("sOutpostLocation", txt)
         self.assertIn("FO4SF_SanctuaryWorkshopBench", txt)
         self.assertIn("0x000849", txt)
+        self.assertIn("0x00084A", txt)
+        self.assertIn("FO4SF_SanctuaryCleanBenchSwap", txt)
+        self.assertIn("self_heal reason=no_workshop_menu", txt)
         self.assertIn("PNDT 0x0003F59A", txt)
         self.assertIn("IsAnyMenuOrWorkshopOpen", txt)
         self.assertIn("OnSturgesArrivedFromConcord", txt)
@@ -278,6 +395,11 @@ class Round11D4AndA21Tests(unittest.TestCase):
             self.assertEqual(pndt_count, 0, "FO4SFWorkshop.esm must NEVER override PNDT")
             self.assertIn(("KYWD", 0x000848), by_lid)
             self.assertIn(("ACTI", 0x000849), by_lid)
+            self.assertIn(("GLOB", 0x00084A), by_lid)
+
+            glob_subs = dict(by_lid[("GLOB", 0x00084A)])
+            self.assertEqual(glob_subs["EDID"].rstrip(b"\x00").decode("utf-8"), "FO4SF_SanctuaryCleanBenchSwap")
+            self.assertAlmostEqual(struct.unpack("<f", glob_subs["FLTV"])[0], 0.0, places=4)
 
             acti_subs = dict(by_lid[("ACTI", 0x000849)])
             self.assertEqual(acti_subs["FULL"].rstrip(b"\x00").decode("utf-8"), "Sanctuary Hills Workshop")
