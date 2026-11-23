@@ -147,11 +147,14 @@ def _iter_subrecords(body):
 
 class R11W1Tests(unittest.TestCase):
     def test_d1_codsworth_race_metadata_and_phase2_stop_dialogue_camera(self):
-        """D1: FO4SF_CodsworthRace upgrades away from MiniBotA Size.Small/DialogueMiniBot framing, and
-        FO4SF_Codsworth01Quest.OnPhaseBegin stops Starfield's low C_Chassis dialogue camera on phase >= 2."""
+        """D1 + Review Item #6: --codsworth-race-framing defaults to 0 (OFF, exact 2g race parity) and opts into
+        the 5 standing-robot edits only when 1; FO4SF_Codsworth01Quest stops Starfield's dialogue camera on phase >= 2."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         c_psc = CODS_PSC.read_text(encoding="utf-8")
 
+        self.assertIn('Mission.BoolFlag(args, "--codsworth-race-framing", false)', cs)
+        self.assertIn("bool codsworthRaceFraming = false", cs)
+        self.assertIn("if (codsworthRaceFraming)", cs)
         self.assertIn("codsRace.Size = SF.Size.Medium;", cs)
         self.assertIn("codsRace.DialogueQuest.Clear();", cs)
         self.assertIn("SF.Race.Flag.HeadAxisBit0", cs)
@@ -418,25 +421,47 @@ class R11W1Tests(unittest.TestCase):
             exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
             return SimpleNamespace(ns=ns, logs=logs, rt=rt, scene=scene, msg=msg, preston=preston, player=player, timers=timers)
 
-        # Scenario 1: 1.5 s fallback latches prestonFallbackActive -> late native OnPhaseBegin / OnMenuOpenCloseEvent suppressed!
-        e1 = make_env(msg_clicks=[-1])  # MessageBox returns -1 so stage stays 30 while fallback is active
+        # Scenario 1: While MessageBox fallback is actively open inside Show(), late native OnPhaseBegin /
+        # OnMenuOpenCloseEvent MUST be suppressed (never both); once Show() exits with btn=-1 (< stage 35),
+        # Review Item #1 clears BOTH prestonTalkBoxOpen and prestonFallbackActive so Preston is NOT locked!
+        late_checks = {}
+        e1 = make_env(msg_clicks=[-1])
+
+        orig_show = e1.msg.Show
+        def _show_with_late_greeting():
+            late_checks["fallback_during_show"] = e1.ns["prestonFallbackActive"]
+            late_checks["box_during_show"] = e1.ns["prestonTalkBoxOpen"]
+            stops_before = e1.scene.stop_calls
+            e1.scene.playing = True
+            e1.ns["OnPhaseBegin"](e1.scene, 1)
+            late_checks["stop_after_phase"] = e1.scene.stop_calls - stops_before
+            late_checks["playing_after_phase"] = e1.scene.playing
+            e1.ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+            late_checks["stop_after_menu"] = e1.scene.stop_calls - stops_before
+            late_checks["menu_opened_flag"] = e1.ns["prestonSceneMenuOpened"]
+            e1.ns["prestonDialogueMenuOpen"] = False
+            return orig_show()
+
+        e1.msg.Show = _show_with_late_greeting
         e1.ns["OnActivate"](e1.preston, e1.player)
         e1.ns["OnBegin"](e1.scene)
         e1.ns["OnPhaseBegin"](e1.scene, 1)
         e1.rt[0] += 1.5
         e1.ns["CheckPrestonSceneOpen"]()
-        self.assertTrue(e1.ns["prestonFallbackActive"])
+        self.assertTrue(late_checks["fallback_during_show"])
+        self.assertTrue(late_checks["box_during_show"])
+        self.assertEqual(late_checks["stop_after_phase"], 1)
+        self.assertFalse(late_checks["playing_after_phase"])
+        self.assertEqual(late_checks["stop_after_menu"], 2)
+        self.assertFalse(late_checks["menu_opened_flag"])
         self.assertEqual(e1.msg.shown, 1)
-        stops_after_timeout = e1.scene.stop_calls
-        # Late native greeting tries to advance phase and open DialogueMenu -> MUST stop scene & never mark menu opened!
-        e1.scene.playing = True
-        e1.ns["OnPhaseBegin"](e1.scene, 1)
-        self.assertEqual(e1.scene.stop_calls, stops_after_timeout + 1)
-        self.assertFalse(e1.scene.playing)
-        e1.ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
-        self.assertEqual(e1.scene.stop_calls, stops_after_timeout + 2)
-        self.assertFalse(e1.ns["prestonSceneMenuOpened"])
         self.assertTrue(any("preston scene suppressed reason=single_talk" in ln for ln in e1.logs), e1.logs)
+        # Review Item #1 (< 35 exit): exiting MessageBox at stage 30 clears both flags -> next E press works!
+        self.assertFalse(e1.ns["prestonTalkBoxOpen"])
+        self.assertFalse(e1.ns["prestonFallbackActive"])
+        starts_before = e1.scene.start_calls
+        e1.ns["OnActivate"](e1.preston, e1.player)
+        self.assertEqual(e1.scene.start_calls, starts_before + 1)
 
         # Scenario 2: DialogueMenu opens FIRST (run3 concurrent DEVT race) -> FallbackPrestonToMessageBox & RunPrestonTalk refused!
         e2 = make_env()
@@ -453,6 +478,38 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(e2.msg.shown, 0)
         self.assertTrue(any("preston fallback suppressed reason=dialogue_active" in ln for ln in e2.logs), e2.logs)
         self.assertTrue(any("preston messagebox suppressed reason=dialogue_menu_open" in ln for ln in e2.logs), e2.logs)
+
+        # Scenario 3 (Review Item #1 — late_dialogue_open): DialogueMenu opens during scn.Stop() inside
+        # FallbackPrestonToMessageBox -> MUST clear prestonFallbackActive = False before returning!
+        e3 = make_env()
+        e3.scene.playing = True
+        orig_stop = e3.scene.Stop
+        def _stop_opening_dialogue():
+            orig_stop()
+            e3.ns["prestonDialogueMenuOpen"] = True
+        e3.scene.Stop = _stop_opening_dialogue
+        e3.ns["FallbackPrestonToMessageBox"]("dialogue_menu_timeout")
+        self.assertFalse(e3.ns["prestonFallbackActive"], "late_dialogue_open leaked prestonFallbackActive=True!")
+        self.assertEqual(e3.msg.shown, 0)
+        self.assertTrue(any("preston fallback suppressed reason=late_dialogue_open" in ln for ln in e3.logs), e3.logs)
+
+        # Scenario 4 (Review Item #1 — post-200 press + stale prestonFallbackActive):
+        # Reaching stage >= 200 clears prestonFallbackActive; pressing E post-200 (even with stale latch)
+        # opens RunPrestonTalk(200, postMsg), never locks, and never re-runs stage-30 scene or rewards!
+        e4 = make_env(msg_clicks=[3, 3])
+        e4.ns["FallbackPrestonToMessageBox"]("glob")
+        self.assertEqual(e4.ns["EffectiveStage"](), 200)
+        self.assertFalse(e4.ns["prestonTalkBoxOpen"])
+        self.assertFalse(e4.ns["prestonFallbackActive"])
+        e4.ns["prestonFallbackActive"] = True  # simulate stale latch
+        scene_starts_before = e4.scene.start_calls
+        rewards_before = e4.player.AddItem.call_count
+        e4.ns["OnActivate"](e4.preston, e4.player)
+        self.assertEqual(e4.msg.shown, 2, "post-200 press was blocked by stale prestonFallbackActive")
+        self.assertFalse(e4.ns["prestonFallbackActive"])
+        self.assertFalse(e4.ns["prestonTalkBoxOpen"])
+        self.assertEqual(e4.scene.start_calls, scene_starts_before, "post-200 press re-ran stage-30 scene!")
+        self.assertEqual(e4.player.AddItem.call_count, rewards_before, "post-200 press re-granted stage-40 reward!")
 
     def test_a2_4_keeper_timer2_continues_for_proximity_starts_when_both_budgets_exhaust(self):
         """A2.4: KeeperOnly Timer 2 still reschedules when codsworthFails == 10, prestonFails == 10, and holds == 0."""
@@ -596,17 +653,26 @@ class R11W1Tests(unittest.TestCase):
                 self.assertEqual(enam, 0, f"INFO 0x{lid:X} ENAM={enam} != 0")
                 self.assertEqual(inam, 1, f"INFO 0x{lid:X} INAM={inam} != 1")
 
-            # Check D1: FO4SF_CodsworthRace (0x818) has no DialogueQuest (QSTI) and Size=Medium (1) in DAT2[0x30]
-            races = {}
-            for sig, fid, _fl, body in _iter_esm_records(esm_bytes, {b"RACE"}):
-                lid = fid & 0xFFFFFF
-                if lid == 0x818:
-                    subs = dict(_iter_subrecords(body))
-                    races[lid] = subs
-            self.assertIn(0x818, races)
-            self.assertNotIn(b"QSTI", races[0x818])
-            dat2 = races[0x818][b"DAT2"]
-            self.assertEqual(struct.unpack_from("<I", dat2, 0x30)[0], 1)  # Size.Medium == 1
+            # Check D1 + Review Item #6 (default --codsworth-race-framing 0): FO4SF_CodsworthRace (0x818)
+            # preserves exact 2g MiniBotARace defaults (Size.Small == 0, QSTI DialogueQuest present, zero DAT2Unknown3).
+            def read_cods_race(esm_path):
+                raw = esm_path.read_bytes()
+                for sig, fid, _fl, body in _iter_esm_records(raw, {b"RACE"}):
+                    if (fid & 0xFFFFFF) == 0x818:
+                        return dict(_iter_subrecords(body))
+                raise AssertionError(f"RACE 0x818 not found in {esm_path}")
+
+            default_race = read_cods_race(Path(td) / "out" / "alias" / "FO4SFMission.esm")
+            self.assertIn(b"QSTI", default_race)
+            self.assertEqual(struct.unpack_from("<I", default_race[b"DAT2"], 0x30)[0], 0)  # Size.Small == 0
+            self.assertEqual(default_race[b"DAT2"][0xA0:0xA0 + 61], b"\x00" * 61)
+
+            # Check variant --codsworth-race-framing 1: FO4SF_CodsworthRace (0x818) enables Size.Medium (1),
+            # clears QSTI, and copies non-zero ModelARace DAT2Unknown3 framing bytes.
+            variant_race = read_cods_race(Path(td) / "out" / "codsworth_race_framing" / "FO4SFMission.esm")
+            self.assertNotIn(b"QSTI", variant_race)
+            self.assertEqual(struct.unpack_from("<I", variant_race[b"DAT2"], 0x30)[0], 1)  # Size.Medium == 1
+            self.assertNotEqual(variant_race[b"DAT2"][0xA0:0xA0 + 61], b"\x00" * 61)
 
 
 if __name__ == "__main__":

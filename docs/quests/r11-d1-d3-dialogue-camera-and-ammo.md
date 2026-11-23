@@ -14,15 +14,16 @@ Scope: Track 2 slice `R11-W1` on top of merged `candidate-2g` (`fb22fa2b`). No `
 2. `codsworth.nif` (Fallout 4 Mr. Handy) floats **0.85 m higher** (`z ≈ 1.36 m`), with his thruster cone and splayed arms spanning `z = 0.50–0.90 m`.
 3. During Phase 0 (`DialogueSceneAction`, `still 03`), Starfield keeps the player's normal eye-level 1st-person camera at `1.85 m` (`camera_guard`), framing Codsworth cleanly from outside. When Phase 1 (`TOPLEVELNEST` `PlayerDialogueSceneAction`, `still 04`) starts, Starfield engages its dialogue camera (`SCEN.Flags` `0x0800` is set on 1,956/2,202 vanilla `PlayerDialogue` scenes including Preston `still 08` and does **not** disable Starfield's dialogue camera) and aims at `Head1 = C_Chassis` (`z = 0.506 m`), placing the camera beneath Codsworth's floating dome looking down at his thruster/legs and the dirt.
 
-### Fix Applied
-1. **Plugin (`dotnet/Mission/Program.cs`, `FO4SF_CodsworthRace` `0x000818`):**
-   - Upgraded `FO4SF_CodsworthRace` from floor-bot metadata to standing dialogue framing while preserving `MiniBotA` skeleton/ARMA and `Height = 1.0`: `Size = Medium`, `DialogueQuest = Null`, `HeadAxisBit0 | 0x0080000000000000` set, `TiltFrontBack` cleared, and `DAT2Unknown3` copied from `ModelARace` (`0x005629`) when available.
-2. **Script (`scripts/mission/FO4SF_Codsworth01Quest.psc`):**
-   - In `Scene.OnPhaseBegin`, whenever `auiPhaseIndex >= 2` (1-based `TOPLEVELNEST` choice phase on first entry and on every `INTV = 1` loop-back), calls Starfield's native `Game.StopDialogueCamera(False, True)` (same Bethesda API used in `DefaultTopicInfoStopDialogueCamera.psc` and `QF_MQ101_00003448.psc`) and logs `codsworth talk dialogue_camera stopped phase=<n>`, keeping the player in the clean eye-height 1st-person view seen in `still 03`.
+### Fix Applied (Default-Safe Script Fix + Optional Build-Flag Variant)
+1. **Default Build (`--codsworth-race-framing 0`, OFF by default — Review Item #6):**
+   - `dotnet/Mission/Program.cs` keeps `2g`'s exact `FO4SF_CodsworthRace` (`0x000818`: `MiniBotARace` duplicate with `AllowPcDialog` + `ArmorRace` only, zero extra race edits) so the default `candidate-2g-fix` build ships the script-side `Game.StopDialogueCamera(False, True)` fix alone without risking `MiniBotA` rig/animation side effects.
+   - In `scripts/mission/FO4SF_Codsworth01Quest.psc` `Scene.OnPhaseBegin`, whenever `auiPhaseIndex >= 2` (1-based `TOPLEVELNEST` choice phase on first entry and on every `INTV = 1` loop-back), calls Starfield's native `Game.StopDialogueCamera(False, True)` (same Bethesda API used in `DefaultTopicInfoStopDialogueCamera.psc` and `QF_MQ101_00003448.psc`) and logs `codsworth talk dialogue_camera stopped phase=<n>`, keeping the player in the clean eye-height 1st-person view seen in `still 03`.
+2. **Variant Build (`--codsworth-race-framing 1`, ON for dedicated 1-launch variant test):**
+   - Passing `--codsworth-race-framing 1` to `Mission write` / `Mission check` enables the 5 standing-robot dialogue framing edits on `FO4SF_CodsworthRace` (`0x000818`) while preserving `MiniBotA` skeleton/ARMA and `Height = 1.0`: `Size = Medium`, `DialogueQuest = Null`, `HeadAxisBit0 | 0x0080000000000000` set, `TiltFrontBack` cleared, and `DAT2Unknown3` copied from `ModelARace` (`0x005629`).
 
 ### Offline Proof vs Game-Only Verification
-- **Provable offline:** `FO4SF_CodsworthRace` binary fields (`Size.Medium`, null `DialogueQuest`, flags, `DAT2Unknown3`) via `Mission check`/`selftest` and `test_r11_d1_d3_min00.py`; Papyrus compilation of `Game.StopDialogueCamera(False, True)` against `ContentResources.zip` `Game.psc`; and script invocation on `OnPhaseBegin(2)`.
-- **Game-only:** Actual rendered viewport framing in `still 04` (confirming Starfield holds 1st-person eye height throughout `DialogueMenu` choices and loop-back without dipping under Codsworth's chassis).
+- **Provable offline:** Both `--codsworth-race-framing 0` (exact `2g` `FO4SF_CodsworthRace` parity) and `--codsworth-race-framing 1` (5 standing-framing edits) binary ESM outputs via `Mission check`/`selftest` and `test_r11_d1_d3_min00.py`; Papyrus compilation of `Game.StopDialogueCamera(False, True)` against `ContentResources.zip` `Game.psc`; and script invocation on `OnPhaseBegin(2)`.
+- **Game-only:** Actual rendered viewport framing in `still 04` under both the default build (`StopDialogueCamera` alone) and the `--codsworth-race-framing 1` variant.
 
 ---
 
@@ -69,11 +70,12 @@ Scope: Track 2 slice `R11-W1` on top of merged `candidate-2g` (`fb22fa2b`). No `
 
 ### Fix (`scripts/mission/FO4SF_Min00Quest.psc:645-875`)
 1. **Race 1 (observed in `2g` `run3` at `rt=343.486` vs `343.662`):** Native `DEVT` opened `DialogueMenu` *before* `OnActivate` finished `ResolvePrestonSceneLogged()`, and `OnActivate` then unconditionally reset `prestonSceneMenuOpened = False` and armed Timer 3. Fixed by re-checking `prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive || prestonTalkLogged` after `ResolvePrestonSceneLogged()` and before arming Timer 3.
-2. **Race 2 (`1.45 s` post-phase-1 fallback vs late native greeting):**
-   - `FallbackPrestonToMessageBox` now returns immediately if `prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged`, latches `prestonFallbackActive = True` **before** calling `scn.Stop()`, and re-checks `DialogueMenu` state before showing the MessageBox.
-   - `RunPrestonTalk` refuses to open if `prestonDialogueMenuOpen || prestonSceneMenuOpened` is true.
+2. **Race 2 (`1.45 s` post-phase-1 fallback vs late native greeting) & Review Item #1 unlock guards:**
+   - `FallbackPrestonToMessageBox` returns immediately if `prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged`, latches `prestonFallbackActive = True` **before** calling `scn.Stop()`, and if `prestonDialogueMenuOpen || prestonSceneMenuOpened` is true after `scn.Stop()`, **clears `prestonFallbackActive = False`** before returning on `late_dialogue_open` so future talks are never locked out.
+   - `RunPrestonTalk` refuses to open if `prestonDialogueMenuOpen || prestonSceneMenuOpened` is true, and on exit clears both `prestonTalkBoxOpen = False` and `prestonFallbackActive = False` whenever `EffectiveStage() < 35` (cancelled/incomplete fallback) or `EffectiveStage() >= 200` (completed).
+   - `OnActivate` does not let a stale `prestonFallbackActive` alone block activation when no box, menu, or pending scene is active (resetting stale `prestonFallbackActive = False`), and post-`200` activation runs `RunPrestonTalk(stage, postMsg)` cleanly without locking or re-running stage-`30` logic.
    - `Scene.OnPhaseBegin` and `OnMenuOpenCloseEvent("DialogueMenu", True)` unconditionally call `scn.Stop()` and log `preston scene suppressed reason=single_talk` if `prestonFallbackActive || prestonTalkBoxOpen || prestonTalkLogged || EffectiveStage() >= 35`.
-   - Result: **never both** `DialogueMenu` and `MessageBox` can coexist.
+   - Result: **never both** `DialogueMenu` and `MessageBox` can coexist, and Preston can never become stuck/un-activatable after a late greeting, a cancelled fallback, or stage-`200` completion.
 
 ### Honest Explanation of `2f` (`PrestonTalkScene == None`) vs `2g` (`via=property`)
 - Byte-for-byte inspection of `candidate-2f` and `candidate-2g` `FO4SFMission.esm` `QUST 0x000800` `VMAD` confirms both files contain the **identical 26-byte property record** for `PrestonTalkScene` (`0x03000900`).

@@ -6,10 +6,10 @@
 //   write <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> <points.json> <out dir> [--plugin FO4SFMission.esm]
 //         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth]
 //         [--codsworth-model <mesh under Meshes>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
-//         [--preston-voice <preston_voice.json>]
+//         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>]
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth]
 //         [--codsworth-model <mesh>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
-//         [--preston-voice <preston_voice.json>]
+//         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>]
 //   npcs <plugin.esm> <fo4 | sf> <regex>
 //   quests <Starfield.esm> [faction regex]
 //   infos <Starfield.esm> <regex | wem:hex,hex...>
@@ -46,14 +46,16 @@ try
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
                                                        Mission.ArgOrNull(args, "--preston-voice"),
-                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir"),
+                                                       Mission.BoolFlag(args, "--codsworth-race-framing", false)),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"),
                                                        !args.Contains("--no-codsworth"),
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
                                                        Mission.ArgOrNull(args, "--preston-voice"),
-                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir"),
+                                                       Mission.BoolFlag(args, "--codsworth-race-framing", false)),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
@@ -217,6 +219,18 @@ static class Mission
     public static string? ArgOrNull(string[] a, string name) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
     public static string Arg(string[] a, string name, string dflt) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : dflt; }
     public static float Opt(string[] a, string name, float dflt) => float.Parse(Arg(a, name, dflt.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
+    public static bool BoolFlag(string[] a, string name, bool dflt)
+    {
+        var i = Array.IndexOf(a, name);
+        if (i < 0) return dflt;
+        if (i + 1 >= a.Length) throw new Refusal($"{name} requires 0 or 1");
+        return a[i + 1] switch
+        {
+            "0" or "false" or "False" => false,
+            "1" or "true" or "True" => true,
+            var bad => throw new Refusal($"{name} expects 0 or 1, got '{bad}'"),
+        };
+    }
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
     // ---------------------------------------------------------------- quests (read only)
@@ -967,7 +981,7 @@ static class Mission
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
                             string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null,
                             string? codsworthVoice = null, string? codsworthMqVoice = null, string? prestonVoicePath = null,
-                            string? actorLooksDir = null)
+                            string? actorLooksDir = null, bool codsworthRaceFraming = false)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
@@ -1097,21 +1111,25 @@ static class Mission
             if (!m.Cache.TryResolve<SF.IRaceGetter>(body.Race.FormKey, out var baseBotRace))
                 throw new Refusal($"Codsworth body {codsworthBody} race {body.Race.FormKey} does not resolve");
 
-            // 2h + R11 D1: Dialogue-capable duplicate Race (AllowPcDialog) upgraded from MiniBotARace's 0.51 m floor-bot
-            // framing metadata (Size.Small, DialogueMiniBot, zero DAT2Unknown3) to standing eye-level dialogue framing
-            // (Size.Medium, HeadAxisBit0, ModelARace DAT2Unknown3, cleared DialogueQuest) while keeping MiniBotA skeleton/ARMA.
+            // 2h + R11 Review Item #6: Duplicate MiniBotARace with AllowPcDialog + ArmorRace only by default
+            // (--codsworth-race-framing 0, exact 2g parity, relying on Game.StopDialogueCamera(False, True) alone).
+            // Passing --codsworth-race-framing 1 opts into the 5 standing-robot dialogue framing edits for variant testing.
             var codsRace = (SF.Race)baseBotRace.Duplicate(new FormKey(modKey, CodsworthRaceId));
             codsRace.EditorID = CodsworthRaceEdid;
-            codsRace.Flags = (codsRace.Flags | SF.Race.Flag.AllowPcDialog | SF.Race.Flag.HeadAxisBit0 |
-                              (SF.Race.Flag)0x0080000000000000UL) & ~SF.Race.Flag.TiltFrontBack;
-            codsRace.Size = SF.Size.Medium;
-            codsRace.DialogueQuest.Clear();
-            if (m.Cache.TryResolve<SF.IRaceGetter>(new FormKey(SfEsm, SfModelARaceId), out var modelARace) &&
-                modelARace.EditorID == SfModelARaceEdid &&
-                modelARace.DAT2Unknown3.Length == codsRace.DAT2Unknown3.Length &&
-                modelARace.DAT2Unknown3.Length > 0)
+            codsRace.Flags |= SF.Race.Flag.AllowPcDialog;
+            if (codsworthRaceFraming)
             {
-                codsRace.DAT2Unknown3 = modelARace.DAT2Unknown3.ToArray();
+                codsRace.Flags = (codsRace.Flags | SF.Race.Flag.HeadAxisBit0 |
+                                  (SF.Race.Flag)0x0080000000000000UL) & ~SF.Race.Flag.TiltFrontBack;
+                codsRace.Size = SF.Size.Medium;
+                codsRace.DialogueQuest.Clear();
+                if (m.Cache.TryResolve<SF.IRaceGetter>(new FormKey(SfEsm, SfModelARaceId), out var modelARace) &&
+                    modelARace.EditorID == SfModelARaceEdid &&
+                    modelARace.DAT2Unknown3.Length == codsRace.DAT2Unknown3.Length &&
+                    modelARace.DAT2Unknown3.Length > 0)
+                {
+                    codsRace.DAT2Unknown3 = modelARace.DAT2Unknown3.ToArray();
+                }
             }
             codsRace.ArmorRace.SetTo(baseBotRace.FormKey);
             mod.Races.Add(codsRace);
@@ -1674,7 +1692,7 @@ static class Mission
 
     public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true,
                             string? codsworthModel = null, string? codsworthVoice = null, string? codsworthMqVoice = null,
-                            string? prestonVoicePath = null, string? actorLooksDir = null)
+                            string? prestonVoicePath = null, string? actorLooksDir = null, bool codsworthRaceFraming = false)
     {
         using var m = Open(sfPath, corePath, raiderPath);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
@@ -1801,11 +1819,22 @@ static class Mission
             Need(codsRace is { EditorID: CodsworthRaceEdid } && codsRace.Flags.HasFlag(SF.Race.Flag.AllowPcDialog) &&
                  cods?.Race.FormKey == codsRace.FormKey,
                  $"Codsworth lacks local RACE {CodsworthRaceEdid} (0x{CodsworthRaceId:X}) with AllowPcDialog");
-            Need(codsRace is { Size: SF.Size.Medium } && codsRace.DialogueQuest.IsNull &&
-                 codsRace.Flags.HasFlag(SF.Race.Flag.HeadAxisBit0) &&
-                 !codsRace.Flags.HasFlag(SF.Race.Flag.TiltFrontBack) &&
-                 (((ulong)codsRace.Flags & 0x0080000000000000UL) != 0),
-                 $"R11 D1: {CodsworthRaceEdid} lacks standing dialogue framing metadata (Size.Medium, null DialogueQuest, HeadAxisBit0)");
+            if (codsworthRaceFraming)
+            {
+                Need(codsRace is { Size: SF.Size.Medium } && codsRace.DialogueQuest.IsNull &&
+                     codsRace.Flags.HasFlag(SF.Race.Flag.HeadAxisBit0) &&
+                     !codsRace.Flags.HasFlag(SF.Race.Flag.TiltFrontBack) &&
+                     (((ulong)codsRace.Flags & 0x0080000000000000UL) != 0),
+                     $"R11 D1: {CodsworthRaceEdid} lacks standing dialogue framing metadata (--codsworth-race-framing 1)");
+            }
+            else if (codsRace is not null && m.Cache.TryResolve<SF.IRaceGetter>(codsRace.ArmorRace.FormKey, out var baseBotRaceCheck))
+            {
+                Need(codsRace.Size == baseBotRaceCheck.Size &&
+                     codsRace.DialogueQuest.FormKey == baseBotRaceCheck.DialogueQuest.FormKey &&
+                     codsRace.Flags == (baseBotRaceCheck.Flags | SF.Race.Flag.AllowPcDialog) &&
+                     codsRace.DAT2Unknown3.Span.SequenceEqual(baseBotRaceCheck.DAT2Unknown3.Span),
+                     $"R11 Review Item #6: default build (--codsworth-race-framing 0) must keep 2g {CodsworthRaceEdid} (AllowPcDialog + ArmorRace only)");
+            }
             Need(codsVoice is { EditorID: CodsworthVoiceEdid } && codsVoice.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog) &&
                  cods?.Voice.FormKey == codsVoice.FormKey,
                  $"Codsworth lacks local VTYP {CodsworthVoiceEdid} (0x{CodsworthVoiceId:X}) with AllowDefaultDialog");
@@ -2206,11 +2235,17 @@ static class Mission
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderAmmoId), rel) { EditorID = SfRaiderAmmoEdid });
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderSidearmId), rel) { EditorID = SfRaiderSidearmEdid });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderSidearmAmmoId), rel) { EditorID = SfRaiderSidearmAmmoEdid });
+        var modelADat3 = new byte[61];
+        modelADat3[24] = 2;
+        modelADat3[28] = 3;
+        modelADat3[32] = 1;
+        BitConverter.TryWriteBytes(modelADat3.AsSpan(33, 4), 1.0f);
         var modelARace = new SF.Race(new FormKey(SfEsm, SfModelARaceId), rel)
         {
             EditorID = SfModelARaceEdid,
             Size = SF.Size.Large,
             Flags = SF.Race.Flag.AllowPcDialog | SF.Race.Flag.HeadAxisBit0 | (SF.Race.Flag)0x0080000000000000UL,
+            DAT2Unknown3 = modelADat3,
         };
         sf.Races.Add(modelARace);
         sf.Npcs.Add(new SF.Npc(new FormKey(SfEsm, SfPapaKatzId), rel)
@@ -2228,7 +2263,16 @@ static class Mission
         });
 
         // Codsworth's Garden Mini Bot body (intentionally lacks AllowPcDialog & AllowDefaultDialog in vanilla, which Write fixes)
-        var race = new SF.Race(new FormKey(SfEsm, 0x900), rel) { EditorID = "MiniBotARace" };
+        var miniBotDialogueQuest = new SF.Quest(new FormKey(SfEsm, 0x225314), rel) { EditorID = "DialogueMiniBot" };
+        sf.Quests.Add(miniBotDialogueQuest);
+        var race = new SF.Race(new FormKey(SfEsm, 0x900), rel)
+        {
+            EditorID = "MiniBotARace",
+            Size = SF.Size.Small,
+            Flags = SF.Race.Flag.TiltFrontBack,
+            DialogueQuest = new FormLinkNullable<SF.IQuestGetter>(miniBotDialogueQuest.FormKey),
+            DAT2Unknown3 = new byte[61],
+        };
         sf.Races.Add(race);
         var botVoice = new SF.VoiceType(new FormKey(SfEsm, 0x903), rel) { EditorID = "RobotMiniBotA", Flags = 0 };
         sf.VoiceTypes.Add(botVoice);
@@ -2300,6 +2344,26 @@ static class Mission
             if (rc != 0) return rc;
             rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, alias);
             if (rc != 0) return rc;
+        }
+        {
+            var o = Path.Combine(outDir, "codsworth_race_framing");
+            int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, codsworthRaceFraming: true);
+            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: true);
+            if (rc != 0) return rc;
+            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: false) == 0)
+                { Console.WriteLine("FAIL  check passed --codsworth-race-framing 1 plugin under default 0 mode"); return 1; }
+            if (Check(Path.Combine(outDir, "alias", Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: true) == 0)
+                { Console.WriteLine("FAIL  check passed default --codsworth-race-framing 0 plugin under 1 mode"); return 1; }
+            var vmod = SF.StarfieldMod.CreateFromBinary(Path.Combine(o, Plugin), rel, Styles(SfEsm, coreKey, raiderKey));
+            vmod.Races[new FormKey(vmod.ModKey, CodsworthRaceId)].Size = SF.Size.Small;
+            var vmd = Path.Combine(outDir, "codsworth_race_framing_mutated");
+            Directory.CreateDirectory(vmd);
+            var vlo = new[] { SfEsm, coreKey, raiderKey };
+            vmod.BeginWrite.ToPath(Path.Combine(vmd, Plugin)).WithLoadOrder(vlo)
+                .WithKnownMasters(vlo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
+            if (Check(Path.Combine(vmd, Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: true) == 0)
+                { Console.WriteLine("FAIL  check passed mutated --codsworth-race-framing 1 plugin (Size.Small)"); return 1; }
+            Console.WriteLine("mutation rejected: Codsworth race reverted to Size.Small (--codsworth-race-framing 1)");
         }
         {
             var o = Path.Combine(outDir, "nocodsworth");
@@ -2414,7 +2478,7 @@ static class Mission
             ("FO4SF_Codsworth01 removed", m => m.Quests.Remove(new FormKey(m.ModKey, CodsworthQuestId))),
             ("FO4SF_Sanctuary01 removed", m => m.Quests.Remove(new FormKey(m.ModKey, SanctuaryQuestId))),
             ("Codsworth race lacks AllowPcDialog", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Flags &= ~SF.Race.Flag.AllowPcDialog),
-            ("Codsworth race reverted to Size.Small (D1)", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Size = SF.Size.Small),
+            ("Codsworth race leaked Size.Medium into default 0 build (Review Item #6)", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Size = SF.Size.Medium),
             ("Min00 missing RaiderSidearm property (D3)", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "RaiderSidearm")),
             ("Preston choice 0 missing ENAM flags (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = null),
             ("Preston choice 0 sets DoNotGrayOut (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = new SF.DialogResponseFlags { Flags = (short)SF.DialogResponses.Flag.DoNotGrayOut }),

@@ -698,6 +698,12 @@ Function RunPrestonTalk(int stage, Message startMsg)
     endwhile
     if !prestonTalkReloaded && mySession == talkSessionId
         prestonTalkBoxOpen = False
+        ; R11 Review Item #1: Clear fallback latch when MessageBox exits without advancing past stage 30 (< 35)
+        ; or after reaching completion (>= 200) so Preston is never locked out of subsequent activation.
+        int endSt = EffectiveStage()
+        if endSt < 35 || endSt >= 200
+            prestonFallbackActive = False
+        endif
     endif
 EndFunction
 
@@ -723,6 +729,8 @@ Function FallbackPrestonToMessageBox(string reason)
         scn.Stop()
     endif
     if prestonDialogueMenuOpen || prestonSceneMenuOpened
+        ; R11 Review Item #1: Clear fallback latch when yielding to a late-opened DialogueMenu so it never strands future talks.
+        prestonFallbackActive = False
         Trace("preston fallback suppressed reason=late_dialogue_open orig=" + reason)
         return
     endif
@@ -858,8 +866,12 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     if akSender == Preston && akActionRef == Game.GetPlayer()
-        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonScenePending || prestonFallbackActive
+        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonScenePending
             return
+        endif
+        ; R11 Review Item #1: Never let stale prestonFallbackActive alone block OnActivate when no box/menu/scene is active.
+        if prestonFallbackActive
+            prestonFallbackActive = False
         endif
         int stage = EffectiveStage()
         Trace("preston activated at stage " + stage)
@@ -869,7 +881,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             Scene scn = ResolvePrestonSceneLogged()
             ; A2.2: Re-check after ResolvePrestonSceneLogged() so a concurrent native DEVT greeting that already
             ; opened DialogueMenu (observed in 2g run3 at rt=343.486 vs 343.662) is never overwritten or re-armed.
-            if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive || prestonTalkLogged
+            if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive || prestonTalkLogged || EffectiveStage() != 30
                 return
             endif
             if ShouldUseMessageBox()
