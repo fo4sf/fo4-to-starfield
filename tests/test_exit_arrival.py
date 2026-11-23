@@ -54,10 +54,11 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "    def __add__(self, other): return _PStr(super().__add__(str(other)))",
         "    def __radd__(self, other): return _PStr(str(other) + str(self))",
         "if 'Trace' not in globals(): Trace = lambda *_: None",
+        "if 'Debug' not in globals(): globals()['Debug'] = type('_Dbg', (), {'Notification': staticmethod(lambda *_: None), 'TraceUser': staticmethod(lambda *_: True)})()",
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
-        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False)):",
+        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False)):",
         "    if _k not in globals(): globals()[_k] = _v",
         "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook'):",
         "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
@@ -95,7 +96,7 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         fn_py_name = name.split(".")[-1]
         out.append(f"def {fn_py_name}({', '.join(py_args)}):")
         if variables.strip():
-            out.append("    global " + variables)
+            out.append("    global " + variables + ", portConsoleRegistered, portConsoleWatchedRef, consoleOpening")
         depth = 1
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
         for line in body.splitlines():
@@ -826,6 +827,197 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
         self.assertTrue(any(t.startswith("surface pre_setposition ") for t in traces), traces)
         self.assertTrue(any(t.startswith("h00 skipped surface setposition ") for t in traces), traces)
         self.assertEqual(stages, [40])
+
+
+class ReturnLiftB3HopSpikeTests(unittest.TestCase):
+    """B3 (candidate-2e in-game fix): FO4SF_MapMarkersHop reload hop must never falsely arm or trigger the Vault 111 return lift."""
+
+    RETURN_FUNCTIONS = ("CheckReturnLift", "Near")
+    RETURN_VARS = (
+        "arrivalWorld, leftArrivalPad, returnLiftArmed, returnArmTicks, "
+        "returnHasExteriorSample, returnLastExteriorX, returnLastExteriorY, "
+        "returnAsked, returnVaultAsked, returnSurfacePending, returnSurfaceWaitTicks, returnSurfaceTries"
+    )
+
+    def setUp(self):
+        self.surface_world = object()
+        self.core_cell = SimpleNamespace(GetFormID=lambda: 0x04000CF0)
+        self.hop_cell = SimpleNamespace(GetFormID=lambda: 0x100008F4)
+        self.vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+
+        self.exit_anchor = Reference(self.surface_world, (-1275.3, 1305.3, 108.2), form_id=0x040A775B)
+        self.exit_anchor.cell = self.core_cell
+        self.vault_anchor = Reference(None, (-60.0, 0.0, -1.0), form_id=0x02000805)
+        self.vault_anchor.interior = True
+        self.vault_anchor.cell = self.vault_cell
+
+        # Exact Vault 111 hilltop merged coordinates from candidate-2e (-2467.78, -1406.92, 127.45)
+        self.pad_pos = (-2467.78, -1406.92, 127.45)
+        self.player = Reference(self.surface_world, self.pad_pos, form_id=0x00000014)
+        self.player.cell = self.core_cell
+
+        self.traces = []
+        self.return_prompts = 0
+        self.return_button = 1  # Stay by default
+
+        def get_form(fid, plg):
+            if plg == "FO4TerrainCore.esm" and fid == 0x0A775B:
+                return self.exit_anchor
+            if plg == "FO4Port.esm" and fid == 0x805:
+                return self.vault_anchor
+            return None
+
+        def return_show():
+            self.return_prompts += 1
+            return self.return_button
+
+        self.ns = dict(
+            _PStr=_PStr,
+            Trace=self.traces.append,
+            arrivalWorld=self.surface_world,
+            ArrivalX=-1267.78,
+            ArrivalY=1293.08,
+            ArrivalZ=128.11,
+            ArrivalHeading=0.0,
+            MergeOffsetX=-1200.0,
+            MergeOffsetY=-2700.0,
+            PlatformX=-77.742,
+            PlatformY=-3.958,
+            PlatformZ=-1.751,
+            PlatformRadius=2.0,
+            AnchorX=-60.0,
+            AnchorY=0.0,
+            AnchorZ=-1.0,
+            VaultPlugin="FO4Port.esm",
+            VaultAnchorId=0x805,
+            LiftId=0,
+            CorePlugin="FO4TerrainCore.esm",
+            ExitAnchorId=0x0A775B,
+            leftArrivalPad=False,
+            returnLiftArmed=False,
+            returnArmTicks=0,
+            returnHasExteriorSample=False,
+            returnLastExteriorX=0.0,
+            returnLastExteriorY=0.0,
+            returnAsked=False,
+            returnVaultAsked=False,
+            returnSurfacePending=False,
+            returnSurfaceWaitTicks=0,
+            returnSurfaceTries=0,
+            ReturnMessage=SimpleNamespace(Show=return_show),
+            ExitMessage=SimpleNamespace(Show=lambda: 1),
+            OpenLiftAttributeAllocation=lambda: None,
+            StandsInVault=lambda p: p.GetParentCell() == self.vault_cell,
+            Game=SimpleNamespace(GetFormFromFile=get_form),
+        )
+        exec(compile(translated_functions(read(PSC), self.RETURN_FUNCTIONS, self.RETURN_VARS), PSC, "exec"), self.ns)
+
+    def test_b3_mapmarkers_hop_interior_and_99109_comeback_spike_never_arm_or_prompt(self):
+        # 1. FO4SF_MapMarkersHop (100008F4) interior hop at (414.5, -268.3, -38.0)
+        self.player.interior = True
+        self.player.world = None
+        self.player.cell = self.hop_cell
+        self.player.pos = (414.5, -268.3, -38.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.assertFalse(self.ns["leftArrivalPad"])
+        self.assertEqual(self.return_prompts, 0)
+
+        # 2. Even if IsInInterior raced during VM yield while cell is still FO4SF_MapMarkersHop (100008F4), non-core cell is rejected
+        self.player.interior = False
+        self.player.world = object()
+        self.player.cell = self.hop_cell
+        self.player.pos = (414.5, -268.3, -38.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.assertEqual(self.return_prompts, 0)
+
+        # 3. Exact candidate-2e ComeBack transient anchor spike: dist_sq = 99109.320312 (~314.816 m away in FO4TerrainCore) for 1 tick,
+        #    followed by SetPosition snap back onto the Vault 111 hilltop (-2467.78, -1406.92, 127.45)
+        self.player.interior = False
+        self.player.world = self.surface_world
+        self.player.cell = self.core_cell
+        spike_dist = (99109.320312) ** 0.5
+        self.player.pos = (-2467.78 + spike_dist, -1406.92, 106.5)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.assertEqual(self.ns["returnArmTicks"], 0)
+
+        # Snap back onto hilltop pad and stay there across multiple stage-200 timer ticks
+        self.player.pos = self.pad_pos
+        for _ in range(5):
+            self.ns["CheckReturnLift"](self.player)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.assertFalse(self.ns["leftArrivalPad"])
+        self.assertEqual(self.return_prompts, 0)
+        self.assertFalse(any("return lift armed" in t for t in self.traces), self.traces)
+
+    def test_b3_single_tick_sub200m_glitch_ignored_while_real_two_tick_walk_arms_and_prompts_on_return(self):
+        # Single-tick 120 m exterior blip followed by snap-back does NOT arm (requires >= 2 consecutive valid ticks)
+        self.player.pos = (-2347.0, -1406.0, 113.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertEqual(self.ns["returnArmTicks"], 1)
+        self.assertFalse(self.ns["returnLiftArmed"])
+
+        self.player.pos = self.pad_pos
+        self.ns["CheckReturnLift"](self.player)
+        self.assertEqual(self.ns["returnArmTicks"], 0)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.assertEqual(self.return_prompts, 0)
+
+        # Real player walk > 12 m across 2 consecutive ticks arms the return lift
+        self.player.pos = (-2450.0, -1406.92, 126.0)  # +17.78 m
+        self.ns["CheckReturnLift"](self.player)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.player.pos = (-2440.0, -1406.92, 125.0)  # +27.78 m
+        self.ns["CheckReturnLift"](self.player)
+        self.assertTrue(self.ns["returnLiftArmed"])
+        self.assertTrue(self.ns["leftArrivalPad"])
+        self.assertTrue(any("return lift armed dist_sq=" in t for t in self.traces), self.traces)
+
+        # Walking back onto the hilltop pad now prompts Ride down / Stay and moves player to Vault platform on button 0
+        self.return_button = 0
+        self.player.pos = self.pad_pos
+        self.ns["CheckReturnLift"](self.player)
+        self.assertEqual(self.return_prompts, 1)
+        self.assertTrue(self.player.interior)
+        self.assertEqual(self.player.cell, self.vault_cell)
+        self.assertIn("return lift moved to vault platform", self.traces)
+
+    def test_b3_legitimate_fast_travel_beyond_200m_arms_after_two_settled_ticks_at_destination(self):
+        # > 200 m jump to Concord (-2015, -1700) does not arm on the jump tick itself, then arms after 2 settled ticks there
+        self.player.pos = (-2015.0, -1700.0, 90.5)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.ns["CheckReturnLift"](self.player)
+        self.assertFalse(self.ns["returnLiftArmed"])
+        self.ns["CheckReturnLift"](self.player)
+        self.assertTrue(self.ns["returnLiftArmed"])
+
+    def test_b3_unauthored_runtime_ff_exterior_cells_in_arrival_world_still_arm_cleanly(self):
+        # Unauthored exterior Commonwealth grid cells carry runtime temporary 0xFF00xxxx CELL FormIDs while keeping arrivalWorld
+        self.player.cell = SimpleNamespace(GetFormID=lambda: 0xFF00A492)
+        self.player.world = self.surface_world
+        self.player.pos = (-2450.0, -1406.92, 126.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertEqual(self.ns["returnArmTicks"], 1)
+        self.assertFalse(self.ns["returnLiftArmed"])
+
+        self.player.pos = (-2440.0, -1406.92, 125.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertTrue(self.ns["returnLiftArmed"])
+        self.assertTrue(self.ns["leftArrivalPad"])
+
+        # Fallback when arrivalWorld is None resolves wantWorld from ExitAnchorId
+        self.setUp()
+        self.ns["arrivalWorld"] = None
+        self.player.cell = SimpleNamespace(GetFormID=lambda: 0xFF00A492)
+        self.player.world = self.surface_world
+        self.player.pos = (-2450.0, -1406.92, 126.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.player.pos = (-2440.0, -1406.92, 125.0)
+        self.ns["CheckReturnLift"](self.player)
+        self.assertTrue(self.ns["returnLiftArmed"])
 
 
 if __name__ == "__main__":

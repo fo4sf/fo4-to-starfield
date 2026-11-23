@@ -159,7 +159,7 @@ static class NewGame
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
     public const int MaxMessageButtons = 7;
     public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, BackdropSetupMenu = 3, DefaultStartChoiceBackdrop = BackdropEmptyCell;
-    public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010,
+    public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfCompactActiTemplateId = 0x143492, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010,
                       SfVaultPistolId = 0x24561C, SfVaultAmmoId = 0x2B5598;
     public const int VaultAmmoCount = 48;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
@@ -173,7 +173,8 @@ static class NewGame
     public static readonly string[] WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" };
     public static readonly string[] NoPipboyButtons = { "OK" };
     public const bool DefaultFadeHold = false;
-    public const float PipboyLocalOffsetX = 0.01f, PipboyLocalOffsetY = 0.83f, PipboyLocalOffsetZ = 0.07f;
+    public const float PipboyLocalOffsetX = 0.10f, PipboyLocalOffsetY = 0.836f, PipboyLocalOffsetZ = 0.145f, PipboyPickupScale = 1.0f,
+                       ConsoleNormalOffset = 0.085f, ConsoleActivatorScale = 1.0f;
     // Our own start (the owner's pick F, 29 Oct): Starfield's DefaultObject StartupQuest_DO (Starfield.esm 00562D;
     // verified, the 21 Oct records report: it names MQ101) names the quest the engine starts on a New Game (supported
     // hypothesis: what reads the record is not in that report, NG-N4; the shipped precedents below rely on it). The
@@ -215,10 +216,11 @@ static class NewGame
     public const string VersionGlobEdid = "FO4SF_NewGameVersion", VersionScript = "FO4SF_NewGameVersion", PlayerAliasName = "Player";
     public const uint VersionGlobId = 0x805, PlayerRefId = 0x000014, PlayerAlias = 0;
     public const float DefaultBuildVersion = 1f;
-    // SPECIAL at the vault terminal (NG-5 / NG-C4, the owner's decision 2026-10-19): FO4's numbers, base 1 each, 21
-    // points to spend, 10 at most per stat (make_newgame.py SPECIAL_*, held equal by tests/test_newgame.py; the script's
-    // defaults are the same). The buttons of MESG FO4SF_NewGameSpecial, in order: the seven stats, Reset, Confirm, Leave
-    // (ten buttons, FO4's MESG limit; whether Starfield's message box shows ten is unverified until the PC run). The
+    // SPECIAL at the vault terminal / lift fallback (NG-5 / NG-C4 / A1(b) "40 for all", GAP-J3-05): unified 40-point
+    // pool matching #806 (7 stats at base 1 + 33 points to spend = 40 total, 10 at most per stat; make_newgame.py
+    // SPECIAL_*, held equal by tests/test_newgame.py and tests/test_special_pool40.py; the script's defaults match).
+    // The buttons of MESG FO4SF_NewGameSpecial, in order: the seven stats, Reset, Confirm, Leave
+    // (split across two <=7-button pages SpecialPage1Buttons / SpecialPage2Buttons). The
     // AVIF shape is minimal (name, abbreviation, SpecialAttribute type, default 1, min 1, max 10, and the record's own
     // flags for those three numbers: DefaultToOne, MinimumOne, MaximumTen, Mutagen's names for Starfield's AVFL bits):
     // nothing in this repo reads a Starfield AVIF back in full, so the shape is unverified until the PC run (xEdit
@@ -227,7 +229,7 @@ static class NewGame
     public static readonly string[] SpecialExtraButtons = { "Reset", "Confirm", "Leave" };
     public static readonly string[] SpecialPage1Buttons = { "Strength", "Perception", "Endurance", "Next (C / I / A / L)", "Reset", "Confirm", "Leave" };
     public static readonly string[] SpecialPage2Buttons = { "Charisma", "Intelligence", "Agility", "Luck", "Back (S / P / E)", "Confirm", "Leave" };
-    public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
+    public const int SpecialBase = 1, SpecialPoints = 33, SpecialMax = 10;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
     // names are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1) and do not describe Starfield's
     // menu; the in-game C1 session (with MQ101 stopped) settled the looks-only mode, the owner's decision NG-C3.
@@ -1266,6 +1268,16 @@ static class NewGame
             pbPos.Z + PipboyLocalOffsetZ);
     }
 
+    public static P3Float ConsoleWorldPos(P3Float conPos, P3Float conRot)
+    {
+        // Step forward along the console's local +Z deck normal (Gamebryo Euler R = Rx(-x) * Ry(-y) * Rz(-z) applied to (0, 0, ConsoleNormalOffset)).
+        float cx = MathF.Cos(conRot.X), sx = MathF.Sin(conRot.X), cy = MathF.Cos(conRot.Y), sy = MathF.Sin(conRot.Y);
+        return new P3Float(
+            conPos.X - sy * ConsoleNormalOffset,
+            conPos.Y + sx * cy * ConsoleNormalOffset,
+            conPos.Z + cx * cy * ConsoleNormalOffset);
+    }
+
     static (P3Float Pos, P3Float Rot) PipboyPlacement(JsonElement pts)
     {
         if (pts.TryGetProperty("pipboy_corpse", out var pb))
@@ -1503,24 +1515,18 @@ static class NewGame
         mod.Armors.Add(pipboyWrist);
 
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
-        var actiTpl = sf.Activators.FirstOrDefault(a => a.FormKey == new FormKey(SfEsm, SfConsoleActiTemplateId));
-        var pipboyActi = actiTpl is not null
-            ? (SF.Activator)actiTpl.Duplicate(new FormKey(modKey, PipboyCorpseActiId))
-            : new SF.Activator(new FormKey(modKey, PipboyCorpseActiId), SF.StarfieldRelease.Starfield);
+        var pipboyActi = new SF.Activator(new FormKey(modKey, PipboyCorpseActiId), SF.StarfieldRelease.Starfield);
         pipboyActi.EditorID = PipboyCorpseActiEdid;
         pipboyActi.Name = "Pip-Boy 3000";
         pipboyActi.ActivateTextOverride = "Take";
-        pipboyActi.VirtualMachineAdapter = null;
-        // U1: keep Starfield.esm:0x1CCAC2's native activator model & collision (never overwrite with FO4Port_NpcPipboyGroundTake01's COL_STATIC NIF)
+        VaultFalloutActivators.ConfigurePipboyActivator(pipboyActi);
         mod.Activators.Add(pipboyActi);
 
-        var gearConsoleActi = actiTpl is not null
-            ? (SF.Activator)actiTpl.Duplicate(new FormKey(modKey, GearDoorConsoleActiId))
-            : new SF.Activator(new FormKey(modKey, GearDoorConsoleActiId), SF.StarfieldRelease.Starfield);
+        var gearConsoleActi = new SF.Activator(new FormKey(modKey, GearDoorConsoleActiId), SF.StarfieldRelease.Starfield);
         gearConsoleActi.EditorID = GearDoorConsoleActiEdid;
         gearConsoleActi.Name = "Vault Door Controls";
         gearConsoleActi.ActivateTextOverride = "Activate";
-        gearConsoleActi.VirtualMachineAdapter = null;
+        VaultFalloutActivators.ConfigureGearConsoleActivator(gearConsoleActi);
         mod.Activators.Add(gearConsoleActi);
 
         var portCell = port.EnumerateMajorRecords<SF.ICellGetter>().First(c => c.FormKey == new FormKey(PortEsm, places.PortCellId));
@@ -1535,17 +1541,19 @@ static class NewGame
             Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pipboyActi.FormKey),
             Position = pbCenter,
             Rotation = pbRot,
-            Scale = 1.0f,
+            Scale = PipboyPickupScale,
         };
         pipboyRef.MajorRecordFlagsRaw |= 0x400;
         cellOver.Persistent.Add(pipboyRef);
         var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
+        var conCenter = ConsoleWorldPos(new P3Float(conCoords[0], conCoords[1], conCoords[2]), places.ConsoleRot);
         var gearConsoleRef = new SF.PlacedObject(new FormKey(modKey, GearDoorConsoleRefId), SF.StarfieldRelease.Starfield)
         {
             EditorID = GearDoorConsoleRefEdid,
             Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(gearConsoleActi.FormKey),
-            Position = new P3Float(conCoords[0], conCoords[1], conCoords[2]),
+            Position = conCenter,
             Rotation = places.ConsoleRot,
+            Scale = ConsoleActivatorScale,
         };
         gearConsoleRef.MajorRecordFlagsRaw |= 0x400;
         cellOver.Persistent.Add(gearConsoleRef);
@@ -1853,19 +1861,11 @@ static class NewGame
         var pipboyWrist = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyWristArmorId));
         Need(plug.Armors.Count == 1 && pipboyWrist is { EditorID: PipboyWristArmorEdid } && (pipboyWrist.MajorRecordFlagsRaw & 0x4) == 0,
              $"ARMO 0x{PipboyWristArmorId:X} is not playable {PipboyWristArmorEdid}");
-        var actiTpl = sf.Activators.FirstOrDefault(a => a.FormKey == new FormKey(SfEsm, SfConsoleActiTemplateId));
         var pipboyActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyCorpseActiId));
         var gearConsoleActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, GearDoorConsoleActiId));
-        string? tplNif = actiTpl?.Model?.File?.GivenPath;
-        string? pbNif = pipboyActi?.Model?.File?.GivenPath;
-        Need(plug.Activators.Count == 2 && pipboyActi is { EditorID: PipboyCorpseActiEdid } &&
-             pipboyActi.Name?.String == "Pip-Boy 3000" &&
-             pipboyActi.ActivateTextOverride?.String == "Take" &&
-             (string.IsNullOrEmpty(tplNif) || pbNif == tplNif) &&
-             gearConsoleActi is { EditorID: GearDoorConsoleActiEdid } &&
-             gearConsoleActi.Name?.String == "Vault Door Controls" &&
-             gearConsoleActi.ActivateTextOverride?.String == "Activate",
-             $"ACTIs are not {PipboyCorpseActiEdid} (0x{PipboyCorpseActiId:X}, retaining template {SfConsoleActiTemplateId:X6} model) and named {GearDoorConsoleActiEdid} (0x{GearDoorConsoleActiId:X})");
+        Need(plug.Activators.Count == 2 &&
+             VaultFalloutActivators.ValidateActivators(pipboyActi, gearConsoleActi, PipboyCorpseActiEdid, GearDoorConsoleActiEdid),
+             $"ACTIs are not Fallout-look {PipboyCorpseActiEdid} (0x{PipboyCorpseActiId:X}, Take Pip-Boy 3000, {VaultFalloutActivators.PipboyPickupModel}) and {GearDoorConsoleActiEdid} (0x{GearDoorConsoleActiId:X}, Activate Vault Door Controls, {VaultFalloutActivators.GearDoorConsoleModel}) with zero Starfield WallTech08 geometry");
 
         var allPlugCells = plug.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).ToList();
         var cellOver = allPlugCells.FirstOrDefault(c => c.FormKey == new FormKey(PortEsm, places.PortCellId));
@@ -1876,7 +1876,7 @@ static class NewGame
         var (rawPbPos, rawPbRot) = PipboyPlacement(pts);
         var wantPbPos = PipboyWorldCenter(rawPbPos, rawPbRot.Z);
         var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
-        var wantConPos = new P3Float(conCoords[0], conCoords[1], conCoords[2]);
+        var wantConPos = ConsoleWorldPos(new P3Float(conCoords[0], conCoords[1], conCoords[2]), places.ConsoleRot);
         bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
                                      sf.Ammunitions.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
         int wantVaultTempCount = hasVaultPistolAndAmmo ? 2 : 0;
@@ -1885,16 +1885,17 @@ static class NewGame
              cellOver.Temporary.Count == wantVaultTempCount && cellOver.Persistent.Count == 2 &&
              pipboyRef is { EditorID: PipboyCorpseRefEdid } && IsPersistent(pipboyRef) &&
              pipboyRef.Base.FormKey == new FormKey(key, PipboyCorpseActiId) &&
-             MathF.Abs((pipboyRef.Scale ?? 1f) - 1f) <= 1e-4f &&
+             MathF.Abs((pipboyRef.Scale ?? 1f) - PipboyPickupScale) <= 1e-4f &&
              MathF.Abs(pipboyRef.Position.X - wantPbPos.X) <= 1e-3f &&
              MathF.Abs(pipboyRef.Position.Y - wantPbPos.Y) <= 1e-3f &&
              MathF.Abs(pipboyRef.Position.Z - wantPbPos.Z) <= 1e-3f &&
              gearConsoleRef is { EditorID: GearDoorConsoleRefEdid } && IsPersistent(gearConsoleRef) &&
              gearConsoleRef.Base.FormKey == new FormKey(key, GearDoorConsoleActiId) &&
+             MathF.Abs((gearConsoleRef.Scale ?? 1f) - ConsoleActivatorScale) <= 1e-4f &&
              MathF.Abs(gearConsoleRef.Position.X - wantConPos.X) <= 1e-3f &&
              MathF.Abs(gearConsoleRef.Position.Y - wantConPos.Y) <= 1e-3f &&
              MathF.Abs(gearConsoleRef.Position.Z - wantConPos.Z) <= 1e-3f,
-             $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X} at mesh center {Show(wantPbPos)} scale 1.0) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X})");
+             $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X} at {Show(wantPbPos)} scale {F(PipboyPickupScale)}) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X} at {Show(wantConPos)} scale {F(ConsoleActivatorScale)})");
         if (hasVaultPistolAndAmmo)
         {
             var pistolRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultPistolRefId));
@@ -2455,6 +2456,7 @@ static class NewGame
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, 0x24561C), rel) { EditorID = "SynthPistol" });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, 0x2B5598), rel) { EditorID = "SynthPistolAmmo" });
         sf.Ingestibles.Add(new SF.Ingestible(new FormKey(SfEsm, 0x00ABF9), rel) { EditorID = "MedPack" });
+        sf.Activators.Add(new SF.Activator(new FormKey(SfEsm, SfCompactActiTemplateId), rel) { EditorID = "UC_GG_Connect_CourierScanner", Model = new SF.Model { File = @"Ships\Interior\Deimos\WallTech08.nif" } });
         sf.Activators.Add(new SF.Activator(new FormKey(SfEsm, SfConsoleActiTemplateId), rel) { EditorID = "IndIntAddonArtifactHolder01", Model = new SF.Model { File = @"SetDressing\NativeConsole.nif" } });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, SfMapMarkerStaticId), rel) { EditorID = "MapMarker" });
         var startupDo = new SF.DefaultObject(new FormKey(SfEsm, StartupId), rel) { EditorID = StartupEdid };
@@ -2595,6 +2597,7 @@ static class NewGame
             Options.From(new[] { "--debug-after-hold", "0" }).DebugAfterHold != 0) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
         if (plain.RaceMenuMode != DefaultRaceMenuMode || DefaultRaceMenuMode == 0 || Options.From(new[] { "--race-menu-mode", "0" }).RaceMenuMode != 0) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
         if (!plain.Special || Options.From(new[] { "--no-special" }).Special) { Console.WriteLine("FAIL  the SPECIAL option"); return 1; }
+        if (SpecialBase != 1 || SpecialPoints != 33 || SpecialMax != 10 || SpecialNames.Length * SpecialBase + SpecialPoints != 40) { Console.WriteLine("FAIL  the SPECIAL pool of 40 constants"); return 1; }
         if (!plain.Version || plain.BuildVersion != DefaultBuildVersion || Options.From(new[] { "--no-version" }).Version ||
             Options.From(new[] { "--build-version", "2" }).BuildVersion != 2) { Console.WriteLine("FAIL  the version options"); return 1; }
         // the inventory reset is on by default (S13 row 2), --keep-inventory turns it off and --clear-inventory (old
@@ -2728,7 +2731,15 @@ static class NewGame
         {
             ("start game enabled again", m => m.Quests.First().Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
             ("pipboy activator model overwritten with COL_STATIC static NIF", m => m.Activators.First(a => a.EditorID == PipboyCorpseActiEdid).Model = new SF.Model { File = @"FO4Port\SetDressing\PipboyGroundTake01.nif" }),
+            ("pipboy activator reverted to Starfield WallTech08 scanner NIF", m => m.Activators.First(a => a.EditorID == PipboyCorpseActiEdid).Model = new SF.Model { File = VaultFalloutActivators.ForbiddenWallTechModel }),
+            ("console activator reverted to Starfield WallTech08 scanner NIF", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).Model = new SF.Model { File = VaultFalloutActivators.ForbiddenWallTechModel }),
+            ("console activator model reverted to giant 3m pedestal NIF", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).Model = new SF.Model { File = @"SetDressing\NativeConsole.nif" }),
+            ("pipboy activator lost 360-deg activation angle", m => m.Activators.First(a => a.EditorID == PipboyCorpseActiEdid).ActivationAngle = 180),
+            ("console activator zeroed ObjectBounds", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).ObjectBounds = new SF.ObjectBounds()),
+            ("pipboy activator lost Take override", m => m.Activators.First(a => a.EditorID == PipboyCorpseActiEdid).ActivateTextOverride = ""),
+            ("console activator lost Activate override", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).ActivateTextOverride = ""),
             ("pipboy pickup ref left at furniture origin instead of mesh center", m => m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First(c => c.EditorID == VaultCell).Persistent.OfType<SF.PlacedObject>().First(r => r.EditorID == PipboyCorpseRefEdid).Position = new P3Float(49.857f, 11f, 0.643f)),
+            ("gear console ref left unshifted inside port console mesh", m => m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First(c => c.EditorID == VaultCell).Persistent.OfType<SF.PlacedObject>().First(r => r.EditorID == GearDoorConsoleRefEdid).Position = new P3Float(50f, 10f, 0f)),
             ("the startup override removed", m => m.DefaultObjects.Clear()),
             ("the startup override names Starfield's opening again", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x902))),
             ("the startup override names MQ00", m => m.DefaultObjects.First().Object.SetTo(new FormKey(SfEsm, 0x901))),

@@ -481,6 +481,10 @@ def format_stage_ini(
     pause: int = 1,
     populate_in_call: int = 0,
     late_invalidate: int = 0,
+    shell_backdrop: int = 1,
+    shell_vitals_fill: int = 1,
+    suppress_data_menu: int = 0,
+    tab_opens_pipboy: int = 0,
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
@@ -535,6 +539,10 @@ def format_stage_ini(
         "CodeObjPages=1",
         f"PopulateInCall={1 if populate_in_call else 0}",
         f"LateInvalidate={1 if late_invalidate else 0}",
+        f"ShellBackdrop={1 if shell_backdrop else 0}",
+        f"ShellVitalsFill={1 if shell_vitals_fill else 0}",
+        f"SuppressDataMenu={1 if suppress_data_menu else 0}",
+        f"TabOpensPipboy={1 if tab_opens_pipboy else 0}",
         f"StatActions={1 if stat_actions else 0}",
         f"InvDataAnswers={1 if inv_data_answers else 0}",
         f"RequirePickup={1 if require_pickup else 0}",
@@ -612,6 +620,10 @@ def generate_stage_ini(
     pause: int = 1,
     populate_in_call: int = 0,
     late_invalidate: int = 0,
+    shell_backdrop: int = 1,
+    shell_vitals_fill: int = 1,
+    suppress_data_menu: int = 0,
+    tab_opens_pipboy: int = 0,
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
@@ -624,11 +636,16 @@ def generate_stage_ini(
     map_menus: str = DEFAULT_MAP_MENUS,
     map_block_starmap: int = 0,
     setup_show_unavailable: int = 0,
+    a5_playable: bool = False,
     omit: Sequence[str] = (),
     allow_omit: Sequence[str] = (),
     expect_file: Optional[os.PathLike | str] = None,
 ) -> Dict[str, object]:
     """Build and write `SFSE/Plugins/FO4SFPipboyMenu.ini` for `stage_dir`, returning a summary dictionary."""
+    if a5_playable:
+        populate_in_call = 1
+        stat_actions = 1
+        inv_data_answers = 1
     stage = refuse_unsafe_output_path(stage_dir)
     target_ini = refuse_unsafe_output_path(out_ini) if out_ini else (stage / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini")
     refuse_unsafe_output_path(target_ini)
@@ -688,6 +705,10 @@ def generate_stage_ini(
         pause=pause,
         populate_in_call=populate_in_call,
         late_invalidate=late_invalidate,
+        shell_backdrop=shell_backdrop,
+        shell_vitals_fill=shell_vitals_fill,
+        suppress_data_menu=suppress_data_menu,
+        tab_opens_pipboy=tab_opens_pipboy,
         arm=arm,
         stat_actions=stat_actions,
         inv_data_answers=inv_data_answers,
@@ -707,6 +728,14 @@ def generate_stage_ini(
     target_ini.parent.mkdir(parents=True, exist_ok=True)
     target_ini.write_text(ini_text, encoding="utf-8", newline="\n")
 
+    quest_catalog_path = ""
+    if a5_playable:
+        import pipboy_mission_catalog  # local scripts/ui module
+
+        qc_dst = target_ini.parent / pipboy_mission_catalog.QUEST_OBJECTIVES_TSV_NAME
+        pipboy_mission_catalog.write_quest_objectives_tsv(qc_dst)
+        quest_catalog_path = str(qc_dst)
+
     # If the stage also holds a legacy root/sfse copy of FO4SFPipboyMenu.ini, keep it synchronized
     for extra_rel in (("FO4SFPipboyMenu.ini",), ("sfse", "FO4SFPipboyMenu.ini")):
         extra_p = stage.joinpath(*extra_rel)
@@ -725,6 +754,8 @@ def generate_stage_ini(
         "special_movie": special_movie_name if special_menu else "",
         "special_staged": staged_special,
         "special_calls": special_calls,
+        "a5_playable": bool(a5_playable),
+        "quest_catalog_path": quest_catalog_path,
     }
 
 
@@ -738,6 +769,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--pause", type=int, choices=(0, 1), default=1, help="Pause game while open (default 1)")
     ap.add_argument("--populate-in-call", type=int, choices=(0, 1), default=0, help="Enable 1b PopulateInCall (default 0)")
     ap.add_argument("--late-invalidate", type=int, choices=(0, 1), default=0, help="Enable LateInvalidate (default 0)")
+    ap.add_argument("--shell-backdrop", type=int, choices=(0, 1), default=1, help="C4-1 opaque dark CRT backdrop (default 1; 0 = 2f rollback)")
+    ap.add_argument("--shell-vitals-fill", type=int, choices=(0, 1), default=1, help="C4-2 real HP/AP vitals on kShow (default 1; 0 = exact 2f path)")
+    ap.add_argument("--suppress-data-menu", type=int, choices=(0, 1), default=0, help="C4-4 opt-in hide-only Starfield DataMenu suppression (default 0)")
+    ap.add_argument("--tab-opens-pipboy", type=int, choices=(0, 1), default=0, help="C4-4 opt-in closed-Pip-Boy Tab open with 500 ms blocking cooldown (default 0)")
     ap.add_argument("--arm", type=int, choices=(0, 1), default=0, help="Opt-in 1i/N1 first-person arm PlayIdle (default 0: T7 off)")
     ap.add_argument("--stat-actions", type=int, choices=(0, 1), default=0, help="Enable 1j STAT actions (default 0)")
     ap.add_argument("--inv-data-answers", type=int, choices=(0, 1), default=0, help="Enable 1k INV/DATA answers (default 0)")
@@ -762,6 +797,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Show available:false start rows greyed out on FO4SF_SetupMenu (default 0: leave off)",
     )
+    ap.add_argument(
+        "--a5-playable",
+        action="store_true",
+        help="A5 playable preset: enable PopulateInCall=1, StatActions=1, InvDataAnswers=1 and stage FO4SFPipboyQuestObjectives.tsv (Arm stays 0 unless --arm 1)",
+    )
     ap.add_argument("--expect-file", default=None, help="Optional file of expected BGSCodeObj names to cross-check against SWF string pools")
     ap.add_argument("--omit", action="append", default=[], help="Omit a BGSCodeObj name from CodeObjNames= (repeatable)")
     ap.add_argument(
@@ -785,6 +825,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             pause=args.pause,
             populate_in_call=args.populate_in_call,
             late_invalidate=args.late_invalidate,
+            shell_backdrop=args.shell_backdrop,
+            shell_vitals_fill=args.shell_vitals_fill,
+            suppress_data_menu=args.suppress_data_menu,
+            tab_opens_pipboy=args.tab_opens_pipboy,
             arm=args.arm,
             stat_actions=args.stat_actions,
             inv_data_answers=args.inv_data_answers,
@@ -797,6 +841,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             map_menus=args.map_menus,
             map_block_starmap=args.map_block_starmap,
             setup_show_unavailable=args.setup_show_unavailable,
+            a5_playable=args.a5_playable,
             omit=args.omit,
             allow_omit=args.allow_omit,
             expect_file=args.expect_file,

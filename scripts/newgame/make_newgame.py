@@ -52,9 +52,12 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 if os.path.join(REPO, "src") not in sys.path:
     sys.path.insert(0, os.path.join(REPO, "src"))
 from fo4sf.core.core_values import CORE_VALUES_PLUGIN, core_form_id  # noqa: E402
+import vault_fo4_activators as vfa  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "NewGame")
 PROGRESSION_SCRIPTS = os.path.join(REPO, "scripts", "progression")
@@ -187,20 +190,21 @@ DEBUG_UNMATCHED = 2           # the second build's value: no entry, no move, an 
 # by the ChargenMenu event, stage 20; mode 1 still showed TRAITS). --race-menu-mode 0 builds the old full creator.
 FULL_CREATOR_MODE = 0
 DEFAULT_RACE_MENU_MODE = 2
-# SPECIAL at the vault terminal (NG-5 / NG-C4; Program.cs SpecialNames, SpecialExtraButtons, SpecialBase, SpecialPoints,
-# SpecialMax and the SPECIAL script's defaults, held equal by tests/test_newgame.py): Fallout 4's rule, 1 in each stat,
-# 21 points to spend, 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button order, the index
-# Message.Show returns; special_press is the script's rule for one press, tested in Python. SPECIAL_MAX_PRESSES is the
-# script's MaxPresses: the allocation ends as Leave after that many presses without Confirm or Leave (about 22 per
-# pass; the guard against a message box that returns at once).
+# SPECIAL at the vault terminal / lift fallback (NG-5 / NG-C4 / A1(b) "40 for all", GAP-J3-05; Program.cs SpecialNames,
+# SpecialExtraButtons, SpecialBase, SpecialPoints, SpecialMax and the SPECIAL script's defaults, held equal by
+# tests/test_newgame.py and tests/test_special_pool40.py): unified 40-point pool matching #806, 1 in each stat,
+# 33 points to spend (7 + 33 = 40 total), 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button
+# order, the index Message.Show returns; special_press is the script's rule for one press, tested in Python.
+# SPECIAL_MAX_PRESSES is the script's MaxPresses: the allocation ends as Leave after that many presses without Confirm
+# or Leave (about 34 per pass; the guard against a message box that returns at once).
 SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck")
 SPECIAL_AVIF_IDS = tuple(core_form_id(f"FO4SF_Special_{s}") for s in SPECIAL_STATS)
 TEST_MODE_GLOBAL_ID = core_form_id("FO4SF_TestModeEnabled")
 SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
 SPECIAL_PAGE1_BUTTONS = ("Strength", "Perception", "Endurance", "Next (C / I / A / L)", "Reset", "Confirm", "Leave")
 SPECIAL_PAGE2_BUTTONS = ("Charisma", "Intelligence", "Agility", "Luck", "Back (S / P / E)", "Confirm", "Leave")
-SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
-SPECIAL_MAX_PRESSES = 300
+SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 33, 10
+SPECIAL_MAX_PRESSES = 400
 # The save version check (NG-15 / NG-L2; Program.cs DefaultBuildVersion, held equal by tests/test_newgame.py): the
 # build's version number, written to GLOB FO4SF_NewGameVersion (constant) and recorded by the version script when a new
 # game starts; on every load the script compares the two and logs "version load saved=<n> installed=<n>", then "version
@@ -688,7 +692,8 @@ def stage(a):
     drift = [f"{n}: {before[n]} at the start, {h} now" for n, h in pins(a).items() if h != before[n]]
     if drift:
         sys.exit("an input changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
-    staged_assets = {}
+    act_assets = vfa.stage_vault_activators(out, a.port, a.starfield)
+    staged_assets = dict(act_assets)
     for label, comp, folder, checker in (("cog door", cog, cog_folder, cog_door_component),
                                          ("lift", lift, lift_folder, exit_lift_component)):
         if comp:
@@ -708,8 +713,14 @@ def stage(a):
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
     o_show_unavailable = getattr(a, "show_unavailable_starts", 0)
-    plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
-            "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
+    plugin_sha = sha256(os.path.join(out, PLUGIN))
+    script_hashes = {s: sha256(p) for s, p in pex.items()}
+    ng_outputs = {PLUGIN: plugin_sha, **{f"Data/Scripts/{s}.pex": h for s, h in script_hashes.items()}, **act_assets}
+    plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": plugin_sha,
+            "scripts": script_hashes,
+            "activator_assets": act_assets,
+            "outputs": ng_outputs,
+            "checked_against_sha256": before,
             "options": {"hold": hold_option(a), "mq101debug": mq101debug_option(a), "debug_after_hold": debug_after_hold_option(a), "looks": a.looks,
                         "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
                         "special": a.special, "version": a.version,
@@ -771,6 +782,8 @@ def verify_dir(exp_dir, plan, port=None, core=None):
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     for s, want in plan["scripts"].items():
         same("script", os.path.join(exp_dir, "Data", "Scripts", s + ".pex"), want)
+    for rel, want in plan.get("activator_assets", {}).items():
+        same("vault activator", os.path.join(exp_dir, *rel.split("/")), want)
     for rel, want in plan.get("cog_door", {}).get("outputs", {}).items():
         same("cog door", os.path.join(exp_dir, *rel.split("/")), want)
     for rel, want in plan.get("exit_lift", {}).get("outputs", {}).items():
@@ -840,6 +853,7 @@ def fold(a):
         sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
     core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
     stage_readme = read_text(os.path.join(a.stage, "README.txt"))
+    act_outputs = plan.get("activator_assets", {})
     cog_outputs = plan.get("cog_door", {}).get("outputs", {})
     cog_plugins = plan.get("cog_door", {}).get("plugins", [])
     lift_outputs = plan.get("exit_lift", {}).get("outputs", {})
@@ -853,7 +867,7 @@ def fold(a):
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
     folded_assets = {}
-    for label, outputs in (("cog door", cog_outputs), ("lift", lift_outputs)):
+    for label, outputs in (("vault activator", act_outputs), ("cog door", cog_outputs), ("lift", lift_outputs)):
         for rel, want in outputs.items():
             dst = os.path.join(out, *rel.split("/"))
             core_src = os.path.join(a.core_dir, *rel.split("/"))
@@ -976,7 +990,8 @@ def summarize(lines):
          "arrival_discovery_failed": None, "special_default": None,
          "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False,
          "mode_fade_lifted": None, "start_record": None, "entered_start_room": None,
-         "h00_suspects": {}, "surface_pre_setposition": None}
+         "h00_suspects": {}, "surface_pre_setposition": None,
+         "story_landing_fade": None, "story_fade_reassert_ticks": [], "warfare_fade_reassert_ticks": []}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any(
@@ -1108,6 +1123,12 @@ def summarize(lines):
         elif msg.startswith("fade in by="):
             if s["fade"] is None:                            # the script fades in once
                 s["fade"] = msg[len("fade in "):]
+            if msg.startswith("fade in by=story_landing "):
+                s["story_landing_fade"] = msg[len("fade in "):]
+        elif msg.startswith("story fade reassert tick="):
+            s["story_fade_reassert_ticks"].append(int(msg[len("story fade reassert tick="):].split()[0]))
+        elif msg.startswith("warfare fade reassert tick="):
+            s["warfare_fade_reassert_ticks"].append(int(msg[len("warfare fade reassert tick="):].split()[0]))
         elif msg.startswith("guard "):
             s["guard"] = msg[len("guard "):]
         elif msg.startswith("mq101debug written="):

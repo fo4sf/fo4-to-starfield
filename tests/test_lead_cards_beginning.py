@@ -44,11 +44,14 @@ from fo4sf.core.cross_plugin_check import build_writer_catalog  # noqa: E402
 from fo4sf.testing.lead_session_specs import expected_sheet_pass_lines  # noqa: E402
 import tests.test_core_bundle as _tcb  # noqa: E402
 
-# R11 / G1 / P2: read ONLY the six card & run-order files owned by gemini/beginning-real (#833)
+# R11 / G1 / P2 / X3: read ONLY the lead-card & run-order files
 CARD_PATHS: Tuple[str, ...] = (
     "docs/testing/candidate-2-cards.md",
     "docs/testing/candidate-2c-card.md",
     "docs/testing/candidate-2d-card.md",
+    "docs/testing/candidate-2e-card.md",
+    "docs/testing/candidate-2f-card.md",
+    "docs/testing/playable-path-a3-a7-card.md",
     "docs/testing/fo4-beginning-pilot.md",
     "docs/testing/sanctuary-workbench-card.md",
     "docs/testing/lead-run-order.md",
@@ -100,6 +103,11 @@ CROSS_BRANCH_COC_TARGETS = frozenset({
     "FO4DLC_DLC03Acadia",
     "FO4DLC_DLC04BradbertonsOffice01",
     "FO4DLC_DLC06VaultWorkshop",
+    "FO4Port_ConcordMuseum01",
+    "FO4Port_RedRocket01",
+    "FO4Port_Vault114",
+    "FO4Port_DmndStandsKellogg01",
+    "FO4Port_FortHagen01",
 })
 
 CROSS_BRANCH_PASS_PREFIXES: Tuple[str, ...] = (
@@ -148,6 +156,23 @@ FENCED_BLOCK_RE = re.compile(r"```([A-Za-z0-9_-]*)\r?\n(.*?)```", re.S)
 
 def _join_cpp_adjacent_strings(cpp_text: str) -> str:
     return re.sub(r'"\s*\r?\n\s*"', "", cpp_text)
+
+
+def _strip_psc_comment(raw_line: str) -> str:
+    """Strip a Papyrus `;` comment only when outside double-quoted string literals."""
+    in_str = False
+    i = 0
+    while i < len(raw_line):
+        ch = raw_line[i]
+        if ch == "\\" and in_str and i + 1 < len(raw_line):
+            i += 2
+            continue
+        if ch == '"':
+            in_str = not in_str
+        elif ch == ";" and not in_str:
+            return raw_line[:i].strip()
+        i += 1
+    return raw_line.strip()
 
 
 def _psc_concat_expr_to_template(expr: str) -> Optional[str]:
@@ -226,7 +251,7 @@ def collect_source_format_patterns(repo_root: Path) -> List[Tuple[str, str, Patt
         has_log_ng = bool(re.search(r"Function\s+LogNewGameLine\(", txt, re.I))
 
         for raw_line in txt.splitlines():
-            code = raw_line.split(";", 1)[0].strip()
+            code = _strip_psc_comment(raw_line)
             if not code or code.startswith("Function "):
                 continue
 
@@ -310,6 +335,11 @@ def collect_writer_symbols(repo_root: Path) -> Tuple[Set[str], Set[int], Dict[st
                 edids.add(mm.group(1))
     for py_script in sorted((repo_root / "scripts" / "ui").glob("*.py")):
         txt = py_script.read_text(encoding="utf-8", errors="replace")
+        for mm in re.finditer(r'"(FO4SF_[A-Za-z0-9_]+)"', txt):
+            edids.add(mm.group(1))
+    a7_script = repo_root / "scripts" / "terrain" / "a7_valentine_places.py"
+    if a7_script.is_file():
+        txt = a7_script.read_text(encoding="utf-8", errors="replace")
         for mm in re.finditer(r'"(FO4SF_[A-Za-z0-9_]+)"', txt):
             edids.add(mm.group(1))
 
@@ -494,7 +524,7 @@ def validate_lead_card_markdown(
                     has_undo = True
 
                 if bundle_fixtures is not None:
-                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bcd]-[^>\s]+>)", cline)
+                    m_ver = re.search(r"make_core_bundle\.py\s+verify\s+--bundle-dir\s+(<cand2[bcdef]-[^>\s]+>)", cline)
                     if m_ver:
                         b_ph = m_ver.group(1)
                         if b_ph not in bundle_fixtures:
@@ -757,6 +787,10 @@ def build_run_sheet_bundle_fixtures(tmp_root: Path) -> Dict[str, Path]:
         "<cand2c-test-bundle>": cand2b_test,
         "<cand2d-player-bundle>": cand2d_player,
         "<cand2d-test-bundle>": cand2d_test,
+        "<cand2e-player-bundle>": cand2d_player,
+        "<cand2e-test-bundle>": cand2d_test,
+        "<cand2f-player-bundle>": cand2d_player,
+        "<cand2f-test-bundle>": cand2d_test,
         "<cand2d-t1-bases-only>": cand2b_player,
         "<cand2d-t1-ext-overrides-only>": cand2b_player,
         "<cand2-player-bundle>": cand2_broken,
@@ -1049,6 +1083,9 @@ class LeadCardsBeginningTests(unittest.TestCase):
                 "docs/testing/candidate-2-cards.md",
                 "docs/testing/candidate-2c-card.md",
                 "docs/testing/candidate-2d-card.md",
+                "docs/testing/candidate-2e-card.md",
+                "docs/testing/candidate-2f-card.md",
+                "docs/testing/playable-path-a3-a7-card.md",
                 "docs/testing/fo4-beginning-pilot.md",
                 "docs/testing/sanctuary-workbench-card.md",
                 "docs/testing/lead-run-order.md",
@@ -1105,6 +1142,187 @@ class LeadCardsBeginningTests(unittest.TestCase):
         errs = validate_lead_card_markdown(
             "docs/testing/candidate-2c-card.md",
             bad_c2c,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
+        self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
+
+    def test_x2_x3_candidate_2e_card_structure_and_zero_mnv_guard(self) -> None:
+        c2e = (ROOT / "docs/testing/candidate-2e-card.md").read_text(encoding="utf-8")
+        headings = re.findall(r"(?m)^##\s+(Card\s+2e-\d+[^\r\n]*)$", c2e)
+        self.assertEqual(len(headings), 4)
+        self.assertTrue(headings[0].startswith("Card 2e-1"))
+        self.assertTrue(headings[1].startswith("Card 2e-2"))
+        self.assertTrue(headings[2].startswith("Card 2e-3"))
+        self.assertTrue(headings[3].startswith("Card 2e-4"))
+        for req in (
+            "<cand2e-player-bundle>",
+            "<cand2e-test-bundle>",
+            "story_landing",
+            "story fade reassert tick=1",
+            "console port activator registered",
+            "catwalk hint shown",
+            "codsworth talk proxy ready",
+            "codsworth talk opened stage=10",
+            "preston talk opened stage=30",
+            "Throwaway_2e_Surface",
+            "09000800",
+            "09000811",
+            "09000802",
+            "09000970",
+            "0A00080F",
+            "0A000819",
+            "06000865",
+        ):
+            self.assertIn(req, c2e)
+
+        # Negative P3 control: injecting 'v' (`sqv 09000800`) and stripped `set FO4SF_PipboyAcquired to 1` must fail.
+        bad_c2e = c2e.replace("\nsqs 09000800\n", "\nsqv 09000800\n", 1).replace(
+            "\nbat r8stat\n", "\nset FO4SF_PipboyAcquired to 1\n", 1
+        )
+        errs = validate_lead_card_markdown(
+            "docs/testing/candidate-2e-card.md",
+            bad_c2e,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
+        self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
+
+    def test_r9_candidate_2f_card_structure_a1e_a6_a2_and_zero_mnv_guard(self) -> None:
+        c2f = (ROOT / "docs/testing/candidate-2f-card.md").read_text(encoding="utf-8")
+        headings = re.findall(r"(?m)^##\s+(Card\s+2f-\d+[^\r\n]*)$", c2f)
+        self.assertEqual(len(headings), 4)
+        self.assertTrue(headings[0].startswith("Card 2f-1"))
+        self.assertTrue(headings[1].startswith("Card 2f-2"))
+        self.assertTrue(headings[2].startswith("Card 2f-3"))
+        self.assertTrue(headings[3].startswith("Card 2f-4"))
+        for req in (
+            "<cand2f-player-bundle>",
+            "<cand2f-test-bundle>",
+            "33",
+            "Pool of 40",
+            "09000940",
+            "09000900",
+            "09000979",
+            "FO4SF_MissionTalkUseMessageBox",
+            "v111_pipboy_pickup.nif",
+            "v111_geardoor_console.nif",
+            "codsworth dialogue menu opened",
+            "preston dialogue menu opened",
+            "codsworth talk fallback=messagebox",
+            "preston talk fallback=messagebox",
+            "100009EC",
+            "040A775C",
+            "bat r9hop1",
+            "bat r9hop2",
+            "bat r9hop3",
+            "bat r9door",
+            "Throwaway_2f_Surface",
+            "Throwaway_2f_Sanctuary",
+            "Throwaway_2f_Concord",
+            "Throwaway_2f_MidWFC",
+            "Throwaway_2f_PostWFC",
+            "sanctuary01 reload stage=<st> complete=<c>",
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "FO4SF_MapMarkersHop",
+            "100008F4",
+            "086edc15",
+        ):
+            self.assertIn(req, c2f, f"candidate-2f-card.md missing {req!r}")
+
+        # Negative P3 control: injecting 'v' (`sqv 09000800`) and stripped `set FO4SF_PipboyAcquired to 1` must fail.
+        bad_c2f = c2f.replace("\nsqs 09000800\n", "\nsqv 09000800\n", 1).replace(
+            "\nbat r9stat\n", "\nset FO4SF_PipboyAcquired to 1\n", 1
+        )
+        errs = validate_lead_card_markdown(
+            "docs/testing/candidate-2f-card.md",
+            bad_c2f,
+            help_runner=self.help_runner,
+            source_patterns=self.source_patterns,
+            writer_edids=self.writer_edids,
+            writer_fids=self.writer_fids,
+            quest_stages=self.quest_stages,
+            bundle_fixtures=self.bundle_fixtures,
+        )
+        joined = "\n".join(errs)
+        self.assertIn("P3 forbids M/N/V letters in interactive console line", joined)
+        self.assertIn("P3 forbids stripped mod GLOB/QUST EditorID", joined)
+
+        # A2 console-free walk list must exist, stay path-leak free, and cover every historical console/batch point
+        a2_path = ROOT / "docs/testing/console-free-walk-list.md"
+        self.assertTrue(a2_path.is_file(), "missing docs/testing/console-free-walk-list.md")
+        a2_txt = a2_path.read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", a2_txt), "local path leaked in console-free-walk-list.md")
+        for req in ("u1pick", "u1cog", "r8csw", "r8prs", "PlatformRadius", "ReleaseStoryLandingFade", "ran in game", "pushed, not run", "B1", "B2", "B3", "B4", "086edc15"):
+            self.assertIn(req, a2_txt, f"console-free-walk-list.md missing {req!r}")
+        ki_txt = (ROOT / "docs/known-issues.md").read_text(encoding="utf-8")
+        for req in ("| `B1` |", "| `B2` |", "| `B3` |", "| `B4` |", "086edc15", "FO4SF_MapMarkersHop"):
+            self.assertIn(req, ki_txt, f"known-issues.md missing {req!r}")
+
+    def test_r9_playable_path_a3_a7_card_structure_and_zero_mnv_guard(self) -> None:
+        a37 = (ROOT / "docs/testing/playable-path-a3-a7-card.md").read_text(encoding="utf-8")
+        headings = re.findall(r"(?m)^##\s+(Card\s+A\d+[^\r\n]*)$", a37)
+        self.assertEqual(len(headings), 4)
+        self.assertTrue(headings[0].startswith("Card A3"))
+        self.assertTrue(headings[1].startswith("Card A4"))
+        self.assertTrue(headings[2].startswith("Card A5"))
+        self.assertTrue(headings[3].startswith("Card A7"))
+        for req in (
+            "NEW GAME needed",
+            "OFFLINE ONLY — UNPROVEN IN GAME",
+            "02012540",
+            "02011918",
+            "02002338",
+            "09000817",
+            "09000A15",
+            "09000A20",
+            "09000A50",
+            "09000A80",
+            "09000AB0",
+            "bat a3sf",
+            "bat a3rr",
+            "bat a4s1",
+            "bat a4r1",
+            "bat a4q1",
+            "--a5-playable",
+            "FO4SFPipboyQuestObjectives.tsv",
+            "step=quest_catalog",
+            "step=map_quest_markers",
+            "step=arm_watchdog_open",
+            "bat a7p1",
+            "bat a7p2",
+            "bat a7fh",
+            "bat a7u1",
+            "bat a7c1",
+            "Throwaway_A7_Vault114",
+            "Throwaway_A7_Kellogg",
+            "mq104 complete stage=200 mq105_armed=1",
+            "mq105 complete stage=200 mq106_armed=1",
+        ):
+            self.assertIn(req, a37, f"playable-path-a3-a7-card.md missing {req!r}")
+
+        # Negative P3 control: injecting 'v' (`sqv 09000A20`) and stripped `set FO4SF_PipboyAcquired to 1` must fail.
+        bad_a37 = a37.replace("\nsqs 09000A20\n", "\nsqv 09000A20\n", 1).replace(
+            "\nbat a4s1\n", "\nset FO4SF_PipboyAcquired to 1\n", 1
+        )
+        errs = validate_lead_card_markdown(
+            "docs/testing/playable-path-a3-a7-card.md",
+            bad_a37,
             help_runner=self.help_runner,
             source_patterns=self.source_patterns,
             writer_edids=self.writer_edids,
