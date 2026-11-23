@@ -312,7 +312,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
     VARS = (
         'itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, '
         'consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, '
-        'liftRegistered, liftWatchedRef, consoleOpening, pistolPickedLogged'
+        'consoleOpening, pistolPickedLogged'
     )
 
     def setUp(self):
@@ -352,8 +352,6 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             consoleWatchedRef=None,
             portConsoleRegistered=False,
             portConsoleWatchedRef=None,
-            liftRegistered=False,
-            liftWatchedRef=None,
             consoleOpening=False,
             pistolPickedLogged=False,
             VaultPistolBase=self.vault_pistol,

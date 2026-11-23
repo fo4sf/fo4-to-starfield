@@ -403,8 +403,6 @@ ObjectReference portConsoleWatchedRef = None
 bool consoleOpening = false
 bool cogDoorRegistered = false
 ObjectReference cogDoorWatchedRef = None
-bool liftRegistered = false
-ObjectReference liftWatchedRef = None
 bool pipboyRegistered = false
 bool pipboyPickedUp = false
 bool itemWatchRegistered = false
@@ -2497,14 +2495,6 @@ Function EnsureVaultInteractivesRegistered()
             endif
         endif
     endif
-    if !liftRegistered && LiftId > 0
-        liftWatchedRef = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
-        if liftWatchedRef != None
-            liftRegistered = true
-            RegisterForRemoteEvent(liftWatchedRef, "OnActivate")
-            Trace("lift control registered ref=" + liftWatchedRef + " id=" + liftWatchedRef.GetFormID())
-        endif
-    endif
 EndFunction
 
 Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
@@ -2550,32 +2540,8 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             Trace("console port ref activated ref=" + akSender)
         endif
         ActivateGearDoorConsole()
-        return
-    endif
-    if liftWatchedRef != None && akSender == liftWatchedRef
-        HandleLiftControlActivate(player, akSender)
     endif
 EndEvent
-
-Function HandleLiftControlActivate(Actor player, ObjectReference akSender)
-{A3 hand-play: direct E activation on the Vault 111 elevator re-opens the exit prompt while inside PlatformRadius (e.g. after Stay), and guides the player onto the platform if activated from outside.}
-    if rideActive || rideTransferred || GetStage() >= 40
-        return
-    endif
-    if CogDoorId > 0 && GetStage() < 30
-        Trace("lift control refused: cog_door_closed")
-        Debug.Notification("Open the Vault 111 door from the control console first.")
-        return
-    endif
-    if !Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)
-        Trace("lift control outside_platform")
-        Debug.Notification("Step onto the Vault 111 elevator platform to ride up.")
-        return
-    endif
-    Trace("lift control activated ref=" + akSender)
-    asked = false
-    PromptVaultExitLift(player)
-EndFunction
 
 Function ActivateGearDoorConsole()
 {Opens Vault 111's gear door from its console activation once the Pip-Boy is equipped, advancing to stage 30.}

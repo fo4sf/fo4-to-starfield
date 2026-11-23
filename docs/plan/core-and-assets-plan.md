@@ -362,8 +362,8 @@ Nothing in Phase C (bulk interiors, DLCs, or *Fallout 3 / New Vegas / 1 / 2 / Ta
      2. **`.PRO` / `.MSG` / `.GAM` / `.ent` Importers + `.INT` Decompiler:** Emits items, critters, dialogue trees, quests, and overland nodes into Starfield `ESM` data; `.MAP`/`.mis` layout reader stamps 3D kit prefabs per Owner Decision `ISO-2`.
    - **FO4 Shared Actor/Animation Upgrade (`SHARED` for 3D Actors):**
      - Skinned Starfield `.mesh` writer + `129 -> 97` bone `.hkx -> .af/.rig` retargeter (`CALUMI.Animation` / SFSE clip player) + `.bgem` effect materials + `MSWP -> LMSW` swaps.
-   - **Fallout 76 Reader Notes & Policy Gate:**
-     - `ba2.py` already reads FO76's `43` `BTDX v1` archives; needs a `BSMesh` (`SeventySix - GeneratedMeshes.ba2`) reader and offline quest reconstruction for server-omitted `.pex` scripts. **Gated:** Per `docs/research/framework/findings/fo76-terms.md` and `combined-core.md` (`REL-60`), no FO76 extraction/conversion executes until the owner gives explicit go-ahead on the Bethesda ToS question.
+   - **Fallout 76 Reader Notes & Owner Decision (23 Nov 2026):**
+     - `ba2.py` already reads FO76's `43` `BTDX v1` archives; needs a `BSMesh` (`SeventySix - GeneratedMeshes.ba2`) reader and offline quest reconstruction for server-omitted `.pex` scripts. **Owner Decision (23 Nov 2026, `#32` comment `7094787759`, *"Yes we will convert 76"*):** Offline FO76 conversion is cleared (replacing the prior `REL-60` gate): FO76 assets and conversions stay strictly local and out of Git, nuke launching and server boss fights stay on the wait list, missions are rebuilt offline from `SeventySix.esm` quest records, Claude (PC) runs the asset conversion separately, and nothing of FO76 is added to Round 11.
 
 ---
 
@@ -375,7 +375,7 @@ Nothing in Phase C (bulk interiors, DLCs, or *Fallout 3 / New Vegas / 1 / 2 / Ta
 3. **Stage 3 — Fallout 3 GOTY + `5` DLCs:** Reuses **100%** of Stage 2's `BSA v0x68` + `bsver 34` + `SCTX` pipeline (`8.71 GiB` source; Pitt, Point Lookout, Broken Steel, plus sealed VR/orbit worlds Anchorage & Zeta).
 4. **Stage 4 — Fallout (1) & Fallout 2:** Tiny source footprint (`1.10 GiB` combined); reuses 3D desert/vault/ruin kits already built in Stages 1–3 once Owner Decisions `ISO-1..3` are set.
 5. **Stage 5 — Fallout Tactics:** (`1.57 GiB` source); reuses Stage 4's isometric tile-to-3D-kit pipeline + CF-9's `GLOB`-capped Warfare squad core (`2 -> 4` default, tunable for *Tactics* mission presets).
-6. **Stage 6 — Fallout 76 (Appalachia Offline Story & World):** (`92.97 GiB` source); reuses FO4 `BA2 v1` + Starfield `.btd` pipeline; held behind owner `REL-60` gate.
+6. **Stage 6 — Fallout 76 (Appalachia Offline Story & World):** (`92.97 GiB` source); reuses FO4 `BA2 v1` + Starfield `.btd` pipeline; owner-cleared 23 Nov 2026 (*"Yes we will convert 76"*, `#32` comment `7094787759` — local/out-of-Git assets, Claude (PC) runs conversion, missions rebuilt from quest records, nuke launching & boss fights on wait list, not in Round 11).
 
 #### Strict Disk & Time Budgets (`200 GB` Free Today, `60 GB` Hard Stop Floor)
 - **Hard Disk Rule:** Work drive currently has **`~200 GB` free**; hard stop threshold is **`60 GB` free** (`140 GB` absolute ceiling; **operational cap `<= 100 GB` used so free disk stays `>= 100 GB`**).
@@ -389,7 +389,7 @@ Nothing in Phase C (bulk interiors, DLCs, or *Fallout 3 / New Vegas / 1 / 2 / Ta
 | **Stage 2: Fallout: New Vegas + All DLC** | `9.2 GB` FNV | `<= 12 GB` | `~7.5 GB` (`3` `.ba2`s) | `~35–50 min` | `+3` |
 | **Stage 3: Fallout 3 GOTY + All DLC** | `8.7 GB` FO3 | `<= 12 GB` | `~7.0 GB` (`3` `.ba2`s) | `~35–50 min` | `+3` |
 | **Stage 4 & 5: FO1 + FO2 + Tactics** | `2.7 GB` total | `<= 5 GB` | `~2.5 GB` (`2` `.ba2`s, reuses 3D kits) | `~20–30 min` | `+2` |
-| **Stage 6: Fallout 76 Appalachia *(if authorized)*** | `93.0 GB` FO76 | `<= 25 GB` (streamed by region) | `~22 GB` (`6–8` `.ba2`s) | `~90–140 min` | `+8` |
+| **Stage 6: Fallout 76 Appalachia *(owner-cleared 23 Nov; local, post-R11)*** | `93.0 GB` FO76 | `<= 25 GB` (streamed by region) | `~22 GB` (`6–8` `.ba2`s) | `~90–140 min` | `+8` |
 | **Cumulative All-Games Total** | *Already on disk* | **`<= 25 GB` peak at any moment** | **`~69 GB` packed** (`> 105 GB` free preserved!) | **`~5–7 hrs` unattended batch total** | **`~32` (`+79` vanilla = `111 < 256` cap)** |
 
 #### Per-Title Converted-Quest Known-Bug Audit & Clean-Room Fix Protocol (Stages 1–6)
