@@ -10,6 +10,7 @@ Where to find things, current information first. The project's front page is [th
 - [owner/playtest-issues.md](owner/playtest-issues.md): what the owner sees in play tests.
 - [known-issues.md](known-issues.md): active in-game crashes, stalls, and safe defaults enforced before merging into `main`.
 - [merge-plan-20261120.md](merge-plan-20261120.md): open-PR inventory (Classes A–D), file-overlap flags, and ordered merge train.
+- [merge-plan-x4-followup-20261121.md](merge-plan-x4-followup-20261121.md): `X4` follow-up audit of the 24 remaining non-Gemini Class A/B PRs against `main` `e13590fc` and shortest CI shortlist (`7` PRs / `6` CI runs).
 - [core/port-requirements.md](core/port-requirements.md): Track 2 multi-title core design (`FO3`, `FNV`, `FO1 & FO2`), New Vegas console-cut restorations, Pip-Boy style hooks, and `W7` Survival/Hardcore Open Mode fallback contract.
 - [testing/quest-test-plan.md](testing/quest-test-plan.md): four-tier quest testing strategy (offline fragility checker, Tier 2 console break-it batches, Tier 3 known-bug regressions, Tier 4 owner play).
 - [testing/reachability-fixes.md](testing/reachability-fixes.md): multi-route fixes for fragile/missable content (starting with New Vegas's Pimp-Boy 3 Billion).
@@ -20,7 +21,7 @@ Where to find things, current information first. The project's front page is [th
   - the Pip-Boy & UI: [ui/pipboy-arm-visibility-study.md](ui/pipboy-arm-visibility-study.md), [ui/pipboy-map-s1-s4.md](ui/pipboy-map-s1-s4.md)
   - the gunplay study (`HOLD`): [design/gunplay-study.md](design/gunplay-study.md)
   - the multi-title quest/script census & known-bug ledgers: [research/all-games-quests-scripts.md](research/all-games-quests-scripts.md), [research/core-fit-by-title.md](research/core-fit-by-title.md), [quests/fo3-fnv-conversion-readiness.md](quests/fo3-fnv-conversion-readiness.md), [quests/known-bugs/README.md](quests/known-bugs/README.md)
-  - the current Candidate 2d card: [testing/candidate-2d-card.md](testing/candidate-2d-card.md)
+  - the current Candidate 2f card (`Round 9` `A1`–`A6`): [testing/candidate-2f-card.md](testing/candidate-2f-card.md) and console-free walk list (`A2`): [testing/console-free-walk-list.md](testing/console-free-walk-list.md) (frozen `Round 8` card: [testing/candidate-2e-card.md](testing/candidate-2e-card.md); prior `Round 7` card: [testing/candidate-2d-card.md](testing/candidate-2d-card.md))
   - our own planet: [planet/planet-probe.md](planet/planet-probe.md)
   - the launcher: [ai/launcher-backbone.md](ai/launcher-backbone.md), [ai/launcher-recovery.md](ai/launcher-recovery.md)
   - the combined core (living world): [combined-core.md](combined-core.md), the in-game probes

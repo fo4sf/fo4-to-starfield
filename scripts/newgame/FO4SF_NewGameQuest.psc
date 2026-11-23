@@ -350,6 +350,7 @@ int vaultMoves = 0                                           ; MoveTo calls onto
 bool entered = false                                         ; the player stands in the vault anchor's cell after a move
 bool faded = false
 int warfareFadeTicks = 0
+int storyFadeTicks = 0
 bool loadingMenuOpen = false
 bool loadingMenuClosedSeen = false
 bool loadingHookRegistered = false
@@ -397,6 +398,9 @@ bool rideTransferred = false
 InputEnableLayer scannerLayer = None
 bool consoleRegistered = false
 ObjectReference consoleWatchedRef = None
+bool portConsoleRegistered = false
+ObjectReference portConsoleWatchedRef = None
+bool consoleOpening = false
 bool cogDoorRegistered = false
 ObjectReference cogDoorWatchedRef = None
 bool pipboyRegistered = false
@@ -408,6 +412,11 @@ bool warfareWaitingCreator = false
 bool mapSetupDone = false
 bool rideMarkerPrepared = false
 bool leftArrivalPad = false
+bool returnLiftArmed = false
+int returnArmTicks = 0
+bool returnHasExteriorSample = false
+float returnLastExteriorX = 0.0
+float returnLastExteriorY = 0.0
 bool returnAsked = false
 bool returnVaultAsked = false
 bool returnSurfacePending = false
@@ -597,6 +606,7 @@ Function ApplyStage(int n, string by)
     elseif n == 200
         CompleteQuest()
         StartLandingQuests()
+        ReleaseStoryLandingFade()
     elseif n == 210
         CompleteQuest()
         StartLandingQuests()
@@ -627,6 +637,24 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 5
+        Actor storyPlayer = Game.GetPlayer()
+        if storyPlayer == None || storyPlayer.IsInInterior()
+            return
+        endif
+        storyFadeTicks += 1
+        if storyPlayer.Is3DLoaded()
+            Game.ShowFirstPersonGeometry(true)
+            Game.FadeOutGame(False, True, 0.0, 0.1, False)
+            Game.SetInChargen(false, false, false)
+            Game.SetCharGenHUDMode(0)
+            Trace("story fade reassert tick=" + storyFadeTicks)
+        endif
+        if storyFadeTicks < 3
+            StartTimer(2.5, 5)
+        endif
+        return
+    endif
     if aiTimerID == 4
         warfareFadeTicks += 1
         Game.ShowFirstPersonGeometry(true)
@@ -2145,6 +2173,29 @@ Function ForceFadeIn(string by)
     Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")
 EndFunction
 
+Function ReleaseStoryLandingFade()
+{V1: Release Starfield's interior-to-exterior LoadingMenu black fade after Story exterior arrival and 3D streaming settle, then arm bounded Timer 5 re-asserts.}
+    Actor player = Game.GetPlayer()
+    if player == None || player.IsInInterior()
+        return
+    endif
+    float w3d = 0.0
+    while !player.Is3DLoaded() && w3d < StartLoadTimeout
+        Utility.Wait(0.25)
+        w3d += 0.25
+    endwhile
+    if player.IsInInterior() || !player.Is3DLoaded()
+        return
+    endif
+    Utility.Wait(0.5)
+    if player.IsInInterior() || !player.Is3DLoaded()
+        return
+    endif
+    ForceFadeIn("story_landing")
+    storyFadeTicks = 0
+    StartTimer(1.5, 5)
+EndFunction
+
 Function RunWarfareBranch(Actor player, int rowIdx)
     Game.SetInChargen(false, false, false)
     Form progForm = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")
@@ -2426,6 +2477,16 @@ Function EnsureVaultInteractivesRegistered()
         RegisterForRemoteEvent(consoleWatchedRef, "OnActivate")
         Trace("console activator registered ref=" + consoleWatchedRef + " id=" + consoleWatchedRef.GetFormID() + " pos=" + consoleWatchedRef.GetPositionX() + " " + consoleWatchedRef.GetPositionY() + " " + consoleWatchedRef.GetPositionZ())
     endif
+    if !portConsoleRegistered && ConsoleRefId > 0
+        portConsoleWatchedRef = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+        if portConsoleWatchedRef != None
+            portConsoleRegistered = true
+            if portConsoleWatchedRef != consoleWatchedRef
+                RegisterForRemoteEvent(portConsoleWatchedRef, "OnActivate")
+                Trace("console port activator registered ref=" + portConsoleWatchedRef)
+            endif
+        endif
+    endif
 EndFunction
 
 Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
@@ -2461,13 +2522,24 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         endif
         return
     endif
-    if consoleWatchedRef != None && akSender == consoleWatchedRef
+    bool isPortConsole = portConsoleWatchedRef != None && akSender == portConsoleWatchedRef
+    if !isPortConsole && ConsoleRefId > 0
+        ObjectReference portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
+        isPortConsole = portCon != None && akSender == portCon
+    endif
+    if (consoleWatchedRef != None && akSender == consoleWatchedRef) || isPortConsole
+        if isPortConsole
+            Trace("console port ref activated ref=" + akSender)
+        endif
         ActivateGearDoorConsole()
     endif
 EndEvent
 
 Function ActivateGearDoorConsole()
 {Opens Vault 111's gear door from its console activation once the Pip-Boy is equipped, advancing to stage 30.}
+    if consoleOpening
+        return
+    endif
     int stage = GetStage()
     if stage < 10 || stage >= 40
         return
@@ -2480,6 +2552,7 @@ Function ActivateGearDoorConsole()
         Trace("console refused: no pipboy")
         return
     endif
+    consoleOpening = true
     if ConsoleRefId > 0
         ObjectReference portCon = Game.GetFormFromFile(ConsoleRefId, VaultPlugin) as ObjectReference
         if portCon != None
@@ -2504,17 +2577,22 @@ Function ActivateGearDoorConsole()
             if TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0
                 cogDoor.BlockActivation(True, False)
             endif
+            consoleOpening = false
             return
         endif
     else
         Trace("cog door " + VaultPlugin + ":" + CogDoorId + " does not resolve")
         if CogDoorId > 0
             Trace("cog door open failed state=-1")
+            consoleOpening = false
             return
         endif
     endif
-    if stage < 30
+    consoleOpening = false
+    if GetStage() < 30
         AdvanceTo(30, "vault_console")
+        Debug.Notification("Vault door open - follow the catwalk to the elevator platform.")
+        Trace("catwalk hint shown")
     endif
 EndFunction
 
@@ -2627,8 +2705,8 @@ Function PreAttachArrivalMarker(Actor player)
 EndFunction
 
 Function CheckReturnLift(Actor player)
-{Post-stage-200 return lift loop: prompts Ride down / Stay once the player leaves > 12 m and steps back onto the surface pad.}
-    if !player.Is3DLoaded()
+{Post-stage-200 return lift loop: prompts Ride down / Stay once the player leaves > 12 m for >= 2 valid Commonwealth exterior ticks and steps back onto the surface pad.}
+    if player == None || !player.Is3DLoaded()
         return
     endif
     float sx = ArrivalX + MergeOffsetX
@@ -2638,10 +2716,18 @@ Function CheckReturnLift(Actor player)
         if !player.IsInInterior()
             player.SetPosition(sx, sy, sz)
             player.SetAngle(0.0, 0.0, ArrivalHeading)
+            if player.GetWorldSpace() != None
+                arrivalWorld = player.GetWorldSpace()
+            endif
             returnSurfacePending = false
             returnSurfaceWaitTicks = 0
             returnSurfaceTries = 0
             leftArrivalPad = false
+            returnLiftArmed = false
+            returnArmTicks = 0
+            returnHasExteriorSample = true
+            returnLastExteriorX = sx
+            returnLastExteriorY = sy
             returnAsked = true
             Trace("return lift arrived surface pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
             return
@@ -2664,6 +2750,8 @@ Function CheckReturnLift(Actor player)
         return
     endif
     if player.IsInInterior()
+        returnArmTicks = 0
+        returnHasExteriorSample = false
         if !StandsInVault(player)
             return
         endif
@@ -2692,18 +2780,77 @@ Function CheckReturnLift(Actor player)
         endif
         return
     endif
-    float dx = player.GetPositionX() - sx
-    float dy = player.GetPositionY() - sy
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float pz = player.GetPositionZ()
+    Cell pCell = player.GetParentCell()
+    WorldSpace pWorld = player.GetWorldSpace()
+    if !player.Is3DLoaded() || player.IsInInterior() || pWorld == None || pCell == None
+        returnArmTicks = 0
+        returnHasExteriorSample = false
+        return
+    endif
+    WorldSpace wantWorld = arrivalWorld
+    if wantWorld == None
+        ObjectReference cAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+        if cAnchor != None
+            wantWorld = cAnchor.GetWorldSpace()
+        endif
+    endif
+    if wantWorld != None && pWorld != wantWorld
+        returnArmTicks = 0
+        returnHasExteriorSample = false
+        return
+    endif
+    float minMapX = MergeOffsetX - 3200.0
+    float maxMapX = MergeOffsetX + 3200.0
+    float minMapY = MergeOffsetY - 3200.0
+    float maxMapY = MergeOffsetY + 3200.0
+    if px < minMapX || px > maxMapX || py < minMapY || py > maxMapY
+        returnArmTicks = 0
+        returnHasExteriorSample = false
+        return
+    endif
+    float prevX = sx
+    float prevY = sy
+    if returnHasExteriorSample
+        prevX = returnLastExteriorX
+        prevY = returnLastExteriorY
+    endif
+    returnHasExteriorSample = true
+    returnLastExteriorX = px
+    returnLastExteriorY = py
+    float stepDx = px - prevX
+    float stepDy = py - prevY
+    float stepSq = stepDx * stepDx + stepDy * stepDy
+    if stepSq > 40000.0
+        returnArmTicks = 0
+        return
+    endif
+    if leftArrivalPad && !returnLiftArmed
+        returnLiftArmed = true
+    endif
+    float dx = px - sx
+    float dy = py - sy
     float distSq = dx * dx + dy * dy
-    if !leftArrivalPad
+    if !returnLiftArmed
         if distSq > 144.0
-            leftArrivalPad = true
-            returnAsked = false
-            Trace("return lift armed dist_sq=" + distSq)
+            returnArmTicks += 1
+            if returnArmTicks >= 2
+                returnLiftArmed = true
+                leftArrivalPad = true
+                returnAsked = false
+                Trace("return lift armed dist_sq=" + distSq)
+            endif
+        else
+            returnArmTicks = 0
         endif
         return
     endif
-    if !Near(player, sx, sy, sz, PlatformRadius)
+    float padDx = px - sx
+    float padDy = py - sy
+    float padDz = pz - sz
+    if padDx * padDx + padDy * padDy > PlatformRadius * PlatformRadius || padDz <= -3.0 || padDz >= 3.0
         returnAsked = false
         return
     endif

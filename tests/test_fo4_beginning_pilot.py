@@ -505,7 +505,7 @@ class BeginningPilotTests(unittest.TestCase):
             self.assertEqual(res_to["steps"]["B1_pod"]["status"], "FAIL")
             self.assertIn("mode fade lifted by=timeout", res_to["steps"]["B1_pod"]["detail"])
 
-    def test_player_profile_13_plugin_bundle_and_28pt_special_fallback_pass(self) -> None:
+    def test_player_profile_13_plugin_bundle_and_40pt_special_fallback_pass_and_28pt_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tdir = Path(tmp)
             bundle = self._build_synthetic_bundle(tdir)
@@ -530,7 +530,9 @@ class BeginningPilotTests(unittest.TestCase):
             player_ng: list[str] = []
             for ln in _handwritten_newgame_lines():
                 if "special set" in ln:
-                    player_ng.append("FO4SF_NEWGAME rt=75.0 special set S=4 P=4 E=4 C=4 I=4 A=4 L=4 readback=4.0 4.0")
+                    player_ng.append(
+                        "FO4SF_NEWGAME rt=75.0 special set S=6 P=6 E=6 C=5 I=6 A=6 L=5 sum=40 source=Lift readback=6.0 5.0"
+                    )
                     player_ng.append(
                         "FO4SF_NEWGAME rt=75.2 elevator attribute_allocation fallback=FO4SF_NewGameSpecial edited=True confirmed=True"
                     )
@@ -541,6 +543,18 @@ class BeginningPilotTests(unittest.TestCase):
             self.assertTrue(res_player_log["ok"], res_player_log)
             self.assertTrue(res_player_log["all_pass"], res_player_log)
             self.assertEqual(res_player_log["steps"]["B3_exit_lift"]["status"], "PASS")
+
+            # Legacy 28-pt sum on FO4SF_NewGameSpecial fallback must now FAIL B3_exit_lift ("40 for all")
+            player_ng_28 = [
+                "FO4SF_NEWGAME rt=75.0 special set S=4 P=4 E=4 C=4 I=4 A=4 L=4 sum=28 source=Lift readback=4.0 4.0"
+                if "special set" in ln
+                else ln
+                for ln in player_ng
+            ]
+            ng_log.write_text("\n".join(player_ng_28) + "\n", encoding="utf-8")
+            res_28_fail = evaluate_beginning_logs(str(ng_log), str(ms_log))
+            self.assertFalse(res_28_fail["ok"])
+            self.assertEqual(res_28_fail["steps"]["B3_exit_lift"]["status"], "FAIL")
 
 
 if __name__ == "__main__":

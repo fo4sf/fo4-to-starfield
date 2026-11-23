@@ -27,6 +27,14 @@ Scene Property PrestonTalkScene Auto Const
 {Short 3-exchange Starfield player-dialogue Scene (0x900) on FO4SF_Min00 when built with --alias; None on --no-alias
  and on FO4SF_CodsworthKeeper.}
 
+Message Property PrestonTalkMsg Auto Const
+Message Property PrestonReply0Msg Auto Const
+Message Property PrestonReply1Msg Auto Const
+Message Property PrestonReply2Msg Auto Const
+GlobalVariable Property TalkUseMessageBox Auto Const
+float Property PrestonSceneCheckSeconds = 1.5 Auto Const
+int Property PrestonSceneMaxWaitChecks = 16 Auto Const
+
 float Property MergeOffsetX = -1200.0 Auto Const
 float Property MergeOffsetY = -2700.0 Auto Const
 {The core world's merge offset (vmad_patch.MERGE_MEASURED): the world the player walks in places the core's records at
@@ -106,6 +114,7 @@ float prestonOff = -1.0
 string prestonState = "none"
 bool prestonHeld = False
 int prestonHolds = 0
+bool prestonPlaced = False
 bool prestonFollow = False
 bool prestonFighting = False
 int codsworthMoves = 0
@@ -125,6 +134,16 @@ float talkStartedAt = 0.0
 float talkNearSec = 0.0
 bool prestonUsedFallback = False
 bool prestonTalkLogged = False
+bool prestonTalkBoxOpen = False
+int talkSessionId = 0
+bool prestonTalkReloaded = False
+bool prestonDialogueMenuOpen = False
+bool prestonScenePending = False
+bool prestonSceneMenuOpened = False
+bool prestonScenePhase1 = False
+float prestonPhase1At = 0.0
+int prestonSceneChecks = 0
+int sanctuaryStartRetries = 0
 
 float[] raiderTargetX
 float[] raiderTargetY
@@ -150,6 +169,94 @@ EndFunction
 bool Function IsTestModeEnabled()
     GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
     return tm != None && tm.GetValue() != 0.0
+EndFunction
+
+bool Function ShouldUseMessageBox()
+    GlobalVariable g = TalkUseMessageBox
+    if g == None
+        g = Game.GetFormFromFile(0x000979, "FO4SFMission.esm") as GlobalVariable
+    endif
+    if g != None && g.GetValue() != 0.0
+        return True
+    endif
+    return False
+EndFunction
+
+int Function EffectiveStage()
+    int st = GetStage()
+    if applied > st
+        return applied
+    endif
+    return st
+EndFunction
+
+WorldSpace Function ResolveCommonwealthWorld()
+    ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore.esm") as ObjectReference
+    if v111Marker == None
+        v111Marker = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore_Mars.esm") as ObjectReference
+    endif
+    if v111Marker != None
+        WorldSpace mws = v111Marker.GetWorldSpace()
+        if mws != None
+            return mws
+        endif
+    endif
+    if prestonPlaced && Preston != None && !Preston.IsInInterior()
+        return Preston.GetWorldSpace()
+    endif
+    return None
+EndFunction
+
+bool Function IsCommonwealthExterior(Actor player)
+    if player == None || player.IsInInterior()
+        return False
+    endif
+    WorldSpace ws = player.GetWorldSpace()
+    if ws == None
+        return False
+    endif
+    WorldSpace cws = ResolveCommonwealthWorld()
+    if cws != None && ws != cws
+        return False
+    endif
+    float cx = player.GetPositionX()
+    float cy = player.GetPositionY()
+    if cx < MergeOffsetX - 3600.0 || cx > MergeOffsetX + 3600.0
+        return False
+    endif
+    if cy < MergeOffsetY - 3600.0 || cy > MergeOffsetY + 3600.0
+        return False
+    endif
+    return True
+EndFunction
+
+bool Function IsPlayerStableAt(Actor player, float px, float py, float pz)
+    if !IsCommonwealthExterior(player)
+        return False
+    endif
+    float dx = player.GetPositionX() - px
+    float dy = player.GetPositionY() - py
+    float dz = player.GetPositionZ() - pz
+    return dx * dx + dy * dy + dz * dz <= 25.0
+EndFunction
+
+Function EnsurePrestonAlias()
+    talkSessionId += 1
+    if Preston == None
+        return
+    endif
+    ReferenceAlias al = GetAlias(0) as ReferenceAlias
+    if al != None && al.GetActorRef() != Preston
+        al.ForceRefTo(Preston)
+    endif
+EndFunction
+
+Function RegisterPrestonSceneEvents()
+    if PrestonTalkScene != None
+        RegisterForRemoteEvent(PrestonTalkScene, "OnBegin")
+        RegisterForRemoteEvent(PrestonTalkScene, "OnPhaseBegin")
+        RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
+    endif
 EndFunction
 
 Event OnQuestStarted()
@@ -179,6 +286,9 @@ Function StartQuestInstance()
         Stop()
         return
     endif
+    if !IsRunning()
+        Start()
+    endif
     if KeeperOnly
         Trace("keeper init codsworth=" + Codsworth)
         RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
@@ -189,10 +299,11 @@ Function StartQuestInstance()
     InitRaiderTracking()
     Trace("init raiders=" + Raiders.Length)
     RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
+    EnsureActorTalkable(Preston)
+    EnsurePrestonAlias()
+    RegisterForMenuOpenCloseEvent("DialogueMenu")
     RegisterForRemoteEvent(Preston, "OnActivate")
-    if PrestonTalkScene != None
-        RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
-    endif
+    RegisterPrestonSceneEvents()
     Preston.IgnoreFriendlyHits(True)                     ; a stray shot in the fight must not turn him (in game 18 Oct 15:16)
     ; M1: starts silent with NO objective shown until Codsworth's talk finishes or the player reaches <= 150 m of Concord
     StartTimer(1.0, 1)
@@ -208,15 +319,21 @@ EndFunction
 
 Function GiveFromCodsworth()
 {Called by FO4SF_Codsworth01Quest at stage 100 so Codsworth's last choice reveals FO4SF_Min00 objective 10.}
-    if IsWarfareMode()
+    if KeeperOnly || IsWarfareMode()
         return
     endif
-    if !min00Given && GetStage() < 10
+    if !IsRunning()
+        Start()
+    endif
+    int st = EffectiveStage()
+    if !min00Given && st < 10
         min00Given = True
         Trace("min00 given by=codsworth")
         AdvanceTo(10, "info")
-    elseif GetStage() < 20
+    elseif st < 20
+        EnsurePrestonAlias()
         SetObjectiveDisplayed(10)
+        SetObjectiveDisplayed(10, True, True)
         SetActive(True)
     endif
 EndFunction
@@ -294,10 +411,12 @@ Function KeepCodsworthLoad()
             Codsworth.Enable()
             Trace("codsworth was disabled: enabled")
         endif
+        EnsureActorTalkable(Codsworth)
         codsworthFails = 0
         codsworthKept = True
         codsworthHeld = False
     endif
+    EnsureActorTalkable(Preston)
     prestonFails = 0
     prestonHeld = False
     ; prestonFollow stays as the save left it. Clearing it here would put the door hold back over a follow.
@@ -322,14 +441,30 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     endif
     relocateFails = 0
     prestonHeld = False
+    talkActivated = False
+    talkStartedAt = 0.0
+    talkNearSec = 0.0
+    prestonTalkBoxOpen = False
+    prestonTalkReloaded = True
+    prestonDialogueMenuOpen = False
+    prestonScenePending = False
+    prestonSceneMenuOpened = False
+    prestonScenePhase1 = False
+    prestonPhase1At = 0.0
+    prestonSceneChecks = 0
+    CancelTimer(3)
+    EnsureActorTalkable(Preston)
+    RegisterForRemoteEvent(Preston, "OnActivate")
     InitRaiderTracking()
     int st = GetStage()
+    if applied > st
+        st = applied
+    endif
     Trace("reload mission stage=" + st + " relocate_fails=" + relocateFails)
     if st < 200
-        RegisterForRemoteEvent(Preston, "OnActivate")
-        if PrestonTalkScene != None
-            RegisterForRemoteEvent(PrestonTalkScene, "OnEnd")
-        endif
+        EnsurePrestonAlias()
+        RegisterForMenuOpenCloseEvent("DialogueMenu")
+        RegisterPrestonSceneEvents()
         if st == 20
             CheckConcordRaidersWfc01(Game.GetPlayer(), False)
         endif
@@ -339,6 +474,9 @@ EndEvent
 
 Function AdvanceTo(int n, string by = "Trigger")
 {SetStage, then the stage's actions. Apply runs each stage once.}
+    if KeeperOnly
+        return
+    endif
     pendingStage = n
     pendingStageBy = by
     SetStage(n)
@@ -349,6 +487,9 @@ Function AdvanceTo(int n, string by = "Trigger")
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
+    if KeeperOnly
+        return
+    endif
     string cause = "other"
     if auiStageID == pendingStage
         cause = pendingStageBy
@@ -357,10 +498,15 @@ Event OnStageSet(int auiStageID, int auiItemID)
         cause = "info"
     endif
     Apply(auiStageID, cause)
+    if EffectiveStage() == 40 && (PrestonTalkScene == None || !PrestonTalkScene.IsPlaying())
+        AdvanceTo(200, "Trigger")
+        CompleteQuest()
+        Trace("complete stage=" + EffectiveStage())
+    endif
 EndEvent
 
 Function Apply(int auiStageID, string by = "other")
-    if auiStageID <= applied
+    if KeeperOnly || auiStageID <= applied
         return
     endif
     applied = auiStageID
@@ -368,14 +514,19 @@ Function Apply(int auiStageID, string by = "other")
     if auiStageID == 10
         min00Given = True
         SetObjectiveDisplayed(10)
+        SetObjectiveDisplayed(10, True, True)
         SetActive(True)
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
         SetObjectiveDisplayed(85)
+        SetObjectiveDisplayed(85, True, True)
+        SetActive(True)
     elseif auiStageID == 30
         Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
         SetObjectiveDisplayed(86)
+        SetObjectiveDisplayed(86, True, True)
+        SetActive(True)
     elseif auiStageID == 35
         if by == "info" && !prestonUsedFallback && !prestonTalkLogged
             prestonTalkLogged = True
@@ -394,27 +545,259 @@ Function Apply(int auiStageID, string by = "other")
         if sanctuaryQuest != None && !sanctuaryQuest.IsRunning()
             bool startedSanctuary = sanctuaryQuest.StartNoWait()
             Trace("sanctuary01 start_requested ok=" + startedSanctuary)
+            if !sanctuaryQuest.IsRunning()
+                StartTimer(5.0, 4)
+            endif
         endif
     endif
 EndFunction
 
+Function EnsureSanctuaryStarted()
+    if KeeperOnly || IsWarfareMode()
+        return
+    endif
+    Quest sanctuaryQuest = Game.GetFormFromFile(0x000817, "FO4SFMission.esm") as Quest
+    if sanctuaryQuest == None || sanctuaryQuest.IsRunning() || sanctuaryQuest.IsCompleted()
+        CancelTimer(4)
+        return
+    endif
+    bool ok = sanctuaryQuest.StartNoWait()
+    sanctuaryStartRetries += 1
+    Trace("sanctuary01 start_retry n=" + sanctuaryStartRetries + " ok=" + ok)
+    if !sanctuaryQuest.IsRunning() && !sanctuaryQuest.IsCompleted() && sanctuaryStartRetries < 60
+        StartTimer(5.0, 4)
+    endif
+EndFunction
+
+Message Function ResolvePrestonMsg(int slot)
+    if slot == 0
+        if PrestonReply0Msg != None
+            return PrestonReply0Msg
+        endif
+        return Game.GetFormFromFile(0x000976, "FO4SFMission.esm") as Message
+    elseif slot == 1
+        if PrestonReply1Msg != None
+            return PrestonReply1Msg
+        endif
+        return Game.GetFormFromFile(0x000977, "FO4SFMission.esm") as Message
+    elseif slot == 2
+        if PrestonReply2Msg != None
+            return PrestonReply2Msg
+        endif
+        return Game.GetFormFromFile(0x000978, "FO4SFMission.esm") as Message
+    endif
+    if PrestonTalkMsg != None
+        return PrestonTalkMsg
+    endif
+    return Game.GetFormFromFile(0x000975, "FO4SFMission.esm") as Message
+EndFunction
+
+Function RunPrestonTalk(int stage, Message startMsg)
+    if prestonTalkBoxOpen || startMsg == None || IsWarfareMode()
+        return
+    endif
+    prestonTalkReloaded = False
+    talkSessionId += 1
+    int mySession = talkSessionId
+    prestonTalkBoxOpen = True
+    Message curMsg = startMsg
+    Trace("preston talk opened stage=" + stage)
+    int steps = 0
+    bool doneLoop = False
+    while !doneLoop && steps < 16
+        steps += 1
+        int btn = curMsg.Show()
+        if prestonTalkReloaded || mySession != talkSessionId || btn < 0
+            doneLoop = True
+        else
+            Trace("preston choice button=" + btn)
+            if btn == 0
+                Message r0 = ResolvePrestonMsg(0)
+                if r0 != None
+                    curMsg = r0
+                endif
+            elseif btn == 1
+                Message r1 = ResolvePrestonMsg(1)
+                if r1 != None
+                    curMsg = r1
+                endif
+            elseif btn == 2
+                Message r2 = ResolvePrestonMsg(2)
+                if r2 != None
+                    curMsg = r2
+                endif
+            else
+                if btn == 3 && EffectiveStage() == 30
+                    talkActivated = True
+                    prestonUsedFallback = False
+                    AdvanceTo(35, "info")
+                    if EffectiveStage() == 40
+                        AdvanceTo(200, "Trigger")
+                        CompleteQuest()
+                        Trace("complete stage=" + EffectiveStage())
+                    endif
+                endif
+                doneLoop = True
+            endif
+        endif
+    endwhile
+    if !prestonTalkReloaded && mySession == talkSessionId
+        prestonTalkBoxOpen = False
+    endif
+EndFunction
+
+Function FallbackPrestonToMessageBox(string reason)
+    prestonScenePending = False
+    prestonScenePhase1 = False
+    prestonPhase1At = 0.0
+    CancelTimer(3)
+    Trace("preston talk fallback=messagebox reason=" + reason)
+    Message talkMsg = ResolvePrestonMsg(-1)
+    if talkMsg != None
+        RunPrestonTalk(EffectiveStage(), talkMsg)
+    elseif EffectiveStage() == 30
+        prestonUsedFallback = True
+        AdvanceTo(40, "fallback")
+    endif
+EndFunction
+
+Function CheckPrestonSceneOpen()
+    if KeeperOnly || !prestonScenePending
+        return
+    endif
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonTalkLogged || EffectiveStage() != 30
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        return
+    endif
+    prestonSceneChecks += 1
+    bool phase1Elapsed = False
+    if prestonScenePhase1
+        float nowRt = Utility.GetCurrentRealTime()
+        if nowRt < prestonPhase1At
+            prestonPhase1At = nowRt
+        elseif (nowRt - prestonPhase1At) >= (PrestonSceneCheckSeconds - 0.05)
+            phase1Elapsed = True
+        endif
+    endif
+    if PrestonTalkScene == None || !PrestonTalkScene.IsPlaying()
+        FallbackPrestonToMessageBox("scene_inactive")
+    elseif phase1Elapsed || prestonSceneChecks >= PrestonSceneMaxWaitChecks
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        PrestonTalkScene.Stop()
+        FallbackPrestonToMessageBox("dialogue_menu_timeout")
+    else
+        StartTimer(PrestonSceneCheckSeconds, 3)
+    endif
+EndFunction
+
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+    if KeeperOnly || asMenuName != "DialogueMenu"
+        return
+    endif
+    prestonDialogueMenuOpen = abOpening
+    if abOpening
+        if prestonScenePending || talkActivated || (PrestonTalkScene != None && PrestonTalkScene.IsPlaying())
+            talkActivated = True
+            prestonUsedFallback = False
+            prestonSceneMenuOpened = True
+            prestonScenePending = False
+            prestonScenePhase1 = False
+            prestonPhase1At = 0.0
+            CancelTimer(3)
+            Trace("preston dialogue menu opened")
+        endif
+    elseif prestonSceneMenuOpened
+        prestonSceneMenuOpened = False
+        Trace("preston dialogue menu closed stage=" + EffectiveStage())
+    endif
+EndEvent
+
+Event Scene.OnBegin(Scene akSender)
+    if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene
+        talkActivated = True
+        prestonUsedFallback = False
+        if talkStartedAt <= 0.0
+            talkStartedAt = Utility.GetCurrentRealTime()
+        endif
+        if !ShouldUseMessageBox() && EffectiveStage() == 30 && !prestonTalkLogged && !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen && !prestonTalkBoxOpen
+            prestonScenePending = True
+            prestonScenePhase1 = False
+            prestonPhase1At = 0.0
+            prestonSceneChecks = 0
+            Trace("preston scene talk requested scene=" + PrestonTalkScene + " stage=30")
+            StartTimer(PrestonSceneCheckSeconds, 3)
+        endif
+        Trace("preston talk scene started stage=" + EffectiveStage())
+    endif
+EndEvent
+
+Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
+    if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene && auiPhaseIndex == 1
+        prestonScenePhase1 = True
+        prestonPhase1At = Utility.GetCurrentRealTime()
+        if prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
+            CancelTimer(3)
+            StartTimer(PrestonSceneCheckSeconds, 3)
+        endif
+    endif
+EndEvent
+
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
+    if KeeperOnly
+        return
+    endif
     if akSender == Preston && akActionRef == Game.GetPlayer()
-        int stage = GetStage()
+        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonScenePending
+            return
+        endif
+        int stage = EffectiveStage()
         Trace("preston activated at stage " + stage)
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
-            if PrestonTalkScene != None
+            Message talkMsg = ResolvePrestonMsg(-1)
+            if ShouldUseMessageBox()
+                if talkMsg != None
+                    Trace("preston talk fallback=messagebox reason=glob")
+                    RunPrestonTalk(stage, talkMsg)
+                else
+                    prestonUsedFallback = True
+                    AdvanceTo(40, "fallback")
+                endif
+            elseif PrestonTalkScene != None
+                EnsurePrestonAlias()
                 talkActivated = True
+                prestonUsedFallback = False
                 talkStartedAt = Utility.GetCurrentRealTime()
+                prestonScenePending = True
+                prestonSceneMenuOpened = False
+                prestonScenePhase1 = False
+                prestonPhase1At = 0.0
+                prestonSceneChecks = 0
                 if !PrestonTalkScene.IsPlaying()
                     PrestonTalkScene.Start()
+                    if !PrestonTalkScene.IsPlaying()
+                        PrestonTalkScene.ForceStart()
+                    endif
                 endif
                 Trace("preston talk scene triggered stage=30")
+                Trace("preston scene talk requested scene=" + PrestonTalkScene + " stage=30")
+                StartTimer(PrestonSceneCheckSeconds, 3)
+            elseif talkMsg != None
+                Trace("preston talk fallback=messagebox reason=no_scene")
+                RunPrestonTalk(stage, talkMsg)
             else
                 prestonUsedFallback = True
                 AdvanceTo(40, "fallback")
+            endif
+        elseif stage >= 200
+            Message postMsg = ResolvePrestonMsg(-1)
+            if postMsg != None
+                RunPrestonTalk(stage, postMsg)
             endif
         endif
     endif
@@ -422,18 +805,41 @@ EndEvent
 
 Event Scene.OnEnd(Scene akSender)
     if !KeeperOnly && PrestonTalkScene != None && akSender == PrestonTalkScene
-        int st = GetStage()
-        bool endInfoDone = GetStageDone(35) || st == 35
+        int st = EffectiveStage()
+        bool endInfoDone = GetStageDone(35) || st == 35 || GetStage() == 35
         Trace("preston talk scene ended stage=" + st + " end_info=" + endInfoDone)
         if endInfoDone
+            prestonScenePending = False
+            prestonSceneMenuOpened = False
+            prestonScenePhase1 = False
+            prestonPhase1At = 0.0
+            CancelTimer(3)
             if applied < 35
                 Apply(35, "info")
+            endif
+            if EffectiveStage() == 40
+                AdvanceTo(200, "Trigger")
+                CompleteQuest()
+                Trace("complete stage=" + EffectiveStage())
             endif
         elseif st == 30 && !prestonTalkLogged
             talkFailures += 1
             talkActivated = False
             talkStartedAt = 0.0
             Trace("preston talk retry n=" + talkFailures + " reason=scene_incomplete")
+            if prestonScenePending && !prestonSceneMenuOpened
+                FallbackPrestonToMessageBox("scene_incomplete")
+            else
+                prestonScenePending = False
+                prestonSceneMenuOpened = False
+                prestonScenePhase1 = False
+                prestonPhase1At = 0.0
+            endif
+        else
+            prestonScenePending = False
+            prestonSceneMenuOpened = False
+            prestonScenePhase1 = False
+            prestonPhase1At = 0.0
         endif
     endif
 EndEvent
@@ -453,18 +859,20 @@ bool Function TalkCompleteReady(int stage, float dp)
     if prestonTalkLogged
         return True
     endif
-    if PrestonTalkScene == None
-        if dp < TalkRadius
-            return MarkPrestonFallback("preston talk fallback no_scene")
-        endif
+    if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonScenePending
+        talkNearSec = 0.0
         return False
     endif
     if talkFailures >= 3
         return MarkPrestonFallback("preston talk fallback tries=" + talkFailures)
     endif
-    if PrestonTalkScene.IsPlaying()
+    float nowRt = Utility.GetCurrentRealTime()
+    if talkStartedAt > 0.0 && nowRt < talkStartedAt
+        talkStartedAt = nowRt
+    endif
+    if PrestonTalkScene != None && PrestonTalkScene.IsPlaying()
         talkNearSec = 0.0
-        if talkStartedAt > 0.0 && (Utility.GetCurrentRealTime() - talkStartedAt) > TalkSceneTimeout
+        if talkStartedAt > 0.0 && (nowRt - talkStartedAt) > TalkSceneTimeout
             talkFailures += 1
             PrestonTalkScene.Stop()
             talkActivated = False
@@ -476,7 +884,7 @@ bool Function TalkCompleteReady(int stage, float dp)
         endif
         return False
     endif
-    if talkActivated && talkStartedAt > 0.0 && (Utility.GetCurrentRealTime() - talkStartedAt) >= 15.0
+    if talkActivated && talkStartedAt > 0.0 && (nowRt - talkStartedAt) >= 15.0
         talkFailures += 1
         talkActivated = False
         talkStartedAt = 0.0
@@ -493,6 +901,9 @@ bool Function TalkCompleteReady(int stage, float dp)
             limit = 8.0
         endif
         if talkNearSec >= limit
+            if PrestonTalkScene == None
+                return MarkPrestonFallback("preston talk fallback no_scene")
+            endif
             return MarkPrestonFallback("preston talk fallback near_sec=" + talkNearSec)
         endif
     else
@@ -543,13 +954,14 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
  (> 140 m from their Concord street spot) while the player is within 150 m of the museum door, and writes off (stops
  combat + disables) any living raider that remains absent/unloaded (> 250 m or !Is3DLoaded) for > 60 s within 100 m of
  the Concord door or stays loaded within 2 m with no damage for 60 s after a rescue.}
-    if player == None || player.IsInInterior()
+    if player == None || player.IsInInterior() || !IsCommonwealthExterior(player)
         return
     endif
     InitRaiderTracking()
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
+    WorldSpace pws = player.GetWorldSpace()
     float doorX = PrestonLocalX + MergeOffsetX
     float doorY = PrestonLocalY + MergeOffsetY
     float doorZ = PrestonLocalZ
@@ -570,7 +982,9 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
             if doorDist < Wfc01CheckRadius
                 float rz = r.GetPositionZ()
                 float drift = SpotOff(r, tx, ty, tz)
-                if rz < tz - Wfc01SubterraneanDrop || drift > Wfc01MaxDrift
+                WorldSpace rws = r.GetWorldSpace()
+                bool wrongWorld = r.IsInInterior() || rws == None || rws != pws
+                if (wrongWorld || rz < tz - Wfc01SubterraneanDrop || drift > Wfc01MaxDrift) && IsPlayerStableAt(player, px, py, pz)
                     r.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
                     r.SetPosition(tx, ty, tz)
                     r.EvaluatePackage()
@@ -627,8 +1041,25 @@ Event OnTimer(int aiTimerID)
     if aiTimerID == 2
         KeepCodsworth()
         return
+    elseif aiTimerID == 3
+        CheckPrestonSceneOpen()
+        return
+    elseif aiTimerID == 4
+        EnsureSanctuaryStarted()
+        return
     elseif aiTimerID != 1
         return
+    endif
+    if KeeperOnly
+        return
+    endif
+    if EffectiveStage() < 200
+        if !IsRunning()
+            Start()
+        endif
+        if applied > 0 && GetStage() < applied
+            SetStage(applied)
+        endif
     endif
     Actor player = Game.GetPlayer()
     InitRaiderTracking()
@@ -637,8 +1068,9 @@ Event OnTimer(int aiTimerID)
     if relocateFails < 10
         Relocate(player)
     endif
-    int stage = GetStage()
-    if !min00Given && stage < 10 && player != None && !player.IsInInterior()
+    int rawStage = GetStage()
+    int stage = EffectiveStage()
+    if !min00Given && stage < 10 && IsCommonwealthExterior(player)
         float gdx = player.GetPositionX() - (PrestonLocalX + MergeOffsetX)
         float gdy = player.GetPositionY() - (PrestonLocalY + MergeOffsetY)
         float gdz = player.GetPositionZ() - PrestonLocalZ
@@ -650,18 +1082,33 @@ Event OnTimer(int aiTimerID)
             stage = 10
         endif
     endif
-    if (GetStageDone(35) || stage == 35) && applied < 35
+    if (GetStageDone(35) || rawStage == 35) && applied < 35
         if talkActivated && !prestonUsedFallback
             Apply(35, "info")
         else
             Apply(35, "other")
         endif
-        stage = GetStage()
+        stage = EffectiveStage()
     endif
-    if stage >= 40 && applied < 40
+    if rawStage >= 40 && applied < 40
         Apply(40, "other")
-    elseif stage > applied && stage < 35
-        Apply(stage, "other")
+        stage = EffectiveStage()
+    elseif rawStage > applied && rawStage < 35
+        Apply(rawStage, "other")
+        stage = EffectiveStage()
+    endif
+    if stage == 10 && min00Given && !IsObjectiveDisplayed(10)
+        EnsurePrestonAlias()
+        SetObjectiveDisplayed(10)
+        SetObjectiveDisplayed(10, True, True)
+        SetActive(True)
+    elseif stage == 20 && !IsObjectiveDisplayed(85)
+        SetObjectiveDisplayed(85)
+        SetObjectiveDisplayed(85, True, True)
+    elseif stage == 30 && !IsObjectiveDisplayed(86)
+        EnsurePrestonAlias()
+        SetObjectiveDisplayed(86)
+        SetObjectiveDisplayed(86, True, True)
     endif
     float dp = player.GetDistance(Preston)
     if stage < 20 && dp < FindRadius
@@ -669,6 +1116,8 @@ Event OnTimer(int aiTimerID)
     endif
     if stage == 20
         CheckConcordRaidersWfc01(player, True)
+    elseif stage < 20
+        CheckConcordRaidersWfc01(player, False)
     endif
     bool everyone = prestonFound || stage >= 20          ; once the fight is on, no raider stands by
     int dead = 0
@@ -677,7 +1126,7 @@ Event OnTimer(int aiTimerID)
     int i = 0
     while i < Raiders.Length
         Actor r = Raiders[i]
-        if r.IsDead() || raiderCleared[i]
+        if r == None || r.IsDead() || raiderCleared[i]
             dead += 1
         else
             float d = player.GetDistance(r)
@@ -732,12 +1181,12 @@ Event OnTimer(int aiTimerID)
         Preston.StopCombat()
         Trace("preston was targeting the player: stopcombat")
     endif
-    if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
+    if EffectiveStage() == 40 && (PrestonTalkScene == None || !PrestonTalkScene.IsPlaying()) ; in game 18 Oct the status stayed at 40 after the reward: set 200
         AdvanceTo(200, "Trigger")
         CompleteQuest()
-        Trace("complete stage=" + GetStage())
+        Trace("complete stage=" + EffectiveStage())
     endif
-    if GetStage() < 200                                  ; stage 200 cancels the timer (Apply)
+    if EffectiveStage() < 200                            ; stage 200 cancels the timer (Apply)
         StartTimer(1.0, 1)
     endif
 EndEvent
@@ -759,10 +1208,34 @@ int Function NextStage(int stage, int dead, int total, bool fighting, bool atPre
     return s
 EndFunction
 
+Function CheckPostConcordSanctuaryHandoff()
+    if IsWarfareMode()
+        return
+    endif
+    if !IsRunning() && KeeperOnly
+        Start()
+    endif
+    bool min00Done = applied >= 200 || IsCompleted()
+    if KeeperOnly
+        Quest min00 = Game.GetFormFromFile(0x000800, "FO4SFMission.esm") as Quest
+        min00Done = min00 != None && min00.IsCompleted()
+    endif
+    if min00Done
+        Quest sanctuaryQuest = Game.GetFormFromFile(0x000817, "FO4SFMission.esm") as Quest
+        if sanctuaryQuest != None && !sanctuaryQuest.IsRunning() && !sanctuaryQuest.IsCompleted()
+            bool ok = sanctuaryQuest.StartNoWait()
+            Trace("sanctuary01 postload_start ok=" + ok)
+        endif
+    endif
+EndFunction
+
 Function Relocate(Actor player)
 {Moves the raiders (Codsworth: KeepCodsworth) from their unmerged local position to the same spot in the merged world the
  player walks in, and puts Preston at his fixed spot (PlacePreston). Never from an interior.}
     if player.IsInInterior()
+        return
+    endif
+    if !IsCommonwealthExterior(player)
         return
     endif
     float px = player.GetPositionX()
@@ -773,6 +1246,9 @@ Function Relocate(Actor player)
     endif
     int i = 0
     while i < Raiders.Length
+        if !IsPlayerStableAt(player, px, py, pz)
+            return
+        endif
         if MoveOver(Raiders[i], player, px, py, pz, "raider " + i)
             relocateFails += 1
         endif
@@ -783,6 +1259,7 @@ EndFunction
 Function KeepCodsworth()
 {Codsworth has his own check every CodsworthCheck seconds with its own budget of 10 failed moves. It keeps running after
  stage 200, which ends the mission's timer.}
+    CheckPostConcordSanctuaryHandoff()
     Actor player = Game.GetPlayer()
     if Codsworth != None
         ReleaseCodsworthInFight("keeper")
@@ -869,6 +1346,9 @@ bool Function PlacePreston(Actor player, string who)
         HoldPreston(who)
     endif
     prestonState = HeldState(s, prestonHeld)
+    if s == "placed" || s == "at spot"
+        prestonPlaced = True
+    endif
     return s == "move failed"
 EndFunction
 
@@ -901,6 +1381,9 @@ string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Acto
     if player.IsInInterior()
         return "off, player inside"
     endif
+    if !IsCommonwealthExterior(player)
+        return "off, player inside"
+    endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
@@ -910,11 +1393,14 @@ string Function PlaceAt(Actor a, string name, float tx, float ty, float tz, Acto
     if dp < RelocateGap && fighting
         return "off, fighting"                            ; the fight moves it; it is put back once the fight is over
     endif
+    if !IsPlayerStableAt(player, px, py, pz)
+        return "off, player inside"
+    endif
     Trace("world " + name + " player=" + player.GetWorldSpace() + " actor=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     a.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
     float d = player.GetDistance(a)
     float after = SpotOff(a, tx, ty, tz)
-    bool failed = after > HoldRadius || d >= RelocateGap
+    bool failed = after > HoldRadius || d >= RelocateGap || a.IsInInterior() || a.GetWorldSpace() == None
     Trace("world " + name + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     Trace("moved " + name + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + tx + " " + ty + " " + tz + " before=" + dp + " off=" + off + " d=" + d + " failed=" + failed + " by=" + who)
     if IsTestModeEnabled()
@@ -948,9 +1434,20 @@ Function HoldCodsworth(string who)
     codsworthHolds += 1
 EndFunction
 
+Function EnsureActorTalkable(Actor a)
+    if a != None
+        a.AllowPCDialogue(True)
+        a.BlockActivation(False, False)
+        if a == Preston && !KeeperOnly
+            a.IgnoreFriendlyHits(True)
+        endif
+    endif
+EndFunction
+
 Function HoldActor(Actor a, string name, string who, float off)
-{SetRestrained(True) and one log line, "hold <name> by=<who> off=<m> ok=<bool>".}
+{SetRestrained(True), keep player talk activation unblocked, and one log line, "hold <name> by=<who> off=<m> ok=<bool>".}
     bool ok = a.SetRestrained(True)
+    EnsureActorTalkable(a)
     Trace("hold " + name + " by=" + who + " off=" + off + " ok=" + ok)
 EndFunction
 
@@ -1023,6 +1520,9 @@ EndFunction
 
 bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
 {Moves one raider when the player is within RelocateRadius of its merged spot and it is still farther than RelocateGap.}
+    if a == None
+        return False
+    endif
     float before = player.GetDistance(a)                  ; float max: another world; finite: this world (the world proof)
     if before < RelocateGap
         return False                                      ; already where the player is
@@ -1042,11 +1542,15 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     endif
     WorldSpace wa = a.GetWorldSpace()                     ; evidence for Codex's world-identity point (#353): which
     WorldSpace wp = player.GetWorldSpace()                ; world each side is in before a move (only moves: Codex 4331303552)
+    if wp == None || !IsPlayerStableAt(player, px, py, pz)
+        return False
+    endif
     Trace("world " + what + " player=" + wp + " actor=" + wa + " cell=" + a.GetParentCell())
     a.MoveTo(player, x - px, y - py, z - pz, True, False)
     float d = player.GetDistance(a)
-    bool failed = d >= RelocateGap
-    Trace("world " + what + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
+    WorldSpace afterWs = a.GetWorldSpace()
+    bool failed = d >= RelocateGap || a.IsInInterior() || afterWs == None || SpotOff(a, x, y, z) > HoldRadius
+    Trace("world " + what + " after=" + afterWs + " cell=" + a.GetParentCell())
     Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
     if !failed
         a.EvaluatePackage()
