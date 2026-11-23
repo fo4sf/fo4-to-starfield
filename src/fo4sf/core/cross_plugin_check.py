@@ -72,12 +72,14 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0547A1: ("AMMO", "AmmoCaselessShotgun"),
         0x0547A3: ("WEAP", "Breach"),
         0x054BA7: ("KYWD", "WorkshopWorkbenchType"),
+        0x058606: ("FLST", "OutpostRecipeCategories"),
         0x081886: ("ARMA", "AA_MiniBotA_Gardening"),
         0x089605: ("PACK", "DefaultSandboxCurrentLocation"),
         0x0A7D31: ("GLOB", "MQ101Debug"),
         0x0AA209: ("KYWD", "WorkbenchIndustrialKeyword"),
         0x0B0885: ("SPEL", "abBoostAssaultSlowTime"),
         0x105688: ("CONT", "VaultCaseTemplate"),
+        0x1A5507: ("FLST", "OutpostFollowCameraCategoryList"),
         0x1A9565: ("QUST", "SQ_Groups"),
         0x1CCAC2: ("ACTI", "ControlConsoleTemplate"),
         0x1F50AD: ("KYWD", "OutpostBuildKeyword"),
@@ -301,17 +303,26 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
     }
     m_sanc_scr = re.search(r'SanctuaryScriptName\s*=\s*"([^"]+)"', body)
     sanctuary_script = m_sanc_scr.group(1) if m_sanc_scr else default_script
+    m_cods_scr = re.search(r'CodsworthScriptName\s*=\s*"([^"]+)"', body)
+    codsworth_script = m_cods_scr.group(1) if m_cods_scr else default_script
 
     local_formkey_vars: Dict[str, Tuple[str, int]] = {}
     if own_plugin == "FO4SFMission.esm":
         for vname, cname in (
             ("prestonRef", "PrestonRefId"),
             ("prestonScene", "PrestonTalkSceneId"),
+            ("prestonPostScene", "PrestonPostTalkSceneId"),
             ("codsRef", "CodsworthRefId"),
+            ("codsworthPostScene", "CodsworthPostSceneId"),
+            ("concordSidearm", "ConcordRaiderSidearmWeapId"),
         ):
             if cname in uint_consts:
                 local_formkey_vars[vname] = (own_plugin, uint_consts[cname])
-        for vname, cname in (("credits", "CreditsId"), ("xMarker", "XMarkerId")):
+        for vname, cname in (
+            ("credits", "CreditsId"),
+            ("xMarker", "XMarkerId"),
+            ("raiderSidearmAmmo", "SfRaiderSidearmAmmoId"),
+        ):
             if cname in uint_consts:
                 local_formkey_vars[vname] = ("Starfield.esm", uint_consts[cname])
 
@@ -393,13 +404,18 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
             return (modkey_aliases[m_fk.group(1)], cid) if cid is not None else None
         return None
 
-    for m in re.finditer(r'(SanctuaryObjProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
+    for m in re.finditer(r'(SanctuaryObjProp|CodsworthProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
         helper_name, pname, fk_expr = m.group(1), m.group(2), m.group(3)
         if not pname:
             continue
         res = resolve_fk(fk_expr)
         if res is not None:
-            scr = sanctuary_script if helper_name == "SanctuaryObjProp" else default_script
+            if helper_name == "SanctuaryObjProp":
+                scr = sanctuary_script
+            elif helper_name == "CodsworthProp":
+                scr = codsworth_script
+            else:
+                scr = default_script
             bindings.append(VmadPropBinding(cs_rel, scr, pname, res[0], res[1]))
 
     for m in re.finditer(r'\["([A-Za-z_]\w*)"\]\s*=\s*([^,\r\n}]+)', body):
@@ -516,12 +532,16 @@ def _infer_type_from_const_name(const_name: str) -> str:
         return "INFO"
     if "dlbr" in low or "branch" in low:
         return "DLBR"
+    if "scen" in low:
+        return "SCEN"
     if "race" in low:
         return "RACE"
     if "token" in low or "kitid" in low or "coreid" in low or "fanid" in low or "tapeid" in low or "plateid" in low or "canid" in low:
         return "MISC"
     if "pack" in low or "pkg" in low:
         return "PACK"
+    if low.endswith("contid") or "_cont_" in low:
+        return "CONT"
     if "furn" in low or ("frame" in low and "ref" not in low) or ("chair" in low and "ref" not in low):
         return "FURN"
     if "armor" in low or "helm" in low or "bodyid" in low or "piece" in low or "torsoid" in low or "armid" in low or "legid" in low:
@@ -688,6 +708,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x942, "INFO", "FO4SF_Codsworth01_GreetInfo"),
             (0x970, "ACTI", "FO4SF_CodsworthTalkActi"),
             (0x979, "GLOB", "FO4SF_MissionTalkUseMessageBox"),
+            (0x97A, "WEAP", "FO4SF_ConcordRaiderSidearm"),
             # C5: Preston & Concord Raider Fallout 4 outfits / armatures / armors (0x980..0x98A)
             (0x980, "OTFT", "FO4_Outfit_PrestonMinuteman"),
             (0x981, "ARMA", "FO4_AA_PrestonDuster"),
@@ -698,6 +719,13 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x988, "OTFT", "FO4_Outfit_ConcordRaider"),
             (0x989, "ARMA", "FO4_AA_ConcordRaider"),
             (0x98A, "ARMO", "FO4_Armor_ConcordRaider"),
+            # R11 Part 3 (2g-fix2): Repeat post-completion Starfield Scenes hosted on FO4SF_CodsworthKeeper (0x814)
+            (0x990, "SCEN", "FO4SF_PrestonPostScene"),
+            (0x991, "DIAL", "FO4SF_PrestonPostGreetTopic"),
+            (0x992, "INFO", "FO4SF_PrestonPostGreetInfo"),
+            (0x9C0, "SCEN", "FO4SF_CodsworthPostScene"),
+            (0x9C1, "DIAL", "FO4SF_CodsworthPostGreetTopic"),
+            (0x9C2, "INFO", "FO4SF_CodsworthPostGreetInfo"),
             # A4: Sanctuary01 (0x817 in place) + MinRecruit00 (0xA20) + MQ103 (0xA50)
             (0xA00, "NPC_", "FO4_Sturges"),
             (0xA01, "ACHR", "FO4SF_Sanctuary_SturgesREF"),
