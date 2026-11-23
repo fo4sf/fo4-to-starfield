@@ -6,10 +6,13 @@
 //   write <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> <points.json> <out dir> [--plugin FO4SFMission.esm]
 //         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth]
 //         [--codsworth-model <mesh under Meshes>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
-//         [--preston-voice <preston_voice.json>]
+//         [--preston-voice <preston_voice.json>] [--codsworth-handy <Mr. Handy template plugin>]
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth]
 //         [--codsworth-model <mesh>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
-//         [--preston-voice <preston_voice.json>]
+//         [--preston-voice <preston_voice.json>] [--codsworth-handy <Mr. Handy template plugin>]
+// --codsworth-handy: Codsworth's race is a copy of FO4SF_HandyRace (Fallout 4 Mr. Handy skeleton, clips and sub-graphs,
+// built by scripts/probes/stage_ra2_handy.py) with its body part data copied in as FO4SF_CodsworthBodyPartData (0x81A),
+// instead of a copy of the Mini Bot's race; the rig, clips and mesh files come with the template's bundle (make_mission.py).
 //   npcs <plugin.esm> <fo4 | sf> <regex>
 //   quests <Starfield.esm> [faction regex]
 //   infos <Starfield.esm> <regex | wem:hex,hex...>
@@ -46,14 +49,16 @@ try
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
                                                        Mission.ArgOrNull(args, "--preston-voice"),
-                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir"),
+                                                       Mission.ArgOrNull(args, "--codsworth-handy")),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"),
                                                        !args.Contains("--no-codsworth"),
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
                                                        Mission.ArgOrNull(args, "--preston-voice"),
-                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir"),
+                                                       Mission.ArgOrNull(args, "--codsworth-handy")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
@@ -128,6 +133,10 @@ static class Mission
     public const string SanctuaryQuestEdid = "FO4SF_Sanctuary01", SanctuaryScriptName = "FO4SF_Sanctuary01Quest";
     public const uint CodsworthRaceId = 0x818, CodsworthVoiceId = 0x819;
     public const string CodsworthRaceEdid = "FO4SF_CodsworthRace", CodsworthVoiceEdid = "FO4SF_CodsworthVoice";
+    // robot-anim: Codsworth on the converted Mr. Handy body (--codsworth-handy); names in the template plugin.
+    public const uint CodsworthBptdId = 0x81A;
+    public const string CodsworthBptdEdid = "FO4SF_CodsworthBodyPartData";
+    public const string HandyRaceEdid = "FO4SF_HandyRace", HandyBptdEdid = "FO4SF_HandyBodyPartData";
 
     public const uint CodsworthDialId = 0x820, FirstCodsworthInfoId = 0x821;
     public const string CodsworthDialEdid = "FO4SF_CodsworthHellos";
@@ -952,7 +961,7 @@ static class Mission
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
                             string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null,
                             string? codsworthVoice = null, string? codsworthMqVoice = null, string? prestonVoicePath = null,
-                            string? actorLooksDir = null)
+                            string? actorLooksDir = null, string? codsworthHandy = null)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
@@ -1080,6 +1089,8 @@ static class Mission
 
             // 2h: Dialogue-capable duplicate Race (AllowPcDialog) + custom VoiceType (AllowDefaultDialog)
             var codsRace = (SF.Race)baseBotRace.Duplicate(new FormKey(modKey, CodsworthRaceId));
+            if (codsworthHandy is not null)
+                codsRace = HandyCodsworthRace(codsworthHandy, mod, baseBotRace);
             codsRace.EditorID = CodsworthRaceEdid;
             codsRace.Flags |= SF.Race.Flag.AllowPcDialog;
             codsRace.ArmorRace.SetTo(baseBotRace.FormKey);
@@ -1632,6 +1643,34 @@ static class Mission
         return $"{c.Data.GetType().Name.Replace("BinaryOverlay", "")} {c.Data.RunOnType} {c.CompareOperator} {(c as SF.IConditionFloatGetter)?.ComparisonValue} {c.Flags} {param}";
     }
 
+    /// <summary>robot-anim: Codsworth's race as a copy of the template plugin's FO4SF_HandyRace (Fallout 4 Mr. Handy skeleton,
+    /// rig, clip folders, sub-graphs, ZNAM bones), with the template's FO4SF_HandyBodyPartData copied in as
+    /// FO4SF_CodsworthBodyPartData (0x81A). The race's default skin stays the Mini Bot's (Codsworth wears his own skin).
+    /// Refuses when any link into the template plugin is left, so the template never becomes a master.</summary>
+    public static SF.Race HandyCodsworthRace(string templatePath, SF.StarfieldMod mod, SF.IRaceGetter baseBotRace)
+    {
+        if (!File.Exists(templatePath)) throw new Refusal($"--codsworth-handy {templatePath} does not exist");
+        using var tpl = SF.StarfieldMod.CreateFromBinaryOverlay(templatePath, SF.StarfieldRelease.Starfield, Styles(SfEsm));
+        var name = Path.GetFileName(templatePath);
+        var hr = tpl.Races.FirstOrDefault(r => r.EditorID == HandyRaceEdid)
+                 ?? throw new Refusal($"{name} has no RACE {HandyRaceEdid}");
+        var hb = tpl.BodyParts.FirstOrDefault(b => b.EditorID == HandyBptdEdid)
+                 ?? throw new Refusal($"{name} has no BPTD {HandyBptdEdid}");
+        if (hr.BodyPartData.FormKey != hb.FormKey)
+            throw new Refusal($"{name}: {HandyRaceEdid} does not use {HandyBptdEdid}");
+        var bptd = (SF.BodyPartData)hb.Duplicate(new FormKey(mod.ModKey, CodsworthBptdId));
+        bptd.EditorID = CodsworthBptdEdid;
+        mod.BodyParts.Add(bptd);
+        var race = (SF.Race)hr.Duplicate(new FormKey(mod.ModKey, CodsworthRaceId));
+        race.BodyPartData.SetTo(bptd.FormKey);
+        race.Skin.SetTo(baseBotRace.Skin.FormKeyNullable);
+        var stray = race.EnumerateFormLinks().Concat(bptd.EnumerateFormLinks())
+                        .Where(l => l.FormKey.ModKey == tpl.ModKey).Select(l => l.FormKey.ToString()).Distinct().ToList();
+        if (stray.Count > 0)
+            throw new Refusal($"{name}: links into the template left after the copy: {string.Join(", ", stray)}");
+        return race;
+    }
+
     public static string ModelPath(string vanilla, string rel)
     {
         rel = rel.Replace('/', '\\').TrimStart('\\');
@@ -1641,7 +1680,7 @@ static class Mission
 
     public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true,
                             string? codsworthModel = null, string? codsworthVoice = null, string? codsworthMqVoice = null,
-                            string? prestonVoicePath = null, string? actorLooksDir = null)
+                            string? prestonVoicePath = null, string? actorLooksDir = null, string? codsworthHandy = null)
     {
         using var m = Open(sfPath, corePath, raiderPath);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
@@ -1765,6 +1804,22 @@ static class Mission
             Need(codsRace is { EditorID: CodsworthRaceEdid } && codsRace.Flags.HasFlag(SF.Race.Flag.AllowPcDialog) &&
                  cods?.Race.FormKey == codsRace.FormKey,
                  $"Codsworth lacks local RACE {CodsworthRaceEdid} (0x{CodsworthRaceId:X}) with AllowPcDialog");
+            var codsBptd = plug.BodyParts.FirstOrDefault(b => b.FormKey == new FormKey(key, CodsworthBptdId));
+            if (codsworthHandy is not null)
+            {
+                using var tpl = SF.StarfieldMod.CreateFromBinaryOverlay(codsworthHandy, SF.StarfieldRelease.Starfield, Styles(SfEsm));
+                var hr = tpl.Races.FirstOrDefault(r => r.EditorID == HandyRaceEdid);
+                Need(codsBptd is { EditorID: CodsworthBptdEdid } && codsRace?.BodyPartData.FormKey == codsBptd.FormKey,
+                     $"robot-anim: {CodsworthRaceEdid} does not use local BPTD {CodsworthBptdEdid} (0x{CodsworthBptdId:X})");
+                Need(hr is not null && codsRace is not null && (hr.Flags | SF.Race.Flag.AllowPcDialog) == codsRace.Flags &&
+                     hr.Name?.String == codsRace.Name?.String,
+                     $"robot-anim: {CodsworthRaceEdid} is not a copy of the template's {HandyRaceEdid}");
+                Need(codsRace is not null && !codsRace.EnumerateFormLinks().Any(l => l.FormKey.ModKey == tpl.ModKey) &&
+                     !plug.ModHeader.MasterReferences.Any(x => x.Master == tpl.ModKey),
+                     $"robot-anim: {Plugin} links into {tpl.ModKey}");
+            }
+            else
+                Need(codsBptd is null && plug.BodyParts.Count == 0, "a build without --codsworth-handy carries body part data");
             Need(codsVoice is { EditorID: CodsworthVoiceEdid } && codsVoice.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog) &&
                  cods?.Voice.FormKey == codsVoice.FormKey,
                  $"Codsworth lacks local VTYP {CodsworthVoiceEdid} (0x{CodsworthVoiceId:X}) with AllowDefaultDialog");

@@ -523,5 +523,14 @@ given by=codsworth`, zero `fallback` lines. The Starfield dialogue camera framed
 earlier view from under the welded Mini Bot is gone); it is close, and his greeting still replays after each choice
 as on main.
 
-Next: make this the build (Codsworth's race and mesh from the converter, the Handy files in the mission's archive);
-check whether the manifests are needed; then the other robots and creatures in first-mission order.
+**In the build (`make_mission.py stage --codsworth-handy <bundle>`).** The bundle is a `stage_ra2_handy.py build`
+output (E2 is the tested one). `make_mission.py` copies only the Handy files from its `Data` (mesh, geometry, skeleton,
+rig, 116 clip files, the manifests of the race's own two sub-graph keys, and the sub-graph text renamed
+`fo4sf_codsworthrace.txt`; the Mini Bot test files stay out) and passes the bundle's plugin to `dotnet/Mission`, which
+makes `FO4SF_CodsworthRace` (0x818) a copy of its `FO4SF_HandyRace` and copies its body part data in as
+`FO4SF_CodsworthBodyPartData` (0x81A), keeping AllowPcDialog and the Mini Bot armor race; Codsworth's armature points at
+`FO4SF\Actors\Handy\handy.nif`. The template never becomes a master (the check refuses any link left into it). A build
+on 23 Nov matched the records tested in game subrecord for subrecord, apart from the race's name text, its default skin
+(the Mini Bot's, as on main; Codsworth wears his own) and the local ids. Without the option the build is unchanged.
+
+Next: check whether the manifests are needed; then the other robots and creatures in first-mission order.

@@ -78,6 +78,14 @@ ALL_SCRIPTS = (
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
+# robot-anim (--codsworth-handy): the Mr. Handy bundle of scripts/probes/stage_ra2_handy.py. Its plugin is the race
+# template for dotnet/Mission; its Data holds the rig, clips, manifests, skeleton and mesh.
+HANDY_TEMPLATE = "FO4SF_RA2Handy.esm"
+HANDY_MESH = "FO4SF\\Actors\\Handy\\handy.nif"
+HANDY_RACE_EDID = "FO4SF_HandyRace"
+CODSWORTH_RACE_EDID = "FO4SF_CodsworthRace"
+HANDY_DIRS = ("geometries/", "meshes/actors/fo4sf/handy/", "meshes/fo4sf/actors/handy/")
+HANDY_MANIFEST_DIRS = ("AnimationFileData", "AnimationOffsets", "AnimationStanceData", "DynamicIdleData")
 # Codsworth carries his own VTYP FO4SF_CodsworthVoice (0x819, AllowDefaultDialog) so Starfield resolves his .wem files here:
 VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/fo4sf_codsworthvoice"
 # Preston uses Starfield.esm GenericMaleEvenToned (AllowDefaultDialog), resolved under FO4SFMission.esm's voice folder:
@@ -558,6 +566,12 @@ def stage(a):
                 sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
             assets = set(copy_assets(a.codsworth_assets, os.path.join(out, "Data")))
             cods = ["--codsworth-model", CODSWORTH_MESH]
+        if getattr(a, "codsworth_handy", None):
+            if not a.codsworth:
+                sys.exit("--codsworth-handy needs Codsworth (drop --no-codsworth)")
+            template, handy_copied = copy_handy_bundle(a.codsworth_handy, os.path.join(out, "Data"))
+            assets |= set(handy_copied)
+            cods = ["--codsworth-model", HANDY_MESH, "--codsworth-handy", template]
 
         has_explicit_voice = bool(getattr(a, "codsworth_voice", None))
         if has_explicit_voice:
@@ -698,6 +712,57 @@ def copy_assets(src, data):
                 shutil.copy2(os.path.join(src, rel), dst)
                 copied.append(rel_slash)
     return copied
+
+
+def handy_bundle_files(src):
+    """robot-anim: {path under the bundle's Data: path under the mission's Data} for Codsworth on the Mr. Handy body.
+    Takes the Handy mesh, skeleton, rig, clips and geometry, the manifests of the template race's own sub-graph keys, and
+    its generated sub-graph text renamed for FO4SF_CodsworthRace. Leaves the bundle's Mini Bot test files out."""
+    from fo4sf import handy_race as hr
+    from fo4sf.planet import esm
+    template = os.path.join(src, HANDY_TEMPLATE)
+    root = os.path.join(src, "Data")
+    if not os.path.isfile(template) or not os.path.isdir(root):
+        sys.exit(f"--codsworth-handy {src} is not a stage_ra2_handy.py bundle ({HANDY_TEMPLATE} and Data\\)")
+    with esm.Plugin(template) as p:
+        race = next((r for r in p.records("RACE") if r.edid == HANDY_RACE_EDID), None)
+    if race is None:
+        sys.exit(f"--codsworth-handy: {HANDY_TEMPLATE} has no RACE {HANDY_RACE_EDID}")
+    keys = {f"{hr.manifest_key(g, f)}.txt" for g, f in hr.race_subgraph_sets(race)}
+    gsd = f"meshes/animtextdata/generatedsubgraphdata/{HANDY_RACE_EDID.lower()}.txt"
+    out = {}
+    for dirpath, _, files in os.walk(root):
+        for name in files:
+            rel = os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/")
+            low = rel.lower()
+            parts = low.split("/")
+            if low == gsd:
+                out[rel] = "meshes/AnimTextData/GeneratedSubgraphData/" + CODSWORTH_RACE_EDID.lower() + ".txt"
+            elif low.startswith(HANDY_DIRS):
+                out[rel] = rel
+            elif (len(parts) == 4 and parts[:2] == ["meshes", "animtextdata"] and
+                  parts[2] in {d.lower() for d in HANDY_MANIFEST_DIRS} and name in keys):
+                out[rel] = rel
+    mesh = "meshes/" + HANDY_MESH.replace("\\", "/").lower()
+    if not any(v.lower() == mesh for v in out.values()):
+        sys.exit(f"--codsworth-handy: the bundle has no Data\\meshes\\{HANDY_MESH}")
+    if gsd not in {k.lower() for k in out}:
+        sys.exit(f"--codsworth-handy: the bundle has no generated sub-graph text for {HANDY_RACE_EDID}")
+    return template, out
+
+
+def copy_handy_bundle(src, data):
+    """Copies handy_bundle_files() into data; refuses to overwrite. Returns (template plugin, copied paths under data)."""
+    template, files = handy_bundle_files(src)
+    copied = []
+    for rel, out_rel in sorted(files.items()):
+        dst = os.path.join(data, *out_rel.split("/"))
+        if os.path.exists(dst):
+            sys.exit(f"--codsworth-handy would overwrite Data/{out_rel}")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(src, "Data", *rel.split("/")), dst)
+        copied.append(out_rel)
+    return template, copied
 
 
 def copy_actor_looks_assets(src, data):
@@ -1163,6 +1228,9 @@ def main(argv=None):
                    help="a codsworth_voice.py output folder (lines.tsv, wem): his Hello lines and their .wem files")
     s.add_argument("--codsworth-assets", default=None,
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
+    s.add_argument("--codsworth-handy", default=None,
+                   help="a scripts/probes/stage_ra2_handy.py bundle: Codsworth on the Mr. Handy body with his Fallout 4 "
+                        "skeleton and animations (race and body parts from its plugin, files from its Data)")
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
     g = sub.add_parser("log")
