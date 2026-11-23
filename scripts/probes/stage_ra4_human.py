@@ -34,6 +34,7 @@ import re
 import shutil
 import struct
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -108,6 +109,60 @@ FOLEY_LEAD = 3           # vanilla foley sits 3 frames before FootLeft / FootRig
 P3_FORBIDDEN_RE = re.compile(r"[mnvMNV]")
 
 
+@dataclass(frozen=True)
+class Variant:
+    """Everything that differs between probe bundles (names never collide, so two variants cannot overwrite each
+    other's files; install refuses while another variant is installed)."""
+    name: str
+    out: Path
+    probe: str
+    plugin: str
+    main_ba2: str
+    receipt: str
+    edids: Dict[int, str]
+    npc_names: Dict[int, str]
+    bats: Dict[str, tuple]
+    folder: str                  # our MT clip folder (first SAPT of the row)
+    clips: tuple
+    package: int                 # the single AI package both test NPCs get
+    package_note: str
+    description: str
+    backup: str
+
+    @property
+    def keyword(self) -> str:
+        return self.edids[F_KYWD]
+
+
+RA4 = Variant("ra4", OUT, PROBE, PLUGIN, MAIN_BA2, RECEIPT, EDIDS, NPC_NAMES, BATS, OUR_MT_FOLDER, CLIPS,
+              FOLLOW_PACKAGE, "the NPCs follow the player (walk, jog, run to keep up)",
+              "RA4 Human probe (FO4 human clips on HumanRace)", "backup_pre_ra4")
+
+# RA4b (diagnostic, 23 Nov evening): in game the RA4 NPCs did not follow and the two idles looked alike. Its own
+# names everywhere; the standing idle becomes Fallout 4's hands-up (surrender) idle and the walk Fallout 4's limp
+# (injured left leg), so one look tells whether the add-on row is used; both NPCs sandbox near where they stand.
+SANDBOX_PACKAGE = 0x00089605      # DefaultSandboxCurrentLocation: Sandbox template 00002CB1, location "near self" 6.25 m
+RA4B_EDIDS = {F_KYWD: "FO4SF_AnimArchetypeFO4b", F_RACE_ADD: "FO4SF_RA4bHumanAddRace",
+              F_NPC_FO4: "FO4SF_RA4bHumanClipTest", F_NPC_CTRL: "FO4SF_RA4bHumanControl"}
+RA4B_NAMES = {F_NPC_FO4: "FO4 Clip Test B", F_NPC_CTRL: "Starfield Clip Test B"}
+RA4B = Variant(
+    "ra4b", OUT.parent / "RA4b", "ra4b-human", "FO4SF_RA4bHuman.esm", "FO4SF_RA4bHuman - Main.ba2",
+    "FO4SF_RA4bHuman.install.json", RA4B_EDIDS, RA4B_NAMES,
+    {"ra4ba.txt": ((F_NPC_FO4,), "FO4 Clip Test B: keyword NPC; stands with both hands raised (Fallout 4 surrender idle) "
+                                 "and limps (Fallout 4 injured walk) if the add-on row is used"),
+     "ra4bc.txt": ((F_NPC_CTRL,), "Starfield Clip Test B: the same NPC without the keyword (vanilla clips, control)"),
+     "ra4bac.txt": ((F_NPC_FO4, F_NPC_CTRL), "both side by side")},
+    "Actors\\FO4SF\\Human\\RA4b\\Animations\\Melee\\Unarmed",
+    (("mt\\neutral\\handsup\\posea_idle1.hkx", "melee\\unarmed\\relaxed_idle", "mt"),
+     ("mt\\injured\\left\\walkforward.hkx", "melee\\unarmed\\relaxed_walkforward", "mt"),
+     ("mt\\neutral\\jogforward.hkx", "melee\\unarmed\\jogforward", "mt"),
+     ("mt\\neutral\\runforward.hkx", "melee\\unarmed\\runforward", "mt"),
+     ("weapon\\pistol\\wpnidleready.hkx", "gun\\grippistol\\ready_idle", "pistol")),
+    SANDBOX_PACKAGE, "the NPCs sandbox within about 6 m of where they spawned (stroll, stop, stroll)",
+    "RA4b Human probe (diagnostic: FO4 hands-up idle and limp)", "backup_pre_ra4b")
+VARIANTS = {v.name: v for v in (RA4, RA4B)}
+
+
 class Ra4Error(ValueError):
     pass
 
@@ -139,16 +194,18 @@ def locomotion_events(skel: hrt.Skel, frames, clip: hrt.Fo4Clip) -> Tuple[list, 
         if text in ("FootLeft", "FootRight"):
             feet[text[4:]] = int(round(t * hrt.FPS)) % cyc
     inplace = [[((0.0, 0.0, 0.0), hrt.IDENTITY)] + list(fr[1:]) for fr in frames]
-    sync = {}
-    for side, foot in (("Left", "L_Foot"), ("Right", "R_Foot")):
-        mids = hrt.passes_under_hips(skel, inplace, foot, ("L_Thigh", "R_Thigh"))
-        if not mids:
-            raise Ra4Error(f"{side} foot never passes under the hips")
-        sync[side] = (mids[0] + int(round(SYNC_LAG * cyc))) % cyc
     if set(feet) != {"Left", "Right"}:
         raise Ra4Error(f"Fallout 4 foot annotations missing: {clip.events}")
+    sync, fallback = {}, []
+    for side, foot in (("Left", "L_Foot"), ("Right", "R_Foot")):
+        mids = hrt.passes_under_hips(skel, inplace, foot, ("L_Thigh", "R_Thigh"))
+        if mids:
+            sync[side] = (mids[0] + int(round(SYNC_LAG * cyc))) % cyc
+        else:       # a limp's short step never passes under the hips: a quarter cycle after the strike (vanilla walk)
+            sync[side] = (feet[side] + int(round(0.25 * cyc))) % cyc
+            fallback.append(side)
     events = afx_events(n, feet, sync)
-    return events, [], {"feet": feet, "sync": sync}
+    return events, [], {"feet": feet, "sync": sync, "sync_quarter_cycle_fallback": fallback}
 
 
 # =============================================================================================== records
@@ -246,12 +303,13 @@ def gsd_row(keyword: str, graph: str, folders: Sequence[str]) -> bytes:
 
 
 # =============================================================================================== batch files
-def build_bats(slot: Optional[int] = None) -> Dict[str, str]:
+def build_bats(slot: Optional[int] = None, v: "Variant" = None) -> Dict[str, str]:
+    v = v or RA4
     pre = "XX" if slot is None else f"{slot & 0xFF:02X}"
     out = {}
-    for fname, (fids, what) in BATS.items():
-        lines = [f"; RA4 Human probe: {what}",
-                 "; spawns beside the player; the NPCs follow the player (walk, jog, run to keep up)"]
+    for fname, (fids, what) in v.bats.items():
+        lines = [f"; {v.name.upper()} Human probe: {what}",
+                 f"; spawns beside the player; {v.package_note}"]
         lines += [f"player.placeatme {pre}{fid:06X} 1" for fid in fids]
         out[fname] = "\n".join(lines) + "\n"
     ra2.validate_bats(out)
@@ -270,10 +328,11 @@ def _read(sfa: Ba2, low: Dict[str, str], rel: str) -> bytes:
     return sfa.read(sfa.find(n))
 
 
-def build(out: Path = OUT, starfield_dir: Path = STARFIELD_DIR, fo4_data: Path = FO4_DATA, dll: Optional[str] = None) -> dict:
-    out = ra2.check_out_dir(out)
-    if "fo4sf-owner-tests" in os.path.normcase(str(out)) and os.path.normcase(str(out)) != os.path.normcase(str(OUT)):
-        raise Ra4Error(f"{out}: under D:\\FO4SF-Owner-Tests only {OUT} may be written")
+def build(out: Optional[Path] = None, starfield_dir: Path = STARFIELD_DIR, fo4_data: Path = FO4_DATA,
+          dll: Optional[str] = None, v: Variant = RA4) -> dict:
+    out = ra2.check_out_dir(out or v.out)
+    if "fo4sf-owner-tests" in os.path.normcase(str(out)) and os.path.normcase(str(out)) != os.path.normcase(str(v.out)):
+        raise Ra4Error(f"{out}: under D:\\FO4SF-Owner-Tests only {v.out} may be written")
     sf_data = starfield_dir / "Data"
     for sub in ("Data", "work", "bat"):
         if (out / sub).exists():
@@ -305,13 +364,13 @@ def build(out: Path = OUT, starfield_dir: Path = STARFIELD_DIR, fo4_data: Path =
         "fo4_skeleton": {"path": hrt.FO4_HUMAN_SKELETON, "bones": len(fo4.names)}}
 
     # ---------------------------------------------------------------- clips
-    clip_dir = data / "Meshes" / Path(*OUR_MT_FOLDER.split("\\"))
+    clip_dir = data / "Meshes" / Path(*v.folder.split("\\"))
     clip_dir.mkdir(parents=True, exist_ok=True)
     pistol_dir = work / "pistol"
     pistol_dir.mkdir()
     six = sf.index()
     clips_rep, our_paths = [], []
-    for fo4_rel, sf_rel, kind in CLIPS:
+    for fo4_rel, sf_rel, kind in v.clips:
         clip = hrt.decode_fo4_clip(fo4a.read(fo4a.find(FO4_ANIMS + fo4_rel)), fo4)
         v_bones, v_frames = vanilla_local(cal, rig_path, _read(sfa, low, SF_ANIMS + sf_rel + ".af"), work,
                                           "vanilla_" + sf_rel.replace("\\", "_"))
@@ -372,11 +431,11 @@ def build(out: Path = OUT, starfield_dir: Path = STARFIELD_DIR, fo4_data: Path =
             "event_rule": ev_rep, "leg_ik_unreached_max_m": round(max(rt.ik_miss or [0.0]), 5),
             "readback_vs_written": rb_err, "fk_vs_fo4": metrics, **extra_rep})
         if kind == "mt":
-            our_paths.append(OUR_MT_FOLDER + "\\" + afx_info["filename"])
+            our_paths.append(v.folder + "\\" + afx_info["filename"])
     report["clips"] = clips_rep
 
     # ---------------------------------------------------------------- manifests
-    folders = (OUR_MT_FOLDER,) + VANILLA_MT_FOLDERS
+    folders = (v.folder,) + VANILLA_MT_FOLDERS
     key_default = hr.manifest_key(MT_GRAPH, VANILLA_MT_FOLDERS)
     key = hr.manifest_key(MT_GRAPH, folders)
     base = "meshes\\animtextdata\\"
@@ -391,7 +450,7 @@ def build(out: Path = OUT, starfield_dir: Path = STARFIELD_DIR, fo4_data: Path =
     for kind_dir, out_dir in (("animationoffsets", "AnimationOffsets"), ("animationstancedata", "AnimationStanceData"),
                               ("dynamicidledata", "DynamicIdleData")):
         files[f"Meshes\\AnimTextData\\{out_dir}\\{key}.txt"] = _read(sfa, low, base + f"{kind_dir}\\{key_default}.txt")
-    files[f"Meshes\\AnimTextData\\GeneratedSubgraphData\\{EDIDS[F_RACE_ADD].lower()}.txt"] = gsd_row(KEYWORD, MT_GRAPH, folders)
+    files[f"Meshes\\AnimTextData\\GeneratedSubgraphData\\{v.edids[F_RACE_ADD].lower()}.txt"] = gsd_row(v.keyword, MT_GRAPH, folders)
     hr.write_files(files, str(data))
     report["manifests"] = {"key": str(key), "graph": MT_GRAPH, "folders": list(folders),
                            "default_key": str(key_default), "clips_listed": len(new_list), "shadowed": shadowed,
@@ -406,19 +465,19 @@ def build(out: Path = OUT, starfield_dir: Path = STARFIELD_DIR, fo4_data: Path =
         group_order = list(p.groups)
         tpl_kw = next(r for r in p.records("KYWD") if r.formid == TEMPLATE_KEYWORD)
         tpl_npc = next(r for r in p.records("NPC_") if r.formid == TEMPLATE_NPC)
-        if not any(r.formid == FOLLOW_PACKAGE for r in p.records("PACK")):
+        if not any(r.formid == v.package for r in p.records("PACK")):
             raise Ra4Error("follow package not found")
     row = row_subrecords([own(F_KYWD)], [], MT_GRAPH, folders, ROW_SRAF_MT_KEYWORD)
-    recs = [keyword_record(tpl_kw, own(F_KYWD), KEYWORD),
-            addon_race(tpl_race, own(F_RACE_ADD), EDIDS[F_RACE_ADD], "FO4SF RA4 Human add-on", [row])]
+    recs = [keyword_record(tpl_kw, own(F_KYWD), v.keyword),
+            addon_race(tpl_race, own(F_RACE_ADD), v.edids[F_RACE_ADD], f"FO4SF {v.name.upper()} Human add-on", [row])]
     npc_rep = {}
     for fid, kws in ((F_NPC_FO4, [own(F_KYWD)]), (F_NPC_CTRL, [])):
-        r, rep = test_npc(tpl_npc, own(fid), EDIDS[fid], NPC_NAMES[fid], kws, FOLLOW_PACKAGE)
+        r, rep = test_npc(tpl_npc, own(fid), v.edids[fid], v.npc_names[fid], kws, v.package)
         recs.append(r)
-        npc_rep[EDIDS[fid]] = rep
-    (out / PLUGIN).write_bytes(ra2.plugin_bytes(recs, ["Starfield.esm"], group_order,
-                                                description="RA4 Human probe (FO4 human clips on HumanRace)"))
-    report["plugin"] = {"file": PLUGIN, "records": {f"{r.formid:08X}": f"{r.sig.decode()} {r.edid}" for r in recs},
+        npc_rep[v.edids[fid]] = rep
+    (out / v.plugin).write_bytes(ra2.plugin_bytes(recs, ["Starfield.esm"], group_order,
+                                                description=v.description))
+    report["plugin"] = {"file": v.plugin, "records": {f"{r.formid:08X}": f"{r.sig.decode()} {r.edid}" for r in recs},
                         "npc_edits": npc_rep, "npc_template": f"{TEMPLATE_NPC:08X} {tpl_npc.edid}",
                         "race_template": f"SFBGS003.esm {tpl_race.formid:08X} {SFBGS003_RACE_EDID}",
                         "race_subrecords": len(recs[1].subs), "row": [(s.decode(), d.hex() if len(d) == 4 else esm.zstring(d))
@@ -427,19 +486,19 @@ def build(out: Path = OUT, starfield_dir: Path = STARFIELD_DIR, fo4_data: Path =
     # ---------------------------------------------------------------- archive, batch files, manifest
     loose = sorted(p for p in data.rglob("*") if p.is_file())
     report["ba2"] = ra2.pack_gnrl_ba2_v2([(str(p.relative_to(data)).replace("/", "\\"), p.read_bytes()) for p in loose],
-                                         out / MAIN_BA2, starfield_dir)
+                                         out / v.main_ba2, starfield_dir)
     bat_dir = out / "bat"
     bat_dir.mkdir(exist_ok=True)
-    for f, text in build_bats().items():
+    for f, text in build_bats(v=v).items():
         (bat_dir / f).write_text(text, encoding="utf-8")
-    manifest = {"probe": PROBE, "plugin": PLUGIN, "ba2": MAIN_BA2, "form_ids_local": {EDIDS[k]: f"{k:06X}" for k in EDIDS},
+    manifest = {"probe": v.probe, "plugin": v.plugin, "ba2": v.main_ba2, "form_ids_local": {v.edids[k]: f"{k:06X}" for k in v.edids},
                 "files": {}, "data_files": {}}
-    for p in [out / PLUGIN, out / MAIN_BA2] + sorted(bat_dir.glob("*.txt")):
+    for p in [out / v.plugin, out / v.main_ba2] + sorted(bat_dir.glob("*.txt")):
         manifest["files"][str(p.relative_to(out)).replace("/", "\\")] = {"sha256": ra2.sha256_file(p), "size_bytes": p.stat().st_size}
     for p in loose:
         manifest["data_files"][str(p.relative_to(data)).replace("/", "\\")] = {"sha256": ra2.sha256_file(p), "size_bytes": p.stat().st_size}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
-    report["verify"] = verify(out, dll=dll)
+    report["verify"] = verify(out, dll=dll, v=v)
     (out / "report.json").write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
     (out / "REPORT.md").write_text(report_md(report, manifest), encoding="utf-8")
     return report
@@ -471,7 +530,7 @@ def barrel_check(rt: hrt.Retargeter, clip: hrt.Fo4Clip, sf_frames) -> dict:
 
 
 def report_md(rep: dict, manifest: dict) -> str:
-    L = ["# RA4 Human probe bundle", "",
+    L = [f"# {manifest['probe']} probe bundle ({manifest['plugin']})", "",
          "Built by `scripts/probes/stage_ra4_human.py build` (worktree claude-human-anim). Nothing here was run in the "
          "game.", "", "## Files and SHA-256", "", "| file | bytes | SHA-256 |", "|---|---|---|"]
     for f, m in manifest["files"].items():
@@ -495,19 +554,19 @@ def report_md(rep: dict, manifest: dict) -> str:
 
 
 # =============================================================================================== verify
-def verify(stage: Path = OUT, dll: Optional[str] = None) -> dict:
-    stage = Path(stage)
+def verify(stage: Optional[Path] = None, dll: Optional[str] = None, v: Variant = RA4) -> dict:
+    stage = Path(stage or v.out)
     man = json.loads((stage / "manifest.json").read_text(encoding="utf-8"))
     for rel, meta in man["files"].items():
         p = stage / rel
         if not p.is_file() or ra2.sha256_file(p) != meta["sha256"]:
             raise Ra4Error(f"staged file missing or changed: {rel}")
-    entries = ra2.verify_ba2_entry_hashes(stage / MAIN_BA2)
-    arc = Ba2(str(stage / MAIN_BA2))
+    entries = ra2.verify_ba2_entry_hashes(stage / v.main_ba2)
+    arc = Ba2(str(stage / v.main_ba2))
     for rel, meta in man["data_files"].items():
         if hashlib.sha256(arc.read(rel)).hexdigest() != meta["sha256"]:
-            raise Ra4Error(f"{MAIN_BA2}: {rel} differs from the staged loose file")
-    with esm.Plugin(str(stage / PLUGIN)) as p:
+            raise Ra4Error(f"{v.main_ba2}: {rel} differs from the staged loose file")
+    with esm.Plugin(str(stage / v.plugin)) as p:
         if p.masters != ["Starfield.esm"]:
             raise Ra4Error(f"masters {p.masters}")
         recs = {}
@@ -517,7 +576,7 @@ def verify(stage: Path = OUT, dll: Optional[str] = None) -> dict:
                     if item[0] == "REC":
                         r = p.record_at(item[1])
                         recs[r.formid] = r
-    want = {(1 << 24) | k: v for k, v in EDIDS.items()}
+    want = {(1 << 24) | k: e for k, e in v.edids.items()}
     got = {fid: r.edid for fid, r in recs.items()}
     if got != want:
         raise Ra4Error(f"plugin records {got} != {want}")
@@ -543,14 +602,16 @@ def verify(stage: Path = OUT, dll: Optional[str] = None) -> dict:
     for fid in (F_NPC_FO4, F_NPC_CTRL):
         r = recs[(1 << 24) | fid]
         kd = r.get(b"KWDA") or b""
-        npc_kw[EDIDS[fid]] = [f"{struct.unpack_from('<I', kd, i)[0]:08X}" for i in range(0, len(kd), 4)]
+        npc_kw[v.edids[fid]] = [f"{struct.unpack_from('<I', kd, i)[0]:08X}" for i in range(0, len(kd), 4)]
         if struct.unpack("<I", r.get(b"RNAM"))[0] != HUMAN_RACE:
             raise Ra4Error(f"{r.edid} is not on HumanRace")
-    if npc_kw[EDIDS[F_NPC_FO4]] != [f"{(1 << 24) | F_KYWD:08X}"] or npc_kw[EDIDS[F_NPC_CTRL]]:
+        if r.all(b"PKID") != [struct.pack("<I", v.package)]:
+            raise Ra4Error(f"{r.edid} packages {[d.hex() for d in r.all(b'PKID')]}, want {v.package:08X}")
+    if npc_kw[v.edids[F_NPC_FO4]] != [f"{(1 << 24) | F_KYWD:08X}"] or npc_kw[v.edids[F_NPC_CTRL]]:
         raise Ra4Error(f"test NPC keywords {npc_kw}")
     bats = {p.name: p.read_text(encoding="utf-8") for p in sorted((stage / "bat").glob("*.txt"))}
     p3 = ra2.validate_bats(bats)
-    if sorted(bats) != sorted(BATS):
+    if sorted(bats) != sorted(v.bats):
         raise Ra4Error(f"batch files {sorted(bats)}")
     rig_bones = None
     if aa.find_dll(dll):
@@ -563,30 +624,33 @@ def verify(stage: Path = OUT, dll: Optional[str] = None) -> dict:
             if h["bones"] != n_clip or h["version"] != aa.AF_VERSION or h["kind"] != aa.AF_KIND_FULL:
                 raise Ra4Error(f"{x}: header {h}")
     return {"staged_files": len(man["files"]), "ba2_entries": entries, "data_files_in_ba2": len(man["data_files"]),
-            "records": {f"{k:08X}": v for k, v in sorted(got.items())}, "row_key": str(key), "row_folders": rows,
+            "records": {f"{k:08X}": e for k, e in sorted(got.items())}, "row_key": str(key), "row_folders": rows,
             "our_clips_listed": ours, "npc_keywords": npc_kw, "rig_bones": rig_bones, "bats": p3}
 
 
 # =============================================================================================== install / uninstall
 def install(stage: Path, starfield_dir: Path, plugins_txt: Optional[Path] = None,
-            min_free_gb: float = DEFAULT_MIN_FREE_GB, check_running=True) -> dict:
+            min_free_gb: float = DEFAULT_MIN_FREE_GB, check_running=True, v: Variant = RA4) -> dict:
     """Copy the plugin and its BA2 into Data, append *FO4SF_RA4Human.esm to Plugins.txt (original kept in
     <stage>\\backup_pre_ra4), write the batch files stamped with the real load-order slot into the game folder and a
     receipt. Refuses to overwrite anything. (Mirrors stage_ra2_handy.install.)"""
     if check_running:
         ra2.check_starfield_not_running()
-    verify(stage)
+    verify(stage, v=v)
     ra2.check_free_space_gb(starfield_dir, min_free_gb)
     data = starfield_dir / "Data"
     if not data.is_dir():
         raise Ra4Error(f"no Data folder in {starfield_dir}")
-    receipt_path = data / RECEIPT
+    receipt_path = data / v.receipt
     if receipt_path.exists():
         raise Ra4Error(f"already installed ({receipt_path}); uninstall first")
+    others = [o.receipt for o in VARIANTS.values() if o.name != v.name and (data / o.receipt).exists()]
+    if others:
+        raise Ra4Error(f"another variant is installed ({others}); uninstall it first")
     ptxt = plugins_txt or ra2._default_plugins_txt()
     orig = ptxt.read_bytes() if ptxt.is_file() else None
     lines = orig.decode("utf-8-sig").splitlines() if orig is not None else []
-    backup = stage / "backup_pre_ra4"
+    backup = stage / v.backup
     if backup.exists() and any(backup.iterdir()):
         raise Ra4Error(f"non-empty backup folder {backup}; inspect or uninstall first")
     backup.mkdir(parents=True, exist_ok=True)
@@ -594,17 +658,17 @@ def install(stage: Path, starfield_dir: Path, plugins_txt: Optional[Path] = None
         (backup / "Plugins.txt").write_bytes(orig)
     added, bats = [], []
     try:
-        for name in (PLUGIN, MAIN_BA2):
+        for name in (v.plugin, v.main_ba2):
             dst = data / name
             if dst.exists():
                 raise Ra4Error(f"refusing to overwrite {dst}")
             shutil.copy2(stage / name, dst)
             added.append({"name": name, "sha256": ra2.sha256_file(dst)})
         low = {ln.strip().lstrip("*").casefold() for ln in lines if ln.strip()}
-        appended = [] if PLUGIN.casefold() in low else [f"*{PLUGIN}"]
+        appended = [] if v.plugin.casefold() in low else [f"*{v.plugin}"]
         new_lines = lines + appended
-        slot = ra2.full_master_slot(data, new_lines, target=PLUGIN)
-        for f, text in build_bats(slot).items():
+        slot = ra2.full_master_slot(data, new_lines, target=v.plugin)
+        for f, text in build_bats(slot, v).items():
             dst = starfield_dir / f
             if dst.exists():
                 raise Ra4Error(f"refusing to overwrite {dst}")
@@ -612,10 +676,10 @@ def install(stage: Path, starfield_dir: Path, plugins_txt: Optional[Path] = None
             bats.append({"name": f, "sha256": ra2.sha256_file(dst)})
         ptxt.parent.mkdir(parents=True, exist_ok=True)
         ptxt.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-        receipt = {"probe": PROBE, "stage_dir": str(stage), "backup_dir": str(backup), "plugins_txt": str(ptxt),
+        receipt = {"probe": v.probe, "stage_dir": str(stage), "backup_dir": str(backup), "plugins_txt": str(ptxt),
                    "plugins_txt_had_file": orig is not None, "plugins_txt_sha256_after": ra2.sha256_file(ptxt),
                    "appended_plugins_lines": appended, "slot_hex": f"{slot:02X}",
-                   "form_ids": {EDIDS[k]: f"{slot:02X}{k:06X}" for k in EDIDS}, "added_data_files": added,
+                   "form_ids": {v.edids[k]: f"{slot:02X}{k:06X}" for k in v.edids}, "added_data_files": added,
                    "added_root_bats": bats}
         receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         return receipt
@@ -630,13 +694,13 @@ def install(stage: Path, starfield_dir: Path, plugins_txt: Optional[Path] = None
         raise
 
 
-def uninstall(starfield_dir: Path, plugins_txt: Optional[Path] = None, check_running=True) -> dict:
+def uninstall(starfield_dir: Path, plugins_txt: Optional[Path] = None, check_running=True, v: Variant = RA4) -> dict:
     """Remove what install added (each file only if unchanged) and restore Plugins.txt byte for byte when nobody
     changed it since; otherwise drop only the appended line. (Mirrors stage_ra2_handy.uninstall.)"""
     if check_running:
         ra2.check_starfield_not_running()
     data = starfield_dir / "Data"
-    receipt_path = data / RECEIPT
+    receipt_path = data / v.receipt
     if not receipt_path.is_file():
         raise Ra4Error(f"not installed ({receipt_path} missing)")
     rc = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -666,26 +730,27 @@ def uninstall(starfield_dir: Path, plugins_txt: Optional[Path] = None, check_run
     if backup.is_dir() and not any(backup.iterdir()):
         backup.rmdir()
     receipt_path.unlink()
-    return {"uninstalled": PROBE, "plugins_txt": how}
+    return {"uninstalled": v.probe, "plugins_txt": how}
 
 
-def status(starfield_dir: Path) -> dict:
-    p = starfield_dir / "Data" / RECEIPT
+def status(starfield_dir: Path, v: Variant = RA4) -> dict:
+    p = starfield_dir / "Data" / v.receipt
     return {"installed": p.is_file(), "receipt": json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--variant", choices=sorted(VARIANTS), default="ra4")
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build")
-    b.add_argument("--out", type=Path, default=OUT)
+    b.add_argument("--out", type=Path, default=None)
     b.add_argument("--starfield", type=Path, default=STARFIELD_DIR)
     b.add_argument("--fo4-data", type=Path, default=FO4_DATA)
     b.add_argument("--dll", default=None)
-    v = sub.add_parser("verify")
-    v.add_argument("--stage-dir", type=Path, default=OUT)
+    vp = sub.add_parser("verify")
+    vp.add_argument("--stage-dir", type=Path, default=None)
     i = sub.add_parser("install")
-    i.add_argument("--stage-dir", type=Path, default=OUT)
+    i.add_argument("--stage-dir", type=Path, default=None)
     i.add_argument("--starfield", type=Path, required=True)
     i.add_argument("--plugins-txt", type=Path, default=None)
     i.add_argument("--min-free-gb", type=float, default=DEFAULT_MIN_FREE_GB)
@@ -695,18 +760,19 @@ def main(argv=None) -> int:
     s = sub.add_parser("status")
     s.add_argument("--starfield", type=Path, required=True)
     a = ap.parse_args(argv)
+    v = VARIANTS[a.variant]
     if a.cmd == "build":
-        rep = build(a.out, a.starfield, a.fo4_data, a.dll)
-        print(json.dumps({"out": str(a.out), "ba2": rep["ba2"], "plugin": rep["plugin"]["records"],
+        rep = build(a.out, a.starfield, a.fo4_data, a.dll, v=v)
+        print(json.dumps({"out": str(a.out or v.out), "ba2": rep["ba2"], "plugin": rep["plugin"]["records"],
                           "manifest_key": rep["manifests"]["key"], "verify": rep["verify"]["records"]}, indent=1, default=str))
     elif a.cmd == "verify":
-        print(json.dumps(verify(a.stage_dir), indent=1))
+        print(json.dumps(verify(a.stage_dir, v=v), indent=1))
     elif a.cmd == "install":
-        print(json.dumps(install(a.stage_dir, a.starfield, a.plugins_txt, a.min_free_gb), indent=1))
+        print(json.dumps(install(a.stage_dir or v.out, a.starfield, a.plugins_txt, a.min_free_gb, v=v), indent=1))
     elif a.cmd == "uninstall":
-        print(json.dumps(uninstall(a.starfield, a.plugins_txt), indent=1))
+        print(json.dumps(uninstall(a.starfield, a.plugins_txt, v=v), indent=1))
     else:
-        print(json.dumps(status(a.starfield), indent=1))
+        print(json.dumps(status(a.starfield, v=v), indent=1))
     return 0
 
 

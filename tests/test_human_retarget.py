@@ -337,6 +337,18 @@ class StageTests(unittest.TestCase):
         for name in self.ra4.NPC_NAMES.values():
             self.assertIsNone(self.ra4.P3_FORBIDDEN_RE.search(name))
 
+    def test_variants_do_not_collide(self):
+        a, b = self.ra4.RA4, self.ra4.RA4B
+        for name in ("out", "plugin", "main_ba2", "receipt", "folder", "backup", "probe"):
+            self.assertNotEqual(getattr(a, name), getattr(b, name), name)
+        self.assertFalse(set(a.edids.values()) & set(b.edids.values()))
+        self.assertFalse(set(a.bats) & set(b.bats))
+        self.assertIn("player.placeatme 0B000802 1", self.ra4.build_bats(0x0B, b)["ra4ba.txt"])
+        for name in list(b.bats) + list(b.npc_names.values()):
+            self.assertIsNone(self.ra4.P3_FORBIDDEN_RE.search(name))
+        self.assertEqual(b.clips[0][:2], ("mt\\neutral\\handsup\\posea_idle1.hkx", "melee\\unarmed\\relaxed_idle"))
+        self.assertEqual(b.package, self.ra4.SANDBOX_PACKAGE)
+
     def test_gsd_row(self):
         raw = self.ra4.gsd_row("KW", "g.agx", ["a", "b"])
         self.assertEqual(raw.decode().splitlines()[1], "MT\t3rd\tKW\t\tg.agx\ta, b")
@@ -349,6 +361,13 @@ class StagedBundleTests(unittest.TestCase):
         rep = ra4.verify(ra4.OUT)
         self.assertEqual(len(rep["our_clips_listed"]), 4)
         self.assertEqual(rep["records"]["01000801"], "FO4SF_RA4HumanAddRace")
+
+    @unittest.skipUnless((Path(r"D:\FO4SF-Owner-Tests\robot-anim\RA4b") / "manifest.json").is_file(), "no RA4b here")
+    def test_verify_ra4b(self):
+        import stage_ra4_human as ra4
+        rep = ra4.verify(v=ra4.RA4B)
+        self.assertEqual(rep["records"]["01000801"], "FO4SF_RA4bHumanAddRace")
+        self.assertTrue(all("\\RA4b\\" in x for x in rep["our_clips_listed"]))
 
 
 if __name__ == "__main__":

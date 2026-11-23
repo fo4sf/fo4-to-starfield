@@ -192,6 +192,18 @@ transitions into the vanilla start / stop / turn clips. Then `uninstall`. Readin
 not picked or its manifests are not read (next: option (c) for one session); FO4 NPC with Fallout 4 motion = route (a)
 proven for MT.
 
+**RA4 in game (23 Nov, Vault 111 cryo room, new game, `bat ra4ac`):** both NPCs spawned and turned to face the player
+but did not follow (`defaultFollowPlayerPKG` did nothing on these `placeatme` copies; cause not known), and Fallout 4's
+neutral idle could not be told apart from Starfield's in stills. Undecided.
+
+**RA4b (diagnostic, `stage_ra4_human.py --variant ra4b`, `D:\FO4SF-Owner-Tests\robot-anim\RA4b`):** own names
+throughout (`FO4SF_RA4bHuman.esm`, keyword `FO4SF_AnimArchetypeFO4b`, folder `Actors\FO4SF\Human\RA4b\...`; install
+refuses while RA4 is installed). The keyword NPC's standing idle is Fallout 4's `mt\neutral\handsup\posea_idle1`
+(both wrists 2 to 7 cm above the head on the Starfield rig) and its walk Fallout 4's `mt\injured\left\walkforward`
+(a limp, head 17 to 23 cm lower, 0.54 m/s); jog and run as RA4. Both NPCs get `DefaultSandboxCurrentLocation`
+`00089605` (Sandbox template, location near self, 6.25 m) instead of the follow package. Batches `ra4ba`, `ra4bc`,
+`ra4bac`.
+
 ## 6. First-person gun clips (10mm): plan [proposal]
 
 1. Rigs: Starfield `meshes\actors\human\_1stperson\characterassets\skeleton.rig` (87 bones, 76 in clips, no legs,
