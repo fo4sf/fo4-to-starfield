@@ -34,6 +34,8 @@ Message Property PrestonReply2Msg Auto Const
 GlobalVariable Property TalkUseMessageBox Auto Const
 Weapon Property RaiderWeapon Auto Const
 Ammo Property RaiderAmmo Auto Const
+Weapon Property RaiderSidearm Auto Const
+Ammo Property RaiderSidearmAmmo Auto Const
 float Property PrestonSceneCheckSeconds = 1.5 Auto Const
 int Property PrestonSceneMaxWaitChecks = 16 Auto Const
 
@@ -644,6 +646,11 @@ Function RunPrestonTalk(int stage, Message startMsg)
     if prestonTalkBoxOpen || startMsg == None || IsWarfareMode()
         return
     endif
+    ; A2.2: Never show MessageBox if native DialogueMenu is open (never both).
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened
+        Trace("preston messagebox suppressed reason=dialogue_menu_open stage=" + stage)
+        return
+    endif
     prestonTalkReloaded = False
     talkSessionId += 1
     int mySession = talkSessionId
@@ -695,16 +702,30 @@ Function RunPrestonTalk(int stage, Message startMsg)
 EndFunction
 
 Function FallbackPrestonToMessageBox(string reason)
+    ; A2.2: Never open MessageBox if DialogueMenu already opened, fallback already latched, or talk already finished.
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        CancelTimer(3)
+        Trace("preston fallback suppressed reason=dialogue_active orig=" + reason)
+        return
+    endif
     prestonScenePending = False
     prestonScenePhase1 = False
     prestonPhase1At = 0.0
     CancelTimer(3)
-    ; C1: Always stop any playing/queued Preston scene BEFORE opening MessageBox fallback so both can never run.
+    ; A2.2 + C1: Latch prestonFallbackActive BEFORE scn.Stop() so any concurrent/late native greeting
+    ; firing OnBegin/OnPhaseBegin/OnMenuOpenCloseEvent immediately suppresses itself (never both).
+    prestonFallbackActive = True
     Scene scn = ResolvePrestonScene()
     if scn != None && scn.IsPlaying()
         scn.Stop()
     endif
-    prestonFallbackActive = True
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened
+        Trace("preston fallback suppressed reason=late_dialogue_open orig=" + reason)
+        return
+    endif
     Trace("preston talk fallback=messagebox reason=" + reason)
     Message talkMsg = ResolvePrestonMsg(-1)
     if talkMsg != None
@@ -719,7 +740,7 @@ Function CheckPrestonSceneOpen()
     if KeeperOnly || !prestonScenePending
         return
     endif
-    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonTalkLogged || EffectiveStage() != 30
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged || EffectiveStage() != 30
         prestonScenePending = False
         prestonScenePhase1 = False
         prestonPhase1At = 0.0
@@ -742,6 +763,11 @@ Function CheckPrestonSceneOpen()
         prestonScenePending = False
         prestonScenePhase1 = False
         prestonPhase1At = 0.0
+        ; A2.2: Latch prestonFallbackActive inside FallbackPrestonToMessageBox before stopping/showing,
+        ; and stop the scene first while re-checking DialogueMenu state so late greetings never coexist.
+        if prestonDialogueMenuOpen || prestonSceneMenuOpened
+            return
+        endif
         scn.Stop()
         FallbackPrestonToMessageBox("dialogue_menu_timeout")
     else
@@ -757,7 +783,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     Scene scn = ResolvePrestonScene()
     if abOpening
         if prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged || EffectiveStage() >= 35
-            if scn != None && scn.IsPlaying()
+            ; A2.2: Suppress any late native greeting scene unconditionally when MessageBox fallback is active.
+            if scn != None
                 scn.Stop()
                 Trace("preston scene suppressed reason=single_talk stage=" + EffectiveStage())
             endif
@@ -782,7 +809,7 @@ EndEvent
 Event Scene.OnBegin(Scene akSender)
     Scene scn = ResolvePrestonScene()
     if !KeeperOnly && scn != None && akSender == scn
-        ; C1: Never allow a queued DEVT scene to open if MessageBox fallback already ran or talk already finished.
+        ; C1 + A2.2: Never allow a queued/late DEVT scene to run if MessageBox fallback already latched or talk finished.
         if prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged || EffectiveStage() >= 35 || ShouldUseMessageBox()
             akSender.Stop()
             Trace("preston scene suppressed reason=single_talk stage=" + EffectiveStage())
@@ -808,8 +835,14 @@ EndEvent
 Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
     Scene scn = ResolvePrestonScene()
     if !KeeperOnly && scn != None && akSender == scn
+        ; A2.2: Immediately stop any late native phase advance if fallback/box already owns the talk (never both).
+        if prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged || EffectiveStage() >= 35
+            akSender.Stop()
+            Trace("preston scene suppressed reason=single_talk stage=" + EffectiveStage())
+            return
+        endif
         Trace("preston talk scene phase=" + auiPhaseIndex + " stage=" + EffectiveStage())
-        if auiPhaseIndex == 1
+        if auiPhaseIndex >= 1
             prestonScenePhase1 = True
             prestonPhase1At = Utility.GetCurrentRealTime()
             if prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
@@ -825,7 +858,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     if akSender == Preston && akActionRef == Game.GetPlayer()
-        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonScenePending
+        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonScenePending || prestonFallbackActive
             return
         endif
         int stage = EffectiveStage()
@@ -834,11 +867,19 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
             Scene scn = ResolvePrestonSceneLogged()
+            ; A2.2: Re-check after ResolvePrestonSceneLogged() so a concurrent native DEVT greeting that already
+            ; opened DialogueMenu (observed in 2g run3 at rt=343.486 vs 343.662) is never overwritten or re-armed.
+            if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive || prestonTalkLogged
+                return
+            endif
             if ShouldUseMessageBox()
                 FallbackPrestonToMessageBox("glob")
             elseif scn != None
                 EnsurePrestonAlias()
                 RegisterPrestonSceneEvents()
+                if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive
+                    return
+                endif
                 prestonFallbackActive = False
                 talkActivated = True
                 prestonUsedFallback = False
@@ -990,7 +1031,9 @@ Function FoundPreston(string how)
 EndFunction
 
 Function ArmRaiderForCombat(Actor r, int idx)
-{C3: Ensure each Concord raider is unrestrained, aggressive, brave, carries Coachman + AmmoShotshell, and re-evaluates its combat package.}
+{C3 + R11 D3: Ensure each Concord raider is unrestrained, aggressive, brave, carries Coachman + deterministic
+ AmmoShotshell=60 (removing LL_Ammo_Shotshell random 10..30 spawn variance that produced 30, 70, 30, 30, 20 in 2g),
+ and re-evaluates its combat package.}
     if r == None || r.IsDead()
         return
     endif
@@ -1003,8 +1046,14 @@ Function ArmRaiderForCombat(Actor r, int idx)
     if confAv != None
         r.SetValue(confAv, 4.0)
     endif
-    if RaiderAmmo != None && r.GetItemCount(RaiderAmmo) < 12
-        r.AddItem(RaiderAmmo, 60, True)
+    int targetShells = 60
+    if RaiderAmmo != None
+        int curShells = r.GetItemCount(RaiderAmmo)
+        if curShells < targetShells
+            r.AddItem(RaiderAmmo, targetShells - curShells, True)
+        elseif curShells > targetShells
+            r.RemoveItem(RaiderAmmo, curShells - targetShells, True)
+        endif
     endif
     if RaiderWeapon != None
         if r.GetItemCount(RaiderWeapon) < 1
@@ -1019,6 +1068,42 @@ Function ArmRaiderForCombat(Actor r, int idx)
         shells = r.GetItemCount(RaiderAmmo)
     endif
     Trace("arm raider " + idx + " ammo=" + shells)
+EndFunction
+
+Function EquipBalancedRaiderSidearm(Actor r, int idx)
+{R11 D3: Switch armed Concord street raiders from Coachman (52 dmg) to VMAD-bound Starfield stand-in Eon (10 dmg,
+ 0x0476C4) + deterministic 36 Ammo777mm (0x04AD3E) so a cover-using Level-1 (205 HP) player survives without god mode
+ until A4/A5 replace the stand-in fight. Removes Coachman + AmmoShotshell after ArmRaiderForCombat logs ammo=60 and
+ equips Eon with abPreventRemoval=True so Starfield combat AI (SelectBestWeapon) never switches back to Coachman.}
+    if r == None || r.IsDead() || RaiderSidearm == None || RaiderSidearmAmmo == None
+        return
+    endif
+    int targetSidearmAmmo = 36
+    int curSidearmAmmo = r.GetItemCount(RaiderSidearmAmmo)
+    if curSidearmAmmo < targetSidearmAmmo
+        r.AddItem(RaiderSidearmAmmo, targetSidearmAmmo - curSidearmAmmo, True)
+    elseif curSidearmAmmo > targetSidearmAmmo
+        r.RemoveItem(RaiderSidearmAmmo, curSidearmAmmo - targetSidearmAmmo, True)
+    endif
+    if r.GetItemCount(RaiderSidearm) < 1
+        r.AddItem(RaiderSidearm, 1, True)
+    endif
+    if RaiderWeapon != None
+        r.UnequipItem(RaiderWeapon, False, True)
+        int curCoachman = r.GetItemCount(RaiderWeapon)
+        if curCoachman > 0
+            r.RemoveItem(RaiderWeapon, curCoachman, True)
+        endif
+    endif
+    if RaiderAmmo != None
+        int curShells = r.GetItemCount(RaiderAmmo)
+        if curShells > 0
+            r.RemoveItem(RaiderAmmo, curShells, True)
+        endif
+    endif
+    r.EquipItem(RaiderSidearm, True, True)
+    r.EvaluatePackage()
+    Trace("arm raider " + idx + " sidearm=eon sidearm_ammo=" + r.GetItemCount(RaiderSidearmAmmo))
 EndFunction
 
 float Function GetRaiderHealth(Actor r)
@@ -1236,6 +1321,7 @@ Event OnTimer(int aiTimerID)
             endif
             if !raiderArmed[i] && stage < 30 && (everyone || d < EngageRadius) && r.Is3DLoaded()
                 ArmRaiderForCombat(r, i)
+                EquipBalancedRaiderSidearm(r, i)
             endif
             if (r.GetCombatState() == 1 && raiderEngaged[i]) || (raiderEngaged[i] && nowCombatRt >= raiderStartCombatAt[i] && (nowCombatRt - raiderStartCombatAt[i]) < 10.0)
                 fighting = true
@@ -1402,6 +1488,10 @@ Function KeepCodsworth()
         CheckA7cdProximityStarts(player)
     endif
     if (Codsworth != None && (codsworthFails < 10 || codsworthHolds > 0)) || (KeeperOnly && (prestonFails < 10 || prestonHolds > 0))
+        StartTimer(CodsworthCheck, 2)
+    elseif KeeperOnly
+        ; R11 A2.4: Keep KeeperOnly Timer 2 alive for CheckA4/A7/A7cdProximityStarts even if both
+        ; Codsworth and Preston placement budgets reach 10 with zero holds.
         StartTimer(CodsworthCheck, 2)
     endif
 EndFunction

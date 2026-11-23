@@ -88,6 +88,14 @@ static class Mission
     public const uint SfRaiderWeaponId = 0x26D96B, SfRaiderAmmoId = 0x2B4AFB;
     public const string SfRaiderWeaponEdid = "Coachman", SfRaiderAmmoEdid = "AmmoShotshell";
     public const int RaiderAmmoCount = 60;
+    // R11 D3: Balanced Starfield stand-in sidearm (Eon 10 dmg + Ammo777mm x36 vs Coachman 52 dmg) so a cover-using
+    // Level-1 (205 HP) player survives Concord without god mode until A4/A5 replace the stand-in fight.
+    public const uint SfRaiderSidearmId = 0x0476C4, SfRaiderSidearmAmmoId = 0x04AD3E;
+    public const string SfRaiderSidearmEdid = "Eon", SfRaiderSidearmAmmoEdid = "Ammo777mm";
+    public const int RaiderSidearmAmmoCount = 36;
+    // R11 D1: ModelARace (Vasco) reference for standing robot dialogue framing metadata on FO4SF_CodsworthRace.
+    public const uint SfModelARaceId = 0x005629;
+    public const string SfModelARaceEdid = "ModelARace";
     public const float MergeOffsetX = -1200.0f, MergeOffsetY = -2700.0f;
 
     // FO4TerrainCore.esm Sanctuary workbench (Fallout4.esm 0250FE -> base ACTI 0x0A2ECD, placed REFR 0x005C50)
@@ -733,6 +741,8 @@ static class Mission
         {
             EditorID = greetInfoEdid,
             FormVersion = 581,
+            Flags = new SF.DialogResponseFlags { Flags = 0, ResetHours = 0f },
+            SubtitlePriority = SF.DialogResponses.SubtitlePriorityLevel.Low,
         };
         foreach (var gr in greetResponses)
             greetInfo.Responses.Add(MakeNpcDialogResponse(gr.Text, gr.Wem, gr.Duration, speakerVoiceKey));
@@ -804,10 +814,14 @@ static class Mission
                 Subtype = SF.DialogTopic.SubtypeEnum.CustomScene,
                 SubtypeName = SF.DialogTopic.SubtypeNameEnum.CustomScene,
             };
+            // R11 D5 Part 3: Starfield PlayerDialogue PC INFOs carry explicit ENAM (Flags=0, DoNotGrayOut clear) and
+            // INAM (SubtitlePriority=Low) across 20,731/20,731 vanilla choices so DialogueMenu greys out asked options.
             var pcInfo = new SF.DialogResponses(new FormKey(modKey, firstChoiceInfoId + idx), rel)
             {
                 EditorID = $"{prefixEdid}_ChoiceInfo_{idx}",
                 FormVersion = 581,
+                Flags = new SF.DialogResponseFlags { Flags = 0, ResetHours = 0f },
+                SubtitlePriority = SF.DialogResponses.SubtitlePriorityLevel.Low,
                 Prompt = c.Prompt,
             };
             pcInfo.Responses.Add(new SF.DialogResponse { ResponseText = c.Prompt, WEMFile = 0 });
@@ -829,16 +843,17 @@ static class Mission
             {
                 EditorID = $"{prefixEdid}_ReplyInfo_{idx}",
                 FormVersion = 581,
+                SubtitlePriority = SF.DialogResponses.SubtitlePriorityLevel.Low,
             };
             if (c.EndStage > 0)
                 npcInfo.SetParentQuestStage = new SF.DialogSetParentQuestStage { OnBegin = -1, OnEnd = c.EndStage };
             if (c.Goodbye)
-                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 1 };
+                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 1, ResetHours = 0f };
             else
             {
                 // C2: Starfield TSCE uses INTV (4-byte LE phase index) alongside NAM0 (StartScenePhase) to jump
                 // directly to Phase 1 (TOPLEVELNEST) without replaying Phase 0 greeting (verified vs Starfield.esm 0028D90C/0002573C).
-                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 0 };
+                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 0, ResetHours = 0f };
                 npcInfo.StartScene = new FormLinkNullable<SF.ISceneGetter>(topScene.FormKey);
                 npcInfo.StartScenePhase = "TOPLEVELNEST";
                 npcInfo.INTV = new byte[] { 1, 0, 0, 0 };
@@ -983,6 +998,10 @@ static class Mission
             throw new Refusal($"Starfield.esm {SfRaiderWeaponId:X6} is not the WEAP {SfRaiderWeaponEdid}");
         if (!m.Cache.TryResolve<SF.IAmmunitionGetter>(new FormKey(SfEsm, SfRaiderAmmoId), out var raiderAmmo) || raiderAmmo.EditorID != SfRaiderAmmoEdid)
             throw new Refusal($"Starfield.esm {SfRaiderAmmoId:X6} is not the AMMO {SfRaiderAmmoEdid}");
+        if (!m.Cache.TryResolve<SF.IWeaponGetter>(new FormKey(SfEsm, SfRaiderSidearmId), out var raiderSidearm) || raiderSidearm.EditorID != SfRaiderSidearmEdid)
+            throw new Refusal($"Starfield.esm {SfRaiderSidearmId:X6} is not the WEAP {SfRaiderSidearmEdid}");
+        if (!m.Cache.TryResolve<SF.IAmmunitionGetter>(new FormKey(SfEsm, SfRaiderSidearmAmmoId), out var raiderSidearmAmmo) || raiderSidearmAmmo.EditorID != SfRaiderSidearmAmmoEdid)
+            throw new Refusal($"Starfield.esm {SfRaiderSidearmAmmoId:X6} is not the AMMO {SfRaiderSidearmAmmoEdid}");
         if (!m.Cache.TryResolve<SF.IPackageGetter>(new FormKey(SfEsm, RaiderCombatPackageId), out var raiderCombatPack) || raiderCombatPack.EditorID != RaiderCombatPackageEdid)
             throw new Refusal($"Starfield.esm {RaiderCombatPackageId:X6} is not the PACK {RaiderCombatPackageEdid}");
         if (!m.Cache.TryResolve<SF.IPackageGetter>(new FormKey(SfEsm, RaiderSandboxPackageId), out var raiderSandboxPack) || raiderSandboxPack.EditorID != RaiderSandboxPackageEdid)
@@ -1078,10 +1097,22 @@ static class Mission
             if (!m.Cache.TryResolve<SF.IRaceGetter>(body.Race.FormKey, out var baseBotRace))
                 throw new Refusal($"Codsworth body {codsworthBody} race {body.Race.FormKey} does not resolve");
 
-            // 2h: Dialogue-capable duplicate Race (AllowPcDialog) + custom VoiceType (AllowDefaultDialog)
+            // 2h + R11 D1: Dialogue-capable duplicate Race (AllowPcDialog) upgraded from MiniBotARace's 0.51 m floor-bot
+            // framing metadata (Size.Small, DialogueMiniBot, zero DAT2Unknown3) to standing eye-level dialogue framing
+            // (Size.Medium, HeadAxisBit0, ModelARace DAT2Unknown3, cleared DialogueQuest) while keeping MiniBotA skeleton/ARMA.
             var codsRace = (SF.Race)baseBotRace.Duplicate(new FormKey(modKey, CodsworthRaceId));
             codsRace.EditorID = CodsworthRaceEdid;
-            codsRace.Flags |= SF.Race.Flag.AllowPcDialog;
+            codsRace.Flags = (codsRace.Flags | SF.Race.Flag.AllowPcDialog | SF.Race.Flag.HeadAxisBit0 |
+                              (SF.Race.Flag)0x0080000000000000UL) & ~SF.Race.Flag.TiltFrontBack;
+            codsRace.Size = SF.Size.Medium;
+            codsRace.DialogueQuest.Clear();
+            if (m.Cache.TryResolve<SF.IRaceGetter>(new FormKey(SfEsm, SfModelARaceId), out var modelARace) &&
+                modelARace.EditorID == SfModelARaceEdid &&
+                modelARace.DAT2Unknown3.Length == codsRace.DAT2Unknown3.Length &&
+                modelARace.DAT2Unknown3.Length > 0)
+            {
+                codsRace.DAT2Unknown3 = modelARace.DAT2Unknown3.ToArray();
+            }
             codsRace.ArmorRace.SetTo(baseBotRace.FormKey);
             mod.Races.Add(codsRace);
 
@@ -1304,6 +1335,8 @@ static class Mission
         MissionProps(script);
         script.Properties.Add(Obj("RaiderWeapon", raiderWeapon.FormKey));
         script.Properties.Add(Obj("RaiderAmmo", raiderAmmo.FormKey));
+        script.Properties.Add(Obj("RaiderSidearm", raiderSidearm.FormKey));
+        script.Properties.Add(Obj("RaiderSidearmAmmo", raiderSidearmAmmo.FormKey));
         if (prestonScene is not null)
         {
             script.Properties.Add(Obj("PrestonTalkScene", prestonScene.FormKey));
@@ -1765,6 +1798,11 @@ static class Mission
             Need(codsRace is { EditorID: CodsworthRaceEdid } && codsRace.Flags.HasFlag(SF.Race.Flag.AllowPcDialog) &&
                  cods?.Race.FormKey == codsRace.FormKey,
                  $"Codsworth lacks local RACE {CodsworthRaceEdid} (0x{CodsworthRaceId:X}) with AllowPcDialog");
+            Need(codsRace is { Size: SF.Size.Medium } && codsRace.DialogueQuest.IsNull &&
+                 codsRace.Flags.HasFlag(SF.Race.Flag.HeadAxisBit0) &&
+                 !codsRace.Flags.HasFlag(SF.Race.Flag.TiltFrontBack) &&
+                 (((ulong)codsRace.Flags & 0x0080000000000000UL) != 0),
+                 $"R11 D1: {CodsworthRaceEdid} lacks standing dialogue framing metadata (Size.Medium, null DialogueQuest, HeadAxisBit0)");
             Need(codsVoice is { EditorID: CodsworthVoiceEdid } && codsVoice.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog) &&
                  cods?.Voice.FormKey == codsVoice.FormKey,
                  $"Codsworth lacks local VTYP {CodsworthVoiceEdid} (0x{CodsworthVoiceId:X}) with AllowDefaultDialog");
@@ -1880,6 +1918,9 @@ static class Mission
                             var pTxt = pcInfo.Prompt?.String ?? "";
                             var rTxt = pcInfo.Responses.FirstOrDefault()?.ResponseText?.String ?? "";
                             Need(pTxt.Length > 0 && pTxt == rTxt, $"Preston choice {ci} does not show full player line in both Prompt and ResponseText");
+                            Need(pcInfo.Flags is { Flags: 0 } && pcInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low &&
+                                 rpInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low,
+                                 $"R11 D5: Preston choice {ci} lacks explicit ENAM (Flags=0, DoNotGrayOut clear) or INAM SubtitlePriority=Low");
                             CheckSceneResponsesAndTrot(rpInfo, pVoiceSpec?.ReplyClips[ci], npc?.Voice.FormKey ?? FormKey.Null, $"Preston reply {ci}");
                             if (ci == 2)
                                 Need(rpInfo.SetParentQuestStage?.OnEnd == 35 && rpInfo.Flags?.Flags == 1,
@@ -1910,6 +1951,9 @@ static class Mission
                 Need(props.TryGetValue("RaiderWeapon", out var rwp) && rwp is SF.IScriptObjectPropertyGetter rwo && rwo.Object.FormKey == new FormKey(SfEsm, SfRaiderWeaponId) &&
                      props.TryGetValue("RaiderAmmo", out var rap) && rap is SF.IScriptObjectPropertyGetter rao && rao.Object.FormKey == new FormKey(SfEsm, SfRaiderAmmoId),
                      "FO4SF_Min00 lacks RaiderWeapon (Coachman) or RaiderAmmo (AmmoShotshell) bindings");
+                Need(props.TryGetValue("RaiderSidearm", out var rswp) && rswp is SF.IScriptObjectPropertyGetter rswo && rswo.Object.FormKey == new FormKey(SfEsm, SfRaiderSidearmId) &&
+                     props.TryGetValue("RaiderSidearmAmmo", out var rsap) && rsap is SF.IScriptObjectPropertyGetter rsao && rsao.Object.FormKey == new FormKey(SfEsm, SfRaiderSidearmAmmoId),
+                     "R11 D3: FO4SF_Min00 lacks RaiderSidearm (Eon) or RaiderSidearmAmmo (Ammo777mm) bindings");
                 if (alias)
                 {
                     CheckTalkMessages(new[]
@@ -2062,6 +2106,9 @@ static class Mission
                             var pTxt = pcInfo.Prompt?.String ?? "";
                             var rTxt = pcInfo.Responses.FirstOrDefault()?.ResponseText?.String ?? "";
                             Need(pTxt.Length > 0 && pTxt == rTxt, $"{CodsworthQuestEdid} choice {ci} does not show full player line in both Prompt and ResponseText");
+                            Need(pcInfo.Flags is { Flags: 0 } && pcInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low &&
+                                 rpInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low,
+                                 $"R11 D5: {CodsworthQuestEdid} choice {ci} lacks explicit ENAM (Flags=0, DoNotGrayOut clear) or INAM SubtitlePriority=Low");
                             Need(rpInfo.SetParentQuestStage?.OnEnd == CodsworthChoiceEndStages[ci],
                                  $"{CodsworthQuestEdid} choice {ci} OnEnd != {CodsworthChoiceEndStages[ci]}");
                             uint wantWem = mqSpec?.ChoiceReplyWems[ci] ?? 0u;
@@ -2154,6 +2201,15 @@ static class Mission
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfPrestonAmmoId), rel) { EditorID = SfPrestonAmmoEdid });
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderWeaponId), rel) { EditorID = SfRaiderWeaponEdid });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderAmmoId), rel) { EditorID = SfRaiderAmmoEdid });
+        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderSidearmId), rel) { EditorID = SfRaiderSidearmEdid });
+        sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderSidearmAmmoId), rel) { EditorID = SfRaiderSidearmAmmoEdid });
+        var modelARace = new SF.Race(new FormKey(SfEsm, SfModelARaceId), rel)
+        {
+            EditorID = SfModelARaceEdid,
+            Size = SF.Size.Large,
+            Flags = SF.Race.Flag.AllowPcDialog | SF.Race.Flag.HeadAxisBit0 | (SF.Race.Flag)0x0080000000000000UL,
+        };
+        sf.Races.Add(modelARace);
         sf.Npcs.Add(new SF.Npc(new FormKey(SfEsm, SfPapaKatzId), rel)
         {
             EditorID = SfPapaKatzEdid, Name = "Synthetic Male Template",
@@ -2355,6 +2411,10 @@ static class Mission
             ("FO4SF_Codsworth01 removed", m => m.Quests.Remove(new FormKey(m.ModKey, CodsworthQuestId))),
             ("FO4SF_Sanctuary01 removed", m => m.Quests.Remove(new FormKey(m.ModKey, SanctuaryQuestId))),
             ("Codsworth race lacks AllowPcDialog", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Flags &= ~SF.Race.Flag.AllowPcDialog),
+            ("Codsworth race reverted to Size.Small (D1)", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Size = SF.Size.Small),
+            ("Min00 missing RaiderSidearm property (D3)", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "RaiderSidearm")),
+            ("Preston choice 0 missing ENAM flags (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = null),
+            ("Preston choice 0 sets DoNotGrayOut (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = new SF.DialogResponseFlags { Flags = (short)SF.DialogResponses.Flag.DoNotGrayOut }),
             ("Codsworth voice lacks AllowDefaultDialog", m => m.VoiceTypes[new FormKey(m.ModKey, CodsworthVoiceId)].Flags &= ~SF.VoiceType.Flag.AllowDefaultDialog),
             ("Codsworth missing Talk prompt", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].ActivateTextOverride = null),
             ("Codsworth retains DefaultTemplate", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].DefaultTemplate.SetTo(new FormKey(SfEsm, 0x902))),
