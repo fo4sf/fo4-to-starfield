@@ -413,6 +413,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
 
     EXIT_FUNCTIONS = (
         "InVault",
+        "PromptVaultExitLift",
         "StartAscent",
         "OnAnimationEvent",
         "AtLiftTop",
@@ -564,6 +565,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             ExitMessage=SimpleNamespace(Show=exit_show),
             ExitFallbackMessage=SimpleNamespace(Show=fallback_show),
             EnsureVaultInteractivesRegistered=lambda: None,
+            ReadH00SuspectsOnce=lambda: None,
             OpenLiftAttributeAllocation=lambda: None,
             OpenLiftCharacterRespec=lambda: None,
             RunSharedMapSetup=lambda: 4,

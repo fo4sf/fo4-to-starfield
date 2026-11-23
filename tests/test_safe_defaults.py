@@ -508,7 +508,8 @@ class SafeDefaultsTests(unittest.TestCase):
         )
         vars_csv = (
             "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
-            "consoleRegistered, consoleWatchedRef, pistolPickedLogged"
+            "consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, "
+            "liftRegistered, liftWatchedRef, consoleOpening, pistolPickedLogged"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
 
@@ -536,6 +537,7 @@ class SafeDefaultsTests(unittest.TestCase):
             pipboy_ref = _make_ref("FO4SF_PipboyCorpsePickupRef", 0x0A00080F, (-55.0488, -0.9224, 0.7759))
             own_console = _make_ref("FO4SF_GearDoorConsoleRef", 0x0A000819, (-54.3644, -1.8147, 1.7541))
             port_console = _make_ref("FO4Port_GearDoorConsoleRef", 0x02001319, (-54.3644, -1.8748, 1.6940))
+            lift_ref = _make_ref("FO4Port_ExitLiftRef", 0x0200132F, (-30.6914, -1.5529, 4.9488))
             cog_door = SimpleNamespace(
                 BlockActivation=lambda *a: None,
                 GetOpenState=lambda: door_state[0],
@@ -550,6 +552,8 @@ class SafeDefaultsTests(unittest.TestCase):
                         return cog_door
                     if fid == 0x1319:
                         return port_console if port_ready[0] else None
+                    if fid == 0x132F:
+                        return lift_ref
                 return None
 
             sender = port_console if trigger_via_port_console else own_console
@@ -569,6 +573,8 @@ class SafeDefaultsTests(unittest.TestCase):
                 consoleWatchedRef=None,
                 portConsoleRegistered=False,
                 portConsoleWatchedRef=None,
+                liftRegistered=False,
+                liftWatchedRef=None,
                 consoleOpening=False,
                 pistolPickedLogged=False,
                 VaultPistolBase=None,
@@ -577,6 +583,7 @@ class SafeDefaultsTests(unittest.TestCase):
                 GearDoorConsoleRef=own_console,
                 CogDoorId=0x126D,
                 ConsoleRefId=0x1319,
+                LiftId=0x132F,
                 VaultPlugin="FO4Port.esm",
                 TestModeGlobal=None,
                 PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),
