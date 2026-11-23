@@ -147,8 +147,8 @@ def _iter_subrecords(body):
 
 class R11W1Tests(unittest.TestCase):
     def test_d1_codsworth_race_metadata_and_phase2_stop_dialogue_camera(self):
-        """D1 + Review Item #6: --codsworth-race-framing defaults to 0 (OFF, exact 2g race parity) and opts into
-        the 5 standing-robot edits only when 1; FO4SF_Codsworth01Quest stops Starfield's dialogue camera on phase >= 2."""
+        """D1 + E1 (#598): --codsworth-race-framing defaults to 0 (OFF, exact 2g race parity) and opts into
+        the 5 standing-robot edits only when 1; FO4SF_Codsworth01Quest MUST NOT call Game.StopDialogueCamera on phase >= 2."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         c_psc = CODS_PSC.read_text(encoding="utf-8")
 
@@ -160,7 +160,7 @@ class R11W1Tests(unittest.TestCase):
         self.assertIn("SF.Race.Flag.HeadAxisBit0", cs)
         self.assertIn("0x0080000000000000UL", cs)
         self.assertIn("SfModelARaceId = 0x005629", cs)
-        self.assertIn("Game.StopDialogueCamera(False, True)", c_psc)
+        self.assertNotIn("StopDialogueCamera", c_psc)
 
         logs = []
         stop_cam_calls = []
@@ -171,6 +171,7 @@ class R11W1Tests(unittest.TestCase):
             "_PStr": _PStr,
             "Trace": logs.append,
             "CodsworthScene": scene,
+            "CodsworthPostScene": None,
             "SceneOpenCheckSeconds": 1.5,
             "sceneTalkPending": True,
             "sceneMenuOpened": False,
@@ -183,13 +184,13 @@ class R11W1Tests(unittest.TestCase):
             "CancelTimer": lambda tid: cancelled.append(int(tid)),
             "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 122.4),
             "Game": SimpleNamespace(
-                GetFormFromFile=lambda *_: scene,
+                GetFormFromFile=lambda fid, plg: scene if (fid, plg) == (0x000940, "FO4SFMission.esm") else None,
                 StopDialogueCamera=lambda resume=False, to1p=False: stop_cam_calls.append((bool(resume), bool(to1p))),
             ),
         }
         code = _translate_psc(
             c_psc,
-            ("EffectiveStage", "ResolveCodsworthScene", "Scene.OnPhaseBegin"),
+            ("EffectiveStage", "ResolveCodsworthScene", "ResolveCodsworthPostScene", "Scene.OnPhaseBegin"),
             ("sceneTalkPending", "sceneMenuOpened", "dialogueMenuOpen", "scenePhase1Entered", "scenePhase1At", "applied"),
         )
         exec(compile(code, "FO4SF_Codsworth01Quest.psc", "exec"), ns)
@@ -199,28 +200,33 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(stop_cam_calls, [])
         self.assertEqual(timers, [(1.5, 2)])
 
-        # Phase 2 (TOPLEVELNEST choices) & loop-back Phase 2: stops dialogue camera back to eye-height 1st person
+        # Phase 2 (TOPLEVELNEST choices) & loop-back Phase 2: E1 restores 2g camera (ZERO StopDialogueCamera calls)
         ns["OnPhaseBegin"](scene, 2)
         ns["OnPhaseBegin"](scene, 2)
-        self.assertEqual(stop_cam_calls, [(False, True), (False, True)])
-        self.assertEqual(sum(1 for ln in logs if "codsworth talk dialogue_camera stopped phase=2" in ln), 2)
+        self.assertEqual(stop_cam_calls, [])
+        self.assertEqual(sum(1 for ln in logs if "dialogue_camera stopped" in ln), 0)
 
     def test_d3_raider_ammo_deterministic_60_and_balanced_eon_sidearm(self):
-        """D3: LL_Ammo_Shotshell spawn rolls (30, 10, 30, 30, 20, plus >60 overflow) all normalize to exact 60,
-        then EquipBalancedRaiderSidearm removes Coachman + AmmoShotshell and locks Eon (abPreventRemoval=True) +
-        exact 36 Ammo777mm so SelectBestWeapon never reverts to Coachman; RaiderSidearm=None retains Coachman x60."""
+        """D3 + E3 (#598): LL_Ammo_Shotshell spawn rolls normalize to exact 60, then EquipBalancedRaiderSidearm
+        equips WEAP 0x097A (3-dmg FO4SF_ConcordRaiderSidearm, AmmoList cleared), removes Coachman + AmmoShotshell
+        FIRST, and clamps Ammo777mm AFTER AddItem/EquipItem so sidearm_ammo is deterministically 36 even if
+        weapon addition spawns bonus rounds."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("SfRaiderSidearmId = 0x0476C4", cs)
+        self.assertIn("ConcordRaiderSidearmWeapId = 0x97A", cs)
+        self.assertIn("ConcordRaiderSidearmDamage = 3f", cs)
+        self.assertIn("concordSidearm.AmmoList.SetToNull();", cs)
         self.assertIn("SfRaiderSidearmAmmoId = 0x04AD3E", cs)
-        self.assertIn('Obj("RaiderSidearm", raiderSidearm.FormKey)', cs)
+        self.assertIn('Obj("RaiderSidearm", concordSidearm.FormKey)', cs)
         self.assertIn('Obj("RaiderSidearmAmmo", raiderSidearmAmmo.FormKey)', cs)
 
         class _Raider:
-            def __init__(self, shells, ammo777=0):
+            def __init__(self, shells, ammo777=0, bonus_on_sidearm=16):
                 self.inv = {"Coachman": 1, "AmmoShotshell": shells}
                 if ammo777:
                     self.inv["Ammo777mm"] = ammo777
+                self.bonus_on_sidearm = bonus_on_sidearm
                 self.equipped = [("Coachman", False)]
                 self.unequipped = []
                 self.restrained = True
@@ -231,7 +237,10 @@ class R11W1Tests(unittest.TestCase):
             def SetRestrained(self, v): self.restrained = bool(v)
             def SetValue(self, av, val): self.avs[av] = float(val)
             def GetItemCount(self, item): return self.inv.get(item, 0)
-            def AddItem(self, item, cnt, _silent=False): self.inv[item] = self.inv.get(item, 0) + int(cnt)
+            def AddItem(self, item, cnt, _silent=False):
+                self.inv[item] = self.inv.get(item, 0) + int(cnt)
+                if item == "Eon" and self.bonus_on_sidearm:
+                    self.inv["Ammo777mm"] = self.inv.get("Ammo777mm", 0) + self.bonus_on_sidearm
             def RemoveItem(self, item, cnt, _silent=False): self.inv[item] = max(0, self.inv.get(item, 0) - int(cnt))
             def UnequipItem(self, item, *_): self.unequipped.append(item)
             def EquipItem(self, item, prevent_removal=False, _silent=False): self.equipped.append((item, bool(prevent_removal)))
@@ -295,11 +304,12 @@ class R11W1Tests(unittest.TestCase):
         self.assertIn("Preston choice 0 sets DoNotGrayOut (D5)", cs)
 
     def test_a2_2_preston_never_coexists_messagebox_and_late_dialoguemenu(self):
-        """A2.2: Neither a 1.45 s timeout + late native greeting NOR a concurrent run3 OnActivate overwrite
-        can ever allow DialogueMenu and MessageBox to coexist."""
+        """A2.2 + R11 Part 3 (#598): Under explicit glob=1.0 MessageBox mode, MessageBox & late DialogueMenu never
+        coexist; under default glob=0.0 Starfield Scene mode, MessageBox is NEVER opened (retries 1..3 + post-200
+        PrestonPostTalkScene 0x0990)."""
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
 
-        def make_env(msg_clicks=(3,)):
+        def make_env(msg_clicks=(3,), glob_val=0.0):
             logs = []
             rt = [343.18]
             stages = {10, 20, 30}
@@ -308,7 +318,8 @@ class R11W1Tests(unittest.TestCase):
             cancelled = []
 
             class _Scene:
-                def __init__(self):
+                def __init__(self, name="PrestonTalkScene"):
+                    self.name = name
                     self.playing = False
                     self.start_calls = 0
                     self.stop_calls = 0
@@ -318,7 +329,8 @@ class R11W1Tests(unittest.TestCase):
                 def ForceStart(self): return self.Start()
                 def Stop(self): self.stop_calls += 1; self.playing = False
 
-            scene = _Scene()
+            scene = _Scene("PrestonTalkScene")
+            post_scene = _Scene("PrestonPostTalkScene")
 
             class _Msg:
                 def __init__(self):
@@ -330,13 +342,26 @@ class R11W1Tests(unittest.TestCase):
                     return self.clicks.pop(0) if self.clicks else 3
 
             msg = _Msg()
-            preston = SimpleNamespace(StopCombat=lambda: None, IgnoreFriendlyHits=lambda *_: None)
+            preston = SimpleNamespace(
+                StopCombat=lambda: None,
+                IgnoreFriendlyHits=lambda *_: None,
+                AllowPCDialogue=lambda *_: None,
+                BlockActivation=lambda *_: None,
+            )
             player = SimpleNamespace(AddItem=mock.MagicMock())
             sanctuary_q = SimpleNamespace(IsRunning=lambda: False, StartNoWait=mock.MagicMock(return_value=True))
-            glob_obj = SimpleNamespace(GetValue=lambda: 0.0)
+            glob_obj = SimpleNamespace(GetValue=lambda: float(glob_val))
             alias_ref = SimpleNamespace(actor=None)
             alias_ref.GetActorRef = lambda: alias_ref.actor
             alias_ref.ForceRefTo = lambda a: setattr(alias_ref, "actor", a)
+            keeper_alias = SimpleNamespace(actor=None)
+            keeper_alias.GetActorRef = lambda: keeper_alias.actor
+            keeper_alias.ForceRefTo = lambda a: setattr(keeper_alias, "actor", a)
+            keeper_q = SimpleNamespace(
+                IsRunning=lambda: True,
+                Start=lambda: True,
+                GetAlias=lambda idx: keeper_alias if idx == 0 else None,
+            )
 
             def set_stage(n):
                 stages.add(int(n))
@@ -351,6 +376,7 @@ class R11W1Tests(unittest.TestCase):
                 "Credits": "StarfieldCredits",
                 "RewardCount": 100,
                 "PrestonTalkScene": scene,
+                "PrestonPostTalkScene": post_scene,
                 "PrestonTalkMsg": msg,
                 "PrestonReply0Msg": msg,
                 "PrestonReply1Msg": msg,
@@ -358,6 +384,7 @@ class R11W1Tests(unittest.TestCase):
                 "TalkUseMessageBox": glob_obj,
                 "PrestonSceneCheckSeconds": 1.5,
                 "PrestonSceneMaxWaitChecks": 16,
+                "PrestonMaxSceneRestarts": 3,
                 "min00Given": True,
                 "applied": 30,
                 "pendingStage": -1,
@@ -365,6 +392,7 @@ class R11W1Tests(unittest.TestCase):
                 "prestonFound": True,
                 "talkActivated": False,
                 "talkStartedAt": 0.0,
+                "talkFailures": 0,
                 "prestonUsedFallback": False,
                 "prestonTalkLogged": False,
                 "prestonTalkBoxOpen": False,
@@ -377,6 +405,8 @@ class R11W1Tests(unittest.TestCase):
                 "prestonScenePhase1": False,
                 "prestonPhase1At": 0.0,
                 "prestonSceneChecks": 0,
+                "prestonSceneRestarts": 0,
+                "prestonPostSceneActive": False,
                 "sanctuaryStartRetries": 0,
                 "IsRunning": lambda: True,
                 "Start": lambda: True,
@@ -397,6 +427,8 @@ class R11W1Tests(unittest.TestCase):
                     GetPlayer=lambda: player,
                     GetFormFromFile=lambda fid, plg: (
                         scene if (fid, plg) == (0x000900, "FO4SFMission.esm")
+                        else post_scene if (fid, plg) == (0x000990, "FO4SFMission.esm")
+                        else keeper_q if (fid, plg) == (0x000814, "FO4SFMission.esm")
                         else sanctuary_q if (fid, plg) == (0x000817, "FO4SFMission.esm")
                         else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                         else None
@@ -405,27 +437,32 @@ class R11W1Tests(unittest.TestCase):
             }
             fns = (
                 "IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias",
-                "ResolvePrestonScene", "ResolvePrestonSceneLogged", "RegisterPrestonSceneEvents",
-                "AdvanceTo", "OnStageSet", "Apply", "FoundPreston", "ResolvePrestonMsg", "RunPrestonTalk",
-                "FallbackPrestonToMessageBox", "CheckPrestonSceneOpen", "OnMenuOpenCloseEvent",
+                "EnsureActorTalkable", "ResolvePrestonScene", "ResolvePrestonSceneLogged",
+                "ResolvePrestonPostScene", "ResolveActivePrestonScene", "EnsureKeeperPrestonAlias",
+                "RegisterPrestonSceneEvents", "AdvanceTo", "OnStageSet", "Apply", "FoundPreston",
+                "ResolvePrestonMsg", "RunPrestonTalk", "FallbackPrestonToMessageBox",
+                "RestartOrFailPrestonScene", "CheckPrestonSceneOpen", "OnMenuOpenCloseEvent",
                 "Scene.OnBegin", "Scene.OnPhaseBegin", "Scene.OnEnd", "ObjectReference.OnActivate",
             )
             gvars = (
                 "min00Given", "applied", "pendingStage", "pendingStageBy", "prestonFound",
-                "talkActivated", "talkStartedAt", "prestonUsedFallback", "prestonTalkLogged",
+                "talkActivated", "talkStartedAt", "talkFailures", "prestonUsedFallback", "prestonTalkLogged",
                 "prestonTalkBoxOpen", "prestonFallbackActive", "talkSessionId", "prestonTalkReloaded",
                 "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened",
-                "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks", "sanctuaryStartRetries",
+                "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks",
+                "prestonSceneRestarts", "prestonPostSceneActive", "sanctuaryStartRetries",
             )
             code = _translate_psc(m_psc, fns, gvars)
             exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
-            return SimpleNamespace(ns=ns, logs=logs, rt=rt, scene=scene, msg=msg, preston=preston, player=player, timers=timers)
+            return SimpleNamespace(
+                ns=ns, logs=logs, rt=rt, scene=scene, post_scene=post_scene,
+                msg=msg, preston=preston, player=player, timers=timers,
+            )
 
-        # Scenario 1: While MessageBox fallback is actively open inside Show(), late native OnPhaseBegin /
-        # OnMenuOpenCloseEvent MUST be suppressed (never both); once Show() exits with btn=-1 (< stage 35),
-        # Review Item #1 clears BOTH prestonTalkBoxOpen and prestonFallbackActive so Preston is NOT locked!
+        # Scenario 1 (glob=1.0 explicit MessageBox mode): While MessageBox is actively open inside Show(),
+        # late native OnPhaseBegin / OnMenuOpenCloseEvent MUST be suppressed (never both); exiting < 35 clears latches.
         late_checks = {}
-        e1 = make_env(msg_clicks=[-1])
+        e1 = make_env(msg_clicks=[-1], glob_val=1.0)
 
         orig_show = e1.msg.Show
         def _show_with_late_greeting():
@@ -444,27 +481,19 @@ class R11W1Tests(unittest.TestCase):
 
         e1.msg.Show = _show_with_late_greeting
         e1.ns["OnActivate"](e1.preston, e1.player)
-        e1.ns["OnBegin"](e1.scene)
-        e1.ns["OnPhaseBegin"](e1.scene, 1)
-        e1.rt[0] += 1.5
-        e1.ns["CheckPrestonSceneOpen"]()
         self.assertTrue(late_checks["fallback_during_show"])
         self.assertTrue(late_checks["box_during_show"])
         self.assertEqual(late_checks["stop_after_phase"], 1)
         self.assertFalse(late_checks["playing_after_phase"])
-        self.assertEqual(late_checks["stop_after_menu"], 2)
+        self.assertEqual(late_checks["stop_after_menu"], 1)
         self.assertFalse(late_checks["menu_opened_flag"])
         self.assertEqual(e1.msg.shown, 1)
         self.assertTrue(any("preston scene suppressed reason=single_talk" in ln for ln in e1.logs), e1.logs)
-        # Review Item #1 (< 35 exit): exiting MessageBox at stage 30 clears both flags -> next E press works!
         self.assertFalse(e1.ns["prestonTalkBoxOpen"])
         self.assertFalse(e1.ns["prestonFallbackActive"])
-        starts_before = e1.scene.start_calls
-        e1.ns["OnActivate"](e1.preston, e1.player)
-        self.assertEqual(e1.scene.start_calls, starts_before + 1)
 
-        # Scenario 2: DialogueMenu opens FIRST (run3 concurrent DEVT race) -> FallbackPrestonToMessageBox & RunPrestonTalk refused!
-        e2 = make_env()
+        # Scenario 2 (glob=0.0 default): DialogueMenu opens FIRST -> FallbackPrestonToMessageBox & RunPrestonTalk refused!
+        e2 = make_env(glob_val=0.0)
         e2.scene.playing = True
         e2.ns["OnPhaseBegin"](e2.scene, 1)
         e2.ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
@@ -476,12 +505,12 @@ class R11W1Tests(unittest.TestCase):
         e2.ns["FallbackPrestonToMessageBox"]("late_timer")
         e2.ns["RunPrestonTalk"](30, e2.msg)
         self.assertEqual(e2.msg.shown, 0)
-        self.assertTrue(any("preston fallback suppressed reason=dialogue_active" in ln for ln in e2.logs), e2.logs)
-        self.assertTrue(any("preston messagebox suppressed reason=dialogue_menu_open" in ln for ln in e2.logs), e2.logs)
+        self.assertTrue(any("preston fallback suppressed reason=glob_off" in ln for ln in e2.logs), e2.logs)
+        self.assertTrue(any("preston messagebox suppressed reason=glob_off" in ln for ln in e2.logs), e2.logs)
 
-        # Scenario 3 (Review Item #1 — late_dialogue_open): DialogueMenu opens during scn.Stop() inside
+        # Scenario 3 (glob=1.0 — late_dialogue_open): DialogueMenu opens during scn.Stop() inside
         # FallbackPrestonToMessageBox -> MUST clear prestonFallbackActive = False before returning!
-        e3 = make_env()
+        e3 = make_env(glob_val=1.0)
         e3.scene.playing = True
         orig_stop = e3.scene.Stop
         def _stop_opening_dialogue():
@@ -493,10 +522,9 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(e3.msg.shown, 0)
         self.assertTrue(any("preston fallback suppressed reason=late_dialogue_open" in ln for ln in e3.logs), e3.logs)
 
-        # Scenario 4 (Review Item #1 — post-200 press + stale prestonFallbackActive):
-        # Reaching stage >= 200 clears prestonFallbackActive; pressing E post-200 (even with stale latch)
-        # opens RunPrestonTalk(200, postMsg), never locks, and never re-runs stage-30 scene or rewards!
-        e4 = make_env(msg_clicks=[3, 3])
+        # Scenario 4 (post-200 press): glob=1.0 uses MessageBox; glob=0.0 launches PrestonPostTalkScene (0x0990)
+        # with ZERO MessageBox and never re-runs stage-30 scene or rewards!
+        e4 = make_env(msg_clicks=[3, 3], glob_val=1.0)
         e4.ns["FallbackPrestonToMessageBox"]("glob")
         self.assertEqual(e4.ns["EffectiveStage"](), 200)
         self.assertFalse(e4.ns["prestonTalkBoxOpen"])
@@ -506,10 +534,17 @@ class R11W1Tests(unittest.TestCase):
         rewards_before = e4.player.AddItem.call_count
         e4.ns["OnActivate"](e4.preston, e4.player)
         self.assertEqual(e4.msg.shown, 2, "post-200 press was blocked by stale prestonFallbackActive")
-        self.assertFalse(e4.ns["prestonFallbackActive"])
-        self.assertFalse(e4.ns["prestonTalkBoxOpen"])
         self.assertEqual(e4.scene.start_calls, scene_starts_before, "post-200 press re-ran stage-30 scene!")
         self.assertEqual(e4.player.AddItem.call_count, rewards_before, "post-200 press re-granted stage-40 reward!")
+
+        e5 = make_env(glob_val=0.0)
+        e5.ns["applied"] = 200
+        e5.ns["SetStage"](200)
+        e5.ns["prestonTalkLogged"] = True
+        e5.ns["OnActivate"](e5.preston, e5.player)
+        self.assertEqual(e5.post_scene.start_calls, 1)
+        self.assertEqual(e5.scene.start_calls, 0)
+        self.assertEqual(e5.msg.shown, 0)
 
     def test_a2_4_keeper_timer2_continues_for_proximity_starts_when_both_budgets_exhaust(self):
         """A2.4: KeeperOnly Timer 2 still reschedules when codsworthFails == 10, prestonFails == 10, and holds == 0."""
@@ -574,10 +609,14 @@ class R11W1Tests(unittest.TestCase):
             logs = []
             p_pos = list(p_start)
             calls = []
+            angles = []
 
             def set_pos(x, y, z):
                 calls.append((x, y, z))
                 p_pos[:] = [x, y, z]
+
+            def set_angle(ax, ay, az):
+                angles.append((ax, ay, az))
 
             cods = SimpleNamespace(
                 GetPositionX=lambda: cods_pos[0], GetPositionY=lambda: cods_pos[1],
@@ -587,37 +626,47 @@ class R11W1Tests(unittest.TestCase):
                 IsInInterior=lambda: False,
                 GetPositionX=lambda: p_pos[0], GetPositionY=lambda: p_pos[1], GetPositionZ=lambda: p_pos[2],
                 SetPosition=set_pos,
+                SetAngle=set_angle,
             )
             ns = {
                 "_PStr": _PStr,
                 "Trace": logs.append,
                 "MinTalkCameraDistance": 1.65,
                 "SafeTalkCameraDistance": 1.85,
-                "Math": SimpleNamespace(Sqrt=math.sqrt, Sin=math.sin, Cos=math.cos),
+                "Math": SimpleNamespace(
+                    Sqrt=math.sqrt,
+                    Sin=lambda d: math.sin(math.radians(d)),
+                    Cos=lambda d: math.cos(math.radians(d)),
+                    atan=lambda v: math.degrees(math.atan(v)),
+                ),
             }
             code = _translate_psc(c_psc, ("EnsureSafeCodsworthCameraDistance",), ())
             exec(compile(code, "FO4SF_Codsworth01Quest.psc", "exec"), ns)
             ns["EnsureSafeCodsworthCameraDistance"](player, cods)
-            return calls, p_pos, logs
+            return calls, angles, p_pos, logs
 
         # 1. Ground-Z mismatch (+2.2 m above Codsworth, e.g. roof/ledge) -> MUST skip SetPosition!
-        calls_z, pos_z, logs_z = run_guard([cods_pos[0] + 0.5, cods_pos[1] - 0.5, cods_pos[2] + 2.2])
+        calls_z, angles_z, pos_z, logs_z = run_guard([cods_pos[0] + 0.5, cods_pos[1] - 0.5, cods_pos[2] + 2.2])
         self.assertEqual(calls_z, [])
+        self.assertEqual(angles_z, [])
         self.assertTrue(any("skipped reason=ground_z_mismatch" in ln for ln in logs_z), logs_z)
 
-        # 2. Player directly NW toward Player House wall (normal (-0.6428, +0.7660)) -> redirects clear of wall at 1.85 m!
-        calls_w, pos_w, logs_w = run_guard([cods_pos[0] - 0.45, cods_pos[1] + 0.45, cods_pos[2] + 0.05])
+        # 2. Player directly NW toward Player House wall (normal (-0.6428, +0.7660)) -> redirects clear of wall at 1.85 m + faces Codsworth!
+        calls_w, angles_w, pos_w, logs_w = run_guard([cods_pos[0] - 0.45, cods_pos[1] + 0.45, cods_pos[2] + 0.05])
         self.assertEqual(len(calls_w), 1)
+        self.assertEqual(len(angles_w), 1)
         self.assertAlmostEqual(math.hypot(pos_w[0] - cods_pos[0], pos_w[1] - cods_pos[1]), 1.85, places=2)
         wall_proj = (pos_w[0] - cods_pos[0]) * (-0.6428) + (pos_w[1] - cods_pos[1]) * 0.7660
         self.assertLessEqual(wall_proj, 1.0, f"step-back still penetrated NW house wall: wall_proj={wall_proj}")
-        self.assertTrue(any("wall_avoid=True" in ln for ln in logs_w), logs_w)
+        self.assertTrue(any("wall_avoid=True" in ln and "facing_deg=" in ln for ln in logs_w), logs_w)
 
-        # 3. Player on open SE street -> steps straight back along direct ray (wall_avoid=False) at 1.85 m!
-        calls_s, pos_s, logs_s = run_guard([cods_pos[0] + 0.5, cods_pos[1] - 0.5, cods_pos[2]])
+        # 3. Player on open SE street -> steps straight back along direct ray (wall_avoid=False) at 1.85 m + faces Codsworth (~315 deg)!
+        calls_s, angles_s, pos_s, logs_s = run_guard([cods_pos[0] + 0.5, cods_pos[1] - 0.5, cods_pos[2]])
         self.assertEqual(len(calls_s), 1)
+        self.assertEqual(len(angles_s), 1)
         self.assertAlmostEqual(math.hypot(pos_s[0] - cods_pos[0], pos_s[1] - cods_pos[1]), 1.85, places=2)
-        self.assertTrue(any("wall_avoid=False" in ln for ln in logs_s), logs_s)
+        self.assertAlmostEqual(angles_s[0][2], 315.0, places=1)
+        self.assertTrue(any("wall_avoid=False" in ln and "facing_deg=" in ln for ln in logs_s), logs_s)
 
     def test_docs_report_exists_and_honestly_splits_offline_vs_game_only(self):
         txt = DOC_MD.read_text(encoding="utf-8")
