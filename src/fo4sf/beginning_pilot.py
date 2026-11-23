@@ -550,7 +550,6 @@ def evaluate_beginning_logs(
 
     saw_special_skipped = False
     saw_special_default = any(_SPECIAL_DEFAULT_RE.search(ln) for ln in pr_lines)
-    saw_special_fallback_lift = False
     special_sums: List[int] = []
     map_setup_idx: Optional[int] = None
     map_setup_markers: Optional[int] = None
@@ -621,8 +620,6 @@ def evaluate_beginning_logs(
             saw_special_skipped = True
         if _SPECIAL_DEFAULT_RE.search(ln):
             saw_special_default = True
-        if _NG_SPECIAL_FALLBACK_LIFT_RE.search(ln):
-            saw_special_fallback_lift = True
         ms7 = _NG_SPECIAL_SET_7_RE.search(ln)
         if ms7:
             special_sums.append(sum(int(ms7.group(g)) for g in range(1, 8)))
@@ -957,11 +954,11 @@ def evaluate_beginning_logs(
     else:
         verdicts["B2_gear_door"] = {"status": "UNTESTED", "detail": "stage 30 not reached in log"}
 
-    # B3: Exit lift (40-point S.P.E.C.I.A.L. or 28-point player fallback, never 'special skipped'/'special default'/'exit fallback by=move')
+    # B3: Exit lift (40-point S.P.E.C.I.A.L. on every allocator, never 'special skipped'/'special default'/'exit fallback by=move')
     later_lift_fails = [
         r for i, r in lift_fail_reasons if ascent_confirmed_idx is None or i >= ascent_confirmed_idx
     ]
-    allowed_special_sums = {40, 28} if saw_special_fallback_lift else {40}
+    allowed_special_sums = {40}
     bad_special = [s for s in special_sums if s not in allowed_special_sums]
     matched_special = next((s for s in reversed(special_sums) if s in allowed_special_sums), None)
     has_valid_special = matched_special is not None
@@ -975,10 +972,9 @@ def evaluate_beginning_logs(
     elif saw_special_skipped:
         verdicts["B3_exit_lift"] = {"status": "FAIL", "detail": "'special skipped' logged on normal walk"}
     elif bad_special and not has_valid_special:
-        req_desc = "28 or 40" if saw_special_fallback_lift else "40"
         verdicts["B3_exit_lift"] = {
             "status": "FAIL",
-            "detail": f"S.P.E.C.I.A.L. sum {bad_special[-1]} != required {req_desc} points",
+            "detail": f"S.P.E.C.I.A.L. sum {bad_special[-1]} != required 40 points",
         }
     elif later_lift_fails or ascent_play_refused:
         reasons = ", ".join(later_lift_fails) if later_lift_fails else "ascent play accepted=false"

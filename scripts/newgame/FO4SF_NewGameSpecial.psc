@@ -2,10 +2,10 @@ Scriptname FO4SF_NewGameSpecial extends Quest
 {Optional third script on FO4SF_NewGame (docs/newgame/vault111-start.md section 4a): SPECIAL at a vault terminal (NG-5
  / NG-C4, the owner's decision 2026-10-19: at the terminal for testing, the elevator version with the remade start).
  Once the looks are done (stage 20) and the player stands at the terminal, TerminalMessage asks "Set SPECIAL" or
- "Later"; Set runs the allocation on SpecialMessage: Fallout 4's numbers, SpecialBase in each stat, SpecialPoints to
- spend, SpecialMax at most per stat; one button per stat adds a point, Reset starts over, Confirm (all points spent)
- writes the seven actor values (our own AVIF, Special[0] Strength to Special[6] Luck) with Actor.SetValue, Leave keeps
- the defaults. The quest never waits on this: the player can ride the elevator with SPECIAL unset, and this script logs
+ "Later"; Set runs the allocation on SpecialMessage: unified 40-point pool (GAP-J3-05 / A1(b)), SpecialBase in each
+ stat, SpecialPoints (33) to spend (7 base + 33 = 40 total), SpecialMax at most per stat; one button per stat adds a
+ point, Reset starts over, Confirm (all points spent) writes the seven actor values (our own AVIF, Special[0] Strength
+ to Special[6] Luck) with Actor.SetValue, Leave keeps the defaults. The quest never waits on this: the player can ride the elevator with SPECIAL unset, and this script logs
  "special skipped" at stage 40. Every ending is logged as "special <how>" (make_newgame.py log reads it).
  Kept apart from FO4SF_NewGameQuest so that if a native here is not what Starfield's sources offer, only this script
  fails to compile and the build goes on without it (make_newgame.py stage --no-special).
@@ -35,17 +35,19 @@ float Property TerminalZ Auto Const Mandatory
 float Property TerminalRadius = 2.5 Auto Const
 
 int Property SpecialBase = 1 Auto Const
-int Property SpecialPoints = 21 Auto Const
+int Property SpecialPoints = 33 Auto Const
 int Property SpecialMax = 10 Auto Const
-{Fallout 4's rule (make_newgame.py SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX, the same numbers, its special_press is
- the same rule): 1 in each stat, 21 points to spend, 10 at most in one stat.}
-int Property MaxPresses = 300 Auto Const
+{Unified 40-point pool matching #806 (GAP-J3-05 / A1(b); make_newgame.py SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX,
+ the same numbers, its special_press is the same rule): 1 in each stat, 33 points to spend (7 + 33 = 40 total),
+ 10 at most in one stat.}
+int Property MaxPresses = 400 Auto Const
 {The allocation ends as Leave after this many presses without Confirm or Leave (make_newgame.py SPECIAL_MAX_PRESSES).
- A player needs about 22 per pass; this is the guard against a message box that returns at once (the ten-button box is
- unverified), which would otherwise spin.}
+ A player needs about 34 per pass; this is the guard against a message box that returns at once, which would otherwise
+ spin.}
 bool Property LegacyTerminalEnabled = false Auto Const
-{X3: Progression's 40-point allocation on the Vault 111 lift (and Warfare start) replaces this 21-point terminal picker
- on normal runs, so this timer is off by default and 'special skipped' never fires on a normal run.}
+{X3: Progression's 40-point allocation on the Vault 111 lift (and Warfare start) replaces this legacy terminal timer
+ on normal runs, while AllocateFromLift serves the same 40-point pool (7 base + 33 points) when FO4SFProgression.esm
+ is absent (--profile player); this timer is off by default so 'special skipped' never fires on a normal run.}
 
 bool asked = false
 bool done = false
@@ -98,7 +100,7 @@ Function AtTerminal(Actor player)
 EndFunction
 
 bool Function AllocateFromLift(Actor player)
-{Vault 111 elevator S.P.E.C.I.A.L. allocation when FO4SFProgression.esm is absent (--profile player).}
+{Vault 111 elevator 40-point S.P.E.C.I.A.L. allocation (7 base + 33 points) when FO4SFProgression.esm is absent (--profile player).}
     Actor target = player
     if target == None
         target = Game.GetPlayer()

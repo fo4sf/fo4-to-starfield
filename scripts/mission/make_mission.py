@@ -44,6 +44,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import wave
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,14 +62,29 @@ SCRIPT = "FO4SF_Min00Quest"
 COM_SCRIPT = "FO4SF_COMPreston"
 CODSWORTH_SCRIPT = "FO4SF_Codsworth01Quest"
 SANCTUARY_SCRIPT = "FO4SF_Sanctuary01Quest"
-ALL_SCRIPTS = (SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT)
+MINRECRUIT00_SCRIPT = "FO4SF_MinRecruit00Quest"
+MQ103_SCRIPT = "FO4SF_MQ103Quest"
+MQ104_SCRIPT = "FO4SF_MQ104Quest"
+MQ105_SCRIPT = "FO4SF_MQ105Quest"
+MQ106_SCRIPT = "FO4SF_MQ106Quest"
+MQ203_SCRIPT = "FO4SF_MQ203Quest"
+MQ204_SCRIPT = "FO4SF_MQ204Quest"
+MQ206_SCRIPT = "FO4SF_MQ206Quest"
+ALL_SCRIPTS = (
+    SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT,
+    MINRECRUIT00_SCRIPT, MQ103_SCRIPT, MQ104_SCRIPT, MQ105_SCRIPT,
+    MQ106_SCRIPT, MQ203_SCRIPT, MQ204_SCRIPT, MQ206_SCRIPT,
+)
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
 # Codsworth carries his own VTYP FO4SF_CodsworthVoice (0x819, AllowDefaultDialog) so Starfield resolves his .wem files here:
 VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/fo4sf_codsworthvoice"
+# Preston uses Starfield.esm GenericMaleEvenToned (AllowDefaultDialog), resolved under FO4SFMission.esm's voice folder:
+PRESTON_VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/genericmaleeventoned"
 FIRST_WEM = 0x00F4C001
 FIRST_MQ_WEM = 0x00F4C101
+FIRST_PRESTON_WEM = 0x00F4C201
 
 # FormIDs only (zero FO4 text in source): 20 Codsworth Hello INFOs + 5 MQ102 DialogueCodsworthPostWar Codsworth INFOs
 HELLO_INFO_IDS = (
@@ -83,6 +99,19 @@ MQ102_CODSWORTH_INFO_IDS = (
     0x000A51A3,  # choice 2 reply (Sanctuary / family)
     0x0019E112,  # choice 3 reply (nearby survivors)
     0x0019E711,  # choice 4 reply (head to Concord)
+)
+MQ102_CODSWORTH_CLIP_SPECS = (
+    (0x0001E64D, (1, 2, 3)),
+    (0x000A1818, (1,)),
+    (0x000A51A3, (1, 2)),
+    (0x0019E112, (1,)),
+    (0x0019E711, (1,)),
+)
+PRESTON_SCENE_CLIP_SPECS = (
+    (0x000CA9CC, (1,)),
+    (0x0005DF11, (1, 2, 3)),
+    (0x0005DF0D, (1, 2)),
+    (0x0005DF1B, (1,)),
 )
 
 PRESTON_PLACEHOLDER_NOTE = (
@@ -100,13 +129,19 @@ LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield"
 LINE = re.compile(r"FO4SF_MISSION rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
 
 
+def path_basename(p):
+    """Cross-OS basename splitting on both '/' and '\\'."""
+    cleaned = str(p).rstrip("/\\")
+    return re.split(r"[\\/]+", cleaned)[-1] if cleaned else ""
+
+
 def run(cmd, cwd=None):
     print("+ " + " ".join(cmd))
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     sys.stdout.write(r.stdout)
     if r.returncode != 0:
         sys.stdout.write(r.stderr)
-        sys.exit(f"{os.path.basename(cmd[0])} exit {r.returncode}")
+        sys.exit(f"{path_basename(cmd[0])} exit {r.returncode}")
     return r.stdout
 
 
@@ -208,7 +243,7 @@ def extract_fo4_strings(interface_ba2_path, dest_dir):
     for entry in arch.entries:
         low = entry.name.lower().replace("\\", "/")
         if low.startswith("strings/fallout4_en."):
-            out_file = os.path.join(dest_dir, os.path.basename(low))
+            out_file = os.path.join(dest_dir, low.rsplit("/", 1)[-1])
             with open(out_file, "wb") as f:
                 f.write(arch.read(entry.name))
             extracted += 1
@@ -249,11 +284,36 @@ def find_xwmaencode(fo4_esm_path, explicit=None):
     return shutil.which("xwmaencode")
 
 
-def convert_fuz_stems_to_wem(voices_ba2_path, stems, xwmaencode_exe, wwise_console_exe, scratch_dir, conversion="Vorbis Quality High"):
-    """Convert `stems` (e.g. ['0001e64d_1', ...]) from Fallout4 - Voices.ba2 -> .xwm -> .wav -> .wem in scratch_dir."""
+def wav_duration_seconds(wav_path):
+    """Measure PCM .wav duration in seconds (with deterministic size fallback for synthetic test stubs)."""
+    try:
+        with wave.open(wav_path, "rb") as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            if rate > 0 and frames > 0:
+                return round(frames / float(rate), 3)
+    except (wave.Error, EOFError, OSError, ZeroDivisionError):
+        pass
+    try:
+        return round(max(0.5, os.path.getsize(wav_path) / 88200.0), 3)
+    except OSError:
+        return 1.0
+
+
+def _norm_voice_spec(spec):
+    norm = str(spec).strip().lower().replace("\\", "/").strip("/")
+    if "/" in norm:
+        folder, stem = norm.rsplit("/", 1)
+        return norm, folder, stem, f"{folder}__{stem}"
+    return norm, "robotmrhandy", norm, norm
+
+
+def convert_fuz_stems_to_wem(voices_ba2_path, stems, xwmaencode_exe, wwise_console_exe, scratch_dir,
+                             conversion="Vorbis Quality High", return_durations=False):
+    """Convert `stems` (e.g. ['0001e64d_1', 'npcmprestongarvey/000ca9cc_1', ...]) from Fallout4 - Voices.ba2 -> .wem."""
     from fo4sf.ba2 import Ba2
     arch = Ba2(voices_ba2_path)
-    by_low = {e.name.lower().replace("/", "\\"): e.name for e in arch.entries}
+    by_low = {e.name.lower().replace("\\", "/"): e.name for e in arch.entries}
     xwm_dir = os.path.join(scratch_dir, "xwm")
     wav_dir = os.path.join(scratch_dir, "wav")
     wem_dir = os.path.join(scratch_dir, "wem")
@@ -261,18 +321,23 @@ def convert_fuz_stems_to_wem(voices_ba2_path, stems, xwmaencode_exe, wwise_conso
     os.makedirs(wav_dir, exist_ok=True)
     os.makedirs(wem_dir, exist_ok=True)
 
-    for stem in stems:
-        key = f"sound\\voice\\fallout4.esm\\robotmrhandy\\{stem.lower()}.fuz"
+    specs = [_norm_voice_spec(s) for s in stems]
+    durations = {}
+    flat_names = []
+    for norm_key, folder, stem, flat in specs:
+        key = f"sound/voice/fallout4.esm/{folder}/{stem}.fuz"
         if key not in by_low:
-            sys.exit(f"{voices_ba2_path}: missing Codsworth voice entry {key}")
+            sys.exit(f"{voices_ba2_path}: missing voice entry {key}")
         xwma = split_fuz_xwma(arch.read(by_low[key]))
-        xp = os.path.join(xwm_dir, stem.lower() + ".xwm")
-        wp = os.path.join(wav_dir, stem.lower() + ".wav")
+        xp = os.path.join(xwm_dir, flat + ".xwm")
+        wp = os.path.join(wav_dir, flat + ".wav")
         with open(xp, "wb") as f:
             f.write(xwma)
         run([xwmaencode_exe, xp, wp])
         if not os.path.isfile(wp) or os.path.getsize(wp) == 0:
             sys.exit(f"xwmaencode did not produce {wp}")
+        durations[norm_key] = wav_duration_seconds(wp)
+        flat_names.append(flat)
 
     proj = os.path.join(scratch_dir, "wwise", "CodsworthStageVoice", "CodsworthStageVoice.wproj")
     run([wwise_console_exe, "create-new-project", proj, "--platform", "Windows", "--quiet"])
@@ -280,76 +345,172 @@ def convert_fuz_stems_to_wem(voices_ba2_path, stems, xwmaencode_exe, wwise_conso
     with open(wsources, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         f.write(f'<ExternalSourcesList SchemaVersion="1" Root="{wav_dir}">\n')
-        for stem in sorted(stems):
-            f.write(f'  <Source Path="{stem.lower()}.wav" Conversion="{conversion}"/>\n')
+        for flat in sorted(set(flat_names)):
+            f.write(f'  <Source Path="{flat}.wav" Conversion="{conversion}"/>\n')
         f.write("</ExternalSourcesList>\n")
     run([wwise_console_exe, "convert-external-source", proj, "--platform", "Windows", "--source-file", wsources,
          "--output", wem_dir, "--quiet"])
 
-    found = {}
+    by_flat = {}
     for dp, _, fns in os.walk(wem_dir):
         for fn in fns:
             if fn.lower().endswith(".wem"):
-                found[os.path.splitext(fn.lower())[0]] = os.path.join(dp, fn)
-    missing = [s for s in stems if s.lower() not in found]
+                by_flat[os.path.splitext(fn.lower())[0]] = os.path.join(dp, fn)
+    found = {}
+    missing = []
+    for orig, (norm_key, _folder, _stem, flat) in zip(stems, specs):
+        if flat in by_flat:
+            found[norm_key] = by_flat[flat]
+        else:
+            missing.append(orig)
     if missing:
         sys.exit(f"WwiseConsole missing converted .wem files: {missing}")
-    return found
+    return (found, durations) if return_durations else found
+
+
+def _build_scene_voice_payload(clip_specs, folder_prefix, first_wem, voice_dir, available_ba2_keys, converted, durations, data_dir):
+    """Copy converted .wem clips for a scene into Data/<voice_dir>/ and build the JSON spec for dotnet/Mission."""
+    copied = []
+    # Assign primary clip (#1) of greeting + each choice first to preserve contiguous base WEM IDs, then continuations
+    primary_wems = []
+    per_entry_stems = []
+    for fid, resp_nums in clip_specs:
+        entry_keys = []
+        for rnum in resp_nums:
+            stem = f"{fid:08x}_{rnum}"
+            spec_key = f"{folder_prefix}/{stem}" if folder_prefix else stem
+            ba2_folder = folder_prefix or "robotmrhandy"
+            ba2_key = f"sound/voice/fallout4.esm/{ba2_folder}/{stem}.fuz"
+            if rnum == 1 or ba2_key in available_ba2_keys:
+                entry_keys.append(spec_key)
+        per_entry_stems.append(entry_keys)
+
+    next_wem = first_wem
+    assigned = {}
+    for entry_keys in per_entry_stems:
+        wem_hex = f"{next_wem:08x}"
+        next_wem += 1
+        assigned[entry_keys[0]] = wem_hex
+        primary_wems.append(wem_hex)
+    for entry_keys in per_entry_stems:
+        for extra_key in entry_keys[1:]:
+            assigned[extra_key] = f"{next_wem:08x}"
+            next_wem += 1
+
+    os.makedirs(os.path.join(data_dir, *voice_dir.split("/")), exist_ok=True)
+    clips_lists = []
+    for entry_keys in per_entry_stems:
+        entry_clips = []
+        for spec_key in entry_keys:
+            wem_hex = assigned[spec_key]
+            rel = f"{voice_dir}/{wem_hex}.wem"
+            shutil.copy2(converted[spec_key], os.path.join(data_dir, *rel.split("/")))
+            copied.append(rel)
+            entry_clips.append({"wem": wem_hex, "duration": float(durations.get(spec_key, 0.0))})
+        clips_lists.append(entry_clips)
+
+    payload = {
+        "greeting_wem": primary_wems[0],
+        "reply_wems": primary_wems[1:],
+        "greeting_clips": clips_lists[0],
+        "reply_clips": clips_lists[1:],
+    }
+    return copied, payload
 
 
 def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_voice):
-    """Build-time voice staging into Data/VOICE_DIR and temporary JSON specs in tmp_dir."""
+    """Build-time voice staging for Codsworth (Hello + MQ102 scene) and Preston (Min00 scene)."""
+    from fo4sf.ba2 import Ba2
     fo4_data = os.path.dirname(os.path.abspath(a.fo4))
     voices_ba2 = getattr(a, "fo4_voices", None) or os.path.join(fo4_data, "Fallout4 - Voices.ba2")
     if not os.path.isfile(voices_ba2):
-        return [], None, None
+        return [], None, None, None
 
     xwm_exe = find_xwmaencode(a.fo4, getattr(a, "xwmaencode", None))
     wwise_exe = find_wwise_console(getattr(a, "wwise_console", None))
     if not xwm_exe or not wwise_exe:
-        return [], None, None
+        return [], None, None, None
+
+    want_codsworth = bool(getattr(a, "codsworth", True))
+    want_preston = bool(getattr(a, "alias", True))
+    if not want_codsworth and not want_preston:
+        return [], None, None, None
+
+    arch = Ba2(voices_ba2)
+    available_ba2_keys = {e.name.lower().replace("\\", "/") for e in arch.entries}
+
+    needed_stems = []
+    hello_rows = (pts.get("codsworth_hellos") or []) if want_codsworth else []
+    if want_codsworth:
+        for fid, resp_nums in MQ102_CODSWORTH_CLIP_SPECS:
+            for rnum in resp_nums:
+                stem = f"{fid:08x}_{rnum}"
+                ba2_key = f"sound/voice/fallout4.esm/robotmrhandy/{stem}.fuz"
+                if rnum == 1 or ba2_key in available_ba2_keys:
+                    needed_stems.append(stem)
+        if not has_explicit_hello_voice and hello_rows:
+            for hr in hello_rows:
+                needed_stems.append(f"{hr['info'].lower()}_{hr['response']}")
+
+    if want_preston:
+        for fid, resp_nums in PRESTON_SCENE_CLIP_SPECS:
+            for rnum in resp_nums:
+                stem = f"{fid:08x}_{rnum}"
+                ba2_key = f"sound/voice/fallout4.esm/npcmprestongarvey/{stem}.fuz"
+                if rnum == 1 or ba2_key in available_ba2_keys:
+                    needed_stems.append(f"npcmprestongarvey/{stem}")
+
+    converted, durations = convert_fuz_stems_to_wem(
+        voices_ba2, sorted(set(needed_stems)), xwm_exe, wwise_exe,
+        os.path.join(tmp_dir, "audio_conv"), return_durations=True
+    )
 
     copied = []
     voice_json_out = None
-    needed_stems = [f"{fid:08x}_1" for fid in MQ102_CODSWORTH_INFO_IDS]
-    hello_rows = pts.get("codsworth_hellos") or []
-    if not has_explicit_hello_voice and hello_rows:
-        for hr in hello_rows:
-            needed_stems.append(f"{hr['info'].lower()}_{hr['response']}")
+    mq_voice_json = None
+    preston_voice_json = None
 
-    converted = convert_fuz_stems_to_wem(voices_ba2, sorted(set(needed_stems)), xwm_exe, wwise_exe,
-                                         os.path.join(tmp_dir, "audio_conv"))
-    dest_voice_dir = os.path.join(data_dir, *VOICE_DIR.split("/"))
-    os.makedirs(dest_voice_dir, exist_ok=True)
+    if want_codsworth:
+        dest_voice_dir = os.path.join(data_dir, *VOICE_DIR.split("/"))
+        os.makedirs(dest_voice_dir, exist_ok=True)
+        if not has_explicit_hello_voice and hello_rows:
+            lines = []
+            for idx, hr in enumerate(hello_rows):
+                stem = f"{hr['info'].lower()}_{hr['response']}"
+                wem_hex = f"{FIRST_WEM + idx:08x}"
+                rel = f"{VOICE_DIR}/{wem_hex}.wem"
+                shutil.copy2(converted[stem], os.path.join(data_dir, *rel.split("/")))
+                copied.append(rel)
+                text = hr["text"]
+                sex = "male" if re.search(r"\bsir\b", text, re.I) else "female" if re.search(r"\bmum\b", text, re.I) else None
+                lines.append({
+                    "info": hr["info"], "response": int(hr["response"]), "text": text,
+                    "wem": wem_hex, "sex": sex, "duration": float(durations.get(stem, 0.0)),
+                })
+            voice_json_out = os.path.join(tmp_dir, "auto_hello_voice.json")
+            with open(voice_json_out, "w", encoding="utf-8") as f:
+                json.dump(lines, f, indent=1)
 
-    if not has_explicit_hello_voice and hello_rows:
-        lines = []
-        for idx, hr in enumerate(hello_rows):
-            stem = f"{hr['info'].lower()}_{hr['response']}"
-            wem_hex = f"{FIRST_WEM + idx:08x}"
-            rel = f"{VOICE_DIR}/{wem_hex}.wem"
-            shutil.copy2(converted[stem], os.path.join(data_dir, *rel.split("/")))
-            copied.append(rel)
-            text = hr["text"]
-            sex = "male" if re.search(r"\bsir\b", text, re.I) else "female" if re.search(r"\bmum\b", text, re.I) else None
-            lines.append({"info": hr["info"], "response": int(hr["response"]), "text": text, "wem": wem_hex, "sex": sex})
-        voice_json_out = os.path.join(tmp_dir, "auto_hello_voice.json")
-        with open(voice_json_out, "w", encoding="utf-8") as f:
-            json.dump(lines, f, indent=1)
+        mq_copied, mq_payload = _build_scene_voice_payload(
+            MQ102_CODSWORTH_CLIP_SPECS, "", FIRST_MQ_WEM, VOICE_DIR,
+            available_ba2_keys, converted, durations, data_dir
+        )
+        copied.extend(mq_copied)
+        mq_voice_json = os.path.join(tmp_dir, "mq_voice.json")
+        with open(mq_voice_json, "w", encoding="utf-8") as f:
+            json.dump(mq_payload, f, indent=1)
 
-    mq_wems = []
-    for idx, fid in enumerate(MQ102_CODSWORTH_INFO_IDS):
-        stem = f"{fid:08x}_1"
-        wem_hex = f"{FIRST_MQ_WEM + idx:08x}"
-        rel = f"{VOICE_DIR}/{wem_hex}.wem"
-        shutil.copy2(converted[stem], os.path.join(data_dir, *rel.split("/")))
-        copied.append(rel)
-        mq_wems.append(wem_hex)
+    if want_preston:
+        pr_copied, pr_payload = _build_scene_voice_payload(
+            PRESTON_SCENE_CLIP_SPECS, "npcmprestongarvey", FIRST_PRESTON_WEM, PRESTON_VOICE_DIR,
+            available_ba2_keys, converted, durations, data_dir
+        )
+        copied.extend(pr_copied)
+        preston_voice_json = os.path.join(tmp_dir, "preston_voice.json")
+        with open(preston_voice_json, "w", encoding="utf-8") as f:
+            json.dump(pr_payload, f, indent=1)
 
-    mq_voice_json = os.path.join(tmp_dir, "mq_voice.json")
-    with open(mq_voice_json, "w", encoding="utf-8") as f:
-        json.dump({"greeting_wem": mq_wems[0], "reply_wems": mq_wems[1:]}, f, indent=1)
-    return copied, voice_json_out, mq_voice_json
+    return copied, voice_json_out, mq_voice_json, preston_voice_json
 
 
 def stage(a):
@@ -406,8 +567,8 @@ def stage(a):
             assets |= set(copy_voice(a.codsworth_voice, os.path.join(out, "Data"), voice_json))
             cods = cods + ["--codsworth-voice", voice_json]
 
-        if a.codsworth and has_real_fo4_ba2:
-            extra_copied, auto_hello_json, mq_voice_json = stage_mq102_and_hello_voices(
+        if (a.codsworth or a.alias) and has_real_fo4_ba2:
+            extra_copied, auto_hello_json, mq_voice_json, preston_voice_json = stage_mq102_and_hello_voices(
                 a, pts, os.path.join(out, "Data"), tmp_dir, has_explicit_voice
             )
             assets |= set(extra_copied)
@@ -415,9 +576,16 @@ def stage(a):
                 cods = cods + ["--codsworth-voice", auto_hello_json]
             if mq_voice_json:
                 cods = cods + ["--codsworth-mq-voice", mq_voice_json]
+            if preston_voice_json:
+                alias = alias + ["--preston-voice", preston_voice_json]
 
-        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
-        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
+        looks_args = []
+        if getattr(a, "actor_looks_assets", None):
+            assets |= set(copy_actor_looks_assets(a.actor_looks_assets, os.path.join(out, "Data")))
+            looks_args = ["--actor-looks-dir", a.actor_looks_assets]
+
+        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods + looks_args)
+        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods + looks_args)
 
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
@@ -478,7 +646,11 @@ def stage(a):
 - QUST FO4SF_CodsworthKeeper (0x0814, started at FO4SFNewGame stage 200 via StartNoWait; NOT StartGameEnabled),
 - QUST FO4SF_COMPreston (0x0815, test-only follow alias gated behind FO4SF_TestModeEnabled != 0),
 - QUST FO4SF_Codsworth01 (0x0816, MQ102-lite 4-choice Sanctuary conversation pointing to Concord; NOT StartGameEnabled),
-- QUST FO4SF_Sanctuary01 (0x0817, First Settlement objective on Sanctuary workbench 0250FE / FO4TerrainCore.esm 0x005C50, started at FO4SF_Min00 stage 200).
+- QUST FO4SF_Sanctuary01 (0x0817, full Min01 Sanctuary settlement quest completed in place on workbench 0250FE / FO4TerrainCore.esm 0x005C50 + Sturges 0x0A00/0x0A01, started at FO4SF_Min00 stage 200),
+- QUST FO4SF_MinRecruit00 (0x0A20, The First Step — Tenpines Bluff / Corvega / Flare Gun 0x0A25, NOT StartGameEnabled),
+- QUST FO4SF_MQ103 (0x0A50, Jewel of the Commonwealth — Diamond City Gate / Piper / Mayor / Valentine Detective Agency, NOT StartGameEnabled),
+- QUST FO4SF_MQ104 (0x0A80, Unlikely Valentine — Park Street Station / Vault 114 / Nick Valentine / Skinny Malone, NOT StartGameEnabled),
+- QUST FO4SF_MQ105 (0x0AB0, Getting a Clue — Valentine Agency / Kellogg's House / Cigar Trail / Fort Hagen 0D handoff, NOT StartGameEnabled).
 Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {PRESTON_PLACEHOLDER_NOTE}.
 Raiders: {len(pts['raiders'])} ACHR(s) of FO4_LvlRaider ({raiders}).
 Codsworth: {"NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + FO4SF_CodsworthVoice AllowDefaultDialog) at " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
@@ -528,6 +700,30 @@ def copy_assets(src, data):
     return copied
 
 
+def copy_actor_looks_assets(src, data):
+    """Verifies and copies staged C5 Fallout 4 Preston & Concord raider outfit assets (ASSET_DIRS) into Data."""
+    actors_dir = os.path.join(REPO, "scripts", "actors")
+    if actors_dir not in sys.path:
+        sys.path.insert(0, actors_dir)
+    import stage_c5_actor_looks  # noqa: E402
+
+    stage_c5_actor_looks.verify_staged_c5_assets(src, require_preston_mats=True)
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                dst = os.path.join(data, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), dst)
+                copied.append(rel.replace(os.sep, "/"))
+    stage_c5_actor_looks.verify_staged_c5_assets(data, require_preston_mats=True)
+    return copied
+
+
 def copy_voice(src, data, voice_json):
     """Reads src/lines.tsv, finds each line's src/wem/**/<info>_<response>.wem, copies it to data/VOICE_DIR/<wem>.wem
     with the line's WEMFile id (FIRST_WEM on, 8 lowercase hex digits) and writes voice.json for the writer."""
@@ -561,7 +757,7 @@ def copy_voice(src, data, voice_json):
 
 def pin_masters(paths):
     """{file name: SHA-256} of the masters the plugin is built against."""
-    return {os.path.basename(p): sha256(p) for p in paths}
+    return {path_basename(p): sha256(p) for p in paths}
 
 
 def new_partial(final, create=True):
@@ -602,7 +798,7 @@ def verify_dir(exp_dir, plan, raider=None):
         same("asset", os.path.join(exp_dir, "Data", *rel.split("/")), want)
     for name, want in plan["masters_sha256"].items():
         path = os.path.join(exp_dir, name)
-        if not os.path.isfile(path) and raider and name.lower() == os.path.basename(raider).lower():
+        if not os.path.isfile(path) and raider and name.lower() == path_basename(raider).lower():
             path = raider
         same(f"master {name}", path, want)
     return problems
@@ -768,9 +964,24 @@ def summarize(lines):
          "follow": None, "follow_package": None, "holds_after_follow": 0, "follow_refused_test_mode": False,
          "reloads": 0, "wfc01_rescues": 0, "wfc01_absent_cleared": 0, "wfc01_stuck_cleared": 0,
          "mission_gate": None, "min00_given_by": None,
+         "codsworth_scene_requested": 0, "codsworth_dialogue_menu_opened": 0, "codsworth_talk_fallbacks": [],
+         "codsworth_talk_opened": 0, "codsworth_choices": [],
          "codsworth_talk_end": False, "codsworth01_complete": None,
+         "preston_scene_requested": 0, "preston_dialogue_menu_opened": 0, "preston_talk_fallbacks": [],
+         "preston_talk_opened": 0, "preston_choices": [],
          "preston_talk_end": None, "stage40_fallback": False,
-         "min01_bench_activated": False, "sanctuary01_complete": None}
+         "min01_bench_activated": False, "sanctuary01_complete": None,
+         "sanctuary01_bench_log": None,
+         "sanctuary01_stages": [], "sanctuary01_finished": None,
+         "minrecruit00_stages": [], "minrecruit00_complete": None,
+         "mq103_stages": [], "mq103_complete": None,
+         "mq104_stages": [], "mq104_complete": None,
+         "mq105_stages": [], "mq105_complete": None,
+         "mq106_stages": [], "mq106_complete": None,
+         "mq203_stages": [], "mq203_complete": None,
+         "mq204_stages": [], "mq204_complete": None,
+         "mq206_stages": [], "mq206_complete": None,
+         "stand_in_events": [], "blocked_missing_port": []}
     follow_seen = False
     for line in lines:
         m = LINE.search(line)
@@ -799,6 +1010,16 @@ def summarize(lines):
             s["startcombat"] += 1
         elif low.startswith("preston activated"):
             s["activated"] += 1
+        elif low.startswith("preston scene talk requested "):
+            s["preston_scene_requested"] += 1
+        elif low == "preston dialogue menu opened":
+            s["preston_dialogue_menu_opened"] += 1
+        elif low.startswith("preston talk fallback=messagebox reason="):
+            s["preston_talk_fallbacks"].append(msg.split("reason=", 1)[1].split()[0])
+        elif low.startswith("preston talk opened"):
+            s["preston_talk_opened"] += 1
+        elif low.startswith("preston choice button="):
+            s["preston_choices"].append(int(msg.split("=", 1)[1].split()[0]))
         elif low.startswith("preston talk end "):
             s["preston_talk_end"] = msg
         elif low.startswith("found preston ") and s["found"] is None:
@@ -816,6 +1037,16 @@ def summarize(lines):
                 s["wfc01_stuck_cleared"] += 1
             else:
                 s["wfc01_absent_cleared"] += 1
+        elif low.startswith("codsworth scene talk requested "):
+            s["codsworth_scene_requested"] += 1
+        elif low == "codsworth dialogue menu opened":
+            s["codsworth_dialogue_menu_opened"] += 1
+        elif low.startswith("codsworth talk fallback=messagebox reason="):
+            s["codsworth_talk_fallbacks"].append(msg.split("reason=", 1)[1].split()[0])
+        elif low.startswith("codsworth talk opened"):
+            s["codsworth_talk_opened"] += 1
+        elif low.startswith("codsworth choice button="):
+            s["codsworth_choices"].append(int(msg.split("=", 1)[1].split()[0]))
         elif low.startswith("codsworth talk end -> min00 stage 10"):
             s["codsworth_talk_end"] = True
         elif low.startswith("codsworth01 complete "):
@@ -823,7 +1054,67 @@ def summarize(lines):
         elif low.startswith("min01 bench activated -> stage 100"):
             s["min01_bench_activated"] = True
         elif low.startswith("sanctuary01 bench_activated=true "):
-            s["sanctuary01_complete"] = msg
+            s["sanctuary01_bench_log"] = msg
+            if "complete=true" in low:
+                s["sanctuary01_complete"] = msg
+        elif low.startswith("sanctuary01 stand_in_build_menu ") or low.startswith("mq106 prydwen_stand_in=true") or low.startswith("mq203 stand_in_scan=true") or low.startswith("mq206 stand_in_build "):
+            s["stand_in_events"].append(msg)
+        elif low.startswith("mq203 brain_move blocked=true") or low.startswith("mq206 relay_blocked "):
+            s["blocked_missing_port"].append(msg)
+        elif low.startswith("sanctuary01 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["sanctuary01_stages"].append(int(parts[2]))
+        elif low.startswith("sanctuary01 finished "):
+            s["sanctuary01_finished"] = msg
+        elif low.startswith("minrecruit00 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["minrecruit00_stages"].append(int(parts[2]))
+        elif low.startswith("minrecruit00 complete "):
+            s["minrecruit00_complete"] = msg
+        elif low.startswith("mq103 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq103_stages"].append(int(parts[2]))
+        elif low.startswith("mq103 complete "):
+            s["mq103_complete"] = msg
+        elif low.startswith("mq104 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq104_stages"].append(int(parts[2]))
+        elif low.startswith("mq104 complete "):
+            s["mq104_complete"] = msg
+        elif low.startswith("mq105 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq105_stages"].append(int(parts[2]))
+        elif low.startswith("mq105 complete "):
+            s["mq105_complete"] = msg
+        elif low.startswith("mq106 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq106_stages"].append(int(parts[2]))
+        elif low.startswith("mq106 complete "):
+            s["mq106_complete"] = msg
+        elif low.startswith("mq203 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq203_stages"].append(int(parts[2]))
+        elif low.startswith("mq203 complete "):
+            s["mq203_complete"] = msg
+        elif low.startswith("mq204 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq204_stages"].append(int(parts[2]))
+        elif low.startswith("mq204 complete "):
+            s["mq204_complete"] = msg
+        elif low.startswith("mq206 stage "):
+            parts = msg.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                s["mq206_stages"].append(int(parts[2]))
+        elif low.startswith("mq206 complete "):
+            s["mq206_complete"] = msg
         elif low.startswith("follow preston test-only refused: test mode off"):
             s["follow"] = msg
             s["follow_refused_test_mode"] = True
@@ -872,6 +1163,8 @@ def main(argv=None):
                    help="a codsworth_voice.py output folder (lines.tsv, wem): his Hello lines and their .wem files")
     s.add_argument("--codsworth-assets", default=None,
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
+    s.add_argument("--actor-looks-assets", default=None,
+                   help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")

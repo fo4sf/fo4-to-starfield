@@ -861,6 +861,24 @@ def verify_bundle(
         root_files = sorted(n for n in os.listdir(data_dir) if os.path.isfile(os.path.join(data_dir, n)))
         if root_files:
             problems.append(f"Data/ contains root-level files refused by exp_install --pack: {root_files}")
+        c5_probe = os.path.join(data_dir, "meshes", "fo4port", "armor", "preston_garvey", "prestongarveyoutfit_m.nif")
+        mission_esm_p = os.path.join(bdir, "FO4SFMission.esm")
+        mission_wants_c5 = False
+        if os.path.isfile(mission_esm_p):
+            try:
+                mission_wants_c5 = b"prestongarveyoutfit_m.nif" in Path(mission_esm_p).read_bytes().lower()
+            except OSError:
+                mission_wants_c5 = False
+        if os.path.isfile(c5_probe) or mission_wants_c5:
+            try:
+                actors_dir = os.path.join(REPO, "scripts", "actors")
+                if actors_dir not in sys.path:
+                    sys.path.insert(0, actors_dir)
+                import stage_c5_actor_looks  # type: ignore
+
+                stage_c5_actor_looks.verify_staged_c5_assets(data_dir, require_preston_mats=True)
+            except Exception as exc:
+                problems.append(f"c5 actor looks verify: {exc}")
 
     # 6. Check 4 GiB BA2 archive limit (existing .ba2 files + packed Main.ba2 size estimate)
     for dp, _, fns in os.walk(bdir):
