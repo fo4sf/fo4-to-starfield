@@ -164,6 +164,8 @@ class Reference:
         self.moveto_calls = []
         self.enables = []
         self.discovery_calls = 0
+        self.equipped = set()
+        self.equip_calls = []
 
     def GetWorldSpace(self): return self.world
     def GetParentCell(self): return self.cell
@@ -174,6 +176,11 @@ class Reference:
     def Is3DLoaded(self): return self.loaded
     def IsInInterior(self): return self.interior
     def SetAngle(self, *args): pass
+    def IsEquipped(self, item): return item in self.equipped
+
+    def EquipItem(self, item, prevent_removal=False, silent=False):
+        self.equip_calls.append((item, prevent_removal, silent))
+        self.equipped.add(item)
 
     def Enable(self, fade=False):
         self.enables.append(fade)

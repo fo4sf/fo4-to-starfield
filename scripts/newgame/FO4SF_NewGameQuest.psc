@@ -2503,7 +2503,16 @@ Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int
     endif
     if akBaseItem == VaultPistolBase
         pistolPickedLogged = true
+        Actor player = Game.GetPlayer()
+        bool equipped = False
+        if player != None
+            if !player.IsEquipped(VaultPistolBase)
+                player.EquipItem(VaultPistolBase, False, False)
+            endif
+            equipped = player.IsEquipped(VaultPistolBase)
+        endif
         Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)
+        Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped)
     endif
 EndEvent
 
