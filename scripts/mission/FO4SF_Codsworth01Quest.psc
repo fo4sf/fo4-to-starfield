@@ -357,14 +357,17 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
-{C6: When the player activates Codsworth inside his 0.65 m chassis radius (e.g. moveto at d=0.62 m), step back along the
- sightline to SafeTalkCameraDistance (1.85 m) so DisableDialogueCamera (0x0800) frames Codsworth cleanly like a 2.0 m
- walk-up without clipping inside his hull. Normal walk-ups (>= 1.65 m) are left untouched.}
+{C6 + R11 A2.5: When the player activates Codsworth inside his 0.65 m chassis radius (e.g. moveto at d=0.62 m),
+ step back to SafeTalkCameraDistance (1.85 m) only after validating ground-Z alignment (|pz - cz| <= 1.5 m) and
+ Sanctuary Player House wall clearance (derived from Fallout4.esm WRLD 0x3C: exterior facade lies ~1.15 m NW of
+ Codsworth along normal (-0.6428, +0.7660)). If the direct ray back points into the NW house wall, redirect onto
+ the nearest unobstructed Sanctuary yard/driveway azimuth at exact 1.85 m. Normal walk-ups (>= 1.65 m) untouched.}
     if player == None || cods == None || player.IsInInterior()
         return
     endif
     float cx = cods.GetPositionX()
     float cy = cods.GetPositionY()
+    float cz = cods.GetPositionZ()
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
@@ -372,6 +375,12 @@ Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
     float dy = py - cy
     float horiz = Math.Sqrt(dx * dx + dy * dy)
     if horiz >= MinTalkCameraDistance
+        return
+    endif
+    ; A2.5: Ground-Z validation — never shove a player off a roof/ledge or through terrain far from Codsworth's ground plane.
+    float dz = pz - cz
+    if dz < -1.5 || dz > 1.5
+        Trace("codsworth talk camera_guard skipped reason=ground_z_mismatch prev_d=" + horiz + " dz=" + dz)
         return
     endif
     float ux = 0.0
@@ -384,8 +393,44 @@ Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
         ux = Math.Sin(yaw)
         uy = Math.Cos(yaw)
     endif
-    player.SetPosition(cx + ux * SafeTalkCameraDistance, cy + uy * SafeTalkCameraDistance, pz)
-    Trace("codsworth talk camera_guard prev_d=" + horiz + " safe_d=" + SafeTalkCameraDistance)
+    float candDx = ux * SafeTalkCameraDistance
+    float candDy = uy * SafeTalkCameraDistance
+    bool wallAvoid = False
+    ; A2.5: Sanctuary Player House wall clearance check around Codsworth's merged Sanctuary spot (-2346.709, -1406.163).
+    float sx = cx - (-2346.709)
+    float sy = cy - (-1406.163)
+    if sx * sx + sy * sy <= 25.0
+        float wallProj = candDx * (-0.6428) + candDy * 0.7660
+        if wallProj > 1.0
+            ; Candidate lies inside the NW Player House wall footprint -> pick closest unobstructed yard/street direction.
+            float bestX = 0.6428
+            float bestY = -0.7660
+            float bestDot = ux * bestX + uy * bestY
+            float swDot = ux * (-0.7660) + uy * (-0.6428)
+            if swDot > bestDot
+                bestDot = swDot
+                bestX = -0.7660
+                bestY = -0.6428
+            endif
+            float neDot = ux * 0.7660 + uy * 0.6428
+            if neDot > bestDot
+                bestDot = neDot
+                bestX = 0.7660
+                bestY = 0.6428
+            endif
+            candDx = bestX * SafeTalkCameraDistance
+            candDy = bestY * SafeTalkCameraDistance
+            wallAvoid = True
+        endif
+    endif
+    float targetZ = pz
+    if targetZ < cz - 0.35
+        targetZ = cz
+    elseif targetZ > cz + 0.60
+        targetZ = cz + 0.35
+    endif
+    player.SetPosition(cx + candDx, cy + candDy, targetZ)
+    Trace("codsworth talk camera_guard prev_d=" + horiz + " safe_d=" + SafeTalkCameraDistance + " wall_avoid=" + wallAvoid)
 EndFunction
 
 Event Scene.OnBegin(Scene akSender)
@@ -416,6 +461,13 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
                 CancelTimer(2)
                 StartTimer(SceneOpenCheckSeconds, 2)
             endif
+        elseif auiPhaseIndex >= 2
+            ; R11 D1: Phase 2 (1-based TOPLEVELNEST PlayerDialogueSceneAction) triggers Starfield's dialogue camera
+            ; targeting MiniBotA's C_Chassis/COM (z=0.506 m, 0.85 m below Codsworth's floating Mr. Handy dome).
+            ; Stop the close-up dialogue camera cleanly (Bethesda Game.StopDialogueCamera API) so the player retains
+            ; the clean eye-height 1.85 m framing seen during Phase 1 greeting (still 03) on entry and every loop-back.
+            Game.StopDialogueCamera(False, True)
+            Trace("codsworth talk dialogue_camera stopped phase=" + auiPhaseIndex)
         endif
     endif
 EndEvent
