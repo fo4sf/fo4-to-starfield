@@ -1,4 +1,4 @@
-"""Round 11 A2.7 / R11 / P3 / A3 / candidate-2g-fix card validator."""
+"""Round 11 A2.7 / R11 / P3 / A3 / candidate-2g-fix2 card validator."""
 
 from __future__ import annotations
 
@@ -116,9 +116,9 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
 
         top = "\n".join(txt.splitlines()[:14])
         self.assertIn("NEW GAME needed", top)
-        self.assertIn("candidate-2g-fix", top)
+        self.assertIn("candidate-2g-fix2", top)
         self.assertIn("73ea9a4b", top)
-        self.assertIn("7085816241", top)
+        self.assertIn("77a16225", top)
         self.assertIn("prototype, offline", top)
         self.assertIn("OFFLINE ONLY — UNPROVEN IN GAME", top)
         self.assertIn("stand-in", top.lower())
@@ -134,13 +134,18 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("press `e` on the elevator", txt.lower())
         # InvDataAnswers=0 in --profile player: never instruct equipping via F7 -> INV
         self.assertNotIn("equip it (`f7` -> `inv`)", txt.lower())
-        # Old placeholder replaced by <cand2g-fix-player-bundle>
+        # Old placeholders & removed variant swap must not linger
         self.assertNotIn("<cand-r11-player-bundle>", txt)
-        # In candidate-2g-fix (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
+        self.assertNotIn("<cand2g-fix-player-bundle>", txt)
+        self.assertNotIn("variants/codsworth-race-framing-on/FO4SFMission.esm", txt)
+        # E1 removed StopDialogueCamera from Phase 2
+        self.assertNotIn("codsworth talk dialogue_camera stopped phase=2", txt)
+        # In candidate-2g-fix2 (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
         self.assertNotIn("sanctuary01 bench_activated=true ref=<ref> complete=true", txt)
 
         required_tokens = (
-            "<cand2g-fix-player-bundle>",
+            "<cand2g-fix2-player-bundle>",
+            "candidate-2g-fix2",
             "D1",
             "D2",
             "D3",
@@ -148,8 +153,14 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "D5",
             "D6",
             "D7",
+            "E1",
+            "E2",
+            "E3",
+            "E4",
+            "E5",
+            "E6",
+            "E7",
             "A2.1",
-            "A2.2",
             "A2.3",
             "A2.4",
             "A2.5",
@@ -157,11 +168,35 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "A2.7",
             "A3",
             "HAND-PLAY",
-            # Review items #1-#10 coverage
-            "late_dialogue_open",
-            "post-`200`",
+            # E1-E7 coverage
             "--codsworth-race-framing 0",
-            "variants/codsworth-race-framing-on/FO4SFMission.esm",
+            "MiniBotARace",
+            "claude/robot-anim",
+            "ZERO fallback=messagebox",
+            "fallback=messagebox",
+            "09000814",
+            "09000990",
+            "090009C0",
+            "facing_deg=<deg>",
+            "wall_avoid=<true|false>",
+            "0900097A",
+            "AttackDamage = 3",
+            "arm raider <i> sidearm=eon sidearm_ammo=36",
+            "open wire armory cage",
+            "one shelf below",
+            "FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True",
+            "wfc01 rescue_dead",
+            "(-3229, -4392)",
+            "SANCTUARY",
+            "0x058606",
+            "0B00084B..0B00084D",
+            "Skill requirements not met",
+            "non-blank location string",
+            "F10",
+            "Key=0x76",
+            "Right arrow",
+            "STATUS / SPECIAL / PERKS",
+            # Preserved switches & side effects
             "0B00084A",
             "EnableCleanBenchSwap = False",
             "bat r11swp1",
@@ -173,7 +208,6 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "sanctuary01 clean_bench_swap active=true ref=<ref>",
             "FO4SF_MISSION rt=<rt> sanctuary01 open_mode sturges_unavailable -> stage 1000",
             "FO4SF_MISSION rt=<rt> sanctuary01 bench_activated=true ref=<ref> complete=false stage=1000",
-            "post-`200` summary prompt cleanly without locking or re-running `stage 30` / rewards",
             "openMenuCount",
             "09000A23",
             "09000AD1",
@@ -189,26 +223,15 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "step=hud_watch_hide when=<when> try=<n> movie=<hex> ok=1 target=BottomLeftGroup_mc children_hidden=<n>",
             "step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable",
             "HandleLiftControlActivate",
-            # Core A1-A3 checks
-            "thrusters",
-            "codsworth talk dialogue_camera stopped phase=2",
-            "wall_avoid=<true|false>",
             "tricorn hat",
-            "MO2F = 0x01",
             "BO64 = 0x68",
             "09000986",
-            "Console-Free Close-Up Concord Raider Body Inspection",
-            "30, 70, 30, 30, 20",
-            "arm raider <i> ammo=60",
-            "sidearm=eon sidearm_ammo=36",
             "Industrial Workbench",
             "Spacesuit Workbench",
             "Research Lab",
-            "WORKSHOP, MARS, SOL",
             "0B000849",
             "CheckSturgesTalkFallback",
             "RADAWAY (0)",
-            "ButtonHintBar_mc.y",
             "step=shell_hintbar_layout when=kShow old_y=575.0 new_y=672.0 ok=1",
             "A, X, Y, LT, RT",
             "step=shell_platform when=kShow platform=0 called=1 triggers_hidden=2",
@@ -236,12 +259,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "0200160A",
             "02001539",
             "(-57.03, 30.01, 1.29)",
-            "hold `E` on the pistol to take-and-equip, or press `I` / `Tab` -> `Inventory` -> `Weapons`",
-            "FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt>",
             "AlreadySaid_Unselected",
-            "move the cursor/highlight off the asked row",
-            "abPreventRemoval=True",
-            "removes `Coachman` + `AmmoShotshell`",
             "Only Starfield In Game Can Prove",
             "docs/plans/round11-first-mission-plan.md",
             "< 180 m",
@@ -259,23 +277,33 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             writer_fids=self.writer_fids,
             quest_stages=self.quest_stages,
         )
-        workshop_src = (ROOT / "dotnet/WorkshopCore/Program.cs").read_text(encoding="utf-8")
-        pipboy_src = (ROOT / "sfse/FO4SFPipboyMenu/src/main.cpp").read_text(encoding="utf-8")
+        cods_src = (ROOT / "scripts/mission/FO4SF_Codsworth01Quest.psc").read_text(encoding="utf-8")
+        ng_src = (ROOT / "scripts/newgame/FO4SF_NewGameQuest.psc").read_text(encoding="utf-8")
 
-        w2_fix_present = "0x00084A" in workshop_src or "0x0000084A" in workshop_src or "0x84A" in workshop_src
-        w4_fix_present = "step=hud_watch_hide" in pipboy_src and "try=" in pipboy_src
-
-        if w2_fix_present and w4_fix_present:
-            self.assertEqual(errs, [], f"{CARD_R11_REL} failed live R11 validation:\n" + "\n".join(errs))
-            return
-
-        r11_fix_pending_prefixes = (
-            "console 'set 0B00084A' local FormID 0x00084A not in writer constants",
-            "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> sanctuary01 open_mode sturges_unavailable -> stage 1000'",
-            "PASS line does not match any source format string: 'step=hud_watch_hide ",
+        s1a_present = "facing_deg=" in cods_src
+        s1b_present = any(
+            "pistol picked" in ln and "equipped=" in ln for ln in ng_src.splitlines()
         )
-        unexpected = [e for e in errs if not any(p in e for p in r11_fix_pending_prefixes)]
-        self.assertEqual(unexpected, [], "\n".join(unexpected))
+
+        r11p3_pending_prefixes: list[str] = []
+        if not s1b_present:
+            r11p3_pending_prefixes.append(
+                "PASS line does not match any source format string: "
+                "'FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True'"
+            )
+        if not s1a_present:
+            r11p3_pending_prefixes.append(
+                "PASS line does not match any source format string: "
+                "'FO4SF_MISSION rt=<rt> codsworth talk camera_guard prev_d=<d> safe_d=1.85 "
+                "wall_avoid=<true|false> facing_deg=<deg>'"
+            )
+
+        unexpected = [e for e in errs if not any(p in e for p in r11p3_pending_prefixes)]
+        self.assertEqual(
+            unexpected,
+            [],
+            f"{CARD_R11_REL} failed live R11 validation:\n" + "\n".join(unexpected),
+        )
 
 
 if __name__ == "__main__":
