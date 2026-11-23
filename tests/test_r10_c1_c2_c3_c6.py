@@ -194,7 +194,12 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
 
     scene = _Scene()
     talk_msg = _Msg([3], scene)
-    preston = SimpleNamespace(StopCombat=lambda: None, IgnoreFriendlyHits=lambda *_: None)
+    preston = SimpleNamespace(
+        StopCombat=lambda: None,
+        IgnoreFriendlyHits=lambda *_: None,
+        AllowPCDialogue=lambda *_: None,
+        BlockActivation=lambda *_: None,
+    )
     player = SimpleNamespace(AddItem=mock.MagicMock())
     sanctuary_q = SimpleNamespace(IsRunning=lambda: False, StartNoWait=mock.MagicMock(return_value=True))
     glob_obj = SimpleNamespace(GetValue=lambda: float(glob_val))
@@ -214,6 +219,7 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "Credits": "StarfieldCredits",
         "RewardCount": 100,
         "PrestonTalkScene": None if runtime_scene_prop_none else scene,
+        "PrestonPostTalkScene": None,
         "PrestonTalkMsg": talk_msg,
         "PrestonReply0Msg": talk_msg,
         "PrestonReply1Msg": talk_msg,
@@ -221,6 +227,7 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "TalkUseMessageBox": glob_obj,
         "PrestonSceneCheckSeconds": 1.5,
         "PrestonSceneMaxWaitChecks": 16,
+        "PrestonMaxSceneRestarts": 3,
         "min00Given": True,
         "applied": 30,
         "pendingStage": -1,
@@ -228,6 +235,7 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "prestonFound": True,
         "talkActivated": False,
         "talkStartedAt": 0.0,
+        "talkFailures": 0,
         "prestonUsedFallback": False,
         "prestonTalkLogged": False,
         "prestonTalkBoxOpen": False,
@@ -240,6 +248,8 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "prestonScenePhase1": False,
         "prestonPhase1At": 0.0,
         "prestonSceneChecks": 0,
+        "prestonSceneRestarts": 0,
+        "prestonPostSceneActive": False,
         "sanctuaryStartRetries": 0,
         "IsRunning": lambda: True,
         "Start": lambda: True,
@@ -268,21 +278,30 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
     }
     fns = [
         "IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias",
-        "RegisterPrestonSceneEvents", "AdvanceTo", "OnStageSet", "Apply", "FoundPreston",
+        "EnsureActorTalkable", "RegisterPrestonSceneEvents", "AdvanceTo", "OnStageSet", "Apply", "FoundPreston",
         "ResolvePrestonMsg", "RunPrestonTalk", "FallbackPrestonToMessageBox",
         "CheckPrestonSceneOpen", "OnMenuOpenCloseEvent", "Scene.OnBegin",
         "Scene.OnPhaseBegin", "Scene.OnEnd", "ObjectReference.OnActivate",
     ]
     if "Function ResolvePrestonScene(" in min00_src:
-        fns.insert(4, "ResolvePrestonScene")
+        fns.insert(5, "ResolvePrestonScene")
     if "Function ResolvePrestonSceneLogged(" in min00_src:
-        fns.insert(5, "ResolvePrestonSceneLogged")
+        fns.insert(6, "ResolvePrestonSceneLogged")
+    if "Function ResolvePrestonPostScene(" in min00_src:
+        fns.insert(7, "ResolvePrestonPostScene")
+    if "Function ResolveActivePrestonScene(" in min00_src:
+        fns.insert(8, "ResolveActivePrestonScene")
+    if "Function EnsureKeeperPrestonAlias(" in min00_src:
+        fns.insert(9, "EnsureKeeperPrestonAlias")
+    if "Function RestartOrFailPrestonScene(" in min00_src:
+        fns.insert(10, "RestartOrFailPrestonScene")
     globals_list = (
         "min00Given", "applied", "pendingStage", "pendingStageBy", "prestonFound",
-        "talkActivated", "talkStartedAt", "prestonUsedFallback", "prestonTalkLogged",
+        "talkActivated", "talkStartedAt", "talkFailures", "prestonUsedFallback", "prestonTalkLogged",
         "prestonTalkBoxOpen", "prestonFallbackActive", "talkSessionId", "prestonTalkReloaded",
         "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened",
-        "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks", "sanctuaryStartRetries",
+        "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks",
+        "prestonSceneRestarts", "prestonPostSceneActive", "sanctuaryStartRetries",
     )
     code = _translate_mission_psc(min00_src, tuple(fns), globals_list)
     exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
@@ -345,7 +364,7 @@ class R10OpeningFixTests(unittest.TestCase):
         self.assertFalse(h.scene.IsPlaying(), "late post-completion DEVT scene must be stopped immediately")
         self.assertTrue(any("preston scene suppressed reason=single_talk" in ln for ln in h.logs), h.logs)
 
-        # 2. Timeout fallback path: stops scene BEFORE MessageBox, and suppresses any subsequent DEVT OnBegin
+        # 2. Timeout under glob=0.0 (R11 Part 3 #598): restarts the Starfield Scene (NEVER opens MessageBox!)
         h2 = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, glob_val=0.0, scene_opens=True)
         h2.ns["OnActivate"](h2.preston, h2.player)
         h2.ns["OnBegin"](h2.scene)
@@ -353,22 +372,19 @@ class R10OpeningFixTests(unittest.TestCase):
         h2.rt[0] += 1.6
         h2.ns["CheckPrestonSceneOpen"]()
         self.assertGreaterEqual(h2.scene.stop_calls, 1)
-        self.assertEqual(h2.talk_msg.shown, 1)
-        self.assertFalse(h2.talk_msg.scene_was_playing_on_show, "scene must be stopped before MessageBox opens")
-        self.assertTrue(any("preston talk fallback=messagebox reason=dialogue_menu_timeout" in ln for ln in h2.logs), h2.logs)
+        self.assertEqual(h2.talk_msg.shown, 0, f"MessageBox must NEVER open when glob=0; logs={h2.logs}")
+        self.assertTrue(any("preston talk scene_restart retry=1/3 reason=dialogue_menu_timeout" in ln for ln in h2.logs), h2.logs)
 
-        # Queued DEVT firing after MessageBox fallback must be immediately stopped (never two talks)
-        h2.scene.playing = True
-        h2.ns["OnBegin"](h2.scene)
-        self.assertFalse(h2.scene.IsPlaying())
-
-        # 3. GLOB == 1 path: stops any playing DEVT scene BEFORE MessageBox
+        # 3. GLOB == 1 path: stops any playing DEVT scene BEFORE MessageBox, and suppresses queued DEVT OnBegin
         h3 = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, glob_val=1.0, scene_opens=True)
         h3.scene.playing = True
         h3.ns["OnActivate"](h3.preston, h3.player)
         self.assertEqual(h3.scene.stop_calls, 1)
         self.assertEqual(h3.talk_msg.shown, 1)
         self.assertFalse(h3.talk_msg.scene_was_playing_on_show)
+        h3.scene.playing = True
+        h3.ns["OnBegin"](h3.scene)
+        self.assertFalse(h3.scene.IsPlaying())
 
     def test_c2_no_greeting_replay_intv_phase1_and_phase_logging(self):
         """C2: BuildTopScene sets INTV=1 on non-ending replies (both Codsworth and Preston) so Starfield jumps
@@ -614,36 +630,48 @@ class R10OpeningFixTests(unittest.TestCase):
             GetPositionZ=lambda: cods_pos[2], GetAngleZ=lambda: 0.0,
         )
         set_calls = []
+        angle_calls = []
 
         def set_pos(x, y, z):
             set_calls.append((x, y, z))
             p_pos[:] = [x, y, z]
 
+        def set_angle(ax, ay, az):
+            angle_calls.append((ax, ay, az))
+
         player = SimpleNamespace(
             IsInInterior=lambda: False,
             GetPositionX=lambda: p_pos[0], GetPositionY=lambda: p_pos[1], GetPositionZ=lambda: p_pos[2],
             SetPosition=set_pos,
+            SetAngle=set_angle,
         )
         ns = {
             "Trace": logs.append,
             "MinTalkCameraDistance": 1.65,
             "SafeTalkCameraDistance": 1.85,
-            "Math": SimpleNamespace(Sqrt=math.sqrt, Sin=math.sin, Cos=math.cos),
+            "Math": SimpleNamespace(
+                Sqrt=math.sqrt,
+                Sin=lambda d: math.sin(math.radians(d)),
+                Cos=lambda d: math.cos(math.radians(d)),
+                atan=lambda v: math.degrees(math.atan(v)),
+            ),
         }
         code = _translate_mission_psc(c_psc, ("EnsureSafeCodsworthCameraDistance",), ())
         exec(compile(code, "FO4SF_Codsworth01Quest.psc", "exec"), ns)
 
-        # Case 1: 0.62 m (moveto) -> stepped back to 1.85 m along sightline
+        # Case 1: 0.62 m (moveto) -> stepped back to 1.85 m along sightline AND rotated to face Codsworth
         ns["EnsureSafeCodsworthCameraDistance"](player, cods)
         self.assertEqual(len(set_calls), 1)
+        self.assertEqual(len(angle_calls), 1)
         new_d = math.hypot(p_pos[0] - cods_pos[0], p_pos[1] - cods_pos[1])
         self.assertAlmostEqual(new_d, 1.85, places=2)
-        self.assertTrue(any("codsworth talk camera_guard prev_d=" in ln for ln in logs), logs)
+        self.assertTrue(any("codsworth talk camera_guard prev_d=" in ln and "facing_deg=" in ln for ln in logs), logs)
 
         # Case 2: 2.0 m (natural walk-up) -> untouched
         p_pos[:] = [cods_pos[0] - 2.0, cods_pos[1], cods_pos[2]]
         ns["EnsureSafeCodsworthCameraDistance"](player, cods)
         self.assertEqual(len(set_calls), 1, "2.0 m walk-up must NOT move the player")
+        self.assertEqual(len(angle_calls), 1, "2.0 m walk-up must NOT rotate the player")
 
     def test_r1_r5_r7_min00_no_mq103_at_200_act2_on_keeper_timer2_gated_and_0x817_selfchecks(self):
         """R1: No MQ103 start at Min00 stage 200. R5: CheckA7cdProximityStarts runs on KeeperOnly Timer 2
