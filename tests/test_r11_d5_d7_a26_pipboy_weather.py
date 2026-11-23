@@ -116,7 +116,7 @@ class Round11PipboyWeatherTests(unittest.TestCase):
         self.assertIn('g_hideStarfieldWatch = ReadNumber(ini, L"HideStarfieldWatch", 0) != 0;', self.main_cpp)
         self.assertIn("hide_starfield_watch={}", self.main_cpp)
         self.assertIn("g_hideStarfieldWatch", self.main_cpp[
-            self.main_cpp.index("std::size_t IdCount()") : self.main_cpp.index("bool InImage(")
+            self.main_cpp.index("bool ChannelIdsNeeded()") : self.main_cpp.index("std::size_t IdCount()")
         ])
         self.assertIn("\nHideStarfieldWatch=1\n", self.shipped_ini)
 

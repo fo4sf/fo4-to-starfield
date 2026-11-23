@@ -799,9 +799,9 @@ namespace
 
 	// FAL-614 proof 1b: stage b with CodeObj=1 reaches the movie's root as stage c does (RootOf's RTTI, the Value
 	// functions), so it reads and checks stage c's ids too; without them RootOf compared against an unread RTTI address
-	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }   // FAL-852: the arm too
+	bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm || g_hideStarfieldWatch)); }   // FAL-852: the arm too; D7(b): watch hide checks & uses channel RTTI/Value ids
 
-	std::size_t IdCount() { return g_stage >= 4 ? kIdCount : (ChannelIdsNeeded() || (g_stage == 2 && g_hideStarfieldWatch)) ? kIdCountC : kIdCountB; }   // (e): (d)'s ids; D7(b) watch hide uses channel RTTI/Value ids
+	std::size_t IdCount() { return g_stage >= 4 ? kIdCount : ChannelIdsNeeded() ? kIdCountC : kIdCountB; }   // (e): (d)'s ids
 
 	bool InImage(std::uintptr_t a_addr, std::size_t a_len)
 	{

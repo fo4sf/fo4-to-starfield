@@ -129,7 +129,7 @@ class RebuildPlanTests(unittest.TestCase):
         self.assertIn("if (attempt > kMaxCodeObjTries) {", self.main)
         self.assertIn("step=code_obj when={} try={} root_of={} get_variable={} root={}", self.main)
         # proof 1b's second run: root_of=0 on every try, because stage b had not read stage c's ids (RootOf's RTTI)
-        self.assertIn("bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm)); }", self.main)
+        self.assertIn("bool ChannelIdsNeeded() { return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm || g_hideStarfieldWatch)); }", self.main)
         self.assertLess(self.main.index("g_codeObj = ReadNumber(ini, L\"CodeObj\", 0) != 0;"),
                         self.main.index("if (!CheckEverything(dir)) {"))
         destroy = self.main[self.main.index("void* MenuDestroy("):]
@@ -681,7 +681,7 @@ class RebuildPlanTests(unittest.TestCase):
         for name in ("ArmRaiseMs", "ArmLowerMs", "ArmRetryMs"):
             self.assertEqual(setting(name), re.search(rf"\n{name}=(\d+)", ini).group(1), name)
         # the plugin: read only at Stage=2 with Movie=, F10 refused, the lookup id checked after the shared ids
-        self.assertIn("return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm));", self.main)
+        self.assertIn("return g_stage >= 3 || (g_stage == 2 && (g_codeObj || g_arm || g_hideStarfieldWatch));", self.main)
         read = self.main[self.main.index("bool ReadArm("):]
         read = read[:read.index("\n\t}\n")]
         self.assertLess(read.index('ReadNumber(a_ini, L"Arm", 0) == 0'), read.index("g_stage != 2 || g_movie.empty()"))
