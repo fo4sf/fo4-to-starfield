@@ -19,6 +19,28 @@
 //            thread by writing the target into FO4SFPipboyTravel.esm's globals and dispatching FO4SF_PipboyTravel.Go.
 namespace PipboyMap
 {
+	struct QuestObjectiveCatalogEntry
+	{
+		std::string   pluginName;
+		std::uint32_t questLocalId = 0;
+		std::uint16_t objectiveNumber = 0;
+		double        xFo4 = 0.0;
+		double        yFo4 = 0.0;
+		std::string   locationLabel;
+		std::string   fallbackText;
+	};
+
+	struct QuestObjectiveMarker
+	{
+		std::uint32_t questFormId = 0;
+		std::uint16_t objectiveNumber = 0;
+		double        xFo4 = 0.0;
+		double        yFo4 = 0.0;
+		std::string   questName;
+		std::string   objectiveText;
+		std::string   locationLabel;
+	};
+
 	using OpenRequestFn = void (*)(std::uint32_t a_targetPage, const char* a_by);
 	using CloseRequestFn = void (*)(std::uint32_t a_n, const char* a_by);
 	using GfxEnterFn = std::uint64_t (*)(const char* a_what, bool a_uncapped);
@@ -58,6 +80,13 @@ namespace PipboyMap
 	void CollectStateForPage(std::int32_t a_targetPage);
 
 	void RequestCenterMarker(std::int32_t a_markerIdOrIndex = -1);
+
+	bool LookupQuestObjectiveCatalog(std::string_view a_pluginName, std::uint32_t a_questLocalId,
+		std::uint16_t a_objectiveNumber, QuestObjectiveCatalogEntry& a_out);
+
+	void SetActiveQuestObjectives(std::vector<QuestObjectiveMarker> a_markers);
+
+	bool RequestCenterQuest(std::uint32_t a_questFormId);
 
 	void PopulateMapDataObj(const void* a_menu, RE::Scaleform::GFx::ASMovieRootBase* a_root,
 		RE::Scaleform::GFx::Value& a_dataObj, std::int32_t a_targetPage);

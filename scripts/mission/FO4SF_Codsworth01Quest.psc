@@ -26,6 +26,8 @@ float ProxyBindRadius = 180.0
 float ProxyZOffset = 1.36
 float ProxyScale = 1.6
 float ProxyResyncDrift = 0.25
+float MinTalkCameraDistance = 1.65
+float SafeTalkCameraDistance = 1.85
 float SceneOpenCheckSeconds = 1.5
 int SceneMaxWaitChecks = 16
 
@@ -354,10 +356,43 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     endif
 EndEvent
 
+Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
+{C6: When the player activates Codsworth inside his 0.65 m chassis radius (e.g. moveto at d=0.62 m), step back along the
+ sightline to SafeTalkCameraDistance (1.85 m) so DisableDialogueCamera (0x0800) frames Codsworth cleanly like a 2.0 m
+ walk-up without clipping inside his hull. Normal walk-ups (>= 1.65 m) are left untouched.}
+    if player == None || cods == None || player.IsInInterior()
+        return
+    endif
+    float cx = cods.GetPositionX()
+    float cy = cods.GetPositionY()
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float pz = player.GetPositionZ()
+    float dx = px - cx
+    float dy = py - cy
+    float horiz = Math.Sqrt(dx * dx + dy * dy)
+    if horiz >= MinTalkCameraDistance
+        return
+    endif
+    float ux = 0.0
+    float uy = 1.0
+    if horiz > 0.05
+        ux = dx / horiz
+        uy = dy / horiz
+    else
+        float yaw = cods.GetAngleZ()
+        ux = Math.Sin(yaw)
+        uy = Math.Cos(yaw)
+    endif
+    player.SetPosition(cx + ux * SafeTalkCameraDistance, cy + uy * SafeTalkCameraDistance, pz)
+    Trace("codsworth talk camera_guard prev_d=" + horiz + " safe_d=" + SafeTalkCameraDistance)
+EndFunction
+
 Event Scene.OnBegin(Scene akSender)
     Scene scn = ResolveCodsworthScene()
     if scn != None && akSender == scn
         dialogueSeen = True
+        EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), ResolveCodsworth())
         if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && !completed
             sceneTalkPending = True
             scenePhase1Entered = False
@@ -372,12 +407,15 @@ EndEvent
 
 Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
     Scene scn = ResolveCodsworthScene()
-    if scn != None && akSender == scn && auiPhaseIndex == 1
-        scenePhase1Entered = True
-        scenePhase1At = Utility.GetCurrentRealTime()
-        if sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen
-            CancelTimer(2)
-            StartTimer(SceneOpenCheckSeconds, 2)
+    if scn != None && akSender == scn
+        Trace("codsworth talk scene phase=" + auiPhaseIndex + " stage=" + EffectiveStage())
+        if auiPhaseIndex == 1
+            scenePhase1Entered = True
+            scenePhase1At = Utility.GetCurrentRealTime()
+            if sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen
+                CancelTimer(2)
+                StartTimer(SceneOpenCheckSeconds, 2)
+            endif
         endif
     endif
 EndEvent
@@ -472,6 +510,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     EnsureCodsworthAlias(cods)
+    EnsureSafeCodsworthCameraDistance(player, cods)
     dialogueSeen = True
     sceneTalkPending = True
     sceneMenuOpened = False
