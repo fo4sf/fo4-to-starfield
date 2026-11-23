@@ -198,8 +198,8 @@ def addon_race(src: esm.Record, formid: int, edid: str, name: str, rows: Sequenc
 
 def test_npc(src: esm.Record, formid: int, edid: str, name: str, keywords: Sequence[int], package: int) -> Tuple[esm.Record, dict]:
     """The template NPC as a harmless test actor: own EDID and plain name, no factions (SNAM), one package (follow the
-    player), Unaggressive (AIDT byte 0 = 0), short name dropped, `keywords` as its KWDA (KSIZ/KWDA added after RNAM
-    when the template has none)."""
+    player), Unaggressive (AIDT byte 0 = 0), short name dropped, `keywords` as its KWDA (KSIZ/KWDA right after the
+    package list, where vanilla NPC_ records keep them)."""
     subs, rep = [], {"dropped": []}
     had_pkid = False
     for s, d in src.subs:
@@ -212,6 +212,9 @@ def test_npc(src: esm.Record, formid: int, edid: str, name: str, keywords: Seque
         if s == b"PKID":
             if not had_pkid:
                 subs.append((b"PKID", struct.pack("<I", package)))
+                if keywords:
+                    subs.append((b"KSIZ", struct.pack("<I", len(keywords))))
+                    subs.append((b"KWDA", b"".join(struct.pack("<I", k) for k in keywords)))
                 had_pkid = True
             continue
         if s == b"EDID":
@@ -227,12 +230,8 @@ def test_npc(src: esm.Record, formid: int, edid: str, name: str, keywords: Seque
             if struct.unpack_from("<I", d)[0] & 1:
                 raise Ra4Error(f"{src.edid} is female: the probe row has no Female variant")
         subs.append((s, d))
-        if s == b"RNAM":
-            if struct.unpack("<I", d)[0] != HUMAN_RACE:
-                raise Ra4Error(f"{src.edid} is not on HumanRace")
-            if keywords:
-                subs.append((b"KSIZ", struct.pack("<I", len(keywords))))
-                subs.append((b"KWDA", b"".join(struct.pack("<I", k) for k in keywords)))
+        if s == b"RNAM" and struct.unpack("<I", d)[0] != HUMAN_RACE:
+            raise Ra4Error(f"{src.edid} is not on HumanRace")
     if not had_pkid:
         raise Ra4Error(f"{src.edid}: no package list to replace")
     for s in (b"TPLT", b"TPTA"):

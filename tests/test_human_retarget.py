@@ -318,7 +318,7 @@ class StageTests(unittest.TestCase):
                 (b"FULL", struct.pack("<I", 7)), (b"SHRT", struct.pack("<I", 8))]
         r, rep = self.ra4.test_npc(esm.Record(b"NPC_", 0x14A813, subs), 0x01000802, "E", "FO4 Clip Test", [0x01000800], 0x21E76)
         sigs = [s for s, _ in r.subs]
-        self.assertEqual(sigs, [b"EDID", b"ACBS", b"RNAM", b"KSIZ", b"KWDA", b"AIDT", b"PKID", b"FULL"])
+        self.assertEqual(sigs, [b"EDID", b"ACBS", b"RNAM", b"AIDT", b"PKID", b"KSIZ", b"KWDA", b"FULL"])
         self.assertEqual(r.get(b"KWDA"), struct.pack("<I", 0x01000800))
         self.assertEqual(r.get(b"PKID"), struct.pack("<I", 0x21E76))
         self.assertEqual(r.get(b"AIDT")[0], 0)
