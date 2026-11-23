@@ -1,0 +1,383 @@
+{
+ "schema_version": 1,
+ "mod_name": "Starfield A-Life: New Atlantis",
+ "description": "Vanilla-only example: UC Security patrols hold the city while Spacer and Ecliptic squads raid from the outer landing field and the eastern flats. Positions are Starfield.esm persistent marker references in the NewAtlantis worldspace (metres).",
+ "plugin_name": "StarfieldALife.esm",
+ "light_master": true,
+ "masters": [
+  "Starfield.esm"
+ ],
+ "worldspace": {
+  "plugin": "Starfield.esm",
+  "form_id": "0x01251B",
+  "editor_id": "NewAtlantis",
+  "merge_offset_xy": [
+   0.0,
+   0.0
+  ]
+ },
+ "simulation": {
+  "default_enabled": true,
+  "tick_real_s": 2.0,
+  "offline_step_m_per_s": 1.35,
+  "online_spawn_radius_m": 150.0,
+  "offline_despawn_radius_m": 220.0,
+  "waymarker_pool_size": 8,
+  "max_active_squads": 10,
+  "respawn_cooldown_s": 90.0,
+  "show_notifications": true
+ },
+ "factions": [
+  {
+   "id": "uc_security",
+   "index": 0,
+   "name": "UC Security Patrol",
+   "npc_template": {
+    "plugin": "Starfield.esm",
+    "form_id": "0x3B3CDD",
+    "editor_id": "LvlSecurity_UC_NewAtlantis"
+   },
+   "player_relation": "ally",
+   "relations": {
+    "spacers": "enemy",
+    "ecliptic": "enemy"
+   },
+   "squad_size": 4,
+   "combat_power": 1.2
+  },
+  {
+   "id": "spacers",
+   "index": 1,
+   "name": "Spacer Raiders",
+   "npc_template": {
+    "plugin": "Starfield.esm",
+    "form_id": "0x1AD194",
+    "editor_id": "LvlSpacer_Aggro"
+   },
+   "player_relation": "enemy",
+   "relations": {
+    "uc_security": "enemy",
+    "ecliptic": "enemy"
+   },
+   "squad_size": 4,
+   "combat_power": 1.0
+  },
+  {
+   "id": "ecliptic",
+   "index": 2,
+   "name": "Ecliptic Mercenaries",
+   "npc_template": {
+    "plugin": "Starfield.esm",
+    "form_id": "0x169D7C",
+    "editor_id": "LvlEcliptic_Aggro"
+   },
+   "player_relation": "enemy",
+   "relations": {
+    "uc_security": "enemy",
+    "spacers": "enemy"
+   },
+   "squad_size": 4,
+   "combat_power": 1.2
+  }
+ ],
+ "nodes": [
+  {
+   "index": 0,
+   "id": "na_spaceport",
+   "kind": "base",
+   "x": -161.59,
+   "y": -131.12,
+   "z": 78.77,
+   "capacity": 3,
+   "initial_owner": "uc_security",
+   "spawn_faction": "uc_security"
+  },
+  {
+   "index": 1,
+   "id": "na_port_security",
+   "kind": "checkpoint",
+   "x": -110.45,
+   "y": -87.35,
+   "z": 74.97,
+   "capacity": 2,
+   "initial_owner": "uc_security",
+   "spawn_faction": null
+  },
+  {
+   "index": 2,
+   "id": "na_district_plaza",
+   "kind": "checkpoint",
+   "x": -14.15,
+   "y": 59.73,
+   "z": 78.39,
+   "capacity": 2,
+   "initial_owner": "uc_security",
+   "spawn_faction": null
+  },
+  {
+   "index": 3,
+   "id": "na_commercial",
+   "kind": "resource",
+   "x": -48.8,
+   "y": 164.0,
+   "z": 242.4,
+   "capacity": 2,
+   "initial_owner": "uc_security",
+   "spawn_faction": null
+  },
+  {
+   "index": 4,
+   "id": "na_west_end",
+   "kind": "checkpoint",
+   "x": -87.62,
+   "y": 179.8,
+   "z": 246.81,
+   "capacity": 1,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 5,
+   "id": "na_market",
+   "kind": "resource",
+   "x": 64.33,
+   "y": 179.07,
+   "z": 157.18,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 6,
+   "id": "na_mast",
+   "kind": "base",
+   "x": 92.9,
+   "y": 190.04,
+   "z": 301.11,
+   "capacity": 3,
+   "initial_owner": "uc_security",
+   "spawn_faction": null
+  },
+  {
+   "index": 7,
+   "id": "na_embassy",
+   "kind": "checkpoint",
+   "x": 88.55,
+   "y": 400.09,
+   "z": 242.58,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 8,
+   "id": "na_residential",
+   "kind": "resource",
+   "x": 218.56,
+   "y": 146.16,
+   "z": 246.42,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 9,
+   "id": "na_lodge_terrace",
+   "kind": "checkpoint",
+   "x": 253.2,
+   "y": 423.17,
+   "z": 260.2,
+   "capacity": 1,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 10,
+   "id": "na_west_landing",
+   "kind": "lair",
+   "x": -335.8,
+   "y": -189.12,
+   "z": 93.45,
+   "capacity": 3,
+   "initial_owner": "spacers",
+   "spawn_faction": "spacers"
+  },
+  {
+   "index": 11,
+   "id": "na_south_landing",
+   "kind": "relay",
+   "x": -247.02,
+   "y": -346.7,
+   "z": 93.45,
+   "capacity": 0,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 12,
+   "id": "na_east_flats",
+   "kind": "lair",
+   "x": 402.32,
+   "y": -16.89,
+   "z": 80.95,
+   "capacity": 3,
+   "initial_owner": "ecliptic",
+   "spawn_faction": "ecliptic"
+  },
+  {
+   "index": 13,
+   "id": "na_southeast_shore",
+   "kind": "relay",
+   "x": 357.65,
+   "y": -332.67,
+   "z": 5.01,
+   "capacity": 0,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 14,
+   "id": "na_vanguard_apron",
+   "kind": "relay",
+   "x": -109.13,
+   "y": -229.31,
+   "z": 77.45,
+   "capacity": 0,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 15,
+   "id": "na_north_suburbs",
+   "kind": "relay",
+   "x": 238.44,
+   "y": 463.73,
+   "z": 246.52,
+   "capacity": 0,
+   "initial_owner": null,
+   "spawn_faction": null
+  }
+ ],
+ "edges": [
+  {
+   "u": 0,
+   "v": 1,
+   "len_m": 80.9
+  },
+  {
+   "u": 0,
+   "v": 10,
+   "len_m": 221.04
+  },
+  {
+   "u": 0,
+   "v": 14,
+   "len_m": 133.6
+  },
+  {
+   "u": 10,
+   "v": 11,
+   "len_m": 217.04
+  },
+  {
+   "u": 11,
+   "v": 14,
+   "len_m": 218.16
+  },
+  {
+   "u": 14,
+   "v": 13,
+   "len_m": 580.25
+  },
+  {
+   "u": 1,
+   "v": 2,
+   "len_m": 211.0
+  },
+  {
+   "u": 2,
+   "v": 3,
+   "len_m": 236.9
+  },
+  {
+   "u": 2,
+   "v": 5,
+   "len_m": 195.75
+  },
+  {
+   "u": 3,
+   "v": 4,
+   "len_m": 50.57
+  },
+  {
+   "u": 3,
+   "v": 6,
+   "len_m": 186.69
+  },
+  {
+   "u": 4,
+   "v": 7,
+   "len_m": 338.52
+  },
+  {
+   "u": 5,
+   "v": 6,
+   "len_m": 176.58
+  },
+  {
+   "u": 5,
+   "v": 8,
+   "len_m": 217.44
+  },
+  {
+   "u": 6,
+   "v": 7,
+   "len_m": 261.71
+  },
+  {
+   "u": 6,
+   "v": 8,
+   "len_m": 172.68
+  },
+  {
+   "u": 7,
+   "v": 9,
+   "len_m": 200.63
+  },
+  {
+   "u": 8,
+   "v": 9,
+   "len_m": 335.41
+  },
+  {
+   "u": 9,
+   "v": 15,
+   "len_m": 54.33
+  },
+  {
+   "u": 7,
+   "v": 15,
+   "len_m": 195.47
+  },
+  {
+   "u": 8,
+   "v": 12,
+   "len_m": 355.44
+  },
+  {
+   "u": 12,
+   "v": 13,
+   "len_m": 393.41
+  },
+  {
+   "u": 2,
+   "v": 12,
+   "len_m": 508.16
+  },
+  {
+   "u": 1,
+   "v": 14,
+   "len_m": 170.39
+  }
+ ]
+}
