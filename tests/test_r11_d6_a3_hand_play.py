@@ -101,6 +101,20 @@ def _write_synthetic_v111_port_esm(path: Path, door_locks: dict[int, tuple[int, 
     path.write_bytes(tes4.to_bytes(compress=False) + top)
 
 
+def _write_synthetic_exitlift_esm(path: Path, full_name: str | None = None) -> None:
+    """Build a minimal FO4SFExitLift-style plugin with ACTI 0x0100E0E6 (optional FULL subrecord)."""
+    subs = [(b"EDID", zbytes("FO4Port_acti_0244ef_fallout4"))]
+    if full_name is not None:
+        subs.append((b"FULL", zbytes(full_name)))
+    top = group_bytes("ACTI", Record(b"ACTI", 0x0100E0E6, subs).to_bytes(compress=False), gtype=0)
+    hsubs = [
+        (b"HEDR", struct.pack("<fII", HEDR_VERSION, 2, 0x001000)),
+        (b"MAST", zbytes("Starfield.esm")),
+    ]
+    tes4 = Record(b"TES4", 0, hsubs, ESM, 0, HEADER_FORM_VERSION, 0)
+    path.write_bytes(tes4.to_bytes(compress=False) + top)
+
+
 class R11D6AndA3HandPlayTests(unittest.TestCase):
     def test_d6_measured_run_speed_parameter_and_exact_targets(self) -> None:
         self.assertAlmostEqual(wh.RUN_SPEED_MPS, 4.80, places=2)
@@ -244,6 +258,7 @@ class R11D6AndA3HandPlayTests(unittest.TestCase):
             ms_esm = tmp / "FO4SFMission.esm"
             port_ok = tmp / "FO4Port_ok.esm"
             port_locked = tmp / "FO4Port_locked.esm"
+            exitlift_esm = tmp / "FO4SFExitLift.esm"
 
             _write_synthetic_quest_esm(ng_esm, [
                 (0x03000800, "FO4SF_NewGame", [(10, "Leave Vault 111", [])]),
@@ -258,13 +273,18 @@ class R11D6AndA3HandPlayTests(unittest.TestCase):
                 0x001608: (0, True),
                 0x00126D: (0, False),
             })
+            _write_synthetic_exitlift_esm(exitlift_esm, full_name=None)
 
-            res = wh.audit_vault111_handplay(newgame_esm=ng_esm, mission_esm=ms_esm, port_esm=port_ok)
+            res = wh.audit_vault111_handplay(newgame_esm=ng_esm, mission_esm=ms_esm, port_esm=port_ok, exitlift_esm=exitlift_esm)
             self.assertTrue(res["pass"], res["issues"])
             self.assertTrue(res["offline_only_unproven_in_game"])
             self.assertTrue(res["first_person_reach"]["pipboy_0A00080F"]["within_2m_reach"])
             self.assertTrue(res["first_person_reach"]["console_0A000819"]["within_2m_reach"])
-            self.assertTrue(res["lift_platform"]["direct_lift_control_onactivate_wired"])
+            self.assertTrue(res["lift_platform"]["programmatic_lift_onactivate_guard_wired"])
+            self.assertEqual(res["lift_platform"]["lift_base_0x0100E0E6_full_name"], "")
+            self.assertFalse(res["lift_platform"]["lift_base_has_full_name"])
+            self.assertIn("0x08C94A", res["lift_platform"]["retrigger_after_stay"])
+            self.assertIn("asked=false", res["lift_platform"]["retrigger_after_stay"])
             self.assertEqual(len(res["vault111_doors"]), 4)
             self.assertTrue(any("FO4SF_NewGame Obj 10" in g for g in res["known_offline_gaps"]))
             self.assertGreaterEqual(len(res["only_game_can_prove"]), 5)
@@ -300,6 +320,9 @@ class R11D6AndA3HandPlayTests(unittest.TestCase):
         hp_section = doc[hp_start:hp_end]
         for step_num in range(1, 9):
             self.assertIn(f"\n{step_num}. ", hp_section, f"Missing HAND-PLAY step {step_num}")
+        # R15 honesty: ACTI 0x0100E0E6 has no FULL name (no wall button), so HAND-PLAY Step 5 uses Stay->step out->step back in
+        self.assertNotIn("press **`E`** on the elevator", hp_section)
+        self.assertIn("step `~2 m` back out the open cage entrance", hp_section)
         for forbidden in ("moveto", "setpos", "bat ", "tgm", "coc "):
             self.assertNotIn(forbidden, hp_section.lower(), f"Console command {forbidden!r} leaked into HAND-PLAY steps")
 

@@ -437,7 +437,7 @@ OPENING_WALK_SEGMENTS: Tuple[WalkSegment, ...] = (
         start=(-74.480, -3.960, -1.610),
         target=(-77.742, -3.958, -1.751),
         start_yaw_deg=None,
-        action_at_target="Stop inside PlatformRadius (2.0 m); allocate 33 SPECIAL points & click Continue (or press E on lift)",
+        action_at_target="Stop inside PlatformRadius (2.0 m); allocate 33 SPECIAL points & click Continue (if Stay picked, step >2 m out & back in)",
         anchor_ref="v111_exit_lift_platform",
         safe_overshoot_m=2.3,
         overshoot_hazard="elevator cage west back wall",
@@ -1782,6 +1782,7 @@ def audit_vault111_handplay(
     port_esm: Optional[Path] = None,
     core_esm: Optional[Path] = None,
     fo4_esm: Optional[Path] = None,
+    exitlift_esm: Optional[Path] = None,
     newgame_psc: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Offline A3 Vault Exit Hand-Play Proof: geometry, doors, reach, lift control, objective markers & honest game boundary."""
@@ -1829,17 +1830,31 @@ def audit_vault111_handplay(
     lift_seg = by_id["3f"]
     lift_anchor = BINARY_ANCHORS["v111_exit_lift_platform"]["pos"]
     lift_err = distance_3d(lift_seg.target, lift_anchor)
+    # Check FO4SFExitLift.esm ACTI 0x0100E0E6 FULL subrecord (FO4 VltElevator 0x0244EF has FULL == "", so no crosshair [E] prompt)
+    lift_base_full: Optional[str] = None
+    if exitlift_esm is not None and exitlift_esm.exists():
+        with Plugin(str(exitlift_esm)) as plg:
+            for s, e in plg.groups.get("ACTI", []):
+                for item in plg.walk(s, e):
+                    if item[0] == "REC" and item[2] == b"ACTI":
+                        rec = Record.parse(plg.buf, item[1])
+                        if (rec.formid & 0xFFFFFF) == 0x00E0E6:
+                            full_bytes = next((d for st, d in rec.subs if st == b"FULL"), None)
+                            lift_base_full = zstring(full_bytes) if full_bytes is not None else ""
     lift_check = {
         "platform_radius_m": plat_radius,
         "target_to_platform_center_m": round(lift_err, 4),
         "near_dz_tolerance_m": 3.0 if "dz < 3.0 && dz > -3.0" in psc_text else None,
-        "direct_lift_control_onactivate_wired": has_lift_activate,
         "auto_platform_prompt_preserved": "PromptVaultExitLift(player)" in psc_text,
+        "retrigger_after_stay": "step >2.0 m out of open cage entrance (resets asked=false in InVault) and step back onto platform; matches FO4 RespecTriggerREF 0x08C94A & Vault111AscendAgainTriggerREF 0x09A149",
+        "lift_base_0x0100E0E6_full_name": lift_base_full,
+        "lift_base_has_full_name": bool(lift_base_full) if lift_base_full is not None else False,
+        "programmatic_lift_onactivate_guard_wired": has_lift_activate,
     }
     if plat_radius < 1.5 or lift_err > plat_radius:
         issues.append(f"Exit lift target err {lift_err:.3f} m outside PlatformRadius {plat_radius:.2f} m")
     if not has_lift_activate:
-        issues.append("FO4SF_NewGameQuest.psc missing direct liftWatchedRef OnActivate control handler")
+        issues.append("FO4SF_NewGameQuest.psc missing programmatic liftWatchedRef OnActivate guard")
 
     # 3. Vault 111 corridor door states in FO4Port.esm (optional binary read)
     door_checks: Dict[str, Any] = {}
@@ -1912,7 +1927,7 @@ def audit_vault111_handplay(
     only_game_can_prove = [
         "Live Starfield physics & door-leaf collision clearance on FO4Port_V111Door01 (0200126E) and FO4Port_V111DoorSpecial01 (02001234) when opened by first-person E (2g used moveto past L1).",
         "Live Starfield capsule walk through open VltGearDoor01 (0200126D), down the Vault 111 catwalk stairs (3c-3e), and across the elevator threshold onto vltelevator_anim.nif without setpos (2g used setpos onto the lift).",
-        "Live first-person E raycast against V111ElevatorREF (02001618) after clicking Stay on ExitMessage (new A3 lift-control handler is compiled and offline-tested, unproven in game).",
+        "Live Stay-and-reenter lift loop on foot: stepping >2.0 m out of the open cage entrance (resetting asked=false in InVault) and stepping back onto the platform to re-open ExitMessage (ACTI 0x0100E0E6 has no FULL display name, matching FO4's buttonless RespecTriggerREF 0x08C94A / Vault111AscendAgainTriggerREF 0x09A149 design; HandleLiftControlActivate is a programmatic .Activate guard only).",
         "Converted Commonwealth terrain collision & height continuity on L4 (Vault 111 switchback -> footbridge -> Sanctuary) and L5c-L5k (Sanctuary North Bridge -> Red Rocket -> Concord); only 5a/5b ran on foot in 2g.",
         "Live door/collision walkability inside Sanctuary houses (L6) and Concord Museum of Freedom stairs/basement/roof (L7-L9) once FO4Port.esm + promoted museum doors are bundled in 2h.",
         "Live player navigation inside Vault 111 without compass targets on FO4SF_NewGame Objective 10 ('Leave Vault 111').",
@@ -1974,6 +1989,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_hp.add_argument("--port-esm", type=Path, default=None)
     p_hp.add_argument("--core-esm", type=Path, default=None)
     p_hp.add_argument("--fo4-esm", type=Path, default=None)
+    p_hp.add_argument("--exitlift-esm", type=Path, default=None)
 
     args = parser.parse_args(argv)
 
@@ -2017,6 +2033,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             port_esm=args.port_esm,
             core_esm=args.core_esm,
             fo4_esm=args.fo4_esm,
+            exitlift_esm=args.exitlift_esm,
         )
         print(json.dumps(res, indent=2))
         return 0 if res["pass"] else 1
