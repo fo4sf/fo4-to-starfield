@@ -1818,14 +1818,18 @@ def audit_vault111_handplay(
         if not ok:
             issues.append(f"{label} eye-to-target reach {d3:.2f} m exceeds {FIRST_PERSON_REACH_M:.2f} m")
 
-    # 2. Lift platform boarding & direct lift-control script check (FO4SF_NewGameQuest.psc)
+    # 2. Lift platform boarding & Stay step-off re-entry check (FO4SF_NewGameQuest.psc)
     psc_text = newgame_psc.read_text(encoding="utf-8") if newgame_psc.exists() else ""
     m_rad = re.search(r"float\s+Property\s+PlatformRadius\s*=\s*([0-9.]+)", psc_text)
     plat_radius = float(m_rad.group(1)) if m_rad else 0.0
-    has_lift_activate = (
-        'RegisterForRemoteEvent(liftWatchedRef, "OnActivate")' in psc_text
-        and "Function HandleLiftControlActivate(" in psc_text
-        and 'Trace("lift control activated ref="' in psc_text
+    has_stay_stepoff = (
+        "bool onPlatform = Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)" in psc_text
+        and "if !onPlatform\n        asked = false" in psc_text.replace("\r\n", "\n")
+    )
+    dead_lift_handler_absent = (
+        "HandleLiftControlActivate" not in psc_text
+        and "liftRegistered" not in psc_text
+        and "liftWatchedRef" not in psc_text
     )
     lift_seg = by_id["3f"]
     lift_anchor = BINARY_ANCHORS["v111_exit_lift_platform"]["pos"]
@@ -1846,15 +1850,18 @@ def audit_vault111_handplay(
         "target_to_platform_center_m": round(lift_err, 4),
         "near_dz_tolerance_m": 3.0 if "dz < 3.0 && dz > -3.0" in psc_text else None,
         "auto_platform_prompt_preserved": "PromptVaultExitLift(player)" in psc_text,
+        "stay_stepoff_reentry_wired": has_stay_stepoff,
+        "dead_lift_onactivate_removed": dead_lift_handler_absent,
         "retrigger_after_stay": "step >2.0 m out of open cage entrance (resets asked=false in InVault) and step back onto platform; matches FO4 RespecTriggerREF 0x08C94A & Vault111AscendAgainTriggerREF 0x09A149",
         "lift_base_0x0100E0E6_full_name": lift_base_full,
         "lift_base_has_full_name": bool(lift_base_full) if lift_base_full is not None else False,
-        "programmatic_lift_onactivate_guard_wired": has_lift_activate,
     }
     if plat_radius < 1.5 or lift_err > plat_radius:
         issues.append(f"Exit lift target err {lift_err:.3f} m outside PlatformRadius {plat_radius:.2f} m")
-    if not has_lift_activate:
-        issues.append("FO4SF_NewGameQuest.psc missing programmatic liftWatchedRef OnActivate guard")
+    if not has_stay_stepoff:
+        issues.append("FO4SF_NewGameQuest.psc missing InVault PlatformRadius Stay step-off reset (asked = false)")
+    if not dead_lift_handler_absent:
+        issues.append("FO4SF_NewGameQuest.psc still contains dead lift OnActivate handler")
 
     # 3. Vault 111 corridor door states in FO4Port.esm (optional binary read)
     door_checks: Dict[str, Any] = {}
@@ -1927,7 +1934,7 @@ def audit_vault111_handplay(
     only_game_can_prove = [
         "Live Starfield physics & door-leaf collision clearance on FO4Port_V111Door01 (0200126E) and FO4Port_V111DoorSpecial01 (02001234) when opened by first-person E (2g used moveto past L1).",
         "Live Starfield capsule walk through open VltGearDoor01 (0200126D), down the Vault 111 catwalk stairs (3c-3e), and across the elevator threshold onto vltelevator_anim.nif without setpos (2g used setpos onto the lift).",
-        "Live Stay-and-reenter lift loop on foot: stepping >2.0 m out of the open cage entrance (resetting asked=false in InVault) and stepping back onto the platform to re-open ExitMessage (ACTI 0x0100E0E6 has no FULL display name, matching FO4's buttonless RespecTriggerREF 0x08C94A / Vault111AscendAgainTriggerREF 0x09A149 design; HandleLiftControlActivate is a programmatic .Activate guard only).",
+        "Live Stay-and-reenter lift loop on foot: stepping >2.0 m out of the open cage entrance (resetting asked=false in InVault) and stepping back onto the platform to re-open ExitMessage (ACTI 0x0100E0E6 has no FULL display name, matching FO4's buttonless RespecTriggerREF 0x08C94A / Vault111AscendAgainTriggerREF 0x09A149 design).",
         "Converted Commonwealth terrain collision & height continuity on L4 (Vault 111 switchback -> footbridge -> Sanctuary) and L5c-L5k (Sanctuary North Bridge -> Red Rocket -> Concord); only 5a/5b ran on foot in 2g.",
         "Live door/collision walkability inside Sanctuary houses (L6) and Concord Museum of Freedom stairs/basement/roof (L7-L9) once FO4Port.esm + promoted museum doors are bundled in 2h.",
         "Live player navigation inside Vault 111 without compass targets on FO4SF_NewGame Objective 10 ('Leave Vault 111').",

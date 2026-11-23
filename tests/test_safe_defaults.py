@@ -509,7 +509,7 @@ class SafeDefaultsTests(unittest.TestCase):
         vars_csv = (
             "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
             "consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, "
-            "liftRegistered, liftWatchedRef, consoleOpening, pistolPickedLogged"
+            "consoleOpening, pistolPickedLogged"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
 
@@ -573,8 +573,6 @@ class SafeDefaultsTests(unittest.TestCase):
                 consoleWatchedRef=None,
                 portConsoleRegistered=False,
                 portConsoleWatchedRef=None,
-                liftRegistered=False,
-                liftWatchedRef=None,
                 consoleOpening=False,
                 pistolPickedLogged=False,
                 VaultPistolBase=None,

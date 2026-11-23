@@ -231,25 +231,19 @@ class R11D6AndA3HandPlayTests(unittest.TestCase):
             self.assertFalse(r_bad_xy["pass"])
             self.assertTrue(any("7_off_xy" in e for e in r_bad_xy["issues"]))
 
-    def test_a3_newgame_lift_control_onactivate_contract_and_regression_guard(self) -> None:
-        psc = NEWGAME_PSC.read_text(encoding="utf-8")
-        # 2g auto-platform path preserved
+    def test_a3_newgame_lift_platform_stay_reentry_and_dead_handler_removed(self) -> None:
+        psc = NEWGAME_PSC.read_text(encoding="utf-8").replace("\r\n", "\n")
+        # 2g buttonless PlatformRadius auto-prompt & Stay step-off reset preserved
         self.assertIn("bool onPlatform = Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)", psc)
+        self.assertIn("if !onPlatform\n        asked = false", psc)
         self.assertIn("Function PromptVaultExitLift(Actor player)", psc)
         self.assertIn('Trace("lift platform waiting cage_door=open")', psc)
         self.assertIn('Trace("elevator prompt button=" + button)', psc)
-        # R11 A3 direct lift control activation wired safely
-        self.assertIn('RegisterForRemoteEvent(liftWatchedRef, "OnActivate")', psc)
-        self.assertIn('Trace("lift control registered ref="', psc)
-        self.assertIn("Function HandleLiftControlActivate(Actor player, ObjectReference akSender)", psc)
-        self.assertIn('Trace("lift control refused: cog_door_closed")', psc)
-        self.assertIn('Trace("lift control outside_platform")', psc)
-        self.assertIn('Trace("lift control activated ref=" + akSender)', psc)
-        # Safety: direct activation only re-opens prompt when player is inside PlatformRadius
-        fn_start = psc.index("Function HandleLiftControlActivate(")
-        fn_body = psc[fn_start : psc.index("EndFunction", fn_start)]
-        self.assertIn("if !Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)", fn_body)
-        self.assertLess(fn_body.index("outside_platform"), fn_body.index("PromptVaultExitLift(player)"))
+        # Review Item #10: dead lift OnActivate handler removed (ACTI 0x0100E0E6 has FULL == "")
+        self.assertNotIn("HandleLiftControlActivate", psc)
+        self.assertNotIn("liftRegistered", psc)
+        self.assertNotIn("liftWatchedRef", psc)
+        self.assertNotIn('RegisterForRemoteEvent(liftWatchedRef, "OnActivate")', psc)
 
     def test_a3_audit_vault111_handplay_synthetic_and_honest_gaps(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -280,7 +274,8 @@ class R11D6AndA3HandPlayTests(unittest.TestCase):
             self.assertTrue(res["offline_only_unproven_in_game"])
             self.assertTrue(res["first_person_reach"]["pipboy_0A00080F"]["within_2m_reach"])
             self.assertTrue(res["first_person_reach"]["console_0A000819"]["within_2m_reach"])
-            self.assertTrue(res["lift_platform"]["programmatic_lift_onactivate_guard_wired"])
+            self.assertTrue(res["lift_platform"]["stay_stepoff_reentry_wired"])
+            self.assertTrue(res["lift_platform"]["dead_lift_onactivate_removed"])
             self.assertEqual(res["lift_platform"]["lift_base_0x0100E0E6_full_name"], "")
             self.assertFalse(res["lift_platform"]["lift_base_has_full_name"])
             self.assertIn("0x08C94A", res["lift_platform"]["retrigger_after_stay"])
@@ -332,6 +327,23 @@ class R11D6AndA3HandPlayTests(unittest.TestCase):
             self.assertIsNone(DRIVE_PATH_RX.search(txt), f"Drive path leak in {path.name}")
             for pat in FORBIDDEN_MOD_PATTERNS:
                 self.assertIsNone(pat.search(txt), f"Forbidden mod name in {path.name}")
+
+    def test_fo76_owner_decision_replaces_old_rel60_gate_in_three_docs(self) -> None:
+        rel60_docs = (
+            REPO_ROOT / "docs" / "research" / "core-fit-by-title.md",
+            REPO_ROOT / "docs" / "plan" / "core-and-assets-plan.md",
+            REPO_ROOT / "docs" / "core" / "port-requirements.md",
+        )
+        for path in rel60_docs:
+            txt = path.read_text(encoding="utf-8")
+            self.assertIn("Yes we will convert 76", txt, f"{path.name} missing 23 Nov owner decision quote")
+            self.assertIn("7094787759", txt, f"{path.name} missing #32 comment id")
+            self.assertIn("wait list", txt.lower(), f"{path.name} missing nuke/boss wait list note")
+            self.assertIn("Round 11", txt, f"{path.name} missing nothing-added-to-Round-11 boundary")
+            self.assertNotIn("held behind owner `REL-60` gate", txt)
+            self.assertNotIn("gated on `REL-60`", txt)
+            self.assertNotIn("unless an explicit `REL-60` decision changes policy", txt)
+            self.assertIsNone(DRIVE_PATH_RX.search(txt), f"Drive path leak in {path.name}")
 
 
 if __name__ == "__main__":
