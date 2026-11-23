@@ -13,6 +13,7 @@ import zlib
 ROOT = Path(__file__).resolve().parents[1]
 WS_CS = ROOT / "dotnet" / "WorkshopCore" / "Program.cs"
 SANC_PSC = ROOT / "scripts" / "mission" / "FO4SF_Sanctuary01Quest.psc"
+NEWGAME_PSC = ROOT / "scripts" / "newgame" / "FO4SF_NewGameQuest.psc"
 DOC_D4 = ROOT / "docs" / "workshop" / "sanctuary-bench-d4-note.md"
 
 DOTNET_ENABLED = os.environ.get("FO4SF_DOTNET_TESTS", "") == "1" and shutil.which("dotnet") is not None
@@ -71,30 +72,87 @@ def _iter_subrecords(payload: bytes):
 
 
 class Round11D4AndA21Tests(unittest.TestCase):
-    def test_d4_workshop_core_defines_clean_sanctuary_bench_and_scoped_location_overrides(self) -> None:
+    def test_d4_workshop_core_defines_clean_sanctuary_bench_and_e6_category_flsts_zero_lctn_stdt(self) -> None:
         cs = WS_CS.read_text(encoding="utf-8")
         self.assertIn("public const uint SanctuaryCategoryKwId = 0x848;", cs)
         self.assertIn("public const uint SanctuaryBenchActiId = 0x849;", cs)
         self.assertIn("public const uint SanctuaryCleanBenchSwapGlobId = 0x84A;", cs)
+        self.assertIn("public const uint SanctuaryChairFurnId = 0x84B;", cs)
+        self.assertIn("public const uint SanctuaryCotFurnId = 0x84C;", cs)
+        self.assertIn("public const uint SanctuaryCrateContId = 0x84D;", cs)
+        self.assertIn("public const uint SanctuaryChairCobjId = 0x84E;", cs)
+        self.assertIn("public const uint SanctuaryCotCobjId = 0x84F;", cs)
+        self.assertIn("public const uint SanctuaryCrateCobjId = 0x850;", cs)
         self.assertIn('public const string SanctuaryCleanBenchSwapGlobEdid = "FO4SF_SanctuaryCleanBenchSwap";', cs)
-        self.assertIn("public const int ExpectedOwnRecordCount = 35;", cs)
+        self.assertIn("public const int ExpectedOwnRecordCount = 41;", cs)
+        self.assertIn("public const int ExpectedOverrideRecordCount = 2;", cs)
         self.assertIn('public const string SanctuaryBenchName = "Sanctuary Hills Workshop";', cs)
         self.assertIn('public const string SanctuaryBenchModel = "fo4core\\\\setdressing\\\\garage\\\\workbenchgarage01.nif";', cs)
-        self.assertIn("public const uint SfLocMarsSurfaceId = 0x01B736;", cs)
-        self.assertIn("public const uint SfLocMarsPlanetId = 0x01B735;", cs)
-        self.assertIn("public const uint SfLocSolSystemId = 0x061527;", cs)
-        self.assertIn("public const uint SfStarSolId = 0x05E5CB;", cs)
-        self.assertIn('public const string CommonwealthLocName = "Commonwealth";', cs)
-        self.assertIn('public const string MassachusettsStarName = "Massachusetts";', cs)
+        self.assertIn("public const uint SfFlstOutpostRecipeCategoriesId = 0x058606;", cs)
+        self.assertIn("public const uint SfFlstOutpostFollowCameraCategoriesId = 0x1A5507;", cs)
+        self.assertIn("copy.Name = null;", cs)
 
-        # Must explicitly forbid all 7 Starfield OutpostCategory* keywords and NEVER touch PNDT 0x03F59A
+        # E6: Must NOT override localized Starfield LCTN/STDT/PNDT records
+        self.assertNotIn("SfLocMarsSurfaceId", cs)
+        self.assertNotIn("SfLocMarsPlanetId", cs)
+        self.assertNotIn("SfLocSolSystemId", cs)
+        self.assertNotIn("SfStarSolId", cs)
+        self.assertIn("mod.Planets.Count == 0", cs)
+        self.assertIn("mod.Locations.Count == 0", cs)
+        self.assertIn("mod.Stars.Count == 0", cs)
+
+        # Must explicitly forbid all 7 Starfield OutpostCategory* keywords
         for kw_id in FORBIDDEN_OUTPOST_CATEGORIES:
             self.assertIn(f"0x{kw_id:08X}", cs.upper().replace("0X", "0x"))
-        self.assertIn("mod.Planets.Count == 0", cs)
-        self.assertIn("FullNameComponent", cs)
         self.assertIn("d4_starfield_outpost_category_leaked", cs)
-        self.assertIn("d4_mars_location_name_reverted", cs)
+        self.assertIn("d4_outpost_categories_missing_sanctuary", cs)
         self.assertIn("d4_clean_bench_swap_default_nonzero", cs)
+        self.assertIn("d4_sanctuary_cobj_locked_by_condition", cs)
+        self.assertIn("d4_localized_location_override_leaked", cs)
+
+    def test_e4_vault111_pistol_auto_equips_on_pickup_and_logs_equipped(self) -> None:
+        psc = NEWGAME_PSC.read_text(encoding="utf-8")
+        ev_add = re.search(r"Event ObjectReference\.OnItemAdded\(.*?EndEvent", psc, re.S)
+        self.assertIsNotNone(ev_add)
+        body = ev_add.group(0)
+        self.assertIn("if !player.IsEquipped(VaultPistolBase)", body)
+        self.assertIn("player.EquipItem(VaultPistolBase, False, False)", body)
+        self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)', body)
+        self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped)', body)
+
+        # Execute translated OnItemAdded directly with tests.test_exit_arrival.Reference
+        import sys
+        root_str = str(ROOT)
+        if root_str not in sys.path:
+            sys.path.insert(0, root_str)
+        from tests.test_exit_arrival import Reference, translated_functions
+        from types import SimpleNamespace
+
+        player = Reference(None, (-57.0, 30.0, 1.3), form_id=0x00000014)
+        pistol = object()
+        other = object()
+        traces: list[str] = []
+        ns = dict(
+            Trace=traces.append,
+            pistolPickedLogged=False,
+            VaultPistolBase=pistol,
+            GetStage=lambda: 20,
+            Game=SimpleNamespace(GetPlayer=lambda: player),
+        )
+        exec(
+            compile(translated_functions(psc, ("ObjectReference.OnItemAdded",), "pistolPickedLogged"), str(NEWGAME_PSC), "exec"),
+            ns,
+        )
+        # Other item does not equip or log
+        ns["OnItemAdded"](player, other, 1, None, None, 0)
+        self.assertFalse(player.IsEquipped(other))
+        self.assertEqual(traces, [])
+        # VaultPistolBase auto-equips and logs equipped=True
+        ns["OnItemAdded"](player, pistol, 1, None, None, 0)
+        self.assertTrue(ns["pistolPickedLogged"])
+        self.assertTrue(player.IsEquipped(pistol))
+        self.assertEqual(player.equip_calls, [(pistol, False, False)])
+        self.assertTrue(any("equipped=True" in t for t in traces), traces)
 
     def test_d4_sanctuary01_swap_off_by_default_with_self_heal_and_load_restore(self) -> None:
         psc = SANC_PSC.read_text(encoding="utf-8")
@@ -374,7 +432,7 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", txt), "drive-path leak in sanctuary-bench-d4-note.md")
 
     @unittest.skipUnless(DOTNET_ENABLED, "requires FO4SF_DOTNET_TESTS=1 and dotnet")
-    def test_d4_binary_workshop_esm_clean_bench_and_location_overrides(self) -> None:
+    def test_d4_binary_workshop_esm_clean_bench_e6_flsts_and_zero_localized_overrides(self) -> None:
         with tempfile.TemporaryDirectory(prefix="r11-d4-bin-") as tmp:
             r = subprocess.run(
                 ["dotnet", "run", "-c", "Release", "--project", str(ROOT / "dotnet" / "WorkshopCore"), "--", "selftest", tmp],
@@ -387,12 +445,20 @@ class Round11D4AndA21Tests(unittest.TestCase):
             esm_bytes = (Path(tmp) / "b_full" / "FO4SFWorkshop.esm").read_bytes()
             by_lid = {}
             pndt_count = 0
+            lctn_count = 0
+            stdt_count = 0
             for rtype, fid, _flags, pay in _iter_esm_records(esm_bytes):
                 if rtype == "PNDT":
                     pndt_count += 1
+                elif rtype == "LCTN":
+                    lctn_count += 1
+                elif rtype == "STDT":
+                    stdt_count += 1
                 by_lid[(rtype, fid & 0x00FFFFFF)] = list(_iter_subrecords(pay))
 
             self.assertEqual(pndt_count, 0, "FO4SFWorkshop.esm must NEVER override PNDT")
+            self.assertEqual(lctn_count, 0, "E6: FO4SFWorkshop.esm must NEVER override localized Starfield LCTN")
+            self.assertEqual(stdt_count, 0, "E6: FO4SFWorkshop.esm must NEVER override localized Starfield STDT")
             self.assertIn(("KYWD", 0x000848), by_lid)
             self.assertIn(("ACTI", 0x000849), by_lid)
             self.assertIn(("GLOB", 0x00084A), by_lid)
@@ -413,17 +479,42 @@ class Round11D4AndA21Tests(unittest.TestCase):
             for forbidden in FORBIDDEN_OUTPOST_CATEGORIES:
                 self.assertNotIn(forbidden, kw_fids)
 
-            for lid, want in (
-                (0x01B736, "Commonwealth"),
-                (0x01B735, "Commonwealth"),
-                (0x061527, "Massachusetts"),
+            # E6: 3 clean Sanctuary settlement placeables (0x84B..0x84D)
+            for rtype, lid, want_edid, want_name in (
+                ("FURN", 0x00084B, "FO4SF_Sanctuary_WoodChair", "Wooden Chair"),
+                ("FURN", 0x00084C, "FO4SF_Sanctuary_SleepingCot", "Sleeping Cot"),
+                ("CONT", 0x00084D, "FO4SF_Sanctuary_StorageCrate", "Storage Crate"),
             ):
-                subs = dict(by_lid[("LCTN", lid)])
-                self.assertEqual(subs["FULL"].rstrip(b"\x00").decode("utf-8"), want)
+                subs = dict(by_lid[(rtype, lid)])
+                self.assertEqual(subs["EDID"].rstrip(b"\x00").decode("utf-8"), want_edid)
+                self.assertEqual(subs["FULL"].rstrip(b"\x00").decode("utf-8"), want_name)
+                self.assertIn("MODL", subs)
+                self.assertNotIn("VMAD", subs)
 
-            star_subs = dict(by_lid[("STDT", 0x05E5CB)])
-            self.assertEqual(star_subs["FULL"].rstrip(b"\x00").decode("utf-8"), "Massachusetts")
-            self.assertEqual(star_subs["ANAM"].rstrip(b"\x00").decode("utf-8"), "Massachusetts")
+            # E6: 3 matching zero-perk, zero-condition Sanctuary Outpost COBJs (0x84E..0x850)
+            for cobj_lid, want_edid, target_lid in (
+                (0x00084E, "FO4SF_COBJ_Sanctuary_WoodChair", 0x00084B),
+                (0x00084F, "FO4SF_COBJ_Sanctuary_SleepingCot", 0x00084C),
+                (0x000850, "FO4SF_COBJ_Sanctuary_StorageCrate", 0x00084D),
+            ):
+                sub_list = by_lid[("COBJ", cobj_lid)]
+                subs = dict(sub_list)
+                tags = [t for t, _ in sub_list]
+                self.assertEqual(subs["EDID"].rstrip(b"\x00").decode("utf-8"), want_edid)
+                self.assertNotIn("CTDA", tags, f"{want_edid} must have zero CTDA conditions")
+                self.assertNotIn("RQPK", tags, f"{want_edid} must have zero RequiredPerks")
+                self.assertEqual(struct.unpack("<I", subs["BNAM"])[0] & 0x00FFFFFF, 0x000848)
+                self.assertEqual(struct.unpack("<I", subs["FNAM"])[0] & 0x00FFFFFF, 0x000848)
+                self.assertEqual(struct.unpack("<I", subs["CNAM"])[0] & 0x00FFFFFF, target_lid)
+                self.assertEqual(subs["LRNM"], b"\x03")
+
+            # E6: FLST 0x058606 and 0x1A5507 have NO FULL subrecord and include 0x000848
+            for flst_lid in (0x058606, 0x1A5507):
+                sub_list = by_lid[("FLST", flst_lid)]
+                tags = [t for t, _ in sub_list]
+                self.assertNotIn("FULL", tags, f"FLST 0x{flst_lid:06X} must not carry inline FULL")
+                lnams = [struct.unpack("<I", v)[0] & 0x00FFFFFF for t, v in sub_list if t == "LNAM"]
+                self.assertIn(0x000848, lnams, f"FLST 0x{flst_lid:06X} missing FO4SF_WorkshopCategorySanctuary")
 
 
 if __name__ == "__main__":
