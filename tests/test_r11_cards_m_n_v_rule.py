@@ -131,6 +131,8 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         # W5 #472/#476 binary truth: ACTI 0x0100E0E6 has no FULL display name -> never tell player to press E on lift
         self.assertNotIn("press E on the elevator", txt.lower())
         self.assertNotIn("press `e` on the elevator", txt.lower())
+        # InvDataAnswers=0 in --profile player: never instruct equipping via F7 -> INV
+        self.assertNotIn("equip it (`f7` -> `inv`)", txt.lower())
 
         required_tokens = (
             "D1",
@@ -198,6 +200,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "0200160A",
             "02001539",
             "(-57.03, 30.01, 1.29)",
+            "hold `E` on the pistol to take-and-equip, or press `I` / `Tab` -> `Inventory` -> `Weapons`",
             "FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt>",
             "AlreadySaid_Unselected",
             "move the cursor/highlight off the asked row",
