@@ -1,7 +1,7 @@
 // WorkshopCore: Core Settlements, Junk Scrapping (CMPO -> IRES), FO4 COBJ + FNV RCPE Bench Recipes, and Portable C.A.M.P.s
 // (docs/workshop/workshop-camps.md)
 //
-// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 41 own records + 2 FLST category overrides for D4/E6; 0 LCTN/STDT/PNDT overrides).
+// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 41 own records + 4 localized LCTN/STDT overrides for D4/E6; 0 FLST/PNDT overrides).
 // The terrain core is NOT a master: FO4SF_WorkshopCoreQuest resolves FO4TerrainCore.esm / FO4TerrainCore_Mars.esm
 // workshop bases at runtime via Game.GetFormFromFile so FO4SFWorkshop.esm loads standalone or folded without cell overrides.
 //
@@ -17,6 +17,7 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
+using Mutagen.Bethesda.Strings;
 using Noggog;
 
 try
@@ -131,9 +132,13 @@ static class WorkshopCore
     public const string SanctuaryBenchModel = "fo4core\\setdressing\\garage\\workbenchgarage01.nif";
     public const float SanctuaryBenchRadius = 250.0f;
 
-    // R11 E6: Starfield.esm Outpost category FLST overrides (FULL cleared; ZERO LCTN/STDT/PNDT overrides!)
-    public const uint SfFlstOutpostRecipeCategoriesId = 0x058606;
-    public const uint SfFlstOutpostFollowCameraCategoriesId = 0x1A5507;
+    // R11 F3 / E6 / F4: Scoped Sanctuary category ONLY on clean bench 0x000849 (0 Starfield Outpost FLST overrides),
+    // localized D4 Mars/Sol LCTN + STDT overrides (Commonwealth / Massachusetts, HeaderFlag.Localized + Data/Strings/*),
+    // and 3 Starfield furniture/container stand-in placeables (0x84B..0x84D) with zero-skill COBJs (0x84E..0x850).
+    public const uint SfLocMarsSurfaceId = 0x01B736;
+    public const uint SfLocMarsPlanetId = 0x01B735;
+    public const uint SfLocSolSystemId = 0x061527;
+    public const uint SfStarSolId = 0x05E5CB;
     public const uint SfFurnWoodChairTplId = 0x12A77F;
     public const uint SfFurnScrapCotTplId = 0x1FEDFD;
     public const uint SfContStorageCrateTplId = 0x0A47D5;
@@ -141,6 +146,11 @@ static class WorkshopCore
     public const uint SfMustPersistKwId = 0x04AF68;
     public const uint SfWorkshopKwId = 0x054BA7;
     public const uint SfOutpostBuildAreaRadiusAvId = 0x063FC5;
+    public const string CommonwealthLocName = "Commonwealth";
+    public const string MassachusettsStarName = "Massachusetts";
+    public const string SanctuaryChairName = "Wooden Chair (Stand-In)";
+    public const string SanctuaryCotName = "Sleeping Cot (Stand-In)";
+    public const string SanctuaryCrateName = "Storage Crate (Stand-In)";
 
     static readonly uint[] ForbiddenStarfieldOutpostCategoryIds =
     {
@@ -155,7 +165,7 @@ static class WorkshopCore
 
     public const uint NextId = 0x858;
     public const int ExpectedOwnRecordCount = 41;
-    public const int ExpectedOverrideRecordCount = 2;
+    public const int ExpectedOverrideRecordCount = 4;
     public const int ExpectedMajorRecordCount = ExpectedOwnRecordCount + ExpectedOverrideRecordCount;
 
     const string QuestEdid = "FO4SF_WorkshopCoreQuest";
@@ -294,12 +304,28 @@ static class WorkshopCore
         return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
+    static string? ResolveStringsFolder(string pluginPath)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(pluginPath)) ?? ".";
+        var staged = Path.Combine(dir, "Data", "Strings");
+        if (Directory.Exists(staged)) return staged;
+        var installed = Path.Combine(dir, "Strings");
+        if (Directory.Exists(installed)) return installed;
+        return null;
+    }
+
     static IStarfieldModDisposableGetter OpenPlugin(string path)
     {
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
         styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
-        return StarfieldMod.CreateFromBinaryOverlay(path, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+        var stringsDir = ResolveStringsFolder(path);
+        var rp = new BinaryReadParameters
+        {
+            MasterFlagsLookup = styles,
+            StringsParam = stringsDir != null ? new StringsReadParameters { StringsFolderOverride = stringsDir } : null,
+        };
+        return StarfieldMod.CreateFromBinaryOverlay(path, Release, rp);
     }
 
     sealed class ResolvedTemplates
@@ -563,7 +589,7 @@ static class WorkshopCore
         var tpl = ResolveTemplates(sf);
 
         var mod = new StarfieldMod(Plugin, Release);
-        mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+        mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master | StarfieldModHeader.HeaderFlag.Localized;
         mod.ModHeader.Author = "fo4-to-starfield";
 
         // 1. Quest & Globals
@@ -705,9 +731,9 @@ static class WorkshopCore
         };
         mod.Activators.Add(sancBenchActi);
 
-        // 8. R11 E6: 3 clean Sanctuary settlement placeables + 3 zero-skill Outpost COBJs (0x84B..0x850)
-        // and FLST overrides on OutpostRecipeCategories (0x058606) + OutpostFollowCameraCategoryList (0x1A5507)
-        // with FULL cleared so zero localized Starfield strings are overwritten (0 LCTN/STDT/PNDT overrides!).
+        // 8. R11 F3 / F4: 3 Starfield furniture/container stand-in placeables (0x84B..0x84D: AK_Chair_Wood_01.nif,
+        // FoundScrapCot01.nif, ToolBox_SetA_03.nif) + 3 zero-skill Sanctuary COBJs (0x84E..0x850) scoped ONLY to the
+        // clean workbench 0x000849 (ZERO Starfield.esm FLST 0x058606/0x1A5507 Outpost overrides).
         Furniture CloneSanctuaryFurn(IFurnitureGetter src, uint id, string edid, string name)
         {
             var f = (Furniture)src.Duplicate(Own(id), new Furniture.TranslationMask(defaultOn: true) { Name = false });
@@ -716,12 +742,12 @@ static class WorkshopCore
             f.VirtualMachineAdapter = null;
             return f;
         }
-        mod.Furniture.Add(CloneSanctuaryFurn(tpl.SanctuaryChairTemplate, SanctuaryChairFurnId, SanctuaryChairFurnEdid, "Wooden Chair"));
-        mod.Furniture.Add(CloneSanctuaryFurn(tpl.SanctuaryCotTemplate, SanctuaryCotFurnId, SanctuaryCotFurnEdid, "Sleeping Cot"));
+        mod.Furniture.Add(CloneSanctuaryFurn(tpl.SanctuaryChairTemplate, SanctuaryChairFurnId, SanctuaryChairFurnEdid, SanctuaryChairName));
+        mod.Furniture.Add(CloneSanctuaryFurn(tpl.SanctuaryCotTemplate, SanctuaryCotFurnId, SanctuaryCotFurnEdid, SanctuaryCotName));
 
         var sancCrate = (Container)tpl.SanctuaryCrateTemplate.Duplicate(Own(SanctuaryCrateContId), new Container.TranslationMask(defaultOn: true) { Name = false });
         sancCrate.EditorID = SanctuaryCrateContEdid;
-        sancCrate.Name = "Storage Crate";
+        sancCrate.Name = SanctuaryCrateName;
         sancCrate.VirtualMachineAdapter = null;
         sancCrate.Items?.Clear();
         mod.Containers.Add(sancCrate);
@@ -762,18 +788,30 @@ static class WorkshopCore
         mod.ConstructibleObjects.Add(MakeSanctuaryOutpostCobj(SanctuaryCotCobjId, SanctuaryCotCobjEdid, SanctuaryCotFurnId, 2, 2.0f));
         mod.ConstructibleObjects.Add(MakeSanctuaryOutpostCobj(SanctuaryCrateCobjId, SanctuaryCrateCobjEdid, SanctuaryCrateContId, 1, 3.0f));
 
-        void AppendSanctuaryCategoryToFlst(uint sfFlstId, string label)
+        // 9. R11 D4 / E6: Localized display-name overrides for Mars/Sol LCTN & STDT (never touches PNDT 0x03F59A!).
+        // HeaderFlag.Localized + Data/Strings/FO4SFWorkshop_en.{STRINGS,DLSTRINGS,ILSTRINGS} prevents 2g-fix's blank '.' footer.
+        void OverrideLocName(uint sfLocId, string newName, string label)
         {
-            var src = sf.FormLists.FirstOrDefault(x => x.FormKey == Sf(sfFlstId))
-                ?? throw new Refusal($"Starfield.esm missing FLST 0x{sfFlstId:X6} ({label})");
+            var src = sf.Locations.FirstOrDefault(x => x.FormKey == Sf(sfLocId))
+                ?? throw new Refusal($"Starfield.esm missing LCTN 0x{sfLocId:X6} ({label})");
             var copy = src.DeepCopy();
-            copy.Name = null; // Never write inline FULL onto a localized Starfield.esm override!
-            if (!copy.Items.Any(x => x.FormKey == sancCatKw.FormKey))
-                copy.Items.Add(sancCatKw.FormKey.ToLinkGetter<IStarfieldMajorRecordGetter>());
-            mod.FormLists.Add(copy);
+            copy.Name = newName;
+            mod.Locations.Add(copy);
         }
-        AppendSanctuaryCategoryToFlst(SfFlstOutpostRecipeCategoriesId, "OutpostRecipeCategories");
-        AppendSanctuaryCategoryToFlst(SfFlstOutpostFollowCameraCategoriesId, "OutpostFollowCameraCategoryList");
+        OverrideLocName(SfLocMarsSurfaceId, CommonwealthLocName, "SSol_PMars_Surface");
+        OverrideLocName(SfLocMarsPlanetId, CommonwealthLocName, "SSol_PMars");
+        OverrideLocName(SfLocSolSystemId, MassachusettsStarName, "SSol");
+
+        var solStar = sf.Stars.FirstOrDefault(x => x.FormKey == Sf(SfStarSolId))
+            ?? throw new Refusal($"Starfield.esm missing STDT 0x{SfStarSolId:X6} (SolStar)");
+        var solCopy = solStar.DeepCopy();
+        solCopy.Name = MassachusettsStarName;
+        var solFullComp = solCopy.Components.OfType<FullNameComponent>().FirstOrDefault();
+        if (solFullComp != null)
+            solFullComp.Name = MassachusettsStarName;
+        else
+            solCopy.Components.Add(new FullNameComponent { Name = MassachusettsStarName });
+        mod.Stars.Add(solCopy);
 
         mod.ModHeader.Stats.NextFormID = NextId;
 
@@ -782,8 +820,9 @@ static class WorkshopCore
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
                           $"1 QUST (TestModeGlobal -> {testModeKey}), 5 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m, cleanSwap=0), " +
-                          $"10 MISC, 4 ALCH, 2 FURN + 1 CONT + 11 COBJ (3 Sanctuary zero-skill), 5 own FLST + 2 Outpost FLST overrides (0 LCTN/STDT/PNDT), " +
-                          $"1 KYWD + 1 ACTI (Sanctuary Hills Workshop, 0 Starfield OutpostCategory* KWs)");
+                          $"10 MISC, 4 ALCH, 2 FURN + 1 CONT Starfield stand-ins + 11 COBJ (3 Sanctuary zero-skill, 0 Outpost FLST overrides), " +
+                          $"5 own FLST, 1 KYWD + 1 ACTI (Sanctuary Hills Workshop, 0 Starfield OutpostCategory* KWs), " +
+                          $"3 localized LCTN + 1 localized STDT D4/E6 overrides (Commonwealth / Massachusetts)");
         return 0;
     }
 
@@ -791,6 +830,7 @@ static class WorkshopCore
     {
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, mod.ModKey.FileName);
+        var dataStringsDir = Path.Combine(outDir, "Data", "Strings");
         var tmpDir = Path.Combine(outDir, ".tmp-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -805,6 +845,20 @@ static class WorkshopCore
                 MastersListOrdering = new MastersListOrderingByLoadOrder(masters),
                 MasterFlagsLookup = masterFlags,
             });
+            if (Directory.Exists(dataStringsDir))
+            {
+                foreach (var old in Directory.GetFiles(dataStringsDir, $"{mod.ModKey.Name}_*.*"))
+                    File.Delete(old);
+            }
+            var tmpStringsDir = Path.Combine(tmpDir, "Strings");
+            if (Directory.Exists(tmpStringsDir))
+            {
+                var emitted = Directory.GetFiles(tmpStringsDir);
+                if (emitted.Length > 0)
+                    Directory.CreateDirectory(dataStringsDir);
+                foreach (var sfFile in emitted)
+                    File.Move(sfFile, Path.Combine(dataStringsDir, Path.GetFileName(sfFile)), overwrite: true);
+            }
             File.Move(tmp, path, overwrite: true);
         }
         finally
@@ -831,12 +885,18 @@ static class WorkshopCore
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
         Need(mod.ModKey == Plugin, $"file ModKey is {mod.ModKey}, expected {Plugin}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "plugin header lacks Master flag");
+        Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Localized), "E6 requires HeaderFlag.Localized so Starfield reads Data/Strings/* instead of treating inline bytes as StringID");
+        var stringsDir = ResolveStringsFolder(pluginPath);
+        var enStrings = stringsDir != null ? Path.Combine(stringsDir, $"{Plugin.Name}_en.STRINGS") : null;
+        Need(enStrings != null && File.Exists(enStrings), $"missing {Plugin.Name}_en.STRINGS for Localized header");
         Need(masters.SequenceEqual(new[] { SfEsm, CoreValuesEsm }), $"masters are [{string.Join(", ", masters)}], expected [Starfield.esm, FO4SFCoreValues.esm]");
 
         var allowedOverrides = new HashSet<FormKey>
         {
-            Sf(SfFlstOutpostRecipeCategoriesId),
-            Sf(SfFlstOutpostFollowCameraCategoriesId),
+            Sf(SfLocMarsSurfaceId),
+            Sf(SfLocMarsPlanetId),
+            Sf(SfLocSolSystemId),
+            Sf(SfStarSolId),
         };
         var allRecords = mod.EnumerateMajorRecords().ToList();
         var ownRecords = allRecords.Where(r => r.FormKey.ModKey == Plugin).ToList();
@@ -844,15 +904,14 @@ static class WorkshopCore
         var badForeign = foreign.Where(r => !allowedOverrides.Contains(r.FormKey)).Select(r => r.FormKey.ToString()).ToList();
         Need(badForeign.Count == 0, $"plugin contains unauthorized foreign override records: {string.Join(", ", badForeign)}");
         Need(mod.Planets.Count == 0, $"plugin must never override Planet (PNDT 0x03F59A belongs to FO4TerrainCore_Mars.esm), found {mod.Planets.Count}");
-        Need(mod.Locations.Count == 0, $"plugin must never override localized Starfield LCTN records (E6 blank footer), found {mod.Locations.Count}");
-        Need(mod.Stars.Count == 0, $"plugin must never override localized Starfield STDT records (E6 blank footer), found {mod.Stars.Count}");
+        Need(mod.FormLists.All(fl => fl.FormKey.ModKey == Plugin), "F3: plugin must NOT override Starfield.esm Outpost FLSTs (0x058606 / 0x1A5507); scope SANCTUARY ONLY to clean workbench 0x000849");
         var dupCore = ownRecords.Where(r => r.EditorID != null && coreIds.ContainsKey(r.EditorID))
             .Select(r => r.EditorID!).ToList();
         Need(dupCore.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupCore)}");
         var lowRange = ownRecords.Where(r => r.FormKey.ID < 0x800).Select(r => r.FormKey.ToString()).ToList();
         Need(lowRange.Count == 0, $"plugin contains low-range FormIDs (<0x800): {string.Join(", ", lowRange)}");
         Need(ownRecords.Count == ExpectedOwnRecordCount, $"expected {ExpectedOwnRecordCount} own major records, found {ownRecords.Count}");
-        Need(foreign.Count == ExpectedOverrideRecordCount, $"expected {ExpectedOverrideRecordCount} scoped D4 overrides, found {foreign.Count}");
+        Need(foreign.Count == ExpectedOverrideRecordCount, $"expected {ExpectedOverrideRecordCount} scoped D4/E6 overrides, found {foreign.Count}");
         Need(allRecords.Count == ExpectedMajorRecordCount, $"expected {ExpectedMajorRecordCount} major records, found {allRecords.Count}");
 
         // 1. Quest check
@@ -1003,10 +1062,10 @@ static class WorkshopCore
                 $"{SanctuaryBenchActiEdid} missing OutpostBuildAreaRadius={SanctuaryBenchRadius}");
         }
 
-        // 9. R11 E6: 3 clean Sanctuary settlement placeables + 3 zero-skill Outpost COBJs + 2 FLST overrides
+        // 9. R11 F4: 3 Starfield furniture/container stand-in placeables + zero-skill COBJs (0x84B..0x850) + E6 LCTN/STDT overrides
         foreach (var (fid, edid, wantName) in new[] {
-            (SanctuaryChairFurnId, SanctuaryChairFurnEdid, "Wooden Chair"),
-            (SanctuaryCotFurnId, SanctuaryCotFurnEdid, "Sleeping Cot"),
+            (SanctuaryChairFurnId, SanctuaryChairFurnEdid, SanctuaryChairName),
+            (SanctuaryCotFurnId, SanctuaryCotFurnEdid, SanctuaryCotName),
         })
         {
             var f = mod.Furniture.FirstOrDefault(x => x.FormKey == Own(fid));
@@ -1014,7 +1073,7 @@ static class WorkshopCore
                 $"FURN 0x{fid:X} ({edid}) missing, misnamed, lacks model, or carries script");
         }
         var crateRec = mod.Containers.FirstOrDefault(x => x.FormKey == Own(SanctuaryCrateContId));
-        Need(crateRec != null && crateRec.EditorID == SanctuaryCrateContEdid && crateRec.Name?.String == "Storage Crate" &&
+        Need(crateRec != null && crateRec.EditorID == SanctuaryCrateContEdid && crateRec.Name?.String == SanctuaryCrateName &&
              crateRec.Model != null && (crateRec.VirtualMachineAdapter?.Scripts.Count ?? 0) == 0 && (crateRec.Items?.Count ?? 0) == 0,
             $"CONT 0x{SanctuaryCrateContId:X} ({SanctuaryCrateContEdid}) missing, misnamed, non-empty, or carries script");
 
@@ -1042,14 +1101,21 @@ static class WorkshopCore
                 $"Sanctuary COBJ {cobjEdid} ConstructableComponents mismatch");
         }
 
-        void CheckFlstOverride(uint sfFlstId, string label)
+        void CheckLocOverride(uint id, string wantName, string label)
         {
-            var fl = mod.FormLists.FirstOrDefault(x => x.FormKey == Sf(sfFlstId));
-            Need(fl != null && fl.Name == null && fl.Items.Any(x => x.FormKey == Own(SanctuaryCategoryKwId)),
-                $"E6 FLST override 0x{sfFlstId:X6} ({label}) missing, carries FULL, or lacks {SanctuaryCategoryKwEdid}");
+            var loc = mod.Locations.FirstOrDefault(x => x.FormKey == Sf(id));
+            Need(loc != null && loc.Name?.String == wantName &&
+                 !string.Equals(loc.Name?.String, "Mars", StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(loc.Name?.String, "Sol", StringComparison.OrdinalIgnoreCase),
+                $"E6 LCTN override 0x{id:X6} ({label}) missing or Name != '{wantName}'");
         }
-        CheckFlstOverride(SfFlstOutpostRecipeCategoriesId, "OutpostRecipeCategories");
-        CheckFlstOverride(SfFlstOutpostFollowCameraCategoriesId, "OutpostFollowCameraCategoryList");
+        CheckLocOverride(SfLocMarsSurfaceId, CommonwealthLocName, "SSol_PMars_Surface");
+        CheckLocOverride(SfLocMarsPlanetId, CommonwealthLocName, "SSol_PMars");
+        CheckLocOverride(SfLocSolSystemId, MassachusettsStarName, "SSol");
+        var starOv = mod.Stars.FirstOrDefault(x => x.FormKey == Sf(SfStarSolId));
+        var starFull = starOv?.Components.OfType<IFullNameComponentGetter>().FirstOrDefault()?.Name?.String;
+        Need(starOv != null && starOv.Name == MassachusettsStarName && starFull == MassachusettsStarName,
+            $"E6 STDT override 0x{SfStarSolId:X6} (SolStar) missing or ANAM/FULL != '{MassachusettsStarName}'");
 
         foreach (var x in problems) Console.WriteLine("FAIL  " + x);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
@@ -1077,25 +1143,23 @@ static class WorkshopCore
             Model = new Model { File = "Meshes\\Outpost\\Beacon.nif" },
         });
 
-        // Starfield.esm Outpost category FormLists + clean FURN/CONT templates for E6 Sanctuary buildables
-        mod.FormLists.Add(new FormList(Sf(SfFlstOutpostRecipeCategoriesId), Release)
+        // Mars/Sol LCTN & STDT templates for E6 localized display-name overrides + clean FURN/CONT stand-in templates for F4
+        mod.Locations.Add(new Location(Sf(SfLocSolSystemId), Release) { EditorID = "SSol", Name = "Sol" });
+        mod.Locations.Add(new Location(Sf(SfLocMarsPlanetId), Release)
         {
-            EditorID = "OutpostRecipeCategories",
-            Items = new ExtendedList<IFormLinkGetter<IStarfieldMajorRecordGetter>>
-            {
-                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002CFDE6)),
-                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002BE3B5)),
-            },
+            EditorID = "SSol_PMars",
+            Name = "Mars",
+            ParentLocation = new FormLinkNullable<ILocationGetter>(Sf(SfLocSolSystemId)),
         });
-        mod.FormLists.Add(new FormList(Sf(SfFlstOutpostFollowCameraCategoriesId), Release)
+        mod.Locations.Add(new Location(Sf(SfLocMarsSurfaceId), Release)
         {
-            EditorID = "OutpostFollowCameraCategoryList",
-            Items = new ExtendedList<IFormLinkGetter<IStarfieldMajorRecordGetter>>
-            {
-                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002CFDE6)),
-                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002BE3B5)),
-            },
+            EditorID = "SSol_PMars_Surface",
+            Name = "Mars",
+            ParentLocation = new FormLinkNullable<ILocationGetter>(Sf(SfLocMarsPlanetId)),
         });
+        var fixStar = new Star(Sf(SfStarSolId), Release) { EditorID = "SolStar", Name = "Sol" };
+        fixStar.Components.Add(new FullNameComponent { Name = "Sol" });
+        mod.Stars.Add(fixStar);
         mod.Furniture.Add(new Furniture(Sf(SfFurnWoodChairTplId), Release)
         {
             EditorID = "AK_Chair_Wood_01_Free",
@@ -1228,7 +1292,13 @@ static class WorkshopCore
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
         styles.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
-        return StarfieldMod.CreateFromBinary(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+        var stringsDir = ResolveStringsFolder(pluginPath);
+        var rp = new BinaryReadParameters
+        {
+            MasterFlagsLookup = styles,
+            StringsParam = stringsDir != null ? new StringsReadParameters { StringsFolderOverride = stringsDir } : null,
+        };
+        return StarfieldMod.CreateFromBinary(pluginPath, Release, rp);
     }
 
     public static int SelfTest(string scratchDir)
@@ -1306,10 +1376,9 @@ static class WorkshopCore
             m.Activators.First(a => a.FormKey == Own(SanctuaryBenchActiId)).Keywords!
                 .Add(new FormLink<IKeywordGetter>(Sf(ForbiddenStarfieldOutpostCategoryIds[0]))));
 
-        // 10. E6: OutpostRecipeCategories missing FO4SF_WorkshopCategorySanctuary
-        ExpectTamperFail("d4_outpost_categories_missing_sanctuary", m =>
-            m.FormLists.First(fl => fl.FormKey == Sf(SfFlstOutpostRecipeCategoriesId)).Items
-                .RemoveWhere(x => x.FormKey == Own(SanctuaryCategoryKwId)));
+        // 10. E6: Mars location display name reverted to "Mars"
+        ExpectTamperFail("e6_mars_location_name_reverted", m =>
+            m.Locations.First(l => l.FormKey == Sf(SfLocMarsPlanetId)).Name = "Mars");
 
         // 11. D4: Sanctuary clean bench swap switch defaults to non-zero (must default to 0.0 = OFF)
         ExpectTamperFail("d4_clean_bench_swap_default_nonzero", m =>
@@ -1320,11 +1389,15 @@ static class WorkshopCore
             m.ConstructibleObjects.First(c => c.FormKey == Own(SanctuaryChairCobjId)).Conditions
                 .Add(new ConditionFloat { Data = new IsInWaterConditionData() }));
 
-        // 13. E6: Localized Starfield LCTN override leaked back into FO4SFWorkshop.esm
-        ExpectTamperFail("d4_localized_location_override_leaked", m =>
-            m.Locations.Add(new Location(Sf(0x01B735), Release) { EditorID = "SSol_PMars", Name = "Commonwealth" }));
+        // 13. F3: Starfield Outpost FLST override leaked back into FO4SFWorkshop.esm
+        ExpectTamperFail("f3_starfield_outpost_flst_leaked", m =>
+            m.FormLists.Add(new FormList(Sf(0x058606), Release) { EditorID = "OutpostRecipeCategories" }));
 
-        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 13 tamper controls passed)");
+        // 14. E6: Non-localized TES4 header (writes raw inline strings onto localized LCTN overrides -> '2g-fix' blank '.' footer)
+        ExpectTamperFail("e6_non_localized_header", m =>
+            m.ModHeader.Flags &= ~StarfieldModHeader.HeaderFlag.Localized);
+
+        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 14 tamper controls passed)");
         return 0;
     }
 }
