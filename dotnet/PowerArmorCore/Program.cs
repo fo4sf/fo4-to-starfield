@@ -28,9 +28,12 @@
 using System.Globalization;
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Aspects;
+using Mutagen.Bethesda.Plugins.Assets;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
+using Mutagen.Bethesda.Starfield.Assets;
 using Noggog;
 
 try
@@ -81,10 +84,14 @@ static class PowerArmorCore
     const uint CondHeadId = 0x810, CondTorsoId = 0x811, CondLeftArmId = 0x812, CondRightArmId = 0x813,
         CondLeftLegId = 0x814, CondRightLegId = 0x815;
     const uint FrameArmorId = 0x816, PaTorsoId = 0x817, PaHelmetId = 0x818, PaPackId = 0x819,
-        SalvagedBodyId = 0x81A, SalvagedHelmId = 0x81B, SalvagedAgiEnchId = 0x81C, SalvagedAgiMgefId = 0x81D;
+        SalvagedBodyId = 0x81A, SalvagedHelmId = 0x81B, SalvagedAgiEnchId = 0x81C, SalvagedAgiMgefId = 0x81D,
+        NoFallPerkId = 0x81E;
     const uint ArrivalRefId = 0x820, CocRefId = 0x821, FrameFurnRefId = 0x822, ExitChairRefId = 0x823,
         CoreRef1Id = 0x824, CoreRef2Id = 0x825, CoreRef3Id = 0x826, SalvagedBodyRefId = 0x827, SalvagedHelmRefId = 0x828;
-    const uint FirstCloneArmaId = 0x830, FirstTileId = 0x860;
+    const uint PaLeftArmId = 0x82A, PaRightArmId = 0x82B, PaLeftLegId = 0x82C, PaRightLegId = 0x82D;
+    const uint PaFrameArmaId = 0x830, PaTorsoArmaId = 0x831, PaHelmetArmaId = 0x832, PaPackArmaId = 0x833,
+        PaLeftArmArmaId = 0x834, PaRightArmArmaId = 0x835, PaLeftLegArmaId = 0x836, PaRightLegArmaId = 0x837;
+    const uint FirstCloneArmaId = 0x840, FirstTileId = 0x860;
 
     public const string DefaultControlEdid = "NPCChairTech03_Free_270";
     const string CellEdid = "FO4SF_PATestCell",
@@ -104,15 +111,33 @@ static class PowerArmorCore
         PaTorsoEdid = "FO4SF_PATorso",
         PaHelmetEdid = "FO4SF_PAHelmet",
         PaPackEdid = "FO4SF_PAPack",
+        PaLeftArmEdid = "FO4SF_PALeftArm",
+        PaRightArmEdid = "FO4SF_PARightArm",
+        PaLeftLegEdid = "FO4SF_PALeftLeg",
+        PaRightLegEdid = "FO4SF_PARightLeg",
+        NoFallPerkEdid = "FO4SF_PANoFallDamagePerk",
         SalvagedBodyEdid = "FO4SF_SalvagedNCRPowerArmor",
         SalvagedHelmEdid = "FO4SF_SalvagedNCRPowerHelmet",
         SalvagedAgiEnchEdid = "FO4SF_Ench_SalvagedNCRAgility",
         SalvagedAgiMgefEdid = "FO4SF_Mgef_SalvagedNCRAgility";
 
+    // Converted FO4 Power Armor & T-45 mesh stand-ins (PA rig/animations belong to Claude's lane)
+    const string FrameFurnModelRel = @"fo4sf\powerarmor\powerarmorfurniture.nif",
+        FusionCoreModelRel = @"fo4sf\powerarmor\fusioncore.nif",
+        PaFrameNifRel = @"fo4sf\powerarmor\frame.nif",
+        PaTorsoNifRel = @"fo4sf\powerarmor\t45_body.nif",
+        PaHelmetNifRel = @"fo4sf\powerarmor\t45_helmet.nif",
+        PaPackNifRel = @"fo4sf\powerarmor\frame_exo.nif",
+        PaLeftArmNifRel = @"fo4sf\powerarmor\t45_larm.nif",
+        PaRightArmNifRel = @"fo4sf\powerarmor\t45_rarm.nif",
+        PaLeftLegNifRel = @"fo4sf\powerarmor\t45_lleg.nif",
+        PaRightLegNifRel = @"fo4sf\powerarmor\t45_rleg.nif";
+
     // Vanilla template EditorIDs looked up in Starfield.esm (or synthetic fixture)
     const string HumanRaceEdid = "HumanRace",
         HumanBptdEdid = "HumanBodyPartData",
         SkinNakedEdid = "Skin_Naked",
+        NakedBodyArmaEdid = "AA_Naked_Body",
         FrameClothesEdid = "Clothes_Crowd_Akila_Fatigues_01_NOTPLAYABLE",
         Mark1BodyEdid = "Spacesuit_Mark1_Body",
         Mark1HelmetEdid = "Spacesuit_Mark1_Helmet",
@@ -121,18 +146,22 @@ static class PowerArmorCore
         FurnPaKeywordEdid = "FurnitureTypePowerArmor",
         FrameKeywordEdid = "isPowerArmorFrame",
         BatteryKeywordEdid = "isPowerArmorBattery",
+        MetalActorLargeMatEdid = "MaterialActorMetalLarge",
+        StarbornNoFallPerkEdid = "NPC_Starborn_Perk",
         AgilityAvEdid = "Agility",
         CarryWeightAvEdid = "CarryWeight",
         SpeedMultAvEdid = "SpeedMult";
 
+    const uint MetalActorLargeMatId = 0x09150B;
+
     static readonly (uint Id, string Edid, string Label, BodyPart.PartType[] Parts)[] LimbSpecs =
     {
-        (CondHeadId, "FO4SF_PACond_Head", "FO4SF PA Head Condition", new[] { BodyPart.PartType.Head1 }),
-        (CondTorsoId, "FO4SF_PACond_Torso", "FO4SF PA Torso Condition", new[] { BodyPart.PartType.Torso }),
-        (CondLeftArmId, "FO4SF_PACond_LeftArm", "FO4SF PA Left Arm Condition", new[] { BodyPart.PartType.LeftArm1 }),
-        (CondRightArmId, "FO4SF_PACond_RightArm", "FO4SF PA Right Arm Condition", new[] { BodyPart.PartType.RightArm1 }),
-        (CondLeftLegId, "FO4SF_PACond_LeftLeg", "FO4SF PA Left Leg Condition", new[] { BodyPart.PartType.LeftLeg1, BodyPart.PartType.LeftFoot }),
-        (CondRightLegId, "FO4SF_PACond_RightLeg", "FO4SF PA Right Leg Condition", new[] { BodyPart.PartType.RightLeg1, BodyPart.PartType.RightFoot }),
+        (CondHeadId, "FO4SF_PACond_Head", "PA Head Condition", new[] { BodyPart.PartType.Head1 }),
+        (CondTorsoId, "FO4SF_PACond_Torso", "PA Torso Condition", new[] { BodyPart.PartType.Torso }),
+        (CondLeftArmId, "FO4SF_PACond_LeftArm", "PA Left Arm Condition", new[] { BodyPart.PartType.LeftArm1 }),
+        (CondRightArmId, "FO4SF_PACond_RightArm", "PA Right Arm Condition", new[] { BodyPart.PartType.RightArm1 }),
+        (CondLeftLegId, "FO4SF_PACond_LeftLeg", "PA Left Leg Condition", new[] { BodyPart.PartType.LeftLeg1, BodyPart.PartType.LeftFoot }),
+        (CondRightLegId, "FO4SF_PACond_RightLeg", "PA Right Leg Condition", new[] { BodyPart.PartType.RightLeg1, BodyPart.PartType.RightFoot }),
     };
 
     static readonly (string DfobEdid, uint TargetLocalId)[] DfobTargets =
@@ -297,6 +326,9 @@ static class PowerArmorCore
         a.Name = plainName;
         a.Description = null;
         a.VirtualMachineAdapter = null;
+        a.InstanceNaming.Clear();
+        a.ObjectTemplates = null;
+        a.WorldModel = null;
         return a;
     }
 
@@ -307,6 +339,44 @@ static class PowerArmorCore
         {
             a.Resistances[0].Value = primaryResistance;
         }
+    }
+
+    static ArmorAddon BuildFo4PaArma(
+        StarfieldMod mod,
+        IArmorAddonGetter templateArma,
+        uint ownId,
+        string edid,
+        FirstPersonFlag slotFlags,
+        FormKey humanRaceKey,
+        FormKey paRaceKey,
+        string nifRel)
+    {
+        var aa = (ArmorAddon)templateArma.Duplicate(Own(ownId));
+        aa.EditorID = edid;
+        aa.FirstPersonFlags = slotFlags;
+        aa.MajorRecordFlagsRaw = 0;
+        aa.Race.SetTo(humanRaceKey);
+        aa.AdditionalRaces.Clear();
+        aa.AdditionalRaces.Add(new FormLink<IRaceGetter>(paRaceKey));
+        aa.FirstPersonModel = null;
+        aa.Morphs = new GenderedItem<ArmorAddonMorph?>(null, null);
+        aa.BoneDataModifiers = new GenderedItem<ExtendedList<IFormLinkGetter<IBoneModifierGetter>>>(new(), new());
+        var meshAsset = new AssetLink<StarfieldModelAssetType>(nifRel);
+        aa.WorldModel = new GenderedItem<Model?>(
+            new Model { File = meshAsset },
+            new Model { File = new AssetLink<StarfieldModelAssetType>(nifRel) });
+        mod.ArmorAddons.Add(aa);
+        return aa;
+    }
+
+    static void AssignSingleArma(Armor a, FormKey armaKey)
+    {
+        a.Armatures.Clear();
+        a.Armatures.Add(new ArmorAddonModel
+        {
+            AddonIndex = 0,
+            ArmorAddon = new FormLinkNullable<IArmorAddonGetter>(armaKey),
+        });
     }
 
     // ---------------------------------------------------------------- build
@@ -321,6 +391,7 @@ static class PowerArmorCore
         var humanRace = One(sf.Races, HumanRaceEdid, "RACE");
         var humanBptd = One(sf.BodyParts, HumanBptdEdid, "BPTD");
         var skinNaked = One(sf.Armors, SkinNakedEdid, "ARMO");
+        var aaNakedBody = One(sf.ArmorAddons, NakedBodyArmaEdid, "ARMA");
         var frameTmpl = One(sf.Armors, FrameClothesEdid, "ARMO");
         var bodyTmpl = One(sf.Armors, Mark1BodyEdid, "ARMO");
         var helmTmpl = One(sf.Armors, Mark1HelmetEdid, "ARMO");
@@ -330,6 +401,8 @@ static class PowerArmorCore
         var furnPaKw = One(sf.Keywords, FurnPaKeywordEdid, "KYWD");
         var frameKw = One(sf.Keywords, FrameKeywordEdid, "KYWD");
         var batteryKw = One(sf.Keywords, BatteryKeywordEdid, "KYWD");
+        var metalLargeMat = One(sf.MaterialTypes, MetalActorLargeMatEdid, "MATT");
+        var starbornPerk = One(sf.Perks, StarbornNoFallPerkEdid, "PERK");
         _ = One(sf.ActorValueInformation, AgilityAvEdid, "AVIF");
         _ = One(sf.ActorValueInformation, CarryWeightAvEdid, "AVIF");
         _ = One(sf.ActorValueInformation, SpeedMultAvEdid, "AVIF");
@@ -350,11 +423,11 @@ static class PowerArmorCore
         mod.Keywords.Add(new Keyword(Own(SalvagedKeywordId), Release) { EditorID = SalvagedKeywordEdid });
         mod.Keywords.Add(new Keyword(Own(FrameFurnKeywordId), Release) { EditorID = FrameFurnKeywordEdid });
 
-        // 2. State, FusionCharge, and 6 Limb Condition AVIFs
+        // 2. State, FusionCharge, and 6 Limb Condition AVIFs (zero "FO4SF " prefix on any FULL name)
         mod.ActorValueInformation.Add(new ActorValueInformation(Own(InPaAvId), Release)
         {
             EditorID = InPaAvEdid,
-            Name = "FO4SF In Power Armor",
+            Name = "In Power Armor",
             Type = ActorValueInformation.Types.Variable,
             Flags = ActorValueInformation.Flag.DefaultToZero,
             DefaultValue = 0f,
@@ -364,7 +437,7 @@ static class PowerArmorCore
         mod.ActorValueInformation.Add(new ActorValueInformation(Own(FusionChargeAvId), Release)
         {
             EditorID = FusionChargeAvEdid,
-            Name = "FO4SF Fusion Core Charge",
+            Name = "Fusion Core Charge",
             Type = ActorValueInformation.Types.Variable,
             Flags = ActorValueInformation.Flag.DefaultToZero,
             DefaultValue = 0f,
@@ -416,18 +489,20 @@ static class PowerArmorCore
 
         var paRace = (Race)humanRace.Duplicate(Own(RaceId));
         paRace.EditorID = RaceEdid;
-        paRace.Name = "FO4SF Power Armor Race";
+        paRace.Name = "Power Armor";
         paRace.Description = string.Empty;
         paRace.BodyPartData.SetTo(Own(BodyPartDataId));
         paRace.Skin.SetTo(Own(SkinId));
         paRace.ArmorRace.SetTo(humanRace.FormKey);
+        paRace.ImpactMaterialType.SetTo(metalLargeMat.FormKey); // RACE.NAM4 metal PA impact material (Task 2c)
         mod.Races.Add(paRace);
 
-        // 5. Climb-In Frame Furniture
+        // 5. Climb-In Frame Furniture (FO4 PowerArmorFurnitureT45_NoCore_Partial_Dmg50 stand-in on 0x0801)
         var frameFurn = (Furniture)controlFurn.Duplicate(Own(FrameFurnId));
         frameFurn.EditorID = FrameFurnEdid;
-        frameFurn.Name = "FO4SF Power Armor Frame";
+        frameFurn.Name = "Power Armor";
         frameFurn.VirtualMachineAdapter = null;
+        frameFurn.Model = new Model { File = new AssetLink<StarfieldModelAssetType>(FrameFurnModelRel) };
         var furnKws = frameFurn.Keywords;
         if (overrideDfob)
             SyncKeywordsAndAdd(ref furnKws, frameFurn.Components, Own(FrameFurnKeywordId), furnPaKw.FormKey, frameKw.FormKey);
@@ -436,60 +511,96 @@ static class PowerArmorCore
         frameFurn.Keywords = furnKws;
         mod.Furniture.Add(frameFurn);
 
-        // 6. FusionCore battery item (MISC + isPowerArmorBattery)
+        // 6. FusionCore battery item (MISC + isPowerArmorBattery + FO4 FusionCore.nif model)
         var fusionCore = (MiscItem)batteryTmpl.Duplicate(Own(FusionCoreId));
         fusionCore.EditorID = FusionCoreEdid;
-        fusionCore.Name = "FO4SF Fusion Core";
+        fusionCore.Name = "Fusion Core";
         fusionCore.VirtualMachineAdapter = null;
+        fusionCore.Model = new Model { File = new AssetLink<StarfieldModelAssetType>(FusionCoreModelRel) };
         fusionCore.Value = 200;
-        fusionCore.Weight = 2.0f;
+        fusionCore.Weight = 4.0f;
         var coreKws = fusionCore.Keywords;
         SyncKeywordsAndAdd(ref coreKws, fusionCore.Components, batteryKw.FormKey);
         fusionCore.Keywords = coreKws;
         mod.MiscItems.Add(fusionCore);
 
-        // 7. Four non-overlapping climb-in PA pieces (BODY 0x8 non-playable, SSBODY, SSHelmet, SSBackpack)
-        var paFrameArmor = DuplicateArmorClean(frameTmpl, FrameArmorId, FrameArmorEdid, "FO4SF Power Armor Frame");
-        paFrameArmor.MajorRecordFlagsRaw |= 0x4; // Non-playable so player cannot unequip frame manually while inside
+        // 7. FO4 Power Armor Frame + T-45 piece stand-ins (all disjoint slots, zero Starfield spacesuit meshes, zero "FO4SF " FULL prefix)
+        var paFrameArma = BuildFo4PaArma(mod, aaNakedBody, PaFrameArmaId, "FO4SF_AA_PAFrame", (FirstPersonFlag)0x68, humanRace.FormKey, Own(RaceId), PaFrameNifRel);
+        var paTorsoArma = BuildFo4PaArma(mod, aaNakedBody, PaTorsoArmaId, "FO4SF_AA_PAT45Torso", (FirstPersonFlag)(1UL << 35), humanRace.FormKey, Own(RaceId), PaTorsoNifRel);
+        var paHelmetArma = BuildFo4PaArma(mod, aaNakedBody, PaHelmetArmaId, "FO4SF_AA_PAT45Helmet", (FirstPersonFlag)(1UL << 36), humanRace.FormKey, Own(RaceId), PaHelmetNifRel);
+        var paPackArma = BuildFo4PaArma(mod, aaNakedBody, PaPackArmaId, "FO4SF_AA_PAExoskeletonPack", (FirstPersonFlag)(1UL << 37), humanRace.FormKey, Own(RaceId), PaPackNifRel);
+        var paLeftArmArma = BuildFo4PaArma(mod, aaNakedBody, PaLeftArmArmaId, "FO4SF_AA_PAT45LeftArm", (FirstPersonFlag)(1UL << 42), humanRace.FormKey, Own(RaceId), PaLeftArmNifRel);
+        var paRightArmArma = BuildFo4PaArma(mod, aaNakedBody, PaRightArmArmaId, "FO4SF_AA_PAT45RightArm", (FirstPersonFlag)(1UL << 43), humanRace.FormKey, Own(RaceId), PaRightArmNifRel);
+        var paLeftLegArma = BuildFo4PaArma(mod, aaNakedBody, PaLeftLegArmaId, "FO4SF_AA_PAT45LeftLeg", (FirstPersonFlag)(1UL << 39), humanRace.FormKey, Own(RaceId), PaLeftLegNifRel);
+        var paRightLegArma = BuildFo4PaArma(mod, aaNakedBody, PaRightLegArmaId, "FO4SF_AA_PAT45RightLeg", (FirstPersonFlag)(1UL << 45), humanRace.FormKey, Own(RaceId), PaRightLegNifRel);
+
+        var paFrameArmor = DuplicateArmorClean(frameTmpl, FrameArmorId, FrameArmorEdid, "Power Armor Frame");
+        paFrameArmor.MajorRecordFlagsRaw |= 0x4; // Non-playable chassis so player exits via furniture/command rather than unequip
         paFrameArmor.Race.SetTo(humanRace.FormKey);
+        paFrameArmor.FirstPersonFlags = (FirstPersonFlag)0x68;
+        paFrameArmor.Value = 0;
+        paFrameArmor.Weight = 0f;
+        paFrameArmor.Health = 100;
         var faKws = paFrameArmor.Keywords;
         SyncKeywordsAndAdd(ref faKws, paFrameArmor.Components, frameKw.FormKey);
         paFrameArmor.Keywords = faKws;
-        CloneArmaturesForPaRace(mod, sfArmas, paFrameArmor, humanRace.FormKey, Own(RaceId), armaMap, ref nextArmaId);
+        AssignSingleArma(paFrameArmor, paFrameArma.FormKey);
         mod.Armors.Add(paFrameArmor);
 
-        var paTorso = DuplicateArmorClean(bodyTmpl, PaTorsoId, PaTorsoEdid, "FO4SF Power Armor Torso");
-        paTorso.Race.SetTo(humanRace.FormKey);
-        BoostArmorDefense(paTorso, 320, 320);
-        var torsoKws = paTorso.Keywords;
-        SyncKeywordsAndAdd(ref torsoKws, paTorso.Components, Own(ArmorKeywordId));
-        paTorso.Keywords = torsoKws;
-        CloneArmaturesForPaRace(mod, sfArmas, paTorso, humanRace.FormKey, Own(RaceId), armaMap, ref nextArmaId);
-        mod.Armors.Add(paTorso);
+        Armor BuildPaModularPiece(
+            IArmorGetter tmpl, uint id, string edid, string plainName,
+            FirstPersonFlag slotMask, FormKey armaKey,
+            ushort armorRating, uint primaryRes, int value, float weight, uint health)
+        {
+            var piece = DuplicateArmorClean(tmpl, id, edid, plainName);
+            piece.Race.SetTo(humanRace.FormKey);
+            piece.FirstPersonFlags = slotMask;
+            piece.Value = value;
+            piece.Weight = weight;
+            piece.Health = health;
+            BoostArmorDefense(piece, armorRating, primaryRes);
+            var kws = piece.Keywords;
+            SyncKeywordsAndAdd(ref kws, piece.Components, Own(ArmorKeywordId));
+            piece.Keywords = kws;
+            AssignSingleArma(piece, armaKey);
+            mod.Armors.Add(piece);
+            return piece;
+        }
 
-        var paHelmet = DuplicateArmorClean(helmTmpl, PaHelmetId, PaHelmetEdid, "FO4SF Power Armor Helmet");
-        paHelmet.Race.SetTo(humanRace.FormKey);
-        BoostArmorDefense(paHelmet, 120, 120);
-        var helmKws = paHelmet.Keywords;
-        SyncKeywordsAndAdd(ref helmKws, paHelmet.Components, Own(ArmorKeywordId));
-        paHelmet.Keywords = helmKws;
-        CloneArmaturesForPaRace(mod, sfArmas, paHelmet, humanRace.FormKey, Own(RaceId), armaMap, ref nextArmaId);
-        mod.Armors.Add(paHelmet);
+        _ = BuildPaModularPiece(bodyTmpl, PaTorsoId, PaTorsoEdid, "T-45 Chest Piece", (FirstPersonFlag)(1UL << 35), paTorsoArma.FormKey, 200, 100, 140, 20f, 200);
+        _ = BuildPaModularPiece(helmTmpl, PaHelmetId, PaHelmetEdid, "T-45 Helm", (FirstPersonFlag)(1UL << 36), paHelmetArma.FormKey, 100, 50, 60, 12f, 50);
+        _ = BuildPaModularPiece(packTmpl, PaPackId, PaPackEdid, "T-45 Power Harness", (FirstPersonFlag)(1UL << 37), paPackArma.FormKey, 50, 25, 100, 10f, 100);
+        _ = BuildPaModularPiece(bodyTmpl, PaLeftArmId, PaLeftArmEdid, "T-45 Left Arm", (FirstPersonFlag)(1UL << 42), paLeftArmArma.FormKey, 50, 25, 100, 15f, 50);
+        _ = BuildPaModularPiece(bodyTmpl, PaRightArmId, PaRightArmEdid, "T-45 Right Arm", (FirstPersonFlag)(1UL << 43), paRightArmArma.FormKey, 50, 25, 100, 15f, 50);
+        _ = BuildPaModularPiece(bodyTmpl, PaLeftLegId, PaLeftLegEdid, "T-45 Left Leg", (FirstPersonFlag)(1UL << 39), paLeftLegArma.FormKey, 50, 25, 100, 15f, 50);
+        _ = BuildPaModularPiece(bodyTmpl, PaRightLegId, PaRightLegEdid, "T-45 Right Leg", (FirstPersonFlag)(1UL << 45), paRightLegArma.FormKey, 50, 25, 100, 15f, 50);
 
-        var paPack = DuplicateArmorClean(packTmpl, PaPackId, PaPackEdid, "FO4SF Power Armor Pack");
-        paPack.Race.SetTo(humanRace.FormKey);
-        BoostArmorDefense(paPack, 100, 100);
-        var packKws = paPack.Keywords;
-        SyncKeywordsAndAdd(ref packKws, paPack.Components, Own(ArmorKeywordId));
-        paPack.Keywords = packKws;
-        CloneArmaturesForPaRace(mod, sfArmas, paPack, humanRace.FormKey, Own(RaceId), armaMap, ref nextArmaId);
-        mod.Armors.Add(paPack);
+        // 7b. Power Armor 0 fall damage immunity perk (ModFallingDamage = Set 0)
+        var noFallPerk = (Perk)starbornPerk.Duplicate(Own(NoFallPerkId));
+        noFallPerk.EditorID = NoFallPerkEdid;
+        noFallPerk.Name = "Power Armor Impact Dampening";
+        noFallPerk.Description = string.Empty;
+        noFallPerk.VirtualMachineAdapter = null;
+        noFallPerk.MajorRecordFlagsRaw |= 0x4;
+        noFallPerk.Ranks.Clear();
+        var nfRank = new PerkRank();
+        nfRank.Effects.Add(new PerkEntryPointModifyValue
+        {
+            EntryPoint = APerkEntryPointEffect.EntryType.ModFallingDamage,
+            Modification = PerkEntryPointModifyValue.ModificationType.Set,
+            Value = 0f,
+            Priority = 10,
+            Rank = 0,
+            PerkConditionTabCount = 1,
+        });
+        noFallPerk.Ranks.Add(nfRank);
+        mod.Perks.Add(noFallPerk);
 
         // 8. FNV Salvaged NCR Power Armor (#806 owner dual-form decision: plain worn heavy ARMO on HumanRace, high ballistic DR, -1 AGI, zero frame)
         var agiMgef = new MagicEffect(Own(SalvagedAgiMgefId), Release)
         {
             EditorID = SalvagedAgiMgefEdid,
-            Name = "FO4SF Salvaged Armor Agility Penalty",
+            Name = "Salvaged Armor Agility Penalty",
             Archetype = new MagicEffectArchetype(MagicEffectArchetype.TypeEnum.ValueModifier), // Association MUST remain empty (RadsProbe crash lesson)
             CastType = CastType.ConstantEffect,
             TargetType = TargetType.Self,
@@ -501,7 +612,7 @@ static class PowerArmorCore
         var agiEnch = new ObjectEffect(Own(SalvagedAgiEnchId), Release)
         {
             EditorID = SalvagedAgiEnchEdid,
-            Name = "FO4SF Salvaged Armor Weight Penalty",
+            Name = "Salvaged Armor Weight Penalty",
             UnknownENIT = ConstantSelfEnit.ToArray(),
         };
         agiEnch.Effects.Add(new Effect
@@ -511,7 +622,7 @@ static class PowerArmorCore
         });
         mod.ObjectEffects.Add(agiEnch);
 
-        var salvagedBody = DuplicateArmorClean(bodyTmpl, SalvagedBodyId, SalvagedBodyEdid, "FO4SF Salvaged Power Armor");
+        var salvagedBody = DuplicateArmorClean(bodyTmpl, SalvagedBodyId, SalvagedBodyEdid, "Salvaged Power Armor");
         salvagedBody.MajorRecordFlagsRaw &= ~0x4; // Playable heavy worn armor
         salvagedBody.Race.SetTo(humanRace.FormKey);
         salvagedBody.Weight = 40.0f;
@@ -524,9 +635,10 @@ static class PowerArmorCore
         foreach (var kc in salvagedBody.Components.OfType<KeywordFormComponent>())
             kc.Keywords?.RemoveAll(k => k.FormKey == frameKw.FormKey || k.FormKey == furnPaKw.FormKey);
         salvagedBody.Keywords = salvBodyKws;
+        CloneArmaturesForPaRace(mod, sfArmas, salvagedBody, humanRace.FormKey, Own(RaceId), armaMap, ref nextArmaId);
         mod.Armors.Add(salvagedBody);
 
-        var salvagedHelm = DuplicateArmorClean(helmTmpl, SalvagedHelmId, SalvagedHelmEdid, "FO4SF Salvaged Power Helmet");
+        var salvagedHelm = DuplicateArmorClean(helmTmpl, SalvagedHelmId, SalvagedHelmEdid, "Salvaged Power Helmet");
         salvagedHelm.MajorRecordFlagsRaw &= ~0x4;
         salvagedHelm.Race.SetTo(humanRace.FormKey);
         salvagedHelm.Weight = 8.0f;
@@ -538,6 +650,7 @@ static class PowerArmorCore
         foreach (var kc in salvagedHelm.Components.OfType<KeywordFormComponent>())
             kc.Keywords?.RemoveAll(k => k.FormKey == frameKw.FormKey || k.FormKey == furnPaKw.FormKey);
         salvagedHelm.Keywords = salvHelmKws;
+        CloneArmaturesForPaRace(mod, sfArmas, salvagedHelm, humanRace.FormKey, Own(RaceId), armaMap, ref nextArmaId);
         mod.Armors.Add(salvagedHelm);
 
         // 9. Opt-in DFOB overrides (--override-dfob only; default build touches zero Starfield.esm records)
@@ -608,7 +721,7 @@ static class PowerArmorCore
         var quest = new Quest(Own(QuestId), Release)
         {
             EditorID = QuestEdid,
-            Name = "FO4SF Power Armor Core",
+            Name = "Power Armor Core",
             FormVersion = 581,
             Version2 = 12,
             Data = new QuestData { Flags = Quest.Flag.StartGameEnabled, Priority = 30 },
@@ -633,8 +746,8 @@ static class PowerArmorCore
         var writtenPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine(
             $"wrote {writtenPath} ({new FileInfo(writtenPath).Length:N0} bytes): " +
-            $"{cellSummary}, RACE {RaceEdid} -> BPTD {BodyPartDataEdid} (6 limb AVIFs) + Skin {SkinEdid}, " +
-            $"FURN {FrameFurnEdid}, MISC {FusionCoreEdid}, 4 PA ARMOs ({armaMap.Count} cloned ARMAs), " +
+            $"{cellSummary}, RACE {RaceEdid} (NAM4=0x{MetalActorLargeMatId:X6}) -> BPTD {BodyPartDataEdid} (6 limb AVIFs) + Skin {SkinEdid}, " +
+            $"FURN {FrameFurnEdid}, MISC {FusionCoreEdid}, 8 FO4 PA ARMOs + T-45 meshes ({armaMap.Count} cloned ARMAs), PERK {NoFallPerkEdid}, " +
             $"2 Salvaged NCR ARMOs (-1 AGI ENCH {SalvagedAgiEnchEdid} -> {specialAgilityKey}), QUST {QuestEdid}, " +
             $"override_dfob={overrideDfob}, no_test_cell={noTestCell}");
         return 0;
@@ -703,6 +816,19 @@ static class PowerArmorCore
             .ToList();
         Need(dupCoreEdids.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupCoreEdids)}");
 
+        var prefixedFullNames = mod.EnumerateMajorRecords()
+            .Where(r => r.FormKey.ModKey == Plugin)
+            .Select(r => (Edid: r.EditorID, Full: r switch
+            {
+                ITranslatedNamedGetter tn => tn.Name?.String,
+                INamedGetter nn => nn.Name,
+                _ => null,
+            }))
+            .Where(x => !string.IsNullOrEmpty(x.Full) && x.Full.StartsWith("FO4SF ", StringComparison.OrdinalIgnoreCase))
+            .Select(x => $"{x.Edid}:'{x.Full}'")
+            .ToList();
+        Need(prefixedFullNames.Count == 0, $"FULL names carry forbidden 'FO4SF ' prefix: {string.Join(", ", prefixedFullNames)}");
+
         // Clean-room isolation: zero foreign overrides unless --override-dfob is explicitly active (and then ONLY the 5 PowerArmor*_DO DFOBs)
         var nonDfobForeign = mod.EnumerateMajorRecords()
             .Where(r => r.FormKey.ModKey != Plugin && r is not IDefaultObjectGetter)
@@ -763,6 +889,8 @@ static class PowerArmorCore
             Need(paRace.BodyPartData.FormKey == Own(BodyPartDataId), $"{RaceEdid}.BodyPartData != {Own(BodyPartDataId)}");
             Need(paRace.Skin.FormKey == Own(SkinId), $"{RaceEdid}.Skin != {Own(SkinId)}");
             Need(paRace.ArmorRace.FormKey == humanRace.FormKey, $"{RaceEdid}.ArmorRace != {humanRace.FormKey}");
+            Need(paRace.ImpactMaterialType.FormKey == Sf(MetalActorLargeMatId),
+                $"{RaceEdid}.ImpactMaterialType != {Sf(MetalActorLargeMatId)} ({MetalActorLargeMatEdid})");
         }
 
         bool ArmaturesSupportBothRaces(IArmorGetter? armor)
@@ -780,7 +908,7 @@ static class PowerArmorCore
         }
         Need(ArmaturesSupportBothRaces(paSkin), $"{SkinEdid} armatures do not name both {HumanRaceEdid} and {RaceEdid}");
 
-        // Verify FusionCore MISC + isPowerArmorBattery in both Keywords and KeywordFormComponent
+        // Verify FusionCore MISC + isPowerArmorBattery in both Keywords and KeywordFormComponent + FO4 FusionCore model
         var core = mod.MiscItems.FirstOrDefault(m => m.FormKey == Own(FusionCoreId));
         Need(core != null && core.EditorID == FusionCoreEdid, $"missing MISC {FusionCoreEdid}");
         if (core != null)
@@ -789,6 +917,8 @@ static class PowerArmorCore
             bool kwComp = core.Components.OfType<IKywdFormComponentGetterStub>().Any() ||
                           core.Components.OfType<IKeywordFormComponentGetter>().Any(c => c.Keywords?.Any(k => k.FormKey == batteryKw.FormKey) == true);
             Need(kwList && kwComp, $"{FusionCoreEdid} lacks {BatteryKeywordEdid} in Keywords or KeywordFormComponent");
+            Need(string.Equals(core.Model?.File?.GivenPath, FusionCoreModelRel, StringComparison.OrdinalIgnoreCase),
+                $"{FusionCoreEdid}.Model != {FusionCoreModelRel} (got {core.Model?.File?.GivenPath})");
         }
 
         // Verify Frame Furniture
@@ -797,6 +927,8 @@ static class PowerArmorCore
         if (furn != null)
         {
             Need(furn.Keywords?.Any(k => k.FormKey == Own(FrameFurnKeywordId)) == true, $"{FrameFurnEdid} lacks {FrameFurnKeywordEdid}");
+            Need(string.Equals(furn.Model?.File?.GivenPath, FrameFurnModelRel, StringComparison.OrdinalIgnoreCase),
+                $"{FrameFurnEdid}.Model != {FrameFurnModelRel} (got {furn.Model?.File?.GivenPath})");
             if (overrideDfob)
             {
                 Need(furn.Keywords?.Any(k => k.FormKey == furnPaKw.FormKey) == true &&
@@ -805,33 +937,72 @@ static class PowerArmorCore
             }
         }
 
-        // Verify 4 modular PA pieces: disjoint FirstPersonFlags, preserved template stats/keywords, cloned ARMAs naming both races
+        // Verify 8 modular FO4 PA pieces (Frame, Torso, Helmet, Pack, LArm, RArm, LLeg, RLeg): disjoint slots, FO4 NIF paths, dual races
         var paFrame = mod.Armors.FirstOrDefault(a => a.FormKey == Own(FrameArmorId));
         var paTorso = mod.Armors.FirstOrDefault(a => a.FormKey == Own(PaTorsoId));
         var paHelm = mod.Armors.FirstOrDefault(a => a.FormKey == Own(PaHelmetId));
         var paPack = mod.Armors.FirstOrDefault(a => a.FormKey == Own(PaPackId));
-        Need(paFrame != null && paTorso != null && paHelm != null && paPack != null, "missing one or more modular PA ARMO records");
-        if (paFrame != null && paTorso != null && paHelm != null && paPack != null)
+        var paLArm = mod.Armors.FirstOrDefault(a => a.FormKey == Own(PaLeftArmId));
+        var paRArm = mod.Armors.FirstOrDefault(a => a.FormKey == Own(PaRightArmId));
+        var paLLeg = mod.Armors.FirstOrDefault(a => a.FormKey == Own(PaLeftLegId));
+        var paRLeg = mod.Armors.FirstOrDefault(a => a.FormKey == Own(PaRightLegId));
+        var allPaPieces = new[] { paFrame, paTorso, paHelm, paPack, paLArm, paRArm, paLLeg, paRLeg };
+        Need(allPaPieces.All(p => p != null), "missing one or more modular FO4 PA ARMO records");
+        if (allPaPieces.All(p => p != null))
         {
-            Need((paFrame.MajorRecordFlagsRaw & 0x4) != 0, $"{FrameArmorEdid} must carry non-playable flag 0x4");
+            Need((paFrame!.MajorRecordFlagsRaw & 0x4) != 0, $"{FrameArmorEdid} must carry non-playable flag 0x4");
             Need(paFrame.Keywords?.Any(k => k.FormKey == frameKw.FormKey) == true &&
                  paFrame.Components.OfType<IKeywordFormComponentGetter>().Any(c => c.Keywords?.Any(k => k.FormKey == frameKw.FormKey) == true),
                 $"{FrameArmorEdid} lacks {FrameKeywordEdid} in Keywords or KeywordFormComponent");
-            var paPieces = new[] { (paFrame, frameTmpl), (paTorso, bodyTmpl), (paHelm, helmTmpl), (paPack, packTmpl) };
-            ulong combinedMask = 0;
-            foreach (var (piece, tmpl) in paPieces)
+            var expectedPieces = new (IArmorGetter Piece, uint ArmaId, string NifRel, bool IsFrame)[]
             {
+                (paFrame, PaFrameArmaId, PaFrameNifRel, true),
+                (paTorso!, PaTorsoArmaId, PaTorsoNifRel, false),
+                (paHelm!, PaHelmetArmaId, PaHelmetNifRel, false),
+                (paPack!, PaPackArmaId, PaPackNifRel, false),
+                (paLArm!, PaLeftArmArmaId, PaLeftArmNifRel, false),
+                (paRArm!, PaRightArmArmaId, PaRightArmNifRel, false),
+                (paLLeg!, PaLeftLegArmaId, PaLeftLegNifRel, false),
+                (paRLeg!, PaRightLegArmaId, PaRightLegNifRel, false),
+            };
+            ulong combinedMask = 0;
+            foreach (var (piece, expArmaId, expNif, isFrame) in expectedPieces)
+            {
+                Need(piece.InstanceNaming.IsNull, $"{piece.EditorID} retains template InstanceNaming ({piece.InstanceNaming.FormKey})");
+                Need((piece.ObjectTemplates?.Count ?? 0) == 0, $"{piece.EditorID} retains {piece.ObjectTemplates?.Count ?? 0} template ObjectTemplates");
+                Need(piece.WorldModel?.Male?.File?.GivenPath == null && piece.WorldModel?.Female?.File?.GivenPath == null,
+                    $"{piece.EditorID} retains template WorldModel MOD2/MOD4");
                 Need(ArmaturesSupportBothRaces(piece), $"{piece.EditorID} armatures do not support both {HumanRaceEdid} and {RaceEdid}");
                 ulong slotBits = (ulong)(piece.FirstPersonFlags ?? 0);
                 Need(slotBits != 0 && (combinedMask & slotBits) == 0, $"{piece.EditorID} FirstPersonFlags ({piece.FirstPersonFlags}) overlaps another PA slot");
                 combinedMask |= slotBits;
-                foreach (var srcKw in tmpl.Keywords ?? Enumerable.Empty<IFormLinkGetter<IKeywordGetter>>())
-                    Need(piece.Keywords?.Any(k => k.FormKey == srcKw.FormKey) == true, $"{piece.EditorID} lost template keyword {srcKw.FormKey}");
-                Need(piece.Value == tmpl.Value && Math.Abs(piece.Weight - tmpl.Weight) < 1e-4f && piece.Health == tmpl.Health,
-                    $"{piece.EditorID} Value/Weight/Health ({piece.Value}/{piece.Weight}/{piece.Health}) differs from template {tmpl.EditorID} ({tmpl.Value}/{tmpl.Weight}/{tmpl.Health})");
+                Need(piece.Armatures?.Count == 1 && piece.Armatures[0].ArmorAddon.FormKey == Own(expArmaId),
+                    $"{piece.EditorID} must bind single FO4 ARMA {Own(expArmaId)}");
+                if (ownArmas.TryGetValue(Own(expArmaId), out var fo4Arma))
+                {
+                    Need(string.Equals(fo4Arma.WorldModel?.Male?.File?.GivenPath, expNif, StringComparison.OrdinalIgnoreCase) &&
+                         string.Equals(fo4Arma.WorldModel?.Female?.File?.GivenPath, expNif, StringComparison.OrdinalIgnoreCase),
+                        $"{fo4Arma.EditorID} WorldModel != {expNif}");
+                    Need(fo4Arma.FirstPersonModel?.Male?.File?.GivenPath == null &&
+                         fo4Arma.Morphs?.Male == null && fo4Arma.Morphs?.Female == null,
+                        $"{fo4Arma.EditorID} retains vanilla FirstPersonModel or Morphs");
+                }
+                if (!isFrame)
+                    Need(piece.Keywords?.Any(k => k.FormKey == Own(ArmorKeywordId)) == true, $"{piece.EditorID} lacks {ArmorKeywordEdid}");
             }
-            foreach (var piece in new[] { paTorso, paHelm, paPack })
-                Need(piece.Keywords?.Any(k => k.FormKey == Own(ArmorKeywordId)) == true, $"{piece.EditorID} lacks {ArmorKeywordEdid}");
+        }
+
+        // Verify 0 fall damage PA perk
+        var noFallPerk = mod.Perks.FirstOrDefault(p => p.FormKey == Own(NoFallPerkId));
+        Need(noFallPerk != null && noFallPerk.EditorID == NoFallPerkEdid, $"missing PERK {NoFallPerkEdid}");
+        if (noFallPerk != null)
+        {
+            Need((noFallPerk.MajorRecordFlagsRaw & 0x4) != 0, $"{NoFallPerkEdid} must be NonPlayable");
+            bool hasZeroFall = noFallPerk.Ranks.Any(rk => rk.Effects.OfType<IPerkEntryPointModifyValueGetter>().Any(ef =>
+                ef.EntryPoint == APerkEntryPointEffect.EntryType.ModFallingDamage &&
+                ef.Modification == PerkEntryPointModifyValue.ModificationType.Set &&
+                Math.Abs((ef.Value ?? -1f)) < 1e-4f));
+            Need(hasZeroFall, $"{NoFallPerkEdid} lacks ModFallingDamage Set 0 effect");
         }
 
         // Verify FNV Salvaged NCR Power Armor (#806): plain worn heavy ARMO on HumanRace, NO frame keyword, high DR, -1 AGI ENCH/MGEF
@@ -846,6 +1017,10 @@ static class PowerArmorCore
         {
             foreach (var s in new[] { salvBody, salvHelm })
             {
+                Need(s.InstanceNaming.IsNull, $"{s.EditorID} retains template InstanceNaming ({s.InstanceNaming.FormKey})");
+                Need((s.ObjectTemplates?.Count ?? 0) == 0, $"{s.EditorID} retains {s.ObjectTemplates?.Count ?? 0} template ObjectTemplates");
+                Need(s.WorldModel?.Male?.File?.GivenPath == null && s.WorldModel?.Female?.File?.GivenPath == null,
+                    $"{s.EditorID} retains template WorldModel MOD2/MOD4");
                 Need((s.MajorRecordFlagsRaw & 0x4) == 0, $"{s.EditorID} must be playable worn armor");
                 Need(s.Race.FormKey == humanRace.FormKey, $"{s.EditorID} must target {HumanRaceEdid} directly");
                 Need(s.Keywords?.Any(k => k.FormKey == Own(SalvagedKeywordId)) == true, $"{s.EditorID} lacks {SalvagedKeywordEdid}");
@@ -1012,6 +1187,14 @@ static class PowerArmorCore
             Keywords = SuitKws(),
             Resistances = new ExtendedList<DamageTypeValue> { new DamageTypeValue { Value = 128 } },
             Armatures = Addons(aaMark1Body),
+            InstanceNaming = new FormLinkNullable<IInstanceNamingRulesGetter>(Sf(0x184BC1)),
+            WorldModel = new GenderedItem<Model?>(
+                new Model { File = new AssetLink<StarfieldModelAssetType>(@"SetDressing\SpaceSuitContainer01.nif") },
+                new Model { File = new AssetLink<StarfieldModelAssetType>(@"SetDressing\SpaceSuitContainer01.nif") }),
+            ObjectTemplates = new ExtendedList<ObjectTemplate<Armor.Property>>
+            {
+                new ObjectTemplate<Armor.Property> { Name = string.Empty, Default = true },
+            },
         });
         mod.Armors.Add(new Armor(Sf(0x01754F), Release)
         {
@@ -1066,6 +1249,26 @@ static class PowerArmorCore
         mod.DefaultObjects.Add(new DefaultObject(Sf(0x15503E), Release) { EditorID = "PowerArmorDefaultFrameArmor_DO" });
         mod.DefaultObjects.Add(new DefaultObject(Sf(0x140C44), Release) { EditorID = "PowerArmorArmorKeyword_DO" });
         mod.DefaultObjects.Add(new DefaultObject(Sf(0x0BD5C5), Release) { EditorID = "PowerArmorDefaultBatteryObject_DO" });
+
+        mod.MaterialTypes.Add(new MaterialType(Sf(MetalActorLargeMatId), Release) { EditorID = MetalActorLargeMatEdid });
+        var starbornFix = new Perk(Sf(0x12A089), Release)
+        {
+            EditorID = StarbornNoFallPerkEdid,
+            MajorRecordFlagsRaw = 0x4,
+            Flags = Perk.Flag.PcPlayable,
+        };
+        var sfRank = new PerkRank();
+        sfRank.Effects.Add(new PerkEntryPointModifyValue
+        {
+            EntryPoint = APerkEntryPointEffect.EntryType.ModFallingDamage,
+            Modification = PerkEntryPointModifyValue.ModificationType.Set,
+            Value = 0f,
+            Priority = 10,
+            Rank = 0,
+            PerkConditionTabCount = 1,
+        });
+        starbornFix.Ranks.Add(sfRank);
+        mod.Perks.Add(starbornFix);
 
         Directory.CreateDirectory(outDir);
         var sfPath = Path.Combine(outDir, "Starfield.esm");
@@ -1165,7 +1368,52 @@ static class PowerArmorCore
                 throw new Refusal("selftest failed: tampered TestModeGlobal VMAD property was not rejected");
         }
 
-        Console.WriteLine("selftest pass: default build, --no-test-cell build, --override-dfob build, and 5 negative tamper checks all verified");
+        // 9. Negative mutation: corrupt RACE.NAM4 away from MaterialActorMetalLarge (0x09150B) -> Check must fail
+        var badNam4Dir = Path.Combine(scratchDir, "bad-nam4");
+        {
+            var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+            mut.Races.First(r => r.FormKey == Own(RaceId)).ImpactMaterialType.SetToNull();
+            WritePlugin(mut, badNam4Dir, SfEsm, CoreValuesEsm);
+            if (Check(Path.Combine(badNam4Dir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+                throw new Refusal("selftest failed: missing RACE.NAM4 ImpactMaterialType was not rejected");
+        }
+
+        // 10. Negative mutation: leak "FO4SF " FULL name prefix -> Check must fail
+        var badPrefixDir = Path.Combine(scratchDir, "bad-prefix");
+        {
+            var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+            mut.MiscItems.First(m => m.FormKey == Own(FusionCoreId)).Name = "FO4SF Fusion Core";
+            WritePlugin(mut, badPrefixDir, SfEsm, CoreValuesEsm);
+            if (Check(Path.Combine(badPrefixDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+                throw new Refusal("selftest failed: 'FO4SF ' FULL prefix leak was not rejected");
+        }
+
+        // 11. Negative mutation: leak SpaceSuit WorldModel onto FO4SF_PATorso -> Check must fail
+        var badArmoModelDir = Path.Combine(scratchDir, "bad-armo-model");
+        {
+            var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+            mut.Armors.First(a => a.FormKey == Own(PaTorsoId)).WorldModel = new GenderedItem<Model?>(
+                new Model { File = new AssetLink<StarfieldModelAssetType>(@"SetDressing\SpaceSuitContainer01.nif") },
+                null);
+            WritePlugin(mut, badArmoModelDir, SfEsm, CoreValuesEsm);
+            if (Check(Path.Combine(badArmoModelDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+                throw new Refusal("selftest failed: leftover template WorldModel on PA ARMO was not rejected");
+        }
+
+        // 12. Negative mutation: revert FO4SF_FusionCore.Model to Starfield positron battery -> Check must fail
+        var badCoreModelDir = Path.Combine(scratchDir, "bad-core-model");
+        {
+            var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+            mut.MiscItems.First(m => m.FormKey == Own(FusionCoreId)).Model = new Model
+            {
+                File = new AssetLink<StarfieldModelAssetType>(@"SetDressing\manufactured_goods\Mfg_Positron_Battery.nif"),
+            };
+            WritePlugin(mut, badCoreModelDir, SfEsm, CoreValuesEsm);
+            if (Check(Path.Combine(badCoreModelDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+                throw new Refusal("selftest failed: Starfield FusionCore.Model revert was not rejected");
+        }
+
+        Console.WriteLine("selftest pass: default build, --no-test-cell build, --override-dfob build, RACE.NAM4/prefix/BPTD/T45/FusionCoreModel/clean-ARMO checks all verified");
         return 0;
     }
 }

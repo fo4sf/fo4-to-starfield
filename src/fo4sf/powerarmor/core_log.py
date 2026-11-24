@@ -13,6 +13,11 @@ TOKEN = re.compile(r"(\w+)=(\S*)")
 EVENTS = (
     "init",
     "say",
+    "entry_refused",
+    "enter_standin_begin",
+    "exit_standin_begin",
+    "fall_long",
+    "terrain_dupes_disabled",
     "captured_worn",
     "outfit_saved",
     "climb_in",
@@ -26,7 +31,10 @@ EVENTS = (
     "reload_sync",
     "status",
 )
-ID_KEYS = {"quest", "parace", "bptd", "framefurn", "core", "salvaged", "race", "orig_race", "item", "ref", "cell"}
+ID_KEYS = {
+    "quest", "parace", "bptd", "framefurn", "core", "salvaged",
+    "race", "orig_race", "item", "ref", "cell", "frame_static", "minigun_acti",
+}
 ACTIVE_EVENTS = {
     "climb_in",
     "drain",
@@ -162,16 +170,20 @@ def summarize(lines, run=-1, papyrus=None):
 
     climbs = [e for e in r if e["event"] == "climb_in"]
     outfit_saves = [e for e in r if e["event"] == "outfit_saved"]
+    refusals = [e for e in r if e["event"] == "entry_refused"]
+    falls = [e for e in r if e["event"] == "fall_long"]
+    summary["entry_refused"] = refusals
+    summary["fall_long"] = falls
     if climbs:
         c = climbs[-1]
         eq = c.get("equipped_pa", 0)
         inpa = c.get("inpa", 0.0)
         limbs = c.get("limbs_min", 0.0)
         saved_n = outfit_saves[-1].get("saved_worn", 0) if outfit_saves else 0
-        ok = eq == 4 and float(inpa) >= 1.0 and float(limbs) >= 100.0
+        ok = eq >= 4 and float(inpa) >= 1.0 and float(limbs) >= 100.0
         summary["climb_in"] = {
             "ok": ok,
-            "detail": f"equipped_pa={eq}/4 inpa={inpa} limbs_min={limbs} charge={c.get('charge')} saved_worn={saved_n} race={hexid(c.get('race'))}",
+            "detail": f"equipped_pa={eq} inpa={inpa} limbs_min={limbs} charge={c.get('charge')} saved_worn={saved_n} race={hexid(c.get('race'))}",
         }
 
     drains = [e for e in r if e["event"] == "drain"]
@@ -190,7 +202,7 @@ def summarize(lines, run=-1, papyrus=None):
         s = syncs[-1]
         inpa = s.get("inpa")
         eq = s.get("equipped_pa", 0)
-        ok = (inpa is True and eq == 4 and float(s.get("pa_av", 0.0)) >= 1.0) or (
+        ok = (inpa is True and eq >= 4 and float(s.get("pa_av", 0.0)) >= 1.0) or (
             inpa is False and eq == 0 and float(s.get("pa_av", 0.0)) == 0.0
         )
         summary["reload_sync"] = {
