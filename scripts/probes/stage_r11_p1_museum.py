@@ -410,7 +410,7 @@ def _make_p1_quest() -> ext.RawRecord:
 def _make_load_door_quest() -> ext.RawRecord:
     q_vmad = vmad_patch.encode([{"name": "FO4SF_LoadDoorQuest", "status": 0, "properties": []}]) + QUST_VMAD_TAIL
     subs: List[Tuple[bytes, bytes]] = [
-        (b"EDID", b"FO4SF_LoadDoor\x00"),
+        (b"EDID", b"FO4SF_P1_LoadDoor\x00"),
         (b"VMAD", q_vmad),
         (b"DNAM", struct.pack("<III", QUST_DNAM_START_GAME_ENABLED, 55, 0)),
         (b"QTYP", struct.pack("<I", 0x00047600)),

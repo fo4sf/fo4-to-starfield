@@ -556,6 +556,45 @@ class BeginningPilotTests(unittest.TestCase):
             self.assertFalse(res_28_fail["ok"])
             self.assertEqual(res_28_fail["steps"]["B3_exit_lift"]["status"], "FAIL")
 
+    def test_verify_bundle_skips_base_terrain_zero_obnd_acti_but_checks_mission(self) -> None:
+        def _sub(sig: bytes, data: bytes) -> bytes:
+            return sig + struct.pack("<H", len(data)) + data
+
+        def _rec(sig: bytes, fid: int, subs: list[bytes]) -> bytes:
+            body = b"".join(subs)
+            return sig + struct.pack("<IIIII", len(body), 0, fid, 0, 0) + body
+
+        def _grup(label: bytes, gtype: int, payload: bytes) -> bytes:
+            return b"GRUP" + struct.pack("<I", 24 + len(payload)) + label + struct.pack("<III", gtype, 0, 0) + payload
+
+        acti_zero_obnd = _rec(
+            b"ACTI",
+            0x00193B42,
+            [_sub(b"EDID", b"FO4Core_ZeroObndTestActi\x00"), _sub(b"OBND", b"\x00" * 24)],
+        )
+        refr_placed = _rec(
+            b"REFR",
+            0x00193B43,
+            [_sub(b"EDID", b"FO4Core_ZeroObndTestRef\x00"), _sub(b"NAME", struct.pack("<I", 0x00193B42))],
+        )
+        bad_plugin_bytes = (
+            _dummy_tes4()
+            + _grup(b"ACTI", 0, acti_zero_obnd)
+            + _grup(b"CELL", 0, _rec(b"CELL", 0x00000D30, []) + _grup(struct.pack("<I", 0x00000D30), 6, refr_placed))
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = self._build_synthetic_bundle(Path(tmp))
+            (bundle / "FO4TerrainCore.esm").write_bytes(bad_plugin_bytes)
+            ok_res = verify_bundle_beginning_readiness(str(bundle))
+            self.assertTrue(ok_res["ok"], ok_res["problems"])
+
+            (bundle / "FO4SFMission.esm").write_bytes(bad_plugin_bytes)
+            bad_res = verify_bundle_beginning_readiness(str(bundle))
+            self.assertFalse(bad_res["ok"])
+            self.assertEqual(bad_res["steps"]["B5_codsworth_sanctuary"]["status"], "FAIL")
+            self.assertTrue(any("FO4Core_ZeroObndTestActi" in msg for msg in bad_res["problems"]))
+
 
 if __name__ == "__main__":
     unittest.main()

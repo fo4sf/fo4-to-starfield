@@ -429,6 +429,13 @@ def verify_placed_acti_assets(
     return problems
 
 
+BASE_SKIP_ACTI_PLUGINS: frozenset[str] = frozenset({
+    "fo4actorraider.esm",
+    "fo4terraincore.esm",
+    "fo4terraincore_mars.esm",
+})
+
+
 def _is_tes4_plugin(path: str) -> bool:
     try:
         with open(path, "rb") as fp:
@@ -476,8 +483,9 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
             else:
                 if active_plugins and p.casefold() not in active_plugins:
                     step_issues.append(f"plugin {p} missing from bundle_plan.json plugins list")
-                bad_actis, _ = find_bad_placed_activators(p_full)
-                step_issues.extend(bad_actis)
+                if p.casefold() not in BASE_SKIP_ACTI_PLUGINS:
+                    bad_actis, _ = find_bad_placed_activators(p_full)
+                    step_issues.extend(bad_actis)
 
         for sc in req_scripts:
             sc_full = os.path.join(b_abs, "Data", "Scripts", sc)
