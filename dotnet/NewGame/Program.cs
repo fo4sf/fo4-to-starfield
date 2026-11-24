@@ -130,6 +130,7 @@ static class NewGame
                         StartRoomMarkerRefEdid = "FO4SF_StartRoomMarkerRef",
                         StoryLineMsgEdid = "FO4SF_NewGameStoryLineMsg",
                         ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg",
+                        PrewarSkipMsgEdid = "FO4SF_NewGamePrewarSkipMsg",
                         VaultPistolRefEdid = "FO4SF_Vault111PistolRef",
                         VaultAmmoRefEdid = "FO4SF_Vault111AmmoRef",
                         DiscoverSecretAreaXpGmstEdid = "iXPRewardDiscoverSecretArea";
@@ -153,7 +154,8 @@ static class NewGame
                       StartRoomCellId = 0x81C,
                       StartRoomMarkerRefId = 0x81D,
                       StoryLineMsgId = 0x81E,
-                      ExitNeedSpecialMsgId = 0x81F;
+                      ExitNeedSpecialMsgId = 0x81F,
+                      PrewarSkipMsgId = 0x822;
     public const uint VaultPistolRefId = 0x820, VaultAmmoRefId = 0x821;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
@@ -171,6 +173,7 @@ static class NewGame
     public static readonly string[] ExitFallbackButtons = { "Go up to the Commonwealth", "Retry lift" };
     public static readonly string[] ReturnButtons = { "Ride down to Vault 111", "Stay" };
     public static readonly string[] ModeButtons = { "Story", "Warfare" };
+    public static readonly string[] PrewarSkipButtons = { "Sanctuary Hills (Pre-War)", "Vault 111 (Skip Pre-War)" };
     public static readonly string[] SurvivalButtons = { "Survival: No", "Survival: Yes" };
     public static readonly string[] WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" };
     public static readonly string[] NoPipboyButtons = { "OK" };
@@ -1621,6 +1624,9 @@ static class NewGame
         }
         var modePickMsg = MakeMsg(ModePickMsgId, ModePickMsgEdid, "Select Game Mode", "Choose how you want to start:", ModeButtons);
         var storyLineMsg = MakeMsg(StoryLineMsgId, StoryLineMsgEdid, "Select Story", "Choose which story campaign to begin:", sp.StoryLabels);
+        SF.Message? prewarSkipMsg = !string.IsNullOrWhiteSpace(o.PrewarEsmPath)
+            ? MakeMsg(PrewarSkipMsgId, PrewarSkipMsgEdid, "Select Story Start", "Begin in Pre-War Sanctuary Hills, or skip directly to Vault 111?", PrewarSkipButtons)
+            : null;
         var survPickMsg = MakeMsg(SurvivalPickMsgId, SurvivalPickMsgEdid, "Survival Mode", "Enable Survival mode for this character?", SurvivalButtons);
         var wfDiffMsg = MakeMsg(WarfareDiffMsgId, WarfareDiffMsgEdid, "Warfare Difficulty", "Choose your starting difficulty:", WarfareDiffButtons);
         var wfGroupMsg = MakeMsg(WarfareGroupMsgId, WarfareGroupMsgEdid, "Warfare Allegiance", "Choose your starting allegiance:", wf.FactionButtons);
@@ -1825,6 +1831,8 @@ static class NewGame
         script.Properties.Add(Obj("ReturnMessage", returnMsg.FormKey));
         script.Properties.Add(Obj("ModePickMsg", modePickMsg.FormKey));
         script.Properties.Add(Obj("StoryLineMsg", storyLineMsg.FormKey));
+        if (prewarSkipMsg is not null)
+            script.Properties.Add(Obj("PrewarSkipMsg", prewarSkipMsg.FormKey));
         script.Properties.Add(Obj("SurvivalPickMsg", survPickMsg.FormKey));
         script.Properties.Add(Obj("WarfareDiffMsg", wfDiffMsg.FormKey));
         script.Properties.Add(Obj("WarfareGroupMsg", wfGroupMsg.FormKey));
@@ -2141,6 +2149,14 @@ static class NewGame
              start.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              start.MenuButtons.Select(b => b.Text?.String).SequenceEqual(StartButtons),
              $"MESG 0x{StartMessageId:X} is not {StartMessageEdid} titled \"Character Appearance\" with buttons [{string.Join(", ", StartButtons)}]");
+        var prewarSkipMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, PrewarSkipMsgId));
+        int prewarExtraMsg = prewarSkipMsg is not null ? 1 : 0;
+        if (prewarSkipMsg is not null)
+        {
+            Need(prewarSkipMsg.EditorID == PrewarSkipMsgEdid && prewarSkipMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+                 prewarSkipMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(PrewarSkipButtons),
+                 $"MESG 0x{PrewarSkipMsgId:X} is not {PrewarSkipMsgEdid}");
+        }
         var terminalMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, TerminalMessageId));
         var specialMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessageId));
         var specialMsgPage2 = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessagePage2Id));
@@ -2154,12 +2170,12 @@ static class NewGame
             Need(specialMsgPage2 is { EditorID: SpecialMessagePage2Edid } && specialMsgPage2.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
                  specialMsgPage2.MenuButtons.Select(b => b.Text?.String).SequenceEqual(SpecialPage2Buttons) && specialMsgPage2.Description?.String == SpecialDescription,
                  $"MESG 0x{SpecialMessagePage2Id:X} is not {SpecialMessagePage2Edid}, a <=7-button message box with [{string.Join(", ", SpecialPage2Buttons)}] and the allocation text");
-            Need(plug.Messages.Count == 15, $"{plug.Messages.Count} MESG, expected 15");
+            Need(plug.Messages.Count == 15 + prewarExtraMsg, $"{plug.Messages.Count} MESG, expected {15 + prewarExtraMsg}");
             Console.WriteLine($"  SPECIAL links [{string.Join(", ", specialKeys)}]; terminal {TerminalText(places)}");
         }
         else
         {
-            Need(plug.Messages.Count == 12, $"{plug.Messages.Count} MESG, expected 12 in a --no-special build");
+            Need(plug.Messages.Count == 12 + prewarExtraMsg, $"{plug.Messages.Count} MESG, expected {12 + prewarExtraMsg} in a --no-special build");
         }
 
         // the GLOBs: Starfield's MQ101Debug overridden (or not), and our own version GLOB (or not); FO4SF_PipboyAcquired lives in FO4SFCoreValues.esm:000865
@@ -2268,6 +2284,8 @@ static class NewGame
                 Need(props.TryGetValue("ReturnMessage", out var rmp) && rmp is SF.IScriptObjectPropertyGetter rmo && rmo.Object.FormKey == returnMsg?.FormKey, "property ReturnMessage");
                 Need(props.TryGetValue("ModePickMsg", out var mpm) && mpm is SF.IScriptObjectPropertyGetter mpmo && mpmo.Object.FormKey == modePickMsg?.FormKey, "property ModePickMsg");
                 Need(props.TryGetValue("StoryLineMsg", out var slmp) && slmp is SF.IScriptObjectPropertyGetter slmo && slmo.Object.FormKey == storyLineMsg?.FormKey, "property StoryLineMsg");
+                if (prewarSkipMsg is not null)
+                    Need(props.TryGetValue("PrewarSkipMsg", out var psmp) && psmp is SF.IScriptObjectPropertyGetter psmo && psmo.Object.FormKey == prewarSkipMsg.FormKey, "property PrewarSkipMsg");
                 Need(props.TryGetValue("SurvivalPickMsg", out var spm) && spm is SF.IScriptObjectPropertyGetter spmo && spmo.Object.FormKey == survPickMsg?.FormKey, "property SurvivalPickMsg");
                 Need(props.TryGetValue("WarfareDiffMsg", out var wdm) && wdm is SF.IScriptObjectPropertyGetter wdmo && wdmo.Object.FormKey == wfDiffMsg?.FormKey, "property WarfareDiffMsg");
                 Need(props.TryGetValue("WarfareGroupMsg", out var wgm) && wgm is SF.IScriptObjectPropertyGetter wgmo && wgmo.Object.FormKey == wfGroupMsg?.FormKey, "property WarfareGroupMsg");
@@ -2334,7 +2352,7 @@ static class NewGame
                 var expected = Properties(pts, places, o, wf, sp, vaultPistolId, routeLootRefIds);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 43, $"{props.Count} properties, expected {expected.Count + 43}");
+                Need(props.Count == expected.Count + 43 + prewarExtraMsg, $"{props.Count} properties, expected {expected.Count + 43 + prewarExtraMsg}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");

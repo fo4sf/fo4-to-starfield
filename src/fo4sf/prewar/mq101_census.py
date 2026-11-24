@@ -219,6 +219,58 @@ def _wav_duration_seconds(wav_path: str) -> float:
         return 2.5
 
 
+def _load_fo4_ilstrings(fo4_esm_path: str, interface_ba2_path: Optional[str] = None) -> Tuple[bool, Dict[int, str]]:
+    """Return `(is_localized, {string_id: cp1252_text})` from `Fallout4.esm` + sibling `Fallout4 - Interface.ba2`."""
+    with open(fo4_esm_path, "rb") as f:
+        hdr = f.read(24)
+    localized = len(hdr) >= 12 and hdr[:4] == b"TES4" and bool(_u32(hdr, 8) & 0x00000080)
+    if not localized:
+        return False, {}
+
+    ba2_cand = interface_ba2_path or os.path.join(os.path.dirname(os.path.abspath(fo4_esm_path)), "Fallout4 - Interface.ba2")
+    raw_tbl: Optional[bytes] = None
+    if os.path.isfile(ba2_cand):
+        arch = Ba2(ba2_cand)
+        hit = arch.find("Strings/Fallout4_en.ILSTRINGS")
+        if hit is not None:
+            raw_tbl = arch.read(hit)
+    if raw_tbl is None:
+        loose = os.path.join(os.path.dirname(os.path.abspath(fo4_esm_path)), "Strings", "Fallout4_en.ILSTRINGS")
+        if os.path.isfile(loose):
+            with open(loose, "rb") as f:
+                raw_tbl = f.read()
+    if raw_tbl is None or len(raw_tbl) < 8:
+        return True, {}
+
+    count, _data_size = struct.unpack_from("<II", raw_tbl, 0)
+    base = 8 + 8 * count
+    out: Dict[int, str] = {}
+    for k in range(count):
+        if 8 + 8 * (k + 1) > len(raw_tbl):
+            break
+        sid, off = struct.unpack_from("<II", raw_tbl, 8 + 8 * k)
+        if base + off + 4 > len(raw_tbl):
+            continue
+        (ln,) = struct.unpack_from("<I", raw_tbl, base + off)
+        text = raw_tbl[base + off + 4 : base + off + 4 + ln].split(b"\x00", 1)[0].decode("cp1252", "replace")
+        out[sid] = text
+    return True, out
+
+
+def _decode_info_nam1(raw: bytes, *, localized: bool, ilstrings: Dict[int, str]) -> str:
+    """Resolve `INFO.NAM1` bytes (4-byte StringID when localized, else inline string) to readable text."""
+    if not raw:
+        return ""
+    if localized and len(raw) == 4:
+        sid = _u32(raw)
+        if sid == 0:
+            return ""
+        if sid in ilstrings:
+            return ilstrings[sid]
+        return f"Line {sid:08x}"
+    return raw.rstrip(b"\x00").decode("utf-8", "replace")
+
+
 def build_local_kellogg_voices_payload(
     fo4_esm_path: str,
     stem_durations: Dict[str, float],
@@ -226,11 +278,13 @@ def build_local_kellogg_voices_payload(
     stem_to_wem: Dict[str, str],
     *,
     first_wem: int = 0x00F50001,
+    interface_ba2_path: Optional[str] = None,
 ) -> Tuple[List[dict], List[str]]:
     """Build local-only Kellogg pod scene lines from `Fallout4.esm` (`MQ101KelloggSequence`) and place numbered `.wem`s.
 
     FO4 dialogue text stays local only (written into scratch JSON passed to `Prewar`, never committed to Git).
     """
+    localized, ilstrings = _load_fo4_ilstrings(fo4_esm_path, interface_ba2_path=interface_ba2_path)
     scene_infos: List[Tuple[str, int, str]] = []
     with fo4land.Plugin(fo4_esm_path) as p:
         buf = p.buf
@@ -246,7 +300,8 @@ def build_local_kellogg_voices_payload(
                         _walk_k(sub[1] + 24, sub[2])
                     elif sub[0] == b"INFO":
                         isubs = list(fo4land.iter_subrecords(fo4land.record_data(buf, sub[1])))
-                        nam1 = next((d.rstrip(b"\x00").decode("utf-8", "replace") for sg, d in isubs if sg == b"NAM1"), "")
+                        raw_nam1 = next((d for sg, d in isubs if sg == b"NAM1"), b"")
+                        nam1 = _decode_info_nam1(raw_nam1, localized=localized, ilstrings=ilstrings)
                         anmc = next((_u32(d) for sg, d in isubs if sg == b"ANAM" and len(d) == 4), 0)
                         if nam1:
                             scene_infos.append((f"{sub[3]:08x}", anmc, nam1))

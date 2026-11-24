@@ -80,6 +80,12 @@ HERO_EXT_LIFT_MODEL = r"fo4core\interiors\vault\rooms\vltelevator\vltelevatorext
 
 PLUGINS_TO_ACTIVATE: Tuple[str, ...] = (
     "FO4Port.esm",
+    "FO4TerrainCore.esm",
+    "FO4TerrainCore_Mars.esm",
+    "FO4SFCoreValues.esm",
+    "FO4SFVaultGearDoor.esm",
+    "FO4SFExitLift.esm",
+    "FO4SFMission.esm",
     "FO4SFHome.esm",
     "FO4SFPrewar_Sanctuary.esm",
     "FO4SFPrewar_Sanctuary_Home.esm",
@@ -821,8 +827,9 @@ def _stage_newgame_and_ui(
             str(sp_dst),
             "--prewar",
             str(data_out / s1_spec.PLUGIN_PREWAR),
+            "--fade-hold",
             "--start-choice-backdrop",
-            "empty_cell",
+            "setup_menu",
             "--show-unavailable-starts",
             "0",
         ]

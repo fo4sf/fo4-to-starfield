@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 import zlib
 from pathlib import Path
@@ -337,6 +339,178 @@ class R11S1PrewarTests(unittest.TestCase):
         self.assertEqual(errs, [])
         if stager.DEFAULT_CARD_PATH.is_file():
             self.assertEqual(r12_card_validator.validate_r12_card_file(stager.DEFAULT_CARD_PATH), [])
+
+    def test_plugins_to_activate_complete_chain(self) -> None:
+        plugins = list(stager.PLUGINS_TO_ACTIVATE)
+        for req in (
+            "FO4Port.esm",
+            "FO4TerrainCore.esm",
+            "FO4TerrainCore_Mars.esm",
+            "FO4SFCoreValues.esm",
+            "FO4SFVaultGearDoor.esm",
+            "FO4SFExitLift.esm",
+            "FO4SFMission.esm",
+            "FO4SFHome.esm",
+            "FO4SFPrewar_Sanctuary.esm",
+            "FO4SFPrewar_Sanctuary_Home.esm",
+            "FO4SFPrewar.esm",
+            "FO4SFNewGame.esm",
+        ):
+            self.assertIn(req, plugins)
+        self.assertLess(plugins.index("FO4TerrainCore.esm"), plugins.index("FO4TerrainCore_Mars.esm"))
+        self.assertLess(plugins.index("FO4TerrainCore.esm"), plugins.index("FO4SFMission.esm"))
+        self.assertLess(plugins.index("FO4Port.esm"), plugins.index("FO4SFVaultGearDoor.esm"))
+        self.assertLess(plugins.index("FO4Port.esm"), plugins.index("FO4SFExitLift.esm"))
+        self.assertLess(plugins.index("FO4SFCoreValues.esm"), plugins.index("FO4SFNewGame.esm"))
+
+    def test_newgame_quest_prewar_direct_and_skip_choice(self) -> None:
+        """Offline Papyrus check: !FadeHold launches fo4_prewar_sanctuary, and Variant (a) offers Skip Pre-War."""
+        psc = (Path(__file__).resolve().parents[1] / "scripts" / "newgame" / "FO4SF_NewGameQuest.psc").read_text(encoding="utf-8")
+        names = ("IsPreworldLooksHandled", "UsePreworldRoom", "FindStoryStartPlaceRow", "RunModeChoiceChain")
+        type_pat = r"\b(?:bool|int|float|string|Actor|ObjectReference|Quest|Cell|Message|ScriptObject|GlobalVariable)\b"
+        state_vars = (
+            "FadeHold",
+            "StartChoiceBackdrop",
+            "preworldLooksDone",
+            "looksSetStage20",
+            "prewarActive",
+            "modeChoiceRan",
+            "modeBoxWaiting",
+            "modeBoxWaitSeconds",
+            "startRoomMoves",
+        )
+        chunks = []
+        for fn_name in names:
+            m = re.search(rf"(?:[A-Za-z]+\s+)?Function\s+{fn_name}\(([^)]*)\)\n(.*?)\nEndFunction", psc, re.S)
+            self.assertIsNotNone(m, f"Missing {fn_name} in FO4SF_NewGameQuest.psc")
+            params_raw = m.group(1).strip()
+            params = [p.strip().split()[-1] for p in params_raw.split(",") if p.strip()] if params_raw else []
+            out = [f"def {fn_name}({', '.join(params)}):", f"    global {', '.join(state_vars)}"]
+            indent = 1
+            in_doc = False
+            for raw in m.group(2).splitlines():
+                line = raw.strip()
+                if in_doc:
+                    if "}" in line:
+                        in_doc = False
+                    continue
+                if line.startswith("{"):
+                    if "}" not in line:
+                        in_doc = True
+                    continue
+                line = line.split(";", 1)[0].strip()
+                if not line:
+                    continue
+                if line in ("endif", "endwhile"):
+                    indent -= 1
+                    continue
+                if line.startswith(("elseif ", "else")):
+                    indent -= 1
+                line = re.sub(r"\belseif\b", "elif", line)
+                line = re.sub(r"\btrue\b", "True", line, flags=re.I)
+                line = re.sub(r"\bfalse\b", "False", line, flags=re.I)
+                line = line.replace("&&", " and ").replace("||", " or ")
+                line = re.sub(r"!([^=])", r"not \1", line)
+                if not line.startswith(("if ", "elif ", "else:")):
+                    line = re.sub(rf"^\s*{type_pat}\s+([A-Za-z_]\w*)\s*=", r"\1 =", line)
+                line = re.sub(r"\s+as\s+[A-Za-z_]\w*\b", "", line)
+                line = re.sub(r"\b([A-Za-z_]\w*)\.Length\b", r"len(\1)", line)
+                if line.startswith("Trace("):
+                    line = "Trace('trace')"
+                if re.match(r"^(if |elif |else$|while )", line):
+                    line = (line + ":") if not line.endswith(":") else line
+                out.append(("    " * indent) + line)
+                if re.match(r"^(if |elif |else:|while )", line):
+                    indent += 1
+            chunks.append("\n".join(out))
+        compiled = compile("\n\n".join(chunks), "FO4SF_NewGameQuest.psc", "exec")
+
+        def run_case(*, fade_hold: bool, skip_btn: int):
+            spawned: list[int] = []
+            globs = {
+                "GameMode": 0.0,
+                "StoryLine": -1.0,
+                "SurvivalStart": 0.0,
+                "SurvivalLocked": 0.0,
+                "StartDifficulty": 1.0,
+                "WarfareFaction": -1.0,
+                "WarfareStartIndex": -1.0,
+                "StartPlaceRow": -1.0,
+                "StartChoiceDone": 0.0,
+                "StartCardOpen": 0.0,
+            }
+            gobj = {k: SimpleNamespace(GetValue=lambda k=k: globs[k], SetValue=lambda v, k=k: globs.__setitem__(k, float(v))) for k in globs}
+            player = SimpleNamespace()
+
+            def _spawn(p, r):
+                spawned.append(r)
+                ns["prewarActive"] = (r == 0)
+                if r == 0:
+                    ns["looksSetStage20"] = True
+
+            ns = dict(
+                FadeHold=fade_hold,
+                StartChoiceBackdrop=3,
+                preworldLooksDone=False,
+                looksSetStage20=False,
+                prewarActive=False,
+                modeChoiceRan=False,
+                modeBoxWaiting=False,
+                modeBoxWaitSeconds=0,
+                startRoomMoves=1 if fade_hold else 0,
+                StartRoomMarkerRef=SimpleNamespace(),
+                StartPlaceIds=["fo4_prewar_sanctuary", "fo4_vault111"],
+                StartPlaceModes=[1, 1],
+                StartPlaceStories=["fo4_commonwealth", "fo4_commonwealth"],
+                StoryChoiceIds=["fo4_commonwealth"],
+                WarfareFactionSlots=[],
+                GameModeGlobal=gobj["GameMode"],
+                StoryLineGlobal=gobj["StoryLine"],
+                SurvivalStartGlobal=gobj["SurvivalStart"],
+                SurvivalLockedGlobal=gobj["SurvivalLocked"],
+                StartDifficultyGlobal=gobj["StartDifficulty"],
+                WarfareFactionGlobal=gobj["WarfareFaction"],
+                WarfareStartIndexGlobal=gobj["WarfareStartIndex"],
+                StartPlaceRowGlobal=gobj["StartPlaceRow"],
+                StartChoiceDoneGlobal=gobj["StartChoiceDone"],
+                StartCardOpenGlobal=gobj["StartCardOpen"],
+                ModePickMsg=SimpleNamespace(Show=lambda: 0),
+                StoryLineMsg=SimpleNamespace(Show=lambda: 0),
+                PrewarSkipMsg=SimpleNamespace(Show=lambda: skip_btn),
+                SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
+                WarfareDiffMsg=None,
+                WarfareGroupMsg=None,
+                WarfareSpotMsg=None,
+                Utility=SimpleNamespace(Wait=lambda s: None),
+                SyncHardcoreFromStart=lambda *a: None,
+                ShowFirstBoxSafely=lambda m, lbl: m.Show(),
+                RunPreworldLooksChoice=lambda *a: None,
+                HoldNeutralSpotForModeChoice=lambda *a: False,
+                SetStartCardBackdrop=lambda *a: None,
+                WaitForStartUiReady=lambda *a: None,
+                BackdropName=lambda *a: "setup_menu",
+                AdvanceTo=lambda *a: None,
+                StartTimer=lambda *a: None,
+                FindWarfareStartPlaceRow=lambda *a: 0,
+                RunWarfareBranch=lambda *a: None,
+                SpawnAtStoryStartPlace=_spawn,
+                Trace=lambda m: None,
+            )
+            exec(compiled, ns)
+            mode = ns["RunModeChoiceChain"](player)
+            return mode, spawned, ns["IsPreworldLooksHandled"](), globs
+
+        # Case 1: !FadeHold must spawn fo4_prewar_sanctuary directly and keep Vault 111 looks suppressed
+        mode1, sp1, looks1, gl1 = run_case(fade_hold=False, skip_btn=0)
+        self.assertEqual((mode1, sp1, looks1, gl1["StartPlaceRow"]), (1, [0], True, 0.0))
+
+        # Case 2: FadeHold Variant (a) with PrewarSkipMsg=0 launches fo4_prewar_sanctuary (row 0)
+        mode2, sp2, looks2, gl2 = run_case(fade_hold=True, skip_btn=0)
+        self.assertEqual((mode2, sp2, looks2, gl2["StartPlaceRow"]), (1, [0], True, 0.0))
+
+        # Case 3: FadeHold Variant (a) with PrewarSkipMsg=1 launches fo4_vault111 Skip Pre-War (row 1)
+        mode3, sp3, looks3, gl3 = run_case(fade_hold=True, skip_btn=1)
+        self.assertEqual((mode3, sp3, looks3, gl3["StartPlaceRow"]), (1, [1], False, 1.0))
 
 
 if __name__ == "__main__":

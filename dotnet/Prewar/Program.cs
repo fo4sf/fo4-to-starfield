@@ -825,6 +825,32 @@ static class PrewarBuilder
         return 0;
     }
 
+    static IEnumerable<ModKey> ReadHeaderMasters(string pluginPath)
+    {
+        var outList = new List<ModKey>();
+        using var fs = File.OpenRead(pluginPath);
+        if (fs.Length < 24) return outList;
+        using var br = new BinaryReader(fs);
+        if (System.Text.Encoding.ASCII.GetString(br.ReadBytes(4)) != "TES4") return outList;
+        uint dataSize = br.ReadUInt32();
+        fs.Position = 24;
+        long end = Math.Min(fs.Length, 24L + dataSize);
+        while (fs.Position + 6 <= end)
+        {
+            string sub = System.Text.Encoding.ASCII.GetString(br.ReadBytes(4));
+            ushort sz = br.ReadUInt16();
+            if (fs.Position + sz > end) break;
+            byte[] data = br.ReadBytes(sz);
+            if (sub == "MAST")
+            {
+                string name = System.Text.Encoding.UTF8.GetString(data).TrimEnd('\0');
+                if (!string.IsNullOrWhiteSpace(name))
+                    outList.Add(ModKey.FromFileName(name));
+            }
+        }
+        return outList;
+    }
+
     public static int Check(string pluginPath, string sfPath, string? handyEsm, string? specPath, string? voicesPath)
     {
         if (!File.Exists(pluginPath)) throw new Refusal($"plugin missing: {pluginPath}");
@@ -833,10 +859,18 @@ static class PrewarBuilder
         _ = LoadVoices(voicesPath);
 
         var known = new List<ModKey> { SfEsm, ModKey.FromFileName("FO4SFHome.esm") };
+        foreach (var hm in ReadHeaderMasters(pluginPath))
+            if (!known.Contains(hm)) known.Add(hm);
         if (!string.IsNullOrWhiteSpace(spec.SanctuaryEsmPath) && File.Exists(spec.SanctuaryEsmPath))
-            known.Add(ModKey.FromFileName(Path.GetFileName(spec.SanctuaryEsmPath)));
+        {
+            var sk = ModKey.FromFileName(Path.GetFileName(spec.SanctuaryEsmPath));
+            if (!known.Contains(sk)) known.Add(sk);
+        }
         if (!string.IsNullOrWhiteSpace(spec.PortEsmPath) && File.Exists(spec.PortEsmPath))
-            known.Add(ModKey.FromFileName(Path.GetFileName(spec.PortEsmPath)));
+        {
+            var pk = ModKey.FromFileName(Path.GetFileName(spec.PortEsmPath));
+            if (!known.Contains(pk)) known.Add(pk);
+        }
 
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, Rel, Styles(known.ToArray()));
         var key = plug.ModKey;
@@ -999,6 +1033,34 @@ static class PrewarBuilder
         if (Write(sfPath, outDir, handyPath, null, null) != 0) return 1;
         var plugPath = Path.Combine(outDir, Plugin);
         if (Check(plugPath, sfPath, handyPath, null, null) != 0) return 1;
+
+        // Multi-master Check() without --spec (verifies TES4 MAST header master discovery for FO4SFHome + FO4SFPrewar_Sanctuary)
+        var multiDir = Path.Combine(scratchDir, "multi_out");
+        Directory.CreateDirectory(multiDir);
+        var homeKey = ModKey.FromFileName("FO4SFHome.esm");
+        var homeMod = new SF.StarfieldMod(homeKey, Rel);
+        homeMod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+        homeMod.ModHeader.Stats.NextFormID = 0x805;
+        var homePath = Path.Combine(scratchDir, "FO4SFHome.esm");
+        homeMod.BeginWrite.ToPath(homePath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+        var sancKey = ModKey.FromFileName("FO4SFPrewar_Sanctuary.esm");
+        var sancMod = new SF.StarfieldMod(sancKey, Rel);
+        sancMod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+        sancMod.Statics.Add(new SF.Static(new FormKey(sancKey, 0x800), Rel) { EditorID = "FO4SF_SanctuaryDummy" });
+        sancMod.Worldspaces.Add(new SF.Worldspace(new FormKey(sancKey, 0x801), Rel)
+        {
+            EditorID = "FO4SF_PrewarSanctuaryWorld",
+            TopCell = new SF.Cell(new FormKey(sancKey, 0x802), Rel),
+        });
+        sancMod.ModHeader.Stats.NextFormID = 0x810;
+        var sancPath = Path.Combine(scratchDir, "FO4SFPrewar_Sanctuary.esm");
+        sancMod.BeginWrite.ToPath(sancPath).WithLoadOrder(SfEsm, homeKey)
+            .WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full), new KeyedMasterStyle(homeKey, MasterStyle.Full)).Write();
+        var multiSpecPath = Path.Combine(scratchDir, "multi_spec.json");
+        File.WriteAllText(multiSpecPath, JsonSerializer.Serialize(new { sanctuary_esm = sancPath }));
+        if (Write(sfPath, multiDir, handyPath, multiSpecPath, null) != 0) return 1;
+        var multiPlugPath = Path.Combine(multiDir, Plugin);
+        if (Check(multiPlugPath, sfPath, handyPath, null, null) != 0) return 1;
 
         // Negative mutation checks: StartGameEnabled, stripped AllowPcDialog, dropped script, MiniBot skin regression, and cleared Aliases
         var mutExpectations = new (string Label, Action<SF.StarfieldMod> Mutate)[]

@@ -29,19 +29,42 @@ bool enteredPrewarVault = false
 int vaultEntryTries = 0
 bool handoffDone = false
 float kelloggElapsedS = 0.0
+bool loadHookRegistered = false
+bool evacStarted = false
+bool elevatorStarted = false
+bool kelloggStarted = false
+float exteriorElapsedS = 0.0
+float vaultElapsedS = 0.0
 
 Function Trace(string msg)
     Debug.OpenUserLog(LogName)
     Debug.TraceUser(LogName, msg)
 EndFunction
 
+Function EnsurePrewarLoadHook(Actor player)
+    if player != None && !loadHookRegistered
+        loadHookRegistered = true
+        RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+    endif
+EndFunction
+
 Function BeginPrewarSanctuary()
     {Start S1 inside FO4SF_PrewarSanctuaryWorld at HouseSpawnMarker (19 Nov rule: Skip mirror/SPECIAL stat popups).}
+    enteredPrewarVault = false
+    vaultEntryTries = 0
+    handoffDone = false
+    kelloggElapsedS = 0.0
+    evacStarted = false
+    elevatorStarted = false
+    kelloggStarted = false
+    exteriorElapsedS = 0.0
+    vaultElapsedS = 0.0
     if PrewarActiveGlobal != None
         PrewarActiveGlobal.SetValue(1.0)
     endif
     SetStage(10)
     Actor player = Game.GetPlayer()
+    EnsurePrewarLoadHook(player)
     if player != None && HouseSpawnMarker != None
         player.MoveTo(HouseSpawnMarker, 0.0, 0.0, 0.0, true, false)
     endif
@@ -54,11 +77,16 @@ Function BeginPrewarSanctuary()
     if VaultTecRepActor != None
         VaultTecRepActor.EnableNoWait()
     endif
+    StartTimer(2.0, 22)
     Trace("s1 start stage=10 world=FO4SF_PrewarSanctuaryWorld (mirror and clipboard stat-menu skipped per 19 Nov rule)")
 EndFunction
 
 Function StartEvacuationSequence()
     {Advance S1 to stage 20: launch Beat (a) fleeing crowd and Beat (b) overhead Vertibirds.}
+    if evacStarted || handoffDone || GetStage() >= 20
+        return
+    endif
+    evacStarted = true
     SetStage(20)
     if StandIns != None
         StandIns.StartCrowdBeat()
@@ -72,6 +100,10 @@ EndFunction
 
 Function StartElevatorAndNukeBeat()
     {Advance S1 to stage 30: start Beat (c) ExtVaultElevator descent + Beat (d) nuke flash, then confirmed PrewarVault111 arrival.}
+    if elevatorStarted || handoffDone || GetStage() >= 30
+        return
+    endif
+    elevatorStarted = true
     SetStage(30)
     if StandIns != None
         StandIns.StartElevatorDescentWithNuke()
@@ -95,11 +127,13 @@ Function MoveIntoPrewarVaultConfirmed()
     Cell wantCell = PrewarVaultArrivalMarker.GetParentCell()
     if wantCell != None && player.GetParentCell() == wantCell
         enteredPrewarVault = true
+        vaultElapsedS = 0.0
         SetStage(40)
         if VaultDoctorActor != None
             VaultDoctorActor.EnableNoWait()
         endif
         Game.FadeOutGame(false, true, 0.0, 1.0, false)
+        StartTimer(2.0, 22)
         Trace("s1 prewar_vault arrival confirmed tries=" + vaultEntryTries + " cell=" + wantCell)
     elseif vaultEntryTries < 8
         Trace("s1 prewar_vault retry=" + vaultEntryTries)
@@ -111,12 +145,79 @@ EndFunction
 
 Function StartKelloggPodBeat()
     {Advance S1 to stage 50: Beat (e) pod-locked Kellogg sequence -> refreeze -> Stage 20 Vault111Cryo handoff.}
+    if kelloggStarted || handoffDone || GetStage() >= 50
+        return
+    endif
+    kelloggStarted = true
     SetStage(50)
     kelloggElapsedS = 0.0
     if StandIns != None
         StandIns.StartKelloggPodSequence()
     endif
     StartTimer(2.0, 21)
+EndFunction
+
+Function StepPrewarProgression()
+    {Drive S1 stage progression by player proximity to Sanctuary/Vault anchors with elapsed fallback timers.}
+    if handoffDone
+        return
+    endif
+    int st = GetStage()
+    if st < 10 || st >= 50
+        return
+    endif
+    Actor player = Game.GetPlayer()
+    if player == None
+        StartTimer(2.0, 22)
+        return
+    endif
+    EnsurePrewarLoadHook(player)
+    if st == 10 && !evacStarted
+        exteriorElapsedS += 2.0
+        float distHouse = 0.0
+        if HouseSpawnMarker != None
+            distHouse = player.GetDistance(HouseSpawnMarker)
+        endif
+        if (distHouse >= 12.0 && distHouse < 10000.0) || exteriorElapsedS >= 8.0
+            StartEvacuationSequence()
+        endif
+        StartTimer(2.0, 22)
+    elseif st == 20 && !elevatorStarted
+        exteriorElapsedS += 2.0
+        bool nearGateOrLift = false
+        if SoldierCheckerActor != None
+            float dGate = player.GetDistance(SoldierCheckerActor)
+            if dGate >= 0.0 && dGate <= 22.0
+                nearGateOrLift = true
+            endif
+        endif
+        if !nearGateOrLift && StandIns != None && StandIns.ExtElevatorPlatform != None
+            float dLift = player.GetDistance(StandIns.ExtElevatorPlatform)
+            if dLift >= 0.0 && dLift <= 18.0
+                nearGateOrLift = true
+            endif
+        endif
+        if nearGateOrLift || exteriorElapsedS >= 24.0
+            StartElevatorAndNukeBeat()
+        endif
+        StartTimer(2.0, 22)
+    elseif st == 30
+        StartTimer(2.0, 22)
+    elseif st == 40 && !kelloggStarted
+        vaultElapsedS += 2.0
+        bool nearPod = false
+        if StandIns != None && StandIns.PlayerPodHoldMarker != None
+            float dPod = player.GetDistance(StandIns.PlayerPodHoldMarker)
+            if dPod >= 0.0 && dPod <= 8.0
+                nearPod = true
+            endif
+        endif
+        if nearPod || vaultElapsedS >= 6.0
+            StartKelloggPodBeat()
+        else
+            StartTimer(2.0, 22)
+        endif
+    endif
 EndFunction
 
 Function HandoffToVault111CryoStage20()
@@ -155,6 +256,28 @@ Function HandoffToVault111CryoStage20()
     CompleteQuest()
 EndFunction
 
+Event Actor.OnPlayerLoadGame(Actor akSender)
+    Debug.OpenUserLog(LogName)
+    if akSender == None || akSender != Game.GetPlayer()
+        return
+    endif
+    int st = GetStage()
+    if handoffDone || st < 10 || st >= 200
+        return
+    endif
+    Trace("s1 reload re-arm stage=" + st)
+    if st < 40
+        StartTimer(2.0, 22)
+        if elevatorStarted && !enteredPrewarVault
+            StartTimer(0.5, 20)
+        endif
+    elseif st < 50
+        StartTimer(2.0, 22)
+    elseif st < 60
+        StartTimer(2.0, 21)
+    endif
+EndEvent
+
 Event OnTimer(int aiTimerID)
     if aiTimerID == 20
         MoveIntoPrewarVaultConfirmed()
@@ -169,5 +292,7 @@ Event OnTimer(int aiTimerID)
         else
             HandoffToVault111CryoStage20()
         endif
+    elseif aiTimerID == 22
+        StepPrewarProgression()
     endif
 EndEvent

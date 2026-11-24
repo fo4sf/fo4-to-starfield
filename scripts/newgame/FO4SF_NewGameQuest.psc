@@ -106,6 +106,8 @@ Message Property ModePickMsg Auto Const Mandatory
 {S4 Box 1 (0x806): 0 Story, 1 Warfare.}
 Message Property StoryLineMsg Auto Const
 {N2 Story choice (0x81E): available story campaigns from start_places.json.}
+Message Property PrewarSkipMsg Auto Const
+{S1 Story path choice (0x822, --prewar builds): 0 Sanctuary Hills (Pre-War), 1 Vault 111 (Skip Pre-War).}
 Message Property SurvivalPickMsg Auto Const Mandatory
 {S4 Box 2 (0x807): 0 Survival: No, 1 Survival: Yes.}
 Message Property WarfareDiffMsg Auto Const Mandatory
@@ -2187,6 +2189,7 @@ Function SpawnAtStoryStartPlace(Actor player, int placeRow)
                 pw3d += 0.25
             endwhile
             prewarActive = true
+            looksSetStage20 = true
             entered = true
             Game.ShowFirstPersonGeometry(true)
             Game.FadeOutGame(False, True, 0.0, 0.1, False)
@@ -2305,6 +2308,9 @@ int Function RunModeChoiceChain(Actor player)
         SyncHardcoreFromStart("start_choice")
         Trace("mode choice mode=story survival=0")
         Trace("start record mode=story story=fo4_commonwealth faction=-1 place=" + directPlace + " survival=0 difficulty=1 backdrop=none")
+        if directPlace == "fo4_prewar_sanctuary" && player != None
+            SpawnAtStoryStartPlace(player, directRow)
+        endif
         return 1
     endif
     modeChoiceRan = true
@@ -2409,6 +2415,29 @@ int Function RunModeChoiceChain(Actor player)
                 storyBtn = 0
             endif
             placeRow = FindStoryStartPlaceRow(boxStoryId)
+            if boxStoryId == "fo4_commonwealth" && StartPlaceIds != None
+                int s1PrewarRow = -1
+                int s1SkipRow = -1
+                int spIdx = 0
+                while spIdx < StartPlaceIds.Length
+                    if StartPlaceIds[spIdx] == "fo4_prewar_sanctuary"
+                        s1PrewarRow = spIdx
+                    elseif StartPlaceIds[spIdx] == "fo4_vault111"
+                        s1SkipRow = spIdx
+                    endif
+                    spIdx += 1
+                endwhile
+                if s1PrewarRow >= 0 && s1SkipRow >= 0
+                    if PrewarSkipMsg != None
+                        int s1ChoiceBtn = PrewarSkipMsg.Show()
+                        if s1ChoiceBtn == 1
+                            placeRow = s1SkipRow
+                        else
+                            placeRow = s1PrewarRow
+                        endif
+                    endif
+                endif
+            endif
         else
             storyBtn = -1
             if WarfareDiffMsg != None
