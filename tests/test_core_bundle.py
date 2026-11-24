@@ -981,6 +981,39 @@ class CoreBundleTests(unittest.TestCase):
             probs, _ = mcb.verify_bundle(str(out), port_esm=str(port_esm))
             self.assertTrue(any("F4: forbidden player-facing FULL" in p for p in probs), probs)
 
+            # 4. Inherited Track 2 test FULLs are allowlisted ONLY when allow_legacy_test=True (--profile test),
+            #    while any NEW '(Stand-In)' or player-profile leak is still rejected.
+            rep_w = PluginWriter(("Starfield.esm",), flags=ESM, author="f4")
+            rep_w.add(
+                Record(
+                    b"FACT",
+                    rep_w.own(0x000810),
+                    [(b"EDID", zbytes("FO4SF_RepFact_Minutemen")), (b"FULL", zbytes("FO4SF Minutemen"))],
+                    0,
+                    0,
+                    581,
+                    0,
+                )
+            )
+            rep_w.add(
+                Record(
+                    b"MISC",
+                    rep_w.own(0x000899),
+                    [(b"EDID", zbytes("FO4SF_NewStandIn")), (b"FULL", zbytes("Token (Stand-In)"))],
+                    0,
+                    0,
+                    581,
+                    0,
+                )
+            )
+            rep_p = root / "FO4SFReputation.esm"
+            rep_p.write_bytes(rep_w.to_bytes(compress=False))
+            hits_strict = mcb.find_forbidden_player_full_names([str(rep_p)], allow_legacy_test=False)
+            self.assertEqual(len(hits_strict), 2, hits_strict)
+            hits_test = mcb.find_forbidden_player_full_names([str(rep_p)], allow_legacy_test=True)
+            self.assertEqual(len(hits_test), 1, hits_test)
+            self.assertTrue(any("Token (Stand-In)" in h for h in hits_test), hits_test)
+
     def test_a17_build_and_fold_both_default_profile_to_player(self):
         # Capture parsed args for both `build` and `fold` when `--profile` is omitted
         captured: list[tuple[str, str]] = []

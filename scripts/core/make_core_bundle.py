@@ -277,12 +277,36 @@ def _iter_esm_subrecords(payload: bytes):
         spos += 6 + ssize
 
 
-def find_forbidden_player_full_names(esm_paths: Sequence[str]) -> List[str]:
+def find_forbidden_player_full_names(
+    esm_paths: Sequence[str], *, allow_legacy_test: bool = False
+) -> List[str]:
     """F4: Reject unintended 'FO4SF ' or '(Stand-In)' FULL names across staged non-base ESMs."""
     import zlib
 
     # #852 pre-existing hidden QUST FO4SF_WorkshopCoreQuest (0x000800) in FO4SFWorkshop.esm
-    allowlisted_qust = {("fo4sfworkshop.esm", b"QUST", 0x000800)}
+    allowlisted: set[tuple[str, bytes, int]] = {("fo4sfworkshop.esm", b"QUST", 0x000800)}
+    if allow_legacy_test:
+        # Inherited Track 2 test-profile harness records preserved from candidate-2h-2 --profile test
+        allowlisted.update({
+            ("fo4sfhardcore.esm", b"QUST", 0x000830),
+            ("fo4sfprogression.esm", b"QUST", 0x000880),
+            ("fo4sflistdialogue.esm", b"CELL", 0x000807),
+            ("fo4sflistdialogue.esm", b"QUST", 0x000810),
+            ("fo4sfcombat.esm", b"CELL", 0x000850),
+            ("fo4sfcombat.esm", b"QUST", 0x000800),
+            ("fo4sfcorecandidate.esm", b"QUST", 0x000800),
+            ("fo4sfreputation.esm", b"QUST", 0x000800),
+            ("fo4sfreputation.esm", b"AVIF", 0x000805),
+            ("fo4sfreputation.esm", b"PERK", 0x000806),
+            ("fo4sfreputation.esm", b"NPC_", 0x000888),
+        })
+        for fid_base in (0x000820, 0x000830, 0x000840):
+            for offset in range(8):
+                allowlisted.add(("fo4sfreputation.esm", b"AVIF", fid_base + offset))
+        for offset in range(8):
+            allowlisted.add(("fo4sfreputation.esm", b"FACT", 0x000810 + offset))
+        for offset in range(4):
+            allowlisted.add(("fo4sfreputation.esm", b"MISC", 0x000880 + offset))
     hits: List[str] = []
     for ep in esm_paths:
         if not ep or not os.path.isfile(ep):
@@ -321,7 +345,7 @@ def find_forbidden_player_full_names(esm_paths: Sequence[str]) -> List[str]:
                             full_val = sd.rstrip(b"\x00").decode("utf-8", errors="replace")
                     if full_val is not None:
                         local_fid = fid & 0xFFFFFF
-                        if (esm_low, sig, local_fid) not in allowlisted_qust:
+                        if (esm_low, sig, local_fid) not in allowlisted:
                             if full_val.startswith("FO4SF ") or "(stand-in)" in full_val.casefold():
                                 sig_str = sig.decode("ascii", errors="replace")
                                 hits.append(
@@ -935,7 +959,12 @@ def verify_bundle(
     # 3d3 (F4). Scan all staged non-base ESMs for leftover "FO4SF " or "(Stand-In)" player-facing FULL names
     if esm_paths_to_inspect:
         try:
-            problems.extend(find_forbidden_player_full_names(esm_paths_to_inspect))
+            problems.extend(
+                find_forbidden_player_full_names(
+                    esm_paths_to_inspect,
+                    allow_legacy_test=(bplan.get("profile") == "test"),
+                )
+            )
         except Exception as exc:
             problems.append(f"FULL name scan F4 check failed: {exc}")
 
