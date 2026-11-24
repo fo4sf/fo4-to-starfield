@@ -390,6 +390,7 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
             Start=lambda: (scn_state.__setitem__("starts", scn_state["starts"] + 1), scn_state.__setitem__("playing", True)),
         )
         completed_calls: list[str] = []
+        reg_events: list[str] = []
         logs: list[str] = []
         player = object()
         ns = {
@@ -399,22 +400,27 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
             "PrestonSceneCheckSeconds": 1.5,
             "PrestonSceneMaxWaitChecks": 16,
             "S9PrestonLobbyScene": lobby_scn,
+            "S9PrestonLobbyFallbackMsg": None,
             "s9LobbyCompleted": False,
             "s9LobbyScenePending": True,
             "s9LobbySceneMenuOpened": False,
+            "s9LobbySceneAttemptOpened": False,
             "s9LobbyScenePhase1": False,
             "s9LobbyScenePhase1At": 0.0,
             "s9LobbySceneChecks": 0,
-            "s9LobbySceneRestarts": 0,
+            "s9LobbySceneRestarts": 3,
             "ownS9LobbyStopPending": False,
             "prestonDialogueMenuOpen": False,
+            "s8RespawningCount": 2,
             "ShouldUseMessageBox": lambda: False,
             "EffectiveStage": lambda: 80,
             "EnsurePrestonAlias": lambda: None,
             "EnsureActorTalkable": lambda _a: None,
+            "RegisterForRemoteEvent": lambda _o, ev: reg_events.append(str(ev)),
+            "EnterS9MuseumLobby": lambda _p: None,
             "CancelTimer": lambda _tid: None,
             "StartTimer": lambda _s, _tid: None,
-            "CompleteS9LobbyTalkAndReward": lambda _p: completed_calls.append("reward"),
+            "CompleteS9LobbyTalkAndReward": lambda _p: (completed_calls.append("reward"), ns.__setitem__("s9LobbyCompleted", True)),
             "BeginS9MuseumExitAndPatrol": lambda _p: completed_calls.append("patrol"),
             "Game": SimpleNamespace(GetPlayer=lambda: player),
             "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 100.0),
@@ -422,32 +428,164 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
         }
         gvars = {
             "s9LobbyCompleted", "s9LobbyScenePending", "s9LobbySceneMenuOpened",
-            "s9LobbyScenePhase1", "s9LobbyScenePhase1At", "s9LobbySceneChecks",
-            "s9LobbySceneRestarts", "ownS9LobbyStopPending", "prestonDialogueMenuOpen",
+            "s9LobbySceneAttemptOpened", "s9LobbyScenePhase1", "s9LobbyScenePhase1At",
+            "s9LobbySceneChecks", "s9LobbySceneRestarts", "ownS9LobbyStopPending",
+            "prestonDialogueMenuOpen", "s8RespawningCount",
         }
         _compile_papyrus(
             MIN00_PSC,
-            ["RestartOrFailS9LobbyScene", "TryS9LobbyDialogueMenuOpen", "HandleS9LobbySceneEnd"],
+            [
+                "EnsureS9LobbySceneEvents",
+                "ResetS9LobbyRuntimeState",
+                "IsS9LobbySceneBusy",
+                "RestartOrFailS9LobbyScene",
+                "TryS9LobbyDialogueMenuOpen",
+                "TryS9LobbyDialogueMenuClose",
+                "TryTriggerS9LobbyActivate",
+                "HandleS9LobbySceneEnd",
+            ],
             gvars,
             ns,
         )
+        # Finding 3: reload reset MUST NOT zero s8RespawningCount
+        ns["ResetS9LobbyRuntimeState"]()
+        self.assertEqual(ns["s8RespawningCount"], 2)
+
+        # Finding 4: Fresh [E] activation resets exhausted restarts (3 -> 0) and registers scene listeners
+        ns["s9LobbySceneRestarts"] = 3
+        ns["TryTriggerS9LobbyActivate"](player)
+        self.assertEqual(ns["s9LobbySceneRestarts"], 0)
+        self.assertEqual(sorted(reg_events), ["OnBegin", "OnEnd", "OnPhaseBegin"])
+
+        # Finding 2: Attempt 1 stops while playing -> Attempt 2 opens DialogueMenu BEFORE Attempt 1's async OnEnd arrives!
         ns["RestartOrFailS9LobbyScene"]("no_dialoguemenu")
-        self.assertEqual(scn_state["stops"], 1)
-        self.assertEqual(scn_state["starts"], 1)
         self.assertEqual(ns["s9LobbySceneRestarts"], 1)
         self.assertTrue(ns["ownS9LobbyStopPending"])
 
-        # Queued Scene.OnEnd from the stopped run arrives asynchronously after Start(): MUST be suppressed cleanly!
+        self.assertTrue(ns["TryS9LobbyDialogueMenuOpen"](80))
+        self.assertTrue(ns["s9LobbySceneAttemptOpened"])
+        self.assertTrue(ns["ownS9LobbyStopPending"])  # MUST stay True until stale OnEnd consumes it!
+
+        # Stale Attempt 1 OnEnd arrives -> suppressed cleanly!
         ns["HandleS9LobbySceneEnd"]()
         self.assertFalse(ns["ownS9LobbyStopPending"])
-        self.assertEqual(ns["s9LobbySceneRestarts"], 1)
-        self.assertTrue(ns["s9LobbyScenePending"])
         self.assertEqual(completed_calls, [])
+        self.assertTrue(ns["s9LobbySceneAttemptOpened"])
 
-        # Next attempt opens DialogueMenu -> scene ends normally and completes S9 lobby!
-        self.assertTrue(ns["TryS9LobbyDialogueMenuOpen"](80))
+        # Finding 1: DialogueMenu closes BEFORE Attempt 2's Scene.OnEnd fires -> wasOpened still completes S9 Lobby!
+        ns["prestonDialogueMenuOpen"] = False
+        self.assertTrue(ns["TryS9LobbyDialogueMenuClose"]())
+        self.assertFalse(ns["s9LobbySceneMenuOpened"])
+        self.assertTrue(ns["s9LobbySceneAttemptOpened"])
         ns["HandleS9LobbySceneEnd"]()
         self.assertEqual(completed_calls, ["reward", "patrol"])
+        self.assertFalse(ns["s9LobbySceneAttemptOpened"])
+
+    def test_s9_sturges_intro_dialogue_close_before_on_end_stale_stop_and_museum_anchor(self) -> None:
+        from types import SimpleNamespace
+        from tests.test_r11_cell_independent_quest import _compile_papyrus
+
+        scn_state = {"playing": True, "stops": 0, "starts": 0}
+        intro_scn = SimpleNamespace(
+            IsPlaying=lambda: scn_state["playing"],
+            Stop=lambda: (scn_state.__setitem__("stops", scn_state["stops"] + 1), scn_state.__setitem__("playing", False)),
+            Start=lambda: (scn_state.__setitem__("starts", scn_state["starts"] + 1), scn_state.__setitem__("playing", True)),
+        )
+        reg_events: list[str] = []
+        advances: list[tuple[int, str]] = []
+        objs_done: list[int] = []
+        logs: list[str] = []
+        moves: list[tuple] = []
+        ns = {
+            "MissionPlugin": "FO4SFMission.esm",
+            "S9SturgesIntroScene": intro_scn,
+            "S9SturgesIntroFallbackMsg": None,
+            "S9IntroMaxSceneRestarts": 3,
+            "S9IntroSceneCheckSeconds": 1.5,
+            "S9IntroSceneMaxWaitChecks": 16,
+            "talkBoxOpen": False,
+            "completed": False,
+            "benchMenuOpen": False,
+            "workshopMenuOpen": False,
+            "cleanBenchSawWorkshop": False,
+            "cleanBenchVerifyPending": False,
+            "talkSessionId": 1,
+            "sturgesNearSec": 0.0,
+            "s9IntroDialogueOpen": False,
+            "s9IntroScenePending": False,
+            "s9IntroSceneMenuOpened": False,
+            "s9IntroSceneAttemptOpened": False,
+            "s9IntroScenePhase1": False,
+            "s9IntroScenePhase1At": 0.0,
+            "s9IntroSceneChecks": 0,
+            "s9IntroSceneRestarts": 3,
+            "ownS9IntroStopPending": False,
+            "ShouldUseMessageBox": lambda: False,
+            "IsAnyMenuOrWorkshopOpen": lambda: False,
+            "EffectiveStage": lambda: 220,
+            "BindSturges": lambda: None,
+            "ResolveSturges": lambda: SimpleNamespace(AllowPCDialogue=lambda *_: None, BlockActivation=lambda *_: None),
+            "RegisterForRemoteEvent": lambda _o, ev: reg_events.append(str(ev)),
+            "CancelTimer": lambda _tid: None,
+            "StartTimer": lambda _s, _tid: None,
+            "SetObjectiveCompleted": lambda o: objs_done.append(int(o)),
+            "AdvanceTo": lambda st, by="other": advances.append((int(st), str(by))),
+            "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 200.0),
+            "Game": SimpleNamespace(GetFormFromFile=lambda *_: None),
+            "Trace": lambda msg: logs.append(str(msg)),
+        }
+        gvars = {
+            "talkBoxOpen", "cleanBenchSawWorkshop", "cleanBenchVerifyPending",
+            "workshopMenuOpen", "sturgesNearSec", "s9IntroDialogueOpen",
+            "s9IntroScenePending", "s9IntroSceneMenuOpened", "s9IntroSceneAttemptOpened",
+            "s9IntroScenePhase1", "s9IntroScenePhase1At", "s9IntroSceneChecks",
+            "s9IntroSceneRestarts", "ownS9IntroStopPending",
+        }
+        _compile_papyrus(
+            SANC01_PSC,
+            [
+                "RegisterS9IntroSceneEvents",
+                "OnMenuOpenCloseEvent",
+                "RestartOrFailS9IntroScene",
+                "Scene.OnBegin",
+                "Scene.OnEnd",
+                "RunSturgesTalk",
+                "PlaceRefInMuseumOffset",
+            ],
+            gvars,
+            ns,
+        )
+        # Finding 4: RunSturgesTalk resets exhausted restarts (3 -> 0) and registers listeners
+        ns["RunSturgesTalk"]()
+        self.assertEqual(ns["s9IntroSceneRestarts"], 0)
+        self.assertEqual(sorted(reg_events), ["OnBegin", "OnEnd", "OnPhaseBegin"])
+        self.assertTrue(ns["s9IntroScenePending"])
+
+        # Finding 2: Retry stops active scene -> Attempt 2 opens DialogueMenu BEFORE stale OnEnd fires
+        ns["RestartOrFailS9IntroScene"]("no_dialoguemenu")
+        self.assertTrue(ns["ownS9IntroStopPending"])
+        ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertTrue(ns["s9IntroSceneAttemptOpened"])
+        self.assertTrue(ns["ownS9IntroStopPending"])
+
+        ns["OnEnd"](intro_scn)  # Stale Attempt 1 OnEnd
+        self.assertFalse(ns["ownS9IntroStopPending"])
+        self.assertEqual(advances, [])
+
+        # Finding 1: DialogueMenu closes BEFORE Attempt 2's Scene.OnEnd -> 220 still advances to 1000!
+        ns["OnMenuOpenCloseEvent"]("DialogueMenu", False)
+        self.assertFalse(ns["s9IntroDialogueOpen"])
+        self.assertFalse(ns["s9IntroSceneMenuOpened"])
+        self.assertTrue(ns["s9IntroSceneAttemptOpened"])
+        ns["OnEnd"](intro_scn)
+        self.assertEqual(advances, [(1000, "sturges_intro")])
+        self.assertIn(220, objs_done)
+
+        # Finding 4: PlaceRefInMuseumOffset dynamically uses anchor.GetPositionX/Y/Z (NOT hardcoded 8.228572)
+        anchor = SimpleNamespace(GetPositionX=lambda: 100.0, GetPositionY=lambda: 200.0, GetPositionZ=lambda: 50.0)
+        ref = SimpleNamespace(MoveTo=lambda a, dx, dy, dz, *_rest: moves.append((a, round(dx, 4), round(dy, 4), round(dz, 4))))
+        ns["PlaceRefInMuseumOffset"](ref, anchor, 12.5, -3.5, 4.0)
+        self.assertEqual(moves, [(anchor, -87.5, -203.5, -46.0)])
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ PICKUP_PSC = REPO_ROOT / "scripts" / "mission" / "FO4SF_S5S6ItemPickup.psc"
 
 def _extract_fn(psc: str, name: str) -> tuple[list[tuple[str, str | None]], str]:
     m = re.search(
-        rf"^(?:[A-Za-z_]\w*(?:\[\])?\s+)?(?:Function|Event)\s+{re.escape(name)}\s*\(([^)]*)\)\s*\n"
+        rf"^(?:[A-Za-z_]\w*(?:\[\])?\s+)?(?:Function|Event)\s+{re.escape(name)}\s*\(([^)]*)\)(?:[ \t]+global)?\s*\n"
         rf"(.*?)^End(?:Function|Event)\b",
         psc,
         re.M | re.S,
@@ -185,6 +185,8 @@ def _compile_papyrus(psc: str, fn_names: list[str], state_vars: set[str], ns: di
             lines.append("    pass")
         src = "\n".join(lines)
         exec(compile(src, f"<papyrus:{fn_name}>", "exec"), ns)
+        if "." in fn_name:
+            ns.setdefault(fn_name.rsplit(".", 1)[-1], ns[py_name])
 
 
 class _FakeActor:

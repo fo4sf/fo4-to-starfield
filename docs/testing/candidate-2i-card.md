@@ -36,7 +36,7 @@ python scripts/game/exp_install.py uninstall --starfield <STARFIELD_DIR>
 
 ## 3. Diagnostic Console & Batch Checks (`P3`-Clean: Zero `M`/`N`/`V`, `< 180 m`/Axis)
 
-Optional P3-clean batches (`bat s7r`, `bat s7f`, `bat s8w`, `bat s9p`, `bat s9q`) use numeric FormIDs only (never stripped `FO4SF_*` `GLOB`/`QUST` EditorIDs):
+Planned optional P3-clean diagnostic batch names (`bat s7r`, `bat s7f`, `bat s8w`, `bat s9p`, `bat s9q`; **not emitted by `make_mission.py stage` yet**) use numeric FormIDs only when supplied separately (never stripped `FO4SF_*` `GLOB`/`QUST` EditorIDs); test S7–S9 end-to-end via the natural gameplay path in Section 4:
 
 ```console
 bat s7r

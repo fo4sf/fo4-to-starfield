@@ -94,6 +94,7 @@ float benchNearSec = 0.0
 bool s9IntroDialogueOpen = False
 bool s9IntroScenePending = False
 bool s9IntroSceneMenuOpened = False
+bool s9IntroSceneAttemptOpened = False
 bool s9IntroScenePhase1 = False
 float s9IntroScenePhase1At = 0.0
 int s9IntroSceneChecks = 0
@@ -177,7 +178,7 @@ Function PlaceRefInMuseumOffset(ObjectReference r, ObjectReference anchor, float
     if r == None || anchor == None
         return
     endif
-    r.MoveTo(anchor, tx - 8.228572, ty - 0.000002, tz - (-0.914286), False, False)
+    r.MoveTo(anchor, tx - anchor.GetPositionX(), ty - anchor.GetPositionY(), tz - anchor.GetPositionZ(), False, False)
 EndFunction
 
 bool Function IsTestModeEnabled()
@@ -209,11 +210,11 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
         s9IntroDialogueOpen = abOpening
         if abOpening && s9IntroScenePending
             s9IntroSceneMenuOpened = True
+            s9IntroSceneAttemptOpened = True
             s9IntroScenePending = False
             s9IntroScenePhase1 = False
             s9IntroScenePhase1At = 0.0
             s9IntroSceneRestarts = 0
-            ownS9IntroStopPending = False
             CancelTimer(4)
             Trace("sanctuary01 s9_sturges_intro dialogue_menu opened stage=" + EffectiveStage())
         elseif !abOpening && s9IntroSceneMenuOpened
@@ -265,9 +266,11 @@ Function RestartOrFailS9IntroScene(string reason)
     if s9IntroSceneRestarts < S9IntroMaxSceneRestarts
         s9IntroSceneRestarts += 1
         s9IntroScenePending = False
+        s9IntroSceneAttemptOpened = False
         s9IntroScenePhase1 = False
         s9IntroScenePhase1At = 0.0
         BindSturges()
+        RegisterS9IntroSceneEvents()
         if S9SturgesIntroScene.IsPlaying()
             ownS9IntroStopPending = True
             S9SturgesIntroScene.Stop()
@@ -279,6 +282,7 @@ Function RestartOrFailS9IntroScene(string reason)
         StartTimer(S9IntroSceneCheckSeconds, 4)
     else
         s9IntroScenePending = False
+        s9IntroSceneAttemptOpened = False
         if S9SturgesIntroScene.IsPlaying()
             ownS9IntroStopPending = True
             S9SturgesIntroScene.Stop()
@@ -333,6 +337,7 @@ Event Scene.OnBegin(Scene akSender)
         endif
         if !s9IntroScenePending && !s9IntroSceneMenuOpened && !s9IntroDialogueOpen
             s9IntroScenePending = True
+            s9IntroSceneAttemptOpened = False
             s9IntroScenePhase1 = False
             s9IntroScenePhase1At = 0.0
             s9IntroSceneChecks = 0
@@ -367,8 +372,9 @@ Event Scene.OnEnd(Scene akSender)
             return
         endif
         int st = EffectiveStage()
-        bool wasOpened = s9IntroSceneMenuOpened || s9IntroDialogueOpen
+        bool wasOpened = s9IntroSceneAttemptOpened || s9IntroSceneMenuOpened || s9IntroDialogueOpen
         s9IntroScenePending = False
+        s9IntroSceneAttemptOpened = False
         s9IntroScenePhase1 = False
         s9IntroScenePhase1At = 0.0
         CancelTimer(4)
@@ -748,6 +754,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     s9IntroDialogueOpen = False
     s9IntroScenePending = False
     s9IntroSceneMenuOpened = False
+    s9IntroSceneAttemptOpened = False
     s9IntroScenePhase1 = False
     s9IntroScenePhase1At = 0.0
     s9IntroSceneChecks = 0
@@ -784,6 +791,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         Actor player = Game.GetPlayer()
         if st >= 100
             BindSturges()
+            RegisterS9IntroSceneEvents()
             KeepSturges(player)
         endif
         EnsureGuideMarker(player)
@@ -1055,11 +1063,14 @@ Function RunSturgesTalk()
             if S9SturgesIntroScene != None
                 if !s9IntroScenePending && !s9IntroDialogueOpen && !s9IntroSceneMenuOpened
                     BindSturges()
+                    RegisterS9IntroSceneEvents()
                     s9IntroScenePending = True
                     s9IntroSceneMenuOpened = False
+                    s9IntroSceneAttemptOpened = False
                     s9IntroScenePhase1 = False
                     s9IntroScenePhase1At = 0.0
                     s9IntroSceneChecks = 0
+                    s9IntroSceneRestarts = 0
                     if !S9SturgesIntroScene.IsPlaying()
                         S9SturgesIntroScene.Start()
                     endif

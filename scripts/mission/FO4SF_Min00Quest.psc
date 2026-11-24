@@ -303,6 +303,7 @@ bool[] s8WavePermDead
 bool s9LobbyPositioned = False
 bool s9LobbyScenePending = False
 bool s9LobbySceneMenuOpened = False
+bool s9LobbySceneAttemptOpened = False
 bool s9LobbyScenePhase1 = False
 float s9LobbyScenePhase1At = 0.0
 int s9LobbySceneChecks = 0
@@ -1317,10 +1318,12 @@ Function RestartOrFailS9LobbyScene(string reason)
     if s9LobbySceneRestarts < PrestonMaxSceneRestarts
         s9LobbySceneRestarts += 1
         s9LobbyScenePending = False
+        s9LobbySceneAttemptOpened = False
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
         EnsurePrestonAlias()
         EnsureActorTalkable(Preston)
+        EnsureS9LobbySceneEvents()
         if S9PrestonLobbyScene.IsPlaying()
             ownS9LobbyStopPending = True
             S9PrestonLobbyScene.Stop()
@@ -1332,6 +1335,7 @@ Function RestartOrFailS9LobbyScene(string reason)
         StartTimer(PrestonSceneCheckSeconds, 5)
     else
         s9LobbyScenePending = False
+        s9LobbySceneAttemptOpened = False
         if S9PrestonLobbyScene.IsPlaying()
             ownS9LobbyStopPending = True
             S9PrestonLobbyScene.Stop()
@@ -4437,7 +4441,9 @@ Function OnS8MemberKilled(int idx, Actor member, Actor player)
     if player != None
         FO4SF_Sanctuary01Quest.EngageTarget(member, player)
     endif
-    s8RespawningCount -= 1
+    if s8RespawningCount > 0
+        s8RespawningCount -= 1
+    endif
     Trace("s8 wave respawn idx=" + idx + " pool_left=" + s8RespawnPool + " wave_kills=" + s8WaveKills + " spawner=" + sp)
     CheckS8WaveAndDeathclaw(player, 0.0)
 EndFunction
@@ -4521,7 +4527,7 @@ Function CheckS8WaveAndDeathclaw(Actor player, float deltaSec)
             wi += 1
         endwhile
     endif
-    if aliveCount == 0 && s8RespawningCount == 0
+    if aliveCount == 0 && s8RespawningCount <= 0
         s8WaveCleared = True
         SetObjectiveCompleted(65)
         s6FullStage = 80
@@ -4564,15 +4570,23 @@ Function EnterS9MuseumLobby(Actor player)
     Trace("s9 mq102_stage=130 lobby_markers=0001F5B6,0001F5B7 moved=" + (museumAnchor != None) + " preston=(" + S9LobbyPrestonX + "," + S9LobbyPrestonY + "," + S9LobbyPrestonZ + ") murphy=(" + S9LobbyMurphyX + "," + S9LobbyMurphyY + "," + S9LobbyMurphyZ + ")")
 EndFunction
 
+Function EnsureS9LobbySceneEvents()
+    if S9PrestonLobbyScene != None
+        RegisterForRemoteEvent(S9PrestonLobbyScene, "OnBegin")
+        RegisterForRemoteEvent(S9PrestonLobbyScene, "OnPhaseBegin")
+        RegisterForRemoteEvent(S9PrestonLobbyScene, "OnEnd")
+    endif
+EndFunction
+
 Function ResetS9LobbyRuntimeState()
     s9LobbyScenePending = False
     s9LobbySceneMenuOpened = False
+    s9LobbySceneAttemptOpened = False
     s9LobbyScenePhase1 = False
     s9LobbyScenePhase1At = 0.0
     s9LobbySceneChecks = 0
     s9LobbySceneRestarts = 0
     ownS9LobbyStopPending = False
-    s8RespawningCount = 0
     CancelTimer(5)
 EndFunction
 
@@ -4587,11 +4601,11 @@ EndFunction
 bool Function TryS9LobbyDialogueMenuOpen(int st)
     if st >= 80 && !s9LobbyCompleted && (s9LobbyScenePending || (S9PrestonLobbyScene != None && S9PrestonLobbyScene.IsPlaying()))
         s9LobbySceneMenuOpened = True
+        s9LobbySceneAttemptOpened = True
         s9LobbyScenePending = False
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
         s9LobbySceneRestarts = 0
-        ownS9LobbyStopPending = False
         CancelTimer(5)
         Trace("s9 lobby dialogue menu opened stage=" + st)
         return True
@@ -4615,6 +4629,7 @@ Function HandleS9LobbySceneBegin(Scene akSender)
     endif
     if !s9LobbyScenePending && !s9LobbySceneMenuOpened && !prestonDialogueMenuOpen
         s9LobbyScenePending = True
+        s9LobbySceneAttemptOpened = False
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
         s9LobbySceneChecks = 0
@@ -4643,6 +4658,8 @@ Function TryTriggerS9LobbyActivate(Actor player)
     if s9LobbyCompleted || IsS9LobbySceneBusy()
         return
     endif
+    s9LobbySceneRestarts = 0
+    s9LobbySceneAttemptOpened = False
     EnterS9MuseumLobby(player)
     if ShouldUseMessageBox()
         Message lMsg = S9PrestonLobbyFallbackMsg
@@ -4662,8 +4679,10 @@ Function TryTriggerS9LobbyActivate(Actor player)
     elseif S9PrestonLobbyScene != None
         EnsurePrestonAlias()
         EnsureActorTalkable(Preston)
+        EnsureS9LobbySceneEvents()
         s9LobbyScenePending = True
         s9LobbySceneMenuOpened = False
+        s9LobbySceneAttemptOpened = False
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
         s9LobbySceneChecks = 0
@@ -4682,8 +4701,9 @@ Function HandleS9LobbySceneEnd()
         ownS9LobbyStopPending = False
         return
     endif
-    bool wasOpened = s9LobbySceneMenuOpened || prestonDialogueMenuOpen
+    bool wasOpened = s9LobbySceneAttemptOpened || s9LobbySceneMenuOpened || prestonDialogueMenuOpen
     s9LobbyScenePending = False
+    s9LobbySceneAttemptOpened = False
     s9LobbyScenePhase1 = False
     s9LobbyScenePhase1At = 0.0
     CancelTimer(5)
