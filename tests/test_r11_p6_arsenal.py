@@ -20,6 +20,7 @@ Covers:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -29,6 +30,7 @@ import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 HERE = Path(__file__).resolve()
@@ -49,6 +51,7 @@ import stage_r11_weapons as sw  # noqa: E402
 from fo4sf import nif, sfmesh, sfnif  # noqa: E402
 from fo4sf.core import cross_plugin_check as cpc  # noqa: E402
 from fo4sf.planet.esm import ESM, PERSISTENT, Plugin, PluginWriter, Record, group_bytes, zbytes  # noqa: E402
+from tests.test_exit_arrival import Reference, _wrap_pstr_literals, translated_functions  # noqa: E402
 
 DRIVE_PATH_RX = re.compile(r"\b[A-Za-z]:[\\/]")
 CARD_PATH = REPO_ROOT / "docs" / "testing" / "round11-p6-arsenal-card.md"
@@ -198,13 +201,14 @@ def _ninode_block(
     children: list[int],
     extra_refs: list[int],
     coll_ref: int = -1,
+    trans: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> bytes:
-    ident = struct.pack("<3f9ff", 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0)
+    xform = struct.pack("<3f9ff", *trans, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0)
     return (
         struct.pack("<iI", f.string_index(name.encode("ascii")), len(extra_refs))
         + (struct.pack(f"<{len(extra_refs)}i", *extra_refs) if extra_refs else b"")
         + struct.pack("<iI", -1, 0xE)
-        + ident
+        + xform
         + struct.pack("<iI", coll_ref, len(children))
         + (struct.pack(f"<{len(children)}i", *children) if children else b"")
     )
@@ -301,7 +305,8 @@ def _stage_minimal_weapon_nif(assets_root: Path, wkey: str, nif_rel: str) -> tup
     nf.blocks[0] = _ninode_block(nf, "WEAPON", node_children["WEAPON"], [1, 4], coll_ref=2)
     for nm in sorted(node_parents):
         bidx = node_block_idx[nm]
-        nf.blocks[bidx] = _ninode_block(nf, nm, node_children[nm], [4])
+        ntr = (0.0, 0.25, 0.05) if (nm == "ProjectileNode" and wkey in sw.WEAPON_DONOR_AF_KEY) else (0.0, 0.0, 0.0)
+        nf.blocks[bidx] = _ninode_block(nf, nm, node_children[nm], [4], trans=ntr)
     nf.footer = struct.pack("<II", 1, 0)
 
     out_np = assets_root / Path(*nif_rel.split("/"))
@@ -381,7 +386,7 @@ def _make_fake_p3_clean_stage_inputs(td_path: Path) -> tuple[Path, Path, Path, P
 
 class R11P6ArsenalTests(unittest.TestCase):
     def test_synthetic_stage_verify_and_nodisintegrate_npc(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(pc.System, "pids", return_value=[]):
             td_p = Path(td)
             assets_dir, cv_src, port_esm, raider_esm, out_dir = _make_fake_p3_clean_stage_inputs(td_p)
             manifest = p6.stage_probe_p6(
@@ -428,6 +433,10 @@ class R11P6ArsenalTests(unittest.TestCase):
                     if it[0] == "REC" and it[2] in (b"REFR", b"ACHR")
                 ]
                 self.assertEqual(len(refrs), 48)
+                # P6-M5: WoodTarget must stay >= 1.8 m clear of FO4Port_Vault_ChairFoldingClosed01 (-47.52, 28.84, 0.01)
+                wood_ref = next(r for r in refrs if (r.formid & 0xFFFFFF) == 0x000815)
+                wx, wy, _wz = struct.unpack_from("<3f", wood_ref.get(b"DATA"), 0)
+                self.assertGreaterEqual(math.hypot(wx - (-47.52), wy - 28.84), 1.80)
 
             # Verify BA2 BS CRC32 + entry hashes directly via probe_common
             gnrl_hashes = pc.verify_ba2_entry_hashes(out_dir / "exp" / p6.PROBE_MAIN_BA2, check_crc32=True)
@@ -462,7 +471,7 @@ class R11P6ArsenalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             bat_dir = Path(td)
             batches = p6.build_p3_batch_scripts(quest_load_prefix=0x11)
-            self.assertEqual(set(batches), {"p6r.txt", "p6t.txt", "p6a.txt", "p6g.txt", "p6c.txt", "p6h1.txt", "p6e.txt", "p6s.txt", "p6q.txt"})
+            self.assertEqual(set(batches), {"p6r.txt", "p6t.txt", "p6a.txt", "p6g.txt", "p6c.txt", "p6d.txt", "p6x.txt", "p6h1.txt", "p6e.txt", "p6s.txt", "p6q.txt"})
             for fn, txt in batches.items():
                 self.assertNotIn("FO4SF_", txt)
                 (bat_dir / fn).write_text(txt, encoding="utf-8")
@@ -487,8 +496,18 @@ class R11P6ArsenalTests(unittest.TestCase):
                     batch_files=[], activate_commands=[], anchors=bad_anchors, hops=bad_hops, interior_mode=False
                 )
 
+    def test_refuses_stage_and_install_while_starfield_is_running(self) -> None:
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(pc.System, "pids", return_value=[42424]):
+            tmp = Path(td)
+            with self.assertRaisesRegex(pc.ProbePreflightError, "is running"):
+                p6.stage_probe_p6(out_dir=tmp / "blocked_stage", min_free_gb=0.001)
+            with self.assertRaisesRegex(pc.ProbePreflightError, "is running"):
+                p6.install_probe_p6(tmp / "s", tmp / "sf", min_free_gb=0.001)
+            with self.assertRaisesRegex(pc.ProbePreflightError, "is running"):
+                pc.uninstall_probe(probe_id=p6.PROBE_ID, starfield_dir=tmp / "sf")
+
     def test_install_status_uninstall_roundtrip_baseline_warning_and_pipboy_reuse(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(pc.System, "pids", return_value=[]):
             td_p = Path(td)
             assets_dir, cv_src, port_esm, raider_esm, out_dir = _make_fake_p3_clean_stage_inputs(td_p)
             p6.stage_probe_p6(
@@ -532,19 +551,36 @@ class R11P6ArsenalTests(unittest.TestCase):
             for fname in (p6.PROBE_MAIN_BA2, p6.PROBE_TEX_BA2):
                 self.assertTrue((data_dir / fname).is_file())
 
-            # Verify dynamic quest slot prefix stamped into p6t.txt matches FO4SF_R11P6Arsenal full master slot
+            # Verify X3 dynamic quest slot prefix stamped into p6t.txt / p6x.txt (0 implicit ESMs on disk + 1 *FO4Port.esm -> 0x01)
             p6t_txt = (sf_dir / "p6t.txt").read_text(encoding="utf-8")
-            self.assertIn("SetStage 07000830 20", p6t_txt)
+            self.assertIn("SetStage 01000830 20", p6t_txt)
+            self.assertIn("SetStage 01000830 25", (sf_dir / "p6x.txt").read_text(encoding="utf-8"))
+            self.assertEqual((sf_dir / "p6d.txt").read_text(encoding="utf-8").strip().splitlines()[-1], "tgm")
 
             st_installed = pc.probe_status(probe_id=p6.PROBE_ID, starfield_dir=sf_dir)
             self.assertTrue(st_installed["installed"])
 
-            # Rollback test: inject failure after swap/add starts and confirmPlugins/files roll back untouched? Wait: test rollback on second install attempt error
+            # Rollback test: confirmPlugins/files/bats roll back untouched
             pc.uninstall_probe(probe_id=p6.PROBE_ID, starfield_dir=sf_dir)
             self.assertFalse((data_dir / p6.PROBE_PLUGIN).exists())
             self.assertFalse((sf_dir / "p6r.txt").exists())
+            self.assertFalse((sf_dir / "p6d.txt").exists())
+            self.assertFalse((sf_dir / "p6x.txt").exists())
             self.assertEqual((data_dir / "FO4SFCoreValues.esm").read_bytes(), fake_cv_orig)
             self.assertEqual(plugins_txt.read_bytes(), orig_plugins_bytes)
+
+            # P6-L1: test-profile baseline must refuse by default and warn when allow_test_baseline=True
+            cand_marker = data_dir / "FO4SFCoreCandidate.esm"
+            cand_marker.write_bytes(b"TES4")
+            with self.assertRaisesRegex(p6.ProbeP6Error, "test'-profile candidate"):
+                p6.install_probe_p6(out_dir, sf_dir, plugins_txt=plugins_txt, min_free_gb=0.01)
+            with mock.patch.object(pc, "BASE_FO4PORT_SHA256_PREFIX", fake_port_sha), \
+                 warnings.catch_warnings(record=True) as wlog_t:
+                warnings.simplefilter("always")
+                p6.install_probe_p6(out_dir, sf_dir, plugins_txt=plugins_txt, min_free_gb=0.01, allow_test_baseline=True)
+            self.assertTrue(any("test'-profile candidate" in str(w.message) for w in wlog_t))
+            pc.uninstall_probe(probe_id=p6.PROBE_ID, starfield_dir=sf_dir)
+            cand_marker.unlink()
 
             # Fault injection AFTER files & Plugins.txt are written rolls back everything atomically
             def _inject_after_plugins(step: str) -> None:
@@ -668,6 +704,8 @@ class R11P6ArsenalTests(unittest.TestCase):
             "capsmisc": "miscobject",
             "bobbypinmisc": "miscobject",
             "stimpakalch": "potion",
+            "critplasmaspell": "spell",
+            "critlaserspell": "spell",
             "nodisintegratekw": "keyword",
             "healthav": "actorvalue",
             "hidesuitav": "actorvalue",
@@ -688,6 +726,74 @@ class R11P6ArsenalTests(unittest.TestCase):
             equipped_idx = 0 if equipped_idx + 1 >= len(p6.WEAP_RACK_SPECS) else equipped_idx + 1
             visited.append(p6.WEAP_RACK_SPECS[equipped_idx].tag)
         self.assertEqual(len(set(visited)), 23)
+
+        # 3b. Translated Papyrus execution: GetEquippedWeapon() beats FragMine IsEquipped shadow,
+        #     stage 25 toggles forceCritDisint & OnDying casts CritLaser/CritPlasma while honoring NoDisintegrate
+        funcs = ("FindWeaponIndex", "EquippedWeaponTag", "OnStageSet", "CycleNextArsenalWeapon", "Actor.OnDying")
+        vars_csv = "forceCritDisint, fleshKills, robotKills, noDisintKills, ShowcaseWeapons, WeaponTags"
+        w_objs = {sp.tag: object() for sp in p6.WEAP_RACK_SPECS}
+        weap_list = [w_objs[sp.tag] for sp in p6.WEAP_RACK_SPECS]
+        tag_list = [sp.tag for sp in p6.WEAP_RACK_SPECS]
+        eq_state = {"primary": w_objs["laserpistol"], "thrown": w_objs["fragmine"]}
+        player = Reference(None, (-52.40, 29.85, 0.05), form_id=0x14)
+        player.GetEquippedWeapon = lambda: eq_state["primary"]  # type: ignore[attr-defined]
+        player.IsEquipped = lambda f: (f is eq_state["primary"] or f is eq_state["thrown"])  # type: ignore[attr-defined]
+        player.GetItemCount = lambda f: 1  # type: ignore[attr-defined]
+        player.EquipItem = lambda f, *_: eq_state.__setitem__("primary", f)  # type: ignore[attr-defined]
+
+        no_dis_kw = object()
+        flesh_dummy = SimpleNamespace(HasKeyword=lambda kw: False)
+        robot_dummy = SimpleNamespace(HasKeyword=lambda kw: False)
+        nodis_dummy = SimpleNamespace(HasKeyword=lambda kw: kw is no_dis_kw)
+        cast_calls: list[tuple[str, object]] = []
+        crit_laser = SimpleNamespace(Cast=lambda src, tgt: cast_calls.append(("laser", tgt)))
+        crit_plasma = SimpleNamespace(Cast=lambda src, tgt: cast_calls.append(("plasma", tgt)))
+        logs: list[str] = []
+
+        ns = dict(
+            Log=logs.append,
+            GrantAllShowcaseGear=lambda: None,
+            SpawnOrResetTargets=lambda: None,
+            LogScorecard=lambda tag: None,
+            forceCritDisint=False,
+            fleshKills=0,
+            robotKills=0,
+            noDisintKills=0,
+            ShowcaseWeapons=weap_list,
+            WeaponTags=tag_list,
+            FleshDummy=flesh_dummy,
+            RobotDummy=robot_dummy,
+            NoDisintDummy=nodis_dummy,
+            NoDisintegrateKw=no_dis_kw,
+            CritLaserSpell=crit_laser,
+            CritPlasmaSpell=crit_plasma,
+            Game=SimpleNamespace(GetPlayer=lambda: player),
+        )
+        py_src = "\n".join(
+            ln if idx < 5 else _wrap_pstr_literals(ln)
+            for idx, ln in enumerate(translated_functions(psc_text, funcs, vars_csv).splitlines())
+        )
+        exec(compile(py_src, str(QUEST_PSC_PATH), "exec"), ns)
+
+        # With FragMine still IsEquipped=True AND LaserPistol in primary hand, GetEquippedWeapon resolves laserpistol!
+        self.assertEqual(ns["EquippedWeaponTag"](player), "laserpistol")
+        ns["CycleNextArsenalWeapon"]()
+        self.assertIs(eq_state["primary"], w_objs["laserrifle"])
+
+        # Enable stage 25 deterministic goo/ash, kill with Laser & Plasma, and check NoDisintegrate suppression
+        ns["OnStageSet"](25, 0)
+        self.assertTrue(ns["forceCritDisint"])
+        eq_state["primary"] = w_objs["laserpistol"]
+        ns["OnDying"](flesh_dummy, player)
+        eq_state["primary"] = w_objs["plasmapistol"]
+        ns["OnDying"](flesh_dummy, player)
+        eq_state["primary"] = w_objs["plasmarifle"]
+        ns["OnDying"](nodis_dummy, player)
+
+        self.assertEqual(cast_calls, [("laser", flesh_dummy), ("plasma", flesh_dummy)])
+        self.assertTrue(any("kill target=flesh eq=laserpistol force_crit=laser" in ln for ln in logs), logs)
+        self.assertTrue(any("kill target=flesh eq=plasmapistol force_crit=plasma" in ln for ln in logs), logs)
+        self.assertTrue(any("kill target=nodisint no_disintegrate=True eq=plasmarifle force_crit=suppressed_nodisint" in ln for ln in logs), logs)
 
         # 4. File hygiene: zero UTF-8 BOM & zero Windows drive paths
         for path in (PROBES_DIR / "stage_r11_p6_arsenal.py", QUEST_PSC_PATH, HERE, IMPACTS_DOC_PATH, CARD_PATH):
@@ -728,6 +834,10 @@ class R11P6ArsenalTests(unittest.TestCase):
                 set(info["node_names"]) - {"WEAPON", "ProjectileNode"} - set(info["node_to_shapes"]) - set(info["node_parents"].values())
             )
             self.assertEqual(empty_leaves, [], f"{wkey} has empty helper NiNodes: {empty_leaves}")
+            if wkey in sw.WEAPON_DONOR_AF_KEY:
+                self.assertGreater(info["node_world_m"]["ProjectileNode"][0][1], 0.0, f"{wkey} ProjectileNode.y <= 0")
+                for nm in sw.FORBIDDEN_RANGED_IDENTITY_MOVING_NODES:
+                    self.assertNotIn(nm, info["node_names"], f"{wkey} retained FO4 moving node {nm}")
 
 
 if __name__ == "__main__":

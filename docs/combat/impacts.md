@@ -11,8 +11,9 @@ Verified directly against `Starfield.esm`:
 | `Starfield.esm` FormID | EditorID | Role |
 |---|---|---|
 | `0x0000D02C` | `FXProjectileBulletImpactSet` | Ballistic guns (`10mm`, `Minigun`, `Pipe Pistol/Rifle`, `Pipe Revolver`, `Hunting Rifle`, `Submachine Gun`, `Assault Rifle`) |
-| `0x00055DC3` | `WPNHandBladeSmall_ImpactSet` | Light melee (`Baton`) |
-| `0x0005C498` | `WPNMeleeImpactBladeMediumSet` | Medium melee (`Baseball Bat`) |
+| `0x000116F1` | `WPNMeleeBashGunSmallImpactSet` | Blunt melee (`Baton`, `Baseball Bat` — replaces bladed `0x00055DC3` / `0x0005C498` per `P6-H2`) |
+| `0x00055DC3` | `WPNHandBladeSmall_ImpactSet` | Bladed small melee (`Switchblade`/`Combat Knife` class; NOT used for blunt `Baton`) |
+| `0x0005C498` | `WPNMeleeImpactBladeMediumSet` | Bladed medium melee (`Sword`/`Axe` class; NOT used for blunt `Baseball Bat`) |
 | `0x00252B4C` | `WPNMeleeBashHandImpactSet` | Unarmed (`UnarmedHuman`) |
 | `0x00239D0F` | `FXProjectileShotgunImpactSet` | Pump/combat shotgun (`Combat Shotgun`) |
 | `0x001D7FEC` | `FXProjectileShotgunCoachmanSet` | Break-action shotgun (`Double-Barrel Shotgun`) |
@@ -34,7 +35,7 @@ Every weapon written by `dotnet/CoreValues/Program.cs` sets `Weapon.ImpactDataSe
 | `FO4SFCoreValues.esm` | EditorID | `Fallout4.esm` Source | Donor (`Starfield.esm`) | `WEAP.WVIS[12:16]` (`IPDS`) |
 |---|---|---|---|---|
 | `0x000899` | `FO4_10mmPistol` | `00004822` | `XM2311` (`0024561C`) | `0x0000D02C` (`FXProjectileBulletImpactSet`) |
-| `0x00089A` | `FO4_Baton` | `0008C14D` | `RescueAxe` (`0004F760`) | `0x00055DC3` (`WPNHandBladeSmall_ImpactSet`) |
+| `0x00089A` | `FO4_Baton` | `0008C14D` | `RescueAxe` (`0004F760`) | `0x000116F1` (`WPNMeleeBashGunSmallImpactSet`) |
 | `0x00089D` | `FO4_LaserMusket` | `0001DACF` | `Orion` (`002773C8`) | `0x001C1162` (`FXProjectileOrionLaserImpactSet`) |
 | `0x00089E` | `FO4_CompPrestonLaserMusket` | `00062AA6` | `Orion` (`002773C8`) | `0x001C1162` (`FXProjectileOrionLaserImpactSet`) |
 | `0x0008A0` | `FO4_Minigun` | `0001F669` | `Microgun` (`000546CD`) | `0x0000D02C` (`FXProjectileBulletImpactSet`) |
@@ -51,7 +52,7 @@ Every weapon written by `dotnet/CoreValues/Program.cs` sets `Weapon.ImpactDataSe
 | `0x0008CD` | `FO4_AssaultRifle` | `0000463F` | `AA99` (`002BF65B`) | `0x0000D02C` (`FXProjectileBulletImpactSet`) |
 | `0x0008CE` | `FO4_LaserPistol` | `0009983B` | `Solstice` (`0026D961`) | `0x001F5DA1` (`FXProjectileEquinoxLaserImpactSet`) |
 | `0x0008CF` | `FO4_LaserRifle` | `0009983B` | `Equinox` (`0001BC4F`) | `0x001F5DA1` (`FXProjectileEquinoxLaserImpactSet`) |
-| `0x0008D0` | `FO4_BaseballBat` | `0008E736` | `RescueAxe` (`0004F760`) | `0x0005C498` (`WPNMeleeImpactBladeMediumSet`) |
+| `0x0008D0` | `FO4_BaseballBat` | `0008E736` | `RescueAxe` (`0004F760`) | `0x000116F1` (`WPNMeleeBashGunSmallImpactSet`) |
 | `0x0008D1` | `FO4_MissileLauncher` | `0003F6F8` | `Bridger` (`0026D96A`) | `0x0015CCFD` (`FXProjectileExplosiveImpactSet`) |
 | `0x0008D2` | `FO4_FatMan` | `000BD56F` | `Bridger` (`0026D96A`) | `0x0015CCFD` (`FXProjectileExplosiveImpactSet`) |
 | `0x0008D3` | `FO4_Flamer` | `000E5881` | `ArcWelder` (`0026D965`) | `0x00115BE5` (`FXProjectileFlamethrowerImpactSet`) |
@@ -103,3 +104,31 @@ Verified against `Fallout4.esm` `RACE.NAM4 -> MATT` and `Starfield.esm` `MATT` /
   - `FO4_GooPile01` (`ACTI 0x0008C1`) duplicates `AshPile01` (`0x0009142E`, retaining `IsAshpile` `0x0018FB4B`) with converted `Fallout4.esm` `GooPile01` (`0x00139F8D`) mesh `fo4core\effects\ashpileplasmagoo.nif`.
   - `FO4_CritPlasmaEffect` (`MGEF 0x0008C2`) duplicates `CritLaserEffect` (`0x0024EF20`), keeps the `NoDisintegrate` (`0x0022DB8F`) condition check, and retargets `VMAD` `AttachAshPile.AshPileObject` to `FO4_GooPile01` (`0x0008C1`).
   - `FO4_CritPlasma` (`SPEL 0x0008C3`) uses `FO4_CritPlasmaEffect` (`Mag=10, Area=0, Dur=10` per FO4 `CritPlasma` `0x00139F8C` / `CritPlasmaEffect` `0x00139F8B`) and is bound (`CritEffectOnDeathOnly = true`) on `FO4_PlasmaPistol` (`0x0008D4`) and `FO4_PlasmaRifle` (`0x0008D5`).
+
+---
+
+## 5. Starfield Donor 1P `.af` Track Lists (`P6-H3`, `Starfield - Animations.ba2`)
+
+Decoded via Starfield's inverted IEEE CRC32 track hashes (`sfnif.material_id`, `.af` `0x48BAE9BF` = `Trigger` matching donor NIF `TRIGGER`):
+
+| Weapon | Donor (`Starfield.esm`) | Observed 1P `.af` Tracks | Mapped FO4 Moving Nodes (`fo4_part_map`) |
+|---|---|---|---|
+| `10mm` | `XM2311` (`0x24561C`) | `Bolt, Magazine, MiscA..MiscA06, TRIGGER` (`gun_firesingle.af`) | `MiscA06` (`WeaponBolt`), `Magazine`, `TRIGGER`, `MiscA01` (`WeaponExtra1`), `MiscA02` (`WeaponExtra2`), `MiscA03` (`WeaponExtra3`) |
+| `lasermusket` | `Orion` (`0x2773C8`) | `Magazine, MiscA..MiscA04, Scope, TRIGGER` | `Magazine` (`WeaponMagazine` crank), `TRIGGER`, `MiscA01..03` (`WeaponExtra1..3`) |
+| `minigun` | `Microgun` (`0x0546CD`) | `Magazine, MiscA..MiscA14, TRIGGER` | `MiscA01` (`WeaponBolt` -> `BarrelRoot` -> `Minigun_Barrel`), `Magazine` (`WeaponMagazine` -> `Minigun_AmmoDrum`) |
+| `pipepistol` | `Eon` (`0x0476C4`) | `firesingle`: `Magazine, Magazine01, MiscB01..05, TRIGGER` (`fireauto` adds `Bolt..03, MiscA..05, MiscB, Scope..02`) | `MiscB01` (`WeaponBolt`), `MiscB02` (`WeaponExtra1`), `MiscB03` (`WeaponExtra2`), `Magazine` (`WeaponExtra3`), `TRIGGER` |
+| `piperifle` | `Beowulf` (`0x04716C`) | `Magazine, Magazine01, MiscA..MiscA10, MiscB, Scope, TRIGGER` | `MiscA` (`WeaponBolt`), `MiscA01..02` (`WeaponExtra1..2`), `Magazine` (`WeaponExtra3`), `TRIGGER` |
+| `piperevolver` | `Razorback` (`0x000FD6`) | `Bolt, Magazine..06, MiscA..19, TRIGGER` | `Bolt`, `Magazine`, `Magazine01..03` (`WeaponMagazineChild1..3`), `MiscA01` (`WeaponExtra1`), `TRIGGER` |
+| `huntingrifle` | `Lawgiver` (`0x02D7F4`) | `Magazine, MiscA..02, Scope, TRIGGER` | `MiscA` (`WeaponBolt`), `Magazine`, `TRIGGER` |
+| `combatshotgun` | `Pacifier` (`0x2953F8`) | `Bolt, Bolt01, Magazine, Magazine01, MiscA..03, TRIGGER` | `Bolt`, `Magazine` |
+| `doublebarrel` | `Coachman` (`0x26D96B`) | `MiscA..04, TRIGGER` | `MiscA` (`WeaponMagazine` -> `Shotgun_Barrel_Medium`), `MiscA01` (`WeaponExtra1`), `MiscA02..03` (`WeaponMagazineChild1..2`), `TRIGGER` |
+| `submachinegun` | `Maelstrom` (`0x2984DF`) | `Bolt..03, Magazine..02, MiscA..07, TRIGGER` | `Bolt`, `Magazine`, `TRIGGER` |
+| `assaultrifle` | `AA99` (`0x2BF65B`) | `Bolt..02, Magazine..02, MiscA..10, MiscB..02, TRIGGER` | `Magazine`, `MiscA01` (`WeaponExtra1` carry handle) |
+| `laserpistol` | `Solstice` (`0x26D961`) | `Magazine, MiscA..03, ProjectileNode, TRIGGER` | `MiscA` (`WeaponBolt`), `MiscA01` (`WeaponExtra1`), `MiscA02` (`WeaponOptics1`), `MiscA03` (`CSlide`), `Magazine` |
+| `laserrifle` | `Equinox` (`0x01BC4F`) | `Bolt..03, Magazine..08, MiscA..05, MiscB..05, Scope..02, TRIGGER` | `MiscB` (`WeaponBolt`), `MiscA01` (`WeaponExtra1`), `MiscA02` (`WeaponOptics1`), `Magazine` |
+| `missilelauncher` | `Bridger` (`0x26D96A`) | `Bolt, Magazine..04, MiscA..04, TRIGGER` | `TRIGGER`, `MiscA` (`WeaponExtra2`), `MiscA01` (`CBarrelPivot`), `Bolt` (`CBarrelHandle`), `Magazine01` (`CMissile`) |
+| `fatman` | `Bridger` (`0x26D96A`) | `Bolt, Magazine..04, MiscA..04, TRIGGER` | `Bolt`, `Magazine`, `TRIGGER`, `Magazine01` (`CNuke`) |
+| `flamer` | `ArcWelder` (`0x26D965`) | `Magazine, MiscA, TRIGGER` (`reload.af`; `gun_*.af=[]`) | `Magazine` (`WeaponExtra3`), `MiscA` (`WeaponExtra1+WeaponExtra2+WeaponOptics2`) |
+| `plasmapistol` | `Novalight` (`0x26D967`) | `Magazine, MiscA..03, TRIGGER` | `Magazine`, `TRIGGER`, `MiscA` (`WeaponExtra1+WeaponOptics2`), `MiscA01` (`WeaponExtra2`), `MiscA02` (`WeaponExtra3`), `MiscA03` (`WeaponOptics1`) |
+| `plasmarifle` | `Va'ruun Inflictor` (`0x26D8A0`) | `Magazine, TRIGGER` (`firesingle.af`/`reload.af`; `gun_*.af=[]`) | `Magazine`, `TRIGGER` (`PlasmaValve1..5` fixed on `PlasmaReceiver`) |
+| `gaussrifle` | `Magsniper` (`0x02EB45`) | `Magazine, MiscA..04, TRIGGER` | `MiscA` (`WeaponBolt`), `Magazine`, `TRIGGER` (empty `WeaponOptics1` removed) |

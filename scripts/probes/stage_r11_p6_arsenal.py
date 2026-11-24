@@ -18,7 +18,7 @@ Builds the standalone Probe P6 folder (outside Git worktrees, outside Starfield 
       FO4SF_R11P6Arsenal - Textures.ba2 (BTDX v2 DX10 via probe_common.pack_dx10_ba2)
       Data/Scripts/FO4SF_R11P6Quest.pex
     bat/                                (P3-clean .txt batches: 0 M/N/V, 0 stripped FO4SF_ EDIDs, <200 m/axis hops)
-      p6r.txt, p6t.txt, p6a.txt, p6g.txt, p6c.txt, p6h1.txt, p6e.txt, p6s.txt, p6q.txt
+      p6r.txt, p6t.txt, p6a.txt, p6g.txt, p6c.txt, p6d.txt, p6x.txt, p6h1.txt, p6e.txt, p6s.txt, p6q.txt
     manifest.json                       (SHA-256s, overridden candidate files, floor-clearance bounds, BA2 verification)
 """
 from __future__ import annotations
@@ -126,7 +126,7 @@ TARGET_SPECS: Tuple[Tuple[str, int, str, int, Tuple[float, float, float], Tuple[
     ("ACHR", FID_ACHR_ROBOT,    "FO4SF_P6_RobotDummyRef",    SF_ROBOT_MINIBOT_GARDEN, (-48.40, 29.40, 0.00), (0.0, 0.0, math.radians(270.0)), REFR_PERSISTENT | REFR_INITIALLY_DISABLED, (0.0, 1.10)),
     ("ACHR", FID_ACHR_NODISINT, "FO4SF_P6_NoDisintDummyRef", FID_NPC_NODISINT,        (-47.80, 29.95, 0.00), (0.0, 0.0, math.radians(270.0)), REFR_PERSISTENT | REFR_INITIALLY_DISABLED, (0.0, 1.80)),
     ("REFR", FID_REF_STONE,     "FO4SF_P6_StoneTargetRef",   SF_STONE_STAT,           (-47.10, 30.50, 0.48), (0.0, 0.0, 0.0),                 REFR_PERSISTENT | REFR_DONT_HAVOK_SETTLE, (-0.470, 0.473)),
-    ("REFR", FID_REF_WOOD,      "FO4SF_P6_WoodTargetRef",    SF_WOOD_STAT,            (-47.10, 28.90, 0.01), (0.0, 0.0, 0.0),                 REFR_PERSISTENT | REFR_DONT_HAVOK_SETTLE, (-0.0002, 0.999)),
+    ("REFR", FID_REF_WOOD,      "FO4SF_P6_WoodTargetRef",    SF_WOOD_STAT,            (-45.55, 28.10, 0.01), (0.0, 0.0, 0.0),                 REFR_PERSISTENT | REFR_DONT_HAVOK_SETTLE, (-0.0002, 0.999)),
 )
 
 SANCTUARY_BENCH_ANCHOR = pc.AnchorPoint("sanctuary_bench", -2329.25, -1420.19, 112.09, "exterior")
@@ -208,89 +208,24 @@ class ProbeP6Error(ValueError):
 
 
 # ---------------------------------------------------------------------------
-# Pure-Python ESM / VMAD v6 & Bounds-Above-Floor Helpers (F4)
+# Pure-Python ESM / VMAD v6 (shared via probe_common) & Bounds-Above-Floor Helpers (F4)
 # ---------------------------------------------------------------------------
-VMAD_T_OBJECT, VMAD_T_STRING, VMAD_T_INT, VMAD_T_FLOAT, VMAD_T_BOOL = 1, 2, 3, 4, 5
-VMAD_T_OBJECT_ARR, VMAD_T_STRING_ARR, VMAD_T_INT_ARR = 11, 12, 13
-QUST_VMAD_TAIL = b"\x03\x00\x00\x00\x00\x00\x00"
+VMAD_T_OBJECT = pc.VMAD_T_OBJECT
+VMAD_T_STRING = pc.VMAD_T_STRING
+VMAD_T_INT = pc.VMAD_T_INT
+VMAD_T_FLOAT = pc.VMAD_T_FLOAT
+VMAD_T_BOOL = pc.VMAD_T_BOOL
+VMAD_T_OBJECT_ARR = pc.VMAD_T_OBJECT_ARR
+VMAD_T_STRING_ARR = pc.VMAD_T_STRING_ARR
+VMAD_T_INT_ARR = pc.VMAD_T_INT_ARR
+QUST_VMAD_TAIL = pc.QUST_VMAD_TAIL
 
-
-def _vmad_wstr(s: str) -> bytes:
-    raw = str(s).encode("cp1252")
-    if len(raw) > 0xFFFF:
-        raise ProbeP6Error("VMAD string too long")
-    return struct.pack("<H", len(raw)) + raw
-
-
-def _encode_vmad_v6(scripts: Sequence[dict]) -> bytes:
-    out = bytearray(struct.pack("<hHH", 6, 2, len(scripts)))
-    for sc in scripts:
-        props = sc.get("properties") or []
-        out += _vmad_wstr(sc["name"]) + struct.pack("<BH", int(sc.get("status", 0)), len(props))
-        for p in props:
-            t = int(p["type"])
-            out += _vmad_wstr(p["name"]) + struct.pack("<BB", t, int(p.get("status", 1)))
-            v = p["value"]
-            if t == VMAD_T_OBJECT:
-                out += struct.pack("<HhI", 0, int(v.get("alias", -1)), int(v["form"]))
-            elif t == VMAD_T_STRING:
-                out += _vmad_wstr(v)
-            elif t == VMAD_T_INT:
-                out += struct.pack("<i", int(v))
-            elif t == VMAD_T_FLOAT:
-                out += struct.pack("<f", float(v))
-            elif t == VMAD_T_BOOL:
-                out += struct.pack("<B", 1 if v else 0)
-            elif t == VMAD_T_OBJECT_ARR:
-                out += struct.pack("<I", len(v))
-                for elem in v:
-                    out += struct.pack("<HhI", 0, int(elem.get("alias", -1)), int(elem["form"]))
-            elif t == VMAD_T_STRING_ARR:
-                out += struct.pack("<I", len(v))
-                for s_item in v:
-                    out += _vmad_wstr(s_item)
-            elif t == VMAD_T_INT_ARR:
-                out += struct.pack("<I", len(v))
-                for i_item in v:
-                    out += struct.pack("<i", int(i_item))
-            else:
-                raise ProbeP6Error(f"unsupported VMAD property type {t}")
-    return bytes(out)
-
-
-def _pack_subs(subs: Sequence[Tuple[bytes, bytes]]) -> bytes:
-    out = bytearray()
-    for sig, data in subs:
-        if len(data) > 0xFFFF:
-            out += b"XXXX" + struct.pack("<HI", 4, len(data)) + sig + struct.pack("<H", 0) + data
-        else:
-            out += sig + struct.pack("<H", len(data)) + data
-    return bytes(out)
-
-
-def _rec_bytes(sig: bytes, fid: int, subs: Sequence[Tuple[bytes, bytes]], flags: int = 0, version: int = 576) -> bytes:
-    payload = _pack_subs(subs)
-    return sig + struct.pack("<IIIIHH", len(payload), flags, fid, 0, version, 0) + payload
-
-
-def _grup_bytes(label_4b: bytes, gtype: int, payload: bytes) -> bytes:
-    return b"GRUP" + struct.pack("<I4sIII", 24 + len(payload), label_4b, gtype, 0, 0) + payload
-
-
-def _count_records_and_grups(stream: bytes, start: int = 0, end: Optional[int] = None) -> int:
-    stop = len(stream) if end is None else end
-    pos = start
-    count = 0
-    while pos < stop:
-        sig = stream[pos : pos + 4]
-        sz, = struct.unpack_from("<I", stream, pos + 4)
-        count += 1
-        if sig == b"GRUP":
-            count += _count_records_and_grups(stream, pos + 24, pos + sz)
-            pos += sz
-        else:
-            pos += 24 + sz
-    return count
+_vmad_wstr = pc.vmad_wstr
+_encode_vmad_v6 = pc.encode_vmad_v6
+_pack_subs = pc.pack_subs
+_rec_bytes = pc.rec_bytes
+_grup_bytes = pc.grup_bytes
+_count_records_and_grups = pc.count_records_and_grups
 
 
 def _rot_xyz_z_minmax(bmin: Tuple[float, float, float], bmax: Tuple[float, float, float], rot: Tuple[float, float, float]) -> Tuple[float, float]:
@@ -358,46 +293,8 @@ def compute_asset_local_bounds(assets_dir: Path) -> Dict[str, Tuple[Tuple[float,
     return bounds
 
 
-def _extract_port_cell_record_bytes(port_esm: Optional[Path], cell_fid: int = PORT_V111_CELL) -> bytes:
-    if port_esm is not None and port_esm.is_file():
-        raw = port_esm.read_bytes()
-        pos = 0
-        while pos < len(raw):
-            sig = raw[pos : pos + 4]
-            sz, = struct.unpack_from("<I", raw, pos + 4)
-            if sig == b"GRUP":
-                pos += 24
-            else:
-                fid, = struct.unpack_from("<I", raw, pos + 12)
-                if sig == b"CELL" and fid == cell_fid:
-                    return raw[pos : pos + 24 + sz]
-                pos += 24 + sz
-    return _rec_bytes(
-        b"CELL",
-        cell_fid,
-        [(b"EDID", b"FO4Port_Vault111Cryo\x00"), (b"DATA", struct.pack("<H", 1))],
-        flags=0,
-        version=576,
-    )
-
-
-def _refr_item(
-    fid: int,
-    edid: str,
-    base_fid: int,
-    pos: Tuple[float, float, float],
-    rot: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    count: Optional[int] = None,
-    flags: int = REFR_PERSISTENT | REFR_DONT_HAVOK_SETTLE,
-) -> bytes:
-    subs: List[Tuple[bytes, bytes]] = [
-        (b"EDID", edid.encode("ascii") + b"\x00"),
-        (b"NAME", struct.pack("<I", base_fid)),
-    ]
-    if count is not None:
-        subs.append((b"XCNT", struct.pack("<i", int(count))))
-    subs.append((b"DATA", struct.pack("<6f", pos[0], pos[1], pos[2], rot[0], rot[1], rot[2])))
-    return _rec_bytes(b"REFR", fid, subs, flags=flags)
+_extract_port_cell_record_bytes = pc.extract_cell_record_bytes
+_refr_item = pc.refr_item
 
 
 def _build_nodisint_npc(raider_esm: Optional[Path]) -> bytes:
@@ -573,6 +470,8 @@ def build_p6_arsenal_esm(
         {"name": "CapsMisc",        "type": VMAD_T_OBJECT,     "status": 1, "value": {"form": (M_CV << 24) | 0x0008A4, "alias": -1}},
         {"name": "BobbyPinMisc",    "type": VMAD_T_OBJECT,     "status": 1, "value": {"form": (M_CV << 24) | 0x0008A5, "alias": -1}},
         {"name": "StimpakAlch",     "type": VMAD_T_OBJECT,     "status": 1, "value": {"form": (M_CV << 24) | 0x000851, "alias": -1}},
+        {"name": "CritPlasmaSpell", "type": VMAD_T_OBJECT,     "status": 1, "value": {"form": (M_CV << 24) | 0x0008C3, "alias": -1}},
+        {"name": "CritLaserSpell",  "type": VMAD_T_OBJECT,     "status": 1, "value": {"form": (M_CV << 24) | 0x0008C4, "alias": -1}},
         {"name": "NoDisintegrateKw","type": VMAD_T_OBJECT,     "status": 1, "value": {"form": SF_KW_NO_DISINTEGRATE, "alias": -1}},
         {"name": "HealthAV",        "type": VMAD_T_OBJECT,     "status": 1, "value": {"form": SF_AV_HEALTH, "alias": -1}},
         {"name": "HideSuitAV",      "type": VMAD_T_OBJECT,     "status": 1, "value": {"form": SF_AV_HIDE_SUIT, "alias": -1}},
@@ -594,6 +493,7 @@ def build_p6_arsenal_esm(
             (b"INDX", struct.pack("<I", 10)), (b"QSDT", b"\x00"),
             (b"INDX", struct.pack("<I", 15)), (b"QSDT", b"\x00"),
             (b"INDX", struct.pack("<I", 20)), (b"QSDT", b"\x00"),
+            (b"INDX", struct.pack("<I", 25)), (b"QSDT", b"\x00"),
             (b"INDX", struct.pack("<I", 30)), (b"QSDT", b"\x00"),
         ],
         flags=0,
@@ -607,13 +507,7 @@ def build_p6_arsenal_esm(
         + _grup_bytes(b"QUST", 0, quest_rec)
     )
     masters = ("Starfield.esm", "FO4Port.esm", "FO4SFCoreValues.esm", "FO4ActorRaider.esm")
-    next_obj_id = 0x000841
-    tes4_subs: List[Tuple[bytes, bytes]] = [(b"HEDR", struct.pack("<fII", 0.96, _count_records_and_grups(body), next_obj_id))]
-    for m in masters:
-        tes4_subs.append((b"MAST", m.encode("ascii") + b"\x00"))
-        tes4_subs.append((b"DATA", struct.pack("<Q", 0)))
-    tes4 = _rec_bytes(b"TES4", 0, tes4_subs, flags=1, version=576)
-    return tes4 + body, placement_audit
+    return pc.build_esm(masters, body, 0x000841), placement_audit
 
 
 def verify_placed_refs_above_floor(placement_audit: Sequence[Mapping[str, object]], floor_z: float = VAULT_FLOOR_Z) -> None:
@@ -642,7 +536,7 @@ def build_p3_batch_scripts(quest_load_prefix: int = DEFAULT_QUEST_LOAD_PREFIX) -
             "player.setangle z 90\n"
         ),
         "p6t.txt": (
-            "; R11 P6 face east on firing line and spawn/reset Flesh, SF Robot, NoDisint, Stone, Wood targets\n"
+            "; R11 P6 INTERIOR-ONLY (FO4Port_Vault111Cryo): face east on firing line and spawn/reset 5 targets\n"
             f"player.setpos x {OVERSEER_P6_STANCE[0]:.2f}\n"
             f"player.setpos y {OVERSEER_P6_STANCE[1]:.2f}\n"
             f"player.setpos z {OVERSEER_P6_STANCE[2]:.2f}\n"
@@ -650,7 +544,7 @@ def build_p3_batch_scripts(quest_load_prefix: int = DEFAULT_QUEST_LOAD_PREFIX) -
             f"SetStage {qhex} 20\n"
         ),
         "p6a.txt": (
-            "; R11 P6 interior hop to South Overseer weapon racks 2 and 3 showcase tables\n"
+            "; R11 P6 INTERIOR-ONLY (FO4Port_Vault111Cryo): hop to South Overseer weapon racks 2 and 3 tables\n"
             f"player.setpos x {OVERSEER_P6_RACKS_STANCE[0]:.2f}\n"
             f"player.setpos y {OVERSEER_P6_RACKS_STANCE[1]:.2f}\n"
             f"player.setpos z {OVERSEER_P6_RACKS_STANCE[2]:.2f}\n"
@@ -664,15 +558,23 @@ def build_p3_batch_scripts(quest_load_prefix: int = DEFAULT_QUEST_LOAD_PREFIX) -
             "; R11 P6 cycle-equip next FO4 weapon across all 23 arsenal rows\n"
             f"SetStage {qhex} 15\n"
         ),
+        "p6d.txt": (
+            "; R11 P6 toggle god mode (tgm) before firing Fat Man or Missile Launcher in the 11 m Vault room\n"
+            "tgm\n"
+        ),
+        "p6x.txt": (
+            "; R11 P6 toggle deterministic critical goo/ash on kill (still respects NoDisintegrate 0x0022DB8F)\n"
+            f"SetStage {qhex} 25\n"
+        ),
         "p6h1.txt": (
-            "; R11 P6 exterior mid-hop from Sanctuary (<80 m/axis) toward Vault 111 hilltop\n"
+            "; R11 P6 EXTERIOR-ONLY (from Sanctuary workbench after vault exit): mid-hop (<80 m/axis) toward Vault 111 hilltop\n"
             f"player.setpos x {EXT_HOP_MID[0]:.2f}\n"
             f"player.setpos y {EXT_HOP_MID[1]:.2f}\n"
             f"player.setpos z {EXT_HOP_MID[2]:.2f}\n"
             "player.setangle z 275\n"
         ),
         "p6e.txt": (
-            "; R11 P6 exterior Vault 111 hilltop clearing (<70 m/axis from p6h1)\n"
+            "; R11 P6 EXTERIOR-ONLY Vault 111 hilltop clearing (<70 m/axis from p6h1)\n"
             f"player.setpos x {V111_HILLTOP[0]:.2f}\n"
             f"player.setpos y {V111_HILLTOP[1]:.2f}\n"
             f"player.setpos z {V111_HILLTOP[2]:.2f}\n"
@@ -894,6 +796,8 @@ def stage_probe_p6(
             pipboy_reuse_info = {"shipped": False, "note": "Preserves installed candidate FO4SFPipboyMenu.dll untouched (7d5ba49c required on candidate-2g-fix)"}
 
         # 4. Build FO4SF_R11P6Arsenal.esm & compile FO4SF_R11P6Quest.pex
+        if eff_assets_src is None and (eff_raider_esm is None or not eff_raider_esm.is_file()):
+            raise ProbeP6Error("missing FO4ActorRaider.esm for real P6 stage; pass --raider-esm")
         p6_esm_bytes, placement_audit = build_p6_arsenal_esm(assets_dir, port_esm=eff_port_esm, raider_esm=eff_raider_esm)
         verify_placed_refs_above_floor(placement_audit, floor_z=VAULT_FLOOR_Z)
         (exp_dir / PROBE_PLUGIN).write_bytes(p6_esm_bytes)
@@ -1024,36 +928,6 @@ def verify_probe_p6(stage_dir: Path) -> dict:
     }
 
 
-def _compute_full_master_load_index(data_dir: Path, plugins_txt: Optional[Path], target_plugin: str) -> int:
-    """Resolve runtime full-master slot index (skipping Light FE/Small FD plugins) for `<XX>000830` batches."""
-    implicit = ("Starfield.esm", "Constellation.esm", "OldMars.esm", "BlueprintShips-Starfield.esm", "ShatteredSpace.esm")
-    lines: List[str] = list(implicit)
-    if plugins_txt is not None and plugins_txt.is_file():
-        for raw in plugins_txt.read_text(encoding="utf-8-sig").splitlines():
-            s = raw.strip().lstrip("*")
-            if s and not s.startswith("#") and s not in lines:
-                lines.append(s)
-    if target_plugin not in lines:
-        lines.append(target_plugin)
-    slot = 0
-    for name in lines:
-        if name.casefold() == target_plugin.casefold():
-            return slot
-        p = data_dir / name
-        if p.is_file():
-            try:
-                with p.open("rb") as fh:
-                    hdr = fh.read(24)
-                if len(hdr) >= 12 and hdr[:4] == b"TES4":
-                    flags, = struct.unpack_from("<I", hdr, 8)
-                    if flags & 0x0300:  # Light (0x200) or Small/Medium (0x100)
-                        continue
-            except OSError:
-                pass
-        slot += 1
-    return slot
-
-
 def install_probe_p6(
     stage_dir: Path,
     starfield_dir: Path,
@@ -1061,12 +935,34 @@ def install_probe_p6(
     version_tag: str = "",
     card_path: Optional[Path] = None,
     min_free_gb: float = pc.DEFAULT_MIN_FREE_GB,
+    *,
+    allow_test_baseline: bool = False,
 ) -> dict:
+    import warnings as _warnings
+
+    pc.check_starfield_not_running()
     verify_probe_p6(stage_dir)
+    profile = pc.detect_installed_candidate_profile(starfield_dir)
+    if profile == "test":
+        msg = (
+            "Detected 'test'-profile candidate baseline under Starfield dir "
+            "(Probe P6 FO4SFCoreValues.esm sets FO4SF_TestModeEnabled=0)"
+        )
+        if not allow_test_baseline:
+            raise ProbeP6Error(f"Refusing install over 'test'-profile candidate: {msg}; pass --allow-test-baseline to override")
+        _warnings.warn(f"WARNING: {msg}", RuntimeWarning, stacklevel=2)
+
     manifest = json.loads((stage_dir / "manifest.json").read_text(encoding="utf-8"))
     plg_txt = pc._resolve_plugins_txt(starfield_dir, plugins_txt)
-    slot_idx = _compute_full_master_load_index(starfield_dir / "Data", plg_txt, PROBE_PLUGIN)
-    stamped_batches = build_p3_batch_scripts(quest_load_prefix=slot_idx)
+    stamped_batches = build_p3_batch_scripts()
+    pc.stamp_batch_formid_prefix(
+        stamped_batches,
+        starfield_dir / "Data",
+        plg_txt,
+        PROBE_PLUGIN,
+        local_ids=(QUST_P6_LOCAL_ID,),
+        plugins_to_activate=(PROBE_PLUGIN,),
+    )
     install_specs = [dict(x) for x in manifest["install_files"] if not str(x.get("target_rel", "")).endswith(".txt")]
     with tempfile.TemporaryDirectory(prefix="p6_bat_") as td:
         bat_tmp = Path(td)
@@ -1116,6 +1012,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     s_in.add_argument("--version-tag", default="")
     s_in.add_argument("--card-path", default=None, type=Path)
     s_in.add_argument("--min-free-gb", default=pc.DEFAULT_MIN_FREE_GB, type=float)
+    s_in.add_argument("--allow-test-baseline", action="store_true")
 
     s_un = sub.add_parser("uninstall")
     s_un.add_argument("--starfield", required=True, type=Path)
@@ -1145,7 +1042,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps(verify_probe_p6(args.stage_dir), indent=2, sort_keys=True))
         return 0
     if args.cmd == "install":
-        print(json.dumps(install_probe_p6(args.stage_dir, args.starfield, args.plugins_txt, args.version_tag, args.card_path, args.min_free_gb), indent=2, sort_keys=True))
+        print(json.dumps(install_probe_p6(args.stage_dir, args.starfield, args.plugins_txt, args.version_tag, args.card_path, args.min_free_gb, allow_test_baseline=args.allow_test_baseline), indent=2, sort_keys=True))
         return 0
     if args.cmd == "uninstall":
         print(json.dumps(pc.uninstall_probe(probe_id=PROBE_ID, starfield_dir=args.starfield, force=args.force), indent=2, sort_keys=True))

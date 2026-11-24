@@ -233,9 +233,9 @@ class R11Pistol10mmTests(unittest.TestCase):
         self.assertEqual(welded.node_to_shapes["MiscA06"], ["Pistol10mmBolt:0"])
         self.assertEqual(welded.node_to_shapes["Magazine"], ["Magazine:0"])
         self.assertEqual(welded.node_to_shapes["TRIGGER"], ["10mmTrigger:0"])
-        self.assertEqual(welded.node_to_shapes["WeaponExtra1"], ["Pistol10mmRelease:0"])
-        self.assertEqual(welded.node_to_shapes["WeaponExtra2"], ["Pistol10mmHammer:0"])
-        self.assertEqual(welded.node_to_shapes["WeaponExtra3"], ["Pistol10mmBoltRelease:0"])
+        self.assertEqual(welded.node_to_shapes["MiscA01"], ["Pistol10mmRelease:0"])
+        self.assertEqual(welded.node_to_shapes["MiscA02"], ["Pistol10mmHammer:0"])
+        self.assertEqual(welded.node_to_shapes["MiscA03"], ["Pistol10mmBoltRelease:0"])
         self.assertEqual(sorted(welded.node_to_shapes["Pistol10mmReceiver"]), ["10mmGrip:0", "Pistol10mmReceiver:0"])
 
         # Verify P-Mag quaternion cancelled WeaponMagazine's +26.52 deg tilt (world rotation == identity to 1e-4)

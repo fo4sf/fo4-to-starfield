@@ -56,10 +56,11 @@ REPO = HERE.parent.parent
 SRC_DIR = REPO / "src"
 WEAPONS_DIR = REPO / "scripts" / "weapons"
 
-for _p in (str(SRC_DIR), str(WEAPONS_DIR)):
+for _p in (str(SRC_DIR), str(WEAPONS_DIR), str(HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import probe_common as pc  # noqa: E402
 from fo4sf import nif as nifmod  # noqa: E402
 from fo4sf.ba2 import Ba2  # noqa: E402
 from fo4sf.core import cross_plugin_check as cpc  # noqa: E402
@@ -76,13 +77,7 @@ SWAPPED_CORE_ESMS = ("FO4SFCoreValues.esm", "FO4SFNewGame.esm")
 DEFAULT_MIN_FREE_GB = 60.0
 BA2_ALIGN = 0xBAADF00D
 
-IMPLICIT_FULL_MASTERS = (
-    "Starfield.esm",
-    "Constellation.esm",
-    "OldMars.esm",
-    "BlueprintShips-Starfield.esm",
-    "ShatteredSpace.esm",
-)
+IMPLICIT_FULL_MASTERS = pc.IMPLICIT_FULL_MASTERS
 
 # Master indices in FO4SF_R11P5Weapons.esm:
 #   0x00 Starfield.esm
@@ -267,151 +262,22 @@ def check_out_dir_safe(out_dir: Path, fo4_data: Optional[Path] = None, sf_dir: O
 
 
 # ---------------------------------------------------------------------------
-# Pure-Python ESM, VMAD v6 & BA2 builders for FO4SF_R11P5Weapons
+# Pure-Python ESM, VMAD v6 & BA2 helpers (shared via probe_common)
 # ---------------------------------------------------------------------------
-VMAD_T_OBJECT, VMAD_T_STRING, VMAD_T_INT, VMAD_T_FLOAT, VMAD_T_BOOL = 1, 2, 3, 4, 5
-
-
-def _vmad_wstr(s: str) -> bytes:
-    raw = str(s).encode("cp1252")
-    if len(raw) > 0xFFFF:
-        raise ProbeP5Error("VMAD string too long")
-    return struct.pack("<H", len(raw)) + raw
-
-
-def _encode_vmad_v6(scripts: Sequence[dict]) -> bytes:
-    out = bytearray(struct.pack("<hHH", 6, 2, len(scripts)))
-    for sc in scripts:
-        props = sc.get("properties") or []
-        out += _vmad_wstr(sc["name"]) + struct.pack("<BH", int(sc.get("status", 0)), len(props))
-        for p in props:
-            t = int(p["type"])
-            out += _vmad_wstr(p["name"]) + struct.pack("<BB", t, int(p.get("status", 1)))
-            v = p["value"]
-            if t == VMAD_T_OBJECT:
-                out += struct.pack("<HhI", 0, int(v.get("alias", -1)), int(v["form"]))
-            elif t == VMAD_T_STRING:
-                out += _vmad_wstr(v)
-            elif t == VMAD_T_INT:
-                out += struct.pack("<i", int(v))
-            elif t == VMAD_T_FLOAT:
-                out += struct.pack("<f", float(v))
-            elif t == VMAD_T_BOOL:
-                out += struct.pack("<B", 1 if v else 0)
-            else:
-                raise ProbeP5Error(f"unsupported VMAD property type {t}")
-    return bytes(out)
-
-
-def _decode_vmad_v6_prop_names(vmad: bytes) -> Dict[str, int]:
-    """Return {prop_name: prop_type} for the first script in a VMAD v6 subrecord."""
-    if len(vmad) < 6:
-        raise ProbeP5Error("truncated VMAD subrecord")
-    _ver, _fmt, sc_cnt = struct.unpack_from("<hHH", vmad, 0)
-    pos = 6
-    out: Dict[str, int] = {}
-    for _ in range(sc_cnt):
-        slen, = struct.unpack_from("<H", vmad, pos)
-        pos += 2 + slen
-        _st, pcnt = struct.unpack_from("<BH", vmad, pos)
-        pos += 3
-        for _ in range(pcnt):
-            plen, = struct.unpack_from("<H", vmad, pos)
-            pname = vmad[pos + 2 : pos + 2 + plen].decode("cp1252", "replace")
-            pos += 2 + plen
-            ptype, _pst = struct.unpack_from("<BB", vmad, pos)
-            pos += 2
-            out[pname] = ptype
-            if ptype == VMAD_T_OBJECT:
-                pos += 8
-            elif ptype == VMAD_T_STRING:
-                vlen, = struct.unpack_from("<H", vmad, pos)
-                pos += 2 + vlen
-            elif ptype in (VMAD_T_INT, VMAD_T_FLOAT):
-                pos += 4
-            elif ptype == VMAD_T_BOOL:
-                pos += 1
-            else:
-                raise ProbeP5Error(f"unsupported VMAD property type {ptype} for {pname}")
-    return out
-
-
-def _pack_subs(subs: Sequence[Tuple[bytes, bytes]]) -> bytes:
-    out = bytearray()
-    for sig, data in subs:
-        if len(data) > 0xFFFF:
-            out += b"XXXX" + struct.pack("<HI", 4, len(data)) + sig + struct.pack("<H", 0) + data
-        else:
-            out += sig + struct.pack("<H", len(data)) + data
-    return bytes(out)
-
-
-def _rec_bytes(sig: bytes, fid: int, subs: Sequence[Tuple[bytes, bytes]], flags: int = 0, version: int = 576) -> bytes:
-    payload = _pack_subs(subs)
-    return sig + struct.pack("<IIIIHH", len(payload), flags, fid, 0, version, 0) + payload
-
-
-def _grup_bytes(label_4b: bytes, gtype: int, payload: bytes) -> bytes:
-    return b"GRUP" + struct.pack("<I4sIII", 24 + len(payload), label_4b, gtype, 0, 0) + payload
-
-
-def _count_records_and_grups(stream: bytes, start: int = 0, end: Optional[int] = None) -> int:
-    stop = len(stream) if end is None else end
-    pos = start
-    count = 0
-    while pos < stop:
-        sig = stream[pos : pos + 4]
-        sz, = struct.unpack_from("<I", stream, pos + 4)
-        count += 1
-        if sig == b"GRUP":
-            count += _count_records_and_grups(stream, pos + 24, pos + sz)
-            pos += sz
-        else:
-            pos += 24 + sz
-    return count
-
-
-def _extract_port_cell_record_bytes(port_esm: Optional[Path], cell_fid: int = PORT_V111_CELL) -> bytes:
-    """Copy exact CELL 0x010011F3 header+subrecords from FO4Port.esm so interior lighting/fog stay untouched."""
-    if port_esm is not None and port_esm.is_file():
-        raw = port_esm.read_bytes()
-        pos = 0
-        while pos < len(raw):
-            sig = raw[pos : pos + 4]
-            sz, = struct.unpack_from("<I", raw, pos + 4)
-            if sig == b"GRUP":
-                pos += 24
-            else:
-                fid, = struct.unpack_from("<I", raw, pos + 12)
-                if sig == b"CELL" and fid == cell_fid:
-                    return raw[pos : pos + 24 + sz]
-                pos += 24 + sz
-    return _rec_bytes(
-        b"CELL",
-        cell_fid,
-        [(b"EDID", b"FO4Port_Vault111Cryo\x00"), (b"DATA", struct.pack("<H", 1))],
-        flags=0,
-        version=576,
-    )
-
-
-def _refr_item(
-    fid: int,
-    edid: str,
-    base_fid: int,
-    pos: Tuple[float, float, float],
-    rot: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    count: Optional[int] = None,
-    flags: int = REFR_PERSISTENT | REFR_DONT_HAVOK_SETTLE,
-) -> bytes:
-    subs: List[Tuple[bytes, bytes]] = [
-        (b"EDID", edid.encode("ascii") + b"\x00"),
-        (b"NAME", struct.pack("<I", base_fid)),
-    ]
-    if count is not None:
-        subs.append((b"XCNT", struct.pack("<i", int(count))))
-    subs.append((b"DATA", struct.pack("<6f", pos[0], pos[1], pos[2], rot[0], rot[1], rot[2])))
-    return _rec_bytes(b"REFR", fid, subs, flags=flags)
+VMAD_T_OBJECT = pc.VMAD_T_OBJECT
+VMAD_T_STRING = pc.VMAD_T_STRING
+VMAD_T_INT = pc.VMAD_T_INT
+VMAD_T_FLOAT = pc.VMAD_T_FLOAT
+VMAD_T_BOOL = pc.VMAD_T_BOOL
+_vmad_wstr = pc.vmad_wstr
+_encode_vmad_v6 = pc.encode_vmad_v6
+_decode_vmad_v6_prop_names = pc.decode_vmad_v6_prop_names
+_pack_subs = pc.pack_subs
+_rec_bytes = pc.rec_bytes
+_grup_bytes = pc.grup_bytes
+_count_records_and_grups = pc.count_records_and_grups
+_extract_port_cell_record_bytes = pc.extract_cell_record_bytes
+_refr_item = pc.refr_item
 
 
 def build_p5_weapons_esm(port_esm: Optional[Path] = None) -> bytes:
@@ -1001,15 +867,7 @@ def pack_textures_ba2(
 # ---------------------------------------------------------------------------
 # Load-Order Slot Computation & P3-Clean Batch Scripts
 # ---------------------------------------------------------------------------
-def _tes4_flags(esm_path: Path) -> Optional[int]:
-    try:
-        with esm_path.open("rb") as fh:
-            hdr = fh.read(24)
-        if len(hdr) < 24 or hdr[:4] != b"TES4":
-            return None
-        return struct.unpack_from("<I", hdr, 8)[0]
-    except OSError:
-        return None
+_tes4_flags = pc._tes4_flags
 
 
 def compute_full_master_load_index(
@@ -1017,35 +875,7 @@ def compute_full_master_load_index(
     plugins_txt_lines: Sequence[str],
     target_plugin: str = PROBE_PLUGIN,
 ) -> int:
-    """Compute 1-byte full-master load index (0x00..0xFC) of target_plugin, skipping FE/FD light/medium masters."""
-    seen: set[str] = set()
-    slot = 0
-    for name in IMPLICIT_FULL_MASTERS:
-        p = data_dir / name
-        if p.is_file():
-            fl = _tes4_flags(p)
-            if fl is not None and (fl & 0x300) == 0:
-                seen.add(name.casefold())
-                slot += 1
-
-    target_low = target_plugin.casefold()
-    for raw_line in plugins_txt_lines:
-        ln = raw_line.strip()
-        if not ln or ln.startswith("#") or not ln.startswith("*"):
-            continue
-        pname = ln[1:].strip()
-        plow = pname.casefold()
-        if plow == target_low:
-            break
-        if plow in seen:
-            continue
-        p = data_dir / pname
-        if p.is_file():
-            fl = _tes4_flags(p)
-            if fl is not None and (fl & 0x300) == 0:
-                seen.add(plow)
-                slot += 1
-    return slot
+    return pc.compute_full_master_load_index(data_dir, plugins_txt_lines, target_plugin=target_plugin)
 
 
 def build_p3_batch_scripts(quest_load_prefix: int = DEFAULT_QUEST_LOAD_PREFIX) -> Dict[str, str]:
@@ -1661,8 +1491,15 @@ def install_probe_p5(
             new_lines.append(line)
             appended_lines.append(line)
 
-        slot_idx = compute_full_master_load_index(data_dir, new_lines, target_plugin=PROBE_PLUGIN)
-        stamped_batches = build_p3_batch_scripts(quest_load_prefix=slot_idx)
+        stamped_batches = build_p3_batch_scripts()
+        slot_hex = pc.stamp_batch_formid_prefix(
+            stamped_batches,
+            data_dir,
+            new_lines,
+            PROBE_PLUGIN,
+            local_ids=(QUST_P5_LOCAL_ID,),
+        )
+        slot_idx = int(slot_hex, 16)
 
         for fname, content in sorted(stamped_batches.items()):
             bdst = starfield_dir / fname

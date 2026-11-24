@@ -44,6 +44,12 @@ Group References
     Potion Property StimpakAlch Auto
     {FO4SFCoreValues.esm:0x000851 FO4SF_Stimpak.}
 
+    Spell Property CritPlasmaSpell Auto
+    {FO4SFCoreValues.esm:0x0008C3 FO4_CritPlasma (spawns FO4_GooPile01 on non-NoDisintegrate kill).}
+
+    Spell Property CritLaserSpell Auto
+    {FO4SFCoreValues.esm:0x0008C4 FO4_CritLaser (spawns laser ash pile on non-NoDisintegrate kill).}
+
     Keyword Property NoDisintegrateKw Auto
     {Starfield.esm:0x0022DB8F NoDisintegrate.}
 
@@ -72,6 +78,7 @@ int weaponsEquippedCount = 0
 int fleshKills = 0
 int robotKills = 0
 int noDisintKills = 0
+bool forceCritDisint = false
 string lastEquippedTag = "none"
 
 Event OnInit()
@@ -146,6 +153,16 @@ string Function EquippedWeaponTag(Actor player)
     if player == None
         return "none"
     endif
+    Weapon curW = player.GetEquippedWeapon()
+    if curW != None
+        int curIdx = FindWeaponIndex(curW)
+        if curIdx >= 0
+            if curIdx < WeaponTags.Length
+                return WeaponTags[curIdx]
+            endif
+            return "weap_" + curIdx
+        endif
+    endif
     int wi = 0
     while wi < ShowcaseWeapons.Length
         Weapon w = ShowcaseWeapons[wi]
@@ -197,6 +214,9 @@ Event OnStageSet(int auiStageID, int auiItemID)
     elseif auiStageID == 20
         SpawnOrResetTargets()
         LogScorecard("stage_20")
+    elseif auiStageID == 25
+        forceCritDisint = !forceCritDisint
+        Log("FO4SF_R11P6 force_crit_disint=" + forceCritDisint)
     elseif auiStageID == 30
         LogScorecard("stage_30")
     endif
@@ -248,13 +268,19 @@ Function CycleNextArsenalWeapon()
         return
     endif
     int curIdx = -1
-    int wi = 0
-    while wi < ShowcaseWeapons.Length && curIdx < 0
-        if ShowcaseWeapons[wi] != None && player.IsEquipped(ShowcaseWeapons[wi])
-            curIdx = wi
-        endif
-        wi += 1
-    endwhile
+    Weapon curW = player.GetEquippedWeapon()
+    if curW != None
+        curIdx = FindWeaponIndex(curW)
+    endif
+    if curIdx < 0
+        int wi = 0
+        while wi < ShowcaseWeapons.Length && curIdx < 0
+            if ShowcaseWeapons[wi] != None && player.IsEquipped(ShowcaseWeapons[wi])
+                curIdx = wi
+            endif
+            wi += 1
+        endwhile
+    endif
     int nextIdx = curIdx + 1
     if nextIdx >= ShowcaseWeapons.Length
         nextIdx = 0
@@ -377,17 +403,34 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 EndEvent
 
 Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
-    string eq = EquippedWeaponTag(Game.GetPlayer())
+    Actor player = Game.GetPlayer()
+    string eq = EquippedWeaponTag(player)
+    bool hasNoDisint = (NoDisintegrateKw != None && akSender != None && akSender.HasKeyword(NoDisintegrateKw))
+    string forcedCrit = "none"
+    if forceCritDisint && akSender != None && player != None
+        bool isLaser = (eq == "lasermusket" || eq == "laserpistol" || eq == "laserrifle")
+        bool isPlasma = (eq == "plasmapistol" || eq == "plasmarifle")
+        if !hasNoDisint
+            if isPlasma && CritPlasmaSpell != None
+                CritPlasmaSpell.Cast(player, akSender)
+                forcedCrit = "plasma"
+            elseif isLaser && CritLaserSpell != None
+                CritLaserSpell.Cast(player, akSender)
+                forcedCrit = "laser"
+            endif
+        elseif isPlasma || isLaser
+            forcedCrit = "suppressed_nodisint"
+        endif
+    endif
     if akSender == FleshDummy
         fleshKills += 1
-        Log("FO4SF_R11P6 kill target=flesh eq=" + eq + " total=" + fleshKills)
+        Log("FO4SF_R11P6 kill target=flesh eq=" + eq + " force_crit=" + forcedCrit + " total=" + fleshKills)
     elseif akSender == RobotDummy
         robotKills += 1
-        Log("FO4SF_R11P6 kill target=robot eq=" + eq + " total=" + robotKills)
+        Log("FO4SF_R11P6 kill target=robot eq=" + eq + " force_crit=" + forcedCrit + " total=" + robotKills)
     elseif akSender == NoDisintDummy
-        bool hasNoDisint = (NoDisintegrateKw != None && akSender.HasKeyword(NoDisintegrateKw))
         noDisintKills += 1
-        Log("FO4SF_R11P6 kill target=nodisint no_disintegrate=" + hasNoDisint + " eq=" + eq + " total=" + noDisintKills)
+        Log("FO4SF_R11P6 kill target=nodisint no_disintegrate=" + hasNoDisint + " eq=" + eq + " force_crit=" + forcedCrit + " total=" + noDisintKills)
     endif
 EndEvent
 
@@ -410,7 +453,7 @@ Function LogScorecard(string tag)
         endwhile
     endif
     string eq = EquippedWeaponTag(player)
-    Log("FO4SF_R11P6 summary tag=" + tag + " eq=" + eq + " owned_weapons=" + ownedWeapons + "/" + ShowcaseWeapons.Length + " flesh_kills=" + fleshKills + " robot_kills=" + robotKills + " nodisint_kills=" + noDisintKills)
+    Log("FO4SF_R11P6 summary tag=" + tag + " eq=" + eq + " force_crit_disint=" + forceCritDisint + " owned_weapons=" + ownedWeapons + "/" + ShowcaseWeapons.Length + " flesh_kills=" + fleshKills + " robot_kills=" + robotKills + " nodisint_kills=" + noDisintKills)
 EndFunction
 
 Function Log(string msg)

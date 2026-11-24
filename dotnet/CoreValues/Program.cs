@@ -296,8 +296,9 @@ public static class CoreValuesWriter
 
     // Explicit Starfield.esm ImpactDataSet (WVIS / EXPL.ENAM) FormKeys
     static readonly FormKey IpdsBulletKey = new(SfEsm, 0x0000D02C);             // FXProjectileBulletImpactSet
-    static readonly FormKey IpdsMeleeBladeSmallKey = new(SfEsm, 0x00055DC3);    // WPNHandBladeSmall_ImpactSet
-    static readonly FormKey IpdsMeleeBladeMediumKey = new(SfEsm, 0x0005C498);   // WPNMeleeImpactBladeMediumSet
+    static readonly FormKey IpdsMeleeBashSmallKey = new(SfEsm, 0x000116F1);     // WPNMeleeBashGunSmallImpactSet (blunt melee)
+    static readonly FormKey IpdsMeleeBladeSmallKey = new(SfEsm, 0x00055DC3);    // WPNHandBladeSmall_ImpactSet (retained for check/tamper rejection)
+    static readonly FormKey IpdsMeleeBladeMediumKey = new(SfEsm, 0x0005C498);   // WPNMeleeImpactBladeMediumSet (retained for check/tamper rejection)
     static readonly FormKey IpdsOrionLaserKey = new(SfEsm, 0x001C1162);         // FXProjectileOrionLaserImpactSet
     static readonly FormKey IpdsEquinoxLaserKey = new(SfEsm, 0x001F5DA1);       // FXProjectileEquinoxLaserImpactSet
     static readonly FormKey IpdsExplosiveKey = new(SfEsm, 0x0015CCFD);          // FXProjectileExplosiveImpactSet
@@ -351,17 +352,17 @@ public static class CoreValuesWriter
         (Fo4WeapHuntingRifleId,    "FO4_HuntingRifle",        "Hunting Rifle",          DonorWeapLawgiverKey,      @"fo4sf\weapons\huntingrifle\fo4_huntingrifle.nif",      Fo4Ammo308Id,             5,   37f,  0,  0.150f, 1.25f, null, 9.600f,  55, IpdsBulletKey,        0,                  0,                    false),
         (Fo4WeapCombatShotgunId,   "FO4_CombatShotgun",       "Combat Shotgun",         DonorWeapPacifierKey,      @"fo4sf\weapons\combatshotgun\fo4_combatshotgun.nif",    Fo4AmmoShotgunShellId,    8,   50f,  0,  0.500f, null,  null, 11.200f, 89, IpdsShotgunKey,       0,                  0,                    false),
         (Fo4WeapDoubleBarrelId,    "FO4_DoubleBarrelShotgun", "Double-Barrel Shotgun",  DonorWeapCoachmanKey,      @"fo4sf\weapons\doublebarrel\fo4_doublebarrel.nif",      Fo4AmmoShotgunShellId,    2,   45f,  0,  0.275f, null,  null, 9.000f,  41, IpdsCoachmanShotgunKey,0,                 0,                    false),
-        (Fo4WeapSubmachineGunId,   "FO4_SubmachineGun",       "Submachine Gun",         DonorWeapMaelstromKey,     @"fo4sf\weapons\submachinegun\fo4_submachinegun.nif",    Fo4Ammo45Id,              50,  13f,  0,  0.150f, 1.40f, null, 12.775f,110, IpdsBulletKey,        0,                  0,                    false),
-        (Fo4WeapAssaultRifleId,    "FO4_AssaultRifle",        "Assault Rifle",          DonorWeapAa99Key,          @"fo4sf\weapons\assaultrifle\fo4_assaultrifle.nif",      Fo4Ammo556Id,             20,  30f,  0,  0.250f, null,  null, 13.200f,145, IpdsBulletKey,        0,                  0,                    false),
-        (Fo4WeapLaserPistolId,     "FO4_LaserPistol",         "Laser Pistol",           DonorWeapSolsticeKey,      @"fo4sf\weapons\lasergun\fo4_laserpistol.nif",          Fo4AmmoFusionCellId,      30,  0f,   24, 0.200f, null,  null, 3.975f,  68, IpdsEquinoxLaserKey,  Fo4SpelCritLaserId, 0,                    false),
-        (Fo4WeapLaserRifleId,      "FO4_LaserRifle",          "Laser Rifle",            DonorWeapEquinoxKey,       @"fo4sf\weapons\lasergun\fo4_laserrifle.nif",           Fo4AmmoFusionCellId,      30,  0f,   24, 0.200f, null,  null, 5.250f,  81, IpdsEquinoxLaserKey,  Fo4SpelCritLaserId, 0,                    false),
-        (Fo4WeapBaseballBatId,     "FO4_BaseballBat",         "Baseball Bat",           DonorWeapRescueAxeKey,     @"fo4sf\weapons\baseballbat\fo4_baseballbat.nif",        0,                        0,   16f,  0,  0f,     null,  0.80f,3.000f,  25, IpdsMeleeBladeMediumKey,0,                0,                    false),
-        (Fo4WeapMissileLauncherId, "FO4_MissileLauncher",     "Missile Launcher",       DonorWeapBridgerKey,       @"fo4sf\weapons\missilelauncher\fo4_missilelauncher.nif",Fo4AmmoMissileId,         1,   15f,  0,  0.400f, null,  null, 21.000f,315, IpdsExplosiveKey,     0,                  Fo4ProjMissileId,     false),
-        (Fo4WeapFatManId,          "FO4_FatMan",              "Fat Man",                DonorWeapBridgerKey,       @"fo4sf\weapons\fatman\fo4_fatman.nif",                  Fo4AmmoMiniNukeId,        1,   18f,  0,  0f,     null,  null, 30.750f,513, IpdsExplosiveKey,     0,                  Fo4ProjFatManId,      false),
-        (Fo4WeapFlamerId,          "FO4_Flamer",              "Flamer",                 DonorWeapArcWelderKey,     @"fo4sf\weapons\flamer\fo4_flamer.nif",                  Fo4AmmoFlamerFuelId,      100, 0f,   9,  0.150f, null,  null, 16.125f,138, IpdsFlamethrowerKey,  0,                  0,                    false),
-        (Fo4WeapPlasmaPistolId,    "FO4_PlasmaPistol",        "Plasma Pistol",          DonorWeapNovalightKey,     @"fo4sf\weapons\plasmagun\fo4_plasmapistol.nif",         Fo4AmmoPlasmaCartridgeId, 30,  24f,  24, 0.300f, null,  null, 3.975f, 126, IpdsParticlePistolKey,Fo4SpelCritPlasmaId,0,                    false),
-        (Fo4WeapPlasmaRifleId,     "FO4_PlasmaRifle",         "Plasma Rifle",           DonorWeapInflictorRifleKey,@"fo4sf\weapons\plasmagun\fo4_plasmarifle.nif",          Fo4AmmoPlasmaCartridgeId, 30,  24f,  24, 0.300f, null,  null, 4.800f, 157, IpdsParticleRifleKey, Fo4SpelCritPlasmaId,0,                    false),
-        (Fo4WeapGaussRifleId,      "FO4_GaussRifle",          "Gauss Rifle",            DonorWeapMagSniperKey,     @"fo4sf\weapons\gaussrifle\fo4_gaussrifle.nif",          Fo4Ammo2mmEcId,           5,   110f, 0,  0.150f, null,  null, 15.800f,229, IpdsMagBulletKey,     0,                  0,                    false),
+        (Fo4WeapSubmachineGunId,   "FO4_SubmachineGun",       "Submachine Gun",         DonorWeapMaelstromKey,     @"fo4sf\weapons\submachinegun\fo4_submachinegun.nif",    Fo4Ammo45Id,              50,  9.75f, 0,  0.150f, 1.40f, null, 12.775f,110, IpdsBulletKey,        0,                  0,                    false), // P6-H1: OMOD 0015B044 AttackDamage -0.25 -> 13 * 0.75 = 9.75f (exact float)
+        (Fo4WeapAssaultRifleId,    "FO4_AssaultRifle",        "Assault Rifle",          DonorWeapAa99Key,          @"fo4sf\weapons\assaultrifle\fo4_assaultrifle.nif",      Fo4Ammo556Id,             30,  30f,   0,  0.250f, null,  null, 13.200f,145, IpdsBulletKey,        0,                  0,                    false), // P6-H1: OMOD 0018896B AmmoCapacity +0.50 -> 20 * 1.5 = 30
+        (Fo4WeapLaserPistolId,     "FO4_LaserPistol",         "Laser Pistol",           DonorWeapSolsticeKey,      @"fo4sf\weapons\lasergun\fo4_laserpistol.nif",          Fo4AmmoFusionCellId,      30,  0f,    24, 0.200f, null,  null, 3.975f,  68, IpdsEquinoxLaserKey,  Fo4SpelCritLaserId, 0,                    false),
+        (Fo4WeapLaserRifleId,      "FO4_LaserRifle",          "Laser Rifle",            DonorWeapEquinoxKey,       @"fo4sf\weapons\lasergun\fo4_laserrifle.nif",           Fo4AmmoFusionCellId,      27,  0f,    26, 0.200f, null,  null, 5.250f,  81, IpdsEquinoxLaserKey,  Fo4SpelCritLaserId, 0,                    false), // P6-H1: OMOD 00091FB5 Cap -0.10 -> 27; dtEnergy +0.096 -> 26.304 -> 26 (round-half-away-from-zero ushort)
+        (Fo4WeapBaseballBatId,     "FO4_BaseballBat",         "Baseball Bat",           DonorWeapRescueAxeKey,     @"fo4sf\weapons\baseballbat\fo4_baseballbat.nif",        0,                        0,   16f,   0,  0f,     null,  0.80f,3.000f,  25, IpdsMeleeBashSmallKey,0,                  0,                    false), // P6-H2: blunt bash impact set 000116F1
+        (Fo4WeapMissileLauncherId, "FO4_MissileLauncher",     "Missile Launcher",       DonorWeapBridgerKey,       @"fo4sf\weapons\missilelauncher\fo4_missilelauncher.nif",Fo4AmmoMissileId,         1,   15f,   0,  0.400f, null,  null, 21.000f,315, IpdsExplosiveKey,     0,                  Fo4ProjMissileId,     false),
+        (Fo4WeapFatManId,          "FO4_FatMan",              "Fat Man",                DonorWeapBridgerKey,       @"fo4sf\weapons\fatman\fo4_fatman.nif",                  Fo4AmmoMiniNukeId,        1,   18f,   0,  0f,     null,  null, 30.750f,513, IpdsExplosiveKey,     0,                  Fo4ProjFatManId,      false),
+        (Fo4WeapFlamerId,          "FO4_Flamer",              "Flamer",                 DonorWeapArcWelderKey,     @"fo4sf\weapons\flamer\fo4_flamer.nif",                  Fo4AmmoFlamerFuelId,      100, 0f,    9,  0.150f, null,  null, 16.125f,138, IpdsFlamethrowerKey,  0,                  0,                    false),
+        (Fo4WeapPlasmaPistolId,    "FO4_PlasmaPistol",        "Plasma Pistol",          DonorWeapNovalightKey,     @"fo4sf\weapons\plasmagun\fo4_plasmapistol.nif",         Fo4AmmoPlasmaCartridgeId, 30,  24f,   24, 0.300f, null,  null, 3.975f, 126, IpdsParticlePistolKey,Fo4SpelCritPlasmaId,0,                    false),
+        (Fo4WeapPlasmaRifleId,     "FO4_PlasmaRifle",         "Plasma Rifle",           DonorWeapInflictorRifleKey,@"fo4sf\weapons\plasmagun\fo4_plasmarifle.nif",          Fo4AmmoPlasmaCartridgeId, 30,  24f,   24, 0.300f, null,  null, 4.800f, 157, IpdsParticleRifleKey, Fo4SpelCritPlasmaId,0,                    false),
+        (Fo4WeapGaussRifleId,      "FO4_GaussRifle",          "Gauss Rifle",            DonorWeapMagSniperKey,     @"fo4sf\weapons\gaussrifle\fo4_gaussrifle.nif",          Fo4Ammo2mmEcId,           8,   110f,  0,  0.150f, null,  null, 15.800f,229, IpdsMagBulletKey,     0,                  0,                    false), // P6-H1: OMOD 001AC252 Cap +0.50 -> 7.5 -> 8 (round-half-away-from-zero ushort)
     };
 
     const string ExpectedDonorWeapXm2311Edid = "XM2311";
@@ -990,7 +991,7 @@ public static class CoreValuesWriter
                     SetWeaponDamage(baton, Fo4BatonBaseDamage, 0);
                     baton.BaseWeight = Fo4BatonWeight;
                     baton.BaseValue = Fo4BatonValue;
-                    baton.ImpactDataSet.SetTo(IpdsMeleeBladeSmallKey);
+                    baton.ImpactDataSet.SetTo(IpdsMeleeBashSmallKey); // P6-H2: blunt bash impact set 000116F1
                     baton.NonPlayable = false;
                     baton.MajorFlags &= ~Weapon.MajorFlag.NonPlayable;
                     baton.Keywords ??= new ExtendedList<IFormLinkGetter<IKeywordGetter>>();
@@ -1503,7 +1504,7 @@ public static class CoreValuesWriter
                  MathF.Abs(baton.AttackDamage - Fo4BatonBaseDamage) < 1e-4f &&
                  MathF.Abs(baton.BaseWeight - Fo4BatonWeight) < 1e-4f &&
                  baton.BaseValue == Fo4BatonValue &&
-                 baton.ImpactDataSet.FormKey == IpdsMeleeBladeSmallKey &&
+                 baton.ImpactDataSet.FormKey == IpdsMeleeBashSmallKey &&
                  baton.AmmoCapacity == 0 &&
                  !baton.NonPlayable &&
                  (baton.AttachParentSlots?.Count ?? 0) == 0 &&
@@ -2123,6 +2124,12 @@ public static class CoreValuesWriter
                 ((ScriptObjectProperty)mg.VirtualMachineAdapter!.Scripts[0].Properties[0]).Object.SetToNull();
             }),
             ("pipe pistol Starfield name leak", m => m.Weapons.First(w => w.FormKey.ID == Fo4WeapPipePistolId).Name = "Starfield Eon"),
+            ("baton bladed WVIS regression", m => m.Weapons.First(w => w.FormKey.ID == Fo4WeapBatonId).ImpactDataSet.SetTo(IpdsMeleeBladeSmallKey)),
+            ("baseball bat bladed WVIS regression", m => m.Weapons.First(w => w.FormKey.ID == Fo4WeapBaseballBatId).ImpactDataSet.SetTo(IpdsMeleeBladeMediumKey)),
+            ("smg missing 0015B044 damage OMOD", m => SetWeaponDamage(m.Weapons.First(w => w.FormKey.ID == Fo4WeapSubmachineGunId), 13f, 0)),
+            ("assault rifle missing 0018896B mag OMOD", m => m.Weapons.First(w => w.FormKey.ID == Fo4WeapAssaultRifleId).AmmoCapacity = 20),
+            ("laser rifle missing 00091FB5 OMOD", m => m.Weapons.First(w => w.FormKey.ID == Fo4WeapLaserRifleId).AmmoCapacity = 30),
+            ("gauss rifle missing 001AC252 mag OMOD", m => m.Weapons.First(w => w.FormKey.ID == Fo4WeapGaussRifleId).AmmoCapacity = 5),
         })
         {
             var tMod = StarfieldMod.CreateFromBinary(plugArsOn, Release, new BinaryReadParameters

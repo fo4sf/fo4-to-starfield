@@ -10,13 +10,17 @@ projectile NIFs under `<staging>/`:
     Shotgun, Double-Barrel, SMG, Assault Rifle, Laser Pistol/Rifle, Baseball Bat, Missile
     Launcher, Fat Man, Flamer, Plasma Pistol/Rifle, Gauss Rifle + .308/.45/Shells/5.56/Plasma/2mmEC/Missile/MiniNuke/Fuel.
 
-P5 Fixes applied (F1, F3, F6):
-  - F1: Moving geometry sits directly on Starfield donor-tracked NiNode names (TRIGGER, Magazine,
-    Bolt, MiscA..MiscB) with empty duplicate helpers removed (10mm WeaponBolt->MiscA06,
-    WeaponMagazine->Magazine, WeaponTrigger->TRIGGER; Minigun WeaponBolt->MiscA01,
-    WeaponMagazine->Magazine; Laser Musket WeaponTrigger->TRIGGER, crank stays WeaponMagazine).
-    Every weapon manifest exports `fo4_part_map` mapping Starfield NiNode -> FO4 source NiNode.
+P5 Fixes applied (F1, F3, F6) + P6b Donor Track & Muzzle Orientation Fixes (P6-H3, P6-M1):
+  - F1 / P6-H3: Moving geometry across all 19 ranged weapons sits on exact Starfield donor
+    `.af` animated track names (`DONOR_AF_TRACKS`, verified from `Starfield - Animations.ba2`),
+    eliminating ALL identity `WeaponExtra*`, `WeaponOptics*`, `WeaponMagazine*`, `WeaponTrigger`,
+    `WeaponBolt`, `CBarrelPivot`, `CBarrelHandle`, `CMissile`, `CNuke`, and `CSlide` leftovers on
+    ranged guns. Every weapon manifest exports `fo4_part_map` and `donor_af_tracks`, and
+    `verify_nif_asset_tree` fails if any moving shape/node uses a non-tracked name.
   - F3: Laser Musket ProjectileNode resolves P-ProjectileNode from LaserMusketBarrelExtension2Lens.
+  - P6-M1: Missile Launcher uses `placed_nifs=True` so both receiver and barrel FO4 root
+    180-deg Z turns are undone (`ProjectileNode` at +Y `~+0.546 m`), and `verify_nif_asset_tree`
+    enforces strictly positive `ProjectileNode.y > 0` on all 19 ranged guns.
   - F6: Each weapon writes `<stem>_controllers.json` alongside its NIF recording every FO4
     controller/sequence/interpolator/FX block from the source NIFs.
 
@@ -226,13 +230,121 @@ FORBIDDEN_SF_DONOR_MATERIAL_TOKENS: Tuple[str, ...] = (
     "ammo_crates",
 )
 
+# Exact 1P Starfield `.af` animation bone tracks decoded via sfnif.material_id / IEEE inverted CRC32
+# across `Starfield - Animations.ba2` (`gun_*.af` + donor `reload.af`/`firesingle.af`).
+# `.af` hash 0x48BAE9BF ("Trigger") corresponds case-insensitively to donor NIF node `TRIGGER`.
+DONOR_AF_TRACKS: Dict[str, Tuple[str, ...]] = {
+    "xm2311": ("Bolt", "Magazine", "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05", "MiscA06", "TRIGGER"),
+    "eon": (
+        "Bolt", "Bolt01", "Bolt02", "Bolt03",
+        "Magazine", "Magazine01", "Magazine02", "Magazine03", "Magazine04", "Magazine05", "Magazine06", "Magazine07", "Magazine08",
+        "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05",
+        "MiscB", "MiscB01", "MiscB02", "MiscB03", "MiscB04", "MiscB05",
+        "Scope", "Scope01", "Scope02", "TRIGGER",
+    ),
+    "eon_firesingle": ("Magazine", "Magazine01", "MiscB01", "MiscB02", "MiscB03", "MiscB04", "MiscB05", "TRIGGER"),
+    "beowulf": (
+        "Magazine", "Magazine01",
+        "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05", "MiscA06", "MiscA07", "MiscA08", "MiscA09", "MiscA10",
+        "MiscB", "Scope", "TRIGGER",
+    ),
+    "orion": ("Magazine", "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "Scope", "TRIGGER"),
+    "microgun": (
+        "Magazine",
+        "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05", "MiscA06", "MiscA07",
+        "MiscA08", "MiscA09", "MiscA10", "MiscA11", "MiscA12", "MiscA13", "MiscA14",
+        "TRIGGER",
+    ),
+    "razorback": (
+        "Bolt",
+        "Magazine", "Magazine01", "Magazine02", "Magazine03", "Magazine04", "Magazine05", "Magazine06",
+        "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05", "MiscA06", "MiscA07", "MiscA08", "MiscA09",
+        "MiscA10", "MiscA11", "MiscA12", "MiscA13", "MiscA14", "MiscA15", "MiscA16", "MiscA17", "MiscA18", "MiscA19",
+        "TRIGGER",
+    ),
+    "lawgiver": ("Magazine", "MiscA", "MiscA01", "MiscA02", "Scope", "TRIGGER"),
+    "pacifier": ("Bolt", "Bolt01", "Magazine", "Magazine01", "MiscA", "MiscA01", "MiscA02", "MiscA03", "TRIGGER"),
+    "coachman": ("MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "TRIGGER"),
+    "maelstrom": ("Bolt", "Bolt01", "Bolt02", "Bolt03", "Magazine", "Magazine01", "Magazine02", "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05", "MiscA06", "MiscA07", "TRIGGER"),
+    "aa99": (
+        "Bolt", "Bolt01", "Bolt02",
+        "Magazine", "Magazine01", "Magazine02",
+        "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05", "MiscA06", "MiscA07", "MiscA08", "MiscA09", "MiscA10",
+        "MiscB", "MiscB01", "MiscB02", "TRIGGER",
+    ),
+    "solstice": ("Magazine", "MiscA", "MiscA01", "MiscA02", "MiscA03", "ProjectileNode", "TRIGGER"),
+    "equinox": (
+        "Bolt", "Bolt01", "Bolt02", "Bolt03",
+        "Magazine", "Magazine01", "Magazine02", "Magazine03", "Magazine04", "Magazine05", "Magazine06", "Magazine07", "Magazine08",
+        "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "MiscA05",
+        "MiscB", "MiscB01", "MiscB02", "MiscB03", "MiscB04", "MiscB05",
+        "Scope", "Scope01", "Scope02", "TRIGGER",
+    ),
+    "bridger": ("Bolt", "Magazine", "Magazine01", "Magazine02", "Magazine03", "Magazine04", "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "TRIGGER"),
+    "arcwelder": ("Magazine", "MiscA", "TRIGGER"),  # gripheavy/gun_*.af empty; reload.af tracks Magazine/MiscA/Trigger
+    "novalight": ("Magazine", "MiscA", "MiscA01", "MiscA02", "MiscA03", "TRIGGER"),
+    "inflictorrifle": ("Magazine", "TRIGGER"),  # gripcompact/gun_*.af empty; inflictorrifle/firesingle.af & reload.af track Magazine/Trigger
+    "magsniper": ("Magazine", "MiscA", "MiscA01", "MiscA02", "MiscA03", "MiscA04", "TRIGGER"),
+}
+
+WEAPON_DONOR_AF_KEY: Dict[str, str] = {
+    "10mm": "xm2311",
+    "lasermusket": "orion",
+    "minigun": "microgun",
+    "pipepistol": "eon",
+    "piperifle": "beowulf",
+    "piperevolver": "razorback",
+    "huntingrifle": "lawgiver",
+    "combatshotgun": "pacifier",
+    "doublebarrel": "coachman",
+    "submachinegun": "maelstrom",
+    "assaultrifle": "aa99",
+    "laserpistol": "solstice",
+    "laserrifle": "equinox",
+    "missilelauncher": "bridger",
+    "fatman": "bridger",
+    "flamer": "arcwelder",
+    "plasmapistol": "novalight",
+    "plasmarifle": "inflictorrifle",
+    "gaussrifle": "magsniper",
+}
+
+SF_ANIM_TRACK_NAMES_UPPER: Set[str] = {
+    nm.upper()
+    for tracks in DONOR_AF_TRACKS.values()
+    for nm in tracks
+    if nm != "ProjectileNode"
+}
+
+FORBIDDEN_RANGED_IDENTITY_MOVING_NODES: Tuple[str, ...] = (
+    "WeaponBolt",
+    "WeaponMagazine",
+    "WeaponMagazineChild1",
+    "WeaponMagazineChild2",
+    "WeaponMagazineChild3",
+    "WeaponMagazineChild4",
+    "WeaponMagazineChild5",
+    "WeaponTrigger",
+    "WeaponExtra1",
+    "WeaponExtra2",
+    "WeaponExtra3",
+    "WeaponOptics1",
+    "WeaponOptics2",
+    "CBarrelPivot",
+    "CBarrelHandle",
+    "CMissile",
+    "CNuke",
+    "CSlide",
+)
+
 STANDIN_DISCLOSURE = (
     "All Fallout 4 weapons preserve sgoKeep moving-part NiNode hierarchies mapped onto "
-    "Starfield donor-tracked receiver names (TRIGGER, Magazine, Bolt, MiscA/MiscB) with FO4 "
-    "source names saved in fo4_part_map and FO4 NIF controller blocks saved in per-weapon "
-    "*_controllers.json sidecars for future converted .rig/.af hookup on claude/robot-anim. "
-    "Firing/reload/melee/throw animations, heavy-grip ArcWelder Flamer handling, and Wwise SNDR "
-    "audio remain Starfield donor stand-ins; donor Havok collision hulls replace unported FO4 bhk shapes."
+    "Starfield donor-tracked `.af` receiver names (`DONOR_AF_TRACKS`: TRIGGER, Magazine, Magazine01..03, "
+    "Bolt, MiscA..MiscA06, MiscB..MiscB03) with FO4 source names saved in fo4_part_map and FO4 NIF "
+    "controller blocks saved in per-weapon *_controllers.json sidecars for future converted .rig/.af "
+    "hookup on claude/robot-anim. Firing/reload/melee/throw animations, heavy-grip ArcWelder Flamer "
+    "handling, and Wwise SNDR audio remain Starfield donor stand-ins; donor Havok collision hulls "
+    "replace unported FO4 bhk shapes."
 )
 
 WEAPON_DYNAMIC_BSX = 0x4A  # HAVOK (0x2) | COMPLEX (0x8) | DYNAMIC (0x40)
@@ -403,8 +515,10 @@ def parse_connect_point_parents(nf: nifmod.NifFile) -> Dict[str, ConnectPointPar
 
 def parse_named_node_world_transforms(
     nf: nifmod.NifFile,
+    *,
+    placed: bool = False,
 ) -> Dict[str, Tuple[Tuple[float, float, float], Tuple[float, ...], float]]:
-    world = nifmod.world_transforms(nf, placed=False)
+    world = nifmod.world_transforms(nf, placed=placed)
     by_name: Dict[str, Tuple[Tuple[float, float, float], Tuple[float, ...], float]] = {}
     for bi, blk in enumerate(nf.blocks):
         if not nf.type_of(bi).endswith("Node") or nf.type_of(bi) == "BSFaceGenNiNode":
@@ -603,11 +717,12 @@ def build_hierarchical_weapon_nif(
     preserve_named_pivots: Sequence[str] = (),
     node_rename_map: Optional[Mapping[str, str]] = None,
     source_labels: Sequence[str] = (),
+    placed_nifs: bool = False,
 ) -> HierarchicalWeaponResult:
     """Assemble a multi-part Fallout 4 weapon into a hierarchical BS-173 Starfield weapon NIF."""
     rec_nf = nifmod.parse(receiver_nif_bytes)
     rec_cps = parse_connect_point_parents(rec_nf)
-    rec_node_worlds = parse_named_node_world_transforms(rec_nf)
+    rec_node_worlds = parse_named_node_world_transforms(rec_nf, placed=placed_nifs)
     scale_m = convert_static.UNIT_SCALE
     renames = dict(node_rename_map or {})
     parent_overrides = {
@@ -615,8 +730,6 @@ def build_hierarchical_weapon_nif(
         for sh_nm, p_nm in (shape_parent_overrides or {}).items()
     }
     fo4_part_map: Dict[str, str] = {}
-    for sf_nm, fo4_nm in ((v, k) for k, v in renames.items()):
-        fo4_part_map.setdefault(sf_nm, fo4_nm)
 
     ctrl_sources: List[Dict[str, Any]] = [
         extract_nif_controllers(rec_nf, source_labels[0] if source_labels else f"{weapon_key}_receiver")
@@ -662,7 +775,7 @@ def build_hierarchical_weapon_nif(
         mount_parent_name: str,
         graft_root: bool,
     ) -> Tuple[Dict[int, str], Dict[int, int]]:
-        world_fn = nifmod.world_transforms(fnf, placed=False)
+        world_fn = nifmod.world_transforms(fnf, placed=placed_nifs)
         pmap = _block_parent_map(fnf)
         blk_to_scene_name: Dict[int, str] = {}
 
@@ -697,7 +810,11 @@ def build_hierarchical_weapon_nif(
                 cand_nm = raw_nm or f"{weapon_key}_node_{bi}"
                 mapped_nm = renames.get(cand_nm, cand_nm)
                 if raw_nm and (mapped_nm != cand_nm or raw_nm.startswith("Weapon") or raw_nm in preserve_named_pivots or raw_nm in ("BarrelRoot", "Minigun_Barrel", "Minigun_AmmoDrum", "Minigun001")):
-                    fo4_part_map[mapped_nm] = raw_nm
+                    prev_src = fo4_part_map.get(mapped_nm)
+                    if not prev_src:
+                        fo4_part_map[mapped_nm] = raw_nm
+                    elif raw_nm not in prev_src.split("+"):
+                        fo4_part_map[mapped_nm] = f"{prev_src}+{raw_nm}"
                 cand_nm = mapped_nm
                 if cand_nm in nodes and is_root:
                     scene_nm = cand_nm
@@ -718,7 +835,7 @@ def build_hierarchical_weapon_nif(
     kept_shapes: List[Tuple[nifmod.NifFile, nifmod.Fo4Shape, str]] = []
     skipped_shapes: List[str] = []
 
-    for sh in nifmod.fo4_trishapes(rec_nf, placed=False):
+    for sh in nifmod.fo4_trishapes(rec_nf, placed=placed_nifs):
         reason = should_skip_fo4_weapon_shape(rec_nf, sh)
         sh_nm = sh.name.decode("latin-1")
         if reason is not None:
@@ -798,7 +915,7 @@ def build_hierarchical_weapon_nif(
         part_contexts.append(
             (
                 parse_connect_point_parents(part_nf),
-                parse_named_node_world_transforms(part_nf),
+                parse_named_node_world_transforms(part_nf, placed=placed_nifs),
                 cp_wtr,
                 cp_wrot,
                 cp_wsc,
@@ -806,7 +923,7 @@ def build_hierarchical_weapon_nif(
             )
         )
 
-        for sh in nifmod.fo4_trishapes(part_nf, placed=False):
+        for sh in nifmod.fo4_trishapes(part_nf, placed=placed_nifs):
             reason = should_skip_fo4_weapon_shape(part_nf, sh)
             sh_nm = sh.name.decode("latin-1")
             if reason is not None:
@@ -1075,6 +1192,9 @@ def build_10mm_weapon(
             "WeaponBolt": "MiscA06",
             "WeaponMagazine": "Magazine",
             "WeaponTrigger": "TRIGGER",
+            "WeaponExtra1": "MiscA01",
+            "WeaponExtra2": "MiscA02",
+            "WeaponExtra3": "MiscA03",
         },
         source_labels=source_labels,
     )
@@ -1167,7 +1287,11 @@ def build_laser_musket_weapon(
         },
         preserve_named_pivots=("WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2", "WeaponExtra3"),
         node_rename_map={
+            "WeaponMagazine": "Magazine",
             "WeaponTrigger": "TRIGGER",
+            "WeaponExtra1": "MiscA01",
+            "WeaponExtra2": "MiscA02",
+            "WeaponExtra3": "MiscA03",
         },
         source_labels=source_labels,
     )
@@ -1246,6 +1370,7 @@ class WeaponBuildSpec:
     fallback_muzzle_fo4: Tuple[float, float, float] = (0.0, 20.0, 3.0)
     root_frame_rot: Tuple[float, ...] = IDENT_ROT
     shape_parent_overrides: Optional[Dict[str, str]] = None
+    placed_nifs: bool = False
 
 
 ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
@@ -1257,7 +1382,13 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Mag", "meshes/weapons/handmade/magazines/45straightmagshort.nif", graft_part_root=False, override_parent_node="WeaponExtra3"),
             WeaponBuildPartSpec("P-Scope", "meshes/weapons/handmade/scopes/piperifleironsights.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponBolt": "MiscB", "WeaponExtra3": "Magazine", "WeaponTrigger": "TRIGGER"},
+        node_rename_map={
+            "WeaponBolt": "MiscB01",
+            "WeaponExtra1": "MiscB02",
+            "WeaponExtra2": "MiscB03",
+            "WeaponExtra3": "Magazine",
+            "WeaponTrigger": "TRIGGER",
+        },
         preserve_named_pivots=("WeaponBolt", "WeaponExtra3", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2"),
         muzzle_part_index=None,
         muzzle_cps=("P-ProjectileNode", "P-Muzzle", "P-Barrel"),
@@ -1272,7 +1403,13 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Mag", "meshes/weapons/handmade/magazines/45straightmagshort.nif", graft_part_root=False, override_parent_node="WeaponExtra3"),
             WeaponBuildPartSpec("P-Scope", "meshes/weapons/handmade/scopes/piperifleironsights.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponBolt": "MiscA", "WeaponExtra3": "Magazine", "WeaponTrigger": "TRIGGER"},
+        node_rename_map={
+            "WeaponBolt": "MiscA",
+            "WeaponExtra1": "MiscA01",
+            "WeaponExtra2": "MiscA02",
+            "WeaponExtra3": "Magazine",
+            "WeaponTrigger": "TRIGGER",
+        },
         preserve_named_pivots=("WeaponBolt", "WeaponExtra3", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2"),
         muzzle_part_index=0,
         fallback_muzzle_fo4=(0.0, 38.28, 1.01),
@@ -1302,7 +1439,15 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Grip", "meshes/weapons/handmade/grips/handmadepistolgrip.nif", graft_part_root=False),
             WeaponBuildPartSpec("P-Scope", "meshes/weapons/handmade/scopes/piperevolverironsights.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponBolt": "Bolt", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
+        node_rename_map={
+            "WeaponBolt": "Bolt",
+            "WeaponMagazine": "Magazine",
+            "WeaponMagazineChild1": "Magazine01",
+            "WeaponMagazineChild2": "Magazine02",
+            "WeaponMagazineChild3": "Magazine03",
+            "WeaponExtra1": "MiscA01",
+            "WeaponTrigger": "TRIGGER",
+        },
         preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponMagazineChild1", "WeaponMagazineChild2", "WeaponMagazineChild3"),
         muzzle_part_index=None,
         muzzle_cps=("P-Barrel",),
@@ -1342,7 +1487,13 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Barrel", "meshes/weapons/shotgun/shotgunbarrelmedium.nif", graft_part_root=True),
             WeaponBuildPartSpec("P-Grip", "meshes/weapons/shotgun/shotgunstockshort.nif", graft_part_root=False),
         ),
-        node_rename_map={"WeaponMagazine": "MiscA", "WeaponTrigger": "TRIGGER"},
+        node_rename_map={
+            "WeaponMagazine": "MiscA",
+            "WeaponExtra1": "MiscA01",
+            "WeaponMagazineChild1": "MiscA02",
+            "WeaponMagazineChild2": "MiscA03",
+            "WeaponTrigger": "TRIGGER",
+        },
         preserve_named_pivots=("WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponMagazineChild1", "WeaponMagazineChild2"),
         muzzle_part_index=0,
         fallback_muzzle_fo4=(-0.06, 28.42, 2.81),
@@ -1370,7 +1521,12 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Mag", "meshes/weapons/machinegun/mgmagstraight.nif", graft_part_root=False, override_parent_node="WeaponMagazine"),
             WeaponBuildPartSpec("P-Scope", "meshes/weapons/machinegun/mgsight.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponBolt": "Bolt", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
+        node_rename_map={
+            "WeaponBolt": "Bolt",
+            "WeaponMagazine": "Magazine",
+            "WeaponExtra1": "MiscA01",
+            "WeaponTrigger": "TRIGGER",
+        },
         preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "WeaponExtra1"),
         muzzle_part_index=0,
         fallback_muzzle_fo4=(0.01, 42.38, 4.34),
@@ -1383,8 +1539,15 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Grip", "meshes/weapons/laserweapons/laserpistolgrip.nif", graft_part_root=False),
             WeaponBuildPartSpec("P-Scope", "meshes/weapons/laserweapons/laserironsights.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponBolt": "MiscA", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
-        preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponOptics1"),
+        node_rename_map={
+            "WeaponBolt": "MiscA",
+            "WeaponExtra1": "MiscA01",
+            "WeaponOptics1": "MiscA02",
+            "CSlide": "MiscA03",
+            "WeaponMagazine": "Magazine",
+            "WeaponTrigger": "TRIGGER",
+        },
+        preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponOptics1", "CSlide"),
         muzzle_part_index=0,
         fallback_muzzle_fo4=(-0.018, 26.64, 2.24),
         shape_parent_overrides={"LaserRifleRetainer:0": "LaserRifleReceiver"},
@@ -1397,7 +1560,13 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Grip", "meshes/weapons/laserweapons/laserriflegrip.nif", graft_part_root=False),
             WeaponBuildPartSpec("P-Scope", "meshes/weapons/laserweapons/laserironsights.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponBolt": "MiscB", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
+        node_rename_map={
+            "WeaponBolt": "MiscB",
+            "WeaponExtra1": "MiscA01",
+            "WeaponOptics1": "MiscA02",
+            "WeaponMagazine": "Magazine",
+            "WeaponTrigger": "TRIGGER",
+        },
         preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponOptics1"),
         muzzle_part_index=0,
         fallback_muzzle_fo4=(-0.018, 34.29, 2.12),
@@ -1421,10 +1590,18 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
         parts=(
             WeaponBuildPartSpec("P-Barrel", "meshes/weapons/missilelauncher/missilelauncherbarrel.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
-        preserve_named_pivots=("WeaponMagazine", "WeaponTrigger", "WeaponExtra2"),
+        node_rename_map={
+            "WeaponMagazine": "Magazine",
+            "WeaponTrigger": "TRIGGER",
+            "WeaponExtra2": "MiscA",
+            "CBarrelPivot": "MiscA01",
+            "CBarrelHandle": "Bolt",
+            "CMissile": "Magazine01",
+        },
+        preserve_named_pivots=("WeaponMagazine", "WeaponTrigger", "WeaponExtra2", "CBarrelPivot", "CBarrelHandle", "CMissile"),
         muzzle_part_index=0,
         fallback_muzzle_fo4=(0.0, 38.21, 10.99),
+        placed_nifs=True,
     ),
     "fatman": WeaponBuildSpec(
         weapon_key="fatman",
@@ -1432,8 +1609,13 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
         parts=(
             WeaponBuildPartSpec("P-Barrel", "meshes/weapons/fatman/mininukestandardbarrel.nif", graft_part_root=True),
         ),
-        node_rename_map={"WeaponBolt": "Bolt", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
-        preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger"),
+        node_rename_map={
+            "WeaponBolt": "Bolt",
+            "WeaponMagazine": "Magazine",
+            "WeaponTrigger": "TRIGGER",
+            "CNuke": "Magazine01",
+        },
+        preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "CNuke"),
         muzzle_part_index=None,
         fallback_muzzle_fo4=(0.0, 35.0, 20.0),
     ),
@@ -1446,8 +1628,14 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Muzzle", "meshes/weapons/flamer/standardnozzle.nif", graft_part_root=True, parent_part_index=1),
             WeaponBuildPartSpec("P-Mag", "meshes/weapons/flamer/flamerpropellenttank.nif", graft_part_root=False, override_parent_node="WeaponExtra3"),
         ),
-        node_rename_map={"WeaponExtra3": "Magazine"},
-        preserve_named_pivots=("WeaponExtra3", "WeaponExtra1", "WeaponExtra2", "WeaponOptics2"),
+        node_rename_map={
+            "WeaponExtra3": "Magazine",
+            "WeaponExtra1": "MiscA",
+            "WeaponExtra2": "MiscA",
+            "WeaponOptics2": "MiscA",
+            "WeaponTrigger": "TRIGGER",
+        },
+        preserve_named_pivots=("WeaponExtra3", "WeaponExtra1", "WeaponExtra2", "WeaponOptics2", "WeaponTrigger"),
         muzzle_part_index=2,
         fallback_muzzle_fo4=(-0.042, 71.77, -1.856),
     ),
@@ -1458,7 +1646,15 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Grip", "meshes/weapons/plasma/pistolgrip.nif", graft_part_root=False),
             WeaponBuildPartSpec("P-Mag", "meshes/weapons/plasma/plasmacell.nif", graft_part_root=False, override_parent_node="WeaponMagazine"),
         ),
-        node_rename_map={"WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
+        node_rename_map={
+            "WeaponMagazine": "Magazine",
+            "WeaponTrigger": "TRIGGER",
+            "WeaponExtra1": "MiscA",
+            "WeaponExtra2": "MiscA01",
+            "WeaponExtra3": "MiscA02",
+            "WeaponOptics1": "MiscA03",
+            "WeaponOptics2": "MiscA",
+        },
         preserve_named_pivots=("WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2", "WeaponExtra3", "WeaponOptics1", "WeaponOptics2"),
         muzzle_part_index=None,
         muzzle_cps=("P-Barrel",),
@@ -1472,10 +1668,17 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
             WeaponBuildPartSpec("P-Mag", "meshes/weapons/plasma/plasmacell.nif", graft_part_root=False, override_parent_node="WeaponMagazine"),
         ),
         node_rename_map={"WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
-        preserve_named_pivots=("WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2", "WeaponExtra3", "WeaponOptics1", "WeaponOptics2"),
+        preserve_named_pivots=("WeaponMagazine", "WeaponTrigger"),
         muzzle_part_index=None,
         muzzle_cps=("P-Barrel",),
         fallback_muzzle_fo4=(-0.03, 24.11, 5.86),
+        shape_parent_overrides={
+            "PlasmaValve1:0": "PlasmaReceiver",
+            "PlasmaValve2:0": "PlasmaReceiver",
+            "PlasmaValve3:0": "PlasmaReceiver",
+            "PlasmaValve4:0": "PlasmaReceiver",
+            "PlasmaValve5:0": "PlasmaReceiver",
+        },
     ),
     "gaussrifle": WeaponBuildSpec(
         weapon_key="gaussrifle",
@@ -1483,7 +1686,7 @@ ARSENAL_WEAPON_SPECS: Dict[str, WeaponBuildSpec] = {
         parts=(
             WeaponBuildPartSpec("P-Mag", "meshes/weapons/gaussrifle/gaussriflemagsmall.nif", graft_part_root=False, override_parent_node="WeaponMagazine"),
             WeaponBuildPartSpec("P-Grip", "meshes/weapons/gaussrifle/gaussriflewoodengrip.nif", graft_part_root=False),
-            WeaponBuildPartSpec("P-Scope", "meshes/weapons/gaussrifle/gaussrifleironsights.nif", graft_part_root=True),
+            WeaponBuildPartSpec("P-Scope", "meshes/weapons/gaussrifle/gaussrifleironsights.nif", graft_part_root=True, override_parent_node="GaussRifleReceiver"),
         ),
         node_rename_map={"WeaponBolt": "MiscA", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
         preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger"),
@@ -1510,11 +1713,11 @@ def build_arsenal_weapon_from_spec(
 
     rec_nf = nifmod.parse(receiver_nif_bytes)
     rec_cps = parse_connect_point_parents(rec_nf)
-    rec_nw = parse_named_node_world_transforms(rec_nf)
+    rec_nw = parse_named_node_world_transforms(rec_nf, placed=spec.placed_nifs)
 
     part_nifs = [nifmod.parse(b) for b in part_nif_bytes]
     part_cps_list = [parse_connect_point_parents(pnf) for pnf in part_nifs]
-    part_nw_list = [parse_named_node_world_transforms(pnf) for pnf in part_nifs]
+    part_nw_list = [parse_named_node_world_transforms(pnf, placed=spec.placed_nifs) for pnf in part_nifs]
 
     # Compute cumulative part world transforms for muzzle & front-sight alignment
     part_xforms: List[Tuple[Tuple[float, float, float], Tuple[float, ...], float]] = []
@@ -1598,6 +1801,7 @@ def build_arsenal_weapon_from_spec(
         preserve_named_pivots=spec.preserve_named_pivots,
         node_rename_map=spec.node_rename_map,
         source_labels=source_labels or (spec.receiver_nif, *(p.fo4_nif for p in spec.parts)),
+        placed_nifs=spec.placed_nifs,
     )
 
 
@@ -1778,30 +1982,42 @@ REQUIRED_MOVING_SHAPE_PARENTS: Dict[str, Dict[str, str]] = {
         "Pistol10mmBolt:0": "MiscA06",
         "Magazine:0": "Magazine",
         "10mmTrigger:0": "TRIGGER",
-        "Pistol10mmHammer:0": "WeaponExtra2",
+        "Pistol10mmRelease:0": "MiscA01",
+        "Pistol10mmHammer:0": "MiscA02",
+        "Pistol10mmBoltRelease:0": "MiscA03",
     },
     "lasermusket": {
-        "LaserMusketCrank:0": "WeaponMagazine",
+        "LaserMusketCrank:0": "Magazine",
         "LaserMusketTrigger:0": "TRIGGER",
-        "LaserMusketRotor:0": "WeaponExtra2",
+        "LaserMusketMagnet1:0": "MiscA01",
+        "LaserMusketRotor:0": "MiscA02",
+        "LaserMusketMagnet2:0": "MiscA03",
     },
     "minigun": {
         "Minigun_Barrel:0": "Minigun_Barrel",
         "Minigun_AmmoDrum:0": "Minigun_AmmoDrum",
     },
     "pipepistol": {
-        "PipeRifleBolt:0": "MiscB",
+        "PipeRifleBolt:0": "MiscB01",
+        "PipeRifleFiringPin:0": "MiscB02",
+        "PipeRifleHammer:0": "MiscB03",
         "PipeRifleTrigger:0": "TRIGGER",
         "PipeRifle45Mag001:0": "Magazine",
     },
     "piperifle": {
         "PipeRifleBolt:0": "MiscA",
+        "PipeRifleFiringPin:0": "MiscA01",
+        "PipeRifleHammer:0": "MiscA02",
         "PipeRifleTrigger:0": "TRIGGER",
         "PipeRifle45Mag001:0": "Magazine",
     },
     "piperevolver": {
         "RevolverCatch:1": "Bolt",
         "RevolverCylinderPivot:1": "Magazine",
+        "RevolverCylinder:1": "Magazine01",
+        "RevolverSpeedLoader:0": "Magazine02",
+        "RevolverSpeedLoaderBullets:0": "Magazine03",
+        "RevolverHammer:1": "MiscA01",
         "RevolverTrigger:1": "TRIGGER",
     },
     "huntingrifle": {
@@ -1815,6 +2031,9 @@ REQUIRED_MOVING_SHAPE_PARENTS: Dict[str, Dict[str, str]] = {
     },
     "doublebarrel": {
         "ShotgunStock:0": "MiscA",
+        "ShotgunBarrelCatch:0": "MiscA01",
+        "ShotgunShellL:1": "MiscA02",
+        "ShotgunShellR:1": "MiscA03",
         "ShotgunTrigger:0": "TRIGGER",
     },
     "submachinegun": {
@@ -1824,30 +2043,48 @@ REQUIRED_MOVING_SHAPE_PARENTS: Dict[str, Dict[str, str]] = {
     },
     "assaultrifle": {
         "MachineGunMagStraight:3": "Magazine",
-        "MachineGunCarryHandle:0": "WeaponExtra1",
+        "MachineGunCarryHandle:0": "MiscA01",
     },
     "laserpistol": {
         "LaserRifleBolt:0": "MiscA",
         "LaserRifleMicrofusionCell:0": "Magazine",
+        "LaserRifleLatch:0": "MiscA01",
+        "LaserRifleFocus:1": "MiscA02",
+        "LaserPistolBolt:0": "MiscA03",
     },
     "laserrifle": {
         "LaserRifleBolt:0": "MiscB",
         "LaserRifleMicrofusionCell:0": "Magazine",
+        "LaserRifleLatch:0": "MiscA01",
+        "LaserRifleFocus:1": "MiscA02",
     },
     "missilelauncher": {
         "MissileLauncherTrigger:0": "TRIGGER",
+        "MissileLauncherFrontHandle:0": "MiscA",
+        "MissileLauncherTube:0": "MiscA01",
+        "MissileLauncherBolt:0": "Bolt",
+        "MissileLauncherProjectile:0": "Magazine01",
     },
     "fatman": {
         "FatManBolt:0": "Bolt",
         "FatManSled:0": "Magazine",
         "FatManTrigger:0": "TRIGGER",
+        "FatManProjectile:1": "Magazine01",
     },
     "flamer": {
         "FlamerSideTank:1": "Magazine",
+        "FlamerValve:0": "MiscA",
+        "FlamerNeedle:0": "MiscA",
+        "FlamerGrip:0": "MiscA",
     },
     "plasmapistol": {
         "PlasmaValve6:0": "TRIGGER",
         "PlasmaCellMagazineNew:0": "Magazine",
+        "PlasmaValve1:0": "MiscA",
+        "PlasmaValve2:0": "MiscA01",
+        "PlasmaValve3:0": "MiscA02",
+        "PlasmaValve4:0": "MiscA03",
+        "PlasmaValve5:0": "MiscA",
     },
     "plasmarifle": {
         "PlasmaValve6:0": "TRIGGER",
@@ -1872,9 +2109,9 @@ REQUIRED_NODE_PARENTS: Dict[str, Dict[str, str]] = {
 }
 
 FORBIDDEN_EMPTY_HELPER_NODES: Dict[str, Tuple[str, ...]] = {
-    "10mm": ("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "Bolt"),
-    "lasermusket": ("WeaponTrigger", "Magazine", "Bolt"),
-    "minigun": ("WeaponBolt", "WeaponMagazine", "Bolt", "TRIGGER"),
+    "10mm": FORBIDDEN_RANGED_IDENTITY_MOVING_NODES + ("Bolt",),
+    "lasermusket": FORBIDDEN_RANGED_IDENTITY_MOVING_NODES + ("Bolt",),
+    "minigun": FORBIDDEN_RANGED_IDENTITY_MOVING_NODES + ("Bolt", "TRIGGER"),
     "baton": ("TRIGGER", "Magazine", "Bolt"),
 }
 
@@ -1913,6 +2150,25 @@ def verify_nif_asset_tree(
                 f"{nif_rel_path}: moving/part BSGeometry flattened directly onto root WEAPON: "
                 f"{info['node_to_shapes']['WEAPON']}"
             )
+        donor_af_key = WEAPON_DONOR_AF_KEY.get(weapon_key)
+        allowed_tracks_upper: Set[str] = set()
+        if donor_af_key is not None:
+            proj_y = float(info["node_world_m"]["ProjectileNode"][0][1])
+            if proj_y <= 0.0:
+                raise StageWeaponsError(
+                    f"{nif_rel_path}: ranged gun {weapon_key!r} ProjectileNode has non-positive forward Y={proj_y:.4f}"
+                )
+            allowed_tracks_upper = {nm.upper() for nm in DONOR_AF_TRACKS[donor_af_key]}
+            for nm in info["node_names"]:
+                if nm in FORBIDDEN_RANGED_IDENTITY_MOVING_NODES:
+                    raise StageWeaponsError(
+                        f"{nif_rel_path}: ranged gun {weapon_key!r} retains unmapped FO4 moving NiNode {nm!r}"
+                    )
+                if nm.upper() in SF_ANIM_TRACK_NAMES_UPPER and nm.upper() not in allowed_tracks_upper:
+                    raise StageWeaponsError(
+                        f"{nif_rel_path}: node {nm!r} is NOT in {donor_af_key!r} donor .af track list "
+                        f"{list(DONOR_AF_TRACKS[donor_af_key])}"
+                    )
         for sh_nm, want_parent in REQUIRED_MOVING_SHAPE_PARENTS.get(weapon_key, {}).items():
             got_parent = info["shape_to_parent_node"].get(sh_nm)
             if got_parent != want_parent:
@@ -1931,6 +2187,22 @@ def verify_nif_asset_tree(
                 raise StageWeaponsError(
                     f"{nif_rel_path}: forbidden empty duplicate helper NiNode {forb!r} present"
                 )
+        if donor_af_key is not None:
+            for pnode in REQUIRED_MOVING_SHAPE_PARENTS.get(weapon_key, {}).values():
+                cur = pnode
+                tracked_hit = False
+                seen_anc: Set[str] = set()
+                while cur and cur not in seen_anc:
+                    seen_anc.add(cur)
+                    if cur.upper() in allowed_tracks_upper:
+                        tracked_hit = True
+                        break
+                    cur = info["node_parents"].get(cur, "")
+                if not tracked_hit:
+                    raise StageWeaponsError(
+                        f"{nif_rel_path}: moving-part parent {pnode!r} has no ancestor in {donor_af_key!r} "
+                        f"donor .af tracks {list(DONOR_AF_TRACKS[donor_af_key])}"
+                    )
         empty_leaves = sorted(
             set(info["node_names"])
             - {"WEAPON", "ProjectileNode"}
@@ -2350,7 +2622,17 @@ def stage_r11_weapons(
             "baton_fo4_source": baton_src_rel,
             "standin_disclosure": STANDIN_DISCLOSURE,
             "sf_donors": {
-                wkey: {"collision_nif": donor_colls[wkey][0]}
+                wkey: {
+                    "collision_nif": donor_colls[wkey][0],
+                    **(
+                        {
+                            "donor_af_key": WEAPON_DONOR_AF_KEY[wkey],
+                            "donor_af_tracks": list(DONOR_AF_TRACKS[WEAPON_DONOR_AF_KEY[wkey]]),
+                        }
+                        if wkey in WEAPON_DONOR_AF_KEY
+                        else {}
+                    ),
+                }
                 for wkey in wkeys
             },
             "weapons": {
@@ -2364,6 +2646,7 @@ def stage_r11_weapons(
                         for seq in src_info.get("sequences", [])
                     ],
                     "fo4_part_map": wres.fo4_part_map,
+                    "donor_af_tracks": list(DONOR_AF_TRACKS[WEAPON_DONOR_AF_KEY[wkey]]) if wkey in WEAPON_DONOR_AF_KEY else [],
                     "shape_count": len(wres.shape_names),
                     "skipped_shapes": wres.skipped_shapes,
                     "bounds_min_m": [round(x, 5) for x in wres.bounds_min_m],

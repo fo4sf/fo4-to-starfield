@@ -538,9 +538,11 @@ def _build_synthetic_fo4_10mm_part_nifs() -> tuple[bytes, bytes, bytes]:
     s_bolt = rec.string_index(b"WeaponBolt")
     s_mag = rec.string_index(b"WeaponMagazine")
     s_trg = rec.string_index(b"WeaponTrigger")
+    s_e1 = rec.string_index(b"WeaponExtra1")
     s_e2 = rec.string_index(b"WeaponExtra2")
+    s_e3 = rec.string_index(b"WeaponExtra3")
     s_mat = rec.string_index(b"Materials\\Weapons\\10mmPistol\\10mmPistol.BGSM")
-    rec.add_block("NiNode", _av_fields(s_weap, (0.0, 0.0, 0.0), extra_refs=(1,)) + struct.pack("<I5i", 5, 2, 3, 4, 5, 6))
+    rec.add_block("NiNode", _av_fields(s_weap, (0.0, 0.0, 0.0), extra_refs=(1,)) + struct.pack("<I7i", 7, 2, 3, 4, 5, 6, 7, 8))
     rec.add_block(
         "BSConnectPoint::Parents",
         _connect_points_parents_block(
@@ -552,15 +554,19 @@ def _build_synthetic_fo4_10mm_part_nifs() -> tuple[bytes, bytes, bytes]:
             ],
         ),
     )
-    rec.add_block("NiNode", _av_fields(s_r, (0.0, 0.0, 0.0)) + struct.pack("<I2i", 2, 7, 10))
-    rec.add_block("NiNode", _av_fields(s_bolt, (-0.104, 6.95, 0.301)) + struct.pack("<Ii", 1, 8))
+    rec.add_block("NiNode", _av_fields(s_r, (0.0, 0.0, 0.0)) + struct.pack("<I2i", 2, 9, 14))
+    rec.add_block("NiNode", _av_fields(s_bolt, (-0.104, 6.95, 0.301)) + struct.pack("<Ii", 1, 10))
     rec.add_block("NiNode", _av_fields(s_mag, (0.0, 2.0, -3.5)) + struct.pack("<I", 0))
     rec.add_block("NiNode", _av_fields(s_trg, (0.238, 4.676, 1.162)) + struct.pack("<I", 0))
-    rec.add_block("NiNode", _av_fields(s_e2, (0.0, -1.0, 2.5)) + struct.pack("<Ii", 1, 9))
+    rec.add_block("NiNode", _av_fields(s_e1, (-0.04, 15.6, 2.3)) + struct.pack("<Ii", 1, 11))
+    rec.add_block("NiNode", _av_fields(s_e2, (0.0, -1.0, 2.5)) + struct.pack("<Ii", 1, 12))
+    rec.add_block("NiNode", _av_fields(s_e3, (-2.1, 5.4, 2.3)) + struct.pack("<Ii", 1, 13))
     for nm_b, y0 in (
         (b"Pistol10mmReceiver:0", 0.0),
         (b"Pistol10mmBolt:0", 1.0),
+        (b"Pistol10mmRelease:0", 3.0),
         (b"Pistol10mmHammer:0", -0.5),
+        (b"Pistol10mmBoltRelease:0", 2.0),
         (b"10mmTrigger:0", 4.0),
     ):
         rec.add_block(
@@ -568,7 +574,7 @@ def _build_synthetic_fo4_10mm_part_nifs() -> tuple[bytes, bytes, bytes]:
             _fo4_trishape_block(
                 rec.string_index(nm_b),
                 [(-1.0, y0, -1.0), (1.0, y0, -1.0), (1.0, y0 + 5.0, 2.0), (-1.0, y0 + 5.0, 2.0)],
-                shader_ref=11,
+                shader_ref=15,
             ),
         )
     rec.add_block("BSLightingShaderProperty", _fo4_lighting_shader_block(s_mat))
@@ -607,12 +613,17 @@ class R11Step4WeaponsTests(unittest.TestCase):
         self.assertEqual(h10["shape_to_parent_node"]["Pistol10mmBolt:0"], "MiscA06")
         self.assertEqual(h10["shape_to_parent_node"]["Magazine:0"], "Magazine")
         self.assertEqual(h10["shape_to_parent_node"]["10mmTrigger:0"], "TRIGGER")
-        self.assertEqual(h10["shape_to_parent_node"]["Pistol10mmHammer:0"], "WeaponExtra2")
-        for forbidden in ("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "Bolt"):
+        self.assertEqual(h10["shape_to_parent_node"]["Pistol10mmRelease:0"], "MiscA01")
+        self.assertEqual(h10["shape_to_parent_node"]["Pistol10mmHammer:0"], "MiscA02")
+        self.assertEqual(h10["shape_to_parent_node"]["Pistol10mmBoltRelease:0"], "MiscA03")
+        for forbidden in ("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2", "WeaponExtra3", "Bolt"):
             self.assertNotIn(forbidden, h10["node_names"])
         self.assertEqual(r10.fo4_part_map["MiscA06"], "WeaponBolt")
         self.assertEqual(r10.fo4_part_map["Magazine"], "WeaponMagazine")
         self.assertEqual(r10.fo4_part_map["TRIGGER"], "WeaponTrigger")
+        self.assertEqual(r10.fo4_part_map["MiscA01"], "WeaponExtra1")
+        self.assertEqual(r10.fo4_part_map["MiscA02"], "WeaponExtra2")
+        self.assertEqual(r10.fo4_part_map["MiscA03"], "WeaponExtra3")
         for empty_forb in ("CasingNonEmbedded", "WeaponMagazineChild1", "WeaponOptics1", "WeaponOptics2"):
             self.assertNotIn(empty_forb, h10["node_names"])
         self.assertEqual(set(h10["node_names"]) - {"WEAPON", "ProjectileNode"} - set(h10["node_to_shapes"]) - set(h10["node_parents"].values()), set())
@@ -647,7 +658,7 @@ class R11Step4WeaponsTests(unittest.TestCase):
         self.assertAlmostEqual(r_bat.named_nodes_m["WeaponExtra2"][2], 22.8426 / 70.0, places=4)
         self.assertAlmostEqual(r_bat.named_nodes_m["ProjectileNode"][2], 36.295 / 70.0, places=4)
 
-        # 3. Laser Musket (F1: WeaponTrigger->TRIGGER, crank stays WeaponMagazine, zero empty Magazine/Bolt; F3: P-ProjectileNode)
+        # 3. Laser Musket (F1/P6-H3: WeaponTrigger->TRIGGER, WeaponMagazine->Magazine crank, WeaponExtra1..3->MiscA01..03; F3: P-ProjectileNode)
         lm_rec, lm_grp, lm_bar, lm_sgt = _build_synthetic_lasermusket_nifs()
         r_lm = sw.build_laser_musket_weapon(
             lm_rec, lm_grp, lm_bar, lm_sgt, default_material="materials/fo4sf/weapons/lasermusket/lm.mat"
@@ -657,13 +668,16 @@ class R11Step4WeaponsTests(unittest.TestCase):
         self.assertTrue(any("FrontGlowMesh:0" in s for s in r_lm.skipped_shapes))
         h_lm = sw.inspect_weapon_nif_hierarchy(r_lm.nif_bytes)
         self.assertTrue(h_lm["all_nodes_have_sgo_keep"])
-        self.assertEqual(h_lm["shape_to_parent_node"]["LaserMusketCrank:0"], "WeaponMagazine")
+        self.assertEqual(h_lm["shape_to_parent_node"]["LaserMusketCrank:0"], "Magazine")
         self.assertEqual(h_lm["shape_to_parent_node"]["LaserMusketTrigger:0"], "TRIGGER")
-        self.assertEqual(h_lm["shape_to_parent_node"]["LaserMusketRotor:0"], "WeaponExtra2")
-        for forbidden in ("WeaponTrigger", "Magazine", "Bolt"):
+        self.assertEqual(h_lm["shape_to_parent_node"]["LaserMusketMagnet1:0"], "MiscA01")
+        self.assertEqual(h_lm["shape_to_parent_node"]["LaserMusketRotor:0"], "MiscA02")
+        self.assertEqual(h_lm["shape_to_parent_node"]["LaserMusketMagnet2:0"], "MiscA03")
+        for forbidden in ("WeaponTrigger", "WeaponMagazine", "WeaponExtra1", "WeaponExtra2", "WeaponExtra3", "Bolt"):
             self.assertNotIn(forbidden, h_lm["node_names"])
         self.assertEqual(r_lm.fo4_part_map["TRIGGER"], "WeaponTrigger")
-        self.assertEqual(r_lm.fo4_part_map["WeaponMagazine"], "WeaponMagazine")
+        self.assertEqual(r_lm.fo4_part_map["Magazine"], "WeaponMagazine")
+        self.assertEqual(r_lm.fo4_part_map["MiscA02"], "WeaponExtra2")
         self.assertEqual(
             h_lm["shape_to_parent_node"]["LaserMusketBarrelExtension2Lens:0"],
             "LaserMusketBarrelExtension2Lens",
@@ -849,17 +863,11 @@ class R11Step4WeaponsTests(unittest.TestCase):
             victim_dds.write_bytes(b"DDS " + b"\x00" * 144)
 
             # Negative 5: Empty helper NiNode outside WEAPON/ProjectileNode must fail verify_staged_weapons!
-            bad_helper_10mm = sw.build_hierarchical_weapon_nif(
-                "10mm",
+            bad_helper_10mm = sw.build_10mm_weapon(
                 p10_rec,
-                [
-                    sw.AttachedOmodPart(p10_grip, "P-Grip", graft_part_root=False),
-                    sw.AttachedOmodPart(p10_mag, "P-Mag", graft_part_root=False, override_parent_node="WeaponMagazine"),
-                ],
+                p10_grip,
+                p10_mag,
                 default_material="materials/fo4sf/weapons/10mm/p10.mat",
-                shape_parent_overrides={"10mmTrigger:0": "WeaponTrigger"},
-                extra_sgo_nodes_fo4={"ProjectileNode": (0.0, 18.5, 4.8)},
-                node_rename_map={"WeaponBolt": "MiscA06", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
             )
             nf_empty = nif.parse(bad_helper_10mm.nif_bytes)
             # Add an empty NiNode under root WEAPON (child list appended cleanly via sgoKeep extra ref)
@@ -886,6 +894,104 @@ class R11Step4WeaponsTests(unittest.TestCase):
             with self.assertRaisesRegex(sw.StageWeaponsError, "empty helper"):
                 sw.verify_staged_weapons(str(stg), require_converted_materials=True, require_collision=False)
             p10_path.write_bytes(saved_10mm)
+
+            # Negative 6 (P6-H3): Non-tracked Starfield bone name (e.g., Scope on XM2311/10mm) or unmapped WeaponExtra node must fail!
+            bad_track_10mm = sw.build_hierarchical_weapon_nif(
+                "10mm",
+                p10_rec,
+                [
+                    sw.AttachedOmodPart(p10_grip, "P-Grip", graft_part_root=False),
+                    sw.AttachedOmodPart(p10_mag, "P-Mag", graft_part_root=False, override_parent_node="WeaponMagazine"),
+                ],
+                default_material="materials/fo4sf/weapons/10mm/p10.mat",
+                shape_parent_overrides={"10mmTrigger:0": "WeaponTrigger"},
+                extra_sgo_nodes_fo4={"ProjectileNode": (0.0, 18.5, 4.8)},
+                node_rename_map={
+                    "WeaponBolt": "MiscA06",
+                    "WeaponMagazine": "Magazine",
+                    "WeaponTrigger": "TRIGGER",
+                    "WeaponExtra1": "MiscA01",
+                    "WeaponExtra2": "Scope",  # NOT in XM2311 DONOR_AF_TRACKS!
+                    "WeaponExtra3": "MiscA03",
+                },
+            )
+            p10_path.write_bytes(bad_track_10mm.nif_bytes)
+            with self.assertRaisesRegex(sw.StageWeaponsError, "donor .af track list"):
+                sw.verify_nif_asset_tree(str(stg), sw.WEAPON_NIF_RELS["10mm"], weapon_key="10mm", require_converted_materials=False, require_collision=False)
+            p10_path.write_bytes(saved_10mm)
+
+            # Negative 7 (P6-M1): Non-positive ProjectileNode.y on a ranged gun must fail!
+            backwards_10mm = sw.build_hierarchical_weapon_nif(
+                "10mm",
+                p10_rec,
+                [
+                    sw.AttachedOmodPart(p10_grip, "P-Grip", graft_part_root=False),
+                    sw.AttachedOmodPart(p10_mag, "P-Mag", graft_part_root=False, override_parent_node="WeaponMagazine"),
+                ],
+                default_material="materials/fo4sf/weapons/10mm/p10.mat",
+                shape_parent_overrides={"10mmTrigger:0": "WeaponTrigger"},
+                extra_sgo_nodes_fo4={"ProjectileNode": (0.0, -38.2, 10.99)},
+                node_rename_map={
+                    "WeaponBolt": "MiscA06",
+                    "WeaponMagazine": "Magazine",
+                    "WeaponTrigger": "TRIGGER",
+                    "WeaponExtra1": "MiscA01",
+                    "WeaponExtra2": "MiscA02",
+                    "WeaponExtra3": "MiscA03",
+                },
+            )
+            p10_path.write_bytes(backwards_10mm.nif_bytes)
+            with self.assertRaisesRegex(sw.StageWeaponsError, "non-positive forward Y"):
+                sw.verify_nif_asset_tree(str(stg), sw.WEAPON_NIF_RELS["10mm"], weapon_key="10mm", require_converted_materials=False, require_collision=False)
+            p10_path.write_bytes(saved_10mm)
+
+    def test_p6_m1_missile_launcher_undoes_180_root_turn_and_tracks_bridger_bones(self) -> None:
+        # Synthetic FO4 missilelauncher.nif + barrel NIF carrying the real FO4 R_Z_180 root rotations
+        r_z180 = (-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0)
+        ml_rec = _new_fo4_nif()
+        ml_rec.add_block("NiNode", _av_fields(ml_rec.string_index(b"WEAPON"), (0.0, 0.0, 0.0), rot=r_z180, extra_refs=(1,)) + struct.pack("<Ii", 1, 2))
+        ml_rec.add_block(
+            "BSConnectPoint::Parents",
+            _connect_points_parents_block(
+                ml_rec.string_index(b"CPA"),
+                [(b"MissileLauncherReceiver", b"P-Barrel", (1.0, 0.0, 0.0, 0.0), (0.0, -10.276, 10.99), 1.0)],
+            ),
+        )
+        # [2] MissileLauncherReceiver -> [3 (WeaponExtra2), 4 (WeaponTrigger), 5 (ProjectileNode), 6 (Receiver:0)]
+        ml_rec.add_block("NiNode", _av_fields(ml_rec.string_index(b"MissileLauncherReceiver"), (0.0, 0.0, 0.0)) + struct.pack("<I4i", 4, 3, 4, 5, 6))
+        ml_rec.add_block("NiNode", _av_fields(ml_rec.string_index(b"WeaponExtra2"), (0.0, 17.03, 6.15)) + struct.pack("<Ii", 1, 7))
+        ml_rec.add_block("NiNode", _av_fields(ml_rec.string_index(b"WeaponTrigger"), (-1.87, 5.4, 5.81)) + struct.pack("<Ii", 1, 8))
+        ml_rec.add_block("NiNode", _av_fields(ml_rec.string_index(b"ProjectileNode"), (0.0, 38.20, 10.99)) + struct.pack("<I", 0))
+        for nm_b, y0 in ((b"MissileLauncherReceiver:0", 0.0), (b"MissileLauncherFrontHandle:0", 2.0), (b"MissileLauncherTrigger:0", 1.0)):
+            ml_rec.add_block("BSTriShape", _fo4_trishape_block(ml_rec.string_index(nm_b), [(-1, y0, -1), (1, y0, -1), (1, y0 + 4, 1), (-1, y0 + 4, 1)], shader_ref=9))
+        ml_rec.add_block("BSLightingShaderProperty", _fo4_lighting_shader_block(ml_rec.string_index(b"Materials\\Weapons\\MissileLauncher\\ML.BGSM")))
+        ml_rec.footer = struct.pack("<II", 1, 0)
+
+        ml_bar = _new_fo4_nif()
+        ml_bar.add_block("NiNode", _av_fields(ml_bar.string_index(b"MissileLauncherBarrel"), (0.0, 0.0, 0.0), rot=r_z180, extra_refs=(1,)) + struct.pack("<I4i", 4, 2, 3, 4, 5))
+        ml_bar.add_block("BSConnectPoint::Parents", _connect_points_parents_block(ml_bar.string_index(b"CPA"), [(b"MissileLauncherBarrel", b"P-Muzzle", (1.0, 0.0, 0.0, 0.0), (0.0, 27.93, 0.0), 1.0)]))
+        ml_bar.add_block("NiNode", _av_fields(ml_bar.string_index(b"CBarrelPivot"), (0.0, 52.8, 1.77)) + struct.pack("<Ii", 1, 6))
+        ml_bar.add_block("NiNode", _av_fields(ml_bar.string_index(b"CBarrelHandle"), (0.0, 14.0, 3.73)) + struct.pack("<Ii", 1, 7))
+        ml_bar.add_block("NiNode", _av_fields(ml_bar.string_index(b"CMissile"), (0.0, 25.1, 0.0)) + struct.pack("<Ii", 1, 8))
+        for nm_b in (b"MissileLauncherBarrel:0", b"MissileLauncherTube:0", b"MissileLauncherBolt:0", b"MissileLauncherProjectile:0"):
+            ml_bar.add_block("BSTriShape", _fo4_trishape_block(ml_bar.string_index(nm_b), [(-1, 0, -1), (1, 0, -1), (1, 10, 1), (-1, 10, 1)], shader_ref=9))
+        ml_bar.add_block("BSLightingShaderProperty", _fo4_lighting_shader_block(ml_bar.string_index(b"Materials\\Weapons\\MissileLauncher\\MLBar.BGSM")))
+        ml_bar.footer = struct.pack("<II", 1, 0)
+
+        res = sw.build_arsenal_weapon_from_spec(
+            sw.ARSENAL_WEAPON_SPECS["missilelauncher"],
+            nif.serialize(ml_rec),
+            [nif.serialize(ml_bar)],
+            default_material="materials/fo4sf/weapons/missilelauncher/ml.mat",
+        )
+        self.assertGreater(res.named_nodes_m["ProjectileNode"][1], 0.20)
+        self.assertEqual(res.fo4_part_map["MiscA"], "WeaponExtra2")
+        self.assertEqual(res.fo4_part_map["MiscA01"], "CBarrelPivot")
+        self.assertEqual(res.fo4_part_map["Bolt"], "CBarrelHandle")
+        self.assertEqual(res.fo4_part_map["Magazine01"], "CMissile")
+        h = sw.inspect_weapon_nif_hierarchy(res.nif_bytes)
+        for nm in sw.FORBIDDEN_RANGED_IDENTITY_MOVING_NODES:
+            self.assertNotIn(nm, h["node_names"])
 
     def test_safety_guards_refuse_repo_candidate_game_and_running_starfield(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -1002,11 +1108,11 @@ class R11Step4WeaponsTests(unittest.TestCase):
             self.assertEqual(stimpak_val, 48)
 
             expected_wvis = {
-                0x000899: 0x0000D02C, 0x00089A: 0x00055DC3, 0x00089D: 0x001C1162, 0x00089E: 0x001C1162,
+                0x000899: 0x0000D02C, 0x00089A: 0x000116F1, 0x00089D: 0x001C1162, 0x00089E: 0x001C1162,
                 0x0008A0: 0x0000D02C, 0x0008A2: 0x0000D02C, 0x0008A3: 0x0000D02C, 0x0008C5: 0x00252B4C,
                 0x0008C6: 0x0015CCFD, 0x0008C7: 0x0015CCFD, 0x0008C8: 0x0000D02C, 0x0008C9: 0x0000D02C,
                 0x0008CA: 0x00239D0F, 0x0008CB: 0x001D7FEC, 0x0008CC: 0x0000D02C, 0x0008CD: 0x0000D02C,
-                0x0008CE: 0x001F5DA1, 0x0008CF: 0x001F5DA1, 0x0008D0: 0x0005C498, 0x0008D1: 0x0015CCFD,
+                0x0008CE: 0x001F5DA1, 0x0008CF: 0x001F5DA1, 0x0008D0: 0x000116F1, 0x0008D1: 0x0015CCFD,
                 0x0008D2: 0x0015CCFD, 0x0008D3: 0x00115BE5, 0x0008D4: 0x00164E05, 0x0008D5: 0x00164E03,
                 0x0008D6: 0x0034BE5D,
             }
@@ -1020,6 +1126,18 @@ class R11Step4WeaponsTests(unittest.TestCase):
                 full_str = cstr(smap[b"FULL"])
                 self.assertNotIn("starfield", full_str.lower())
                 self.assertFalse(full_str.startswith("FO4SF"))
+
+            # Verify P6-H1 default-combination OMOD damage & capacity overrides (SMG 9.75f, AR 30, Laser Rifle 27/26, Gauss 8)
+            smg_smap = ars_recs[0x010008CC][2]
+            self.assertAlmostEqual(struct.unpack_from("<f", smg_smap[b"WDMG"], 0)[0], 9.75, places=5)
+            ar_smap = ars_recs[0x010008CD][2]
+            self.assertAlmostEqual(struct.unpack_from("<f", ar_smap[b"WDMG"], 0)[0], 30.0, places=5)
+            self.assertEqual(struct.unpack_from("<I", ar_smap[b"WAM2"], 4)[0], 30)
+            lr_smap = ars_recs[0x010008CF][2]
+            self.assertEqual(struct.unpack_from("<I", lr_smap[b"WAM2"], 4)[0], 27)
+            self.assertEqual(struct.unpack_from("<IH", lr_smap[b"DAMA"], 0), (0x00060A81, 26))
+            gr_smap = ars_recs[0x010008D6][2]
+            self.assertEqual(struct.unpack_from("<I", gr_smap[b"WAM2"], 4)[0], 8)
 
             for expl_lid, want_ipds in ((0x0008B9, 0x003A5907), (0x0008BA, 0x003A5907), (0x0008BB, 0x0015CCFD), (0x0008BC, 0x0015CCFD)):
                 enam = ars_recs[0x01000000 | expl_lid][2][b"ENAM"]
