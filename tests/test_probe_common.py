@@ -134,8 +134,20 @@ class ProbeCommonTests(unittest.TestCase):
             with self.assertRaises(pc.ProbeSafetyError):
                 pc.check_out_dir_safe(game / "stage")
 
+            # All Round 12 frozen candidate and probe names must be refused
+            for cname in ("candidate-2g-fix3", "candidate-2h", "candidate-2i"):
+                cp = base / "gemini-core" / cname
+                cp.mkdir(parents=True, exist_ok=True)
+                with self.assertRaises(pc.ProbeSafetyError):
+                    pc.check_out_dir_safe(cp)
+            for pname in ("r11-p6-arsenal", "r11-p2-powerarmor", "w-home", "r12-start-menus", "r11-s1-prewar"):
+                pp = base / "gemini-probes" / pname
+                pp.mkdir(parents=True, exist_ok=True)
+                with self.assertRaises(pc.ProbeSafetyError):
+                    pc.check_out_dir_safe(pp)
+
             # Non-empty new probe folder refused unless clean=True
-            new_probe = base / "gemini-probes" / "r11-p6-arsenal"
+            new_probe = base / "gemini-probes" / "r12-p6b"
             new_probe.mkdir(parents=True)
             (new_probe / "stale.txt").write_text("stale", encoding="utf-8")
             with self.assertRaises(pc.ProbeSafetyError):
@@ -150,7 +162,7 @@ class ProbeCommonTests(unittest.TestCase):
             base = pathlib.Path(td)
             stage_src = base / "staging"
             frozen_probe = base / "gemini-probes" / "r11-p5-weapons"
-            new_probe = base / "gemini-probes" / "r11-p6-arsenal"
+            new_probe = base / "gemini-probes" / "r12-p6b"
             stage_src.mkdir(parents=True)
             frozen_probe.mkdir(parents=True)
             new_probe.mkdir(parents=True)
@@ -657,6 +669,222 @@ class ProbeCommonTests(unittest.TestCase):
                         min_free_gb=0.0,
                         system=FakeSystem([]),
                     )
+
+    @staticmethod
+    def _write_minimal_esm(path: pathlib.Path, *, flags: int = 0x00000001, masters: list[str] | None = None) -> None:
+        path.write_bytes(
+            pc.build_esm(
+                masters or [],
+                b"",
+                0x800,
+                flags=flags,
+            )
+        )
+
+    def test_compute_full_master_load_index_and_batch_prefix_stamper(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_dir = pathlib.Path(td) / "Data"
+            data_dir.mkdir(parents=True)
+
+            # Existing implicit masters: Starfield.esm (0x00) and BlueprintShips-Starfield.esm (0x01);
+            # Constellation.esm, OldMars.esm, ShatteredSpace.esm intentionally ABSENT on disk!
+            self._write_minimal_esm(data_dir / "Starfield.esm", flags=0x00000081)
+            self._write_minimal_esm(data_dir / "BlueprintShips-Starfield.esm", flags=0x00000881)
+
+            # Light (0x200) & Medium (0x100) plugins must be skipped even when *active
+            self._write_minimal_esm(data_dir / "LightSkip.esm", flags=0x00000201)
+            self._write_minimal_esm(data_dir / "MediumSkip.esm", flags=0x00000101)
+            self._write_minimal_esm(data_dir / "LightAndMedSkip.esm", flags=0x00000301)
+
+            # Inactive Bridge plugin exists on disk but lacks leading '*' in Plugins.txt
+            self._write_minimal_esm(data_dir / "FO4SFBridge.esm", flags=0x00000001)
+
+            # Exact 24 Nov Bridge-off active chain (15 active full masters -> target lands at 0x11 = 17)
+            active_chain = [
+                "FO4Port.esm",
+                "FO4ActorRaider.esm",
+                "FO4TerrainCore.esm",
+                "FO4TerrainCore_Mars.esm",
+                "FO4SFCoreValues.esm",
+                "FO4SFVaultGearDoor.esm",
+                "FO4SFExitLift.esm",
+                "FO4SFMission.esm",
+                "FO4SFNewGame.esm",
+                "FO4SFWorkshop.esm",
+                "FO4SFPowerArmor.esm",
+                "FO4SFFortHagen.esm",
+                "FO4SFPipboyProbe.esm",
+                "FO4SFPipboyTravel.esm",
+                "FO4SFMapMarkers.esm",
+            ]
+            for name in active_chain:
+                self._write_minimal_esm(data_dir / name, flags=0x00000001)
+            self._write_minimal_esm(data_dir / "FO4SF_R11P6Arsenal.esm", flags=0x00000001)
+
+            plugins_lines = [
+                "# This file is used by Starfield to keep track of your downloaded content.",
+                "*FO4Port.esm",
+                "FO4SFBridge.esm",  # inactive line (no '*') -> skipped!
+                "*LightSkip.esm",  # 0x200 light -> skipped!
+                "*MediumSkip.esm",  # 0x100 medium -> skipped!
+                "*LightAndMedSkip.esm",  # 0x300 -> skipped!
+                "*MissingNotOnDisk.esm",  # absent on disk -> skipped!
+                *[f"*{name}" for name in active_chain[1:]],
+                "*FO4SF_R11P6Arsenal.esm",
+            ]
+            slot = pc.compute_full_master_load_index(data_dir, plugins_lines, "FO4SF_R11P6Arsenal.esm")
+            self.assertEqual(slot, 0x11)
+
+            # Also verify slot matches BEFORE target_plugin is appended (24 Nov Bridge-off without target yet)
+            lines_before_append = plugins_lines[:-1]
+            self.assertEqual(
+                pc.compute_full_master_load_index(data_dir, lines_before_append, "FO4SF_R11P6Arsenal.esm"),
+                0x11,
+            )
+
+            # Shared batch FormID prefix stamper updates dict + disk files and returns '0x11'
+            batches = {
+                "p6t.txt": "; keep comment SetStage 15000830 20\nSetStage 15000830 20\n",
+                "p6q.txt": "getstage <XX>000830\nsqs XX000830\n",
+            }
+            bat_out = pathlib.Path(td) / "stamped_bat"
+            prefix_hex = pc.stamp_batch_formid_prefix(
+                batches,
+                data_dir,
+                lines_before_append,
+                "FO4SF_R11P6Arsenal.esm",
+                local_ids=(0x000830,),
+                out_dir=bat_out,
+                plugins_to_activate=("FO4SF_R11P6Arsenal.esm",),
+            )
+            self.assertEqual(prefix_hex, "0x11")
+            self.assertIn("; keep comment SetStage 15000830 20", batches["p6t.txt"])
+            self.assertIn("\nSetStage 11000830 20\n", batches["p6t.txt"])
+            self.assertEqual((bat_out / "p6q.txt").read_text(encoding="utf-8"), "getstage 11000830\nsqs 11000830\n")
+
+    def test_shared_raw_esm_and_vmad_v6_helpers(self) -> None:
+        # 1. VMAD v6 scalar + array round-trip
+        scripts = [
+            {
+                "name": "FO4SF_R11P6Quest",
+                "status": 0,
+                "properties": [
+                    {"name": "TargetRef", "type": pc.VMAD_T_OBJECT, "status": 1, "value": {"alias": -1, "form": 0x04000810}},
+                    {"name": "LogName", "type": pc.VMAD_T_STRING, "status": 1, "value": "fo4sf_r11p6"},
+                    {"name": "CountInt", "type": pc.VMAD_T_INT, "status": 1, "value": 42},
+                    {"name": "DamageMult", "type": pc.VMAD_T_FLOAT, "status": 1, "value": 1.25},
+                    {"name": "EnableLog", "type": pc.VMAD_T_BOOL, "status": 1, "value": True},
+                    {
+                        "name": "Weapons",
+                        "type": pc.VMAD_T_OBJECT_ARR,
+                        "status": 1,
+                        "value": [{"alias": -1, "form": 0x02000899}, {"alias": 2, "form": 0x0200089A}],
+                    },
+                    {"name": "Tags", "type": pc.VMAD_T_STRING_ARR, "status": 1, "value": ["10mm", "baton"]},
+                    {"name": "Amts", "type": pc.VMAD_T_INT_ARR, "status": 1, "value": [48, 72]},
+                ],
+            }
+        ]
+        vmad_bytes = pc._encode_vmad_v6(scripts, tail=pc.QUST_VMAD_TAIL)
+        decoded = pc.decode_vmad_v6(vmad_bytes)
+        self.assertEqual(len(decoded), 1)
+        self.assertEqual(decoded[0]["name"], "FO4SF_R11P6Quest")
+        prop_types = pc._decode_vmad_v6_prop_names(vmad_bytes)
+        self.assertEqual(prop_types["Weapons"], pc.VMAD_T_OBJECT_ARR)
+        self.assertEqual(prop_types["Amts"], pc.VMAD_T_INT_ARR)
+        self.assertEqual(decoded[0]["properties"][3]["value"], 1.25)
+        self.assertEqual(decoded[0]["properties"][6]["value"], ["10mm", "baton"])
+
+        # 2. Raw ESM helpers including XXXX > 64KB subrecord, GRUP, HEDR count, and _tes4_master_count
+        big_blob = b"\x5A" * 70000
+        qrec = pc._rec_bytes(
+            b"QUST",
+            0x02000830,
+            [(b"EDID", b"TestQuest\x00"), (b"VMAD", vmad_bytes), (b"DATA", big_blob)],
+            version=581,
+        )
+        self.assertIn(b"XXXX", qrec)
+        body = pc._grup(b"QUST", 0, qrec)
+        self.assertEqual(pc._count_records_and_grups(body), 2)
+        esm_bytes = pc.build_esm(["Starfield.esm", "FO4SFCoreValues.esm"], body, next_object_id=0x000831)
+        self.assertEqual(pc._tes4_master_count(esm_bytes), 2)
+        walked = list(pc._walk_esm_records(esm_bytes))
+        self.assertEqual([w[0] for w in walked], ["TES4", "QUST"])
+
+    def test_install_probe_missing_card_warning_no_rollback_and_version_stamp_support(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = pathlib.Path(td)
+            sf = base / "Starfield"
+            stage = base / "stage"
+            (sf / "Data").mkdir(parents=True)
+            stage.mkdir(parents=True)
+            (stage / "FO4SF_Probe.esm").write_bytes(pc.build_esm(["Starfield.esm"], b"", 0x801))
+            plugins_txt = sf / "Plugins.txt"
+            plugins_txt.write_text("*Starfield.esm\n", encoding="utf-8")
+
+            # #858 F3: missing relative card_path warns BEFORE mutation and MUST NOT roll back install
+            missing_rel_card = pathlib.Path("docs/testing/does-not-exist-card.md")
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                rcpt = pc.install_probe(
+                    probe_id="f3_test",
+                    stage_dir=stage,
+                    starfield_dir=sf,
+                    plugins_txt=plugins_txt,
+                    plugins_to_activate=["FO4SF_Probe.esm"],
+                    files=[{"src_rel": "FO4SF_Probe.esm", "target_rel": "Data/FO4SF_Probe.esm"}],
+                    version_tag="r12-whome-v2",
+                    card_path=missing_rel_card,
+                    min_free_gb=0.0,
+                    system=FakeSystem([]),
+                )
+            self.assertTrue(rcpt["complete"])
+            self.assertEqual(rcpt["version_tag"], "r12-whome-v2")
+            self.assertIsNone(rcpt["card_stamped"])
+            self.assertTrue(rcpt["card_warnings"])
+            self.assertTrue(any("not found" in str(w.message) for w in caught))
+            self.assertTrue((sf / "Data" / "FO4SF_Probe.esm").is_file())
+            self.assertIn("*FO4SF_Probe.esm", plugins_txt.read_text(encoding="utf-8"))
+            pc.uninstall_probe(probe_id="f3_test", starfield_dir=sf, system=FakeSystem([]))
+
+            # P2-F11: Version Stamp & Version Tag both supported; omitting card_path records version_tag in receipt only
+            stamp_card = stage / "p2_card.md"
+            stamp_card.write_text("# P2 Card\n> **Version Stamp:** `p2-v1`\n", encoding="utf-8")
+            pc.stamp_version_in_card(stamp_card, "p2-v2")
+            self.assertIn("**Version Stamp:** `p2-v2`", stamp_card.read_text(encoding="utf-8"))
+
+            rcpt2 = pc.install_probe(
+                probe_id="p2_no_card_mutate",
+                stage_dir=stage,
+                starfield_dir=sf,
+                plugins_txt=plugins_txt,
+                files=[{"src_rel": "FO4SF_Probe.esm", "target_rel": "Data/FO4SF_Probe.esm"}],
+                version_tag="p2-v3",
+                card_path=None,
+                min_free_gb=0.0,
+                system=FakeSystem([]),
+            )
+            self.assertEqual(rcpt2["version_tag"], "p2-v3")
+            self.assertIn("**Version Stamp:** `p2-v2`", stamp_card.read_text(encoding="utf-8"))
+            rcpt_on_disk = pc.receipt_path(sf, "p2_no_card_mutate")
+            self.assertEqual(
+                __import__("json").loads(rcpt_on_disk.read_text(encoding="utf-8"))["version_tag"],
+                "p2-v3",
+            )
+            pc.uninstall_probe(probe_id="p2_no_card_mutate", starfield_dir=sf, system=FakeSystem([]))
+
+    def test_candidate_2g_fix3_hashes_and_profile_detection(self) -> None:
+        self.assertIn("player", pc.CANDIDATE_2G_FIX3_BUNDLE_PLAN_HASHES)
+        self.assertIn("test", pc.CANDIDATE_2G_FIX3_BUNDLE_PLAN_HASHES)
+        self.assertEqual(
+            pc.CANDIDATE_2G_FIX3_HASHES["Data/FO4SFMission.esm"],
+            "de86f70063c158f3e1753220d83139f8de137b5dc8cf919364a7017350e90314",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            sf = pathlib.Path(td)
+            (sf / "Data").mkdir()
+            (sf / "Data" / "FO4SFCoreCandidate.esm").write_bytes(b"test-profile")
+            self.assertEqual(pc.detect_installed_candidate_profile(sf), "test")
 
 
 if __name__ == "__main__":

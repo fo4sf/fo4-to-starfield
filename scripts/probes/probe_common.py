@@ -32,7 +32,7 @@ import warnings
 import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Set, Tuple, Union
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = REPO_ROOT / "src"
@@ -45,13 +45,21 @@ import deploy_starfield  # noqa: E402
 from fo4sf.ba2 import Ba2  # noqa: E402
 from fo4sf.core.cross_plugin_check import parse_binary_vmad_properties  # noqa: E402
 from fo4sf.launcher.crashwatch import GAME_EXE, System  # noqa: E402
-from fo4sf.planet.esm import PERSISTENT, Plugin, zstring  # noqa: E402
+from fo4sf.planet.esm import PERSISTENT, Plugin, parse_subrecords, zstring  # noqa: E402
 
 DEFAULT_MIN_FREE_GB = 60.0
 DEFAULT_MAX_HOP_AXIS_M = 200.0
 HASH_CHUNK_BYTES = 1 << 20
 BA2_ALIGN = 0xBAADF00D
 BA2_GNRL_FLAGS = 0x00100100
+
+IMPLICIT_FULL_MASTERS: Tuple[str, ...] = (
+    "Starfield.esm",
+    "Constellation.esm",
+    "OldMars.esm",
+    "BlueprintShips-Starfield.esm",
+    "ShatteredSpace.esm",
+)
 
 FROZEN_CANDIDATE_NAMES: Tuple[str, ...] = (
     "candidate-2",
@@ -64,6 +72,9 @@ FROZEN_CANDIDATE_NAMES: Tuple[str, ...] = (
     "candidate-2g",
     "candidate-2g-fix",
     "candidate-2g-fix2",
+    "candidate-2g-fix3",
+    "candidate-2h",
+    "candidate-2i",
 )
 
 FROZEN_PROBE_NAMES: Tuple[str, ...] = (
@@ -71,6 +82,11 @@ FROZEN_PROBE_NAMES: Tuple[str, ...] = (
     "r11-p1-museum-v2",
     "r11-p4-10mm",
     "r11-p5-weapons",
+    "r11-p6-arsenal",
+    "r11-p2-powerarmor",
+    "w-home",
+    "r12-start-menus",
+    "r11-s1-prewar",
 )
 
 COPY_ONLY_EXTENSIONS: frozenset[str] = frozenset({
@@ -104,6 +120,37 @@ CANDIDATE_2G_FIX2_HASHES: Dict[str, Union[str, Tuple[str, ...]]] = {
         "c3332aef3891f4cd647882e80da4f1c6238ba558b12d2c80c2fb32e5fd885c4c",  # player
         "d7f0fc494cca47c2cdf570b82368b6f7f4aca96b478aff179e230fed0a45e09d",  # test
     ),
+}
+
+# Pinned candidate-2g-fix3 bundle_plan.json & core plugin hashes (rebased #852 head 8fed4642).
+CANDIDATE_2G_FIX3_BUNDLE_PLAN_HASHES: Dict[str, str] = {
+    "player": "0e1a0ed090606e80e0e92f22537c7932f0e0adba3c714f0e642f24f0c7e89089",
+    "test": "c99496174087ae5359dd5edfa6741384c6a65f123d07a528b8985b00232124b9",
+}
+
+CANDIDATE_2G_FIX3_HASHES: Dict[str, Union[str, Tuple[str, ...]]] = {
+    "Data/FO4ActorRaider.esm": "bed4ef1adffdae8551e918091fbc7335df5ecbaf83efad6b3ffce797da9b01d3",
+    "Data/FO4TerrainCore.esm": "dc75166449332f113825298adb94ec2c4b528145db440ebff450e6ec3e3c0fd9",
+    "Data/FO4TerrainCore_Mars.esm": "8bba3ee91b1faa5f39619ffdf4d4d38fa1107ffe0a7889531714966ead885496",
+    "Data/FO4SFCoreValues.esm": (
+        "cc4a8a8a35ec08381fbed454996f23162b44db56a2aa61ea8afbddb70a7d14a6",  # player
+        "ad5f259b64e061aee5498d0fdf7cec76bf145b7591686dc84eb524a79af0dab8",  # test
+    ),
+    "Data/FO4SFVaultGearDoor.esm": "7aada8bafa027bfd158c63e0728e10e7239401dde57429ba601b7b96a2ea8533",
+    "Data/FO4SFExitLift.esm": "34d0db71d1116742d5d644a7772e8f31e43019b72bab9d01c91eec308665d9d4",
+    "Data/FO4SFMission.esm": "de86f70063c158f3e1753220d83139f8de137b5dc8cf919364a7017350e90314",
+    "Data/FO4SFNewGame.esm": (
+        "0163600cbbe974a0344a858ddd483472a59e90b079632b394bac535cbd9d50f2",  # player
+        "5c9edb843ced9eeaf505f8e0fd9255122d6bbbe4248308ccedbb36dbcc9a9e65",  # test
+    ),
+    "Data/FO4SFWorkshop.esm": "89c9317b65f181ac81049e3c7d5dc9f59740cb547ad53787df78e1b21a8628c9",
+    "Data/FO4SFPowerArmor.esm": (
+        "c3332aef3891f4cd647882e80da4f1c6238ba558b12d2c80c2fb32e5fd885c4c",  # player
+        "d7f0fc494cca47c2cdf570b82368b6f7f4aca96b478aff179e230fed0a45e09d",  # test
+    ),
+    "Data/FO4SFFortHagen.esm": "4d0a6cd3573b0e0a19e39659415a645214f59cd136c4d665e5f327199d46520f",
+    "Data/FO4SFPipboyProbe.esm": "1588aae56e3803af2692f9b76ae21f3c1063c35cda527339bcd051e644a38440",
+    "Data/FO4SFPipboyTravel.esm": "ab06612e89434b0b3ebf07b83bdf790090386236c576750b8c819cc5c9b4c0f5",
 }
 
 BASE_FO4PORT_SHA256_PREFIX = "07756819"
@@ -365,15 +412,16 @@ def _frozen_folder_match(path: Path, extra_frozen_roots: Sequence[Union[str, os.
         if resolved == er or er in resolved.parents:
             return er
 
-    frozen_set = {n.casefold(): n for n in FROZEN_CANDIDATE_NAMES + FROZEN_PROBE_NAMES}
+    frozen_cands = {n.casefold() for n in FROZEN_CANDIDATE_NAMES}
+    frozen_probes = {n.casefold() for n in FROZEN_PROBE_NAMES}
     chain = (resolved, *resolved.parents)
     for idx, node in enumerate(chain):
         low = node.name.casefold()
-        if low in frozen_set and idx + 1 < len(chain):
+        if idx + 1 < len(chain):
             parent_low = chain[idx + 1].name.casefold()
-            if low.startswith("candidate-") and parent_low == "gemini-core":
+            if low in frozen_cands and parent_low == "gemini-core":
                 return node
-            if low.startswith("r11-p") and parent_low == "gemini-probes":
+            if low in frozen_probes and parent_low == "gemini-probes":
                 return node
     return None
 
@@ -1091,6 +1139,516 @@ def scan_plugin_cleanliness(
 
 
 # ---------------------------------------------------------------------------
+# Shared Raw ESM & VMAD v6 Builders / Decoders (X6 / P2-F9)
+# ---------------------------------------------------------------------------
+
+VMAD_T_OBJECT, VMAD_T_STRING, VMAD_T_INT, VMAD_T_FLOAT, VMAD_T_BOOL = 1, 2, 3, 4, 5
+VMAD_T_OBJECT_ARR, VMAD_T_STRING_ARR, VMAD_T_INT_ARR, VMAD_T_FLOAT_ARR, VMAD_T_BOOL_ARR = 11, 12, 13, 14, 15
+QUST_VMAD_TAIL = b"\x03\x00\x00\x00\x00\x00\x00"
+
+
+def vmad_wstr(s: str) -> bytes:
+    """Encode a length-prefixed cp1252 VMAD v6 string."""
+    raw = str(s).encode("cp1252")
+    if len(raw) > 0xFFFF:
+        raise ProbeValidationError(f"VMAD string too long ({len(raw)} bytes > 65535)")
+    return struct.pack("<H", len(raw)) + raw
+
+
+def encode_vmad_v6(scripts: Sequence[Mapping[str, Any]], *, tail: bytes = b"") -> bytes:
+    """Encode a Papyrus VMAD v6 (`obj_fmt=2`) subrecord payload from script/property dicts."""
+    out = bytearray(struct.pack("<hHH", 6, 2, len(scripts)))
+    for sc in scripts:
+        props = sc.get("properties") or ()
+        out += vmad_wstr(str(sc["name"])) + struct.pack("<BH", int(sc.get("status", 0)), len(props))
+        for p in props:
+            t = int(p["type"])
+            out += vmad_wstr(str(p["name"])) + struct.pack("<BB", t, int(p.get("status", 1)))
+            v = p["value"]
+            if t == VMAD_T_OBJECT:
+                out += struct.pack("<HhI", 0, int(v.get("alias", -1)), int(v["form"]))
+            elif t == VMAD_T_STRING:
+                out += vmad_wstr(str(v))
+            elif t == VMAD_T_INT:
+                out += struct.pack("<i", int(v))
+            elif t == VMAD_T_FLOAT:
+                out += struct.pack("<f", float(v))
+            elif t == VMAD_T_BOOL:
+                out += struct.pack("<B", 1 if v else 0)
+            elif t == VMAD_T_OBJECT_ARR:
+                out += struct.pack("<I", len(v))
+                for elem in v:
+                    out += struct.pack("<HhI", 0, int(elem.get("alias", -1)), int(elem["form"]))
+            elif t == VMAD_T_STRING_ARR:
+                out += struct.pack("<I", len(v))
+                for s_item in v:
+                    out += vmad_wstr(str(s_item))
+            elif t == VMAD_T_INT_ARR:
+                out += struct.pack("<I", len(v))
+                for i_item in v:
+                    out += struct.pack("<i", int(i_item))
+            elif t == VMAD_T_FLOAT_ARR:
+                out += struct.pack("<I", len(v))
+                for f_item in v:
+                    out += struct.pack("<f", float(f_item))
+            elif t == VMAD_T_BOOL_ARR:
+                out += struct.pack("<I", len(v))
+                for b_item in v:
+                    out += struct.pack("<B", 1 if b_item else 0)
+            else:
+                raise ProbeValidationError(f"Unsupported VMAD property type {t}")
+    if tail:
+        out += tail
+    return bytes(out)
+
+
+def decode_vmad_v6(vmad: bytes) -> List[Dict[str, Any]]:
+    """Decode Papyrus VMAD v5/v6 scripts and typed property values into structured dicts."""
+    if len(vmad) < 6:
+        raise ProbeValidationError(f"Truncated VMAD subrecord ({len(vmad)} bytes)")
+    _ver, obj_fmt, sc_cnt = struct.unpack_from("<hHH", vmad, 0)
+    pos = 6
+
+    def _read_str() -> str:
+        nonlocal pos
+        if pos + 2 > len(vmad):
+            raise ProbeValidationError("Truncated VMAD string header")
+        slen, = struct.unpack_from("<H", vmad, pos)
+        pos += 2
+        if pos + slen > len(vmad):
+            raise ProbeValidationError("Truncated VMAD string payload")
+        s = vmad[pos : pos + slen].decode("cp1252", "replace")
+        pos += slen
+        return s
+
+    def _read_elem(etype: int) -> Any:
+        nonlocal pos
+        if etype == VMAD_T_OBJECT:
+            if pos + 8 > len(vmad):
+                raise ProbeValidationError("Truncated VMAD object property")
+            if obj_fmt == 2:
+                _unused, alias, raw_fid = struct.unpack_from("<HhI", vmad, pos)
+            else:
+                raw_fid, alias, _unused = struct.unpack_from("<IhH", vmad, pos)
+            pos += 8
+            return {"alias": alias, "form": raw_fid}
+        if etype == VMAD_T_STRING:
+            return _read_str()
+        if etype == VMAD_T_INT:
+            if pos + 4 > len(vmad):
+                raise ProbeValidationError("Truncated VMAD int property")
+            val, = struct.unpack_from("<i", vmad, pos)
+            pos += 4
+            return val
+        if etype == VMAD_T_FLOAT:
+            if pos + 4 > len(vmad):
+                raise ProbeValidationError("Truncated VMAD float property")
+            val, = struct.unpack_from("<f", vmad, pos)
+            pos += 4
+            return val
+        if etype == VMAD_T_BOOL:
+            if pos + 1 > len(vmad):
+                raise ProbeValidationError("Truncated VMAD bool property")
+            val = bool(vmad[pos])
+            pos += 1
+            return val
+        raise ProbeValidationError(f"Unsupported VMAD element type {etype}")
+
+    scripts: List[Dict[str, Any]] = []
+    for _ in range(sc_cnt):
+        sname = _read_str()
+        if pos + 3 > len(vmad):
+            raise ProbeValidationError(f"Truncated VMAD script header for {sname!r}")
+        st, pcnt = struct.unpack_from("<BH", vmad, pos)
+        pos += 3
+        props: List[Dict[str, Any]] = []
+        for _ in range(pcnt):
+            pname = _read_str()
+            if pos + 2 > len(vmad):
+                raise ProbeValidationError(f"Truncated VMAD property header for {pname!r}")
+            ptype, pst = struct.unpack_from("<BB", vmad, pos)
+            pos += 2
+            if 1 <= ptype <= 5:
+                val = _read_elem(ptype)
+            elif 11 <= ptype <= 15:
+                if pos + 4 > len(vmad):
+                    raise ProbeValidationError(f"Truncated VMAD array header for {pname!r}")
+                arr_len, = struct.unpack_from("<I", vmad, pos)
+                pos += 4
+                val = [_read_elem(ptype - 10) for _ in range(arr_len)]
+            else:
+                raise ProbeValidationError(f"Unsupported VMAD property type {ptype} for {pname!r}")
+            props.append({"name": pname, "type": ptype, "status": pst, "value": val})
+        scripts.append({"name": sname, "status": st, "properties": props})
+    return scripts
+
+
+def decode_vmad_v6_prop_names(vmad: bytes) -> Dict[str, int]:
+    """Return `{prop_name: prop_type}` across decoded VMAD v6 scripts."""
+    out: Dict[str, int] = {}
+    for sc in decode_vmad_v6(vmad):
+        for p in sc["properties"]:
+            out[p["name"]] = int(p["type"])
+    return out
+
+
+def pack_subs(subs: Sequence[Tuple[bytes, bytes]]) -> bytes:
+    """Pack ESM subrecords (`sig`, `data`), emitting `XXXX` headers when `len(data) > 65535`."""
+    out = bytearray()
+    for sig, data in subs:
+        sig_b = sig if isinstance(sig, bytes) else str(sig).encode("ascii")
+        if len(data) > 0xFFFF:
+            out += b"XXXX" + struct.pack("<HI", 4, len(data)) + sig_b + struct.pack("<H", 0) + data
+        else:
+            out += sig_b + struct.pack("<H", len(data)) + data
+    return bytes(out)
+
+
+def rec_bytes(
+    sig: Union[bytes, str],
+    fid: int,
+    subs: Sequence[Tuple[bytes, bytes]],
+    flags: int = 0,
+    version: int = 576,
+) -> bytes:
+    """Build a raw Starfield ESM record (`24-byte header + packed subrecords`)."""
+    sig_b = sig if isinstance(sig, bytes) else str(sig).encode("ascii")
+    payload = pack_subs(subs)
+    return sig_b + struct.pack("<IIIIHH", len(payload), flags, fid, 0, version, 0) + payload
+
+
+def grup_bytes(label_4b: Union[bytes, str], gtype: int, payload: bytes) -> bytes:
+    """Wrap `payload` in a 24-byte ESM `GRUP` header."""
+    lbl = label_4b if isinstance(label_4b, bytes) else str(label_4b).encode("ascii")
+    return b"GRUP" + struct.pack("<I4sIII", 24 + len(payload), lbl, gtype, 0, 0) + payload
+
+
+def count_records_and_grups(stream: bytes, start: int = 0, end: Optional[int] = None) -> int:
+    """Recursively count ESM records and `GRUP` headers inside `stream[start:end]` for `TES4.HEDR`."""
+    stop = len(stream) if end is None else end
+    pos = start
+    count = 0
+    while pos < stop:
+        sig = stream[pos : pos + 4]
+        sz, = struct.unpack_from("<I", stream, pos + 4)
+        count += 1
+        if sig == b"GRUP":
+            count += count_records_and_grups(stream, pos + 24, pos + sz)
+            pos += sz
+        else:
+            pos += 24 + sz
+    return count
+
+
+def tes4_master_count(esm_source: Union[str, os.PathLike[str], bytes, bytearray, memoryview]) -> int:
+    """Return the count of `MAST` master entries in a plugin's `TES4` header record."""
+    if isinstance(esm_source, (bytes, bytearray, memoryview)):
+        raw = bytes(esm_source)
+        if len(raw) < 24 or raw[:4] != b"TES4":
+            raise ProbeValidationError("Not a TES4 plugin byte stream")
+        hdr_sz = struct.unpack_from("<I", raw, 4)[0]
+        if len(raw) < 24 + hdr_sz:
+            raise ProbeValidationError("Truncated TES4 header record")
+        sub_bytes = raw[24 : 24 + hdr_sz]
+    else:
+        p = Path(esm_source)
+        with p.open("rb") as fh:
+            hdr = fh.read(24)
+            if len(hdr) < 24 or hdr[:4] != b"TES4":
+                raise ProbeValidationError(f"{p}: not a TES4 plugin")
+            hdr_sz = struct.unpack_from("<I", hdr, 4)[0]
+            sub_bytes = fh.read(hdr_sz)
+            if len(sub_bytes) < hdr_sz:
+                raise ProbeValidationError(f"{p}: truncated TES4 header record")
+    return sum(1 for sig, _data in parse_subrecords(sub_bytes) if sig == b"MAST")
+
+
+def build_tes4(
+    masters: Sequence[str],
+    record_and_grup_count: int,
+    next_object_id: int,
+    *,
+    flags: int = 1,
+    version: int = 576,
+    hedr_version: float = 0.96,
+    author: Optional[str] = None,
+    description: Optional[str] = None,
+    include_data: bool = True,
+) -> bytes:
+    """Build a raw `TES4` header record (`HEDR` + optional `CNAM`/`SNAM` + `MAST`/`DATA`)."""
+    subs: List[Tuple[bytes, bytes]] = [
+        (b"HEDR", struct.pack("<fII", hedr_version, int(record_and_grup_count), int(next_object_id))),
+    ]
+    if author:
+        subs.append((b"CNAM", author.encode("cp1252") + b"\x00"))
+    if description:
+        subs.append((b"SNAM", description.encode("cp1252") + b"\x00"))
+    for master in masters:
+        subs.append((b"MAST", master.encode("ascii") + b"\x00"))
+        if include_data:
+            subs.append((b"DATA", struct.pack("<Q", 0)))
+    return rec_bytes(b"TES4", 0, subs, flags=flags, version=version)
+
+
+def build_esm(
+    masters: Sequence[str],
+    body: bytes,
+    next_object_id: int,
+    *,
+    flags: int = 1,
+    version: int = 576,
+    hedr_version: float = 0.96,
+    author: Optional[str] = None,
+    description: Optional[str] = None,
+    include_data: bool = True,
+) -> bytes:
+    """Assemble a complete raw `.esm` binary from `masters`, packed `GRUP` `body`, and `next_object_id`."""
+    n_records_grups = count_records_and_grups(body)
+    tes4 = build_tes4(
+        masters,
+        n_records_grups,
+        next_object_id,
+        flags=flags,
+        version=version,
+        hedr_version=hedr_version,
+        author=author,
+        description=description,
+        include_data=include_data,
+    )
+    return tes4 + body
+
+
+def walk_esm_records(raw: bytes) -> Iterable[Tuple[str, int, int, bytes]]:
+    """Yield `(sig, form_id, flags, decompressed_payload)` across every record in a raw ESM stream."""
+    def _walk(pos: int, end: int) -> Iterable[Tuple[str, int, int, bytes]]:
+        while pos < end:
+            sig = raw[pos : pos + 4]
+            sz, fl, fid, _vc, _fv, _unk = struct.unpack_from("<IIIIHH", raw, pos + 4)
+            if sig == b"GRUP":
+                yield from _walk(pos + 24, pos + sz)
+                pos += sz
+            else:
+                rec_data = raw[pos + 24 : pos + 24 + sz]
+                if fl & 0x00040000:
+                    rec_data = zlib.decompress(rec_data[4:])
+                yield sig.decode("latin-1"), fid, fl, rec_data
+                pos += 24 + sz
+
+    yield from _walk(0, len(raw))
+
+
+def extract_cell_record_bytes(
+    esm_path: Optional[Union[str, os.PathLike[str]]],
+    cell_fid: int,
+    *,
+    fallback_edid: str = "FO4Port_Vault111Cryo",
+) -> bytes:
+    """Copy raw `CELL` header+subrecords matching `cell_fid` from `esm_path` (or build minimal fallback)."""
+    if esm_path is not None and Path(esm_path).is_file():
+        raw = Path(esm_path).read_bytes()
+        pos = 0
+        while pos < len(raw):
+            sig = raw[pos : pos + 4]
+            sz, = struct.unpack_from("<I", raw, pos + 4)
+            if sig == b"GRUP":
+                pos += 24
+            else:
+                fid, = struct.unpack_from("<I", raw, pos + 12)
+                if sig == b"CELL" and fid == cell_fid:
+                    return raw[pos : pos + 24 + sz]
+                pos += 24 + sz
+    return rec_bytes(
+        b"CELL",
+        cell_fid,
+        [(b"EDID", fallback_edid.encode("ascii") + b"\x00"), (b"DATA", struct.pack("<H", 1))],
+        flags=0,
+        version=576,
+    )
+
+
+def refr_item(
+    fid: int,
+    edid: str,
+    base_fid: int,
+    pos: Tuple[float, float, float],
+    rot: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    count: Optional[int] = None,
+    flags: int = PERSISTENT | 0x20000000,
+) -> bytes:
+    """Build a placed `REFR` record with optional `XCNT` item count."""
+    subs: List[Tuple[bytes, bytes]] = [
+        (b"EDID", edid.encode("ascii") + b"\x00"),
+        (b"NAME", struct.pack("<I", base_fid)),
+    ]
+    if count is not None:
+        subs.append((b"XCNT", struct.pack("<i", int(count))))
+    subs.append((b"DATA", struct.pack("<6f", pos[0], pos[1], pos[2], rot[0], rot[1], rot[2])))
+    return rec_bytes(b"REFR", fid, subs, flags=flags)
+
+
+# Short underscore aliases matching P2/P4/P5/P6 internal naming
+_vmad_wstr = vmad_wstr
+_encode_vmad_v6 = encode_vmad_v6
+_decode_vmad_v6 = decode_vmad_v6
+_decode_vmad_v6_prop_names = decode_vmad_v6_prop_names
+_pack_subs = pack_subs
+_rec_bytes = rec_bytes
+_grup_bytes = grup_bytes
+_grup = grup_bytes
+_count_records_and_grups = count_records_and_grups
+_tes4_master_count = tes4_master_count
+_walk_esm_records = walk_esm_records
+
+
+# ---------------------------------------------------------------------------
+# Full-Master Load Index & Batch FormID Prefix Stamping (X3 / P2-F1)
+# ---------------------------------------------------------------------------
+
+
+def _tes4_flags(esm_path: Union[str, os.PathLike[str]]) -> Optional[int]:
+    try:
+        with open(esm_path, "rb") as fh:
+            hdr = fh.read(24)
+        if len(hdr) < 24 or hdr[:4] != b"TES4":
+            return None
+        return struct.unpack_from("<I", hdr, 8)[0]
+    except OSError:
+        return None
+
+
+def compute_full_master_load_index(
+    data_dir: Union[str, os.PathLike[str]],
+    plugins_txt_lines: Union[Sequence[str], os.PathLike[str]],
+    target_plugin: str,
+) -> int:
+    """Compute 1-byte full-master load index (0x00..0xFC) of `target_plugin`, skipping FE/FD light/medium masters.
+
+    Counts only existing `IMPLICIT_FULL_MASTERS` with `(tes4_flags & 0x300) == 0` and `*`-active
+    `Plugins.txt` lines whose `.esm` files exist on disk in `data_dir` with `(tes4_flags & 0x300) == 0`.
+    """
+    data_p = Path(data_dir)
+    if isinstance(plugins_txt_lines, os.PathLike):
+        p = Path(plugins_txt_lines)
+        lines: Sequence[str] = p.read_text(encoding="utf-8-sig").splitlines() if p.is_file() else ()
+    else:
+        lines = plugins_txt_lines
+
+    seen: Set[str] = set()
+    slot = 0
+    for name in IMPLICIT_FULL_MASTERS:
+        p = data_p / name
+        if p.is_file():
+            fl = _tes4_flags(p)
+            if fl is not None and (fl & 0x300) == 0:
+                seen.add(name.casefold())
+                slot += 1
+
+    target_low = target_plugin.casefold()
+    for raw_line in lines:
+        ln = raw_line.strip()
+        if not ln or ln.startswith("#") or not ln.startswith("*"):
+            continue
+        pname = ln[1:].strip()
+        plow = pname.casefold()
+        if target_low and plow == target_low:
+            break
+        if plow in seen:
+            continue
+        p = data_p / pname
+        if p.is_file():
+            fl = _tes4_flags(p)
+            if fl is not None and (fl & 0x300) == 0:
+                seen.add(plow)
+                slot += 1
+    return slot
+
+
+def _stamp_text_formid_prefix(
+    text: str,
+    prefix_byte_hex: str,
+    local_ids: Sequence[int] = (),
+) -> str:
+    if local_ids:
+        id_alts = "|".join(f"{lid & 0xFFFFFF:06X}" for lid in local_ids)
+        pat = re.compile(
+            rf"(?<![0-9A-Fa-fxX_])(?:[0-9A-Fa-f]{{2}}|<XX>|\{{prefix\}}|XX)({id_alts})\b",
+            re.IGNORECASE,
+        )
+    else:
+        pat = re.compile(
+            r"(?<![0-9A-Fa-fxX_])(?:<XX>|\{prefix\}|XX)([0-9A-Fa-f]{6})\b",
+            re.IGNORECASE,
+        )
+    cmd_pat = re.compile(
+        r"^(\s*(?:setstage|getstage|sqs|prid)\s+)(?:[0-9A-Fa-f]{2})([0-9A-Fa-f]{6})\b",
+        re.IGNORECASE,
+    )
+
+    out_lines: List[str] = []
+    for line in text.splitlines():
+        if line.lstrip().startswith(";"):
+            out_lines.append(line)
+            continue
+        new_line = pat.sub(lambda m: f"{prefix_byte_hex}{m.group(1).upper()}", line)
+        if not local_ids:
+            new_line = cmd_pat.sub(lambda m: f"{m.group(1)}{prefix_byte_hex}{m.group(2).upper()}", new_line)
+        out_lines.append(new_line)
+    return "\n".join(out_lines) + ("\n" if text.endswith("\n") else "")
+
+
+def stamp_batch_formid_prefix(
+    batches: Union[MutableMapping[str, str], str, os.PathLike[str], Sequence[Union[str, os.PathLike[str]]]],
+    data_dir: Union[str, os.PathLike[str]],
+    plugins_txt_lines: Union[Sequence[str], os.PathLike[str]],
+    target_plugin: str,
+    *,
+    local_ids: Sequence[int] = (),
+    out_dir: Optional[Union[str, os.PathLike[str]]] = None,
+    plugins_to_activate: Sequence[str] = (),
+) -> str:
+    """Compute live full-master slot for `target_plugin`, stamp batch FormID prefixes, and return `'0xXX'`."""
+    if isinstance(plugins_txt_lines, os.PathLike):
+        p = Path(plugins_txt_lines)
+        lines: List[str] = p.read_text(encoding="utf-8-sig").splitlines() if p.is_file() else []
+    else:
+        lines = list(plugins_txt_lines)
+
+    for act in plugins_to_activate:
+        lines, _, _ = deploy_starfield.plan_port_activation(lines, plugin_esm=act)
+
+    slot = compute_full_master_load_index(data_dir, lines, target_plugin)
+    prefix_byte_hex = f"{slot:02X}"
+    prefix_hex = f"0x{prefix_byte_hex}"
+
+    out_p = Path(out_dir) if out_dir is not None else None
+    if out_p is not None:
+        out_p.mkdir(parents=True, exist_ok=True)
+
+    if isinstance(batches, MutableMapping):
+        for fname in list(batches.keys()):
+            stamped = _stamp_text_formid_prefix(batches[fname], prefix_byte_hex, local_ids)
+            batches[fname] = stamped
+            if out_p is not None:
+                (out_p / fname).write_text(stamped, encoding="utf-8", newline="\n")
+        return prefix_hex
+
+    if isinstance(batches, (str, os.PathLike)):
+        bp = Path(batches)
+        file_list = sorted(bp.glob("*.txt")) if bp.is_dir() else [bp]
+    else:
+        file_list = [Path(x) for x in batches]
+
+    for fp in file_list:
+        if not fp.is_file():
+            raise FileNotFoundError(f"Batch file missing for FormID prefix stamping: {fp}")
+        stamped = _stamp_text_formid_prefix(fp.read_text(encoding="utf-8"), prefix_byte_hex, local_ids)
+        target_fp = (out_p / fp.name) if out_p is not None else fp
+        target_fp.write_text(stamped, encoding="utf-8", newline="\n")
+
+    return prefix_hex
+
+
+# ---------------------------------------------------------------------------
 # Atomic Install, Uninstall, Status & Version Tagging
 # ---------------------------------------------------------------------------
 
@@ -1182,11 +1740,18 @@ def _write_json_atomic(path: Path, obj: Any) -> None:
             os.remove(tmp_name)
 
 
+def receipt_path(starfield_dir: Union[str, os.PathLike[str]], probe_id: str) -> Path:
+    """Return path to the atomic probe install receipt inside `starfield_dir/Data`."""
+    return _receipt_path(Path(starfield_dir), probe_id)
+
+
 def check_baseline_against_2g_fix2(
     starfield_dir: Path,
     baseline_2g_fix2_hashes: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
+    *,
+    baseline_name: str = "candidate-2g-fix2",
 ) -> List[str]:
-    """Compare installed base files against pinned `candidate-2g-fix2` hashes; return warning strings."""
+    """Compare installed base files against pinned candidate baseline hashes; return warning strings."""
     ref_map = CANDIDATE_2G_FIX2_HASHES if baseline_2g_fix2_hashes is None else baseline_2g_fix2_hashes
     warn_msgs: List[str] = []
     for rel, expected in sorted(ref_map.items()):
@@ -1199,18 +1764,60 @@ def check_baseline_against_2g_fix2(
             exp_desc = "/".join(e[:16] + "..." for e in accepted)
             msg = (
                 f"WARNING: installed {rel} (sha256={actual[:16]}...) does not match "
-                f"candidate-2g-fix2 baseline ({exp_desc})"
+                f"{baseline_name} baseline ({exp_desc})"
             )
             warn_msgs.append(msg)
             warnings.warn(msg, RuntimeWarning, stacklevel=2)
     return warn_msgs
 
 
+def check_baseline_against_2g_fix3(
+    starfield_dir: Path,
+    baseline_2g_fix3_hashes: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
+) -> List[str]:
+    """Compare installed base files against pinned `candidate-2g-fix3` hashes; return warning strings."""
+    ref_map = CANDIDATE_2G_FIX3_HASHES if baseline_2g_fix3_hashes is None else baseline_2g_fix3_hashes
+    return check_baseline_against_2g_fix2(starfield_dir, ref_map, baseline_name="candidate-2g-fix3")
+
+
+def detect_installed_candidate_profile(starfield_dir: Union[str, os.PathLike[str]]) -> str:
+    """Detect `'player'`, `'test'`, or `'unknown'` from installed candidate ESMs or `bundle_plan.json`."""
+    sf_p = Path(starfield_dir)
+    bp = sf_p / "bundle_plan.json"
+    if bp.is_file():
+        bp_sha = sha256_file(bp)
+        for prof, exp in CANDIDATE_2G_FIX3_BUNDLE_PLAN_HASHES.items():
+            if bp_sha == exp:
+                return prof
+        try:
+            plan = json.loads(bp.read_text(encoding="utf-8"))
+            prof = str(plan.get("profile", "")).strip().lower()
+            if prof in ("player", "test"):
+                return prof
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    if (sf_p / "Data" / "FO4SFCoreCandidate.esm").is_file():
+        return "test"
+    for rel in ("Data/FO4SFCoreValues.esm", "Data/FO4SFNewGame.esm", "Data/FO4SFPowerArmor.esm"):
+        p = sf_p / rel
+        if not p.is_file():
+            continue
+        actual = sha256_file(p)
+        vals = CANDIDATE_2G_FIX3_HASHES.get(rel)
+        if isinstance(vals, tuple) and len(vals) >= 2:
+            if _matches_hash_spec(actual, vals[1]):
+                return "test"
+            if _matches_hash_spec(actual, vals[0]):
+                return "player"
+    return "unknown"
+
+
 def stamp_version_in_card(
     card_path: Union[str, os.PathLike[str]],
     version_tag: str,
 ) -> Path:
-    """Stamp `version_tag` into a staged probe card (`Version Tag:` line or appended metadata line)."""
+    """Stamp `version_tag` into a card (`Version Tag:` or `Version Stamp:` line, or appended metadata)."""
     p = Path(card_path)
     if not p.is_file():
         raise FileNotFoundError(f"Card file does not exist for version stamping: {p}")
@@ -1218,7 +1825,7 @@ def stamp_version_in_card(
     if not version_tag:
         return p
 
-    pattern = re.compile(r"(?m)^([>\-\s]*\*\*Version Tag:\*\*)\s*.*$")
+    pattern = re.compile(r"(?m)^([>\-\s]*\*\*Version (?:Tag|Stamp):\*\*)\s*.*$")
     if pattern.search(text):
         updated = pattern.sub(rf"\1 `{version_tag}`", text, count=1)
     else:
@@ -1357,8 +1964,11 @@ def install_probe(
     files: Optional[Sequence[Mapping[str, Any]]] = None,
     expected_base_hashes: Optional[Mapping[str, str]] = None,
     baseline_2g_fix2_hashes: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
+    baseline_label: str = "candidate-2g-fix2",
     version_tag: str = "",
     card_path: Optional[Union[str, os.PathLike[str]]] = None,
+    live_prefix: str = "",
+    receipt_extra: Optional[Mapping[str, Any]] = None,
     min_free_gb: float = DEFAULT_MIN_FREE_GB,
     allow_hardlink: bool = True,
     extra_frozen_roots: Sequence[Union[str, os.PathLike[str]]] = (),
@@ -1371,7 +1981,9 @@ def install_probe(
       - `Starfield.exe` closed and free disk space >= `min_free_gb` GiB.
       - No existing installation receipt for `probe_id` and no ownership conflict with other receipts.
       - `*.txt` target collision pre-check (case-insensitive duplicates and unowned pre-existing `.txt`).
-      - Required `expected_base_hashes` match, plus `candidate-2g-fix2` baseline mismatch warning.
+      - Required `expected_base_hashes` match, plus baseline mismatch warning.
+      - Optional `card_path` stamping runs BEFORE any file/backup/`Plugins.txt` mutation (a missing
+        card path emits a `RuntimeWarning` instead of rolling back or failing the install).
     Writes the full planned swap/add plan to the receipt BEFORE any target files or `Plugins.txt`
     are modified, and automatically rolls back all changes + `Plugins.txt` if any exception occurs.
     """
@@ -1384,8 +1996,10 @@ def install_probe(
     if rcpt_p.exists():
         raise ProbeInstallError(f"Probe {probe_id!r} already has an active/pending receipt at {rcpt_p}")
 
-    # 1. Baseline 2g-fix2 warning check + required base-hash checks
-    baseline_warnings = check_baseline_against_2g_fix2(sf_p, baseline_2g_fix2_hashes)
+    # 1. Baseline warning check + required base-hash checks
+    baseline_warnings = check_baseline_against_2g_fix2(
+        sf_p, baseline_2g_fix2_hashes, baseline_name=baseline_label
+    )
     if expected_base_hashes:
         for rel, exp_h in expected_base_hashes.items():
             norm_rel = _normalize_target_rel(rel)
@@ -1398,12 +2012,11 @@ def install_probe(
                     f"Base hash mismatch on {norm_rel}: got {act_h}, expected {exp_h}"
                 )
 
-    # 2. Load staged files, check collisions & other probe ownership
+    # 2. Load & validate ALL staged files, collisions, and other probe ownership BEFORE any backup/mutation
     specs = _load_stage_file_specs(stage_p, files)
     other_owned = _other_receipts_owned_paths(sf_p, probe_id)
     seen_targets: Set[str] = set()
-    planned_adds: List[Dict[str, Any]] = []
-    planned_swaps: List[Dict[str, Any]] = []
+    validated_entries: List[Tuple[str, Path, str, Path, bool]] = []
     bkp_dir = _backup_root(sf_p, probe_id)
 
     for entry in specs:
@@ -1428,6 +2041,7 @@ def install_probe(
         allow_swap = bool(entry.get("allow_swap") or entry.get("swap") or (
             expected_base_hashes and any(_normalize_target_rel(k).casefold() == tgt_key for k in expected_base_hashes)
         ))
+        is_swap = False
         if tgt_file.exists() or tgt_file.is_symlink():
             if tgt_file.is_symlink():
                 raise ProbeInstallError(f"Refusing symlink/dangling-symlink target path: {tgt_rel}")
@@ -1437,6 +2051,31 @@ def install_probe(
                 raise ProbeInstallError(
                     f"Target already exists without declared swap approval: {tgt_rel}"
                 )
+            is_swap = True
+        validated_entries.append((tgt_rel, src_file, new_hash, tgt_file, is_swap))
+
+    # 3. Plan Plugins.txt BEFORE any mutation
+    plg_path = _resolve_plugins_txt(sf_p, plugins_txt)
+    orig_b, planned_b, plg_added, plg_replaced = _plan_plugins_txt(plg_path, plugins_to_activate)
+
+    # 4. Handle optional --card version stamping BEFORE any backup, file copy, or Plugins.txt mutation
+    card_stamped: Optional[str] = None
+    card_warnings: List[str] = []
+    if card_path is not None and version_tag:
+        cp = Path(card_path)
+        if cp.is_file():
+            stamp_version_in_card(cp, version_tag)
+            card_stamped = str(cp)
+        else:
+            cmsg = f"WARNING: card path for version stamping not found (skipping card update): {cp}"
+            card_warnings.append(cmsg)
+            warnings.warn(cmsg, RuntimeWarning, stacklevel=2)
+
+    # 5. Back up pre-existing swapped targets now that all pre-checks & card step succeeded
+    planned_adds: List[Dict[str, Any]] = []
+    planned_swaps: List[Dict[str, Any]] = []
+    for tgt_rel, src_file, new_hash, tgt_file, is_swap in validated_entries:
+        if is_swap:
             pre_hash = sha256_file(tgt_file)
             bkp_path = bkp_dir / tgt_rel
             _atomic_copy_file(tgt_file, bkp_path)
@@ -1456,14 +2095,12 @@ def install_probe(
                 "new_sha256": new_hash,
             })
 
-    # 3. Plan Plugins.txt BEFORE mutation
-    plg_path = _resolve_plugins_txt(sf_p, plugins_txt)
-    orig_b, planned_b, plg_added, plg_replaced = _plan_plugins_txt(plg_path, plugins_to_activate)
-
     receipt: Dict[str, Any] = {
         "schema": "fo4sf.r12_probe_receipt.v1",
         "probe_id": probe_id,
         "version_tag": version_tag,
+        "card_stamped": card_stamped,
+        "card_warnings": card_warnings,
         "stage_dir": str(stage_p),
         "starfield_dir": str(sf_p),
         "complete": False,
@@ -1478,6 +2115,13 @@ def install_probe(
         "planned_swaps": planned_swaps,
         "published_files": [],
     }
+    if live_prefix:
+        receipt["live_prefix"] = live_prefix
+    if receipt_extra:
+        for ek, ev in receipt_extra.items():
+            if ek not in receipt:
+                receipt[ek] = ev
+
     # Write planned swaps/adds BEFORE creating links/files or touching Plugins.txt
     _write_json_atomic(rcpt_p, receipt)
 
@@ -1510,9 +2154,6 @@ def install_probe(
         receipt["complete"] = True
         receipt["installed_utc"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         _write_json_atomic(rcpt_p, receipt)
-
-        if card_path is not None and version_tag:
-            stamp_version_in_card(card_path, version_tag)
 
         return receipt
     except BaseException:
