@@ -242,6 +242,8 @@ def _stage_minimal_weapon_nif(assets_root: Path, wkey: str, nif_rel: str) -> tup
     for cnode, pnode in list(node_parents.items()):
         if pnode != "WEAPON" and pnode not in node_parents:
             node_parents[pnode] = "WEAPON"
+    for leaf_node in sorted(set(node_parents) - {"ProjectileNode"} - set(req_shapes.values()) - set(node_parents.values())):
+        req_shapes[f"{leaf_node}_mesh:0"] = leaf_node
 
     # Build NifFile blocks bottom-up reservation cleanly with placeholders
     nf = nif.NifFile(
@@ -335,7 +337,9 @@ def _build_synthetic_core_values_esm(out_path: Path) -> None:
 
 def _build_synthetic_raider_esm(out_path: Path) -> None:
     pw = PluginWriter(masters=["Starfield.esm"])
-    # Include TPTA with 15 x uint32 slots (>2..14 nonzero) + stale KWDA so test proves template slot clearing!
+    # Include ACBS (UseTemplateActors=0x7E3B at bytes 14..16), TPLT, and TPTA (15 slots >2..14 nonzero) + stale KWDA
+    acbs = bytearray(16)
+    struct.pack_into("<H", acbs, 14, 0x7E3B)
     tpta = struct.pack("<15I", *(0x001000 + i for i in range(15)))
     pw.add(
         Record(
@@ -344,8 +348,10 @@ def _build_synthetic_raider_esm(out_path: Path) -> None:
             [
                 (b"EDID", zbytes("FO4_LvlRaider_Calm")),
                 (b"OBND", struct.pack("<6f", -0.35, -0.35, 0.0, 0.35, 0.35, 1.8)),
-                (b"RNAM", struct.pack("<I", 0x0000347D)),
+                (b"ACBS", bytes(acbs)),
+                (b"TPLT", struct.pack("<I", 0x00270255)),
                 (b"TPTA", tpta),
+                (b"RNAM", struct.pack("<I", 0x0000347D)),
                 (b"KSIZ", struct.pack("<I", 1)),
                 (b"KWDA", struct.pack("<I", 0x00011111)),
                 (b"STOP", b""),
@@ -407,6 +413,8 @@ class R11P6ArsenalTests(unittest.TestCase):
                 npc_rec = npcs[0]
                 self.assertEqual(npc_rec.edid, "FO4SF_P6_NoDisintTargetNpc")
                 self.assertEqual(struct.unpack("<I", npc_rec.get(b"KWDA"))[0], p6.SF_KW_NO_DISINTEGRATE)
+                acbs_bytes = npc_rec.get(b"ACBS")
+                self.assertEqual(struct.unpack_from("<H", acbs_bytes, 14)[0], 0x0003)
                 tpta = npc_rec.get(b"TPTA")
                 slots = struct.unpack("<15I", tpta[:60])
                 self.assertEqual(slots[0], 0x001000)
@@ -589,9 +597,10 @@ class R11P6ArsenalTests(unittest.TestCase):
                     return pc.TESTED_PIPBOY_DLL_SHA256
                 return real_sha(pth)
 
+            dll_out_dir = td_p / "out_good_dll"
             with mock.patch.object(pc, "sha256_file", side_effect=_fake_sha):
                 dll_manifest = p6.stage_probe_p6(
-                    out_dir=td_p / "out_good_dll",
+                    out_dir=dll_out_dir,
                     port_esm=port_esm,
                     raider_esm=raider_esm,
                     prebuilt_core_values=cv_src,
@@ -602,12 +611,26 @@ class R11P6ArsenalTests(unittest.TestCase):
                     clean=True,
                     min_free_gb=0.01,
                 )
-            self.assertEqual(
-                dll_manifest["overridden_candidate_files"],
-                ["Data/FO4SFCoreValues.esm", "SFSE/Plugins/FO4SFPipboyMenu.dll"],
-            )
-            self.assertTrue(dll_manifest["pipboy_dll"]["shipped"])
-            self.assertEqual(dll_manifest["pipboy_dll"]["sha256"], pc.TESTED_PIPBOY_DLL_SHA256)
+                self.assertEqual(
+                    dll_manifest["overridden_candidate_files"],
+                    ["Data/FO4SFCoreValues.esm", "Data/SFSE/Plugins/FO4SFPipboyMenu.dll"],
+                )
+                self.assertTrue(dll_manifest["pipboy_dll"]["shipped"])
+                self.assertEqual(dll_manifest["pipboy_dll"]["sha256"], pc.TESTED_PIPBOY_DLL_SHA256)
+                self.assertTrue((dll_out_dir / "exp" / "Data" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").is_file())
+
+                # Verify --ship-pipboy-dll installs to <starfield-dir>/Data/SFSE/Plugins/ and restores cleanly on uninstall
+                dll_target = data_dir / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll"
+                dll_target.parent.mkdir(parents=True, exist_ok=True)
+                dll_target.write_bytes(b"PRE_CANDIDATE_DLL")
+                with mock.patch.object(pc, "BASE_FO4PORT_SHA256_PREFIX", fake_port_sha), \
+                     warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    p6.install_probe_p6(dll_out_dir, sf_dir, plugins_txt=plugins_txt, min_free_gb=0.01)
+                    self.assertEqual(dll_target.read_bytes(), b"TESTED_7D5BA49C_DLL")
+                    self.assertFalse((sf_dir / "SFSE").exists())
+                    pc.uninstall_probe(probe_id=p6.PROBE_ID, starfield_dir=sf_dir)
+                    self.assertEqual(dll_target.read_bytes(), b"PRE_CANDIDATE_DLL")
 
     def test_quest_psc_parity_translated_execution_and_hygiene(self) -> None:
         psc_text = QUEST_PSC_PATH.read_text(encoding="utf-8")
@@ -694,6 +717,17 @@ class R11P6ArsenalTests(unittest.TestCase):
             self.assertIn(b"AttachAshPile", vmad)
             self.assertIn(struct.pack("<I", 0x010008C1), vmad)
             self.assertIn(struct.pack("<I", 0x0026319B), vmad)
+        with Plugin(str(stage_dir / "exp" / p6.PROBE_PLUGIN)) as p6p:
+            nd_npc = next(r for r in p6p.records("NPC_") if (r.formid & 0xFFFFFF) == 0x000802)
+            acbs = nd_npc.get(b"ACBS")
+            self.assertIsNotNone(acbs)
+            self.assertEqual(struct.unpack_from("<H", acbs, 14)[0] & 0xFFFC, 0)
+        for wkey, wrel in sw.WEAPON_NIF_RELS.items():
+            info = sw.inspect_weapon_nif_hierarchy((stage_dir / "assets" / Path(*wrel.split("/"))).read_bytes())
+            empty_leaves = sorted(
+                set(info["node_names"]) - {"WEAPON", "ProjectileNode"} - set(info["node_to_shapes"]) - set(info["node_parents"].values())
+            )
+            self.assertEqual(empty_leaves, [], f"{wkey} has empty helper NiNodes: {empty_leaves}")
 
 
 if __name__ == "__main__":

@@ -613,6 +613,9 @@ class R11Step4WeaponsTests(unittest.TestCase):
         self.assertEqual(r10.fo4_part_map["MiscA06"], "WeaponBolt")
         self.assertEqual(r10.fo4_part_map["Magazine"], "WeaponMagazine")
         self.assertEqual(r10.fo4_part_map["TRIGGER"], "WeaponTrigger")
+        for empty_forb in ("CasingNonEmbedded", "WeaponMagazineChild1", "WeaponOptics1", "WeaponOptics2"):
+            self.assertNotIn(empty_forb, h10["node_names"])
+        self.assertEqual(set(h10["node_names"]) - {"WEAPON", "ProjectileNode"} - set(h10["node_to_shapes"]) - set(h10["node_parents"].values()), set())
         bmin10, bmax10 = _reconstruct_world_bounds_from_nif(r10.nif_bytes, r10.meshes)
         for g, w in zip(bmin10 + bmax10, r10.bounds_min_m + r10.bounds_max_m):
             self.assertAlmostEqual(g, w, delta=2e-4)
@@ -667,7 +670,8 @@ class R11Step4WeaponsTests(unittest.TestCase):
         )
         self.assertEqual(h_lm["node_parents"]["LaserMusketBarrelExtension2Lens"], "LaserRifleBarrelMusket004")
         self.assertAlmostEqual(r_lm.named_nodes_m["ProjectileNode"][1], (21.5106 + 22.7469 + 21.2275) / 70.0, places=4)
-        self.assertAlmostEqual(r_lm.named_nodes_m["Scope"][2], (11.7098 + 0.1573) / 70.0, places=4)
+        self.assertNotIn("Scope", h_lm["node_names"])
+        self.assertEqual(set(h_lm["node_names"]) - {"WEAPON", "ProjectileNode"} - set(h_lm["node_to_shapes"]) - set(h_lm["node_parents"].values()), set())
         bmin_lm, bmax_lm = _reconstruct_world_bounds_from_nif(r_lm.nif_bytes, r_lm.meshes)
         for g, w in zip(bmin_lm + bmax_lm, r_lm.bounds_min_m + r_lm.bounds_max_m):
             self.assertAlmostEqual(g, w, delta=2e-4)
@@ -843,6 +847,45 @@ class R11Step4WeaponsTests(unittest.TestCase):
             with self.assertRaises(sw.StageWeaponsError):
                 sw.verify_staged_weapons(str(stg), require_converted_materials=True, require_collision=False)
             victim_dds.write_bytes(b"DDS " + b"\x00" * 144)
+
+            # Negative 5: Empty helper NiNode outside WEAPON/ProjectileNode must fail verify_staged_weapons!
+            bad_helper_10mm = sw.build_hierarchical_weapon_nif(
+                "10mm",
+                p10_rec,
+                [
+                    sw.AttachedOmodPart(p10_grip, "P-Grip", graft_part_root=False),
+                    sw.AttachedOmodPart(p10_mag, "P-Mag", graft_part_root=False, override_parent_node="WeaponMagazine"),
+                ],
+                default_material="materials/fo4sf/weapons/10mm/p10.mat",
+                shape_parent_overrides={"10mmTrigger:0": "WeaponTrigger"},
+                extra_sgo_nodes_fo4={"ProjectileNode": (0.0, 18.5, 4.8)},
+                node_rename_map={"WeaponBolt": "MiscA06", "WeaponMagazine": "Magazine", "WeaponTrigger": "TRIGGER"},
+            )
+            nf_empty = nif.parse(bad_helper_10mm.nif_bytes)
+            # Add an empty NiNode under root WEAPON (child list appended cleanly via sgoKeep extra ref)
+            s_eh = nf_empty.string_index(b"EmptyOpticsHelper")
+            s_sk = nf_empty.string_index(b"sgoKeep")
+            s_id = len(nf_empty.blocks)
+            nf_empty.add_block("NiStringExtraData", struct.pack("<ii", s_sk, s_sk))
+            n_id = len(nf_empty.blocks)
+            nf_empty.add_block(
+                "NiNode",
+                struct.pack("<iIiiI", s_eh, 1, s_id, -1, 0xE)
+                + struct.pack("<3f9ff", 0.0, 0.0, 0.0, *sw.IDENT_ROT, 1.0)
+                + struct.pack("<iI", -1, 0),
+            )
+            rblk = bytearray(nf_empty.blocks[0])
+            _, nextra = struct.unpack_from("<iI", rblk, 0)
+            cnt_off = 8 + 4 * nextra + 4 + 4 + 12 + 36 + 4 + 4
+            old_cnt, = struct.unpack_from("<I", rblk, cnt_off)
+            old_kids = list(struct.unpack_from(f"<{old_cnt}i", rblk, cnt_off + 4))
+            nf_empty.blocks[0] = bytes(rblk[:cnt_off]) + struct.pack(f"<I{old_cnt + 1}i", old_cnt + 1, *old_kids, n_id)
+            p10_path = stg / sw.WEAPON_NIF_RELS["10mm"]
+            saved_10mm = p10_path.read_bytes()
+            p10_path.write_bytes(nif.serialize(nf_empty))
+            with self.assertRaisesRegex(sw.StageWeaponsError, "empty helper"):
+                sw.verify_staged_weapons(str(stg), require_converted_materials=True, require_collision=False)
+            p10_path.write_bytes(saved_10mm)
 
     def test_safety_guards_refuse_repo_candidate_game_and_running_starfield(self) -> None:
         with tempfile.TemporaryDirectory() as td:

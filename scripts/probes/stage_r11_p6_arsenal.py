@@ -419,6 +419,12 @@ def _build_nodisint_npc(raider_esm: Optional[Path]) -> bytes:
                             new_subs.append((b"FULL", b"Raider Target (NoDisintegrate)\x00"))
                         elif t in (b"KSIZ", b"KWDA"):
                             continue
+                        elif t == b"ACBS" and len(d) >= 16:
+                            # Mask UseTemplateActors down to Traits|Stats (0x0003) so TPLT does not override own KWDA (NoDisintegrate)
+                            acbs = bytearray(d)
+                            old_tflags, = struct.unpack_from("<H", acbs, 14)
+                            struct.pack_into("<H", acbs, 14, old_tflags & 0x0003)
+                            new_subs.append((t, bytes(acbs)))
                         elif t == b"TPTA" and len(d) >= 60:
                             # Keep traits/stats template slots 0..1 while clearing template keywords/inventory overrides
                             arr = bytearray(d)
@@ -872,7 +878,7 @@ def stage_probe_p6(
                     raise ProbeP6Error(f"Refusing unverified FO4SFPipboyMenu.dll (expected {pc.TESTED_PIPBOY_DLL_SHA256_PREFIX}...)")
                 return fallback_bin
 
-            dll_dst = exp_dir / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll"
+            dll_dst = exp_dir / "Data" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll"
             res = pc.reuse_tested_binary(
                 src_files=src_files,
                 tested_src_hash=pc.TESTED_PIPBOY_SOURCE_HASHES,
@@ -883,7 +889,7 @@ def stage_probe_p6(
             if not res.bin_sha256.startswith(pc.TESTED_PIPBOY_DLL_SHA256_PREFIX):
                 raise ProbeP6Error(f"Shipped FO4SFPipboyMenu.dll SHA-256 mismatch: {res.bin_sha256}")
             pipboy_reuse_info = {"shipped": True, "reused": res.reused, "src_hash": res.src_hash, "sha256": res.bin_sha256}
-            overridden_files.append("SFSE/Plugins/FO4SFPipboyMenu.dll")
+            overridden_files.append("Data/SFSE/Plugins/FO4SFPipboyMenu.dll")
         else:
             pipboy_reuse_info = {"shipped": False, "note": "Preserves installed candidate FO4SFPipboyMenu.dll untouched (7d5ba49c required on candidate-2g-fix)"}
 
@@ -949,8 +955,8 @@ def stage_probe_p6(
             {"src_rel": f"exp/{PROBE_TEX_BA2}", "target_rel": f"Data/{PROBE_TEX_BA2}", "sha256": pc.sha256_file(tex_ba2_p)},
         ]
         if ship_pipboy_dll:
-            dll_p = exp_dir / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll"
-            install_files.append({"src_rel": "exp/SFSE/Plugins/FO4SFPipboyMenu.dll", "target_rel": "SFSE/Plugins/FO4SFPipboyMenu.dll", "allow_swap": True, "sha256": pc.sha256_file(dll_p)})
+            dll_p = exp_dir / "Data" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll"
+            install_files.append({"src_rel": "exp/Data/SFSE/Plugins/FO4SFPipboyMenu.dll", "target_rel": "Data/SFSE/Plugins/FO4SFPipboyMenu.dll", "allow_swap": True, "sha256": pc.sha256_file(dll_p)})
         for fname in sorted(batches):
             bp = bat_dir / fname
             install_files.append({"src_rel": f"bat/{fname}", "target_rel": fname, "sha256": pc.sha256_file(bp)})

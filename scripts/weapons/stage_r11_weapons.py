@@ -614,7 +614,6 @@ def build_hierarchical_weapon_nif(
         sh_nm: renames.get(p_nm, p_nm)
         for sh_nm, p_nm in (shape_parent_overrides or {}).items()
     }
-    preserve_eff = {renames.get(p, p) for p in preserve_named_pivots} | set(preserve_named_pivots)
     fo4_part_map: Dict[str, str] = {}
     for sf_nm, fo4_nm in ((v, k) for k, v in renames.items()):
         fo4_part_map.setdefault(sf_nm, fo4_nm)
@@ -871,14 +870,12 @@ def build_hierarchical_weapon_nif(
         shape_names.append(sh_world.name.decode("latin-1"))
         materials.append(mat_path)
 
-    # Prune empty non-essential helper nodes (e.g. ProceduralGeometry, Lightning01, WeaponMagazineChild*)
-    keep_names: Set[str] = {"WEAPON"} | preserve_eff | set((extra_sgo_nodes_fo4 or {}).keys())
-
+    # Prune all shape-empty helper subtrees (retaining only WEAPON, ProjectileNode, and nodes holding shapes)
     def mark_live(nm: str) -> bool:
         spec = nodes[nm]
         kept_kids = [k for k in spec.children_nodes if mark_live(k)]
         spec.children_nodes = kept_kids
-        return bool(spec.shapes or spec.children_nodes or nm in keep_names or nm.startswith("Weapon") or nm == "ProjectileNode")
+        return bool(spec.shapes or spec.children_nodes or nm in ("WEAPON", "ProjectileNode"))
 
     mark_live("WEAPON")
     live_order: List[str] = []
@@ -1003,6 +1000,8 @@ def build_hierarchical_weapon_nif(
     }
     node_parents = {nm: nodes[nm].parent_name for nm in live_order[1:]}
 
+    live_set = set(live_order)
+    fo4_part_map = {k: v for k, v in fo4_part_map.items() if k in live_set}
     if not fo4_part_map:
         fo4_part_map["WEAPON"] = weapon_key
     controllers_payload: Dict[str, Any] = {
@@ -1056,7 +1055,6 @@ def build_10mm_weapon(
         proj_fo4 = connect_point_world_transform(nw, cps["P-ProjectileNode"])[0]
     else:
         proj_fo4 = (-0.0343, 18.5135, 4.8686)
-    casing_fo4 = connect_point_world_transform(nw, cps["P-Casing"])[0] if "P-Casing" in cps else (-0.0124, 2.4238, 7.8119)
 
     return build_hierarchical_weapon_nif(
         "10mm",
@@ -1071,7 +1069,6 @@ def build_10mm_weapon(
         shape_parent_overrides={"10mmTrigger:0": "WeaponTrigger"},
         extra_sgo_nodes_fo4={
             "ProjectileNode": proj_fo4,
-            "CasingNonEmbedded": casing_fo4,
         },
         preserve_named_pivots=("WeaponBolt", "WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2", "WeaponExtra3"),
         node_rename_map={
@@ -1154,8 +1151,6 @@ def build_laser_musket_weapon(
         else:
             proj_fo4 = (0.0, 65.485, 5.492)
 
-    scope_fo4 = rec_nw.get("ScopePOS", ((0.0, -4.8076, 11.8671), IDENT_ROT, 1.0))[0]
-
     return build_hierarchical_weapon_nif(
         "lasermusket",
         receiver_nif_bytes,
@@ -1169,7 +1164,6 @@ def build_laser_musket_weapon(
         default_material=default_material,
         extra_sgo_nodes_fo4={
             "ProjectileNode": proj_fo4,
-            "Scope": scope_fo4,
         },
         preserve_named_pivots=("WeaponMagazine", "WeaponTrigger", "WeaponExtra1", "WeaponExtra2", "WeaponExtra3"),
         node_rename_map={
@@ -1937,6 +1931,14 @@ def verify_nif_asset_tree(
                 raise StageWeaponsError(
                     f"{nif_rel_path}: forbidden empty duplicate helper NiNode {forb!r} present"
                 )
+        empty_leaves = sorted(
+            set(info["node_names"])
+            - {"WEAPON", "ProjectileNode"}
+            - set(info["node_to_shapes"])
+            - set(info["node_parents"].values())
+        )
+        if empty_leaves:
+            raise StageWeaponsError(f"{nif_rel_path}: empty helper NiNode(s) present: {empty_leaves}")
         if weapon_key in ("baton", "baseballbat"):
             for sh_nm in info["shape_to_parent_node"]:
                 if "blood" in sh_nm.lower():

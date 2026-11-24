@@ -6,7 +6,7 @@ Titles: Fallout 4 | Modes: Story & Warfare | Track: Round 12 Probe P6 (Full Arse
 > - **Scope:** `r11-p6-arsenal` (Combat Plan Rows 1–20, `P5` Fixes `F1`–`F6`, `WEAP.WVIS`/`EXPL.ENAM` Impacts, Laser Ash & Plasma Goo, `NoDisintegrate` Guard) | **Mode:** Both (`Warfare` & `Story`) | **Baseline Target:** `candidate-2g-fix2` (`baseline != 2g-fix2` emits warning at install time)
 > - **Version Tag:** `r12-p6-arsenal-v1`
 > - **Stage Placeholders:** `<probes-root>/r11-p6-arsenal`, `<starfield-dir>`
-> - **Disk Need:** `378.36 MB` installed under `<starfield-dir>/Data` (`>= 60.0 GiB` free required before staging/install; `Starfield.exe` closed)
+> - **Disk Need:** `378.33 MB` installed under `<starfield-dir>/Data` (`>= 60.0 GiB` free required before staging/install; `Starfield.exe` closed)
 > - **Overridden Candidate Files:** `["Data/FO4SFCoreValues.esm"]` (`FO4SFPipboyMenu.dll` `7d5ba49c` left untouched on installed candidate unless `--ship-pipboy-dll` is explicitly supplied)
 > - **Truth & Stand-In Policy (`R8` / `R15`):** All P6 records and converted weapon/impact/ash-goo behaviors are **`OFFLINE ONLY — UNPROVEN IN GAME`** (no separate Claude P5 run was posted on `#32` before P6 staging; P6 supersedes P5 with `F1`–`F6` fixes + Rows 5–20). Every weapon NIF preserves `sgoKeep` moving-part `NiNode` names mapped onto Starfield donor-tracked names (`TRIGGER`, `Magazine`, `Bolt`, `MiscA..MiscA14`) with original FO4 names in `fo4_part_map` and NIF controller blocks exported to per-weapon `*_controllers.json` sidecars for future `.rig`/`.af` work on `claude/robot-anim`. Firing/reload/melee/throw animations, heavy-grip ArcWelder Flamer handling, and Wwise `SNDR` audio remain labelled Starfield stand-ins; donor Havok collision hulls replace unported FO4 `bhk` shapes. Zero `Starfield`/`FO4SF` prefixes in user-facing weapon/ammo `FULL` names.
 
@@ -14,15 +14,15 @@ Titles: Fallout 4 | Modes: Story & Warfare | Track: Round 12 Probe P6 (Full Arse
 
 ## Staged Artifacts & Baseline Verification
 
-`manifest.json` SHA-256: `b566202ec6c7bcd7ca7ae1a86c4fc10db053b488eff3342b0f059a8a148a4a8c` (`675` verified files, `48` placed refs bounds-checked above `z=0.000` / tabletop `z=0.825`).
+`manifest.json` SHA-256: `ffe377c282a36a49c34679a6cb06d1432c73e46e76f73d4607b55e2680580298` (`675` verified files, `48` placed refs bounds-checked above `z=0.000` / tabletop `z=0.825`).
 
 | Artifact (`Data/...`) | Source / Reuse Status | Expected Size | Expected SHA-256 | Notes |
 |---|---|---|---|---|
 | `Data/FO4SFCoreValues.esm` | Rebuilt `--fo4-arsenal 1` (`st_nlink == 1` copied) | `76,995` B | `bfe6d99a75230b1dbb795c5cd0fcdb30a3b4ffb26e03bc667a73e59570b505d9` | Byte-identical parity with P2 (`#857`); `0` `FO4Core_Commonwealth` overrides; adds `0x0898..0x08A5` & `0x08B0..0x08D6` |
-| `Data/FO4SF_R11P6Arsenal.esm` | Built for P6 (`st_nlink == 1` copied) | `7,579` B | `9beb45675dcdc13847749ef08a0728f1ecdbce52f3675ca173ef74e0ccee2f51` | Vault111Cryo 3-table rack, 23 weapons, 13 ammos, 3 props, 5 targets (`Flesh`, `Robot`, `NoDisint`, `Stone`, `Wood`), QUST `0x000830` |
-| `Data/FO4SF_R11P6Arsenal - Main.ba2` | Packed GNRL (`pack_gnrl_ba2`, `BS CRC32` verified) | `4,336,094` B | `19d2aa5cb1c738d88857e46eefc71a2e901ec96ee6bbed95fff95b54e9514e66` | `368` entries: `23` weapon NIFs, `13` ammo NIFs, `4` core item NIFs, `2` proj NIFs, controller JSONs, `.mesh`, `.mat`, `FO4SF_R11P6Quest.pex` |
+| `Data/FO4SF_R11P6Arsenal.esm` | Built for P6 (`st_nlink == 1` copied) | `7,579` B | `d206858c6d0dc6eef10bcaaf6e3c1f7472c022f9ed689755390f0c7f6c59ba9e` | Vault111Cryo 3-table rack, 23 weapons, 13 ammos, 3 props, 5 targets (`Flesh`, `Robot`, `NoDisint` w/ `ACBS=0x0003`, `Stone`, `Wood`), QUST `0x000830` |
+| `Data/FO4SF_R11P6Arsenal - Main.ba2` | Packed GNRL (`pack_gnrl_ba2`, `BS CRC32` verified) | `4,308,514` B | `0420c90794439099eb943a7cfbaa80b56d03df9d85f23ec9da51c1a6dc86ee66` | `368` entries: `23` empty-pruned weapon NIFs, `13` ammo NIFs, `4` core item NIFs, `2` proj NIFs, controller JSONs, `.mesh`, `.mat`, `FO4SF_R11P6Quest.pex` |
 | `Data/FO4SF_R11P6Arsenal - Textures.ba2` | Packed DX10 (`pack_dx10_ba2`, `BS CRC32` verified) | `392,297,647` B | `62792bfb52a13d56fbb18ea684426aa102e77cf4eb791bd5e8cc65d453d33eb0` | `293` BC1/BC4/BC5/DX10 `.dds` textures |
-| `SFSE/Plugins/FO4SFPipboyMenu.dll` | Preserved untouched on installed candidate (`7d5ba49c`) | `1,453,568` B | `7d5ba49c0c6ab2aa...` | Not overridden unless `--ship-pipboy-dll --tested-pipboy-dll <path>` is passed (`reuse_tested_binary` enforced) |
+| `Data/SFSE/Plugins/FO4SFPipboyMenu.dll` | Preserved untouched on installed candidate (`7d5ba49c`) | `1,453,568` B | `7d5ba49c0c6ab2aa...` | Not overridden unless `--ship-pipboy-dll --tested-pipboy-dll <path>` is passed (installs to `Data/SFSE/Plugins/` via `reuse_tested_binary`) |
 
 ---
 
