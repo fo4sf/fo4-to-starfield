@@ -5,7 +5,7 @@
 > - **NEW GAME needed:** YES (launch a fresh **New Game** after installing `w-home-v2` over the `candidate-2g-fix3` player base)
 > - **Merge Order:** `#854 > #852 > #851 > #853 > #857 > #864 > #858 > #842 > #848 > #860 > #863`
 > - **Gate Rule:** Keep shipped/bundle defaults **`MapBlockStarMap=0`** and **`MapSurvival=0`** in `sfse/FO4SFPipboyMenu/FO4SFPipboyMenu.ini` and `scripts/ui/make_pipboy_stage_ini.py`; the `w-home-v2` probe INI sets **`MapBlockStarMap=1`** and **`MapSurvival=0`** exclusively to verify the `Starfield.exe+0x2540dc6` fix in game.
-> - **Status:** `CODE COMPLETE & BINARIES BUILT — W-HOME-V2 STAGE PENDING GAME CLOSE (NOT YET STAGED / UNPROVEN IN GAME)`
+> - **Status:** `STAGED — OFFLINE VERIFIED (w-home-v2 manifest 738882c91715dbf91540fbc14d14d5194e49020c2b70c526df2e8c812c5a7bbb, UNPROVEN IN GAME)`
 
 ---
 
@@ -77,26 +77,26 @@ Read-only PE/Capstone inspection of `Starfield.exe` (`ImageBase 0x140000000`) ar
 - **Zero Mars Weather (`F11`) & All-Quest Persistent Anchor Resolution (`F7` + `F8`):**
   - `make_whome_probe.py` passes `*weather_flags` (`--commonwealth-weather 0`) to `make_core_values.main(...)` (`F11`), giving `0` overrides of `ClimateUniqueCydonia` (`0x00310DB1`), `ClimateUniqueCydoniaFrozen` (`0x002EDEA5`), or `ATMO_Mars` (`0x0000C9D2`).
   - `FO4SFMission.esm` (`86,429 B`, `sha256: de86f70063c158f3e1753220d83139f8de137b5dc8cf919364a7017350e90314`, rebuilt on `#852` with all Codsworth + `C5` actor looks records + zero `WRLD` overrides, holding cell `0x000B60`) and **all** `11` quest/newgame scripts (`FO4SF_NewGameQuest`, `FO4SF_Min00Quest`, `FO4SF_Sanctuary01Quest`, `FO4SF_MQ103Quest`, `FO4SF_MinRecruit00Quest`, `FO4SF_MQ104Quest`, `FO4SF_MQ105Quest`, `FO4SF_MQ106Quest`, `FO4SF_MQ203Quest`, `FO4SF_MQ204Quest`, `FO4SF_MQ206Quest`) resolve the live Commonwealth `WorldSpace` from persistent `0x0A775B` (`FO4Core_CommonwealthMapMarkerVault111`) **first**, falling back to `0x005C50` (`FO4Core_SanctuaryWorkbenchRef`), with **zero** static `0x000803` `WRLD` lookups or `MarsPlanetWorld` references.
-- **Re-Parenting & Zero-Mars Census:** `FO4TerrainCore_Home.esm` overrides both `FO4Core_CommonwealthLocation` (`0x000802`) and `FO4Port_InteriorsLocation` (`0x00E18A`) to `PNAM = FO4SFHome.esm:0x000804` (`SFO4SFHome_PEarth_Surface`).
+- **Re-Parenting & Zero-Mars Census (`probe_manifest.json` `sha256: 738882c91715dbf91540fbc14d14d5194e49020c2b70c526df2e8c812c5a7bbb`, `66` files, all `st_nlink == 1`, `5/5` BA2s verified):** `FO4TerrainCore_Home.esm` overrides both `FO4Core_CommonwealthLocation` (`0x000802`) and `FO4Port_InteriorsLocation` (`0x00E18A`) to `PNAM = FO4SFHome.esm:0x000804` (`SFO4SFHome_PEarth_Surface`), keeping all `16/16` base `FO4Port` child chains rooted under Earth (`0` `MarsPlanetData` or `SSol_PMars_Surface` winning refs).
 
-### Swapped & Added Files in `w-home-v2` (`F1` & `F4` — Complete Inventory)
+### Swapped & Added Files in `w-home-v2` (`F1` & `F4` — Complete `66`-File Inventory)
 
 | Target Path in `<STARFIELD_DIR>` | Action | Exact Source / Notes | Size (B) / SHA-256 |
 |---|---|---|---|
 | `Data/FO4Port.esm` | Swap | Base `FO4Port.esm` (`candidate-2g-fix3`, NOT P1 v2 append `77ab885e`) | `4,261,852` / `07756819ecf7ab9a88af6421478c7c05f13eb6dbef062a1a61b98ec63e7bbe60` |
-| `Data/FO4SFMapMarkers.esm` | Swap | `candidate-2g-fix3` / Starfield map markers master | `77,406` / `b8677959caee00c452cda16434af9474a81d15a9e1bdc8cd2c7ba37b926404ec` |
-| `Data/FO4SFCoreValues.esm` | Swap | Built with `--commonwealth-weather 0` (`F11`) | `<STAGED_AT_W_HOME_V2_RUN>` |
+| `Data/FO4SFMapMarkers.esm` | Swap | `candidate-2g-fix3` / Starfield map markers master (`310` markers) | `77,406` / `b8677959caee00c452cda16434af9474a81d15a9e1bdc8cd2c7ba37b926404ec` |
+| `Data/FO4SFCoreValues.esm` | Swap | Built with `--commonwealth-weather 0` (`F11`, `70` records) | `6,946` / `c2e3a3a69a1f2fc72151f30146c06147c1c221e534e76a9ab0c521b38886e73c` |
 | `Data/FO4SFMission.esm` | Swap | Rebuilt on `#852` (`2g-fix3` Codsworth + C5 actor looks + `0x0B60`) | `86,429` / `de86f70063c158f3e1753220d83139f8de137b5dc8cf919364a7017350e90314` |
-| `Data/FO4SFMission - Main.ba2` + `Data/Scripts/*.pex` (`12` Mission `.pex`s) | Swap | Compiled on `#852` + `F7`/`F8` persistent `0x0A775B` fixes (`Min00`, `COMPreston`, `Codsworth01`, `Sanctuary01`, `MinRecruit00`, `MQ103`–`MQ206`) | `<STAGED_AT_W_HOME_V2_RUN>` |
-| `Data/FO4SFNewGame.esm` + `Data/FO4SFNewGame - Main.ba2` + `4` NewGame `.pex`s | Swap | `candidate-2g-fix3` (`03-newgame`, `#852` `ResolveHostWorld` `0x0A775B` first) | `12,688` / `0163600cbbe974a0344a858ddd483472a59e90b079632b394bac535cbd9d50f2` |
+| `Data/FO4SFMission - Main.ba2` + `12` Mission `Data/Scripts/*.pex` | Swap | Compiled on `#852` + `F7`/`F8` persistent `0x0A775B` fixes (`Min00`, `COMPreston`, `Codsworth01`, `Sanctuary01`, `MinRecruit00`, `MQ103`–`MQ206`) | `192,263` / `3d4c6aaad6b760817c7b0808e4f8fa077890445fd06a1313595402c26679fab8` |
+| `Data/FO4SFNewGame.esm` + `FO4SFNewGame - Main.ba2` + `4` NewGame `.pex`s | Swap | `candidate-2g-fix3` (`03-newgame`, `#852` `ResolveHostWorld` `0x0A775B` first) | `12,688` / `0163600cbbe974a0344a858ddd483472a59e90b079632b394bac535cbd9d50f2` (BA2 `73,512` / `e510db87...`) |
 | `Data/SFSE/Plugins/FO4SFPipboyMenu.dll` | Swap | Rebuilt `#852` (`D5`/`D7`/`HideStarfieldWatch=1`) + `#858` StarMap fix | `1,455,104` / `d6d761689acaca2cc0cc068200e7561b353c5540f531432061484d971d1f753c` |
 | `Data/SFSE/Plugins/FO4SFPipboyMenu.build.json` | Swap | `F15` build provenance JSON (`null read + latent refcount UAF`) | `2,275` / `efa5c30b5b23d032c5a5f05b979172da35b130856142e423b83b6b319752d3be` |
-| `Data/SFSE/Plugins/FO4SFPipboyMenu.ini` | Swap | Probe INI (`Stage=2`, `Map=1`, `MapBlockStarMap=1`, `MapSurvival=0`) | `<STAGED_AT_W_HOME_V2_RUN>` |
-| `Data/SFSE/Plugins/FO4SFPipboyMapMarkers.tsv` | Swap | `310` rows (incl. Diamond City `idx=309` -> `0x000800`) | `<STAGED_AT_W_HOME_V2_RUN>` |
-| `Data/FO4SFPipboyTravel.esm` + `FO4SFPipboyTravel - Main.ba2` + `FO4SF_PipboyTravel.pex` | Swap | Rebuilt `w-home-v2` travel stub + compiled PEX | `<STAGED_AT_W_HOME_V2_RUN>` |
-| `Data/FO4SFHome.esm` + `FO4SFHome - Main.ba2` + `FO4SFHome - Textures.ba2` + loose `.biom`/`.mat`/`.dds` | Add | `F14`: display star **`Sol`**, `FO4SF_EarthPlanetData` `PNDT`, `WB1`–`WB3` | `<STAGED_AT_W_HOME_V2_RUN>` |
-| `Data/FO4TerrainCore_Home.esm` | Add | Overrides `0x000802` + `0x00E18A` -> `Earth`, `Plugins.txt` unticks `FO4TerrainCore_Mars.esm` | `<STAGED_AT_W_HOME_V2_RUN>` |
-| `bat/*.txt` -> `<STARFIELD_DIR>\*.txt` (`27` batch files) | Add | `w1`–`w4`, `k1`–`k8` (`F2`), `ktg`, `ea`–`ej`, `we1`, `we2` (`F5`), `r1` | `<STAGED_AT_W_HOME_V2_RUN>` |
+| `Data/SFSE/Plugins/FO4SFPipboyMenu.ini` | Swap | Probe INI (`Stage=2`, `Map=1`, `MapBlockStarMap=1`, `MapSurvival=0`) | `2,232` / `f416750496c77e378b378df3816c058e17abfb87ee80675e82b762758127f5c4` |
+| `Data/SFSE/Plugins/FO4SFPipboyMapMarkers.tsv` | Swap | `310` rows (incl. Diamond City `idx=309` -> `0x000800`) | `26,687` / `1533bd7e9899d0b712e6456903c84a3bff89ebba895713929b8dc2335c426fb0` |
+| `Data/FO4SFPipboyTravel.esm` + `FO4SFPipboyTravel - Main.ba2` + `FO4SF_PipboyTravel.pex` | Swap | Rebuilt `w-home-v2` travel stub + compiled PEX | `1,362` / `ab06612e89434b0b3ebf07b83bdf790090386236c576750b8c819cc5c9b4c0f5` (BA2 `4,888` / `9ec987ad...`) |
+| `Data/FO4SFHome.esm` + `FO4SFHome - Main.ba2` (`2,292 B`) + `FO4SFHome - Textures.ba2` (`961,356 B`) + `.biom`/`.mat`/`.dds` | Add | `F14`: display star **`Sol`**, `FO4SF_EarthPlanetData` `PNDT`, `WB1`–`WB3` | `8,763` / `153269f38fc6830e80ebfa8b3e902081572938a8f085f2e934cbd68e742c840d` |
+| `Data/FO4TerrainCore_Home.esm` | Add | Overrides `0x000802` + `0x00E18A` -> `Earth`, `Plugins.txt` unticks `FO4TerrainCore_Mars.esm` | `7,925` / `2c3e26ae048efa692c4c07384117fa45e40e19b4e59ce2064dd0134a4ac5d16f` |
+| `bat/*.txt` -> `<STARFIELD_DIR>\*.txt` (`26` batch files) | Add | `w1`–`w4`, `k1`–`k8` (`F2`), `ktg`, `ea`–`ej`, `we1`, `we2` (`F5`), `r1` | Validated `<180 m`/axis, `0` `M`/`N`/`V` |
 
 ---
 
