@@ -460,9 +460,20 @@ class R10OpeningFixTests(unittest.TestCase):
             def GetCombatState(self): return self.combat_state
             def SetRestrained(self, v): self.restrained = bool(v); return True
             def SetValue(self, av, val): self.avs[av] = float(val)
+            def GetValue(self, av): return self.avs.get(av, 0.0)
             def GetItemCount(self, item): return self.inv.get(item, 0)
             def AddItem(self, item, cnt, _silent=False): self.inv[item] = self.inv.get(item, 0) + int(cnt)
-            def EquipItem(self, item, *_): self.equipped.append(item)
+            def RemoveItem(self, item, cnt=1, _silent=False):
+                cur = self.inv.get(item, 0)
+                if cur <= int(cnt):
+                    self.inv.pop(item, None)
+                else:
+                    self.inv[item] = cur - int(cnt)
+            def UnequipAll(self): self.equipped.clear()
+            def EquipItem(self, item, *_):
+                if item not in self.equipped:
+                    self.equipped.append(item)
+            def GetEquippedWeapon(self): return self.equipped[-1] if self.equipped else None
             def EvaluatePackage(self): self.eval_calls += 1
 
             def StartCombat(self, target):
@@ -537,6 +548,8 @@ class R10OpeningFixTests(unittest.TestCase):
             "raiderRescueHp": None,
             "RaiderWeapon": "Coachman",
             "RaiderAmmo": "AmmoShotshell",
+            "RaiderPrimaryRecordDamage": 1.0,
+            "AttackDamageMult": None,
             "Math": SimpleNamespace(Sqrt=math.sqrt),
             "Game": SimpleNamespace(
                 GetAggressionAV=lambda: "AggressionAV",
@@ -547,7 +560,7 @@ class R10OpeningFixTests(unittest.TestCase):
         code = _translate_mission_psc(
             m_psc,
             ("ResolveCommonwealthWorld", "IsCommonwealthExterior", "IsPlayerStableAt", "SpotOff",
-             "ArmRaiderForCombat", "MoveOver"),
+             "ComputeEffectiveWeaponDamage", "ArmRaiderForCombat", "MoveOver"),
             ("raiderArmed",),
         )
         init_src = re.sub(r"new (?:float|bool)\[count\]", "_PArray([0] * count)", function_body(m_psc, "InitRaiderTracking"))

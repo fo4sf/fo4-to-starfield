@@ -183,6 +183,10 @@ class Candidate2gCardTests(unittest.TestCase):
             r11_evolved_2g_prefixes.append(
                 "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> codsworth talk camera_guard prev_d=<d> safe_d=1.85'"
             )
+        if " eff_dmg=" in min00_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> arm raider <i> ammo=<n>'"
+            )
         if "hide_starfield_watch=" in pipboy_src:
             r11_evolved_2g_prefixes.append(
                 "PASS line does not match any source format string: 'step=shell_c4_config shell_backdrop=1 shell_vitals_fill=1 suppress_data_menu=0 tab_opens_pipboy=0'"
