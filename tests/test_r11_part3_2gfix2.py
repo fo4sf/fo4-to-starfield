@@ -221,12 +221,18 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "Trace": logs.append,
             "CodsworthScene": scene,
             "CodsworthPostScene": post_scene,
+            "S3Stage50Scene": None,
             "SceneOpenCheckSeconds": 1.5,
             "sceneTalkPending": True,
             "sceneMenuOpened": False,
             "dialogueMenuOpen": False,
             "scenePhase1Entered": False,
             "scenePhase1At": 0.0,
+            "s3Stage50Pending": False,
+            "s3Stage50MenuOpened": False,
+            "s3Stage50AttemptOpened": False,
+            "s3Stage50Phase1": False,
+            "s3Stage50Phase1At": 0.0,
             "applied": 10,
             "GetStage": lambda: 10,
             "StartTimer": lambda *_: None,
@@ -415,6 +421,20 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "Trace": logs.append,
             "LogName": "fo4sf_mission",
             "KeeperOnly": False,
+            "EnableS4Balcony": False,
+            "EnableS6ToS9Full": False,
+            "SturgesRef": None,
+            "S6PrestonRoomScene": None,
+            "S6SturgesRoomScene": None,
+            "PipePistolId": 0x0008A2,
+            "PipeRifleId": 0x0008A3,
+            "Ammo38Id": 0x0008A1,
+            "LookupOptionalForm": lambda *_: None,
+            "s6RoomScenePending": False,
+            "s6RoomSceneMenuOpened": False,
+            "s6SturgesScenePending": False,
+            "s6SturgesSceneMenuOpened": False,
+            "s6FullStage": 0,
             "Preston": preston,
             "Codsworth": cods,
             "Credits": "Credits",
@@ -506,7 +526,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
              "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks",
              "prestonSceneRestarts", "ownPrestonSceneStop", "prestonAttemptStartedAt",
              "prestonPostSceneActive", "sanctuaryStartRetries",
-             "relocateFails", "prestonHeld"),
+             "relocateFails", "prestonHeld", "s6RoomScenePending", "s6RoomSceneMenuOpened",
+             "s6SturgesScenePending", "s6SturgesSceneMenuOpened", "s6FullStage"),
         )
         exec(compile(m_code, "FO4SF_Min00Quest.psc", "exec"), m_ns)
 
@@ -535,6 +556,16 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "Codsworth": cods,
             "CodsworthScene": cods_scn,
             "CodsworthPostScene": cods_post,
+            "S3Stage50Scene": None,
+            "EnableS3HouseSearch": False,
+            "s3Stage50Pending": False,
+            "s3Stage50MenuOpened": False,
+            "s3Stage50AttemptOpened": False,
+            "s3Stage50Restarting": False,
+            "s3Stage50Phase1": False,
+            "s3Stage50Phase1At": 0.0,
+            "s3Stage50CheckTicks": 0,
+            "s3Stage50Retries": 0,
             "CodsworthTalkActi": "CodsworthTalkActi(09000970)",
             "CodsworthTalkMsg": c_msg,
             "CodsworthReply0Msg": c_msg,
@@ -636,7 +667,9 @@ class R11Part3Slice1ATests(unittest.TestCase):
              "sceneCheckTicks", "sceneRestartCount", "ownSceneStopPending", "sceneAttemptStartedAt",
              "scenePostActive", "talkProxy", "proxyLogged",
              "proxyLastX", "proxyLastY", "proxyLastZ", "applied", "pendingStage", "pendingStageBy",
-             "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen", "choicesCount", "completed"),
+             "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen", "choicesCount", "completed",
+             "s3Stage50Pending", "s3Stage50MenuOpened", "s3Stage50AttemptOpened", "s3Stage50Restarting", "s3Stage50Phase1",
+             "s3Stage50Phase1At", "s3Stage50CheckTicks", "s3Stage50Retries"),
         )
         exec(compile(c_code, "FO4SF_Codsworth01Quest.psc", "exec"), c_ns)
 
@@ -817,13 +850,13 @@ class R11Part3Slice1ATests(unittest.TestCase):
         self.assertIn('Flt("RaiderSidearmRecordDamage", sidearmRecordDamage)', cs)
         self.assertNotIn("RaiderSidearmDamage = 3.0", m_psc)
 
-        # Verify weapon-only UnequipItem precedes EquipItem(RaiderWeapon) with zero UnequipAll() so outfits stay worn
+        # Verify weapon-only UnequipItem precedes EquipItem(RaiderWeapon) with zero UnequipAll() so outfits stay worn, and AddItem(chosenWeap) precedes GetItemCount(chosenAmmo)
         arm_src = _extract_block(m_psc, "ArmRaiderForCombat")[1]
         self.assertNotIn("UnequipAll", arm_src)
         self.assertLess(arm_src.index("r.UnequipItem(curW, False, True)"), arm_src.index("r.EquipItem(RaiderWeapon"))
         fn_src = _extract_block(m_psc, "EquipBalancedRaiderSidearm")[1]
-        self.assertLess(fn_src.index("r.AddItem(RaiderSidearm"), fn_src.index("int curSidearmAmmo = r.GetItemCount(RaiderSidearmAmmo)"))
-        self.assertLess(fn_src.index("r.EquipItem(RaiderSidearm"), fn_src.index("int curSidearmAmmo = r.GetItemCount(RaiderSidearmAmmo)"))
+        self.assertLess(fn_src.index("r.AddItem(chosenWeap"), fn_src.index("int curSidearmAmmo = r.GetItemCount(chosenAmmo)"))
+        self.assertLess(fn_src.index("r.EquipItem(chosenWeap"), fn_src.index("int curSidearmAmmo = r.GetItemCount(chosenAmmo)"))
 
         class _BonusAmmoRaider:
             def __init__(self, shells, bonus_add, bonus_equip):
@@ -877,6 +910,11 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "RaiderSidearmRecordDamage": 1.5,
             "AttackDamageMult": None,
             "RaiderSidearmAmmo": "Ammo777mm",
+            "EnableS4Balcony": False,
+            "PipePistolId": 0x0008A2,
+            "PipeRifleId": 0x0008A3,
+            "Ammo38Id": 0x0008A1,
+            "LookupOptionalForm": lambda *_: None,
             "raiderArmed": _PArray([False] * 5),
             "Game": SimpleNamespace(GetAggressionAV=lambda: "Agg", GetConfidenceAV=lambda: "Conf"),
         }
@@ -902,7 +940,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
         from 2.9 km away (-3229, -4392, 261) on reload and KeepPreston with wfc01 rescue_dead, while disabled
         written-off raiders are skipped and .MoveTo( count remains exact 3."""
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\.MoveTo\(", m_psc)), 3, ".MoveTo( invariant broken!")
+        self.assertEqual(len(re.findall(r"\.MoveTo\(", m_psc)), 5, ".MoveTo( invariant broken!")
 
         fo4_world = "WorldSpace<MarsPlanetWorld>"
         logs = []
@@ -975,6 +1013,9 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "prestonFails": 0,
             "prestonState": "at spot",
             "keeperChecks": 0,
+            "s4BalconyActive": False,
+            "s9PatrolRelease": False,
+            "MaintainS4PrestonBalcony": lambda *_: None,
             "raiderTargetX": None,
             "raiderTargetY": None,
             "raiderTargetZ": None,

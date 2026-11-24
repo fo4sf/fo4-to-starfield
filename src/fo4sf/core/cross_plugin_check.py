@@ -24,7 +24,9 @@ ROUTE_LOOT_JSON_REL = os.path.join("src", "fo4sf", "loot", "route_loot_ids.json"
 # Known immutable engine/port base records referenced across scripts and writer tables
 KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     "Starfield.esm": {
+        0x00000A: ("MISC", "Digipick"),
         0x00000F: ("MISC", "Credits"),
+        0x000010: ("STAT", "MapMarker"),
         0x000014: ("ACHR", "PlayerRef"),
         0x000032: ("STAT", "COCMarkerHeading"),
         0x000038: ("GLOB", "GameHour"),
@@ -42,6 +44,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0002DA: ("AVIF", "SpeedMult"),
         0x0002DC: ("AVIF", "CarryWeight"),
         0x0002E2: ("AVIF", "O2Capacity"),
+        0x0002D4: ("AVIF", "Health"),
         0x000344: ("AVIF", "FollowerState"),
         0x00036C: ("AVIF", "PerceptionCondition"),
         0x00036D: ("AVIF", "EnduranceCondition"),
@@ -50,6 +53,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x000370: ("AVIF", "LeftMobilityCondition"),
         0x000371: ("AVIF", "RightMobilityCondition"),
         0x000372: ("AVIF", "BrainCondition"),
+        0x0012E5: ("STAT", "RockPittedA"),
         0x003448: ("QUST", "MQ101"),
         0x00347D: ("RACE", "HumanRace"),
         0x00562D: ("DFOB", "StartupQuest_DO"),
@@ -65,10 +69,13 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x028A02: ("WEAP", "Grendel"),
         0x0301C5: ("PACK", "DefaultMaster_FollowPackage"),
         0x042240: ("PACK", "DefaultCombatMasterPackage"),
+        0x04297C: ("NPC_", "OutpostRobotMiniBotA_Garden"),
         0x047600: ("KYWD", "QuestTypeSideQuest"),
         0x0476C4: ("WEAP", "Eon"),
         0x04AD3E: ("AMMO", "Ammo777mm"),
         0x04AD3F: ("AMMO", "Ammo11mm"),
+        0x04F760: ("WEAP", "RescueAxe"),
+        0x0546CD: ("WEAP", "Microgun"),
         0x0547A1: ("AMMO", "AmmoCaselessShotgun"),
         0x0547A3: ("WEAP", "Breach"),
         0x054BA7: ("KYWD", "WorkshopWorkbenchType"),
@@ -78,14 +85,18 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0A7D31: ("GLOB", "MQ101Debug"),
         0x0AA209: ("KYWD", "WorkbenchIndustrialKeyword"),
         0x0B0885: ("SPEL", "abBoostAssaultSlowTime"),
+        0x0B120E: ("AVIF", "ActorShouldForceHideSpacesuit_AV"),
         0x105688: ("CONT", "VaultCaseTemplate"),
+        0x13E8CA: ("STAT", "AK_Crate_WoodenSmall"),
         0x1A5507: ("FLST", "OutpostFollowCameraCategoryList"),
         0x1A9565: ("QUST", "SQ_Groups"),
         0x1CCAC2: ("ACTI", "ControlConsoleTemplate"),
         0x1F50AD: ("KYWD", "OutpostBuildKeyword"),
         0x208E39: ("OTFT", "Outfit_FreestarRanger_Vest_with_Hat"),
+        0x22DB8F: ("KYWD", "NoDisintegrate"),
         0x24561C: ("WEAP", "Sidestar"),
         0x248D20: ("QUST", "SQ_ENV"),
+        0x26319B: ("EFSH", "CritLaserDisintegration"),
         0x26D96B: ("WEAP", "Coachman"),
         0x2773C8: ("WEAP", "Orion"),
         0x2B4AFB: ("AMMO", "AmmoShotshell"),
@@ -97,8 +108,18 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x3FFD3A: ("ARMO", "Skin_MiniBotA_Gardening"),
     },
     "FO4Port.esm": {
+        0x0011A0: ("STAT", "FO4Port_Vault_Table_01"),
         0x0011F3: ("CELL", "FO4Port_Vault111Cryo"),
+        0x001338: ("REFR", ""),
+        0x001539: ("REFR", "FO4Port_ArmoryCageDoor"),
         0x00E0D6: ("CONT", "FO4Port_VaultLocker"),
+        0x00E2F4: ("CELL", "FO4Port_ConcordMuseum01"),
+        0x00E2F5: ("REFR", ""),
+        0x00E35E: ("REFR", ""),
+        0x00E3B6: ("REFR", ""),
+        0x00EDF0: ("REFR", ""),
+        0x00EFA9: ("REFR", "FO4Port_PrestonDoorREF"),
+        0x00EFAA: ("REFR", "FO4Port_PrestonExitDoor"),
         0x0337F0: ("QUST", "FO4Port_DialogueSceneRef"),
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
@@ -128,6 +149,66 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     "FO4SFPipboyTravel.esm": {
         **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32) if i != 2},
     },
+    "FO4SF_RA5Creatures.esm": {
+        0x000804: ("NPC_", "FO4SF_RA5RadroachTest"),
+        0x000809: ("NPC_", "FO4SF_RA5BloatflyTest"),
+        0x00080E: ("NPC_", "FO4SF_RA5MoleratTest"),
+        0x000813: ("NPC_", "FO4SF_RA5DogTest"),
+        0x000818: ("NPC_", "FO4SF_RA5DeathclawTest"),
+    },
+    "FO4SF_R11P6Arsenal.esm": {
+        0x000800: ("ACTI", "FO4SF_P6_TargetTriggerActi"),
+        0x000802: ("NPC_", "FO4SF_P6_NoDisintTargetNpc"),
+        0x000810: ("REFR", "FO4SF_P6_TargetTriggerRef"),
+        0x000811: ("ACHR", "FO4SF_P6_FleshDummyRef"),
+        0x000812: ("ACHR", "FO4SF_P6_RobotDummyRef"),
+        0x000813: ("ACHR", "FO4SF_P6_NoDisintDummyRef"),
+        0x000814: ("REFR", "FO4SF_P6_StoneTargetRef"),
+        0x000815: ("REFR", "FO4SF_P6_WoodTargetRef"),
+        0x000816: ("REFR", "FO4SF_P6_RackTable1Ref"),
+        0x000817: ("REFR", "FO4SF_P6_RackTable2Ref"),
+        0x000818: ("REFR", "FO4SF_P6_RackTable3Ref"),
+        0x000819: ("REFR", "FO4SF_P6_Weap_10mmRef"),
+        0x00081A: ("REFR", "FO4SF_P6_Weap_BatonRef"),
+        0x00081B: ("REFR", "FO4SF_P6_Weap_PipePistolRef"),
+        0x00081C: ("REFR", "FO4SF_P6_Weap_PipeRifleRef"),
+        0x00081D: ("REFR", "FO4SF_P6_Weap_LaserMusketRef"),
+        0x00081E: ("REFR", "FO4SF_P6_Weap_MinigunRef"),
+        0x00081F: ("REFR", "FO4SF_P6_Weap_FragGrenadeRef"),
+        0x000820: ("REFR", "FO4SF_P6_Weap_FragMineRef"),
+        0x000821: ("REFR", "FO4SF_P6_Weap_PipeRevolverRef"),
+        0x000822: ("REFR", "FO4SF_P6_Weap_HuntingRifleRef"),
+        0x000823: ("REFR", "FO4SF_P6_Weap_CombatShotgunRef"),
+        0x000824: ("REFR", "FO4SF_P6_Weap_DoubleBarrelRef"),
+        0x000825: ("REFR", "FO4SF_P6_Weap_SubmachineGunRef"),
+        0x000826: ("REFR", "FO4SF_P6_Weap_AssaultRifleRef"),
+        0x000827: ("REFR", "FO4SF_P6_Weap_BaseballBatRef"),
+        0x000828: ("REFR", "FO4SF_P6_Weap_LaserPistolRef"),
+        0x000829: ("REFR", "FO4SF_P6_Weap_LaserRifleRef"),
+        0x00082A: ("REFR", "FO4SF_P6_Weap_PlasmaPistolRef"),
+        0x00082B: ("REFR", "FO4SF_P6_Weap_PlasmaRifleRef"),
+        0x00082C: ("REFR", "FO4SF_P6_Weap_GaussRifleRef"),
+        0x00082D: ("REFR", "FO4SF_P6_Weap_MissileLaunchRef"),
+        0x00082E: ("REFR", "FO4SF_P6_Weap_FatManRef"),
+        0x00082F: ("REFR", "FO4SF_P6_Weap_FlamerRef"),
+        0x000830: ("QUST", "FO4SF_R11P6Quest"),
+        0x000831: ("REFR", "FO4SF_P6_Ammo_10mmRef"),
+        0x000832: ("REFR", "FO4SF_P6_Ammo_38CalRef"),
+        0x000833: ("REFR", "FO4SF_P6_Ammo_FusionCellRef"),
+        0x000834: ("REFR", "FO4SF_P6_Ammo_5mmRef"),
+        0x000835: ("REFR", "FO4SF_P6_Ammo_308CalRef"),
+        0x000836: ("REFR", "FO4SF_P6_Ammo_45CalRef"),
+        0x000837: ("REFR", "FO4SF_P6_Ammo_ShotgunShellRef"),
+        0x000838: ("REFR", "FO4SF_P6_Ammo_556Ref"),
+        0x000839: ("REFR", "FO4SF_P6_Ammo_MissileRef"),
+        0x00083A: ("REFR", "FO4SF_P6_Ammo_MiniNukeRef"),
+        0x00083B: ("REFR", "FO4SF_P6_Ammo_FlamerFuelRef"),
+        0x00083C: ("REFR", "FO4SF_P6_Ammo_PlasmaCartRef"),
+        0x00083D: ("REFR", "FO4SF_P6_Ammo_2mmEcRef"),
+        0x00083E: ("REFR", "FO4SF_P6_StimpakRef"),
+        0x00083F: ("REFR", "FO4SF_P6_CapsRef"),
+        0x000840: ("REFR", "FO4SF_P6_BobbyPinRef"),
+    },
 }
 
 CAST_EXPECTED_TYPES: Dict[str, Set[str]] = {
@@ -149,6 +230,7 @@ CAST_EXPECTED_TYPES: Dict[str, Set[str]] = {
     "furniture": {"FURN"},
     "spell": {"SPEL"},
     "hazard": {"HAZD"},
+    "effectshader": {"EFSH"},
     "actorbase": {"NPC_"},
     "actor": {"ACHR", "REFR"},
     "objectreference": {"REFR", "ACHR"},
@@ -884,7 +966,102 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xB54, "MESG", "FO4SF_MQ206_WorkbenchBuildMsg"),
             (0xB55, "MESG", "FO4SF_MQ206_RelayFireMsg"),
             (0xB56, "MESG", "FO4SF_MQ206_OpenModeFallbackMsg"),
+            # Task 1i: Mission holding cell (0xB60) owns all persistent ACHRs & relocated R11/R12 markers (0 WRLD overrides)
             (0xB60, "CELL", "FO4SF_MissionHoldingCell"),
+            # R11 Step 3q (--r11-full-mission 1): S4 balcony, S9 exit & Red Rocket road patrol waypoints, DC MapMarker, gate GLOB
+            (0xB80, "REFR", "FO4SF_S4_PrestonBalconyMarker"),
+            (0xB81, "REFR", "FO4SF_S9_MuseumExitMarker"),
+            (0xB82, "REFR", "FO4SF_S9_PatrolWP_0"),
+            (0xB83, "REFR", "FO4SF_S9_PatrolWP_1"),
+            (0xB84, "REFR", "FO4SF_S9_PatrolWP_2"),
+            (0xB85, "REFR", "FO4SF_S9_PatrolWP_3"),
+            (0xB86, "REFR", "FO4SF_S9_PatrolWP_4"),
+            (0xB87, "REFR", "FO4SF_S9_PatrolWP_5"),
+            (0xB88, "REFR", "FO4SF_S9_PatrolWP_6"),
+            (0xB89, "REFR", "FO4SF_S9_PatrolWP_7"),
+            (0xB8A, "REFR", "FO4SF_DiamondCityMapMarker"),
+            (0xB8B, "GLOB", "FO4SF_R11FullMission"),
+            # R12 Task 1d-1h (NextStoryMissionsS2S6.cs, --r11-full-mission 1): S2-S6 missions, museum interior & 3F room
+            (0xB8C, "GLOB", "FO4SF_S2CreatureSlotReady"),
+            (0xB8D, "GLOB", "FO4SF_Task1bVaultRecoveryReady"),
+            (0xB8E, "GLOB", "FO4SF_Fo4HumanAnimsEnabled"),
+            (0xB90, "QUST", "FO4SF_Vault111Roaches"),
+            (0xB91, "REFR", "FO4SF_S2_RadroachMarker_0"),
+            (0xB92, "REFR", "FO4SF_S2_RadroachMarker_1"),
+            (0xB93, "REFR", "FO4SF_S2_RadroachMarker_2"),
+            (0xB94, "REFR", "FO4SF_S2_RadroachMarker_3"),
+            (0xB95, "REFR", "FO4SF_S2_RadroachMarker_4"),
+            (0xB96, "PACK", "FO4SF_S3_PackHouse01"),
+            (0xB97, "PACK", "FO4SF_S3_PackHouse02"),
+            (0xB98, "REFR", "FO4SF_S3_House01Marker"),
+            (0xB99, "REFR", "FO4SF_S3_House02Marker"),
+            (0xB9A, "SCEN", "FO4SF_S3_Stage50Scene"),
+            (0xB9B, "DIAL", "FO4SF_S3_Stage50GreetTopic"),
+            (0xB9C, "INFO", "FO4SF_S3_Stage50GreetInfo"),
+            (0xB9D, "DIAL", "FO4SF_S3_Stage50_ChoiceTopic_0"),
+            (0xB9E, "INFO", "FO4SF_S3_Stage50_ChoiceInfo_0"),
+            (0xB9F, "DIAL", "FO4SF_S3_Stage50_ReplyTopic_0"),
+            (0xBA0, "INFO", "FO4SF_S3_Stage50_ReplyInfo_0"),
+            (0xBA1, "REFR", "FO4SF_S3_BloatflyMarker_0"),
+            (0xBA2, "REFR", "FO4SF_S3_BloatflyMarker_1"),
+            (0xBA3, "REFR", "FO4SF_S3_BloatflyMarker_2"),
+            (0xBA4, "REFR", "FO4SF_S3_BloatflyMarker_3"),
+            (0xBA5, "REFR", "FO4SF_S3_BloatflyMarker_4"),
+            (0xBA6, "REFR", "FO4SF_S3_BloatflyMarker_5"),
+            (0xBA7, "ACTI", "FO4SF_S4_DisplayLaserMusketActi"),
+            (0xBA8, "REFR", "FO4SF_S4_DisplayLaserMusketRef"),
+            (0xBA9, "ACTI", "FO4SF_S4_FusionCellActi"),
+            (0xBAA, "REFR", "FO4SF_S4_FusionCellRef_0"),
+            (0xBAB, "REFR", "FO4SF_S4_FusionCellRef_1"),
+            (0xBAC, "REFR", "FO4SF_S4_FusionCellRef_2"),
+            (0xBAD, "ACTI", "FO4SF_Item_StimpakActi"),
+            (0xBAE, "REFR", "FO4SF_S5_MuseumStimpakRef_0"),
+            (0xBAF, "REFR", "FO4SF_S5_MuseumStimpakRef_1"),
+            (0xBB0, "ACTI", "FO4SF_Item_CapsActi"),
+            (0xBB1, "REFR", "FO4SF_S5_MuseumCapsRef"),
+            (0xBB2, "ACTI", "FO4SF_Item_BobbyPinActi"),
+            (0xBB3, "REFR", "FO4SF_S5_MuseumBobbyPinRef"),
+            (0xBB4, "ACTI", "FO4SF_S5_MuseumPipeWeaponActi"),
+            (0xBB5, "REFR", "FO4SF_S5_MuseumPipeWeaponRef"),
+            (0xBB6, "ACTI", "FO4SF_S5_LoadDoorInActi"),
+            (0xBB7, "ACTI", "FO4SF_S5_LoadDoorOutActi"),
+            (0xBB8, "REFR", "FO4SF_S5_ExtFrontInRef"),
+            (0xBB9, "REFR", "FO4SF_S5_IntFrontOutRef"),
+            (0xBBA, "REFR", "FO4SF_S5_IntRoofOutRef"),
+            (0xBBB, "REFR", "FO4SF_S5_ExtRoofInRef"),
+            (0xBBC, "ACHR", "FO4SF_S5_MuseumRaider_00018D6B"),
+            (0xBBD, "ACHR", "FO4SF_S5_MuseumRaider_0001D808"),
+            (0xBBE, "ACHR", "FO4SF_S5_MuseumRaider_0001CB6E"),
+            (0xBBF, "ACHR", "FO4SF_S5_MuseumRaider_0001E2E0"),
+            (0xBC0, "ACHR", "FO4SF_S5_MuseumRaider_0001D809"),
+            (0xBC1, "ACHR", "FO4SF_S5_MuseumRaider_0001E2E2"),
+            (0xBC2, "ACHR", "FO4SF_S5_MuseumRaider_0001E2E1"),
+            (0xBC3, "NPC_", "FO4_MamaMurphy"),
+            (0xBC4, "ACHR", "FO4SF_S6_MamaMurphyRef"),
+            (0xBC5, "NPC_", "FO4_MarcyLong"),
+            (0xBC6, "ACHR", "FO4SF_S6_MarcyLongRef"),
+            (0xBC7, "NPC_", "FO4_JunLong"),
+            (0xBC8, "ACHR", "FO4SF_S6_JunLongRef"),
+            (0xBC9, "SCEN", "FO4SF_S6_PrestonRoomScene"),
+            (0xBCA, "DIAL", "FO4SF_S6_PrestonRoomGreetTopic"),
+            (0xBCB, "INFO", "FO4SF_S6_PrestonRoomGreetInfo"),
+            (0xBCC, "DIAL", "FO4SF_S6_PrestonRoom_ChoiceTopic_0"),
+            (0xBCD, "INFO", "FO4SF_S6_PrestonRoom_ChoiceInfo_0"),
+            (0xBCE, "DIAL", "FO4SF_S6_PrestonRoom_ReplyTopic_0"),
+            (0xBCF, "INFO", "FO4SF_S6_PrestonRoom_ReplyInfo_0"),
+            (0xBD0, "SCEN", "FO4SF_S6_SturgesRoomScene"),
+            (0xBD1, "DIAL", "FO4SF_S6_SturgesRoomGreetTopic"),
+            (0xBD2, "INFO", "FO4SF_S6_SturgesRoomGreetInfo"),
+            (0xBD3, "DIAL", "FO4SF_S6_SturgesRoom_ChoiceTopic_0"),
+            (0xBD4, "INFO", "FO4SF_S6_SturgesRoom_ChoiceInfo_0"),
+            (0xBD5, "DIAL", "FO4SF_S6_SturgesRoom_ReplyTopic_0"),
+            (0xBD6, "INFO", "FO4SF_S6_SturgesRoom_ReplyInfo_0"),
+            (0xBD7, "ACTI", "FO4SF_S6_SturgesTalkActi"),
+            (0xBD8, "ACTI", "FO4SF_S6_BasementTermActi"),
+            (0xBD9, "REFR", "FO4SF_S6_BasementTermRef"),
+            (0xBDA, "ACTI", "FO4SF_S6_FusionCoreActi"),
+            (0xBDB, "REFR", "FO4SF_S6_FusionCoreRef"),
+            (0xBDC, "KYWD", "FO4SF_AnimArchetypeFO4"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":
@@ -894,6 +1071,63 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
         records.setdefault(0x821, ("REFR", "FO4SF_Vault111AmmoRef"))
 
     return plugin, records
+
+
+CORE_VALUES_ARSENAL_RECORDS: Dict[int, Tuple[str, str]] = {
+    0x000898: ("AMMO", "FO4_Ammo10mm"),
+    0x000899: ("WEAP", "FO4_10mmPistol"),
+    0x00089A: ("WEAP", "FO4_Baton"),
+    0x00089B: ("AMMO", "FO4_AmmoFusionCell"),
+    0x00089C: ("AMMO", "FO4_CompanionAmmoFusionCell"),
+    0x00089D: ("WEAP", "FO4_LaserMusket"),
+    0x00089E: ("WEAP", "FO4_CompPrestonLaserMusket"),
+    0x00089F: ("AMMO", "FO4_Ammo5mm"),
+    0x0008A0: ("WEAP", "FO4_Minigun"),
+    0x0008A1: ("AMMO", "FO4_Ammo38Caliber"),
+    0x0008A2: ("WEAP", "FO4_PipePistol"),
+    0x0008A3: ("WEAP", "FO4_PipeRifle"),
+    0x0008A4: ("MISC", "FO4_Caps"),
+    0x0008A5: ("MISC", "FO4_BobbyPin"),
+    0x0008B0: ("AMMO", "FO4_Ammo308Caliber"),
+    0x0008B1: ("AMMO", "FO4_Ammo45Caliber"),
+    0x0008B2: ("AMMO", "FO4_AmmoShotgunShell"),
+    0x0008B3: ("AMMO", "FO4_Ammo556"),
+    0x0008B4: ("AMMO", "FO4_AmmoMissile"),
+    0x0008B5: ("AMMO", "FO4_AmmoMiniNuke"),
+    0x0008B6: ("AMMO", "FO4_AmmoFlamerFuel"),
+    0x0008B7: ("AMMO", "FO4_AmmoPlasmaCartridge"),
+    0x0008B8: ("AMMO", "FO4_Ammo2mmEC"),
+    0x0008B9: ("EXPL", "FO4_FragGrenadeExplosion"),
+    0x0008BA: ("EXPL", "FO4_FragMineExplosion"),
+    0x0008BB: ("EXPL", "FO4_MissileExplosion"),
+    0x0008BC: ("EXPL", "FO4_FatManExplosion"),
+    0x0008BD: ("PROJ", "FO4_FragGrenadeProjectile"),
+    0x0008BE: ("PROJ", "FO4_FragMineProjectile"),
+    0x0008BF: ("PROJ", "FO4_MissileProjectile"),
+    0x0008C0: ("PROJ", "FO4_FatManProjectile"),
+    0x0008C1: ("ACTI", "FO4_GooPile01"),
+    0x0008C2: ("MGEF", "FO4_CritPlasmaEffect"),
+    0x0008C3: ("SPEL", "FO4_CritPlasma"),
+    0x0008C4: ("SPEL", "FO4_CritLaser"),
+    0x0008C5: ("WEAP", "FO4_UnarmedHuman"),
+    0x0008C6: ("WEAP", "FO4_FragGrenade"),
+    0x0008C7: ("WEAP", "FO4_FragMine"),
+    0x0008C8: ("WEAP", "FO4_PipeRevolver"),
+    0x0008C9: ("WEAP", "FO4_HuntingRifle"),
+    0x0008CA: ("WEAP", "FO4_CombatShotgun"),
+    0x0008CB: ("WEAP", "FO4_DoubleBarrelShotgun"),
+    0x0008CC: ("WEAP", "FO4_SubmachineGun"),
+    0x0008CD: ("WEAP", "FO4_AssaultRifle"),
+    0x0008CE: ("WEAP", "FO4_LaserPistol"),
+    0x0008CF: ("WEAP", "FO4_LaserRifle"),
+    0x0008D0: ("WEAP", "FO4_BaseballBat"),
+    0x0008D1: ("WEAP", "FO4_MissileLauncher"),
+    0x0008D2: ("WEAP", "FO4_FatMan"),
+    0x0008D3: ("WEAP", "FO4_Flamer"),
+    0x0008D4: ("WEAP", "FO4_PlasmaPistol"),
+    0x0008D5: ("WEAP", "FO4_PlasmaRifle"),
+    0x0008D6: ("WEAP", "FO4_GaussRifle"),
+}
 
 
 def build_writer_catalog(
@@ -909,18 +1143,23 @@ def build_writer_catalog(
     if include_core_values and os.path.isfile(core_values_json):
         cv_plugin, _, cv_records = load_core_values(core_values_json)
         catalog[cv_plugin] = {r.form_id: (r.record_type, r.edid) for r in cv_records}
+        catalog[cv_plugin].update(CORE_VALUES_ARSENAL_RECORDS)
 
     dotnet_dir = os.path.join(repo_root, "dotnet")
     if os.path.isdir(dotnet_dir):
         for entry in sorted(os.listdir(dotnet_dir)):
             if entry == "CoreValues" or entry.endswith("Probe"):
                 continue
-            prog = os.path.join(dotnet_dir, entry, "Program.cs")
+            entry_dir = os.path.join(dotnet_dir, entry)
+            prog = os.path.join(entry_dir, "Program.cs")
             if not os.path.isfile(prog):
                 continue
-            with open(prog, encoding="utf-8") as handle:
-                cs_text = handle.read()
-            plugin, recs = parse_cs_writer_records(cs_text)
+            cs_chunks: List[str] = []
+            for cs_name in sorted(os.listdir(entry_dir)):
+                if cs_name.endswith(".cs") and os.path.isfile(os.path.join(entry_dir, cs_name)):
+                    with open(os.path.join(entry_dir, cs_name), encoding="utf-8") as handle:
+                        cs_chunks.append(handle.read())
+            plugin, recs = parse_cs_writer_records("\n".join(cs_chunks))
             if plugin and recs:
                 catalog.setdefault(plugin, {}).update(recs)
 
@@ -1054,10 +1293,14 @@ def validate_vault_pistol_sync(
                     errors.append("FO4SFNewGame.esm missing compiled VMAD FO4SF_NewGameQuest.VaultPistolBase")
                 else:
                     _alias, tgt_plg, tgt_id = vps[0].object_refs[0]
-                    if (tgt_plg, tgt_id) != ("Starfield.esm", want_pid):
+                    valid_pistol_targets = {
+                        ("Starfield.esm", want_pid),
+                        ("FO4SFCoreValues.esm", 0x000899),
+                    }
+                    if (tgt_plg, tgt_id) not in valid_pistol_targets:
                         errors.append(
                             f"FO4SFNewGame.esm compiled VaultPistolBase={tgt_plg}:0x{tgt_id:06X} "
-                            f"!= route_loot_ids.json Starfield.esm:0x{want_pid:06X}"
+                            f"!= route_loot_ids.json Starfield.esm:0x{want_pid:06X} or FO4SFCoreValues.esm:0x000899"
                         )
 
     return errors
@@ -1208,9 +1451,23 @@ def validate_psc_form_refs(
     return errors
 
 
+VANILLA_STARFIELD_VMAD_SCRIPTS: Dict[str, Dict[str, str]] = {
+    "attachashpile": {
+        "fdelay": "float",
+        "fdelayend": "float",
+        "shaderduration": "float",
+        "ashpileobject": "activator",
+        "magiceffectshader": "effectshader",
+        "bsetalphazero": "bool",
+        "bsetalphatozeroearly": "bool",
+        "oneffectstartoveride": "bool",
+    },
+}
+
+
 def collect_psc_props_by_script(repo_root: str) -> Dict[str, Dict[str, str]]:
     """Scan `scripts/**/*.psc` and return `{script_name_lower: {prop_name_lower: psc_type}}`."""
-    out: Dict[str, Dict[str, str]] = {}
+    out: Dict[str, Dict[str, str]] = {k: dict(v) for k, v in VANILLA_STARFIELD_VMAD_SCRIPTS.items()}
     scripts_root = os.path.join(repo_root, "scripts")
     if not os.path.isdir(scripts_root):
         return out
@@ -1423,6 +1680,8 @@ def validate_staged_esms(
     for rep in reports:
         for vp in rep.vmad_properties:
             sprops = psc_props_by_script.get(vp.script_name.lower())
+            if sprops is None:
+                sprops = VANILLA_STARFIELD_VMAD_SCRIPTS.get(vp.script_name.lower())
             if sprops is None:
                 errors.append(f"{rep.plugin_name} ({vp.record_edid}): VMAD script {vp.script_name} missing in .psc sources")
                 continue

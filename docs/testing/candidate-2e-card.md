@@ -147,7 +147,7 @@ FO4SF_NEWGAME rt=<rt> pod settle ok=true pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<d
 FO4SF_NEWGAME rt=<rt> pipboy activator registered ref=<ref> id=<id> pos=<x> <y> <z>
 FO4SF_NEWGAME rt=<rt> console activator registered ref=<ref> id=<id> pos=<x> <y> <z>
 FO4SF_NEWGAME rt=<rt> console port activator registered ref=<port_ref>
-FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=<equipped>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=<equipped> base=<base>
 FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
 FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<b0> after=<b1>
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console

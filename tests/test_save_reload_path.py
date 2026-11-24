@@ -160,7 +160,8 @@ class SaveReloadPathTests(unittest.TestCase):
             "dialogueMenuOpen, talkBoxOpen, codsworthTalkReloaded, choicesCount, completed, talkProxy, "
             "dialogueSeen, choice1Seen, choice2Seen, choice3Seen, choice4Seen, "
             "applied, pendingStage, pendingStageBy, "
-            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, scenePhase1At, sceneCheckTicks"
+            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, scenePhase1At, sceneCheckTicks, "
+            "s3Stage50AttemptOpened"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(CODSWORTH_PSC), "exec")
 
@@ -191,6 +192,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 scenePhase1Entered=True,
                 scenePhase1At=1.0,
                 sceneCheckTicks=5,
+                s3Stage50AttemptOpened=True,
                 choicesCount=1 if 20 in done_stages else 0,
                 completed=completed,
                 talkProxy=proxy,
@@ -228,6 +230,7 @@ class SaveReloadPathTests(unittest.TestCase):
         if "sceneTalkPending" in psc:
             self.assertFalse(ns["sceneTalkPending"])
             self.assertFalse(ns["sceneMenuOpened"])
+            self.assertFalse(ns["s3Stage50AttemptOpened"])
             self.assertFalse(ns["scenePhase1Entered"])
             self.assertEqual(ns["sceneCheckTicks"], 0)
             self.assertIn(2, cancels)
@@ -266,7 +269,9 @@ class SaveReloadPathTests(unittest.TestCase):
             "codsworthHeld, prestonFails, prestonFollow, applied, min00Given, "
             "prestonUsedFallback, prestonTalkLogged, prestonOff, prestonState, prestonMoves, "
             "codsworthOff, codsworthState, codsworthMoves, "
-            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonPhase1At, prestonSceneChecks"
+            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonPhase1At, prestonSceneChecks, "
+            "s6RoomScenePending, s6RoomSceneMenuOpened, s6RoomSceneRestarting, s6RoomScenePhase1, s6RoomPhase1At, s6RoomAttemptStartedAt, s6RoomSceneTicks, "
+            "s6SturgesScenePending, s6SturgesSceneMenuOpened, s6SturgesSceneRestarting, s6SturgesScenePhase1, s6SturgesPhase1At, s6SturgesAttemptStartedAt, s6SturgesSceneTicks"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(MIN00_PSC), "exec")
 
@@ -288,6 +293,7 @@ class SaveReloadPathTests(unittest.TestCase):
             regs: list[tuple[object, str]] = []
             menu_regs: list[str] = []
             scene_regs: list[int] = []
+            s6_regs: list[int] = []
             alias_calls: list[int] = []
             talkable: list[object] = []
             wfc01_checks: list[bool] = []
@@ -327,6 +333,20 @@ class SaveReloadPathTests(unittest.TestCase):
                 prestonScenePhase1=True,
                 prestonPhase1At=1.0,
                 prestonSceneChecks=4,
+                s6RoomScenePending=True,
+                s6RoomSceneMenuOpened=True,
+                s6RoomSceneRestarting=True,
+                s6RoomScenePhase1=True,
+                s6RoomPhase1At=1.0,
+                s6RoomAttemptStartedAt=1.0,
+                s6RoomSceneTicks=3,
+                s6SturgesScenePending=True,
+                s6SturgesSceneMenuOpened=True,
+                s6SturgesSceneRestarting=True,
+                s6SturgesScenePhase1=True,
+                s6SturgesPhase1At=1.0,
+                s6SturgesAttemptStartedAt=1.0,
+                s6SturgesSceneTicks=3,
                 codsworthFails=8,
                 codsworthKept=False,
                 codsworthHeld=True,
@@ -352,6 +372,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 EnsurePrestonAlias=lambda: alias_calls.append(1),
                 RegisterForMenuOpenCloseEvent=lambda m: menu_regs.append(m),
                 RegisterPrestonSceneEvents=lambda: scene_regs.append(1),
+                RegisterS6RoomEvents=lambda: s6_regs.append(1),
                 RegisterForRemoteEvent=lambda obj, ev: regs.append((obj, str(ev))),
                 InitRaiderTracking=lambda: raider_inits.append(1),
                 CheckConcordRaidersWfc01=lambda p, adv: wfc01_checks.append(adv),

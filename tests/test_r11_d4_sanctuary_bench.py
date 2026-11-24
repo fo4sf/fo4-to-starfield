@@ -125,7 +125,7 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("if !player.IsEquipped(VaultPistolBase)", body)
         self.assertIn("player.EquipItem(VaultPistolBase, False, False)", body)
         self.assertEqual(body.count('Trace("pistol picked '), 1)
-        self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped)', body)
+        self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped', body)
 
         # Execute translated OnItemAdded directly with tests.test_exit_arrival.Reference
         import sys
@@ -143,6 +143,7 @@ class Round11D4AndA21Tests(unittest.TestCase):
             Trace=traces.append,
             pistolPickedLogged=False,
             VaultPistolBase=pistol,
+            VaultPistolId=0,
             GetStage=lambda: 20,
             Game=SimpleNamespace(GetPlayer=lambda: player),
         )

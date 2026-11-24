@@ -161,6 +161,8 @@ static class NewGame
     public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, BackdropSetupMenu = 3, DefaultStartChoiceBackdrop = BackdropEmptyCell;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfCompactActiTemplateId = 0x143492, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010,
                       SfVaultPistolId = 0x24561C, SfVaultAmmoId = 0x2B5598;
+    public static readonly uint ExternalCoreAmmo10mmId = 0x000898, ExternalCore10mmPistolId = 0x000899;
+    public const string CoreFo4Ammo10mmEdid = "FO4_Ammo10mm", CoreFo410mmPistolEdid = "FO4_10mmPistol";
     public const int VaultAmmoCount = 48;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
     public static readonly string[] StartButtons = { "Quick start", "Create character" };
@@ -912,7 +914,8 @@ static class NewGame
                           bool ClearInventory = DefaultClearInventory, string? VaultSuit = null, bool RequirePersistentAnchor = DefaultRequirePersistentAnchor,
                           int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false, bool O2Fill = DefaultO2Fill, string? CoreValuesJson = null,
                           bool FadeHold = DefaultFadeHold, string? WarfareStartsJson = null, string? RouteLootJson = null,
-                          int StartChoiceBackdrop = DefaultStartChoiceBackdrop, string? StartPlacesJson = null)
+                          int StartChoiceBackdrop = DefaultStartChoiceBackdrop, string? StartPlacesJson = null,
+                          int? Fo410mm = null, string? CoreValuesEsmPath = null)
     {
         public bool O2 => ClearInventory && O2Fill;   // a --keep-inventory player keeps Starfield's suit and its capacity
         public static Options From(string[] a)
@@ -939,6 +942,17 @@ static class NewGame
                 throw new Refusal("--start-choice-backdrop needs empty_cell, title_card, setup_menu, or none");
             if (a.Contains("--fade-hold") && a.Contains("--no-fade-hold"))
                 throw new Refusal("--fade-hold and --no-fade-hold contradict each other");
+            int? fo410mm = null;
+            if (a.Contains("--fo4-10mm"))
+            {
+                var raw10 = ArgOrNull(a, "--fo4-10mm");
+                if (raw10 is null || !int.TryParse(raw10, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v10) || (v10 != 0 && v10 != 1))
+                    throw new Refusal("--fo4-10mm needs 0 or 1");
+                fo410mm = v10;
+            }
+            var cvEsm = ArgOrNull(a, "--core-values-esm");
+            if (a.Contains("--core-values-esm") && (cvEsm is null || cvEsm.StartsWith("--")))
+                throw new Refusal("--core-values-esm needs a FO4SFCoreValues.esm path");
             int backdrop = ParseStartChoiceBackdrop(bdRaw);
             bool fadeHold = a.Contains("--fade-hold") ? true : (a.Contains("--no-fade-hold") ? false : DefaultFadeHold);
             return new(
@@ -959,8 +973,35 @@ static class NewGame
                 wfJson,
                 rlJson,
                 backdrop,
-                spJson);
+                spJson,
+                fo410mm,
+                cvEsm);
         }
+    }
+
+    public static bool CoreValuesHas10mm(string coreValuesEsmPath)
+    {
+        using var cvMod = SF.StarfieldMod.CreateFromBinaryOverlay(coreValuesEsmPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
+        return cvMod.Ammunitions.TryGetValue(new FormKey(CoreValuesEsm, ExternalCoreAmmo10mmId), out var a10) &&
+               string.Equals(a10.EditorID, CoreFo4Ammo10mmEdid, StringComparison.Ordinal) &&
+               cvMod.Weapons.TryGetValue(new FormKey(CoreValuesEsm, ExternalCore10mmPistolId), out var w10) &&
+               string.Equals(w10.EditorID, CoreFo410mmPistolEdid, StringComparison.Ordinal);
+    }
+
+    public static bool ResolveUseFo410mm(Options o, string targetDir)
+    {
+        string? candPath = o.CoreValuesEsmPath ?? Path.Combine(targetDir, CoreValuesPlugin);
+        bool exists = !string.IsNullOrEmpty(candPath) && File.Exists(candPath);
+        if (o.CoreValuesEsmPath is not null && !exists)
+            throw new Refusal($"missing --core-values-esm: {o.CoreValuesEsmPath}");
+        if (o.Fo410mm == 0) return false;
+        if (o.Fo410mm == 1)
+        {
+            if (exists && !CoreValuesHas10mm(candPath!))
+                throw new Refusal($"{candPath} lacks {CoreFo4Ammo10mmEdid} (0x{ExternalCoreAmmo10mmId:X}) / {CoreFo410mmPistolEdid} (0x{ExternalCore10mmPistolId:X}) for --fo4-10mm 1");
+            return true;
+        }
+        return exists && CoreValuesHas10mm(candPath!);
     }
 
     // ---------------------------------------------------------------- points (Fallout 4, read only)
@@ -1409,6 +1450,16 @@ static class NewGame
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
+        bool useFo410mm = ResolveUseFo410mm(o, outDir);
+        var vaultPlacedPistolBase = new FormKey(SfEsm, SfVaultPistolId);
+        var vaultPlacedAmmoBase = new FormKey(SfEsm, SfVaultAmmoId);
+        if (useFo410mm)
+        {
+            vaultPistolId = ExternalCore10mmPistolId;
+            vaultPistolKey = new FormKey(CoreValuesEsm, ExternalCore10mmPistolId);
+            vaultPlacedPistolBase = vaultPistolKey;
+            vaultPlacedAmmoBase = new FormKey(CoreValuesEsm, ExternalCoreAmmo10mmId);
+        }
         var modKey = ModKey.FromFileName(o.Plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
         mod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
@@ -1557,15 +1608,16 @@ static class NewGame
         };
         gearConsoleRef.MajorRecordFlagsRaw |= 0x400;
         cellOver.Persistent.Add(gearConsoleRef);
-        // T4 / T1: place Vault 111 pistol + 48 rounds in cellOver so Story pistol pickup works when FO4SFRouteLoot.esm is omitted
-        bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
-                                     sf.Ammunitions.Any(a => a.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
+        // T4 / T1 / R11-3a: place Vault 111 pistol + 48 rounds in cellOver (FO4_10mmPistol + FO4_Ammo10mm when --fo4-10mm 1, else XM2311 + Ammo45Caliber)
+        bool hasVaultPistolAndAmmo = useFo410mm ||
+                                     (sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
+                                      sf.Ammunitions.Any(a => a.FormKey == new FormKey(SfEsm, SfVaultAmmoId)));
         if (hasVaultPistolAndAmmo)
         {
             var pistolRef = new SF.PlacedObject(new FormKey(modKey, VaultPistolRefId), SF.StarfieldRelease.Starfield)
             {
                 EditorID = VaultPistolRefEdid,
-                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfVaultPistolId)),
+                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(vaultPlacedPistolBase),
                 Position = new P3Float(-57.0338f, 30.006f, 1.29f),
                 Rotation = new P3Float(-1.444f, 0.412f, 4.831f),
             };
@@ -1573,7 +1625,7 @@ static class NewGame
             var ammoRef = new SF.PlacedObject(new FormKey(modKey, VaultAmmoRefId), SF.StarfieldRelease.Starfield)
             {
                 EditorID = VaultAmmoRefEdid,
-                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfVaultAmmoId)),
+                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(vaultPlacedAmmoBase),
                 Position = new P3Float(-57.0522f, 30.3703f, 0.696f),
                 Rotation = new P3Float(0.001f, 0.0f, 2.835f),
                 Count = VaultAmmoCount,
@@ -1843,6 +1895,16 @@ static class NewGame
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
+        bool useFo410mm = ResolveUseFo410mm(o, Path.GetDirectoryName(Path.GetFullPath(pluginPath)) ?? ".");
+        var vaultPlacedPistolBase = new FormKey(SfEsm, SfVaultPistolId);
+        var vaultPlacedAmmoBase = new FormKey(SfEsm, SfVaultAmmoId);
+        if (useFo410mm)
+        {
+            vaultPistolId = ExternalCore10mmPistolId;
+            vaultPistolKey = new FormKey(CoreValuesEsm, ExternalCore10mmPistolId);
+            vaultPlacedPistolBase = vaultPistolKey;
+            vaultPlacedAmmoBase = new FormKey(CoreValuesEsm, ExternalCoreAmmo10mmId);
+        }
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm, PortEsm, CoreValuesEsm));
         var key = plug.ModKey;
         var masters = plug.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
@@ -1877,8 +1939,9 @@ static class NewGame
         var wantPbPos = PipboyWorldCenter(rawPbPos, rawPbRot.Z);
         var conCoords = Floats(pts.GetProperty("console").GetProperty("pos"));
         var wantConPos = ConsoleWorldPos(new P3Float(conCoords[0], conCoords[1], conCoords[2]), places.ConsoleRot);
-        bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
-                                     sf.Ammunitions.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
+        bool hasVaultPistolAndAmmo = useFo410mm ||
+                                     (sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
+                                      sf.Ammunitions.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultAmmoId)));
         int wantVaultTempCount = hasVaultPistolAndAmmo ? 2 : 0;
         Need(allPlugCells.Count == 2 &&
              cellOver is not null && cellOver.FormKey == new FormKey(PortEsm, places.PortCellId) && cellOver.EditorID == VaultCell &&
@@ -1901,18 +1964,18 @@ static class NewGame
             var pistolRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultPistolRefId));
             var ammoRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultAmmoRefId));
             Need(pistolRef is { EditorID: VaultPistolRefEdid } && !IsPersistent(pistolRef) &&
-                 pistolRef.Base.FormKey == new FormKey(SfEsm, SfVaultPistolId) &&
+                 pistolRef.Base.FormKey == vaultPlacedPistolBase &&
                  MathF.Abs(pistolRef.Position.X - (-57.0338f)) <= 1e-3f &&
                  MathF.Abs(pistolRef.Position.Y - 30.006f) <= 1e-3f &&
                  MathF.Abs(pistolRef.Position.Z - 1.29f) <= 1e-3f,
-                 $"CELL override lacks temporary {VaultPistolRefEdid} (0x{VaultPistolRefId:X}) -> Starfield.esm:{SfVaultPistolId:X6}");
+                 $"CELL override lacks temporary {VaultPistolRefEdid} (0x{VaultPistolRefId:X}) -> {vaultPlacedPistolBase}");
             Need(ammoRef is { EditorID: VaultAmmoRefEdid } && !IsPersistent(ammoRef) &&
-                 ammoRef.Base.FormKey == new FormKey(SfEsm, SfVaultAmmoId) &&
+                 ammoRef.Base.FormKey == vaultPlacedAmmoBase &&
                  ammoRef.Count == VaultAmmoCount &&
                  MathF.Abs(ammoRef.Position.X - (-57.0522f)) <= 1e-3f &&
                  MathF.Abs(ammoRef.Position.Y - 30.3703f) <= 1e-3f &&
                  MathF.Abs(ammoRef.Position.Z - 0.696f) <= 1e-3f,
-                 $"CELL override lacks temporary {VaultAmmoRefEdid} (0x{VaultAmmoRefId:X}) -> Starfield.esm:{SfVaultAmmoId:X6} count {VaultAmmoCount}");
+                 $"CELL override lacks temporary {VaultAmmoRefEdid} (0x{VaultAmmoRefId:X}) -> {vaultPlacedAmmoBase} count {VaultAmmoCount}");
         }
         Need(startRoomCell is { EditorID: StartRoomCellEdid } && (startRoomCell.Flags & SF.Cell.Flag.IsInteriorCell) != 0 &&
              startRoomCell.Temporary.Count == 0 && startRoomCell.Persistent.Count == 1 &&
@@ -3047,6 +3110,51 @@ static class NewGame
             if (Write(sfAltPistol, portPath, idsPath, corePath, pointsPath, altDir, altOpt) != 0 ||
                 Check(Path.Combine(altDir, Plugin), sfAltPistol, portPath, idsPath, corePath, pointsPath, altOpt) != 0)
             { Console.WriteLine("FAIL  synthetic Starfield.esm without 0x24561C"); return 1; }
+        }
+        // R11-3a (A4.1): --fo4-10mm 1 / auto-detect FO4SFCoreValues.esm (FO4_10mmPistol 0x000899 + FO4_Ammo10mm 0x000898) + --fo4-10mm 0 rollback
+        {
+            if (Options.From(new[] { "--fo4-10mm", "1" }).Fo410mm != 1 || Options.From(new[] { "--fo4-10mm", "0" }).Fo410mm != 0 || plain.Fo410mm is not null)
+            { Console.WriteLine("FAIL  --fo4-10mm option parsing"); return 1; }
+            try { Options.From(new[] { "--fo4-10mm", "2" }); Console.WriteLine("FAIL  options accepted --fo4-10mm 2"); return 1; }
+            catch (Refusal) { }
+
+            var cvWith10mmDir = Path.Combine(outDir, "cv_with_10mm");
+            Directory.CreateDirectory(cvWith10mmDir);
+            var cvMod = new SF.StarfieldMod(CoreValuesEsm, rel);
+            cvMod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+            cvMod.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
+            cvMod.Ammunitions.Add(new SF.Ammunition(new FormKey(CoreValuesEsm, ExternalCoreAmmo10mmId), rel) { EditorID = CoreFo4Ammo10mmEdid, Name = "10mm Round" });
+            cvMod.Weapons.Add(new SF.Weapon(new FormKey(CoreValuesEsm, ExternalCore10mmPistolId), rel) { EditorID = CoreFo410mmPistolEdid, Name = "10mm Pistol" });
+            cvMod.ModHeader.Stats.NextFormID = ExternalCore10mmPistolId + 1;
+            var cvWith10mmPath = Path.Combine(cvWith10mmDir, CoreValuesPlugin);
+            cvMod.BeginWrite.ToPath(cvWith10mmPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).NoModKeySync().Write();
+
+            // Auto-detect default 1 when FO4SFCoreValues.esm in target dir contains FO4_10mmPistol & FO4_Ammo10mm
+            if (Write(sfPath, portPath, idsPath, corePath, pointsPath, cvWith10mmDir, plain) != 0 ||
+                Check(Path.Combine(cvWith10mmDir, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain) != 0 ||
+                Check(Path.Combine(cvWith10mmDir, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain with { Fo410mm = 0 }) == 0)
+            { Console.WriteLine("FAIL  auto-detect --fo4-10mm 1 with FO4SFCoreValues.esm"); return 1; }
+
+            // Explicit --fo4-10mm 0 rollback in same folder binds Starfield.esm:0x24561C + 0x2B5598
+            var rb10mmDir = Path.Combine(outDir, "cv_rollback_10mm0");
+            Directory.CreateDirectory(rb10mmDir);
+            File.Copy(cvWith10mmPath, Path.Combine(rb10mmDir, CoreValuesPlugin));
+            var rbOpt = plain with { Fo410mm = 0 };
+            if (Write(sfPath, portPath, idsPath, corePath, pointsPath, rb10mmDir, rbOpt) != 0 ||
+                Check(Path.Combine(rb10mmDir, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, rbOpt) != 0 ||
+                Check(Path.Combine(rb10mmDir, Plugin), sfPath, portPath, idsPath, corePath, pointsPath, plain) == 0)
+            { Console.WriteLine("FAIL  --fo4-10mm 0 rollback"); return 1; }
+
+            // Refusal when --fo4-10mm 1 is requested against a FO4SFCoreValues.esm lacking FO4_10mmPistol
+            var cvEmptyDir = Path.Combine(outDir, "cv_without_10mm");
+            Directory.CreateDirectory(cvEmptyDir);
+            var cvEmpty = new SF.StarfieldMod(CoreValuesEsm, rel);
+            cvEmpty.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+            cvEmpty.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
+            var cvEmptyPath = Path.Combine(cvEmptyDir, CoreValuesPlugin);
+            cvEmpty.BeginWrite.ToPath(cvEmptyPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).NoModKeySync().Write();
+            try { Write(sfPath, portPath, idsPath, corePath, pointsPath, cvEmptyDir, plain with { Fo410mm = 1 }); Console.WriteLine("FAIL  accepted --fo4-10mm 1 without FO4_10mmPistol in FO4SFCoreValues.esm"); return 1; }
+            catch (Refusal) { }
         }
         // the records reader (Records.cs): its own synthetic plugins, under this scratch dir
         if (NewGameRecords.SelfTest(Path.Combine(dir, "records")) != 0) return 1;

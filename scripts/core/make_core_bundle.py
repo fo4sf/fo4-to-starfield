@@ -136,6 +136,9 @@ DROPPED_MISSION_PEX = frozenset({
     "data/scripts/fo4sf_compreston.pex",
     "data/scripts/fo4sf_codsworth01quest.pex",
     "data/scripts/fo4sf_sanctuary01quest.pex",
+    "data/scripts/fo4sf_vault111roachesquest.pex",
+    "data/scripts/fo4sf_s5s6itempickup.pex",
+    "data/scripts/fo4sf_confirmedloaddoor.pex",
 })
 
 DROPPED_MISSION_DATA_PREFIXES = (
@@ -1100,6 +1103,14 @@ def stage_from_checkout(a) -> Dict[str, str]:
                 ms_args.extend(["--fo4-interface", fo4_iface])
             if os.path.isfile(fo4_voices):
                 ms_args.extend(["--fo4-voices", fo4_voices])
+            if int(getattr(a, "r11_full_mission", 0) or 0):
+                ms_args.extend(["--r11-full-mission", "1"])
+            if getattr(a, "creature_slots", None):
+                ms_args.extend(["--creature-slots", str(a.creature_slots)])
+            if int(getattr(a, "fo4_human_anims", 0) or 0):
+                ms_args.extend(["--fo4-human-anims", "1"])
+            if int(getattr(a, "task1b_vault_recovery", 0) or 0):
+                ms_args.extend(["--task1b-vault-recovery", "1"])
             _run_py(py_main, "scripts/mission/make_mission.py", ms_args)
         stages["mission"] = mission_dir
 
@@ -2252,6 +2263,10 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--combat-sfse-build", default=None)
     b.add_argument("--pipboy-sfse-build", default=None)
     b.add_argument("--mission-stage", default=None)
+    b.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1))
+    b.add_argument("--creature-slots", default=None)
+    b.add_argument("--fo4-human-anims", nargs="?", const=1, default=0, type=int, choices=(0, 1))
+    b.add_argument("--task1b-vault-recovery", nargs="?", const=1, default=0, type=int, choices=(0, 1))
     b.add_argument("--route-loot-stage", default=None)
     b.add_argument("--no-mission", action="store_true")
     b.add_argument("--no-route-loot", action="store_true")

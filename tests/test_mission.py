@@ -347,6 +347,7 @@ class RelocateContractTests(unittest.TestCase):
         with open(PSC, encoding="utf-8") as f:
             code = re.sub(r"\{[^}]*\}", "", f.read())
         code = "\n".join(line.split(";")[0] for line in code.splitlines())
+        code = re.sub(r"\b0[xX][0-9A-Fa-f]+\b", "", code)
         self.assertIsNone(re.search(r"\d[eE][-+]?\d", code))
 
     def test_no_keyword_names(self):
@@ -615,7 +616,8 @@ class RelocateContractTests(unittest.TestCase):
         self.assertEqual(at, sorted(at))
         self.assertIn("Debug.Notification(", place)
         self.assertNotIn("SetRestrained", place)                         # the callers hold (HoldDue)
-        self.assertEqual(len(re.findall(r"\.MoveTo\(", psc)), 3)          # PlaceAt, MoveOver, and WFC-01 rescue
+        self.assertEqual(len(re.findall(r"\.MoveTo\(", psc)), 5)          # PlaceAt, MoveOver, WFC-01 rescue, PlaceRefInMuseum, and PlaceMarkerInCommonwealth
+        self.assertEqual(len(re.findall(r"\.MoveTo\(", function_body(psc, "PlaceRefInMuseum"))), 1)
         due = function_body(psc, "HoldDue")
         self.assertRegex(due, r"if fighting\s+return False\s+endif\s+"
                               r'return s == "placed" \|\| \(s == "at spot" && !held && off <= HeldRadius\)')
@@ -1901,6 +1903,58 @@ class V2MissionTalkTests(unittest.TestCase):
             "TalkRadius": 3.0,
             "TalkFallbackSeconds": 120.0,
             "TalkSceneTimeout": 90.0,
+            "EnableS4Balcony": False,
+            "EnableS6ToS9Full": False,
+            "SturgesRef": None,
+            "S6PrestonRoomScene": None,
+            "S6SturgesRoomScene": None,
+            "S5MuseumDoors": [],
+            "S5MuseumRaiders": [],
+            "S5MuseumLootMarkers": [],
+            "s4BalconyActive": False,
+            "s4BalconySetup": False,
+            "s4PrestonArmed": False,
+            "s4StreetCleared": False,
+            "s4MusketTaken": False,
+            "s4DisplayMusketPicked": False,
+            "s5MuseumInitialized": False,
+            "s5MuseumCleared": False,
+            "s5MuseumRaidersDead": 0,
+            "s6BasementUnlockedPending": False,
+            "s6FullStage": 0,
+            "s6RoomScenePending": False,
+            "s6RoomSceneMenuOpened": False,
+            "s6RoomSceneRestarting": False,
+            "s6RoomScenePhase1": False,
+            "s6RoomPhase1At": 0.0,
+            "s6RoomSceneIsSturges": False,
+            "s6RoomSceneRetries": 0,
+            "s6RoomSceneCheckTicks": 0,
+            "s6RoomSceneTicks": 0,
+            "s6RoomEventsRegistered": False,
+            "s6SturgesScenePending": False,
+            "s6SturgesSceneMenuOpened": False,
+            "s6SturgesSceneRestarting": False,
+            "s6SturgesScenePhase1": False,
+            "s6SturgesPhase1At": 0.0,
+            "s6SturgesSceneRetries": 0,
+            "s6SturgesSceneTicks": 0,
+            "s6FusionCorePicked": False,
+            "SyncS4DisplayPickups": lambda *_: None,
+            "UnlockS6RoomDoors": lambda *_: None,
+            "RestartOrFailS6RoomScene": lambda *_: None,
+            "ResolveCommonwealthHostAnchor": lambda *_: None,
+            "PlaceMarkerInCommonwealth": lambda *_: None,
+            "LookupOptionalForm": lambda *_: None,
+            "TriggerS6RoomScene": lambda *_: None,
+            "HandleS6RoomScenePhase": lambda *_: None,
+            "HandleS6RoomSceneEnded": lambda *_: None,
+            "TryOpenS6BasementGate": lambda *_: False,
+            "SyncS5ExteriorDoors": lambda *_: None,
+            "SyncS4StreetEncounter": lambda *_: None,
+            "ArmPrestonBalconyMusket": lambda *_: None,
+            "UpdateS5MuseumEncounter": lambda *_: None,
+            "RegisterS6RoomEvents": lambda *_: None,
             "IsRunning": lambda: True,
             "Start": lambda: True,
             "IsTestModeEnabled": lambda: True,
@@ -1935,7 +1989,16 @@ class V2MissionTalkTests(unittest.TestCase):
              "prestonScenePending", "prestonSceneMenuOpened", "prestonScenePhase1", "prestonPhase1At",
              "prestonSceneChecks", "prestonSceneRestarts", "ownPrestonSceneStop", "prestonAttemptStartedAt",
              "prestonPostSceneActive",
-             "sanctuaryStartRetries", "talkNearSec", "talkFailures"),
+             "sanctuaryStartRetries", "talkNearSec", "talkFailures",
+             "s4BalconyActive", "s4BalconySetup", "s4PrestonArmed", "s4StreetCleared", "s4MusketTaken",
+             "s4DisplayMusketPicked", "s5MuseumInitialized", "s5MuseumCleared", "s5MuseumRaidersDead",
+             "s6BasementUnlockedPending", "s6FullStage",
+             "s6RoomScenePending", "s6RoomSceneMenuOpened", "s6RoomSceneRestarting",
+             "s6RoomScenePhase1", "s6RoomPhase1At", "s6RoomSceneIsSturges",
+             "s6RoomSceneRetries", "s6RoomSceneCheckTicks", "s6RoomSceneTicks", "s6RoomEventsRegistered",
+             "s6SturgesScenePending", "s6SturgesSceneMenuOpened", "s6SturgesSceneRestarting",
+             "s6SturgesScenePhase1", "s6SturgesPhase1At", "s6SturgesSceneRetries",
+             "s6SturgesSceneTicks", "s6FusionCorePicked"),
         )
         exec(compile(m_code, "FO4SF_Min00Quest.psc", "exec"), m_ns)
         min00_obj = SimpleNamespace(
@@ -2017,6 +2080,29 @@ class V2MissionTalkTests(unittest.TestCase):
             "choice4Seen": False,
             "choicesCount": 0,
             "completed": False,
+            "EnableS3HouseSearch": False,
+            "S3Stage50Scene": None,
+            "S3House1Marker": None,
+            "S3House2Marker": None,
+            "S3House1TravelPack": None,
+            "S3House2TravelPack": None,
+            "S3CreatureSlotReady": None,
+            "S3BloatflyMarkers": [],
+            "s3CreatureSlotEmpty": False,
+            "s3EmptyLogged": False,
+            "s3Stage50SceneStarted": False,
+            "s3Stage50Retries": 0,
+            "s3Stage50MenuOpened": False,
+            "s3Stage50AttemptOpened": False,
+            "s3Stage50Pending": False,
+            "s3Stage50Restarting": False,
+            "s3Stage50Phase1": False,
+            "s3Stage50Phase1At": 0.0,
+            "s3Stage50CheckTicks": 0,
+            "DriveCodsworthToS3Marker": lambda *_: None,
+            "SpawnS3HouseBloatflies": lambda *_: None,
+            "StartS3Stage50Scene": lambda *_: None,
+            "InitS3SpawnedArrays": lambda *_: None,
             "GetStage": lambda: c_cur_stage[0],
             "GetStageDone": lambda s: int(s) in c_stages,
             "SetStage": c_set_stage,
@@ -2046,7 +2132,10 @@ class V2MissionTalkTests(unittest.TestCase):
              "sceneCheckTicks", "sceneRestartCount", "ownSceneStopPending", "sceneAttemptStartedAt",
              "scenePostActive", "talkProxy", "proxyLogged",
              "proxyLastX", "proxyLastY", "proxyLastZ", "applied", "pendingStage", "pendingStageBy",
-             "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen", "choicesCount", "completed"),
+             "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen", "choicesCount", "completed",
+             "s3CreatureSlotEmpty", "s3EmptyLogged", "s3Stage50SceneStarted",
+             "s3Stage50Retries", "s3Stage50MenuOpened", "s3Stage50AttemptOpened", "s3Stage50Pending",
+             "s3Stage50Restarting", "s3Stage50Phase1", "s3Stage50Phase1At", "s3Stage50CheckTicks"),
         )
         exec(compile(c_code, "FO4SF_Codsworth01Quest.psc", "exec"), c_ns)
 
@@ -2332,6 +2421,58 @@ class A1dRealTalkTests(unittest.TestCase):
             "TalkRadius": 3.0,
             "TalkFallbackSeconds": 120.0,
             "TalkSceneTimeout": 120.0,
+            "EnableS4Balcony": False,
+            "EnableS6ToS9Full": False,
+            "SturgesRef": None,
+            "S6PrestonRoomScene": None,
+            "S6SturgesRoomScene": None,
+            "S5MuseumDoors": [],
+            "S5MuseumRaiders": [],
+            "S5MuseumLootMarkers": [],
+            "s4BalconyActive": False,
+            "s4BalconySetup": False,
+            "s4PrestonArmed": False,
+            "s4StreetCleared": False,
+            "s4MusketTaken": False,
+            "s4DisplayMusketPicked": False,
+            "s5MuseumInitialized": False,
+            "s5MuseumCleared": False,
+            "s5MuseumRaidersDead": 0,
+            "s6BasementUnlockedPending": False,
+            "s6FullStage": 0,
+            "s6RoomScenePending": False,
+            "s6RoomSceneMenuOpened": False,
+            "s6RoomSceneRestarting": False,
+            "s6RoomScenePhase1": False,
+            "s6RoomPhase1At": 0.0,
+            "s6RoomSceneIsSturges": False,
+            "s6RoomSceneRetries": 0,
+            "s6RoomSceneCheckTicks": 0,
+            "s6RoomSceneTicks": 0,
+            "s6RoomEventsRegistered": False,
+            "s6SturgesScenePending": False,
+            "s6SturgesSceneMenuOpened": False,
+            "s6SturgesSceneRestarting": False,
+            "s6SturgesScenePhase1": False,
+            "s6SturgesPhase1At": 0.0,
+            "s6SturgesSceneRetries": 0,
+            "s6SturgesSceneTicks": 0,
+            "s6FusionCorePicked": False,
+            "SyncS4DisplayPickups": lambda *_: None,
+            "UnlockS6RoomDoors": lambda *_: None,
+            "RestartOrFailS6RoomScene": lambda *_: None,
+            "ResolveCommonwealthHostAnchor": lambda *_: None,
+            "PlaceMarkerInCommonwealth": lambda *_: None,
+            "LookupOptionalForm": lambda *_: None,
+            "TriggerS6RoomScene": lambda *_: None,
+            "HandleS6RoomScenePhase": lambda *_: None,
+            "HandleS6RoomSceneEnded": lambda *_: None,
+            "TryOpenS6BasementGate": lambda *_: False,
+            "SyncS5ExteriorDoors": lambda *_: None,
+            "SyncS4StreetEncounter": lambda *_: None,
+            "ArmPrestonBalconyMusket": lambda *_: None,
+            "UpdateS5MuseumEncounter": lambda *_: None,
+            "RegisterS6RoomEvents": lambda *_: None,
             "IsRunning": lambda: True,
             "Start": lambda: True,
             "IsCompleted": lambda: m_cur[0] >= 200,
@@ -2379,7 +2520,16 @@ class A1dRealTalkTests(unittest.TestCase):
              "prestonScenePending", "prestonSceneMenuOpened", "prestonScenePhase1", "prestonPhase1At",
              "prestonSceneChecks", "prestonSceneRestarts", "ownPrestonSceneStop", "prestonAttemptStartedAt",
              "prestonPostSceneActive",
-             "sanctuaryStartRetries", "relocateFails", "prestonHeld", "talkNearSec", "talkFailures"),
+             "sanctuaryStartRetries", "relocateFails", "prestonHeld", "talkNearSec", "talkFailures",
+             "s4BalconyActive", "s4BalconySetup", "s4PrestonArmed", "s4StreetCleared", "s4MusketTaken",
+             "s4DisplayMusketPicked", "s5MuseumInitialized", "s5MuseumCleared", "s5MuseumRaidersDead",
+             "s6BasementUnlockedPending", "s6FullStage",
+             "s6RoomScenePending", "s6RoomSceneMenuOpened", "s6RoomSceneRestarting",
+             "s6RoomScenePhase1", "s6RoomPhase1At", "s6RoomSceneIsSturges",
+             "s6RoomSceneRetries", "s6RoomSceneCheckTicks", "s6RoomSceneTicks", "s6RoomEventsRegistered",
+             "s6SturgesScenePending", "s6SturgesSceneMenuOpened", "s6SturgesSceneRestarting",
+             "s6SturgesScenePhase1", "s6SturgesPhase1At", "s6SturgesSceneRetries",
+             "s6SturgesSceneTicks", "s6FusionCorePicked"),
         )
         exec(compile(m_code, "FO4SF_Min00Quest.psc", "exec"), m_ns)
 
@@ -2456,6 +2606,29 @@ class A1dRealTalkTests(unittest.TestCase):
             "choice4Seen": False,
             "choicesCount": 0,
             "completed": False,
+            "EnableS3HouseSearch": False,
+            "S3Stage50Scene": None,
+            "S3House1Marker": None,
+            "S3House2Marker": None,
+            "S3House1TravelPack": None,
+            "S3House2TravelPack": None,
+            "S3CreatureSlotReady": None,
+            "S3BloatflyMarkers": [],
+            "s3CreatureSlotEmpty": False,
+            "s3EmptyLogged": False,
+            "s3Stage50SceneStarted": False,
+            "s3Stage50Retries": 0,
+            "s3Stage50MenuOpened": False,
+            "s3Stage50AttemptOpened": False,
+            "s3Stage50Pending": False,
+            "s3Stage50Restarting": False,
+            "s3Stage50Phase1": False,
+            "s3Stage50Phase1At": 0.0,
+            "s3Stage50CheckTicks": 0,
+            "DriveCodsworthToS3Marker": lambda *_: None,
+            "SpawnS3HouseBloatflies": lambda *_: None,
+            "StartS3Stage50Scene": lambda *_: None,
+            "InitS3SpawnedArrays": lambda *_: None,
             "GetStage": lambda: c_cur[0],
             "GetStageDone": lambda s: int(s) in c_stages,
             "SetStage": c_set_stage,
@@ -2506,7 +2679,10 @@ class A1dRealTalkTests(unittest.TestCase):
              "sceneCheckTicks", "sceneRestartCount", "ownSceneStopPending", "sceneAttemptStartedAt",
              "scenePostActive", "talkProxy", "proxyLogged",
              "proxyLastX", "proxyLastY", "proxyLastZ", "applied", "pendingStage", "pendingStageBy",
-             "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen", "choicesCount", "completed"),
+             "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen", "choicesCount", "completed",
+             "s3CreatureSlotEmpty", "s3EmptyLogged", "s3Stage50SceneStarted",
+             "s3Stage50Retries", "s3Stage50MenuOpened", "s3Stage50AttemptOpened", "s3Stage50Pending",
+             "s3Stage50Restarting", "s3Stage50Phase1", "s3Stage50Phase1At", "s3Stage50CheckTicks"),
         )
         exec(compile(c_code, "FO4SF_Codsworth01Quest.psc", "exec"), c_ns)
 
@@ -3436,6 +3612,73 @@ class Round12Task1aAnd1iTests(unittest.TestCase):
         self.assertTrue(h.m_ns["ownPrestonSceneStop"])
         h.m_ns["OnEnd"](h.preston_scene)
         self.assertFalse(h.m_ns["ownPrestonSceneStop"])
+
+    def test_799_async_own_stop_preserved_across_dialogue_menu_open(self):
+        # 1. Codsworth: Attempt 1 Stop() queues async OnEnd -> Attempt 2 opens DialogueMenu BEFORE Attempt 1 OnEnd arrives
+        h = A1dRealTalkTests()._build_harnesses(glob_val=0.0, cods_scene_starts=True, preston_scene_starts=True)
+        h.c_ns["BindCodsworthActivation"]()
+        async_c_end = []
+
+        def c_async_stop():
+            h.cods_scene.playing = False
+            h.cods_scene.stop_calls += 1
+            async_c_end.append(lambda: h.c_ns["OnEnd"](h.cods_scene))
+
+        h.cods_scene.Stop = c_async_stop
+        h.c_ns["OnActivate"](h.c_ns["talkProxy"], h.player)
+        h.c_ns["OnBegin"](h.cods_scene)
+        h.c_ns["OnPhaseBegin"](h.cods_scene, 1)
+        h.rt[0] += 1.6
+        h.c_ns["CheckCodsworthSceneOpen"]()
+        self.assertEqual(h.c_ns["sceneRestartCount"], 1)
+        self.assertTrue(h.c_ns["ownSceneStopPending"])
+        self.assertTrue(h.cods_scene.playing)
+        # Attempt 2 opens DialogueMenu before stale Attempt 1 OnEnd fires -> ownSceneStopPending MUST stay True!
+        h.c_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertTrue(h.c_ns["sceneMenuOpened"])
+        self.assertTrue(h.c_ns["ownSceneStopPending"])
+        # Now stale Attempt 1 OnEnd fires while Attempt 2 DialogueMenu is open -> consumed without triggering retry/end!
+        while async_c_end:
+            async_c_end.pop(0)()
+        self.assertFalse(h.c_ns["ownSceneStopPending"])
+        self.assertTrue(h.c_ns["sceneMenuOpened"])
+        self.assertEqual(h.c_ns["sceneRestartCount"], 0)
+
+        # 2. Preston primary (st==30) + post (st>=200): Attempt 2 opens DialogueMenu before stale Attempt 1 OnEnd arrives
+        h.m_ns["AdvanceTo"](10, "Trigger")
+        h.m_ns["AdvanceTo"](20, "Trigger")
+        h.m_ns["AdvanceTo"](30, "Trigger")
+        for post_mode, scn in ((False, h.preston_scene), (True, h.preston_post_scene)):
+            async_p_end = []
+            orig_stop = scn.Stop
+
+            def p_async_stop(s=scn, osf=orig_stop, q=async_p_end):
+                osf()
+                q.append(lambda: h.m_ns["OnEnd"](s))
+
+            scn.Stop = p_async_stop
+            if post_mode:
+                h.m_ns["AdvanceTo"](35, "info")
+                h.m_ns["AdvanceTo"](40, "Trigger")
+                h.m_ns["AdvanceTo"](200, "Trigger")
+                h.m_ns["prestonPostSceneActive"] = True
+            h.m_ns["OnActivate"](h.preston, h.player)
+            h.m_ns["OnBegin"](scn)
+            h.m_ns["OnPhaseBegin"](scn, 1)
+            h.rt[0] += 1.6
+            h.m_ns["CheckPrestonSceneOpen"]()
+            self.assertEqual(h.m_ns["prestonSceneRestarts"], 1)
+            self.assertTrue(h.m_ns["ownPrestonSceneStop"])
+            self.assertTrue(scn.playing)
+            h.m_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+            self.assertTrue(h.m_ns["prestonSceneMenuOpened"])
+            self.assertTrue(h.m_ns["ownPrestonSceneStop"])
+            while async_p_end:
+                async_p_end.pop(0)()
+            self.assertFalse(h.m_ns["ownPrestonSceneStop"])
+            self.assertTrue(h.m_ns["prestonSceneMenuOpened"])
+            self.assertEqual(h.m_ns["talkFailures"], 0)
+            h.m_ns["OnMenuOpenCloseEvent"]("DialogueMenu", False)
 
     def test_n2_init_raider_tracking_never_piles_displaced_corpses_and_task1i_world_anchors(self):
         from types import SimpleNamespace

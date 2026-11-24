@@ -134,7 +134,7 @@ FO4SF_NEWGAME rt=<rt> vault_death_recovery=autosave stage=<st> skips=<n>
 FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console
 FO4SF_NEWGAME rt=<rt> catwalk hint shown
-FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True
+FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True base=<base>
 FO4SF_NEWGAME rt=<rt> special set S=<s> P=<p> E=<e> C=<c> I=<i> A=<a> L=<l> readback=<r0> <r6>
 FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=false world=<world>
 FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
@@ -330,7 +330,7 @@ FO4SF_NEWGAME rt=<rt> vault_death_recovery=autosave stage=20 skips=<n>
 FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console
 FO4SF_NEWGAME rt=<rt> catwalk hint shown
-FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True
+FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True base=<base>
 FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=false world=<world>
 FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
 FO4SF_NEWGAME rt=<rt> fade in by=story_landing loaded=true cell=<cell>; saving and HUD on

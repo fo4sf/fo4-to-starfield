@@ -15,6 +15,27 @@ Message Property CodsworthReply0Msg Auto Const
 Message Property CodsworthReply1Msg Auto Const
 Message Property CodsworthReply2Msg Auto Const
 GlobalVariable Property TalkUseMessageBox Auto Const
+bool Property EnableS3HouseSearch = False Auto Const
+Actor[] Property S3House1Bloatflies Auto Const
+Actor[] Property S3House2Bloatflies Auto Const
+Scene Property S3Stage50Scene Auto Const
+ObjectReference Property S3House1Marker Auto Const
+ObjectReference Property S3House2Marker Auto Const
+Package Property S3House1TravelPack Auto Const
+Package Property S3House2TravelPack Auto Const
+GlobalVariable Property S3CreatureSlotReady Auto Const
+ObjectReference[] Property S3BloatflyMarkers Auto Const
+string Property CreaturePlugin = "FO4SF_RA5Creatures.esm" Auto Const
+int Property CreatureBloatflyNpcId = 0x000809 Auto Const
+float Property S3ArrivalRadius = 10.0 Auto Const
+float Property S3House1X = -2313.44 Auto Const
+float Property S3House1Y = -1372.02 Auto Const
+float Property S3House1Z = 112.66 Auto Const
+float Property S3House2X = -2296.17 Auto Const
+float Property S3House2Y = -1424.97 Auto Const
+float Property S3House2Z = 111.77 Auto Const
+int Property S3House1RequiredKills = 3 Auto Const
+int Property S3House2RequiredKills = 3 Auto Const
 
 string LogName = "fo4sf_mission"
 float CodsworthLocalX = -1146.709
@@ -63,6 +84,28 @@ bool choice3Seen = False
 bool choice4Seen = False
 int choicesCount = 0
 bool completed = False
+bool s3House1Started = False
+bool s3House1Cleared = False
+int s3House1Dead = 0
+bool s3House2Started = False
+bool s3House2Cleared = False
+int s3House2Dead = 0
+bool s3ConcordPointed = False
+int s3Stage = 0
+Actor[] s3SpawnedHouse1
+Actor[] s3SpawnedHouse2
+bool s3CreatureSlotEmpty = False
+bool s3EmptyLogged = False
+bool s3Stage50SceneStarted = False
+int s3Stage50Retries = 0
+bool s3Stage50MenuOpened = False
+bool s3Stage50AttemptOpened = False
+bool s3Stage50Pending = False
+bool s3Stage50Restarting = False
+bool s3Stage50Phase1 = False
+float s3Stage50Phase1At = 0.0
+float s3Stage50AttemptStartedAt = 0.0
+int s3Stage50CheckTicks = 0
 
 int Function EffectiveStage()
     int st = GetStage()
@@ -192,6 +235,11 @@ Function RegisterCodsworthSceneEvents()
         RegisterForRemoteEvent(postScn, "OnBegin")
         RegisterForRemoteEvent(postScn, "OnPhaseBegin")
         RegisterForRemoteEvent(postScn, "OnEnd")
+    endif
+    if S3Stage50Scene != None
+        RegisterForRemoteEvent(S3Stage50Scene, "OnBegin")
+        RegisterForRemoteEvent(S3Stage50Scene, "OnPhaseBegin")
+        RegisterForRemoteEvent(S3Stage50Scene, "OnEnd")
     endif
 EndFunction
 
@@ -364,9 +412,19 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     sceneCheckTicks = 0
     sceneRestartCount = 0
     scenePostActive = False
+    s3Stage50Pending = False
+    s3Stage50MenuOpened = False
+    s3Stage50AttemptOpened = False
+    s3Stage50Restarting = False
+    s3Stage50Phase1 = False
+    s3Stage50Phase1At = 0.0
+    s3Stage50AttemptStartedAt = 0.0
+    s3Stage50CheckTicks = 0
+    s3Stage50Retries = 0
     ownSceneStopPending = False
     sceneAttemptStartedAt = 0.0
     CancelTimer(2)
+    CancelTimer(4)
     int st = GetStage()
     if applied > st
         st = applied
@@ -392,6 +450,17 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             dialogueSeen = True
             Scene scn = ResolveCodsworthScene()
             Scene postScn = ResolveCodsworthPostScene()
+            if s3Stage50Pending || (S3Stage50Scene != None && S3Stage50Scene.IsPlaying())
+                s3Stage50MenuOpened = True
+                s3Stage50AttemptOpened = True
+                s3Stage50Pending = False
+                s3Stage50Phase1 = False
+                s3Stage50Phase1At = 0.0
+                s3Stage50Retries = 0
+                s3Stage50AttemptStartedAt = 0.0
+                CancelTimer(4)
+                Trace("codsworth s3_stage50 dialogue menu opened")
+            endif
             bool anyPlaying = (scn != None && scn.IsPlaying()) || (postScn != None && postScn.IsPlaying())
             if sceneTalkPending || anyPlaying
                 sceneMenuOpened = True
@@ -403,9 +472,15 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 CancelTimer(2)
                 Trace("codsworth dialogue menu opened")
             endif
-        elseif sceneMenuOpened
-            sceneMenuOpened = False
-            Trace("codsworth dialogue menu closed stage=" + EffectiveStage())
+        elseif sceneMenuOpened || s3Stage50MenuOpened
+            if s3Stage50MenuOpened
+                s3Stage50MenuOpened = False
+                Trace("codsworth s3_stage50 dialogue menu closed stage=" + EffectiveStage())
+            endif
+            if sceneMenuOpened
+                sceneMenuOpened = False
+                Trace("codsworth dialogue menu closed stage=" + EffectiveStage())
+            endif
             SyncProgress()
         endif
     endif
@@ -583,6 +658,13 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
 EndFunction
 
 Event Scene.OnBegin(Scene akSender)
+    if S3Stage50Scene != None && akSender == S3Stage50Scene
+        s3Stage50Phase1 = False
+        s3Stage50Phase1At = 0.0
+        s3Stage50CheckTicks = 0
+        Trace("codsworth01 s3_stage50 scene started")
+        return
+    endif
     Scene scn = ResolveCodsworthScene()
     Scene postScn = ResolveCodsworthPostScene()
     bool isPrimary = scn != None && akSender == scn
@@ -607,6 +689,18 @@ Event Scene.OnBegin(Scene akSender)
 EndEvent
 
 Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
+    if S3Stage50Scene != None && akSender == S3Stage50Scene
+        Trace("codsworth01 s3_stage50 phase=" + auiPhaseIndex)
+        if auiPhaseIndex >= 1
+            s3Stage50Phase1 = True
+            s3Stage50Phase1At = Utility.GetCurrentRealTime()
+            if s3Stage50Pending && !s3Stage50MenuOpened && !dialogueMenuOpen
+                CancelTimer(4)
+                StartTimer(SceneOpenCheckSeconds, 4)
+            endif
+        endif
+        return
+    endif
     Scene scn = ResolveCodsworthScene()
     Scene postScn = ResolveCodsworthPostScene()
     if (scn != None && akSender == scn) || (postScn != None && akSender == postScn)
@@ -623,6 +717,49 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
 EndEvent
 
 Event Scene.OnEnd(Scene akSender)
+    if S3Stage50Scene != None && akSender == S3Stage50Scene
+        if s3Stage50Restarting
+            s3Stage50Restarting = False
+            return
+        endif
+        if !completed && s3House2Cleared && !s3ConcordPointed
+            if GetStageDone(100) || GetStage() >= 100 || s3Stage50MenuOpened || s3Stage50AttemptOpened || ShouldUseMessageBox()
+                s3Stage50Pending = False
+                s3Stage50MenuOpened = False
+                s3Stage50AttemptOpened = False
+                s3Stage50Phase1 = False
+                s3Stage50Phase1At = 0.0
+                s3Stage50AttemptStartedAt = 0.0
+                CancelTimer(4)
+                CompleteS3AndPointToConcord()
+            elseif s3Stage50Pending && !s3Stage50MenuOpened
+                float nowEnd50 = Utility.GetCurrentRealTime()
+                if s3Stage50AttemptStartedAt > 0.0 && nowEnd50 < s3Stage50AttemptStartedAt
+                    s3Stage50AttemptStartedAt = nowEnd50
+                endif
+                float attElapsed50 = nowEnd50 - s3Stage50AttemptStartedAt
+                if s3Stage50AttemptStartedAt > 0.0 && attElapsed50 < (SceneOpenCheckSeconds - 0.05)
+                    CancelTimer(4)
+                    StartTimer(SceneOpenCheckSeconds - attElapsed50, 4)
+                else
+                    RestartOrCompleteS3Stage50Scene("scene_incomplete")
+                endif
+            else
+                s3Stage50Pending = False
+                s3Stage50AttemptOpened = False
+                s3Stage50Phase1 = False
+                s3Stage50Phase1At = 0.0
+                s3Stage50AttemptStartedAt = 0.0
+            endif
+        else
+            s3Stage50Pending = False
+            s3Stage50AttemptOpened = False
+            s3Stage50Phase1 = False
+            s3Stage50Phase1At = 0.0
+            s3Stage50AttemptStartedAt = 0.0
+        endif
+        return
+    endif
     Scene scn = ResolveCodsworthScene()
     Scene postScn = ResolveCodsworthPostScene()
     bool isPrimary = scn != None && akSender == scn
@@ -742,7 +879,13 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     if akSender != cods && (talkProxy == None || akSender != talkProxy)
         return
     endif
-    if IsWarfareMode() || talkBoxOpen || dialogueMenuOpen || sceneTalkPending
+    if IsWarfareMode() || talkBoxOpen || dialogueMenuOpen || sceneTalkPending || s3Stage50Pending
+        return
+    endif
+    if EnableS3HouseSearch && !completed && !s3ConcordPointed && EffectiveStage() == 50 && S3Stage50Scene != None && !ShouldUseMessageBox()
+        s3Stage50SceneStarted = False
+        s3Stage50Retries = 0
+        StartS3Stage50Scene()
         return
     endif
     if ShouldUseMessageBox()
@@ -810,6 +953,8 @@ Function RunCodsworthTalk()
     Trace("codsworth talk opened stage=" + EffectiveStage())
     int steps = 0
     bool doneLoop = False
+    GlobalVariable r11FullGlob = Game.GetFormFromFile(0x000B8B, "FO4SFMission.esm") as GlobalVariable
+    bool r11S3Gate = r11FullGlob != None && r11FullGlob.GetValue() != 0.0
     while !doneLoop && steps < 16
         steps += 1
         int btn = curMsg.Show()
@@ -828,7 +973,11 @@ Function RunCodsworthTalk()
                 endif
             elseif btn == 1
                 if !completed
-                    AdvanceTo(30, "info")
+                    if r11S3Gate
+                        AdvanceTo(22, "info")
+                    else
+                        AdvanceTo(30, "info")
+                    endif
                     SyncProgress()
                 endif
                 Message r1 = ResolveTalkMsg(1)
@@ -837,7 +986,11 @@ Function RunCodsworthTalk()
                 endif
             elseif btn == 2
                 if !completed
-                    AdvanceTo(40, "info")
+                    if r11S3Gate
+                        AdvanceTo(24, "info")
+                    else
+                        AdvanceTo(40, "info")
+                    endif
                     SyncProgress()
                 endif
                 Message r2 = ResolveTalkMsg(2)
@@ -846,8 +999,14 @@ Function RunCodsworthTalk()
                 endif
             else
                 if btn == 3 && !completed
-                    AdvanceTo(100, "info")
-                    SyncProgress()
+                    if r11S3Gate
+                        AdvanceTo(30, "info")
+                        SyncProgress()
+                        StartTimer(0.1, 1)
+                    else
+                        AdvanceTo(100, "info")
+                        SyncProgress()
+                    endif
                 endif
                 doneLoop = True
             endif
@@ -888,6 +1047,9 @@ Event OnTimer(int aiTimerID)
         EnsureTalkProxy(Game.GetPlayer())
         StartTimer(5.0, 3)
         return
+    elseif aiTimerID == 4
+        CheckS3Stage50SceneOpen()
+        return
     elseif aiTimerID != 1
         return
     endif
@@ -903,6 +1065,9 @@ Event OnTimer(int aiTimerID)
         endif
     endif
     EnsureTalkProxy(Game.GetPlayer())
+    if EnableS3HouseSearch && !completed
+        UpdateS3HouseSearchProgress()
+    endif
     SyncProgress()
     if !completed
         StartTimer(1.0, 1)
@@ -981,4 +1146,488 @@ EndFunction
 
 Function Trace(string msg)
     Debug.TraceUser(LogName, "FO4SF_MISSION rt=" + Utility.GetCurrentRealTime() + " " + msg)
+EndFunction
+
+int Function CountDeadActors(Actor[] actors)
+    if actors == None
+        return 0
+    endif
+    int total = 0
+    int i = 0
+    while i < actors.Length
+        Actor a = actors[i]
+        if a != None && a.IsDead()
+            total += 1
+        endif
+        i += 1
+    endwhile
+    return total
+EndFunction
+
+ObjectReference Function ResolveCommonwealthHostAnchor()
+    ObjectReference mm = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore.esm") as ObjectReference
+    if mm != None
+        return mm
+    endif
+    ObjectReference wb = Game.GetFormFromFile(0x005C50, "FO4TerrainCore.esm") as ObjectReference
+    if wb != None
+        return wb
+    endif
+    Actor p = Game.GetPlayer()
+    if p != None && !p.IsInInterior()
+        return p
+    endif
+    return None
+EndFunction
+
+Function PlaceMarkerInCommonwealth(ObjectReference mk, float tx, float ty, float tz)
+    if mk == None
+        return
+    endif
+    ObjectReference host = ResolveCommonwealthHostAnchor()
+    if host == None
+        return
+    endif
+    float dx = mk.GetPositionX() - tx
+    float dy = mk.GetPositionY() - ty
+    if mk.GetWorldSpace() != host.GetWorldSpace() || dx * dx + dy * dy > 4.0
+        mk.MoveTo(host, tx - host.GetPositionX(), ty - host.GetPositionY(), tz - host.GetPositionZ(), False, False)
+    endif
+    mk.EnableNoWait(False)
+EndFunction
+
+Function DriveCodsworthToS3Marker(ObjectReference marker, float tx, float ty, float tz)
+    if marker != None
+        PlaceMarkerInCommonwealth(marker, tx, ty, tz)
+    endif
+    Actor cods = ResolveCodsworth()
+    if cods == None || marker == None
+        return
+    endif
+    EnsureCodsworthAlias(cods)
+    cods.SetRestrained(False)
+    cods.SetLinkedRef(marker, None, True)
+    cods.EvaluatePackage()
+EndFunction
+
+Function InitS3SpawnedArrays()
+    if s3SpawnedHouse1 == None || s3SpawnedHouse1.Length != 3
+        s3SpawnedHouse1 = new Actor[3]
+    endif
+    if s3SpawnedHouse2 == None || s3SpawnedHouse2.Length != 3
+        s3SpawnedHouse2 = new Actor[3]
+    endif
+EndFunction
+
+Function SpawnS3HouseBloatflies(int houseIndex)
+    InitS3SpawnedArrays()
+    bool hasStaticList = (houseIndex == 1 && S3House1Bloatflies != None && S3House1Bloatflies.Length > 0) || (houseIndex == 2 && S3House2Bloatflies != None && S3House2Bloatflies.Length > 0)
+    if hasStaticList
+        s3CreatureSlotEmpty = False
+        return
+    endif
+    ActorBase flyBase = None
+    if S3CreatureSlotReady != None && S3CreatureSlotReady.GetValue() != 0.0 && CreaturePlugin != "" && CreatureBloatflyNpcId > 0
+        flyBase = Game.GetFormFromFile(CreatureBloatflyNpcId, CreaturePlugin) as ActorBase
+    endif
+    if flyBase == None || S3BloatflyMarkers == None || S3BloatflyMarkers.Length < 6
+        s3CreatureSlotEmpty = True
+        if !s3EmptyLogged
+            s3EmptyLogged = True
+            Trace("codsworth01 s3 creature_slot=empty fallback=arrival_advance")
+        endif
+        return
+    endif
+    s3CreatureSlotEmpty = False
+    float[] fx = new float[6]
+    float[] fy = new float[6]
+    float[] fz = new float[6]
+    fx[0] = -2313.14
+    fy[0] = -1372.39
+    fz[0] = 112.66
+    fx[1] = -2316.80
+    fy[1] = -1377.73
+    fz[1] = 112.66
+    fx[2] = -2323.03
+    fy[2] = -1375.19
+    fz[2] = 112.66
+    fx[3] = -2294.09
+    fy[3] = -1424.36
+    fz[3] = 111.75
+    fx[4] = -2288.62
+    fy[4] = -1432.94
+    fz[4] = 111.75
+    fx[5] = -2286.38
+    fy[5] = -1426.89
+    fz[5] = 111.75
+    int baseOff = 0
+    if houseIndex == 2
+        baseOff = 3
+    endif
+    int i = 0
+    while i < 3
+        int idx = baseOff + i
+        ObjectReference mk = S3BloatflyMarkers[idx]
+        if mk != None
+            PlaceMarkerInCommonwealth(mk, fx[idx], fy[idx], fz[idx])
+            Actor bf = mk.PlaceActorAtMe(flyBase, 0, None, True, False, False)
+            if houseIndex == 1
+                s3SpawnedHouse1[i] = bf
+            else
+                s3SpawnedHouse2[i] = bf
+            endif
+        endif
+        i += 1
+    endwhile
+    Trace("codsworth01 s3 spawned bloatflies house=" + houseIndex + " count=3")
+EndFunction
+
+bool Function IsActorNearS3House(Actor a, float hx, float hy, float hz)
+    if a == None
+        return False
+    endif
+    float dx = a.GetPositionX() - hx
+    float dy = a.GetPositionY() - hy
+    return dx * dx + dy * dy <= S3ArrivalRadius * S3ArrivalRadius
+EndFunction
+
+bool Function IsArrivedAtS3House(int houseIndex)
+    float hx = S3House1X
+    float hy = S3House1Y
+    float hz = S3House1Z
+    if houseIndex == 2
+        hx = S3House2X
+        hy = S3House2Y
+        hz = S3House2Z
+    endif
+    if IsActorNearS3House(Game.GetPlayer(), hx, hy, hz)
+        return True
+    endif
+    if IsActorNearS3House(ResolveCodsworth(), hx, hy, hz)
+        return True
+    endif
+    return False
+EndFunction
+
+bool Function StartS3House1Search()
+{R11 Step 3q (gated behind EnableS3HouseSearch == True; default False preserves 2g-fix):
+ Begins Sanctuary House 1 search (-2313.44, -1372.02, 112.66; PACK 0019E138 -> 0019E136) with 3 Bloatfly slots or
+ creature_slot=empty arrival advance along FO4 stages 20->30->32.}
+    if !EnableS3HouseSearch || completed || s3House1Started
+        return False
+    endif
+    s3House1Started = True
+    if EffectiveStage() < 20
+        SetStage(20)
+        applied = 20
+        s3Stage = 20
+    endif
+    SetStage(30)
+    applied = 30
+    s3Stage = 30
+    SetObjectiveDisplayed(30, True, True)
+    SetObjectiveDisplayed(32, True, True)
+    SetActive(True)
+    DriveCodsworthToS3Marker(S3House1Marker, S3House1X, S3House1Y, S3House1Z)
+    SpawnS3HouseBloatflies(1)
+    Trace("codsworth01 stage 30 house=1")
+    SetStage(32)
+    applied = 32
+    s3Stage = 32
+    return True
+EndFunction
+
+bool Function StartS3House2Search()
+{R11 Step 3q: Advances Sanctuary search to House 2 (-2296.17, -1424.97, 111.77; PACK 0019E144 -> 0019E143)
+ with 3 Bloatfly slots or creature_slot=empty arrival advance (stages 36->38).}
+    if !EnableS3HouseSearch || completed || !s3House1Cleared || s3House2Started
+        return False
+    endif
+    s3House2Started = True
+    SetStage(36)
+    applied = 36
+    s3Stage = 36
+    SetObjectiveDisplayed(34, True, True)
+    SetActive(True)
+    DriveCodsworthToS3Marker(S3House2Marker, S3House2X, S3House2Y, S3House2Z)
+    SpawnS3HouseBloatflies(2)
+    Trace("codsworth01 stage 36 house=2")
+    SetStage(38)
+    applied = 38
+    s3Stage = 38
+    return True
+EndFunction
+
+int Function RecordS3BloatflyKill(int houseIndex)
+{R11 Step 3q: Records one Bloatfly kill in House 1 (3 required) or House 2 (3 required) and advances stages strictly at 3/3.}
+    if !EnableS3HouseSearch || completed
+        return 0
+    endif
+    if houseIndex == 1 && s3House1Started && !s3House1Cleared
+        if s3House1Dead < S3House1RequiredKills
+            s3House1Dead += 1
+        endif
+        UpdateS3HouseSearchProgress()
+        return s3House1Dead
+    elseif houseIndex == 2 && s3House2Started && !s3House2Cleared
+        if s3House2Dead < S3House2RequiredKills
+            s3House2Dead += 1
+        endif
+        UpdateS3HouseSearchProgress()
+        return s3House2Dead
+    endif
+    return 0
+EndFunction
+
+Function StartS3Stage50Scene()
+    if S3Stage50Scene == None || ShouldUseMessageBox()
+        CompleteS3AndPointToConcord()
+        return
+    endif
+    if s3Stage50SceneStarted || s3ConcordPointed || completed
+        return
+    endif
+    s3Stage50SceneStarted = True
+    s3Stage50MenuOpened = False
+    s3Stage50AttemptOpened = False
+    s3Stage50Retries = 0
+    s3Stage50Phase1 = False
+    s3Stage50Phase1At = 0.0
+    s3Stage50AttemptStartedAt = Utility.GetCurrentRealTime()
+    s3Stage50CheckTicks = 0
+    if !S3Stage50Scene.IsPlaying()
+        s3Stage50Restarting = False
+    endif
+    s3Stage50Pending = True
+    Actor cods = ResolveCodsworth()
+    EnsureCodsworthAlias(cods)
+    if cods != None
+        cods.AllowPCDialogue(True)
+        cods.BlockActivation(False, False)
+    endif
+    if !S3Stage50Scene.IsPlaying()
+        S3Stage50Scene.Start()
+        if !S3Stage50Scene.IsPlaying()
+            S3Stage50Scene.ForceStart()
+        endif
+    endif
+    Trace("codsworth01 stage 50 scene started")
+    StartTimer(SceneOpenCheckSeconds, 4)
+EndFunction
+
+Function RestartOrCompleteS3Stage50Scene(string reason)
+    if s3ConcordPointed || completed
+        return
+    endif
+    if S3Stage50Scene == None || ShouldUseMessageBox()
+        s3Stage50Pending = False
+        s3Stage50Phase1 = False
+        s3Stage50Phase1At = 0.0
+        s3Stage50AttemptStartedAt = 0.0
+        CancelTimer(4)
+        CompleteS3AndPointToConcord()
+        return
+    endif
+    Actor cods = ResolveCodsworth()
+    if s3Stage50Retries < MaxSceneRestarts
+        s3Stage50Retries += 1
+        if S3Stage50Scene.IsPlaying()
+            s3Stage50Restarting = True
+            S3Stage50Scene.Stop()
+        endif
+        s3Stage50Pending = True
+        s3Stage50MenuOpened = False
+        s3Stage50AttemptOpened = False
+        s3Stage50Phase1 = False
+        s3Stage50Phase1At = 0.0
+        s3Stage50AttemptStartedAt = Utility.GetCurrentRealTime()
+        s3Stage50CheckTicks = 0
+        EnsureCodsworthAlias(cods)
+        S3Stage50Scene.Start()
+        if !S3Stage50Scene.IsPlaying()
+            S3Stage50Scene.ForceStart()
+        endif
+        Trace("codsworth01 s3_stage50 scene_restart retry=" + s3Stage50Retries + "/" + MaxSceneRestarts + " reason=" + reason)
+        CancelTimer(4)
+        StartTimer(SceneOpenCheckSeconds, 4)
+    else
+        s3Stage50Pending = False
+        s3Stage50Phase1 = False
+        s3Stage50Phase1At = 0.0
+        s3Stage50AttemptStartedAt = 0.0
+        CancelTimer(4)
+        if S3Stage50Scene.IsPlaying()
+            s3Stage50Restarting = True
+            S3Stage50Scene.Stop()
+        else
+            s3Stage50Restarting = False
+        endif
+        if cods != None
+            cods.AllowPCDialogue(True)
+            cods.BlockActivation(False, False)
+        endif
+        Trace("codsworth01 s3_stage50 ERROR scene_failed retries=" + s3Stage50Retries + "/" + MaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
+    endif
+EndFunction
+
+Function CheckS3Stage50SceneOpen()
+    if !s3Stage50Pending || s3ConcordPointed || completed
+        return
+    endif
+    if S3Stage50Scene == None || ShouldUseMessageBox()
+        s3Stage50Pending = False
+        s3Stage50Phase1 = False
+        s3Stage50Phase1At = 0.0
+        s3Stage50AttemptStartedAt = 0.0
+        CompleteS3AndPointToConcord()
+        return
+    endif
+    if s3Stage50MenuOpened || s3Stage50AttemptOpened || dialogueMenuOpen
+        s3Stage50Pending = False
+        s3Stage50Phase1 = False
+        s3Stage50Phase1At = 0.0
+        s3Stage50AttemptStartedAt = 0.0
+        return
+    endif
+    s3Stage50CheckTicks += 1
+    float nowRt = Utility.GetCurrentRealTime()
+    if s3Stage50AttemptStartedAt > 0.0 && nowRt < s3Stage50AttemptStartedAt
+        s3Stage50AttemptStartedAt = nowRt
+    endif
+    float attemptElapsed = SceneOpenCheckSeconds
+    if s3Stage50AttemptStartedAt > 0.0
+        attemptElapsed = nowRt - s3Stage50AttemptStartedAt
+    endif
+    bool phase1Elapsed = False
+    if s3Stage50Phase1
+        if nowRt < s3Stage50Phase1At
+            s3Stage50Phase1At = nowRt
+        elseif (nowRt - s3Stage50Phase1At) >= (SceneOpenCheckSeconds - 0.05)
+            phase1Elapsed = True
+        endif
+    endif
+    if !S3Stage50Scene.IsPlaying()
+        if attemptElapsed < (SceneOpenCheckSeconds - 0.05)
+            StartTimer(SceneOpenCheckSeconds - attemptElapsed, 4)
+        else
+            RestartOrCompleteS3Stage50Scene("scene_inactive")
+        endif
+    elseif (phase1Elapsed || s3Stage50CheckTicks >= SceneMaxWaitChecks) && attemptElapsed >= (SceneOpenCheckSeconds - 0.05)
+        RestartOrCompleteS3Stage50Scene("dialogue_menu_timeout")
+    elseif phase1Elapsed || s3Stage50CheckTicks >= SceneMaxWaitChecks
+        StartTimer(SceneOpenCheckSeconds - attemptElapsed, 4)
+    else
+        StartTimer(SceneOpenCheckSeconds, 4)
+    endif
+EndFunction
+
+Function UpdateS3HouseSearchProgress()
+{R11 Step 3q: Drives exact FO4 S3 stage chain 20 -> 30 -> 32 -> 34 -> 36 -> 38 -> 40 -> 50 -> 100 for 3+3 Bloatflies
+ or advances cleanly on arrival when creature_slot=empty.}
+    if !EnableS3HouseSearch || completed
+        return
+    endif
+    if !s3House1Started
+        if EffectiveStage() >= 30
+            StartS3House1Search()
+        else
+            return
+        endif
+    endif
+    if s3House1Started && !s3House1Cleared
+        if s3CreatureSlotEmpty
+            if IsArrivedAtS3House(1)
+                s3House1Dead = S3House1RequiredKills
+                Trace("codsworth01 s3 creature_slot=empty arrival house=1")
+            endif
+        else
+            int polled1 = CountDeadActors(S3House1Bloatflies)
+            if s3SpawnedHouse1 != None
+                int sp1 = CountDeadActors(s3SpawnedHouse1)
+                if sp1 > polled1
+                    polled1 = sp1
+                endif
+            endif
+            if polled1 > s3House1Dead
+                s3House1Dead = polled1
+            endif
+        endif
+        if s3House1Dead > S3House1RequiredKills
+            s3House1Dead = S3House1RequiredKills
+        endif
+        if s3House1Dead >= S3House1RequiredKills
+            s3House1Cleared = True
+            SetStage(34)
+            applied = 34
+            s3Stage = 34
+            SetObjectiveCompleted(32)
+            Trace("codsworth01 house1_cleared dead=" + s3House1Dead + "/" + S3House1RequiredKills + " stage=34")
+            StartS3House2Search()
+        endif
+    endif
+    if s3House2Started && !s3House2Cleared
+        if s3CreatureSlotEmpty
+            if IsArrivedAtS3House(2)
+                s3House2Dead = S3House2RequiredKills
+                Trace("codsworth01 s3 creature_slot=empty arrival house=2")
+            endif
+        else
+            int polled2 = CountDeadActors(S3House2Bloatflies)
+            if s3SpawnedHouse2 != None
+                int sp2 = CountDeadActors(s3SpawnedHouse2)
+                if sp2 > polled2
+                    polled2 = sp2
+                endif
+            endif
+            if polled2 > s3House2Dead
+                s3House2Dead = polled2
+            endif
+        endif
+        if s3House2Dead > S3House2RequiredKills
+            s3House2Dead = S3House2RequiredKills
+        endif
+        if s3House2Dead >= S3House2RequiredKills
+            s3House2Cleared = True
+            SetStage(40)
+            applied = 40
+            s3Stage = 40
+            SetObjectiveCompleted(34)
+            SetObjectiveCompleted(30)
+            Trace("codsworth01 house2_cleared dead=" + s3House2Dead + "/" + S3House2RequiredKills + " stage=40")
+            SetStage(50)
+            applied = 50
+            s3Stage = 50
+            StartS3Stage50Scene()
+        endif
+    endif
+EndFunction
+
+bool Function CompleteS3AndPointToConcord()
+{R11 Step 3q: Finalizes S3 after House 1 (3/3) and House 2 (3/3) Bloatflies are cleared -> stage 100, points to Concord.}
+    if !EnableS3HouseSearch || !s3House1Cleared || !s3House2Cleared || s3ConcordPointed
+        return False
+    endif
+    s3ConcordPointed = True
+    s3Stage50Pending = False
+    s3Stage50AttemptStartedAt = 0.0
+    CancelTimer(4)
+    completed = True
+    SetStage(100)
+    applied = 100
+    s3Stage = 100
+    SetObjectiveCompleted(10)
+    SetObjectiveDisplayed(55, True, True)
+    SetObjectiveCompleted(55)
+    FO4SF_Min00Quest min00 = Game.GetFormFromFile(0x000800, "FO4SFMission.esm") as FO4SF_Min00Quest
+    string pointedStr = "false"
+    if min00 != None
+        if !min00.IsRunning()
+            min00.StartNoWait()
+        endif
+        min00.GiveFromCodsworth()
+        pointedStr = "true"
+    endif
+    CompleteQuest()
+    Trace("codsworth01 stage 100 concord_pointed=" + pointedStr)
+    return True
 EndFunction

@@ -2595,6 +2595,13 @@ Function EnsureVaultInteractivesRegistered()
     if !itemWatchRegistered && player != None && VaultPistolBase != None
         itemWatchRegistered = true
         AddInventoryEventFilter(VaultPistolBase)
+        if VaultPistolId == 0x000899
+            int ammo10mmId = VaultPistolId - 1
+            Form ammo10mm = Game.GetFormFromFile(ammo10mmId, "FO4SFCoreValues.esm")
+            if ammo10mm != None
+                AddInventoryEventFilter(ammo10mm)
+            endif
+        endif
         Trace("pistol filter added base=" + VaultPistolBase + " id=" + VaultPistolId)
         RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")
     endif
@@ -2632,20 +2639,32 @@ Function EnsureVaultInteractivesRegistered()
 EndFunction
 
 Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
-    if pistolPickedLogged || GetStage() >= 40 || akBaseItem == None || VaultPistolBase == None
+    if GetStage() >= 40 || akBaseItem == None || VaultPistolBase == None
         return
     endif
     if akBaseItem == VaultPistolBase
-        pistolPickedLogged = true
-        Actor player = Game.GetPlayer()
-        bool equipped = False
-        if player != None
-            if !player.IsEquipped(VaultPistolBase)
-                player.EquipItem(VaultPistolBase, False, False)
+        if !pistolPickedLogged
+            pistolPickedLogged = true
+            Actor player = Game.GetPlayer()
+            bool equipped = False
+            if player != None
+                if !player.IsEquipped(VaultPistolBase)
+                    player.EquipItem(VaultPistolBase, False, False)
+                endif
+                equipped = player.IsEquipped(VaultPistolBase)
             endif
-            equipped = player.IsEquipped(VaultPistolBase)
+            string baseName = "XM2311"
+            if VaultPistolId == 0x000899
+                baseName = "FO4_10mmPistol"
+            endif
+            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + " base=" + baseName)
         endif
-        Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped)
+    elseif VaultPistolId == 0x000899
+        int ammo10mmId = VaultPistolId - 1
+        Form ammo10mm = Game.GetFormFromFile(ammo10mmId, "FO4SFCoreValues.esm")
+        if ammo10mm != None && akBaseItem == ammo10mm
+            Trace("pistol ammo picked item=" + akBaseItem + " count=" + aiItemCount + " base=FO4_Ammo10mm")
+        endif
     endif
 EndEvent
 
