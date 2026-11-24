@@ -836,7 +836,9 @@ public static class CoreValuesWriter
                     EFIF = entryTpl?.EFIF,
                     MUID = entryTpl?.MUID,
                 });
-                if (s.Id == Fo4StimpakId)
+                if (s.Id == Fo4StimpakId && opts.Fo410mm != 0 && opts.Fo4P5Weapons != 0 && opts.Fo4Arsenal != 0 &&
+                    sf.Weapons.ContainsKey(DonorWeapXm2311Key) && sf.Ammunitions.ContainsKey(DonorAmmo45Key) &&
+                    HasP5DonorSet(sf) && HasArsenalDonorSet(sf))
                 {
                     item.Model = new Model { File = Fo4StimpakModel, LightLayer = 1 };
                     item.Weight = Fo4StimpakWeight;
@@ -1431,7 +1433,7 @@ public static class CoreValuesWriter
                 var effId = specs.First(x => x.Edid == s.Effect).Id;
                 Need(r != null && r.EditorID == s.Edid && r.Flags.HasFlag(Ingestible.Flag.Medicine) &&
                      r.Effects.Count == 1 && r.Effects[0].BaseEffect.FormKey == new FormKey(pluginKey, effId) &&
-                     (s.Id != Fo4StimpakId || (MathF.Abs(r.Weight - Fo4StimpakWeight) < 1e-4f && r.Value == Fo4StimpakValue &&
+                     (s.Id != Fo4StimpakId || expectArsenal == 0 || (MathF.Abs(r.Weight - Fo4StimpakWeight) < 1e-4f && r.Value == Fo4StimpakValue &&
                       string.Equals(NormModelPath(r.Model?.File?.GivenPath), Fo4StimpakModel, StringComparison.OrdinalIgnoreCase))),
                      $"ALCH 0x{s.Id:X} {s.Edid} mismatch");
             }
