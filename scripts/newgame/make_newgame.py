@@ -255,9 +255,9 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame"],
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame", "OnDying"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu", "ShowFirstPersonGeometry"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu", "ShowFirstPersonGeometry", "RequestAutoSave"],
         "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
         "InputEnableLayer": ["Create", "EnableHandscanner"],
         "Message": ["Show"],
@@ -265,7 +265,7 @@ NATIVES = {
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
                             "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
                             "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
-                            "BlockActivation", "OnActivate", "OnItemAdded"],
+                            "BlockActivation", "OnActivate", "OnItemAdded", "RestoreValue"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
@@ -991,7 +991,8 @@ def summarize(lines):
          "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False,
          "mode_fade_lifted": None, "start_record": None, "entered_start_room": None,
          "h00_suspects": {}, "surface_pre_setposition": None,
-         "story_landing_fade": None, "story_fade_reassert_ticks": [], "warfare_fade_reassert_ticks": []}
+         "story_landing_fade": None, "story_fade_reassert_ticks": [], "warfare_fade_reassert_ticks": [],
+         "vault_death_recovery": []}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any(
@@ -1096,6 +1097,8 @@ def summarize(lines):
             s["map_setup"] = msg[len("map setup done "):]
         elif msg.startswith("pistol picked "):
             s["pistol_picked"] = msg[len("pistol picked "):]
+        elif msg.startswith("vault_death_recovery="):
+            s["vault_death_recovery"].append(msg[len("vault_death_recovery="):])
         elif msg.startswith("ascent "):
             s["ascent"].append(msg[len("ascent "):])
         elif msg.startswith("exit failed reason="):

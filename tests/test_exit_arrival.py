@@ -437,7 +437,8 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         "asked, liftSpecConfirmed, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
         "rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, "
         "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, "
-        "fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks"
+        "fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks, "
+        "vaultSavingRelocked, vaultRecoveryTriggered"
     )
 
     def setUp(self):
@@ -562,6 +563,8 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             discoveryMarkerMoved=False,
             discoveryAttachPending=False,
             landingChecks=0,
+            vaultSavingRelocked=False,
+            vaultRecoveryTriggered=False,
             Game=SimpleNamespace(
                 GetFormFromFile=get_form,
                 GetPlayer=lambda: self.player,
@@ -572,6 +575,9 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             ExitMessage=SimpleNamespace(Show=exit_show),
             ExitFallbackMessage=SimpleNamespace(Show=fallback_show),
             EnsureVaultInteractivesRegistered=lambda: None,
+            EnsureLoadHookRegistered=lambda *_: None,
+            TriggerVaultPodRecoveryAutosave=lambda *_: None,
+            CancelTimer=lambda *_: None,
             ReadH00SuspectsOnce=lambda: None,
             OpenLiftAttributeAllocation=lambda: None,
             OpenLiftCharacterRespec=lambda: None,
@@ -841,7 +847,7 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
 class ReturnLiftB3HopSpikeTests(unittest.TestCase):
     """B3 (candidate-2e in-game fix): FO4SF_MapMarkersHop reload hop must never falsely arm or trigger the Vault 111 return lift."""
 
-    RETURN_FUNCTIONS = ("CheckReturnLift", "Near")
+    RETURN_FUNCTIONS = ("ResolveHostWorld", "CheckReturnLift", "Near")
     RETURN_VARS = (
         "arrivalWorld, leftArrivalPad, returnLiftArmed, returnArmTicks, "
         "returnHasExteriorSample, returnLastExteriorX, returnLastExteriorY, "

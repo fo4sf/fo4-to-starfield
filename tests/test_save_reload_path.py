@@ -45,7 +45,7 @@ class SaveReloadPathTests(unittest.TestCase):
             "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, "
             "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
             "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
-            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
+            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(NEWGAME_PSC), "exec")
 
@@ -81,6 +81,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 returnSurfaceWaitTicks=7 if return_pending else 0,
                 returnSurfaceTries=2 if return_pending else 0,
                 exitFailures=0,
+                vaultRecoveryTriggered=False,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: user_logs.append(n), Notification=lambda *a: None),
                 GetStage=lambda: stage,
                 SetObjectiveDisplayed=lambda *a: None,
@@ -91,6 +92,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 ReleaseStoryLandingFade=lambda: fade_calls.append(1),
                 UnregisterForAnimationEvent=lambda ref, ev: unreg_anims.append((ref, ev)),
                 ReturnPlayerToVaultPlatform=lambda p: returned_to_plat.append(p),
+                EnsureLoadHookRegistered=lambda p: None,
                 StartTimer=lambda sec, tid: timers.append((sec, tid)),
                 Trace=lambda m: logs.append(str(m)),
             )
