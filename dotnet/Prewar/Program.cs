@@ -91,7 +91,7 @@ static class PrewarBuilder
     public const uint SfPlayerFactionId = 0x01C21C;
     public const uint SfXMarkerId = 0x00003B;
     public const uint SfMaleEvenTonedVoiceId = 0x013AD2;
-    public const uint SfFemaleEvenTonedVoiceId = 0x013AD3;
+    public const uint SfFemaleEvenTonedVoiceId = 0x013ADD;
     public const uint SfMiniBotSkinId = 0x3FFD3A;
     public const uint SfExplosionFlashImodId = 0x064C26;
     public const uint SfExplosionNukeImodId = 0x02458E;

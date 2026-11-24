@@ -748,7 +748,7 @@ static class NewGame
         int[] PlaceMarkerIds, float[] PlaceX, float[] PlaceY, float[] PlaceZ, float[] PlaceHeadings,
         bool[] PlaceIsInterior, int[] PlaceQuestMasks, int[] PlaceWarfareRows);
 
-    public static StartPlaceTable LoadStartPlaces(string? jsonPath, JsonElement pts, Places places, WarfareTable wf, string portPath, string corePath)
+    public static StartPlaceTable LoadStartPlaces(string? jsonPath, JsonElement pts, Places places, WarfareTable wf, string portPath, string corePath, string? prewarPath = null)
     {
         var path = jsonPath ?? DefaultStartPlacesJsonPath();
         if (!File.Exists(path)) throw new Refusal($"missing start_places.json: {path}");
@@ -760,6 +760,30 @@ static class NewGame
             foreach (var sub in blk.SubBlocks)
                 foreach (var c in sub.Cells)
                     portRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+
+        var prewarRefs = new List<SF.IPlacedObjectGetter>();
+        ModKey prewarModKey = ModKey.FromFileName("FO4SFPrewar.esm");
+        if (!string.IsNullOrWhiteSpace(prewarPath))
+        {
+            if (!File.Exists(prewarPath)) throw new Refusal($"missing prewar plugin: {prewarPath}");
+            var homeKey = ModKey.FromFileName("FO4SFHome.esm");
+            var sancKey = ModKey.FromFileName("FO4SFPrewar_Sanctuary.esm");
+            using var prewar = SF.StarfieldMod.CreateFromBinaryOverlay(
+                prewarPath,
+                SF.StarfieldRelease.Starfield,
+                Full(SfEsm, homeKey, sancKey, port.ModKey));
+            prewarModKey = prewar.ModKey;
+            foreach (var w in prewar.Worldspaces)
+            {
+                if (w.TopCell is { } wt) prewarRefs.AddRange(wt.Persistent.Concat(wt.Temporary).OfType<SF.IPlacedObjectGetter>());
+                foreach (var b in w.SubCells) foreach (var s in b.Items) foreach (var c in s.Items)
+                    prewarRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+            }
+            foreach (var blk in prewar.Cells.Records)
+                foreach (var sub in blk.SubBlocks)
+                    foreach (var c in sub.Cells)
+                        prewarRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+        }
 
         var coreRefs = new List<SF.IPlacedObjectGetter>();
         var coreCellsByGrid = new Dictionary<(int X, int Y), SF.ICellGetter>();
@@ -822,7 +846,9 @@ static class NewGame
             string plg = el.GetProperty("plugin").GetString()?.Trim() ?? "";
             bool isPort = string.Equals(plg, PortPlugin, StringComparison.OrdinalIgnoreCase);
             bool isCore = string.Equals(plg, CorePluginFile, StringComparison.OrdinalIgnoreCase);
-            bool isPrewar = string.Equals(plg, PrewarPlugin, StringComparison.OrdinalIgnoreCase);
+            bool isPrewarName = string.Equals(plg, PrewarPlugin, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(plg, prewarModKey.FileName, StringComparison.OrdinalIgnoreCase);
+            bool isPrewar = !string.IsNullOrWhiteSpace(prewarPath) && isPrewarName;
 
             string storyId = el.TryGetProperty("story_id", out var sidEl) ? (sidEl.GetString()?.Trim() ?? "none") : "none";
             string storyLabel = el.TryGetProperty("story_label", out var slEl) ? (slEl.GetString()?.Trim() ?? "") : "";
@@ -842,12 +868,13 @@ static class NewGame
                 throw new Refusal($"start place '{pid}': fo4_vault111 requires plugin '{PortPlugin}' (got '{plg}')");
             if (string.Equals(pid, "fo4_prewar_sanctuary", StringComparison.Ordinal))
             {
-                if (!isPrewar)
+                if (!isPrewarName)
                     throw new Refusal($"start place '{pid}': fo4_prewar_sanctuary requires plugin '{PrewarPlugin}' (got '{plg}')");
-                // #860 builds FO4SFNewGame.esm without FO4SFPrewar.esm; skip Pre-War Sanctuary cleanly when no prewar plugin is supplied.
-                continue;
+                if (string.IsNullOrWhiteSpace(prewarPath))
+                    // #860 builds FO4SFNewGame.esm without FO4SFPrewar.esm; skip Pre-War Sanctuary cleanly when no prewar plugin is supplied.
+                    continue;
             }
-            if (!isPort && !isCore)
+            if (!isPort && !isCore && !isPrewar)
                 throw new Refusal($"start place '{pid}': marked available=true on unloaded plugin '{plg}'");
             bool isInterior = el.TryGetProperty("is_interior", out var intEl) && intEl.GetBoolean();
             int questMask = el.TryGetProperty("quest_mask", out var qmEl) ? qmEl.GetInt32() : 0;
@@ -872,8 +899,8 @@ static class NewGame
             {
                 if (resolveEdid.Length == 0)
                     throw new Refusal($"start place '{pid}': missing marker_source or marker_edid");
-                var pool = isPort ? portRefs : coreRefs;
-                var ownerKey = isPort ? port.ModKey : core.ModKey;
+                var pool = isPort ? portRefs : (isPrewar ? prewarRefs : coreRefs);
+                var ownerKey = isPort ? port.ModKey : (isPrewar ? prewarModKey : core.ModKey);
                 var hits = pool.Where(r => string.Equals(r.EditorID, resolveEdid, StringComparison.Ordinal)).ToList();
                 if (hits.Count != 1)
                     throw new Refusal($"start place '{pid}': marked available=true but marker_edid '{resolveEdid}' is absent in {plg}");
@@ -926,7 +953,7 @@ static class NewGame
             placeIds.Add(pid);
             placeModes.Add(modeCode);
             placeStories.Add(storyId);
-            placePlugins.Add(isPort ? PortPlugin : CorePluginFile);
+            placePlugins.Add(isPort ? PortPlugin : (isPrewar ? prewarModKey.FileName : CorePluginFile));
             placeMarkerIds.Add(resolvedMarkerId);
             placeX.Add(rx);
             placeY.Add(ry);
@@ -998,7 +1025,7 @@ static class NewGame
                           int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false, bool O2Fill = DefaultO2Fill, string? CoreValuesJson = null,
                           bool FadeHold = DefaultFadeHold, string? WarfareStartsJson = null, string? RouteLootJson = null,
                           int StartChoiceBackdrop = DefaultStartChoiceBackdrop, string? StartPlacesJson = null,
-                          int? Fo410mm = null, string? CoreValuesEsmPath = null)
+                          int? Fo410mm = null, string? CoreValuesEsmPath = null, string? PrewarEsmPath = null)
     {
         public bool O2 => ClearInventory && O2Fill;   // a --keep-inventory player keeps Starfield's suit and its capacity
         public static Options From(string[] a)
@@ -1020,6 +1047,9 @@ static class NewGame
             var spJson = ArgOrNull(a, "--start-places");
             if (a.Contains("--start-places") && (spJson is null || spJson.StartsWith("--")))
                 throw new Refusal("--start-places needs a JSON path");
+            var prewarEsm = ArgOrNull(a, "--prewar");
+            if (a.Contains("--prewar") && (prewarEsm is null || prewarEsm.StartsWith("--")))
+                throw new Refusal("--prewar needs an ESM path");
             var bdRaw = ArgOrNull(a, "--start-choice-backdrop");
             if (a.Contains("--start-choice-backdrop") && (bdRaw is null || bdRaw.StartsWith("--")))
                 throw new Refusal("--start-choice-backdrop needs empty_cell, title_card, setup_menu, or none");
@@ -1058,7 +1088,8 @@ static class NewGame
                 backdrop,
                 spJson,
                 fo410mm,
-                cvEsm);
+                cvEsm,
+                prewarEsm);
         }
     }
 
@@ -1530,7 +1561,7 @@ static class NewGame
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var coreKnownIdSet = coreIds.Values.ToHashSet();
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath, coreKnownIdSet);
-        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
+        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath, o.PrewarEsmPath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
@@ -1976,7 +2007,7 @@ static class NewGame
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var coreKnownIdSet = coreIds.Values.ToHashSet();
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath, coreKnownIdSet);
-        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
+        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath, o.PrewarEsmPath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);

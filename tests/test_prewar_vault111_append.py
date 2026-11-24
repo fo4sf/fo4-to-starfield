@@ -204,6 +204,38 @@ class PrewarVault111AppendTests(unittest.TestCase):
             self.assertEqual(rep["start_id"], "0x00EFAB")
             self.assertEqual(rep["new_cell_edid"], "FO4Port_PrewarVault111S1")
 
+    def test_seen_edids_preseeded_from_base_prevents_edid_collision(self) -> None:
+        base = _synth_slot1_fo4port_esm().replace(b"FO4Port_MuseumPiece01\x00", b"FO4Port_PrewarVault111S1_ShellMarker\x00")
+        base_rewritten = base.replace(b"FO4Port_PrewarShellMarker\x00", b"ShellMarker\x00")
+        # Rebuild exact byte counts safely by constructing records with overlapping prefixed EDID
+        tes4 = _rec(
+            b"TES4",
+            0,
+            [(b"HEDR", struct.pack("<fII", 0.96, 12, 0x00EFAB)), (b"MAST", b"Starfield.esm\x00"), (b"DATA", b"\x00" * 8)],
+            flags=1,
+        )
+        stat_collide = _rec(b"STAT", 0x0100E200, [(b"EDID", b"FO4Port_PrewarVault111S1_ShellMarker\x00")])
+        shell_fid = 0x0100EFAA
+        shell_cell = _rec(b"CELL", shell_fid, [(b"EDID", b"FO4Port_PrewarVault111\x00"), (b"DATA", struct.pack("<H", 1))])
+        pers_ref = _rec(
+            b"REFR",
+            0x0100EFA8,
+            [(b"EDID", b"ShellMarker\x00"), (b"NAME", struct.pack("<I", 0x0100E200)), (b"DATA", struct.pack("<6f", 1.0, 2.0, 3.0, 0.0, 0.0, 0.0))],
+            flags=va.PERSISTENT_FLAG,
+        )
+        cell_children = _grup(struct.pack("<I", shell_fid), 6, _grup(struct.pack("<I", shell_fid), 8, pers_ref))
+        synth_base = (
+            tes4
+            + _grup(b"STAT", 0, stat_collide)
+            + _grup(b"CELL", 0, _grup(struct.pack("<I", 0), 2, _grup(struct.pack("<I", 0), 3, shell_cell + cell_children)))
+        )
+        del base, base_rewritten
+        out_bytes, _rep = va.append_prewar_vault111_lossless(synth_base, start_id=s1_spec.MIN_PREWAR_PORT_START_ID)
+        edids = [va._get_edid(r) for r in va.walk_records(out_bytes) if r.sig != b"TES4" and va._get_edid(r)]  # noqa: SLF001
+        self.assertEqual(len(edids), len(set(edids)), f"Duplicate EDIDs leaked across Slot 1->Slot 2: {edids}")
+        self.assertIn("FO4Port_PrewarVault111S1_ShellMarker", edids)
+        self.assertIn("FO4Port_PrewarVault111S1_ShellMarker_1", edids)
+
 
 if __name__ == "__main__":
     unittest.main()

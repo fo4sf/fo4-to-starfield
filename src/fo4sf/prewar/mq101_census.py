@@ -197,12 +197,91 @@ def build_prewar_voice_plan(
                         "is_player": is_player_line,
                     })
 
+    extractable = [st for st in voice_stems if st["ba2_path"]]
     return {
         "surviving_scenes": scenes_out,
         "voice_stems": voice_stems,
+        "extractable_stems": extractable,
         "scene_count": len(scenes_out),
         "stem_count": len(voice_stems),
+        "extractable_stem_count": len(extractable),
     }
+
+
+def _wav_duration_seconds(wav_path: str) -> float:
+    import wave
+
+    try:
+        with wave.open(wav_path, "rb") as w:
+            rate = w.getframerate() or 44100
+            return round(max(1.0, w.getnframes() / float(rate)), 2)
+    except Exception:
+        return 2.5
+
+
+def build_local_kellogg_voices_payload(
+    fo4_esm_path: str,
+    stem_durations: Dict[str, float],
+    out_voice_dir: str,
+    stem_to_wem: Dict[str, str],
+    *,
+    first_wem: int = 0x00F50001,
+) -> Tuple[List[dict], List[str]]:
+    """Build local-only Kellogg pod scene lines from `Fallout4.esm` (`MQ101KelloggSequence`) and place numbered `.wem`s.
+
+    FO4 dialogue text stays local only (written into scratch JSON passed to `Prewar`, never committed to Git).
+    """
+    scene_infos: List[Tuple[str, int, str]] = []
+    with fo4land.Plugin(fo4_esm_path) as p:
+        buf = p.buf
+        k_grup = None
+        for it in fo4land.iter_items(buf, *p.top_group(b"QUST")):
+            if it[0] == "GRUP" and _u32(it[3]) == s1_spec.MQ101_KELLOGG_QUEST_FID:
+                k_grup = (it[1] + 24, it[2])
+                break
+        if k_grup is not None:
+            def _walk_k(s: int, e: int) -> None:
+                for sub in fo4land.iter_items(buf, s, e):
+                    if sub[0] == "GRUP":
+                        _walk_k(sub[1] + 24, sub[2])
+                    elif sub[0] == b"INFO":
+                        isubs = list(fo4land.iter_subrecords(fo4land.record_data(buf, sub[1])))
+                        nam1 = next((d.rstrip(b"\x00").decode("utf-8", "replace") for sg, d in isubs if sg == b"NAM1"), "")
+                        anmc = next((_u32(d) for sg, d in isubs if sg == b"ANAM" and len(d) == 4), 0)
+                        if nam1:
+                            scene_infos.append((f"{sub[3]:08x}", anmc, nam1))
+            _walk_k(*k_grup)
+
+    os.makedirs(out_voice_dir, exist_ok=True)
+    kellogg_rows: List[dict] = []
+    copied: List[str] = []
+    for idx, (info_hex, _anmc, text) in enumerate(scene_infos[:12]):
+        cand_stem = None
+        speaker = "FO4SF_PrewarKelloggNPC"
+        for prefix, spk in (
+            ("npcmkellogg", "FO4SF_PrewarKelloggNPC"),
+            ("mq101instagentmalevoice", "FO4SF_PrewarInstAgentMNPC"),
+            ("mq101instagentfemalevoice", "FO4SF_PrewarInstAgentFNPC"),
+        ):
+            st = f"{prefix}/{info_hex}_1"
+            if st in stem_to_wem:
+                cand_stem = st
+                speaker = spk
+                break
+        if cand_stem is None:
+            continue
+        wem_id = first_wem + idx
+        wem_hex = f"{wem_id:08x}"
+        voice_sub = "genericfemaleeventoned" if speaker == "FO4SF_PrewarInstAgentFNPC" else "genericmaleeventoned"
+        dst_dir = os.path.join(out_voice_dir, voice_sub)
+        os.makedirs(dst_dir, exist_ok=True)
+        dst_wem = os.path.join(dst_dir, f"{wem_hex}.wem")
+        shutil.copy2(stem_to_wem[cand_stem], dst_wem)
+        copied.append(dst_wem)
+        dur = float(stem_durations.get(cand_stem, 2.5))
+        kellogg_rows.append([speaker, text, f"0x{wem_id:08X}", dur])
+
+    return kellogg_rows, copied
 
 
 def convert_stems_via_wwise(
@@ -213,6 +292,7 @@ def convert_stems_via_wwise(
     scratch_dir: str,
     *,
     conversion: str = "Vorbis Quality High",
+    durations_out: Optional[Dict[str, float]] = None,
 ) -> Dict[str, str]:
     """Local-only `.fuz -> .xwm -> .wav -> .wem` conversion using `make_mission`'s WwiseConsole workflow."""
     if not os.path.isfile(xwmaencode_exe):
@@ -241,6 +321,8 @@ def convert_stems_via_wwise(
         with open(xp, "wb") as f:
             f.write(split_fuz_xwma(arch.read(by_low[key])))
         subprocess.run([xwmaencode_exe, xp, wp], check=True)
+        if durations_out is not None:
+            durations_out[norm] = _wav_duration_seconds(wp)
         flats.append((norm, flat))
 
     proj = os.path.join(scratch_dir, "wwise", "PrewarVoice", "PrewarVoice.wproj")

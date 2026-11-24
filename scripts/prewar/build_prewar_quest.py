@@ -132,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sanctuary-esm", help="Optional FO4SFPrewar_Sanctuary.esm host world")
     ap.add_argument("--port-esm", help="Optional FO4Port.esm with Slot 2 PrewarVault111S1")
     ap.add_argument("--voices-json", help="Optional local Kellogg/NPC voices manifest JSON")
+    ap.add_argument("--vertibird-model", help="Optional override for Pre-War overhead Vertibird NIF path")
+    ap.add_argument("--ext-lift-model", help="Optional override for Vault 111 exterior elevator NIF path")
     ap.add_argument("--compile-scripts", action="store_true", help="Compile S1 Papyrus .psc -> .pex into <out-dir>/Data/Scripts")
     ap.add_argument("--papyrus-compiler", default=DEFAULT_PAPYRUS_COMPILER)
     ap.add_argument("--content-resources", default=DEFAULT_CONTENT_RES)
@@ -140,7 +142,12 @@ def main(argv: list[str] | None = None) -> int:
 
     os.makedirs(args.out_dir, exist_ok=True)
     spec_path = os.path.join(args.out_dir, "prewar_spec.json")
-    spec = build_tile_local_spec(sanctuary_esm=args.sanctuary_esm, port_esm=args.port_esm)
+    spec = build_tile_local_spec(
+        sanctuary_esm=args.sanctuary_esm,
+        port_esm=args.port_esm,
+        vertibird_model=args.vertibird_model,
+        ext_lift_model=args.ext_lift_model,
+    )
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(spec, f, indent=2)
 

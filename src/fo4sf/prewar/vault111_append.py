@@ -479,7 +479,11 @@ def append_prewar_vault111_lossless(
 
     new_pers: List[RawRec] = []
     new_temp: List[RawRec] = []
-    seen_edids: Set[str] = set()
+    # Pre-seed seen_edids with every existing Slot 0 + Slot 1 EDID in base FO4Port.esm so Slot 2 never collides (#732).
+    seen_edids: Set[str] = {
+        ed for ed in (_get_edid(rec) for rec in walk_records(base_esm_bytes)) if ed
+    }
+    seen_edids.add(new_cell_edid)
 
     def _s1_edid(raw_name: str, fallback: str) -> str:
         base_name = raw_name if raw_name else fallback

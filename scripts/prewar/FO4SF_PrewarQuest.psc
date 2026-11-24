@@ -143,9 +143,10 @@ Function HandoffToVault111CryoStage20()
         if ngScript != None && player != None
             Var[] args = new Var[1]
             args[0] = player
-            ngScript.CallFunction("EnterVault", args)
+            ngScript.CallFunction("CompletePrewarHandoffStage20", args)
+        else
+            ng.SetStage(Stage20LooksDone)
         endif
-        ng.SetStage(Stage20LooksDone)
         Trace("s1 stage20 handoff complete -> FO4SF_NewGame stage=" + Stage20LooksDone + " cell=FO4Port_Vault111Cryo")
     else
         Trace("s1 stage20 handoff missing NewGameQuest; standalone prewar complete")
