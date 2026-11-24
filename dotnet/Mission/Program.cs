@@ -243,6 +243,7 @@ static class Mission
     public static readonly (ushort Index, string Text, bool TargetsPreston)[] FullExtraObjectives =
     {
         (60, "Enter the Museum", false),
+        (65, "Clear Concord of Hostiles", false),
         (70, "(Optional) Take the Laser Musket", false),
         (87, "Unlock the Security Gate", false),
         (90, "Get a Fusion Core", false),
@@ -2069,6 +2070,14 @@ static class Mission
             mod, cell, qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey,
             raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey, prestonWeapon.FormKey, prestonAmmo.FormKey);
 
+        if (r11FullMission)
+        {
+            NextStoryMissionsS7S9.PopulateS7S9(
+                mod, cell, quest, sanctuaryQuest, xMarker.FormKey,
+                raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
+                concordSidearm.FormKey, raiderSidearmAmmo.FormKey);
+        }
+
         FalloutActorLooks.ApplyActorLooks(
             mod, m.Sf, m.Raider, FalloutActorLooks.ActorLooksModels.FromDirectoryOrArgs(actorLooksDir));
 
@@ -2085,7 +2094,7 @@ static class Mission
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
         if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
-        if (r11FullMission) maxId = Math.Max(maxId, NextStoryMissionsS2S6.MaxAllocatedId);
+        if (r11FullMission) maxId = Math.Max(maxId, Math.Max(NextStoryMissionsS2S6.MaxAllocatedId, Math.Max(R11FullMissionGlobId + 1, NextStoryMissionsS7S9.MaxAllocatedId)));
         mod.ModHeader.Stats.NextFormID = maxId;
 
         Directory.CreateDirectory(outDir);
@@ -2426,8 +2435,8 @@ static class Mission
         else Need(arma is null && skin is null && (cods is null || cods.Skin.FormKey != new FormKey(key, CodsworthSkinId)),
                   "a build without --codsworth-model carries Codsworth's ARMA or ARMO");
 
-        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID) || NextStoryMissionsA7cd.IsA7cdActorRefId(r.FormKey.ID) || (r11FullMission && NextStoryMissionsS2S6.IsS2S6ActorRefId(r.FormKey.ID))),
-             "an ACHR outside Preston, the raiders, Codsworth, A4, A7, and A7cd actors");
+        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID) || NextStoryMissionsA7cd.IsA7cdActorRefId(r.FormKey.ID) || (r11FullMission && (NextStoryMissionsS2S6.IsS2S6ActorRefId(r.FormKey.ID) || NextStoryMissionsS7S9.IsS8ActorRefId(r.FormKey.ID)))),
+             "an ACHR outside Preston, the raiders, Codsworth, A4, A7, A7cd, S2-S6, and S8 actors");
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(key, FalloutActorLooks.ConcordRaiderNpcId)), "no raider ACHR on FO4_ConcordRaider (0x986)");
         Need(raiders.All(r => r.Position.X < -1500f && r.Position.Y < -1000f),
              "C3: a raider ACHR is still at unmerged coordinates instead of merged Concord coordinates");
@@ -2482,7 +2491,7 @@ static class Mission
                 var wantRaiderAmmoKey = new FormKey(SfEsm, SfRaiderAmmoId);
                 Need(m.Cache.TryResolve<SF.IAmmunitionGetter>(wantRaiderAmmoKey, out var rAmmo) && rAmmo.EditorID == SfRaiderAmmoEdid,
                      $"Starfield.esm lacks {SfRaiderAmmoEdid} ({SfRaiderAmmoId:X6})");
-                int wantAliasCount = (r11FullMission ? 3 : 1) + raiders.Count;
+                int wantAliasCount = (r11FullMission ? (3 + NextStoryMissionsS7S9.S8WaveActorCount) : 1) + raiders.Count;
                 Need(refAliases.Count == wantAliasCount, $"expected {wantAliasCount} reference aliases, got {refAliases.Count}");
                 for (int ri = 0; ri < raiders.Count; ri++)
                 {
@@ -2631,8 +2640,10 @@ static class Mission
                 {
                     Need(!props.ContainsKey("EnableS4Balcony") && !props.ContainsKey("EnableS6ToS9Full") &&
                          !props.ContainsKey("S4BalconyMarker") && !props.ContainsKey("S9MuseumExitMarker") &&
-                         !props.ContainsKey("DiamondCityMapMarker") && !props.ContainsKey("S9PatrolWaypoints"),
-                         "default build (--r11-full-mission 0) must not leak R11 full-mission properties onto FO4SF_Min00");
+                         !props.ContainsKey("DiamondCityMapMarker") && !props.ContainsKey("S9PatrolWaypoints") &&
+                         !plug.Npcs.Any(n => n.FormKey.ID == NextStoryMissionsS7S9.GristleNpcId) &&
+                         !plug.Globals.Any(g => g.FormKey.ID == NextStoryMissionsS7S9.S9HardStopGlobId),
+                         "default build (--r11-full-mission 0) must not leak R11 full-mission properties or S7-S9 records onto FO4SF_Min00");
                 }
                 else
                 {
@@ -2647,6 +2658,7 @@ static class Mission
                     Need(props.TryGetValue("S9PatrolWaypoints", out var wpp) && wpp is SF.IScriptObjectListPropertyGetter wpl &&
                          wpl.Objects.Select(o => o.Object.FormKey).SequenceEqual(wantWps),
                          "R11 full mission lacks ordered S9PatrolWaypoints (0xB82..0xB89) on FO4SF_Min00");
+                    NextStoryMissionsS7S9.CheckS7S9(plug, SfEsm, XMarkerId, Need);
                 }
             }
         }
@@ -2920,7 +2932,7 @@ static class Mission
                  xp.Object.FormKey == new FormKey(SfEsm, XMarkerId),
                  $"{SanctuaryQuestEdid} lacks {SanctuaryScriptName} with XMarkerBase -> Starfield.esm:00003B");
         }
-        NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need);
+        NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need, r11FullMission);
         // A7: Check FO4SF_MQ104 (0xA80, Unlikely Valentine) and FO4SF_MQ105 (0xAB0, Getting a Clue)
         NextStoryMissionsA7.CheckA7Missions(plug, SfEsm, QuestTypeSideId, Need);
         // A7cd: Check Act II FO4SF_MQ106 (0xAD0), FO4SF_MQ203 (0xAF0), FO4SF_MQ204 (0xB10), FO4SF_MQ206 (0xB30)
@@ -3264,6 +3276,19 @@ static class Mission
                 ("S5MuseumRaiderPursuePack 0xBE1 removed", m =>
                 {
                     m.Packages.Remove(new FormKey(m.ModKey, NextStoryMissionsS2S6.S5MuseumRaiderPursuePackId));
+                }),
+                ("FO4_Gristle marked Essential in S8", m =>
+                {
+                    m.Npcs[new FormKey(m.ModKey, NextStoryMissionsS7S9.GristleNpcId)].Flags |= SF.Npc.Flag.Essential;
+                }),
+                ("FO4SF_S9_HardStopAtMin01_1000 flipped 0 in S9", m =>
+                {
+                    m.Globals[new FormKey(m.ModKey, NextStoryMissionsS7S9.S9HardStopGlobId)].Data = 0f;
+                }),
+                ("S7_RoofMinigunRef Persistent flag cleared", m =>
+                {
+                    var rm = m.Worldspaces.First().TopCell!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofMinigunRefId);
+                    rm.MajorRecordFlagsRaw &= ~0x400;
                 }),
             };
             foreach (var (name, edit) in r11FullMutations)

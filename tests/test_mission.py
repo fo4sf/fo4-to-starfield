@@ -1955,6 +1955,7 @@ class V2MissionTalkTests(unittest.TestCase):
             "ArmPrestonBalconyMusket": lambda *_: None,
             "UpdateS5MuseumEncounter": lambda *_: None,
             "RegisterS6RoomEvents": lambda *_: None,
+            "RegisterS7S9Events": lambda *_: None,
             "IsRunning": lambda: True,
             "Start": lambda: True,
             "IsTestModeEnabled": lambda: True,
@@ -2492,6 +2493,8 @@ class A1dRealTalkTests(unittest.TestCase):
             "Debug": SimpleNamespace(OpenUserLog=lambda *_: None),
             "InitRaiderTracking": lambda: None,
             "CheckConcordRaidersWfc01": lambda *_: None,
+            "EnableS6ToS9Full": False,
+            "RegisterS7S9Events": lambda: None,
             "Utility": SimpleNamespace(GetCurrentRealTime=lambda: rt[0]),
             "Game": SimpleNamespace(
                 GetPlayer=lambda: player,

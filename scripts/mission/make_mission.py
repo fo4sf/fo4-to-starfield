@@ -1108,6 +1108,7 @@ def summarize(lines):
          "mq203_stages": [], "mq203_complete": None,
          "mq204_stages": [], "mq204_complete": None,
          "mq206_stages": [], "mq206_complete": None,
+         "s7_events": [], "s8_events": [], "s9_events": [],
          "stand_in_events": [], "blocked_missing_port": []}
     follow_seen = False
     for line in lines:
@@ -1259,6 +1260,12 @@ def summarize(lines):
             s["keeper"], s["preston_off"] = msg, off_of(msg)
         elif low.startswith(("keeper load codsworth ", "keeper status codsworth ")):
             s["codsworth_keeper"], s["codsworth_off"] = msg, off_of(msg)
+        elif low.startswith("s7 "):
+            s["s7_events"].append(msg)
+        elif low.startswith("s8 "):
+            s["s8_events"].append(msg)
+        elif low.startswith("s9 ") or low.startswith("sanctuary01 s9_hard_stop") or low.startswith("sanctuary01 min01_sturges_intro"):
+            s["s9_events"].append(msg)
     return s
 
 
@@ -1293,7 +1300,7 @@ def main(argv=None):
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
     s.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1),
-                   help="enable R11/R12 full S2-S6 story progression + museum interior + 3F scenes (default 0)")
+                   help="enable R11/R12 full S2-S9 story progression + Concord roof/wave/walk-home (default 0 preserves 2g-fix)")
     s.add_argument("--creature-slots", default=None,
                    help="optional creature-slots.json path for S2 Radroaches & S3 Bloatflies (defaults to ready=false empty)")
     s.add_argument("--creatures-esm", default=None,

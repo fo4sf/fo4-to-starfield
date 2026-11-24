@@ -131,6 +131,17 @@ bool Function IsWarfareMode()
     return False
 EndFunction
 
+bool Function HasS9HardStop()
+    GlobalVariable hs = Game.GetFormFromFile(0x000BF5, MissionPlugin) as GlobalVariable
+    return hs != None && hs.GetValue() != 0.0
+EndFunction
+
+Function EngageTarget(Actor akAttacker, Actor akTarget) global
+    if akAttacker != None && akTarget != None && !akAttacker.IsDead()
+        akAttacker.StartCombat(akTarget)
+    endif
+EndFunction
+
 bool Function IsTestModeEnabled()
     GlobalVariable tm = Game.GetFormFromFile(0x000860, "FO4SFCoreValues.esm") as GlobalVariable
     return tm != None && tm.GetValue() != 0.0
@@ -326,7 +337,9 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Function ApplyStage(int n, string by)
-    if n == 50
+    if n == 20
+        Trace("sanctuary01 stage 20 concord_arrival_handoff by=" + by)
+    elseif n == 50
         if IsSturgesDeadOrMissing()
             Trace("sanctuary01 open_mode sturges_unavailable -> stage 1000")
             AdvanceTo(1000, "open_mode")
@@ -347,10 +360,17 @@ Function ApplyStage(int n, string by)
                 Trace("sanctuary01 objective 50 sturges")
             endif
         endif
+    elseif n == 220
+        SetObjectiveCompleted(10)
+        SetObjectiveDisplayed(220, True, True)
+        SetActive(True)
+        BindSturges()
+        Trace("sanctuary01 objective 220 talk_to_sturges")
     elseif n == 1000
         SetObjectiveCompleted(10)
         CleanupMarker()
         SetObjectiveCompleted(50)
+        SetObjectiveCompleted(220)
         SetObjectiveDisplayed(1000, True, True)
         CheckMilestoneProgress(1000)
     elseif n == 1050
@@ -400,7 +420,7 @@ Function ApplyStage(int n, string by)
 EndFunction
 
 Function StartMinRecruit00IfNeeded()
-    if minRecruitHandoffDone || IsWarfareMode()
+    if minRecruitHandoffDone || IsWarfareMode() || HasS9HardStop()
         return
     endif
     Quest firstStep = Game.GetFormFromFile(0x000A20, MissionPlugin) as Quest
@@ -424,7 +444,12 @@ Function StartMinRecruit00IfNeeded()
 EndFunction
 
 Function StartPostOpeningHandoffs()
-{R1/R5: Deliberate one-tracked-opening-mission design choice: in Fallout 4, MQ103 starts when MQ102 ends while Min01 is still running; here MQ103 waits until Sanctuary01 completes, and after that it can also start at the Diamond City gate.}
+{R1/R5: Deliberate one-tracked-opening-mission design choice: in Fallout 4, MQ103 starts when MQ102 ends while Min01 is still running; here MQ103 waits until Sanctuary01 completes, and after that it can also start at the Diamond City gate.
+ S9 hard stop holds MinRecruit00 and MQ103 off at Min01 1000.}
+    if HasS9HardStop()
+        Trace("sanctuary01 s9_hard_stop minrecruit00=0 mq103=0")
+        return
+    endif
     StartMinRecruit00IfNeeded()
     if IsWarfareMode()
         return
@@ -726,7 +751,7 @@ Function CheckSturgesTalkFallback(Actor player, int st)
         sturgesNearSec = 0.0
         return
     endif
-    bool talkStage = (st == 100 || st == 1050 || st == 1250 || st == 1350 || st == 1450)
+    bool talkStage = (st == 100 || st == 220 || st == 1050 || st == 1250 || st == 1350 || st == 1450)
     Actor stActor = ResolveSturges()
     if !talkStage || stActor == None || stActor.IsDead() || stActor.IsDisabled() || !stActor.Is3DLoaded()
         sturgesNearSec = 0.0
@@ -772,6 +797,10 @@ EndFunction
 Function CheckMilestoneProgress(int st)
     if st == 1000
         float bp = UpdatePercent(ResolveGlob(BedCount, 0x000A02), ResolveGlob(BedTotal, 0x000A03), ResolveGlob(BedPercent, 0x000A04), 5.0)
+        if HasS9HardStop()
+            Trace("sanctuary01 stage 1000 held=true hard_stop=true minrecruit00=0 mq103=0 beds_pct=" + bp)
+            return
+        endif
         if bp >= 100.0
             AdvanceTo(1050, "beds")
         endif
@@ -801,7 +830,20 @@ Function RunSturgesTalk()
     int mySession = talkSessionId
     int st = EffectiveStage()
     Trace("sanctuary01 sturges talk opened stage=" + st)
-    if st == 10 || st == 50 || st == 100
+    if st == 220
+        bool introOk = True
+        Message mIntro = Game.GetFormFromFile(0x000BF4, MissionPlugin) as Message
+        if mIntro != None
+            if mIntro.Show() < 0
+                introOk = False
+            endif
+        endif
+        if introOk && mySession == talkSessionId
+            SetObjectiveCompleted(220)
+            Trace("sanctuary01 min01_sturges_intro form=001188B4 -> stage 1000")
+            AdvanceTo(1000, "sturges_intro")
+        endif
+    elseif st == 10 || st == 50 || st == 100
         bool okAdvance = True
         Message mTalk = ResolveMsg(SturgesTalkMsg, 0x000A10)
         if mTalk != None

@@ -675,7 +675,8 @@ static class NextStoryMissionsA4
         SF.IStarfieldModGetter plug,
         ModKey sfEsm,
         uint questTypeSideId,
-        Action<bool, string> need)
+        Action<bool, string> need,
+        bool r11FullMission = false)
     {
         var key = plug.ModKey;
         static bool NonStartGameReady(SF.IQuestGetter q) =>
@@ -691,13 +692,17 @@ static class NextStoryMissionsA4
         {
             need(NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) && sq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
                 "FO4SF_Sanctuary01 flags invalid (must be RunOnce | DisplaysInHud without StartGameEnabled/StartsEnabled/0x10000)");
-            need(sq.Stages.Select(s => s.Index).SequenceEqual(SanctuaryFullStages),
-                "FO4SF_Sanctuary01 stages mismatch SanctuaryFullStages");
+            var wantStages = r11FullMission ? NextStoryMissionsS7S9.SanctuaryS9Stages : SanctuaryFullStages;
+            need(sq.Stages.Select(s => s.Index).SequenceEqual(wantStages),
+                "FO4SF_Sanctuary01 stages mismatch expected stages");
             need(sq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null),
                 "FO4SF_Sanctuary01 has a stage without QSDT QuestLogEntry");
             need(sq.Stages.Last().LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true),
                 "FO4SF_Sanctuary01 stage 1500 lacks CompleteQuest");
-            need(sq.Objectives.Select(o => o.Index).SequenceEqual(SanctuaryObjectives.Select(o => o.Index)) &&
+            var wantObjectives = r11FullMission
+                ? SanctuaryObjectives.Select(o => o.Index).Concat(new ushort[] { 220 })
+                : SanctuaryObjectives.Select(o => o.Index);
+            need(sq.Objectives.Select(o => o.Index).SequenceEqual(wantObjectives) &&
                  sq.Objectives.All(o => o.Flags is not null),
                 "FO4SF_Sanctuary01 objectives mismatch Min01 specification or lack Flags");
             need(sq.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),

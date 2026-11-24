@@ -195,6 +195,7 @@ class _FakeActor:
         self.z = z
         self.dead = dead
         self.interior = interior
+        self.loaded = True
         self.restrained = False
         self.talkable = False
         self.items: dict[str, int] = {}
@@ -236,6 +237,9 @@ class _FakeActor:
 
     def IsInInterior(self) -> bool:
         return self.interior
+
+    def Is3DLoaded(self) -> bool:
+        return self.loaded
 
     def GetWorldSpace(self):
         return "Commonwealth"
@@ -437,6 +441,9 @@ class _FakeQuest:
     def AdvanceTo(self, st: int, by: str = "Trigger") -> None:
         self.advance_calls.append((int(st), str(by)))
         self.SetStage(st)
+        if self.name == "FO4SF_Sanctuary01" and int(st) == 220:
+            self.SetObjectiveDisplayed(220, True, True)
+            self.SetActive(True)
 
 
 def _build_codsworth_harness(
@@ -791,7 +798,7 @@ def _build_min00_harness(
         "s6RoomSceneTicks", "s6SturgesScenePending", "s6SturgesSceneMenuOpened",
         "s6SturgesSceneRestarting", "s6SturgesScenePhase1", "s6SturgesPhase1At",
         "s6SturgesAttemptStartedAt", "s6SturgesSceneRetries", "s6SturgesSceneTicks", "s6FullStage",
-        "s9LobbyCompleted", "s9DiamondCityRevealed", "s9DiamondCityMerged", "s9PatrolStarted",
+        "s9LobbyPositioned", "s9LobbyCompleted", "s9DiamondCityRevealed", "s9DiamondCityMerged", "s9PatrolStarted",
         "s9PatrolRelease", "s9PatrolStartedAt", "s9PatrolElapsed", "s9GroupArrived", "s9ArrivalVia",
     }
     ns = {
@@ -854,6 +861,13 @@ def _build_min00_harness(
         "S9SanctuaryPlayerRadius": 120.0,
         "S9SanctuaryGroupFarDist": 150.0,
         "S9SanctuaryArrivalRadius": 35.0,
+        "S9NeverTeleportViewDist": 65.0,
+        "S9LobbyPrestonX": -10.26,
+        "S9LobbyPrestonY": 3.60,
+        "S9LobbyPrestonZ": 0.07,
+        "S9LobbyMurphyX": -8.63,
+        "S9LobbyMurphyY": 2.62,
+        "S9LobbyMurphyZ": 0.04,
         "HoldRadius": 25.0,
         "HeldRadius": 3.0,
         "RelocateGap": 1500.0,
@@ -916,6 +930,7 @@ def _build_min00_harness(
         "s6SturgesSceneRetries": 0,
         "s6SturgesSceneTicks": 0,
         "s6FullStage": 0,
+        "s9LobbyPositioned": False,
         "s9LobbyCompleted": False,
         "s9DiamondCityRevealed": False,
         "s9DiamondCityMerged": False,
@@ -995,10 +1010,12 @@ def _build_min00_harness(
             "AdvanceS6FusionCorePicked",
             "ResolveDiamondCityMapMarker",
             "RevealDiamondCityMapMarker",
+            "EnterS9MuseumLobby",
             "CompleteS9LobbyTalkAndReward",
             "PrepareAndChainS9PatrolWaypoints",
             "BeginS9MuseumExitAndPatrol",
             "ResumeS9PatrolAfterLoad",
+            "CanFailsafeTeleportGroup",
             "CheckS9SanctuaryArrival",
             "OnMenuOpenCloseEvent",
             "Scene.OnPhaseBegin",
@@ -1240,20 +1257,22 @@ class TestR11S6AndS9FullWiring(unittest.TestCase):
         self.assertIn("s6 stage 50 fusion_core picked obj=95 stop=put_fusion_core_in_pa", mh.logs)
         self.assertIn(95, mh.obj_disp)
 
-        # S9 lobby talk: 100 Caps + 50 Fusion Cells, 0 Starfield Credits, real 0xB8A MapMarker enabled + AddToMap, MQ103/MinRecruit00 @ 0
+        # S9 lobby talk: 100 Caps + 50 Fusion Cells, 0 Starfield Credits, real 0xB8A MapMarker enabled + AddToMap,
+        # DialogueConcordArea 50 > Min01 20 > Min00 100, MQ103/MinRecruit00 @ 0
         self.assertTrue(mh.ns["CompleteS9LobbyTalkAndReward"](mh.player))
         self.assertEqual(mh.player.items.get("FO4_Bottlecap"), 100)
         self.assertEqual(mh.player.items.get("FO4_AmmoFusionCell"), 50)
         self.assertNotIn("Starfield_Credits", mh.player.items)
         self.assertTrue(mh.dc_marker.enabled)
         self.assertEqual(mh.dc_marker.added_to_map, [False])
-        self.assertIn(90, mh.stages)
+        self.assertIn(100, mh.stages)
         self.assertIn(150, mh.stages)
+        self.assertEqual(mh.sanctuary.stage, 20)
         self.assertEqual(mh.mq103.stage, 0)
         self.assertFalse(mh.mq103.running)
         self.assertEqual(mh.minrecruit00.stage, 0)
         self.assertFalse(mh.minrecruit00.running)
-        self.assertIn("s9 stage 90 reward caps=100 fusion_cells=50 credits=0 caps_form_ok=true cells_form_ok=true", mh.logs)
+        self.assertIn("s9 sequence dialogue_concord_area=50 min01_stage=20 min00_stage=100 credits=0", mh.logs)
         self.assertIn("s9 stage 150 diamond_city addtomap=true mq103_stage=0 minrecruit00_stage=0", mh.logs)
 
         # S9 museum exit + P9 SetLinkedRef chain + keeper/mission PlacePreston release (P1 #1)
@@ -1280,17 +1299,17 @@ class TestR11S6AndS9FullWiring(unittest.TestCase):
         for m in mh.group:
             self.assertIs(m.linked_ref, mh.waypoints[0])
 
-        # Normal P9 patrol walk arrival in Sanctuary + Sturges OnSturgesArrivedFromConcord (P1 #3)
+        # Normal P9 patrol walk arrival in Sanctuary + Sturges OnSturgesArrivedFromConcord -> Min01 220 (hard stop at 1000)
         mh.preston.SetPosition(-2356.32, -1470.44, 109.14)
         self.assertTrue(mh.ns["CheckS9SanctuaryArrival"](mh.player, 1.0))
         self.assertIn("min01 group_arrived sanctuary=true via=p9_patrol_walk", mh.logs)
-        self.assertIn("sanctuary01 stage 1000 obj=1000 hard_stop=true", mh.logs)
+        self.assertIn("sanctuary01 stage 220 obj=220 sturges_intro_pending=true hard_stop_at=1000", mh.logs)
         self.assertTrue(mh.state["completed"])
         self.assertTrue(mh.sanctuary.running)
         self.assertEqual(mh.sanctuary.sturges_arrived, 1)
-        self.assertEqual(mh.sanctuary.advance_calls, [(1000, "s9_arrival")])
-        self.assertEqual(mh.sanctuary.stage, 1000)
-        self.assertIn(1000, mh.sanctuary.objectives_displayed)
+        self.assertEqual(mh.sanctuary.advance_calls, [(220, "s9_arrival")])
+        self.assertEqual(mh.sanctuary.stage, 220)
+        self.assertIn(220, mh.sanctuary.objectives_displayed)
         self.assertEqual(mh.mq103.stage, 0)
         self.assertEqual(mh.minrecruit00.stage, 0)
 
@@ -1327,17 +1346,22 @@ class TestR11S6AndS9FullWiring(unittest.TestCase):
         self.assertIn("min01 patrol resumed_after_load", mh.logs)
 
     def test_s9_unloaded_failsafe_elapsed_180s_and_player_ahead_150m(self):
-        # Branch 1: elapsed >= 180 s while Preston still on road
+        # Branch 1: elapsed >= 180 s while Preston still on road: NEVER teleport while Preston is visible to player
         mh1 = _build_min00_harness(enable_s4=True, enable_s6_s9=True)
         self.assertTrue(mh1.ns["CompleteS9LobbyTalkAndReward"](mh1.player))
         self.assertTrue(mh1.ns["BeginS9MuseumExitAndPatrol"](mh1.player))
         self.assertFalse(mh1.ns["CheckS9SanctuaryArrival"](mh1.player, 179.0))
         self.assertFalse(mh1.ns["s9GroupArrived"])
+        # Player standing next to Preston at t >= 180 s: defers teleport in view!
+        self.assertFalse(mh1.ns["CheckS9SanctuaryArrival"](mh1.player, 1.0))
+        self.assertFalse(mh1.ns["s9GroupArrived"])
+        # Once player moves out of view (> 65 m) or Preston unloads, failsafe teleports cleanly
+        mh1.player.SetPosition(-2120.0, -1620.0, 90.0)
         self.assertTrue(mh1.ns["CheckS9SanctuaryArrival"](mh1.player, 1.0))
         self.assertIn("min01 group_arrived sanctuary=true via=unloaded_failsafe", mh1.logs)
         self.assertAlmostEqual(mh1.preston.x, -2356.32, places=2)
-        self.assertEqual(mh1.sanctuary.stage, 1000)
-        self.assertIn(1000, mh1.sanctuary.objectives_displayed)
+        self.assertEqual(mh1.sanctuary.stage, 220)
+        self.assertIn(220, mh1.sanctuary.objectives_displayed)
 
         # Branch 2: player already in Sanctuary > 150 m ahead of group at t = 10 s
         mh2 = _build_min00_harness(enable_s4=True, enable_s6_s9=True)
@@ -1347,7 +1371,7 @@ class TestR11S6AndS9FullWiring(unittest.TestCase):
         self.assertTrue(mh2.ns["CheckS9SanctuaryArrival"](mh2.player, 10.0))
         self.assertIn("min01 group_arrived sanctuary=true via=unloaded_failsafe", mh2.logs)
         self.assertAlmostEqual(mh2.preston.x, -2356.32, places=2)
-        self.assertEqual(mh2.sanctuary.stage, 1000)
+        self.assertEqual(mh2.sanctuary.stage, 220)
         self.assertEqual(mh2.mq103.stage, 0)
         self.assertEqual(mh2.minrecruit00.stage, 0)
 

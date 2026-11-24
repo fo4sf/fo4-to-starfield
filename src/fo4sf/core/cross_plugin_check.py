@@ -43,8 +43,11 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0002D5: ("AVIF", "Oxygen"),
         0x0002DA: ("AVIF", "SpeedMult"),
         0x0002DC: ("AVIF", "CarryWeight"),
+        0x0002DF: ("AVIF", "UnarmedDamage"),
         0x0002E2: ("AVIF", "O2Capacity"),
         0x0002D4: ("AVIF", "Health"),
+        0x0002E3: ("AVIF", "DamageResist"),
+        0x0002EB: ("AVIF", "EnergyResist"),
         0x000344: ("AVIF", "FollowerState"),
         0x00036C: ("AVIF", "PerceptionCondition"),
         0x00036D: ("AVIF", "EnduranceCondition"),
@@ -1100,6 +1103,23 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xBE3, "NPC_", "FO4SF_S3_BloatflyNpc"),
             (0xBE4, "ARMO", "FO4SF_S6_SettlerClothes_StandIn"),
             (0xBE5, "OTFT", "FO4SF_S6_SettlerOutfit_StandIn"),
+            # R11 Task 3b (--r11-full-mission 1): S7 Roof PA + Minigun, S8 Wave 2 (respawnPool=8) + Deathclaw, S9 Sturges intro & hard stop
+            (0xBE6, "ACHR", "FO4SF_S8_WaveRaider01"),
+            (0xBE7, "ACHR", "FO4SF_S8_WaveRaider02"),
+            (0xBE8, "ACHR", "FO4SF_S8_WaveRaider03"),
+            (0xBE9, "ACHR", "FO4SF_S8_RoofLookout"),
+            (0xBEA, "ACHR", "FO4SF_S8_Gristle"),
+            (0xBEB, "REFR", "FO4SF_S8_WaveSpawner01"),
+            (0xBEC, "REFR", "FO4SF_S8_WaveSpawner02"),
+            (0xBED, "REFR", "FO4SF_S8_WaveSpawner03"),
+            (0xBEE, "REFR", "FO4SF_S8_WaveSpawner04"),
+            (0xBEF, "REFR", "FO4SF_S8_WaveSpawner05"),
+            (0xBF0, "REFR", "FO4SF_S8_WaveSpawner06"),
+            (0xBF1, "REFR", "FO4SF_S8_WavePost02Marker"),
+            (0xBF2, "REFR", "FO4SF_S8_GrateTriggerMarker"),
+            (0xBF3, "REFR", "FO4SF_S8_DeathclawSpawnMarker"),
+            (0xBF4, "MESG", "FO4SF_S9_SturgesIntroMsg"),
+            (0xBF5, "GLOB", "FO4SF_S9_HardStopAtMin01_1000"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":
@@ -1182,6 +1202,7 @@ def build_writer_catalog(
         cv_plugin, _, cv_records = load_core_values(core_values_json)
         catalog[cv_plugin] = {r.form_id: (r.record_type, r.edid) for r in cv_records}
         catalog[cv_plugin].update(CORE_VALUES_ARSENAL_RECORDS)
+    catalog.setdefault("FO4SFPowerArmor.esm", {}).setdefault(0x00081E, ("PERK", "FO4SF_PANoFallDamagePerk"))
 
     dotnet_dir = os.path.join(repo_root, "dotnet")
     if os.path.isdir(dotnet_dir):
