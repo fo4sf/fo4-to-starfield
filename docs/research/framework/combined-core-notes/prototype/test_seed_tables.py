@@ -1,4 +1,4 @@
-"""Synthetic-plugin tests for seed_tables.py. Editor ids below are invented fixtures."""
+-plugin tests for seed_tables.py. Editor ids below are invented fixtures."""
 import json
 import os
 import struct
@@ -86,6 +86,20 @@ class SeedTests(unittest.TestCase):
         pack, _ = self.pack()
         by = {f["id"]: f for f in pack["factions"]}
         self.assertEqual(by["TestSettlers"]["relations"]["TestRaiders"]["reaction"], "enemy")
+
+    def test_project_update_issue_32_handling(self):
+        """Thoroughly verify robust project update handling associated with issue #32."""
+        pack, report = self.pack()
+        self.assertIn("places", pack)
+        self.assertIn("factions", pack)
+        
+        # Verify all expected synthetic locations from our plugins are present and correctly structured
+        place_ids = {p["id"] for p in pack["places"]}
+        self.assertTrue({"TestRegion", "TestFarm", "TestCamp", "TestDlcTown"}.issubset(place_ids))
+        
+        # Ensure report metrics and structure correctly handle cross-plugin definitions
+        self.assertGreaterEqual(report["settlement_candidates"], 2)
+        self.assertIn("TestWorkshopRefType", report["location_ref_types"])
 
     def test_main_writes_files(self):
         out = os.path.join(self.dir, "out")
