@@ -120,10 +120,12 @@ WorldSpace Function ResolveCommonwealthWorld()
                 return commonwealthWorld
             endif
         endif
-        WorldSpace coreWs = Game.GetFormFromFile(0x000803, cName) as WorldSpace
-        if coreWs != None
-            commonwealthWorld = coreWs
-            return commonwealthWorld
+        ObjectReference sanctuaryBench = Game.GetFormFromFile(0x005C50, cName) as ObjectReference
+        if sanctuaryBench != None
+            commonwealthWorld = sanctuaryBench.GetWorldSpace()
+            if commonwealthWorld != None
+                return commonwealthWorld
+            endif
         endif
     endif
     return None

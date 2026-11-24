@@ -103,6 +103,20 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
     "FO4TerrainCore.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
+        0x000802: ("LCTN", "FO4Core_CommonwealthLocation"),
+        0x000803: ("WRLD", "FO4Core_Commonwealth"),
+        0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
+        0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
+        0x0A7759: ("REFR", "FO4Core_CommonwealthMapMarker"),
+        0x0A775A: ("REFR", "FO4Core_CommonwealthMapMarkerSanctuary"),
+        0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
+        0x0A775C: ("REFR", "FO4Core_CommonwealthMapMarkerConcord"),
+    },
+    "FO4TerrainCore_Mars.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
@@ -110,13 +124,33 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
-    "FO4TerrainCore_Mars.esm": {
+    "FO4SFHome.esm": {
+        0x000800: ("STDT", "FO4SFHomeStar"),
+        0x000801: ("LCTN", "SFO4SFHome"),
+        0x000802: ("LCTN", "SFO4SFHome_PEarth"),
+        0x000803: ("LCTN", "SFO4SFHome_PEarth_Orbit"),
+        0x000804: ("LCTN", "SFO4SFHome_PEarth_Surface"),
+        0x000805: ("PNDT", "FO4SF_EarthPlanetData"),
+        0x000806: ("BIOM", "FO4SFHomeBiome"),
+        0x000807: ("WTHR", "FO4SFHomeClearWeather"),
+        0x000808: ("CLMT", "FO4SFHomeClimate"),
+        0x000809: ("ATMO", "FO4SFHomeAtmosphere"),
+        0x00080A: ("LTEX", "FO4SFHomeGroundDirt01"),
+        0x00080C: ("WATR", "FO4SFHomeDryWater"),
+    },
+    "FO4TerrainCore_Home.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
+        0x000802: ("LCTN", "FO4Core_CommonwealthLocation"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x00E18A: ("LCTN", "FO4Port_InteriorsLocation"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
+        0x0A7759: ("REFR", "FO4Core_CommonwealthMapMarker"),
+        0x0A775A: ("REFR", "FO4Core_CommonwealthMapMarkerSanctuary"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
+        0x0A775C: ("REFR", "FO4Core_CommonwealthMapMarkerConcord"),
     },
     "FO4ActorRaider.esm": {
         0xF04800: ("NPC_", "FO4_LvlRaider"),
@@ -1161,7 +1195,7 @@ def validate_psc_form_refs(
     errors: List[str] = []
     for ref in refs:
         # Port/Terrain placed anchors resolved dynamically at build time (e.g. VaultSuitId = 0 default) are checked when in catalog
-        if ref.plugin in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"):
+        if ref.plugin in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4TerrainCore_Home.esm"):
             if ref.form_id not in catalog.get(ref.plugin, {}):
                 continue
 
@@ -1457,7 +1491,7 @@ def validate_staged_esms(
             for alias_id, tgt_plg, tgt_id in vp.object_refs:
                 if alias_id >= 0:
                     continue
-                if tgt_plg in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"):
+                if tgt_plg in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4TerrainCore_Home.esm"):
                     if tgt_id not in merged_catalog.get(tgt_plg, {}):
                         continue
                 if (

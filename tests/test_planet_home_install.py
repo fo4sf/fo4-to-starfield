@@ -431,6 +431,25 @@ class HomeWorldInstallTests(unittest.TestCase):
         self.assertIn("FO4SFOtherPlanetOv.esm", str(rc_p))
         self.assertIn("FO4TerrainCore_Home.esm", str(rc_p))
 
+    def test_port_order_and_core_values_weather_flag_helper(self) -> None:
+        bad_port_order = (
+            b"*FO4TerrainCore.esm\r\n"
+            b"*FO4SFHome.esm\r\n"
+            b"*FO4TerrainCore_Home.esm\r\n"
+            b"*FO4Port.esm\r\n"
+        )
+        _write_bytes(self.plugins_txt, bad_port_order)
+        rc_ord, out_ord = self.run_cli("order")
+        self.assertEqual(rc_ord, 6)
+        self.assertIn("FO4Port.esm", out_ord)
+
+        cs_with_flag = Path(self.tmp.name) / "ProgramWithFlag.cs"
+        cs_with_flag.write_text('Console.WriteLine("--commonwealth-weather");', encoding="utf-8")
+        self.assertEqual(hwi.core_values_weather_flags(str(cs_with_flag)), ["--commonwealth-weather", "0"])
+        cs_main = Path(self.tmp.name) / "ProgramMain.cs"
+        cs_main.write_text('Console.WriteLine("hello");', encoding="utf-8")
+        self.assertEqual(hwi.core_values_weather_flags(str(cs_main)), [])
+
 
 if __name__ == "__main__":
     unittest.main()

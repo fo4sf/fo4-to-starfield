@@ -34,8 +34,8 @@ string PortPlugin = "FO4Port.esm"
 string CoreValuesPlugin = "FO4SFCoreValues.esm"
 string RadsPlugin = "FO4SFRads.esm"
 string MissionPlugin = "FO4SFMission.esm"
-int CommonwealthWorldId = 0x000803
 int CommonwealthAnchorId = 0x0A775B
+int CommonwealthFallbackAnchorId = 0x005C50
 
 ; Verified FO4Port.esm cell ID
 int VirgilsLabCellId = 0x069B10
@@ -132,7 +132,14 @@ WorldSpace Function ResolveCommonwealthWorld()
             return aws
         endif
     endif
-    return Game.GetFormFromFile(CommonwealthWorldId, cp) as WorldSpace
+    ObjectReference fallbackAnchor = Game.GetFormFromFile(CommonwealthFallbackAnchorId, cp) as ObjectReference
+    if fallbackAnchor != None
+        WorldSpace fws = fallbackAnchor.GetWorldSpace()
+        if fws != None
+            return fws
+        endif
+    endif
+    return None
 EndFunction
 
 bool Function IsCommonwealthExterior(Actor player)
