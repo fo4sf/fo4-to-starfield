@@ -514,11 +514,29 @@ static class NextStoryMissionsS7S9
             SetObj(min00Script, "S9PrestonLobbyScene", lobbyScene.FormKey);
             SetObj(min00Script, "S9PrestonLobbyFallbackMsg", lobbyFbMsg.FormKey);
 
-            // Bind Sturges (0xA01) in MinutemenGroup so S9 moves & walks Preston + Minutemen party together
-            var mmGroup = new SF.ScriptObjectListProperty { Name = "MinutemenGroup", Flags = SF.ScriptProperty.Flag.Edited };
-            mmGroup.Objects.Add(MakeObjProp("", new FormKey(modKey, NextStoryMissionsA4.SturgesRefId)));
-            min00Script.Properties.RemoveAll(p => p.Name == "MinutemenGroup");
-            min00Script.Properties.Add(mmGroup);
+            // Preserve S6 MinutemenGroup members (Sturges, MamaMurphy, MarcyLong, JunLong) and ensure Sturges (0xA01) is present.
+            var existingMm = min00Script.Properties.OfType<SF.ScriptObjectListProperty>()
+                .FirstOrDefault(p => p.Name == "MinutemenGroup");
+            var sturgesFk = new FormKey(modKey, NextStoryMissionsA4.SturgesRefId);
+            if (existingMm is null)
+            {
+                var mmGroup = new SF.ScriptObjectListProperty { Name = "MinutemenGroup", Flags = SF.ScriptProperty.Flag.Edited };
+                mmGroup.Objects.Add(MakeObjProp("", sturgesFk));
+                min00Script.Properties.RemoveAll(p => p.Name == "MinutemenGroup");
+                min00Script.Properties.Add(mmGroup);
+            }
+            else if (!existingMm.Objects.Any(o => o.Object.FormKey == sturgesFk))
+            {
+                existingMm.Objects.Add(MakeObjProp("", sturgesFk));
+            }
+            // S7-S9 stacked build continues past S6 Fusion Core pickup into Concord roof PA -> Wave 2 -> Sanctuary walk home.
+            min00Script.Properties.RemoveAll(p => p.Name == "StopAtFusionCorePowerArmor");
+            min00Script.Properties.Add(new SF.ScriptBoolProperty
+            {
+                Name = "StopAtFusionCorePowerArmor",
+                Flags = SF.ScriptProperty.Flag.Edited,
+                Data = false,
+            });
         }
 
         // Bind S9 Sturges intro Starfield SCEN & TalkUseMessageBox onto FO4SF_Sanctuary01Quest

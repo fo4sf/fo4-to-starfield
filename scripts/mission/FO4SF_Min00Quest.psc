@@ -521,9 +521,13 @@ Function RegisterPrestonSceneEvents()
         RegisterForRemoteEvent(postScn, "OnPhaseBegin")
         RegisterForRemoteEvent(postScn, "OnEnd")
     endif
-    int st = EffectiveStage()
-    if st >= 55 && st < 200 && EnableS6ToS9Full
-        RegisterS7S9Events()
+    if EnableS6ToS9Full
+        CancelTimer(7)
+        ResetS9LobbyRuntimeState()
+        int st = EffectiveStage()
+        if st >= 55 && st < 200
+            RegisterS7S9Events()
+        endif
     endif
 EndFunction
 
@@ -1305,12 +1309,12 @@ Function RestartOrFailS9LobbyScene(string reason)
         s9LobbyScenePending = False
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
-        CancelTimer(5)
+        CancelTimer(7)
         return
     endif
     if S9PrestonLobbyScene == None
         s9LobbyScenePending = False
-        CancelTimer(5)
+        CancelTimer(7)
         EnsureActorTalkable(Preston)
         Trace("s9 lobby ERROR scene_failed retries=" + PrestonMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
         return
@@ -1332,7 +1336,7 @@ Function RestartOrFailS9LobbyScene(string reason)
         s9LobbySceneChecks = 0
         S9PrestonLobbyScene.Start()
         Trace("s9 lobby scene retry n=" + s9LobbySceneRestarts + "/" + PrestonMaxSceneRestarts + " reason=" + reason)
-        StartTimer(PrestonSceneCheckSeconds, 5)
+        StartTimer(PrestonSceneCheckSeconds, 7)
     else
         s9LobbyScenePending = False
         s9LobbySceneAttemptOpened = False
@@ -1342,7 +1346,7 @@ Function RestartOrFailS9LobbyScene(string reason)
         endif
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
-        CancelTimer(5)
+        CancelTimer(7)
         EnsureActorTalkable(Preston)
         Trace("s9 lobby ERROR scene_failed retries=" + PrestonMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
     endif
@@ -1373,7 +1377,7 @@ Function CheckS9LobbySceneOpen()
     elseif phase1Elapsed || s9LobbySceneChecks >= PrestonSceneMaxWaitChecks
         RestartOrFailS9LobbyScene("no_dialoguemenu")
     else
-        StartTimer(PrestonSceneCheckSeconds, 5)
+        StartTimer(PrestonSceneCheckSeconds, 7)
     endif
 EndFunction
 
@@ -1663,11 +1667,11 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             TryTriggerS9LobbyActivate(Game.GetPlayer())
         endif
     elseif akActionRef == Game.GetPlayer() && EffectiveStage() >= 55 && EnableS6ToS9Full
-        Actor player = Game.GetPlayer()
+        Actor s7Player = Game.GetPlayer()
         if S7RoofMinigunRef != None && akSender == S7RoofMinigunRef
-            GrabS7Minigun(player)
+            GrabS7Minigun(s7Player)
         elseif s7RoofFrameRef != None && akSender == s7RoofFrameRef
-            OnS7RoofFrameActivated(player)
+            OnS7RoofFrameActivated(s7Player)
         endif
     endif
 EndEvent
@@ -3033,22 +3037,6 @@ Function ArmPrestonBalconyMusket()
     Trace("s4 preston equipped comp_laser_musket=0x089E")
 EndFunction
 
-ObjectReference Function ResolveCommonwealthHostAnchor()
-    ObjectReference wb = Game.GetFormFromFile(0x005C50, "FO4TerrainCore.esm") as ObjectReference
-    if wb != None
-        return wb
-    endif
-    ObjectReference mm = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore.esm") as ObjectReference
-    if mm != None
-        return mm
-    endif
-    Actor p = Game.GetPlayer()
-    if p != None && !p.IsInInterior()
-        return p
-    endif
-    return None
-EndFunction
-
 Function PlaceMarkerInCommonwealth(ObjectReference mk, float tx, float ty, float tz)
     if mk == None
         return
@@ -4245,6 +4233,9 @@ Function OnS7RoofFrameActivated(Actor player)
         endif
         return
     endif
+    if IsObjectiveDisplayed(95) && !IsObjectiveCompleted(95)
+        SetObjectiveCompleted(95)
+    endif
     ; FO4SF_PowerArmorCoreQuest owns granting and removing 0x00081E on PA enter/exit cleanly.
     Trace("s7 roof_frame entered core=0x0809 cores=" + cores)
 EndFunction
@@ -4587,7 +4578,7 @@ Function ResetS9LobbyRuntimeState()
     s9LobbySceneChecks = 0
     s9LobbySceneRestarts = 0
     ownS9LobbyStopPending = False
-    CancelTimer(5)
+    CancelTimer(7)
 EndFunction
 
 bool Function IsS9LobbyScene(Scene akSender)
@@ -4606,7 +4597,7 @@ bool Function TryS9LobbyDialogueMenuOpen(int st)
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
         s9LobbySceneRestarts = 0
-        CancelTimer(5)
+        CancelTimer(7)
         Trace("s9 lobby dialogue menu opened stage=" + st)
         return True
     endif
@@ -4633,7 +4624,7 @@ Function HandleS9LobbySceneBegin(Scene akSender)
         s9LobbyScenePhase1 = False
         s9LobbyScenePhase1At = 0.0
         s9LobbySceneChecks = 0
-        StartTimer(PrestonSceneCheckSeconds, 5)
+        StartTimer(PrestonSceneCheckSeconds, 7)
     endif
     Trace("s9 lobby scene begin id=0xBF6 stage=" + EffectiveStage())
 EndFunction
@@ -4648,8 +4639,8 @@ Function HandleS9LobbyScenePhaseBegin(Scene akSender, int auiPhaseIndex)
         s9LobbyScenePhase1 = True
         s9LobbyScenePhase1At = Utility.GetCurrentRealTime()
         if s9LobbyScenePending && !s9LobbySceneMenuOpened && !prestonDialogueMenuOpen
-            CancelTimer(5)
-            StartTimer(PrestonSceneCheckSeconds, 5)
+            CancelTimer(7)
+            StartTimer(PrestonSceneCheckSeconds, 7)
         endif
     endif
 EndFunction
@@ -4690,7 +4681,7 @@ Function TryTriggerS9LobbyActivate(Actor player)
             S9PrestonLobbyScene.Start()
         endif
         Trace("s9 lobby preston scene started id=0xBF6")
-        StartTimer(PrestonSceneCheckSeconds, 5)
+        StartTimer(PrestonSceneCheckSeconds, 7)
     else
         RestartOrFailS9LobbyScene("no_lobby_scene")
     endif
@@ -4706,7 +4697,7 @@ Function HandleS9LobbySceneEnd()
     s9LobbySceneAttemptOpened = False
     s9LobbyScenePhase1 = False
     s9LobbyScenePhase1At = 0.0
-    CancelTimer(5)
+    CancelTimer(7)
     if !s9LobbyCompleted
         if wasOpened
             s9LobbySceneMenuOpened = False

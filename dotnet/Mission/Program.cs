@@ -2090,16 +2090,6 @@ static class Mission
             mod, cell, qtyp.FormKey, xMarker.FormKey, m.Sf, prestonTpl, humanRace.FormKey, prestonVoice.FormKey,
             raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey, prestonWeapon.FormKey, prestonAmmo.FormKey);
 
-        if (r11FullMission)
-        {
-            NextStoryMissionsS7S9.PopulateS7S9(
-                mod, quest, sanctuaryQuest, xMarker.FormKey,
-                raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
-                concordSidearm.FormKey, raiderSidearmAmmo.FormKey,
-                npc.FormKey, new FormKey(modKey, NextStoryMissionsA4.SturgesNpcId), prestonVoice.FormKey,
-                pts, prestonVoicePath);
-        }
-
         FalloutActorLooks.ApplyActorLooks(
             mod, m.Sf, m.Raider, FalloutActorLooks.ActorLooksModels.FromDirectoryOrArgs(actorLooksDir));
 
@@ -2110,6 +2100,13 @@ static class Mission
                 minutemen.FormKey, prestonTpl, humanRace.FormKey, prestonVoice.FormKey, cods ?? npc,
                 new FormKey(modKey, FalloutActorLooks.ConcordRaiderNpcId), raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
                 creatureSlots, fo4HumanAnims, task1bVaultRecovery, creaturesMod, humanAnimsMod);
+            var waveRaiderTpl = mod.Npcs.FirstOrDefault(n => n.FormKey.ID == FalloutActorLooks.ConcordRaiderNpcId) ?? raiderNpc;
+            NextStoryMissionsS7S9.PopulateS7S9(
+                mod, quest, sanctuaryQuest, xMarker.FormKey,
+                waveRaiderTpl, raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
+                concordSidearm.FormKey, raiderSidearmAmmo.FormKey,
+                npc.FormKey, new FormKey(modKey, NextStoryMissionsA4.SturgesNpcId), prestonVoice.FormKey,
+                pts, prestonVoicePath);
         }
 
         uint maxId = Math.Max(MissionHoldingCellId + 1, Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))))));
@@ -3320,7 +3317,11 @@ static class Mission
                 {
                     var hm = NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofFrameMarkerId);
                     NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.Remove(hm);
-                    m.Worldspaces.First().TopCell!.Persistent.Add(hm);
+                    var coreMod = SF.StarfieldMod.CreateFromBinary(corePath, rel, Styles(SfEsm, coreKey, raiderKey));
+                    var cw = (SF.Worldspace)coreMod.Worldspaces.First(w => w.EditorID == World).DeepCopy();
+                    cw.TopCell!.Persistent.Clear();
+                    cw.TopCell.Persistent.Add(hm);
+                    m.Worldspaces.Add(cw);
                 }),
             };
             foreach (var (name, edit) in r11FullMutations)

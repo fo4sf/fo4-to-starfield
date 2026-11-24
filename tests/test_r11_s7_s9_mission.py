@@ -58,12 +58,16 @@ class S7RoofAndMinigunContractTests(unittest.TestCase):
         logs: list[str] = []
         notifs: list[str] = []
         fc_count = [0]
+        obj_done: set[int] = set()
         frame_ref = SimpleNamespace(BlockActivation=lambda blk, abs_off=False: block_calls.append((bool(blk), bool(abs_off))))
         player = SimpleNamespace(GetItemCount=lambda _f: fc_count[0])
         ns = {
             "s7RoofFrameRef": frame_ref,
             "Game": SimpleNamespace(GetFormFromFile=lambda fid, plg: ("FC", fid, plg)),
             "IsTestModeEnabled": lambda: True,
+            "IsObjectiveDisplayed": lambda idx: int(idx) == 95,
+            "IsObjectiveCompleted": lambda idx: int(idx) in obj_done,
+            "SetObjectiveCompleted": lambda idx: obj_done.add(int(idx)),
             "Debug": SimpleNamespace(Notification=lambda msg: notifs.append(str(msg))),
             "Trace": lambda msg: logs.append(str(msg)),
         }
@@ -71,6 +75,7 @@ class S7RoofAndMinigunContractTests(unittest.TestCase):
         ns["SyncS7RoofFrameGate"](player)
         ns["OnS7RoofFrameActivated"](player)
         self.assertEqual(block_calls[-1], (True, False))
+        self.assertNotIn(95, obj_done)
         self.assertTrue(any("refused reason=no_fusion_core" in lg for lg in logs))
         self.assertEqual(len(notifs), 1)
 
@@ -78,6 +83,7 @@ class S7RoofAndMinigunContractTests(unittest.TestCase):
         ns["SyncS7RoofFrameGate"](player)
         ns["OnS7RoofFrameActivated"](player)
         self.assertEqual(block_calls[-1], (False, False))
+        self.assertIn(95, obj_done)
         self.assertTrue(any("roof_frame entered core=0x0809 cores=1" in lg for lg in logs))
 
 
@@ -586,6 +592,18 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
         ref = SimpleNamespace(MoveTo=lambda a, dx, dy, dz, *_rest: moves.append((a, round(dx, 4), round(dy, 4), round(dz, 4))))
         ns["PlaceRefInMuseumOffset"](ref, anchor, 12.5, -3.5, 4.0)
         self.assertEqual(moves, [(anchor, -87.5, -203.5, -46.0)])
+
+    def test_2h_stacked_integration_contracts(self) -> None:
+        # S9 Lobby uses timer 7 (never colliding with S6 room scene timers 5/6) and S9 reset runs inside RegisterPrestonSceneEvents
+        self.assertIn("elseif aiTimerID == 7", MIN00_PSC)
+        self.assertIn("CheckS9LobbySceneOpen()", MIN00_PSC)
+        self.assertNotIn("StartTimer(PrestonSceneCheckSeconds, 5)\n    Trace(\"s9", MIN00_PSC)
+        # S7-S9 stacked onto S2-S6 preserves 4-member MinutemenGroup, forces StopAtFusionCorePowerArmor=false, and strips 0x3D094D on wave NPCs
+        self.assertIn("StopAtFusionCorePowerArmor", S7S9_CS)
+        self.assertIn("existingMm", S7S9_CS)
+        prog_cs = (ROOT / "dotnet" / "Mission" / "Program.cs").read_text(encoding="utf-8")
+        self.assertIn("var waveRaiderTpl = mod.Npcs.FirstOrDefault(n => n.FormKey.ID == FalloutActorLooks.ConcordRaiderNpcId)", prog_cs)
+        self.assertLess(prog_cs.index("PopulateS2S6Missions("), prog_cs.index("PopulateS7S9("))
 
 
 if __name__ == "__main__":
