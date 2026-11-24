@@ -978,7 +978,7 @@ def install_probe_p6(
             plugins_to_activate=[PROBE_PLUGIN],
             files=install_specs,
             expected_base_hashes={"Data/FO4Port.esm": pc.BASE_FO4PORT_SHA256_PREFIX},
-            baseline_2g_fix2_hashes=pc.CANDIDATE_2G_FIX2_HASHES,
+            baseline_2g_fix2_hashes=pc.CANDIDATE_2G_FIX4_HASHES,
             version_tag=version_tag,
             card_path=card_path,
             min_free_gb=min_free_gb,

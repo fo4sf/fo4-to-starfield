@@ -886,6 +886,34 @@ class ProbeCommonTests(unittest.TestCase):
             (sf / "Data" / "FO4SFCoreCandidate.esm").write_bytes(b"test-profile")
             self.assertEqual(pc.detect_installed_candidate_profile(sf), "test")
 
+    def test_candidate_2g_fix4_hashes_and_profile_detection(self) -> None:
+        self.assertIn("candidate-2g-fix4", pc.FROZEN_CANDIDATE_NAMES)
+        self.assertEqual(
+            pc.CANDIDATE_2G_FIX4_BUNDLE_PLAN_HASHES["player"],
+            "9f593f36c42ffed74ee91722b806d65f013434747b4e411dfba6b5b1c5860726",
+        )
+        self.assertEqual(
+            pc.CANDIDATE_2G_FIX4_BUNDLE_PLAN_HASHES["test"],
+            "b18542cec866e96c80e285c0cc59a4b0ca486146f351b0ce7637813ab70e334b",
+        )
+        self.assertEqual(
+            pc.CANDIDATE_2G_FIX4_HASHES["Data/FO4SFMission.esm"],
+            "2c3f0e730dbb18bb8fec63e0a7fabf968d3ca40ffd989863c8185f3ee09a60e3",
+        )
+        self.assertEqual(
+            pc.CANDIDATE_2G_FIX4_HASHES["Data/FO4SFWorkshop.esm"],
+            "53eb1e1691a9b4b888ded08fc349a38f0407f3aa829130c493ddb08aa2b8ada1",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            sf = pathlib.Path(td)
+            (sf / "Data").mkdir()
+            (sf / "Data" / "FO4SFMission.esm").write_bytes(b"wrong-mission")
+            warns = pc.check_baseline_against_2g_fix4(sf)
+            self.assertEqual(len(warns), 1)
+            self.assertIn("candidate-2g-fix4", warns[0])
+            (sf / "Data" / "FO4SFMission.esm").unlink()
+            self.assertEqual(pc.check_baseline_against_2g_fix4(sf), [])
+
 
 if __name__ == "__main__":
     unittest.main()
