@@ -260,9 +260,14 @@ def build_strip_objects(
             "disabled": bool(r["disabled"]),
         })
 
+    sorted_bases = sorted(selected_bases.values(), key=lambda x: x["edid"])
+    base_idx_by_edid = {b["edid"]: idx for idx, b in enumerate(sorted_bases)}
+    for ref in placed_refs:
+        ref["base"] = base_idx_by_edid[ref["base"]]
+
     doc = {
         "world": world_edid,
-        "bases": sorted(selected_bases.values(), key=lambda x: x["edid"]),
+        "bases": sorted_bases,
         "refs": placed_refs,
     }
     return doc, skipped
@@ -293,9 +298,131 @@ def build_prewar_sky_plugin(
     }
 
 
+def _rebuild_grup_replacing_wrld(buf: bytes, start: int, end: int, wrld_fn) -> bytes:
+    """Recursively copy raw ESM bytes inside a top-level WRLD GRUP while transforming matching WRLD records."""
+    from . import vault111_append as va
+
+    parts: List[bytes] = []
+    pos = start
+    while pos < end:
+        if buf[pos : pos + 4] == b"GRUP":
+            gs = _u32(buf, pos + 4)
+            lbl = bytes(buf[pos + 8 : pos + 12])
+            gt, st, unk = struct.unpack_from("<III", buf, pos + 12)
+            inner = _rebuild_grup_replacing_wrld(buf, pos + 24, pos + gs, wrld_fn)
+            parts.append(b"GRUP" + struct.pack("<I", 24 + len(inner)) + lbl + struct.pack("<III", gt, st, unk) + inner)
+            pos += gs
+        else:
+            rec, nxt = va._read_rec(buf, pos)  # noqa: SLF001
+            parts.append(wrld_fn(rec).to_bytes() if rec.sig == b"WRLD" else bytes(buf[pos:nxt]))
+            pos = nxt
+    return b"".join(parts)
+
+
+def bind_prewar_world_to_home(
+    world_esm_path: str,
+    *,
+    climate_local_id: int = wb_records.HOME_CLIMATE,
+    water_local_id: int = wb_records.HOME_WATER,
+    world_edid: str = "FO4SF_PrewarSanctuaryWorld",
+) -> Dict[str, Any]:
+    """Bind `FO4SF_PrewarSanctuaryWorld` WRLD `CNAM` (climate) & `NAM3` (water) onto `FO4SFHome.esm` (0 Starfield sky/water)."""
+    from . import vault111_append as va
+
+    with open(world_esm_path, "rb") as f:
+        raw = f.read()
+    tes4, grups = va.parse_top_grups(raw)
+    masters = [esm.zstring(d) for s, d in va._iter_subrecords(tes4.raw_subrecords_bytes) if s == b"MAST"]  # noqa: SLF001
+    if hspec.HOME_MASTER not in masters:
+        raise ValueError(f"{world_esm_path} must depend on {hspec.HOME_MASTER}, got masters={masters}")
+    home_idx = masters.index(hspec.HOME_MASTER)
+    climate_fid = (home_idx << 24) | climate_local_id
+    water_fid = (home_idx << 24) | water_local_id
+
+    updated = False
+
+    def _patch_wrld(rec: va.RawRec) -> va.RawRec:
+        nonlocal updated
+        subs = list(va._iter_subrecords(rec.raw_subrecords_bytes))  # noqa: SLF001
+        ed = next((esm.zstring(d) for s, d in subs if s == b"EDID"), "")
+        if ed != world_edid:
+            return rec
+        updated = True
+        kept: List[Tuple[bytes, bytes]] = []
+        for s, d in subs:
+            if s in (b"CNAM", b"NAM3", b"NAM2"):
+                continue
+            if s == b"BNAM" and len(d) == 4 and (_u32(d) >> 24) != home_idx:
+                continue
+            kept.append((s, d))
+        # Insert CNAM and NAM3 right after EDID/FULL so record layout remains canonical
+        insert_at = 1 if kept and kept[0][0] == b"EDID" else 0
+        while insert_at < len(kept) and kept[insert_at][0] in (b"BFCB", b"FULL", b"BFCE"):
+            insert_at += 1
+        kept[insert_at:insert_at] = [
+            (b"CNAM", struct.pack("<I", climate_fid)),
+            (b"NAM3", struct.pack("<I", water_fid)),
+        ]
+        return va.RawRec(
+            rec.sig,
+            rec.flags & ~va.COMPRESSED_FLAG,
+            rec.fid,
+            rec.version,
+            rec.vc,
+            rec.unknown,
+            va._pack_subrecords(kept),  # noqa: SLF001
+        )
+
+    out_grups: List[bytes] = []
+    for lbl, gt, st, unk, pl in grups:
+        if lbl == b"WRLD":
+            pl_out = _rebuild_grup_replacing_wrld(pl, 0, len(pl), _patch_wrld)
+        else:
+            pl_out = pl
+        out_grups.append(b"GRUP" + struct.pack("<I", 24 + len(pl_out)) + lbl + struct.pack("<III", gt, st, unk) + pl_out)
+
+    if not updated:
+        raise ValueError(f"{world_esm_path} missing WRLD {world_edid}")
+    with open(world_esm_path, "wb") as f:
+        f.write(tes4.to_bytes() + b"".join(out_grups))
+    verify_zero_starfield_sky_refs(world_esm_path)
+    return {
+        "world": world_edid,
+        "home_climate_fid": f"0x{climate_fid:08X}",
+        "home_water_fid": f"0x{water_fid:08X}",
+    }
+
+
 def verify_zero_starfield_sky_refs(plugin_path: str) -> None:
-    """Strictly verify a pre-war sky/world plugin carries zero Starfield PNDT/LCTN/CLMT/WTHR/ATMO references."""
+    """Verify pure sky ESMs OR `FO4SFPrewar_Sanctuary.esm` carry zero Starfield PNDT/LCTN/CLMT/WTHR/ATMO/WATR refs."""
     with esm.Plugin(plugin_path) as p:
+        if "WRLD" in p.groups:
+            if hspec.HOME_MASTER not in p.masters:
+                raise ValueError(f"{plugin_path} WRLD must target {hspec.HOME_MASTER}, got masters={p.masters}")
+            home_idx = p.masters.index(hspec.HOME_MASTER)
+            for forbidden in ("PNDT", "CLMT", "WTHR", "ATMO", "WATR"):
+                if list(p.records(forbidden, [forbidden.encode("ascii")])):
+                    raise ValueError(f"{plugin_path} must not define {forbidden} overrides/records")
+            for loc in p.records("LCTN", [b"LCTN"]):
+                pnam = loc.get(b"PNAM")
+                if not pnam or len(pnam) < 4 or (_u32(pnam) >> 24) != home_idx:
+                    got = _u32(pnam) if pnam and len(pnam) >= 4 else 0
+                    raise ValueError(f"{plugin_path} LCTN {loc.edid} PNAM=0x{got:08X} must point to {hspec.HOME_MASTER}")
+            for start, end in p.groups.get("WRLD", []):
+                for item in p.walk(start, end, groups=set()):
+                    if item[0] == "REC":
+                        wrec = p.record_at(item[1])
+                        cnam = wrec.get(b"CNAM")
+                        nam3 = wrec.get(b"NAM3")
+                        bnam = wrec.get(b"BNAM")
+                        for tag, val_bytes in (("CNAM", cnam), ("NAM3", nam3), ("BNAM", bnam)):
+                            if not val_bytes or len(val_bytes) < 4 or (_u32(val_bytes) >> 24) != home_idx:
+                                got = _u32(val_bytes) if val_bytes and len(val_bytes) >= 4 else 0
+                                raise ValueError(
+                                    f"{plugin_path} WRLD {wrec.edid} {tag}=0x{got:08X} must resolve to {hspec.HOME_MASTER} (master #{home_idx})"
+                                )
+            return
+
         if p.masters:
             raise ValueError(f"{plugin_path} must have 0 masters for pure sky records, got {p.masters}")
         allowed_locals: set[int] = set()
@@ -347,20 +474,23 @@ def build_prewar_overlay_params(
         "hmax": float(hmax),
         "alignment": "absolute",
         "hnam": 0,
-        "mars": None,
         "host": {
             "planet_plugin": hspec.HOME_MASTER,
             "planet_edid": "EarthPlanetData",
-            "surface_location": f"0x{0x01000000 | hspec.SURFACE_LOC:08X}:{hspec.HOME_MASTER}",
+            "surface_location": f"{hspec.SURFACE_LOC:06X}:{hspec.HOME_MASTER}",
             "system_id": int(host_system_id),
             "planet_id": int(host_planet_id),
-            "biome": f"0x{0x01000000 | hspec.BIOME:08X}:{hspec.HOME_MASTER}",
+            "biome": f"{hspec.BIOME:06X}:{hspec.HOME_MASTER}",
+            "lever_keywords": ["PCM_OverlayExclusionZone", "LocTypeNoPCMScanTreeContent"],
+            "registration_plugin": "FO4SFPrewar_Sanctuary_Home.esm",
         },
         "objects": objects_rel,
         "overlays": [
             {
                 "world": world_edid,
                 "tag": "SanctuaryPrewar",
+                "latitude": 0.7409,
+                "longitude": -1.2453,
                 "ix": tile.ix,
                 "iy": tile.iy,
                 "n": tile.n,
@@ -392,6 +522,7 @@ def write_strip_stage_inputs(
     ltex_table: Sequence[int] = (0x001235C2,),
     quad_bytes: bytes = bytes([0] * 8),
     world_edid: str = "FO4SF_PrewarSanctuaryWorld",
+    emit_standalone_sky: bool = False,
 ) -> Dict[str, Any]:
     """Materialize local strip `.btd`, mask `.dds`, `objects.json`, `overlays_params.json`, and pure sky ESM."""
     with fo4land.Plugin(fo4_esm_path) as plugin:
@@ -421,7 +552,10 @@ def write_strip_stage_inputs(
     with open(prm_path, "w", encoding="utf-8") as f:
         json.dump(params_doc, f, indent=1)
 
-    sky_path, sky_rep = build_prewar_sky_plugin(os.path.join(out_dir, "FO4SFPrewarSky.esm"))
+    sky_path = None
+    sky_rep = None
+    if emit_standalone_sky:
+        sky_path, sky_rep = build_prewar_sky_plugin(os.path.join(out_dir, "FO4SFPrewarSky.esm"))
     return {
         "rect": strip["rect"],
         "fo4_cells": len(strip["cells"]),

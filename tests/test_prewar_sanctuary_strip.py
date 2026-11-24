@@ -132,6 +132,7 @@ class SanctuaryStripTests(unittest.TestCase):
             rc = build_prewar_strip.main([
                 "--fo4-esm", str(fo4_path),
                 "--out-dir", str(out_dir),
+                "--emit-sky-esm",
                 "--report-json", str(rep_path),
             ])
             self.assertEqual(rc, 0)
@@ -140,6 +141,9 @@ class SanctuaryStripTests(unittest.TestCase):
             self.assertEqual(rep["fo4_lands"], 3)
             self.assertEqual(rep["sf_tile_n"], 4)
             self.assertGreaterEqual(rep["placed_objects"], 4)
+
+            objs = json.loads((out_dir / "objects.json").read_text(encoding="utf-8"))
+            self.assertTrue(all(isinstance(r["base"], int) and 0 <= r["base"] < len(objs["bases"]) for r in objs["refs"]))
 
             btd_path = out_dir / "Data" / "Terrain" / "FO4SF_PrewarSanctuaryWorld.btd"
             parsed = btd.read(btd_path.read_bytes())
@@ -150,8 +154,11 @@ class SanctuaryStripTests(unittest.TestCase):
 
             prm = json.loads((out_dir / "overlays_params.json").read_text(encoding="utf-8"))
             self.assertEqual(prm["host"]["planet_plugin"], hspec.HOME_MASTER)
-            self.assertIn(f"0x{0x01000000 | hspec.SURFACE_LOC:08X}", prm["host"]["surface_location"])
-            self.assertIn(f"0x{0x01000000 | hspec.BIOME:08X}", prm["host"]["biome"])
+            self.assertEqual(prm["host"]["surface_location"], f"{hspec.SURFACE_LOC:06X}:{hspec.HOME_MASTER}")
+            self.assertEqual(prm["host"]["biome"], f"{hspec.BIOME:06X}:{hspec.HOME_MASTER}")
+            self.assertEqual(prm["host"]["registration_plugin"], "FO4SFPrewar_Sanctuary_Home.esm")
+            self.assertIn("latitude", prm["overlays"][0])
+            self.assertIn("longitude", prm["overlays"][0])
 
             sky_path = out_dir / "FO4SFPrewarSky.esm"
             sanctuary_strip.verify_zero_starfield_sky_refs(str(sky_path))
@@ -182,6 +189,34 @@ class SanctuaryStripTests(unittest.TestCase):
             w2.write(str(bad_pndt), compress=False)
             with self.assertRaises(ValueError):
                 sanctuary_strip.verify_zero_starfield_sky_refs(str(bad_pndt))
+
+    def test_bind_prewar_world_to_home_replaces_starfield_water_and_climate(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            world_p = root / "FO4SFPrewar_Sanctuary.esm"
+            w = esm.PluginWriter(["Starfield.esm", hspec.HOME_MASTER], esm.ESM)
+            w.add(esm.Record(b"LCTN", w.own(0x802), [(b"EDID", esm.zbytes("FO4SF_PrewarSanctuaryWorldLocation")), (b"PNAM", struct.pack("<I", 0x01000804))]))
+            w.add(
+                esm.Record(
+                    b"WRLD",
+                    w.own(0x803),
+                    [
+                        (b"EDID", esm.zbytes("FO4SF_PrewarSanctuaryWorld")),
+                        (b"FULL", esm.zbytes("Sanctuary Hills")),
+                        (b"BNAM", struct.pack("<I", 0x002A3777)),  # stale Starfield biome
+                        (b"BNAM", struct.pack("<I", 0x01000806)),  # FO4SFHome biome
+                        (b"NAM3", struct.pack("<I", 0x00000018)),  # Starfield WaterClear
+                    ],
+                )
+            )
+            w.write(str(world_p), compress=False)
+            with self.assertRaises(ValueError):
+                sanctuary_strip.verify_zero_starfield_sky_refs(str(world_p))
+
+            rep = sanctuary_strip.bind_prewar_world_to_home(str(world_p))
+            self.assertEqual(rep["home_climate_fid"], "0x01000808")
+            self.assertEqual(rep["home_water_fid"], "0x0100080C")
+            sanctuary_strip.verify_zero_starfield_sky_refs(str(world_p))
 
 
 if __name__ == "__main__":

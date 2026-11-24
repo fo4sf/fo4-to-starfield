@@ -21,12 +21,14 @@ Group NewGameHandoff
     int Property NewGameQuestId = 0x000800 Auto Const
     int Property Stage20LooksDone = 20 Auto Const
     GlobalVariable Property PrewarActiveGlobal Auto Const
+    float Property KelloggSceneTimeoutS = 24.0 Auto Const
 EndGroup
 
 string LogName = "fo4sf_prewar"
 bool enteredPrewarVault = false
 int vaultEntryTries = 0
 bool handoffDone = false
+float kelloggElapsedS = 0.0
 
 Function Trace(string msg)
     Debug.OpenUserLog(LogName)
@@ -110,10 +112,11 @@ EndFunction
 Function StartKelloggPodBeat()
     {Advance S1 to stage 50: Beat (e) pod-locked Kellogg sequence -> refreeze -> Stage 20 Vault111Cryo handoff.}
     SetStage(50)
+    kelloggElapsedS = 0.0
     if StandIns != None
         StandIns.StartKelloggPodSequence()
     endif
-    StartTimer(12.0, 21)
+    StartTimer(2.0, 21)
 EndFunction
 
 Function HandoffToVault111CryoStage20()
@@ -155,6 +158,15 @@ Event OnTimer(int aiTimerID)
     if aiTimerID == 20
         MoveIntoPrewarVaultConfirmed()
     elseif aiTimerID == 21
-        HandoffToVault111CryoStage20()
+        kelloggElapsedS += 2.0
+        bool playing = false
+        if StandIns != None && StandIns.KelloggSequenceScene != None
+            playing = StandIns.KelloggSequenceScene.IsPlaying()
+        endif
+        if playing && kelloggElapsedS < KelloggSceneTimeoutS
+            StartTimer(2.0, 21)
+        else
+            HandoffToVault111CryoStage20()
+        endif
     endif
 EndEvent

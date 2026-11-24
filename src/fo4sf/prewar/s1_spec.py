@@ -50,6 +50,9 @@ PREWAR_V111_KEY_COORDS_M: Dict[str, Tuple[float, float, float]] = {
     "suit_furn": (-45.13, -7.81, -0.04),
     "player_cryopod": (9.14, -4.11, -1.03),
     "spouse_cryopod": (9.14, -10.51, -1.03),
+    "kellogg_pod_spot": (9.14, -8.30, -1.03),
+    "inst_male_pod_spot": (7.80, -8.60, -1.03),
+    "inst_female_pod_spot": (10.50, -8.60, -1.03),
     "cryo_terminal": (-1.09, -11.54, -1.06),
 }
 
@@ -98,6 +101,12 @@ PREWAR_FORMS: Dict[str, Tuple[str, int]] = {
     "FO4SF_PrewarExtLiftBase": ("ACTI", 0x000828),
     "FO4SF_PrewarCodsworthOutfit": ("OTFT", 0x000829),
     "FO4SF_PrewarStageActiveGlob": ("GLOB", 0x00082A),
+    "FO4SF_PrewarInstMalePodMarkRef": ("REFR", 0x00082B),
+    "FO4SF_PrewarInstFemalePodMarkRef": ("REFR", 0x00082C),
+    "FO4SF_PrewarCrowdBridgeMarkRef": ("REFR", 0x00082D),
+    "FO4SF_PrewarCodsworthVoice": ("VTYP", 0x0008F0),
+    "FO4SF_PrewarCodsworthSkin": ("ARMO", 0x0008F1),
+    "FO4SF_PrewarCodsworthAA": ("ARMA", 0x0008F2),
 }
 
 PREWAR_VOICE_START_ID = 0x000900

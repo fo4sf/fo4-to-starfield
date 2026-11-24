@@ -55,8 +55,11 @@ def build_tile_local_spec(
         "FO4SF_PrewarExtLiftPlatformRef": _sanc("ext_elevator_center"),
         "FO4SF_PrewarNukeAnchorRef": _sanc("nuke_look_marker"),
         "FO4SF_PrewarCrowdGoalMarkRef": _sanc("ext_elevator_center"),
+        "FO4SF_PrewarCrowdBridgeMarkRef": _sanc("west_bridge", 1.57),
         "FO4SF_PrewarVaultArrivalMarker": _v111("int_elevator_spawn"),
-        "FO4SF_PrewarKelloggMarkRef": _v111("spouse_cryopod", 1.57),
+        "FO4SF_PrewarKelloggMarkRef": _v111("kellogg_pod_spot", 3.14),
+        "FO4SF_PrewarInstMalePodMarkRef": _v111("inst_male_pod_spot", 3.14),
+        "FO4SF_PrewarInstFemalePodMarkRef": _v111("inst_female_pod_spot", 3.14),
         "FO4SF_PrewarSpousePodMarkRef": _v111("spouse_cryopod"),
         "FO4SF_PrewarPlayerPodMarkRef": _v111("player_cryopod", 3.14),
     }

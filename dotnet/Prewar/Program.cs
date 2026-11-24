@@ -76,9 +76,14 @@ static class PrewarBuilder
     public const uint ExtLiftBaseId = 0x828;
     public const uint CodsworthOutfitId = 0x829;
     public const uint StageActiveGlobId = 0x82A;
+    public const uint InstMalePodMarkRefId = 0x82B;
+    public const uint InstFemalePodMarkRefId = 0x82C;
+    public const uint CrowdBridgeMarkRefId = 0x82D;
 
     // Companion assets cleanly separated between 0x82A and 0x900
     public const uint CodsworthVoiceId = 0x8F0;
+    public const uint CodsworthSkinId = 0x8F1;
+    public const uint CodsworthAaStartId = 0x8F2;
     public const uint VoiceStartId = 0x900;
 
     // Built-in Starfield.esm reference IDs
@@ -246,11 +251,14 @@ static class PrewarBuilder
         ["FO4SF_PrewarVaultArrivalMarker"] = new(-77.62f, -3.81f, 21.54f, 0f, true),
         ["FO4SF_PrewarVaultDoctorRef"] = new(-52.50f, -2.80f, -0.10f, 3.14f, true),
         ["FO4SF_PrewarKelloggRef"] = new(9.14f, -8.30f, -1.03f, 1.57f, true),
-        ["FO4SF_PrewarInstAgentMRef"] = new(7.80f, -8.60f, -1.03f, 1.57f, true),
-        ["FO4SF_PrewarInstAgentFRef"] = new(10.50f, -8.60f, -1.03f, 1.57f, true),
-        ["FO4SF_PrewarKelloggMarkRef"] = new(9.14f, -8.30f, -1.03f, 1.57f, true),
+        ["FO4SF_PrewarInstAgentMRef"] = new(7.80f, -8.60f, -1.03f, 3.14f, true),
+        ["FO4SF_PrewarInstAgentFRef"] = new(10.50f, -8.60f, -1.03f, 3.14f, true),
+        ["FO4SF_PrewarKelloggMarkRef"] = new(9.14f, -8.30f, -1.03f, 3.14f, true),
+        ["FO4SF_PrewarInstMalePodMarkRef"] = new(7.80f, -8.60f, -1.03f, 3.14f, true),
+        ["FO4SF_PrewarInstFemalePodMarkRef"] = new(10.50f, -8.60f, -1.03f, 3.14f, true),
         ["FO4SF_PrewarSpousePodMarkRef"] = new(9.14f, -10.51f, -1.03f, 0f, true),
         ["FO4SF_PrewarPlayerPodMarkRef"] = new(9.14f, -4.11f, -1.03f, 3.14f, true),
+        ["FO4SF_PrewarCrowdBridgeMarkRef"] = new(-4.84f, -1.49f, 105.34f, 1.57f, false),
     };
 
     static SF.IRaceGetter RequireRace(ILinkCache cache, uint id, string expectedEdid)
@@ -260,7 +268,7 @@ static class PrewarBuilder
         return race;
     }
 
-    static SF.Race BuildCodsworthRaceZeroMaster(
+    static (SF.Race Race, SF.Armor? HandySkin) BuildCodsworthRaceZeroMaster(
         SF.StarfieldMod mod,
         SF.IStarfieldModGetter sf,
         ILinkCache sfCache,
@@ -274,7 +282,7 @@ static class PrewarBuilder
             fallbackRace.Flags |= SF.Race.Flag.AllowPcDialog;
             fallbackRace.ArmorRace.SetTo(baseBotRace.FormKey);
             mod.Races.Add(fallbackRace);
-            return fallbackRace;
+            return (fallbackRace, null);
         }
         if (!File.Exists(handyEsmPath)) throw new Refusal($"--handy-esm {handyEsmPath} does not exist");
         using var tpl = SF.StarfieldMod.CreateFromBinaryOverlay(handyEsmPath, Rel, Styles(SfEsm));
@@ -294,18 +302,62 @@ static class PrewarBuilder
         race.EditorID = "FO4SF_PrewarCodsworthRace";
         race.Flags |= SF.Race.Flag.AllowPcDialog;
         race.BodyPartData.SetTo(bptd.FormKey);
-        if (!baseBotRace.Skin.IsNull) race.Skin.SetTo(baseBotRace.Skin.FormKeyNullable);
+        race.ArmorRace.Clear();
 
-        var leaks = race.EnumerateFormLinks().Concat(bptd.EnumerateFormLinks())
-                        .Where(l => l.FormKey.ModKey == tpl.ModKey)
-                        .Select(l => l.FormKey.ToString())
-                        .Distinct().ToList();
+        // Clone local ARMO/ARMA (FO4SF_RA2Handy_Skin -> handy.nif) so Codsworth does NOT fall back to MiniBot skin!
+        var copiedRecords = new List<IMajorRecord> { race, bptd };
+        SF.Armor? copiedSkin = null;
+        var tplSkin = !hr.Skin.IsNull && hr.Skin.FormKey.ModKey == tpl.ModKey
+            ? tpl.Armors.FirstOrDefault(a => a.FormKey == hr.Skin.FormKey)
+            : tpl.Armors.FirstOrDefault(a => a.EditorID == "FO4SF_RA2Handy_Skin");
+        if (tplSkin is null)
+            throw new Refusal($"{name}: missing local Handy skin ARMO on {HandyRaceEdid}");
+
+        copiedSkin = (SF.Armor)tplSkin.Duplicate(new FormKey(mod.ModKey, CodsworthSkinId));
+        copiedSkin.EditorID = "FO4SF_PrewarCodsworthSkin";
+        copiedSkin.Race.SetTo(race.FormKey);
+        var newArmatures = new List<SF.ArmorAddonModel>();
+        uint nextAa = CodsworthAaStartId;
+        foreach (var arm in copiedSkin.Armatures)
+        {
+            if (arm.ArmorAddon.IsNull || arm.ArmorAddon.FormKey.ModKey != tpl.ModKey)
+            {
+                newArmatures.Add(arm);
+                continue;
+            }
+            var tplAa = tpl.ArmorAddons.FirstOrDefault(a => a.FormKey == arm.ArmorAddon.FormKey)
+                        ?? throw new Refusal($"{name}: missing ARMA {arm.ArmorAddon.FormKey}");
+            if (nextAa >= VoiceStartId)
+                throw new Refusal("Codsworth ARMA FormIDs collided with VoiceStartId");
+            var aa = (SF.ArmorAddon)tplAa.Duplicate(new FormKey(mod.ModKey, nextAa));
+            aa.EditorID = nextAa == CodsworthAaStartId ? "FO4SF_PrewarCodsworthAA" : $"FO4SF_PrewarCodsworthAA_{nextAa - CodsworthAaStartId}";
+            nextAa++;
+            aa.Race.SetTo(race.FormKey);
+            aa.AdditionalRaces.RemoveAll(r => r.FormKey.ModKey == tpl.ModKey);
+            mod.ArmorAddons.Add(aa);
+            copiedRecords.Add(aa);
+            newArmatures.Add(new SF.ArmorAddonModel
+            {
+                AddonIndex = arm.AddonIndex,
+                ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(aa.FormKey),
+            });
+        }
+        copiedSkin.Armatures.Clear();
+        copiedSkin.Armatures.AddRange(newArmatures);
+        mod.Armors.Add(copiedSkin);
+        copiedRecords.Add(copiedSkin);
+        race.Skin.SetTo(copiedSkin.FormKey);
+
+        var leaks = copiedRecords.SelectMany(r => r.EnumerateFormLinks())
+                                 .Where(l => l.FormKey.ModKey == tpl.ModKey)
+                                 .Select(l => l.FormKey.ToString())
+                                 .Distinct().ToList();
         if (leaks.Count > 0)
             throw new Refusal($"{name}: master link leaks into {tpl.ModKey} after copy: {string.Join(", ", leaks)}");
         _ = sf;
         _ = sfCache;
         mod.Races.Add(race);
-        return race;
+        return (race, copiedSkin);
     }
 
     static SF.Npc CloneHumanNpc(
@@ -410,8 +462,8 @@ static class PrewarBuilder
         mod.Factions.Add(prewarFaction);
         mod.Factions.Add(crowdFaction);
 
-        // Codsworth Race/BPTD/Voice/Outfit/NPC
-        var codsRace = BuildCodsworthRaceZeroMaster(mod, sf, sfCache, handyEsm, botRace);
+        // Codsworth Race/BPTD/Voice/Skin/Outfit/NPC
+        var (codsRace, codsHandySkin) = BuildCodsworthRaceZeroMaster(mod, sf, sfCache, handyEsm, botRace);
         var codsVoice = new SF.VoiceType(new FormKey(modKey, CodsworthVoiceId), Rel)
         {
             EditorID = "FO4SF_PrewarCodsworthVoice",
@@ -420,8 +472,9 @@ static class PrewarBuilder
         mod.VoiceTypes.Add(codsVoice);
 
         var codsOutfit = new SF.Outfit(new FormKey(modKey, CodsworthOutfitId), Rel) { EditorID = "FO4SF_PrewarCodsworthOutfit" };
-        if (sf.Armors.FirstOrDefault(a => a.FormKey.ID == SfMiniBotSkinId) is { } miniSkin && codsOutfit.Items is { } outfitItems)
-            outfitItems.Add(new FormLink<SF.IOutfitTargetGetter>(miniSkin.FormKey));
+        FormKey codsSkinKey = codsHandySkin?.FormKey ?? sf.Armors.FirstOrDefault(a => a.FormKey.ID == SfMiniBotSkinId)?.FormKey ?? FormKey.Null;
+        if (!codsSkinKey.IsNull && codsOutfit.Items is { } outfitItems)
+            outfitItems.Add(new FormLink<SF.IOutfitTargetGetter>(codsSkinKey));
         mod.Outfits.Add(codsOutfit);
 
         var codsNpc = (SF.Npc)botNpc.Duplicate(new FormKey(modKey, CodsworthNpcId));
@@ -429,6 +482,11 @@ static class PrewarBuilder
         codsNpc.Name = "Codsworth";
         codsNpc.Race.SetTo(codsRace.FormKey);
         codsNpc.Voice.SetTo(codsVoice.FormKey);
+        if (!codsSkinKey.IsNull)
+            codsNpc.Skin.SetTo(codsSkinKey);
+        else
+            codsNpc.Skin.Clear();
+        codsNpc.DefaultOutfit.SetTo(codsOutfit.FormKey);
         codsNpc.Flags = (codsNpc.Flags | SF.Npc.Flag.Essential | SF.Npc.Flag.Unique) & ~SF.Npc.Flag.Respawn;
         codsNpc.Factions.Clear();
         codsNpc.Factions.Add(new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(prewarFaction.FormKey), Rank = 0 });
@@ -481,12 +539,13 @@ static class PrewarBuilder
         cBlk.SubBlocks.Add(cSub);
         mod.Cells.Records.Add(cBlk);
 
+        var homeEsm = ModKey.FromFileName("FO4SFHome.esm");
         var extraMasters = new List<ModKey>();
         SF.Cell? exteriorTopOverride = null;
         if (!string.IsNullOrWhiteSpace(spec.SanctuaryEsmPath))
         {
             if (!File.Exists(spec.SanctuaryEsmPath)) throw new Refusal($"sanctuary_world.esm {spec.SanctuaryEsmPath} missing");
-            using var sMod = SF.StarfieldMod.CreateFromBinaryOverlay(spec.SanctuaryEsmPath, Rel, Styles(SfEsm));
+            using var sMod = SF.StarfieldMod.CreateFromBinaryOverlay(spec.SanctuaryEsmPath, Rel, Styles(SfEsm, homeEsm));
             var sWorld = sMod.Worldspaces.FirstOrDefault(w => w.EditorID == spec.SanctuaryWorldEdid)
                          ?? throw new Refusal($"{spec.SanctuaryEsmPath} has no WRLD {spec.SanctuaryWorldEdid}");
             var wOvr = (SF.Worldspace)sWorld.DeepCopy();
@@ -498,6 +557,9 @@ static class PrewarBuilder
             wOvr.TopCell = tOvr;
             mod.Worldspaces.Add(wOvr);
             exteriorTopOverride = tOvr;
+            foreach (var mr in sMod.ModHeader.MasterReferences)
+                if (mr.Master != SfEsm && !extraMasters.Contains(mr.Master))
+                    extraMasters.Add(mr.Master);
             extraMasters.Add(sMod.ModKey);
         }
 
@@ -556,11 +618,14 @@ static class PrewarBuilder
         var nukeMark = PlaceObj(modKey, NukeAnchorRefId, "FO4SF_PrewarNukeAnchorRef", xMarker.FormKey, Pos("FO4SF_PrewarNukeAnchorRef"));
         var vaultArr = PlaceObj(modKey, VaultArrivalMarkerId, "FO4SF_PrewarVaultArrivalMarker", xMarker.FormKey, Pos("FO4SF_PrewarVaultArrivalMarker"));
         var kelloggMark = PlaceObj(modKey, KelloggMarkRefId, "FO4SF_PrewarKelloggMarkRef", xMarker.FormKey, Pos("FO4SF_PrewarKelloggMarkRef"));
+        var instMaleMark = PlaceObj(modKey, InstMalePodMarkRefId, "FO4SF_PrewarInstMalePodMarkRef", xMarker.FormKey, Pos("FO4SF_PrewarInstMalePodMarkRef"));
+        var instFemaleMark = PlaceObj(modKey, InstFemalePodMarkRefId, "FO4SF_PrewarInstFemalePodMarkRef", xMarker.FormKey, Pos("FO4SF_PrewarInstFemalePodMarkRef"));
         var spousePodMark = PlaceObj(modKey, SpousePodMarkRefId, "FO4SF_PrewarSpousePodMarkRef", xMarker.FormKey, Pos("FO4SF_PrewarSpousePodMarkRef"));
         var playerPodMark = PlaceObj(modKey, PlayerPodMarkRefId, "FO4SF_PrewarPlayerPodMarkRef", xMarker.FormKey, Pos("FO4SF_PrewarPlayerPodMarkRef"));
         var crowdGoalMark = PlaceObj(modKey, CrowdGoalMarkRefId, "FO4SF_PrewarCrowdGoalMarkRef", xMarker.FormKey, Pos("FO4SF_PrewarCrowdGoalMarkRef"));
+        var crowdBridgeMark = PlaceObj(modKey, CrowdBridgeMarkRefId, "FO4SF_PrewarCrowdBridgeMarkRef", xMarker.FormKey, Pos("FO4SF_PrewarCrowdBridgeMarkRef"));
         var houseSpawn = PlaceObj(modKey, HouseSpawnMarkerId, "FO4SF_PrewarHouseSpawnMarker", xMarker.FormKey, Pos("FO4SF_PrewarHouseSpawnMarker"));
-        foreach (var r in new[] { vb1, vb2, liftRef, nukeMark, vaultArr, kelloggMark, spousePodMark, playerPodMark, crowdGoalMark, houseSpawn })
+        foreach (var r in new[] { vb1, vb2, liftRef, nukeMark, vaultArr, kelloggMark, instMaleMark, instFemaleMark, spousePodMark, playerPodMark, crowdGoalMark, crowdBridgeMark, houseSpawn })
             AddToCell(r.EditorID!, r);
 
         // Main Quest (0x800): non-StartGameEnabled so fo4_vault111 (Skip Pre-War) never gets preempted
@@ -578,6 +643,41 @@ static class PrewarBuilder
         };
         foreach (var s in RequiredStages) quest.Stages.Add(new SF.QuestStage { Index = s });
 
+        // Register real QuestReferenceAliases 0..3 so KelloggSequenceScene DialogueSceneAction.AliasID resolves cleanly!
+        var aliasSpecs = new (uint AliasId, string AliasName, FormKey RefKey)[]
+        {
+            (0u, "Kellogg", kelloggRef.FormKey),
+            (1u, "InstAgentM", instMRef.FormKey),
+            (2u, "InstAgentF", instFRef.FormKey),
+            (3u, "Spouse", spouseRef.FormKey),
+        };
+        quest.Aliases ??= new ExtendedList<SF.AQuestAlias>();
+        foreach (var (aliasId, aliasName, refKey) in aliasSpecs)
+        {
+            quest.Aliases.Add(new SF.QuestReferenceAlias
+            {
+                ID = aliasId,
+                Name = aliasName,
+                Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowDead | SF.AQuestAlias.Flag.AllowDisabled |
+                        SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
+                ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(refKey),
+            });
+        }
+
+        uint AliasForSpeaker(string speakerEdid) => speakerEdid switch
+        {
+            "FO4SF_PrewarInstAgentMNPC" => 1u,
+            "FO4SF_PrewarInstAgentFNPC" => 2u,
+            "FO4SF_PrewarSpouseMaleNPC" or "FO4SF_PrewarSpouseFemaleNPC" => 3u,
+            _ => 0u,
+        };
+
+        FormKey VoiceForAlias(uint aliasId) => aliasId switch
+        {
+            2u or 3u => femaleVoiceKey.IsNull ? maleVoiceKey : femaleVoiceKey,
+            _ => maleVoiceKey,
+        };
+
         // Kellogg Pod Scene & Topics starting at VoiceStartId (0x900)
         uint nextVoiceId = VoiceStartId;
         var kelloggScene = new SF.Scene(new FormKey(modKey, nextVoiceId++), Rel)
@@ -591,12 +691,15 @@ static class PrewarBuilder
             SCPI = null,
             VNAM = new byte[] { 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0 },
         };
-        kelloggScene.Actors.Add(new SF.SceneActor { ID = 0, BehaviorFlags = (SF.SceneActor.BehaviorFlag)0x10A, Flags = SF.SceneActor.Flag.NoCommandState });
+        foreach (var (aliasId, _, _) in aliasSpecs)
+            kelloggScene.Actors.Add(new SF.SceneActor { ID = aliasId, BehaviorFlags = (SF.SceneActor.BehaviorFlag)0x10A, Flags = SF.SceneActor.Flag.NoCommandState });
         kelloggScene.Actions ??= new ExtendedList<SF.ASceneAction>();
 
         for (int idx = 0; idx < voices.KelloggScene.Count; idx++)
         {
             var ln = voices.KelloggScene[idx];
+            uint spkAlias = AliasForSpeaker(ln.SpeakerEdid);
+            FormKey spkVoice = VoiceForAlias(spkAlias);
             var topic = new SF.DialogTopic(new FormKey(modKey, nextVoiceId++), Rel)
             {
                 EditorID = $"FO4SF_PrewarKelloggTopic_{idx:00}",
@@ -618,11 +721,11 @@ static class PrewarBuilder
                 WEMFile = ln.Wem,
                 EmotionOut = ln.Wem != 0u ? ln.Duration : 0f,
             };
-            if (ln.Wem != 0u && !maleVoiceKey.IsNull)
+            if (ln.Wem != 0u && !spkVoice.IsNull)
             {
                 resp.TROTs.Add(new SF.DialogResponseTROT
                 {
-                    VoiceType = new FormLink<SF.IVoiceTypeGetter>(maleVoiceKey),
+                    VoiceType = new FormLink<SF.IVoiceTypeGetter>(spkVoice),
                     EmotionOut = ln.Duration,
                 });
             }
@@ -636,7 +739,7 @@ static class PrewarBuilder
             {
                 Name = $"Line_{idx:00}",
                 Index = (uint)(idx + 1),
-                AliasID = 0,
+                AliasID = (int)spkAlias,
                 StartPhase = (uint)idx,
                 EndPhase = (uint)idx,
                 Topic = new FormLinkNullable<SF.IDialogTopicGetter>(topic.FormKey),
@@ -666,6 +769,7 @@ static class PrewarBuilder
 
         var standInScript = new SF.ScriptEntry { Name = StandInsScript, Flags = SF.ScriptEntry.Flag.Local };
         standInScript.Properties.Add(ObjListProp("CrowdRunners", new[] { c1.FormKey, c2.FormKey, c3.FormKey, c4.FormKey }));
+        standInScript.Properties.Add(ObjProp("CrowdBridgeMarker", crowdBridgeMark.FormKey));
         standInScript.Properties.Add(ObjProp("CrowdHillGoalMarker", crowdGoalMark.FormKey));
         standInScript.Properties.Add(ObjProp("Vertibird01", vb1.FormKey));
         standInScript.Properties.Add(ObjProp("Vertibird02", vb2.FormKey));
@@ -687,8 +791,8 @@ static class PrewarBuilder
         standInScript.Properties.Add(ObjProp("PlayerPodHoldMarker", playerPodMark.FormKey));
         standInScript.Properties.Add(ObjProp("SpousePodActorMarker", spousePodMark.FormKey));
         standInScript.Properties.Add(ObjProp("KelloggPodMarker", kelloggMark.FormKey));
-        standInScript.Properties.Add(ObjProp("InstMalePodMarker", kelloggMark.FormKey));
-        standInScript.Properties.Add(ObjProp("InstFemalePodMarker", kelloggMark.FormKey));
+        standInScript.Properties.Add(ObjProp("InstMalePodMarker", instMaleMark.FormKey));
+        standInScript.Properties.Add(ObjProp("InstFemalePodMarker", instFemaleMark.FormKey));
         standInScript.Properties.Add(ObjProp("SpouseActor", spouseRef.FormKey));
         standInScript.Properties.Add(ObjProp("KelloggActor", kelloggRef.FormKey));
         standInScript.Properties.Add(ObjProp("InstMaleActor", instMRef.FormKey));
@@ -728,7 +832,7 @@ static class PrewarBuilder
         var spec = LoadSpec(specPath);
         _ = LoadVoices(voicesPath);
 
-        var known = new List<ModKey> { SfEsm };
+        var known = new List<ModKey> { SfEsm, ModKey.FromFileName("FO4SFHome.esm") };
         if (!string.IsNullOrWhiteSpace(spec.SanctuaryEsmPath) && File.Exists(spec.SanctuaryEsmPath))
             known.Add(ModKey.FromFileName(Path.GetFileName(spec.SanctuaryEsmPath)));
         if (!string.IsNullOrWhiteSpace(spec.PortEsmPath) && File.Exists(spec.PortEsmPath))
@@ -748,17 +852,32 @@ static class PrewarBuilder
             Need(!masters.Contains(handyName), $"leaked template master {handyName}");
             Need(plug.BodyParts.Any(b => b.FormKey == new FormKey(key, CodsworthBptdId) && b.EditorID == "FO4SF_PrewarCodsworthBPTD"),
                  "missing local FO4SF_PrewarCodsworthBPTD (0x802)");
+            var codsSkin = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, CodsworthSkinId) && a.EditorID == "FO4SF_PrewarCodsworthSkin");
+            Need(codsSkin is not null && codsSkin.Armatures.Any(ar => ar.ArmorAddon.FormKey.ModKey == key),
+                 "missing local FO4SF_PrewarCodsworthSkin (0x8F1) -> local AA");
+            var aaModels = plug.ArmorAddons.Where(a => a.FormKey.ModKey == key)
+                               .Select(a => a.WorldModel?.Male?.File?.GivenPath ?? a.WorldModel?.Female?.File?.GivenPath ?? "")
+                               .ToList();
+            Need(aaModels.Any(p => p.Contains("handy.nif", StringComparison.OrdinalIgnoreCase)),
+                 "copied Codsworth ARMA missing handy.nif model");
         }
 
         var codsRace = plug.Races.FirstOrDefault(r => r.FormKey == new FormKey(key, CodsworthRaceId));
         Need(codsRace is { EditorID: "FO4SF_PrewarCodsworthRace" } && codsRace.Flags.HasFlag(SF.Race.Flag.AllowPcDialog),
              "Codsworth race 0x801 missing or lacks AllowPcDialog");
+        if (!string.IsNullOrWhiteSpace(handyEsm))
+            Need(codsRace?.Skin.FormKey == new FormKey(key, CodsworthSkinId),
+                 "Codsworth race 0x801 WNAM Skin must point to FO4SF_PrewarCodsworthSkin (0x8F1)");
 
         var codsNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, CodsworthNpcId));
         Need(codsNpc is { EditorID: "FO4SF_PrewarCodsworthNPC" } && codsNpc.Race.FormKey == new FormKey(key, CodsworthRaceId)
              && codsNpc.Flags.HasFlag(SF.Npc.Flag.Essential) && codsNpc.Flags.HasFlag(SF.Npc.Flag.Unique)
              && !codsNpc.Flags.HasFlag(SF.Npc.Flag.Respawn),
              "Codsworth NPC_ 0x803 invalid");
+        if (!string.IsNullOrWhiteSpace(handyEsm))
+            Need(codsNpc?.Skin.FormKey == new FormKey(key, CodsworthSkinId)
+                 && codsNpc?.DefaultOutfit.FormKey == new FormKey(key, CodsworthOutfitId),
+                 "Codsworth NPC_ 0x803 Skin/DefaultOutfit must point to local Handy skin (0x8F1/0x829)");
 
         var q = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, QuestId));
         Need(q is { EditorID: QuestEdid }, $"QUST 0x{QuestId:X} is not {QuestEdid}");
@@ -768,6 +887,9 @@ static class PrewarBuilder
                  "FO4SF_PrewarQuest must NOT be StartGameEnabled (would preempt fo4_vault111 Skip Pre-War)");
             var stageIds = q.Stages.Select(s => s.Index).ToHashSet();
             Need(RequiredStages.All(stageIds.Contains), "FO4SF_PrewarQuest missing one or more required stages [0,10,20,30,40,50,60,200]");
+            var aliasIds = (q.Aliases ?? Array.Empty<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().Select(a => a.ID).ToHashSet();
+            Need(new uint[] { 0, 1, 2, 3 }.All(aliasIds.Contains),
+                 "FO4SF_PrewarQuest missing QuestReferenceAliases [0,1,2,3] for Kellogg pod scene");
             var scripts = q.VirtualMachineAdapter?.Scripts ?? Array.Empty<SF.IScriptEntryGetter>();
             var main = scripts.FirstOrDefault(s => s.Name == QuestScript);
             var stand = scripts.FirstOrDefault(s => s.Name == StandInsScript);
@@ -782,12 +904,22 @@ static class PrewarBuilder
             if (stand is not null)
             {
                 var sMap = stand.Properties.ToDictionary(p => p.Name);
-                Need(sMap.ContainsKey("CrowdRunners") && sMap.ContainsKey("Vertibird01")
+                Need(sMap.ContainsKey("CrowdRunners") && sMap.ContainsKey("CrowdBridgeMarker") && sMap.ContainsKey("Vertibird01")
                      && sMap.ContainsKey("ExtElevatorPlatform") && sMap.ContainsKey("KelloggSequenceScene"),
                      "FO4SF_PrewarStandIns missing stand-in beat properties");
+                FormKey? MarkerFk(string n) => sMap.TryGetValue(n, out var pr) && pr is SF.IScriptObjectPropertyGetter o ? o.Object.FormKey : null;
+                var podMarks = new[] { MarkerFk("PlayerPodHoldMarker"), MarkerFk("SpousePodActorMarker"), MarkerFk("KelloggPodMarker"), MarkerFk("InstMalePodMarker"), MarkerFk("InstFemalePodMarker") };
+                Need(podMarks.All(k => k.HasValue) && podMarks.Select(k => k!.Value).Distinct().Count() == 5,
+                     "Beat (e) pod markers must all be distinct ObjectReferences");
             }
-            Need(q.Scenes.Any(s => s.FormKey.ID == VoiceStartId && s.EditorID == "FO4SF_PrewarKelloggPodScene"),
-                 "missing FO4SF_PrewarKelloggPodScene at 0x900");
+            var kScene = q.Scenes.FirstOrDefault(s => s.FormKey.ID == VoiceStartId && s.EditorID == "FO4SF_PrewarKelloggPodScene");
+            Need(kScene is not null, "missing FO4SF_PrewarKelloggPodScene at 0x900");
+            if (kScene is not null)
+            {
+                var sceneActorIds = kScene.Actors.Select(a => a.ID).ToHashSet();
+                Need((kScene.Actions ?? Array.Empty<SF.IASceneActionGetter>()).OfType<SF.IDialogueSceneActionGetter>().All(a => a.AliasID >= 0 && aliasIds.Contains((uint)a.AliasID) && sceneActorIds.Contains((uint)a.AliasID)),
+                     "FO4SF_PrewarKelloggPodScene DialogueSceneAction references undeclared AliasID");
+            }
         }
 
         if (problems.Count > 0)
@@ -839,13 +971,27 @@ static class PrewarBuilder
         var handyKey = ModKey.FromFileName("FO4SF_RA2Handy.esm");
         var hm = new SF.StarfieldMod(handyKey, Rel);
         hm.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
-        var hb = new SF.BodyPartData(new FormKey(handyKey, 0x802), Rel) { EditorID = HandyBptdEdid };
-        var hr = new SF.Race(new FormKey(handyKey, 0x801), Rel)
+        var hb = new SF.BodyPartData(new FormKey(handyKey, 0x801), Rel) { EditorID = HandyBptdEdid };
+        var ha = new SF.ArmorAddon(new FormKey(handyKey, 0x802), Rel)
+        {
+            EditorID = "FO4SF_RA2Handy_AA",
+            WorldModel = new GenderedItem<SF.Model?>(
+                new SF.Model { File = @"FO4SF\Actors\Handy\handy.nif" },
+                new SF.Model { File = @"FO4SF\Actors\Handy\handy.nif" }),
+        };
+        var hs = new SF.Armor(new FormKey(handyKey, 0x803), Rel) { EditorID = "FO4SF_RA2Handy_Skin" };
+        hs.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 0, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(ha.FormKey) });
+        var hr = new SF.Race(new FormKey(handyKey, 0x800), Rel)
         {
             EditorID = HandyRaceEdid,
             BodyPartData = new FormLinkNullable<SF.IBodyPartDataGetter>(hb.FormKey),
+            Skin = new FormLinkNullable<SF.IArmorGetter>(hs.FormKey),
         };
+        ha.Race.SetTo(hr.FormKey);
+        hs.Race.SetTo(hr.FormKey);
         hm.BodyParts.Add(hb);
+        hm.ArmorAddons.Add(ha);
+        hm.Armors.Add(hs);
         hm.Races.Add(hr);
         hm.ModHeader.Stats.NextFormID = 0x810;
         hm.BeginWrite.ToPath(handyPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
@@ -854,12 +1000,14 @@ static class PrewarBuilder
         var plugPath = Path.Combine(outDir, Plugin);
         if (Check(plugPath, sfPath, handyPath, null, null) != 0) return 1;
 
-        // Negative mutation checks: ensure Check rejects StartGameEnabled, stripped AllowPcDialog, and dropped script
+        // Negative mutation checks: StartGameEnabled, stripped AllowPcDialog, dropped script, MiniBot skin regression, and cleared Aliases
         var mutExpectations = new (string Label, Action<SF.StarfieldMod> Mutate)[]
         {
             ("StartGameEnabled set on FO4SF_PrewarQuest", m => m.Quests.First(q => q.FormKey.ID == QuestId).Data!.Flags |= SF.Quest.Flag.StartGameEnabled),
             ("Codsworth race AllowPcDialog cleared", m => m.Races.First(r => r.FormKey.ID == CodsworthRaceId).Flags &= ~SF.Race.Flag.AllowPcDialog),
+            ("Codsworth race reverted to MiniBot skin", m => m.Races.First(r => r.FormKey.ID == CodsworthRaceId).Skin.SetTo(new FormKey(SfEsm, SfMiniBotSkinId))),
             ("StandIns script removed", m => m.Quests.First(q => q.FormKey.ID == QuestId).VirtualMachineAdapter!.Scripts.RemoveAll(s => s.Name == StandInsScript)),
+            ("Quest Aliases cleared", m => m.Quests.First(q => q.FormKey.ID == QuestId).Aliases!.Clear()),
         };
         for (int idx = 0; idx < mutExpectations.Length; idx++)
         {

@@ -43,16 +43,18 @@ def _make_synthetic_handy_bundle(bundle_dir: Path) -> None:
     gsd.parent.mkdir(parents=True, exist_ok=True)
     gsd.write_text("synth gsd\n", encoding="utf-8")
 
-    # Synthetic FO4SF_RA2Handy.esm with BPTD 0x802 and RACE 0x801 linked via GNAM + SGNM/SAPT
+    # Synthetic FO4SF_RA2Handy.esm with BPTD 0x801, ARMA 0x802, ARMO 0x803, RACE 0x800 (matching E2!)
     w = esm.PluginWriter(["Starfield.esm"], esm.ESM)
-    w.add(esm.Record(b"BPTD", 0x000802, [(b"EDID", esm.zbytes(handy_codsworth.HANDY_BPTD_EDID))]))
+    w.add(esm.Record(b"BPTD", 0x000801, [(b"EDID", esm.zbytes(handy_codsworth.HANDY_BPTD_EDID))]))
+    w.add(esm.Record(b"ARMA", 0x000802, [(b"EDID", esm.zbytes("FO4SF_RA2Handy_AA")), (b"MOD2", esm.zbytes(r"FO4SF\Actors\Handy\handy.nif"))]))
+    w.add(esm.Record(b"ARMO", 0x000803, [(b"EDID", esm.zbytes("FO4SF_RA2Handy_Skin")), (b"MODL", struct.pack("<I", 0x000802))]))
     w.add(
         esm.Record(
             b"RACE",
-            0x000801,
+            0x000800,
             [
                 (b"EDID", esm.zbytes(handy_codsworth.HANDY_RACE_EDID)),
-                (b"GNAM", struct.pack("<I", 0x000802)),
+                (b"GNAM", struct.pack("<I", 0x000801)),
                 (b"SGNM", esm.zbytes(graph)),
                 (b"SAPT", esm.zbytes("Neutral")),
             ],
@@ -91,6 +93,18 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
         spec = build_prewar_quest.build_tile_local_spec()
         self.assertIn("FO4SF_PrewarHouseSpawnMarker", spec["markers"])
         self.assertIn("FO4SF_PrewarVaultArrivalMarker", spec["markers"])
+        self.assertIn("FO4SF_PrewarCrowdBridgeMarkRef", spec["markers"])
+        pod_coords = {
+            tuple(spec["markers"][k][:2])
+            for k in (
+                "FO4SF_PrewarPlayerPodMarkRef",
+                "FO4SF_PrewarSpousePodMarkRef",
+                "FO4SF_PrewarKelloggMarkRef",
+                "FO4SF_PrewarInstMalePodMarkRef",
+                "FO4SF_PrewarInstFemalePodMarkRef",
+            )
+        }
+        self.assertEqual(len(pod_coords), 5)
         hx, hy, _hz, _hr = spec["markers"]["FO4SF_PrewarHouseSpawnMarker"]
         self.assertTrue(-200.0 <= hx < 200.0 and -200.0 <= hy < 200.0)
 

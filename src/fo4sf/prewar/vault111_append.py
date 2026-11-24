@@ -307,20 +307,27 @@ def _wrap_grup(label: bytes, gtype: int, payload: bytes) -> bytes:
 
 
 def _wrap_cell(cell_rec: RawRec, pers: Sequence[RawRec], temp: Sequence[RawRec]) -> bytes:
+    """Wrap one interior CELL + child groups inside `InteriorCellBlock (2)` and `InteriorCellSubBlock (3)` GRUPs."""
+    local_id = cell_rec.fid & 0x00FFFFFF
+    block = local_id % 10
+    subblock = (local_id // 10) % 10
     sub_blocks = b""
     if pers:
         sub_blocks += _wrap_grup(struct.pack("<I", cell_rec.fid), 8, b"".join(r.to_bytes() for r in pers))
     if temp:
         sub_blocks += _wrap_grup(struct.pack("<I", cell_rec.fid), 9, b"".join(r.to_bytes() for r in temp))
+    cell_body = cell_rec.to_bytes()
     if sub_blocks:
-        return cell_rec.to_bytes() + _wrap_grup(struct.pack("<I", cell_rec.fid), 6, sub_blocks)
-    return cell_rec.to_bytes()
+        cell_body += _wrap_grup(struct.pack("<I", cell_rec.fid), 6, sub_blocks)
+    sub_grp = _wrap_grup(struct.pack("<i", subblock), 3, cell_body)
+    return _wrap_grup(struct.pack("<i", block), 2, sub_grp)
 
 
 def _build_static_marker_base_if_missing(fid: int, edid: str) -> RawRec:
     raw = _pack_subrecords([
         (b"EDID", edid.encode("cp1252") + b"\0"),
         (b"OBND", struct.pack("<6f", -0.25, -0.25, -0.25, 0.25, 0.25, 0.25)),
+        (b"MODL", b"Markers\\MarkerX.nif\0"),
     ])
     return RawRec(b"STAT", 0, fid, 581, 0, 0, raw)
 
@@ -422,7 +429,7 @@ def _convert_interior_navm_to_sf(
         cell=new_cell_fid,
         border=0,
     )
-    nv_raw = _pack_subrecords([(b"NVNM", navm.write_sf(sf_nvnm))])
+    nv_raw = _pack_subrecords([(b"NVNM", navm.write_sf(sf_nvnm)), (b"MNAM", b"")])
     nv_rec = RawRec(b"NAVM", 0, new_navm_fid, 581, 0, 0, nv_raw)
     return sf_nvnm, sf_nvmi, nv_rec
 
@@ -466,16 +473,47 @@ def append_prewar_vault111_lossless(
     # 1. Allocate new PrewarVault111 S1 cell + re-emit shell refs on new >= start_id FormIDs (reusing existing bases!)
     new_cell_fid = _alloc()
     new_cell_raw = _rewrite_edid_subs(shell_cell.raw_subrecords_bytes, new_cell_edid)
-    new_cell_rec = RawRec(b"CELL", shell_cell.flags, new_cell_fid, shell_cell.version, 0, shell_cell.unknown, new_cell_raw)
+    new_cell_rec = RawRec(
+        b"CELL", shell_cell.flags & ~COMPRESSED_FLAG, new_cell_fid, shell_cell.version, 0, shell_cell.unknown, new_cell_raw
+    )
 
     new_pers: List[RawRec] = []
     new_temp: List[RawRec] = []
-    for r in shell_pers:
-        new_pers.append(RawRec(r.sig, r.flags, _alloc(), r.version, 0, r.unknown, _rewrite_edid_subs(r.raw_subrecords_bytes, _get_edid(r) or f"FO4Port_PrewarV111Ref_{next_local:06X}")))
-    for r in shell_temp:
-        new_temp.append(RawRec(r.sig, r.flags, _alloc(), r.version, 0, r.unknown, r.raw_subrecords_bytes))
+    seen_edids: Set[str] = set()
 
-    # 2. Allocate persistent marker/interactive S1 STAT placeholder + refs (never touching existing bases!)
+    def _s1_edid(raw_name: str, fallback: str) -> str:
+        base_name = raw_name if raw_name else fallback
+        if not base_name.startswith(new_cell_edid):
+            base_name = f"{new_cell_edid}_{base_name}"
+        cand = base_name
+        suffix = 1
+        while cand in seen_edids:
+            cand = f"{base_name}_{suffix}"
+            suffix += 1
+        seen_edids.add(cand)
+        return cand
+
+    for r in shell_pers:
+        rfid = _alloc()
+        s1_ed = _s1_edid(_get_edid(r), f"ShellPers_{rfid & 0xFFFFFF:06X}")
+        new_pers.append(
+            RawRec(
+                r.sig,
+                (r.flags & ~COMPRESSED_FLAG) | PERSISTENT_FLAG,
+                rfid,
+                r.version,
+                0,
+                r.unknown,
+                _rewrite_edid_subs(r.raw_subrecords_bytes, s1_ed),
+            )
+        )
+    for r in shell_temp:
+        rfid = _alloc()
+        orig_ed = _get_edid(r)
+        raw_subs = _rewrite_edid_subs(r.raw_subrecords_bytes, _s1_edid(orig_ed, f"ShellTemp_{rfid & 0xFFFFFF:06X}")) if orig_ed else r.raw_subrecords_bytes
+        new_temp.append(RawRec(r.sig, r.flags & ~COMPRESSED_FLAG, rfid, r.version, 0, r.unknown, raw_subs))
+
+    # 2. Allocate persistent marker/interactive S1 STAT placeholder + prefixed refs (never touching existing bases!)
     appended_stats: List[RawRec] = []
     marker_base_fid: Optional[int] = None
     extra_ref_map: Dict[str, str] = {}
@@ -484,7 +522,8 @@ def append_prewar_vault111_lossless(
         appended_stats.append(_build_static_marker_base_if_missing(marker_base_fid, f"{new_cell_edid}_MarkerBase"))
         for idx, spec in enumerate(extra_persistent_specs):
             rfid = _alloc()
-            red = spec.get("edid") or f"{new_cell_edid}_Pers_{idx:02d}"
+            raw_ed = spec.get("edid") or f"Pers_{idx:02d}"
+            red = _s1_edid(raw_ed, f"Pers_{idx:02d}")
             new_pers.append(_build_refr(rfid, red, marker_base_fid, tuple(spec["pos_m"]), tuple(spec.get("rot_rad", (0.0, 0.0, 0.0))), persistent=True))
             extra_ref_map[red] = f"0x{rfid:08X}"
 
@@ -512,12 +551,23 @@ def append_prewar_vault111_lossless(
         elif lbl == b"NAVI":
             has_navi = True
             if nvmis:
-                # Parse existing NAVI subrecords and append NVMI entries cleanly
+                # Preserve existing NVER/NVMI, insert new NVMI BEFORE trailing NVPP (match build_fo4port_r11_museum.py)
                 navi_rec, _ = _read_rec(pl, 0)
                 existing_subs = list(_iter_subrecords(navi_rec.raw_subrecords_bytes))
-                for nv in nvmis:
-                    existing_subs.append((b"NVMI", navm.write_nvmi(nv)))
-                new_navi = RawRec(b"NAVI", navi_rec.flags, navi_rec.fid, navi_rec.version, 0, navi_rec.unknown, _pack_subrecords(existing_subs))
+                head_subs = [(s, d) for s, d in existing_subs if s != b"NVPP"]
+                tail_subs = [(s, d) for s, d in existing_subs if s == b"NVPP"]
+                if not tail_subs:
+                    tail_subs = [(b"NVPP", b"\x00" * 8)]
+                merged_subs = head_subs + [(b"NVMI", navm.write_nvmi(nv)) for nv in nvmis] + tail_subs
+                new_navi = RawRec(
+                    b"NAVI",
+                    navi_rec.flags & ~COMPRESSED_FLAG,
+                    navi_rec.fid,
+                    navi_rec.version,
+                    0,
+                    navi_rec.unknown,
+                    _pack_subrecords(merged_subs),
+                )
                 pl_out = new_navi.to_bytes()
             else:
                 pl_out = pl
@@ -591,6 +641,15 @@ def verify_lossless_append(
         if orec.sig != brec.sig:
             raise PrewarPortError(f"Changed signature on 0x{fid:08X}: {brec.sig} -> {orec.sig}")
         if brec.sig == b"NAVI" and allow_navi_update:
+            b_subs = list(_iter_subrecords(brec.raw_subrecords_bytes))
+            o_subs = list(_iter_subrecords(orec.raw_subrecords_bytes))
+            b_nvmi = [d for s, d in b_subs if s == b"NVMI"]
+            o_nvmi = [d for s, d in o_subs if s == b"NVMI"]
+            if o_nvmi[: len(b_nvmi)] != b_nvmi:
+                raise PrewarPortError("NAVI lost or altered existing NVMI entries")
+            if b_subs and b_subs[-1][0] == b"NVPP":
+                if not o_subs or o_subs[-1] != b_subs[-1]:
+                    raise PrewarPortError("NAVI trailing NVPP must remain preserved after new NVMI entries")
             continue
         if orec.to_bytes() != brec.to_bytes():
             raise PrewarPortError(f"Mutated base record 0x{fid:08X} ({brec.sig})")

@@ -97,7 +97,15 @@ def _synth_slot1_fo4port_esm() -> bytes:
     blk_grp = _grup(struct.pack("<I", 0), 2, sub_grp)
     cell_grup = _grup(b"CELL", 0, blk_grp)
 
-    navi = _rec(b"NAVI", 0x01000FF1, [(b"NVER", struct.pack("<I", 12))])
+    navi = _rec(
+        b"NAVI",
+        0x01000FF1,
+        [
+            (b"NVER", struct.pack("<I", 12)),
+            (b"NVMI", nm.write_nvmi(nm.Nvmi(0x0100E210, 0, (0.0, 0.0, 0.0), 0.0, [], [], [], [], None, 0, None, 0x0100E201, 0))),
+            (b"NVPP", b"\x00" * 8),
+        ],
+    )
     navi_grup = _grup(b"NAVI", 0, navi)
     return tes4 + stat_grup + cell_grup + navi_grup
 
@@ -138,14 +146,33 @@ class PrewarVault111AppendTests(unittest.TestCase):
             if fid not in base_map:
                 self.assertGreaterEqual(fid & 0x00FFFFFF, s1_spec.MIN_PREWAR_PORT_START_ID)
 
-        # Verify converted NAVMs parse cleanly as Starfield v17 in metres
+        # Verify converted NAVMs carry MNAM and parse cleanly as Starfield v17 in metres
         navm_recs = [r for r in out_recs if r.sig == b"NAVM"]
         self.assertEqual(len(navm_recs), 2)
         for nr in navm_recs:
-            nv_data = next(d for s, d in va._iter_subrecords(nr.raw_subrecords_bytes) if s == b"NVNM")  # noqa: SLF001
-            parsed = nm.parse(nv_data, layout="sf")
+            subs = list(va._iter_subrecords(nr.raw_subrecords_bytes))  # noqa: SLF001
+            self.assertEqual([s for s, _d in subs], [b"NVNM", b"MNAM"])
+            parsed = nm.parse(subs[0][1], layout="sf")
             self.assertEqual(parsed.version, nm.SF_VERSION)
             self.assertAlmostEqual(float(parsed.vertices[1, 0]), 10.0, places=4)
+
+        # Verify InteriorCellBlock (type=2) + InteriorCellSubBlock (type=3) wrapper and NAVI NVMI-before-NVPP order
+        _tes4, grups = va.parse_top_grups(out_bytes)
+        cell_pl = next(pl for lbl, _gt, _st, _un, pl in grups if lbl == b"CELL")
+        # First block belongs to base cell; second top-level item inside GRUP CELL must be type=2 block -> type=3 subblock
+        blk1_sz = struct.unpack_from("<I", cell_pl, 4)[0]
+        self.assertEqual(cell_pl[blk1_sz : blk1_sz + 4], b"GRUP")
+        self.assertEqual(struct.unpack_from("<I", cell_pl, blk1_sz + 12)[0], 2)  # InteriorCellBlock
+        self.assertEqual(cell_pl[blk1_sz + 24 : blk1_sz + 28], b"GRUP")
+        self.assertEqual(struct.unpack_from("<I", cell_pl, blk1_sz + 36)[0], 3)  # InteriorCellSubBlock
+        self.assertEqual(cell_pl[blk1_sz + 48 : blk1_sz + 52], b"CELL")
+        navi_subs = list(va._iter_subrecords(out_map[0x01000FF1].raw_subrecords_bytes))  # noqa: SLF001
+        self.assertEqual([s for s, _ in navi_subs], [b"NVER", b"NVMI", b"NVMI", b"NVMI", b"NVPP"])
+
+        # Verify no duplicate EDIDs across entire plugin & S1 prefixes applied
+        edids = [va._get_edid(r) for r in out_recs if va._get_edid(r)]  # noqa: SLF001
+        self.assertEqual(len(edids), len(set(edids)))
+        self.assertIn("FO4Port_PrewarVault111S1_PrewarExtSpawn", rep["extra_persistent_refs"])
 
     def test_rejects_low_start_id_and_mutated_slot1_record(self) -> None:
         base = _synth_slot1_fo4port_esm()
