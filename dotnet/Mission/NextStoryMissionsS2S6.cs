@@ -108,7 +108,7 @@ static class NextStoryMissionsS2S6
     public const uint S6SettlerStandInArmorId = 0xBE4, S6SettlerStandInOutfitId = 0xBE5;
     public const string S6SettlerStandInArmorEdid = "FO4SF_S6_SettlerClothes_StandIn";
     public const string S6SettlerStandInOutfitEdid = "FO4SF_S6_SettlerOutfit_StandIn";
-    public const string S6SettlerStandInName = "Settler Clothes (Stand-In)";
+    public const string S6SettlerStandInName = "Settler Clothes";
     public const uint MaxAllocatedId = 0xBE6;
 
     // B1: Real converted FO4 NIF model paths for every S2-S6 activator

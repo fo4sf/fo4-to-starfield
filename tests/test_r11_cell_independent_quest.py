@@ -1522,6 +1522,10 @@ class TestR11Step3qBinaryEsm(unittest.TestCase):
             self.assertNotIn(0xBE3, sf_recs)
 
             full_raw = full_esm.read_bytes()
+            armo_be4 = next(r for r in ext.walk_all_records(full_raw) if (r.fid & 0xFFFFFF) == 0xBE4)
+            armo_be4_full = next(sp.rstrip(b"\x00").decode("utf-8") for ss, sp in ext.iter_subrecords(armo_be4.decompressed_body()) if ss == b"FULL")
+            self.assertEqual(armo_be4_full, "Settler Clothes")
+            self.assertNotIn("(Stand-In)", armo_be4_full)
             full_globs = {
                 r.fid & 0xFFF: struct.unpack("<f", next(sp for ss, sp in ext.iter_subrecords(r.decompressed_body()) if ss == b"FLTV"))[0]
                 for r in ext.walk_all_records(full_raw)
