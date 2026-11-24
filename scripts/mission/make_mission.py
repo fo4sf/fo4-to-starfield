@@ -634,6 +634,10 @@ def stage(a):
         if getattr(a, "actor_looks_assets", None):
             assets |= set(copy_actor_looks_assets(a.actor_looks_assets, os.path.join(out, "Data")))
             looks_args = ["--actor-looks-dir", a.actor_looks_assets]
+        if getattr(a, "weapon_assets", None):
+            assets |= set(copy_weapon_assets_rows1_to_5(a.weapon_assets, os.path.join(out, "Data")))
+        for extra_dir in (getattr(a, "extra_assets", None) or []):
+            assets |= set(copy_extra_assets(extra_dir, os.path.join(out, "Data")))
 
         r11_full = bool(int(getattr(a, "r11_full_mission", 0) or 0))
         fo4_anims = bool(int(getattr(a, "fo4_human_anims", 0) or 0))
@@ -821,6 +825,34 @@ def write_r12_h2_batches(bat_dir):
             "player.setpos z 97.82\n"
             "player.setangle z 335\n"
         ),
+        "s7r.txt": (
+            "; S7 Concord Museum roof Power Armor & Vertibird Minigun inspection spot (near FO4 0002C1C6 roof landing)\n"
+            "player.setpos x -1997.50\n"
+            "player.setpos y -1721.50\n"
+            "player.setpos z 97.80\n"
+            "player.setangle z 310\n"
+        ),
+        "s8w.txt": (
+            "; S8 Concord street DN092 Wave 2 & Deathclaw grate inspection (-2068.22, -1640.23, 88.22; outdoors in Concord)\n"
+            "player.setpos x -2048.00\n"
+            "player.setpos y -1662.00\n"
+            "player.setpos z 88.80\n"
+            "player.setangle z 315\n"
+        ),
+        "s9p.txt": (
+            "; S9 Concord exit -> Red Rocket patrol corridor midpoint (< 115 m hop outdoors)\n"
+            "player.setpos x -2105.00\n"
+            "player.setpos y -1625.00\n"
+            "player.setpos z 94.00\n"
+            "player.setangle z 315\n"
+        ),
+        "s9q.txt": (
+            "; S9 Red Rocket North -> Sanctuary Hills workbench & Sturges arrival (< 156 m hop from Red Rocket North)\n"
+            "player.setpos x -2325.00\n"
+            "player.setpos y -1425.00\n"
+            "player.setpos z 112.50\n"
+            "player.setangle z 30\n"
+        ),
     }
     os.makedirs(bat_dir, exist_ok=True)
     for fname, body in sorted(batches.items()):
@@ -887,6 +919,60 @@ def copy_actor_looks_assets(src, data):
                 shutil.copy2(os.path.join(src, rel), dst)
                 copied.append(rel.replace(os.sep, "/"))
     stage_c5_actor_looks.verify_staged_c5_assets(data, require_preston_mats=True)
+    return copied
+
+
+P6_KEPT_TEXTURE_PREFIXES = (
+    "textures/fo4core/",
+    "textures/fo4sf/texsets/weapons/minigun/",
+    "textures/fo4sf/weapons/10mmpistol/",
+    "textures/fo4sf/weapons/baton/",
+    "textures/fo4sf/weapons/handmade/grips/",
+    "textures/fo4sf/weapons/handmade/piperifle/",
+    "textures/fo4sf/weapons/lasermusket/",
+    "textures/fo4sf/weapons/laserweapons/pistolbarrel/",
+    "textures/fo4sf/weapons/minigun/",
+)
+
+
+def copy_extra_assets(src, data):
+    """Copy ASSET_DIRS files from `src` into `data` (meshes/geometries/materials/textures)."""
+    if not os.path.isdir(src):
+        sys.exit(f"--extra-assets directory not found: {src}")
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                dst = os.path.join(data, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), dst)
+                copied.append(rel.replace(os.sep, "/"))
+    return copied
+
+
+def copy_weapon_assets_rows1_to_5(src, data):
+    """Copy P6 weapon meshes/geometries/materials plus Rows 1-5/ammo/prop textures under the 4 GiB cap."""
+    if not os.path.isdir(src):
+        sys.exit(f"--weapon-assets directory not found: {src}")
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                rel_slash = rel.replace(os.sep, "/")
+                if d == "textures" and not rel_slash.lower().startswith(P6_KEPT_TEXTURE_PREFIXES):
+                    continue
+                dst = os.path.join(data, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), dst)
+                copied.append(rel_slash)
     return copied
 
 
@@ -1338,6 +1424,10 @@ def main(argv=None):
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
+    s.add_argument("--weapon-assets", default=None,
+                   help="optional P6b weapon assets folder: copies non-texture assets + Rows 1-5/ammo/prop textures")
+    s.add_argument("--extra-assets", action="append", default=[],
+                   help="optional extra asset folder(s) (e.g. P2 PA/minigun meshes) copying meshes/geometries/materials/textures")
     s.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1),
                    help="enable R11/R12 full S2-S9 story progression + Concord roof/wave/walk-home (default 0 preserves 2g-fix)")
     s.add_argument("--creature-slots", default=None,

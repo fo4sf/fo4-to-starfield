@@ -13,6 +13,7 @@ Covers the eight console-free Story-mode beginning steps (`B1`..`B8`) documented
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -435,6 +436,90 @@ BASE_SKIP_ACTI_PLUGINS: frozenset[str] = frozenset({
     "fo4terraincore_mars.esm",
 })
 
+STALE_PRE_P2_POWERARMOR_SHA256S: frozenset[str] = frozenset({
+    "c3332aef3891f4cd647882e80da4f1c6238ba558b12d2c80c2fb32e5fd885c4c",
+    "d7f0fc494cca47c2cdf570b82368b6f7f4aca96b478aff179e230fed0a45e09d",
+})
+
+S7_S9_HARD_STOP_MARKER_EDID = b"FO4SF_S9_HardStopAtMin01_1000"
+P2_NO_FALL_PERK_EDID = b"FO4SF_PANoFallDamagePerk"
+P2_FRAME_NIF_REL = "meshes/fo4sf/powerarmor/powerarmorfurniture.nif"
+P2_FUSION_CORE_NIF_REL = "meshes/fo4sf/powerarmor/fusioncore.nif"
+S7_MINIGUN_NIF_REL = "meshes/fo4sf/powerarmor/vertibirdminigun.nif"
+
+
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _mission_has_s7_s9_hard_stop(mission_esm_path: str) -> bool:
+    """Return True when FO4SFMission.esm carries S7-S9 marker GLOB 0x000BF4 (FO4SF_S9_HardStopAtMin01_1000)."""
+    if not _is_tes4_plugin(mission_esm_path):
+        return False
+    try:
+        with open(mission_esm_path, "rb") as fp:
+            raw = fp.read()
+    except OSError:
+        return False
+    return S7_S9_HARD_STOP_MARKER_EDID in raw
+
+
+def _collect_bundle_port_ba2s(bplan: Mapping[str, object]) -> List[str]:
+    eff_port = bplan.get("port_esm_checked") if isinstance(bplan, Mapping) else None
+    if not eff_port:
+        return []
+    port_dir = os.path.dirname(os.path.abspath(str(eff_port)))
+    out: List[str] = []
+    for bnm in ("FO4Port - Main.ba2", "FO4Port - Textures.ba2"):
+        bp = os.path.join(port_dir, bnm)
+        if os.path.isfile(bp):
+            out.append(bp)
+    return out
+
+
+def _verify_s7_s9_f1_readiness(b_abs: str, bplan: Mapping[str, object], active_plugins: Set[str]) -> List[str]:
+    """F1 check for S7-S9 bundles (0xBF4): placed ACTI assets must resolve and PowerArmor must be P2 (not 2h)."""
+    issues: List[str] = []
+    mission_esm = os.path.join(b_abs, "FO4SFMission.esm")
+    if not _mission_has_s7_s9_hard_stop(mission_esm):
+        return issues
+
+    data_dir = os.path.join(b_abs, "Data")
+    extra_ba2s = _collect_bundle_port_ba2s(bplan)
+    try:
+        issues.extend(verify_placed_acti_assets(mission_esm, data_dir, extra_ba2_paths=extra_ba2s))
+    except Exception as exc:
+        issues.append(f"F1 placed ACTI check failed on FO4SFMission.esm: {exc}")
+
+    for req_rel in (S7_MINIGUN_NIF_REL, P2_FRAME_NIF_REL, P2_FUSION_CORE_NIF_REL):
+        req_full = os.path.join(data_dir, *req_rel.split("/"))
+        if not os.path.isfile(req_full):
+            issues.append(f"F1: missing required S7/P2 mesh Data/{req_rel}")
+
+    pa_esm = os.path.join(b_abs, "FO4SFPowerArmor.esm")
+    if "fo4sfpowerarmor.esm" in active_plugins or os.path.isfile(pa_esm):
+        if not _is_tes4_plugin(pa_esm):
+            issues.append("F1: missing or invalid FO4SFPowerArmor.esm in S7-S9 bundle")
+        else:
+            pa_sha = _sha256_file(pa_esm)
+            if pa_sha in STALE_PRE_P2_POWERARMOR_SHA256S:
+                issues.append(
+                    f"F1: FO4SFPowerArmor.esm uses stale pre-P2 hash ({pa_sha[:8]}); rebuild/stage with P2 plugin"
+                )
+            with open(pa_esm, "rb") as fp:
+                pa_raw = fp.read()
+            if P2_NO_FALL_PERK_EDID not in pa_raw:
+                issues.append("F1: FO4SFPowerArmor.esm lacks P2 PERK 0x00081E (FO4SF_PANoFallDamagePerk)")
+            if b"ChairTech03" in pa_raw or b"powerarmorfurniture.nif" not in pa_raw.lower():
+                issues.append("F1: FO4SFPowerArmor.esm FURN 0x0801 lacks P2 powerarmorfurniture.nif")
+            if b"fusioncore.nif" not in pa_raw.lower():
+                issues.append("F1: FO4SFPowerArmor.esm MISC 0x0809 lacks P2 fusioncore.nif")
+    return issues
+
 
 def _is_tes4_plugin(path: str) -> bool:
     try:
@@ -512,6 +597,9 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
                 step_issues.append(
                     f"Codsworth voice WEM count {len(wems)} < {MIN_CODSWORTH_WEMS} under Data/{CODSWORTH_VOICE_DIR_REL}"
                 )
+
+        if spec.step_id == "B7_preston_turnin":
+            step_issues.extend(_verify_s7_s9_f1_readiness(b_abs, bplan, active_plugins))
 
         problems.extend(f"{spec.step_id}: {msg}" for msg in step_issues)
         step_results[spec.step_id] = {

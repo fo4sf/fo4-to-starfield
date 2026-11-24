@@ -2102,11 +2102,11 @@ static class Mission
                 creatureSlots, fo4HumanAnims, task1bVaultRecovery, creaturesMod, humanAnimsMod);
             var waveRaiderTpl = mod.Npcs.FirstOrDefault(n => n.FormKey.ID == FalloutActorLooks.ConcordRaiderNpcId) ?? raiderNpc;
             NextStoryMissionsS7S9.PopulateS7S9(
-                mod, quest, sanctuaryQuest, xMarker.FormKey,
+                mod, m.Sf, m.Cache, quest, sanctuaryQuest, xMarker.FormKey,
                 waveRaiderTpl, raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
-                concordSidearm.FormKey, raiderSidearmAmmo.FormKey,
+                concordSidearm, raiderSidearmAmmo.FormKey,
                 npc.FormKey, new FormKey(modKey, NextStoryMissionsA4.SturgesNpcId), prestonVoice.FormKey,
-                pts, prestonVoicePath);
+                pts, prestonVoicePath, creatureSlots, creaturesMod);
         }
 
         uint maxId = Math.Max(MissionHoldingCellId + 1, Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))))));
@@ -2677,7 +2677,7 @@ static class Mission
                     Need(props.TryGetValue("S9PatrolWaypoints", out var wpp) && wpp is SF.IScriptObjectListPropertyGetter wpl &&
                          wpl.Objects.Select(o => o.Object.FormKey).SequenceEqual(wantWps),
                          "R11 full mission lacks ordered S9PatrolWaypoints (0xB82..0xB89) on FO4SF_Min00");
-                    NextStoryMissionsS7S9.CheckS7S9(plug, SfEsm, XMarkerId, Need);
+                    NextStoryMissionsS7S9.CheckS7S9(plug, SfEsm, XMarkerId, Need, creatureSlots.Ready, creaturesMod);
                 }
             }
         }
@@ -3167,11 +3167,15 @@ static class Mission
             var rrSkin = new SF.Armor(new FormKey(creaturesKey, 0x801), rel) { EditorID = "FO4SF_RA5Radroach_Skin" };
             var bfRace = new SF.Race(new FormKey(creaturesKey, 0x802), rel) { EditorID = "FO4SF_BloatflyRace" };
             var bfSkin = new SF.Armor(new FormKey(creaturesKey, 0x803), rel) { EditorID = "FO4SF_RA5Bloatfly_Skin" };
+            var dcRace = new SF.Race(new FormKey(creaturesKey, 0x804), rel) { EditorID = "FO4SF_DeathclawRace" };
+            var dcSkin = new SF.Armor(new FormKey(creaturesKey, 0x805), rel) { EditorID = "FO4SF_RA5Deathclaw_Skin" };
             creaturesMod.Races.Add(rrRace);
             creaturesMod.Races.Add(bfRace);
+            creaturesMod.Races.Add(dcRace);
             creaturesMod.Armors.Add(rrSkin);
             creaturesMod.Armors.Add(bfSkin);
-            creaturesMod.ModHeader.Stats.NextFormID = 0x804;
+            creaturesMod.Armors.Add(dcSkin);
+            creaturesMod.ModHeader.Stats.NextFormID = 0x806;
             var creaturesEsmPath = Path.Combine(dir, NextStoryMissionsS2S6.CreaturesEsmName);
             creaturesMod.BeginWrite.ToPath(creaturesEsmPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
 
@@ -3189,7 +3193,7 @@ static class Mission
                 { Console.WriteLine("FAIL  CreatureSlotsConfig defaulted omitted ready to true instead of false"); return 1; }
 
             var slotsReadyPath = Path.Combine(dir, "creature_slots_ready.json");
-            File.WriteAllText(slotsReadyPath, """{"ready": true, "radroach_race_edid": "FO4SF_RadroachRace", "radroach_skin_edid": "FO4SF_RA5Radroach_Skin", "bloatfly_race_edid": "FO4SF_BloatflyRace", "bloatfly_skin_edid": "FO4SF_RA5Bloatfly_Skin"}""");
+            File.WriteAllText(slotsReadyPath, """{"ready": true, "radroach_race_edid": "FO4SF_RadroachRace", "radroach_skin_edid": "FO4SF_RA5Radroach_Skin", "bloatfly_race_edid": "FO4SF_BloatflyRace", "bloatfly_skin_edid": "FO4SF_RA5Bloatfly_Skin", "deathclaw_race_edid": "FO4SF_DeathclawRace", "deathclaw_skin_edid": "FO4SF_RA5Deathclaw_Skin"}""");
 
             var o = Path.Combine(outDir, "r11_full_mission");
             int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, r11FullMission: true);
@@ -3322,6 +3326,20 @@ static class Mission
                     cw.TopCell!.Persistent.Clear();
                     cw.TopCell.Persistent.Add(hm);
                     m.Worldspaces.Add(cw);
+                }),
+                ("F4 S7S9 Holding CELL 0xBF5 FULL reverted to FO4SF prefix", m =>
+                {
+                    NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Name = "FO4SF S7-S9 Holding Cell";
+                }),
+                ("F12 S7_RoofFrameRef Persistent flag cleared", m =>
+                {
+                    var rf = NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofFrameRefId);
+                    rf.MajorRecordFlagsRaw &= ~0x400;
+                }),
+                ("F13 S9PrestonLobbyScene reply OnEnd stage cleared", m =>
+                {
+                    var rp = m.Quests[new FormKey(m.ModKey, QuestId)].DialogTopics.First(t => t.FormKey.ID == NextStoryMissionsS7S9.S9PrestonLobbyReplyTopicId).Responses[0];
+                    rp.SetParentQuestStage = null;
                 }),
             };
             foreach (var (name, edit) in r11FullMutations)

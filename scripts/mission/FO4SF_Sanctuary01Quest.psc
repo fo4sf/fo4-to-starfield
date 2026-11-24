@@ -571,13 +571,17 @@ Function ApplyStage(int n, string by)
             endif
         endif
     elseif n == 220
-        SetObjectiveCompleted(10)
+        if !HasS9HardStop()
+            SetObjectiveCompleted(10)
+        endif
         SetObjectiveDisplayed(220, True, True)
         SetActive(True)
         BindSturges()
         Trace("sanctuary01 objective 220 talk_to_sturges")
     elseif n == 1000
-        SetObjectiveCompleted(10)
+        if !HasS9HardStop()
+            SetObjectiveCompleted(10)
+        endif
         CleanupMarker()
         SetObjectiveCompleted(50)
         SetObjectiveCompleted(220)
@@ -728,15 +732,22 @@ Function StartQuestInstance()
         RegisterForRemoteEvent(player, "OnPlayerLoadGame")
     endif
     RegisterMenuGuards()
-    AdvanceTo(10, "Trigger")
-    EnsureGuideMarker(player)
-    TryBindBench(player)
-    SetObjectiveDisplayed(10, True, True)
-    SetActive(True)
-    ; R1: Do NOT start FO4SF_MQ103 during the opening; First Settlement stays the sole active HUD objective.
-    Trace("min01 objective 10 bench")
-    Trace("sanctuary01 init stage=10 bench_ref=0x005C50")
-    Trace("sanctuary01 min01_mode full_min01=" + HasFullMin01())
+    if HasS9HardStop()
+        AdvanceTo(20, "Trigger")
+        TryBindBench(player)
+        Trace("sanctuary01 init stage=20 s9_deferred=true")
+        Trace("sanctuary01 min01_mode full_min01=" + HasFullMin01())
+    else
+        AdvanceTo(10, "Trigger")
+        EnsureGuideMarker(player)
+        TryBindBench(player)
+        SetObjectiveDisplayed(10, True, True)
+        SetActive(True)
+        ; R1: Do NOT start FO4SF_MQ103 during the opening; First Settlement stays the sole active HUD objective.
+        Trace("min01 objective 10 bench")
+        Trace("sanctuary01 init stage=10 bench_ref=0x005C50")
+        Trace("sanctuary01 min01_mode full_min01=" + HasFullMin01())
+    endif
     StartTimer(1.0, 1)
 EndFunction
 
@@ -853,9 +864,11 @@ Event OnTimer(int aiTimerID)
             RestoreCoreBench("switch_off")
         endif
         if boundBench == None || boundBench.IsDeleted()
-            EnsureGuideMarker(player)
+            if !HasS9HardStop()
+                EnsureGuideMarker(player)
+            endif
             TryBindBench(player)
-            if st < 100 && (boundBench == None || boundBench.IsDeleted()) && IsCommonwealthExterior(player)
+            if !HasS9HardStop() && st < 100 && (boundBench == None || boundBench.IsDeleted()) && IsCommonwealthExterior(player)
                 float dx = player.GetPositionX() - (BenchLocalX + MergeOffsetX)
                 float dy = player.GetPositionY() - (BenchLocalY + MergeOffsetY)
                 if dx * dx + dy * dy <= BenchFallbackRadius * BenchFallbackRadius
@@ -1014,14 +1027,23 @@ float Function UpdatePercent(GlobalVariable gCount, GlobalVariable gTotal, Globa
         pct = 0.0
     endif
     if gPct != None
+        float prevPct = gPct.GetValue()
         gPct.SetValue(pct)
+        UpdateCurrentInstanceGlobal(gPct)
+        if prevPct != pct && IsObjectiveDisplayed(1000) && !IsObjectiveCompleted(1000)
+            SetObjectiveDisplayed(1000, True, False)
+        endif
     endif
     return pct
 EndFunction
 
 Function CheckMilestoneProgress(int st)
     if st == 1000
-        float bp = UpdatePercent(ResolveGlob(BedCount, 0x000A02), ResolveGlob(BedTotal, 0x000A03), ResolveGlob(BedPercent, 0x000A04), 5.0)
+        GlobalVariable gpBedPct = ResolveGlob(BedPercent, 0x000A04)
+        float bp = UpdatePercent(ResolveGlob(BedCount, 0x000A02), ResolveGlob(BedTotal, 0x000A03), gpBedPct, 5.0)
+        if gpBedPct != None
+            UpdateCurrentInstanceGlobal(gpBedPct)
+        endif
         if HasS9HardStop()
             Trace("sanctuary01 stage 1000 held=true hard_stop=true minrecruit00=0 mq103=0 beds_pct=" + bp)
             return
@@ -1079,9 +1101,7 @@ Function RunSturgesTalk()
                 endif
                 return
             endif
-            SetObjectiveCompleted(220)
-            Trace("sanctuary01 min01_sturges_intro form=001188B4 via=direct_no_scene -> stage 1000")
-            AdvanceTo(1000, "sturges_intro")
+            Trace("sanctuary01 ERROR min01_sturges_intro missing S9SturgesIntroScene, refusing direct_no_scene")
             return
         endif
         bool introOk = True
@@ -1100,27 +1120,41 @@ Function RunSturgesTalk()
             AdvanceTo(1000, "sturges_intro")
         endif
     elseif st == 10 || st == 50 || st == 100
+        if HasS9HardStop()
+            if mySession == talkSessionId
+                talkBoxOpen = False
+            endif
+            if !IsSturgesReadyForSanctuary()
+                Trace("sanctuary01 sturges talk ignored before arrival stage=" + st)
+                return
+            endif
+            AdvanceTo(220, "s9_arrival")
+            RunSturgesTalk()
+            return
+        endif
         bool okAdvance = True
-        Message mTalk = ResolveMsg(SturgesTalkMsg, 0x000A10)
-        if mTalk != None
-            int btn = mTalk.Show()
-            Trace("sanctuary01 sturges choice button=" + btn)
-            if btn < 0
-                okAdvance = False
-            elseif btn == 0
-                Message r0 = ResolveMsg(SturgesReply0Msg, 0x000A11)
-                if r0 != None
-                    r0.Show()
-                endif
-            elseif btn == 1
-                Message r1 = ResolveMsg(SturgesReply1Msg, 0x000A12)
-                if r1 != None
-                    r1.Show()
-                endif
-            elseif btn == 2
-                Message r2 = ResolveMsg(SturgesReply2Msg, 0x000A13)
-                if r2 != None
-                    r2.Show()
+        if ShouldUseMessageBox()
+            Message mTalk = ResolveMsg(SturgesTalkMsg, 0x000A10)
+            if mTalk != None
+                int btn = mTalk.Show()
+                Trace("sanctuary01 sturges choice button=" + btn)
+                if btn < 0
+                    okAdvance = False
+                elseif btn == 0
+                    Message r0 = ResolveMsg(SturgesReply0Msg, 0x000A11)
+                    if r0 != None
+                        r0.Show()
+                    endif
+                elseif btn == 1
+                    Message r1 = ResolveMsg(SturgesReply1Msg, 0x000A12)
+                    if r1 != None
+                        r1.Show()
+                    endif
+                elseif btn == 2
+                    Message r2 = ResolveMsg(SturgesReply2Msg, 0x000A13)
+                    if r2 != None
+                        r2.Show()
+                    endif
                 endif
             endif
         endif
@@ -1433,6 +1467,10 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     endif
     if boundBench != None && akSender == boundBench
         int cur = EffectiveStage()
+        if HasS9HardStop() && cur < 220
+            Trace("sanctuary01 bench ignored before stage 220 cur=" + cur)
+            return
+        endif
         if cur < 100
             ; R2: Never pop a modal menu over the real workshop on bench activation.
             CompleteSanctuaryObjective(akSender)
@@ -1469,7 +1507,7 @@ Event ObjectReference.OnWorkshopMode(ObjectReference akSender, bool aStart)
             cleanBenchSawWorkshop = True
             cleanBenchVerifyPending = False
             CancelTimer(3)
-            if !completed && EffectiveStage() < 100
+            if !completed && EffectiveStage() < 100 && !HasS9HardStop()
                 CompleteSanctuaryObjective(akSender)
             endif
         else
@@ -1479,7 +1517,7 @@ Event ObjectReference.OnWorkshopMode(ObjectReference akSender, bool aStart)
 EndEvent
 
 Function CompleteSanctuaryObjective(ObjectReference refUsed)
-    if completed || EffectiveStage() >= 100
+    if completed || EffectiveStage() >= 100 || (HasS9HardStop() && EffectiveStage() < 220)
         return
     endif
     benchActivated = True

@@ -2,16 +2,23 @@
 // and S9 Museum Lobby Starfield SCEN -> DialogueConcordArea 50 -> Min01 20 -> Min00 100 -> Red Rocket walk ->
 // Sanctuary Min01 220 -> Min01SturgesIntro Starfield SCEN -> Min01 1000 ("Build sheltered beds") hard stop.
 //
-// Reserved local FormIDs strictly in 0xBE0..0xC05 (zero overlap with
-// 0x800..0x9FF base/looks, 0xA00..0xB56 A4/A7/A7cd, 0xB60 holding cell, 0xB80..0xB8B Step 3q, or 0xB8C..0xBDC S2-S6):
-//   S7 Roof (markers live in 0xBF5 holding cell, relocated at runtime to Commonwealth via 0x005C50/0x0A775B):
-//     0xBE0  ACTI  FO4SF_S7_RoofMinigunActi      (Vertibird Minigun 0001F582/0001F583 stand-in world activator)
-//     0xBE1  REFR  FO4SF_S7_RoofMinigunRef       (persistent, InitiallyDisabled, target (-2004.72, -1715.40, 102.68))
-//     0xBE2  REFR  FO4SF_S7_RoofFrameMarker      (persistent XMarker, target (-1995.73, -1723.10, 97.54), rotZ=351.07 deg)
-//     0xBE3  REFR  FO4SF_S7_RoofDoorMarker       (persistent XMarker, target (-2008.49, -1722.39, 97.42))
+// Reserved local FormIDs in 0xBE6..0xC12 (preserving 0xBE6..0xC05, relocating 0xC06..0xC0B clear of
+// S2-S6's 0xB8C..0xBE5, and allocating 0xC0C..0xC12 for S7 persistent PA frame, F3 Deathclaw, & F7 wave actors/weapons):
+//   S7 Roof (markers/refs live in 0xBF5 holding cell, relocated at runtime to Commonwealth via 0x005C50/0x0A775B):
+//     0xC06  ACTI  FO4SF_S7_RoofMinigunActi      (Vertibird Minigun 0001F582/0001F583 stand-in world activator)
+//     0xC07  REFR  FO4SF_S7_RoofMinigunRef       (persistent, InitiallyDisabled, target (-2004.72, -1715.40, 102.68))
+//     0xC08  REFR  FO4SF_S7_RoofFrameMarker      (persistent XMarker, target (-1995.73, -1723.10, 97.54), rotZ=351.07 deg)
+//     0xC09  REFR  FO4SF_S7_RoofDoorMarker       (persistent XMarker, FO4 0002C1C6 target (-1990.58, -1724.19, 97.56))
+//     0xC0C  FURN  FO4SF_S7_RoofFrameFurn        (persistent S7 roof climb-in PA frame furniture; powerarmorfurniture.nif)
+//     0xC0D  REFR  FO4SF_S7_RoofFrameRef         (persistent, InitiallyDisabled in 0xBF5, relocated to S7RoofFrameMerged)
 //   S8 Wave 2 & Deathclaw (actors + markers live in 0xBF5 holding cell):
-//     0xBE4  NPC_  FO4_Gristle                   ("Gristle" 00019567 / 0001F68C boss, non-essential, non-respawning)
-//     0xBE5  NPC_  FO4_WaveRaiderHeavy           (LvlRaider_Handmade_MG 0007B620 automatic wave raider)
+//     0xC0A  NPC_  FO4_Gristle                   ("Gristle" 00019567 boss, non-essential, non-respawning)
+//     0xC0B  NPC_  FO4_WaveRaiderHeavy           (LvlRaider_Handmade_MG 0007B620 automatic wave raider)
+//     0xC10  NPC_  FO4_LvlRaiderBoltAction       (LvlRaiderBoltAction 000CE987 bolt-action wave raider)
+//     0xC11  WEAP  FO4SF_WaveRaiderBoltWeapon    (softened non-playable Starfield Eon stand-in for pipe bolt-action)
+//     0xC12  WEAP  FO4SF_WaveRaiderHeavyWeapon   (softened non-playable Starfield Eon stand-in for automatic pipe rifle)
+//     0xC0E  WEAP  FO4SF_S8_DeathclawClawWeap    (emitted only behind --creature-slots ready=true; AttackDamage=60)
+//     0xC0F  NPC_  FO4SF_S8_DeathclawNpc         (emitted only behind --creature-slots ready=true; FO4 0002C969 615/100/150)
 //     0xBE6  ACHR  FO4SF_S8_WaveRaider01         (target DN092_AlleyNearMarker 00023F0B, respawns across Pool=8)
 //     0xBE7  ACHR  FO4SF_S8_WaveRaider02         (target RaiderSpawnerMarker02 0001F15D, respawns across Pool=8)
 //     0xBE8  ACHR  FO4SF_S8_WaveRaider03         (FO4_WaveRaiderHeavy at TestDeathclawAmbushExitPoint 0002C96B, respawns)
@@ -24,15 +31,19 @@
 //   S9 Holding Cell, Hard Stop, & Real Starfield SCENs (zero FO4 copyrighted text in source):
 //     0xBF4  GLOB  FO4SF_S9_HardStopAtMin01_1000 (1.0: holds MinRecruit00 & MQ103 off at Min01 1000)
 //     0xBF5  CELL  FO4SF_S7S9_HoldingCell        (IsInteriorCell holding cell — 0 WRLD overrides added by S7-S9)
-//     0xBF6..0xBFC  SCEN/DIAL/INFO FO4SF_S9_PrestonLobbyScene (Min00 stage 80, alias 0, GlobalIsZero 0x979)
+//     0xBF6..0xBFC  SCEN/DIAL/INFO FO4SF_S9_PrestonLobbyScene (Min00 stage 80 -> 90, alias 0, GlobalIsZero 0x979)
 //     0xBFD..0xC03  SCEN/DIAL/INFO FO4SF_S9_SturgesIntroScene (Min01 stage 220, alias 1, GlobalIsZero 0x979, from 001188B4)
 //     0xC04  MESG  FO4SF_S9_PrestonLobbyFallbackMsg (gated strictly behind TalkUseMessageBox != 0)
 //     0xC05  MESG  FO4SF_S9_SturgesIntroFallbackMsg (gated strictly behind TalkUseMessageBox != 0)
 
 using System.Globalization;
 using System.Text.Json;
+using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Assets;
+using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Starfield.Assets;
 using Noggog;
 using SF = Mutagen.Bethesda.Starfield;
 
@@ -42,13 +53,6 @@ static class NextStoryMissionsS7S9
     public const string ScriptName = "FO4SF_Min00Quest";
     public const string SanctuaryScriptName = "FO4SF_Sanctuary01Quest";
 
-    public const uint S7RoofMinigunActiId = 0xBE0;
-    public const uint S7RoofMinigunRefId = 0xBE1;
-    public const uint S7RoofFrameMarkerId = 0xBE2;
-    public const uint S7RoofDoorMarkerId = 0xBE3;
-
-    public const uint GristleNpcId = 0xBE4;
-    public const uint WaveRaiderHeavyNpcId = 0xBE5;
     public const uint FirstS8WaveActorRefId = 0xBE6;
     public const int S8WaveActorCount = 5;
     public const uint FirstS8WaveSpawnerMarkerId = 0xBEB;
@@ -80,9 +84,36 @@ static class NextStoryMissionsS7S9
 
     public const uint S9PrestonLobbyFallbackMsgId = 0xC04;
     public const uint S9SturgesIntroFallbackMsgId = 0xC05;
-    public const uint MaxAllocatedId = 0xC06;
+
+    public const uint S7RoofMinigunActiId = 0xC06;
+    public const uint S7RoofMinigunRefId = 0xC07;
+    public const uint S7RoofFrameMarkerId = 0xC08;
+    public const uint S7RoofDoorMarkerId = 0xC09;
+    public const uint GristleNpcId = 0xC0A;
+    public const uint WaveRaiderHeavyNpcId = 0xC0B;
+    public const uint S7RoofFrameFurnId = 0xC0C;
+    public const uint S7RoofFrameRefId = 0xC0D;
+    public const uint S8DeathclawClawWeapId = 0xC0E;
+    public const uint S8DeathclawNpcId = 0xC0F;
+    public const uint WaveRaiderBoltNpcId = 0xC10;
+    public const uint WaveRaiderBoltWeaponId = 0xC11;
+    public const uint WaveRaiderHeavyWeaponId = 0xC12;
+    public const uint MaxAllocatedId = 0xC13;
 
     public const string VertibirdMinigunModel = @"fo4sf\powerarmor\vertibirdminigun.nif";
+    public const string VertibirdFrameModel = @"fo4sf\powerarmor\powerarmorfurniture.nif";
+    public const float WaveRaiderBoltDamage = 6.0f;
+    public const float WaveRaiderHeavyDamage = 2.0f;
+    public const float GristleBossHealth = 85.0f;
+    public const float GristleBossArmor = 15.0f;
+    public const float DeathclawHealth = 615.0f;
+    public const float DeathclawPhysicalDr = 100.0f;
+    public const float DeathclawEnergyEr = 150.0f;
+    public const float DeathclawClawDamage = 60.0f;
+    public const uint SfHealthAvId = 0x0002D4;
+    public const uint SfDamageResistAvId = 0x0002E3;
+    public const uint SfEnergyResistAvId = 0x0002EB;
+    public const uint SfUnarmedDamageAvId = 0x0002DF;
     public const int CoreLaserMusketId = 0x00089D;
     public const int CoreFusionCellId = 0x00089B;
     public const int CoreAmmo5mmId = 0x00089F;
@@ -94,8 +125,8 @@ static class NextStoryMissionsS7S9
         10, 20, 50, 100, 220, 1000, 1050, 1200, 1250, 1300, 1350, 1400, 1450, 1500
     };
 
-    // Merged Commonwealth target coordinates verified from Fallout4.esm:
-    public static readonly P3Float S7RoofDoorMerged = new(-2008.49f, -1722.39f, 97.42f);
+    // Merged Commonwealth target coordinates verified from Fallout4.esm (0002C1C6 roof door landing):
+    public static readonly P3Float S7RoofDoorMerged = new(-1990.58f, -1724.19f, 97.56f);
     public static readonly P3Float S7RoofFrameMerged = new(-1995.73f, -1723.10f, 97.54f);
     public const float S7RoofFrameYawDeg = 351.07f;
     public static readonly P3Float S7RoofMinigunMerged = new(-2004.72f, -1715.40f, 102.68f);
@@ -128,7 +159,7 @@ static class NextStoryMissionsS7S9
         id >= FirstS8WaveActorRefId && id < FirstS8WaveActorRefId + (uint)S8WaveActorCount;
 
     public static bool IsS7S9ObjectRefId(uint id) =>
-        id is >= S7RoofMinigunRefId and <= S7RoofDoorMarkerId ||
+        id is S7RoofMinigunRefId or S7RoofFrameMarkerId or S7RoofDoorMarkerId or S7RoofFrameRefId ||
         id is >= FirstS8WaveSpawnerMarkerId and <= S8DeathclawSpawnMarkerId;
 
     // Task 1i: S7-S9 places zero objects in WRLD TopCell (all markers + wave ACHRs start in 0xBF5 HoldingCell).
@@ -151,7 +182,7 @@ static class NextStoryMissionsS7S9
         var cell = new SF.Cell(new FormKey(modKey, S7S9HoldingCellId), SF.StarfieldRelease.Starfield)
         {
             EditorID = S7S9HoldingCellEdid,
-            Name = "FO4SF S7-S9 Holding Cell",
+            Name = "Concord Roof & Wave Staging",
             FormVersion = 581,
             Flags = SF.Cell.Flag.IsInteriorCell,
         };
@@ -240,26 +271,30 @@ static class NextStoryMissionsS7S9
 
     public static void PopulateS7S9(
         SF.StarfieldMod mod,
+        SF.IStarfieldModGetter sfMod,
+        ILinkCache cache,
         SF.Quest min00Quest,
         SF.Quest sanctuaryQuest,
         FormKey xMarkerKey,
         SF.INpcGetter raiderTemplate,
         FormKey combatPackKey,
         FormKey sandboxPackKey,
-        FormKey sidearmKey,
+        SF.IWeaponGetter sidearmTemplate,
         FormKey sidearmAmmoKey,
         FormKey prestonNpcKey,
         FormKey sturgesNpcKey,
         FormKey maleVoiceKey,
         JsonElement pts,
-        string? prestonVoicePath)
+        string? prestonVoicePath,
+        NextStoryMissionsS2S6.CreatureSlotsConfig? creatureSlots = null,
+        SF.IStarfieldModGetter? creaturesMod = null)
     {
         var modKey = mod.ModKey;
         var rel = SF.StarfieldRelease.Starfield;
-        // Task 1i: dedicated interior holding cell (0xBF5) holds all S7/S8 exterior markers & ACHRs (0 WRLD overrides).
+        // Task 1i: dedicated interior holding cell (0xBF5) holds all S7/S8 exterior markers, PA frame, & ACHRs (0 WRLD overrides).
         var holdingCell = CreateHoldingCell(mod, modKey);
 
-        // S7 Vertibird Minigun activator + roof markers (relocated at runtime via 0x005C50/0x0A775B Commonwealth anchor)
+        // S7 Vertibird Minigun activator + persistent roof PA frame + roof markers (relocated at runtime via 0x005C50/0x0A775B Commonwealth anchor)
         var minigunActi = new SF.Activator(new FormKey(modKey, S7RoofMinigunActiId), rel)
         {
             EditorID = "FO4SF_S7_RoofMinigunActi",
@@ -276,6 +311,29 @@ static class NextStoryMissionsS7S9
         mod.Activators.Add(minigunActi);
 
         var deg2rad = MathF.PI / 180f;
+        var controlFurnTmpl = sfMod.Furniture.FirstOrDefault(f => string.Equals(f.EditorID, "NPCChairTech03_Free_270", StringComparison.OrdinalIgnoreCase))
+                              ?? sfMod.Furniture.FirstOrDefault();
+        var roofFrameFurn = controlFurnTmpl is not null
+            ? (SF.Furniture)controlFurnTmpl.Duplicate(new FormKey(modKey, S7RoofFrameFurnId))
+            : new SF.Furniture(new FormKey(modKey, S7RoofFrameFurnId), rel);
+        roofFrameFurn.EditorID = "FO4SF_S7_RoofFrameFurn";
+        roofFrameFurn.Name = "Power Armor";
+        roofFrameFurn.ActivateTextOverride = "Enter Power Armor";
+        roofFrameFurn.VirtualMachineAdapter = null;
+        roofFrameFurn.Model = new SF.Model { File = new AssetLink<StarfieldModelAssetType>(VertibirdFrameModel) };
+        roofFrameFurn.ObjectBounds = new SF.ObjectBounds
+        {
+            First = new P3Float(-0.55f, -0.55f, 0.0f),
+            Second = new P3Float(0.55f, 0.55f, 2.15f),
+        };
+        mod.Furniture.Add(roofFrameFurn);
+
+        var s7FrameRef = PlacePersistentMarker(
+            holdingCell, modKey, S7RoofFrameRefId, "FO4SF_S7_RoofFrameRef", roofFrameFurn.FormKey,
+            S7RoofFrameMerged,
+            new P3Float(0f, 0f, S7RoofFrameYawDeg * deg2rad),
+            initiallyDisabled: true);
+
         var s7MinigunRef = PlacePersistentMarker(
             holdingCell, modKey, S7RoofMinigunRefId, "FO4SF_S7_RoofMinigunRef", minigunActi.FormKey,
             S7RoofMinigunMerged,
@@ -289,12 +347,44 @@ static class NextStoryMissionsS7S9
             holdingCell, modKey, S7RoofDoorMarkerId, "FO4SF_S7_RoofDoorMarker", xMarkerKey,
             S7RoofDoorMerged);
 
-        // S8 Wave 2 NPCs (Gristle + Heavy wave raider)
-        SF.Npc CloneWaveNpc(uint id, string edid, string? displayName, bool isUniqueBoss)
+        // F7: Softened non-playable Starfield stand-in weapons tuned for S8 Wave 2 FO4 archetypes (000CE987, 0007B620, 00019567)
+        SF.Weapon BuildWaveWeapon(uint id, string edid, string displayName, float damage)
+        {
+            var w = (SF.Weapon)sidearmTemplate.Duplicate(new FormKey(modKey, id));
+            w.EditorID = edid;
+            w.Name = displayName;
+            w.AttackDamage = damage;
+            w.ProjectilesCount = 1;
+            w.AmmoType.SetTo(sidearmAmmoKey);
+            w.AmmoList.SetToNull();
+            w.MajorFlags |= SF.Weapon.MajorFlag.NonPlayable;
+            w.NonPlayable = true;
+            mod.Weapons.Add(w);
+            return w;
+        }
+        var boltWeapon = BuildWaveWeapon(WaveRaiderBoltWeaponId, "FO4SF_WaveRaiderBoltWeapon", "Pipe Bolt-Action Rifle", WaveRaiderBoltDamage);
+        var heavyWeapon = BuildWaveWeapon(WaveRaiderHeavyWeaponId, "FO4SF_WaveRaiderHeavyWeapon", "Automatic Pipe Rifle", WaveRaiderHeavyDamage);
+
+        static void SetAvProp(SF.Npc npc, uint avId, float value)
+        {
+            npc.Properties ??= new ExtendedList<SF.ObjectProperty>();
+            var existing = npc.Properties.FirstOrDefault(p => p.ActorValue.FormKey.ID == avId && p.ActorValue.FormKey.ModKey.FileName.String.Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+                existing.Value = value;
+            else
+                npc.Properties.Add(new SF.ObjectProperty
+                {
+                    ActorValue = new FormLink<SF.IActorValueInformationGetter>(new FormKey(NextStoryMissionsS2S6.SfEsm, avId)),
+                    Value = value,
+                });
+        }
+
+        // S8 Wave 2 NPCs built from FO4 00019567 (Gristle), 0007B620 (LvlRaider_Handmade_MG), 000CE987 (LvlRaiderBoltAction)
+        SF.Npc CloneWaveNpc(uint id, string edid, string displayName, bool isUniqueBoss, FormKey weapKey, int ammoCount, short maxLevel, float? hpOverride = null, float? armorOverride = null)
         {
             var n = (SF.Npc)raiderTemplate.Duplicate(new FormKey(modKey, id));
             n.EditorID = edid;
-            if (!string.IsNullOrEmpty(displayName)) n.Name = displayName;
+            n.Name = displayName;
             n.VirtualMachineAdapter = null;
             n.DefaultTemplate.Clear();
             n.TemplateActors = null;
@@ -305,26 +395,72 @@ static class NextStoryMissionsS7S9
             if (isUniqueBoss) flags |= SF.Npc.Flag.Unique;
             else flags &= ~SF.Npc.Flag.Unique;
             n.Flags = flags;
+            n.CalcMinLevel = 1;
+            n.CalcMaxLevel = maxLevel;
+            if (hpOverride is { } hpVal) SetAvProp(n, SfHealthAvId, hpVal);
+            if (armorOverride is { } armVal) SetAvProp(n, SfDamageResistAvId, armVal);
             n.Items ??= new ExtendedList<SF.ContainerEntry>();
-            if (!n.Items.Any(i => i.Item.Item.FormKey == sidearmKey))
-                n.Items.Add(new SF.ContainerEntry { Item = new SF.ContainerItem { Item = new FormLink<SF.IItemGetter>(sidearmKey), Count = 1 } });
-            if (!n.Items.Any(i => i.Item.Item.FormKey == sidearmAmmoKey))
-                n.Items.Add(new SF.ContainerEntry { Item = new SF.ContainerItem { Item = new FormLink<SF.IItemGetter>(sidearmAmmoKey), Count = 60 } });
+            n.Items.Clear();
+            n.Items.Add(new SF.ContainerEntry { Item = new SF.ContainerItem { Item = new FormLink<SF.IItemGetter>(weapKey), Count = 1 } });
+            n.Items.Add(new SF.ContainerEntry { Item = new SF.ContainerItem { Item = new FormLink<SF.IItemGetter>(sidearmAmmoKey), Count = ammoCount } });
             mod.Npcs.Add(n);
             return n;
         }
 
-        var gristleNpc = CloneWaveNpc(GristleNpcId, "FO4_Gristle", "Gristle", isUniqueBoss: true);
-        var heavyNpc = CloneWaveNpc(WaveRaiderHeavyNpcId, "FO4_WaveRaiderHeavy", null, isUniqueBoss: false);
+        var gristleNpc = CloneWaveNpc(GristleNpcId, "FO4_Gristle", "Gristle", isUniqueBoss: true, heavyWeapon.FormKey, ammoCount: 90, maxLevel: 10, hpOverride: GristleBossHealth, armorOverride: GristleBossArmor);
+        var heavyNpc = CloneWaveNpc(WaveRaiderHeavyNpcId, "FO4_WaveRaiderHeavy", "Raider", isUniqueBoss: false, heavyWeapon.FormKey, ammoCount: 90, maxLevel: 7);
+        var boltNpc = CloneWaveNpc(WaveRaiderBoltNpcId, "FO4_LvlRaiderBoltAction", "Raider", isUniqueBoss: false, boltWeapon.FormKey, ammoCount: 60, maxLevel: 7);
+
+        // F3: Optional FO4 0002C969 DN092AmbushDeathclaw NPC_ + claw WEAP behind --creature-slots (default OFF = empty slot)
+        string boundDcPlugin = "";
+        int boundDcFormId = 0;
+        if (creatureSlots is { Ready: true } && creaturesMod is not null)
+        {
+            bool hasDcAssets =
+                creaturesMod.Races.Any(r => string.Equals(r.EditorID, creatureSlots.DeathclawRaceEdid, StringComparison.OrdinalIgnoreCase)) &&
+                creaturesMod.Armors.Any(a => string.Equals(a.EditorID, creatureSlots.DeathclawSkinEdid, StringComparison.OrdinalIgnoreCase));
+            if (hasDcAssets)
+            {
+                if (!cache.TryResolve<SF.INpcGetter>(new FormKey(NextStoryMissionsS2S6.SfEsm, NextStoryMissionsS2S6.SfCreatureTemplateNpcId), out var creatureTpl) ||
+                    creatureTpl.EditorID != NextStoryMissionsS2S6.SfCreatureTemplateNpcEdid)
+                    throw new Mission.Refusal($"Starfield.esm lacks NPC_ {NextStoryMissionsS2S6.SfCreatureTemplateNpcId:X6} ({NextStoryMissionsS2S6.SfCreatureTemplateNpcEdid})");
+
+                var clawWeap = new SF.Weapon(new FormKey(modKey, S8DeathclawClawWeapId), rel)
+                {
+                    EditorID = "FO4SF_S8_DeathclawClawWeap",
+                    Name = "Deathclaw Claw",
+                    AttackDamage = DeathclawClawDamage,
+                    ProjectilesCount = 1,
+                    NonPlayable = true,
+                    MajorFlags = SF.Weapon.MajorFlag.NonPlayable,
+                };
+                mod.Weapons.Add(clawWeap);
+
+                var dcNpc = NextStoryMissionsS2S6.BuildCreatureNpcFromSlot(
+                    mod, modKey, S8DeathclawNpcId, "FO4SF_S8_DeathclawNpc", "Deathclaw",
+                    creatureTpl, creaturesMod, creatureSlots.DeathclawRaceEdid, creatureSlots.DeathclawSkinEdid,
+                    calcMaxLevel: 22, new P3Float(-1.10f, -1.10f, 0f), new P3Float(1.10f, 1.10f, 2.85f));
+                SetAvProp(dcNpc, SfHealthAvId, DeathclawHealth);
+                SetAvProp(dcNpc, SfDamageResistAvId, DeathclawPhysicalDr);
+                SetAvProp(dcNpc, SfEnergyResistAvId, DeathclawEnergyEr);
+                SetAvProp(dcNpc, SfUnarmedDamageAvId, DeathclawClawDamage);
+                dcNpc.Items ??= new ExtendedList<SF.ContainerEntry>();
+                dcNpc.Items.Add(new SF.ContainerEntry { Item = new SF.ContainerItem { Item = new FormLink<SF.IItemGetter>(clawWeap.FormKey), Count = 1 } });
+                boundDcPlugin = modKey.FileName.String;
+                boundDcFormId = (int)dcNpc.FormKey.ID;
+            }
+        }
 
         var waveActors = new List<SF.PlacedNpc>(S8WaveActorCount);
+        var waveBaseKeys = new List<FormKey>(S8WaveActorCount);
         uint nextAliasId = (uint)((min00Quest.Aliases ?? new ExtendedList<SF.AQuestAlias>()).Count);
         for (int wi = 0; wi < S8WaveInitialSpecs.Length; wi++)
         {
             var spec = S8WaveInitialSpecs[wi];
             FormKey baseKey = spec.Name == "Gristle"
                 ? gristleNpc.FormKey
-                : (spec.Name == "WaveRaider03" ? heavyNpc.FormKey : raiderTemplate.FormKey);
+                : (spec.Name == "WaveRaider03" ? heavyNpc.FormKey : boltNpc.FormKey);
+            waveBaseKeys.Add(baseKey);
             var a = new SF.PlacedNpc(new FormKey(modKey, FirstS8WaveActorRefId + (uint)wi), rel)
             {
                 EditorID = $"FO4SF_S8_{spec.Name}",
@@ -418,7 +554,7 @@ static class NextStoryMissionsS7S9
             "FO4SF_S9_PrestonLobby", 50f,
             new (string Prompt, IReadOnlyList<(string Text, uint Wem, float Duration)> Replies, short EndStage, bool Goodbye)[]
             {
-                (lobbyMeta.Prompt, Mission.PairSceneClips(lobbyMeta.ReplyTexts, lobbyWem?.ReplyClips[0]), (short)-1, true),
+                (lobbyMeta.Prompt, Mission.PairSceneClips(lobbyMeta.ReplyTexts, lobbyWem?.ReplyClips[0]), (short)90, true),
             },
             aliasId: 0);
 
@@ -495,6 +631,7 @@ static class NextStoryMissionsS7S9
             SetIntProp("BottlecapId", CoreBottlecapId);
 
             SetObj(min00Script, "S7RoofMinigunRef", s7MinigunRef.FormKey);
+            SetObj(min00Script, "S7RoofFrameRef", s7FrameRef.FormKey);
             SetObj(min00Script, "S7RoofFrameMarker", s7FrameMarker.FormKey);
             SetObj(min00Script, "S7RoofDoorMarker", s7DoorMarker.FormKey);
 
@@ -502,6 +639,11 @@ static class NextStoryMissionsS7S9
             foreach (var wa in waveActors) actorList.Objects.Add(MakeObjProp("", wa.FormKey));
             min00Script.Properties.RemoveAll(p => p.Name == "S8WaveActors");
             min00Script.Properties.Add(actorList);
+
+            var baseList = new SF.ScriptObjectListProperty { Name = "S8WaveActorBases", Flags = SF.ScriptProperty.Flag.Edited };
+            foreach (var bk in waveBaseKeys) baseList.Objects.Add(MakeObjProp("", bk));
+            min00Script.Properties.RemoveAll(p => p.Name == "S8WaveActorBases");
+            min00Script.Properties.Add(baseList);
 
             var spList = new SF.ScriptObjectListProperty { Name = "S8WaveSpawners", Flags = SF.ScriptProperty.Flag.Edited };
             foreach (var sp in waveSpawnerMarkers) spList.Objects.Add(MakeObjProp("", sp.FormKey));
@@ -513,6 +655,9 @@ static class NextStoryMissionsS7S9
             SetObj(min00Script, "S8DeathclawSpawnMarker", dcSpawnMarker.FormKey);
             SetObj(min00Script, "S9PrestonLobbyScene", lobbyScene.FormKey);
             SetObj(min00Script, "S9PrestonLobbyFallbackMsg", lobbyFbMsg.FormKey);
+            min00Script.Properties.RemoveAll(p => p.Name is "DeathclawCreaturePlugin" or "DeathclawCreatureFormId");
+            min00Script.Properties.Add(new SF.ScriptStringProperty { Name = "DeathclawCreaturePlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = boundDcPlugin });
+            SetIntProp("DeathclawCreatureFormId", boundDcFormId);
 
             // Preserve S6 MinutemenGroup members (Sturges, MamaMurphy, MarcyLong, JunLong) and ensure Sturges (0xA01) is present.
             var existingMm = min00Script.Properties.OfType<SF.ScriptObjectListProperty>()
@@ -553,7 +698,9 @@ static class NextStoryMissionsS7S9
         SF.IStarfieldModGetter plug,
         ModKey sfEsm,
         uint xMarkerId,
-        Action<bool, string> need)
+        Action<bool, string> need,
+        bool creatureSlotsReady = false,
+        SF.IStarfieldModGetter? creaturesMod = null)
     {
         var key = plug.ModKey;
         var worldMarkers = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedObjectGetter>().ToList() ?? new();
@@ -562,41 +709,74 @@ static class NextStoryMissionsS7S9
             "Task 1i: S7-S9 exterior markers and wave ACHRs must live in FO4SF_S7S9_HoldingCell (0xBF5), never FO4Core_Commonwealth WRLD");
 
         var hc = FindHoldingCell(plug);
-        need(hc is { EditorID: S7S9HoldingCellEdid } && (hc.Flags ?? 0).HasFlag(SF.Cell.Flag.IsInteriorCell),
-            $"Task 1i: holding cell 0x{S7S9HoldingCellId:X} ({S7S9HoldingCellEdid}) missing or lacks IsInteriorCell");
+        string hcName = hc?.Name?.String ?? "";
+        need(hc is { EditorID: S7S9HoldingCellEdid } && (hc.Flags ?? 0).HasFlag(SF.Cell.Flag.IsInteriorCell) &&
+             !hcName.StartsWith("FO4SF ", StringComparison.OrdinalIgnoreCase) &&
+             !hcName.Contains("(Stand-In)", StringComparison.OrdinalIgnoreCase),
+            $"Task 1i / F4: holding cell 0x{S7S9HoldingCellId:X} ({S7S9HoldingCellEdid}) missing, lacks IsInteriorCell, or exposes FO4SF/(Stand-In) in FULL ({hcName})");
         var markers = hc?.Persistent.OfType<SF.IPlacedObjectGetter>().ToList() ?? new();
         var npcs = hc?.Persistent.OfType<SF.IPlacedNpcGetter>().ToList() ?? new();
 
         need(plug.Activators.Any(a => a.FormKey.ID == S7RoofMinigunActiId && a.Model?.File == VertibirdMinigunModel),
-            "S7 lacks FO4SF_S7_RoofMinigunActi (0xBE0) with vertibirdminigun.nif");
+            $"S7 lacks FO4SF_S7_RoofMinigunActi (0x{S7RoofMinigunActiId:X}) with vertibirdminigun.nif");
         need(markers.Any(x => x.FormKey.ID == S7RoofMinigunRefId && (x.MajorRecordFlagsRaw & 0xC00u) == 0xC00u),
-            "S7 lacks InitiallyDisabled Persistent FO4SF_S7_RoofMinigunRef (0xBE1) in holding cell");
+            $"S7 lacks InitiallyDisabled Persistent FO4SF_S7_RoofMinigunRef (0x{S7RoofMinigunRefId:X}) in holding cell");
         need(markers.Any(x => x.FormKey.ID == S7RoofFrameMarkerId && (x.MajorRecordFlagsRaw & 0x400u) != 0),
-            "S7 lacks Persistent FO4SF_S7_RoofFrameMarker (0xBE2) in holding cell");
-        need(markers.Any(x => x.FormKey.ID == S7RoofDoorMarkerId && (x.MajorRecordFlagsRaw & 0x400u) != 0),
-            "S7 lacks Persistent FO4SF_S7_RoofDoorMarker (0xBE3) in holding cell");
+            $"S7 lacks Persistent FO4SF_S7_RoofFrameMarker (0x{S7RoofFrameMarkerId:X}) in holding cell");
+        var doorMk = markers.FirstOrDefault(x => x.FormKey.ID == S7RoofDoorMarkerId && (x.MajorRecordFlagsRaw & 0x400u) != 0);
+        need(doorMk is not null &&
+             MathF.Abs(doorMk.Position.X - S7RoofDoorMerged.X) < 0.05f &&
+             MathF.Abs(doorMk.Position.Y - S7RoofDoorMerged.Y) < 0.05f &&
+             MathF.Abs(doorMk.Position.Z - S7RoofDoorMerged.Z) < 0.05f,
+            $"S7/F9 lacks Persistent FO4SF_S7_RoofDoorMarker (0x{S7RoofDoorMarkerId:X}) at FO4 0002C1C6 landing");
+        var frameFurn = plug.Furniture.FirstOrDefault(f => f.FormKey.ID == S7RoofFrameFurnId);
+        need(frameFurn is { EditorID: "FO4SF_S7_RoofFrameFurn" } &&
+             string.Equals(frameFurn.Model?.File?.GivenPath?.Replace('/', '\\'), VertibirdFrameModel, StringComparison.OrdinalIgnoreCase),
+            $"S7/F12 lacks FURN FO4SF_S7_RoofFrameFurn (0x{S7RoofFrameFurnId:X}) with powerarmorfurniture.nif");
+        need(markers.Any(x => x.FormKey.ID == S7RoofFrameRefId &&
+                              x.Base.FormKey == new FormKey(key, S7RoofFrameFurnId) &&
+                              (x.MajorRecordFlagsRaw & 0xC00u) == 0xC00u),
+            $"S7/F12 lacks InitiallyDisabled Persistent FO4SF_S7_RoofFrameRef (0x{S7RoofFrameRefId:X}) in holding cell");
+
+        var boltWeap = plug.Weapons.FirstOrDefault(w => w.FormKey.ID == WaveRaiderBoltWeaponId);
+        var heavyWeap = plug.Weapons.FirstOrDefault(w => w.FormKey.ID == WaveRaiderHeavyWeaponId);
+        need(boltWeap is { NonPlayable: true } && MathF.Abs(boltWeap.AttackDamage - WaveRaiderBoltDamage) < 1e-4f,
+             $"S8/F7 lacks softened NonPlayable FO4SF_WaveRaiderBoltWeapon (0x{WaveRaiderBoltWeaponId:X})");
+        need(heavyWeap is { NonPlayable: true } && MathF.Abs(heavyWeap.AttackDamage - WaveRaiderHeavyDamage) < 1e-4f,
+             $"S8/F7 lacks softened NonPlayable FO4SF_WaveRaiderHeavyWeapon (0x{WaveRaiderHeavyWeaponId:X})");
 
         var gristle = plug.Npcs.FirstOrDefault(n => n.FormKey.ID == GristleNpcId);
         var heavy = plug.Npcs.FirstOrDefault(n => n.FormKey.ID == WaveRaiderHeavyNpcId);
+        var bolt = plug.Npcs.FirstOrDefault(n => n.FormKey.ID == WaveRaiderBoltNpcId);
         need(gristle?.Name?.String == "Gristle" &&
              !gristle.Flags.HasFlag(SF.Npc.Flag.Essential) &&
              !gristle.Flags.HasFlag(SF.Npc.Flag.Protected) &&
-             !gristle.Flags.HasFlag(SF.Npc.Flag.Respawn),
-            "S8 lacks non-essential non-respawning NPC_ FO4_Gristle (0xBE4) named 'Gristle'");
+             !gristle.Flags.HasFlag(SF.Npc.Flag.Respawn) &&
+             (gristle.Items?.Any(i => i.Item.Item.FormKey == new FormKey(key, WaveRaiderHeavyWeaponId)) == true),
+            $"S8 lacks non-essential non-respawning NPC_ FO4_Gristle (0x{GristleNpcId:X}) named 'Gristle'");
         need(heavy?.EditorID == "FO4_WaveRaiderHeavy" &&
              !heavy.Flags.HasFlag(SF.Npc.Flag.Essential) &&
              !heavy.Flags.HasFlag(SF.Npc.Flag.Protected) &&
-             !heavy.Flags.HasFlag(SF.Npc.Flag.Respawn),
-            "S8 lacks non-essential non-respawning NPC_ FO4_WaveRaiderHeavy (0xBE5)");
+             !heavy.Flags.HasFlag(SF.Npc.Flag.Respawn) &&
+             (heavy.Items?.Any(i => i.Item.Item.FormKey == new FormKey(key, WaveRaiderHeavyWeaponId)) == true),
+            $"S8 lacks non-essential non-respawning NPC_ FO4_WaveRaiderHeavy (0x{WaveRaiderHeavyNpcId:X})");
+        need(bolt?.EditorID == "FO4_LvlRaiderBoltAction" &&
+             !bolt.Flags.HasFlag(SF.Npc.Flag.Essential) &&
+             !bolt.Flags.HasFlag(SF.Npc.Flag.Protected) &&
+             !bolt.Flags.HasFlag(SF.Npc.Flag.Respawn) &&
+             (bolt.Items?.Any(i => i.Item.Item.FormKey == new FormKey(key, WaveRaiderBoltWeaponId)) == true),
+            $"S8/F7 lacks non-essential non-respawning NPC_ FO4_LvlRaiderBoltAction (0x{WaveRaiderBoltNpcId:X})");
         for (int wi = 0; wi < S8WaveActorCount; wi++)
         {
             uint aid = FirstS8WaveActorRefId + (uint)wi;
             var spec = S8WaveInitialSpecs[wi];
             var wa = npcs.FirstOrDefault(r => r.FormKey.ID == aid);
+            uint wantBaseId = spec.Name == "Gristle" ? GristleNpcId : (spec.Name == "WaveRaider03" ? WaveRaiderHeavyNpcId : WaveRaiderBoltNpcId);
             need(wa is not null && (wa.MajorRecordFlagsRaw & 0xC00u) == 0xC00u &&
+                 wa.Base.FormKey == new FormKey(key, wantBaseId) &&
                  MathF.Abs(wa.Position.X - spec.MergedPos.X) <= 0.1f &&
                  MathF.Abs(wa.Position.Y - spec.MergedPos.Y) <= 0.1f,
-                $"S8 wave actor ACHR 0x{aid:X} missing from holding cell or coordinates do not match S8WaveInitialSpecs ({spec.MergedPos.X}, {spec.MergedPos.Y})");
+                $"S8 wave actor ACHR 0x{aid:X} missing from holding cell, wrong Base, or coordinates do not match S8WaveInitialSpecs ({spec.MergedPos.X}, {spec.MergedPos.Y})");
         }
         for (int si = 0; si < S8WaveSpawnerMergedCoords.Length; si++)
         {
@@ -631,13 +811,41 @@ static class NextStoryMissionsS7S9
              props.TryGetValue("LaserMusketId", out var lmp) && lmp is SF.IScriptIntPropertyGetter lmi && lmi.Data == CoreLaserMusketId,
             "S7-S9 lacks CoreValues FormID int properties on FO4SF_Min00");
         need(props.TryGetValue("S7RoofMinigunRef", out var rm) && rm is SF.IScriptObjectPropertyGetter rmo && rmo.Object.FormKey == new FormKey(key, S7RoofMinigunRefId) &&
+             props.TryGetValue("S7RoofFrameRef", out var rfp) && rfp is SF.IScriptObjectPropertyGetter rfpo && rfpo.Object.FormKey == new FormKey(key, S7RoofFrameRefId) &&
              props.TryGetValue("S7RoofFrameMarker", out var rf) && rf is SF.IScriptObjectPropertyGetter rfo && rfo.Object.FormKey == new FormKey(key, S7RoofFrameMarkerId) &&
              props.TryGetValue("S7RoofDoorMarker", out var rd) && rd is SF.IScriptObjectPropertyGetter rdo && rdo.Object.FormKey == new FormKey(key, S7RoofDoorMarkerId),
-            "S7 lacks S7RoofMinigunRef / S7RoofFrameMarker / S7RoofDoorMarker bindings on FO4SF_Min00");
+            "S7 lacks S7RoofMinigunRef / S7RoofFrameRef / S7RoofFrameMarker / S7RoofDoorMarker bindings on FO4SF_Min00");
         need(props.TryGetValue("S8WaveActors", out var wap) && wap is SF.IScriptObjectListPropertyGetter wal && wal.Objects.Count == S8WaveActorCount &&
+             props.TryGetValue("S8WaveActorBases", out var wbp) && wbp is SF.IScriptObjectListPropertyGetter wbl && wbl.Objects.Count == S8WaveActorCount &&
              props.TryGetValue("S8WaveSpawners", out var wsp) && wsp is SF.IScriptObjectListPropertyGetter wsl && wsl.Objects.Count == S8WaveSpawnerMergedCoords.Length &&
              props.TryGetValue("S8WaveFailsafeMarker", out _) && props.TryGetValue("S8GrateTriggerMarker", out _) && props.TryGetValue("S8DeathclawSpawnMarker", out _),
-            "S8 lacks wave actor/spawner/trigger VMAD bindings on FO4SF_Min00");
+            "S8 lacks wave actor/base/spawner/trigger VMAD bindings on FO4SF_Min00");
+
+        string? dcPlug = (props.GetValueOrDefault("DeathclawCreaturePlugin") as SF.IScriptStringPropertyGetter)?.Data;
+        int? dcId = (props.GetValueOrDefault("DeathclawCreatureFormId") as SF.IScriptIntPropertyGetter)?.Data;
+        if (!creatureSlotsReady)
+        {
+            need(!plug.Npcs.Any(n => n.FormKey.ID == S8DeathclawNpcId) &&
+                 !plug.Weapons.Any(w => w.FormKey.ID == S8DeathclawClawWeapId) &&
+                 string.IsNullOrEmpty(dcPlug) && (dcId ?? -1) == 0,
+                "F3: default creature-slots OFF build must keep Deathclaw slot empty (no 0xC0E/0xC0F and empty DeathclawCreaturePlugin/0)");
+        }
+        else if (creaturesMod is null || creaturesMod.Races.Any(r => r.EditorID == "FO4SF_DeathclawRace"))
+        {
+            var dcNpc = plug.Npcs.FirstOrDefault(n => n.FormKey.ID == S8DeathclawNpcId);
+            var clawWeap = plug.Weapons.FirstOrDefault(w => w.FormKey.ID == S8DeathclawClawWeapId);
+            static bool HasPropVal(SF.INpcGetter n, uint avId, float expected) =>
+                n.Properties?.Any(p => p.ActorValue.FormKey.ID == avId && MathF.Abs(p.Value - expected) < 1e-4f) == true;
+            need(dcNpc is { EditorID: "FO4SF_S8_DeathclawNpc" } &&
+                 HasPropVal(dcNpc, SfHealthAvId, DeathclawHealth) &&
+                 HasPropVal(dcNpc, SfDamageResistAvId, DeathclawPhysicalDr) &&
+                 HasPropVal(dcNpc, SfEnergyResistAvId, DeathclawEnergyEr) &&
+                 clawWeap is { NonPlayable: true } && MathF.Abs(clawWeap.AttackDamage - DeathclawClawDamage) < 1e-4f &&
+                 (dcNpc.Items?.Any(i => i.Item.Item.FormKey == new FormKey(key, S8DeathclawClawWeapId)) == true) &&
+                 dcPlug == key.FileName.String && dcId == (int)S8DeathclawNpcId,
+                "F3: creature-slots READY build lacks FO4SF_S8_DeathclawNpc (615 HP / 100 DR / 150 ER), 60-dmg claw WEAP, or Deathclaw VMAD bindings");
+        }
+
         need(props.TryGetValue("S9PrestonLobbyScene", out var lsc) && lsc is SF.IScriptObjectPropertyGetter lsco && lsco.Object.FormKey == new FormKey(key, S9PrestonLobbySceneId) &&
              props.TryGetValue("S9PrestonLobbyFallbackMsg", out var lfm) && lfm is SF.IScriptObjectPropertyGetter lfmo && lfmo.Object.FormKey == new FormKey(key, S9PrestonLobbyFallbackMsgId),
             "S9 lacks S9PrestonLobbyScene (0xBF6) or S9PrestonLobbyFallbackMsg (0xC04) bindings on FO4SF_Min00");
@@ -646,6 +854,10 @@ static class NextStoryMissionsS7S9
         need(lobbyScn is { DEVT: true, SCPI: null } && (uint)(lobbyScn.Flags ?? 0) == 0x1814u &&
              lobbyScn.Actors.Count == 1 && lobbyScn.Actors[0].ID == 0,
             "S9 lacks real DEVT Starfield SCEN FO4SF_S9_PrestonLobbyScene (0xBF6) on FO4SF_Min00");
+        var lobbyReplyTopic = min00.DialogTopics.FirstOrDefault(t => t.FormKey.ID == S9PrestonLobbyReplyTopicId);
+        var lobbyReplyInfo = lobbyReplyTopic?.Responses.FirstOrDefault();
+        need(lobbyReplyInfo?.SetParentQuestStage?.OnEnd == 90,
+            "S9/F13: FO4SF_S9_PrestonLobbyScene reply INFO (0xBFC) must set parent stage 90 on completion");
 
         var sanc = plug.Quests.FirstOrDefault(q => q.FormKey.ID == NextStoryMissionsA4.SanctuaryQuestId);
         need(sanc?.Data is not null && sanc.Data.Flags.HasFlag(SF.Quest.Flag.HasDialogueData),

@@ -14,11 +14,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 Vec3 = Tuple[float, float, float]
 
 # Verified Fallout4.esm DN092 & Concord positions (meters in merged Commonwealth)
-S7_ROOF_DOOR_POS: Vec3 = (-2008.49, -1722.39, 97.42)
+S7_ROOF_DOOR_POS: Vec3 = (-1990.58, -1724.19, 97.56)
 S7_ROOF_FRAME_POS: Vec3 = (-1995.73, -1723.10, 97.54)
 S7_ROOF_MINIGUN_POS: Vec3 = (-2004.72, -1715.40, 102.68)
 
 DN092_START_STAGE = 75
+DN092_SPAWN_STAGE = 77
 DN092_DONE_STAGE = 79
 DN092_RESPAWN_POOL = 8
 DN092_WAVE_KILL_TARGET = 8
@@ -141,10 +142,18 @@ class DN092WaveController:
         return self.evaluate_deathclaw_triggers(player_pos, dt=0.0)
 
     def evaluate_deathclaw_triggers(self, player_pos: Vec3, dt: float = 0.0) -> Optional[str]:
-        """Evaluate first-of (8 wave_kills | <=17m grate_proximity | 300s timer) and fire stage 79."""
+        """Evaluate first-of (8 wave_kills | <=17m grate_proximity | 300s timer) -> stage 77 spawn, stage 79 on clear/300s."""
         if dt > 0.0:
             self.elapsed_sec += dt
         if self.deathclaw_spawned:
+            if (
+                not self.creature_slot_available
+                and self.dn092_stage < DN092_DONE_STAGE
+                and self.elapsed_sec >= DN092_TIMER_LIMIT_S
+            ):
+                self.dn092_stage = DN092_DONE_STAGE
+                self.deathclaw_alive = False
+                self.logs.append(f"s8 deathclaw timer_300s_complete deathclaw_slot=empty dn092_stage={self.dn092_stage}")
             return self.deathclaw_trigger
 
         trigger: Optional[str] = None
@@ -160,7 +169,7 @@ class DN092WaveController:
 
         self.deathclaw_spawned = True
         self.deathclaw_trigger = trigger
-        self.dn092_stage = DN092_DONE_STAGE
+        self.dn092_stage = DN092_SPAWN_STAGE
         self.logs.append(f"s8 deathclaw spawn trigger={trigger} dn092_stage={self.dn092_stage}")
         if self.creature_slot_available:
             self.deathclaw_slot_status = "bound"
@@ -172,17 +181,23 @@ class DN092WaveController:
         else:
             self.deathclaw_slot_status = "empty"
             self.deathclaw_alive = False
-            self.logs.append(f"s8 deathclaw deathclaw_slot=empty dn092_stage={self.dn092_stage}")
+            if trigger == "timer_300s":
+                self.dn092_stage = DN092_DONE_STAGE
+                self.logs.append(f"s8 deathclaw deathclaw_slot=empty dn092_stage={self.dn092_stage}")
+            else:
+                self.logs.append(f"s8 deathclaw deathclaw_slot=empty dn092_stage={self.dn092_stage}")
         return trigger
 
     def on_deathclaw_killed(self) -> None:
         self.deathclaw_alive = False
-        self.logs.append("s8 deathclaw defeated")
+        self.dn092_stage = DN092_DONE_STAGE
+        self.logs.append("s8 deathclaw defeated dn092_stage=79")
 
     @property
     def is_wave_cleared(self) -> bool:
         return (
             self.deathclaw_spawned
+            and self.dn092_stage >= DN092_DONE_STAGE
             and not self.deathclaw_alive
             and all(not m.alive for m in self.members.values())
         )
@@ -198,13 +213,20 @@ def s9_failsafe_can_teleport(
     failsafe_sec: float = 180.0,
     min_offscreen_dist: float = S9_NEVER_TELEPORT_VIEW_DIST_M,
     sanctuary_far_dist: float = 150.0,
+    patrol_deployed: bool = True,
+    group_members: Sequence[Tuple[bool, float]] = (),
 ) -> bool:
-    """Guarantee S9 keeper failsafe NEVER teleports Preston while in close player view."""
+    """Guarantee S9 keeper failsafe waits for outdoor deployment and NEVER teleports Preston or group in close view."""
+    if not patrol_deployed:
+        return False
     wants_failsafe = (patrol_elapsed_sec >= failsafe_sec) or (
         player_in_sanctuary and preston_dist_to_sanctuary > sanctuary_far_dist
     )
     if not wants_failsafe:
         return False
-    if not preston_3d_loaded:
-        return True
-    return player_dist_to_preston >= min_offscreen_dist
+    if preston_3d_loaded and player_dist_to_preston < min_offscreen_dist:
+        return False
+    for gm_loaded, gm_dist in group_members:
+        if gm_loaded and gm_dist < min_offscreen_dist:
+            return False
+    return True

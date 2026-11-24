@@ -67,9 +67,11 @@ int Property Ammo5mmId = 0 Auto Const
 int Property MinigunId = 0 Auto Const
 int Property BottlecapId = 0 Auto Const
 ObjectReference Property S7RoofMinigunRef Auto Const
+ObjectReference Property S7RoofFrameRef Auto Const
 ObjectReference Property S7RoofFrameMarker Auto Const
 ObjectReference Property S7RoofDoorMarker Auto Const
 Actor[] Property S8WaveActors Auto Const
+ActorBase[] Property S8WaveActorBases Auto Const
 ObjectReference[] Property S8WaveSpawners Auto Const
 ObjectReference Property S8WaveFailsafeMarker Auto Const
 ObjectReference Property S8GrateTriggerMarker Auto Const
@@ -78,7 +80,7 @@ Scene Property S9PrestonLobbyScene Auto Const
 Message Property S9PrestonLobbyFallbackMsg Auto Const
 ActorBase Property DeathclawBaseOverride Auto
 string Property DeathclawCreaturePlugin = "" Auto Const
-int Property DeathclawCreatureFormId = 0x000805 Auto Const
+int Property DeathclawCreatureFormId = 0 Auto Const
 float Property S7RoofMinigunRotX = -0.86 Auto Const
 float Property S7RoofMinigunRotY = 13.47 Auto Const
 float Property S7RoofMinigunRotZ = 292.55 Auto Const
@@ -279,6 +281,7 @@ bool s9LobbyCompleted = False
 bool s9DiamondCityRevealed = False
 bool s9DiamondCityMerged = False
 bool s9PatrolStarted = False
+bool s9PatrolDeployed = False
 bool s9PatrolRelease = False
 float s9PatrolStartedAt = 0.0
 float s9PatrolElapsed = 0.0
@@ -287,7 +290,7 @@ string s9ArrivalVia = ""
 bool s7RoofSetup = False
 bool s7MinigunGrabbed = False
 bool s7StreetDropLogged = False
-ObjectReference s7RoofFrameRef = None
+float s7RoofHpBefore = -1.0
 bool s8WaveStarted = False
 int s8Dn092Stage = 0
 int s8RespawnPool = 8
@@ -300,6 +303,7 @@ bool s8WaveCleared = False
 string s8DeathclawTrigger = ""
 Actor s8DeathclawRef = None
 bool[] s8WavePermDead
+Actor[] s8LiveWaveActors
 bool s9LobbyPositioned = False
 bool s9LobbyScenePending = False
 bool s9LobbySceneMenuOpened = False
@@ -1670,7 +1674,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         Actor s7Player = Game.GetPlayer()
         if S7RoofMinigunRef != None && akSender == S7RoofMinigunRef
             GrabS7Minigun(s7Player)
-        elseif s7RoofFrameRef != None && akSender == s7RoofFrameRef
+        elseif S7RoofFrameRef != None && akSender == S7RoofFrameRef
             OnS7RoofFrameActivated(s7Player)
         endif
     endif
@@ -1683,14 +1687,22 @@ Event Actor.OnDeath(Actor akSender, ObjectReference akKiller)
     Actor player = Game.GetPlayer()
     if s8DeathclawRef != None && akSender == s8DeathclawRef
         s8DeathclawCleared = True
-        Trace("s8 deathclaw killed trigger=" + s8DeathclawTrigger)
+        if s8Dn092Stage < 79
+            s8Dn092Stage = 79
+        endif
+        Trace("s8 deathclaw killed trigger=" + s8DeathclawTrigger + " dn092_stage=79")
         CheckS8WaveAndDeathclaw(player, 0.0)
         return
     endif
-    if S8WaveActors != None
+    EnsureS8TrackingArrays()
+    Actor[] waveList = s8LiveWaveActors
+    if waveList == None
+        waveList = S8WaveActors
+    endif
+    if waveList != None
         int wi = 0
-        while wi < S8WaveActors.Length
-            if S8WaveActors[wi] == akSender
+        while wi < waveList.Length
+            if waveList[wi] == akSender
                 OnS8MemberKilled(wi, akSender, player)
                 return
             endif
@@ -2254,17 +2266,23 @@ Event OnTimer(int aiTimerID)
     endif
     if EnableS6ToS9Full
         if s6FullStage >= 50 && !s7RoofSetup && IsCommonwealthExterior(player) && player != None
-            float rdx = player.GetPositionX() - (-2008.49)
-            float rdy = player.GetPositionY() - (-1722.39)
-            float rdz = player.GetPositionZ() - 97.42
+            float rdx = player.GetPositionX() - (-1990.58)
+            float rdy = player.GetPositionY() - (-1724.19)
+            float rdz = player.GetPositionZ() - 97.56
             if rdx * rdx + rdy * rdy + rdz * rdz <= 196.0
                 AdvanceTo(60, "roof_door")
             endif
         endif
-        if s7RoofSetup && s7RoofFrameRef != None
+        if s7RoofSetup && S7RoofFrameRef != None
             SyncS7RoofFrameGate(player)
         endif
         if s7RoofSetup && !s7StreetDropLogged && IsCommonwealthExterior(player)
+            if player != None && player.GetPositionZ() >= 93.0
+                float roofHp = ReadActorHealth(player)
+                if roofHp > 0.0
+                    s7RoofHpBefore = roofHp
+                endif
+            endif
             CheckS7StreetDrop(player)
         endif
         if s8WaveStarted && !s8WaveCleared
@@ -3298,15 +3316,14 @@ int Function PrepareAndChainS9PatrolWaypoints(Actor player)
     return wpCount
 EndFunction
 
-bool Function BeginS9MuseumExitAndPatrol(Actor player = None)
-{R11 Step 3q: Releases Preston on BOTH 0x0800 and 0x0814, places Preston & group outside the Museum front exit
- (-2010.57, -1697.94, 89.26), ensures 0xB8A Diamond City MapMarker + 0xB82..0xB89 waypoints are relocated into player's
- merged Commonwealth world, and starts P9 SetLinkedRef patrol along the Red Rocket road corridor (never east quarry!).}
-    if !EnableS6ToS9Full || KeeperOnly || !s9LobbyCompleted || s9PatrolStarted
+bool Function DeployS9PatrolExterior(Actor player)
+{F2: Moves Preston & every MinutemenGroup member outside the Museum exit (-2010.57, -1697.94, 89.26), reveals
+ Diamond City MapMarker, and relocates/chains S9PatrolWaypoints AFTER moving actors outdoors (never indoors).}
+    if !EnableS6ToS9Full || KeeperOnly || !s9PatrolStarted || s9PatrolDeployed
         return False
     endif
-    if player == None
-        player = Game.GetPlayer()
+    if player == None || player.IsInInterior() || !IsCommonwealthExterior(player)
+        return False
     endif
     SyncKeeperPrestonMode(False, True)
     if Preston != None
@@ -3327,14 +3344,48 @@ bool Function BeginS9MuseumExitAndPatrol(Actor player = None)
     endif
     Trace("min01 museum_exit moveto_front=true")
 
-    if !s9DiamondCityMerged && player != None && IsCommonwealthExterior(player)
+    if !s9DiamondCityMerged
         RevealDiamondCityMapMarker(player)
     endif
     int wpCount = PrepareAndChainS9PatrolWaypoints(player)
+    s9PatrolDeployed = True
+    Trace("min01 patrol deployed_outdoors=true route=red_rocket waypoints=" + wpCount)
+    return True
+EndFunction
+
+bool Function BeginS9MuseumExitAndPatrol(Actor player = None)
+{R11 Step 3q / F2: Releases Preston on BOTH 0x0800 and 0x0814. If player is still inside Museum, defers
+ MoveActorToExteriorSpot & waypoint relocation until the first exterior tick (!player.IsInInterior()).}
+    if !EnableS6ToS9Full || KeeperOnly || !s9LobbyCompleted || s9PatrolStarted
+        return False
+    endif
+    if player == None
+        player = Game.GetPlayer()
+    endif
+    SyncKeeperPrestonMode(False, True)
+    if Preston != None
+        Preston.SetRestrained(False)
+        prestonHeld = False
+    endif
+    if MinutemenGroup != None
+        int ui = 0
+        while ui < MinutemenGroup.Length
+            Actor um = MinutemenGroup[ui]
+            if um != None
+                um.SetRestrained(False)
+            endif
+            ui += 1
+        endwhile
+    endif
     s9PatrolStarted = True
+    s9PatrolDeployed = False
     s9PatrolStartedAt = Utility.GetCurrentRealTime()
     s9PatrolElapsed = 0.0
-    Trace("min01 patrol started route=red_rocket waypoints=" + wpCount)
+    if player != None && !player.IsInInterior() && IsCommonwealthExterior(player)
+        DeployS9PatrolExterior(player)
+    else
+        Trace("min01 patrol deferred_until_exterior=true")
+    endif
     return True
 EndFunction
 
@@ -3345,37 +3396,65 @@ bool Function ResumeS9PatrolAfterLoad(Actor player)
         return False
     endif
     SyncKeeperPrestonMode(False, True)
-    PrepareAndChainS9PatrolWaypoints(player)
+    if player != None && !player.IsInInterior() && IsCommonwealthExterior(player)
+        if !s9PatrolDeployed
+            DeployS9PatrolExterior(player)
+        else
+            PrepareAndChainS9PatrolWaypoints(player)
+        endif
+    endif
     prestonTalkReloaded = False
     Trace("min01 patrol resumed_after_load")
     return True
 EndFunction
 
 bool Function CanFailsafeTeleportGroup(Actor player, float prestonDistToSanctuary, bool playerInSanctuary)
-{Never teleport Preston/Minutemen in close view of the player during S9 walk home.}
+{Never teleport Preston or ANY MinutemenGroup member in close view of the player during S9 walk home.}
+    if !s9PatrolDeployed
+        return False
+    endif
     bool wantsFailsafe = (s9PatrolElapsed >= S9PatrolFailsafeSeconds) || (playerInSanctuary && prestonDistToSanctuary > S9SanctuaryGroupFarDist)
     if !wantsFailsafe
         return False
     endif
-    if player == None || Preston == None
+    if player == None
         return True
     endif
-    if !Preston.Is3DLoaded()
-        return True
+    if Preston != None && Preston.Is3DLoaded()
+        float pViewDist = player.GetDistance(Preston)
+        if pViewDist < S9NeverTeleportViewDist
+            Trace("min01 patrol failsafe_deferred reason=in_player_view actor=preston dist=" + pViewDist)
+            return False
+        endif
     endif
-    float viewDist = player.GetDistance(Preston)
-    if viewDist < S9NeverTeleportViewDist
-        Trace("min01 patrol failsafe_deferred reason=in_player_view dist=" + viewDist)
-        return False
+    if MinutemenGroup != None
+        int gi = 0
+        while gi < MinutemenGroup.Length
+            Actor gm = MinutemenGroup[gi]
+            if gm != None && gm.Is3DLoaded()
+                float gmDist = player.GetDistance(gm)
+                if gmDist < S9NeverTeleportViewDist
+                    Trace("min01 patrol failsafe_deferred reason=in_player_view actor=minuteman_" + gi + " dist=" + gmDist)
+                    return False
+                endif
+            endif
+            gi += 1
+        endwhile
     endif
     return True
 EndFunction
 
 bool Function CheckS9SanctuaryArrival(Actor player, float deltaSec = 1.0)
-{R11 Step 3q / S9: Completes S9 walk either when Preston reaches Sanctuary via P9 patrol walk or via unloaded/off-screen failsafe
- (never teleports in player view). Enters FO4SF_Sanctuary01 at Min01 220 ("Talk to Sturges" -> Min01SturgesIntro 001188B4 -> Min01 1000 hard stop).}
+{R11 Step 3q / S9 / F2: Deploys outdoors on first exterior tick, then completes S9 walk either when Preston
+ reaches Sanctuary via P9 patrol walk or via unloaded/off-screen failsafe (never teleports in player view).}
     if !EnableS6ToS9Full || KeeperOnly || !s9PatrolStarted || s9GroupArrived
         return False
+    endif
+    if !s9PatrolDeployed
+        DeployS9PatrolExterior(player)
+        if !s9PatrolDeployed
+            return False
+        endif
     endif
     if deltaSec > 0.0
         s9PatrolElapsed = s9PatrolElapsed + deltaSec
@@ -4139,6 +4218,7 @@ Function RegisterS7S9Events()
         return
     endif
     ResetS9LobbyRuntimeState()
+    EnsureS8TrackingArrays()
     if S9PrestonLobbyScene != None
         RegisterForRemoteEvent(S9PrestonLobbyScene, "OnBegin")
         RegisterForRemoteEvent(S9PrestonLobbyScene, "OnPhaseBegin")
@@ -4147,14 +4227,18 @@ Function RegisterS7S9Events()
     if S7RoofMinigunRef != None
         RegisterForRemoteEvent(S7RoofMinigunRef, "OnActivate")
     endif
-    if s7RoofFrameRef != None
-        RegisterForRemoteEvent(s7RoofFrameRef, "OnActivate")
+    if S7RoofFrameRef != None
+        RegisterForRemoteEvent(S7RoofFrameRef, "OnActivate")
     endif
-    if S8WaveActors != None
+    Actor[] waveList = s8LiveWaveActors
+    if waveList == None
+        waveList = S8WaveActors
+    endif
+    if waveList != None
         int wi = 0
-        while wi < S8WaveActors.Length
-            if S8WaveActors[wi] != None
-                RegisterForRemoteEvent(S8WaveActors[wi], "OnDeath")
+        while wi < waveList.Length
+            if waveList[wi] != None
+                RegisterForRemoteEvent(waveList[wi], "OnDeath")
             endif
             wi += 1
         endwhile
@@ -4164,21 +4248,29 @@ Function RegisterS7S9Events()
     endif
 EndFunction
 
+float Function ReadActorHealth(Actor akActor)
+    if akActor == None
+        return -1.0
+    endif
+    if healthAvCache == None
+        healthAvCache = Game.GetFormFromFile(0x0002D4, "Starfield.esm") as ActorValue
+    endif
+    if healthAvCache != None
+        return akActor.GetValue(healthAvCache)
+    endif
+    return -1.0
+EndFunction
+
 Function SyncS7RoofFrameGate(Actor player)
-    if s7RoofFrameRef == None || player == None
+    if S7RoofFrameRef == None || player == None
         return
     endif
-    MiscObject fcCore = Game.GetFormFromFile(0x000809, "FO4SFPowerArmor.esm") as MiscObject
-    int cores = 0
-    if fcCore != None
-        cores = player.GetItemCount(fcCore)
-    endif
-    s7RoofFrameRef.BlockActivation(cores <= 0, False)
+    S7RoofFrameRef.BlockActivation(True, False)
 EndFunction
 
 bool Function ConfirmS7RoofArrival(Actor player)
-{S7 Museum roof arrival: deploys persistent roof PA frame (0x0801, no pre-installed core; uses 0x0809 core carried from 2h/S6)
- and Vertibird Minigun activator (0xBE1) from 0xBF5 holding cell into Concord roof coordinates.}
+{S7 Museum roof arrival: deploys persistent roof PA frame (S7RoofFrameRef in 0xBF5, no pre-installed core; uses 0x0809 core
+ carried from 2h/S6) and Vertibird Minigun activator from 0xBF5 holding cell into Concord roof coordinates.}
     if !EnableS6ToS9Full || KeeperOnly || s7RoofSetup
         return False
     endif
@@ -4186,9 +4278,15 @@ bool Function ConfirmS7RoofArrival(Actor player)
     if s6FullStage < 60
         s6FullStage = 60
     endif
+    if player != None
+        float initHp = ReadActorHealth(player)
+        if initHp > 0.0
+            s7RoofHpBefore = initHp
+        endif
+    endif
     SetObjectiveCompleted(60)
     if S7RoofDoorMarker != None
-        RelocateHoldingRefToCommonwealth(S7RoofDoorMarker, "S7RoofDoorMarker", -2008.49, -1722.39, 97.42, player)
+        RelocateHoldingRefToCommonwealth(S7RoofDoorMarker, "S7RoofDoorMarker", -1990.58, -1724.19, 97.56, player)
     endif
     if S7RoofMinigunRef != None
         RelocateHoldingRefToCommonwealth(S7RoofMinigunRef, "S7VertibirdMinigun", -2004.72, -1715.40, 102.68, player)
@@ -4196,21 +4294,20 @@ bool Function ConfirmS7RoofArrival(Actor player)
         S7RoofMinigunRef.SetAngle(S7RoofMinigunRotX, S7RoofMinigunRotY, S7RoofMinigunRotZ)
         RegisterForRemoteEvent(S7RoofMinigunRef, "OnActivate")
     endif
-    bool spawnedFrame = False
+    bool framePlaced = False
     if S7RoofFrameMarker != None
         RelocateHoldingRefToCommonwealth(S7RoofFrameMarker, "S7RoofFrameMarker", -1995.73, -1723.10, 97.54, player)
-        Furniture paFurn = Game.GetFormFromFile(0x000801, "FO4SFPowerArmor.esm") as Furniture
-        if paFurn != None && (s7RoofFrameRef == None || s7RoofFrameRef.IsDeleted())
-            s7RoofFrameRef = S7RoofFrameMarker.PlaceAtMe(paFurn, 1, True, False, False)
-            if s7RoofFrameRef != None
-                s7RoofFrameRef.SetAngle(0.0, 0.0, 351.07)
-                RegisterForRemoteEvent(s7RoofFrameRef, "OnActivate")
-                SyncS7RoofFrameGate(player)
-                spawnedFrame = True
-            endif
-        endif
     endif
-    Trace("s7 roof confirmed frame_no_core=true frame_spawned=" + spawnedFrame + " minigun_enabled=true")
+    if S7RoofFrameRef != None
+        RelocateHoldingRefToCommonwealth(S7RoofFrameRef, "S7RoofFrameRef", -1995.73, -1723.10, 97.54, player)
+        S7RoofFrameRef.SetAngle(0.0, 0.0, 351.07)
+        S7RoofFrameRef.EnableNoWait(False)
+        S7RoofFrameRef.BlockActivation(True, False)
+        RegisterForRemoteEvent(S7RoofFrameRef, "OnActivate")
+        SyncS7RoofFrameGate(player)
+        framePlaced = True
+    endif
+    Trace("s7 roof confirmed frame_no_core=true frame_persistent=" + framePlaced + " minigun_enabled=true")
     return True
 EndFunction
 
@@ -4223,8 +4320,8 @@ Function OnS7RoofFrameActivated(Actor player)
     if fcCore != None
         cores = player.GetItemCount(fcCore)
     endif
-    if s7RoofFrameRef != None
-        s7RoofFrameRef.BlockActivation(cores <= 0, False)
+    if S7RoofFrameRef != None
+        S7RoofFrameRef.BlockActivation(True, False)
     endif
     if cores <= 0
         Trace("s7 roof_frame refused reason=no_fusion_core cores=0 frame_blocked=true")
@@ -4235,6 +4332,13 @@ Function OnS7RoofFrameActivated(Actor player)
     endif
     if IsObjectiveDisplayed(95) && !IsObjectiveCompleted(95)
         SetObjectiveCompleted(95)
+    endif
+    Quest paQuest = Game.GetFormFromFile(0x000805, "FO4SFPowerArmor.esm") as Quest
+    if paQuest != None && S7RoofFrameRef != None
+        var[] enterArgs = new var[2]
+        enterArgs[0] = S7RoofFrameRef
+        enterArgs[1] = "s7_roof_frame"
+        paQuest.CallFunction("EnterFrame", enterArgs)
     endif
     ; FO4SF_PowerArmorCoreQuest owns granting and removing 0x00081E on PA enter/exit cleanly.
     Trace("s7 roof_frame entered core=0x0809 cores=" + cores)
@@ -4269,7 +4373,16 @@ Function CheckS7StreetDrop(Actor player)
         s7StreetDropLogged = True
         Perk noFall = Game.GetFormFromFile(0x00081E, "FO4SFPowerArmor.esm") as Perk
         bool hasPerk = noFall != None && player.HasPerk(noFall)
-        Trace("s7 street_drop z=" + pz + " no_fall_perk=" + hasPerk + " dmg=0")
+        float hpAfter = ReadActorHealth(player)
+        float hpBefore = s7RoofHpBefore
+        if hpBefore < 0.0
+            hpBefore = hpAfter
+        endif
+        float dmg = hpBefore - hpAfter
+        if dmg < 0.0
+            dmg = 0.0
+        endif
+        Trace("s7 street_drop z=" + pz + " no_fall_perk=" + hasPerk + " hp_before=" + hpBefore + " hp_after=" + hpAfter + " dmg=" + dmg)
         if s6FullStage < 65
             AdvanceTo(65, "street_drop")
         endif
@@ -4286,6 +4399,14 @@ Function EnsureS8TrackingArrays()
         while bi < s8WavePermDead.Length
             s8WavePermDead[bi] = False
             bi += 1
+        endwhile
+    endif
+    if s8LiveWaveActors == None || s8LiveWaveActors.Length != S8WaveActors.Length
+        s8LiveWaveActors = new Actor[S8WaveActors.Length]
+        int ai = 0
+        while ai < S8WaveActors.Length
+            s8LiveWaveActors[ai] = S8WaveActors[ai]
+            ai += 1
         endwhile
     endif
 EndFunction
@@ -4424,18 +4545,36 @@ Function OnS8MemberKilled(int idx, Actor member, Actor player)
     s8RespawnPool -= 1
     s8RespawningCount += 1
     ObjectReference sp = PickS8WaveSpawner(player)
-    Utility.Wait(0.5)
-    member.Resurrect()
-    if sp != None
-        MoveActorToExteriorSpot(member, "S8Wave", sp, sp.GetPositionX(), sp.GetPositionY(), sp.GetPositionZ(), player, "s8_respawn", "in Concord")
+    ActorBase respBase = None
+    if S8WaveActorBases != None && idx < S8WaveActorBases.Length
+        respBase = S8WaveActorBases[idx]
     endif
-    if player != None
-        FO4SF_Sanctuary01Quest.EngageTarget(member, player)
+    if respBase == None
+        respBase = member.GetLeveledActorBase()
+    endif
+    Actor fresh = None
+    if sp != None && respBase != None
+        fresh = sp.PlaceAtMe(respBase, 1, True, False, False) as Actor
+    endif
+    if fresh != None
+        if s8LiveWaveActors != None && idx < s8LiveWaveActors.Length
+            s8LiveWaveActors[idx] = fresh
+        endif
+        fresh.EnableNoWait(False)
+        RegisterForRemoteEvent(fresh, "OnDeath")
+        if player != None
+            FO4SF_Sanctuary01Quest.EngageTarget(fresh, player)
+        endif
+        if !member.IsDisabled()
+            member.DisableNoWait(False)
+        endif
+    else
+        s8WavePermDead[idx] = True
     endif
     if s8RespawningCount > 0
         s8RespawningCount -= 1
     endif
-    Trace("s8 wave respawn idx=" + idx + " pool_left=" + s8RespawnPool + " wave_kills=" + s8WaveKills + " spawner=" + sp)
+    Trace("s8 wave respawn idx=" + idx + " fresh=" + (fresh != None) + " pool_left=" + s8RespawnPool + " wave_kills=" + s8WaveKills + " spawner=" + sp)
     CheckS8WaveAndDeathclaw(player, 0.0)
 EndFunction
 
@@ -4445,10 +4584,10 @@ Function SpawnS8Deathclaw(string triggerReason, Actor player)
     endif
     s8DeathclawSpawned = True
     s8DeathclawTrigger = triggerReason
-    s8Dn092Stage = 79
-    Trace("s8 deathclaw spawn trigger=" + triggerReason + " dn092_stage=79")
+    s8Dn092Stage = 77
+    Trace("s8 deathclaw spawn trigger=" + triggerReason + " dn092_stage=77")
     ActorBase dcBase = DeathclawBaseOverride
-    if dcBase == None && DeathclawCreaturePlugin != "" && Game.IsPluginInstalled(DeathclawCreaturePlugin)
+    if dcBase == None && DeathclawCreaturePlugin != "" && DeathclawCreatureFormId > 0 && Game.IsPluginInstalled(DeathclawCreaturePlugin)
         dcBase = Game.GetFormFromFile(DeathclawCreatureFormId, DeathclawCreaturePlugin) as ActorBase
     endif
     if dcBase != None && S8DeathclawSpawnMarker != None
@@ -4476,12 +4615,17 @@ Function SpawnS8Deathclaw(string triggerReason, Actor player)
             if player != None
                 FO4SF_Sanctuary01Quest.EngageTarget(s8DeathclawRef, player)
             endif
-            Trace("s8 deathclaw creature_slot=bound hp=615 dr=100 er=150 claw=60")
+            Trace("s8 deathclaw creature_slot=bound hp=615 dr=100 er=150 claw=60 dn092_stage=77")
             return
         endif
     endif
-    s8DeathclawCleared = True
-    Trace("s8 deathclaw deathclaw_slot=empty dn092_stage=79")
+    if triggerReason == "timer_300s"
+        s8Dn092Stage = 79
+        s8DeathclawCleared = True
+        Trace("s8 deathclaw deathclaw_slot=empty dn092_stage=79")
+    else
+        Trace("s8 deathclaw deathclaw_slot=empty dn092_stage=77 waiting_timer=300s")
+    endif
 EndFunction
 
 Function CheckS8WaveAndDeathclaw(Actor player, float deltaSec)
@@ -4499,19 +4643,38 @@ Function CheckS8WaveAndDeathclaw(Actor player, float deltaSec)
         elseif s8ElapsedSec >= S8DeathclawTimerSeconds
             SpawnS8Deathclaw("timer_300s", player)
         endif
+    elseif s8Dn092Stage < 79
+        if s8DeathclawRef != None
+            if s8DeathclawRef.IsDead()
+                s8DeathclawCleared = True
+                s8Dn092Stage = 79
+                Trace("s8 deathclaw defeated dn092_stage=79")
+            endif
+        elseif s8ElapsedSec >= S8DeathclawTimerSeconds
+            s8Dn092Stage = 79
+            s8DeathclawCleared = True
+            Trace("s8 deathclaw timer_300s_complete deathclaw_slot=empty dn092_stage=79")
+        endif
     endif
-    if s8DeathclawSpawned && !s8DeathclawCleared && (s8DeathclawRef == None || s8DeathclawRef.IsDead())
+    if s8DeathclawSpawned && !s8DeathclawCleared && s8DeathclawRef != None && s8DeathclawRef.IsDead()
         s8DeathclawCleared = True
+        if s8Dn092Stage < 79
+            s8Dn092Stage = 79
+        endif
     endif
-    if !s8DeathclawSpawned || !s8DeathclawCleared || s8RespawningCount > 0
+    if !s8DeathclawSpawned || !s8DeathclawCleared || s8Dn092Stage < 79 || s8RespawningCount > 0
         return
     endif
     EnsureS8TrackingArrays()
     int aliveCount = 0
-    if S8WaveActors != None
+    Actor[] waveList = s8LiveWaveActors
+    if waveList == None
+        waveList = S8WaveActors
+    endif
+    if waveList != None
         int wi = 0
-        while wi < S8WaveActors.Length
-            Actor wa = S8WaveActors[wi]
+        while wi < waveList.Length
+            Actor wa = waveList[wi]
             if wa != None && !wa.IsDead()
                 aliveCount += 1
             endif
@@ -4693,18 +4856,24 @@ Function HandleS9LobbySceneEnd()
         return
     endif
     bool wasOpened = s9LobbySceneAttemptOpened || s9LobbySceneMenuOpened || prestonDialogueMenuOpen
+    bool replyChosen = GetStageDone(90) || applied == 90 || GetStage() == 90
     s9LobbyScenePending = False
     s9LobbySceneAttemptOpened = False
     s9LobbyScenePhase1 = False
     s9LobbyScenePhase1At = 0.0
     CancelTimer(7)
     if !s9LobbyCompleted
-        if wasOpened
+        if replyChosen
             s9LobbySceneMenuOpened = False
             s9LobbySceneRestarts = 0
             Actor player = Game.GetPlayer()
             CompleteS9LobbyTalkAndReward(player)
             BeginS9MuseumExitAndPatrol(player)
+        elseif wasOpened
+            s9LobbySceneMenuOpened = False
+            s9LobbySceneRestarts = 0
+            EnsureActorTalkable(Preston)
+            Trace("s9 lobby scene cancelled_early stage=" + EffectiveStage() + " reward=0")
         elseif !ShouldUseMessageBox()
             RestartOrFailS9LobbyScene("scene_incomplete")
         endif

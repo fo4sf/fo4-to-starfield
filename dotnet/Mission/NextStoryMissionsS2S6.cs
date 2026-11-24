@@ -188,7 +188,9 @@ static class NextStoryMissionsS2S6
         string RadroachRaceEdid,
         string RadroachSkinEdid,
         string BloatflyRaceEdid,
-        string BloatflySkinEdid)
+        string BloatflySkinEdid,
+        string DeathclawRaceEdid = "FO4SF_DeathclawRace",
+        string DeathclawSkinEdid = "FO4SF_RA5Deathclaw_Skin")
     {
         public static CreatureSlotsConfig DisabledDefault() => new(
             false,
@@ -196,7 +198,9 @@ static class NextStoryMissionsS2S6
             "FO4SF_RadroachRace",
             "FO4SF_RA5Radroach_Skin",
             "FO4SF_BloatflyRace",
-            "FO4SF_RA5Bloatfly_Skin");
+            "FO4SF_RA5Bloatfly_Skin",
+            "FO4SF_DeathclawRace",
+            "FO4SF_RA5Deathclaw_Skin");
 
         public static CreatureSlotsConfig LoadOrEmpty(string? path)
         {
@@ -220,7 +224,9 @@ static class NextStoryMissionsS2S6
                 ReadStr(root, "radroach_race_edid", d.RadroachRaceEdid, "radroach_race"),
                 ReadStr(root, "radroach_skin_edid", d.RadroachSkinEdid, "radroach_skin"),
                 ReadStr(root, "bloatfly_race_edid", d.BloatflyRaceEdid, "bloatfly_race"),
-                ReadStr(root, "bloatfly_skin_edid", d.BloatflySkinEdid, "bloatfly_skin"));
+                ReadStr(root, "bloatfly_skin_edid", d.BloatflySkinEdid, "bloatfly_skin"),
+                ReadStr(root, "deathclaw_race_edid", d.DeathclawRaceEdid, "deathclaw_race"),
+                ReadStr(root, "deathclaw_skin_edid", d.DeathclawSkinEdid, "deathclaw_skin"));
         }
     }
 
@@ -322,7 +328,7 @@ static class NextStoryMissionsS2S6
         refObj.VirtualMachineAdapter = vm;
     }
 
-    static SF.Npc BuildCreatureNpcFromSlot(
+    public static SF.Npc BuildCreatureNpcFromSlot(
         SF.StarfieldMod mod,
         ModKey modKey,
         uint npcId,

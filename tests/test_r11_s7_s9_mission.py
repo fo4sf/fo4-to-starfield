@@ -32,22 +32,31 @@ PROGRAM_CS = (ROOT / "dotnet" / "Mission" / "Program.cs").read_text(encoding="ut
 
 class S7RoofAndMinigunContractTests(unittest.TestCase):
     def test_s7_roof_coords_empty_frame_and_minigun_contract(self) -> None:
-        self.assertEqual(dn092_wave.S7_ROOF_DOOR_POS, (-2008.49, -1722.39, 97.42))
+        self.assertEqual(dn092_wave.S7_ROOF_DOOR_POS, (-1990.58, -1724.19, 97.56))
         self.assertEqual(dn092_wave.S7_ROOF_FRAME_POS, (-1995.73, -1723.10, 97.54))
         self.assertEqual(dn092_wave.S7_ROOF_MINIGUN_POS, (-2004.72, -1715.40, 102.68))
 
         for token in (
-            "0x000801",  # FO4SFPowerArmor FURN frame (no pre-installed core)
-            "0x000809",  # FO4SF_FusionCore from 2h/S6
+            "S7RoofFrameRef",  # F12 persistent frame REFR (0xC0D)
+            "0x000809",        # FO4SF_FusionCore from 2h/S6
+            "0x000805",        # FO4SF_PowerArmorCoreQuest EnterFrame receiver
             "SyncS7RoofFrameGate(player)",
-            "s7RoofFrameRef.BlockActivation(cores <= 0, False)",
+            "S7RoofFrameRef.BlockActivation(True, False)",
             "player.AddItem(r5mm, 1200, False)",
-            "s7 roof confirmed frame_no_core=true",
+            "s7 roof confirmed frame_no_core=true frame_persistent=",
+            "ReadActorHealth(player)",
+            "hp_before=",
         ):
             self.assertIn(token, MIN00_PSC)
         # Finding 5: Min00 must NOT directly AddPerk(0x00081E); FO4SF_PowerArmorCoreQuest owns PA fall-damage perk on enter/exit.
         self.assertNotIn(".AddPerk(", MIN00_PSC)
-        for token in ("CoreMinigunId = 0x0008A0", "CoreAmmo5mmId = 0x00089F", "vertibirdminigun.nif"):
+        for token in (
+            "CoreMinigunId = 0x0008A0",
+            "CoreAmmo5mmId = 0x00089F",
+            "vertibirdminigun.nif",
+            "powerarmorfurniture.nif",
+            "S7RoofFrameRefId = 0xC0D",
+        ):
             self.assertIn(token, S7S9_CS)
 
     def test_s7_frame_activation_blocks_without_fusion_core_and_unlocks_with_core(self) -> None:
@@ -55,15 +64,21 @@ class S7RoofAndMinigunContractTests(unittest.TestCase):
         from tests.test_r11_cell_independent_quest import _compile_papyrus
 
         block_calls: list[tuple[bool, bool]] = []
+        enter_calls: list[tuple[str, list]] = []
         logs: list[str] = []
         notifs: list[str] = []
         fc_count = [0]
         obj_done: set[int] = set()
         frame_ref = SimpleNamespace(BlockActivation=lambda blk, abs_off=False: block_calls.append((bool(blk), bool(abs_off))))
+        pa_quest = SimpleNamespace(CallFunction=lambda fn, args: enter_calls.append((str(fn), list(args))))
         player = SimpleNamespace(GetItemCount=lambda _f: fc_count[0])
         ns = {
-            "s7RoofFrameRef": frame_ref,
-            "Game": SimpleNamespace(GetFormFromFile=lambda fid, plg: ("FC", fid, plg)),
+            "S7RoofFrameRef": frame_ref,
+            "Game": SimpleNamespace(
+                GetFormFromFile=lambda fid, plg: (
+                    pa_quest if fid == 0x000805 else ("FC", fid, plg)
+                )
+            ),
             "IsTestModeEnabled": lambda: True,
             "IsObjectiveDisplayed": lambda idx: int(idx) == 95,
             "IsObjectiveCompleted": lambda idx: int(idx) in obj_done,
@@ -71,10 +86,11 @@ class S7RoofAndMinigunContractTests(unittest.TestCase):
             "Debug": SimpleNamespace(Notification=lambda msg: notifs.append(str(msg))),
             "Trace": lambda msg: logs.append(str(msg)),
         }
-        _compile_papyrus(MIN00_PSC, ["SyncS7RoofFrameGate", "OnS7RoofFrameActivated"], {"s7RoofFrameRef"}, ns)
+        _compile_papyrus(MIN00_PSC, ["SyncS7RoofFrameGate", "OnS7RoofFrameActivated"], set(), ns)
         ns["SyncS7RoofFrameGate"](player)
         ns["OnS7RoofFrameActivated"](player)
         self.assertEqual(block_calls[-1], (True, False))
+        self.assertEqual(enter_calls, [])
         self.assertNotIn(95, obj_done)
         self.assertTrue(any("refused reason=no_fusion_core" in lg for lg in logs))
         self.assertEqual(len(notifs), 1)
@@ -82,7 +98,8 @@ class S7RoofAndMinigunContractTests(unittest.TestCase):
         fc_count[0] = 1
         ns["SyncS7RoofFrameGate"](player)
         ns["OnS7RoofFrameActivated"](player)
-        self.assertEqual(block_calls[-1], (False, False))
+        self.assertEqual(block_calls[-1], (True, False))
+        self.assertEqual(enter_calls, [("EnterFrame", [frame_ref, "s7_roof_frame"])])
         self.assertIn(95, obj_done)
         self.assertTrue(any("roof_frame entered core=0x0809 cores=1" in lg for lg in logs))
 
@@ -114,18 +131,26 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
             self.assertTrue(ctl.members[alias].alive)
             self.assertEqual(ctl.dn092_stage, 75)
 
-        # Kill 8 (wave_kills == 8) fires wave_kills trigger, sets stage 79, logs deathclaw_slot=empty
+        # Kill 8 (wave_kills == 8) fires wave_kills trigger, sets stage 77 (F8: NOT 79!), logs deathclaw_slot=empty
         trig8 = ctl.on_member_killed("WaveRaider03", far_player)
         self.assertEqual(trig8, "wave_kills")
-        self.assertEqual(ctl.dn092_stage, 79)
+        self.assertEqual(ctl.dn092_stage, 77)
         self.assertEqual(ctl.deathclaw_slot_status, "empty")
-        self.assertTrue(any("deathclaw_slot=empty dn092_stage=79" in lg for lg in ctl.logs))
+        self.assertTrue(any("deathclaw_slot=empty dn092_stage=77" in lg for lg in ctl.logs))
 
-        # Now at stage 79 (above 75..79 window) + pool exhausted, killing remaining 3 clears the wave cleanly
+        # At stage 77 (< 79 window), WaveRaider01 still respawns using remaining pool until timer_300s advances stage to 79
+        ctl.on_member_killed("WaveRaider01", far_player)
+        self.assertTrue(ctl.members["WaveRaider01"].alive)
+        self.assertEqual(ctl.respawn_pool, 1)
+
+        # F8 empty-slot 300s timer completes DN092 77 -> 79; clearing remaining 3 clears the wave cleanly
+        ctl.evaluate_deathclaw_triggers(far_player, dt=300.0)
+        self.assertEqual(ctl.dn092_stage, 79)
+        self.assertTrue(any("timer_300s_complete deathclaw_slot=empty dn092_stage=79" in lg for lg in ctl.logs))
         for alias in ("WaveRaider01", "WaveRaider02", "WaveRaider03"):
             ctl.on_member_killed(alias, far_player)
         self.assertTrue(ctl.is_wave_cleared)
-        self.assertGreaterEqual(ctl.respawn_pool, 2)  # remaining pool unused after stage 79
+        self.assertEqual(ctl.respawn_pool, 1)
 
     def test_respawn_pool_exhausts_at_zero_when_all_8_wave_kills_are_respawnables(self) -> None:
         ctl = dn092_wave.DN092WaveController(creature_slot_available=True)
@@ -135,17 +160,18 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
             ctl.on_member_killed(alias, far_player)
         self.assertEqual(ctl.respawn_pool, 0)
         self.assertEqual(ctl.deathclaw_trigger, "wave_kills")
-        self.assertEqual(ctl.dn092_stage, 79)
+        self.assertEqual(ctl.dn092_stage, 77)
         self.assertEqual(ctl.deathclaw_slot_status, "bound")
         self.assertTrue(ctl.deathclaw_alive)
         self.assertTrue(
             any("creature_slot=bound hp=615 dr=100 er=150 claw=60" in lg for lg in ctl.logs)
         )
-        # Wave stays uncleared until Deathclaw + all wave actors + bosses are dead
+        # Wave stays uncleared until Deathclaw dies (which advances DN092 77 -> 79) + all wave actors + bosses are dead
         for alias in ("WaveRaider01", "WaveRaider02", "WaveRaider03", "RoofLookout", "Gristle"):
             ctl.on_member_killed(alias, far_player)
         self.assertFalse(ctl.is_wave_cleared)
         ctl.on_deathclaw_killed()
+        self.assertEqual(ctl.dn092_stage, 79)
         self.assertTrue(ctl.is_wave_cleared)
 
     def test_spawner_picks_failsafe_wavepost02_when_player_blocks_all_six_spawners(self) -> None:
@@ -163,48 +189,78 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
         self.assertEqual(fs_pos, dn092_wave.WAVE_FAILSAFE_SPAWNER[1])
 
     def test_deathclaw_grate_proximity_17m_and_300s_timer_triggers(self) -> None:
-        # Grate trigger at <= 17.0m of DN092ForceSpawnDeathclawTrigger 0009A144
+        # Grate trigger at <= 17.0m of DN092ForceSpawnDeathclawTrigger 0009A144 sets stage 77 (F8: NOT 79!)
         ctl_grate = dn092_wave.DN092WaveController()
         gx, gy, gz = dn092_wave.GRATE_TRIGGER_POS
         self.assertIsNone(ctl_grate.evaluate_deathclaw_triggers((gx + 17.2, gy, gz), dt=5.0))
         self.assertEqual(ctl_grate.dn092_stage, 75)
         self.assertEqual(ctl_grate.evaluate_deathclaw_triggers((gx + 16.5, gy, gz), dt=1.0), "grate_proximity")
+        self.assertEqual(ctl_grate.dn092_stage, 77)
+        self.assertTrue(any("trigger=grate_proximity dn092_stage=77" in lg for lg in ctl_grate.logs))
+        ctl_grate.evaluate_deathclaw_triggers((gx + 16.5, gy, gz), dt=299.0)
         self.assertEqual(ctl_grate.dn092_stage, 79)
-        self.assertTrue(any("trigger=grate_proximity dn092_stage=79" in lg for lg in ctl_grate.logs))
 
-        # 300s timer trigger when neither wave_kills nor grate_proximity fired
+        # 300s timer trigger when neither wave_kills nor grate_proximity fired sets 79 for empty slot
         ctl_timer = dn092_wave.DN092WaveController()
         far_player = (-1980.0, -1720.0, 88.0)
         self.assertIsNone(ctl_timer.evaluate_deathclaw_triggers(far_player, dt=299.0))
         self.assertEqual(ctl_timer.evaluate_deathclaw_triggers(far_player, dt=1.5), "timer_300s")
         self.assertEqual(ctl_timer.dn092_stage, 79)
-        self.assertTrue(any("trigger=timer_300s dn092_stage=79" in lg for lg in ctl_timer.logs))
-
+        self.assertTrue(any("deathclaw_slot=empty dn092_stage=79" in lg for lg in ctl_timer.logs))
 
     def test_s8_papyrus_respawning_guard_prevents_premature_completion_and_holding_cell_is_used(self) -> None:
         from types import SimpleNamespace
         from tests.test_r11_cell_independent_quest import _compile_papyrus
 
-        # Findings 2 & 3: 0xBF5 holding cell in S7S9_CS, zero `- MergeOffset` offsets, host anchor fallback
+        # Findings 2 & 3: 0xBF5 holding cell in S7S9_CS, zero `- MergeOffset` offsets, host anchor fallback, no Resurrect (F12)
         self.assertIn("S7S9HoldingCellId = 0xBF5", S7S9_CS)
         self.assertNotIn("- MergeOffset", S7S9_CS)
         self.assertIn("RelocateHoldingRefToCommonwealth(", MIN00_PSC)
         self.assertIn("ResolveCommonwealthHostAnchor()", MIN00_PSC)
+        self.assertNotIn(".Resurrect(", MIN00_PSC)
 
-        # Finding 4: Simulate kill + CheckS8WaveAndDeathclaw while a wave raider is mid-Utility.Wait(0.5) respawn
+        # F12: Kill #8 spawns a FRESH actor out of view via PlaceAtMe while s8RespawningCount guards premature clear!
         dead_flags = [True, True, True, True, True]
-        actors = [SimpleNamespace(IsDead=lambda i=i: dead_flags[i], Resurrect=lambda i=i: dead_flags.__setitem__(i, False)) for i in range(5)]
-        spawners = [SimpleNamespace(GetPositionX=lambda: -2090.0, GetPositionY=lambda: -1650.0, GetPositionZ=lambda: 88.5)]
+        disabled_calls: list[int] = []
+        reg_deaths: list[object] = []
+
+        def _make_actor(idx: int):
+            return SimpleNamespace(
+                idx=idx,
+                IsDead=lambda i=idx: dead_flags[i],
+                IsDisabled=lambda: False,
+                DisableNoWait=lambda _f=False, i=idx: disabled_calls.append(i),
+                GetLeveledActorBase=lambda: "WaveRaiderBase",
+            )
+
+        actors = [_make_actor(i) for i in range(5)]
+        live_actors = list(actors)
+        fresh_actor = SimpleNamespace(
+            idx=0,
+            IsDead=lambda: dead_flags[0],
+            EnableNoWait=lambda _f=False: dead_flags.__setitem__(0, False),
+            IsDisabled=lambda: False,
+            DisableNoWait=lambda _f=False: None,
+            GetLeveledActorBase=lambda: "WaveRaiderBase",
+        )
+
+        def _place_at_me(_base, *_rest):
+            # Inside check_during_place (before fresh spawns), S8 MUST stay uncleared because s8RespawningCount == 1!
+            ns["CheckS8WaveAndDeathclaw"](player, 0.0)
+            self.assertFalse(ns["s8WaveCleared"])
+            return fresh_actor
+
+        spawners = [SimpleNamespace(
+            GetDistance=lambda _p: 30.0,
+            GetPositionX=lambda: -2090.0,
+            GetPositionY=lambda: -1650.0,
+            GetPositionZ=lambda: 88.5,
+            PlaceAtMe=_place_at_me,
+        )]
         logs: list[str] = []
         stages_set: list[int] = []
         objs_done: list[int] = []
         objs_disp: list[int] = []
-
-        def check_during_wait(_dt: float) -> None:
-            # Even if Deathclaw + everyone else look dead while Utility.Wait(0.5) is paused, S8 MUST stay open!
-            ns["CheckS8WaveAndDeathclaw"](player, 0.0)
-            self.assertFalse(ns["s8WaveCleared"])
-
         player = SimpleNamespace(GetDistance=lambda _r: 30.0)
         ns = {
             "EnableS6ToS9Full": True,
@@ -213,6 +269,8 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
             "s8WaveCleared": False,
             "s8WavePermDead": [False] * 5,
             "S8WaveActors": actors,
+            "S8WaveActorBases": ["BoltBase", "BoltBase", "HeavyBase", "BoltBase", "GristleBase"],
+            "s8LiveWaveActors": live_actors,
             "S8WaveSpawners": spawners,
             "S8WaveFailsafeMarker": spawners[0],
             "S8GrateTriggerMarker": None,
@@ -234,8 +292,7 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
             "s8DeathclawTrigger": "wave_kills",
             "s8DeathclawRef": None,
             "s6FullStage": 65,
-            "Utility": SimpleNamespace(Wait=check_during_wait),
-            "MoveActorToExteriorSpot": lambda *a: None,
+            "RegisterForRemoteEvent": lambda ref, ev: reg_deaths.append((ref, ev)),
             "EnsureS8TrackingArrays": lambda: None,
             "FO4SF_Sanctuary01Quest": SimpleNamespace(EngageTarget=lambda *a: None),
             "IsCommonwealthExterior": lambda _p: True,
@@ -246,10 +303,10 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
             "Trace": lambda msg: logs.append(str(msg)),
         }
         gvars = {
-            "s8WaveStarted", "s8WaveCleared", "s8WavePermDead", "s8RespawnPool",
-            "s8RespawningCount", "s8WaveKills", "s8Dn092Stage", "s8SpawnerCursor",
-            "s8ElapsedSec", "s8DeathclawSpawned", "s8DeathclawCleared", "s8DeathclawTrigger",
-            "s8DeathclawRef", "s6FullStage",
+            "s8WaveStarted", "s8WaveCleared", "s8WavePermDead", "s8LiveWaveActors",
+            "s8RespawnPool", "s8RespawningCount", "s8WaveKills", "s8Dn092Stage",
+            "s8SpawnerCursor", "s8ElapsedSec", "s8DeathclawSpawned", "s8DeathclawCleared",
+            "s8DeathclawTrigger", "s8DeathclawRef", "s6FullStage",
         }
         _compile_papyrus(
             MIN00_PSC,
@@ -257,15 +314,23 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
             gvars,
             ns,
         )
-        # Kill #8 triggers Utility.Wait(0.5); inside check_during_wait s8RespawningCount == 1 prevents premature clear,
-        # then Resurrect() brings WaveRaider01 back alive (dead_flags[0] == False), so S8 stays uncleared afterward too.
+        # Kill #8 calls PlaceAtMe -> check inside _place_at_me sees s8RespawningCount == 1 & refuses clear;
+        # then fresh_actor replaces live_actors[0], disables old corpse, registers OnDeath, and stays alive.
         ns["OnS8MemberKilled"](0, actors[0], player)
+        self.assertIs(ns["s8LiveWaveActors"][0], fresh_actor)
+        self.assertEqual(disabled_calls, [0])
+        self.assertIn((fresh_actor, "OnDeath"), reg_deaths)
         self.assertFalse(dead_flags[0])
         self.assertFalse(ns["s8WaveCleared"])
         self.assertEqual(ns["s8RespawningCount"], 0)
-        # Now finish resurrected WaveRaider01 -> pool exhausted (0), clears cleanly!
+        # F8: Even with fresh_actor killed, while DN092 < 79 (still 77/75) S8 waits for Deathclaw / 300s timer;
+        # once Deathclaw dies or 300s timer sets stage 79, CheckS8WaveAndDeathclaw clears cleanly to stage 80!
         dead_flags[0] = True
-        ns["OnS8MemberKilled"](0, actors[0], player)
+        ns["s8Dn092Stage"] = 77
+        ns["OnS8MemberKilled"](0, fresh_actor, player)
+        self.assertFalse(ns["s8WaveCleared"])
+        ns["s8Dn092Stage"] = 79
+        ns["CheckS8WaveAndDeathclaw"](player, 0.0)
         self.assertTrue(ns["s8WaveCleared"])
         self.assertEqual(stages_set, [80])
         self.assertIn(65, objs_done)
@@ -288,6 +353,17 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
         self.assertIn("CoreFusionCellId = 0x00089B", S7S9_CS)
 
     def test_s9_never_teleport_in_view_failsafe(self) -> None:
+        # F2: Undeployed patrol while player still indoors MUST NOT teleport
+        self.assertFalse(
+            dn092_wave.s9_failsafe_can_teleport(
+                player_dist_to_preston=95.0,
+                preston_dist_to_sanctuary=220.0,
+                preston_3d_loaded=False,
+                player_in_sanctuary=True,
+                patrol_elapsed_sec=240.0,
+                patrol_deployed=False,
+            )
+        )
         # Close to Preston while 3D loaded -> MUST NOT teleport even after 180s
         self.assertFalse(
             dn092_wave.s9_failsafe_can_teleport(
@@ -298,7 +374,18 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
                 patrol_elapsed_sec=240.0,
             )
         )
-        # Player moved > 65m away -> failsafe teleport allowed
+        # F2: Any MinutemenGroup member loaded & <= 65m blocks teleport even when Preston is far away
+        self.assertFalse(
+            dn092_wave.s9_failsafe_can_teleport(
+                player_dist_to_preston=95.0,
+                preston_dist_to_sanctuary=220.0,
+                preston_3d_loaded=True,
+                player_in_sanctuary=True,
+                patrol_elapsed_sec=240.0,
+                group_members=[(True, 25.0), (False, 120.0)],
+            )
+        )
+        # Player moved > 65m away from all loaded members -> failsafe teleport allowed
         self.assertTrue(
             dn092_wave.s9_failsafe_can_teleport(
                 player_dist_to_preston=95.0,
@@ -306,6 +393,7 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
                 preston_3d_loaded=True,
                 player_in_sanctuary=True,
                 patrol_elapsed_sec=190.0,
+                group_members=[(True, 80.0), (False, 12.0)],
             )
         )
         # Unloaded cell (`preston_3d_loaded=False`) -> failsafe teleport allowed cleanly
@@ -319,6 +407,7 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
             )
         )
         self.assertIn("failsafe_deferred reason=in_player_view", MIN00_PSC)
+        self.assertIn("deferred_until_exterior=true", MIN00_PSC)
 
     def test_s9_sanctuary_220_sturges_intro_and_1000_hard_stop(self) -> None:
         self.assertIn("sancScript.AdvanceTo(220, \"s9_arrival\")", MIN00_PSC)
@@ -347,13 +436,13 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
 
     def test_make_mission_summarize_tracks_s7_to_s9_and_cross_plugin_check(self) -> None:
         sample_log = [
-            "FO4SF_MISSION rt=10.0 s7 roof confirmed frame_no_core=true frame_spawned=true minigun_enabled=true",
+            "FO4SF_MISSION rt=10.0 s7 roof confirmed frame_no_core=true frame_persistent=true minigun_enabled=true",
             "FO4SF_MISSION rt=15.0 s7 minigun grabbed count_minigun=1 count_5mm=1200 has_weap=true has_ammo=true",
-            "FO4SF_MISSION rt=20.0 s7 street_drop z=88.50 no_fall_perk=true dmg=0",
+            "FO4SF_MISSION rt=20.0 s7 street_drop z=88.50 no_fall_perk=true hp_before=120.0 hp_after=120.0 dmg=0.0",
             "FO4SF_MISSION rt=21.0 s8 wave2 started obj=65 dn092_stage=75 respawn_pool=8",
-            "FO4SF_MISSION rt=40.0 s8 wave respawn idx=0 pool_left=7 wave_kills=1 spawner=0xBEB",
-            "FO4SF_MISSION rt=95.0 s8 deathclaw spawn trigger=wave_kills dn092_stage=79",
-            "FO4SF_MISSION rt=95.0 s8 deathclaw deathclaw_slot=empty dn092_stage=79",
+            "FO4SF_MISSION rt=40.0 s8 wave respawn idx=0 fresh=true pool_left=7 wave_kills=1 spawner=0xBEB",
+            "FO4SF_MISSION rt=95.0 s8 deathclaw spawn trigger=wave_kills dn092_stage=77",
+            "FO4SF_MISSION rt=95.0 s8 deathclaw deathclaw_slot=empty dn092_stage=77 waiting_timer=300s",
             "FO4SF_MISSION rt=110.0 s9 sequence dialogue_concord_area=50 min01_stage=20 min00_stage=100 credits=0",
             "FO4SF_MISSION rt=290.0 sanctuary01 min01_sturges_intro form=001188B4 -> stage 1000",
             "FO4SF_MISSION rt=295.0 sanctuary01 s9_hard_stop minrecruit00=0 mq103=0",
@@ -367,9 +456,6 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
         self.assertEqual(dups, [])
         m_tbl = catalog["FO4SFMission.esm"]
         for fid, rtype in (
-            (0xBE0, "ACTI"),
-            (0xBE1, "REFR"),
-            (0xBE4, "NPC_"),
             (0xBE6, "ACHR"),
             (0xBEB, "REFR"),
             (0xBF2, "REFR"),
@@ -380,8 +466,19 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
             (0xBFD, "SCEN"),
             (0xC04, "MESG"),
             (0xC05, "MESG"),
+            (0xC06, "ACTI"),
+            (0xC07, "REFR"),
+            (0xC08, "REFR"),
+            (0xC09, "REFR"),
+            (0xC0A, "NPC_"),
+            (0xC0B, "NPC_"),
+            (0xC0C, "FURN"),
+            (0xC0D, "REFR"),
+            (0xC10, "NPC_"),
+            (0xC11, "WEAP"),
+            (0xC12, "WEAP"),
         ):
-            self.assertEqual(m_tbl[fid][0], rtype)
+            self.assertEqual(m_tbl[fid][0], rtype, f"fid=0x{fid:X} -> {m_tbl.get(fid)}")
         self.assertEqual(catalog["FO4SFCoreValues.esm"][0x0008A4], ("MISC", "FO4_Caps"))
         self.assertEqual(catalog["FO4SFPowerArmor.esm"][0x00081E], ("PERK", "FO4SF_PANoFallDamagePerk"))
 
@@ -390,6 +487,7 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
         from tests.test_r11_cell_independent_quest import _compile_papyrus
 
         scn_state = {"playing": True, "stops": 0, "starts": 0}
+        stage_done = [80]
         lobby_scn = SimpleNamespace(
             IsPlaying=lambda: scn_state["playing"],
             Stop=lambda: (scn_state.__setitem__("stops", scn_state["stops"] + 1), scn_state.__setitem__("playing", False)),
@@ -418,8 +516,11 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
             "ownS9LobbyStopPending": False,
             "prestonDialogueMenuOpen": False,
             "s8RespawningCount": 2,
+            "applied": 80,
+            "GetStage": lambda: stage_done[0],
+            "GetStageDone": lambda st: stage_done[0] >= int(st),
             "ShouldUseMessageBox": lambda: False,
-            "EffectiveStage": lambda: 80,
+            "EffectiveStage": lambda: stage_done[0],
             "EnsurePrestonAlias": lambda: None,
             "EnsureActorTalkable": lambda _a: None,
             "RegisterForRemoteEvent": lambda _o, ev: reg_events.append(str(ev)),
@@ -436,7 +537,7 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
             "s9LobbyCompleted", "s9LobbyScenePending", "s9LobbySceneMenuOpened",
             "s9LobbySceneAttemptOpened", "s9LobbyScenePhase1", "s9LobbyScenePhase1At",
             "s9LobbySceneChecks", "s9LobbySceneRestarts", "ownS9LobbyStopPending",
-            "prestonDialogueMenuOpen", "s8RespawningCount",
+            "prestonDialogueMenuOpen", "s8RespawningCount", "applied",
         }
         _compile_papyrus(
             MIN00_PSC,
@@ -478,11 +579,20 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
         self.assertEqual(completed_calls, [])
         self.assertTrue(ns["s9LobbySceneAttemptOpened"])
 
-        # Finding 1: DialogueMenu closes BEFORE Attempt 2's Scene.OnEnd fires -> wasOpened still completes S9 Lobby!
+        # F13: Early escape BEFORE stage 90 must NOT pay reward or start patrol!
         ns["prestonDialogueMenuOpen"] = False
         self.assertTrue(ns["TryS9LobbyDialogueMenuClose"]())
-        self.assertFalse(ns["s9LobbySceneMenuOpened"])
-        self.assertTrue(ns["s9LobbySceneAttemptOpened"])
+        ns["HandleS9LobbySceneEnd"]()
+        self.assertEqual(completed_calls, [])
+        self.assertTrue(any("cancelled_early stage=80 reward=0" in lg for lg in logs))
+
+        # Re-open -> reply advances stage to 90 -> DialogueMenu closes BEFORE Scene.OnEnd -> pays reward + patrol!
+        ns["TryTriggerS9LobbyActivate"](player)
+        self.assertTrue(ns["TryS9LobbyDialogueMenuOpen"](80))
+        stage_done[0] = 90
+        ns["applied"] = 90
+        ns["prestonDialogueMenuOpen"] = False
+        self.assertTrue(ns["TryS9LobbyDialogueMenuClose"]())
         ns["HandleS9LobbySceneEnd"]()
         self.assertEqual(completed_calls, ["reward", "patrol"])
         self.assertFalse(ns["s9LobbySceneAttemptOpened"])
@@ -604,6 +714,136 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
         prog_cs = (ROOT / "dotnet" / "Mission" / "Program.cs").read_text(encoding="utf-8")
         self.assertIn("var waveRaiderTpl = mod.Npcs.FirstOrDefault(n => n.FormKey.ID == FalloutActorLooks.ConcordRaiderNpcId)", prog_cs)
         self.assertLess(prog_cs.index("PopulateS2S6Missions("), prog_cs.index("PopulateS7S9("))
+
+    def test_f2_f5_f6_f10_f13_review_fixes_in_scripts_and_mission_writer(self) -> None:
+        from types import SimpleNamespace
+        from tests.test_r11_cell_independent_quest import _compile_papyrus
+
+        # F2: BeginS9MuseumExitAndPatrol defers while player is indoors, then deploys + chains outdoors
+        deployed_pos: list[tuple] = []
+        wps_chained = [0]
+        preston_mock = SimpleNamespace(SetRestrained=lambda *_: None)
+        mm_mocks = [SimpleNamespace(SetRestrained=lambda *_: None) for _ in range(4)]
+        logs: list[str] = []
+        player_in_int = [True]
+        player = SimpleNamespace(IsInInterior=lambda: player_in_int[0])
+        ns = {
+            "EnableS6ToS9Full": True,
+            "KeeperOnly": False,
+            "s9LobbyCompleted": True,
+            "s9PatrolStarted": False,
+            "s9PatrolDeployed": False,
+            "s9PatrolStartedAt": 0.0,
+            "s9PatrolElapsed": 0.0,
+            "s9DiamondCityMerged": True,
+            "Preston": preston_mock,
+            "prestonHeld": True,
+            "MinutemenGroup": mm_mocks,
+            "S9MuseumExitMarker": object(),
+            "S9MuseumExitX": -2010.57,
+            "S9MuseumExitY": -1697.94,
+            "S9MuseumExitZ": 89.26,
+            "IsCommonwealthExterior": lambda _p: True,
+            "SyncKeeperPrestonMode": lambda *_: None,
+            "MoveActorToExteriorSpot": lambda a, nm, *_r: deployed_pos.append((nm, player_in_int[0])),
+            "RevealDiamondCityMapMarker": lambda _p: None,
+            "PrepareAndChainS9PatrolWaypoints": lambda _p: (wps_chained.__setitem__(0, wps_chained[0] + 1), 6)[1],
+            "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 100.0),
+            "Trace": lambda msg: logs.append(str(msg)),
+        }
+        gvars = {"s9PatrolStarted", "s9PatrolDeployed", "s9PatrolStartedAt", "s9PatrolElapsed", "prestonHeld"}
+        _compile_papyrus(MIN00_PSC, ["BeginS9MuseumExitAndPatrol", "DeployS9PatrolExterior"], gvars, ns)
+
+        self.assertTrue(ns["BeginS9MuseumExitAndPatrol"](player))
+        self.assertFalse(ns["s9PatrolDeployed"])
+        self.assertEqual(deployed_pos, [])
+        self.assertEqual(wps_chained[0], 0)
+        self.assertTrue(any("deferred_until_exterior=true" in lg for lg in logs))
+
+        player_in_int[0] = False
+        self.assertTrue(ns["DeployS9PatrolExterior"](player))
+        self.assertTrue(ns["s9PatrolDeployed"])
+        self.assertEqual(len(deployed_pos), 5)
+        self.assertTrue(all(not indoors for _, indoors in deployed_pos))
+        self.assertEqual(wps_chained[0], 1)
+
+        # F5: Min01 Objective 1000 uses FO4 sheltered beds text with FO4SF_Min01BedPercent
+        a4_cs = (ROOT / "dotnet" / "Mission" / "NextStoryMissionsA4.cs").read_text(encoding="utf-8")
+        self.assertIn("Build sheltered beds for Sanctuary settlers (<Global=FO4SF_Min01BedPercent>%)", a4_cs)
+        self.assertIn("UpdateCurrentInstanceGlobal(gPct)", SANC01_PSC)
+
+        # F6 + F13: Sanctuary01 starts at 20 (NO Obj 10) under S9 hard stop & refuses direct_no_scene with ERROR
+        adv: list[tuple[int, str]] = []
+        objs_disp_sanc: list[int] = []
+        sanc_logs: list[str] = []
+        sanc_ns = {
+            "instanceStarted": False,
+            "HasS9HardStop": lambda: True,
+            "IsWarfareMode": lambda: False,
+            "IsRunning": lambda: True,
+            "Start": lambda: None,
+            "TryBindBench": lambda _p: None,
+            "RegisterForRemoteEvent": lambda *_: None,
+            "RegisterMenuGuards": lambda: None,
+            "EnsureGuideMarker": lambda *_: None,
+            "SetObjectiveDisplayed": lambda o, *_a: objs_disp_sanc.append(int(o)),
+            "SetActive": lambda *_: None,
+            "StartTimer": lambda *_: None,
+            "HasFullMin01": lambda: True,
+            "AdvanceTo": lambda st, by="": adv.append((int(st), str(by))),
+            "Game": SimpleNamespace(GetPlayer=lambda: None),
+            "Debug": SimpleNamespace(OpenUserLog=lambda *_: None),
+            "LogName": "FO4SF_Mission",
+            "IsAnyMenuOrWorkshopOpen": lambda: False,
+            "completed": False,
+            "talkBoxOpen": False,
+            "talkSessionId": 1,
+            "EffectiveStage": lambda: 220,
+            "ShouldUseMessageBox": lambda: False,
+            "S9SturgesIntroScene": None,
+            "S9SturgesIntroFallbackMsg": None,
+            "Trace": lambda msg: sanc_logs.append(str(msg)),
+        }
+        _compile_papyrus(SANC01_PSC, ["StartQuestInstance", "RunSturgesTalk"], {"instanceStarted", "talkBoxOpen"}, sanc_ns)
+        sanc_ns["StartQuestInstance"]()
+        self.assertEqual(adv, [(20, "Trigger")])
+        self.assertEqual(objs_disp_sanc, [])
+        sanc_ns["RunSturgesTalk"]()
+        self.assertEqual(adv, [(20, "Trigger")])  # MUST NOT advance to 1000 via direct_no_scene!
+        self.assertTrue(any("ERROR min01_sturges_intro missing S9SturgesIntroScene" in lg for lg in sanc_logs))
+
+        # F10: PA records are loaded dynamically by cross_plugin_check (no hand-registered FO4SF_PANoFallDamagePerk)
+        cpc_py = (ROOT / "src" / "fo4sf" / "core" / "cross_plugin_check.py").read_text(encoding="utf-8")
+        self.assertNotIn("FO4SF_PANoFallDamagePerk", cpc_py)
+
+    @unittest.skipUnless(
+        shutil.which("dotnet") and os.environ.get("FO4SF_DOTNET_TESTS"),
+        "set FO4SF_DOTNET_TESTS=1 with dotnet SDK on PATH to verify offline F3 Deathclaw C# builder",
+    )
+    def test_f3_deathclaw_builder_behind_creature_slots_offline_selftest(self) -> None:
+        # F3: Verify NextStoryMissionsS7S9 constructs 0xC0E claw WEAP (60 dmg) & 0xC0F Deathclaw NPC_ (615/100/150)
+        # from FO4 0002C969 behind --creature-slots and passes offline Mission selftest (default OFF + slots ON).
+        for tok in (
+            "S8DeathclawClawWeapId = 0xC0E",
+            "S8DeathclawNpcId = 0xC0F",
+            "DeathclawHealth = 615.0f",
+            "DeathclawPhysicalDr = 100.0f",
+            "DeathclawEnergyEr = 150.0f",
+            "DeathclawClawDamage = 60.0f",
+            "BuildCreatureNpcFromSlot",
+            "FO4SF_S8_DeathclawNpc",
+        ):
+            self.assertIn(tok, S7S9_CS)
+        with tempfile.TemporaryDirectory() as td:
+            env = dict(os.environ, DOTNET_ROLL_FORWARD="Major")
+            r = subprocess.run(
+                ["dotnet", "run", "-c", "Release", "--project", str(ROOT / "dotnet" / "Mission"), "--", "selftest", td],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("selftest pass", r.stdout)
 
 
 if __name__ == "__main__":

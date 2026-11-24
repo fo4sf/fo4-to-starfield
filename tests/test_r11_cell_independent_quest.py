@@ -801,7 +801,7 @@ def _build_min00_harness(
         "s6SturgesSceneRestarting", "s6SturgesScenePhase1", "s6SturgesPhase1At",
         "s6SturgesAttemptStartedAt", "s6SturgesSceneRetries", "s6SturgesSceneTicks", "s6FullStage",
         "s9LobbyPositioned", "s9LobbyCompleted", "s9DiamondCityRevealed", "s9DiamondCityMerged", "s9PatrolStarted",
-        "s9PatrolRelease", "s9PatrolStartedAt", "s9PatrolElapsed", "s9GroupArrived", "s9ArrivalVia",
+        "s9PatrolDeployed", "s9PatrolRelease", "s9PatrolStartedAt", "s9PatrolElapsed", "s9GroupArrived", "s9ArrivalVia",
     }
     ns = {
         "Self": self_sentinel,
@@ -937,6 +937,7 @@ def _build_min00_harness(
         "s9DiamondCityRevealed": False,
         "s9DiamondCityMerged": False,
         "s9PatrolStarted": False,
+        "s9PatrolDeployed": False,
         "s9PatrolRelease": False,
         "s9PatrolStartedAt": 0.0,
         "s9PatrolElapsed": 0.0,
@@ -1016,6 +1017,7 @@ def _build_min00_harness(
             "EnterS9MuseumLobby",
             "CompleteS9LobbyTalkAndReward",
             "PrepareAndChainS9PatrolWaypoints",
+            "DeployS9PatrolExterior",
             "BeginS9MuseumExitAndPatrol",
             "ResumeS9PatrolAfterLoad",
             "CanFailsafeTeleportGroup",
@@ -1531,7 +1533,7 @@ class TestR11Step3qBinaryEsm(unittest.TestCase):
                 for ss, sp in ext.iter_subrecords(r.decompressed_body())
                 if ss == b"KWDA" and 0x01000800 in [struct.unpack_from("<I", sp, i)[0] for i in range(0, len(sp), 4)]
             }
-            self.assertEqual(fo4_anim_kw_fids, {0x801, 0x986, 0xA00, 0xBC3, 0xBC5, 0xBC7})
+            self.assertEqual(fo4_anim_kw_fids, {0x801, 0x986, 0xA00, 0xBC3, 0xBC5, 0xBC7, 0xC0A, 0xC0B, 0xC10})
 
             # B1 + LoadDoorQuest + L3 + H2 + M2 checks on full_esm and creatures ESM
             bad_actis, placed_nifs = bp.find_bad_placed_activators(full_esm)

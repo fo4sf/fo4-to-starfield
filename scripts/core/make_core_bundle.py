@@ -258,6 +258,82 @@ class BundleRefused(RuntimeError):
     pass
 
 
+def _iter_esm_subrecords(payload: bytes):
+    """Yield (sub_sig_bytes, sub_bytes) across an ESM record payload, honoring XXXX size extensions."""
+    spos = 0
+    ext_len = 0
+    while spos + 6 <= len(payload):
+        ssig = payload[spos : spos + 4]
+        ssize = struct.unpack_from("<H", payload, spos + 4)[0]
+        if ssig == b"XXXX" and ssize == 4 and spos + 10 <= len(payload):
+            ext_len = struct.unpack_from("<I", payload, spos + 6)[0]
+            spos += 10
+            continue
+        if ext_len:
+            ssize = ext_len
+            ext_len = 0
+        sdata = payload[spos + 6 : spos + 6 + ssize]
+        yield ssig, sdata
+        spos += 6 + ssize
+
+
+def find_forbidden_player_full_names(esm_paths: Sequence[str]) -> List[str]:
+    """F4: Reject unintended 'FO4SF ' or '(Stand-In)' FULL names across staged non-base ESMs."""
+    import zlib
+
+    # #852 pre-existing hidden QUST FO4SF_WorkshopCoreQuest (0x000800) in FO4SFWorkshop.esm
+    allowlisted_qust = {("fo4sfworkshop.esm", b"QUST", 0x000800)}
+    hits: List[str] = []
+    for ep in esm_paths:
+        if not ep or not os.path.isfile(ep):
+            continue
+        esm_name = os.path.basename(ep)
+        esm_low = esm_name.casefold()
+        data = Path(ep).read_bytes()
+
+        def _walk(start: int, end: int) -> None:
+            pos = start
+            while pos + 24 <= end:
+                sig = data[pos : pos + 4]
+                sz = struct.unpack_from("<I", data, pos + 4)[0]
+                if sig == b"GRUP":
+                    if sz < 24 or pos + sz > end:
+                        break
+                    _walk(pos + 24, pos + sz)
+                    pos += sz
+                    continue
+                r_end = min(end, pos + 24 + sz)
+                flags = struct.unpack_from("<I", data, pos + 8)[0]
+                fid = struct.unpack_from("<I", data, pos + 12)[0]
+                payload = data[pos + 24 : r_end]
+                if (flags & 0x00040000) and len(payload) >= 4:
+                    try:
+                        payload = zlib.decompress(payload[4:])
+                    except zlib.error:
+                        payload = b""
+                if sig != b"TES4":
+                    edid = ""
+                    full_val = None
+                    for ss, sd in _iter_esm_subrecords(payload):
+                        if ss == b"EDID":
+                            edid = sd.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"FULL":
+                            full_val = sd.rstrip(b"\x00").decode("utf-8", errors="replace")
+                    if full_val is not None:
+                        local_fid = fid & 0xFFFFFF
+                        if (esm_low, sig, local_fid) not in allowlisted_qust:
+                            if full_val.startswith("FO4SF ") or "(stand-in)" in full_val.casefold():
+                                sig_str = sig.decode("ascii", errors="replace")
+                                hits.append(
+                                    f"F4: forbidden player-facing FULL in {esm_name} {sig_str} 0x{fid:08X}"
+                                    f" ({edid or 'no_edid'}): {full_val!r}"
+                                )
+                pos = r_end
+
+        _walk(0, len(data))
+    return hits
+
+
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -855,6 +931,13 @@ def verify_bundle(
             )
     except Exception as exc:
         problems.append(f"placed ACTI B1 check failed: {exc}")
+
+    # 3d3 (F4). Scan all staged non-base ESMs for leftover "FO4SF " or "(Stand-In)" player-facing FULL names
+    if esm_paths_to_inspect:
+        try:
+            problems.extend(find_forbidden_player_full_names(esm_paths_to_inspect))
+        except Exception as exc:
+            problems.append(f"FULL name scan F4 check failed: {exc}")
 
     # 3e (A1). Verify every movie named in shipped FO4SFPipboyMenu.ini exists in Data/Interface/ and in bundle manifest
     pb_ini_candidates = (

@@ -1136,6 +1136,19 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xC03, "INFO", "FO4SF_S9_SturgesIntroReplyInfo"),
             (0xC04, "MESG", "FO4SF_S9_PrestonLobbyFallbackMsg"),
             (0xC05, "MESG", "FO4SF_S9_SturgesIntroFallbackMsg"),
+            (0xC06, "ACTI", "FO4SF_S7_RoofMinigunActi"),
+            (0xC07, "REFR", "FO4SF_S7_RoofMinigunRef"),
+            (0xC08, "REFR", "FO4SF_S7_RoofFrameMarker"),
+            (0xC09, "REFR", "FO4SF_S7_RoofDoorMarker"),
+            (0xC0A, "NPC_", "FO4_Gristle"),
+            (0xC0B, "NPC_", "FO4_WaveRaiderHeavy"),
+            (0xC0C, "FURN", "FO4SF_S7_RoofFrameFurn"),
+            (0xC0D, "REFR", "FO4SF_S7_RoofFrameRef"),
+            (0xC0E, "WEAP", "FO4SF_S8_DeathclawClawWeap"),
+            (0xC0F, "NPC_", "FO4SF_S8_DeathclawNpc"),
+            (0xC10, "NPC_", "FO4_LvlRaiderBoltAction"),
+            (0xC11, "WEAP", "FO4SF_WaveRaiderBoltWeapon"),
+            (0xC12, "WEAP", "FO4SF_WaveRaiderHeavyWeapon"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":
@@ -1218,7 +1231,6 @@ def build_writer_catalog(
         cv_plugin, _, cv_records = load_core_values(core_values_json)
         catalog[cv_plugin] = {r.form_id: (r.record_type, r.edid) for r in cv_records}
         catalog[cv_plugin].update(CORE_VALUES_ARSENAL_RECORDS)
-    catalog.setdefault("FO4SFPowerArmor.esm", {}).setdefault(0x00081E, ("PERK", "FO4SF_PANoFallDamagePerk"))
 
     dotnet_dir = os.path.join(repo_root, "dotnet")
     if os.path.isdir(dotnet_dir):

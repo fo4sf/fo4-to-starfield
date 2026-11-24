@@ -893,6 +893,94 @@ class CoreBundleTests(unittest.TestCase):
             )
             self.assertEqual(mcb.main(["verify", "--bundle-dir", str(out), "--port", str(port_esm)]), 1)
 
+    def test_f4_verify_rejects_player_facing_fo4sf_or_standin_full_and_allows_workshop_qust(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # 1. Pre-existing #852 FO4SFWorkshop.esm QUST 0x000800 FULL is allowlisted
+            ws_w = PluginWriter(("Starfield.esm",), flags=ESM, author="f4")
+            ws_w.add(
+                Record(
+                    b"QUST",
+                    ws_w.own(0x000800),
+                    [(b"EDID", zbytes("FO4SF_WorkshopCoreQuest")), (b"FULL", zbytes("FO4SF Settlements and C.A.M.P.s"))],
+                    0,
+                    0,
+                    581,
+                    0,
+                )
+            )
+            ws_p = root / "FO4SFWorkshop.esm"
+            ws_p.write_bytes(ws_w.to_bytes(compress=False))
+
+            # Clean Mission CELL (0xBF5) & clean Item FULL PASS
+            ms_ok_w = PluginWriter(("Starfield.esm",), flags=ESM, author="f4")
+            ms_ok_w.add(
+                Record(
+                    b"CELL",
+                    ms_ok_w.own(0x000BF5),
+                    [(b"EDID", zbytes("FO4SF_S7S9_HoldingCell")), (b"FULL", zbytes("Concord Roof & Wave Staging"))],
+                    0,
+                    0,
+                    581,
+                    0,
+                )
+            )
+            ms_p = root / "FO4SFMission.esm"
+            ms_p.write_bytes(ms_ok_w.to_bytes(compress=False))
+            self.assertEqual(mcb.find_forbidden_player_full_names([str(ws_p), str(ms_p)]), [])
+
+            # 2. Any CELL / MISC / ACTI exposing 'FO4SF ' or '(Stand-In)' in FULL MUST FAIL
+            ms_bad_w = PluginWriter(("Starfield.esm",), flags=ESM, author="f4")
+            ms_bad_w.add(
+                Record(
+                    b"CELL",
+                    ms_bad_w.own(0x000BF5),
+                    [(b"EDID", zbytes("FO4SF_S7S9_HoldingCell")), (b"FULL", zbytes("FO4SF S7-S9 Holding Cell"))],
+                    0,
+                    0,
+                    581,
+                    0,
+                )
+            )
+            ms_bad_w.add(
+                Record(
+                    b"MISC",
+                    ms_bad_w.own(0x000C99),
+                    [(b"EDID", zbytes("FO4SF_TestCore")), (b"FULL", zbytes("Fusion Core (Stand-In)"))],
+                    0,
+                    0,
+                    581,
+                    0,
+                )
+            )
+            ms_p.write_bytes(ms_bad_w.to_bytes(compress=False))
+            hits = mcb.find_forbidden_player_full_names([str(ws_p), str(ms_p)])
+            self.assertEqual(len(hits), 2, hits)
+            self.assertTrue(any("FO4SF S7-S9 Holding Cell" in h for h in hits), hits)
+            self.assertTrue(any("Fusion Core (Stand-In)" in h for h in hits), hits)
+
+            # 3. Verify verify_bundle surfaces F4 hits on a folded bundle
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+            out = root / "bundle-f4"
+            self.assertEqual(
+                mcb.main([
+                    "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                    "--out", str(out), "--port", str(port_esm),
+                ], system=_FakeSystemClosed()),
+                0,
+            )
+            (out / "FO4SFWorkshop.esm").write_bytes(ws_p.read_bytes())
+            bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
+            bplan["components"]["mission"]["outputs"]["FO4SFMission.esm"] = _sha256_bytes(ms_p.read_bytes())
+            (out / "FO4SFMission.esm").write_bytes(ms_p.read_bytes())
+            # Also fix workshop hash in bundle_plan so only F4 fails
+            for cinfo in bplan["components"].values():
+                if "FO4SFWorkshop.esm" in (cinfo.get("outputs") or {}):
+                    cinfo["outputs"]["FO4SFWorkshop.esm"] = _sha256_bytes(ws_p.read_bytes())
+            (out / "bundle_plan.json").write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+            probs, _ = mcb.verify_bundle(str(out), port_esm=str(port_esm))
+            self.assertTrue(any("F4: forbidden player-facing FULL" in p for p in probs), probs)
+
     def test_a17_build_and_fold_both_default_profile_to_player(self):
         # Capture parsed args for both `build` and `fold` when `--profile` is omitted
         captured: list[tuple[str, str]] = []
