@@ -433,6 +433,43 @@ class WhomeProbeTests(unittest.TestCase):
             for ln in text.splitlines():
                 if "worldspace" in ln.lower() or "commonwealthworldid" in ln.lower():
                     self.assertNotIn("0x000803", ln, f"{qpath.name}: {ln}")
+        min00_text = (ROOT / "scripts" / "mission" / "FO4SF_Min00Quest.psc").read_text(encoding="utf-8")
+        self.assertNotIn("UnequipAll", min00_text)
+
+    def test_install_uses_candidate_2g_fix4_hashes_and_label(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            inp = _write_synthetic_whome_inputs(root)
+            out_dir = root / "w-home-fix4"
+            with mock.patch.object(probe_common, "check_starfield_not_running", return_value=[]):
+                make_whome_probe.stage_probe(
+                    starfield_dir=inp["starfield"],
+                    out_dir=out_dir,
+                    baseline_dir=inp["baseline"],
+                    port_esm=inp["port"],
+                    map_markers_esm=inp["map_markers"],
+                    pipboy_dll=inp["dll"],
+                    travel_pex_override=inp["pex"],
+                    core_values_override=inp["cv"],
+                    min_free_gb=0.1,
+                )
+            with (
+                mock.patch.object(probe_common, "install_probe", wraps=probe_common.install_probe) as spy_install,
+                warnings.catch_warnings(),
+            ):
+                warnings.simplefilter("ignore", RuntimeWarning)
+                make_whome_probe.install_probe_cmd(
+                    stage_dir=out_dir,
+                    starfield_dir=inp["starfield"],
+                    plugins_txt=inp["plugins_txt"],
+                    allow_hardlink=False,
+                    min_free_gb=0.1,
+                    system=FakeSystemClean(),
+                )
+            self.assertEqual(spy_install.call_count, 1)
+            kw = spy_install.call_args.kwargs
+            self.assertEqual(kw["baseline_label"], "candidate-2g-fix4")
+            self.assertIs(kw["baseline_2g_fix2_hashes"], probe_common.CANDIDATE_2G_FIX4_HASHES)
 
 
 if __name__ == "__main__":

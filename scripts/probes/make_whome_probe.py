@@ -656,8 +656,8 @@ def install_probe_cmd(
         plugins_txt=plugins_txt,
         plugins_to_activate=manifest["plugins_to_activate"],
         files=manifest["files"],
-        baseline_2g_fix2_hashes=probe_common.CANDIDATE_2G_FIX3_HASHES,
-        baseline_label="candidate-2g-fix3",
+        baseline_2g_fix2_hashes=probe_common.CANDIDATE_2G_FIX4_HASHES,
+        baseline_label="candidate-2g-fix4",
         version_tag=version_tag,
         card_path=card_path,
         min_free_gb=min_free_gb,
@@ -790,7 +790,7 @@ def verify_staged_probe(
         port_sha = probe_common.sha256_file(data_dir / "FO4Port.esm")
         if port_sha != BASE_PORT_ESM_SHA256:
             raise probe_common.ProbeValidationError(
-                f"Data/FO4Port.esm sha256={port_sha} != base candidate-2g-fix3 {BASE_PORT_ESM_SHA256}"
+                f"Data/FO4Port.esm sha256={port_sha} != base candidate-2g-fix4 {BASE_PORT_ESM_SHA256}"
             )
 
     verified_ba2s = _verify_staged_ba2s(stage_dir)

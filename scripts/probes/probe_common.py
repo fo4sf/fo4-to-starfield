@@ -73,6 +73,7 @@ FROZEN_CANDIDATE_NAMES: Tuple[str, ...] = (
     "candidate-2g-fix",
     "candidate-2g-fix2",
     "candidate-2g-fix3",
+    "candidate-2g-fix4",
     "candidate-2h",
     "candidate-2i",
 )
@@ -151,6 +152,18 @@ CANDIDATE_2G_FIX3_HASHES: Dict[str, Union[str, Tuple[str, ...]]] = {
     "Data/FO4SFFortHagen.esm": "4d0a6cd3573b0e0a19e39659415a645214f59cd136c4d665e5f327199d46520f",
     "Data/FO4SFPipboyProbe.esm": "1588aae56e3803af2692f9b76ae21f3c1063c35cda527339bcd051e644a38440",
     "Data/FO4SFPipboyTravel.esm": "ab06612e89434b0b3ebf07b83bdf790090386236c576750b8c819cc5c9b4c0f5",
+}
+
+# Pinned candidate-2g-fix4 bundle_plan.json & core plugin hashes (#852 head 3d831267).
+CANDIDATE_2G_FIX4_BUNDLE_PLAN_HASHES: Dict[str, str] = {
+    "player": "9f593f36c42ffed74ee91722b806d65f013434747b4e411dfba6b5b1c5860726",
+    "test": "b18542cec866e96c80e285c0cc59a4b0ca486146f351b0ce7637813ab70e334b",
+}
+
+CANDIDATE_2G_FIX4_HASHES: Dict[str, Union[str, Tuple[str, ...]]] = {
+    **CANDIDATE_2G_FIX3_HASHES,
+    "Data/FO4SFMission.esm": "2c3f0e730dbb18bb8fec63e0a7fabf968d3ca40ffd989863c8185f3ee09a60e3",
+    "Data/FO4SFWorkshop.esm": "53eb1e1691a9b4b888ded08fc349a38f0407f3aa829130c493ddb08aa2b8ada1",
 }
 
 BASE_FO4PORT_SHA256_PREFIX = "07756819"
@@ -1780,15 +1793,25 @@ def check_baseline_against_2g_fix3(
     return check_baseline_against_2g_fix2(starfield_dir, ref_map, baseline_name="candidate-2g-fix3")
 
 
+def check_baseline_against_2g_fix4(
+    starfield_dir: Path,
+    baseline_2g_fix4_hashes: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
+) -> List[str]:
+    """Compare installed base files against pinned `candidate-2g-fix4` hashes; return warning strings."""
+    ref_map = CANDIDATE_2G_FIX4_HASHES if baseline_2g_fix4_hashes is None else baseline_2g_fix4_hashes
+    return check_baseline_against_2g_fix2(starfield_dir, ref_map, baseline_name="candidate-2g-fix4")
+
+
 def detect_installed_candidate_profile(starfield_dir: Union[str, os.PathLike[str]]) -> str:
     """Detect `'player'`, `'test'`, or `'unknown'` from installed candidate ESMs or `bundle_plan.json`."""
     sf_p = Path(starfield_dir)
     bp = sf_p / "bundle_plan.json"
     if bp.is_file():
         bp_sha = sha256_file(bp)
-        for prof, exp in CANDIDATE_2G_FIX3_BUNDLE_PLAN_HASHES.items():
-            if bp_sha == exp:
-                return prof
+        for plan_map in (CANDIDATE_2G_FIX4_BUNDLE_PLAN_HASHES, CANDIDATE_2G_FIX3_BUNDLE_PLAN_HASHES):
+            for prof, exp in plan_map.items():
+                if bp_sha == exp:
+                    return prof
         try:
             plan = json.loads(bp.read_text(encoding="utf-8"))
             prof = str(plan.get("profile", "")).strip().lower()
@@ -1804,12 +1827,13 @@ def detect_installed_candidate_profile(starfield_dir: Union[str, os.PathLike[str
         if not p.is_file():
             continue
         actual = sha256_file(p)
-        vals = CANDIDATE_2G_FIX3_HASHES.get(rel)
-        if isinstance(vals, tuple) and len(vals) >= 2:
-            if _matches_hash_spec(actual, vals[1]):
-                return "test"
-            if _matches_hash_spec(actual, vals[0]):
-                return "player"
+        for ref_hashes in (CANDIDATE_2G_FIX4_HASHES, CANDIDATE_2G_FIX3_HASHES):
+            vals = ref_hashes.get(rel)
+            if isinstance(vals, tuple) and len(vals) >= 2:
+                if _matches_hash_spec(actual, vals[1]):
+                    return "test"
+                if _matches_hash_spec(actual, vals[0]):
+                    return "player"
     return "unknown"
 
 
