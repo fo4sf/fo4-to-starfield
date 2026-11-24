@@ -178,6 +178,9 @@ Function Go() global
     float tripMetres = Math.Sqrt(dx0 * dx0 + dy0 * dy0)
     bool hasExplicitArrival = (arrX != 0.0 || arrY != 0.0 || arrZ != 0.0)
     bool crossWorld = pluginCode >= 2
+    ; FO4TerrainCore.esm:0x000800 is the persistent Commonwealth world-anchor XMarker used for landmarks without their
+    ; own XMRK refr (e.g. Diamond City gate): move cleanly via anchor + explicit arrival coordinates without FastTravel.
+    bool isAnchorLandmark = (pluginCode == 1 && targetId == 0x000800)
 
     GlobalVariable gDays = Game.GetFormFromFile(0x000039, "Starfield.esm") as GlobalVariable
     float daysBefore = 0.0
@@ -186,7 +189,7 @@ Function Go() global
     endif
 
     bool usedFallback = False
-    if engineEnabled && !crossWorld
+    if engineEnabled && !crossWorld && !isAnchorLandmark
         Game.FastTravel(dest)
         Utility.Wait(0.25)
     endif
@@ -196,7 +199,7 @@ Function Go() global
     float remDist = Math.Sqrt(dxAfter * dxAfter + dyAfter * dyAfter)
 
     ; Merged runtime world or cross-worldspace travel (normal loading fade, never opening Starfield's star map)
-    if crossWorld || (hasExplicitArrival && remDist > 75.0) || (!hasExplicitArrival && player.GetWorldSpace() == startWorld && player.GetDistance(dest) > 75.0)
+    if crossWorld || isAnchorLandmark || (hasExplicitArrival && remDist > 75.0) || (!hasExplicitArrival && player.GetWorldSpace() == startWorld && player.GetDistance(dest) > 75.0)
         usedFallback = True
         Game.FadeOutGame(True, True, 0.0, 0.35, True)
         Utility.Wait(0.35)
@@ -220,6 +223,10 @@ Function Go() global
         followers.TeleportFollowers(player, None, True, False, False, False, False)
     endif
 
-    SyncMarkerDiscovered(dest, storeIdx)
+    if isAnchorLandmark
+        MarkBitDiscovered(storeIdx)
+    else
+        SyncMarkerDiscovered(dest, storeIdx)
+    endif
     TraceLine("step=go idx=" + storeIdx + " plugin=" + pluginName + " id=" + targetId + " enabled=" + engineEnabled + " cross_world=" + crossWorld + " fallback=" + usedFallback + " px=" + player.GetPositionX() + " py=" + player.GetPositionY() + " pz=" + player.GetPositionZ())
 EndFunction

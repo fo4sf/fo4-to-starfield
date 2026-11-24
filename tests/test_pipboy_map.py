@@ -389,6 +389,30 @@ class TravelPluginAndStoreTests(unittest.TestCase):
                 by_edid = {g.edid: int(struct.unpack("<f", g.get(b"FLTV"))[0]) for g in tp.records("GLOB")}
                 self.assertEqual(by_edid["FO4SF_MapDisc00"], 0b010)
 
+    def test_include_diamond_city_store_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            core = os.path.join(d, "FO4TerrainCore.esm")
+            self._synthetic_marker_plugin(
+                core,
+                ["Starfield.esm"],
+                [
+                    (0x010A7759, "FO4Core_CommonwealthMapMarker", "Red Rocket", 86, 0x1B, -991.13, 1144.97, 100.0),
+                    (0x010A775B, "FO4Core_CommonwealthMapMarkerVault111", "Vault 111", 86, 0x1B, -1275.31, 1305.28, 127.2),
+                ],
+            )
+            rows_default = store.build_store_rows(core)
+            self.assertEqual(len(rows_default), 2)
+            rows_dc = store.build_store_rows(core, include_diamond_city=True)
+            self.assertEqual(len(rows_dc), 3)
+            dc = rows_dc[-1]
+            self.assertEqual(dc["label"], "Diamond City")
+            self.assertEqual(dc["plugin_code"], 1)
+            self.assertEqual(dc["local_id"], 0x000800)
+            self.assertEqual(dc["type"], 2)
+            self.assertAlmostEqual(dc["arr_x_sf"], -1416.36, places=2)
+            self.assertAlmostEqual(dc["arr_y_sf"], -3129.39, places=2)
+            self.assertAlmostEqual(dc["arr_z_sf"], 19.20, places=2)
+
 
 class SourceAndContractTests(unittest.TestCase):
     cpp = (PLUGIN / "src" / "pipboy_map.cpp").read_text(encoding="utf-8")
@@ -555,6 +579,36 @@ class SourceAndContractTests(unittest.TestCase):
         sc_swf = mps.movie_bytes(start_card=True)
         self.assertTrue(sc_swf.startswith(b"CWS"), sc_swf[:8])
         info = mps.summary(mps.read_movie_bytes(sc_swf) if hasattr(mps, "read_movie_bytes") else mps.unpack(sc_swf)[2]) if hasattr(mps, "unpack") else None
+
+    def test_round12_starmap_crash_fix_and_slice34_contracts(self):
+        main_cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp").read_text(encoding="utf-8")
+        # Starfield.exe+0x2540dc6 / RVA 0x2540d40 fix: CreateBlockedMapMenuInstance must leave refCount=2 (1->2)
+        cb_start = main_cpp.index("bool CreateBlockedMapMenuInstance(")
+        cb_end = main_cpp.index("\n\t}", cb_start) + 3
+        cb_fn = main_cpp[cb_start:cb_end]
+        self.assertIn("if (ctorRefs == 1)", cb_fn)
+        self.assertIn("InterlockedIncrement(refs)", cb_fn)
+
+        # BlockedMapMenuCreateForSlot must never emit an empty Ptr<IMenu> via std::construct_at
+        slot_fn_start = self.cpp.index("BlockedMapMenuCreateForSlot(")
+        slot_fn_end = self.cpp.index("BlockedStarMapCreate(", slot_fn_start)
+        slot_fn = self.cpp[slot_fn_start:slot_fn_end]
+        self.assertNotIn("std::construct_at", slot_fn)
+        self.assertIn("g_origMapMenuCreators[a_slot]", slot_fn)
+        self.assertIn("RE::UI_MESSAGE_TYPE::kHide", slot_fn)
+
+        install_fn = self.cpp[self.cpp.index("void InstallStarMapBlock("):self.cpp.index("bool SuppressVanillaMapMenus()")]
+        self.assertIn("if (!g_blockedFactoryFn)", install_fn)
+        self.assertIn("g_origMapMenuCreators[slot] = entry.value.initFunc;", install_fn)
+
+        for ev in ('"Map"sv', '"QuickMap"sv', '"SurfaceMap"sv', '"PlanetMap"sv', '"GalaxyMap"sv', '"StarMap"sv', '"LocalMap"sv', '"OpenMap"sv'):
+            self.assertIn(ev, self.cpp)
+        self.assertIn("step=map_disc_prox idx={} label={} dist_m={:.1f}", self.cpp)
+
+        travel_psc = (ROOT / "scripts" / "mapmarkers" / "FO4SF_PipboyTravel.psc").read_text(encoding="utf-8")
+        self.assertIn("bool isAnchorLandmark = (pluginCode == 1 && targetId == 0x000800)", travel_psc)
+        self.assertIn("if engineEnabled && !crossWorld && !isAnchorLandmark", travel_psc)
+        self.assertIn("if isAnchorLandmark\n        MarkBitDiscovered(storeIdx)", travel_psc.replace("\r\n", "\n"))
 
 
 if __name__ == "__main__":
