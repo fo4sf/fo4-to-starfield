@@ -209,6 +209,11 @@ public static class FalloutActorLooks
         concordRaider.DefaultOutfit.SetTo(raiderOutfit.FormKey);
         concordRaider.SpaceOutfit.SetTo(raiderOutfit.FormKey);
         EnforceNoStarfieldSpacesuit(concordRaider, sfMod, forceHideAvKey, raiderOutfit.FormKey, preserveIntentionalTemplates: true);
+        // R13 E3: Clear TemplateActorType.Inventory so EncSpacer01Template cannot inject vanilla full-damage Spacer guns,
+        // and clear baseRaider's inherited Coachman (0x26D96B) CNTO entry so Concord raiders carry only Min00's stand-ins.
+        concordRaider.UseTemplateActors &= ~SF.Npc.TemplateActorType.Inventory;
+        concordRaider.Items?.Clear();
+        concordRaider.Items = null;
         mod.Npcs.Remove(concordRaider.FormKey);
         mod.Npcs.Add(concordRaider);
 
@@ -828,14 +833,13 @@ public static class FalloutActorLooks
                  $"FO4_ConcordRaider SpaceOutfit ({concordRaider.SpaceOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
             Need(HasForceHideSpacesuitProperty(concordRaider, forceHideAvKey),
                  $"FO4_ConcordRaider lacks {SfForceHideSpacesuitAvEdid} (0x{SfForceHideSpacesuitAvId:X6}) == 1.0");
+            Need(!concordRaider.UseTemplateActors.HasFlag(SF.Npc.TemplateActorType.Inventory),
+                 "R13 E3: FO4_ConcordRaider retains TemplateActorType.Inventory (EncSpacer01Template weapon leak)");
+            Need((concordRaider.Items?.Count ?? 0) == 0,
+                 $"R13 E3: FO4_ConcordRaider retains {concordRaider.Items?.Count ?? 0} inventory item(s) instead of 0");
             Need(!IsSpacesuitOutfit(concordRaider.DefaultOutfit.FormKey, sfMod, plug) &&
                  !IsSpacesuitOutfit(concordRaider.SpaceOutfit.FormKey, sfMod, plug),
                  "FO4_ConcordRaider carries a Starfield spacesuit outfit");
-            if (concordRaider.Items is not null)
-            {
-                Need(!concordRaider.Items.Any(i => IsSpacesuitItem(i.Item.Item.FormKey, sfMod, plug)),
-                     "FO4_ConcordRaider carries a Starfield spacesuit item in inventory");
-            }
         }
 
         var concordRefs = Mission.PersistentNpcRefs(plug)
@@ -1002,6 +1006,15 @@ public static class FalloutActorLooks
         {
             lvlRaider.Race.SetTo(humanRaceKey);
             lvlRaider.SpaceOutfit.SetTo(spacerSuitOtft.FormKey);
+            lvlRaider.UseTemplateActors |= SF.Npc.TemplateActorType.Inventory;
+            (lvlRaider.Items ??= new ExtendedList<SF.ContainerEntry>()).Add(new SF.ContainerEntry
+            {
+                Item = new SF.ContainerItem
+                {
+                    Item = new FormLink<SF.IItemGetter>(new FormKey(sf.ModKey, Mission.SfRaiderWeaponId)),
+                    Count = 1,
+                },
+            });
         }
     }
 
@@ -1031,6 +1044,17 @@ public static class FalloutActorLooks
             m => m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].SpaceOutfit.SetTo(new FormKey(SfEsm, SfSpacerSpacesuitOutfitId)));
         yield return ("A2.3: FO4_ConcordRaider (0x986) missing from FO4SFMission.esm",
             m => m.Npcs.Remove(new FormKey(m.ModKey, ConcordRaiderNpcId)));
+        yield return ("R13 E3: FO4_ConcordRaider (0x986) retains TemplateActorType.Inventory",
+            m => m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].UseTemplateActors |= SF.Npc.TemplateActorType.Inventory);
+        yield return ("R13 E3: FO4_ConcordRaider (0x986) retains vanilla Coachman in Items",
+            m => (m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].Items ??= new ExtendedList<SF.ContainerEntry>()).Add(new SF.ContainerEntry
+            {
+                Item = new SF.ContainerItem
+                {
+                    Item = new FormLink<SF.IItemGetter>(new FormKey(SfEsm, Mission.SfRaiderWeaponId)),
+                    Count = 1,
+                },
+            }));
         yield return ("A2.3: Concord raider ACHR left pointing at shared 0xF04800 instead of 0x986",
             m =>
             {

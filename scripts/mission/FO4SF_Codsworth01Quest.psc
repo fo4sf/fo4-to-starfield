@@ -399,7 +399,6 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 scenePhase1Entered = False
                 scenePhase1At = 0.0
                 sceneRestartCount = 0
-                ownSceneStopPending = False
                 sceneAttemptStartedAt = 0.0
                 CancelTimer(2)
                 Trace("codsworth dialogue menu opened")

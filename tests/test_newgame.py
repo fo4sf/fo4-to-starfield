@@ -3747,7 +3747,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         )
         vars_csv = (
             "applied, pendingStage, pendingStageBy, exitUsedFallback, "
-            "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, "
+            "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
             "loadHookRegistered, dyingHookRegistered, "
             "h00SuspectsRead, rideActive, rideDone, rideTransferred, ridingLift, ridingCell, "
             "surfaceMovedAt, surfaceMoves, surfaceSets, asked, "
@@ -3755,10 +3755,11 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
 
-        def run_case(*, initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False):
+        def run_case(*, initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False, loaded=True):
             logs, chargens, autosaves, timers, cancels, reg_events = [], [], [], [], [], []
             moves, sets, angles, restores = [], [], [], []
             cur_stage = [initial_stage]
+            allow_anchor = [True]
             health_av = object()
             bench_ws = object()
             anchor_ws = object()
@@ -3768,6 +3769,8 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             player = SimpleNamespace(
                 pos=(1.0, 2.0, 3.0),
                 interior=in_vault,
+                loaded=loaded,
+                Is3DLoaded=lambda: player.loaded,
                 IsInInterior=lambda: player.interior,
                 SetPosition=lambda x, y, z: (sets.append((x, y, z)), setattr(player, "pos", (x, y, z))),
                 MoveTo=lambda ref, dx, dy, dz, *rest: moves.append((ref, dx, dy, dz)),
@@ -3782,7 +3785,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                     return vault_anchor
                 if (fid, plg) == (0x005C50, "FO4TerrainCore.esm"):
                     return bench_ref
-                if (fid, plg) == (0x0A775B, "FO4TerrainCore.esm"):
+                if (fid, plg) == (0x0A775B, "FO4TerrainCore.esm") and allow_anchor[0]:
                     return exit_ref
                 return None
 
@@ -3797,7 +3800,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 PodX=-62.5, PodY=1.5, PodZ=-1.0, PodLift=0.3, PodHeading=90.0,
                 applied=0, pendingStage=-1, pendingStageBy="other", exitUsedFallback=False,
                 vaultPodAutosaved=pre_autosaved, vaultSavingRelocked=False, vaultRecoveryTriggered=False,
-                loadHookRegistered=False, dyingHookRegistered=False,
+                vaultPodAutosaveSkips=0, loadHookRegistered=False, dyingHookRegistered=False,
                 warfareFadeTicks=0, storyFadeTicks=0, modeBoxWaiting=False, modeBoxWaitSeconds=0,
                 ticks=0, looksSetStage20=False,
                 LogName="fo4sf_newgame",
@@ -3835,7 +3838,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 ns=ns, player=player, cur_stage=cur_stage, logs=logs, chargens=chargens,
                 autosaves=autosaves, timers=timers, cancels=cancels, reg_events=reg_events,
                 moves=moves, sets=sets, angles=angles, restores=restores,
-                health_av=health_av, bench_ws=bench_ws, anchor_ws=anchor_ws,
+                health_av=health_av, bench_ws=bench_ws, anchor_ws=anchor_ws, allow_anchor=allow_anchor,
             )
 
         # 1. Stage 20 cryo pod opens -> autosave once (momentary save unlock), then Timer 6 re-locks inside Vault (< 200)
@@ -3845,8 +3848,8 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertTrue(c1.ns["vaultPodAutosaved"])
         self.assertEqual(c1.autosaves, [20])
         self.assertEqual(c1.chargens, [(False, False, False)])
-        self.assertEqual(c1.timers, [(1.5, 6)])
-        self.assertIn("vault_death_recovery=autosave stage=20", c1.logs)
+        self.assertIn((1.5, 6), c1.timers)
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=0", c1.logs)
         self.assertIn((c1.player, "OnDying"), c1.reg_events)
         c1.ns["TimerEvent"](6)
         self.assertTrue(c1.ns["vaultSavingRelocked"])
@@ -3855,17 +3858,33 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
 
         # Dying after pod autosave logs autosave mode and lets the engine reload that autosave
         c1.ns["DyingEvent"](c1.player, None)
-        self.assertEqual(c1.logs.count("vault_death_recovery=autosave stage=20"), 2)
+        self.assertIn("vault_death_recovery=autosave stage=20", c1.logs)
         self.assertEqual(c1.restores, [])
 
-        # Stage 40 exit cancels Timer 6 and clears the Vault save lock
+        # Stage 40 exit cancels Timers 6 & 7 and clears the Vault save lock
         c1.cur_stage[0] = 40
         c1.ns["ApplyStage"](40, "Trigger")
         self.assertIn(6, c1.cancels)
+        self.assertIn(7, c1.cancels)
         self.assertFalse(c1.ns["vaultSavingRelocked"])
         self.assertEqual(c1.chargens[-1], (False, False, False))
 
-        # 2. Dying BEFORE stage 200 without an autosave restores health + moves to known-good pod point + autosaves
+        # 1b (#853 M1): If player is unloaded / outside vault at stage 20, autosave is skipped and retried via Timer 7
+        c_skip = run_case(initial_stage=10, mode=1.0, in_vault=True, loaded=False)
+        c_skip.cur_stage[0] = 20
+        c_skip.ns["ApplyStage"](20, "Trigger")
+        self.assertFalse(c_skip.ns["vaultPodAutosaved"])
+        self.assertEqual(c_skip.ns["vaultPodAutosaveSkips"], 1)
+        self.assertEqual(c_skip.autosaves, [])
+        self.assertIn("vault_death_recovery=autosave_skip skips=1 stage=20", c_skip.logs)
+        self.assertIn((1.0, 7), c_skip.timers)
+        c_skip.player.loaded = True
+        c_skip.ns["TimerEvent"](7)
+        self.assertTrue(c_skip.ns["vaultPodAutosaved"])
+        self.assertEqual(c_skip.autosaves, [20])
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=1", c_skip.logs)
+
+        # 2. Dying BEFORE stage 200 without an autosave restores health + moves to pod coords + logs pod_reset + arms Timer 7 (NO save in OnDying!)
         c2 = run_case(initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False)
         c2.ns["DyingEvent"](c2.player, None)
         self.assertEqual(c2.restores, [(c2.health_av, 9999.0)])
@@ -3873,8 +3892,18 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertAlmostEqual(c2.sets[-1][1], 1.5, places=3)
         self.assertAlmostEqual(c2.sets[-1][2], -0.7, places=3)
         self.assertEqual(c2.angles[-1], (0.0, 0.0, 90.0))
+        self.assertEqual(c2.autosaves, [])
+        self.assertEqual(c2.chargens, [])
+        self.assertIn((1.0, 7), c2.timers)
+        self.assertNotIn((1.5, 6), c2.timers)
+        self.assertFalse(c2.ns["vaultPodAutosaved"])
+        self.assertIn("vault_death_recovery=pod_reset stage=10", c2.logs)
+        # Timer 7 then performs the deferred pod autosave & resets vaultRecoveryTriggered so subsequent Vault deaths reload autosave
+        c2.ns["TimerEvent"](7)
+        self.assertTrue(c2.ns["vaultPodAutosaved"])
+        self.assertFalse(c2.ns["vaultRecoveryTriggered"])
         self.assertEqual(c2.autosaves, [10])
-        self.assertIn("vault_death_recovery=reload stage=10", c2.logs)
+        self.assertIn("vault_death_recovery=autosave stage=10 skips=0", c2.logs)
 
         # 2b. Death-reload onto the stage-20 pod autosave (saved before Timer 6) re-locks Vault saving on load,
         # and ApplyStage(210) clears vaultSavingRelocked / SetInChargen symmetrically with ApplyStage(40)/(200).
@@ -3886,6 +3915,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         c_reload.cur_stage[0] = 210
         c_reload.ns["ApplyStage"](210, "Trigger")
         self.assertIn(6, c_reload.cancels)
+        self.assertIn(7, c_reload.cancels)
         self.assertFalse(c_reload.ns["vaultSavingRelocked"])
         self.assertEqual(c_reload.chargens[-1], (False, False, False))
 
@@ -3897,16 +3927,18 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         c4.ns["DyingEvent"](c4.player, None)
         self.assertFalse(c4.ns["vaultRecoveryTriggered"])
 
-        # 4. Task 1i: ResolveHostWorld resolves from persistent 0x005C50 (or ExitAnchorId), never MarsPlanetWorld
+        # 4. Task 1i (#858 F7): ResolveHostWorld checks persistent ExitAnchorId 0x0A775B FIRST, falling back to 0x005C50
+        self.assertIs(c1.ns["ResolveHostWorld"](), c1.anchor_ws)
+        c1.allow_anchor[0] = False
         self.assertIs(c1.ns["ResolveHostWorld"](), c1.bench_ws)
         self.assertNotIn("MarsPlanetWorld", psc)
 
         # 5. make_newgame.summarize() records vault_death_recovery lines
         s = ng.summarize([
-            "[x] FO4SF_NEWGAME rt=10.0 vault_death_recovery=autosave stage=20\n",
+            "[x] FO4SF_NEWGAME rt=10.0 vault_death_recovery=autosave stage=20 skips=0\n",
             "[x] FO4SF_NEWGAME rt=12.0 vault_death_recovery=save_locked stage=20\n",
         ])
-        self.assertEqual(s["vault_death_recovery"], ["autosave stage=20", "save_locked stage=20"])
+        self.assertEqual(s["vault_death_recovery"], ["autosave stage=20 skips=0", "save_locked stage=20"])
 
 
 if __name__ == "__main__":

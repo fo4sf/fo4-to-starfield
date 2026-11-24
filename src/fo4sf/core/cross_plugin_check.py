@@ -315,6 +315,7 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
             ("codsRef", "CodsworthRefId"),
             ("codsworthPostScene", "CodsworthPostSceneId"),
             ("concordSidearm", "ConcordRaiderSidearmWeapId"),
+            ("concordPrimary", "ConcordRaiderPrimaryWeapId"),
         ):
             if cname in uint_consts:
                 local_formkey_vars[vname] = (own_plugin, uint_consts[cname])
@@ -709,6 +710,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x970, "ACTI", "FO4SF_CodsworthTalkActi"),
             (0x979, "GLOB", "FO4SF_MissionTalkUseMessageBox"),
             (0x97A, "WEAP", "FO4SF_ConcordRaiderSidearm"),
+            (0x97B, "WEAP", "FO4SF_ConcordRaiderPrimary"),
             # C5: Preston & Concord Raider Fallout 4 outfits / armatures / armors (0x980..0x98A)
             (0x980, "OTFT", "FO4_Outfit_PrestonMinuteman"),
             (0x981, "ARMA", "FO4_AA_PrestonDuster"),

@@ -3399,6 +3399,17 @@ class Round12Task1aAnd1iTests(unittest.TestCase):
         self.assertFalse(h.c_ns["ownSceneStopPending"])
         self.assertEqual(sum("scene_restart" in ln for ln in h.logs), 1)
 
+        # Async DialogueMenu / Scene.OnEnd race guard (#853 51d37bc6):
+        # If DialogueMenu opens while ownSceneStopPending / ownPrestonSceneStop is pending from an earlier Stop(),
+        # OnMenuOpenCloseEvent MUST leave the guard True so the delayed Scene.OnEnd consumes and ignores that Stop!
+        h.c_ns["ownSceneStopPending"] = True
+        h.c_ns["sceneTalkPending"] = True
+        h.cods_scene.active = False
+        h.c_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertTrue(h.c_ns["ownSceneStopPending"])
+        h.c_ns["OnEnd"](h.cods_scene)
+        self.assertFalse(h.c_ns["ownSceneStopPending"])
+
         # Preston: early check before 1.5 s must NOT burn retry or increment talkFailures;
         # after 1.5 s -> ownPrestonSceneStop suppresses OnEnd from talkFailures!
         h.m_ns["AdvanceTo"](10, "Trigger")
@@ -3417,6 +3428,15 @@ class Round12Task1aAnd1iTests(unittest.TestCase):
         self.assertEqual(h.m_ns["talkFailures"], 0)
         self.assertFalse(h.m_ns["ownPrestonSceneStop"])
 
+        # Async DialogueMenu / Preston Scene.OnEnd race guard (#853 51d37bc6):
+        h.m_ns["ownPrestonSceneStop"] = True
+        h.m_ns["prestonScenePending"] = True
+        h.preston_scene.active = False
+        h.m_ns["OnMenuOpenCloseEvent"]("DialogueMenu", True)
+        self.assertTrue(h.m_ns["ownPrestonSceneStop"])
+        h.m_ns["OnEnd"](h.preston_scene)
+        self.assertFalse(h.m_ns["ownPrestonSceneStop"])
+
     def test_n2_init_raider_tracking_never_piles_displaced_corpses_and_task1i_world_anchors(self):
         from types import SimpleNamespace
 
@@ -3432,19 +3452,21 @@ class Round12Task1aAnd1iTests(unittest.TestCase):
         self.assertNotIn("StopDialogueCamera", cs)
         self.assertIn("plug.Worldspaces.Count == 0", cs)
 
-        # Dynamic ResolveCommonwealthWorld in Sanctuary01 & Min00 prioritizes persistent 0x005C50 over 0x0A775B
+        # Dynamic ResolveCommonwealthWorld in Sanctuary01 & Min00 prioritizes persistent 0x0A775B (flags=0x400) FIRST,
+        # falling back to 0x005C50 (flags=0x0) only when 0x0A775B is unavailable (#858 F7).
         bench_ws, v111_ws = object(), object()
         for src in (m_psc, s_psc):
             from tests.test_r11_d1_d3_min00 import _translate_psc
             fns = ("ResolveCommonwealthWorld",) if "Min00" in src else ("ActiveCorePlugin", "ResolveCommonwealthWorld")
+            allow_v111 = [True]
             ns = {
                 "CorePlugin": "FO4TerrainCore.esm",
                 "BenchRefId": 0x005C50,
                 "ActiveCorePlugin": lambda: "FO4TerrainCore.esm",
                 "Game": SimpleNamespace(
-                    GetFormFromFile=lambda fid, plg: (
-                        SimpleNamespace(GetWorldSpace=lambda: bench_ws) if fid == 0x005C50
-                        else SimpleNamespace(GetWorldSpace=lambda: v111_ws) if fid == 0x0A775B
+                    GetFormFromFile=lambda fid, plg, allow=allow_v111: (
+                        SimpleNamespace(GetWorldSpace=lambda: v111_ws) if (fid == 0x0A775B and allow[0])
+                        else SimpleNamespace(GetWorldSpace=lambda: bench_ws) if fid == 0x005C50
                         else None
                     )
                 ),
@@ -3455,6 +3477,9 @@ class Round12Task1aAnd1iTests(unittest.TestCase):
                 ns["MarsCoreActive"] = lambda: False
             gvars = ("commonwealthWorld",)
             exec(compile(_translate_psc(src, fns, gvars), "resolve_ws", "exec"), ns)
+            self.assertIs(ns["ResolveCommonwealthWorld"](), v111_ws)
+            ns["commonwealthWorld"] = None
+            allow_v111[0] = False
             self.assertIs(ns["ResolveCommonwealthWorld"](), bench_ws)
 
         # N2: InitRaiderTracking seeing a displaced dead corpse keeps its own coords & marks raiderCleared[i]=True

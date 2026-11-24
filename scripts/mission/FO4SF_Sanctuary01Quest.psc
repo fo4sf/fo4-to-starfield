@@ -242,14 +242,8 @@ WorldSpace Function ResolveCommonwealthWorld()
     if commonwealthWorld != None
         return commonwealthWorld
     endif
-    ; Task 1i: resolve host world dynamically from persistent core refs (Sanctuary workbench 0x005C50 / V111 marker 0x0A775B)
-    ObjectReference coreBench = Game.GetFormFromFile(BenchRefId, CorePlugin) as ObjectReference
-    if coreBench != None
-        commonwealthWorld = coreBench.GetWorldSpace()
-        if commonwealthWorld != None
-            return commonwealthWorld
-        endif
-    endif
+    ; Task 1i (#858 F7): resolve host world dynamically from persistent V111 exit marker (0x0A775B, flags=0x400) FIRST,
+    ; using Sanctuary workbench (0x005C50, flags=0x0) strictly as secondary fallback.
     ObjectReference coreV111 = Game.GetFormFromFile(0x0A775B, CorePlugin) as ObjectReference
     if coreV111 != None
         commonwealthWorld = coreV111.GetWorldSpace()
@@ -257,18 +251,25 @@ WorldSpace Function ResolveCommonwealthWorld()
             return commonwealthWorld
         endif
     endif
+    ObjectReference coreBench = Game.GetFormFromFile(BenchRefId, CorePlugin) as ObjectReference
+    if coreBench != None
+        commonwealthWorld = coreBench.GetWorldSpace()
+        if commonwealthWorld != None
+            return commonwealthWorld
+        endif
+    endif
     string cName = ActiveCorePlugin()
     if cName != ""
-        ObjectReference activeBench = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
-        if activeBench != None
-            commonwealthWorld = activeBench.GetWorldSpace()
+        ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, cName) as ObjectReference
+        if v111Marker != None
+            commonwealthWorld = v111Marker.GetWorldSpace()
             if commonwealthWorld != None
                 return commonwealthWorld
             endif
         endif
-        ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, cName) as ObjectReference
-        if v111Marker != None
-            commonwealthWorld = v111Marker.GetWorldSpace()
+        ObjectReference activeBench = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
+        if activeBench != None
+            commonwealthWorld = activeBench.GetWorldSpace()
             if commonwealthWorld != None
                 return commonwealthWorld
             endif

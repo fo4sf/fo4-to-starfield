@@ -176,10 +176,16 @@ static class Mission
                         PrestonReply2MsgEdid = "FO4SF_Min00_PrestonReply2Msg";
     public const uint MissionTalkUseMessageBoxGlobId = 0x979;
     public const string MissionTalkUseMessageBoxGlobEdid = "FO4SF_MissionTalkUseMessageBox";
-    // R11 Part 3 E3: softened Concord Raider sidearm (3 dmg Eon, AmmoType=Ammo777mm, AmmoList cleared -> exact 36 rounds)
+    // R11/R13 Part 3 E3: softened Concord Raider sidearm (0.75 dmg Eon, AmmoType=Ammo777mm, AmmoList cleared -> exact 36 rounds)
+    // and softened Concord Raider primary (1.0 dmg x 1 projectile Coachman, AmmoType=AmmoShotshell, AmmoList cleared -> exact 60 rounds).
     public const uint ConcordRaiderSidearmWeapId = 0x97A;
     public const string ConcordRaiderSidearmWeapEdid = "FO4SF_ConcordRaiderSidearm";
-    public const float ConcordRaiderSidearmDamage = 3f;
+    public const float ConcordRaiderSidearmDamage = 0.75f;
+    public const byte ConcordRaiderSidearmProjectiles = 1;
+    public const uint ConcordRaiderPrimaryWeapId = 0x97B;
+    public const string ConcordRaiderPrimaryWeapEdid = "FO4SF_ConcordRaiderPrimary";
+    public const float ConcordRaiderPrimaryDamage = 1.0f;
+    public const byte ConcordRaiderPrimaryProjectiles = 1;
 
     // R11 Part 3: Post-mission repeat Starfield Scenes hosted on FO4SF_CodsworthKeeper (0x814)
     // Collision-free slots 0x990..0x9EB (FalloutActorLooks uses 0x980..0x98A; A4/A7/A7cd use 0xA00..0xB56; #853 uses 0xB80..0xB8B).
@@ -1161,7 +1167,7 @@ static class Mission
         var cell = new SF.Cell(new FormKey(modKey, MissionHoldingCellId), SF.StarfieldRelease.Starfield)
         {
             EditorID = MissionHoldingCellEdid,
-            Name = "FO4SF Mission Holding Cell",
+            Name = "Commonwealth Holding",
             FormVersion = 581,
             Flags = SF.Cell.Flag.IsInteriorCell,
         };
@@ -1447,24 +1453,50 @@ static class Mission
             Data = 0f,
         });
 
-        // R11 Part 3 E3: Softened Concord Raider sidearm (WEAP 0x097A, AttackDamage=3, AmmoType=0x04AD3E, AmmoList=null,
-        // ObjectTemplates & AttachParentSlots stripped so OMOD variance cannot change 3.0 dmg, NonPlayable + stand-in label)
+        // R11/R13 Part 3 E3: Softened Concord Raider sidearm (WEAP 0x097A, AttackDamage=0.75, ProjectilesCount=1,
+        // AmmoType=0x04AD3E, AmmoList=null, ObjectTemplates=null & AttachParentSlots cleared, NonPlayable + stand-in label)
         var concordSidearm = (SF.Weapon)raiderSidearm.Duplicate(new FormKey(modKey, ConcordRaiderSidearmWeapId));
         concordSidearm.EditorID = ConcordRaiderSidearmWeapEdid;
         concordSidearm.Name = "Eon (Raider Stand-In)";
         concordSidearm.AttackDamage = ConcordRaiderSidearmDamage;
+        concordSidearm.ProjectilesCount = ConcordRaiderSidearmProjectiles;
         concordSidearm.AmmoType.SetTo(raiderSidearmAmmo.FormKey);
         concordSidearm.AmmoList.SetToNull();
         concordSidearm.ObjectTemplates?.Clear();
+        concordSidearm.ObjectTemplates = null;
         concordSidearm.AttachParentSlots?.Clear();
         concordSidearm.MajorFlags |= SF.Weapon.MajorFlag.NonPlayable;
         concordSidearm.NonPlayable = true;
         mod.Weapons.Add(concordSidearm);
 
+        // R13 E3: Softened Concord Raider primary (WEAP 0x097B, duplicated from Coachman 0x26D96B with
+        // AttackDamage=1.0, ProjectilesCount=1, AmmoType=0x2B4AFB, AmmoList=null, ObjectTemplates=null,
+        // AttachParentSlots cleared, NonPlayable + stand-in label).
+        var concordPrimary = (SF.Weapon)raiderWeapon.Duplicate(new FormKey(modKey, ConcordRaiderPrimaryWeapId));
+        concordPrimary.EditorID = ConcordRaiderPrimaryWeapEdid;
+        concordPrimary.Name = "Coachman (Raider Stand-In)";
+        concordPrimary.AttackDamage = ConcordRaiderPrimaryDamage;
+        concordPrimary.ProjectilesCount = ConcordRaiderPrimaryProjectiles;
+        concordPrimary.AmmoType.SetTo(raiderAmmo.FormKey);
+        concordPrimary.AmmoList.SetToNull();
+        concordPrimary.ObjectTemplates?.Clear();
+        concordPrimary.ObjectTemplates = null;
+        concordPrimary.AttachParentSlots?.Clear();
+        concordPrimary.MajorFlags |= SF.Weapon.MajorFlag.NonPlayable;
+        concordPrimary.NonPlayable = true;
+        mod.Weapons.Add(concordPrimary);
+
+        float primaryRecordDamage = concordPrimary.AttackDamage * Math.Max(1, (int)concordPrimary.ProjectilesCount);
+        float sidearmRecordDamage = concordSidearm.AttackDamage * Math.Max(1, (int)concordSidearm.ProjectilesCount);
+
         var script = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
         SF.ScriptObjectProperty Obj(string name, FormKey fk) => new()
         {
             Name = name, Flags = SF.ScriptProperty.Flag.Edited, Object = new FormLink<SF.IStarfieldMajorRecordGetter>(fk), Alias = -1, Unused = 0,
+        };
+        SF.ScriptFloatProperty Flt(string name, float val) => new()
+        {
+            Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = val,
         };
         SF.ScriptObjectProperty CodsworthProp(string name, FormKey fk) => new()
         {
@@ -1483,10 +1515,12 @@ static class Mission
             e.Properties.Add(Obj("Credits", credits.FormKey));
         }
         MissionProps(script);
-        script.Properties.Add(Obj("RaiderWeapon", raiderWeapon.FormKey));
+        script.Properties.Add(Obj("RaiderWeapon", concordPrimary.FormKey));
         script.Properties.Add(Obj("RaiderAmmo", raiderAmmo.FormKey));
         script.Properties.Add(Obj("RaiderSidearm", concordSidearm.FormKey));
         script.Properties.Add(Obj("RaiderSidearmAmmo", raiderSidearmAmmo.FormKey));
+        script.Properties.Add(Flt("RaiderPrimaryRecordDamage", primaryRecordDamage));
+        script.Properties.Add(Flt("RaiderSidearmRecordDamage", sidearmRecordDamage));
         if (prestonScene is not null)
         {
             script.Properties.Add(Obj("PrestonTalkScene", prestonScene.FormKey));
@@ -1971,8 +2005,9 @@ static class Mission
             .SelectMany(b => b.SubBlocks)
             .SelectMany(sb => sb.Cells)
             .FirstOrDefault(c => c.FormKey == new FormKey(key, MissionHoldingCellId));
-        Need(cell is { EditorID: MissionHoldingCellEdid } && (cell.Flags ?? 0).HasFlag(SF.Cell.Flag.IsInteriorCell),
-             $"holding CELL 0x{MissionHoldingCellId:X} ({MissionHoldingCellEdid}) missing or lacks IsInteriorCell");
+        Need(cell is { EditorID: MissionHoldingCellEdid } && (cell.Flags ?? 0).HasFlag(SF.Cell.Flag.IsInteriorCell) &&
+             (cell.Name?.String is null || !cell.Name.String.Contains("FO4SF", StringComparison.OrdinalIgnoreCase)),
+             $"holding CELL 0x{MissionHoldingCellId:X} ({MissionHoldingCellEdid}) missing, lacks IsInteriorCell, or exposes FO4SF in FULL ({cell?.Name?.String})");
         var refs = cell?.Persistent.OfType<SF.IPlacedNpcGetter>().ToList() ?? new();
         Need(cell is null || cell.Persistent.Count == refs.Count, "the holding cell holds something other than our ACHRs");
         foreach (var r in refs)
@@ -2196,23 +2231,42 @@ static class Mission
                 Need(props.TryGetValue("Credits", out var cp) && cp is SF.IScriptObjectPropertyGetter co && co.Object.FormKey == new FormKey(SfEsm, CreditsId), "property Credits");
                 Need(props.TryGetValue("Raiders", out var rp) && rp is SF.IScriptObjectListPropertyGetter rl &&
                      rl.Objects.Select(o => o.Object.FormKey).SequenceEqual(raiders.Select(r => r.FormKey)), "property Raiders lists the raider ACHRs in order");
-                Need(props.TryGetValue("RaiderWeapon", out var rwp) && rwp is SF.IScriptObjectPropertyGetter rwo && rwo.Object.FormKey == new FormKey(SfEsm, SfRaiderWeaponId) &&
+                var concordPrimaryCheck = plug.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(key, ConcordRaiderPrimaryWeapId));
+                Need(concordPrimaryCheck is { EditorID: ConcordRaiderPrimaryWeapEdid } &&
+                     concordPrimaryCheck.Name?.String == "Coachman (Raider Stand-In)" &&
+                     concordPrimaryCheck.MajorFlags.HasFlag(SF.Weapon.MajorFlag.NonPlayable) &&
+                     concordPrimaryCheck.NonPlayable &&
+                     concordPrimaryCheck.ObjectTemplates is null &&
+                     (concordPrimaryCheck.AttachParentSlots?.Count ?? 0) == 0 &&
+                     MathF.Abs(concordPrimaryCheck.AttackDamage - ConcordRaiderPrimaryDamage) < 1e-4f &&
+                     concordPrimaryCheck.ProjectilesCount == ConcordRaiderPrimaryProjectiles &&
+                     concordPrimaryCheck.AmmoType.FormKey == new FormKey(SfEsm, SfRaiderAmmoId) &&
+                     concordPrimaryCheck.AmmoList.IsNull,
+                     $"R13 E3: WEAP 0x{ConcordRaiderPrimaryWeapId:X} is not non-playable stand-in {ConcordRaiderPrimaryWeapEdid} (Name=\"Coachman (Raider Stand-In)\", NonPlayable=true, ObjectTemplates=null, AttackDamage={ConcordRaiderPrimaryDamage}, ProjectilesCount={ConcordRaiderPrimaryProjectiles}, AmmoType=0x{SfRaiderAmmoId:X}, AmmoList=null)");
+                Need(props.TryGetValue("RaiderWeapon", out var rwp) && rwp is SF.IScriptObjectPropertyGetter rwo && rwo.Object.FormKey == new FormKey(key, ConcordRaiderPrimaryWeapId) &&
                      props.TryGetValue("RaiderAmmo", out var rap) && rap is SF.IScriptObjectPropertyGetter rao && rao.Object.FormKey == new FormKey(SfEsm, SfRaiderAmmoId),
-                     "FO4SF_Min00 lacks RaiderWeapon (Coachman) or RaiderAmmo (AmmoShotshell) bindings");
+                     $"R13 E3: FO4SF_Min00 lacks RaiderWeapon (0x{ConcordRaiderPrimaryWeapId:X}) or RaiderAmmo (AmmoShotshell) bindings");
                 var concordSidearmCheck = plug.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(key, ConcordRaiderSidearmWeapId));
                 Need(concordSidearmCheck is { EditorID: ConcordRaiderSidearmWeapEdid } &&
                      concordSidearmCheck.Name?.String == "Eon (Raider Stand-In)" &&
                      concordSidearmCheck.MajorFlags.HasFlag(SF.Weapon.MajorFlag.NonPlayable) &&
                      concordSidearmCheck.NonPlayable &&
-                     (concordSidearmCheck.ObjectTemplates?.Count ?? 0) == 0 &&
+                     concordSidearmCheck.ObjectTemplates is null &&
                      (concordSidearmCheck.AttachParentSlots?.Count ?? 0) == 0 &&
                      MathF.Abs(concordSidearmCheck.AttackDamage - ConcordRaiderSidearmDamage) < 1e-4f &&
+                     concordSidearmCheck.ProjectilesCount == ConcordRaiderSidearmProjectiles &&
                      concordSidearmCheck.AmmoType.FormKey == new FormKey(SfEsm, SfRaiderSidearmAmmoId) &&
                      concordSidearmCheck.AmmoList.IsNull,
-                     $"R11 E3: WEAP 0x{ConcordRaiderSidearmWeapId:X} is not non-playable stand-in {ConcordRaiderSidearmWeapEdid} (Name=\"Eon (Raider Stand-In)\", NonPlayable=true, 0 ObjectTemplates, AttackDamage={ConcordRaiderSidearmDamage}, AmmoType=0x{SfRaiderSidearmAmmoId:X}, AmmoList=null)");
+                     $"R11/R13 E3: WEAP 0x{ConcordRaiderSidearmWeapId:X} is not non-playable stand-in {ConcordRaiderSidearmWeapEdid} (Name=\"Eon (Raider Stand-In)\", NonPlayable=true, ObjectTemplates=null, AttackDamage={ConcordRaiderSidearmDamage}, ProjectilesCount={ConcordRaiderSidearmProjectiles}, AmmoType=0x{SfRaiderSidearmAmmoId:X}, AmmoList=null)");
                 Need(props.TryGetValue("RaiderSidearm", out var rswp) && rswp is SF.IScriptObjectPropertyGetter rswo && rswo.Object.FormKey == new FormKey(key, ConcordRaiderSidearmWeapId) &&
                      props.TryGetValue("RaiderSidearmAmmo", out var rsap) && rsap is SF.IScriptObjectPropertyGetter rsao && rsao.Object.FormKey == new FormKey(SfEsm, SfRaiderSidearmAmmoId),
                      $"R11 D3/E3: FO4SF_Min00 lacks RaiderSidearm (0x{ConcordRaiderSidearmWeapId:X}) or RaiderSidearmAmmo (Ammo777mm) bindings");
+                float wantPrimaryRecDmg = concordPrimaryCheck is null ? ConcordRaiderPrimaryDamage : concordPrimaryCheck.AttackDamage * Math.Max(1, (int)concordPrimaryCheck.ProjectilesCount);
+                float wantSidearmRecDmg = concordSidearmCheck is null ? ConcordRaiderSidearmDamage : concordSidearmCheck.AttackDamage * Math.Max(1, (int)concordSidearmCheck.ProjectilesCount);
+                Need(props.TryGetValue("RaiderPrimaryRecordDamage", out var rprd) && rprd is SF.IScriptFloatPropertyGetter rprdf && MathF.Abs(rprdf.Data - wantPrimaryRecDmg) < 1e-4f,
+                     $"R13 E3: FO4SF_Min00 RaiderPrimaryRecordDamage != {wantPrimaryRecDmg}");
+                Need(props.TryGetValue("RaiderSidearmRecordDamage", out var rsrd) && rsrd is SF.IScriptFloatPropertyGetter rsrdf && MathF.Abs(rsrdf.Data - wantSidearmRecDmg) < 1e-4f,
+                     $"R13 E3: FO4SF_Min00 RaiderSidearmRecordDamage != {wantSidearmRecDmg}");
                 if (alias)
                 {
                     CheckTalkMessages(new[]
@@ -2537,9 +2591,21 @@ static class Mission
         sf.Outfits.Add(new SF.Outfit(new FormKey(SfEsm, SfPrestonOutfitId), rel) { EditorID = SfPrestonOutfitEdid });
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfPrestonWeaponId), rel) { EditorID = SfPrestonWeaponEdid });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfPrestonAmmoId), rel) { EditorID = SfPrestonAmmoEdid });
-        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderWeaponId), rel) { EditorID = SfRaiderWeaponEdid });
+        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderWeaponId), rel)
+        {
+            EditorID = SfRaiderWeaponEdid,
+            AttackDamage = 52f,
+            ProjectilesCount = 5,
+            ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() },
+        });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderAmmoId), rel) { EditorID = SfRaiderAmmoEdid });
-        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderSidearmId), rel) { EditorID = SfRaiderSidearmEdid });
+        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderSidearmId), rel)
+        {
+            EditorID = SfRaiderSidearmEdid,
+            AttackDamage = 10f,
+            ProjectilesCount = 1,
+            ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() },
+        });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderSidearmAmmoId), rel) { EditorID = SfRaiderSidearmAmmoEdid });
         var modelADat3 = new byte[61];
         modelADat3[24] = 2;
@@ -2786,9 +2852,18 @@ static class Mission
             ("Codsworth race lacks AllowPcDialog", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Flags &= ~SF.Race.Flag.AllowPcDialog),
             ("Codsworth race leaked Size.Medium into default 0 build (Review Item #6)", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Size = SF.Size.Medium),
             ("Min00 missing RaiderSidearm property (D3)", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "RaiderSidearm")),
+            ("R13 E3 Min00 RaiderWeapon reverted to vanilla Coachman 0x26D96B", m => ((SF.ScriptObjectProperty)Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "RaiderWeapon")).Object.SetTo(new FormKey(SfEsm, SfRaiderWeaponId))),
+            ("R13 E3 Min00 missing RaiderPrimaryRecordDamage property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "RaiderPrimaryRecordDamage")),
+            ("R13 E3 Min00 RaiderSidearmRecordDamage mutated", m => ((SF.ScriptFloatProperty)Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "RaiderSidearmRecordDamage")).Data = 3.0f),
+            ("R13 E3 ConcordRaiderPrimary 0x97B AttackDamage reverted to 52", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].AttackDamage = 52f),
+            ("R13 E3 ConcordRaiderPrimary 0x97B ProjectilesCount reverted to 5", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].ProjectilesCount = 5),
+            ("R13 E3 ConcordRaiderPrimary 0x97B marked playable", m => { var pw = m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)]; pw.MajorFlags &= ~SF.Weapon.MajorFlag.NonPlayable; pw.NonPlayable = false; }),
+            ("R13 E3 ConcordRaiderPrimary 0x97B removed", m => m.Weapons.Remove(new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId))),
             ("E3 ConcordRaiderSidearm 0x97A AttackDamage reverted to 10", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].AttackDamage = 10f),
+            ("E3 ConcordRaiderSidearm 0x97A retains ObjectTemplates", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() }),
             ("E3 ConcordRaiderSidearm 0x97A marked playable", m => { var sw = m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)]; sw.MajorFlags &= ~SF.Weapon.MajorFlag.NonPlayable; sw.NonPlayable = false; }),
             ("E3 ConcordRaiderSidearm 0x97A removed", m => m.Weapons.Remove(new FormKey(m.ModKey, ConcordRaiderSidearmWeapId))),
+            ("R13 E3 Holding CELL 0xB60 FULL reverted to FO4SF prefix", m => m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First(c => c.FormKey.ID == MissionHoldingCellId).Name = "FO4SF Mission Holding Cell"),
             ("Preston post scene 0x990 removed from keeper", m => Keeper(m).Scenes.RemoveAll(s => s.FormKey.ID == PrestonPostTalkSceneId)),
             ("Codsworth post scene 0x9C0 removed from keeper", m => Keeper(m).Scenes.RemoveAll(s => s.FormKey.ID == CodsworthPostSceneId)),
             ("Codsworth post scene 0x9C0 wrong alias ID 0", m => Keeper(m).Scenes.First(s => s.FormKey.ID == CodsworthPostSceneId).Actors[0].ID = 0),

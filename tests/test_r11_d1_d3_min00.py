@@ -210,43 +210,58 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(sum(1 for ln in logs if "dialogue_camera stopped" in ln), 0)
 
     def test_d3_raider_ammo_deterministic_60_and_balanced_eon_sidearm(self):
-        """D3 + E3 (#598): LL_Ammo_Shotshell spawn rolls normalize to exact 60, then EquipBalancedRaiderSidearm
-        equips WEAP 0x097A (3-dmg FO4SF_ConcordRaiderSidearm, AmmoList cleared), removes Coachman + AmmoShotshell
-        FIRST, and clamps Ammo777mm AFTER AddItem/EquipItem so sidearm_ammo is deterministically 36 even if
-        weapon addition spawns bonus rounds."""
+        """D3 + R13 E3: LL_Ammo_Shotshell spawn rolls normalize to exact 60 with softened 0x97B Coachman
+        (1.0 dmg, NonPlayable), then EquipBalancedRaiderSidearm equips WEAP 0x097A (0.75-dmg FO4SF_ConcordRaiderSidearm,
+        ObjectTemplates=null, AmmoList=null), strips 0x97B + AmmoShotshell, clamps Ammo777mm=36, and logs eff_dmg."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("SfRaiderSidearmId = 0x0476C4", cs)
+        self.assertIn("ConcordRaiderPrimaryWeapId = 0x97B", cs)
+        self.assertIn("ConcordRaiderPrimaryDamage = 1.0f", cs)
         self.assertIn("ConcordRaiderSidearmWeapId = 0x97A", cs)
-        self.assertIn("ConcordRaiderSidearmDamage = 3f", cs)
+        self.assertIn("ConcordRaiderSidearmDamage = 0.75f", cs)
+        self.assertIn("concordPrimary.AmmoList.SetToNull();", cs)
+        self.assertIn("concordPrimary.ObjectTemplates = null;", cs)
         self.assertIn("concordSidearm.AmmoList.SetToNull();", cs)
+        self.assertIn("concordSidearm.ObjectTemplates = null;", cs)
         self.assertIn("SfRaiderSidearmAmmoId = 0x04AD3E", cs)
+        self.assertIn('Obj("RaiderWeapon", concordPrimary.FormKey)', cs)
+        self.assertIn('Flt("RaiderPrimaryRecordDamage", primaryRecordDamage)', cs)
         self.assertIn('Obj("RaiderSidearm", concordSidearm.FormKey)', cs)
         self.assertIn('Obj("RaiderSidearmAmmo", raiderSidearmAmmo.FormKey)', cs)
+        self.assertIn('Flt("RaiderSidearmRecordDamage", sidearmRecordDamage)', cs)
 
         class _Raider:
-            def __init__(self, shells, ammo777=0, bonus_on_sidearm=16):
-                self.inv = {"Coachman": 1, "AmmoShotshell": shells}
+            def __init__(self, shells, ammo777=0, bonus_on_sidearm=16, atk_mult=0.0):
+                self.inv = {"Coachman097B": 1, "AmmoShotshell": shells}
                 if ammo777:
                     self.inv["Ammo777mm"] = ammo777
                 self.bonus_on_sidearm = bonus_on_sidearm
-                self.equipped = [("Coachman", False)]
+                self.equipped = [("SpacerGun", False)]
                 self.unequipped = []
+                self.unequipped_all = 0
                 self.restrained = True
-                self.avs = {}
+                self.avs = {"AttackDamageMult": atk_mult}
                 self.evals = 0
 
             def IsDead(self): return False
             def SetRestrained(self, v): self.restrained = bool(v)
             def SetValue(self, av, val): self.avs[av] = float(val)
+            def GetValue(self, av): return float(self.avs.get(av, 0.0))
             def GetItemCount(self, item): return self.inv.get(item, 0)
             def AddItem(self, item, cnt, _silent=False):
                 self.inv[item] = self.inv.get(item, 0) + int(cnt)
-                if item == "Eon" and self.bonus_on_sidearm:
+                if item == "Eon097A" and self.bonus_on_sidearm:
                     self.inv["Ammo777mm"] = self.inv.get("Ammo777mm", 0) + self.bonus_on_sidearm
             def RemoveItem(self, item, cnt, _silent=False): self.inv[item] = max(0, self.inv.get(item, 0) - int(cnt))
-            def UnequipItem(self, item, *_): self.unequipped.append(item)
+            def UnequipAll(self):
+                self.unequipped_all += 1
+                self.equipped.clear()
+            def UnequipItem(self, item, *_):
+                self.unequipped.append(item)
+                self.equipped = [e for e in self.equipped if e[0] != item]
             def EquipItem(self, item, prevent_removal=False, _silent=False): self.equipped.append((item, bool(prevent_removal)))
+            def GetEquippedWeapon(self, idx=0): return self.equipped[-1][0] if self.equipped else None
             def EvaluatePackage(self): self.evals += 1
 
         # Exact candidate-2g LL_Ammo_Shotshell rolls + an overflow case (85)
@@ -256,10 +271,12 @@ class R11W1Tests(unittest.TestCase):
         ns = {
             "_PStr": _PStr,
             "Trace": logs.append,
-            "RaiderWeapon": "Coachman",
+            "RaiderWeapon": "Coachman097B",
             "RaiderAmmo": "AmmoShotshell",
-            "RaiderSidearm": "Eon",
-            "RaiderSidearmDamage": 3.0,
+            "RaiderSidearm": "Eon097A",
+            "RaiderPrimaryRecordDamage": 1.0,
+            "RaiderSidearmRecordDamage": 0.75,
+            "AttackDamageMult": None,
             "RaiderSidearmAmmo": "Ammo777mm",
             "raiderArmed": _PArray([False] * len(raiders)),
             "Game": SimpleNamespace(
@@ -267,33 +284,40 @@ class R11W1Tests(unittest.TestCase):
                 GetConfidenceAV=lambda: "Confidence",
             ),
         }
-        code = _translate_psc(m_psc, ("ArmRaiderForCombat", "EquipBalancedRaiderSidearm"), ("raiderArmed",))
+        code = _translate_psc(m_psc, ("ComputeEffectiveWeaponDamage", "ArmRaiderForCombat", "EquipBalancedRaiderSidearm"), ("raiderArmed",))
         exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
 
         for idx, r in enumerate(raiders):
             ns["ArmRaiderForCombat"](r, idx)
+            self.assertEqual(r.unequipped_all, 1)
             self.assertEqual(r.inv["AmmoShotshell"], 60, f"raider {idx} shell count != 60 after ArmRaiderForCombat")
+            self.assertIn("eff_dmg=1.0", logs[-1])
             ns["EquipBalancedRaiderSidearm"](r, idx)
-            self.assertEqual(r.inv["Coachman"], 0, f"raider {idx} Coachman must be removed to prevent AI re-equip")
+            self.assertEqual(r.inv["Coachman097B"], 0, f"raider {idx} Coachman must be removed to prevent AI re-equip")
             self.assertEqual(r.inv["AmmoShotshell"], 0, f"raider {idx} AmmoShotshell must be removed after sidearm swap")
             self.assertEqual(r.inv["Ammo777mm"], 36, f"raider {idx} 7.77mm count != 36")
-            self.assertEqual(r.unequipped, ["Coachman"])
-            self.assertEqual(r.equipped[-1], ("Eon", True))
+            self.assertEqual(r.unequipped, ["Coachman097B"])
+            self.assertEqual(r.equipped[-1], ("Eon097A", True))
             self.assertFalse(r.restrained)
-            self.assertEqual(r.avs, {"Aggression": 2.0, "Confidence": 4.0})
+            self.assertEqual(r.avs["Aggression"], 2.0)
+            self.assertEqual(r.avs["Confidence"], 4.0)
             self.assertTrue(ns["raiderArmed"][idx])
             self.assertIn(f"arm raider {idx} ammo=60", logs[-2])
+            self.assertIn("eff_dmg=1.0", logs[-2])
             self.assertIn(f"arm raider {idx} sidearm=eon sidearm_ammo=36", logs[-1])
+            self.assertIn("eff_dmg=0.75", logs[-1])
 
-        # Fallback path when RaiderSidearm is None: retains Coachman (1) + deterministic AmmoShotshell (60)
-        fallback_r = _Raider(10)
+        # Fallback path + resolved AttackDamageMult scaling check
+        ns["AttackDamageMult"] = "AttackDamageMult"
+        fallback_r = _Raider(10, atk_mult=1.5)
         ns["RaiderSidearm"] = None
         ns["raiderArmed"].append(False)
         ns["ArmRaiderForCombat"](fallback_r, len(raiders))
         ns["EquipBalancedRaiderSidearm"](fallback_r, len(raiders))
-        self.assertEqual(fallback_r.inv["Coachman"], 1)
+        self.assertEqual(fallback_r.inv["Coachman097B"], 1)
         self.assertEqual(fallback_r.inv["AmmoShotshell"], 60)
-        self.assertEqual(fallback_r.equipped[-1], ("Coachman", False))
+        self.assertEqual(fallback_r.equipped[-1], ("Coachman097B", False))
+        self.assertIn("eff_dmg=1.5", logs[-1])
 
     def test_d5_preston_and_codsworth_choice_infos_carry_enam_zero_and_inam_low(self):
         """D5 Part 3: BuildTopScene sets explicit ENAM (Flags=0, ResetHours=0, DoNotGrayOut clear) and

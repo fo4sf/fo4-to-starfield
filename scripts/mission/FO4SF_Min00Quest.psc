@@ -40,7 +40,9 @@ Weapon Property RaiderWeapon Auto Const
 Ammo Property RaiderAmmo Auto Const
 Weapon Property RaiderSidearm Auto Const
 Ammo Property RaiderSidearmAmmo Auto Const
-float Property RaiderSidearmDamage = 3.0 Auto Const
+float Property RaiderPrimaryRecordDamage = 0.0 Auto Const
+float Property RaiderSidearmRecordDamage = 0.0 Auto Const
+ActorValue Property AttackDamageMult Auto Const
 float Property PrestonSceneCheckSeconds = 1.5 Auto Const
 int Property PrestonSceneMaxWaitChecks = 16 Auto Const
 int Property PrestonMaxSceneRestarts = 3 Auto Const
@@ -220,15 +222,8 @@ int Function EffectiveStage()
 EndFunction
 
 WorldSpace Function ResolveCommonwealthWorld()
-    ; Task 1i: resolve host world dynamically from persistent core refs (Sanctuary workbench / V111 marker),
-    ; NEVER hardcoded FO4SFMission world copies or Starfield planet worlds.
-    ObjectReference benchRef = Game.GetFormFromFile(0x005C50, "FO4TerrainCore.esm") as ObjectReference
-    if benchRef != None
-        WorldSpace bws = benchRef.GetWorldSpace()
-        if bws != None
-            return bws
-        endif
-    endif
+    ; Task 1i (#858 F7): resolve host world dynamically from persistent V111 exit marker (0x0A775B, flags=0x400)
+    ; FIRST, using Sanctuary workbench (0x005C50, flags=0x0) only as secondary fallback — NEVER hardcoded FO4SFMission world copies.
     ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore.esm") as ObjectReference
     if v111Marker == None
         v111Marker = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore_Mars.esm") as ObjectReference
@@ -237,6 +232,13 @@ WorldSpace Function ResolveCommonwealthWorld()
         WorldSpace mws = v111Marker.GetWorldSpace()
         if mws != None
             return mws
+        endif
+    endif
+    ObjectReference benchRef = Game.GetFormFromFile(0x005C50, "FO4TerrainCore.esm") as ObjectReference
+    if benchRef != None
+        WorldSpace bws = benchRef.GetWorldSpace()
+        if bws != None
+            return bws
         endif
     endif
     if prestonPlaced && Preston != None && !Preston.IsInInterior()
@@ -1026,7 +1028,6 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 prestonScenePhase1 = False
                 prestonPhase1At = 0.0
                 prestonSceneRestarts = 0
-                ownPrestonSceneStop = False
                 prestonAttemptStartedAt = 0.0
                 CancelTimer(3)
                 Trace("preston dialogue menu opened mode=post stage=" + st)
@@ -1051,7 +1052,6 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             prestonScenePhase1 = False
             prestonPhase1At = 0.0
             prestonSceneRestarts = 0
-            ownPrestonSceneStop = False
             prestonAttemptStartedAt = 0.0
             CancelTimer(3)
             Trace("preston dialogue menu opened")
@@ -1442,14 +1442,26 @@ Function FoundPreston(string how)
     endif
 EndFunction
 
+float Function ComputeEffectiveWeaponDamage(Actor r, float recordDmg)
+{R13 E3: Compute effective weapon damage from the VMAD-bound record damage * Actor AttackDamageMult when resolved else 1.0.}
+    float mult = 1.0
+    if r != None && AttackDamageMult != None
+        float av = r.GetValue(AttackDamageMult)
+        if av > 0.0
+            mult = av
+        endif
+    endif
+    return recordDmg * mult
+EndFunction
+
 Function ArmRaiderForCombat(Actor r, int idx)
-{C3 + R11 D3: Ensure each Concord raider is unrestrained, aggressive, brave, carries Coachman + deterministic
- AmmoShotshell=60 (removing LL_Ammo_Shotshell random 10..30 spawn variance that produced 30, 70, 30, 30, 20 in 2g),
- and re-evaluates its combat package.}
+{C3 + R11 D3 + R13 E3: Ensure each Concord raider is unrestrained, aggressive, brave, unequips any template weapon,
+ equips softened non-playable RaiderWeapon (0x97B, 1.0 dmg) + deterministic AmmoShotshell=60, and logs effective damage.}
     if r == None || r.IsDead()
         return
     endif
     r.SetRestrained(False)
+    r.UnequipAll()
     ActorValue aggrAv = Game.GetAggressionAV()
     if aggrAv != None
         r.SetValue(aggrAv, 2.0)
@@ -1479,14 +1491,16 @@ Function ArmRaiderForCombat(Actor r, int idx)
     if RaiderAmmo != None
         shells = r.GetItemCount(RaiderAmmo)
     endif
-    Trace("arm raider " + idx + " ammo=" + shells)
+    Weapon eqPrimary = r.GetEquippedWeapon()
+    bool eqMatch = (RaiderWeapon != None && eqPrimary == RaiderWeapon)
+    float effPrimaryDmg = ComputeEffectiveWeaponDamage(r, RaiderPrimaryRecordDamage)
+    Trace("arm raider " + idx + " ammo=" + shells + " weapon=" + eqPrimary + " eq_match=" + eqMatch + " dmg=" + RaiderPrimaryRecordDamage + " eff_dmg=" + effPrimaryDmg + " playable=false standin=true")
 EndFunction
 
 Function EquipBalancedRaiderSidearm(Actor r, int idx)
-{R11 Part 3 E3: Switch armed Concord street raiders from Coachman (52 dmg) to VMAD-bound FO4SF_ConcordRaiderSidearm
- (WEAP 0x097A, 3 dmg, AmmoList cleared) + deterministic 36 Ammo777mm (0x04AD3E). Adds & equips RaiderSidearm and
- removes Coachman + AmmoShotshell FIRST, then clamps RaiderSidearmAmmo to exact 36 so engine weapon-ammo spawns
- never push sidearm_ammo above 36.}
+{R11 Part 3 E3 + R13 E3: Switch armed Concord street raiders from softened primary (0x097B) to VMAD-bound
+ FO4SF_ConcordRaiderSidearm (WEAP 0x097A, 0.75 dmg, ObjectTemplates=null) + deterministic 36 Ammo777mm (0x04AD3E).
+ Adds & equips RaiderSidearm, strips RaiderWeapon + RaiderAmmo FIRST, clamps RaiderSidearmAmmo=36, and logs effective damage.}
     if r == None || r.IsDead() || RaiderSidearm == None || RaiderSidearmAmmo == None
         return
     endif
@@ -1515,7 +1529,10 @@ Function EquipBalancedRaiderSidearm(Actor r, int idx)
         r.RemoveItem(RaiderSidearmAmmo, curSidearmAmmo - targetSidearmAmmo, True)
     endif
     r.EvaluatePackage()
-    Trace("arm raider " + idx + " sidearm=eon sidearm_ammo=" + r.GetItemCount(RaiderSidearmAmmo) + " dmg=" + RaiderSidearmDamage + " playable=false standin=true")
+    Weapon eqSidearm = r.GetEquippedWeapon()
+    bool eqMatch = (eqSidearm == RaiderSidearm)
+    float effSidearmDmg = ComputeEffectiveWeaponDamage(r, RaiderSidearmRecordDamage)
+    Trace("arm raider " + idx + " sidearm=eon sidearm_ammo=" + r.GetItemCount(RaiderSidearmAmmo) + " weapon=" + eqSidearm + " eq_match=" + eqMatch + " dmg=" + RaiderSidearmRecordDamage + " eff_dmg=" + effSidearmDmg + " playable=false standin=true")
 EndFunction
 
 float Function GetRaiderHealth(Actor r)

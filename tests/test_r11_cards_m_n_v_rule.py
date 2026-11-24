@@ -116,9 +116,11 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
 
         top = "\n".join(txt.splitlines()[:14])
         self.assertIn("NEW GAME needed", top)
+        self.assertIn("candidate-2g-fix3", top)
         self.assertIn("candidate-2g-fix2", top)
         self.assertIn("73ea9a4b", top)
         self.assertIn("77a16225", top)
+        self.assertIn("5110793b", top)
         self.assertIn("prototype, offline", top)
         self.assertIn("OFFLINE ONLY — UNPROVEN IN GAME", top)
         self.assertIn("stand-in", top.lower())
@@ -137,10 +139,11 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         # Old placeholders & removed variant swap must not linger
         self.assertNotIn("<cand-r11-player-bundle>", txt)
         self.assertNotIn("<cand2g-fix-player-bundle>", txt)
+        self.assertNotIn("<cand2g-fix2-player-bundle>", txt)
         self.assertNotIn("variants/codsworth-race-framing-on/FO4SFMission.esm", txt)
         # E1 removed StopDialogueCamera from Phase 2
         self.assertNotIn("codsworth talk dialogue_camera stopped phase=2", txt)
-        # In candidate-2g-fix2 (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
+        # In candidate-2g-fix3 (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
         self.assertNotIn("sanctuary01 bench_activated=true ref=<ref> complete=true", txt)
         # F2 exact Pip-Boy keyboard truth from main.cpp:7993-8014 (no Q/E page-switch or arrow keys)
         self.assertNotIn("`Q` and `E` switch", txt)
@@ -152,7 +155,8 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("Up/Down arrows", txt)
 
         required_tokens = (
-            "<cand2g-fix2-player-bundle>",
+            "<cand2g-fix3-player-bundle>",
+            "candidate-2g-fix3",
             "candidate-2g-fix2",
             "D1",
             "D2",
@@ -187,10 +191,24 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "090009C0",
             "facing_deg=<deg>",
             "wall_avoid=<true|false>",
+            "0900097B",
+            "Coachman (Raider Stand-In)",
+            "AttackDamage = 1.0",
             "0900097A",
             "Eon (Raider Stand-In)",
-            "AttackDamage = 3",
+            "AttackDamage = 0.75",
+            "eff_dmg=<eff>",
             "arm raider <i> sidearm=eon sidearm_ammo=36",
+            "E) STIMPAK R) RADAWAY T) PERK CHART",
+            "APPAREL",
+            "PNDT 0x0003F59A",
+            "w-home",
+            "FO4SF_MISSION ... stage 40 by=fallback",
+            "vault_death_recovery=autosave stage=<st> skips=<n>",
+            "audio: not judged",
+            "needs a slowed take",
+            "gated (`#854`)",
+            "not applicable",
             "open wire armory cage",
             "one shelf below",
             "FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True",
@@ -295,6 +313,28 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         )
         for tok in required_tokens:
             self.assertIn(tok, txt, f"round11-a1-a3-card.md missing {tok!r}")
+        self.assertNotIn("| Pending |", txt, "Rule 10 forbids unactionable Pending VIDEO cells")
+
+    def test_playable_status_ledger_hygiene_and_24nov_coverage(self) -> None:
+        status_path = ROOT / "docs/status/playable-status.md"
+        self.assertTrue(status_path.is_file(), "docs/status/playable-status.md missing")
+        raw = status_path.read_bytes()
+        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"), "playable-status.md must not have UTF-8 BOM")
+        st_txt = raw.decode("utf-8")
+        self.assertIsNone(re.search(r"\b[A-Za-z]:[\\/]", st_txt), "local drive path leaked in playable-status.md")
+        for tok in (
+            "candidate-2g",
+            "candidate-2g-fix2",
+            "candidate-2g-fix3",
+            "P1 v2",
+            "P6",
+            "Gemini-reviewed, not game-run",
+            "Claude's 5 Additions",
+            "7d5ba49c",
+            "audio: not judged",
+            "needs a slowed take",
+        ):
+            self.assertIn(tok, st_txt, f"playable-status.md missing {tok!r}")
 
     def test_round11_card_passes_live_r11_validation(self) -> None:
         errs = r11.validate_lead_card_markdown(

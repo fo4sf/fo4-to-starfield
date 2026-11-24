@@ -426,6 +426,7 @@ bool dyingHookRegistered = false
 bool vaultPodAutosaved = false
 bool vaultSavingRelocked = false
 bool vaultRecoveryTriggered = false
+int vaultPodAutosaveSkips = 0
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -624,6 +625,7 @@ EndFunction
 
 Function ClearVaultSaveLock()
     CancelTimer(6)
+    CancelTimer(7)
     if vaultSavingRelocked
         vaultSavingRelocked = false
         Game.SetInChargen(false, false, false)
@@ -664,6 +666,10 @@ EndEvent
 Event OnTimer(int aiTimerID)
     if aiTimerID == 6
         RelockVaultSaving(Game.GetPlayer(), GetStage())
+        return
+    endif
+    if aiTimerID == 7
+        TriggerVaultPodRecoveryAutosave(GetStage())
         return
     endif
     if aiTimerID == 5
@@ -1499,35 +1505,47 @@ Function EnsureLoadHookRegistered(Actor player)
 EndFunction
 
 Function TriggerVaultPodRecoveryAutosave(int stageNum)
-{Task 1b: Autosave once after cryo pod / looks finishes (saving allowed for that moment only), then Timer 6 re-locks saving inside Vault 111 (< 200).}
+{Task 1b (#853 M1): Wait until player is 3D-loaded & standing in Vault 111 (retrying via Timer 7 up to 60 skips),
+ autosave once after cryo pod / looks finishes, then Timer 6 re-locks saving inside Vault 111 (< 200).}
     if vaultPodAutosaved || stageNum < 10 || stageNum >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2)
         return
     endif
     Actor player = Game.GetPlayer()
-    if player == None || !StandsInVault(player)
+    if player == None || !player.Is3DLoaded() || !StandsInVault(player)
+        vaultPodAutosaveSkips += 1
+        Trace("vault_death_recovery=autosave_skip skips=" + vaultPodAutosaveSkips + " stage=" + stageNum)
+        if vaultPodAutosaveSkips < 60
+            StartTimer(1.0, 7)
+        endif
         return
     endif
+    CancelTimer(7)
     EnsureLoadHookRegistered(player)
     vaultPodAutosaved = true
+    vaultRecoveryTriggered = false
     vaultSavingRelocked = false
     Game.SetInChargen(false, false, false)
     Game.RequestAutoSave()
-    Trace("vault_death_recovery=autosave stage=" + stageNum)
+    Trace("vault_death_recovery=autosave stage=" + stageNum + " skips=" + vaultPodAutosaveSkips)
     StartTimer(1.5, 6)
 EndFunction
 
 WorldSpace Function ResolveHostWorld()
-{Task 1i: Resolve live host exterior worldspace dynamically from persistent core refs (Sanctuary workbench 0x005C50 / V111 marker ExitAnchorId).}
+{Task 1i (#858 F7): Resolve live host exterior worldspace dynamically from persistent ExitAnchorId (0x0A775B, flags=0x400)
+ FIRST, using Sanctuary workbench (0x005C50, flags=0x0) only as secondary fallback.}
+    ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+    if anchor != None
+        WorldSpace aws = anchor.GetWorldSpace()
+        if aws != None
+            return aws
+        endif
+    endif
     ObjectReference benchRef = Game.GetFormFromFile(0x005C50, CorePlugin) as ObjectReference
     if benchRef != None
         WorldSpace bws = benchRef.GetWorldSpace()
         if bws != None
             return bws
         endif
-    endif
-    ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
-    if anchor != None
-        return anchor.GetWorldSpace()
     endif
     return None
 EndFunction
@@ -1559,12 +1577,11 @@ Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
             akSender.SetAngle(0.0, 0.0, PodHeading)
         endif
     endif
-    vaultPodAutosaved = true
-    vaultSavingRelocked = false
-    Game.SetInChargen(false, false, false)
-    Game.RequestAutoSave()
-    Trace("vault_death_recovery=reload stage=" + st)
-    StartTimer(1.5, 6)
+    Trace("vault_death_recovery=pod_reset stage=" + st)
+    if vaultPodAutosaveSkips >= 60
+        vaultPodAutosaveSkips = 0
+    endif
+    StartTimer(1.0, 7)
 EndEvent
 
 Event Actor.OnPlayerLoadGame(Actor akSender)

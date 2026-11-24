@@ -123,12 +123,13 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
             mission_path = esm_dir / "FO4SFMission.esm"
             m_recs = list(_iter_raw_records(mission_path))
 
-            # 1. TES4 masters order: [0]=Starfield.esm, [1]=FO4TerrainCore.esm, [2]=FO4ActorRaider.esm -> local index == 0x03
+            # 1. TES4 masters order (Task 1i drops static FO4TerrainCore.esm dependency):
+            #    [0]=Starfield.esm, [1]=FO4ActorRaider.esm -> local index == 0x02
             tes4_subs = next(subs for sig, _, _, _, subs in m_recs if sig == b"TES4")
             masters = [b.rstrip(b"\x00").decode("utf-8") for s, b in tes4_subs if s == b"MAST"]
-            self.assertEqual(masters, ["Starfield.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"])
-            local_hi = len(masters)  # 0x03
-            raider_hi = masters.index("FO4ActorRaider.esm")  # 0x02
+            self.assertEqual(masters, ["Starfield.esm", "FO4ActorRaider.esm"])
+            local_hi = len(masters)  # 0x02
+            raider_hi = masters.index("FO4ActorRaider.esm")  # 0x01
 
             # 2. D2 checks on ARMA (0x981, 0x984, 0x989) & ARMO (0x983, 0x985, 0x98A)
             armas = {fid & 0xFFFFFF: dict(subs) for sig, fid, _, _, subs in m_recs if sig == b"ARMA" and (fid >> 24) == local_hi}
@@ -186,6 +187,7 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
             self.assertEqual(sd_986[b"EDID"].rstrip(b"\x00"), b"FO4_ConcordRaider")
             self.assertEqual(struct.unpack("<I", sd_986[b"DOFT"])[0], (local_hi << 24) | 0x988)
             self.assertEqual(struct.unpack("<I", sd_986[b"SOFT"])[0], (local_hi << 24) | 0x988)
+            self.assertNotIn(b"CNTO", sd_986, "R13 E3: FO4_ConcordRaider must have 0 CNTO inventory items")
 
             for boss_id, boss_edid in (
                 (0x0A23, b"FO4_CorvegaBoss"),
