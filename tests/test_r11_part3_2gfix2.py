@@ -451,6 +451,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "prestonPhase1At": 0.0,
             "prestonSceneChecks": 0,
             "prestonSceneRestarts": 0,
+            "ownPrestonSceneStop": False,
+            "prestonAttemptStartedAt": 0.0,
             "prestonPostSceneActive": False,
             "sanctuaryStartRetries": 0,
             "relocateFails": 0,
@@ -502,7 +504,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
              "prestonFallbackActive", "talkSessionId", "prestonTalkReloaded",
              "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened",
              "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks",
-             "prestonSceneRestarts", "prestonPostSceneActive", "sanctuaryStartRetries",
+             "prestonSceneRestarts", "ownPrestonSceneStop", "prestonAttemptStartedAt",
+             "prestonPostSceneActive", "sanctuaryStartRetries",
              "relocateFails", "prestonHeld"),
         )
         exec(compile(m_code, "FO4SF_Min00Quest.psc", "exec"), m_ns)
@@ -566,6 +569,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "scenePhase1At": 0.0,
             "sceneCheckTicks": 0,
             "sceneRestartCount": 0,
+            "ownSceneStopPending": False,
+            "sceneAttemptStartedAt": 0.0,
             "scenePostActive": False,
             "talkProxy": None,
             "proxyLogged": False,
@@ -628,7 +633,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
              "ObjectReference.OnActivate", "RunCodsworthTalk", "OnStageSet", "SyncProgress"),
             ("dialogueSeen", "dialogueMenuOpen", "talkBoxOpen", "talkSessionId", "codsworthTalkReloaded",
              "concordCleared", "sceneTalkPending", "sceneMenuOpened", "scenePhase1Entered", "scenePhase1At",
-             "sceneCheckTicks", "sceneRestartCount", "scenePostActive", "talkProxy", "proxyLogged",
+             "sceneCheckTicks", "sceneRestartCount", "ownSceneStopPending", "sceneAttemptStartedAt",
+             "scenePostActive", "talkProxy", "proxyLogged",
              "proxyLastX", "proxyLastY", "proxyLastZ", "applied", "pendingStage", "pendingStageBy",
              "choice1Seen", "choice2Seen", "choice3Seen", "choice4Seen", "choicesCount", "completed"),
         )
@@ -662,6 +668,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
         # Codsworth scene_inactive -> 1/3, 2/3, 3/3 retries -> loud ERROR -> actor still talkable, 0 MessageBox
         h.c_ns["OnActivate"](h.cods, h.player)
         for _ in range(4):
+            h.rt[0] += 1.5
             h.c_ns["CheckCodsworthSceneOpen"]()
         self.assertEqual(h.c_msg.shown, 0)
         for n in (1, 2, 3):
@@ -692,7 +699,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
         self.assertGreater(h.preston.unblock, 0)
         self.assertFalse(any("fallback=messagebox" in ln for ln in h.logs), h.logs)
 
-        # Scene == None -> immediate loud ERROR, 0 MessageBox
+        # Scene == None -> immediate loud ERROR (retries=0, F1 accurate count), 0 MessageBox
         h_none = self._build_talk_harnesses(glob_val=0.0, cods_scene_none=True, preston_scene_none=True)
         h_none.c_ns["OnActivate"](h_none.cods, h_none.player)
         h_none.m_ns["AdvanceTo"](10, "Trigger")
@@ -701,8 +708,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
         h_none.m_ns["OnActivate"](h_none.preston, h_none.player)
         self.assertEqual(h_none.c_msg.shown, 0)
         self.assertEqual(h_none.p_msg.shown, 0)
-        self.assertTrue(any("codsworth talk ERROR scene_failed retries=3 reason=no_scene actor_talkable=true" in ln for ln in h_none.logs))
-        self.assertTrue(any("preston talk ERROR scene_failed retries=3 reason=no_scene actor_talkable=true" in ln for ln in h_none.logs))
+        self.assertTrue(any("codsworth talk ERROR scene_failed retries=0 reason=no_scene actor_talkable=true" in ln for ln in h_none.logs))
+        self.assertTrue(any("preston talk ERROR scene_failed retries=0 reason=no_scene actor_talkable=true" in ln for ln in h_none.logs))
 
     def test_item4_post_mission_repeat_talks_preston_0990_and_codsworth_09c0_after_reload(self):
         """Item 4: After stage 100 (Codsworth) and stage 200 (Preston) — including after a save reload —
@@ -840,6 +847,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "RaiderWeapon": "Coachman",
             "RaiderAmmo": "AmmoShotshell",
             "RaiderSidearm": "ConcordEon097A",
+            "RaiderSidearmDamage": 3.0,
             "RaiderSidearmAmmo": "Ammo777mm",
             "raiderArmed": _PArray([False] * 5),
             "Game": SimpleNamespace(GetAggressionAV=lambda: "Agg", GetConfidenceAV=lambda: "Conf"),
@@ -996,8 +1004,13 @@ class R11Part3Slice1ATests(unittest.TestCase):
             r.pos = [-3229.0, -4392.0, 261.0]
         raiders[4].disabled = True
 
-        # KeepPreston runs on KeeperOnly post-200 -> rescues raiders 0..3 back to their Concord corpse spots!
+        # N2: KeeperOnly KeepPreston must NOT run CheckConcordRaidersWfc01 (corpse-pile hazard removed); rescue stays in Min00
         ns["KeepPreston"](player)
+        for i in range(5):
+            self.assertEqual(raiders[i].move_calls, 0, "KeepPreston must not touch Concord raider corpses")
+
+        # Min00 CheckConcordRaidersWfc01 rescues raiders 0..3 back to their Concord corpse spots!
+        ns["CheckConcordRaidersWfc01"](player, False)
         for i in range(4):
             self.assertAlmostEqual(raiders[i].pos[0], death_spots[i][0], places=2)
             self.assertAlmostEqual(raiders[i].pos[1], death_spots[i][1], places=2)
@@ -1035,11 +1048,13 @@ class R11Part3Slice1ATests(unittest.TestCase):
                 elif sig == b"INFO" and (0x991 <= lid <= 0x9BA or 0x9C1 <= lid <= 0x9EB):
                     infos[lid] = dict(_iter_subrecords(body))
 
-            # E3: WEAP 0x097A FO4SF_ConcordRaiderSidearm (AttackDamage=3.0f in WDMG[0:4], WAM2 Ammo=0x04AD3E & AmmoList=0)
+            # E3: WEAP 0x097A FO4SF_ConcordRaiderSidearm ("Eon (Raider Stand-In)", AttackDamage=3.0f, AmmoList=0, NonPlayable)
             self.assertIn(0x97A, weaps)
             w_subs = dict(weaps[0x97A])
             self.assertEqual(w_subs[b"EDID"].rstrip(b"\x00").decode(), "FO4SF_ConcordRaiderSidearm")
-            self.assertEqual(w_subs[b"FULL"].rstrip(b"\x00").decode(), "Eon")
+            self.assertEqual(w_subs[b"FULL"].rstrip(b"\x00").decode(), "Eon (Raider Stand-In)")
+            self.assertNotIn(b"OBTF", w_subs)
+            self.assertNotIn(b"OBTS", w_subs)
             self.assertIn(b"WAM2", w_subs)
             wam2_ammo, wam2_list = struct.unpack_from("<II", w_subs[b"WAM2"], 0)
             self.assertEqual(wam2_ammo, 0x0004AD3E, f"WAM2 Ammo expected 0x04AD3E, got 0x{wam2_ammo:08X}")
@@ -1048,7 +1063,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
             dmg = struct.unpack_from("<f", w_subs[b"WDMG"], 0)[0]
             self.assertAlmostEqual(dmg, 3.0, places=4, msg=f"AttackDamage expected 3.0, got {dmg}")
 
-            # Item 4: SCEN 0x0990 (Preston post, alias 0) & SCEN 0x09C0 (Codsworth post, alias 1)
+            # Step 3 / Item 4: SCEN 0x0990 (Preston post, alias 0) & SCEN 0x09C0 (Codsworth post, alias 1)
+            # Single-choice FO4 post-mission goodbye stand-in (zero Concord/MQ102 choice replay or audio mismatch)
             for lid, want_edid, want_alias in ((0x990, "FO4SF_PrestonPostScene", 0), (0x9C0, "FO4SF_CodsworthPostScene", 1)):
                 self.assertIn(lid, scens, f"SCEN 0x{lid:X} missing from FO4SFMission.esm")
                 s_dict = dict(scens[lid])
@@ -1058,14 +1074,26 @@ class R11Part3Slice1ATests(unittest.TestCase):
                 self.assertEqual(struct.unpack_from("<I", s_dict[b"FNAM"], 0)[0], 0x1814)
                 self.assertEqual(struct.unpack_from("<I", s_dict[b"ALID"], 0)[0], want_alias)
 
-            # All post-scene choice INFOs carry ENAM=0, INAM=1, and non-ending replies carry INTV=1
-            for lid in (0x9A8, 0x9A9, 0x9AA, 0x9D8, 0x9D9, 0x9DA, 0x9DB):
+            # Only the single-choice goodbye INFOs (0x9A8/0x9B8 Preston, 0x9D8/0x9E8 Codsworth) exist; old replay choices removed
+            for lid in (0x9A8, 0x9D8):
                 self.assertIn(lid, infos, f"post-scene pcInfo 0x{lid:X} missing")
                 self.assertEqual(struct.unpack_from("<H", infos[lid][b"ENAM"], 0)[0], 0)
                 self.assertEqual(struct.unpack_from("<I", infos[lid][b"INAM"], 0)[0], 1)
-            for lid in (0x9B8, 0x9B9, 0x9E8, 0x9E9, 0x9EA):
-                self.assertIn(lid, infos, f"post-scene non-ending npcInfo 0x{lid:X} missing")
-                self.assertEqual(struct.unpack_from("<I", infos[lid][b"INTV"], 0)[0], 1)
+            for lid in (0x9B8, 0x9E8):
+                self.assertIn(lid, infos, f"post-scene goodbye npcInfo 0x{lid:X} missing")
+            for removed_lid in (0x9A9, 0x9AA, 0x9B9, 0x9D9, 0x9DA, 0x9DB, 0x9E9, 0x9EA):
+                self.assertNotIn(removed_lid, infos, f"old replay post-scene INFO 0x{removed_lid:X} must be absent")
+
+            # Task 1i: 0 WRLD overrides and interior holding CELL 0x0B60 present
+            wrld_cnt = sum(1 for _sig, _fid, _fl, _body in _iter_esm_records(esm_bytes, {b"WRLD"}))
+            self.assertEqual(wrld_cnt, 0, "Task 1i: FO4SFMission.esm must have 0 WRLD overrides")
+            holding_cells = [
+                dict(_iter_subrecords(body))
+                for _sig, fid, _fl, body in _iter_esm_records(esm_bytes, {b"CELL"})
+                if (fid & 0xFFFFFF) == 0xB60
+            ]
+            self.assertEqual(len(holding_cells), 1, "Task 1i: missing holding CELL 0x000B60")
+            self.assertEqual(holding_cells[0][b"EDID"].rstrip(b"\x00").decode(), "FO4SF_MissionHoldingCell")
 
 
 if __name__ == "__main__":

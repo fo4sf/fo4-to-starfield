@@ -212,15 +212,10 @@ public static class FalloutActorLooks
         mod.Npcs.Remove(concordRaider.FormKey);
         mod.Npcs.Add(concordRaider);
 
-        foreach (var w in mod.Worldspaces)
+        foreach (var r in Mission.PersistentNpcRefsMutable(mod))
         {
-            if (w.TopCell?.Persistent is not { } persistent)
-                continue;
-            foreach (var r in persistent.OfType<SF.PlacedNpc>())
-            {
-                if (IsConcordRaiderRefId(r.FormKey, modKey))
-                    r.Base.SetTo(concordRaider.FormKey);
-            }
+            if (IsConcordRaiderRefId(r.FormKey, modKey))
+                r.Base.SetTo(concordRaider.FormKey);
         }
 
         // 4. Review #7: Strip 0x003D094D Spacer spacesuit outfits on all later-mission FO4_LvlRaider-cloned local NPCs
@@ -843,8 +838,7 @@ public static class FalloutActorLooks
             }
         }
 
-        var concordRefs = plug.Worldspaces
-            .SelectMany(ws => ws.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>() ?? [])
+        var concordRefs = Mission.PersistentNpcRefs(plug)
             .Where(r => IsConcordRaiderRefId(r.FormKey, key))
             .ToList();
         if (concordRefs.Count > 0)
@@ -1040,7 +1034,7 @@ public static class FalloutActorLooks
         yield return ("A2.3: Concord raider ACHR left pointing at shared 0xF04800 instead of 0x986",
             m =>
             {
-                var r = m.Worldspaces.SelectMany(ws => ws.TopCell?.Persistent.OfType<SF.PlacedNpc>() ?? [])
+                var r = Mission.PersistentNpcRefsMutable(m)
                     .FirstOrDefault(x => IsConcordRaiderRefId(x.FormKey, m.ModKey));
                 r?.Base.SetTo(new FormKey(raiderModKey, Mission.RaiderId));
             });
@@ -1193,11 +1187,16 @@ public static class FalloutActorLooks
             modFixed.Npcs.Add(laterBoss);
         }
 
-        var wOv = new SF.Worldspace(coreWorld.FormKey, rel)
+        var cellFixed = new SF.Cell(new FormKey(missionKey, Mission.MissionHoldingCellId), rel)
         {
-            EditorID = Mission.World,
-            TopCell = new SF.Cell(coreWorld.TopCell!.FormKey, rel),
+            EditorID = Mission.MissionHoldingCellEdid,
+            Flags = SF.Cell.Flag.IsInteriorCell,
         };
+        var subFixed = new SF.CellSubBlock { BlockNumber = (int)((Mission.MissionHoldingCellId / 10) % 10), GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
+        subFixed.Cells.Add(cellFixed);
+        var blkFixed = new SF.CellBlock { BlockNumber = (int)(Mission.MissionHoldingCellId % 10), GroupType = SF.GroupTypeEnum.InteriorCellBlock };
+        blkFixed.SubBlocks.Add(subFixed);
+        modFixed.Cells.Records.Add(blkFixed);
         for (uint i = 0; i < 5; i++)
         {
             var r = new SF.PlacedNpc(new FormKey(missionKey, Mission.FirstRaiderRefId + i), rel)
@@ -1206,7 +1205,7 @@ public static class FalloutActorLooks
                 MajorRecordFlagsRaw = 0x400,
             };
             r.Base.SetTo(sharedRaiderKey);
-            wOv.TopCell.Persistent.Add(r);
+            cellFixed.Persistent.Add(r);
         }
         var corvegaRaiderRef = new SF.PlacedNpc(new FormKey(missionKey, 0xA24), rel)
         {
@@ -1214,8 +1213,7 @@ public static class FalloutActorLooks
             MajorRecordFlagsRaw = 0x400,
         };
         corvegaRaiderRef.Base.SetTo(sharedRaiderKey);
-        wOv.TopCell.Persistent.Add(corvegaRaiderRef);
-        modFixed.Worldspaces.Add(wOv);
+        cellFixed.Persistent.Add(corvegaRaiderRef);
 
         var models = new ActorLooksModels(StagedPrestonOutfitModel, StagedPrestonHatModel, StagedRaiderOutfitModel);
         ApplyActorLooks(modFixed, sf, raider, models);

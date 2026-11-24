@@ -79,6 +79,9 @@ def _translate_psc(src, names, global_vars=()):
                 depth -= 1
             if "Trace(" in line:
                 line = re.sub(r'"([^"\\]*(?:\\.[^"\\]*)*)"', r'_PStr("\1")', line)
+            line = re.sub(r"\bnew\s+float\[([^\]]+)\]", r"[0.0] * (\1)", line)
+            line = re.sub(r"\bnew\s+bool\[([^\]]+)\]", r"[False] * (\1)", line)
+            line = re.sub(r"\bnew\s+int\[([^\]]+)\]", r"[0] * (\1)", line)
             line = re.sub(r"^int\s+(\w+)\s*=\s*(.+)", r"\1 = int(\2)", line)
             line = re.sub(
                 r"^(?:bool|float|string|Actor|ActorValue|Activator|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|WorldSpace|Weapon|Ammo|FO4SF_\w+)\s+(\w+)\s*=",
@@ -256,6 +259,7 @@ class R11W1Tests(unittest.TestCase):
             "RaiderWeapon": "Coachman",
             "RaiderAmmo": "AmmoShotshell",
             "RaiderSidearm": "Eon",
+            "RaiderSidearmDamage": 3.0,
             "RaiderSidearmAmmo": "Ammo777mm",
             "raiderArmed": _PArray([False] * len(raiders)),
             "Game": SimpleNamespace(

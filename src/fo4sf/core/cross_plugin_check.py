@@ -882,6 +882,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xB54, "MESG", "FO4SF_MQ206_WorkbenchBuildMsg"),
             (0xB55, "MESG", "FO4SF_MQ206_RelayFireMsg"),
             (0xB56, "MESG", "FO4SF_MQ206_OpenModeFallbackMsg"),
+            (0xB60, "CELL", "FO4SF_MissionHoldingCell"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":

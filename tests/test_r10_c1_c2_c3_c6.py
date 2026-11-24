@@ -249,6 +249,8 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "prestonPhase1At": 0.0,
         "prestonSceneChecks": 0,
         "prestonSceneRestarts": 0,
+        "ownPrestonSceneStop": False,
+        "prestonAttemptStartedAt": 0.0,
         "prestonPostSceneActive": False,
         "sanctuaryStartRetries": 0,
         "IsRunning": lambda: True,
@@ -301,7 +303,8 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "prestonTalkBoxOpen", "prestonFallbackActive", "talkSessionId", "prestonTalkReloaded",
         "prestonDialogueMenuOpen", "prestonScenePending", "prestonSceneMenuOpened",
         "prestonScenePhase1", "prestonPhase1At", "prestonSceneChecks",
-        "prestonSceneRestarts", "prestonPostSceneActive", "sanctuaryStartRetries",
+        "prestonSceneRestarts", "ownPrestonSceneStop", "prestonAttemptStartedAt",
+        "prestonPostSceneActive", "sanctuaryStartRetries",
     )
     code = _translate_mission_psc(min00_src, tuple(fns), globals_list)
     exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)

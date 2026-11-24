@@ -242,19 +242,36 @@ WorldSpace Function ResolveCommonwealthWorld()
     if commonwealthWorld != None
         return commonwealthWorld
     endif
+    ; Task 1i: resolve host world dynamically from persistent core refs (Sanctuary workbench 0x005C50 / V111 marker 0x0A775B)
+    ObjectReference coreBench = Game.GetFormFromFile(BenchRefId, CorePlugin) as ObjectReference
+    if coreBench != None
+        commonwealthWorld = coreBench.GetWorldSpace()
+        if commonwealthWorld != None
+            return commonwealthWorld
+        endif
+    endif
+    ObjectReference coreV111 = Game.GetFormFromFile(0x0A775B, CorePlugin) as ObjectReference
+    if coreV111 != None
+        commonwealthWorld = coreV111.GetWorldSpace()
+        if commonwealthWorld != None
+            return commonwealthWorld
+        endif
+    endif
     string cName = ActiveCorePlugin()
     if cName != ""
+        ObjectReference activeBench = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
+        if activeBench != None
+            commonwealthWorld = activeBench.GetWorldSpace()
+            if commonwealthWorld != None
+                return commonwealthWorld
+            endif
+        endif
         ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, cName) as ObjectReference
         if v111Marker != None
             commonwealthWorld = v111Marker.GetWorldSpace()
             if commonwealthWorld != None
                 return commonwealthWorld
             endif
-        endif
-        WorldSpace coreWs = Game.GetFormFromFile(0x000803, cName) as WorldSpace
-        if coreWs != None
-            commonwealthWorld = coreWs
-            return commonwealthWorld
         endif
     endif
     return None

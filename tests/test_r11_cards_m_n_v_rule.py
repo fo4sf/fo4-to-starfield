@@ -142,6 +142,14 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("codsworth talk dialogue_camera stopped phase=2", txt)
         # In candidate-2g-fix2 (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
         self.assertNotIn("sanctuary01 bench_activated=true ref=<ref> complete=true", txt)
+        # F2 exact Pip-Boy keyboard truth from main.cpp:7993-8014 (no Q/E page-switch or arrow keys)
+        self.assertNotIn("`Q` and `E` switch", txt)
+        self.assertNotIn("`Q`/`E` (Pip-Boy", txt)
+        self.assertNotIn("`Q`/`E` (or mouse click)", txt)
+        self.assertNotIn("`Q`/`E` failing to switch top-level pages", txt)
+        self.assertNotIn("`Right arrow` alone", txt)
+        self.assertNotIn("Left/Right arrows", txt)
+        self.assertNotIn("Up/Down arrows", txt)
 
         required_tokens = (
             "<cand2g-fix2-player-bundle>",
@@ -168,7 +176,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "A2.7",
             "A3",
             "HAND-PLAY",
-            # E1-E7 coverage
+            # E1-E7 + Round 12 Task 1a/1b/1i coverage
             "--codsworth-race-framing 0",
             "MiniBotARace",
             "claude/robot-anim",
@@ -180,21 +188,34 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "facing_deg=<deg>",
             "wall_avoid=<true|false>",
             "0900097A",
+            "Eon (Raider Stand-In)",
             "AttackDamage = 3",
             "arm raider <i> sidearm=eon sidearm_ammo=36",
             "open wire armory cage",
             "one shelf below",
             "FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True",
             "wfc01 rescue_dead",
+            "KeepPreston",
             "(-3229, -4392)",
             "SANCTUARY",
             "0x058606",
             "0B00084B..0B00084D",
+            "Wooden Chair (Stand-In)",
+            "Sleeping Cot (Stand-In)",
+            "Storage Crate (Stand-In)",
             "Skill requirements not met",
-            "non-blank location string",
+            "COMMONWEALTH, MASSACHUSETTS",
+            "HeaderFlag.Localized",
+            "FO4SFWorkshop_en",
             "F10",
             "Key=0x76",
-            "Right arrow",
+            "PageUp",
+            "PageDown",
+            "Perk Chart",
+            "Use Stimpak",
+            "Toggle Showing Effects",
+            "Use RadAway",
+            "arrow keys: none",
             "STATUS / SPECIAL / PERKS",
             # Preserved switches & side effects
             "0B00084A",
@@ -261,8 +282,16 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "(-57.03, 30.01, 1.29)",
             "AlreadySaid_Unselected",
             "Only Starfield In Game Can Prove",
-            "docs/plans/round11-first-mission-plan.md",
             "< 180 m",
+            "stage 40 by=fallback",
+            "vault_death_recovery",
+            "retries=<n>",
+            "retries=0",
+            "09000B60",
+            "FO4SF_MissionHoldingCell",
+            "7d5ba49c",
+            "VIDEO",
+            "Claude's Additions",
         )
         for tok in required_tokens:
             self.assertIn(tok, txt, f"round11-a1-a3-card.md missing {tok!r}")

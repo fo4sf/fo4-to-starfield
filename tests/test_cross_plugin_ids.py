@@ -84,6 +84,7 @@ class CrossPluginResolutionTests(unittest.TestCase):
         self.assertEqual(catalog["FO4SFMission.esm"][0x97A], ("WEAP", "FO4SF_ConcordRaiderSidearm"))
         self.assertEqual(catalog["FO4SFMission.esm"][0x990], ("SCEN", "FO4SF_PrestonPostScene"))
         self.assertEqual(catalog["FO4SFMission.esm"][0x9C0], ("SCEN", "FO4SF_CodsworthPostScene"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0xB60], ("CELL", "FO4SF_MissionHoldingCell"))
         self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84B], ("FURN", "FO4SF_Sanctuary_WoodChair"))
         self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84C], ("FURN", "FO4SF_Sanctuary_SleepingCot"))
         self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84D], ("CONT", "FO4SF_Sanctuary_StorageCrate"))

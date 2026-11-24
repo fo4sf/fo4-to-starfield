@@ -44,6 +44,8 @@ float scenePhase1At = 0.0
 int sceneCheckTicks = 0
 int sceneRestartCount = 0
 bool scenePostActive = False
+bool ownSceneStopPending = False
+float sceneAttemptStartedAt = 0.0
 int talkSessionId = 0
 bool codsworthTalkReloaded = False
 bool concordCleared = False
@@ -362,6 +364,8 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     sceneCheckTicks = 0
     sceneRestartCount = 0
     scenePostActive = False
+    ownSceneStopPending = False
+    sceneAttemptStartedAt = 0.0
     CancelTimer(2)
     int st = GetStage()
     if applied > st
@@ -395,6 +399,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 scenePhase1Entered = False
                 scenePhase1At = 0.0
                 sceneRestartCount = 0
+                ownSceneStopPending = False
+                sceneAttemptStartedAt = 0.0
                 CancelTimer(2)
                 Trace("codsworth dialogue menu opened")
             endif
@@ -504,11 +510,12 @@ Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
 EndFunction
 
 bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
-{R11 Part 3: When TalkUseMessageBox == 0 (default), NEVER open a MessageBox. Retry the Starfield Scene up to
- MaxSceneRestarts (3) times; on exhaustion log loud ERROR and leave Codsworth talkable for a fresh E press.}
+{R11 Part 3 + F1: When TalkUseMessageBox == 0 (default), NEVER open a MessageBox. Mark ownSceneStopPending before own Stop(),
+ count each retry only after a full SceneOpenCheckSeconds window, and log real retry counts.}
     Actor cods = ResolveCodsworth()
     Scene scn = ResolveActiveCodsworthScene(postMode)
     if scn == None
+        int usedRetries = sceneRestartCount
         sceneTalkPending = False
         sceneMenuOpened = False
         scenePhase1Entered = False
@@ -516,12 +523,14 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
         sceneCheckTicks = 0
         sceneRestartCount = 0
         scenePostActive = False
+        ownSceneStopPending = False
+        sceneAttemptStartedAt = 0.0
         CancelTimer(2)
         if cods != None
             cods.AllowPCDialogue(True)
             cods.BlockActivation(False, False)
         endif
-        Trace("codsworth talk ERROR scene_failed retries=3 reason=no_scene actor_talkable=true")
+        Trace("codsworth talk ERROR scene_failed retries=" + usedRetries + " reason=no_scene actor_talkable=true")
         return False
     endif
     if sceneRestartCount < MaxSceneRestarts
@@ -532,8 +541,10 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
             EnsureCodsworthAlias(cods)
         endif
         if scn.IsPlaying()
+            ownSceneStopPending = True
             scn.Stop()
         endif
+        sceneAttemptStartedAt = Utility.GetCurrentRealTime()
         scn.Start()
         if !scn.IsPlaying()
             scn.ForceStart()
@@ -543,11 +554,12 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
         scenePhase1Entered = False
         scenePhase1At = 0.0
         sceneCheckTicks = 0
-        Trace("codsworth talk scene_restart retry=" + sceneRestartCount + "/3 reason=" + reason + " stage=" + EffectiveStage())
+        Trace("codsworth talk scene_restart retry=" + sceneRestartCount + "/" + MaxSceneRestarts + " reason=" + reason + " stage=" + EffectiveStage())
         CancelTimer(2)
         StartTimer(SceneOpenCheckSeconds, 2)
         return True
     endif
+    int maxUsed = sceneRestartCount
     sceneTalkPending = False
     sceneMenuOpened = False
     scenePhase1Entered = False
@@ -555,15 +567,19 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
     sceneCheckTicks = 0
     sceneRestartCount = 0
     scenePostActive = False
+    sceneAttemptStartedAt = 0.0
     CancelTimer(2)
     if scn.IsPlaying()
+        ownSceneStopPending = True
         scn.Stop()
+    else
+        ownSceneStopPending = False
     endif
     if cods != None
         cods.AllowPCDialogue(True)
         cods.BlockActivation(False, False)
     endif
-    Trace("codsworth talk ERROR scene_failed retries=3 reason=" + reason + " actor_talkable=true")
+    Trace("codsworth talk ERROR scene_failed retries=" + maxUsed + " reason=" + reason + " actor_talkable=true")
     return False
 EndFunction
 
@@ -576,10 +592,12 @@ Event Scene.OnBegin(Scene akSender)
         dialogueSeen = True
         EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), ResolveCodsworth())
         if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && (isPost || !completed)
+            ownSceneStopPending = False
             sceneTalkPending = True
             scenePostActive = isPost
             scenePhase1Entered = False
             scenePhase1At = 0.0
+            sceneAttemptStartedAt = Utility.GetCurrentRealTime()
             sceneCheckTicks = 0
             sceneRestartCount = 0
             Trace("codsworth scene talk requested scene=" + akSender + " via=devt stage=" + EffectiveStage())
@@ -611,6 +629,10 @@ Event Scene.OnEnd(Scene akSender)
     bool isPrimary = scn != None && akSender == scn
     bool isPost = postScn != None && akSender == postScn
     if isPrimary || isPost
+        if ownSceneStopPending
+            ownSceneStopPending = False
+            return
+        endif
         SyncProgress()
         Trace("codsworth talk scene ended stage=" + EffectiveStage() + " completed=" + completed)
         if sceneTalkPending && !sceneMenuOpened && (isPost || !completed)
@@ -618,11 +640,22 @@ Event Scene.OnEnd(Scene akSender)
                 sceneTalkPending = False
                 scenePhase1Entered = False
                 scenePhase1At = 0.0
+                sceneAttemptStartedAt = 0.0
                 CancelTimer(2)
                 Trace("codsworth talk fallback=messagebox reason=scene_incomplete")
                 RunCodsworthTalk()
             else
-                RestartOrFailCodsworthScene("scene_incomplete", isPost)
+                float nowEnd = Utility.GetCurrentRealTime()
+                if sceneAttemptStartedAt > 0.0 && nowEnd < sceneAttemptStartedAt
+                    sceneAttemptStartedAt = nowEnd
+                endif
+                float attElapsed = nowEnd - sceneAttemptStartedAt
+                if sceneAttemptStartedAt > 0.0 && attElapsed < (SceneOpenCheckSeconds - 0.05)
+                    CancelTimer(2)
+                    StartTimer(SceneOpenCheckSeconds - attElapsed, 2)
+                else
+                    RestartOrFailCodsworthScene("scene_incomplete", isPost)
+                endif
             endif
         else
             sceneTalkPending = False
@@ -631,6 +664,7 @@ Event Scene.OnEnd(Scene akSender)
             scenePhase1At = 0.0
             sceneRestartCount = 0
             scenePostActive = False
+            sceneAttemptStartedAt = 0.0
         endif
     endif
 EndEvent
@@ -644,12 +678,20 @@ Function CheckCodsworthSceneOpen()
         scenePhase1Entered = False
         scenePhase1At = 0.0
         sceneRestartCount = 0
+        sceneAttemptStartedAt = 0.0
         return
     endif
     sceneCheckTicks += 1
+    float nowRt = Utility.GetCurrentRealTime()
+    if sceneAttemptStartedAt > 0.0 && nowRt < sceneAttemptStartedAt
+        sceneAttemptStartedAt = nowRt
+    endif
+    float attemptElapsed = SceneOpenCheckSeconds
+    if sceneAttemptStartedAt > 0.0
+        attemptElapsed = nowRt - sceneAttemptStartedAt
+    endif
     bool phase1Elapsed = False
     if scenePhase1Entered
-        float nowRt = Utility.GetCurrentRealTime()
         if nowRt < scenePhase1At
             scenePhase1At = nowRt
         elseif (nowRt - scenePhase1At) >= (SceneOpenCheckSeconds - 0.05)
@@ -662,22 +704,31 @@ Function CheckCodsworthSceneOpen()
             sceneTalkPending = False
             scenePhase1Entered = False
             scenePhase1At = 0.0
+            sceneAttemptStartedAt = 0.0
             Trace("codsworth talk fallback=messagebox reason=scene_inactive")
             RunCodsworthTalk()
+        elseif attemptElapsed < (SceneOpenCheckSeconds - 0.05)
+            StartTimer(SceneOpenCheckSeconds - attemptElapsed, 2)
         else
             RestartOrFailCodsworthScene("scene_inactive", scenePostActive)
         endif
-    elseif phase1Elapsed || sceneCheckTicks >= SceneMaxWaitChecks
+    elseif (phase1Elapsed || sceneCheckTicks >= SceneMaxWaitChecks) && attemptElapsed >= (SceneOpenCheckSeconds - 0.05)
         if ShouldUseMessageBox()
             sceneTalkPending = False
             scenePhase1Entered = False
             scenePhase1At = 0.0
-            scn.Stop()
+            sceneAttemptStartedAt = 0.0
+            if scn.IsPlaying()
+                ownSceneStopPending = True
+                scn.Stop()
+            endif
             Trace("codsworth talk fallback=messagebox reason=dialogue_menu_timeout")
             RunCodsworthTalk()
         else
             RestartOrFailCodsworthScene("dialogue_menu_timeout", scenePostActive)
         endif
+    elseif phase1Elapsed || sceneCheckTicks >= SceneMaxWaitChecks
+        StartTimer(SceneOpenCheckSeconds - attemptElapsed, 2)
     else
         StartTimer(SceneOpenCheckSeconds, 2)
     endif
@@ -707,7 +758,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
             cods.AllowPCDialogue(True)
             cods.BlockActivation(False, False)
         endif
-        Trace("codsworth talk ERROR scene_failed retries=3 reason=no_scene actor_talkable=true")
+        Trace("codsworth talk ERROR scene_failed retries=" + sceneRestartCount + " reason=no_scene actor_talkable=true")
         return
     endif
     if postMode
@@ -717,11 +768,13 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     endif
     EnsureSafeCodsworthCameraDistance(player, cods)
     dialogueSeen = True
+    ownSceneStopPending = False
     sceneTalkPending = True
     scenePostActive = postMode
     sceneMenuOpened = False
     scenePhase1Entered = False
     scenePhase1At = 0.0
+    sceneAttemptStartedAt = Utility.GetCurrentRealTime()
     sceneCheckTicks = 0
     sceneRestartCount = 0
     string via = "actor"
