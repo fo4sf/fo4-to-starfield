@@ -8829,6 +8829,8 @@ namespace
 		}
 		g_ctor(menu);
 		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
 		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_blockedMapVtbl.slots.data());
 		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_blockedMapInputVtbl.slots.data());
 		auto* imenu = static_cast<RE::IMenu*>(menu);
@@ -8836,6 +8838,11 @@ namespace
 		imenu->flags = 0;
 		imenu->flagsUpdated = true;
 		*reinterpret_cast<std::uint8_t*>(base + 0x110) = 0;
+		// IMenu::ctor initializes refCount = 1; Starfield's UI::ProcessMessages (REL::ID 130446, RVA 0x2540d40) immediately
+		// releases the creator temporary before reading [menu + 0xB0] (0x2540dc6), so increment 1 -> 2 like vanilla creators.
+		if (ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
 		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
 		return true;
 	}
