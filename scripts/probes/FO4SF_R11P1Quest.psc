@@ -50,12 +50,14 @@ Group References
 EndGroup
 
 Group ExteriorTargets
-    float Property ExtFrontX = -2010.57 Auto
-    float Property ExtFrontY = -1697.94 Auto
+    float Property ExtFrontX = -2010.69 Auto
+    float Property ExtFrontY = -1698.04 Auto
     float Property ExtFrontZ = 89.26 Auto
-    float Property ExtRoofX = -2008.49 Auto
-    float Property ExtRoofY = -1722.39 Auto
+    float Property ExtFrontRotZ = 130.0 Auto
+    float Property ExtRoofX = -1991.27 Auto
+    float Property ExtRoofY = -1722.57 Auto
     float Property ExtRoofZ = 97.42 Auto
+    float Property ExtRoofRotZ = 128.97 Auto
     float Property ConcordSyncRadius = 350.0 Auto
 EndGroup
 
@@ -91,6 +93,7 @@ Function EnsureStarted(string sourceTag)
     else
         LogSnapshot(sourceTag)
     endif
+    HideInteriorStaticDoors()
     SyncExteriorDoors(sourceTag)
     StartTimer(2.0, TIMER_EXT_SYNC)
 EndFunction
@@ -105,9 +108,38 @@ Function HandleLoadGame()
             gate.Lock(false, false)
         endif
     endif
+    HideInteriorStaticDoors()
     LogSnapshot("load_game")
     SyncExteriorDoors("load_game")
     StartTimer(2.0, TIMER_EXT_SYNC)
+EndFunction
+
+Function HideInteriorStaticDoors()
+    if PortPlugin == ""
+        return
+    endif
+    ObjectReference staticFront = Game.GetFormFromFile(0x00EDEC, PortPlugin) as ObjectReference
+    if staticFront != None && !staticFront.IsDisabled()
+        staticFront.DisableNoWait(false)
+    endif
+    ObjectReference staticRoof = Game.GetFormFromFile(0x00EDF5, PortPlugin) as ObjectReference
+    if staticRoof != None && !staticRoof.IsDisabled()
+        staticRoof.DisableNoWait(false)
+    endif
+EndFunction
+
+Function HideOverlappingCoreStatic(ObjectReference doorRef, int coreStaticLocalId)
+    if doorRef == None || coreStaticLocalId <= 0
+        return
+    endif
+    Form statBase = Game.GetFormFromFile(coreStaticLocalId, "FO4TerrainCore.esm")
+    if statBase == None
+        return
+    endif
+    ObjectReference overlap = Game.FindClosestReferenceOfTypeFromRef(statBase, doorRef, 3.0)
+    if overlap != None && overlap != doorRef && !overlap.IsDisabled()
+        overlap.DisableNoWait(false)
+    endif
 EndFunction
 
 Function RegisterHooks()
@@ -227,11 +259,11 @@ Function SyncExteriorDoors(string sourceTag)
     if dx * dx + dy * dy > ConcordSyncRadius * ConcordSyncRadius
         return
     endif
-    PlaceExteriorDoor(player, ExtFrontInDoor, "p1_front_in", ExtFrontX, ExtFrontY, ExtFrontZ, px, py, pz, sourceTag)
-    PlaceExteriorDoor(player, ExtRoofInDoor, "p1_roof_in", ExtRoofX, ExtRoofY, ExtRoofZ, px, py, pz, sourceTag)
+    PlaceExteriorDoor(player, ExtFrontInDoor, "p1_front_in", ExtFrontX, ExtFrontY, ExtFrontZ, ExtFrontRotZ, 0x0019E6, px, py, pz, sourceTag)
+    PlaceExteriorDoor(player, ExtRoofInDoor, "p1_roof_in", ExtRoofX, ExtRoofY, ExtRoofZ, ExtRoofRotZ, 0x001E75, px, py, pz, sourceTag)
 EndFunction
 
-Function PlaceExteriorDoor(Actor player, ObjectReference doorRef, string tag, float tx, float ty, float tz, float px, float py, float pz, string sourceTag)
+Function PlaceExteriorDoor(Actor player, ObjectReference doorRef, string tag, float tx, float ty, float tz, float rotZDeg, int hideCoreStaticLocalId, float px, float py, float pz, string sourceTag)
     if doorRef == None
         return
     endif
@@ -240,16 +272,19 @@ Function PlaceExteriorDoor(Actor player, ObjectReference doorRef, string tag, fl
         float ddx = doorRef.GetPositionX() - tx
         float ddy = doorRef.GetPositionY() - ty
         float ddz = doorRef.GetPositionZ() - tz
-        if ddx * ddx + ddy * ddy > 9.0 || ddz > 3.0 || ddz < -3.0
+        if ddx * ddx + ddy * ddy > 2.25 || ddz > 3.0 || ddz < -3.0
             needMove = true
         endif
     endif
     if needMove
         doorRef.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
         doorRef.SetPosition(tx, ty, tz)
-        doorRef.SetAngle(0.0, 0.0, 0.0)
+        doorRef.SetAngle(0.0, 0.0, rotZDeg)
         Log("FO4SF_R11P1 ext_door_placed tag=" + tag + " source=" + sourceTag + " pos=" + doorRef.GetPositionX() + " " + doorRef.GetPositionY() + " " + doorRef.GetPositionZ() + " world=" + doorRef.GetWorldSpace())
+    else
+        doorRef.SetAngle(0.0, 0.0, rotZDeg)
     endif
+    HideOverlappingCoreStatic(doorRef, hideCoreStaticLocalId)
 EndFunction
 
 Function OpenBasementGate(string sourceTag)
@@ -314,6 +349,11 @@ Function StartRaiderNavTest()
     GroundRaider.SetPosition(-3.0, 0.0, 0.25)
     GroundRaider.EvaluatePackage()
     GroundRaider.StartCombat(player)
+    var[] initPathArgs = new var[3]
+    initPathArgs[0] = player
+    initPathArgs[1] = 1.0
+    initPathArgs[2] = 1.0
+    GroundRaider.CallFunctionNoWait("PathToReference", initPathArgs)
     navTrackTicks = 0
     Log("FO4SF_R11P1 raider_combat started=true loaded=" + GroundRaider.Is3DLoaded() + " wait_steps=" + w + " raider=" + GroundRaider + " raider_pos=" + FormatActorPos(GroundRaider) + " player_pos=" + FormatActorPos(player) + " dist=" + GroundRaider.GetDistance(player))
     StartTimer(2.0, TIMER_RAIDER_NAV)
@@ -321,6 +361,7 @@ EndFunction
 
 Event OnTimer(int aiTimerID)
     if aiTimerID == TIMER_EXT_SYNC
+        HideInteriorStaticDoors()
         SyncExteriorDoors("timer")
         StartTimer(2.0, TIMER_EXT_SYNC)
         return
@@ -333,9 +374,17 @@ Event OnTimer(int aiTimerID)
         return
     endif
     navTrackTicks += 1
-    if navTrackTicks <= 2 && !GroundRaider.IsDead() && !GroundRaider.IsInCombat()
+    if !GroundRaider.IsDead() && IsPlayerInMuseum(player)
+        GroundRaider.SetRestrained(false)
         GroundRaider.EvaluatePackage()
-        GroundRaider.StartCombat(player)
+        if !GroundRaider.IsInCombat() || (navTrackTicks % 2) == 1
+            GroundRaider.StartCombat(player)
+            var[] pathArgs = new var[3]
+            pathArgs[0] = player
+            pathArgs[1] = 1.0
+            pathArgs[2] = 1.0
+            GroundRaider.CallFunctionNoWait("PathToReference", pathArgs)
+        endif
     endif
     float rz = GroundRaider.GetPositionZ()
     float pz = player.GetPositionZ()

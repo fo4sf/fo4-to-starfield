@@ -1,58 +1,61 @@
-# Session Card — `candidate-2h`: Round 12 Task 1 (`P1 v2` Fixes + Vault Roaches `S2` + Codsworth Bloatflies/Stage-50 `S3` + Concord/Museum `S4`–`S6` + P6 Arsenal Contract)
+# Session Card — `candidate-2h-2`: Round 13 Task 2 (`P1 v2` Fixes + Vault Roaches `S2` + Codsworth `S3` + Concord/Museum `S4`–`S6` + `2g-fix2` Parity)
 
-> **Build Profile & Verdict (`23 Nov 2026`):** **`OFFLINE STAGED — UNPROVEN IN GAME`** (`NEW GAME needed`; clean start from Vault 111 required — do NOT load a `2g`/`2g-fix2` save created before `FO4SF_R11FullMission` / `0x00EFAB` Slot 1 `FO4Port.esm`).
+> **Build Profile & Verdict (`24 Nov 2026`):** **`OFFLINE STAGED — UNPROVEN IN GAME`** (`NEW GAME needed`; clean start from Vault 111 required — do NOT load a `2g`/`2g-fix2` save created before `FO4SF_R11FullMission`, `FO4SF_LoadDoorQuest` `0x000BDE`, or merged `NAVI` `FO4Port.esm`).
 >
-> - **Branch & Slot 1 `FO4Port.esm` Handoff:** `gemini/r12-t1-s2s6-slice` (`OFFLINE ONLY — UNPROVEN IN GAME`). Holds **Slot 1** lossless museum extension (`NextObjectID=0x00EFAB`, local FormIDs strictly `0x00E200..0x00EFAA`; **Slot 2 (`0x00EFAB+`) handed off to `@r12-t6-prewar`**).
-> - **Optional Flags Held OFF by Default (`#854`/`#855`/`#856` unmerged):** `--r11-full-mission 1`, `--task1b-vault-recovery 1`, **`--fo4-human-anims 0`** (`09000B8E=0.0`), **`creature_slot=empty`** (`09000B8C=0.0`), **`--codsworth-race-framing 0`**, `--codsworth-handy` OFF (`S1` Pre-War belongs to Task 6), `09000979` `FO4SF_MissionTalkUseMessageBox = 0.0` (MessageBox fallback unreachable in live dialogue), `0 WRLD` overrides in `FO4SFMission.esm`.
-> - **Single-Archive `4.000 GiB` Asset Scope (`R15` Honesty Disclosure):** Because `make_core_bundle.py` enforces `< 4.000 GiB` single-`Main.ba2` packing (`docs/ai/test-queue.md`), `candidate-2h` folds **all `367` non-texture weapon/ammo/prop files** (`geometries/`, `materials/`, `meshes/` for Rows `1`–`20`) plus all **`129` `.dds` textures** (`139.40 MiB`) for **Rows `1`–`5`** (`baton`, `10mm`, `lasermusket`, `minigun`, `pipepistol`, `piperifle`), **all `13` ammos**, and **all `4` core items** (`stimpak`, `caps`, `bobbypin`, `goopile`). **Rows `6`–`20` `.dds` textures are omitted from `candidate-2h`'s single `Main.ba2`** to stay under `4.000 GiB` (run `<r11-p6-dir>` standalone for full Rows `6`–`20` textures).
-> - **`2g-fix2` (`#852`) Inheritance Note:** `FO4SFPipboyMenu.dll` (`7d5ba49c`) is reused binary-identical; `#762` async `Scene.OnEnd` consumption and full `SceneOpenCheckSeconds`/`PrestonSceneCheckSeconds` window guards are active across S3 Stage-50 (`09000B9A`) and S6 Preston/Sturges room scenes (`09000BC9`, `09000BD0`).
+> - **Branch & Fixes Included (`#853` Must-Fix / Should-Fix / `P1 v2`):** `gemini/r13-w2-2h` (`candidate-2h-2` re-staged by coordinator with `@r13-w2-p6b`). Fixes **`B1`** (real converted FO4 `.nif` models + non-zero `ObjectBounds` + `bhkNPCollisionObject` on every placed `ACTI` + hidden overlapping FO4Core/FO4Port doors), **`F9`** (`s5_roof_out` at FO4 `0002C1C6` `XTEL` `(-1990.58, -1724.19, 97.56)` `1.77 m` from `ExtRoofIn`), **`L3`** (lossless `NAVI 0x00000FF1` merge + `FO4SF_S5_MuseumRaiderPursuePack` `09000BE1` + periodic pursue/combat re-engagement), **`FO4SF_LoadDoorQuest`** (`09000BDE`, `OnPlayerLoadGame` `reload_ready` + `0x0A775B` primary / `0x0A775C` fallback + `12 s` watchdog), **`H1`** (`!EnableS6ToS9Full` guard on `Min00` stage `40`), **`H2`** (explicit `Settler Clothes (Stand-In)` `09000BE4`/`09000BE5` on `09000A00`, `09000BC3`, `09000BC5`, `09000BC7`), **`M2`** (`creature-slots` default OFF `ready=false`, `""`/`0`), **`M3`** (`--fo4-human-anims 0`; links `FO4SFHumanAnims.esm` when ON, never local `0xBDC`), **`M7`** (Codsworth-only `<= 10 m` S3 arrival), **`L1`** (`0C000809` Fusion Core), and **`L2`** (dual S2 completion/exit lines).
+> - **Optional Flags Held OFF by Default (`#854`/`#855`/`#856` unmerged):** `--r11-full-mission 1`, `--task1b-vault-recovery 1`, **`--fo4-human-anims 0`** (`09000B8E=0.0`), **`creature_slot=empty`** (`09000B8C=0.0`), **`--codsworth-race-framing 0`**, `--codsworth-handy` OFF (`S1` Pre-War belongs to Task 6), `09000979` `FO4SF_MissionTalkUseMessageBox = 0.0`, `0 WRLD` overrides in `FO4SFMission.esm`.
+> - **Single-Archive `4.000 GiB` Asset Scope (`R15` Honesty Disclosure):** `make_core_bundle.py` enforces `< 4.000 GiB` single-`Main.ba2` packing: `candidate-2h-2` folds all `367` non-texture P6 arsenal files + all `129` `.dds` textures for Rows `1`–`5`, all `13` ammos, and all `4` core items (Rows `6`–`20` `.dds` omitted to stay under `4.000 GiB`).
+> - **`H2` Clothing Disclosure:** Because converted Fallout 4 settler clothing NIFs for **Sturges**, **Mama Murphy**, **Marcy Long**, and **Jun Long** do not exist in the repository asset pipeline, those four NPCs wear **`Settler Clothes (Stand-In)`** (`FO4SF_S6_SettlerClothes_StandIn` `09000BE4` / `FO4SF_S6_SettlerOutfit_StandIn` `09000BE5`, Starfield mechanic clothes stand-in with `ForceHideSpacesuit=1.0`, zero spacesuits), while **Preston Garvey** (`09000801`) and **Concord/Museum Raiders** (`09000986`) wear converted Fallout 4 outfits.
 > - **Placeholders:** `<cand2h-player-bundle>`, `<cand2h-test-bundle>`, `<cand2h-port-dir>`, `<mapmarkers-stage-dir>`, `<starfield-dir>` (`>= 60.0 GiB` free on target drive; zero edits to `Starfield/Data` outside explicit install/uninstall steps).
 
 ---
 
-## 1. Staged File Inventory & SHA-256 Receipts (`OFFLINE VERIFIED`)
+## 1. Staged File Scope & Re-Staged Receipts
 
-| Artifact / Stage Component | Bytes | SHA-256 | Notes / Contract |
-|---|---:|---|---|
-| `<cand2h-port-dir>/FO4Port.esm` | `4,612,735` | `8163ca9a7187bd07fdd09f20ad7c16d511577f91d91c858ed28ec0fc434fef39` | Lossless Slot 1 (`0` diffs on `55,071` baseline records; `3,500` museum/prewar records `0x0100E200..0x0100EFAA`, `NextObjectID=0x00EFAB`, `0` `WRLD`/`PNDT`) |
-| `<cand2h-port-dir>/FO4Port - Main.ba2` | `117,755,711` | `064c762499a1cc975df81da2c12ea3a20aec5f84cae0c89f4d9cdac12d094c7e` | `BTDX` v2 `GNRL` (`17,023` entries; museum + prewar mesh/mat delta; `nlink=1`) |
-| `<cand2h-port-dir>/FO4Port - Textures.ba2` | `2,289,478,621` | `f4664dd0a4fb49a3adb17440596bbb936b0ffa47516024be9fff07c7b1a69a48` | `BTDX` v2 `DX10` (`4,711` entries; museum texture delta; `nlink=1`) |
-| `FO4SFCoreValues.esm` (`player`, `--test-mode 0`) | `76,995` | `bfe6d99a75230b1dbb795c5cd0fcdb30a3b4ffb26e03bc667a73e59570b505d9` | Byte-identical to cleared `r11-p6-arsenal` / `1b93113b` (`0x000860=0.0`, P6 arsenal + Row 5 Pipe Pistol `0x0008A2` / Rifle `0x0008A3` / `.38` `0x0008A1` / Stimpak `0x000851` / Caps `0x0008A4` / Bobby Pin `0x0008A5`) |
-| `FO4SFCoreValues.esm` (`test`, `--test-mode 1`) | `76,995` | `425aa3cca7299c560c9735753dee24b2bed8debd989fc5d035cb63210609b4be` | Same schema with `FO4SF_TestModeEnabled (0x000860) = 1.0` |
-| `FO4SFMission.esm` (`02b-mission`) | `103,759` | `9b69cc599f017a8a273bdb97c055819b6377c347669c38b7aa21d15e9ccc5c1e` | `14 QUST`, `25 NPC_`, `0 WRLD` (`0x000979=0.0`, `0x000B8B=1.0`, `0x000B8C=0.0`, `0x000B8D=1.0`, `0x000B8E=0.0`), `15` `.pex` scripts, `88` assets (`35` `.wem` + Codsworth + C5 outfits) |
-| `FO4SFNewGame.esm` (`03-newgame`, `player`) | `12,688` | `0163600cbbe974a0344a858ddd483472a59e90b079632b394bac535cbd9d50f2` | Built against `<cand2h-port-dir>/FO4Port.esm`; `fade_hold=false`, `vault anchor 001338 persistent` |
-| `FO4SFNewGame.esm` (`03-newgame-fadehold`, `test`) | `12,688` | `5c9edb843ced9eeaf505f8e0fd9255122d6bbbe4248308ccedbb36dbcc9a9e65` | Built against `<cand2h-port-dir>/FO4Port.esm`; `fade_hold=true` |
-| `FO4SFVaultGearDoor.esm` (`01-cog-door`) | `597` | `7aada8bafa027bfd158c63e0728e10e7239401dde57429ba601b7b96a2ea8533` | Built against `<cand2h-port-dir>/FO4Port.esm`; zero probe scripts |
-| `FO4SFExitLift.esm` (`02-exit-lift`) | `590` | `34d0db71d1116742d5d644a7772e8f31e43019b72bab9d01c91eec308665d9d4` | Built against `<cand2h-port-dir>/FO4Port.esm`; `37` moving bodies, zero probe scripts |
-| `FO4SFWorkshop.esm` (`06-workshop`) | `120,300` | `1b98ebc3eed1dd0decf4e66a2815a52ef8181141326ad8fdded0387f78082a82` | `HeaderFlag.Localized` + `Strings/FO4SFWorkshop_en.*` (`701`/`8`/`688` B) |
-| `FO4SFPowerArmor.esm` (`player` / `test`) | `84,270` / `86,186` | `c3332aef3891f4cd647882e80da4f1c6238ba558b12d2c80c2fb32e5fd885c4c` / `d7f0fc494cca47c2cdf570b82368b6f7f4aca96b478aff179e230fed0a45e09d` | Unchanged from `candidate-2g-fix2`; owns `FO4SF_FusionCore (0x0A000809)` |
-| `FO4SFPipboyMenu.dll` (`sfse_sidecar`) | `1,453,568` | `7d5ba49c0c6ab2aa8db24ab1bfb643839259d12404cc95afaa38e2f42201c9a8` | Tested DLL reused unchanged (`ShellBackdrop=1`, `ShellVitalsFill=1`, `SuppressDataMenu=0`, `TabOpensPipboy=0`) |
+> Coordinator re-stages `candidate-2h-2` after integrating `@r13-w2-p6b` + `@r13-w2-2h` (`0` stale hashes fabricated here; `FO4Port.*`, `FO4SFMission.esm`, and `FO4SFCoreValues.esm` are refreshed at integration stage).
+
+| Component / Artifact | Contract & Changes in `candidate-2h-2` | Notes |
+|---|---|---|
+| `<cand2h-port-dir>/FO4Port.*` | Lossless Slot 1 (`0` diffs on `55,071` baseline records; `L3` lossless merge of Museum `NVMI`s into `NAVI 0x00000FF1` preserving base `NVER`/`NVMI`/`NVPP` + `LTMP 0x0006BCF8` + `XLOC 25`/`XLKR`) | Re-staged `FO4Port.esm`, `FO4Port - Main.ba2`, `FO4Port - Textures.ba2` |
+| `FO4SFCoreValues.esm` | `@r13-w2-p6b` P6 Arsenal + Row 5 Pipe Guns (`060008A1`–`060008A5`, `06000851`); `--test-mode 0` (`player`) / `--test-mode 1` (`test`) | Integrated by coordinator |
+| `FO4SFMission.esm` | `15 QUST` (adds StartGameEnabled `FO4SF_LoadDoor` `09000BDE`), `25 NPC_`, `0 WRLD`; `B1` NIF+OBND on `0xBA7`–`0xBE0`; `0xBE1` ground raider pursue pack; `H2` `0xBE4`/`0xBE5` `(Stand-In)` clothes; `M2` OFF; `M3` no local `0xBDC`; `F9` `(-1990.58, -1724.19, 97.56)` | Re-built + `Data/meshes/fo4sf/powerarmor/fusioncore.nif` packed |
+| `FO4SFNewGame.esm`, `FO4SFVaultGearDoor.esm`, `FO4SFExitLift.esm`, `FO4SFWorkshop.esm` | `1b` cryo-pod `autosave` w/ `skips=<n>`, zero `OnDying` save; `FO4SFWorkshop.esm` localized `"COMMONWEALTH, MASSACHUSETTS"` (`HeaderFlag.Localized`) | Inherited / re-linked against `FO4Port.esm` |
+| `FO4SFPowerArmor.esm` | Unchanged from `candidate-2g-fix2`; owns `FO4SF_FusionCore` (**`0C000809`** in player load order; `0x000809` local) | `L1` ID corrected from `0A` to `0C` |
+| `FO4SFPipboyMenu.dll` (`sfse_sidecar`) | Tested DLL reused (`ShellBackdrop=1`, `ShellVitalsFill=1`, `SuppressDataMenu=0`, `TabOpensPipboy=0`, `HideStarfieldWatch=1`, `F7` opens `STAT`) | Verified `24 Nov` in `2g-fix2` |
 
 ---
 
-## 2. Install & Reversible Port Swap Commands (Game Closed)
+## 2. Uninstall Preconditions, Install & Reversible Rollback Commands (Game Closed)
+
+### Uninstall / Install Preconditions (`MUST` satisfy before any install or swap)
+1. **All game/tool processes closed:** `Starfield.exe == 0`, `CreationKit.exe == 0`, `Archive2.exe == 0`.
+2. **Clean prior probe/candidate state first:** If `P1` (`FO4SF_R11P1Museum.esm`), `P4`, `candidate-2g-fix2`, or `candidate-2h` is currently installed, run its full uninstall + `FO4Port` backup restore BEFORE installing `candidate-2h-2`, so `Plugins.txt`, `Data/`, and `FO4Port.*` start from a verified clean Vanilla baseline. Never keep two `FO4SF_*` candidate bundles or probes installed simultaneously.
+3. **Verify offline first** (`verify --bundle-dir ... --port ...`) and **start a clean New Game** after install; delete throwaway test saves after logging completes.
 
 - **`13`-Plugin `--profile player` Load Order (`Plugins.txt`):** `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm` (with `<cand2h-port-dir>/FO4Port.*` backed up and swapped onto `<starfield-dir>/Data/FO4Port.*`).
-- **`22`-Plugin Optional `--profile test` Load Order:** `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm` (zero `FO4SFRouteLoot.esm` / `FO4SFBridge.esm`).
+- **`22`-Plugin Optional `--profile test` Load Order:** `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFRads.esm,FO4SFHardcore.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFProgression.esm,FO4SFListDialogue.esm,FO4SFCombat.esm,FO4SFReputation.esm,FO4SFCompanions.esm,FO4SFALife.esm,FO4SFFortHagen.esm,FO4SFCoreCandidate.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`.
 
 ```bash
-# 1. Verify player bundle + lossless FO4Port.esm before touching Starfield\Data
+# 1. Verify player bundle + lossless FO4Port.esm + B1 placed ACTI assets before touching Starfield\Data
 python scripts/core/make_core_bundle.py verify --bundle-dir <cand2h-player-bundle> --port <cand2h-port-dir>/FO4Port.esm
+python scripts/testing/check_beginning_pilot.py check-bundle --bundle-dir <cand2h-player-bundle>
 
-# 2. Reversible FO4Port.* backup (skip if <starfield-dir>\Data\FO4Port_pre2h_backup already holds original SHA-256) and swap
+# 2. Reversible FO4Port.* backup (skip if <starfield-dir>/Data/FO4Port_pre2h_backup already holds original SHA-256) and swap
 mkdir -p <starfield-dir>/Data/FO4Port_pre2h_backup
 cp -n <starfield-dir>/Data/FO4Port.esm "<starfield-dir>/Data/FO4Port - Main.ba2" "<starfield-dir>/Data/FO4Port - Textures.ba2" <starfield-dir>/Data/FO4Port_pre2h_backup/
 cp -f <cand2h-port-dir>/FO4Port.esm "<cand2h-port-dir>/FO4Port - Main.ba2" "<cand2h-port-dir>/FO4Port - Textures.ba2" <starfield-dir>/Data/
 
-# 3. Install 13-plugin player bundle + SFSE sidecar + map markers
+# 3. Install 13-plugin player bundle + SFSE sidecar + map markers + staged P3 batches (<cand2h-player-bundle>/bat/*.txt -> <starfield-dir>/)
 python scripts/game/exp_install.py install --exp-dir <cand2h-player-bundle> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
 python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2h-player-bundle> --starfield <starfield-dir>
 python scripts/game/map_markers_install.py install --stage <mapmarkers-stage-dir> --starfield <starfield-dir>
+cp -f <cand2h-player-bundle>/bat/*.txt <starfield-dir>/
 ```
 
 ### Exact Undo / Rollback Command (Game Closed — Restores Original `FO4Port.*` + Clean `Starfield/Data`)
 
 ```bash
+rm -f <starfield-dir>/h2st.txt <starfield-dir>/h2h2.txt <starfield-dir>/h2h3.txt <starfield-dir>/h2h4.txt <starfield-dir>/h2f.txt <starfield-dir>/h2b.txt <starfield-dir>/h2k.txt <starfield-dir>/h2p.txt <starfield-dir>/h2r.txt
 python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
 python scripts/game/plugin_toggle.py on --starfield <starfield-dir>
 python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
@@ -63,56 +66,59 @@ rm -rf <starfield-dir>/Data/FO4Port_pre2h_backup
 
 ---
 
-## 3. Card 2h-1 (`S1` Pre-Flight, `1b` Vault Death Recovery & `S2` Vault 111 Roaches — `OWNER / TEST-STATION`)
+## 3. Card 2h-1 (`S1` Pre-Flight, `1b` Vault Recovery, `S2` Roaches & `2g-fix2` Parity — `OWNER / TEST-STATION`)
 
 | Step | Action | Expected In-Game & Log Result | Status | VIDEO |
 |---|---|---|---|---|
-| **1a. New Game (`NEW GAME needed`)** | Launch SFSE -> **New Game -> Vault 111 / Story**. | Cryo pod wake -> `FO4SF_NEWGAME rt=<rt> stage 20 by=Trigger`; `vault_death_recovery=autosave stage=20`. | Pending | `Pending` |
-| **1b. `S2` Vault 111 Roaches (`09000B90`)** | Walk Vault 111 stages `10..40` toward Overseer/lift. Verify `09000B8D=1` (`Task1b`) gates spawn while `creature_slot=empty` (`09000B8C=0`) cleanly logs stage gates `09000B91..09000B95`. | `s2 vault_roaches stage 10 armed`, `s2 vault_roaches creature_slot=empty fallback=stage_gate`, `s2 vault_roaches complete creature_slot=empty stage=100` (if `creature-slots.json` populated: `5` `LvlRadRoachAmbush` kills -> `stage=100`). **Test 1 death in Vault 111 (`< stage 200`):** confirms `vault_death_recovery=reload`. | Pending | `Pending` |
-| **1c. Pistol (`10mm`), Pip-Boy & Lift** | Armory cage `0A000820` auto-equips (`pistol picked ... equipped=True base=...`), Pip-Boy (`0A00080F`), cog door (`stage 30`), lift -> hilltop `stage 200`. | Clean hilltop in daylight; `06000865=1.0`, `09000B8B=1.0`, `09000816=10`. | Pending | `Pending` |
+| **1a. New Game (`NEW GAME needed`)** | Launch SFSE -> **New Game -> Vault 111 / Story**. | Cryo pod wakes clearly with Starfield lower-left wrist watch hidden (`HideStarfieldWatch=1`); `FO4SF_NEWGAME rt=<rt> stage 20 by=Trigger`; pod autosave logs `vault_death_recovery=autosave stage=20 skips=<n>` (and `< stage 200` Vault death recovers cleanly with zero `OnDying` save). | Pending | Take `v111-pod`: `>= 4 s` cryo wake to lower-left HUD; at `1 fps`, **PASS** if cryo room clears and watch stays hidden; **FAIL** if stuck black or `MARS`/`O2` watch draws; **`audio: not judged`**; opening flash **`needs a slowed take`**. |
+| **1b. `S2` Vault 111 Roaches (`09000B90`, `L2`)** | Walk Vault 111 corridor toward Overseer/lift (`09000B8D=1`, `09000B8C=0` empty creature slot). Either sweep all 5 markers (`09000B91..09000B95`, `<= 12 m`) or proceed straight to lift. | `s2 vault_roaches stage 10 armed`, `s2 vault_roaches creature_slot=empty fallback=stage_gate`, and completes with **EITHER** `s2 vault_roaches complete creature_slot=empty stage=100` *(all 5 markers visited <= 12 m)* **OR** `s2 vault_roaches stopped reason=left_vault_stage_200` *(exited Vault early)*. | Pending | Take `v111-corridor`: `>= 6 s` corridor walk; at `1 fps`, **PASS** if corridor stays traversable with zero placeholder freeze; **FAIL** if player snags or un-skinned placeholder blocks hall; **`audio: not judged`**. |
+| **1c. Pistol (`10mm`), Pip-Boy (`F7`), & Lift -> Daylight (`E4`/`E6`)** | Press **`E`** on Armory desk pistol (`0A000820`) & ammo (`0A000821`), Pip-Boy (`0A00080F`), and Vault console (`0A000819`), spend 33 S.P.E.C.I.A.L., ride lift -> hilltop (`stage 200`), press **`F7`** + `PageDown`/`A`/`D`/`T`/`M`/`Tab`. | Auto-equips pistol (`pistol picked ... equipped=True`), lands outdoors in **clear Commonwealth daylight** (`z ≈ 128 m`, `fallback=false`), `06000865=1.0`, `09000B8B=1.0`, `09000816=10`, Pip-Boy cycles `STAT <-> INV` -> `APPAREL` -> `Perk Chart` with `E) STIMPAK R) RADAWAY T) PERK CHART` and zero wrist watch. | Pending | Take `v111-surface-pipboy`: `>= 10 s` lift fade + `F7` Pip-Boy paging; at `1 fps`, **PASS** if daylight lands without orange dust storm and `APPAREL` / Perk Chart render cleanly; **FAIL** if stuck black, `MARS` watch appears, or Pip-Boy freezes; **`audio: not judged`**; equip/page frames **`needs a slowed take`**. |
 
 ---
 
-## 4. Card 2h-2 (`S3` Codsworth Bloatflies & Stage-50 Scene + Cold Reloads — `TEST-STATION`)
+## 4. Card 2h-2 (`S3` Codsworth House Walk `M7` & Stage-50 + `2g-fix2` Sanctuary Bench Parity — `TEST-STATION`)
 
 | Step | Action | Expected In-Game & Log Result | Status | VIDEO |
 |---|---|---|---|---|
-| **2a. Cold Reload #1 (`Throwaway_2h_Surface`)** | Save on Vault 111 hilltop -> `Quit to Desktop` -> relaunch SFSE -> load save. | `reload mission stage=0 relocate_fails=0`, `codsworth01 reload stage=10 choices=0`, daylight restored, zero spurious hilltop return-lift popup. | Pending | `Pending` |
-| **2b. `S3` Codsworth House 01 -> House 02 (`09000816`)** | Walk (or `bat h2h1`) to Sanctuary Hills (`(-2346.71, -1406.16, 111.73)` m). Press **`E`** on Codsworth (`09000811`): advance `20 -> 30` (House 01 `09000B98` `(-2313.44, -1372.02, 112.66)`) `-> 34 -> 36` (House 02 `09000B99` `(-2296.17, -1424.97, 111.77)`) `-> 40 -> 50 -> 100`. | With `09000B8C=0`: `codsworth01 s3 creature_slot=empty fallback=arrival_advance`, `codsworth01 house1_cleared dead=0/0 stage=34`, `codsworth01 house2_cleared dead=0/0 stage=40`; stage `50` starts `FO4SF_S3_Stage50Scene` (`09000B9A`) cleanly -> picks Concord lead (`codsworth01 stage 100 concord_pointed=true`, `min00 given by=codsworth`). | Pending | `Pending` |
+| **2a. Cold Reload #1 (`Throwaway_2h_Surface`)** | Save on Vault 111 hilltop -> `Quit to Desktop` -> relaunch SFSE -> load save. | `reload mission stage=0 relocate_fails=0`, `codsworth01 reload stage=10 choices=0`, `FO4SF_LOADDOOR reload_ready`, daylight restored, zero spurious hilltop return-lift popup. | Pending | Take `surface-cold-reload`: `>= 5 s` after save load; at `1 fps`, **PASS** if hilltop loads in daylight with zero return-lift menu; **FAIL** if black fade or return-lift prompt fires; **`audio: not judged`**. |
+| **2b. `S3` Walk With Codsworth (`M7` — NO `bat h2h1`!)** | Walk down on foot to Sanctuary Hills (`09000811`). Press **`E`** on Codsworth (`DialogueMenu` `09000979=0.0`, zero `MessageBox`) -> ask Concord -> **walk on foot beside Codsworth** from House 01 (`(-2313.44, -1372.02)`) to House 02 (`(-2296.17, -1424.97)`) -> press **`E`** at Stage `50`, then press **`E`** once more after Stage `100` (`Step 3` goodbye). | S3 advances **ONLY when Codsworth arrives `<= 10 m`** (`codsworth_dist<=10`): logs `codsworth01 s3 creature_slot=empty fallback=arrival_advance`, **`codsworth01 house1_cleared dead=3/3 stage=34`** + **`codsworth_dist=`**, **`codsworth01 house2_cleared dead=3/3 stage=40`** + **`codsworth_dist=`**; Stage `50` opens `FO4SF_S3_Stage50Scene` (`09000B9A`) cleanly (`0` `fallback=messagebox`) -> `codsworth01 stage 100 concord_pointed=true`, `min00 given by=codsworth`; repeat `E` opens 1-choice goodbye `090009C0`. | Pending | Take `sanctuary-codsworth-s3`: `>= 15 s` walking beside Codsworth between houses + Stage `50` DialogueMenu + post-`100` goodbye; at `1 fps`, **PASS** if Codsworth leads to both houses & `DialogueMenu` renders both times; **FAIL** if houses clear without Codsworth near (`> 10 m`) or `MessageBox` shows; **`audio: not judged`**. |
+| **2c. `2g-fix2` Workbench Parity (`D4`/`E6`/`F3`/`F4`)** | Press **`E`** on default Sanctuary bench (`04005C50`) -> close -> test clean swap `bat r11swp1` (`0B000849`) -> close -> restore `bat r11swp0`. | BOTH benches show localized footer **`"COMMONWEALTH, MASSACHUSETTS"`** (zero `"MARS, SOL"`); `SANCTUARY` category + `"Wooden Chair/Sleeping Cot/Storage Crate (Stand-In)"` appear ONLY on `0B000849` after `bat r11swp1`, zero Sturges open-mode popup. | Pending | Take `sanctuary-bench-parity`: `>= 6 s` bottom-left workshop footer & `SANCTUARY` tab; at `1 fps`, **PASS** if `"COMMONWEALTH, MASSACHUSETTS"` is legible and `SANCTUARY` stays scoped; **FAIL** if `"MARS, SOL"` draws; **`audio: not judged`**. |
 
 ---
 
-## 5. Card 2h-3 (`S4` Concord Street Fight + Preston Balcony `0x0600089E` + Display Laser Musket & Fusion Cells — `TEST-STATION`)
+## 5. Card 2h-3 (`S4` Concord Exterior `z ~88`, `30 s` Pipe-Gun Survival, Preston Balcony & Display Musket — `TEST-STATION`)
 
 | Step | Action | Expected In-Game & Log Result | Status | VIDEO |
 |---|---|---|---|---|
-| **3a. Hop Chain (`< 200 m` Every Step)** | Walk or run `bat h2h2` (`(-2210, -1520, 108.0)`, `<= 156 m`) -> wait `3 s` -> `bat h2h3` (`(-2120, -1615, 98.0)`, `<= 131 m`) -> wait `3 s` -> `bat h2h4` (`(-2015, -1700, 90.0)`, `<= 135 m`) -> Concord Museum front. | Zero fast-travel skips `>= 200 m`/axis; loaded Concord terrain `z ≈ 88.3..90.0 m`. | Pending | `Pending` |
-| **3b. `S4` Concord Street & Display Musket** | Engage `3` Concord street raiders (`09000803..09000805` armed w/ pipe guns) with **god mode OFF**; observe Preston on 3F balcony (`09000B60`, `(-2010.51, -1697.71, 98.51)` m) firing `FO4_CompPrestonLaserMusket` (`0600089E`). Collect **Fallen Minuteman's display musket (`09000BA8`)** & **`3` Fusion Cell pickups (`09000BAA..09000BAC`)** outside door. | `s4 balcony preston_z=98.51 ext_raiders=3`, `s4 preston equipped comp_laser_musket=0x089E`, `s4 laser_musket granted cells=15` (real `FO4_LaserMusket` `0600089D` + `15` `FO4_AmmoFusionCell` `0600089B`, completes opt obj `70`), plus `+3x5` Fusion Cells (`pickup fusion_cell count=5 granted=true`). Zero Red Rocket / Dogmeat triggers. | Pending | `Pending` |
+| **3a. Hop Chain (`< 200 m`/axis) & Concord Exterior `z ≈ 88 m` Gate** | Walk or run `bat h2h2` -> wait `3 s` -> `bat h2h3` -> wait `3 s` -> `bat h2h4` -> Concord Museum street. | Zero skips `>= 200 m`/axis; Concord buildings, street, & Museum facade render on solid ground at **`z ≈ 88.3..90.0 m`** (NEVER bare Mars `z ≈ 12.6 m`!). | Pending | Take `concord-exterior-z88`: `>= 5 s` street pan facing Museum of Freedom facade; at `1 fps`, **PASS** if Concord buildings & street (`z ~88 m`) render cleanly with visible front doors; **FAIL** if bare Mars terrain appears; **`audio: not judged`**. |
+| **3b. `2g-fix2` `30 s` Street Fight Survival (`>= 50%` HP, God Mode OFF)** | With **god mode OFF**, engage `3` Concord street raiders (`09000803..09000805`, wielding pipe guns / softened stand-ins) continuously for `>= 30 s` using street cover; inspect fallen raiders up close (`D2`). | Player HUD HP bar stays **`>= 50%` (`half health or more`) at `30 s`** with god mode OFF; raiders wear FO4 raider clothes (`0` spacesuits); `ArmRaiderForCombat` logs real `dmg=` & `eff_dmg=`. | Pending | Take `concord-survival-30s`: `>= 30 s` uninterrupted Concord street combat HUD; at `1 fps`, **PASS** if HUD HP stays `>= 50%` after `30 s` & raiders wear FO4 outfits; **FAIL** if HP drops `< 50%` or player dies `< 30 s`; **`audio: not judged`**; incoming shot flashes **`needs a slowed take`**. |
+| **3c. Preston Balcony & **`press E`** Display Musket (`09000BA8`) + Cells (`09000BAA..BAC`)** | Observe Preston on 3F balcony (`(-2010.51, -1697.71, 98.51)` m) firing `0600089E`. Walk to fallen Minuteman items outside front door: **press `E` on `FO4SF_S4_DisplayLaserMusketRef` (`09000BA8`, `fo4_lasermusket.nif`)** and **press `E` on all `3` Fusion Cell pickups (`09000BAA..09000BAC`, `microfusioncell.nif`)**. *(Zero `<ref>.activate player`!)* | Visible FO4 meshes + `[Take]` prompts without console activate: `s4 balcony preston_z=98.51 ext_raiders=3`, `s4 preston equipped comp_laser_musket=0x089E`, `s4 laser_musket granted cells=15` (`FO4_LaserMusket` `0600089D` + `15` `0600089B`, completes obj `70`), plus `+3x5` Fusion Cells (`pickup fusion_cell count=5 granted=true`). Zero Red Rocket / Dogmeat triggers. | Pending | Take `concord-musket-pickups`: `>= 6 s` aiming at & pressing `E` on musket + 3 cells (`balcony` pan included); at `1 fps`, **PASS** if real FO4 musket/cell models show `Take [E]` and vanish on press; **FAIL** if invisible/no prompt or console activate needed; **`audio: not judged`**. |
 
 ---
 
-## 6. Card 2h-4 (`P1 v2` Fixes, `S5` Floor-by-Floor Museum + `A4.5` Pickups + Confirmed Doors — `TEST-STATION`)
+## 6. Card 2h-4 (`P1 v2` Door Round-Trips, Cold Reload Inside Door, `S5` 7 Raiders + Ground Climb & `A4.5` Pickups — `TEST-STATION`)
 
 | Step | Action | Expected In-Game & Log Result | Status | VIDEO |
 |---|---|---|---|---|
-| **4a. Front Door Entry (`FO4SF_ConfirmedLoadDoor` + `P1 v2` `F4` Fix)** | Face east (`90 deg`) at `(-2012.50, -1697.94, 88.70)` and press **`E`** on `FO4SF_S5_ExtFrontInRef` (`09000BB8`, `FO4Port_ExtFrontIn` `...0DEF`). Confirm removed/marked `xtel_extra` lobby trap (`F4`) does NOT misroute or bounce. | `FO4SF_LOADDOOR activate_begin tag=s5_front_in dir=in` -> `FO4SF_LOADDOOR confirmed tag=s5_front_in dir=in ... cell=<0100E2F4>` (`LTMP 0x0006BCF8` lighting lit cleanly). | Pending | `Pending` |
-| **4b. `S5` 7 Raiders + `A4.5` Pickups -> `Min00 35`** | Fight `7` museum raiders floor-by-floor (`09000BBC..09000BC2`, matching FO4 `00018D6B, 0001D808, 0001CB6E, 0001E2E0, 0001D809, 0001E2E2, 0001E2E1`). Test Cold Reload #2 (`Throwaway_2h_MidMuseum`) mid-clear. Collect `2` Stimpaks (`09000BAE..09000BAF` -> `06000851`), Caps (`09000BB1` -> `060008A4`), Bobby Pin (`09000BB3` -> `060008A5`), Pipe Pistol/Rifle + `.38` (`09000BB5` -> `060008A2`/`060008A1`). | `pickup stimpak count=1 granted=true` (`x2`), `pickup caps ...`, `pickup bobbypin ...`, `pickup pipe_weapon granted=true ammo=true`. Killing all `7` raiders logs `s5 museum_cleared dead=7/7 stage=35 preston_door=unlocked` and unlocks `PrestonDoorREF` (`0100EFA9`). | Pending | `Pending` |
+| **4a. Front Door `5x` Round-Trip (**`press E`**, NO `<ref>.activate`)** | Walk up to Museum front double door (`(-2010.69, -1698.04, 89.26)`), confirm visible collidable FO4 wood doors (`paintedwooddoordoubleload01.nif`) show **`[Open] Museum of Freedom`**, and **press `E` on `FO4SF_S5_ExtFrontInRef` (`09000BB8`)** -> Lobby `(7.73, 0.91, -0.90)` -> turn & **press `E` on `FO4SF_S5_IntFrontOutRef` (`09000BB9`)** -> Concord street `(-2012.50, -1697.94, 88.24)` (`z ≈ 88.24 m`). Repeat **`5` complete round trips (`5x` in + `5x` out)**. | Overlapping `FO4Core` / `FO4Port` statics hidden cleanly; every press shows legible `Open [E]` prompt and logs `FO4SF_LOADDOOR activate_begin` -> `FO4SF_LOADDOOR confirmed tag=s5_front_in` / `s5_front_out ... core_cell=true` (inside Museum lit by `LTMP 0x0006BCF8`, outside at **`z ≈ 88.24 m`**, `0` bounces/`ILS`). | Pending | Take `museum-front-door-5x`: `>= 15 s` showing visible door aim prompt `Open [E]` + exterior->interior->exterior round trip; at `1 fps`, **PASS** if door model shows prompt, lobby loads lit, and street exits cleanly `z ~88 m`; **FAIL** if invisible/unclickable or `ILS`/Mars bounce; **`audio: not judged`**; load-fade boundary **`needs a slowed take`**. |
+| **4a2. Cold Reload Inside Museum Front Door (`FO4SF_LoadDoorQuest` Fix)** | Inside `FO4Port_ConcordMuseum01`, save **`Throwaway_2h_MidMuseum`**, **`Quit to Desktop`**, relaunch SFSE, load `Throwaway_2h_MidMuseum`, walk to front door, and **press `E` on `FO4SF_S5_IntFrontOutRef` (`09000BB9`)**. | `OnPlayerLoadGame` cancels stale timers, clears `busy`/`inFlight`, and logs `FO4SF_LOADDOOR reload_ready`; pressing **`E`** on `09000BB9` immediately resolves persistent `0x0A775B` (`0x0A775C` fallback) -> logs `FO4SF_LOADDOOR confirmed tag=s5_front_out dir=out ... core_cell=true` (never stalls after `activate_begin`!). | Pending | Take `museum-cold-reload-door`: `>= 8 s` after save reload -> press `E` on interior front door -> Concord street; at `1 fps`, **PASS** if exiting lands on Concord street (`z ~88 m`); **FAIL** if door hangs on `activate_begin`; **`audio: not judged`**. |
+| **4b. `S5` 7 Raiders + Ground Climb (`L3`) + `press E` Pickups -> `Min00 35`** | Engage `7` museum raiders (`09000BBC..09000BC2`). Stand on 2F/3F balcony & watch ground raider (`09000BBC`) climb atrium stairs via merged `NAVM`/`NAVI 0x00000FF1` + `09000BE1` pursue AI (without silent tick-5 drop). **Press `E`** on `2` visible Stimpaks (`09000BAE..BAF`), Caps (`09000BB1`), Bobby Pin (`09000BB3`), and Pipe Pistol + `.38` (`09000BB5`). | Ground raider actively pursues & climbs stairs (`climbed_stairs` / active combat); all `5` item activators display visible FO4 meshes + `Take [E]` prompts (`pickup stimpak/caps/bobbypin/pipe_weapon ... granted=true`); killing all `7` raiders logs `s5 museum_cleared dead=7/7 stage=35 preston_door=unlocked`. *(Keep `2` throwaway saves inside before basement gate `0100EDF0` unlocks for Row 5b!)* | Pending | Take `museum-raider-climb-pickups`: `>= 15 s` showing ground raider moving up stairs + item `Take [E]` pickups + `7/7` door unlock; at `1 fps`, **PASS** if ground raider advances toward stairs & FO4 item meshes respond to `E`; **FAIL** if raider freezes permanently at tick 5 or items lack meshes; **`audio: not judged`**. |
 
 ---
 
-## 7. Card 2h-5 (`S6` 3F Room Scenes, Basement Gate `0x0100EDF0`, Fusion Core `0x0A000809` & `F9` Roof Exit — `TEST-STATION`)
+## 7. Card 2h-5 (`S6` 3F Scenes `H1`/`H2`, Basement Gate Terminal **AND** Bobby Pin `5b`, `0C000809` & `F9` Roof `3x` Round-Trip — `TEST-STATION`)
 
 | Step | Action | Expected In-Game & Log Result | Status | VIDEO |
 |---|---|---|---|---|
-| **5a. `S6` 3F Room (`Preston` `09000BC9` & `Sturges` `09000BD0` Scenes)** | Enter 3F room (`Preston`, `Sturges 09000A01`, `Mama Murphy 09000BC4`, `Marcy 09000BC6`, `Jun 09000BC8`; all `SF HumanRace`, non-spacesuit FO4 outfits, `09000B8E=0`). Press **`E`** on Preston (`09000802`), then Sturges (`09000A01`). | Zero spacesuits; `s6 preston room scene started` -> `s6 preston room dialogue menu opened`, `s6 sturges room dialogue menu opened` (zero `fallback=messagebox`; async `#762` retry guard clean) -> `s6 stage 40 preston_group talk`, advancing to unlock basement security gate. | Pending | `Pending` |
-| **5b. Basement Gate (`0x0100EDF0`, `XLOC 25` + `XLKR`) & Fusion Core (`0x0A000809`)** | Descend to basement gate `0100EDF0` (`DOOR 000BA4B5`, Novice lock `25`). Unlock via terminal proxy `09000BD9` (`XLKR` link to `0100E35E` -> `0100EDF0`) **OR** pick with Bobby Pin (`060008A5`). Grab **`MQ102FusionCoreREF` (`09000BDB`)**. | `pickup basement_terminal unlocked=true`, `s6 basement_gate unlocked reason=...`, `s6 stage 45 basement_gate opened`, then `pickup fusion_core granted=true fid=2057` -> grants `FO4SF_FusionCore` (`0A000809`) -> `s6 stage 50 fusion_core picked obj=95 stop=put_fusion_core_in_pa` (**HARD STOP at `"Put the Fusion Core in the Power Armor"`** — Task 3 S7 starts after this!). | Pending | `Pending` |
-| **5c. Roof Exit (`F9` Separate Refs `0x0100EFA9` vs `0x0100EFAA`)** | Exit onto 3F roof via `FO4SF_S5_IntRoofOutRef` (`09000BBA`) -> confirm `0100EFAA` exit landing is separate from `0100EFA9` roof entry activator (`F9`), `core_cell=true` on Concord roof, and delete throwaway saves. | `FO4SF_LOADDOOR confirmed tag=s5_roof_out dir=out ... core_cell=true ... pos=... heading=180.0`, zero infinite loading screen or `2.9 km` bounce. | Pending | `Pending` |
+| **5a. `S6` 3F Room (`H1` No Early 200 + `H2` `Settler Clothes (Stand-In)`)** | Enter 3F room (`Preston 09000802` FO4 duster/hat; `Sturges 09000A01`, `Mama Murphy 09000BC4`, `Marcy 09000BC6`, `Jun 09000BC8` in **`Settler Clothes (Stand-In)`** `09000BE4`/`09000BE5`, `0` spacesuits). **Press `E`** on Preston (`09000BC9`) & Sturges (`09000BD0`), then repeat `E` on Preston. | `s6 preston room scene started` -> `s6 preston room dialogue menu opened` (`0` `fallback=messagebox`) -> **`s6 stage 40 preston_group talk` does NOT finish `Min00` at `200`** (`H1`: held open for basement gate & Fusion Core!); Sturges opens `09000BD0`; zero spacesuits on all 5 NPCs. | Pending | Take `museum-3f-room-h1-h2`: `>= 10 s` panning across Preston + 4 settlers & Preston/Sturges `DialogueMenu`s + `Missions` HUD check; at `1 fps`, **PASS** if zero spacesuits appear & quest stays active at stage `40`; **FAIL** if spacesuits appear or `"When Freedom Calls"` completes early; **`audio: not judged`**. |
+| **5b. Basement Gate (`0x0100EDF0`, `XLOC 25`) — Terminal AND Bobby Pin (`bat h2p`) + `0C000809`** | **Test BOTH unlock paths** on Novice gate `0100EDF0` (`DOOR 000BA4B5`, lock `25`):<br>1. **Terminal path:** **Press `E` on visible terminal `FO4SF_S6_BasementTermRef` (`09000BD9`, `terminalwall01.nif`)** -> confirm gate opens cleanly.<br>2. **Bobby Pin / Digipick path:** Load pre-unlock save (`bat h2b` or walk to `0100EDF0`), ensure pin inventory via collected `09000BB3` or **`bat h2p`** (`player.additem 0000000A 2`, `060008A5 2`), and **press `E` on locked gate `0100EDF0`** to pick Novice lock directly.<br>3. Walk inside generator cage & **press `E` on visible `MQ102FusionCoreREF` (`09000BDB`, `fusioncore.nif`)**. | Path 1 logs `pickup basement_terminal unlocked=true`, `s6 basement_gate unlocked reason=terminal`, `s6 stage 45 basement_gate opened`. Path 2 opens Novice lockpicking UI & unlocks `0100EDF0` cleanly with Bobby Pin/Digipick (`s6 stage 45 basement_gate opened`). Pressing **`E`** on `09000BDB` logs `pickup fusion_core granted=true fid=2057` -> grants `FO4SF_FusionCore` (**`0C000809`** `L1`) -> `s6 stage 50 fusion_core picked obj=95 stop=put_fusion_core_in_pa` (**HARD STOP at `"Put the Fusion Core in the Power Armor"`**). | Pending | Take `museum-basement-both-paths`: `>= 15 s` showing visible wall terminal `E` unlock, reload -> `bat h2p` lockpick on `0100EDF0`, & `E` on `09000BDB` Fusion Core + inventory check `0C000809`; at `1 fps`, **PASS** if terminal & lockpick both unlock gate & visible core vanishes into inventory; **FAIL** if only one path works or core is invisible; **`audio: not judged`**. |
+| **5c. Roof Door `3x` Round-Trip (`F9` `(-1990.58, -1724.19, 97.56)` — NO Roof Drop!)** | Walk to 3F roof doorway (`(-21.943, 9.02, 9.143)`), **press `E` on visible `FO4SF_S5_IntRoofOutRef` (`09000BBA`, `bldwoodpdoorload01.nif`)** -> lands on exterior roof bulkhead **`(-1990.58, -1724.19, 97.56)`** (`z ≈ 97.56`, **`1.77 m`** from `FO4SF_S5_ExtRoofInRef` at `(-1991.27, -1722.57, 97.42)`), turn NNW & **press `E` on `09000BBB`** -> interior `(-21.90, 8.68, 9.15)`. Repeat **`3` complete round trips (`3x` out + `3x` in)**. | Every leg confirms (`core_cell=true` outdoors at `z ≈ 97.56`), player stands solidly on roof bulkhead beside `ExtRoofIn` (ZERO drop off roof to `z ≈ 88.2`!), zero `ILS` or `2.9 km` bounce. Delete throwaway saves when done. | Pending | Take `museum-roof-door-3x`: `>= 12 s` showing `IntRoofOut` `Open [E]` -> solid standing arrival on roof bulkhead (`z ~97.56`) beside `ExtRoofIn` -> re-entry; at `1 fps`, **PASS** if player stands firmly on roof near bulkhead across `3x` trips; **FAIL** if falling off roof to `z ~88` or `ExtRoofIn` unclickable; **`audio: not judged`**. |
 
 ---
 
 ## 8. Console Inspection & `< 200 m` Hop Batch Blocks (`P3` Zero-`M`/`N`/`V` Enforced)
 
-```console
+````console
 help "Calls" 4 QUST
 getstage 09000816
 getstage 09000800
@@ -121,13 +127,17 @@ getstage 09000817
 sqs 09000800
 sqs 09000816
 bat h2st
-bat h2h1
 bat h2h2
 bat h2h3
 bat h2h4
 bat h2f
+bat h2b
+bat h2k
+bat h2p
 bat h2r
-```
+````
+
+*(Staged in `<cand2h-player-bundle>/bat/h2*.txt`; copied to `<starfield-dir>/` during install. Note: `bat h2h1` is removed per **`M7`** so Codsworth leads house-to-house on foot; `bat h2b` and `bat h2k` are strictly **INTERIOR-ONLY** inside `FO4Port_ConcordMuseum01` after `bat h2f`.)*
 
 ```bat
 ; <starfield-dir>/h2st.txt — read-only globals & Slot 1 / S2-S6 state check (06=CoreValues, 09=Mission)
@@ -141,11 +151,6 @@ getglobalvalue 09000B8E
 sqv 09000800
 sqv 09000816
 sqv 09000B90
-
-; <starfield-dir>/h2h1.txt — < 140 m hop: Vault 111 hilltop (-2450,-1351,131) -> Sanctuary House 01 / Codsworth
-player.setpos x -2313.44
-player.setpos y -1372.02
-player.setpos z 113.00
 
 ; <starfield-dir>/h2h2.txt — < 156 m hop: Sanctuary House 01 -> Red Rocket North
 player.setpos x -2210.00
@@ -163,39 +168,46 @@ player.setpos y -1700.00
 player.setpos z 90.00
 player.setangle z 90
 
-; <starfield-dir>/h2f.txt — direct interior Museum lobby (0x0100E2F4, ...0DEF proof)
+; <starfield-dir>/h2f.txt — direct interior Museum lobby (0x0100E2F4, NAVM tri 87)
 coc FO4Port_ConcordMuseum01
 player.setpos x 7.73
 player.setpos y 0.91
 player.setpos z -0.90
 player.setangle z 270
 
-; <starfield-dir>/h2b.txt — INTERIOR-ONLY (run only AFTER bat h2f inside Museum): jump to basement Novice gate (0x0100EDF0)
-player.setpos x 11.40
-player.setpos y 16.50
-player.setpos z -5.30
+; <starfield-dir>/h2b.txt — INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): basement Novice gate 0x0100EDF0 (-13.714, -0.457, -3.657)
+player.setpos x -14.38
+player.setpos y -0.10
+player.setpos z -3.32
+player.setangle z 90
 
-; <starfield-dir>/h2k.txt — INTERIOR-ONLY (run only AFTER bat h2f inside Museum): jump to 3F room door (Preston 3F)
-player.setpos x -3.80
-player.setpos y 10.60
-player.setpos z 10.20
+; <starfield-dir>/h2k.txt — INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): outside 3F PrestonDoorREF (5.486, -7.314, 9.143)
+player.setpos x 4.20
+player.setpos y -7.25
+player.setpos z 9.15
+player.setangle z 90
 
-; <starfield-dir>/h2r.txt — exterior roof vantage (short < 28 m step from h2h4, separate from roof entry 0x0100EFA9)
-player.setpos x -2008.49
-player.setpos y -1724.60
+; <starfield-dir>/h2p.txt — Grant Bobby Pin & Starfield Digipick for Row 5b Novice lock 0x0100EDF0 testing
+player.additem 0000000A 2
+player.additem 060008A5 2
+
+; <starfield-dir>/h2r.txt — exterior Museum roof bulkhead (FO4 0002C1C6 XTEL arrival, facing ExtRoofIn -1991.27, -1722.57)
+player.setpos x -1990.58
+player.setpos y -1724.19
 player.setpos z 97.82
-player.setangle z 180
+player.setangle z 335
 ```
 
 ### Required PASS Log Lines (`fo4sf_newgame.0.log`, `fo4sf_mission.0.log`, `fo4sf_loaddoor.0.log`)
 
 ```log
 FO4SF_NEWGAME rt=<rt> vault_death_recovery=<autosave|reload> stage=<st>
+FO4SF_LOADDOOR reload_ready cell=<cell> interior=<true|false>
 FO4SF_MISSION rt=<rt> s2 vault_roaches creature_slot=empty fallback=stage_gate
-FO4SF_MISSION rt=<rt> s2 vault_roaches complete creature_slot=empty stage=100
+FO4SF_MISSION rt=<rt> s2 vault_roaches <complete creature_slot=empty stage=100|stopped reason=left_vault_stage_200>
 FO4SF_MISSION rt=<rt> codsworth01 s3 creature_slot=empty fallback=arrival_advance
-FO4SF_MISSION rt=<rt> codsworth01 house1_cleared dead=0/0 stage=34
-FO4SF_MISSION rt=<rt> codsworth01 house2_cleared dead=0/0 stage=40
+FO4SF_MISSION rt=<rt> codsworth01 house1_cleared dead=3/3 stage=34 codsworth_dist=<d>
+FO4SF_MISSION rt=<rt> codsworth01 house2_cleared dead=3/3 stage=40 codsworth_dist=<d>
 FO4SF_MISSION rt=<rt> codsworth01 stage 50 scene started
 FO4SF_MISSION rt=<rt> codsworth01 stage 100 concord_pointed=true
 FO4SF_MISSION rt=<rt> s4 balcony preston_z=<z> ext_raiders=3
@@ -204,6 +216,7 @@ FO4SF_MISSION rt=<rt> s4 laser_musket granted cells=15
 FO4SF_MISSION rt=<rt> pickup stimpak count=1 granted=true
 FO4SF_MISSION rt=<rt> pickup pipe_weapon granted=true ammo=true
 FO4SF_LOADDOOR confirmed tag=s5_front_in dir=in attempts=<n> core_cell=<true|false> cell=<cell> world=<world> pos=<pos> heading=<hdg>
+FO4SF_LOADDOOR confirmed tag=s5_front_out dir=out attempts=<n> core_cell=true cell=<cell> world=<world> pos=<pos> heading=270.0
 FO4SF_MISSION rt=<rt> s5 museum_cleared dead=7/7 stage=35 preston_door=unlocked
 FO4SF_MISSION rt=<rt> s6 preston room scene started
 FO4SF_MISSION rt=<rt> s6 sturges room dialogue menu opened
@@ -212,20 +225,20 @@ FO4SF_MISSION rt=<rt> s6 basement_gate unlocked reason=<reason> pending_stage40=
 FO4SF_MISSION rt=<rt> s6 stage 45 basement_gate opened
 FO4SF_MISSION rt=<rt> pickup fusion_core granted=true fid=2057
 FO4SF_MISSION rt=<rt> s6 stage 50 fusion_core picked obj=95 stop=put_fusion_core_in_pa
-FO4SF_LOADDOOR confirmed tag=s5_roof_out dir=out attempts=<n> core_cell=true cell=<cell> world=<world> pos=<pos> heading=180.0
+FO4SF_LOADDOOR confirmed tag=s5_roof_out dir=out attempts=<n> core_cell=true cell=<cell> world=<world> pos=(-1990.58,-1724.19,97.56) heading=335.0
 ```
 
 ### Negative / FAIL Conditions
-- Any `2g-fix2` regression (`fallback=messagebox` anywhere, `stage 40 by=fallback`, `FO4SFMission.esm` `WRLD > 0`, non-`0x0006BCF8` museum/Vault 111 lighting), any `2.9 km` bounce or infinite loading screen on front/roof Museum doors, `xtel_extra` lobby door misrouting (`F4`), roof exit colliding with roof entry (`F9`), Novice lock missing on `0x0100EDF0`, missing display musket `+15` Fusion Cells or `0x0A000809` Fusion Core grant, or advancing past `"Put the Fusion Core in the Power Armor"`.
+- Any `2g-fix2` regression (`fallback=messagebox` anywhere, `stage 40 by=fallback`, `FO4SFMission.esm` `WRLD > 0`, non-`0x0006BCF8` museum/Vault 111 lighting, Concord street HP `< 50%` at `30 s` god mode OFF, `"MARS, SOL"` bench footer), any invisible or non-targetable `ACTI` needing `<ref>.activate`, any `2.9 km` bounce / `ILS` / stuck `activate_begin` after cold reload inside Museum front/roof doors, roof exit falling off roof (`z < 97.0`), `Min00` completing at stage `200` before the basement gate (`H1`), failing terminal OR Bobby Pin lockpick path on `0x0100EDF0`, missing `0C000809` Fusion Core grant, or advancing past `"Put the Fusion Core in the Power Armor"`.
 
 ---
 
-## Claude's Additions (5 Rows — 23 Nov In-Game Baseline)
+## Claude's Additions (5 Rows — 23–24 Nov In-Game Baseline)
 
-| Addition | PR / Track | 23 Nov In-Game Status | Integration / Dependency in This Card | Guard / Note |
+| Addition | PR / Track | 23–24 Nov In-Game Status | Integration Status in `candidate-2h-2` | VIDEO |
 |---|---|---|---|---|
-| **Robot animations & Codsworth** | `#854` (`claude/robot-anim`) | Partial pass: FO4 `.rig`/`.af`/`.afx` animations + Codsworth on 15-part Mr. Handy body; 4-line Sanctuary talk `completed=true`, `fallback=0` (close camera & greeting replay noted) | Unmerged `#854`: Sanctuary keeps Codsworth's converted 15-part body + S3 House 01/02 packages & Stage-50 scene with `#762` async `Scene.OnEnd` & full-window retries; `--codsworth-handy` remains OFF (`S1` Pre-War reserved for Task 6) | Review CLEAR; awaiting owner merge |
-| **Creature animations** | `#855` (`claude/creature-anim`) | Partial: radroach idle & deathclaw tail/spines moved in game; walk/attack/death & bloatfly/mole rat/dog unverified | Unmerged `#855`: `FO4SF_S2CreatureSlotReady (09000B8C) = 0.0` routes `S2` Vault Roaches & `S3` Sanctuary Bloatflies through `creature_slot=empty` fallback cleanly until `creature-slots.json` clears | Stacked on `#854` |
-| **Human animations** | `#856` (`claude/human-anim`) | Partial: add-on race keyword NPC played FO4 surrender idle vs normal control; walk & 1stP gun unverified | Unmerged `#856`: built with `--fo4-human-anims 0` (`FO4SF_Fo4HumanAnimsEnabled 09000B8E = 0.0`); 3F NPCs (`Preston`, `Sturges`, `Mama Murphy`, `Marcy`, `Jun`) stay on vanilla SF `HumanRace` (`0000347D`) with FO4 outfits | Stacked on `#854`; flag flips ON only after `#856` PASS |
-| **Gun moving parts proof** | `#32` (`gunpart-slide-vanilla-vs-ours-1123.jpg`) | Proved `Gun_*.af` moves `XM2311` slide nodes | Consumes cleared `@r12-t2-arsenal` P6 `FO4SFCoreValues.esm` (`bfe6d99a...`) + Row 5 Pipe Pistol/Rifle + `.38` (`geometries/`, `materials/`, `meshes/` + Rows 1–5/ammo/core DDSs packed inside `< 4.000 GiB` single `Main.ba2`) | Owner rule: guns NOT ready until parts move |
-| **Gun sounds** | `#32` (`sound-bank-study`) | **ON HOLD**: hand-made bank (`v174` vs SF `v140`) & direct override silent (add-on banks load on demand) | All `FO4SFCoreValues.esm` & S4/S5 pipe/musket/10mm weapons retain labelled Starfield donor `SNDR` stand-ins; zero custom `.afx`/WAUD audio banks touched | Next probe tests per-item bank link |
+| **Robot animations & Codsworth** | `#854` (`claude/robot-anim`) | Partial pass (`23 Nov` + `24 Nov` `2g-fix2`): FO4 Mr. Handy `15`-part body + animations; Codsworth 4-line talk `completed=true`, `fallback=0`, `camera_guard` (`prev_d=0.62 safe_d=1.85`) | **`gated (#854)`**: `candidate-2h-2` keeps `MiniBotARace` stand-in (`--codsworth-race-framing 0`, `--codsworth-handy` OFF); Codsworth House `01`/`02` travel + Stage-50 scene wired cleanly | Take `sanctuary-codsworth-s3`: `>= 5 s` initial & Stage `50` `E` talk framing; at `1 fps`, **PASS** if camera frames Codsworth cleanly without clipping; **FAIL** if facing away; **`audio: not judged`**. |
+| **Creature animations** | `#855` (`claude/creature-anim`) | Partial (`23 Nov`): radroach idle & deathclaw tail/spines moved; walk/attack/death & bloatfly/mole rat/dog unverified | **`not applicable` (default OFF)**: `FO4SF_S2CreatureSlotReady (09000B8C) = 0.0` routes `S2` & `S3` cleanly through `creature_slot=empty` fallback (`M2` ready-path builds `NPC_`s from `FO4SFCreatures.esm` when flipped ON) | Take `v111-corridor` & `sanctuary-codsworth-s3`: `>= 5 s` Vault & house sweeps; at `1 fps`, **PASS** if empty-slot stage fallback advances without broken placeholders; **FAIL** if un-skinned creature freezes hall; **`audio: not judged`**. |
+| **Human animations** | `#856` (`claude/human-anim`) | Partial (`23 Nov`): add-on race keyword NPC played FO4 surrender idle vs normal control; walk & 1stP gun unverified | **`not applicable` (default OFF)**: built with `--fo4-human-anims 0` (`09000B8E=0.0`, external link to `FO4SFHumanAnims.esm` wired when ON, `0` local `0xBDC`); `Preston`/raiders wear FO4 outfits while **`Sturges`/`Mama Murphy`/`Marcy`/`Jun` wear `Settler Clothes (Stand-In)`** (`09000BE4`/`09000BE5`, zero spacesuits) | Take `museum-3f-room-h1-h2`: `>= 5 s` close view of Preston + 4 settlers in 3F room; at `1 fps`, **PASS** if `Preston` wears FO4 duster/hat & settlers wear `(Stand-In)` clothes with `0` spacesuits; **FAIL** if any NPC wears a spacesuit or freezes T-pose; **`audio: not judged`**. |
+| **Gun moving parts proof** | `#32` (`gunpart-slide-vanilla-vs-ours-1123.jpg`) | Proved `Gun_*.af` moves `XM2311` slide nodes | **`built in`**: consumes `P6` `FO4SFCoreValues.esm` + Row 5 Pipe Pistol/Rifle `.38` (`geometries/`, `materials/`, `meshes/` + Rows `1`–`5`/ammo/core DDSs within `< 4.000 GiB` single `Main.ba2`) | Take `concord-musket-pickups` / `concord-survival-30s`: `>= 4 s` equipping & firing `FO4_PipePistol` / `FO4_LaserMusket`; at `1 fps`, **PASS** if weapon renders & fires cleanly; **FAIL** if invisible mesh; **`audio: not judged`**; moving slide/bolt inspection **`needs a slowed take`**. |
+| **Gun sounds** | `#32` (`sound-bank-study`) | **ON HOLD**: custom bank (`v174` vs SF `v140`) silent in game | **`not applicable` (retained Starfield `SNDR` stand-ins)**: all `FO4SFCoreValues.esm` & S4/S5 weapons keep labelled Starfield `SNDR` stand-ins; zero `.afx`/WAUD banks touched | All captures (`>= 3 s`): **`audio: not judged`** across all captures (silent calibration clip audio track per `#32`); **`needs a slowed take`** does not replace audio calibration. |

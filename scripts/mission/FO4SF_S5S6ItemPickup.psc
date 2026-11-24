@@ -104,6 +104,12 @@ Event OnActivate(ObjectReference akActionRef)
     elseif ItemKind == "bobbypin"
         handled = True
         bool okPin = GrantEntry(player, PrimaryFormId, CoreValuesPlugin, PrimaryCount, FallbackFormId)
+        if okPin && FallbackFormId > 0
+            Form sfPick = Game.GetFormFromFile(FallbackFormId, "Starfield.esm")
+            if sfPick != None
+                player.AddItem(sfPick, PrimaryCount, True)
+            endif
+        endif
         DisableNoWait(False)
         Trace("pickup bobbypin count=" + PrimaryCount + " granted=" + okPin)
         return

@@ -51,7 +51,9 @@ try
                                                        Mission.BoolFlag(args, "--r11-full-mission", false),
                                                        Mission.ArgOrNull(args, "--creature-slots"),
                                                        Mission.BoolFlag(args, "--fo4-human-anims", false),
-                                                       Mission.BoolFlag(args, "--task1b-vault-recovery", false)),
+                                                       Mission.BoolFlag(args, "--task1b-vault-recovery", false),
+                                                       Mission.ArgOrNull(args, "--creatures-esm"),
+                                                       Mission.ArgOrNull(args, "--fo4-human-anims-esm")),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"),
                                                        !args.Contains("--no-codsworth"),
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
@@ -61,7 +63,10 @@ try
                                                        Mission.ArgOrNull(args, "--actor-looks-dir"),
                                                        Mission.BoolFlag(args, "--codsworth-race-framing", false),
                                                        Mission.BoolFlag(args, "--r11-full-mission", false),
-                                                       Mission.BoolFlag(args, "--fo4-human-anims", false)),
+                                                       Mission.BoolFlag(args, "--fo4-human-anims", false),
+                                                       Mission.ArgOrNull(args, "--creature-slots"),
+                                                       Mission.ArgOrNull(args, "--creatures-esm"),
+                                                       Mission.ArgOrNull(args, "--fo4-human-anims-esm")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
@@ -1144,14 +1149,55 @@ static class Mission
         return new List<string> { fallbackText };
     }
 
+    static string? ResolveOptionalMasterPath(string? explicitPath, string fileName, params string?[] candidateDirs)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            if (!File.Exists(explicitPath))
+                throw new Refusal($"master plugin not found: {explicitPath}");
+            return explicitPath;
+        }
+        foreach (var dir in candidateDirs)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) continue;
+            var cand = Path.Combine(dir, fileName);
+            if (File.Exists(cand)) return cand;
+        }
+        return null;
+    }
+
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
                             string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null,
                             string? codsworthVoice = null, string? codsworthMqVoice = null, string? prestonVoicePath = null,
                             string? actorLooksDir = null, bool codsworthRaceFraming = false, bool r11FullMission = false,
-                            string? creatureSlotsPath = null, bool fo4HumanAnims = false, bool task1bVaultRecovery = false)
+                            string? creatureSlotsPath = null, bool fo4HumanAnims = false, bool task1bVaultRecovery = false,
+                            string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
+        var creatureSlots = r11FullMission
+            ? NextStoryMissionsS2S6.CreatureSlotsConfig.LoadOrEmpty(creatureSlotsPath)
+            : NextStoryMissionsS2S6.CreatureSlotsConfig.DisabledDefault();
+        SF.IStarfieldModDisposableGetter? creaturesMod = null;
+        SF.IStarfieldModDisposableGetter? humanAnimsMod = null;
+        try
+        {
+            if (r11FullMission && creatureSlots.Ready)
+            {
+                var cPath = ResolveOptionalMasterPath(
+                    creaturesEsmPath, creatureSlots.CreaturesPlugin,
+                    Path.GetDirectoryName(creatureSlotsPath), outDir, Path.GetDirectoryName(corePath), Path.GetDirectoryName(sfPath))
+                    ?? throw new Refusal($"M2: --creature-slots ready=true requires {creatureSlots.CreaturesPlugin} (pass --creatures-esm)");
+                creaturesMod = SF.StarfieldMod.CreateFromBinaryOverlay(cPath, SF.StarfieldRelease.Starfield, Styles(SfEsm));
+            }
+            if (r11FullMission && fo4HumanAnims)
+            {
+                var hPath = ResolveOptionalMasterPath(
+                    fo4HumanAnimsEsmPath, NextStoryMissionsS2S6.HumanAnimsEsmName,
+                    outDir, Path.GetDirectoryName(corePath), Path.GetDirectoryName(sfPath))
+                    ?? throw new Refusal($"M3: --fo4-human-anims requires {NextStoryMissionsS2S6.HumanAnimsEsmName} (pass --fo4-human-anims-esm)");
+                humanAnimsMod = SF.StarfieldMod.CreateFromBinaryOverlay(hPath, SF.StarfieldRelease.Starfield, Styles(SfEsm));
+            }
         var modKey = ModKey.FromFileName(plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
         mod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
@@ -2032,8 +2078,7 @@ static class Mission
                 mod, cell, m.Sf, m.Cache, quest, script, codsworthQuest, cwScript, qtyp.FormKey, xMarker.FormKey,
                 minutemen.FormKey, prestonTpl, humanRace.FormKey, prestonVoice.FormKey, cods ?? npc,
                 new FormKey(modKey, FalloutActorLooks.ConcordRaiderNpcId), raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
-                NextStoryMissionsS2S6.CreatureSlotsConfig.LoadOrEmpty(creatureSlotsPath),
-                fo4HumanAnims, task1bVaultRecovery);
+                creatureSlots, fo4HumanAnims, task1bVaultRecovery, creaturesMod, humanAnimsMod);
         }
 
         uint maxId = Math.Max(MissionHoldingCellId + 1, Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))))));
@@ -2045,7 +2090,10 @@ static class Mission
 
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, plugin);
-        var lo = new[] { SfEsm, m.Core.ModKey, m.Raider.ModKey };
+        var loList = new List<ModKey> { SfEsm, m.Core.ModKey, m.Raider.ModKey };
+        if (creaturesMod is not null) loList.Add(creaturesMod.ModKey);
+        if (humanAnimsMod is not null) loList.Add(humanAnimsMod.ModKey);
+        var lo = loList.ToArray();
         mod.BeginWrite.ToPath(path).WithLoadOrder(lo)
             .WithKnownMasters(lo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): QUST {QuestEdid} {quest.FormKey} \"{quest.Name}\" " +
@@ -2059,6 +2107,12 @@ static class Mission
                           $"QUST {ComQuestEdid} {com.FormKey} alias {ComAliasName} package {FollowPackageEdid} {FollowPackageId:X6}; " +
                           $"holding CELL {cell.EditorID} {cell.FormKey} (0 WRLD overrides; core {world.FormKey} verified)");
         return 0;
+        }
+        finally
+        {
+            creaturesMod?.Dispose();
+            humanAnimsMod?.Dispose();
+        }
     }
 
     static string Show(P3Float p) => $"({F(p.X)}, {F(p.Y)}, {F(p.Z)})";
@@ -2118,10 +2172,29 @@ static class Mission
     public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true,
                             string? codsworthModel = null, string? codsworthVoice = null, string? codsworthMqVoice = null,
                             string? prestonVoicePath = null, string? actorLooksDir = null, bool codsworthRaceFraming = false,
-                            bool r11FullMission = false, bool fo4HumanAnims = false)
+                            bool r11FullMission = false, bool fo4HumanAnims = false,
+                            string? creatureSlotsPath = null, string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null)
     {
         using var m = Open(sfPath, corePath, raiderPath);
-        using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
+        var creatureSlots = r11FullMission
+            ? NextStoryMissionsS2S6.CreatureSlotsConfig.LoadOrEmpty(creatureSlotsPath)
+            : NextStoryMissionsS2S6.CreatureSlotsConfig.DisabledDefault();
+        var creaturesKey = ModKey.FromFileName(creatureSlots.CreaturesPlugin);
+        var humanAnimsKey = ModKey.FromFileName(NextStoryMissionsS2S6.HumanAnimsEsmName);
+        var pluginDir = Path.GetDirectoryName(pluginPath);
+        using var creaturesMod = (r11FullMission && creatureSlots.Ready &&
+            ResolveOptionalMasterPath(creaturesEsmPath, creatureSlots.CreaturesPlugin,
+                Path.GetDirectoryName(creatureSlotsPath), pluginDir, Path.GetDirectoryName(corePath), Path.GetDirectoryName(sfPath)) is { } cPath)
+            ? SF.StarfieldMod.CreateFromBinaryOverlay(cPath, SF.StarfieldRelease.Starfield, Styles(SfEsm))
+            : null;
+        using var humanAnimsMod = (r11FullMission && fo4HumanAnims &&
+            ResolveOptionalMasterPath(fo4HumanAnimsEsmPath, NextStoryMissionsS2S6.HumanAnimsEsmName,
+                pluginDir, Path.GetDirectoryName(corePath), Path.GetDirectoryName(sfPath)) is { } hPath)
+            ? SF.StarfieldMod.CreateFromBinaryOverlay(hPath, SF.StarfieldRelease.Starfield, Styles(SfEsm))
+            : null;
+        using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(
+            pluginPath, SF.StarfieldRelease.Starfield,
+            Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey, creaturesKey, humanAnimsKey));
         var key = plug.ModKey;
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
@@ -2129,10 +2202,15 @@ static class Mission
         Console.WriteLine($"{key}: header {plug.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{plug.ModHeader.Stats.NextFormID:X}, " +
                           $"{plug.Quests.Count} QUST, {plug.Npcs.Count} NPC_, {plug.Races.Count} RACE, {plug.VoiceTypes.Count} VTYP, {plug.Worldspaces.Count} WRLD");
         Need(plug.ModHeader.Flags.HasFlag(SF.StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
-        Need(
-            masters.SequenceEqual(new[] { "Starfield.esm" }) ||
-            masters.SequenceEqual(new[] { "Starfield.esm", m.Raider.ModKey.FileName.String }),
-            "masters are not [Starfield.esm] (Task 1i removes static core WRLD master dependency)");
+        var allowedExtraMasters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (r11FullMission && creatureSlots.Ready) allowedExtraMasters.Add(creatureSlots.CreaturesPlugin);
+        if (r11FullMission && fo4HumanAnims) allowedExtraMasters.Add(NextStoryMissionsS2S6.HumanAnimsEsmName);
+        var unexpectedMasters = masters.Where(x =>
+            !x.Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase) &&
+            !x.Equals(m.Raider.ModKey.FileName.String, StringComparison.OrdinalIgnoreCase) &&
+            !allowedExtraMasters.Contains(x)).ToList();
+        Need(masters.Count > 0 && masters[0].Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase) && unexpectedMasters.Count == 0,
+             $"unexpected masters [{string.Join(", ", masters)}] (Task 1i forbids static core WRLD master dependency)");
 
         var talkGlob = plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, MissionTalkUseMessageBoxGlobId));
         Need(talkGlob is { EditorID: MissionTalkUseMessageBoxGlobEdid } && MathF.Abs(talkGlob.Data ?? -1f) < 1e-5f,
@@ -2404,7 +2482,7 @@ static class Mission
                 var wantRaiderAmmoKey = new FormKey(SfEsm, SfRaiderAmmoId);
                 Need(m.Cache.TryResolve<SF.IAmmunitionGetter>(wantRaiderAmmoKey, out var rAmmo) && rAmmo.EditorID == SfRaiderAmmoEdid,
                      $"Starfield.esm lacks {SfRaiderAmmoEdid} ({SfRaiderAmmoId:X6})");
-                int wantAliasCount = (r11FullMission ? 2 : 1) + raiders.Count;
+                int wantAliasCount = (r11FullMission ? 3 : 1) + raiders.Count;
                 Need(refAliases.Count == wantAliasCount, $"expected {wantAliasCount} reference aliases, got {refAliases.Count}");
                 for (int ri = 0; ri < raiders.Count; ri++)
                 {
@@ -2847,8 +2925,8 @@ static class Mission
         NextStoryMissionsA7.CheckA7Missions(plug, SfEsm, QuestTypeSideId, Need);
         // A7cd: Check Act II FO4SF_MQ106 (0xAD0), FO4SF_MQ203 (0xAF0), FO4SF_MQ204 (0xB10), FO4SF_MQ206 (0xB30)
         NextStoryMissionsA7cd.CheckA7cdMissions(plug, SfEsm, QuestTypeSideId, Need);
-        // S2-S6: Check full-mission S2 roaches, S3 travel packs + House markers, S4 musket/cells, S5 doors/raiders, S6 settlers & --fo4-human-anims
-        NextStoryMissionsS2S6.CheckS2S6Missions(plug, problems, r11FullMission, fo4HumanAnims);
+        // S2-S6: Check full-mission S2 roaches, S3 travel packs + House markers, S4 musket/cells, S5 doors/raiders, S6 settlers, B1/H2/M2/M3 & LoadDoorQuest
+        NextStoryMissionsS2S6.CheckS2S6Missions(plug, problems, r11FullMission, fo4HumanAnims, creatureSlots.Ready, creaturesMod, humanAnimsMod);
 
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
@@ -2868,9 +2946,20 @@ static class Mission
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, XMarkerId), rel) { EditorID = "XMarker" });
         sf.Packages.Add(new SF.Package(new FormKey(SfEsm, FollowPackageId), rel) { EditorID = FollowPackageEdid });
         sf.Packages.Add(new SF.Package(new FormKey(SfEsm, NextStoryMissionsS2S6.SfTravelToLinkedRefId), rel) { EditorID = NextStoryMissionsS2S6.SfTravelToLinkedRefEdid });
+        sf.Packages.Add(new SF.Package(new FormKey(SfEsm, NextStoryMissionsS2S6.SfDefaultFollowPackageId), rel) { EditorID = NextStoryMissionsS2S6.SfDefaultFollowPackageEdid });
         sf.Packages.Add(new SF.Package(new FormKey(SfEsm, RaiderCombatPackageId), rel) { EditorID = RaiderCombatPackageEdid });
         sf.Packages.Add(new SF.Package(new FormKey(SfEsm, RaiderSandboxPackageId), rel) { EditorID = RaiderSandboxPackageEdid });
-        sf.Outfits.Add(new SF.Outfit(new FormKey(SfEsm, NextStoryMissionsS2S6.SfMechanicOutfitId), rel) { EditorID = "Outfit_Clothes_Mechanic_Tanktop_Brown" });
+        var sfMechArmo = new SF.Armor(new FormKey(SfEsm, 0x05B421), rel) { EditorID = "Clothes_Mechanic_Tanktop_Brown", Name = "Mechanic Outfit" };
+        sf.Armors.Add(sfMechArmo);
+        var sfMechOtft = new SF.Outfit(new FormKey(SfEsm, NextStoryMissionsS2S6.SfMechanicOutfitId), rel)
+        {
+            EditorID = "Outfit_Clothes_Mechanic_Tanktop_Brown",
+            Items = new ExtendedList<IFormLinkGetter<SF.IOutfitTargetGetter>>
+            {
+                new FormLink<SF.IOutfitTargetGetter>(sfMechArmo.FormKey),
+            },
+        };
+        sf.Outfits.Add(sfMechOtft);
         sf.Keywords.Add(new SF.Keyword(new FormKey(SfEsm, QuestTypeSideId), rel) { EditorID = QuestTypeSideEdid });
 
         // Preston's Starfield HumanRace + male template + voice + colonial outfit + Orion laser rifle + ammo
@@ -2955,6 +3044,13 @@ static class Mission
         bot.VirtualMachineAdapter = new SF.VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
         bot.VirtualMachineAdapter.Scripts.Add(new SF.ScriptEntry { Name = "OutpostBotScript" });
         sf.Npcs.Add(bot);
+        sf.Npcs.Add(new SF.Npc(new FormKey(SfEsm, NextStoryMissionsS2S6.SfCreatureTemplateNpcId), rel)
+        {
+            EditorID = NextStoryMissionsS2S6.SfCreatureTemplateNpcEdid,
+            Name = "Synthetic Creature Template",
+            Race = new FormLink<SF.IRaceGetter>(race.FormKey),
+            Voice = new FormLinkNullable<SF.IVoiceTypeGetter>(botVoice.FormKey),
+        });
 
         var aa = new SF.ArmorAddon(new FormKey(SfEsm, MiniBotArmaId), rel) { EditorID = MiniBotArmaEdid, Race = new FormLinkNullable<SF.IRaceGetter>(race.FormKey) };
         aa.WorldModel = new GenderedItem<SF.Model?>(new SF.Model { File = new AssetLink<StarfieldModelAssetType>("Meshes\\Actors\\MiniBot\\MiniBotA.nif") }, null);
@@ -3032,6 +3128,38 @@ static class Mission
             Console.WriteLine("mutation rejected: Codsworth race reverted to Size.Small (--codsworth-race-framing 1)");
         }
         {
+            // Synthetic external FO4SFCreatures.esm & FO4SFHumanAnims.esm masters for M2 / M3 checks
+            var creaturesKey = ModKey.FromFileName(NextStoryMissionsS2S6.CreaturesEsmName);
+            var creaturesMod = new SF.StarfieldMod(creaturesKey, rel);
+            creaturesMod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+            var rrRace = new SF.Race(new FormKey(creaturesKey, 0x800), rel) { EditorID = "FO4SF_RadroachRace" };
+            var rrSkin = new SF.Armor(new FormKey(creaturesKey, 0x801), rel) { EditorID = "FO4SF_RA5Radroach_Skin" };
+            var bfRace = new SF.Race(new FormKey(creaturesKey, 0x802), rel) { EditorID = "FO4SF_BloatflyRace" };
+            var bfSkin = new SF.Armor(new FormKey(creaturesKey, 0x803), rel) { EditorID = "FO4SF_RA5Bloatfly_Skin" };
+            creaturesMod.Races.Add(rrRace);
+            creaturesMod.Races.Add(bfRace);
+            creaturesMod.Armors.Add(rrSkin);
+            creaturesMod.Armors.Add(bfSkin);
+            creaturesMod.ModHeader.Stats.NextFormID = 0x804;
+            var creaturesEsmPath = Path.Combine(dir, NextStoryMissionsS2S6.CreaturesEsmName);
+            creaturesMod.BeginWrite.ToPath(creaturesEsmPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+
+            var humanAnimsKey = ModKey.FromFileName(NextStoryMissionsS2S6.HumanAnimsEsmName);
+            var humanAnimsMod = new SF.StarfieldMod(humanAnimsKey, rel);
+            humanAnimsMod.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+            humanAnimsMod.Keywords.Add(new SF.Keyword(new FormKey(humanAnimsKey, 0x800), rel) { EditorID = NextStoryMissionsS2S6.Fo4AnimArchetypeKwEdid });
+            humanAnimsMod.ModHeader.Stats.NextFormID = 0x801;
+            var humanAnimsEsmPath = Path.Combine(dir, NextStoryMissionsS2S6.HumanAnimsEsmName);
+            humanAnimsMod.BeginWrite.ToPath(humanAnimsEsmPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+
+            var slotsOffPath = Path.Combine(dir, "creature_slots_omitted_ready.json");
+            File.WriteAllText(slotsOffPath, """{"radroach_race_edid": "FO4SF_RadroachRace", "radroach_skin_edid": "FO4SF_RA5Radroach_Skin"}""");
+            if (NextStoryMissionsS2S6.CreatureSlotsConfig.LoadOrEmpty(slotsOffPath).Ready)
+                { Console.WriteLine("FAIL  CreatureSlotsConfig defaulted omitted ready to true instead of false"); return 1; }
+
+            var slotsReadyPath = Path.Combine(dir, "creature_slots_ready.json");
+            File.WriteAllText(slotsReadyPath, """{"ready": true, "radroach_race_edid": "FO4SF_RadroachRace", "radroach_skin_edid": "FO4SF_RA5Radroach_Skin", "bloatfly_race_edid": "FO4SF_BloatflyRace", "bloatfly_skin_edid": "FO4SF_RA5Bloatfly_Skin"}""");
+
             var o = Path.Combine(outDir, "r11_full_mission");
             int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, r11FullMission: true);
             if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true);
@@ -3040,15 +3168,22 @@ static class Mission
                 { Console.WriteLine("FAIL  check passed --r11-full-mission 1 plugin under default 0 mode"); return 1; }
             if (Check(Path.Combine(outDir, "alias", Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true) == 0)
                 { Console.WriteLine("FAIL  check passed default --r11-full-mission 0 plugin under 1 mode"); return 1; }
-            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true, fo4HumanAnims: true) == 0)
+            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true, fo4HumanAnims: true, fo4HumanAnimsEsmPath: humanAnimsEsmPath) == 0)
                 { Console.WriteLine("FAIL  check passed --fo4-human-anims 0 plugin under 1 mode"); return 1; }
 
             var oAnims = Path.Combine(outDir, "r11_full_mission_anims");
-            int rcAnims = Write(sfPath, corePath, raiderPath, pointsPath, oAnims, Plugin, World, true, CodsworthBody, r11FullMission: true, fo4HumanAnims: true);
-            if (rcAnims == 0) rcAnims = Check(Path.Combine(oAnims, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true, fo4HumanAnims: true);
+            int rcAnims = Write(sfPath, corePath, raiderPath, pointsPath, oAnims, Plugin, World, true, CodsworthBody, r11FullMission: true, fo4HumanAnims: true, fo4HumanAnimsEsmPath: humanAnimsEsmPath);
+            if (rcAnims == 0) rcAnims = Check(Path.Combine(oAnims, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true, fo4HumanAnims: true, fo4HumanAnimsEsmPath: humanAnimsEsmPath);
             if (rcAnims != 0) return rcAnims;
             if (Check(Path.Combine(oAnims, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true, fo4HumanAnims: false) == 0)
                 { Console.WriteLine("FAIL  check passed --fo4-human-anims 1 plugin under 0 mode"); return 1; }
+
+            var oCreatures = Path.Combine(outDir, "r11_full_mission_creatures");
+            int rcCr = Write(sfPath, corePath, raiderPath, pointsPath, oCreatures, Plugin, World, true, CodsworthBody, r11FullMission: true, creatureSlotsPath: slotsReadyPath, creaturesEsmPath: creaturesEsmPath);
+            if (rcCr == 0) rcCr = Check(Path.Combine(oCreatures, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true, creatureSlotsPath: slotsReadyPath, creaturesEsmPath: creaturesEsmPath);
+            if (rcCr != 0) return rcCr;
+            if (Check(Path.Combine(oCreatures, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true) == 0)
+                { Console.WriteLine("FAIL  check passed M2 creature-slots READY build under default OFF mode"); return 1; }
             var r11FullMutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
             {
                 ("S4 balcony marker Z lowered from 98.51", m =>
@@ -3084,6 +3219,51 @@ static class Mission
                 {
                     var rp3 = m.Quests[new FormKey(m.ModKey, CodsworthQuestId)].DialogTopics.First(t => t.FormKey.ID == FirstCodsworthReplyTopicId + 3).Responses[0];
                     rp3.SetParentQuestStage!.OnEnd = 100;
+                }),
+                ("B1 Display Laser Musket ACTI 0xBA7 Model cleared", m =>
+                {
+                    m.Activators[new FormKey(m.ModKey, NextStoryMissionsS2S6.S4DisplayMusketActiId)].Model = null;
+                }),
+                ("B1 LoadDoorIn ACTI 0xBB6 Model reverted to DecoratorMarker", m =>
+                {
+                    m.Activators[new FormKey(m.ModKey, NextStoryMissionsS2S6.S5LoadDoorInActiId)].Model =
+                        new SF.Model { File = new AssetLink<StarfieldModelAssetType>(@"Effects\sfbgs006\SFBGS006_SBShipDecoratorMarker.nif") };
+                }),
+                ("B1 BasementTerm ACTI 0xBD8 ObjectBounds zeroed", m =>
+                {
+                    m.Activators[new FormKey(m.ModKey, NextStoryMissionsS2S6.S6BasementTermActiId)].ObjectBounds =
+                        new SF.ObjectBounds { First = new P3Float(0, 0, 0), Second = new P3Float(0, 0, 0) };
+                }),
+                ("LoadDoorQuest 0xBDE removed", m =>
+                {
+                    m.Quests.Remove(new FormKey(m.ModKey, NextStoryMissionsS2S6.LoadDoorQuestId));
+                }),
+                ("S5IntRoofOutRef DestinationY reverted off F9 (-1724.60)", m =>
+                {
+                    var ro = PersistentObjectRefsMutable(m).First(x => x.FormKey.ID == NextStoryMissionsS2S6.S5IntRoofOutRefId);
+                    var p = (SF.ScriptFloatProperty)ro.VirtualMachineAdapter!.Scripts[0].Properties.First(x => x.Name == "DestinationY");
+                    p.Data = -1724.60f;
+                }),
+                ("S5IntFrontOutRef TargetFormId reverted to 0x0A775C", m =>
+                {
+                    var fo = PersistentObjectRefsMutable(m).First(x => x.FormKey.ID == NextStoryMissionsS2S6.S5IntFrontOutRefId);
+                    var p = (SF.ScriptIntProperty)fo.VirtualMachineAdapter!.Scripts[0].Properties.First(x => x.Name == "TargetFormId");
+                    p.Data = NextStoryMissionsS2S6.CoreExitAnchorCommonwealth;
+                }),
+                ("H2 Sturges outfit reverted to non-Stand-In SF mechanic outfit", m =>
+                {
+                    m.Npcs[new FormKey(m.ModKey, NextStoryMissionsA4.SturgesNpcId)].DefaultOutfit.SetTo(new FormKey(SfEsm, NextStoryMissionsS2S6.SfMechanicOutfitId));
+                }),
+                ("M3 local KYWD 0xBDC injected", m =>
+                {
+                    m.Keywords.Add(new SF.Keyword(new FormKey(m.ModKey, NextStoryMissionsS2S6.RetiredLocalFo4AnimArchetypeKwId), rel)
+                    {
+                        EditorID = NextStoryMissionsS2S6.Fo4AnimArchetypeKwEdid,
+                    });
+                }),
+                ("S5MuseumRaiderPursuePack 0xBE1 removed", m =>
+                {
+                    m.Packages.Remove(new FormKey(m.ModKey, NextStoryMissionsS2S6.S5MuseumRaiderPursuePackId));
                 }),
             };
             foreach (var (name, edit) in r11FullMutations)

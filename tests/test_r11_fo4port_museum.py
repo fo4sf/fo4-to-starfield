@@ -25,6 +25,7 @@ from fo4sf.ba2 import Ba2  # noqa: E402
 
 DOC_PATH = REPO / "docs" / "terrain" / "fo4port-r11-museum-comparison.md"
 PSC_PATH = REPO / "scripts" / "doors" / "FO4SF_ConfirmedLoadDoor.psc"
+LOADDOOR_QUEST_PSC = REPO / "scripts" / "doors" / "FO4SF_LoadDoorQuest.psc"
 DRIVE_PATH_RE = re.compile(r"\b[A-Za-z]:[\\/]")
 
 
@@ -438,6 +439,145 @@ class TestLosslessEsmExtension(unittest.TestCase):
         self.assertIn(ext.NAVI_FID, out_recs)
         self.assertEqual(out_recs[ext.NAVI_FID].sig, b"NAVI")
 
+    def test_l3_lossless_navi_merge_preserves_base_nvmi_nvpp_nvsi_and_adds_museum(self) -> None:
+        base_esm, src_esm = _build_synthetic_base_and_source()
+        nvnm_raw = _build_synthetic_fo4_interior_nvnm()
+        fo4_doors = {
+            0x00077D22: (9.142857, 0.0, -0.914286),
+            0x0002C1C6: (-21.942857, 9.142857, 9.142857),
+        }
+
+        # Build a base NAVI 0x00000FF1 already containing NVER + 1 base NVMI + NVPP + NVSI
+        base_nvmi_obj = navm.Nvmi(
+            navmesh=0x01001111,
+            flags=0,
+            location=(0.0, 0.0, 0.0),
+            unknown_f=0.0,
+            merged=[],
+            preferred=[],
+            doors=[],
+            traversals=[],
+            outline=None,
+            world=0,
+            grid=None,
+            cell=0x010011F3,
+            border=0,
+        )
+        base_nvmi_raw = navm.write_nvmi(base_nvmi_obj)
+        base_nver_raw = struct.pack("<I", navm.SF_VERSION)
+        base_nvpp_raw = b"\xAA\xBB\xCC\xDD\x01\x00\x00\x00"
+        base_nvsi_raw = b"\x02\x00\x00\x00\x11\x11\x00\x01"
+        base_navi_rec = _make_record(
+            b"NAVI",
+            ext.NAVI_FID,
+            [
+                (b"NVER", base_nver_raw),
+                (b"NVMI", base_nvmi_raw),
+                (b"NVPP", base_nvpp_raw),
+                (b"NVSI", base_nvsi_raw),
+            ],
+            version=581,
+        )
+
+        # Inject base NAVI 0x00000FF1 into base_esm BEFORE LCTN
+        tes4, grups = ext.parse_top_level(base_esm)
+        base_with_navi = _make_esm(
+            tes4,
+            list(grups) + [ext.TopGrup(b"NAVI", 0, 0, 0, base_navi_rec.to_bytes())],
+        )
+
+        out_esm, rep = ext.extend_fo4port_esm(
+            base_esm_bytes=base_with_navi,
+            source_esm_bytes=src_esm,
+            target_cells=ext.DEFAULT_CELLS,
+            start_id=0x00E19A,
+            museum_navm_input=(nvnm_raw, ext.FO4_MUSEUM_NAVM_FID, fo4_doors),
+        )
+        ver = rep["verification"]
+        self.assertTrue(ver["navi_merged"])
+        self.assertEqual(ver["base_nvmi_count"], 1)
+        self.assertEqual(ver["added_nvmi_count"], 1)
+        self.assertEqual(ver["out_nvmi_count"], 2)
+        self.assertEqual(ver["base_nvmi_count"] + ver["added_nvmi_count"], ver["out_nvmi_count"])
+        self.assertEqual(ver["navm_validation_errors"], 0)
+
+        out_recs = {r.fid: r for r in ext.walk_all_records(out_esm) if r.sig != b"TES4"}
+        museum_navm_fids = [r.fid for r in out_recs.values() if r.sig == b"NAVM"]
+        self.assertEqual(len(museum_navm_fids), 1)
+        out_subs = list(ext.iter_subrecords(out_recs[ext.NAVI_FID].decompressed_body()))
+        self.assertEqual([ss for ss, _ in out_subs], [b"NVER", b"NVMI", b"NVMI", b"NVPP", b"NVSI"])
+        self.assertEqual(out_subs[0][1], base_nver_raw)
+        self.assertEqual(out_subs[1][1], base_nvmi_raw)
+        self.assertEqual(navm.parse_nvmi(out_subs[2][1]).navmesh, museum_navm_fids[0])
+        self.assertEqual(out_subs[3][1], base_nvpp_raw)
+        self.assertEqual(out_subs[4][1], base_nvsi_raw)
+
+        # Collision with an existing base NAVM FormID inside NAVI must raise ExtensionError
+        with self.assertRaises(ext.ExtensionError):
+            ext.merge_navi_record(base_navi_rec, [base_nvmi_obj])
+
+    def test_l3_connected_stair_navm_path_ground_to_3f(self) -> None:
+        # Ground spawn/chase (-3, 0, 0.25) -> central stairs -> 3F landing (-4, 7.5, 9.14)
+        u = navm.UNITS_PER_METRE
+        verts = np.array(
+            [
+                [-5.0 * u, -2.0 * u, 0.25 * u],   # v0 ground west
+                [-1.0 * u, -2.0 * u, 0.25 * u],   # v1 ground east
+                [-3.0 * u, 3.5 * u, 4.5 * u],     # v2 stair landing mid
+                [-6.0 * u, 8.5 * u, 9.14 * u],    # v3 3F west
+                [-1.5 * u, 8.5 * u, 9.14 * u],    # v4 3F east
+            ],
+            dtype=np.float32,
+        )
+        tris = np.zeros(3, navm.TRI_DTYPE)
+        tris[0] = ([0, 1, 2], [-1, 1, -1], 200.0, 0, 0, 0)         # ground covers (-3, 0, 0.25), touches tri 1
+        tris[1] = ([2, 1, 4], [0, -1, 2], 200.0, 0, 0, 0)          # stair flight connects tri 0 -> tri 2
+        tris[2] = ([2, 4, 3], [1, -1, -1], 200.0, 0, 0, 0)         # 3F covers (-4, 7.5, 9.14), touches tri 1
+        links = np.zeros(0, navm.LINK_DTYPE)
+        doors = np.zeros(0, navm.DOOR_DTYPE)
+        wps = np.zeros(1, navm.WAYPOINT_DTYPE)
+        wps[0] = ([-3.0 * u, 3.5 * u, 4.5 * u], 1, 0)
+        div, gsize, gmin, gmax, glists = navm.build_grid(verts.astype(np.float64), tris)
+        out = [
+            struct.pack("<IIII", 15, navm.MAGIC, 0, ext.FO4_MUSEUM_CELL_FID),
+            struct.pack("<I", len(verts)),
+            verts.tobytes(),
+            struct.pack("<I", len(tris)),
+            tris.tobytes(),
+            struct.pack("<I", len(links)),
+            links.tobytes(),
+            struct.pack("<I", len(doors)),
+            doors.tobytes(),
+            struct.pack("<I", 0),
+            struct.pack("<I", 0),
+            struct.pack("<I", len(wps)),
+            wps.tobytes(),
+            struct.pack("<I8f", div, *gsize, *gmin, *gmax),
+        ] + [struct.pack(f"<I{len(lst)}h", len(lst), *lst) for lst in glists]
+        fo4_nvnm = b"".join(out)
+
+        museum_navm_fid = 0x0100EFA8
+        sf_mesh, _nvmi_obj, _dbg = ext.convert_interior_fo4_navm(
+            fo4_nvnm,
+            ext.FO4_MUSEUM_NAVM_FID,
+            museum_navm_fid,
+            0x0100E2F4,
+            {},
+            [],
+        )
+        navs = {museum_navm_fid: sf_mesh}
+        ground_hits = navm.locate(navs, -3.0, 0.0, z=0.25, ztol=2.0)
+        upper_hits = navm.locate(navs, -4.0, 7.5, z=9.14, ztol=2.0)
+        self.assertTrue(ground_hits, "expected ground NAVM triangle at (-3, 0, 0.25)")
+        self.assertTrue(upper_hits, "expected 3F NAVM triangle at (-4, 7.5, 9.14)")
+        path = navm.triangle_path(
+            navs,
+            (ground_hits[0][1], ground_hits[0][2]),
+            (upper_hits[0][1], upper_hits[0][2]),
+        )
+        self.assertIsNotNone(path, "expected connected stair NAVM path (-3,0,0.25) -> (-4,7.5,9.14)")
+        self.assertGreaterEqual(len(path), 3)
+
     def test_tamper_detection_refuses_any_base_mutation(self) -> None:
         base_esm, src_esm = _build_synthetic_base_and_source()
         out_esm, _ = ext.extend_fo4port_esm(base_esm, src_esm, ext.DEFAULT_CELLS, start_id=0x00E200)
@@ -561,8 +701,296 @@ class TestConfirmedLoadDoorAndDocs(unittest.TestCase):
             "FO4SF_LOADDOOR failed",
             "surface_cell_not_core",
             "position_not_confirmed",
+            "LoadDoorController",
+            "WatchdogSeconds",
         ):
             self.assertIn(required, txt, f"missing contract token: {required}")
+
+        lq_raw = LOADDOOR_QUEST_PSC.read_bytes()
+        self.assertFalse(lq_raw.startswith(b"\xef\xbb\xbf"), "LoadDoorQuest PSC must not have UTF-8 BOM")
+        lq_txt = lq_raw.decode("utf-8")
+        self.assertIsNone(DRIVE_PATH_RE.search(lq_txt), "LoadDoorQuest PSC must not contain local drive paths")
+        self.assertNotIn("Utility.Wait(", lq_txt, "FO4SF_LoadDoorQuest must be non-blocking")
+        for required in (
+            "Scriptname FO4SF_LoadDoorQuest extends Quest",
+            "int Property ExitAnchorId = 0x0A775B Auto",
+            "int Property SecondaryExitAnchorId = 0x0A775C Auto",
+            "float Property OutRetryAfterSeconds = 1.5 Auto",
+            "Event Actor.OnPlayerLoadGame(Actor akSender)",
+            "Function ResetAfterReload(Actor player)",
+            "FO4SF_LOADDOOR reload_ready cell=",
+            "bool Function BeginDoorTransition(",
+            "FO4SF_LOADDOOR controller_watchdog_reset",
+        ):
+            self.assertIn(required, lq_txt, f"missing LoadDoorQuest contract token: {required}")
+
+    def test_cold_reload_clears_busy_cancels_timers_and_retries_0a775b_via_papyrus(self) -> None:
+        from types import SimpleNamespace
+
+        lq_txt = LOADDOOR_QUEST_PSC.read_text(encoding="utf-8")
+        logs: list[str] = []
+        cancelled_timers: list[int] = []
+        started_timers: list[tuple[float, int]] = []
+        clock = {"rt": 100.0}
+
+        class _Cell:
+            def __init__(self, fid: int, label: str):
+                self.fid = fid
+                self.label = label
+
+            def GetFormID(self) -> int:
+                return self.fid
+
+            def __str__(self) -> str:
+                return self.label
+
+        class _Ref:
+            def __init__(self, label: str, cell: _Cell, x: float, y: float, z: float, interior: bool, fid: int = 0x04000811):
+                self.label = label
+                self.cell = cell
+                self.x = x
+                self.y = y
+                self.z = z
+                self.interior = interior
+                self.fid = fid
+                self.reset_calls = 0
+                self.completed_calls: list[tuple[bool, str]] = []
+
+            def GetFormID(self) -> int:
+                return self.fid
+
+            def GetParentCell(self):
+                return self.cell
+
+            def GetPositionX(self) -> float:
+                return self.x
+
+            def GetPositionY(self) -> float:
+                return self.y
+
+            def GetPositionZ(self) -> float:
+                return self.z
+
+            def ResetOnReload(self) -> None:
+                self.reset_calls += 1
+
+            def NotifyControllerComplete(self, ok: bool, reason: str) -> None:
+                self.completed_calls.append((bool(ok), str(reason)))
+
+            def __str__(self) -> str:
+                return self.label
+
+        core_cell = _Cell(0x02000803, "FO4TerrainCore_Concord")
+        museum_cell = _Cell(0x0100E2F4, "FO4Port_ConcordMuseum01")
+        anchor_75b = _Ref("Anchor_0A775B", core_cell, -1100.0, 1200.0, 112.0, False, fid=0x020A775B)
+        anchor_75c = _Ref("Anchor_0A775C", core_cell, -812.5, 1002.06, 88.24, False, fid=0x020A775C)
+        stale_door = _Ref("StaleDoor", museum_cell, 7.73, 0.91, -0.90, True, fid=0x04000811)
+
+        class _Player:
+            def __init__(self):
+                self.cell = museum_cell
+                self.interior = True
+                self.x, self.y, self.z = 7.73, 0.91, -0.90
+                self.movetos: list[tuple[str, bool]] = []
+
+            def GetParentCell(self):
+                return self.cell
+
+            def GetWorldSpace(self):
+                return None if self.interior else "MarsPlanetWorld"
+
+            def IsInInterior(self) -> bool:
+                return self.interior
+
+            def Is3DLoaded(self) -> bool:
+                return True
+
+            def GetPositionX(self) -> float:
+                return self.x
+
+            def GetPositionY(self) -> float:
+                return self.y
+
+            def GetPositionZ(self) -> float:
+                return self.z
+
+            def MoveTo(self, anchor, *_a) -> None:
+                self.movetos.append((anchor.label, bool(self.interior)))
+                # First MoveTo stays stuck inside interior until retry anchor 0x0A775C fires
+                if anchor is anchor_75c:
+                    self.interior = False
+                    self.cell = anchor.cell
+                    self.x, self.y, self.z = anchor.x, anchor.y, anchor.z
+
+            def SetPosition(self, x: float, y: float, z: float) -> None:
+                self.x, self.y, self.z = float(x), float(y), float(z)
+
+            def SetAngle(self, *_a) -> None:
+                pass
+
+        player = _Player()
+
+        class _PStr(str):
+            def __add__(self, other):
+                return _PStr(super().__add__(str(other)))
+
+            def __radd__(self, other):
+                return _PStr(str(other) + str(self))
+
+        def _py_expr(expr: str) -> str:
+            s = re.sub(r"\s+as\s+[A-Za-z_]\w*", "", expr.strip())
+            s = re.sub(r'"([^"]*)"', lambda m: f'_PStr("{m.group(1)}")', s)
+            s = re.sub(r"\btrue\b", "True", s, flags=re.IGNORECASE)
+            s = re.sub(r"\bfalse\b", "False", s, flags=re.IGNORECASE)
+            s = re.sub(r"\bNone\b", "None", s)
+            s = s.replace("&&", " and ").replace("||", " or ")
+            s = s.replace("/ 16777216", "// 16777216")
+            s = re.sub(r"!(?!=)", " not ", s)
+            return s
+
+        state_vars = {
+            "initialized", "busy", "inFlight", "settlePending", "activeIsOut",
+            "activeUseDestPos", "activeRequireCoreCell", "activeAttempt", "activeMaxTries",
+            "activeWaitStep", "activeMaxWaitSteps", "activeTx", "activeTy", "activeTz",
+            "activeHeading", "activePosTolSq", "activeFallDrop", "activeWaitStepSec",
+            "activeSettleSec", "attemptStartedAt", "activeDoor", "activeAnchor",
+            "activeBeforeCell", "activeAnchorCell", "activeTargetPlugin", "activeTargetFormId",
+            "activeFallbackPlugin", "activeFallbackFormId", "activeDirection", "activeDoorTag",
+            "lastReason", "registeredPlayer",
+        }
+        ns = {
+            "_PStr": _PStr,
+            "ExitAnchorPlugin": "FO4TerrainCore.esm",
+            "ExitAnchorId": 0x0A775B,
+            "SecondaryExitAnchorPlugin": "FO4TerrainCore.esm",
+            "SecondaryExitAnchorId": 0x0A775C,
+            "OutRetryAfterSeconds": 1.5,
+            "EnableLog": True,
+            "LogName": "fo4sf_loaddoor",
+            "TIMER_ARRIVAL": 1,
+            "initialized": True,
+            "busy": True,
+            "inFlight": True,
+            "settlePending": True,
+            "activeIsOut": True,
+            "activeUseDestPos": True,
+            "activeRequireCoreCell": True,
+            "activeAttempt": 1,
+            "activeMaxTries": 3,
+            "activeWaitStep": 4,
+            "activeMaxWaitSteps": 40,
+            "activeTx": -2012.50,
+            "activeTy": -1697.94,
+            "activeTz": 88.24,
+            "activeHeading": 270.0,
+            "activePosTolSq": 25.0,
+            "activeFallDrop": 6.0,
+            "activeWaitStepSec": 0.25,
+            "activeSettleSec": 0.35,
+            "attemptStartedAt": 95.0,
+            "activeDoor": stale_door,
+            "activeAnchor": anchor_75b,
+            "activeBeforeCell": museum_cell,
+            "activeAnchorCell": core_cell,
+            "activeTargetPlugin": "FO4TerrainCore.esm",
+            "activeTargetFormId": 0x0A775B,
+            "activeFallbackPlugin": "FO4TerrainCore.esm",
+            "activeFallbackFormId": 0x0A775C,
+            "activeDirection": "out",
+            "activeDoorTag": "s5_front_out",
+            "lastReason": "",
+            "registeredPlayer": player,
+            "IsRunning": lambda: True,
+            "StartNoWait": lambda: True,
+            "RegisterForRemoteEvent": lambda *_a: None,
+            "CancelTimer": lambda tid: cancelled_timers.append(int(tid)),
+            "StartTimer": lambda sec, tid: started_timers.append((float(sec), int(tid))),
+            "Utility": SimpleNamespace(GetCurrentRealTime=lambda: clock["rt"]),
+            "Debug": SimpleNamespace(OpenUserLog=lambda _n: None, TraceUser=lambda _n, m: logs.append(str(m))),
+            "Game": SimpleNamespace(
+                GetPlayer=lambda: player,
+                GetFormFromFile=lambda fid, plg: (
+                    anchor_75b if plg == "FO4TerrainCore.esm" and fid == 0x0A775B
+                    else (anchor_75c if plg == "FO4TerrainCore.esm" and fid == 0x0A775C else None)
+                ),
+            ),
+        }
+
+        fn_re = re.compile(r"(?:^(?:[A-Za-z_]\w*\s+)?Function|Event)\s+([A-Za-z0-9_.]+)\s*\(([^)]*)\)\s*\r?\n(.*?)\r?\nEnd(?:Function|Event)", re.DOTALL | re.MULTILINE)
+        g_line = "    global " + ", ".join(sorted(state_vars))
+        for m in fn_re.finditer(lq_txt):
+            raw_name, raw_params, body = m.group(1), m.group(2), m.group(3)
+            py_name = raw_name.replace(".", "_")
+            params = [p.strip().split()[-1] for p in raw_params.split(",") if p.strip()]
+            lines = [f"def {py_name}({', '.join(params)}):", g_line]
+            indent = 1
+            for raw in body.splitlines():
+                code = raw.split(";", 1)[0].strip()
+                if not code:
+                    continue
+                low = code.lower()
+                if low in ("endif", "endwhile"):
+                    indent -= 1
+                    continue
+                if low == "else":
+                    lines.append("    " * (indent - 1) + "else:")
+                    continue
+                if low.startswith("elseif "):
+                    lines.append("    " * (indent - 1) + f"elif {_py_expr(code[7:])}:")
+                    continue
+                if low.startswith("if "):
+                    lines.append("    " * indent + f"if {_py_expr(code[3:])}:")
+                    indent += 1
+                    continue
+                if low == "return":
+                    lines.append("    " * indent + "return None")
+                    continue
+                if low.startswith("return "):
+                    lines.append("    " * indent + "return " + _py_expr(code[7:]))
+                    continue
+                decl_m = re.match(r"^(?:int|float|bool|string|Actor|Cell|WorldSpace|ObjectReference|FO4SF_ConfirmedLoadDoor)\s+([A-Za-z_]\w*)\s*=\s*(.+)$", code)
+                if decl_m:
+                    lines.append("    " * indent + f"{decl_m.group(1)} = {_py_expr(decl_m.group(2))}")
+                    continue
+                assign_m = re.match(r"^([A-Za-z_]\w*)\s*(\+=|-=|=)\s*(.+)$", code)
+                if assign_m:
+                    lines.append("    " * indent + f"{assign_m.group(1)} {assign_m.group(2)} {_py_expr(assign_m.group(3))}")
+                    continue
+                lines.append("    " * indent + _py_expr(code))
+            if len(lines) == 2:
+                lines.append("    pass")
+            exec(compile("\n".join(lines), f"<papyrus:{py_name}>", "exec"), ns)
+
+        # Cold reload fires Actor.OnPlayerLoadGame: cancels stale timer, clears stale door/busy, logs reload_ready
+        ns["Actor_OnPlayerLoadGame"](player)
+        self.assertIn(1, cancelled_timers)
+        self.assertEqual(stale_door.reset_calls, 1)
+        self.assertFalse(ns["busy"])
+        self.assertFalse(ns["inFlight"])
+        self.assertTrue(any(line.startswith("FO4SF_LOADDOOR reload_ready cell=") for line in logs))
+
+        # Pressing E on museum front out door starts via 0x0A775B; after >= 1.5s still inside, retries via 0x0A775C & confirms
+        out_door = _Ref("FO4SF_S5_IntFrontOutRef", museum_cell, 7.73, 0.91, -0.90, True)
+        ok = ns["BeginDoorTransition"](
+            out_door, player, None, "FO4TerrainCore.esm", 0x0A775B, "FO4TerrainCore.esm", 0x0A775C,
+            "out", "s5_front_out", True, -2012.50, -1697.94, 88.24, 270.0, True, 25.0, 6.0, 3, 0.25, 40, 0.35,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(player.movetos[0], ("Anchor_0A775B", True))
+        clock["rt"] += 1.55
+        ns["OnTimer"](1)
+        self.assertEqual(player.movetos[1], ("Anchor_0A775C", True))
+        self.assertFalse(player.interior)
+        # First post-exit tick applies SetPosition and arms settlePending; second tick confirms landing
+        ns["OnTimer"](1)
+        self.assertTrue(ns["settlePending"])
+        ns["OnTimer"](1)
+        self.assertFalse(ns["busy"])
+        self.assertEqual(out_door.completed_calls[-1], (True, ""))
+        self.assertAlmostEqual(player.x, -2012.50, places=2)
+        self.assertAlmostEqual(player.y, -1697.94, places=2)
+        self.assertAlmostEqual(player.z, 88.24, places=2)
+        self.assertTrue(any("FO4SF_LOADDOOR confirmed tag=s5_front_out dir=out attempts=2 core_cell=True" in l for l in logs))
 
     def test_p1_exterior_exit_coords_within_core_4096_grid(self) -> None:
         # FO4TerrainCore.esm exterior grid spans XCLC -32..31 in X and Y at 100.0 m per cell.
@@ -570,7 +998,7 @@ class TestConfirmedLoadDoorAndDocs(unittest.TestCase):
 
         for label, local_xy, merged_xy, exp_local_cell, exp_merged_cell in (
             ("p1_front_out", (-812.50, 1002.06), (-2012.50, -1697.94), (-9, 10), (-21, -17)),
-            ("p1_roof_out", (-808.49, 977.61), (-2008.49, -1722.39), (-9, 9), (-21, -18)),
+            ("p1_roof_out", (-790.58, 975.81), (-1990.58, -1724.19), (-8, 9), (-20, -18)),
         ):
             lc = (math.floor(local_xy[0] / 100.0), math.floor(local_xy[1] / 100.0))
             mc = (math.floor(merged_xy[0] / 100.0), math.floor(merged_xy[1] / 100.0))
@@ -654,8 +1082,18 @@ class TestLivePcStagingExtension(unittest.TestCase):
         self.assertEqual(ver["body_changes"], 0)
         self.assertEqual(ver["dangling_local_refs"], 0)
         self.assertEqual(ver["navm_validation_errors"], 0)
+        self.assertEqual(ver["base_nvmi_count"] + ver["added_nvmi_count"], ver["out_nvmi_count"])
         self.assertEqual(len(rep["museum_navm"]["doors"]), 3)
         self.assertTrue(all(p["reachable"] for p in rep["museum_navm"]["door_paths"]))
+        out_recs = {r.fid: r for r in ext.walk_all_records(out_esm) if r.sig != b"TES4"}
+        live_navm_fid = 0x0100EFA8
+        live_nvnm_raw = next(sp for ss, sp in ext.iter_subrecords(out_recs[live_navm_fid].decompressed_body()) if ss == b"NVNM")
+        live_navs = {live_navm_fid: navm.parse(live_nvnm_raw)}
+        ground_tri = navm.locate(live_navs, -3.0, 0.0, z=0.25, ztol=2.0)
+        upper_tri = navm.locate(live_navs, -4.0, 7.5, z=9.14, ztol=2.0)
+        self.assertTrue(ground_tri and upper_tri)
+        stair_path = navm.triangle_path(live_navs, (ground_tri[0][1], ground_tri[0][2]), (upper_tri[0][1], upper_tri[0][2]))
+        self.assertIsNotNone(stair_path, "live 0x0100EFA8 stair NAVM path (-3,0,0.25) -> (-4,7.5,9.14) must be connected")
         self.assertEqual(rep["cells"]["FO4Port_ConcordMuseum01"]["ltmp"], f"0x{ext.PROVEN_INTERIOR_LTMP:08X}")
         self.assertEqual(rep["cells"]["FO4Port_PrewarVault111"]["ltmp"], f"0x{ext.PROVEN_INTERIOR_LTMP:08X}")
         pers_fids = rep["cells"]["FO4Port_ConcordMuseum01"]["persistent_fids"]
@@ -664,7 +1102,6 @@ class TestLivePcStagingExtension(unittest.TestCase):
         syn = rep["cells"]["FO4Port_ConcordMuseum01"]["synthesized_doors"]
         self.assertIn("FO4Port_PrestonDoorREF", syn)
         self.assertIn("FO4Port_PrestonExitDoor", syn)
-        out_recs = {r.fid: r for r in ext.walk_all_records(out_esm) if r.sig != b"TES4"}
         self.assertEqual(out_recs[0x0100EDF0].flags & 0x400, 0x400)
         self.assertEqual(out_recs[0x0100E35E].flags & 0x400, 0x400)
         gate_xloc = next(sp for ss, sp in ext.iter_subrecords(out_recs[0x0100EDF0].decompressed_body()) if ss == b"XLOC")

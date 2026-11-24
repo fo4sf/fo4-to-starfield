@@ -1,21 +1,22 @@
-// NextStoryMissionsS2S6: Full R12 S2-S6 story progression & Museum interior wiring for FO4SFMission.esm (strictly 0xB8C..0xBDD).
+// NextStoryMissionsS2S6: Full R12 S2-S6 story progression & Museum interior wiring for FO4SFMission.esm (strictly 0xB8C..0xBE5).
 // Only emitted under --r11-full-mission 1 (default 0 preserves candidate-2g-fix2 parity 100%).
 // Covers:
-//   - S2 (0xB90..0xB95): FO4SF_Vault111Roaches stage-gated Vault 111 LvlRadRoachAmbush placements w/ Task 1b gate + creature_slot=empty fallback
-//   - S3 (0xB96..0xBA6): Codsworth PACK 0019E138/0019E144 (DefaultTraveltoLinkedRef) -> House 01 (-2313.44, -1372.02) & House 02 (-2296.17, -1424.97),
+//   - S2 (0xB90..0xB95, 0xBE2): FO4SF_Vault111Roaches stage-gated Vault 111 LvlRadRoachAmbush placements w/ Task 1b gate + default-OFF creature slots
+//   - S3 (0xB96..0xBA6, 0xBE3): Codsworth PACK 0019E138/0019E144 (DefaultTraveltoLinkedRef) -> House 01 (-2313.44, -1372.02) & House 02 (-2296.17, -1424.97),
 //                        3+3 bloatfly markers + arrival fallback, and Stage-50 Starfield scene (0xB9A)
-//   - S4 (0xBA7..0xBAC): Display Laser Musket (0001F22E -> 15 cells + obj 70) + 3 Fusion Cell pickups outside Museum (5 cells each)
-//   - Items (0xBAD..0xBB5): A4.5 2 Museum Stimpaks, Caps, Bobby Pin, Pipe Weapon + .38 pickup
-//   - S5 (0xBB6..0xBC2): Confirmed-arrival load doors (FO4SF_ConfirmedLoadDoor) + 7 floor-by-floor Museum Raiders (0xBBC..0xBC2) -> Min00 35 -> PrestonDoorREF
-//   - S6 (0xBC3..0xBDD): 3F Room (Mama Murphy 0xBC3, Marcy Long 0xBC5, Jun Long 0xBC7, Preston, Sturges; SF HumanRace, non-spacesuit outfits,
-//                        --fo4-human-anims keyword 0xBDC default OFF), Preston (0xBC9) & Sturges (0xBD0) Starfield scenes, Basement terminal proxy (0xBD9),
-//                        and MQ102FusionCoreREF (0xBDB) -> FO4SFPowerArmor:0x0809 -> stop at "Put the Fusion Core in the Power Armor".
+//   - S4 (0xBA7..0xBAC): Visible Display Laser Musket ACTI + 3 Fusion Cell ACTIs outside Museum
+//   - Items (0xBAD..0xBB5): Visible Museum Stimpaks x2, Caps, Bobby Pin, Pipe Pistol+.38 ACTIs
+//   - S5 (0xBB6..0xBC2, 0xBDE..0xBE1): Visible collidable FO4Port load doors driven by StartGameEnabled FO4SF_LoadDoorQuest (0xBDE) + F9 roof landing + 7 Museum Raiders w/ ground pursue pack (0xBE1)
+//   - S6 (0xBC3..0xBDB, 0xBE4..0xBE5): 3F Room (Mama Murphy, Marcy, Jun, Preston, Sturges w/ explicit (Stand-In) clothes; --fo4-human-anims links FO4SFHumanAnims.esm),
+//                        Preston & Sturges Starfield scenes, visible Basement Terminal (0xBD8), and visible Fusion Core (0xBDA) -> FO4SFPowerArmor:0x0809.
 using System.Globalization;
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Assets;
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Starfield.Assets;
 using Noggog;
 using SF = Mutagen.Bethesda.Starfield;
 
@@ -23,10 +24,16 @@ static class NextStoryMissionsS2S6
 {
     public const string Plugin = "FO4SFMission.esm";
     public static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+    public const string CreaturesEsmName = "FO4SFCreatures.esm";
+    public const string HumanAnimsEsmName = "FO4SFHumanAnims.esm";
 
-    // Proven Starfield P9 travel driver + non-spacesuit clothes stand-in
+    // Proven Starfield P9 travel/pursue/creature drivers + non-spacesuit clothes stand-in
     public const uint SfTravelToLinkedRefId = 0x212FDB;
     public const string SfTravelToLinkedRefEdid = "DefaultTraveltoLinkedRef";
+    public const uint SfDefaultFollowPackageId = 0x021E76;
+    public const string SfDefaultFollowPackageEdid = "defaultFollowPlayerPKG";
+    public const uint SfCreatureTemplateNpcId = 0x000C1F50;
+    public const string SfCreatureTemplateNpcEdid = "EncMiniBotA01Template";
     public const uint SfMechanicOutfitId = 0x0005B422;
 
     // 0xB8C..0xB8E: Shared S2/S3/S6 GLOBs (uses Task 1i holding cell 0xB60 FO4SF_MissionHoldingCell)
@@ -89,9 +96,58 @@ static class NextStoryMissionsS2S6
     public const uint S6SturgesTalkActiId = 0xBD7; // reserved helper ACTI slot for Sturges talk UI if needed
     public const uint S6BasementTermActiId = 0xBD8, S6BasementTermRefId = 0xBD9;
     public const uint S6FusionCoreActiId = 0xBDA, S6FusionCoreRefId = 0xBDB;
-    public const uint Fo4AnimArchetypeKwId = 0xBDC;
+    public const uint RetiredLocalFo4AnimArchetypeKwId = 0xBDC; // retired local KYWD slot — M3 links FO4SFHumanAnims.esm
     public const string Fo4AnimArchetypeKwEdid = "FO4SF_AnimArchetypeFO4";
-    public const uint MaxAllocatedId = 0xBDD;
+    public const uint LoadDoorQuestId = 0xBDE;
+    public const string LoadDoorQuestEdid = "FO4SF_LoadDoor", LoadDoorQuestScriptName = "FO4SF_LoadDoorQuest";
+    public const uint S5RoofLoadDoorInActiId = 0xBDF, S5RoofLoadDoorOutActiId = 0xBE0;
+    public const uint S5MuseumRaiderPursuePackId = 0xBE1;
+    public const string S5MuseumRaiderPursuePackEdid = "FO4SF_S5_MuseumRaiderPursuePack";
+    public const uint S2RadroachNpcId = 0xBE2, S3BloatflyNpcId = 0xBE3;
+    public const string S2RadroachNpcEdid = "FO4SF_S2_RadroachNpc", S3BloatflyNpcEdid = "FO4SF_S3_BloatflyNpc";
+    public const uint S6SettlerStandInArmorId = 0xBE4, S6SettlerStandInOutfitId = 0xBE5;
+    public const string S6SettlerStandInArmorEdid = "FO4SF_S6_SettlerClothes_StandIn";
+    public const string S6SettlerStandInOutfitEdid = "FO4SF_S6_SettlerOutfit_StandIn";
+    public const string S6SettlerStandInName = "Settler Clothes (Stand-In)";
+    public const uint MaxAllocatedId = 0xBE6;
+
+    // B1: Real converted FO4 NIF model paths for every S2-S6 activator
+    public const string DisplayMusketModelPath = @"fo4sf\weapons\lasermusket\fo4_lasermusket.nif";
+    public const string FusionCellModelPath = @"fo4core\ammo\laserammo\microfusioncell.nif";
+    public const string StimpakModelPath = @"fo4core\props\stimpack01.nif";
+    public const string CapsModelPath = @"fo4core\props\bottlecapsingle.nif";
+    public const string BobbyPinModelPath = @"fo4core\props\bobbypin.nif";
+    public const string PipeWeaponModelPath = @"fo4sf\weapons\pipegun\fo4_pipepistol.nif";
+    public const string FrontLoadDoorModelPath = @"fo4port\setdressing\doors\paintedwooddoordoubleload01.nif";
+    public const string RoofLoadDoorModelPath = @"fo4port\interiors\building\woodp\doors\bldwoodpdoorload01.nif";
+    public const string BasementTermModelPath = @"fo4port\furniture\terminals\terminalwall01.nif";
+    public const string ConsolePanelModelPath = @"fo4port\furniture\terminals\terminalconsoleon.nif";
+    public const string FusionCoreModelPath = @"fo4sf\powerarmor\fusioncore.nif";
+
+    // P1 v2 F9 / F1-F2 / cold reload coordinates & anchor constants
+    public const int CoreExitAnchorVault111 = 0x0A775B;
+    public const int CoreExitAnchorCommonwealth = 0x0A775C;
+    public static readonly P3Float S5FrontOutDestPos = new(-2012.50f, -1697.94f, 88.24f);
+    public static readonly P3Float S5RoofOutDestPos = new(-1990.58f, -1724.19f, 97.56f);
+    public static readonly P3Float S5RoofInDestPos = new(-21.90f, 8.68f, 9.15f);
+
+    public static bool IsInvalidOrMarkerModelPath(string? modelPath)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath)) return true;
+        string norm = modelPath.Replace('/', '\\').Trim();
+        if (norm.Length == 0) return true;
+        string file = Path.GetFileNameWithoutExtension(norm);
+        return norm.Contains("DecoratorMarker", StringComparison.OrdinalIgnoreCase)
+               || norm.Contains("XMarker", StringComparison.OrdinalIgnoreCase)
+               || norm.Contains("Marker", StringComparison.OrdinalIgnoreCase)
+               || file.Contains("Editor", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool HasNonZeroObjectBounds(SF.IObjectBoundsGetter? bounds) =>
+        bounds is not null &&
+        (bounds.Second.X - bounds.First.X) > 1e-3f &&
+        (bounds.Second.Y - bounds.First.Y) > 1e-3f &&
+        (bounds.Second.Z - bounds.First.Z) > 1e-3f;
 
     public static bool IsS2S6ActorRefId(uint id) =>
         (id >= FirstS5MuseumRaiderRefId && id <= FirstS5MuseumRaiderRefId + 6)
@@ -126,26 +182,45 @@ static class NextStoryMissionsS2S6
         new(-2014.45f, -1696.57f, 88.16f), // FO4 0005597C
     };
 
-    public sealed record CreatureSlotsConfig(bool Ready, string PluginName, uint RadroachNpcId, uint BloatflyNpcId)
+    public sealed record CreatureSlotsConfig(
+        bool Ready,
+        string CreaturesPlugin,
+        string RadroachRaceEdid,
+        string RadroachSkinEdid,
+        string BloatflyRaceEdid,
+        string BloatflySkinEdid)
     {
+        public static CreatureSlotsConfig DisabledDefault() => new(
+            false,
+            CreaturesEsmName,
+            "FO4SF_RadroachRace",
+            "FO4SF_RA5Radroach_Skin",
+            "FO4SF_BloatflyRace",
+            "FO4SF_RA5Bloatfly_Skin");
+
         public static CreatureSlotsConfig LoadOrEmpty(string? path)
         {
+            var d = DisabledDefault();
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                return new CreatureSlotsConfig(false, "FO4SF_RA5Creatures.esm", 0x000804, 0x000809);
+                return d;
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
             var root = doc.RootElement;
-            string plug = root.TryGetProperty("plugin", out var pe) && pe.GetString() is { Length: > 0 } ps
-                ? ps : "FO4SF_RA5Creatures.esm";
-            static uint ParseHex(JsonElement obj, string key, uint dflt)
+            static string ReadStr(JsonElement obj, string key, string fallback, string? altKey = null)
             {
-                if (!obj.TryGetProperty(key, out var el)) return dflt;
-                if (el.ValueKind == JsonValueKind.Number) return el.GetUInt32();
-                string s = (el.GetString() ?? "").Trim();
-                if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) s = s[2..];
-                return uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint val) ? val : dflt;
+                if (obj.TryGetProperty(key, out var el) && el.ValueKind == JsonValueKind.String && el.GetString() is { Length: > 0 } s)
+                    return s;
+                if (altKey is not null && obj.TryGetProperty(altKey, out var el2) && el2.ValueKind == JsonValueKind.String && el2.GetString() is { Length: > 0 } s2)
+                    return s2;
+                return fallback;
             }
-            bool ready = !root.TryGetProperty("ready", out var re) || re.ValueKind != JsonValueKind.False;
-            return new CreatureSlotsConfig(ready, plug, ParseHex(root, "radroach_npc", 0x000804), ParseHex(root, "bloatfly_npc", 0x000809));
+            bool ready = root.TryGetProperty("ready", out var re) && re.ValueKind == JsonValueKind.True;
+            return new CreatureSlotsConfig(
+                ready,
+                ReadStr(root, "creatures_plugin", d.CreaturesPlugin, "plugin"),
+                ReadStr(root, "radroach_race_edid", d.RadroachRaceEdid, "radroach_race"),
+                ReadStr(root, "radroach_skin_edid", d.RadroachSkinEdid, "radroach_skin"),
+                ReadStr(root, "bloatfly_race_edid", d.BloatflyRaceEdid, "bloatfly_race"),
+                ReadStr(root, "bloatfly_skin_edid", d.BloatflySkinEdid, "bloatfly_skin"));
         }
     }
 
@@ -165,16 +240,23 @@ static class NextStoryMissionsS2S6
         return g;
     }
 
-    static SF.Activator AddActivator(SF.StarfieldMod mod, ModKey modKey, uint id, string edid, string name, string verb)
+    static SF.Activator AddActivator(
+        SF.StarfieldMod mod, ModKey modKey, uint id, string edid, string name, string verb,
+        string modelPath, P3Float boundsMin, P3Float boundsMax)
     {
+        if (IsInvalidOrMarkerModelPath(modelPath))
+            throw new Mission.Refusal($"ACTI 0x{id:X} ({edid}) requires a non-empty non-marker NIF MODL, got '{modelPath}'");
         var a = new SF.Activator(new FormKey(modKey, id), SF.StarfieldRelease.Starfield)
         {
             EditorID = edid,
             Name = name,
             ActivateTextOverride = verb,
             ActivationAngle = 360,
-            ObjectBounds = new SF.ObjectBounds { First = new P3Float(-0.25f, -0.25f, -0.25f), Second = new P3Float(0.25f, 0.25f, 0.25f) },
+            ObjectBounds = new SF.ObjectBounds { First = boundsMin, Second = boundsMax },
+            Model = new SF.Model { File = new AssetLink<StarfieldModelAssetType>(modelPath) },
         };
+        if (!HasNonZeroObjectBounds(a.ObjectBounds))
+            throw new Mission.Refusal($"ACTI 0x{id:X} ({edid}) requires non-zero ObjectBounds");
         mod.Activators.Add(a);
         return a;
     }
@@ -214,10 +296,11 @@ static class NextStoryMissionsS2S6
     }
 
     static void AttachConfirmedDoorScript(
-        SF.PlacedObject refObj, string targetPlugin, int targetFormId, string direction, string doorTag,
+        SF.PlacedObject refObj, FormKey loadDoorQuestKey, string targetPlugin, int targetFormId, string direction, string doorTag,
         bool useDestPos, P3Float destPos, int fallbackFormId = 0)
     {
         var s = new SF.ScriptEntry { Name = LoadDoorScriptName, Flags = SF.ScriptEntry.Flag.Local };
+        s.Properties.Add(ObjProp("LoadDoorController", loadDoorQuestKey));
         s.Properties.Add(new SF.ScriptStringProperty { Name = "TargetPlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = targetPlugin });
         s.Properties.Add(new SF.ScriptIntProperty { Name = "TargetFormId", Flags = SF.ScriptProperty.Flag.Edited, Data = targetFormId });
         if (fallbackFormId > 0)
@@ -237,6 +320,108 @@ static class NextStoryMissionsS2S6
         var vm = new SF.VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
         vm.Scripts.Add(s);
         refObj.VirtualMachineAdapter = vm;
+    }
+
+    static SF.Npc BuildCreatureNpcFromSlot(
+        SF.StarfieldMod mod,
+        ModKey modKey,
+        uint npcId,
+        string npcEdid,
+        string displayName,
+        SF.INpcGetter template,
+        SF.IStarfieldModGetter creaturesMod,
+        string raceEdid,
+        string skinEdid,
+        short calcMaxLevel,
+        P3Float boundsMin,
+        P3Float boundsMax)
+    {
+        var race = creaturesMod.Races.FirstOrDefault(r => string.Equals(r.EditorID, raceEdid, StringComparison.OrdinalIgnoreCase))
+                   ?? throw new Mission.Refusal($"M2: {creaturesMod.ModKey} lacks RACE '{raceEdid}'");
+        var skin = creaturesMod.Armors.FirstOrDefault(a => string.Equals(a.EditorID, skinEdid, StringComparison.OrdinalIgnoreCase))
+                   ?? throw new Mission.Refusal($"M2: {creaturesMod.ModKey} lacks ARMO skin '{skinEdid}'");
+
+        var npc = (SF.Npc)template.Duplicate(new FormKey(modKey, npcId));
+        npc.EditorID = npcEdid;
+        npc.Name = displayName;
+        npc.FormVersion = 581;
+        npc.VirtualMachineAdapter = null;
+        npc.Packages.Clear();
+        npc.DefaultTemplate.Clear();
+        npc.TemplateActors = null;
+        npc.CrimeFaction.Clear();
+        npc.DefaultOutfit.Clear();
+        npc.SpaceOutfit.Clear();
+        npc.Race.SetTo(race.FormKey);
+        npc.Skin.SetTo(skin.FormKey);
+        npc.ObjectBounds = new SF.ObjectBounds { First = boundsMin, Second = boundsMax };
+        npc.Flags = (npc.Flags & ~(SF.Npc.Flag.Essential | SF.Npc.Flag.Unique | SF.Npc.Flag.Respawn | SF.Npc.Flag.Protected))
+                    | SF.Npc.Flag.AutoCalcStats;
+        npc.CalcMinLevel = 1;
+        npc.CalcMaxLevel = calcMaxLevel;
+        npc.Level = new SF.PcLevelMult { LevelMult = 1.0f };
+        npc.Aggression = SF.Npc.AggressionType.VeryAggressive;
+        npc.Confidence = SF.Npc.ConfidenceType.Foolhardy;
+        mod.Npcs.Add(npc);
+        return npc;
+    }
+
+    static FormKey BuildStandInSettlerOutfit(
+        SF.StarfieldMod mod,
+        ModKey modKey,
+        SF.IStarfieldModGetter sfMod,
+        FormKey fallbackOutfitKey)
+    {
+        var rel = SF.StarfieldRelease.Starfield;
+        SF.Armor? standInArmor = null;
+        var extraItems = new List<FormKey>();
+
+        if (sfMod.Outfits.TryGetValue(new FormKey(SfEsm, SfMechanicOutfitId), out var sfMechOutfit))
+        {
+            foreach (var it in sfMechOutfit.Items ?? [])
+            {
+                if (standInArmor is null && sfMod.Armors.TryGetValue(it.FormKey, out var srcArmo))
+                {
+                    standInArmor = (SF.Armor)srcArmo.Duplicate(new FormKey(modKey, S6SettlerStandInArmorId));
+                    standInArmor.EditorID = S6SettlerStandInArmorEdid;
+                    standInArmor.Name = S6SettlerStandInName;
+                    standInArmor.FormVersion = 581;
+                }
+                else
+                {
+                    extraItems.Add(it.FormKey);
+                }
+            }
+        }
+
+        if (standInArmor is null)
+        {
+            // Synthetic SelfTest fallback if SfMechanicOutfit had no ARMO resolved
+            var firstArmo = sfMod.Armors.FirstOrDefault() ?? mod.Armors.FirstOrDefault();
+            standInArmor = firstArmo is not null
+                ? (SF.Armor)firstArmo.Duplicate(new FormKey(modKey, S6SettlerStandInArmorId))
+                : new SF.Armor(new FormKey(modKey, S6SettlerStandInArmorId), rel);
+            standInArmor.EditorID = S6SettlerStandInArmorEdid;
+            standInArmor.Name = S6SettlerStandInName;
+            standInArmor.FormVersion = 581;
+        }
+        mod.Armors.Remove(standInArmor.FormKey);
+        mod.Armors.Add(standInArmor);
+
+        var otft = new SF.Outfit(new FormKey(modKey, S6SettlerStandInOutfitId), rel)
+        {
+            EditorID = S6SettlerStandInOutfitEdid,
+            FormVersion = 581,
+            Items = new ExtendedList<IFormLinkGetter<SF.IOutfitTargetGetter>>
+            {
+                new FormLink<SF.IOutfitTargetGetter>(standInArmor.FormKey),
+            },
+        };
+        foreach (var ex in extraItems)
+            otft.Items.Add(new FormLink<SF.IOutfitTargetGetter>(ex));
+        mod.Outfits.Remove(otft.FormKey);
+        mod.Outfits.Add(otft);
+        return otft.FormKey;
     }
 
     static SF.Npc CloneRoomSettler(
@@ -288,7 +473,9 @@ static class NextStoryMissionsS2S6
         FormKey raiderSandboxPackKey,
         CreatureSlotsConfig creatureSlots,
         bool fo4HumanAnims,
-        bool task1bVaultRecoveryReady)
+        bool task1bVaultRecoveryReady,
+        SF.IStarfieldModGetter? creaturesMod = null,
+        SF.IStarfieldModGetter? humanAnimsMod = null)
     {
         var modKey = mod.ModKey;
         var rel = SF.StarfieldRelease.Starfield;
@@ -298,6 +485,31 @@ static class NextStoryMissionsS2S6
         var creatureSlotGlob = AddGlob(mod, modKey, S2CreatureSlotReadyGlobId, S2CreatureSlotReadyGlobEdid, creatureSlots.Ready ? 1f : 0f);
         var task1bGlob = AddGlob(mod, modKey, Task1bVaultRecoveryReadyGlobId, Task1bVaultRecoveryReadyGlobEdid, task1bVaultRecoveryReady ? 1f : 0f);
         AddGlob(mod, modKey, Fo4HumanAnimsEnabledGlobId, Fo4HumanAnimsEnabledGlobEdid, fo4HumanAnims ? 1f : 0f);
+
+        // Optional M2 FO4SFCreatures.esm NPC_ records built from FO4 000544CB (LvlRadRoachAmbush) / 0007CEA8 (LvlBloatflyAggro512)
+        string boundCreaturePlugin = "";
+        int boundRadroachNpcId = 0;
+        int boundBloatflyNpcId = 0;
+        if (creatureSlots.Ready)
+        {
+            if (creaturesMod is null)
+                throw new Mission.Refusal($"M2: --creature-slots ready=true requires {creatureSlots.CreaturesPlugin} (pass --creatures-esm)");
+            if (!cache.TryResolve<SF.INpcGetter>(new FormKey(SfEsm, SfCreatureTemplateNpcId), out var creatureTpl) ||
+                creatureTpl.EditorID != SfCreatureTemplateNpcEdid)
+                throw new Mission.Refusal($"Starfield.esm lacks NPC_ {SfCreatureTemplateNpcId:X6} ({SfCreatureTemplateNpcEdid})");
+
+            var roachNpc = BuildCreatureNpcFromSlot(
+                mod, modKey, S2RadroachNpcId, S2RadroachNpcEdid, "Radroach",
+                creatureTpl, creaturesMod, creatureSlots.RadroachRaceEdid, creatureSlots.RadroachSkinEdid,
+                calcMaxLevel: 10, new P3Float(-0.35f, -0.35f, 0f), new P3Float(0.35f, 0.35f, 0.25f));
+            var flyNpc = BuildCreatureNpcFromSlot(
+                mod, modKey, S3BloatflyNpcId, S3BloatflyNpcEdid, "Bloatfly",
+                creatureTpl, creaturesMod, creatureSlots.BloatflyRaceEdid, creatureSlots.BloatflySkinEdid,
+                calcMaxLevel: 12, new P3Float(-0.40f, -0.40f, 0f), new P3Float(0.40f, 0.40f, 0.80f));
+            boundCreaturePlugin = modKey.FileName.String;
+            boundRadroachNpcId = (int)roachNpc.FormKey.ID;
+            boundBloatflyNpcId = (int)flyNpc.FormKey.ID;
+        }
 
         // 1. S2 Vault 111 Radroaches QUST (0xB90) + 5 stage-gated markers (0xB91..0xB95)
         var roachMarkers = new List<SF.PlacedObject>(5);
@@ -330,8 +542,8 @@ static class NextStoryMissionsS2S6
         s2Script.Properties.Add(rmList);
         s2Script.Properties.Add(ObjProp("CreatureSlotReadyGlob", creatureSlotGlob.FormKey));
         s2Script.Properties.Add(ObjProp("Task1bRecoveryReadyGlob", task1bGlob.FormKey));
-        s2Script.Properties.Add(new SF.ScriptStringProperty { Name = "CreaturePlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = creatureSlots.PluginName });
-        s2Script.Properties.Add(new SF.ScriptIntProperty { Name = "CreatureRadroachNpcId", Flags = SF.ScriptProperty.Flag.Edited, Data = (int)creatureSlots.RadroachNpcId });
+        s2Script.Properties.Add(new SF.ScriptStringProperty { Name = "CreaturePlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = boundCreaturePlugin });
+        s2Script.Properties.Add(new SF.ScriptIntProperty { Name = "CreatureRadroachNpcId", Flags = SF.ScriptProperty.Flag.Edited, Data = boundRadroachNpcId });
         s2Quest.VirtualMachineAdapter = new SF.QuestAdapter
         {
             Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
@@ -400,16 +612,20 @@ static class NextStoryMissionsS2S6
             var flyProp = new SF.ScriptObjectListProperty { Name = "S3BloatflyMarkers", Flags = SF.ScriptProperty.Flag.Edited };
             foreach (var fm in s3FlyMarkers) flyProp.Objects.Add(ObjProp("", fm.FormKey));
             codsworthScript.Properties.Add(flyProp);
-            codsworthScript.Properties.Add(new SF.ScriptStringProperty { Name = "CreaturePlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = creatureSlots.PluginName });
-            codsworthScript.Properties.Add(new SF.ScriptIntProperty { Name = "CreatureBloatflyNpcId", Flags = SF.ScriptProperty.Flag.Edited, Data = (int)creatureSlots.BloatflyNpcId });
+            codsworthScript.Properties.Add(new SF.ScriptStringProperty { Name = "CreaturePlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = boundCreaturePlugin });
+            codsworthScript.Properties.Add(new SF.ScriptIntProperty { Name = "CreatureBloatflyNpcId", Flags = SF.ScriptProperty.Flag.Edited, Data = boundBloatflyNpcId });
         }
 
-        // 3. S4 Display Laser Musket (0001F22E -> 15 cells + obj 70) + 3 Fusion Cell pickups (5 cells each) in holdingCell (relocated via 1i host anchor)
-        var dispMusketActi = AddActivator(mod, modKey, S4DisplayMusketActiId, "FO4SF_S4_DisplayLaserMusketActi", "Laser Musket", "Take");
+        // 3. S4 Display Laser Musket (0001F22E -> 15 cells + obj 70) + 3 Fusion Cell pickups (5 cells each) with real FO4 NIFs (B1)
+        var dispMusketActi = AddActivator(
+            mod, modKey, S4DisplayMusketActiId, "FO4SF_S4_DisplayLaserMusketActi", "Laser Musket", "Take",
+            DisplayMusketModelPath, new P3Float(-0.45f, -0.10f, -0.10f), new P3Float(0.45f, 0.10f, 0.10f));
         var dispMusketRef = PlacePersistentMarker(holdingCell, modKey, S4DisplayMusketRefId, "FO4SF_S4_DisplayLaserMusketRef", dispMusketActi.FormKey, S4DisplayMusketPos, true);
         AttachPickupScript(dispMusketRef, "display_musket", (int)Fo4LaserMusketId, (int)Fo4FusionCellId, 0, 1, 15, consume: true);
 
-        var fcActi = AddActivator(mod, modKey, S4FusionCellActiId, "FO4SF_S4_FusionCellActi", "Fusion Cell (5)", "Take");
+        var fcActi = AddActivator(
+            mod, modKey, S4FusionCellActiId, "FO4SF_S4_FusionCellActi", "Fusion Cell (5)", "Take",
+            FusionCellModelPath, new P3Float(-0.08f, -0.08f, -0.08f), new P3Float(0.08f, 0.08f, 0.08f));
         var fcRefs = new List<SF.PlacedObject>(S4FusionCellPositions.Length);
         for (int i = 0; i < S4FusionCellPositions.Length; i++)
         {
@@ -418,37 +634,96 @@ static class NextStoryMissionsS2S6
             fcRefs.Add(fcr);
         }
 
-        // 4. Museum Items: A4.5 2 Stimpaks, Caps, Bobby Pin, Pipe Pistol+.38 (inside holdingCell, moved into 0x0100E2F4 on entry)
-        var stimActi = AddActivator(mod, modKey, S5StimpakActiId, "FO4SF_Item_StimpakActi", "Stimpak", "Take");
+        // 4. Museum Items: A4.5 2 Stimpaks, Caps, Bobby Pin, Pipe Pistol+.38 with real FO4 NIFs (B1)
+        var stimActi = AddActivator(
+            mod, modKey, S5StimpakActiId, "FO4SF_Item_StimpakActi", "Stimpak", "Take",
+            StimpakModelPath, new P3Float(-0.10f, -0.10f, -0.15f), new P3Float(0.10f, 0.10f, 0.15f));
         var stimRef0 = PlacePersistentMarker(holdingCell, modKey, FirstS5StimpakRefId, "FO4SF_S5_MuseumStimpakRef_0", stimActi.FormKey, new P3Float(0, 0, 0), true);
         var stimRef1 = PlacePersistentMarker(holdingCell, modKey, FirstS5StimpakRefId + 1, "FO4SF_S5_MuseumStimpakRef_1", stimActi.FormKey, new P3Float(0, 0, 0), true);
         AttachPickupScript(stimRef0, "stimpak", (int)Fo4StimpakId);
         AttachPickupScript(stimRef1, "stimpak", (int)Fo4StimpakId);
 
-        var capsActi = AddActivator(mod, modKey, S5CapsActiId, "FO4SF_Item_CapsActi", "Bottlecap (15)", "Take");
+        var capsActi = AddActivator(
+            mod, modKey, S5CapsActiId, "FO4SF_Item_CapsActi", "Bottlecap (15)", "Take",
+            CapsModelPath, new P3Float(-0.05f, -0.05f, -0.05f), new P3Float(0.05f, 0.05f, 0.05f));
         var capsRef = PlacePersistentMarker(holdingCell, modKey, S5CapsRefId, "FO4SF_S5_MuseumCapsRef", capsActi.FormKey, new P3Float(0, 0, 0), true);
         AttachPickupScript(capsRef, "caps", (int)Fo4CapsId, 0, (int)SfCapsFallbackId, 15);
 
-        var pinActi = AddActivator(mod, modKey, S5BobbyPinActiId, "FO4SF_Item_BobbyPinActi", "Bobby Pin (2)", "Take");
+        var pinActi = AddActivator(
+            mod, modKey, S5BobbyPinActiId, "FO4SF_Item_BobbyPinActi", "Bobby Pin (2)", "Take",
+            BobbyPinModelPath, new P3Float(-0.06f, -0.06f, -0.05f), new P3Float(0.06f, 0.06f, 0.05f));
         var pinRef = PlacePersistentMarker(holdingCell, modKey, S5BobbyPinRefId, "FO4SF_S5_MuseumBobbyPinRef", pinActi.FormKey, new P3Float(0, 0, 0), true);
         AttachPickupScript(pinRef, "bobbypin", (int)Fo4BobbyPinId, 0, (int)SfBobbyPinFallbackId, 2);
 
-        var pipeActi = AddActivator(mod, modKey, S5PipeWeaponActiId, "FO4SF_S5_MuseumPipeWeaponActi", "Pipe Pistol & .38 Rounds", "Take");
+        var pipeActi = AddActivator(
+            mod, modKey, S5PipeWeaponActiId, "FO4SF_S5_MuseumPipeWeaponActi", "Pipe Pistol & .38 Rounds", "Take",
+            PipeWeaponModelPath, new P3Float(-0.22f, -0.08f, -0.14f), new P3Float(0.22f, 0.08f, 0.14f));
         var pipeRef = PlacePersistentMarker(holdingCell, modKey, S5PipeWeaponRefId, "FO4SF_S5_MuseumPipeWeaponRef", pipeActi.FormKey, new P3Float(0, 0, 0), true);
         AttachPickupScript(pipeRef, "pipe_weapon", (int)Fo4PipePistolId, (int)Fo4Ammo38Id, 0, 1, 24);
 
-        // 5. S5 Confirmed-Arrival Load Doors + 7 Museum Raiders (floor-by-floor)
-        var doorInActi = AddActivator(mod, modKey, S5LoadDoorInActiId, "FO4SF_S5_LoadDoorInActi", "Museum of Freedom", "Open");
-        var doorOutActi = AddActivator(mod, modKey, S5LoadDoorOutActiId, "FO4SF_S5_LoadDoorOutActi", "Commonwealth", "Open");
+        // 5. S5 StartGameEnabled Load Door Controller QUST (0xBDE) + Visible Collidable FO4Port Load Doors + 7 Museum Raiders (floor-by-floor)
+        var loadDoorQuest = new SF.Quest(new FormKey(modKey, LoadDoorQuestId), rel)
+        {
+            EditorID = LoadDoorQuestEdid,
+            FormVersion = 581,
+            Version2 = 12,
+            Data = new SF.QuestData
+            {
+                Flags = SF.Quest.Flag.StartGameEnabled | SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.RunOnce,
+                Priority = 55,
+            },
+        };
+        loadDoorQuest.QuestType.SetTo(qtypKey);
+        var ldStage = new SF.QuestStage { Index = 10 };
+        ldStage.LogEntries.Add(new SF.QuestLogEntry { Flags = (SF.QuestLogEntry.Flag)0 });
+        loadDoorQuest.Stages.Add(ldStage);
+        var ldScript = new SF.ScriptEntry { Name = LoadDoorQuestScriptName, Flags = SF.ScriptEntry.Flag.Local };
+        loadDoorQuest.VirtualMachineAdapter = new SF.QuestAdapter
+        {
+            Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
+            Script = new SF.ScriptEntry { Name = "", Flags = SF.ScriptEntry.Flag.Local },
+            Scripts = { ldScript },
+        };
+        mod.Quests.Add(loadDoorQuest);
+
+        var frontBoundsMin = new P3Float(-1.43f, -0.16f, 0.0f);
+        var frontBoundsMax = new P3Float(1.42f, 0.16f, 2.40f);
+        var roofBoundsMin = new P3Float(-0.07f, -0.73f, 0.0f);
+        var roofBoundsMax = new P3Float(0.14f, 0.70f, 2.40f);
+
+        var doorInActi = AddActivator(
+            mod, modKey, S5LoadDoorInActiId, "FO4SF_S5_LoadDoorInActi", "Museum of Freedom", "Open",
+            FrontLoadDoorModelPath, frontBoundsMin, frontBoundsMax);
+        var doorOutActi = AddActivator(
+            mod, modKey, S5LoadDoorOutActiId, "FO4SF_S5_LoadDoorOutActi", "Commonwealth", "Open",
+            FrontLoadDoorModelPath, frontBoundsMin, frontBoundsMax);
+        var roofDoorInActi = AddActivator(
+            mod, modKey, S5RoofLoadDoorInActiId, "FO4SF_S5_RoofLoadDoorInActi", "Museum of Freedom", "Open",
+            RoofLoadDoorModelPath, roofBoundsMin, roofBoundsMax);
+        var roofDoorOutActi = AddActivator(
+            mod, modKey, S5RoofLoadDoorOutActiId, "FO4SF_S5_RoofLoadDoorOutActi", "Commonwealth", "Open",
+            RoofLoadDoorModelPath, roofBoundsMin, roofBoundsMax);
+
         var extFrontIn = PlacePersistentMarker(holdingCell, modKey, S5ExtFrontInRefId, "FO4SF_S5_ExtFrontInRef", doorInActi.FormKey, new P3Float(0, 0, 0), true);
         var intFrontOut = PlacePersistentMarker(holdingCell, modKey, S5IntFrontOutRefId, "FO4SF_S5_IntFrontOutRef", doorOutActi.FormKey, new P3Float(0, 0, 0), true);
-        var intRoofOut = PlacePersistentMarker(holdingCell, modKey, S5IntRoofOutRefId, "FO4SF_S5_IntRoofOutRef", doorOutActi.FormKey, new P3Float(0, 0, 0), true);
-        var extRoofIn = PlacePersistentMarker(holdingCell, modKey, S5ExtRoofInRefId, "FO4SF_S5_ExtRoofInRef", doorInActi.FormKey, new P3Float(0, 0, 0), true);
+        var intRoofOut = PlacePersistentMarker(holdingCell, modKey, S5IntRoofOutRefId, "FO4SF_S5_IntRoofOutRef", roofDoorOutActi.FormKey, new P3Float(0, 0, 0), true);
+        var extRoofIn = PlacePersistentMarker(holdingCell, modKey, S5ExtRoofInRefId, "FO4SF_S5_ExtRoofInRef", roofDoorInActi.FormKey, new P3Float(0, 0, 0), true);
 
-        AttachConfirmedDoorScript(extFrontIn, "FO4Port.esm", 0x00E2F5, "in", "s5_front_in", false, new P3Float(0, 0, 0));
-        AttachConfirmedDoorScript(intFrontOut, "FO4TerrainCore.esm", 0x0A775C, "out", "s5_front_out", true, new P3Float(-2012.50f, -1697.94f, 88.24f), 0x0A775B);
-        AttachConfirmedDoorScript(intRoofOut, "FO4TerrainCore.esm", 0x0A775C, "out", "s5_roof_out", true, new P3Float(-2008.49f, -1724.60f, 97.42f), 0x0A775B); // F9: 2.21 m south of ExtRoofIn
-        AttachConfirmedDoorScript(extRoofIn, "FO4Port.esm", 0x00E2F5, "in", "s5_roof_in", true, new P3Float(-19.50f, 9.14f, 9.15f));
+        AttachConfirmedDoorScript(extFrontIn, loadDoorQuest.FormKey, "FO4Port.esm", 0x00E2F5, "in", "s5_front_in", false, new P3Float(0, 0, 0));
+        AttachConfirmedDoorScript(intFrontOut, loadDoorQuest.FormKey, "FO4TerrainCore.esm", CoreExitAnchorVault111, "out", "s5_front_out", true, S5FrontOutDestPos, CoreExitAnchorCommonwealth);
+        AttachConfirmedDoorScript(intRoofOut, loadDoorQuest.FormKey, "FO4TerrainCore.esm", CoreExitAnchorVault111, "out", "s5_roof_out", true, S5RoofOutDestPos, CoreExitAnchorCommonwealth);
+        AttachConfirmedDoorScript(extRoofIn, loadDoorQuest.FormKey, "FO4Port.esm", 0x00E2F5, "in", "s5_roof_in", true, S5RoofInDestPos);
+
+        // Ground Museum Raider pursue package (0xBE1, cloned from defaultFollowPlayerPKG 0x021E76)
+        cache.TryResolve<SF.IPackageGetter>(new FormKey(SfEsm, SfDefaultFollowPackageId), out var baseFollowPkg);
+        var pursuePack = baseFollowPkg is not null
+            ? (SF.Package)baseFollowPkg.Duplicate(new FormKey(modKey, S5MuseumRaiderPursuePackId))
+            : new SF.Package(new FormKey(modKey, S5MuseumRaiderPursuePackId), rel);
+        pursuePack.EditorID = S5MuseumRaiderPursuePackEdid;
+        pursuePack.FormVersion = 581;
+        pursuePack.Conditions.Add(Mission.QuestStageCond(min00Quest.FormKey, SF.CompareOperator.GreaterThanOrEqualTo, 30f));
+        pursuePack.Conditions.Add(Mission.QuestStageCond(min00Quest.FormKey, SF.CompareOperator.LessThan, 200f));
+        mod.Packages.Add(pursuePack);
 
         var museumRaiders = new List<SF.PlacedNpc>(7);
         for (uint i = 0; i < 7; i++)
@@ -465,7 +740,7 @@ static class NextStoryMissionsS2S6
             museumRaiders.Add(mr);
         }
 
-        // 6. S6 3F Room NPCs, Preston & Sturges 3F Scenes, Basement Terminal proxy, MQ102FusionCoreREF, --fo4-human-anims KYWD
+        // 6. S6 3F Room NPCs, Preston & Sturges 3F Scenes, visible Basement Terminal, visible Fusion Core, --fo4-human-anims external KYWD
         var femaleTpl = sfMod.Npcs.FirstOrDefault(n =>
                             n.Race.FormKey == humanRaceKey && n.Flags.HasFlag(SF.Npc.Flag.Female) && !string.IsNullOrEmpty(n.EditorID) && n.DefaultTemplate.IsNull)
                         ?? sfMod.Npcs.FirstOrDefault(n => n.Race.FormKey == humanRaceKey && n.Flags.HasFlag(SF.Npc.Flag.Female))
@@ -474,13 +749,10 @@ static class NextStoryMissionsS2S6
                           ?? sfMod.VoiceTypes.FirstOrDefault(v => (v.EditorID ?? "").Contains("Female", StringComparison.OrdinalIgnoreCase) && v.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog))?.FormKey
                           ?? maleVoiceKey;
 
-        var prestonOutfitKey = new FormKey(modKey, FalloutActorLooks.PrestonOutfitId);
         var raiderOutfitKey = new FormKey(modKey, FalloutActorLooks.RaiderOutfitId);
-        var settlerOutfitKey = sfMod.Outfits.Any(o => o.FormKey == new FormKey(SfEsm, SfMechanicOutfitId))
-            ? new FormKey(SfEsm, SfMechanicOutfitId)
-            : raiderOutfitKey;
+        var settlerOutfitKey = BuildStandInSettlerOutfit(mod, modKey, sfMod, raiderOutfitKey);
 
-        // Upgrade Sturges (0xA00) to non-spacesuit mechanic clothes + ForceHideSpacesuit=1.0
+        // H2: Equip explicit (Stand-In) clothes + ForceHideSpacesuit=1.0 on Sturges, Mama Murphy, Marcy, Jun
         var sturgesNpc = mod.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(modKey, NextStoryMissionsA4.SturgesNpcId));
         if (sturgesNpc is not null)
         {
@@ -508,11 +780,13 @@ static class NextStoryMissionsS2S6
         var marcyRef = PlaceRoomNpc(MarcyLongRefId, "FO4SF_S6_MarcyLongRef", marcyNpc.FormKey);
         var junRef = PlaceRoomNpc(JunLongRefId, "FO4SF_S6_JunLongRef", junNpc.FormKey);
 
-        // Optional --fo4-human-anims keyword FO4SF_AnimArchetypeFO4 (default OFF until Claude posts PASS on #856)
+        // M3: --fo4-human-anims links FO4SF_AnimArchetypeFO4 KYWD from FO4SFHumanAnims.esm (never creates local 0xBDC)
         if (fo4HumanAnims)
         {
-            var kw = new SF.Keyword(new FormKey(modKey, Fo4AnimArchetypeKwId), rel) { EditorID = Fo4AnimArchetypeKwEdid };
-            mod.Keywords.Add(kw);
+            if (humanAnimsMod is null)
+                throw new Mission.Refusal($"M3: --fo4-human-anims requires {HumanAnimsEsmName} (pass --fo4-human-anims-esm)");
+            var kw = humanAnimsMod.Keywords.FirstOrDefault(k => k.EditorID == Fo4AnimArchetypeKwEdid)
+                     ?? throw new Mission.Refusal($"M3: {humanAnimsMod.ModKey} lacks KYWD {Fo4AnimArchetypeKwEdid}");
             foreach (uint nid in new[] { Mission.PrestonNpcId, NextStoryMissionsA4.SturgesNpcId, MamaMurphyNpcId, MarcyLongNpcId, JunLongNpcId, FalloutActorLooks.ConcordRaiderNpcId })
             {
                 if (mod.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(modKey, nid)) is { } npcTarget)
@@ -524,16 +798,22 @@ static class NextStoryMissionsS2S6
             }
         }
 
-        AddActivator(mod, modKey, S6SturgesTalkActiId, "FO4SF_S6_SturgesTalkActi", "Sturges", "Talk");
-        var termActi = AddActivator(mod, modKey, S6BasementTermActiId, "FO4SF_S6_BasementTermActi", "Security Terminal", "Unlock Security Gate");
+        AddActivator(
+            mod, modKey, S6SturgesTalkActiId, "FO4SF_S6_SturgesTalkActi", "Sturges", "Talk",
+            ConsolePanelModelPath, new P3Float(-0.29f, -0.50f, 0.0f), new P3Float(0.29f, 0.23f, 1.40f));
+        var termActi = AddActivator(
+            mod, modKey, S6BasementTermActiId, "FO4SF_S6_BasementTermActi", "Security Terminal", "Unlock Security Gate",
+            BasementTermModelPath, new P3Float(-0.27f, -0.76f, 1.24f), new P3Float(0.31f, 0.0f, 1.94f));
         var termRef = PlacePersistentMarker(holdingCell, modKey, S6BasementTermRefId, "FO4SF_S6_BasementTermRef", termActi.FormKey, new P3Float(0, 0, 0), true);
         AttachPickupScript(termRef, "basement_terminal", 0x00EDF0, 0, 0, 1, 0, consume: false);
 
-        var coreActi = AddActivator(mod, modKey, S6FusionCoreActiId, "FO4SF_S6_FusionCoreActi", "Fusion Core", "Take");
+        var coreActi = AddActivator(
+            mod, modKey, S6FusionCoreActiId, "FO4SF_S6_FusionCoreActi", "Fusion Core", "Take",
+            FusionCoreModelPath, new P3Float(-0.08f, -0.08f, -0.15f), new P3Float(0.08f, 0.08f, 0.15f));
         var coreRef = PlacePersistentMarker(holdingCell, modKey, S6FusionCoreRefId, "FO4SF_S6_FusionCoreRef", coreActi.FormKey, new P3Float(0, 0, 0), true);
         AttachPickupScript(coreRef, "fusion_core", (int)PaFusionCoreId, 0, 0, 1, 0, consume: true);
 
-        // Sturges alias + Preston/Sturges 3F Room Scenes on FO4SF_Min00
+        // Sturges alias + S5 Ground Museum Raider pursue alias on FO4SF_Min00
         var sturgesRefKey = new FormKey(modKey, NextStoryMissionsA4.SturgesRefId);
         uint sturgesAliasId = (uint)(min00Quest.Aliases?.OfType<SF.IQuestReferenceAliasGetter>().Count() ?? 1);
         (min00Quest.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
@@ -543,6 +823,20 @@ static class NextStoryMissionsS2S6
             Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowDead | SF.AQuestAlias.Flag.AllowDisabled |
                     SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
             ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(sturgesRefKey),
+        });
+        min00Quest.Aliases.Add(new SF.QuestReferenceAlias
+        {
+            ID = sturgesAliasId + 1,
+            Name = "S5MuseumGroundRaider",
+            Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowDead | SF.AQuestAlias.Flag.AllowDisabled |
+                    SF.AQuestAlias.Flag.AllowReserved,
+            ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(museumRaiders[0].FormKey),
+            PackageData =
+            {
+                new FormLink<SF.IPackageGetter>(pursuePack.FormKey),
+                new FormLink<SF.IPackageGetter>(raiderCombatPackKey),
+                new FormLink<SF.IPackageGetter>(raiderSandboxPackKey),
+            },
         });
 
         var prestonNpcKey = new FormKey(modKey, Mission.PrestonNpcId);
@@ -611,21 +905,31 @@ static class NextStoryMissionsS2S6
         SF.IStarfieldModGetter plug,
         List<string> problems,
         bool r11FullMission,
-        bool fo4HumanAnims)
+        bool fo4HumanAnims,
+        bool creatureSlotsReady = false,
+        SF.IStarfieldModGetter? creaturesMod = null,
+        SF.IStarfieldModGetter? humanAnimsMod = null)
     {
         void Need(bool ok, string msg) { if (!ok) problems.Add(msg); }
         var key = plug.ModKey;
+        var masterNames = plug.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // M3 rule applies to ALL builds: never create a local FO4SF_AnimArchetypeFO4 KYWD (0xBDC)
+        Need(!plug.Keywords.Any(k => k.FormKey.ID == RetiredLocalFo4AnimArchetypeKwId || k.EditorID == Fo4AnimArchetypeKwEdid),
+             $"plugin must not author local {Fo4AnimArchetypeKwEdid} (0x{RetiredLocalFo4AnimArchetypeKwId:X}); M3 links {HumanAnimsEsmName}");
 
         if (!r11FullMission)
         {
             Need(!plug.Quests.Any(q => q.FormKey.ID == S2RoachesQuestId),
                  $"default build (--r11-full-mission 0) must not emit {S2RoachesQuestEdid} (0x{S2RoachesQuestId:X})");
-            Need(!plug.Keywords.Any(k => k.FormKey.ID == Fo4AnimArchetypeKwId),
-                 $"default build must not emit {Fo4AnimArchetypeKwEdid} (0x{Fo4AnimArchetypeKwId:X})");
+            Need(!plug.Quests.Any(q => q.FormKey.ID == LoadDoorQuestId),
+                 $"default build (--r11-full-mission 0) must not emit {LoadDoorQuestEdid} (0x{LoadDoorQuestId:X})");
+            Need(!masterNames.Contains(HumanAnimsEsmName) && !masterNames.Contains(CreaturesEsmName),
+                 $"default build (--r11-full-mission 0) must not depend on {HumanAnimsEsmName} or {CreaturesEsmName}");
             return;
         }
 
-        // Holding cell (0xB60 FO4SF_MissionHoldingCell) + S2 Vault111Roaches
+        // Holding cell (0xB60 FO4SF_MissionHoldingCell) + S2 Vault111Roaches + FO4SF_LoadDoor
         var hc = plug.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).FirstOrDefault(c => c.FormKey == new FormKey(key, Mission.MissionHoldingCellId));
         Need(hc is { EditorID: Mission.MissionHoldingCellEdid }, $"R11 full mission lacks holding cell 0x{Mission.MissionHoldingCellId:X}");
 
@@ -633,10 +937,29 @@ static class NextStoryMissionsS2S6
         Need(s2q is { EditorID: S2RoachesQuestEdid } && (s2q.Data?.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) == true),
              $"R11 full mission lacks StartGameEnabled {S2RoachesQuestEdid} (0x{S2RoachesQuestId:X})");
 
-        // S3 Travel PACKs + markers
+        var ldq = plug.Quests.FirstOrDefault(q => q.FormKey == new FormKey(key, LoadDoorQuestId));
+        var ldScript = ldq?.VirtualMachineAdapter?.Scripts.FirstOrDefault(s => s.Name == LoadDoorQuestScriptName);
+        Need(ldq is { EditorID: LoadDoorQuestEdid } &&
+             ldq.Data is not null &&
+             ldq.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) &&
+             !ldq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud) &&
+             ldScript is not null,
+             $"R11 full mission lacks StartGameEnabled {LoadDoorQuestEdid} (0x{LoadDoorQuestId:X}) with script {LoadDoorQuestScriptName}");
+
+        // S3 Travel PACKs + Pursue PACK + markers
         Need(plug.Packages.Any(p => p.FormKey == new FormKey(key, S3PackHouse01Id)) &&
              plug.Packages.Any(p => p.FormKey == new FormKey(key, S3PackHouse02Id)),
              $"R11 full mission lacks S3 Travel PACKs (0x{S3PackHouse01Id:X}, 0x{S3PackHouse02Id:X})");
+        Need(plug.Packages.Any(p => p.FormKey == new FormKey(key, S5MuseumRaiderPursuePackId)),
+             $"R11 full mission lacks ground raider pursue PACK {S5MuseumRaiderPursuePackEdid} (0x{S5MuseumRaiderPursuePackId:X})");
+
+        var min00 = plug.Quests.FirstOrDefault(q => q.FormKey == new FormKey(key, Mission.QuestId));
+        var groundRaiderAlias = (min00?.Aliases ?? []).OfType<SF.IQuestReferenceAliasGetter>()
+            .FirstOrDefault(a => a.Name == "S5MuseumGroundRaider");
+        Need(groundRaiderAlias is not null &&
+             groundRaiderAlias.ForcedReference.FormKey == new FormKey(key, FirstS5MuseumRaiderRefId) &&
+             groundRaiderAlias.PackageData.FirstOrDefault()?.FormKey == new FormKey(key, S5MuseumRaiderPursuePackId),
+             "FO4SF_Min00 lacks S5MuseumGroundRaider alias bound to 0xBBC with pursue package 0xBE1");
 
         var extRefs = plug.Worldspaces.SelectMany(w => w.TopCell?.Persistent.OfType<SF.IPlacedObjectGetter>() ?? []).ToDictionary(r => r.FormKey.ID);
         Need(!extRefs.ContainsKey(S3House01MarkerId) && !extRefs.ContainsKey(S3House2MarkerId) &&
@@ -666,18 +989,149 @@ static class NextStoryMissionsS2S6
         Need(holdNpcs.ContainsKey(MamaMurphyRefId) && holdNpcs.ContainsKey(MarcyLongRefId) && holdNpcs.ContainsKey(JunLongRefId),
              "S6 lacking 3F settlers (Mama Murphy, Marcy Long, Jun Long)");
 
-        // Roof exit separation check (F9 parity: -1724.60 vs -1722.39)
+        // B1: Every placed ACTI (and every S2-S6 ACTI) must carry a non-empty, non-marker NIF MODL and non-zero ObjectBounds
+        var actisByKey = plug.Activators.ToDictionary(a => a.FormKey);
+        foreach (var placed in (hc?.Persistent ?? []).Concat(hc?.Temporary ?? []).OfType<SF.IPlacedObjectGetter>())
+        {
+            if (actisByKey.TryGetValue(placed.Base.FormKey, out var baseActi))
+            {
+                string? mpath = baseActi.Model?.File?.GivenPath;
+                Need(!IsInvalidOrMarkerModelPath(mpath) && HasNonZeroObjectBounds(baseActi.ObjectBounds),
+                     $"B1: placed ACTI {baseActi.FormKey} ({baseActi.EditorID}) used by {placed.FormKey} ({placed.EditorID}) has invalid/marker MODL '{mpath}' or zero ObjectBounds");
+            }
+        }
+        var requiredActis = new (uint Id, string WantModel)[]
+        {
+            (S4DisplayMusketActiId, DisplayMusketModelPath),
+            (S4FusionCellActiId, FusionCellModelPath),
+            (S5StimpakActiId, StimpakModelPath),
+            (S5CapsActiId, CapsModelPath),
+            (S5BobbyPinActiId, BobbyPinModelPath),
+            (S5PipeWeaponActiId, PipeWeaponModelPath),
+            (S5LoadDoorInActiId, FrontLoadDoorModelPath),
+            (S5LoadDoorOutActiId, FrontLoadDoorModelPath),
+            (S5RoofLoadDoorInActiId, RoofLoadDoorModelPath),
+            (S5RoofLoadDoorOutActiId, RoofLoadDoorModelPath),
+            (S6SturgesTalkActiId, ConsolePanelModelPath),
+            (S6BasementTermActiId, BasementTermModelPath),
+            (S6FusionCoreActiId, FusionCoreModelPath),
+        };
+        foreach (var (aid, wantModel) in requiredActis)
+        {
+            if (!actisByKey.TryGetValue(new FormKey(key, aid), out var acti))
+                problems.Add($"B1: missing ACTI 0x{aid:X}");
+            else
+            {
+                string? mpath = acti.Model?.File?.GivenPath;
+                Need(!IsInvalidOrMarkerModelPath(mpath) &&
+                     string.Equals(mpath?.Replace('/', '\\'), wantModel, StringComparison.OrdinalIgnoreCase) &&
+                     HasNonZeroObjectBounds(acti.ObjectBounds),
+                     $"B1: ACTI 0x{aid:X} ({acti.EditorID}) MODL '{mpath}' != '{wantModel}' or zero ObjectBounds");
+            }
+        }
+
+        // Door anchors (0x0A775B primary / 0x0A775C fallback), LoadDoorController, and F9 roof exit landing (-1990.58, -1724.19, 97.56)
+        foreach (var doorId in new[] { S5ExtFrontInRefId, S5IntFrontOutRefId, S5IntRoofOutRefId, S5ExtRoofInRefId })
+        {
+            if (holdObjs.TryGetValue(doorId, out var dref))
+            {
+                var dsc = dref.VirtualMachineAdapter?.Scripts.FirstOrDefault(s => s.Name == LoadDoorScriptName);
+                var ctrl = dsc?.Properties.FirstOrDefault(p => p.Name == "LoadDoorController") as SF.IScriptObjectPropertyGetter;
+                Need(ctrl is not null && ctrl.Object.FormKey == new FormKey(key, LoadDoorQuestId),
+                     $"door 0x{doorId:X} missing LoadDoorController -> 0x{LoadDoorQuestId:X}");
+                if (doorId is S5IntFrontOutRefId or S5IntRoofOutRefId)
+                {
+                    var tgt = dsc?.Properties.FirstOrDefault(p => p.Name == "TargetFormId") as SF.IScriptIntPropertyGetter;
+                    var fb = dsc?.Properties.FirstOrDefault(p => p.Name == "FallbackTargetFormId") as SF.IScriptIntPropertyGetter;
+                    Need(tgt?.Data == CoreExitAnchorVault111 && fb?.Data == CoreExitAnchorCommonwealth,
+                         $"out door 0x{doorId:X} must target persistent 0x{CoreExitAnchorVault111:X} with fallback 0x{CoreExitAnchorCommonwealth:X}");
+                }
+            }
+        }
         if (holdObjs.TryGetValue(S5IntRoofOutRefId, out var rOut))
         {
             var sc = rOut.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == LoadDoorScriptName);
+            var xProp = sc?.Properties.FirstOrDefault(p => p.Name == "DestinationX") as SF.IScriptFloatPropertyGetter;
             var yProp = sc?.Properties.FirstOrDefault(p => p.Name == "DestinationY") as SF.IScriptFloatPropertyGetter;
-            Need(yProp is not null && MathF.Abs(yProp.Data - (-1724.60f)) < 0.05f, "S5IntRoofOutRef missing F9 separated DestinationY = -1724.60");
+            var zProp = sc?.Properties.FirstOrDefault(p => p.Name == "DestinationZ") as SF.IScriptFloatPropertyGetter;
+            Need(xProp is not null && MathF.Abs(xProp.Data - S5RoofOutDestPos.X) < 0.05f &&
+                 yProp is not null && MathF.Abs(yProp.Data - S5RoofOutDestPos.Y) < 0.05f &&
+                 zProp is not null && MathF.Abs(zProp.Data - S5RoofOutDestPos.Z) < 0.05f,
+                 $"S5IntRoofOutRef missing F9 roof arrival ({S5RoofOutDestPos.X}, {S5RoofOutDestPos.Y}, {S5RoofOutDestPos.Z})");
         }
 
-        // --fo4-human-anims flag OFF default check
-        bool hasAnimKw = plug.Keywords.Any(k => k.FormKey == new FormKey(key, Fo4AnimArchetypeKwId));
+        // H2: Sturges, Mama Murphy, Marcy, Jun wear explicit (Stand-In) clothes
+        var standInArmo = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, S6SettlerStandInArmorId));
+        var standInOtft = plug.Outfits.FirstOrDefault(o => o.FormKey == new FormKey(key, S6SettlerStandInOutfitId));
+        Need(standInArmo is { EditorID: S6SettlerStandInArmorEdid } &&
+             standInArmo.Name?.String == S6SettlerStandInName &&
+             standInOtft is { EditorID: S6SettlerStandInOutfitEdid } &&
+             (standInOtft.Items?.Any(i => i.FormKey == standInArmo.FormKey) == true),
+             $"H2: missing explicit stand-in settler ARMO/OTFT ({S6SettlerStandInArmorEdid} \"{S6SettlerStandInName}\" / {S6SettlerStandInOutfitEdid})");
+        foreach (uint sid in new[] { NextStoryMissionsA4.SturgesNpcId, MamaMurphyNpcId, MarcyLongNpcId, JunLongNpcId })
+        {
+            var sNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, sid));
+            Need(sNpc is not null && standInOtft is not null &&
+                 sNpc.DefaultOutfit.FormKey == standInOtft.FormKey &&
+                 sNpc.SpaceOutfit.FormKey == standInOtft.FormKey,
+                 $"H2: settler NPC_ 0x{sid:X} does not wear {S6SettlerStandInOutfitEdid} (0x{S6SettlerStandInOutfitId:X})");
+        }
+
+        // M2: Creature slot default OFF + FO4SFCreatures.esm NPC_ builds
+        var slotGlob = plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, S2CreatureSlotReadyGlobId));
+        Need(MathF.Abs((slotGlob?.Data ?? -1f) - (creatureSlotsReady ? 1f : 0f)) < 1e-4f,
+             $"M2: GLOB 0x{S2CreatureSlotReadyGlobId:X} mismatch for creatureSlotsReady={(creatureSlotsReady ? 1 : 0)}");
+        var s2ScriptCheck = s2q?.VirtualMachineAdapter?.Scripts.FirstOrDefault(s => s.Name == S2RoachesScriptName);
+        var cwQuestCheck = plug.Quests.FirstOrDefault(q => q.FormKey == new FormKey(key, Mission.CodsworthQuestId));
+        var cwScriptCheck = cwQuestCheck?.VirtualMachineAdapter?.Scripts.FirstOrDefault(s => s.Name == Mission.CodsworthScriptName);
+        string? s2CPlug = (s2ScriptCheck?.Properties.FirstOrDefault(p => p.Name == "CreaturePlugin") as SF.IScriptStringPropertyGetter)?.Data;
+        int? s2CId = (s2ScriptCheck?.Properties.FirstOrDefault(p => p.Name == "CreatureRadroachNpcId") as SF.IScriptIntPropertyGetter)?.Data;
+        string? cwCPlug = (cwScriptCheck?.Properties.FirstOrDefault(p => p.Name == "CreaturePlugin") as SF.IScriptStringPropertyGetter)?.Data;
+        int? cwCId = (cwScriptCheck?.Properties.FirstOrDefault(p => p.Name == "CreatureBloatflyNpcId") as SF.IScriptIntPropertyGetter)?.Data;
+        if (!creatureSlotsReady)
+        {
+            Need(!masterNames.Contains(CreaturesEsmName) &&
+                 !plug.Npcs.Any(n => n.FormKey.ID is S2RadroachNpcId or S3BloatflyNpcId) &&
+                 string.IsNullOrEmpty(s2CPlug) && (s2CId ?? -1) == 0 &&
+                 string.IsNullOrEmpty(cwCPlug) && (cwCId ?? -1) == 0,
+                 "M2: default creature-slots OFF build must have empty CreaturePlugin, 0 NPC IDs, no 0xBE2/0xBE3, and no FO4SFCreatures.esm master");
+        }
+        else
+        {
+            var roach = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, S2RadroachNpcId));
+            var fly = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, S3BloatflyNpcId));
+            Need(masterNames.Contains(CreaturesEsmName) && roach is not null && fly is not null &&
+                 roach.Race.FormKey.ModKey.FileName.String.Equals(CreaturesEsmName, StringComparison.OrdinalIgnoreCase) &&
+                 roach.Skin.FormKey.ModKey.FileName.String.Equals(CreaturesEsmName, StringComparison.OrdinalIgnoreCase) &&
+                 fly.Race.FormKey.ModKey.FileName.String.Equals(CreaturesEsmName, StringComparison.OrdinalIgnoreCase) &&
+                 fly.Skin.FormKey.ModKey.FileName.String.Equals(CreaturesEsmName, StringComparison.OrdinalIgnoreCase) &&
+                 s2CPlug == key.FileName.String && s2CId == (int)S2RadroachNpcId &&
+                 cwCPlug == key.FileName.String && cwCId == (int)S3BloatflyNpcId,
+                 "M2: creature-slots READY build lacks FO4SFCreatures.esm master, 0xBE2/0xBE3 NPCs, or script slot bindings");
+            if (creaturesMod is not null)
+            {
+                Need(roach is not null && creaturesMod.Races.Any(r => r.FormKey == roach.Race.FormKey) && creaturesMod.Armors.Any(a => a.FormKey == roach.Skin.FormKey),
+                     "M2: Radroach NPC_ 0xBE2 race/skin not resolved in FO4SFCreatures.esm");
+                Need(fly is not null && creaturesMod.Races.Any(r => r.FormKey == fly.Race.FormKey) && creaturesMod.Armors.Any(a => a.FormKey == fly.Skin.FormKey),
+                     "M2: Bloatfly NPC_ 0xBE3 race/skin not resolved in FO4SFCreatures.esm");
+            }
+        }
+
+        // M3: --fo4-human-anims flag OFF default check + external FO4SFHumanAnims.esm KYWD linkage
         var animGlob = plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, Fo4HumanAnimsEnabledGlobId));
-        Need(hasAnimKw == fo4HumanAnims && MathF.Abs((animGlob?.Data ?? -1f) - (fo4HumanAnims ? 1f : 0f)) < 1e-4f,
-             $"--fo4-human-anims {(fo4HumanAnims ? 1 : 0)} mismatch against KYWD 0x{Fo4AnimArchetypeKwId:X} and GLOB 0x{Fo4HumanAnimsEnabledGlobId:X}");
+        Need(MathF.Abs((animGlob?.Data ?? -1f) - (fo4HumanAnims ? 1f : 0f)) < 1e-4f,
+             $"M3: GLOB 0x{Fo4HumanAnimsEnabledGlobId:X} mismatch against --fo4-human-anims {(fo4HumanAnims ? 1 : 0)}");
+        Need(masterNames.Contains(HumanAnimsEsmName) == fo4HumanAnims,
+             $"M3: master {HumanAnimsEsmName} presence ({masterNames.Contains(HumanAnimsEsmName)}) != --fo4-human-anims {(fo4HumanAnims ? 1 : 0)}");
+        var wantExternalKw = humanAnimsMod?.Keywords.FirstOrDefault(k => k.EditorID == Fo4AnimArchetypeKwEdid)?.FormKey;
+        foreach (uint nid in new[] { Mission.PrestonNpcId, NextStoryMissionsA4.SturgesNpcId, MamaMurphyNpcId, MarcyLongNpcId, JunLongNpcId, FalloutActorLooks.ConcordRaiderNpcId })
+        {
+            var hn = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, nid));
+            bool hasExtKw = hn?.Keywords?.Any(k => wantExternalKw is not null
+                ? k.FormKey == wantExternalKw.Value
+                : string.Equals(k.FormKey.ModKey.FileName.String, HumanAnimsEsmName, StringComparison.OrdinalIgnoreCase)) == true;
+            Need(hasExtKw == fo4HumanAnims,
+                 $"M3: NPC_ 0x{nid:X} {HumanAnimsEsmName} KYWD state ({hasExtKw}) != --fo4-human-anims {(fo4HumanAnims ? 1 : 0)}");
+        }
     }
 }

@@ -97,11 +97,25 @@ PORT_MUSEUM_GATE_REF = (M_PORT << 24) | 0x00EDF0
 PORT_MUSEUM_NAVM = (M_PORT << 24) | 0x00EFA8
 PORT_PREWAR_CELL = (M_PORT << 24) | 0x00EDFB
 CORE_ANCHOR_LOCAL = 0x0A775C                      # Concord persistent anchor in FO4TerrainCore.esm
-CORE_FALLBACK_ANCHOR_LOCAL = 0x0A775B             # Vault 111 surface persistent anchor fallback in FO4TerrainCore.esm
+CORE_FALLBACK_ANCHOR_LOCAL = 0x0A775B             # Vault 111 surface persistent anchor in FO4TerrainCore.esm
+CORE_EXIT_PRIMARY_ANCHOR_LOCAL = 0x0A775B         # P1v2 cold-reload fix: Vault 111 surface anchor primary
+CORE_EXIT_FALLBACK_ANCHOR_LOCAL = 0x0A775C        # Concord persistent anchor fallback
 RAIDER_NPC_BASE = (M_RAIDER << 24) | 0xF04800     # FO4_LvlRaider in FO4ActorRaider.esm
-SF_ACTI_MODL = b"Effects\\sfbgs006\\SFBGS006_SBShipDecoratorMarker.nif\x00"
+
+# B1: Visible, collidable FO4Port NIF models + non-zero ObjectBounds for every placed ACTI (zero DecoratorMarker!)
+FO4_FRONT_DOOR_MODL = b"fo4port\\setdressing\\doors\\paintedwooddoordoubleload01.nif\x00"
+FO4_FRONT_DOOR_OBND = (-1.43, -0.16, 0.0, 1.42, 0.16, 2.40)
+FO4_ROOF_DOOR_MODL = b"fo4port\\interiors\\building\\woodp\\doors\\bldwoodpdoorload01.nif\x00"
+FO4_ROOF_DOOR_OBND = (-0.07, -0.73, 0.0, 0.14, 0.70, 2.40)
+FO4_BASEMENT_TERM_MODL = b"fo4port\\furniture\\terminals\\terminalwall01.nif\x00"
+FO4_BASEMENT_TERM_OBND = (-0.27, -0.76, 1.24, 0.31, 0.0, 1.94)
+FO4_TRIGGER_CONSOLE_MODL = b"fo4port\\furniture\\terminals\\terminalconsoleon.nif\x00"
+FO4_TRIGGER_CONSOLE_OBND = (-0.29, -0.50, 0.0, 0.29, 0.23, 1.40)
+DISALLOWED_MARKER_MODEL_TOKENS = ("decoratormarker", "xmarker", "marker", "editor")
+
 SF_CAVE_DOOR_BASE = 0x0024F9CE                    # AutoloadDoor_Cave:Starfield.esm (optional XTEL extra only)
 SF_CASLESS_SHELL = 0x002B4AFB                     # Caseless Shotgun Shell ammo for FO4_LvlRaider
+SF_DEFAULT_FOLLOW_PKG = 0x00021E76                # defaultFollowPlayerPKG:Starfield.esm (ground raider 3F pursue)
 SF_COMBAT_PKG_A = 0x00042240
 SF_COMBAT_PKG_B = 0x00089605
 SF_PROVEN_LTMP = ext.PROVEN_INTERIOR_LTMP         # 0x0006BCF8 KreetBase01LGTtemplate (proven on Vault111Cryo)
@@ -126,6 +140,7 @@ FID_REF_INT_BASEMENT_TERM = (M_LOCAL << 24) | 0x000814
 FID_ACHR_GROUND_RAIDER = (M_LOCAL << 24) | 0x000815
 FID_REF_INT_RAIDER_TRIGGER = (M_LOCAL << 24) | 0x000816
 FID_QUST_P1 = (M_LOCAL << 24) | 0x000820
+FID_QUST_LOADDOOR = (M_LOCAL << 24) | 0x000821
 QUST_P1_LOCAL_ID = 0x000820
 DEFAULT_QUEST_LOAD_PREFIX = 0x11  # 00 Starfield, 01 BlueprintShips, 02..10 15 active full ESMs, 11 FO4SF_R11P1Museum
 
@@ -147,29 +162,29 @@ CONCORD_ANCHOR_MERGED = (-2061.23, -1657.46, 86.93)  # FO4TerrainCore.esm:0x0A77
 SANCTUARY_BENCH_MERGED = (-2329.25, -1420.19, 112.09)
 HOP_MID_MERGED = (-2170.0, -1560.0, 102.0)
 
-EXT_FRONT_DOOR_MERGED = (-2010.57, -1697.94, 89.26)
-EXT_FRONT_ARRIVAL_MERGED = (-2012.50, -1697.94, 88.30)
+EXT_FRONT_DOOR_MERGED = (-2010.69, -1698.04, 89.26)
+EXT_FRONT_ARRIVAL_MERGED = (-2012.50, -1697.94, 88.24)
 EXT_FRONT_HEADING_DEG = 270.0  # facing west away from Museum facade onto Concord street
 
-EXT_ROOF_DOOR_MERGED = (-2008.49, -1722.39, 97.42)
-EXT_ROOF_ARRIVAL_MERGED = (-2008.49, -1724.60, 97.42)  # F9: 2.21 m south along roof deck, clear of re-entry activator
-EXT_ROOF_HEADING_DEG = 180.0   # facing south along clear Museum roof deck
+EXT_ROOF_DOOR_MERGED = (-1991.27, -1722.57, 97.42)
+EXT_ROOF_ARRIVAL_MERGED = (-1990.58, -1724.19, 97.56)  # F9: Fallout 4 0002C1C6 XTEL roof bulkhead (1.77 m from ExtRoofIn)
+EXT_ROOF_HEADING_DEG = 335.0   # facing NNW toward ExtRoofInDoor
 
 # Verified walkable interior coordinates on Museum NAVM 0x0100EFA8 (metres)
-INT_FRONT_ACTI_POS = (8.75, 0.0, 0.15)          # right beside 0x0100EDEC (9.143, 0.0, -0.914)
+INT_FRONT_ACTI_POS = (9.02, 0.0, -0.914)        # flush in 0x0100EDEC front doorframe (disabled), rotZ=90 deg
 INT_FRONT_ARRIVAL_POS = (7.73, 0.91, -0.90)     # NAVM tri 87 centroid
 INT_FRONT_HEADING_DEG = 270.0                   # facing west into Museum lobby
 
-INT_ROOF_ACTI_POS = (-21.80, 9.14, 10.20)       # right beside 0x0100EDF5 (-21.943, 9.143, 9.143)
-INT_ROOF_ARRIVAL_POS = (-22.97, 8.59, 9.15)     # NAVM tri 873 centroid
+INT_ROOF_ACTI_POS = (-21.943, 9.02, 9.143)      # flush in 0x0100EDF5 roof doorframe (disabled), rotZ=90 deg
+INT_ROOF_ARRIVAL_POS = (-21.90, 8.68, 9.15)     # FO4 00029AD8 XTEL roof arrival inside 3F stairwell hallway
 INT_ROOF_HEADING_DEG = 90.0                     # facing east back into 3F corridor
 
-INT_BASEMENT_TERM_POS = (-14.10, -0.10, -2.55)  # beside basement gate 0x0100EDF0 (-13.714, -0.457, -3.657)
+INT_BASEMENT_TERM_POS = (-14.092, -1.750, -3.566) # beside basement gate 0x0100EDF0 (-13.714, -0.457, -3.657), rotZ=90 deg
 INT_BASEMENT_STAND_POS = (-14.38, -0.10, -3.32) # NAVM tri 1011 centroid
 
 INT_GROUND_RAIDER_POS = (-3.00, 0.00, 0.15)     # NAVM tri 147 (main atrium floor; InitiallyDisabled)
 INT_3F_VANTAGE_POS = (-4.00, 7.50, 9.15)        # NAVM tri 817 (3F overlooking atrium; 195-hop path)
-INT_3F_RAIDER_TRIGGER_POS = (-4.00, 6.20, 9.55) # Directly in front of p1k 3F camera (-4.00, 7.50, 9.15, z=180)
+INT_3F_RAIDER_TRIGGER_POS = (-4.00, 6.20, 9.15) # Floor-seated console in front of p1k 3F camera (-4.00, 7.50, 9.15)
 
 # Optional XTEL extra side-offset (+4.0 m east of main front door so it never overlaps P1 confirmed door)
 XTEL_EXT_OFFSET_MERGED = (-2006.57, -1697.94, 89.26)
@@ -193,16 +208,45 @@ def _rec(sig: bytes, fid: int, subs: Sequence[Tuple[bytes, bytes]], flags: int =
     return ext.RawRecord(sig, flags, fid, 0, version, 0, ext.pack_subrecords(subs))
 
 
-def _make_acti(fid: int, edid: str, full_name: str, prompt: str = "Open") -> ext.RawRecord:
+def is_invalid_or_marker_model(modl_str: str) -> bool:
+    norm = modl_str.replace("/", "\\").strip()
+    if not norm:
+        return True
+    norm_low = norm.lower()
+    stem_low = Path(norm).stem.lower()
+    return any(tok in norm_low or tok in stem_low for tok in DISALLOWED_MARKER_MODEL_TOKENS)
+
+
+def has_nonzero_obnd(obnd_bytes: bytes) -> bool:
+    if len(obnd_bytes) != 24:
+        return False
+    x0, y0, z0, x1, y1, z1 = struct.unpack("<6f", obnd_bytes)
+    return (x1 - x0) > 1e-3 and (y1 - y0) > 1e-3 and (z1 - z0) > 1e-3
+
+
+def _make_acti(
+    fid: int,
+    edid: str,
+    full_name: str,
+    prompt: str = "Open",
+    modl: bytes = FO4_FRONT_DOOR_MODL,
+    obnd: Tuple[float, float, float, float, float, float] = FO4_FRONT_DOOR_OBND,
+) -> ext.RawRecord:
+    modl_str = modl.rstrip(b"\x00").decode("utf-8", errors="replace")
+    if is_invalid_or_marker_model(modl_str):
+        raise ProbeError(f"B1: ACTI 0x{fid:08X} ({edid}) uses invalid/marker MODL: {modl_str!r}")
+    obnd_raw = struct.pack("<6f", *obnd)
+    if not has_nonzero_obnd(obnd_raw):
+        raise ProbeError(f"B1: ACTI 0x{fid:08X} ({edid}) has zero/degenerate OBND: {obnd}")
     return _rec(
         b"ACTI",
         fid,
         [
             (b"EDID", edid.encode("ascii") + b"\x00"),
-            (b"OBND", struct.pack("<6f", -0.5, -0.5, -0.5, 0.5, 0.5, 0.5)),
+            (b"OBND", obnd_raw),
             (b"ODTY", struct.pack("<I", 0)),
             (b"FULL", full_name.encode("utf-8") + b"\x00"),
-            (b"MODL", SF_ACTI_MODL),
+            (b"MODL", modl),
             (b"PNAM", struct.pack("<I", 0x00334CCC)),
             (b"ATTX", prompt.encode("utf-8") + b"\x00"),
             (b"FNAM", struct.pack("<H", 0)),
@@ -225,8 +269,10 @@ def _door_vmad(
     require_core_cell: bool,
     fallback_plugin: str = "",
     fallback_form_id: int = 0,
+    controller_form_id: int = FID_QUST_LOADDOOR,
 ) -> bytes:
     props = [
+        {"name": "LoadDoorController", "type": vmad_patch.T_OBJECT, "status": 1, "value": {"form": controller_form_id, "alias": -1}},
         {"name": "TargetPlugin", "type": vmad_patch.T_STRING, "status": 1, "value": target_plugin},
         {"name": "TargetFormId", "type": vmad_patch.T_INT, "status": 1, "value": target_form_id},
         {"name": "FallbackTargetPlugin", "type": vmad_patch.T_STRING, "status": 1, "value": fallback_plugin},
@@ -353,11 +399,25 @@ def _make_p1_quest() -> ext.RawRecord:
         (b"ALFR", struct.pack("<I", FID_ACHR_GROUND_RAIDER)),
         (b"COCT", struct.pack("<I", 1)),
         (b"CNTO", struct.pack("<II", SF_CASLESS_SHELL, 60)),
+        (b"ALPC", struct.pack("<I", SF_DEFAULT_FOLLOW_PKG)),
         (b"ALPC", struct.pack("<I", SF_COMBAT_PKG_A)),
         (b"ALPC", struct.pack("<I", SF_COMBAT_PKG_B)),
         (b"ALED", b""),
     ]
     return _rec(b"QUST", FID_QUST_P1, subs, flags=0, version=581)
+
+
+def _make_load_door_quest() -> ext.RawRecord:
+    q_vmad = vmad_patch.encode([{"name": "FO4SF_LoadDoorQuest", "status": 0, "properties": []}]) + QUST_VMAD_TAIL
+    subs: List[Tuple[bytes, bytes]] = [
+        (b"EDID", b"FO4SF_LoadDoor\x00"),
+        (b"VMAD", q_vmad),
+        (b"DNAM", struct.pack("<III", QUST_DNAM_START_GAME_ENABLED, 55, 0)),
+        (b"QTYP", struct.pack("<I", 0x00047600)),
+        (b"INDX", struct.pack("<I", 10)),
+        (b"QSDT", b"\x00"),
+    ]
+    return _rec(b"QUST", FID_QUST_LOADDOOR, subs, flags=0, version=581)
 
 
 def _assemble_esm(masters: Sequence[str], top_grups: Sequence[ext.TopGrup], next_object_id: int) -> bytes:
@@ -409,12 +469,12 @@ def _make_holding_cell_record(fid: int, edid: str) -> ext.RawRecord:
 def build_p1_museum_esm(port_esm: Optional[Path] = None) -> bytes:
     """Build FO4SF_R11P1Museum.esm with ZERO WRLD/PNDT overrides (holding cell + ConcordMuseum01 + QUST)."""
     actis = [
-        _make_acti(FID_ACTI_FRONT_IN, "FO4SF_P1_MuseumFrontIn", "Museum of Freedom (Enter)", "Enter"),
-        _make_acti(FID_ACTI_FRONT_OUT, "FO4SF_P1_MuseumFrontOut", "Commonwealth (Exit)", "Exit"),
-        _make_acti(FID_ACTI_ROOF_OUT, "FO4SF_P1_MuseumRoofOut", "Museum Roof (Exit)", "Exit"),
-        _make_acti(FID_ACTI_ROOF_IN, "FO4SF_P1_MuseumRoofIn", "Museum of Freedom 3F (Enter)", "Enter"),
-        _make_acti(FID_ACTI_BASEMENT_TERM, "FO4SF_P1_BasementTerminal", "Security Terminal (Unlock Gate)", "Unlock"),
-        _make_acti(FID_ACTI_RAIDER_TRIGGER, "FO4SF_P1_RaiderNavTrigger", "Raider Climb Probe (Start)", "Start"),
+        _make_acti(FID_ACTI_FRONT_IN, "FO4SF_P1_MuseumFrontIn", "Museum of Freedom (Enter)", "Enter", FO4_FRONT_DOOR_MODL, FO4_FRONT_DOOR_OBND),
+        _make_acti(FID_ACTI_FRONT_OUT, "FO4SF_P1_MuseumFrontOut", "Commonwealth (Exit)", "Exit", FO4_FRONT_DOOR_MODL, FO4_FRONT_DOOR_OBND),
+        _make_acti(FID_ACTI_ROOF_OUT, "FO4SF_P1_MuseumRoofOut", "Museum Roof (Exit)", "Exit", FO4_ROOF_DOOR_MODL, FO4_ROOF_DOOR_OBND),
+        _make_acti(FID_ACTI_ROOF_IN, "FO4SF_P1_MuseumRoofIn", "Museum of Freedom 3F (Enter)", "Enter", FO4_ROOF_DOOR_MODL, FO4_ROOF_DOOR_OBND),
+        _make_acti(FID_ACTI_BASEMENT_TERM, "FO4SF_P1_BasementTerminal", "Security Terminal (Unlock Gate)", "Unlock", FO4_BASEMENT_TERM_MODL, FO4_BASEMENT_TERM_OBND),
+        _make_acti(FID_ACTI_RAIDER_TRIGGER, "FO4SF_P1_RaiderNavTrigger", "Raider Climb Probe (Start)", "Start", FO4_TRIGGER_CONSOLE_MODL, FO4_TRIGGER_CONSOLE_OBND),
     ]
 
     ext_front_arr_local = (
@@ -470,14 +530,16 @@ def build_p1_museum_esm(port_esm: Optional[Path] = None) -> bytes:
     )
 
     # Interior persistent placements in FO4Port_ConcordMuseum01 (0x0100E2F4)
+    half_pi = 1.5707963
     ref_int_front_out = _make_persistent_refr(
         FID_REF_INT_FRONT_OUT,
         "FO4SF_P1_IntFrontOutRef",
         FID_ACTI_FRONT_OUT,
         INT_FRONT_ACTI_POS,
+        rot=(0.0, 0.0, half_pi),
         vmad=_door_vmad(
             target_plugin="FO4TerrainCore.esm",
-            target_form_id=CORE_ANCHOR_LOCAL,
+            target_form_id=CORE_EXIT_PRIMARY_ANCHOR_LOCAL,
             direction="out",
             door_tag="p1_front_out",
             dest_x=ext_front_arr_local[0],
@@ -488,7 +550,7 @@ def build_p1_museum_esm(port_esm: Optional[Path] = None) -> bytes:
             merge_y=MERGE_OFFSET_Y,
             require_core_cell=True,
             fallback_plugin="FO4TerrainCore.esm",
-            fallback_form_id=CORE_FALLBACK_ANCHOR_LOCAL,
+            fallback_form_id=CORE_EXIT_FALLBACK_ANCHOR_LOCAL,
         ),
     )
     ref_int_roof_out = _make_persistent_refr(
@@ -496,9 +558,10 @@ def build_p1_museum_esm(port_esm: Optional[Path] = None) -> bytes:
         "FO4SF_P1_IntRoofOutRef",
         FID_ACTI_ROOF_OUT,
         INT_ROOF_ACTI_POS,
+        rot=(0.0, 0.0, half_pi),
         vmad=_door_vmad(
             target_plugin="FO4TerrainCore.esm",
-            target_form_id=CORE_ANCHOR_LOCAL,
+            target_form_id=CORE_EXIT_PRIMARY_ANCHOR_LOCAL,
             direction="out",
             door_tag="p1_roof_out",
             dest_x=ext_roof_arr_local[0],
@@ -509,7 +572,7 @@ def build_p1_museum_esm(port_esm: Optional[Path] = None) -> bytes:
             merge_y=MERGE_OFFSET_Y,
             require_core_cell=True,
             fallback_plugin="FO4TerrainCore.esm",
-            fallback_form_id=CORE_FALLBACK_ANCHOR_LOCAL,
+            fallback_form_id=CORE_EXIT_FALLBACK_ANCHOR_LOCAL,
         ),
     )
     ref_int_basement_term = _make_persistent_refr(
@@ -517,6 +580,7 @@ def build_p1_museum_esm(port_esm: Optional[Path] = None) -> bytes:
         "FO4SF_P1_BasementTermRef",
         FID_ACTI_BASEMENT_TERM,
         INT_BASEMENT_TERM_POS,
+        rot=(0.0, 0.0, half_pi),
     )
     ref_int_raider_trigger = _make_persistent_refr(
         FID_REF_INT_RAIDER_TRIGGER,
@@ -546,16 +610,17 @@ def build_p1_museum_esm(port_esm: Optional[Path] = None) -> bytes:
     )
 
     quest_rec = _make_p1_quest()
+    load_door_quest_rec = _make_load_door_quest()
 
     grups = [
         ext.TopGrup(b"ACTI", 0, 0, 0, b"".join(a.to_bytes() for a in actis)),
         ext.TopGrup(b"CELL", 0, 0, 0, cell_payload),
-        ext.TopGrup(b"QUST", 0, 0, 0, quest_rec.to_bytes()),
+        ext.TopGrup(b"QUST", 0, 0, 0, quest_rec.to_bytes() + load_door_quest_rec.to_bytes()),
     ]
     return _assemble_esm(
         masters=["Starfield.esm", "FO4Port.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"],
         top_grups=grups,
-        next_object_id=0x000821,
+        next_object_id=0x000822,
     )
 
 
@@ -781,11 +846,11 @@ def build_p3_batch_scripts(quest_load_prefix: int = DEFAULT_QUEST_LOAD_PREFIX) -
             "player.setangle z 90\n"
         ),
         "p1r.txt": (
-            "; R11 P1 exterior Museum 3F roof approach (<27 m/axis from p1c, clear of roof entry activator)\n"
+            "; R11 P1 exterior Museum 3F roof approach (<27 m/axis from p1c, facing NNW at roof bulkhead door)\n"
             f"player.setpos x {EXT_ROOF_ARRIVAL_MERGED[0]:.2f}\n"
             f"player.setpos y {EXT_ROOF_ARRIVAL_MERGED[1]:.2f}\n"
-            f"player.setpos z {EXT_ROOF_ARRIVAL_MERGED[2] + 0.40:.2f}\n"
-            "player.setangle z 180\n"
+            f"player.setpos z {EXT_ROOF_ARRIVAL_MERGED[2] + 0.26:.2f}\n"
+            f"player.setangle z {EXT_ROOF_HEADING_DEG:.0f}\n"
         ),
         "p1f.txt": (
             "; R11 P1 enter Museum of Freedom interior (0x0100E2F4, NAVM tri 87)\n"
@@ -888,13 +953,14 @@ def compile_papyrus_scripts(starfield_dir: Path, sources: Sequence[Path], out_di
                 ):
                     (base_dir / name[len("Scripts/Source/") :]).write_bytes(zf.read(info))
         flg = base_dir / "Starfield_Papyrus_Flags.flg"
+        doors_dir = REPO / "scripts" / "doors"
         compiled: Dict[str, Path] = {}
         for src in sources:
             cmd = [
                 str(compiler),
                 str(src),
                 f"-f={flg}",
-                f"-i={src.parent};{base_dir}",
+                f"-i={src.parent};{doors_dir};{base_dir}",
                 f"-o={out_dir}",
                 "-op",
             ]
@@ -1042,6 +1108,7 @@ def stage_probe_p1(
         if starfield_dir is None:
             raise ProbeError("either --starfield (for PapyrusCompiler.exe) or prebuilt_pex is required")
         psc_list = [
+            REPO / "scripts" / "doors" / "FO4SF_LoadDoorQuest.psc",
             REPO / "scripts" / "doors" / "FO4SF_ConfirmedLoadDoor.psc",
             REPO / "scripts" / "probes" / "FO4SF_R11P1Quest.psc",
         ]
@@ -1094,6 +1161,7 @@ def stage_probe_p1(
                 "FO4SF_P1_RaiderNavTriggerRef": f"0x{FID_REF_INT_RAIDER_TRIGGER:08X}",
                 "FO4SF_P1_GroundRaiderRef": f"0x{FID_ACHR_GROUND_RAIDER:08X}",
                 "FO4SF_R11P1Quest": f"0x{FID_QUST_P1:08X}",
+                "FO4SF_LoadDoorQuest": f"0x{FID_QUST_LOADDOOR:08X}",
                 "FO4Port_ConcordMuseum01": f"0x{PORT_MUSEUM_CELL:08X}",
                 "FO4Port_MuseumAnchor": f"0x{PORT_MUSEUM_ANCHOR_LOCAL:06X}",
                 "FO4Port_MuseumBasementTerminal": f"0x{PORT_MUSEUM_TERM_REF:08X}",
@@ -1156,6 +1224,62 @@ def verify_probe_stage(stage_dir: Path) -> dict:
     )
     if q_dnam_flags != QUST_DNAM_START_GAME_ENABLED:
         raise ProbeError(f"{PROBE_PLUGIN} QUST DNAM flags=0x{q_dnam_flags:08X}, want 0x{QUST_DNAM_START_GAME_ENABLED:08X}")
+    ld_qust = next((r for r in p1_recs if r.sig == b"QUST" and r.fid == FID_QUST_LOADDOOR), None)
+    if ld_qust is None:
+        raise ProbeError(f"{PROBE_PLUGIN} missing FO4SF_LoadDoorQuest QUST 0x{FID_QUST_LOADDOOR:08X}")
+    ld_flags = next(
+        (struct.unpack_from("<I", sp, 0)[0] for ss, sp in ext.iter_subrecords(ld_qust.decompressed_body()) if ss == b"DNAM"),
+        0,
+    )
+    if ld_flags != QUST_DNAM_START_GAME_ENABLED:
+        raise ProbeError(f"{PROBE_PLUGIN} FO4SF_LoadDoor QUST DNAM flags=0x{ld_flags:08X}, want 0x{QUST_DNAM_START_GAME_ENABLED:08X}")
+
+    # B1 + F9 + cold reload: Every placed ACTI must carry a real non-empty non-marker NIF MODL + non-zero OBND;
+    # "out" doors must bind LoadDoorController (0x04000821), target 0x0A775B primary / 0x0A775C fallback, and F9 roof arrival.
+    p1_actis = {r.fid: r for r in p1_recs if r.sig == b"ACTI"}
+    placed_acti_nifs: Set[str] = set()
+    for r in p1_recs:
+        if r.sig != b"REFR":
+            continue
+        subs = dict(ext.iter_subrecords(r.decompressed_body()))
+        name_raw = subs.get(b"NAME")
+        if not name_raw or len(name_raw) != 4:
+            continue
+        base_fid = struct.unpack("<I", name_raw)[0]
+        if base_fid not in p1_actis:
+            continue
+        acti = p1_actis[base_fid]
+        a_subs = dict(ext.iter_subrecords(acti.decompressed_body()))
+        modl_raw = a_subs.get(b"MODL", b"")
+        modl_str = modl_raw.rstrip(b"\x00").decode("utf-8", errors="replace")
+        if is_invalid_or_marker_model(modl_str):
+            raise ProbeError(f"B1: placed ACTI 0x{base_fid:08X} used by REFR 0x{r.fid:08X} has invalid/marker MODL {modl_str!r}")
+        if not has_nonzero_obnd(a_subs.get(b"OBND", b"")):
+            raise ProbeError(f"B1: placed ACTI 0x{base_fid:08X} used by REFR 0x{r.fid:08X} has zero OBND")
+        placed_acti_nifs.add(modl_str.replace("/", "\\").lstrip("\\").lower())
+        if b"VMAD" in subs and r.fid in (FID_REF_EXT_FRONT_IN, FID_REF_INT_FRONT_OUT, FID_REF_INT_ROOF_OUT, FID_REF_EXT_ROOF_IN):
+            dec = vmad_patch.decode(subs[b"VMAD"])
+            pmap = {p["name"]: p["value"] for p in dec["scripts"][0]["properties"]}
+            ctrl = pmap.get("LoadDoorController")
+            if not isinstance(ctrl, dict) or ctrl.get("form") != FID_QUST_LOADDOOR:
+                raise ProbeError(f"door 0x{r.fid:08X} missing LoadDoorController -> 0x{FID_QUST_LOADDOOR:08X}")
+            if r.fid in (FID_REF_INT_FRONT_OUT, FID_REF_INT_ROOF_OUT):
+                if pmap.get("TargetFormId") != CORE_EXIT_PRIMARY_ANCHOR_LOCAL or pmap.get("FallbackTargetFormId") != CORE_EXIT_FALLBACK_ANCHOR_LOCAL:
+                    raise ProbeError(
+                        f"out door 0x{r.fid:08X} anchor mismatch: got ({pmap.get('TargetFormId')}, {pmap.get('FallbackTargetFormId')})"
+                    )
+            if r.fid == FID_REF_INT_ROOF_OUT:
+                gx = pmap.get("DestinationX", 0.0) + MERGE_OFFSET_X
+                gy = pmap.get("DestinationY", 0.0) + MERGE_OFFSET_Y
+                gz = pmap.get("DestinationZ", 0.0)
+                if (
+                    abs(gx - EXT_ROOF_ARRIVAL_MERGED[0]) > 0.05
+                    or abs(gy - EXT_ROOF_ARRIVAL_MERGED[1]) > 0.05
+                    or abs(gz - EXT_ROOF_ARRIVAL_MERGED[2]) > 0.05
+                ):
+                    raise ProbeError(
+                        f"F9 mismatch on p1_roof_out: got merged ({gx:.2f}, {gy:.2f}, {gz:.2f}), want {EXT_ROOF_ARRIVAL_MERGED}"
+                    )
 
     # Verify FO4Port.esm basement gate (Novice XLOC) and terminal (persistent + XLOC + XLKR -> gate)
     port_esm_path = stage_dir / "port" / "FO4Port.esm"
@@ -1202,13 +1326,85 @@ def verify_probe_stage(stage_dir: Path) -> dict:
         if gate_rec.fid not in term_xlkrs:
             raise ProbeError(f"FO4Port.esm basement terminal 0x{term_rec.fid:08X} missing XLKR to 0x{gate_rec.fid:08X}")
 
+    # L3: Verify FO4Port.esm NAVI 0x00000FF1 preserves base NVMIs + carries every Museum NAVM NVMI
+    port_verif = manifest.get("port_extension", {}).get("verification", {})
+    if port_verif.get("navm_count", 0) > 0:
+        navi_rec = port_recs.get(ext.NAVI_FID)
+        if navi_rec is None or navi_rec.sig != b"NAVI":
+            raise ProbeError(f"L3: FO4Port.esm missing NAVI 0x{ext.NAVI_FID:08X}")
+        navi_navm_fids = {
+            ext.navm.parse_nvmi(sp).navmesh
+            for ss, sp in ext.iter_subrecords(navi_rec.decompressed_body())
+            if ss == b"NVMI"
+        }
+        museum_navms = [fid for fid, r in port_recs.items() if r.sig == b"NAVM" and (fid & 0x00FFFFFF) >= ext.DEFAULT_START_ID]
+        missing_nvmis = [fid for fid in museum_navms if fid not in navi_navm_fids]
+        if missing_nvmis:
+            raise ProbeError(f"L3: FO4Port.esm NAVI missing Museum NVMIs: {[hex(x) for x in missing_nvmis]}")
+        if port_verif.get("added_nvmi_count") != len(museum_navms):
+            raise ProbeError(
+                f"L3: FO4Port.esm added_nvmi_count={port_verif.get('added_nvmi_count')} != {len(museum_navms)}"
+            )
+
     p1_ba2_path = stage_dir / "exp" / PROBE_MAIN_BA2
     p1_ba2 = Ba2(str(p1_ba2_path))
     verified_ba2_headers = verify_ba2_bs_crc32_headers(p1_ba2_path)
+    p1_ba2_names = {e.name.replace("/", "\\").lower() for e in p1_ba2.entries}
+    for req_pex in ("scripts\\fo4sf_loaddoorquest.pex", "scripts\\fo4sf_confirmedloaddoor.pex", "scripts\\fo4sf_r11p1quest.pex"):
+        if req_pex not in p1_ba2_names:
+            raise ProbeError(f"{PROBE_MAIN_BA2} missing compiled script {req_pex}")
+
+    port_main_ba2_path = stage_dir / "port" / "FO4Port - Main.ba2"
+    port_tex_ba2_path = stage_dir / "port" / "FO4Port - Textures.ba2"
     for port_ba2_name in ("FO4Port - Main.ba2", "FO4Port - Textures.ba2"):
         pba2 = stage_dir / "port" / port_ba2_name
         if pba2.is_file():
             verified_ba2_headers += verify_ba2_bs_crc32_headers(pba2)
+
+    port_ba2_info = manifest.get("port_extension", {}).get("ba2", {})
+    if not port_ba2_info.get("skipped", True):
+        if not port_main_ba2_path.is_file() or not port_tex_ba2_path.is_file():
+            raise ProbeError("port BA2 archives missing when port_extension.ba2.skipped is False")
+        from fo4sf import nif as fo4_nif, sfnif as sf_nif
+
+        main_ba2 = Ba2(str(port_main_ba2_path))
+        tex_ba2 = Ba2(str(port_tex_ba2_path))
+        main_map = {e.name.replace("/", "\\").lstrip("\\").lower(): e.name for e in main_ba2.entries}
+        tex_map = {e.name.replace("/", "\\").lstrip("\\").lower(): e.name for e in tex_ba2.entries}
+        for rel_nif in sorted(placed_acti_nifs):
+            nif_key = rel_nif if rel_nif.startswith("meshes\\") else f"meshes\\{rel_nif}"
+            if nif_key not in main_map:
+                raise ProbeError(f"B1: placed ACTI NIF {nif_key} missing from FO4Port - Main.ba2")
+            parsed = fo4_nif.parse(main_ba2.read(main_map[nif_key]))
+            has_bhk = any(parsed.type_of(i) == "bhkNPCollisionObject" for i in range(len(parsed.blocks)))
+            if not has_bhk:
+                raise ProbeError(f"B1: placed ACTI NIF {nif_key} lacks bhkNPCollisionObject")
+            for i, blk in enumerate(parsed.blocks):
+                if parsed.type_of(i) == "BSGeometry":
+                    for mesh in sf_nif.parse_bsgeometry(blk).meshes:
+                        if mesh is not None:
+                            mpath = "geometries\\" + mesh.path.decode("latin-1").replace("/", "\\").lstrip("\\").lower() + ".mesh"
+                            if mpath not in main_map:
+                                raise ProbeError(f"B1: mesh {mpath} referenced by {nif_key} missing from FO4Port - Main.ba2")
+            for s in parsed.strings:
+                sp = s.decode("latin-1").replace("/", "\\").lstrip("\\").lower()
+                if sp.startswith("materials\\fo4") and sp.endswith(".mat"):
+                    if sp not in main_map:
+                        raise ProbeError(f"B1: material {sp} referenced by {nif_key} missing from FO4Port - Main.ba2")
+                    mat_obj = json.loads(main_ba2.read(main_map[sp]).decode("utf-8-sig"))
+                    stack = [mat_obj]
+                    while stack:
+                        cur = stack.pop()
+                        if isinstance(cur, dict):
+                            stack.extend(cur.values())
+                        elif isinstance(cur, list):
+                            stack.extend(cur)
+                        elif isinstance(cur, str):
+                            tp = cur.replace("/", "\\").lstrip("\\").lower()
+                            if tp.startswith("data\\"):
+                                tp = tp[5:]
+                            if tp.startswith("textures\\fo4") and tp.endswith(".dds") and tp not in tex_map:
+                                raise ProbeError(f"B1: texture {tp} referenced by {sp} missing from FO4Port - Textures.ba2")
 
     # Re-validate all batch files against P3 + hop math
     bat_dir = stage_dir / "bat"

@@ -25,6 +25,7 @@ import build_fo4port_r11_museum as ext  # noqa: E402
 import stage_r11_p1_museum as p1  # noqa: E402
 import test_r11_fo4port_museum as t3bc  # noqa: E402
 import vmad_patch  # noqa: E402
+from fo4sf import nif as fo4_nif  # noqa: E402
 from fo4sf.ba2 import Ba2  # noqa: E402
 
 QUEST_PSC = REPO / "scripts" / "probes" / "FO4SF_R11P1Quest.psc"
@@ -62,9 +63,24 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
             p1.FID_REF_INT_RAIDER_TRIGGER,
             p1.FID_ACHR_GROUND_RAIDER,
             p1.FID_QUST_P1,
+            p1.FID_QUST_LOADDOOR,
         ):
             self.assertIn(fid, recs, f"missing expected record 0x{fid:08X}")
         self.assertEqual(recs[p1.FID_REF_INT_RAIDER_TRIGGER].flags & 0x400, 0x400)
+
+        # B1: Verify every new ACTI uses a real non-marker MODL and non-zero 24-byte ObjectBounds (OBND)
+        for acti_fid in (
+            p1.FID_ACTI_FRONT_IN,
+            p1.FID_ACTI_FRONT_OUT,
+            p1.FID_ACTI_ROOF_OUT,
+            p1.FID_ACTI_ROOF_IN,
+            p1.FID_ACTI_BASEMENT_TERM,
+            p1.FID_ACTI_RAIDER_TRIGGER,
+        ):
+            subs = {ss: sp for ss, sp in ext.iter_subrecords(recs[acti_fid].decompressed_body())}
+            modl = subs.get(b"MODL", b"").rstrip(b"\x00").decode("utf-8", errors="replace")
+            self.assertFalse(p1.is_invalid_or_marker_model(modl), f"invalid/marker MODL on ACTI 0x{acti_fid:08X}: {modl!r}")
+            self.assertTrue(p1.has_nonzero_obnd(subs.get(b"OBND", b"")), f"zero OBND on ACTI 0x{acti_fid:08X}")
 
         # Verify VMAD on all 4 confirmed-arrival doors decodes cleanly via vmad_patch
         for door_fid, want_dir, want_plugin, want_core in (
@@ -82,15 +98,23 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
             self.assertEqual(pmap["Direction"], want_dir)
             self.assertEqual(pmap["TargetPlugin"], want_plugin)
             self.assertEqual(pmap["RequireCoreCell"], want_core)
+            self.assertEqual(pmap["LoadDoorController"]["form"], p1.FID_QUST_LOADDOOR)
             self.assertTrue(pmap["UseDestinationPosition"])
             if want_dir == "out":
-                self.assertEqual(pmap["TargetFormId"], p1.CORE_ANCHOR_LOCAL)
+                self.assertEqual(pmap["TargetFormId"], p1.CORE_EXIT_PRIMARY_ANCHOR_LOCAL)
                 self.assertEqual(pmap["FallbackTargetPlugin"], "FO4TerrainCore.esm")
-                self.assertEqual(pmap["FallbackTargetFormId"], p1.CORE_FALLBACK_ANCHOR_LOCAL)
+                self.assertEqual(pmap["FallbackTargetFormId"], p1.CORE_EXIT_FALLBACK_ANCHOR_LOCAL)
                 self.assertEqual(pmap["MergeOffsetX"], p1.MERGE_OFFSET_X)
                 self.assertEqual(pmap["MergeOffsetY"], p1.MERGE_OFFSET_Y)
             else:
                 self.assertEqual(pmap["TargetFormId"], p1.PORT_MUSEUM_ANCHOR_LOCAL)
+
+        # Verify QUST FO4SF_LoadDoorQuest (0x4000821) + GroundRaider follow package ALPC
+        lqrec = recs[p1.FID_QUST_LOADDOOR]
+        lqdnam = next(sp for ss, sp in ext.iter_subrecords(lqrec.decompressed_body()) if ss == b"DNAM")
+        self.assertEqual(struct.unpack_from("<I", lqdnam, 0)[0], p1.QUST_DNAM_START_GAME_ENABLED)
+        lqvmad = next(sp for ss, sp in ext.iter_subrecords(lqrec.decompressed_body()) if ss == b"VMAD")
+        self.assertIn(b"FO4SF_LoadDoorQuest", lqvmad)
 
         # Verify ACHR ground-floor raider is Persistent | InitiallyDisabled (0xC00) & uses FO4ActorRaider.esm:0xF04800
         raider_rec = recs[p1.FID_ACHR_GROUND_RAIDER]
@@ -110,13 +134,36 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
         self.assertIn(b"RaiderTrigger", qvmad)
         self.assertIn(b"HideSpacesuitAV", qvmad)
         self.assertTrue(qvmad.endswith(p1.QUST_VMAD_TAIL))
+        alpc_vals = [struct.unpack_from("<I", sp, 0)[0] for ss, sp in ext.iter_subrecords(qrec.decompressed_body()) if ss == b"ALPC" and len(sp) >= 4]
+        self.assertIn(p1.SF_DEFAULT_FOLLOW_PKG, alpc_vals)
 
     def test_optional_xtel_extra_trap_removed_and_roof_separated(self) -> None:
         with self.assertRaises(p1.ProbeError):
             p1.build_optional_xtel_extra_esm()
+        self.assertEqual(p1.EXT_ROOF_ARRIVAL_MERGED, (-1990.58, -1724.19, 97.56))
         self.assertNotEqual(p1.EXT_ROOF_ARRIVAL_MERGED, p1.EXT_ROOF_DOOR_MERGED)
-        dy = abs(p1.EXT_ROOF_ARRIVAL_MERGED[1] - p1.EXT_ROOF_DOOR_MERGED[1])
-        self.assertGreaterEqual(dy, 2.0)
+        dx = p1.EXT_ROOF_ARRIVAL_MERGED[0] - p1.EXT_ROOF_DOOR_MERGED[0]
+        dy = p1.EXT_ROOF_ARRIVAL_MERGED[1] - p1.EXT_ROOF_DOOR_MERGED[1]
+        sep_xy = (dx * dx + dy * dy) ** 0.5
+        self.assertGreaterEqual(sep_xy, 1.5)
+        self.assertLessEqual(sep_xy, 2.2)
+
+    def test_b1_rejects_marker_empty_modl_and_zero_obnd(self) -> None:
+        self.assertTrue(p1.is_invalid_or_marker_model(""))
+        self.assertTrue(p1.is_invalid_or_marker_model("Markers\\DecoratorMarker.nif"))
+        self.assertTrue(p1.is_invalid_or_marker_model("EditorMarker.nif"))
+        self.assertFalse(p1.is_invalid_or_marker_model("fo4port\\setdressing\\doors\\paintedwooddoordoubleload01.nif"))
+        self.assertFalse(p1.has_nonzero_obnd(b"\x00" * 24))
+        with self.assertRaises(p1.ProbeError):
+            p1._make_acti(0x04000899, "FO4SF_BadActi", "Bad", modl=b"Markers\\DecoratorMarker.nif\x00")
+        with self.assertRaises(p1.ProbeError):
+            p1._make_acti(
+                0x0400089A,
+                "FO4SF_ZeroObndActi",
+                "Bad",
+                modl=b"fo4port\\furniture\\terminals\\terminalwall01.nif\x00",
+                obnd=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            )
 
     def test_p3_zero_mnv_and_exterior_hop_math_under_200m(self) -> None:
         batches = p1.build_p3_batch_scripts()
@@ -158,8 +205,23 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
             base_esm, src_esm = t3bc._build_synthetic_base_and_source()
             (base_dir / "FO4Port.esm").write_bytes(base_esm)
             (src_dir / "FO4Port.esm").write_bytes(src_esm)
-            p1.pack_gnrl_ba2_v2([("meshes\\fo4port\\shared.nif", b"S1")], base_dir / "FO4Port - Main.ba2")
-            p1.pack_gnrl_ba2_v2([("meshes\\fo4port\\shared.nif", b"S1")], src_dir / "FO4Port - Main.ba2")
+            nif_obj = fo4_nif.NifFile(user_version=12, bs_version=172)
+            nif_obj.block_types = ["NiNode", "bhkNPCollisionObject"]
+            nif_obj.block_type_index = [0, 1]
+            nif_obj.blocks = [b"", b""]
+            nif_obj.strings = [b"materials\\fo4port\\shared.mat"]
+            nif_bytes = fo4_nif.serialize(nif_obj)
+            mat_bytes = b'{"textures": {"color": "textures\\\\fo4port\\\\a.dds"}}\n'
+            port_main_entries = [
+                ("meshes\\fo4port\\shared.nif", nif_bytes),
+                ("meshes\\fo4port\\setdressing\\doors\\paintedwooddoordoubleload01.nif", nif_bytes),
+                ("meshes\\fo4port\\interiors\\building\\woodp\\doors\\bldwoodpdoorload01.nif", nif_bytes),
+                ("meshes\\fo4port\\furniture\\terminals\\terminalwall01.nif", nif_bytes),
+                ("meshes\\fo4port\\furniture\\terminals\\terminalconsoleon.nif", nif_bytes),
+                ("materials\\fo4port\\shared.mat", mat_bytes),
+            ]
+            p1.pack_gnrl_ba2_v2(port_main_entries, base_dir / "FO4Port - Main.ba2")
+            p1.pack_gnrl_ba2_v2(port_main_entries, src_dir / "FO4Port - Main.ba2")
 
             def _write_bs_dx10(path: Path, rel: str, chunk: bytes) -> None:
                 norm = rel.replace("/", "\\").lstrip("\\")
@@ -207,6 +269,7 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
                 out_dir=stage_dir,
                 prebuilt_pex={
                     "FO4SF_ConfirmedLoadDoor": b"PEX_FAKE_DOOR_BYTES",
+                    "FO4SF_LoadDoorQuest": b"PEX_FAKE_LOADDOOR_BYTES",
                     "FO4SF_R11P1Quest": b"PEX_FAKE_QUEST_BYTES",
                 },
                 min_free_gb=0.0,
@@ -219,7 +282,11 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
                     source_dir=src_dir,
                     fo4_esm=fo4_esm,
                     out_dir=stage_dir,
-                    prebuilt_pex={"FO4SF_ConfirmedLoadDoor": b"X", "FO4SF_R11P1Quest": b"Y"},
+                    prebuilt_pex={
+                        "FO4SF_ConfirmedLoadDoor": b"X",
+                        "FO4SF_LoadDoorQuest": b"L",
+                        "FO4SF_R11P1Quest": b"Y",
+                    },
                     min_free_gb=0.0,
                     allow_custom_base=True,
                 )
@@ -227,16 +294,17 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
             self.assertEqual(manifest["port_extension"]["verification"]["body_changes"], 0)
             ver = p1.verify_probe_stage(stage_dir)
             self.assertTrue(ver["p3_zero_mnv"])
-            self.assertEqual(ver["p1_main_ba2_entries"], 2)
+            self.assertEqual(ver["p1_main_ba2_entries"], 3)
 
-            # Verify BA2 contains both Scripts/*.pex entries AND exact Bethesda bs_crc32 headers
+            # Verify BA2 contains all 3 Scripts/*.pex entries AND exact Bethesda bs_crc32 headers
             self.assertEqual(p1.bs_crc32(b"scripts"), 0x40724840)
             self.assertEqual(p1.bs_crc32(b"textures\\fo4core\\ammo\\10mm"), 0x01C88DFC)
             self.assertEqual(p1.bs_crc32(b"10mmcartridge_color"), 0xABDBFB3B)
             p1_ba2_path = stage_dir / "exp" / p1.PROBE_MAIN_BA2
-            self.assertEqual(p1.verify_ba2_bs_crc32_headers(p1_ba2_path), 2)
+            self.assertEqual(p1.verify_ba2_bs_crc32_headers(p1_ba2_path), 3)
             ba2 = Ba2(str(p1_ba2_path))
             self.assertEqual(ba2.read("Scripts\\FO4SF_ConfirmedLoadDoor.pex"), b"PEX_FAKE_DOOR_BYTES")
+            self.assertEqual(ba2.read("Scripts\\FO4SF_LoadDoorQuest.pex"), b"PEX_FAKE_LOADDOOR_BYTES")
             self.assertEqual(ba2.read("Scripts\\FO4SF_R11P1Quest.pex"), b"PEX_FAKE_QUEST_BYTES")
 
             # Negative check: IEEE zlib.crc32 header corruption must be rejected by verify_ba2_bs_crc32_headers
@@ -311,6 +379,7 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
                 out_dir=stage_v2,
                 prebuilt_pex={
                     "FO4SF_ConfirmedLoadDoor": b"PEX_FAKE_DOOR_V2",
+                    "FO4SF_LoadDoorQuest": b"PEX_FAKE_LOADDOOR_V2",
                     "FO4SF_R11P1Quest": b"PEX_FAKE_QUEST_V2",
                 },
                 min_free_gb=0.0,
@@ -330,6 +399,20 @@ class TestProbeP1PluginsAndBatches(unittest.TestCase):
                 os.stat(stage_dir / "port" / "FO4Port.esm").st_ino,
             )
             self.assertTrue(p1.verify_probe_stage(stage_v2)["p3_zero_mnv"])
+
+            # Negative B1 check: stripping bhkNPCollisionObject from a placed ACTI NIF in stage_v2/port must fail verify_probe_stage
+            bad_nif_obj = fo4_nif.NifFile(user_version=12, bs_version=172)
+            bad_nif_obj.block_types = ["NiNode"]
+            bad_nif_obj.block_type_index = [0]
+            bad_nif_obj.blocks = [b""]
+            bad_nif_obj.strings = []
+            bad_entries = [
+                (name, fo4_nif.serialize(bad_nif_obj) if name.endswith("paintedwooddoordoubleload01.nif") else payload)
+                for name, payload in port_main_entries
+            ]
+            p1.pack_gnrl_ba2_v2(bad_entries, stage_v2 / "port" / "FO4Port - Main.ba2")
+            with self.assertRaises(p1.ProbeError):
+                p1.verify_probe_stage(stage_v2)
 
     def test_starfield_running_guard_refuses_when_game_active(self) -> None:
         fake_hit = SimpleNamespace(stdout="Starfield.exe                42196 Console                    1  100,000 K\n")
@@ -402,7 +485,7 @@ class TestLiveStagedProbeP1(unittest.TestCase):
         ver = p1.verify_probe_stage(stage_dir)
         self.assertTrue(ver["p3_zero_mnv"])
         self.assertGreaterEqual(ver["verified_files"], 15)
-        self.assertEqual(ver["p1_main_ba2_entries"], 2)
+        self.assertEqual(ver["p1_main_ba2_entries"], 3)
         manifest = json.loads((stage_dir / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["port_extension"]["verification"]["missing_base_ids"], 0)
         self.assertEqual(manifest["port_extension"]["verification"]["body_changes"], 0)

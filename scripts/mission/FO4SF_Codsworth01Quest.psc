@@ -25,8 +25,8 @@ Package Property S3House1TravelPack Auto Const
 Package Property S3House2TravelPack Auto Const
 GlobalVariable Property S3CreatureSlotReady Auto Const
 ObjectReference[] Property S3BloatflyMarkers Auto Const
-string Property CreaturePlugin = "FO4SF_RA5Creatures.esm" Auto Const
-int Property CreatureBloatflyNpcId = 0x000809 Auto Const
+string Property CreaturePlugin = "" Auto Const
+int Property CreatureBloatflyNpcId = 0 Auto Const
 float Property S3ArrivalRadius = 10.0 Auto Const
 float Property S3House1X = -2313.44 Auto Const
 float Property S3House1Y = -1372.02 Auto Const
@@ -1291,6 +1291,22 @@ bool Function IsActorNearS3House(Actor a, float hx, float hy, float hz)
     return dx * dx + dy * dy <= S3ArrivalRadius * S3ArrivalRadius
 EndFunction
 
+float Function GetCodsworthHouseDist(int houseIndex)
+    Actor cods = ResolveCodsworth()
+    if cods == None
+        return -1.0
+    endif
+    float hx = S3House1X
+    float hy = S3House1Y
+    if houseIndex == 2
+        hx = S3House2X
+        hy = S3House2Y
+    endif
+    float dx = cods.GetPositionX() - hx
+    float dy = cods.GetPositionY() - hy
+    return Math.Sqrt(dx * dx + dy * dy)
+EndFunction
+
 bool Function IsArrivedAtS3House(int houseIndex)
     float hx = S3House1X
     float hy = S3House1Y
@@ -1300,13 +1316,7 @@ bool Function IsArrivedAtS3House(int houseIndex)
         hy = S3House2Y
         hz = S3House2Z
     endif
-    if IsActorNearS3House(Game.GetPlayer(), hx, hy, hz)
-        return True
-    endif
-    if IsActorNearS3House(ResolveCodsworth(), hx, hy, hz)
-        return True
-    endif
-    return False
+    return IsActorNearS3House(ResolveCodsworth(), hx, hy, hz)
 EndFunction
 
 bool Function StartS3House1Search()
@@ -1538,7 +1548,7 @@ Function UpdateS3HouseSearchProgress()
         if s3CreatureSlotEmpty
             if IsArrivedAtS3House(1)
                 s3House1Dead = S3House1RequiredKills
-                Trace("codsworth01 s3 creature_slot=empty arrival house=1")
+                Trace("codsworth01 s3 creature_slot=empty arrival house=1 codsworth_dist=" + GetCodsworthHouseDist(1))
             endif
         else
             int polled1 = CountDeadActors(S3House1Bloatflies)
@@ -1569,7 +1579,7 @@ Function UpdateS3HouseSearchProgress()
         if s3CreatureSlotEmpty
             if IsArrivedAtS3House(2)
                 s3House2Dead = S3House2RequiredKills
-                Trace("codsworth01 s3 creature_slot=empty arrival house=2")
+                Trace("codsworth01 s3 creature_slot=empty arrival house=2 codsworth_dist=" + GetCodsworthHouseDist(2))
             endif
         else
             int polled2 = CountDeadActors(S3House2Bloatflies)

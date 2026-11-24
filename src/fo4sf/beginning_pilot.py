@@ -16,8 +16,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import struct
+import zlib
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 
 @dataclass(frozen=True)
@@ -217,6 +219,216 @@ def evaluate_session2_sheet_lines(log_dir: str) -> List[Dict[str, Optional[str]]
     return out
 
 
+_DISALLOWED_MARKER_TOKENS = ("decoratormarker", "xmarker", "marker", "editor")
+
+
+def is_disallowed_marker_model(model_path: Optional[str]) -> bool:
+    """Return True if an ACTI MODL path is missing/empty or uses a disallowed marker mesh."""
+    if not model_path or not isinstance(model_path, str):
+        return True
+    norm = model_path.replace("/", "\\").strip()
+    if not norm:
+        return True
+    norm_low = norm.lower()
+    stem_low = os.path.splitext(os.path.basename(norm))[0].lower()
+    return any(tok in norm_low or tok in stem_low for tok in _DISALLOWED_MARKER_TOKENS)
+
+
+def _iter_esm_subrecords(body: bytes):
+    i, n = 0, len(body)
+    ext_len: Optional[int] = None
+    while i + 6 <= n:
+        sig = body[i : i + 4]
+        sz = struct.unpack_from("<H", body, i + 4)[0]
+        i += 6
+        if sig == b"XXXX" and sz == 4 and i + 4 <= n:
+            ext_len = struct.unpack_from("<I", body, i)[0]
+            i += 4
+            continue
+        if ext_len is not None:
+            sz = ext_len
+            ext_len = None
+        if i + sz > n:
+            break
+        yield sig, body[i : i + sz]
+        i += sz
+
+
+def find_bad_placed_activators(esm_path: str) -> Tuple[List[str], List[str]]:
+    """Inspect esm_path for any placed ACTI with empty/missing/marker MODL or zero OBND.
+
+    Returns (problems, sorted_distinct_placed_acti_models).
+    """
+    with open(esm_path, "rb") as fp:
+        raw = fp.read()
+    if len(raw) < 24 or raw[:4] != b"TES4":
+        return [], []
+    hdr_sz = struct.unpack_from("<I", raw, 4)[0]
+    pos = 24 + hdr_sz
+    if pos >= len(raw):
+        return [], []
+
+    actis: Dict[int, Tuple[str, Optional[str], bytes]] = {}
+    placed_refs: List[Tuple[int, str, int]] = []
+
+    def _walk(start: int, end: int) -> None:
+        cur = start
+        while cur + 24 <= end:
+            sig = raw[cur : cur + 4]
+            sz = struct.unpack_from("<I", raw, cur + 4)[0]
+            if sig == b"GRUP":
+                if sz < 24 or cur + sz > end:
+                    break
+                _walk(cur + 24, cur + sz)
+                cur += sz
+                continue
+            rflags = struct.unpack_from("<I", raw, cur + 8)[0]
+            rfid = struct.unpack_from("<I", raw, cur + 12)[0]
+            rbody_end = min(end, cur + 24 + sz)
+            if sig in (b"ACTI", b"REFR") and rbody_end - (cur + 24) >= 0:
+                payload = raw[cur + 24 : rbody_end]
+                if (rflags & 0x40000) and len(payload) >= 4:
+                    try:
+                        payload = zlib.decompress(payload[4:])
+                    except zlib.error:
+                        payload = b""
+                if sig == b"ACTI":
+                    edid, modl, obnd = "", None, b""
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"EDID":
+                            edid = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"MODL":
+                            modl = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"OBND":
+                            obnd = sp
+                    actis[rfid] = (edid, modl, obnd)
+                else:
+                    redid, base_fid = "", 0
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"EDID":
+                            redid = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"NAME" and len(sp) == 4:
+                            base_fid = struct.unpack("<I", sp)[0]
+                    if base_fid:
+                        placed_refs.append((rfid, redid, base_fid))
+            cur = rbody_end
+
+    _walk(pos, len(raw))
+
+    problems: List[str] = []
+    models: Set[str] = set()
+    reported_bad: Set[Tuple[int, int]] = set()
+    esm_name = os.path.basename(esm_path)
+    for rfid, redid, base_fid in placed_refs:
+        if base_fid not in actis:
+            continue
+        edid, modl, obnd = actis[base_fid]
+        bad_reasons: List[str] = []
+        if is_disallowed_marker_model(modl):
+            bad_reasons.append(f"invalid/marker MODL={modl!r}")
+        if len(obnd) != 24:
+            bad_reasons.append(f"missing OBND (len={len(obnd)})")
+        else:
+            x0, y0, z0, x1, y1, z1 = struct.unpack("<6f", obnd)
+            if (x1 - x0) <= 1e-3 or (y1 - y0) <= 1e-3 or (z1 - z0) <= 1e-3:
+                bad_reasons.append(f"zero ObjectBounds ({x0:.2f}..{x1:.2f}, {y0:.2f}..{y1:.2f}, {z0:.2f}..{z1:.2f})")
+        if bad_reasons and (rfid, base_fid) not in reported_bad:
+            reported_bad.add((rfid, base_fid))
+            problems.append(
+                f"{esm_name}: placed ACTI {edid or hex(base_fid)} (0x{base_fid:08X}) on "
+                f"{redid or hex(rfid)} (0x{rfid:08X}) has " + "; ".join(bad_reasons)
+            )
+        elif modl:
+            models.add(modl.replace("/", "\\").lstrip("\\"))
+    return problems, sorted(models)
+
+
+def verify_placed_acti_assets(
+    esm_path: str,
+    data_dir: str,
+    extra_ba2_paths: Sequence[str] = (),
+) -> List[str]:
+    """Verify .nif, .mesh, .mat, and .dds dependencies exist for placed ACTIs in esm_path."""
+    problems, placed_models = find_bad_placed_activators(esm_path)
+    if not placed_models:
+        return problems
+
+    from . import nif as fo4_nif, sfnif as sf_nif
+    from .ba2 import Ba2
+
+    opened_ba2s: List[Tuple[Ba2, Dict[str, str]]] = []
+    for bp in extra_ba2_paths:
+        if bp and os.path.isfile(bp):
+            arch = Ba2(bp)
+            idx = {e.name.replace("/", "\\").lstrip("\\").lower(): e.name for e in arch.entries}
+            opened_ba2s.append((arch, idx))
+
+    def _read_asset(rel_backslash: str, require_port_ba2: bool = False) -> Tuple[Optional[bytes], bool]:
+        rel_clean = rel_backslash.replace("/", "\\").lstrip("\\")
+        fs_path = os.path.join(data_dir, *rel_clean.split("\\"))
+        if os.path.isfile(fs_path):
+            with open(fs_path, "rb") as fp:
+                return fp.read(), True
+        low = rel_clean.lower()
+        for arch, idx in opened_ba2s:
+            if low in idx:
+                return arch.read(idx[low]), True
+        if require_port_ba2 and not opened_ba2s:
+            return None, False
+        return None, True
+
+    checked_mats: Set[str] = set()
+    for rel_modl in placed_models:
+        low_modl = rel_modl.lower()
+        nif_rel = rel_modl if low_modl.startswith("meshes\\") else f"meshes\\{rel_modl}"
+        is_port_asset = "\\fo4port\\" in f"\\{low_modl}" or low_modl.startswith("fo4port\\")
+        nif_bytes, can_verify_asset = _read_asset(nif_rel, require_port_ba2=is_port_asset)
+        if not can_verify_asset:
+            continue
+        if nif_bytes is None:
+            problems.append(f"B1: missing ACTI NIF asset Data/{nif_rel.replace(os.sep, '/')}")
+            continue
+        parsed = fo4_nif.parse(nif_bytes)
+        for i, blk in enumerate(parsed.blocks):
+            if parsed.type_of(i) == "BSGeometry":
+                for mesh in sf_nif.parse_bsgeometry(blk).meshes:
+                    if mesh is not None:
+                        mrel = "geometries\\" + mesh.path.decode("latin-1").replace("/", "\\").lstrip("\\") + ".mesh"
+                        mbytes, m_checked = _read_asset(mrel, require_port_ba2=is_port_asset)
+                        if m_checked and mbytes is None:
+                            problems.append(f"B1: missing .mesh {mrel} referenced by {nif_rel}")
+        for raw_str in parsed.strings:
+            sp = raw_str.decode("latin-1").replace("/", "\\").lstrip("\\")
+            sp_low = sp.lower()
+            if sp_low.startswith("materials\\fo4") and sp_low.endswith(".mat") and sp_low not in checked_mats:
+                checked_mats.add(sp_low)
+                mat_bytes, mat_checked = _read_asset(sp, require_port_ba2=is_port_asset)
+                if not mat_checked:
+                    continue
+                if mat_bytes is None:
+                    problems.append(f"B1: missing .mat {sp} referenced by {nif_rel}")
+                    continue
+                mat_obj = json.loads(mat_bytes.decode("utf-8-sig"))
+                stack: List[object] = [mat_obj]
+                while stack:
+                    cur = stack.pop()
+                    if isinstance(cur, dict):
+                        stack.extend(cur.values())
+                    elif isinstance(cur, list):
+                        stack.extend(cur)
+                    elif isinstance(cur, str):
+                        tp = cur.replace("/", "\\").lstrip("\\")
+                        tp_low = tp.lower()
+                        if tp_low.startswith("data\\"):
+                            tp = tp[5:]
+                            tp_low = tp.lower()
+                        if tp_low.startswith("textures\\fo4") and tp_low.endswith(".dds"):
+                            dbytes, d_checked = _read_asset(tp, require_port_ba2=is_port_asset)
+                            if d_checked and dbytes is None:
+                                problems.append(f"B1: missing .dds {tp} referenced by {sp}")
+    return problems
+
+
 def _is_tes4_plugin(path: str) -> bool:
     try:
         with open(path, "rb") as fp:
@@ -261,8 +473,11 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
             p_full = os.path.join(b_abs, p)
             if not _is_tes4_plugin(p_full):
                 step_issues.append(f"missing or invalid TES4 plugin: {p}")
-            elif active_plugins and p.casefold() not in active_plugins:
-                step_issues.append(f"plugin {p} missing from bundle_plan.json plugins list")
+            else:
+                if active_plugins and p.casefold() not in active_plugins:
+                    step_issues.append(f"plugin {p} missing from bundle_plan.json plugins list")
+                bad_actis, _ = find_bad_placed_activators(p_full)
+                step_issues.extend(bad_actis)
 
         for sc in req_scripts:
             sc_full = os.path.join(b_abs, "Data", "Scripts", sc)

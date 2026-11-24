@@ -6,7 +6,7 @@ Titles: Fallout 4 -> all 7 Fallout titles (FO4, FO3, FNV, FO1, FO2, Tactics, FO7
 > - **Whole Scope:** Title: **Fallout 4** | Mode: **Story** (`candidate-2g-fix` `13`-plugin Track-1 baseline + standalone reversible Probe `P1` or Probe `P4` overlay — **run `P1` and `P4` as short standalone probes and uninstall each cleanly when done**; never touch `candidate-2g`, `candidate-2g-fix`, or any older candidate folder) | Track: **Track 1 pre-build probes (`P1` + `P4` ONLY)** before building full `candidate-2h` (`S2`–`S6` + remaining guns).
 > - **`prototype, offline` — `OFFLINE ONLY — UNPROVEN IN GAME`:** Both Probe `P1` (`<p1-stage-dir>`) and Probe `P4` (`<p4-stage-dir>`) are **`TEST-STATION` (`prototype, offline` / OFFLINE ONLY — UNPROVEN IN GAME)** until Claude (PC) runs them in Starfield.
 > - **`R8` / `R15` Mandatory Stand-In Disclosures:**
->   - **Probe `P1`:** Confirmed-arrival scripted doors (`FO4SF_ConfirmedLoadDoor.psc`, reusing Exit Lift's `MoveTo` + `SetPosition` + landing confirmation + retry) are the **plan of record**; the old `xtel_extra/FO4SF_R11P1XtelExtra.esm` holding-cell `XTEL` extra was removed (`P1v2 F4` empty-holding-cell trap removal).
+>   - **Probe `P1`:** Confirmed-arrival scripted doors (`FO4SF_ConfirmedLoadDoor.psc` backed by `StartGameEnabled` `FO4SF_LoadDoorQuest.psc` cold-reload `OnPlayerLoadGame` handler + persistent `0x0A775B` primary / `0x0A775C` fallback + `12 s` watchdog) are the **plan of record**; all `6` P1 activators carry visible collidable `FO4Port` NIFs (`paintedwooddoordoubleload01.nif`, `bldwoodpdoorload01.nif`, `terminalwall01.nif`, `terminalconsoleon.nif`) with overlapping base statics disabled (`B1`), roof exit lands at Fallout 4 `0002C1C6` `XTEL` `(-1990.58, -1724.19, 97.56)` (`F9`), `FO4Port.esm` losslessly merges Museum `NVMI`s into `NAVI 0x00000FF1` (`L3`), and the ground raider carries `defaultFollowPlayerPKG` (`0x00021E76`) + continuous pursue re-engagement. The old `xtel_extra` holding-cell `XTEL` extra stays removed (`F4`).
 >   - **Probe `P4` (`10mm Pistol` ALONE — zero Laser Musket, Pipe Gun, or Minigun):** The welded `10mm Pistol` mesh (`fo4_10mmpistol.nif`) is rigid — **moving parts (`slide/bolt, hammer, trigger, mag release, detachable magazine`) are welded rigid and do NOT move**, and firing/reload animations (`AnimGripPistol` `0x00E6C5` + `AnimM1919` `0x19A60E`) plus Wwise `SNDR` SFX are **Starfield `XM2311` (`0x24561C`) stand-ins**.
 
 Truth labels used throughout: **`REACHABLE`**, **`TEST-STATION`**, **`OWNER TEST`**, **`RECORDS ONLY`**, **`TOOLING`**, **`NOT BUILT`**, **`NOT WIRED`**, **`NOT OURS`**.
@@ -55,24 +55,24 @@ python scripts/probes/stage_r11_p1_museum.py status --starfield <starfield-dir>
 |---|---|---:|---:|---:|---:|---|
 | `bat p1h1` | Sanctuary workbench `(-2329.25, -1420.19, 112.09)` -> mid-hop `(-2170.00, -1560.00, 102.00)` | `159.25` | `139.81` | `10.09` | **`159.25`** | PASS |
 | `bat p1c` | `p1h1` `(-2170.00, -1560.00, 102.00)` -> Museum front `(-2012.50, -1697.94, 88.70)` | `157.50` | `137.94` | `13.70` | **`157.50`** | PASS |
-| `040A775C -> p1c` | Concord anchor `(-2061.23, -1657.46, 86.93)` -> Museum front `(-2012.50, -1697.94, 88.70)` | `48.73` | `40.48` | `1.37` | **`48.73`** | PASS |
-| `040A775C -> door` | Concord anchor `(-2061.23, -1657.46, 86.93)` -> Front door `(-2010.57, -1697.94, 89.26)` | `50.66` | `40.48` | `2.33` | **`50.66`** | PASS |
-| `bat p1r` | Museum front `(-2012.50, -1697.94, 88.70)` -> Museum 3F roof `(-2008.49, -1724.60, 97.82)` | `4.01` | `26.66` | `9.12` | **`26.66`** | PASS |
+| `040A775C -> p1c` | Concord anchor `(-2061.23, -1657.46, 86.93)` -> Museum front `(-2012.50, -1697.94, 88.64)` | `48.73` | `40.48` | `1.71` | **`48.73`** | PASS |
+| `040A775C -> door` | Concord anchor `(-2061.23, -1657.46, 86.93)` -> Front door `(-2010.69, -1698.04, 89.26)` | `50.54` | `40.58` | `2.33` | **`50.54`** | PASS |
+| `bat p1r` | Museum front `(-2012.50, -1697.94, 88.64)` -> Museum 3F roof `(-1990.58, -1724.19, 97.82)` | `21.92` | `26.25` | `9.18` | **`26.25`** | PASS |
 
 ### Ordered 6-Part Probe `P1` (`v2+`) Procedure (`P3`-Clean Batches: `p1h1`, `p1c`, `p1r`, `p1f`, `p1b`, `p1k`, `p1p`, `p1q`)
 0. **Row 1 — Exterior-Loads Gate (MANDATORY FIRST CHECK BEFORE ENTERING MUSEUM):**
-   - Start New Game (`Quick start` / emerge from Vault 111 to Sanctuary) and hop to Concord Museum front via `bat p1h1` (wait `3–5 s`) -> `bat p1c` (`(-2012.50, -1697.94, 88.70)`).
-   - **PASS:** Concord exterior street, buildings, and Museum of Freedom facade are fully rendered at **`z ≈ 88.3 m`** (NOT bare Mars red sand at `z ≈ 12.6 m`!), `FO4SF_R11P1 ext_door_placed tag=p1_front_in ...` logs in `fo4sf_r11p1.0.log`, and `FO4SF_P1_ExtFrontInRef` (`[Open] Museum of Freedom — Front Entrance`) is visibly placed in front of the facade. *(If bare Mars `z ≈ 12.6 m` ever appears, STOP immediately and FAIL Row 1!)*
+   - Start New Game (`Quick start` / emerge from Vault 111 to Sanctuary) and hop to Concord Museum front via `bat p1h1` (wait `3–5 s`) -> `bat p1c` (`(-2012.50, -1697.94, 88.64)`).
+   - **PASS:** Concord exterior street, buildings, and Museum of Freedom facade are fully rendered at **`z ≈ 88.3 m`** (NOT bare Mars red sand at `z ≈ 12.6 m`!), `FO4SF_R11P1 ext_door_placed tag=p1_front_in ...` logs in `fo4sf_r11p1.0.log`, and `FO4SF_P1_ExtFrontInRef` (visible double wood door `paintedwooddoordoubleload01.nif`, `[Open] Museum of Freedom (Enter)`) is clickable directly in front of the facade. *(If bare Mars `z ≈ 12.6 m` ever appears, STOP immediately and FAIL Row 1!)*
 1. **Front Door Confirmed-Arrival (`5x` Each Way — `p1_front_in` & `p1_front_out`):**
-   - Facing east (`90 deg`) at `bat p1c`, press **`E`** on `FO4SF_P1_ExtFrontInRef` (`(-2010.57, -1697.94, 89.26)`) to enter `FO4Port_ConcordMuseum01` (`0x0100E2F4`, `LTMP 0x0006BCF8`, landing on `NAVM tri 87` at `(7.73, 0.91, -0.90)` facing west `270 deg` into lobby); turn around and press **`E`** on `FO4SF_P1_IntFrontOutRef` (`(8.75, 0.0, 0.15)` beside `0x0100EDEC`) to exit to `(-2012.50, -1697.94, 88.30)` facing west `270 deg` onto Concord street (`core_cell=true`).
-   - **PASS:** Repeat **`5` complete round-trips (`5x` in + `5x` out)** with `0` crashes, `0` infinite loading screens, `0` falls through floor, `0` `2.9 km` anchor bounces, and both `FO4SF_LOADDOOR activate_begin` and `FO4SF_LOADDOOR confirmed` on every leg.
-2. **Roof Door Confirmed-Arrival (`3x` Each Way — `p1_roof_out` & `p1_roof_in`):**
-   - Walk up to the 3F roof door inside the Museum (`(-21.80, 9.14, 10.20)` beside `0x0100EDF5`) OR hop outside with `bat p1r` (`(-2008.49, -1724.60, 97.82)` facing south `180 deg` along clear roof deck, `2.21 m` south of `FO4SF_P1_ExtRoofInRef`).
-   - Press **`E`** on `FO4SF_P1_IntRoofOutRef` -> exterior roof `(-2008.49, -1724.60, 97.42)` facing south `180 deg` (`core_cell=true`), clear of `FO4SF_P1_ExtRoofInRef` (`(-2008.49, -1722.39, 97.42)`), then step north & press **`E`** on `FO4SF_P1_ExtRoofInRef` -> interior 3F landing `(-22.97, 8.59, 9.15)` (`NAVM tri 873`) facing east `90 deg` back into the 3F corridor.
-   - **PASS:** Complete **`3` full round-trips (`3x` out + `3x` in)** with separated roof exit landing (`2.21 m` south) & facing and `FO4SF_LOADDOOR confirmed` on every leg.
-3. **Save Inside Museum -> Full Quit to Desktop -> Relaunch -> Load -> Walk Out Front Door:**
-   - Stand inside `FO4Port_ConcordMuseum01` (enter via front door or `bat p1f`), run `bat p1q` (logs `FO4SF_R11P1 snapshot tag=stage_30 ... interior=true`), save **`Throwaway_R11P1_Inside`**, **Quit to Desktop** (full process exit), relaunch Starfield via SFSE, load `Throwaway_R11P1_Inside` (auto-logs `FO4SF_R11P1 snapshot tag=load_game`), and walk out the front door via `E` on `FO4SF_P1_IntFrontOutRef`.
-   - **PASS:** Reloads cleanly inside the Museum with `busy = false` reset (`OnLoad`/`OnCellAttach`), `gate_opened` preserved (`gate_locked=false`), and walking out front door lands confirmed on Concord street (`core_cell=true`). Delete throwaway save when done.
+   - Facing east (`90 deg`) at `bat p1c`, press **`E`** on `FO4SF_P1_ExtFrontInRef` (`(-2010.69, -1698.04, 89.26)`) to enter `FO4Port_ConcordMuseum01` (`0x0100E2F4`, `LTMP 0x0006BCF8`, landing on `NAVM tri 87` at `(7.73, 0.91, -0.90)` facing west `270 deg` into lobby); turn around and press **`E`** on `FO4SF_P1_IntFrontOutRef` (`(9.02, 0.0, -0.914)` replacing disabled `0x0100EDEC`) to exit to `(-2012.50, -1697.94, 88.24)` facing west `270 deg` onto Concord street (`core_cell=true`).
+   - **PASS:** Repeat **`5` complete round-trips (`5x` in + `5x` out)** by pressing **`E`** (zero `<ref>.activate`) with `0` crashes, `0` infinite loading screens, `0` falls through floor, `0` `2.9 km` anchor bounces, and both `FO4SF_LOADDOOR activate_begin` and `FO4SF_LOADDOOR confirmed` on every leg.
+2. **Roof Door Confirmed-Arrival (`3x` Each Way — `p1_roof_out` & `p1_roof_in`, `F9` Fix):**
+   - Walk up to the 3F roof door inside the Museum (`(-21.943, 9.02, 9.143)` replacing disabled `0x0100EDF5`) OR hop outside with `bat p1r` (`(-1990.58, -1724.19, 97.82)` facing NNW `335 deg` toward `FO4SF_P1_ExtRoofInRef` at `(-1991.27, -1722.57, 97.42)`).
+   - Press **`E`** on `FO4SF_P1_IntRoofOutRef` -> exterior roof bulkhead **`(-1990.58, -1724.19, 97.56)`** (`F9`, `1.77 m` from `ExtRoofInRef`, `core_cell=true`), then step & press **`E`** on `FO4SF_P1_ExtRoofInRef` (`bldwoodpdoorload01.nif`) -> interior 3F landing `(-21.90, 8.68, 9.15)` facing east `90 deg` into 3F corridor.
+   - **PASS:** Complete **`3` full round-trips (`3x` out + `3x` in)** standing firmly on the roof bulkhead (`z ≈ 97.56`, NO falling off roof!) and `FO4SF_LOADDOOR confirmed` on every leg.
+3. **Save Inside Museum -> Full Quit to Desktop -> Relaunch -> Load -> Walk Out Front Door (`FO4SF_LoadDoorQuest` Fix):**
+   - Stand inside `FO4Port_ConcordMuseum01` (enter via front door or `bat p1f`), run `bat p1q`, save **`Throwaway_R11P1_Inside`**, **Quit to Desktop**, relaunch SFSE, load `Throwaway_R11P1_Inside`, and press **`E`** on `FO4SF_P1_IntFrontOutRef`.
+   - **PASS:** `FO4SF_LoadDoorQuest.OnPlayerLoadGame` cancels stale timers & logs `FO4SF_LOADDOOR reload_ready`; walking out front door resolves `0x0A775B` immediately and lands confirmed on Concord street (`core_cell=true`, never hangs on `activate_begin`). Delete throwaway save when done.
 4. **Full Museum Walk + Basement Terminal (`0x0100E35E`) & Novice-Locked Security Gate (`0x0100EDF0`, Opened Once Without Relocking):**
    - Walk from the front lobby down to the basement (`(-14.38, -0.10, -3.32)`, `NAVM tri 1011`; interior-only shortcut `bat p1b` enforces `IsPlayerInMuseum()` guard and sets stage `10`), confirm `0x0100EDF0` & `0x0100E35E` start **Novice-locked (`level=25`)**, then unlock via **`E`** on `FO4SF_P1_BasementTermRef` (`[Unlock Security Gate]`) / terminal `0x0100E35E` (`XLKR -> 0x0100EDF0`) or Digipicking `0x0100EDF0`.
    - Walk through the opened gate into the fusion-core generator cage, then walk all the way up through the main atrium stairs to the 3F balcony/Preston's room and the 3F roof doorway.
@@ -110,11 +110,11 @@ player.setpos y -1697.94
 player.setpos z 88.70
 player.setangle z 90
 
-; <starfield-dir>/p1r.txt — Museum exterior 3F roof approach (<27 m/axis from p1c, clear of roof entry activator)
-player.setpos x -2008.49
-player.setpos y -1724.60
+; <starfield-dir>/p1r.txt — Museum exterior 3F roof approach (<27 m/axis from p1c, facing NNW toward ExtRoofIn)
+player.setpos x -1990.58
+player.setpos y -1724.19
 player.setpos z 97.82
-player.setangle z 180
+player.setangle z 335
 
 ; <starfield-dir>/p1f.txt — direct interior Museum lobby (0x0100E2F4, NAVM tri 87)
 coc FO4Port_ConcordMuseum01
@@ -148,7 +148,8 @@ FO4SF_LOADDOOR activate_begin tag=p1_front_in dir=in caller=<caller> cell=<cell>
 FO4SF_LOADDOOR confirmed tag=p1_front_in dir=in attempts=<n> core_cell=<true|false> cell=<cell> world=<world> pos=<x> <y> <z> heading=270.0
 FO4SF_LOADDOOR activate_begin tag=p1_front_out dir=out caller=<caller> cell=<cell> pos=<x> <y> <z>
 FO4SF_LOADDOOR confirmed tag=p1_front_out dir=out attempts=<n> core_cell=true cell=<cell> world=<world> pos=<x> <y> <z> heading=270.0
-FO4SF_LOADDOOR confirmed tag=p1_roof_out dir=out attempts=<n> core_cell=true cell=<cell> world=<world> pos=<x> <y> <z> heading=180.0
+FO4SF_LOADDOOR reload_ready cell=<cell> interior=<true|false>
+FO4SF_LOADDOOR confirmed tag=p1_roof_out dir=out attempts=<n> core_cell=true cell=<cell> world=<world> pos=<x> <y> <z> heading=335.0
 FO4SF_LOADDOOR confirmed tag=p1_roof_in dir=in attempts=<n> core_cell=<true|false> cell=<cell> world=<world> pos=<x> <y> <z> heading=90.0
 FO4SF_R11P1 basement_gate opened=true already_open=false source=<terminal_activate|port_terminal_activate|gate_picked_activate|stage_10> locked_before=true lock_level_before=25 locked_after=false ref=<ref>
 FO4SF_R11P1 raider_combat started=true loaded=true wait_steps=<w> raider=<ref> raider_pos=<rx> <ry> <rz> player_pos=<px> <py> <pz> dist=<d>

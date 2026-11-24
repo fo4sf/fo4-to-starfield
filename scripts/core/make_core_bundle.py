@@ -138,6 +138,7 @@ DROPPED_MISSION_PEX = frozenset({
     "data/scripts/fo4sf_sanctuary01quest.pex",
     "data/scripts/fo4sf_vault111roachesquest.pex",
     "data/scripts/fo4sf_s5s6itempickup.pex",
+    "data/scripts/fo4sf_loaddoorquest.pex",
     "data/scripts/fo4sf_confirmedloaddoor.pex",
 })
 
@@ -827,6 +828,34 @@ def verify_bundle(
     except Exception as exc:
         problems.append(f"binary esm check failed: {exc}")
 
+    # 3d2 (B1). Every placed ACTI across all bundle ESMs must carry non-empty non-marker MODL + non-zero OBND;
+    # and when Data/meshes is populated, verify .nif / .mesh / .mat / .dds assets exist for placed ACTIs.
+    try:
+        from fo4sf import beginning_pilot
+
+        for ep in esm_paths_to_inspect:
+            bad_actis, _ = beginning_pilot.find_bad_placed_activators(ep)
+            problems.extend(bad_actis)
+
+        mission_esm_bdir = os.path.join(bdir, "FO4SFMission.esm")
+        data_meshes_dir = os.path.join(bdir, "Data", "meshes")
+        if os.path.isfile(mission_esm_bdir) and os.path.isdir(data_meshes_dir):
+            extra_ba2s: List[str] = []
+            eff_port = port_esm or (bplan.get("port_esm_checked") if isinstance(bplan, dict) else None)
+            if eff_port:
+                port_dir_p = os.path.dirname(os.path.abspath(str(eff_port)))
+                for bnm in ("FO4Port - Main.ba2", "FO4Port - Textures.ba2"):
+                    bp = os.path.join(port_dir_p, bnm)
+                    if os.path.isfile(bp):
+                        extra_ba2s.append(bp)
+            problems.extend(
+                beginning_pilot.verify_placed_acti_assets(
+                    mission_esm_bdir, os.path.join(bdir, "Data"), extra_ba2_paths=extra_ba2s
+                )
+            )
+    except Exception as exc:
+        problems.append(f"placed ACTI B1 check failed: {exc}")
+
     # 3e (A1). Verify every movie named in shipped FO4SFPipboyMenu.ini exists in Data/Interface/ and in bundle manifest
     pb_ini_candidates = (
         os.path.join(bdir, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.ini"),
@@ -1107,8 +1136,12 @@ def stage_from_checkout(a) -> Dict[str, str]:
                 ms_args.extend(["--r11-full-mission", "1"])
             if getattr(a, "creature_slots", None):
                 ms_args.extend(["--creature-slots", str(a.creature_slots)])
+            if getattr(a, "creatures_esm", None):
+                ms_args.extend(["--creatures-esm", str(a.creatures_esm)])
             if int(getattr(a, "fo4_human_anims", 0) or 0):
                 ms_args.extend(["--fo4-human-anims", "1"])
+            if getattr(a, "fo4_human_anims_esm", None):
+                ms_args.extend(["--fo4-human-anims-esm", str(a.fo4_human_anims_esm)])
             if int(getattr(a, "task1b_vault_recovery", 0) or 0):
                 ms_args.extend(["--task1b-vault-recovery", "1"])
             _run_py(py_main, "scripts/mission/make_mission.py", ms_args)
@@ -1715,6 +1748,43 @@ def fold_bundle(
             "outputs": recorded_comp_outputs,
         }
 
+    # Copy staged P3-clean console batches (e.g. bat/h2*.txt) alongside bundle_plan.json (never inside Data/).
+    mission_stage_dir = stages.get("mission")
+    if mission_stage_dir:
+        ms_bat_dir = os.path.join(os.path.abspath(mission_stage_dir), "bat")
+        if os.path.isdir(ms_bat_dir):
+            dst_bat_dir = os.path.join(partial, "bat")
+            os.makedirs(dst_bat_dir, exist_ok=True)
+            for fn in sorted(os.listdir(ms_bat_dir)):
+                sp = os.path.join(ms_bat_dir, fn)
+                if os.path.isfile(sp) and fn.lower().endswith(".txt"):
+                    shutil.copy2(sp, os.path.join(dst_bat_dir, fn))
+
+    # B1: Ensure Data/meshes/fo4sf/powerarmor/fusioncore.nif exists when FO4SFMission.esm references it.
+    partial_mission = os.path.join(partial, "FO4SFMission.esm")
+    fc_rel = "Data/meshes/fo4sf/powerarmor/fusioncore.nif"
+    fc_dst = os.path.join(partial, *fc_rel.split("/"))
+    if os.path.isfile(partial_mission) and not os.path.isfile(fc_dst):
+        try:
+            needs_fc = b"fo4sf\\powerarmor\\fusioncore.nif" in Path(partial_mission).read_bytes().lower()
+        except OSError:
+            needs_fc = False
+        if needs_fc:
+            pa_stage = os.path.abspath(stages["powerarmor"]) if "powerarmor" in stages else ""
+            fc_cands = [
+                os.path.join(pa_stage, "Data", "meshes", "fo4sf", "powerarmor", "fusioncore.nif") if pa_stage else "",
+                os.path.join(pa_stage, "assets", "meshes", "fo4sf", "powerarmor", "fusioncore.nif") if pa_stage else "",
+                os.path.join(partial, "Data", "meshes", "fo4core", "ammo", "fusioncore", "fusioncore.nif"),
+            ]
+            fc_src = next((c for c in fc_cands if c and os.path.isfile(c)), None)
+            if fc_src is not None:
+                os.makedirs(os.path.dirname(fc_dst), exist_ok=True)
+                shutil.copy2(fc_src, fc_dst)
+                fc_sha = sha256_file(fc_dst)
+                folded_data_hashes[fc_rel] = fc_sha
+                if "mission" in components_record:
+                    components_record["mission"]["outputs"][fc_rel] = fc_sha
+
     # Ensure --plugins list already respects every TES4 master edge (e.g. FO4SFMission.esm after FO4TerrainCore.esm)
     # while keeping plugins[0] (FO4ActorRaider.esm) first to name "<first plugin> - Main.ba2".
     try:
@@ -2265,7 +2335,9 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--mission-stage", default=None)
     b.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1))
     b.add_argument("--creature-slots", default=None)
+    b.add_argument("--creatures-esm", default=None)
     b.add_argument("--fo4-human-anims", nargs="?", const=1, default=0, type=int, choices=(0, 1))
+    b.add_argument("--fo4-human-anims-esm", default=None)
     b.add_argument("--task1b-vault-recovery", nargs="?", const=1, default=0, type=int, choices=(0, 1))
     b.add_argument("--route-loot-stage", default=None)
     b.add_argument("--no-mission", action="store_true")

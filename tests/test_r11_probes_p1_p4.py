@@ -88,6 +88,7 @@ def _collect_probe_log_templates(repo_root: pathlib.Path) -> list[tuple[str, str
     compiled = list(r11.collect_source_format_patterns(repo_root))
     for rel in (
         "scripts/doors/FO4SF_ConfirmedLoadDoor.psc",
+        "scripts/doors/FO4SF_LoadDoorQuest.psc",
         "scripts/probes/FO4SF_R11P1Quest.psc",
         "scripts/probes/FO4SF_R11P4Quest.psc",
     ):
@@ -174,6 +175,10 @@ class Round11ProbesP1P4CardTests(unittest.TestCase):
             "0x0400080F",
             "0x00000009",
             "StartTimer",
+            "FO4SF_LoadDoorQuest.psc",
+            "(-1990.58, -1724.19, 97.56)",
+            "0x0A775B",
+            "0x00000FF1",
             "stage_r11_p1_museum.py verify --stage-dir <p1-stage-dir>",
             "stage_r11_p1_museum.py install --stage-dir <p1-stage-dir> --starfield <starfield-dir>",
             "stage_r11_p1_museum.py uninstall --starfield <starfield-dir>",

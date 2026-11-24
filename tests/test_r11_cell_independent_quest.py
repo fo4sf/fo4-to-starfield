@@ -22,8 +22,10 @@ from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+SCRIPTS_TERRAIN = REPO_ROOT / "scripts" / "terrain"
+for _p in (str(SRC_DIR), str(SCRIPTS_TERRAIN)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 PROGRAM_CS = REPO_ROOT / "dotnet" / "Mission" / "Program.cs"
 CODSWORTH_PSC = REPO_ROOT / "scripts" / "mission" / "FO4SF_Codsworth01Quest.psc"
@@ -168,7 +170,7 @@ def _compile_papyrus(psc: str, fn_names: list[str], state_vars: set[str], ns: di
                 lines.append("    " * indent + "return " + _py_expr(code[7:]))
                 continue
             # Local typed variable declaration: `Type name = expr`
-            decl_m = re.match(r"^(?:int|float|bool|string|Actor|ActorBase|Cell|Package|Form|Weapon|Ammo|Quest|ObjectReference|Scene|GlobalVariable|Message|FO4SF_[A-Za-z_]\w*(?:\[\])?|(?:int|float|bool|string|Actor|ObjectReference)\[\])\s+([A-Za-z_]\w*)\s*=\s*(.+)$", code)
+            decl_m = re.match(r"^(?:int|float|bool|string|var|Actor|ActorBase|Cell|Package|Form|Weapon|Ammo|Quest|ObjectReference|Scene|GlobalVariable|Message|FO4SF_[A-Za-z_]\w*(?:\[\])?|(?:int|float|bool|string|var|Actor|ObjectReference)\[\])\s+([A-Za-z_]\w*)\s*=\s*(.+)$", code)
             if decl_m:
                 vname, vexpr = decl_m.group(1), _py_expr(decl_m.group(2))
                 lines.append("    " * indent + f"{vname} = {vexpr}")
@@ -198,6 +200,8 @@ class _FakeActor:
         self.items: dict[str, int] = {}
         self.linked_ref = None
         self.eval_calls = 0
+        self.combat_starts = 0
+        self.async_calls: list[tuple[str, list]] = []
         self.moveto_calls: list[tuple[float, float, float]] = []
 
     def GetPositionX(self) -> float:
@@ -277,6 +281,24 @@ class _FakeActor:
 
     def EvaluatePackage(self, _reset: bool = False) -> None:
         self.eval_calls += 1
+
+    def IsInCombat(self) -> bool:
+        return False
+
+    def GetCombatTarget(self):
+        return None
+
+    def Is3DLoaded(self) -> bool:
+        return True
+
+    def SetValue(self, *_args) -> None:
+        pass
+
+    def StartCombat(self, *_args) -> None:
+        self.combat_starts += 1
+
+    def CallFunctionNoWait(self, fn_name: str, args=None) -> None:
+        self.async_calls.append((str(fn_name), list(args or [])))
 
 
 class _FakeMarker:
@@ -597,6 +619,7 @@ def _build_codsworth_harness(
             "DriveCodsworthToS3Marker",
             "SpawnS3HouseBloatflies",
             "IsActorNearS3House",
+            "GetCodsworthHouseDist",
             "IsArrivedAtS3House",
             "StartS3House1Search",
             "StartS3House2Search",
@@ -761,7 +784,8 @@ def _build_min00_harness(
         "prestonPostSceneActive", "prestonTalkBoxOpen", "prestonFallbackActive", "prestonTalkLogged",
         "prestonUsedFallback", "talkActivated", "talkStartedAt", "talkFailures",
         "s4BalconySetup", "s4BalconyActive", "s4PrestonArmed", "s4StreetCleared", "s4MusketTaken", "s4FusionCellsPlaced",
-        "s5MuseumInitialized", "s5MuseumCleared", "s5MuseumRaidersDead", "s6BasementUnlockedPending",
+        "s5MuseumInitialized", "s5MuseumCleared", "s5MuseumRaidersDead", "s5RaiderEngageTicks", "s6BasementUnlockedPending",
+        "min00Given", "pendingStage", "pendingStageBy",
         "s6RoomEventsRegistered", "s6RoomScenePending", "s6RoomSceneMenuOpened",
         "s6RoomSceneRestarting", "s6RoomScenePhase1", "s6RoomPhase1At", "s6RoomAttemptStartedAt", "s6RoomSceneRetries",
         "s6RoomSceneTicks", "s6SturgesScenePending", "s6SturgesSceneMenuOpened",
@@ -869,6 +893,10 @@ def _build_min00_harness(
         "s5MuseumInitialized": False,
         "s5MuseumCleared": False,
         "s5MuseumRaidersDead": 0,
+        "s5RaiderEngageTicks": 0,
+        "min00Given": False,
+        "pendingStage": -1,
+        "pendingStageBy": "other",
         "s6BasementUnlockedPending": False,
         "s6RoomEventsRegistered": False,
         "s6RoomScenePending": False,
@@ -913,6 +941,8 @@ def _build_min00_harness(
         "IsCommonwealthExterior": lambda p: p is not None and not p.IsInInterior(),
         "IsPlayerStableAt": lambda p, *_a: p is not None and not p.IsInInterior(),
         "IsTestModeEnabled": lambda: False,
+        "SyncS5ExteriorDoors": lambda *_a: None,
+        "Apply": lambda st, _by="other": quest_state.__setitem__("stage", int(st)),
         "EnsureActorTalkable": lambda a: a.AllowPCDialogue(True) if a else None,
         "ArmRaiderForCombat": lambda *_a: None,
         "EquipBalancedRaiderSidearm": lambda *_a: None,
@@ -1453,7 +1483,65 @@ class TestR11Step3qBinaryEsm(unittest.TestCase):
             self.assertEqual(sf_recs[0xBC9], ("SCEN", "FO4SF_S6_PrestonRoomScene"))
             self.assertEqual(sf_recs[0xBD0], ("SCEN", "FO4SF_S6_SturgesRoomScene"))
             self.assertNotIn(0xBDC, sf_recs)
-            self.assertEqual(sa_recs[0xBDC], ("KYWD", "FO4SF_AnimArchetypeFO4"))
+            # M3: --fo4-human-anims links FO4SFHumanAnims.esm (0x01000800) without creating local 0xBDC
+            import build_fo4port_r11_museum as ext  # local pure-Python ESM reader
+            from fo4sf import beginning_pilot as bp
+
+            self.assertNotIn(0xBDC, sa_recs)
+            self.assertNotIn(0xBDC, sf_recs)
+            anims_raw = anims_esm.read_bytes()
+            anims_tes4, _ = ext.parse_top_level(anims_raw)
+            anims_masters = [
+                sp.rstrip(b"\x00").decode("ascii")
+                for ss, sp in ext.iter_subrecords(anims_tes4.decompressed_body())
+                if ss == b"MAST"
+            ]
+            self.assertIn("FO4SFHumanAnims.esm", anims_masters)
+            fo4_anim_kw_fids = {
+                r.fid & 0xFFF
+                for r in ext.walk_all_records(anims_raw)
+                if r.sig == b"NPC_"
+                for ss, sp in ext.iter_subrecords(r.decompressed_body())
+                if ss == b"KWDA" and 0x01000800 in [struct.unpack_from("<I", sp, i)[0] for i in range(0, len(sp), 4)]
+            }
+            self.assertEqual(fo4_anim_kw_fids, {0x801, 0x986, 0xA00, 0xBC3, 0xBC5, 0xBC7})
+
+            # B1 + LoadDoorQuest + L3 + H2 + M2 checks on full_esm and creatures ESM
+            bad_actis, placed_nifs = bp.find_bad_placed_activators(full_esm)
+            self.assertEqual(bad_actis, [])
+            self.assertIn("fo4sf\\powerarmor\\fusioncore.nif", placed_nifs)
+            self.assertIn("fo4port\\setdressing\\doors\\paintedwooddoordoubleload01.nif", placed_nifs)
+            self.assertIn("fo4port\\interiors\\building\\woodp\\doors\\bldwoodpdoorload01.nif", placed_nifs)
+            self.assertIn("fo4port\\furniture\\terminals\\terminalwall01.nif", placed_nifs)
+
+            self.assertEqual(sf_recs[0xBDE], ("QUST", "FO4SF_LoadDoor"))
+            self.assertEqual(sf_recs[0xBE1], ("PACK", "FO4SF_S5_MuseumRaiderPursuePack"))
+            self.assertEqual(sf_recs[0xBE4], ("ARMO", "FO4SF_S6_SettlerClothes_StandIn"))
+            self.assertEqual(sf_recs[0xBE5], ("OTFT", "FO4SF_S6_SettlerOutfit_StandIn"))
+            self.assertNotIn(0xBE2, sf_recs)
+            self.assertNotIn(0xBE3, sf_recs)
+
+            full_raw = full_esm.read_bytes()
+            full_globs = {
+                r.fid & 0xFFF: struct.unpack("<f", next(sp for ss, sp in ext.iter_subrecords(r.decompressed_body()) if ss == b"FLTV"))[0]
+                for r in ext.walk_all_records(full_raw)
+                if r.sig == b"GLOB"
+            }
+            self.assertEqual(full_globs[0xB8C], 0.0)
+            self.assertEqual(full_globs[0xB8E], 0.0)
+
+            cre_esm = Path(tmpdir) / "out" / "r11_full_mission_creatures" / "FO4SFMission.esm"
+            cre_raw = cre_esm.read_bytes()
+            cre_tes4, _ = ext.parse_top_level(cre_raw)
+            cre_masters = [
+                sp.rstrip(b"\x00").decode("ascii")
+                for ss, sp in ext.iter_subrecords(cre_tes4.decompressed_body())
+                if ss == b"MAST"
+            ]
+            self.assertIn("FO4SFCreatures.esm", cre_masters)
+            cre_sigs = {r.fid & 0xFFF: r.sig.decode() for r in ext.walk_all_records(cre_raw) if r.sig != b"TES4"}
+            self.assertEqual(cre_sigs[0xBE2], "NPC_")
+            self.assertEqual(cre_sigs[0xBE3], "NPC_")
 
 
 def _build_vault_roaches_harness(
@@ -1572,6 +1660,97 @@ class TestR12S2S3S5S6Missions(unittest.TestCase):
         self.assertTrue(h_rdy.ns["EvaluateVaultRoaches"]())
         self.assertTrue(h_rdy.state["completed"])
         self.assertIn("s2 vault_roaches complete dead=5/5 stage=100", h_rdy.logs)
+
+    def test_h1_min00_stage_40_does_not_complete_200_when_full_mission_enabled(self):
+        psc = MIN00_PSC.read_text(encoding="utf-8")
+        # Full-mission mode (EnableS6ToS9Full=True): stage 40 stays open for basement gate & fusion core
+        mh_full = _build_min00_harness(enable_s4=True, enable_s6_s9=True)
+        _compile_papyrus(
+            psc,
+            ["EffectiveStage", "OnStageSet"],
+            {"applied", "prestonUsedFallback", "talkActivated", "pendingStage", "pendingStageBy"},
+            mh_full.ns,
+        )
+        mh_full.ns["SetStage"](40)
+        mh_full.ns["OnStageSet"](40, 0)
+        self.assertFalse(mh_full.state["completed"])
+        self.assertNotIn(200, mh_full.stages)
+
+        # Standalone 2g-fix mode (EnableS6ToS9Full=False): stage 40 completes Min00 at 200
+        mh_2g = _build_min00_harness(enable_s4=False, enable_s6_s9=False)
+        _compile_papyrus(
+            psc,
+            ["EffectiveStage", "OnStageSet"],
+            {"applied", "prestonUsedFallback", "talkActivated", "pendingStage", "pendingStageBy"},
+            mh_2g.ns,
+        )
+        mh_2g.ns["SetStage"](40)
+        mh_2g.ns["OnStageSet"](40, 0)
+        self.assertTrue(mh_2g.state["completed"])
+        self.assertIn(200, mh_2g.stages)
+
+    def test_m7_codsworth_only_s3_house_arrival_and_dist_log(self):
+        # Player standing at House 1 while Codsworth is > 10 m away MUST NOT clear House 1
+        cods = _FakeActor("Codsworth", -2360.0, -1420.0, 112.0)
+        player = _FakeActor("Player", -2313.44, -1372.02, 112.66)
+        ch = _build_codsworth_harness(
+            enable_s3=True, r11_glob_val=1.0, codsworth_actor=cods, player_actor=player,
+            creature_slot_ready=False,
+        )
+        ch.ns["applied"] = 30
+        ch.ns["UpdateS3HouseSearchProgress"]()
+        self.assertFalse(ch.ns["s3House1Cleared"])
+        self.assertEqual(ch.stages, [30, 32])
+
+        # Once Codsworth arrives within 10 m of House 1, clears House 1 & logs codsworth_dist=
+        cods.SetPosition(-2313.0, -1372.5, 112.66)
+        ch.ns["UpdateS3HouseSearchProgress"]()
+        self.assertTrue(ch.ns["s3House1Cleared"])
+        self.assertEqual(ch.stages, [30, 32, 34, 36, 38])
+        self.assertTrue(any("codsworth01 s3 creature_slot=empty arrival house=1 codsworth_dist=" in l for l in ch.logs))
+
+    def test_s5_museum_raider_reengages_combat_and_calls_path_to_reference(self):
+        museum_cell = SimpleNamespace(name="FO4Port_ConcordMuseum01")
+        anchor = _FakeMarker("FO4Port_MuseumAnchorRef", 8.228572, 0.000002, -0.914286)
+        raiders = [_FakeActor(f"MR_{i}") for i in range(3)]
+        mh = _build_min00_harness(
+            enable_s4=True, enable_s6_s9=True,
+            museum_anchor=anchor, museum_cell=museum_cell, museum_raiders=raiders,
+        )
+        mh.player.interior = True
+        mh.player.GetParentCell = lambda: museum_cell
+        mh.ns["UpdateS5MuseumEncounter"](mh.player)
+        for r in raiders:
+            self.assertGreaterEqual(r.eval_calls, 1)
+            self.assertTrue(any(fn == "StartCombat" and args[0] is mh.player for fn, args in r.async_calls))
+            self.assertTrue(any(fn == "PathToReference" and args[0] is mh.player for fn, args in r.async_calls))
+
+    def test_b1_find_bad_placed_activators_rejects_marker_and_empty_modl(self):
+        import build_fo4port_r11_museum as ext
+        from fo4sf import beginning_pilot as bp
+
+        with tempfile.TemporaryDirectory() as td:
+            tes4 = ext.RawRecord(
+                b"TES4", 1, 0, 0, 576, 0,
+                ext.pack_subrecords([(b"HEDR", struct.pack("<fII", 0.96, 1, 0x802)), (b"MAST", b"Starfield.esm\x00"), (b"DATA", b"\x00" * 8)]),
+            )
+            bad_acti = ext.RawRecord(
+                b"ACTI", 0, 0x01000800, 0, 576, 0,
+                ext.pack_subrecords([(b"EDID", b"BadMarkerActi\x00"), (b"OBND", b"\x00" * 24), (b"MODL", b"Effects\\DecoratorMarker.nif\x00")]),
+            )
+            bad_ref = ext.RawRecord(
+                b"REFR", 0, 0x01000801, 0, 576, 0,
+                ext.pack_subrecords([(b"NAME", struct.pack("<I", 0x01000800)), (b"DATA", struct.pack("<6f", 0, 0, 0, 0, 0, 0))]),
+            )
+            bad_cell = ext.RawRecord(b"CELL", 0, 0x01000802, 0, 576, 0, ext.pack_subrecords([(b"EDID", b"TestCell\x00")]))
+            esm_path = Path(td) / "BadActi.esm"
+            esm_path.write_bytes(
+                tes4.to_bytes()
+                + ext.TopGrup(b"ACTI", 0, 0, 0, bad_acti.to_bytes()).to_bytes()
+                + ext.TopGrup(b"CELL", 0, 0, 0, ext.wrap_cell_entry(bad_cell, [bad_ref], [])).to_bytes()
+            )
+            bad, _ = bp.find_bad_placed_activators(esm_path)
+            self.assertTrue(any("DecoratorMarker" in err for err in bad))
 
     def test_s3_empty_slot_arrival_and_stage50_scene_f1_fallback(self):
         cods = _FakeActor("Codsworth", -2313.44, -1372.02, 112.66)

@@ -798,6 +798,66 @@ def build_navi_record(nvmis: Sequence[navm.Nvmi], version: int = 581) -> RawReco
     return RawRecord(b"NAVI", 0, NAVI_FID, 0, version, 0, body)
 
 
+def parse_flat_grup_records(payload: bytes) -> List[RawRecord]:
+    """Parse sequential RawRecords from a non-hierarchical top-level GRUP payload."""
+    out: List[RawRecord] = []
+    pos, n = 0, len(payload)
+    while pos < n:
+        if pos + 24 > n:
+            raise ExtensionError(f"truncated record header inside GRUP payload at {pos}")
+        sig = payload[pos : pos + 4]
+        if sig == b"GRUP":
+            raise ExtensionError(f"unexpected nested GRUP inside flat GRUP payload at {pos}")
+        rsize, flags, fid, rev, ver, unk = struct.unpack_from("<IIIIHH", payload, pos + 4)
+        if pos + 24 + rsize > n:
+            raise ExtensionError(f"truncated record {sig!r} 0x{fid:08X} in GRUP payload at {pos}")
+        out.append(RawRecord(sig, flags, fid, rev, ver, unk, payload[pos + 24 : pos + 24 + rsize]))
+        pos += 24 + rsize
+    return out
+
+
+def merge_navi_record(base_navi: RawRecord, extra_nvmis: Sequence[navm.Nvmi]) -> Tuple[RawRecord, int]:
+    """Losslessly merge extra NVMI entries into an existing NAVI 0x00000FF1 record.
+
+    Preserves every base NVER, NVMI, NVPP, and NVSI subrecord byte-for-byte in order,
+    inserting new NVMI entries directly before NVPP/NVSI.
+    """
+    base_subs = iter_subrecords(base_navi.decompressed_body())
+    existing_navm_fids: Set[int] = set()
+    prefix_subs: List[Tuple[bytes, bytes]] = []
+    suffix_subs: List[Tuple[bytes, bytes]] = []
+    in_suffix = False
+    for ss, sp in base_subs:
+        if not in_suffix and ss in (b"NVPP", b"NVSI"):
+            in_suffix = True
+        if in_suffix:
+            suffix_subs.append((ss, sp))
+        else:
+            if ss == b"NVMI":
+                existing_navm_fids.add(navm.parse_nvmi(sp).navmesh)
+            prefix_subs.append((ss, sp))
+
+    added_subs: List[Tuple[bytes, bytes]] = []
+    for item in extra_nvmis:
+        if item.navmesh in existing_navm_fids:
+            raise ExtensionError(
+                f"Museum NAVM 0x{item.navmesh:08X} already exists in base NAVI 0x{base_navi.fid:08X}"
+            )
+        added_subs.append((b"NVMI", navm.write_nvmi(item)))
+
+    merged_body = pack_subrecords(prefix_subs + added_subs + suffix_subs)
+    merged_rec = RawRecord(
+        base_navi.sig,
+        base_navi.flags & ~COMPRESSED_FLAG,
+        base_navi.fid,
+        base_navi.revision,
+        base_navi.version,
+        base_navi.unknown,
+        merged_body,
+    )
+    return merged_rec, len(added_subs)
+
+
 def wrap_grup(label: bytes, gtype: int, payload: bytes) -> bytes:
     return struct.pack("<4sI4sIII", b"GRUP", 24 + len(payload), label, gtype, 0, 0) + payload
 
@@ -1194,17 +1254,33 @@ def extend_fo4port_esm(
 
         appended_cell_bytes.append(wrap_cell_entry(new_cell_rec, new_pers, new_temp))
 
-    # Assemble output top-level GRUPs: preserve every existing GRUP payload verbatim at its prefix!
+    # Assemble output top-level GRUPs: preserve every existing GRUP payload verbatim at its prefix,
+    # and losslessly merge Museum NVMIs into existing NAVI 0x00000FF1 when NAVI already exists in base!
     out_grups: List[TopGrup] = []
     seen_labels: Set[bytes] = set()
     for tg in top_grups:
         seen_labels.add(tg.label)
+        base_payload = tg.payload
         extra_payload = b""
-        if tg.label == b"CELL":
+        if tg.label == b"NAVI" and nvmis_to_emit:
+            navi_recs = parse_flat_grup_records(tg.payload)
+            out_navi_recs: List[RawRecord] = []
+            merged_existing_navi = False
+            for nrec in navi_recs:
+                if nrec.fid == NAVI_FID and nrec.sig == b"NAVI" and not merged_existing_navi:
+                    merged_rec, _ = merge_navi_record(nrec, nvmis_to_emit)
+                    out_navi_recs.append(merged_rec)
+                    merged_existing_navi = True
+                else:
+                    out_navi_recs.append(nrec)
+            if not merged_existing_navi:
+                out_navi_recs.append(build_navi_record(nvmis_to_emit))
+            base_payload = b"".join(r.to_bytes() for r in out_navi_recs)
+        elif tg.label == b"CELL":
             extra_payload = b"".join(appended_cell_bytes)
         elif tg.label in appended_by_sig:
             extra_payload = b"".join(r.to_bytes() for r in appended_by_sig[tg.label])
-        out_grups.append(TopGrup(tg.label, tg.gtype, tg.stamp, tg.unknown, tg.payload + extra_payload))
+        out_grups.append(TopGrup(tg.label, tg.gtype, tg.stamp, tg.unknown, base_payload + extra_payload))
 
     # Append any top-level GRUPs not present in base (e.g. NAVI or any net-new sig).
     for sig in TOP_GRUP_ORDER:
@@ -1291,6 +1367,44 @@ def verify_lossless_extension(
     missing_ids: List[int] = []
     type_changes: List[Tuple[int, bytes, bytes]] = []
     body_changes: List[int] = []
+    base_nvmi_raws: List[bytes] = []
+    navi_merged = False
+
+    def _verify_merged_navi(brec: RawRecord, orec: RawRecord) -> Tuple[bool, List[bytes]]:
+        b_subs = iter_subrecords(brec.decompressed_body())
+        o_subs = iter_subrecords(orec.decompressed_body())
+        b_pre: List[Tuple[bytes, bytes]] = []
+        b_suf: List[Tuple[bytes, bytes]] = []
+        in_suf = False
+        b_nvmi_list: List[bytes] = []
+        for ss, sp in b_subs:
+            if not in_suf and ss in (b"NVPP", b"NVSI"):
+                in_suf = True
+            if in_suf:
+                b_suf.append((ss, sp))
+            else:
+                if ss == b"NVMI":
+                    b_nvmi_list.append(sp)
+                b_pre.append((ss, sp))
+        o_pre: List[Tuple[bytes, bytes]] = []
+        o_suf: List[Tuple[bytes, bytes]] = []
+        in_suf = False
+        for ss, sp in o_subs:
+            if not in_suf and ss in (b"NVPP", b"NVSI"):
+                in_suf = True
+            if in_suf:
+                o_suf.append((ss, sp))
+            else:
+                o_pre.append((ss, sp))
+        if o_suf != b_suf:
+            return False, b_nvmi_list
+        if len(o_pre) < len(b_pre) or o_pre[: len(b_pre)] != b_pre:
+            return False, b_nvmi_list
+        extra = o_pre[len(b_pre) :]
+        if any(ss != b"NVMI" for ss, _ in extra):
+            return False, b_nvmi_list
+        return True, b_nvmi_list
+
     for fid, brec in base_map.items():
         orec = out_map.get(fid)
         if orec is None:
@@ -1298,7 +1412,15 @@ def verify_lossless_extension(
         elif orec.sig != brec.sig:
             type_changes.append((fid, brec.sig, orec.sig))
         elif orec.to_bytes() != brec.to_bytes():
+            if fid == NAVI_FID and brec.sig == b"NAVI":
+                ok_navi, b_nvmis = _verify_merged_navi(brec, orec)
+                if ok_navi:
+                    base_nvmi_raws = b_nvmis
+                    navi_merged = True
+                    continue
             body_changes.append(fid)
+        elif fid == NAVI_FID and brec.sig == b"NAVI":
+            base_nvmi_raws = [sp for ss, sp in iter_subrecords(brec.decompressed_body()) if ss == b"NVMI"]
 
     if missing_ids or type_changes or body_changes:
         raise ExtensionError(
@@ -1312,14 +1434,19 @@ def verify_lossless_extension(
     dangling_refs: List[Tuple[int, int]] = []
     navms: Dict[int, navm.Nvnm] = {}
     nvmis: Dict[int, navm.Nvmi] = {}
+    out_nvmi_count = 0
     found_cells: Set[str] = set()
+
+    navi_out = out_map.get(NAVI_FID)
+    if navi_out is not None and navi_out.sig == b"NAVI":
+        for ss, sp in iter_subrecords(navi_out.decompressed_body()):
+            if ss == b"NVMI":
+                out_nvmi_count += 1
+                e = navm.parse_nvmi(sp)
+                nvmis[e.navmesh] = e
 
     for rec in net_new_recs:
         if rec.sig == b"NAVI" and rec.fid == NAVI_FID:
-            for ss, sp in iter_subrecords(rec.decompressed_body()):
-                if ss == b"NVMI":
-                    e = navm.parse_nvmi(sp)
-                    nvmis[e.navmesh] = e
             continue
         if (rec.fid >> 24) != local_prefix or (rec.fid & 0x00FFFFFF) < start_id:
             bad_alloc.append(rec.fid)
@@ -1341,10 +1468,23 @@ def verify_lossless_extension(
     if missing_cells:
         raise ExtensionError(f"expected appended cells missing from output ESM: {missing_cells}")
 
+    added_nvmi_count = out_nvmi_count - len(base_nvmi_raws)
+    if navms:
+        missing_museum_nvmis = [nfid for nfid in navms if nfid not in nvmis]
+        if missing_museum_nvmis:
+            raise ExtensionError(
+                f"Museum NAVMs missing NVMI entries in output NAVI: {[hex(x) for x in missing_museum_nvmis]}"
+            )
+        if added_nvmi_count != len(navms):
+            raise ExtensionError(
+                f"NVMI count mismatch: base={len(base_nvmi_raws)} + museum={len(navms)} != out={out_nvmi_count}"
+            )
+
     navm_errors = 0
-    if navms or nvmis:
+    validate_nvmis = {k: v for k, v in nvmis.items() if k in navms} if navms else None
+    if navms:
         has_ledge = any(int(row["type"]) in (1, 2) for m in navms.values() for row in m.links)
-        val = navm.validate(navms, nvmis if nvmis else None, world=0, portal_tol=4.0 if has_ledge else 0.5)
+        val = navm.validate(navms, validate_nvmis, world=0, portal_tol=4.0 if has_ledge else 0.5)
         navm_errors = len(val["errors"])
         if navm_errors:
             raise ExtensionError(f"output ESM NAVM/NAVI validation failed: {val['errors'][:5]}")
@@ -1358,7 +1498,11 @@ def verify_lossless_extension(
         "body_changes": 0,
         "dangling_local_refs": 0,
         "navm_count": len(navms),
-        "nvmi_count": len(nvmis),
+        "nvmi_count": out_nvmi_count,
+        "base_nvmi_count": len(base_nvmi_raws),
+        "added_nvmi_count": added_nvmi_count,
+        "out_nvmi_count": out_nvmi_count,
+        "navi_merged": navi_merged,
         "navm_validation_errors": navm_errors,
         "all_new_local_ids_ge_start_id": True,
     }

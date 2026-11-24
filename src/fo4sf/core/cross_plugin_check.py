@@ -1061,7 +1061,14 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xBD9, "REFR", "FO4SF_S6_BasementTermRef"),
             (0xBDA, "ACTI", "FO4SF_S6_FusionCoreActi"),
             (0xBDB, "REFR", "FO4SF_S6_FusionCoreRef"),
-            (0xBDC, "KYWD", "FO4SF_AnimArchetypeFO4"),
+            (0xBDE, "QUST", "FO4SF_LoadDoor"),
+            (0xBDF, "ACTI", "FO4SF_S5_RoofLoadDoorInActi"),
+            (0xBE0, "ACTI", "FO4SF_S5_RoofLoadDoorOutActi"),
+            (0xBE1, "PACK", "FO4SF_S5_MuseumRaiderPursuePack"),
+            (0xBE2, "NPC_", "FO4SF_S2_RadroachNpc"),
+            (0xBE3, "NPC_", "FO4SF_S3_BloatflyNpc"),
+            (0xBE4, "ARMO", "FO4SF_S6_SettlerClothes_StandIn"),
+            (0xBE5, "OTFT", "FO4SF_S6_SettlerOutfit_StandIn"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":

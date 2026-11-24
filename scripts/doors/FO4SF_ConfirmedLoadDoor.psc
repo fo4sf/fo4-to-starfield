@@ -51,6 +51,9 @@ Group Target
 
     string Property DoorTag = "museum_door" Auto
     {Short identifier included in every FO4SF_LOADDOOR log line.}
+
+    Quest Property LoadDoorController Auto
+    {Optional StartGameEnabled FO4SF_LoadDoorQuest controller that owns active MoveTo + StartTimer transitions.}
 EndGroup
 
 Group Coordinates
@@ -87,14 +90,20 @@ Group Confirmation
     float Property SettleSeconds = 0.35 Auto
     {Non-blocking settle timer after SetPosition before confirming final coordinates and cell ownership.}
 
+    float Property WatchdogSeconds = 12.0 Auto
+    {Real-time watchdog timeout on this reference while FO4SF_LoadDoorQuest owns the transition.}
+
     bool Property EnableLog = true Auto
     string Property LogName = "fo4sf_loaddoor" Auto
 EndGroup
 
 int TIMER_ARRIVAL = 1
+int TIMER_WATCHDOG = 2
 bool busy = false
 bool inFlight = false
 bool settlePending = false
+bool delegatedToQuest = false
+float watchdogStartedAt = 0.0
 bool activeIsOut = false
 int activeAttempt = 0
 int activeMaxTries = 3
@@ -113,9 +122,12 @@ EndEvent
 
 Event OnLoad()
     CancelTimer(TIMER_ARRIVAL)
+    CancelTimer(TIMER_WATCHDOG)
     busy = false
     inFlight = false
     settlePending = false
+    delegatedToQuest = false
+    watchdogStartedAt = 0.0
 EndEvent
 
 Event OnCellAttach()
@@ -124,6 +136,39 @@ Event OnCellAttach()
     endif
     Log("FO4SF_LOADDOOR attached tag=" + DoorTag + " dir=" + Direction + " cell=" + GetParentCell() + " busy=" + busy)
 EndEvent
+
+Function NotifyControllerComplete(bool ok, string reason)
+    ClearState()
+EndFunction
+
+Function ResetOnReload()
+    ClearState()
+EndFunction
+
+FO4SF_LoadDoorQuest Function ResolveLoadDoorController()
+    if LoadDoorController != None
+        FO4SF_LoadDoorQuest bound = LoadDoorController as FO4SF_LoadDoorQuest
+        if bound != None
+            return bound
+        endif
+    endif
+    FO4SF_LoadDoorQuest missionCtrl = Game.GetFormFromFile(0x000BDE, "FO4SFMission.esm") as FO4SF_LoadDoorQuest
+    if missionCtrl != None
+        return missionCtrl
+    endif
+    FO4SF_LoadDoorQuest probeCtrl = Game.GetFormFromFile(0x000821, "FO4SF_R11P1Museum.esm") as FO4SF_LoadDoorQuest
+    if probeCtrl != None
+        return probeCtrl
+    endif
+    return None
+EndFunction
+
+float Function GetWatchdogSeconds()
+    if WatchdogSeconds >= 1.0
+        return WatchdogSeconds
+    endif
+    return 12.0
+EndFunction
 
 Event OnActivate(ObjectReference akActionRef)
     Actor player = Game.GetPlayer()
@@ -134,12 +179,36 @@ Event OnActivate(ObjectReference akActionRef)
         return
     endif
     if busy
-        Log("FO4SF_LOADDOOR ignored tag=" + DoorTag + " dir=" + Direction + " reason=busy")
-        return
+        if delegatedToQuest && watchdogStartedAt > 0.0 && (Utility.GetCurrentRealTime() - watchdogStartedAt) >= GetWatchdogSeconds()
+            Log("FO4SF_LOADDOOR watchdog_reset tag=" + DoorTag + " dir=" + Direction + " trigger=on_activate")
+            ClearState()
+        else
+            Log("FO4SF_LOADDOOR ignored tag=" + DoorTag + " dir=" + Direction + " reason=busy")
+            return
+        endif
     endif
 
     Cell beforeCell = player.GetParentCell()
     Log("FO4SF_LOADDOOR activate_begin tag=" + DoorTag + " dir=" + Direction + " caller=" + akActionRef + " cell=" + beforeCell + " pos=" + FormatPos(player))
+
+    float tx = DestinationX + MergeOffsetX
+    float ty = DestinationY + MergeOffsetY
+    float tz = DestinationZ
+
+    FO4SF_LoadDoorQuest ctrl = ResolveLoadDoorController()
+    if ctrl != None
+        busy = true
+        inFlight = true
+        settlePending = false
+        delegatedToQuest = true
+        watchdogStartedAt = Utility.GetCurrentRealTime()
+        StartTimer(GetWatchdogSeconds(), TIMER_WATCHDOG)
+        bool accepted = ctrl.BeginDoorTransition(Self, player, DestinationAnchor, TargetPlugin, TargetFormId, FallbackTargetPlugin, FallbackTargetFormId, Direction, DoorTag, UseDestinationPosition, tx, ty, tz, DestinationHeading, RequireCoreCell, PositionToleranceSq, FallDrop, MaxRetries, GetPollInterval(), MaxWaitSteps, SettleSeconds)
+        if !accepted
+            ClearState()
+        endif
+        return
+    endif
 
     ObjectReference anchor = ResolveAnchor()
     if anchor == None
@@ -150,13 +219,15 @@ Event OnActivate(ObjectReference akActionRef)
     busy = true
     inFlight = true
     settlePending = false
+    delegatedToQuest = false
+    watchdogStartedAt = 0.0
     activeIsOut = (Direction == "out" || Direction == "OUT" || Direction == "Out")
     activeBeforeCell = beforeCell
     activeAnchor = anchor
     activeAnchorCell = anchor.GetParentCell()
-    activeTx = DestinationX + MergeOffsetX
-    activeTy = DestinationY + MergeOffsetY
-    activeTz = DestinationZ
+    activeTx = tx
+    activeTy = ty
+    activeTz = tz
     activeMaxTries = MaxRetries
     if activeMaxTries < 1
         activeMaxTries = 1
@@ -171,6 +242,23 @@ Event OnActivate(ObjectReference akActionRef)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == TIMER_WATCHDOG
+        if !inFlight || !delegatedToQuest
+            return
+        endif
+        float nowWd = Utility.GetCurrentRealTime()
+        if watchdogStartedAt > 0.0 && nowWd < watchdogStartedAt
+            watchdogStartedAt = nowWd
+        endif
+        float elapsedWd = nowWd - watchdogStartedAt
+        if watchdogStartedAt > 0.0 && elapsedWd < (GetWatchdogSeconds() - 0.1)
+            StartTimer(GetWatchdogSeconds() - elapsedWd, TIMER_WATCHDOG)
+            return
+        endif
+        Log("FO4SF_LOADDOOR watchdog_reset tag=" + DoorTag + " dir=" + Direction + " elapsed=" + elapsedWd)
+        ClearState()
+        return
+    endif
     if aiTimerID != TIMER_ARRIVAL || !inFlight
         return
     endif
@@ -247,9 +335,12 @@ EndFunction
 
 Function ClearState()
     CancelTimer(TIMER_ARRIVAL)
+    CancelTimer(TIMER_WATCHDOG)
     busy = false
     inFlight = false
     settlePending = false
+    delegatedToQuest = false
+    watchdogStartedAt = 0.0
     activeAnchor = None
     activeBeforeCell = None
     activeAnchorCell = None

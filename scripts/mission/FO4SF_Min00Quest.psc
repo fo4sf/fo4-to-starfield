@@ -218,6 +218,7 @@ bool mq203ProxAttempted = False
 bool mq204ProxAttempted = False
 bool mq206ProxAttempted = False
 bool s4BalconySetup = False
+int s5RaiderEngageTicks = 0
 bool s4BalconyActive = False
 bool s4PrestonArmed = False
 bool s4StreetCleared = False
@@ -743,7 +744,7 @@ Event OnStageSet(int auiStageID, int auiItemID)
     endif
     Apply(auiStageID, cause)
     Scene scn = ResolvePrestonScene()
-    if EffectiveStage() == 40 && (scn == None || !scn.IsPlaying())
+    if !EnableS6ToS9Full && EffectiveStage() == 40 && (scn == None || !scn.IsPlaying())
         AdvanceTo(200, "Trigger")
         CompleteQuest()
         Trace("complete stage=" + EffectiveStage())
@@ -893,7 +894,7 @@ Function RunPrestonTalk(int stage, Message startMsg)
                     talkActivated = True
                     prestonUsedFallback = False
                     AdvanceTo(35, "info")
-                    if EffectiveStage() == 40
+                    if !EnableS6ToS9Full && EffectiveStage() == 40
                         AdvanceTo(200, "Trigger")
                         CompleteQuest()
                         Trace("complete stage=" + EffectiveStage())
@@ -1512,7 +1513,7 @@ Event Scene.OnEnd(Scene akSender)
             if applied < 35
                 Apply(35, "info")
             endif
-            if EffectiveStage() == 40
+            if !EnableS6ToS9Full && EffectiveStage() == 40
                 AdvanceTo(200, "Trigger")
                 CompleteQuest()
                 Trace("complete stage=" + EffectiveStage())
@@ -3206,6 +3207,33 @@ Function PlaceRefInMuseum(ObjectReference r, ObjectReference anchor, float tx, f
     r.EnableNoWait(False)
 EndFunction
 
+Function HideOverlappingCoreStatic(ObjectReference refObj, int coreStaticLocalId)
+    if refObj == None || coreStaticLocalId <= 0
+        return
+    endif
+    Form statBase = LookupOptionalForm(coreStaticLocalId, "FO4TerrainCore.esm")
+    if statBase == None
+        return
+    endif
+    ObjectReference overlap = Game.FindClosestReferenceOfTypeFromRef(statBase, refObj, 3.0)
+    if overlap != None && overlap != refObj && !overlap.IsDisabled()
+        overlap.DisableNoWait(False)
+    endif
+EndFunction
+
+Function PlaceDoorInCommonwealth(ObjectReference mk, float tx, float ty, float tz, float headingDeg, int hideStaticLocalId = 0)
+    if mk == None
+        return
+    endif
+    PlaceMarkerInCommonwealth(mk, tx, ty, tz)
+    if Math.Abs(mk.GetPositionZ() - tz) > 1.0
+        mk.SetPosition(tx, ty, tz)
+    endif
+    mk.SetAngle(0.0, 0.0, headingDeg)
+    mk.EnableNoWait(False)
+    HideOverlappingCoreStatic(mk, hideStaticLocalId)
+EndFunction
+
 Function SyncS5ExteriorDoors(Actor player)
     SyncS4DisplayPickups()
     if S5MuseumDoors == None || S5MuseumDoors.Length < 4 || player == None || player.IsInInterior()
@@ -3213,13 +3241,13 @@ Function SyncS5ExteriorDoors(Actor player)
     endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
-    float dx = px - (-2012.50)
-    float dy = py - (-1697.94)
+    float dx = px - (-2010.69)
+    float dy = py - (-1698.04)
     if dx * dx + dy * dy > 350.0 * 350.0
         return
     endif
-    PlaceMarkerInCommonwealth(S5MuseumDoors[0], -2012.50, -1697.94, 88.24)
-    PlaceMarkerInCommonwealth(S5MuseumDoors[3], -2008.49, -1722.39, 97.42)
+    PlaceDoorInCommonwealth(S5MuseumDoors[0], -2010.69, -1698.04, 89.26, 130.0, 0x0019E6)
+    PlaceDoorInCommonwealth(S5MuseumDoors[3], -1991.27, -1722.57, 97.42, 128.97, 0x001E75)
 EndFunction
 
 Function UnlockS6RoomDoors()
@@ -3291,9 +3319,18 @@ Function InitializeS5MuseumEncounter(Actor player)
     SyncKeeperPrestonMode(False, True)
     s4BalconyActive = False
 
+    ObjectReference staticFrontDoor = LookupOptionalForm(0x00EDEC, "FO4Port.esm") as ObjectReference
+    if staticFrontDoor != None && !staticFrontDoor.IsDisabled()
+        staticFrontDoor.DisableNoWait(False)
+    endif
+    ObjectReference staticRoofDoor = LookupOptionalForm(0x00EDF5, "FO4Port.esm") as ObjectReference
+    if staticRoofDoor != None && !staticRoofDoor.IsDisabled()
+        staticRoofDoor.DisableNoWait(False)
+    endif
+
     if S5MuseumDoors != None && S5MuseumDoors.Length >= 3
-        PlaceRefInMuseum(S5MuseumDoors[1], anchor, 9.143, 0.0, -0.914)
-        PlaceRefInMuseum(S5MuseumDoors[2], anchor, -21.943, 9.143, 9.143)
+        PlaceRefInMuseum(S5MuseumDoors[1], anchor, 9.02, 0.0, -0.914, 90.0)
+        PlaceRefInMuseum(S5MuseumDoors[2], anchor, -21.943, 9.02, 9.143, 90.0)
     endif
 
     ; Restroom Medkit (FO4Port.esm:0x00E3B6) -> inject real FO4SF_Stimpak (0x000851) once
@@ -3321,7 +3358,7 @@ Function InitializeS5MuseumEncounter(Actor player)
             PlaceRefInMuseum(S5MuseumLootMarkers[4], anchor, 2.0, 4.0, 0.0)
         endif
         if S5MuseumLootMarkers.Length > 5
-            PlaceRefInMuseum(S5MuseumLootMarkers[5], anchor, -14.092, -2.510, -3.566)
+            PlaceRefInMuseum(S5MuseumLootMarkers[5], anchor, -14.092, -1.750, -3.566, 90.0)
         endif
         if S5MuseumLootMarkers.Length > 6
             PlaceRefInMuseum(S5MuseumLootMarkers[6], anchor, -11.196, -1.584, -2.663)
@@ -3423,12 +3460,27 @@ Function UpdateS5MuseumEncounter(Actor player)
     if s5MuseumCleared || S5MuseumRaiders == None || S5MuseumRaiders.Length == 0
         return
     endif
+    s5RaiderEngageTicks += 1
+    bool doEngage = IsPlayerInMuseum(player) && ((s5RaiderEngageTicks % 3) == 1)
     int deadCount = 0
     int i = 0
     while i < S5MuseumRaiders.Length
         Actor mr = S5MuseumRaiders[i]
         if mr == None || mr.IsDead()
             deadCount += 1
+        elseif doEngage && mr.Is3DLoaded()
+            mr.SetRestrained(False)
+            mr.EvaluatePackage()
+            if !mr.IsInCombat() || mr.GetCombatTarget() != player
+                var[] combatArgs = new var[1]
+                combatArgs[0] = player
+                mr.CallFunctionNoWait("StartCombat", combatArgs)
+            endif
+            var[] pathArgs = new var[3]
+            pathArgs[0] = player
+            pathArgs[1] = 1.0
+            pathArgs[2] = 1.0
+            mr.CallFunctionNoWait("PathToReference", pathArgs)
         endif
         i += 1
     endwhile
