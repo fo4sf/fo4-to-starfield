@@ -4647,7 +4647,7 @@ Function TryTriggerS9LobbyActivate(Actor player)
     if ShouldUseMessageBox()
         Message lMsg = S9PrestonLobbyFallbackMsg
         if lMsg == None
-            lMsg = Game.GetFormFromFile(0x000C04, MissionPlugin) as Message
+            lMsg = Game.GetFormFromFile(0x000C04, "FO4SFMission.esm") as Message
         endif
         bool lOk = True
         if lMsg != None
