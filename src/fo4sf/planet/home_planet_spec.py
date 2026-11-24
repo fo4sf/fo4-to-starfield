@@ -35,8 +35,16 @@ HOME_REGISTRATION = "FO4TerrainCore_Home.esm"
 MARS_REGISTRATION = "FO4TerrainCore_Mars.esm"
 CORE_PLUGIN = "FO4TerrainCore.esm"
 MAP_MARKERS_PLUGIN = "FO4SFMapMarkers.esm"
+PORT_PLUGIN = "FO4Port.esm"
 CORE_LCTN_LOCAL = 0x000802
 CORE_WRLD_LOCAL = 0x000803
+PORT_INTERIORS_LCTN_LOCAL = 0x00E18A
+MARS_PLANET_DATA_LOCAL = 0x0003F59A
+MARS_SURFACE_LCTN_LOCAL = 0x0001B736
+MARS_CYDONIA_CLMT_LOCAL = 0x00310DB1
+MARS_FROZEN_CLMT_LOCAL = 0x002EDEA5
+MARS_ATMO_LOCAL = 0x0000C9D2
+FORBIDDEN_MARS_FORMIDS: Tuple[int, ...] = (MARS_PLANET_DATA_LOCAL, MARS_SURFACE_LCTN_LOCAL)
 
 STAR = 0x800
 SYSTEM_LOC = 0x801
@@ -57,7 +65,7 @@ FORM_VERSION = 581
 
 DEFAULT_HOME_SYSTEM_ID = 0x000F04F2
 DEFAULT_HOME_PLANET_ID = 1
-DEFAULT_STAR_NAME = "FO4SF Home"
+DEFAULT_STAR_NAME = "Sol"
 DEFAULT_PLANET_NAME = "Earth"
 DEFAULT_BODY_NAME = "fo4sf_home_earth"
 DEFAULT_BIOME_EDID = "FO4SFHomeBiome"
@@ -153,7 +161,7 @@ STAR_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "TESFullName_Component/FULL",
         "field": "full_name",
-        "value": "star_name parameter (default 'FO4SF Home')",
+        "value": "star_name parameter (default 'Sol')",
         "source": "Plain non-localized string parameter",
     },
     {
@@ -165,7 +173,7 @@ STAR_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "ANAM",
         "field": "star_body_name",
-        "value": "star_name parameter (default 'FO4SF Home')",
+        "value": "star_name parameter (default 'Sol')",
         "source": "Plain non-localized star body name parameter",
     },
     {
@@ -198,8 +206,8 @@ PLANET_FIELD_SPEC: Tuple[Dict[str, Any], ...] = (
     {
         "subrecord": "EDID",
         "field": "editor_id",
-        "value": "<planet_tag>PlanetData (default 'EarthPlanetData' in FO4SFHome.esm)",
-        "source": "Derived from planet_name parameter in FO4SFHome.esm namespace",
+        "value": "FO4SF_<planet_tag>PlanetData (default 'FO4SF_EarthPlanetData' in FO4SFHome.esm)",
+        "source": "Derived from planet_name parameter in FO4SFHome.esm namespace (prefixed to avoid Starfield.esm EarthPlanetData)",
     },
     {
         "subrecord": "TESPlanetModel_Component/MODL",
@@ -721,6 +729,8 @@ def build_home_star(
     refs: Dict[str, Any],
     star_name: str = DEFAULT_STAR_NAME,
     orbital_meshes: str = DEFAULT_ORBITAL_MESHES,
+    *,
+    legacy_b7dc7f52: bool = False,
 ) -> esm.Record:
     """Author our own isolated `STDT` record (`0x800`) from `STAR_FIELD_SPEC` with zero `PCCC`/`XMPM` copy."""
     if orbital_meshes not in ORBITAL_MESHES_CHOICES:
@@ -728,7 +738,13 @@ def build_home_star(
     if len(position_pc) != 3 or not all(math.isfinite(v) for v in position_pc):
         raise records.PlanetError(f"invalid star position {position_pc!r}")
     star_tag = records.tag(star_name)
-    edid = f"{star_tag}Star" if not star_tag.lower().endswith("star") else star_tag
+    if legacy_b7dc7f52:
+        edid = f"{star_tag}Star" if not star_tag.lower().endswith("star") else star_tag
+    elif star_tag.lower() in ("sol", "fo4sfhome"):
+        # Avoid colliding with Starfield.esm:0x0005E5CB (SolStar) while keeping display FULL/ANAM = "Sol".
+        edid = "FO4SFHomeStar"
+    else:
+        edid = f"{star_tag}Star" if not star_tag.lower().endswith("star") else star_tag
     orbited_data = struct.pack("<dfff", 0.0, 1.9885e30, 696300.0, 1.0)
     star_data = (
         _bstr32(star_tag[:8].upper())
@@ -783,6 +799,8 @@ def build_home_planet(
     star_name: str = DEFAULT_STAR_NAME,
     temp_c: float = DEFAULT_TEMP_C,
     orbital_meshes: str = DEFAULT_ORBITAL_MESHES,
+    *,
+    legacy_b7dc7f52: bool = False,
 ) -> esm.Record:
     """Author our own `PNDT` record (`0x805`) from `PLANET_FIELD_SPEC` with zero whole-record copy."""
     if orbital_meshes not in ORBITAL_MESHES_CHOICES:
@@ -792,7 +810,7 @@ def build_home_planet(
         raise records.PlanetError(f"invalid body_name {body_name!r}")
     planet_tag = records.tag(planet_name)
     star_tag = records.tag(star_name)
-    edid = f"{planet_tag}PlanetData"
+    edid = f"{planet_tag}PlanetData" if legacy_b7dc7f52 else f"FO4SF_{planet_tag}PlanetData"
     trait_fids = [refs["keywords"][k] for k in HOME_PLANET_TRAIT_KEYWORD_EDIDS]
 
     ppbd = records.pack_biome(
@@ -930,6 +948,7 @@ def build_home_master(
     sun_preset: str = DEFAULT_SUN_PRESET,
     orbital_meshes: str = DEFAULT_ORBITAL_MESHES,
     wb3_mode: str = DEFAULT_WB3_MODE,
+    legacy_b7dc7f52: bool = False,
 ) -> Tuple[esm.PluginWriter, Dict[str, Any]]:
     """Build `FO4SFHome.esm` (`STDT 0x800`, `LCTN 0x801..0x804`, `PNDT 0x805`, `BIOM 0x806`, plus our `WB1`–`WB3`
     `WTHR`/`CLMT`/`ATMO`/`LTEX`/`SFTR`/`WATR`/`SUNP` records when selected) and return `(writer, report)`."""
@@ -963,7 +982,11 @@ def build_home_master(
     kw = refs["keywords"]
     star_tag = records.tag(star_name)
     planet_tag = records.tag(planet_name)
-    sys_edid = f"S{star_tag}"
+    if legacy_b7dc7f52 or star_tag.lower() in ("sol", "fo4sfhome"):
+        # Avoid colliding with Starfield.esm:0x00061527 (SSol) while keeping display FULL = "Sol".
+        sys_edid = "SFO4SFHome"
+    else:
+        sys_edid = f"S{star_tag}"
     pl_edid = f"{sys_edid}_P{planet_tag}"
 
     surface_kws = [kw["LocTypeSurface"]]
@@ -972,7 +995,9 @@ def build_home_master(
         if kfid not in surface_kws:
             surface_kws.append(kfid)
 
-    star_rec = build_home_star(own(STAR), sid, pos_pc, refs, star_name=star_name, orbital_meshes=orbital_meshes)
+    star_rec = build_home_star(
+        own(STAR), sid, pos_pc, refs, star_name=star_name, orbital_meshes=orbital_meshes, legacy_b7dc7f52=legacy_b7dc7f52
+    )
     sys_loc = records.new_location(own(SYSTEM_LOC), sys_edid, star_name, [kw["LocTypeStarSystem"]], refs["universe_lctn"], sid, 0, version=FORM_VERSION)
     pl_loc = records.new_location(own(PLANET_LOC), pl_edid, planet_name, [kw["LocTypePlanet"], kw["LocTypeMajorOrbital"]], own(SYSTEM_LOC), sid, pid, version=FORM_VERSION)
     orb_loc = records.new_location(own(ORBIT_LOC), f"{pl_edid}_Orbit", planet_name, [kw["LocTypeOrbit"]], own(PLANET_LOC), sid, pid, version=FORM_VERSION)
@@ -989,6 +1014,7 @@ def build_home_master(
         star_name=star_name,
         temp_c=temp_c,
         orbital_meshes=orbital_meshes,
+        legacy_b7dc7f52=legacy_b7dc7f52,
     )
 
     for rec in (star_rec, sys_loc, pl_loc, orb_loc, surf_loc, biome_rec, planet_rec):
@@ -1291,6 +1317,37 @@ def _remap_lctn_override(
     return esm.Record(b"LCTN", out_fid, new_subs, src_lctn.flags, src_lctn.vc, src_lctn.version, src_lctn.unknown)
 
 
+def _remap_port_interiors_lctn_override(
+    src_lctn: esm.Record,
+    src_self_idx: int,
+    dst_master_idx: int,
+    surface_parent_fid: int,
+    system_id: int,
+    planet_id: int,
+) -> esm.Record:
+    """Emit an override of `FO4Port.esm:0x00E18A` (`FO4Port_InteriorsLocation`) re-parented to `surface_parent_fid`.
+
+    Leaves `FO4Port.esm` source untouched and preserves interior keywords/fields, replacing only `PNAM`
+    (`SSol_PMars_Surface 0x0001B736` -> our Earth surface location) and any `XNAM`/`YNAM` body coordinates.
+    """
+    out_fid = _remap_formid(src_lctn.formid, src_self_idx, dst_master_idx)
+    new_subs: List[Tuple[bytes, bytes]] = []
+    saw_pnam = False
+    for sig, data in src_lctn.subs:
+        if sig == b"PNAM":
+            new_subs.append((b"PNAM", struct.pack("<I", surface_parent_fid)))
+            saw_pnam = True
+        elif sig == b"XNAM" and len(data) == 4:
+            new_subs.append((b"XNAM", struct.pack("<i", system_id)))
+        elif sig == b"YNAM" and len(data) == 4:
+            new_subs.append((b"YNAM", struct.pack("<i", planet_id)))
+        else:
+            new_subs.append((sig, data))
+    if not saw_pnam:
+        new_subs.append((b"PNAM", struct.pack("<I", surface_parent_fid)))
+    return esm.Record(b"LCTN", out_fid, new_subs, src_lctn.flags, src_lctn.vc, src_lctn.version, src_lctn.unknown)
+
+
 def _compute_wb3_mnam_bounds(src_wrld: esm.Record, tile_cells: int = 64) -> bytes:
     """Compute 16-byte `WRLD.MNAM` (`usable_x, usable_y, nw_x, nw_y, se_x, se_y`) from `NAM0`/`NAM9` or `tile_cells`."""
     nam0 = probe.top_level(src_wrld, b"NAM0")
@@ -1488,10 +1545,15 @@ def build_home_registration(
     map_markers_path: Optional[str] = None,
     *,
     wb3_mode: str = DEFAULT_WB3_MODE,
+    port_plugin_path: Optional[str] = None,
+    require_port: bool = False,
 ) -> Tuple[esm.PluginWriter, Dict[str, Any]]:
     """Build `FO4TerrainCore_Home.esm` from `world_registry.json`:
     - `1` `PNDT` override (`0x01000805` in `FO4SFHome.esm`) listing all registered worlds in `CNAM`
     - For each world in `world_keys`: `1` `WRLD` override + `1` `LCTN` override (`3` records total for `Commonwealth`).
+    - When `FO4Port.esm` is provided or discovered in `world_plugin_dirs` with `FO4Port_InteriorsLocation`
+      (`0x00E18A`), emits `1` `LCTN` override re-parenting `FO4Port_InteriorsLocation` onto our Earth surface
+      location (`PNAM` override only; `FO4Port.esm` source remains untouched).
     - When `wb3_mode == 'ours'` (`WB3` default): overrides inherited `LC172World` / `LC172WorldLocation` fields inside
       `FO4TerrainCore_Home.esm` (`CNAM`, `ZNAM`, `NAM3`, `NAM4`, `DNAM`, `MNAM`, `ONAM`, `FULL`, `LCTN.DATA`) while
       never touching `FO4TerrainCore.esm`; labels every `WB3` lever `untested`.
@@ -1614,6 +1676,37 @@ def build_home_registration(
                 )
             mm_lcsr_chunks = remap_lcsr_rows_to_masters(mm, mm_name, mm_lctns[0], masters)
 
+    port_src: Optional[Tuple[str, str, int, esm.Record]] = None
+    resolved_port_path: Optional[str] = None
+    if port_plugin_path:
+        if not os.path.isfile(port_plugin_path):
+            raise records.PlanetError(f"port plugin not found: {port_plugin_path}")
+        resolved_port_path = port_plugin_path
+    else:
+        for d in world_plugin_dirs:
+            cand = os.path.join(d, PORT_PLUGIN)
+            if os.path.isfile(cand):
+                resolved_port_path = cand
+                break
+    if resolved_port_path is not None:
+        port_name = os.path.basename(resolved_port_path)
+        with esm.Plugin(resolved_port_path) as pp:
+            port_lctns = [
+                r
+                for r in pp.records("LCTN", [b"LCTN"])
+                if canonical_record_owner(pp, r.formid, port_name) == (port_name.lower(), PORT_INTERIORS_LCTN_LOCAL, False)
+            ]
+            if len(port_lctns) == 1:
+                if all(m.lower() != port_name.lower() for m in masters):
+                    masters.append(port_name)
+                port_src = (port_name, resolved_port_path, pp.self_index, port_lctns[0])
+            elif require_port or port_plugin_path:
+                raise records.PlanetError(
+                    f"{port_name} is missing LCTN 0x{PORT_INTERIORS_LCTN_LOCAL:06X} (FO4Port_InteriorsLocation)"
+                )
+    elif require_port:
+        raise records.PlanetError(f"{PORT_PLUGIN} not found in search dirs and --require-port was set")
+
     writer = esm.PluginWriter(masters, esm.ESM)
     surface_parent_fid = (home_idx << 24) | SURFACE_LOC
     home_biome_fid = (home_idx << 24) | BIOME
@@ -1703,6 +1796,27 @@ def build_home_registration(
     for lr in lctn_overrides:
         writer.add(lr)
 
+    port_override_report: Optional[Dict[str, Any]] = None
+    if port_src is not None:
+        port_name, port_abs_used, port_self_idx, port_lctn = port_src
+        dst_port_idx = masters.index(port_name)
+        remapped_port_lctn = _remap_port_interiors_lctn_override(
+            port_lctn,
+            port_self_idx,
+            dst_port_idx,
+            surface_parent_fid,
+            sid,
+            pid,
+        )
+        writer.add(remapped_port_lctn)
+        port_override_report = {
+            "plugin": port_name,
+            "path": port_abs_used,
+            "lctn_formid": records.fid_hex(remapped_port_lctn.formid),
+            "edid": remapped_port_lctn.edid or "FO4Port_InteriorsLocation",
+            "pnam_formid": records.fid_hex(surface_parent_fid),
+        }
+
     report: Dict[str, Any] = {
         "registration_plugin": HOME_REGISTRATION,
         "masters": masters,
@@ -1717,6 +1831,8 @@ def build_home_registration(
     if mm_name is not None:
         report["map_markers_plugin"] = mm_name
         report["map_markers_lcsr_rows"] = len(mm_lcsr_chunks)
+    if port_override_report is not None:
+        report["port_interiors_override"] = port_override_report
     return writer, report
 
 
@@ -1770,6 +1886,16 @@ def check_load_order_overrides(
                 problems.append(
                     f"invalid load order: {mm_disp} loads after {tgt_disp}; "
                     f"{HOME_MASTER} and {HOME_REGISTRATION} must load after {mm_disp}"
+                )
+    port_low = PORT_PLUGIN.lower()
+    if port_low in names_low:
+        port_idx = names_low.index(port_low)
+        port_disp = orig_names[port_idx]
+        for tgt_low, tgt_disp in ((hm_low, HOME_MASTER), (hr_low, HOME_REGISTRATION)):
+            if tgt_low in names_low and names_low.index(tgt_low) < port_idx:
+                problems.append(
+                    f"invalid load order: {port_disp} loads after {tgt_disp}; "
+                    f"{HOME_MASTER} and {HOME_REGISTRATION} must load after {port_disp}"
                 )
     if hm_low in names_low and hr_low in names_low and names_low.index(hr_low) < names_low.index(hm_low):
         problems.append(f"invalid load order: {HOME_REGISTRATION} loads before its master {HOME_MASTER}")
@@ -1867,6 +1993,280 @@ def check_no_duplicate_overrides(plugin_paths: Sequence[str]) -> List[str]:
     return check_load_order_overrides(plugin_paths, allow_map_markers_pair=False)
 
 
+_AUDIT_SINGLE_FID_SUBS = frozenset(
+    {
+        b"PNAM",
+        b"XLCN",
+        b"WNAM",
+        b"CNAM",
+        b"ZNAM",
+        b"NAM2",
+        b"NAM3",
+        b"BNAM",
+        b"XCWT",
+        b"XCCM",
+        b"XCAS",
+    }
+)
+
+
+def _canonicalize_ref(
+    raw_fid: int,
+    masters_low: Sequence[str],
+    self_low: str,
+) -> Optional[Tuple[str, int]]:
+    if raw_fid == 0:
+        return None
+    idx = raw_fid >> 24
+    local = raw_fid & 0xFFFFFF
+    if idx < len(masters_low):
+        return (masters_low[idx], local)
+    if idx == len(masters_low):
+        return (self_low, local)
+    return None
+
+
+def _extract_record_form_refs(
+    rec_sig: bytes,
+    rec: esm.Record,
+    masters_low: Sequence[str],
+    self_low: str,
+) -> Tuple[List[Tuple[str, Tuple[str, int]]], Optional[Tuple[str, int]]]:
+    """Extract canonical `(subrecord_label, (owner_low, local_id))` FormID references + `LCTN.PNAM` parent."""
+    refs: List[Tuple[str, Tuple[str, int]]] = []
+    pnam_parent: Optional[Tuple[str, int]] = None
+    in_bdst = False
+    for sub_sig, data in rec.subs:
+        if rec_sig == b"PNDT":
+            if sub_sig == b"BDST":
+                in_bdst = True
+                continue
+            if sub_sig == b"BDED":
+                in_bdst = False
+                continue
+            if in_bdst and sub_sig == b"CNAM" and len(data) % 12 == 0:
+                for off in range(0, len(data), 12):
+                    _lat, _lon, wf = struct.unpack_from("<ffI", data, off)
+                    ck = _canonicalize_ref(wf, masters_low, self_low)
+                    if ck is not None:
+                        refs.append(("PNDT.CNAM", ck))
+                continue
+        if sub_sig in _AUDIT_SINGLE_FID_SUBS and len(data) == 4:
+            ck = _canonicalize_ref(struct.unpack("<I", data)[0], masters_low, self_low)
+            if ck is not None:
+                refs.append((sub_sig.decode("ascii", "replace"), ck))
+                if rec_sig == b"LCTN" and sub_sig == b"PNAM":
+                    pnam_parent = ck
+        elif sub_sig == b"KWDA" and len(data) % 4 == 0:
+            for fid in struct.unpack(f"<{len(data) // 4}I", data):
+                ck = _canonicalize_ref(fid, masters_low, self_low)
+                if ck is not None:
+                    refs.append(("KWDA", ck))
+        elif sub_sig == b"LCSR" and len(data) % 20 == 0:
+            for off in range(0, len(data), 20):
+                lcrt, refr, wrld, _g, _t = struct.unpack_from("<5I", data, off)
+                for lbl, fid in (("LCSR.lcrt", lcrt), ("LCSR.refr", refr), ("LCSR.wrld", wrld)):
+                    ck = _canonicalize_ref(fid, masters_low, self_low)
+                    if ck is not None:
+                        refs.append((lbl, ck))
+        elif sub_sig == b"LCID" and len(data) % 4 == 0:
+            for fid in struct.unpack(f"<{len(data) // 4}I", data):
+                ck = _canonicalize_ref(fid, masters_low, self_low)
+                if ck is not None:
+                    refs.append(("LCID", ck))
+        elif sub_sig == b"LCPR" and len(data) % 16 == 0:
+            for off in range(0, len(data), 16):
+                actor, loc, _g, _t = struct.unpack_from("<4I", data, off)
+                for lbl, fid in (("LCPR.actor", actor), ("LCPR.loc", loc)):
+                    ck = _canonicalize_ref(fid, masters_low, self_low)
+                    if ck is not None:
+                        refs.append((lbl, ck))
+    return refs, pnam_parent
+
+
+def audit_zero_mars_references(
+    plugin_paths: Sequence[str],
+    *,
+    home_surface_owner_local: Tuple[str, int] = (HOME_MASTER.lower(), SURFACE_LOC),
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Offline winning-record location/world/weather census across `plugin_paths` in load order.
+
+    Verifies:
+    - `FO4TerrainCore_Mars.esm` is NOT active.
+    - ZERO winning `PNDT`/`STDT`/`LCTN`/`WRLD`/`CELL` records reference `MarsPlanetData` (`0003F59A`) or
+      `SSol_PMars_Surface` (`0001B736`).
+    - When `FO4TerrainCore_Home.esm` & `FO4SFHome.esm` are active, both `FO4Core_CommonwealthLocation`
+      (`FO4TerrainCore.esm:000802`) and (when `FO4Port.esm` is present) `FO4Port_InteriorsLocation`
+      (`FO4Port.esm:00E18A`) and all its child `FO4Port_*Location`s trace cleanly to our Earth surface `LCTN`.
+    - `FO4SFMission.esm` defines/overrides ZERO `WRLD` records, and `FO4SFCoreValues.esm` overrides ZERO
+      Mars `CLMT` (`00310DB1`/`002EDEA5`) or `ATMO_Mars` (`0000C9D2`) records.
+    """
+    problems: List[str] = []
+    winning: Dict[Tuple[str, str, int], Dict[str, Any]] = {}
+    scanned_names: List[str] = []
+    mission_wrlds: List[str] = []
+    weather_mars_overrides: List[str] = []
+    mars_weather_keys = {
+        ("CLMT", "starfield.esm", MARS_CYDONIA_CLMT_LOCAL),
+        ("CLMT", "starfield.esm", MARS_FROZEN_CLMT_LOCAL),
+        ("ATMO", "starfield.esm", MARS_ATMO_LOCAL),
+    }
+
+    for path in plugin_paths:
+        if not path or not os.path.isfile(path):
+            continue
+        pname = os.path.basename(path)
+        plow = pname.lower()
+        if plow == "starfield.esm":
+            continue
+        scanned_names.append(pname)
+        if plow == MARS_REGISTRATION.lower():
+            problems.append(f"forbidden active plugin {pname}: Mars host registration must be swapped out")
+
+        with esm.Plugin(path) as p:
+            masters_low = [m.lower() for m in p.masters]
+
+            def _record_entry(sig_name: str, sig_b: bytes, rec: esm.Record) -> None:
+                owner, local, is_ov = canonical_record_owner(p, rec.formid, pname)
+                refs, pnam_parent = _extract_record_form_refs(sig_b, rec, masters_low, plow)
+                key = (sig_name, owner, local)
+                if plow == "fo4sfmission.esm" and sig_name == "WRLD":
+                    mission_wrlds.append(f"{pname}:{owner}:{local:06X} ({rec.edid})")
+                if key in mars_weather_keys:
+                    weather_mars_overrides.append(f"{pname}:{sig_name}:{local:06X} ({rec.edid})")
+                winning[key] = {
+                    "sig": sig_name,
+                    "owner": owner,
+                    "local": local,
+                    "edid": rec.edid,
+                    "winner": pname,
+                    "winner_low": plow,
+                    "is_override": is_ov,
+                    "refs": refs,
+                    "pnam_parent": pnam_parent,
+                }
+
+            for grp in ("STDT", "PNDT", "LCTN", "CLMT", "ATMO"):
+                grp_b = grp.encode("ascii")
+                for rec in p.records(grp, [grp_b]):
+                    _record_entry(grp, grp_b, rec)
+            for wrec in census.worlds(p):
+                _record_entry("WRLD", b"WRLD", wrec)
+            for start, end in p.groups.get("CELL", []):
+                for item in p.walk(start, end, groups={2, 3}):
+                    if item[0] == "REC" and item[2] == b"CELL":
+                        _record_entry("CELL", b"CELL", p.record_at(item[1]))
+            for start, end in p.groups.get("WRLD", []):
+                for item in p.walk(start, end, groups={1, 4, 5}):
+                    if item[0] == "REC" and item[2] == b"CELL":
+                        _record_entry("CELL", b"CELL", p.record_at(item[1]))
+
+    mars_pndt_hits: List[str] = []
+    mars_surf_hits: List[str] = []
+    for key, entry in winning.items():
+        if entry["sig"] not in ("STDT", "PNDT", "LCTN", "WRLD", "CELL"):
+            continue
+        for sub_lbl, (ref_owner, ref_local) in entry["refs"]:
+            if ref_owner == "starfield.esm":
+                if ref_local == MARS_PLANET_DATA_LOCAL:
+                    msg = f"{entry['winner']} winning {entry['sig']} {entry['owner']}:{entry['local']:06X} ({entry['edid']}) {sub_lbl}->Starfield.esm:{ref_local:06X}"
+                    mars_pndt_hits.append(msg)
+                    problems.append(f"winning MarsPlanetData reference: {msg}")
+                elif ref_local == MARS_SURFACE_LCTN_LOCAL:
+                    msg = f"{entry['winner']} winning {entry['sig']} {entry['owner']}:{entry['local']:06X} ({entry['edid']}) {sub_lbl}->Starfield.esm:{ref_local:06X}"
+                    mars_surf_hits.append(msg)
+                    problems.append(f"winning SSol_PMars_Surface reference: {msg}")
+
+    if mission_wrlds:
+        problems.append(f"FO4SFMission.esm carries WRLD record(s): {mission_wrlds}")
+    if weather_mars_overrides:
+        problems.append(f"active plugin overrides Mars CLMT/ATMO: {weather_mars_overrides}")
+
+    # Trace every winning LCTN ancestor chain
+    lctn_index: Dict[Tuple[str, int], Dict[str, Any]] = {
+        (owner, local): ent
+        for (sig, owner, local), ent in winning.items()
+        if sig == "LCTN"
+    }
+
+    def _trace_chain(owner_low: str, local_id: int) -> Tuple[List[str], bool, bool]:
+        chain: List[str] = []
+        seen: set[Tuple[str, int]] = set()
+        cur: Optional[Tuple[str, int]] = (owner_low, local_id)
+        hits_mars = False
+        hits_home_surf = False
+        while cur is not None and cur not in seen and len(seen) < 32:
+            seen.add(cur)
+            if cur == ("starfield.esm", MARS_SURFACE_LCTN_LOCAL):
+                chain.append(f"starfield.esm:{cur[1]:06X} (SSol_PMars_Surface)")
+                hits_mars = True
+                break
+            if cur == home_surface_owner_local:
+                hits_home_surf = True
+            ent = lctn_index.get(cur)
+            if ent is None:
+                chain.append(f"{cur[0]}:{cur[1]:06X}")
+                break
+            chain.append(f"{cur[0]}:{cur[1]:06X} ({ent['edid']})")
+            cur = ent["pnam_parent"]
+        return chain, hits_home_surf, hits_mars
+
+    fo4port_children_total = 0
+    fo4port_children_earth = 0
+    fo4port_children_mars = 0
+    for (owner_low, local_id), ent in sorted(lctn_index.items()):
+        if owner_low == PORT_PLUGIN.lower() and local_id != PORT_INTERIORS_LCTN_LOCAL:
+            if ent["pnam_parent"] == (PORT_PLUGIN.lower(), PORT_INTERIORS_LCTN_LOCAL):
+                fo4port_children_total += 1
+                _c, h_earth, h_mars = _trace_chain(owner_low, local_id)
+                if h_earth:
+                    fo4port_children_earth += 1
+                if h_mars:
+                    fo4port_children_mars += 1
+
+    core_chain, core_earth, core_mars = _trace_chain(CORE_PLUGIN.lower(), CORE_LCTN_LOCAL)
+    port_root_chain, port_earth, port_mars = _trace_chain(PORT_PLUGIN.lower(), PORT_INTERIORS_LCTN_LOCAL)
+    has_home = any(s.lower() == HOME_REGISTRATION.lower() for s in scanned_names)
+    has_earth_surface = home_surface_owner_local in lctn_index
+    has_core = (CORE_PLUGIN.lower(), CORE_LCTN_LOCAL) in lctn_index
+    has_port = (PORT_PLUGIN.lower(), PORT_INTERIORS_LCTN_LOCAL) in lctn_index
+    if has_home and has_earth_surface and has_core and not core_earth:
+        problems.append(f"FO4Core_CommonwealthLocation does not reach {home_surface_owner_local[0]}:{home_surface_owner_local[1]:06X}: {core_chain}")
+    if has_home and has_earth_surface and has_port and not port_earth:
+        problems.append(f"FO4Port_InteriorsLocation does not reach {home_surface_owner_local[0]}:{home_surface_owner_local[1]:06X}: {port_root_chain}")
+    if core_mars:
+        problems.append(f"FO4Core_CommonwealthLocation traces to SSol_PMars_Surface: {core_chain}")
+    if port_mars:
+        problems.append(f"FO4Port_InteriorsLocation traces to SSol_PMars_Surface: {port_root_chain}")
+    if fo4port_children_mars:
+        problems.append(f"{fo4port_children_mars} FO4Port child locations still trace to SSol_PMars_Surface")
+
+    summary: Dict[str, Any] = {
+        "plugins_scanned": scanned_names,
+        "winning_counts": {
+            "PNDT": sum(1 for (s, _, _) in winning if s == "PNDT"),
+            "STDT": sum(1 for (s, _, _) in winning if s == "STDT"),
+            "LCTN": sum(1 for (s, _, _) in winning if s == "LCTN"),
+            "WRLD": sum(1 for (s, _, _) in winning if s == "WRLD"),
+            "CELL": sum(1 for (s, _, _) in winning if s == "CELL"),
+        },
+        "mars_planet_data_winning_refs": len(mars_pndt_hits),
+        "mars_surface_lctn_winning_refs": len(mars_surf_hits),
+        "mars_pndt_hits": mars_pndt_hits,
+        "mars_surf_hits": mars_surf_hits,
+        "mission_wrld_overrides": mission_wrlds,
+        "commonwealth_weather_mars_overrides": weather_mars_overrides,
+        "fo4core_commonwealth_chain": core_chain if has_core else [],
+        "fo4port_interiors_chain": port_root_chain if has_port else [],
+        "fo4port_child_lctns": {
+            "total": fo4port_children_total,
+            "reaching_earth": fo4port_children_earth,
+            "reaching_mars": fo4port_children_mars,
+        },
+    }
+    return problems, summary
+
+
 def check_home_stage(
     sf_path: str,
     home_master_path: str,
@@ -1881,6 +2281,7 @@ def check_home_stage(
     expected_ground_ltex: Optional[str] = None,
     expected_surface_tree: Optional[str] = None,
     expected_wb3_mode: Optional[str] = None,
+    port_plugin_path: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Comprehensive offline verification for `W2`, `W3`, `W4`, `WL1`, `WL2`, `WB1`, `WB2`, and `WB3`."""
     problems: List[str] = []
@@ -2072,8 +2473,20 @@ def check_home_stage(
             reg_pndts = list(reg.records("PNDT", [b"PNDT"]))
             reg_lctns = list(reg.records("LCTN", [b"LCTN"]))
             reg_wrlds = census.worlds(reg)
+            port_lctn_ovs = [
+                r
+                for r in reg_lctns
+                if canonical_record_owner(reg, r.formid, HOME_REGISTRATION)
+                == (PORT_PLUGIN.lower(), PORT_INTERIORS_LCTN_LOCAL, True)
+            ]
+            has_port_master = any(m.lower() == PORT_PLUGIN.lower() for m in reg.masters)
+            if (port_plugin_path or has_port_master) and len(port_lctn_ovs) != 1:
+                problems.append(
+                    f"{HOME_REGISTRATION} has {len(port_lctn_ovs)} LCTN overrides of "
+                    f"{PORT_PLUGIN}:{PORT_INTERIORS_LCTN_LOCAL:06X}, expected 1"
+                )
             total_recs = len(reg_pndts) + len(reg_lctns) + len(reg_wrlds)
-            want_total = 1 + 2 * expected_world_count
+            want_total = 1 + 2 * expected_world_count + (1 if (port_plugin_path or has_port_master or port_lctn_ovs) else 0)
             if total_recs != want_total:
                 problems.append(f"{HOME_REGISTRATION} has {total_recs} records, expected {want_total}")
             if len(reg_pndts) != 1 or reg_pndts[0].formid != ((1 << 24) | PLANET):
@@ -2117,16 +2530,19 @@ def check_home_stage(
                         problems.append(f"WB3 failed: WRLD {wrec.edid} MNAM map bounds remained zero")
 
             for lrec in reg_lctns:
+                owner_l, local_l, is_ov_l = canonical_record_owner(reg, lrec.formid, HOME_REGISTRATION)
+                is_port_interiors_ov = is_ov_l and owner_l == PORT_PLUGIN.lower() and local_l == PORT_INTERIORS_LCTN_LOCAL
                 pnam_b = lrec.get(b"PNAM")
                 pnam_fid = struct.unpack("<I", pnam_b)[0] if pnam_b and len(pnam_b) == 4 else None
                 if pnam_fid != ((1 << 24) | SURFACE_LOC):
                     problems.append(f"LCTN {lrec.edid} PNAM {pnam_fid!r} != {(1 << 24) | SURFACE_LOC:#010x}")
-                if records.keywords_of(lrec) != want_reg_kws:
-                    problems.append(f"LCTN {lrec.edid} keywords {records.keywords_of(lrec)} != {want_reg_kws}")
-                if expected_wb3_mode == "ours":
-                    ldata = lrec.get(b"DATA")
-                    if ldata != b"\x00" * 8:
-                        problems.append(f"WB3 failed: LCTN {lrec.edid} DATA {ldata!r} not cleared to zero")
+                if not is_port_interiors_ov:
+                    if records.keywords_of(lrec) != want_reg_kws:
+                        problems.append(f"LCTN {lrec.edid} keywords {records.keywords_of(lrec)} != {want_reg_kws}")
+                    if expected_wb3_mode == "ours":
+                        ldata = lrec.get(b"DATA")
+                        if ldata != b"\x00" * 8:
+                            problems.append(f"WB3 failed: LCTN {lrec.edid} DATA {ldata!r} not cleared to zero")
 
             if map_markers_path:
                 mm_name = os.path.basename(map_markers_path)
@@ -2153,6 +2569,14 @@ def check_home_stage(
                                 f"{HOME_REGISTRATION} LCTN override missing {len(miss)} LCSR row(s) from {mm_name}"
                             )
 
+    audit_stack: List[str] = []
+    if port_plugin_path:
+        audit_stack.append(port_plugin_path)
+    if map_markers_path:
+        audit_stack.append(map_markers_path)
+    audit_stack.extend([home_master_path, home_reg_path])
+    mars_probs, mars_summary = audit_zero_mars_references(audit_stack)
+    problems.extend(mars_probs)
     problems.extend(check_no_duplicate_overrides([home_master_path, home_reg_path]))
 
     summary = {
@@ -2169,6 +2593,7 @@ def check_home_stage(
         "top_group_order": hm_group_order,
         "registration_records": want_total,
         "biom_and_pndt_references": biom_pndt_refs,
+        "zero_mars_audit": mars_summary,
         "field_sources": {
             "STDT": list(STAR_FIELD_SPEC),
             "PNDT": list(PLANET_FIELD_SPEC),

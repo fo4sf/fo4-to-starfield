@@ -33,14 +33,14 @@ B7DC7F52_HOME_MASTER_SHA256 = "513a0a1ef0bfa4bde6c83f9611ba1715a2081da0c8d2a0dd4
 B7DC7F52_HOME_REG_SHA256 = "31f180babafa7e7c57a3d1aef888b558cd54735c9e417cbac643965aa5412596"
 B7DC7F52_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
 
-# parity not applicable: ordered by C9 (non-colliding PNDT ANAM 'fo4sf_home_earth' on Starfield-patterned control)
-C9_DEFAULT_HOME_MASTER_SHA256 = "4a206130c7a2aefa04295359ce1b6fb91604498a86ce695e789373d4f1077b0b"
-C9_DEFAULT_HOME_REG_SHA256 = "53a52534c0497bb20a392eb835a19fafeffe5d19c8140d110cf221073c091a64"
+# F14 + C9 control (non-colliding PNDT EDID 'FO4SF_EarthPlanetData', ANAM 'fo4sf_home_earth', STDT FULL 'Sol')
+C9_DEFAULT_HOME_MASTER_SHA256 = "4a85922241774f5d1470315ebc3a303af9d17a765e7167196d83d6e25f89189f"
+C9_DEFAULT_HOME_REG_SHA256 = "62a48e4a7abaf3d6d085f24eccae4300b74f3155d8ab65ea54b06ddf2722d1df"
 C9_DEFAULT_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
 
-# parity not applicable: ordered by WB1, WB2, WB3 (default weather, sky, FO4 ground LTEX, smallest PTST, WB3 overrides)
-WB1_WB3_DEFAULT_HOME_MASTER_SHA256 = "c09fe96cb47fc6c382bb334f832703f92b6e256d32e9b7e51747d44c8727af7c"
-WB1_WB3_DEFAULT_HOME_REG_SHA256 = "41d4f384a1f0ff654ef411c5acf011d9685becb356d15c5918e3d3478226f6d6"
+# F14 + WB1..WB3 (default weather, sky, FO4 ground LTEX, smallest PTST, WB3 overrides, STDT FULL 'Sol')
+WB1_WB3_DEFAULT_HOME_MASTER_SHA256 = "0ab9c9c99892963a9bfc0869ea18bd5219ce78f434c58cfb5318d93b24b6a69b"
+WB1_WB3_DEFAULT_HOME_REG_SHA256 = "92c8e2091f0d98d2941778ee2ad3fc8bb53d6e04d075573fd7c28ef3ff7a4b21"
 WB1_WB3_DEFAULT_HOME_BIOM_SHA256 = "76cf7f10696c8eab417206f57e3d797a271e7bd5a42336134f2a3b2c1d967a3b"
 WB1_WB3_DEFAULT_HOME_MAT_SHA256 = "f325b12538068a66a48dbc9996ebbf5969f8005d9d1cd11d636d1bfc293378a4"
 
@@ -765,6 +765,108 @@ class HomePlanetSpecTests(unittest.TestCase):
             make_home_planet.main(["check", "--stage", str(stage_13), "--data", str(self.data_dir)]),
             1,
         )
+
+    def test_fo4port_interiors_reparent_and_zero_mars_census(self):
+        # Synthetic FO4Port.esm with FO4Port_InteriorsLocation (0x0100E18A -> SSol_PMars_Surface 0x0001B736)
+        # plus 2 child interior LCTNs pointing to 0x0100E18A (verifies chain reaches Earth 0x01000804, 0 Mars refs).
+        port_dir = self.root / "port_src"
+        port_dir.mkdir(parents=True, exist_ok=True)
+        port_path = port_dir / "FO4Port.esm"
+        pw = esm.PluginWriter(["Starfield.esm"], esm.ESM)
+        pw.add(records.new_location(0x0100E18A, "FO4Port_InteriorsLocation", "", [], 0x0001B736, 0, 0))
+        pw.add(records.new_location(0x0100E18B, "FO4Port_RootCellarLocation", "", [], 0x0100E18A, 0, 0))
+        pw.add(records.new_location(0x0100E18C, "FO4Port_ConcordMuseumLocation", "", [], 0x0100E18A, 0, 0))
+        pw.write(str(port_path), compress=False)
+        port_sha_before = make_home_planet.sha256_file(str(port_path))
+
+        stage_port = self.out_root / "port-reparent-stage"
+        rc = make_home_planet.main(
+            [
+                "stage",
+                "--data",
+                str(self.data_dir),
+                "--out",
+                str(stage_port),
+                "--port",
+                str(port_path),
+                "--require-port",
+            ]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(make_home_planet.sha256_file(str(port_path)), port_sha_before)
+        plan = make_home_planet.load_plan(str(stage_port))
+        self.assertEqual(plan["port_interiors_override"]["lctn_formid"], "0300E18A")
+
+        core_path = self.data_dir / "FO4TerrainCore.esm"
+        census_out = self.out_root / "port-census.json"
+        rc_c = make_home_planet.main(
+            [
+                "census",
+                "--plugins",
+                ",".join(
+                    [
+                        str(core_path),
+                        str(port_path),
+                        str(stage_port / "FO4SFHome.esm"),
+                        str(stage_port / "FO4TerrainCore_Home.esm"),
+                    ]
+                ),
+                "--out",
+                str(census_out),
+            ]
+        )
+        self.assertEqual(rc_c, 0)
+        census_doc = json.loads(census_out.read_text(encoding="utf-8"))
+        self.assertEqual(census_doc["problems"], [])
+        self.assertEqual(census_doc["summary"]["mars_planet_data_winning_refs"], 0)
+        self.assertEqual(census_doc["summary"]["mars_surface_lctn_winning_refs"], 0)
+        self.assertEqual(census_doc["summary"]["fo4port_child_lctns"]["total"], 2)
+        self.assertEqual(census_doc["summary"]["fo4port_child_lctns"]["reaching_earth"], 2)
+        self.assertEqual(census_doc["summary"]["fo4port_child_lctns"]["reaching_mars"], 0)
+
+        # Negative audit: omit FO4TerrainCore_Home.esm -> winning 0x0001B736 refs caught
+        bad_probs, bad_sum = hspec.audit_zero_mars_references([str(core_path), str(port_path)])
+        self.assertTrue(bad_probs)
+        self.assertGreaterEqual(bad_sum["mars_surface_lctn_winning_refs"], 2)
+
+        # Negative audit: dirty FO4SFMission.esm WRLD and CLMT Mars override caught
+        dirty_mission = self.out_root / "FO4SFMission.esm"
+        mw = esm.PluginWriter(["Starfield.esm", "FO4TerrainCore.esm"], esm.ESM)
+        mw.add(esm.Record(b"WRLD", 0x02000803, [(b"EDID", esm.zbytes("FO4Core_Commonwealth"))]))
+        mw.write(str(dirty_mission), compress=False)
+        dirty_corevals = self.out_root / "FO4SFCoreValues.esm"
+        cvw = esm.PluginWriter(["Starfield.esm"], esm.ESM)
+        cvw.add(esm.Record(b"CLMT", 0x00310DB1, [(b"EDID", esm.zbytes("ClimateUniqueCydonia"))]))
+        cvw.write(str(dirty_corevals), compress=False)
+        dm_probs, dm_sum = hspec.audit_zero_mars_references(
+            [
+                str(core_path),
+                str(port_path),
+                str(dirty_corevals),
+                str(dirty_mission),
+                str(stage_port / "FO4SFHome.esm"),
+                str(stage_port / "FO4TerrainCore_Home.esm"),
+            ]
+        )
+        self.assertTrue(any("FO4SFMission.esm carries WRLD" in p for p in dm_probs), dm_probs)
+        self.assertTrue(any("overrides Mars CLMT/ATMO" in p for p in dm_probs), dm_probs)
+        self.assertTrue(dm_sum["mission_wrld_overrides"])
+        self.assertTrue(dm_sum["commonwealth_weather_mars_overrides"])
+
+    def test_f14_sol_display_and_fo4sf_earth_planet_data_edid(self) -> None:
+        out_dir = self.out_root / "f14-check"
+        self.assertEqual(make_home_planet.main(["stage", "--data", str(self.data_dir), "--out", str(out_dir)]), 0)
+        with esm.Plugin(str(out_dir / hspec.HOME_MASTER)) as hm:
+            stdt = next(hm.records("STDT", [b"STDT"]))
+            self.assertEqual(stdt.edid, "FO4SFHomeStar")
+            self.assertEqual(esm.zstring(stdt.get(b"FULL") or b""), "Sol")
+            self.assertEqual(esm.zstring(stdt.get(b"ANAM") or b""), "Sol")
+            sys_loc = next(r for r in hm.records("LCTN", [b"LCTN"]) if (r.formid & 0xFFFFFF) == hspec.SYSTEM_LOC)
+            self.assertEqual(sys_loc.edid, "SFO4SFHome")
+            self.assertEqual(esm.zstring(sys_loc.get(b"FULL") or b""), "Sol")
+            pndt = next(hm.records("PNDT", [b"PNDT"]))
+            self.assertEqual(pndt.edid, "FO4SF_EarthPlanetData")
+            self.assertEqual(esm.zstring(pndt.get(b"FULL") or b""), "Earth")
 
 
 if __name__ == "__main__":
