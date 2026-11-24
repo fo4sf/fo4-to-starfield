@@ -74,6 +74,8 @@ ObjectReference[] Property S8WaveSpawners Auto Const
 ObjectReference Property S8WaveFailsafeMarker Auto Const
 ObjectReference Property S8GrateTriggerMarker Auto Const
 ObjectReference Property S8DeathclawSpawnMarker Auto Const
+Scene Property S9PrestonLobbyScene Auto Const
+Message Property S9PrestonLobbyFallbackMsg Auto Const
 ActorBase Property DeathclawBaseOverride Auto
 string Property DeathclawCreaturePlugin = "" Auto Const
 int Property DeathclawCreatureFormId = 0x000805 Auto Const
@@ -299,6 +301,14 @@ string s8DeathclawTrigger = ""
 Actor s8DeathclawRef = None
 bool[] s8WavePermDead
 bool s9LobbyPositioned = False
+bool s9LobbyScenePending = False
+bool s9LobbySceneMenuOpened = False
+bool s9LobbyScenePhase1 = False
+float s9LobbyScenePhase1At = 0.0
+int s9LobbySceneChecks = 0
+int s9LobbySceneRestarts = 0
+bool ownS9LobbyStopPending = False
+int s8RespawningCount = 0
 
 float[] raiderTargetX
 float[] raiderTargetY
@@ -373,6 +383,28 @@ WorldSpace Function ResolveCommonwealthWorld()
     endif
     if prestonPlaced && Preston != None && !Preston.IsInInterior()
         return Preston.GetWorldSpace()
+    endif
+    return None
+EndFunction
+
+ObjectReference Function ResolveCommonwealthHostAnchor()
+    ObjectReference wb = Game.GetFormFromFile(0x005C50, "FO4TerrainCore.esm") as ObjectReference
+    if wb == None
+        wb = Game.GetFormFromFile(0x005C50, "FO4TerrainCore_Mars.esm") as ObjectReference
+    endif
+    if wb != None
+        return wb
+    endif
+    ObjectReference mm = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore.esm") as ObjectReference
+    if mm == None
+        mm = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore_Mars.esm") as ObjectReference
+    endif
+    if mm != None
+        return mm
+    endif
+    Actor p = Game.GetPlayer()
+    if p != None && !p.IsInInterior()
+        return p
     endif
     return None
 EndFunction
@@ -487,6 +519,10 @@ Function RegisterPrestonSceneEvents()
         RegisterForRemoteEvent(postScn, "OnBegin")
         RegisterForRemoteEvent(postScn, "OnPhaseBegin")
         RegisterForRemoteEvent(postScn, "OnEnd")
+    endif
+    int st = EffectiveStage()
+    if st >= 55 && st < 200 && EnableS6ToS9Full
+        RegisterS7S9Events()
     endif
 EndFunction
 
@@ -751,7 +787,6 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         RegisterForMenuOpenCloseEvent("DialogueMenu")
         RegisterPrestonSceneEvents()
         RegisterS6RoomEvents()
-        RegisterS7S9Events()
         if st == 20
             CheckConcordRaidersWfc01(Game.GetPlayer(), False)
         endif
@@ -1218,6 +1253,9 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             endif
             return
         endif
+        if st >= 80 && st < 200 && EnableS6ToS9Full && TryS9LobbyDialogueMenuOpen(st)
+            return
+        endif
         if prestonTalkLogged || st >= 35
             if scn != None
                 if scn.IsPlaying()
@@ -1256,8 +1294,84 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             s6SturgesSceneMenuOpened = False
             Trace("s6 sturges room dialogue menu closed stage=" + EffectiveStage())
         endif
+    elseif EffectiveStage() >= 80 && EffectiveStage() < 200 && EnableS6ToS9Full && TryS9LobbyDialogueMenuClose()
+        Trace("s9 lobby dialogue menu closed stage=" + EffectiveStage())
     endif
 EndEvent
+
+Function RestartOrFailS9LobbyScene(string reason)
+    if KeeperOnly || ShouldUseMessageBox() || prestonDialogueMenuOpen || s9LobbySceneMenuOpened || s9LobbyCompleted
+        s9LobbyScenePending = False
+        s9LobbyScenePhase1 = False
+        s9LobbyScenePhase1At = 0.0
+        CancelTimer(5)
+        return
+    endif
+    if S9PrestonLobbyScene == None
+        s9LobbyScenePending = False
+        CancelTimer(5)
+        EnsureActorTalkable(Preston)
+        Trace("s9 lobby ERROR scene_failed retries=" + PrestonMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
+        return
+    endif
+    if s9LobbySceneRestarts < PrestonMaxSceneRestarts
+        s9LobbySceneRestarts += 1
+        s9LobbyScenePending = False
+        s9LobbyScenePhase1 = False
+        s9LobbyScenePhase1At = 0.0
+        EnsurePrestonAlias()
+        EnsureActorTalkable(Preston)
+        if S9PrestonLobbyScene.IsPlaying()
+            ownS9LobbyStopPending = True
+            S9PrestonLobbyScene.Stop()
+        endif
+        s9LobbyScenePending = True
+        s9LobbySceneChecks = 0
+        S9PrestonLobbyScene.Start()
+        Trace("s9 lobby scene retry n=" + s9LobbySceneRestarts + "/" + PrestonMaxSceneRestarts + " reason=" + reason)
+        StartTimer(PrestonSceneCheckSeconds, 5)
+    else
+        s9LobbyScenePending = False
+        if S9PrestonLobbyScene.IsPlaying()
+            ownS9LobbyStopPending = True
+            S9PrestonLobbyScene.Stop()
+        endif
+        s9LobbyScenePhase1 = False
+        s9LobbyScenePhase1At = 0.0
+        CancelTimer(5)
+        EnsureActorTalkable(Preston)
+        Trace("s9 lobby ERROR scene_failed retries=" + PrestonMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
+    endif
+EndFunction
+
+Function CheckS9LobbySceneOpen()
+    if KeeperOnly || !s9LobbyScenePending
+        return
+    endif
+    if prestonDialogueMenuOpen || s9LobbySceneMenuOpened || s9LobbyCompleted || EffectiveStage() < 80
+        s9LobbyScenePending = False
+        s9LobbyScenePhase1 = False
+        s9LobbyScenePhase1At = 0.0
+        return
+    endif
+    s9LobbySceneChecks += 1
+    bool phase1Elapsed = False
+    if s9LobbyScenePhase1
+        float nowRt = Utility.GetCurrentRealTime()
+        if nowRt < s9LobbyScenePhase1At
+            s9LobbyScenePhase1At = nowRt
+        elseif (nowRt - s9LobbyScenePhase1At) >= (PrestonSceneCheckSeconds - 0.05)
+            phase1Elapsed = True
+        endif
+    endif
+    if S9PrestonLobbyScene == None || !S9PrestonLobbyScene.IsPlaying()
+        RestartOrFailS9LobbyScene("scene_inactive")
+    elseif phase1Elapsed || s9LobbySceneChecks >= PrestonSceneMaxWaitChecks
+        RestartOrFailS9LobbyScene("no_dialoguemenu")
+    else
+        StartTimer(PrestonSceneCheckSeconds, 5)
+    endif
+EndFunction
 
 Event Scene.OnBegin(Scene akSender)
     if KeeperOnly
@@ -1328,6 +1442,8 @@ Event Scene.OnBegin(Scene akSender)
             StartTimer(PrestonSceneCheckSeconds, 3)
         endif
         Trace("preston talk scene started stage=" + st + " mode=post")
+    elseif EffectiveStage() >= 80 && EffectiveStage() < 200 && EnableS6ToS9Full && IsS9LobbyScene(akSender)
+        HandleS9LobbySceneBegin(akSender)
     endif
 EndEvent
 
@@ -1399,6 +1515,8 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
                 StartTimer(PrestonSceneCheckSeconds, 3)
             endif
         endif
+    elseif EffectiveStage() >= 80 && EffectiveStage() < 200 && EnableS6ToS9Full && IsS9LobbyScene(akSender)
+        HandleS9LobbyScenePhaseBegin(akSender, auiPhaseIndex)
     endif
 EndEvent
 
@@ -1537,11 +1655,10 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
                     RestartOrFailPrestonScene("no_post_scene", True)
                 endif
             endif
-        elseif stage >= 80 && EnableS6ToS9Full && !s9LobbyCompleted
-            CompleteS9LobbyTalkAndReward(Game.GetPlayer())
-            BeginS9MuseumExitAndPatrol(Game.GetPlayer())
+        elseif stage >= 80 && EnableS6ToS9Full
+            TryTriggerS9LobbyActivate(Game.GetPlayer())
         endif
-    elseif akActionRef == Game.GetPlayer() && EnableS6ToS9Full
+    elseif akActionRef == Game.GetPlayer() && EffectiveStage() >= 55 && EnableS6ToS9Full
         Actor player = Game.GetPlayer()
         if S7RoofMinigunRef != None && akSender == S7RoofMinigunRef
             GrabS7Minigun(player)
@@ -1674,6 +1791,8 @@ Event Scene.OnEnd(Scene akSender)
         HandleS6RoomSceneEnded(False)
     elseif S6SturgesRoomScene != None && akSender == S6SturgesRoomScene
         HandleS6RoomSceneEnded(True)
+    elseif EffectiveStage() >= 80 && EffectiveStage() < 200 && EnableS6ToS9Full && IsS9LobbyScene(akSender)
+        HandleS9LobbySceneEnd()
     endif
 EndEvent
 
@@ -2053,6 +2172,9 @@ Event OnTimer(int aiTimerID)
     elseif aiTimerID == 6
         CheckS6RoomSceneOpen(True)
         return
+    elseif aiTimerID == 7
+        CheckS9LobbySceneOpen()
+        return
     elseif aiTimerID != 1
         return
     endif
@@ -2123,10 +2245,16 @@ Event OnTimer(int aiTimerID)
         MaintainS4PrestonBalcony(player, "mission")
     endif
     if EnableS6ToS9Full
-        if s6FullStage >= 50 && !s7RoofSetup && S7RoofDoorMarker != None && IsCommonwealthExterior(player)
-            if player.GetDistance(S7RoofDoorMarker) <= 14.0
+        if s6FullStage >= 50 && !s7RoofSetup && IsCommonwealthExterior(player) && player != None
+            float rdx = player.GetPositionX() - (-2008.49)
+            float rdy = player.GetPositionY() - (-1722.39)
+            float rdz = player.GetPositionZ() - 97.42
+            if rdx * rdx + rdy * rdy + rdz * rdz <= 196.0
                 AdvanceTo(60, "roof_door")
             endif
+        endif
+        if s7RoofSetup && s7RoofFrameRef != None
+            SyncS7RoofFrameGate(player)
         endif
         if s7RoofSetup && !s7StreetDropLogged && IsCommonwealthExterior(player)
             CheckS7StreetDrop(player)
@@ -2829,13 +2957,31 @@ Function MaintainS4PrestonBalcony(Actor player, string who)
 EndFunction
 
 bool Function RelocateMarkerToMergedWorld(ObjectReference mk, string name, float tx, float ty, float tz, Actor player)
-{R11 Step 3q: Moves a persistent FO4SFMission marker (0xB82..0xB8A) from the unmerged base world (0x01000803) into
- player's runtime merged Commonwealth world via PlaceAt (ignoreRadius=True) before SetLinkedRef or AddToMap.}
+{R11 Step 3q: Moves a persistent FO4SFMission marker (0xB82..0xB8A or 0xBF5 holding cell) into
+ the runtime merged Commonwealth world via PlaceAt (ignoreRadius=True) before SetLinkedRef or AddToMap.}
     if mk == None || player == None || !IsCommonwealthExterior(player)
         return False
     endif
-    if player.GetDistance(mk) >= RelocateGap || SpotOff(mk, tx, ty, tz) > HoldRadius
+    WorldSpace cw = ResolveCommonwealthWorld()
+    if mk.IsInInterior() || (cw != None && mk.GetWorldSpace() != cw) || player.GetDistance(mk) >= RelocateGap || SpotOff(mk, tx, ty, tz) > HoldRadius
         PlaceAt(mk, name, tx, ty, tz, player, "s9_marker", "in the Commonwealth", False, True)
+        return True
+    endif
+    return False
+EndFunction
+
+bool Function RelocateHoldingRefToCommonwealth(ObjectReference mk, string name, float tx, float ty, float tz, Actor player)
+{Task 1i + S7/S8: Relocates a holding-cell marker or ref (0xBF5) to exact merged Commonwealth coordinates,
+ using player when exterior or persistent host anchor (0x005C50 / 0x0A775B) when indoors or at load.}
+    if mk == None
+        return False
+    endif
+    if player != None && IsCommonwealthExterior(player)
+        return RelocateMarkerToMergedWorld(mk, name, tx, ty, tz, player)
+    endif
+    ObjectReference anchor = ResolveCommonwealthHostAnchor()
+    if anchor != None
+        FO4SF_Sanctuary01Quest.PlaceRefAtExteriorCoords(mk, anchor, tx, ty, tz)
         return True
     endif
     return False
@@ -3996,9 +4142,15 @@ Function CheckS6RoomSceneOpen(bool isSturges)
 EndFunction
 
 Function RegisterS7S9Events()
-{Registers S7 roof Minigun OnActivate and S8 wave actor OnDeath listeners when --r11-full-mission 1.}
+{Registers S7 roof Minigun/frame OnActivate, S8 wave actor OnDeath, and S9 PrestonLobbyScene listeners when --r11-full-mission 1.}
     if KeeperOnly || !EnableS6ToS9Full
         return
+    endif
+    ResetS9LobbyRuntimeState()
+    if S9PrestonLobbyScene != None
+        RegisterForRemoteEvent(S9PrestonLobbyScene, "OnBegin")
+        RegisterForRemoteEvent(S9PrestonLobbyScene, "OnPhaseBegin")
+        RegisterForRemoteEvent(S9PrestonLobbyScene, "OnEnd")
     endif
     if S7RoofMinigunRef != None
         RegisterForRemoteEvent(S7RoofMinigunRef, "OnActivate")
@@ -4020,9 +4172,21 @@ Function RegisterS7S9Events()
     endif
 EndFunction
 
+Function SyncS7RoofFrameGate(Actor player)
+    if s7RoofFrameRef == None || player == None
+        return
+    endif
+    MiscObject fcCore = Game.GetFormFromFile(0x000809, "FO4SFPowerArmor.esm") as MiscObject
+    int cores = 0
+    if fcCore != None
+        cores = player.GetItemCount(fcCore)
+    endif
+    s7RoofFrameRef.BlockActivation(cores <= 0, False)
+EndFunction
+
 bool Function ConfirmS7RoofArrival(Actor player)
 {S7 Museum roof arrival: deploys persistent roof PA frame (0x0801, no pre-installed core; uses 0x0809 core carried from 2h/S6)
- and Vertibird Minigun activator (0xBE1) at roof coordinates.}
+ and Vertibird Minigun activator (0xBE1) from 0xBF5 holding cell into Concord roof coordinates.}
     if !EnableS6ToS9Full || KeeperOnly || s7RoofSetup
         return False
     endif
@@ -4031,25 +4195,25 @@ bool Function ConfirmS7RoofArrival(Actor player)
         s6FullStage = 60
     endif
     SetObjectiveCompleted(60)
+    if S7RoofDoorMarker != None
+        RelocateHoldingRefToCommonwealth(S7RoofDoorMarker, "S7RoofDoorMarker", -2008.49, -1722.39, 97.42, player)
+    endif
     if S7RoofMinigunRef != None
-        if player != None && IsCommonwealthExterior(player)
-            RelocateMarkerToMergedWorld(S7RoofMinigunRef, "S7VertibirdMinigun", S7RoofMinigunRef.GetPositionX(), S7RoofMinigunRef.GetPositionY(), S7RoofMinigunRef.GetPositionZ(), player)
-        endif
+        RelocateHoldingRefToCommonwealth(S7RoofMinigunRef, "S7VertibirdMinigun", -2004.72, -1715.40, 102.68, player)
         S7RoofMinigunRef.EnableNoWait(False)
         S7RoofMinigunRef.SetAngle(S7RoofMinigunRotX, S7RoofMinigunRotY, S7RoofMinigunRotZ)
         RegisterForRemoteEvent(S7RoofMinigunRef, "OnActivate")
     endif
     bool spawnedFrame = False
     if S7RoofFrameMarker != None
-        if player != None && IsCommonwealthExterior(player)
-            RelocateMarkerToMergedWorld(S7RoofFrameMarker, "S7RoofFrameMarker", S7RoofFrameMarker.GetPositionX(), S7RoofFrameMarker.GetPositionY(), S7RoofFrameMarker.GetPositionZ(), player)
-        endif
+        RelocateHoldingRefToCommonwealth(S7RoofFrameMarker, "S7RoofFrameMarker", -1995.73, -1723.10, 97.54, player)
         Furniture paFurn = Game.GetFormFromFile(0x000801, "FO4SFPowerArmor.esm") as Furniture
         if paFurn != None && (s7RoofFrameRef == None || s7RoofFrameRef.IsDeleted())
             s7RoofFrameRef = S7RoofFrameMarker.PlaceAtMe(paFurn, 1, True, False, False)
             if s7RoofFrameRef != None
                 s7RoofFrameRef.SetAngle(0.0, 0.0, 351.07)
                 RegisterForRemoteEvent(s7RoofFrameRef, "OnActivate")
+                SyncS7RoofFrameGate(player)
                 spawnedFrame = True
             endif
         endif
@@ -4067,17 +4231,17 @@ Function OnS7RoofFrameActivated(Actor player)
     if fcCore != None
         cores = player.GetItemCount(fcCore)
     endif
+    if s7RoofFrameRef != None
+        s7RoofFrameRef.BlockActivation(cores <= 0, False)
+    endif
     if cores <= 0
-        Trace("s7 roof_frame refused reason=no_fusion_core cores=0")
+        Trace("s7 roof_frame refused reason=no_fusion_core cores=0 frame_blocked=true")
         if IsTestModeEnabled()
             Debug.Notification("Fusion Core required to enter Power Armor.")
         endif
         return
     endif
-    Perk noFall = Game.GetFormFromFile(0x00081E, "FO4SFPowerArmor.esm") as Perk
-    if noFall != None && !player.HasPerk(noFall)
-        player.AddPerk(noFall)
-    endif
+    ; FO4SF_PowerArmorCoreQuest owns granting and removing 0x00081E on PA enter/exit cleanly.
     Trace("s7 roof_frame entered core=0x0809 cores=" + cores)
 EndFunction
 
@@ -4132,24 +4296,53 @@ Function EnsureS8TrackingArrays()
 EndFunction
 
 bool Function StartS8Wave2(Actor player)
-{S8 Wave 2 & Deathclaw: displays Min00 65 "Clear Concord of Hostiles", enables 5 wave aliases at FO4 markers, sets DN092 75 & respawnPool=8.}
+{S8 Wave 2 & Deathclaw: displays Min00 65 "Clear Concord of Hostiles", relocates 5 wave aliases + spawners/triggers from 0xBF5 holding cell into Concord, sets DN092 75 & respawnPool=8.}
     if !EnableS6ToS9Full || KeeperOnly || s8WaveStarted
         return False
     endif
     s8WaveStarted = True
     s8Dn092Stage = 75
     s8RespawnPool = S8RespawnPoolMax
+    s8RespawningCount = 0
     s8WaveKills = 0
     s8ElapsedSec = 0.0
     s6FullStage = 65
     EnsureS8TrackingArrays()
     SetObjectiveDisplayed(65, True, True)
     SetActive(True)
+    float[] ax = new float[5]
+    float[] ay = new float[5]
+    float[] az = new float[5]
+    float[] ayaw = new float[5]
+    ax[0] = -2050.79
+    ay[0] = -1675.63
+    az[0] = 88.40
+    ayaw[0] = 84.70
+    ax[1] = -2055.43
+    ay[1] = -1646.49
+    az[1] = 91.59
+    ayaw[1] = 165.32
+    ax[2] = -2066.37
+    ay[2] = -1642.37
+    az[2] = 88.17
+    ayaw[2] = 130.82
+    ax[3] = -2042.53
+    ay[3] = -1690.99
+    az[3] = 101.09
+    ayaw[3] = 116.14
+    ax[4] = -2066.37
+    ay[4] = -1642.37
+    az[4] = 88.17
+    ayaw[4] = 130.82
     if S8WaveActors != None
         int wi = 0
         while wi < S8WaveActors.Length
             Actor wa = S8WaveActors[wi]
             if wa != None
+                if wi < 5
+                    RelocateHoldingRefToCommonwealth(wa, "S8WaveActor_" + wi, ax[wi], ay[wi], az[wi], player)
+                    wa.SetAngle(0.0, 0.0, ayaw[wi])
+                endif
                 wa.EnableNoWait(False)
                 RegisterForRemoteEvent(wa, "OnDeath")
                 if player != None && IsCommonwealthExterior(player) && wa.Is3DLoaded()
@@ -4159,26 +4352,45 @@ bool Function StartS8Wave2(Actor player)
             wi += 1
         endwhile
     endif
-    if player != None && IsCommonwealthExterior(player)
-        if S8WaveSpawners != None
-            int si = 0
-            while si < S8WaveSpawners.Length
-                ObjectReference sp = S8WaveSpawners[si]
-                if sp != None
-                    RelocateMarkerToMergedWorld(sp, "S8Spawner_" + si, sp.GetPositionX(), sp.GetPositionY(), sp.GetPositionZ(), player)
-                endif
-                si += 1
-            endwhile
-        endif
-        if S8WaveFailsafeMarker != None
-            RelocateMarkerToMergedWorld(S8WaveFailsafeMarker, "S8WaveFailsafe", S8WaveFailsafeMarker.GetPositionX(), S8WaveFailsafeMarker.GetPositionY(), S8WaveFailsafeMarker.GetPositionZ(), player)
-        endif
-        if S8GrateTriggerMarker != None
-            RelocateMarkerToMergedWorld(S8GrateTriggerMarker, "S8GrateTrigger", S8GrateTriggerMarker.GetPositionX(), S8GrateTriggerMarker.GetPositionY(), S8GrateTriggerMarker.GetPositionZ(), player)
-        endif
-        if S8DeathclawSpawnMarker != None
-            RelocateMarkerToMergedWorld(S8DeathclawSpawnMarker, "S8DeathclawSpawn", S8DeathclawSpawnMarker.GetPositionX(), S8DeathclawSpawnMarker.GetPositionY(), S8DeathclawSpawnMarker.GetPositionZ(), player)
-        endif
+    float[] sx = new float[6]
+    float[] sy = new float[6]
+    float[] sz = new float[6]
+    sx[0] = -2109.40
+    sy[0] = -1635.39
+    sz[0] = 88.27
+    sx[1] = -2058.78
+    sy[1] = -1601.50
+    sz[1] = 88.65
+    sx[2] = -2044.53
+    sy[2] = -1634.66
+    sz[2] = 88.59
+    sx[3] = -2054.62
+    sy[3] = -1613.32
+    sz[3] = 88.15
+    sx[4] = -2093.62
+    sy[4] = -1668.45
+    sz[4] = 88.55
+    sx[5] = -2094.59
+    sy[5] = -1654.38
+    sz[5] = 88.47
+    if S8WaveSpawners != None
+        int si = 0
+        while si < S8WaveSpawners.Length
+            ObjectReference sp = S8WaveSpawners[si]
+            if sp != None && si < 6
+                RelocateHoldingRefToCommonwealth(sp, "S8Spawner_" + si, sx[si], sy[si], sz[si], player)
+            endif
+            si += 1
+        endwhile
+    endif
+    if S8WaveFailsafeMarker != None
+        RelocateHoldingRefToCommonwealth(S8WaveFailsafeMarker, "S8WaveFailsafe", -2055.35, -1646.86, 91.63, player)
+    endif
+    if S8GrateTriggerMarker != None
+        RelocateHoldingRefToCommonwealth(S8GrateTriggerMarker, "S8GrateTrigger", -2068.22, -1640.23, 88.22, player)
+    endif
+    if S8DeathclawSpawnMarker != None
+        RelocateHoldingRefToCommonwealth(S8DeathclawSpawnMarker, "S8DeathclawSpawn", -2068.22, -1640.18, 88.22, player)
     endif
     Trace("s8 wave2 started obj=65 dn092_stage=75 respawn_pool=" + s8RespawnPool)
     return True
@@ -4211,9 +4423,11 @@ Function OnS8MemberKilled(int idx, Actor member, Actor player)
     if !canRespawn
         s8WavePermDead[idx] = True
         Trace("s8 wave kill idx=" + idx + " respawns=" + (idx < 3) + " pool_left=" + s8RespawnPool + " wave_kills=" + s8WaveKills)
+        CheckS8WaveAndDeathclaw(player, 0.0)
         return
     endif
     s8RespawnPool -= 1
+    s8RespawningCount += 1
     ObjectReference sp = PickS8WaveSpawner(player)
     Utility.Wait(0.5)
     member.Resurrect()
@@ -4223,7 +4437,9 @@ Function OnS8MemberKilled(int idx, Actor member, Actor player)
     if player != None
         FO4SF_Sanctuary01Quest.EngageTarget(member, player)
     endif
+    s8RespawningCount -= 1
     Trace("s8 wave respawn idx=" + idx + " pool_left=" + s8RespawnPool + " wave_kills=" + s8WaveKills + " spawner=" + sp)
+    CheckS8WaveAndDeathclaw(player, 0.0)
 EndFunction
 
 Function SpawnS8Deathclaw(string triggerReason, Actor player)
@@ -4290,7 +4506,7 @@ Function CheckS8WaveAndDeathclaw(Actor player, float deltaSec)
     if s8DeathclawSpawned && !s8DeathclawCleared && (s8DeathclawRef == None || s8DeathclawRef.IsDead())
         s8DeathclawCleared = True
     endif
-    if !s8DeathclawSpawned || !s8DeathclawCleared
+    if !s8DeathclawSpawned || !s8DeathclawCleared || s8RespawningCount > 0
         return
     endif
     EnsureS8TrackingArrays()
@@ -4305,7 +4521,7 @@ Function CheckS8WaveAndDeathclaw(Actor player, float deltaSec)
             wi += 1
         endwhile
     endif
-    if aliveCount == 0
+    if aliveCount == 0 && s8RespawningCount == 0
         s8WaveCleared = True
         SetObjectiveCompleted(65)
         s6FullStage = 80
@@ -4317,11 +4533,169 @@ Function CheckS8WaveAndDeathclaw(Actor player, float deltaSec)
 EndFunction
 
 Function EnterS9MuseumLobby(Actor player)
-{S9 MQ102 stage 130 lobby markers 0001F5B6 / 0001F5B7.}
+{S9 MQ102 stage 130 lobby markers 0001F5B6 / 0001F5B7 inside FO4Port_ConcordMuseum01 (0x00E2F4) via 0x00E2F5.}
     if !EnableS6ToS9Full || KeeperOnly || s9LobbyPositioned
         return
     endif
     s9LobbyPositioned = True
     SyncKeeperPrestonMode(False, True)
-    Trace("s9 mq102_stage=130 lobby_markers=0001F5B6,0001F5B7 preston=(" + S9LobbyPrestonX + "," + S9LobbyPrestonY + "," + S9LobbyPrestonZ + ") murphy=(" + S9LobbyMurphyX + "," + S9LobbyMurphyY + "," + S9LobbyMurphyZ + ")")
+    ObjectReference museumAnchor = LookupOptionalForm(58101, "FO4Port.esm") as ObjectReference ; 0x00E2F5 ConcordMuseum01 anchor
+    if museumAnchor != None
+        if Preston != None
+            Preston.SetRestrained(False)
+            FO4SF_Sanctuary01Quest.PlaceRefInMuseumOffset(Preston, museumAnchor, S9LobbyPrestonX, S9LobbyPrestonY, S9LobbyPrestonZ)
+            Preston.AllowPCDialogue(True)
+            Preston.BlockActivation(False, False)
+        endif
+        if MinutemenGroup != None
+            int gi = 0
+            while gi < MinutemenGroup.Length
+                Actor gm = MinutemenGroup[gi]
+                if gm != None && gm != Preston
+                    if gm.IsDisabled()
+                        gm.EnableNoWait(False)
+                    endif
+                    FO4SF_Sanctuary01Quest.PlaceRefInMuseumOffset(gm, museumAnchor, S9LobbyMurphyX + (gi as float) * 0.9, S9LobbyMurphyY, S9LobbyMurphyZ)
+                endif
+                gi += 1
+            endwhile
+        endif
+    endif
+    Trace("s9 mq102_stage=130 lobby_markers=0001F5B6,0001F5B7 moved=" + (museumAnchor != None) + " preston=(" + S9LobbyPrestonX + "," + S9LobbyPrestonY + "," + S9LobbyPrestonZ + ") murphy=(" + S9LobbyMurphyX + "," + S9LobbyMurphyY + "," + S9LobbyMurphyZ + ")")
+EndFunction
+
+Function ResetS9LobbyRuntimeState()
+    s9LobbyScenePending = False
+    s9LobbySceneMenuOpened = False
+    s9LobbyScenePhase1 = False
+    s9LobbyScenePhase1At = 0.0
+    s9LobbySceneChecks = 0
+    s9LobbySceneRestarts = 0
+    ownS9LobbyStopPending = False
+    s8RespawningCount = 0
+    CancelTimer(5)
+EndFunction
+
+bool Function IsS9LobbyScene(Scene akSender)
+    return S9PrestonLobbyScene != None && akSender == S9PrestonLobbyScene
+EndFunction
+
+bool Function IsS9LobbySceneBusy()
+    return s9LobbyScenePending || s9LobbySceneMenuOpened
+EndFunction
+
+bool Function TryS9LobbyDialogueMenuOpen(int st)
+    if st >= 80 && !s9LobbyCompleted && (s9LobbyScenePending || (S9PrestonLobbyScene != None && S9PrestonLobbyScene.IsPlaying()))
+        s9LobbySceneMenuOpened = True
+        s9LobbyScenePending = False
+        s9LobbyScenePhase1 = False
+        s9LobbyScenePhase1At = 0.0
+        s9LobbySceneRestarts = 0
+        ownS9LobbyStopPending = False
+        CancelTimer(5)
+        Trace("s9 lobby dialogue menu opened stage=" + st)
+        return True
+    endif
+    return False
+EndFunction
+
+bool Function TryS9LobbyDialogueMenuClose()
+    if s9LobbySceneMenuOpened
+        s9LobbySceneMenuOpened = False
+        return True
+    endif
+    return False
+EndFunction
+
+Function HandleS9LobbySceneBegin(Scene akSender)
+    if s9LobbyCompleted || EffectiveStage() < 80 || ShouldUseMessageBox()
+        ownS9LobbyStopPending = True
+        akSender.Stop()
+        return
+    endif
+    if !s9LobbyScenePending && !s9LobbySceneMenuOpened && !prestonDialogueMenuOpen
+        s9LobbyScenePending = True
+        s9LobbyScenePhase1 = False
+        s9LobbyScenePhase1At = 0.0
+        s9LobbySceneChecks = 0
+        StartTimer(PrestonSceneCheckSeconds, 5)
+    endif
+    Trace("s9 lobby scene begin id=0xBF6 stage=" + EffectiveStage())
+EndFunction
+
+Function HandleS9LobbyScenePhaseBegin(Scene akSender, int auiPhaseIndex)
+    if s9LobbyCompleted || EffectiveStage() < 80 || ShouldUseMessageBox()
+        ownS9LobbyStopPending = True
+        akSender.Stop()
+        return
+    endif
+    if auiPhaseIndex >= 1
+        s9LobbyScenePhase1 = True
+        s9LobbyScenePhase1At = Utility.GetCurrentRealTime()
+        if s9LobbyScenePending && !s9LobbySceneMenuOpened && !prestonDialogueMenuOpen
+            CancelTimer(5)
+            StartTimer(PrestonSceneCheckSeconds, 5)
+        endif
+    endif
+EndFunction
+
+Function TryTriggerS9LobbyActivate(Actor player)
+    if s9LobbyCompleted || IsS9LobbySceneBusy()
+        return
+    endif
+    EnterS9MuseumLobby(player)
+    if ShouldUseMessageBox()
+        Message lMsg = S9PrestonLobbyFallbackMsg
+        if lMsg == None
+            lMsg = Game.GetFormFromFile(0x000C04, MissionPlugin) as Message
+        endif
+        bool lOk = True
+        if lMsg != None
+            if lMsg.Show() < 0
+                lOk = False
+            endif
+        endif
+        if lOk
+            CompleteS9LobbyTalkAndReward(player)
+            BeginS9MuseumExitAndPatrol(player)
+        endif
+    elseif S9PrestonLobbyScene != None
+        EnsurePrestonAlias()
+        EnsureActorTalkable(Preston)
+        s9LobbyScenePending = True
+        s9LobbySceneMenuOpened = False
+        s9LobbyScenePhase1 = False
+        s9LobbyScenePhase1At = 0.0
+        s9LobbySceneChecks = 0
+        if !S9PrestonLobbyScene.IsPlaying()
+            S9PrestonLobbyScene.Start()
+        endif
+        Trace("s9 lobby preston scene started id=0xBF6")
+        StartTimer(PrestonSceneCheckSeconds, 5)
+    else
+        RestartOrFailS9LobbyScene("no_lobby_scene")
+    endif
+EndFunction
+
+Function HandleS9LobbySceneEnd()
+    if ownS9LobbyStopPending
+        ownS9LobbyStopPending = False
+        return
+    endif
+    bool wasOpened = s9LobbySceneMenuOpened || prestonDialogueMenuOpen
+    s9LobbyScenePending = False
+    s9LobbyScenePhase1 = False
+    s9LobbyScenePhase1At = 0.0
+    CancelTimer(5)
+    if !s9LobbyCompleted
+        if wasOpened
+            s9LobbySceneMenuOpened = False
+            s9LobbySceneRestarts = 0
+            Actor player = Game.GetPlayer()
+            CompleteS9LobbyTalkAndReward(player)
+            BeginS9MuseumExitAndPatrol(player)
+        elseif !ShouldUseMessageBox()
+            RestartOrFailS9LobbyScene("scene_incomplete")
+        endif
+    endif
 EndFunction

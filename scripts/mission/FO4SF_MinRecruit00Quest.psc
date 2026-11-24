@@ -66,8 +66,8 @@ EndFunction
 
 bool Function CheckPredecessorGate()
 {R5: MinRecruit00 starts only after Min00 finishes (stage >= 200) and Sanctuary01 completes, unless TestMode is on.
- S9: Holds strictly OFF while FO4SF_S9_HardStopAtMin01_1000 (0x000BF5) is non-zero.}
-    GlobalVariable s9HardStop = Game.GetFormFromFile(0x000BF5, MissionPlugin) as GlobalVariable
+ S9: Holds strictly OFF while FO4SF_S9_HardStopAtMin01_1000 (0x000BF4) is non-zero.}
+    GlobalVariable s9HardStop = Game.GetFormFromFile(0x000BF4, MissionPlugin) as GlobalVariable
     if s9HardStop != None && s9HardStop.GetValue() != 0.0
         return False
     endif

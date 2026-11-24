@@ -718,6 +718,24 @@ static class Mission
             }
         }
 
+        // S9 Lobby talk (DialogueConcordArea 0179F3 -> 009SurvivorLobbyScene / 010SurvivorSceneReward) & Min01SturgesIntro (0x1188B4 -> 0x118B2A)
+        var s9LobbyTalk = new Dictionary<string, object?>
+        {
+            ["greeting"] = InfoAllRespText(0x01F5B5, "Synthetic lobby debrief greeting after Concord cleared."),
+            ["greeting_responses"] = InfoRespList(0x01F5B5, "Synthetic lobby debrief greeting after Concord cleared."),
+            ["prompt"] = InfoButtonText(0x01F5B4, 1, "Ask Preston about heading back to Sanctuary."),
+            ["reply"] = InfoAllRespText(0x05DFAE, "Synthetic lobby farewell and supply reward."),
+            ["reply_responses"] = InfoRespList(0x05DFAE, "Synthetic lobby farewell and supply reward."),
+        };
+        var s9SturgesIntro = new Dictionary<string, object?>
+        {
+            ["greeting"] = InfoRespText(0x118B2A, 1, "Synthetic Sanctuary arrival greeting from Sturges."),
+            ["greeting_responses"] = new[] { new Dictionary<string, object> { ["response"] = 1, ["text"] = InfoRespText(0x118B2A, 1, "Synthetic Sanctuary arrival greeting from Sturges.") } },
+            ["prompt"] = "Ask what the Sanctuary settlers need built first.",
+            ["reply"] = InfoRespText(0x118B2A, 2, "Synthetic Sturges instructions to build sheltered beds first."),
+            ["reply_responses"] = new[] { new Dictionary<string, object> { ["response"] = 2, ["text"] = InfoRespText(0x118B2A, 2, "Synthetic Sturges instructions to build sheltered beds first.") } },
+        };
+
         var doc = new Dictionary<string, object?>
         {
             ["source"] = Path.GetFileName(fo4Path),
@@ -727,6 +745,8 @@ static class Mission
             ["preston_npc"] = prestonNpcMeta,
             ["preston_talk"] = prestonTalk,
             ["preston_post_talk"] = prestonPostTalk,
+            ["s9_lobby_talk"] = s9LobbyTalk,
+            ["s9_sturges_intro"] = s9SturgesIntro,
             ["objectives"] = objectives,
             ["preston"] = new Dictionary<string, object?>
             {
@@ -1117,7 +1137,7 @@ static class Mission
 
     public static MqVoiceSpec LoadMqVoice(string path) => LoadSceneVoice(path, 4, "MQ102");
 
-    static IReadOnlyList<(string Text, uint Wem, float Duration)> PairSceneClips(
+    public static IReadOnlyList<(string Text, uint Wem, float Duration)> PairSceneClips(
         IReadOnlyList<string> texts,
         IReadOnlyList<(uint Wem, float Duration)>? clips)
     {
@@ -1136,7 +1156,7 @@ static class Mission
         return result;
     }
 
-    static List<string> ExtractRespTexts(JsonElement parent, string arrayProp, string fallbackText)
+    public static List<string> ExtractRespTexts(JsonElement parent, string arrayProp, string fallbackText)
     {
         if (parent.TryGetProperty(arrayProp, out var arr) && arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
         {
@@ -2073,9 +2093,11 @@ static class Mission
         if (r11FullMission)
         {
             NextStoryMissionsS7S9.PopulateS7S9(
-                mod, cell, quest, sanctuaryQuest, xMarker.FormKey,
+                mod, quest, sanctuaryQuest, xMarker.FormKey,
                 raiderNpc, raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
-                concordSidearm.FormKey, raiderSidearmAmmo.FormKey);
+                concordSidearm.FormKey, raiderSidearmAmmo.FormKey,
+                npc.FormKey, new FormKey(modKey, NextStoryMissionsA4.SturgesNpcId), prestonVoice.FormKey,
+                pts, prestonVoicePath);
         }
 
         FalloutActorLooks.ApplyActorLooks(
@@ -2463,7 +2485,7 @@ static class Mission
             Need(q.Stages.Select(s => s.Index).SequenceEqual(wantMin00Stages), "stages differ from the script's");
 
             var dials = q.DialogTopics.ToList();
-            int expectedSceneDials = alias ? (r11FullMission ? 13 : 7) : 0; // 7 baseline + 6 for S6 Preston/Sturges room scenes
+            int expectedSceneDials = (alias ? 7 : 0) + (r11FullMission ? 9 : 0); // 7 baseline + 6 S6 room + 3 S9 lobby when full
             Need(dials.Count == expectedSceneDials && !dials.Any(d => d.FormKey == new FormKey(key, CodsworthDialId)),
                  $"FO4SF_Min00 DIAL count {dials.Count} != {expectedSceneDials} or still owns persistent Codsworth Hellos");
             Need(q.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), "a FO4SF_Min00 stage lacks a QSDT QuestLogEntry");
@@ -2508,7 +2530,7 @@ static class Mission
                         targetsPrestonIdx.Add(eo.Index);
                 Need(q.Objectives.Where(o => targetsPrestonIdx.Contains(o.Index)).All(o => o.Targets.Count == 1 && o.Targets[0].AliasID == PrestonAlias),
                      "Preston's objectives do not target alias 0");
-                int wantPrestonSceneCount = r11FullMission ? 3 : 1;
+                int wantPrestonSceneCount = r11FullMission ? 4 : 1;
                 var pscn = q.Scenes.FirstOrDefault(x => x.FormKey == new FormKey(key, PrestonTalkSceneId));
                 Need(q.Scenes.Count == wantPrestonSceneCount && pscn is not null, $"FO4SF_Min00 lacks Preston talk scene 0x900 (scenes={q.Scenes.Count})");
                 if (pscn is not null)
@@ -3287,8 +3309,18 @@ static class Mission
                 }),
                 ("S7_RoofMinigunRef Persistent flag cleared", m =>
                 {
-                    var rm = m.Worldspaces.First().TopCell!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofMinigunRefId);
+                    var rm = NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofMinigunRefId);
                     rm.MajorRecordFlagsRaw &= ~0x400;
+                }),
+                ("FO4SF_S9_SturgesIntroScene removed from Sanctuary01", m =>
+                {
+                    m.Quests[new FormKey(m.ModKey, SanctuaryQuestId)].Scenes.RemoveAll(s => s.FormKey.ID == NextStoryMissionsS7S9.S9SturgesIntroSceneId);
+                }),
+                ("FO4SF_S7S9_HoldingCell marker moved into Commonwealth WRLD", m =>
+                {
+                    var hm = NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofFrameMarkerId);
+                    NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.Remove(hm);
+                    m.Worldspaces.First().TopCell!.Persistent.Add(hm);
                 }),
             };
             foreach (var (name, edit) in r11FullMutations)

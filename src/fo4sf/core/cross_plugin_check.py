@@ -1103,7 +1103,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xBE3, "NPC_", "FO4SF_S3_BloatflyNpc"),
             (0xBE4, "ARMO", "FO4SF_S6_SettlerClothes_StandIn"),
             (0xBE5, "OTFT", "FO4SF_S6_SettlerOutfit_StandIn"),
-            # R11 Task 3b (--r11-full-mission 1): S7 Roof PA + Minigun, S8 Wave 2 (respawnPool=8) + Deathclaw, S9 Sturges intro & hard stop
+            # R11 Task 3b (--r11-full-mission 1): S7 Roof PA + Minigun, S8 Wave 2 (respawnPool=8) + Deathclaw, S9 HoldingCell + Starfield SCENs
             (0xBE6, "ACHR", "FO4SF_S8_WaveRaider01"),
             (0xBE7, "ACHR", "FO4SF_S8_WaveRaider02"),
             (0xBE8, "ACHR", "FO4SF_S8_WaveRaider03"),
@@ -1118,8 +1118,24 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xBF1, "REFR", "FO4SF_S8_WavePost02Marker"),
             (0xBF2, "REFR", "FO4SF_S8_GrateTriggerMarker"),
             (0xBF3, "REFR", "FO4SF_S8_DeathclawSpawnMarker"),
-            (0xBF4, "MESG", "FO4SF_S9_SturgesIntroMsg"),
-            (0xBF5, "GLOB", "FO4SF_S9_HardStopAtMin01_1000"),
+            (0xBF4, "GLOB", "FO4SF_S9_HardStopAtMin01_1000"),
+            (0xBF5, "CELL", "FO4SF_S7S9_HoldingCell"),
+            (0xBF6, "SCEN", "FO4SF_S9_PrestonLobbyScene"),
+            (0xBF7, "DIAL", "FO4SF_S9_PrestonLobbyGreetTopic"),
+            (0xBF8, "INFO", "FO4SF_S9_PrestonLobbyGreetInfo"),
+            (0xBF9, "DIAL", "FO4SF_S9_PrestonLobbyChoiceTopic"),
+            (0xBFA, "INFO", "FO4SF_S9_PrestonLobbyChoiceInfo"),
+            (0xBFB, "DIAL", "FO4SF_S9_PrestonLobbyReplyTopic"),
+            (0xBFC, "INFO", "FO4SF_S9_PrestonLobbyReplyInfo"),
+            (0xBFD, "SCEN", "FO4SF_S9_SturgesIntroScene"),
+            (0xBFE, "DIAL", "FO4SF_S9_SturgesIntroGreetTopic"),
+            (0xBFF, "INFO", "FO4SF_S9_SturgesIntroGreetInfo"),
+            (0xC00, "DIAL", "FO4SF_S9_SturgesIntroChoiceTopic"),
+            (0xC01, "INFO", "FO4SF_S9_SturgesIntroChoiceInfo"),
+            (0xC02, "DIAL", "FO4SF_S9_SturgesIntroReplyTopic"),
+            (0xC03, "INFO", "FO4SF_S9_SturgesIntroReplyInfo"),
+            (0xC04, "MESG", "FO4SF_S9_PrestonLobbyFallbackMsg"),
+            (0xC05, "MESG", "FO4SF_S9_SturgesIntroFallbackMsg"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":

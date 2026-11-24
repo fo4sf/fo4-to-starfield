@@ -30,8 +30,15 @@ Message Property SturgesReply1Msg Auto Const
 Message Property SturgesReply2Msg Auto Const
 Message Property SturgesDoneMsg Auto Const
 Message Property WorkbenchBuildMsg Auto Const
+Scene Property S9SturgesIntroScene Auto Const
+Message Property S9SturgesIntroFallbackMsg Auto Const
+GlobalVariable Property TalkUseMessageBox Auto Const
 ; R11-fix #2: Clean Sanctuary bench swap is OFF by default in candidate-2g-fix (also controlled by FO4SFWorkshop.esm:0x00084A)
 bool Property EnableCleanBenchSwap = False Auto
+
+float Property S9IntroSceneCheckSeconds = 1.5 Auto Const
+int Property S9IntroSceneMaxWaitChecks = 16 Auto Const
+int Property S9IntroMaxSceneRestarts = 3 Auto Const
 
 string LogName = "fo4sf_mission"
 string CorePlugin = "FO4TerrainCore.esm"
@@ -84,6 +91,14 @@ ObjectReference sanctuaryBenchOverride = None
 ObjectReference coreBenchDisabled = None
 WorldSpace commonwealthWorld = None
 float benchNearSec = 0.0
+bool s9IntroDialogueOpen = False
+bool s9IntroScenePending = False
+bool s9IntroSceneMenuOpened = False
+bool s9IntroScenePhase1 = False
+float s9IntroScenePhase1At = 0.0
+int s9IntroSceneChecks = 0
+int s9IntroSceneRestarts = 0
+bool ownS9IntroStopPending = False
 
 Actor Function ResolveSturges()
     if Sturges != None
@@ -132,14 +147,37 @@ bool Function IsWarfareMode()
 EndFunction
 
 bool Function HasS9HardStop()
-    GlobalVariable hs = Game.GetFormFromFile(0x000BF5, MissionPlugin) as GlobalVariable
+    GlobalVariable hs = Game.GetFormFromFile(0x000BF4, MissionPlugin) as GlobalVariable
     return hs != None && hs.GetValue() != 0.0
+EndFunction
+
+bool Function ShouldUseMessageBox()
+    GlobalVariable tg = TalkUseMessageBox
+    if tg == None
+        tg = Game.GetFormFromFile(0x000979, MissionPlugin) as GlobalVariable
+    endif
+    return tg != None && tg.GetValue() != 0.0
 EndFunction
 
 Function EngageTarget(Actor akAttacker, Actor akTarget) global
     if akAttacker != None && akTarget != None && !akAttacker.IsDead()
         akAttacker.StartCombat(akTarget)
     endif
+EndFunction
+
+Function PlaceRefAtExteriorCoords(ObjectReference r, ObjectReference anchor, float tx, float ty, float tz) global
+    if r == None || anchor == None
+        return
+    endif
+    r.MoveTo(anchor, tx - anchor.GetPositionX(), ty - anchor.GetPositionY(), tz - anchor.GetPositionZ(), False, False)
+    r.SetPosition(tx, ty, tz)
+EndFunction
+
+Function PlaceRefInMuseumOffset(ObjectReference r, ObjectReference anchor, float tx, float ty, float tz) global
+    if r == None || anchor == None
+        return
+    endif
+    r.MoveTo(anchor, tx - 8.228572, ty - 0.000002, tz - (-0.914286), False, False)
 EndFunction
 
 bool Function IsTestModeEnabled()
@@ -167,6 +205,21 @@ Function RegisterMenuGuards()
 EndFunction
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+    if asMenuName == "DialogueMenu"
+        s9IntroDialogueOpen = abOpening
+        if abOpening && s9IntroScenePending
+            s9IntroSceneMenuOpened = True
+            s9IntroScenePending = False
+            s9IntroScenePhase1 = False
+            s9IntroScenePhase1At = 0.0
+            s9IntroSceneRestarts = 0
+            ownS9IntroStopPending = False
+            CancelTimer(4)
+            Trace("sanctuary01 s9_sturges_intro dialogue_menu opened stage=" + EffectiveStage())
+        elseif !abOpening && s9IntroSceneMenuOpened
+            s9IntroSceneMenuOpened = False
+        endif
+    endif
     if abOpening
         sturgesNearSec = 0.0
         if asMenuName == "WorkshopMenu" || asMenuName == "WorkshopBuilderMenu" || asMenuName == "WorkshopQuickMenu" || asMenuName == "Workshop_BlueprintMenu"
@@ -178,6 +231,157 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     else
         if asMenuName == "WorkshopMenu" || asMenuName == "WorkshopBuilderMenu" || asMenuName == "WorkshopQuickMenu" || asMenuName == "Workshop_BlueprintMenu"
             workshopMenuOpen = False
+        endif
+    endif
+EndEvent
+
+Function RegisterS9IntroSceneEvents()
+    if S9SturgesIntroScene != None
+        RegisterForRemoteEvent(S9SturgesIntroScene, "OnBegin")
+        RegisterForRemoteEvent(S9SturgesIntroScene, "OnPhaseBegin")
+        RegisterForRemoteEvent(S9SturgesIntroScene, "OnEnd")
+    endif
+EndFunction
+
+Function RestartOrFailS9IntroScene(string reason)
+    if ShouldUseMessageBox() || s9IntroDialogueOpen || s9IntroSceneMenuOpened || talkBoxOpen || EffectiveStage() != 220
+        s9IntroScenePending = False
+        s9IntroScenePhase1 = False
+        s9IntroScenePhase1At = 0.0
+        CancelTimer(4)
+        return
+    endif
+    if S9SturgesIntroScene == None
+        s9IntroScenePending = False
+        CancelTimer(4)
+        Actor stMissing = ResolveSturges()
+        if stMissing != None
+            stMissing.AllowPCDialogue(True)
+            stMissing.BlockActivation(False, False)
+        endif
+        Trace("sanctuary01 s9_sturges_intro ERROR scene_failed retries=" + S9IntroMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
+        return
+    endif
+    if s9IntroSceneRestarts < S9IntroMaxSceneRestarts
+        s9IntroSceneRestarts += 1
+        s9IntroScenePending = False
+        s9IntroScenePhase1 = False
+        s9IntroScenePhase1At = 0.0
+        BindSturges()
+        if S9SturgesIntroScene.IsPlaying()
+            ownS9IntroStopPending = True
+            S9SturgesIntroScene.Stop()
+        endif
+        s9IntroScenePending = True
+        s9IntroSceneChecks = 0
+        S9SturgesIntroScene.Start()
+        Trace("sanctuary01 s9_sturges_intro retry n=" + s9IntroSceneRestarts + "/" + S9IntroMaxSceneRestarts + " reason=" + reason)
+        StartTimer(S9IntroSceneCheckSeconds, 4)
+    else
+        s9IntroScenePending = False
+        if S9SturgesIntroScene.IsPlaying()
+            ownS9IntroStopPending = True
+            S9SturgesIntroScene.Stop()
+        endif
+        s9IntroScenePhase1 = False
+        s9IntroScenePhase1At = 0.0
+        CancelTimer(4)
+        Actor stFail = ResolveSturges()
+        if stFail != None
+            stFail.AllowPCDialogue(True)
+            stFail.BlockActivation(False, False)
+        endif
+        Trace("sanctuary01 s9_sturges_intro ERROR scene_failed retries=" + S9IntroMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
+    endif
+EndFunction
+
+Function CheckS9IntroSceneOpen()
+    if !s9IntroScenePending
+        return
+    endif
+    if s9IntroDialogueOpen || s9IntroSceneMenuOpened || talkBoxOpen || EffectiveStage() != 220
+        s9IntroScenePending = False
+        s9IntroScenePhase1 = False
+        s9IntroScenePhase1At = 0.0
+        return
+    endif
+    s9IntroSceneChecks += 1
+    bool phase1Elapsed = False
+    if s9IntroScenePhase1
+        float nowRt = Utility.GetCurrentRealTime()
+        if nowRt < s9IntroScenePhase1At
+            s9IntroScenePhase1At = nowRt
+        elseif (nowRt - s9IntroScenePhase1At) >= (S9IntroSceneCheckSeconds - 0.05)
+            phase1Elapsed = True
+        endif
+    endif
+    if S9SturgesIntroScene == None || !S9SturgesIntroScene.IsPlaying()
+        RestartOrFailS9IntroScene("scene_inactive")
+    elseif phase1Elapsed || s9IntroSceneChecks >= S9IntroSceneMaxWaitChecks
+        RestartOrFailS9IntroScene("no_dialoguemenu")
+    else
+        StartTimer(S9IntroSceneCheckSeconds, 4)
+    endif
+EndFunction
+
+Event Scene.OnBegin(Scene akSender)
+    if S9SturgesIntroScene != None && akSender == S9SturgesIntroScene
+        if EffectiveStage() != 220 || ShouldUseMessageBox()
+            ownS9IntroStopPending = True
+            akSender.Stop()
+            return
+        endif
+        if !s9IntroScenePending && !s9IntroSceneMenuOpened && !s9IntroDialogueOpen
+            s9IntroScenePending = True
+            s9IntroScenePhase1 = False
+            s9IntroScenePhase1At = 0.0
+            s9IntroSceneChecks = 0
+            StartTimer(S9IntroSceneCheckSeconds, 4)
+        endif
+        Trace("sanctuary01 s9_sturges_intro scene_begin id=0xBFD form=001188B4")
+    endif
+EndEvent
+
+Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
+    if S9SturgesIntroScene != None && akSender == S9SturgesIntroScene
+        if EffectiveStage() != 220 || ShouldUseMessageBox()
+            ownS9IntroStopPending = True
+            akSender.Stop()
+            return
+        endif
+        if auiPhaseIndex >= 1
+            s9IntroScenePhase1 = True
+            s9IntroScenePhase1At = Utility.GetCurrentRealTime()
+            if s9IntroScenePending && !s9IntroSceneMenuOpened && !s9IntroDialogueOpen
+                CancelTimer(4)
+                StartTimer(S9IntroSceneCheckSeconds, 4)
+            endif
+        endif
+    endif
+EndEvent
+
+Event Scene.OnEnd(Scene akSender)
+    if S9SturgesIntroScene != None && akSender == S9SturgesIntroScene
+        if ownS9IntroStopPending
+            ownS9IntroStopPending = False
+            return
+        endif
+        int st = EffectiveStage()
+        bool wasOpened = s9IntroSceneMenuOpened || s9IntroDialogueOpen
+        s9IntroScenePending = False
+        s9IntroScenePhase1 = False
+        s9IntroScenePhase1At = 0.0
+        CancelTimer(4)
+        if st == 220
+            if wasOpened
+                s9IntroSceneMenuOpened = False
+                s9IntroSceneRestarts = 0
+                SetObjectiveCompleted(220)
+                Trace("sanctuary01 min01_sturges_intro form=001188B4 via=scen -> stage 1000")
+                AdvanceTo(1000, "sturges_intro")
+            elseif !ShouldUseMessageBox()
+                RestartOrFailS9IntroScene("scene_incomplete")
+            endif
         endif
     endif
 EndEvent
@@ -540,6 +744,15 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     cleanBenchVerifyPending = False
     cleanBenchSawWorkshop = False
     CancelTimer(3)
+    CancelTimer(4)
+    s9IntroDialogueOpen = False
+    s9IntroScenePending = False
+    s9IntroSceneMenuOpened = False
+    s9IntroScenePhase1 = False
+    s9IntroScenePhase1At = 0.0
+    s9IntroSceneChecks = 0
+    s9IntroSceneRestarts = 0
+    ownS9IntroStopPending = False
     sturgesHeld = False
     sturgesNearSec = 0.0
     int st = EffectiveStage()
@@ -581,7 +794,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
 EndEvent
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID == 3
+    if aiTimerID == 4
+        CheckS9IntroSceneOpen()
+        return
+    elseif aiTimerID == 3
         if cleanBenchVerifyPending && !cleanBenchSawWorkshop && !workshopModeActive && !workshopMenuOpen && sanctuaryBenchOverride != None && !cleanBenchSelfHealed
             cleanBenchSelfHealed = True
             cleanBenchVerifyPending = False
@@ -658,6 +874,7 @@ Event OnTimer(int aiTimerID)
 EndEvent
 
 Function BindSturges()
+    RegisterS9IntroSceneEvents()
     Actor st = ResolveSturges()
     if st != None && !st.IsDead()
         st.AllowPCDialogue(True)
@@ -743,7 +960,7 @@ Function CheckSturgesTalkFallback(Actor player, int st)
 {R4 / A2.1: Timed proximity fallback while Sturges is alive & arrived from S9.
  IMPOSSIBLE while ANY menu (WorkshopMenu, DialogueMenu, PauseMenu, Pip-Boy, etc.) is open:
  resets sturgesNearSec to 0.0 and suppresses popup whenever IsAnyMenuOrWorkshopOpen() is True.}
-    if IsAnyMenuOrWorkshopOpen() || player == None
+    if IsAnyMenuOrWorkshopOpen() || s9IntroScenePending || s9IntroDialogueOpen || s9IntroSceneMenuOpened || player == None
         sturgesNearSec = 0.0
         return
     endif
@@ -751,7 +968,7 @@ Function CheckSturgesTalkFallback(Actor player, int st)
         sturgesNearSec = 0.0
         return
     endif
-    bool talkStage = (st == 100 || st == 220 || st == 1050 || st == 1250 || st == 1350 || st == 1450)
+    bool talkStage = (st == 100 || (st == 220 && ShouldUseMessageBox()) || st == 1050 || st == 1250 || st == 1350 || st == 1450)
     Actor stActor = ResolveSturges()
     if !talkStage || stActor == None || stActor.IsDead() || stActor.IsDisabled() || !stActor.Is3DLoaded()
         sturgesNearSec = 0.0
@@ -831,8 +1048,36 @@ Function RunSturgesTalk()
     int st = EffectiveStage()
     Trace("sanctuary01 sturges talk opened stage=" + st)
     if st == 220
+        if !ShouldUseMessageBox()
+            if mySession == talkSessionId
+                talkBoxOpen = False
+            endif
+            if S9SturgesIntroScene != None
+                if !s9IntroScenePending && !s9IntroDialogueOpen && !s9IntroSceneMenuOpened
+                    BindSturges()
+                    s9IntroScenePending = True
+                    s9IntroSceneMenuOpened = False
+                    s9IntroScenePhase1 = False
+                    s9IntroScenePhase1At = 0.0
+                    s9IntroSceneChecks = 0
+                    if !S9SturgesIntroScene.IsPlaying()
+                        S9SturgesIntroScene.Start()
+                    endif
+                    Trace("sanctuary01 s9_sturges_intro scene_started id=0xBFD form=001188B4")
+                    StartTimer(S9IntroSceneCheckSeconds, 4)
+                endif
+                return
+            endif
+            SetObjectiveCompleted(220)
+            Trace("sanctuary01 min01_sturges_intro form=001188B4 via=direct_no_scene -> stage 1000")
+            AdvanceTo(1000, "sturges_intro")
+            return
+        endif
         bool introOk = True
-        Message mIntro = Game.GetFormFromFile(0x000BF4, MissionPlugin) as Message
+        Message mIntro = S9SturgesIntroFallbackMsg
+        if mIntro == None
+            mIntro = Game.GetFormFromFile(0x000C05, MissionPlugin) as Message
+        endif
         if mIntro != None
             if mIntro.Show() < 0
                 introOk = False
@@ -840,7 +1085,7 @@ Function RunSturgesTalk()
         endif
         if introOk && mySession == talkSessionId
             SetObjectiveCompleted(220)
-            Trace("sanctuary01 min01_sturges_intro form=001188B4 -> stage 1000")
+            Trace("sanctuary01 min01_sturges_intro form=001188B4 via=messagebox -> stage 1000")
             AdvanceTo(1000, "sturges_intro")
         endif
     elseif st == 10 || st == 50 || st == 100

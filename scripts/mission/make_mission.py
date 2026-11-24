@@ -96,6 +96,7 @@ PRESTON_VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/genericmaleeventoned"
 FIRST_WEM = 0x00F4C001
 FIRST_MQ_WEM = 0x00F4C101
 FIRST_PRESTON_WEM = 0x00F4C201
+FIRST_S9_WEM = 0x00F4C301
 
 # FormIDs only (zero FO4 text in source): 20 Codsworth Hello INFOs + 5 MQ102 DialogueCodsworthPostWar Codsworth INFOs
 HELLO_INFO_IDS = (
@@ -123,6 +124,14 @@ PRESTON_SCENE_CLIP_SPECS = (
     (0x0005DF11, (1, 2, 3)),
     (0x0005DF0D, (1, 2)),
     (0x0005DF1B, (1,)),
+)
+S9_LOBBY_CLIP_SPECS = (
+    ("npcmprestongarvey", 0x0001F5B5, 1),
+    ("npcmprestongarvey", 0x0005DFAE, 1),
+)
+S9_STURGES_CLIP_SPECS = (
+    ("npcmsturges", 0x00118B2A, 1),
+    ("npcmsturges", 0x00118B2A, 2),
 )
 
 PRESTON_PLACEHOLDER_NOTE = (
@@ -471,6 +480,11 @@ def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_v
                 ba2_key = f"sound/voice/fallout4.esm/npcmprestongarvey/{stem}.fuz"
                 if rnum == 1 or ba2_key in available_ba2_keys:
                     needed_stems.append(f"npcmprestongarvey/{stem}")
+        for folder, fid, rnum in S9_LOBBY_CLIP_SPECS + S9_STURGES_CLIP_SPECS:
+            stem = f"{fid:08x}_{rnum}"
+            ba2_key = f"sound/voice/fallout4.esm/{folder}/{stem}.fuz"
+            if ba2_key in available_ba2_keys:
+                needed_stems.append(f"{folder}/{stem}")
 
     converted, durations = convert_fuz_stems_to_wem(
         voices_ba2, sorted(set(needed_stems)), xwm_exe, wwise_exe,
@@ -518,6 +532,31 @@ def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_v
             available_ba2_keys, converted, durations, data_dir
         )
         copied.extend(pr_copied)
+        next_s9_wem = FIRST_S9_WEM
+
+        def _attach_s9_two_clip(key_name, pair_specs):
+            nonlocal next_s9_wem
+            (f0, fid0, r0), (f1, fid1, r1) = pair_specs
+            k0 = f"{f0}/{fid0:08x}_{r0}"
+            k1 = f"{f1}/{fid1:08x}_{r1}"
+            if k0 not in converted or k1 not in converted:
+                return
+            w0 = f"{next_s9_wem:08x}"
+            w1 = f"{next_s9_wem + 1:08x}"
+            next_s9_wem += 2
+            for wk, sk in ((w0, k0), (w1, k1)):
+                rel = f"{PRESTON_VOICE_DIR}/{wk}.wem"
+                shutil.copy2(converted[sk], os.path.join(data_dir, *rel.split("/")))
+                copied.append(rel)
+            pr_payload[key_name] = {
+                "greeting_wem": w0,
+                "reply_wems": [w1],
+                "greeting_clips": [{"wem": w0, "duration": float(durations.get(k0, 0.0))}],
+                "reply_clips": [[{"wem": w1, "duration": float(durations.get(k1, 0.0))}]],
+            }
+
+        _attach_s9_two_clip("s9_lobby", S9_LOBBY_CLIP_SPECS)
+        _attach_s9_two_clip("s9_sturges", S9_STURGES_CLIP_SPECS)
         preston_voice_json = os.path.join(tmp_dir, "preston_voice.json")
         with open(preston_voice_json, "w", encoding="utf-8") as f:
             json.dump(pr_payload, f, indent=1)

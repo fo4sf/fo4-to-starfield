@@ -170,7 +170,7 @@ def _compile_papyrus(psc: str, fn_names: list[str], state_vars: set[str], ns: di
                 lines.append("    " * indent + "return " + _py_expr(code[7:]))
                 continue
             # Local typed variable declaration: `Type name = expr`
-            decl_m = re.match(r"^(?:int|float|bool|string|var|Actor|ActorBase|Cell|Package|Form|Weapon|Ammo|Quest|ObjectReference|Scene|GlobalVariable|Message|FO4SF_[A-Za-z_]\w*(?:\[\])?|(?:int|float|bool|string|var|Actor|ObjectReference)\[\])\s+([A-Za-z_]\w*)\s*=\s*(.+)$", code)
+            decl_m = re.match(r"^(?:int|float|bool|string|var|Actor|ActorBase|ActorValue|Cell|Package|Form|Weapon|Ammo|MiscObject|Quest|ObjectReference|Scene|WorldSpace|GlobalVariable|Message|FO4SF_[A-Za-z_]\w*(?:\[\])?|(?:int|float|bool|string|var|Actor|ObjectReference)\[\])\s+([A-Za-z_]\w*)\s*=\s*(.+)$", code)
             if decl_m:
                 vname, vexpr = decl_m.group(1), _py_expr(decl_m.group(2))
                 lines.append("    " * indent + f"{vname} = {vexpr}")
@@ -954,6 +954,7 @@ def _build_min00_harness(
         "ShouldUseMessageBox": lambda: bool(use_msgbox),
         "CompleteQuest": lambda: quest_state.__setitem__("completed", True),
         "IsCommonwealthExterior": lambda p: p is not None and not p.IsInInterior(),
+        "ResolveCommonwealthWorld": lambda: "Commonwealth",
         "IsPlayerStableAt": lambda p, *_a: p is not None and not p.IsInInterior(),
         "IsTestModeEnabled": lambda: False,
         "SyncS5ExteriorDoors": lambda *_a: None,

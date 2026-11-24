@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -38,14 +39,46 @@ class S7RoofAndMinigunContractTests(unittest.TestCase):
         for token in (
             "0x000801",  # FO4SFPowerArmor FURN frame (no pre-installed core)
             "0x000809",  # FO4SF_FusionCore from 2h/S6
-            "0x00081E",  # FO4SF_PANoFallDamagePerk
+            "SyncS7RoofFrameGate(player)",
+            "s7RoofFrameRef.BlockActivation(cores <= 0, False)",
             "player.AddItem(r5mm, 1200, False)",
             "s7 roof confirmed frame_no_core=true",
-            "s7 street_drop z=",
         ):
             self.assertIn(token, MIN00_PSC)
+        # Finding 5: Min00 must NOT directly AddPerk(0x00081E); FO4SF_PowerArmorCoreQuest owns PA fall-damage perk on enter/exit.
+        self.assertNotIn(".AddPerk(", MIN00_PSC)
         for token in ("CoreMinigunId = 0x0008A0", "CoreAmmo5mmId = 0x00089F", "vertibirdminigun.nif"):
             self.assertIn(token, S7S9_CS)
+
+    def test_s7_frame_activation_blocks_without_fusion_core_and_unlocks_with_core(self) -> None:
+        from types import SimpleNamespace
+        from tests.test_r11_cell_independent_quest import _compile_papyrus
+
+        block_calls: list[tuple[bool, bool]] = []
+        logs: list[str] = []
+        notifs: list[str] = []
+        fc_count = [0]
+        frame_ref = SimpleNamespace(BlockActivation=lambda blk, abs_off=False: block_calls.append((bool(blk), bool(abs_off))))
+        player = SimpleNamespace(GetItemCount=lambda _f: fc_count[0])
+        ns = {
+            "s7RoofFrameRef": frame_ref,
+            "Game": SimpleNamespace(GetFormFromFile=lambda fid, plg: ("FC", fid, plg)),
+            "IsTestModeEnabled": lambda: True,
+            "Debug": SimpleNamespace(Notification=lambda msg: notifs.append(str(msg))),
+            "Trace": lambda msg: logs.append(str(msg)),
+        }
+        _compile_papyrus(MIN00_PSC, ["SyncS7RoofFrameGate", "OnS7RoofFrameActivated"], {"s7RoofFrameRef"}, ns)
+        ns["SyncS7RoofFrameGate"](player)
+        ns["OnS7RoofFrameActivated"](player)
+        self.assertEqual(block_calls[-1], (True, False))
+        self.assertTrue(any("refused reason=no_fusion_core" in lg for lg in logs))
+        self.assertEqual(len(notifs), 1)
+
+        fc_count[0] = 1
+        ns["SyncS7RoofFrameGate"](player)
+        ns["OnS7RoofFrameActivated"](player)
+        self.assertEqual(block_calls[-1], (False, False))
+        self.assertTrue(any("roof_frame entered core=0x0809 cores=1" in lg for lg in logs))
 
 
 class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
@@ -142,6 +175,97 @@ class S8DN092RespawnPoolAndDeathclawTests(unittest.TestCase):
         self.assertTrue(any("trigger=timer_300s dn092_stage=79" in lg for lg in ctl_timer.logs))
 
 
+    def test_s8_papyrus_respawning_guard_prevents_premature_completion_and_holding_cell_is_used(self) -> None:
+        from types import SimpleNamespace
+        from tests.test_r11_cell_independent_quest import _compile_papyrus
+
+        # Findings 2 & 3: 0xBF5 holding cell in S7S9_CS, zero `- MergeOffset` offsets, host anchor fallback
+        self.assertIn("S7S9HoldingCellId = 0xBF5", S7S9_CS)
+        self.assertNotIn("- MergeOffset", S7S9_CS)
+        self.assertIn("RelocateHoldingRefToCommonwealth(", MIN00_PSC)
+        self.assertIn("ResolveCommonwealthHostAnchor()", MIN00_PSC)
+
+        # Finding 4: Simulate kill + CheckS8WaveAndDeathclaw while a wave raider is mid-Utility.Wait(0.5) respawn
+        dead_flags = [True, True, True, True, True]
+        actors = [SimpleNamespace(IsDead=lambda i=i: dead_flags[i], Resurrect=lambda i=i: dead_flags.__setitem__(i, False)) for i in range(5)]
+        spawners = [SimpleNamespace(GetPositionX=lambda: -2090.0, GetPositionY=lambda: -1650.0, GetPositionZ=lambda: 88.5)]
+        logs: list[str] = []
+        stages_set: list[int] = []
+        objs_done: list[int] = []
+        objs_disp: list[int] = []
+
+        def check_during_wait(_dt: float) -> None:
+            # Even if Deathclaw + everyone else look dead while Utility.Wait(0.5) is paused, S8 MUST stay open!
+            ns["CheckS8WaveAndDeathclaw"](player, 0.0)
+            self.assertFalse(ns["s8WaveCleared"])
+
+        player = SimpleNamespace(GetDistance=lambda _r: 30.0)
+        ns = {
+            "EnableS6ToS9Full": True,
+            "KeeperOnly": False,
+            "s8WaveStarted": True,
+            "s8WaveCleared": False,
+            "s8WavePermDead": [False] * 5,
+            "S8WaveActors": actors,
+            "S8WaveSpawners": spawners,
+            "S8WaveFailsafeMarker": spawners[0],
+            "S8GrateTriggerMarker": None,
+            "S8DeathclawSpawnMarker": spawners[0],
+            "S8SpawnerMinPlayerDist": 18.0,
+            "S8GrateTriggerRadius": 17.0,
+            "S8DeathclawTimerSeconds": 300.0,
+            "DeathclawBaseOverride": None,
+            "DeathclawCreaturePlugin": "",
+            "DeathclawCreatureFormId": 0,
+            "s8RespawnPool": 1,
+            "s8RespawningCount": 0,
+            "s8WaveKills": 7,
+            "s8Dn092Stage": 75,
+            "s8SpawnerCursor": 0,
+            "s8ElapsedSec": 0.0,
+            "s8DeathclawSpawned": True,
+            "s8DeathclawCleared": True,
+            "s8DeathclawTrigger": "wave_kills",
+            "s8DeathclawRef": None,
+            "s6FullStage": 65,
+            "Utility": SimpleNamespace(Wait=check_during_wait),
+            "MoveActorToExteriorSpot": lambda *a: None,
+            "EnsureS8TrackingArrays": lambda: None,
+            "FO4SF_Sanctuary01Quest": SimpleNamespace(EngageTarget=lambda *a: None),
+            "IsCommonwealthExterior": lambda _p: True,
+            "SetObjectiveCompleted": lambda o: objs_done.append(o),
+            "SetObjectiveDisplayed": lambda o, *_a: objs_disp.append(o),
+            "SetStage": lambda s: stages_set.append(s),
+            "SetActive": lambda *_a: None,
+            "Trace": lambda msg: logs.append(str(msg)),
+        }
+        gvars = {
+            "s8WaveStarted", "s8WaveCleared", "s8WavePermDead", "s8RespawnPool",
+            "s8RespawningCount", "s8WaveKills", "s8Dn092Stage", "s8SpawnerCursor",
+            "s8ElapsedSec", "s8DeathclawSpawned", "s8DeathclawCleared", "s8DeathclawTrigger",
+            "s8DeathclawRef", "s6FullStage",
+        }
+        _compile_papyrus(
+            MIN00_PSC,
+            ["PickS8WaveSpawner", "SpawnS8Deathclaw", "CheckS8WaveAndDeathclaw", "OnS8MemberKilled"],
+            gvars,
+            ns,
+        )
+        # Kill #8 triggers Utility.Wait(0.5); inside check_during_wait s8RespawningCount == 1 prevents premature clear,
+        # then Resurrect() brings WaveRaider01 back alive (dead_flags[0] == False), so S8 stays uncleared afterward too.
+        ns["OnS8MemberKilled"](0, actors[0], player)
+        self.assertFalse(dead_flags[0])
+        self.assertFalse(ns["s8WaveCleared"])
+        self.assertEqual(ns["s8RespawningCount"], 0)
+        # Now finish resurrected WaveRaider01 -> pool exhausted (0), clears cleanly!
+        dead_flags[0] = True
+        ns["OnS8MemberKilled"](0, actors[0], player)
+        self.assertTrue(ns["s8WaveCleared"])
+        self.assertEqual(stages_set, [80])
+        self.assertIn(65, objs_done)
+        self.assertIn(140, objs_disp)
+
+
 class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
     def test_s9_lobby_reward_order_and_zero_credits(self) -> None:
         for token in (
@@ -192,13 +316,28 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
 
     def test_s9_sanctuary_220_sturges_intro_and_1000_hard_stop(self) -> None:
         self.assertIn("sancScript.AdvanceTo(220, \"s9_arrival\")", MIN00_PSC)
-        self.assertIn("0x000BF4", SANC01_PSC)
+        self.assertIn("PlaceRefInMuseumOffset(", MIN00_PSC)
+        self.assertIn("58101", MIN00_PSC)  # 0x00E2F5 ConcordMuseum01 anchor without false 0E2 literal
+        self.assertIn("0x000BF4", SANC01_PSC)  # HasS9HardStop GLOB
+        self.assertIn("0x000C05", SANC01_PSC)  # Gated fallback MESG
+        self.assertIn("S9SturgesIntroScene", SANC01_PSC)
+        self.assertIn("(st == 220 && ShouldUseMessageBox())", SANC01_PSC)
         self.assertIn("001188B4", SANC01_PSC)
         self.assertIn("AdvanceTo(1000, \"sturges_intro\")", SANC01_PSC)
         self.assertIn("HasS9HardStop()", SANC01_PSC)
-        self.assertIn("0x000BF5", MINREC_PSC)
-        self.assertIn("0x000BF5", MQ103_PSC)
+        self.assertIn("0x000BF4", MINREC_PSC)
+        self.assertIn("0x000BF4", MQ103_PSC)
         self.assertIn("65, \"Clear Concord of Hostiles\"", PROGRAM_CS)
+        self.assertIn("S9PrestonLobbyScene", S7S9_CS)
+        self.assertIn("S9SturgesIntroScene", S7S9_CS)
+        self.assertIn("SF.Quest.Flag.HasDialogueData", S7S9_CS)
+        # Finding 1: deleted dummy Sturges MESG must NEVER reappear in scripts/Program.cs, and CheckS7S9 forbids it in the plugin
+        for txt in (PROGRAM_CS, SANC01_PSC, MIN00_PSC):
+            self.assertNotIn("FO4SF_S9_SturgesIntroMsg", txt)
+        self.assertIn('need(!plug.Messages.Any(m => m.EditorID == "FO4SF_S9_SturgesIntroMsg")', S7S9_CS)
+        self.assertEqual(len(make_mission.S9_LOBBY_CLIP_SPECS), 2)
+        self.assertEqual(len(make_mission.S9_STURGES_CLIP_SPECS), 2)
+        self.assertEqual(make_mission.FIRST_S9_WEM, 0x00F4C301)
 
     def test_make_mission_summarize_tracks_s7_to_s9_and_cross_plugin_check(self) -> None:
         sample_log = [
@@ -229,12 +368,86 @@ class S9LobbyWalkHomeAndHardStopTests(unittest.TestCase):
             (0xBEB, "REFR"),
             (0xBF2, "REFR"),
             (0xBF3, "REFR"),
-            (0xBF4, "MESG"),
-            (0xBF5, "GLOB"),
+            (0xBF4, "GLOB"),
+            (0xBF5, "CELL"),
+            (0xBF6, "SCEN"),
+            (0xBFD, "SCEN"),
+            (0xC04, "MESG"),
+            (0xC05, "MESG"),
         ):
             self.assertEqual(m_tbl[fid][0], rtype)
         self.assertEqual(catalog["FO4SFCoreValues.esm"][0x0008A4], ("MISC", "FO4_Caps"))
         self.assertEqual(catalog["FO4SFPowerArmor.esm"][0x00081E], ("PERK", "FO4SF_PANoFallDamagePerk"))
+
+    def test_s9_lobby_scene_async_on_end_suppression_prevents_retry_burn(self) -> None:
+        from types import SimpleNamespace
+        from tests.test_r11_cell_independent_quest import _compile_papyrus
+
+        scn_state = {"playing": True, "stops": 0, "starts": 0}
+        lobby_scn = SimpleNamespace(
+            IsPlaying=lambda: scn_state["playing"],
+            Stop=lambda: (scn_state.__setitem__("stops", scn_state["stops"] + 1), scn_state.__setitem__("playing", False)),
+            Start=lambda: (scn_state.__setitem__("starts", scn_state["starts"] + 1), scn_state.__setitem__("playing", True)),
+        )
+        completed_calls: list[str] = []
+        logs: list[str] = []
+        player = object()
+        ns = {
+            "KeeperOnly": False,
+            "Preston": SimpleNamespace(),
+            "PrestonMaxSceneRestarts": 3,
+            "PrestonSceneCheckSeconds": 1.5,
+            "PrestonSceneMaxWaitChecks": 16,
+            "S9PrestonLobbyScene": lobby_scn,
+            "s9LobbyCompleted": False,
+            "s9LobbyScenePending": True,
+            "s9LobbySceneMenuOpened": False,
+            "s9LobbyScenePhase1": False,
+            "s9LobbyScenePhase1At": 0.0,
+            "s9LobbySceneChecks": 0,
+            "s9LobbySceneRestarts": 0,
+            "ownS9LobbyStopPending": False,
+            "prestonDialogueMenuOpen": False,
+            "ShouldUseMessageBox": lambda: False,
+            "EffectiveStage": lambda: 80,
+            "EnsurePrestonAlias": lambda: None,
+            "EnsureActorTalkable": lambda _a: None,
+            "CancelTimer": lambda _tid: None,
+            "StartTimer": lambda _s, _tid: None,
+            "CompleteS9LobbyTalkAndReward": lambda _p: completed_calls.append("reward"),
+            "BeginS9MuseumExitAndPatrol": lambda _p: completed_calls.append("patrol"),
+            "Game": SimpleNamespace(GetPlayer=lambda: player),
+            "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 100.0),
+            "Trace": lambda msg: logs.append(str(msg)),
+        }
+        gvars = {
+            "s9LobbyCompleted", "s9LobbyScenePending", "s9LobbySceneMenuOpened",
+            "s9LobbyScenePhase1", "s9LobbyScenePhase1At", "s9LobbySceneChecks",
+            "s9LobbySceneRestarts", "ownS9LobbyStopPending", "prestonDialogueMenuOpen",
+        }
+        _compile_papyrus(
+            MIN00_PSC,
+            ["RestartOrFailS9LobbyScene", "TryS9LobbyDialogueMenuOpen", "HandleS9LobbySceneEnd"],
+            gvars,
+            ns,
+        )
+        ns["RestartOrFailS9LobbyScene"]("no_dialoguemenu")
+        self.assertEqual(scn_state["stops"], 1)
+        self.assertEqual(scn_state["starts"], 1)
+        self.assertEqual(ns["s9LobbySceneRestarts"], 1)
+        self.assertTrue(ns["ownS9LobbyStopPending"])
+
+        # Queued Scene.OnEnd from the stopped run arrives asynchronously after Start(): MUST be suppressed cleanly!
+        ns["HandleS9LobbySceneEnd"]()
+        self.assertFalse(ns["ownS9LobbyStopPending"])
+        self.assertEqual(ns["s9LobbySceneRestarts"], 1)
+        self.assertTrue(ns["s9LobbyScenePending"])
+        self.assertEqual(completed_calls, [])
+
+        # Next attempt opens DialogueMenu -> scene ends normally and completes S9 lobby!
+        self.assertTrue(ns["TryS9LobbyDialogueMenuOpen"](80))
+        ns["HandleS9LobbySceneEnd"]()
+        self.assertEqual(completed_calls, ["reward", "patrol"])
 
 
 if __name__ == "__main__":
