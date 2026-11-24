@@ -431,6 +431,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         "Near",
         "ReturnPlayerToVaultPlatform",
         "FallbackExitToSurface",
+        "RelockVaultSaving",
         "Actor.OnPlayerLoadGame",
     )
     EXIT_VARS = (
@@ -438,7 +439,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         "rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, "
         "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, "
         "fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks, "
-        "vaultSavingRelocked, vaultRecoveryTriggered"
+        "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered"
     )
 
     def setUp(self):
@@ -563,6 +564,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             discoveryMarkerMoved=False,
             discoveryAttachPending=False,
             landingChecks=0,
+            vaultPodAutosaved=False,
             vaultSavingRelocked=False,
             vaultRecoveryTriggered=False,
             Game=SimpleNamespace(

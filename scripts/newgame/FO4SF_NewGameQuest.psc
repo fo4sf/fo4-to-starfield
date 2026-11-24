@@ -608,23 +608,33 @@ Function ApplyStage(int n, string by)
     elseif n == 20
         TriggerVaultPodRecoveryAutosave(n)
     elseif n == 40
-        CancelTimer(6)
-        if vaultSavingRelocked
-            vaultSavingRelocked = false
-            Game.SetInChargen(false, false, false)
-        endif
+        ClearVaultSaveLock()
         SetObjectiveCompleted(10)
     elseif n == 200
         CompleteQuest()
         StartLandingQuests()
-        CancelTimer(6)
-        vaultSavingRelocked = false
+        ClearVaultSaveLock()
         ReleaseStoryLandingFade()
     elseif n == 210
         CompleteQuest()
         StartLandingQuests()
-        CancelTimer(6)
+        ClearVaultSaveLock()
+    endif
+EndFunction
+
+Function ClearVaultSaveLock()
+    CancelTimer(6)
+    if vaultSavingRelocked
         vaultSavingRelocked = false
+        Game.SetInChargen(false, false, false)
+    endif
+EndFunction
+
+Function RelockVaultSaving(Actor p, int st)
+    if !vaultSavingRelocked && st >= 10 && st < 200 && (GameModeGlobal == None || (GameModeGlobal.GetValue() as int) != 2) && p != None && StandsInVault(p)
+        vaultSavingRelocked = true
+        Game.SetInChargen(true, false, false)
+        Trace("vault_death_recovery=save_locked stage=" + st)
     endif
 EndFunction
 
@@ -653,12 +663,7 @@ EndEvent
 
 Event OnTimer(int aiTimerID)
     if aiTimerID == 6
-        Actor p6 = Game.GetPlayer()
-        if !vaultSavingRelocked && GetStage() < 200 && (GameModeGlobal == None || (GameModeGlobal.GetValue() as int) != 2) && p6 != None && StandsInVault(p6)
-            vaultSavingRelocked = true
-            Game.SetInChargen(true, false, false)
-            Trace("vault_death_recovery=save_locked stage=" + GetStage())
-        endif
+        RelockVaultSaving(Game.GetPlayer(), GetStage())
         return
     endif
     if aiTimerID == 5
@@ -1590,6 +1595,9 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         if wasMidExit && akSender != None
             ReturnPlayerToVaultPlatform(akSender)
             Trace("exit reload recovered stage=" + st + " failures=" + exitFailures)
+        endif
+        if vaultPodAutosaved && !vaultSavingRelocked && akSender != None && StandsInVault(akSender)
+            RelockVaultSaving(akSender, st)
         endif
     endif
     if st >= 200 && returnSurfacePending

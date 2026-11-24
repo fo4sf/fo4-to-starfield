@@ -331,7 +331,7 @@ FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=True
 FO4SF_NEWGAME rt=<rt> landed z=<z> confirmed=True fallback=false world=<world>
 FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
 FO4SF_NEWGAME rt=<rt> fade in by=story_landing loaded=true cell=<cell>; saving and HUD on
-FO4SF_MISSION rt=<rt> codsworth01 complete choices=<cnt> concord_pointed=true retries=<n>
+FO4SF_MISSION rt=<rt> codsworth01 complete choices=<cnt> concord_pointed=true
 FO4SF_MISSION rt=<rt> complete stage=200
 ```
 
@@ -344,7 +344,7 @@ FO4SF_MISSION rt=<rt> complete stage=200
 
 | Row | Focus / Requirement | Console / Check | PASS / FAIL Criterion | Stand-In / Code Truth | Result | VIDEO |
 |---|---|---|---|---|---|---|
-| **R12-1 (`FAIL` Gate)** | Lift fallback (`Stage 40`) & `TalkUseMessageBox` (`09000979`) | Inspect `fo4sf_newgame.0.log` + `fo4sf_mission.0.log` | **FAIL** on `stage 40 by=fallback`; **PASS** on `stage 40 by=lift`, `09000979 = 0.0` (`Message.Show` unreachable unless forced) | Real lift landing required | Offline selftest PASS | Pending |
+| **R12-1 (`FAIL` Gate)** | Lift fallback (`Stage 40`) & `TalkUseMessageBox` (`09000979`) | Inspect `fo4sf_newgame.0.log` + `fo4sf_mission.0.log` | **FAIL** on `stage 40 by=fallback`; **PASS** on `stage 40 by=Trigger`, `09000979 = 0.0` (`Message.Show` unreachable unless forced) | Real lift landing required | Offline selftest PASS | Pending |
 | **R12-2 (`1b`)** | Vault 111 Death Recovery (Cryo pod autosave + `< 200` `Actor.OnDying`) | Cryo pod `stage 20` open -> optional test kill `< 200` | One-time pod autosave on `stage 20`; Timer 6 save lock until surface; `< 200` dying reloads/recovers to known-good pod point `(PodX, PodY, PodZ + PodLift)`; logs `vault_death_recovery=<autosave or reload> stage=<n>` | Vault 111 scripted pod recovery while save-locked | `test_newgame.py` PASS | Pending |
 | **R12-3 (`F1`)** | Bounded Full-Window Scene Retries (`Codsworth01` & `Min00`) | Trigger repeat `E` / blocked talk on Codsworth & Preston | `ownSceneStopPending` & `ownPrestonSceneStop` ignore own `Stop()` in `OnEnd`; retry waits full `SceneOpenCheckSeconds`/`PrestonSceneCheckSeconds`; excludes restart `OnEnd` from `talkFailures`; logs real `retries=<n>` (`retries=0` when clean) | Full-window timer state machine | `test_mission.py` & `test_r11_part3_2gfix2.py` PASS | Pending |
 | **R12-4 (`F2`)** | Pip-Boy Key Truth (`sfse/FO4SFPipboyMenu/src/main.cpp:7993-8014`) | Live keyboard check inside Pip-Boy | `F7`/`F10` open, `M` map, `Tab`/`Esc` close, `PageUp`/`PageDown` + `W`/`S` page *(unverified in game)*, `A`/`D` sub-tab *(seen)*, `T` Perk Chart *(seen)*, `E` Stimpak, `Q` Effects, `R` RadAway, arrow keys: none | Reuse tested `7d5ba49c` `FO4SFPipboyMenu.dll` (`sfse/` untouched) | Code-matched in card | Pending |

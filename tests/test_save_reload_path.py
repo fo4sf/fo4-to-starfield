@@ -40,12 +40,13 @@ def _make_global(val: float):
 class SaveReloadPathTests(unittest.TestCase):
     def test_a6_newgame_surface_mid_exit_return_and_stage_guard_idempotency(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")
-        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage")
+        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage", "ClearVaultSaveLock", "RelockVaultSaving")
         vars_csv = (
             "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, "
             "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
             "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
-            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered"
+            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered, "
+            "vaultPodAutosaved, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(NEWGAME_PSC), "exec")
 
@@ -82,6 +83,10 @@ class SaveReloadPathTests(unittest.TestCase):
                 returnSurfaceTries=2 if return_pending else 0,
                 exitFailures=0,
                 vaultRecoveryTriggered=False,
+                vaultPodAutosaved=False,
+                vaultSavingRelocked=False,
+                StandsInVault=lambda *_: False,
+                CancelTimer=lambda *_: None,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: user_logs.append(n), Notification=lambda *a: None),
                 GetStage=lambda: stage,
                 SetObjectiveDisplayed=lambda *a: None,

@@ -2407,7 +2407,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
             "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
             "MenuEvent", "StageEvent", "TimerEvent",
         )
         vars_csv = (
@@ -2463,7 +2463,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
             "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
@@ -2630,7 +2630,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
             "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
@@ -2845,7 +2845,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
             "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "ResetInventory",
             "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
@@ -3113,7 +3113,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
             "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "FillO2",
             "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
-            "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
+            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
@@ -3315,7 +3315,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
             "ForceFadeIn", "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
-            "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
@@ -3529,7 +3529,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         funcs = (
             "FadeIn", "ForceFadeIn", "ReleaseStoryLandingFade", "DisableHandScanner",
             "StandsInVault", "FinishSurface", "CheckLanding", "RequestArrivalDiscovery",
-            "ApplyStage", "AdvanceTo", "TimerEvent",
+            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, storyFadeTicks, loadingHookRegistered, vaultMoves, "
@@ -3742,12 +3742,16 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         )
         funcs = (
             "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
-            "ApplyStage", "TimerEvent", "DyingEvent", "ResolveHostWorld",
+            "ClearVaultSaveLock", "RelockVaultSaving",
+            "ApplyStage", "Actor.OnPlayerLoadGame", "TimerEvent", "DyingEvent", "ResolveHostWorld",
         )
         vars_csv = (
             "applied, pendingStage, pendingStageBy, exitUsedFallback, "
             "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, "
-            "loadHookRegistered, dyingHookRegistered"
+            "loadHookRegistered, dyingHookRegistered, "
+            "h00SuspectsRead, rideActive, rideDone, rideTransferred, ridingLift, ridingCell, "
+            "surfaceMovedAt, surfaceMoves, surfaceSets, asked, "
+            "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
 
@@ -3796,6 +3800,14 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 loadHookRegistered=False, dyingHookRegistered=False,
                 warfareFadeTicks=0, storyFadeTicks=0, modeBoxWaiting=False, modeBoxWaitSeconds=0,
                 ticks=0, looksSetStage20=False,
+                LogName="fo4sf_newgame",
+                h00SuspectsRead=False, rideActive=False, rideDone=False, rideTransferred=False,
+                ridingLift=None, ridingCell=None, surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0,
+                asked=False, returnSurfacePending=False, returnVaultAsked=False,
+                returnSurfaceWaitTicks=0, returnSurfaceTries=0, exitFailures=0,
+                Debug=SimpleNamespace(OpenUserLog=lambda *_: None),
+                ReturnPlayerToVaultPlatform=lambda *_: None,
+                UnregisterForAnimationEvent=lambda *_: None,
                 Game=SimpleNamespace(
                     GetPlayer=lambda: player,
                     GetFormFromFile=get_form,
@@ -3863,6 +3875,19 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertEqual(c2.angles[-1], (0.0, 0.0, 90.0))
         self.assertEqual(c2.autosaves, [10])
         self.assertIn("vault_death_recovery=reload stage=10", c2.logs)
+
+        # 2b. Death-reload onto the stage-20 pod autosave (saved before Timer 6) re-locks Vault saving on load,
+        # and ApplyStage(210) clears vaultSavingRelocked / SetInChargen symmetrically with ApplyStage(40)/(200).
+        c_reload = run_case(initial_stage=20, mode=1.0, in_vault=True, pre_autosaved=True)
+        c_reload.ns["OnPlayerLoadGame"](c_reload.player)
+        self.assertTrue(c_reload.ns["vaultSavingRelocked"])
+        self.assertEqual(c_reload.chargens[-1], (True, False, False))
+        self.assertIn("vault_death_recovery=save_locked stage=20", c_reload.logs)
+        c_reload.cur_stage[0] = 210
+        c_reload.ns["ApplyStage"](210, "Trigger")
+        self.assertIn(6, c_reload.cancels)
+        self.assertFalse(c_reload.ns["vaultSavingRelocked"])
+        self.assertEqual(c_reload.chargens[-1], (False, False, False))
 
         # 3. After stage 200 or in Warfare mode, Vault death recovery does not trigger
         c3 = run_case(initial_stage=200, mode=1.0, in_vault=True, pre_autosaved=False)
