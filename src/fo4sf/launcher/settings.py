@@ -12,7 +12,7 @@ import json
 import math
 import os
 
-from . import files
+from . import files, launch_choices
 
 DUMP_KINDS = ("mini", "full")
 TRISTATE = ("unchanged", "on", "off")
@@ -71,6 +71,14 @@ SPEC = (
      "input, or steals focus."),
     ("start_cover.timeout_s", 90.0, float,
      "hard timeout in seconds before the Start Cover removes itself automatically even if no ready signal arrives."),
+    ("start.mode", "story", ("story", "warfare"),
+     "launch mode written before Starfield boots: story (Fallout 4: Vault 111 until Task 6) or warfare "
+     "(Commonwealth Warfare faction starts). Difficulty, Appearance, and S.P.E.C.I.A.L. stay in-game."),
+    ("start.survival", False, bool,
+     "start the session in Survival mode (on or off), persisted across save/reload once the game begins."),
+    ("start.place", "", str,
+     "filtered start_places.json location id for start.mode (empty picks the first valid available place whose "
+     "plugins and cells are loaded)."),
 )
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
 # the plain name `settings` shows first on each line, so a toggle reads without knowing its key
@@ -94,6 +102,9 @@ LABELS = {
     "update": "Update the launcher from GitHub",
     "start_cover": "Start cover while Starfield boots",
     "start_cover.timeout_s": "Start cover timeout (s)",
+    "start.mode": "Start mode",
+    "start.survival": "Survival mode",
+    "start.place": "Start place (filtered)",
 }
 
 
@@ -162,7 +173,12 @@ def coerce(key, value):
             raise ValueError(f"{key}: must not be negative")
         return v
     if t is str:
-        return one_each(value) if key == "fo4_data" else str(value)
+        if key == "fo4_data":
+            return one_each(value)
+        s = str(value).strip() if key == "start.place" else str(value)
+        if key == "start.place" and s and s not in launch_choices.known_start_place_ids():
+            raise ValueError(f"{key}: unknown start place {s!r}")
+        return s
     s = str(value).strip().lower()
     if s not in t:
         raise ValueError(f"{key}: {value!r} is not one of {', '.join(t)}")
@@ -197,6 +213,9 @@ def problems(values):
         out.append("my_games is not set (needed to change Papyrus logging)")
     if values["start_cover"] and values["start_cover.timeout_s"] <= 0:
         out.append("start_cover.timeout_s must be greater than 0 (needed while the start cover is on)")
+    start_err = launch_choices.settings_problem(values)
+    if start_err:
+        out.append(start_err)
     return out
 
 

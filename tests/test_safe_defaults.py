@@ -273,14 +273,18 @@ class SafeDefaultsTests(unittest.TestCase):
         funcs = (
             "BackdropName", "UsePreworldRoom", "EnterVault", "StandsInVault", "ResetInventory", "FillO2",
             "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
-            "FindStoryStartPlaceRow", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+            "FindStoryStartPlaceRow", "IsPrelaunchWarfare", "ResolvePrelaunchWarfareRow",
+            "EnterPrelaunchWarfareMarker", "ShowFirstBoxSafely", "SyncHardcoreFromStart",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
             "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, "
+            "warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, "
-            "ticks, startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
+            "ticks, startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, "
+            "vaultSavingRelocked"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
 
@@ -318,7 +322,8 @@ class SafeDefaultsTests(unittest.TestCase):
             ClearInventory=True, VaultSuitId=0, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
             faded=False, entered=True, startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
             loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False, h00SkipLoading=False,
-            modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0, firstMessageDrawn=False,
+            directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False, vaultSavingRelocked=False,
             preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
             applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
             exitUsedFallback=False, vaultMoves=1, centered=0, centerTries=0, ticks=0, startedAt=0.0,

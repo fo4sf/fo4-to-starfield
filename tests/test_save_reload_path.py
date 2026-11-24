@@ -85,6 +85,9 @@ class SaveReloadPathTests(unittest.TestCase):
                 vaultRecoveryTriggered=False,
                 vaultPodAutosaved=False,
                 vaultSavingRelocked=False,
+                StartCardOpenGlobal=None,
+                SurvivalLockedGlobal=None,
+                SurvivalStartGlobal=None,
                 StandsInVault=lambda *_: False,
                 CancelTimer=lambda *_: None,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: user_logs.append(n), Notification=lambda *a: None),
@@ -593,6 +596,83 @@ class SaveReloadPathTests(unittest.TestCase):
         # Even r9hop2 -> persistent Museum marker (r9door) stays < 180 m per axis!
         self.assertLess(abs(museum_marker[0] - hops[1][1][0]), 180.0)
         self.assertLess(abs(museum_marker[1] - hops[1][1][1]), 180.0)
+
+    def test_t5_survival_persists_across_save_reload_and_locked_global(self) -> None:
+        psc = NEWGAME_PSC.read_text(encoding="utf-8")
+        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage", "SyncHardcoreFromStart")
+        vars_csv = (
+            "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, "
+            "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
+            "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
+            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered, "
+            "vaultPodAutosaved, vaultSavingRelocked"
+        )
+        compiled = compile(translated_functions(psc, funcs, vars_csv), str(NEWGAME_PSC), "exec")
+
+        for start_init, locked_init, want_locked_tag in ((0.0, 1.0, 1), (1.0, 0.0, 0)):
+            with self.subTest(start=start_init, locked=locked_init):
+                logs: list[str] = []
+                hc_calls: list[tuple[str, tuple]] = []
+                surv_start = _make_global(start_init)
+                surv_locked = _make_global(locked_init)
+                start_card = _make_global(-1.0)
+                hc_quest = SimpleNamespace(
+                    CastAs=lambda cls: SimpleNamespace(
+                        CallFunction=lambda fn, args: hc_calls.append((fn, tuple(args)))
+                    )
+                )
+                ns = dict(
+                    LogName="fo4sf_newgame",
+                    GameModeGlobal=_make_global(2.0),
+                    StartCardOpenGlobal=start_card,
+                    SurvivalStartGlobal=surv_start,
+                    SurvivalLockedGlobal=surv_locked,
+                    applied=210,
+                    h00SuspectsRead=True,
+                    rideActive=False,
+                    rideDone=False,
+                    rideTransferred=False,
+                    ridingLift=None,
+                    ridingCell=None,
+                    surfaceMovedAt=0.0,
+                    surfaceMoves=0,
+                    surfaceSets=0,
+                    exitUsedFallback=False,
+                    asked=True,
+                    returnSurfacePending=False,
+                    returnVaultAsked=False,
+                    returnSurfaceWaitTicks=0,
+                    returnSurfaceTries=0,
+                    exitFailures=0,
+                    vaultPodAutosaved=False,
+                    vaultSavingRelocked=False,
+                    vaultRecoveryTriggered=False,
+                    StandsInVault=lambda *_: False,
+                    CancelTimer=lambda *_: None,
+                    Game=SimpleNamespace(
+                        GetFormFromFile=lambda fid, plg: hc_quest if (fid, plg) == (0x000830, "FO4SFHardcore.esm") else None
+                    ),
+                    Debug=SimpleNamespace(OpenUserLog=lambda *a: None, Notification=lambda *a: None),
+                    GetStage=lambda: 210,
+                    SetObjectiveDisplayed=lambda *a: None,
+                    SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    ReleaseStoryLandingFade=lambda: None,
+                    UnregisterForAnimationEvent=lambda *a: None,
+                    ReturnPlayerToVaultPlatform=lambda p: None,
+                    EnsureLoadHookRegistered=lambda p: None,
+                    RelockVaultSaving=lambda *a: None,
+                    StartTimer=lambda *a: None,
+                    Trace=lambda m: logs.append(str(m)),
+                )
+                exec(compiled, ns)
+                ns["OnPlayerLoadGame"](SimpleNamespace(name="PlayerRef"))
+                self.assertEqual(start_card._state["v"], 0.0)
+                self.assertEqual(surv_start._state["v"], 1.0)
+                self.assertIn(("EvaluateHardcore", ("load_persist",)), hc_calls)
+                self.assertIn(f"survival reload persisted=1 locked={want_locked_tag}", logs)
 
     def test_a2_vault111_lift_platform_radius_covers_cage_and_clears_catwalk(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")

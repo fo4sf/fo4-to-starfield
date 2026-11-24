@@ -563,7 +563,7 @@ static class NewGame
         int[] MinDiffs, int[] MaxDiffs, int[] BgIndices, float[] Fames, float[] Infamies, float[] Karmas, int[] SquadCaps,
         int[] GearRowIndices, string[] GearPlugins, int[] GearIds, int[] GearCounts, bool[] GearEquips);
 
-    public static WarfareTable LoadWarfareStarts(string? jsonPath, SF.IStarfieldModGetter sf, string corePath)
+    public static WarfareTable LoadWarfareStarts(string? jsonPath, SF.IStarfieldModGetter sf, string corePath, IReadOnlySet<uint>? coreKnownIds = null)
     {
         var path = jsonPath ?? DefaultWarfareStartsJsonPath();
         if (!File.Exists(path)) throw new Refusal($"missing warfare_starts.json: {path}");
@@ -572,8 +572,14 @@ static class NewGame
         var world = core.Worldspaces.FirstOrDefault(w => w.EditorID == World && w.FormKey.ModKey == core.ModKey)
                     ?? throw new Refusal($"{core.ModKey} has no worldspace {World}");
         var coreRefs = new List<SF.IPlacedGetter>();
+        var coreCellsByGrid = new Dictionary<(int X, int Y), SF.ICellGetter>();
         if (world.TopCell is { } top) coreRefs.AddRange(top.Persistent.Concat(top.Temporary));
-        foreach (var b in world.SubCells) foreach (var s in b.Items) foreach (var c in s.Items) coreRefs.AddRange(c.Persistent.Concat(c.Temporary));
+        foreach (var b in world.SubCells) foreach (var s in b.Items) foreach (var c in s.Items)
+        {
+            coreRefs.AddRange(c.Persistent.Concat(c.Temporary));
+            if (c.Grid is { } g && c.Flags?.HasFlag(SF.Cell.Flag.IsInteriorCell) != true)
+                coreCellsByGrid[(g.Point.X, g.Point.Y)] = c;
+        }
         var placedByEdid = coreRefs.OfType<SF.IPlacedObjectGetter>()
             .Where(r => !string.IsNullOrEmpty(r.EditorID))
             .GroupBy(r => r.EditorID!, StringComparer.Ordinal)
@@ -594,6 +600,7 @@ static class NewGame
         var seenKeys = new HashSet<string>(StringComparer.Ordinal);
         var fSlots = new List<int>();
         var spotBtns = new List<string>();
+        var seenFactionBtns = new HashSet<string>(StringComparer.Ordinal);
         var distinctSlots = new List<int>();
         var facBtns = new List<string>();
         var markerIds = new List<int>();
@@ -627,18 +634,43 @@ static class NewGame
             string spotName = el.GetProperty("name").GetString()?.Trim() ?? "";
             if (facName.Length == 0 || spotName.Length == 0)
                 throw new Refusal($"warfare start '{rKey}': empty faction_name or name");
-            if (!distinctSlots.Contains(slot))
+            if (seenFactionBtns.Add(facName))
             {
                 distinctSlots.Add(slot);
                 facBtns.Add(facName);
             }
             string markerEdid = el.GetProperty("marker_edid").GetString()?.Trim() ?? "";
-            if (!placedByEdid.TryGetValue(markerEdid, out var mHits) || mHits.Count != 1)
-                throw new Refusal($"warfare start '{rKey}': unknown marker_edid '{markerEdid}' in {CorePluginFile}");
+            string anchorEdid = el.TryGetProperty("anchor_edid", out var aeEl)
+                ? (aeEl.GetString()?.Trim() ?? "")
+                : "";
+            string resolveEdid = anchorEdid.Length > 0 ? anchorEdid : markerEdid;
+            if (resolveEdid.Length == 0 || !placedByEdid.TryGetValue(resolveEdid, out var mHits) || mHits.Count != 1)
+                throw new Refusal($"warfare start '{rKey}': unknown marker_edid '{resolveEdid}' in {CorePluginFile}");
             var mRef = mHits[0];
-            Owned(mRef, core.ModKey, $"warfare start marker {markerEdid}");
+            Owned(mRef, core.ModKey, $"warfare start marker {resolveEdid}");
             if (!IsPersistent(mRef))
-                throw new Refusal($"warfare start '{rKey}': marker {markerEdid} is not persistent");
+                throw new Refusal($"warfare start '{rKey}': marker {resolveEdid} is not persistent");
+
+            float px = mRef.Position.X, py = mRef.Position.Y, pz = mRef.Position.Z;
+            if (el.TryGetProperty("pos", out var posEl))
+            {
+                var arr = Floats(posEl);
+                px = arr[0]; py = arr[1]; pz = arr[2];
+                if (!float.IsFinite(px) || !float.IsFinite(py) || !float.IsFinite(pz) ||
+                    MathF.Abs(px) > 3200f || MathF.Abs(py) > 3200f)
+                    throw new Refusal($"warfare start '{rKey}': pos ({px}, {py}, {pz}) outside Commonwealth terrain bounds");
+            }
+            if (el.TryGetProperty("cell", out var cellEl))
+            {
+                var xy = cellEl.EnumerateArray().Select(v => v.GetInt32()).ToArray();
+                if (xy.Length != 2)
+                    throw new Refusal($"warfare start '{rKey}': cell must have 2 coordinates");
+                if (!coreCellsByGrid.ContainsKey((xy[0], xy[1])))
+                    throw new Refusal($"warfare start '{rKey}': exterior cell ({xy[0]}, {xy[1]}) missing from {CorePluginFile}");
+                int fx = (int)MathF.Floor(px / 100f), fy = (int)MathF.Floor(py / 100f);
+                if (fx != xy[0] || fy != xy[1])
+                    throw new Refusal($"warfare start '{rKey}': pos ({px}, {py}) maps to cell ({fx}, {fy}) != ({xy[0]}, {xy[1]})");
+            }
 
             int minD = el.GetProperty("min_difficulty").GetInt32();
             int maxD = el.GetProperty("max_difficulty").GetInt32();
@@ -657,10 +689,15 @@ static class NewGame
                 uint gid = Convert.ToUInt32(g.GetProperty("id").GetString()!, 16);
                 int gcnt = g.GetProperty("count").GetInt32();
                 bool geq = g.TryGetProperty("equip", out var eqEl) && eqEl.GetBoolean();
-                if (!string.Equals(gp, "Starfield.esm", StringComparison.OrdinalIgnoreCase) || !sfKnownIds.Contains(gid) || gcnt <= 0)
+                bool okItem = gcnt > 0 && (
+                    (string.Equals(gp, "Starfield.esm", StringComparison.OrdinalIgnoreCase) && sfKnownIds.Contains(gid)) ||
+                    (string.Equals(gp, CoreValuesPlugin, StringComparison.OrdinalIgnoreCase) && coreKnownIds != null && coreKnownIds.Contains(gid)));
+                if (!okItem)
                     throw new Refusal($"warfare start '{rKey}': invalid or unknown gear item {gp}:0x{gid:X6} count={gcnt}");
+                string canonPlugin = string.Equals(gp, CoreValuesPlugin, StringComparison.OrdinalIgnoreCase)
+                    ? CoreValuesPlugin : "Starfield.esm";
                 gearRows.Add(rowIdx);
-                gearPlugins.Add("Starfield.esm");
+                gearPlugins.Add(canonPlugin);
                 gearIds.Add((int)gid);
                 gearCounts.Add(gcnt);
                 gearEquips.Add(geq);
@@ -670,9 +707,9 @@ static class NewGame
             fSlots.Add(slot);
             spotBtns.Add(spotName);
             markerIds.Add((int)mRef.FormKey.ID);
-            mx.Add(mRef.Position.X);
-            my.Add(mRef.Position.Y);
-            mz.Add(mRef.Position.Z);
+            mx.Add(px);
+            my.Add(py);
+            mz.Add(pz);
             headings.Add(el.TryGetProperty("heading", out var hEl) ? hEl.GetSingle() : 0f);
             minDiffs.Add(minD);
             maxDiffs.Add(maxD);
@@ -725,11 +762,16 @@ static class NewGame
                     portRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
 
         var coreRefs = new List<SF.IPlacedObjectGetter>();
+        var coreCellsByGrid = new Dictionary<(int X, int Y), SF.ICellGetter>();
         foreach (var w in core.Worldspaces)
         {
             if (w.TopCell is { } top) coreRefs.AddRange(top.Persistent.Concat(top.Temporary).OfType<SF.IPlacedObjectGetter>());
             foreach (var b in w.SubCells) foreach (var s in b.Items) foreach (var c in s.Items)
+            {
                 coreRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+                if (c.Grid is { } g && c.Flags?.HasFlag(SF.Cell.Flag.IsInteriorCell) != true)
+                    coreCellsByGrid[(g.Point.X, g.Point.Y)] = c;
+            }
         }
 
         var pod = Floats(pts.GetProperty("pod").GetProperty("pos"));
@@ -785,10 +827,14 @@ static class NewGame
 
             string storyId = el.TryGetProperty("story_id", out var sidEl) ? (sidEl.GetString()?.Trim() ?? "none") : "none";
             string storyLabel = el.TryGetProperty("story_label", out var slEl) ? (slEl.GetString()?.Trim() ?? "") : "";
+            if (modeCode == 1 && !string.Equals(pid, "fo4_vault111", StringComparison.Ordinal))
+                throw new Refusal($"start place '{pid}': story row other than fo4_vault111 cannot claim available=true");
             bool isInterior = el.TryGetProperty("is_interior", out var intEl) && intEl.GetBoolean();
             int questMask = el.TryGetProperty("quest_mask", out var qmEl) ? qmEl.GetInt32() : 0;
             string markerSrc = el.TryGetProperty("marker_source", out var msEl) ? (msEl.GetString()?.Trim() ?? "") : "";
             string markerEdid = el.TryGetProperty("marker_edid", out var meEl) ? (meEl.GetString()?.Trim() ?? "") : "";
+            string anchorEdid = el.TryGetProperty("anchor_edid", out var aeEl) ? (aeEl.GetString()?.Trim() ?? "") : "";
+            string resolveEdid = anchorEdid.Length > 0 ? anchorEdid : markerEdid;
             string wfKey = el.TryGetProperty("warfare_key", out var wkEl) ? (wkEl.GetString()?.Trim() ?? "") : "";
 
             int resolvedMarkerId;
@@ -804,21 +850,38 @@ static class NewGame
             }
             else
             {
-                if (markerEdid.Length == 0)
+                if (resolveEdid.Length == 0)
                     throw new Refusal($"start place '{pid}': missing marker_source or marker_edid");
                 var pool = isPort ? portRefs : coreRefs;
                 var ownerKey = isPort ? port.ModKey : core.ModKey;
-                var hits = pool.Where(r => string.Equals(r.EditorID, markerEdid, StringComparison.Ordinal)).ToList();
+                var hits = pool.Where(r => string.Equals(r.EditorID, resolveEdid, StringComparison.Ordinal)).ToList();
                 if (hits.Count != 1)
-                    throw new Refusal($"start place '{pid}': marked available=true but marker_edid '{markerEdid}' is absent in {plg}");
-                Owned(hits[0], ownerKey, $"start place marker {markerEdid}");
+                    throw new Refusal($"start place '{pid}': marked available=true but marker_edid '{resolveEdid}' is absent in {plg}");
+                Owned(hits[0], ownerKey, $"start place marker {resolveEdid}");
                 if (!IsPersistent(hits[0]))
-                    throw new Refusal($"start place '{pid}': marker '{markerEdid}' is not persistent");
+                    throw new Refusal($"start place '{pid}': marker '{resolveEdid}' is not persistent");
                 resolvedMarkerId = (int)hits[0].FormKey.ID;
                 rx = hits[0].Position.X;
                 ry = hits[0].Position.Y;
                 rz = hits[0].Position.Z;
-                rh = Deg(hits[0].Rotation.Z);
+                rh = el.TryGetProperty("heading", out var hdEl) ? hdEl.GetSingle() : Deg(hits[0].Rotation.Z);
+                if (el.TryGetProperty("pos", out var posEl))
+                {
+                    var arr = Floats(posEl);
+                    rx = arr[0]; ry = arr[1]; rz = arr[2];
+                    if (!float.IsFinite(rx) || !float.IsFinite(ry) || !float.IsFinite(rz) ||
+                        (!isInterior && (MathF.Abs(rx) > 3200f || MathF.Abs(ry) > 3200f)))
+                        throw new Refusal($"start place '{pid}': pos ({rx}, {ry}, {rz}) out of range");
+                }
+                if (!isInterior && isCore && el.TryGetProperty("cell", out var cellEl))
+                {
+                    var xy = cellEl.EnumerateArray().Select(v => v.GetInt32()).ToArray();
+                    if (xy.Length != 2 || !coreCellsByGrid.ContainsKey((xy[0], xy[1])))
+                        throw new Refusal($"start place '{pid}': exterior cell missing in {CorePluginFile}");
+                    int fx = (int)MathF.Floor(rx / 100f), fy = (int)MathF.Floor(ry / 100f);
+                    if (fx != xy[0] || fy != xy[1])
+                        throw new Refusal($"start place '{pid}': pos ({rx}, {ry}) maps to cell ({fx}, {fy}) != ({xy[0]}, {xy[1]})");
+                }
             }
 
             int wfRow = -1;
@@ -1445,7 +1508,8 @@ static class NewGame
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
-        var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
+        var coreKnownIdSet = coreIds.Values.ToHashSet();
+        var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath, coreKnownIdSet);
         var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
@@ -1890,7 +1954,8 @@ static class NewGame
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts), o.VaultSuit, o.RequirePersistentAnchor, o.AnimatedExitLift);
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
-        var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath);
+        var coreKnownIdSet = coreIds.Values.ToHashSet();
+        var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath, coreKnownIdSet);
         var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
@@ -2604,6 +2669,19 @@ static class NewGame
         var sancMarker = new SF.PlacedObject(new FormKey(coreKey, 0xA775A), rel) { EditorID = "FO4Core_CommonwealthMapMarkerSanctuary", Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfMapMarkerStaticId)), Position = new P3Float(-1153.831f, 1259.64f, 110.263f) };
         sancMarker.MajorRecordFlagsRaw |= 0x400;
         world.TopCell.Persistent.Add(sancMarker);
+        var anchorMarker = new SF.PlacedObject(new FormKey(coreKey, 0x800), rel) { EditorID = "FO4Core_CommonwealthAnchor", Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfMapMarkerStaticId)), Position = new P3Float(-989.26f, 1146.51f, 105.14f) };
+        anchorMarker.MajorRecordFlagsRaw |= 0x400;
+        world.TopCell.Persistent.Add(anchorMarker);
+        var coreBlks = new Dictionary<(int, int), SF.WorldspaceBlock>();
+        var coreSubs = new Dictionary<(int, int), SF.WorldspaceSubBlock>();
+        foreach (var (cid, gx, gy) in new[] { (0x0D30u, -12, 12), (0x0EAAu, -6, 5), (0x0F9Au, -2, -11) })
+        {
+            int sx = (int)MathF.Floor(gx / 8f), sy = (int)MathF.Floor(gy / 8f);
+            int bx = (int)MathF.Floor(gx / 32f), by = (int)MathF.Floor(gy / 32f);
+            if (!coreBlks.TryGetValue((bx, by), out var blk)) { blk = new SF.WorldspaceBlock { BlockNumberX = (short)bx, BlockNumberY = (short)by, GroupType = SF.GroupTypeEnum.ExteriorCellBlock }; coreBlks[(bx, by)] = blk; world.SubCells.Add(blk); }
+            if (!coreSubs.TryGetValue((sx, sy), out var wsub)) { wsub = new SF.WorldspaceSubBlock { BlockNumberX = (short)sx, BlockNumberY = (short)sy, GroupType = SF.GroupTypeEnum.ExteriorCellSubBlock }; coreSubs[(sx, sy)] = wsub; blk.Items.Add(wsub); }
+            wsub.Items.Add(new SF.Cell(new FormKey(coreKey, cid), rel) { Grid = new SF.CellGrid { Point = new P2Int(gx, gy) } });
+        }
         core.Worldspaces.Add(world);
         core.ModHeader.Stats.NextFormID = 0xA775C;
         var corePath = Path.Combine(dir, coreKey.FileName);

@@ -31,8 +31,9 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 
-from . import detect, manifest as mf, runtimes as rt, settings as settings_mod
+from . import detect, launch_choices, manifest as mf, runtimes as rt, settings as settings_mod, start_cover
 from ..core import loadset, preflight
 
 STEAM_URL = "steam://rungameid/1716740"
@@ -220,6 +221,11 @@ class System:
         """Casefolded names ticked in the player's Plugins.txt, or None when it cannot be read."""
         order = self.plugin_order()
         return None if order is None else {n.casefold() for n in order}
+
+    def write_start_choices(self, payload):
+        """Clear stale Start Cover signal and atomically write `%LOCALAPPDATA%\\FO4SF\\launch_choices.json`."""
+        start_cover.clear_signal_file(start_cover.default_signal_path())
+        return launch_choices.write_launch_choices(launch_choices.default_launch_choices_path(), payload)
 
 
 TOGGLE_RECORD = "FO4SF.toggle.json"         # plugin_toggle.py's record in Data (scripts/game/exp_install.py TOGGLE)
@@ -576,7 +582,7 @@ def script_logging_notice(values, starfield, system):
 
 
 def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_wait_s=3600.0, dry_run=False,
-         folder=None):
+         folder=None, launch_nonce=""):
     """Apply the settings, start the game and watch it to its end. Returns a result dict; raises ValueError on a
     refusal (nothing started). folder: the FO4SF game folder (setting `instance`, docs/ai/fo4sf-instance.md): the game
     starts from it, our tools run on its own Plugins.txt, its own Starfield.ini takes the saves path and the Papyrus
@@ -636,15 +642,27 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     notice = script_logging_notice(values, starfield, system)
     if notice:
         plan.append(notice)
+    nonce_val = str(launch_nonce or uuid.uuid4().hex[:16])
+    entries = getattr(system, "plugin_entries", lambda: None)()
+    def build_choices():
+        return launch_choices.resolve_and_build_launch_choices(
+            values,
+            starfield_dir=starfield,
+            entries=entries,
+            nonce=nonce_val,
+        )
     if dry_run:
         if unticked:
             raise ValueError(unticked)
+        choices_payload = build_choices()
         # the note hashes the runtime, so only a dry run that shows it pays for it (Codex, #497)
         plan[3 + bool(folder)] += _without_sfse(values, starfield, system)
         for p in plan:
             say(p)
         apply_load_order(values, starfield, system, say, dry_run=True)
-        return {"dry_run": True, "plan": plan}
+        say(f"start choices: mode={choices_payload['mode']} "
+            f"survival={'on' if choices_payload['survival'] else 'off'} place={choices_payload['place_id']}")
+        return {"dry_run": True, "plan": plan, "start_choices": choices_payload}
     if notice:
         say(notice)
     if cw:
@@ -657,6 +675,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
     try:                                            # a refusal from here on is logged too: the window alone forgets it
         if unticked:
             raise ValueError(unticked)
+        choices_payload = build_choices()
         # never a blind bridge, even half way: logging goes on before the bridge comes back, and off only after the
         # bridge is held (Codex, #449)
         ini = os.path.join(folder, "Starfield.ini") if folder else None
@@ -687,6 +706,9 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
                 pass
         raise
     try:
+        write_choices = getattr(system, "write_start_choices", None)
+        if callable(write_choices):
+            write_choices(choices_payload)
         t0 = system.now()
         try:
             system.start_game(values["route"], starfield)
@@ -722,6 +744,7 @@ def play(values, starfield, system=None, say=print, start_timeout_s=180.0, dump_
         else:
             inst.swap_out(player, say, after_game=True)
         system.plugins_txt = inst.plugins_txt(folder)
+    result["start_choices"] = choices_payload
     return result
 
 

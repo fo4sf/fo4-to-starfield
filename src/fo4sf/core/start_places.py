@@ -25,6 +25,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 START_PLACES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "start_places.json")
 WARFARE_STARTS_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "warfare_starts.json")
 DEFAULT_SHOW_UNAVAILABLE_STARTS = False
+ALLOWED_STORY_START_IDS: Tuple[str, ...] = ("fo4_vault111",)
 DIFFICULTY_LABELS: Tuple[str, ...] = ("EASY", "NORMAL", "HARD", "VERY HARD")
 ALLOWED_SETUP_GLYPHS = " -.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',()?!+%&_#=[]<>"
 
@@ -61,6 +62,10 @@ class StartPlaceRow:
     max_difficulty: int
     available: bool
     unavailable_reason: str = ""
+    anchor_edid: str = ""
+    pos: Optional[Tuple[float, float, float]] = None
+    cell: Optional[Tuple[int, int]] = None
+    required_plugins: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,8 +97,10 @@ def load_start_places(
     available_only: bool = False,
     known_plugins: Optional[Iterable[str]] = None,
     known_marker_edids: Optional[Iterable[str]] = None,
+    known_exterior_cells: Optional[Iterable[Tuple[int, int]]] = None,
+    allow_story_ids: Optional[Iterable[str]] = ALLOWED_STORY_START_IDS,
 ) -> Tuple[StartPlaceRow, ...]:
-    """Load and validate `start_places.json` (`N2`, `S1`, `S3`)."""
+    """Load and validate `start_places.json` (`N2`, `S1`, `S3`, R12 Task 5)."""
     with open(path, encoding="utf-8") as handle:
         raw = json.load(handle)
 
@@ -105,6 +112,16 @@ def load_start_places(
     )
     marker_set: Optional[Set[str]] = (
         {m.strip() for m in known_marker_edids} if known_marker_edids is not None else None
+    )
+    cell_set: Optional[Set[Tuple[int, int]]] = (
+        {(int(c[0]), int(c[1])) for c in known_exterior_cells}
+        if known_exterior_cells is not None
+        else None
+    )
+    allowed_story_set: Optional[Set[str]] = (
+        {str(s).strip() for s in allow_story_ids if str(s).strip()}
+        if allow_story_ids is not None
+        else None
     )
 
     rows: List[StartPlaceRow] = []
@@ -126,9 +143,25 @@ def load_start_places(
         name = str(entry.get("name", "")).strip()
         space = str(entry.get("space", "")).strip()
         plugin = str(entry.get("plugin", "")).strip()
+        req_plugins = tuple(
+            str(p).strip() for p in (entry.get("required_plugins") or (plugin,)) if str(p).strip()
+        )
         is_interior = bool(entry.get("is_interior", False))
         marker_source = str(entry.get("marker_source", "")).strip()
         marker_edid = str(entry.get("marker_edid", "")).strip()
+        anchor_edid = str(entry.get("anchor_edid") or marker_edid).strip()
+        raw_pos = entry.get("pos")
+        pos_tuple: Optional[Tuple[float, float, float]] = None
+        if raw_pos is not None:
+            if not isinstance(raw_pos, (list, tuple)) or len(raw_pos) != 3:
+                raise ValueError(f"Start place {pid}: invalid pos {raw_pos!r}")
+            pos_tuple = (float(raw_pos[0]), float(raw_pos[1]), float(raw_pos[2]))
+        raw_cell = entry.get("cell")
+        cell_tuple: Optional[Tuple[int, int]] = None
+        if raw_cell is not None:
+            if not isinstance(raw_cell, (list, tuple)) or len(raw_cell) != 2:
+                raise ValueError(f"Start place {pid}: invalid cell {raw_cell!r}")
+            cell_tuple = (int(raw_cell[0]), int(raw_cell[1]))
         quests = tuple(str(q).strip() for q in entry.get("quests", ()) if str(q).strip())
         quest_mask = int(entry.get("quest_mask", 0))
         warfare_key = str(entry.get("warfare_key", "")).strip()
@@ -139,8 +172,8 @@ def load_start_places(
 
         if not name or not space or not plugin:
             raise ValueError(f"Start place {pid}: empty name, space, or plugin")
-        if not marker_source and not marker_edid:
-            raise ValueError(f"Start place {pid}: missing marker_source or marker_edid")
+        if not marker_source and not marker_edid and not anchor_edid:
+            raise ValueError(f"Start place {pid}: missing marker_source, marker_edid, or anchor_edid")
         if mode == "story" and (story_id == "none" or not story_label):
             raise ValueError(f"Start place {pid}: story row needs story_id and story_label")
         if mode == "warfare" and (not (0 <= faction_slot <= 7) or not warfare_key or not faction_label):
@@ -149,14 +182,31 @@ def load_start_places(
             raise ValueError(f"Start place {pid}: invalid difficulty bounds {min_diff}..{max_diff}")
 
         if available:
-            if plugin_set is not None and plugin.lower() not in plugin_set:
+            if mode == "story" and allowed_story_set is not None and pid not in allowed_story_set:
                 raise ValueError(
-                    f"Start place {pid}: marked available=true but plugin {plugin!r} is not loaded"
+                    f"Start place {pid}: story row marked available=true before Task 6 "
+                    f"(allowed: {sorted(allowed_story_set)})"
                 )
-            if marker_edid and marker_set is not None and marker_edid not in marker_set:
+            if plugin_set is not None:
+                missing_plugins = [p for p in req_plugins if p.lower() not in plugin_set]
+                if missing_plugins:
+                    raise ValueError(
+                        f"Start place {pid}: marked available=true but plugin {missing_plugins[0]!r} is not loaded"
+                    )
+            check_edid = anchor_edid or marker_edid
+            if check_edid and marker_set is not None and check_edid not in marker_set:
                 raise ValueError(
-                    f"Start place {pid}: marked available=true but marker_edid {marker_edid!r} is absent"
+                    f"Start place {pid}: marked available=true but marker_edid {check_edid!r} is absent"
                 )
+            if not is_interior and cell_set is not None:
+                if cell_tuple is None:
+                    raise ValueError(
+                        f"Start place {pid}: marked available=true exterior row has no cell coordinates"
+                    )
+                if cell_tuple not in cell_set:
+                    raise ValueError(
+                        f"Start place {pid}: marked available=true but exterior cell {cell_tuple} is absent"
+                    )
         else:
             if not unavailable_reason or "\n" in unavailable_reason or "\r" in unavailable_reason:
                 raise ValueError(
@@ -187,6 +237,10 @@ def load_start_places(
                 max_difficulty=max_diff,
                 available=available,
                 unavailable_reason=unavailable_reason,
+                anchor_edid=anchor_edid,
+                pos=pos_tuple,
+                cell=cell_tuple,
+                required_plugins=req_plugins,
             )
         )
 

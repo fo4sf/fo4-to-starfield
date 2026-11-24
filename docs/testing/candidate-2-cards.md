@@ -233,7 +233,7 @@ FO4SF_NEWGAME rt=<rt> warfare creator closed
 FO4SF_NEWGAME rt=<rt> warfare gear n=4
 FO4SF_NEWGAME rt=<rt> warfare move ok=true marker=<marker> dist=<dist> z=<z>
 FO4SF_NEWGAME rt=<rt> map setup done markers=<n> elapsed=<sec>
-FO4SF_NEWGAME rt=<rt> warfare standing slot=0 fame=<fame> infamy=<inf> karma=<karma> squad_cap=4
+FO4SF_NEWGAME rt=<rt> warfare standing slot=0 fame=<fame> infamy=<inf> karma=<karma> squad_cap=4 mission_fac=<mission_fac>
 FO4SF_NEWGAME rt=<rt> stage 210 by=Trigger
 FO4SF_NEWGAME rt=<rt> mission gate mode=2 started=false
 FO4SF_MISSION rt=<rt> mission gate mode=2 started=false

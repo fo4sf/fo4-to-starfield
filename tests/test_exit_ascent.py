@@ -318,6 +318,9 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
     def setUp(self):
         self.player = Reference(None, (-53.7, -3.7, 0.53), form_id=0x00000014)
         self.player.interior = True
+        self.equipped = set()
+        self.player.IsEquipped = lambda item: item in self.equipped
+        self.player.EquipItem = lambda item, *args: self.equipped.add(item)
         self.console_ref = Reference(None, (-53.7, -3.7, 0.53), form_id=0x04000819)
         self.pipboy_ref = Reference(None, (-53.79, -2.15, -0.52), form_id=0x0400080F)
         self.port_console = Lift(None, (-53.7, -3.7, 0.53))

@@ -600,6 +600,11 @@ namespace
 	std::mutex                               g_setupLock;
 	fo4sf::setup::SetupScreenModel           g_setupModel;
 	bool                                     g_setupModelLoaded = false;
+	std::optional<fo4sf::setup::LaunchChoicesPayload> g_launchChoices;
+	std::atomic<bool>                        g_hasLaunchChoices{ false };
+	std::atomic<bool>                        g_loadGameSeen{ false };
+	std::atomic<bool>                        g_loadGameEventHooked{ false };
+	std::filesystem::path                    g_localFo4sfDir;
 	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
 	std::atomic<std::uint32_t>               s_savedPage{ 0 };
 	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
@@ -8862,6 +8867,291 @@ namespace
 		*reinterpret_cast<float*>(a_form + valAt) = a_value;
 	}
 
+	bool ReadStoreGlobalFloat(std::uint32_t a_localId, std::string_view a_edid, float& a_out)
+	{
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		const auto     fid = KitFileForm("FO4SFCoreValues.esm", a_localId, "TESGlobal@@", detail);
+		if (!fid) {
+			return false;
+		}
+		AcceptById(fid, a_edid, "TESGlobal@@", kGlobalEditorIdAt, form);
+		if (!form) {
+			return false;
+		}
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		return Peek(form + valAt, a_out) && std::isfinite(a_out);
+	}
+
+	void CommitStartChoiceGlobals(
+		int  a_modeVal,
+		int  a_storyChoiceIdx,
+		int  a_survivalStart,
+		int  a_survivalLocked,
+		int  a_difficulty,
+		bool a_writeDifficulty,
+		int  a_warfareFactionSlot,
+		int  a_warfareStartIdx,
+		int  a_startPlaceRow,
+		bool a_clearStartCard)
+	{
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreGameModeId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_GameMode", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_modeVal));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStoryLineId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StoryLine", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_storyChoiceIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalStartId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalStart", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_survivalStart));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalLockedId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalLocked", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_survivalLocked));
+		}
+		if (a_writeDifficulty) {
+			if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartDifficultyId, "TESGlobal@@", detail)) {
+				form = 0;
+				AcceptById(fid, "FO4SF_StartDifficulty", "TESGlobal@@", kGlobalEditorIdAt, form);
+				WriteStoreGlobalFloat(form, static_cast<float>(a_difficulty));
+			}
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareFactionId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareFaction", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_warfareFactionSlot));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareStartIndexId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareStartIndex", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_warfareStartIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartPlaceRowId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartPlaceRow", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_startPlaceRow));
+		}
+		if (a_clearStartCard) {
+			if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
+				form = 0;
+				AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
+				WriteStoreGlobalFloat(form, 0.0f);
+			}
+		}
+		// Commit FO4SF_StartChoiceDone last so Papyrus observes all 8 choice globals settled.
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartChoiceDoneId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartChoiceDone", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, 1.0f);
+		}
+	}
+
+	std::filesystem::path ResolveLocalAppDataFo4sfDir()
+	{
+		std::array<wchar_t, 2048> buf{};
+		const auto len = REX::W32::GetEnvironmentVariableW(
+			L"LOCALAPPDATA", buf.data(), static_cast<std::uint32_t>(buf.size()));
+		if (len == 0 || len >= buf.size()) {
+			return {};
+		}
+		return std::filesystem::path(std::wstring(buf.data(), len)) / L"FO4SF";
+	}
+
+	void DisarmLaunchChoices(std::string_view a_reason)
+	{
+		std::filesystem::path choicesPath;
+		{
+			std::scoped_lock lock(g_setupLock);
+			g_launchChoices.reset();
+			if (!g_localFo4sfDir.empty()) {
+				choicesPath = g_localFo4sfDir / "launch_choices.json";
+			}
+		}
+		const bool wasArmed = g_hasLaunchChoices.exchange(false);
+		const bool deleted = !choicesPath.empty() && fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
+		if (wasArmed || !choicesPath.empty()) {
+			REX::INFO("step=launch_choices_disarmed reason={} deleted={} path={}",
+				a_reason, deleted ? 1 : 0, choicesPath.empty() ? "none" : choicesPath.string());
+		}
+	}
+
+	void LoadAndSignalLaunchChoicesOnPostDataLoad()
+	{
+		g_localFo4sfDir = ResolveLocalAppDataFo4sfDir();
+		std::string nonce;
+		if (!g_localFo4sfDir.empty()) {
+			const auto                         choicesPath = g_localFo4sfDir / "launch_choices.json";
+			fo4sf::setup::LaunchChoicesPayload parsed;
+			if (fo4sf::setup::LoadLaunchChoicesFile(choicesPath, parsed)) {
+				nonce = parsed.nonce;
+				{
+					std::scoped_lock lock(g_setupLock);
+					g_launchChoices = parsed;
+				}
+				g_hasLaunchChoices.store(true);
+				REX::INFO("step=launch_choices_loaded mode={} place={} survival={} locked={} min_diff={} warfare_idx={} row={} nonce={}",
+					parsed.modeTag, parsed.placeId, parsed.survivalStart, parsed.survivalLocked,
+					parsed.minDifficulty, parsed.warfareStartIdx, parsed.startPlaceRow, parsed.nonce);
+			} else {
+				std::error_code ec;
+				if (std::filesystem::exists(choicesPath, ec)) {
+					fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
+					REX::INFO("step=launch_choices_none reason=invalid_or_expired_deleted path={}", choicesPath.string());
+				} else {
+					REX::INFO("step=launch_choices_none path={}", choicesPath.string());
+				}
+				{
+					std::scoped_lock lock(g_setupLock);
+					g_launchChoices.reset();
+				}
+				g_hasLaunchChoices.store(false);
+			}
+			const auto pid = W32_IMPL_GetCurrentProcessId();
+			const bool ok = fo4sf::setup::WriteStartReadyAtomic(g_localFo4sfDir, nonce, "post_data_load", pid);
+			REX::INFO("step=start_ready_written ok={} file=start_ready.json stage=post_data_load pid={} nonce={}",
+				ok ? 1 : 0, pid, nonce.empty() ? "none" : nonce);
+		} else {
+			g_hasLaunchChoices.store(false);
+			REX::INFO("step=launch_choices_none reason=no_localappdata");
+		}
+	}
+
+	void HydrateLaunchChoicesIfNewGameMainThread()
+	{
+		if (!g_hasLaunchChoices.load()) {
+			return;
+		}
+		if (g_loadGameSeen.load()) {
+			DisarmLaunchChoices("load_game");
+			return;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		static const RE::BSFixedString kMainMenu{ "MainMenu" };
+		static const RE::BSFixedString kPauseMenu{ "PauseMenu" };
+		const bool mainOpen = ui->IsMenuOpen(kMainMenu);
+		const bool pauseOpen = ui->IsMenuOpen(kPauseMenu);
+		if (mainOpen || pauseOpen) {
+			return;
+		}
+
+		float doneVal = 0.0f;
+		if (!ReadStoreGlobalFloat(kCoreStartChoiceDoneId, "FO4SF_StartChoiceDone", doneVal)) {
+			return;
+		}
+		float startCardVal = 0.0f;
+		if (!ReadStoreGlobalFloat(kCoreStartCardOpenId, "FO4SF_StartCardOpen", startCardVal)) {
+			return;
+		}
+
+		// Verify FO4SF_NewGame (0x800) quest exists in memory (RunOnce New Game controller; KitFileForm validates FormById + TESQuest@@).
+		std::string ngDetail;
+		const auto  ngFid = KitFileForm("FO4SFNewGame.esm", 0x800, "TESQuest@@", ngDetail);
+		const bool  ngResolved = (ngFid != 0);
+
+		// Read GameDaysPassed (Starfield.esm 0x39) and player level defensively.
+		FindGlobalValue();
+		if (!g_forms.gameDaysPassed) {
+			AcceptById(kGameDaysPassedId, "GameDaysPassed", "TESGlobal@@", kGlobalEditorIdAt, g_forms.gameDaysPassed);
+		}
+		float gameDays = 0.0f;
+		if (g_forms.gameDaysPassed) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			if (!Peek(g_forms.gameDaysPassed + valAt, gameDays) || !std::isfinite(gameDays)) {
+				gameDays = 0.0f;
+			}
+		}
+		int playerLevel = 1;
+		if (g_rva[kPlayerSingleton] != 0 && g_rva[kPlayerRtti] != 0 &&
+			CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			const auto     player = Singleton(kPlayerSingleton);
+			std::uintptr_t base = 0;
+			ObjectType     npcType;
+			if (Peek(player + kBaseObjectAt, base) && IsType(base, "TESNPC@@", npcType)) {
+				if (const auto at = BaseOffset(npcType, "TESActorBaseData@@"); at && CheckSubobject(base, npcType, *at)) {
+					std::uint16_t lvl = 1;
+					if (Peek(base + *at + kLevelAt, lvl) && lvl >= 1) {
+						playerLevel = static_cast<int>(lvl);
+					}
+				}
+			}
+		}
+
+		std::optional<fo4sf::setup::LaunchChoicesPayload> choices;
+		std::filesystem::path                             choicesPath;
+		{
+			std::scoped_lock lock(g_setupLock);
+			choices = g_launchChoices;
+			if (!g_localFo4sfDir.empty()) {
+				choicesPath = g_localFo4sfDir / "launch_choices.json";
+			}
+		}
+
+		fo4sf::setup::LaunchChoicesGuardState st;
+		st.hasPayload = choices.has_value();
+		st.payloadValid = choices.has_value() && choices->valid;
+		st.payloadFresh = st.payloadValid &&
+			fo4sf::setup::IsLaunchChoicesFresh(*choices, fo4sf::setup::CurrentEpochSeconds());
+		st.loadGameSeen = g_loadGameSeen.load();
+		st.mainMenuOpen = mainOpen;
+		st.pauseMenuOpen = pauseOpen;
+		st.newGameQuestResolved = ngResolved;
+		st.handshakeRequested = (startCardVal < -0.5f && startCardVal > -1.5f);
+		st.startChoiceDone = doneVal;
+		st.gameDaysPassed = gameDays;
+		st.playerLevel = playerLevel;
+
+		const auto decision = fo4sf::setup::EvaluateLaunchChoicesHydration(st);
+		if (decision == fo4sf::setup::LaunchHydrationDecision::kWait) {
+			return;
+		}
+		if (decision == fo4sf::setup::LaunchHydrationDecision::kDisarmConsume) {
+			REX::INFO("step=launch_choices_guard_reject load_game={} done={} days={} level={} fresh={}",
+				st.loadGameSeen ? 1 : 0, doneVal, gameDays, playerLevel, st.payloadFresh ? 1 : 0);
+			DisarmLaunchChoices("guard_reject");
+			return;
+		}
+
+		bool fromFile = false;
+		auto placesRows = fo4sf::setup::LoadStartPlacesFileOrFallback(g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+		const int minDiff = fo4sf::setup::ResolveLaunchMinDifficulty(*choices, placesRows);
+
+		CommitStartChoiceGlobals(
+			choices->modeVal,
+			choices->storyChoiceIdx,
+			choices->survivalStart,
+			choices->survivalLocked,
+			minDiff,
+			true,
+			choices->warfareFactionSlot,
+			choices->warfareStartIdx,
+			choices->startPlaceRow,
+			true);
+
+		{
+			std::scoped_lock lock(g_setupLock);
+			g_launchChoices.reset();
+		}
+		g_hasLaunchChoices.store(false);
+		const bool consumed = !choicesPath.empty() && fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
+		REX::INFO("step=launch_choices_hydrated mode={} place={} survival={} locked={} difficulty={} warfare_idx={} row={} consumed={}",
+			choices->modeTag, choices->placeId, choices->survivalStart, choices->survivalLocked,
+			minDiff, choices->warfareStartIdx, choices->startPlaceRow, consumed ? 1 : 0);
+	}
+
 	void CommitSetupMenuMainThread()
 	{
 		std::optional<fo4sf::setup::SetupCommitPayload> payload;
@@ -8881,61 +9171,17 @@ namespace
 			return;
 		}
 
-		FindGlobalValue();
-		std::string    detail;
-		std::uintptr_t form = 0;
-
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreGameModeId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_GameMode", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->modeVal));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStoryLineId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StoryLine", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->storyChoiceIdx));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalStartId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_SurvivalStart", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalLockedId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_SurvivalLocked", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartDifficultyId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartDifficulty", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->difficulty));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareFactionId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_WarfareFaction", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareFactionSlot));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareStartIndexId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_WarfareStartIndex", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareStartIdx));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartPlaceRowId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartPlaceRow", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->startPlaceRow));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, 0.0f);
-		}
-		// Commit FO4SF_StartChoiceDone last so Papyrus observes all 8 choice globals settled.
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartChoiceDoneId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartChoiceDone", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, 1.0f);
-		}
+		CommitStartChoiceGlobals(
+			payload->modeVal,
+			payload->storyChoiceIdx,
+			payload->survival,
+			payload->survival,
+			payload->difficulty,
+			true,
+			payload->warfareFactionSlot,
+			payload->warfareStartIdx,
+			payload->startPlaceRow,
+			true);
 
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 			queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kHide);
@@ -9236,6 +9482,9 @@ namespace
 
 	void PollStartCardGlobalMainThread()
 	{
+		if (g_hasLaunchChoices.load()) {
+			HydrateLaunchChoicesIfNewGameMainThread();
+		}
 		auto* ui = RE::UI::GetSingleton();
 		auto* queue = RE::UIMessageQueue::GetSingleton();
 		if (!ui || !queue || !ui->IsMenuRegistered(StartCardMenuName())) {
@@ -9259,6 +9508,13 @@ namespace
 			if (!Peek(form + valAt, v) || !std::isfinite(v)) {
 				v = 0.0f;
 			}
+		}
+		if (v < -0.5f) {
+			// F4: Negative handshake values (-1.0 requested, -2.0 no prelaunch ack) never open UI menus.
+			if (!g_hasLaunchChoices.load() && v > -1.5f && form) {
+				WriteStoreGlobalFloat(form, -2.0f);
+			}
+			return;
 		}
 		static const RE::BSFixedString kLoadingMenu{ "LoadingMenu" };
 		static const RE::BSFixedString kChargenMenu{ "ChargenMenu" };
@@ -10274,6 +10530,9 @@ namespace
 				g_task->AddTask([]() { SendUpdate(); });
 			}
 			PipboyMap::Tick();
+			if (g_hasLaunchChoices.load() && !g_loadGameSeen.load() && g_task) {
+				g_task->AddTask([]() { HydrateLaunchChoicesIfNewGameMainThread(); });
+			}
 			if (g_hideStarfieldWatch && g_hudWatchRetryPending.load()) {
 				static std::uint32_t hudWatchPollTicks = 0;
 				if (++hudWatchPollTicks % 5 == 0) {
@@ -10282,7 +10541,7 @@ namespace
 			}
 			if (g_stage >= 2) {
 				static std::uint32_t startCardTicks = 0;
-				if (++startCardTicks % 8 == 0) {
+				if (++startCardTicks % 4 == 0) {
 					g_task->AddTask([]() { PollStartCardGlobalMainThread(); });
 				}
 			}
@@ -10358,10 +10617,17 @@ namespace
 		RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent& a_event,
 			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
 		{
-			if (!g_hideStarfieldWatch || !a_event.menuName.c_str()) {
+			const char* name = a_event.menuName.c_str();
+			if (!name) {
 				return RE::BSEventNotifyControl::kContinue;
 			}
-			const char* name = a_event.menuName.c_str();
+			if (g_hasLaunchChoices.load() && !g_loadGameSeen.load() && g_task && !a_event.opening &&
+				(SameText(name, "MainMenu") || SameText(name, "LoadingMenu"))) {
+				g_task->AddTask([]() { HydrateLaunchChoicesIfNewGameMainThread(); });
+			}
+			if (!g_hideStarfieldWatch) {
+				return RE::BSEventNotifyControl::kContinue;
+			}
 			if (SameText(name, "LoadingMenu")) {
 				g_hudWatchHiddenMovie.store(nullptr);
 				g_hudWatchTryCount.store(0);
@@ -10385,6 +10651,22 @@ namespace
 	};
 	HudWatchMenuEventSink g_hudWatchMenuSink{};
 
+	class LoadGameGuardEventSink final : public RE::BSTEventSink<RE::TESLoadGameEvent>
+	{
+	public:
+		RE::BSEventNotifyControl ProcessEvent(const RE::TESLoadGameEvent&,
+			RE::BSTEventSource<RE::TESLoadGameEvent>*) override
+		{
+			g_loadGameSeen.store(true);
+			g_hasLaunchChoices.store(false);
+			if (g_task) {
+				g_task->AddTask([]() { DisarmLaunchChoices("tes_load_game_event"); });
+			}
+			return RE::BSEventNotifyControl::kContinue;
+		}
+	};
+	LoadGameGuardEventSink g_loadGameSink{};
+
 	void Register()
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -10392,8 +10674,14 @@ namespace
 			Refuse("register", "reason=no_ui");
 			return;
 		}
-		if (g_hideStarfieldWatch) {
+		if (g_hideStarfieldWatch || g_stage >= 2) {
 			ui->RegisterSink<RE::MenuOpenCloseEvent>(&g_hudWatchMenuSink);
+		}
+		if (g_loadGameEventHooked.load()) {
+			if (auto* loadSrc = RE::TESLoadGameEvent::GetEventSource()) {
+				loadSrc->RegisterSink(&g_loadGameSink);
+				REX::INFO("step=load_game_guard_registered ok=1");
+			}
 		}
 		if (ui->IsMenuRegistered(MenuName())) {
 			Refuse("register", "reason=name_taken");
@@ -10427,6 +10715,7 @@ namespace
 		World::Start(g_task);
 		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit, &CreateBlockedMapMenuInstance);
 		PipboyMap::Start(g_task);
+		LoadAndSignalLaunchChoicesOnPostDataLoad();
 		const auto thread = REX::W32::CreateThread(nullptr, 0, &KeyThread, nullptr, 0, nullptr);
 		if (!thread) {
 			Refuse("key_thread", "reason=create_failed");
@@ -10572,6 +10861,10 @@ namespace
 	{
 		World::OnMovieCreated(a_menu);
 		PipboyMap::OnMovieCreated(a_menu);
+		if (g_hasLaunchChoices.load() && !g_loadGameSeen.load() && g_task && a_menu && a_menu->menuName.c_str() &&
+			SameText(a_menu->menuName.c_str(), "LoadingMenu")) {
+			g_task->AddTask([]() { HydrateLaunchChoicesIfNewGameMainThread(); });
+		}
 		if (g_hideStarfieldWatch && a_menu && a_menu->menuName.c_str()) {
 			if (SameText(a_menu->menuName.c_str(), "LoadingMenu")) {
 				g_hudWatchHiddenMovie.store(nullptr);
@@ -10947,6 +11240,40 @@ namespace
 	// Never aborts plugin load: if channel IDs (MovieRoot RTTI + SFSE Value functions) are unavailable, logs
 	// step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable and disables ONLY HideStarfieldWatch while
 	// FO4SFPipboyMenu.dll stays loaded.
+	void TryInitLoadGameEventGuard(const std::filesystem::path& a_file)
+	{
+		constexpr std::uint32_t kLoadGameGetEventSourceId = 64149;   // libxse ID::TESLoadGameEvent::GetEventSource
+		bool ok = false;
+		std::ifstream in(a_file, std::ios::binary);
+		if (in) {
+			std::array<std::uint8_t, kHeaderBytes> head{};
+			in.read(reinterpret_cast<char*>(head.data()), head.size());
+			if (in) {
+				const auto u32 = [&](std::size_t a_at) {
+					std::uint32_t v;
+					std::memcpy(&v, head.data() + a_at, sizeof v);
+					return v;
+				};
+				const auto         format = u32(0);
+				const REL::Version version{ static_cast<std::uint16_t>(u32(4)), static_cast<std::uint16_t>(u32(8)),
+					static_cast<std::uint16_t>(u32(12)), static_cast<std::uint16_t>(u32(16)) };
+				const auto         pointerSize = u32(84);
+				const auto         count = u32(92);
+				if (format == 5 && version == kRuntime && pointerSize == 8 && kLoadGameGetEventSourceId < count) {
+					std::uint32_t offset = 0;
+					in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * kLoadGameGetEventSourceId));
+					in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+					if (in && offset && offset < g_imageSize &&
+						REL::ID(kLoadGameGetEventSourceId).offset() == offset) {
+						ok = true;
+					}
+				}
+			}
+		}
+		g_loadGameEventHooked.store(ok);
+		REX::INFO("step=load_game_guard_init ok={} id={}", ok ? 1 : 0, kLoadGameGetEventSourceId);
+	}
+
 	void TryInitHudWatchIds(const std::filesystem::path& a_file)
 	{
 		if (!g_hideStarfieldWatch) {
@@ -11277,6 +11604,7 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	if (g_hideStarfieldWatch) {
 		TryInitHudWatchIds(dir / "versionlib-1-16-244-0.bin");
 	}
+	TryInitLoadGameEventGuard(dir / "versionlib-1-16-244-0.bin");
 	if (g_stage == 2 && (g_codeObj || g_specialMenu) && !CheckShellIds(dir / "versionlib-1-16-244-0.bin")) {
 		return true;
 	}

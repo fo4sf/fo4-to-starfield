@@ -10,8 +10,9 @@ import re
 import subprocess
 import sys
 import threading
+import uuid
 
-from . import alife_tools, paths, recovery, settings, start_cover, test_kits
+from . import alife_tools, launch_choices, paths, recovery, settings, start_cover, test_kits
 
 
 def controls():
@@ -835,6 +836,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.cover_window = None
             self.cover_controller = None
             self.cover_crash_reason = ""
+            self.start_place_box = None
             root.title("FO4SF Launcher")
             root.geometry("1040x840")
             root.minsize(840, 650)
@@ -936,8 +938,11 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.widgets.append((recover, "normal"))
             for var in self.vars.values():
                 var.trace_add("write", lambda *_args: self.refresh_play())
+            if "start.mode" in self.vars:
+                self.vars["start.mode"].trace_add("write", lambda *_args: self.refresh_start_place_choices())
             root.protocol("WM_DELETE_WINDOW", self.close)
             self.render_locations()
+            self.refresh_start_place_choices()
             self.refresh_play()
             self.detect_locations()
             root.after(75, self.drain)
@@ -1191,6 +1196,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                 self.set_location(row["key"], row["value"])
                 self.show_mark(row["key"], row["status"], row["note"])
             self.refresh_checklist()
+            self.refresh_start_place_choices()
             self.refresh_play()
 
         def location_edited(self, key):
@@ -1210,6 +1216,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             else:
                 self.show_mark(key, "problem" if problem else "edited", problem or "press Confirm locations")
             self.refresh_checklist()
+            self.refresh_start_place_choices()
             self.refresh_play()
 
         def browse(self, key, kind):
@@ -1457,10 +1464,17 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                     widget = ttk.Checkbutton(form, variable=var)
                 elif kind == "choice":
                     widget = ttk.Combobox(form, textvariable=var, values=spec["choices"], state="readonly")
+                elif key == "start.place":
+                    init_vals = launch_choices.available_place_options(
+                        model.saved["start.mode"],
+                        starfield_dir=model.saved.get("instance") or model.saved.get("starfield") or "",
+                    )
+                    widget = ttk.Combobox(form, textvariable=var, values=init_vals, state="readonly")
+                    self.start_place_box = widget
                 else:
                     widget = ttk.Entry(form, textvariable=var)
                 widget.grid(row=1 + 2 * i, column=1, sticky="w" if kind == "bool" else "ew")
-                self.widgets.append((widget, "readonly" if kind == "choice" else "normal"))
+                self.widgets.append((widget, "readonly" if (kind == "choice" or key == "start.place") else "normal"))
                 ttk.Label(form, text=spec["cost"], style="Muted.TLabel", wraplength=760).grid(
                     row=2 + 2 * i, column=0, columnspan=2, sticky="w", pady=(2, 14))
 
@@ -1496,8 +1510,26 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             except (OSError, ValueError) as e:
                 self.message.set(str(e))
                 self.show_error_banner(format_error_banner(str(e), action="save"))
+            self.refresh_start_place_choices()
             self.refresh_play()
             self.refresh_tests()
+
+        def refresh_start_place_choices(self):
+            if self.start_place_box is None or "start.mode" not in self.vars or "start.place" not in self.vars:
+                return
+            mode_val = self.vars["start.mode"].get()
+            folder = self.location_value("instance") if "instance" in self.loc else model.saved.get("instance", "")
+            sf_dir = folder or (
+                self.location_value("starfield") if "starfield" in self.loc else model.saved.get("starfield", "")
+            )
+            entries = None
+            if folder:
+                from . import crashwatch, instance
+                entries = crashwatch.System(plugins_txt=instance.plugins_txt(folder)).plugin_entries()
+            opts = launch_choices.available_place_options(mode_val, starfield_dir=sf_dir, entries=entries)
+            self.start_place_box.configure(values=opts)
+            if self.vars["start.place"].get() not in opts:
+                self.vars["start.place"].set("")
 
         def refresh_workflow_strip(self, play_reason=""):
             loc_statuses = {k: item["status"] for k, item in self.loc.items()} if self.loc else None
@@ -1513,7 +1545,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                     w["var"].set(row["detail"])
                     w["label"].configure(style=f"Panel.{row['tone']}.TLabel")
 
-        def open_start_cover(self, *, for_play=False, signal_path="", fullscreen=True):
+        def open_start_cover(self, *, for_play=False, signal_path="", fullscreen=True, expected_nonce=""):
             self.close_start_cover()
             self.cover_crash_reason = ""
             sig = signal_path or start_cover.default_signal_path()
@@ -1523,6 +1555,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             ctrl = start_cover.StartCoverController(
                 sig,
                 timeout_s=timeout_s,
+                expected_nonce=expected_nonce,
                 pids_fn=pids_fn,
                 crash_fn=crash_fn,
             )
@@ -1595,7 +1628,9 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                 self.message.set("Nothing changed; nothing written")
                 return
             if action == "play" and model.saved.get("start_cover"):
-                self.open_start_cover(for_play=True)
+                nonce = uuid.uuid4().hex[:16]
+                argv = list(argv) + ["--nonce", nonce]
+                self.open_start_cover(for_play=True, expected_nonce=nonce)
             self.launch_command(action, argv, part)
 
         def launch_command(self, action, argv, part="all", *, cwd=None):

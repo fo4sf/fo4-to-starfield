@@ -567,6 +567,9 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             vaultPodAutosaved=False,
             vaultSavingRelocked=False,
             vaultRecoveryTriggered=False,
+            StartCardOpenGlobal=None,
+            SurvivalLockedGlobal=None,
+            SurvivalStartGlobal=None,
             Game=SimpleNamespace(
                 GetFormFromFile=get_form,
                 GetPlayer=lambda: self.player,

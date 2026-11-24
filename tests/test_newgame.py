@@ -2101,7 +2101,12 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertEqual((first.min_difficulty, first.max_difficulty), (0, 3))
         self.assertEqual(first.squad_cap, 4)
         self.assertGreaterEqual(len(first.gear), 1)
-        ws.load_warfare_starts(known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary"})
+        ws.load_warfare_starts(
+            known_marker_edids={
+                "FO4Core_CommonwealthMapMarkerSanctuary",
+                "FO4Core_CommonwealthAnchor",
+            }
+        )
         with self.assertRaisesRegex(ValueError, "unknown marker_edid"):
             ws.load_warfare_starts(known_marker_edids={"FO4Core_CommonwealthMapMarkerVault111"})
         # Legacy nonexistent-cell faction rows in start_worlds are marked inactive while world rows remain intact
@@ -2343,6 +2348,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             faded=False, warfareFadeTicks=0, entered=False, startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
             loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False, h00SkipLoading=False,
             modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            firstMessageDrawn=False, directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False,
             preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
             setupWaitingCreator=False, warfareWaitingCreator=False,
             applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
@@ -2407,15 +2413,16 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
-            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ResolvePrelaunchWarfareRow", "IsPrelaunchWarfare",
+            "EnterPrelaunchWarfareMarker", "ShowFirstBoxSafely", "SyncHardcoreFromStart", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
             "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "NoteLooksStage20", "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
             "MenuEvent", "StageEvent", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
@@ -2463,14 +2470,14 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
-            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ShowFirstBoxSafely", "SyncHardcoreFromStart", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
             "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "NoteLooksStage20", "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
@@ -2522,6 +2529,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     faded=False, warfareFadeTicks=0, entered=False, startRoomMoves=1, startRoomEntered=True, startRoomUiPrepared=True,
                     loadingMenuOpen=True, loadingMenuClosedSeen=False, loadingHookRegistered=True, startUiReady=False, h00SkipLoading=False,
                     modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    firstMessageDrawn=False, directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False,
                     preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
                     setupWaitingCreator=False, warfareWaitingCreator=False,
                     applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
@@ -2603,22 +2611,36 @@ class Phase2BeginningRealTests(unittest.TestCase):
 
         # 1. Start-places table validation: available vs unbuilt rows, and refusal of unresolvable available rows
         all_rows = sp.load_start_places()
+        req_plugins = {
+            "FO4Port.esm",
+            "FO4TerrainCore.esm",
+            "FO4SFNewGame.esm",
+            "FO4SFCoreValues.esm",
+            "FO4SFReputation.esm",
+            "FO4SFProgression.esm",
+            "FO4SFCompanions.esm",
+            "FO4SFMission.esm",
+        }
         avail_rows = sp.load_start_places(
             available_only=True,
-            known_plugins={"FO4Port.esm", "FO4TerrainCore.esm"},
-            known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary"},
+            known_plugins=req_plugins,
+            known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary", "FO4Core_CommonwealthAnchor"},
+            known_exterior_cells=((-12, 12), (-2, -11), (-6, 5)),
         )
-        self.assertEqual([r.id for r in avail_rows], ["fo4_vault111", "minutemen_sanctuary"])
+        self.assertEqual(
+            [r.id for r in avail_rows],
+            ["fo4_vault111", "minutemen_sanctuary", "gunners_plaza", "raiders_corvega"],
+        )
         unavail_ids = {r.id for r in all_rows if not r.available}
         self.assertIn("fnv_goodsprings", unavail_ids)
         self.assertIn("fo3_vault101", unavail_ids)
         self.assertEqual(sp.available_story_choices(all_rows), [("fo4_commonwealth", "Fallout 4: Commonwealth")])
 
         with self.assertRaisesRegex(ValueError, "not loaded"):
-            sp.load_start_places(known_plugins={"FO4Port.esm"})
+            sp.load_start_places(known_plugins={"FO4Port.esm", "FO4SFNewGame.esm", "FO4SFCoreValues.esm"})
         with self.assertRaisesRegex(ValueError, "marker_edid"):
             sp.load_start_places(
-                known_plugins={"FO4Port.esm", "FO4TerrainCore.esm"},
+                known_plugins=req_plugins,
                 known_marker_edids=set(),
             )
 
@@ -2630,14 +2652,14 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
-            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ShowFirstBoxSafely", "SyncHardcoreFromStart", "GrantCoreItemIfPresent", "GrantWarfareCoreValuesKit", "RunPreworldLooksChoice",
             "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
+            "NoteLooksStage20", "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
@@ -2678,6 +2700,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     RemoveAllItems=lambda *a: None,
                     AddItem=lambda *a: None,
                     EquipItem=lambda *a: None,
+                    IsEquipped=lambda *a: True,
                     GetValue=lambda av: 100.0,
                     ModValue=lambda av, d: None,
                     AddToFaction=lambda f: None,
@@ -2719,6 +2742,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False, startUiReady=False,
                     h00SkipLoading=False, h00SkipMap=False,
                     modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    firstMessageDrawn=False, directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False,
                     preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
                     setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
                     applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
@@ -2844,20 +2868,20 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
-            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ShowFirstBoxSafely", "SyncHardcoreFromStart", "GrantCoreItemIfPresent", "GrantWarfareCoreValuesKit", "RunPreworldLooksChoice",
             "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "ResetInventory",
             "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "NoteLooksStage20", "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), PSC, "exec")
-        rows = sp.load_start_places()
+        rows = [r for r in sp.load_start_places() if r.available]
 
         def run_flow(backdrop_val: int, mode_is_warfare: bool, survival_on: bool, diff_val: int, native_setup_ack: bool = True):
             store = {
@@ -2950,6 +2974,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False, startUiReady=False,
                 h00SkipLoading=False, h00SkipMap=False,
                 modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                firstMessageDrawn=False, directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False,
                 preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
                 setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
                 applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
@@ -3112,15 +3137,16 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
-            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ResolvePrelaunchWarfareRow", "IsPrelaunchWarfare",
+            "EnterPrelaunchWarfareMarker", "ShowFirstBoxSafely", "SyncHardcoreFromStart", "RunPreworldLooksChoice",
             "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "FillO2",
             "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
-            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, "
             "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, vaultSavingRelocked"
@@ -3176,6 +3202,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     loadingHookRegistered=(scenario != "already_loaded_delay"),
                     startUiReady=False, h00SkipLoading=False,
                     modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                    firstMessageDrawn=False, directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False,
                     preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
                     setupWaitingCreator=False, warfareWaitingCreator=False,
                     applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
@@ -3315,14 +3342,16 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "BackdropName", "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
-            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ResolvePrelaunchWarfareRow", "IsPrelaunchWarfare",
+            "EnterPrelaunchWarfareMarker", "ShowFirstBoxSafely", "SyncHardcoreFromStart", "GrantCoreItemIfPresent",
+            "GrantWarfareCoreValuesKit", "RunPreworldLooksChoice",
             "ForceFadeIn", "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
-            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, "
             "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, vaultSavingRelocked"
@@ -3390,6 +3419,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             RemoveAllItems=lambda *a: None,
             AddItem=lambda *a: None,
             EquipItem=lambda *a: None,
+            IsEquipped=lambda *a: True,
             GetValue=lambda av: 100.0,
             ModValue=lambda av, d: None,
             AddToFaction=lambda f: None,
@@ -3405,6 +3435,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             loadingMenuOpen=False, loadingMenuClosedSeen=True, loadingHookRegistered=False, startUiReady=False,
             h00SkipLoading=False, h00SkipMap=False,
             modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            firstMessageDrawn=False, directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False,
             preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
             setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False,
             applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
@@ -3531,7 +3562,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         funcs = (
             "FadeIn", "ForceFadeIn", "ReleaseStoryLandingFade", "DisableHandScanner",
             "StandsInVault", "FinishSurface", "CheckLanding", "RequestArrivalDiscovery",
-            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "TimerEvent",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, storyFadeTicks, loadingHookRegistered, vaultMoves, "
@@ -3748,7 +3779,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         )
         funcs = (
             "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
-            "ClearVaultSaveLock", "RelockVaultSaving",
+            "ClearVaultSaveLock", "RelockVaultSaving", "SyncHardcoreFromStart",
             "NoteLooksStage20", "ApplyStage", "Actor.OnPlayerLoadGame",
             "TimerEvent", "DyingEvent", "StageSetEvent", "ResolveHostWorld",
         )
@@ -3802,6 +3833,9 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             ns = dict(
                 _PStr=lambda v: "None" if v is None else str(v),
                 GameModeGlobal=SimpleNamespace(GetValue=lambda: mode),
+                StartCardOpenGlobal=None,
+                SurvivalLockedGlobal=None,
+                SurvivalStartGlobal=None,
                 CorePlugin="FO4TerrainCore.esm",
                 ExitAnchorId=0x0A775B,
                 VaultPlugin="FO4Port.esm",
@@ -4002,6 +4036,403 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             "[x] FO4SF_NEWGAME rt=12.0 vault_death_recovery=save_locked stage=20\n",
         ])
         self.assertEqual(s["vault_death_recovery"], ["autosave stage=20 skips=0", "save_locked stage=20"])
+
+
+class Task5WarfareDirectAndMenuTests(unittest.TestCase):
+    def test_direct_warfare_load_skips_vault111_across_sanctuary_corvega_and_gunners_plaza(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        from fo4sf.core import start_places as sp
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = psc + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+        funcs = (
+            "Begin", "DisableHandScanner", "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo",
+            "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ResolvePrelaunchWarfareRow",
+            "SyncPrelaunchHandshake", "IsPrelaunchWarfare", "EnterPrelaunchWarfareMarker", "ShowFirstBoxSafely",
+            "SyncHardcoreFromStart", "GrantCoreItemIfPresent", "GrantWarfareCoreValuesKit",
+            "RunPreworldLooksChoice", "ForceFadeIn", "RunWarfareBranch", "RunSharedMapSetup",
+            "FillO2", "FadeIn", "RunModeChoiceChain", "TimerEvent",
+        )
+        vars_csv = (
+            "begun, routed, lateRoute, faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, "
+            "startRoomUiPrepared, loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, "
+            "h00SkipLoading, h00SkipMap, modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, "
+            "directWarfareEntered, warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, "
+            "preworldLooksBy, setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, "
+            "pendingStageBy, looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, "
+            "startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, "
+            "vaultSavingRelocked"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        rows = [r for r in sp.load_start_places() if r.available]
+        warfare_doc = json.loads((Path(ROOT) / "src" / "fo4sf" / "core" / "warfare_starts.json").read_text(encoding="utf-8"))
+        wf_starts = warfare_doc["starts"]
+        anchor_map = {
+            "FO4Core_CommonwealthMapMarkerSanctuary": 0x0A775A,
+            "FO4Core_CommonwealthAnchor": 0x000800,
+        }
+
+        for place_id, wf_idx, core_marker_id, fac_slot, exp_core_weap, exp_mission in (
+            ("minutemen_sanctuary", 0, 0x0A775A, 0, 0x00089D, True),
+            ("gunners_plaza", 1, 0x000800, 7, 0x0008CF, False),
+            ("raiders_corvega", 2, 0x000800, 7, 0x0008A3, False),
+        ):
+            place_row_idx = next(i for i, r in enumerate(rows) if r.id == place_id)
+            with self.subTest(place=place_id):
+                logs, fades, chargens, added_factions, added_items, discovered, hold_passes = [], [], [], [], [], [], []
+                marker_moves, marker_sets, events = [], [], []
+                cur_stage = [0]
+                ext_cell = SimpleNamespace(GetFormID=lambda: 0x03005000)
+                w_marker = SimpleNamespace(
+                    GetFormID=lambda cid=core_marker_id: 0x03000000 | cid,
+                    GetParentCell=lambda: ext_cell,
+                    GetWorldSpace=lambda: "CommonwealthWorld",
+                    Enable=lambda *a: None,
+                    MoveTo=lambda *a: marker_moves.append(a),
+                    SetPosition=lambda *a: marker_sets.append(a),
+                )
+                vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+                mm_fac = SimpleNamespace(id=0x00081F, tag="FO4SF_MinutemenFaction")
+                rep_fac = SimpleNamespace(id=0x000810 + fac_slot)
+                core_forms = {
+                    0x00089D: SimpleNamespace(id=0x89D),
+                    0x00089B: SimpleNamespace(id=0x89B),
+                    0x0008A1: SimpleNamespace(id=0x8A1),
+                    0x0008A2: SimpleNamespace(id=0x8A2),
+                    0x0008A3: SimpleNamespace(id=0x8A3),
+                    0x0008A4: SimpleNamespace(id=0x8A4),
+                    0x0008CF: SimpleNamespace(id=0x8CF),
+                }
+                player = SimpleNamespace(
+                    pos=(0.0, 0.0, 0.0),
+                    cell="StartPreCell",
+                    interior=True,
+                    GetPositionX=lambda: player.pos[0],
+                    GetPositionY=lambda: player.pos[1],
+                    GetPositionZ=lambda: player.pos[2],
+                    SetPosition=lambda x, y, z: (events.append(("SetPosition", x, y, z)), setattr(player, "pos", (x, y, z))),
+                    SetAngle=lambda *a: None,
+                    MoveTo=lambda ref, *rest: (
+                        events.append(("MoveTo", ref is w_marker)),
+                        setattr(player, "cell", ref.GetParentCell()),
+                        setattr(player, "interior", ref is not w_marker),
+                    ),
+                    GetParentCell=lambda: player.cell,
+                    GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
+                    IsInInterior=lambda: player.interior,
+                    Is3DLoaded=lambda: True,
+                    GetLevel=lambda: 1,
+                    RemoveAllItems=lambda *a: None,
+                    AddItem=lambda item, cnt, *a: added_items.append((item, cnt)),
+                    EquipItem=lambda *a: None,
+                    IsEquipped=lambda item: True,
+                    GetValue=lambda av: 100.0,
+                    ModValue=lambda av, d: None,
+                    AddToFaction=lambda f: added_factions.append(f),
+                    WaitFor3DLoad=lambda *a: None,
+                )
+                prog = SimpleNamespace(
+                    OpenAttributeAllocation=lambda src: (events.append(("OpenAttributeAllocation", not player.interior)), True)[1],
+                    OfferStandardSpread=lambda *a: True,
+                    ApplyWarfareBackground=lambda idx: events.append(("ApplyWarfareBackground", idx)),
+                )
+                wmm_proxy = SimpleNamespace(
+                    CastAs=lambda cls: SimpleNamespace(
+                        CallFunction=lambda fn, args: (discovered.append((fn, args[0] if args else None)), 1)[1]
+                    )
+                )
+                pip_glob = SimpleNamespace(val=0.0, SetValue=lambda v: setattr(pip_glob, "val", float(v)))
+                store = {
+                    "GameMode": 2.0, "StoryLine": -1.0, "SurvivalStart": 1.0, "SurvivalLocked": 1.0,
+                    "StartDifficulty": 1.0, "WarfareFaction": float(fac_slot), "WarfareStartIndex": -1.0,
+                    "StartChoiceDone": 1.0, "StartPlaceRow": float(place_row_idx), "StartCardOpen": 0.0,
+                }
+                mk_g = lambda k: SimpleNamespace(
+                    GetValue=lambda k=k: store[k],
+                    SetValue=lambda v, k=k: store.__setitem__(k, float(v)),
+                )
+
+                def get_form(fid, plg):
+                    if plg == "FO4TerrainCore.esm" and fid == core_marker_id:
+                        return w_marker
+                    if plg == "FO4Port.esm" and fid == 0x805:
+                        return vault_anchor
+                    if plg == "FO4SFProgression.esm" and fid == 0x000880:
+                        return SimpleNamespace(CastAs=lambda cls: prog)
+                    if plg == "FO4SFMission.esm" and fid == 0x00081F:
+                        return mm_fac
+                    if plg == "FO4SFReputation.esm" and fid == 0x000810 + fac_slot:
+                        return rep_fac
+                    if plg == "FO4SFMapMarkers.esm":
+                        return wmm_proxy
+                    if plg == "FO4SFCoreValues.esm":
+                        return core_forms.get(fid)
+                    if plg == "Starfield.esm":
+                        return SimpleNamespace(id=fid)
+                    return None
+
+                ns = dict(
+                    LogName="fo4sf_newgame", HoldOff=(), Opening=SimpleNamespace(GetStage=lambda: 0, IsRunning=lambda: False),
+                    DebugGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValueInt=lambda *a: None),
+                    GameDaysPassed=SimpleNamespace(GetValue=lambda: 0.0), DebugAfterHold=0,
+                    FadeHold=True, StartChoiceBackdrop=3, StartLoadTimeout=15.0, LooksWait=10.0, RaceMenuMode=2,
+                    ClearInventory=True, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
+                    SurfaceWait=1.0, SurfaceTries=3, FallDrop=3.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
+                    ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=0.0, ExitAnchorId=0x0A7759, CorePlugin="FO4TerrainCore.esm",
+                    VaultAnchorId=0x805, VaultPlugin="FO4Port.esm",
+                    begun=False, routed=False, lateRoute="", faded=False, warfareFadeTicks=0, entered=False,
+                    startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
+                    loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False,
+                    h00SkipLoading=False, h00SkipMap=False, modeChoiceRan=False, modeBoxWaiting=False,
+                    modeBoxWaitSeconds=0, firstMessageDrawn=False, directWarfareEntered=False, warfareDirectMoves=0,
+                    warfareBranchStarted=False, preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
+                    setupWaitingCreator=False, warfareWaitingCreator=False, mapSetupDone=False, applied=0,
+                    pendingStage=-1, pendingStageBy="other", looksSetStage20=False, exitUsedFallback=False,
+                    vaultMoves=0, centered=0, centerTries=0, ticks=0, startedAt=0.0, scannerLayer=None,
+                    podChecked=False, rideActive=False, surfaceMovedAt=0.0, returnSurfacePending=False, asked=False,
+                    vaultSavingRelocked=True,
+                    StartRoomMarkerRef=SimpleNamespace(GetParentCell=lambda: "StartRoomCell"),
+                    PipboyWristArmor=SimpleNamespace(id="pipboy"),
+                    PipboyAcquiredGlobal=pip_glob,
+                    StartCardOpenGlobal=mk_g("StartCardOpen"),
+                    StartChoiceDoneGlobal=mk_g("StartChoiceDone"),
+                    StartNeutralSpotGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    GameModeGlobal=mk_g("GameMode"),
+                    StoryLineGlobal=mk_g("StoryLine"),
+                    StartPlaceRowGlobal=mk_g("StartPlaceRow"),
+                    SurvivalStartGlobal=mk_g("SurvivalStart"),
+                    SurvivalLockedGlobal=mk_g("SurvivalLocked"),
+                    StartDifficultyGlobal=mk_g("StartDifficulty"),
+                    WarfareFactionGlobal=mk_g("WarfareFaction"),
+                    WarfareStartIndexGlobal=mk_g("WarfareStartIndex"),
+                    H00SkipLoadingHookGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    TestModeGlobal=SimpleNamespace(GetValue=lambda: 0.0),
+                    ModePickMsg=None, StoryLineMsg=None, SurvivalPickMsg=None, StartPickMsg=None,
+                    StoryChoiceIds=[r.id for r in rows if r.mode == "story"],
+                    StartPlaceIds=[r.id for r in rows],
+                    StartPlaceModes=[1 if r.mode == "story" else 2 for r in rows],
+                    StartPlaceStories=[r.story_id or "none" for r in rows],
+                    StartPlacePlugins=[r.plugin for r in rows],
+                    StartPlaceMarkerIds=[
+                        0x805 if r.id == "fo4_vault111" else next(
+                            (anchor_map.get(w["anchor_edid"], 0x0A7759) for w in wf_starts if w["key"] == r.warfare_key),
+                            0x0A7759,
+                        )
+                        for r in rows
+                    ],
+                    StartPlaceWarfareRows=[
+                        -1 if r.mode != "warfare" else next(
+                            (i for i, w in enumerate(wf_starts) if w["key"] == r.warfare_key),
+                            -1,
+                        )
+                        for r in rows
+                    ],
+                    WarfareKeys=[w["key"] for w in wf_starts],
+                    WarfareFactionSlots=[int(w["faction_slot"]) for w in wf_starts],
+                    WarfareDistinctFactionSlots=[0, 7],
+                    WarfareMarkerIds=[anchor_map.get(w["anchor_edid"], 0x0A7759) for w in wf_starts],
+                    WarfareMarkerX=[float(w["pos"][0]) for w in wf_starts],
+                    WarfareMarkerY=[float(w["pos"][1]) for w in wf_starts],
+                    WarfareMarkerZ=[float(w["pos"][2]) for w in wf_starts],
+                    WarfareHeadings=[float(w["heading"]) for w in wf_starts],
+                    WarfareMinDiffs=[int(w["min_difficulty"]) for w in wf_starts],
+                    WarfareMaxDiffs=[int(w["max_difficulty"]) for w in wf_starts],
+                    WarfareBgIndices=[int(w["background_index"]) for w in wf_starts],
+                    WarfareFames=[float(w["fame"]) for w in wf_starts],
+                    WarfareInfamies=[float(w["infamy"]) for w in wf_starts],
+                    WarfareKarmas=[float(w["karma"]) for w in wf_starts],
+                    WarfareSquadCaps=[int(w["squad_cap"]) for w in wf_starts],
+                    WarfareGearRowIndices=[0], WarfareGearPlugins=["Starfield.esm"],
+                    WarfareGearIds=[0x100], WarfareGearCounts=[1], WarfareGearEquips=[True],
+                    CoreMarkerIds=[0x0A775A], MapMarkerQuestIds=[0x000800],
+                    Game=SimpleNamespace(
+                        GetPlayer=lambda: player, ShowFirstPersonGeometry=lambda *a: None,
+                        ShowRaceMenu=lambda *a: (events.append(("ShowRaceMenu", not player.interior)), setattr(ns, "__dict__", ns["__dict__"]) if False else ns.update({"setupWaitingCreator": False, "warfareWaitingCreator": False})),
+                        FadeOutGame=lambda *a: (fades.append(a), events.append(("Fade", a[0]))),
+                        SetInChargen=lambda a, b, c: chargens.append((a, b, c)),
+                        SetCharGenHUDMode=lambda *a: None, GetFormFromFile=get_form,
+                    ),
+                    Utility=SimpleNamespace(Wait=lambda *a: None, GetCurrentRealTime=lambda: 10.0),
+                    Debug=SimpleNamespace(OpenUserLog=lambda *a: None, Notification=lambda *a: None),
+                    InputEnableLayer=SimpleNamespace(Create=lambda: None),
+                    RegisterForMenuOpenCloseEvent=lambda *a: None, UnregisterForMenuOpenCloseEvent=lambda *a: None,
+                    StartTimer=lambda *a: None, CancelTimer=lambda *a: None,
+                    SetStage=lambda n: cur_stage.__setitem__(0, n), GetStage=lambda: cur_stage[0],
+                    SetObjectiveDisplayed=lambda *a: None, SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None, CompleteQuest=lambda *a: None, StartLandingQuests=lambda *a: None,
+                    EnsureLoadHookRegistered=lambda *a: None, TriggerVaultPodRecoveryAutosave=lambda *a: None,
+                    StandDown=lambda *a: self.fail(f"Unexpected StandDown: {a}"),
+                    ResetInventory=lambda *a: None, EnterVault=lambda *a: self.fail("Vault detour forbidden in Warfare!"),
+                    StandsInVault=lambda *a: False,
+                    IsNewGame=lambda d, l: True,
+                    HoldOffPass=lambda p: hold_passes.append(p),
+                    Trace=lambda m: logs.append(m),
+                )
+                exec(compiled, ns)
+                ns["Begin"]("OnQuestStarted")
+                self.assertEqual(ns["vaultMoves"], 0)
+                self.assertEqual(ns["startRoomMoves"], 0)
+                self.assertGreaterEqual(ns["warfareDirectMoves"], 1)
+                ns["TimerEvent"](1)
+                self.assertEqual(hold_passes, [1, 2])
+                self.assertEqual(cur_stage[0], 210)
+                self.assertFalse(ns["vaultSavingRelocked"])
+                self.assertEqual(chargens[-1], (False, False, False))
+                self.assertEqual(store["WarfareStartIndex"], float(wf_idx))
+                self.assertEqual(pip_glob.val, 1.0)
+                self.assertIn("warfare pipboy worn=True flag=1", logs)
+                # F5: Player positioned at exterior coords BEFORE OpenAttributeAllocation and ShowRaceMenu, with black fade held during move
+                set_idx = next(i for i, e in enumerate(events) if e[0] == "SetPosition")
+                alloc_idx = next(i for i, e in enumerate(events) if e[0] == "OpenAttributeAllocation")
+                race_idx = next(i for i, e in enumerate(events) if e[0] == "ShowRaceMenu")
+                clear_fade_idx = next(i for i, e in enumerate(events) if e == ("Fade", False))
+                self.assertLess(set_idx, clear_fade_idx)
+                self.assertLess(clear_fade_idx, alloc_idx)
+                self.assertLess(alloc_idx, race_idx)
+                self.assertEqual(events[alloc_idx], ("OpenAttributeAllocation", True))
+                self.assertEqual(events[race_idx], ("ShowRaceMenu", True))
+                self.assertTrue(any(getattr(it, "id", None) == exp_core_weap for it, _ in added_items))
+                if exp_mission:
+                    self.assertIn(mm_fac, added_factions)
+                    self.assertIn("DiscoverSingleMarker", [fn for fn, _ in discovered])
+                else:
+                    self.assertNotIn(mm_fac, added_factions)
+                    self.assertEqual(marker_moves, [])
+                    self.assertEqual(marker_sets, [])
+                    self.assertNotIn("DiscoverSingleMarker", [fn for fn, _ in discovered])
+
+    def test_f4_late_dll_handshake_completes_before_vault_entry(self):
+        from types import SimpleNamespace
+        from fo4sf.core import start_places as sp
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        funcs = (
+            "Begin", "DisableHandScanner", "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo",
+            "UsePreworldRoom", "StandsInStartRoom", "EnterStartRoom", "PrepareStartRoomUi",
+            "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
+            "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
+            "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "ResolvePrelaunchWarfareRow",
+            "SyncPrelaunchHandshake", "IsPrelaunchWarfare", "EnterPrelaunchWarfareMarker", "ShowFirstBoxSafely",
+            "SyncHardcoreFromStart", "EnterVault", "FadeIn",
+        )
+        vars_csv = (
+            "begun, routed, lateRoute, faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, "
+            "startRoomUiPrepared, loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, "
+            "h00SkipLoading, modeChoiceRan, directWarfareEntered, warfareDirectMoves, preworldLooksDone, "
+            "applied, pendingStage, pendingStageBy, vaultMoves, centered, centerTries, ticks, scannerLayer, vaultSavingRelocked"
+        )
+        compiled = compile(translated_functions(psc, funcs, vars_csv), PSC, "exec")
+
+        rows = [r for r in sp.load_start_places() if r.available]
+        gunners_row = next(i for i, r in enumerate(rows) if r.id == "gunners_plaza")
+        store = {"StartCardOpen": 0.0, "StartChoiceDone": 0.0, "GameMode": 0.0, "StartPlaceRow": 0.0, "WarfareStartIndex": -1.0}
+        logs = []
+        ext_marker = SimpleNamespace(GetParentCell=lambda: "ExtCell")
+        player = SimpleNamespace(
+            pos=(0.0, 0.0, 0.0), cell="Pre", interior=True,
+            MoveTo=lambda ref, *r: (setattr(player, "cell", ref.GetParentCell()), setattr(player, "interior", False)),
+            Is3DLoaded=lambda: True, GetParentCell=lambda: player.cell, GetLevel=lambda: 1,
+            WaitFor3DLoad=lambda *a: None,
+        )
+
+        def _set(k, v):
+            store[k] = float(v)
+            if k == "StartCardOpen" and float(v) <= -0.5 and store["StartChoiceDone"] < 0.5:
+                # Simulate FO4SFPipboyMenu.dll responding during Begin() handshake before EnterVault runs
+                store["GameMode"] = 2.0
+                store["StartPlaceRow"] = float(gunners_row)
+                store["WarfareStartIndex"] = 1.0
+                store["StartChoiceDone"] = 1.0
+                store["StartCardOpen"] = 0.0
+
+        mk_g = lambda k: SimpleNamespace(GetValue=lambda k=k: store[k], SetValue=lambda v, k=k: _set(k, v))
+        ns = dict(
+            LogName="fo4sf_newgame", HoldOff=(), Opening=SimpleNamespace(GetStage=lambda: 0, IsRunning=lambda: False),
+            DebugGlobal=SimpleNamespace(GetValue=lambda: 0.0, SetValueInt=lambda *a: None),
+            GameDaysPassed=SimpleNamespace(GetValue=lambda: 0.0), DebugAfterHold=0,
+            FadeHold=True, AnchorTemporary=False, StartChoiceBackdrop=3, ExitAnchorId=0x0A7759, CorePlugin="FO4TerrainCore.esm",
+            VaultAnchorId=0x805, VaultPlugin="FO4Port.esm",
+            begun=False, routed=False, lateRoute="", faded=False, warfareFadeTicks=0, entered=False,
+            startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False, loadingMenuOpen=False,
+            loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False, h00SkipLoading=False,
+            modeChoiceRan=False, directWarfareEntered=False, warfareDirectMoves=0, preworldLooksDone=False,
+            applied=0, pendingStage=-1, pendingStageBy="other", vaultMoves=0, centered=0, centerTries=0,
+            ticks=0, scannerLayer=None, vaultSavingRelocked=False,
+            StartRoomMarkerRef=SimpleNamespace(GetParentCell=lambda: "StartRoomCell"),
+            StartCardOpenGlobal=mk_g("StartCardOpen"), StartChoiceDoneGlobal=mk_g("StartChoiceDone"),
+            GameModeGlobal=mk_g("GameMode"), StartPlaceRowGlobal=mk_g("StartPlaceRow"),
+            WarfareStartIndexGlobal=mk_g("WarfareStartIndex"),
+            StartPlaceIds=[r.id for r in rows], StartPlaceModes=[1 if r.mode == "story" else 2 for r in rows],
+            StartPlacePlugins=[r.plugin for r in rows], StartPlaceMarkerIds=[0x000800] * len(rows),
+            StartPlaceWarfareRows=[-1, 0, 1, 2], WarfareKeys=["minutemen_sanctuary", "gunners_plaza", "raiders_corvega"],
+            WarfareMarkerIds=[0x0A775A, 0x000800, 0x000800],
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player, ShowFirstPersonGeometry=lambda *a: None, FadeOutGame=lambda *a: None,
+                GetFormFromFile=lambda fid, plg: ext_marker if plg == "FO4TerrainCore.esm" else self.fail(f"Must not look up Vault! {plg}:{fid}"),
+            ),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: 1.0),
+            Debug=SimpleNamespace(OpenUserLog=lambda *a: None, Notification=lambda *a: None),
+            InputEnableLayer=SimpleNamespace(Create=lambda: None),
+            EnsureLoadHookRegistered=lambda *a: None, StartTimer=lambda *a: None,
+            RegisterForMenuOpenCloseEvent=lambda *a: None, StandDown=lambda *a: self.fail(f"StandDown {a}"),
+            HoldOffPass=lambda *a: None, IsNewGame=lambda d, l: True, Trace=lambda m: logs.append(m),
+        )
+        exec(compiled, ns)
+        ns["Begin"]("OnQuestStarted")
+        self.assertEqual(ns["vaultMoves"], 0)
+        self.assertGreaterEqual(ns["warfareDirectMoves"], 1)
+        self.assertTrue(ns["directWarfareEntered"])
+        self.assertTrue(any("prelaunch handshake" in m for m in logs))
+
+    def test_first_message_box_draws_first_time_and_retries_once_on_minus_one(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        compiled = compile(
+            translated_functions(psc, ("ShowFirstBoxSafely",), "firstMessageDrawn, startUiReady"),
+            PSC,
+            "exec",
+        )
+        responses = iter([-1, 0])
+        fades, chargens, waits, logs = [], [], [], []
+        ns = dict(
+            firstMessageDrawn=False,
+            startUiReady=True,
+            Game=SimpleNamespace(
+                FadeOutGame=lambda *a: fades.append(a),
+                SetInChargen=lambda *a: chargens.append(a),
+            ),
+            Utility=SimpleNamespace(Wait=lambda s: waits.append(s)),
+            Trace=lambda m: logs.append(m),
+        )
+        exec(compiled, ns)
+        msg = SimpleNamespace(Show=lambda: next(responses))
+        btn = ns["ShowFirstBoxSafely"](msg, "ModePickMsg")
+        self.assertEqual(btn, 0)
+        self.assertTrue(ns["firstMessageDrawn"])
+        self.assertEqual(waits, [0.35])
+        self.assertIn("first message box retry msg=ModePickMsg", logs)
+        self.assertIn("first message box drawn msg=ModePickMsg btn=0", logs)
+        self.assertEqual(fades[-1], (False, True, 0.0, 0.1, False))
+        self.assertEqual(chargens[-1], (False, False, False))
+
+    def test_prelaunch_warfare_preserves_special_40_pool_traits_and_vault_respec(self):
+        self.assertEqual(ng.SPECIAL_POINTS, 33)
+        self.assertEqual(sum((ng.SPECIAL_BASE,) * len(ng.SPECIAL_STATS)) + ng.SPECIAL_POINTS, 40)
+        prog_psc = read(os.path.join(ROOT, "scripts", "progression", "FO4SF_ProgressionQuest.psc"))
+        self.assertIn("40-pt SPECIAL", prog_psc)
+        self.assertIn("At most 2 Traits can be selected", prog_psc)
+        self.assertIn("ApplyExitTraitRespec(", prog_psc)
+        self.assertIn("reason=limit_1", prog_psc)
 
 
 if __name__ == "__main__":

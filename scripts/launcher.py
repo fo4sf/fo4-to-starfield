@@ -75,9 +75,9 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, instance, locate, manifest,  # noqa: E402
-                            paths, plugin_checks, recovery, restore, runtimes, same_ids, selfupdate, settings,
-                            start_cover, test_kits)
+from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, instance, launch_choices,  # noqa: E402
+                            locate, manifest, paths, plugin_checks, recovery, restore, runtimes, same_ids,
+                            selfupdate, settings, start_cover, test_kits)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -353,8 +353,9 @@ def cmd_play(a):
     if folder and a.starfield and norm(a.starfield) != norm(folder):
         raise ValueError(f"--starfield {a.starfield} is not the FO4SF game folder {folder} (setting instance); "
                          "pass that folder or none")
+    kw = {"launch_nonce": a.nonce} if getattr(a, "nonce", "") else {}
     if folder:                                        # the FO4SF game folder: always FO4SF, the player's left alone
-        r = crashwatch.play(values, folder, dry_run=a.dry_run, folder=folder)
+        r = crashwatch.play(values, folder, dry_run=a.dry_run, folder=folder, **kw)
         return 0 if r.get("dry_run") or r.get("started") else 1
     starfield = a.starfield or values["starfield"]
     if not starfield:
@@ -363,7 +364,7 @@ def cmd_play(a):
     if not a.starfield and paths.check("starfield", starfield):   # a saved folder the game has since left (Codex, #481)
         raise ValueError(f"the saved Starfield folder {starfield}: {paths.check('starfield', starfield)}; confirm it "
                          "again in the window's Locations tab or with `launcher.py paths --accept`")
-    r = crashwatch.play(values, starfield, dry_run=a.dry_run)
+    r = crashwatch.play(values, starfield, dry_run=a.dry_run, **kw)
     return 0 if r.get("dry_run") or r.get("started") else 1
 
 
@@ -484,6 +485,58 @@ def cmd_cover_signal(a):
     sig = a.signal_file or start_cover.default_signal_path()
     written = start_cover.write_fake_ready_signal(sig, nonce=a.nonce, stage=a.stage)
     print(f"wrote ready signal: {written} (stage={a.stage})")
+    return 0
+
+
+def cmd_launch_choices(a):
+    values = settings.load(a.settings or default_settings_path())
+    if a.mode:
+        values["start.mode"] = settings.coerce("start.mode", a.mode)
+    if a.survival:
+        values["start.survival"] = settings.coerce("start.survival", a.survival)
+    if a.place is not None:
+        values["start.place"] = settings.coerce("start.place", a.place)
+    folder = values["instance"]
+    starfield = a.starfield or folder or values["starfield"]
+    plugins_txt = instance.plugins_txt(folder) if folder else None
+    sys_obj = crashwatch.System(plugins_txt=plugins_txt)
+    entries = sys_obj.plugin_entries() if (starfield or plugins_txt) else None
+    avail_rows, reasons, _eff, _places = launch_choices.filtered_places_for_session(
+        mode=values["start.mode"],
+        starfield_dir=starfield,
+        entries=entries,
+        strict_session=bool(starfield or entries is not None),
+    )
+    payload = launch_choices.resolve_and_build_launch_choices(
+        values,
+        starfield_dir=starfield,
+        entries=entries,
+        nonce=a.nonce,
+        strict_session=bool(starfield or entries is not None),
+    )
+    written = ""
+    if a.write:
+        target = a.out or launch_choices.default_launch_choices_path()
+        if not a.out:
+            start_cover.clear_signal_file(start_cover.default_signal_path())
+        written = launch_choices.write_launch_choices(target, payload)
+    if a.json:
+        print(json.dumps({
+            "choices": payload,
+            "available_places": [
+                {"id": r.id, "name": r.name, "mode": r.mode, "plugin": r.plugin, "warfare_key": r.warfare_key}
+                for r in avail_rows
+            ],
+            "unavailable_reasons": reasons,
+            "written": written,
+        }, indent=2, sort_keys=True))
+    else:
+        print(f"mode={payload['mode']} survival={'on' if payload['survival'] else 'off'} place={payload['place_id']}")
+        for r in avail_rows:
+            mark = "*" if r.id == payload["place_id"] else " "
+            print(f"  {mark} {r.id}: {r.name} ({r.plugin})")
+        if written:
+            print(f"wrote: {written}")
     return 0
 
 
@@ -621,6 +674,7 @@ def main(argv=None):
     s.add_argument("--starfield", default="", help="default: the saved starfield location")
     s.add_argument("--settings", default="")
     s.add_argument("--dry-run", action="store_true", help="print what play would do; change and start nothing")
+    s.add_argument("--nonce", default="", help="launch nonce linking launch_choices.json with Start Cover")
     s = sub.add_parser("recover-install", help="roll back an interrupted installation through its own installer")
     s.add_argument("--starfield", default="")
     s.add_argument("--settings", default="")
@@ -655,6 +709,16 @@ def main(argv=None):
     s.add_argument("--signal-file", default="")
     s.add_argument("--nonce", default="")
     s.add_argument("--stage", default="fake_ready")
+    s = sub.add_parser("launch-choices", help="inspect or write filtered Story/Warfare, Survival, and start-place choices")
+    s.add_argument("--settings", default="")
+    s.add_argument("--starfield", default="")
+    s.add_argument("--mode", choices=launch_choices.MODE_CHOICES, default="")
+    s.add_argument("--survival", choices=("on", "off"), default="")
+    s.add_argument("--place", default=None)
+    s.add_argument("--nonce", default="")
+    s.add_argument("--out", default="", help="default: %%LOCALAPPDATA%%\\FO4SF\\launch_choices.json")
+    s.add_argument("--write", action="store_true", help="atomically write launch_choices.json")
+    s.add_argument("--json", action="store_true", help="emit JSON payload and filtered rows")
     given = list(sys.argv[1:] if argv is None else argv)
     command = []
     if given[:1] == ["instance"] and "--" in given:            # instance run -- <command>: everything after -- is it
@@ -671,7 +735,8 @@ def main(argv=None):
                 "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
                 "watch": cmd_watch, "gui": cmd_gui, "paths": cmd_paths, "update": cmd_update,
                 "instance": cmd_instance, "recover-install": cmd_recover_install, "tests": cmd_tests,
-                "cover-preview": cmd_cover_preview, "cover-signal": cmd_cover_signal}[a.cmd](a)
+                "launch-choices": cmd_launch_choices, "cover-preview": cmd_cover_preview,
+                "cover-signal": cmd_cover_signal}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2
