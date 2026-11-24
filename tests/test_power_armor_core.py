@@ -84,10 +84,12 @@ def make_fake_content_resources(zip_path, omit=()):
             )
             + "\n"
         ),
-        "Scripts/Source/Game.psc": "Scriptname Game Native\nActor Function GetPlayer() global native\nForm Function GetFormFromFile(int aiId, string asFile) global native\nbool Function IsPluginInstalled(string asFile) global native\n",
+        "Scripts/Source/Game.psc": "Scriptname Game Native\nActor Function GetPlayer() global native\nForm Function GetFormFromFile(int aiId, string asFile) global native\nbool Function IsPluginInstalled(string asFile) global native\nFunction FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, bool abStayFaded = false) global native\n",
         "Scripts/Source/Debug.psc": "Scriptname Debug Native\nbool Function OpenUserLog(string s) global native\nbool Function TraceUser(string s, string m) global native\nFunction Notification(string m) global native\n",
-        "Scripts/Source/Utility.psc": "Scriptname Utility Native\nfloat Function GetCurrentRealTime() global native\n",
-        "Scripts/Source/Math.psc": "Scriptname Math Native\nfloat Function Sqrt(float v) global native\n",
+        "Scripts/Source/Utility.psc": "Scriptname Utility Native\nfloat Function GetCurrentRealTime() global native\nFunction Wait(float afSeconds) global native\n",
+        "Scripts/Source/Perk.psc": "Scriptname Perk extends Form Native\n",
+        "Scripts/Source/Location.psc": "Scriptname Location extends Form Native\n",
+        "Scripts/Source/Math.psc": "Scriptname Math Native\nfloat Function Sqrt(float v) global native\nfloat Function abs(float v) global native\n",
     }
     with zipfile.ZipFile(zip_path, "w") as z:
         for arc, body in files.items():
@@ -148,10 +150,15 @@ class PowerArmorCoreScriptAndContractTests(unittest.TestCase):
             "SalvagedHelmId",
             "SalvagedAgiEnchId",
             "SalvagedAgiMgefId",
+            "NoFallPerkId",
             "ArrivalRefId",
             "CocRefId",
             "FrameFurnRefId",
             "ExitChairRefId",
+            "PaLeftArmId",
+            "PaRightArmId",
+            "PaLeftLegId",
+            "PaRightLegId",
         )
         for name in shared:
             m = re.search(rf"^int {name}\s*=\s*(0x[0-9A-Fa-f]+)", PSC_TEXT, re.M)
@@ -191,14 +198,99 @@ class PowerArmorCoreScriptAndContractTests(unittest.TestCase):
 
     def test_psc_implements_outfit_capture_drain_reload_and_salvaged_ncr(self):
         self.assertIn('RegisterForRemoteEvent(p, "OnItemUnequipped")', PSC_TEXT)
-        self.assertIn('RegisterForRemoteEvent(p, "OnPlayerLoadGame")', PSC_TEXT)
+        self.assertIn("RegisterForRemoteEvent(p, \"OnPlayerLoadGame\")", PSC_TEXT)
+        self.assertIn("RegisterForRemoteEvent(p, \"OnPlayerFallLongDistance\")", PSC_TEXT)
         self.assertIn("Event Actor.OnPlayerLoadGame(Actor akSender)", PSC_TEXT)
+        self.assertIn("Event Actor.OnPlayerFallLongDistance(Actor akSender, float afDamage)", PSC_TEXT)
         self.assertIn("Event Actor.OnItemUnequipped(Actor akSender, Form akBaseObject, ObjectReference akReference)", PSC_TEXT)
         self.assertIn("Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference akReference)", PSC_TEXT)
         self.assertIn("reload_sync", PSC_TEXT)
         self.assertIn("core_reload", PSC_TEXT)
         self.assertIn("core_depleted", PSC_TEXT)
         self.assertIn("salvaged_equip", PSC_TEXT)
+        self.assertIn("entry_refused", PSC_TEXT)
+        self.assertIn("reason=no_fusion_core", PSC_TEXT)
+        self.assertIn("mode=fade_equip_standin", PSC_TEXT)
+        self.assertIn("Game.FadeOutGame", PSC_TEXT)
+        self.assertIn("ApplyNoFallDamagePerk", PSC_TEXT)
+        self.assertIn("DisableTerrainRoofDupes", PSC_TEXT)
+        self.assertIn("terrain_dupes_disabled", PSC_TEXT)
+        self.assertIn("0x008913", PSC_TEXT)
+        self.assertIn("0x005119", PSC_TEXT)
+        self.assertIn("hp_before=", PSC_TEXT)
+        self.assertIn("hp_after=", PSC_TEXT)
+
+    def test_fusion_core_entry_gate_zero_fo4sf_prefix_and_fall_immunity_logic(self):
+        # Verify C# writer source defines zero "FO4SF " prefixed FULL names outside negative SelfTest mutation
+        cs_prod = CS_TEXT.split("public static int SelfTest(")[0]
+        prefixed = re.findall(r'\bName\s*=\s*"FO4SF\s+[^"]*"', cs_prod)
+        self.assertEqual(prefixed, [], f"Forbidden 'FO4SF ' prefix in FULL Name assignments: {prefixed}")
+        self.assertIn("0x09150B", CS_TEXT)
+        self.assertIn("MaterialActorMetalLarge", CS_TEXT)
+
+        # Verify PSC checks the FusionCore gate BEFORE FadeOutGame / SetRace / equipping pieces
+        enter_idx = PSC_TEXT.index("Function EnterFrame(")
+        refuse_idx = PSC_TEXT.index("entry_refused", enter_idx)
+        fade_idx = PSC_TEXT.index("Game.FadeOutGame(true", enter_idx)
+        equip_idx = PSC_TEXT.index("EquipAllPaPieces(p, true)", enter_idx)
+        self.assertLess(refuse_idx, fade_idx)
+        self.assertLess(refuse_idx, equip_idx)
+
+        # Deterministic offline state-machine check matching EnterFrame / ApplyChargeDrain / ExitFrame
+        def try_enter(state, trigger="onsit_frame"):
+            if state["in_suit"]:
+                return "already_in_suit"
+            if state["charge"] <= 0.0 and state["cores"] < 1:
+                state["logs"].append(f"entry_refused trigger={trigger} reason=no_fusion_core charge={state['charge']} cores=0")
+                return "refused_no_core"
+            if state["charge"] <= 0.0:
+                state["cores"] -= 1
+                state["charge"] = 100.0
+            state["in_suit"] = True
+            state["inpa_av"] = 1.0
+            state["fall_perk"] = True
+            state["equipped_pa"] = 8
+            state["logs"].append(f"climb_in trigger={trigger} equipped_pa=8 charge={state['charge']}")
+            return "entered"
+
+        def do_exit(state, trigger="stage30"):
+            if not state["in_suit"]:
+                return "not_in_suit"
+            state["in_suit"] = False
+            state["inpa_av"] = 0.0
+            state["fall_perk"] = False
+            state["equipped_pa"] = 0
+            state["logs"].append(f"exit_complete trigger={trigger} charge_kept={state['charge']}")
+            return "exited"
+
+        st = {"in_suit": False, "inpa_av": 0.0, "charge": 0.0, "cores": 0, "fall_perk": False, "equipped_pa": 0, "logs": []}
+        self.assertEqual(try_enter(st, "roof_frame"), "refused_no_core")
+        self.assertFalse(st["in_suit"])
+        self.assertEqual(st["inpa_av"], 0.0)
+        self.assertFalse(st["fall_perk"])
+        self.assertEqual(st["equipped_pa"], 0)
+        self.assertIn("reason=no_fusion_core", st["logs"][-1])
+
+        st["cores"] = 1
+        self.assertEqual(try_enter(st, "roof_frame"), "entered")
+        self.assertTrue(st["in_suit"])
+        self.assertEqual(st["cores"], 0)
+        self.assertEqual(st["charge"], 100.0)
+        self.assertTrue(st["fall_perk"])
+        self.assertEqual(st["equipped_pa"], 8)
+
+        # Partial core drain -> exit keeps charge -> re-entry without spare core works
+        st["charge"] = 62.5
+        self.assertEqual(do_exit(st), "exited")
+        self.assertEqual(st["charge"], 62.5)
+        self.assertFalse(st["fall_perk"])
+        self.assertEqual(try_enter(st), "entered")
+        self.assertEqual(st["charge"], 62.5)
+
+        # Fully depleted exit with 0 spare cores -> next entry refused until new core acquired
+        st["charge"] = 0.0
+        self.assertEqual(do_exit(st), "exited")
+        self.assertEqual(try_enter(st), "refused_no_core")
 
     def test_pc_card_names_and_deletes_throwaway_save_and_public_surface_is_clean(self):
         doc_text = DOC_PATH.read_text(encoding="utf-8")
@@ -403,12 +495,25 @@ class CoreLogParserTests(unittest.TestCase):
     def test_papyrus_error_blocks_pass_verdict(self):
         lines = [
             "FO4SFPACORE rt=1.0 init version=1 quest=150996997 installed=true end=true",
-            "FO4SFPACORE rt=2.0 climb_in cycle=0 trigger=stage10 race=150996994 orig_race=13437 equipped_pa=4 charge=100.0 limbs_min=100.0 inpa=1.0 end=true",
+            "FO4SFPACORE rt=1.5 entry_refused cycle=0 trigger=onsit_frame reason=no_fusion_core charge=0.0 cores=0 end=true",
+            "FO4SFPACORE rt=2.0 climb_in cycle=0 trigger=stage10 race=150996994 orig_race=13437 equipped_pa=8 charge=100.0 limbs_min=100.0 inpa=1.0 end=true",
+            "FO4SFPACORE rt=2.5 fall_long inpa=true dmg_reported=0.0 immunity_perk=true hp_before=200.0 hp_after=200.0 end=true",
+            "FO4SFPACORE rt=2.6 terrain_dupes_disabled frame_static=16812307 minigun_acti=16797977 reason=poll end=true",
             "FO4SFPACORE rt=3.0 drain source=move charge=90.0 remaining_cores=0 slow_walk=false end=true",
-            "FO4SFPACORE rt=4.0 reload_sync inpa=true pa_av=1.0 equipped_pa=4 charge=90.0 saved_worn=1 limbs_min=100.0 end=true",
+            "FO4SFPACORE rt=4.0 reload_sync inpa=true pa_av=1.0 equipped_pa=8 charge=90.0 saved_worn=1 limbs_min=100.0 end=true",
             "FO4SFPACORE rt=5.0 exit_complete cycle=0 trigger=stage30 restored_worn=1 equipped_pa=0 inpa=0.0 race=13437 frame_standing=true end=true",
             "FO4SFPACORE rt=6.0 salvaged_equip item=150997018 inpa=false pa_av=0.0 agi=4.0 end=true",
         ]
+        s_ok = core_log.summarize(lines, papyrus=["[11/16/2026] clean"])
+        self.assertTrue(s_ok["verdict"].startswith("PASS:"), s_ok["verdict"])
+        self.assertEqual(len(s_ok["entry_refused"]), 1)
+        self.assertEqual(len(s_ok["fall_long"]), 1)
+        self.assertEqual(s_ok["fall_long"][0]["hp_before"], 200.0)
+        self.assertEqual(s_ok["fall_long"][0]["hp_after"], 200.0)
+        td = [e for e in s_ok["events"] if e["event"] == "terrain_dupes_disabled"]
+        self.assertEqual(len(td), 1)
+        self.assertEqual(td[0]["frame_static"], 16812307)
+        self.assertEqual(td[0]["minigun_acti"], 16797977)
         s = core_log.summarize(lines, papyrus=["[ts] error: FO4SF_PowerArmorCoreQuest something failed"])
         self.assertEqual(len(s["papyrus"]), 1)
         self.assertTrue(s["verdict"].startswith("PARTIAL"))

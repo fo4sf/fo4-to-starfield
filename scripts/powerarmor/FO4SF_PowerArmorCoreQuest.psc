@@ -21,6 +21,8 @@ GlobalVariable Property TestModeGlobal Auto Const
 string LogName = "FO4SFPACore"
 string CorePlugin = "FO4SFPowerArmor.esm"
 string StarfieldPlugin = "Starfield.esm"
+string TerrainCorePlugin = "FO4TerrainCore.esm"
+string P2ProbePlugin = "FO4SF_R11P2PowerArmor.esm"
 
 int CellId = 0x800
 int FrameFurnId = 0x801
@@ -50,13 +52,24 @@ int SalvagedBodyId = 0x81A
 int SalvagedHelmId = 0x81B
 int SalvagedAgiEnchId = 0x81C
 int SalvagedAgiMgefId = 0x81D
+int NoFallPerkId = 0x81E
 
 int ArrivalRefId = 0x820
 int CocRefId = 0x821
 int FrameFurnRefId = 0x822
 int ExitChairRefId = 0x823
 
+int PaLeftArmId = 0x82A
+int PaRightArmId = 0x82B
+int PaLeftLegId = 0x82C
+int PaRightLegId = 0x82D
+
 int SfCarryWeightAvId = 0x0002DC
+int SfHealthAvId = 0x0002D4
+int TerrainFrameStaticId = 0x008913
+int TerrainMinigunActiId = 0x005119
+float ConcordRoofAnchorX = -1990.58
+float ConcordRoofAnchorY = -1724.19
 
 ; ---------------------------------------------------------------- persistent runtime state (serialized in .sfs saves)
 
@@ -72,6 +85,7 @@ float DRAIN_PER_ACTIVE_TICK = 0.6
 float DEPLETED_CARRY_PENALTY = 10000.0
 
 bool InSuit = false
+bool TransitionBusy = false
 bool RecordingWorn = false
 bool DepletedPenaltyApplied = false
 bool SalvagedSpecialAgiApplied = false
@@ -93,6 +107,8 @@ float LastPosY = 0.0
 float LastPosZ = 0.0
 int LastLoggedChargeBucket = -1
 int Cycle = 0
+bool LoggedTerrainDupes = false
+float LastStableHp = -1.0
 
 ; ---------------------------------------------------------------- init & logging
 
@@ -111,7 +127,9 @@ Event OnQuestInit()
             SavedOrigRace = p.GetRace()
         endif
         SyncLastPos(p)
+        LastStableHp = GetPlayerHealth(p)
         RegisterPlayerEvents(p)
+        DisableTerrainRoofDupes("quest_init")
     endif
     Trace("init version=1 quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(CorePlugin) + " parace=" + Id(Thing(RaceId)) + " bptd=" + Id(Thing(BodyPartDataId)) + " framefurn=" + Id(Ref(FrameFurnRefId)) + " core=" + Id(Thing(FusionCoreId)) + " salvaged=" + Id(Thing(SalvagedBodyId)))
     StartTimer(POLL_S, TIMER_POLL)
@@ -125,6 +143,8 @@ Function RegisterPlayerEvents(Actor p)
     RegisterForRemoteEvent(p, "OnItemEquipped")
     RegisterForRemoteEvent(p, "OnSit")
     RegisterForRemoteEvent(p, "OnPlayerLoadGame")
+    RegisterForRemoteEvent(p, "OnLocationChange")
+    RegisterForRemoteEvent(p, "OnPlayerFallLongDistance")
 EndFunction
 
 Function Trace(string msg)
@@ -195,13 +215,59 @@ Function SyncLastPos(Actor p)
     LastPosZ = p.GetPositionZ()
 EndFunction
 
+float Function GetPlayerHealth(Actor p)
+    ActorValue hpAv = SfAv(SfHealthAvId)
+    if p == None || hpAv == None
+        return -1.0
+    endif
+    return p.GetValue(hpAv)
+EndFunction
+
+bool Function NearConcordRoof(Actor p)
+    if p == None || p.IsInInterior()
+        return false
+    endif
+    float dx = Math.abs(p.GetPositionX() - ConcordRoofAnchorX)
+    float dy = Math.abs(p.GetPositionY() - ConcordRoofAnchorY)
+    return (dx < 110.0 && dy < 110.0)
+EndFunction
+
+Function DisableTerrainRoofDupes(string reason)
+    Actor p = Game.GetPlayer()
+    if p == None || !Game.IsPluginInstalled(TerrainCorePlugin)
+        return
+    endif
+    if !NearConcordRoof(p)
+        LoggedTerrainDupes = false
+        return
+    endif
+    if !Game.IsPluginInstalled(P2ProbePlugin) && !InSuit
+        return
+    endif
+    ObjectReference terrainFrame = Game.GetFormFromFile(TerrainFrameStaticId, TerrainCorePlugin) as ObjectReference
+    ObjectReference terrainMinigun = Game.GetFormFromFile(TerrainMinigunActiId, TerrainCorePlugin) as ObjectReference
+    bool didDisable = false
+    if terrainFrame != None && !terrainFrame.IsDisabled()
+        terrainFrame.DisableNoWait(false)
+        didDisable = true
+    endif
+    if terrainMinigun != None && !terrainMinigun.IsDisabled()
+        terrainMinigun.DisableNoWait(false)
+        didDisable = true
+    endif
+    if (terrainFrame != None || terrainMinigun != None) && (!LoggedTerrainDupes || didDisable)
+        LoggedTerrainDupes = (terrainFrame != None && terrainMinigun != None)
+        Trace("terrain_dupes_disabled frame_static=" + Id(terrainFrame) + " minigun_acti=" + Id(terrainMinigun) + " reason=" + reason)
+    endif
+EndFunction
+
 ; ---------------------------------------------------------------- piece & furniture helpers
 
 bool Function IsPaPiece(Form itemForm)
     if itemForm == None
         return false
     endif
-    return itemForm == Thing(FrameArmorId) || itemForm == Thing(PaTorsoId) || itemForm == Thing(PaHelmetId) || itemForm == Thing(PaPackId)
+    return itemForm == Thing(FrameArmorId) || itemForm == Thing(PaTorsoId) || itemForm == Thing(PaHelmetId) || itemForm == Thing(PaPackId) || itemForm == Thing(PaLeftArmId) || itemForm == Thing(PaRightArmId) || itemForm == Thing(PaLeftLegId) || itemForm == Thing(PaRightLegId)
 EndFunction
 
 bool Function IsSalvagedPiece(Form itemForm)
@@ -223,19 +289,102 @@ int Function EquippedPaCount(Actor p)
         return 0
     endif
     int n = 0
-    if p.IsEquipped(Thing(FrameArmorId))
-        n += 1
-    endif
-    if p.IsEquipped(Thing(PaTorsoId))
-        n += 1
-    endif
-    if p.IsEquipped(Thing(PaHelmetId))
-        n += 1
-    endif
-    if p.IsEquipped(Thing(PaPackId))
-        n += 1
-    endif
+    int[] pieceIds = new int[8]
+    pieceIds[0] = FrameArmorId
+    pieceIds[1] = PaTorsoId
+    pieceIds[2] = PaHelmetId
+    pieceIds[3] = PaPackId
+    pieceIds[4] = PaLeftArmId
+    pieceIds[5] = PaRightArmId
+    pieceIds[6] = PaLeftLegId
+    pieceIds[7] = PaRightLegId
+    int idx = 0
+    while idx < 8
+        Form pf = Thing(pieceIds[idx])
+        if pf != None && p.IsEquipped(pf)
+            n += 1
+        endif
+        idx += 1
+    endwhile
     return n
+EndFunction
+
+Function EquipAllPaPieces(Actor p, bool addMissing)
+    if p == None
+        return
+    endif
+    int[] pieceIds = new int[8]
+    pieceIds[0] = FrameArmorId
+    pieceIds[1] = PaTorsoId
+    pieceIds[2] = PaHelmetId
+    pieceIds[3] = PaPackId
+    pieceIds[4] = PaLeftArmId
+    pieceIds[5] = PaRightArmId
+    pieceIds[6] = PaLeftLegId
+    pieceIds[7] = PaRightLegId
+    int idx = 0
+    while idx < 8
+        Form pf = Thing(pieceIds[idx])
+        if pf != None
+            if addMissing && p.GetItemCount(pf) == 0
+                p.AddItem(pf, 1, true)
+            endif
+            if p.GetItemCount(pf) > 0 && !p.IsEquipped(pf)
+                p.EquipItem(pf, false, true)
+            endif
+        endif
+        idx += 1
+    endwhile
+EndFunction
+
+Function RemoveAllPaPieces(Actor p)
+    if p == None
+        return
+    endif
+    int[] pieceIds = new int[8]
+    pieceIds[0] = FrameArmorId
+    pieceIds[1] = PaTorsoId
+    pieceIds[2] = PaHelmetId
+    pieceIds[3] = PaPackId
+    pieceIds[4] = PaLeftArmId
+    pieceIds[5] = PaRightArmId
+    pieceIds[6] = PaLeftLegId
+    pieceIds[7] = PaRightLegId
+    int idx = 0
+    while idx < 8
+        Form pf = Thing(pieceIds[idx])
+        if pf != None
+            p.UnequipItem(pf, false, true)
+            int cnt = p.GetItemCount(pf)
+            if cnt > 0
+                p.RemoveItem(pf, cnt, true)
+            endif
+        endif
+        idx += 1
+    endwhile
+EndFunction
+
+Function ApplyNoFallDamagePerk(Actor p, bool enableImmunity)
+    if p == None
+        return
+    endif
+    Perk nfPerk = Thing(NoFallPerkId) as Perk
+    if nfPerk == None
+        return
+    endif
+    if enableImmunity
+        if !p.HasPerk(nfPerk)
+            p.AddPerk(nfPerk, false)
+        endif
+    else
+        if p.HasPerk(nfPerk)
+            p.RemovePerk(nfPerk)
+        endif
+    endif
+EndFunction
+
+bool Function IsInPowerArmor()
+    return InSuit
 EndFunction
 
 bool Function IsSavedGear(Form itemForm)
@@ -258,6 +407,10 @@ bool Function IsFrameFurniture(ObjectReference furnRef)
     endif
     Keyword frameKwObj = Thing(FrameFurnKeywordId) as Keyword
     if frameKwObj != None && furnRef.HasKeyword(frameKwObj)
+        return true
+    endif
+    Form frameBase = Thing(FrameFurnId)
+    if frameBase != None && furnRef.GetBaseObject() == frameBase
         return true
     endif
     return false
@@ -383,16 +536,41 @@ EndFunction
 
 Function EnterFrame(ObjectReference targetFurn, string triggerWay)
     Actor p = Game.GetPlayer()
-    if p == None || InSuit
+    if p == None || InSuit || TransitionBusy
         return
     endif
+    float existingCharge = GetOwnAv(p, FusionChargeAvId)
+    Form coreItem = Thing(FusionCoreId)
+    int heldCores = 0
+    if coreItem != None
+        heldCores = p.GetItemCount(coreItem)
+    endif
+    if existingCharge <= 0.0 && heldCores < 1
+        Stage10Handled = false
+        Trace("entry_refused cycle=" + Cycle + " trigger=" + triggerWay + " reason=no_fusion_core charge=" + existingCharge + " cores=" + heldCores)
+        Say("Fusion Core required to enter Power Armor (0 cores).")
+        return
+    endif
+
+    TransitionBusy = true
+    Trace("enter_standin_begin cycle=" + Cycle + " mode=fade_equip_standin trigger=" + triggerWay)
+    Game.FadeOutGame(true, true, 0.0, 0.35, true)
+    Utility.Wait(0.35)
+
     if SavedWornGear == None
         SavedWornGear = new Form[64]
     endif
     if targetFurn != None
+        if targetFurn != ActiveFrameRef
+            ActiveFrameDynamic = false
+        endif
+        if targetFurn == Ref(FrameFurnRefId)
+            ActiveFrameDynamic = false
+        endif
         ActiveFrameRef = targetFurn
     else
         ActiveFrameRef = Ref(FrameFurnRefId)
+        ActiveFrameDynamic = false
     endif
 
     Race curRace = p.GetRace()
@@ -405,31 +583,18 @@ Function EnterFrame(ObjectReference targetFurn, string triggerWay)
     RecordingWorn = true
     InitLimbConditions(p)
 
-    ; Equip all 4 disjoint PA pieces while RecordingWorn=true so displaced player gear is captured via OnItemUnequipped
-    Form framePiece = Thing(FrameArmorId)
-    Form torsoPiece = Thing(PaTorsoId)
-    Form helmPiece = Thing(PaHelmetId)
-    Form packPiece = Thing(PaPackId)
-    p.AddItem(framePiece, 1, true)
-    p.AddItem(torsoPiece, 1, true)
-    p.AddItem(helmPiece, 1, true)
-    p.AddItem(packPiece, 1, true)
-    p.EquipItem(framePiece, false, true)
-    p.EquipItem(torsoPiece, false, true)
-    p.EquipItem(helmPiece, false, true)
-    p.EquipItem(packPiece, false, true)
+    ; Equip all 8 disjoint FO4 PA + T-45 stand-in pieces while RecordingWorn=true so player gear is captured
+    EquipAllPaPieces(p, true)
 
-    ; Swap to FO4SF_PowerArmorRace (wired to 6-limb FO4SF_PowerArmorBodyPartData + FO4SF_PowerArmorSkin + dual-race ARMAs)
+    ; Swap to FO4SF_PowerArmorRace (wired to 6-limb BPTD + FO4SF_PowerArmorSkin + RACE.NAM4 0x0009150B)
     if paRaceObj != None && p.GetRace() != paRaceObj
         p.SetRace(paRaceObj)
         ; Re-assert equip on PA race in case SetRace refreshed biped state
-        p.EquipItem(framePiece, false, true)
-        p.EquipItem(torsoPiece, false, true)
-        p.EquipItem(helmPiece, false, true)
-        p.EquipItem(packPiece, false, true)
+        EquipAllPaPieces(p, false)
     endif
 
-    float existingCharge = GetOwnAv(p, FusionChargeAvId)
+    ApplyNoFallDamagePerk(p, true)
+
     if existingCharge > 0.0
         ClearDepletedPenalty(p)
         LastLoggedChargeBucket = (existingCharge / 5.0) as int
@@ -439,13 +604,18 @@ Function EnterFrame(ObjectReference targetFurn, string triggerWay)
 
     SetOwnAv(p, InPaAvId, 1.0)
     InSuit = true
+    Stage30Handled = false
     SyncLastPos(p)
+    LastStableHp = GetPlayerHealth(p)
+    DisableTerrainRoofDupes("enter_frame")
     if ActiveFrameRef != None && p.GetSitState() == 0 && !ActiveFrameRef.IsDisabled()
         ActiveFrameRef.DisableNoWait()
     endif
+    Game.FadeOutGame(false, true, 0.0, 0.35, false)
+    TransitionBusy = false
     StartTimer(RECORD_WINDOW_S, TIMER_STOP_RECORD)
-    Trace("climb_in cycle=" + Cycle + " trigger=" + triggerWay + " race=" + Id(p.GetRace()) + " orig_race=" + Id(SavedOrigRace) + " equipped_pa=" + EquippedPaCount(p) + " charge=" + GetOwnAv(p, FusionChargeAvId) + " limbs_min=" + MinLimbCondition(p) + " inpa=" + GetOwnAv(p, InPaAvId))
-    Say("Power Armor ON (charge " + GetOwnAv(p, FusionChargeAvId) + "%, limbs 100%). Stand up if seated and move to test drain.")
+    Trace("climb_in cycle=" + Cycle + " trigger=" + triggerWay + " mode=fade_equip_standin fall_perk=" + (p.HasPerk(Thing(NoFallPerkId) as Perk)) + " race=" + Id(p.GetRace()) + " orig_race=" + Id(SavedOrigRace) + " equipped_pa=" + EquippedPaCount(p) + " charge=" + GetOwnAv(p, FusionChargeAvId) + " limbs_min=" + MinLimbCondition(p) + " inpa=" + GetOwnAv(p, InPaAvId))
+    Say("Power Armor ON (T-45/fade stand-in; charge " + GetOwnAv(p, FusionChargeAvId) + "%, 0 fall dmg).")
 EndFunction
 
 Function RestorePriorOutfit(Actor p)
@@ -461,34 +631,22 @@ EndFunction
 
 Function ExitFrame(string triggerWay)
     Actor p = Game.GetPlayer()
-    if p == None || !InSuit
+    if p == None || !InSuit || TransitionBusy
         return
     endif
+    TransitionBusy = true
+    Trace("exit_standin_begin cycle=" + Cycle + " mode=fade_equip_standin trigger=" + triggerWay)
+    Game.FadeOutGame(true, true, 0.0, 0.35, true)
+    Utility.Wait(0.35)
+
     RecordingWorn = false
+    ApplyNoFallDamagePerk(p, false)
     ClearDepletedPenalty(p)
     SetOwnAv(p, InPaAvId, 0.0)
     InSuit = false
+    Stage10Handled = false
 
-    Form framePiece = Thing(FrameArmorId)
-    Form torsoPiece = Thing(PaTorsoId)
-    Form helmPiece = Thing(PaHelmetId)
-    Form packPiece = Thing(PaPackId)
-    p.UnequipItem(framePiece, false, true)
-    p.UnequipItem(torsoPiece, false, true)
-    p.UnequipItem(helmPiece, false, true)
-    p.UnequipItem(packPiece, false, true)
-    if p.GetItemCount(framePiece) > 0
-        p.RemoveItem(framePiece, p.GetItemCount(framePiece), true)
-    endif
-    if p.GetItemCount(torsoPiece) > 0
-        p.RemoveItem(torsoPiece, p.GetItemCount(torsoPiece), true)
-    endif
-    if p.GetItemCount(helmPiece) > 0
-        p.RemoveItem(helmPiece, p.GetItemCount(helmPiece), true)
-    endif
-    if p.GetItemCount(packPiece) > 0
-        p.RemoveItem(packPiece, p.GetItemCount(packPiece), true)
-    endif
+    RemoveAllPaPieces(p)
 
     if SavedOrigRace != None && p.GetRace() != SavedOrigRace
         p.SetRace(SavedOrigRace)
@@ -507,14 +665,27 @@ Function ExitFrame(string triggerWay)
     if frameBase != None
         ActiveFrameRef = p.PlaceAtMe(frameBase, 1, true, false, false)
         ActiveFrameDynamic = (ActiveFrameRef != None)
+        BindStandinFrameActivation(ActiveFrameRef)
         frameStanding = (ActiveFrameRef != None && !ActiveFrameRef.IsDisabled())
     endif
 
     RestorePriorOutfit(p)
     SyncLastPos(p)
-    Trace("exit_complete cycle=" + Cycle + " trigger=" + triggerWay + " restored_worn=" + SavedWornCount + " equipped_pa=" + EquippedPaCount(p) + " inpa=" + GetOwnAv(p, InPaAvId) + " race=" + Id(p.GetRace()) + " frame_standing=" + frameStanding + " charge_kept=" + GetOwnAv(p, FusionChargeAvId))
+    LastStableHp = GetPlayerHealth(p)
+    DisableTerrainRoofDupes("exit_frame")
+    Game.FadeOutGame(false, true, 0.0, 0.35, false)
+    TransitionBusy = false
+    Trace("exit_complete cycle=" + Cycle + " trigger=" + triggerWay + " mode=fade_equip_standin restored_worn=" + SavedWornCount + " equipped_pa=" + EquippedPaCount(p) + " inpa=" + GetOwnAv(p, InPaAvId) + " race=" + Id(p.GetRace()) + " frame_standing=" + frameStanding + " charge_kept=" + GetOwnAv(p, FusionChargeAvId))
     Say("Power Armor OFF: frame left standing, restored " + SavedWornCount + " prior outfit item(s).")
     Cycle += 1
+EndFunction
+
+Function BindStandinFrameActivation(ObjectReference frameRef)
+    if frameRef == None
+        return
+    endif
+    frameRef.BlockActivation(true, false)
+    RegisterForRemoteEvent(frameRef, "OnActivate")
 EndFunction
 
 Function DeployFrameAtPlayer()
@@ -531,6 +702,7 @@ Function DeployFrameAtPlayer()
     endif
     ActiveFrameRef = p.PlaceAtMe(frameBase, 1, true, false, false)
     ActiveFrameDynamic = (ActiveFrameRef != None)
+    BindStandinFrameActivation(ActiveFrameRef)
     Trace("frame_deployed ref=" + Id(ActiveFrameRef) + " cell=" + Id(p.GetParentCell()))
     Say("Power Armor frame deployed at player.")
 EndFunction
@@ -579,36 +751,64 @@ Event Actor.OnSit(Actor akSender, ObjectReference akFurniture)
     endif
 EndEvent
 
+Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
+    Actor p = Game.GetPlayer()
+    if akSender == None || p == None || akActionRef != (p as ObjectReference)
+        return
+    endif
+    if !InSuit && IsFrameFurniture(akSender)
+        EnterFrame(akSender, "activate_frame")
+    endif
+EndEvent
+
+Event Actor.OnPlayerFallLongDistance(Actor akSender, float afDamage)
+    Actor p = Game.GetPlayer()
+    bool hasImmunity = false
+    float hpAfter = -1.0
+    float hpBefore = LastStableHp
+    if p != None
+        Perk nfPerk = Thing(NoFallPerkId) as Perk
+        if nfPerk != None
+            hasImmunity = p.HasPerk(nfPerk)
+        endif
+        hpAfter = GetPlayerHealth(p)
+        if hpBefore < 0.0
+            hpBefore = hpAfter
+        endif
+        LastStableHp = hpAfter
+    endif
+    Trace("fall_long inpa=" + InSuit + " dmg_reported=" + afDamage + " immunity_perk=" + hasImmunity + " hp_before=" + hpBefore + " hp_after=" + hpAfter)
+EndEvent
+
+Event Actor.OnLocationChange(Actor akSender, Location akOldLoc, Location akNewLoc)
+    DisableTerrainRoofDupes("location_change")
+EndEvent
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    TransitionBusy = false
+    LoggedTerrainDupes = false
     Actor p = Game.GetPlayer()
     if p == None
         return
     endif
     RegisterPlayerEvents(p)
     SyncLastPos(p)
+    LastStableHp = GetPlayerHealth(p)
+    DisableTerrainRoofDupes("load_game")
     if InSuit
         SetOwnAv(p, InPaAvId, 1.0)
         InitLimbConditions(p)
-        ; Re-verify PA pieces remain equipped without overwriting SavedWornGear
+        ; Re-verify PA pieces and 0 fall damage perk remain active without overwriting SavedWornGear
         RecordingWorn = false
-        if p.GetItemCount(Thing(FrameArmorId)) > 0 && !p.IsEquipped(Thing(FrameArmorId))
-            p.EquipItem(Thing(FrameArmorId), false, true)
-        endif
-        if p.GetItemCount(Thing(PaTorsoId)) > 0 && !p.IsEquipped(Thing(PaTorsoId))
-            p.EquipItem(Thing(PaTorsoId), false, true)
-        endif
-        if p.GetItemCount(Thing(PaHelmetId)) > 0 && !p.IsEquipped(Thing(PaHelmetId))
-            p.EquipItem(Thing(PaHelmetId), false, true)
-        endif
-        if p.GetItemCount(Thing(PaPackId)) > 0 && !p.IsEquipped(Thing(PaPackId))
-            p.EquipItem(Thing(PaPackId), false, true)
-        endif
+        EquipAllPaPieces(p, false)
+        ApplyNoFallDamagePerk(p, true)
         if ActiveFrameRef != None && p.GetSitState() == 0 && !ActiveFrameRef.IsDisabled()
             ActiveFrameRef.DisableNoWait()
         endif
     else
         SetOwnAv(p, InPaAvId, 0.0)
+        ApplyNoFallDamagePerk(p, false)
         ClearDepletedPenalty(p)
     endif
     StartTimer(POLL_S, TIMER_POLL)
@@ -633,6 +833,13 @@ Function Poll()
     if p == None
         return
     endif
+    if Math.abs(p.GetPositionZ() - LastPosZ) < 0.3
+        float stableHp = GetPlayerHealth(p)
+        if stableHp >= 0.0
+            LastStableHp = stableHp
+        endif
+    endif
+    DisableTerrainRoofDupes("poll")
 
     ; Quest stage commands (gated behind FO4SF_TestModeEnabled != 0)
     if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
@@ -666,13 +873,16 @@ Function Poll()
 
     ; SitState backup trigger in case OnSit fired while cell refs were settling
     int sitNow = p.GetSitState()
-    if !InSuit && sitNow == 3
+    if !InSuit && !TransitionBusy && sitNow == 3
         ObjectReference frameRef = Ref(FrameFurnRefId)
         if frameRef != None && curCell == frameRef.GetParentCell() && p.GetDistance(frameRef) <= NEAR_FURN_DIST
             EnterFrame(frameRef, "sitstate_frame")
             return
+        elseif ActiveFrameRef != None && curCell == ActiveFrameRef.GetParentCell() && p.GetDistance(ActiveFrameRef) <= NEAR_FURN_DIST
+            EnterFrame(ActiveFrameRef, "sitstate_active_frame")
+            return
         endif
-    elseif InSuit && sitNow == 3
+    elseif InSuit && !TransitionBusy && sitNow == 3
         ObjectReference exitRef = Ref(ExitChairRefId)
         if exitRef != None && curCell == exitRef.GetParentCell() && p.GetDistance(exitRef) <= NEAR_FURN_DIST
             ExitFrame("sitstate_exitchair")

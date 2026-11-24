@@ -125,7 +125,9 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     },
     "FO4TerrainCore.esm": {
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
+        0x005119: ("REFR", "FO4Core_VertibirdMinigunRef"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x008913: ("REFR", "FO4Core_PowerArmorFurnitureRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
@@ -148,6 +150,17 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     },
     "FO4SFPipboyTravel.esm": {
         **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32) if i != 2},
+    },
+    "FO4SF_R11P2PowerArmor.esm": {
+        0x000801: ("ACTI", "FO4SF_P2_MinigunActi"),
+        0x000802: ("CELL", "FO4SF_P2_HoldingCell"),
+        0x000803: ("ACTI", "FO4SF_P2_ExitActi"),
+        0x000810: ("REFR", "FO4SF_P2_RoofFrameRef"),
+        0x000811: ("REFR", "FO4SF_P2_RoofMinigunRef"),
+        0x000812: ("REFR", "FO4SF_P2_RoofSpareCoreRef"),
+        0x000813: ("REFR", "FO4SF_P2_RoofExitRef"),
+        0x000814: ("REFR", "FO4SF_P2_StreetExitRef"),
+        0x000820: ("QUST", "FO4SF_R11P2Quest"),
     },
     "FO4SF_RA5Creatures.esm": {
         0x000804: ("NPC_", "FO4SF_RA5RadroachTest"),
