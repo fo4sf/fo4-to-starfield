@@ -255,7 +255,7 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame", "OnDying"],
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame", "OnDying"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu", "ShowFirstPersonGeometry", "RequestAutoSave"],
         "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],

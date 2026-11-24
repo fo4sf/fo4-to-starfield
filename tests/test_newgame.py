@@ -1095,6 +1095,7 @@ ACTOR_O2 = ("Function ModValue(ActorValue akAV, float afAmount) native\n"
 ACTOR_CORE = ("int Function GetLevel() native\n"
               "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
               "bool Function IsEquipped(Form akItem) native\n"
+              "bool Function IsDead() native\n"
               "Function AddToFaction(Faction akFaction) native\n"
               "Event OnPlayerLoadGame()\nEndEvent\n"
               "Event OnDying(ObjectReference akKiller)\nEndEvent\n" + ACTOR_O2)
@@ -1262,6 +1263,7 @@ class PrecheckTests(unittest.TestCase):
         --keep-inventory builds still compile it): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+                          "bool Function IsDead() native\n"
                           "Function AddToFaction(Faction akFaction) native\nEvent OnPlayerLoadGame()\nEndEvent\n"
                           "Event OnDying(ObjectReference akKiller)\nEndEvent\n" + ACTOR_O2 +
                           "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
@@ -3731,22 +3733,27 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         from tests.test_exit_arrival import translated_functions
 
         psc = read(PSC)
+        looks_psc = read(LOOKS)
         ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
         ev_dying = re.search(r"Event Actor\.OnDying\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_stage = re.search(r"Event OnStageSet\((.*?)\)\n(.*?)EndEvent", psc, re.S)
         self.assertIsNotNone(ev_timer)
         self.assertIsNotNone(ev_dying)
+        self.assertIsNotNone(ev_stage)
         wrapped = (
             psc
             + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
             + f"\nFunction DyingEvent({ev_dying[1]})\n{ev_dying[2]}EndFunction\n"
+            + f"\nFunction StageSetEvent({ev_stage[1]})\n{ev_stage[2]}EndFunction\n"
         )
         funcs = (
             "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
             "ClearVaultSaveLock", "RelockVaultSaving",
-            "ApplyStage", "Actor.OnPlayerLoadGame", "TimerEvent", "DyingEvent", "ResolveHostWorld",
+            "NoteLooksStage20", "ApplyStage", "Actor.OnPlayerLoadGame",
+            "TimerEvent", "DyingEvent", "StageSetEvent", "ResolveHostWorld",
         )
         vars_csv = (
-            "applied, pendingStage, pendingStageBy, exitUsedFallback, "
+            "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
             "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
             "loadHookRegistered, dyingHookRegistered, "
             "h00SuspectsRead, rideActive, rideDone, rideTransferred, ridingLift, ridingCell, "
@@ -3754,8 +3761,9 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+        looks_compiled = compile(translated_functions(looks_psc, ("Done",), ""), LOOKS, "exec")
 
-        def run_case(*, initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False, loaded=True):
+        def run_case(*, initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False, loaded=True, dead=False):
             logs, chargens, autosaves, timers, cancels, reg_events = [], [], [], [], [], []
             moves, sets, angles, restores = [], [], [], []
             cur_stage = [initial_stage]
@@ -3770,7 +3778,9 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 pos=(1.0, 2.0, 3.0),
                 interior=in_vault,
                 loaded=loaded,
+                dead=dead,
                 Is3DLoaded=lambda: player.loaded,
+                IsDead=lambda: player.dead,
                 IsInInterior=lambda: player.interior,
                 SetPosition=lambda x, y, z: (sets.append((x, y, z)), setattr(player, "pos", (x, y, z))),
                 MoveTo=lambda ref, dx, dy, dz, *rest: moves.append((ref, dx, dy, dz)),
@@ -3883,6 +3893,59 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertTrue(c_skip.ns["vaultPodAutosaved"])
         self.assertEqual(c_skip.autosaves, [20])
         self.assertIn("vault_death_recovery=autosave stage=20 skips=1", c_skip.logs)
+
+        # 1c (#852 candidate-2g-fix4): Quick Start path (FO4SF_NewGameLooks.Done("quick start") -> NoteLooksStage20 -> SetStage(20))
+        # MUST arm/fire vault_death_recovery=autosave stage=20 even though OnStageSet(20) short-circuits ApplyStage;
+        # a subsequent death reloads via the engine with zero RequestAutoSave during OnDying.
+        c_qs = run_case(initial_stage=10, mode=1.0, in_vault=True)
+
+        def qs_set_stage(st):
+            c_qs.cur_stage[0] = st
+            c_qs.ns["StageSetEvent"](st, 0)
+
+        looks_ns = dict(
+            GetStage=lambda: c_qs.cur_stage[0],
+            SetStage=qs_set_stage,
+            TracePosition=lambda *_: None,
+            Trace=lambda m: c_qs.logs.append(m),
+        )
+        looks_ns["self"] = SimpleNamespace(NoteLooksStage20=c_qs.ns["NoteLooksStage20"])
+        exec(looks_compiled, looks_ns)
+        looks_ns["Done"]("quick start")
+        self.assertTrue(c_qs.ns["looksSetStage20"])
+        self.assertTrue(c_qs.ns["vaultPodAutosaved"])
+        self.assertEqual(c_qs.cur_stage[0], 20)
+        self.assertEqual(len(c_qs.autosaves), 1)
+        self.assertEqual(c_qs.chargens, [(False, False, False)])
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=0", c_qs.logs)
+        self.assertIn((1.5, 6), c_qs.timers)
+        c_qs.ns["TimerEvent"](6)
+        self.assertTrue(c_qs.ns["vaultSavingRelocked"])
+        self.assertEqual(c_qs.chargens[-1], (True, False, False))
+        c_qs.player.dead = True
+        c_qs.ns["DyingEvent"](c_qs.player, None)
+        self.assertEqual(len(c_qs.autosaves), 1)
+        self.assertEqual(c_qs.restores, [])
+        self.assertIn("vault_death_recovery=autosave stage=20", c_qs.logs)
+
+        # Direct OnStageSet(20, 0) (even when applied >= 20 and looksSetStage20=True) also fires stage=20 autosave once
+        c_set20 = run_case(initial_stage=20, mode=1.0, in_vault=True)
+        c_set20.ns["applied"] = 20
+        c_set20.ns["looksSetStage20"] = True
+        c_set20.ns["StageSetEvent"](20, 0)
+        self.assertTrue(c_set20.ns["vaultPodAutosaved"])
+        self.assertEqual(c_set20.autosaves, [20])
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=0", c_set20.logs)
+
+        # Even if StageSetEvent(20, 0) is reached directly with applied >= 20, autosave fires and dead player cancels Timer 7
+        c_dead = run_case(initial_stage=20, mode=1.0, in_vault=True, pre_autosaved=False, dead=True)
+        c_dead.ns["applied"] = 20
+        c_dead.ns["StageSetEvent"](20, 0)
+        self.assertFalse(c_dead.ns["vaultPodAutosaved"])
+        self.assertEqual(c_dead.autosaves, [])
+        self.assertEqual(c_dead.chargens, [])
+        self.assertEqual(c_dead.timers, [])
+        self.assertIn(7, c_dead.cancels)
 
         # 2. Dying BEFORE stage 200 without an autosave restores health + moves to pod coords + logs pod_reset + arms Timer 7 (NO save in OnDying!)
         c2 = run_case(initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False)

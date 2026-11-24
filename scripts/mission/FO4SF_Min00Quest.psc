@@ -1455,13 +1455,17 @@ float Function ComputeEffectiveWeaponDamage(Actor r, float recordDmg)
 EndFunction
 
 Function ArmRaiderForCombat(Actor r, int idx)
-{C3 + R11 D3 + R13 E3: Ensure each Concord raider is unrestrained, aggressive, brave, unequips any template weapon,
- equips softened non-playable RaiderWeapon (0x97B, 1.0 dmg) + deterministic AmmoShotshell=60, and logs effective damage.}
+{C3 + R11 D3 + R13 E3 + fix4: Ensure each Concord raider is unrestrained, aggressive, brave, unequips only wrong
+ weapons (keeping FO4 0x0988 outfits intact!), equips softened non-playable RaiderWeapon (0x97B, 6.0 dmg) +
+ deterministic AmmoShotshell=60, and logs effective damage.}
     if r == None || r.IsDead()
         return
     endif
     r.SetRestrained(False)
-    r.UnequipAll()
+    Weapon curW = r.GetEquippedWeapon()
+    if curW != None && curW != RaiderWeapon && curW != RaiderSidearm
+        r.UnequipItem(curW, False, True)
+    endif
     ActorValue aggrAv = Game.GetAggressionAV()
     if aggrAv != None
         r.SetValue(aggrAv, 2.0)
@@ -1498,8 +1502,8 @@ Function ArmRaiderForCombat(Actor r, int idx)
 EndFunction
 
 Function EquipBalancedRaiderSidearm(Actor r, int idx)
-{R11 Part 3 E3 + R13 E3: Switch armed Concord street raiders from softened primary (0x097B) to VMAD-bound
- FO4SF_ConcordRaiderSidearm (WEAP 0x097A, 0.75 dmg, ObjectTemplates=null) + deterministic 36 Ammo777mm (0x04AD3E).
+{R11 Part 3 E3 + R13 E3 + fix4: Switch armed Concord street raiders from softened primary (0x097B) to VMAD-bound
+ FO4SF_ConcordRaiderSidearm (WEAP 0x097A, 1.5 dmg, ObjectTemplates+AttachParentSlots preserved) + deterministic 36 Ammo777mm (0x04AD3E).
  Adds & equips RaiderSidearm, strips RaiderWeapon + RaiderAmmo FIRST, clamps RaiderSidearmAmmo=36, and logs effective damage.}
     if r == None || r.IsDead() || RaiderSidearm == None || RaiderSidearmAmmo == None
         return

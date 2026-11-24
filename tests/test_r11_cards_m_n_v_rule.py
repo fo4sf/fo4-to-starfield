@@ -116,11 +116,14 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
 
         top = "\n".join(txt.splitlines()[:14])
         self.assertIn("NEW GAME needed", top)
+        self.assertIn("candidate-2g-fix4", top)
         self.assertIn("candidate-2g-fix3", top)
         self.assertIn("candidate-2g-fix2", top)
         self.assertIn("73ea9a4b", top)
         self.assertIn("77a16225", top)
         self.assertIn("5110793b", top)
+        self.assertIn("8fed4642", top)
+        self.assertIn("NOT CLEAR", top)
         self.assertIn("prototype, offline", top)
         self.assertIn("OFFLINE ONLY — UNPROVEN IN GAME", top)
         self.assertIn("stand-in", top.lower())
@@ -140,10 +143,14 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("<cand-r11-player-bundle>", txt)
         self.assertNotIn("<cand2g-fix-player-bundle>", txt)
         self.assertNotIn("<cand2g-fix2-player-bundle>", txt)
+        self.assertNotIn("<cand2g-fix3-player-bundle>", txt)
+        self.assertNotIn("(Raider Stand-In)", txt)
+        self.assertNotIn("(Post-mission stand-in)", txt)
+        self.assertNotIn("(Stand-In)", txt)
         self.assertNotIn("variants/codsworth-race-framing-on/FO4SFMission.esm", txt)
         # E1 removed StopDialogueCamera from Phase 2
         self.assertNotIn("codsworth talk dialogue_camera stopped phase=2", txt)
-        # In candidate-2g-fix3 (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
+        # In candidate-2g-fix4 (full Min01), bench activation advances to Objective 1000 (complete=false stage=1000)
         self.assertNotIn("sanctuary01 bench_activated=true ref=<ref> complete=true", txt)
         # F2 exact Pip-Boy keyboard truth from main.cpp:7993-8014 (no Q/E page-switch or arrow keys)
         self.assertNotIn("`Q` and `E` switch", txt)
@@ -155,9 +162,11 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("Up/Down arrows", txt)
 
         required_tokens = (
-            "<cand2g-fix3-player-bundle>",
+            "<cand2g-fix4-player-bundle>",
+            "candidate-2g-fix4",
             "candidate-2g-fix3",
             "candidate-2g-fix2",
+            "8fed4642",
             "D1",
             "D2",
             "D3",
@@ -180,7 +189,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "A2.7",
             "A3",
             "HAND-PLAY",
-            # E1-E7 + Round 12 Task 1a/1b/1i coverage
+            # E1-E7 + Round 12/13 fix4 coverage
             "--codsworth-race-framing 0",
             "MiniBotARace",
             "claude/robot-anim",
@@ -192,20 +201,28 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "facing_deg=<deg>",
             "wall_avoid=<true|false>",
             "0900097B",
-            "Coachman (Raider Stand-In)",
-            "AttackDamage = 1.0",
+            "AttackDamage = 6.0",
             "0900097A",
-            "Eon (Raider Stand-In)",
-            "AttackDamage = 0.75",
+            "AttackDamage = 1.5",
+            "ObjectTemplates",
+            "AttachParentSlots",
+            "GetEquippedWeapon()",
+            "UnequipItem",
             "eff_dmg=<eff>",
             "arm raider <i> sidearm=eon sidearm_ammo=36",
+            "NoteLooksStage20()",
+            "OnStageSet(20",
+            "player.IsDead()",
             "E) STIMPAK R) RADAWAY T) PERK CHART",
             "APPAREL",
             "PNDT 0x0003F59A",
             "w-home",
+            "FO4SFHome.esm",
             "FO4SF_MISSION ... stage 40 by=fallback",
             "vault_death_recovery=autosave stage=<st> skips=<n>",
             "audio: not judged",
+            ".audio.wav",
+            ".mp3",
             "needs a slowed take",
             "gated (`#854`)",
             "not applicable",
@@ -217,14 +234,14 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "(-3229, -4392)",
             "SANCTUARY",
             "0x058606",
+            "0x1A5507",
+            "0B00084A == 1.0",
+            "`0` `LCTN`/`STDT`/`PNDT` overrides",
             "0B00084B..0B00084D",
-            "Wooden Chair (Stand-In)",
-            "Sleeping Cot (Stand-In)",
-            "Storage Crate (Stand-In)",
+            "Wooden Chair",
+            "Sleeping Cot",
+            "Storage Crate",
             "Skill requirements not met",
-            "COMMONWEALTH, MASSACHUSETTS",
-            "HeaderFlag.Localized",
-            "FO4SFWorkshop_en",
             "F10",
             "Key=0x76",
             "PageUp",
@@ -309,6 +326,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "FO4SF_MissionHoldingCell",
             "7d5ba49c",
             "VIDEO",
+            "AUDIO",
             "Claude's Additions",
         )
         for tok in required_tokens:
@@ -326,12 +344,17 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             "candidate-2g",
             "candidate-2g-fix2",
             "candidate-2g-fix3",
+            "8fed4642",
+            "NOT CLEAR",
+            "candidate-2g-fix4",
             "P1 v2",
             "P6",
             "Gemini-reviewed, not game-run",
             "Claude's 5 Additions",
             "7d5ba49c",
             "audio: not judged",
+            ".audio.wav",
+            ".mp3",
             "needs a slowed take",
         ):
             self.assertIn(tok, st_txt, f"playable-status.md missing {tok!r}")

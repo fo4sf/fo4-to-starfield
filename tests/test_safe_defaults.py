@@ -362,6 +362,7 @@ class SafeDefaultsTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            TriggerVaultPodRecoveryAutosave=lambda *a: None,
             HoldOffPass=lambda p: None,
             Trace=lambda m: logs.append(m),
         )

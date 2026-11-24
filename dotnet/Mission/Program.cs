@@ -176,15 +176,16 @@ static class Mission
                         PrestonReply2MsgEdid = "FO4SF_Min00_PrestonReply2Msg";
     public const uint MissionTalkUseMessageBoxGlobId = 0x979;
     public const string MissionTalkUseMessageBoxGlobEdid = "FO4SF_MissionTalkUseMessageBox";
-    // R11/R13 Part 3 E3: softened Concord Raider sidearm (0.75 dmg Eon, AmmoType=Ammo777mm, AmmoList cleared -> exact 36 rounds)
-    // and softened Concord Raider primary (1.0 dmg x 1 projectile Coachman, AmmoType=AmmoShotshell, AmmoList cleared -> exact 60 rounds).
+    // R11/R13 Part 3 E3 + fix4: softened Concord Raider sidearm (1.5 dmg Eon, AmmoType=Ammo777mm, AmmoList cleared -> exact 36 rounds,
+    // ObjectTemplates+AttachParentSlots intact so receivers/barrels/ProjectileNodes render & fire) and softened Concord Raider primary
+    // (6.0 dmg x 1 projectile Coachman, AmmoType=AmmoShotshell, AmmoList cleared -> exact 60 rounds, ObjectTemplates+AttachParentSlots intact).
     public const uint ConcordRaiderSidearmWeapId = 0x97A;
     public const string ConcordRaiderSidearmWeapEdid = "FO4SF_ConcordRaiderSidearm";
-    public const float ConcordRaiderSidearmDamage = 0.75f;
+    public const float ConcordRaiderSidearmDamage = 1.5f;
     public const byte ConcordRaiderSidearmProjectiles = 1;
     public const uint ConcordRaiderPrimaryWeapId = 0x97B;
     public const string ConcordRaiderPrimaryWeapEdid = "FO4SF_ConcordRaiderPrimary";
-    public const float ConcordRaiderPrimaryDamage = 1.0f;
+    public const float ConcordRaiderPrimaryDamage = 6.0f;
     public const byte ConcordRaiderPrimaryProjectiles = 1;
 
     // R11 Part 3: Post-mission repeat Starfield Scenes hosted on FO4SF_CodsworthKeeper (0x814)
@@ -236,14 +237,14 @@ static class Mission
         ("Synthetic choice 3: ask about nearby survivors.", "Synthetic response 3: nearby town report."),
         ("Synthetic choice 4: head toward Concord.", "Synthetic response 4: onward to Concord."),
     };
-    const string SyntheticPrestonPostGreet = "Sanctuary check-in active (Post-mission stand-in).";
-    const string SyntheticPrestonPostButton = "Carry on (Stand-In)";
-    const string SyntheticPrestonPostPrompt = "Carry on, Preston (Post-mission stand-in).";
-    const string SyntheticPrestonPostReply = "Keep watching the settlement perimeter (Post-mission stand-in).";
-    const string SyntheticCodsworthPostGreet = "Sanctuary household check-in active (Post-mission stand-in).";
-    const string SyntheticCodsworthPostButton = "Carry on (Stand-In)";
-    const string SyntheticCodsworthPostPrompt = "Carry on, Codsworth (Post-mission stand-in).";
-    const string SyntheticCodsworthPostReply = "Keeping Sanctuary tidy as ordered (Post-mission stand-in).";
+    const string SyntheticPrestonPostGreet = "Sanctuary check-in active.";
+    const string SyntheticPrestonPostButton = "Carry on";
+    const string SyntheticPrestonPostPrompt = "Carry on, Preston.";
+    const string SyntheticPrestonPostReply = "Keep watching the settlement perimeter.";
+    const string SyntheticCodsworthPostGreet = "Sanctuary household check-in active.";
+    const string SyntheticCodsworthPostButton = "Carry on";
+    const string SyntheticCodsworthPostPrompt = "Carry on, Codsworth.";
+    const string SyntheticCodsworthPostReply = "Keeping Sanctuary tidy as ordered.";
 
     public const float Units = 70f;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
@@ -1453,35 +1454,28 @@ static class Mission
             Data = 0f,
         });
 
-        // R11/R13 Part 3 E3: Softened Concord Raider sidearm (WEAP 0x097A, AttackDamage=0.75, ProjectilesCount=1,
-        // AmmoType=0x04AD3E, AmmoList=null, ObjectTemplates=null & AttachParentSlots cleared, NonPlayable + stand-in label)
+        // R11/R13 Part 3 E3 + fix4: Softened Concord Raider sidearm (WEAP 0x097A, AttackDamage=1.5, ProjectilesCount=1,
+        // AmmoType=0x04AD3E, AmmoList=null, ObjectTemplates & AttachParentSlots kept intact so model renders/fires, NonPlayable)
         var concordSidearm = (SF.Weapon)raiderSidearm.Duplicate(new FormKey(modKey, ConcordRaiderSidearmWeapId));
         concordSidearm.EditorID = ConcordRaiderSidearmWeapEdid;
-        concordSidearm.Name = "Eon (Raider Stand-In)";
+        concordSidearm.Name = "Eon";
         concordSidearm.AttackDamage = ConcordRaiderSidearmDamage;
         concordSidearm.ProjectilesCount = ConcordRaiderSidearmProjectiles;
         concordSidearm.AmmoType.SetTo(raiderSidearmAmmo.FormKey);
         concordSidearm.AmmoList.SetToNull();
-        concordSidearm.ObjectTemplates?.Clear();
-        concordSidearm.ObjectTemplates = null;
-        concordSidearm.AttachParentSlots?.Clear();
         concordSidearm.MajorFlags |= SF.Weapon.MajorFlag.NonPlayable;
         concordSidearm.NonPlayable = true;
         mod.Weapons.Add(concordSidearm);
 
-        // R13 E3: Softened Concord Raider primary (WEAP 0x097B, duplicated from Coachman 0x26D96B with
-        // AttackDamage=1.0, ProjectilesCount=1, AmmoType=0x2B4AFB, AmmoList=null, ObjectTemplates=null,
-        // AttachParentSlots cleared, NonPlayable + stand-in label).
+        // R13 E3 + fix4: Softened Concord Raider primary (WEAP 0x097B, duplicated from Coachman 0x26D96B with
+        // AttackDamage=6.0, ProjectilesCount=1, AmmoType=0x2B4AFB, AmmoList=null, ObjectTemplates & AttachParentSlots kept intact, NonPlayable).
         var concordPrimary = (SF.Weapon)raiderWeapon.Duplicate(new FormKey(modKey, ConcordRaiderPrimaryWeapId));
         concordPrimary.EditorID = ConcordRaiderPrimaryWeapEdid;
-        concordPrimary.Name = "Coachman (Raider Stand-In)";
+        concordPrimary.Name = "Coachman";
         concordPrimary.AttackDamage = ConcordRaiderPrimaryDamage;
         concordPrimary.ProjectilesCount = ConcordRaiderPrimaryProjectiles;
         concordPrimary.AmmoType.SetTo(raiderAmmo.FormKey);
         concordPrimary.AmmoList.SetToNull();
-        concordPrimary.ObjectTemplates?.Clear();
-        concordPrimary.ObjectTemplates = null;
-        concordPrimary.AttachParentSlots?.Clear();
         concordPrimary.MajorFlags |= SF.Weapon.MajorFlag.NonPlayable;
         concordPrimary.NonPlayable = true;
         mod.Weapons.Add(concordPrimary);
@@ -2233,31 +2227,31 @@ static class Mission
                      rl.Objects.Select(o => o.Object.FormKey).SequenceEqual(raiders.Select(r => r.FormKey)), "property Raiders lists the raider ACHRs in order");
                 var concordPrimaryCheck = plug.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(key, ConcordRaiderPrimaryWeapId));
                 Need(concordPrimaryCheck is { EditorID: ConcordRaiderPrimaryWeapEdid } &&
-                     concordPrimaryCheck.Name?.String == "Coachman (Raider Stand-In)" &&
+                     concordPrimaryCheck.Name?.String == "Coachman" &&
                      concordPrimaryCheck.MajorFlags.HasFlag(SF.Weapon.MajorFlag.NonPlayable) &&
                      concordPrimaryCheck.NonPlayable &&
-                     concordPrimaryCheck.ObjectTemplates is null &&
-                     (concordPrimaryCheck.AttachParentSlots?.Count ?? 0) == 0 &&
+                     (concordPrimaryCheck.ObjectTemplates?.Count ?? 0) > 0 &&
+                     (concordPrimaryCheck.AttachParentSlots?.Count ?? 0) > 0 &&
                      MathF.Abs(concordPrimaryCheck.AttackDamage - ConcordRaiderPrimaryDamage) < 1e-4f &&
                      concordPrimaryCheck.ProjectilesCount == ConcordRaiderPrimaryProjectiles &&
                      concordPrimaryCheck.AmmoType.FormKey == new FormKey(SfEsm, SfRaiderAmmoId) &&
                      concordPrimaryCheck.AmmoList.IsNull,
-                     $"R13 E3: WEAP 0x{ConcordRaiderPrimaryWeapId:X} is not non-playable stand-in {ConcordRaiderPrimaryWeapEdid} (Name=\"Coachman (Raider Stand-In)\", NonPlayable=true, ObjectTemplates=null, AttackDamage={ConcordRaiderPrimaryDamage}, ProjectilesCount={ConcordRaiderPrimaryProjectiles}, AmmoType=0x{SfRaiderAmmoId:X}, AmmoList=null)");
+                     $"R13 E3: WEAP 0x{ConcordRaiderPrimaryWeapId:X} is not non-playable {ConcordRaiderPrimaryWeapEdid} (Name=\"Coachman\", NonPlayable=true, non-empty ObjectTemplates & AttachParentSlots, AttackDamage={ConcordRaiderPrimaryDamage}, ProjectilesCount={ConcordRaiderPrimaryProjectiles}, AmmoType=0x{SfRaiderAmmoId:X}, AmmoList=null)");
                 Need(props.TryGetValue("RaiderWeapon", out var rwp) && rwp is SF.IScriptObjectPropertyGetter rwo && rwo.Object.FormKey == new FormKey(key, ConcordRaiderPrimaryWeapId) &&
                      props.TryGetValue("RaiderAmmo", out var rap) && rap is SF.IScriptObjectPropertyGetter rao && rao.Object.FormKey == new FormKey(SfEsm, SfRaiderAmmoId),
                      $"R13 E3: FO4SF_Min00 lacks RaiderWeapon (0x{ConcordRaiderPrimaryWeapId:X}) or RaiderAmmo (AmmoShotshell) bindings");
                 var concordSidearmCheck = plug.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(key, ConcordRaiderSidearmWeapId));
                 Need(concordSidearmCheck is { EditorID: ConcordRaiderSidearmWeapEdid } &&
-                     concordSidearmCheck.Name?.String == "Eon (Raider Stand-In)" &&
+                     concordSidearmCheck.Name?.String == "Eon" &&
                      concordSidearmCheck.MajorFlags.HasFlag(SF.Weapon.MajorFlag.NonPlayable) &&
                      concordSidearmCheck.NonPlayable &&
-                     concordSidearmCheck.ObjectTemplates is null &&
-                     (concordSidearmCheck.AttachParentSlots?.Count ?? 0) == 0 &&
+                     (concordSidearmCheck.ObjectTemplates?.Count ?? 0) > 0 &&
+                     (concordSidearmCheck.AttachParentSlots?.Count ?? 0) > 0 &&
                      MathF.Abs(concordSidearmCheck.AttackDamage - ConcordRaiderSidearmDamage) < 1e-4f &&
                      concordSidearmCheck.ProjectilesCount == ConcordRaiderSidearmProjectiles &&
                      concordSidearmCheck.AmmoType.FormKey == new FormKey(SfEsm, SfRaiderSidearmAmmoId) &&
                      concordSidearmCheck.AmmoList.IsNull,
-                     $"R11/R13 E3: WEAP 0x{ConcordRaiderSidearmWeapId:X} is not non-playable stand-in {ConcordRaiderSidearmWeapEdid} (Name=\"Eon (Raider Stand-In)\", NonPlayable=true, ObjectTemplates=null, AttackDamage={ConcordRaiderSidearmDamage}, ProjectilesCount={ConcordRaiderSidearmProjectiles}, AmmoType=0x{SfRaiderSidearmAmmoId:X}, AmmoList=null)");
+                     $"R11/R13 E3: WEAP 0x{ConcordRaiderSidearmWeapId:X} is not non-playable {ConcordRaiderSidearmWeapEdid} (Name=\"Eon\", NonPlayable=true, non-empty ObjectTemplates & AttachParentSlots, AttackDamage={ConcordRaiderSidearmDamage}, ProjectilesCount={ConcordRaiderSidearmProjectiles}, AmmoType=0x{SfRaiderSidearmAmmoId:X}, AmmoList=null)");
                 Need(props.TryGetValue("RaiderSidearm", out var rswp) && rswp is SF.IScriptObjectPropertyGetter rswo && rswo.Object.FormKey == new FormKey(key, ConcordRaiderSidearmWeapId) &&
                      props.TryGetValue("RaiderSidearmAmmo", out var rsap) && rsap is SF.IScriptObjectPropertyGetter rsao && rsao.Object.FormKey == new FormKey(SfEsm, SfRaiderSidearmAmmoId),
                      $"R11 D3/E3: FO4SF_Min00 lacks RaiderSidearm (0x{ConcordRaiderSidearmWeapId:X}) or RaiderSidearmAmmo (Ammo777mm) bindings");
@@ -2596,6 +2590,7 @@ static class Mission
             EditorID = SfRaiderWeaponEdid,
             AttackDamage = 52f,
             ProjectilesCount = 5,
+            AttachParentSlots = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> { new FormLink<SF.IKeywordGetter>(new FormKey(SfEsm, 0x05D4E7)) },
             ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() },
         });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderAmmoId), rel) { EditorID = SfRaiderAmmoEdid });
@@ -2604,6 +2599,7 @@ static class Mission
             EditorID = SfRaiderSidearmEdid,
             AttackDamage = 10f,
             ProjectilesCount = 1,
+            AttachParentSlots = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> { new FormLink<SF.IKeywordGetter>(new FormKey(SfEsm, 0x05D4E7)) },
             ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() },
         });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderSidearmAmmoId), rel) { EditorID = SfRaiderSidearmAmmoEdid });
@@ -2857,10 +2853,13 @@ static class Mission
             ("R13 E3 Min00 RaiderSidearmRecordDamage mutated", m => ((SF.ScriptFloatProperty)Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "RaiderSidearmRecordDamage")).Data = 3.0f),
             ("R13 E3 ConcordRaiderPrimary 0x97B AttackDamage reverted to 52", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].AttackDamage = 52f),
             ("R13 E3 ConcordRaiderPrimary 0x97B ProjectilesCount reverted to 5", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].ProjectilesCount = 5),
+            ("R13 E3 ConcordRaiderPrimary 0x97B stripped ObjectTemplates", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].ObjectTemplates = null),
+            ("R13 E3 ConcordRaiderPrimary 0x97B cleared AttachParentSlots", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].AttachParentSlots?.Clear()),
             ("R13 E3 ConcordRaiderPrimary 0x97B marked playable", m => { var pw = m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)]; pw.MajorFlags &= ~SF.Weapon.MajorFlag.NonPlayable; pw.NonPlayable = false; }),
             ("R13 E3 ConcordRaiderPrimary 0x97B removed", m => m.Weapons.Remove(new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId))),
             ("E3 ConcordRaiderSidearm 0x97A AttackDamage reverted to 10", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].AttackDamage = 10f),
-            ("E3 ConcordRaiderSidearm 0x97A retains ObjectTemplates", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() }),
+            ("E3 ConcordRaiderSidearm 0x97A stripped ObjectTemplates", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].ObjectTemplates = null),
+            ("E3 ConcordRaiderSidearm 0x97A cleared AttachParentSlots", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].AttachParentSlots?.Clear()),
             ("E3 ConcordRaiderSidearm 0x97A marked playable", m => { var sw = m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)]; sw.MajorFlags &= ~SF.Weapon.MajorFlag.NonPlayable; sw.NonPlayable = false; }),
             ("E3 ConcordRaiderSidearm 0x97A removed", m => m.Weapons.Remove(new FormKey(m.ModKey, ConcordRaiderSidearmWeapId))),
             ("R13 E3 Holding CELL 0xB60 FULL reverted to FO4SF prefix", m => m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First(c => c.FormKey.ID == MissionHoldingCellId).Name = "FO4SF Mission Holding Cell"),

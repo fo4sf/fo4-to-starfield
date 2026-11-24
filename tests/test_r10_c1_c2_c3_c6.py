@@ -470,6 +470,7 @@ class R10OpeningFixTests(unittest.TestCase):
                 else:
                     self.inv[item] = cur - int(cnt)
             def UnequipAll(self): self.equipped.clear()
+            def UnequipItem(self, item, *_): self.equipped = [x for x in self.equipped if x != item]
             def EquipItem(self, item, *_):
                 if item not in self.equipped:
                     self.equipped.append(item)
@@ -548,7 +549,8 @@ class R10OpeningFixTests(unittest.TestCase):
             "raiderRescueHp": None,
             "RaiderWeapon": "Coachman",
             "RaiderAmmo": "AmmoShotshell",
-            "RaiderPrimaryRecordDamage": 1.0,
+            "RaiderSidearm": "Eon",
+            "RaiderPrimaryRecordDamage": 6.0,
             "AttackDamageMult": None,
             "Math": SimpleNamespace(Sqrt=math.sqrt),
             "Game": SimpleNamespace(

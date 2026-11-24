@@ -793,28 +793,34 @@ class R11Part3Slice1ATests(unittest.TestCase):
         self.assertFalse(any("fallback=messagebox" in ln for ln in h.logs), h.logs)
 
     def test_item5_e3_concord_raider_3dmg_sidearm_and_deterministic_36_ammo(self):
-        """Item 5 (E3 + R13): WEAP 0x097B (1.0 dmg Coachman, NonPlayable, ObjectTemplates=null) +
-        WEAP 0x097A (AttackDamage=0.75, ObjectTemplates=null, AmmoList=null) + ArmRaiderForCombat UnequipAll() +
-        EquipBalancedRaiderSidearm clamping Ammo777mm=36 and logging AttackDamageMult-aware eff_dmg."""
+        """Item 5 (E3 + R13 + fix4): WEAP 0x097B (6.0 dmg Coachman, NonPlayable, ObjectTemplates+AttachParentSlots intact) +
+        WEAP 0x097A (AttackDamage=1.5, ObjectTemplates+AttachParentSlots intact, AmmoList=null) + ArmRaiderForCombat
+        UnequipItem-only weapon swap (preserving FO4 0x0988 outfits!) + EquipBalancedRaiderSidearm clamping Ammo777mm=36."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("ConcordRaiderPrimaryWeapId = 0x97B", cs)
-        self.assertIn("ConcordRaiderPrimaryDamage = 1.0f", cs)
+        self.assertIn("ConcordRaiderPrimaryDamage = 6.0f", cs)
         self.assertIn("ConcordRaiderSidearmWeapId = 0x97A", cs)
-        self.assertIn("ConcordRaiderSidearmDamage = 0.75f", cs)
+        self.assertIn("ConcordRaiderSidearmDamage = 1.5f", cs)
         self.assertIn("concordSidearm.AttackDamage = ConcordRaiderSidearmDamage;", cs)
         self.assertIn("concordSidearm.AmmoList.SetToNull();", cs)
-        self.assertIn("concordSidearm.ObjectTemplates = null;", cs)
-        self.assertIn("concordPrimary.ObjectTemplates = null;", cs)
+        self.assertNotIn("concordSidearm.ObjectTemplates = null;", cs)
+        self.assertNotIn("concordPrimary.ObjectTemplates = null;", cs)
+        self.assertNotIn("concordSidearm.AttachParentSlots?.Clear();", cs)
+        self.assertNotIn("concordPrimary.AttachParentSlots?.Clear();", cs)
+        self.assertNotIn("(Raider Stand-In)", cs)
+        self.assertNotIn("(Post-mission stand-in)", cs)
+        self.assertNotIn("(Stand-In)", cs)
         self.assertIn('Obj("RaiderWeapon", concordPrimary.FormKey)', cs)
         self.assertIn('Obj("RaiderSidearm", concordSidearm.FormKey)', cs)
         self.assertIn('Flt("RaiderPrimaryRecordDamage", primaryRecordDamage)', cs)
         self.assertIn('Flt("RaiderSidearmRecordDamage", sidearmRecordDamage)', cs)
         self.assertNotIn("RaiderSidearmDamage = 3.0", m_psc)
 
-        # Verify UnequipAll precedes EquipItem(RaiderWeapon) and AddItem(RaiderSidearm) precedes GetItemCount(RaiderSidearmAmmo)
+        # Verify weapon-only UnequipItem precedes EquipItem(RaiderWeapon) with zero UnequipAll() so outfits stay worn
         arm_src = _extract_block(m_psc, "ArmRaiderForCombat")[1]
-        self.assertLess(arm_src.index("r.UnequipAll()"), arm_src.index("r.EquipItem(RaiderWeapon"))
+        self.assertNotIn("UnequipAll", arm_src)
+        self.assertLess(arm_src.index("r.UnequipItem(curW, False, True)"), arm_src.index("r.EquipItem(RaiderWeapon"))
         fn_src = _extract_block(m_psc, "EquipBalancedRaiderSidearm")[1]
         self.assertLess(fn_src.index("r.AddItem(RaiderSidearm"), fn_src.index("int curSidearmAmmo = r.GetItemCount(RaiderSidearmAmmo)"))
         self.assertLess(fn_src.index("r.EquipItem(RaiderSidearm"), fn_src.index("int curSidearmAmmo = r.GetItemCount(RaiderSidearmAmmo)"))
@@ -825,6 +831,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
                 self.bonus_add = bonus_add
                 self.bonus_equip = bonus_equip
                 self.equipped = [("VanillaSpacerGun", False)]
+                self.outfit_worn = True
                 self.unequip_all_calls = 0
 
             def IsDead(self): return False
@@ -840,6 +847,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
                 self.inv[item] = max(0, self.inv.get(item, 0) - int(cnt))
             def UnequipAll(self):
                 self.unequip_all_calls += 1
+                self.outfit_worn = False
                 self.equipped.clear()
             def UnequipItem(self, item, *_):
                 self.equipped = [e for e in self.equipped if e[0] != item]
@@ -865,8 +873,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "RaiderWeapon": "ConcordCoachman097B",
             "RaiderAmmo": "AmmoShotshell",
             "RaiderSidearm": "ConcordEon097A",
-            "RaiderPrimaryRecordDamage": 1.0,
-            "RaiderSidearmRecordDamage": 0.75,
+            "RaiderPrimaryRecordDamage": 6.0,
+            "RaiderSidearmRecordDamage": 1.5,
             "AttackDamageMult": None,
             "RaiderSidearmAmmo": "Ammo777mm",
             "raiderArmed": _PArray([False] * 5),
@@ -876,16 +884,18 @@ class R11Part3Slice1ATests(unittest.TestCase):
         exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
         for i, r in enumerate(raiders):
             ns["ArmRaiderForCombat"](r, i)
-            self.assertEqual(r.unequip_all_calls, 1)
+            self.assertEqual(r.unequip_all_calls, 0)
+            self.assertTrue(r.outfit_worn)
+            self.assertNotIn(("VanillaSpacerGun", False), r.equipped)
             self.assertEqual(r.equipped[-1], ("ConcordCoachman097B", False))
-            self.assertIn("eff_dmg=1.0", logs[-1])
+            self.assertIn("eff_dmg=6.0", logs[-1])
             ns["EquipBalancedRaiderSidearm"](r, i)
             self.assertEqual(r.inv["Ammo777mm"], 36, f"raider {i} got {r.inv['Ammo777mm']} instead of 36")
             self.assertEqual(r.inv["ConcordCoachman097B"], 0)
             self.assertEqual(r.inv["AmmoShotshell"], 0)
             self.assertEqual(r.equipped[-1], ("ConcordEon097A", True))
             self.assertIn(f"arm raider {i} sidearm=eon sidearm_ammo=36", logs[-1])
-            self.assertIn("eff_dmg=0.75", logs[-1])
+            self.assertIn("eff_dmg=1.5", logs[-1])
 
     def test_item6_e5_dead_raiders_preserved_in_concord_across_cold_reload(self):
         """Item 6 (E5): Dead raiders killed in Concord street are tracked in raiderCorpseX/Y/Z and rescued back
@@ -1075,33 +1085,33 @@ class R11Part3Slice1ATests(unittest.TestCase):
                 elif sig == b"CELL" and lid == 0xB60:
                     cells[lid] = dict(_iter_subrecords(body))
 
-            # E3: WEAP 0x097A FO4SF_ConcordRaiderSidearm ("Eon (Raider Stand-In)", AttackDamage=0.75f, AmmoList=0, NonPlayable)
-            # and WEAP 0x097B FO4SF_ConcordRaiderPrimary ("Coachman (Raider Stand-In)", AttackDamage=1.0f, AmmoList=0, NonPlayable)
+            # E3 + fix4: WEAP 0x097A FO4SF_ConcordRaiderSidearm ("Eon", AttackDamage=1.5f, AmmoList=0, ObjectTemplates+APPR kept, NonPlayable)
+            # and WEAP 0x097B FO4SF_ConcordRaiderPrimary ("Coachman", AttackDamage=6.0f, AmmoList=0, ObjectTemplates+APPR kept, NonPlayable)
             self.assertIn(0x97A, weaps)
             w_subs = dict(weaps[0x97A])
             self.assertEqual(w_subs[b"EDID"].rstrip(b"\x00").decode(), "FO4SF_ConcordRaiderSidearm")
-            self.assertEqual(w_subs[b"FULL"].rstrip(b"\x00").decode(), "Eon (Raider Stand-In)")
-            self.assertNotIn(b"OBTF", w_subs)
-            self.assertNotIn(b"OBTS", w_subs)
+            self.assertEqual(w_subs[b"FULL"].rstrip(b"\x00").decode(), "Eon")
+            self.assertIn(b"OBTS", w_subs)
+            self.assertIn(b"APPR", w_subs)
             self.assertIn(b"WAM2", w_subs)
             wam2_ammo, wam2_list = struct.unpack_from("<II", w_subs[b"WAM2"], 0)
             self.assertEqual(wam2_ammo, 0x0004AD3E, f"WAM2 Ammo expected 0x04AD3E, got 0x{wam2_ammo:08X}")
             self.assertEqual(wam2_list, 0, f"WAM2 AmmoList must be cleared (0), got 0x{wam2_list:08X}")
             self.assertIn(b"WDMG", w_subs)
             dmg = struct.unpack_from("<f", w_subs[b"WDMG"], 0)[0]
-            self.assertAlmostEqual(dmg, 0.75, places=4, msg=f"AttackDamage expected 0.75, got {dmg}")
+            self.assertAlmostEqual(dmg, 1.5, places=4, msg=f"AttackDamage expected 1.5, got {dmg}")
 
             self.assertIn(0x97B, weaps)
             p_subs = dict(weaps[0x97B])
             self.assertEqual(p_subs[b"EDID"].rstrip(b"\x00").decode(), "FO4SF_ConcordRaiderPrimary")
-            self.assertEqual(p_subs[b"FULL"].rstrip(b"\x00").decode(), "Coachman (Raider Stand-In)")
-            self.assertNotIn(b"OBTF", p_subs)
-            self.assertNotIn(b"OBTS", p_subs)
+            self.assertEqual(p_subs[b"FULL"].rstrip(b"\x00").decode(), "Coachman")
+            self.assertIn(b"OBTS", p_subs)
+            self.assertIn(b"APPR", p_subs)
             pwam2_ammo, pwam2_list = struct.unpack_from("<II", p_subs[b"WAM2"], 0)
             self.assertEqual(pwam2_ammo, 0x002B4AFB, f"WAM2 Primary Ammo expected 0x2B4AFB, got 0x{pwam2_ammo:08X}")
             self.assertEqual(pwam2_list, 0, f"WAM2 Primary AmmoList must be cleared (0), got 0x{pwam2_list:08X}")
             pdmg = struct.unpack_from("<f", p_subs[b"WDMG"], 0)[0]
-            self.assertAlmostEqual(pdmg, 1.0, places=4, msg=f"Primary AttackDamage expected 1.0, got {pdmg}")
+            self.assertAlmostEqual(pdmg, 6.0, places=4, msg=f"Primary AttackDamage expected 6.0, got {pdmg}")
 
             self.assertIn(0xB60, cells)
             cell_full = cells[0xB60].get(b"FULL", b"").rstrip(b"\x00").decode()
@@ -1124,6 +1134,9 @@ class R11Part3Slice1ATests(unittest.TestCase):
                 self.assertIn(lid, infos, f"post-scene pcInfo 0x{lid:X} missing")
                 self.assertEqual(struct.unpack_from("<H", infos[lid][b"ENAM"], 0)[0], 0)
                 self.assertEqual(struct.unpack_from("<I", infos[lid][b"INAM"], 0)[0], 1)
+            for lid, idict in infos.items():
+                for raw in idict.values():
+                    self.assertNotIn(b"stand-in", raw.lower(), f"post-scene INFO 0x{lid:X} still leaks stand-in label")
             for lid in (0x9B8, 0x9E8):
                 self.assertIn(lid, infos, f"post-scene goodbye npcInfo 0x{lid:X} missing")
             for removed_lid in (0x9A9, 0x9AA, 0x9B9, 0x9D9, 0x9DA, 0x9DB, 0x9E9, 0x9EA):

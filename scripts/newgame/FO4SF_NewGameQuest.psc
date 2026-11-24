@@ -588,6 +588,7 @@ Function NoteLooksStage20()
     if applied < 20
         applied = 20
     endif
+    TriggerVaultPodRecoveryAutosave(20)
 EndFunction
 
 bool Function IsPreworldLooksHandled()
@@ -653,6 +654,9 @@ Function AdvanceTo(int n, string by = "Trigger")
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
+    if auiStageID == 20
+        TriggerVaultPodRecoveryAutosave(20)
+    endif
     if auiStageID == 20 && looksSetStage20
         return
     endif
@@ -1511,7 +1515,11 @@ Function TriggerVaultPodRecoveryAutosave(int stageNum)
         return
     endif
     Actor player = Game.GetPlayer()
-    if player == None || !player.Is3DLoaded() || !StandsInVault(player)
+    if player == None || player.IsDead()
+        CancelTimer(7)
+        return
+    endif
+    if !player.Is3DLoaded() || !StandsInVault(player)
         vaultPodAutosaveSkips += 1
         Trace("vault_death_recovery=autosave_skip skips=" + vaultPodAutosaveSkips + " stage=" + stageNum)
         if vaultPodAutosaveSkips < 60

@@ -85,35 +85,37 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("public const uint SanctuaryCrateCobjId = 0x850;", cs)
         self.assertIn('public const string SanctuaryCleanBenchSwapGlobEdid = "FO4SF_SanctuaryCleanBenchSwap";', cs)
         self.assertIn("public const int ExpectedOwnRecordCount = 41;", cs)
-        self.assertIn("public const int ExpectedOverrideRecordCount = 4;", cs)
+        self.assertIn("public const int ExpectedOverrideRecordCount = 2;", cs)
         self.assertIn('public const string SanctuaryBenchName = "Sanctuary Hills Workshop";', cs)
         self.assertIn('public const string SanctuaryBenchModel = "fo4core\\\\setdressing\\\\garage\\\\workbenchgarage01.nif";', cs)
-        self.assertIn("public const uint SfLocMarsSurfaceId = 0x01B736;", cs)
-        self.assertIn("public const uint SfLocMarsPlanetId = 0x01B735;", cs)
-        self.assertIn("public const uint SfLocSolSystemId = 0x061527;", cs)
-        self.assertIn("public const uint SfStarSolId = 0x05E5CB;", cs)
-        self.assertIn('public const string CommonwealthLocName = "Commonwealth";', cs)
-        self.assertIn('public const string MassachusettsStarName = "Massachusetts";', cs)
-        self.assertIn('public const string SanctuaryChairName = "Wooden Chair (Stand-In)";', cs)
-        self.assertIn('public const string SanctuaryCotName = "Sleeping Cot (Stand-In)";', cs)
-        self.assertIn('public const string SanctuaryCrateName = "Storage Crate (Stand-In)";', cs)
-        self.assertNotIn("SfFlstOutpostRecipeCategoriesId", cs)
-        self.assertNotIn("SfFlstOutpostFollowCameraCategoriesId", cs)
-        self.assertIn("HeaderFlag.Localized", cs)
-        self.assertIn("FO4SFWorkshop_en", cs)
-        self.assertIn(".STRINGS", cs)
+        self.assertIn("public const uint SfFlstOutpostRecipeCategoriesId = 0x058606;", cs)
+        self.assertIn("public const uint SfFlstOutpostFollowCameraCategoriesId = 0x1A5507;", cs)
+        self.assertIn("copy.Name = null;", cs)
+        self.assertIn('public const string SanctuaryChairName = "Wooden Chair";', cs)
+        self.assertIn('public const string SanctuaryCotName = "Sleeping Cot";', cs)
+        self.assertIn('public const string SanctuaryCrateName = "Storage Crate";', cs)
+
+        # E6 + fix4: Must NOT override localized Starfield LCTN/STDT/PNDT records or set HeaderFlag.Localized
+        self.assertNotIn("SfLocMarsSurfaceId", cs)
+        self.assertNotIn("SfLocMarsPlanetId", cs)
+        self.assertNotIn("SfLocSolSystemId", cs)
+        self.assertNotIn("SfStarSolId", cs)
+        self.assertNotIn("(Stand-In)", cs)
+        self.assertIn("!mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Localized)", cs)
         self.assertIn("mod.Planets.Count == 0", cs)
-        self.assertIn("mod.FormLists.All(fl => fl.FormKey.ModKey == Plugin)", cs)
+        self.assertIn("mod.Locations.Count == 0", cs)
+        self.assertIn("mod.Stars.Count == 0", cs)
 
         # Must explicitly forbid all 7 Starfield OutpostCategory* keywords
         for kw_id in FORBIDDEN_OUTPOST_CATEGORIES:
             self.assertIn(f"0x{kw_id:08X}", cs.upper().replace("0X", "0x"))
         self.assertIn("d4_starfield_outpost_category_leaked", cs)
-        self.assertIn("e6_mars_location_name_reverted", cs)
+        self.assertIn("d4_outpost_categories_missing_sanctuary", cs)
         self.assertIn("d4_clean_bench_swap_default_nonzero", cs)
+        self.assertIn("e6_sanctuary_cobj_missing_swap_condition", cs)
         self.assertIn("d4_sanctuary_cobj_locked_by_condition", cs)
-        self.assertIn("f3_starfield_outpost_flst_leaked", cs)
-        self.assertIn("e6_non_localized_header", cs)
+        self.assertIn("d4_localized_location_override_leaked", cs)
+        self.assertIn("e6_localized_header_leaked", cs)
 
     def test_e4_vault111_pistol_auto_equips_on_pickup_and_logs_equipped(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")
@@ -450,28 +452,8 @@ class Round11D4AndA21Tests(unittest.TestCase):
             b_full = Path(tmp) / "b_full"
             esm_bytes = (b_full / "FO4SFWorkshop.esm").read_bytes()
             tes4_flags = struct.unpack("<I", esm_bytes[8:12])[0]
-            self.assertTrue(tes4_flags & 0x80, f"E6: expected HeaderFlag.Localized (0x80) on TES4, got 0x{tes4_flags:X}")
-
-            strings_path = b_full / "Data" / "Strings" / "FO4SFWorkshop_en.STRINGS"
-            self.assertTrue(strings_path.is_file(), f"E6: missing localized strings file {strings_path}")
-            self.assertTrue((b_full / "Data" / "Strings" / "FO4SFWorkshop_en.DLSTRINGS").is_file())
-            self.assertTrue((b_full / "Data" / "Strings" / "FO4SFWorkshop_en.ILSTRINGS").is_file())
-            s_bytes = strings_path.read_bytes()
-            s_count, _s_size = struct.unpack("<II", s_bytes[:8])
-            s_base = 8 + 8 * s_count
-            strings_tbl = {}
-            for si in range(s_count):
-                sid, off = struct.unpack("<II", s_bytes[8 + 8 * si : 16 + 8 * si])
-                pos = s_base + off
-                end = s_bytes.index(b"\x00", pos)
-                strings_tbl[sid] = s_bytes[pos:end].decode("utf-8")
-
-            def _read_full(subs: dict[str, bytes]) -> str:
-                raw = subs["FULL"]
-                self.assertEqual(len(raw), 4, f"localized FULL must be 4-byte uint32 string ID, got {raw!r}")
-                sid = struct.unpack("<I", raw)[0]
-                self.assertIn(sid, strings_tbl, f"missing string ID 0x{sid:08X} in FO4SFWorkshop_en.STRINGS")
-                return strings_tbl[sid]
+            self.assertFalse(tes4_flags & 0x80, f"E6: FO4SFWorkshop.esm must NOT set HeaderFlag.Localized (0x80), got 0x{tes4_flags:X}")
+            self.assertFalse((b_full / "Data" / "Strings").exists(), "E6: FO4SFWorkshop.esm must not emit Data/Strings/*")
 
             by_lid = {}
             pndt_count = 0
@@ -487,12 +469,8 @@ class Round11D4AndA21Tests(unittest.TestCase):
                 by_lid[(rtype, fid & 0x00FFFFFF)] = list(_iter_subrecords(pay))
 
             self.assertEqual(pndt_count, 0, "FO4SFWorkshop.esm must NEVER override PNDT")
-            self.assertEqual(lctn_count, 3, "E6: expected 3 localized LCTN overrides (Mars surface/planet, Sol)")
-            self.assertEqual(stdt_count, 1, "E6: expected 1 localized STDT override (Sol)")
-            self.assertEqual(_read_full(dict(by_lid[("LCTN", 0x01B736)])), "Commonwealth")
-            self.assertEqual(_read_full(dict(by_lid[("LCTN", 0x01B735)])), "Commonwealth")
-            self.assertEqual(_read_full(dict(by_lid[("LCTN", 0x061527)])), "Massachusetts")
-            self.assertEqual(_read_full(dict(by_lid[("STDT", 0x05E5CB)])), "Massachusetts")
+            self.assertEqual(lctn_count, 0, "E6: FO4SFWorkshop.esm must NEVER override localized Starfield LCTN")
+            self.assertEqual(stdt_count, 0, "E6: FO4SFWorkshop.esm must NEVER override localized Starfield STDT")
             self.assertIn(("KYWD", 0x000848), by_lid)
             self.assertIn(("ACTI", 0x000849), by_lid)
             self.assertIn(("GLOB", 0x00084A), by_lid)
@@ -502,7 +480,7 @@ class Round11D4AndA21Tests(unittest.TestCase):
             self.assertAlmostEqual(struct.unpack("<f", glob_subs["FLTV"])[0], 0.0, places=4)
 
             acti_subs = dict(by_lid[("ACTI", 0x000849)])
-            self.assertEqual(_read_full(acti_subs), "Sanctuary Hills Workshop")
+            self.assertEqual(acti_subs["FULL"].rstrip(b"\x00").decode("utf-8"), "Sanctuary Hills Workshop")
             self.assertEqual(
                 acti_subs["MODL"].rstrip(b"\x00").decode("utf-8").lower(),
                 r"fo4core\setdressing\garage\workbenchgarage01.nif",
@@ -513,19 +491,19 @@ class Round11D4AndA21Tests(unittest.TestCase):
             for forbidden in FORBIDDEN_OUTPOST_CATEGORIES:
                 self.assertNotIn(forbidden, kw_fids)
 
-            # F4 / E6: 3 Starfield furniture/container stand-in placeables (0x84B..0x84D)
+            # F4 / E6 + fix4: 3 clean Sanctuary settlement placeables (0x84B..0x84D, zero "(Stand-In)" label)
             for rtype, lid, want_edid, want_name in (
-                ("FURN", 0x00084B, "FO4SF_Sanctuary_WoodChair", "Wooden Chair (Stand-In)"),
-                ("FURN", 0x00084C, "FO4SF_Sanctuary_SleepingCot", "Sleeping Cot (Stand-In)"),
-                ("CONT", 0x00084D, "FO4SF_Sanctuary_StorageCrate", "Storage Crate (Stand-In)"),
+                ("FURN", 0x00084B, "FO4SF_Sanctuary_WoodChair", "Wooden Chair"),
+                ("FURN", 0x00084C, "FO4SF_Sanctuary_SleepingCot", "Sleeping Cot"),
+                ("CONT", 0x00084D, "FO4SF_Sanctuary_StorageCrate", "Storage Crate"),
             ):
                 subs = dict(by_lid[(rtype, lid)])
                 self.assertEqual(subs["EDID"].rstrip(b"\x00").decode("utf-8"), want_edid)
-                self.assertEqual(_read_full(subs), want_name)
+                self.assertEqual(subs["FULL"].rstrip(b"\x00").decode("utf-8"), want_name)
                 self.assertIn("MODL", subs)
                 self.assertNotIn("VMAD", subs)
 
-            # E6: 3 matching zero-perk, zero-condition Sanctuary Outpost COBJs (0x84E..0x850)
+            # E6 + F3 fix4: 3 Sanctuary Outpost COBJs (0x84E..0x850) gated on GetGlobalValue(0x00084A) == 1.0
             for cobj_lid, want_edid, target_lid in (
                 (0x00084E, "FO4SF_COBJ_Sanctuary_WoodChair", 0x00084B),
                 (0x00084F, "FO4SF_COBJ_Sanctuary_SleepingCot", 0x00084C),
@@ -535,16 +513,23 @@ class Round11D4AndA21Tests(unittest.TestCase):
                 subs = dict(sub_list)
                 tags = [t for t, _ in sub_list]
                 self.assertEqual(subs["EDID"].rstrip(b"\x00").decode("utf-8"), want_edid)
-                self.assertNotIn("CTDA", tags, f"{want_edid} must have zero CTDA conditions")
+                self.assertEqual(tags.count("CTDA"), 1, f"{want_edid} must carry exactly 1 swap-global CTDA condition")
+                ctda = subs["CTDA"]
+                self.assertAlmostEqual(struct.unpack_from("<f", ctda, 4)[0], 1.0, places=4)
+                self.assertIn(struct.pack("<I", 0x0200084A), ctda, f"{want_edid} CTDA must reference swap global 0x0200084A")
                 self.assertNotIn("RQPK", tags, f"{want_edid} must have zero RequiredPerks")
                 self.assertEqual(struct.unpack("<I", subs["BNAM"])[0] & 0x00FFFFFF, 0x000848)
                 self.assertEqual(struct.unpack("<I", subs["FNAM"])[0] & 0x00FFFFFF, 0x000848)
                 self.assertEqual(struct.unpack("<I", subs["CNAM"])[0] & 0x00FFFFFF, target_lid)
                 self.assertEqual(subs["LRNM"], b"\x03")
 
-            # F3: Scoped Sanctuary category ONLY on clean bench 0x000849 (ZERO Starfield Outpost FLST overrides)
+            # E6: FLST 0x058606 and 0x1A5507 have NO FULL subrecord and include 0x000848
             for flst_lid in (0x058606, 0x1A5507):
-                self.assertNotIn(("FLST", flst_lid), by_lid, f"F3: FO4SFWorkshop.esm must not override Starfield FLST 0x{flst_lid:06X}")
+                sub_list = by_lid[("FLST", flst_lid)]
+                tags = [t for t, _ in sub_list]
+                self.assertNotIn("FULL", tags, f"FLST 0x{flst_lid:06X} must not carry inline FULL")
+                lnams = [struct.unpack("<I", v)[0] & 0x00FFFFFF for t, v in sub_list if t == "LNAM"]
+                self.assertIn(0x000848, lnams, f"FLST 0x{flst_lid:06X} missing FO4SF_WorkshopCategorySanctuary")
 
 
 if __name__ == "__main__":
