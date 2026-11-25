@@ -138,7 +138,7 @@ class Round10C4R6PipboyTests(unittest.TestCase):
         events_fn = self.main_cpp[
             self.main_cpp.index("bool ProcessPendingShellEvents(") : self.main_cpp.index("void ShellUpdate(")
         ]
-        self.assertIn("(g_populateInCall || g_shellVitalsFill || g_statActions || g_invDataAnswers)", events_fn)
+        self.assertIn("(g_populateInCall || g_shellVitalsFill || g_statActions || g_invDataAnswers || g_dataPagesFill)", events_fn)
         self.assertIn('FillPipboyDataObj(a_menu, a_root, g_dataObj, page, tab, "partial");', events_fn)
 
     def test_c4_3_bottom_bar_date_field_widen_and_autosize(self) -> None:

@@ -131,6 +131,7 @@ REX_W32_IMPORT(std::uint32_t, waveOutClose, void*);
 
 #include "blocking_menus.h"
 #include "pipboy_map.h"
+#include "pipboy_menus_r14.h"
 #include "world.h"   // FAL-250: the world-surface census and candidate (World=1; README.md, "World surface")
 
 namespace
@@ -554,6 +555,12 @@ namespace
 	bool                                     g_lateInvalidate = false;  // Task 1 step 1b: optional late InvalidateData on kShow, default 0
 	bool                                     g_statActions = false;     // Task 1 step 1j: UseStimpak/UseRadaway, default 0 until THIS ROUND passes
 	bool                                     g_invDataAnswers = false;  // Task 1 step 1k: INV/DATA same-call answers, default 0 until THIS ROUND passes
+	bool                                     g_dataPagesFill = false;   // Round 14 Task 2 / NEXT: populate DATA > QUESTS & WORKSHOPS without requiring InvDataAnswers=1
+	bool                                     g_showJobsGroup = false;   // Round 14 Task 2c: Jobs Step 1 (formID=0 group under DATA > QUESTS, off by default)
+	std::string                              g_jobsJson{ "FO4SFPipboyJobs.json" };
+	std::array<bool, fo4sf::menus_r14::kHideMenuCount> g_hideMenus{};   // Round 14 Task 2b: per-menu HideMenus switches (all off by default)
+	bool                                     g_anyHideMenuEnabled = false;
+	std::atomic<std::uint32_t>               g_hideMenuSuppressions{ 0 };
 	bool                                     g_shellBackdrop = true;    // Round 10 C4-1: opaque CRT backdrop on FO4SF_Fo4Shell (default 1, rollback 0)
 	bool                                     g_shellVitalsFill = false; // Round 10 C4-2: FillPipboyDataObj on kShow/page/partial when PopulateInCall=0 (C++ default 0, staged 1, rollback 0 = exact 2f path)
 	bool                                     g_suppressDataMenu = false; // Round 10 C4-4: opt-in hide-only DataMenu suppression (default 0)
@@ -4223,7 +4230,7 @@ namespace
 	{
 		std::string   name;
 		std::int32_t  mapMarkerId = -1;
-		std::array<std::int32_t, 7> values{ 5, 80, 6, 6, 5, 8, 6 };
+		std::array<std::int32_t, 7> values{};
 	};
 
 	struct ShellStatCategory
@@ -4240,8 +4247,10 @@ namespace
 		std::vector<ShellWorkshopEntry> workshops;
 		std::vector<ShellStatCategory>  statCategories;
 	};
-	std::mutex                         g_invDataLock;
-	ShellInvDataSnapshot               g_invDataSnap;
+	std::mutex                                     g_invDataLock;
+	ShellInvDataSnapshot                           g_invDataSnap;
+	std::vector<fo4sf::menus_r14::JobRecord>       g_jobsSnap;
+	bool                                           g_jobsLoadedOnce = false;
 	std::array<std::int32_t, 7>        g_invSelectedPerTab{ 0, 0, 0, 0, 0, 0, 0 };
 	std::array<std::uint32_t, 12>      g_quickkeyFormIds{};
 	std::set<std::uint32_t>            g_inactiveQuestFormIds;
@@ -4342,6 +4351,7 @@ namespace
 	std::uintptr_t               g_questCacheHandler = 0;
 	bool                         g_questCacheBuilt = false;
 	bool                         g_questCacheWorkshopLoaded = false;
+	bool                         g_questCacheMissionLoaded = false;
 
 	void CollectQuestAndStatsMainThread(const ShellVitalsSnapshot& a_vitals, float a_daysPassed, ShellInvDataSnapshot& a_out)
 	{
@@ -4353,7 +4363,7 @@ namespace
 
 		const auto handler = Singleton(kDataHandlerSingleton);
 		ObjectType hType;
-		const bool wantFullData = g_invDataAnswers;
+		const bool wantFullData = g_invDataAnswers || g_dataPagesFill;
 		std::vector<PipboyMap::QuestObjectiveMarker> activeQuestMarkers;
 		std::size_t totalObjectives = 0;
 
@@ -4362,6 +4372,7 @@ namespace
 		if (!g_questCacheBuilt || g_questCacheHandler != handler) {
 			g_cachedQuestForms.clear();
 			g_questCacheWorkshopLoaded = false;
+			g_questCacheMissionLoaded = false;
 			g_questCacheHandler = handler;
 			std::set<std::uint32_t> seenCached;
 			std::size_t             pluginsScanned = 0;
@@ -4389,6 +4400,8 @@ namespace
 						++pluginsScanned;
 						if (SameText(sv, "FO4SFWorkshop.esm")) {
 							g_questCacheWorkshopLoaded = true;
+						} else if (SameText(sv, "FO4SFMission.esm")) {
+							g_questCacheMissionLoaded = true;
 						}
 						std::uint8_t                compile = 0;
 						std::array<std::uint8_t, 4> fidx{};
@@ -4549,12 +4562,50 @@ namespace
 			return a.name < b.name;
 		});
 
-		// PLACEHOLDER (A13): WorkshopsList is a fixed static placeholder row when FO4SFWorkshop.esm is loaded; not live settlement data
-		if (g_questCacheWorkshopLoaded) {
+		// Round 14 Task 2c: Jobs Step 1 — generic formID=0 group under DATA > QUESTS when ShowJobsGroup=1
+		if (g_showJobsGroup) {
+			if (!g_jobsLoadedOnce) {
+				g_jobsLoadedOnce = true;
+				const auto jPath = std::filesystem::path(g_jobsJson);
+				const auto resolved = jPath.is_absolute() ? jPath : (g_pluginDir / jPath);
+				auto       loaded = fo4sf::menus_r14::LoadJobsFromJsonFile(resolved);
+				const auto count = loaded.size();
+				{
+					std::scoped_lock lock(g_invDataLock);
+					g_jobsSnap = std::move(loaded);
+				}
+				REX::INFO("step=jobs_load file={} n={}", resolved.filename().string(), count);
+			}
+			std::size_t jobTotal = 0;
+			bool        anyJobActive = false;
+			{
+				std::scoped_lock lock(g_invDataLock);
+				jobTotal = g_jobsSnap.size();
+				for (const auto& j : g_jobsSnap) {
+					if (j.active && !j.completed) {
+						anyJobActive = true;
+						break;
+					}
+				}
+			}
+			ShellQuestEntry jobsGroup;
+			jobsGroup.formId = 0;
+			jobsGroup.name = "JOBS";
+			jobsGroup.completed = false;
+			jobsGroup.active = anyJobActive;
+			jobsGroup.sortVal = 0;
+			jobsGroup.description = jobTotal > 0
+			                            ? std::format("Available and active jobs ({}).", jobTotal)
+			                            : std::string("No active jobs.");
+			a_out.quests.push_back(std::move(jobsGroup));
+		}
+
+		// Round 14 NEXT: Sanctuary Hills appears in DATA > WORKSHOPS whenever Sanctuary / Workshop plugins are loaded (honest 0s until WS1 systems).
+		if (g_questCacheWorkshopLoaded || g_questCacheMissionLoaded) {
 			ShellWorkshopEntry ws;
-			ws.name = "Sanctuary Hills (Placeholder)";
+			ws.name = "Sanctuary Hills";
 			ws.mapMarkerId = 0;
-			ws.values = { 5, 80, 6, 6, 5, 8, 6 };
+			ws.values = { 0, 0, 0, 0, 0, 0, 0 };
 			a_out.workshops.push_back(std::move(ws));
 		}
 
@@ -5003,7 +5054,7 @@ namespace
 			next.locationName = worldClean;
 		}
 
-		if (g_invDataAnswers) {
+		if (g_invDataAnswers || g_dataPagesFill) {
 			CollectQuestAndStatsMainThread(next, days, invDataNext);
 			std::scoped_lock invLock(g_invDataLock);
 			SortShellInvEntries(invDataNext.items, g_invSortMode.load(std::memory_order_relaxed));
@@ -5297,23 +5348,26 @@ namespace
 	void FillInvAndDataIntoDataObj(RE::Scaleform::GFx::ASMovieRootBase* a_root, RE::Scaleform::GFx::Value& a_dataObj,
 		std::uint32_t a_page, std::uint32_t a_tab, const char* a_when)
 	{
-		if (!g_invDataAnswers || !a_root || !a_dataObj.IsObject()) {
+		if ((!g_invDataAnswers && !(g_dataPagesFill && a_page == 2u)) || !a_root || !a_dataObj.IsObject()) {
 			return;
 		}
 		const std::uint32_t invTab = std::min<std::uint32_t>(a_tab, 6u);
 		const std::int32_t  invFilter = (a_page == 1u) ? static_cast<std::int32_t>(1u << invTab) : 1;
-		a_dataObj.SetMember("InvFilter", RE::Scaleform::GFx::Value(invFilter));
-		a_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode.load(std::memory_order_relaxed)));
+		if (g_invDataAnswers) {
+			a_dataObj.SetMember("InvFilter", RE::Scaleform::GFx::Value(invFilter));
+			a_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode.load(std::memory_order_relaxed)));
 
-		RE::Scaleform::GFx::Value selArr, pushRes;
-		if (a_dataObj.GetMember("InvSelectedItems", &selArr) && ClearAs3ArrayInPlace(selArr)) {
-			for (std::size_t ti = 0; ti < g_invSelectedPerTab.size(); ++ti) {
-				RE::Scaleform::GFx::Value sv(g_invSelectedPerTab[ti]);
-				selArr.Invoke("push", &pushRes, &sv, 1);
+			RE::Scaleform::GFx::Value selArr, pushRes;
+			if (a_dataObj.GetMember("InvSelectedItems", &selArr) && ClearAs3ArrayInPlace(selArr)) {
+				for (std::size_t ti = 0; ti < g_invSelectedPerTab.size(); ++ti) {
+					RE::Scaleform::GFx::Value sv(g_invSelectedPerTab[ti]);
+					selArr.Invoke("push", &pushRes, &sv, 1);
+				}
 			}
 		}
 
-		if (a_page == 1u) {
+		RE::Scaleform::GFx::Value pushRes;
+		if (g_invDataAnswers && a_page == 1u) {
 			ShellInvDataSnapshot          snap;
 			std::array<std::uint32_t, 12> quickkeysCopy{};
 			{
@@ -5637,13 +5691,21 @@ namespace
 					ClearAs3ArrayInPlace(arr);
 				}
 			}
-			// When InvDataAnswers=0, ensure INV & DATA list containers remain valid Arrays without clobbering
-			// InvDataAnswers=1 data (FillInvAndDataIntoDataObj owns them when g_invDataAnswers=1).
+			// When InvDataAnswers=0, ensure INV list containers (and DATA when DataPagesFill=0) remain valid Arrays
+			// without clobbering populated DATA lists when DataPagesFill=1.
 			if (!g_invDataAnswers) {
-				for (const char* arrName : { "InvItems", "InvComponents", "InvSelectedItems", "FavoritesList", "QuestsList", "WorkshopsList", "GeneralStatsList" }) {
+				for (const char* arrName : { "InvItems", "InvComponents", "InvSelectedItems", "FavoritesList" }) {
 					RE::Scaleform::GFx::Value arr;
 					if (a_dataObj.GetMember(arrName, &arr)) {
 						ClearAs3ArrayInPlace(arr);
+					}
+				}
+				if (!g_dataPagesFill) {
+					for (const char* arrName : { "QuestsList", "WorkshopsList", "GeneralStatsList" }) {
+						RE::Scaleform::GFx::Value arr;
+						if (a_dataObj.GetMember(arrName, &arr)) {
+							ClearAs3ArrayInPlace(arr);
+						}
 					}
 				}
 			}
@@ -5708,8 +5770,8 @@ namespace
 			}
 		}
 
-		// Step 1k (UI-2): populate InvItems / QuestsList / WorkshopsList / GeneralStatsList in place when InvDataAnswers=1
-		if (g_invDataAnswers) {
+		// Step 1k / R14 DATA: populate InvItems (InvDataAnswers=1) and QuestsList / WorkshopsList / GeneralStatsList (DataPagesFill=1)
+		if (g_invDataAnswers || (g_dataPagesFill && page == 2u)) {
 			FillInvAndDataIntoDataObj(a_root, a_dataObj, page, tab, a_when);
 		}
 
@@ -5796,7 +5858,7 @@ namespace
 			g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(targetPage));
 			g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(targetTab));
 			SpecialReady(root, top, "answer");
-			if (g_invDataAnswers) {
+			if (g_invDataAnswers || (g_dataPagesFill && targetPage == 2u)) {
 				FillInvAndDataIntoDataObj(root, g_dataObj, targetPage, targetTab, a_isPage ? "onNewPage" : "onNewTab");
 			}
 			if (targetPage == PipboyMap::MapPageIndex()) {
@@ -6158,6 +6220,10 @@ namespace
 					}
 					return;
 				}
+			}
+
+			// Round 14 DATA pages & Jobs Step 1: answer quest/workshop/jobs callbacks whenever InvDataAnswers=1 or DataPagesFill=1
+			if (g_invDataAnswers || g_dataPagesFill) {
 				if (_name == "onQuestSelection") {
 					if (a_params.argCount >= 3) {
 						RE::Scaleform::GFx::Value objList = a_params.args[0];
@@ -6179,7 +6245,32 @@ namespace
 						const void* const shellMenu = g_activeShellMenu.load();
 						auto* const root = shellMenu ? RootOf(shellMenu) : nullptr;
 						std::uint32_t objCount = 0;
-						if (root && qFid != 0 && (objList.IsArray() || objList.IsObject())) {
+						if (root && qFid == 0 && g_showJobsGroup && (objList.IsArray() || objList.IsObject())) {
+							std::vector<fo4sf::menus_r14::JobRecord> jobsCopy;
+							{
+								std::scoped_lock lock(g_invDataLock);
+								jobsCopy = g_jobsSnap;
+							}
+							RE::Scaleform::GFx::Value pushRes;
+							for (std::size_t ji = 0; ji < jobsCopy.size(); ++ji) {
+								const auto&               job = jobsCopy[ji];
+								RE::Scaleform::GFx::Value obVal;
+								root->CreateObject(&obVal);
+								if (obVal.IsObject()) {
+									const auto line = fo4sf::menus_r14::FormatJobObjectiveLine(job);
+									obVal.SetMember("text", RE::Scaleform::GFx::Value(line.c_str()));
+									obVal.SetMember("enabled", RE::Scaleform::GFx::Value(!job.completed));
+									obVal.SetMember("completed", RE::Scaleform::GFx::Value(job.completed));
+									obVal.SetMember("active", RE::Scaleform::GFx::Value(!job.completed && job.active));
+									obVal.SetMember("formID", RE::Scaleform::GFx::Value(
+										fo4sf::menus_r14::kJobRowFormIdBase + static_cast<std::uint32_t>(ji)));
+									if (objList.Invoke("push", &pushRes, &obVal, 1)) {
+										++objCount;
+									}
+								}
+							}
+							REX::INFO("step=job_select jobs={}", objCount);
+						} else if (root && qFid != 0 && (objList.IsArray() || objList.IsObject())) {
 							std::vector<ShellObjectiveEntry> objsCopy;
 							bool qActive = true;
 							{
@@ -6230,6 +6321,26 @@ namespace
 							} else if (fidVal.IsNumber() && fidVal.GetNumber() >= 0.0) {
 								qFid = static_cast<std::uint32_t>(fidVal.GetNumber());
 							}
+						}
+						if (g_showJobsGroup && qFid >= fo4sf::menus_r14::kJobRowFormIdBase) {
+							const auto  idx = static_cast<std::size_t>(qFid - fo4sf::menus_r14::kJobRowFormIdBase);
+							bool        nowActive = false;
+							std::string jobId;
+							bool        matched = false;
+							{
+								std::scoped_lock lock(g_invDataLock);
+								if (idx < g_jobsSnap.size() && !g_jobsSnap[idx].completed) {
+									g_jobsSnap[idx].active = !g_jobsSnap[idx].active;
+									nowActive = g_jobsSnap[idx].active;
+									jobId = !g_jobsSnap[idx].id.empty() ? g_jobsSnap[idx].id : g_jobsSnap[idx].title;
+									matched = true;
+								}
+							}
+							if (matched) {
+								qEntry.SetMember("active", RE::Scaleform::GFx::Value(nowActive));
+								REX::INFO("step=job_active id={} active={}", jobId, nowActive ? 1 : 0);
+							}
+							return;
 						}
 						if (qFid != 0) {
 							bool nowActive = true;
@@ -6925,7 +7036,7 @@ namespace
 			g_dataObj.SetMember("CurrentPage", RE::Scaleform::GFx::Value(page));
 			g_dataObj.SetMember("CurrentTab", RE::Scaleform::GFx::Value(tab));
 			SpecialReady(root, top, "show");
-			if (g_invDataAnswers) {
+			if (g_invDataAnswers || (g_dataPagesFill && page == 2u)) {
 				FillInvAndDataIntoDataObj(root, g_dataObj, page, tab, "kShow");
 			}
 			if (page == PipboyMap::MapPageIndex()) {
@@ -7080,7 +7191,7 @@ namespace
 			}
 		}
 
-		if (const auto mask = g_pendingPartialMask.exchange(0); mask != 0 && (g_populateInCall || g_shellVitalsFill || g_statActions || g_invDataAnswers)) {
+		if (const auto mask = g_pendingPartialMask.exchange(0); mask != 0 && (g_populateInCall || g_shellVitalsFill || g_statActions || g_invDataAnswers || g_dataPagesFill)) {
 			if (!g_dataObj.IsObject()) {
 				menuMc.GetMember("DataObj", &g_dataObj);
 			}
@@ -7089,7 +7200,7 @@ namespace
 				const auto tab = s_savedTabs[page].load();
 				if (g_populateInCall || g_shellVitalsFill || g_statActions) {
 					FillPipboyDataObj(a_menu, a_root, g_dataObj, page, tab, "partial");
-				} else if (g_invDataAnswers) {
+				} else if (g_invDataAnswers || (g_dataPagesFill && page == 2u)) {
 					FillInvAndDataIntoDataObj(a_root, g_dataObj, page, tab, "partial");
 				}
 				RE::Scaleform::GFx::Value maskArg(mask);
@@ -10224,6 +10335,35 @@ namespace
 		return *name;
 	}
 
+	// Round 14 Task 2b: Hide-only suppression for removable Starfield menus (opt-in per INI switch, all off by default).
+	bool SuppressHiddenMenusMainThread()
+	{
+		if (!g_anyHideMenuEnabled || !IsFo4ShellActive()) {
+			return false;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue || OpenBlockingOverlayMenu(ui, true) != nullptr) {
+			return false;
+		}
+		bool anySent = false;
+		for (std::size_t i = 0; i < fo4sf::menus_r14::kHideMenuCount; ++i) {
+			if (!g_hideMenus[i]) {
+				continue;
+			}
+			const RE::BSFixedString menuName(fo4sf::menus_r14::kHideMenuSpecs[i].menuName);
+			if (ui->IsMenuRegistered(menuName) && ui->IsMenuOpen(menuName)) {
+				queue->AddMessage(menuName, RE::UI_MESSAGE_TYPE::kHide);
+				const auto n = ++g_hideMenuSuppressions;
+				if (n <= 64) {
+					REX::INFO("step=hide_menu n={} menu={} sent=hide", n, fo4sf::menus_r14::kHideMenuSpecs[i].menuName);
+				}
+				anySent = true;
+			}
+		}
+		return anySent;
+	}
+
 	// C4-4: Hide-only DataMenu suppression (same proven safe pattern as SuppressVanillaMapMenus, zero initFunc replacement).
 	// Never interferes with PauseMenu, Console, MainMenu, LoadingMenu, ChargenMenu, MessageBoxMenu, or save/load.
 	bool SuppressDataMenuMainThread()
@@ -10333,6 +10473,9 @@ namespace
 		}
 		if (g_hideStarfieldWatch && g_hudWatchRetryPending.load()) {
 			RetryHudWatchHideMainThread("ui_poll");
+		}
+		if (g_anyHideMenuEnabled) {
+			SuppressHiddenMenusMainThread();
 		}
 	}
 
@@ -10563,7 +10706,7 @@ namespace
 			// (DialogueMenu, ContainerMenu, WorkshopMenu, etc.) within 500 ms never pops the Pip-Boy.
 			if (IsFo4ShellActive()) {
 				const auto dt = ++dataMenuTicks;
-				if (g_tabOpensPipboy && !g_open.load() && (dt % 2 == 0)) {
+				if ((g_tabOpensPipboy || g_anyHideMenuEnabled) && !g_open.load() && (dt % 2 == 0)) {
 					g_task->AddTask([]() { PollBlockingMenuStateMainThread(); });
 				}
 				const bool tabNow = (W32_IMPL_GetAsyncKeyState(0x09) & 0x8000) != 0;
@@ -10949,6 +11092,14 @@ namespace
 		if (g_suppressDataMenu && IsFo4ShellActive() && g_task && a_menu && a_menu->menuName.c_str() &&
 			SameText(a_menu->menuName.c_str(), "DataMenu")) {
 			g_task->AddTask([]() { SuppressDataMenuMainThread(); });
+		}
+		if (g_anyHideMenuEnabled && IsFo4ShellActive() && g_task && a_menu && a_menu->menuName.c_str()) {
+			for (std::size_t i = 0; i < fo4sf::menus_r14::kHideMenuCount; ++i) {
+				if (g_hideMenus[i] && SameText(a_menu->menuName.c_str(), fo4sf::menus_r14::kHideMenuSpecs[i].menuName)) {
+					g_task->AddTask([]() { SuppressHiddenMenusMainThread(); });
+					break;
+				}
+			}
 		}
 		if (IsOurs(a_menu)) {
 			REX::INFO("step=sfse_movie_created menu={} movie={}", Hex(reinterpret_cast<std::uintptr_t>(a_menu)),
@@ -11461,6 +11612,19 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_lateInvalidate = ReadNumber(ini, L"LateInvalidate", 0) != 0;
 	g_statActions = ReadNumber(ini, L"StatActions", 0) != 0;
 	g_invDataAnswers = ReadNumber(ini, L"InvDataAnswers", 0) != 0;
+	g_dataPagesFill = ReadNumber(ini, L"DataPagesFill", 0) != 0;
+	g_showJobsGroup = ReadNumber(ini, L"ShowJobsGroup", 0) != 0;
+	g_jobsJson = ReadText(ini, L"JobsJson");
+	if (g_jobsJson.empty()) {
+		g_jobsJson = "FO4SFPipboyJobs.json";
+	}
+	g_anyHideMenuEnabled = false;
+	for (std::size_t i = 0; i < fo4sf::menus_r14::kHideMenuCount; ++i) {
+		g_hideMenus[i] = ReadNumber(ini, fo4sf::menus_r14::kHideMenuSpecs[i].iniKey, 0) != 0;
+		if (g_hideMenus[i]) {
+			g_anyHideMenuEnabled = true;
+		}
+	}
 	const bool fo4ShellIni = (g_stage == 2 && g_codeObj && g_codeObjAt == "Menu_mc");
 	g_shellBackdrop = ReadNumber(ini, L"ShellBackdrop", 1) != 0;
 	g_shellVitalsFill = ReadNumber(ini, L"ShellVitalsFill", 0) != 0;

@@ -489,6 +489,9 @@ def format_stage_ini(
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
+    data_pages_fill: int = 1,
+    show_jobs_group: int = 0,
+    jobs_json: str = "FO4SFPipboyJobs.json",
     require_pickup: int = 0,
     boot_movie: str = "",
     boot_on_first_open: int = 0,
@@ -547,6 +550,17 @@ def format_stage_ini(
         f"HideStarfieldWatch={1 if hide_starfield_watch else 0}",
         f"StatActions={1 if stat_actions else 0}",
         f"InvDataAnswers={1 if inv_data_answers else 0}",
+        f"DataPagesFill={1 if data_pages_fill else 0}",
+        f"ShowJobsGroup={1 if show_jobs_group else 0}",
+        f"JobsJson={jobs_json}",
+        "HidePowersMenu=0",
+        "HideAlmanacMenu=0",
+        "HideResearchMenu=0",
+        "HideShipCrewMenu=0",
+        "HideShipCrewAssignMenu=0",
+        "HideTakeoffMenu=0",
+        "HideShipRefuelMenu=0",
+        "HideWeaponGroupAssignmentMenu=0",
         f"RequirePickup={1 if require_pickup else 0}",
         f"BootMovie={boot_movie}",
         f"BootOnFirstOpen={1 if (boot_movie and boot_on_first_open) else 0}",
@@ -630,6 +644,9 @@ def generate_stage_ini(
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
+    data_pages_fill: int = 1,
+    show_jobs_group: int = 0,
+    jobs_json: str = "FO4SFPipboyJobs.json",
     require_pickup: int = 0,
     boot_movie_name: str = DEFAULT_BOOT_MOVIE,
     boot_on_first_open: int = 0,
@@ -716,6 +733,9 @@ def generate_stage_ini(
         arm=arm,
         stat_actions=stat_actions,
         inv_data_answers=inv_data_answers,
+        data_pages_fill=data_pages_fill,
+        show_jobs_group=show_jobs_group,
+        jobs_json=jobs_json,
         require_pickup=require_pickup,
         boot_movie=boot_movie_name if boot_swf_present else "",
         boot_on_first_open=boot_on_first_open if boot_swf_present else 0,
@@ -781,6 +801,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--arm", type=int, choices=(0, 1), default=0, help="Opt-in 1i/N1 first-person arm PlayIdle (default 0: T7 off)")
     ap.add_argument("--stat-actions", type=int, choices=(0, 1), default=0, help="Enable 1j STAT actions (default 0)")
     ap.add_argument("--inv-data-answers", type=int, choices=(0, 1), default=0, help="Enable 1k INV/DATA answers (default 0)")
+    ap.add_argument("--data-pages-fill", type=int, choices=(0, 1), default=1, help="Populate DATA > QUESTS and DATA > WORKSHOPS even when InvDataAnswers=0 (default 1)")
+    ap.add_argument("--show-jobs-group", type=int, choices=(0, 1), default=0, help="Show generic formID=0 JOBS group under DATA > QUESTS (default 0)")
+    ap.add_argument("--jobs-json", default="FO4SFPipboyJobs.json", help="Jobs JSON path relative to plugin dir (default FO4SFPipboyJobs.json)")
     ap.add_argument("--require-pickup", type=int, choices=(0, 1), default=0, help="Enable X2 RequirePickup (default 0)")
     ap.add_argument("--boot-movie", default=DEFAULT_BOOT_MOVIE, help="Boot sequence SWF base name")
     ap.add_argument("--boot-on-first-open", type=int, choices=(0, 1), default=0, help="Opt-in boot movie once after pickup (default 0: T7 off)")
@@ -838,6 +861,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             arm=args.arm,
             stat_actions=args.stat_actions,
             inv_data_answers=args.inv_data_answers,
+            data_pages_fill=args.data_pages_fill,
+            show_jobs_group=args.show_jobs_group,
+            jobs_json=args.jobs_json,
             require_pickup=args.require_pickup,
             boot_movie_name=args.boot_movie,
             boot_on_first_open=args.boot_on_first_open,
