@@ -212,6 +212,35 @@ bool Function ExecuteFastTravelComparison(int aiSrcCode, int aiDstCode, ObjectRe
     return True
 EndFunction
 
+ObjectReference Function ResolveAnchorForDestCode(int aiCode)
+    ; Probe dest codes: Commonwealth 1, Far Harbor 5 (world_registry pipboy_plugin_code), transit hop 0.
+    if aiCode == 1
+        return ResolveCommonwealthAnchor()
+    elseif aiCode == 5
+        return ResolveFarHarborAnchor()
+    elseif aiCode == 0
+        return ResolveTransitMarker()
+    endif
+    return None
+EndFunction
+
+bool Function DestAnchorReady(Actor akPlayer, ObjectReference akAnchor)
+    if akPlayer == None || akAnchor == None
+        return False
+    endif
+    WorldSpace destWs = ResolveHostWorld(akAnchor)
+    WorldSpace here = akPlayer.GetWorldSpace()
+    if destWs != None && here == destWs
+        return True
+    endif
+    Cell destCell = akAnchor.GetParentCell()
+    Cell hereCell = akPlayer.GetParentCell()
+    if destWs == None && destCell != None && hereCell == destCell
+        return True
+    endif
+    return False
+EndFunction
+
 Event OnQuestInit()
     Actor player = Game.GetPlayer()
     if player != None
@@ -222,11 +251,30 @@ EndEvent
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
     int st = GetGlob(0x800, 0.0) as int
-    if st >= STATE_PENDING_WRITE && st <= STATE_WAITING_3D
-        int dst = GetGlob(0x802, 0.0) as int
-        Log("reload_recovery state=" + st + " dst=" + dst + " ws=" + akSender.GetWorldSpace())
-        SetGlob(0x800, STATE_RECOVERED as float)
-        Game.FadeOutGame(False, True, 0.0, 0.25, False)
+    if st < STATE_PENDING_WRITE || st > STATE_WAITING_3D
+        return
+    endif
+    int dst = GetGlob(0x802, 0.0) as int
+    ; States 1-2 are pre-move: always abort, even if the destination form is already loaded.
+    ; States 3-4 finish only when the player is already in the destination world or transit cell.
+    bool preMove = (st == STATE_PENDING_WRITE || st == STATE_FADING_OUT)
+    bool destReady = False
+    if !preMove
+        destReady = DestAnchorReady(akSender, ResolveAnchorForDestCode(dst))
+    endif
+    Log("reload_recovery state=" + st + " dst=" + dst + " ws=" + akSender.GetWorldSpace() + " preMove=" + preMove + " destReady=" + destReady)
+    SetGlob(0x800, STATE_RECOVERED as float)
+    Game.FadeOutGame(False, True, 0.0, 0.25, False)
+    if destReady
+        Log("reload_recovery result=recovered_completed_at_dest state=" + st + " dst=" + dst)
+        ClearPendingRecord(STATE_CLEARED)
+    elseif preMove
+        Log("reload_recovery result=aborted_pre_move_lock_cleared state=" + st + " dst=" + dst)
+        SetGlob(0x800, STATE_FAILED as float)
+        ClearPendingRecord(STATE_CLEARED)
+    else
+        Log("reload_recovery result=aborted_dest_not_ready state=" + st + " dst=" + dst)
+        SetGlob(0x800, STATE_FAILED as float)
         ClearPendingRecord(STATE_CLEARED)
     endif
 EndEvent

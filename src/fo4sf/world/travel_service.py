@@ -127,33 +127,37 @@ class PendingTripRecord:
     def recover_on_load(self, *, dest_anchor_loaded: bool) -> str:
         """Handle a save reload interrupted mid-trip (D1: OnPlayerLoadGame recovery).
 
-        If state was strictly between PENDING_WRITE and WAITING_3D, move forward to clear
-        when the destination anchor is already loaded, or abort fade and clear cleanly when
-        reloaded pre-move so no player stays stuck faded-out or locked.
+        Recommended default `finish_if_dest_ready_else_abort_clear`:
+        states PENDING_WRITE and FADING_OUT are pre-move, so they always abort
+        even when a destination form is already in memory. MOVING and WAITING_3D
+        finish only when the destination anchor is loaded; otherwise they abort.
         """
         if self.state in (TravelState.IDLE, TravelState.CLEARED):
             return "noop_idle"
         if self.state == TravelState.ARRIVED:
             self.transition(TravelState.CLEARED)
             return "finalized_clear"
+        if self.state == TravelState.FAILED:
+            self.transition(TravelState.CLEARED)
+            return "cleared_failed"
         if self.state in (
             TravelState.PENDING_WRITE,
             TravelState.FADING_OUT,
             TravelState.MOVING,
             TravelState.WAITING_3D,
         ):
+            pre_move = self.state in (TravelState.PENDING_WRITE, TravelState.FADING_OUT)
             self.transition(TravelState.RECOVERED_FROM_RELOAD)
-            if dest_anchor_loaded:
+            if (not pre_move) and dest_anchor_loaded:
                 self.transition(TravelState.WAITING_3D)
                 self.transition(TravelState.ARRIVED)
                 self.transition(TravelState.CLEARED)
                 return "recovered_completed_at_dest"
             self.transition(TravelState.FAILED)
             self.transition(TravelState.CLEARED)
-            return "aborted_pre_move_lock_cleared"
-        if self.state == TravelState.FAILED:
-            self.transition(TravelState.CLEARED)
-            return "cleared_failed"
+            if pre_move:
+                return "aborted_pre_move_lock_cleared"
+            return "aborted_dest_not_ready"
         return "noop"
 
     def to_dict(self) -> Dict[str, Any]:
