@@ -21,7 +21,7 @@ namespace fo4sf
 	// FO4SF_PipboyMenu is already open underneath them.
 	inline constexpr std::size_t kTopModalMenuCount = 8;
 
-	inline constexpr std::array<const char*, 38> kBlockingMenus{ {
+	inline constexpr std::array<const char*, 59> kBlockingMenus{ {
 		// Top modal & text-input overlays (indices 0 .. kTopModalMenuCount - 1)
 		"Console",
 		"ConsoleNativeUIMenu",
@@ -67,6 +67,28 @@ namespace fo4sf
 		"GenesisTerminalMenu",
 		"LockpickingMenu",
 		"TerminalMenu",
+		// Round 14 Task 2a curated modal screens (benches, slates, ship/power/research/photo/credits)
+		"ArmorCraftingMenu",
+		"DrugsCraftingMenu",
+		"FoodCraftingMenu",
+		"IndustrialCraftingMenu",
+		"WeaponsCraftingMenu",
+		"DataSlateMenu",
+		"PowersMenu",
+		"AlmanacMenu",
+		"MissionBoard",
+		"WorkshopTargetMenu",
+		"ShipCrewMenu",
+		"ShipCrewAssignMenu",
+		"TakeoffMenu",
+		"ShipRefuelMenu",
+		"WeaponGroupAssignmentMenu",
+		"ResearchMenu",
+		"PhotoGalleryMenu",
+		"PlayBinkMenu",
+		"TitleSequenceMenu",
+		"CreditsMenu",
+		"EndGameCreditsMenu",
 	} };
 
 	inline const std::vector<RE::BSFixedString>& BlockingMenusFixed()

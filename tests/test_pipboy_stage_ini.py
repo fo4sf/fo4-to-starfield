@@ -913,8 +913,9 @@ class Task1CrossModuleContractsTests(unittest.TestCase):
         self.assertIn("step=starmap_block_install menu={} found=1", map_cpp)
         self.assertIn("step=starmap_block_install menu={} found=0", map_cpp)
 
-        # A13: WorkshopsList placeholder, RemoveItem slot 0x8B doc note + concrete formType + worldPos, and ArmRetryMs restored
-        self.assertIn("Sanctuary Hills (Placeholder)", main_cpp)
+        # A13/R14: WorkshopsList Sanctuary Hills (clean player text, Rule 13), RemoveItem slot 0x8B doc note, and ArmRetryMs restored
+        self.assertIn('ws.name = "Sanctuary Hills";', main_cpp)
+        self.assertNotIn("Sanctuary Hills (Placeholder)", main_cpp)
         drop_note = (ROOT / "docs" / "ui" / "pipboy-inv-drop-note.md").read_text(encoding="utf-8")
         self.assertIn("0x8B", drop_note)
         self.assertIn("0x40", drop_note)

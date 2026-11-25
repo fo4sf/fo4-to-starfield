@@ -280,7 +280,7 @@ class StartPlacesTests(unittest.TestCase):
     def test_blocking_menus_header_keeps_38_entries_and_declares_setup_menu_name(self):
         hdr = (REPO / "sfse" / "common" / "blocking_menus.h").read_text(encoding="utf-8")
         self.assertIn('kOurSetupMenuName = "FO4SF_SetupMenu"', hdr)
-        self.assertIn("std::array<const char*, 38> kBlockingMenus", hdr)
+        self.assertIn("std::array<const char*, 59> kBlockingMenus", hdr)
 
 
 if __name__ == "__main__":
