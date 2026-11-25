@@ -410,8 +410,8 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.assertEqual(req_code.count(".SetMarkerDiscovered()"), 1)
         self.assertNotIn(".AddToMap(", req_code)
         ft_code = code[code.index("Function TryFastTravelSurface"):code.index("Function TrySurfaceExteriorFallbacks")]
-        self.assertIn(".AddToMap(True)", ft_code)
-        self.assertIn(".SetMarkerDiscovered()", ft_code)
+        self.assertNotIn(".AddToMap(", ft_code)
+        self.assertNotIn(".SetMarkerDiscovered()", ft_code)
         self.assertIn(".EnableFastTravel(True)", ft_code)
         self.assertIn("Game.FastTravel(", ft_code)
 
@@ -458,7 +458,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
     )
     EXIT_VARS = (
         "asked, liftSpecConfirmed, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
-        "rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, "
+        "rideActive, rideDone, rideTransferred, rideFadeStarted, exitFailures, exitUsedFallback, "
         "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, "
         "fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks, "
         "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered"
@@ -591,6 +591,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             rideActive=False,
             rideDone=False,
             rideTransferred=False,
+            rideFadeStarted=False,
             exitFailures=0,
             exitUsedFallback=False,
             surfaceMovedAt=0.0,
@@ -622,6 +623,8 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             TriggerVaultPodRecoveryAutosave=lambda *_: None,
             CancelTimer=lambda tid: self.cancels.append(tid),
             ReadH00SuspectsOnce=lambda: None,
+            ShowPausedExitLiftMenu=lambda *_: -1,
+            SyncPipboyOwnedWornState=lambda *_: False,
             OpenLiftAttributeAllocation=lambda: None,
             OpenLiftCharacterRespec=lambda: None,
             RunSharedMapSetup=lambda: 4,
@@ -755,13 +758,19 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.ns["Surface"](self.player)
         self.assertFalse(self.ns["vaultSavingRelocked"])
         self.assertEqual(self.exit_anchor.enables, [False])
+        self.assertEqual(self.core_anchor.enables, [])
+        self.assertEqual(self.fast_travels, [])
+        self.now += 11.0
+        self.ns["FinishSurface"](self.player)
+        self.now += 11.0
+        self.ns["FinishSurface"](self.player)
         self.assertEqual(self.core_anchor.enables, [False])
         self.assertEqual(self.fast_travels, [])
         self.assertTrue(any(t.startswith("surface fallback anchor=") for t in self.traces), self.traces)
         self.ns["FinishSurface"](self.player)
         self.assertEqual(self.stages, [40])
 
-        # 3) Death-reload case B: both 0x0A775B & 0x000800 leave player interior -> FastTravel(0x0008F2) instantiates exterior -> stage 40!
+        # 3) Death-reload case B: both 0x0A775B & 0x000800 leave player interior -> last-resort FastTravel(0x0008F2) instantiates exterior -> stage 40!
         self.setUp()
         self.ns["vaultSavingRelocked"] = True
 
@@ -775,12 +784,17 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
 
         self.player.MoveTo = ft_only_move
         self.ns["Surface"](self.player)
+        self.assertEqual(self.fast_travels, [])
+        self.now += 11.0
+        self.ns["FinishSurface"](self.player)
+        self.now += 11.0
+        self.ns["FinishSurface"](self.player)
         self.assertEqual(self.fast_travels, [self.land_marker])
         self.assertEqual(self.land_marker.enables, [False])
-        self.assertEqual(self.land_marker.add_to_map_calls, [True])
-        self.assertEqual(self.land_marker.discovery_calls, 1)
+        self.assertEqual(self.land_marker.add_to_map_calls, [])
+        self.assertEqual(self.land_marker.discovery_calls, 0)
         self.assertEqual(self.land_marker.enable_fast_travel_calls, [True])
-        self.assertTrue(any(t.startswith("surface fallback fasttravel target=") for t in self.traces), self.traces)
+        self.assertTrue(any(t.startswith("surface fallback last_resort fasttravel target=") for t in self.traces), self.traces)
         self.ns["FinishSurface"](self.player)
         self.assertEqual(self.stages, [40])
 
@@ -798,9 +812,14 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
 
         self.player.MoveTo = anchor_ft_move
         self.ns["Surface"](self.player)
+        self.assertEqual(self.fast_travels, [])
+        self.now += 11.0
+        self.ns["FinishSurface"](self.player)
+        self.now += 11.0
+        self.ns["FinishSurface"](self.player)
         self.assertEqual(self.fast_travels, [self.exit_anchor])
-        self.assertEqual(self.exit_anchor.add_to_map_calls, [True])
-        self.assertEqual(self.exit_anchor.discovery_calls, 1)
+        self.assertEqual(self.exit_anchor.add_to_map_calls, [])
+        self.assertEqual(self.exit_anchor.discovery_calls, 0)
         self.assertEqual(self.exit_anchor.enable_fast_travel_calls, [True])
         self.ns["FinishSurface"](self.player)
         self.assertEqual(self.stages, [40])

@@ -42,7 +42,7 @@ class SaveReloadPathTests(unittest.TestCase):
         psc = NEWGAME_PSC.read_text(encoding="utf-8")
         funcs = ("Actor.OnPlayerLoadGame", "ApplyStage", "ClearVaultSaveLock", "RelockVaultSaving")
         vars_csv = (
-            "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, "
+            "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, rideFadeStarted, "
             "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
             "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
             "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered, "
@@ -70,6 +70,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 rideActive=mid_exit,
                 rideDone=mid_exit,
                 rideTransferred=False,
+                rideFadeStarted=False,
                 ridingLift=lift_obj,
                 ridingCell="FO4Port_Vault111Cryo" if mid_exit else None,
                 surfaceMovedAt=12.5 if mid_exit else 0.0,
@@ -98,6 +99,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 UnregisterForAnimationEvent=lambda ref, ev: unreg_anims.append((ref, ev)),
                 ReturnPlayerToVaultPlatform=lambda p: returned_to_plat.append(p),
                 EnsureLoadHookRegistered=lambda p: None,
+                SyncPipboyOwnedWornState=lambda p: False,
                 StartTimer=lambda sec, tid: timers.append((sec, tid)),
                 Trace=lambda m: logs.append(str(m)),
             )
@@ -600,7 +602,7 @@ class SaveReloadPathTests(unittest.TestCase):
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
             "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
             "loadHookRegistered, dyingHookRegistered, h00SuspectsRead, "
-            "rideActive, rideDone, rideTransferred, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
+            "rideActive, rideDone, rideTransferred, rideFadeStarted, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
             "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, fallbackPending, "
             "discoveryMarkerMoved, discoveryAttachPending, landingChecks, asked, "
             "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
@@ -704,12 +706,13 @@ class SaveReloadPathTests(unittest.TestCase):
             applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False, exitUsedFallback=False,
             vaultPodAutosaved=False, vaultSavingRelocked=False, vaultRecoveryTriggered=False, vaultPodAutosaveSkips=0,
             loadHookRegistered=False, dyingHookRegistered=False, h00SuspectsRead=True,
-            rideActive=False, rideDone=False, rideTransferred=False, ridingLift=None, ridingCell=None,
+            rideActive=False, rideDone=False, rideTransferred=False, rideFadeStarted=False, ridingLift=None, ridingCell=None,
             rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
             surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, arrivalWorld=None, arrivedAt=0.0,
             fallbackPending=False, discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
             asked=False, returnSurfacePending=False, returnVaultAsked=False,
             returnSurfaceWaitTicks=0, returnSurfaceTries=0, exitFailures=0,
+            SyncPipboyOwnedWornState=lambda *_: False,
             Debug=SimpleNamespace(OpenUserLog=lambda *_: None, Notification=lambda *_: None),
             Utility=SimpleNamespace(GetCurrentRealTime=lambda: now[0], Wait=lambda *_: None),
             Game=SimpleNamespace(
@@ -765,9 +768,14 @@ class SaveReloadPathTests(unittest.TestCase):
         self.assertEqual(lift_state["plays"], ["Play01", "Play02", "Play01"])
         self.assertEqual(lift_state["resets"], 1)
 
-        # 4. Surface clears save lock / HUD chargen, tries 0x000800, falls back to FastTravel(0x0008F2), reaches stage 40!
+        # 4. Surface clears save lock / HUD chargen, tries 0x000800, falls back to last-resort FastTravel(0x0008F2) after retries exhaust, reaches stage 40!
         ns["Surface"](player)
         self.assertFalse(ns["vaultSavingRelocked"])
+        self.assertEqual(fast_travels, [])
+        now[0] += 11.0
+        ns["FinishSurface"](player)
+        now[0] += 11.0
+        ns["FinishSurface"](player)
         self.assertEqual(fast_travels, [land_marker])
         self.assertFalse(player.IsInInterior())
         ns["FinishSurface"](player)

@@ -299,7 +299,7 @@ class R11W1Tests(unittest.TestCase):
             self.assertEqual(r.inv["AmmoShotshell"], 0, f"raider {idx} AmmoShotshell must be removed after sidearm swap")
             self.assertEqual(r.inv["Ammo777mm"], 36, f"raider {idx} 7.77mm count != 36")
             self.assertEqual(r.unequipped, ["SpacerGun", "Coachman097B"])
-            self.assertEqual(r.equipped[-1], ("Eon097A", True))
+            self.assertEqual(r.equipped[-1], ("Eon097A", False))
             self.assertFalse(r.restrained)
             self.assertEqual(r.avs["Aggression"], 2.0)
             self.assertEqual(r.avs["Confidence"], 4.0)

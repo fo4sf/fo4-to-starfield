@@ -508,7 +508,7 @@ class SafeDefaultsTests(unittest.TestCase):
             "ActivateGearDoorConsole",
         )
         vars_csv = (
-            "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
+            "itemWatchRegistered, pipboyRegistered, pipboyEquipWatchRegistered, cogDoorRegistered, cogDoorWatchedRef, "
             "consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, "
             "consoleOpening, pistolPickedLogged"
         )
@@ -568,6 +568,8 @@ class SafeDefaultsTests(unittest.TestCase):
             ns = dict(
                 itemWatchRegistered=True,
                 pipboyRegistered=False,
+                pipboyEquipWatchRegistered=False,
+                PipboyWristArmor=None,
                 cogDoorRegistered=False,
                 cogDoorWatchedRef=None,
                 consoleRegistered=False,
