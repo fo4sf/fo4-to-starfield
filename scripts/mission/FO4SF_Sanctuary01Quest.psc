@@ -32,6 +32,8 @@ Message Property SturgesDoneMsg Auto Const
 Message Property WorkbenchBuildMsg Auto Const
 ; R11-fix #2: Clean Sanctuary bench swap is OFF by default in candidate-2g-fix (also controlled by FO4SFWorkshop.esm:0x00084A)
 bool Property EnableCleanBenchSwap = False Auto
+; WS0a DO-1: Opening-toast candidate fix is OFF by default (also controlled by FO4SFWorkshop.esm:0x000858)
+bool Property EnableWorkshopStartViaScript = False Auto
 
 string LogName = "fo4sf_mission"
 string CorePlugin = "FO4TerrainCore.esm"
@@ -42,7 +44,9 @@ int BenchRefId = 0x005C50
 int BenchBaseId = 0x0A2ECD
 int CleanBenchBaseId = 0x000849
 int CleanBenchSwapGlobId = 0x00084A
+int StartViaScriptGlobId = 0x000858
 float CleanBenchSelfHealSeconds = 3.5
+float StartViaScriptDelaySeconds = 0.25
 float BenchLocalX = -1129.250
 float BenchLocalY = 1279.807
 float BenchLocalZ = 112.086
@@ -70,6 +74,7 @@ bool workshopMenuOpen = False
 bool cleanBenchVerifyPending = False
 bool cleanBenchSawWorkshop = False
 bool cleanBenchSelfHealed = False
+bool startViaScriptBlocked = False
 bool a4Upgraded = False
 bool minRecruitHandoffDone = False
 int talkSessionId = 0
@@ -201,6 +206,38 @@ bool Function IsCleanBenchSwapEnabled()
         endif
     endif
     return False
+EndFunction
+
+bool Function IsWorkshopStartViaScriptEnabled()
+{WS0a DO-1: Opening-toast candidate fix (BlockActivation + delayed StartWorkshop) is OFF by default (0x000858 == 0.0).
+ Returns True only when explicitly switched ON via property or FO4SFWorkshop.esm:0x000858.}
+    if EnableWorkshopStartViaScript
+        return True
+    endif
+    if Game.IsPluginInstalled(WorkshopPlugin)
+        GlobalVariable sw = Game.GetFormFromFile(StartViaScriptGlobId, WorkshopPlugin) as GlobalVariable
+        if sw != None && sw.GetValue() != 0.0
+            return True
+        endif
+    endif
+    return False
+EndFunction
+
+Function SyncBenchActivationMode()
+    if boundBench == None || boundBench.IsDeleted()
+        startViaScriptBlocked = False
+        return
+    endif
+    bool wantScriptStart = IsWorkshopStartViaScriptEnabled()
+    if wantScriptStart && !startViaScriptBlocked
+        boundBench.BlockActivation(True, False)
+        startViaScriptBlocked = True
+        Trace("sanctuary01 start_via_script block_activation=true ref=" + boundBench)
+    elseif !wantScriptStart && startViaScriptBlocked
+        boundBench.BlockActivation(False, False)
+        startViaScriptBlocked = False
+        Trace("sanctuary01 start_via_script block_activation=false ref=" + boundBench)
+    endif
 EndFunction
 
 bool Function IsSturgesReadyForSanctuary()
@@ -539,6 +576,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
             SetStage(applied)
         endif
         if boundBench != None
+            if startViaScriptBlocked
+                boundBench.BlockActivation(False, False)
+                startViaScriptBlocked = False
+            endif
             UnregisterForRemoteEvent(boundBench, "OnActivate")
             UnregisterForRemoteEvent(boundBench, "OnWorkshopMode")
             boundBench = None
@@ -556,6 +597,13 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 4
+        if boundBench != None && !boundBench.IsDeleted() && IsWorkshopStartViaScriptEnabled() && !workshopModeActive && !workshopMenuOpen && !IsAnyMenuOrWorkshopOpen()
+            boundBench.StartWorkshop(True)
+            Trace("sanctuary01 start_via_script fired=true ref=" + boundBench)
+        endif
+        return
+    endif
     if aiTimerID == 3
         if cleanBenchVerifyPending && !cleanBenchSawWorkshop && !workshopModeActive && !workshopMenuOpen && sanctuaryBenchOverride != None && !cleanBenchSelfHealed
             cleanBenchSelfHealed = True
@@ -603,6 +651,7 @@ Event OnTimer(int aiTimerID)
         elseif !wantSwapNow && sanctuaryBenchOverride != None && boundBench == sanctuaryBenchOverride
             RestoreCoreBench("switch_off")
         endif
+        SyncBenchActivationMode()
         if boundBench == None || boundBench.IsDeleted()
             EnsureGuideMarker(player)
             TryBindBench(player)
@@ -930,6 +979,7 @@ Function RestoreCoreBench(string reason)
         boundBench = coreRef
         RegisterForRemoteEvent(boundBench, "OnActivate")
         RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+        SyncBenchActivationMode()
         ReferenceAlias bAliasRestore = GetAlias(0) as ReferenceAlias
         if bAliasRestore != None
             bAliasRestore.ForceRefTo(boundBench)
@@ -967,6 +1017,7 @@ Function TryBindBench(Actor player)
             boundBench = sanctuaryBenchOverride
             RegisterForRemoteEvent(boundBench, "OnActivate")
             RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+            SyncBenchActivationMode()
             ReferenceAlias bAliasRe = GetAlias(0) as ReferenceAlias
             if bAliasRe != None
                 bAliasRe.ForceRefTo(boundBench)
@@ -1030,6 +1081,7 @@ Function TryBindBench(Actor player)
         boundBench = targetBench
         RegisterForRemoteEvent(boundBench, "OnActivate")
         RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+        SyncBenchActivationMode()
         ReferenceAlias benchAlias = GetAlias(0) as ReferenceAlias
         if benchAlias != None
             benchAlias.ForceRefTo(boundBench)
@@ -1135,6 +1187,12 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     endif
     if boundBench != None && akSender == boundBench
         int cur = EffectiveStage()
+        if startViaScriptBlocked || IsWorkshopStartViaScriptEnabled()
+            SyncBenchActivationMode()
+            CancelTimer(4)
+            StartTimer(StartViaScriptDelaySeconds, 4)
+            Trace("sanctuary01 start_via_script queued=true delay=" + StartViaScriptDelaySeconds)
+        endif
         if cur < 100
             ; R2: Never pop a modal menu over the real workshop on bench activation.
             CompleteSanctuaryObjective(akSender)

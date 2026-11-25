@@ -393,7 +393,9 @@ Event ObjectReference.OnItemRemoved(ObjectReference akSender, Form akBaseItem, i
     Form scrapToken = Game.GetFormFromFile(ScrapTokenId, WorkshopPlugin)
 
     if campKit != None && baseId == campKit.GetFormID()
-        TryDeployCamp(playerRef, akItemReference, "kit", 0, 0.0)
+        if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0 ; until owner Q6
+            TryDeployCamp(playerRef, akItemReference, "kit", 0, 0.0)
+        endif
     elseif packToken != None && baseId == packToken.GetFormID()
         ConsumeDroppedToken(akItemReference)
         playerRef.AddItem(packToken, 1, true)
