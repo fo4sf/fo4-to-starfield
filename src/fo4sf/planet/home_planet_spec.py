@@ -1214,6 +1214,15 @@ WORLD_DISPLAY_NAMES: Dict[str, str] = {
     "Commonwealth": "Commonwealth",
     "FarHarbor": "Far Harbor",
     "NukaWorld": "Nuka-World",
+    "CapitalWasteland": "Capital Wasteland",
+    "MojaveWasteland": "Mojave Wasteland",
+}
+
+# Canonical registry world_edid plus pilot WRLD EditorIDs built by Claude (Round 14 Task 3)
+WORLD_EDID_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "Commonwealth": ("FO4Core_Commonwealth",),
+    "CapitalWasteland": ("FO4CW_CapitalWasteland", "FO3Core_CapitalWasteland"),
+    "MojaveWasteland": ("FO4NV_MojaveWasteland", "FNVCore_Mojave"),
 }
 
 
@@ -1721,17 +1730,23 @@ def build_home_registration(
         disp_name = WORLD_DISPLAY_NAMES.get(wkey, wkey)
         with esm.Plugin(plug_path) as wp:
             src_self_idx = wp.self_index
-            wrlds = [w for w in census.worlds(wp) if w.edid == world_edid]
+            cand_edids = WORLD_EDID_ALIASES.get(wkey, (world_edid,))
+            if world_edid not in cand_edids:
+                cand_edids = (world_edid,) + tuple(cand_edids)
+            wrlds = [w for w in census.worlds(wp) if w.edid in cand_edids]
             if len(wrlds) != 1:
-                raise records.PlanetError(f"{plug_name} has {len(wrlds)} WRLD records with EditorID {world_edid!r}")
+                raise records.PlanetError(
+                    f"{plug_name} has {len(wrlds)} WRLD records matching {cand_edids!r}"
+                )
             src_wrld = wrlds[0]
+            matched_edid = src_wrld.edid or world_edid
             xlcn_b = probe.top_level(src_wrld, b"XLCN")
             if xlcn_b is None or len(xlcn_b) != 4:
-                raise records.PlanetError(f"{plug_name} WRLD {world_edid!r} has no 4-byte XLCN location")
+                raise records.PlanetError(f"{plug_name} WRLD {matched_edid!r} has no 4-byte XLCN location")
             xlcn_fid = struct.unpack("<I", xlcn_b)[0]
             locs = [r for r in wp.records("LCTN", [b"LCTN"]) if r.formid == xlcn_fid]
             if len(locs) != 1:
-                raise records.PlanetError(f"{plug_name} has no LCTN {xlcn_fid:#010x} for WRLD {world_edid!r}")
+                raise records.PlanetError(f"{plug_name} has no LCTN {xlcn_fid:#010x} for WRLD {matched_edid!r}")
             src_lctn = locs[0]
 
         remapped_wrld = _remap_wrld_override(

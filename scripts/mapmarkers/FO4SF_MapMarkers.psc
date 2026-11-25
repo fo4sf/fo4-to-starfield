@@ -70,6 +70,10 @@ bool Property BorderSignal = True Auto Const
 {Write "border=off" / "border=on" to this log when the player enters or leaves our world, for the SFSE plugin
  FO4SFBorder (sfse/FO4SFBorder/README.md), which turns the game's border regions off only while the line says off.}
 
+bool Property BorderRegisteredEarthWorlds = False Auto
+{Task 3 (R14, default off): when True, also treat registered FO4SF Earth world plugins (FO4TerrainCore, FO4WorldFarHarbor,
+ FO4WorldNukaWorld, FO4CapitalWasteland, FO4Mojave) from world_registry.json as our world in Border().}
+
 ObjectReference Property HopMarker Auto Const
 {The reload's stop: the marker in this plugin's own small interior (dotnet/MapMarkers --reload, FO4SF_MapMarkersHop), on
  the first quest only. The map lists only the markers that are in a world when the player enters it, and these are moved
@@ -414,6 +418,9 @@ Function Border(Actor player)
         want = 0
     elseif ourWorld != None && w == ourWorld
         want = 0
+    elseif BorderRegisteredEarthWorlds && c != None && IsRegisteredEarthWorldCell(c)
+        ourWorld = w
+        want = 0
     endif
     if want != border
         border = want
@@ -688,4 +695,37 @@ bool Function DiscoverSingleMarker(ObjectReference target)
     target.Enable(False)
     target.SetMarkerDiscovered()
     return true
+EndFunction
+
+bool Function IsCellInEarthPlugin(int cellPrefix, string pluginName)
+    Form probeForm = Game.GetFormFromFile(0x000803, pluginName)
+    if probeForm == None
+        probeForm = Game.GetFormFromFile(0x000802, pluginName)
+    endif
+    if probeForm == None
+        probeForm = Game.GetFormFromFile(0x000801, pluginName)
+    endif
+    if probeForm != None && (probeForm.GetFormID() / 16777216) == cellPrefix
+        return True
+    endif
+    return False
+EndFunction
+
+bool Function IsRegisteredEarthWorldCell(Cell targetCell)
+    if targetCell == None
+        return False
+    endif
+    int prefix = targetCell.GetFormID() / 16777216
+    if IsCellInEarthPlugin(prefix, "FO4TerrainCore.esm")
+        return True
+    elseif IsCellInEarthPlugin(prefix, "FO4WorldFarHarbor.esm")
+        return True
+    elseif IsCellInEarthPlugin(prefix, "FO4WorldNukaWorld.esm")
+        return True
+    elseif IsCellInEarthPlugin(prefix, "FO4CapitalWasteland.esm")
+        return True
+    elseif IsCellInEarthPlugin(prefix, "FO4Mojave.esm")
+        return True
+    endif
+    return False
 EndFunction
