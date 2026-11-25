@@ -45,6 +45,7 @@ Group KelloggPodStandIn
     ObjectReference Property InstMalePodMarker Auto Const
     ObjectReference Property InstFemalePodMarker Auto Const
     Actor Property SpouseActor Auto Const
+    Actor Property SpouseMaleActor Auto Const
     Actor Property KelloggActor Auto Const
     Actor Property InstMaleActor Auto Const
     Actor Property InstFemaleActor Auto Const
@@ -231,9 +232,13 @@ Function StartKelloggPodSequence()
             player.SetLookAt(SpousePodActorMarker, false)
         endif
     endif
-    if SpouseActor != None && SpousePodActorMarker != None
-        SpouseActor.EnableNoWait()
-        SpouseActor.MoveTo(SpousePodActorMarker, 0.0, 0.0, 0.0, true, false)
+    Actor activeSpouse = SpouseActor
+    if player != None && player.GetLeveledActorBase() != None && player.GetLeveledActorBase().GetSex() == 1 && SpouseMaleActor != None
+        activeSpouse = SpouseMaleActor
+    endif
+    if activeSpouse != None && SpousePodActorMarker != None
+        activeSpouse.EnableNoWait()
+        activeSpouse.MoveTo(SpousePodActorMarker, 0.0, 0.0, 0.0, true, false)
     endif
     if KelloggActor != None && KelloggPodMarker != None
         KelloggActor.EnableNoWait()

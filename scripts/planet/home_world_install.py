@@ -194,6 +194,7 @@ def validate_active_load_order(
         allow_map_markers_pair=True,
         pinned_map_markers_sha256=pin_sha,
         map_markers_plugin_name=map_markers_plugin_name,
+        allow_prewar_home_pair=True,
     )
     for op in ov_probs:
         if op not in problems:

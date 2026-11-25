@@ -798,6 +798,9 @@ Event OnTimer(int aiTimerID)
         int chosenMode = RunModeChoiceChain(player)
         if chosenMode == 2
             return
+        elseif prewarActive
+            StartTimer(1.0, 1)
+            return
         elseif GetStage() < 10
             if ClearInventory
                 ResetInventory(player)
@@ -807,6 +810,10 @@ Event OnTimer(int aiTimerID)
             startedAt = Utility.GetCurrentRealTime()
         endif
     elseif stage == 5
+        if prewarActive
+            StartTimer(1.0, 1)
+            return
+        endif
         if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
             if !warfareBranchStarted
                 RunWarfareBranch(player, ResolvePrelaunchWarfareRow())
@@ -2200,7 +2207,7 @@ Function SpawnAtStoryStartPlace(Actor player, int placeRow)
                 ResetInventory(player)
                 FillO2(player)
             endif
-            AdvanceTo(10, "prewar")
+            Trace("prewar active: holding FO4SF_NewGame below stage 10 until Stage 20 Vault111Cryo handoff (stage=" + GetStage() + ")")
             startedAt = Utility.GetCurrentRealTime()
             prewarQ.StartNoWait()
             ScriptObject pwScript = prewarQ.CastAs("FO4SF_PrewarQuest")

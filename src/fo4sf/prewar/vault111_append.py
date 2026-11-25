@@ -434,6 +434,87 @@ def _convert_interior_navm_to_sf(
     return sf_nvnm, sf_nvmi, nv_rec
 
 
+def _append_into_existing_cell_payload(
+    cell_payload: bytes,
+    target_cell_fid: int,
+    extra_pers: Sequence[RawRec],
+    extra_temp: Sequence[RawRec],
+) -> bytes:
+    """Re-pack top-level `CELL` GRUP payload, appending `extra_pers`/`extra_temp` into `target_cell_fid` in-place."""
+    extra_pers_bytes = b"".join(r.to_bytes() for r in extra_pers)
+    extra_temp_bytes = b"".join(r.to_bytes() for r in extra_temp)
+    spliced = False
+
+    def _splice_cell_children(child_grup_bytes: bytes) -> bytes:
+        inner_pl = child_grup_bytes[24:]
+        gt, st, unk = struct.unpack_from("<III", child_grup_bytes, 12)
+        assert gt == 6
+        parts: List[bytes] = []
+        pos = 0
+        saw_8 = False
+        saw_9 = False
+        while pos + 24 <= len(inner_pl):
+            if inner_pl[pos : pos + 4] == b"GRUP":
+                sgs = struct.unpack_from("<I", inner_pl, pos + 4)[0]
+                slbl = inner_pl[pos + 8 : pos + 12]
+                sgt, sst, sunk = struct.unpack_from("<III", inner_pl, pos + 12)
+                sub_pl = inner_pl[pos + 24 : pos + sgs]
+                if sgt == 8:
+                    saw_8 = True
+                    sub_pl = sub_pl + extra_pers_bytes
+                elif sgt == 9:
+                    saw_9 = True
+                    sub_pl = sub_pl + extra_temp_bytes
+                parts.append(b"GRUP" + struct.pack("<I", 24 + len(sub_pl)) + slbl + struct.pack("<III", sgt, sst, sunk) + sub_pl)
+                pos += sgs
+            else:
+                r, nxt = _read_rec(inner_pl, pos)
+                parts.append(r.to_bytes())
+                pos = nxt
+        if extra_pers_bytes and not saw_8:
+            parts.insert(0, _wrap_grup(struct.pack("<I", target_cell_fid), 8, extra_pers_bytes))
+        if extra_temp_bytes and not saw_9:
+            parts.append(_wrap_grup(struct.pack("<I", target_cell_fid), 9, extra_temp_bytes))
+        joined = b"".join(parts)
+        return b"GRUP" + struct.pack("<I", 24 + len(joined)) + struct.pack("<I", target_cell_fid) + struct.pack("<III", gt, st, unk) + joined
+
+    def _walk(s: int, e: int) -> bytes:
+        nonlocal spliced
+        out: List[bytes] = []
+        q = s
+        while q + 24 <= e:
+            if cell_payload[q : q + 4] == b"GRUP":
+                gs = struct.unpack_from("<I", cell_payload, q + 4)[0]
+                lbl = cell_payload[q + 8 : q + 12]
+                gt, st, unk = struct.unpack_from("<III", cell_payload, q + 12)
+                inner = _walk(q + 24, q + gs)
+                out.append(b"GRUP" + struct.pack("<I", 24 + len(inner)) + lbl + struct.pack("<III", gt, st, unk) + inner)
+                q += gs
+            else:
+                rec, nxt = _read_rec(cell_payload, q)
+                out.append(cell_payload[q:nxt])
+                if rec.sig == b"CELL" and rec.fid == target_cell_fid:
+                    spliced = True
+                    if nxt + 24 <= e and cell_payload[nxt : nxt + 4] == b"GRUP" and struct.unpack_from("<I", cell_payload, nxt + 12)[0] == 6:
+                        cgs = struct.unpack_from("<I", cell_payload, nxt + 4)[0]
+                        out.append(_splice_cell_children(cell_payload[nxt : nxt + cgs]))
+                        nxt += cgs
+                    elif extra_pers_bytes or extra_temp_bytes:
+                        sub_grps = b""
+                        if extra_pers_bytes:
+                            sub_grps += _wrap_grup(struct.pack("<I", target_cell_fid), 8, extra_pers_bytes)
+                        if extra_temp_bytes:
+                            sub_grps += _wrap_grup(struct.pack("<I", target_cell_fid), 9, extra_temp_bytes)
+                        out.append(_wrap_grup(struct.pack("<I", target_cell_fid), 6, sub_grps))
+                q = nxt
+        return b"".join(out)
+
+    result = _walk(0, len(cell_payload))
+    if not spliced:
+        raise PrewarPortError(f"Failed to splice into target cell 0x{target_cell_fid:08X}")
+    return result
+
+
 def append_prewar_vault111_lossless(
     base_esm_bytes: bytes,
     *,
@@ -442,9 +523,10 @@ def append_prewar_vault111_lossless(
     fo4_navms: Sequence[Tuple[int, bytes]] = (),
     extra_persistent_specs: Sequence[dict] = (),
     source_shell_edid: str = "FO4Port_PrewarVault111",
-    new_cell_edid: str = "FO4Port_PrewarVault111S1",
+    new_cell_edid: Optional[str] = None,
 ) -> Tuple[bytes, dict]:
-    """Losslessly append `FO4Port_PrewarVault111S1` (>= `start_id`) onto `FO4Port.esm` without altering existing cells."""
+    """Losslessly append ONLY `extra_persistent_specs` + converted `NAVM`s (>= `start_id`) onto existing Slot 1
+    `source_shell_edid` (`FO4Port_PrewarVault111`, `S1-08`) without cloning the shell cell or mutating Slot 1 records."""
     tes4, grups = parse_top_grups(base_esm_bytes)
     masters = sum(1 for s, _ in _iter_subrecords(tes4.raw_subrecords_bytes) if s == b"MAST")
     max_id = max_local_formid(base_esm_bytes)
@@ -470,25 +552,17 @@ def append_prewar_vault111_lossless(
         raise PrewarPortError(f"source shell cell {source_shell_edid!r} not found in base FO4Port.esm")
     shell_cell, shell_pers, shell_temp = found_shell
 
-    # 1. Allocate new PrewarVault111 S1 cell + re-emit shell refs on new >= start_id FormIDs (reusing existing bases!)
-    new_cell_fid = _alloc()
-    new_cell_raw = _rewrite_edid_subs(shell_cell.raw_subrecords_bytes, new_cell_edid)
-    new_cell_rec = RawRec(
-        b"CELL", shell_cell.flags & ~COMPRESSED_FLAG, new_cell_fid, shell_cell.version, 0, shell_cell.unknown, new_cell_raw
-    )
-
-    new_pers: List[RawRec] = []
-    new_temp: List[RawRec] = []
-    # Pre-seed seen_edids with every existing Slot 0 + Slot 1 EDID in base FO4Port.esm so Slot 2 never collides (#732).
+    # S1-08: Reuse Slot 1's FO4Port_PrewarVault111 in-place (zero clone of 0x0100EFAB).
+    target_cell_edid = new_cell_edid or source_shell_edid
+    target_cell_fid = shell_cell.fid
     seen_edids: Set[str] = {
         ed for ed in (_get_edid(rec) for rec in walk_records(base_esm_bytes)) if ed
     }
-    seen_edids.add(new_cell_edid)
 
     def _s1_edid(raw_name: str, fallback: str) -> str:
         base_name = raw_name if raw_name else fallback
-        if not base_name.startswith(new_cell_edid):
-            base_name = f"{new_cell_edid}_{base_name}"
+        if not base_name.startswith(f"{target_cell_edid}_"):
+            base_name = f"{target_cell_edid}_{base_name}"
         cand = base_name
         suffix = 1
         while cand in seen_edids:
@@ -497,59 +571,40 @@ def append_prewar_vault111_lossless(
         seen_edids.add(cand)
         return cand
 
-    for r in shell_pers:
-        rfid = _alloc()
-        s1_ed = _s1_edid(_get_edid(r), f"ShellPers_{rfid & 0xFFFFFF:06X}")
-        new_pers.append(
-            RawRec(
-                r.sig,
-                (r.flags & ~COMPRESSED_FLAG) | PERSISTENT_FLAG,
-                rfid,
-                r.version,
-                0,
-                r.unknown,
-                _rewrite_edid_subs(r.raw_subrecords_bytes, s1_ed),
-            )
-        )
-    for r in shell_temp:
-        rfid = _alloc()
-        orig_ed = _get_edid(r)
-        raw_subs = _rewrite_edid_subs(r.raw_subrecords_bytes, _s1_edid(orig_ed, f"ShellTemp_{rfid & 0xFFFFFF:06X}")) if orig_ed else r.raw_subrecords_bytes
-        new_temp.append(RawRec(r.sig, r.flags & ~COMPRESSED_FLAG, rfid, r.version, 0, r.unknown, raw_subs))
-
-    # 2. Allocate persistent marker/interactive S1 STAT placeholder + prefixed refs (never touching existing bases!)
+    # 1. Allocate persistent marker base + refs appended into existing cell's GRUP 8
+    extra_pers: List[RawRec] = []
+    extra_temp: List[RawRec] = []
     appended_stats: List[RawRec] = []
-    marker_base_fid: Optional[int] = None
     extra_ref_map: Dict[str, str] = {}
     if extra_persistent_specs:
         marker_base_fid = _alloc()
-        appended_stats.append(_build_static_marker_base_if_missing(marker_base_fid, f"{new_cell_edid}_MarkerBase"))
+        marker_base_edid = _s1_edid("MarkerBase", "MarkerBase")
+        appended_stats.append(_build_static_marker_base_if_missing(marker_base_fid, marker_base_edid))
         for idx, spec in enumerate(extra_persistent_specs):
             rfid = _alloc()
             raw_ed = spec.get("edid") or f"Pers_{idx:02d}"
             red = _s1_edid(raw_ed, f"Pers_{idx:02d}")
-            new_pers.append(_build_refr(rfid, red, marker_base_fid, tuple(spec["pos_m"]), tuple(spec.get("rot_rad", (0.0, 0.0, 0.0))), persistent=True))
+            extra_pers.append(_build_refr(rfid, red, marker_base_fid, tuple(spec["pos_m"]), tuple(spec.get("rot_rad", (0.0, 0.0, 0.0))), persistent=True))
             extra_ref_map[red] = f"0x{rfid:08X}"
 
-    # 3. Convert any FO4 interior NAVMs and emit NAVI entry updates
+    # 2. Convert FO4 interior NAVMs targeting the existing shell CELL and append into GRUP 9 + NAVI
     nvmis: List[navm.Nvmi] = []
     navm_fids: List[str] = []
     for fo4_nfid, fo4_nvnm in fo4_navms:
         sf_nfid = _alloc()
-        _snv, snvmi, nv_rec = _convert_interior_navm_to_sf(fo4_nvnm, fo4_nfid, sf_nfid, new_cell_fid)
-        new_temp.insert(0, nv_rec)
+        _snv, snvmi, nv_rec = _convert_interior_navm_to_sf(fo4_nvnm, fo4_nfid, sf_nfid, target_cell_fid)
+        extra_temp.append(nv_rec)
         nvmis.append(snvmi)
         navm_fids.append(f"0x{sf_nfid:08X}")
 
-    cell_chunk = _wrap_cell(new_cell_rec, new_pers, new_temp)
     stat_chunk = b"".join(r.to_bytes() for r in appended_stats)
 
-    # Assemble output GRUPs cleanly while keeping ALL non-NAVI base GRUP prefixes byte-identical!
+    # Assemble output GRUPs cleanly while keeping ALL Slot 1 records (including FO4Port_PrewarVault111 shell) byte-identical!
     out_grups: List[bytes] = []
     has_navi = False
     for lbl, gt, st, unk, pl in grups:
         if lbl == b"CELL":
-            pl_out = pl + cell_chunk
+            pl_out = _append_into_existing_cell_payload(pl, target_cell_fid, extra_pers, extra_temp)
         elif lbl == b"STAT" and stat_chunk:
             pl_out = pl + stat_chunk
         elif lbl == b"NAVI":
@@ -601,14 +656,21 @@ def append_prewar_vault111_lossless(
     out_bytes = new_tes4.to_bytes() + body
 
     verify_lossless_append(base_esm_bytes, out_bytes, alloc_start, allow_navi_update=bool(nvmis))
+    existing_temp_refrs = sum(1 for r in shell_temp if r.sig == b"REFR")
     return out_bytes, {
         "base_max_local_id": f"0x{max_id:06X}",
         "start_id": f"0x{alloc_start:06X}",
         "next_object_id": f"0x{next_local:06X}",
-        "new_cell_fid": f"0x{new_cell_fid:08X}",
-        "new_cell_edid": new_cell_edid,
-        "persistent_count": len(new_pers),
-        "temporary_count": len(new_temp),
+        "new_cell_fid": f"0x{target_cell_fid:08X}",
+        "new_cell_edid": target_cell_edid,
+        "reused_slot1_cell": True,
+        "existing_persistent_count": len(shell_pers),
+        "existing_temp_refr_count": existing_temp_refrs,
+        "appended_persistent_count": len(extra_pers),
+        "appended_navm_count": len(navm_fids),
+        "persistent_count": len(shell_pers) + len(extra_pers),
+        "temporary_count": len(shell_temp) + len(extra_temp),
+        "split_summary": f"{existing_temp_refrs} temp REFR + {len(navm_fids)} NAVM",
         "navm_fids": navm_fids,
         "extra_persistent_refs": extra_ref_map,
         "base_sha256": hashlib.sha256(base_esm_bytes).hexdigest(),

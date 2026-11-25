@@ -18,8 +18,8 @@ if SRC not in sys.path:
 from fo4sf.prewar import handy_codsworth, s1_spec, sanctuary_strip
 
 PREWAR_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_PAPYRUS_COMPILER = r"D:\SteamLibrary\steamapps\common\Starfield\Tools\Papyrus Compiler\PapyrusCompiler.exe"
-DEFAULT_CONTENT_RES = r"D:\SteamLibrary\steamapps\common\Starfield\Tools\ContentResources.zip"
+DEFAULT_PAPYRUS_COMPILER: str | None = None
+DEFAULT_CONTENT_RES: str | None = None
 DEFAULT_PAPYRUS_FLAGS = "Starfield_Papyrus_Flags.flg"
 
 
@@ -27,7 +27,7 @@ def build_tile_local_spec(
     *,
     sanctuary_esm: str | None = None,
     port_esm: str | None = None,
-    port_cell_edid: str = "FO4Port_PrewarVault111S1",
+    port_cell_edid: str = "FO4Port_PrewarVault111",
     vertibird_model: str | None = None,
     ext_lift_model: str | None = None,
     female_spouse: bool = True,
@@ -44,19 +44,25 @@ def build_tile_local_spec(
         px, py, pz = s1_spec.PREWAR_V111_KEY_COORDS_M[name]
         return [round(px, 4), round(py, 4), round(pz, 4), rot_z]
 
+    psx, psy, psz, _ = _sanc("player_start")
     markers = {
-        "FO4SF_PrewarHouseSpawnMarker": _sanc("player_start"),
+        "FO4SF_PrewarHouseSpawnMarker": [psx, psy, psz, 0.0],
         "FO4SF_PrewarCodsworthRef": _sanc("player_house_door", 1.57),
-        "FO4SF_PrewarSpouseRef": _sanc("player_start", 0.2),
+        # S1-13: Offset spouse spawns >= 2.3m from HouseSpawnMarker; S1-12: arrive at lower elevator landing z = -0.11
+        "FO4SF_PrewarSpouseRef": [round(psx + 2.18, 4), round(psy + 0.86, 4), psz, 2.8],
+        "FO4SF_PrewarSpouseMaleRef": [round(psx + 2.18, 4), round(psy + 0.86, 4), psz, 2.8],
+        "FO4SF_PrewarBroadcastRef": [round(psx + 1.38, 4), round(psy - 1.64, 4), psz, 0.2],
         "FO4SF_PrewarVaultTecRepRef": _sanc("vault_tec_rep_door", 3.14),
         "FO4SF_PrewarSoldierCheckerRef": _sanc("military_gate_checker", 1.2),
         "FO4SF_PrewarVertibird01Ref": _sanc("vertibird_b_orbit", 0.5),
         "FO4SF_PrewarVertibird02Ref": _sanc("vertibird_c_hover", -0.7),
+        "FO4SF_PrewarVertibird01HoverMarkRef": _sanc("vertibird_c_orbit", 0.9),
+        "FO4SF_PrewarVertibird02HoverMarkRef": [*_sanc("nuke_look_marker", -0.3)[:2], 142.0, -0.3],
         "FO4SF_PrewarExtLiftPlatformRef": _sanc("ext_elevator_center"),
         "FO4SF_PrewarNukeAnchorRef": _sanc("nuke_look_marker"),
         "FO4SF_PrewarCrowdGoalMarkRef": _sanc("ext_elevator_center"),
         "FO4SF_PrewarCrowdBridgeMarkRef": _sanc("west_bridge", 1.57),
-        "FO4SF_PrewarVaultArrivalMarker": _v111("int_elevator_spawn"),
+        "FO4SF_PrewarVaultArrivalMarker": _v111("int_elevator_base"),
         "FO4SF_PrewarKelloggMarkRef": _v111("kellogg_pod_spot", 3.14),
         "FO4SF_PrewarInstMalePodMarkRef": _v111("inst_male_pod_spot", 3.14),
         "FO4SF_PrewarInstFemalePodMarkRef": _v111("inst_female_pod_spot", 3.14),
@@ -102,10 +108,12 @@ def _extract_papyrus_base_sources(content_zip: str, dest_dir: str) -> str:
 def compile_prewar_scripts(
     out_scripts_dir: str,
     *,
-    compiler_exe: str = DEFAULT_PAPYRUS_COMPILER,
-    content_zip: str = DEFAULT_CONTENT_RES,
+    compiler_exe: str | None = DEFAULT_PAPYRUS_COMPILER,
+    content_zip: str | None = DEFAULT_CONTENT_RES,
 ) -> list[str]:
     """Compile S1 Papyrus scripts from `scripts/prewar` (cwd short path safe) into `out_scripts_dir`."""
+    if not compiler_exe or not content_zip:
+        raise ValueError("compile_prewar_scripts requires explicit compiler_exe (--papyrus-compiler) and content_zip (--content-resources)")
     os.makedirs(out_scripts_dir, exist_ok=True)
     outputs: list[str] = []
     with tempfile.TemporaryDirectory(prefix="prewar_psc_src_") as src_tmp:
@@ -130,13 +138,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--codsworth-handy", help="Path to #854 robot-anim E2 bundle directory")
     ap.add_argument("--handy-esm", help="Direct path to FO4SF_RA2Handy.esm (when not copying full bundle)")
     ap.add_argument("--sanctuary-esm", help="Optional FO4SFPrewar_Sanctuary.esm host world")
-    ap.add_argument("--port-esm", help="Optional FO4Port.esm with Slot 2 PrewarVault111S1")
+    ap.add_argument("--port-esm", help="Optional FO4Port.esm with Slot 1+2 FO4Port_PrewarVault111")
     ap.add_argument("--voices-json", help="Optional local Kellogg/NPC voices manifest JSON")
     ap.add_argument("--vertibird-model", help="Optional override for Pre-War overhead Vertibird NIF path")
     ap.add_argument("--ext-lift-model", help="Optional override for Vault 111 exterior elevator NIF path")
     ap.add_argument("--compile-scripts", action="store_true", help="Compile S1 Papyrus .psc -> .pex into <out-dir>/Data/Scripts")
-    ap.add_argument("--papyrus-compiler", default=DEFAULT_PAPYRUS_COMPILER)
-    ap.add_argument("--content-resources", default=DEFAULT_CONTENT_RES)
+    ap.add_argument("--papyrus-compiler", default=DEFAULT_PAPYRUS_COMPILER, help="Explicit path to PapyrusCompiler.exe (required with --compile-scripts)")
+    ap.add_argument("--content-resources", default=DEFAULT_CONTENT_RES, help="Explicit path to Starfield ContentResources.zip (required with --compile-scripts)")
     ap.add_argument("--report-json")
     args = ap.parse_args(argv)
 

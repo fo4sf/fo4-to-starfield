@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from fo4sf import btd, exterior, fo4land, navmesh, overlay, overlay_grid as og, terrain_grid as tg
-from fo4sf.planet import esm, home_planet_spec as hspec, wb_records
+from fo4sf.planet import esm, home_planet_spec as hspec, records as precords, wb_records
 from . import s1_spec
 
 
@@ -123,6 +123,7 @@ def extract_strip_from_plugin(
                         "persistent": bool(cur_cell[1]),
                         "cell": (cur_cell[2], cur_cell[3]) if not cur_cell[1] else (rgx, rgy),
                         "disabled": bool(sub[2] & 0x0800),
+                        "open_by_default": any(sg == b"ONAM" for sg, _ in subs),
                     }
                     if sub[0] == b"REFR":
                         refrs.append(row)
@@ -216,12 +217,18 @@ def build_strip_objects(
     tile: og.Tile,
     world_edid: str = "FO4SF_PrewarSanctuaryWorld",
     asset_prefix: str = "fo4core",
+    door_manifest: Optional[Dict[str, dict]] = None,
 ) -> Tuple[dict, List[dict]]:
-    """Build `objects.json` (`bases`, `refs`) in `tile`'s local frame reusing `exterior.classify`."""
+    """Build `objects.json` (`bases`, `refs`) in `tile`'s local frame reusing `exterior.classify` & door rigs (`S1-14`)."""
     bases_meta = strip["bases"]
     selected_bases: Dict[str, dict] = {}
     placed_refs: List[dict] = []
     skipped: List[dict] = []
+    norm_doors: Dict[str, dict] = {
+        str(k).replace("\\", "/").lower(): dict(v)
+        for k, v in (door_manifest or {}).items()
+        if isinstance(v, dict)
+    }
 
     ox, oy = tile.origin_m
     for r in strip["refrs"]:
@@ -244,21 +251,38 @@ def build_strip_objects(
         src_model = exterior.source_key(base_info["model"]).replace("\\", "/")
         sf_model = f"{asset_prefix}/" + src_model.removeprefix("meshes/")
         bed = base_info["edid"] or f"FO4PrewarBase_{r['base']:06X}"
+        door_meta = norm_doors.get(src_model.lower()) or norm_doors.get(sf_model.lower())
         if bed not in selected_bases:
-            selected_bases[bed] = {"edid": f"FO4Prewar_{bed}", "model": sf_model, "fo4_fid": f"0x{r['base']:08X}"}
+            bentry: Dict[str, Any] = {"edid": f"FO4Prewar_{bed}", "model": sf_model, "fo4_fid": f"0x{r['base']:08X}"}
+            if door_meta:
+                bentry["door"] = door_meta
+            selected_bases[bed] = bentry
 
         px, py, pz = [c / tg.UNITS_PER_METRE for c in r["pos"]]
         lx, ly = px - ox, py - oy
+        rot = [float(a) for a in r["rot"]]
+        scale = float(r["scale"])
+        if door_meta and "origin_offset" in door_meta:
+            off = door_meta["origin_offset"]
+            m = exterior.ref_matrix(rot)
+            lx, ly, pz = (
+                lx + scale * (m[0] * off[0] + m[1] * off[1] + m[2] * off[2]),
+                ly + scale * (m[3] * off[0] + m[4] * off[1] + m[5] * off[2]),
+                pz + scale * (m[6] * off[0] + m[7] * off[1] + m[8] * off[2]),
+            )
         sc = tg.sf_cell_of(lx, ly)
-        placed_refs.append({
+        ref_row: Dict[str, Any] = {
             "src": f"{r['fid']:06X}:Fallout4.esm",
             "base": selected_bases[bed]["edid"],
             "cell": [int(sc[0]), int(sc[1])],
             "pos": [round(lx, 4), round(ly, 4), round(pz, 4)],
-            "rot": [round(float(a), 6) for a in r["rot"]],
-            "scale": round(float(r["scale"]), 4),
+            "rot": [round(a, 6) for a in rot],
+            "scale": round(scale, 4),
             "disabled": bool(r["disabled"]),
-        })
+        }
+        if door_meta and r.get("open_by_default"):
+            ref_row["open_by_default"] = True
+        placed_refs.append(ref_row)
 
     sorted_bases = sorted(selected_bases.values(), key=lambda x: x["edid"])
     base_idx_by_edid = {b["edid"]: idx for idx, b in enumerate(sorted_bases)}
@@ -271,6 +295,80 @@ def build_strip_objects(
         "refs": placed_refs,
     }
     return doc, skipped
+
+
+def build_strip_navmesh_doc(
+    strip: Dict[str, Any],
+    tile: og.Tile,
+    *,
+    world_edid: str = "FO4SF_PrewarSanctuaryWorld",
+) -> Tuple[dict, Dict[str, Any]]:
+    """Convert FO4 `SanctuaryHillsWorld` `NAVM`s via `src/fo4sf/navmesh.py` into `tile`'s local frame (`S1-04`)."""
+    raw_navms = strip.get("navms") or []
+    if not raw_navms:
+        return {"version": 1, "world": world_edid, "navmeshes": []}, {"fo4_navms": 0, "sf_pieces": 0, "refused": []}
+
+    ox, oy = tile.origin_m
+    scale_xy = navmesh.UNITS_PER_METRE / tg.UNITS_PER_METRE
+    shift_x = -ox * navmesh.UNITS_PER_METRE
+    shift_y = -oy * navmesh.UNITS_PER_METRE
+
+    shifted: List[Tuple[int, navmesh.Nvnm]] = []
+    for row in raw_navms:
+        nv = navmesh.parse(row["nvnm"], layout="fo4")
+        nv.vertices[:, 0] = nv.vertices[:, 0] * scale_xy + shift_x
+        nv.vertices[:, 1] = nv.vertices[:, 1] * scale_xy + shift_y
+        nv.vertices[:, 2] = nv.vertices[:, 2] * scale_xy
+        if len(nv.waypoints):
+            nv.waypoints["pos"][:, 0] = nv.waypoints["pos"][:, 0] * scale_xy + shift_x
+            nv.waypoints["pos"][:, 1] = nv.waypoints["pos"][:, 1] * scale_xy + shift_y
+            nv.waypoints["pos"][:, 2] = nv.waypoints["pos"][:, 2] * scale_xy
+        nv.grid_min = (
+            nv.grid_min[0] * scale_xy + shift_x,
+            nv.grid_min[1] * scale_xy + shift_y,
+            nv.grid_min[2] * scale_xy,
+        )
+        nv.grid_max = (
+            nv.grid_max[0] * scale_xy + shift_x,
+            nv.grid_max[1] * scale_xy + shift_y,
+            nv.grid_max[2] * scale_xy,
+        )
+        shifted.append((int(row["fid"]), nv))
+
+    cmin, cmax = tg.cell_range(tile.n)
+    tile_cells = {(cx, cy) for cx in range(cmin, cmax + 1) for cy in range(cmin, cmax + 1)}
+
+    refused: List[dict] = []
+    remaining = list(shifted)
+    pieces: List[navmesh.Piece] = []
+    report: Dict[str, Any] = {}
+    while remaining:
+        try:
+            pieces, report = navmesh.convert(remaining)
+            break
+        except navmesh.NavmeshError as exc:
+            msg = str(exc)
+            # Drop single overflowing FO4 navmesh if encountered, mirrors navmesh_core64n_convert.py
+            import re
+
+            m = re.search(r"0x([0-9A-Fa-f]+)", msg)
+            if not m:
+                raise
+            bad_fid = int(m.group(1), 16)
+            refused.append({"fid": f"0x{bad_fid:08X}", "reason": msg})
+            remaining = [(f, nv) for f, nv in remaining if f != bad_fid]
+
+    in_tile = [p for p in pieces if p.cell in tile_cells]
+    doc = navmesh.export(in_tile)
+    doc["world"] = world_edid
+    stats = {
+        "fo4_navms": len(raw_navms),
+        "sf_pieces": len(in_tile),
+        "dropped_outside_tile": len(pieces) - len(in_tile),
+        "refused": refused,
+        "convert_report": report,
+    }
+    return doc, stats
 
 
 def build_prewar_sky_plugin(
@@ -325,8 +423,9 @@ def bind_prewar_world_to_home(
     climate_local_id: int = wb_records.HOME_CLIMATE,
     water_local_id: int = wb_records.HOME_WATER,
     world_edid: str = "FO4SF_PrewarSanctuaryWorld",
+    emit_prewar_sky_pair: bool = True,
 ) -> Dict[str, Any]:
-    """Bind `FO4SF_PrewarSanctuaryWorld` WRLD `CNAM` (climate) & `NAM3` (water) onto `FO4SFHome.esm` (0 Starfield sky/water)."""
+    """Bind `FO4SF_PrewarSanctuaryWorld` WRLD `CNAM` (pre-war `CLMT`/`WTHR`, `S1-11`) & `NAM3` (water), 0 Starfield sky."""
     from . import vault111_append as va
 
     with open(world_esm_path, "rb") as f:
@@ -336,8 +435,29 @@ def bind_prewar_world_to_home(
     if hspec.HOME_MASTER not in masters:
         raise ValueError(f"{world_esm_path} must depend on {hspec.HOME_MASTER}, got masters={masters}")
     home_idx = masters.index(hspec.HOME_MASTER)
-    climate_fid = (home_idx << 24) | climate_local_id
+    self_idx = len(masters)
     water_fid = (home_idx << 24) | water_local_id
+
+    max_local = va.max_local_formid(raw)
+    extra_grups: Dict[bytes, bytes] = {}
+    prewar_weather_fid: Optional[int] = None
+    if emit_prewar_sky_pair:
+        # Allocate self-owned pre-war WTHR/CLMT cleanly above TerrainOverlays max_local (S1-11)
+        next_local = max_local + 1
+        prewar_weather_fid = (self_idx << 24) | next_local
+        prewar_climate_fid = (self_idx << 24) | (next_local + 1)
+        climate_fid = prewar_climate_fid
+        w_rec = wb_records.build_home_weather(prewar_weather_fid, edid="FO4SF_PrewarClearWeather")
+        c_rec = wb_records.build_home_climate(
+            prewar_climate_fid, weather_formid=prewar_weather_fid, edid="FO4SF_PrewarSanctuaryClimate"
+        )
+        # Check if TerrainOverlays already created WTHR/CLMT groups (unused, replaced or inserted cleanly in GROUP_ORDER)
+        extra_grups[b"WTHR"] = w_rec.to_bytes()
+        extra_grups[b"CLMT"] = c_rec.to_bytes()
+        next_hedr_id = next_local + 2
+    else:
+        climate_fid = (home_idx << 24) | climate_local_id
+        next_hedr_id = max_local + 1
 
     updated = False
 
@@ -349,16 +469,38 @@ def bind_prewar_world_to_home(
             return rec
         updated = True
         kept: List[Tuple[bytes, bytes]] = []
+        in_ov_comp = False
         for s, d in subs:
-            if s in (b"CNAM", b"NAM3", b"NAM2"):
+            if s == b"BFCB" and esm.zstring(d) == "BGSWorldSpaceOverlay_Component":
+                in_ov_comp = True
+                kept.append((s, d))
                 continue
-            if s == b"BNAM" and len(d) == 4 and (_u32(d) >> 24) != home_idx:
+            if s == b"BFCE" and in_ov_comp:
+                in_ov_comp = False
+                kept.append((s, d))
+                continue
+            if in_ov_comp and s in (b"CNAM", b"NAM3", b"NAM2"):
+                continue
+            if s in (b"CNAM", b"NAM3", b"NAM2") and not in_ov_comp:
+                continue
+            if s == b"BNAM" and not in_ov_comp and len(d) == 4 and (_u32(d) >> 24) != home_idx:
                 continue
             kept.append((s, d))
-        # Insert CNAM and NAM3 right after EDID/FULL so record layout remains canonical
         insert_at = 1 if kept and kept[0][0] == b"EDID" else 0
-        while insert_at < len(kept) and kept[insert_at][0] in (b"BFCB", b"FULL", b"BFCE"):
-            insert_at += 1
+        # Never insert CNAM/NAM3 inside any BFCB..BFCE component block (BGSWorldSpaceOverlay_Component contains SNAM/PNAM/BNAM).
+        in_comp_ins = False
+        while insert_at < len(kept):
+            sig_ins = kept[insert_at][0]
+            if sig_ins == b"BFCB":
+                in_comp_ins = True
+                insert_at += 1
+            elif sig_ins == b"BFCE" and in_comp_ins:
+                in_comp_ins = False
+                insert_at += 1
+            elif in_comp_ins or sig_ins in (b"FULL", b"CNAM", b"NAM3"):
+                insert_at += 1
+            else:
+                break
         kept[insert_at:insert_at] = [
             (b"CNAM", struct.pack("<I", climate_fid)),
             (b"NAM3", struct.pack("<I", water_fid)),
@@ -373,36 +515,92 @@ def bind_prewar_world_to_home(
             va._pack_subrecords(kept),  # noqa: SLF001
         )
 
-    out_grups: List[bytes] = []
+    existing_by_lbl: Dict[bytes, Tuple[int, int, int, bytes]] = {}
     for lbl, gt, st, unk, pl in grups:
         if lbl == b"WRLD":
             pl_out = _rebuild_grup_replacing_wrld(pl, 0, len(pl), _patch_wrld)
         else:
             pl_out = pl
-        out_grups.append(b"GRUP" + struct.pack("<I", 24 + len(pl_out)) + lbl + struct.pack("<III", gt, st, unk) + pl_out)
+        if lbl in extra_grups:
+            pl_out = pl_out + extra_grups.pop(lbl)
+        existing_by_lbl[lbl] = (gt, st, unk, pl_out)
+
+    for lbl, rec_b in extra_grups.items():
+        existing_by_lbl[lbl] = (0, 0, 0, rec_b)
+
+    order_index = {g.encode("ascii"): i for i, g in enumerate(esm.GROUP_ORDER)}
+    ordered_lbls = sorted(
+        existing_by_lbl.keys(),
+        key=lambda lbl: (order_index.get(lbl, len(order_index)), lbl),
+    )
+    out_grups = [
+        b"GRUP" + struct.pack("<I", 24 + len(existing_by_lbl[lbl][3])) + lbl + struct.pack("<III", *existing_by_lbl[lbl][:3]) + existing_by_lbl[lbl][3]
+        for lbl in ordered_lbls
+    ]
 
     if not updated:
         raise ValueError(f"{world_esm_path} missing WRLD {world_edid}")
+    body = b"".join(out_grups)
+    n_total = va._count_recs_and_grups(tes4.to_bytes() + body)  # noqa: SLF001
+    tes4_subs = []
+    for s, d in va._iter_subrecords(tes4.raw_subrecords_bytes):  # noqa: SLF001
+        if s == b"HEDR" and len(d) >= 12:
+            ver, _cnt, _nxt = struct.unpack_from("<fII", d, 0)
+            tes4_subs.append((s, struct.pack("<fII", ver, n_total, next_hedr_id)))
+        else:
+            tes4_subs.append((s, d))
+    new_tes4 = va.RawRec(b"TES4", tes4.flags, 0, tes4.version, tes4.vc, tes4.unknown, va._pack_subrecords(tes4_subs))  # noqa: SLF001
     with open(world_esm_path, "wb") as f:
-        f.write(tes4.to_bytes() + b"".join(out_grups))
+        f.write(new_tes4.to_bytes() + body)
     verify_zero_starfield_sky_refs(world_esm_path)
     return {
         "world": world_edid,
+        "prewar_weather_fid": f"0x{prewar_weather_fid:08X}" if prewar_weather_fid else None,
+        "prewar_climate_fid": f"0x{climate_fid:08X}",
         "home_climate_fid": f"0x{climate_fid:08X}",
         "home_water_fid": f"0x{water_fid:08X}",
     }
 
 
+def _verify_pure_sky_records(plugin_path: str, p: esm.Plugin, allowed_wthr_fids: set[int]) -> None:
+    for rec in p.records("WTHR", [b"WTHR"]):
+        for sig, d in rec.subs:
+            if sig in (b"LNAM", b"MNAM", b"NNAM", b"GNAM") and len(d) == 4:
+                val = _u32(d)
+                if val != 0:
+                    raise ValueError(f"WTHR {rec.edid} subrecord {sig.decode()} non-zero external ref 0x{val:08X}")
+            elif sig in (b"IMSP", b"HNAM") and len(d) == 32:
+                vals = struct.unpack("<8I", d)
+                if any(v != 0 for v in vals):
+                    raise ValueError(f"WTHR {rec.edid} {sig.decode()} holds non-zero IMGS ref {vals}")
+    for rec in p.records("CLMT", [b"CLMT"]):
+        for sig, d in rec.subs:
+            if sig == b"WLST" and len(d) >= 4:
+                wfid = _u32(d, 0)
+                if wfid not in allowed_wthr_fids:
+                    raise ValueError(f"CLMT {rec.edid} WLST references invalid/external weather 0x{wfid:08X}")
+
+
 def verify_zero_starfield_sky_refs(plugin_path: str) -> None:
-    """Verify pure sky ESMs OR `FO4SFPrewar_Sanctuary.esm` carry zero Starfield PNDT/LCTN/CLMT/WTHR/ATMO/WATR refs."""
+    """Verify pure sky ESMs OR `FO4SFPrewar_Sanctuary.esm` carry zero Starfield sky/water/planet refs (`S1-11`)."""
     with esm.Plugin(plugin_path) as p:
         if "WRLD" in p.groups:
             if hspec.HOME_MASTER not in p.masters:
                 raise ValueError(f"{plugin_path} WRLD must target {hspec.HOME_MASTER}, got masters={p.masters}")
             home_idx = p.masters.index(hspec.HOME_MASTER)
-            for forbidden in ("PNDT", "CLMT", "WTHR", "ATMO", "WATR"):
+            self_idx = p.self_index
+            for forbidden in ("PNDT", "ATMO", "WATR"):
                 if list(p.records(forbidden, [forbidden.encode("ascii")])):
                     raise ValueError(f"{plugin_path} must not define {forbidden} overrides/records")
+            own_wthr_fids = {r.formid for r in p.records("WTHR", [b"WTHR"]) if (r.formid >> 24) == self_idx}
+            own_clmt_fids = {r.formid for r in p.records("CLMT", [b"CLMT"]) if (r.formid >> 24) == self_idx}
+            for rec in p.records("WTHR", [b"WTHR"]):
+                if (rec.formid >> 24) != self_idx:
+                    raise ValueError(f"{plugin_path} must not override external WTHR 0x{rec.formid:08X}")
+            for rec in p.records("CLMT", [b"CLMT"]):
+                if (rec.formid >> 24) != self_idx:
+                    raise ValueError(f"{plugin_path} must not override external CLMT 0x{rec.formid:08X}")
+            _verify_pure_sky_records(plugin_path, p, own_wthr_fids)
             for loc in p.records("LCTN", [b"LCTN"]):
                 pnam = loc.get(b"PNAM")
                 if not pnam or len(pnam) < 4 or (_u32(pnam) >> 24) != home_idx:
@@ -412,10 +610,36 @@ def verify_zero_starfield_sky_refs(plugin_path: str) -> None:
                 for item in p.walk(start, end, groups=set()):
                     if item[0] == "REC":
                         wrec = p.record_at(item[1])
-                        cnam = wrec.get(b"CNAM")
-                        nam3 = wrec.get(b"NAM3")
-                        bnam = wrec.get(b"BNAM")
-                        for tag, val_bytes in (("CNAM", cnam), ("NAM3", nam3), ("BNAM", bnam)):
+                        cnam = nam3 = bnam = None
+                        in_comp = False
+                        comp_name = ""
+                        for sub_sig, sub_data in wrec.subs:
+                            if sub_sig == b"BFCB":
+                                in_comp = True
+                                comp_name = esm.zstring(sub_data)
+                            elif sub_sig == b"BFCE":
+                                in_comp = False
+                                comp_name = ""
+                            elif in_comp:
+                                if comp_name == "BGSWorldSpaceOverlay_Component" and sub_sig == b"BNAM" and len(sub_data) >= 4:
+                                    sfbk_fid = _u32(sub_data)
+                                    if (sfbk_fid >> 24) != self_idx:
+                                        raise ValueError(
+                                            f"{plugin_path} WRLD {wrec.edid} SurfaceBlock BNAM=0x{sfbk_fid:08X} must resolve to self (master #{self_idx})"
+                                        )
+                            else:
+                                if sub_sig == b"CNAM":
+                                    cnam = sub_data
+                                elif sub_sig == b"NAM3":
+                                    nam3 = sub_data
+                                elif sub_sig == b"BNAM":
+                                    bnam = sub_data
+                        cnam_val = _u32(cnam) if cnam and len(cnam) >= 4 else 0
+                        if not cnam or len(cnam) < 4 or ((cnam_val >> 24) != home_idx and cnam_val not in own_clmt_fids):
+                            raise ValueError(
+                                f"{plugin_path} WRLD {wrec.edid} CNAM=0x{cnam_val:08X} must resolve to self CLMT or {hspec.HOME_MASTER}"
+                            )
+                        for tag, val_bytes in (("NAM3", nam3), ("BNAM", bnam)):
                             if not val_bytes or len(val_bytes) < 4 or (_u32(val_bytes) >> 24) != home_idx:
                                 got = _u32(val_bytes) if val_bytes and len(val_bytes) >= 4 else 0
                                 raise ValueError(
@@ -430,25 +654,87 @@ def verify_zero_starfield_sky_refs(plugin_path: str) -> None:
             for rec in p.records(grp, [grp.encode("ascii")]):
                 allowed_locals.add(rec.formid & 0xFFFFFF)
 
-        for rec in p.records("WTHR", [b"WTHR"]):
-            for sig, d in rec.subs:
-                if sig in (b"LNAM", b"MNAM", b"NNAM", b"GNAM") and len(d) == 4:
-                    val = _u32(d)
-                    if val != 0:
-                        raise ValueError(f"WTHR {rec.edid} subrecord {sig.decode()} non-zero external ref 0x{val:08X}")
-                elif sig in (b"IMSP", b"HNAM") and len(d) == 32:
-                    vals = struct.unpack("<8I", d)
-                    if any(v != 0 for v in vals):
-                        raise ValueError(f"WTHR {rec.edid} {sig.decode()} holds non-zero IMGS ref {vals}")
-        for rec in p.records("CLMT", [b"CLMT"]):
-            for sig, d in rec.subs:
-                if sig == b"WLST" and len(d) >= 4:
-                    wfid = _u32(d, 0)
-                    if (wfid >> 24) != 0 or (wfid & 0xFFFFFF) not in allowed_locals:
-                        raise ValueError(f"CLMT {rec.edid} WLST references external weather 0x{wfid:08X}")
+        _verify_pure_sky_records(plugin_path, p, {w & 0xFFFFFF for w in allowed_locals})
         for grp in ("PNDT", "LCTN"):
             if list(p.records(grp, [grp.encode("ascii")])):
                 raise ValueError(f"{plugin_path} must not contain Starfield {grp} records")
+
+
+def coordinate_home_pndt_plugin(
+    home_master_path: str,
+    sanctuary_world_path: str,
+    out_reg_path: str,
+    *,
+    terrain_core_home_path: Optional[str] = None,
+    world_edid: str = "FO4SF_PrewarSanctuaryWorld",
+    latitude_rad: float = 0.7409,
+    longitude_rad: float = -1.2453,
+) -> Dict[str, Any]:
+    """Emit coordinated `FO4SFPrewar_Sanctuary_Home.esm` combining `#858` `FO4TerrainCore_Home.esm` + Sanctuary (`S1-07`).
+
+    When `terrain_core_home_path` exists, reads its `PNDT 0x01000805` `CNAM` rows (`Commonwealth`, etc.), preserves them
+    with their owning master plugin names (`FO4TerrainCore.esm:0x000803`), and appends `FO4SFPrewar_Sanctuary.esm:0x000803`.
+    """
+    with esm.Plugin(home_master_path) as hm:
+        home_name = os.path.basename(home_master_path)
+        pndts = [r for r in hm.records("PNDT", [b"PNDT"]) if r.formid == ((1 << 24) | precords.PLANET)]
+        if len(pndts) != 1:
+            raise precords.PlanetError(f"{home_master_path} missing PNDT {(1 << 24) | precords.PLANET:#010x}")
+        home_planet = pndts[0]
+
+    with esm.Plugin(sanctuary_world_path) as sp:
+        sanc_name = os.path.basename(sanctuary_world_path)
+        swrlds = [w for w in sp.records("WRLD", [b"WRLD"]) if w.edid == world_edid]
+        if len(swrlds) != 1:
+            raise precords.PlanetError(f"{sanctuary_world_path} missing WRLD {world_edid!r}")
+        sanc_wrld_local = swrlds[0].formid & 0xFFFFFF
+
+    masters: List[str] = ["Starfield.esm", home_name]
+    combined_specs: List[Tuple[float, float, str, int]] = []
+
+    if terrain_core_home_path and os.path.isfile(terrain_core_home_path):
+        with esm.Plugin(terrain_core_home_path) as tp:
+            tp_pndts = [r for r in tp.records("PNDT", [b"PNDT"]) if (r.formid & 0xFFFFFF) == precords.PLANET]
+            if tp_pndts:
+                for lat, lon, wid in precords.master_worldspaces(tp_pndts[0]):
+                    midx = wid >> 24
+                    local = wid & 0xFFFFFF
+                    owner = tp.masters[midx] if midx < len(tp.masters) else os.path.basename(terrain_core_home_path)
+                    if owner.lower() == sanc_name.lower() and local == sanc_wrld_local:
+                        continue
+                    if all(m.lower() != owner.lower() for m in masters):
+                        masters.append(owner)
+                    combined_specs.append((float(lat), float(lon), owner, local))
+
+    if all(m.lower() != sanc_name.lower() for m in masters):
+        masters.append(sanc_name)
+    combined_specs.append((float(latitude_rad), float(longitude_rad), sanc_name, sanc_wrld_local))
+
+    seen_worlds: set[Tuple[str, int]] = set()
+    cnam_entries: List[Tuple[float, float, int]] = []
+    report_worlds: List[dict] = []
+    master_idx_by_low = {m.lower(): idx for idx, m in enumerate(masters)}
+    for lat, lon, owner, local in combined_specs:
+        key = (owner.lower(), local)
+        if key in seen_worlds:
+            continue
+        seen_worlds.add(key)
+        midx = master_idx_by_low[owner.lower()]
+        fid = (midx << 24) | local
+        cnam_entries.append((lat, lon, fid))
+        report_worlds.append({"owner": owner, "local_id": f"0x{local:06X}", "lat_rad": lat, "lon_rad": lon})
+
+    writer = esm.PluginWriter(masters, esm.ESM)
+    home_idx = masters.index(home_name)
+    writer.add(precords.registration_record(home_planet, (home_idx << 24) | precords.PLANET, cnam_entries))
+    os.makedirs(os.path.dirname(os.path.abspath(out_reg_path)), exist_ok=True)
+    writer.write(out_reg_path, compress=False)
+    return {
+        "plugin": os.path.basename(out_reg_path),
+        "masters": masters,
+        "combined_with_core_home": bool(terrain_core_home_path and os.path.isfile(terrain_core_home_path)),
+        "worlds": report_worlds,
+    }
 
 
 def build_prewar_overlay_params(
@@ -461,13 +747,15 @@ def build_prewar_overlay_params(
     objects_rel: str = "objects.json",
     host_system_id: int = hspec.DEFAULT_HOME_SYSTEM_ID,
     host_planet_id: int = hspec.DEFAULT_HOME_PLANET_ID,
+    host_planet_edid: str = "FO4SF_EarthPlanetData",
+    navmesh_rel: Optional[str] = None,
 ) -> dict:
-    """Assemble `overlays_params.json` compatible with `dotnet/TerrainOverlays` targeting `FO4SFHome` (`EarthPlanetData`)."""
+    """Assemble `overlays_params.json` compatible with `dotnet/TerrainOverlays` targeting `FO4SFHome` (`FO4SF_EarthPlanetData`)."""
     sx_cw, sy_cw, sz_cw = s1_spec.SANCTUARY_KEY_COORDS_M["player_start"]
     lx, ly = tile.to_local(sx_cw, sy_cw)
     spawn = [round(lx, 4), round(ly, 4), round(sz_cw + 0.5, 4)]
     spawn_cell = list(tg.sf_cell_of(lx, ly))
-    return {
+    doc: Dict[str, Any] = {
         "plugin": plugin_name,
         "prefix": "FO4SFPrewar",
         "hmin": float(hmin),
@@ -476,7 +764,7 @@ def build_prewar_overlay_params(
         "hnam": 0,
         "host": {
             "planet_plugin": hspec.HOME_MASTER,
-            "planet_edid": "EarthPlanetData",
+            "planet_edid": host_planet_edid,
             "surface_location": f"{hspec.SURFACE_LOC:06X}:{hspec.HOME_MASTER}",
             "system_id": int(host_system_id),
             "planet_id": int(host_planet_id),
@@ -509,6 +797,9 @@ def build_prewar_overlay_params(
             }
         ],
     }
+    if navmesh_rel:
+        doc["navmesh"] = navmesh_rel
+    return doc
 
 
 def write_strip_stage_inputs(
@@ -523,16 +814,26 @@ def write_strip_stage_inputs(
     quad_bytes: bytes = bytes([0] * 8),
     world_edid: str = "FO4SF_PrewarSanctuaryWorld",
     emit_standalone_sky: bool = False,
+    door_manifest: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
-    """Materialize local strip `.btd`, mask `.dds`, `objects.json`, `overlays_params.json`, and pure sky ESM."""
+    """Materialize local strip `.btd`, mask `.dds`, `objects.json`, `navmesh.json` (`S1-04`), `overlays_params.json`, and pure sky ESM."""
     with fo4land.Plugin(fo4_esm_path) as plugin:
         strip = extract_strip_from_plugin(plugin, gx0=gx0, gx1=gx1, gy0=gy0, gy1=gy1)
     tile = strip_sf_tile(gx0, gx1, gy0, gy1)
     btd_bytes, hmin, hmax, raw_h = build_strip_btd_bytes(
         strip["grids"], tile, ltex_table=ltex_table, quad_bytes=quad_bytes
     )
-    objects_doc, skipped = build_strip_objects(strip, tile, world_edid=world_edid)
-    params_doc = build_prewar_overlay_params(tile, hmin, hmax, raw_h, world_edid=world_edid)
+    objects_doc, skipped = build_strip_objects(strip, tile, world_edid=world_edid, door_manifest=door_manifest)
+    navmesh_doc, navmesh_stats = build_strip_navmesh_doc(strip, tile, world_edid=world_edid)
+    has_navms = bool(navmesh_doc.get("navmeshes"))
+    params_doc = build_prewar_overlay_params(
+        tile,
+        hmin,
+        hmax,
+        raw_h,
+        world_edid=world_edid,
+        navmesh_rel="navmesh.json" if has_navms else None,
+    )
 
     btd_path = os.path.join(out_dir, "Data", "Terrain", f"{world_edid}.btd")
     os.makedirs(os.path.dirname(btd_path), exist_ok=True)
@@ -548,6 +849,11 @@ def write_strip_stage_inputs(
     with open(obj_path, "w", encoding="utf-8") as f:
         json.dump(objects_doc, f, indent=1)
 
+    if has_navms:
+        nav_path = os.path.join(out_dir, "navmesh.json")
+        with open(nav_path, "w", encoding="utf-8") as f:
+            json.dump(navmesh_doc, f, indent=None, separators=(",", ":"))
+
     prm_path = os.path.join(out_dir, "overlays_params.json")
     with open(prm_path, "w", encoding="utf-8") as f:
         json.dump(params_doc, f, indent=1)
@@ -561,6 +867,8 @@ def write_strip_stage_inputs(
         "fo4_cells": len(strip["cells"]),
         "fo4_lands": len(strip["grids"]),
         "fo4_navms": len(strip["navms"]),
+        "sf_navms": len(navmesh_doc.get("navmeshes", [])),
+        "navmesh_stats": navmesh_stats,
         "fo4_refrs": len(strip["refrs"]),
         "fo4_achrs": len(strip["achrs"]),
         "sf_tile_n": tile.n,

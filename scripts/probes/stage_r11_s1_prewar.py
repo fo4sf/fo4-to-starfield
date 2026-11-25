@@ -1,16 +1,15 @@
-"""Stage, verify, install, inspect, and uninstall the standalone Round 11 S1 Pre-War probe (`r11-s1-prewar`).
+"""Stage, verify, install, inspect, and uninstall the Round 13 S1 Pre-War probe (`r13-s1-prewar`).
 
 Stacks cleanly on:
-  - Task 1 Slot 1 `FO4Port.esm` (`build_fo4port_r11_museum.py`, `8163ca9a...`, `next_object_id: 0x00EFAB`)
-    -> Slot 2 lossless append of `FO4Port_PrewarVault111S1` (`>= 0x00EFAB`) + Slot 1 BA2s
-  - Task 4 `FO4SFHome.esm` (`EarthPlanetData`, clear temperate climate/atmosphere/weather, zero Mars/Starfield refs)
-  - SanctuaryHillsWorld (`0x000A7FF4`) bounded pre-war strip (`4x4` SF tile, `.btd`, delta converted NIFs/MATs/DDSs)
-  - `#854` Mr. Handy Codsworth (`D:\\FO4SF-Owner-Tests\\robot-anim\\E2`) + local MQ101 `.fuz -> .wem` voices + 5 stand-in beats
-  - Task 5 Slot 3 `FO4SF_NewGameQuest.psc` + `FO4SFNewGame.esm` (`--prewar`, preserving `fo4_vault111` Skip Pre-War)
-  - Reused Slot 2 `FO4SFPipboyMenu.dll` (`c63c3e6a...`) + Stage=2 safe INI (`MapBlockStarMap=0`, `MapSurvival=0`)
+  - Task 1 Slot 1 `FO4Port.esm` -> Slot 2 lossless in-place append into `FO4Port_PrewarVault111` (`0x0100EDFB`, `427 temp REFR + 2 NAVM`) + Slot 1 BA2s
+  - Task 4 `FO4SFHome.esm` + coordinated `PNDT 0x805` `FO4SFPrewar_Sanctuary_Home.esm` (`allow_prewar_home_pair=True`)
+  - SanctuaryHillsWorld (`0x000A7FF4`) bounded pre-war strip (`4x4` SF tile, `.btd`, `59` NAVMs/`NAVI`, rigged `DOOR`s, self-owned `WTHR`/`CLMT`)
+  - `#854` Mr. Handy Codsworth + local `WwiseConsole` `.fuz -> .wem` voices via `make_mission` helpers + 6 real `SCEN`s + 5 stand-in beats
+  - Slot 3 `FO4SF_NewGameQuest.psc` + `FO4SFNewGame.esm` (`--prewar`, `--cog-door`, `--exit-lift`, `FadeHold=False`, backdrop `1`, preserving `fo4_vault111`)
+  - `#860` rebuilt merged `FO4SFPipboyMenu.dll` + Stage=2 safe INI (`MapBlockStarMap=0`, `MapSurvival=0`)
 
 Never launches Starfield/Creation Kit, never writes to Starfield\\Data during `stage`, never commits binary assets to Git,
-and refuses frozen candidate/probe directories.
+and refuses frozen candidate/probe directories. All CLI external paths must be passed explicitly (`Task 8`: zero hardcoded drive paths).
 """
 from __future__ import annotations
 
@@ -19,6 +18,7 @@ import copy
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -47,30 +47,31 @@ import make_pipboy_stage_ini  # noqa: E402
 import make_r12_start_menus_probe  # noqa: E402
 import probe_common  # noqa: E402
 import r12_card_validator  # noqa: E402
-from fo4sf import ba2 as ba2_mod, convert_static, meshcollision, pipeline  # noqa: E402
+from fo4sf import ba2 as ba2_mod, convert_static, exterior, fo4land, meshcollision, pipeline, sfcollision, sfnif  # noqa: E402
 from fo4sf.core import start_places as sp  # noqa: E402
 from fo4sf.core import warfare_starts as ws  # noqa: E402
-from fo4sf.planet import home_planet_spec as hspec  # noqa: E402
+from fo4sf.planet import census, esm, home_planet_spec as hspec  # noqa: E402
 from fo4sf.prewar import mq101_census, s1_spec, sanctuary_strip, vault111_append  # noqa: E402
 
-PROBE_ID = "r11-s1-prewar"
+PROBE_ID = "r13-s1-prewar"
 MANIFEST_NAME = "manifest.json"
 MIN_FREE_GB = probe_common.DEFAULT_MIN_FREE_GB
 MAX_AXIS_M = probe_common.DEFAULT_MAX_HOP_AXIS_M
 
-DEFAULT_STARFIELD_DIR = Path(r"D:\SteamLibrary\steamapps\common\Starfield")
-DEFAULT_FO4_DATA_DIR = Path(r"D:\SteamLibrary\steamapps\common\Fallout 4\Data")
-DEFAULT_BASELINE_DIR = Path(r"D:\FO4SF-Owner-Tests\gemini-core\candidate-2g-fix2")
-DEFAULT_DOORS_ANIM_DIR = Path(r"D:\Modding\staging\doors_anim_b00\port")
-DEFAULT_INTERIORS_B10_DIR = Path(r"D:\Modding\staging\interiors_b10\port")
-DEFAULT_P1_PORT_DIR = Path(r"D:\FO4SF-Owner-Tests\gemini-probes\r11-p1-museum-v2\port")
-DEFAULT_WHOME_DATA_DIR = Path(r"D:\FO4SF-Owner-Tests\gemini-probes\w-home\Data")
-DEFAULT_HANDY_STAGE_DIR = Path(r"D:\FO4SF-Owner-Tests\robot-anim\E2")
-DEFAULT_TESTED_PIPBOY_DLL = Path(r"D:\FO4SF-Owner-Tests\gemini-probes\r12-start-menus\Data\SFSE\Plugins\FO4SFPipboyMenu.dll")
-DEFAULT_TEXCONV_EXE = Path(r"C:\Modding\tools\xedit\Edit Scripts\Texconvx64.exe")
-DEFAULT_XWM_EXE = Path(r"D:\SteamLibrary\steamapps\common\Fallout 4\Tools\Audio\xwmaencode.exe")
-DEFAULT_WWISE_EXE = Path(r"D:\Wwise_2026.1.3.9276\Authoring\x64\Release\bin\WwiseConsole.exe")
-DEFAULT_PORT_IDS = Path(r"D:\FO4SF-Owner-Tests\gemini-core\candidate-2c\port_formids.json")
+# Task 8: Zero hardcoded external D:\ / C:\ defaults; external inputs must be passed explicitly on CLI.
+DEFAULT_STARFIELD_DIR: Optional[Path] = None
+DEFAULT_FO4_DATA_DIR: Optional[Path] = None
+DEFAULT_BASELINE_DIR: Optional[Path] = None
+DEFAULT_DOORS_ANIM_DIR: Optional[Path] = None
+DEFAULT_INTERIORS_B10_DIR: Optional[Path] = None
+DEFAULT_P1_PORT_DIR: Optional[Path] = None
+DEFAULT_WHOME_DATA_DIR: Optional[Path] = None
+DEFAULT_HANDY_STAGE_DIR: Optional[Path] = None
+DEFAULT_TESTED_PIPBOY_DLL: Optional[Path] = None
+DEFAULT_TEXCONV_EXE: Optional[Path] = None
+DEFAULT_XWM_EXE: Optional[Path] = None
+DEFAULT_WWISE_EXE: Optional[Path] = None
+DEFAULT_PORT_IDS: Optional[Path] = None
 DEFAULT_BASE_START_PLACES = REPO_ROOT / "src" / "fo4sf" / "core" / "start_places.json"
 DEFAULT_WARFARE_STARTS = REPO_ROOT / "src" / "fo4sf" / "core" / "warfare_starts.json"
 DEFAULT_CARD_PATH = REPO_ROOT / "docs" / "testing" / "round11-s1-prewar-card.md"
@@ -97,6 +98,8 @@ SWAP_ALLOWED_DATA_PREFIXES: Tuple[str, ...] = (
     "Data/FO4Port.esm",
     "Data/FO4Port - Main.ba2",
     "Data/FO4Port - Textures.ba2",
+    "Data/FO4SFVaultGearDoor.esm",
+    "Data/FO4SFExitLift.esm",
     "Data/FO4SFNewGame.esm",
     "Data/FO4SFNewGame - Main.ba2",
     "Data/Scripts/FO4SF_NewGame",
@@ -113,7 +116,7 @@ def _sanc_local(key: str) -> Tuple[float, float, float]:
 
 
 _ANC_HOUSE = _sanc_local("player_start")
-_ANC_V111 = s1_spec.PREWAR_V111_KEY_COORDS_M["int_elevator_spawn"]
+_ANC_V111 = s1_spec.PREWAR_V111_KEY_COORDS_M["int_elevator_base"]
 _HOP_BRIDGE = _sanc_local("west_bridge")
 _HOP_GATE = _sanc_local("military_gate_checker")
 _HOP_LIFT = _sanc_local("ext_elevator_center")
@@ -134,7 +137,7 @@ S1_ANCHORS: Tuple[probe_common.AnchorPoint, ...] = (
         y=_ANC_V111[1],
         z=_ANC_V111[2],
         cell_type="interior",
-        cell="FO4Port_PrewarVault111S1",
+        cell="FO4Port_PrewarVault111",
     ),
 )
 
@@ -173,7 +176,7 @@ S1_HOPS: Tuple[probe_common.HopSpec, ...] = (
         y=_HOP_POD[1],
         z=_HOP_POD[2],
         cell_type="interior",
-        cell="FO4Port_PrewarVault111S1",
+        cell="FO4Port_PrewarVault111",
     ),
 )
 
@@ -211,7 +214,7 @@ P3_BATCHES: Tuple[Tuple[str, str], ...] = (
     ),
     (
         "s1e.txt",
-        f"; S1 PrewarVault111S1 interior pod hop (<200m/axis, 0 M/N/V)\n"
+        f"; S1 FO4Port_PrewarVault111 interior pod hop (<200m/axis, 0 M/N/V)\n"
         f"player.setpos x {_HOP_POD[0]:.2f}\n"
         f"player.setpos y {_HOP_POD[1]:.2f}\n"
         f"player.setpos z {_HOP_POD[2]:.2f}\n"
@@ -327,16 +330,20 @@ def _stage_slot2_port(
     work_dir: Path,
     data_out: Path,
     fo4_esm: Path,
-    doors_anim_dir: Path,
-    interiors_b10_dir: Path,
-    p1_port_dir: Path,
+    doors_anim_dir: Optional[Path],
+    interiors_b10_dir: Optional[Path],
+    p1_port_dir: Optional[Path],
     slot1_port_esm: Optional[Path],
     skip_port_ba2: bool,
 ) -> Dict[str, Any]:
-    """Build Task 1 Slot 1 FO4Port.esm (or reuse supplied Slot 1), losslessly append Slot 2 PrewarVault111S1."""
+    """Build or load Slot 1 FO4Port.esm and losslessly append Slot 2 into FO4Port_PrewarVault111 (`S1-08`)."""
     if slot1_port_esm is not None:
+        if not slot1_port_esm.is_file():
+            raise FileNotFoundError(f"Missing --slot1-port-esm: {slot1_port_esm}")
         s1_bytes = slot1_port_esm.read_bytes()
     else:
+        if doors_anim_dir is None or interiors_b10_dir is None:
+            raise ValueError("Missing --slot1-port-esm (or explicit --doors-anim-dir and --interiors-b10-dir)")
         for req in (doors_anim_dir / "FO4Port.esm", interiors_b10_dir / "FO4Port.esm", fo4_esm):
             if not req.is_file():
                 raise FileNotFoundError(f"Missing Slot 1 FO4Port input: {req}")
@@ -359,6 +366,11 @@ def _stage_slot2_port(
             raise RuntimeError(f"build_fo4port_r11_museum.py failed ({rc})")
         s1_bytes = (s1_dir / "FO4Port.esm").read_bytes()
 
+    slot1_ref_dir = work_dir / "slot1_ref"
+    slot1_ref_dir.mkdir(parents=True, exist_ok=True)
+    slot1_work_esm = slot1_ref_dir / "FO4Port.esm"
+    slot1_work_esm.write_bytes(s1_bytes)
+
     navms: Sequence[Tuple[int, bytes]] = ()
     if fo4_esm.is_file():
         v111_src = vault111_append.extract_prewar_v111_source(str(fo4_esm))
@@ -368,7 +380,7 @@ def _stage_slot2_port(
         s1_bytes,
         min_start_id=s1_spec.MIN_PREWAR_PORT_START_ID,
         fo4_navms=navms,
-        new_cell_edid="FO4Port_PrewarVault111S1",
+        new_cell_edid="FO4Port_PrewarVault111",
     )
     start_id_int = int(append_rep["start_id"], 16) if isinstance(append_rep["start_id"], str) else int(append_rep["start_id"])
     verify_rep = vault111_append.verify_lossless_append(
@@ -384,6 +396,8 @@ def _stage_slot2_port(
 
     ba2_info: Dict[str, Any] = {}
     if not skip_port_ba2:
+        if p1_port_dir is None:
+            raise ValueError("Missing --p1-port-dir (required unless --skip-port-ba2 is passed)")
         for ba2_name in ("FO4Port - Main.ba2", "FO4Port - Textures.ba2"):
             src_ba2 = p1_port_dir / ba2_name
             if not src_ba2.is_file():
@@ -395,14 +409,17 @@ def _stage_slot2_port(
         "slot1_sha256": probe_common.sha256_bytes(s1_bytes),
         "slot2_sha256": probe_common.sha256_bytes(s2_bytes),
         "slot2_bytes": len(s2_bytes),
+        "slot1_work_esm": slot1_work_esm,
         "append_report": {k: v for k, v in append_rep.items() if k != "out_sha256"},
         "verify_report": verify_rep,
         "ba2_sha256": ba2_info,
     }
 
 
-def _stage_home_host(*, whome_data_dir: Path, data_out: Path) -> Dict[str, str]:
-    """Copy Task 4 FO4SFHome host ESM, archives, and dual Earth biome maps (never FO4TerrainCore_Home.esm)."""
+def _stage_home_host(*, whome_data_dir: Optional[Path], data_out: Path) -> Dict[str, Any]:
+    """Copy Task 4 FO4SFHome host ESM, archives, and dual Earth biome maps; detect optional FO4TerrainCore_Home.esm."""
+    if whome_data_dir is None:
+        raise ValueError("Missing --whome-data-dir")
     required_files = (
         hspec.HOME_MASTER,
         "FO4SFHome - Main.ba2",
@@ -417,7 +434,69 @@ def _stage_home_host(*, whome_data_dir: Path, data_out: Path) -> Dict[str, str]:
             raise FileNotFoundError(f"Missing FO4SFHome asset in {whome_data_dir}: {rel}")
         dst = data_out / Path(rel)
         copied[rel] = _copy_stage_file(src, dst)
-    return copied
+    home_reg = whome_data_dir / hspec.HOME_REGISTRATION
+    return {
+        "files": copied,
+        "home_reg_src": home_reg if home_reg.is_file() else None,
+    }
+
+
+def _rig_sanctuary_doors(
+    *,
+    fo4_data: Path,
+    starfield_dir: Path,
+    texconv_exe: Path,
+    content_res: Path,
+    conv_work: Path,
+) -> Tuple[Dict[str, dict], Dict[str, Path]]:
+    """Rig Sanctuary strip FO4 DOOR meshes (`S1-14`) into `door_manifest` and preconverted `.nif` entries."""
+    fo4_esm_path = fo4_data / "Fallout4.esm"
+    strip = sanctuary_strip.extract_strip_from_plugin(fo4land.Plugin(str(fo4_esm_path)))
+    door_models: Dict[str, str] = {}
+    for b in strip["bases"].values():
+        if b.get("sig") != "DOOR":
+            continue
+        raw_m = str(b.get("model") or "").strip()
+        if not raw_m or "autoload" in raw_m.lower():
+            continue
+        src_key = exterior.source_key(raw_m).replace("\\", "/").lower()
+        sf_rel = "fo4core/" + src_key.removeprefix("meshes/")
+        door_models.setdefault(src_key, f"meshes/{sf_rel}")
+
+    sf_m01 = ba2_mod.Ba2(str(starfield_dir / "Data" / "Starfield - Meshes01.ba2"))
+    ct = convert_static.collision_template_from_nif(
+        sf_m01.read(sf_m01.find("meshes/architecture/city/akila/unique/crates/ak_crate_wall_latch02.nif"))
+    )
+    uc = meshcollision.template_from_nif(sf_m01.read(sf_m01.find(meshcollision.TEMPLATE_NIF)))
+    door_donor = sfcollision.physics_blob_from_nif(sf_m01.read(sf_m01.find(sfnif.DOOR_TEMPLATE["nif"])))
+
+    src = pipeline.Fo4Archives(str(fo4_data))
+    conv = pipeline.Converter(
+        src,
+        str(conv_work),
+        str(texconv_exe),
+        str(content_res),
+        collision_template=ct,
+        sf_mesh_template=uc,
+        prefix="fo4prewar",
+        spec_mask_roughness=True,
+        rig_doors=True,
+        door_physics_donor=door_donor,
+    )
+
+    door_manifest: Dict[str, dict] = {}
+    door_nifs: Dict[str, Path] = {}
+    for src_key, sf_mesh_rel in sorted(door_models.items()):
+        res = conv.convert_nif(src_key.replace("/", "\\"))
+        if not res.get("ok"):
+            continue
+        produced_nif = conv_work / "meshes" / f"{res['out_name']}.nif"
+        if not produced_nif.is_file():
+            continue
+        door_nifs[sf_mesh_rel.lower()] = produced_nif
+        if isinstance(res.get("door"), dict):
+            door_manifest[src_key] = res["door"]
+    return door_manifest, door_nifs
 
 
 def _convert_strip_delta_assets(
@@ -425,18 +504,20 @@ def _convert_strip_delta_assets(
     objects_json_path: Path,
     fo4_data: Path,
     starfield_dir: Path,
-    baseline_data_dir: Path,
+    baseline_data_dir: Optional[Path],
     texconv_exe: Path,
     content_res: Path,
     conv_work: Path,
+    preconverted_door_nifs: Optional[Mapping[str, Path]] = None,
 ) -> Tuple[Dict[str, Path], Dict[str, Path], Dict[str, Any]]:
     """Convert missing Sanctuary strip NIFs with prefix='fo4prewar' and remap .nif output to meshes/fo4core/..."""
     objs = json.loads(objects_json_path.read_text(encoding="utf-8"))
     bases = objs.get("bases") or []
+    pre_doors = {k.lower(): v for k, v in (preconverted_door_nifs or {}).items()}
 
     delta_models: List[str] = []
     seen_models: set[str] = set()
-    existing_in_2g = 0
+    existing_in_baseline = 0
     for b in bases:
         model = str(b.get("model", "")).replace("\\", "/").lstrip("/")
         if not model:
@@ -445,15 +526,18 @@ def _convert_strip_delta_assets(
         if low in seen_models:
             continue
         seen_models.add(low)
-        cand_2g = baseline_data_dir / "meshes" / model
-        if cand_2g.is_file():
-            existing_in_2g += 1
+        if f"meshes/{low}" in pre_doors:
+            continue
+        cand_base = (baseline_data_dir / "meshes" / model) if baseline_data_dir is not None else None
+        if cand_base is not None and cand_base.is_file():
+            existing_in_baseline += 1
         else:
             delta_models.append(model)
 
     for hero_rel in (HERO_VERTIBIRD_MODEL, HERO_EXT_LIFT_MODEL):
         hero_norm = hero_rel.replace("\\", "/").lstrip("/")
-        if hero_norm.lower() not in seen_models and not (baseline_data_dir / "meshes" / hero_norm).is_file():
+        cand_hero = (baseline_data_dir / "meshes" / hero_norm) if baseline_data_dir is not None else None
+        if hero_norm.lower() not in seen_models and not (cand_hero is not None and cand_hero.is_file()):
             seen_models.add(hero_norm.lower())
             delta_models.append(hero_norm)
 
@@ -478,7 +562,7 @@ def _convert_strip_delta_assets(
     ok_count = 0
     effect_skipped: List[str] = []
     failed: List[Dict[str, str]] = []
-    nif_entries: Dict[str, Path] = {}
+    nif_entries: Dict[str, Path] = dict(pre_doors)
 
     for model in sorted(delta_models):
         fo4_rel = "meshes/" + (model[len("fo4core/") :] if model.lower().startswith("fo4core/") else model)
@@ -518,7 +602,8 @@ def _convert_strip_delta_assets(
 
     summary = {
         "total_distinct_bases": len(bases),
-        "reused_from_baseline": existing_in_2g,
+        "reused_from_baseline": existing_in_baseline,
+        "rigged_door_nifs": len(pre_doors),
         "delta_requested": len(delta_models),
         "delta_converted_ok": ok_count,
         "effect_or_empty_skipped": effect_skipped,
@@ -529,45 +614,82 @@ def _convert_strip_delta_assets(
     return main_entries, tex_entries, summary
 
 
+def _count_records_in_groups(plg: esm.Plugin, target_sig: bytes, search_groups: Sequence[str]) -> int:
+    """Count records matching `target_sig` across top-level and nested child GRUPs (e.g., NAVM under WRLD, SCEN under QUST)."""
+    total = 0
+    seen_groups = set()
+    for gname in search_groups:
+        if gname in seen_groups:
+            continue
+        seen_groups.add(gname)
+        for s, e in plg.groups.get(gname, ()):
+            for item in plg.walk(s, e):
+                if item[0] == "REC" and plg.record_at(item[1]).sig == target_sig:
+                    total += 1
+    return total
+
+
 def _stage_sanctuary_world(
     *,
     work_dir: Path,
     data_out: Path,
     fo4_data: Path,
     starfield_dir: Path,
-    baseline_dir: Path,
+    baseline_dir: Optional[Path],
     strip_dir_override: Optional[Path],
-    texconv_exe: Path,
+    home_reg_path: Optional[Path],
+    texconv_exe: Optional[Path],
     content_res: Path,
-    archive2_exe: Path,
+    archive2_exe: Optional[Path],
     skip_strip_assets: bool,
     fast_ba2: bool,
 ) -> Dict[str, Any]:
-    """Build FO4SFPrewar_Sanctuary.esm + FO4SFPrewar_Sanctuary_Home.esm + .btd + Sanctuary BA2s."""
+    """Build FO4SFPrewar_Sanctuary.esm (NAVM/DOOR/WTHR/CLMT) + coordinated FO4SFPrewar_Sanctuary_Home.esm + BA2s."""
+    door_manifest: Dict[str, dict] = {}
+    pre_door_nifs: Dict[str, Path] = {}
+    conv_work = work_dir / "sanctuary_conv"
+
     if strip_dir_override is not None:
         strip_src = Path(strip_dir_override)
     else:
         strip_src = work_dir / "sanctuary_strip"
-        rc = build_prewar_strip.main(
-            [
-                "--fo4-esm",
-                str(fo4_data / "Fallout4.esm"),
-                "--out-dir",
-                str(strip_src),
-                "--starfield-esm",
-                str(starfield_dir / "Data" / "Starfield.esm"),
-                "--host-esm-dir",
-                str(data_out),
-                "--run-overlays",
-                "--report-json",
-                str(strip_src / "strip_report.json"),
-            ]
-        )
+        if not skip_strip_assets:
+            if texconv_exe is None:
+                raise ValueError("Missing --texconv (required unless --skip-strip-assets or --strip-dir is passed)")
+            conv_work.mkdir(parents=True, exist_ok=True)
+            door_manifest, pre_door_nifs = _rig_sanctuary_doors(
+                fo4_data=fo4_data,
+                starfield_dir=starfield_dir,
+                texconv_exe=texconv_exe,
+                content_res=content_res,
+                conv_work=conv_work,
+            )
+
+        strip_args = [
+            "--fo4-esm",
+            str(fo4_data / "Fallout4.esm"),
+            "--out-dir",
+            str(strip_src),
+            "--starfield-esm",
+            str(starfield_dir / "Data" / "Starfield.esm"),
+            "--host-esm-dir",
+            str(data_out),
+            "--run-overlays",
+            "--report-json",
+            str(strip_src / "strip_report.json"),
+        ]
+        if door_manifest:
+            dm_path = work_dir / "door_manifest.json"
+            dm_path.write_text(json.dumps(door_manifest, indent=2) + "\n", encoding="utf-8")
+            strip_args.extend(["--door-manifest", str(dm_path)])
+        if home_reg_path is not None and home_reg_path.is_file():
+            strip_args.extend(["--combine-home-reg", str(home_reg_path)])
+        rc = build_prewar_strip.main(strip_args)
         if rc != 0:
             raise RuntimeError(f"build_prewar_strip.py failed ({rc})")
 
     sanc_esm_src = strip_src / s1_spec.PLUGIN_PREWAR_WORLD
-    reg_esm_src = strip_src / "FO4SFPrewar_Sanctuary_Home.esm"
+    reg_esm_src = strip_src / hspec.PREWAR_HOME_REGISTRATION
     btd_src = strip_src / "Data" / "Terrain" / "FO4SF_PrewarSanctuaryWorld.btd"
     mask_src = strip_src / "Data" / "textures" / "terrain" / "overlaymasks" / "fo4sf_prewarsanctuaryworld.dds"
     for req in (sanc_esm_src, reg_esm_src, btd_src, mask_src):
@@ -576,24 +698,37 @@ def _stage_sanctuary_world(
 
     sanctuary_strip.verify_zero_starfield_sky_refs(str(sanc_esm_src))
     sanc_sha = _copy_stage_file(sanc_esm_src, data_out / s1_spec.PLUGIN_PREWAR_WORLD)
-    reg_sha = _copy_stage_file(reg_esm_src, data_out / "FO4SFPrewar_Sanctuary_Home.esm")
+    reg_sha = _copy_stage_file(reg_esm_src, data_out / hspec.PREWAR_HOME_REGISTRATION)
     btd_sha = _copy_stage_file(btd_src, data_out / "Terrain" / "FO4SF_PrewarSanctuaryWorld.btd")
+
+    with esm.Plugin(str(data_out / s1_spec.PLUGIN_PREWAR_WORLD)) as sp_plg:
+        navm_count = _count_records_in_groups(sp_plg, b"NAVM", ("WRLD", "NAVM"))
+        door_count = sum(1 for _ in sp_plg.records("DOOR", [b"DOOR"]))
+        wthr_count = sum(1 for _ in sp_plg.records("WTHR", [b"WTHR"]))
+        clmt_count = sum(1 for _ in sp_plg.records("CLMT", [b"CLMT"]))
 
     main_entries: Dict[str, Path] = {}
     tex_entries: Dict[str, Path] = {"textures/terrain/overlaymasks/fo4sf_prewarsanctuaryworld.dds": mask_src}
     conv_summary: Dict[str, Any] = {"skipped": bool(skip_strip_assets)}
 
     if not skip_strip_assets:
-        conv_work = work_dir / "sanctuary_conv"
+        if texconv_exe is None:
+            raise ValueError("Missing --texconv (required unless --skip-strip-assets is passed)")
         conv_work.mkdir(parents=True, exist_ok=True)
+        base_data = (
+            (baseline_dir / "player" / "Data")
+            if (baseline_dir is not None and (baseline_dir / "player" / "Data").is_dir())
+            else ((baseline_dir / "Data") if baseline_dir is not None else None)
+        )
         main_entries, delta_tex, conv_summary = _convert_strip_delta_assets(
             objects_json_path=strip_src / "objects.json",
             fo4_data=fo4_data,
             starfield_dir=starfield_dir,
-            baseline_data_dir=baseline_dir / "player" / "Data",
+            baseline_data_dir=base_data,
             texconv_exe=texconv_exe,
             content_res=content_res,
             conv_work=conv_work,
+            preconverted_door_nifs=pre_door_nifs,
         )
         tex_entries.update(delta_tex)
     else:
@@ -619,6 +754,11 @@ def _stage_sanctuary_world(
         "sanctuary_home_reg_sha256": reg_sha,
         "btd_sha256": btd_sha,
         "btd_bytes": (data_out / "Terrain" / "FO4SF_PrewarSanctuaryWorld.btd").stat().st_size,
+        "navm_count": navm_count,
+        "door_count": door_count,
+        "wthr_count": wthr_count,
+        "clmt_count": clmt_count,
+        "combined_home_reg": bool(home_reg_path is not None and home_reg_path.is_file()),
         "sanctuary_main_ba2_sha256": probe_common.sha256_file(main_ba2),
         "sanctuary_main_ba2_entries": main_hashes,
         "sanctuary_textures_ba2_sha256": probe_common.sha256_file(tex_ba2),
@@ -627,76 +767,133 @@ def _stage_sanctuary_world(
     }
 
 
+def _inspect_newgame_vmad_scalars(ng_esm_path: Path) -> Dict[str, Any]:
+    """Read `FO4SF_NewGameQuest` scalar VMAD properties (`LiftId`, `LiftBaseId`, `CogDoorId`, `FadeHold`, `StartChoiceBackdrop`)."""
+    scalars: Dict[str, Any] = {}
+    with esm.Plugin(str(ng_esm_path)) as plg:
+        for rec in plg.records("QUST", [b"QUST"]):
+            if (rec.formid & 0xFFFFFF) != 0x800:
+                continue
+            vmad = rec.get(b"VMAD")
+            if not vmad or len(vmad) < 6:
+                break
+            _ver, obj_fmt, sc_cnt = struct.unpack_from("<HHH", vmad, 0)
+            p = 6
+
+            def _skip_elem(t: int) -> Any:
+                nonlocal p
+                if t == 1:
+                    p += 8
+                    return None
+                if t == 2:
+                    sl = struct.unpack_from("<H", vmad, p)[0]
+                    val = vmad[p + 2 : p + 2 + sl].decode("cp1252", "replace")
+                    p += 2 + sl
+                    return val
+                if t == 3:
+                    val = struct.unpack_from("<i", vmad, p)[0]
+                    p += 4
+                    return val
+                if t == 4:
+                    val = struct.unpack_from("<f", vmad, p)[0]
+                    p += 4
+                    return val
+                if t == 5:
+                    val = bool(vmad[p])
+                    p += 1
+                    return val
+                raise ValueError(f"Unsupported VMAD scalar type {t}")
+
+            for _ in range(sc_cnt):
+                sl = struct.unpack_from("<H", vmad, p)[0]
+                p += 2 + sl + 1
+                pr_cnt = struct.unpack_from("<H", vmad, p)[0]
+                p += 2
+                for _ in range(pr_cnt):
+                    pl = struct.unpack_from("<H", vmad, p)[0]
+                    pname = vmad[p + 2 : p + 2 + pl].decode("cp1252", "replace")
+                    p += 2 + pl
+                    pt, _st = struct.unpack_from("<BB", vmad, p)
+                    p += 2
+                    if 1 <= pt <= 5:
+                        val = _skip_elem(pt)
+                        if pt in (2, 3, 4, 5):
+                            scalars[pname] = val
+                    elif 11 <= pt <= 15:
+                        arr_len = struct.unpack_from("<I", vmad, p)[0]
+                        p += 4
+                        for _ in range(arr_len):
+                            _skip_elem(pt - 10)
+            break
+    return scalars
+
+
 def _stage_prewar_quest_and_voices(
     *,
     work_dir: Path,
     data_out: Path,
     fo4_data: Path,
     starfield_esm: Path,
-    handy_stage_dir: Path,
-    xwm_exe: Path,
-    wwise_exe: Path,
+    handy_stage_dir: Optional[Path],
+    xwm_exe: Optional[Path],
+    wwise_exe: Optional[Path],
     papyrus_compiler: Path,
     content_res: Path,
     prewar_dir_override: Optional[Path],
     skip_voices: bool,
 ) -> Dict[str, Any]:
-    """Convert MQ101 .fuz -> .wem locally, build FO4SFPrewar.esm + Handy + S1 scripts, and pack Main BA2."""
+    """Convert wired S1 .fuz -> .wem via `make_mission` helpers (`S1-01`/`S1-16`), build FO4SFPrewar.esm + Main BA2."""
     if prewar_dir_override is not None:
         pq_work = Path(prewar_dir_override)
-        voice_summary: Dict[str, Any] = {"skipped": True, "converted_wem_count": 0}
+        voice_summary: Dict[str, Any] = {"skipped": True, "wired_wem_count": 0}
     else:
+        if handy_stage_dir is None:
+            raise ValueError("Missing --handy-stage-dir (required unless --prewar-dir is passed)")
         pq_work = work_dir / "prewar_quest"
         pq_work.mkdir(parents=True, exist_ok=True)
         fo4_esm = fo4_data / "Fallout4.esm"
         fo4_voices = fo4_data / "Fallout4 - Voices.ba2"
         voices_json_path: Optional[Path] = None
 
-        voice_summary = {"skipped": bool(skip_voices), "converted_wem_count": 0}
+        voice_summary = {"skipped": bool(skip_voices), "wired_wem_count": 0}
         if not skip_voices:
+            if xwm_exe is None or wwise_exe is None:
+                raise ValueError("Missing --xwmaencode / --wwise-console (required unless --skip-voices is passed)")
             for req in (fo4_esm, fo4_voices, xwm_exe, wwise_exe):
                 if not req.is_file():
                     raise FileNotFoundError(f"Missing MQ101 voice conversion input: {req}")
-            vplan = mq101_census.build_prewar_voice_plan(str(fo4_esm), str(fo4_voices))
-            ext_stems = [row["stem"] for row in vplan["extractable_stems"]]
+            wired_stems = list(
+                dict.fromkeys(
+                    mq101_census.curated_prewar_scene_stems()
+                    + mq101_census.kellogg_scene_stems(str(fo4_esm), str(fo4_voices))
+                )
+            )
             vscratch = work_dir / "voice_scratch"
             durations: Dict[str, float] = {}
             stem_to_wem = mq101_census.convert_stems_via_wwise(
                 str(fo4_voices),
-                ext_stems,
+                wired_stems,
                 str(xwm_exe),
                 str(wwise_exe),
                 str(vscratch),
                 durations_out=durations,
             )
             voice_out_dir = pq_work / "Data" / "sound" / "voice" / "fo4sfprewar.esm"
-            kellogg_rows, kellogg_copied = mq101_census.build_local_kellogg_voices_payload(
+            payload, wired_copied = mq101_census.build_local_prewar_scenes_payload(
                 str(fo4_esm),
                 durations,
                 str(voice_out_dir),
                 stem_to_wem,
             )
-            pool_dir = voice_out_dir / "mq101_pool"
-            pool_copied = 0
-            for stem, wem_src in sorted(stem_to_wem.items()):
-                dst = pool_dir / Path(f"{stem}.wem")
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(wem_src, dst)
-                pool_copied += 1
-
             voices_json_path = work_dir / "voices_local.json"
-            voices_json_path.write_text(
-                json.dumps({"kellogg_scene": kellogg_rows}, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            voices_json_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
             voice_summary = {
                 "skipped": False,
-                "scene_count": vplan["scene_count"],
-                "raw_stem_count": vplan["stem_count"],
-                "extractable_stem_count": vplan["extractable_stem_count"],
+                "wired_stem_count": len(wired_stems),
                 "converted_wem_count": len(stem_to_wem),
-                "kellogg_scene_wem_count": len(kellogg_copied),
-                "pool_wem_count": pool_copied,
+                "wired_wem_count": len(wired_copied),
+                "scene_counts": {k: len(v) for k, v in payload.items()},
+                "pool_wem_count": 0,
             }
 
         q_cmd = [
@@ -767,6 +964,7 @@ def _stage_prewar_quest_and_voices(
     return {
         "prewar_esm_sha256": prewar_sha,
         "prewar_main_ba2_sha256": probe_common.sha256_file(prewar_main_ba2),
+        "prewar_main_ba2_bytes": prewar_main_ba2.stat().st_size,
         "prewar_main_ba2_entries": main_hashes,
         "prewar_textures_ba2_entries": tex_hashes,
         "voice_summary": voice_summary,
@@ -778,20 +976,21 @@ def _stage_newgame_and_ui(
     work_dir: Path,
     data_out: Path,
     starfield_dir: Path,
-    baseline_dir: Path,
+    baseline_dir: Optional[Path],
     fo4_data: Path,
-    port_ids: Path,
-    core_esm: Path,
+    port_ids: Optional[Path],
+    core_esm: Optional[Path],
+    port_esm_for_newgame: Optional[Path],
     cog_door_dir: Optional[Path],
     exit_lift_dir: Optional[Path],
     newgame_stage_override: Optional[Path],
     pipboy_dll_override: Optional[Path],
-    tested_pipboy_dll: Path,
+    tested_pipboy_dll: Optional[Path],
     interface_dir: Optional[Path],
     base_start_places_path: Path,
     warfare_starts_path: Path,
 ) -> Dict[str, Any]:
-    """Write S1 FO4SFStartPlaces.json, stage FO4SFNewGame (--prewar), pack Main BA2, and reuse Slot 2 DLL + INI."""
+    """Write S1 FO4SFStartPlaces.json, stage FO4SFNewGame (--cog-door/--exit-lift, FadeHold=False, backdrop 1), pack Main BA2, and reuse #860 DLL + INI."""
     sfse_out = data_out / "SFSE" / "Plugins"
     sfse_out.mkdir(parents=True, exist_ok=True)
     sp_dst = sfse_out / "FO4SFStartPlaces.json"
@@ -805,8 +1004,11 @@ def _stage_newgame_and_ui(
     if newgame_stage_override is not None:
         ng_stage = Path(newgame_stage_override)
     else:
+        if port_ids is None or core_esm is None:
+            raise ValueError("Building FO4SFNewGame.esm requires --port-ids and --core (or --baseline-dir / --newgame-stage)")
         ng_stage = work_dir / "newgame_stage"
         fo4_esm = fo4_data if fo4_data.is_file() else (fo4_data / "Fallout4.esm")
+        ng_port = port_esm_for_newgame if port_esm_for_newgame is not None else (data_out / "FO4Port.esm")
         ng_cmd: List[str] = [
             "stage",
             "--out",
@@ -814,7 +1016,7 @@ def _stage_newgame_and_ui(
             "--fo4",
             str(fo4_esm),
             "--port",
-            str(data_out / "FO4Port.esm"),
+            str(ng_port),
             "--port-ids",
             str(port_ids),
             "--core",
@@ -827,9 +1029,9 @@ def _stage_newgame_and_ui(
             str(sp_dst),
             "--prewar",
             str(data_out / s1_spec.PLUGIN_PREWAR),
-            "--fade-hold",
+            "--no-fade-hold",
             "--start-choice-backdrop",
-            "setup_menu",
+            "empty_cell",
             "--show-unavailable-starts",
             "0",
         ]
@@ -845,6 +1047,10 @@ def _stage_newgame_and_ui(
     if not ng_esm_src.is_file():
         raise FileNotFoundError(f"Missing FO4SFNewGame.esm in {ng_stage}")
     ng_esm_sha = _copy_stage_file(ng_esm_src, data_out / "FO4SFNewGame.esm")
+    for extra_plugin in ("FO4SFVaultGearDoor.esm", "FO4SFExitLift.esm"):
+        cand_ep = ng_stage / extra_plugin
+        if cand_ep.is_file():
+            _copy_stage_file(cand_ep, data_out / extra_plugin)
 
     ba2_sources: Dict[str, Path] = {}
     ng_data = ng_stage / "Data"
@@ -874,7 +1080,13 @@ def _stage_newgame_and_ui(
         dst_path=sfse_out / "FO4SFPipboyMenu.dll",
         work_dir=work_dir,
     )
-    resolved_iface = interface_dir or (baseline_dir / "player" / "Data" / "Interface")
+    if interface_dir is not None:
+        resolved_iface = interface_dir
+    elif baseline_dir is not None:
+        cand_i = baseline_dir / "player" / "Data" / "Interface"
+        resolved_iface = cand_i if cand_i.is_dir() else (baseline_dir / "Data" / "Interface")
+    else:
+        raise ValueError("Missing --interface-dir (required unless --baseline-dir is passed)")
     ini_dst = sfse_out / "FO4SFPipboyMenu.ini"
     make_r12_start_menus_probe._generate_pipboy_ini(  # noqa: SLF001
         interface_dir=resolved_iface,
@@ -882,6 +1094,7 @@ def _stage_newgame_and_ui(
         show_unavailable_starts=0,
     )
     make_r12_start_menus_probe._validate_ini_defaults(ini_dst)  # noqa: SLF001
+    vmad_scalars = _inspect_newgame_vmad_scalars(data_out / "FO4SFNewGame.esm")
 
     return {
         "newgame_esm_sha256": ng_esm_sha,
@@ -894,33 +1107,37 @@ def _stage_newgame_and_ui(
         "start_places_sha256": sp_sha,
         "warfare_starts_sha256": ws_sha,
         "available_starts": [r["id"] for r in s1_sp_doc["places"] if r.get("available")],
+        "cog_door_enabled": bool(cog_door_dir is not None and (cog_door_dir / "plan.json").is_file()),
+        "exit_lift_enabled": bool(exit_lift_dir is not None and (exit_lift_dir / "plan.json").is_file()),
+        "newgame_vmad_scalars": vmad_scalars,
     }
 
 
 def stage_probe(
     *,
     out_dir: Path,
-    starfield_dir: Path = DEFAULT_STARFIELD_DIR,
-    fo4_data: Path = DEFAULT_FO4_DATA_DIR,
-    baseline_dir: Path = DEFAULT_BASELINE_DIR,
-    doors_anim_dir: Path = DEFAULT_DOORS_ANIM_DIR,
-    interiors_b10_dir: Path = DEFAULT_INTERIORS_B10_DIR,
-    p1_port_dir: Path = DEFAULT_P1_PORT_DIR,
-    whome_data_dir: Path = DEFAULT_WHOME_DATA_DIR,
-    handy_stage_dir: Path = DEFAULT_HANDY_STAGE_DIR,
+    starfield_dir: Optional[Path] = DEFAULT_STARFIELD_DIR,
+    fo4_data: Optional[Path] = DEFAULT_FO4_DATA_DIR,
+    baseline_dir: Optional[Path] = DEFAULT_BASELINE_DIR,
+    doors_anim_dir: Optional[Path] = DEFAULT_DOORS_ANIM_DIR,
+    interiors_b10_dir: Optional[Path] = DEFAULT_INTERIORS_B10_DIR,
+    p1_port_dir: Optional[Path] = DEFAULT_P1_PORT_DIR,
+    whome_data_dir: Optional[Path] = DEFAULT_WHOME_DATA_DIR,
+    handy_stage_dir: Optional[Path] = DEFAULT_HANDY_STAGE_DIR,
     port_ids: Optional[Path] = None,
     core_esm: Optional[Path] = None,
     cog_door_dir: Optional[Path] = None,
     exit_lift_dir: Optional[Path] = None,
     interface_dir: Optional[Path] = None,
     pipboy_dll: Optional[Path] = None,
-    tested_pipboy_dll: Path = DEFAULT_TESTED_PIPBOY_DLL,
+    tested_pipboy_dll: Optional[Path] = DEFAULT_TESTED_PIPBOY_DLL,
     base_start_places_path: Path = DEFAULT_BASE_START_PLACES,
     warfare_starts_path: Path = DEFAULT_WARFARE_STARTS,
-    texconv_exe: Path = DEFAULT_TEXCONV_EXE,
-    xwm_exe: Path = DEFAULT_XWM_EXE,
-    wwise_exe: Path = DEFAULT_WWISE_EXE,
+    texconv_exe: Optional[Path] = DEFAULT_TEXCONV_EXE,
+    xwm_exe: Optional[Path] = DEFAULT_XWM_EXE,
+    wwise_exe: Optional[Path] = DEFAULT_WWISE_EXE,
     slot1_port_esm: Optional[Path] = None,
+    combine_home_reg: Optional[Path] = None,
     strip_dir: Optional[Path] = None,
     prewar_dir: Optional[Path] = None,
     newgame_stage_dir: Optional[Path] = None,
@@ -932,21 +1149,41 @@ def stage_probe(
     min_free_gb: float = MIN_FREE_GB,
     system: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Build and offline-verify the complete Round 11 `r11-s1-prewar` staging folder."""
+    """Build and offline-verify the complete Round 13 `r13-s1-prewar` staging folder."""
+    if starfield_dir is None:
+        raise ValueError("Missing required --starfield")
+    if fo4_data is None:
+        raise ValueError("Missing required --fo4")
     probe_common.check_starfield_not_running(system)
     out_p = Path(out_dir)
     probe_common.check_out_dir_safe(out_p, clean=clean)
     probe_common.check_free_space_gb(out_p.parent if out_p.parent.exists() else out_p, min_gb=min_free_gb)
 
     sf_dir = Path(starfield_dir)
-    base_dir = Path(baseline_dir)
-    resolved_core = core_esm or (base_dir / "clean-core-2g-fix2-player" / "FO4TerrainCore.esm")
-    resolved_port_ids = port_ids or (
-        DEFAULT_PORT_IDS if base_dir == DEFAULT_BASELINE_DIR and DEFAULT_PORT_IDS.is_file()
-        else base_dir / "clean-core-2g-fix2-player" / "formids.json"
+    base_dir = Path(baseline_dir) if baseline_dir is not None else None
+
+    def _pick_existing(*cands: Optional[Path]) -> Optional[Path]:
+        for c in cands:
+            if c is not None and c.exists():
+                return c
+        return None
+
+    resolved_core = core_esm or _pick_existing(
+        (base_dir / "player" / "FO4TerrainCore.esm") if base_dir else None,
+        (base_dir / "FO4TerrainCore.esm") if base_dir else None,
+        (base_dir / "clean-core-2g-fix2-player" / "FO4TerrainCore.esm") if base_dir else None,
     )
-    resolved_cog = cog_door_dir
-    resolved_lift = exit_lift_dir
+    resolved_port_ids = port_ids or _pick_existing(
+        DEFAULT_PORT_IDS,
+        (base_dir / "player" / "formids.json") if base_dir else None,
+        (base_dir / "formids.json") if base_dir else None,
+        (base_dir / "clean-core-2g-fix2-player" / "formids.json") if base_dir else None,
+    )
+    resolved_cog = cog_door_dir or (_pick_existing(base_dir / "stages" / "01-cog-door") if base_dir else None)
+    resolved_lift = exit_lift_dir or (_pick_existing(base_dir / "stages" / "02-exit-lift") if base_dir else None)
+    resolved_slot1_port = slot1_port_esm or (_pick_existing(base_dir / "port" / "FO4Port.esm") if base_dir else None)
+    resolved_p1_port = p1_port_dir or (_pick_existing(base_dir / "port") if base_dir else None)
+
     starfield_esm = sf_dir / "Data" / "Starfield.esm"
     content_res = sf_dir / "Tools" / "ContentResources.zip"
     papyrus_compiler = sf_dir / "Tools" / "Papyrus Compiler" / "PapyrusCompiler.exe"
@@ -958,20 +1195,28 @@ def stage_probe(
         d.mkdir(parents=True, exist_ok=True)
 
     work_parent = out_p.parent if out_p.parent.exists() else out_p
-    with tempfile.TemporaryDirectory(prefix="r11_s1_work_", dir=str(work_parent)) as td:
+    with tempfile.TemporaryDirectory(prefix="r13_s1_work_", dir=str(work_parent)) as td:
         work_dir = Path(td)
 
         port_rep = _stage_slot2_port(
             work_dir=work_dir,
             data_out=data_out,
             fo4_esm=Path(fo4_data) / "Fallout4.esm",
-            doors_anim_dir=Path(doors_anim_dir),
-            interiors_b10_dir=Path(interiors_b10_dir),
-            p1_port_dir=Path(p1_port_dir),
-            slot1_port_esm=slot1_port_esm,
+            doors_anim_dir=Path(doors_anim_dir) if doors_anim_dir is not None else None,
+            interiors_b10_dir=Path(interiors_b10_dir) if interiors_b10_dir is not None else None,
+            p1_port_dir=Path(resolved_p1_port) if resolved_p1_port is not None else None,
+            slot1_port_esm=resolved_slot1_port,
             skip_port_ba2=skip_port_ba2,
         )
-        home_rep = _stage_home_host(whome_data_dir=Path(whome_data_dir), data_out=data_out)
+        slot1_work_esm = port_rep.pop("slot1_work_esm")
+
+        home_stage = _stage_home_host(
+            whome_data_dir=Path(whome_data_dir) if whome_data_dir is not None else None,
+            data_out=data_out,
+        )
+        home_rep = home_stage["files"]
+        resolved_home_reg = combine_home_reg or home_stage.get("home_reg_src")
+
         sanc_rep = _stage_sanctuary_world(
             work_dir=work_dir,
             data_out=data_out,
@@ -979,7 +1224,8 @@ def stage_probe(
             starfield_dir=sf_dir,
             baseline_dir=base_dir,
             strip_dir_override=strip_dir,
-            texconv_exe=Path(texconv_exe),
+            home_reg_path=resolved_home_reg,
+            texconv_exe=Path(texconv_exe) if texconv_exe is not None else None,
             content_res=content_res,
             archive2_exe=archive2_exe,
             skip_strip_assets=skip_strip_assets,
@@ -990,9 +1236,9 @@ def stage_probe(
             data_out=data_out,
             fo4_data=Path(fo4_data),
             starfield_esm=starfield_esm,
-            handy_stage_dir=Path(handy_stage_dir),
-            xwm_exe=Path(xwm_exe),
-            wwise_exe=Path(wwise_exe),
+            handy_stage_dir=Path(handy_stage_dir) if handy_stage_dir is not None else None,
+            xwm_exe=Path(xwm_exe) if xwm_exe is not None else None,
+            wwise_exe=Path(wwise_exe) if wwise_exe is not None else None,
             papyrus_compiler=papyrus_compiler,
             content_res=content_res,
             prewar_dir_override=prewar_dir,
@@ -1006,11 +1252,12 @@ def stage_probe(
             fo4_data=Path(fo4_data),
             port_ids=resolved_port_ids,
             core_esm=resolved_core,
+            port_esm_for_newgame=slot1_work_esm,
             cog_door_dir=resolved_cog if resolved_cog is not None and resolved_cog.is_dir() else None,
             exit_lift_dir=resolved_lift if resolved_lift is not None and resolved_lift.is_dir() else None,
             newgame_stage_override=newgame_stage_dir,
             pipboy_dll_override=pipboy_dll,
-            tested_pipboy_dll=Path(tested_pipboy_dll),
+            tested_pipboy_dll=Path(tested_pipboy_dll) if tested_pipboy_dll is not None else None,
             interface_dir=interface_dir,
             base_start_places_path=Path(base_start_places_path),
             warfare_starts_path=Path(warfare_starts_path),
@@ -1034,7 +1281,7 @@ def stage_probe(
     ref_esms = [
         p
         for p in (
-            resolved_core if resolved_core.is_file() else None,
+            resolved_core if resolved_core is not None and resolved_core.is_file() else None,
             data_out / "FO4Port.esm",
             data_out / hspec.HOME_MASTER,
             data_out / s1_spec.PLUGIN_PREWAR_WORLD,
@@ -1080,7 +1327,7 @@ def stage_probe(
         )
 
     manifest: Dict[str, Any] = {
-        "schema": "fo4sf.r11_s1_prewar_manifest.v1",
+        "schema": "fo4sf.r13_s1_prewar_manifest.v1",
         "probe_id": PROBE_ID,
         "plugins_to_activate": list(PLUGINS_TO_ACTIVATE),
         "available_starts": ng_rep["available_starts"],
@@ -1096,13 +1343,125 @@ def stage_probe(
     return manifest
 
 
+def _scan_esm_player_full_names(esm_path: Path, *, min_local_fid: int = 0) -> List[str]:
+    """Fail if any player-facing FULL subrecord starts with `'FO4SF '` or contains `'(Stand-In)'`."""
+    errors: List[str] = []
+    with esm.Plugin(str(esm_path)) as plg:
+        for grp in plg.groups:
+            for start, end in plg.groups[grp]:
+                for item in plg.walk(start, end):
+                    if item[0] != "REC":
+                        continue
+                    rec = plg.record_at(item[1])
+                    if (rec.formid & 0xFFFFFF) < min_local_fid:
+                        continue
+                    full_b = rec.get(b"FULL")
+                    if full_b:
+                        txt = full_b.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        if txt.startswith("FO4SF ") or "(stand-in)" in txt.lower():
+                            errors.append(f"{esm_path.name}:{rec.edid or hex(rec.formid)} FULL banned text: {txt!r}")
+    return errors
+
+
+def _verify_s1_fix_gates(data_out: Path, manifest: Mapping[str, Any]) -> Dict[str, Any]:
+    """Verify S1-01..S1-16 invariants directly against staged ESMs and BA2 manifests."""
+    errors: List[str] = []
+    for pname in (
+        s1_spec.PLUGIN_PREWAR,
+        s1_spec.PLUGIN_PREWAR_WORLD,
+        hspec.PREWAR_HOME_REGISTRATION,
+        "FO4SFNewGame.esm",
+        "FO4SFVaultGearDoor.esm",
+        "FO4SFExitLift.esm",
+    ):
+        pp = data_out / pname
+        if pp.is_file():
+            errors.extend(_scan_esm_player_full_names(pp))
+    port_p = data_out / "FO4Port.esm"
+    if port_p.is_file():
+        errors.extend(_scan_esm_player_full_names(port_p, min_local_fid=s1_spec.MIN_PREWAR_PORT_START_ID))
+        with esm.Plugin(str(port_p)) as plg:
+            cells = [c.edid for c in plg.records("CELL", [b"CELL"]) if c.edid and "prewarvault111" in c.edid.lower()]
+            if cells != ["FO4Port_PrewarVault111"]:
+                errors.append(f"S1-08: expected single reused ['FO4Port_PrewarVault111'], got {cells}")
+
+    sanc_p = data_out / s1_spec.PLUGIN_PREWAR_WORLD
+    sanc_rep = manifest.get("sanctuary_world") or {}
+    if sanc_p.is_file():
+        with esm.Plugin(str(sanc_p)) as plg:
+            navms = _count_records_in_groups(plg, b"NAVM", ("WRLD", "NAVM"))
+            navis = sum(1 for _ in plg.records("NAVI", [b"NAVI"]))
+            doors = sum(1 for _ in plg.records("DOOR", [b"DOOR"]))
+            sanc_ov_map = {w.edid: census.overlay_of(w) for w in census.worlds(plg)}
+        if not (sanc_rep.get("conversion_summary") or {}).get("skipped"):
+            if navms == 0 or navis == 0:
+                errors.append(f"S1-04: FO4SFPrewar_Sanctuary.esm missing navmeshes/NAVI (NAVM={navms}, NAVI={navis})")
+            if doors == 0:
+                errors.append("S1-14: FO4SFPrewar_Sanctuary.esm has 0 rigged DOOR records")
+    else:
+        navms = navis = doors = 0
+        sanc_ov_map = {}
+
+    pw_p = data_out / s1_spec.PLUGIN_PREWAR
+    pq_rep = manifest.get("prewar_quest") or {}
+    if pw_p.is_file():
+        with esm.Plugin(str(pw_p)) as plg:
+            scen_cnt = _count_records_in_groups(plg, b"SCEN", ("QUST", "SCEN"))
+            pw_ov_map = {w.edid: census.overlay_of(w) for w in census.worlds(plg)}
+        for we, ov in pw_ov_map.items():
+            master_ov = sanc_ov_map.get(we)
+            if ov is None or ov[0] == 0 or ov[1] == 0:
+                errors.append(f"S1-06: FO4SFPrewar.esm WRLD {we} dropped SNAM/PNAM overlay ({ov})")
+            elif master_ov is not None and (ov[0], ov[1]) != (master_ov[0], master_ov[1]):
+                errors.append(f"S1-06: FO4SFPrewar.esm WRLD {we} overlay {ov[:2]} != master {master_ov[:2]}")
+        vs = pq_rep.get("voice_summary") or {}
+        if not vs.get("skipped"):
+            if scen_cnt < 6:
+                errors.append(f"S1-01: expected >= 6 SCEN in FO4SFPrewar.esm, got {scen_cnt}")
+            ba2_keys = sorted((pq_rep.get("prewar_main_ba2_entries") or {}).keys())
+            wem_keys = [k for k in ba2_keys if k.lower().endswith(".wem")]
+            if any("mq101_pool" in k.lower() for k in wem_keys):
+                errors.append("S1-01: unreached mq101_pool .wem files leaked into FO4SFPrewar - Main.ba2")
+            want_wems = int(vs.get("wired_wem_count") or 0)
+            if want_wems == 0 or len(wem_keys) != want_wems:
+                errors.append(f"S1-01/S1-16: wired BA2 .wem count {len(wem_keys)} != expected {want_wems}")
+
+    ng_p = data_out / "FO4SFNewGame.esm"
+    ng_rep = manifest.get("newgame_and_ui") or {}
+    if ng_p.is_file() and (ng_rep.get("cog_door_enabled") or ng_rep.get("exit_lift_enabled")):
+        vm = _inspect_newgame_vmad_scalars(ng_p)
+        if ng_rep.get("cog_door_enabled") and int(vm.get("CogDoorId") or 0) <= 0:
+            errors.append(f"S1-03: CogDoorId must be non-zero in FO4SFNewGame.esm, got {vm.get('CogDoorId')}")
+        if ng_rep.get("exit_lift_enabled") and (int(vm.get("LiftId") or 0) <= 0 or int(vm.get("LiftBaseId") or 0) <= 0):
+            errors.append(f"S1-03: LiftId/LiftBaseId must be non-zero, got LiftId={vm.get('LiftId')}, LiftBaseId={vm.get('LiftBaseId')}")
+        if vm.get("FadeHold") is True:
+            errors.append("S1-03: FO4SFNewGame FadeHold must be False")
+        if vm.get("StartChoiceBackdrop") not in (None, 1):
+            errors.append(f"S1-03: FO4SFNewGame StartChoiceBackdrop expected 1, got {vm.get('StartChoiceBackdrop')}")
+
+    reg_p = data_out / hspec.PREWAR_HOME_REGISTRATION
+    if reg_p.is_file() and sanc_rep.get("combined_home_reg"):
+        with esm.Plugin(str(reg_p)) as plg:
+            pndts = list(plg.records("PNDT", [b"PNDT"]))
+            if not pndts:
+                errors.append(f"S1-07: {reg_p.name} missing PNDT")
+            else:
+                rows = hspec.canonical_pndt_cnam_rows(plg, reg_p.name, pndts[0])
+                if len(rows) < 2:
+                    errors.append(f"S1-07: combined {reg_p.name} expected >= 2 world rows, got {len(rows)}")
+
+    if errors:
+        raise probe_common.ProbeValidationError("; ".join(errors))
+    return {"navms": navms, "navis": navis, "doors": doors}
+
+
 def verify_probe(
     *,
     stage_dir: Path,
     core_esm: Optional[Path] = None,
     card_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Run all offline verification gates against an already-staged `r11-s1-prewar` folder."""
+    """Run all offline verification gates against an already-staged `r13-s1-prewar` folder."""
     st = Path(stage_dir)
     manifest_p = st / MANIFEST_NAME
     if not manifest_p.is_file():
@@ -1199,6 +1558,7 @@ def verify_probe(
         max_axis_m=MAX_AXIS_M,
         raise_on_error=True,
     )
+    gate_stats = _verify_s1_fix_gates(data_out, manifest)
 
     card_validated = False
     if card_path is not None:
@@ -1213,24 +1573,76 @@ def verify_probe(
         "files_verified": len(files),
         "available_starts": manifest.get("available_starts") or [],
         "card_validated": card_validated,
+        "s1_gates": gate_stats,
     }
 
 
-def _assert_clean_plugins_txt(plugins_path: Path) -> None:
+def _assert_clean_plugins_txt(
+    plugins_path: Path,
+    *,
+    stage_data_dir: Optional[Path] = None,
+    starfield_data_dir: Optional[Path] = None,
+) -> None:
     if not plugins_path.is_file():
         return
+    active: List[str] = []
     for raw in plugins_path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or not line.startswith("*"):
             continue
-        name = line.lstrip("*").strip().casefold()
-        if name == "fo4sfrouteloot.esm":
+        pname = line.lstrip("*").strip()
+        plow = pname.casefold()
+        active.append(pname)
+        if plow == "fo4sfrouteloot.esm":
             raise probe_common.ProbeInstallError(f"Active FO4SFRouteLoot.esm in {plugins_path} conflicts with direct Warfare starts")
-        if name == "fo4terraincore_home.esm":
+
+    if any(p.casefold() == hspec.HOME_REGISTRATION.lower() for p in active):
+        sanc_reg = (stage_data_dir / hspec.PREWAR_HOME_REGISTRATION) if stage_data_dir else None
+        if sanc_reg is None or not sanc_reg.is_file():
             raise probe_common.ProbeInstallError(
-                f"Active FO4TerrainCore_Home.esm in {plugins_path} overrides EarthPlanetData PNDT 0x805 "
-                "and would shadow FO4SFPrewar_Sanctuary_Home.esm"
+                f"Active {hspec.HOME_REGISTRATION} conflicts with PNDT 0x805 unless paired with combined {hspec.PREWAR_HOME_REGISTRATION}"
             )
+        home_reg_p = None
+        for d in (starfield_data_dir, stage_data_dir):
+            if d is not None and (d / hspec.HOME_REGISTRATION).is_file():
+                home_reg_p = d / hspec.HOME_REGISTRATION
+                break
+        if home_reg_p is None:
+            try:
+                with esm.Plugin(str(sanc_reg)) as sp:
+                    pndts = list(sp.records("PNDT", [b"PNDT"]))
+                    rows = hspec.canonical_pndt_cnam_rows(sp, sanc_reg.name, pndts[0]) if pndts else []
+            except Exception as exc:
+                raise probe_common.ProbeInstallError(
+                    f"Active {hspec.HOME_REGISTRATION} in {plugins_path} conflicts with unreadable {sanc_reg.name}: {exc}"
+                ) from exc
+            if len(rows) < 2:
+                raise probe_common.ProbeInstallError(
+                    f"Active {hspec.HOME_REGISTRATION} in {plugins_path} overrides EarthPlanetData PNDT 0x805 "
+                    f"and staged {hspec.PREWAR_HOME_REGISTRATION} is not combined ({len(rows)} world(s))"
+                )
+        else:
+            check_paths: List[str] = []
+            for p in active:
+                if p.casefold() == hspec.HOME_REGISTRATION.lower():
+                    check_paths.append(str(home_reg_p))
+                elif p.casefold() == hspec.HOME_MASTER.lower() and stage_data_dir and (stage_data_dir / hspec.HOME_MASTER).is_file():
+                    check_paths.append(str(stage_data_dir / hspec.HOME_MASTER))
+                elif p.casefold() == s1_spec.PLUGIN_PREWAR_WORLD.lower() and stage_data_dir and (stage_data_dir / s1_spec.PLUGIN_PREWAR_WORLD).is_file():
+                    check_paths.append(str(stage_data_dir / s1_spec.PLUGIN_PREWAR_WORLD))
+            if not any(p.casefold() == hspec.PREWAR_HOME_REGISTRATION.lower() for p in active):
+                check_paths.append(str(sanc_reg))
+            else:
+                idx_hr = next(i for i, p in enumerate(active) if p.casefold() == hspec.HOME_REGISTRATION.lower())
+                idx_pw = next(i for i, p in enumerate(active) if p.casefold() == hspec.PREWAR_HOME_REGISTRATION.lower())
+                if idx_pw < idx_hr:
+                    raise probe_common.ProbeInstallError(
+                        f"{hspec.PREWAR_HOME_REGISTRATION} must load after {hspec.HOME_REGISTRATION} in {plugins_path}"
+                    )
+                check_paths.append(str(sanc_reg))
+            probs = hspec.check_load_order_overrides(check_paths, allow_prewar_home_pair=True)
+            if probs:
+                raise probe_common.ProbeInstallError("; ".join(probs))
 
 
 def install_probe_cmd(
@@ -1246,7 +1658,11 @@ def install_probe_cmd(
 ) -> Dict[str, Any]:
     manifest = json.loads((Path(stage_dir) / MANIFEST_NAME).read_text(encoding="utf-8"))
     plg_path = probe_common._resolve_plugins_txt(Path(starfield_dir), plugins_txt)  # noqa: SLF001
-    _assert_clean_plugins_txt(plg_path)
+    _assert_clean_plugins_txt(
+        plg_path,
+        stage_data_dir=Path(stage_dir) / "Data",
+        starfield_data_dir=Path(starfield_dir) / "Data",
+    )
     return probe_common.install_probe(
         probe_id=PROBE_ID,
         stage_dir=stage_dir,
@@ -1263,32 +1679,33 @@ def install_probe_cmd(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="Stage, verify, install, inspect, and uninstall r11-s1-prewar probe")
+    ap = argparse.ArgumentParser(description="Stage, verify, install, inspect, and uninstall r13-s1-prewar probe")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sp_cmd = sub.add_parser("stage", help="Stage r11-s1-prewar probe into an external directory")
+    sp_cmd = sub.add_parser("stage", help="Stage r13-s1-prewar probe into an external directory")
     sp_cmd.add_argument("--out", required=True)
-    sp_cmd.add_argument("--starfield", default=str(DEFAULT_STARFIELD_DIR))
-    sp_cmd.add_argument("--fo4", default=str(DEFAULT_FO4_DATA_DIR))
-    sp_cmd.add_argument("--baseline-dir", default=str(DEFAULT_BASELINE_DIR))
-    sp_cmd.add_argument("--doors-anim-dir", default=str(DEFAULT_DOORS_ANIM_DIR))
-    sp_cmd.add_argument("--interiors-b10-dir", default=str(DEFAULT_INTERIORS_B10_DIR))
-    sp_cmd.add_argument("--p1-port-dir", default=str(DEFAULT_P1_PORT_DIR))
-    sp_cmd.add_argument("--whome-data-dir", default=str(DEFAULT_WHOME_DATA_DIR))
-    sp_cmd.add_argument("--handy-stage-dir", default=str(DEFAULT_HANDY_STAGE_DIR))
+    sp_cmd.add_argument("--starfield", required=True)
+    sp_cmd.add_argument("--fo4", required=True)
+    sp_cmd.add_argument("--baseline-dir", default="")
+    sp_cmd.add_argument("--doors-anim-dir", default="")
+    sp_cmd.add_argument("--interiors-b10-dir", default="")
+    sp_cmd.add_argument("--p1-port-dir", default="")
+    sp_cmd.add_argument("--whome-data-dir", required=True)
+    sp_cmd.add_argument("--handy-stage-dir", default="")
     sp_cmd.add_argument("--port-ids", default="")
     sp_cmd.add_argument("--core", default="")
     sp_cmd.add_argument("--cog-door", default="")
     sp_cmd.add_argument("--exit-lift", default="")
     sp_cmd.add_argument("--interface-dir", default="")
     sp_cmd.add_argument("--pipboy-dll", default="")
-    sp_cmd.add_argument("--tested-pipboy-dll", default=str(DEFAULT_TESTED_PIPBOY_DLL))
+    sp_cmd.add_argument("--tested-pipboy-dll", default="")
     sp_cmd.add_argument("--base-start-places", default=str(DEFAULT_BASE_START_PLACES))
     sp_cmd.add_argument("--warfare-starts", default=str(DEFAULT_WARFARE_STARTS))
-    sp_cmd.add_argument("--texconv", default=str(DEFAULT_TEXCONV_EXE))
-    sp_cmd.add_argument("--xwmaencode", default=str(DEFAULT_XWM_EXE))
-    sp_cmd.add_argument("--wwise-console", default=str(DEFAULT_WWISE_EXE))
+    sp_cmd.add_argument("--texconv", default="")
+    sp_cmd.add_argument("--xwmaencode", default="")
+    sp_cmd.add_argument("--wwise-console", default="")
     sp_cmd.add_argument("--slot1-port-esm", default="")
+    sp_cmd.add_argument("--combine-home-reg", default="")
     sp_cmd.add_argument("--strip-dir", default="")
     sp_cmd.add_argument("--prewar-dir", default="")
     sp_cmd.add_argument("--newgame-stage", default="")
@@ -1299,25 +1716,25 @@ def build_parser() -> argparse.ArgumentParser:
     sp_cmd.add_argument("--clean", action="store_true")
     sp_cmd.add_argument("--min-free-gb", type=float, default=MIN_FREE_GB)
 
-    vr = sub.add_parser("verify", help="Verify an already-staged r11-s1-prewar folder")
+    vr = sub.add_parser("verify", help="Verify an already-staged r13-s1-prewar folder")
     vr.add_argument("--stage-dir", required=True)
     vr.add_argument("--core", default="")
     vr.add_argument("--card", default="")
 
-    ins = sub.add_parser("install", help="Atomically install r11-s1-prewar into Starfield (game closed)")
+    ins = sub.add_parser("install", help="Atomically install r13-s1-prewar into Starfield (game closed)")
     ins.add_argument("--dir", required=True)
-    ins.add_argument("--starfield", default=str(DEFAULT_STARFIELD_DIR))
+    ins.add_argument("--starfield", required=True)
     ins.add_argument("--plugins-txt", default="")
     ins.add_argument("--version-tag", default="")
     ins.add_argument("--card", default="")
     ins.add_argument("--no-hardlink", action="store_true")
     ins.add_argument("--min-free-gb", type=float, default=MIN_FREE_GB)
 
-    st = sub.add_parser("status", help="Inspect installation status of r11-s1-prewar")
-    st.add_argument("--starfield", default=str(DEFAULT_STARFIELD_DIR))
+    st = sub.add_parser("status", help="Inspect installation status of r13-s1-prewar")
+    st.add_argument("--starfield", required=True)
 
-    un = sub.add_parser("uninstall", help="Atomically roll back r11-s1-prewar from Starfield (game closed)")
-    un.add_argument("--starfield", default=str(DEFAULT_STARFIELD_DIR))
+    un = sub.add_parser("uninstall", help="Atomically roll back r13-s1-prewar from Starfield (game closed)")
+    un.add_argument("--starfield", required=True)
     un.add_argument("--min-free-gb", type=float, default=MIN_FREE_GB)
     return ap
 
@@ -1330,25 +1747,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             out_dir=Path(args.out),
             starfield_dir=Path(args.starfield),
             fo4_data=Path(args.fo4),
-            baseline_dir=Path(args.baseline_dir),
-            doors_anim_dir=Path(args.doors_anim_dir),
-            interiors_b10_dir=Path(args.interiors_b10_dir),
-            p1_port_dir=Path(args.p1_port_dir),
+            baseline_dir=Path(args.baseline_dir) if args.baseline_dir else None,
+            doors_anim_dir=Path(args.doors_anim_dir) if args.doors_anim_dir else None,
+            interiors_b10_dir=Path(args.interiors_b10_dir) if args.interiors_b10_dir else None,
+            p1_port_dir=Path(args.p1_port_dir) if args.p1_port_dir else None,
             whome_data_dir=Path(args.whome_data_dir),
-            handy_stage_dir=Path(args.handy_stage_dir),
+            handy_stage_dir=Path(args.handy_stage_dir) if args.handy_stage_dir else None,
             port_ids=Path(args.port_ids) if args.port_ids else None,
             core_esm=Path(args.core) if args.core else None,
             cog_door_dir=Path(args.cog_door) if args.cog_door else None,
             exit_lift_dir=Path(args.exit_lift) if args.exit_lift else None,
             interface_dir=Path(args.interface_dir) if args.interface_dir else None,
             pipboy_dll=Path(args.pipboy_dll) if args.pipboy_dll else None,
-            tested_pipboy_dll=Path(args.tested_pipboy_dll),
+            tested_pipboy_dll=Path(args.tested_pipboy_dll) if args.tested_pipboy_dll else None,
             base_start_places_path=Path(args.base_start_places),
             warfare_starts_path=Path(args.warfare_starts),
-            texconv_exe=Path(args.texconv),
-            xwm_exe=Path(args.xwmaencode),
-            wwise_exe=Path(args.wwise_console),
+            texconv_exe=Path(args.texconv) if args.texconv else None,
+            xwm_exe=Path(args.xwmaencode) if args.xwmaencode else None,
+            wwise_exe=Path(args.wwise_console) if args.wwise_console else None,
             slot1_port_esm=Path(args.slot1_port_esm) if args.slot1_port_esm else None,
+            combine_home_reg=Path(args.combine_home_reg) if args.combine_home_reg else None,
             strip_dir=Path(args.strip_dir) if args.strip_dir else None,
             prewar_dir=Path(args.prewar_dir) if args.prewar_dir else None,
             newgame_stage_dir=Path(args.newgame_stage) if args.newgame_stage else None,
@@ -1360,7 +1778,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             min_free_gb=float(args.min_free_gb),
         )
         print(
-            f"staged r11-s1-prewar into {args.out}: files={len(man['files'])} "
+            f"staged {PROBE_ID} into {args.out}: files={len(man['files'])} "
             f"starts={man['available_starts']} plugins={man['plugins_to_activate']}"
         )
         return 0

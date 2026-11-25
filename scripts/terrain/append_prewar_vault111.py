@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Slot 2 starting local FormID (default 0x{s1_spec.MIN_PREWAR_PORT_START_ID:06X})",
     )
     ap.add_argument("--source-shell", default="FO4Port_PrewarVault111")
-    ap.add_argument("--new-cell", default="FO4Port_PrewarVault111S1")
+    ap.add_argument("--new-cell", default="FO4Port_PrewarVault111")
     ap.add_argument("--report-json", help="Optional path for append verification JSON")
     args = ap.parse_args(argv)
 

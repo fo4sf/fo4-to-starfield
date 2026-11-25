@@ -26,12 +26,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--starfield-esm", help="Optional Starfield.esm to materialize FO4SFPrewar_Sanctuary.esm via TerrainOverlays")
     ap.add_argument("--host-esm-dir", help="Directory containing FO4SFHome.esm (default: same dir as --out-dir)")
     ap.add_argument("--run-overlays", action="store_true", help="Invoke dotnet/TerrainOverlays to build FO4SFPrewar_Sanctuary.esm")
+    ap.add_argument("--combine-home-reg", help="Optional FO4TerrainCore_Home.esm to merge PNDT 0x805 CNAM entries with (S1-07)")
+    ap.add_argument("--door-manifest", help="Optional JSON mapping rigged door model paths to DOOR metadata (S1-14)")
     ap.add_argument("--emit-sky-esm", action="store_true", help="Also emit standalone 0-master FO4SFPrewarSky.esm")
     ap.add_argument("--report-json", help="Optional output path for summary JSON report")
     args = ap.parse_args(argv)
 
     os.makedirs(args.out_dir, exist_ok=True)
     gx0, gx1, gy0, gy1 = args.rect
+    door_manifest = None
+    if args.door_manifest:
+        with open(args.door_manifest, encoding="utf-8") as df:
+            door_manifest = json.load(df)
     report = sanctuary_strip.write_strip_stage_inputs(
         args.fo4_esm,
         args.out_dir,
@@ -41,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         gy1=gy1,
         world_edid=args.world_edid,
         emit_standalone_sky=args.emit_sky_esm,
+        door_manifest=door_manifest,
     )
 
     if args.run_overlays:
@@ -59,8 +66,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         world_esm = os.path.join(args.out_dir, s1_spec.PLUGIN_PREWAR_WORLD)
         home_bind = sanctuary_strip.bind_prewar_world_to_home(world_esm, world_edid=args.world_edid)
+        reg_esm = os.path.join(args.out_dir, "FO4SFPrewar_Sanctuary_Home.esm")
+        if args.combine_home_reg:
+            host_dir = args.host_esm_dir or args.out_dir
+            home_master = os.path.join(host_dir, hspec.HOME_MASTER)
+            report["combined_home_pndt"] = sanctuary_strip.coordinate_home_pndt_plugin(
+                home_master,
+                world_esm,
+                reg_esm,
+                terrain_core_home_path=args.combine_home_reg,
+                world_edid=args.world_edid,
+            )
         report["world_esm"] = world_esm
-        report["reg_esm"] = os.path.join(args.out_dir, "FO4SFPrewar_Sanctuary_Home.esm")
+        report["reg_esm"] = reg_esm
         report["home_sky_bind"] = home_bind
 
     if args.report_json:

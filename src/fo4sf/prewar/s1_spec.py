@@ -14,6 +14,7 @@ SANCTUARY_WRLD_FID = 0x000A7FF4
 PREWAR_VAULT111_CELL_FID = 0x000CA260
 MQ101_QUEST_FID = 0x0001ED86
 MQ101_KELLOGG_QUEST_FID = 0x000D3997
+MQ101_KELLOGG_SCENE_FID = 0x000D3CAF
 DEFAULT_STRIP_RECT: Tuple[int, int, int, int] = (-23, -19, 19, 23)  # gx0, gx1, gy0, gy1 (5x5 FO4 cells)
 
 # Slot 2 boundary on FO4Port.esm after Task 1 Slot 1 (292439a5)
@@ -104,6 +105,18 @@ PREWAR_FORMS: Dict[str, Tuple[str, int]] = {
     "FO4SF_PrewarInstMalePodMarkRef": ("REFR", 0x00082B),
     "FO4SF_PrewarInstFemalePodMarkRef": ("REFR", 0x00082C),
     "FO4SF_PrewarCrowdBridgeMarkRef": ("REFR", 0x00082D),
+    "FO4SF_PrewarBroadcastNPC": ("NPC_", 0x00082E),
+    "FO4SF_PrewarBroadcastRef": ("ACHR", 0x00082F),
+    "FO4SF_PrewarSpouseMaleRef": ("ACHR", 0x000830),
+    "FO4SF_PrewarVertibird01HoverMarkRef": ("REFR", 0x000831),
+    "FO4SF_PrewarVertibird02HoverMarkRef": ("REFR", 0x000832),
+    "FO4SF_PrewarVaultSuitStandIn": ("ARMO", 0x000833),
+    "FO4SF_PrewarRepVoice": ("VTYP", 0x0008E9),
+    "FO4SF_PrewarBroadcastVoice": ("VTYP", 0x0008EA),
+    "FO4SF_PrewarSoldierVoice": ("VTYP", 0x0008EB),
+    "FO4SF_PrewarDoctorVoice": ("VTYP", 0x0008EC),
+    "FO4SF_PrewarMaleVoice": ("VTYP", 0x0008ED),
+    "FO4SF_PrewarFemaleVoice": ("VTYP", 0x0008EE),
     "FO4SF_PrewarCodsworthVoice": ("VTYP", 0x0008F0),
     "FO4SF_PrewarCodsworthSkin": ("ARMO", 0x0008F1),
     "FO4SF_PrewarCodsworthAA": ("ARMA", 0x0008F2),

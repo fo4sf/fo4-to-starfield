@@ -1,92 +1,84 @@
-# Round 11 / 12 Test Card — `r11-s1-prewar` (Task 6: `S1` *War Never Changes* Pre-War Sanctuary + `PrewarVault111` + Stage 20 Handoff)
+# Round 13 — Story Mission 1 (`S1` Pre-War Sanctuary + Vault 111 Interior) Verification Card
 
-> **NEW GAME needed (`A16` / `R15`) & Scope / Honesty Banner:**
-> - **Scope:** `r11-s1-prewar` (`Round 12 Task 6` / `Round 11 S1` Stacked Pre-War PR) | **Mode:** `Story (Pre-War + Skip Pre-War) & Warfare` | **Baseline Target:** `candidate-2g-fix2`
-> - **Branch / Base:** `gemini/round12-s1-prewar` stacked on `main` (`b2b19a03`) + Task 1 Slot 1 `FO4Port` (`292439a5`, `8163ca9a`) + Task 4 `FO4SFHome` (`908d2cae`) + Task 5 `r12-start-menus` (`af8506e8`) + `#854` `--codsworth-handy`
-> - **Version Tag:** `<R11_S1_PREWAR_VERSION_TAG>`
-> - **Stage Placeholders:** `<stage-dir>`, `<starfield-dir>`, `<probes-root>` (`manifest.json` `356,378 B` SHA-256 `63eda66416c2a97eda3d845b8e872bbf2c5cd3305bede212f7301438570ee611`, `34` files verified)
-> - **Disk Need:** `~2.77 GiB` staged under `<stage-dir>` / `~375 MiB` net delta beyond `FO4Port` BA2s (`>= 60.0 GiB` free required before staging/install; `Starfield.exe` closed)
-> - **Truth & Stand-In Policy (`R8` / `R15`):** All `S1` Pre-War exterior/interior flows and all `5` scripted beats `(a)-(e)` are **`OFFLINE ONLY — UNPROVEN IN GAME`** until the owner runs live verification and supplies session footage in `VIDEO`. Each beat `(a)-(e)` is explicitly labeled **`animation stand-in`**. Zero FO4 voices/meshes/archives/dialogue text/videos committed to Git.
+> - **Probe ID / Folder:** `r13-s1-prewar` (`<stage-dir>/r13-s1-prewar`, stacked on `candidate-2h-2` + `#860` `r13-start-menus` `FO4SFPipboyMenu.dll`; **`NEW GAME needed`** — never reuse any save from earlier profiles or `r11-s1-prewar`)
+> - **Stage Placeholders:** `<stage-dir>` (staged probe root), `<starfield-dir>` (game root), `<fo4-data>` (Fallout 4 `Data`), `<baseline-dir>` (`candidate-2h-2`), `<localappdata>` (Windows `%LOCALAPPDATA%`), `<exp-test-dir>` (test/capture output)
+> - **Disk Need & Game State:** `Starfield.exe` closed (`0` processes), `>= 60.0 GB` free before staging/install (`manifest.json`: `623,351 B`, SHA-256 `415d1df342a1584cd987383fe347a4e1d0b22f0ef614933ff2be39f5afb2daae`, `173` staged files verified)
+> - **Starfield UI Stand-In Rule (`#32` / `7143411698`):** Starfield-hosted setup/Chargen/MessageBox/S.P.E.C.I.A.L. screens are **Starfield UI stand-ins — judge Starfield screens on function only** (clean open/close, button selection, no frozen veil, no Starfield world behind Warfare menus). Animations and custom gun sound banks are **out of scope**.
+> - **Truth Policy (`R8` / `R15`):** All `S1` Pre-War stages, voices, navmeshes, doors, weather, and Vault 111 entry are **`OFFLINE ONLY — UNPROVEN IN GAME`** until the owner runs live verification against `candidate-2h-2` and records `VIDEO`. Zero `FO4SF ` prefix or `(Stand-In)` tag in any player-facing `FULL` record.
 
 ---
 
-## Staged Artifacts & Slot 1 -> Slot 2 -> Slot 3 Summary
+## Staged Artifact Summary (`r13-s1-prewar`)
 
-| Artifact (`Data/...`) | Source / Lineage Status | Expected SHA-256 | Notes |
+| Artifact (Relative to `<stage-dir>`) | Origin / Build Role | Size / SHA-256 | Scope & `S1-01..S1-16` Gates |
 |---|---|---|---|
-| `Data/FO4Port.esm` | Lossless Slot 2 append onto Slot 1 (`8163ca9a...`, `4,656,545 B`) | `99714f16434af3e84e7ca1662707ede7c0db990e56a9155a993655f9f90fa9b5` | `58,571` Slot 1 records `<= 0x00EFAA` byte-identical + `431` `FO4Port_PrewarVault111S1` records `>= 0x00EFAB` (`0x0100EFAB` + `2` `NAVM`s `0x0100F158..59`) |
-| `Data/FO4Port - Main.ba2` / `- Textures.ba2` | Copied cleanly (`st_nlink == 1`) from `r11-p1-museum-v2/port` | `064c762499a1cc97...` / `f4664dd0a4fb49a3...` | `117,755,711 B` Main + `2,289,478,621 B` Textures |
-| `Data/FO4SFHome.esm` + BA2s + `PlanetData/` | Copied cleanly from Task 4 `w-home` (`EarthPlanetData`) | `11ee81e0e7d14b98...` | `FO4SFHomeClearWeather` / `FO4SFHomeClimate` / `FO4SFHomeAtmosphere`, zero Starfield/Mars refs (`FO4TerrainCore_Home.esm` NOT loaded) |
-| `Data/FO4SFPrewar_Sanctuary.esm` + `_Home.esm` | `SanctuaryHillsWorld` `5x5` bounded strip (`277,767 B` + `996 B`) | `1bc50575f4632efe...` / `c413eb5655240548...` | `25` FO4 cells -> `4x4` SF tile (`2,780` placed `REFR`s, `433` bases), `verify_zero_starfield_sky_refs` pass |
-| `Data/Terrain/FO4SF_PrewarSanctuaryWorld.btd` | Loose SF `.btd` (`329,679 B`) | `340879276749b9f3...` | Paired with `FO4SFPrewar_Sanctuary - Main.ba2` (`8,211,671 B`, `1,054` entries) & `- Textures.ba2` (`346,891,757 B`, `788` entries) |
-| `Data/FO4SFPrewar.esm` + `- Main.ba2` | `dotnet/Prewar` + `#854` Handy + `WwiseConsole` (`18,472 B` + `11,624,289 B`) | `7baca50bdba65a47...` / `7759544278fc31e1...` | `FO4SF_PrewarQuest` (`0x800`, non-`StartGameEnabled`, `10->20->30->40->50->60/200` proximity/timer progression + `OnPlayerLoadGame` re-arm), `FO4SF_PrewarCodsworthRace` (`#854`), `394` `.wem` files + `ILSTRINGS`-decoded `INFO` text, `5` stand-in beats |
-| `Data/FO4SFNewGame.esm` + `- Main.ba2` | Rebuilt Slot 3 via `make_newgame.py stage --prewar --fade-hold --start-choice-backdrop setup_menu` (`13,693 B` + `86,660 B`) | `1c1e5f967d98a757...` / `97d9e1b954050b22...` | Sets `FadeHold=True, StartChoiceBackdrop=3` + `PrewarSkipMsg` (`0x822`); dispatches `fo4_prewar_sanctuary` -> `BeginPrewarSanctuary` OR `fo4_vault111` (`Skip Pre-War`), plus `CompletePrewarHandoffStage20` |
-| `Data/SFSE/Plugins/FO4SFPipboyMenu.dll` + `.ini` | Reused Slot 2 DLL (`1,456,640 B`) + Stage=2 INI (`2,211 B`) | `c63c3e6a9e00aff4...` / `f77874668cdd3aeb...` | `MapBlockStarMap=0`, `MapSurvival=0`. **DLL nuance:** `c63c3e6a` `ParseLaunchChoicesJsonText` accepts `fo4_vault111`/Warfare in `launch_choices.json`, whereas plain New Game dispatches both `fo4_prewar_sanctuary` and `fo4_vault111` Skip Pre-War via `FO4SF_SetupMenu` (or Variant (a) `StoryLineMsg` -> `PrewarSkipMsg` when `FO4SF_SetupScreen.swf` is absent) |
-| `Data/SFSE/Plugins/FO4SFStartPlaces.json` | S1-enabled staged start table (`15,469 B`) | `2fa663e6d15a408c...` | Enables `fo4_prewar_sanctuary` (row `0`) + preserves `fo4_vault111` (`Vault 111 (Skip Pre-War)`, row `1`) |
+| `Data/FO4Port.esm` (+ `- Main.ba2`, `- Textures.ba2`) | Slot 1 `candidate-2h-2` `FO4Port.esm` (`8163ca9a7187...`) + `vault111_append` in-place (`S1-08`) | `4,628,589 B` / `d9cbde3793dde38a9b86e2894835c1fe322288cbdd035b07e949862a0d280c74` (Main `117,755,711 B` `064c7624...`; Tex `2,289,478,621 B` `f4664dd0...`) | Reuses Slot 1 `FO4Port_PrewarVault111` (`0x0100EDFB`) — appends `427 temp REFR + 2 NAVM` (`0x0100EFAB`, `0x0100EFAC`; `58,571` preserved, `2` appended, `0` clone of `0x0100EFAB`) |
+| `Data/FO4SFHome.esm` (+ `- Main.ba2`, `- Textures.ba2`) | Reused `w-home-v2` Earth host world | `8,763 B` / `153269f38fc6830e80ebfa8b3e902081572938a8f085f2e934cbd68e742c840d` (Main `2,292 B` `25ad81af...`; Tex `961,356 B` `d3e34edc...`) | Hosts `FO4SF_EarthPlanetData` (`0x01000805`), `FO4SFHomeClimate` (`0x01000808`), `FO4SFHomeDryWater` (`0x0100080C`), `FO4SFHomeBiome` (`0x01000806`) |
+| `Data/FO4SFPrewar_Sanctuary.esm` (+ `.btd`, `- Main.ba2`, `- Textures.ba2`) | Stripped FO4 `SanctuaryHillsWorld` (`S1-04`, `S1-11`, `S1-14`) | `509,694 B` / `45130ddbdbfdb2d82f6837033e9465c6bf7c15aa68a356914108153f7f5618ed` (`.btd` `329,679 B` `34087927...`; Main `14,036,781 B` `44333a94...`, `2,211` entries; Tex `701,161,040 B` `24eed679...`, `1,434` entries) | `59` SF `NAVM`s (`1` `NAVI` override), `4` rigged `DOOR` records (`222` rigged door NIFs), self-owned `WTHR` (`1`) + `CLMT` (`1`) (`FO4SF_PrewarClearWeather` / `FO4SF_PrewarSanctuaryClimate`, `0` Starfield sky refs) |
+| `Data/FO4SFPrewar_Sanctuary_Home.esm` | Coordinated Home registration (`S1-07`) | `1,039 B` / `842b8ceb0ff710a1ae520d1454c11521f3a0f6e9050c390b0e7244755fd8cf11` | Combined `PNDT 0x805` registering both `FO4SFHomeWorld` (`FO4SFHome.esm`) + `FO4SF_PrewarSanctuaryWorld`; coexists with `FO4TerrainCore_Home.esm` |
+| `Data/FO4SFPrewar.esm` (+ `- Main.ba2`) | `dotnet/Prewar` + `2` PEX + `31` wired `.wem`s + `132` E2 Mr. Handy assets (`S1-01`, `S1-02`, `S1-05`, `S1-06`, `S1-09`, `S1-12`, `S1-13`, `S1-15`, `S1-16`) | `47,185 B` / `8ee3d9c97f51b67e530a3bce8654e14dc5e03481073760779a24d76e3505b886` (Main `2,124,811 B` `51491429...`, `165` entries) | `6` real `SCEN` (`31` `DIAL`/`INFO`, `31` wired `.wem`s, `0` `mq101_pool` files); female `ACBS` bit (`0x806`, `0x80C`, `0x812`) + verified `OTFT` stand-ins + `GetSex()` spouse swap; `WRLD 0x02000803` `SNAM 0x000F04F2` & `PNAM 1` preserved; `WWED` stand-ins (`0x030A99`/`0x030A9C` siren, `0x2B16D7` flyby, `0x17B6F0` blast, `0x23AF77` gunshot); Vault 111 Suit stand-in (`0x833`) at stage `40`; `z = -0.11` lower elevator arrival (`int_elevator_base`) |
+| `Data/FO4SFNewGame.esm` (+ `- Main.ba2`) | `dotnet/NewGame` (`--cog-door`, `--exit-lift`, `--no-fade-hold`, `--start-choice-backdrop empty_cell`, `S1-03`, `S1-15`) | `13,693 B` / `54922b226f1de2531b84b50f03995f3bae95e416836f648367dbd6c25a1a18b8` (Main `692,283 B` `06ad764b...`, `143` entries) | Non-zero `CogDoorId=4717`, `LiftId=5656`, `LiftBaseId=57574`; `FadeHold=False`, `StartChoiceBackdrop=1`; `FO4SF_NewGame` stays `< 10` (`stage == 5`) while Pre-War runs |
+| `Data/FO4SFVaultGearDoor.esm` & `Data/FO4SFExitLift.esm` (+ BA2 assets) | Staged `01-cog-door` / `02-exit-lift` dependencies (`S1-03`) | `597 B` `7aada8ba...` / `590 B` `34d0db71...` | Activated before `FO4SFNewGame.esm`; geometries/materials/meshes packed in `FO4SFNewGame - Main.ba2` |
+| `Data/SFSE/Plugins/FO4SFPipboyMenu.dll` & `.ini` | Byte-identical reuse from `#860` (`r13-start-menus`) | `1,492,992 B` / `c0e232b95fb6a31f1959d02bb529701b41d4e2f6e62dc268739a6e75534b8767` (`.ini` `2,232 B` `6b502315...`) | Consume-and-delete `launch_choices.json`, clean Story/Warfare routing |
+| `Data/SFSE/Plugins/FO4SFStartPlaces.json` & `FO4SFWarfareStarts.json` | Enables `fo4_prewar_sanctuary` (`Sanctuary Hills (Pre-War)`) + preserves `fo4_vault111` (`Vault 111 (Skip Pre-War)`) | `16,272 B` `98b96ed6...` / `6,019 B` `db86caea...` | `5` available starts (`fo4_prewar_sanctuary`, `fo4_vault111`, `minutemen_sanctuary`, `gunners_plaza`, `raiders_corvega`) |
 
 ---
 
-## Verification Rows (Every Row Has a `VIDEO` Column)
+## Pre-Launch Setup & UI Disclosure
 
-| Row | Scenario & Beat Coverage | Batch / Trigger (`P3` Clean) | Expected Result / PASS Log (`animation stand-in` beats explicit) | Truth Label | Result | VIDEO |
-|---|---|---|---|---|---|---|
-| `R11-S1-1` | **Pre-War Sanctuary House Arrival (`fo4_prewar_sanctuary`) & `#854` Pre-War Codsworth** | Default Story New Game (`PrewarSkipMsg` btn `0` / `FO4SF_SetupMenu` row `0`) -> `bat s1a` | Spawns at `FO4SF_PrewarHouseSpawnMarker` (`52.82, -2.46, 112.23`) under `FO4SFHomeClearWeather` clear temperate sky; `#854` Mr. Handy Codsworth (`FO4SF_PrewarCodsworthRace`) + Spouse + Vault-Tec Rep present; zero mirror/clipboard popups (`32` surviving scenes contract) | `OFFLINE ONLY — UNPROVEN IN GAME` | `PENDING` | `needed (Pre-War Sanctuary sky, house, #854 Codsworth)` |
-| `R11-S1-2` | **Sanctuary Bridge -> Military Gate -> Hilltop Beats (`(a)` Crowd, `(b)` Vertibirds)** | `bat s1b`, `bat s1c` (`< 200 m`/axis hops from house anchor) | Bounded `25`-cell strip (`4x4` tile, `2,780` `REFR`s) renders bridge, gate, and hill cleanly; Beat `(a)` **`animation stand-in`** (`4` `HumanRace` runners move across bridge to goal); Beat `(b)` **`animation stand-in`** (`2` `vertibird01.nif` props `TranslateTo` overhead) | `OFFLINE ONLY — UNPROVEN IN GAME` (Beats `(a)`, `(b)` = `animation stand-in`) | `PENDING` | `needed (bridge run, crowd + Vertibird stand-ins, gate)` |
-| `R11-S1-3` | **Vault Platform Descent & Nuke Flash Beats (`(c)` Lift, `(d)` Flash) -> `PrewarVault111S1`** | `bat s1d` | Beat `(c)` **`animation stand-in`** (`vltelevatorexterior.nif` `-21.6 m / 9.8 s` `TranslateTo` + non-blocking `MoveTo`); Beat `(d)` **`animation stand-in`** (`ExplosionFlash 0x064C26` -> `ExplosionNukeImod 0x02458E` -> `FadetoBlackImod 0x01F60F` + shake); confirmed arrival inside `FO4Port_PrewarVault111S1` (`0x0100EFAB`) with `2` `NAVM`s | `OFFLINE ONLY — UNPROVEN IN GAME` (Beats `(c)`, `(d)` = `animation stand-in`) | `PENDING` | `needed (ExtVaultElevator descent + IMAD nuke flash + PrewarVault111 arrival)` |
-| `R11-S1-4` | **Beat `(e)` Kellogg Pod Scene (`394` `.wem` pool / `4` scene lines) -> Stage `20` Handoff** | `bat s1e` | Player positioned at pod across glass from Spouse, Kellogg, and Institute agents (`animation stand-in`); `MQ101KelloggSceneMain` plays `4` converted `.wem` lines -> freeze fade -> `HandoffToVault111CryoStage20()` transitions cleanly into `FO4Port_Vault111Cryo` at `FO4SF_NewGame` stage `20` | `OFFLINE ONLY — UNPROVEN IN GAME` (Beat `(e)` = `animation stand-in`) | `PENDING` | `needed (Kellogg pod scene audio + freeze fade + post-war Vault111Cryo stage 20 wake)` |
-| `R11-S1-5` | **Preserved `"Vault 111 (Skip Pre-War)"` (`fo4_vault111`) Regression & Warfare Parity** | Launcher -> `start.place=fo4_vault111` (or in-game `PrewarSkipMsg` btn `1` / `FO4SF_SetupMenu` row `1`) | Choosing `fo4_vault111` skips `S1` completely (`PrewarActiveGlobal=0`) and wakes directly in post-war `FO4Port_Vault111Cryo` (`Slot 1` museum/doors `<= 0x00EFAA` intact); `r12-start-menus` Warfare starts (`minutemen_sanctuary`, `raiders_corvega`, `gunners_plaza`) stay intact | `OFFLINE ONLY — UNPROVEN IN GAME` | `PENDING` | `needed (Skip Pre-War direct Vault111Cryo spawn confirm)` |
+1. **Install atomically (`Starfield.exe` closed, `>= 60 GB` free):**
+   ```powershell
+   python scripts/probes/stage_r11_s1_prewar.py install --dir <stage-dir>/r13-s1-prewar --starfield <starfield-dir> --card docs/testing/round11-s1-prewar-card.md
+   ```
+2. **Select Pre-War Story Start before launch (`launch-choices`):**
+   ```powershell
+   python scripts/launcher.py launch-choices --mode story --place fo4_prewar_sanctuary --survival off --write
+   ```
+   *(To verify `Skip Pre-War` preservation, write `--place fo4_vault111 --survival off --write` on a fresh New Game.)*
+3. **Starfield UI & Sound Disclosure (`#32`, `S1-01`, `S1-16`):**
+   - Variant (a) Skip Pre-War / Setup / S.P.E.C.I.A.L. / Looks prompts use Starfield MessageBox/Chargen stand-in menus (judge on clean functional choice & close).
+   - Siren, Vertibird flyby, nuclear blast, and cryo-pod gunshot use Starfield `WWED` audio stand-ins; Vault 111 suit uses cloned Starfield jumpsuit (`0x833`, `FULL` `"Vault 111 Suit"`).
+   - Codsworth (`FO4SF_PrewarCodsworthScene`), Vault-Tec Rep (`FO4SF_PrewarVaultTecRepScene`), TV Broadcast (`FO4SF_PrewarBroadcastScene`), Gate Soldier (`FO4SF_PrewarSoldierGateScene`), Vault Doctor (`FO4SF_PrewarVaultDoctorScene`), and Kellogg (`FO4SF_PrewarKelloggPodScene`) all use real `SCEN`/`DIAL`/`INFO` with `31` wired `<vtyp>/<wem>.wem` speech files (`S1-01`, `S1-02`, `S1-16`).
 
 ---
 
-## Install, Verify, Status & Exact Undo Commands (Game Closed)
+## Verification Rows (`S1-01`..`S1-16` — Every Row Has `VIDEO` + Both Logs)
 
-```bash
-# 1. Verify all 34 staged files, BA2 entry SHA-256s, lossless Slot 2 FO4Port, P3 rules, and clean plugins
-python scripts/probes/stage_r11_s1_prewar.py verify --stage-dir <stage-dir> --core <starfield-dir>/Data/FO4TerrainCore.esm --card docs/testing/round11-s1-prewar-card.md
+| Step | Action / Console Batch (`P3`-clean) | Expected In-Game State (`OFFLINE ONLY — UNPROVEN IN GAME`) | Log Evidence (`fo4sf_prewar.0.log` + `fo4sf_newgame.0.log`) | Pass / Fail Criteria | VIDEO |
+|---|---|---|---|---|---|
+| `S1-T1` Pre-War Spawn, Sky, Sex-Aware Spouse & House Doors | Start **NEW GAME** (`--mode story --place fo4_prewar_sanctuary`); run `bat s1a`; walk through interior house doors & yard exit gate | Spawns at `FO4SF_PrewarHouseSpawnMarker` (`(52.82, -2.46, 112.23)`); clean pre-war sky (`FO4SF_PrewarClearWeather` / `FO4SF_PrewarSanctuaryClimate`, no Starfield stars/atmosphere bugs); spouse matching opposite of player `GetSex()` (`Nora` vs `Nate`), female `ACBS` on Nora (`0x806`), rigged `DOOR` collision (`S1-14`), `FO4SF_PrewarQuest` HUD objective active while `FO4SF_NewGame` holds at stage `< 10` (`stage 5`) | `<localappdata>/Starfield/Logs/Script/User/fo4sf_prewar.0.log`: `stage=10` + `playerSex=... spouse=...` + `BroadcastScene=1`; `<localappdata>/Starfield/Logs/Script/User/fo4sf_newgame.0.log`: `PrewarHandoff held at stage=5`; `<stage-dir>/Data/SFSE/Plugins/FO4SFPipboyMenu.log` clean | **PASS:** Spawn in Sanctuary yard/house, clear blue pre-war sky, functioning `DOOR` collision, HUD objective on `FO4SF_PrewarQuest`, `FO4SF_NewGame` held `< 10`. **FAIL:** Spawns in Starfield planet/Cryo, frozen veil, empty sky crash, or `FO4SF_NewGame` advances to `10` prematurely | `1 fps; audio: not judged; pass: pre-war Sanctuary house + clear blue sky visible, house door opens cleanly without falling through mesh, HUD objective shown; fail: black freeze, Cryo interior, missing terrain, or wrong spouse sex` |
+| `S1-T2` Codsworth, Vault-Tec Rep & Broadcast Scenes (`SCEN`) | Interact near house living room / front porch (`s1a`); optionally run `bat s1b` (`sanctuary_west_bridge`) to inspect Sanctuary cul-de-sac + `NAVM` | `FO4SF_PrewarCodsworthScene` (`4` lines), `FO4SF_PrewarVaultTecRepScene` (`5` lines), and `FO4SF_PrewarBroadcastScene` (`5` lines) run via real Starfield `SCEN`/`DIAL`/`INFO` with wired `.wem` speech & subtitles; Vault-Tec Rep arrives (`Stage 20`) + `FO4SF_PrewarSirenSound` (`WWED` stand-in `0x030A99`) starts | `fo4sf_prewar.0.log`: `scene_codsworth` / `scene_rep` / `scene_broadcast` + `stage=20` logged; `fo4sf_newgame.0.log`: confirms `FO4SF_NewGame` still `< 10` during Sanctuary scenes | **PASS:** Real `SCEN` dialogue beats advance cleanly without hanging, wired subtitles/speech trigger, bridge hop `bat s1b` lands cleanly on Sanctuary terrain. **FAIL:** Stuck `ShowMessageBox` stand-in menu instead of dialogue `SCEN`, unvoiced missing INFO errors, or bridge clip | `1 fps; audio: not judged; pass: Codsworth + Vault-Tec Rep + TV Broadcast dialogue subtitles advance cleanly and siren/objective updates to evacuate; fail: frozen choice prompt, silent stuck scene, or falling through Sanctuary bridge` |
+| `S1-T3` Military Gate Evacuation & Blast Hover (`S1-09`, `S1-13`) | Run toward bridge/military gate or `bat s1c` (`military_gate_checker`), then approach Vault 111 lift (`bat s1d`, `ext_vault_elevator`) | Stage `20` evacuation & gate soldier scene (`FO4SF_PrewarSoldierGateScene`, `2` lines) wait for player proximity near gate/lift (`120s` failsafe if stayed behind); Vertibirds (`0x831`, `0x832`) hold `131..148m` hover waypoints (`s1_spec`), `FO4SF_PrewarBlastSound` (`WWED` `0x17B6F0`) plays before elevator descent; `SirenStopSound` (`0x030A9C`) fires cleanly | `fo4sf_prewar.0.log`: `gate_prox` -> `stage=30` -> `lift_prox` -> `stage=40`; `fo4sf_newgame.0.log`: confirms `FO4SF_NewGame` waits at stage `< 10` until vault entry | **PASS:** Stage `20 -> 30 -> 40` advances only near gate/lift (or logged failsafe timeout), blast FX/hover markers appear in upper sky (never ground `CrowdGoalMark`), vault lift target reached. **FAIL:** Instant stage skip in house, Vertibirds inside ground mesh, or missing proximity logs | `1 fps; audio: not judged; pass: bridge gate soldier encounter + sky Vertibirds + Vault 111 exterior pad reached before elevator descent; fail: instant warp skipping bridge/gate or ground-clipped Vertibirds` |
+| `S1-T4` Pre-War Vault 111 Arrival, Suit & Kellogg Cryo Scene (`S1-08`, `S1-12`, `S1-15`, `S1-16`) | Transition into `FO4Port_PrewarVault111` (`bat s1e` for direct pod check) & let Vault Doctor + Kellogg scene finish (`Stage 40 -> 50 -> 60`) | Player arrives at lower elevator landing (`int_elevator_base`, `z ~ -0.11`, **not** floating `z = 11.4`), receives `"Vault 111 Suit"` stand-in (`0x833`), `FO4SF_PrewarVaultDoctorScene` (`0x80C` female `ACBS`, `3` lines) + `FO4SF_PrewarKelloggPodScene` (`0x900`, `12` sorted `MQ101`-only `0x000D3CAF` lines + agents `0x000CF90E`) + gunshot `WWED` (`0x23AF77`) run in order, then `FO4SF_PrewarQuest` hands off to `FO4SF_NewGame` stage `20` (`FO4Port_Vault111Cryo` exit handoff with `CogDoorId=4717`, `LiftId=5656`, `LiftBaseId=57574`) | `fo4sf_prewar.0.log`: `stage=40` + `playerZ=` (`~ -0.11`) + `VaultSuitGranted=1` + `KelloggSceneStart` -> `stage=60`; `fo4sf_newgame.0.log`: `PrewarHandoffComplete -> stage=20`, `CogDoorId=4717`, `LiftId=5656`, `LiftBaseId=57574`, `FadeHold=0`, `backdrop=1` | **PASS:** Lower landing `z ~ -0.11`, Vault 111 Suit equipped, Kellogg speaks `MQ101` pod sequence cleanly (no duplicate `MQ203` lines), clean handoff to `FO4SF_NewGame >= 20` inside `FO4Port_Vault111Cryo`. **FAIL:** Player falls from `z = 11.4`, Kellogg repeats `MQ203` lines or stays silent, female NPCs missing female `ACBS`, or `FO4SF_NewGame` has `LiftId=0` | `1 fps; audio: not judged; pass: player spawns on lower Vault 111 elevator floor (z ~ -0.11) wearing Vault 111 jumpsuit, Doctor + Kellogg scene plays in order, then hands off into post-war Vault 111 Cryo exit quest; fail: falling from high ceiling, missing floor, repeated Kellogg lines, or broken exit lift` |
+| `S1-T5` Combined Home Registration Coexistence & `Skip Pre-War` Fallback (`S1-03`, `S1-07`) | **NEW GAME** (`--place fo4_vault111`) OR inspect Sanctuary + Commonwealth map/travel alongside `FO4TerrainCore_Home.esm` | Both `FO4SFHomeWorld` (`FO4SFHome.esm`) & `FO4SF_PrewarSanctuaryWorld` (`FO4SFPrewar_Sanctuary.esm`) coexist in combined `PNDT 0x805` (`FO4SFPrewar_Sanctuary_Home.esm`) with zero conflict against `FO4TerrainCore_Home.esm`; `Skip Pre-War` launches cleanly into `FO4Port_Vault111Cryo` with `CogDoorId=4717`, `LiftId=5656`, `LiftBaseId=57574`, `FadeHold=False`, `StartChoiceBackdrop=1` | `fo4sf_prewar.0.log`: skips cleanly (`active=0` when `fo4_vault111`); `fo4sf_newgame.0.log`: `place=fo4_vault111`, `CogDoorId=4717`, `LiftId=5656`, `LiftBaseId=57574`, `stage=20` | **PASS:** Choosing `Vault 111 (Skip Pre-War)` skips Pre-War without blocking Vault 111 cog door / exit lift, and Sanctuary + Commonwealth planets remain mutually visible. **FAIL:** `Skip Pre-War` forces Pre-War, `LiftId=0` blocks Vault 111 exit, or `PNDT 0x805` overrides drop Commonwealth | `1 fps; audio: not judged; pass: Skip Pre-War spawns straight into Vault 111 Cryo and Vault gear door/exit lift operate cleanly; fail: forced into Pre-War, missing Sanctuary/Commonwealth planet entry, or stuck exit lift` |
 
-# 2. Atomic install into Starfield (refuses active FO4SFRouteLoot.esm or FO4TerrainCore_Home.esm)
-python scripts/probes/stage_r11_s1_prewar.py install --dir <stage-dir> --starfield <starfield-dir> --version-tag <R11_S1_PREWAR_VERSION_TAG> --card docs/testing/round11-s1-prewar-card.md
+---
 
-# 3. Read-only install receipt status
-python scripts/probes/stage_r11_s1_prewar.py status --starfield <starfield-dir>
+## `P3`-Compliant Console Batches (`<stage-dir>/bat/s1a..s1e.txt`)
 
-# 4. Atomic rollback restoring Plugins.txt and prior FO4Port/FO4SFNewGame files by SHA-256
+- `bat s1a`: House spawn arrival position inspection (`getpos x` / `getpos y` / `getpos z` at `FO4SF_PrewarHouseSpawnMarker` `(52.82, -2.46, 112.23)`).
+- `bat s1b`: Sanctuary West Bridge hop (`(-4.84, -1.49, 105.34)`, `<= 58m/axis` from house anchor).
+- `bat s1c`: Military Gate checkpoint hop (`(-53.54, 41.08, 119.66)`, `<= 107m/axis` from house anchor).
+- `bat s1d`: Exterior Vault 111 elevator pad hop (`(-68.31, -6.27, 127.50)`, `<= 122m/axis` from house anchor).
+- `bat s1e`: `FO4Port_PrewarVault111` (`0x0100EDFB`, Slot 2 in-place) cryo pod chamber hop (`(9.14, -4.11, -1.03)`, `<= 80m/axis` from `int_elevator_base` arrival anchor `(-70.4, -2.74, -0.11)`).
+- Zero `M/N/V` flags/commands, zero stripped mod `GLOB`/`QUST` EditorIDs, zero `bundle_install.py` invocations.
+
+---
+
+## Claude's Additions (5 Rows — Post-23 Nov Owner-Authorized Baseline)
+
+| Addition | PR / Track | Baseline Status | Integration Status in This Card | Guard / Note |
+|---|---|---|---|---|
+| **Robot animations & Codsworth** | `#854` (`claude/robot-anim`) | Partial pass: FO4 Mr. Handy body + animations; 4-line Sanctuary talk (`completed=true`, `fallback=0`) | **`built in`** (`132` E2 Mr. Handy rig/behavior/mesh/animation files packed directly into `Data/FO4SFPrewar - Main.ba2` for `FO4SF_PrewarCodsworthNPC` / `FO4SF_PrewarCodsworthScene`) | Reused read-only; no E2 edits |
+| **Creature animations** | `#855` (`claude/creature-anim`) | Partial: radroach & deathclaw idles moved in game; walk/attack/death unverified | **`not applicable`** (`creature-slots.json` untouched; Pre-War `S1` contains zero hostile FO4 creatures) | Out of scope for `S1` Pre-War |
+| **Human animations** | `#856` (`claude/human-anim`) | Partial: surrender idle played; walk & 1stP gun unverified | **`gated`** (`--fo4-human-anims` stays OFF in `r13-s1-prewar` so NPC/Kellogg `SCEN` validation never depends on unverified locomotion) | Matches owner `#856` gate |
+| **Gun moving parts** | `#32` (`gunpart-slide-vanilla-vs-ours-1123.jpg`) | Proved `Gun_*.af` moves `XM2311` slide nodes | **`not applicable`** (`S1` Pre-War player never draws custom FO4 firearms; Vault 111 Suit & Kellogg scene do not depend on FO4 gun moving parts) | Guns ship separately |
+| **Gun sounds** | `#32` (`sound-bank-study`) | **ON HOLD:** Hand-made bank (`v174` vs SF `v140`) silent | **`not applicable`** (Pre-War uses Starfield `WWED` stand-ins for siren/flyby/blast/gunshot and `31` wired `.wem` voices only) | Custom Wwise soundbanks remain **`gated`** |
+
+---
+
+## Uninstall / Clean Rollback
+
+```powershell
 python scripts/probes/stage_r11_s1_prewar.py uninstall --starfield <starfield-dir>
 ```
-
-### Interactive Console & `P3` Zero-`M`/`N`/`V` Batches (`bat/s1a.txt`..`s1e.txt`)
-
-```console
-bat s1a
-bat s1b
-bat s1c
-bat s1d
-bat s1e
-```
-
-```bat
-; s1a.txt..s1e.txt (all hops strictly < 200 m/axis inside their own cell domain; 0 stripped FO4SF_* EDIDs)
-getpos x
-getpos y
-getpos z
-```
-
-### Expected PASS Log Lines (`<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log`)
-
-```log
-s1 prewar_vault arrival confirmed
-s1 stage20 handoff complete -> FO4SF_NewGame stage=20 cell=FO4Port_Vault111Cryo
-fade in by=
-```
-
----
-
-## Claude's Additions (5 Rows — 23 Nov In-Game Baseline)
-
-| Addition | PR / Track | 23 Nov In-Game Status | Integration / Dependency in This Card | Guard / Note |
-|---|---|---|---|---|
-| **Robot animations & Codsworth** | `#854` (`claude/robot-anim`) | Partial pass: FO4 Mr. Handy body + animations; 4-line Sanctuary talk `completed=true`, `fallback=0` (close camera & greeting replay noted) | Consumed via `--codsworth-handy` (`E2`): `FO4SF_PrewarCodsworthRace` + `FO4SF_PrewarCodsworthSkin`/`AA` + `GeneratedSubgraphData` (`132` files) packed into `FO4SFPrewar - Main.ba2` | Independent review CLEAR; awaiting owner merge |
-| **Creature animations** | `#855` (`claude/creature-anim`) | Partial: radroach idle & deathclaw tail/spines moved in game; walk/attack/death & bloatfly/mole rat/dog unverified | `S1` Pre-War spawns zero post-war creatures; `creature-slots.json` untouched so `S2`+ creatures remain decoupled | Stacked on `#854` |
-| **Human animations** | `#856` (`claude/human-anim`) | Partial: add-on race keyword NPC played FO4 surrender idle vs normal control; walk & 1stP gun unverified | All `S1` human NPCs (`Spouse`, `Vault-Tec Rep`, `Soldier`, `Doctor`, `Kellogg`, `Agents`, `CrowdRunners`) use vanilla `Starfield.esm` `HumanRace` (`0x00347D`) without `--fo4-human-anims` | Stacked on `#854` |
-| **Gun moving parts proof** | `#32` (`gunpart-slide-vanilla-vs-ours-1123.jpg`) | Proved `Gun_*.af` moves `XM2311` slide nodes (`TRIGGER`, `Magazine`, `Bolt`, `MiscA..MiscA14`) | `S1` is pre-war unarmed (zero weapons granted during `S1`; Kellogg pod pistol shot stays a scripted beat `(e)` audio/SFX stand-in until `Stage 20` -> `S2`) | Owner rule: guns NOT ready until parts move |
-| **Gun sounds** | `#32` (`sound-bank-study`) | **ON HOLD:** Hand-made bank (`v174` vs SF `v140`) & direct override silent (add-on banks load on demand) | `S1` dialogue uses `WwiseConsole` `.wem` clips (`394` converted `.wem` files in `FO4SFPrewar - Main.ba2`), while weapon gunshot cues stay labelled stand-ins | Zero FO4 sound banks committed to Git |

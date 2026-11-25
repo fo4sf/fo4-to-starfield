@@ -142,17 +142,23 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
             self.assertIn("selftest ok", res.stdout)
 
     def test_optional_live_e2_handy_inspect_and_papyrus_compile(self) -> None:
-        e2_dir = Path(r"D:\FO4SF-Owner-Tests\robot-anim\E2")
+        self.assertIsNone(build_prewar_quest.DEFAULT_PAPYRUS_COMPILER)
+        self.assertIsNone(build_prewar_quest.DEFAULT_CONTENT_RES)
+        e2_dir = Path(os.environ.get("FO4SF_HANDY_E2_DIR") or r"D:\FO4SF-Owner-Tests\robot-anim\E2")
         if e2_dir.is_dir():
             spec = handy_codsworth.inspect_handy_bundle(str(e2_dir))
             self.assertGreaterEqual(spec.subgraph_count, 1)
             self.assertIn("meshes/fo4sf/actors/handy/handy.nif", {v.lower() for v in spec.files_to_copy.values()})
 
-        compiler = Path(build_prewar_quest.DEFAULT_PAPYRUS_COMPILER)
-        res_zip = Path(build_prewar_quest.DEFAULT_CONTENT_RES)
+        compiler = Path(os.environ.get("FO4SF_PAPYRUS_COMPILER") or r"D:\SteamLibrary\steamapps\common\Starfield\Tools\Papyrus Compiler\PapyrusCompiler.exe")
+        res_zip = Path(os.environ.get("FO4SF_CONTENT_RESOURCES") or r"D:\SteamLibrary\steamapps\common\Starfield\Tools\ContentResources.zip")
         if compiler.is_file() and res_zip.is_file():
             with tempfile.TemporaryDirectory() as td:
-                pex_list = build_prewar_quest.compile_prewar_scripts(td)
+                pex_list = build_prewar_quest.compile_prewar_scripts(
+                    td,
+                    compiler_exe=str(compiler),
+                    content_zip=str(res_zip),
+                )
                 self.assertEqual(len(pex_list), 2)
                 for pex in pex_list:
                     self.assertTrue(os.path.isfile(pex), f"Missing compiled {pex}")
@@ -191,11 +197,14 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
             "evacStarted",
             "elevatorStarted",
             "kelloggStarted",
+            "repSceneStarted",
+            "broadcastSceneStarted",
+            "soldierSceneStarted",
             "exteriorElapsedS",
             "vaultElapsedS",
         )
         py_chunks = []
-        type_pat = r"\b(?:bool|int|float|string|Actor|ObjectReference|Quest|Cell|ScriptObject|GlobalVariable|Var)\b"
+        type_pat = r"\b(?:bool|int|float|string|ActorBase|Actor|ObjectReference|Quest|Cell|ScriptObject|GlobalVariable|Var)\b"
         fn_set = set(names)
         for fn_name in names:
             m = re.search(rf"(?:[A-Za-z]+\s+)?Function\s+{fn_name}\(([^)]*)\)\n(.*?)\nEndFunction", wrapped, re.S)
@@ -246,15 +255,18 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
 
         code = compile("\n\n".join(py_chunks), "FO4SF_PrewarQuest.psc", "exec")
 
-        def make_harness(scene_playing: bool = False):
+        def make_harness(scene_playing: bool = False, *, player_sex: int = 0):
             timers: list[tuple[float, int]] = []
             calls: list[str] = []
+            objectives_shown: list[int] = []
+            objectives_done: list[int] = []
             cur_stage = [0]
             in_cell = ["FO4SF_PrewarSanctuaryWorldCell"]
             player_pos = [52.82, -2.46]
+            player_z = [112.23]
             house_pos = (52.82, -2.46)
             gate_pos = (-60.0, 0.0)
-            lift_pos = (-77.62, -3.81)
+            lift_pos = (-70.40, -2.74)
             pod_pos = (-95.0, -5.0)
             prewar_active = [0.0]
 
@@ -272,7 +284,7 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
             )
             lift_ref = SimpleNamespace(pos=lift_pos)
             pod_ref = SimpleNamespace(pos=pod_pos)
-            arrival_ref = SimpleNamespace(GetParentCell=lambda: "FO4Port_PrewarVault111S1")
+            arrival_ref = SimpleNamespace(GetParentCell=lambda: "FO4Port_PrewarVault111", z=-0.11)
 
             def _player_dist(target):
                 tx, ty = target.pos
@@ -283,12 +295,17 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
                 MoveTo=lambda *a: calls.append("MoveTo"),
                 GetParentCell=lambda: in_cell[0],
                 GetDistance=_player_dist,
+                GetPositionZ=lambda: player_z[0],
+                GetLeveledActorBase=lambda: SimpleNamespace(GetSex=lambda: player_sex),
+                AddItem=lambda itm, cnt, silent: calls.append(f"AddItem:{itm}:{cnt}"),
+                EquipItem=lambda itm, prev, silent: calls.append(f"EquipItem:{itm}"),
             )
 
             def _on_move_to(target, *a):
                 calls.append("MoveTo")
                 if target is arrival_ref:
-                    in_cell[0] = "FO4Port_PrewarVault111S1"
+                    in_cell[0] = "FO4Port_PrewarVault111"
+                    player_z[0] = target.z
 
             player.MoveTo = _on_move_to
 
@@ -319,20 +336,40 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
                 evacStarted=False,
                 elevatorStarted=False,
                 kelloggStarted=False,
+                repSceneStarted=False,
+                broadcastSceneStarted=False,
+                soldierSceneStarted=False,
                 exteriorElapsedS=0.0,
                 vaultElapsedS=0.0,
                 HouseSpawnMarker=house_ref,
                 PrewarVaultArrivalMarker=arrival_ref,
                 CodsworthActor=SimpleNamespace(EnableNoWait=lambda: calls.append("EnableCodsworth")),
-                SpouseActor=SimpleNamespace(EnableNoWait=lambda: calls.append("EnableSpouse")),
+                SpouseActor=SimpleNamespace(
+                    EnableNoWait=lambda: calls.append("EnableSpouseFemale"),
+                    DisableNoWait=lambda: calls.append("DisableSpouseFemale"),
+                ),
+                SpouseMaleActor=SimpleNamespace(
+                    EnableNoWait=lambda: calls.append("EnableSpouseMale"),
+                    DisableNoWait=lambda: calls.append("DisableSpouseMale"),
+                ),
                 VaultTecRepActor=SimpleNamespace(EnableNoWait=lambda: calls.append("EnableRep")),
                 SoldierCheckerActor=soldier_ref,
                 VaultDoctorActor=SimpleNamespace(EnableNoWait=lambda: calls.append("EnableDoc")),
+                BroadcastActor=SimpleNamespace(EnableNoWait=lambda: calls.append("EnableBroadcast")),
+                CodsworthScene=SimpleNamespace(Start=lambda: calls.append("Scene:Codsworth")),
+                VaultTecRepScene=SimpleNamespace(Start=lambda: calls.append("Scene:Rep")),
+                BroadcastScene=SimpleNamespace(Start=lambda: calls.append("Scene:Broadcast")),
+                SoldierGateScene=SimpleNamespace(Start=lambda: calls.append("Scene:Soldier")),
+                VaultDoctorScene=SimpleNamespace(Start=lambda: calls.append("Scene:Doctor")),
+                VaultSuitStandIn="VaultSuitStandIn",
+                SirenStopSound=SimpleNamespace(Play=lambda tgt: calls.append("StopSiren")),
                 StandIns=stand_ins,
                 NewGameQuest=ng_quest,
                 NewGameQuestId=0x800,
                 NewGamePlugin="FO4SFNewGame.esm",
                 Stage20LooksDone=20,
+                EvacFailsafeS=120.0,
+                ElevatorFailsafeS=180.0,
                 KelloggSceneTimeoutS=6.0,
                 PrewarActiveGlobal=SimpleNamespace(SetValue=lambda v: prewar_active.__setitem__(0, v)),
                 Game=SimpleNamespace(
@@ -345,16 +382,22 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
                 StartTimer=lambda s, tid: timers.append((s, tid)),
                 SetStage=lambda n: cur_stage.__setitem__(0, n),
                 GetStage=lambda: cur_stage[0],
+                SetObjectiveDisplayed=lambda oid, *a: objectives_shown.append(oid),
+                SetObjectiveCompleted=lambda oid, *a: objectives_done.append(oid),
                 CompleteQuest=lambda: calls.append("CompleteQuest"),
-                Trace=lambda msg: None,
+                Trace=lambda msg: calls.append(f"Trace:{msg}"),
             )
             exec(code, ns)
-            return ns, player, player_pos, timers, calls, cur_stage, prewar_active
+            return ns, player, player_pos, timers, calls, cur_stage, prewar_active, objectives_shown, objectives_done
 
-        # Case A: distance-driven progression 10 -> 20 -> 30 -> 40 -> 50 -> 60/200
-        ns, player, pos, timers, calls, stage, pw_glob = make_harness(scene_playing=False)
+        # Case A: distance-driven progression + dynamic Nora selection for Male player (sex=0) + S1-01/S1-12/S1-15
+        ns, player, pos, timers, calls, stage, pw_glob, obj_shown, obj_done = make_harness(scene_playing=False, player_sex=0)
         ns["BeginPrewarSanctuary"]()
         self.assertEqual(stage[0], 10)
+        self.assertIn("EnableSpouseFemale", calls)
+        self.assertIn("DisableSpouseMale", calls)
+        self.assertIn("Scene:Codsworth", calls)
+        self.assertIn(10, obj_shown)
         self.assertEqual(pw_glob[0], 1.0)
         self.assertIn("Reg:OnPlayerLoadGame", calls)
         self.assertEqual(timers[-1], (2.0, 22))
@@ -363,6 +406,9 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
         timers.clear()
         ns["OnTimerEvent"](22)
         self.assertEqual(stage[0], 20)
+        self.assertIn(10, obj_done)
+        self.assertIn(20, obj_shown)
+        self.assertIn("Scene:Broadcast", calls)
         self.assertEqual(calls.count("StartCrowdBeat"), 1)
         self.assertEqual(calls.count("StartVertibirdBeat"), 1)
         self.assertEqual(timers[-1], (2.0, 22))
@@ -381,10 +427,15 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
         self.assertIn((2.0, 22), timers)
         self.assertIn((0.5, 20), timers)
 
-        # Timer 20 confirms cell arrival -> stage 40
+        # Timer 20 confirms cell arrival at lower z=-0.11, stops siren, grants suit, starts doctor scene -> stage 40
         timers.clear()
         ns["OnTimerEvent"](20)
         self.assertEqual(stage[0], 40)
+        self.assertIn("StopSiren", calls)
+        self.assertIn("AddItem:VaultSuitStandIn:1", calls)
+        self.assertIn("EquipItem:VaultSuitStandIn", calls)
+        self.assertIn("Scene:Doctor", calls)
+        self.assertAlmostEqual(player.GetPositionZ(), -0.11, places=2)
         self.assertIn((2.0, 22), timers)
 
         # Reload at stage 40 re-arms timer 22
@@ -418,18 +469,28 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
         ns["OnPlayerLoadGameEvent"](player)
         self.assertEqual(timers, [])
 
-        # Case B: elapsed-timer fallback if player stands still
-        ns_idle, _p, _pos, _t, _c, stage_idle, _pw = make_harness(scene_playing=False)
+        # Case B: S1-05 female player selects Nate + S1-09 long failsafe does NOT prematurely fire at 8s / 24s
+        ns_idle, _p, _pos, _t, calls_idle, stage_idle, _pw, _os, _od = make_harness(scene_playing=False, player_sex=1)
         ns_idle["BeginPrewarSanctuary"]()
-        for _ in range(4):
+        self.assertIn("EnableSpouseMale", calls_idle)
+        self.assertIn("DisableSpouseFemale", calls_idle)
+        for _ in range(15):  # 30s idle -> Rep & Broadcast play, still stage 10 (< EvacFailsafeS 120s!)
+            ns_idle["OnTimerEvent"](22)
+        self.assertEqual(stage_idle[0], 10)
+        self.assertIn("Scene:Rep", calls_idle)
+        self.assertIn("Scene:Broadcast", calls_idle)
+        for _ in range(45):  # reaches 120s EvacFailsafeS -> stage 20
             ns_idle["OnTimerEvent"](22)
         self.assertEqual(stage_idle[0], 20)
-        for _ in range(8):
+        for _ in range(15):  # 30s into stage 20 -> still stage 20 (< ElevatorFailsafeS 180s!)
+            ns_idle["OnTimerEvent"](22)
+        self.assertEqual(stage_idle[0], 20)
+        for _ in range(75):  # reaches 180s ElevatorFailsafeS -> stage 30
             ns_idle["OnTimerEvent"](22)
         self.assertEqual(stage_idle[0], 30)
         ns_idle["OnTimerEvent"](20)
         self.assertEqual(stage_idle[0], 40)
-        for _ in range(3):
+        for _ in range(9):
             ns_idle["OnTimerEvent"](22)
         self.assertEqual(stage_idle[0], 50)
 
@@ -478,6 +539,101 @@ class PrewarScenesAndHandyTests(unittest.TestCase):
             self.assertEqual(rows[0][1], "Time to wake up.")
             self.assertEqual(rows[1][1], "Line 00099999")
             self.assertTrue(all(r[1].isprintable() for r in rows))
+
+    def test_kellogg_scene_deduplication_phase_order_and_agent_lines(self) -> None:
+        """S1-02: Drop MQ203 memory-den duplicates, sort by SCEN 0x000D3CAF phase (12 before 20), keep Agent lines."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # Construct DIALs in reverse file order (backup first, almost second) + MQ203 CTDA twin (GetQuestRunning(0x1ED86)==0.0)
+            mq203_ctda = struct.pack("<B3xfH2xII", 0x00, 0.0, 56, s1_spec.MQ101_QUEST_FID, 0) + b"\x00" * 12
+            mq101_ctda = struct.pack("<B3xfH2xII", 0x00, 1.0, 56, s1_spec.MQ101_QUEST_FID, 0) + b"\x00" * 12
+
+            def _make_dial_and_infos(dial_fid: int, info_rows: list[tuple[int, str, bytes]]) -> bytes:
+                dial_rec = esm.Record(b"DIAL", dial_fid, [(b"EDID", esm.zbytes(f"D_{dial_fid:X}"))]).to_bytes(compress=False)
+                inf_bytes = b"".join(
+                    esm.Record(
+                        b"INFO",
+                        ifid,
+                        [(b"NAM1", esm.zbytes(txt))] + ([(b"CTDA", ct)] if ct else []),
+                    ).to_bytes(compress=False)
+                    for ifid, txt, ct in info_rows
+                )
+                return dial_rec + esm.group_bytes(struct.pack("<I", dial_fid), inf_bytes, gtype=7)
+
+            # Out-of-order topics in file: phase 20 ("backup") appears BEFORE phase 8 ("agent") and phase 12 ("Almost")
+            d_backup = _make_dial_and_infos(
+                0x0001A69F,
+                [
+                    (0x0001A6A0, "At least we still have the backup...", mq101_ctda),
+                    (0x001BABCA, "At least we still have the backup...", mq203_ctda),
+                ],
+            )
+            d_almost = _make_dial_and_infos(
+                0x000D399C,
+                [
+                    (0x001BABC5, "Almost. Everything's going to be fine.", mq203_ctda),
+                    (0x000CF910, "Almost. Everything's going to be fine.", mq101_ctda),
+                ],
+            )
+            d_agent = _make_dial_and_infos(
+                0x000D399E,
+                [
+                    (0x000CF90E, "This is the one. Here.", mq101_ctda),
+                    (0x001BABC2, "This is the one. Here.", mq203_ctda),
+                ],
+            )
+            scen_subs = [
+                (b"EDID", esm.zbytes("MQ101KelloggSceneMain")),
+                # Action 1 -> phase 8 -> topic 0x000D399E
+                (b"ANAM", struct.pack("<H", 0)),
+                (b"SNAM", struct.pack("<I", 8)),
+                (b"DATA", struct.pack("<I", 0x000D399E)),
+                # Action 2 -> phase 12 -> topic 0x000D399C ("Almost")
+                (b"ANAM", struct.pack("<H", 0)),
+                (b"SNAM", struct.pack("<I", 12)),
+                (b"DATA", struct.pack("<I", 0x000D399C)),
+                # Action 3 -> phase 20 -> topic 0x0001A69F ("backup")
+                (b"ANAM", struct.pack("<H", 0)),
+                (b"SNAM", struct.pack("<I", 20)),
+                (b"DATA", struct.pack("<I", 0x0001A69F)),
+            ]
+            scen_rec = esm.Record(b"SCEN", s1_spec.MQ101_KELLOGG_SCENE_FID, scen_subs).to_bytes(compress=False)
+            qust_rec = esm.Record(b"QUST", s1_spec.MQ101_KELLOGG_QUEST_FID, [(b"EDID", esm.zbytes("MQ101KelloggSequence"))]).to_bytes(compress=False)
+            quest_child_grup = esm.group_bytes(
+                struct.pack("<I", s1_spec.MQ101_KELLOGG_QUEST_FID),
+                d_backup + d_almost + d_agent + scen_rec,
+                gtype=1,
+            )
+            tes4_hdr = esm.Record(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 0.95, 2, 0x800))]).to_bytes(compress=False)
+            fo4_path = root / "Fallout4.esm"
+            fo4_path.write_bytes(tes4_hdr + esm.group_bytes(b"QUST", qust_rec + quest_child_grup, gtype=0))
+
+            wem_dir = root / "wems"
+            wem_dir.mkdir()
+            stems = {}
+            for key in (
+                "mq101instagentfemalevoice/000cf90e_1",
+                "mq101instagentfemalevoice/001babc2_1",
+                "npcmkellogg/000cf910_1",
+                "npcmkellogg/001babc5_1",
+                "npcmkellogg/0001a6a0_1",
+                "npcmkellogg/001babca_1",
+            ):
+                wp = wem_dir / (key.replace("/", "_") + ".wem")
+                wp.write_bytes(b"WEM")
+                stems[key] = str(wp)
+
+            rows, copied = mq101_census.build_local_kellogg_voices_payload(
+                str(fo4_path), {k: 1.5 for k in stems}, str(root / "voice_out"), stems
+            )
+            # Only 3 deduplicated MQ101 lines, strictly ordered by SCEN phase: 8 (AgentF) -> 12 ("Almost") -> 20 ("backup")
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(len(copied), 3)
+            self.assertEqual([r[0] for r in rows], ["FO4SF_PrewarInstAgentFNPC", "FO4SF_PrewarKelloggNPC", "FO4SF_PrewarKelloggNPC"])
+            self.assertEqual([r[1] for r in rows], ["This is the one. Here.", "Almost. Everything's going to be fine.", "At least we still have the backup..."])
+            self.assertEqual(Path(copied[0]).parent.name, "fo4sf_prewarfemalevoice")
+            self.assertEqual(Path(copied[1]).parent.name, "fo4sf_prewarmalevoice")
+            self.assertTrue(Path(copied[0]).name.startswith("00f5"))
 
 
 if __name__ == "__main__":

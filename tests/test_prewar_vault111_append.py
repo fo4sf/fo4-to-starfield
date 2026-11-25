@@ -126,12 +126,15 @@ class PrewarVault111AppendTests(unittest.TestCase):
         )
         self.assertEqual(rep["base_max_local_id"], "0x00EFAA")
         self.assertEqual(rep["start_id"], "0x00EFAB")
-        self.assertEqual(rep["new_cell_edid"], "FO4Port_PrewarVault111S1")
+        self.assertEqual(rep["new_cell_edid"], "FO4Port_PrewarVault111")
+        self.assertEqual(rep["new_cell_fid"], "0x0100EFAA")
+        self.assertTrue(rep["reused_slot1_cell"])
+        self.assertEqual(rep["split_summary"], "1 temp REFR + 2 NAVM")
         self.assertEqual(len(rep["navm_fids"]), 2)
 
         ver = va.verify_lossless_append(base, out_bytes, s1_spec.MIN_PREWAR_PORT_START_ID, allow_navi_update=True)
         self.assertEqual(ver["preserved_records"], 6)  # 2 STAT + 1 CELL + 2 REFR + 1 NAVI (shell)
-        self.assertGreaterEqual(ver["appended_records"], 6)
+        self.assertEqual(ver["appended_records"], 4)  # 1 MarkerBase + 1 Pers REFR + 2 NAVMs (no cloned cell!)
 
         # Verify every record <= 0x00EFAA is byte-identical except NAVI & all net-new >= 0x00EFAB
         base_map = {r.fid: r for r in va.walk_records(base) if r.sig != b"TES4"}
@@ -142,6 +145,9 @@ class PrewarVault111AppendTests(unittest.TestCase):
                 continue
             self.assertEqual(out_map[fid].to_bytes(), brec.to_bytes())
 
+        # S1-08: Exactly ONE FO4Port_PrewarVault111 CELL (no clone!), and both NAVMs point parent_cell == shell cell
+        cell_recs = [r for r in out_recs if r.sig == b"CELL"]
+        self.assertEqual(len(cell_recs), 1)
         for fid, orec in out_map.items():
             if fid not in base_map:
                 self.assertGreaterEqual(fid & 0x00FFFFFF, s1_spec.MIN_PREWAR_PORT_START_ID)
@@ -154,25 +160,22 @@ class PrewarVault111AppendTests(unittest.TestCase):
             self.assertEqual([s for s, _d in subs], [b"NVNM", b"MNAM"])
             parsed = nm.parse(subs[0][1], layout="sf")
             self.assertEqual(parsed.version, nm.SF_VERSION)
+            self.assertEqual(parsed.cell, 0x0100EFAA)
             self.assertAlmostEqual(float(parsed.vertices[1, 0]), 10.0, places=4)
 
-        # Verify InteriorCellBlock (type=2) + InteriorCellSubBlock (type=3) wrapper and NAVI NVMI-before-NVPP order
+        # Verify InteriorCellBlock (type=2) -> SubBlock (3) -> CELL (0x0100EFAA) -> Child(6) -> Pers(8) + Temp(9)
         _tes4, grups = va.parse_top_grups(out_bytes)
         cell_pl = next(pl for lbl, _gt, _st, _un, pl in grups if lbl == b"CELL")
-        # First block belongs to base cell; second top-level item inside GRUP CELL must be type=2 block -> type=3 subblock
-        blk1_sz = struct.unpack_from("<I", cell_pl, 4)[0]
-        self.assertEqual(cell_pl[blk1_sz : blk1_sz + 4], b"GRUP")
-        self.assertEqual(struct.unpack_from("<I", cell_pl, blk1_sz + 12)[0], 2)  # InteriorCellBlock
-        self.assertEqual(cell_pl[blk1_sz + 24 : blk1_sz + 28], b"GRUP")
-        self.assertEqual(struct.unpack_from("<I", cell_pl, blk1_sz + 36)[0], 3)  # InteriorCellSubBlock
-        self.assertEqual(cell_pl[blk1_sz + 48 : blk1_sz + 52], b"CELL")
+        self.assertEqual(struct.unpack_from("<I", cell_pl, 12)[0], 2)  # InteriorCellBlock
+        self.assertEqual(struct.unpack_from("<I", cell_pl, 36)[0], 3)  # InteriorCellSubBlock
+        self.assertEqual(cell_pl[48:52], b"CELL")
         navi_subs = list(va._iter_subrecords(out_map[0x01000FF1].raw_subrecords_bytes))  # noqa: SLF001
         self.assertEqual([s for s, _ in navi_subs], [b"NVER", b"NVMI", b"NVMI", b"NVMI", b"NVPP"])
 
-        # Verify no duplicate EDIDs across entire plugin & S1 prefixes applied
+        # Verify no duplicate EDIDs across entire plugin & prefixes applied
         edids = [va._get_edid(r) for r in out_recs if va._get_edid(r)]  # noqa: SLF001
         self.assertEqual(len(edids), len(set(edids)))
-        self.assertIn("FO4Port_PrewarVault111S1_PrewarExtSpawn", rep["extra_persistent_refs"])
+        self.assertIn("FO4Port_PrewarVault111_PrewarExtSpawn", rep["extra_persistent_refs"])
 
     def test_rejects_low_start_id_and_mutated_slot1_record(self) -> None:
         base = _synth_slot1_fo4port_esm()
@@ -202,19 +205,16 @@ class PrewarVault111AppendTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             rep = json.loads(rep_p.read_text(encoding="utf-8"))
             self.assertEqual(rep["start_id"], "0x00EFAB")
-            self.assertEqual(rep["new_cell_edid"], "FO4Port_PrewarVault111S1")
+            self.assertEqual(rep["new_cell_edid"], "FO4Port_PrewarVault111")
 
     def test_seen_edids_preseeded_from_base_prevents_edid_collision(self) -> None:
-        base = _synth_slot1_fo4port_esm().replace(b"FO4Port_MuseumPiece01\x00", b"FO4Port_PrewarVault111S1_ShellMarker\x00")
-        base_rewritten = base.replace(b"FO4Port_PrewarShellMarker\x00", b"ShellMarker\x00")
-        # Rebuild exact byte counts safely by constructing records with overlapping prefixed EDID
         tes4 = _rec(
             b"TES4",
             0,
             [(b"HEDR", struct.pack("<fII", 0.96, 12, 0x00EFAB)), (b"MAST", b"Starfield.esm\x00"), (b"DATA", b"\x00" * 8)],
             flags=1,
         )
-        stat_collide = _rec(b"STAT", 0x0100E200, [(b"EDID", b"FO4Port_PrewarVault111S1_ShellMarker\x00")])
+        stat_collide = _rec(b"STAT", 0x0100E200, [(b"EDID", b"FO4Port_PrewarVault111_MarkerBase\x00")])
         shell_fid = 0x0100EFAA
         shell_cell = _rec(b"CELL", shell_fid, [(b"EDID", b"FO4Port_PrewarVault111\x00"), (b"DATA", struct.pack("<H", 1))])
         pers_ref = _rec(
@@ -229,12 +229,15 @@ class PrewarVault111AppendTests(unittest.TestCase):
             + _grup(b"STAT", 0, stat_collide)
             + _grup(b"CELL", 0, _grup(struct.pack("<I", 0), 2, _grup(struct.pack("<I", 0), 3, shell_cell + cell_children)))
         )
-        del base, base_rewritten
-        out_bytes, _rep = va.append_prewar_vault111_lossless(synth_base, start_id=s1_spec.MIN_PREWAR_PORT_START_ID)
+        out_bytes, _rep = va.append_prewar_vault111_lossless(
+            synth_base,
+            start_id=s1_spec.MIN_PREWAR_PORT_START_ID,
+            extra_persistent_specs=[{"edid": "PrewarExtSpawn", "pos_m": (0.0, 0.0, 0.0)}],
+        )
         edids = [va._get_edid(r) for r in va.walk_records(out_bytes) if r.sig != b"TES4" and va._get_edid(r)]  # noqa: SLF001
         self.assertEqual(len(edids), len(set(edids)), f"Duplicate EDIDs leaked across Slot 1->Slot 2: {edids}")
-        self.assertIn("FO4Port_PrewarVault111S1_ShellMarker", edids)
-        self.assertIn("FO4Port_PrewarVault111S1_ShellMarker_1", edids)
+        self.assertIn("FO4Port_PrewarVault111_MarkerBase", edids)
+        self.assertIn("FO4Port_PrewarVault111_MarkerBase_1", edids)
 
 
 if __name__ == "__main__":

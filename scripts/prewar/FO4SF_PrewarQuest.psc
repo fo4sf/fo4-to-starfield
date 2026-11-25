@@ -9,10 +9,22 @@ Group PrewarRefs
     string Property PortPlugin = "FO4Port.esm" Auto Const
     Actor Property CodsworthActor Auto Const
     Actor Property SpouseActor Auto Const
+    Actor Property SpouseMaleActor Auto Const
     Actor Property VaultTecRepActor Auto Const
     Actor Property SoldierCheckerActor Auto Const
     Actor Property VaultDoctorActor Auto Const
+    Actor Property BroadcastActor Auto Const
     FO4SF_PrewarStandIns Property StandIns Auto Const
+EndGroup
+
+Group PrewarScenesAndGear
+    Scene Property CodsworthScene Auto Const
+    Scene Property VaultTecRepScene Auto Const
+    Scene Property BroadcastScene Auto Const
+    Scene Property SoldierGateScene Auto Const
+    Scene Property VaultDoctorScene Auto Const
+    Armor Property VaultSuitStandIn Auto Const
+    WwiseEvent Property SirenStopSound Auto Const
 EndGroup
 
 Group NewGameHandoff
@@ -21,6 +33,8 @@ Group NewGameHandoff
     int Property NewGameQuestId = 0x000800 Auto Const
     int Property Stage20LooksDone = 20 Auto Const
     GlobalVariable Property PrewarActiveGlobal Auto Const
+    float Property EvacFailsafeS = 120.0 Auto Const
+    float Property ElevatorFailsafeS = 180.0 Auto Const
     float Property KelloggSceneTimeoutS = 24.0 Auto Const
 EndGroup
 
@@ -33,6 +47,9 @@ bool loadHookRegistered = false
 bool evacStarted = false
 bool elevatorStarted = false
 bool kelloggStarted = false
+bool repSceneStarted = false
+bool broadcastSceneStarted = false
+bool soldierSceneStarted = false
 float exteriorElapsedS = 0.0
 float vaultElapsedS = 0.0
 
@@ -57,12 +74,16 @@ Function BeginPrewarSanctuary()
     evacStarted = false
     elevatorStarted = false
     kelloggStarted = false
+    repSceneStarted = false
+    broadcastSceneStarted = false
+    soldierSceneStarted = false
     exteriorElapsedS = 0.0
     vaultElapsedS = 0.0
     if PrewarActiveGlobal != None
         PrewarActiveGlobal.SetValue(1.0)
     endif
     SetStage(10)
+    SetObjectiveDisplayed(10, true, true)
     Actor player = Game.GetPlayer()
     EnsurePrewarLoadHook(player)
     if player != None && HouseSpawnMarker != None
@@ -71,23 +92,55 @@ Function BeginPrewarSanctuary()
     if CodsworthActor != None
         CodsworthActor.EnableNoWait()
     endif
-    if SpouseActor != None
-        SpouseActor.EnableNoWait()
+    if BroadcastActor != None
+        BroadcastActor.EnableNoWait()
+    endif
+    int playerSex = 0
+    if player != None
+        ActorBase pBase = player.GetLeveledActorBase()
+        if pBase != None
+            playerSex = pBase.GetSex()
+        endif
+    endif
+    if playerSex == 1
+        if SpouseActor != None
+            SpouseActor.DisableNoWait()
+        endif
+        if SpouseMaleActor != None
+            SpouseMaleActor.EnableNoWait()
+        endif
+    else
+        if SpouseMaleActor != None
+            SpouseMaleActor.DisableNoWait()
+        endif
+        if SpouseActor != None
+            SpouseActor.EnableNoWait()
+        endif
     endif
     if VaultTecRepActor != None
         VaultTecRepActor.EnableNoWait()
     endif
+    if CodsworthScene != None
+        CodsworthScene.Start()
+    endif
     StartTimer(2.0, 22)
-    Trace("s1 start stage=10 world=FO4SF_PrewarSanctuaryWorld (mirror and clipboard stat-menu skipped per 19 Nov rule)")
+    Trace("s1 start stage=10 world=FO4SF_PrewarSanctuaryWorld player_sex=" + playerSex + " (mirror and clipboard stat-menu skipped per 19 Nov rule)")
 EndFunction
 
 Function StartEvacuationSequence()
-    {Advance S1 to stage 20: launch Beat (a) fleeing crowd and Beat (b) overhead Vertibirds.}
+    {Advance S1 to stage 20: launch emergency broadcast, Beat (a) fleeing crowd, and Beat (b) overhead Vertibirds.}
     if evacStarted || handoffDone || GetStage() >= 20
         return
     endif
     evacStarted = true
+    exteriorElapsedS = 0.0
     SetStage(20)
+    SetObjectiveCompleted(10, true)
+    SetObjectiveDisplayed(20, true, true)
+    if !broadcastSceneStarted && BroadcastScene != None
+        broadcastSceneStarted = true
+        BroadcastScene.Start()
+    endif
     if StandIns != None
         StandIns.StartCrowdBeat()
         StandIns.StartVertibirdBeat()
@@ -105,6 +158,8 @@ Function StartElevatorAndNukeBeat()
     endif
     elevatorStarted = true
     SetStage(30)
+    SetObjectiveCompleted(20, true)
+    SetObjectiveDisplayed(30, true, true)
     if StandIns != None
         StandIns.StartElevatorDescentWithNuke()
     endif
@@ -113,7 +168,7 @@ Function StartElevatorAndNukeBeat()
 EndFunction
 
 Function MoveIntoPrewarVaultConfirmed()
-    {Non-blocking confirmed-arrival transition into FO4Port_PrewarVault111S1 (mirrors FO4SF_ConfirmedLoadDoor).}
+    {Non-blocking confirmed-arrival transition into FO4Port_PrewarVault111 (mirrors FO4SF_ConfirmedLoadDoor).}
     if enteredPrewarVault
         return
     endif
@@ -129,12 +184,25 @@ Function MoveIntoPrewarVaultConfirmed()
         enteredPrewarVault = true
         vaultElapsedS = 0.0
         SetStage(40)
+        SetObjectiveCompleted(30, true)
+        SetObjectiveDisplayed(40, true, true)
+        if SirenStopSound != None
+            SirenStopSound.Play(player)
+        endif
+        if VaultSuitStandIn != None
+            player.AddItem(VaultSuitStandIn, 1, false)
+            player.EquipItem(VaultSuitStandIn, false, true)
+        endif
         if VaultDoctorActor != None
             VaultDoctorActor.EnableNoWait()
         endif
+        if VaultDoctorScene != None
+            VaultDoctorScene.Start()
+        endif
         Game.FadeOutGame(false, true, 0.0, 1.0, false)
+        float arrivalZ = player.GetPositionZ()
         StartTimer(2.0, 22)
-        Trace("s1 prewar_vault arrival confirmed tries=" + vaultEntryTries + " cell=" + wantCell)
+        Trace("s1 prewar_vault arrival confirmed tries=" + vaultEntryTries + " cell=" + wantCell + " z=" + arrivalZ)
     elseif vaultEntryTries < 8
         Trace("s1 prewar_vault retry=" + vaultEntryTries)
         StartTimer(0.5, 20)
@@ -150,6 +218,8 @@ Function StartKelloggPodBeat()
     endif
     kelloggStarted = true
     SetStage(50)
+    SetObjectiveCompleted(40, true)
+    SetObjectiveDisplayed(50, true, true)
     kelloggElapsedS = 0.0
     if StandIns != None
         StandIns.StartKelloggPodSequence()
@@ -158,7 +228,7 @@ Function StartKelloggPodBeat()
 EndFunction
 
 Function StepPrewarProgression()
-    {Drive S1 stage progression by player proximity to Sanctuary/Vault anchors with elapsed fallback timers.}
+    {Drive S1 stage progression by player proximity to Sanctuary/Vault anchors with long logged failsafe timers.}
     if handoffDone
         return
     endif
@@ -174,11 +244,24 @@ Function StepPrewarProgression()
     EnsurePrewarLoadHook(player)
     if st == 10 && !evacStarted
         exteriorElapsedS += 2.0
+        if !repSceneStarted && exteriorElapsedS >= 6.0
+            repSceneStarted = true
+            if VaultTecRepScene != None
+                VaultTecRepScene.Start()
+            endif
+        endif
+        if !broadcastSceneStarted && exteriorElapsedS >= 16.0
+            broadcastSceneStarted = true
+            if BroadcastScene != None
+                BroadcastScene.Start()
+            endif
+        endif
         float distHouse = 0.0
         if HouseSpawnMarker != None
             distHouse = player.GetDistance(HouseSpawnMarker)
         endif
-        if (distHouse >= 12.0 && distHouse < 10000.0) || exteriorElapsedS >= 8.0
+        if (distHouse >= 12.0 && distHouse < 10000.0) || exteriorElapsedS >= EvacFailsafeS
+            Trace("s1 stage=10->20 evac_trigger distHouse=" + distHouse + " elapsed=" + exteriorElapsedS)
             StartEvacuationSequence()
         endif
         StartTimer(2.0, 22)
@@ -187,6 +270,12 @@ Function StepPrewarProgression()
         bool nearGateOrLift = false
         if SoldierCheckerActor != None
             float dGate = player.GetDistance(SoldierCheckerActor)
+            if !soldierSceneStarted && dGate >= 0.0 && dGate <= 32.0
+                soldierSceneStarted = true
+                if SoldierGateScene != None
+                    SoldierGateScene.Start()
+                endif
+            endif
             if dGate >= 0.0 && dGate <= 22.0
                 nearGateOrLift = true
             endif
@@ -197,7 +286,8 @@ Function StepPrewarProgression()
                 nearGateOrLift = true
             endif
         endif
-        if nearGateOrLift || exteriorElapsedS >= 24.0
+        if nearGateOrLift || exteriorElapsedS >= ElevatorFailsafeS
+            Trace("s1 stage=20->30 lift_trigger nearGateOrLift=" + nearGateOrLift + " elapsed=" + exteriorElapsedS)
             StartElevatorAndNukeBeat()
         endif
         StartTimer(2.0, 22)
@@ -212,7 +302,7 @@ Function StepPrewarProgression()
                 nearPod = true
             endif
         endif
-        if nearPod || vaultElapsedS >= 6.0
+        if nearPod || vaultElapsedS >= 18.0
             StartKelloggPodBeat()
         else
             StartTimer(2.0, 22)
@@ -227,6 +317,8 @@ Function HandoffToVault111CryoStage20()
         return
     endif
     handoffDone = true
+    SetObjectiveCompleted(50, true)
+    SetObjectiveDisplayed(50, false)
     if StandIns != None
         StandIns.FireKelloggGunshotAndRefreeze()
     endif

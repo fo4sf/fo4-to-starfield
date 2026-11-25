@@ -139,7 +139,19 @@ def _synth_home_world_and_strip(whome_data: Path, strip_dir: Path) -> None:
     (strip_dir / s1_spec.PLUGIN_PREWAR_WORLD).write_bytes(pw_sanc.to_bytes() + group_bytes("WRLD", wrld.to_bytes()))
 
     pw_reg = PluginWriter(["Starfield.esm", hspec.HOME_MASTER, s1_spec.PLUGIN_PREWAR_WORLD])
-    pw_reg.add(Record(b"PNDT", home_idx | hspec.PLANET, [(b"EDID", zbytes("EarthPlanetData"))]))
+    pw_reg.add(
+        Record(
+            b"PNDT",
+            home_idx | hspec.PLANET,
+            [
+                (b"EDID", zbytes("EarthPlanetData")),
+                (b"BDST", b""),
+                (b"ANAM", zbytes(hspec.DEFAULT_BODY_NAME)),
+                (b"GNAM", struct.pack("<III", hspec.DEFAULT_HOME_SYSTEM_ID, 0, hspec.DEFAULT_HOME_PLANET_ID)),
+                (b"BDED", b""),
+            ],
+        )
+    )
     (strip_dir / "FO4SFPrewar_Sanctuary_Home.esm").write_bytes(pw_reg.to_bytes())
 
     btd_p = strip_dir / "Data" / "Terrain" / "FO4SF_PrewarSanctuaryWorld.btd"
@@ -214,7 +226,14 @@ class R11S1PrewarTests(unittest.TestCase):
             avail, _reasons = lc.evaluate_start_places(
                 start_places_path=str(sp_path),
                 mode="story",
-                loaded_plugins={"fo4sfprewar.esm", "fo4sfprewar_sanctuary.esm", "fo4port.esm", "fo4terraincore.esm"},
+                loaded_plugins={
+                    "fo4sfprewar.esm",
+                    "fo4sfprewar_sanctuary.esm",
+                    "fo4port.esm",
+                    "fo4terraincore.esm",
+                    "fo4sfnewgame.esm",
+                    "fo4sfcorevalues.esm",
+                },
                 loaded_places={
                     "markers": {"FO4SF_PrewarHouseSpawnMarker"},
                     "interior_cells": {"FO4Port_Vault111Cryo"},
@@ -225,7 +244,14 @@ class R11S1PrewarTests(unittest.TestCase):
 
             payload = lc.resolve_and_build_launch_choices(
                 {"start.mode": "story", "start.survival": False, "start.place": "fo4_prewar_sanctuary"},
-                loaded_plugins={"fo4sfprewar.esm", "fo4sfprewar_sanctuary.esm", "fo4port.esm", "fo4terraincore.esm"},
+                loaded_plugins={
+                    "fo4sfprewar.esm",
+                    "fo4sfprewar_sanctuary.esm",
+                    "fo4port.esm",
+                    "fo4terraincore.esm",
+                    "fo4sfnewgame.esm",
+                    "fo4sfcorevalues.esm",
+                },
                 loaded_places={
                     "markers": {"FO4SF_PrewarHouseSpawnMarker"},
                     "interior_cells": {"FO4Port_Vault111Cryo"},
@@ -244,7 +270,7 @@ class R11S1PrewarTests(unittest.TestCase):
             avail_base, _ = lc.evaluate_start_places(
                 start_places_path=str(sp_base_path),
                 mode="story",
-                loaded_plugins={"fo4port.esm", "fo4terraincore.esm"},
+                loaded_plugins={"fo4port.esm", "fo4terraincore.esm", "fo4sfnewgame.esm", "fo4sfcorevalues.esm"},
             )
             self.assertEqual([r.id for r in avail_base], ["fo4_vault111"])
 
@@ -287,7 +313,7 @@ class R11S1PrewarTests(unittest.TestCase):
                 min_free_gb=0.0,
                 system=_FakeSystem([]),
             )
-            self.assertEqual(manifest["probe_id"], "r11-s1-prewar")
+            self.assertEqual(manifest["probe_id"], stager.PROBE_ID)
             self.assertEqual(manifest["port_slot2"]["append_report"]["start_id"], "0x00EFAB")
 
             ver = stager.verify_probe(stage_dir=stage_dir)
@@ -295,7 +321,7 @@ class R11S1PrewarTests(unittest.TestCase):
             self.assertIn("fo4_prewar_sanctuary", ver["available_starts"])
             self.assertIn("fo4_vault111", ver["available_starts"])
 
-            # Guard refusals on incompatible active plugins
+            # Guard refusals on incompatible active plugins or uncombined FO4TerrainCore_Home.esm (S1-07)
             fx["plugins_txt"].write_text("*FO4SFRouteLoot.esm\n", encoding="utf-8")
             with self.assertRaises(pc.ProbeInstallError):
                 stager.install_probe_cmd(
@@ -306,6 +332,11 @@ class R11S1PrewarTests(unittest.TestCase):
                 stager.install_probe_cmd(
                     stage_dir=stage_dir, starfield_dir=fx["sf_dir"], plugins_txt=fx["plugins_txt"], min_free_gb=0.0, system=_FakeSystem([])
                 )
+
+            # Task 8 guard: verify zero hardcoded D:\ / C:\ defaults on stager external inputs
+            self.assertIsNone(stager.DEFAULT_STARFIELD_DIR)
+            self.assertIsNone(stager.DEFAULT_FO4_DATA_DIR)
+            self.assertIsNone(stager.DEFAULT_TESTED_PIPBOY_DLL)
 
             # Clean install -> verify swapped files -> atomic uninstall restores originals byte-for-byte
             orig_plugins = "*FO4TerrainCore.esm\n*FO4TerrainCore_Mars.esm\n"
