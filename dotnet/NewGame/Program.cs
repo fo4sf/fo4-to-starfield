@@ -130,6 +130,7 @@ static class NewGame
                         StartRoomMarkerRefEdid = "FO4SF_StartRoomMarkerRef",
                         StoryLineMsgEdid = "FO4SF_NewGameStoryLineMsg",
                         ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg",
+                        PrewarSkipMsgEdid = "FO4SF_NewGamePrewarSkipMsg",
                         VaultPistolRefEdid = "FO4SF_Vault111PistolRef",
                         VaultAmmoRefEdid = "FO4SF_Vault111AmmoRef",
                         DiscoverSecretAreaXpGmstEdid = "iXPRewardDiscoverSecretArea";
@@ -153,7 +154,8 @@ static class NewGame
                       StartRoomCellId = 0x81C,
                       StartRoomMarkerRefId = 0x81D,
                       StoryLineMsgId = 0x81E,
-                      ExitNeedSpecialMsgId = 0x81F;
+                      ExitNeedSpecialMsgId = 0x81F,
+                      PrewarSkipMsgId = 0x822;
     public const uint VaultPistolRefId = 0x820, VaultAmmoRefId = 0x821;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
@@ -171,6 +173,7 @@ static class NewGame
     public static readonly string[] ExitFallbackButtons = { "Go up to the Commonwealth", "Retry lift" };
     public static readonly string[] ReturnButtons = { "Ride down to Vault 111", "Stay" };
     public static readonly string[] ModeButtons = { "Story", "Warfare" };
+    public static readonly string[] PrewarSkipButtons = { "Sanctuary Hills (Pre-War)", "Vault 111 (Skip Pre-War)" };
     public static readonly string[] SurvivalButtons = { "Survival: No", "Survival: Yes" };
     public static readonly string[] WarfareDiffButtons = { "Easy", "Normal", "Hard", "Very Hard" };
     public static readonly string[] NoPipboyButtons = { "OK" };
@@ -748,7 +751,7 @@ static class NewGame
         int[] PlaceMarkerIds, float[] PlaceX, float[] PlaceY, float[] PlaceZ, float[] PlaceHeadings,
         bool[] PlaceIsInterior, int[] PlaceQuestMasks, int[] PlaceWarfareRows);
 
-    public static StartPlaceTable LoadStartPlaces(string? jsonPath, JsonElement pts, Places places, WarfareTable wf, string portPath, string corePath)
+    public static StartPlaceTable LoadStartPlaces(string? jsonPath, JsonElement pts, Places places, WarfareTable wf, string portPath, string corePath, string? prewarPath = null)
     {
         var path = jsonPath ?? DefaultStartPlacesJsonPath();
         if (!File.Exists(path)) throw new Refusal($"missing start_places.json: {path}");
@@ -760,6 +763,30 @@ static class NewGame
             foreach (var sub in blk.SubBlocks)
                 foreach (var c in sub.Cells)
                     portRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+
+        var prewarRefs = new List<SF.IPlacedObjectGetter>();
+        ModKey prewarModKey = ModKey.FromFileName("FO4SFPrewar.esm");
+        if (!string.IsNullOrWhiteSpace(prewarPath))
+        {
+            if (!File.Exists(prewarPath)) throw new Refusal($"missing prewar plugin: {prewarPath}");
+            var homeKey = ModKey.FromFileName("FO4SFHome.esm");
+            var sancKey = ModKey.FromFileName("FO4SFPrewar_Sanctuary.esm");
+            using var prewar = SF.StarfieldMod.CreateFromBinaryOverlay(
+                prewarPath,
+                SF.StarfieldRelease.Starfield,
+                Full(SfEsm, homeKey, sancKey, port.ModKey));
+            prewarModKey = prewar.ModKey;
+            foreach (var w in prewar.Worldspaces)
+            {
+                if (w.TopCell is { } wt) prewarRefs.AddRange(wt.Persistent.Concat(wt.Temporary).OfType<SF.IPlacedObjectGetter>());
+                foreach (var b in w.SubCells) foreach (var s in b.Items) foreach (var c in s.Items)
+                    prewarRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+            }
+            foreach (var blk in prewar.Cells.Records)
+                foreach (var sub in blk.SubBlocks)
+                    foreach (var c in sub.Cells)
+                        prewarRefs.AddRange(c.Persistent.Concat(c.Temporary).OfType<SF.IPlacedObjectGetter>());
+        }
 
         var coreRefs = new List<SF.IPlacedObjectGetter>();
         var coreCellsByGrid = new Dictionary<(int X, int Y), SF.ICellGetter>();
@@ -822,7 +849,9 @@ static class NewGame
             string plg = el.GetProperty("plugin").GetString()?.Trim() ?? "";
             bool isPort = string.Equals(plg, PortPlugin, StringComparison.OrdinalIgnoreCase);
             bool isCore = string.Equals(plg, CorePluginFile, StringComparison.OrdinalIgnoreCase);
-            bool isPrewar = string.Equals(plg, PrewarPlugin, StringComparison.OrdinalIgnoreCase);
+            bool isPrewarName = string.Equals(plg, PrewarPlugin, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(plg, prewarModKey.FileName, StringComparison.OrdinalIgnoreCase);
+            bool isPrewar = !string.IsNullOrWhiteSpace(prewarPath) && isPrewarName;
 
             string storyId = el.TryGetProperty("story_id", out var sidEl) ? (sidEl.GetString()?.Trim() ?? "none") : "none";
             string storyLabel = el.TryGetProperty("story_label", out var slEl) ? (slEl.GetString()?.Trim() ?? "") : "";
@@ -842,12 +871,13 @@ static class NewGame
                 throw new Refusal($"start place '{pid}': fo4_vault111 requires plugin '{PortPlugin}' (got '{plg}')");
             if (string.Equals(pid, "fo4_prewar_sanctuary", StringComparison.Ordinal))
             {
-                if (!isPrewar)
+                if (!isPrewarName)
                     throw new Refusal($"start place '{pid}': fo4_prewar_sanctuary requires plugin '{PrewarPlugin}' (got '{plg}')");
-                // #860 builds FO4SFNewGame.esm without FO4SFPrewar.esm; skip Pre-War Sanctuary cleanly when no prewar plugin is supplied.
-                continue;
+                if (string.IsNullOrWhiteSpace(prewarPath))
+                    // #860 builds FO4SFNewGame.esm without FO4SFPrewar.esm; skip Pre-War Sanctuary cleanly when no prewar plugin is supplied.
+                    continue;
             }
-            if (!isPort && !isCore)
+            if (!isPort && !isCore && !isPrewar)
                 throw new Refusal($"start place '{pid}': marked available=true on unloaded plugin '{plg}'");
             bool isInterior = el.TryGetProperty("is_interior", out var intEl) && intEl.GetBoolean();
             int questMask = el.TryGetProperty("quest_mask", out var qmEl) ? qmEl.GetInt32() : 0;
@@ -872,8 +902,8 @@ static class NewGame
             {
                 if (resolveEdid.Length == 0)
                     throw new Refusal($"start place '{pid}': missing marker_source or marker_edid");
-                var pool = isPort ? portRefs : coreRefs;
-                var ownerKey = isPort ? port.ModKey : core.ModKey;
+                var pool = isPort ? portRefs : (isPrewar ? prewarRefs : coreRefs);
+                var ownerKey = isPort ? port.ModKey : (isPrewar ? prewarModKey : core.ModKey);
                 var hits = pool.Where(r => string.Equals(r.EditorID, resolveEdid, StringComparison.Ordinal)).ToList();
                 if (hits.Count != 1)
                     throw new Refusal($"start place '{pid}': marked available=true but marker_edid '{resolveEdid}' is absent in {plg}");
@@ -926,7 +956,7 @@ static class NewGame
             placeIds.Add(pid);
             placeModes.Add(modeCode);
             placeStories.Add(storyId);
-            placePlugins.Add(isPort ? PortPlugin : CorePluginFile);
+            placePlugins.Add(isPort ? PortPlugin : (isPrewar ? prewarModKey.FileName : CorePluginFile));
             placeMarkerIds.Add(resolvedMarkerId);
             placeX.Add(rx);
             placeY.Add(ry);
@@ -998,7 +1028,7 @@ static class NewGame
                           int DebugAfterHold = DefaultDebugAfterHold, bool AnimatedExitLift = false, bool O2Fill = DefaultO2Fill, string? CoreValuesJson = null,
                           bool FadeHold = DefaultFadeHold, string? WarfareStartsJson = null, string? RouteLootJson = null,
                           int StartChoiceBackdrop = DefaultStartChoiceBackdrop, string? StartPlacesJson = null,
-                          int? Fo410mm = null, string? CoreValuesEsmPath = null)
+                          int? Fo410mm = null, string? CoreValuesEsmPath = null, string? PrewarEsmPath = null)
     {
         public bool O2 => ClearInventory && O2Fill;   // a --keep-inventory player keeps Starfield's suit and its capacity
         public static Options From(string[] a)
@@ -1020,6 +1050,9 @@ static class NewGame
             var spJson = ArgOrNull(a, "--start-places");
             if (a.Contains("--start-places") && (spJson is null || spJson.StartsWith("--")))
                 throw new Refusal("--start-places needs a JSON path");
+            var prewarEsm = ArgOrNull(a, "--prewar");
+            if (a.Contains("--prewar") && (prewarEsm is null || prewarEsm.StartsWith("--")))
+                throw new Refusal("--prewar needs an ESM path");
             var bdRaw = ArgOrNull(a, "--start-choice-backdrop");
             if (a.Contains("--start-choice-backdrop") && (bdRaw is null || bdRaw.StartsWith("--")))
                 throw new Refusal("--start-choice-backdrop needs empty_cell, title_card, setup_menu, or none");
@@ -1058,7 +1091,8 @@ static class NewGame
                 backdrop,
                 spJson,
                 fo410mm,
-                cvEsm);
+                cvEsm,
+                prewarEsm);
         }
     }
 
@@ -1530,7 +1564,7 @@ static class NewGame
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var coreKnownIdSet = coreIds.Values.ToHashSet();
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath, coreKnownIdSet);
-        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
+        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath, o.PrewarEsmPath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
@@ -1590,6 +1624,9 @@ static class NewGame
         }
         var modePickMsg = MakeMsg(ModePickMsgId, ModePickMsgEdid, "Select Game Mode", "Choose how you want to start:", ModeButtons);
         var storyLineMsg = MakeMsg(StoryLineMsgId, StoryLineMsgEdid, "Select Story", "Choose which story campaign to begin:", sp.StoryLabels);
+        SF.Message? prewarSkipMsg = !string.IsNullOrWhiteSpace(o.PrewarEsmPath)
+            ? MakeMsg(PrewarSkipMsgId, PrewarSkipMsgEdid, "Select Story Start", "Begin in Pre-War Sanctuary Hills, or skip directly to Vault 111?", PrewarSkipButtons)
+            : null;
         var survPickMsg = MakeMsg(SurvivalPickMsgId, SurvivalPickMsgEdid, "Survival Mode", "Enable Survival mode for this character?", SurvivalButtons);
         var wfDiffMsg = MakeMsg(WarfareDiffMsgId, WarfareDiffMsgEdid, "Warfare Difficulty", "Choose your starting difficulty:", WarfareDiffButtons);
         var wfGroupMsg = MakeMsg(WarfareGroupMsgId, WarfareGroupMsgEdid, "Warfare Allegiance", "Choose your starting allegiance:", wf.FactionButtons);
@@ -1794,6 +1831,8 @@ static class NewGame
         script.Properties.Add(Obj("ReturnMessage", returnMsg.FormKey));
         script.Properties.Add(Obj("ModePickMsg", modePickMsg.FormKey));
         script.Properties.Add(Obj("StoryLineMsg", storyLineMsg.FormKey));
+        if (prewarSkipMsg is not null)
+            script.Properties.Add(Obj("PrewarSkipMsg", prewarSkipMsg.FormKey));
         script.Properties.Add(Obj("SurvivalPickMsg", survPickMsg.FormKey));
         script.Properties.Add(Obj("WarfareDiffMsg", wfDiffMsg.FormKey));
         script.Properties.Add(Obj("WarfareGroupMsg", wfGroupMsg.FormKey));
@@ -1976,7 +2015,7 @@ static class NewGame
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var coreKnownIdSet = coreIds.Values.ToHashSet();
         var wf = LoadWarfareStarts(o.WarfareStartsJson, sf, corePath, coreKnownIdSet);
-        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
+        var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath, o.PrewarEsmPath);
         uint vaultPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
         var vaultPistolKey = new FormKey(SfEsm, vaultPistolId);
@@ -2110,6 +2149,14 @@ static class NewGame
              start.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
              start.MenuButtons.Select(b => b.Text?.String).SequenceEqual(StartButtons),
              $"MESG 0x{StartMessageId:X} is not {StartMessageEdid} titled \"Character Appearance\" with buttons [{string.Join(", ", StartButtons)}]");
+        var prewarSkipMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, PrewarSkipMsgId));
+        int prewarExtraMsg = prewarSkipMsg is not null ? 1 : 0;
+        if (prewarSkipMsg is not null)
+        {
+            Need(prewarSkipMsg.EditorID == PrewarSkipMsgEdid && prewarSkipMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+                 prewarSkipMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(PrewarSkipButtons),
+                 $"MESG 0x{PrewarSkipMsgId:X} is not {PrewarSkipMsgEdid}");
+        }
         var terminalMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, TerminalMessageId));
         var specialMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessageId));
         var specialMsgPage2 = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessagePage2Id));
@@ -2123,12 +2170,12 @@ static class NewGame
             Need(specialMsgPage2 is { EditorID: SpecialMessagePage2Edid } && specialMsgPage2.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
                  specialMsgPage2.MenuButtons.Select(b => b.Text?.String).SequenceEqual(SpecialPage2Buttons) && specialMsgPage2.Description?.String == SpecialDescription,
                  $"MESG 0x{SpecialMessagePage2Id:X} is not {SpecialMessagePage2Edid}, a <=7-button message box with [{string.Join(", ", SpecialPage2Buttons)}] and the allocation text");
-            Need(plug.Messages.Count == 15, $"{plug.Messages.Count} MESG, expected 15");
+            Need(plug.Messages.Count == 15 + prewarExtraMsg, $"{plug.Messages.Count} MESG, expected {15 + prewarExtraMsg}");
             Console.WriteLine($"  SPECIAL links [{string.Join(", ", specialKeys)}]; terminal {TerminalText(places)}");
         }
         else
         {
-            Need(plug.Messages.Count == 12, $"{plug.Messages.Count} MESG, expected 12 in a --no-special build");
+            Need(plug.Messages.Count == 12 + prewarExtraMsg, $"{plug.Messages.Count} MESG, expected {12 + prewarExtraMsg} in a --no-special build");
         }
 
         // the GLOBs: Starfield's MQ101Debug overridden (or not), and our own version GLOB (or not); FO4SF_PipboyAcquired lives in FO4SFCoreValues.esm:000865
@@ -2237,6 +2284,8 @@ static class NewGame
                 Need(props.TryGetValue("ReturnMessage", out var rmp) && rmp is SF.IScriptObjectPropertyGetter rmo && rmo.Object.FormKey == returnMsg?.FormKey, "property ReturnMessage");
                 Need(props.TryGetValue("ModePickMsg", out var mpm) && mpm is SF.IScriptObjectPropertyGetter mpmo && mpmo.Object.FormKey == modePickMsg?.FormKey, "property ModePickMsg");
                 Need(props.TryGetValue("StoryLineMsg", out var slmp) && slmp is SF.IScriptObjectPropertyGetter slmo && slmo.Object.FormKey == storyLineMsg?.FormKey, "property StoryLineMsg");
+                if (prewarSkipMsg is not null)
+                    Need(props.TryGetValue("PrewarSkipMsg", out var psmp) && psmp is SF.IScriptObjectPropertyGetter psmo && psmo.Object.FormKey == prewarSkipMsg.FormKey, "property PrewarSkipMsg");
                 Need(props.TryGetValue("SurvivalPickMsg", out var spm) && spm is SF.IScriptObjectPropertyGetter spmo && spmo.Object.FormKey == survPickMsg?.FormKey, "property SurvivalPickMsg");
                 Need(props.TryGetValue("WarfareDiffMsg", out var wdm) && wdm is SF.IScriptObjectPropertyGetter wdmo && wdmo.Object.FormKey == wfDiffMsg?.FormKey, "property WarfareDiffMsg");
                 Need(props.TryGetValue("WarfareGroupMsg", out var wgm) && wgm is SF.IScriptObjectPropertyGetter wgmo && wgmo.Object.FormKey == wfGroupMsg?.FormKey, "property WarfareGroupMsg");
@@ -2303,7 +2352,7 @@ static class NewGame
                 var expected = Properties(pts, places, o, wf, sp, vaultPistolId, routeLootRefIds);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 43, $"{props.Count} properties, expected {expected.Count + 43}");
+                Need(props.Count == expected.Count + 43 + prewarExtraMsg, $"{props.Count} properties, expected {expected.Count + 43 + prewarExtraMsg}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");

@@ -106,6 +106,8 @@ Message Property ModePickMsg Auto Const Mandatory
 {S4 Box 1 (0x806): 0 Story, 1 Warfare.}
 Message Property StoryLineMsg Auto Const
 {N2 Story choice (0x81E): available story campaigns from start_places.json.}
+Message Property PrewarSkipMsg Auto Const
+{S1 Story path choice (0x822, --prewar builds): 0 Sanctuary Hills (Pre-War), 1 Vault 111 (Skip Pre-War).}
 Message Property SurvivalPickMsg Auto Const Mandatory
 {S4 Box 2 (0x807): 0 Survival: No, 1 Survival: Yes.}
 Message Property WarfareDiffMsg Auto Const Mandatory
@@ -374,6 +376,7 @@ bool setupWaitingCreator = false
 int pendingStage = -1
 string pendingStageBy = "other"
 bool looksSetStage20 = false
+bool prewarActive = false
 bool loadHookRegistered = false
 bool podChecked = false
 float surfaceMovedAt = 0.0                                   ; the ride's MoveTo (real time); 0 while none is pending
@@ -795,6 +798,9 @@ Event OnTimer(int aiTimerID)
         int chosenMode = RunModeChoiceChain(player)
         if chosenMode == 2
             return
+        elseif prewarActive
+            StartTimer(1.0, 1)
+            return
         elseif GetStage() < 10
             if ClearInventory
                 ResetInventory(player)
@@ -804,6 +810,10 @@ Event OnTimer(int aiTimerID)
             startedAt = Utility.GetCurrentRealTime()
         endif
     elseif stage == 5
+        if prewarActive
+            StartTimer(1.0, 1)
+            return
+        endif
         if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
             if !warfareBranchStarted
                 RunWarfareBranch(player, ResolvePrelaunchWarfareRow())
@@ -826,6 +836,10 @@ Event OnTimer(int aiTimerID)
             startedAt = Utility.GetCurrentRealTime()
         endif
     elseif stage == 10
+        if prewarActive
+            StartTimer(1.0, 1)
+            return
+        endif
         if !podChecked && player.Is3DLoaded()
             CheckPod(player)
         endif
@@ -2129,10 +2143,81 @@ Function RunPreworldLooksChoice(Actor player, bool isWarfare)
     endif
 EndFunction
 
+Function CompletePrewarHandoffStage20(Actor player)
+    {Slot 3 S1 -> S2 handoff from FO4SF_PrewarQuest after Kellogg pod scene completes.
+     Preserves fo4_vault111 (Skip Pre-War), which enters Vault 111 directly in SpawnAtStoryStartPlace.}
+    Actor who = player
+    if who == None
+        who = Game.GetPlayer()
+    endif
+    if who == None
+        return
+    endif
+    prewarActive = false
+    podChecked = false
+    if !StandsInVault(who)
+        EnterVault(who)
+    endif
+    AdvanceTo(10, "prewar")
+    preworldLooksDone = false
+    looksSetStage20 = true
+    AdvanceTo(20, "prewar")
+    NoteLooksStage20()
+    EnsureVaultInteractivesRegistered()
+    Game.ShowFirstPersonGeometry(true)
+    Game.FadeOutGame(False, True, 0.0, 0.1, False)
+    Game.SetInChargen(false, false, false)
+    Game.SetCharGenHUDMode(0)
+    DisableHandScanner()
+    RelockVaultSaving(who, 20)
+    Trace("prewar stage20 handoff complete: vault111cryo active stage=20")
+EndFunction
+
 Function SpawnAtStoryStartPlace(Actor player, int placeRow)
     string placeId = "fo4_vault111"
     if StartPlaceIds != None && placeRow >= 0 && placeRow < StartPlaceIds.Length
         placeId = StartPlaceIds[placeRow]
+    endif
+    if placeId == "fo4_prewar_sanctuary" && StartPlacePlugins != None && StartPlaceMarkerIds != None && placeRow >= 0 && placeRow < StartPlacePlugins.Length
+        ObjectReference prewarMarker = Game.GetFormFromFile(StartPlaceMarkerIds[placeRow], StartPlacePlugins[placeRow]) as ObjectReference
+        Quest prewarQ = Game.GetFormFromFile(0x000800, StartPlacePlugins[placeRow]) as Quest
+        if prewarMarker != None && prewarQ != None
+            bool pwMoved = false
+            int pwTry = 0
+            while !pwMoved && pwTry < 3
+                pwTry += 1
+                player.MoveTo(prewarMarker, 0.0, 0.0, 0.0, True, False)
+                Utility.Wait(0.25)
+                pwMoved = player.GetParentCell() == prewarMarker.GetParentCell()
+            endwhile
+            float pw3d = 0.0
+            while !player.Is3DLoaded() && pw3d < StartLoadTimeout
+                Utility.Wait(0.25)
+                pw3d += 0.25
+            endwhile
+            prewarActive = true
+            looksSetStage20 = true
+            entered = true
+            Game.ShowFirstPersonGeometry(true)
+            Game.FadeOutGame(False, True, 0.0, 0.1, False)
+            Game.SetInChargen(false, false, false)
+            Game.SetCharGenHUDMode(0)
+            DisableHandScanner()
+            if ClearInventory
+                ResetInventory(player)
+                FillO2(player)
+            endif
+            Trace("prewar active: holding FO4SF_NewGame below stage 10 until Stage 20 Vault111Cryo handoff (stage=" + GetStage() + ")")
+            startedAt = Utility.GetCurrentRealTime()
+            prewarQ.StartNoWait()
+            ScriptObject pwScript = prewarQ.CastAs("FO4SF_PrewarQuest")
+            if pwScript != None
+                pwScript.CallFunction("BeginPrewarSanctuary", new Var[0])
+            endif
+            Trace("prewar start launched place=" + placeId + " plugin=" + StartPlacePlugins[placeRow])
+            return
+        endif
+        Trace("prewar start unavailable place=" + placeId + " fallback=fo4_vault111")
     endif
     bool movedOk = entered && StandsInVault(player)
     if !movedOk
@@ -2230,6 +2315,9 @@ int Function RunModeChoiceChain(Actor player)
         SyncHardcoreFromStart("start_choice")
         Trace("mode choice mode=story survival=0")
         Trace("start record mode=story story=fo4_commonwealth faction=-1 place=" + directPlace + " survival=0 difficulty=1 backdrop=none")
+        if directPlace == "fo4_prewar_sanctuary" && player != None
+            SpawnAtStoryStartPlace(player, directRow)
+        endif
         return 1
     endif
     modeChoiceRan = true
@@ -2334,6 +2422,29 @@ int Function RunModeChoiceChain(Actor player)
                 storyBtn = 0
             endif
             placeRow = FindStoryStartPlaceRow(boxStoryId)
+            if boxStoryId == "fo4_commonwealth" && StartPlaceIds != None
+                int s1PrewarRow = -1
+                int s1SkipRow = -1
+                int spIdx = 0
+                while spIdx < StartPlaceIds.Length
+                    if StartPlaceIds[spIdx] == "fo4_prewar_sanctuary"
+                        s1PrewarRow = spIdx
+                    elseif StartPlaceIds[spIdx] == "fo4_vault111"
+                        s1SkipRow = spIdx
+                    endif
+                    spIdx += 1
+                endwhile
+                if s1PrewarRow >= 0 && s1SkipRow >= 0
+                    if PrewarSkipMsg != None
+                        int s1ChoiceBtn = PrewarSkipMsg.Show()
+                        if s1ChoiceBtn == 1
+                            placeRow = s1SkipRow
+                        else
+                            placeRow = s1PrewarRow
+                        endif
+                    endif
+                endif
+            endif
         else
             storyBtn = -1
             if WarfareDiffMsg != None

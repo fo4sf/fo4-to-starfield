@@ -552,6 +552,8 @@ def tool_options(a):
         opts += ["--warfare-starts", a.warfare_starts]
     if getattr(a, "start_places", None):
         opts += ["--start-places", a.start_places]
+    if getattr(a, "prewar", None):
+        opts += ["--prewar", a.prewar]
     return opts
 
 
@@ -1215,6 +1217,8 @@ def main(argv=None):
                    help="path to warfare_starts.json (default: src/fo4sf/core/warfare_starts.json)")
     s.add_argument("--start-places", default=None,
                    help="path to start_places.json (default: src/fo4sf/core/start_places.json)")
+    s.add_argument("--prewar", default=None,
+                   help="path to FO4SFPrewar.esm when enabling fo4_prewar_sanctuary S1 start")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

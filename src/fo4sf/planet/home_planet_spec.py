@@ -1854,21 +1854,37 @@ def _sha256_path(path: str) -> str:
     return h.hexdigest()
 
 
+PREWAR_HOME_REGISTRATION = "FO4SFPrewar_Sanctuary_Home.esm"
+
+
+def canonical_pndt_cnam_rows(
+    plugin: esm.Plugin,
+    plugin_name: str,
+    pndt_rec: esm.Record,
+) -> List[Tuple[str, int, float, float]]:
+    """Return canonical `(owner_lower, local_fid, lat_round, lon_round)` entries from a `PNDT` record."""
+    out: List[Tuple[str, int, float, float]] = []
+    for lat, lon, raw_fid in records.master_worldspaces(pndt_rec):
+        owner, local, _is_ovr = canonical_record_owner(plugin, raw_fid, plugin_name)
+        out.append((owner, local, round(float(lat), 6), round(float(lon), 6)))
+    return out
+
+
 def check_load_order_overrides(
     plugin_paths: Sequence[str],
     *,
     allow_map_markers_pair: bool = False,
     pinned_map_markers_sha256: Optional[str] = None,
     map_markers_plugin_name: str = MAP_MARKERS_PLUGIN,
+    allow_prewar_home_pair: bool = False,
+    prewar_reg_plugin_name: str = PREWAR_HOME_REGISTRATION,
 ) -> List[str]:
-    """Verify `PNDT`, `LCTN`, and `WRLD` overrides across `plugin_paths` in load order (`W3`, `C3`).
+    """Verify `PNDT`, `LCTN`, and `WRLD` overrides across `plugin_paths` in load order (`W3`, `C3`, `S1-07`).
 
-    When `allow_map_markers_pair` is `True`, allows **only** `FO4SFMapMarkers.esm` followed later in load order
-    by `FO4TerrainCore_Home.esm` on `fo4terraincore.esm:000802` (`LCTN`) and `fo4terraincore.esm:000803` (`WRLD`),
-    and **only** when:
-      (a) `FO4TerrainCore_Home.esm`'s `LCTN` override `LCSR` rows include every `LCSR` row of `FO4SFMapMarkers.esm`'s,
-      (b) the `FO4SFMapMarkers.esm` file SHA-256 matches `pinned_map_markers_sha256`, and
-      (c) `FO4SFMapMarkers.esm` loads before `FO4SFHome.esm` and `FO4TerrainCore_Home.esm`.
+    When `allow_map_markers_pair` is `True`, allows `FO4SFMapMarkers.esm -> FO4TerrainCore_Home.esm` on
+    `fo4terraincore.esm:000802/000803`.
+    When `allow_prewar_home_pair` is `True`, allows `FO4TerrainCore_Home.esm -> FO4SFPrewar_Sanctuary_Home.esm`
+    on `fo4sfhome.esm:000805` iff the later registration preserves every world entry from `FO4TerrainCore_Home.esm`.
     Refuses every other duplicate override, naming both plugins and the colliding `owner:XXXXXX` FormKey.
     """
     problems: List[str] = []
@@ -1877,6 +1893,14 @@ def check_load_order_overrides(
     mm_low = map_markers_plugin_name.lower()
     hm_low = HOME_MASTER.lower()
     hr_low = HOME_REGISTRATION.lower()
+    pw_reg_low = prewar_reg_plugin_name.lower()
+
+    if allow_prewar_home_pair and hr_low in names_low and pw_reg_low in names_low:
+        if names_low.index(pw_reg_low) < names_low.index(hr_low):
+            problems.append(
+                f"invalid load order: {prewar_reg_plugin_name} loads before {HOME_REGISTRATION}; "
+                f"combined PNDT 0x{PLANET:06X} registration must load after {HOME_REGISTRATION}"
+            )
 
     if allow_map_markers_pair and mm_low in names_low:
         mm_idx = names_low.index(mm_low)
@@ -1902,6 +1926,7 @@ def check_load_order_overrides(
 
     sha_by_low: Dict[str, str] = {}
     lcsr_by_plugin_and_key: Dict[Tuple[str, str, int], List[Any]] = {}
+    cnam_by_plugin_and_key: Dict[Tuple[str, str, int], List[Tuple[str, int, float, float]]] = {}
     per_plugin_overrides: List[Tuple[str, str, List[Tuple[str, str, int, str]]]] = []
 
     for path, name, nlow in zip(plugin_paths, orig_names, names_low):
@@ -1916,6 +1941,8 @@ def check_load_order_overrides(
                         continue
                     if rtype == "LCTN":
                         lcsr_by_plugin_and_key[(nlow, owner, local)] = canonical_lcsr_rows(p, name, rec)
+                    elif rtype == "PNDT":
+                        cnam_by_plugin_and_key[(nlow, owner, local)] = canonical_pndt_cnam_rows(p, name, rec)
                     ov_rows.append((rtype, owner, local, rec.edid))
             for rec in census.worlds(p):
                 owner, local, is_override = canonical_record_owner(p, rec.formid, name)
@@ -1962,21 +1989,48 @@ def check_load_order_overrides(
             # Map-markers plugin without an LCTN 000802 override needs no LCSR rows copied
             mm_lcsr_subset_ok = True
 
+    prewar_pndt_superset_ok = False
+    if allow_prewar_home_pair and hr_low in names_low and pw_reg_low in names_low:
+        hr_cnam = cnam_by_plugin_and_key.get((hr_low, HOME_MASTER.lower(), PLANET))
+        pw_cnam = cnam_by_plugin_and_key.get((pw_reg_low, HOME_MASTER.lower(), PLANET))
+        if hr_cnam is not None and pw_cnam is not None:
+            pw_worlds = {(owner, local) for owner, local, _lat, _lon in pw_cnam}
+            missing_worlds = [(owner, local) for owner, local, _lat, _lon in hr_cnam if (owner, local) not in pw_worlds]
+            if missing_worlds:
+                problems.append(
+                    f"{prewar_reg_plugin_name} PNDT override of {HOME_MASTER.lower()}:{PLANET:06X} "
+                    f"is missing {len(missing_worlds)} world(s) from {HOME_REGISTRATION}: "
+                    + ", ".join(f"{o}:{l:06X}" for o, l in missing_worlds)
+                )
+            else:
+                prewar_pndt_superset_ok = True
+
     seen: Dict[Tuple[str, str, int], List[Tuple[str, str]]] = {}
     for cur_name, cur_low, ov_rows in per_plugin_overrides:
         for rtype, owner, local, edid in ov_rows:
             key = (rtype, owner, local)
             for prev_name, prev_low in seen.get(key, ()):
                 allowed = (
-                    allow_map_markers_pair
-                    and prev_low == mm_low
-                    and cur_low == hr_low
-                    and (
-                        (rtype == "LCTN" and owner == CORE_PLUGIN.lower() and local == CORE_LCTN_LOCAL)
-                        or (rtype == "WRLD" and owner == CORE_PLUGIN.lower() and local == CORE_WRLD_LOCAL)
+                    (
+                        allow_map_markers_pair
+                        and prev_low == mm_low
+                        and cur_low == hr_low
+                        and (
+                            (rtype == "LCTN" and owner == CORE_PLUGIN.lower() and local == CORE_LCTN_LOCAL)
+                            or (rtype == "WRLD" and owner == CORE_PLUGIN.lower() and local == CORE_WRLD_LOCAL)
+                        )
+                        and mm_hash_ok
+                        and mm_lcsr_subset_ok
                     )
-                    and mm_hash_ok
-                    and mm_lcsr_subset_ok
+                    or (
+                        allow_prewar_home_pair
+                        and prev_low == hr_low
+                        and cur_low == pw_reg_low
+                        and rtype == "PNDT"
+                        and owner == HOME_MASTER.lower()
+                        and local == PLANET
+                        and prewar_pndt_superset_ok
+                    )
                 )
                 if not allowed:
                     problems.append(

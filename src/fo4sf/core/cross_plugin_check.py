@@ -54,6 +54,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x000371: ("AVIF", "RightMobilityCondition"),
         0x000372: ("AVIF", "BrainCondition"),
         0x0012E5: ("STAT", "RockPittedA"),
+        0x0021F9: ("OTFT", "Outfit_Clothes_Medical_Doctor_03"),
         0x003448: ("QUST", "MQ101"),
         0x00347D: ("RACE", "HumanRace"),
         0x00562D: ("DFOB", "StartupQuest_DO"),
@@ -63,15 +64,26 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x00E8EC: ("AMMO", "AmmoLaser"),
         0x010C35: ("ACTI", "ElevatorLiftTemplate"),
         0x01169C: ("NPC_", "UC_NA_PapaKatz"),
+        0x013AD2: ("VTYP", "GenericMaleEvenToned"),
+        0x013ADD: ("VTYP", "GenericFemaleEvenToned"),
+        0x0148F3: ("OTFT", "Outfit_Clothes_Business_Any_NoRyujin"),
         0x01A21C: ("KYWD", "WorkshopItemKeyword"),
         0x01C21C: ("FACT", "PlayerFaction"),
         0x01D1D7: ("ARMO", "Clothes_Miner_Jumpsuit"),
+        0x01F60F: ("IMAD", "FadetoBlackImod"),
+        0x02458E: ("IMAD", "ExplosionNukeImod"),
         0x028A02: ("WEAP", "Grendel"),
+        0x02A998: ("NPC_", "EncCitizenFaceF10_WesternAmerican_AltFace"),
+        0x02A9B6: ("NPC_", "EncCitizenFaceM01_EvenToned_AltFace02"),
         0x0301C5: ("PACK", "DefaultMaster_FollowPackage"),
+        0x030A99: ("WWED", "WwiseEvent_QST_NewAtlantis_EmergencyAlarm_On_State"),
+        0x030A9C: ("WWED", "WwiseEvent_QST_NewAtlantis_EmergencyAlarm_Off_State"),
+        0x034115: ("OTFT", "Outfit_Clothes_ScienceLabTec_02"),
         0x042240: ("PACK", "DefaultCombatMasterPackage"),
         0x04297C: ("NPC_", "OutpostRobotMiniBotA_Garden"),
         0x047600: ("KYWD", "QuestTypeSideQuest"),
         0x0476C4: ("WEAP", "Eon"),
+        0x048F36: ("OTFT", "Outfit_NH_Citizen"),
         0x04AD3E: ("AMMO", "Ammo777mm"),
         0x04AD3F: ("AMMO", "Ammo11mm"),
         0x04F760: ("WEAP", "RescueAxe"),
@@ -80,25 +92,34 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0547A3: ("WEAP", "Breach"),
         0x054BA7: ("KYWD", "WorkshopWorkbenchType"),
         0x058606: ("FLST", "OutpostRecipeCategories"),
+        0x064C26: ("IMAD", "ExplosionFlash"),
         0x081886: ("ARMA", "AA_MiniBotA_Gardening"),
         0x089605: ("PACK", "DefaultSandboxCurrentLocation"),
         0x0A7D31: ("GLOB", "MQ101Debug"),
         0x0AA209: ("KYWD", "WorkbenchIndustrialKeyword"),
+        0x0AA0A5: ("OTFT", "Outfit_Citizen_Formal"),
         0x0B0885: ("SPEL", "abBoostAssaultSlowTime"),
         0x0B120E: ("AVIF", "ActorShouldForceHideSpacesuit_AV"),
+        0x0CC4F6: ("ARMO", "Clothes_Worker_Jumpsuit_ECS_Security"),
+        0x0D41FF: ("OTFT", "Outfit_Clothes_UCNavy_Fatigues_SY-920"),
         0x105688: ("CONT", "VaultCaseTemplate"),
+        0x133D53: ("OTFT", "Outfit_Clothes_First_Mercenary_01_with_Hat"),
         0x13E8CA: ("STAT", "AK_Crate_WoodenSmall"),
+        0x145CD1: ("NPC_", "EncCitizenFaceF01_EvenToned_AltFace"),
+        0x17B6F0: ("WWED", "QST_Orlase_Ship_Decoy_Explosion_WEF"),
         0x1A5507: ("FLST", "OutpostFollowCameraCategoryList"),
         0x1A9565: ("QUST", "SQ_Groups"),
         0x1CCAC2: ("ACTI", "ControlConsoleTemplate"),
         0x1F50AD: ("KYWD", "OutpostBuildKeyword"),
         0x208E39: ("OTFT", "Outfit_FreestarRanger_Vest_with_Hat"),
         0x22DB8F: ("KYWD", "NoDisintegrate"),
+        0x23AF77: ("WWED", "WwiseEvent_WPNHandRifleRussianAssaultRiflePCFire"),
         0x24561C: ("WEAP", "Sidestar"),
         0x248D20: ("QUST", "SQ_ENV"),
         0x26319B: ("EFSH", "CritLaserDisintegration"),
         0x26D96B: ("WEAP", "Coachman"),
         0x2773C8: ("WEAP", "Orion"),
+        0x2B16D7: ("WWED", "WwiseEvent_VEHNPCFlyByClose"),
         0x2B4AFB: ("AMMO", "AmmoShotshell"),
         0x2B558D: ("AMMO", "AmmoShotgun"),
         0x2B5598: ("AMMO", "Ammo27Caliber"),
@@ -123,6 +144,40 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0337F0: ("QUST", "FO4Port_DialogueSceneRef"),
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
+    "FO4SFHome.esm": {
+        0x000800: ("STDT", "FO4SFHomeStar"),
+        0x000801: ("LCTN", "SFO4SFHome"),
+        0x000802: ("LCTN", "SFO4SFHome_PEarth"),
+        0x000803: ("LCTN", "SFO4SFHome_PEarth_Orbit"),
+        0x000804: ("LCTN", "SFO4SFHome_PEarth_Surface"),
+        0x000805: ("PNDT", "EarthPlanetData"),
+        0x000806: ("BIOM", "FO4SFHomeBiome"),
+        0x000807: ("WTHR", "FO4SFHomeClearWeather"),
+        0x000808: ("CLMT", "FO4SFHomeClimate"),
+        0x000809: ("ATMO", "FO4SFHomeAtmosphere"),
+        0x00080A: ("LTEX", "FO4SFHomeGroundDirt01"),
+        0x00080B: ("SFTR", "FO4SFHomeSurfaceTree"),
+        0x00080C: ("WATR", "FO4SFHomeDryWater"),
+        0x00080D: ("SUNP", "FO4SFHomeSunPreset"),
+    },
+    "FO4TerrainCore_Home.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
+        0x000802: ("LCTN", "FO4Core_CommonwealthLocation"),
+        0x000803: ("WRLD", "FO4Core_Commonwealth"),
+        0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x00E18A: ("LCTN", "FO4Port_InteriorsLocation"),
+        0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
+        0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
+        0x0A7759: ("REFR", "FO4Core_CommonwealthMapMarker"),
+        0x0A775A: ("REFR", "FO4Core_CommonwealthMapMarkerSanctuary"),
+        0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
+        0x0A775C: ("REFR", "FO4Core_CommonwealthMapMarkerConcord"),
+    },
+    "FO4SFPrewar_Sanctuary.esm": {
+        0x000800: ("WRLD", "FO4SF_PrewarSanctuaryWorld"),
+    },
+    "FO4SFPrewar_Sanctuary_Home.esm": {},
     "FO4TerrainCore.esm": {
         0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000802: ("LCTN", "FO4Core_CommonwealthLocation"),
@@ -289,11 +344,14 @@ CAST_EXPECTED_TYPES: Dict[str, Set[str]] = {
     "gameplayoption": {"GPOF"},
     "scene": {"SCEN"},
     "worldspace": {"WRLD"},
+    "imagespacemodifier": {"IMAD"},
+    "voicetype": {"VTYP"},
+    "wwiseevent": {"WWED"},
     "form": {
         "MISC", "ALCH", "AMMO", "ARMO", "ARMA", "OTFT", "WEAP", "ACTI", "FURN", "STAT",
         "CONT", "DOOR", "HAZD", "AVIF", "GLOB", "PERK", "QUST", "FACT", "FLST",
         "MESG", "KYWD", "SPEL", "NPC_", "REFR", "ACHR", "ENCH", "MGEF",
-        "WATR", "COBJ", "BPTD", "SCEN", "RACE", "VTYP", "PACK",
+        "WATR", "COBJ", "BPTD", "SCEN", "RACE", "VTYP", "PACK", "IMAD",
     },
 }
 
@@ -352,6 +410,8 @@ MUTAGEN_CLASS_TO_TYPE: Dict[str, str] = {
     "Container": "CONT",
     "Outfit": "OTFT",
     "Package": "PACK",
+    "ImageSpaceAdapter": "IMAD",
+    "Static": "STAT",
 }
 
 
@@ -399,7 +459,7 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
         or re.search(r'DefaultPlugin\s*=\s*"([^"]+\.esm)"', body)
     )
     own_plugin = m_plg.group(1) if m_plg else ""
-    m_scr = re.search(r'ScriptName\s*=\s*"([^"]+)"', body)
+    m_scr = re.search(r'ScriptName\s*=\s*"([^"]+)"', body) or re.search(r'QuestScript\s*=\s*"([^"]+)"', body)
     default_script = m_scr.group(1) if m_scr else ""
     if not own_plugin or not default_script:
         return []
@@ -506,6 +566,18 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
         cid = _parse_int_literal(id_tok, uint_consts)
         if cid is not None:
             local_formkey_vars[vname] = (own_plugin, cid)
+    for m_pl in re.finditer(
+        r'(?:var\s+)?(\w+)\s*=\s*(?:PlaceNpc|PlaceObj)\(\s*modKey\s*,\s*([A-Za-z0-9_xX]+)\s*,',
+        body,
+    ):
+        vname, id_tok = m_pl.groups()
+        cid = _parse_int_literal(id_tok, uint_consts)
+        if cid is not None:
+            local_formkey_vars[vname] = (own_plugin, cid)
+    if own_plugin == "FO4SFPrewar.esm":
+        local_formkey_vars.setdefault("quest", (own_plugin, uint_consts.get("QuestId", 0x800)))
+        local_formkey_vars.setdefault("activeGlob", (own_plugin, uint_consts.get("StageActiveGlobId", 0x82A)))
+        local_formkey_vars.setdefault("kelloggScene", (own_plugin, uint_consts.get("VoiceStartId", 0x900)))
 
     bindings: List[VmadPropBinding] = []
 
@@ -539,13 +611,17 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
             return (modkey_aliases[m_fk.group(1)], cid) if cid is not None else None
         return None
 
-    for m in re.finditer(r'(SanctuaryObjProp|CodsworthProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
-        helper_name, pname, fk_expr = m.group(1), m.group(2), m.group(3)
+    m_standin_scr = re.search(r'StandInsScript\s*=\s*"([^"]+)"', body)
+    standin_script = m_standin_scr.group(1) if m_standin_scr else ""
+    for m in re.finditer(r'(?:(\w+)\.Properties\.Add\(\s*)?(SanctuaryObjProp|CodsworthProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
+        target_entry, helper_name, pname, fk_expr = m.group(1) or "", m.group(2), m.group(3), m.group(4)
         if not pname:
             continue
         res = resolve_fk(fk_expr)
         if res is not None:
-            if helper_name == "SanctuaryObjProp":
+            if target_entry == "standInScript" and standin_script:
+                scr = standin_script
+            elif helper_name == "SanctuaryObjProp":
                 scr = sanctuary_script
             elif helper_name == "CodsworthProp":
                 scr = codsworth_script
@@ -1121,6 +1197,72 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xBE3, "NPC_", "FO4SF_S3_BloatflyNpc"),
             (0xBE4, "ARMO", "FO4SF_S6_SettlerClothes_StandIn"),
             (0xBE5, "OTFT", "FO4SF_S6_SettlerOutfit_StandIn"),
+        ):
+            records[cid] = (rt, ed)
+    if plugin == "FO4SFPrewar.esm":
+        for cid, (rt, ed) in (
+            (0x800, ("QUST", "FO4SF_PrewarQuest")),
+            (0x801, ("RACE", "FO4SF_PrewarCodsworthRace")),
+            (0x802, ("BPTD", "FO4SF_PrewarCodsworthBPTD")),
+            (0x803, ("NPC_", "FO4SF_PrewarCodsworthNPC")),
+            (0x804, ("ACHR", "FO4SF_PrewarCodsworthRef")),
+            (0x805, ("NPC_", "FO4SF_PrewarSpouseMaleNPC")),
+            (0x806, ("NPC_", "FO4SF_PrewarSpouseFemaleNPC")),
+            (0x807, ("ACHR", "FO4SF_PrewarSpouseRef")),
+            (0x808, ("NPC_", "FO4SF_PrewarVaultTecRepNPC")),
+            (0x809, ("ACHR", "FO4SF_PrewarVaultTecRepRef")),
+            (0x80A, ("NPC_", "FO4SF_PrewarSoldierCheckerNPC")),
+            (0x80B, ("ACHR", "FO4SF_PrewarSoldierCheckerRef")),
+            (0x80C, ("NPC_", "FO4SF_PrewarVaultDoctorNPC")),
+            (0x80D, ("ACHR", "FO4SF_PrewarVaultDoctorRef")),
+            (0x80E, ("NPC_", "FO4SF_PrewarKelloggNPC")),
+            (0x80F, ("ACHR", "FO4SF_PrewarKelloggRef")),
+            (0x810, ("NPC_", "FO4SF_PrewarInstAgentMNPC")),
+            (0x811, ("ACHR", "FO4SF_PrewarInstAgentMRef")),
+            (0x812, ("NPC_", "FO4SF_PrewarInstAgentFNPC")),
+            (0x813, ("ACHR", "FO4SF_PrewarInstAgentFRef")),
+            (0x814, ("FACT", "FO4SF_PrewarFaction")),
+            (0x815, ("FACT", "FO4SF_PrewarCrowdFaction")),
+            (0x816, ("NPC_", "FO4SF_PrewarCrowdRunnerNPC")),
+            (0x817, ("ACHR", "FO4SF_PrewarCrowdRunner01Ref")),
+            (0x818, ("ACHR", "FO4SF_PrewarCrowdRunner02Ref")),
+            (0x819, ("ACHR", "FO4SF_PrewarCrowdRunner03Ref")),
+            (0x81A, ("ACHR", "FO4SF_PrewarCrowdRunner04Ref")),
+            (0x81B, ("REFR", "FO4SF_PrewarVertibird01Ref")),
+            (0x81C, ("REFR", "FO4SF_PrewarVertibird02Ref")),
+            (0x81D, ("REFR", "FO4SF_PrewarExtLiftPlatformRef")),
+            (0x81E, ("REFR", "FO4SF_PrewarNukeAnchorRef")),
+            (0x81F, ("REFR", "FO4SF_PrewarVaultArrivalMarker")),
+            (0x820, ("REFR", "FO4SF_PrewarKelloggMarkRef")),
+            (0x821, ("REFR", "FO4SF_PrewarSpousePodMarkRef")),
+            (0x822, ("REFR", "FO4SF_PrewarPlayerPodMarkRef")),
+            (0x823, ("REFR", "FO4SF_PrewarCrowdGoalMarkRef")),
+            (0x824, ("REFR", "FO4SF_PrewarHouseSpawnMarker")),
+            (0x825, ("GLOB", "FO4SF_PrewarUseMessageBoxGlob")),
+            (0x826, ("CELL", "FO4SF_PrewarHoldingCell")),
+            (0x827, ("STAT", "FO4SF_PrewarVertibirdBase")),
+            (0x828, ("ACTI", "FO4SF_PrewarExtLiftBase")),
+            (0x829, ("OTFT", "FO4SF_PrewarCodsworthOutfit")),
+            (0x82A, ("GLOB", "FO4SF_PrewarStageActiveGlob")),
+            (0x82B, ("REFR", "FO4SF_PrewarInstMalePodMarkRef")),
+            (0x82C, ("REFR", "FO4SF_PrewarInstFemalePodMarkRef")),
+            (0x82D, ("REFR", "FO4SF_PrewarCrowdBridgeMarkRef")),
+            (0x82E, ("NPC_", "FO4SF_PrewarBroadcastNPC")),
+            (0x82F, ("ACHR", "FO4SF_PrewarBroadcastRef")),
+            (0x830, ("ACHR", "FO4SF_PrewarSpouseMaleRef")),
+            (0x831, ("REFR", "FO4SF_PrewarVertibird01HoverMarkRef")),
+            (0x832, ("REFR", "FO4SF_PrewarVertibird02HoverMarkRef")),
+            (0x833, ("ARMO", "FO4SF_PrewarVaultSuitStandIn")),
+            (0x8E9, ("VTYP", "FO4SF_PrewarRepVoice")),
+            (0x8EA, ("VTYP", "FO4SF_PrewarBroadcastVoice")),
+            (0x8EB, ("VTYP", "FO4SF_PrewarSoldierVoice")),
+            (0x8EC, ("VTYP", "FO4SF_PrewarDoctorVoice")),
+            (0x8ED, ("VTYP", "FO4SF_PrewarMaleVoice")),
+            (0x8EE, ("VTYP", "FO4SF_PrewarFemaleVoice")),
+            (0x8F0, ("VTYP", "FO4SF_PrewarCodsworthVoice")),
+            (0x8F1, ("ARMO", "FO4SF_PrewarCodsworthSkin")),
+            (0x8F2, ("ARMA", "FO4SF_PrewarCodsworthAA")),
+            (0x900, ("SCEN", "FO4SF_PrewarKelloggPodScene")),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":
