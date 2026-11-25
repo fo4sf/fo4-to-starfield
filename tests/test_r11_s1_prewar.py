@@ -209,6 +209,8 @@ class R11S1PrewarTests(unittest.TestCase):
         self.assertIn("fo4_vault111", by_id)
         pre = by_id["fo4_prewar_sanctuary"]
         self.assertEqual(pre["mode"], "story")
+        self.assertEqual(pre["start_variant"], "normal")
+        self.assertEqual(by_id["fo4_vault111"]["start_variant"], "quick")
         self.assertEqual(pre["plugin"], "FO4SFPrewar.esm")
         self.assertEqual(pre["space"], "FO4SF_PrewarSanctuaryWorld")
         self.assertEqual(pre["marker_edid"], "FO4SF_PrewarHouseSpawnMarker")
@@ -261,7 +263,9 @@ class R11S1PrewarTests(unittest.TestCase):
                 warfare_starts_path=str(ws_path),
                 nonce="test_nonce",
             )
+            self.assertEqual(payload["schema_version"], 2)
             self.assertEqual(payload["place_id"], "fo4_prewar_sanctuary")
+            self.assertEqual(payload["start_variant"], "normal")
             self.assertEqual(payload["mode"], "story")
 
             # Without FO4SFPrewar.esm loaded, base start_places resolves only fo4_vault111 cleanly

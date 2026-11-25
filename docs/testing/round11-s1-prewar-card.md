@@ -1,26 +1,26 @@
 # Round 13 — Story Mission 1 (`S1` Pre-War Sanctuary + Vault 111 Interior) Verification Card
 
-> - **Probe ID / Folder:** `r13-s1-prewar` (`<stage-dir>/r13-s1-prewar`, stacked on `candidate-2h-2` + `#860` `r13-start-menus` `FO4SFPipboyMenu.dll`; **`NEW GAME needed`** — never reuse any save from earlier profiles or `r11-s1-prewar`)
+> - **Probe ID / Folder:** `r13-s1-prewar` (`<stage-dir>/r14-s1-prewar`, stacked on `candidate-2h-2` + `#860` `r14-start-menus` `FO4SFPipboyMenu.dll`; **`NEW GAME needed`** — never reuse any save from earlier profiles or `r11-s1-prewar`/`r13-s1-prewar`)
 > - **Stage Placeholders:** `<stage-dir>` (staged probe root), `<starfield-dir>` (game root), `<fo4-data>` (Fallout 4 `Data`), `<baseline-dir>` (`candidate-2h-2`), `<localappdata>` (Windows `%LOCALAPPDATA%`), `<exp-test-dir>` (test/capture output)
-> - **Disk Need & Game State:** `Starfield.exe` closed (`0` processes), `>= 60.0 GB` free before staging/install (`manifest.json`: `623,351 B`, SHA-256 `415d1df342a1584cd987383fe347a4e1d0b22f0ef614933ff2be39f5afb2daae`, `173` staged files verified)
+> - **Disk Need & Game State:** `Starfield.exe` closed (`0` processes), `>= 60.0 GB` free before staging/install (`manifest.json`: `623,352 B`, SHA-256 `36f0385b46846e9c8fe3e8a0cf93f446cfad0c23df29f7233a91edc281b82b53`, `173` staged files verified)
 > - **Starfield UI Stand-In Rule (`#32` / `7143411698`):** Starfield-hosted setup/Chargen/MessageBox/S.P.E.C.I.A.L. screens are **Starfield UI stand-ins — judge Starfield screens on function only** (clean open/close, button selection, no frozen veil, no Starfield world behind Warfare menus). Animations and custom gun sound banks are **out of scope**.
 > - **Truth Policy (`R8` / `R15`):** All `S1` Pre-War stages, voices, navmeshes, doors, weather, and Vault 111 entry are **`OFFLINE ONLY — UNPROVEN IN GAME`** until the owner runs live verification against `candidate-2h-2` and records `VIDEO`. Zero `FO4SF ` prefix or `(Stand-In)` tag in any player-facing `FULL` record.
 
 ---
 
-## Staged Artifact Summary (`r13-s1-prewar`)
+## Staged Artifact Summary (`r14-s1-prewar`)
 
 | Artifact (Relative to `<stage-dir>`) | Origin / Build Role | Size / SHA-256 | Scope & `S1-01..S1-16` Gates |
 |---|---|---|---|
 | `Data/FO4Port.esm` (+ `- Main.ba2`, `- Textures.ba2`) | Slot 1 `candidate-2h-2` `FO4Port.esm` (`8163ca9a7187...`) + `vault111_append` in-place (`S1-08`) | `4,628,589 B` / `d9cbde3793dde38a9b86e2894835c1fe322288cbdd035b07e949862a0d280c74` (Main `117,755,711 B` `064c7624...`; Tex `2,289,478,621 B` `f4664dd0...`) | Reuses Slot 1 `FO4Port_PrewarVault111` (`0x0100EDFB`) — appends `427 temp REFR + 2 NAVM` (`0x0100EFAB`, `0x0100EFAC`; `58,571` preserved, `2` appended, `0` clone of `0x0100EFAB`) |
 | `Data/FO4SFHome.esm` (+ `- Main.ba2`, `- Textures.ba2`) | Reused `w-home-v2` Earth host world | `8,763 B` / `153269f38fc6830e80ebfa8b3e902081572938a8f085f2e934cbd68e742c840d` (Main `2,292 B` `25ad81af...`; Tex `961,356 B` `d3e34edc...`) | Hosts `FO4SF_EarthPlanetData` (`0x01000805`), `FO4SFHomeClimate` (`0x01000808`), `FO4SFHomeDryWater` (`0x0100080C`), `FO4SFHomeBiome` (`0x01000806`) |
-| `Data/FO4SFPrewar_Sanctuary.esm` (+ `.btd`, `- Main.ba2`, `- Textures.ba2`) | Stripped FO4 `SanctuaryHillsWorld` (`S1-04`, `S1-11`, `S1-14`) | `509,694 B` / `45130ddbdbfdb2d82f6837033e9465c6bf7c15aa68a356914108153f7f5618ed` (`.btd` `329,679 B` `34087927...`; Main `14,036,781 B` `44333a94...`, `2,211` entries; Tex `701,161,040 B` `24eed679...`, `1,434` entries) | `59` SF `NAVM`s (`1` `NAVI` override), `4` rigged `DOOR` records (`222` rigged door NIFs), self-owned `WTHR` (`1`) + `CLMT` (`1`) (`FO4SF_PrewarClearWeather` / `FO4SF_PrewarSanctuaryClimate`, `0` Starfield sky refs) |
+| `Data/FO4SFPrewar_Sanctuary.esm` (+ `.btd`, `- Main.ba2`, `- Textures.ba2`) | Stripped FO4 `SanctuaryHillsWorld` (`S1-04`, `S1-11`, `S1-14`) | `509,694 B` / `45130ddbdbfdb2d82f6837033e9465c6bf7c15aa68a356914108153f7f5618ed` (`.btd` `329,679 B` `34087927...`; Main `14,036,781 B` `44333a94...`, `2,211` entries; Tex `701,122,336 B` `1965b273...`, `1,435` entries) | `59` SF `NAVM`s (`1` `NAVI` override), `4` rigged `DOOR` records (`222` rigged door NIFs), self-owned `WTHR` (`1`) + `CLMT` (`1`) (`FO4SF_PrewarClearWeather` / `FO4SF_PrewarSanctuaryClimate`, `0` Starfield sky refs) |
 | `Data/FO4SFPrewar_Sanctuary_Home.esm` | Coordinated Home registration (`S1-07`) | `1,039 B` / `842b8ceb0ff710a1ae520d1454c11521f3a0f6e9050c390b0e7244755fd8cf11` | Combined `PNDT 0x805` registering both `FO4SFHomeWorld` (`FO4SFHome.esm`) + `FO4SF_PrewarSanctuaryWorld`; coexists with `FO4TerrainCore_Home.esm` |
-| `Data/FO4SFPrewar.esm` (+ `- Main.ba2`) | `dotnet/Prewar` + `2` PEX + `31` wired `.wem`s + `132` E2 Mr. Handy assets (`S1-01`, `S1-02`, `S1-05`, `S1-06`, `S1-09`, `S1-12`, `S1-13`, `S1-15`, `S1-16`) | `47,185 B` / `8ee3d9c97f51b67e530a3bce8654e14dc5e03481073760779a24d76e3505b886` (Main `2,124,811 B` `51491429...`, `165` entries) | `6` real `SCEN` (`31` `DIAL`/`INFO`, `31` wired `.wem`s, `0` `mq101_pool` files); female `ACBS` bit (`0x806`, `0x80C`, `0x812`) + verified `OTFT` stand-ins + `GetSex()` spouse swap; `WRLD 0x02000803` `SNAM 0x000F04F2` & `PNAM 1` preserved; `WWED` stand-ins (`0x030A99`/`0x030A9C` siren, `0x2B16D7` flyby, `0x17B6F0` blast, `0x23AF77` gunshot); Vault 111 Suit stand-in (`0x833`) at stage `40`; `z = -0.11` lower elevator arrival (`int_elevator_base`) |
-| `Data/FO4SFNewGame.esm` (+ `- Main.ba2`) | `dotnet/NewGame` (`--cog-door`, `--exit-lift`, `--no-fade-hold`, `--start-choice-backdrop empty_cell`, `S1-03`, `S1-15`) | `13,693 B` / `54922b226f1de2531b84b50f03995f3bae95e416836f648367dbd6c25a1a18b8` (Main `692,283 B` `06ad764b...`, `143` entries) | Non-zero `CogDoorId=4717`, `LiftId=5656`, `LiftBaseId=57574`; `FadeHold=False`, `StartChoiceBackdrop=1`; `FO4SF_NewGame` stays `< 10` (`stage == 5`) while Pre-War runs |
+| `Data/FO4SFPrewar.esm` (+ `- Main.ba2`) | `dotnet/Prewar` + `2` PEX + `31` wired `.wem`s + `132` E2 Mr. Handy assets (`S1-01`, `S1-02`, `S1-05`, `S1-06`, `S1-09`, `S1-12`, `S1-13`, `S1-15`, `S1-16`) | `47,185 B` / `8ee3d9c97f51b67e530a3bce8654e14dc5e03481073760779a24d76e3505b886` (Main `2,124,796 B` `d3152474...`, `165` entries) | `6` real `SCEN` (`31` `DIAL`/`INFO`, `31` wired `.wem`s, `0` `mq101_pool` files); female `ACBS` bit (`0x806`, `0x80C`, `0x812`) + verified `OTFT` stand-ins + `GetSex()` spouse swap; `WRLD 0x02000803` `SNAM 0x000F04F2` & `PNAM 1` preserved; `WWED` stand-ins (`0x030A99`/`0x030A9C` siren, `0x2B16D7` flyby, `0x17B6F0` blast, `0x23AF77` gunshot); Vault 111 Suit stand-in (`0x833`) at stage `40`; `z = -0.11` lower elevator arrival (`int_elevator_base`) |
+| `Data/FO4SFNewGame.esm` (+ `- Main.ba2`) | `dotnet/NewGame` (`--cog-door`, `--exit-lift`, `--no-fade-hold`, `--start-choice-backdrop empty_cell`, `S1-03`, `S1-15`) | `13,689 B` / `fb5aa977fedd56d87d0708b7def36813793b6f994c80cc7898719db77ffc747f` (Main `692,026 B` `28dccd3d...`, `143` entries) | Non-zero `CogDoorId=4717`, `LiftId=5656`, `LiftBaseId=57574`; `FadeHold=False`, `StartChoiceBackdrop=1`; `FO4SF_NewGame` stays `< 10` (`stage == 5`) while Pre-War runs; `"Use preset look"` pod button (`#860`) |
 | `Data/FO4SFVaultGearDoor.esm` & `Data/FO4SFExitLift.esm` (+ BA2 assets) | Staged `01-cog-door` / `02-exit-lift` dependencies (`S1-03`) | `597 B` `7aada8ba...` / `590 B` `34d0db71...` | Activated before `FO4SFNewGame.esm`; geometries/materials/meshes packed in `FO4SFNewGame - Main.ba2` |
-| `Data/SFSE/Plugins/FO4SFPipboyMenu.dll` & `.ini` | Byte-identical reuse from `#860` (`r13-start-menus`) | `1,492,992 B` / `c0e232b95fb6a31f1959d02bb529701b41d4e2f6e62dc268739a6e75534b8767` (`.ini` `2,232 B` `6b502315...`) | Consume-and-delete `launch_choices.json`, clean Story/Warfare routing |
-| `Data/SFSE/Plugins/FO4SFStartPlaces.json` & `FO4SFWarfareStarts.json` | Enables `fo4_prewar_sanctuary` (`Sanctuary Hills (Pre-War)`) + preserves `fo4_vault111` (`Vault 111 (Skip Pre-War)`) | `16,272 B` `98b96ed6...` / `6,019 B` `db86caea...` | `5` available starts (`fo4_prewar_sanctuary`, `fo4_vault111`, `minutemen_sanctuary`, `gunners_plaza`, `raiders_corvega`) |
+| `Data/SFSE/Plugins/FO4SFPipboyMenu.dll` & `.ini` | Byte-identical reuse from `#860` (`r14-start-menus`) | `1,507,840 B` / `9de197f400fdfe8b1b21b5d7710daa15b64d3e5163c4a92f13e2bf2659d04615` (`.ini` `2,232 B` `6b502315...`) | Consume-and-delete `launch_choices.json` (`schema_version = 2`), table-backed `start_variant` + loaded-plugin validation, clean Story/Warfare routing |
+| `Data/SFSE/Plugins/FO4SFStartPlaces.json` & `FO4SFWarfareStarts.json` | Enables `fo4_prewar_sanctuary` (`start_variant=normal`, `Sanctuary Hills (Pre-War)`) + preserves `fo4_vault111` (`start_variant=quick`, `Vault 111 (Skip Pre-War)`) | `18,365 B` `78610cec...` / `6,019 B` `db86caea...` | `5` available starts (`fo4_prewar_sanctuary`, `fo4_vault111`, `minutemen_sanctuary`, `gunners_plaza`, `raiders_corvega`) |
 
 ---
 
@@ -28,13 +28,13 @@
 
 1. **Install atomically (`Starfield.exe` closed, `>= 60 GB` free):**
    ```powershell
-   python scripts/probes/stage_r11_s1_prewar.py install --dir <stage-dir>/r13-s1-prewar --starfield <starfield-dir> --card docs/testing/round11-s1-prewar-card.md
+   python scripts/probes/stage_r11_s1_prewar.py install --dir <stage-dir>/r14-s1-prewar --starfield <starfield-dir> --card docs/testing/round11-s1-prewar-card.md
    ```
-2. **Select Pre-War Story Start before launch (`launch-choices`):**
+2. **Select Pre-War Story Start before launch (`launch-choices`, `schema_version = 2`):**
    ```powershell
-   python scripts/launcher.py launch-choices --mode story --place fo4_prewar_sanctuary --survival off --write
+   python scripts/launcher.py launch-choices --mode story --variant normal --place fo4_prewar_sanctuary --survival off --write
    ```
-   *(To verify `Skip Pre-War` preservation, write `--place fo4_vault111 --survival off --write` on a fresh New Game.)*
+   *(To verify `Skip Pre-War` preservation, write `--variant quick --place fo4_vault111 --survival off --write` on a fresh New Game.)*
 3. **Starfield UI & Sound Disclosure (`#32`, `S1-01`, `S1-16`):**
    - Variant (a) Skip Pre-War / Setup / S.P.E.C.I.A.L. / Looks prompts use Starfield MessageBox/Chargen stand-in menus (judge on clean functional choice & close).
    - Siren, Vertibird flyby, nuclear blast, and cryo-pod gunshot use Starfield `WWED` audio stand-ins; Vault 111 suit uses cloned Starfield jumpsuit (`0x833`, `FULL` `"Vault 111 Suit"`).
@@ -71,7 +71,7 @@
 |---|---|---|---|---|
 | **Robot animations & Codsworth** | `#854` (`claude/robot-anim`) | Partial pass: FO4 Mr. Handy body + animations; 4-line Sanctuary talk (`completed=true`, `fallback=0`) | **`built in`** (`132` E2 Mr. Handy rig/behavior/mesh/animation files packed directly into `Data/FO4SFPrewar - Main.ba2` for `FO4SF_PrewarCodsworthNPC` / `FO4SF_PrewarCodsworthScene`) | Reused read-only; no E2 edits |
 | **Creature animations** | `#855` (`claude/creature-anim`) | Partial: radroach & deathclaw idles moved in game; walk/attack/death unverified | **`not applicable`** (`creature-slots.json` untouched; Pre-War `S1` contains zero hostile FO4 creatures) | Out of scope for `S1` Pre-War |
-| **Human animations** | `#856` (`claude/human-anim`) | Partial: surrender idle played; walk & 1stP gun unverified | **`gated`** (`--fo4-human-anims` stays OFF in `r13-s1-prewar` so NPC/Kellogg `SCEN` validation never depends on unverified locomotion) | Matches owner `#856` gate |
+| **Human animations** | `#856` (`claude/human-anim`) | Partial: surrender idle played; walk & 1stP gun unverified | **`gated`** (`--fo4-human-anims` stays OFF in `r14-s1-prewar` so NPC/Kellogg `SCEN` validation never depends on unverified locomotion) | Matches owner `#856` gate |
 | **Gun moving parts** | `#32` (`gunpart-slide-vanilla-vs-ours-1123.jpg`) | Proved `Gun_*.af` moves `XM2311` slide nodes | **`not applicable`** (`S1` Pre-War player never draws custom FO4 firearms; Vault 111 Suit & Kellogg scene do not depend on FO4 gun moving parts) | Guns ship separately |
 | **Gun sounds** | `#32` (`sound-bank-study`) | **ON HOLD:** Hand-made bank (`v174` vs SF `v140`) silent | **`not applicable`** (Pre-War uses Starfield `WWED` stand-ins for siren/flyby/blast/gunshot and `31` wired `.wem` voices only) | Custom Wwise soundbanks remain **`gated`** |
 

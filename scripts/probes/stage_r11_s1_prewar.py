@@ -246,6 +246,7 @@ def build_s1_start_places_doc(base_start_places_path: Path) -> Dict[str, Any]:
     prewar_row: Dict[str, Any] = {
         "id": "fo4_prewar_sanctuary",
         "mode": "story",
+        "start_variant": "normal",
         "story_id": "fo4_commonwealth",
         "story_label": "Fallout 4: Commonwealth",
         "faction_slot": -1,
@@ -254,7 +255,12 @@ def build_s1_start_places_doc(base_start_places_path: Path) -> Dict[str, Any]:
         "space": "FO4SF_PrewarSanctuaryWorld",
         "is_interior": False,
         "plugin": "FO4SFPrewar.esm",
-        "required_plugins": ["FO4SFPrewar_Sanctuary.esm", "FO4SFPrewar.esm"],
+        "required_plugins": [
+            "FO4SFPrewar_Sanctuary.esm",
+            "FO4SFPrewar.esm",
+            "FO4SFNewGame.esm",
+            "FO4SFCoreValues.esm",
+        ],
         "marker_edid": "FO4SF_PrewarHouseSpawnMarker",
         "anchor_edid": "FO4SF_PrewarHouseSpawnMarker",
         "pos": list(_ANC_HOUSE),
