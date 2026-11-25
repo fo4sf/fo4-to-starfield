@@ -65,17 +65,31 @@ def tangent_signs(positions, uvs, normals, tangents, triangles):
     return [1 if s is None else s for s in sign]
 
 
-def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfmesh.SfMesh:
+def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE,
+                  normal_offset_m: float = 0.0) -> sfmesh.SfMesh:
     if not math.isfinite(shape.scale) or shape.scale <= 0:
         raise nifmod.NifError(f"shape scale must be a finite positive number, got {shape.scale}")
     pts = []
     r = shape.rotation
-    for x, y, z in shape.positions:
+
+    def rot_dir(v):                                   # directions take the rotation only (uniform scale), renormalised
+        d = (r[0] * v[0] + r[1] * v[1] + r[2] * v[2], r[3] * v[0] + r[4] * v[1] + r[5] * v[2],
+             r[6] * v[0] + r[7] * v[1] + r[8] * v[2])
+        ln = (d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5 or 1.0
+        return (d[0] / ln, d[1] / ln, d[2] / ln)
+
+    normals = [rot_dir(v) for v in shape.normals]
+    for i, (x, y, z) in enumerate(shape.positions):
         # NIF rotation is row-major; apply scale, rotation and translation of the shape node
-        px = shape.scale * (r[0] * x + r[1] * y + r[2] * z) + shape.translation[0]
-        py = shape.scale * (r[3] * x + r[4] * y + r[5] * z) + shape.translation[1]
-        pz = shape.scale * (r[6] * x + r[7] * y + r[8] * z) + shape.translation[2]
-        pts.append((px * unit_scale, py * unit_scale, pz * unit_scale))
+        px = (shape.scale * (r[0] * x + r[1] * y + r[2] * z) + shape.translation[0]) * unit_scale
+        py = (shape.scale * (r[3] * x + r[4] * y + r[5] * z) + shape.translation[1]) * unit_scale
+        pz = (shape.scale * (r[6] * x + r[7] * y + r[8] * z) + shape.translation[2]) * unit_scale
+        if normal_offset_m:
+            nx, ny, nz = normals[i] if i < len(normals) else (0.0, 0.0, 1.0)
+            px += nx * normal_offset_m
+            py += ny * normal_offset_m
+            pz += nz * normal_offset_m
+        pts.append((px, py, pz))
     if not pts or not all(math.isfinite(c) for p in pts for c in p):
         raise nifmod.NifError("shape positions are empty or non-finite after transform")
     m = sfmesh.SfMesh(version=2)
@@ -83,12 +97,6 @@ def shape_to_mesh(shape: nifmod.Fo4Shape, unit_scale: float = UNIT_SCALE) -> sfm
     m.triangles = [tuple(t) for t in shape.triangles]
     if shape.uvs:
         m.uv1 = [(sfmesh.float_to_half(u), sfmesh.float_to_half(v)) for u, v in shape.uvs]
-    def rot_dir(v):                                   # directions take the rotation only (uniform scale), renormalised
-        d = (r[0] * v[0] + r[1] * v[1] + r[2] * v[2], r[3] * v[0] + r[4] * v[1] + r[5] * v[2],
-             r[6] * v[0] + r[7] * v[1] + r[8] * v[2])
-        ln = (d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5 or 1.0
-        return (d[0] / ln, d[1] / ln, d[2] / ln)
-    normals = [rot_dir(v) for v in shape.normals]
     tangents = [rot_dir(v) for v in shape.tangents]
     if normals:
         m.normals = [sfmesh.encode_packed(*n, w=1.0 / 3.0) for n in normals]
@@ -322,7 +330,7 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
                    material_paths: list = None, collision_mode: str = "box",
                    include_skinned: bool = False, report: dict = None, sf_mesh_template: bytes = None,
                    allow_guess: bool = True, dynamic_template: bytes = None, pose: dict = None,
-                   mass_scale: float = 1.0) -> Dict[str, bytes]:
+                   mass_scale: float = 1.0, shape_offsets_m: list = None) -> Dict[str, bytes]:
     """collision_mode: "box" = one AABB on the root; "surfaces" = thin boxes behind flat surfaces, one body each.
     sf_mesh_template: a vanilla Starfield mesh-collision blob; when given, FO4's own collision mesh is transplanted
     (meshcollision.transplant) and the box methods are only the fallback.
@@ -332,7 +340,8 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     and BSXFlags is 0x42 as on vanilla MiscItems; the caller places them as MoveableStatic (report["motion"]).
     pose: {node block: local transform} replacing those nodes' own transforms (ragdoll_pose.local_overrides: a placed
     reference's XRGD ragdoll pose). Shapes under those nodes, skinned shapes and collision bodies are all built in that
-    pose; the result is a model for that reference only (placed_pose)."""
+    pose; the result is a model for that reference only (placed_pose).
+    shape_offsets_m: optional per-shape vertex normal offset in metres (e.g. planar surface decals)."""
     mass_scale = require_mass_scale(mass_scale)
     src = nifmod.parse(fo4_nif)
     shapes = [s for s in nifmod.fo4_trishapes(src, placed=True, local_overrides=pose)
@@ -345,7 +354,8 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     for i, s in enumerate(shapes):
         if material_paths and material_paths[i] is None:      # caller asked to drop this shape (e.g. effect shader)
             continue
-        m = shape_to_mesh(s, unit_scale)
+        offset_m = shape_offsets_m[i] if shape_offsets_m and i < len(shape_offsets_m) else 0.0
+        m = shape_to_mesh(s, unit_scale, normal_offset_m=offset_m)
         data = sfmesh.serialize(m)
         d, f = mesh_file_path(data)
         files[f"geometries/{d}/{f}.mesh"] = data

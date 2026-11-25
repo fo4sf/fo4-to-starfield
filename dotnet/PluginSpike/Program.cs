@@ -308,11 +308,57 @@ foreach (var cdoc in cellDocs)
     var omni = new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "OMNI_LIGHT", "03D38C"), 16)); // LGT_ShipInterior_Omni_NS_Neutral_2k
     var merge = float.Parse(Setting(src4, "LIGHT_MERGE_M", "3"), System.Globalization.CultureInfo.InvariantCulture);
     var lit = new List<P3Float>();
+    var resolveEnableParents = FileSetting(src4, "RESOLVE_ENABLE_PARENTS") == "1";
+    var dedupExactRefs = FileSetting(src4, "DEDUP_EXACT_REFS") == "1";
+    var effectiveDisabled = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+    if (resolveEnableParents)
+    {
+        var rawDisabled = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var parentOf = new Dictionary<string, (string parentFk, uint flags)>(StringComparer.OrdinalIgnoreCase);
+        void CollectState(JsonElement arr)
+        {
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (!item.TryGetProperty("formkey", out var fkEl) || fkEl.GetString() is not string fk) continue;
+                rawDisabled[fk] = item.TryGetProperty("disabled", out var dEl) && dEl.GetInt32() != 0;
+                if (item.TryGetProperty("enable_parent", out var epEl) && epEl.ValueKind == JsonValueKind.Object &&
+                    epEl.TryGetProperty("reference", out var prEl) && prEl.GetString() is string pfk)
+                {
+                    var epFlags = epEl.TryGetProperty("flags", out var flEl) ? flEl.GetUInt32() : 0u;
+                    parentOf[fk] = (pfk, epFlags);
+                }
+            }
+        }
+        CollectState(root.GetProperty("refs"));
+        if (root.TryGetProperty("deferred_refs", out var defEl) && defEl.ValueKind == JsonValueKind.Array)
+            CollectState(defEl);
+        var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool EvalDisabled(string fk)
+        {
+            if (effectiveDisabled.TryGetValue(fk, out var cached)) return cached;
+            var res = rawDisabled.TryGetValue(fk, out var rd) && rd;
+            if (!visiting.Add(fk)) return res;
+            if (parentOf.TryGetValue(fk, out var ep) && rawDisabled.ContainsKey(ep.parentFk))
+            {
+                bool parentDisabled = EvalDisabled(ep.parentFk);
+                bool opposite = (ep.flags & 1u) != 0u;
+                res = opposite ? !parentDisabled : parentDisabled;
+            }
+            visiting.Remove(fk);
+            effectiveDisabled[fk] = res;
+            return res;
+        }
+        foreach (var fk in rawDisabled.Keys.ToList()) EvalDisabled(fk);
+    }
+    var seenPlacements = dedupExactRefs ? new HashSet<string>(StringComparer.Ordinal) : null;
     int lights = 0, placed = 0, skipped = 0, disabled = 0, openDoors = 0, lockedDoors = 0, placedPosed = 0;
     foreach (var r in root.GetProperty("refs").EnumerateArray())
     {
         var src = r.GetProperty("formkey").GetString()!;
         var model = r.GetProperty("model").GetString() ?? "";
+        var isRefDisabled = resolveEnableParents
+            ? effectiveDisabled.GetValueOrDefault(src, false)
+            : (r.TryGetProperty("disabled", out var disPre) && disPre.GetInt32() != 0);
         PlacedObject? obj = null;
         if (r.GetProperty("base_editor_id").GetString() == "COCMarkerHeading")            // arrival point for `coc`
         {
@@ -322,6 +368,7 @@ foreach (var cdoc in cellDocs)
         else if (r.GetProperty("type").GetString() == "Light")
         {
             if (Environment.GetEnvironmentVariable("FO4PORT_NO_LIGHTS") == "1") continue;
+            if (resolveEnableParents && isRefDisabled) continue;
             var pos = Pos(r.GetProperty("pos"));
             if (lit.Any(q => Math.Abs(q.X - pos.X) < merge && Math.Abs(q.Y - pos.Y) < merge && Math.Abs(q.Z - pos.Z) < merge)) continue;
             lit.Add(pos);
@@ -342,10 +389,17 @@ foreach (var cdoc in cellDocs)
             var rot = Rot(r.GetProperty("rot"));
             var pos = Pos(r.GetProperty("pos"));
             var off = RotateOffset(bas.offset, rot, scale);
+            var finalPos = new P3Float(pos.X + off.X, pos.Y + off.Y, pos.Z + off.Z);
+            if (seenPlacements is not null && !isRefDisabled)
+            {
+                var dupSig = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"{bas.key.ModKey.FileName}|{bas.key.ID:X}|{MathF.Round(finalPos.X * 100f) + 0f}|{MathF.Round(finalPos.Y * 100f) + 0f}|{MathF.Round(finalPos.Z * 100f) + 0f}|{MathF.Round(rot.X * 100f) + 0f}|{MathF.Round(rot.Y * 100f) + 0f}|{MathF.Round(rot.Z * 100f) + 0f}|{MathF.Round(scale * 1000f) + 0f}");
+                if (!seenPlacements.Add(dupSig)) continue;
+            }
             obj = new PlacedObject(Id($"REFR:{cellName}:{src}"), release)
             {
                 Base = new FormLinkNullable<IPlaceableObjectGetter>(bas.key),
-                Position = new P3Float(pos.X + off.X, pos.Y + off.Y, pos.Z + off.Z),
+                Position = finalPos,
                 Rotation = rot,
             };
             if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
@@ -360,7 +414,7 @@ foreach (var cdoc in cellDocs)
                 if (r.TryGetProperty("lock_data", out var lk) && lk.ValueKind == JsonValueKind.Object) lockedDoors++;
             }
         }
-        if (r.TryGetProperty("disabled", out var dis) && dis.GetInt32() != 0)
+        if (isRefDisabled)
         {
             obj.MajorRecordFlagsRaw |= 0x800;                                              // Initially Disabled, as in FO4
             disabled++;
