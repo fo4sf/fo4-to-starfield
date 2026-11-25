@@ -230,7 +230,7 @@ casinos and Caravan (CSNO, CCRD, CDCK, CHIP)? And how do VATS-modifying FO3/NV p
 - Options: always Vault 111; chronological (FO3 2277, NV 2281, FO4 2287); player choice. One person with lore glue, one
   person with no lore claims, or a frame outside canon.
 - Answer by: owner decision plus a prototype arrival quest. Who: owner.
-- Blocks: Multi-game, New game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-8): "Vault 111, start-world hook built in" (as recommended). Before: open. (also: MS Q1, Q2)
+- Blocks: Multi-game, New game. Status: **Partially superseded (2026-11-24):** decided by owner, 2026-10-19 (page NG-8): `"Vault 111, start-world hook built in"`. The `"Vault 111 only"` portion is superseded by the 2026-11-24 two-starts-per-game decision ([#32 comment 7146850600](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146850600), [decisions.md](../../ai/decisions.md#2026-11-24-two-starts-for-every-game--normal-start-and-quick-start-owner-32)); **which game a multi-game playthrough starts in stays pending** under the story routes proposal ([#32 comment 7148051464](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7148051464)). (also: MS Q1, Q2)
 
 **MG-19. Do companions travel between worlds, and how do faction relations and story state carry over?**
 - Why it matters: Brotherhood exists in DC and Boston; NCR only in the West. TTW did not carry faction relations in 2014
@@ -308,7 +308,7 @@ about navmesh and doors?**
 - Why it matters: cheap now, costly to retrofit (MS Q3).
 - Options: add a parameter now; retrofit later.
 - Answer by: offline review of the new-game design. Who: offline research.
-- Blocks: New game, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-8): "Vault 111, start-world hook built in" (as recommended). Before: open.
+- Blocks: New game, Multi-game. Status: **Stands, and extended (2026-11-24):** decided by owner, 2026-10-19 (page NG-8): `"Vault 111, start-world hook built in"`. Stands and extended by 2026-11-24 decisions ([#32 comment 7146745853](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146745853), [#32 comment 7146850600](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146850600), [decisions.md](../../ai/decisions.md)): the start-world hook must run multi-stage start chains (such as Fallout 3 `CG01`–`CG04` rather than modelling on Vault 111) and support both a **normal** and **quick** start per game.
 
 ### Testing
 

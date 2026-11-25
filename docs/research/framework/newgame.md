@@ -92,11 +92,11 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   (dotnet/NewGame/Program.cs:267) and stands down when game days or level say it is not a new game
   (FO4SF_NewGameQuest.psc:149). Still open: does a newly added start-game quest start on an existing save in Starfield
   (CK wiki says yes for Skyrim)? GAME. Supported hypothesis. n03, n08.
-- **NG-A10. Choice hub or one fixed start?** *Status: decided by owner, 2026-10-19 (recommended kept): Vault 111 start with a start-world hook built in (page NG-8).* Live Another Life keeps the vanilla start as one option and lets the
+- **NG-A10. Choice hub or one fixed start?** *Status: decided by owner, 2026-10-19 (recommended kept): Vault 111 start with a start-world hook built in (page NG-8); updated 2026-11-24 (`#32` [7146850600](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146850600), [decisions.md](../../ai/decisions.md)): every game gets a Normal start and a Quick start (rename Vault 111 pod look-preset button so it does not collide with Quick start); multi-game starting game stays pending under story routes (`7148051464`).* Live Another Life keeps the vanilla start as one option and lets the
   choice change until it is final; Roleplayers' Alternate Start does the same in Starfield. OWNER (option D in
   docs/newgame/vault111-start.md). n01, n02.
 - **NG-A11. Design the start quest as a selector now (Vault 111 today; Far Harbor, Nuka-World or other Fallout starts
-  later)?** *Status: decided by owner, 2026-10-19 (recommended kept): Vault 111 start with a start-world hook built in (page NG-8).* Cheap now, costly later. OWNER. n02.
+  later)?** *Status: decided by owner, 2026-10-19 (recommended kept): Vault 111 start with a start-world hook built in (page NG-8); extended 2026-11-24 (`#32` [7146745853](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146745853), [7146850600](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146850600), [decisions.md](../../ai/decisions.md)): selector/hook accommodates Normal + Quick rows per game and multi-stage chains (FO3 `CG01`–`CG04`).* Cheap now, costly later. OWNER. n02.
 - **NG-A12. Failsafes: every way the player can skip the elevator exit (coc, tcl, fast travel) still ends in a sane
   state?** Live Another Life forces the main quest when the trigger is bypassed. OFF (state table and unittests), then
   GAME. n01.
