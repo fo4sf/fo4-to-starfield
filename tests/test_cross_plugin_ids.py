@@ -34,6 +34,7 @@ PROBE_SCRIPT_FILES = frozenset({
     "FO4SF_MarkerProbeQuest.psc",
     "FO4SF_AnimConsoleProbe.psc",
     "FO4SF_AnimDoorProbe.psc",
+    "FO4SF_TravelProbeQuest.psc",
 })
 
 
