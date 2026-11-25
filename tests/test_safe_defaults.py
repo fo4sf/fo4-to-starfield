@@ -282,7 +282,7 @@ class SafeDefaultsTests(unittest.TestCase):
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, "
             "warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
-            "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, "
+            "applied, pendingStage, pendingStageBy, looksSetStage20, prewarActive, exitUsedFallback, vaultMoves, centered, centerTries, "
             "ticks, startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, "
             "vaultSavingRelocked"
         )
@@ -325,7 +325,7 @@ class SafeDefaultsTests(unittest.TestCase):
             modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0, firstMessageDrawn=False,
             directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False, vaultSavingRelocked=False,
             preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
-            applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
+            applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False, prewarActive=False,
             exitUsedFallback=False, vaultMoves=1, centered=0, centerTries=0, ticks=0, startedAt=0.0,
             podChecked=False, rideActive=False, surfaceMovedAt=0.0, returnSurfacePending=False, asked=False,
             VaultAnchorId=0x805, VaultPlugin="FO4Port.esm", VaultCell="FO4Port_Vault111Cryo", CenterTicks=30,
