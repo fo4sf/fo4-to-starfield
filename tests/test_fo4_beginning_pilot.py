@@ -595,6 +595,98 @@ class BeginningPilotTests(unittest.TestCase):
             self.assertEqual(bad_res["steps"]["B5_codsworth_sanctuary"]["status"], "FAIL")
             self.assertTrue(any("FO4Core_ZeroObndTestActi" in msg for msg in bad_res["problems"]))
 
+    def test_s7_s9_f1_checks_placed_acti_meshes_and_rejects_stale_powerarmor_plugin(self) -> None:
+        import unittest.mock
+
+        def _sub(sig: bytes, data: bytes) -> bytes:
+            return sig + struct.pack("<H", len(data)) + data
+
+        def _rec(sig: bytes, fid: int, subs: list[bytes]) -> bytes:
+            body = b"".join(subs)
+            return sig + struct.pack("<IIIII", len(body), 0, fid, 0, 0) + body
+
+        def _grup(label: bytes, gtype: int, payload: bytes) -> bytes:
+            return b"GRUP" + struct.pack("<I", 24 + len(payload)) + label + struct.pack("<III", gtype, 0, 0) + payload
+
+        minigun_acti = _rec(
+            b"ACTI",
+            0x000C06,
+            [
+                _sub(b"EDID", b"FO4SF_S7_RoofMinigunActi\x00"),
+                _sub(b"OBND", struct.pack("<6f", -10.0, -10.0, -10.0, 10.0, 10.0, 10.0)),
+                _sub(b"MODL", b"fo4sf\\powerarmor\\vertibirdminigun.nif\x00"),
+            ],
+        )
+        minigun_ref = _rec(
+            b"REFR",
+            0x000C07,
+            [_sub(b"EDID", b"FO4SF_S7_RoofMinigunRef\x00"), _sub(b"NAME", struct.pack("<I", 0x000C06))],
+        )
+        glob_bf4 = _rec(b"GLOB", 0x000BF4, [_sub(b"EDID", b"FO4SF_S9_HardStopAtMin01_1000\x00")])
+        s7_mission_bytes = (
+            _dummy_tes4()
+            + _grup(b"GLOB", 0, glob_bf4)
+            + _grup(b"ACTI", 0, minigun_acti)
+            + _grup(b"CELL", 0, _rec(b"CELL", 0x00000BF5, []) + _grup(struct.pack("<I", 0x00000BF5), 6, minigun_ref))
+        )
+        p2_pa_bytes = (
+            _dummy_tes4()
+            + _grup(b"PERK", 0, _rec(b"PERK", 0x00081E, [_sub(b"EDID", b"FO4SF_PANoFallDamagePerk\x00")]))
+            + _grup(b"FURN", 0, _rec(b"FURN", 0x000801, [_sub(b"MODL", b"fo4sf\\powerarmor\\powerarmorfurniture.nif\x00")]))
+            + _grup(b"MISC", 0, _rec(b"MISC", 0x000809, [_sub(b"MODL", b"fo4sf\\powerarmor\\fusioncore.nif\x00")]))
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = self._build_synthetic_bundle(Path(tmp))
+            (bundle / "FO4SFMission.esm").write_bytes(s7_mission_bytes)
+            (bundle / "FO4SFPowerArmor.esm").write_bytes(p2_pa_bytes)
+            pa_plan = json.loads((bundle / "bundle_plan.json").read_text(encoding="utf-8"))
+            pa_plan["plugins"] = sorted({*pa_plan["plugins"], "FO4SFPowerArmor.esm"})
+            (bundle / "bundle_plan.json").write_text(json.dumps(pa_plan), encoding="utf-8")
+
+            minimal_nif = (
+                b"Gamebryo File Format, Version 20.2.0.7\n"
+                + struct.pack("<IBIII", 0x14020007, 1, 12, 0, 155)
+                + b"\x00" + struct.pack("<I", 0) + b"\x00\x00"
+                + struct.pack("<HIII", 0, 0, 0, 0)
+            )
+            pa_mesh_rels = (
+                "meshes/fo4sf/powerarmor/vertibirdminigun.nif",
+                "meshes/fo4sf/powerarmor/powerarmorfurniture.nif",
+                "meshes/fo4sf/powerarmor/fusioncore.nif",
+            )
+            for rel in pa_mesh_rels:
+                p = bundle / "Data" / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(minimal_nif)
+
+            ok_res = verify_bundle_beginning_readiness(str(bundle))
+            self.assertTrue(ok_res["ok"], ok_res["problems"])
+
+            # Missing placed ACTI mesh (vertibirdminigun.nif) MUST FAIL B7_preston_turnin
+            (bundle / "Data" / pa_mesh_rels[0]).unlink()
+            bad_mesh = verify_bundle_beginning_readiness(str(bundle))
+            self.assertFalse(bad_mesh["ok"])
+            self.assertEqual(bad_mesh["steps"]["B7_preston_turnin"]["status"], "FAIL")
+            self.assertTrue(any("vertibirdminigun.nif" in m for m in bad_mesh["problems"]), bad_mesh["problems"])
+
+            # Restore mesh, then swap in stale pre-P2 hash + ChairTech03 PA -> MUST FAIL
+            (bundle / "Data" / pa_mesh_rels[0]).write_bytes(minimal_nif)
+            stale_pa = _dummy_tes4() + _grup(
+                b"FURN", 0, _rec(b"FURN", 0x000801, [_sub(b"MODL", b"Furniture\\ChairTech03.nif\x00")])
+            )
+            (bundle / "FO4SFPowerArmor.esm").write_bytes(stale_pa)
+            with unittest.mock.patch(
+                "fo4sf.beginning_pilot._sha256_file",
+                return_value="c3332aef3891f4cd647882e80da4f1c6238ba558b12d2c80c2fb32e5fd885c4c",
+            ):
+                bad_pa = verify_bundle_beginning_readiness(str(bundle))
+            self.assertFalse(bad_pa["ok"])
+            self.assertEqual(bad_pa["steps"]["B7_preston_turnin"]["status"], "FAIL")
+            joined = "\n".join(bad_pa["problems"])
+            self.assertIn("stale pre-P2 hash (c3332aef)", joined)
+            self.assertIn("lacks P2 PERK 0x00081E", joined)
+
 
 if __name__ == "__main__":
     unittest.main()

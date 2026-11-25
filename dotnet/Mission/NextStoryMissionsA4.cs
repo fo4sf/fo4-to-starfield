@@ -107,7 +107,7 @@ static class NextStoryMissionsA4
     {
         (10, "Activate the Sanctuary workbench", 0),
         (50, "Speak with Sturges in Sanctuary", 1),
-        (1000, "Provide sheltered beds for Sanctuary settlers (5)", 0),
+        (1000, "Build sheltered beds for Sanctuary settlers (<Global=FO4SF_Min01BedPercent>%)", 0),
         (1050, "Report bed progress to Sturges", 1),
         (1200, "Provide clean water for Sanctuary settlers (5)", 0),
         (1250, "Report water progress to Sturges", 1),
@@ -382,6 +382,8 @@ static class NextStoryMissionsA4
             });
         }
         sanctuaryQuest.Objectives.Clear();
+        sanctuaryQuest.TextDisplayGlobals.Clear();
+        sanctuaryQuest.TextDisplayGlobals.Add(new FormLink<SF.IGlobalGetter>(bedPct.FormKey));
         foreach (var (oid, otext, aliasId) in SanctuaryObjectives)
         {
             var obj = new SF.QuestObjective { Index = oid, Flags = (SF.QuestObjective.Flag)0, DisplayText = otext };
@@ -675,7 +677,8 @@ static class NextStoryMissionsA4
         SF.IStarfieldModGetter plug,
         ModKey sfEsm,
         uint questTypeSideId,
-        Action<bool, string> need)
+        Action<bool, string> need,
+        bool r11FullMission = false)
     {
         var key = plug.ModKey;
         static bool NonStartGameReady(SF.IQuestGetter q) =>
@@ -691,13 +694,17 @@ static class NextStoryMissionsA4
         {
             need(NonStartGameReady(sq) && sq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) && sq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
                 "FO4SF_Sanctuary01 flags invalid (must be RunOnce | DisplaysInHud without StartGameEnabled/StartsEnabled/0x10000)");
-            need(sq.Stages.Select(s => s.Index).SequenceEqual(SanctuaryFullStages),
-                "FO4SF_Sanctuary01 stages mismatch SanctuaryFullStages");
+            var wantStages = r11FullMission ? NextStoryMissionsS7S9.SanctuaryS9Stages : SanctuaryFullStages;
+            need(sq.Stages.Select(s => s.Index).SequenceEqual(wantStages),
+                "FO4SF_Sanctuary01 stages mismatch expected stages");
             need(sq.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null),
                 "FO4SF_Sanctuary01 has a stage without QSDT QuestLogEntry");
             need(sq.Stages.Last().LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true),
                 "FO4SF_Sanctuary01 stage 1500 lacks CompleteQuest");
-            need(sq.Objectives.Select(o => o.Index).SequenceEqual(SanctuaryObjectives.Select(o => o.Index)) &&
+            var wantObjectives = r11FullMission
+                ? SanctuaryObjectives.Select(o => o.Index).Concat(new ushort[] { 220 })
+                : SanctuaryObjectives.Select(o => o.Index);
+            need(sq.Objectives.Select(o => o.Index).SequenceEqual(wantObjectives) &&
                  sq.Objectives.All(o => o.Flags is not null),
                 "FO4SF_Sanctuary01 objectives mismatch Min01 specification or lack Flags");
             need(sq.QuestType.FormKey == new FormKey(sfEsm, questTypeSideId),
@@ -711,6 +718,12 @@ static class NextStoryMissionsA4
             var sqObj10 = sq.Objectives.FirstOrDefault(o => o.Index == 10);
             need(sqObj10 is not null && sqObj10.Targets.Count == 1 && sqObj10.Targets[0].AliasID == 0,
                 "FO4SF_Sanctuary01 objective 10 does not target SanctuaryWorkbench alias 0");
+            var sqObj1000 = sq.Objectives.FirstOrDefault(o => o.Index == 1000);
+            need(sqObj1000 is not null &&
+                 (sqObj1000.DisplayText?.String ?? "").Contains("Build sheltered beds", StringComparison.Ordinal) &&
+                 (sqObj1000.DisplayText?.String ?? "").Contains("<Global=FO4SF_Min01BedPercent>", StringComparison.Ordinal) &&
+                 (sq.TextDisplayGlobals?.Any(g => g.FormKey == new FormKey(key, Min01BedPercentId)) == true),
+                "FO4SF_Sanctuary01 objective 1000 lacks FO4 'Build sheltered beds ... (<Global=FO4SF_Min01BedPercent>%)' or TextDisplayGlobals 0xA04");
             var ss = sq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == "FO4SF_Sanctuary01Quest");
             need(ss is not null && ss.Properties.FirstOrDefault(p => p.Name == "XMarkerBase") is SF.IScriptObjectPropertyGetter xp &&
                  xp.Object.FormKey == new FormKey(sfEsm, 0x00003B),

@@ -465,7 +465,7 @@ class SaveReloadPathTests(unittest.TestCase):
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(SANCTUARY_PSC), "exec")
 
-        def _make_sanc(*, stage: int, completed: bool, has_bench: bool):
+        def _make_sanc(*, stage: int, completed: bool, has_bench: bool, hard_stop: bool = False):
             logs: list[str] = []
             ulogs: list[str] = []
             unregs: list[tuple[object, str]] = []
@@ -499,7 +499,11 @@ class SaveReloadPathTests(unittest.TestCase):
                 StartMinRecruit00IfNeeded=lambda: None,
                 IsCompleted=lambda: completed,
                 HasFullMin01=lambda: False,
+                HasS9HardStop=lambda: hard_stop,
+                IsInInterior=lambda: False,
+                IsCommonwealthExterior=lambda _r: True,
                 BindSturges=lambda: None,
+                RegisterS9IntroSceneEvents=lambda: None,
                 KeepSturges=lambda p: None,
                 CheckMilestoneProgress=lambda st: None,
                 UnregisterForRemoteEvent=lambda ref, ev: unregs.append((ref, str(ev))),
@@ -508,6 +512,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 StartTimer=lambda sec, tid: timers.append((sec, tid)),
                 CancelTimer=lambda tid: cancels.append(tid),
                 AdvanceTo=lambda st, by="Trigger": advances.append((st, str(by))),
+                SetObjectiveDisplayed=lambda *a: None,
                 SetObjectiveCompleted=lambda *a: None,
                 CompleteQuest=lambda: completes.append(1),
                 CleanupMarker=lambda: cleanups.append(1),
@@ -549,6 +554,15 @@ class SaveReloadPathTests(unittest.TestCase):
         self.assertEqual(adv100, [])
         self.assertEqual(comp100, [])
         self.assertTrue(any("sanctuary01 reload stage=100 complete=True" in m for m in logs100), logs100)
+
+        # 4. S9 hard-stop guard: stage < 220 ignores workbench completion (F6)
+        ns_hs, _, _, _, _, _, _, adv_hs, comp_hs, old_b_hs = _make_sanc(
+            stage=20, completed=False, has_bench=True, hard_stop=True
+        )
+        ns_hs["CompleteSanctuaryObjective"](old_b_hs)
+        self.assertEqual(adv_hs, [])
+        self.assertEqual(comp_hs, [])
+        self.assertFalse(ns_hs["benchActivated"])
 
     def test_a1e_concord_hops_stay_strictly_under_200m_per_axis_and_p3_safe(self) -> None:
         # Verified merged exterior waypoints:

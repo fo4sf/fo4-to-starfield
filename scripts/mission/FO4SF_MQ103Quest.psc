@@ -73,7 +73,12 @@ bool Function IsSanctuaryOpeningRunning()
 EndFunction
 
 bool Function CheckPredecessorOrGateProximity(Actor player)
-{R1/R5: Deliberate one-tracked-opening-mission design (in FO4 MQ103 starts when MQ102 ends while Min01 runs): requires Sanctuary01 completion OR physical arrival at Diamond City gate (< 150 m) OR TestMode.}
+{R1/R5: Deliberate one-tracked-opening-mission design (in FO4 MQ103 starts when MQ102 ends while Min01 runs): requires Sanctuary01 completion OR physical arrival at Diamond City gate (< 150 m) OR TestMode.
+ S9: Holds strictly OFF while FO4SF_S9_HardStopAtMin01_1000 (0x000BF4) is non-zero.}
+    GlobalVariable s9HardStop = Game.GetFormFromFile(0x000BF4, MissionPlugin) as GlobalVariable
+    if s9HardStop != None && s9HardStop.GetValue() != 0.0
+        return False
+    endif
     if IsTestModeEnabled()
         return True
     endif

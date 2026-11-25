@@ -243,6 +243,7 @@ static class Mission
     public static readonly (ushort Index, string Text, bool TargetsPreston)[] FullExtraObjectives =
     {
         (60, "Enter the Museum", false),
+        (65, "Clear Concord of Hostiles", false),
         (70, "(Optional) Take the Laser Musket", false),
         (87, "Unlock the Security Gate", false),
         (90, "Get a Fusion Core", false),
@@ -717,6 +718,24 @@ static class Mission
             }
         }
 
+        // S9 Lobby talk (DialogueConcordArea 0179F3 -> 009SurvivorLobbyScene / 010SurvivorSceneReward) & Min01SturgesIntro (0x1188B4 -> 0x118B2A)
+        var s9LobbyTalk = new Dictionary<string, object?>
+        {
+            ["greeting"] = InfoAllRespText(0x01F5B5, "Synthetic lobby debrief greeting after Concord cleared."),
+            ["greeting_responses"] = InfoRespList(0x01F5B5, "Synthetic lobby debrief greeting after Concord cleared."),
+            ["prompt"] = InfoButtonText(0x01F5B4, 1, "Ask Preston about heading back to Sanctuary."),
+            ["reply"] = InfoAllRespText(0x05DFAE, "Synthetic lobby farewell and supply reward."),
+            ["reply_responses"] = InfoRespList(0x05DFAE, "Synthetic lobby farewell and supply reward."),
+        };
+        var s9SturgesIntro = new Dictionary<string, object?>
+        {
+            ["greeting"] = InfoRespText(0x118B2A, 1, "Synthetic Sanctuary arrival greeting from Sturges."),
+            ["greeting_responses"] = new[] { new Dictionary<string, object> { ["response"] = 1, ["text"] = InfoRespText(0x118B2A, 1, "Synthetic Sanctuary arrival greeting from Sturges.") } },
+            ["prompt"] = "Ask what the Sanctuary settlers need built first.",
+            ["reply"] = InfoRespText(0x118B2A, 2, "Synthetic Sturges instructions to build sheltered beds first."),
+            ["reply_responses"] = new[] { new Dictionary<string, object> { ["response"] = 2, ["text"] = InfoRespText(0x118B2A, 2, "Synthetic Sturges instructions to build sheltered beds first.") } },
+        };
+
         var doc = new Dictionary<string, object?>
         {
             ["source"] = Path.GetFileName(fo4Path),
@@ -726,6 +745,8 @@ static class Mission
             ["preston_npc"] = prestonNpcMeta,
             ["preston_talk"] = prestonTalk,
             ["preston_post_talk"] = prestonPostTalk,
+            ["s9_lobby_talk"] = s9LobbyTalk,
+            ["s9_sturges_intro"] = s9SturgesIntro,
             ["objectives"] = objectives,
             ["preston"] = new Dictionary<string, object?>
             {
@@ -1116,7 +1137,7 @@ static class Mission
 
     public static MqVoiceSpec LoadMqVoice(string path) => LoadSceneVoice(path, 4, "MQ102");
 
-    static IReadOnlyList<(string Text, uint Wem, float Duration)> PairSceneClips(
+    public static IReadOnlyList<(string Text, uint Wem, float Duration)> PairSceneClips(
         IReadOnlyList<string> texts,
         IReadOnlyList<(uint Wem, float Duration)>? clips)
     {
@@ -1135,7 +1156,7 @@ static class Mission
         return result;
     }
 
-    static List<string> ExtractRespTexts(JsonElement parent, string arrayProp, string fallbackText)
+    public static List<string> ExtractRespTexts(JsonElement parent, string arrayProp, string fallbackText)
     {
         if (parent.TryGetProperty(arrayProp, out var arr) && arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
         {
@@ -2079,13 +2100,20 @@ static class Mission
                 minutemen.FormKey, prestonTpl, humanRace.FormKey, prestonVoice.FormKey, cods ?? npc,
                 new FormKey(modKey, FalloutActorLooks.ConcordRaiderNpcId), raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
                 creatureSlots, fo4HumanAnims, task1bVaultRecovery, creaturesMod, humanAnimsMod);
+            var waveRaiderTpl = mod.Npcs.FirstOrDefault(n => n.FormKey.ID == FalloutActorLooks.ConcordRaiderNpcId) ?? raiderNpc;
+            NextStoryMissionsS7S9.PopulateS7S9(
+                mod, m.Sf, m.Cache, quest, sanctuaryQuest, xMarker.FormKey,
+                waveRaiderTpl, raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
+                concordSidearm, raiderSidearmAmmo.FormKey,
+                npc.FormKey, new FormKey(modKey, NextStoryMissionsA4.SturgesNpcId), prestonVoice.FormKey,
+                pts, prestonVoicePath, creatureSlots, creaturesMod);
         }
 
         uint maxId = Math.Max(MissionHoldingCellId + 1, Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))))));
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
         if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
-        if (r11FullMission) maxId = Math.Max(maxId, NextStoryMissionsS2S6.MaxAllocatedId);
+        if (r11FullMission) maxId = Math.Max(maxId, Math.Max(NextStoryMissionsS2S6.MaxAllocatedId, Math.Max(R11FullMissionGlobId + 1, NextStoryMissionsS7S9.MaxAllocatedId)));
         mod.ModHeader.Stats.NextFormID = maxId;
 
         Directory.CreateDirectory(outDir);
@@ -2426,8 +2454,8 @@ static class Mission
         else Need(arma is null && skin is null && (cods is null || cods.Skin.FormKey != new FormKey(key, CodsworthSkinId)),
                   "a build without --codsworth-model carries Codsworth's ARMA or ARMO");
 
-        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID) || NextStoryMissionsA7cd.IsA7cdActorRefId(r.FormKey.ID) || (r11FullMission && NextStoryMissionsS2S6.IsS2S6ActorRefId(r.FormKey.ID))),
-             "an ACHR outside Preston, the raiders, Codsworth, A4, A7, and A7cd actors");
+        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID) || NextStoryMissionsA7cd.IsA7cdActorRefId(r.FormKey.ID) || (r11FullMission && (NextStoryMissionsS2S6.IsS2S6ActorRefId(r.FormKey.ID) || NextStoryMissionsS7S9.IsS8ActorRefId(r.FormKey.ID)))),
+             "an ACHR outside Preston, the raiders, Codsworth, A4, A7, A7cd, S2-S6, and S8 actors");
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(key, FalloutActorLooks.ConcordRaiderNpcId)), "no raider ACHR on FO4_ConcordRaider (0x986)");
         Need(raiders.All(r => r.Position.X < -1500f && r.Position.Y < -1000f),
              "C3: a raider ACHR is still at unmerged coordinates instead of merged Concord coordinates");
@@ -2454,7 +2482,7 @@ static class Mission
             Need(q.Stages.Select(s => s.Index).SequenceEqual(wantMin00Stages), "stages differ from the script's");
 
             var dials = q.DialogTopics.ToList();
-            int expectedSceneDials = alias ? (r11FullMission ? 13 : 7) : 0; // 7 baseline + 6 for S6 Preston/Sturges room scenes
+            int expectedSceneDials = (alias ? 7 : 0) + (r11FullMission ? 9 : 0); // 7 baseline + 6 S6 room + 3 S9 lobby when full
             Need(dials.Count == expectedSceneDials && !dials.Any(d => d.FormKey == new FormKey(key, CodsworthDialId)),
                  $"FO4SF_Min00 DIAL count {dials.Count} != {expectedSceneDials} or still owns persistent Codsworth Hellos");
             Need(q.Stages.All(s => s.LogEntries.Count >= 1 && s.LogEntries[0].Flags is not null), "a FO4SF_Min00 stage lacks a QSDT QuestLogEntry");
@@ -2482,7 +2510,7 @@ static class Mission
                 var wantRaiderAmmoKey = new FormKey(SfEsm, SfRaiderAmmoId);
                 Need(m.Cache.TryResolve<SF.IAmmunitionGetter>(wantRaiderAmmoKey, out var rAmmo) && rAmmo.EditorID == SfRaiderAmmoEdid,
                      $"Starfield.esm lacks {SfRaiderAmmoEdid} ({SfRaiderAmmoId:X6})");
-                int wantAliasCount = (r11FullMission ? 3 : 1) + raiders.Count;
+                int wantAliasCount = (r11FullMission ? (3 + NextStoryMissionsS7S9.S8WaveActorCount) : 1) + raiders.Count;
                 Need(refAliases.Count == wantAliasCount, $"expected {wantAliasCount} reference aliases, got {refAliases.Count}");
                 for (int ri = 0; ri < raiders.Count; ri++)
                 {
@@ -2499,7 +2527,7 @@ static class Mission
                         targetsPrestonIdx.Add(eo.Index);
                 Need(q.Objectives.Where(o => targetsPrestonIdx.Contains(o.Index)).All(o => o.Targets.Count == 1 && o.Targets[0].AliasID == PrestonAlias),
                      "Preston's objectives do not target alias 0");
-                int wantPrestonSceneCount = r11FullMission ? 3 : 1;
+                int wantPrestonSceneCount = r11FullMission ? 4 : 1;
                 var pscn = q.Scenes.FirstOrDefault(x => x.FormKey == new FormKey(key, PrestonTalkSceneId));
                 Need(q.Scenes.Count == wantPrestonSceneCount && pscn is not null, $"FO4SF_Min00 lacks Preston talk scene 0x900 (scenes={q.Scenes.Count})");
                 if (pscn is not null)
@@ -2631,8 +2659,10 @@ static class Mission
                 {
                     Need(!props.ContainsKey("EnableS4Balcony") && !props.ContainsKey("EnableS6ToS9Full") &&
                          !props.ContainsKey("S4BalconyMarker") && !props.ContainsKey("S9MuseumExitMarker") &&
-                         !props.ContainsKey("DiamondCityMapMarker") && !props.ContainsKey("S9PatrolWaypoints"),
-                         "default build (--r11-full-mission 0) must not leak R11 full-mission properties onto FO4SF_Min00");
+                         !props.ContainsKey("DiamondCityMapMarker") && !props.ContainsKey("S9PatrolWaypoints") &&
+                         !plug.Npcs.Any(n => n.FormKey.ID == NextStoryMissionsS7S9.GristleNpcId) &&
+                         !plug.Globals.Any(g => g.FormKey.ID == NextStoryMissionsS7S9.S9HardStopGlobId),
+                         "default build (--r11-full-mission 0) must not leak R11 full-mission properties or S7-S9 records onto FO4SF_Min00");
                 }
                 else
                 {
@@ -2647,6 +2677,7 @@ static class Mission
                     Need(props.TryGetValue("S9PatrolWaypoints", out var wpp) && wpp is SF.IScriptObjectListPropertyGetter wpl &&
                          wpl.Objects.Select(o => o.Object.FormKey).SequenceEqual(wantWps),
                          "R11 full mission lacks ordered S9PatrolWaypoints (0xB82..0xB89) on FO4SF_Min00");
+                    NextStoryMissionsS7S9.CheckS7S9(plug, SfEsm, XMarkerId, Need, creatureSlots.Ready, creaturesMod);
                 }
             }
         }
@@ -2920,7 +2951,7 @@ static class Mission
                  xp.Object.FormKey == new FormKey(SfEsm, XMarkerId),
                  $"{SanctuaryQuestEdid} lacks {SanctuaryScriptName} with XMarkerBase -> Starfield.esm:00003B");
         }
-        NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need);
+        NextStoryMissionsA4.CheckA4Missions(plug, SfEsm, QuestTypeSideId, Need, r11FullMission);
         // A7: Check FO4SF_MQ104 (0xA80, Unlikely Valentine) and FO4SF_MQ105 (0xAB0, Getting a Clue)
         NextStoryMissionsA7.CheckA7Missions(plug, SfEsm, QuestTypeSideId, Need);
         // A7cd: Check Act II FO4SF_MQ106 (0xAD0), FO4SF_MQ203 (0xAF0), FO4SF_MQ204 (0xB10), FO4SF_MQ206 (0xB30)
@@ -3136,11 +3167,15 @@ static class Mission
             var rrSkin = new SF.Armor(new FormKey(creaturesKey, 0x801), rel) { EditorID = "FO4SF_RA5Radroach_Skin" };
             var bfRace = new SF.Race(new FormKey(creaturesKey, 0x802), rel) { EditorID = "FO4SF_BloatflyRace" };
             var bfSkin = new SF.Armor(new FormKey(creaturesKey, 0x803), rel) { EditorID = "FO4SF_RA5Bloatfly_Skin" };
+            var dcRace = new SF.Race(new FormKey(creaturesKey, 0x804), rel) { EditorID = "FO4SF_DeathclawRace" };
+            var dcSkin = new SF.Armor(new FormKey(creaturesKey, 0x805), rel) { EditorID = "FO4SF_RA5Deathclaw_Skin" };
             creaturesMod.Races.Add(rrRace);
             creaturesMod.Races.Add(bfRace);
+            creaturesMod.Races.Add(dcRace);
             creaturesMod.Armors.Add(rrSkin);
             creaturesMod.Armors.Add(bfSkin);
-            creaturesMod.ModHeader.Stats.NextFormID = 0x804;
+            creaturesMod.Armors.Add(dcSkin);
+            creaturesMod.ModHeader.Stats.NextFormID = 0x806;
             var creaturesEsmPath = Path.Combine(dir, NextStoryMissionsS2S6.CreaturesEsmName);
             creaturesMod.BeginWrite.ToPath(creaturesEsmPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
 
@@ -3158,7 +3193,7 @@ static class Mission
                 { Console.WriteLine("FAIL  CreatureSlotsConfig defaulted omitted ready to true instead of false"); return 1; }
 
             var slotsReadyPath = Path.Combine(dir, "creature_slots_ready.json");
-            File.WriteAllText(slotsReadyPath, """{"ready": true, "radroach_race_edid": "FO4SF_RadroachRace", "radroach_skin_edid": "FO4SF_RA5Radroach_Skin", "bloatfly_race_edid": "FO4SF_BloatflyRace", "bloatfly_skin_edid": "FO4SF_RA5Bloatfly_Skin"}""");
+            File.WriteAllText(slotsReadyPath, """{"ready": true, "radroach_race_edid": "FO4SF_RadroachRace", "radroach_skin_edid": "FO4SF_RA5Radroach_Skin", "bloatfly_race_edid": "FO4SF_BloatflyRace", "bloatfly_skin_edid": "FO4SF_RA5Bloatfly_Skin", "deathclaw_race_edid": "FO4SF_DeathclawRace", "deathclaw_skin_edid": "FO4SF_RA5Deathclaw_Skin"}""");
 
             var o = Path.Combine(outDir, "r11_full_mission");
             int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, r11FullMission: true);
@@ -3264,6 +3299,47 @@ static class Mission
                 ("S5MuseumRaiderPursuePack 0xBE1 removed", m =>
                 {
                     m.Packages.Remove(new FormKey(m.ModKey, NextStoryMissionsS2S6.S5MuseumRaiderPursuePackId));
+                }),
+                ("FO4_Gristle marked Essential in S8", m =>
+                {
+                    m.Npcs[new FormKey(m.ModKey, NextStoryMissionsS7S9.GristleNpcId)].Flags |= SF.Npc.Flag.Essential;
+                }),
+                ("FO4SF_S9_HardStopAtMin01_1000 flipped 0 in S9", m =>
+                {
+                    m.Globals[new FormKey(m.ModKey, NextStoryMissionsS7S9.S9HardStopGlobId)].Data = 0f;
+                }),
+                ("S7_RoofMinigunRef Persistent flag cleared", m =>
+                {
+                    var rm = NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofMinigunRefId);
+                    rm.MajorRecordFlagsRaw &= ~0x400;
+                }),
+                ("FO4SF_S9_SturgesIntroScene removed from Sanctuary01", m =>
+                {
+                    m.Quests[new FormKey(m.ModKey, SanctuaryQuestId)].Scenes.RemoveAll(s => s.FormKey.ID == NextStoryMissionsS7S9.S9SturgesIntroSceneId);
+                }),
+                ("FO4SF_S7S9_HoldingCell marker moved into Commonwealth WRLD", m =>
+                {
+                    var hm = NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofFrameMarkerId);
+                    NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.Remove(hm);
+                    var coreMod = SF.StarfieldMod.CreateFromBinary(corePath, rel, Styles(SfEsm, coreKey, raiderKey));
+                    var cw = (SF.Worldspace)coreMod.Worldspaces.First(w => w.EditorID == World).DeepCopy();
+                    cw.TopCell!.Persistent.Clear();
+                    cw.TopCell.Persistent.Add(hm);
+                    m.Worldspaces.Add(cw);
+                }),
+                ("F4 S7S9 Holding CELL 0xBF5 FULL reverted to FO4SF prefix", m =>
+                {
+                    NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Name = "FO4SF S7-S9 Holding Cell";
+                }),
+                ("F12 S7_RoofFrameRef Persistent flag cleared", m =>
+                {
+                    var rf = NextStoryMissionsS7S9.FindHoldingCellMutable(m)!.Persistent.OfType<SF.PlacedObject>().First(x => x.FormKey.ID == NextStoryMissionsS7S9.S7RoofFrameRefId);
+                    rf.MajorRecordFlagsRaw &= ~0x400;
+                }),
+                ("F13 S9PrestonLobbyScene reply OnEnd stage cleared", m =>
+                {
+                    var rp = m.Quests[new FormKey(m.ModKey, QuestId)].DialogTopics.First(t => t.FormKey.ID == NextStoryMissionsS7S9.S9PrestonLobbyReplyTopicId).Responses[0];
+                    rp.SetParentQuestStage = null;
                 }),
             };
             foreach (var (name, edit) in r11FullMutations)

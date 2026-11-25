@@ -96,6 +96,7 @@ PRESTON_VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/genericmaleeventoned"
 FIRST_WEM = 0x00F4C001
 FIRST_MQ_WEM = 0x00F4C101
 FIRST_PRESTON_WEM = 0x00F4C201
+FIRST_S9_WEM = 0x00F4C301
 
 # FormIDs only (zero FO4 text in source): 20 Codsworth Hello INFOs + 5 MQ102 DialogueCodsworthPostWar Codsworth INFOs
 HELLO_INFO_IDS = (
@@ -123,6 +124,14 @@ PRESTON_SCENE_CLIP_SPECS = (
     (0x0005DF11, (1, 2, 3)),
     (0x0005DF0D, (1, 2)),
     (0x0005DF1B, (1,)),
+)
+S9_LOBBY_CLIP_SPECS = (
+    ("npcmprestongarvey", 0x0001F5B5, 1),
+    ("npcmprestongarvey", 0x0005DFAE, 1),
+)
+S9_STURGES_CLIP_SPECS = (
+    ("npcmsturges", 0x00118B2A, 1),
+    ("npcmsturges", 0x00118B2A, 2),
 )
 
 PRESTON_PLACEHOLDER_NOTE = (
@@ -471,6 +480,11 @@ def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_v
                 ba2_key = f"sound/voice/fallout4.esm/npcmprestongarvey/{stem}.fuz"
                 if rnum == 1 or ba2_key in available_ba2_keys:
                     needed_stems.append(f"npcmprestongarvey/{stem}")
+        for folder, fid, rnum in S9_LOBBY_CLIP_SPECS + S9_STURGES_CLIP_SPECS:
+            stem = f"{fid:08x}_{rnum}"
+            ba2_key = f"sound/voice/fallout4.esm/{folder}/{stem}.fuz"
+            if ba2_key in available_ba2_keys:
+                needed_stems.append(f"{folder}/{stem}")
 
     converted, durations = convert_fuz_stems_to_wem(
         voices_ba2, sorted(set(needed_stems)), xwm_exe, wwise_exe,
@@ -518,6 +532,31 @@ def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_v
             available_ba2_keys, converted, durations, data_dir
         )
         copied.extend(pr_copied)
+        next_s9_wem = FIRST_S9_WEM
+
+        def _attach_s9_two_clip(key_name, pair_specs):
+            nonlocal next_s9_wem
+            (f0, fid0, r0), (f1, fid1, r1) = pair_specs
+            k0 = f"{f0}/{fid0:08x}_{r0}"
+            k1 = f"{f1}/{fid1:08x}_{r1}"
+            if k0 not in converted or k1 not in converted:
+                return
+            w0 = f"{next_s9_wem:08x}"
+            w1 = f"{next_s9_wem + 1:08x}"
+            next_s9_wem += 2
+            for wk, sk in ((w0, k0), (w1, k1)):
+                rel = f"{PRESTON_VOICE_DIR}/{wk}.wem"
+                shutil.copy2(converted[sk], os.path.join(data_dir, *rel.split("/")))
+                copied.append(rel)
+            pr_payload[key_name] = {
+                "greeting_wem": w0,
+                "reply_wems": [w1],
+                "greeting_clips": [{"wem": w0, "duration": float(durations.get(k0, 0.0))}],
+                "reply_clips": [[{"wem": w1, "duration": float(durations.get(k1, 0.0))}]],
+            }
+
+        _attach_s9_two_clip("s9_lobby", S9_LOBBY_CLIP_SPECS)
+        _attach_s9_two_clip("s9_sturges", S9_STURGES_CLIP_SPECS)
         preston_voice_json = os.path.join(tmp_dir, "preston_voice.json")
         with open(preston_voice_json, "w", encoding="utf-8") as f:
             json.dump(pr_payload, f, indent=1)
@@ -595,6 +634,10 @@ def stage(a):
         if getattr(a, "actor_looks_assets", None):
             assets |= set(copy_actor_looks_assets(a.actor_looks_assets, os.path.join(out, "Data")))
             looks_args = ["--actor-looks-dir", a.actor_looks_assets]
+        if getattr(a, "weapon_assets", None):
+            assets |= set(copy_weapon_assets_rows1_to_5(a.weapon_assets, os.path.join(out, "Data")))
+        for extra_dir in (getattr(a, "extra_assets", None) or []):
+            assets |= set(copy_extra_assets(extra_dir, os.path.join(out, "Data")))
 
         r11_full = bool(int(getattr(a, "r11_full_mission", 0) or 0))
         fo4_anims = bool(int(getattr(a, "fo4_human_anims", 0) or 0))
@@ -782,6 +825,34 @@ def write_r12_h2_batches(bat_dir):
             "player.setpos z 97.82\n"
             "player.setangle z 335\n"
         ),
+        "s7r.txt": (
+            "; S7 Concord Museum roof Power Armor & Vertibird Minigun inspection spot (near FO4 0002C1C6 roof landing)\n"
+            "player.setpos x -1997.50\n"
+            "player.setpos y -1721.50\n"
+            "player.setpos z 97.80\n"
+            "player.setangle z 310\n"
+        ),
+        "s8w.txt": (
+            "; S8 Concord street DN092 Wave 2 & Deathclaw grate inspection (-2068.22, -1640.23, 88.22; outdoors in Concord)\n"
+            "player.setpos x -2048.00\n"
+            "player.setpos y -1662.00\n"
+            "player.setpos z 88.80\n"
+            "player.setangle z 315\n"
+        ),
+        "s9p.txt": (
+            "; S9 Concord exit -> Red Rocket patrol corridor midpoint (< 115 m hop outdoors)\n"
+            "player.setpos x -2105.00\n"
+            "player.setpos y -1625.00\n"
+            "player.setpos z 94.00\n"
+            "player.setangle z 315\n"
+        ),
+        "s9q.txt": (
+            "; S9 Red Rocket North -> Sanctuary Hills workbench & Sturges arrival (< 156 m hop from Red Rocket North)\n"
+            "player.setpos x -2325.00\n"
+            "player.setpos y -1425.00\n"
+            "player.setpos z 112.50\n"
+            "player.setangle z 30\n"
+        ),
     }
     os.makedirs(bat_dir, exist_ok=True)
     for fname, body in sorted(batches.items()):
@@ -848,6 +919,60 @@ def copy_actor_looks_assets(src, data):
                 shutil.copy2(os.path.join(src, rel), dst)
                 copied.append(rel.replace(os.sep, "/"))
     stage_c5_actor_looks.verify_staged_c5_assets(data, require_preston_mats=True)
+    return copied
+
+
+P6_KEPT_TEXTURE_PREFIXES = (
+    "textures/fo4core/",
+    "textures/fo4sf/texsets/weapons/minigun/",
+    "textures/fo4sf/weapons/10mmpistol/",
+    "textures/fo4sf/weapons/baton/",
+    "textures/fo4sf/weapons/handmade/grips/",
+    "textures/fo4sf/weapons/handmade/piperifle/",
+    "textures/fo4sf/weapons/lasermusket/",
+    "textures/fo4sf/weapons/laserweapons/pistolbarrel/",
+    "textures/fo4sf/weapons/minigun/",
+)
+
+
+def copy_extra_assets(src, data):
+    """Copy ASSET_DIRS files from `src` into `data` (meshes/geometries/materials/textures)."""
+    if not os.path.isdir(src):
+        sys.exit(f"--extra-assets directory not found: {src}")
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                dst = os.path.join(data, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), dst)
+                copied.append(rel.replace(os.sep, "/"))
+    return copied
+
+
+def copy_weapon_assets_rows1_to_5(src, data):
+    """Copy P6 weapon meshes/geometries/materials plus Rows 1-5/ammo/prop textures under the 4 GiB cap."""
+    if not os.path.isdir(src):
+        sys.exit(f"--weapon-assets directory not found: {src}")
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                rel_slash = rel.replace(os.sep, "/")
+                if d == "textures" and not rel_slash.lower().startswith(P6_KEPT_TEXTURE_PREFIXES):
+                    continue
+                dst = os.path.join(data, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), dst)
+                copied.append(rel_slash)
     return copied
 
 
@@ -1108,6 +1233,7 @@ def summarize(lines):
          "mq203_stages": [], "mq203_complete": None,
          "mq204_stages": [], "mq204_complete": None,
          "mq206_stages": [], "mq206_complete": None,
+         "s7_events": [], "s8_events": [], "s9_events": [],
          "stand_in_events": [], "blocked_missing_port": []}
     follow_seen = False
     for line in lines:
@@ -1259,6 +1385,12 @@ def summarize(lines):
             s["keeper"], s["preston_off"] = msg, off_of(msg)
         elif low.startswith(("keeper load codsworth ", "keeper status codsworth ")):
             s["codsworth_keeper"], s["codsworth_off"] = msg, off_of(msg)
+        elif low.startswith("s7 "):
+            s["s7_events"].append(msg)
+        elif low.startswith("s8 "):
+            s["s8_events"].append(msg)
+        elif low.startswith("s9 ") or low.startswith("sanctuary01 s9_hard_stop") or low.startswith("sanctuary01 min01_sturges_intro"):
+            s["s9_events"].append(msg)
     return s
 
 
@@ -1292,8 +1424,12 @@ def main(argv=None):
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
+    s.add_argument("--weapon-assets", default=None,
+                   help="optional P6b weapon assets folder: copies non-texture assets + Rows 1-5/ammo/prop textures")
+    s.add_argument("--extra-assets", action="append", default=[],
+                   help="optional extra asset folder(s) (e.g. P2 PA/minigun meshes) copying meshes/geometries/materials/textures")
     s.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1),
-                   help="enable R11/R12 full S2-S6 story progression + museum interior + 3F scenes (default 0)")
+                   help="enable R11/R12 full S2-S9 story progression + Concord roof/wave/walk-home (default 0 preserves 2g-fix)")
     s.add_argument("--creature-slots", default=None,
                    help="optional creature-slots.json path for S2 Radroaches & S3 Bloatflies (defaults to ready=false empty)")
     s.add_argument("--creatures-esm", default=None,
