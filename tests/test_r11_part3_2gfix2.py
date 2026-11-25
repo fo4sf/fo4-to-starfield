@@ -891,7 +891,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
             self.assertEqual(r.inv["Ammo777mm"], 36, f"raider {i} got {r.inv['Ammo777mm']} instead of 36")
             self.assertEqual(r.inv["ConcordCoachman097B"], 0)
             self.assertEqual(r.inv["AmmoShotshell"], 0)
-            self.assertEqual(r.equipped[-1], ("ConcordEon097A", True))
+            self.assertEqual(r.equipped[-1], ("ConcordEon097A", False))
             self.assertIn(f"arm raider {i} sidearm=eon sidearm_ammo=36", logs[-1])
             self.assertIn("eff_dmg=1.5", logs[-1])
 

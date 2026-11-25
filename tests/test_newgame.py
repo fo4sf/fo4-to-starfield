@@ -623,7 +623,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
         self.assertIn("ClearVaultSaveLock()", surface)
         self.assertIn("anchor.Enable(False)", surface)
-        self.assertIn("TrySurfaceExteriorFallbacks(player, anchor)", surface)
+        self.assertNotIn("TrySurfaceExteriorFallbacks(", surface)
+        self.assertIn("TrySurfaceExteriorFallbacks(player, fbAnchor)", finish)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
         self.assertEqual(psc.count("FinishSurface(player)"), 1)   # only a later tick's OnTimer finishes the ride
@@ -1102,8 +1103,11 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
               "bool Function IsEquipped(Form akItem) native\n"
               "bool Function IsDead() native\n"
               "Function AddToFaction(Faction akFaction) native\n"
+              "bool Function PlayIdle(Idle akIdle) native\n"
               "Event OnPlayerLoadGame()\nEndEvent\n"
-              "Event OnDying(ObjectReference akKiller)\nEndEvent\n" + ACTOR_O2)
+              "Event OnDying(ObjectReference akKiller)\nEndEvent\n"
+              "Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n"
+              "Event OnItemUnequipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n" + ACTOR_O2)
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
@@ -1269,8 +1273,12 @@ class PrecheckTests(unittest.TestCase):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
                           "bool Function IsDead() native\n"
-                          "Function AddToFaction(Faction akFaction) native\nEvent OnPlayerLoadGame()\nEndEvent\n"
-                          "Event OnDying(ObjectReference akKiller)\nEndEvent\n" + ACTOR_O2 +
+                          "Function AddToFaction(Faction akFaction) native\n"
+                          "bool Function PlayIdle(Idle akIdle) native\n"
+                          "Event OnPlayerLoadGame()\nEndEvent\n"
+                          "Event OnDying(ObjectReference akKiller)\nEndEvent\n"
+                          "Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n"
+                          "Event OnItemUnequipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n" + ACTOR_O2 +
                           "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
@@ -2423,6 +2431,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            EnsureVaultInteractivesRegistered=lambda: None,
+            SyncPipboyOwnedWornState=lambda *a: False,
             TriggerVaultPodRecoveryAutosave=lambda *a: None,
             CancelTimer=lambda *a: None,
             vaultSavingRelocked=False,
@@ -2831,6 +2841,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     SetActive=lambda *a: None,
                     CompleteQuest=lambda: None,
                     StartLandingQuests=lambda: None,
+                    EnsureVaultInteractivesRegistered=lambda: None,
+                    SyncPipboyOwnedWornState=lambda *a: False,
                     TriggerVaultPodRecoveryAutosave=lambda *a: None,
                     CancelTimer=lambda *a: None,
                     vaultSavingRelocked=False,
@@ -3058,6 +3070,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 SetActive=lambda *a: None,
                 CompleteQuest=lambda: None,
                 StartLandingQuests=lambda: None,
+                EnsureVaultInteractivesRegistered=lambda: None,
+                SyncPipboyOwnedWornState=lambda *a: False,
                 TriggerVaultPodRecoveryAutosave=lambda *a: None,
                 CancelTimer=lambda *a: None,
                 vaultSavingRelocked=False,
@@ -3508,6 +3522,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            EnsureVaultInteractivesRegistered=lambda: None,
+            SyncPipboyOwnedWornState=lambda *a: False,
             TriggerVaultPodRecoveryAutosave=lambda *a: None,
             CancelTimer=lambda *a: None,
             vaultSavingRelocked=False,
@@ -3839,7 +3855,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 warfareFadeTicks=0, storyFadeTicks=0, modeBoxWaiting=False, modeBoxWaitSeconds=0,
                 ticks=0, looksSetStage20=False,
                 LogName="fo4sf_newgame",
-                h00SuspectsRead=False, rideActive=False, rideDone=False, rideTransferred=False,
+                h00SuspectsRead=False, rideActive=False, rideDone=False, rideTransferred=False, rideFadeStarted=False,
                 ridingLift=None, ridingCell=None, surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0,
                 asked=False, returnSurfacePending=False, returnVaultAsked=False,
                 returnSurfaceWaitTicks=0, returnSurfaceTries=0, exitFailures=0,
@@ -3867,6 +3883,8 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 CompleteQuest=lambda: None,
                 StartLandingQuests=lambda: None,
                 ReleaseStoryLandingFade=lambda: None,
+                EnsureVaultInteractivesRegistered=lambda: None,
+                SyncPipboyOwnedWornState=lambda *a: False,
                 Trace=lambda m: logs.append(m),
             )
             exec(compiled, ns)

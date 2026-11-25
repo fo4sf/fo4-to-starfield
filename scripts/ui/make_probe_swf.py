@@ -417,6 +417,7 @@ SETUP_GLYPHS = {
     "]": (0x0E, 0x02, 0x02, 0x02, 0x02, 0x02, 0x0E),
     "<": (0x02, 0x04, 0x08, 0x10, 0x08, 0x04, 0x02),
     ">": (0x08, 0x04, 0x02, 0x01, 0x02, 0x04, 0x08),
+    "+": (0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00),
 }
 SETUP_FONT = {**PAGE_FONT, **SETUP_GLYPHS}
 SETUP_TITLE = "FALLOUT: NEW GAME SETUP"
@@ -438,6 +439,27 @@ SETUP_DEFAULT_ROWS = (
 )
 SETUP_DEFAULT_STATUS = "READY: PRESS CONFIRM (ENTER) TO BEGIN"
 SETUP_DEFAULT_HINT = "UP/DOWN SELECT ROW   LEFT/RIGHT CHANGE   ENTER OR CLICK CONFIRM"
+
+LIFT_TITLE = "VAULT 111 EXIT LIFT"
+LIFT_ROWS = 7
+LIFT_ROW_PREFIX = "fo4sfLiftRow"
+LIFT_HIT_PREFIX = "fo4sfLiftHit"
+LIFT_PREV_PREFIX = "fo4sfLiftPrev"
+LIFT_NEXT_PREFIX = "fo4sfLiftNext"
+LIFT_STATUS_FIELD = "fo4sfLiftStatus"
+LIFT_HINT_FIELD = "fo4sfLiftHint"
+LIFT_CONFIRM_BUTTON = "fo4sfLiftConfirm"
+LIFT_DEFAULT_ROWS = (
+    "> RIDE LIFT TO SURFACE",
+    "  EDIT S.P.E.C.I.A.L. (POOL: 5)",
+    "  CHANGE APPEARANCE",
+    "  STAY IN VAULT 111",
+    " ",
+    " ",
+    " ",
+)
+LIFT_DEFAULT_STATUS = "CONFIRM S.P.E.C.I.A.L. AND APPEARANCE BEFORE LEAVING VAULT 111"
+LIFT_DEFAULT_HINT = "UP/DOWN SELECT   LEFT/RIGHT ADJUST   ENTER OR CLICK CONFIRM"
 
 
 def start_card_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, title=START_CARD_TITLE):
@@ -463,10 +485,10 @@ def start_card_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, tit
     return defs, places
 
 
-def setup_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, panel_color=SETUP_PANEL_DARK,
-                      title=SETUP_TITLE):
-    """Single-page interactive New-Game Setup Screen (S1 Variant b): Mode, Story Line / Faction, Start Place,
-    Survival, Difficulty, availability status line, and one Confirm button."""
+def _panel_screen_tags(W, H, border_color, bg_color, panel_color, title, rows, row_h, row_gap, first_y, row_px,
+                       row_prefix, hit_prefix, prev_prefix, next_prefix, status_field, hint_field,
+                       confirm_button, default_rows, default_status, default_hint):
+    """Shared generator for interactive 1-page panel SWFs (FO4SF_SetupScreen and FO4SF_LiftScreen)."""
     defs, places = start_card_tags(W, H, border_color=border_color, bg_color=bg_color, title=title)
     next_id = 4
     depth = len(places) + 1
@@ -475,10 +497,6 @@ def setup_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, p
     next_id += 1
     defs += define_font3(font_id, SETUP_FONT)
 
-    row_px = 28
-    row_h = 84 * TWIPS
-    row_gap = 20 * TWIPS
-    first_y = 216 * TWIPS
     arrow_w = 88 * TWIPS
     left_x = 140 * TWIPS
     right_x = W - 140 * TWIPS - arrow_w
@@ -486,7 +504,7 @@ def setup_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, p
     bar_w = right_x - 18 * TWIPS - bar_x
     text_h = row_px * TWIPS
 
-    for i in range(SETUP_ROWS):
+    for i in range(rows):
         ry = first_y + i * (row_h + row_gap)
         prev_box = (left_x, ry, arrow_w, row_h)
         hit_box = (bar_x, ry, bar_w, row_h)
@@ -494,25 +512,22 @@ def setup_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, p
         field_box = (bar_x + 20 * TWIPS, ry + (row_h - (text_h * 3 // 2)) // 2,
                      bar_w - 40 * TWIPS, text_h * 3 // 2)
 
-        # Row background hit sprite (`fo4sfSetupHit<i>`)
         hit_rect_id, hit_sprite_id = next_id, next_id + 1
         next_id += 2
         defs += define_shape3(hit_rect_id, [hit_box], panel_color)
         defs += define_sprite(hit_sprite_id, [place_object2(hit_rect_id, 1)])
-        places.append(place_named(hit_sprite_id, depth, f"{SETUP_HIT_PREFIX}{i}"))
+        places.append(place_named(hit_sprite_id, depth, f"{hit_prefix}{i}"))
         depth += 1
 
-        # Row dynamic text field (`fo4sfSetupRow<i>`)
         field_id = next_id
         next_id += 1
-        defs += define_edit_text(field_id, field_box, font_id, text_h, border_color, SETUP_DEFAULT_ROWS[i])
-        places.append(place_named(field_id, depth, f"{SETUP_ROW_PREFIX}{i}"))
+        defs += define_edit_text(field_id, field_box, font_id, text_h, border_color, default_rows[i])
+        places.append(place_named(field_id, depth, f"{row_prefix}{i}"))
         depth += 1
 
-        # `<` and `>` buttons (`fo4sfSetupPrev<i>`, `fo4sfSetupNext<i>`)
         for btn_name, btn_label, bbox in (
-            (f"{SETUP_PREV_PREFIX}{i}", "<", prev_box),
-            (f"{SETUP_NEXT_PREFIX}{i}", ">", next_box),
+            (f"{prev_prefix}{i}", "<", prev_box),
+            (f"{next_prefix}{i}", ">", next_box),
         ):
             brect_id, blbl_id, bspr_id = next_id, next_id + 1, next_id + 2
             next_id += 3
@@ -522,48 +537,81 @@ def setup_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, p
             places.append(place_named(bspr_id, depth, btn_name))
             depth += 1
 
-    status_y = first_y + SETUP_ROWS * (row_h + row_gap) + 12 * TWIPS
+    status_y = first_y + rows * (row_h + row_gap) + 12 * TWIPS
     status_box = (left_x, status_y, W - 2 * left_x, 24 * TWIPS * 3 // 2)
     status_id = next_id
     next_id += 1
-    defs += define_edit_text(status_id, status_box, font_id, 24 * TWIPS, border_color, SETUP_DEFAULT_STATUS)
-    places.append(place_named(status_id, depth, SETUP_STATUS_FIELD))
+    defs += define_edit_text(status_id, status_box, font_id, 24 * TWIPS, border_color, default_status)
+    places.append(place_named(status_id, depth, status_field))
     depth += 1
 
     hint_y = status_y + 48 * TWIPS
     hint_box = (left_x, hint_y, W - 2 * left_x, 20 * TWIPS * 3 // 2)
     hint_id = next_id
     next_id += 1
-    defs += define_edit_text(hint_id, hint_box, font_id, 20 * TWIPS, border_color, SETUP_DEFAULT_HINT)
-    places.append(place_named(hint_id, depth, SETUP_HINT_FIELD))
+    defs += define_edit_text(hint_id, hint_box, font_id, 20 * TWIPS, border_color, default_hint)
+    places.append(place_named(hint_id, depth, hint_field))
     depth += 1
 
     confirm_w, confirm_h = 420 * TWIPS, 92 * TWIPS
     confirm_box = ((W - confirm_w) // 2, H - 64 * TWIPS - confirm_h, confirm_w, confirm_h)
     crect_id, clbl_id, cspr_id = next_id, next_id + 1, next_id + 2
-    next_id += 3
     defs += define_shape3(crect_id, [confirm_box], border_color)
     defs += define_shape3(clbl_id, label_squares("CONFIRM", confirm_box, SETUP_FONT), bg_color)
     defs += define_sprite(cspr_id, [place_object2(crect_id, 1), place_object2(clbl_id, 2)])
-    places.append(place_named(cspr_id, depth, SETUP_CONFIRM_BUTTON))
+    places.append(place_named(cspr_id, depth, confirm_button))
     return defs, places
 
 
+def setup_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, panel_color=SETUP_PANEL_DARK,
+                      title=SETUP_TITLE):
+    """Single-page interactive New-Game Setup Screen (S1 Variant b): Mode, Story Line / Faction, Start Place,
+    Survival, Difficulty, availability status line, and one Confirm button."""
+    return _panel_screen_tags(
+        W, H, border_color, bg_color, panel_color, title,
+        rows=SETUP_ROWS, row_h=84 * TWIPS, row_gap=20 * TWIPS, first_y=216 * TWIPS, row_px=28,
+        row_prefix=SETUP_ROW_PREFIX, hit_prefix=SETUP_HIT_PREFIX,
+        prev_prefix=SETUP_PREV_PREFIX, next_prefix=SETUP_NEXT_PREFIX,
+        status_field=SETUP_STATUS_FIELD, hint_field=SETUP_HINT_FIELD,
+        confirm_button=SETUP_CONFIRM_BUTTON,
+        default_rows=SETUP_DEFAULT_ROWS, default_status=SETUP_DEFAULT_STATUS, default_hint=SETUP_DEFAULT_HINT,
+    )
+
+
+def lift_screen_tags(W, H, border_color=PIPBOY_GREEN, bg_color=START_CARD_BG, panel_color=SETUP_PANEL_DARK,
+                     title=LIFT_TITLE):
+    """Paused interactive Vault 111 Exit Lift + 40-pt S.P.E.C.I.A.L. Screen (`FO4SF_LiftScreen.swf`)."""
+    return _panel_screen_tags(
+        W, H, border_color, bg_color, panel_color, title,
+        rows=LIFT_ROWS, row_h=64 * TWIPS, row_gap=14 * TWIPS, first_y=200 * TWIPS, row_px=24,
+        row_prefix=LIFT_ROW_PREFIX, hit_prefix=LIFT_HIT_PREFIX,
+        prev_prefix=LIFT_PREV_PREFIX, next_prefix=LIFT_NEXT_PREFIX,
+        status_field=LIFT_STATUS_FIELD, hint_field=LIFT_HINT_FIELD,
+        confirm_button=LIFT_CONFIRM_BUTTON,
+        default_rows=LIFT_DEFAULT_ROWS, default_status=LIFT_DEFAULT_STATUS, default_hint=LIFT_DEFAULT_HINT,
+    )
+
+
 def movie_bytes(width=1920, height=1080, color=PIPBOY_GREEN, ink=INK, label=LABEL, compressed=True, channel=False,
-                page=False, start_card=False, setup_screen=False):
+                page=False, start_card=False, setup_screen=False, lift_screen=False):
     """The whole movie. width/height in pixels; label None or "" for the rectangle alone; channel adds the data
     channel's field and button (FAL-216). Without channel the bytes are stage (b)'s. page is the STAT page (FAL-272)
     instead: its own panel, title and fields, no label shape. start_card is the full-stage start title card (N2).
-    setup_screen is the single-page interactive New-Game Setup Screen (S1 Variant b)."""
+    setup_screen is the single-page interactive New-Game Setup Screen (S1 Variant b).
+    lift_screen is the paused Vault 111 Exit Lift + S.P.E.C.I.A.L. Screen (`FO4SF_LiftScreen.swf`)."""
     if width <= 0 or height <= 0:
         raise SwfError("the stage needs a positive size")
-    modes = sum(bool(x) for x in (channel, page, start_card, setup_screen))
+    modes = sum(bool(x) for x in (channel, page, start_card, setup_screen, lift_screen))
     if modes > 1:
-        raise SwfError("--setup-screen, --start-card, --channel and --page are two different movies (mutually exclusive)")
+        raise SwfError("--lift-screen, --setup-screen, --start-card, --channel and --page are different movies (mutually exclusive)")
     W, H = width * TWIPS, height * TWIPS
     body = rect(0, W, 0, H) + struct.pack("<HH", FRAME_RATE << 8, 1)
     body += tag(FILE_ATTRIBUTES, bytes([AS3, 0, 0, 0]))
-    if setup_screen:
+    if lift_screen:
+        defs, tags = lift_screen_tags(W, H, border_color=color, bg_color=START_CARD_BG,
+                                      title=LIFT_TITLE if label == LABEL else label)
+        body += defs
+    elif setup_screen:
         defs, tags = setup_screen_tags(W, H, border_color=color, bg_color=START_CARD_BG,
                                        title=SETUP_TITLE if label == LABEL else label)
         body += defs
@@ -856,6 +904,8 @@ def main(argv=None):
                     help="full-stage non-modal Commonwealth start title card (N2 Variant b)")
     ap.add_argument("--setup-screen", action="store_true",
                     help="single-page interactive New-Game Setup Screen (S1 Variant b)")
+    ap.add_argument("--lift-screen", action="store_true",
+                    help="paused interactive Vault 111 Exit Lift + 40-pt S.P.E.C.I.A.L. Screen")
     a = ap.parse_args(argv)
     try:
         if a.read:
@@ -865,7 +915,8 @@ def main(argv=None):
             ap.error("--out or --read is needed")
         data = write_movie(a.out, width=a.width, height=a.height, color=int(a.color, 16), ink=int(a.ink, 16),
                            label=None if a.no_label else a.label, compressed=not a.uncompressed,
-                           channel=a.channel, page=a.page, start_card=a.start_card, setup_screen=a.setup_screen)
+                           channel=a.channel, page=a.page, start_card=a.start_card, setup_screen=a.setup_screen,
+                           lift_screen=a.lift_screen)
     except (SwfError, ValueError, OSError, zlib.error) as e:
         print(f"make_probe_swf: {e}", file=sys.stderr)
         return 1

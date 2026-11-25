@@ -489,7 +489,7 @@ def format_stage_ini(
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
-    require_pickup: int = 0,
+    require_pickup: int = 1,
     boot_movie: str = "",
     boot_on_first_open: int = 0,
     special_menu: int = 0,
@@ -630,7 +630,7 @@ def generate_stage_ini(
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
-    require_pickup: int = 0,
+    require_pickup: int = 1,
     boot_movie_name: str = DEFAULT_BOOT_MOVIE,
     boot_on_first_open: int = 0,
     special_menu: int = 0,
@@ -781,7 +781,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--arm", type=int, choices=(0, 1), default=0, help="Opt-in 1i/N1 first-person arm PlayIdle (default 0: T7 off)")
     ap.add_argument("--stat-actions", type=int, choices=(0, 1), default=0, help="Enable 1j STAT actions (default 0)")
     ap.add_argument("--inv-data-answers", type=int, choices=(0, 1), default=0, help="Enable 1k INV/DATA answers (default 0)")
-    ap.add_argument("--require-pickup", type=int, choices=(0, 1), default=0, help="Enable X2 RequirePickup (default 0)")
+    ap.add_argument("--require-pickup", type=int, choices=(0, 1), default=1, help="Enable X2 RequirePickup (default 1)")
     ap.add_argument("--boot-movie", default=DEFAULT_BOOT_MOVIE, help="Boot sequence SWF base name")
     ap.add_argument("--boot-on-first-open", type=int, choices=(0, 1), default=0, help="Opt-in boot movie once after pickup (default 0: T7 off)")
     ap.add_argument("--special-menu", type=int, choices=(0, 1), default=0, help="Enable 1k FO4SF_SpecialMenu host (default 0)")

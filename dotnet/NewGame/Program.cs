@@ -132,6 +132,7 @@ static class NewGame
                         ExitNeedSpecialMsgEdid = "FO4SF_NewGameExitNeedSpecialMsg",
                         VaultPistolRefEdid = "FO4SF_Vault111PistolRef",
                         VaultAmmoRefEdid = "FO4SF_Vault111AmmoRef",
+                        Vault10mmWeapEdid = "FO4SF_Vault111_10mm",
                         DiscoverSecretAreaXpGmstEdid = "iXPRewardDiscoverSecretArea";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
     public const uint ModePickMsgId = 0x806,
@@ -154,7 +155,9 @@ static class NewGame
                       StartRoomMarkerRefId = 0x81D,
                       StoryLineMsgId = 0x81E,
                       ExitNeedSpecialMsgId = 0x81F;
-    public const uint VaultPistolRefId = 0x820, VaultAmmoRefId = 0x821;
+    public const uint VaultPistolRefId = 0x820, VaultAmmoRefId = 0x821, Vault10mmWeapId = 0x822;
+    public const uint Vault10mmAmmoCapacity = 12u;
+    public const float Vault10mmAttackDamage = 18.0f;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
     public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
     public const int MaxMessageButtons = 7;
@@ -1557,15 +1560,23 @@ static class NewGame
         };
         gearConsoleRef.MajorRecordFlagsRaw |= 0x400;
         cellOver.Persistent.Add(gearConsoleRef);
-        // T4 / T1: place Vault 111 pistol + 48 rounds in cellOver so Story pistol pickup works when FO4SFRouteLoot.esm is omitted
-        bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
+        // T4 / T1 + R14 2g-fix6: create local WEAP 0x822 (FO4SF_Vault111_10mm, 12-round 10mm Pistol, 18 dmg) and point
+        // placed ref 0x820 to 0x822 while keeping VaultPistolBase property on Starfield.esm:0x24561C for B5 parity.
+        var sfPistol = sf.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId));
+        bool hasVaultPistolAndAmmo = sfPistol is not null &&
                                      sf.Ammunitions.Any(a => a.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
         if (hasVaultPistolAndAmmo)
         {
+            var weap10mm = (SF.Weapon)sfPistol!.Duplicate(new FormKey(modKey, Vault10mmWeapId));
+            weap10mm.EditorID = Vault10mmWeapEdid;
+            weap10mm.Name = "10mm Pistol";
+            weap10mm.AmmoCapacity = Vault10mmAmmoCapacity;
+            weap10mm.AttackDamage = Vault10mmAttackDamage;
+            mod.Weapons.Add(weap10mm);
             var pistolRef = new SF.PlacedObject(new FormKey(modKey, VaultPistolRefId), SF.StarfieldRelease.Starfield)
             {
                 EditorID = VaultPistolRefEdid,
-                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfVaultPistolId)),
+                Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(weap10mm.FormKey),
                 Position = new P3Float(-57.0338f, 30.006f, 1.29f),
                 Rotation = new P3Float(-1.444f, 0.412f, 4.831f),
             };
@@ -1759,7 +1770,7 @@ static class NewGame
             gmstOver.Data = 0;
             mod.GameSettings.Add(gmstOver);
         }
-        mod.ModHeader.Stats.NextFormID = VaultAmmoRefId + 1;
+        mod.ModHeader.Stats.NextFormID = Vault10mmWeapId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         WritePlugin(mod, path);
@@ -1898,14 +1909,20 @@ static class NewGame
              $"CELL override is not {VaultCell} carrying persistent {PipboyCorpseRefEdid} (0x{PipboyCorpseRefId:X} at {Show(wantPbPos)} scale {F(PipboyPickupScale)}) and {GearDoorConsoleRefEdid} (0x{GearDoorConsoleRefId:X} at {Show(wantConPos)} scale {F(ConsoleActivatorScale)})");
         if (hasVaultPistolAndAmmo)
         {
+            var weap10mm = plug.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(key, Vault10mmWeapId));
+            Need(weap10mm is { EditorID: Vault10mmWeapEdid } &&
+                 weap10mm.Name?.String == "10mm Pistol" &&
+                 weap10mm.AmmoCapacity == Vault10mmAmmoCapacity &&
+                 MathF.Abs(weap10mm.AttackDamage - Vault10mmAttackDamage) < 1e-4f,
+                 $"WEAP 0x{Vault10mmWeapId:X} is not {Vault10mmWeapEdid} ('10mm Pistol', cap={Vault10mmAmmoCapacity}, dmg={Vault10mmAttackDamage})");
             var pistolRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultPistolRefId));
             var ammoRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultAmmoRefId));
             Need(pistolRef is { EditorID: VaultPistolRefEdid } && !IsPersistent(pistolRef) &&
-                 pistolRef.Base.FormKey == new FormKey(SfEsm, SfVaultPistolId) &&
+                 pistolRef.Base.FormKey == new FormKey(key, Vault10mmWeapId) &&
                  MathF.Abs(pistolRef.Position.X - (-57.0338f)) <= 1e-3f &&
                  MathF.Abs(pistolRef.Position.Y - 30.006f) <= 1e-3f &&
                  MathF.Abs(pistolRef.Position.Z - 1.29f) <= 1e-3f,
-                 $"CELL override lacks temporary {VaultPistolRefEdid} (0x{VaultPistolRefId:X}) -> Starfield.esm:{SfVaultPistolId:X6}");
+                 $"CELL override lacks temporary {VaultPistolRefEdid} (0x{VaultPistolRefId:X}) -> {Plugin}:{Vault10mmWeapId:X}");
             Need(ammoRef is { EditorID: VaultAmmoRefEdid } && !IsPersistent(ammoRef) &&
                  ammoRef.Base.FormKey == new FormKey(SfEsm, SfVaultAmmoId) &&
                  ammoRef.Count == VaultAmmoCount &&
@@ -2824,6 +2841,7 @@ static class NewGame
             ("GearDoorConsoleActi lost its name", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).Name = ""),
             ("VaultPistolBase pointed at another form", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultPistolBase")).Object.SetTo(new FormKey(SfEsm, SfFallbackJumpsuitId))),
             ("Vault111 temporary pistol removed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; c.Temporary.Remove(c.Temporary.First(x => x.EditorID == VaultPistolRefEdid)); }),
+            ("Vault111 10mm WEAP capacity reverted to 9", m => m.Weapons.First(w => w.EditorID == Vault10mmWeapEdid).AmmoCapacity = 9u),
             ("Vault111 temporary ammo count changed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; ((SF.PlacedObject)c.Temporary.First(x => x.EditorID == VaultAmmoRefEdid)).Count = 12; }),
             ("iXPRewardDiscoverSecretArea GMST removed", m => m.GameSettings.Clear()),
             ("iXPRewardDiscoverSecretArea GMST nonzero", m => ((SF.GameSettingInt)m.GameSettings.First(g => g.EditorID == DiscoverSecretAreaXpGmstEdid)).Data = 40),

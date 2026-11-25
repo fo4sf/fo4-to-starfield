@@ -395,6 +395,7 @@ float riderZ = 0.0
 bool rideActive = false
 bool rideDone = false
 bool rideTransferred = false
+bool rideFadeStarted = false
 InputEnableLayer scannerLayer = None
 bool consoleRegistered = false
 ObjectReference consoleWatchedRef = None
@@ -404,6 +405,7 @@ bool consoleOpening = false
 bool cogDoorRegistered = false
 ObjectReference cogDoorWatchedRef = None
 bool pipboyRegistered = false
+bool pipboyEquipWatchRegistered = false
 bool pipboyPickedUp = false
 bool itemWatchRegistered = false
 bool pistolPickedLogged = false
@@ -844,7 +846,11 @@ Event OnTimer(int aiTimerID)
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
     endif
     if GetStage() < 200 && GetStage() != 1
-        StartTimer(1.0, 1)
+        if rideActive || surfaceMovedAt > 0.0
+            StartTimer(0.2, 1)
+        else
+            StartTimer(1.0, 1)
+        endif
     elseif GetStage() == 200
         if returnSurfacePending
             StartTimer(1.0, 1)
@@ -1057,14 +1063,104 @@ Function InVault(Actor player, int stage)
     PromptVaultExitLift(player)
 EndFunction
 
+int Function ShowPausedExitLiftMenu(Actor player)
+{Opens paused FO4SF_LiftMenu (FO4SF_StartCardOpen 4.0->5.0->6.0/7.0/8.0) with 40-pt S.P.E.C.I.A.L. sync; returns 0=Ride, 2=Stay, or -1 to fall back.}
+    if StartCardOpenGlobal == None || (TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0)
+        return -1
+    endif
+    int si = 0
+    while si < 7
+        GlobalVariable pGlob = Game.GetFormFromFile(0x000880 + si, "FO4SFCoreValues.esm") as GlobalVariable
+        ActorValue sAv = Game.GetFormFromFile(0x000810 + si, "FO4SFCoreValues.esm") as ActorValue
+        if pGlob != None && sAv != None && player != None
+            float curVal = player.GetValue(sAv)
+            if curVal >= 1.0 && curVal <= 10.0
+                pGlob.SetValue(curVal)
+            endif
+        endif
+        si += 1
+    endwhile
+    GlobalVariable reqGlob = Game.GetFormFromFile(0x000887, "FO4SFCoreValues.esm") as GlobalVariable
+    if reqGlob != None
+        if liftSpecConfirmed
+            reqGlob.SetValue(1.0)
+        else
+            reqGlob.SetValue(0.0)
+        endif
+    endif
+    StartCardOpenGlobal.SetValue(4.0)
+    float ackWait = 0.0
+    float gVal = StartCardOpenGlobal.GetValue()
+    while gVal > 0.5 && gVal < 4.5 && ackWait < 2.0
+        Utility.Wait(0.1)
+        ackWait += 0.1
+        gVal = StartCardOpenGlobal.GetValue()
+    endwhile
+    if gVal < 4.5
+        StartCardOpenGlobal.SetValue(0.0)
+        Trace("lift menu fallback reason=unavailable gval=" + gVal)
+        return -1
+    endif
+    Trace("lift menu open=1")
+    float menuWait = 0.0
+    while gVal >= 3.5 && gVal < 5.5 && menuWait < 3600.0
+        Utility.Wait(0.1)
+        menuWait += 0.1
+        gVal = StartCardOpenGlobal.GetValue()
+    endwhile
+    StartCardOpenGlobal.SetValue(0.0)
+    if reqGlob != None && reqGlob.GetValue() >= 0.5
+        int ai = 0
+        while ai < 7
+            GlobalVariable pGlob2 = Game.GetFormFromFile(0x000880 + ai, "FO4SFCoreValues.esm") as GlobalVariable
+            ActorValue sAv2 = Game.GetFormFromFile(0x000810 + ai, "FO4SFCoreValues.esm") as ActorValue
+            if pGlob2 != None && sAv2 != None && player != None
+                float chosen = pGlob2.GetValue()
+                if chosen >= 1.0 && chosen <= 10.0
+                    player.SetValue(sAv2, chosen)
+                endif
+            endif
+            ai += 1
+        endwhile
+        reqGlob.SetValue(0.0)
+        liftSpecConfirmed = true
+        Trace("lift menu special confirmed=1")
+    endif
+    if gVal >= 7.5
+        Trace("lift menu action=change_appearance")
+        if player != None
+            RegisterForMenuOpenCloseEvent("ChargenMenu")
+            setupWaitingCreator = true
+            Game.ShowRaceMenu(player, 1)
+            float waitedCreator = 0.0
+            while setupWaitingCreator && waitedCreator < LooksWait
+                Utility.Wait(0.5)
+                waitedCreator += 0.5
+            endwhile
+            UnregisterForMenuOpenCloseEvent("ChargenMenu")
+            setupWaitingCreator = false
+        endif
+        asked = false
+        return 2
+    elseif gVal >= 5.5 && gVal < 6.5
+        Trace("lift menu action=ride")
+        return 0
+    endif
+    Trace("lift menu action=stay gval=" + gVal)
+    return 2
+EndFunction
+
 Function PromptVaultExitLift(Actor player)
-{Shows ExitMessage on the Vault 111 elevator platform (called both on PlatformRadius entry and on direct E control activation).}
+{Shows paused FO4SF_LiftMenu (or falls back to ExitMessage) on the Vault 111 elevator platform.}
     if rideActive || rideTransferred
         return
     endif
     asked = true                                             ; asked once per visit to the platform
     Trace("lift platform waiting cage_door=open")
-    int button = ExitMessage.Show()
+    int button = ShowPausedExitLiftMenu(player)
+    if button < 0
+        button = ExitMessage.Show()
+    endif
     Trace("elevator prompt button=" + button)
     if button == 0
         if !liftSpecConfirmed && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
@@ -1134,6 +1230,7 @@ Function StartAscent(Actor player)
     riderY = player.GetPositionY()
     riderZ = player.GetPositionZ()
     rideDone = false
+    rideFadeStarted = false
     ; Register before playback; the callback checks the exact source and age; a later tick checks the upper position.
     RegisterForAnimationEvent(lift, "Done")
     if !player.Is3DLoaded() || player.GetParentCell() != ridingCell || !Near(player, riderX, riderY, riderZ, PlatformRadius)
@@ -1215,6 +1312,11 @@ Function CheckAscent(Actor player)
         FailExit("lift_cell_changed")
         return
     endif
+    if !rideFadeStarted && elapsed >= LiftSeconds - 1.1
+        rideFadeStarted = true
+        Game.FadeOutGame(True, True, 0.0, 1.0, True)
+        Trace("ascent fade_out elapsed=" + elapsed)
+    endif
     if !rideDone || !AtLiftTop(player)
         return
     endif
@@ -1257,9 +1359,6 @@ Function Surface(Actor player)
     surfaceMoves += 1
     surfaceMovedAt = Utility.GetCurrentRealTime()
     Trace("surface moveto pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + player.GetWorldSpace() + " moves=" + surfaceMoves)
-    if player.IsInInterior()
-        TrySurfaceExteriorFallbacks(player, anchor)
-    endif
 EndFunction
 
 Function FinishSurface(Actor player)
@@ -1274,14 +1373,18 @@ Function FinishSurface(Actor player)
                 Trace("surface still inside " + SurfaceWait + " s after the moveto: moving again")
                 Surface(player)
             else
-                if LiftId > 0
-                    FailExit("lift_surface_missed")
-                    return
+                ObjectReference fbAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+                TrySurfaceExteriorFallbacks(player, fbAnchor)
+                if player.IsInInterior()
+                    if LiftId > 0
+                        FailExit("lift_surface_missed")
+                        return
+                    endif
+                    Trace("surface missed: still inside after " + surfaceMoves + " moves; the elevator asks again")
+                    surfaceMovedAt = 0.0
+                    surfaceMoves = 0
+                    asked = false
                 endif
-                Trace("surface missed: still inside after " + surfaceMoves + " moves; the elevator asks again")
-                surfaceMovedAt = 0.0
-                surfaceMoves = 0
-                asked = false
             endif
         endif
         return
@@ -1433,6 +1536,10 @@ Function FailExit(string reason)
     rideActive = false
     rideDone = false
     rideTransferred = false
+    if rideFadeStarted
+        rideFadeStarted = false
+        Game.FadeOutGame(False, True, 0.0, 0.5, False)
+    endif
     ridingLift = None
     ridingCell = None
     surfaceMovedAt = 0.0
@@ -1492,12 +1599,10 @@ Function TryFastTravelSurface(Actor player, ObjectReference travelTarget)
         return
     endif
     travelTarget.Enable(False)
-    travelTarget.AddToMap(True)
-    travelTarget.SetMarkerDiscovered()
     travelTarget.EnableFastTravel(True)
     Game.FastTravel(travelTarget)
     Utility.Wait(0.5)
-    Trace("surface fallback fasttravel target=" + travelTarget + " interior=" + player.IsInInterior() + " world=" + player.GetWorldSpace())
+    Trace("surface fallback last_resort fasttravel target=" + travelTarget + " interior=" + player.IsInInterior() + " world=" + player.GetWorldSpace())
 EndFunction
 
 Function TrySurfaceExteriorFallbacks(Actor player, ObjectReference primaryAnchor)
@@ -1687,6 +1792,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
     vaultRecoveryTriggered = false
     EnsureLoadHookRegistered(akSender)
+    SyncPipboyOwnedWornState(akSender)
     int st = GetStage()
     if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 0 && st >= 10
         GameModeGlobal.SetValue(1.0)
@@ -1701,6 +1807,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         rideActive = false
         rideDone = false
         rideTransferred = false
+        rideFadeStarted = false
         ridingLift = None
         ridingCell = None
         surfaceMovedAt = 0.0
@@ -2464,8 +2571,11 @@ Function RunWarfareBranch(Actor player, int rowIdx)
         player.AddItem(PipboyWristArmor, 1, true)
         player.EquipItem(PipboyWristArmor, false, true)
     endif
-    if PipboyAcquiredGlobal != None
-        PipboyAcquiredGlobal.SetValue(1.0)
+    EnsureVaultInteractivesRegistered()
+    if !SyncPipboyOwnedWornState(player)
+        if PipboyAcquiredGlobal != None
+            PipboyAcquiredGlobal.SetValue(1.0)
+        endif
     endif
     int gearAdded = 0
     int k = 0
@@ -2681,13 +2791,39 @@ int Function RunSharedMapSetup()
     return count
 EndFunction
 
+bool Function SyncPipboyOwnedWornState(Actor player)
+{Syncs FO4SF_PipboyAcquired (1.0 iff owned AND worn; 0.0 if missing or unequipped) for pickup/equip/unequip/load.}
+    if PipboyAcquiredGlobal == None || player == None || PipboyWristArmor == None
+        return false
+    endif
+    bool owned = player.GetItemCount(PipboyWristArmor) > 0
+    bool worn = owned && player.IsEquipped(PipboyWristArmor)
+    if owned && worn
+        PipboyAcquiredGlobal.SetValue(1.0)
+    else
+        PipboyAcquiredGlobal.SetValue(0.0)
+    endif
+    return owned && worn
+EndFunction
+
 Function EnsureVaultInteractivesRegistered()
     Actor player = Game.GetPlayer()
     if !itemWatchRegistered && player != None && VaultPistolBase != None
         itemWatchRegistered = true
         AddInventoryEventFilter(VaultPistolBase)
+        Form ownPistol = Game.GetFormFromFile(0x000822, "FO4SFNewGame.esm")
+        if ownPistol != None
+            AddInventoryEventFilter(ownPistol)
+        endif
         Trace("pistol filter added base=" + VaultPistolBase + " id=" + VaultPistolId)
         RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")
+    endif
+    if !pipboyEquipWatchRegistered && player != None && PipboyWristArmor != None
+        pipboyEquipWatchRegistered = true
+        AddInventoryEventFilter(PipboyWristArmor)
+        RegisterForRemoteEvent(player, "OnItemEquipped")
+        RegisterForRemoteEvent(player, "OnItemUnequipped")
+        RegisterForRemoteEvent(player as ObjectReference, "OnItemRemoved")
     endif
     if !pipboyRegistered && PipboyCorpseRef != None
         pipboyRegistered = true
@@ -2722,19 +2858,39 @@ Function EnsureVaultInteractivesRegistered()
     endif
 EndFunction
 
+Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference akReference)
+    if PipboyWristArmor != None && akBaseObject == PipboyWristArmor && akSender == Game.GetPlayer()
+        SyncPipboyOwnedWornState(akSender)
+    endif
+EndEvent
+
+Event Actor.OnItemUnequipped(Actor akSender, Form akBaseObject, ObjectReference akReference)
+    if PipboyWristArmor != None && akBaseObject == PipboyWristArmor && akSender == Game.GetPlayer()
+        SyncPipboyOwnedWornState(akSender)
+    endif
+EndEvent
+
+Event ObjectReference.OnItemRemoved(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akDestContainer, int aiTransferReason)
+    Actor player = Game.GetPlayer()
+    if PipboyWristArmor != None && akBaseItem == PipboyWristArmor && player != None && akSender == (player as ObjectReference)
+        SyncPipboyOwnedWornState(player)
+    endif
+EndEvent
+
 Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
     if pistolPickedLogged || GetStage() >= 40 || akBaseItem == None || VaultPistolBase == None
         return
     endif
-    if akBaseItem == VaultPistolBase
+    Form ownPistol = Game.GetFormFromFile(0x000822, "FO4SFNewGame.esm")
+    if akBaseItem == VaultPistolBase || (ownPistol != None && akBaseItem == ownPistol)
         pistolPickedLogged = true
         Actor player = Game.GetPlayer()
         bool equipped = False
         if player != None
-            if !player.IsEquipped(VaultPistolBase)
-                player.EquipItem(VaultPistolBase, False, False)
+            if !player.IsEquipped(akBaseItem)
+                player.EquipItem(akBaseItem, False, False)
             endif
-            equipped = player.IsEquipped(VaultPistolBase)
+            equipped = player.IsEquipped(akBaseItem)
         endif
         Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped)
     endif
@@ -2838,7 +2994,7 @@ Function ActivateGearDoorConsole()
 EndFunction
 
 Function HandlePipboyPickup(Actor player)
-{Equips FO4SF_PipboyWrist, sets FO4SF_PipboyAcquired to 1, and disables the corpse pickup reference once.}
+{Equips FO4SF_PipboyWrist, raises wrist via IdleExamineWatch (0x000C154F), sets FO4SF_PipboyAcquired=1 when owned+worn.}
     if pipboyPickedUp
         return
     endif
@@ -2850,8 +3006,11 @@ Function HandlePipboyPickup(Actor player)
         player.AddItem(PipboyWristArmor, 1, true)
         player.EquipItem(PipboyWristArmor, false, true)
     endif
-    if PipboyAcquiredGlobal != None
-        PipboyAcquiredGlobal.SetValue(1.0)
+    SyncPipboyOwnedWornState(player)
+    bool examinePlayed = false
+    Idle examineIdle = Game.GetFormFromFile(0x000C154F, "Starfield.esm") as Idle
+    if examineIdle != None && player != None
+        examinePlayed = player.PlayIdle(examineIdle)
     endif
     if PipboyCorpseRef != None
         PipboyCorpseRef.DisableNoWait(False)
@@ -2867,6 +3026,7 @@ Function HandlePipboyPickup(Actor player)
         worn = player.IsEquipped(PipboyWristArmor)
     endif
     Trace("pipboy pickup equipped flag=1 worn=" + worn)
+    Trace("pipboy pickup examine_idle=" + examinePlayed)
 EndFunction
 
 Function OpenLiftAttributeAllocation()

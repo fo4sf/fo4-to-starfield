@@ -114,6 +114,7 @@
 #include <vector>
 
 #include "setup_places.h"
+#include "lift_menu.h"
 
 // Win32 calls that libxse's REX::W32 does not wrap, imported the way REX/W32.cpp imports its own (REX/W32/BASE.h):
 // libxse refuses a <windows.h> included before it
@@ -213,6 +214,7 @@ namespace
 	constexpr std::uint32_t kCoreHardcoreFastTravelBlockedId = 0x841; // FO4SFCoreValues.esm GLOB FO4SF_HardcoreFastTravelBlocked (A2)
 	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
 	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
+	constexpr std::uint32_t kNewGamePipboyWristId = 0x80D;   // FO4SFNewGame.esm ARMO FO4SF_PipboyWrist (owned + worn gate)
 	constexpr std::uint32_t kCoreStartCardOpenId = 0x866;    // FO4SFCoreValues.esm GLOB FO4SF_StartCardOpen (N2, R13)
 	constexpr std::uint32_t kCoreGameModeId = 0x870;         // FO4SFCoreValues.esm GLOB FO4SF_GameMode (S1, R13)
 	constexpr std::uint32_t kCoreSurvivalStartId = 0x871;    // FO4SFCoreValues.esm GLOB FO4SF_SurvivalStart (S1, R13)
@@ -600,6 +602,16 @@ namespace
 	std::mutex                               g_setupLock;
 	fo4sf::setup::SetupScreenModel           g_setupModel;
 	bool                                     g_setupModelLoaded = false;
+	// Paused Vault 111 Exit Lift + 40-pt S.P.E.C.I.A.L. Screen (FO4SF_LiftMenu -> Interface/FO4SF_LiftScreen.swf)
+	PrimaryVtable                            g_liftVtbl{};
+	InputVtable                              g_liftInputVtbl{};
+	std::atomic<bool>                        g_liftOpen{ false };
+	std::atomic<bool>                        g_loadingLiftMovie{ false };
+	std::atomic<bool>                        g_liftMissing{ false };
+	std::atomic<const void*>                 g_liftListenedMovie{ nullptr };
+	std::atomic<std::uint32_t>               g_liftCreated{ 0 };
+	std::mutex                               g_liftLock;
+	fo4sf::lift::LiftMenuModel               g_liftModel;
 	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
 	std::atomic<std::uint32_t>               s_savedPage{ 0 };
 	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
@@ -9053,6 +9065,437 @@ namespace
 		}
 	}
 
+	const RE::BSFixedString& LiftMenuName()
+	{
+		static const RE::BSFixedString s{ fo4sf::kOurLiftMenuName };
+		return s;
+	}
+
+	std::array<int, fo4sf::lift::kSpecialCount> ReadInitialLiftSpecialMainThread(bool& a_outConfirmed)
+	{
+		FindGlobalValue();
+		std::array<int, fo4sf::lift::kSpecialCount> vals{ 5, 5, 5, 5, 5, 5, 5 };
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		for (std::size_t i = 0; i < fo4sf::lift::kSpecialCount; ++i) {
+			std::string         detail;
+			const std::uint32_t localId = kCoreSpecialMenuPendingFirstId + static_cast<std::uint32_t>(i);
+			std::uintptr_t      form = 0;
+			if (const auto fid = KitFileForm("FO4SFCoreValues.esm", localId, "TESGlobal@@", detail)) {
+				AcceptById(fid, kSpecialPendingEditorIds[i], "TESGlobal@@", kGlobalEditorIdAt, form);
+			}
+			float v = 5.0f;
+			if (form && Peek(form + valAt, v) && std::isfinite(v) && v >= 1.0f && v <= 10.0f) {
+				vals[i] = static_cast<int>(std::lround(v));
+			}
+		}
+		a_outConfirmed = false;
+		{
+			std::string    reqDetail;
+			std::uintptr_t reqForm = 0;
+			if (const auto reqFid = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialMenuCommitReqId, "TESGlobal@@", reqDetail)) {
+				AcceptById(reqFid, "FO4SF_SpecialMenuCommitRequested", "TESGlobal@@", kGlobalEditorIdAt, reqForm);
+			}
+			float reqVal = 0.0f;
+			if (reqForm && Peek(reqForm + valAt, reqVal) && std::isfinite(reqVal)) {
+				a_outConfirmed = reqVal >= 0.5f;
+			}
+		}
+		return vals;
+	}
+
+	void CommitLiftPayloadMainThread(const fo4sf::lift::LiftCommitPayload& a_payload)
+	{
+		FindGlobalValue();
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		if (a_payload.specialConfirmed) {
+			std::array<std::uintptr_t, fo4sf::lift::kSpecialCount> pendingGlobs{};
+			std::size_t                                            fromCore = 0;
+			for (std::size_t i = 0; i < fo4sf::lift::kSpecialCount; ++i) {
+				std::string         detail;
+				const std::uint32_t localId = kCoreSpecialMenuPendingFirstId + static_cast<std::uint32_t>(i);
+				if (const auto fid = KitFileForm("FO4SFCoreValues.esm", localId, "TESGlobal@@", detail)) {
+					AcceptById(fid, kSpecialPendingEditorIds[i], "TESGlobal@@", kGlobalEditorIdAt, pendingGlobs[i]);
+					if (pendingGlobs[i]) {
+						++fromCore;
+					}
+				}
+			}
+			std::string    reqDetail;
+			std::uintptr_t reqGlob = 0;
+			if (const auto reqFid = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialMenuCommitReqId, "TESGlobal@@", reqDetail)) {
+				AcceptById(reqFid, "FO4SF_SpecialMenuCommitRequested", "TESGlobal@@", kGlobalEditorIdAt, reqGlob);
+			}
+			if (fromCore == fo4sf::lift::kSpecialCount && reqGlob) {
+				std::size_t written = 0;
+				for (std::size_t i = 0; i < fo4sf::lift::kSpecialCount; ++i) {
+					const float sv = static_cast<float>(std::clamp(a_payload.special[i], 1, 10));
+					if (WriteCoreGlobalFloatVerified(pendingGlobs[i], valAt, sv)) {
+						++written;
+					}
+				}
+				if (written == fo4sf::lift::kSpecialCount) {
+					WriteCoreGlobalFloatVerified(reqGlob, valAt, 1.0f);
+				}
+			}
+		}
+		float code = 7.0f;
+		if (a_payload.action == fo4sf::lift::CommitAction::kRide) {
+			code = 6.0f;
+		} else if (a_payload.action == fo4sf::lift::CommitAction::kChangeAppearance) {
+			code = 8.0f;
+		}
+		std::string    detail;
+		std::uintptr_t openForm = 0;
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
+			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, openForm);
+			WriteStoreGlobalFloat(openForm, code);
+		}
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+		}
+		REX::INFO("step=lift_confirm action={} confirmed={} values={},{},{},{},{},{},{}",
+			static_cast<int>(a_payload.action), a_payload.specialConfirmed ? 1 : 0,
+			a_payload.special[0], a_payload.special[1], a_payload.special[2], a_payload.special[3],
+			a_payload.special[4], a_payload.special[5], a_payload.special[6]);
+	}
+
+	void HandleLiftActivateOrConfirmMainThread(bool a_fromConfirmButton)
+	{
+		fo4sf::lift::LiftCommitPayload payload;
+		bool                           committed = false;
+		{
+			std::scoped_lock lock(g_liftLock);
+			committed = g_liftModel.ActivateOrConfirm(a_fromConfirmButton, payload);
+		}
+		if (committed) {
+			CommitLiftPayloadMainThread(payload);
+		} else if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+		}
+	}
+
+	void HandleLiftBackOrStayMainThread()
+	{
+		fo4sf::lift::LiftCommitPayload payload;
+		bool                           committed = false;
+		{
+			std::scoped_lock lock(g_liftLock);
+			committed = g_liftModel.BackOrStay(payload);
+		}
+		if (committed) {
+			CommitLiftPayloadMainThread(payload);
+		} else if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+		}
+	}
+
+	class LiftButtonHandler final : public RE::Scaleform::GFx::FunctionHandler
+	{
+	public:
+		void Configure(SetupClickKind a_kind, int a_row)
+		{
+			_kind = a_kind;
+			_row = a_row;
+		}
+
+		void Call(const Params&) override
+		{
+			if (_kind == SetupClickKind::kConfirm) {
+				if (g_task) {
+					g_task->AddTask([]() { HandleLiftActivateOrConfirmMainThread(true); });
+				}
+				return;
+			}
+			if (_kind == SetupClickKind::kSelectRow) {
+				bool activateOptions = false;
+				{
+					std::scoped_lock lock(g_liftLock);
+					g_liftModel.SelectRow(_row);
+					activateOptions = (g_liftModel.CurrentPage() == fo4sf::lift::Page::kOptions);
+				}
+				if (g_task) {
+					if (activateOptions) {
+						g_task->AddTask([]() { HandleLiftActivateOrConfirmMainThread(false); });
+					} else {
+						g_task->AddTask([]() {
+							if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+								queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+							}
+						});
+					}
+				}
+				return;
+			}
+			{
+				std::scoped_lock lock(g_liftLock);
+				g_liftModel.AdjustCurrentOrRow(_row, _kind == SetupClickKind::kPrevValue ? -1 : 1);
+			}
+			if (g_task) {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+
+	private:
+		SetupClickKind _kind = SetupClickKind::kSelectRow;
+		int            _row = 0;
+	};
+	std::array<LiftButtonHandler, fo4sf::lift::kLiftRows * 3 + 1> g_liftButtonHandlers;
+
+	void LiftListen(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		const auto  movie = MovieOf(a_menu);
+		if (!root || !movie || g_liftListenedMovie.load() == movie) {
+			return;
+		}
+		g_liftListenedMovie.store(movie);
+		RE::Scaleform::GFx::Value top;
+		if (!root->GetVariable(&top, "root") || !top.IsObject()) {
+			return;
+		}
+		std::size_t hIdx = 0;
+		const auto  attach = [&](const std::string& a_name, SetupClickKind a_kind, int a_row) {
+			if (hIdx >= g_liftButtonHandlers.size()) {
+				return;
+			}
+			auto& handler = g_liftButtonHandlers[hIdx++];
+			handler.Configure(a_kind, a_row);
+			RE::Scaleform::GFx::Value btn, fn;
+			if (ChildOf(top, a_name.c_str(), btn)) {
+				root->CreateFunction(&fn, &handler);
+				if (!fn.IsUndefined()) {
+					std::array<RE::Scaleform::GFx::Value, 2> args{ "click", fn };
+					btn.Invoke("addEventListener", nullptr, args.data(), args.size());
+				}
+			}
+		};
+		for (int i = 0; i < static_cast<int>(fo4sf::lift::kLiftRows); ++i) {
+			attach(std::format("fo4sfLiftHit{}", i), SetupClickKind::kSelectRow, i);
+			attach(std::format("fo4sfLiftPrev{}", i), SetupClickKind::kPrevValue, i);
+			attach(std::format("fo4sfLiftNext{}", i), SetupClickKind::kNextValue, i);
+		}
+		attach("fo4sfLiftConfirm", SetupClickKind::kConfirm, 0);
+	}
+
+	void LiftWrite(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		if (!root) {
+			return;
+		}
+		RE::Scaleform::GFx::Value top;
+		if (!root->GetVariable(&top, "root") || !top.IsObject()) {
+			return;
+		}
+		std::array<std::string, fo4sf::lift::kLiftRows> rows{};
+		std::string                                     status;
+		std::string                                     hint;
+		{
+			std::scoped_lock lock(g_liftLock);
+			g_liftModel.RenderLines(rows, status, hint);
+		}
+		for (std::size_t i = 0; i < rows.size(); ++i) {
+			RE::Scaleform::GFx::Value field;
+			const auto                fname = std::format("fo4sfLiftRow{}", i);
+			if (ChildOf(top, fname.c_str(), field)) {
+				field.SetMember("text", RE::Scaleform::GFx::Value(rows[i].c_str()));
+			}
+		}
+		RE::Scaleform::GFx::Value statusField;
+		if (ChildOf(top, "fo4sfLiftStatus", statusField)) {
+			statusField.SetMember("text", RE::Scaleform::GFx::Value(status.c_str()));
+		}
+		RE::Scaleform::GFx::Value hintField;
+		if (ChildOf(top, "fo4sfLiftHint", hintField)) {
+			hintField.SetMember("text", RE::Scaleform::GFx::Value(hint.c_str()));
+		}
+	}
+
+	void* LiftMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_liftOpen.store(false);
+		g_liftListenedMovie.store(nullptr);
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* LiftMenuGetName(const void*)
+	{
+		if (g_loadingLiftMovie.load()) {
+			return "FO4SF_LiftScreen";
+		}
+		return fo4sf::kOurLiftMenuName;
+	}
+
+	bool LiftMenuLoadMovie(void* a_self, bool, bool a_arg2)
+	{
+		if (MovieOf(a_self)) {
+			return true;
+		}
+		g_loadingLiftMovie.store(true);
+		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingLiftMovie.store(false);
+		const bool ok = loaded && MovieOf(a_self) != nullptr;
+		if (!ok && !g_liftMissing.exchange(true)) {
+			REX::INFO("step=lift_skip reason=missing movie=FO4SF_LiftScreen");
+		} else if (ok) {
+			REX::INFO("step=lift_load_movie result=1 movie=FO4SF_LiftScreen");
+		}
+		return ok;
+	}
+
+	RE::UI_MESSAGE_RESULT LiftMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow && !MovieOf(a_self)) {
+			if (!LiftMenuLoadMovie(a_self, false, false)) {
+				g_liftOpen.store(false);
+				return RE::UI_MESSAGE_RESULT::kHandled;
+			}
+		}
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_liftOpen.store(true);
+			LiftListen(a_self);
+			LiftWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kUpdate) {
+			LiftListen(a_self);
+			LiftWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_liftOpen.store(false);
+			g_liftListenedMovie.store(nullptr);
+		}
+		return result;
+	}
+
+	bool LiftShouldHandleEvent(void* a_input, const void* a_event)
+	{
+		if (!a_event || !g_liftOpen.load()) {
+			return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType == RE::InputEvent::EventType::kButton &&
+		    (base->deviceType == RE::InputEvent::DeviceType::kKeyboard ||
+		     base->deviceType == RE::InputEvent::DeviceType::kGamepad) &&
+		    base->status != RE::InputEvent::Status::kStop) {
+			return true;
+		}
+		return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+	}
+
+	void LiftOnButtonEvent(void* a_input, const void* a_event)
+	{
+		if (g_engineOnButton) {
+			g_engineOnButton(a_input, a_event);
+		}
+		if (!a_event || !g_liftOpen.load()) {
+			return;
+		}
+		if (OpenBlockingOverlayMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType != RE::InputEvent::EventType::kButton ||
+		    base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
+			return;
+		}
+		const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+		if (!(button->value > 0.0f && button->heldDownSecs == 0.0f)) {
+			return;
+		}
+		const auto vk = static_cast<std::uint32_t>(button->idCode);
+		bool       handled = false;
+		bool       wantActivate = false;
+		bool       wantBackOrStay = false;
+		{
+			std::scoped_lock lock(g_liftLock);
+			switch (vk) {
+			case 0x26:   // VK_UP
+			case 0x57:   // W
+				g_liftModel.MoveCursor(-1);
+				handled = true;
+				break;
+			case 0x28:   // VK_DOWN
+			case 0x53:   // S
+				g_liftModel.MoveCursor(1);
+				handled = true;
+				break;
+			case 0x25:   // VK_LEFT
+			case 0x41:   // A
+				g_liftModel.AdjustCurrentOrRow(g_liftModel.Cursor(), -1);
+				handled = true;
+				break;
+			case 0x27:   // VK_RIGHT
+			case 0x44:   // D
+				g_liftModel.AdjustCurrentOrRow(g_liftModel.Cursor(), 1);
+				handled = true;
+				break;
+			case 0x0D:   // VK_RETURN
+			case 0x45:   // E
+				handled = true;
+				wantActivate = true;
+				break;
+			case 0x1B:   // VK_ESCAPE
+				handled = true;
+				wantBackOrStay = true;
+				break;
+			default:
+				break;
+			}
+		}
+		if (!handled) {
+			return;
+		}
+		const_cast<RE::InputEvent*>(base)->status = RE::InputEvent::Status::kStop;
+		if (g_task) {
+			if (wantActivate) {
+				g_task->AddTask([]() { HandleLiftActivateOrConfirmMainThread(false); });
+			} else if (wantBackOrStay) {
+				g_task->AddTask([]() { HandleLiftBackOrStayMainThread(); });
+			} else {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* CreateLiftMenu(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		const auto n = ++g_liftCreated;
+		void*      menu = std::calloc(1, kMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=lift n={} reason=out_of_memory", n);
+			std::construct_at(a_out);
+			return a_out;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_liftVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_liftInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = LiftMenuName();
+		imenu->flags |= (0x19u | kPauseFlag);
+		imenu->flagsUpdated = true;
+		if (g_keepAlive && ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
+		REX::INFO("step=lift_create n={} menu={} flags={}", n, Hex(base), Hex(imenu->flags));
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return a_out;
+	}
+
 	void* SetupMenuDestroy(void* a_self, std::uint32_t a_flags)
 	{
 		g_setupOpen.store(false);
@@ -9257,8 +9700,40 @@ namespace
 		static const RE::BSFixedString kChargenMenu{ "ChargenMenu" };
 		const bool blockedLoadOrChargen = ui->IsMenuOpen(kLoadingMenu) || ui->IsMenuOpen(kChargenMenu);
 
+		// Paused Exit Lift + 40-pt S.P.E.C.I.A.L. Screen: FO4SF_StartCardOpen == 4.0 requests FO4SF_LiftMenu (acked 5.0; commit 6.0/7.0/8.0).
+		const bool wantLift = (v >= 3.5f && v < 5.5f) && ui->IsMenuRegistered(LiftMenuName());
+		const bool liftIsOpen = ui->IsMenuRegistered(LiftMenuName()) && ui->IsMenuOpen(LiftMenuName());
+		if (wantLift) {
+			if (ui->IsMenuOpen(StartCardMenuName())) {
+				queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			}
+			if (g_liftMissing.load()) {
+				WriteStoreGlobalFloat(form, 0.0f);
+				return;
+			}
+			if (!blockedLoadOrChargen) {
+				if (!liftIsOpen) {
+					bool alreadyConfirmed = false;
+					auto initVals = ReadInitialLiftSpecialMainThread(alreadyConfirmed);
+					{
+						std::scoped_lock lock(g_liftLock);
+						g_liftModel.Reset(initVals, alreadyConfirmed);
+					}
+					queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kShow);
+					REX::INFO("step=lift_open confirmed={}", alreadyConfirmed ? 1 : 0);
+				} else if (v < 4.5f) {
+					WriteStoreGlobalFloat(form, 5.0f);
+				}
+			}
+			return;
+		}
+		if (liftIsOpen) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=lift_open open=0");
+		}
+
 		// S1 Variant (b): FO4SF_StartCardOpen == 2.0 requests FO4SF_SetupMenu (acked as 3.0 once open).
-		const bool wantSetup = (v >= 1.5f) && ui->IsMenuRegistered(SetupMenuName());
+		const bool wantSetup = (v >= 1.5f && v < 3.5f) && ui->IsMenuRegistered(SetupMenuName());
 		const bool setupIsOpen = ui->IsMenuRegistered(SetupMenuName()) && ui->IsMenuOpen(SetupMenuName());
 		if (wantSetup) {
 			if (ui->IsMenuOpen(StartCardMenuName())) {
@@ -9646,6 +10121,19 @@ namespace
 			g_setupInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&SetupShouldHandleEvent);
 			g_setupInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&SetupOnButtonEvent);
 
+			g_liftVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_liftVtbl.slots.begin());
+			g_liftVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&LiftMenuDestroy);
+			g_liftVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&LiftMenuGetName);
+			g_liftVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_liftVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_liftVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&LiftMenuLoadMovie);
+			g_liftVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&LiftMenuProcessMessage);
+			g_liftInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_liftInputVtbl.slots.begin());
+			g_liftInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&LiftShouldHandleEvent);
+			g_liftInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&LiftOnButtonEvent);
+
 			g_blockedMapVtbl.locator = g_vtbl.locator;
 			std::copy_n(engine, kSlots, g_blockedMapVtbl.slots.begin());
 			g_blockedMapVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuDestroy);
@@ -9672,10 +10160,66 @@ namespace
 	std::atomic<std::int64_t>  g_stateCheckDueAt{ 0 };
 	std::atomic<std::uint32_t> g_stateCheckN{ 0 };
 
-	// Step X2 & Step 1f (R13): checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) float value at +0x48
-	bool IsPipboyPickedUpMainThread(float& a_outVal)
+	bool CheckPipboyWristOwnedAndWornMainThread(bool& a_outResolved, bool& a_outOwned, bool& a_outWorn)
+	{
+		a_outResolved = false;
+		a_outOwned = false;
+		a_outWorn = false;
+		std::string detail;
+		const auto wristFid = KitFileForm("FO4SFNewGame.esm", kNewGamePipboyWristId, "TESObjectARMO@@", detail);
+		if (!wristFid) {
+			return false;
+		}
+		a_outResolved = true;
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			return false;
+		}
+		const auto     player = Singleton(kPlayerSingleton);
+		std::uintptr_t invList = 0;
+		ObjectType     listType;
+		ArrayHead      items{};
+		if (!Peek(player + kInventoryListAt, invList) || !IsType(invList, "BGSInventoryList@@", listType) ||
+		    !Peek(invList + kInventoryDataAt, items) || items.size > items.capacity || items.size > kKitMaxItems ||
+		    (items.size && !items.data)) {
+			return false;
+		}
+		for (std::uint32_t i = 0; i < items.size; ++i) {
+			const auto     item = items.data + i * kInventoryItemSize;
+			std::uintptr_t obj = 0;
+			if (!Peek(item, obj) || !obj) {
+				continue;
+			}
+			std::uint32_t fid = 0;
+			if (!Peek(obj + kFormIdAt, fid) || fid != wristFid) {
+				continue;
+			}
+			ArrayHead     stacks{};
+			std::uint64_t total = 0;
+			bool          okStacks = Peek(item + kItemStacksAt, stacks) && stacks.size <= stacks.capacity &&
+			                         stacks.size <= kKitMaxItems && (!stacks.size || stacks.data);
+			for (std::uint32_t s = 0; okStacks && s < stacks.size; ++s) {
+				std::uint32_t cnt = 0;
+				okStacks = Peek(stacks.data + s * kStackSize + kStackCountAt, cnt);
+				total += cnt;
+			}
+			if (!okStacks || total == 0) {
+				continue;
+			}
+			a_outOwned = true;
+			std::uint32_t itemFlags = 0;
+			if (Peek(item + kItemFlagsAt, itemFlags) && (itemFlags & 0x7u) != 0) {
+				a_outWorn = true;
+			}
+		}
+		return a_outOwned && a_outWorn;
+	}
+
+	// Step X2 & Step 1f (R13) & 2g-fix6: checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) AND owned+worn FO4SF_PipboyWrist (0x80D)
+	bool IsPipboyPickedUpMainThread(float& a_outVal, bool* a_outOwned = nullptr, bool* a_outWorn = nullptr)
 	{
 		a_outVal = 0.0f;
+		if (a_outOwned) *a_outOwned = false;
+		if (a_outWorn) *a_outWorn = false;
 		FindGlobalValue();
 		std::string    detail;
 		std::uintptr_t form = 0;
@@ -9697,7 +10241,14 @@ namespace
 			return false;
 		}
 		a_outVal = v;
-		return v >= 0.5f;
+		bool wristResolved = false, wristOwned = false, wristWorn = false;
+		const bool wristOk = CheckPipboyWristOwnedAndWornMainThread(wristResolved, wristOwned, wristWorn);
+		if (a_outOwned) *a_outOwned = wristResolved ? wristOwned : (v >= 0.5f);
+		if (a_outWorn) *a_outWorn = wristResolved ? wristWorn : (v >= 0.5f);
+		if (v < 0.5f) {
+			return false;
+		}
+		return wristResolved ? wristOk : true;
 	}
 
 	bool CheckOpenGateAndBootMainThread(std::uint32_t a_targetPage, const char* a_by)
@@ -9706,11 +10257,14 @@ namespace
 			return true;
 		}
 		float acqVal = 0.0f;
+		bool  owned = false;
+		bool  worn = false;
 		const bool needCheck = g_requirePickup || (g_bootOnFirstOpen && !g_bootMovie.empty() && !s_bootPlayed.load());
-		const bool acquired = needCheck ? IsPipboyPickedUpMainThread(acqVal) : false;
+		const bool acquired = needCheck ? IsPipboyPickedUpMainThread(acqVal, &owned, &worn) : false;
 		if (g_requirePickup && !acquired) {
 			s_bootPlayed.store(false);
-			REX::INFO("step=pipboy_pickup_required by={} page={} value={:.1f}", a_by ? a_by : "key", a_targetPage, acqVal);
+			REX::INFO("step=pipboy_pickup_required by={} page={} value={:.1f} owned={} worn={}",
+				a_by ? a_by : "key", a_targetPage, acqVal, owned ? 1 : 0, worn ? 1 : 0);
 			return false;
 		}
 		if (g_bootOnFirstOpen && !g_bootMovie.empty() && (acquired || !g_requirePickup) &&
@@ -10416,6 +10970,12 @@ namespace
 			REX::INFO("step=setup_register result={} name={} movie=FO4SF_SetupScreen show_unavailable={}",
 				ui->IsMenuRegistered(SetupMenuName()) ? "ok" : "failed",
 				fo4sf::kOurSetupMenuName, g_setupShowUnavailable ? 1 : 0);
+		}
+		if (g_stage >= 2 && !ui->IsMenuRegistered(LiftMenuName())) {
+			ui->RegisterMenu(fo4sf::kOurLiftMenuName, &CreateLiftMenu);
+			REX::INFO("step=lift_register result={} name={} movie=FO4SF_LiftScreen",
+				ui->IsMenuRegistered(LiftMenuName()) ? "ok" : "failed",
+				fo4sf::kOurLiftMenuName);
 		}
 		World::Start(g_task);
 		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit, &CreateBlockedMapMenuInstance);

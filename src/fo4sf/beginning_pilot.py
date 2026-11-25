@@ -869,7 +869,25 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
                 lift = components.get("exit_lift")
                 if not isinstance(lift, Mapping) or len(lift.get("outputs") or {}) < 2:
                     step_issues.append("bundle_plan.json missing exit_lift mesh/material outputs")
+            mars_esm = os.path.join(b_abs, "FO4TerrainCore_Mars.esm")
+            if _is_tes4_plugin(mars_esm):
+                from pathlib import Path as _P
+                import sys as _sys
+                _core_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts", "core")
+                if _core_dir not in _sys.path:
+                    _sys.path.insert(0, _core_dir)
+                import make_core_bundle as _mcb
+                g_val = _mcb.read_planet_gravity_g(_P(mars_esm))
+                if g_val is not None and abs(g_val - _mcb.EARTH_GRAVITY_G) > 0.02:
+                    step_issues.append(f"FO4TerrainCore_Mars.esm PNDT gravity is {g_val:.4f}g, expected {_mcb.EARTH_GRAVITY_G:.2f}g (Earth)")
             step_issues.extend(verify_map_markers_bundle_compatibility(b_abs))
+
+        if spec.step_id == "B1_vault_start":
+            pb_ini = os.path.join(b_abs, "SFSE", "Plugins", "FO4SFPipboyMenu.ini")
+            if os.path.isfile(pb_ini):
+                ini_txt = open(pb_ini, encoding="utf-8", errors="ignore").read().lower()
+                if "requirepickup=" in ini_txt and "requirepickup=1" not in ini_txt:
+                    step_issues.append("FO4SFPipboyMenu.ini must set RequirePickup=1")
 
         if spec.step_id == "B5_codsworth_sanctuary":
             nif_full = os.path.join(b_abs, "Data", *CODSWORTH_NIF_REL.split("/"))

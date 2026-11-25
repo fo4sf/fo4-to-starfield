@@ -579,6 +579,9 @@ def stage(a):
             if preston_voice_json:
                 alias = alias + ["--preston-voice", preston_voice_json]
 
+        if getattr(a, "codsworth_race_framing", False):
+            cods = cods + ["--codsworth-race-framing", "1"]
+
         looks_args = []
         if getattr(a, "actor_looks_assets", None):
             assets |= set(copy_actor_looks_assets(a.actor_looks_assets, os.path.join(out, "Data")))
@@ -1165,6 +1168,8 @@ def main(argv=None):
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
+    s.add_argument("--codsworth-race-framing", action="store_true",
+                   help="opt into ModelARace standing dialogue camera framing edits on FO4SF_CodsworthRace")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")

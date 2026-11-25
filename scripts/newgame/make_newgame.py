@@ -255,7 +255,7 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame", "OnDying"],
+        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "PlayIdle", "OnPlayerLoadGame", "OnDying", "OnItemEquipped", "OnItemUnequipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
         "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "FastTravel", "ShowRaceMenu", "ShowFirstPersonGeometry", "RequestAutoSave"],
         "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
@@ -265,7 +265,7 @@ NATIVES = {
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
                             "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
                             "SetMarkerDiscovered", "AddToMap", "EnableFastTravel", "Reset", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
-                            "BlockActivation", "OnActivate", "OnItemAdded", "RestoreValue"],
+                            "BlockActivation", "OnActivate", "OnItemAdded", "OnItemRemoved", "RestoreValue"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",

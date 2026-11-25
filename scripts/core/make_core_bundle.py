@@ -50,6 +50,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -81,6 +82,8 @@ MAP_MARKERS_DIRNAME = "map-markers"
 MAP_MARKERS_PLUGIN = "FO4SFMapMarkers.esm"
 MAP_MARKERS_ARCHIVE = "FO4SFMapMarkers - Main.ba2"
 MAP_MARKERS_PEX_REL = "Data/Scripts/FO4SF_MapMarkers.pex"
+COMMONWEALTH_HOST_PNDT_FORM_ID = 0x0003F59A
+EARTH_GRAVITY_G = 1.0
 
 INSTALL_LINE_RE = re.compile(r"(exp_install\.py install\b.*?--plugins )(?P<plugins>\S+)(?P<tail>.*)")
 HEX_HEAD_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -671,6 +674,123 @@ def read_core_values_test_mode_fltv(esm_path: str) -> Tuple[Optional[float], Opt
     return None, f"missing GLOB 0x{target_local_id:06X} FO4SF_TestModeEnabled"
 
 
+def _find_pndt_body_fnam_gravity_offset(body: bytes) -> Optional[int]:
+    """Return byte offset inside unpacked PNDT body of BDST..BDED FNAM(24) gravity float[4], or None."""
+    pos = 0
+    in_body = False
+    ext_size: Optional[int] = None
+    while pos + 6 <= len(body):
+        sig = body[pos:pos + 4]
+        slen = struct.unpack_from("<H", body, pos + 4)[0]
+        pos += 6
+        if sig == b"XXXX" and slen == 4:
+            ext_size = struct.unpack_from("<I", body, pos)[0]
+            pos += 4
+            continue
+        if ext_size is not None:
+            slen = ext_size
+            ext_size = None
+        if sig == b"BDST":
+            in_body = True
+        elif sig == b"BDED":
+            in_body = False
+        elif in_body and sig == b"FNAM" and slen == 24 and pos + 20 <= len(body):
+            return pos + 16
+        pos += slen
+    return None
+
+
+def read_planet_gravity_g(esm_path: str, target_form_id: int = COMMONWEALTH_HOST_PNDT_FORM_ID) -> Optional[float]:
+    """Read PNDT OrbitedData (BDST..BDED FNAM[4]) surface gravity in g, or None if absent."""
+    raw = Path(esm_path).read_bytes()
+
+    def walk(pos: int, end: int) -> Optional[float]:
+        while pos + 24 <= end:
+            sig = raw[pos:pos + 4]
+            sz = struct.unpack_from("<I", raw, pos + 4)[0]
+            if sig == b"GRUP":
+                if sz < 24 or pos + sz > end:
+                    break
+                hit = walk(pos + 24, pos + sz)
+                if hit is not None:
+                    return hit
+                pos += sz
+            else:
+                flags, fid = struct.unpack_from("<II", raw, pos + 8)
+                if sig == b"PNDT" and fid == target_form_id:
+                    body = raw[pos + 24:pos + 24 + sz]
+                    if flags & 0x00040000 and len(body) >= 4:
+                        body = zlib.decompress(body[4:])
+                    off = _find_pndt_body_fnam_gravity_offset(body)
+                    if off is not None:
+                        return float(struct.unpack_from("<f", body, off)[0])
+                pos += 24 + sz
+        return None
+
+    return walk(0, len(raw))
+
+
+def patch_planet_gravity_earth(
+    esm_path: str,
+    target_form_id: int = COMMONWEALTH_HOST_PNDT_FORM_ID,
+    gravity_g: float = EARTH_GRAVITY_G,
+) -> bool:
+    """Atomically patch PNDT OrbitedData FNAM[4] gravity on a staged ESM copy (never mutating source hardlinks)."""
+    raw = Path(esm_path).read_bytes()
+    out = bytearray(raw)
+    changed = False
+    offset_delta = 0
+
+    def walk(pos: int, end: int) -> None:
+        nonlocal changed, offset_delta
+        cur = pos
+        while cur + 24 <= end:
+            sig = raw[cur:cur + 4]
+            sz = struct.unpack_from("<I", raw, cur + 4)[0]
+            if sig == b"GRUP":
+                if sz < 24 or cur + sz > end:
+                    break
+                before_len = len(out)
+                grup_out_start = cur + offset_delta
+                walk(cur + 24, cur + sz)
+                delta = len(out) - before_len
+                if delta:
+                    old_gsz = struct.unpack_from("<I", out, grup_out_start + 4)[0]
+                    struct.pack_into("<I", out, grup_out_start + 4, old_gsz + delta)
+                cur += sz
+            else:
+                flags, fid = struct.unpack_from("<II", raw, cur + 8)
+                if sig == b"PNDT" and fid == target_form_id:
+                    rec_body = raw[cur + 24:cur + 24 + sz]
+                    compressed = bool(flags & 0x00040000)
+                    body_ba = bytearray(zlib.decompress(rec_body[4:]) if compressed else rec_body)
+                    off = _find_pndt_body_fnam_gravity_offset(bytes(body_ba))
+                    if off is not None:
+                        cur_g = struct.unpack_from("<f", body_ba, off)[0]
+                        if abs(cur_g - gravity_g) > 1e-5:
+                            struct.pack_into("<f", body_ba, off, float(gravity_g))
+                            new_rec_body = (
+                                struct.pack("<I", len(body_ba)) + zlib.compress(bytes(body_ba), 6)
+                                if compressed
+                                else bytes(body_ba)
+                            )
+                            rec_out_start = cur + offset_delta
+                            out[rec_out_start + 24:rec_out_start + 24 + sz] = new_rec_body
+                            struct.pack_into("<I", out, rec_out_start + 4, len(new_rec_body))
+                            offset_delta += len(new_rec_body) - sz
+                            changed = True
+                cur += 24 + sz
+
+    walk(0, len(raw))
+    if not changed:
+        return False
+    dst = Path(esm_path)
+    tmp_p = dst.with_name(f".{dst.name}.gravtmp-{os.getpid()}")
+    tmp_p.write_bytes(bytes(out))
+    os.replace(tmp_p, dst)
+    return True
+
+
 def verify_bundle(
     bundle_dir: str,
     plan_path: Optional[str] = None,
@@ -848,6 +968,16 @@ def verify_bundle(
             problems.append(f"native core value check: {ne}")
     except Exception as exc:
         problems.append(f"binary esm check failed: {exc}")
+
+    # 3d2. Enforce Earth 1.00g (9.81 m/s^2) on FO4TerrainCore_Mars.esm PNDT 0x0003F59A when present
+    mars_esm_path = os.path.join(bdir, "FO4TerrainCore_Mars.esm")
+    if os.path.isfile(mars_esm_path):
+        mars_grav = read_planet_gravity_g(mars_esm_path)
+        if mars_grav is not None and abs(mars_grav - EARTH_GRAVITY_G) > 1e-4:
+            problems.append(
+                f"FO4TerrainCore_Mars.esm: PNDT 0x{COMMONWEALTH_HOST_PNDT_FORM_ID:06X} gravity is "
+                f"{mars_grav:.3f}g (expected {EARTH_GRAVITY_G:.2f}g / 9.81 m/s^2)"
+            )
 
     # 3e (A1). Verify every movie named in shipped FO4SFPipboyMenu.ini exists in Data/Interface/ and in bundle manifest
     pb_ini_candidates = (
@@ -1461,6 +1591,7 @@ def refresh_pipboy_stage_for_bundle(
     fo4_data_dir: str,
     *,
     setup_show_unavailable: int = 0,
+    require_pickup: int = 1,
 ) -> None:
     """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT/boot/Setup SWFs, generate clean INI, and update plan.json."""
     ui_dir = os.path.join(REPO, "scripts", "ui")
@@ -1505,6 +1636,7 @@ def refresh_pipboy_stage_for_bundle(
         try:
             make_pipboy_stage_ini.generate_stage_ini(
                 partial,
+                require_pickup=require_pickup,
                 setup_show_unavailable=setup_show_unavailable,
             )
         except make_pipboy_stage_ini.StageIniError as exc:
@@ -1514,6 +1646,7 @@ def refresh_pipboy_stage_for_bundle(
     for aux_name, aux_kw in (
         ("FO4SF_StartCard.swf", {"start_card": True}),
         ("FO4SF_SetupScreen.swf", {"setup_screen": True}),
+        ("FO4SF_LiftScreen.swf", {"lift_screen": True}),
     ):
         aux_p = os.path.join(iface_dir, aux_name)
         if not os.path.isfile(aux_p):
@@ -1971,6 +2104,10 @@ def fold_bundle(
             "plugins": comp_plugins,
             "outputs": recorded_comp_outputs,
         }
+
+    fold_bundle_mars = os.path.join(partial, "FO4TerrainCore_Mars.esm")
+    if os.path.isfile(fold_bundle_mars):
+        patch_planet_gravity_earth(fold_bundle_mars)
 
     # Ensure --plugins list already respects every TES4 master edge (e.g. FO4SFMission.esm after FO4TerrainCore.esm)
     # while keeping plugins[0] (FO4ActorRaider.esm) first to name "<first plugin> - Main.ba2".

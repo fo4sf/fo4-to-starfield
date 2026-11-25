@@ -58,7 +58,7 @@ if (Get-Command git.exe -ErrorAction SilentlyContinue) {
 }
 $src = $PSScriptRoot
 $commonHeader = Join-Path $src '..\common\blocking_menus.h'
-$sources = @('xmake.lua', 'src\main.cpp', 'src\pch.h', 'src\pipboy_map.cpp', 'src\pipboy_map.h', 'src\setup_places.h', 'src\world.cpp', 'src\world.h', 'FO4SFPipboyMenu.ini')
+$sources = @('xmake.lua', 'src\main.cpp', 'src\pch.h', 'src\pipboy_map.cpp', 'src\pipboy_map.h', 'src\setup_places.h', 'src\lift_menu.h', 'src\world.cpp', 'src\world.h', 'FO4SFPipboyMenu.ini')
 foreach ($s in $sources) { if (-not (Test-Path (Join-Path $src $s))) { "missing $s in $src"; exit 1 } }
 if (-not (Test-Path $commonHeader)) { "missing ..\common\blocking_menus.h from $src"; exit 1 }
 if ($Sdk -and -not (Test-Path (Join-Path $Sdk 'VC\Tools\MSVC'))) { "-Sdk $Sdk has no VC\Tools\MSVC folder: xmake's --sdk takes a Visual Studio-shaped root"; exit 1 }

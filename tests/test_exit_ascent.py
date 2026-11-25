@@ -18,8 +18,8 @@ import make_cog_door as mcd
 
 
 GLOBALS = ('ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, '
-           'rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, '
-           'surfaceMovedAt, surfaceMoves, surfaceSets, asked')
+           'rideActive, rideDone, rideTransferred, rideFadeStarted, exitFailures, exitUsedFallback, '
+           'surfaceMovedAt, surfaceMoves, surfaceSets, asked, liftSpecConfirmed')
 
 
 class Lift(Reference):
@@ -72,8 +72,8 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             self.need_attr_modals += 1
             return 0
         self.ns = dict(
-            asked=False, liftSpecConfirmed=False, exitFailures=0, TestModeGlobal=None,
-            rideActive=False, rideTransferred=False,
+            asked=False, liftSpecConfirmed=False, exitFailures=0, TestModeGlobal=None, StartCardOpenGlobal=None,
+            rideActive=False, rideTransferred=False, rideFadeStarted=False,
             CogDoorId=0x126D, VaultPlugin='FO4Port.esm',
             ConsoleX=-53.7, ConsoleY=-3.7, ConsoleZ=0.53, ConsoleRadius=2.5,
             PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
@@ -93,6 +93,7 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             FallbackExitToSurface=lambda p: None,
             Surface=self.surfaces.append,
         )
+        self.ns['ShowPausedExitLiftMenu'] = lambda p: -1
         exec(compile(translated_functions(read(PSC), ('InVault', 'PromptVaultExitLift', 'Near'), 'asked, liftSpecConfirmed, exitFailures'), PSC, 'exec'), self.ns)
 
     def test_platform_marker_and_radius_constants(self):
@@ -168,14 +169,15 @@ class AscentExecutionTests(unittest.TestCase):
             self.map_setup_calls += 1
             return 4
         self.ns = dict(ridingLift=None, ridingCell=None, rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
-                       rideActive=False, rideDone=False, rideTransferred=False, exitFailures=0, exitUsedFallback=False,
-                       surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, asked=False,
+                       rideActive=False, rideDone=False, rideTransferred=False, rideFadeStarted=False, exitFailures=0, exitUsedFallback=False,
+                       surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, asked=False, liftSpecConfirmed=False,
                        VaultAnchorId=0x805, AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
                        PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
                        LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftDoneMargin=0.25, VaultPlugin='FO4Port.esm',
                        Game=SimpleNamespace(
                            GetFormFromFile=lambda i, _: self.lift if i == 0x1618 else (self.vault_anchor if i == 0x805 else self.base),
                            GetPlayer=lambda: self.player,
+                           FadeOutGame=lambda *a: None,
                        ),
                        Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now, Wait=lambda *_: None),
                        GetStage=lambda: 30,
@@ -360,6 +362,73 @@ class AscentExecutionTests(unittest.TestCase):
         self.run_branch('CheckAscent')
         self.assertEqual(self.transfers, [self.player, self.player])
 
+    def test_smooth_fade_out_triggers_once_near_top_of_ascent(self):
+        fades = []
+        self.ns['Game'].FadeOutGame = lambda *args: fades.append(args)
+        self.run_branch('StartAscent')
+        self.now += 5.0
+        self.run_branch('CheckAscent')
+        self.assertEqual(fades, [])
+        self.now += 3.9
+        self.run_branch('CheckAscent')
+        self.run_branch('CheckAscent')
+        self.assertEqual(fades, [(True, True, 0.0, 1.0, True)])
+
+    def test_paused_lift_menu_40pt_special_commit_and_last_resort_fallback_rules(self):
+        psc = read(PSC)
+        # Surface() must wait for FinishSurface() rather than calling TrySurfaceExteriorFallbacks immediately
+        surf_body = psc[psc.index('Function Surface(Actor player)'):psc.index('Function FinishSurface(Actor player)')]
+        self.assertNotIn('TrySurfaceExteriorFallbacks', surf_body)
+        # Last-resort fast travel never marks or discovers map markers
+        ft_body = psc[psc.index('Function TryFastTravelSurface'):psc.index('Function TrySurfaceExteriorFallbacks')]
+        self.assertNotIn('AddToMap(', ft_body)
+        self.assertNotIn('SetMarkerDiscovered(', ft_body)
+
+        store = {0x880 + i: SimpleNamespace(v=5.0, GetValue=lambda i=i: store[0x880 + i].v, SetValue=lambda x, i=i: setattr(store[0x880 + i], 'v', x)) for i in range(7)}
+        store[0x887] = SimpleNamespace(v=0.0, GetValue=lambda: store[0x887].v, SetValue=lambda x: setattr(store[0x887], 'v', x))
+        open_glob = SimpleNamespace(v=0.0, GetValue=lambda: open_glob.v, SetValue=lambda x: setattr(open_glob, 'v', x))
+        av_vals = {0x810 + i: 5.0 for i in range(7)}
+        player = SimpleNamespace(
+            GetValue=lambda av: av_vals[av],
+            SetValue=lambda av, val: av_vals.__setitem__(av, val),
+        )
+        traces = []
+        waits = [0]
+        def fake_wait(_s):
+            waits[0] += 1
+            if open_glob.v == 4.0:
+                open_glob.v = 5.0
+            elif open_glob.v == 5.0:
+                store[0x880].v = 10.0
+                store[0x887].v = 1.0
+                open_glob.v = 6.0
+        ns = dict(
+            StartCardOpenGlobal=open_glob,
+            TestModeGlobal=None,
+            liftSpecConfirmed=False,
+            asked=True,
+            Game=SimpleNamespace(
+                GetFormFromFile=lambda fid, plg: store.get(fid, fid if 0x810 <= fid <= 0x816 else None),
+                ShowRaceMenu=lambda *a: None,
+            ),
+            Utility=SimpleNamespace(Wait=fake_wait),
+            Trace=traces.append,
+        )
+        exec(compile(translated_functions(psc, ('ShowPausedExitLiftMenu',), 'liftSpecConfirmed, asked'), PSC, 'exec'), ns)
+        btn = ns['ShowPausedExitLiftMenu'](player)
+        self.assertEqual(btn, 0)
+        self.assertTrue(ns['liftSpecConfirmed'])
+        self.assertEqual(av_vals[0x810], 10.0)
+        self.assertEqual(open_glob.v, 0.0)
+        # Missing DLL/SWF falls back (-1) cleanly when StartCardOpenGlobal stays 0
+        open_glob.v = 0.0
+        ns['liftSpecConfirmed'] = False
+        def no_dll_wait(_s):
+            if open_glob.v == 4.0:
+                open_glob.v = 0.0
+        ns['Utility'].Wait = no_dll_wait
+        self.assertEqual(ns['ShowPausedExitLiftMenu'](player), -1)
+
 
 class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
     """B4 & B5: Translated-execution tests for GearDoorConsoleRef 2s open-state check/retry and VaultPistolBase filter."""
@@ -371,7 +440,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
         'ActivateGearDoorConsole',
     )
     VARS = (
-        'itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, '
+        'itemWatchRegistered, pipboyRegistered, pipboyEquipWatchRegistered, cogDoorRegistered, cogDoorWatchedRef, '
         'consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, '
         'consoleOpening, pistolPickedLogged'
     )
@@ -407,6 +476,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             Trace=self.traces.append,
             itemWatchRegistered=False,
             pipboyRegistered=False,
+            pipboyEquipWatchRegistered=False,
             cogDoorRegistered=False,
             cogDoorWatchedRef=None,
             consoleRegistered=False,
@@ -417,6 +487,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             pistolPickedLogged=False,
             VaultPistolBase=self.vault_pistol,
             VaultPistolId=0x24561C,
+            PipboyWristArmor=None,
             PipboyCorpseRef=self.pipboy_ref,
             GearDoorConsoleRef=self.console_ref,
             CogDoorId=0x126D,

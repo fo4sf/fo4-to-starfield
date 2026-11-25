@@ -1541,7 +1541,7 @@ Function EquipBalancedRaiderSidearm(Actor r, int idx)
             r.RemoveItem(RaiderAmmo, curShells, True)
         endif
     endif
-    r.EquipItem(RaiderSidearm, True, True)
+    r.EquipItem(RaiderSidearm, False, True)
     int targetSidearmAmmo = 36
     int curSidearmAmmo = r.GetItemCount(RaiderSidearmAmmo)
     if curSidearmAmmo < targetSidearmAmmo

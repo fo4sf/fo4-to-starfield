@@ -455,7 +455,7 @@ class StageIniGeneratorTests(unittest.TestCase):
                 "LateInvalidate=0",
                 "StatActions=0",
                 "InvDataAnswers=0",
-                "RequirePickup=0",
+                "RequirePickup=1",
                 "BootMovie=pipboybootsequence",
                 "BootOnFirstOpen=0",
                 "Arm=0",

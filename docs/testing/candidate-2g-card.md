@@ -335,3 +335,45 @@ FO4SFLIST rt=<rt> summary ok=true host_menu=DialogueMenu replaced_swf=false end=
 
 ### Negative / FAIL Conditions
 - Transparent `F7` Pip-Boy background showing 3D world bleed-through, `HP 0/0`, `AP --/--`, cut `"10.23.228"` date, Starfield spacesuits/helmets on Preston or raiders, or `FO4SFRouteLoot.esm`/`FO4SFBridge.esm` active.
+
+---
+
+## Card 2g-fix6 — Earth Gravity, Paused Exit Lift, Concord Raiders, Pip-Boy Gate, Codsworth & 10mm (`2026-11-25`)
+
+- **Stage Placeholders:** `<cand2g-fix6-player>`, `<cand2g-fix6-test>`, `<starfield-dir>`
+- **Disk Need:** `~4.2 GB` (`13`-plugin player bundle or `22`-plugin test bundle without `FO4SFRouteLoot.esm` or `FO4SFBridge.esm`) + `~5 MB` `FO4SFPipboyMenu.dll` sidecar.
+
+### Install Command (`<cand2g-fix6-player>`, Game Closed)
+```bash
+python scripts/core/make_core_bundle.py verify --bundle-dir <cand2g-fix6-player> --require-map-markers
+python scripts/game/exp_install.py install --exp-dir <cand2g-fix6-player> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2g-fix6-player> --starfield <starfield-dir>
+python scripts/game/map_markers_install.py install --dir <cand2g-fix6-player>/map-markers --starfield <starfield-dir>
+```
+
+| Fix Item | What Changed in `candidate-2g-fix6` | Acceptance / Evidence Requirement |
+|---|---|---|
+| **1. Earth Gravity (`1.00 g`)** | `FO4TerrainCore_Mars.esm` (`PNDT 0x0003F59A` `OrbitedData` `FNAM`) patched to `1.0000g` (`9.81 m/s^2`); verified in `make_core_bundle.py verify` and `check_beginning_pilot.py check-bundle`. | **`VIDEO`:** Drop an inventory object outdoors in Sanctuary/Commonwealth; falls crisply at `~9.8 m/s^2` (no Mars slow-float). |
+| **2. Paused Exit Lift + Smooth Ride + Last-Resort FastTravel** | Paused `FO4SF_LiftMenu` (`FO4SF_LiftScreen.swf`, `0x19 \| kPauseFlag`) with unified 40-pt S.P.E.C.I.A.L. Pool, `0.2 s` ascent poll + overlap fade-out (`LiftSeconds - 1.1`) into `ReleaseStoryLandingFade`, removed immediate interior `TrySurfaceExteriorFallbacks` from `Surface()`, moved last-resort fallback to `FinishSurface`, removed `AddToMap`/`SetMarkerDiscovered` from `TryFastTravelSurface`. Preserve `fix5` death-reload Vault safety. | **`VIDEO` + 2-run proof:** Pod -> cog door -> paused Lift Menu (`S.P.E.C.I.A.L.` / `Change Appearance` / `Ride`) -> smooth faded ascent -> Commonwealth (Vault 111 NOT prematurely discovered via fast-travel); plus pod death-reload & reload-then-exit logs. |
+| **3. Concord Raiders (Player Target, Grip, Clean Death)** | Removed FO4 `malehands.nif` from `concord_raider_m.nif` (`0x28` bare-handed BO64 letting Starfield `AA_Naked_Hands` grip guns), mapped `Belly`/`UpperBelly` to `C_Spine1`/`C_Spine2`, aligned FO4 forearm/wrist cuffs to Starfield A-pose (`<= 3 cm`), cleared `TemplateActorType.AiData` + explicit `Aggressive`/`Brave` on `0x986`, set `abPreventRemoval=False` on `0x97A`. | **`VIDEO`:** Raiders visibly lock onto & shoot the player (Preston held out), hands hold guns cleanly without forearm/vertex stretching on death ragdoll. |
+| **4. Pip-Boy Pickup Gate & Examine Idle** | Shipped `RequirePickup=1`; native gate checks `FO4SF_PipboyAcquired >= 0.5` AND live owned+worn `FO4SFNewGame.esm:0x00080D`; `HandlePipboyPickup` triggers `IdleExamineWatch` (`Starfield.esm:0x000C154F`). | **`VIDEO`:** `F7` refused before corpse pickup & when unequipped/dropped; looting wrist plays watch-examine idle and unlocks `F7`/`M`. |
+| **5. Codsworth (`#854` & Framing)** | Documented in `docs/design/codsworth-handy-status.md` (`#854` `claude/robot-anim` fixes 58 `.af` clips on 112-bone `.rig`, 5 `.mat`/`.dds`, `DirectAt` `z=0.984447 m`); `02b-mission` built with `--codsworth-race-framing 1`. | Sanctuary Codsworth talk frames cleanly; full `#854` animation/material integration ready once `#854` merges. |
+| **6. Vault 111 10mm Pistol (`0x822` & `#853`)** | Created `WEAP 0x000822` (`FO4SF_Vault111_10mm`, Name `"10mm Pistol"`, capacity `12`, damage `18`), pointed `0x820` to `0x822` (keeping `VaultPistolBase` `B5` parity); comparison & `#853` notes in `docs/design/10mm-comparison-and-853-notes.md`. | Vault 111 desk weapon displays `"10mm Pistol"` with 12-round mag & 18 dmg and triggers `pistol picked` auto-equip. |
+
+### Undo Command (Game Closed)
+```bash
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
+python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+```
+
+### Required PASS Verification & Log Lines (`2g-fix6`)
+```log
+step=lift_open confirmed=<confirmed>
+step=lift_confirm action=<action> confirmed=<confirmed> values=<s>,<p>,<e>,<c>,<i>,<a>,<l>
+FO4SF_NEWGAME rt=<rt> lift menu action=ride
+FO4SF_NEWGAME rt=<rt> ascent fade_out elapsed=<t>
+FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=<worn>
+FO4SF_NEWGAME rt=<rt> pipboy pickup examine_idle=<idle>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<eq>
+```

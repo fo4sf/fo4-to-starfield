@@ -12,15 +12,13 @@ Rebinds Fallout 4 skinned clothing/armor NIFs onto vanilla Starfield HumanRace (
      - FO4 source:  meshes/armor/preston_garvey/prestongarveyhat.nif
      - SF template: meshes/clothes/outfit_first_mercenary_01/outfit_first_mercenary_01_hat_m.nif (SkinAttach ['C_Head'])
      - Output NIF:  meshes/fo4port/armor/preston_garvey/prestongarveyhat_m.nif
-  3. Concord Raider body + harness + hands:
+  3. Concord Raider body + harness (bare Starfield AA_Naked_Hands rendered cleanly):
      - FO4 sources: meshes/armor/raiderunderarmor/raiderunderarmorm.nif + meshes/armor/raider04/raider04m.nif
-                    + meshes/actors/character/characterassets/malehands.nif
      - SF template: meshes/actors/human/mesh/naked_body/naked_m.nif (41 SkinAttach bones)
      - Materials:   reuses already-converted Starfield .mat/.dds in FO4ActorRaider - Main.ba2:
                     materials/fo4core/armor/raiderunderarmor/raiderunderarmorm.mat
                     materials/fo4core/armor/raider04/raider04.mat
                     materials/fo4core/actors/character/basehumanmale/basehumanskin.mat
-                    materials/fo4core/actors/character/basehumanmale/basehumanmaleskinhands.mat
      - Output NIF:  meshes/fo4core/armor/raider04/concord_raider_m.nif
 
 Offline-provable vs in-game (R15):
@@ -56,7 +54,6 @@ PRESTON_HAT_SOURCES = (
 RAIDER_OUTFIT_SOURCES = (
     "meshes/armor/raiderunderarmor/raiderunderarmorm.nif",
     "meshes/armor/raider04/raider04m.nif",
-    "meshes/actors/character/characterassets/malehands.nif",
 )
 
 PRESTON_OUTFIT_REL = "fo4port/armor/preston_garvey/prestongarveyoutfit_m.nif"
@@ -159,10 +156,10 @@ def fo4_human_bone_to_sf(fo4_bone: Optional[str], available: Sequence[str]) -> s
                     return pick(f"{side}_Biceps_Twist1", f"{side}_Biceps_Twist", f"{side}_Biceps")
                 return pick(f"{side}_Biceps", f"{side}_Deltoid")
             if "forearm3" in bl or "hand" in bl or "finger" in bl or "thumb" in bl:
-                return pick(f"{side}_Wrist", f"{side}_Wrist_Twist1", f"{side}_Wrist_Twist", f"{side}_Forearm")
+                return pick(f"{side}_Wrist_Twist1", f"{side}_Wrist", f"{side}_Wrist_Twist", f"{side}_Forearm")
             if "forearm1" in bl:
                 return pick(f"{side}_Forearm", f"{side}_Elbow", f"{side}_Biceps")
-            if "forearm" in bl:
+            if "forearm2" in bl or "forearm" in bl:
                 return pick(f"{side}_Wrist_Twist", f"{side}_Forearm")
             if "breast" in bl or "ribhelper" in bl:
                 return pick("C_Chest", "C_Spine2")
@@ -188,6 +185,10 @@ def fo4_human_bone_to_sf(fo4_bone: Optional[str], available: Sequence[str]) -> s
             return pick("C_Neck1", "C_Chest")
         return pick("C_Hips", "C_Spine1", "C_Chest")
 
+    if "upperbelly" in bl:
+        return pick("C_Spine2", "C_Spine1", "C_Chest")
+    if "belly" in bl:
+        return pick("C_Spine1", "C_Spine", "C_Hips")
     if "chest" in bl:
         return pick("C_Chest", "C_Spine2")
     if "spine2" in bl:
@@ -244,6 +245,42 @@ def _vertex_slot_weights(
     return out
 
 
+def _align_arm_world_to_sf_apose(
+    src: nifmod.NifFile,
+    shape,
+    world_pts: Sequence[Tuple[float, float, float]],
+) -> List[Tuple[float, float, float]]:
+    """Smoothly pull FO4 bent-forward forearm/wrist cuffs back onto Starfield HumanRace A-pose wrists."""
+    skin = fo4skin.read_skin(src, shape.block) if shape.skinned else None
+    if skin is None:
+        return list(world_pts)
+    arm_mask: List[float] = []
+    for bn in skin.bone_names:
+        bl = bn.decode("latin-1").lower()
+        if any(k in bl for k in ("forearm", "hand", "finger", "thumb", "wrist")):
+            arm_mask.append(1.0)
+        elif "upperarm" in bl or "uppertwist" in bl:
+            arm_mask.append(0.35)
+        else:
+            arm_mask.append(0.0)
+    out: List[Tuple[float, float, float]] = []
+    for vi, (wx, wy, wz) in enumerate(world_pts):
+        w_arm = 0.0
+        for w, bi in zip(skin.weights[vi], skin.indices[vi]):
+            if w > 0.0 and bi < len(arm_mask):
+                w_arm += float(w) * arm_mask[bi]
+        w_arm = min(1.0, max(0.0, w_arm))
+        ax = abs(wx)
+        if w_arm > 0.01 and ax > 0.31:
+            t = min(1.0, max(0.0, (ax - 0.31) / (0.485 - 0.31))) * w_arm
+            sign = 1.0 if wx >= 0.0 else -1.0
+            wx += -sign * 0.075 * t
+            wy += -0.096 * t
+            wz += -0.038 * t
+        out.append((wx, wy, wz))
+    return out
+
+
 def rebind_human_skin_attach(
     template_nif: bytes,
     fo4_sources: Sequence[Tuple[str, bytes, Dict[str, str]]],
@@ -251,6 +288,7 @@ def rebind_human_skin_attach(
     weights_per_vertex: int = 4,
     default_material: str = convert_static.PLACEHOLDER_MATERIAL,
     skip_shapes: Sequence[str] = (),
+    align_arms_to_template: bool = False,
 ) -> HumanRebindResult:
     """Rebind one or more Fallout 4 skinned NIFs onto a Starfield HumanRace SkinAttach template NIF."""
     t = nifmod.parse(template_nif)
@@ -293,14 +331,11 @@ def rebind_human_skin_attach(
         for raw_s, posed_s in zip(shapes, posed):
             sname = raw_s.name.decode("latin-1")
             mat = mat_map.get(sname, default_material)
+            scaled_pts = [(x * unit_scale, y * unit_scale, z * unit_scale) for x, y, z in posed_s.positions]
+            if align_arms_to_template:
+                scaled_pts = _align_arm_world_to_sf_apose(src, raw_s, scaled_pts)
             # Transform posed FO4 root coordinates (scaled to SF human height) into template .mesh local space
-            local_pts = [
-                fo4skin.apply(
-                    inv_world_to_mesh,
-                    (x * unit_scale, y * unit_scale, z * unit_scale),
-                )
-                for x, y, z in posed_s.positions
-            ]
+            local_pts = [fo4skin.apply(inv_world_to_mesh, pt) for pt in scaled_pts]
             # Transform normals/tangents by inv_world_to_mesh rotation if non-identity
             _, inv_r, _ = inv_world_to_mesh
             is_ident_r = (
@@ -535,6 +570,7 @@ def stage_c5_looks(
         weights_per_vertex=4,
         default_material=EXISTING_FO4CORE_MATS["raider04"],
         skip_shapes=("BaseMaleBodyRaider:0",),
+        align_arms_to_template=True,
     )
 
     files: Dict[str, bytes] = {

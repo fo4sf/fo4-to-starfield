@@ -78,6 +78,7 @@ public static class FalloutActorLooks
     //   - 0x10 (HairTop) on ARMO + 0x12 (Hair | HairTop) on ARMA: companion NonPlayable hat 0x1C8E0A -> 0x25DEEB
     //     (Clothes_Colonist_Adventurous_Hat_SamCoe_NOTPLAYABLE), activating Hair_Afro cap-mask without HEAD (0x01) conflict.
     public const SF.FirstPersonFlag GlovedFullBodyFlags = (SF.FirstPersonFlag)0x68;
+    public const SF.FirstPersonFlag BareHandedBodyFlags = (SF.FirstPersonFlag)0x28;
     public const SF.FirstPersonFlag HatArmoFlags = (SF.FirstPersonFlag)0x10;
     public const SF.FirstPersonFlag HatArmaFlags = (SF.FirstPersonFlag)0x12;
 
@@ -211,7 +212,11 @@ public static class FalloutActorLooks
         EnforceNoStarfieldSpacesuit(concordRaider, sfMod, forceHideAvKey, raiderOutfit.FormKey, preserveIntentionalTemplates: true);
         // R13 E3: Clear TemplateActorType.Inventory so EncSpacer01Template cannot inject vanilla full-damage Spacer guns,
         // and clear baseRaider's inherited Coachman (0x26D96B) CNTO entry so Concord raiders carry only Min00's stand-ins.
-        concordRaider.UseTemplateActors &= ~SF.Npc.TemplateActorType.Inventory;
+        // R14 2g-fix6: Clear TemplateActorType.AiData so Concord raiders never inherit empty/passive AIDT and explicitly attack the player.
+        concordRaider.UseTemplateActors &= ~(SF.Npc.TemplateActorType.Inventory | SF.Npc.TemplateActorType.AiData);
+        concordRaider.Aggression = SF.Npc.AggressionType.Aggressive;
+        concordRaider.Confidence = SF.Npc.ConfidenceType.Brave;
+        concordRaider.Assistance = SF.Npc.AssistanceType.HelpsAllies;
         concordRaider.Items?.Clear();
         concordRaider.Items = null;
         mod.Npcs.Remove(concordRaider.FormKey);
@@ -448,10 +453,11 @@ public static class FalloutActorLooks
         var modKey = mod.ModKey;
         var rel = SF.StarfieldRelease.Starfield;
 
-        var raiderArma = DuplicateOrCreateBodyArma(mod, sfMod, RaiderBodyArmaId, RaiderBodyArmaEdid, humanRaceKey, raiderOutfitModel);
+        var raiderArma = DuplicateOrCreateBodyArma(
+            mod, sfMod, RaiderBodyArmaId, RaiderBodyArmaEdid, humanRaceKey, raiderOutfitModel, BareHandedBodyFlags);
         var raiderArmo = DuplicateOrCreateApparelArmo(
             mod, sfMod, RaiderBodyArmoId, RaiderBodyArmoEdid, "Raider Scavenger Outfit", humanRaceKey,
-            isHeadwear: false, raiderArma.FormKey);
+            isHeadwear: false, raiderArma.FormKey, BareHandedBodyFlags);
 
         var otft = new SF.Outfit(new FormKey(modKey, RaiderOutfitId), rel)
         {
@@ -473,7 +479,8 @@ public static class FalloutActorLooks
         uint localId,
         string edid,
         FormKey humanRaceKey,
-        string? customNifRelPath)
+        string? customNifRelPath,
+        SF.FirstPersonFlag? slotFlagsOverride = null)
     {
         var key = new FormKey(mod.ModKey, localId);
         SF.ArmorAddon arma;
@@ -495,9 +502,7 @@ public static class FalloutActorLooks
 
         arma.EditorID = edid;
         arma.Race.SetTo(humanRaceKey);
-        // Both prestongarveyoutfit_m.nif (gloves) and concord_raider_m.nif (malehands) include hands/gloves,
-        // so mask BODY (0x08) + UpperBody (0x20) + Hands (0x40) = 0x68 to hide AA_Naked_Hands (0x030580).
-        arma.FirstPersonFlags = GlovedFullBodyFlags;
+        arma.FirstPersonFlags = slotFlagsOverride ?? GlovedFullBodyFlags;
         if (!string.IsNullOrWhiteSpace(customNifRelPath))
         {
             SetWorldModels(arma, customNifRelPath);
@@ -587,7 +592,8 @@ public static class FalloutActorLooks
         string displayName,
         FormKey humanRaceKey,
         bool isHeadwear,
-        FormKey armaKey)
+        FormKey armaKey,
+        SF.FirstPersonFlag? slotFlagsOverride = null)
     {
         var key = new FormKey(mod.ModKey, localId);
         uint tplId = isHeadwear ? SfFirstMercHatArmoId : SfFirstMercBodyArmoId;
@@ -612,7 +618,7 @@ public static class FalloutActorLooks
         armo.EditorID = edid;
         armo.Name = displayName;
         armo.Race.SetTo(humanRaceKey);
-        armo.FirstPersonFlags = isHeadwear ? HatArmoFlags : GlovedFullBodyFlags;
+        armo.FirstPersonFlags = slotFlagsOverride ?? (isHeadwear ? HatArmoFlags : GlovedFullBodyFlags);
         armo.MajorFlags |= SF.Armor.MajorFlag.NonPlayable;
         if (armo.Keywords is not null)
         {
@@ -762,9 +768,9 @@ public static class FalloutActorLooks
         Need(raiderArma is not null &&
              (raiderArma.WorldModel?.Male?.Flags ?? 0) == 0 &&
              (raiderArma.WorldModel?.Female?.Flags ?? 0) == 0 &&
-             raiderArma.FirstPersonFlags == GlovedFullBodyFlags &&
-             raiderArmo?.FirstPersonFlags == GlovedFullBodyFlags,
-             $"Raider ARMA/ARMO retains Model.Flags or lacks 0x68 gloved full-body BO64");
+             raiderArma.FirstPersonFlags == BareHandedBodyFlags &&
+             raiderArmo?.FirstPersonFlags == BareHandedBodyFlags,
+             $"Raider ARMA/ARMO retains Model.Flags or lacks 0x28 bare-handed body BO64");
 
         if (expectedModels?.PrestonOutfitModel is { Length: > 0 } wantPBody)
         {
@@ -835,6 +841,11 @@ public static class FalloutActorLooks
                  $"FO4_ConcordRaider lacks {SfForceHideSpacesuitAvEdid} (0x{SfForceHideSpacesuitAvId:X6}) == 1.0");
             Need(!concordRaider.UseTemplateActors.HasFlag(SF.Npc.TemplateActorType.Inventory),
                  "R13 E3: FO4_ConcordRaider retains TemplateActorType.Inventory (EncSpacer01Template weapon leak)");
+            Need(!concordRaider.UseTemplateActors.HasFlag(SF.Npc.TemplateActorType.AiData),
+                 "R14 2g-fix6: FO4_ConcordRaider retains TemplateActorType.AiData");
+            Need(concordRaider.Aggression == SF.Npc.AggressionType.Aggressive &&
+                 concordRaider.Confidence >= SF.Npc.ConfidenceType.Brave,
+                 $"R14 2g-fix6: FO4_ConcordRaider AIDT not aggressive/brave ({concordRaider.Aggression}/{concordRaider.Confidence})");
             Need((concordRaider.Items?.Count ?? 0) == 0,
                  $"R13 E3: FO4_ConcordRaider retains {concordRaider.Items?.Count ?? 0} inventory item(s) instead of 0");
             Need(!IsSpacesuitOutfit(concordRaider.DefaultOutfit.FormKey, sfMod, plug) &&
@@ -1046,6 +1057,8 @@ public static class FalloutActorLooks
             m => m.Npcs.Remove(new FormKey(m.ModKey, ConcordRaiderNpcId)));
         yield return ("R13 E3: FO4_ConcordRaider (0x986) retains TemplateActorType.Inventory",
             m => m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].UseTemplateActors |= SF.Npc.TemplateActorType.Inventory);
+        yield return ("R14 2g-fix6: FO4_ConcordRaider (0x986) retains TemplateActorType.AiData",
+            m => m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].UseTemplateActors |= SF.Npc.TemplateActorType.AiData);
         yield return ("R13 E3: FO4_ConcordRaider (0x986) retains vanilla Coachman in Items",
             m => (m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].Items ??= new ExtendedList<SF.ContainerEntry>()).Add(new SF.ContainerEntry
             {
