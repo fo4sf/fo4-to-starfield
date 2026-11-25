@@ -1231,5 +1231,323 @@ class CoreBundleTests(unittest.TestCase):
             self.assertIn("selftest: ok", r.stdout)
 
 
+    def test_t0b_make_map_markers_stage_packs_archive_and_respects_no_archive(self) -> None:
+        import subprocess
+        import unittest.mock
+        import make_core_bundle  # type: ignore
+
+        mm_dir = Path(make_core_bundle.REPO) / "scripts" / "mapmarkers"
+        if str(mm_dir) not in sys.path:
+            sys.path.insert(0, str(mm_dir))
+        import make_map_markers  # type: ignore
+        try:
+            from tests.ba2_fixture import general_archive
+        except ModuleNotFoundError:
+            from ba2_fixture import general_archive
+
+        pex_bytes = _build_minimal_pex(
+            "FO4SF_MapMarkers",
+            ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core_esm = root / "FO4TerrainCore.esm"
+            _make_tes4_esm(core_esm)
+
+            fake_sf = root / "FakeStarfield"
+            archive2_exe = fake_sf / "Tools" / "Archive2" / "Archive2.exe"
+            archive2_exe.parent.mkdir(parents=True, exist_ok=True)
+            archive2_exe.write_bytes(b"fake-archive2")
+            (fake_sf / "Data").mkdir(parents=True, exist_ok=True)
+
+            import zipfile
+
+            fake_compiler = root / "PapyrusCompiler.exe"
+            fake_compiler.write_bytes(b"fake-compiler")
+            cr_zip = root / "ContentResources.zip"
+            with zipfile.ZipFile(cr_zip, "w") as zf:
+                for rel in (
+                    "Scripts/Source/Actor.psc",
+                    "Scripts/Source/Cell.psc",
+                    "Scripts/Source/Debug.psc",
+                    "Scripts/Source/Form.psc",
+                    "Scripts/Source/Game.psc",
+                    "Scripts/Source/GlobalVariable.psc",
+                    "Scripts/Source/Location.psc",
+                    "Scripts/Source/ObjectReference.psc",
+                    "Scripts/Source/Quest.psc",
+                    "Scripts/Source/ScriptObject.psc",
+                    "Scripts/Source/Starfield_Papyrus_Flags.flg",
+                    "Scripts/Source/Utility.psc",
+                    "Scripts/Source/WorldSpace.psc",
+                ):
+                    zf.writestr(rel, f"; stub {rel}\n")
+
+            def _fake_build_ba2(_ns, data_root, ba2_out):
+                pex_in = Path(data_root) / "Scripts" / "FO4SF_MapMarkers.pex"
+                Path(ba2_out).write_bytes(general_archive({"Scripts/FO4SF_MapMarkers.pex": pex_in.read_bytes()}))
+                return ba2_out
+
+            def _fake_subprocess_run(cmd, *args, **kwargs):
+                cmd_s = [str(x) for x in cmd]
+                if Path(cmd_s[0]).name.lower().startswith("dotnet"):
+                    if "--out" in cmd_s:
+                        mm_out = Path(cmd_s[cmd_s.index("--out") + 1])
+                        mm_out.mkdir(parents=True, exist_ok=True)
+                        _make_tes4_esm(mm_out / "FO4SFMapMarkers.esm", masters=("Starfield.esm", "FO4TerrainCore.esm"))
+                        core_sha_val = make_core_bundle.sha256_file(str(core_esm))
+                        (mm_out / "core.json").write_text(
+                            json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": core_sha_val}}) + "\n",
+                            encoding="utf-8",
+                        )
+                        return unittest.mock.Mock(returncode=0, stdout="built FO4SFMapMarkers.esm\n", stderr="")
+                    return unittest.mock.Mock(returncode=0, stdout="check ok\n", stderr="")
+                for i, s_tok in enumerate(cmd_s):
+                    if s_tok.startswith(("-o=", "-output=")):
+                        out_dir = Path(s_tok.split("=", 1)[1])
+                        break
+                    if s_tok in ("-o", "-output") and i + 1 < len(cmd_s):
+                        out_dir = Path(cmd_s[i + 1])
+                        break
+                else:
+                    raise AssertionError(f"unexpected subprocess cmd: {cmd}")
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "FO4SF_MapMarkers.pex").write_bytes(pex_bytes)
+                return unittest.mock.Mock(returncode=0, stdout="Compilation succeeded.\n", stderr="")
+
+            with unittest.mock.patch.object(subprocess, "run", side_effect=_fake_subprocess_run), \
+                 unittest.mock.patch.object(make_core_bundle.exp_install, "build_ba2", side_effect=_fake_build_ba2):
+                out_with_ba2 = root / "mm-stage-with-ba2"
+                make_map_markers.main([
+                    "stage",
+                    "--core", str(core_esm),
+                    "--out", str(out_with_ba2),
+                    "--compiler", str(fake_compiler),
+                    "--content-resources", str(cr_zip),
+                    "--starfield", str(fake_sf),
+                    "--no-reload",
+                ])
+                self.assertTrue((out_with_ba2 / "FO4SFMapMarkers.esm").is_file())
+                self.assertTrue((out_with_ba2 / "FO4SFMapMarkers - Main.ba2").is_file())
+                self.assertTrue((out_with_ba2 / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").is_file())
+                self.assertTrue((out_with_ba2 / "core.json").is_file())
+
+                out_no_ba2 = root / "mm-stage-no-ba2"
+                make_map_markers.main([
+                    "stage",
+                    "--core", str(core_esm),
+                    "--out", str(out_no_ba2),
+                    "--compiler", str(fake_compiler),
+                    "--content-resources", str(cr_zip),
+                    "--starfield", str(fake_sf),
+                    "--no-archive",
+                    "--no-reload",
+                ])
+                self.assertTrue((out_no_ba2 / "FO4SFMapMarkers.esm").is_file())
+                self.assertFalse((out_no_ba2 / "FO4SFMapMarkers - Main.ba2").exists())
+
+    def test_t0b_fold_and_verify_stages_map_markers_keeps_plugins_and_checks_compatibility(self) -> None:
+        import subprocess
+        import make_core_bundle  # type: ignore
+        try:
+            from tests.ba2_fixture import general_archive
+        except ModuleNotFoundError:
+            from ba2_fixture import general_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            owner, stages_root, *_rest = self._build_synthetic_owner_and_stages(root)
+            core_sha = make_core_bundle.sha256_file(str(owner / "FO4TerrainCore.esm"))
+            fresh_clean = root / "fresh-clean-core"
+
+            # Baseline fold without map_markers (--no-map-markers) to assert plugins list is unchanged.
+            out_base = root / "bundle-no-mm"
+            self.assertEqual(
+                make_core_bundle.main([
+                    "fold",
+                    "--owner-set", str(owner),
+                    "--stages-root", str(stages_root),
+                    "--out", str(out_base),
+                    "--clean-core-out", str(fresh_clean),
+                    "--profile", "player",
+                    "--no-map-markers",
+                ]),
+                0,
+            )
+            base_plan = json.loads((out_base / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertNotIn("map_markers", base_plan["components"])
+            missing_mm_probs, _ = make_core_bundle.verify_bundle(str(out_base), require_map_markers=True)
+            self.assertTrue(any("missing map-markers/" in p for p in missing_mm_probs), missing_mm_probs)
+
+            # Build valid 18-map-markers inside stages_root matching owner FO4TerrainCore.esm.
+            mm_stage = stages_root / "18-map-markers"
+            (mm_stage / "Data" / "Scripts").mkdir(parents=True, exist_ok=True)
+            _make_tes4_esm(mm_stage / "FO4SFMapMarkers.esm", masters=("Starfield.esm", "FO4TerrainCore.esm"))
+            mm_pex = _build_minimal_pex(
+                "FO4SF_MapMarkers",
+                ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"),
+            )
+            (mm_stage / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(mm_pex)
+            (mm_stage / "FO4SFMapMarkers - Main.ba2").write_bytes(
+                general_archive({"Scripts/FO4SF_MapMarkers.pex": mm_pex})
+            )
+            (mm_stage / "core.json").write_text(
+                json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": core_sha}}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (mm_stage / "offline_check.txt").write_text("ok\n", encoding="utf-8")
+            (mm_stage / "README.txt").write_text("readme\n", encoding="utf-8")
+
+            out_with_mm = root / "bundle-with-mm"
+            fresh_clean2 = root / "fresh-clean-core-2"
+            self.assertEqual(
+                make_core_bundle.main([
+                    "fold",
+                    "--owner-set", str(owner),
+                    "--stages-root", str(stages_root),
+                    "--out", str(out_with_mm),
+                    "--clean-core-out", str(fresh_clean2),
+                    "--profile", "player",
+                ]),
+                0,
+            )
+            mm_plan = json.loads((out_with_mm / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(mm_plan["plugins"], base_plan["plugins"])
+            self.assertNotIn("FO4SFMapMarkers.esm", mm_plan["plugins"])
+            self.assertEqual(mm_plan["components"]["map_markers"]["folder"], "map-markers")
+            self.assertEqual(mm_plan["components"]["map_markers"]["plugins"], [])
+            self.assertIn("map-markers", mm_plan["map_markers_install_command"])
+            self.assertTrue((out_with_mm / "map-markers" / "FO4SFMapMarkers.esm").is_file())
+            self.assertTrue((out_with_mm / "map-markers" / "FO4SFMapMarkers - Main.ba2").is_file())
+
+            readme_lines = (out_with_mm / "README.txt").read_text(encoding="utf-8").splitlines()
+            exp_install_lines = [ln for ln in readme_lines if "exp_install.py install" in ln]
+            self.assertEqual(len(exp_install_lines), 1, readme_lines)
+            self.assertTrue(any("map_markers_install.py install" in ln for ln in readme_lines), readme_lines)
+
+            ok_probs, _ = make_core_bundle.verify_bundle(str(out_with_mm), require_map_markers=True)
+            self.assertEqual(ok_probs, [])
+
+            # CLI verify --require-map-markers passes.
+            cli_ok = subprocess.run(
+                [sys.executable, str(Path(make_core_bundle.REPO) / "scripts" / "core" / "make_core_bundle.py"),
+                 "verify", "--bundle-dir", str(out_with_mm), "--require-map-markers"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(cli_ok.returncode, 0, cli_ok.stdout + cli_ok.stderr)
+
+            # Outdated map-markers PEX lacking PrepareKnownUndiscoveredAll fails verify_bundle.
+            old_pex = _build_minimal_pex("FO4SF_MapMarkers", ("DiscoverSingleMarker",))
+            (out_with_mm / "map-markers" / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(old_pex)
+            (out_with_mm / "map-markers" / "FO4SFMapMarkers - Main.ba2").write_bytes(
+                general_archive({"Scripts/FO4SF_MapMarkers.pex": old_pex})
+            )
+            bad_probs, _ = make_core_bundle.verify_bundle(str(out_with_mm), require_map_markers=True)
+            self.assertTrue(
+                any("PrepareKnownUndiscoveredAll" in p for p in bad_probs),
+                bad_probs,
+            )
+
+            # _fold_map_markers_stage refuses stale core.json pin in 18-map-markers.
+            (mm_stage / "core.json").write_text(
+                json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": "f" * 64}}) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(make_core_bundle.BundleRefused) as ctx:
+                make_core_bundle._fold_map_markers_stage(str(mm_stage), str(out_base))
+            self.assertIn("core.json pins", str(ctx.exception))
+
+    def test_t0b_resolve_map_markers_options_matches_core_sha_and_rejects_mismatch(self) -> None:
+        import argparse
+        import make_core_bundle  # type: ignore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            owner = root / "staging" / "owner"
+            sibling_cs = root / "staging" / "terrain_core64v6i_l125"
+            cw_json = root / "scratch" / "mapmarkers" / "cw_markers.json"
+            owner.mkdir(parents=True)
+            sibling_cs.mkdir(parents=True)
+            cw_json.parent.mkdir(parents=True)
+
+            core_esm = owner / "FO4TerrainCore.esm"
+            _make_tes4_esm(core_esm)
+            core_sha = make_core_bundle.sha256_file(str(core_esm))
+
+            (sibling_cs / "FO4TerrainCore.esm").write_bytes(core_esm.read_bytes())
+            (sibling_cs / "Data" / "terrain").mkdir(parents=True)
+            (sibling_cs / "Data" / "terrain" / "fo4core.btd").write_bytes(b"btd")
+            (sibling_cs / "overlays_params.json").write_text(
+                json.dumps({
+                    "overlays": [{
+                        "btd_file": "Data/terrain/fo4core.btd",
+                        "bounds_min_m": -2000.0,
+                        "bounds_max_m": 4000.0,
+                        "map_markers": [],
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            cw_json.write_text('{"markers": []}\n', encoding="utf-8")
+
+            ns = argparse.Namespace(
+                owner_set=str(owner),
+                map_markers_core_stage=None,
+                fo4_map_markers=None,
+                map_markers_landing=None,
+            )
+            cs, mm_json, landing = make_core_bundle._resolve_map_markers_options(ns, str(core_esm), core_sha)
+            self.assertEqual(Path(cs), sibling_cs)
+            self.assertEqual(Path(mm_json), cw_json)
+            self.assertEqual(landing, (-1959.0, -493.0))
+
+            # Explicit mismatching core stage refuses clearly.
+            (sibling_cs / "FO4TerrainCore.esm").write_bytes(b"different-core")
+            ns_bad = argparse.Namespace(
+                owner_set=str(owner),
+                map_markers_core_stage=str(sibling_cs),
+                fo4_map_markers=None,
+                map_markers_landing=None,
+            )
+            with self.assertRaises(make_core_bundle.BundleRefused):
+                make_core_bundle._resolve_map_markers_options(ns_bad, str(core_esm), core_sha)
+
+
+def _build_minimal_pex(script_name: str, functions: tuple[str, ...]) -> bytes:
+    """Build a minimal valid little-endian Starfield v3.12 PEX binary with `functions` in default state."""
+    import struct
+    strings = ["", "None", "ScriptObject", script_name]
+    smap = {s: i for i, s in enumerate(strings)}
+
+    def sidx(text: str) -> int:
+        if text not in smap:
+            smap[text] = len(strings)
+            strings.append(text)
+        return smap[text]
+
+    fn_blobs = bytearray()
+    for fn_name in functions:
+        fn_blobs += struct.pack("<H", sidx(fn_name))
+        fn_blobs += struct.pack("<HHIBHHH", sidx("None"), sidx(""), 0, 0, 0, 0, 0)
+
+    obj_body = bytearray()
+    obj_body += struct.pack("<HHBIH", sidx("ScriptObject"), sidx(""), 0, 0, sidx(""))
+    obj_body += struct.pack("<HHHHH", 0, 0, 0, 0, 1)
+    obj_body += struct.pack("<HH", sidx(""), len(functions)) + fn_blobs
+    obj_bytes = struct.pack("<HI", sidx(script_name), len(obj_body) + 4) + bytes(obj_body)
+
+    buf = bytearray(struct.pack("<IBBHQ", 0xFA57C0DE, 3, 12, 4, 0))
+    buf += b"\x00\x00" * 3
+    buf += struct.pack("<H", len(strings))
+    for s in strings:
+        raw = s.encode("utf-8")
+        buf += struct.pack("<H", len(raw)) + raw
+    buf += b"\x00"
+    buf += struct.pack("<HH", 0, 1)
+    buf += obj_bytes
+    return bytes(buf)
+
+
 if __name__ == "__main__":
     unittest.main()

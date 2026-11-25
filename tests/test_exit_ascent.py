@@ -23,10 +23,19 @@ GLOBALS = ('ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, '
 
 
 class Lift(Reference):
+    def __init__(self, world, pos, form_id=0x030A775B):
+        super().__init__(world, pos, form_id=form_id)
+        self.plays = []
+        self.resets = 0
+        self.accepted = True
+
     def GetBaseObject(self): return self.base
     def PlayAnimation(self, name):
         self.plays.append(name)
         return self.accepted
+
+    def Reset(self, target=None):
+        self.resets += 1
 
 
 class DoorRef(Reference):
@@ -168,7 +177,7 @@ class AscentExecutionTests(unittest.TestCase):
                            GetFormFromFile=lambda i, _: self.lift if i == 0x1618 else (self.vault_anchor if i == 0x805 else self.base),
                            GetPlayer=lambda: self.player,
                        ),
-                       Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
+                       Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now, Wait=lambda *_: None),
                        GetStage=lambda: 30,
                        StandsInVault=lambda _: True, Surface=self.transfers.append,
                        RunSharedMapSetup=run_map_setup,
@@ -177,7 +186,7 @@ class AscentExecutionTests(unittest.TestCase):
         text = read(PSC)
         event = re.search(r'Event OnAnimationEvent\((.*?)\)\n(.*?)EndEvent', text, re.S)
         text += '\nFunction AscentEvent(' + event[1] + ')\n' + event[2] + 'EndFunction\n'
-        exec(compile(translated_functions(text, ('StartAscent', 'AscentEvent', 'AtLiftTop', 'CheckAscent', 'Near', 'FailExit', 'ReturnPlayerToVaultPlatform'), GLOBALS), PSC, 'exec'), self.ns)
+        exec(compile(translated_functions(text, ('StartAscent', 'AscentEvent', 'AtLiftTop', 'CheckAscent', 'Near', 'FailExit', 'ReturnPlayerToVaultPlatform', 'ResetVaultExitLift'), GLOBALS), PSC, 'exec'), self.ns)
         actual_fail = self.ns['FailExit']
         def fail(reason):
             self.failures.append(reason)
@@ -288,7 +297,9 @@ class AscentExecutionTests(unittest.TestCase):
         self.ns['RegisterForAnimationEvent'] = leave
         self.run_branch('StartAscent')
         self.assertEqual(self.failures, ['lift_rider_left_before_play'])
-        self.assertEqual(self.lift.plays, [])
+        self.assertNotIn('Play01', self.lift.plays)
+        self.assertEqual(self.lift.plays, ['Play02'])
+        self.assertEqual(self.lift.resets, 0)
         self.setUp()
         self.run_branch('StartAscent')
         self.now += 10
@@ -298,6 +309,56 @@ class AscentExecutionTests(unittest.TestCase):
         self.run_branch('CheckAscent')
         self.assertEqual(self.failures, ['lift_rider_left_before_arrival'])
         self.assertEqual(self.transfers, [])
+
+    def test_raised_lift_resets_via_play02_and_reset_then_succeeds_on_retry_and_second_ascent(self):
+        # 1) Simulate a lift stuck in raised StateB_Idle: first PlayAnimation("Play01") refuses (returns False),
+        #    ResetVaultExitLift() plays Play02 (falling back to Reset only if Play02 fails), StartAscent also
+        #    calls lift.Reset() before retrying Play01, repositions player, and retry succeeds!
+        lift_raised = [True]
+
+        def toggle_play(name):
+            self.lift.plays.append(name)
+            if name == 'Play01':
+                return not lift_raised[0]
+            if name == 'Play02':
+                lift_raised[0] = False
+                return True
+            return False
+
+        def toggle_reset(target=None):
+            self.lift.resets += 1
+            lift_raised[0] = False
+
+        self.lift.PlayAnimation = toggle_play
+        self.lift.Reset = toggle_reset
+
+        self.run_branch('StartAscent')
+        self.assertEqual(self.failures, [])
+        self.assertTrue(self.ns['rideActive'])
+        self.assertEqual(self.lift.plays, ['Play01', 'Play02', 'Play01'])
+        self.assertEqual(self.lift.resets, 1)
+        self.assertEqual(self.player.moves[-1], (-77.742, -3.958, -1.551))
+
+        # 2) Complete first ascent, then simulate FailExit / second ascent retry after ResetVaultExitLift
+        self.now += 10.0
+        self.top()
+        self.done()
+        self.run_branch('CheckAscent')
+        self.assertEqual(self.transfers, [self.player])
+
+        lift_raised[0] = True
+        self.ns['rideTransferred'] = False
+        self.ns['FailExit']('lift_surface_missed')
+        self.assertFalse(lift_raised[0])
+        self.assertEqual(self.lift.resets, 1)
+        self.run_branch('StartAscent')
+        self.assertTrue(self.ns['rideActive'])
+        self.assertEqual(self.lift.plays[-1], 'Play01')
+        self.now += 10.0
+        self.top()
+        self.done()
+        self.run_branch('CheckAscent')
+        self.assertEqual(self.transfers, [self.player, self.player])
 
 
 class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):

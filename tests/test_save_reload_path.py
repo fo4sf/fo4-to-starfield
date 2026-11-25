@@ -300,7 +300,6 @@ class SaveReloadPathTests(unittest.TestCase):
             )
             preston = _make_actor("Preston")
             codsworth = _make_actor("Codsworth", disabled=True) if keeper_only else None
-            scene = SimpleNamespace(name="PrestonTalkScene") if not keeper_only else None
             sanctuary_q = SimpleNamespace(
                 IsRunning=lambda: False,
                 StartNoWait=lambda: (sanctuary_starts.append(1), True)[1],
@@ -310,7 +309,6 @@ class SaveReloadPathTests(unittest.TestCase):
                 KeeperOnly=keeper_only,
                 Preston=preston,
                 Codsworth=codsworth,
-                PrestonTalkScene=scene,
                 Credits="Credits",
                 RewardCount=100,
                 CodsworthCheck=5.0,
@@ -584,6 +582,196 @@ class SaveReloadPathTests(unittest.TestCase):
         self.assertGreaterEqual(radius, 2.0)
         self.assertLess(radius, 2.714)  # stays inside physical cage cylinder
         self.assertGreater(dist_to_catwalk - radius, 5.0)  # never fires prematurely on catwalk
+
+    def test_task0a_pod_autosave_stage20_death_reload_surface_and_lift_reset(self) -> None:
+        psc = NEWGAME_PSC.read_text(encoding="utf-8")
+        looks_psc = (ROOT / "scripts" / "newgame" / "FO4SF_NewGameLooks.psc").read_text(encoding="utf-8")
+        ev_stage = re.search(r"Event OnStageSet\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        assert ev_stage is not None
+        wrapped = psc + f"\nFunction StageSetEvent({ev_stage[1]})\n{ev_stage[2]}EndFunction\n"
+        funcs = (
+            "NoteLooksStage20", "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "StageSetEvent",
+            "Actor.OnPlayerLoadGame", "ResetVaultExitLift", "ReturnPlayerToVaultPlatform",
+            "StartAscent", "TryFastTravelSurface", "TrySurfaceExteriorFallbacks", "Surface", "FinishSurface",
+            "Near", "FailExit",
+        )
+        vars_csv = (
+            "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
+            "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
+            "loadHookRegistered, dyingHookRegistered, h00SuspectsRead, "
+            "rideActive, rideDone, rideTransferred, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
+            "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, fallbackPending, "
+            "discoveryMarkerMoved, discoveryAttachPending, landingChecks, asked, "
+            "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), str(NEWGAME_PSC), "exec")
+        looks_compiled = compile(translated_functions(looks_psc, ("Done",), ""), "FO4SF_NewGameLooks.psc", "exec")
+
+        vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+        core_cell = SimpleNamespace(GetFormID=lambda: 0x04000CF0)
+        ext_world = object()
+        cur_stage = [10]
+        autosaves: list[int] = []
+        chargens: list[tuple[bool, bool, bool]] = []
+        huds: list[int] = []
+        fast_travels: list[object] = []
+        logs: list[str] = []
+        now = [10.0]
+
+        def _make_ref(fid: int, cell, world, pos, interior: bool):
+            st = {"pos": pos, "cell": cell, "world": world, "interior": interior, "enables": [], "add_map": [], "ft": [], "disc": 0}
+            return SimpleNamespace(
+                GetFormID=lambda: fid,
+                GetParentCell=lambda: st["cell"],
+                GetWorldSpace=lambda: st["world"],
+                GetPositionX=lambda: st["pos"][0],
+                GetPositionY=lambda: st["pos"][1],
+                GetPositionZ=lambda: st["pos"][2],
+                IsInInterior=lambda: st["interior"],
+                Is3DLoaded=lambda: True,
+                IsDead=lambda: False,
+                Enable=lambda f=False: st["enables"].append(f),
+                AddToMap=lambda b=False: st["add_map"].append(b),
+                SetMarkerDiscovered=lambda: st.__setitem__("disc", st["disc"] + 1),
+                EnableFastTravel=lambda b=True: st["ft"].append(b),
+                SetPosition=lambda x, y, z: (
+                    st.__setitem__("pos", (x, y, z)),
+                    st.__setitem__("cell", core_cell if not st["interior"] and abs(x + 1200.0) < 5.0 else st["cell"]),
+                ),
+                SetAngle=lambda *a: None,
+                _st=st,
+            )
+
+        vault_anchor = _make_ref(0x02000805, vault_cell, None, (-60.0, 0.0, -1.0), True)
+        exit_anchor = _make_ref(0x040A775B, core_cell, ext_world, (-1275.3, 1305.3, 108.2), False)
+        core_anchor = _make_ref(0x04000800, core_cell, ext_world, (0.0, 0.0, 100.0), False)
+        land_marker = _make_ref(0x100008F2, core_cell, ext_world, (-1959.0, -493.0, 100.0), False)
+        lift_base = object()
+        lift_state = {"raised": True, "plays": [], "resets": 0}
+
+        def _lift_play(clip: str):
+            lift_state["plays"].append(clip)
+            if clip == "Play01":
+                return not lift_state["raised"]
+            if clip == "Play02":
+                lift_state["raised"] = False
+                return True
+            return False
+
+        lift = SimpleNamespace(
+            Is3DLoaded=lambda: True,
+            GetParentCell=lambda: vault_cell,
+            GetBaseObject=lambda: lift_base,
+            PlayAnimation=_lift_play,
+            Reset=lambda *a: (lift_state.__setitem__("resets", lift_state["resets"] + 1), lift_state.__setitem__("raised", False)),
+        )
+        player = _make_ref(0x14, vault_cell, None, (-77.742, -3.958, -1.72), True)
+
+        def _player_moveto(target, dx=0.0, dy=0.0, dz=0.0, *rest):
+            if target is exit_anchor or target is core_anchor:
+                return  # death-reload broken state: MoveTo fails to leave interior!
+            if target is land_marker and target in fast_travels:
+                player._st["world"] = ext_world
+                player._st["cell"] = core_cell
+                player._st["interior"] = False
+                player._st["pos"] = (-1959.0, -493.0, 100.0)
+
+        player.MoveTo = _player_moveto
+
+        def _get_form(fid: int, plg: str):
+            if plg == "FO4Port.esm":
+                if fid == 0x805: return vault_anchor
+                if fid == 0x1618: return lift
+                if fid == 0x1619: return lift_base
+            if plg == "FO4TerrainCore.esm":
+                if fid == 0x0A775B: return exit_anchor
+                if fid == 0x000800: return core_anchor
+            if plg == "FO4SFMapMarkers.esm" and fid == 0x0008F2:
+                return land_marker
+            return None
+
+        ns = dict(
+            LogName="fo4sf_newgame",
+            GameModeGlobal=_make_global(1.0),
+            CorePlugin="FO4TerrainCore.esm", ExitAnchorId=0x0A775B,
+            VaultPlugin="FO4Port.esm", VaultAnchorId=0x805,
+            AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
+            PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
+            LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftDoneMargin=0.25,
+            ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=100.0, ArrivalHeading=0.0,
+            MergeOffsetX=-1200.0, MergeOffsetY=-2700.0, FallDrop=3.0, SurfaceWait=10.0, SurfaceTries=3,
+            applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False, exitUsedFallback=False,
+            vaultPodAutosaved=False, vaultSavingRelocked=False, vaultRecoveryTriggered=False, vaultPodAutosaveSkips=0,
+            loadHookRegistered=False, dyingHookRegistered=False, h00SuspectsRead=True,
+            rideActive=False, rideDone=False, rideTransferred=False, ridingLift=None, ridingCell=None,
+            rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
+            surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, arrivalWorld=None, arrivedAt=0.0,
+            fallbackPending=False, discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
+            asked=False, returnSurfacePending=False, returnVaultAsked=False,
+            returnSurfaceWaitTicks=0, returnSurfaceTries=0, exitFailures=0,
+            Debug=SimpleNamespace(OpenUserLog=lambda *_: None, Notification=lambda *_: None),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: now[0], Wait=lambda *_: None),
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player,
+                GetFormFromFile=_get_form,
+                SetInChargen=lambda a, b, c: chargens.append((a, b, c)),
+                SetCharGenHUDMode=lambda m: huds.append(m),
+                RequestAutoSave=lambda: autosaves.append(cur_stage[0]),
+                FastTravel=lambda t: (fast_travels.append(t), player.MoveTo(t)),
+            ),
+            StandsInVault=lambda p: p.GetParentCell() == vault_cell,
+            RegisterForRemoteEvent=lambda *_: None,
+            RegisterForAnimationEvent=lambda *_: None,
+            UnregisterForAnimationEvent=lambda *_: None,
+            StartTimer=lambda *_: None,
+            CancelTimer=lambda *_: None,
+            RunSharedMapSetup=lambda: 4,
+            GetStage=lambda: cur_stage[0],
+            SetStage=lambda st: cur_stage.__setitem__(0, st),
+            SetObjectiveDisplayed=lambda *_: None,
+            SetObjectiveCompleted=lambda *_: None,
+            SetActive=lambda *_: None,
+            CompleteQuest=lambda: None,
+            StartLandingQuests=lambda: None,
+            ReleaseStoryLandingFade=lambda: None,
+            AdvanceTo=lambda st, by="Trigger": (cur_stage.__setitem__(0, st), ns["ApplyStage"](st, by)),
+            Trace=lambda m: logs.append(str(m)),
+        )
+        exec(compiled, ns)
+        looks_ns = dict(
+            GetStage=lambda: cur_stage[0],
+            SetStage=lambda st: cur_stage.__setitem__(0, st),
+            TracePosition=lambda *_: None,
+            Trace=lambda m: logs.append(str(m)),
+            self=SimpleNamespace(NoteLooksStage20=ns["NoteLooksStage20"]),
+        )
+        exec(looks_compiled, looks_ns)
+
+        # 1. Quick Start commits stage 20 BEFORE pod RequestAutoSave
+        looks_ns["Done"]("quick start")
+        self.assertEqual(cur_stage[0], 20)
+        self.assertEqual(autosaves, [20])
+
+        # 2. Death reload onto stage-20 pod autosave relocks vault saving at stage 20
+        ns["OnPlayerLoadGame"](player)
+        self.assertTrue(ns["vaultSavingRelocked"])
+        self.assertIn("vault_death_recovery=save_locked stage=20", logs)
+
+        # 3. Retrying a raised lift resets it (Play02 + Reset) and StartAscent succeeds
+        cur_stage[0] = 30
+        ns["StartAscent"](player)
+        self.assertTrue(ns["rideActive"])
+        self.assertEqual(lift_state["plays"], ["Play01", "Play02", "Play01"])
+        self.assertEqual(lift_state["resets"], 1)
+
+        # 4. Surface clears save lock / HUD chargen, tries 0x000800, falls back to FastTravel(0x0008F2), reaches stage 40!
+        ns["Surface"](player)
+        self.assertFalse(ns["vaultSavingRelocked"])
+        self.assertEqual(fast_travels, [land_marker])
+        self.assertFalse(player.IsInInterior())
+        ns["FinishSurface"](player)
+        self.assertEqual(cur_stage[0], 40)
 
 
 if __name__ == "__main__":

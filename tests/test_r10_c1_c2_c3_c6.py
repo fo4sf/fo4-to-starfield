@@ -218,8 +218,6 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "Preston": preston,
         "Credits": "StarfieldCredits",
         "RewardCount": 100,
-        "PrestonTalkScene": None if runtime_scene_prop_none else scene,
-        "PrestonPostTalkScene": None,
         "PrestonTalkMsg": talk_msg,
         "PrestonReply0Msg": talk_msg,
         "PrestonReply1Msg": talk_msg,
@@ -317,15 +315,20 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
 
 class R10OpeningFixTests(unittest.TestCase):
     def test_c1_preston_single_real_talk_resolves_scene_when_property_is_none_at_runtime(self):
-        """C1: Must FAIL on 9b5327ff (where PrestonTalkScene evaluated to None at runtime despite QUST 0x800 VMAD
-        binding, causing reason=no_scene + double talk) and PASS on current head (ResolvePrestonScene falls back to
-        Game.GetFormFromFile 0x000900 like Codsworth01, starts DialogueMenu first, logs resolution route, never both)."""
+        """C1 + Task 0c: Dead *Scene VMAD properties are removed cleanly; ResolvePrestonScene / ResolvePrestonSceneLogged
+        resolve SCEN 0x000900 directly via Game.GetFormFromFile, starting DialogueMenu cleanly when present and
+        falling back safely to MessageBox / reason=no_scene when absent (--no-alias)."""
         src = MIN00_PSC.read_text(encoding="utf-8")
+        cods_src = CODS_PSC.read_text(encoding="utf-8")
+        self.assertNotIn("Scene Property PrestonTalkScene", src)
+        self.assertNotIn("Scene Property PrestonPostTalkScene", src)
+        self.assertNotIn("Scene Property CodsworthScene", cods_src)
+        self.assertNotIn("Scene Property CodsworthPostScene", cods_src)
         self.assertIn("Scene Function ResolvePrestonScene()", src)
         self.assertIn("Scene Function ResolvePrestonSceneLogged()", src)
         self.assertIn('Game.GetFormFromFile(0x000900, "FO4SFMission.esm") as Scene', src)
 
-        # 1. Exact candidate-2f runtime failure condition: PrestonTalkScene is None at runtime while 0x0900 exists
+        # 1. Runtime resolution via Game.GetFormFromFile(0x000900, "FO4SFMission.esm")
         h = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, glob_val=0.0, scene_opens=True)
         h.ns["OnActivate"](h.preston, h.player)
 
@@ -335,11 +338,7 @@ class R10OpeningFixTests(unittest.TestCase):
         self.assertTrue(any("preston scene resolved via=file" in ln for ln in h.logs), h.logs)
         self.assertTrue(any("preston scene talk requested" in ln for ln in h.logs), h.logs)
 
-        # Verify via=property and via=none resolution trace lines as well
-        hp = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=False, glob_val=0.0, scene_opens=True)
-        hp.ns["OnActivate"](hp.preston, hp.player)
-        self.assertTrue(any("preston scene resolved via=property" in ln for ln in hp.logs), hp.logs)
-
+        # Verify via=none resolution trace line when 0x0900 is absent (--no-alias)
         hn = _run_c1_preston_activation_harness(src, runtime_scene_prop_none=True, file_scene_present=False, glob_val=0.0)
         hn.ns["OnActivate"](hn.preston, hn.player)
         self.assertTrue(any("preston scene resolved via=none" in ln for ln in hn.logs), hn.logs)
@@ -442,6 +441,7 @@ class R10OpeningFixTests(unittest.TestCase):
                 self.loaded = True
                 self.restrained = True
                 self.combat_state = combat_state
+                self.target = None
                 self.inv = {"Coachman": 1}
                 self.equipped = []
                 self.avs = {}
@@ -458,6 +458,7 @@ class R10OpeningFixTests(unittest.TestCase):
             def GetWorldSpace(self): return self.world
             def GetParentCell(self): return self.cell
             def GetCombatState(self): return self.combat_state
+            def GetCombatTarget(self): return self.target
             def SetRestrained(self, v): self.restrained = bool(v); return True
             def SetValue(self, av, val): self.avs[av] = float(val)
             def GetValue(self, av): return self.avs.get(av, 0.0)
@@ -480,6 +481,7 @@ class R10OpeningFixTests(unittest.TestCase):
             def StartCombat(self, target):
                 self.start_combat_targets.append(target)
                 self.combat_state = 1
+                self.target = target
                 return True
 
             def MoveTo(self, ref, dx, dy, dz, *_):
@@ -550,7 +552,7 @@ class R10OpeningFixTests(unittest.TestCase):
             "RaiderWeapon": "Coachman",
             "RaiderAmmo": "AmmoShotshell",
             "RaiderSidearm": "Eon",
-            "RaiderPrimaryRecordDamage": 6.0,
+            "RaiderPrimaryRecordDamage": 4.0,
             "AttackDamageMult": None,
             "Math": SimpleNamespace(Sqrt=math.sqrt),
             "Game": SimpleNamespace(
@@ -590,7 +592,7 @@ class R10OpeningFixTests(unittest.TestCase):
             self.assertAlmostEqual(r.pos[1], want[1], places=2)
 
         # Engage combat: simulate raiders 1..4 faction-alerted (GetCombatState()==2) when raider 0 engages,
-        # and verify P3 rate-limiting (10 s cooldown) when a raider remains stuck in combat state 2.
+        # and verify Task 0d + C3 rate-limiting (4 s cooldown) when stuck in state 2 OR targeting a non-player actor.
         player.pos = [-2015.0, -1700.0, 88.4]
         for i in range(1, 5):
             raiders[i].combat_state = 2  # searching/alerted (the 2f bug skipped StartCombat here!)
@@ -602,8 +604,8 @@ class R10OpeningFixTests(unittest.TestCase):
                 d = player.GetDistance(r)
                 if not ns["raiderArmed"][i] and stage < 30 and (everyone or d < 60.0) and r.Is3DLoaded():
                     ns["ArmRaiderForCombat"](r, i)
-                if (r.GetCombatState() == 1 and ns["raiderEngaged"][i]) or (
-                    ns["raiderEngaged"][i] and now_rt >= ns["raiderStartCombatAt"][i] and (now_rt - ns["raiderStartCombatAt"][i]) < 10.0
+                if (r.GetCombatState() == 1 and r.GetCombatTarget() == player and ns["raiderEngaged"][i]) or (
+                    ns["raiderEngaged"][i] and now_rt >= ns["raiderStartCombatAt"][i] and (now_rt - ns["raiderStartCombatAt"][i]) < 4.0
                 ):
                     pass
                 elif stage < 30 and (everyone or d < 60.0) and r.Is3DLoaded():
@@ -622,19 +624,90 @@ class R10OpeningFixTests(unittest.TestCase):
             self.assertGreaterEqual(r.inv.get("AmmoShotshell", 0), 60)
             self.assertIn("Coachman", r.equipped)
             self.assertEqual(r.start_combat_targets, [player], f"raider {i} never received StartCombat(player)")
+            self.assertEqual(r.GetCombatTarget(), player)
         self.assertEqual(sum(1 for ln in logs if ln.startswith("arm raider ")), 5)
         self.assertEqual(sum(1 for ln in logs if ln.startswith("startcombat raider ")), 5)
 
-        # Next 9 ticks (t=101..109): raider 2 stuck in state 2 must NOT spam StartCombat or logs
-        for t in range(101, 110):
+        # Next 3 ticks (t=101..103 < 4.0 s): raider 2 stuck in state 2 must NOT spam StartCombat or logs
+        for t in range(101, 104):
             run_combat_tick(float(t), sticky_state2_idx=2)
         self.assertEqual(len(raiders[2].start_combat_targets), 1)
         self.assertEqual(sum(1 for ln in logs if ln.startswith("startcombat raider 2")), 1)
 
-        # At t=110.0 (10 s elapsed): exactly 1 rate-limited re-engage
-        run_combat_tick(110.0, sticky_state2_idx=2)
+        # At t=104.0 (4.0 s elapsed): exactly 1 rate-limited re-engage
+        run_combat_tick(104.0, sticky_state2_idx=2)
         self.assertEqual(len(raiders[2].start_combat_targets), 2)
         self.assertEqual(sum(1 for ln in logs if ln.startswith("startcombat raider 2")), 2)
+
+        # Task 0d: If raider 0 is in combat state 1 but targeting Preston instead of player, re-assert after 4.0 s!
+        fake_preston = SimpleNamespace(name="Preston")
+        raiders[0].combat_state = 1
+        raiders[0].target = fake_preston
+        run_combat_tick(102.0)  # < 4.0 s since 100.0: rate-limited
+        self.assertEqual(len(raiders[0].start_combat_targets), 1)
+        run_combat_tick(104.0)  # >= 4.0 s: re-asserts StartCombat(player)!
+        self.assertEqual(len(raiders[0].start_combat_targets), 2)
+        self.assertEqual(raiders[0].GetCombatTarget(), player)
+
+        # Task 0d: Translate SyncPrestonFightHold directly and verify Preston holds fire/ghosts at stage < 30 & un-ghosts at >= 30
+        preston_hold_logs = []
+
+        class _PrestonHoldMock:
+            def __init__(self):
+                self.ghost = False
+                self.equipped = "Orion"
+                self.combat_state = 1
+                self.target = raiders[0]
+                self.aggr = 1.0
+                self.stop_combat_calls = 0
+                self.stop_alarm_calls = 0
+                self.unequip_calls = []
+                self.set_ghost_calls = []
+
+            def IsGhost(self): return self.ghost
+            def SetGhost(self, v=True):
+                self.ghost = bool(v)
+                self.set_ghost_calls.append(self.ghost)
+            def GetValue(self, av): return self.aggr
+            def SetValue(self, av, val): self.aggr = float(val)
+            def GetEquippedWeapon(self, idx=0): return self.equipped
+            def UnequipItem(self, item, *_):
+                self.unequip_calls.append(item)
+                if item == self.equipped:
+                    self.equipped = None
+            def GetCombatState(self): return self.combat_state
+            def GetCombatTarget(self): return self.target
+            def StopCombat(self):
+                self.stop_combat_calls += 1
+                self.combat_state = 0
+                self.target = None
+            def StopCombatAlarm(self):
+                self.stop_alarm_calls += 1
+
+        pm = _PrestonHoldMock()
+        p_ns = {
+            "KeeperOnly": False,
+            "Preston": pm,
+            "Trace": preston_hold_logs.append,
+            "Game": SimpleNamespace(GetAggressionAV=lambda: "AggressionAV"),
+        }
+        p_code = _translate_mission_psc(m_psc, ("SyncPrestonFightHold",), ())
+        exec(compile(p_code, "FO4SF_Min00Quest.psc", "exec"), p_ns)
+        p_ns["SyncPrestonFightHold"](20)
+        self.assertTrue(pm.IsGhost())
+        self.assertEqual(pm.aggr, 0.0)
+        self.assertEqual(pm.unequip_calls, ["Orion"])
+        self.assertEqual(pm.stop_combat_calls, 1)
+        self.assertEqual(pm.stop_alarm_calls, 1)
+        self.assertEqual(len(preston_hold_logs), 1)
+        # Repeat tick at stage 20 makes no extra log spam
+        p_ns["SyncPrestonFightHold"](20)
+        self.assertEqual(len(preston_hold_logs), 1)
+        # Stage 30 restores non-ghost for turn-in DialogueMenu
+        p_ns["SyncPrestonFightHold"](30)
+        self.assertFalse(pm.IsGhost())
+        self.assertEqual(pm.set_ghost_calls, [True, False])
+        self.assertIn("ghost=false", preston_hold_logs[-1])
 
     def test_c6_codsworth_camera_guard_steps_back_at_0p6m_and_keeps_2p0m_untouched(self):
         """C6: Close 0.62 m moveto activation steps player back along sightline to 1.85 m; 2.0 m walk-up untouched."""

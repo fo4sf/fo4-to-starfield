@@ -67,6 +67,7 @@ for _p in (
 import exp_install  # noqa: E402
 import make_newgame  # noqa: E402
 from make_workshop_probe import compile_text  # noqa: E402
+from fo4sf.beginning_pilot import verify_map_markers_bundle_compatibility  # noqa: E402
 from fo4sf.core import bundle_log, cross_plugin_check  # noqa: E402
 from fo4sf.core.core_values import core_form_id  # noqa: E402
 from fo4sf.launcher.crashwatch import GAME_EXE, System  # noqa: E402
@@ -76,6 +77,10 @@ MAX_STARFIELD_PLUGINS = 245
 MAX_BA2_BYTES = (4 * (1024 ** 3)) - 1  # 4,294,967,295 bytes (32-bit unsigned BA2 ceiling)
 SIDECAR_RECEIPT_NAME = "FO4SFSidecar.install.json"
 SIDECAR_BACKUP_DIRNAME = ".fo4sf_sidecar_backup"
+MAP_MARKERS_DIRNAME = "map-markers"
+MAP_MARKERS_PLUGIN = "FO4SFMapMarkers.esm"
+MAP_MARKERS_ARCHIVE = "FO4SFMapMarkers - Main.ba2"
+MAP_MARKERS_PEX_REL = "Data/Scripts/FO4SF_MapMarkers.pex"
 
 INSTALL_LINE_RE = re.compile(r"(exp_install\.py install\b.*?--plugins )(?P<plugins>\S+)(?P<tail>.*)")
 HEX_HEAD_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -165,6 +170,7 @@ ORDERED_COMPONENT_KEYS = (
     "fort_hagen",
     "candidate_walk",
     "pipboy",
+    "map_markers",
 )
 
 EXPERIMENTAL_CORE_COMPONENT_KEYS = frozenset({
@@ -525,6 +531,16 @@ def install_and_rollback_commands(bundle_dir: str, starfield_dir: str, plugins: 
     return install_cmd, rollback_cmd
 
 
+def map_markers_install_commands(bundle_dir: str, starfield_dir: str) -> Tuple[str, str]:
+    mm_dir = os.path.join(bundle_dir, MAP_MARKERS_DIRNAME)
+    install_cmd = (
+        f'python scripts/game/map_markers_install.py install --dir "{mm_dir}" '
+        f'--starfield "{starfield_dir}"'
+    )
+    rollback_cmd = f'python scripts/game/map_markers_install.py uninstall --starfield "{starfield_dir}"'
+    return install_cmd, rollback_cmd
+
+
 def bundle_readme(clean_core_readme: str, plugins: Sequence[str], component_keys: Sequence[str]) -> str:
     """Rewrite README.txt so there is EXACTLY ONE exp_install.py install ... --pack line and matching rollback."""
     kept_lines: List[str] = []
@@ -544,6 +560,14 @@ def bundle_readme(clean_core_readme: str, plugins: Sequence[str], component_keys
         "Rollback (game closed — matching uninstall):",
         "  " + rollback_cmd,
     ]
+    if "map_markers" in component_keys:
+        mm_install_cmd, mm_rollback_cmd = map_markers_install_commands("<BUNDLE_DIR>", "<STARFIELD_DIR>")
+        footer.extend([
+            "Map markers install (game closed — staged beside candidate in map-markers/):",
+            "  " + mm_install_cmd,
+            "Map markers rollback (game closed):",
+            "  " + mm_rollback_cmd,
+        ])
     return "\n".join(kept_lines + footer) + "\n"
 
 
@@ -654,6 +678,7 @@ def verify_bundle(
     max_plugins: int = MAX_STARFIELD_PLUGINS,
     max_ba2_bytes: int = MAX_BA2_BYTES,
     tool_head: Optional[str] = None,
+    require_map_markers: bool = False,
 ) -> Tuple[List[str], Dict[str, object]]:
     """Verify every component hash, TES4 master chain, plugin count, Data root cleanliness, and 4 GiB BA2 ceiling."""
     bdir = os.path.abspath(bundle_dir)
@@ -882,6 +907,23 @@ def verify_bundle(
                 stage_c5_actor_looks.verify_staged_c5_assets(data_dir, require_preston_mats=True)
             except Exception as exc:
                 problems.append(f"c5 actor looks verify: {exc}")
+
+    # 5b. Verify staged map-markers/ (FO4SFMapMarkers.esm + Main.ba2 + core.json + PEX compatibility) when present or required
+    mm_bundle_dir = os.path.join(bdir, MAP_MARKERS_DIRNAME)
+    has_mm_comp = "map_markers" in (bplan.get("components") or {})
+    if require_map_markers or has_mm_comp or os.path.isdir(mm_bundle_dir):
+        if not os.path.isdir(mm_bundle_dir):
+            problems.append(f"map_markers: missing {MAP_MARKERS_DIRNAME}/ directory")
+        else:
+            mm_ba2_p = os.path.join(mm_bundle_dir, MAP_MARKERS_ARCHIVE)
+            mm_pex_p = os.path.join(mm_bundle_dir, *MAP_MARKERS_PEX_REL.split("/"))
+            if os.path.isfile(mm_ba2_p) and os.path.isfile(mm_pex_p):
+                try:
+                    exp_install.verify_archive(mm_ba2_p, {MAP_MARKERS_PEX_REL: sha256_file(mm_pex_p)})
+                except (OSError, ValueError) as exc:
+                    problems.append(f"map_markers: {exc}")
+            for mm_err in verify_map_markers_bundle_compatibility(bdir, repo_root=REPO):
+                problems.append(f"map_markers: {mm_err}")
 
     # 6. Check 4 GiB BA2 archive limit (existing .ba2 files + packed Main.ba2 size estimate)
     for dp, _, fns in os.walk(bdir):
@@ -1280,7 +1322,137 @@ def stage_from_checkout(a) -> Dict[str, str]:
             )
             a._pipboy_sfse_override = pb_src_dir
 
+    if getattr(a, "map_markers_stage", None):
+        mm_override = os.path.abspath(a.map_markers_stage)
+        if not os.path.isdir(mm_override):
+            raise BundleRefused(f"--map-markers-stage directory not found: {mm_override}")
+        stages["map_markers"] = mm_override
+    elif not getattr(a, "no_map_markers", False) and os.path.isfile(core_esm):
+        mm_dir = os.path.join(work, "18-map-markers")
+        core_sha = sha256_file(core_esm)
+        mm_pin_p = os.path.join(mm_dir, "core.json")
+        if os.path.isfile(mm_pin_p):
+            try:
+                pinned = next(
+                    (str(v).lower() for k, v in (json.loads(Path(mm_pin_p).read_text(encoding="utf-8")).get("masters") or {}).items()
+                     if str(k).casefold() == "fo4terraincore.esm"),
+                    "",
+                )
+            except (OSError, ValueError):
+                pinned = ""
+            if pinned and pinned != core_sha.lower():
+                raise BundleRefused(
+                    f"existing {mm_dir} core.json pins {pinned[:12]}... != {core_esm} {core_sha[:12]}...; remove {mm_dir} or use fresh --work"
+                )
+        if not os.path.exists(mm_dir):
+            core_stage, fo4_markers, landing_xy = _resolve_map_markers_options(a, core_esm, core_sha)
+            mm_args = [
+                "stage",
+                "--core", core_esm,
+                "--out", mm_dir,
+                "--compiler", compiler,
+                "--content-resources", cr_zip,
+            ]
+            if os.path.isfile(os.path.join(sf_dir, "Tools", "Archive2", "Archive2.exe")):
+                mm_args.extend(["--starfield", sf_dir])
+            if core_stage:
+                mm_args.extend(["--core-stage", core_stage])
+            if fo4_markers:
+                mm_args.extend(["--fo4-map-markers", fo4_markers])
+            if landing_xy is not None:
+                mm_args.extend(["--landing", repr(landing_xy[0]), repr(landing_xy[1])])
+            _run_py(py_main, "scripts/mapmarkers/make_map_markers.py", mm_args)
+        stages["map_markers"] = mm_dir
+
     return stages
+
+
+def _resolve_map_markers_options(
+    a,
+    core_esm: str,
+    core_sha: str,
+) -> Tuple[Optional[str], Optional[str], Optional[Tuple[float, float]]]:
+    """Resolve matching `--core-stage`, `--fo4-map-markers`, and `--landing` for `make_map_markers.py stage`."""
+    owner_abs = os.path.abspath(a.owner_set)
+    core_name = os.path.basename(core_esm)
+    explicit_cs = getattr(a, "map_markers_core_stage", None)
+
+    def _valid_core_stage(cand: str) -> Optional[dict]:
+        params_p = os.path.join(cand, "overlays_params.json")
+        staged_core = os.path.join(cand, core_name)
+        if not os.path.isfile(params_p) or not os.path.isfile(staged_core):
+            return None
+        if sha256_file(staged_core) != core_sha:
+            return None
+        try:
+            doc = json.loads(Path(params_p).read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            return None
+        overlays = doc.get("overlays") or []
+        if len(overlays) != 1:
+            return None
+        btd_rel = str(overlays[0].get("btd_file") or "")
+        if not btd_rel or not os.path.isfile(os.path.join(cand, *btd_rel.split("/"))):
+            return None
+        return overlays[0]
+
+    core_stage: Optional[str] = None
+    overlay_meta: Optional[dict] = None
+    if explicit_cs:
+        cand = os.path.abspath(explicit_cs)
+        overlay_meta = _valid_core_stage(cand)
+        if overlay_meta is None:
+            raise BundleRefused(
+                f"--map-markers-core-stage {cand} must contain overlays_params.json, matching {core_name}, and its BTD"
+            )
+        core_stage = cand
+    else:
+        for cand in (
+            owner_abs,
+            os.path.join(os.path.dirname(owner_abs), "terrain_core64v6i_l125"),
+            os.path.join("D:\\Modding", "staging", "terrain_core64v6i_l125"),
+        ):
+            if os.path.isdir(cand):
+                meta = _valid_core_stage(cand)
+                if meta is not None:
+                    core_stage = cand
+                    overlay_meta = meta
+                    break
+
+    explicit_fo4_mm = getattr(a, "fo4_map_markers", None)
+    fo4_markers: Optional[str] = None
+    if explicit_fo4_mm:
+        if not core_stage:
+            raise BundleRefused("--fo4-map-markers requires a matching --map-markers-core-stage")
+        fo4_markers = os.path.abspath(explicit_fo4_mm)
+        if not os.path.isfile(fo4_markers):
+            raise BundleRefused(f"--fo4-map-markers file not found: {fo4_markers}")
+    elif core_stage and overlay_meta is not None:
+        fixed = overlay_meta.get("map_markers") or []
+        if not any(str(m.get("tag", "")).startswith("M") for m in fixed):
+            for cand in (
+                os.path.join(os.path.dirname(os.path.dirname(core_stage)), "scratch", "mapmarkers", "cw_markers.json"),
+                os.path.join(os.path.dirname(os.path.dirname(owner_abs)), "scratch", "mapmarkers", "cw_markers.json"),
+                os.path.join("D:\\Modding", "scratch", "mapmarkers", "cw_markers.json"),
+            ):
+                if os.path.isfile(cand):
+                    fo4_markers = cand
+                    break
+
+    explicit_landing = getattr(a, "map_markers_landing", None)
+    landing_xy: Optional[Tuple[float, float]] = None
+    if explicit_landing is not None:
+        if not core_stage:
+            raise BundleRefused("--map-markers-landing requires a matching --map-markers-core-stage")
+        landing_xy = (float(explicit_landing[0]), float(explicit_landing[1]))
+    elif core_stage and overlay_meta is not None:
+        bmin = float(overlay_meta.get("bounds_min_m", 0.0))
+        bmax = float(overlay_meta.get("bounds_max_m", 0.0))
+        # Default Commonwealth landing (-1959, -493 -> local -759, 2207) only if core bounds cover it (+100m margin)
+        if bmin <= -859.0 and bmax >= 2307.0:
+            landing_xy = (-1959.0, -493.0)
+
+    return core_stage, fo4_markers, landing_xy
 
 
 def refresh_pipboy_stage_for_bundle(
@@ -1500,6 +1672,95 @@ def _copy_or_strip_pipboy_ini(
         shutil.copy2(src_path, dst_path)
 
 
+def _fold_map_markers_stage(
+    st_dir: str,
+    partial: str,
+    starfield_dir: Optional[str] = None,
+) -> dict:
+    """Copy a staged map-markers folder into `<partial>/map-markers/` and verify its core pin and BA2 archive."""
+    if not os.path.isdir(st_dir):
+        raise BundleRefused(f"component map_markers: stage directory missing ({st_dir})")
+    esm_src = os.path.join(st_dir, MAP_MARKERS_PLUGIN)
+    pex_src = os.path.join(st_dir, *MAP_MARKERS_PEX_REL.split("/"))
+    pin_src = os.path.join(st_dir, "core.json")
+    for req_p, label in ((esm_src, MAP_MARKERS_PLUGIN), (pex_src, MAP_MARKERS_PEX_REL), (pin_src, "core.json")):
+        if not os.path.isfile(req_p):
+            raise BundleRefused(f"component map_markers: {label} missing in {st_dir}")
+
+    core_path = os.path.join(partial, "FO4TerrainCore.esm")
+    if not os.path.isfile(core_path):
+        raise BundleRefused("component map_markers: FO4TerrainCore.esm missing from clean core")
+    core_sha = sha256_file(core_path)
+    try:
+        pin_doc = json.loads(Path(pin_src).read_text(encoding="utf-8"))
+        masters = pin_doc.get("masters") if isinstance(pin_doc, dict) else None
+        pinned_sha = next(
+            (str(v).lower() for k, v in (masters or {}).items() if str(k).casefold() == "fo4terraincore.esm"),
+            "",
+        )
+    except (OSError, ValueError) as exc:
+        raise BundleRefused(f"component map_markers: unreadable core.json ({exc})") from exc
+    if pinned_sha != core_sha.lower():
+        raise BundleRefused(
+            f"component map_markers: core.json pins {pinned_sha[:12]}... != bundle FO4TerrainCore.esm {core_sha[:12]}..."
+        )
+    try:
+        mm_masters = [m.casefold() for m in exp_install.plugin_masters(esm_src)]
+    except ValueError as exc:
+        raise BundleRefused(f"component map_markers: invalid {MAP_MARKERS_PLUGIN} ({exc})") from exc
+    if "fo4terraincore.esm" not in mm_masters:
+        raise BundleRefused(f"component map_markers: {MAP_MARKERS_PLUGIN} does not master FO4TerrainCore.esm")
+
+    dst_mm = os.path.join(partial, MAP_MARKERS_DIRNAME)
+    if os.path.exists(dst_mm):
+        raise BundleRefused(f"fold refused: {MAP_MARKERS_DIRNAME}/ already exists in bundle")
+    os.makedirs(dst_mm, exist_ok=True)
+
+    for dp, dirs, fns in os.walk(st_dir):
+        dirs.sort()
+        rel_dir = os.path.relpath(dp, st_dir)
+        if rel_dir == "." and "work" in dirs:
+            dirs.remove("work")
+        for fn in sorted(fns):
+            src_f = os.path.join(dp, fn)
+            dst_f = os.path.join(dst_mm, fn) if rel_dir == "." else os.path.join(dst_mm, rel_dir, fn)
+            os.makedirs(os.path.dirname(dst_f), exist_ok=True)
+            shutil.copy2(src_f, dst_f)
+
+    ba2_dst = os.path.join(dst_mm, MAP_MARKERS_ARCHIVE)
+    pex_sha = sha256_file(pex_src)
+    if not os.path.isfile(ba2_dst):
+        if starfield_dir and os.path.isfile(os.path.join(starfield_dir, "Tools", "Archive2", "Archive2.exe")):
+            exp_install.build_ba2(
+                argparse.Namespace(starfield=starfield_dir),
+                os.path.join(dst_mm, "Data"),
+                ba2_dst,
+            )
+        else:
+            raise BundleRefused(
+                f"component map_markers: {MAP_MARKERS_ARCHIVE} missing in {st_dir} (stage with Archive2.exe or pass --starfield-dir)"
+            )
+    try:
+        exp_install.verify_archive(ba2_dst, {MAP_MARKERS_PEX_REL: pex_sha})
+    except (OSError, ValueError) as exc:
+        raise BundleRefused(f"component map_markers: invalid {MAP_MARKERS_ARCHIVE} ({exc})") from exc
+
+    recorded_outputs: Dict[str, str] = {}
+    for dp, dirs, fns in os.walk(dst_mm):
+        dirs.sort()
+        for fn in sorted(fns):
+            full = os.path.join(dp, fn)
+            rel_mm = os.path.relpath(full, partial).replace("\\", "/")
+            recorded_outputs[rel_mm] = sha256_file(full)
+
+    return {
+        "plugins": [],
+        "folder": MAP_MARKERS_DIRNAME,
+        "install_plugin": MAP_MARKERS_PLUGIN,
+        "outputs": recorded_outputs,
+    }
+
+
 def fold_bundle(
     owner_set: str,
     stages: Dict[str, str],
@@ -1575,6 +1836,13 @@ def fold_bundle(
 
     for key in ordered_keys:
         st_dir = os.path.abspath(stages[key])
+        if key == "map_markers":
+            components_record[key] = _fold_map_markers_stage(
+                st_dir,
+                partial,
+                starfield_dir=starfield_dir,
+            )
+            continue
         if key == "newgame":
             ng_plan_p = os.path.join(st_dir, "plan.json")
             if os.path.isfile(ng_plan_p):
@@ -1725,6 +1993,9 @@ def fold_bundle(
 
     sf_placeholder = starfield_dir or "<STARFIELD_DIR>"
     install_cmd, rollback_cmd = install_and_rollback_commands(final, sf_placeholder, plugins)
+    mm_install_cmd, mm_rollback_cmd = (
+        map_markers_install_commands(final, sf_placeholder) if "map_markers" in components_record else (None, None)
+    )
     bplan = {
         "kind": "core-candidate-bundle",
         "version": 2,
@@ -1740,6 +2011,8 @@ def fold_bundle(
         "port_esm_checked": os.path.abspath(port_esm) if port_esm else None,
         "install_command": install_cmd,
         "rollback_command": rollback_cmd,
+        "map_markers_install_command": mm_install_cmd,
+        "map_markers_rollback_command": mm_rollback_cmd,
     }
     plan_partial_p = os.path.join(partial, "bundle_plan.json")
     with open(plan_partial_p, "w", encoding="utf-8") as f:
@@ -1766,7 +2039,11 @@ def fold_bundle(
     )
     print("verify: ok")
     print("INSTALL (game closed):  " + install_cmd)
+    if mm_install_cmd:
+        print("MAP MARKERS INSTALL:    " + mm_install_cmd)
     print("ROLLBACK (game closed): " + rollback_cmd)
+    if mm_rollback_cmd:
+        print("MAP MARKERS ROLLBACK:   " + mm_rollback_cmd)
     return {"bundle_dir": final, "clean_core": cc_info, "metrics": metrics, "plan": bplan}
 
 
@@ -1838,6 +2115,8 @@ def cmd_fold(a, system=None) -> int:
         mapping["route_loot"] = ("17-route-loot-r2", "17-route-loot")
     if profile == "test":
         mapping["candidate_walk"] = ("15-candidate-walk", "11-candidate-walk")
+    if not getattr(a, "no_map_markers", False):
+        mapping["map_markers"] = ("18-map-markers",)
     stages: Dict[str, str] = {}
     for k, subs in mapping.items():
         for sub in subs:
@@ -1855,6 +2134,11 @@ def cmd_fold(a, system=None) -> int:
         if not os.path.isdir(rl_dir):
             raise BundleRefused(f"--route-loot-stage directory not found: {rl_dir}")
         stages["route_loot"] = rl_dir
+    if getattr(a, "map_markers_stage", None) and not getattr(a, "no_map_markers", False):
+        mm_dir = os.path.abspath(a.map_markers_stage)
+        if not os.path.isdir(mm_dir):
+            raise BundleRefused(f"--map-markers-stage directory not found: {mm_dir}")
+        stages["map_markers"] = mm_dir
     if a.with_pipboy:
         if not a.pipboy_stage:
             raise BundleRefused("--with-pipboy requires --pipboy-stage <dir>")
@@ -2188,6 +2472,7 @@ def cmd_verify(a) -> int:
         port_esm=a.port,
         max_plugins=a.max_plugins,
         max_ba2_bytes=a.max_ba2_bytes,
+        require_map_markers=bool(getattr(a, "require_map_markers", False)),
     )
     if len(problems) == 1 and problems[0].startswith("this bundle was built at "):
         print(problems[0])
@@ -2253,8 +2538,13 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--pipboy-sfse-build", default=None)
     b.add_argument("--mission-stage", default=None)
     b.add_argument("--route-loot-stage", default=None)
+    b.add_argument("--map-markers-stage", default=None)
+    b.add_argument("--map-markers-core-stage", default=None)
+    b.add_argument("--fo4-map-markers", default=None)
+    b.add_argument("--map-markers-landing", type=float, nargs=2, metavar=("X", "Y"), default=None)
     b.add_argument("--no-mission", action="store_true")
     b.add_argument("--no-route-loot", action="store_true")
+    b.add_argument("--no-map-markers", action="store_true")
     b.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm (held out by default on both player and test per T1)")
     b.add_argument("--with-experimental-core", action="store_true", help="Opt-in Track 2 experimental core slices on --profile player (off by default)")
     b.add_argument("--fade-hold", action="store_true", help="Opt-in pre-world start setup room in NewGame (off by default on --profile player per T3)")
@@ -2285,7 +2575,9 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--profile", choices=("player", "test"), default="player")
     fo.add_argument("--mission-stage", default=None)
     fo.add_argument("--route-loot-stage", default=None)
+    fo.add_argument("--map-markers-stage", default=None)
     fo.add_argument("--no-route-loot", action="store_true")
+    fo.add_argument("--no-map-markers", action="store_true")
     fo.add_argument("--with-route-loot", action="store_true", help="Opt-in FO4SFRouteLoot.esm (held out by default on both player and test per T1)")
     fo.add_argument("--with-experimental-core", action="store_true", help="Opt-in Track 2 experimental core slices on --profile player (off by default)")
     fo.add_argument("--fade-hold", action="store_true", help="Prefer 03-newgame-fadehold when folding --profile player")
@@ -2310,6 +2602,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     v.add_argument("--port", default=None)
     v.add_argument("--max-plugins", type=int, default=MAX_STARFIELD_PLUGINS)
     v.add_argument("--max-ba2-bytes", type=int, default=MAX_BA2_BYTES)
+    v.add_argument("--require-map-markers", action="store_true")
 
     sci = sub.add_parser("sidecar-install")
     sci.add_argument("--bundle-dir", required=True)

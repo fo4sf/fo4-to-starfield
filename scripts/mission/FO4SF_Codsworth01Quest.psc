@@ -7,8 +7,6 @@ Scriptname FO4SF_Codsworth01Quest extends Quest
    stage 100 = choice 4 (head to Concord -> completes FO4SF_Codsworth01 and gives FO4SF_Min00 stage 10).}
 
 Actor Property Codsworth Auto Const
-Scene Property CodsworthScene Auto Const
-Scene Property CodsworthPostScene Auto Const
 Activator Property CodsworthTalkActi Auto Const
 Message Property CodsworthTalkMsg Auto Const
 Message Property CodsworthReply0Msg Auto Const
@@ -123,16 +121,10 @@ Message Function ResolveTalkMsg(int slot)
 EndFunction
 
 Scene Function ResolveCodsworthScene()
-    if CodsworthScene != None
-        return CodsworthScene
-    endif
     return Game.GetFormFromFile(0x000940, "FO4SFMission.esm") as Scene
 EndFunction
 
 Scene Function ResolveCodsworthPostScene()
-    if CodsworthPostScene != None
-        return CodsworthPostScene
-    endif
     return Game.GetFormFromFile(0x0009C0, "FO4SFMission.esm") as Scene
 EndFunction
 

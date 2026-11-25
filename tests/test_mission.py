@@ -1622,12 +1622,12 @@ def _translate_mission_psc(src_text, fn_names, global_vars):
                 line = re.sub(r'"([^"\\]*(?:\\.[^"\\]*)*)"', r'_PStr("\1")', line)
             line = re.sub(r"^int\s+(\w+)\s*=\s*(.+)", r"\1 = int(\2)", line)
             line = re.sub(
-                r"^(?:bool|float|string|Actor|ActorValue|Activator|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|WorldSpace|FO4SF_\w+)\s+(\w+)\s*=",
+                r"^(?:bool|float|string|Actor|ActorValue|Activator|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|Weapon|WorldSpace|FO4SF_\w+)\s+(\w+)\s*=",
                 r"\1 =",
                 line,
             )
             line = re.sub(
-                r"\s+as\s+(?:Actor|ActorValue|Activator|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|WorldSpace|FO4SF_\w+)\b",
+                r"\s+as\s+(?:Actor|ActorValue|Activator|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|Weapon|WorldSpace|FO4SF_\w+)\b",
                 "",
                 line,
             )
@@ -1862,8 +1862,6 @@ class V2MissionTalkTests(unittest.TestCase):
             "Codsworth": cods,
             "Credits": "StarfieldCredits",
             "RewardCount": 100,
-            "PrestonTalkScene": None,
-            "PrestonPostTalkScene": None,
             "PrestonTalkMsg": p_msg_talk,
             "PrestonReply0Msg": p_msg_r0,
             "PrestonReply1Msg": p_msg_r1,
@@ -1964,8 +1962,6 @@ class V2MissionTalkTests(unittest.TestCase):
             "Trace": emit,
             "LogName": "fo4sf_mission",
             "Codsworth": cods,
-            "CodsworthScene": None,
-            "CodsworthPostScene": None,
             "CodsworthTalkActi": "FO4SF_CodsworthTalkActi(09000970)",
             "CodsworthTalkMsg": c_msg_talk,
             "CodsworthReply0Msg": c_msg_r0,
@@ -2291,8 +2287,6 @@ class A1dRealTalkTests(unittest.TestCase):
             "Codsworth": cods,
             "Credits": "StarfieldCredits",
             "RewardCount": 100,
-            "PrestonTalkScene": preston_scene,
-            "PrestonPostTalkScene": preston_post_scene,
             "PrestonTalkMsg": p_msgs[0],
             "PrestonReply0Msg": p_msgs[1],
             "PrestonReply1Msg": p_msgs[2],
@@ -2357,6 +2351,7 @@ class A1dRealTalkTests(unittest.TestCase):
                 GetFormFromFile=lambda fid, plg: (
                     sanctuary_q if (fid, plg) == (0x000817, "FO4SFMission.esm")
                     else keeper_q if (fid, plg) == (0x000814, "FO4SFMission.esm")
+                    else preston_scene if (fid, plg) == (0x000900, "FO4SFMission.esm")
                     else preston_post_scene if (fid, plg) == (0x000990, "FO4SFMission.esm")
                     else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                     else None
@@ -2403,8 +2398,6 @@ class A1dRealTalkTests(unittest.TestCase):
             "Trace": emit,
             "LogName": "fo4sf_mission",
             "Codsworth": cods,
-            "CodsworthScene": cods_scene,
-            "CodsworthPostScene": cods_post_scene,
             "CodsworthTalkActi": "FO4SF_CodsworthTalkActi(09000970)",
             "CodsworthTalkMsg": c_msgs[0],
             "CodsworthReply0Msg": c_msgs[1],
@@ -2534,7 +2527,14 @@ class A1dRealTalkTests(unittest.TestCase):
         self.assertIn("GlobalIsZero(new FormKey(modKey, MissionTalkUseMessageBoxGlobId))", cs)
         self.assertIn("new SF.DialogResponseTROT", cs)
         self.assertIn('"--preston-voice"', cs)
-        self.assertIn('CodsworthProp("CodsworthScene", new FormKey(modKey, CodsworthSceneId))', cs)
+        self.assertNotIn('CodsworthProp("CodsworthScene"', cs)
+        self.assertNotIn('CodsworthProp("CodsworthPostScene"', cs)
+        self.assertNotIn('Obj("PrestonTalkScene"', cs)
+        self.assertNotIn('Obj("PrestonPostTalkScene"', cs)
+        self.assertIn('Game.GetFormFromFile(0x000900, "FO4SFMission.esm") as Scene', m_psc)
+        self.assertIn('Game.GetFormFromFile(0x000990, "FO4SFMission.esm") as Scene', m_psc)
+        self.assertIn('Game.GetFormFromFile(0x000940, "FO4SFMission.esm") as Scene', c_psc)
+        self.assertIn('Game.GetFormFromFile(0x0009C0, "FO4SFMission.esm") as Scene', c_psc)
         self.assertIn('CodsworthProp("TalkUseMessageBox", new FormKey(modKey, MissionTalkUseMessageBoxGlobId))', cs)
         self.assertIn('Obj("TalkUseMessageBox", new FormKey(modKey, MissionTalkUseMessageBoxGlobId))', cs)
         self.assertEqual(make_mission.PRESTON_VOICE_DIR, "sound/voice/fo4sfmission.esm/genericmaleeventoned")
@@ -3329,8 +3329,9 @@ class A1aInGame2eBreakTests(unittest.TestCase):
         self.assertTrue(h3.m_ns["prestonTalkBoxOpen"])
         h3.m_ns["prestonTalkBoxOpen"] = False
 
-        # --no-alias (PrestonTalkScene == None) must NOT auto-complete on tick 1..7 within TalkRadius; completes on tick 8
-        h3.m_ns["PrestonTalkScene"] = None
+        # --no-alias (SCEN 0x000900 absent from FO4SFMission.esm) must NOT auto-complete on tick 1..7 within TalkRadius; completes on tick 8
+        orig_h3_gff = h3.m_ns["Game"].GetFormFromFile
+        h3.m_ns["Game"].GetFormFromFile = lambda fid, plg: None if (fid, plg) == (0x000900, "FO4SFMission.esm") else orig_h3_gff(fid, plg)
         h3.m_ns["talkNearSec"] = 0.0
         for _ in range(7):
             self.assertFalse(h3.m_ns["TalkCompleteReady"](30, 1.5))

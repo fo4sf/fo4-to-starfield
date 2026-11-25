@@ -163,6 +163,9 @@ class Reference:
         self.moves = []
         self.moveto_calls = []
         self.enables = []
+        self.add_to_map_calls = []
+        self.enable_fast_travel_calls = []
+        self.resets = 0
         self.discovery_calls = 0
         self.equipped = set()
         self.equip_calls = []
@@ -202,6 +205,15 @@ class Reference:
 
     def SetMarkerDiscovered(self):
         self.discovery_calls += 1
+
+    def AddToMap(self, allow_fast_travel=False):
+        self.add_to_map_calls.append(allow_fast_travel)
+
+    def EnableFastTravel(self, enable=True):
+        self.enable_fast_travel_calls.append(enable)
+
+    def Reset(self, target=None):
+        self.resets += 1
 
 
 class ArrivalExecutionTests(unittest.TestCase):
@@ -394,8 +406,14 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.assertEqual(self.stages, [200])
         self.assertIn('("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)p.ExitAnchor : 0)', read(CS))
         code = re.sub(r"\{.*?\}|;[^\n]*", "", read(PSC), flags=re.S)
-        self.assertEqual(code.count(".SetMarkerDiscovered()"), 1)
-        self.assertNotIn(".AddToMap(", code)
+        req_code = code[code.index("bool Function RequestArrivalDiscovery"):code.index("bool Function AtArrival")]
+        self.assertEqual(req_code.count(".SetMarkerDiscovered()"), 1)
+        self.assertNotIn(".AddToMap(", req_code)
+        ft_code = code[code.index("Function TryFastTravelSurface"):code.index("Function TrySurfaceExteriorFallbacks")]
+        self.assertIn(".AddToMap(True)", ft_code)
+        self.assertIn(".SetMarkerDiscovered()", ft_code)
+        self.assertIn(".EnableFastTravel(True)", ft_code)
+        self.assertIn("Game.FastTravel(", ft_code)
 
 
 class _LiftRef(Reference):
@@ -430,7 +448,11 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         "FailExit",
         "Near",
         "ReturnPlayerToVaultPlatform",
+        "ResetVaultExitLift",
+        "TryFastTravelSurface",
+        "TrySurfaceExteriorFallbacks",
         "FallbackExitToSurface",
+        "ClearVaultSaveLock",
         "RelockVaultSaving",
         "Actor.OnPlayerLoadGame",
     )
@@ -472,6 +494,17 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.traces = []
         self.fades = []
         self.timers = []
+        self.cancels = []
+        self.chargens = []
+        self.huds = []
+        self.fast_travels = []
+        self.waits = []
+        self.core_anchor = Reference(self.surface_world, (0.0, 0.0, 100.0), form_id=0x03000800)
+        self.core_anchor.interior = False
+        self.core_anchor.cell = self.core_cell
+        self.land_marker = Reference(self.surface_world, (-1959.0, -493.0, 100.0), form_id=0x100008F2)
+        self.land_marker.interior = False
+        self.land_marker.cell = self.core_cell
         self.exit_prompts = 0
         self.exit_button = 0
         self.fallback_prompts = 0
@@ -490,8 +523,13 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
                     return self.lift
                 if fid == 0x1619:
                     return self.lift.base
-            if plg == "FO4TerrainCore.esm" and fid == 0x0A775B:
-                return self.exit_anchor
+            if plg == "FO4TerrainCore.esm":
+                if fid == 0x0A775B:
+                    return self.exit_anchor
+                if fid == 0x000800:
+                    return self.core_anchor
+            if plg == "FO4SFMapMarkers.esm" and fid == 0x0008F2:
+                return self.land_marker
             return None
 
         def exit_show():
@@ -571,15 +609,18 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
                 GetFormFromFile=get_form,
                 GetPlayer=lambda: self.player,
                 FadeOutGame=lambda *args: self.fades.append(args),
+                SetInChargen=lambda *args: self.chargens.append(args),
+                SetCharGenHUDMode=lambda m: self.huds.append(m),
+                FastTravel=lambda target: (self.fast_travels.append(target), self.player.MoveTo(target, 0.0, 0.0, 0.0, True, False)),
             ),
             Debug=SimpleNamespace(OpenUserLog=lambda *_: None, Notification=lambda *_: None),
-            Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now, Wait=lambda s: self.waits.append(s)),
             ExitMessage=SimpleNamespace(Show=exit_show),
             ExitFallbackMessage=SimpleNamespace(Show=fallback_show),
             EnsureVaultInteractivesRegistered=lambda: None,
             EnsureLoadHookRegistered=lambda *_: None,
             TriggerVaultPodRecoveryAutosave=lambda *_: None,
-            CancelTimer=lambda *_: None,
+            CancelTimer=lambda tid: self.cancels.append(tid),
             ReadH00SuspectsOnce=lambda: None,
             OpenLiftAttributeAllocation=lambda: None,
             OpenLiftCharacterRespec=lambda: None,
@@ -686,6 +727,84 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.assertIn((1.0, 1), self.timers)
         self.assertTrue(any("exit reload recovered stage=30" in t for t in self.traces), self.traces)
 
+    def test_task0a_death_reload_surface_clears_save_lock_and_falls_back_via_core_anchor_or_fast_travel(self):
+        # 1) When MoveTo(0x0A775B) succeeds (moves player exterior during Wait(0.25)), fallbacks stay idle.
+        self.ns["vaultSavingRelocked"] = True
+        self.ns["Surface"](self.player)
+        self.assertFalse(self.ns["vaultSavingRelocked"])
+        self.assertIn((False, False, False), self.chargens)
+        self.assertIn(0, self.huds)
+        self.assertEqual(self.exit_anchor.enables, [False])
+        self.assertEqual(self.fast_travels, [])
+        self.assertEqual(self.core_anchor.enables, [])
+
+        # 2) Death-reload case A: MoveTo(0x0A775B) leaves player inside Vault 111 -> 0x000800 fallback moves player out -> stage 40!
+        self.setUp()
+        self.ns["vaultSavingRelocked"] = True
+        self.player.take_move = False
+
+        def core_only_move(target, dx=0.0, dy=0.0, dz=0.0, *rest):
+            self.player.moveto_calls.append((target, dx, dy, dz))
+            if target is self.core_anchor:
+                self.player.world = self.surface_world
+                self.player.cell = self.core_cell
+                self.player.interior = False
+                self.player.pos = (0.0, 0.0, 100.0)
+
+        self.player.MoveTo = core_only_move
+        self.ns["Surface"](self.player)
+        self.assertFalse(self.ns["vaultSavingRelocked"])
+        self.assertEqual(self.exit_anchor.enables, [False])
+        self.assertEqual(self.core_anchor.enables, [False])
+        self.assertEqual(self.fast_travels, [])
+        self.assertTrue(any(t.startswith("surface fallback anchor=") for t in self.traces), self.traces)
+        self.ns["FinishSurface"](self.player)
+        self.assertEqual(self.stages, [40])
+
+        # 3) Death-reload case B: both 0x0A775B & 0x000800 leave player interior -> FastTravel(0x0008F2) instantiates exterior -> stage 40!
+        self.setUp()
+        self.ns["vaultSavingRelocked"] = True
+
+        def ft_only_move(target, dx=0.0, dy=0.0, dz=0.0, *rest):
+            self.player.moveto_calls.append((target, dx, dy, dz))
+            if target is self.land_marker and target in self.fast_travels:
+                self.player.world = self.surface_world
+                self.player.cell = self.core_cell
+                self.player.interior = False
+                self.player.pos = (-1959.0, -493.0, 100.0)
+
+        self.player.MoveTo = ft_only_move
+        self.ns["Surface"](self.player)
+        self.assertEqual(self.fast_travels, [self.land_marker])
+        self.assertEqual(self.land_marker.enables, [False])
+        self.assertEqual(self.land_marker.add_to_map_calls, [True])
+        self.assertEqual(self.land_marker.discovery_calls, 1)
+        self.assertEqual(self.land_marker.enable_fast_travel_calls, [True])
+        self.assertTrue(any(t.startswith("surface fallback fasttravel target=") for t in self.traces), self.traces)
+        self.ns["FinishSurface"](self.player)
+        self.assertEqual(self.stages, [40])
+
+        # 4) Death-reload case C: 0x0008F2 absent -> FastTravel falls back to primary anchor 0x0A775B -> stage 40!
+        self.setUp()
+        self.land_marker = None
+
+        def anchor_ft_move(target, dx=0.0, dy=0.0, dz=0.0, *rest):
+            self.player.moveto_calls.append((target, dx, dy, dz))
+            if target is self.exit_anchor and target in self.fast_travels:
+                self.player.world = self.surface_world
+                self.player.cell = self.core_cell
+                self.player.interior = False
+                self.player.pos = (-1275.3, 1305.3, 108.2)
+
+        self.player.MoveTo = anchor_ft_move
+        self.ns["Surface"](self.player)
+        self.assertEqual(self.fast_travels, [self.exit_anchor])
+        self.assertEqual(self.exit_anchor.add_to_map_calls, [True])
+        self.assertEqual(self.exit_anchor.discovery_calls, 1)
+        self.assertEqual(self.exit_anchor.enable_fast_travel_calls, [True])
+        self.ns["FinishSurface"](self.player)
+        self.assertEqual(self.stages, [40])
+
 
 class ArrivalReceiptTests(unittest.TestCase):
     def test_void_call_and_global_true_do_not_become_discovery_proof(self):
@@ -771,6 +890,7 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
             surfaceMoves=0, surfaceSets=0, surfaceMovedAt=0.0, arrivedAt=0.0,
             arrivalWorld=None, fallbackPending=False, discoveryMarkerMoved=False,
             discoveryAttachPending=False, landingChecks=0, rideMarkerPrepared=False, mapSetupDone=False,
+            vaultSavingRelocked=False,
             CoreMarkerIds=[0x0A775B], MapMarkerQuestIds=[],
             Game=SimpleNamespace(
                 GetFormFromFile=get_form,
@@ -778,8 +898,10 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
                 SetInChargen=lambda *a: None,
                 SetCharGenHUDMode=lambda *a: None,
                 IsFastTravelEnabled=lambda: True,
+                FastTravel=lambda *a: None,
             ),
-            Utility=SimpleNamespace(GetCurrentRealTime=lambda: 20.0),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: 20.0, Wait=lambda *a: None),
+            CancelTimer=lambda *a: None,
             RegisterForMenuOpenCloseEvent=menu_regs.append,
             UnregisterForMenuOpenCloseEvent=menu_unregs.append,
             GetStage=lambda: stages[-1] if stages else 0,
@@ -789,6 +911,7 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
         funcs = (
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob", "BoolBit",
             "ReadH00SuspectsOnce", "ApplyH00PreSurfaceOverrides", "MenuEvent",
+            "ClearVaultSaveLock", "TryFastTravelSurface", "TrySurfaceExteriorFallbacks",
             "Surface", "FinishSurface", "PrepareArrivalMarkerDuringRide",
             "PreAttachArrivalMarker", "RequestArrivalDiscovery", "RunSharedMapSetup",
         )
@@ -797,7 +920,8 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
             "loadingHookRegistered, h00SuspectsRead, h00SkipLoading, h00ClearChargen, h00SkipDiscovery, "
             "h00SkipMap, h00SkipLoot, h00SkipActors, h00SkipQuests, h00SkipSetPos, "
             "surfaceMoves, surfaceSets, surfaceMovedAt, arrivedAt, arrivalWorld, fallbackPending, "
-            "discoveryMarkerMoved, discoveryAttachPending, landingChecks, rideMarkerPrepared, mapSetupDone"
+            "discoveryMarkerMoved, discoveryAttachPending, landingChecks, rideMarkerPrepared, mapSetupDone, "
+            "vaultSavingRelocked"
         )
         exec(compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec"), ns)
 
@@ -834,8 +958,9 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
         self.assertEqual(len([d for d in disabled_forms if d[0] == "FO4SFMission.esm"]), 10)
         self.assertEqual([d for d in disabled_forms if d[0] == "FO4TerrainCore.esm"], [("FO4TerrainCore.esm", 0x016780), ("FO4TerrainCore.esm", 0x016781)])
         self.assertEqual(ns["RunSharedMapSetup"](), 0)
+        self.assertEqual(anchor.enables, [False])
         ns["PrepareArrivalMarkerDuringRide"]()
-        self.assertEqual(anchor.enables, [])
+        self.assertEqual(anchor.enables, [False])
 
         # FinishSurface logs surface pre_setposition and skips SetPosition when FO4SF_H00_SkipSurfaceSetPos=1
         player.moves.clear()

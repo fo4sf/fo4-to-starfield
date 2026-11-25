@@ -88,6 +88,162 @@ def _handwritten_mission_lines() -> list[str]:
     ]
 
 
+def _build_synthetic_pex(
+    script_name: str,
+    functions: Sequence[str],
+    *,
+    non_default_functions: Sequence[str] = (),
+    cast_calls: Sequence[Tuple[str, str]] = (),
+    direct_calls: Sequence[str] = (),
+    direct_target: str = "FO4SF_MapMarkers",
+) -> bytes:
+    """Build a minimal valid little-endian Starfield v3.12 (`.pex`) binary for offline tests."""
+    import struct as _struct
+
+    strings: list[str] = ["", "None", "ScriptObject", script_name]
+    str_idx_map: dict[str, int] = {s: i for i, s in enumerate(strings)}
+
+    def sidx(text: str) -> int:
+        if text not in str_idx_map:
+            str_idx_map[text] = len(strings)
+            strings.append(text)
+        return str_idx_map[text]
+
+    def emit_fn_body(fn_name: str, include_calls: bool) -> bytes:
+        out = bytearray(_struct.pack("<HHIBH", sidx("None"), sidx(""), 0, 0, 0))
+        if include_calls and (cast_calls or direct_calls):
+            locals_list = [
+                ("mmForm", "Form"),
+                ("mm", "ScriptObject"),
+                ("typed_mm", direct_target),
+            ]
+            out += _struct.pack("<H", len(locals_list))
+            for ln, lt in locals_list:
+                out += _struct.pack("<HH", sidx(ln), sidx(lt))
+            insns: list[bytes] = []
+            for target_script, method_name in cast_calls:
+                insns.append(
+                    b"\x17"
+                    + b"\x01" + _struct.pack("<H", sidx("CastAs"))
+                    + b"\x01" + _struct.pack("<H", sidx("mmForm"))
+                    + b"\x01" + _struct.pack("<H", sidx("mm"))
+                    + b"\x03" + _struct.pack("<i", 1)
+                    + b"\x02" + _struct.pack("<H", sidx(target_script))
+                )
+                insns.append(
+                    b"\x17"
+                    + b"\x01" + _struct.pack("<H", sidx("CallFunction"))
+                    + b"\x01" + _struct.pack("<H", sidx("mm"))
+                    + b"\x01" + _struct.pack("<H", sidx("mmForm"))
+                    + b"\x03" + _struct.pack("<i", 1)
+                    + b"\x02" + _struct.pack("<H", sidx(method_name))
+                )
+            for method_name in direct_calls:
+                insns.append(
+                    b"\x17"
+                    + b"\x01" + _struct.pack("<H", sidx(method_name))
+                    + b"\x01" + _struct.pack("<H", sidx("typed_mm"))
+                    + b"\x01" + _struct.pack("<H", sidx("mmForm"))
+                    + b"\x03" + _struct.pack("<i", 0)
+                )
+            out += _struct.pack("<H", len(insns)) + b"".join(insns)
+        else:
+            out += _struct.pack("<HH", 0, 0)
+        return _struct.pack("<H", sidx(fn_name)) + bytes(out)
+
+    states: list[tuple[str, Sequence[str]]] = [("", functions)]
+    if non_default_functions:
+        states.append(("Busy", non_default_functions))
+
+    state_blobs = bytearray()
+    for st_name, st_fns in states:
+        st_idx = sidx(st_name)
+        fn_blobs = b"".join(
+            emit_fn_body(fn_nm, include_calls=(st_name == "" and i == 0))
+            for i, fn_nm in enumerate(st_fns)
+        )
+        state_blobs += _struct.pack("<HH", st_idx, len(st_fns)) + fn_blobs
+
+    obj_body = bytearray()
+    obj_body += _struct.pack("<HHBIH", sidx("ScriptObject"), sidx(""), 0, 0, sidx(""))
+    obj_body += _struct.pack("<H", 0)  # structs (v3.9+)
+    obj_body += _struct.pack("<H", 0)  # vars
+    obj_body += _struct.pack("<H", 0)  # guards (v3.10+)
+    obj_body += _struct.pack("<H", 0)  # props
+    obj_body += _struct.pack("<H", len(states)) + bytes(state_blobs)
+    obj_bytes = _struct.pack("<HI", sidx(script_name), len(obj_body) + 4) + bytes(obj_body)
+
+    buf = bytearray(_struct.pack("<IBBHQ", 0xFA57C0DE, 3, 12, 4, 0))
+    buf += b"\x00\x00" * 3  # source, user, machine
+    buf += _struct.pack("<H", len(strings))
+    for s in strings:
+        raw = s.encode("utf-8")
+        buf += _struct.pack("<H", len(raw)) + raw
+    buf += b"\x00"  # has_debug = 0
+    buf += _struct.pack("<HH", 0, 1)  # userFlags=0, objectCount=1
+    buf += obj_bytes
+    return bytes(buf)
+
+
+def _dummy_tes4_with_masters(masters: Sequence[str]) -> bytes:
+    """Build a minimal valid TES4 header declaring `masters`."""
+    import struct as _struct
+
+    payload = bytearray(b"HEDR" + _struct.pack("<HfII", 12, 1.0, 0, 0x800))
+    for master in masters:
+        m_raw = master.encode("utf-8") + b"\x00"
+        payload += b"MAST" + _struct.pack("<H", len(m_raw)) + m_raw
+        payload += b"DATA" + _struct.pack("<HQ", 8, 0)
+    return b"TES4" + _struct.pack("<IIIIHH", len(payload), 0x01, 0, 0, 0, 0) + bytes(payload)
+
+
+def _populate_synthetic_map_markers(
+    bundle: Path,
+    *,
+    defined_fns: Sequence[str] = (
+        "PrepareKnownUndiscoveredSingle",
+        "PrepareKnownUndiscoveredAll",
+        "DiscoverSingleMarker",
+    ),
+    non_default_fns: Sequence[str] = (),
+    root_fallback: bool = False,
+    write_loose_pex: bool = True,
+    core_sha_override: str | None = None,
+) -> Path:
+    """Write a valid (or customized) synthetic map-markers build into `bundle`."""
+    import hashlib as _hashlib
+    import json as _json
+    try:
+        from tests.ba2_fixture import general_archive as _general_archive
+    except ModuleNotFoundError:
+        from ba2_fixture import general_archive as _general_archive
+
+    mm_root = bundle if root_fallback else (bundle / "map-markers")
+    mm_root.mkdir(parents=True, exist_ok=True)
+    (mm_root / "FO4SFMapMarkers.esm").write_bytes(
+        _dummy_tes4_with_masters(["Starfield.esm", "FO4TerrainCore.esm"])
+    )
+    core_sha = core_sha_override or _hashlib.sha256((bundle / "FO4TerrainCore.esm").read_bytes()).hexdigest()
+    if not root_fallback:
+        (mm_root / "core.json").write_text(
+            _json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": core_sha}}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    pex_bytes = _build_synthetic_pex(
+        "FO4SF_MapMarkers",
+        defined_fns,
+        non_default_functions=non_default_fns,
+    )
+    (mm_root / "FO4SFMapMarkers - Main.ba2").write_bytes(
+        _general_archive({"Scripts/FO4SF_MapMarkers.pex": pex_bytes})
+    )
+    if write_loose_pex:
+        scripts_dir = mm_root / "Data" / "Scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        (scripts_dir / "FO4SF_MapMarkers.pex").write_bytes(pex_bytes)
+    return mm_root
+
+
 class BeginningPilotTests(unittest.TestCase):
     def _build_synthetic_bundle(self, root: Path) -> Path:
         bundle = root / "candidate"
@@ -104,6 +260,7 @@ class BeginningPilotTests(unittest.TestCase):
         }
         for p in sorted(req_plugins):
             (bundle / p).write_bytes(_dummy_tes4())
+        _populate_synthetic_map_markers(bundle)
 
         for sc in (
             "FO4SF_NewGameQuest.pex",
@@ -138,6 +295,121 @@ class BeginningPilotTests(unittest.TestCase):
             encoding="utf-8",
         )
         return bundle
+
+    def test_map_markers_compatibility_rejects_old_pex_and_checks_compiled_newgame_pex(self) -> None:
+        from fo4sf.beginning_pilot import extract_mapmarker_calls_from_pex, verify_map_markers_bundle_compatibility
+        try:
+            from tests.ba2_fixture import general_archive as _general_archive
+        except ModuleNotFoundError:
+            from ba2_fixture import general_archive as _general_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = self._build_synthetic_bundle(root)
+
+            # Case 1: older 14-Nov FO4SF_MapMarkers.pex lacking PrepareKnownUndiscoveredAll fails check-bundle + CLI.
+            _populate_synthetic_map_markers(
+                bundle,
+                defined_fns=("DiscoverSingleMarker",),
+                write_loose_pex=True,
+            )
+            bad_res = verify_bundle_beginning_readiness(str(bundle))
+            self.assertFalse(bad_res["ok"])
+            self.assertEqual(bad_res["steps"]["B3_exit_lift"]["status"], "FAIL")
+            self.assertTrue(
+                any("lacks FO4SF_MapMarkers.PrepareKnownUndiscoveredAll()" in msg for msg in bad_res["problems"]),
+                bad_res["problems"],
+            )
+            cli_fail = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "testing" / "check_beginning_pilot.py"), "check-bundle", "--bundle-dir", str(bundle)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(cli_fail.returncode, 1, cli_fail.stdout + cli_fail.stderr)
+            self.assertIn("PrepareKnownUndiscoveredAll", cli_fail.stdout)
+
+            # Case 2: compiled PEX FO4SF_NewGameQuest issuing CastAs("FO4SF_MapMarkers") + CallFunction(customFn)
+            # enforces that customFn exists in FO4SF_MapMarkers.pex's default state.
+            ng_pex = _build_synthetic_pex(
+                "FO4SF_NewGameQuest",
+                ["RunSharedMapSetup"],
+                cast_calls=[
+                    ("FO4SF_MapMarkers", "PrepareKnownUndiscoveredAll"),
+                    ("FO4SF_MapMarkers", "CheckCustomMarkerHook"),
+                ],
+                direct_calls=["DiscoverSingleMarker"],
+            )
+            self.assertEqual(
+                set(extract_mapmarker_calls_from_pex(ng_pex)),
+                {"PrepareKnownUndiscoveredAll", "CheckCustomMarkerHook", "DiscoverSingleMarker"},
+            )
+            (bundle / "Data" / "Scripts" / "FO4SF_NewGameQuest.pex").write_bytes(ng_pex)
+            _populate_synthetic_map_markers(
+                bundle,
+                defined_fns=("PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"),
+                non_default_fns=("CheckCustomMarkerHook",),
+                write_loose_pex=True,
+            )
+            non_def_issues = verify_map_markers_bundle_compatibility(str(bundle))
+            self.assertTrue(
+                any("only in a non-default state" in msg and "CheckCustomMarkerHook" in msg for msg in non_def_issues),
+                non_def_issues,
+            )
+
+            # Moving CheckCustomMarkerHook to the default state resolves compatibility.
+            _populate_synthetic_map_markers(
+                bundle,
+                defined_fns=("PrepareKnownUndiscoveredAll", "DiscoverSingleMarker", "CheckCustomMarkerHook"),
+                write_loose_pex=True,
+            )
+            self.assertEqual(verify_map_markers_bundle_compatibility(str(bundle)), [])
+            ok_compiled = verify_bundle_beginning_readiness(str(bundle))
+            self.assertTrue(ok_compiled["ok"], ok_compiled["problems"])
+
+            # Bad magic in BA2 PEX also fails cleanly.
+            (bundle / "map-markers" / "FO4SFMapMarkers - Main.ba2").write_bytes(
+                _general_archive({"Scripts/FO4SF_MapMarkers.pex": b"not-a-pex"})
+            )
+            (bundle / "map-markers" / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(b"not-a-pex")
+            self.assertTrue(
+                any("not a valid compiled PEX" in msg for msg in verify_map_markers_bundle_compatibility(str(bundle)))
+            )
+
+    def test_map_markers_compatibility_checks_esm_ba2_core_pin_loose_pex_and_root_fallback(self) -> None:
+        import shutil
+        from fo4sf.beginning_pilot import verify_map_markers_bundle_compatibility
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = self._build_synthetic_bundle(root)
+
+            # Stale core.json pin fails.
+            _populate_synthetic_map_markers(bundle, core_sha_override="0" * 64)
+            stale_issues = verify_map_markers_bundle_compatibility(str(bundle))
+            self.assertTrue(any("core.json pins FO4TerrainCore.esm" in msg for msg in stale_issues), stale_issues)
+
+            # Restore valid map-markers, then introduce mismatched loose PEX.
+            _populate_synthetic_map_markers(bundle)
+            (bundle / "map-markers" / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(
+                _build_synthetic_pex("FO4SF_MapMarkers", ["PrepareKnownUndiscoveredAll"])
+            )
+            mismatch_issues = verify_map_markers_bundle_compatibility(str(bundle))
+            self.assertTrue(any("differs from Scripts/FO4SF_MapMarkers.pex" in msg for msg in mismatch_issues), mismatch_issues)
+
+            # Missing map-markers directory and no root-level FO4SFMapMarkers fails.
+            shutil.rmtree(bundle / "map-markers")
+            missing_issues = verify_map_markers_bundle_compatibility(str(bundle))
+            self.assertTrue(any("missing map-markers/FO4SFMapMarkers.esm" in msg for msg in missing_issues), missing_issues)
+
+            # Root-level FO4SFMapMarkers fallback works when complete, and fails if old PEX.
+            _populate_synthetic_map_markers(bundle, root_fallback=True, write_loose_pex=False)
+            self.assertEqual(verify_map_markers_bundle_compatibility(str(bundle)), [])
+            _populate_synthetic_map_markers(bundle, root_fallback=True, write_loose_pex=False, defined_fns=("DiscoverSingleMarker",))
+            root_old_issues = verify_map_markers_bundle_compatibility(str(bundle))
+            self.assertTrue(
+                any("lacks FO4SF_MapMarkers.PrepareKnownUndiscoveredAll()" in msg for msg in root_old_issues),
+                root_old_issues,
+            )
 
     def test_verify_bundle_beginning_readiness_passes_and_catches_gaps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

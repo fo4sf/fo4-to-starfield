@@ -588,6 +588,9 @@ Function NoteLooksStage20()
     if applied < 20
         applied = 20
     endif
+    if GetStage() < 20
+        SetStage(20)
+    endif
     TriggerVaultPodRecoveryAutosave(20)
 EndFunction
 
@@ -1142,8 +1145,31 @@ Function StartAscent(Actor player)
     bool accepted = lift.PlayAnimation("Play01")
     Trace("ascent play accepted=" + accepted + " ref=" + lift + " from=" + riderZ + " rise=" + LiftRise + " seconds=" + LiftSeconds)
     if !accepted
-        FailExit("lift_play_refused")
-        return
+        UnregisterForAnimationEvent(lift, "Done")
+        ReturnPlayerToVaultPlatform(player)
+        Utility.Wait(0.5)
+        if !lift.Is3DLoaded()
+            Utility.Wait(0.25)
+        endif
+        if lift.Is3DLoaded()
+            lift.Reset()
+            Utility.Wait(0.25)
+        endif
+        if !player.Is3DLoaded() || !player.IsInInterior() || player.GetParentCell() != ridingCell || !lift.Is3DLoaded() || !Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)
+            FailExit("lift_play_refused")
+            return
+        endif
+        RegisterForAnimationEvent(lift, "Done")
+        riderX = player.GetPositionX()
+        riderY = player.GetPositionY()
+        riderZ = player.GetPositionZ()
+        rideStartedAt = Utility.GetCurrentRealTime()
+        accepted = lift.PlayAnimation("Play01")
+        Trace("ascent play retry accepted=" + accepted + " ref=" + lift + " from=" + riderZ)
+        if !accepted
+            FailExit("lift_play_refused")
+            return
+        endif
     endif
     RunSharedMapSetup()
 EndFunction
@@ -1217,15 +1243,23 @@ Function Surface(Actor player)
         return
     endif
     ApplyH00PreSurfaceOverrides()
+    ClearVaultSaveLock()
+    UnregisterStartLoadingHook()
+    Game.SetInChargen(false, false, false)
+    Game.SetCharGenHUDMode(0)
     surfaceSets = 0
     arrivalWorld = None
     fallbackPending = false
     discoveryMarkerMoved = false
     landingChecks = 0
+    anchor.Enable(False)
     player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)
     surfaceMoves += 1
     surfaceMovedAt = Utility.GetCurrentRealTime()
     Trace("surface moveto pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + player.GetWorldSpace() + " moves=" + surfaceMoves)
+    if player.IsInInterior()
+        TrySurfaceExteriorFallbacks(player, anchor)
+    endif
 EndFunction
 
 Function FinishSurface(Actor player)
@@ -1409,6 +1443,8 @@ Function FailExit(string reason)
     Actor player = Game.GetPlayer()
     if player != None && GetStage() < 40
         ReturnPlayerToVaultPlatform(player)
+    else
+        ResetVaultExitLift()
     endif
     Trace("exit retry n=" + exitFailures + " reason=" + reason + " stage=" + GetStage())
 EndFunction
@@ -1425,6 +1461,7 @@ Function ReturnPlayerToVaultPlatform(Actor player)
     if player == None
         return
     endif
+    ResetVaultExitLift()
     if player.IsInInterior() && StandsInVault(player)
         player.SetPosition(PlatformX, PlatformY, PlatformZ + 0.2)
     else
@@ -1432,6 +1469,60 @@ Function ReturnPlayerToVaultPlatform(Actor player)
         if vAnchor != None
             player.MoveTo(vAnchor, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)
         endif
+    endif
+EndFunction
+
+Function ResetVaultExitLift()
+{Resets and lowers the Vault 111 exit lift toggle graph back to its floor rest pose before retry.}
+    if LiftId <= 0
+        return
+    endif
+    ObjectReference lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
+    if lift != None && lift.Is3DLoaded()
+        bool lowered = lift.PlayAnimation("Play02")
+        if !lowered
+            lift.Reset()
+        endif
+        Trace("lift reset ref=" + lift + " play02=" + lowered)
+    endif
+EndFunction
+
+Function TryFastTravelSurface(Actor player, ObjectReference travelTarget)
+    if travelTarget == None || !player.IsInInterior()
+        return
+    endif
+    travelTarget.Enable(False)
+    travelTarget.AddToMap(True)
+    travelTarget.SetMarkerDiscovered()
+    travelTarget.EnableFastTravel(True)
+    Game.FastTravel(travelTarget)
+    Utility.Wait(0.5)
+    Trace("surface fallback fasttravel target=" + travelTarget + " interior=" + player.IsInInterior() + " world=" + player.GetWorldSpace())
+EndFunction
+
+Function TrySurfaceExteriorFallbacks(Actor player, ObjectReference primaryAnchor)
+{After death reload from an interior save, instantiate the exterior world via core anchor 0x000800 or Game.FastTravel if MoveTo stayed inside.}
+    if player == None || !player.IsInInterior()
+        return
+    endif
+    Utility.Wait(0.25)
+    if !player.IsInInterior()
+        return
+    endif
+    ObjectReference coreAnchor = Game.GetFormFromFile(0x000800, CorePlugin) as ObjectReference
+    if coreAnchor != None && coreAnchor != primaryAnchor
+        coreAnchor.Enable(False)
+        player.MoveTo(coreAnchor, 0.0, 0.0, 0.0, True, False)
+        Utility.Wait(0.25)
+        Trace("surface fallback anchor=" + coreAnchor + " interior=" + player.IsInInterior() + " world=" + player.GetWorldSpace())
+    endif
+    if !player.IsInInterior()
+        return
+    endif
+    ObjectReference landMarker = Game.GetFormFromFile(0x0008F2, "FO4SFMapMarkers.esm") as ObjectReference
+    TryFastTravelSurface(player, landMarker)
+    if player.IsInInterior() && primaryAnchor != landMarker
+        TryFastTravelSurface(player, primaryAnchor)
     endif
 EndFunction
 

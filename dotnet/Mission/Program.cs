@@ -176,16 +176,16 @@ static class Mission
                         PrestonReply2MsgEdid = "FO4SF_Min00_PrestonReply2Msg";
     public const uint MissionTalkUseMessageBoxGlobId = 0x979;
     public const string MissionTalkUseMessageBoxGlobEdid = "FO4SF_MissionTalkUseMessageBox";
-    // R11/R13 Part 3 E3 + fix4: softened Concord Raider sidearm (1.5 dmg Eon, AmmoType=Ammo777mm, AmmoList cleared -> exact 36 rounds,
+    // R11/R13 Part 3 E3 + fix4 + Task 0d: softened Concord Raider sidearm (1.5 dmg Eon, AmmoType=Ammo777mm, AmmoList cleared -> exact 36 rounds,
     // ObjectTemplates+AttachParentSlots intact so receivers/barrels/ProjectileNodes render & fire) and softened Concord Raider primary
-    // (6.0 dmg x 1 projectile Coachman, AmmoType=AmmoShotshell, AmmoList cleared -> exact 60 rounds, ObjectTemplates+AttachParentSlots intact).
+    // (4.0 dmg x 1 projectile Coachman, AmmoType=AmmoShotshell, AmmoList cleared -> exact 60 rounds, ObjectTemplates+AttachParentSlots intact).
     public const uint ConcordRaiderSidearmWeapId = 0x97A;
     public const string ConcordRaiderSidearmWeapEdid = "FO4SF_ConcordRaiderSidearm";
     public const float ConcordRaiderSidearmDamage = 1.5f;
     public const byte ConcordRaiderSidearmProjectiles = 1;
     public const uint ConcordRaiderPrimaryWeapId = 0x97B;
     public const string ConcordRaiderPrimaryWeapEdid = "FO4SF_ConcordRaiderPrimary";
-    public const float ConcordRaiderPrimaryDamage = 6.0f;
+    public const float ConcordRaiderPrimaryDamage = 4.0f;
     public const byte ConcordRaiderPrimaryProjectiles = 1;
 
     // R11 Part 3: Post-mission repeat Starfield Scenes hosted on FO4SF_CodsworthKeeper (0x814)
@@ -1161,6 +1161,9 @@ static class Mission
         npc.Flags = pFlags;
         npc.Factions.Clear();
         npc.Factions.Add(new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(minutemen.FormKey), Rank = 0 });
+        // Task 0d: Keep Preston passive and avoid auto-assisting against Concord raiders so raiders lock onto the player.
+        npc.Aggression = SF.Npc.AggressionType.Unaggressive;
+        npc.Assistance = SF.Npc.AssistanceType.HelpsNobody;
         mod.Npcs.Add(npc);
 
         // Task 1i: Mission-owned interior holding cell (0x000B60) holds persistent ACHRs with 0 WRLD overrides,
@@ -1467,8 +1470,8 @@ static class Mission
         concordSidearm.NonPlayable = true;
         mod.Weapons.Add(concordSidearm);
 
-        // R13 E3 + fix4: Softened Concord Raider primary (WEAP 0x097B, duplicated from Coachman 0x26D96B with
-        // AttackDamage=6.0, ProjectilesCount=1, AmmoType=0x2B4AFB, AmmoList=null, ObjectTemplates & AttachParentSlots kept intact, NonPlayable).
+        // R13 E3 + fix4 + Task 0d: Softened Concord Raider primary (WEAP 0x097B, duplicated from Coachman 0x26D96B with
+        // AttackDamage=4.0, ProjectilesCount=1, AmmoType=0x2B4AFB, AmmoList=null, ObjectTemplates & AttachParentSlots kept intact, NonPlayable).
         var concordPrimary = (SF.Weapon)raiderWeapon.Duplicate(new FormKey(modKey, ConcordRaiderPrimaryWeapId));
         concordPrimary.EditorID = ConcordRaiderPrimaryWeapEdid;
         concordPrimary.Name = "Coachman";
@@ -1517,7 +1520,6 @@ static class Mission
         script.Properties.Add(Flt("RaiderSidearmRecordDamage", sidearmRecordDamage));
         if (prestonScene is not null)
         {
-            script.Properties.Add(Obj("PrestonTalkScene", prestonScene.FormKey));
             script.Properties.Add(Obj("PrestonTalkMsg", new FormKey(modKey, PrestonTalkMsgId)));
             script.Properties.Add(Obj("PrestonReply0Msg", new FormKey(modKey, PrestonReply0MsgId)));
             script.Properties.Add(Obj("PrestonReply1Msg", new FormKey(modKey, PrestonReply1MsgId)));
@@ -1600,7 +1602,7 @@ static class Mission
                 {
                     EditorID = PrestonPostTalkSceneEdid,
                 };
-                var prestonPostScene = BuildTopScene(
+                BuildTopScene(
                     modKey, keeper, npc.FormKey, prestonVoice.FormKey,
                     QuestStageCond(quest.FormKey, SF.CompareOperator.GreaterThanOrEqualTo, 200f),
                     PrestonPostTalkSceneId, PrestonPostTalkSceneEdid,
@@ -1611,7 +1613,6 @@ static class Mission
                     FirstPrestonPostReplyTopicId, FirstPrestonPostReplyInfoId,
                     "FO4SF_PrestonPost", 50f, prestonPostSceneChoices,
                     KeeperPrestonAlias, prestonPostScnObj);
-                script.Properties.Add(Obj("PrestonPostTalkScene", prestonPostScene.FormKey));
             }
 
             // 2h & 2b & A1(d): FO4SF_Codsworth01 (0x816) — MQ102-lite 4-choice voiced Sanctuary quest, non-StartGameEnabled
@@ -1739,8 +1740,6 @@ static class Mission
 
             var cwScript = new SF.ScriptEntry { Name = CodsworthScriptName, Flags = SF.ScriptEntry.Flag.Local };
             cwScript.Properties.Add(CodsworthProp("Codsworth", codsRef.FormKey));
-            cwScript.Properties.Add(CodsworthProp("CodsworthScene", new FormKey(modKey, CodsworthSceneId)));
-            cwScript.Properties.Add(CodsworthProp("CodsworthPostScene", codsworthPostScene.FormKey));
             cwScript.Properties.Add(CodsworthProp("CodsworthTalkActi", new FormKey(modKey, CodsworthTalkActiId)));
             cwScript.Properties.Add(CodsworthProp("CodsworthTalkMsg", new FormKey(modKey, CodsworthTalkMsgId)));
             cwScript.Properties.Add(CodsworthProp("CodsworthReply0Msg", new FormKey(modKey, CodsworthReply0MsgId)));
@@ -1977,8 +1976,9 @@ static class Mission
              minutemen.Relations[0].Target.FormKey == new FormKey(SfEsm, PlayerFactionId) && minutemen.Relations[0].Reaction == SF.CombatReaction.Ally,
              $"FACT 0x{MinutemenFactionId:X} is not {MinutemenFactionEdid} with the one relation Ally to PlayerFaction");
         Need(npc is { EditorID: PrestonEdid } && npc.Flags.HasFlag(SF.Npc.Flag.Essential) && npc.Flags.HasFlag(SF.Npc.Flag.Unique) &&
-             !npc.Flags.HasFlag(SF.Npc.Flag.Respawn) && npc.Factions.Count == 1 && npc.Factions[0].Faction.FormKey == minutemen?.FormKey,
-             $"NPC_ 0x801 is not an essential unique FO4_PrestonGarvey in {MinutemenFactionEdid} only");
+             !npc.Flags.HasFlag(SF.Npc.Flag.Respawn) && npc.Factions.Count == 1 && npc.Factions[0].Faction.FormKey == minutemen?.FormKey &&
+             npc.Aggression == SF.Npc.AggressionType.Unaggressive && npc.Assistance == SF.Npc.AssistanceType.HelpsNobody,
+             $"NPC_ 0x801 is not an essential unique Unaggressive/HelpsNobody FO4_PrestonGarvey in {MinutemenFactionEdid} only");
         Need(npc is not null && npc.Race.FormKey == new FormKey(SfEsm, SfHumanRaceId), "Preston's race is not Starfield.esm HumanRace (0x00347D)");
         Need(npc is not null && m.Sf.VoiceTypes.TryGetValue(npc.Voice.FormKey, out var pv) && pv.EditorID == SfPrestonVoiceEdid &&
              pv.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog),
@@ -2270,17 +2270,6 @@ static class Mission
                         (PrestonReply1MsgId, PrestonReply1MsgEdid),
                         (PrestonReply2MsgId, PrestonReply2MsgEdid),
                     }, QuestEdid);
-                    Need(props.TryGetValue("PrestonTalkScene", out var sp) && sp is SF.IScriptObjectPropertyGetter spo && spo.Object.FormKey == new FormKey(key, PrestonTalkSceneId),
-                         "property PrestonTalkScene not bound to 0x900");
-                    if (codsworth)
-                    {
-                        Need(props.TryGetValue("PrestonPostTalkScene", out var psp) && psp is SF.IScriptObjectPropertyGetter pspo && pspo.Object.FormKey == new FormKey(key, PrestonPostTalkSceneId),
-                             $"property PrestonPostTalkScene not bound to 0x{PrestonPostTalkSceneId:X}");
-                    }
-                    else
-                    {
-                        Need(!props.ContainsKey("PrestonPostTalkScene"), "--no-codsworth binds PrestonPostTalkScene");
-                    }
                     Need(props.TryGetValue("TalkUseMessageBox", out var ptg) && ptg is SF.IScriptObjectPropertyGetter ptgo && ptgo.Object.FormKey == new FormKey(key, MissionTalkUseMessageBoxGlobId),
                          "FO4SF_Min00 lacks TalkUseMessageBox -> 0x979 binding");
                     Need(props.TryGetValue("PrestonTalkMsg", out var ptm) && ptm is SF.IScriptObjectPropertyGetter ptmo && ptmo.Object.FormKey == new FormKey(key, PrestonTalkMsgId) &&
@@ -2292,8 +2281,10 @@ static class Mission
                 else
                 {
                     Need(!plug.Messages.Any(x => x.FormKey.ID is >= PrestonTalkMsgId and <= PrestonReply2MsgId), "--no-alias carries Preston talk messages");
-                    Need(!props.ContainsKey("PrestonTalkScene") && !props.ContainsKey("PrestonTalkMsg") && !props.ContainsKey("TalkUseMessageBox"), "--no-alias binds PrestonTalkScene or PrestonTalkMsg");
+                    Need(!props.ContainsKey("PrestonTalkMsg") && !props.ContainsKey("TalkUseMessageBox"), "--no-alias binds PrestonTalkMsg or TalkUseMessageBox");
                 }
+                Need(!props.ContainsKey("PrestonTalkScene") && !props.ContainsKey("PrestonPostTalkScene"),
+                     "Task 0c: FO4SF_Min00 VMAD must not bind dead Scene properties PrestonTalkScene / PrestonPostTalkScene");
                 Need(!props.ContainsKey("Codsworth") && !props.ContainsKey("KeeperOnly"), "FO4SF_Min00 sets Codsworth or KeeperOnly");
             }
         }
@@ -2451,16 +2442,16 @@ static class Mission
                 if (cws is not null)
                 {
                     var cprops = cws.Properties.ToDictionary(p => p.Name);
+                    Need(!cprops.ContainsKey("CodsworthScene") && !cprops.ContainsKey("CodsworthPostScene"),
+                         $"Task 0c: {CodsworthQuestEdid} VMAD must not bind dead Scene properties CodsworthScene / CodsworthPostScene");
                     Need(cprops.TryGetValue("Codsworth", out var cwp) && cwp is SF.IScriptObjectPropertyGetter cwo && cwo.Object.FormKey == codsRef?.FormKey &&
-                         cprops.TryGetValue("CodsworthScene", out var csp) && csp is SF.IScriptObjectPropertyGetter cso && cso.Object.FormKey == new FormKey(key, CodsworthSceneId) &&
-                         cprops.TryGetValue("CodsworthPostScene", out var cpsp) && cpsp is SF.IScriptObjectPropertyGetter cpso && cpso.Object.FormKey == new FormKey(key, CodsworthPostSceneId) &&
                          cprops.TryGetValue("CodsworthTalkActi", out var cap) && cap is SF.IScriptObjectPropertyGetter cao && cao.Object.FormKey == new FormKey(key, CodsworthTalkActiId) &&
                          cprops.TryGetValue("CodsworthTalkMsg", out var cmp) && cmp is SF.IScriptObjectPropertyGetter cmo && cmo.Object.FormKey == new FormKey(key, CodsworthTalkMsgId) &&
                          cprops.TryGetValue("CodsworthReply0Msg", out var cr0) && cr0 is SF.IScriptObjectPropertyGetter cr0o && cr0o.Object.FormKey == new FormKey(key, CodsworthReply0MsgId) &&
                          cprops.TryGetValue("CodsworthReply1Msg", out var cr1) && cr1 is SF.IScriptObjectPropertyGetter cr1o && cr1o.Object.FormKey == new FormKey(key, CodsworthReply1MsgId) &&
                          cprops.TryGetValue("CodsworthReply2Msg", out var cr2) && cr2 is SF.IScriptObjectPropertyGetter cr2o && cr2o.Object.FormKey == new FormKey(key, CodsworthReply2MsgId) &&
                          cprops.TryGetValue("TalkUseMessageBox", out var ctg) && ctg is SF.IScriptObjectPropertyGetter ctgo && ctgo.Object.FormKey == new FormKey(key, MissionTalkUseMessageBoxGlobId),
-                         $"{CodsworthQuestEdid} lacks Codsworth / CodsworthScene / CodsworthTalkActi / CodsworthTalkMsg..Reply2Msg / TalkUseMessageBox properties");
+                         $"{CodsworthQuestEdid} lacks Codsworth / CodsworthTalkActi / CodsworthTalkMsg..Reply2Msg / TalkUseMessageBox properties");
                 }
                 Need(cwq.Scenes.Count == 1 && cwq.Scenes[0].FormKey == new FormKey(key, CodsworthSceneId), $"{CodsworthQuestEdid} lacks scene 0x{CodsworthSceneId:X}");
                 if (cwq.Scenes.Count == 1)
@@ -2868,8 +2859,21 @@ static class Mission
             ("Codsworth post scene 0x9C0 wrong alias ID 0", m => Keeper(m).Scenes.First(s => s.FormKey.ID == CodsworthPostSceneId).Actors[0].ID = 0),
             ("Preston post scene 0x990 sets quest stage", m => Keeper(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonPostReplyTopicId).Responses[0].SetParentQuestStage = new SF.DialogSetParentQuestStage { OnBegin = -1, OnEnd = 35 }),
             ("Codsworth post scene 0x9C0 replays primary greeting", m => Keeper(m).DialogTopics.First(t => t.FormKey.ID == CodsworthPostGreetTopicId).Responses[0].Responses[0].ResponseText = "Synthetic robot greeting."),
-            ("Min00 missing PrestonPostTalkScene property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "PrestonPostTalkScene")),
-            ("Codsworth01 missing CodsworthPostScene property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "CodsworthPostScene")),
+            ("Min00 binds dead PrestonTalkScene property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+            {
+                Name = "PrestonTalkScene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, PrestonTalkSceneId)),
+            })),
+            ("Min00 binds dead PrestonPostTalkScene property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+            {
+                Name = "PrestonPostTalkScene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, PrestonPostTalkSceneId)),
+            })),
+            ("Codsworth01 binds dead CodsworthPostScene property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+            {
+                Name = "CodsworthPostScene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, CodsworthPostSceneId)),
+            })),
             ("Preston choice 0 missing ENAM flags (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = null),
             ("Preston choice 0 sets DoNotGrayOut (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = new SF.DialogResponseFlags { Flags = (short)SF.DialogResponses.Flag.DoNotGrayOut }),
             ("Codsworth voice lacks AllowDefaultDialog", m => m.VoiceTypes[new FormKey(m.ModKey, CodsworthVoiceId)].Flags &= ~SF.VoiceType.Flag.AllowDefaultDialog),
@@ -2906,7 +2910,11 @@ static class Mission
             })),
             ("MissionTalkUseMessageBox global removed", m => m.Globals.Remove(new FormKey(m.ModKey, MissionTalkUseMessageBoxGlobId))),
             ("MissionTalkUseMessageBox global nonzero default", m => m.Globals[new FormKey(m.ModKey, MissionTalkUseMessageBoxGlobId)].Data = 1f),
-            ("Codsworth01 missing CodsworthScene property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "CodsworthScene")),
+            ("Codsworth01 binds dead CodsworthScene property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+            {
+                Name = "CodsworthScene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, CodsworthSceneId)),
+            })),
             ("Codsworth01 missing TalkUseMessageBox property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "TalkUseMessageBox")),
             ("Min00 missing TalkUseMessageBox property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "TalkUseMessageBox")),
             ("Min00 stage 30 lacks QSDT log entry", m => Min00Q(m).Stages.First(s => s.Index == 30).LogEntries.Clear()),
@@ -2948,6 +2956,8 @@ static class Mission
                 new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(new FormKey(SfEsm, 0x901)) })),
             ("quest has no QuestType", m => Min00Q(m).QuestType.Clear()),
             ("Preston without the Minutemen faction", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].Factions.Clear()),
+            ("Preston Assistance reverted to HelpsAllies", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].Assistance = SF.Npc.AssistanceType.HelpsAllies),
+            ("Preston Aggression set to Aggressive", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].Aggression = SF.Npc.AggressionType.Aggressive),
             ("Minutemen only Friend to the player", m => m.Factions[new FormKey(m.ModKey, MinutemenFactionId)].Relations[0].Reaction = SF.CombatReaction.Friend),
             ("Minutemen Ally to another faction", m => m.Factions[new FormKey(m.ModKey, MinutemenFactionId)].Relations[0].Target.SetTo(new FormKey(SfEsm, 0x901))),
             ("follow quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, ComQuestId))),

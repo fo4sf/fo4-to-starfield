@@ -173,8 +173,6 @@ class R11W1Tests(unittest.TestCase):
         ns = {
             "_PStr": _PStr,
             "Trace": logs.append,
-            "CodsworthScene": scene,
-            "CodsworthPostScene": None,
             "SceneOpenCheckSeconds": 1.5,
             "sceneTalkPending": True,
             "sceneMenuOpened": False,
@@ -210,15 +208,15 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(sum(1 for ln in logs if "dialogue_camera stopped" in ln), 0)
 
     def test_d3_raider_ammo_deterministic_60_and_balanced_eon_sidearm(self):
-        """D3 + R13 E3 + fix4: LL_Ammo_Shotshell spawn rolls normalize to exact 60 with softened 0x97B Coachman
-        (6.0 dmg, NonPlayable, ObjectTemplates+AttachParentSlots intact), then EquipBalancedRaiderSidearm equips
+        """D3 + R13 E3 + fix4 + Task 0d: LL_Ammo_Shotshell spawn rolls normalize to exact 60 with softened 0x97B Coachman
+        (4.0 dmg, NonPlayable, ObjectTemplates+AttachParentSlots intact), then EquipBalancedRaiderSidearm equips
         WEAP 0x097A (1.5-dmg FO4SF_ConcordRaiderSidearm, ObjectTemplates+AttachParentSlots intact, AmmoList=null),
         strips 0x97B + AmmoShotshell, clamps Ammo777mm=36, and preserves raider FO4 0x0988 outfits (no UnequipAll)."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("SfRaiderSidearmId = 0x0476C4", cs)
         self.assertIn("ConcordRaiderPrimaryWeapId = 0x97B", cs)
-        self.assertIn("ConcordRaiderPrimaryDamage = 6.0f", cs)
+        self.assertIn("ConcordRaiderPrimaryDamage = 4.0f", cs)
         self.assertIn("ConcordRaiderSidearmWeapId = 0x97A", cs)
         self.assertIn("ConcordRaiderSidearmDamage = 1.5f", cs)
         self.assertIn("concordPrimary.AmmoList.SetToNull();", cs)
@@ -277,7 +275,7 @@ class R11W1Tests(unittest.TestCase):
             "RaiderWeapon": "Coachman097B",
             "RaiderAmmo": "AmmoShotshell",
             "RaiderSidearm": "Eon097A",
-            "RaiderPrimaryRecordDamage": 6.0,
+            "RaiderPrimaryRecordDamage": 4.0,
             "RaiderSidearmRecordDamage": 1.5,
             "AttackDamageMult": None,
             "RaiderSidearmAmmo": "Ammo777mm",
@@ -295,7 +293,7 @@ class R11W1Tests(unittest.TestCase):
             self.assertEqual(r.unequipped_all, 0)
             self.assertTrue(r.outfit_worn)
             self.assertEqual(r.inv["AmmoShotshell"], 60, f"raider {idx} shell count != 60 after ArmRaiderForCombat")
-            self.assertIn("eff_dmg=6.0", logs[-1])
+            self.assertIn("eff_dmg=4.0", logs[-1])
             ns["EquipBalancedRaiderSidearm"](r, idx)
             self.assertEqual(r.inv["Coachman097B"], 0, f"raider {idx} Coachman must be removed to prevent AI re-equip")
             self.assertEqual(r.inv["AmmoShotshell"], 0, f"raider {idx} AmmoShotshell must be removed after sidearm swap")
@@ -307,7 +305,7 @@ class R11W1Tests(unittest.TestCase):
             self.assertEqual(r.avs["Confidence"], 4.0)
             self.assertTrue(ns["raiderArmed"][idx])
             self.assertIn(f"arm raider {idx} ammo=60", logs[-2])
-            self.assertIn("eff_dmg=6.0", logs[-2])
+            self.assertIn("eff_dmg=4.0", logs[-2])
             self.assertIn(f"arm raider {idx} sidearm=eon sidearm_ammo=36", logs[-1])
             self.assertIn("eff_dmg=1.5", logs[-1])
 
@@ -321,7 +319,7 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(fallback_r.inv["Coachman097B"], 1)
         self.assertEqual(fallback_r.inv["AmmoShotshell"], 60)
         self.assertEqual(fallback_r.equipped[-1], ("Coachman097B", False))
-        self.assertIn("eff_dmg=9.0", logs[-1])
+        self.assertIn("eff_dmg=6.0", logs[-1])
 
     def test_d5_preston_and_codsworth_choice_infos_carry_enam_zero_and_inam_low(self):
         """D5 Part 3: BuildTopScene sets explicit ENAM (Flags=0, ResetHours=0, DoNotGrayOut clear) and
@@ -407,8 +405,6 @@ class R11W1Tests(unittest.TestCase):
                 "Preston": preston,
                 "Credits": "StarfieldCredits",
                 "RewardCount": 100,
-                "PrestonTalkScene": scene,
-                "PrestonPostTalkScene": post_scene,
                 "PrestonTalkMsg": msg,
                 "PrestonReply0Msg": msg,
                 "PrestonReply1Msg": msg,

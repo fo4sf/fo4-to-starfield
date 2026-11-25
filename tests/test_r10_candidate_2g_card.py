@@ -191,6 +191,10 @@ class Candidate2gCardTests(unittest.TestCase):
             r11_evolved_2g_prefixes.append(
                 "PASS line does not match any source format string: 'step=shell_c4_config shell_backdrop=1 shell_vitals_fill=1 suppress_data_menu=0 tab_opens_pipboy=0'"
             )
+        if "preston scene resolved via=property " not in min00_src and "preston scene resolved via=file " in min00_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> preston scene resolved via=<property|file> scene=<ref>'"
+            )
 
         w1_present = "preston scene resolved via=" in min00_src
         w2_present = "complete=false stage=" in sanc_src

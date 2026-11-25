@@ -621,6 +621,10 @@ class ContractTests(unittest.TestCase):
         self.assertLess(finish.index("if ok\n"), finish.index("AdvanceTo(40)"))
         self.assertIn("if surfaceMoves < 2", finish)
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
+        self.assertIn("ClearVaultSaveLock()", surface)
+        self.assertIn("anchor.Enable(False)", surface)
+        self.assertIn("TrySurfaceExteriorFallbacks(player, anchor)", surface)
+        self.assertEqual(psc.count("Debug.CenterOnCell("), 1)
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
         self.assertEqual(psc.count("FinishSurface(player)"), 1)   # only a later tick's OnTimer finishes the ride
         invault = psc[psc.index("Function InVault"):psc.index("Function Surface(Actor player)")]
@@ -1084,7 +1088,8 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
         "bool abStayFaded = false) native global\n")
-FAST_READ = "bool Function IsFastTravelEnabled() native global\n"
+FAST_READ = ("bool Function IsFastTravelEnabled() native global\n"
+             "Function FastTravel(ObjectReference akDestination) native global\n")
 AUTOSAVE = "Function RequestAutoSave() native global\n"
 # Actor.psc's declarations the quest script itself needs: the guard's GetLevel, the inventory reset's EquipItem /
 # IsEquipped and the O2 fill's ModValue / GetValue (FO4's signatures; Starfield's are what the precheck reads: its
@@ -1339,6 +1344,26 @@ class PrecheckTests(unittest.TestCase):
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
             self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
         self.assertIn("--no-looks", o.getvalue())
+
+    def test_task0a_natives_ownership_in_precheck(self):
+        self.assertIn("FastTravel", ng.NATIVES[ng.SCRIPT]["Game"])
+        self.assertNotIn("EnableFastTravel", ng.NATIVES[ng.SCRIPT]["Game"])
+        for obj_native in ("AddToMap", "EnableFastTravel", "Reset"):
+            self.assertIn(obj_native, ng.NATIVES[ng.SCRIPT]["ObjectReference"])
+        z = os.path.join(self.tmp, "cr.zip")
+        obj_without_eft = "\n".join(
+            f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"] if f != "EnableFastTravel"
+        )
+        fake_zip(
+            z,
+            game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
+                 "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
+                 "Function EnableFastTravel(bool abEnable = true) native global\n"
+                 + CHARGEN + FADE + FAST_READ + AUTOSAVE,
+            objectreference=obj_without_eft,
+        )
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], ["ObjectReference.EnableFastTravel"])
 
 
 # the guard's stand-down line as the quest script writes it since our own start (days, level, and whether the game was
@@ -3763,7 +3788,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
         looks_compiled = compile(translated_functions(looks_psc, ("Done",), ""), LOOKS, "exec")
 
-        def run_case(*, initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False, loaded=True, dead=False):
+        def run_case(*, initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False, loaded=True, dead=False, fire_stage_set=True):
             logs, chargens, autosaves, timers, cancels, reg_events = [], [], [], [], [], []
             moves, sets, angles, restores = [], [], [], []
             cur_stage = [initial_stage]
@@ -3835,6 +3860,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 StartTimer=lambda s, tid: timers.append((s, tid)),
                 CancelTimer=lambda tid: cancels.append(tid),
                 GetStage=lambda: cur_stage[0],
+                SetStage=lambda st: (cur_stage.__setitem__(0, st), ns["StageSetEvent"](st, 0) if fire_stage_set else None),
                 SetObjectiveDisplayed=lambda *a: None,
                 SetObjectiveCompleted=lambda *a: None,
                 SetActive=lambda *a: None,
@@ -3915,7 +3941,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertTrue(c_qs.ns["looksSetStage20"])
         self.assertTrue(c_qs.ns["vaultPodAutosaved"])
         self.assertEqual(c_qs.cur_stage[0], 20)
-        self.assertEqual(len(c_qs.autosaves), 1)
+        self.assertEqual(c_qs.autosaves, [20])
         self.assertEqual(c_qs.chargens, [(False, False, False)])
         self.assertIn("vault_death_recovery=autosave stage=20 skips=0", c_qs.logs)
         self.assertIn((1.5, 6), c_qs.timers)
@@ -3924,9 +3950,25 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertEqual(c_qs.chargens[-1], (True, False, False))
         c_qs.player.dead = True
         c_qs.ns["DyingEvent"](c_qs.player, None)
-        self.assertEqual(len(c_qs.autosaves), 1)
+        self.assertEqual(c_qs.autosaves, [20])
         self.assertEqual(c_qs.restores, [])
         self.assertIn("vault_death_recovery=autosave stage=20", c_qs.logs)
+
+        # 1d (Task 0a): Even when SetStage(20) does NOT fire OnStageSet synchronously, NoteLooksStage20() MUST commit
+        # stage 20 BEFORE TriggerVaultPodRecoveryAutosave(20) calls Game.RequestAutoSave(), so pod autosave is ALWAYS stage 20.
+        c_qs_nosync = run_case(initial_stage=10, mode=1.0, in_vault=True, fire_stage_set=False)
+        looks_nosync_ns = dict(
+            GetStage=lambda: c_qs_nosync.cur_stage[0],
+            SetStage=lambda st: c_qs_nosync.cur_stage.__setitem__(0, st),
+            TracePosition=lambda *_: None,
+            Trace=lambda m: c_qs_nosync.logs.append(m),
+            self=SimpleNamespace(NoteLooksStage20=c_qs_nosync.ns["NoteLooksStage20"]),
+        )
+        exec(looks_compiled, looks_nosync_ns)
+        looks_nosync_ns["Done"]("quick start")
+        self.assertEqual(c_qs_nosync.cur_stage[0], 20)
+        self.assertEqual(c_qs_nosync.autosaves, [20])
+        self.assertEqual(c_qs_nosync.logs.count("stage 20 by=other"), 0)
 
         # Direct OnStageSet(20, 0) (even when applied >= 20 and looksSetStage20=True) also fires stage=20 autosave once
         c_set20 = run_case(initial_stage=20, mode=1.0, in_vault=True)

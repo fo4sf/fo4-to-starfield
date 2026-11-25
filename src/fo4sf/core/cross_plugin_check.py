@@ -103,6 +103,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
     "FO4TerrainCore.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
@@ -111,6 +112,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
     "FO4TerrainCore_Mars.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
@@ -124,6 +126,13 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     },
     "FO4SFMapMarkers.esm": {
         **{0x000800 + i: ("QUST", f"FO4SF_MapMarkersQuest_{i:02d}") for i in range(16)},
+        0x0008F0: ("REFR", "FO4SF_MapMarkersLandingPad"),
+        0x0008F1: ("REFR", "FO4SF_MapMarkersLandingTrigger"),
+        0x0008F2: ("REFR", "FO4SF_MapMarkersLandingMarker"),
+        0x0008F3: ("REFR", "FO4SF_MapMarkersLandingHeading"),
+        0x0008F4: ("CELL", "FO4SF_MapMarkersHop"),
+        0x0008F5: ("REFR", "FO4SF_MapMarkersHopMarker"),
+        0x0008F6: ("REFR", "FO4SF_MapMarkersHopFloor"),
     },
     "FO4SFPipboyTravel.esm": {
         **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32) if i != 2},

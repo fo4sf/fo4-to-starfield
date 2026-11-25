@@ -91,12 +91,17 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
             self.assertIn("god mode OFF", txt, f"{rel} must keep explicit god mode OFF instruction")
 
     def test_a2_7_c1_preston_scene_resolved_never_requires_both_via_lines(self) -> None:
+        self.assertIn(
+            "FO4SF_MISSION rt=<rt> preston scene resolved via=<property|file> scene=<ref>",
+            self.card_2g,
+            f"{CARD_2G_REL} must use single via=<property|file> C1 log line",
+        )
+        self.assertIn(
+            "FO4SF_MISSION rt=<rt> preston scene resolved via=file scene=<ref>",
+            self.card_r11,
+            f"{CARD_R11_REL} must use single via=file C1 log line (Task 0c removed dead *Scene properties)",
+        )
         for rel, txt in ((CARD_2G_REL, self.card_2g), (CARD_R11_REL, self.card_r11)):
-            self.assertIn(
-                "FO4SF_MISSION rt=<rt> preston scene resolved via=<property|file> scene=<ref>",
-                txt,
-                f"{rel} must use single via=<property|file> C1 log line",
-            )
             for log_blk in _extract_blocks(txt, "log"):
                 has_prop = "preston scene resolved via=property " in log_blk
                 has_file = "preston scene resolved via=file " in log_blk
@@ -116,7 +121,9 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
 
         top = "\n".join(txt.splitlines()[:14])
         self.assertIn("NEW GAME needed", top)
+        self.assertIn("candidate-2g-fix5", top)
         self.assertIn("candidate-2g-fix4", top)
+        self.assertIn("3d831267", top)
         self.assertIn("candidate-2g-fix3", top)
         self.assertIn("candidate-2g-fix2", top)
         self.assertIn("73ea9a4b", top)
@@ -144,6 +151,7 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("<cand2g-fix-player-bundle>", txt)
         self.assertNotIn("<cand2g-fix2-player-bundle>", txt)
         self.assertNotIn("<cand2g-fix3-player-bundle>", txt)
+        self.assertNotIn("<cand2g-fix4-player-bundle>", txt)
         self.assertNotIn("(Raider Stand-In)", txt)
         self.assertNotIn("(Post-mission stand-in)", txt)
         self.assertNotIn("(Stand-In)", txt)
@@ -162,11 +170,19 @@ class Round11CardsAndMNVRuleTests(unittest.TestCase):
         self.assertNotIn("Up/Down arrows", txt)
 
         required_tokens = (
-            "<cand2g-fix4-player-bundle>",
+            "<cand2g-fix5-player-bundle>",
+            "candidate-2g-fix5",
             "candidate-2g-fix4",
             "candidate-2g-fix3",
             "candidate-2g-fix2",
             "8fed4642",
+            "R14-0a",
+            "R14-0b",
+            "FO4SFMapMarkers - Main.ba2",
+            "ResetVaultExitLift()",
+            "SyncPrestonFightHold",
+            "r.GetCombatTarget()",
+            "AttackDamage = 4.0",
             "D1",
             "D2",
             "D3",
