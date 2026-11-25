@@ -25,7 +25,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 START_PLACES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "start_places.json")
 WARFARE_STARTS_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "warfare_starts.json")
 DEFAULT_SHOW_UNAVAILABLE_STARTS = False
-ALLOWED_STORY_START_IDS: Tuple[str, ...] = ("fo4_vault111",)
+ALLOWED_STORY_START_IDS: Tuple[str, ...] = ("fo4_prewar_sanctuary", "fo4_vault111")
+ALLOWED_STORY_VARIANTS: Tuple[str, ...] = ("normal", "quick")
 DIFFICULTY_LABELS: Tuple[str, ...] = ("EASY", "NORMAL", "HARD", "VERY HARD")
 ALLOWED_SETUP_GLYPHS = " -.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',()?!+%&_#=[]<>"
 
@@ -66,6 +67,7 @@ class StartPlaceRow:
     pos: Optional[Tuple[float, float, float]] = None
     cell: Optional[Tuple[int, int]] = None
     required_plugins: Tuple[str, ...] = ()
+    start_variant: str = ""
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,17 @@ def load_start_places(
         mode = str(entry.get("mode", "")).strip().lower()
         if mode not in ("story", "warfare"):
             raise ValueError(f"Start place {pid}: invalid mode {mode!r}")
+
+        start_variant = str(entry.get("start_variant", "")).strip().lower()
+        if mode == "story":
+            if start_variant not in ALLOWED_STORY_VARIANTS:
+                raise ValueError(
+                    f"Start place {pid}: story row requires start_variant in {ALLOWED_STORY_VARIANTS}, got {start_variant!r}"
+                )
+        elif start_variant != "":
+            raise ValueError(
+                f"Start place {pid}: warfare row requires empty start_variant '', got {start_variant!r}"
+            )
 
         story_id = str(entry.get("story_id", "none")).strip() or "none"
         story_label = str(entry.get("story_label", "")).strip()
@@ -241,6 +254,7 @@ def load_start_places(
                 pos=pos_tuple,
                 cell=cell_tuple,
                 required_plugins=req_plugins,
+                start_variant=start_variant,
             )
         )
 

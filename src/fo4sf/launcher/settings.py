@@ -72,8 +72,11 @@ SPEC = (
     ("start_cover.timeout_s", 90.0, float,
      "hard timeout in seconds before the Start Cover removes itself automatically even if no ready signal arrives."),
     ("start.mode", "story", ("story", "warfare"),
-     "launch mode written before Starfield boots: story (Fallout 4: Vault 111 until Task 6) or warfare "
+     "launch mode written before Starfield boots: story (Fallout 4: Pre-War Sanctuary or Vault 111 until Task 6) or warfare "
      "(Commonwealth Warfare faction starts). Difficulty, Appearance, and S.P.E.C.I.A.L. stay in-game."),
+    ("start.variant", "", ("", "normal", "quick"),
+     "story start variant: '' (auto-pick first available), 'normal' (full opening such as Pre-War Sanctuary), "
+     "or 'quick' (skip directly to Vault 111 / exit-tunnel opening). Ignored in warfare mode."),
     ("start.survival", False, bool,
      "start the session in Survival mode (on or off), persisted across save/reload once the game begins."),
     ("start.place", "", str,
@@ -103,6 +106,7 @@ LABELS = {
     "start_cover": "Start cover while Starfield boots",
     "start_cover.timeout_s": "Start cover timeout (s)",
     "start.mode": "Start mode",
+    "start.variant": "Start variant",
     "start.survival": "Survival mode",
     "start.place": "Start place (filtered)",
 }

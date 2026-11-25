@@ -252,9 +252,14 @@ class R12StartMenusProbeTests(unittest.TestCase):
             fake_dll.write_bytes(b"TESTED-SLOT2-DLL")
             dst_dll = root / "out" / "FO4SFPipboyMenu.dll"
 
+            # Matching synthetic source tree hashes -> reuses tested DLL without fallback build
+            clean_src = root / "clean_src"
+            shutil.copytree(ROOT / "sfse" / "FO4SFPipboyMenu", clean_src)
+            clean_paths = [clean_src / rel for rel in stager.PIPBOY_SOURCE_REL_PATHS]
+            clean_hashes = {p.name: pc.sha256_file(p) for p in clean_paths}
             res = pc.reuse_tested_binary(
-                stager._pipboy_src_paths(),
-                stager.TESTED_SLOT2_PIPBOY_SOURCE_HASHES,
+                clean_paths,
+                clean_hashes,
                 fake_dll,
                 lambda: root / "should_not_run.dll",
                 dst_path=dst_dll,
@@ -262,22 +267,57 @@ class R12StartMenusProbeTests(unittest.TestCase):
             self.assertTrue(res.reused)
             self.assertEqual(dst_dll.read_bytes(), b"TESTED-SLOT2-DLL")
 
-            # Mutated copy triggers fallback build cleanly
+            # Live Round 14 modified C++ sources differ from R13 TESTED_SLOT2_PIPBOY_SOURCE_HASHES -> triggers rebuild
+            rebuilt = root / "rebuilt.dll"
+            rebuilt.write_bytes(b"REBUILT-DLL")
+            res_live = pc.reuse_tested_binary(
+                stager._pipboy_src_paths(),
+                stager.TESTED_SLOT2_PIPBOY_SOURCE_HASHES,
+                fake_dll,
+                lambda: rebuilt,
+                dst_path=root / "out_live" / "FO4SFPipboyMenu.dll",
+            )
+            self.assertFalse(res_live.reused)
+            self.assertEqual((root / "out_live" / "FO4SFPipboyMenu.dll").read_bytes(), b"REBUILT-DLL")
+
+            # Mutated copy also triggers fallback build cleanly
             mutated_src = root / "src_copy"
             shutil.copytree(ROOT / "sfse" / "FO4SFPipboyMenu", mutated_src)
             (mutated_src / "src" / "main.cpp").write_text("// changed\n", encoding="utf-8")
             mutated_paths = [mutated_src / rel for rel in stager.PIPBOY_SOURCE_REL_PATHS]
-            rebuilt = root / "rebuilt.dll"
-            rebuilt.write_bytes(b"REBUILT-DLL")
             res2 = pc.reuse_tested_binary(
                 mutated_paths,
-                stager.TESTED_SLOT2_PIPBOY_SOURCE_HASHES,
+                clean_hashes,
                 fake_dll,
                 lambda: rebuilt,
                 dst_path=root / "out2" / "FO4SFPipboyMenu.dll",
             )
             self.assertFalse(res2.reused)
             self.assertEqual((root / "out2" / "FO4SFPipboyMenu.dll").read_bytes(), b"REBUILT-DLL")
+
+    def test_validate_start_configs_skips_prewar_on_860_and_includes_when_prewar_loaded(self) -> None:
+        avail_860, _wf = stager._validate_start_configs(
+            start_places_path=stager.DEFAULT_START_PLACES,
+            warfare_starts_path=stager.DEFAULT_WARFARE_STARTS,
+            core_esm=None,
+            port_esm=None,
+        )
+        self.assertEqual(
+            [r.id for r in avail_860],
+            ["fo4_vault111", "minutemen_sanctuary", "gunners_plaza", "raiders_corvega"],
+        )
+
+        avail_863, _wf2 = stager._validate_start_configs(
+            start_places_path=stager.DEFAULT_START_PLACES,
+            warfare_starts_path=stager.DEFAULT_WARFARE_STARTS,
+            core_esm=None,
+            port_esm=None,
+            loaded_plugins=stager.DEFAULT_SESSION_PLUGINS + ("FO4SFPrewar.esm", "FO4SFPrewar_Sanctuary.esm"),
+        )
+        self.assertEqual(
+            [r.id for r in avail_863],
+            ["fo4_prewar_sanctuary", "fo4_vault111", "minutemen_sanctuary", "gunners_plaza", "raiders_corvega"],
+        )
 
     def test_install_refuses_active_routeloot_and_allows_inactive_routeloot(self) -> None:
         with tempfile.TemporaryDirectory() as td:

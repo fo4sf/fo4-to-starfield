@@ -1,11 +1,11 @@
-"""Pre-launch Story/Warfare, Survival, and filtered start-place selection & persistence (Round 12 Task 5 / R13).
+"""Pre-launch Story/Warfare, variant, Survival, and filtered start-place selection & persistence (Round 12–14).
 
-Reads ONLY the restart-only launch choices (`start.mode`, `start.survival`, `start.place`), filters
-`src/fo4sf/core/start_places.json` by Mode, validates row availability strictly from loaded plugins
-and loaded places (guaranteeing no Story row except `fo4_vault111` claims available until Task 6),
-refuses `--survival on` when `FO4SFHardcore.esm` is absent, propagates `nonce`, `created_at`, and
-selected `min_difficulty`, and atomically writes `%LOCALAPPDATA%\\FO4SF\\launch_choices.json` before
-`Starfield.exe` boots.
+Reads ONLY the restart-only launch choices (`start.mode`, `start.variant`, `start.survival`, `start.place`), filters
+`src/fo4sf/core/start_places.json` by Mode/variant, validates row availability strictly from loaded plugins
+and loaded places (guaranteeing no Story row except `fo4_prewar_sanctuary` / `fo4_vault111` claims available until Task 6),
+refuses `--survival on` when `FO4SFHardcore.esm` is absent, propagates `schema_version`, `start_variant`, `nonce`,
+`created_at`, and selected `min_difficulty`, and atomically writes `%LOCALAPPDATA%\\FO4SF\\launch_choices.json`
+before `Starfield.exe` boots.
 """
 
 from __future__ import annotations
@@ -25,14 +25,18 @@ from ..core import start_places as sp
 from ..core import warfare_starts as ws
 
 LAUNCH_CHOICES_FILENAME = "launch_choices.json"
-ALLOWED_STORY_IDS: Tuple[str, ...] = ("fo4_vault111",)
+LAUNCH_CHOICES_SCHEMA_VERSION = 2
+ALLOWED_STORY_IDS: Tuple[str, ...] = ("fo4_prewar_sanctuary", "fo4_vault111")
 MODE_CHOICES: Tuple[str, ...] = ("story", "warfare")
+VARIANT_CHOICES: Tuple[str, ...] = ("normal", "quick")
 HARDCORE_PLUGIN = "FO4SFHardcore.esm"
 CONTENT_PLUGINS: frozenset[str] = frozenset({
     "fo4port.esm",
     "fo4terraincore.esm",
     "fo4sfhome.esm",
     "fo4sfnewgame.esm",
+    "fo4sfprewar.esm",
+    "fo4sfprewar_sanctuary.esm",
     "fo4sfcorevalues.esm",
     "fo4sfhardcore.esm",
     "fo4sfreputation.esm",
@@ -48,6 +52,7 @@ RESTART_ONLY_KEYS: Tuple[str, ...] = (
     "survival_locked",
     "story_id",
     "story_choice_idx",
+    "start_variant",
     "warfare_faction_slot",
     "warfare_start_idx",
     "place_id",
@@ -111,11 +116,18 @@ def _edid_from_record(rec_body: memoryview, fl: int) -> str:
     return ""
 
 
-def _xclc_from_cell(rec_body: memoryview, fl: int) -> Optional[Tuple[int, int]]:
+def _cell_fields(rec_body: memoryview, fl: int) -> Tuple[str, Optional[bytes], Optional[Tuple[int, int]]]:
+    edid = ""
+    data_b: Optional[bytes] = None
+    xy: Optional[Tuple[int, int]] = None
     for sig, val in _iter_subrecords(rec_body, bool(fl & 0x00040000)):
-        if sig == b"XCLC" and len(val) >= 8:
-            return struct.unpack_from("<2i", val, 0)
-    return None
+        if sig == b"EDID" and not edid:
+            edid = bytes(val).split(b"\0", 1)[0].decode("utf-8", "replace")
+        elif sig == b"DATA" and data_b is None:
+            data_b = bytes(val)
+        elif sig == b"XCLC" and xy is None and len(val) >= 8:
+            xy = struct.unpack_from("<2i", val, 0)
+    return edid, data_b, xy
 
 
 def _scan_single_tes4_places(
@@ -167,15 +179,17 @@ def _scan_single_tes4_places(
                     break
                 body = buf[off + 24 : rec_end]
                 if typ == b"CELL":
-                    is_int = bool(fl & 0x00000001)
+                    edid, data_b, xy = _cell_fields(body, fl)
+                    is_int = (
+                        bool(fl & 0x00000001)
+                        or (data_b is not None and len(data_b) >= 1 and bool(data_b[0] & 0x01))
+                        or (not in_wrld and xy is None)
+                    )
                     if is_int:
-                        edid = _edid_from_record(body, fl)
                         if edid:
                             interior_cells.add(edid)
-                    else:
-                        xy = _xclc_from_cell(body, fl)
-                        if xy is not None:
-                            exterior_cells.add(xy)
+                    elif xy is not None:
+                        exterior_cells.add(xy)
                 elif typ == b"REFR" and (bool(fl & 0x00000400) or cur_gt == 8):
                     edid = _edid_from_record(body, fl)
                     if edid:
@@ -197,7 +211,11 @@ def scan_data_dir_places(
     """
     if not data_dir or not os.path.isdir(data_dir):
         return None
-    targets = tuple(plugin_names) if plugin_names is not None else ("FO4TerrainCore.esm", "FO4Port.esm")
+    targets = (
+        tuple(plugin_names)
+        if plugin_names is not None
+        else ("FO4TerrainCore.esm", "FO4Port.esm", "FO4SFPrewar.esm", "FO4SFPrewar_Sanctuary.esm")
+    )
     markers: Set[str] = set()
     interior_cells: Set[str] = set()
     exterior_cells: Set[Tuple[int, int]] = set()
@@ -237,17 +255,14 @@ def known_start_place_ids(start_places_path: str = sp.START_PLACES_JSON) -> Set[
     return set(_row_meta_map(start_places_path))
 
 
-def filtered_places_for_session(
+def _resolve_session_filters(
     *,
-    mode: Optional[str] = None,
     starfield_dir: str = "",
     entries: Optional[Sequence[Tuple[str, bool]]] = None,
     loaded_plugins: Optional[Iterable[str]] = None,
     loaded_places: Optional[Dict[str, Any]] = None,
-    start_places_path: str = sp.START_PLACES_JSON,
     strict_session: bool = False,
-) -> Tuple[List[sp.StartPlaceRow], Dict[str, str], Optional[Set[str]], Optional[Dict[str, Any]]]:
-    """Evaluate valid available start places strictly from loaded plugins & places for `mode`."""
+) -> Tuple[Optional[Set[str]], Optional[Dict[str, Any]], bool]:
     data_dir = os.path.join(starfield_dir, "Data") if starfield_dir else ""
     scanned_places = loaded_places if loaded_places is not None else scan_data_dir_places(data_dir)
     if loaded_plugins is not None:
@@ -270,7 +285,27 @@ def filtered_places_for_session(
     places_arg = scanned_places
     if strict_session and places_arg is None:
         places_arg = {"markers": set(), "interior_cells": set(), "exterior_cells": set()}
+    return eff_plugins, places_arg, enforce_plugins
 
+
+def filtered_places_for_session(
+    *,
+    mode: Optional[str] = None,
+    starfield_dir: str = "",
+    entries: Optional[Sequence[Tuple[str, bool]]] = None,
+    loaded_plugins: Optional[Iterable[str]] = None,
+    loaded_places: Optional[Dict[str, Any]] = None,
+    start_places_path: str = sp.START_PLACES_JSON,
+    strict_session: bool = False,
+) -> Tuple[List[sp.StartPlaceRow], Dict[str, str], Optional[Set[str]], Optional[Dict[str, Any]]]:
+    """Evaluate valid available start places strictly from loaded plugins & places for `mode`."""
+    eff_plugins, places_arg, enforce_plugins = _resolve_session_filters(
+        starfield_dir=starfield_dir,
+        entries=entries,
+        loaded_plugins=loaded_plugins,
+        loaded_places=loaded_places,
+        strict_session=strict_session,
+    )
     all_rows = sp.load_start_places(start_places_path)
     avail_rows, reasons = evaluate_start_places(
         all_rows,
@@ -285,22 +320,77 @@ def filtered_places_for_session(
 def available_place_options(
     mode: str,
     *,
+    variant: str = "",
     starfield_dir: str = "",
     entries: Optional[Sequence[Tuple[str, bool]]] = None,
+    loaded_plugins: Optional[Iterable[str]] = None,
+    loaded_places: Optional[Dict[str, Any]] = None,
     start_places_path: str = sp.START_PLACES_JSON,
+    strict_session: bool = False,
 ) -> List[str]:
     """Return `[""] + [filtered place ids]` for the launcher UI / CLI."""
     mode_norm = str(mode or "story").strip().lower()
     if mode_norm not in MODE_CHOICES:
         return [""]
+    variant_norm = str(variant or "").strip().lower()
     avail_rows, _reasons, _eff, _places = filtered_places_for_session(
         mode=mode_norm,
         starfield_dir=starfield_dir,
         entries=entries,
+        loaded_plugins=loaded_plugins,
+        loaded_places=loaded_places,
         start_places_path=start_places_path,
-        strict_session=False,
+        strict_session=strict_session,
     )
+    if mode_norm == "story" and variant_norm in VARIANT_CHOICES:
+        avail_rows = [
+            r for r in avail_rows
+            if str(getattr(r, "start_variant", "") or "").strip().lower() == variant_norm
+        ]
     return [""] + [r.id for r in avail_rows]
+
+
+def unavailable_place_entries(
+    mode: Optional[str] = None,
+    *,
+    starfield_dir: str = "",
+    entries: Optional[Sequence[Tuple[str, bool]]] = None,
+    loaded_plugins: Optional[Iterable[str]] = None,
+    loaded_places: Optional[Dict[str, Any]] = None,
+    start_places_path: str = sp.START_PLACES_JSON,
+    strict_session: bool = False,
+) -> List[Dict[str, str]]:
+    """Return unavailable/locked rows for `mode` with id, name, mode, start_variant, and exact reason."""
+    mode_norm = None if mode is None else str(mode or "story").strip().lower()
+    if mode_norm is not None and mode_norm not in MODE_CHOICES:
+        return []
+    all_rows = sp.load_start_places(start_places_path)
+    _avail, reasons, _eff, _places = filtered_places_for_session(
+        mode=mode_norm,
+        starfield_dir=starfield_dir,
+        entries=entries,
+        loaded_plugins=loaded_plugins,
+        loaded_places=loaded_places,
+        start_places_path=start_places_path,
+        strict_session=strict_session,
+    )
+    out: List[Dict[str, str]] = []
+    for row in all_rows:
+        if mode_norm is not None and row.mode != mode_norm:
+            continue
+        reason = reasons.get(row.id)
+        if not reason:
+            continue
+        out.append({
+            "id": row.id,
+            "name": row.name,
+            "mode": row.mode,
+            "story_id": row.story_id,
+            "faction_label": row.faction_label,
+            "start_variant": str(getattr(row, "start_variant", "") or ""),
+            "reason": reason,
+        })
+    return out
 
 
 def settings_problem(
@@ -442,39 +532,41 @@ def resolve_and_build_launch_choices(
     created_at: Optional[int] = None,
     strict_session: bool = False,
 ) -> Dict[str, Any]:
-    """Validate pre-launch choices (`start.mode`, `start.survival`, `start.place`) and build `launch_choices.json`."""
+    """Validate pre-launch choices (`start.mode`, `start.variant`, `start.survival`, `start.place`) and build `launch_choices.json`."""
     mode = str(values.get("start.mode", "story") or "story").strip().lower()
     if mode not in MODE_CHOICES:
         raise ValueError(f"start.mode: {mode!r} is not one of story, warfare")
+    requested_variant = str(values.get("start.variant", "") or "").strip().lower()
+    if requested_variant not in ("",) + VARIANT_CHOICES:
+        raise ValueError(f"start.variant: {requested_variant!r} is not one of '', normal, quick")
+    if mode != "story" and requested_variant:
+        raise ValueError(f"start.variant {requested_variant!r} is only valid for mode='story', not mode={mode!r}")
     survival = bool(values.get("start.survival", False))
     requested_place = str(values.get("start.place", "") or "").strip()
 
     all_rows = sp.load_start_places(start_places_path)
-    avail_for_mode, reasons, eff_plugins, places_arg = filtered_places_for_session(
-        mode=mode,
+    eff_plugins, places_arg, enforce_plugins = _resolve_session_filters(
         starfield_dir=starfield_dir,
         entries=entries,
         loaded_plugins=loaded_plugins,
         loaded_places=loaded_places,
-        start_places_path=start_places_path,
         strict_session=strict_session,
+    )
+    avail_for_mode, reasons = evaluate_start_places(
+        all_rows,
+        start_places_path=start_places_path,
+        mode=mode,
+        loaded_plugins=eff_plugins if enforce_plugins else None,
+        loaded_places=places_arg,
     )
 
     if survival:
-        has_content_entries = bool(
-            entries and any(str(name).strip().casefold() in CONTENT_PLUGINS for name, _ticked in entries)
-        )
-        enforce_survival_plugin = (
-            strict_session
-            or loaded_plugins is not None
-            or (eff_plugins is not None and (places_arg is not None or has_content_entries))
-        )
         known_plugin_set = eff_plugins
         if known_plugin_set is None and isinstance(places_arg, dict) and places_arg.get("present_plugins") is not None:
             known_plugin_set = {
                 str(p).strip().casefold() for p in places_arg.get("present_plugins", ()) if str(p).strip()
             }
-        if enforce_survival_plugin:
+        if enforce_plugins:
             if known_plugin_set is None or HARDCORE_PLUGIN.casefold() not in known_plugin_set:
                 raise ValueError(f"start.survival: --survival on requires {HARDCORE_PLUGIN} to be present and active")
 
@@ -494,10 +586,41 @@ def resolve_and_build_launch_choices(
             why = reasons.get(requested_place) or row_info.unavailable_reason or "plugins or places not loaded"
             raise ValueError(f"start.place {requested_place!r} is unavailable: {why}")
         chosen = matched[0]
+        if mode == "story" and requested_variant:
+            row_variant = str(getattr(chosen, "start_variant", "") or "").strip().lower()
+            if row_variant != requested_variant:
+                raise ValueError(
+                    f"start.variant {requested_variant!r} is incompatible with start.place {chosen.id!r} "
+                    f"(variant={row_variant!r})"
+                )
+    elif mode == "story" and requested_variant:
+        matching_var = [
+            r for r in avail_for_mode
+            if str(getattr(r, "start_variant", "") or "").strip().lower() == requested_variant
+        ]
+        if not matching_var:
+            why = "; ".join(
+                f"{r.id}: {reasons.get(r.id) or r.unavailable_reason or 'unavailable'}"
+                for r in all_rows
+                if r.mode == "story"
+                and str(getattr(r, "start_variant", "") or "").strip().lower() == requested_variant
+            ) or f"no available story start for variant={requested_variant!r}"
+            raise ValueError(f"start.variant ({requested_variant}): no valid story start for loaded plugins/places ({why})")
+        chosen = matching_var[0]
     else:
         chosen = avail_for_mode[0]
 
-    canonical_avail = [r for r in all_rows if r.available and (r.mode != "story" or r.id in ALLOWED_STORY_IDS)]
+    if enforce_plugins or places_arg is not None:
+        canonical_avail, _all_reasons = evaluate_start_places(
+            all_rows,
+            start_places_path=start_places_path,
+            mode=None,
+            loaded_plugins=eff_plugins if enforce_plugins else None,
+            loaded_places=places_arg,
+            allow_story_ids=ALLOWED_STORY_IDS,
+        )
+    else:
+        canonical_avail = [r for r in all_rows if r.available and (r.mode != "story" or r.id in ALLOWED_STORY_IDS)]
     start_place_row = next((i for i, r in enumerate(canonical_avail) if r.id == chosen.id), 0)
 
     wf_rows = ws.load_warfare_starts(warfare_starts_path)
@@ -510,14 +633,18 @@ def resolve_and_build_launch_choices(
 
     story_choices = sp.available_story_choices(canonical_avail)
     story_choice_idx = -1
+    start_variant = "none"
     if chosen.mode == "story":
         story_choice_idx = next((i for i, (sid, _lbl) in enumerate(story_choices) if sid == chosen.story_id), 0)
+        start_variant = str(getattr(chosen, "start_variant", "") or "").strip().lower()
+        if start_variant not in VARIANT_CHOICES:
+            raise ValueError(f"start.place {chosen.id!r}: invalid story start_variant {start_variant!r}")
 
     surv_i = 1 if survival else 0
     nonce_str = str(nonce or "").strip() or uuid.uuid4().hex[:16]
     created_epoch = int(time.time()) if created_at is None else int(created_at)
     return {
-        "schema_version": 1,
+        "schema_version": LAUNCH_CHOICES_SCHEMA_VERSION,
         "mode": chosen.mode,
         "game_mode": 1 if chosen.mode == "story" else 2,
         "survival": survival,
@@ -525,6 +652,7 @@ def resolve_and_build_launch_choices(
         "survival_locked": surv_i if chosen.mode == "warfare" else 0,
         "story_id": chosen.story_id if chosen.mode == "story" else "none",
         "story_choice_idx": story_choice_idx,
+        "start_variant": start_variant,
         "warfare_faction_slot": chosen.faction_slot if chosen.mode == "warfare" else -1,
         "warfare_start_idx": wf_idx,
         "place_id": chosen.id,

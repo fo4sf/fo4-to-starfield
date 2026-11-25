@@ -9,8 +9,8 @@ Assembles a standalone, self-contained staging folder outside Git and Starfield 
   - Stage=2 `FO4SFPipboyMenu.ini` generated via `make_pipboy_stage_ini.py` preserving shipped
     `MapBlockStarMap=0`, `MapSurvival=0`, and `SetupShowUnavailable=0` (or caller setting)
   - `Data/SFSE/Plugins/FO4SFStartPlaces.json` & `FO4SFWarfareStarts.json` (validated strictly:
-    only `fo4_vault111` claims available in Story until Task 6; Commonwealth Warfare starts
-    verified against loaded plugins/exterior cells)
+    `fo4_vault111` active on `#860`, `fo4_prewar_sanctuary` included only when prewar plugins
+    are loaded; Commonwealth Warfare starts verified against loaded plugins/exterior cells)
   - `P3` zero-`M/N/V` inspection batches `s5a.txt` (Corvega) and `s5b.txt` (Gunners Plaza)
   - `manifest.json` with SHA-256 checksums for atomic `probe_common.install_probe` / `uninstall_probe`
 
@@ -64,6 +64,18 @@ DEFAULT_CARD_PATH = REPO_ROOT / "docs" / "testing" / "r12-start-menus-card.md"
 DEFAULT_START_PLACES = REPO_ROOT / "src" / "fo4sf" / "core" / "start_places.json"
 DEFAULT_WARFARE_STARTS = REPO_ROOT / "src" / "fo4sf" / "core" / "warfare_starts.json"
 DEFAULT_MSVC_ENV_PS1: Optional[Path] = None
+
+DEFAULT_SESSION_PLUGINS: Tuple[str, ...] = (
+    "Starfield.esm",
+    "FO4Port.esm",
+    "FO4TerrainCore.esm",
+    "FO4SFNewGame.esm",
+    "FO4SFCoreValues.esm",
+    "FO4SFReputation.esm",
+    "FO4SFProgression.esm",
+    "FO4SFCompanions.esm",
+    "FO4SFMission.esm",
+)
 
 TESTED_SLOT2_PIPBOY_DLL_SHA256 = "c0e232b95fb6a31f1959d02bb529701b41d4e2f6e62dc268739a6e75534b8767"
 PIPBOY_SOURCE_REL_PATHS: Tuple[str, ...] = (
@@ -303,13 +315,18 @@ def _generate_pipboy_ini(
         make_pipboy_stage_ini.assert_no_kit_entries(ini_text)
 
 
-def _scan_core_places(core_esm: Optional[Path], port_esm: Optional[Path]) -> Optional[Dict[str, Any]]:
-    """Scan loaded TES4 core/port plugins for markers and exterior/interior cells when present."""
+def _scan_core_places(
+    core_esm: Optional[Path],
+    port_esm: Optional[Path],
+    prewar_esm: Optional[Path] = None,
+    prewar_sanctuary_esm: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Scan loaded TES4 core/port/prewar plugins for markers and exterior/interior cells when present."""
     markers: set[str] = set()
     interior_cells: set[str] = set()
     exterior_cells: set[Tuple[int, int]] = set()
     parsed: List[str] = []
-    for p in (core_esm, port_esm):
+    for p in (core_esm, port_esm, prewar_esm, prewar_sanctuary_esm):
         if p is not None and p.is_file():
             if lc._scan_single_tes4_places(str(p), markers, interior_cells, exterior_cells):
                 parsed.append(p.name)
@@ -329,32 +346,52 @@ def _validate_start_configs(
     warfare_starts_path: Path,
     core_esm: Optional[Path],
     port_esm: Optional[Path],
+    loaded_plugins: Optional[Iterable[str]] = None,
+    prewar_esm: Optional[Path] = None,
+    prewar_sanctuary_esm: Optional[Path] = None,
 ) -> Tuple[Tuple[sp.StartPlaceRow, ...], Tuple[ws.WarfareStartRow, ...]]:
-    """Enforce Task 5 strict Story (`fo4_vault111`-only) and Warfare exterior cell/anchor validity."""
-    scan = _scan_core_places(core_esm, port_esm)
+    """Validate story/warfare start rows against loaded plugins and scanned cells/markers.
+
+    On `#860` (without `FO4SFPrewar.esm`), `fo4_vault111` is active while `fo4_prewar_sanctuary`
+    is skipped unless prewar plugins (`FO4SFPrewar.esm`, `FO4SFPrewar_Sanctuary.esm`) are loaded.
+    """
+    eff_plugins = tuple(loaded_plugins) if loaded_plugins is not None else DEFAULT_SESSION_PLUGINS
+    scan = _scan_core_places(core_esm, port_esm, prewar_esm=prewar_esm, prewar_sanctuary_esm=prewar_sanctuary_esm)
     known_ext = scan["exterior_cells"] if scan is not None else None
     all_rows = sp.load_start_places(
         str(start_places_path),
         available_only=False,
-        known_exterior_cells=known_ext,
         allow_story_ids=sp.ALLOWED_STORY_START_IDS,
     )
     warfare_rows = ws.load_warfare_starts(
         str(warfare_starts_path),
         known_exterior_cells=known_ext,
     )
-    avail_story = [r.id for r in all_rows if r.mode == "story" and r.available]
-    if avail_story != ["fo4_vault111"]:
+    avail_rows, _reasons = lc.evaluate_start_places(
+        all_rows,
+        start_places_path=str(start_places_path),
+        loaded_plugins=eff_plugins,
+        loaded_places=scan,
+        allow_story_ids=sp.ALLOWED_STORY_START_IDS,
+    )
+    plugin_set = {str(p).strip().casefold() for p in eff_plugins if str(p).strip()}
+    prewar_present = (
+        "fo4sfprewar.esm" in plugin_set
+        and "fo4sfprewar_sanctuary.esm" in plugin_set
+    )
+    avail_story = [r.id for r in avail_rows if r.mode == "story"]
+    expected_story = ["fo4_prewar_sanctuary", "fo4_vault111"] if prewar_present else ["fo4_vault111"]
+    if avail_story != expected_story:
         raise probe_common.ProbeValidationError(
-            f"Task 5 requires only 'fo4_vault111' available in Story (found {avail_story})"
+            f"Expected Story available starts {expected_story} for loaded plugins (found {avail_story})"
         )
-    avail_warfare = {r.id for r in all_rows if r.mode == "warfare" and r.available}
+    avail_warfare = {r.id for r in avail_rows if r.mode == "warfare"}
     for req_id in ("minutemen_sanctuary", "gunners_plaza", "raiders_corvega"):
         if req_id not in avail_warfare:
             raise probe_common.ProbeValidationError(
                 f"Expected Commonwealth Warfare start {req_id!r} to be available (found {sorted(avail_warfare)})"
             )
-    return all_rows, warfare_rows
+    return tuple(avail_rows), warfare_rows
 
 
 def _build_newgame_stage(
@@ -541,7 +578,7 @@ def stage_probe(
     if not warfare_starts_path.is_file():
         raise FileNotFoundError(f"Missing warfare_starts.json: {warfare_starts_path}")
 
-    all_rows, _warfare_rows = _validate_start_configs(
+    avail_rows, _warfare_rows = _validate_start_configs(
         start_places_path=start_places_path,
         warfare_starts_path=warfare_starts_path,
         core_esm=resolved_core if resolved_core is not None and resolved_core.is_file() else None,
@@ -690,7 +727,7 @@ def stage_probe(
         "schema": "fo4sf.r12_start_menus_manifest.v1",
         "probe_id": PROBE_ID,
         "plugins_to_activate": ["FO4SFNewGame.esm"],
-        "available_starts": [r.id for r in all_rows if r.available],
+        "available_starts": [r.id for r in avail_rows],
         "start_choice_backdrop": start_choice_backdrop,
         "show_unavailable_starts": int(bool(show_unavailable_starts)),
         "newgame_esm_sha256": ng_esm_sha,
@@ -763,7 +800,7 @@ def verify_probe(
             "Manifest plugins_to_activate must NOT activate FO4SFRouteLoot.esm (direct Warfare [null+0x1F0] crash)."
         )
 
-    all_rows, _ = _validate_start_configs(
+    avail_rows, _ = _validate_start_configs(
         start_places_path=st / "Data" / "SFSE" / "Plugins" / "FO4SFStartPlaces.json",
         warfare_starts_path=st / "Data" / "SFSE" / "Plugins" / "FO4SFWarfareStarts.json",
         core_esm=core_esm if core_esm is not None and core_esm.is_file() else None,
@@ -792,7 +829,7 @@ def verify_probe(
         "probe_id": PROBE_ID,
         "files_verified": len(files),
         "ba2_entries": len(ba2_actual),
-        "available_starts": [r.id for r in all_rows if r.available],
+        "available_starts": [r.id for r in avail_rows],
         "card_validated": card_validated,
     }
 

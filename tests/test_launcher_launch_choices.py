@@ -116,6 +116,22 @@ class LaunchChoicesTests(unittest.TestCase):
             if not p.exists():
                 p.write_bytes(_build_minimal_tes4_plugin())
 
+    def test_scan_detects_real_tes4_data_flagged_interior_cell(self):
+        # Real Starfield/FO4 plugins set DATA[0] & 0x01 with record flags == 0 under GRUP(CELL)
+        hedr = struct.pack("<fIi", 0.96, 1, 0x800)
+        tes4 = _record(b"TES4", 0, _subrec(b"HEDR", hedr) + _subrec(b"CNAM", b"Test\0"), flags=1)
+        cell_rec = _record(
+            b"CELL",
+            0x010049B4,
+            _subrec(b"EDID", b"FO4Port_Vault111Cryo\0") + _subrec(b"DATA", struct.pack("<I", 1)),
+            flags=0,
+        )
+        (self.data / "FO4Port.esm").write_bytes(tes4 + _grup(b"CELL", 0, cell_rec))
+        scanned = launch_choices.scan_data_dir_places(str(self.data))
+        self.assertIsNotNone(scanned)
+        assert scanned is not None
+        self.assertIn("FO4Port_Vault111Cryo", scanned["interior_cells"])
+
     def test_filters_strictly_by_mode_and_loaded_plugins_and_places(self):
         scanned = launch_choices.scan_data_dir_places(str(self.data))
         self.assertIsNotNone(scanned)
@@ -130,6 +146,19 @@ class LaunchChoicesTests(unittest.TestCase):
             mode="story", loaded_plugins=ALL_REQ_PLUGINS, loaded_places=scanned
         )
         self.assertEqual([r.id for r in story_avail], ["fo4_vault111"])
+
+        # Also test Pre-War Sanctuary (#863) when prewar plugins + cell/marker are loaded vs absent (#860)
+        self.assertNotIn("fo4_prewar_sanctuary", [r.id for r in story_avail])
+        prewar_avail, _ = launch_choices.evaluate_start_places(
+            mode="story",
+            loaded_plugins=ALL_REQ_PLUGINS + ("FO4SFPrewar.esm", "FO4SFPrewar_Sanctuary.esm"),
+            loaded_places={
+                "markers": set(scanned["markers"]) | {"FO4SF_PrewarHouseSpawnMarker"},
+                "interior_cells": set(scanned["interior_cells"]),
+                "exterior_cells": set(scanned["exterior_cells"]) | {(0, -1)},
+            },
+        )
+        self.assertEqual([r.id for r in prewar_avail], ["fo4_prewar_sanctuary", "fo4_vault111"])
 
         warfare_avail, _ = launch_choices.evaluate_start_places(
             mode="warfare", loaded_plugins=ALL_REQ_PLUGINS, loaded_places=scanned
@@ -206,7 +235,10 @@ class LaunchChoicesTests(unittest.TestCase):
 
     def test_refuses_non_vault111_story_row_claiming_available_until_task6(self):
         raw = json.loads(Path(sp.START_PLACES_JSON).read_text(encoding="utf-8"))
-        raw["places"][2]["available"] = True  # fo3_vault101
+        for entry in raw["places"]:
+            if entry["id"] == "fo3_vault101":
+                entry["available"] = True
+                break
         bad_json = self.root / "bad_story.json"
         bad_json.write_text(json.dumps(raw), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "before Task 6"):
@@ -231,6 +263,7 @@ class LaunchChoicesTests(unittest.TestCase):
             min_difficulty=0,
             max_difficulty=3,
             available=True,
+            start_variant="quick",
         )
         avail, reasons = launch_choices.evaluate_start_places([fake_story], mode="story")
         self.assertEqual(avail, [])
@@ -243,9 +276,14 @@ class LaunchChoicesTests(unittest.TestCase):
         payload = launch_choices.resolve_and_build_launch_choices(
             values, starfield_dir=str(self.game), entries=entries, nonce="abc123", created_at=1795500000, strict_session=True
         )
+        self.assertEqual(launch_choices.LAUNCH_CHOICES_SCHEMA_VERSION, 2)
+        self.assertEqual(launch_choices.ALLOWED_STORY_IDS, ("fo4_prewar_sanctuary", "fo4_vault111"))
+        self.assertNotIn("route", launch_choices.RESTART_ONLY_KEYS)
         self.assertEqual(set(payload), set(launch_choices.RESTART_ONLY_KEYS))
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["mode"], "warfare")
         self.assertEqual(payload["game_mode"], 2)
+        self.assertEqual(payload["start_variant"], "none")
         self.assertTrue(payload["survival"])
         self.assertEqual(payload["survival_start"], 1)
         self.assertEqual(payload["survival_locked"], 1)
@@ -256,8 +294,90 @@ class LaunchChoicesTests(unittest.TestCase):
         self.assertEqual(payload["min_difficulty"], 2)  # F11: raiders_corvega min_difficulty
         self.assertEqual(payload["created_at"], 1795500000)
         self.assertEqual(payload["nonce"], "abc123")
-        for forbidden in ("difficulty", "special", "traits", "appearance", "skills"):
+        for forbidden in ("difficulty", "special", "traits", "appearance", "skills", "route"):
             self.assertNotIn(forbidden, payload)
+
+        # #860 story default (no FO4SFPrewar.esm): fo4_vault111 -> start_place_row == 0, start_variant == "quick"
+        story_vals = dict(settings.defaults(), **{"start.mode": "story"})
+        story_860 = launch_choices.resolve_and_build_launch_choices(
+            story_vals, starfield_dir=str(self.game), entries=entries, nonce="st860", created_at=1795500001, strict_session=True
+        )
+        self.assertEqual(story_860["schema_version"], 2)
+        self.assertEqual(story_860["place_id"], "fo4_vault111")
+        self.assertEqual(story_860["start_variant"], "quick")
+        self.assertEqual(story_860["start_place_row"], 0)
+
+        # #863 story with FO4SFPrewar.esm + FO4SFPrewar_Sanctuary.esm loaded: fo4_prewar_sanctuary == 0, fo4_vault111 == 1, raiders_corvega == 4
+        prewar_plugins = ALL_REQ_PLUGINS + ("FO4SFPrewar.esm", "FO4SFPrewar_Sanctuary.esm")
+        prewar_places = {
+            "markers": {"FO4SF_PrewarHouseSpawnMarker", "FO4Core_CommonwealthMapMarkerSanctuary", "FO4Core_CommonwealthAnchor"},
+            "interior_cells": {"FO4Port_Vault111Cryo"},
+            "exterior_cells": {(0, -1), (-12, 12), (-2, -11), (-6, 5)},
+        }
+        story_863_norm = launch_choices.resolve_and_build_launch_choices(
+            dict(settings.defaults(), **{"start.mode": "story", "start.variant": "normal"}),
+            loaded_plugins=prewar_plugins,
+            loaded_places=prewar_places,
+            nonce="st863n",
+            created_at=1795500002,
+            strict_session=True,
+        )
+        self.assertEqual(story_863_norm["schema_version"], 2)
+        self.assertEqual(story_863_norm["place_id"], "fo4_prewar_sanctuary")
+        self.assertEqual(story_863_norm["start_variant"], "normal")
+        self.assertEqual(story_863_norm["start_place_row"], 0)
+
+        story_863_quick = launch_choices.resolve_and_build_launch_choices(
+            dict(settings.defaults(), **{"start.mode": "story", "start.variant": "quick"}),
+            loaded_plugins=prewar_plugins,
+            loaded_places=prewar_places,
+            nonce="st863q",
+            created_at=1795500003,
+            strict_session=True,
+        )
+        self.assertEqual(story_863_quick["place_id"], "fo4_vault111")
+        self.assertEqual(story_863_quick["start_variant"], "quick")
+        self.assertEqual(story_863_quick["start_place_row"], 1)
+
+        wf_863 = launch_choices.resolve_and_build_launch_choices(
+            dict(settings.defaults(), **{"start.mode": "warfare", "start.place": "raiders_corvega"}),
+            loaded_plugins=prewar_plugins,
+            loaded_places=prewar_places,
+            nonce="wf863",
+            created_at=1795500004,
+            strict_session=True,
+        )
+        self.assertEqual(wf_863["start_place_row"], 4)
+        self.assertEqual(wf_863["start_variant"], "none")
+
+        # Variant compatibility & unavailability checks
+        with self.assertRaisesRegex(ValueError, "incompatible"):
+            launch_choices.resolve_and_build_launch_choices(
+                dict(settings.defaults(), **{"start.mode": "story", "start.variant": "normal", "start.place": "fo4_vault111"}),
+                loaded_plugins=prewar_plugins,
+                loaded_places=prewar_places,
+                nonce="badvar1",
+                created_at=1795500005,
+                strict_session=True,
+            )
+        with self.assertRaisesRegex(ValueError, "only valid for mode='story'"):
+            launch_choices.resolve_and_build_launch_choices(
+                dict(settings.defaults(), **{"start.mode": "warfare", "start.variant": "normal"}),
+                loaded_plugins=prewar_plugins,
+                loaded_places=prewar_places,
+                nonce="badvar2",
+                created_at=1795500006,
+                strict_session=True,
+            )
+        with self.assertRaisesRegex(ValueError, "FO4SFPrewar"):
+            launch_choices.resolve_and_build_launch_choices(
+                dict(settings.defaults(), **{"start.mode": "story", "start.variant": "normal"}),
+                starfield_dir=str(self.game),
+                entries=entries,
+                nonce="badvar3",
+                created_at=1795500007,
+                strict_session=True,
+            )
 
         with self.assertRaisesRegex(ValueError, "non-restart keys"):
             launch_choices.write_launch_choices(
@@ -303,13 +423,71 @@ class LaunchChoicesTests(unittest.TestCase):
             ["", "fo4_vault111"],
         )
         self.assertEqual(
+            launch_choices.available_place_options("story", variant="normal", starfield_dir=str(self.game), entries=entries),
+            [""],
+        )
+        self.assertEqual(
+            launch_choices.available_place_options("story", variant="quick", starfield_dir=str(self.game), entries=entries),
+            ["", "fo4_vault111"],
+        )
+        self.assertEqual(
             launch_choices.available_place_options("warfare", starfield_dir=str(self.game), entries=entries),
             ["", "minutemen_sanctuary", "gunners_plaza", "raiders_corvega"],
         )
 
+        # GUI disabled unavailable rows formatting + non-interactive Text widget check
+        items, text = gui.format_unavailable_start_places("story", starfield_dir=str(self.game), entries=entries)
+        by_id = {it["id"]: it for it in items}
+        self.assertIn("fo4_prewar_sanctuary", by_id)
+        self.assertEqual(by_id["fo4_prewar_sanctuary"]["start_variant"], "normal")
+        self.assertIn("FO4SFPrewar.esm", by_id["fo4_prewar_sanctuary"]["reason"])
+        self.assertIn("fo3_vault101_birth", by_id)
+        self.assertIn("fo3_vault101", by_id)
+        self.assertIn("fnv_goodsprings", by_id)
+        self.assertIn("fnv_goodsprings_door", by_id)
+        self.assertIn("[normal]", text)
+        self.assertIn("[quick]", text)
+        self.assertIn(by_id["fo3_vault101"]["reason"], text)
+
+        gui_src = (ROOT / "src" / "fo4sf" / "launcher" / "gui.py").read_text(encoding="utf-8")
+        self.assertIn("self.start_places_unavailable_box = unavail_box", gui_src)
+        self.assertIn('state="disabled"', gui_src)
+        self.assertNotIn("self.widgets.append((unavail_box", gui_src)
+        self.assertGreater(gui_src.index("refresh_start_place_choices"), gui_src.index("start_places_unavailable_box"))
+
+        try:
+            import tkinter as tk
+            tk_root = tk.Tk()
+            tk_root.withdraw()
+            pal = gui.select_palette(False)
+            txt = tk.Text(
+                tk_root,
+                height=6,
+                wrap="word",
+                state="disabled",
+                background=pal["panel"],
+                foreground=pal["muted"],
+                relief="flat",
+                takefocus=0,
+                cursor="arrow",
+                exportselection=False,
+            )
+            txt.configure(state="normal")
+            txt.insert("1.0", text)
+            txt.configure(state="disabled")
+            self.assertEqual(str(txt.cget("state")), "disabled")
+            self.assertIn("Sanctuary Hills (Pre-War)", txt.get("1.0", "end"))
+            tk_root.destroy()
+        except (ImportError, Exception) as exc:
+            if "tk" in str(exc).lower() or isinstance(exc, ImportError):
+                pass
+            else:
+                raise
+
         # GUI control mapping stays 1:1 with SPEC
         keys = [c["key"] for c in gui.controls()]
         self.assertIn("start.mode", keys)
+        self.assertIn("start.variant", keys)
         self.assertIn("start.survival", keys)
         self.assertIn("start.place", keys)
 
@@ -360,7 +538,7 @@ class LaunchChoicesTests(unittest.TestCase):
             self.assertGreater(written["created_at"], 0)
             self.assertEqual(written["nonce"], "n99")
 
-            # CLI launch-choices subcommand
+            # CLI launch-choices subcommand (including --variant and --place/--variant compatibility)
             spec = importlib.util.spec_from_file_location("launcher_cli_lc", str(ROOT / "scripts" / "launcher.py"))
             cli = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(cli)
@@ -372,12 +550,33 @@ class LaunchChoicesTests(unittest.TestCase):
                 ])
             self.assertEqual(rc, 0)
             rep = json.loads(out.getvalue())
+            self.assertEqual(rep["choices"]["schema_version"], 2)
+            self.assertEqual(rep["choices"]["start_variant"], "none")
             self.assertEqual(rep["choices"]["place_id"], "gunners_plaza")
             self.assertEqual(rep["choices"]["min_difficulty"], 1)
             self.assertEqual(
                 launch_choices.read_launch_choices(launch_choices.default_launch_choices_path())["place_id"],
                 "gunners_plaza",
             )
+
+            out_story = io.StringIO()
+            with redirect_stdout(out_story):
+                rc_s = cli.main([
+                    "launch-choices", "--starfield", str(self.game), "--mode", "story",
+                    "--variant", "quick", "--survival", "off", "--nonce", "cli78", "--write", "--json",
+                ])
+            self.assertEqual(rc_s, 0)
+            rep_s = json.loads(out_story.getvalue())
+            self.assertEqual(rep_s["choices"]["schema_version"], 2)
+            self.assertEqual(rep_s["choices"]["place_id"], "fo4_vault111")
+            self.assertEqual(rep_s["choices"]["start_variant"], "quick")
+            self.assertEqual(rep_s["choices"]["start_place_row"], 0)
+
+            rc_bad_var = cli.main([
+                "launch-choices", "--starfield", str(self.game), "--mode", "story",
+                "--place", "fo4_vault111", "--variant", "normal",
+            ])
+            self.assertEqual(rc_bad_var, 2)
 
             # Unticking FO4TerrainCore.esm refuses warfare play cleanly before start_game
             fake.entries = [(p, p != "FO4TerrainCore.esm") for p in ALL_REQ_PLUGINS]
@@ -403,9 +602,9 @@ class LaunchChoicesTests(unittest.TestCase):
         choices_p = self.local / "FO4SF" / "launch_choices.json"
         launch_choices.write_launch_choices(str(choices_p), payload)
 
-        # Negative payloads: Story != fo4_vault111, empty nonce, stale timestamp
+        # Negative payloads: Story != available table / missing plugin / schema_version=1 / mismatched start_variant / empty nonce / stale timestamp
         bad_p = self.local / "FO4SF" / "bad_choices.json"
-        bad_payload = dict(payload, mode="story", game_mode=1, story_id="fo3_cw", story_choice_idx=1, place_id="fo3_vault101")
+        bad_payload = dict(payload, mode="story", game_mode=1, story_id="fo3_cw", story_choice_idx=1, start_variant="quick", place_id="fo3_vault101")
         bad_p.write_text(json.dumps(bad_payload), encoding="utf-8")
 
         bad_nonce_p = self.local / "FO4SF" / "bad_nonce.json"
@@ -414,6 +613,40 @@ class LaunchChoicesTests(unittest.TestCase):
         stale_p = self.local / "FO4SF" / "stale_choices.json"
         stale_p.write_text(json.dumps(dict(payload, created_at=now_epoch - 30000)), encoding="utf-8")
 
+        v1_p = self.local / "FO4SF" / "v1_choices.json"
+        v1_p.write_text(json.dumps(dict(payload, schema_version=1)), encoding="utf-8")
+
+        prewar_plugins = ALL_REQ_PLUGINS + ("FO4SFPrewar.esm", "FO4SFPrewar_Sanctuary.esm")
+        prewar_places = {
+            "markers": {"FO4SF_PrewarHouseSpawnMarker", "FO4Core_CommonwealthMapMarkerSanctuary", "FO4Core_CommonwealthAnchor"},
+            "interior_cells": {"FO4Port_Vault111Cryo"},
+            "exterior_cells": {(0, -1), (-12, 12), (-2, -11), (-6, 5)},
+        }
+        prewar_vals = dict(settings.defaults(), **{"start.mode": "story", "start.variant": "normal"})
+        prewar_payload = launch_choices.resolve_and_build_launch_choices(
+            prewar_vals,
+            loaded_plugins=prewar_plugins,
+            loaded_places=prewar_places,
+            nonce="prewar_cpp_1",
+            created_at=now_epoch,
+            strict_session=True,
+        )
+        prewar_p = self.local / "FO4SF" / "prewar_choices.json"
+        launch_choices.write_launch_choices(str(prewar_p), prewar_payload)
+
+        prewar_bad_var_p = self.local / "FO4SF" / "prewar_bad_var.json"
+        prewar_bad_var_p.write_text(json.dumps(dict(prewar_payload, start_variant="quick")), encoding="utf-8")
+
+        sp_copy_p = self.local / "FO4SF" / "FO4SFStartPlaces.json"
+        sp_copy_p.write_text(Path(sp.START_PLACES_JSON).read_text(encoding="utf-8"), encoding="utf-8")
+        sp_disabled_obj = json.loads(Path(sp.START_PLACES_JSON).read_text(encoding="utf-8"))
+        for row in sp_disabled_obj["places"]:
+            if row["id"] == "fo4_prewar_sanctuary":
+                row["available"] = False
+                row["unavailable_reason"] = "Disabled for test"
+        sp_disabled_p = self.local / "FO4SF" / "FO4SFStartPlaces_disabled.json"
+        sp_disabled_p.write_text(json.dumps(sp_disabled_obj), encoding="utf-8")
+
         cpp_src = self.root / "cpp_lc_check.cpp"
         exe = self.root / ("cpp_lc_check.exe" if sys.platform == "win32" else "cpp_lc_check")
         hdr = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "setup_places.h").as_posix()
@@ -421,13 +654,16 @@ class LaunchChoicesTests(unittest.TestCase):
             f"""#include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <string>
+#include <vector>
 #include "{hdr}"
 int main(int argc, char** argv) {{
     using namespace fo4sf::setup;
     const std::int64_t nowEpoch = {now_epoch};
     LaunchChoicesPayload good;
     assert(LoadLaunchChoicesFile(argv[1], good, nowEpoch));
-    assert(good.valid && good.modeVal == 2 && good.modeTag == "warfare");
+    assert(good.valid && good.schemaVersion == 2 && good.modeVal == 2 && good.modeTag == "warfare");
+    assert(good.startVariant == "none");
     assert(good.survivalStart == 1 && good.survivalLocked == 1);
     assert(good.warfareFactionSlot == 7 && good.warfareStartIdx == 2);
     assert(good.placeId == "raiders_corvega" && good.startPlaceRow == 3);
@@ -440,9 +676,40 @@ int main(int argc, char** argv) {{
     assert(ResolveLaunchMinDifficulty(noDiff) == 2);
 
     LaunchChoicesPayload bad;
-    assert(!LoadLaunchChoicesFile(argv[2], bad, nowEpoch));
+    assert(!LoadLaunchChoicesFile(argv[2], bad, nowEpoch));  // fo3_vault101 unavailable in table
     assert(!LoadLaunchChoicesFile(argv[4], bad, nowEpoch));  // empty nonce rejected
     assert(!LoadLaunchChoicesFile(argv[5], bad, nowEpoch));  // stale created_at rejected
+    assert(!LoadLaunchChoicesFile(argv[6], bad, nowEpoch));  // schema_version=1 rejected
+
+    // Real start_places.json verification: fo4_prewar_sanctuary accepted when prewar plugins loaded, refused otherwise
+    bool fromFile = false;
+    auto tableRows = LoadStartPlacesFileOrFallback(argv[7], fromFile);
+    assert(fromFile);
+    const std::vector<std::string> withPrewarPlugins = {{
+        "Starfield.esm", "FO4Port.esm", "FO4TerrainCore.esm",
+        "FO4SFPrewar_Sanctuary.esm", "FO4SFPrewar.esm", "FO4SFNewGame.esm", "FO4SFCoreValues.esm"
+    }};
+    const std::vector<std::string> noPrewarPlugins = {{
+        "Starfield.esm", "FO4Port.esm", "FO4TerrainCore.esm", "FO4SFNewGame.esm", "FO4SFCoreValues.esm"
+    }};
+    LaunchChoicesPayload pwGood;
+    std::string reason;
+    assert(LoadLaunchChoicesFile(argv[8], tableRows, withPrewarPlugins, pwGood, nowEpoch, 21600, true, &reason));
+    assert(pwGood.valid && pwGood.schemaVersion == 2 && pwGood.placeId == "fo4_prewar_sanctuary");
+    assert(pwGood.startVariant == "normal" && pwGood.startPlaceRow == 0);
+
+    LaunchChoicesPayload pwRefused;
+    assert(!LoadLaunchChoicesFile(argv[8], tableRows, noPrewarPlugins, pwRefused, nowEpoch, 21600, true, &reason));
+    assert(reason.find("missing_plugin:") != std::string::npos);
+
+    assert(!LoadLaunchChoicesFile(argv[9], tableRows, withPrewarPlugins, pwRefused, nowEpoch, 21600, true, &reason));
+    assert(reason == "start_variant_mismatch");
+
+    bool disFromFile = false;
+    auto disRows = LoadStartPlacesFileOrFallback(argv[10], disFromFile);
+    assert(disFromFile);
+    assert(!LoadLaunchChoicesFile(argv[8], disRows, withPrewarPlugins, pwRefused, nowEpoch, 21600, true, &reason));
+    assert(reason == "row_unavailable");
 
     // F2 guard state machine: genuine New Game hydrates; loaded save (even with StartChoiceDone==0) NEVER hydrates!
     LaunchChoicesGuardState st;
@@ -508,7 +775,19 @@ int main(int argc, char** argv) {{
         comp = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(comp.returncode, 0, comp.stdout + "\n" + comp.stderr)
         run = subprocess.run(
-            [str(exe), str(choices_p), str(bad_p), str(self.local / "FO4SF"), str(bad_nonce_p), str(stale_p)],
+            [
+                str(exe),
+                str(choices_p),
+                str(bad_p),
+                str(self.local / "FO4SF"),
+                str(bad_nonce_p),
+                str(stale_p),
+                str(v1_p),
+                str(sp_copy_p),
+                str(prewar_p),
+                str(prewar_bad_var_p),
+                str(sp_disabled_p),
+            ],
             capture_output=True,
             text=True,
         )

@@ -24,6 +24,37 @@ def controls():
             for key, default, kind, cost in settings.SPEC if key not in paths.KEYS]
 
 
+def format_unavailable_start_places(
+    mode,
+    *,
+    starfield_dir="",
+    entries=None,
+    loaded_plugins=None,
+    loaded_places=None,
+    start_places_path=launch_choices.sp.START_PLACES_JSON,
+):
+    """Build display items and text for unavailable/locked rows rendered below `start_place_box`."""
+    items = launch_choices.unavailable_place_entries(
+        mode,
+        starfield_dir=starfield_dir,
+        entries=entries,
+        loaded_plugins=loaded_plugins,
+        loaded_places=loaded_places,
+        start_places_path=start_places_path,
+    )
+    lines = []
+    for item in items:
+        if item["mode"] == "story" and item.get("start_variant"):
+            label = f"{item['name']} [{item['start_variant']}]"
+        elif item.get("faction_label"):
+            label = f"{item['name']} ({item['faction_label']})"
+        else:
+            label = item["name"]
+        lines.append(f"[LOCKED] {label} — {item['reason']}")
+    text = "\n".join(lines) if lines else "All start places for this mode are available."
+    return items, text
+
+
 class SettingsModel:
     def __init__(self, launcher, path):
         self.launcher = os.path.abspath(launcher)
@@ -837,6 +868,9 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.cover_controller = None
             self.cover_crash_reason = ""
             self.start_place_box = None
+            self.start_variant_box = None
+            self.start_places_unavailable_box = None
+            self._refreshing_start_choices = False
             root.title("FO4SF Launcher")
             root.geometry("1040x840")
             root.minsize(840, 650)
@@ -940,6 +974,8 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                 var.trace_add("write", lambda *_args: self.refresh_play())
             if "start.mode" in self.vars:
                 self.vars["start.mode"].trace_add("write", lambda *_args: self.refresh_start_place_choices())
+            if "start.variant" in self.vars:
+                self.vars["start.variant"].trace_add("write", lambda *_args: self.refresh_start_place_choices())
             root.protocol("WM_DELETE_WINDOW", self.close)
             self.render_locations()
             self.refresh_start_place_choices()
@@ -1455,28 +1491,59 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             form.columnconfigure(1, weight=1)
             ttk.Label(form, text="saved in " + model.path, style="Muted.TLabel", wraplength=760).grid(
                 row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
-            for i, spec in enumerate(controls()):
+            row_idx = 1
+            for spec in controls():
                 key, kind = spec["key"], spec["kind"]
                 var = tk.BooleanVar(value=model.saved[key]) if kind == "bool" else tk.StringVar(value=model.saved[key])
                 self.vars[key] = var
-                ttk.Label(form, text=spec["label"]).grid(row=1 + 2 * i, column=0, sticky="w", padx=(0, 16))
+                ttk.Label(form, text=spec["label"]).grid(row=row_idx, column=0, sticky="w", padx=(0, 16))
                 if kind == "bool":
                     widget = ttk.Checkbutton(form, variable=var)
                 elif kind == "choice":
                     widget = ttk.Combobox(form, textvariable=var, values=spec["choices"], state="readonly")
+                    if key == "start.variant":
+                        self.start_variant_box = widget
                 elif key == "start.place":
                     init_vals = launch_choices.available_place_options(
                         model.saved["start.mode"],
+                        variant=model.saved.get("start.variant", ""),
                         starfield_dir=model.saved.get("instance") or model.saved.get("starfield") or "",
                     )
                     widget = ttk.Combobox(form, textvariable=var, values=init_vals, state="readonly")
                     self.start_place_box = widget
                 else:
                     widget = ttk.Entry(form, textvariable=var)
-                widget.grid(row=1 + 2 * i, column=1, sticky="w" if kind == "bool" else "ew")
+                widget.grid(row=row_idx, column=1, sticky="w" if kind == "bool" else "ew")
                 self.widgets.append((widget, "readonly" if (kind == "choice" or key == "start.place") else "normal"))
                 ttk.Label(form, text=spec["cost"], style="Muted.TLabel", wraplength=760).grid(
-                    row=2 + 2 * i, column=0, columnspan=2, sticky="w", pady=(2, 14))
+                    row=row_idx + 1, column=0, columnspan=2, sticky="w", pady=(2, 14 if key != "start.place" else 6))
+                row_idx += 2
+                if key == "start.place":
+                    ttk.Label(form, text="Unavailable start places (locked)", style="Muted.TLabel").grid(
+                        row=row_idx, column=0, sticky="nw", padx=(0, 16), pady=(0, 14))
+                    unavail_box = tk.Text(
+                        form,
+                        height=6,
+                        wrap="word",
+                        state="disabled",
+                        background=palette["panel"],
+                        foreground=palette["muted"],
+                        font=text_style["font"],
+                        relief="flat",
+                        highlightthickness=1,
+                        highlightbackground=palette["border"],
+                        highlightcolor=palette["border"],
+                        padx=8,
+                        pady=6,
+                        takefocus=0,
+                        cursor="arrow",
+                        exportselection=False,
+                    )
+                    for seq in ("<Button-1>", "<B1-Motion>", "<Double-Button-1>", "<Triple-Button-1>"):
+                        unavail_box.bind(seq, lambda _e: "break")
+                    unavail_box.grid(row=row_idx, column=1, sticky="ew", pady=(0, 14))
+                    self.start_places_unavailable_box = unavail_box
+                    row_idx += 1
 
         def build_log(self, tab):
             tab.rowconfigure(0, weight=1)
@@ -1515,21 +1582,53 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
             self.refresh_tests()
 
         def refresh_start_place_choices(self):
+            if self._refreshing_start_choices:
+                return
             if self.start_place_box is None or "start.mode" not in self.vars or "start.place" not in self.vars:
                 return
-            mode_val = self.vars["start.mode"].get()
-            folder = self.location_value("instance") if "instance" in self.loc else model.saved.get("instance", "")
-            sf_dir = folder or (
-                self.location_value("starfield") if "starfield" in self.loc else model.saved.get("starfield", "")
-            )
-            entries = None
-            if folder:
-                from . import crashwatch, instance
-                entries = crashwatch.System(plugins_txt=instance.plugins_txt(folder)).plugin_entries()
-            opts = launch_choices.available_place_options(mode_val, starfield_dir=sf_dir, entries=entries)
-            self.start_place_box.configure(values=opts)
-            if self.vars["start.place"].get() not in opts:
-                self.vars["start.place"].set("")
+            self._refreshing_start_choices = True
+            try:
+                mode_val = self.vars["start.mode"].get()
+                variant_val = self.vars["start.variant"].get() if "start.variant" in self.vars else ""
+                if mode_val != "story":
+                    if "start.variant" in self.vars and variant_val:
+                        self.vars["start.variant"].set("")
+                        variant_val = ""
+                    if self.start_variant_box is not None and not self.busy:
+                        self.start_variant_box.configure(state="disabled")
+                elif self.start_variant_box is not None and not self.busy:
+                    self.start_variant_box.configure(state="readonly")
+
+                folder = self.location_value("instance") if "instance" in self.loc else model.saved.get("instance", "")
+                sf_dir = folder or (
+                    self.location_value("starfield") if "starfield" in self.loc else model.saved.get("starfield", "")
+                )
+                entries = None
+                if folder:
+                    from . import crashwatch, instance
+                    entries = crashwatch.System(plugins_txt=instance.plugins_txt(folder)).plugin_entries()
+                opts = launch_choices.available_place_options(
+                    mode_val,
+                    variant=variant_val,
+                    starfield_dir=sf_dir,
+                    entries=entries,
+                )
+                self.start_place_box.configure(values=opts)
+                if self.vars["start.place"].get() not in opts:
+                    self.vars["start.place"].set("")
+
+                if self.start_places_unavailable_box is not None:
+                    _items, unavail_text = format_unavailable_start_places(
+                        mode_val,
+                        starfield_dir=sf_dir,
+                        entries=entries,
+                    )
+                    self.start_places_unavailable_box.configure(state="normal")
+                    self.start_places_unavailable_box.delete("1.0", "end")
+                    self.start_places_unavailable_box.insert("1.0", unavail_text)
+                    self.start_places_unavailable_box.configure(state="disabled")
+            finally:
+                self._refreshing_start_choices = False
 
         def refresh_workflow_strip(self, play_reason=""):
             loc_statuses = {k: item["status"] for k, item in self.loc.items()} if self.loc else None
@@ -1743,6 +1842,7 @@ def launch(launcher, path, *, recipe="", overrides=(), fo4_data=(), starfield=""
                                 self.show_error_banner(format_error_banner(str(e), action="save"))
                 self.refresh_play()
                 if kind in ("done", "error"):
+                    self.refresh_start_place_choices()
                     self.refresh_tests()
             root.after(75, self.drain)
 

@@ -115,7 +115,7 @@ Message Property WarfareGroupMsg Auto Const Mandatory
 Message Property WarfareSpotMsg Auto Const Mandatory
 {S4 Box 5 (0x80A): starting Warfare deployment spot.}
 Message Property StartPickMsg Auto Const
-{N2 pre-world appearance prompt (0x802): 0 Quick start, 1 Create character.}
+{N2 pre-world appearance prompt (0x802): 0 Use preset look, 1 Create character.}
 Message Property NoPipboyMsg Auto Const Mandatory
 {X2 / A16 (0x817): shown when activating the Vault 111 console before picking up the Pip-Boy.}
 

@@ -706,9 +706,10 @@ class ContractTests(unittest.TestCase):
 
     def test_the_race_menu_mode_and_the_opening_choice(self):
         """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 2) is the looks script's RaceMenuMode, passed
-        to ShowRaceMenu as its uiMode; the opening MESG offers the creator or the quick start, and the quick start never
-        calls ShowRaceMenu. The creator's close is awaited on "ChargenMenu", registered before the menu opens, with
-        the quest's LooksWait as the fallback; every ending is logged as "looks done: <how>" (the log summary reads it)."""
+        to ShowRaceMenu as its uiMode; the opening MESG offers "Use preset look" or "Create character", and button 0
+        never calls ShowRaceMenu while keeping the internal "quick start" log token. The creator's close is awaited
+        on "ChargenMenu", registered before the menu opens, with the quest's LooksWait as the fallback; every ending
+        is logged as "looks done: <how>" (the log summary reads it)."""
         cs, looks, psc = read(CS), read(LOOKS), read(PSC)
         self.assertIn(f"DefaultRaceMenuMode = {ng.DEFAULT_RACE_MENU_MODE};", cs)
         self.assertIn('ArgOrNull(a, "--race-menu-mode")', cs)
@@ -718,9 +719,14 @@ class ContractTests(unittest.TestCase):
         self.assertIn("Game.ShowRaceMenu(None, RaceMenuMode)", code)
         self.assertIn('StartMessageEdid = "FO4SF_NewGameStart"', cs)
         self.assertIn('Name = "Character Appearance"', cs)
+        self.assertIn('Description = "Keep your preset look, or create your character?"', cs)
+        self.assertIn('StartButtons = { "Use preset look", "Create character" }', cs)
         self.assertIn('Text = "Create character"', cs)
-        self.assertIn('Text = "Quick start"', cs)
-        self.assertLess(cs.index('Text = "Quick start"'), cs.index('Text = "Create character"'))
+        self.assertIn('Text = "Use preset look"', cs)
+        self.assertNotIn('Text = "Quick start"', cs)
+        self.assertLess(cs.index('Text = "Use preset look"'), cs.index('Text = "Create character"'))
+        self.assertIn("0 Use preset look, 1 Create character", psc)
+        self.assertIn("button 0 is Use preset look", looks)
         self.assertIn("if button == 0", looks)
         self.assertIn("if cBtn == 0", psc)
         self.assertIn("ngQuest.IsPreworldLooksHandled()", looks)
@@ -2614,6 +2620,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
         req_plugins = {
             "FO4Port.esm",
             "FO4TerrainCore.esm",
+            "FO4SFPrewar.esm",
+            "FO4SFPrewar_Sanctuary.esm",
             "FO4SFNewGame.esm",
             "FO4SFCoreValues.esm",
             "FO4SFReputation.esm",
@@ -2624,16 +2632,22 @@ class Phase2BeginningRealTests(unittest.TestCase):
         avail_rows = sp.load_start_places(
             available_only=True,
             known_plugins=req_plugins,
-            known_marker_edids={"FO4Core_CommonwealthMapMarkerSanctuary", "FO4Core_CommonwealthAnchor"},
-            known_exterior_cells=((-12, 12), (-2, -11), (-6, 5)),
+            known_marker_edids={
+                "FO4SF_PrewarHouseSpawnMarker",
+                "FO4Core_CommonwealthMapMarkerSanctuary",
+                "FO4Core_CommonwealthAnchor",
+            },
+            known_exterior_cells=((0, -1), (-12, 12), (-2, -11), (-6, 5)),
         )
         self.assertEqual(
             [r.id for r in avail_rows],
-            ["fo4_vault111", "minutemen_sanctuary", "gunners_plaza", "raiders_corvega"],
+            ["fo4_prewar_sanctuary", "fo4_vault111", "minutemen_sanctuary", "gunners_plaza", "raiders_corvega"],
         )
         unavail_ids = {r.id for r in all_rows if not r.available}
-        self.assertIn("fnv_goodsprings", unavail_ids)
+        self.assertIn("fo3_vault101_birth", unavail_ids)
         self.assertIn("fo3_vault101", unavail_ids)
+        self.assertIn("fnv_goodsprings", unavail_ids)
+        self.assertIn("fnv_goodsprings_door", unavail_ids)
         self.assertEqual(sp.available_story_choices(all_rows), [("fo4_commonwealth", "Fallout 4: Commonwealth")])
 
         with self.assertRaisesRegex(ValueError, "not loaded"):
@@ -2881,7 +2895,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), PSC, "exec")
-        rows = [r for r in sp.load_start_places() if r.available]
+        rows = [r for r in sp.load_start_places() if r.available and r.id != "fo4_prewar_sanctuary"]
 
         def run_flow(backdrop_val: int, mode_is_warfare: bool, survival_on: bool, diff_val: int, native_setup_ack: bool = True):
             store = {
@@ -3230,7 +3244,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     ModePickMsg=SimpleNamespace(Show=lambda: 0),
                     StoryLineMsg=SimpleNamespace(Show=lambda: 0),
                     SurvivalPickMsg=SimpleNamespace(Show=lambda: 0),
-                    # Button 0 is now Quick start!
+                    # Button 0 is now Use preset look (internal log token: quick start)!
                     StartPickMsg=SimpleNamespace(Show=lambda: (start_msg_calls.append("preworld"), 0)[1]),
                     StoryChoiceIds=["fo4_commonwealth"],
                     StartPlaceIds=["fo4_vault111"],

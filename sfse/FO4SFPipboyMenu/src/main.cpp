@@ -8957,6 +8957,42 @@ namespace
 		}
 	}
 
+	std::vector<std::string> CollectLoadedPluginNames()
+	{
+		std::vector<std::string> out;
+		const auto               handler = Singleton(kDataHandlerSingleton);
+		ObjectType               type;
+		if (!IsType(handler, "TESDataHandler@@", type)) {
+			return out;
+		}
+		for (std::size_t kind = 0; kind < 3; ++kind) {   // full, small, medium
+			ArrayHead files{};
+			if (!Peek(handler + kFileCollectionAt + kind * 0x10, files) || files.size > files.capacity ||
+				files.size > kKitMaxFiles || (files.size && !files.data)) {
+				continue;
+			}
+			for (std::uint32_t i = 0; i < files.size; ++i) {
+				std::uintptr_t                  file = 0;
+				ObjectType                      fileType;
+				std::array<char, kFileNameSize> name{};
+				if (!Peek(files.data + i * sizeof(std::uintptr_t), file) || !file) {
+					continue;
+				}
+				if (!TypeOf(file, fileType) || !IsFileType(fileType)) {
+					continue;
+				}
+				if (!Peek(file + kFileNameAt, name.data(), name.size())) {
+					continue;
+				}
+				const std::size_t len = strnlen(name.data(), name.size());
+				if (len > 0) {
+					out.emplace_back(name.data(), len);
+				}
+			}
+		}
+		return out;
+	}
+
 	std::filesystem::path ResolveLocalAppDataFo4sfDir()
 	{
 		std::array<wchar_t, 2048> buf{};
@@ -8993,21 +9029,41 @@ namespace
 		if (!g_localFo4sfDir.empty()) {
 			const auto                         choicesPath = g_localFo4sfDir / "launch_choices.json";
 			fo4sf::setup::LaunchChoicesPayload parsed;
-			if (fo4sf::setup::LoadLaunchChoicesFile(choicesPath, parsed)) {
-				nonce = parsed.nonce;
-				{
-					std::scoped_lock lock(g_setupLock);
-					g_launchChoices = parsed;
+			std::string                        parseReason;
+			if (fo4sf::setup::ParseAndCheckFreshLaunchChoicesFile(
+					choicesPath, parsed, fo4sf::setup::CurrentEpochSeconds(), 21600, &parseReason)) {
+				bool        fromFile = false;
+				const auto  placesRows = fo4sf::setup::LoadStartPlacesFileOrFallback(
+					g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+				const auto  loadedPlugins = CollectLoadedPluginNames();
+				std::string tableReason;
+				if (fo4sf::setup::ValidateLaunchChoicesAgainstStartTable(
+						parsed, placesRows, loadedPlugins, !loadedPlugins.empty(), &tableReason)) {
+					nonce = parsed.nonce;
+					{
+						std::scoped_lock lock(g_setupLock);
+						g_launchChoices = parsed;
+					}
+					g_hasLaunchChoices.store(true);
+					REX::INFO("step=launch_choices_loaded mode={} place={} start_variant={} survival={} locked={} min_diff={} warfare_idx={} row={} nonce={}",
+						parsed.modeTag, parsed.placeId,
+						parsed.startVariant.empty() ? "none" : parsed.startVariant,
+						parsed.survivalStart, parsed.survivalLocked,
+						parsed.minDifficulty, parsed.warfareStartIdx, parsed.startPlaceRow, parsed.nonce);
+				} else {
+					REX::INFO("step=launch_choices_refused stage=post_data_load mode={} place={} start_variant={} reason={} plugins={} table_from_file={}",
+						parsed.modeTag, parsed.placeId,
+						parsed.startVariant.empty() ? "none" : parsed.startVariant,
+						tableReason, loadedPlugins.size(), fromFile ? 1 : 0);
+					DisarmLaunchChoices(tableReason);
 				}
-				g_hasLaunchChoices.store(true);
-				REX::INFO("step=launch_choices_loaded mode={} place={} survival={} locked={} min_diff={} warfare_idx={} row={} nonce={}",
-					parsed.modeTag, parsed.placeId, parsed.survivalStart, parsed.survivalLocked,
-					parsed.minDifficulty, parsed.warfareStartIdx, parsed.startPlaceRow, parsed.nonce);
 			} else {
 				std::error_code ec;
 				if (std::filesystem::exists(choicesPath, ec)) {
 					fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
-					REX::INFO("step=launch_choices_none reason=invalid_or_expired_deleted path={}", choicesPath.string());
+					REX::INFO("step=launch_choices_none reason={} start_variant=none path={}",
+						parseReason.empty() ? "invalid_or_expired_deleted" : parseReason,
+						choicesPath.string());
 				} else {
 					REX::INFO("step=launch_choices_none path={}", choicesPath.string());
 				}
@@ -9125,8 +9181,19 @@ namespace
 			return;
 		}
 
-		bool fromFile = false;
-		auto placesRows = fo4sf::setup::LoadStartPlacesFileOrFallback(g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+		bool        fromFile = false;
+		auto        placesRows = fo4sf::setup::LoadStartPlacesFileOrFallback(g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+		const auto  loadedPlugins = CollectLoadedPluginNames();
+		std::string tableReason;
+		if (!fo4sf::setup::ValidateLaunchChoicesAgainstStartTable(
+				*choices, placesRows, loadedPlugins, !loadedPlugins.empty(), &tableReason)) {
+			REX::INFO("step=launch_choices_refused stage=hydrate mode={} place={} start_variant={} reason={} plugins={} table_from_file={}",
+				choices->modeTag, choices->placeId,
+				choices->startVariant.empty() ? "none" : choices->startVariant,
+				tableReason, loadedPlugins.size(), fromFile ? 1 : 0);
+			DisarmLaunchChoices(tableReason);
+			return;
+		}
 		const int minDiff = fo4sf::setup::ResolveLaunchMinDifficulty(*choices, placesRows);
 
 		CommitStartChoiceGlobals(
@@ -9147,8 +9214,10 @@ namespace
 		}
 		g_hasLaunchChoices.store(false);
 		const bool consumed = !choicesPath.empty() && fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
-		REX::INFO("step=launch_choices_hydrated mode={} place={} survival={} locked={} difficulty={} warfare_idx={} row={} consumed={}",
-			choices->modeTag, choices->placeId, choices->survivalStart, choices->survivalLocked,
+		REX::INFO("step=launch_choices_hydrated mode={} place={} start_variant={} survival={} locked={} difficulty={} warfare_idx={} row={} consumed={}",
+			choices->modeTag, choices->placeId,
+			choices->startVariant.empty() ? "none" : choices->startVariant,
+			choices->survivalStart, choices->survivalLocked,
 			minDiff, choices->warfareStartIdx, choices->startPlaceRow, consumed ? 1 : 0);
 	}
 

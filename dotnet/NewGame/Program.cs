@@ -23,7 +23,7 @@
 //        written for), the quest carrying
 //        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
 //        their properties, MESG FO4SF_NewGameElevator and MESG FO4SF_NewGameStart (two buttons each: the elevator
-//        prompt, and the opening choice "Create character" or "Quick start" the looks script shows, NG-6 / NG-C9), and
+//        prompt, and the opening choice "Create character" or "Use preset look" the looks script shows, NG-6 / NG-C9), and
 //        no override of Starfield's GLOB MQ101Debug by default (each of MQ101's stage-0 entries moves the player into the
 //        game; the first build's 10 was the pirate-fight developer start, the second build's 2 matched no entry and left
 //        the new game on its loading screen, 28 Oct), or --mq101debug <n> to override it for an experiment. The quest
@@ -108,7 +108,7 @@ static class NewGame
     public const string Plugin = "FO4SFNewGame.esm", World = "FO4Core_Commonwealth", VaultCell = "FO4Port_Vault111Cryo";
     // the plugins the script resolves its ids in (FO4SF_NewGameQuest.psc VaultPlugin and CorePlugin): every resolved
     // reference must be owned by the plugin of that name, or the script would ask for the wrong record
-    public const string PortPlugin = "FO4Port.esm", CorePluginFile = "FO4TerrainCore.esm";
+    public const string PortPlugin = "FO4Port.esm", CorePluginFile = "FO4TerrainCore.esm", PrewarPlugin = "FO4SFPrewar.esm";
     public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks", SpecialScript = "FO4SF_NewGameSpecial";
     public const string MessageEdid = "FO4SF_NewGameElevator", StartMessageEdid = "FO4SF_NewGameStart", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
     public const string TerminalMessageEdid = "FO4SF_NewGameTerminal", SpecialMessageEdid = "FO4SF_NewGameSpecial", SpecialMessagePage2Edid = "FO4SF_NewGameSpecialPage2", SpecialAvifPrefix = "FO4SF_Special_";
@@ -165,7 +165,7 @@ static class NewGame
     public const string CoreFo4Ammo10mmEdid = "FO4_Ammo10mm", CoreFo410mmPistolEdid = "FO4_10mmPistol";
     public const int VaultAmmoCount = 48;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
-    public static readonly string[] StartButtons = { "Quick start", "Create character" };
+    public static readonly string[] StartButtons = { "Use preset look", "Create character" };
     public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" };
     public static readonly string[] ExitNeedSpecialButtons = { "OK" };
     public static readonly string[] ExitFallbackButtons = { "Go up to the Commonwealth", "Retry lift" };
@@ -822,13 +822,33 @@ static class NewGame
             string plg = el.GetProperty("plugin").GetString()?.Trim() ?? "";
             bool isPort = string.Equals(plg, PortPlugin, StringComparison.OrdinalIgnoreCase);
             bool isCore = string.Equals(plg, CorePluginFile, StringComparison.OrdinalIgnoreCase);
-            if (!isPort && !isCore)
-                throw new Refusal($"start place '{pid}': marked available=true on unloaded plugin '{plg}'");
+            bool isPrewar = string.Equals(plg, PrewarPlugin, StringComparison.OrdinalIgnoreCase);
 
             string storyId = el.TryGetProperty("story_id", out var sidEl) ? (sidEl.GetString()?.Trim() ?? "none") : "none";
             string storyLabel = el.TryGetProperty("story_label", out var slEl) ? (slEl.GetString()?.Trim() ?? "") : "";
-            if (modeCode == 1 && !string.Equals(pid, "fo4_vault111", StringComparison.Ordinal))
-                throw new Refusal($"start place '{pid}': story row other than fo4_vault111 cannot claim available=true");
+            if (el.TryGetProperty("start_variant", out var svEl))
+            {
+                string startVariant = (svEl.GetString()?.Trim() ?? "").ToLowerInvariant();
+                if (modeCode == 1 && startVariant != "normal" && startVariant != "quick")
+                    throw new Refusal($"start place '{pid}': story row has invalid start_variant '{startVariant}'");
+                if (modeCode == 2 && startVariant.Length > 0)
+                    throw new Refusal($"start place '{pid}': warfare row must have empty start_variant (got '{startVariant}')");
+            }
+            if (modeCode == 1 &&
+                !string.Equals(pid, "fo4_vault111", StringComparison.Ordinal) &&
+                !string.Equals(pid, "fo4_prewar_sanctuary", StringComparison.Ordinal))
+                throw new Refusal($"start place '{pid}': story row other than fo4_vault111 or fo4_prewar_sanctuary cannot claim available=true");
+            if (string.Equals(pid, "fo4_vault111", StringComparison.Ordinal) && !isPort)
+                throw new Refusal($"start place '{pid}': fo4_vault111 requires plugin '{PortPlugin}' (got '{plg}')");
+            if (string.Equals(pid, "fo4_prewar_sanctuary", StringComparison.Ordinal))
+            {
+                if (!isPrewar)
+                    throw new Refusal($"start place '{pid}': fo4_prewar_sanctuary requires plugin '{PrewarPlugin}' (got '{plg}')");
+                // #860 builds FO4SFNewGame.esm without FO4SFPrewar.esm; skip Pre-War Sanctuary cleanly when no prewar plugin is supplied.
+                continue;
+            }
+            if (!isPort && !isCore)
+                throw new Refusal($"start place '{pid}': marked available=true on unloaded plugin '{plg}'");
             bool isInterior = el.TryGetProperty("is_interior", out var intEl) && intEl.GetBoolean();
             int questMask = el.TryGetProperty("quest_mask", out var qmEl) ? qmEl.GetInt32() : 0;
             string markerSrc = el.TryGetProperty("marker_source", out var msEl) ? (msEl.GetString()?.Trim() ?? "") : "";
@@ -1581,10 +1601,10 @@ static class NewGame
         // message box, so it needs no voice: the player is silent
         var start = new SF.Message(new FormKey(modKey, StartMessageId), SF.StarfieldRelease.Starfield)
         {
-            EditorID = StartMessageEdid, Name = "Character Appearance", Description = "Start quickly with the preset, or create your character?",
+            EditorID = StartMessageEdid, Name = "Character Appearance", Description = "Keep your preset look, or create your character?",
             Flags = SF.Message.Flag.MessageBox,
         };
-        start.MenuButtons.Add(new SF.MessageButton { Text = "Quick start" });
+        start.MenuButtons.Add(new SF.MessageButton { Text = "Use preset look" });
         start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
         mod.Messages.Add(start);
         // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt and two <=7-button allocation MESGs (the seven AVIFs live in FO4SFCoreValues.esm)

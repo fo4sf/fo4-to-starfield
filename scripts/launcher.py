@@ -490,12 +490,22 @@ def cmd_cover_signal(a):
 
 def cmd_launch_choices(a):
     values = settings.load(a.settings or default_settings_path())
+    saved_mode = values["start.mode"]
+    saved_variant = values.get("start.variant", "")
     if a.mode:
         values["start.mode"] = settings.coerce("start.mode", a.mode)
     if a.survival:
         values["start.survival"] = settings.coerce("start.survival", a.survival)
+    if a.variant is not None:
+        values["start.variant"] = settings.coerce("start.variant", a.variant)
+    elif a.mode and values["start.mode"] == "warfare" and saved_mode != "warfare":
+        values["start.variant"] = ""
     if a.place is not None:
         values["start.place"] = settings.coerce("start.place", a.place)
+    elif a.mode and a.mode != saved_mode:
+        values["start.place"] = ""
+    elif a.variant is not None and values.get("start.variant", "") != saved_variant:
+        values["start.place"] = ""
     folder = values["instance"]
     starfield = a.starfield or folder or values["starfield"]
     plugins_txt = instance.plugins_txt(folder) if folder else None
@@ -524,17 +534,28 @@ def cmd_launch_choices(a):
         print(json.dumps({
             "choices": payload,
             "available_places": [
-                {"id": r.id, "name": r.name, "mode": r.mode, "plugin": r.plugin, "warfare_key": r.warfare_key}
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "mode": r.mode,
+                    "start_variant": getattr(r, "start_variant", ""),
+                    "plugin": r.plugin,
+                    "warfare_key": r.warfare_key,
+                }
                 for r in avail_rows
             ],
             "unavailable_reasons": reasons,
             "written": written,
         }, indent=2, sort_keys=True))
     else:
-        print(f"mode={payload['mode']} survival={'on' if payload['survival'] else 'off'} place={payload['place_id']}")
+        print(
+            f"mode={payload['mode']} variant={payload['start_variant']} "
+            f"survival={'on' if payload['survival'] else 'off'} place={payload['place_id']}"
+        )
         for r in avail_rows:
             mark = "*" if r.id == payload["place_id"] else " "
-            print(f"  {mark} {r.id}: {r.name} ({r.plugin})")
+            vtag = f" [{getattr(r, 'start_variant', '')}]" if r.mode == "story" and getattr(r, "start_variant", "") else ""
+            print(f"  {mark} {r.id}{vtag}: {r.name} ({r.plugin})")
         if written:
             print(f"wrote: {written}")
     return 0
@@ -713,6 +734,7 @@ def main(argv=None):
     s.add_argument("--settings", default="")
     s.add_argument("--starfield", default="")
     s.add_argument("--mode", choices=launch_choices.MODE_CHOICES, default="")
+    s.add_argument("--variant", choices=("",) + launch_choices.VARIANT_CHOICES, default=None)
     s.add_argument("--survival", choices=("on", "off"), default="")
     s.add_argument("--place", default=None)
     s.add_argument("--nonce", default="")

@@ -75,7 +75,7 @@ stage, verify, fold, log reader), `tests/test_newgame.py`.
    ok=<bool> ...`. The notification reads "Vault 111" and the objective is "Leave Vault
    111" under FO4's quest name for this part (MQ102's name, read from Fallout4.esm by the points step; "Out of
    Time" is only the fallback when it has none).
-5. **Looks:** a message box in the vault asks "Create character" or "Quick start" (NG-6, NG-C9). Create opens
+5. **Looks:** a message box in the vault asks "Create character" or "Use preset look" (NG-6, NG-C9). Create opens
    Starfield's character creation in place of FO4's bathroom mirror and waits for it to close; quick start keeps the
    preset and skips it. A message box needs no voice: the player stays silent (optional script; see section 4).
 6. **SPECIAL:** standing at the vault terminal after the looks asks "Set SPECIAL" or "Later". Set opens the
@@ -220,7 +220,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel. SQ_ENV i
   `pod settle` line says where the player stands once loaded. Facing out: run 3's bridge read heading 0 after the
   move, the direction of the step (the start is 1 m along +y from the pod's origin).
 - The opening choice: once the player is in the vault, `FO4SF_NewGameLooks` shows MESG `FO4SF_NewGameStart`
-  (FO4SFNewGame.esm 0x802), "Create character" or "Quick start". The owner decided (2026-10-19, NG-C9) that phase 1
+  (FO4SFNewGame.esm 0x802), "Create character" or "Use preset look". The owner decided (2026-10-19, NG-C9) that phase 1
   has a preset quick start for replays: button 1 skips the creator and keeps the look the player already has (the
   game's default new player; a shipped Fallout-style face preset is a later item, NG-M9). Button 0 opens the creator.
 - Character creation: `Game.ShowRaceMenu(None, RaceMenuMode)`. **verified** (PC read, 19 Oct): Starfield's Game.psc
