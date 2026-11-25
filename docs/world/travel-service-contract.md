@@ -34,7 +34,7 @@ A single `PendingTripRecord` is persisted in `GLOB`s (`FO4SF_TravelState`, `FO4S
 
 ## 3. Compliance with Travel Design Decisions (`D1`–`D6`)
 
-- **D1 (No lost state across reload):** Pending record written into `GLOB`s before `FadeOutGame`; `RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")` detects interrupted states `1..4` and restores fade + releases lock.
+- **D1 (No lost state across reload):** Pending record written into `GLOB`s before `FadeOutGame`; `RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")` detects interrupted states `1..4`. States `1..2` (pending write, fading out) always abort and clear the lock, even if the destination form is already loaded. States `3..4` (moving, waiting for 3D) finish only when the player is already in the destination world or transit cell; otherwise they abort and clear. This is `finish_if_dest_ready_else_abort_clear` (recommended default, pending owner decision).
 - **D2 (Anchor resolution without cross-master dependency):** Destination plugins are never hard masters of `FO4SFTravelProbe.esm`; anchors resolve dynamically via `Game.GetFormFromFile` and `ResolveHostWorld` (`anchor.GetWorldSpace()`).
 - **D3 (Follower & carried inventory continuity):** `SQ_FollowersScript.GetScript().TeleportFollowers(player, None, True, False, True, False, False)` runs post-`WaitFor3DLoad`; `GetItemCount` confirms quest/inventory items survive exterior <-> transit <-> opposite exterior transitions.
 - **D4 (`MoveTo`+`SetPosition` vs `Game.FastTravel`):** `FO4SF_TravelProbeQuest.psc` exercises both modes (`MODE_MOVETO_SETPOS = 0` and `MODE_FAST_TRAVEL = 1`) and records `Is3DLoaded()`, `GetWorldSpace()`, follower status, item count, and wall-clock duration to `FO4SF_TravelProbe.0.log`.

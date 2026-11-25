@@ -114,13 +114,22 @@ class TravelServiceTests(unittest.TestCase):
     def test_reload_recovery_paths(self) -> None:
         rec = PendingTripRecord()
         rec.begin(1, "Commonwealth", "FarHarbor", 1, 5).transition(TravelState.FADING_OUT)
-        self.assertEqual(rec.recover_on_load(dest_anchor_loaded=False), "aborted_pre_move_lock_cleared")
+        # Pre-move abort even when the destination form is already loaded.
+        self.assertEqual(rec.recover_on_load(dest_anchor_loaded=True), "aborted_pre_move_lock_cleared")
         self.assertEqual(rec.state, TravelState.CLEARED)
 
         rec.begin(2, "FarHarbor", "Commonwealth", 5, 1).transition(TravelState.FADING_OUT).transition(
             TravelState.MOVING
         ).transition(TravelState.WAITING_3D)
         self.assertEqual(rec.recover_on_load(dest_anchor_loaded=True), "recovered_completed_at_dest")
+        self.assertEqual(rec.state, TravelState.CLEARED)
+
+        rec.begin(3, "Commonwealth", "FarHarbor", 1, 5).transition(TravelState.FADING_OUT).transition(TravelState.MOVING)
+        self.assertEqual(rec.recover_on_load(dest_anchor_loaded=False), "aborted_dest_not_ready")
+        self.assertEqual(rec.state, TravelState.CLEARED)
+
+        rec.begin(4, "Commonwealth", "FarHarbor", 1, 5)
+        self.assertEqual(rec.recover_on_load(dest_anchor_loaded=True), "aborted_pre_move_lock_cleared")
         self.assertEqual(rec.state, TravelState.CLEARED)
 
     def test_registry_destinations_present(self) -> None:
@@ -189,6 +198,9 @@ class TravelProbeTests(unittest.TestCase):
     def test_papyrus_invariants_no_hud_debug(self) -> None:
         txt = PROBE_PSC_PATH.read_text(encoding="utf-8")
         self.assertIn("OnPlayerLoadGame", txt)
+        self.assertIn("aborted_pre_move_lock_cleared", txt)
+        self.assertIn("recovered_completed_at_dest", txt)
+        self.assertIn("aborted_dest_not_ready", txt)
         self.assertIn("SQ_FollowersScript", txt)
         self.assertIn("Game.FastTravel", txt)
         self.assertIn("WaitFor3DLoad", txt)
