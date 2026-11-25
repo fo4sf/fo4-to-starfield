@@ -627,6 +627,67 @@ class StageFoldAndInstallTests(unittest.TestCase):
                 else:
                     os.environ["LOCALAPPDATA"] = old_local
 
+    def test_e6_make_workshop_core_stages_verifies_and_folds_strings_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sf_esm = root / "Starfield.esm"
+            core_esm = root / "FO4TerrainCore.esm"
+            sf_esm.write_bytes(b"SF")
+            core_esm.write_bytes(b"CORE")
+            src = root / "Scripts" / "Source"
+            src.mkdir(parents=True)
+            (src / "Starfield_Papyrus_Flags.flg").write_text("", encoding="utf-8")
+
+            stage_dir = root / "stage"
+            stage_dir.mkdir()
+            (stage_dir / "FO4SFWorkshop.esm").write_bytes(b"MOD")
+            (stage_dir / "Data" / "Scripts").mkdir(parents=True)
+            (stage_dir / "Data" / "Scripts" / "FO4SF_WorkshopCoreQuest.pex").write_bytes(b"PEX")
+            strings_dir = stage_dir / "Data" / "Strings"
+            strings_dir.mkdir(parents=True)
+            (stage_dir / "README.txt").write_text("stage\n", encoding="utf-8")
+            rel_strings = []
+            for ext in ("STRINGS", "DLSTRINGS", "ILSTRINGS"):
+                fn = f"FO4SFWorkshop_en.{ext}"
+                (strings_dir / fn).write_bytes(b"STR\x00")
+                rel_strings.append(f"Data/Strings/{fn}")
+
+            plan = {
+                "kind": "workshop-core",
+                "version": 1,
+                "plugin": "FO4SFWorkshop.esm",
+                "plugin_sha256": mwc.sha256(stage_dir / "FO4SFWorkshop.esm"),
+                "plugins": ["FO4SFWorkshop.esm"],
+                "script": "FO4SF_WorkshopCoreQuest",
+                "scripts": {
+                    "FO4SF_WorkshopCoreQuest": mwc.sha256(
+                        stage_dir / "Data" / "Scripts" / "FO4SF_WorkshopCoreQuest.pex"
+                    ),
+                },
+                "inputs": {"Starfield.esm": {"sha256": mwc.sha256(sf_esm)}},
+                "outputs": {
+                    "FO4SFWorkshop.esm": mwc.sha256(stage_dir / "FO4SFWorkshop.esm"),
+                    "Data/Scripts/FO4SF_WorkshopCoreQuest.pex": mwc.sha256(
+                        stage_dir / "Data" / "Scripts" / "FO4SF_WorkshopCoreQuest.pex"
+                    ),
+                    **{rel: mwc.sha256(stage_dir / rel) for rel in rel_strings},
+                },
+            }
+            (stage_dir / "plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+            problems = mwc.verify_dir(str(stage_dir), plan)
+            self.assertEqual(problems, [])
+
+            core_dir = root / "clean_core"
+            core_dir.mkdir()
+            (core_dir / "FO4TerrainCore.esm").write_bytes(b"CORE")
+            (core_dir / "README.txt").write_text("core\n", encoding="utf-8")
+            (core_dir / "Data" / "Scripts").mkdir(parents=True)
+            folded_dir = root / "folded"
+            rc = mwc.main(["fold", "--stage", str(stage_dir), "--core-dir", str(core_dir), "--out", str(folded_dir)]) or 0
+            self.assertEqual(rc, 0)
+            for rel in rel_strings:
+                self.assertTrue((folded_dir / rel).is_file(), rel)
+
 
 if __name__ == "__main__":
     unittest.main()

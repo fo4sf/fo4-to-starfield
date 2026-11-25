@@ -12,7 +12,7 @@ import json
 import math
 import os
 
-from . import files
+from . import files, launch_choices
 
 DUMP_KINDS = ("mini", "full")
 TRISTATE = ("unchanged", "on", "off")
@@ -65,6 +65,23 @@ SPEC = (
      "main before play and before the window opens, fast-forwards this checkout when it is on main with nothing of "
      "its own uncommitted or unpushed, and starts again on the new code; check only says how far behind it is; off "
      "fetches nothing. A network or git problem never stops play. Built plugins and installs are not updated by it."),
+    ("start_cover", False, bool,
+     "show the Fallout-style Start Cover (src/fo4sf/launcher/start_cover.py) while Starfield boots and remove it on "
+     "the ready signal file, hard timeout, Cancel, or any crash/exit. Off by default; never tails game logs, sends "
+     "input, or steals focus."),
+    ("start_cover.timeout_s", 90.0, float,
+     "hard timeout in seconds before the Start Cover removes itself automatically even if no ready signal arrives."),
+    ("start.mode", "story", ("story", "warfare"),
+     "launch mode written before Starfield boots: story (Fallout 4: Pre-War Sanctuary or Vault 111 until Task 6) or warfare "
+     "(Commonwealth Warfare faction starts). Difficulty, Appearance, and S.P.E.C.I.A.L. stay in-game."),
+    ("start.variant", "", ("", "normal", "quick"),
+     "story start variant: '' (auto-pick first available), 'normal' (full opening such as Pre-War Sanctuary), "
+     "or 'quick' (skip directly to Vault 111 / exit-tunnel opening). Ignored in warfare mode."),
+    ("start.survival", False, bool,
+     "start the session in Survival mode (on or off), persisted across save/reload once the game begins."),
+    ("start.place", "", str,
+     "filtered start_places.json location id for start.mode (empty picks the first valid available place whose "
+     "plugins and cells are loaded)."),
 )
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
 # the plain name `settings` shows first on each line, so a toggle reads without knowing its key
@@ -86,6 +103,12 @@ LABELS = {
     "route": "How the game starts",
     "instance": "FO4SF game folder",
     "update": "Update the launcher from GitHub",
+    "start_cover": "Start cover while Starfield boots",
+    "start_cover.timeout_s": "Start cover timeout (s)",
+    "start.mode": "Start mode",
+    "start.variant": "Start variant",
+    "start.survival": "Survival mode",
+    "start.place": "Start place (filtered)",
 }
 
 
@@ -154,7 +177,12 @@ def coerce(key, value):
             raise ValueError(f"{key}: must not be negative")
         return v
     if t is str:
-        return one_each(value) if key == "fo4_data" else str(value)
+        if key == "fo4_data":
+            return one_each(value)
+        s = str(value).strip() if key == "start.place" else str(value)
+        if key == "start.place" and s and s not in launch_choices.known_start_place_ids():
+            raise ValueError(f"{key}: unknown start place {s!r}")
+        return s
     s = str(value).strip().lower()
     if s not in t:
         raise ValueError(f"{key}: {value!r} is not one of {', '.join(t)}")
@@ -187,6 +215,11 @@ def problems(values):
         out.append("bridge=on needs papyrus_logging=on: the bridge only sees what Papyrus logs")
     if values["papyrus_logging"] != "unchanged" and not values["my_games"] and not values["instance"]:
         out.append("my_games is not set (needed to change Papyrus logging)")
+    if values["start_cover"] and values["start_cover.timeout_s"] <= 0:
+        out.append("start_cover.timeout_s must be greater than 0 (needed while the start cover is on)")
+    start_err = launch_choices.settings_problem(values)
+    if start_err:
+        out.append(start_err)
     return out
 
 

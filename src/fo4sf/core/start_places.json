@@ -2,8 +2,39 @@
   "schema_version": 1,
   "places": [
     {
+      "id": "fo4_prewar_sanctuary",
+      "mode": "story",
+      "start_variant": "normal",
+      "story_id": "fo4_commonwealth",
+      "story_label": "Fallout 4: Commonwealth",
+      "faction_slot": -1,
+      "faction_label": "",
+      "name": "Sanctuary Hills (Pre-War)",
+      "space": "FO4SF_PrewarSanctuaryWorld",
+      "is_interior": false,
+      "plugin": "FO4SFPrewar.esm",
+      "required_plugins": [
+        "FO4SFPrewar_Sanctuary.esm",
+        "FO4SFPrewar.esm",
+        "FO4SFNewGame.esm",
+        "FO4SFCoreValues.esm"
+      ],
+      "marker_edid": "FO4SF_PrewarHouseSpawnMarker",
+      "anchor_edid": "FO4SF_PrewarHouseSpawnMarker",
+      "pos": [52.82, -2.46, 112.23],
+      "cell": [0, -1],
+      "quests": ["FO4SF_PrewarQuest", "FO4SF_NewGame"],
+      "quest_mask": 1,
+      "warfare_key": "",
+      "min_difficulty": 0,
+      "max_difficulty": 3,
+      "available": true,
+      "unavailable_reason": ""
+    },
+    {
       "id": "fo4_vault111",
       "mode": "story",
+      "start_variant": "quick",
       "story_id": "fo4_commonwealth",
       "story_label": "Fallout 4: Commonwealth",
       "faction_slot": -1,
@@ -12,6 +43,7 @@
       "space": "FO4Port_Vault111Cryo",
       "is_interior": true,
       "plugin": "FO4Port.esm",
+      "required_plugins": ["FO4Port.esm", "FO4SFNewGame.esm", "FO4SFCoreValues.esm"],
       "marker_source": "vault_anchor",
       "quests": ["FO4SF_NewGame"],
       "quest_mask": 1,
@@ -24,6 +56,7 @@
     {
       "id": "minutemen_sanctuary",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 0,
@@ -32,23 +65,77 @@
       "space": "FO4Core_Commonwealth",
       "is_interior": false,
       "plugin": "FO4TerrainCore.esm",
+      "required_plugins": [
+        "FO4TerrainCore.esm",
+        "FO4SFNewGame.esm",
+        "FO4SFCoreValues.esm",
+        "FO4SFReputation.esm",
+        "FO4SFProgression.esm",
+        "FO4SFCompanions.esm",
+        "FO4SFMission.esm"
+      ],
       "marker_edid": "FO4Core_CommonwealthMapMarkerSanctuary",
+      "anchor_edid": "FO4Core_CommonwealthMapMarkerSanctuary",
+      "pos": [-1153.83, 1259.64, 110.26],
+      "heading": 135.0,
+      "cell": [-12, 12],
+      "cell_id": "0x01000D30",
+      "ground_z": 110.263,
       "quests": [],
       "quest_mask": 0,
       "warfare_key": "minutemen_sanctuary",
       "min_difficulty": 0,
       "max_difficulty": 3,
       "available": true,
-      "unavailable_reason": ""
+      "unavailable_reason": "",
+      "fo4_census": {
+        "npcs": {
+          "preston_base": "0x00019FD9",
+          "preston_ref": "0x0001A4D7"
+        },
+        "faction": "0x00068043",
+        "kit": {
+          "outfit_preston": "0x0001F158",
+          "outfit_minuteman": "0x000E517B",
+          "hat_minuteman": "0x000E517D",
+          "laser_musket": "0x0001DACF",
+          "preston_laser_musket": "0x00062AA6",
+          "fusion_cell": "0x000C1897",
+          "stimpak_fo4": "0x00023736",
+          "stimpak_sf": "FO4SFCoreValues.esm:0x000851"
+        }
+      }
     },
     {
-      "id": "fo3_vault101",
+      "id": "fo3_vault101_birth",
       "mode": "story",
+      "start_variant": "normal",
       "story_id": "fo3_capital_wasteland",
       "story_label": "Fallout 3: Capital Wasteland",
       "faction_slot": -1,
       "faction_label": "",
-      "name": "Vault 101 (Capital Wasteland)",
+      "name": "Vault 101 Birth & Growing Up (CG01-CG04)",
+      "space": "FO3Port_Vault101",
+      "is_interior": true,
+      "plugin": "FO3Port.esm",
+      "marker_edid": "FO3Port_Vault101BirthSpawn",
+      "quests": ["FO3SF_Opening"],
+      "quest_mask": 1,
+      "warfare_key": "",
+      "min_difficulty": 0,
+      "max_difficulty": 3,
+      "available": false,
+      "unavailable_reason": "Capital Wasteland Vault 101 Birth & Growing Up (CG01-CG04) is not built into the bundle yet"
+    },
+    {
+      "id": "fo3_vault101",
+      "mode": "story",
+      "start_variant": "quick",
+      "story_id": "fo3_capital_wasteland",
+      "story_label": "Fallout 3: Capital Wasteland",
+      "faction_slot": -1,
+      "faction_label": "",
+      "name": "Vault 101 Exit Tunnel",
       "space": "FO3Port_Vault101Exit",
       "is_interior": true,
       "plugin": "FO3Port.esm",
@@ -59,16 +146,17 @@
       "min_difficulty": 0,
       "max_difficulty": 3,
       "available": false,
-      "unavailable_reason": "Capital Wasteland worldspace and Vault 101 opening quest are not built into the bundle yet"
+      "unavailable_reason": "Capital Wasteland worldspace and Vault 101 Exit Tunnel are not built into the bundle yet"
     },
     {
       "id": "fnv_goodsprings",
       "mode": "story",
+      "start_variant": "normal",
       "story_id": "fnv_mojave",
       "story_label": "Fallout: New Vegas (Mojave)",
       "faction_slot": -1,
       "faction_label": "",
-      "name": "Doc Mitchell's House (Goodsprings)",
+      "name": "Doc Mitchell's House — Waking Up",
       "space": "FNVPort_GSDocMitchellHouse",
       "is_interior": true,
       "plugin": "FNVPort.esm",
@@ -82,8 +170,30 @@
       "unavailable_reason": "Mojave worldspace and Doc Mitchell opening scene are not built into the bundle yet"
     },
     {
+      "id": "fnv_goodsprings_door",
+      "mode": "story",
+      "start_variant": "quick",
+      "story_id": "fnv_mojave",
+      "story_label": "Fallout: New Vegas (Mojave)",
+      "faction_slot": -1,
+      "faction_label": "",
+      "name": "Doc Mitchell's House — Exit Door",
+      "space": "FNVPort_GSDocMitchellHouse",
+      "is_interior": true,
+      "plugin": "FNVPort.esm",
+      "marker_edid": "FNVPort_GSDocMitchellExitSpawn",
+      "quests": ["FNVSF_Opening"],
+      "quest_mask": 1,
+      "warfare_key": "",
+      "min_difficulty": 0,
+      "max_difficulty": 3,
+      "available": false,
+      "unavailable_reason": "Mojave worldspace and Doc Mitchell exit door quick-start are not built into the bundle yet"
+    },
+    {
       "id": "fo76_vault76",
       "mode": "story",
+      "start_variant": "normal",
       "story_id": "fo76_appalachia",
       "story_label": "Fallout 76: Appalachia",
       "faction_slot": -1,
@@ -104,6 +214,7 @@
     {
       "id": "fo1_vault13",
       "mode": "story",
+      "start_variant": "normal",
       "story_id": "fo1_socal",
       "story_label": "Fallout 1: Southern California",
       "faction_slot": -1,
@@ -124,6 +235,7 @@
     {
       "id": "fo2_arroyo",
       "mode": "story",
+      "start_variant": "normal",
       "story_id": "fo2_norcal",
       "story_label": "Fallout 2: Northern California",
       "faction_slot": -1,
@@ -144,6 +256,7 @@
     {
       "id": "fot_bunkeralpha",
       "mode": "story",
+      "start_variant": "normal",
       "story_id": "fot_midwest",
       "story_label": "Fallout Tactics: Midwest Corridor",
       "faction_slot": -1,
@@ -164,6 +277,7 @@
     {
       "id": "brotherhood_airport",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 1,
@@ -184,6 +298,7 @@
     {
       "id": "railroad_oldnorth",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 2,
@@ -204,6 +319,7 @@
     {
       "id": "institute_concourse",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 3,
@@ -224,6 +340,7 @@
     {
       "id": "enclave_ravenrock",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 3,
@@ -244,6 +361,7 @@
     {
       "id": "settlers_diamondcity",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 4,
@@ -264,6 +382,7 @@
     {
       "id": "ncr_camp_mccarran",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 5,
@@ -284,6 +403,7 @@
     {
       "id": "legion_fort",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 6,
@@ -304,6 +424,7 @@
     {
       "id": "gunners_plaza",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 7,
@@ -312,18 +433,60 @@
       "space": "FO4Core_Commonwealth",
       "is_interior": false,
       "plugin": "FO4TerrainCore.esm",
-      "marker_edid": "FO4Core_CommonwealthMapMarkerGunnersPlaza",
+      "required_plugins": [
+        "FO4TerrainCore.esm",
+        "FO4SFNewGame.esm",
+        "FO4SFCoreValues.esm",
+        "FO4SFReputation.esm",
+        "FO4SFProgression.esm",
+        "FO4SFCompanions.esm"
+      ],
+      "marker_edid": "FO4Core_CommonwealthAnchor",
+      "anchor_edid": "FO4Core_CommonwealthAnchor",
+      "pos": [-155.06, -1055.00, 14.21],
+      "heading": 205.7,
+      "cell": [-2, -11],
+      "cell_id": "0x01000F9A",
+      "ground_z": 14.332,
+      "fo4_travel_ref": "0x0002D271",
       "quests": [],
       "quest_mask": 0,
       "warfare_key": "gunners_plaza",
       "min_difficulty": 1,
       "max_difficulty": 3,
-      "available": false,
-      "unavailable_reason": "Gunners Plaza garrison allegiance overrides and mercenary kit are not wired yet"
+      "available": true,
+      "unavailable_reason": "",
+      "fo4_census": {
+        "npcs": {
+          "lvl_semi_auto": "0x000DE964",
+          "lvl_auto": "0x000DE965",
+          "lvl_missile": "0x000DE968",
+          "lvl_sniper": "0x0007050B",
+          "lvl_gunner": "0x000DE969",
+          "ext_refs": ["0x001A7146", "0x001A714A", "0x001A713A", "0x000AE2B2", "0x000AE2C0", "0x000AE2BA"]
+        },
+        "faction": "0x00058303",
+        "kit": {
+          "outfit_gunner": "0x000FD39D",
+          "armor_list": "0x000FD39C",
+          "guard_underarmor": "0x00223CFA",
+          "fatigues": "0x0016892C",
+          "weapons_list": "0x000FD39E",
+          "laser_gun": "0x0009983B",
+          "fusion_cell": "0x000C1897",
+          "combat_rifle": "0x000DF42E",
+          "ammo_45": "0x0001F66A",
+          "assault_rifle": "0x0000463F",
+          "ammo_556": "0x0001F278",
+          "stimpak_fo4": "0x00023736",
+          "stimpak_sf": "FO4SFCoreValues.esm:0x000851"
+        }
+      }
     },
     {
       "id": "raiders_corvega",
       "mode": "warfare",
+      "start_variant": "",
       "story_id": "none",
       "story_label": "",
       "faction_slot": 7,
@@ -332,14 +495,56 @@
       "space": "FO4Core_Commonwealth",
       "is_interior": false,
       "plugin": "FO4TerrainCore.esm",
-      "marker_edid": "FO4Core_CommonwealthMapMarkerCorvega",
+      "required_plugins": [
+        "FO4TerrainCore.esm",
+        "FO4SFNewGame.esm",
+        "FO4SFCoreValues.esm",
+        "FO4SFReputation.esm",
+        "FO4SFProgression.esm",
+        "FO4SFCompanions.esm"
+      ],
+      "marker_edid": "FO4Core_CommonwealthAnchor",
+      "anchor_edid": "FO4Core_CommonwealthAnchor",
+      "pos": [-561.05, 505.93, 51.99],
+      "heading": 137.5,
+      "cell": [-6, 5],
+      "cell_id": "0x01000EAA",
+      "ground_z": 51.217,
+      "fo4_travel_ref": "0x000D704E",
       "quests": [],
       "quest_mask": 0,
       "warfare_key": "raiders_corvega",
       "min_difficulty": 2,
       "max_difficulty": 3,
-      "available": false,
-      "unavailable_reason": "Raider gang hostile-to-settler Warfare standing rules and kit are not wired yet"
+      "available": true,
+      "unavailable_reason": "",
+      "fo4_census": {
+        "npcs": {
+          "lvl_bolt": "0x000CE987",
+          "lvl_auto": "0x000CE986",
+          "lvl_mg": "0x0007B620",
+          "lvl_grenade": "0x000F757E",
+          "lvl_melee": "0x00019562",
+          "lvl_raider": "0x0002898B",
+          "ext_refs": ["0x000345AF", "0x00034450", "0x000D5C7C", "0x00034452", "0x000D5C7A", "0x00034451"]
+        },
+        "faction": "0x0001CBED",
+        "kit": {
+          "outfit_raider": "0x0001D984",
+          "armor_list": "0x001EA88C",
+          "weapons_list": "0x0005E8E5",
+          "pipe_gun": "0x00024F55",
+          "ammo_38": "0x0004CE87",
+          "frag_grenade": "0x000EEBED",
+          "stimpak_fo4": "0x00023736",
+          "stimpak_sf": "FO4SFCoreValues.esm:0x000851",
+          "core_values_planned": {
+            "ammo_38": "0x0008A1",
+            "pipe_pistol": "0x0008A2",
+            "pipe_rifle": "0x0008A3"
+          }
+        }
+      }
     }
   ]
 }

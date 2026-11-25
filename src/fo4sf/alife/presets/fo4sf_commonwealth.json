@@ -1,0 +1,490 @@
+{
+ "schema_version": 1,
+ "mod_name": "FO4SF A-Life: North-West Commonwealth",
+ "description": "FO4SF example: the 20-node north-west Commonwealth graph of scripts/alife/nw_subgraph.json (core-local metres, merged by merge_offset_xy) as a three-faction living world. The scavenger and militia templates are Starfield.esm stand-ins until converted actors exist.",
+ "plugin_name": "FO4SFALifeWorld.esm",
+ "light_master": true,
+ "masters": [
+  "Starfield.esm",
+  "FO4TerrainCore.esm",
+  "FO4ActorRaider.esm"
+ ],
+ "editor_prefix": "FO4SFALifeWorld",
+ "worldspace": {
+  "plugin": "FO4TerrainCore.esm",
+  "form_id": "0x000803",
+  "editor_id": "FO4Core_Commonwealth",
+  "merge_offset_xy": [
+   -1200.0,
+   -2700.0
+  ]
+ },
+ "simulation": {
+  "default_enabled": true,
+  "tick_real_s": 2.0,
+  "offline_step_m_per_s": 1.35,
+  "online_spawn_radius_m": 450.0,
+  "offline_despawn_radius_m": 620.0,
+  "waymarker_pool_size": 8,
+  "max_active_squads": 10,
+  "respawn_cooldown_s": 120.0,
+  "show_notifications": true
+ },
+ "factions": [
+  {
+   "id": "minutemen",
+   "name": "Minutemen Militia",
+   "npc_template": {
+    "plugin": "Starfield.esm",
+    "form_id": "0x26FB62",
+    "editor_id": "LvlSecurity_Freestar"
+   },
+   "player_relation": "ally",
+   "relations": {
+    "raiders": "enemy",
+    "scavengers": "enemy"
+   },
+   "squad_size": 4,
+   "combat_power": 1.0,
+   "index": 0
+  },
+  {
+   "id": "raiders",
+   "name": "Commonwealth Raiders",
+   "npc_template": {
+    "plugin": "FO4ActorRaider.esm",
+    "form_id": "0xF04800",
+    "editor_id": "FO4_LvlRaider"
+   },
+   "player_relation": "enemy",
+   "relations": {
+    "minutemen": "enemy",
+    "scavengers": "enemy"
+   },
+   "squad_size": 4,
+   "combat_power": 1.1,
+   "index": 1
+  },
+  {
+   "id": "scavengers",
+   "name": "Feral Scavengers",
+   "npc_template": {
+    "plugin": "Starfield.esm",
+    "form_id": "0x1AD194",
+    "editor_id": "LvlSpacer_Aggro"
+   },
+   "player_relation": "enemy",
+   "relations": {
+    "minutemen": "enemy",
+    "raiders": "enemy"
+   },
+   "squad_size": 3,
+   "combat_power": 1.2,
+   "index": 2
+  }
+ ],
+ "nodes": [
+  {
+   "index": 0,
+   "id": "SanctuaryHillsLocation",
+   "kind": "base",
+   "x": -1089.76,
+   "y": 1334.48,
+   "z": 110.67,
+   "capacity": 3,
+   "initial_owner": "minutemen",
+   "spawn_faction": "minutemen"
+  },
+  {
+   "index": 1,
+   "id": "Vault111Location",
+   "kind": "checkpoint",
+   "x": -1275.31,
+   "y": 1305.28,
+   "z": 127.49,
+   "capacity": 1,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 2,
+   "id": "RedRocketTruckStopLocation",
+   "kind": "base",
+   "x": -991.13,
+   "y": 1144.97,
+   "z": 104.88,
+   "capacity": 3,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 3,
+   "id": "ConcordLocation",
+   "kind": "checkpoint",
+   "x": -861.23,
+   "y": 1042.54,
+   "z": 93.02,
+   "capacity": 1,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 4,
+   "id": "ConcordMuseumLocation",
+   "kind": "lair",
+   "x": -814.45,
+   "y": 1005.6,
+   "z": 88.71,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 5,
+   "id": "AbernathyFarmLocation",
+   "kind": "base",
+   "x": -1094.86,
+   "y": 969.6,
+   "z": 115.43,
+   "capacity": 3,
+   "initial_owner": "minutemen",
+   "spawn_faction": "minutemen"
+  },
+  {
+   "index": 6,
+   "id": "RangerCabinLocation",
+   "kind": "lair",
+   "x": -1258.2,
+   "y": 1024.21,
+   "z": 110.7,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 7,
+   "id": "WickedShippingFleetLockupLocation",
+   "kind": "lair",
+   "x": -1209.95,
+   "y": 919.65,
+   "z": 106.6,
+   "capacity": 2,
+   "initial_owner": "scavengers",
+   "spawn_faction": "scavengers"
+  },
+  {
+   "index": 8,
+   "id": "USAFSatelliteLocation",
+   "kind": "checkpoint",
+   "x": -591.91,
+   "y": 1329.11,
+   "z": 116.11,
+   "capacity": 3,
+   "initial_owner": "raiders",
+   "spawn_faction": null
+  },
+  {
+   "index": 9,
+   "id": "RoboticsDisposalGroundLocation",
+   "kind": "resource",
+   "x": -763.59,
+   "y": 1418.74,
+   "z": 124.45,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 10,
+   "id": "ThicketExcavationsLocation",
+   "kind": "resource",
+   "x": -645.21,
+   "y": 1174.87,
+   "z": 75.37,
+   "capacity": 2,
+   "initial_owner": "raiders",
+   "spawn_faction": null
+  },
+  {
+   "index": 11,
+   "id": "BedfordStationLocation",
+   "kind": "lair",
+   "x": -422.89,
+   "y": 996.58,
+   "z": 57.95,
+   "capacity": 2,
+   "initial_owner": "scavengers",
+   "spawn_faction": null
+  },
+  {
+   "index": 12,
+   "id": "StarlightDriveInLocation",
+   "kind": "base",
+   "x": -560.13,
+   "y": 822.87,
+   "z": 59.4,
+   "capacity": 3,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 13,
+   "id": "DrumlinDinerLocation",
+   "kind": "lair",
+   "x": -718.45,
+   "y": 786.84,
+   "z": 68.11,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 14,
+   "id": "WaldenPondLocation",
+   "kind": "lair",
+   "x": -990.38,
+   "y": 632.04,
+   "z": 64.3,
+   "capacity": 2,
+   "initial_owner": "raiders",
+   "spawn_faction": "raiders"
+  },
+  {
+   "index": 15,
+   "id": "GorskiCabinLocation",
+   "kind": "lair",
+   "x": -910.49,
+   "y": 831.19,
+   "z": 81.02,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  },
+  {
+   "index": 16,
+   "id": "SunshineTidingsCoopLocation",
+   "kind": "base",
+   "x": -1238.36,
+   "y": 548.28,
+   "z": 100.52,
+   "capacity": 3,
+   "initial_owner": "scavengers",
+   "spawn_faction": null
+  },
+  {
+   "index": 17,
+   "id": "LexingtonLocation",
+   "kind": "lair",
+   "x": -471.85,
+   "y": 585.8,
+   "z": 76.75,
+   "capacity": 2,
+   "initial_owner": "scavengers",
+   "spawn_faction": "scavengers"
+  },
+  {
+   "index": 18,
+   "id": "CorvegaAssemblyPlantLocation",
+   "kind": "resource",
+   "x": -497.26,
+   "y": 458.98,
+   "z": 80.56,
+   "capacity": 2,
+   "initial_owner": "raiders",
+   "spawn_faction": "raiders"
+  },
+  {
+   "index": 19,
+   "id": "POIJeffB04Location",
+   "kind": "lair",
+   "x": -789.94,
+   "y": 848.46,
+   "z": 0.0,
+   "capacity": 2,
+   "initial_owner": null,
+   "spawn_faction": null
+  }
+ ],
+ "edges": [
+  {
+   "u": 0,
+   "v": 1,
+   "len_m": 187.83
+  },
+  {
+   "u": 0,
+   "v": 2,
+   "len_m": 239.58
+  },
+  {
+   "u": 0,
+   "v": 3,
+   "len_m": 379.07
+  },
+  {
+   "u": 1,
+   "v": 2,
+   "len_m": 354.76
+  },
+  {
+   "u": 1,
+   "v": 6,
+   "len_m": 281.59
+  },
+  {
+   "u": 2,
+   "v": 3,
+   "len_m": 143.42
+  },
+  {
+   "u": 2,
+   "v": 4,
+   "len_m": 202.87
+  },
+  {
+   "u": 3,
+   "v": 4,
+   "len_m": 59.6
+  },
+  {
+   "u": 3,
+   "v": 10,
+   "len_m": 302.36
+  },
+  {
+   "u": 4,
+   "v": 10,
+   "len_m": 259.01
+  },
+  {
+   "u": 4,
+   "v": 11,
+   "len_m": 399.13
+  },
+  {
+   "u": 5,
+   "v": 6,
+   "len_m": 185.23
+  },
+  {
+   "u": 5,
+   "v": 7,
+   "len_m": 135.43
+  },
+  {
+   "u": 5,
+   "v": 15,
+   "len_m": 335.81
+  },
+  {
+   "u": 5,
+   "v": 16,
+   "len_m": 451.31
+  },
+  {
+   "u": 6,
+   "v": 7,
+   "len_m": 115.15
+  },
+  {
+   "u": 7,
+   "v": 15,
+   "len_m": 336.65
+  },
+  {
+   "u": 7,
+   "v": 16,
+   "len_m": 452.15
+  },
+  {
+   "u": 8,
+   "v": 9,
+   "len_m": 193.67
+  },
+  {
+   "u": 8,
+   "v": 10,
+   "len_m": 163.19
+  },
+  {
+   "u": 9,
+   "v": 10,
+   "len_m": 271.08
+  },
+  {
+   "u": 10,
+   "v": 11,
+   "len_m": 315.55
+  },
+  {
+   "u": 11,
+   "v": 12,
+   "len_m": 221.38
+  },
+  {
+   "u": 12,
+   "v": 13,
+   "len_m": 162.37
+  },
+  {
+   "u": 12,
+   "v": 17,
+   "len_m": 358.23
+  },
+  {
+   "u": 12,
+   "v": 18,
+   "len_m": 424.59
+  },
+  {
+   "u": 12,
+   "v": 19,
+   "len_m": 259.77
+  },
+  {
+   "u": 13,
+   "v": 14,
+   "len_m": 392.94
+  },
+  {
+   "u": 13,
+   "v": 15,
+   "len_m": 200.24
+  },
+  {
+   "u": 13,
+   "v": 17,
+   "len_m": 452.27
+  },
+  {
+   "u": 13,
+   "v": 18,
+   "len_m": 458.98
+  },
+  {
+   "u": 13,
+   "v": 19,
+   "len_m": 94.38
+  },
+  {
+   "u": 14,
+   "v": 15,
+   "len_m": 214.58
+  },
+  {
+   "u": 14,
+   "v": 16,
+   "len_m": 301.36
+  },
+  {
+   "u": 15,
+   "v": 19,
+   "len_m": 121.78
+  },
+  {
+   "u": 17,
+   "v": 18,
+   "len_m": 129.34
+  }
+ ]
+}

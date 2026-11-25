@@ -167,6 +167,9 @@ def stage_one(
     wb3_mode: str = hspec.DEFAULT_WB3_MODE,
     sun_preset: str = hspec.DEFAULT_SUN_PRESET,
     orbital_meshes: str = hspec.DEFAULT_ORBITAL_MESHES,
+    port_plugin_path: str = "",
+    require_port: bool = False,
+    legacy_b7dc7f52: bool = False,
 ) -> Dict[str, Any]:
     final = os.path.abspath(out_dir)
     sf_path = os.path.join(os.path.abspath(data_dir), "Starfield.esm")
@@ -177,12 +180,16 @@ def stage_one(
     if mm_abs and not os.path.isfile(mm_abs):
         raise FileNotFoundError(f"map-markers plugin not found: {map_markers_path}")
 
+    port_abs = os.path.abspath(port_plugin_path) if port_plugin_path else ""
+    if port_abs and not os.path.isfile(port_abs):
+        raise FileNotFoundError(f"port plugin not found: {port_plugin_path}")
+
     ground_src_abs = os.path.abspath(ground_source_dir) if ground_source_dir else ""
     if ground_src_abs and not os.path.isdir(ground_src_abs):
         raise FileNotFoundError(f"ground-source-dir not found: {ground_source_dir}")
 
     search_dirs = [os.path.abspath(d) for d in extra_world_dirs if d] + [os.path.abspath(data_dir)]
-    guard_inputs = [sf_path] + ([mm_abs] if mm_abs else []) + ([ground_src_abs] if ground_src_abs else []) + search_dirs
+    guard_inputs = [sf_path] + ([mm_abs] if mm_abs else []) + ([port_abs] if port_abs else []) + ([ground_src_abs] if ground_src_abs else []) + search_dirs
     refuse_unsafe_output_path(final, guard_inputs)
     if os.path.exists(final):
         raise FileExistsError(f"{final} already exists; stage into a new folder")
@@ -211,6 +218,7 @@ def stage_one(
             sun_preset=sun_preset,
             orbital_meshes=orbital_meshes,
             wb3_mode=wb3_mode,
+            legacy_b7dc7f52=legacy_b7dc7f52,
         )
         master_path = os.path.join(partial, hspec.HOME_MASTER)
         master_writer.write(master_path, compress=False)
@@ -223,13 +231,21 @@ def stage_one(
             lever_keywords=lever_keywords,
             map_markers_path=mm_abs or None,
             wb3_mode=wb3_mode,
+            port_plugin_path=port_abs or None,
+            require_port=require_port,
         )
         reg_path = os.path.join(partial, hspec.HOME_REGISTRATION)
         reg_writer.write(reg_path, compress=False)
 
-    # Pin every referenced world plugin (e.g. FO4TerrainCore.esm) and verify zero modification
+    port_ov = reg_report.get("port_interiors_override")
+    port_used_abs = port_ov["path"] if port_ov else (port_abs or "")
+
+    # Pin every referenced world plugin (e.g. FO4TerrainCore.esm, FO4Port.esm) and verify zero modification
     for mname in reg_report["masters"][2:]:
         if mm_name and mname.lower() == mm_name.lower():
+            continue
+        if port_used_abs and mname.lower() == os.path.basename(port_used_abs).lower():
+            world_plugin_pins_before[mname] = sha256_file(port_used_abs)
             continue
         for sdir in search_dirs:
             cand = os.path.join(sdir, mname)
@@ -261,6 +277,7 @@ def stage_one(
         expected_ground_ltex=ground_ltex,
         expected_surface_tree=surface_tree,
         expected_wb3_mode=wb3_mode,
+        port_plugin_path=port_used_abs or None,
     )
     if problems:
         raise records.PlanetError(f"home stage check failed: {problems}")
@@ -270,6 +287,10 @@ def stage_one(
     if mm_abs and sha256_file(mm_abs) != mm_sha_before:
         raise RuntimeError(f"{mm_name} changed during stage")
     for mname, old_sha in world_plugin_pins_before.items():
+        if port_used_abs and mname.lower() == os.path.basename(port_used_abs).lower():
+            if sha256_file(port_used_abs) != old_sha:
+                raise RuntimeError(f"port plugin {mname} changed during stage")
+            continue
         for sdir in search_dirs:
             cand = os.path.join(sdir, mname)
             if os.path.isfile(cand):
@@ -322,6 +343,9 @@ def stage_one(
         "surface_location_formid": reg_report["surface_parent_formid"],
         "biome_map": biome_map_report,
         "ground_assets": ground_assets_report,
+        "port_interiors_override": (
+            {k: v for k, v in port_ov.items() if k != "path"} if port_ov else None
+        ),
         "map_markers_plugin": mm_name,
         "map_markers_sha256": mm_sha_before,
         "inputs": inputs_doc,
@@ -341,7 +365,18 @@ def stage_one(
     )
     write_json(os.path.join(partial, "plan.json"), plan)
 
-    verify_probs = verify_stage(partial, plan, data_dir, extra_world_dirs=extra_world_dirs)
+    verify_extra_dirs = list(extra_world_dirs or ())
+    if port_used_abs:
+        port_dir = os.path.dirname(port_used_abs)
+        if port_dir not in verify_extra_dirs:
+            verify_extra_dirs.append(port_dir)
+    verify_probs = verify_stage(
+        partial,
+        plan,
+        data_dir,
+        extra_world_dirs=verify_extra_dirs,
+        port_plugin_path=port_used_abs or None,
+    )
     if verify_probs:
         raise records.PlanetError(f"stage post-verification failed: {verify_probs}")
 
@@ -366,6 +401,7 @@ def verify_stage(
     data_dir: Optional[str] = None,
     *,
     extra_world_dirs: Sequence[str] = (),
+    port_plugin_path: Optional[str] = None,
 ) -> List[str]:
     """Verify staged file hashes, `.biom` paths, `WB1`–`WB3` ground/weather/sky/override invariants, and `W2`–`WL2` checks."""
     problems: List[str] = []
@@ -463,12 +499,26 @@ def verify_stage(
         pinned_mm_name = plan.get("map_markers_plugin") or hspec.MAP_MARKERS_PLUGIN
         mm_check_path: Optional[str] = None
         if pinned_mm_sha:
-            cand_mm = os.path.join(data_dir, pinned_mm_name)
-            if os.path.isfile(cand_mm):
-                mm_check_path = cand_mm
-                actual_mm_sha = sha256_file(cand_mm)
-                if actual_mm_sha != pinned_mm_sha:
-                    problems.append(f"{pinned_mm_name} changed since stage ({actual_mm_sha} != {pinned_mm_sha})")
+            for mdir in [os.path.abspath(data_dir)] + [os.path.abspath(d) for d in extra_world_dirs if d]:
+                cand_mm = os.path.join(mdir, pinned_mm_name)
+                if os.path.isfile(cand_mm):
+                    mm_check_path = cand_mm
+                    actual_mm_sha = sha256_file(cand_mm)
+                    if actual_mm_sha != pinned_mm_sha:
+                        problems.append(f"{pinned_mm_name} changed since stage ({actual_mm_sha} != {pinned_mm_sha})")
+                    break
+        port_check_path: Optional[str] = os.path.abspath(port_plugin_path) if port_plugin_path else None
+        if port_check_path and not os.path.isfile(port_check_path):
+            problems.append(f"port plugin missing: {port_check_path}")
+        if port_check_path is None and plan.get("port_interiors_override"):
+            port_name = plan["port_interiors_override"].get("plugin") or hspec.PORT_PLUGIN
+            for wdir in world_search:
+                cand_port = os.path.join(wdir, port_name)
+                if os.path.isfile(cand_port):
+                    port_check_path = cand_port
+                    break
+            if port_check_path is None:
+                problems.append(f"{port_name} missing in search dirs during port verification")
         chk_probs, _summary = hspec.check_home_stage(
             sf_path,
             master_path,
@@ -482,6 +532,7 @@ def verify_stage(
             expected_ground_ltex=plan.get("ground_ltex"),
             expected_surface_tree=plan.get("surface_tree"),
             expected_wb3_mode=plan.get("wb3_mode"),
+            port_plugin_path=port_check_path,
         )
         problems.extend(chk_probs)
 
@@ -531,6 +582,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
     levers = _parse_csv_list(args.lever_keywords)
     extra_dirs = [args.world_plugin_dir] if args.world_plugin_dir else []
     if args.control_b7dc7f52:
+        star_name = "FO4SF Home"
         body_name = "Earth"
         climate = "ClimateUniqueNewAtlantis"
         sky = "ATMO_Jemison"
@@ -540,7 +592,9 @@ def cmd_stage(args: argparse.Namespace) -> int:
         wb3_mode = "passthrough"
         sun_preset = "SunPresetTypeG2"
         orbital_meshes = "starfield"
+        legacy_b7dc7f52 = True
     else:
+        star_name = args.star_name
         body_name = args.body_name
         climate = args.climate
         sky = args.sky
@@ -550,12 +604,13 @@ def cmd_stage(args: argparse.Namespace) -> int:
         wb3_mode = args.wb3_mode
         sun_preset = args.sun_preset
         orbital_meshes = args.orbital_meshes
+        legacy_b7dc7f52 = False
 
     plan = stage_one(
         data_dir=args.data,
         out_dir=args.out,
         worlds=worlds,
-        star_name=args.star_name,
+        star_name=star_name,
         planet_name=args.planet_name,
         body_name=body_name,
         temp_c=args.temp,
@@ -571,6 +626,9 @@ def cmd_stage(args: argparse.Namespace) -> int:
         wb3_mode=wb3_mode,
         sun_preset=sun_preset,
         orbital_meshes=orbital_meshes,
+        port_plugin_path=getattr(args, "port", ""),
+        require_port=bool(getattr(args, "require_port", False)),
+        legacy_b7dc7f52=legacy_b7dc7f52,
     )
     print(
         f"staged {os.path.abspath(args.out)}: plugins={plan['plugins']}, "
@@ -583,7 +641,8 @@ def cmd_stage(args: argparse.Namespace) -> int:
 def cmd_check(args: argparse.Namespace) -> int:
     plan = load_plan(args.stage)
     extra_dirs = [args.world_plugin_dir] if getattr(args, "world_plugin_dir", "") else []
-    problems = verify_stage(args.stage, plan, args.data or None, extra_world_dirs=extra_dirs)
+    port_path = getattr(args, "port", "") or None
+    problems = verify_stage(args.stage, plan, args.data or None, extra_world_dirs=extra_dirs, port_plugin_path=port_path)
     _print_field_sources()
     live_refs = _live_biom_and_pndt_refs(args.stage, args.data or None)
     print("=== BIOM & PNDT Form References ===")
@@ -843,11 +902,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default="",
         help="Optional FO4SFMapMarkers.esm path: merge core LCTN LCSR rows, add master, and pin sha256 in plan.json",
     )
+    st.add_argument(
+        "--port",
+        default="",
+        help="Optional FO4Port.esm path (defaults to searching --world-plugin-dir / --data for 0x00E18A re-parenting)",
+    )
+    st.add_argument(
+        "--require-port",
+        action="store_true",
+        help="Fail stage if FO4Port.esm (0x00E18A FO4Port_InteriorsLocation) cannot be resolved and re-parented",
+    )
 
     ck = sub.add_parser("check", help="Offline verification of a staged home-world folder")
     ck.add_argument("--stage", required=True, help="Path to staged home-world directory")
     ck.add_argument("--data", default="", help="Optional path to Starfield Data folder for live clash checks")
     ck.add_argument("--world-plugin-dir", default="", help="Optional extra folder searched for world ESMs before --data")
+    ck.add_argument("--port", default="", help="Optional path to FO4Port.esm if not in --world-plugin-dir / --data")
+
+    cn = sub.add_parser(
+        "census",
+        help="Offline winning-record census across an ordered plugin list proving zero MarsPlanetData/SSol_PMars_Surface refs",
+    )
+    cn.add_argument(
+        "--plugins",
+        required=True,
+        help="Comma-separated list of .esm plugin paths in exact active load order",
+    )
+    cn.add_argument("--out", default="", help="Optional JSON report path (outside Git worktrees and game folders)")
 
     wl = sub.add_parser("stage-wl1", help="Stage 0-keyword baseline, 5 single-keyword variants, and all-5 variant")
     wl.add_argument("--data", required=True, help="Path to Starfield Data folder")
@@ -880,6 +961,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return cmd_stage(args)
         if args.cmd == "check":
             return cmd_check(args)
+        if args.cmd == "census":
+            paths = _parse_csv_list(args.plugins)
+            problems, summary = hspec.audit_zero_mars_references(paths)
+            payload = {"problems": problems, "summary": summary}
+            if args.out:
+                out_abs = os.path.abspath(args.out)
+                refuse_unsafe_output_path(out_abs, [os.path.abspath(p) for p in paths])
+                write_json(out_abs, payload)
+            print(json.dumps(payload, indent=2))
+            return 0 if not problems else 1
         if args.cmd == "stage-wl1":
             return cmd_stage_wl1(args)
         if args.cmd == "stage-wb1":

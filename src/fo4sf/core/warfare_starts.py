@@ -41,16 +41,20 @@ class WarfareStartRow:
     karma: float
     squad_cap: int
     gear: Tuple[WarfareGearItem, ...]
+    anchor_edid: str = ""
+    pos: Optional[Tuple[float, float, float]] = None
+    cell: Optional[Tuple[int, int]] = None
 
 
 def load_warfare_starts(
     path: str = WARFARE_STARTS_JSON,
     known_marker_edids: Optional[Iterable[str]] = None,
+    known_exterior_cells: Optional[Iterable[Tuple[int, int]]] = None,
 ) -> Tuple[WarfareStartRow, ...]:
     """Load and validate `warfare_starts.json`.
 
-    When `known_marker_edids` is supplied, refuses any row whose `marker_edid`
-    is missing from that set.
+    When `known_marker_edids` or `known_exterior_cells` is supplied, refuses any row
+    whose `anchor_edid`/`marker_edid` or `cell` is missing from those sets.
     """
     with open(path, encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -60,6 +64,11 @@ def load_warfare_starts(
 
     marker_set: Optional[Set[str]] = (
         {m.strip() for m in known_marker_edids} if known_marker_edids is not None else None
+    )
+    cell_set: Optional[Set[Tuple[int, int]]] = (
+        {(int(c[0]), int(c[1])) for c in known_exterior_cells}
+        if known_exterior_cells is not None
+        else None
     )
 
     rows: List[WarfareStartRow] = []
@@ -80,10 +89,31 @@ def load_warfare_starts(
             raise ValueError(f"Warfare start {key}: invalid difficulty range {min_diff}..{max_diff}")
 
         marker_edid = str(entry["marker_edid"]).strip()
-        if not marker_edid:
+        anchor_edid = str(entry.get("anchor_edid") or marker_edid).strip()
+        if not marker_edid and not anchor_edid:
             raise ValueError(f"Warfare start {key}: empty marker_edid")
-        if marker_set is not None and marker_edid not in marker_set:
-            raise ValueError(f"Warfare start {key}: unknown marker_edid {marker_edid!r} (not in terrain core)")
+        check_edid = anchor_edid or marker_edid
+        if marker_set is not None and check_edid not in marker_set:
+            raise ValueError(f"Warfare start {key}: unknown marker_edid {check_edid!r} (not in terrain core)")
+
+        raw_pos = entry.get("pos")
+        pos_tuple: Optional[Tuple[float, float, float]] = None
+        if raw_pos is not None:
+            if not isinstance(raw_pos, (list, tuple)) or len(raw_pos) != 3:
+                raise ValueError(f"Warfare start {key}: invalid pos {raw_pos!r}")
+            pos_tuple = (float(raw_pos[0]), float(raw_pos[1]), float(raw_pos[2]))
+
+        raw_cell = entry.get("cell")
+        cell_tuple: Optional[Tuple[int, int]] = None
+        if raw_cell is not None:
+            if not isinstance(raw_cell, (list, tuple)) or len(raw_cell) != 2:
+                raise ValueError(f"Warfare start {key}: invalid cell {raw_cell!r}")
+            cell_tuple = (int(raw_cell[0]), int(raw_cell[1]))
+        if cell_set is not None:
+            if cell_tuple is None:
+                raise ValueError(f"Warfare start {key}: missing cell coordinates")
+            if cell_tuple not in cell_set:
+                raise ValueError(f"Warfare start {key}: unknown exterior cell {cell_tuple} (not in terrain core)")
 
         squad_cap = int(entry["squad_cap"])
         if squad_cap < 1:
@@ -124,6 +154,9 @@ def load_warfare_starts(
                 karma=float(entry["karma"]),
                 squad_cap=squad_cap,
                 gear=tuple(gear_items),
+                anchor_edid=anchor_edid,
+                pos=pos_tuple,
+                cell=cell_tuple,
             )
         )
 

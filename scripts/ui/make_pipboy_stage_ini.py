@@ -485,6 +485,7 @@ def format_stage_ini(
     shell_vitals_fill: int = 1,
     suppress_data_menu: int = 0,
     tab_opens_pipboy: int = 0,
+    hide_starfield_watch: int = 1,
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
@@ -543,6 +544,7 @@ def format_stage_ini(
         f"ShellVitalsFill={1 if shell_vitals_fill else 0}",
         f"SuppressDataMenu={1 if suppress_data_menu else 0}",
         f"TabOpensPipboy={1 if tab_opens_pipboy else 0}",
+        f"HideStarfieldWatch={1 if hide_starfield_watch else 0}",
         f"StatActions={1 if stat_actions else 0}",
         f"InvDataAnswers={1 if inv_data_answers else 0}",
         f"RequirePickup={1 if require_pickup else 0}",
@@ -624,6 +626,7 @@ def generate_stage_ini(
     shell_vitals_fill: int = 1,
     suppress_data_menu: int = 0,
     tab_opens_pipboy: int = 0,
+    hide_starfield_watch: int = 1,
     arm: int = 0,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
@@ -709,6 +712,7 @@ def generate_stage_ini(
         shell_vitals_fill=shell_vitals_fill,
         suppress_data_menu=suppress_data_menu,
         tab_opens_pipboy=tab_opens_pipboy,
+        hide_starfield_watch=hide_starfield_watch,
         arm=arm,
         stat_actions=stat_actions,
         inv_data_answers=inv_data_answers,
@@ -773,6 +777,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--shell-vitals-fill", type=int, choices=(0, 1), default=1, help="C4-2 real HP/AP vitals on kShow (default 1; 0 = exact 2f path)")
     ap.add_argument("--suppress-data-menu", type=int, choices=(0, 1), default=0, help="C4-4 opt-in hide-only Starfield DataMenu suppression (default 0)")
     ap.add_argument("--tab-opens-pipboy", type=int, choices=(0, 1), default=0, help="C4-4 opt-in closed-Pip-Boy Tab open with 500 ms blocking cooldown (default 0)")
+    ap.add_argument("--hide-starfield-watch", type=int, choices=(0, 1), default=1, help="D7(b) hide Starfield HUDMenu BottomLeftGroup_mc wrist watch (default 1; 0 = one-line rollback)")
     ap.add_argument("--arm", type=int, choices=(0, 1), default=0, help="Opt-in 1i/N1 first-person arm PlayIdle (default 0: T7 off)")
     ap.add_argument("--stat-actions", type=int, choices=(0, 1), default=0, help="Enable 1j STAT actions (default 0)")
     ap.add_argument("--inv-data-answers", type=int, choices=(0, 1), default=0, help="Enable 1k INV/DATA answers (default 0)")
@@ -829,6 +834,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             shell_vitals_fill=args.shell_vitals_fill,
             suppress_data_menu=args.suppress_data_menu,
             tab_opens_pipboy=args.tab_opens_pipboy,
+            hide_starfield_watch=args.hide_starfield_watch,
             arm=args.arm,
             stat_actions=args.stat_actions,
             inv_data_answers=args.inv_data_answers,

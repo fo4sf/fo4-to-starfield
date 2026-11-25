@@ -558,6 +558,7 @@ namespace
 	bool                                     g_shellVitalsFill = false; // Round 10 C4-2: FillPipboyDataObj on kShow/page/partial when PopulateInCall=0 (C++ default 0, staged 1, rollback 0 = exact 2f path)
 	bool                                     g_suppressDataMenu = false; // Round 10 C4-4: opt-in hide-only DataMenu suppression (default 0)
 	bool                                     g_tabOpensPipboy = false;   // Round 10 C4-4: opt-in closed-Pip-Boy Tab open with blocking-menu cooldown (default 0)
+	bool                                     g_hideStarfieldWatch = false; // Round 11 D7(b): hide Starfield HUDMenu BottomLeftGroup_mc wrist watch (C++ fallback 0, staged 1, rollback 0)
 	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
 	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
 	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
@@ -599,6 +600,11 @@ namespace
 	std::mutex                               g_setupLock;
 	fo4sf::setup::SetupScreenModel           g_setupModel;
 	bool                                     g_setupModelLoaded = false;
+	std::optional<fo4sf::setup::LaunchChoicesPayload> g_launchChoices;
+	std::atomic<bool>                        g_hasLaunchChoices{ false };
+	std::atomic<bool>                        g_loadGameSeen{ false };
+	std::atomic<bool>                        g_loadGameEventHooked{ false };
+	std::filesystem::path                    g_localFo4sfDir;
 	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
 	std::atomic<std::uint32_t>               s_savedPage{ 0 };
 	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
@@ -618,6 +624,15 @@ namespace
 	std::atomic<const void*>                 g_vitalsLogMovie{ nullptr };
 	std::atomic<const void*>                 g_backdropMovie{ nullptr };
 	std::atomic<const void*>                 g_dateFixLogMovie{ nullptr };
+	std::atomic<const void*>                 g_dateFixDoneMovie{ nullptr };   // Round 11 A2.6: once-per-movie/page date-fix guard
+	std::atomic<std::int32_t>                g_dateFixDonePage{ -1 };
+	std::atomic<const void*>                 g_hintBarDoneMovie{ nullptr };   // Round 11 D5-1: ButtonHintBar_mc repositioned below BottomBar_mc
+	std::atomic<const void*>                 g_platformDoneMovie{ nullptr };  // Round 11 D5-2: SetPlatform(0, false) + trigger hide applied
+	std::atomic<const void*>                 g_staticListsInitMovie{ nullptr }; // Round 11 A2.6: static structural DataObj lists built for this movie
+	std::atomic<const void*>                 g_hudWatchHiddenMovie{ nullptr };  // Round 11 D7(b): HUDMenu movie whose BottomLeftGroup_mc watch was hidden
+	std::atomic<std::uint32_t>               g_hudWatchTryCount{ 0 };           // Round 11 Review #5: attempts for current HUDMenu movie
+	std::atomic<bool>                        g_hudWatchRetryPending{ false };   // Round 11 Review #5: retry across MenuOpenCloseEvent / UI poll until hidden or unloaded
+	constexpr std::uint32_t                  kMaxHudWatchTries = 40;
 	std::atomic<const void*>                 g_createdCodeObjMovie{ nullptr };
 	std::atomic<const void*>                 g_activeShellMenu{ nullptr };
 	std::atomic<std::int64_t>                g_lastShellTransitionMs{ 0 };
@@ -3736,6 +3751,11 @@ namespace
 		g_vitalsLogMovie = nullptr;
 		g_backdropMovie = nullptr;
 		g_dateFixLogMovie = nullptr;
+		g_dateFixDoneMovie = nullptr;
+		g_dateFixDonePage = -1;
+		g_hintBarDoneMovie = nullptr;
+		g_platformDoneMovie = nullptr;
+		g_staticListsInitMovie = nullptr;
 		g_createdCodeObjMovie = nullptr;
 		if (!a_keepInstallTries) {
 			g_codeObjTriedMovie = nullptr;
@@ -5256,6 +5276,24 @@ namespace
 		return a_arr.Invoke("splice", &res, &zero, 1) || a_arr.SetMember("length", zero);
 	}
 
+	// Round 11 A2.6: Atomically replace an AS3 Array from pre-staged GFx::Value entries only after every
+	// CreateObject call succeeded, so a failed CreateObject leaves the existing AS3 list intact.
+	std::uint32_t ReplaceAs3ArrayFromStaged(RE::Scaleform::GFx::Value& a_arr,
+		std::vector<RE::Scaleform::GFx::Value>& a_staged)
+	{
+		if (!ClearAs3ArrayInPlace(a_arr)) {
+			return 0;
+		}
+		RE::Scaleform::GFx::Value pushRes;
+		std::uint32_t             pushed = 0;
+		for (auto& entry : a_staged) {
+			if (a_arr.Invoke("push", &pushRes, &entry, 1)) {
+				++pushed;
+			}
+		}
+		return pushed;
+	}
+
 	void FillInvAndDataIntoDataObj(RE::Scaleform::GFx::ASMovieRootBase* a_root, RE::Scaleform::GFx::Value& a_dataObj,
 		std::uint32_t a_page, std::uint32_t a_tab, const char* a_when)
 	{
@@ -5276,8 +5314,8 @@ namespace
 		}
 
 		if (a_page == 1u) {
-			ShellInvDataSnapshot           snap;
-			std::array<std::uint32_t, 12>  quickkeysCopy{};
+			ShellInvDataSnapshot          snap;
+			std::array<std::uint32_t, 12> quickkeysCopy{};
 			{
 				std::scoped_lock lock(g_invDataLock);
 				snap = g_invDataSnap;
@@ -5285,11 +5323,15 @@ namespace
 			}
 			RE::Scaleform::GFx::Value invArr;
 			std::uint32_t             pushed = 0;
-			if (a_dataObj.GetMember("InvItems", &invArr) && ClearAs3ArrayInPlace(invArr)) {
+			if (a_dataObj.GetMember("InvItems", &invArr) && (invArr.IsArray() || invArr.IsObject())) {
+				std::vector<RE::Scaleform::GFx::Value> staged;
+				staged.reserve(snap.items.size());
+				bool stageOk = true;
 				for (const auto& it : snap.items) {
 					RE::Scaleform::GFx::Value entry;
 					a_root->CreateObject(&entry);
 					if (!entry.IsObject()) {
+						stageOk = false;
 						break;
 					}
 					entry.SetMember("text", RE::Scaleform::GFx::Value(it.name.c_str()));
@@ -5304,9 +5346,12 @@ namespace
 					entry.SetMember("formID", RE::Scaleform::GFx::Value(it.formId));
 					entry.SetMember("weight", RE::Scaleform::GFx::Value(it.weight));
 					entry.SetMember("value", RE::Scaleform::GFx::Value(it.value));
-					if (invArr.Invoke("push", &pushRes, &entry, 1)) {
-						++pushed;
-					}
+					staged.push_back(std::move(entry));
+				}
+				if (stageOk) {
+					pushed = ReplaceAs3ArrayFromStaged(invArr, staged);
+				} else {
+					REX::WARN("step=data_obj_stage_abort list=InvItems built={} want={}", staged.size(), snap.items.size());
 				}
 			}
 			RE::Scaleform::GFx::Value compArr;
@@ -5314,23 +5359,36 @@ namespace
 				ClearAs3ArrayInPlace(compArr);
 			}
 			RE::Scaleform::GFx::Value favArr;
-			if (a_dataObj.GetMember("FavoritesList", &favArr) && ClearAs3ArrayInPlace(favArr)) {
+			if (a_dataObj.GetMember("FavoritesList", &favArr) && (favArr.IsArray() || favArr.IsObject())) {
+				std::vector<RE::Scaleform::GFx::Value> staged;
+				staged.reserve(quickkeysCopy.size());
+				bool stageOk = true;
 				for (std::size_t slot = 0; slot < quickkeysCopy.size(); ++slot) {
 					RE::Scaleform::GFx::Value favVal(nullptr);
 					if (quickkeysCopy[slot] != 0) {
 						for (const auto& it : snap.items) {
 							if (it.formId == quickkeysCopy[slot]) {
 								a_root->CreateObject(&favVal);
-								if (favVal.IsObject()) {
-									favVal.SetMember("text", RE::Scaleform::GFx::Value(it.name.c_str()));
-									favVal.SetMember("nodeID", RE::Scaleform::GFx::Value(it.nodeId));
-									favVal.SetMember("formID", RE::Scaleform::GFx::Value(it.formId));
+								if (!favVal.IsObject()) {
+									stageOk = false;
+									break;
 								}
+								favVal.SetMember("text", RE::Scaleform::GFx::Value(it.name.c_str()));
+								favVal.SetMember("nodeID", RE::Scaleform::GFx::Value(it.nodeId));
+								favVal.SetMember("formID", RE::Scaleform::GFx::Value(it.formId));
 								break;
 							}
 						}
 					}
-					favArr.Invoke("push", &pushRes, &favVal, 1);
+					if (!stageOk) {
+						break;
+					}
+					staged.push_back(std::move(favVal));
+				}
+				if (stageOk) {
+					(void)ReplaceAs3ArrayFromStaged(favArr, staged);
+				} else {
+					REX::WARN("step=data_obj_stage_abort list=FavoritesList built={} want={}", staged.size(), quickkeysCopy.size());
 				}
 			}
 			if (++g_invFillLogs <= 64) {
@@ -5347,11 +5405,15 @@ namespace
 			std::uint32_t             qPushed = 0;
 			std::uint32_t             qActive = 0;
 			std::uint32_t             qCompleted = 0;
-			if (a_dataObj.GetMember("QuestsList", &questsArr) && ClearAs3ArrayInPlace(questsArr)) {
+			if (a_dataObj.GetMember("QuestsList", &questsArr) && (questsArr.IsArray() || questsArr.IsObject())) {
+				std::vector<RE::Scaleform::GFx::Value> staged;
+				staged.reserve(snap.quests.size());
+				bool stageOk = true;
 				for (const auto& q : snap.quests) {
 					RE::Scaleform::GFx::Value entry;
 					a_root->CreateObject(&entry);
 					if (!entry.IsObject()) {
+						stageOk = false;
 						break;
 					}
 					entry.SetMember("text", RE::Scaleform::GFx::Value(q.name.c_str()));
@@ -5362,61 +5424,94 @@ namespace
 					entry.SetMember("sortval", RE::Scaleform::GFx::Value(q.sortVal));
 					entry.SetMember("swfFile", RE::Scaleform::GFx::Value(""));
 					entry.SetMember("description", RE::Scaleform::GFx::Value(q.description.c_str()));
-					if (questsArr.Invoke("push", &pushRes, &entry, 1)) {
-						++qPushed;
+					staged.push_back(std::move(entry));
+				}
+				if (stageOk) {
+					qPushed = ReplaceAs3ArrayFromStaged(questsArr, staged);
+					for (const auto& q : snap.quests) {
 						if (q.completed) {
 							++qCompleted;
 						} else if (q.active) {
 							++qActive;
 						}
 					}
+				} else {
+					REX::WARN("step=data_obj_stage_abort list=QuestsList built={} want={}", staged.size(), snap.quests.size());
 				}
 			}
 			RE::Scaleform::GFx::Value wsArr;
-			if (a_dataObj.GetMember("WorkshopsList", &wsArr) && ClearAs3ArrayInPlace(wsArr)) {
+			if (a_dataObj.GetMember("WorkshopsList", &wsArr) && (wsArr.IsArray() || wsArr.IsObject())) {
+				std::vector<RE::Scaleform::GFx::Value> staged;
+				staged.reserve(snap.workshops.size());
+				bool stageOk = true;
 				for (const auto& ws : snap.workshops) {
 					RE::Scaleform::GFx::Value entry, dataArr;
 					a_root->CreateObject(&entry);
 					a_root->CreateObject(&dataArr, "Array");
 					if (!entry.IsObject() || !(dataArr.IsArray() || dataArr.IsObject())) {
+						stageOk = false;
 						break;
 					}
 					for (std::size_t wi = 0; wi < ws.values.size(); ++wi) {
 						RE::Scaleform::GFx::Value cell;
 						a_root->CreateObject(&cell);
-						if (cell.IsObject()) {
-							cell.SetMember("value", RE::Scaleform::GFx::Value(ws.values[wi]));
-							cell.SetMember("rating", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
-							dataArr.Invoke("push", &pushRes, &cell, 1);
+						if (!cell.IsObject()) {
+							stageOk = false;
+							break;
 						}
+						cell.SetMember("value", RE::Scaleform::GFx::Value(ws.values[wi]));
+						cell.SetMember("rating", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
+						dataArr.Invoke("push", &pushRes, &cell, 1);
+					}
+					if (!stageOk) {
+						break;
 					}
 					entry.SetMember("text", RE::Scaleform::GFx::Value(ws.name.c_str()));
 					entry.SetMember("mapMarkerID", RE::Scaleform::GFx::Value(ws.mapMarkerId));
 					entry.SetMember("workshopData", dataArr);
-					wsArr.Invoke("push", &pushRes, &entry, 1);
+					staged.push_back(std::move(entry));
+				}
+				if (stageOk) {
+					(void)ReplaceAs3ArrayFromStaged(wsArr, staged);
+				} else {
+					REX::WARN("step=data_obj_stage_abort list=WorkshopsList built={} want={}", staged.size(), snap.workshops.size());
 				}
 			}
 			RE::Scaleform::GFx::Value statsArr;
-			if (a_dataObj.GetMember("GeneralStatsList", &statsArr) && ClearAs3ArrayInPlace(statsArr)) {
+			if (a_dataObj.GetMember("GeneralStatsList", &statsArr) && (statsArr.IsArray() || statsArr.IsObject())) {
+				std::vector<RE::Scaleform::GFx::Value> staged;
+				staged.reserve(snap.statCategories.size());
+				bool stageOk = true;
 				for (const auto& cat : snap.statCategories) {
 					RE::Scaleform::GFx::Value catObj, rowArr;
 					a_root->CreateObject(&catObj);
 					a_root->CreateObject(&rowArr, "Array");
 					if (!catObj.IsObject() || !(rowArr.IsArray() || rowArr.IsObject())) {
+						stageOk = false;
 						break;
 					}
 					for (const auto& [rLabel, rVal] : cat.rows) {
 						RE::Scaleform::GFx::Value rObj;
 						a_root->CreateObject(&rObj);
-						if (rObj.IsObject()) {
-							rObj.SetMember("text", RE::Scaleform::GFx::Value(rLabel.c_str()));
-							rObj.SetMember("value", RE::Scaleform::GFx::Value(rVal.c_str()));
-							rowArr.Invoke("push", &pushRes, &rObj, 1);
+						if (!rObj.IsObject()) {
+							stageOk = false;
+							break;
 						}
+						rObj.SetMember("text", RE::Scaleform::GFx::Value(rLabel.c_str()));
+						rObj.SetMember("value", RE::Scaleform::GFx::Value(rVal.c_str()));
+						rowArr.Invoke("push", &pushRes, &rObj, 1);
+					}
+					if (!stageOk) {
+						break;
 					}
 					catObj.SetMember("text", RE::Scaleform::GFx::Value(cat.name.c_str()));
 					catObj.SetMember("statArray", rowArr);
-					statsArr.Invoke("push", &pushRes, &catObj, 1);
+					staged.push_back(std::move(catObj));
+				}
+				if (stageOk) {
+					(void)ReplaceAs3ArrayFromStaged(statsArr, staged);
+				} else {
+					REX::WARN("step=data_obj_stage_abort list=GeneralStatsList built={} want={}", staged.size(), snap.statCategories.size());
 				}
 			}
 			if (++g_questFillLogs <= 64) {
@@ -5434,6 +5529,9 @@ namespace
 		}
 		const std::uint32_t page = std::min<std::uint32_t>(a_targetPage, 4u);
 		const std::uint32_t tab = std::min<std::uint32_t>(a_targetTab, 16u);
+		const void* const   movie = a_menu ? MovieOf(a_menu) : nullptr;
+		const bool          isPartial = (a_when != nullptr && std::string_view(a_when) == "partial");
+		const bool          needStructuralLists = !isPartial || !movie || g_staticListsInitMovie.load() != movie;
 
 		ShellVitalsSnapshot snap;
 		{
@@ -5476,75 +5574,137 @@ namespace
 		a_dataObj.SetMember("UnderwearType", RE::Scaleform::GFx::Value(std::uint32_t{ 0 }));
 		a_dataObj.SetMember("SortMode", RE::Scaleform::GFx::Value(g_invSortMode));
 
-		// Mutate getter-only SPECIALList Array in place (7 entries {text, value, modifier, description})
-		RE::Scaleform::GFx::Value specialArr, pushRes;
-		if (a_dataObj.GetMember("SPECIALList", &specialArr) && ClearAs3ArrayInPlace(specialArr) &&
-			g_codeObjSpecial != kSpecialClear) {
-			for (std::size_t i = 0; i < kSpecialNames.size(); ++i) {
-				RE::Scaleform::GFx::Value entry;
-				a_root->CreateObject(&entry);
-				if (!entry.IsObject()) {
-					break;
+		// A2.6: Stage every AS3 list build before clearing the target array so a failed CreateObject leaves
+		// prior lists intact; skip static structural lists on partial vitals refreshes once initialized for this movie.
+		if (needStructuralLists) {
+			// SPECIALList (7 entries {text, value, modifier, description})
+			RE::Scaleform::GFx::Value specialArr;
+			if (a_dataObj.GetMember("SPECIALList", &specialArr) && (specialArr.IsArray() || specialArr.IsObject())) {
+				if (g_codeObjSpecial == kSpecialClear) {
+					ClearAs3ArrayInPlace(specialArr);
+				} else {
+					std::vector<RE::Scaleform::GFx::Value> staged;
+					staged.reserve(kSpecialNames.size());
+					bool stageOk = true;
+					for (std::size_t i = 0; i < kSpecialNames.size(); ++i) {
+						RE::Scaleform::GFx::Value entry;
+						a_root->CreateObject(&entry);
+						if (!entry.IsObject()) {
+							stageOk = false;
+							break;
+						}
+						entry.SetMember("text", RE::Scaleform::GFx::Value(kSpecialNames[i]));
+						entry.SetMember("value", RE::Scaleform::GFx::Value(static_cast<std::int32_t>(snap.special[i])));
+						entry.SetMember("modifier", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
+						entry.SetMember("description", RE::Scaleform::GFx::Value(""));
+						staged.push_back(std::move(entry));
+					}
+					if (stageOk) {
+						(void)ReplaceAs3ArrayFromStaged(specialArr, staged);
+					} else {
+						REX::WARN("step=data_obj_stage_abort list=SPECIALList built={} want={}", staged.size(), kSpecialNames.size());
+					}
 				}
-				entry.SetMember("text", RE::Scaleform::GFx::Value(kSpecialNames[i]));
-				entry.SetMember("value", RE::Scaleform::GFx::Value(static_cast<std::int32_t>(snap.special[i])));
-				entry.SetMember("modifier", RE::Scaleform::GFx::Value(std::int32_t{ 0 }));
-				entry.SetMember("description", RE::Scaleform::GFx::Value(""));
-				specialArr.Invoke("push", &pushRes, &entry, 1);
+			}
+
+			// SlotResists (9 empty sub-arrays 0..8 for PaperDoll)
+			RE::Scaleform::GFx::Value slotResists;
+			if (a_dataObj.GetMember("SlotResists", &slotResists) && (slotResists.IsArray() || slotResists.IsObject())) {
+				std::vector<RE::Scaleform::GFx::Value> staged;
+				staged.reserve(9);
+				bool stageOk = true;
+				for (std::size_t s = 0; s < 9; ++s) {
+					RE::Scaleform::GFx::Value subArr;
+					a_root->CreateObject(&subArr, "Array");
+					if (!(subArr.IsObject() || subArr.IsArray())) {
+						stageOk = false;
+						break;
+					}
+					staged.push_back(std::move(subArr));
+				}
+				if (stageOk) {
+					(void)ReplaceAs3ArrayFromStaged(slotResists, staged);
+				} else {
+					REX::WARN("step=data_obj_stage_abort list=SlotResists built={} want=9", staged.size());
+				}
+			}
+
+			// Ensure PerksList, StatsCategories, and RadioList are clean Arrays so PERKS / DATA / RADIO
+			// never encounter malformed elements when ShellVitalsFill=1.
+			for (const char* arrName : { "PerksList", "StatsCategories", "RadioList" }) {
+				RE::Scaleform::GFx::Value arr;
+				if (a_dataObj.GetMember(arrName, &arr)) {
+					ClearAs3ArrayInPlace(arr);
+				}
+			}
+			// When InvDataAnswers=0, ensure INV & DATA list containers remain valid Arrays without clobbering
+			// InvDataAnswers=1 data (FillInvAndDataIntoDataObj owns them when g_invDataAnswers=1).
+			if (!g_invDataAnswers) {
+				for (const char* arrName : { "InvItems", "InvComponents", "InvSelectedItems", "FavoritesList", "QuestsList", "WorkshopsList", "GeneralStatsList" }) {
+					RE::Scaleform::GFx::Value arr;
+					if (a_dataObj.GetMember(arrName, &arr)) {
+						ClearAs3ArrayInPlace(arr);
+					}
+				}
+			}
+			if (movie) {
+				g_staticListsInitMovie.store(movie);
 			}
 		}
 
-		// Mutate getter-only SlotResists Array in place (9 sub-arrays 0..8 for PaperDoll)
-		RE::Scaleform::GFx::Value slotResists;
-		if (a_dataObj.GetMember("SlotResists", &slotResists) && ClearAs3ArrayInPlace(slotResists)) {
-			for (std::size_t s = 0; s < 9; ++s) {
-				RE::Scaleform::GFx::Value subArr;
-				a_root->CreateObject(&subArr, "Array");
-				if (subArr.IsObject() || subArr.IsArray()) {
-					slotResists.Invoke("push", &pushRes, &subArr, 1);
-				}
-			}
-		}
-
-		// TotalResists (Ballistic=1, Energy=4, Radiation=6) & ActiveEffects (RADS when > 0)
+		// TotalResists (Ballistic=1, Energy=4, Radiation=6) — atomically staged
 		RE::Scaleform::GFx::Value totalResists;
-		if (a_dataObj.GetMember("TotalResists", &totalResists) && ClearAs3ArrayInPlace(totalResists)) {
+		if (a_dataObj.GetMember("TotalResists", &totalResists) && (totalResists.IsArray() || totalResists.IsObject())) {
 			const std::array<std::pair<std::uint32_t, double>, 3> resists{ {
 				{ 1u, snap.damageResist },
 				{ 4u, snap.energyResist },
 				{ 6u, snap.radResist },
 			} };
+			std::vector<RE::Scaleform::GFx::Value> staged;
+			staged.reserve(resists.size());
+			bool stageOk = true;
 			for (const auto& [rtype, rval] : resists) {
 				RE::Scaleform::GFx::Value entry;
 				a_root->CreateObject(&entry);
-				if (entry.IsObject()) {
-					entry.SetMember("type", RE::Scaleform::GFx::Value(rtype));
-					entry.SetMember("value", RE::Scaleform::GFx::Value(rval));
-					totalResists.Invoke("push", &pushRes, &entry, 1);
+				if (!entry.IsObject()) {
+					stageOk = false;
+					break;
+				}
+				entry.SetMember("type", RE::Scaleform::GFx::Value(rtype));
+				entry.SetMember("value", RE::Scaleform::GFx::Value(rval));
+				staged.push_back(std::move(entry));
+			}
+			if (stageOk) {
+				(void)ReplaceAs3ArrayFromStaged(totalResists, staged);
+			} else {
+				REX::WARN("step=data_obj_stage_abort list=TotalResists built={} want={}", staged.size(), resists.size());
+			}
+		}
+
+		// ActiveEffects (RADS when >= 1.0) — atomically staged
+		RE::Scaleform::GFx::Value activeEffects;
+		if (a_dataObj.GetMember("ActiveEffects", &activeEffects) && (activeEffects.IsArray() || activeEffects.IsObject())) {
+			std::vector<RE::Scaleform::GFx::Value> staged;
+			bool                                   stageOk = true;
+			if (snap.rads >= 1.0) {
+				RE::Scaleform::GFx::Value eff;
+				a_root->CreateObject(&eff);
+				if (!eff.IsObject()) {
+					stageOk = false;
+				} else {
+					eff.SetMember("EffectName", RE::Scaleform::GFx::Value("RADS"));
+					eff.SetMember("Magnitude", RE::Scaleform::GFx::Value(std::round(snap.rads)));
+					eff.SetMember("Duration", RE::Scaleform::GFx::Value(0.0));
+					eff.SetMember("elapsed", RE::Scaleform::GFx::Value(0.0));
+					eff.SetMember("isTimed", RE::Scaleform::GFx::Value(false));
+					eff.SetMember("inactive", RE::Scaleform::GFx::Value(false));
+					staged.push_back(std::move(eff));
 				}
 			}
-		}
-
-		RE::Scaleform::GFx::Value activeEffects;
-		if (a_dataObj.GetMember("ActiveEffects", &activeEffects) && ClearAs3ArrayInPlace(activeEffects) && snap.rads >= 1.0) {
-			RE::Scaleform::GFx::Value eff;
-			a_root->CreateObject(&eff);
-			if (eff.IsObject()) {
-				eff.SetMember("EffectName", RE::Scaleform::GFx::Value("RADS"));
-				eff.SetMember("Magnitude", RE::Scaleform::GFx::Value(std::round(snap.rads)));
-				eff.SetMember("Duration", RE::Scaleform::GFx::Value(0.0));
-				eff.SetMember("elapsed", RE::Scaleform::GFx::Value(0.0));
-				eff.SetMember("isTimed", RE::Scaleform::GFx::Value(false));
-				eff.SetMember("inactive", RE::Scaleform::GFx::Value(false));
-				activeEffects.Invoke("push", &pushRes, &eff, 1);
-			}
-		}
-
-		// Ensure PerksList & StatsCategories are clean Arrays so PERKS / DATA never encounter malformed elements
-		for (const char* arrName : { "PerksList", "StatsCategories" }) {
-			RE::Scaleform::GFx::Value arr;
-			if (a_dataObj.GetMember(arrName, &arr)) {
-				ClearAs3ArrayInPlace(arr);
+			if (stageOk) {
+				(void)ReplaceAs3ArrayFromStaged(activeEffects, staged);
+			} else {
+				REX::WARN("step=data_obj_stage_abort list=ActiveEffects built=0 want=1");
 			}
 		}
 
@@ -5563,7 +5723,6 @@ namespace
 		g_currentShellTab.store(static_cast<std::int32_t>(tab));
 
 		if (g_populateInCall && std::string_view(a_when) == "PopulatePipboyInfoObj") {
-			const void* const movie = a_menu ? MovieOf(a_menu) : nullptr;
 			if (!movie || g_populatedLogMovie.exchange(movie) != movie) {
 				const int paused = (g_flags & kPauseFlag) != 0 ? 1 : 0;
 				REX::INFO("step=populate page={} tab={} hp={:.0f}/{:.0f} ap={:.0f}/{:.0f} level={} special={},{},{},{},{},{},{} source={} paused={}",
@@ -5588,6 +5747,8 @@ namespace
 	bool ReadPath(const RE::Scaleform::GFx::Value& a_from, const std::string& a_path, RE::Scaleform::GFx::Value& a_out);
 	void SpecialReady(RE::Scaleform::GFx::ASMovieRootBase* a_root, const RE::Scaleform::GFx::Value& a_top, const char* a_when);
 	void ApplyBottomBarDateFix(const void* a_menu, const RE::Scaleform::GFx::Value& a_menuMc, const char* a_when);
+	void ApplyShellHintBarLayout(const void* a_menu, const RE::Scaleform::GFx::Value& a_menuMc, const char* a_when);
+	void ApplyShellPlatform(const void* a_menu, RE::Scaleform::GFx::Value& a_menuMc, const char* a_when, bool a_forcePageRefresh = false);
 
 	// Step 1: synchronous in-call answer for onNewPage(pageIdx) and onNewTab(tabIdx) on the menu thread
 	void AnswerPageOrTabSynchronously(bool a_isPage, std::int32_t a_idx)
@@ -5657,6 +5818,8 @@ namespace
 		RE::Scaleform::GFx::Value invRes;
 		const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData");
 		if (invalidated) {
+			ApplyShellHintBarLayout(menu, menuMc, a_isPage ? "onNewPage" : "onNewTab");
+			ApplyShellPlatform(menu, menuMc, a_isPage ? "onNewPage" : "onNewTab", a_isPage);
 			ApplyBottomBarDateFix(menu, menuMc, a_isPage ? "onNewPage" : "onNewTab");
 		}
 		const auto n = ++g_answers;
@@ -6544,12 +6707,22 @@ namespace
 		return ok;
 	}
 
-	// C4-3: On DATA/MAP (BottomBar_Info_3 Frame 6), Date_tf starts at x=8.0 width=150.0 while Time_tf starts at
-	// x=207.0 (49 px unused gap). Starfield's wider fallback UI font clips "10.23.2287" to "10.23.228". Widen Date_tf
-	// to 194.0 with wordWrap=false and autoSize="left" (clear of Time_tf at 207.0) and widen Time_tf to 156.0.
+	// C4-3 + Round 11 A2.6: On DATA/MAP (BottomBar_Info_3 Frame 6), Date_tf starts at x=8.0 width=150.0 while Time_tf
+	// starts at x=207.0 (49 px unused gap). Starfield's wider fallback UI font clips "10.23.2287" to "10.23.228".
+	// Widen Date_tf to 194.0 with wordWrap=false and autoSize="left" (clear of Time_tf at 207.0) and widen Time_tf to
+	// 156.0. Guarded once per (movie, page) once succeeded so ShellUpdate never re-runs ReadPath/GetMember every tick.
 	void ApplyBottomBarDateFix(const void* a_menu, const RE::Scaleform::GFx::Value& a_menuMc, const char* a_when)
 	{
 		if (!a_menu || !a_menuMc.IsObject()) {
+			return;
+		}
+		const void* const movie = MovieOf(a_menu);
+		const auto        curPage = g_currentShellPage.load();
+		// Frame 6 (Date_tf / Time_tf) only exists on DATA (2) and MAP (3); skip on STAT/INV/RADIO.
+		if (curPage >= 0 && curPage != 2 && curPage != 3) {
+			return;
+		}
+		if (movie && g_dateFixDoneMovie.load() == movie && g_dateFixDonePage.load() == curPage) {
 			return;
 		}
 		RE::Scaleform::GFx::Value dateTf;
@@ -6571,6 +6744,10 @@ namespace
 		const bool alreadyLeft = dateTf.GetMember("autoSize", &autoVal) && autoVal.IsString() &&
 		                         SameText(autoVal.GetString(), "left");
 		if (alreadyLeft && oldW >= 160.0) {
+			if (movie) {
+				g_dateFixDonePage.store(curPage);
+				g_dateFixDoneMovie.store(movie);
+			}
 			return;
 		}
 		const bool setWrap = dateTf.SetMember("wordWrap", RE::Scaleform::GFx::Value(false));
@@ -6593,10 +6770,103 @@ namespace
 		if (dateTf.GetMember("width", &nwVal) && nwVal.IsNumber()) {
 			newW = nwVal.GetNumber();
 		}
-		const void* const movie = MovieOf(a_menu);
+		if (movie && setW && setAuto) {
+			g_dateFixDonePage.store(curPage);
+			g_dateFixDoneMovie.store(movie);
+		}
 		if (movie && g_dateFixLogMovie.exchange(movie) != movie) {
 			REX::INFO("step=shell_date_fix when={} old_w={:.1f} new_w={:.1f} auto_size={} word_wrap={} width_set={}",
 				a_when ? a_when : "update", oldW, newW, setAuto ? 1 : 0, setWrap ? 1 : 0, setW ? 1 : 0);
+		}
+	}
+
+	// Round 11 D5 Part 1: In PipboyMenu.swf (Sprite 79), ButtonHintBar_mc sits at y=575.0 while StatusTab_mc.Name_tf
+	// ("PLAYER") sits at y=580.0 (5 px overlap directly over "RADAWAY (0)" on cand2g still 12). BottomBar_mc occupies
+	// y=629.8..668.0 inside the 708.0 CRT bezel. Move ButtonHintBar_mc.y to 672.0 once per movie so Name_tf sits
+	// cleanly between DMG/DR (y=553) and BottomBar_mc (y=629.8) with zero collision.
+	void ApplyShellHintBarLayout(const void* a_menu, const RE::Scaleform::GFx::Value& a_menuMc, const char* a_when)
+	{
+		if (!a_menu || !a_menuMc.IsObject()) {
+			return;
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (!movie || g_hintBarDoneMovie.load() == movie) {
+			return;
+		}
+		RE::Scaleform::GFx::Value hintBar;
+		if (!ReadPath(a_menuMc, "ButtonHintBar_mc", hintBar) || !hintBar.IsObject()) {
+			return;
+		}
+		double                    oldY = 0.0;
+		RE::Scaleform::GFx::Value yVal;
+		if (hintBar.GetMember("y", &yVal)) {
+			if (yVal.IsNumber()) {
+				oldY = yVal.GetNumber();
+			} else if (yVal.IsInt()) {
+				oldY = static_cast<double>(yVal.GetInt());
+			} else if (yVal.IsUInt()) {
+				oldY = static_cast<double>(yVal.GetUInt());
+			}
+		}
+		constexpr double kTargetHintBarY = 672.0;
+		const bool       setY = hintBar.SetMember("y", RE::Scaleform::GFx::Value(kTargetHintBarY));
+		if (setY) {
+			g_hintBarDoneMovie.store(movie);
+		}
+		REX::INFO("step=shell_hintbar_layout when={} old_y={:.1f} new_y={:.1f} ok={}",
+			a_when ? a_when : "update", oldY, kTargetHintBarY, setY ? 1 : 0);
+	}
+
+	// Round 11 D5 Part 2: PipboyMenu.swf starts with _uiPlatform=PLATFORM_INVALID (0xFFFFFFFF) because Starfield never
+	// calls SetPlatform, causing BSButtonHint and Pipboy_Header to render Xbox controller glyphs (A, X, Y, LT, RT) on
+	// keyboard + mouse. Call Menu_mc.SetPlatform(0u, false) (PLATFORM_PC_KB_MOUSE = 0) and hide Header_mc's
+	// LeftTriggerButton_mc / RightTriggerButton_mc on KB+M. Guarded once per movie (plus page-switch refresh).
+	void ApplyShellPlatform(const void* a_menu, RE::Scaleform::GFx::Value& a_menuMc, const char* a_when, bool a_forcePageRefresh)
+	{
+		if (!a_menu || !a_menuMc.IsObject()) {
+			return;
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (!movie) {
+			return;
+		}
+		const bool alreadyDone = (g_platformDoneMovie.load() == movie);
+		if (alreadyDone && !a_forcePageRefresh) {
+			return;
+		}
+		constexpr std::uint32_t   kPlatformPcKbMouse = 0u;
+		RE::Scaleform::GFx::Value args[2]{
+			RE::Scaleform::GFx::Value(kPlatformPcKbMouse),
+			RE::Scaleform::GFx::Value(false),
+		};
+		RE::Scaleform::GFx::Value res;
+		const bool calledMenu = InvokeMovieTracked(a_menuMc, "SetPlatform", &res, args, 2, "Menu_mc.SetPlatform", false);
+
+		RE::Scaleform::GFx::Value hintBar;
+		if (ReadPath(a_menuMc, "ButtonHintBar_mc", hintBar) && hintBar.IsObject()) {
+			(void)hintBar.Invoke("SetPlatform", &res, args, 2);
+		}
+		std::uint32_t             triggersHidden = 0;
+		RE::Scaleform::GFx::Value headerMc;
+		if (ReadPath(a_menuMc, "Header_mc", headerMc) && headerMc.IsObject()) {
+			(void)headerMc.Invoke("SetPlatform", &res, args, 2);
+			for (const char* trigName : { "LeftTriggerButton_mc", "RightTriggerButton_mc" }) {
+				RE::Scaleform::GFx::Value trig;
+				if (headerMc.GetMember(trigName, &trig) && trig.IsObject()) {
+					const bool visOk = trig.SetMember("visible", RE::Scaleform::GFx::Value(false));
+					(void)trig.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
+					if (visOk) {
+						++triggersHidden;
+					}
+				}
+			}
+		}
+		if (calledMenu || triggersHidden > 0) {
+			const bool firstLog = (g_platformDoneMovie.exchange(movie) != movie);
+			if (firstLog) {
+				REX::INFO("step=shell_platform when={} platform=0 called={} triggers_hidden={}",
+					a_when ? a_when : "update", calledMenu ? 1 : 0, triggersHidden);
+			}
 		}
 	}
 
@@ -6622,6 +6892,7 @@ namespace
 			return;
 		}
 		ApplyShellBackdrop(a_menu, top, menuMc);
+		ApplyShellHintBarLayout(a_menu, menuMc, "kShow");
 		if (g_createdCodeObjMovie.exchange(movie) != movie) {
 			RE::Scaleform::GFx::Value createRes;
 			if (!InvokeMovieTracked(menuMc, "onCodeObjCreate", &createRes, nullptr, 0, "Menu_mc.onCodeObjCreate")) {
@@ -6629,6 +6900,7 @@ namespace
 				return;
 			}
 		}
+		ApplyShellPlatform(a_menu, menuMc, "kShow");
 		const bool alreadyInvalidated = (g_shownInvalidatedMovie.exchange(movie) == movie);
 		if (alreadyInvalidated && !g_lateInvalidate) {
 			ApplyBottomBarDateFix(a_menu, menuMc, "kShow_existing");
@@ -6667,6 +6939,8 @@ namespace
 		RE::Scaleform::GFx::Value invRes;
 		const bool invalidated = InvokeMovieTracked(menuMc, "InvalidateData", &invRes, nullptr, 0, "Menu_mc.InvalidateData");
 		if (invalidated) {
+			ApplyShellHintBarLayout(a_menu, menuMc, "kShow");
+			ApplyShellPlatform(a_menu, menuMc, "kShow");
 			ApplyBottomBarDateFix(a_menu, menuMc, "kShow");
 		}
 		REX::INFO("step=shell_show_invalidate page={} tab={} invalidated={}", page, tab, invalidated ? 1 : 0);
@@ -6869,11 +7143,31 @@ namespace
 			}
 		}
 		PipboyMap::OnShellUpdate(a_menu, root, top, g_codeObjAt, g_answerPage, g_answerTab);
+		// A2.6: Once backdrop, hint-bar layout, KB+M platform, and current-page date fix have succeeded for this movie,
+		// skip the ReadPath/GetMember lookup entirely on subsequent 500 ms ShellUpdate ticks.
 		if (IsFo4ShellActive()) {
-			RE::Scaleform::GFx::Value menuMc;
-			if (ReadPath(top, g_codeObjAt, menuMc) && menuMc.IsObject()) {
-				ApplyShellBackdrop(a_menu, top, menuMc);
-				ApplyBottomBarDateFix(a_menu, menuMc, "update");
+			const auto curPage = g_currentShellPage.load();
+			const bool needBackdrop = g_shellBackdrop && g_backdropMovie.load() != movie;
+			const bool needHintBar = g_hintBarDoneMovie.load() != movie;
+			const bool needPlatform = g_platformDoneMovie.load() != movie;
+			const bool needDateFix = (curPage == 2 || curPage == 3 || curPage < 0) &&
+			                         !(g_dateFixDoneMovie.load() == movie && g_dateFixDonePage.load() == curPage);
+			if (needBackdrop || needHintBar || needPlatform || needDateFix) {
+				RE::Scaleform::GFx::Value menuMc;
+				if (ReadPath(top, g_codeObjAt, menuMc) && menuMc.IsObject()) {
+					if (needBackdrop) {
+						ApplyShellBackdrop(a_menu, top, menuMc);
+					}
+					if (needHintBar) {
+						ApplyShellHintBarLayout(a_menu, menuMc, "update");
+					}
+					if (needPlatform) {
+						ApplyShellPlatform(a_menu, menuMc, "update");
+					}
+					if (needDateFix) {
+						ApplyBottomBarDateFix(a_menu, menuMc, "update");
+					}
+				}
 			}
 		}
 		const auto page = g_answerPage.exchange(-1);
@@ -8540,6 +8834,8 @@ namespace
 		}
 		g_ctor(menu);
 		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
 		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_blockedMapVtbl.slots.data());
 		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_blockedMapInputVtbl.slots.data());
 		auto* imenu = static_cast<RE::IMenu*>(menu);
@@ -8547,6 +8843,11 @@ namespace
 		imenu->flags = 0;
 		imenu->flagsUpdated = true;
 		*reinterpret_cast<std::uint8_t*>(base + 0x110) = 0;
+		// IMenu::ctor initializes refCount = 1; Starfield's UI::ProcessMessages (REL::ID 130446, RVA 0x2540d40) immediately
+		// releases the creator temporary before reading [menu + 0xB0] (0x2540dc6), so increment 1 -> 2 like vanilla creators.
+		if (ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
 		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
 		return true;
 	}
@@ -8564,6 +8865,360 @@ namespace
 		}
 		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
 		*reinterpret_cast<float*>(a_form + valAt) = a_value;
+	}
+
+	bool ReadStoreGlobalFloat(std::uint32_t a_localId, std::string_view a_edid, float& a_out)
+	{
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		const auto     fid = KitFileForm("FO4SFCoreValues.esm", a_localId, "TESGlobal@@", detail);
+		if (!fid) {
+			return false;
+		}
+		AcceptById(fid, a_edid, "TESGlobal@@", kGlobalEditorIdAt, form);
+		if (!form) {
+			return false;
+		}
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		return Peek(form + valAt, a_out) && std::isfinite(a_out);
+	}
+
+	void CommitStartChoiceGlobals(
+		int  a_modeVal,
+		int  a_storyChoiceIdx,
+		int  a_survivalStart,
+		int  a_survivalLocked,
+		int  a_difficulty,
+		bool a_writeDifficulty,
+		int  a_warfareFactionSlot,
+		int  a_warfareStartIdx,
+		int  a_startPlaceRow,
+		bool a_clearStartCard)
+	{
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreGameModeId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_GameMode", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_modeVal));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStoryLineId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StoryLine", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_storyChoiceIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalStartId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalStart", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_survivalStart));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalLockedId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_SurvivalLocked", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_survivalLocked));
+		}
+		if (a_writeDifficulty) {
+			if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartDifficultyId, "TESGlobal@@", detail)) {
+				form = 0;
+				AcceptById(fid, "FO4SF_StartDifficulty", "TESGlobal@@", kGlobalEditorIdAt, form);
+				WriteStoreGlobalFloat(form, static_cast<float>(a_difficulty));
+			}
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareFactionId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareFaction", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_warfareFactionSlot));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareStartIndexId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_WarfareStartIndex", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_warfareStartIdx));
+		}
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartPlaceRowId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartPlaceRow", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, static_cast<float>(a_startPlaceRow));
+		}
+		if (a_clearStartCard) {
+			if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
+				form = 0;
+				AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
+				WriteStoreGlobalFloat(form, 0.0f);
+			}
+		}
+		// Commit FO4SF_StartChoiceDone last so Papyrus observes all 8 choice globals settled.
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartChoiceDoneId, "TESGlobal@@", detail)) {
+			form = 0;
+			AcceptById(fid, "FO4SF_StartChoiceDone", "TESGlobal@@", kGlobalEditorIdAt, form);
+			WriteStoreGlobalFloat(form, 1.0f);
+		}
+	}
+
+	std::vector<std::string> CollectLoadedPluginNames()
+	{
+		std::vector<std::string> out;
+		const auto               handler = Singleton(kDataHandlerSingleton);
+		ObjectType               type;
+		if (!IsType(handler, "TESDataHandler@@", type)) {
+			return out;
+		}
+		for (std::size_t kind = 0; kind < 3; ++kind) {   // full, small, medium
+			ArrayHead files{};
+			if (!Peek(handler + kFileCollectionAt + kind * 0x10, files) || files.size > files.capacity ||
+				files.size > kKitMaxFiles || (files.size && !files.data)) {
+				continue;
+			}
+			for (std::uint32_t i = 0; i < files.size; ++i) {
+				std::uintptr_t                  file = 0;
+				ObjectType                      fileType;
+				std::array<char, kFileNameSize> name{};
+				if (!Peek(files.data + i * sizeof(std::uintptr_t), file) || !file) {
+					continue;
+				}
+				if (!TypeOf(file, fileType) || !IsFileType(fileType)) {
+					continue;
+				}
+				if (!Peek(file + kFileNameAt, name.data(), name.size())) {
+					continue;
+				}
+				const std::size_t len = strnlen(name.data(), name.size());
+				if (len > 0) {
+					out.emplace_back(name.data(), len);
+				}
+			}
+		}
+		return out;
+	}
+
+	std::filesystem::path ResolveLocalAppDataFo4sfDir()
+	{
+		std::array<wchar_t, 2048> buf{};
+		const auto len = REX::W32::GetEnvironmentVariableW(
+			L"LOCALAPPDATA", buf.data(), static_cast<std::uint32_t>(buf.size()));
+		if (len == 0 || len >= buf.size()) {
+			return {};
+		}
+		return std::filesystem::path(std::wstring(buf.data(), len)) / L"FO4SF";
+	}
+
+	void DisarmLaunchChoices(std::string_view a_reason)
+	{
+		std::filesystem::path choicesPath;
+		{
+			std::scoped_lock lock(g_setupLock);
+			g_launchChoices.reset();
+			if (!g_localFo4sfDir.empty()) {
+				choicesPath = g_localFo4sfDir / "launch_choices.json";
+			}
+		}
+		const bool wasArmed = g_hasLaunchChoices.exchange(false);
+		const bool deleted = !choicesPath.empty() && fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
+		if (wasArmed || !choicesPath.empty()) {
+			REX::INFO("step=launch_choices_disarmed reason={} deleted={} path={}",
+				a_reason, deleted ? 1 : 0, choicesPath.empty() ? "none" : choicesPath.string());
+		}
+	}
+
+	void LoadAndSignalLaunchChoicesOnPostDataLoad()
+	{
+		g_localFo4sfDir = ResolveLocalAppDataFo4sfDir();
+		std::string nonce;
+		if (!g_localFo4sfDir.empty()) {
+			const auto                         choicesPath = g_localFo4sfDir / "launch_choices.json";
+			fo4sf::setup::LaunchChoicesPayload parsed;
+			std::string                        parseReason;
+			if (fo4sf::setup::ParseAndCheckFreshLaunchChoicesFile(
+					choicesPath, parsed, fo4sf::setup::CurrentEpochSeconds(), 21600, &parseReason)) {
+				bool        fromFile = false;
+				const auto  placesRows = fo4sf::setup::LoadStartPlacesFileOrFallback(
+					g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+				const auto  loadedPlugins = CollectLoadedPluginNames();
+				std::string tableReason;
+				if (fo4sf::setup::ValidateLaunchChoicesAgainstStartTable(
+						parsed, placesRows, loadedPlugins, !loadedPlugins.empty(), &tableReason)) {
+					nonce = parsed.nonce;
+					{
+						std::scoped_lock lock(g_setupLock);
+						g_launchChoices = parsed;
+					}
+					g_hasLaunchChoices.store(true);
+					REX::INFO("step=launch_choices_loaded mode={} place={} start_variant={} survival={} locked={} min_diff={} warfare_idx={} row={} nonce={}",
+						parsed.modeTag, parsed.placeId,
+						parsed.startVariant.empty() ? "none" : parsed.startVariant,
+						parsed.survivalStart, parsed.survivalLocked,
+						parsed.minDifficulty, parsed.warfareStartIdx, parsed.startPlaceRow, parsed.nonce);
+				} else {
+					REX::INFO("step=launch_choices_refused stage=post_data_load mode={} place={} start_variant={} reason={} plugins={} table_from_file={}",
+						parsed.modeTag, parsed.placeId,
+						parsed.startVariant.empty() ? "none" : parsed.startVariant,
+						tableReason, loadedPlugins.size(), fromFile ? 1 : 0);
+					DisarmLaunchChoices(tableReason);
+				}
+			} else {
+				std::error_code ec;
+				if (std::filesystem::exists(choicesPath, ec)) {
+					fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
+					REX::INFO("step=launch_choices_none reason={} start_variant=none path={}",
+						parseReason.empty() ? "invalid_or_expired_deleted" : parseReason,
+						choicesPath.string());
+				} else {
+					REX::INFO("step=launch_choices_none path={}", choicesPath.string());
+				}
+				{
+					std::scoped_lock lock(g_setupLock);
+					g_launchChoices.reset();
+				}
+				g_hasLaunchChoices.store(false);
+			}
+			const auto pid = W32_IMPL_GetCurrentProcessId();
+			const bool ok = fo4sf::setup::WriteStartReadyAtomic(g_localFo4sfDir, nonce, "post_data_load", pid);
+			REX::INFO("step=start_ready_written ok={} file=start_ready.json stage=post_data_load pid={} nonce={}",
+				ok ? 1 : 0, pid, nonce.empty() ? "none" : nonce);
+		} else {
+			g_hasLaunchChoices.store(false);
+			REX::INFO("step=launch_choices_none reason=no_localappdata");
+		}
+	}
+
+	void HydrateLaunchChoicesIfNewGameMainThread()
+	{
+		if (!g_hasLaunchChoices.load()) {
+			return;
+		}
+		if (g_loadGameSeen.load()) {
+			DisarmLaunchChoices("load_game");
+			return;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui) {
+			return;
+		}
+		static const RE::BSFixedString kMainMenu{ "MainMenu" };
+		static const RE::BSFixedString kPauseMenu{ "PauseMenu" };
+		const bool mainOpen = ui->IsMenuOpen(kMainMenu);
+		const bool pauseOpen = ui->IsMenuOpen(kPauseMenu);
+		if (mainOpen || pauseOpen) {
+			return;
+		}
+
+		float doneVal = 0.0f;
+		if (!ReadStoreGlobalFloat(kCoreStartChoiceDoneId, "FO4SF_StartChoiceDone", doneVal)) {
+			return;
+		}
+		float startCardVal = 0.0f;
+		if (!ReadStoreGlobalFloat(kCoreStartCardOpenId, "FO4SF_StartCardOpen", startCardVal)) {
+			return;
+		}
+
+		// Verify FO4SF_NewGame (0x800) quest exists in memory (RunOnce New Game controller; KitFileForm validates FormById + TESQuest@@).
+		std::string ngDetail;
+		const auto  ngFid = KitFileForm("FO4SFNewGame.esm", 0x800, "TESQuest@@", ngDetail);
+		const bool  ngResolved = (ngFid != 0);
+
+		// Read GameDaysPassed (Starfield.esm 0x39) and player level defensively.
+		FindGlobalValue();
+		if (!g_forms.gameDaysPassed) {
+			AcceptById(kGameDaysPassedId, "GameDaysPassed", "TESGlobal@@", kGlobalEditorIdAt, g_forms.gameDaysPassed);
+		}
+		float gameDays = 0.0f;
+		if (g_forms.gameDaysPassed) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			if (!Peek(g_forms.gameDaysPassed + valAt, gameDays) || !std::isfinite(gameDays)) {
+				gameDays = 0.0f;
+			}
+		}
+		int playerLevel = 1;
+		if (g_rva[kPlayerSingleton] != 0 && g_rva[kPlayerRtti] != 0 &&
+			CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			const auto     player = Singleton(kPlayerSingleton);
+			std::uintptr_t base = 0;
+			ObjectType     npcType;
+			if (Peek(player + kBaseObjectAt, base) && IsType(base, "TESNPC@@", npcType)) {
+				if (const auto at = BaseOffset(npcType, "TESActorBaseData@@"); at && CheckSubobject(base, npcType, *at)) {
+					std::uint16_t lvl = 1;
+					if (Peek(base + *at + kLevelAt, lvl) && lvl >= 1) {
+						playerLevel = static_cast<int>(lvl);
+					}
+				}
+			}
+		}
+
+		std::optional<fo4sf::setup::LaunchChoicesPayload> choices;
+		std::filesystem::path                             choicesPath;
+		{
+			std::scoped_lock lock(g_setupLock);
+			choices = g_launchChoices;
+			if (!g_localFo4sfDir.empty()) {
+				choicesPath = g_localFo4sfDir / "launch_choices.json";
+			}
+		}
+
+		fo4sf::setup::LaunchChoicesGuardState st;
+		st.hasPayload = choices.has_value();
+		st.payloadValid = choices.has_value() && choices->valid;
+		st.payloadFresh = st.payloadValid &&
+			fo4sf::setup::IsLaunchChoicesFresh(*choices, fo4sf::setup::CurrentEpochSeconds());
+		st.loadGameSeen = g_loadGameSeen.load();
+		st.mainMenuOpen = mainOpen;
+		st.pauseMenuOpen = pauseOpen;
+		st.newGameQuestResolved = ngResolved;
+		st.handshakeRequested = (startCardVal < -0.5f && startCardVal > -1.5f);
+		st.startChoiceDone = doneVal;
+		st.gameDaysPassed = gameDays;
+		st.playerLevel = playerLevel;
+
+		const auto decision = fo4sf::setup::EvaluateLaunchChoicesHydration(st);
+		if (decision == fo4sf::setup::LaunchHydrationDecision::kWait) {
+			return;
+		}
+		if (decision == fo4sf::setup::LaunchHydrationDecision::kDisarmConsume) {
+			REX::INFO("step=launch_choices_guard_reject load_game={} done={} days={} level={} fresh={}",
+				st.loadGameSeen ? 1 : 0, doneVal, gameDays, playerLevel, st.payloadFresh ? 1 : 0);
+			DisarmLaunchChoices("guard_reject");
+			return;
+		}
+
+		bool        fromFile = false;
+		auto        placesRows = fo4sf::setup::LoadStartPlacesFileOrFallback(g_pluginDir / "FO4SFStartPlaces.json", fromFile);
+		const auto  loadedPlugins = CollectLoadedPluginNames();
+		std::string tableReason;
+		if (!fo4sf::setup::ValidateLaunchChoicesAgainstStartTable(
+				*choices, placesRows, loadedPlugins, !loadedPlugins.empty(), &tableReason)) {
+			REX::INFO("step=launch_choices_refused stage=hydrate mode={} place={} start_variant={} reason={} plugins={} table_from_file={}",
+				choices->modeTag, choices->placeId,
+				choices->startVariant.empty() ? "none" : choices->startVariant,
+				tableReason, loadedPlugins.size(), fromFile ? 1 : 0);
+			DisarmLaunchChoices(tableReason);
+			return;
+		}
+		const int minDiff = fo4sf::setup::ResolveLaunchMinDifficulty(*choices, placesRows);
+
+		CommitStartChoiceGlobals(
+			choices->modeVal,
+			choices->storyChoiceIdx,
+			choices->survivalStart,
+			choices->survivalLocked,
+			minDiff,
+			true,
+			choices->warfareFactionSlot,
+			choices->warfareStartIdx,
+			choices->startPlaceRow,
+			true);
+
+		{
+			std::scoped_lock lock(g_setupLock);
+			g_launchChoices.reset();
+		}
+		g_hasLaunchChoices.store(false);
+		const bool consumed = !choicesPath.empty() && fo4sf::setup::ConsumeLaunchChoicesFile(choicesPath);
+		REX::INFO("step=launch_choices_hydrated mode={} place={} start_variant={} survival={} locked={} difficulty={} warfare_idx={} row={} consumed={}",
+			choices->modeTag, choices->placeId,
+			choices->startVariant.empty() ? "none" : choices->startVariant,
+			choices->survivalStart, choices->survivalLocked,
+			minDiff, choices->warfareStartIdx, choices->startPlaceRow, consumed ? 1 : 0);
 	}
 
 	void CommitSetupMenuMainThread()
@@ -8585,61 +9240,17 @@ namespace
 			return;
 		}
 
-		FindGlobalValue();
-		std::string    detail;
-		std::uintptr_t form = 0;
-
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreGameModeId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_GameMode", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->modeVal));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStoryLineId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StoryLine", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->storyChoiceIdx));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalStartId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_SurvivalStart", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreSurvivalLockedId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_SurvivalLocked", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->survival));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartDifficultyId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartDifficulty", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->difficulty));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareFactionId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_WarfareFaction", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareFactionSlot));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreWarfareStartIndexId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_WarfareStartIndex", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->warfareStartIdx));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartPlaceRowId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartPlaceRow", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, static_cast<float>(payload->startPlaceRow));
-		}
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, 0.0f);
-		}
-		// Commit FO4SF_StartChoiceDone last so Papyrus observes all 8 choice globals settled.
-		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartChoiceDoneId, "TESGlobal@@", detail)) {
-			form = 0;
-			AcceptById(fid, "FO4SF_StartChoiceDone", "TESGlobal@@", kGlobalEditorIdAt, form);
-			WriteStoreGlobalFloat(form, 1.0f);
-		}
+		CommitStartChoiceGlobals(
+			payload->modeVal,
+			payload->storyChoiceIdx,
+			payload->survival,
+			payload->survival,
+			payload->difficulty,
+			true,
+			payload->warfareFactionSlot,
+			payload->warfareStartIdx,
+			payload->startPlaceRow,
+			true);
 
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 			queue->AddMessage(SetupMenuName(), RE::UI_MESSAGE_TYPE::kHide);
@@ -8940,6 +9551,9 @@ namespace
 
 	void PollStartCardGlobalMainThread()
 	{
+		if (g_hasLaunchChoices.load()) {
+			HydrateLaunchChoicesIfNewGameMainThread();
+		}
 		auto* ui = RE::UI::GetSingleton();
 		auto* queue = RE::UIMessageQueue::GetSingleton();
 		if (!ui || !queue || !ui->IsMenuRegistered(StartCardMenuName())) {
@@ -8963,6 +9577,13 @@ namespace
 			if (!Peek(form + valAt, v) || !std::isfinite(v)) {
 				v = 0.0f;
 			}
+		}
+		if (v < -0.5f) {
+			// F4: Negative handshake values (-1.0 requested, -2.0 no prelaunch ack) never open UI menus.
+			if (!g_hasLaunchChoices.load() && v > -1.5f && form) {
+				WriteStoreGlobalFloat(form, -2.0f);
+			}
+			return;
 		}
 		static const RE::BSFixedString kLoadingMenu{ "LoadingMenu" };
 		static const RE::BSFixedString kChargenMenu{ "ChargenMenu" };
@@ -9696,6 +10317,8 @@ namespace
 
 	// C4-4: Track whenever any non-DataMenu blocking menu (DialogueMenu, ContainerMenu, WorkshopMenu, PauseMenu,
 	// Console, etc.) is open on the main thread so pressing Tab to close a Starfield menu never pops the Pip-Boy.
+	void RetryHudWatchHideMainThread(const char* a_when);
+
 	void PollBlockingMenuStateMainThread()
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -9707,6 +10330,9 @@ namespace
 		g_nonDataBlockingOpen.store(nonDataBlocking);
 		if (nonDataBlocking) {
 			g_lastNonDataBlockingMs.store(NowMs());
+		}
+		if (g_hideStarfieldWatch && g_hudWatchRetryPending.load()) {
+			RetryHudWatchHideMainThread("ui_poll");
 		}
 	}
 
@@ -9973,9 +10599,18 @@ namespace
 				g_task->AddTask([]() { SendUpdate(); });
 			}
 			PipboyMap::Tick();
+			if (g_hasLaunchChoices.load() && !g_loadGameSeen.load() && g_task) {
+				g_task->AddTask([]() { HydrateLaunchChoicesIfNewGameMainThread(); });
+			}
+			if (g_hideStarfieldWatch && g_hudWatchRetryPending.load()) {
+				static std::uint32_t hudWatchPollTicks = 0;
+				if (++hudWatchPollTicks % 5 == 0) {
+					g_task->AddTask([]() { RetryHudWatchHideMainThread("ui_poll"); });
+				}
+			}
 			if (g_stage >= 2) {
 				static std::uint32_t startCardTicks = 0;
-				if (++startCardTicks % 8 == 0) {
+				if (++startCardTicks % 4 == 0) {
 					g_task->AddTask([]() { PollStartCardGlobalMainThread(); });
 				}
 			}
@@ -10037,12 +10672,85 @@ namespace
 		}
 	}
 
+	const RE::BSFixedString& HudMenuFixed()
+	{
+		static auto* const name = new RE::BSFixedString("HUDMenu");
+		return *name;
+	}
+
+	// Round 11 Review #5: Retry pending HUDMenu watch-hide across MenuOpenCloseEvent transitions and reset state
+	// when HUDMenu closes or LoadingMenu appears so retries never spin after HUDMenu unloads.
+	class HudWatchMenuEventSink final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
+	{
+	public:
+		RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent& a_event,
+			RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
+		{
+			const char* name = a_event.menuName.c_str();
+			if (!name) {
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			if (g_hasLaunchChoices.load() && !g_loadGameSeen.load() && g_task && !a_event.opening &&
+				(SameText(name, "MainMenu") || SameText(name, "LoadingMenu"))) {
+				g_task->AddTask([]() { HydrateLaunchChoicesIfNewGameMainThread(); });
+			}
+			if (!g_hideStarfieldWatch) {
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			if (SameText(name, "LoadingMenu")) {
+				g_hudWatchHiddenMovie.store(nullptr);
+				g_hudWatchTryCount.store(0);
+				g_hudWatchRetryPending.store(false);
+			} else if (SameText(name, "HUDMenu")) {
+				if (!a_event.opening) {
+					g_hudWatchHiddenMovie.store(nullptr);
+					g_hudWatchTryCount.store(0);
+					g_hudWatchRetryPending.store(false);
+				} else if (g_hudWatchHiddenMovie.load() == nullptr || g_hudWatchRetryPending.load()) {
+					g_hudWatchRetryPending.store(true);
+					if (g_task) {
+						g_task->AddTask([]() { RetryHudWatchHideMainThread("menu_open_close"); });
+					}
+				}
+			} else if (g_hudWatchRetryPending.load() && g_task) {
+				g_task->AddTask([]() { RetryHudWatchHideMainThread("menu_transition"); });
+			}
+			return RE::BSEventNotifyControl::kContinue;
+		}
+	};
+	HudWatchMenuEventSink g_hudWatchMenuSink{};
+
+	class LoadGameGuardEventSink final : public RE::BSTEventSink<RE::TESLoadGameEvent>
+	{
+	public:
+		RE::BSEventNotifyControl ProcessEvent(const RE::TESLoadGameEvent&,
+			RE::BSTEventSource<RE::TESLoadGameEvent>*) override
+		{
+			g_loadGameSeen.store(true);
+			g_hasLaunchChoices.store(false);
+			if (g_task) {
+				g_task->AddTask([]() { DisarmLaunchChoices("tes_load_game_event"); });
+			}
+			return RE::BSEventNotifyControl::kContinue;
+		}
+	};
+	LoadGameGuardEventSink g_loadGameSink{};
+
 	void Register()
 	{
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui) {
 			Refuse("register", "reason=no_ui");
 			return;
+		}
+		if (g_hideStarfieldWatch || g_stage >= 2) {
+			ui->RegisterSink<RE::MenuOpenCloseEvent>(&g_hudWatchMenuSink);
+		}
+		if (g_loadGameEventHooked.load()) {
+			if (auto* loadSrc = RE::TESLoadGameEvent::GetEventSource()) {
+				loadSrc->RegisterSink(&g_loadGameSink);
+				REX::INFO("step=load_game_guard_registered ok=1");
+			}
 		}
 		if (ui->IsMenuRegistered(MenuName())) {
 			Refuse("register", "reason=name_taken");
@@ -10076,6 +10784,7 @@ namespace
 		World::Start(g_task);
 		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit, &CreateBlockedMapMenuInstance);
 		PipboyMap::Start(g_task);
+		LoadAndSignalLaunchChoicesOnPostDataLoad();
 		const auto thread = REX::W32::CreateThread(nullptr, 0, &KeyThread, nullptr, 0, nullptr);
 		if (!thread) {
 			Refuse("key_thread", "reason=create_failed");
@@ -10085,10 +10794,158 @@ namespace
 		REX::INFO("step=key_thread key={}{}", Hex(g_key), g_stage >= 3 ? std::format(" snapshot_key={}", Hex(g_snapshotKey)) : "");
 	}
 
+	// Round 11 D7(b): Isolated ASMovieRootBase lookup for Starfield's HUDMenu that never mutates g_checkedMovie or
+	// g_channelOff so a HUDMenu edge case can never disable the Pip-Boy Scaleform channel.
+	RE::Scaleform::GFx::ASMovieRootBase* HudRootOf(const RE::IMenu* a_menu)
+	{
+		const auto movie = a_menu ? reinterpret_cast<std::uintptr_t>(MovieOf(a_menu)) : 0;
+		if (!movie || g_rva[kMovieRootRtti] == 0) {
+			return nullptr;
+		}
+		std::uintptr_t root = 0;
+		ObjectType     rootType;
+		std::uintptr_t vt = 0;
+		if (!Peek(movie + kMovieRootAt, root) || !TypeOf(root, rootType) || rootType.descriptor != Address(kMovieRootRtti) ||
+			!Peek(root, vt)) {
+			return nullptr;
+		}
+		const auto* slot = reinterpret_cast<const std::uintptr_t*>(vt);
+		if (!InImage(vt, (kGetVariableSlot + 1) * 8) || !InImage(slot[kGetVariableSlot], 1)) {
+			return nullptr;
+		}
+		return reinterpret_cast<RE::Scaleform::GFx::ASMovieRootBase*>(root);
+	}
+
+	// Round 11 D7(b) + Review #5: Hide Starfield's bottom-left wrist watch (HUDMenu root.BottomLeftGroup_mc and its
+	// watch/planet/O2/CO2 child clips from playerhudcomponents.swf) while keeping RightMeters_mc (Health/Ammo),
+	// CenterGroup_mc (Crosshair), RolloverWidget_mc ([E] prompts), TopCenterGroup_mc, and EnemyHealthHolder_mc intact.
+	// If no_root or missing_bottom_left occurs on an early attempt, sets g_hudWatchRetryPending so MenuOpenCloseEvent
+	// transitions and the main-thread UI poll hook retry cleanly until hidden or HUDMenu unloads, logging try=<n>.
+	// Gated behind HideStarfieldWatch=1 (one-line HideStarfieldWatch=0 rollback).
+	void ApplyHudWatchHide(const RE::IMenu* a_menu, const char* a_when)
+	{
+		if (!g_hideStarfieldWatch || !a_menu) {
+			return;
+		}
+		const void* const movie = MovieOf(a_menu);
+		if (!movie) {
+			g_hudWatchRetryPending.store(g_hudWatchTryCount.load() < kMaxHudWatchTries);
+			return;
+		}
+		if (g_hudWatchHiddenMovie.load() == movie) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		const auto attempt = ++g_hudWatchTryCount;
+		auto* const root = HudRootOf(a_menu);
+		if (!root) {
+			g_hudWatchRetryPending.store(attempt < kMaxHudWatchTries);
+			if (attempt <= 3 || attempt == kMaxHudWatchTries) {
+				REX::INFO("step=hud_watch_hide when={} try={} movie={} ok=0 reason=no_root",
+					a_when ? a_when : "on_movie_created", attempt, Hex(reinterpret_cast<std::uintptr_t>(movie)));
+			}
+			return;
+		}
+		RE::Scaleform::GFx::Value top;
+		RE::Scaleform::GFx::Value bottomLeft;
+		if (!root->GetVariable(&top, "root") || !top.IsObject() ||
+			!ReadPath(top, "BottomLeftGroup_mc", bottomLeft) || !bottomLeft.IsObject()) {
+			g_hudWatchRetryPending.store(attempt < kMaxHudWatchTries);
+			if (attempt <= 3 || attempt == kMaxHudWatchTries) {
+				REX::INFO("step=hud_watch_hide when={} try={} movie={} ok=0 reason=missing_bottom_left",
+					a_when ? a_when : "on_movie_created", attempt, Hex(reinterpret_cast<std::uintptr_t>(movie)));
+			}
+			return;
+		}
+		const bool visOk = bottomLeft.SetMember("visible", RE::Scaleform::GFx::Value(false));
+		(void)bottomLeft.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
+		(void)bottomLeft.SetMember("x", RE::Scaleform::GFx::Value(-10000.0));
+
+		// Also hide direct watch/planet/O2/CO2 child clips so any HUDMenu root fade tween (__motion_BottomLeftGroup_mcaf1)
+		// that restores BottomLeftGroup_mc.alpha cannot reveal the Mars/O2/CO2 watch face.
+		constexpr std::array<const char*, 17> kWatchChildren{
+			"WatchFaceComponent_mc",
+			"WatchOutline_mc",
+			"WatchPointerOutline_mc",
+			"WatchIconsWidget_mc",
+			"O2CO2_mc",
+			"O2CO2thin_mc",
+			"locationNameBase_mc",
+			"DayCycleBase_mc",
+			"Grav_mc",
+			"Oxygen_mc",
+			"Temperature_mc",
+			"EnvCondition_mc",
+			"EnvConditionBase_mc",
+			"BioCondition_mc",
+			"BioConditionBase_mc",
+			"BioAlertBG_mc",
+			"OffPlanet_mc",
+		};
+		std::uint32_t childrenHidden = 0;
+		for (const char* childName : kWatchChildren) {
+			RE::Scaleform::GFx::Value child;
+			if (bottomLeft.GetMember(childName, &child) && child.IsObject()) {
+				if (child.SetMember("visible", RE::Scaleform::GFx::Value(false))) {
+					++childrenHidden;
+				}
+				(void)child.SetMember("alpha", RE::Scaleform::GFx::Value(0.0));
+			}
+		}
+		const bool hidden = visOk || childrenHidden > 0;
+		if (hidden) {
+			g_hudWatchHiddenMovie.store(movie);
+			g_hudWatchRetryPending.store(false);
+		} else {
+			g_hudWatchRetryPending.store(attempt < kMaxHudWatchTries);
+		}
+		REX::INFO("step=hud_watch_hide when={} try={} movie={} ok={} target=BottomLeftGroup_mc children_hidden={}",
+			a_when ? a_when : "on_movie_created", attempt, Hex(reinterpret_cast<std::uintptr_t>(movie)),
+			hidden ? 1 : 0, childrenHidden);
+	}
+
+	void RetryHudWatchHideMainThread(const char* a_when)
+	{
+		if (!g_hideStarfieldWatch || !g_hudWatchRetryPending.load()) {
+			return;
+		}
+		auto* ui = RE::UI::GetSingleton();
+		if (!ui || !ui->IsMenuOpen(HudMenuFixed())) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		if (g_hudWatchTryCount.load() >= kMaxHudWatchTries) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		const auto hudMenu = ui->GetMenu(HudMenuFixed());
+		if (!hudMenu) {
+			g_hudWatchRetryPending.store(false);
+			return;
+		}
+		ApplyHudWatchHide(hudMenu.get(), a_when);
+	}
+
 	void OnMovieCreated(RE::IMenu* a_menu)
 	{
 		World::OnMovieCreated(a_menu);
 		PipboyMap::OnMovieCreated(a_menu);
+		if (g_hasLaunchChoices.load() && !g_loadGameSeen.load() && g_task && a_menu && a_menu->menuName.c_str() &&
+			SameText(a_menu->menuName.c_str(), "LoadingMenu")) {
+			g_task->AddTask([]() { HydrateLaunchChoicesIfNewGameMainThread(); });
+		}
+		if (g_hideStarfieldWatch && a_menu && a_menu->menuName.c_str()) {
+			if (SameText(a_menu->menuName.c_str(), "LoadingMenu")) {
+				g_hudWatchHiddenMovie.store(nullptr);
+				g_hudWatchTryCount.store(0);
+				g_hudWatchRetryPending.store(false);
+			} else if (SameText(a_menu->menuName.c_str(), "HUDMenu")) {
+				if (g_hudWatchHiddenMovie.load() != MovieOf(a_menu)) {
+					g_hudWatchTryCount.store(0);
+				}
+				ApplyHudWatchHide(a_menu, "on_movie_created");
+			}
+		}
 		if (g_suppressDataMenu && IsFo4ShellActive() && g_task && a_menu && a_menu->menuName.c_str() &&
 			SameText(a_menu->menuName.c_str(), "DataMenu")) {
 			g_task->AddTask([]() { SuppressDataMenuMainThread(); });
@@ -10447,6 +11304,129 @@ namespace
 			Hex(g_equipMgrSingletonRva), Hex(g_equipObjectRva), Hex(g_shellLookupEditorIdRva));
 		return true;
 	}
+
+	// Round 11 Review #9: Optional non-fatal watch-hide channel ID resolver for Stage=2 when ChannelIdsNeeded() is false.
+	// Never aborts plugin load: if channel IDs (MovieRoot RTTI + SFSE Value functions) are unavailable, logs
+	// step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable and disables ONLY HideStarfieldWatch while
+	// FO4SFPipboyMenu.dll stays loaded.
+	void TryInitLoadGameEventGuard(const std::filesystem::path& a_file)
+	{
+		constexpr std::uint32_t kLoadGameGetEventSourceId = 64149;   // libxse ID::TESLoadGameEvent::GetEventSource
+		bool ok = false;
+		std::ifstream in(a_file, std::ios::binary);
+		if (in) {
+			std::array<std::uint8_t, kHeaderBytes> head{};
+			in.read(reinterpret_cast<char*>(head.data()), head.size());
+			if (in) {
+				const auto u32 = [&](std::size_t a_at) {
+					std::uint32_t v;
+					std::memcpy(&v, head.data() + a_at, sizeof v);
+					return v;
+				};
+				const auto         format = u32(0);
+				const REL::Version version{ static_cast<std::uint16_t>(u32(4)), static_cast<std::uint16_t>(u32(8)),
+					static_cast<std::uint16_t>(u32(12)), static_cast<std::uint16_t>(u32(16)) };
+				const auto         pointerSize = u32(84);
+				const auto         count = u32(92);
+				if (format == 5 && version == kRuntime && pointerSize == 8 && kLoadGameGetEventSourceId < count) {
+					std::uint32_t offset = 0;
+					in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * kLoadGameGetEventSourceId));
+					in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+					if (in && offset && offset < g_imageSize &&
+						REL::ID(kLoadGameGetEventSourceId).offset() == offset) {
+						ok = true;
+					}
+				}
+			}
+		}
+		g_loadGameEventHooked.store(ok);
+		REX::INFO("step=load_game_guard_init ok={} id={}", ok ? 1 : 0, kLoadGameGetEventSourceId);
+	}
+
+	void TryInitHudWatchIds(const std::filesystem::path& a_file)
+	{
+		if (!g_hideStarfieldWatch) {
+			return;
+		}
+		auto idsReady = [&]() -> bool {
+			if (g_rva[kMovieRootRtti] == 0) {
+				return false;
+			}
+			for (const auto& [id, rva] : kSfseRvas) {
+				if (g_rva[id] != rva) {
+					return false;
+				}
+			}
+			return NameIs(TypeNameAt(Address(kMovieRootRtti)), "MovieRoot@AS3@GFx@Scaleform@@");
+		};
+		if (idsReady()) {
+			REX::INFO("step=hud_watch_hide_init ok=1 source=channel_ids movie_root_rtti={}", Hex(g_rva[kMovieRootRtti]));
+			return;
+		}
+		bool ok = false;
+		std::ifstream in(a_file, std::ios::binary);
+		if (in) {
+			std::array<std::uint8_t, kHeaderBytes> head{};
+			in.read(reinterpret_cast<char*>(head.data()), head.size());
+			if (in) {
+				const auto u32 = [&](std::size_t a_at) {
+					std::uint32_t v;
+					std::memcpy(&v, head.data() + a_at, sizeof v);
+					return v;
+				};
+				const auto         format = u32(0);
+				const REL::Version version{ static_cast<std::uint16_t>(u32(4)), static_cast<std::uint16_t>(u32(8)),
+					static_cast<std::uint16_t>(u32(12)), static_cast<std::uint16_t>(u32(16)) };
+				const auto         pointerSize = u32(84);
+				const auto         count = u32(92);
+				if (format == 5 && version == kRuntime && pointerSize == 8) {
+					constexpr std::array<std::size_t, 6> kWatchIds{
+						kMovieRootRtti, kValueAddRef, kValueRelease, kValueGetMember, kValueSetMember, kValueInvoke
+					};
+					std::array<std::uint32_t, 6> resolved{};
+					ok = true;
+					for (std::size_t i = 0; i < kWatchIds.size(); ++i) {
+						const auto& id = kIds[kWatchIds[i]];
+						if (id.id >= count) {
+							ok = false;
+							break;
+						}
+						std::uint32_t offset = 0;
+						in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * id.id));
+						in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+						if (!in || !offset || offset >= g_imageSize || REL::ID(id.id).offset() != offset) {
+							ok = false;
+							break;
+						}
+						resolved[i] = offset;
+					}
+					if (ok) {
+						for (const auto& [id, rva] : kSfseRvas) {
+							const auto it = std::ranges::find(kWatchIds, id);
+							if (it == kWatchIds.end() || resolved[static_cast<std::size_t>(it - kWatchIds.begin())] != rva) {
+								ok = false;
+								break;
+							}
+						}
+					}
+					if (ok && !NameIs(TypeNameAt(g_base + resolved[0]), "MovieRoot@AS3@GFx@Scaleform@@")) {
+						ok = false;
+					}
+					if (ok) {
+						for (std::size_t i = 0; i < kWatchIds.size(); ++i) {
+							g_rva[kWatchIds[i]] = resolved[i];
+						}
+					}
+				}
+			}
+		}
+		if (!ok) {
+			g_hideStarfieldWatch = false;
+			REX::WARN("step=hud_watch_hide_init ok=0 reason=channel_ids_unavailable");
+		} else {
+			REX::INFO("step=hud_watch_hide_init ok=1 source=optional_resolve movie_root_rtti={}", Hex(g_rva[kMovieRootRtti]));
+		}
+	}
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
@@ -10486,6 +11466,7 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_shellVitalsFill = ReadNumber(ini, L"ShellVitalsFill", 0) != 0;
 	g_suppressDataMenu = ReadNumber(ini, L"SuppressDataMenu", 0) != 0;
 	g_tabOpensPipboy = ReadNumber(ini, L"TabOpensPipboy", 0) != 0;
+	g_hideStarfieldWatch = ReadNumber(ini, L"HideStarfieldWatch", 0) != 0;
 	g_requirePickup = ReadNumber(ini, L"RequirePickup", 0) != 0;
 	g_bootMovie = ReadText(ini, L"BootMovie");
 	g_bootOnFirstOpen = ReadNumber(ini, L"BootOnFirstOpen", 0) != 0;
@@ -10626,8 +11607,9 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 		REX::INFO("step=code_obj_shell at={} pages={} names_count={} shell_keys={}", g_codeObjAt.empty() ? "none" : g_codeObjAt,
 			g_codeObjPages ? 1 : 0, g_codeObjCount, keys.empty() ? "none" : keys);
 		if (fo4ShellIni) {
-			REX::INFO("step=shell_c4_config shell_backdrop={} shell_vitals_fill={} suppress_data_menu={} tab_opens_pipboy={}",
-				g_shellBackdrop ? 1 : 0, g_shellVitalsFill ? 1 : 0, g_suppressDataMenu ? 1 : 0, g_tabOpensPipboy ? 1 : 0);
+			REX::INFO("step=shell_c4_config shell_backdrop={} shell_vitals_fill={} suppress_data_menu={} tab_opens_pipboy={} hide_starfield_watch={}",
+				g_shellBackdrop ? 1 : 0, g_shellVitalsFill ? 1 : 0, g_suppressDataMenu ? 1 : 0, g_tabOpensPipboy ? 1 : 0,
+				g_hideStarfieldWatch ? 1 : 0);
 		}
 	}
 	if (g_codeObjSound) {
@@ -10688,6 +11670,10 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	if (!CheckEverything(dir)) {
 		return true;
 	}
+	if (g_hideStarfieldWatch) {
+		TryInitHudWatchIds(dir / "versionlib-1-16-244-0.bin");
+	}
+	TryInitLoadGameEventGuard(dir / "versionlib-1-16-244-0.bin");
 	if (g_stage == 2 && (g_codeObj || g_specialMenu) && !CheckShellIds(dir / "versionlib-1-16-244-0.bin")) {
 		return true;
 	}

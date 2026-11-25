@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import posixpath
 import subprocess
 import sys
 import tempfile
@@ -11,7 +12,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from fo4sf.launcher import gui, paths, settings  # noqa: E402
+from fo4sf.launcher import alife_tools, gui, paths, settings  # noqa: E402
 
 
 class GuiModelTests(unittest.TestCase):
@@ -444,6 +445,199 @@ class GuiWindowTests(unittest.TestCase):
                                                            "--my-games", "Other My Games"], out)
         self.assertTrue(argv[argv.index("--starfield") + 1].endswith("MyGame"), out)
 
+    def test_x5_mod_tools_and_x6_polish_in_the_real_window(self):
+        script = r"""
+import gc, json, os, sys, tempfile, time
+sys.path.insert(0, sys.argv[1])
+import tkinter as tk
+from fo4sf.launcher import gui, paths
+d = tempfile.mkdtemp()
+sf = os.path.join(d, "Starfield")
+fo4 = os.path.join(d, "FO4Data")
+mg = os.path.join(d, "MyGames")
+out_dir = os.path.join(d, "alife_out")
+git_dir = os.path.join(d, "repo_checkout")
+os.makedirs(sf); os.makedirs(fo4); os.makedirs(mg); os.makedirs(os.path.join(git_dir, ".git"))
+open(os.path.join(sf, "Starfield.exe"), "wb").close()
+open(os.path.join(fo4, "Fallout4.esm"), "wb").close()
+settings_file = os.path.join(d, "settings.json")
+with open(settings_file, "w", encoding="utf-8") as fp:
+    json.dump({"starfield": sf, "fo4_data": fo4, "my_games": mg}, fp)
+paths.detect = lambda **_kw: {k: ("", "") for k in paths.KEYS}
+errors = []
+tk.Tk.report_callback_exception = lambda self, *a: errors.append(repr(a[1]))
+def pump(root, s):
+    end = time.time() + s
+    while time.time() < end:
+        root.update()
+        time.sleep(0.02)
+def run(root):
+    w = next(o for o in gc.get_objects() if type(o).__name__ == "Window")
+    pump(root, 0.35)
+    tabs = [w.notebook.tab(i, "text") for i in range(w.notebook.index("end"))]
+    checklist_summary = w.checklist_summary_var.get()
+    # Trigger Git-checkout refusal on Mod tools -> banner appears, then Dismiss hides it
+    w.notebook.select(w.mod_tools_tab)
+    w.alife_out_var.set(os.path.join(git_dir, "out"))
+    w.start_alife_step("init")
+    pump(root, 0.1)
+    banner_shown = bool(w.banner_frame.grid_info())
+    banner_title = w.banner_title_var.get()
+    banner_body = w.banner_body_var.get()
+    init_refused_mark = w.alife_step_widgets["init"]["mark"].cget("text")
+    w.clear_error_banner()
+    banner_dismissed = not bool(w.banner_frame.grid_info())
+    # Run mocked simulate into safe output folder -> updates metrics, table, progress, and Log tab
+    captured = []
+    def fake_run(argv, on_line, **kw):
+        captured.append({"argv": argv, "cwd": kw.get("cwd")})
+        for ln in [
+            "A-Life offline simulation: Demo (16 nodes, 24 edges, 2 factions)\n",
+            "+--------------------+-------+\n",
+            "| metric             | value |\n",
+            "+--------------------+-------+\n",
+            "| squads spawned     |     9 |\n",
+            "| offline battles    |     3 |\n",
+            "| territory captures |     2 |\n",
+            "+--------------------+-------+\n",
+            "+-------------+---------+--------+-------------+----------+\n",
+            "| faction     | spawned | losses | nodes owned | captures |\n",
+            "+-------------+---------+--------+-------------+----------+\n",
+            "| uc_security |       5 |      1 |           9 |        1 |\n",
+            "| spacers     |       4 |      2 |           7 |        1 |\n",
+            "+-------------+---------+--------+-------------+----------+\n",
+        ]:
+            on_line(ln)
+        return 0
+    gui.run_command = fake_run
+    w.alife_out_var.set(out_dir)
+    w.alife_ticks_var.set("35")
+    w.alife_seed_var.set("7")
+    w.start_alife_step("simulate")
+    pump(root, 0.45)
+    rows = [w.alife_table.item(item, "values") for item in w.alife_table.get_children()]
+    log_text = w.log.get("1.0", "end")
+    print(json.dumps({
+        "tabs": tabs,
+        "checklist_summary": checklist_summary,
+        "header_game": w.game.get(),
+        "header_watcher": w.watcher.get(),
+        "banner_shown": banner_shown,
+        "banner_title": banner_title,
+        "banner_body": banner_body,
+        "banner_dismissed": banner_dismissed,
+        "init_refused_mark": init_refused_mark,
+        "sim_mark": w.alife_step_widgets["simulate"]["mark"].cget("text"),
+        "progress": w.alife_progress_var.get(),
+        "metrics": w.alife_metrics_var.get(),
+        "rows": rows,
+        "captured": captured,
+        "log_has_sim": "A-Life offline simulation" in log_text,
+        "errors": errors,
+    }))
+    root.destroy()
+tk.Tk.mainloop = lambda self, n=0: run(self)
+gui.launch(sys.argv[2], settings_file)
+"""
+        result = subprocess.run([sys.executable, "-I", "-c", script, str(ROOT / "src"),
+                                 str(ROOT / "scripts" / "launcher.py")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["errors"], [])
+        self.assertEqual(len(out["tabs"]), 6)
+        self.assertIn("♦  Mod tools", out["tabs"])
+        self.assertIn("⌂  Locations", out["tabs"])
+        self.assertIn("3/3", out["checklist_summary"])
+        self.assertIn("Game:", out["header_game"])
+        self.assertIn("Watcher:", out["header_watcher"])
+        self.assertTrue(out["banner_shown"])
+        self.assertIn("Mod tools", out["banner_title"])
+        self.assertIn("Git checkout", out["banner_body"])
+        self.assertTrue(out["banner_dismissed"])
+        self.assertIn("failed", out["init_refused_mark"])
+        self.assertIn("passed", out["sim_mark"])
+        self.assertEqual(out["progress"], "1/5 steps passed")
+        self.assertIn("nodes 16/128", out["metrics"])
+        self.assertIn("spawns 9", out["metrics"])
+        self.assertIn("battles 3", out["metrics"])
+        self.assertIn("captures 2", out["metrics"])
+        self.assertEqual(len(out["rows"]), 2)
+        self.assertEqual(list(out["rows"][0]), ["uc_security", "5", "1", "9", "1"])
+        self.assertEqual(out["captured"][0]["cwd"], str(ROOT))
+        self.assertIn("--ticks", out["captured"][0]["argv"])
+        self.assertTrue(out["log_has_sim"])
+
+    def test_x8_three_step_workflow_strip_and_cover_preview_in_real_window(self):
+        script = r"""
+import gc, json, os, sys, tempfile, time
+sys.path.insert(0, sys.argv[1])
+import tkinter as tk
+from fo4sf.launcher import gui, paths, start_cover
+d = tempfile.mkdtemp()
+sf = os.path.join(d, "Starfield")
+fo4 = os.path.join(d, "FO4Data")
+mg = os.path.join(d, "MyGames")
+sig = os.path.join(d, "ready.json")
+os.makedirs(sf); os.makedirs(fo4); os.makedirs(mg)
+open(os.path.join(sf, "Starfield.exe"), "wb").close()
+open(os.path.join(fo4, "Fallout4.esm"), "wb").close()
+settings_file = os.path.join(d, "settings.json")
+with open(settings_file, "w", encoding="utf-8") as fp:
+    json.dump({"starfield": sf, "fo4_data": fo4, "my_games": mg}, fp)
+paths.detect = lambda **_kw: {k: ("", "") for k in paths.KEYS}
+errors = []
+tk.Tk.report_callback_exception = lambda self, *a: errors.append(repr(a[1]))
+def pump(root, s):
+    end = time.time() + s
+    while time.time() < end:
+        root.update()
+        time.sleep(0.02)
+def run(root):
+    w = next(o for o in gc.get_objects() if type(o).__name__ == "Window")
+    pump(root, 0.3)
+    step_labels = [w.workflow_step_widgets[k]["button"].cget("text") for k, _t in gui.WORKFLOW_STEPS]
+    step_details = {k: w.workflow_step_widgets[k]["var"].get() for k, _t in gui.WORKFLOW_STEPS}
+    w.workflow_step_widgets["build"]["button"].invoke()
+    pump(root, 0.05)
+    selected_after_build = w.notebook.tab(w.notebook.select(), "text")
+    w.workflow_step_widgets["locate"]["button"].invoke()
+    pump(root, 0.05)
+    selected_after_locate = w.notebook.tab(w.notebook.select(), "text")
+    cover = w.open_start_cover(for_play=False, signal_path=sig, fullscreen=False)
+    pump(root, 0.1)
+    cover_opened = w.cover_window is not None
+    start_cover.write_fake_ready_signal(sig, stage="stage20")
+    pump(root, 0.4)
+    cover_closed = w.cover_window is None
+    print(json.dumps({
+        "step_labels": step_labels,
+        "step_details": step_details,
+        "start_cover_default": bool(w.vars["start_cover"].get()),
+        "selected_after_build": selected_after_build,
+        "selected_after_locate": selected_after_locate,
+        "cover_opened": cover_opened,
+        "cover_closed": cover_closed,
+        "footer_msg": w.message.get(),
+        "errors": errors,
+    }))
+    root.destroy()
+tk.Tk.mainloop = lambda self, n=0: run(self)
+gui.launch(sys.argv[2], settings_file)
+"""
+        result = subprocess.run([sys.executable, "-I", "-c", script, str(ROOT / "src"),
+                                 str(ROOT / "scripts" / "launcher.py")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["errors"], [])
+        self.assertEqual(out["step_labels"], ["1. Locate", "2. Build or Update", "3. Play"])
+        self.assertIn("3/3", out["step_details"]["locate"])
+        self.assertFalse(out["start_cover_default"])
+        self.assertIn("Status", out["selected_after_build"])
+        self.assertIn("Locations", out["selected_after_locate"])
+        self.assertTrue(out["cover_opened"])
+        self.assertTrue(out["cover_closed"])
+        self.assertIn("Start cover closed (ready)", out["footer_msg"])
+
 
 class TestCommandFeedback(unittest.TestCase):
     def test_refused_test_keeps_the_reason_in_the_footer_after_exit(self):
@@ -502,6 +696,401 @@ runpy.run_path(sys.argv[0],run_name='__main__')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--settings", result.stdout)
         self.assertIn("--recipe", result.stdout)
+
+
+class X6LauncherPolishHeadlessTests(unittest.TestCase):
+    def test_palettes_share_exact_keys_and_preserve_dark_terminal_colors(self):
+        self.assertEqual(set(gui.DARK_PALETTE), set(gui.LIGHT_PALETTE))
+        self.assertEqual(gui.PALETTE, gui.DARK_PALETTE)
+        self.assertEqual(gui.DARK_PALETTE["bg"], "#0d1117")
+        self.assertEqual(gui.DARK_PALETTE["panel"], "#161b22")
+        self.assertEqual(gui.DARK_PALETTE["accent"], "#58a6ff")
+        self.assertEqual(gui.LIGHT_PALETTE["bg"], "#ffffff")
+        self.assertEqual(gui.LIGHT_PALETTE["fg"], "#1f2328")
+
+    def test_detect_windows_light_theme_follows_registry_and_defaults_safely(self):
+        seen = []
+        def reader_light(subkey, value_name):
+            seen.append((subkey, value_name))
+            return (1, 4)
+
+        self.assertTrue(gui.detect_windows_light_theme(reg_reader=reader_light, windows=True))
+        self.assertEqual(seen[-1], (gui.PERSONALIZE_KEY, gui.LIGHT_THEME_VALUE))
+        self.assertEqual(gui.select_palette(reg_reader=reader_light), gui.LIGHT_PALETTE)
+
+        for dark_val in (0, (0, 4), "0", None, "", "not-an-int"):
+            self.assertFalse(gui.detect_windows_light_theme(reg_reader=lambda _k, _v, v=dark_val: v, windows=True))
+            self.assertEqual(gui.select_palette(reg_reader=lambda _k, _v, v=dark_val: v), gui.DARK_PALETTE)
+
+        def missing_key(_subkey, _value_name):
+            raise FileNotFoundError("Personalize key missing")
+
+        self.assertFalse(gui.detect_windows_light_theme(reg_reader=missing_key, windows=True))
+        self.assertFalse(gui.detect_windows_light_theme(reg_reader=reader_light, windows=False))
+        self.assertFalse(gui.detect_windows_light_theme(windows=False))
+
+    def test_apply_theme_configures_dark_and_light_styles_and_hit_targets_headlessly(self):
+        class FakeRoot:
+            def __init__(self):
+                self.cfg = {}
+                self.options = {}
+            def configure(self, **kw):
+                self.cfg.update(kw)
+            def option_add(self, k, v):
+                self.options[k] = v
+
+        class FakeStyle:
+            def __init__(self, _root):
+                self.theme = None
+                self.configured = {}
+                self.mapped = {}
+            def theme_use(self, name):
+                self.theme = name
+            def configure(self, name, **kw):
+                self.configured.setdefault(name, {}).update(kw)
+            def map(self, name, **kw):
+                self.mapped.setdefault(name, {}).update(kw)
+
+        class FakeTtk:
+            def __init__(self):
+                self.last_style = None
+            def Style(self, root):
+                self.last_style = FakeStyle(root)
+                return self.last_style
+
+        class FakeFont:
+            @staticmethod
+            def families(_root):
+                return ["Consolas", "Arial"]
+
+        for light_flag, expected_palette in ((False, gui.DARK_PALETTE), (True, gui.LIGHT_PALETTE)):
+            root = FakeRoot()
+            fake_ttk = FakeTtk()
+            text_cfg = gui.apply_theme(root, fake_ttk, FakeFont, light=light_flag)
+            st = fake_ttk.last_style
+            self.assertEqual(root.cfg["background"], expected_palette["bg"])
+            self.assertEqual(text_cfg["background"], expected_palette["field"])
+            self.assertEqual(text_cfg["foreground"], expected_palette["fg"])
+            self.assertEqual(text_cfg["font"], ("Consolas", 10))
+            self.assertEqual(st.configured["TButton"]["padding"], (14, 7))
+            self.assertEqual(st.configured["TNotebook.Tab"]["padding"], (16, 8))
+            self.assertIn("Banner.TFrame", st.configured)
+            self.assertIn("Treeview", st.configured)
+            self.assertIn("Horizontal.TProgressbar", st.configured)
+            for tone in ("ok", "warn", "bad", "muted"):
+                self.assertEqual(st.configured[f"Panel.{tone}.TLabel"]["foreground"], expected_palette[tone])
+
+    def test_tab_marks_cover_every_tab_cleanly(self):
+        for name in ("Play", "Locations", "Status", "Settings", "Tests", "Mod tools", "Log"):
+            self.assertIn(name, gui.TAB_MARKS)
+            rendered = gui.tab_label(name)
+            self.assertTrue(rendered.endswith(name))
+            self.assertGreater(len(rendered), len(name))
+
+    def test_header_state_formats_game_watcher_and_recovery_tones(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            procdump = Path(tmp) / "procdump64.exe"
+            procdump.write_bytes(b"")
+            dumps = Path(tmp) / "dumps"
+            base = settings.defaults()
+
+            s_checking = gui.format_header_state(base, pids=None, recovery_reason="")
+            self.assertIn("Game: checking", s_checking["game_text"])
+            self.assertEqual(s_checking["game_tone"], "warn")
+            self.assertIn("Watcher: off", s_checking["watcher_text"])
+            self.assertEqual(s_checking["watcher_tone"], "muted")
+
+            s_closed = gui.format_header_state(base, pids=[], recovery_reason="")
+            self.assertIn("Game: closed", s_closed["game_text"])
+            self.assertEqual(s_closed["game_tone"], "ok")
+
+            s_running = gui.format_header_state(base, pids=[101, 202], recovery_reason="")
+            self.assertIn("Game: running (PID 101, 202)", s_running["game_text"])
+            self.assertEqual(s_running["game_tone"], "ok")
+
+            s_err = gui.format_header_state(base, pids=None, process_error="query failed", recovery_reason="")
+            self.assertEqual(s_err["game_tone"], "bad")
+
+            armed = dict(base, **{
+                "crash_watch.enabled": True,
+                "crash_watch.dump": "full",
+                "crash_watch.procdump": str(procdump),
+                "crash_watch.folder": str(dumps),
+            })
+            s_armed = gui.format_header_state(armed, pids=[], recovery_reason="")
+            self.assertIn("Watcher: armed (full)", s_armed["watcher_text"])
+            self.assertEqual(s_armed["watcher_tone"], "ok")
+
+            s_unsaved = gui.format_header_state(base, pids=[], raw=armed, recovery_reason="")
+            self.assertIn("unsaved", s_unsaved["watcher_text"])
+            self.assertEqual(s_unsaved["watcher_tone"], "warn")
+
+            broken_watcher = dict(armed, **{"crash_watch.procdump": ""})
+            s_need_setup = gui.format_header_state(broken_watcher, pids=[], recovery_reason="")
+            self.assertEqual(s_need_setup["watcher_tone"], "bad")
+
+            s_rec = gui.format_header_state(base, pids=[], recovery_reason="Installation incomplete (port)")
+            self.assertIn("Recovery: needed", s_rec["watcher_text"])
+            self.assertEqual(s_rec["watcher_tone"], "bad")
+
+    def test_first_run_checklist_tracks_fo4_data_starfield_and_my_games(self):
+        c0 = gui.first_run_checklist(settings.defaults(), {"fo4_data": "missing", "starfield": "missing", "my_games": "missing"})
+        self.assertEqual((c0["confirmed"], c0["total"], c0["ready"], c0["tone"]), (0, 3, False, "bad"))
+        self.assertEqual(c0["remaining"], ["Fallout 4 Data", "Starfield", "My Games"])
+
+        c1 = gui.first_run_checklist(settings.defaults(), {"fo4_data": "found", "starfield": "saved", "my_games": "edited"})
+        self.assertEqual((c1["confirmed"], c1["ready"], c1["tone"]), (1, False, "warn"))
+        self.assertEqual(c1["remaining"], ["Fallout 4 Data", "My Games"])
+        self.assertIn("Confirm locations", c1["summary"])
+
+        c3 = gui.first_run_checklist(settings.defaults(), {"fo4_data": "saved", "starfield": "saved", "my_games": "saved"})
+        self.assertEqual((c3["confirmed"], c3["ready"], c3["tone"], c3["remaining"]), (3, True, "ok", []))
+
+    def test_format_error_banner_strips_tracebacks_and_adds_hints(self):
+        self.assertEqual(gui.format_error_banner("", exit_code=0), {"title": "", "message": "", "hint": ""})
+
+        raw_tb = (
+            "Traceback (most recent call last):\n"
+            '  File "scripts/alife/build_alife_mod.py", line 412, in main\n'
+            "    run_package()\n"
+            "ValueError: confirm the Starfield folder on the Locations tab first\n"
+        )
+        b1 = gui.format_error_banner(raw_tb, action="alife-package", exit_code=1)
+        self.assertEqual(b1["title"], "Mod tools — Package stopped")
+        self.assertNotIn("Traceback", b1["message"])
+        self.assertNotIn("line 412", b1["message"])
+        self.assertIn("Starfield folder", b1["message"])
+        self.assertIn("Locations tab", b1["hint"])
+
+        b2 = gui.format_error_banner(
+            "Output folder cannot be inside a Git checkout; choose a folder outside any repository.",
+            action="alife-init",
+        )
+        self.assertIn("Mod tools — Init", b2["title"])
+        self.assertIn("outside Git", b2["hint"])
+
+    def test_cross_os_path_dirname_and_run_command_cwd_under_posix(self):
+        drv = "D:"
+        with mock.patch("os.path.dirname", side_effect=posixpath.dirname), \
+                mock.patch("os.path.basename", side_effect=posixpath.basename):
+            self.assertEqual(gui.path_dirname(drv + "\\Work\\repo\\scripts\\launcher.py"),
+                             drv + "\\Work\\repo\\scripts")
+            self.assertEqual(gui.path_dirname(gui.path_dirname(drv + "\\Work\\repo\\scripts\\launcher.py")),
+                             drv + "\\Work\\repo")
+            self.assertEqual(gui.path_dirname("/opt/work/repo/scripts/launcher.py"), "/opt/work/repo/scripts")
+            self.assertEqual(gui.path_dirname(gui.path_dirname("/opt/work/repo/scripts/launcher.py")), "/opt/work/repo")
+            self.assertEqual(gui.path_dirname(drv + "\\Work/repo\\scripts/launcher.py"), drv + "\\Work/repo\\scripts")
+
+            calls = []
+            class Child:
+                stdout = io.StringIO("ok\n")
+                def __enter__(self):
+                    return self
+                def __exit__(self, *_a):
+                    self.stdout.close()
+                def wait(self):
+                    return 0
+            def spawn(argv, **kwargs):
+                calls.append((argv, kwargs))
+                return Child()
+
+            win_argv = [sys.executable, "-I", "-u", drv + "\\Work\\repo\\scripts\\launcher.py", "status", "r.json"]
+            self.assertEqual(gui.run_command(win_argv, lambda _ln: None, popen=spawn), 0)
+            self.assertEqual(calls[-1][1]["cwd"], drv + "\\Work\\repo")
+
+            b_win = gui.format_error_banner(f"missing {drv}\\Games\\Starfield\\Starfield.exe", action="play")
+            b_pos = gui.format_error_banner("missing /opt/games/Starfield/Starfield.exe", action="play")
+            self.assertIn("Locations tab", b_win["hint"])
+            self.assertIn("Locations tab", b_pos["hint"])
+
+
+class X5ModToolsTabHeadlessTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.settings_path = self.root / "settings.json"
+        self.launcher_path = ROOT / "scripts" / "launcher.py"
+        self.game_dir = self.root / "Starfield"
+        (self.game_dir / "Data").mkdir(parents=True)
+        (self.game_dir / "Starfield.exe").write_bytes(b"")
+        self.out_dir = self.root / "alife build space"
+        self.settings_path.write_text(json.dumps({"starfield": str(self.game_dir)}), encoding="utf-8")
+        self.alife_model = alife_tools.ModToolsModel(str(self.launcher_path), str(self.settings_path))
+        self.session = gui.ModToolsSession(self.alife_model)
+
+    def test_run_command_supports_explicit_cwd_without_shell(self):
+        calls = []
+        class Child:
+            stdout = io.StringIO("ok\n")
+            def __enter__(self):
+                return self
+            def __exit__(self, *_a):
+                self.stdout.close()
+            def wait(self):
+                return 0
+        def spawn(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return Child()
+
+        argv = self.alife_model.command("validate", output_dir=str(self.out_dir))
+        lines = []
+        rc = gui.run_command(argv, lines.append, popen=spawn, cwd=self.alife_model.repo_dir)
+        self.assertEqual(rc, 0)
+        self.assertEqual(lines, ["ok\n"])
+        self.assertEqual(calls[0][0], argv)
+        self.assertEqual(calls[0][1]["cwd"], str(ROOT))
+        self.assertNotIn("shell", calls[0][1])
+
+    def test_mod_tools_session_worker_transitions_key_numbers_and_table_rows(self):
+        self.assertEqual(self.session.progress(), (0, 5))
+        self.assertEqual(self.session.key_numbers()["nodes"], "nodes —/128")
+        self.assertTrue(all(r["status"] == "not_run" and r["progress_pct"] == 0 for r in self.session.step_rows()))
+
+        outputs = {
+            "init": ["Initialized A-Life config (16 nodes)\n"],
+            "validate": [
+                "+-------+-------------------+\n",
+                "| graph | value             |\n",
+                "+-------+-------------------+\n",
+                "| nodes | 16/128 (112 free) |\n",
+                "+-------+-------------------+\n",
+                "validate: ok\n",
+            ],
+            "simulate": [
+                "A-Life offline simulation: New Atlantis (16 nodes, 24 edges, 3 factions)\n",
+                "+--------------------+-------+\n",
+                "| metric             | value |\n",
+                "+--------------------+-------+\n",
+                "| squads spawned     |    14 |\n",
+                "| offline battles    |     5 |\n",
+                "| territory captures |     3 |\n",
+                "+--------------------+-------+\n",
+                "+-------------+---------+--------+-------------+----------+\n",
+                "| faction     | spawned | losses | nodes owned | captures |\n",
+                "+-------------+---------+--------+-------------+----------+\n",
+                "| uc_security |       6 |      1 |           7 |        1 |\n",
+                "| spacers     |       5 |      3 |           5 |        1 |\n",
+                "| ecliptic    |       3 |      1 |           4 |        1 |\n",
+                "+-------------+---------+--------+-------------+----------+\n",
+            ],
+            "package": ["Packaged Data/StarfieldALife.esm\n"],
+            "verify-dist": ["verify-dist: ok\n"],
+        }
+        calls = []
+        observed_running = []
+        log_stream = []
+
+        def make_popen(step_name):
+            def spawn(argv, **kwargs):
+                calls.append((step_name, argv, kwargs))
+                row_map = {r["step"]: r for r in self.session.step_rows()}
+                observed_running.append((row_map[step_name]["status"], row_map[step_name]["progress_pct"]))
+                class Child:
+                    stdout = io.StringIO("".join(outputs[step_name]))
+                    def __enter__(self):
+                        return self
+                    def __exit__(self, *_a):
+                        self.stdout.close()
+                    def wait(self):
+                        return 0
+                return Child()
+            return spawn
+
+        for step in alife_tools.STEPS:
+            kw = {"output_dir": str(self.out_dir)}
+            if step == "init":
+                kw.update({"template": "vanilla", "force": True})
+            elif step == "simulate":
+                kw.update({"ticks": 50, "seed": 42})
+            elif step == "package":
+                kw.update({"pack_ba2": True})
+            rc = self.session.run_step(step, on_line=log_stream.append, popen=make_popen(step), **kw)
+            self.assertEqual(rc, 0)
+
+        self.assertEqual(observed_running, [("running", 50)] * 5)
+        self.assertEqual(self.session.progress(), (5, 5))
+        self.assertEqual(self.session.progress_text(), "5/5 steps passed")
+        self.assertTrue(all(r["status"] == "passed" and r["progress_pct"] == 100 for r in self.session.step_rows()))
+
+        nums = self.session.key_numbers()
+        self.assertEqual(nums["nodes"], "nodes 16/128")
+        self.assertEqual(nums["spawns"], "spawns 14")
+        self.assertEqual(nums["battles"], "battles 5")
+        self.assertEqual(nums["captures"], "captures 3")
+        self.assertEqual(self.session.table_columns, ["faction", "spawned", "losses", "nodes owned", "captures"])
+        self.assertEqual(len(self.session.table_rows), 3)
+        self.assertEqual(self.session.table_rows[0], ["uc_security", "6", "1", "7", "1"])
+        self.assertEqual(self.session.last_error["message"], "")
+
+        for _step, argv, kwargs in calls:
+            self.assertEqual(argv[:3], [sys.executable, "-I", "-u"])
+            self.assertEqual(kwargs["cwd"], str(ROOT))
+            self.assertNotIn("shell", kwargs)
+        pkg_argv = dict((s, a) for s, a, _k in calls)["package"]
+        self.assertIn("--pack-ba2", pkg_argv)
+        self.assertIn(str(self.game_dir.resolve()), pkg_argv)
+        self.assertTrue(any("verify-dist: ok" in ln for ln in log_stream))
+
+    def test_mod_tools_session_refuses_git_and_game_folders_and_surfaces_failed_banner(self):
+        git_checkout = self.root / "some_repo"
+        (git_checkout / ".git").mkdir(parents=True)
+        spawned = []
+        def never_spawn(*_a, **_kw):
+            spawned.append(True)
+            raise AssertionError("popen must not run on refused output_dir")
+
+        with self.assertRaisesRegex(ValueError, "Git checkout"):
+            self.session.run_step("init", popen=never_spawn, output_dir=str(git_checkout / "out"))
+        self.assertEqual(spawned, [])
+        self.assertEqual(self.session.statuses["init"], "failed")
+        self.assertIn("Git checkout", self.session.last_error["message"])
+
+        with self.assertRaisesRegex(ValueError, "game"):
+            self.session.run_step("package", popen=never_spawn, output_dir=str(self.game_dir / "out"))
+        self.assertEqual(spawned, [])
+        self.assertEqual(self.session.statuses["package"], "failed")
+        self.assertIn("game", self.session.last_error["message"])
+
+        # Non-zero child exit with traceback sets failed state and strips raw stack frames from banner
+        def failing_popen(_argv, **_kw):
+            class Child:
+                stdout = io.StringIO(
+                    "Traceback (most recent call last):\n"
+                    '  File "scripts/alife/build_alife_mod.py", line 88, in main\n'
+                    "RuntimeError: synthetic broken graph\n"
+                )
+                def __enter__(self):
+                    return self
+                def __exit__(self, *_a):
+                    self.stdout.close()
+                def wait(self):
+                    return 2
+            return Child()
+
+        rc = self.session.run_step("validate", popen=failing_popen, output_dir=str(self.out_dir))
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.session.statuses["validate"], "failed")
+        self.assertNotIn("Traceback", self.session.last_error["message"])
+        self.assertIn("synthetic broken graph", self.session.last_error["message"])
+
+    def test_open_output_dir_checks_folder_exists_and_uses_startfile_on_windows(self):
+        opened = []
+        ok, msg = self.session.open_output_dir(str(self.out_dir), opener=opened.append, windows=True)
+        self.assertFalse(ok)
+        self.assertIn("Init", msg)
+        self.assertEqual(opened, [])
+
+        self.out_dir.mkdir()
+        ok_nonwin, msg_nonwin = self.session.open_output_dir(str(self.out_dir), windows=False)
+        self.assertFalse(ok_nonwin)
+        self.assertIn("Windows", msg_nonwin)
+
+        with mock.patch.object(os, "startfile", side_effect=opened.append, create=True):
+            ok_win, resolved = self.session.open_output_dir(str(self.out_dir), windows=True)
+        self.assertTrue(ok_win)
+        self.assertEqual(opened, [str(self.out_dir.resolve())])
+        self.assertEqual(resolved, str(self.out_dir.resolve()))
 
 
 if __name__ == "__main__":

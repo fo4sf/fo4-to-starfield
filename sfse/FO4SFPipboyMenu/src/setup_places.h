@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -27,19 +29,22 @@ namespace fo4sf::setup
 
 	struct StartPlaceRow
 	{
-		std::string id;
-		std::string mode;            // "story" | "warfare"
-		std::string storyId;         // e.g. "fo4_commonwealth" or "none"
-		std::string storyLabel;      // e.g. "Fallout 4: Commonwealth"
-		int         factionSlot = -1;
-		std::string factionLabel;    // e.g. "Minutemen"
-		std::string name;            // e.g. "Vault 111 (Commonwealth)"
-		std::string warfareKey;
-		int         minDifficulty = 0;
-		int         maxDifficulty = 3;
-		bool        available = false;
-		std::string unavailableReason;
-		int         warfareStartIndex = -1; // optional pre-resolved row index in warfare_starts.json
+		std::string              id;
+		std::string              mode;            // "story" | "warfare"
+		std::string              startVariant;    // "normal" | "quick" (story), "" (warfare)
+		std::string              storyId;         // e.g. "fo4_commonwealth" or "none"
+		std::string              storyLabel;      // e.g. "Fallout 4: Commonwealth"
+		int                      factionSlot = -1;
+		std::string              factionLabel;    // e.g. "Minutemen"
+		std::string              name;            // e.g. "Vault 111 (Commonwealth)"
+		std::string              plugin;          // e.g. "FO4Port.esm"
+		std::vector<std::string> requiredPlugins; // e.g. {"FO4Port.esm", "FO4SFNewGame.esm", "FO4SFCoreValues.esm"}
+		std::string              warfareKey;
+		int                      minDifficulty = 0;
+		int                      maxDifficulty = 3;
+		bool                     available = false;
+		std::string              unavailableReason;
+		int                      warfareStartIndex = -1; // optional pre-resolved row index in warfare_starts.json
 	};
 
 	struct SetupCommitPayload
@@ -190,6 +195,56 @@ namespace fo4sf::setup
 			return false;
 		}
 
+		inline bool EqualsIgnoreCaseAscii(std::string_view a_lhs, std::string_view a_rhs)
+		{
+			if (a_lhs.size() != a_rhs.size()) {
+				return false;
+			}
+			for (std::size_t i = 0; i < a_lhs.size(); ++i) {
+				if (std::tolower(static_cast<unsigned char>(a_lhs[i])) !=
+				    std::tolower(static_cast<unsigned char>(a_rhs[i]))) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		inline bool ParseJsonStringArray(std::string_view a_src, std::size_t& a_pos, std::vector<std::string>& a_out)
+		{
+			SkipWs(a_src, a_pos);
+			if (a_pos >= a_src.size() || a_src[a_pos] != '[') {
+				return false;
+			}
+			++a_pos;
+			a_out.clear();
+			for (;;) {
+				SkipWs(a_src, a_pos);
+				if (a_pos >= a_src.size()) {
+					return false;
+				}
+				if (a_src[a_pos] == ']') {
+					++a_pos;
+					return true;
+				}
+				std::string elem;
+				if (!ParseJsonString(a_src, a_pos, elem)) {
+					return false;
+				}
+				if (!elem.empty()) {
+					a_out.push_back(std::move(elem));
+				}
+				SkipWs(a_src, a_pos);
+				if (a_pos < a_src.size() && a_src[a_pos] == ',') {
+					++a_pos;
+					continue;
+				}
+				if (a_pos < a_src.size() && a_src[a_pos] == ']') {
+					continue;
+				}
+				return false;
+			}
+		}
+
 		inline bool ParsePlaceObject(std::string_view a_src, std::size_t& a_pos, StartPlaceRow& a_row)
 		{
 			SkipWs(a_src, a_pos);
@@ -220,6 +275,8 @@ namespace fo4sf::setup
 					if (!ParseJsonString(a_src, a_pos, a_row.id)) return false;
 				} else if (key == "mode") {
 					if (!ParseJsonString(a_src, a_pos, a_row.mode)) return false;
+				} else if (key == "start_variant") {
+					if (!ParseJsonString(a_src, a_pos, a_row.startVariant)) return false;
 				} else if (key == "story_id") {
 					if (!ParseJsonString(a_src, a_pos, a_row.storyId)) return false;
 				} else if (key == "story_label") {
@@ -230,6 +287,10 @@ namespace fo4sf::setup
 					if (!ParseJsonString(a_src, a_pos, a_row.factionLabel)) return false;
 				} else if (key == "name") {
 					if (!ParseJsonString(a_src, a_pos, a_row.name)) return false;
+				} else if (key == "plugin") {
+					if (!ParseJsonString(a_src, a_pos, a_row.plugin)) return false;
+				} else if (key == "required_plugins") {
+					if (!ParseJsonStringArray(a_src, a_pos, a_row.requiredPlugins)) return false;
 				} else if (key == "warfare_key") {
 					if (!ParseJsonString(a_src, a_pos, a_row.warfareKey)) return false;
 				} else if (key == "min_difficulty") {
@@ -247,6 +308,13 @@ namespace fo4sf::setup
 				if (a_pos < a_src.size() && a_src[a_pos] == ',') {
 					++a_pos;
 				}
+			}
+			if (a_row.mode == "story" && !a_row.startVariant.empty() &&
+			    a_row.startVariant != "normal" && a_row.startVariant != "quick") {
+				return false;
+			}
+			if (a_row.mode == "warfare" && !a_row.startVariant.empty()) {
+				return false;
 			}
 			return !a_row.id.empty() && (a_row.mode == "story" || a_row.mode == "warfare") && !a_row.name.empty();
 		}
@@ -297,11 +365,14 @@ namespace fo4sf::setup
 			StartPlaceRow{
 				.id = "fo4_vault111",
 				.mode = "story",
+				.startVariant = "quick",
 				.storyId = "fo4_commonwealth",
 				.storyLabel = "Fallout 4: Commonwealth",
 				.factionSlot = -1,
 				.factionLabel = "",
 				.name = "Vault 111 (Commonwealth)",
+				.plugin = "FO4Port.esm",
+				.requiredPlugins = { "FO4Port.esm", "FO4SFNewGame.esm", "FO4SFCoreValues.esm" },
 				.warfareKey = "",
 				.minDifficulty = 0,
 				.maxDifficulty = 3,
@@ -311,13 +382,72 @@ namespace fo4sf::setup
 			StartPlaceRow{
 				.id = "minutemen_sanctuary",
 				.mode = "warfare",
+				.startVariant = "",
 				.storyId = "none",
 				.storyLabel = "",
 				.factionSlot = 0,
 				.factionLabel = "Minutemen",
 				.name = "Sanctuary Hills",
+				.plugin = "FO4TerrainCore.esm",
+				.requiredPlugins = {
+					"FO4TerrainCore.esm",
+					"FO4SFNewGame.esm",
+					"FO4SFCoreValues.esm",
+					"FO4SFReputation.esm",
+					"FO4SFProgression.esm",
+					"FO4SFCompanions.esm",
+					"FO4SFMission.esm",
+				},
 				.warfareKey = "minutemen_sanctuary",
 				.minDifficulty = 0,
+				.maxDifficulty = 3,
+				.available = true,
+				.unavailableReason = "",
+			},
+			StartPlaceRow{
+				.id = "gunners_plaza",
+				.mode = "warfare",
+				.startVariant = "",
+				.storyId = "none",
+				.storyLabel = "",
+				.factionSlot = 7,
+				.factionLabel = "Gunners",
+				.name = "Gunners Plaza",
+				.plugin = "FO4TerrainCore.esm",
+				.requiredPlugins = {
+					"FO4TerrainCore.esm",
+					"FO4SFNewGame.esm",
+					"FO4SFCoreValues.esm",
+					"FO4SFReputation.esm",
+					"FO4SFProgression.esm",
+					"FO4SFCompanions.esm",
+				},
+				.warfareKey = "gunners_plaza",
+				.minDifficulty = 1,
+				.maxDifficulty = 3,
+				.available = true,
+				.unavailableReason = "",
+			},
+			StartPlaceRow{
+				.id = "raiders_corvega",
+				.mode = "warfare",
+				.startVariant = "",
+				.storyId = "none",
+				.storyLabel = "",
+				.factionSlot = 7,
+				.factionLabel = "Commonwealth Raiders",
+				.name = "Corvega Assembly Plant",
+				.plugin = "FO4TerrainCore.esm",
+				.requiredPlugins = {
+					"FO4TerrainCore.esm",
+					"FO4SFNewGame.esm",
+					"FO4SFCoreValues.esm",
+					"FO4SFReputation.esm",
+					"FO4SFProgression.esm",
+					"FO4SFCompanions.esm",
+				},
+				.warfareKey = "raiders_corvega",
+				.minDifficulty = 2,
 				.maxDifficulty = 3,
 				.available = true,
 				.unavailableReason = "",
@@ -839,4 +969,481 @@ namespace fo4sf::setup
 		int                        _survival = 0;
 		int                        _difficulty = 1;
 	};
+
+	struct LaunchChoicesPayload
+	{
+		bool         valid = false;
+		int          schemaVersion = 0;
+		int          modeVal = 1;             // 1 = story, 2 = warfare
+		std::string  modeTag = "story";
+		std::string  startVariant;            // "normal" | "quick" for story; "" or "none" for warfare
+		bool         survival = false;
+		int          survivalStart = 0;       // 0 | 1
+		int          survivalLocked = 0;      // 0 | 1
+		std::string  storyId = "none";
+		int          storyChoiceIdx = -1;
+		int          warfareFactionSlot = -1;
+		int          warfareStartIdx = -1;
+		std::string  placeId;
+		int          startPlaceRow = 0;
+		int          minDifficulty = -1;      // F11: 0..3 when present, else looked up from place rows
+		std::int64_t createdAt = 0;           // F2: Unix epoch seconds
+		std::string  nonce;
+	};
+
+	namespace detail
+	{
+		inline bool ParseJsonInt64(std::string_view a_src, std::size_t& a_pos, std::int64_t& a_out)
+		{
+			SkipWs(a_src, a_pos);
+			if (a_pos >= a_src.size()) {
+				return false;
+			}
+			const std::size_t start = a_pos;
+			if (a_src[a_pos] == '-' || a_src[a_pos] == '+') {
+				++a_pos;
+			}
+			if (a_pos >= a_src.size() || !std::isdigit(static_cast<unsigned char>(a_src[a_pos]))) {
+				return false;
+			}
+			while (a_pos < a_src.size() && std::isdigit(static_cast<unsigned char>(a_src[a_pos]))) {
+				++a_pos;
+			}
+			try {
+				a_out = std::stoll(std::string(a_src.substr(start, a_pos - start)));
+				return true;
+			} catch (...) {
+				return false;
+			}
+		}
+	}   // namespace detail
+
+	inline std::int64_t CurrentEpochSeconds()
+	{
+		return static_cast<std::int64_t>(
+			std::chrono::duration_cast<std::chrono::seconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count());
+	}
+
+	inline bool IsLaunchChoicesFresh(
+		const LaunchChoicesPayload& a_payload,
+		std::int64_t                a_nowEpoch,
+		std::int64_t                a_maxAgeSeconds = 21600)
+	{
+		if (!a_payload.valid || a_payload.nonce.empty() || a_payload.createdAt <= 0) {
+			return false;
+		}
+		if (a_payload.createdAt > a_nowEpoch + 300) {
+			return false;
+		}
+		return (a_nowEpoch - a_payload.createdAt) <= a_maxAgeSeconds;
+	}
+
+	inline int ResolveLaunchMinDifficulty(
+		const LaunchChoicesPayload&       a_payload,
+		const std::vector<StartPlaceRow>& a_rows = {})
+	{
+		if (a_payload.minDifficulty >= 0 && a_payload.minDifficulty <= 3) {
+			return a_payload.minDifficulty;
+		}
+		const auto scan = [&](const std::vector<StartPlaceRow>& a_pool) -> int {
+			for (const auto& r : a_pool) {
+				if (r.id == a_payload.placeId) {
+					return std::clamp(r.minDifficulty, 0, 3);
+				}
+			}
+			return -1;
+		};
+		if (const int hit = scan(a_rows); hit >= 0) {
+			return hit;
+		}
+		if (const int fb = scan(BuiltinFallbackStartPlaces()); fb >= 0) {
+			return fb;
+		}
+		return 1;
+	}
+
+	inline bool ParseLaunchChoicesJsonText(std::string_view a_json, LaunchChoicesPayload& a_out)
+	{
+		a_out = LaunchChoicesPayload{};
+		std::size_t pos = 0;
+		detail::SkipWs(a_json, pos);
+		if (pos >= a_json.size() || a_json[pos] != '{') {
+			return false;
+		}
+		++pos;
+		bool sawMode = false;
+		bool sawGameMode = false;
+		bool sawSurvivalStart = false;
+		bool sawSurvivalBool = false;
+		for (;;) {
+			detail::SkipWs(a_json, pos);
+			if (pos >= a_json.size()) {
+				return false;
+			}
+			if (a_json[pos] == '}') {
+				++pos;
+				break;
+			}
+			std::string key;
+			if (!detail::ParseJsonString(a_json, pos, key)) {
+				return false;
+			}
+			detail::SkipWs(a_json, pos);
+			if (pos >= a_json.size() || a_json[pos] != ':') {
+				return false;
+			}
+			++pos;
+			if (key == "schema_version") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.schemaVersion)) return false;
+			} else if (key == "mode") {
+				if (!detail::ParseJsonString(a_json, pos, a_out.modeTag)) return false;
+				sawMode = true;
+			} else if (key == "game_mode") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.modeVal)) return false;
+				sawGameMode = true;
+			} else if (key == "start_variant") {
+				if (!detail::ParseJsonString(a_json, pos, a_out.startVariant)) return false;
+			} else if (key == "survival") {
+				if (!detail::ParseJsonBool(a_json, pos, a_out.survival)) return false;
+				sawSurvivalBool = true;
+			} else if (key == "survival_start") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.survivalStart)) return false;
+				sawSurvivalStart = true;
+			} else if (key == "survival_locked") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.survivalLocked)) return false;
+			} else if (key == "story_id") {
+				if (!detail::ParseJsonString(a_json, pos, a_out.storyId)) return false;
+			} else if (key == "story_choice_idx") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.storyChoiceIdx)) return false;
+			} else if (key == "warfare_faction_slot") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.warfareFactionSlot)) return false;
+			} else if (key == "warfare_start_idx") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.warfareStartIdx)) return false;
+			} else if (key == "place_id") {
+				if (!detail::ParseJsonString(a_json, pos, a_out.placeId)) return false;
+			} else if (key == "start_place_row") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.startPlaceRow)) return false;
+			} else if (key == "min_difficulty") {
+				if (!detail::ParseJsonInt(a_json, pos, a_out.minDifficulty)) return false;
+			} else if (key == "created_at") {
+				if (!detail::ParseJsonInt64(a_json, pos, a_out.createdAt)) return false;
+			} else if (key == "nonce") {
+				if (!detail::ParseJsonString(a_json, pos, a_out.nonce)) return false;
+			} else {
+				if (!detail::SkipJsonValue(a_json, pos)) return false;
+			}
+			detail::SkipWs(a_json, pos);
+			if (pos < a_json.size() && a_json[pos] == ',') {
+				++pos;
+			}
+		}
+
+		if (a_out.schemaVersion != 2 || a_out.placeId.empty() || a_out.startPlaceRow < 0 ||
+		    a_out.nonce.empty() || a_out.createdAt <= 0) {
+			return false;
+		}
+		if (a_out.minDifficulty != -1 && (a_out.minDifficulty < 0 || a_out.minDifficulty > 3)) {
+			return false;
+		}
+		if (!sawMode && !sawGameMode) {
+			return false;
+		}
+		if (!sawMode) {
+			a_out.modeTag = (a_out.modeVal == 2) ? "warfare" : "story";
+		}
+		if (!sawGameMode) {
+			a_out.modeVal = (a_out.modeTag == "warfare") ? 2 : 1;
+		}
+		if (a_out.modeTag == "story") {
+			if (a_out.modeVal != 1 || a_out.storyId.empty() || a_out.storyId == "none" ||
+			    a_out.storyChoiceIdx < 0 ||
+			    (a_out.startVariant != "normal" && a_out.startVariant != "quick")) {
+				return false;
+			}
+		} else if (a_out.modeTag == "warfare") {
+			if (a_out.modeVal != 2 || a_out.warfareFactionSlot < 0 || a_out.warfareFactionSlot > 7 ||
+			    a_out.warfareStartIdx < 0 ||
+			    (!a_out.startVariant.empty() && a_out.startVariant != "none")) {
+				return false;
+			}
+		} else {
+			return false;
+		}
+		if (!sawSurvivalStart && sawSurvivalBool) {
+			a_out.survivalStart = a_out.survival ? 1 : 0;
+		}
+		a_out.survivalStart = a_out.survivalStart ? 1 : 0;
+		a_out.survivalLocked = a_out.survivalLocked ? 1 : 0;
+		a_out.valid = true;
+		return true;
+	}
+
+	inline bool ValidateLaunchChoicesAgainstStartTable(
+		const LaunchChoicesPayload&       a_payload,
+		const std::vector<StartPlaceRow>& a_rows,
+		const std::vector<std::string>&   a_loadedPlugins = {},
+		bool                              a_enforcePlugins = false,
+		std::string*                      a_reasonOut = nullptr)
+	{
+		const auto fail = [&](std::string a_reason) {
+			if (a_reasonOut) {
+				*a_reasonOut = std::move(a_reason);
+			}
+			return false;
+		};
+		if (!a_payload.valid) {
+			return fail("payload_invalid");
+		}
+		const StartPlaceRow* matched = nullptr;
+		for (const auto& r : a_rows) {
+			if (r.id == a_payload.placeId) {
+				matched = &r;
+				break;
+			}
+		}
+		if (!matched) {
+			return fail("unknown_place");
+		}
+		if (!matched->available) {
+			return fail("row_unavailable");
+		}
+		if (matched->mode != a_payload.modeTag) {
+			return fail("mode_mismatch");
+		}
+		if (a_payload.modeTag == "story") {
+			if (matched->storyId != a_payload.storyId) {
+				return fail("story_mismatch");
+			}
+			if (!matched->startVariant.empty() && matched->startVariant != a_payload.startVariant) {
+				return fail("start_variant_mismatch");
+			}
+		} else if (a_payload.modeTag == "warfare") {
+			if (!a_payload.startVariant.empty() && a_payload.startVariant != "none") {
+				return fail("warfare_start_variant_invalid");
+			}
+		} else {
+			return fail("invalid_mode");
+		}
+		if (a_enforcePlugins) {
+			const auto hasPlugin = [&](std::string_view a_want) {
+				return std::ranges::any_of(a_loadedPlugins, [&](const std::string& a_have) {
+					return detail::EqualsIgnoreCaseAscii(a_have, a_want);
+				});
+			};
+			if (!matched->requiredPlugins.empty()) {
+				for (const auto& req : matched->requiredPlugins) {
+					if (!req.empty() && !hasPlugin(req)) {
+						return fail("missing_plugin:" + req);
+					}
+				}
+			} else if (!matched->plugin.empty() && !hasPlugin(matched->plugin)) {
+				return fail("missing_plugin:" + matched->plugin);
+			}
+		}
+		if (a_reasonOut) {
+			a_reasonOut->clear();
+		}
+		return true;
+	}
+
+	inline bool ParseAndCheckFreshLaunchChoicesFile(
+		const std::filesystem::path& a_path,
+		LaunchChoicesPayload&        a_out,
+		std::int64_t                 a_nowEpoch = CurrentEpochSeconds(),
+		std::int64_t                 a_maxAgeSeconds = 21600,
+		std::string*                 a_reasonOut = nullptr)
+	{
+		const auto fail = [&](const char* a_reason) {
+			a_out = LaunchChoicesPayload{};
+			if (a_reasonOut) {
+				*a_reasonOut = a_reason;
+			}
+			return false;
+		};
+		std::ifstream in(a_path, std::ios::binary);
+		if (!in) {
+			return fail("file_missing_or_unreadable");
+		}
+		std::ostringstream ss;
+		ss << in.rdbuf();
+		if (!ParseLaunchChoicesJsonText(ss.str(), a_out)) {
+			return fail("invalid_json_or_schema");
+		}
+		if (!IsLaunchChoicesFresh(a_out, a_nowEpoch, a_maxAgeSeconds)) {
+			return fail("expired");
+		}
+		if (a_reasonOut) {
+			a_reasonOut->clear();
+		}
+		return true;
+	}
+
+	inline bool LoadLaunchChoicesFile(
+		const std::filesystem::path&      a_path,
+		const std::vector<StartPlaceRow>& a_rows,
+		const std::vector<std::string>&   a_loadedPlugins,
+		LaunchChoicesPayload&             a_out,
+		std::int64_t                      a_nowEpoch = CurrentEpochSeconds(),
+		std::int64_t                      a_maxAgeSeconds = 21600,
+		bool                              a_enforcePlugins = true,
+		std::string*                      a_reasonOut = nullptr)
+	{
+		if (!ParseAndCheckFreshLaunchChoicesFile(a_path, a_out, a_nowEpoch, a_maxAgeSeconds, a_reasonOut)) {
+			return false;
+		}
+		if (!ValidateLaunchChoicesAgainstStartTable(a_out, a_rows, a_loadedPlugins, a_enforcePlugins, a_reasonOut)) {
+			a_out = LaunchChoicesPayload{};
+			return false;
+		}
+		return true;
+	}
+
+	inline bool LoadLaunchChoicesFile(
+		const std::filesystem::path&      a_path,
+		const std::vector<StartPlaceRow>& a_rows,
+		LaunchChoicesPayload&             a_out,
+		std::int64_t                      a_nowEpoch = CurrentEpochSeconds(),
+		std::int64_t                      a_maxAgeSeconds = 21600,
+		std::string*                      a_reasonOut = nullptr)
+	{
+		return LoadLaunchChoicesFile(a_path, a_rows, {}, a_out, a_nowEpoch, a_maxAgeSeconds, false, a_reasonOut);
+	}
+
+	inline bool LoadLaunchChoicesFile(
+		const std::filesystem::path& a_path,
+		LaunchChoicesPayload&        a_out,
+		std::int64_t                 a_nowEpoch = CurrentEpochSeconds(),
+		std::int64_t                 a_maxAgeSeconds = 21600)
+	{
+		return LoadLaunchChoicesFile(a_path, BuiltinFallbackStartPlaces(), {}, a_out, a_nowEpoch, a_maxAgeSeconds, false, nullptr);
+	}
+
+	inline bool ConsumeLaunchChoicesFile(const std::filesystem::path& a_path)
+	{
+		if (a_path.empty()) {
+			return false;
+		}
+		std::error_code ec;
+		const bool existed = std::filesystem::exists(a_path, ec);
+		if (ec) {
+			return false;
+		}
+		if (!existed) {
+			return true;
+		}
+		std::filesystem::remove(a_path, ec);
+		return !ec;
+	}
+
+	enum class LaunchHydrationDecision : std::uint8_t
+	{
+		kHydrateNow = 0,
+		kWait = 1,
+		kDisarmConsume = 2,
+	};
+
+	struct LaunchChoicesGuardState
+	{
+		bool  hasPayload = false;
+		bool  payloadValid = false;
+		bool  payloadFresh = false;
+		bool  loadGameSeen = false;
+		bool  mainMenuOpen = false;
+		bool  pauseMenuOpen = false;
+		bool  newGameQuestResolved = false;
+		bool  handshakeRequested = false; // FO4SF_StartCardOpen == -1.0f from FO4SF_NewGameQuest.Begin()
+		float startChoiceDone = 0.0f;
+		float gameDaysPassed = 0.0f;
+		int   playerLevel = 1;
+	};
+
+	inline LaunchHydrationDecision EvaluateLaunchChoicesHydration(const LaunchChoicesGuardState& a_state)
+	{
+		if (!a_state.hasPayload || !a_state.payloadValid || !a_state.payloadFresh) {
+			return LaunchHydrationDecision::kDisarmConsume;
+		}
+		// F2: Any save load (including pre-FO4SF saves or earlier saves where FO4SF_StartChoiceDone < 0.5) MUST NEVER hydrate.
+		if (a_state.loadGameSeen) {
+			return LaunchHydrationDecision::kDisarmConsume;
+		}
+		if (a_state.startChoiceDone >= 0.5f || a_state.gameDaysPassed > 0.5f || a_state.playerLevel > 1) {
+			return LaunchHydrationDecision::kDisarmConsume;
+		}
+		if (a_state.mainMenuOpen || a_state.pauseMenuOpen || !a_state.newGameQuestResolved || !a_state.handshakeRequested) {
+			return LaunchHydrationDecision::kWait;
+		}
+		return LaunchHydrationDecision::kHydrateNow;
+	}
+
+	inline std::string EscapeJsonString(std::string_view a_raw)
+	{
+		std::string out;
+		out.reserve(a_raw.size() + 4);
+		for (const char c : a_raw) {
+			if (c == '\\') {
+				out += "\\\\";
+			} else if (c == '"') {
+				out += "\\\"";
+			} else if (c == '\n') {
+				out += "\\n";
+			} else if (c == '\r') {
+				out += "\\r";
+			} else if (c == '\t') {
+				out += "\\t";
+			} else if (static_cast<unsigned char>(c) >= 0x20) {
+				out += c;
+			}
+		}
+		return out;
+	}
+
+	inline std::string BuildStartReadyJson(std::string_view a_nonce, std::string_view a_stage, std::uint32_t a_pid)
+	{
+		std::ostringstream ss;
+		ss << "{\n"
+		   << "  \"nonce\": \"" << EscapeJsonString(a_nonce) << "\",\n"
+		   << "  \"pid\": " << a_pid << ",\n"
+		   << "  \"stage\": \"" << EscapeJsonString(a_stage.empty() ? "ready" : a_stage) << "\",\n"
+		   << "  \"status\": \"ready\"\n"
+		   << "}\n";
+		return ss.str();
+	}
+
+	inline bool WriteStartReadyAtomic(
+		const std::filesystem::path& a_dir,
+		std::string_view             a_nonce,
+		std::string_view             a_stage,
+		std::uint32_t                a_pid)
+	{
+		if (a_dir.empty()) {
+			return false;
+		}
+		std::error_code ec;
+		std::filesystem::create_directories(a_dir, ec);
+		if (ec) {
+			return false;
+		}
+		const auto dst = a_dir / "start_ready.json";
+		const auto tmp = a_dir / ("start_ready.json." + std::to_string(a_pid) + ".tmp");
+		const auto body = BuildStartReadyJson(a_nonce, a_stage, a_pid);
+		{
+			std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+			if (!out) {
+				return false;
+			}
+			out.write(body.data(), static_cast<std::streamsize>(body.size()));
+			out.flush();
+			if (!out.good()) {
+				std::filesystem::remove(tmp, ec);
+				return false;
+			}
+		}
+		std::filesystem::rename(tmp, dst, ec);
+		if (ec) {
+			std::filesystem::remove(tmp, ec);
+			return false;
+		}
+		return true;
+	}
 }   // namespace fo4sf::setup

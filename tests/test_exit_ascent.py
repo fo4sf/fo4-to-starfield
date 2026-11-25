@@ -64,6 +64,7 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             return 0
         self.ns = dict(
             asked=False, liftSpecConfirmed=False, exitFailures=0, TestModeGlobal=None,
+            rideActive=False, rideTransferred=False,
             CogDoorId=0x126D, VaultPlugin='FO4Port.esm',
             ConsoleX=-53.7, ConsoleY=-3.7, ConsoleZ=0.53, ConsoleRadius=2.5,
             PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
@@ -74,6 +75,7 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             ExitNeedAttrMsg=SimpleNamespace(Show=show_need_attr),
             ExitFallbackMessage=SimpleNamespace(Show=lambda: 0),
             EnsureVaultInteractivesRegistered=lambda: None,
+            ReadH00SuspectsOnce=lambda: None,
             StartTimer=lambda *_: None,
             OpenLiftAttributeAllocation=lambda: setattr(self, 'spec_calls', self.spec_calls + 1),
             RunSharedMapSetup=lambda: 4,
@@ -82,7 +84,7 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             FallbackExitToSurface=lambda p: None,
             Surface=self.surfaces.append,
         )
-        exec(compile(translated_functions(read(PSC), ('InVault', 'Near'), 'asked, liftSpecConfirmed, exitFailures'), PSC, 'exec'), self.ns)
+        exec(compile(translated_functions(read(PSC), ('InVault', 'PromptVaultExitLift', 'Near'), 'asked, liftSpecConfirmed, exitFailures'), PSC, 'exec'), self.ns)
 
     def test_platform_marker_and_radius_constants(self):
         self.assertIn('Fo4PlatformMarker = 0x01B29E', read(CS))
@@ -309,12 +311,16 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
     )
     VARS = (
         'itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, '
-        'consoleRegistered, consoleWatchedRef, pistolPickedLogged'
+        'consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, '
+        'consoleOpening, pistolPickedLogged'
     )
 
     def setUp(self):
         self.player = Reference(None, (-53.7, -3.7, 0.53), form_id=0x00000014)
         self.player.interior = True
+        self.equipped = set()
+        self.player.IsEquipped = lambda item: item in self.equipped
+        self.player.EquipItem = lambda item, *args: self.equipped.add(item)
         self.console_ref = Reference(None, (-53.7, -3.7, 0.53), form_id=0x04000819)
         self.pipboy_ref = Reference(None, (-53.79, -2.15, -0.52), form_id=0x0400080F)
         self.port_console = Lift(None, (-53.7, -3.7, 0.53))
@@ -347,6 +353,9 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             cogDoorWatchedRef=None,
             consoleRegistered=False,
             consoleWatchedRef=None,
+            portConsoleRegistered=False,
+            portConsoleWatchedRef=None,
+            consoleOpening=False,
             pistolPickedLogged=False,
             VaultPistolBase=self.vault_pistol,
             VaultPistolId=0x24561C,
@@ -354,6 +363,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             GearDoorConsoleRef=self.console_ref,
             CogDoorId=0x126D,
             ConsoleRefId=0x126E,
+            LiftId=0,
             VaultPlugin='FO4Port.esm',
             TestModeGlobal=None,
             PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),

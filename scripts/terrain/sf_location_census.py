@@ -614,9 +614,13 @@ def inspect_host_plugins(
     home_esm: str = "",
     registration_esm: str = "",
     core_esm: str = "",
+    port_esm: str = "",
+    extra_plugins: Sequence[str] = (),
 ) -> Dict[str, Any]:
-    """Fast read-only inspection of our host, core, and registration ESMs resolving keywords, locations, and biomes against
-    `Starfield.esm` without walking exterior CELL/REFR trees."""
+    """Fast read-only inspection of our host, core, port, and registration ESMs resolving keywords, locations,
+    and biomes against `Starfield.esm` plus winning zero-Mars location census without walking exterior REFR trees."""
+    from fo4sf.planet import home_planet_spec as hspec  # noqa: E402
+
     kywd_local: Dict[int, str] = {}
     lctn_local: Dict[int, str] = {}
     biom_local: Dict[int, str] = {}
@@ -633,7 +637,7 @@ def inspect_host_plugins(
 
     lctn_owner: Dict[Tuple[str, int], str] = {("starfield.esm", k): v for k, v in lctn_local.items()}
     biom_owner: Dict[Tuple[str, int], str] = {("starfield.esm", k): v for k, v in biom_local.items()}
-    out: Dict[str, Any] = {"our_core": None, "our_home": None, "our_registration": None}
+    out: Dict[str, Any] = {"our_core": None, "our_port": None, "our_home": None, "our_registration": None, "zero_mars_audit": None}
 
     if core_esm:
         cinfo = _inspect_core_plugin(core_esm, kywd_local, lctn_local, biom_local)
@@ -642,6 +646,14 @@ def inspect_host_plugins(
         for row in cinfo["locations"]:
             if row["edid"]:
                 lctn_owner[(cname, int(row["local_id"], 16))] = row["edid"]
+
+    if port_esm:
+        pinfo = _inspect_core_plugin(port_esm, kywd_local, lctn_local, biom_local)
+        out["our_port"] = pinfo
+        pname = os.path.basename(port_esm).lower()
+        for row in pinfo["locations"]:
+            if row["edid"]:
+                lctn_owner[(pname, int(row["local_id"], 16))] = row["edid"]
 
     if home_esm:
         hinfo = _inspect_core_plugin(home_esm, kywd_local, lctn_local, biom_local)
@@ -665,6 +677,11 @@ def inspect_host_plugins(
             lctn_by_owner=lctn_owner,
             biom_by_owner=biom_owner,
         )
+
+    audit_list = [p for p in (core_esm, port_esm, *extra_plugins, home_esm, registration_esm) if p]
+    if audit_list:
+        m_probs, m_summary = hspec.audit_zero_mars_references(audit_list)
+        out["zero_mars_audit"] = {"problems": m_probs, **m_summary}
     return out
 
 
@@ -684,17 +701,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Read-only Starfield location, worldspace, PCM, and lever-keyword census")
     ap.add_argument("--starfield", required=True, help="Path to Starfield.esm")
     ap.add_argument("--core", default="", help="Optional path to FO4TerrainCore.esm")
+    ap.add_argument("--port", default="", help="Optional path to FO4Port.esm")
     ap.add_argument("--home", default="", help="Optional path to FO4SFHome.esm")
     ap.add_argument("--registration", default="", help="Optional path to FO4TerrainCore_Mars.esm / FO4TerrainCore_Home.esm")
-    ap.add_argument("--plugins-only", action="store_true", help="Fast mode: inspect --core/--home/--registration against Starfield.esm KYWD/LCTN/BIOM only")
+    ap.add_argument("--extra-plugins", default="", help="Optional comma-separated extra plugins in load order for zero-Mars census")
+    ap.add_argument("--plugins-only", action="store_true", help="Fast mode: inspect --core/--port/--home/--registration against Starfield.esm KYWD/LCTN/BIOM only")
     ap.add_argument("--out", required=True, help="Output JSON path (outside Git worktrees and game folders)")
     args = ap.parse_args(argv)
 
-    inputs = [p for p in (args.starfield, args.core, args.home, args.registration) if p]
+    extra_list = [p.strip() for p in args.extra_plugins.split(",") if p.strip()]
+    inputs = [p for p in (args.starfield, args.core, args.port, args.home, args.registration, *extra_list) if p]
     try:
         refuse_unsafe_output_path(args.out, inputs)
         if args.plugins_only:
-            report = inspect_host_plugins(args.starfield, home_esm=args.home, registration_esm=args.registration, core_esm=args.core)
+            report = inspect_host_plugins(
+                args.starfield,
+                home_esm=args.home,
+                registration_esm=args.registration,
+                core_esm=args.core,
+                port_esm=args.port,
+                extra_plugins=extra_list,
+            )
         else:
             report = run_sf_census(args.starfield, args.core, args.registration, home_esm=args.home)
         write_sf_census_json(args.out, report, inputs)

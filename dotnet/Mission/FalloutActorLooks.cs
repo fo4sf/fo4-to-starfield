@@ -1,25 +1,37 @@
-// FalloutActorLooks: Round 10 C5 actor looks & spacesuit stripping for FO4SFMission.esm.
+// FalloutActorLooks: Round 10 C5 + Round 11 D2 & A2.3 actor looks & spacesuit stripping for FO4SFMission.esm.
 //
-// Why Preston (0x000801) and the 5 Concord raiders (FO4ActorRaider.esm:0xF04800) wore Starfield spacesuits in 2f:
-//   1. Preston duplicated Starfield.esm:0x01169C (UC_NA_PapaKatz), leaving SpaceOutfit (SOFT) = Null,
+// 1. Why Preston (0x000801) and the 5 Concord raiders (FO4ActorRaider.esm:0xF04800) wore Starfield spacesuits in 2f:
+//    - Preston duplicated Starfield.esm:0x01169C (UC_NA_PapaKatz), leaving SpaceOutfit (SOFT) = Null,
 //      UseTemplateActors = 0x6C12 non-zero, and ActorShouldForceHideSpacesuit_AV (0x000B120E) unset (0.0).
 //      In Starfield.esm, DFOB 0x001A76BD (DefaultSpaceSuitOutfit_DO) supplies OTFT 0x0016D5E5
 //      (Outfit_Spacesuit_DefaultNPC_NoBoostpack_NOTPLAYABLE) whenever a HumanRace NPC has SpaceOutfit = Null,
 //      and on MarsPlanetWorld (PNDT 0x0003F59A, non-breathable CO2) CNDF 0x00194ABF + CNDF 0x000BEA53 evaluate TRUE.
-//   2. FO4ActorRaider.esm:0xF04800 (FO4_LvlRaider) explicitly authored SpaceOutfit (SOFT) = 0x003D094D
+//    - FO4ActorRaider.esm:0xF04800 (FO4_LvlRaider) explicitly authored SpaceOutfit (SOFT) = 0x003D094D
 //      (Outfit_Spacesuit_Spacer_AssaultOrNoRole) with ActorShouldForceHideSpacesuit_AV unset.
+//    -> Passed in candidate-2g: spacesuits and helmets stripped on Preston and all 5 Concord raiders; Preston's
+//       converted FO4 Minuteman duster and Starfield chargen face approximation rendered in dialogue (Stills 07 & 08).
 //
-// C5 Triple-Lock Spacesuit Strip + Fallout 4 Outfit & Face Architecture (local FormIDs 0x980..0x98A):
-//   - Sets AVIF 0x000B120E (ActorShouldForceHideSpacesuit_AV) = 1.0f in NPC_.Properties (PRPS), making CNDF 0x00194ABF
-//     condition [1] (GetValue(0x0B120E) != 1) evaluate FALSE on MarsPlanetWorld and every non-breathable world.
-//   - Sets BOTH DefaultOutfit (DOFT) and SpaceOutfit (SOFT) explicitly to non-spacesuit clothes Outfits (defeating
-//     DFOB 0x001A76BD and preventing any ArmorTypeSpacesuitBody/Helmet/Backpack item from entering NPC inventory).
-//   - Clears stale UseTemplateActors bits on standalone NPCs and emits an override of FO4ActorRaider.esm:0xF04800
-//     (FO4_LvlRaider, FormVersion 581) in FO4SFMission.esm so all 5 placed Concord raiders (0x803..0x807) keep their
-//     exact Base FormKey while switching from Spacer spacesuits to FO4_Outfit_ConcordRaider (0x988).
-//   - Applies Preston Garvey's Fallout 4 (0x00019FD9) young African-American male face/hair/beard/weight traits
-//     (sourced from Starfield.esm 0x0ED1C4 EncFreestarSecurityFaceM04 + 0x15F5A6 Human_Male_Beard_ClassicBeard) and
-//     dedicated Minuteman duster + hat records (0x980..0x985), followed by FO4_Outfit_ConcordRaider (0x988..0x98A).
+// 2. Round 11 D2 — Why Preston's hat (0x000985 / ARMA 0x000984) was missing in candidate-2g Stills 07 & 08:
+//    - ARMA 0x000984 (FO4_AA_PrestonHat) duplicated Starfield.esm:0x211140 (AA_Clothes_First_Mercenary_01_Hat),
+//      whose Male/Female Model subrecords carry MO2F = 0x01 / MO3F = 0x01 (HasFaceBonesModel) + XFLG = 0x01.
+//      Because SetWorldModels mutated Model.File in place without replacing the SF.Model wrapper, Starfield's
+//      FaceBone actor loader appended "_facebones" and requested "prestongarveyhat_m_facebones.nif" (absent from BA2)
+//      instead of "prestongarveyhat_m.nif" (whereas ARMA 0x000981 duplicated AA_Naked_Body 0x012204, which had no
+//      MO2F/MO3F flags, so prestongarveyoutfit_m.nif loaded directly).
+//    - Fix: SetWorldModels constructs clean SF.Model instances (Flags = null -> zero MO2F/MO3F/XFLG subrecords),
+//      aligns hat FirstPersonFlags (BO64) to 0x10 (ARMO) / 0x12 (ARMA) matching companion hat 0x1C8E0A -> 0x25DEEB,
+//      and sets 0x68 (BODY | UpperBody | Hands, matching gloved outfits 0x21BBF2 / 0x25E8D4) on 0x981/0x983/0x989/0x98A
+//      so HumanRace's default AA_Naked_Hands (0x030580, BO64 = 0x40) no longer draws duplicate bare fingers behind
+//      Preston's leather gloves (seen in Still 07).
+//
+// 3. Round 11 A2.3 + Review #7 — Scoped Concord Raider NPC_ (0x000986 FO4_ConcordRaider) + later raider clones:
+//    - Clones FO4ActorRaider.esm:0xF04800 (FO4_LvlRaider) to local FO4SFMission.esm:0x000986 (FO4_ConcordRaider,
+//      FormVersion = 581) with FO4_Outfit_ConcordRaider (0x988) + ActorShouldForceHideSpacesuit_AV = 1.0, and rebind-points
+//      ONLY Concord's placed raider ACHRs (0x803..0x80F) to 0x000986. FO4ActorRaider.esm:0xF04800 stays untouched
+//      (0 foreign NPC_ overrides in FO4SFMission.esm).
+//    - Strips 0x003D094D Spacer spacesuit outfits (DOFT = SOFT = 0x988 + ActorShouldForceHideSpacesuit_AV = 1.0) on
+//      later-mission FO4_LvlRaider-cloned NPCs in FO4SFMission.esm (0x0A23 FO4_CorvegaBoss, 0x0AD1 FO4_Kellogg,
+//      0x0B31 FO4_CourserZ247) so zero NPC_ records in FO4SFMission.esm carry 0x003D094D.
 
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -60,6 +72,15 @@ public static class FalloutActorLooks
     public const string SfFirstMercHatArmoEdid = "Clothes_First_Mercenary_01_Hat";
     public const uint SfMechanicOutfitId = 0x0005B422;      // Outfit_Clothes_Mechanic_Tanktop_Brown
 
+    // Biped body-part slot bitmasks (BO64) verified against Starfield.esm:
+    //   - 0x68 (0x08 BODY | 0x20 UpperBody | 0x40 Hands): gloved full-body outfits (0x21BBF2 Clothes_NewAtlantis_Security,
+    //     0x25E8D4 Clothes_UCPolice), hiding both AA_Naked_Body (0x08) and AA_Naked_Hands (0x40).
+    //   - 0x10 (HairTop) on ARMO + 0x12 (Hair | HairTop) on ARMA: companion NonPlayable hat 0x1C8E0A -> 0x25DEEB
+    //     (Clothes_Colonist_Adventurous_Hat_SamCoe_NOTPLAYABLE), activating Hair_Afro cap-mask without HEAD (0x01) conflict.
+    public const SF.FirstPersonFlag GlovedFullBodyFlags = (SF.FirstPersonFlag)0x68;
+    public const SF.FirstPersonFlag HatArmoFlags = (SF.FirstPersonFlag)0x10;
+    public const SF.FirstPersonFlag HatArmaFlags = (SF.FirstPersonFlag)0x12;
+
     // Vanilla Starfield.esm young African-American male face sources matching Fallout4.esm 0x00019FD9 PrestonGarvey
     public const uint SfPrestonFacePrimaryId = 0x000ED1C4;  // EncFreestarSecurityFaceM04 (STON=7, African_Male_yo1_Sk6, Black, Brown)
     public const string SfPrestonFacePrimaryEdid = "EncFreestarSecurityFaceM04";
@@ -86,6 +107,24 @@ public static class FalloutActorLooks
     public const string PrestonHatArmaEdid = "FO4_AA_PrestonHat";
     public const uint PrestonHatArmoId = 0x985;
     public const string PrestonHatArmoEdid = "FO4_Armor_PrestonHat";
+
+    // Round 11 A2.3: Dedicated local Concord raider NPC_ (replaces global override of FO4ActorRaider.esm:0xF04800)
+    public const uint ConcordRaiderNpcId = 0x986;
+    public const string ConcordRaiderNpcEdid = "FO4_ConcordRaider";
+
+    // Review #7: Later-mission FO4_LvlRaider-cloned NPCs in FO4SFMission.esm that otherwise inherit SOFT=0x003D094D
+    public const uint CorvegaBossNpcId = 0x0A23;
+    public const string CorvegaBossNpcEdid = "FO4_CorvegaBoss";
+    public const uint KelloggNpcId = 0x0AD1;
+    public const string KelloggNpcEdid = "FO4_Kellogg";
+    public const uint CourserZ247NpcId = 0x0B31;
+    public const string CourserZ247NpcEdid = "FO4_CourserZ247";
+    public static readonly (uint Id, string Edid)[] LaterRaiderClonedNpcs =
+    {
+        (CorvegaBossNpcId, CorvegaBossNpcEdid),
+        (KelloggNpcId, KelloggNpcEdid),
+        (CourserZ247NpcId, CourserZ247NpcEdid),
+    };
 
     public const uint RaiderOutfitId = 0x988;
     public const string RaiderOutfitEdid = "FO4_Outfit_ConcordRaider";
@@ -128,9 +167,10 @@ public static class FalloutActorLooks
     }
 
     /// <summary>
-    /// Applies C5 Fallout 4 outfits, Preston's Fallout 4 face/hair/beard/weight traits, FO4_LvlRaider (0xF04800)
-    /// override, and Triple-Lock Starfield spacesuit/helmet stripping across FO4SFMission.esm.
-    /// Call once in Mission.Write after NPCs are populated and before mod.BeginWrite.
+    /// Applies Fallout 4 outfits, Preston's Fallout 4 face/hair/beard/weight traits + D2 hat fix, dedicated
+    /// FO4_ConcordRaider (0x000986) scoped strictly to Concord raider ACHRs (0x803..0x80F, Round 11 A2.3),
+    /// and Triple-Lock Starfield spacesuit/helmet stripping.
+    /// Call once in Mission.Write after NPCs and placed ACHRs are populated and before mod.BeginWrite.
     /// </summary>
     public static void ApplyActorLooks(
         SF.StarfieldMod mod,
@@ -155,23 +195,61 @@ public static class FalloutActorLooks
         preston.SpaceOutfit.SetTo(prestonOutfit.FormKey);
         EnforceNoStarfieldSpacesuit(preston, sfMod, forceHideAvKey, prestonOutfit.FormKey);
 
-        // 3. Override FO4ActorRaider.esm:0xF04800 (FO4_LvlRaider) in FO4SFMission.esm so all 5 Concord raiders
-        //    keep their exact Base FormKey while switching from Spacer spacesuits to FO4_Outfit_ConcordRaider (0x988)
+        // 3. Round 11 A2.3: Create dedicated local FO4SFMission.esm:0x000986 (FO4_ConcordRaider) cloned from
+        //    FO4ActorRaider.esm:0xF04800 (FO4_LvlRaider) instead of overriding 0xF04800 globally.
+        //    Rebind ONLY Concord's placed raider ACHRs (0x803..0x80F) to 0x000986 so non-Concord raiders
+        //    (e.g. Corvega / Fort Hagen in A7cd) and rebuilt FO4ActorRaider.esm remain untouched.
         var baseRaider = raiderMod.Npcs.FirstOrDefault(n => n.FormKey.ID == Mission.RaiderId && n.EditorID == "FO4_LvlRaider")
                          ?? throw new InvalidOperationException($"{raiderMod.ModKey} missing 0x{Mission.RaiderId:X6} FO4_LvlRaider");
-        var raiderOverrideKey = new FormKey(raiderMod.ModKey, Mission.RaiderId);
-        mod.Npcs.Remove(raiderOverrideKey);
-        var raiderOverride = baseRaider.DeepCopy();
-        raiderOverride.FormVersion = 581;
-        raiderOverride.DefaultOutfit.SetTo(raiderOutfit.FormKey);
-        raiderOverride.SpaceOutfit.SetTo(raiderOutfit.FormKey);
-        EnforceNoStarfieldSpacesuit(raiderOverride, sfMod, forceHideAvKey, raiderOutfit.FormKey, preserveIntentionalTemplates: true);
-        mod.Npcs.Add(raiderOverride);
+        mod.Npcs.Remove(new FormKey(raiderMod.ModKey, Mission.RaiderId));
 
-        // Strictly scoped to Preston (0x000801) + FO4_LvlRaider (0xF04800): other NPCs in mod.Npcs stay untouched.
+        var concordRaider = (SF.Npc)baseRaider.Duplicate(new FormKey(modKey, ConcordRaiderNpcId));
+        concordRaider.EditorID = ConcordRaiderNpcEdid;
+        concordRaider.FormVersion = 581;
+        concordRaider.DefaultOutfit.SetTo(raiderOutfit.FormKey);
+        concordRaider.SpaceOutfit.SetTo(raiderOutfit.FormKey);
+        EnforceNoStarfieldSpacesuit(concordRaider, sfMod, forceHideAvKey, raiderOutfit.FormKey, preserveIntentionalTemplates: true);
+        // R13 E3: Clear TemplateActorType.Inventory so EncSpacer01Template cannot inject vanilla full-damage Spacer guns,
+        // and clear baseRaider's inherited Coachman (0x26D96B) CNTO entry so Concord raiders carry only Min00's stand-ins.
+        concordRaider.UseTemplateActors &= ~SF.Npc.TemplateActorType.Inventory;
+        concordRaider.Items?.Clear();
+        concordRaider.Items = null;
+        mod.Npcs.Remove(concordRaider.FormKey);
+        mod.Npcs.Add(concordRaider);
+
+        foreach (var r in Mission.PersistentNpcRefsMutable(mod))
+        {
+            if (IsConcordRaiderRefId(r.FormKey, modKey))
+                r.Base.SetTo(concordRaider.FormKey);
+        }
+
+        // 4. Review #7: Strip 0x003D094D Spacer spacesuit outfits on all later-mission FO4_LvlRaider-cloned local NPCs
+        //    in FO4SFMission.esm (0x0A23 FO4_CorvegaBoss, 0x0AD1 FO4_Kellogg, 0x0B31 FO4_CourserZ247), while keeping
+        //    FO4ActorRaider.esm:0xF04800 untouched (0 foreign NPC_ overrides) and non-raider NPCs (FO4_Sturges, etc.) untouched.
+        var spacerSuitKey = new FormKey(SfEsm, SfSpacerSpacesuitOutfitId);
+        var laterRaiderIds = LaterRaiderClonedNpcs.Select(x => x.Id).ToHashSet();
+        foreach (var npc in mod.Npcs)
+        {
+            if (npc.FormKey.ModKey != modKey || npc.FormKey.ID is Mission.PrestonNpcId or ConcordRaiderNpcId)
+                continue;
+            if (laterRaiderIds.Contains(npc.FormKey.ID) ||
+                npc.DefaultOutfit.FormKey == spacerSuitKey ||
+                npc.SpaceOutfit.FormKey == spacerSuitKey)
+            {
+                npc.DefaultOutfit.SetTo(raiderOutfit.FormKey);
+                npc.SpaceOutfit.SetTo(raiderOutfit.FormKey);
+                EnforceNoStarfieldSpacesuit(npc, sfMod, forceHideAvKey, raiderOutfit.FormKey, preserveIntentionalTemplates: true);
+            }
+        }
+
         if (mod.ModHeader.Stats.NextFormID < MaxAllocatedId)
             mod.ModHeader.Stats.NextFormID = MaxAllocatedId;
     }
+
+    public static bool IsConcordRaiderRefId(FormKey refKey, ModKey missionModKey)
+        => refKey.ModKey == missionModKey &&
+           refKey.ID >= Mission.FirstRaiderRefId &&
+           refKey.ID < Mission.CodsworthNpcId;
 
     public static void EnforceNoStarfieldSpacesuit(
         SF.Npc npc,
@@ -409,7 +487,6 @@ public static class FalloutActorLooks
             arma = new SF.ArmorAddon(key, SF.StarfieldRelease.Starfield)
             {
                 FormVersion = 581,
-                FirstPersonFlags = SF.FirstPersonFlag.BODY,
                 WorldModel = new GenderedItem<SF.Model?>(
                     new SF.Model { File = new AssetLink<StarfieldModelAssetType>("Actors\\Human\\Mesh\\Naked_Body\\Naked_M.nif") },
                     new SF.Model { File = new AssetLink<StarfieldModelAssetType>("Actors\\Human\\Mesh\\Naked_Body\\Naked_F.nif") }),
@@ -418,6 +495,9 @@ public static class FalloutActorLooks
 
         arma.EditorID = edid;
         arma.Race.SetTo(humanRaceKey);
+        // Both prestongarveyoutfit_m.nif (gloves) and concord_raider_m.nif (malehands) include hands/gloves,
+        // so mask BODY (0x08) + UpperBody (0x20) + Hands (0x40) = 0x68 to hide AA_Naked_Hands (0x030580).
+        arma.FirstPersonFlags = GlovedFullBodyFlags;
         if (!string.IsNullOrWhiteSpace(customNifRelPath))
         {
             SetWorldModels(arma, customNifRelPath);
@@ -428,6 +508,12 @@ public static class FalloutActorLooks
                  mercArma.WorldModel?.Male?.File?.GivenPath is { Length: > 0 } mercPath)
         {
             SetWorldModels(arma, mercPath, mercArma.WorldModel?.Female?.File?.GivenPath);
+        }
+        else
+        {
+            string fallbackM = arma.WorldModel?.Male?.File?.GivenPath ?? "Actors\\Human\\Mesh\\Naked_Body\\Naked_M.nif";
+            string fallbackF = arma.WorldModel?.Female?.File?.GivenPath ?? "Actors\\Human\\Mesh\\Naked_Body\\Naked_F.nif";
+            SetWorldModels(arma, fallbackM, fallbackF);
         }
 
         mod.ArmorAddons.Remove(key);
@@ -463,8 +549,20 @@ public static class FalloutActorLooks
 
         arma.EditorID = edid;
         arma.Race.SetTo(humanRaceKey);
+        arma.FirstPersonFlags = HatArmaFlags;
         if (!string.IsNullOrWhiteSpace(customHatNifRelPath))
+        {
+            // Round 11 D2 fix: SetWorldModels replaces the duplicated SF.Model instances so MO2F/MO3F/XFLG
+            // (HasFaceBonesModel = 0x01 on 0x211140) are stripped; Starfield loads prestongarveyhat_m.nif directly
+            // instead of searching for a non-existent prestongarveyhat_m_facebones.nif.
             SetWorldModels(arma, customHatNifRelPath);
+        }
+        else
+        {
+            string fallbackM = arma.WorldModel?.Male?.File?.GivenPath ?? "Clothes\\outfit_first_mercenary_01\\Outfit_First_Mercenary_01_Hat_M.nif";
+            string fallbackF = arma.WorldModel?.Female?.File?.GivenPath ?? "Clothes\\outfit_first_mercenary_01\\Outfit_First_Mercenary_01_Hat_F.nif";
+            SetWorldModels(arma, fallbackM, fallbackF);
+        }
 
         mod.ArmorAddons.Remove(key);
         mod.ArmorAddons.Add(arma);
@@ -473,12 +571,12 @@ public static class FalloutActorLooks
 
     static void SetWorldModels(SF.ArmorAddon arma, string maleRel, string? femaleRel = null)
     {
-        arma.WorldModel ??= new GenderedItem<SF.Model?>(new SF.Model(), new SF.Model());
-        arma.WorldModel.Male ??= new SF.Model();
-        arma.WorldModel.Female ??= new SF.Model();
-        string baseGiven = arma.WorldModel.Male.File?.GivenPath ?? "";
-        arma.WorldModel.Male.File = new AssetLink<StarfieldModelAssetType>(Mission.ModelPath(baseGiven, maleRel));
-        arma.WorldModel.Female.File = new AssetLink<StarfieldModelAssetType>(Mission.ModelPath(baseGiven, femaleRel ?? maleRel));
+        string baseGiven = arma.WorldModel?.Male?.File?.GivenPath ?? "";
+        // Construct brand-new SF.Model wrappers (Flags = null, Data = null) so template-specific MO2F/MO3F/XFLG
+        // flags (such as HasFaceBonesModel = 0x01 on vanilla hat ARMAs) never leak onto converted FO4 C_Head NIFs.
+        arma.WorldModel = new GenderedItem<SF.Model?>(
+            new SF.Model { File = new AssetLink<StarfieldModelAssetType>(Mission.ModelPath(baseGiven, maleRel)) },
+            new SF.Model { File = new AssetLink<StarfieldModelAssetType>(Mission.ModelPath(baseGiven, femaleRel ?? maleRel)) });
     }
 
     static SF.Armor DuplicateOrCreateApparelArmo(
@@ -503,7 +601,6 @@ public static class FalloutActorLooks
             armo = new SF.Armor(key, SF.StarfieldRelease.Starfield)
             {
                 FormVersion = 581,
-                FirstPersonFlags = isHeadwear ? (SF.FirstPersonFlag)0 : SF.FirstPersonFlag.BODY,
                 Keywords = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>>
                 {
                     new FormLink<SF.IKeywordGetter>(new FormKey(SfEsm, SfApparelCategoryKwId)),
@@ -515,6 +612,7 @@ public static class FalloutActorLooks
         armo.EditorID = edid;
         armo.Name = displayName;
         armo.Race.SetTo(humanRaceKey);
+        armo.FirstPersonFlags = isHeadwear ? HatArmoFlags : GlovedFullBodyFlags;
         armo.MajorFlags |= SF.Armor.MajorFlag.NonPlayable;
         if (armo.Keywords is not null)
         {
@@ -600,7 +698,7 @@ public static class FalloutActorLooks
     }
 
     /// <summary>
-    /// Validates all C5 binary invariants on the written FO4SFMission.esm plugin.
+    /// Validates all C5 + Round 11 D2 & A2.3 binary invariants on the written FO4SFMission.esm plugin.
     /// Appends human-readable failure descriptions to <paramref name="problems"/>.
     /// </summary>
     public static void CheckActorLooks(
@@ -615,7 +713,7 @@ public static class FalloutActorLooks
         var humanRaceKey = new FormKey(SfEsm, Mission.SfHumanRaceId);
         var forceHideAvKey = new FormKey(SfEsm, SfForceHideSpacesuitAvId);
 
-        // 1. Local Fallout 4 Outfit / Armor / ArmorAddon records (0x980..0x98A)
+        // 1. Local Fallout 4 Outfit / Armor / ArmorAddon records (0x980..0x98A) + D2 flags hygiene
         var prestonOtft = plug.Outfits.FirstOrDefault(o => o.FormKey == new FormKey(key, PrestonOutfitId));
         var prestonDusterArma = plug.ArmorAddons.FirstOrDefault(a => a.FormKey == new FormKey(key, PrestonDusterArmaId));
         var prestonDusterArmo = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, PrestonDusterArmoId));
@@ -636,6 +734,20 @@ public static class FalloutActorLooks
         Need(prestonHatArmo is { EditorID: PrestonHatArmoEdid } && !IsSpacesuitItem(prestonHatArmo.FormKey, sfMod, plug),
              $"ARMO 0x{PrestonHatArmoId:X} ({PrestonHatArmoEdid}) missing or carries spacesuit keyword");
 
+        // D2 checks: zero HasFaceBonesModel (MO2F/MO3F) on custom ARMAs, exact hat BO64 (0x10/0x12), and gloved body BO64 (0x68)
+        Need(prestonHatArma is not null &&
+             (prestonHatArma.WorldModel?.Male?.Flags ?? 0) == 0 &&
+             (prestonHatArma.WorldModel?.Female?.Flags ?? 0) == 0,
+             $"D2: ARMA 0x{PrestonHatArmaId:X} ({PrestonHatArmaEdid}) retains Model.Flags (MO2F/MO3F HasFaceBonesModel), which redirects Starfield to a missing *_facebones.nif");
+        Need(prestonDusterArma is not null &&
+             (prestonDusterArma.WorldModel?.Male?.Flags ?? 0) == 0 &&
+             (prestonDusterArma.WorldModel?.Female?.Flags ?? 0) == 0,
+             $"ARMA 0x{PrestonDusterArmaId:X} ({PrestonDusterArmaEdid}) retains unexpected Model.Flags");
+        Need(prestonHatArmo?.FirstPersonFlags == HatArmoFlags && prestonHatArma?.FirstPersonFlags == HatArmaFlags,
+             $"D2: Preston hat BO64 mismatch (ARMO={prestonHatArmo?.FirstPersonFlags}, ARMA={prestonHatArma?.FirstPersonFlags}; expected 0x10 / 0x12)");
+        Need(prestonDusterArma?.FirstPersonFlags == GlovedFullBodyFlags && prestonDusterArmo?.FirstPersonFlags == GlovedFullBodyFlags,
+             $"D2: Preston duster BO64 lacks Hands (0x40) mask (ARMA={prestonDusterArma?.FirstPersonFlags}, ARMO={prestonDusterArmo?.FirstPersonFlags}; expected 0x68)");
+
         var raiderOtft = plug.Outfits.FirstOrDefault(o => o.FormKey == new FormKey(key, RaiderOutfitId));
         var raiderArma = plug.ArmorAddons.FirstOrDefault(a => a.FormKey == new FormKey(key, RaiderBodyArmaId));
         var raiderArmo = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, RaiderBodyArmoId));
@@ -647,6 +759,12 @@ public static class FalloutActorLooks
              $"ARMA 0x{RaiderBodyArmaId:X} ({RaiderBodyArmaEdid}) missing or not HumanRace");
         Need(raiderArmo is { EditorID: RaiderBodyArmoEdid } && !IsSpacesuitItem(raiderArmo.FormKey, sfMod, plug),
              $"ARMO 0x{RaiderBodyArmoId:X} ({RaiderBodyArmoEdid}) missing or carries spacesuit keyword");
+        Need(raiderArma is not null &&
+             (raiderArma.WorldModel?.Male?.Flags ?? 0) == 0 &&
+             (raiderArma.WorldModel?.Female?.Flags ?? 0) == 0 &&
+             raiderArma.FirstPersonFlags == GlovedFullBodyFlags &&
+             raiderArmo?.FirstPersonFlags == GlovedFullBodyFlags,
+             $"Raider ARMA/ARMO retains Model.Flags or lacks 0x68 gloved full-body BO64");
 
         if (expectedModels?.PrestonOutfitModel is { Length: > 0 } wantPBody)
         {
@@ -699,26 +817,68 @@ public static class FalloutActorLooks
                  "Preston Weight does not match Fallout4.esm 0x00019FD9 (0.3566, 0.3468, 0.2966)");
         }
 
-        // 3. FO4ActorRaider.esm:0xF04800 (FO4_LvlRaider) override in FO4SFMission.esm
-        var raiderKey = new FormKey(raiderModKey, Mission.RaiderId);
-        var raiderOverride = plug.Npcs.FirstOrDefault(n => n.FormKey == raiderKey);
-        Need(raiderOverride is { EditorID: "FO4_LvlRaider", FormVersion: 581 },
-             $"FO4SFMission.esm lacks FormVersion=581 override for {raiderKey} (FO4_LvlRaider)");
-        if (raiderOverride is not null)
+        // 3. Round 11 A2.3: Zero foreign overrides of FO4ActorRaider.esm + dedicated local 0x000986 FO4_ConcordRaider
+        Need(!plug.Npcs.Any(n => n.FormKey.ModKey == raiderModKey),
+             $"A2.3: FO4SFMission.esm still overrides shared {raiderModKey} NPCs globally instead of scoping to 0x{ConcordRaiderNpcId:X} ({ConcordRaiderNpcEdid})");
+
+        var concordRaiderKey = new FormKey(key, ConcordRaiderNpcId);
+        var concordRaider = plug.Npcs.FirstOrDefault(n => n.FormKey == concordRaiderKey);
+        Need(concordRaider is { EditorID: ConcordRaiderNpcEdid, FormVersion: 581 },
+             $"A2.3: FO4SFMission.esm lacks FormVersion=581 local NPC_ 0x{ConcordRaiderNpcId:X} ({ConcordRaiderNpcEdid})");
+        if (concordRaider is not null)
         {
-            Need(raiderOverride.DefaultOutfit.FormKey == new FormKey(key, RaiderOutfitId),
-                 $"FO4_LvlRaider override DefaultOutfit ({raiderOverride.DefaultOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
-            Need(raiderOverride.SpaceOutfit.FormKey == new FormKey(key, RaiderOutfitId),
-                 $"FO4_LvlRaider override SpaceOutfit ({raiderOverride.SpaceOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
-            Need(HasForceHideSpacesuitProperty(raiderOverride, forceHideAvKey),
-                 $"FO4_LvlRaider override lacks {SfForceHideSpacesuitAvEdid} (0x{SfForceHideSpacesuitAvId:X6}) == 1.0");
-            Need(!IsSpacesuitOutfit(raiderOverride.DefaultOutfit.FormKey, sfMod, plug) &&
-                 !IsSpacesuitOutfit(raiderOverride.SpaceOutfit.FormKey, sfMod, plug),
-                 "FO4_LvlRaider override carries a Starfield spacesuit outfit");
-            if (raiderOverride.Items is not null)
+            Need(concordRaider.DefaultOutfit.FormKey == new FormKey(key, RaiderOutfitId),
+                 $"FO4_ConcordRaider DefaultOutfit ({concordRaider.DefaultOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
+            Need(concordRaider.SpaceOutfit.FormKey == new FormKey(key, RaiderOutfitId),
+                 $"FO4_ConcordRaider SpaceOutfit ({concordRaider.SpaceOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
+            Need(HasForceHideSpacesuitProperty(concordRaider, forceHideAvKey),
+                 $"FO4_ConcordRaider lacks {SfForceHideSpacesuitAvEdid} (0x{SfForceHideSpacesuitAvId:X6}) == 1.0");
+            Need(!concordRaider.UseTemplateActors.HasFlag(SF.Npc.TemplateActorType.Inventory),
+                 "R13 E3: FO4_ConcordRaider retains TemplateActorType.Inventory (EncSpacer01Template weapon leak)");
+            Need((concordRaider.Items?.Count ?? 0) == 0,
+                 $"R13 E3: FO4_ConcordRaider retains {concordRaider.Items?.Count ?? 0} inventory item(s) instead of 0");
+            Need(!IsSpacesuitOutfit(concordRaider.DefaultOutfit.FormKey, sfMod, plug) &&
+                 !IsSpacesuitOutfit(concordRaider.SpaceOutfit.FormKey, sfMod, plug),
+                 "FO4_ConcordRaider carries a Starfield spacesuit outfit");
+        }
+
+        var concordRefs = Mission.PersistentNpcRefs(plug)
+            .Where(r => IsConcordRaiderRefId(r.FormKey, key))
+            .ToList();
+        if (concordRefs.Count > 0)
+        {
+            Need(concordRefs.All(r => r.Base.FormKey == concordRaiderKey),
+                 $"A2.3: one or more Concord raider ACHRs (0x803..0x80F) do not point at 0x{ConcordRaiderNpcId:X} ({ConcordRaiderNpcEdid})");
+        }
+
+        // 4. Review #7: Zero NPC_ records in FO4SFMission.esm carry 0x003D094D Spacer spacesuit outfit, and all present
+        //    later-mission FO4_LvlRaider-cloned NPCs (0x0A23, 0x0AD1, 0x0B31) wear 0x988 + ActorShouldForceHideSpacesuit_AV=1.0
+        var spacerSuitKey = new FormKey(SfEsm, SfSpacerSpacesuitOutfitId);
+        var spacerCarriers = plug.Npcs
+            .Where(n => n.DefaultOutfit.FormKey == spacerSuitKey || n.SpaceOutfit.FormKey == spacerSuitKey)
+            .Select(n => $"0x{n.FormKey.ID:X4}:{n.EditorID}")
+            .ToList();
+        Need(spacerCarriers.Count == 0,
+             $"Review #7: FO4SFMission.esm NPC_ records still carry 0x{SfSpacerSpacesuitOutfitId:X6} Spacer spacesuit outfit: [{string.Join(", ", spacerCarriers)}]");
+
+        foreach (var (laterId, laterEdid) in LaterRaiderClonedNpcs)
+        {
+            var laterNpc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, laterId));
+            if (laterNpc is null)
+                continue;
+            Need(laterNpc.DefaultOutfit.FormKey == new FormKey(key, RaiderOutfitId),
+                 $"Review #7: {laterEdid} (0x{laterId:X4}) DefaultOutfit ({laterNpc.DefaultOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
+            Need(laterNpc.SpaceOutfit.FormKey == new FormKey(key, RaiderOutfitId),
+                 $"Review #7: {laterEdid} (0x{laterId:X4}) SpaceOutfit ({laterNpc.SpaceOutfit.FormKey}) != 0x{RaiderOutfitId:X}");
+            Need(HasForceHideSpacesuitProperty(laterNpc, forceHideAvKey),
+                 $"Review #7: {laterEdid} (0x{laterId:X4}) lacks {SfForceHideSpacesuitAvEdid} (0x{SfForceHideSpacesuitAvId:X6}) == 1.0");
+            Need(!IsSpacesuitOutfit(laterNpc.DefaultOutfit.FormKey, sfMod, plug) &&
+                 !IsSpacesuitOutfit(laterNpc.SpaceOutfit.FormKey, sfMod, plug),
+                 $"Review #7: {laterEdid} (0x{laterId:X4}) carries a Starfield spacesuit outfit");
+            if (laterNpc.Items is not null)
             {
-                Need(!raiderOverride.Items.Any(i => IsSpacesuitItem(i.Item.Item.FormKey, sfMod, plug)),
-                     "FO4_LvlRaider override carries a Starfield spacesuit item in inventory");
+                Need(!laterNpc.Items.Any(i => IsSpacesuitItem(i.Item.Item.FormKey, sfMod, plug)),
+                     $"Review #7: {laterEdid} (0x{laterId:X4}) carries a Starfield spacesuit item in inventory");
             }
         }
     }
@@ -728,7 +888,7 @@ public static class FalloutActorLooks
            npc.Properties.Any(p => p.ActorValue.FormKey == forceHideAvKey && MathF.Abs(p.Value - 1.0f) < 1e-4f);
 
     /// <summary>
-    /// Seeds synthetic Starfield.esm & FO4ActorRaider.esm records needed to test C5 spacesuit stripping & Preston face.
+    /// Seeds synthetic Starfield.esm & FO4ActorRaider.esm records needed to test C5 + Round 11 D2 & A2.3 offline.
     /// </summary>
     public static void SeedSyntheticMasters(SF.StarfieldMod sf, SF.StarfieldMod raider, FormKey humanRaceKey, FormKey maleVoiceKey)
     {
@@ -748,6 +908,47 @@ public static class FalloutActorLooks
             EditorID = "Outfit_Spacesuit_Spacer_AssaultOrNoRole",
         };
         sf.Outfits.Add(spacerSuitOtft);
+
+        // Seed vanilla AA_Clothes_First_Mercenary_01_Hat (0x211140) WITH HasFaceBonesModel (0x01) + BO64=0x12,
+        // and Clothes_First_Mercenary_01_Hat (0x21113E) WITH BO64=0x11, reproducing the exact 2g D2 input!
+        var srcHatArma = new SF.ArmorAddon(new FormKey(SfEsm, SfFirstMercHatArmaId), rel)
+        {
+            EditorID = SfFirstMercHatArmaEdid,
+            FormVersion = 581,
+            FirstPersonFlags = (SF.FirstPersonFlag)0x12,
+            Race = new FormLinkNullable<SF.IRaceGetter>(humanRaceKey),
+            WorldModel = new GenderedItem<SF.Model?>(
+                new SF.Model
+                {
+                    File = new AssetLink<StarfieldModelAssetType>("Clothes\\outfit_first_mercenary_01\\Outfit_First_Mercenary_01_Hat_M.nif"),
+                    Flags = (SF.Model.Flag)1, // HasFaceBonesModel (MO2F = 0x01)
+                },
+                new SF.Model
+                {
+                    File = new AssetLink<StarfieldModelAssetType>("Clothes\\outfit_first_mercenary_01\\Outfit_First_Mercenary_01_Hat_F.nif"),
+                    Flags = (SF.Model.Flag)1, // HasFaceBonesModel (MO3F = 0x01)
+                }),
+        };
+        sf.ArmorAddons.Add(srcHatArma);
+
+        var srcHatArmo = new SF.Armor(new FormKey(SfEsm, SfFirstMercHatArmoId), rel)
+        {
+            EditorID = SfFirstMercHatArmoEdid,
+            FormVersion = 581,
+            FirstPersonFlags = (SF.FirstPersonFlag)0x11,
+            Race = new FormLinkNullable<SF.IRaceGetter>(humanRaceKey),
+            Keywords = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>>
+            {
+                new FormLink<SF.IKeywordGetter>(new FormKey(SfEsm, SfApparelCategoryKwId)),
+                new FormLink<SF.IKeywordGetter>(new FormKey(SfEsm, SfApparelHeadKwId)),
+            },
+        };
+        srcHatArmo.Armatures.Add(new SF.ArmorAddonModel
+        {
+            AddonIndex = 0,
+            ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(srcHatArma.FormKey),
+        });
+        sf.Armors.Add(srcHatArmo);
 
         // Seed PapaKatz with the exact 2f bugs (STON=4, SaltAndPepper, European_Male_Md2_Sk3, male_eu_ol1_Jaw, UseTemplateActors=0x6C12)
         if (sf.Npcs.TryGetValue(new FormKey(SfEsm, Mission.SfPapaKatzId), out var papa))
@@ -805,6 +1006,15 @@ public static class FalloutActorLooks
         {
             lvlRaider.Race.SetTo(humanRaceKey);
             lvlRaider.SpaceOutfit.SetTo(spacerSuitOtft.FormKey);
+            lvlRaider.UseTemplateActors |= SF.Npc.TemplateActorType.Inventory;
+            (lvlRaider.Items ??= new ExtendedList<SF.ContainerEntry>()).Add(new SF.ContainerEntry
+            {
+                Item = new SF.ContainerItem
+                {
+                    Item = new FormLink<SF.IItemGetter>(new FormKey(sf.ModKey, Mission.SfRaiderWeaponId)),
+                    Count = 1,
+                },
+            });
         }
     }
 
@@ -818,18 +1028,69 @@ public static class FalloutActorLooks
             m => m.Npcs[new FormKey(m.ModKey, Mission.PrestonNpcId)].Properties?.Clear());
         yield return ("Preston reverted to PapaKatz European pale face",
             m => m.Npcs[new FormKey(m.ModKey, Mission.PrestonNpcId)].SkinToneIndex = 4);
-        yield return ("FO4_LvlRaider override reverted to Spacer spacesuit",
-            m => m.Npcs[new FormKey(raiderModKey, Mission.RaiderId)].SpaceOutfit.SetTo(new FormKey(SfEsm, SfSpacerSpacesuitOutfitId)));
-        yield return ("FO4_LvlRaider override missing from FO4SFMission.esm",
-            m => m.Npcs.Remove(new FormKey(raiderModKey, Mission.RaiderId)));
+        yield return ("D2: FO4_AA_PrestonHat retains HasFaceBonesModel MO2F=1 (2g missing-hat bug)",
+            m => m.ArmorAddons[new FormKey(m.ModKey, PrestonHatArmaId)].WorldModel!.Male!.Flags = (SF.Model.Flag)1);
+        yield return ("D2: FO4_Armor_PrestonHat reverted to BO64=0x11 HEAD conflict",
+            m => m.Armors[new FormKey(m.ModKey, PrestonHatArmoId)].FirstPersonFlags = (SF.FirstPersonFlag)0x11);
+        yield return ("D2: FO4_AA_PrestonDuster missing Hands 0x40 mask (2g Still 07 bare-hands overlap)",
+            m => m.ArmorAddons[new FormKey(m.ModKey, PrestonDusterArmaId)].FirstPersonFlags = SF.FirstPersonFlag.BODY);
+        yield return ("A2.3: FO4SFMission overrides shared FO4ActorRaider.esm:0xF04800 globally",
+            m => m.Npcs.Add(new SF.Npc(new FormKey(raiderModKey, Mission.RaiderId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = "FO4_LvlRaider",
+                FormVersion = 581,
+            }));
+        yield return ("A2.3: FO4_ConcordRaider (0x986) reverted to Spacer spacesuit",
+            m => m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].SpaceOutfit.SetTo(new FormKey(SfEsm, SfSpacerSpacesuitOutfitId)));
+        yield return ("A2.3: FO4_ConcordRaider (0x986) missing from FO4SFMission.esm",
+            m => m.Npcs.Remove(new FormKey(m.ModKey, ConcordRaiderNpcId)));
+        yield return ("R13 E3: FO4_ConcordRaider (0x986) retains TemplateActorType.Inventory",
+            m => m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].UseTemplateActors |= SF.Npc.TemplateActorType.Inventory);
+        yield return ("R13 E3: FO4_ConcordRaider (0x986) retains vanilla Coachman in Items",
+            m => (m.Npcs[new FormKey(m.ModKey, ConcordRaiderNpcId)].Items ??= new ExtendedList<SF.ContainerEntry>()).Add(new SF.ContainerEntry
+            {
+                Item = new SF.ContainerItem
+                {
+                    Item = new FormLink<SF.IItemGetter>(new FormKey(SfEsm, Mission.SfRaiderWeaponId)),
+                    Count = 1,
+                },
+            }));
+        yield return ("A2.3: Concord raider ACHR left pointing at shared 0xF04800 instead of 0x986",
+            m =>
+            {
+                var r = Mission.PersistentNpcRefsMutable(m)
+                    .FirstOrDefault(x => IsConcordRaiderRefId(x.FormKey, m.ModKey));
+                r?.Base.SetTo(new FormKey(raiderModKey, Mission.RaiderId));
+            });
+        yield return ("Review #7: FO4_CorvegaBoss (0x0A23) SpaceOutfit reverted to 0x3D094D Spacer spacesuit",
+            m =>
+            {
+                if (m.Npcs.TryGetValue(new FormKey(m.ModKey, CorvegaBossNpcId), out var n))
+                    n.SpaceOutfit.SetTo(new FormKey(SfEsm, SfSpacerSpacesuitOutfitId));
+            });
+        yield return ("Review #7: FO4_Kellogg (0x0AD1) lacks ActorShouldForceHideSpacesuit_AV == 1",
+            m =>
+            {
+                if (m.Npcs.TryGetValue(new FormKey(m.ModKey, KelloggNpcId), out var n))
+                    n.Properties?.Clear();
+            });
+        yield return ("Review #7: FO4_CourserZ247 (0x0B31) DefaultOutfit set to 0x3D094D Spacer spacesuit",
+            m =>
+            {
+                if (m.Npcs.TryGetValue(new FormKey(m.ModKey, CourserZ247NpcId), out var n))
+                    n.DefaultOutfit.SetTo(new FormKey(SfEsm, SfSpacerSpacesuitOutfitId));
+            });
     }
 
     /// <summary>
-    /// Standalone C5 self-test callable from unit tests without modifying Program.cs:
-    /// 1. Proves the 2f/9b5327ff state (Preston SpaceOutfit=Null + PapaKatz face, Raider SpaceOutfit=0x3D094D) FAILS CheckActorLooks.
-    /// 2. Applies ApplyActorLooks (with staged FO4 NIF model paths), writes binary FO4SFMission.esm, re-opens as BinaryOverlay,
-    ///    and proves CheckActorLooks PASSES with 0 problems.
-    /// 3. Proves every negative mutation in GetSelfTestMutations is caught by CheckActorLooks.
+    /// Standalone C5 + Round 11 D2, A2.3 & Review #7 self-test callable from unit tests without modifying Program.cs:
+    /// 1. Proves the 2f/9b5327ff state FAILS CheckActorLooks.
+    /// 2. Applies ApplyActorLooks (with staged FO4 NIF model paths, 5 Concord raider ACHRs 0x803..0x807, the 3
+    ///    later-mission FO4_LvlRaider-cloned bosses 0x0A23/0x0AD1/0x0B31 starting with SOFT=0x003D094D, and 1
+    ///    non-Concord Corvega raider ACHR 0xA24 + FO4_Sturges 0xA00), writes binary FO4SFMission.esm, re-opens as
+    ///    BinaryOverlay, and proves CheckActorLooks PASSES with 0 problems while non-raider actors stay untouched.
+    /// 3. Proves every negative mutation in GetSelfTestMutations (including D2 MO2F=1, A2.3 global override, and
+    ///    Review #7 later-mission boss 0x3D094D spacesuit regressions) is caught.
     /// </summary>
     public static void RunStandaloneSelfTest(string scratchDir)
     {
@@ -863,6 +1124,15 @@ public static class FalloutActorLooks
             Voice = new FormLinkNullable<SF.IVoiceTypeGetter>(maleVoice.FormKey),
         });
 
+        var core = new SF.StarfieldMod(coreKey, rel);
+        core.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+        var coreWorld = new SF.Worldspace(new FormKey(coreKey, 0x803), rel)
+        {
+            EditorID = Mission.World,
+            TopCell = new SF.Cell(new FormKey(coreKey, 0x900), rel),
+        };
+        core.Worldspaces.Add(coreWorld);
+
         var raider = new SF.StarfieldMod(raiderKey, rel);
         raider.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         raider.Npcs.Add(new SF.Npc(new FormKey(raiderKey, Mission.RaiderId), rel)
@@ -877,6 +1147,9 @@ public static class FalloutActorLooks
 
         var sfPath = Path.Combine(scratchDir, sfKey.FileName);
         sf.BeginWrite.ToPath(sfPath).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
+        var corePath = Path.Combine(scratchDir, coreKey.FileName);
+        core.BeginWrite.ToPath(corePath).WithLoadOrder(sfKey)
+            .WithKnownMasters(new KeyedMasterStyle(sfKey, MasterStyle.Full)).Write();
         var raiderPath = Path.Combine(scratchDir, raiderKey.FileName);
         raider.BeginWrite.ToPath(raiderPath).WithLoadOrder(sfKey)
             .WithKnownMasters(new KeyedMasterStyle(sfKey, MasterStyle.Full)).Write();
@@ -899,7 +1172,7 @@ public static class FalloutActorLooks
                 new KeyedMasterStyle(raiderKey, MasterStyle.Full),
             },
         };
-        var lo = new[] { sfKey, raiderKey };
+        var lo = new[] { sfKey, coreKey, raiderKey };
         var dir2f = Path.Combine(scratchDir, "buggy2f");
         Directory.CreateDirectory(dir2f);
         var path2f = Path.Combine(dir2f, missionKey.FileName);
@@ -915,8 +1188,9 @@ public static class FalloutActorLooks
                 throw new InvalidOperationException($"Expected 9b5327ff buggy plugin to fail >=4 C5 checks, got {probs2f.Count}");
         }
 
-        // Now apply C5 fix on a clean FO4SFMission.esm with staged Fallout 4 NIF paths + an unrelated FO4_Sturges NPC
-        // to prove C5 strictly scopes its mutations to Preston (0x801) and FO4_LvlRaider (0xF04800) only.
+        // Build clean FO4SFMission.esm with Preston (0x801), FO4_Sturges (0xA00), the 3 later-mission FO4_LvlRaider-cloned
+        // bosses (0x0A23 FO4_CorvegaBoss, 0x0AD1 FO4_Kellogg, 0x0B31 FO4_CourserZ247 starting with SOFT=0x003D094D),
+        // 5 Concord raiders (0x803..0x807), and 1 non-Concord Corvega raider (0xA24) starting on FO4ActorRaider.esm:0xF04800.
         var modFixed = new SF.StarfieldMod(missionKey, rel);
         modFixed.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         var prestonFixed = (SF.Npc)papa.Duplicate(new FormKey(missionKey, Mission.PrestonNpcId));
@@ -928,6 +1202,43 @@ public static class FalloutActorLooks
         sturges.EditorID = "FO4_Sturges";
         modFixed.Npcs.Add(sturges);
 
+        var sharedRaiderKey = new FormKey(raiderKey, Mission.RaiderId);
+        foreach (var (laterId, laterEdid) in LaterRaiderClonedNpcs)
+        {
+            var laterBoss = (SF.Npc)raider.Npcs[sharedRaiderKey].Duplicate(new FormKey(missionKey, laterId));
+            laterBoss.EditorID = laterEdid;
+            laterBoss.FormVersion = 581;
+            modFixed.Npcs.Add(laterBoss);
+        }
+
+        var cellFixed = new SF.Cell(new FormKey(missionKey, Mission.MissionHoldingCellId), rel)
+        {
+            EditorID = Mission.MissionHoldingCellEdid,
+            Flags = SF.Cell.Flag.IsInteriorCell,
+        };
+        var subFixed = new SF.CellSubBlock { BlockNumber = (int)((Mission.MissionHoldingCellId / 10) % 10), GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
+        subFixed.Cells.Add(cellFixed);
+        var blkFixed = new SF.CellBlock { BlockNumber = (int)(Mission.MissionHoldingCellId % 10), GroupType = SF.GroupTypeEnum.InteriorCellBlock };
+        blkFixed.SubBlocks.Add(subFixed);
+        modFixed.Cells.Records.Add(blkFixed);
+        for (uint i = 0; i < 5; i++)
+        {
+            var r = new SF.PlacedNpc(new FormKey(missionKey, Mission.FirstRaiderRefId + i), rel)
+            {
+                EditorID = $"FO4SF_Min00_RaiderREF_{i + 1}",
+                MajorRecordFlagsRaw = 0x400,
+            };
+            r.Base.SetTo(sharedRaiderKey);
+            cellFixed.Persistent.Add(r);
+        }
+        var corvegaRaiderRef = new SF.PlacedNpc(new FormKey(missionKey, 0xA24), rel)
+        {
+            EditorID = "FO4SF_Corvega_RaiderBossREF",
+            MajorRecordFlagsRaw = 0x400,
+        };
+        corvegaRaiderRef.Base.SetTo(sharedRaiderKey);
+        cellFixed.Persistent.Add(corvegaRaiderRef);
+
         var models = new ActorLooksModels(StagedPrestonOutfitModel, StagedPrestonHatModel, StagedRaiderOutfitModel);
         ApplyActorLooks(modFixed, sf, raider, models);
 
@@ -936,6 +1247,10 @@ public static class FalloutActorLooks
             modFixed.Npcs[new FormKey(missionKey, 0xA00)].UseTemplateActors != (SF.Npc.TemplateActorType)0x6C12)
         {
             throw new InvalidOperationException("ApplyActorLooks mutated non-C5 NPC FO4_Sturges");
+        }
+        if (corvegaRaiderRef.Base.FormKey != sharedRaiderKey)
+        {
+            throw new InvalidOperationException($"A2.3: ApplyActorLooks mutated non-Concord raider ACHR 0xA24 ({corvegaRaiderRef.Base.FormKey})");
         }
 
         var pathFixed = Path.Combine(scratchDir, missionKey.FileName);
@@ -949,7 +1264,7 @@ public static class FalloutActorLooks
                 var probsFixed = new List<string>();
                 CheckActorLooks(plugFixed, sfOv, raiderKey, probsFixed, models);
                 if (probsFixed.Count > 0)
-                    throw new InvalidOperationException("Fixed FO4SFMission.esm failed C5 CheckActorLooks: " + string.Join("; ", probsFixed));
+                    throw new InvalidOperationException("Fixed FO4SFMission.esm failed CheckActorLooks: " + string.Join("; ", probsFixed));
             }
 
             var mutDir = Path.Combine(scratchDir, "mut");
@@ -965,7 +1280,7 @@ public static class FalloutActorLooks
                 var mutProbs = new List<string>();
                 CheckActorLooks(mutOv, sfOv, raiderKey, mutProbs, models);
                 if (mutProbs.Count == 0)
-                    throw new InvalidOperationException($"C5 mutation '{label}' unexpectedly passed CheckActorLooks");
+                    throw new InvalidOperationException($"Mutation '{label}' unexpectedly passed CheckActorLooks");
             }
         }
     }

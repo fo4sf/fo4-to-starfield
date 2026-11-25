@@ -75,6 +75,17 @@ ALL_SCRIPTS = (
     MINRECRUIT00_SCRIPT, MQ103_SCRIPT, MQ104_SCRIPT, MQ105_SCRIPT,
     MQ106_SCRIPT, MQ203_SCRIPT, MQ204_SCRIPT, MQ206_SCRIPT,
 )
+DOORS_DIR = os.path.join(REPO, "scripts", "doors")
+VAULT_ROACHES_SCRIPT = "FO4SF_Vault111RoachesQuest"
+PICKUP_SCRIPT = "FO4SF_S5S6ItemPickup"
+LOAD_DOOR_SCRIPT = "FO4SF_LoadDoorQuest"
+CONFIRMED_DOOR_SCRIPT = "FO4SF_ConfirmedLoadDoor"
+R12_EXTRA_SCRIPTS = (
+    (VAULT_ROACHES_SCRIPT, HERE),
+    (PICKUP_SCRIPT, HERE),
+    (LOAD_DOOR_SCRIPT, DOORS_DIR),
+    (CONFIRMED_DOOR_SCRIPT, DOORS_DIR),
+)
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
@@ -213,10 +224,11 @@ def extract_sources(zip_path, work):
     return src
 
 
-def compile_script(compiler, src_dir, out_dir, script):
+def compile_script(compiler, src_dir, out_dir, script, script_dir=None):
     os.makedirs(out_dir, exist_ok=True)
     name = script + ".psc"
-    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"], cwd=HERE)
+    work_dir = script_dir or HERE
+    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{DOORS_DIR};{src_dir}", f"-o={out_dir}"], cwd=work_dir)
     pex = os.path.join(out_dir, script + ".pex")
     if "Compilation succeeded" not in out or not os.path.exists(pex):
         sys.exit(f"the Papyrus compile did not produce {script}.pex")
@@ -584,8 +596,29 @@ def stage(a):
             assets |= set(copy_actor_looks_assets(a.actor_looks_assets, os.path.join(out, "Data")))
             looks_args = ["--actor-looks-dir", a.actor_looks_assets]
 
-        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods + looks_args)
-        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods + looks_args)
+        r11_full = bool(int(getattr(a, "r11_full_mission", 0) or 0))
+        fo4_anims = bool(int(getattr(a, "fo4_human_anims", 0) or 0))
+        t1b_ready = bool(int(getattr(a, "task1b_vault_recovery", 0) or 0))
+        creature_slots = getattr(a, "creature_slots", None)
+        creatures_esm = getattr(a, "creatures_esm", None)
+        fo4_human_anims_esm = getattr(a, "fo4_human_anims_esm", None)
+        r12_check_args = []
+        if r11_full:
+            r12_check_args += ["--r11-full-mission", "1"]
+        if fo4_anims:
+            r12_check_args += ["--fo4-human-anims", "1"]
+        if creature_slots:
+            r12_check_args += ["--creature-slots", creature_slots]
+        if creatures_esm:
+            r12_check_args += ["--creatures-esm", creatures_esm]
+        if fo4_human_anims_esm:
+            r12_check_args += ["--fo4-human-anims-esm", fo4_human_anims_esm]
+        r12_write_args = list(r12_check_args)
+        if t1b_ready:
+            r12_write_args += ["--task1b-vault-recovery", "1"]
+
+        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods + looks_args + r12_write_args)
+        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods + looks_args + r12_check_args)
 
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
@@ -595,6 +628,13 @@ def stage(a):
     for scr_name in ALL_SCRIPTS:
         compiled_pex[scr_name] = compile_script(a.compiler, src, scripts_dir, scr_name)
         shutil.copy(os.path.join(HERE, scr_name + ".psc"), os.path.join(out, scr_name + ".psc"))
+    if r11_full:
+        for scr_name, scr_dir in R12_EXTRA_SCRIPTS:
+            compiled_pex[scr_name] = compile_script(a.compiler, src, scripts_dir, scr_name, script_dir=scr_dir)
+            shutil.copy(os.path.join(scr_dir, scr_name + ".psc"), os.path.join(out, scr_name + ".psc"))
+        bat_files = write_r12_h2_batches(os.path.join(out, "bat"))
+    else:
+        bat_files = []
     if os.path.isdir(work):
         shutil.rmtree(work)
 
@@ -634,6 +674,11 @@ def stage(a):
         "sanctuary_workbench": {"fo4_src": "0250FE", "core_base": "0A2ECD", "core_ref": "005C50",
                                 "merged_pos": [-2329.25043, -1420.19271, 112.08571]},
         "assets": assets_sha,
+        "r11_full_mission": r11_full,
+        "fo4_human_anims": fo4_anims,
+        "task1b_vault_recovery": t1b_ready,
+        "creature_slots": creature_slots,
+        "bat": bat_files,
         "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log",
     }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -655,7 +700,7 @@ Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {PRESTON_PLA
 Raiders: {len(pts['raiders'])} ACHR(s) of FO4_LvlRaider ({raiders}).
 Codsworth: {"NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + FO4SF_CodsworthVoice AllowDefaultDialog) at " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
-Scripts compiled into Data\\Scripts\\: {", ".join(s + ".pex" for s in ALL_SCRIPTS)}.
+Scripts compiled into Data\\Scripts\\: {", ".join(s + ".pex" for s in compiled_pex)}.
 The follow command is test-only (requires FO4SFCoreValues.esm:0x000860 FO4SF_TestModeEnabled != 0):
   cgf "FO4SF_COMPreston.FollowTest"
 Install (game closed): fold this stage into a copy of the core set and verify it first:
@@ -664,8 +709,90 @@ Log: {plan['log']} (read with: python scripts\\mission\\make_mission.py log).
 Uninstall: exp_install.py uninstall.
 """)
     os.replace(out, final)
-    print(f"staged {final}: {PLUGIN}, " + ", ".join(f"Data\\Scripts\\{s}.pex" for s in ALL_SCRIPTS) +
+    print(f"staged {final}: {PLUGIN}, " + ", ".join(f"Data\\Scripts\\{s}.pex" for s in compiled_pex) +
           ", offline_check.txt, plan.json, README.txt")
+
+
+def write_r12_h2_batches(bat_dir):
+    """Write P3-clean R12/R13 2h console batch files into bat_dir (outside Data/)."""
+    batches = {
+        "h2st.txt": (
+            "; 2h globals & quest state check (06=FO4SFCoreValues, 09=FO4SFMission)\n"
+            "getglobalvalue 06000860\n"
+            "getglobalvalue 06000865\n"
+            "getglobalvalue 09000979\n"
+            "getglobalvalue 09000B8B\n"
+            "getglobalvalue 09000B8C\n"
+            "getglobalvalue 09000B8D\n"
+            "getglobalvalue 09000B8E\n"
+            "sqv 09000800\n"
+            "sqv 09000816\n"
+            "sqv 09000B90\n"
+        ),
+        "h2h2.txt": (
+            "; < 156 m hop: Sanctuary House 01 -> Red Rocket North\n"
+            "player.setpos x -2210.00\n"
+            "player.setpos y -1520.00\n"
+            "player.setpos z 108.00\n"
+        ),
+        "h2h3.txt": (
+            "; < 131 m hop: Red Rocket North -> Red Rocket South\n"
+            "player.setpos x -2120.00\n"
+            "player.setpos y -1615.00\n"
+            "player.setpos z 98.00\n"
+        ),
+        "h2h4.txt": (
+            "; < 135 m hop: Red Rocket South -> Concord Museum street\n"
+            "player.setpos x -2015.00\n"
+            "player.setpos y -1700.00\n"
+            "player.setpos z 90.00\n"
+            "player.setangle z 90\n"
+        ),
+        "h2f.txt": (
+            "; Enter FO4Port_ConcordMuseum01 (0x0100E2F4, lobby NAVM tri 87)\n"
+            "coc FO4Port_ConcordMuseum01\n"
+            "player.setpos x 7.73\n"
+            "player.setpos y 0.91\n"
+            "player.setpos z -0.90\n"
+            "player.setangle z 270\n"
+        ),
+        "h2b.txt": (
+            "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): jump to basement Novice gate (0x0100EDF0 at -13.714, -0.457, -3.657)\n"
+            "player.setpos x -14.38\n"
+            "player.setpos y -0.10\n"
+            "player.setpos z -3.32\n"
+            "player.setangle z 90\n"
+        ),
+        "h2k.txt": (
+            "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): jump outside 3F PrestonDoorREF (5.486, -7.314, 9.143)\n"
+            "player.setpos x 4.20\n"
+            "player.setpos y -7.25\n"
+            "player.setpos z 9.15\n"
+            "player.setangle z 90\n"
+        ),
+        "h2p.txt": (
+            "; Grant Bobby Pin & Starfield Digipick for Novice lock 0x0100EDF0 testing (Row 5b)\n"
+            "player.additem 0000000A 2\n"
+            "player.additem 060008A5 2\n"
+        ),
+        "h2r.txt": (
+            "; Exterior Museum roof bulkhead (FO4 0002C1C6 XTEL arrival, facing ExtRoofIn door at -1991.27, -1722.57)\n"
+            "player.setpos x -1990.58\n"
+            "player.setpos y -1724.19\n"
+            "player.setpos z 97.82\n"
+            "player.setangle z 335\n"
+        ),
+    }
+    os.makedirs(bat_dir, exist_ok=True)
+    for fname, body in sorted(batches.items()):
+        stem = os.path.splitext(fname)[0]
+        if re.search(r"[mnv]", fname, re.I) or re.search(r"[mnv]", f"bat {stem}", re.I):
+            raise ValueError(f"P3 violation in batch name: {fname!r}")
+        if re.search(r"\bFO4SF_[A-Za-z0-9_]+\b", body):
+            raise ValueError(f"P3 violation (stripped FO4SF_ EDID) inside {fname!r}")
+        with open(os.path.join(bat_dir, fname), "w", encoding="utf-8", newline="\n") as f:
+            f.write(body)
+    return sorted(batches)
 
 
 def copy_assets(src, data):
@@ -1165,6 +1292,18 @@ def main(argv=None):
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
+    s.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1),
+                   help="enable R11/R12 full S2-S6 story progression + museum interior + 3F scenes (default 0)")
+    s.add_argument("--creature-slots", default=None,
+                   help="optional creature-slots.json path for S2 Radroaches & S3 Bloatflies (defaults to ready=false empty)")
+    s.add_argument("--creatures-esm", default=None,
+                   help="optional FO4SFCreatures.esm path when --creature-slots has ready=true")
+    s.add_argument("--fo4-human-anims", nargs="?", const=1, default=0, type=int, choices=(0, 1),
+                   help="link FO4SF_AnimArchetypeFO4 KYWD from FO4SFHumanAnims.esm (default 0 OFF)")
+    s.add_argument("--fo4-human-anims-esm", default=None,
+                   help="optional FO4SFHumanAnims.esm path when --fo4-human-anims 1")
+    s.add_argument("--task1b-vault-recovery", nargs="?", const=1, default=0, type=int, choices=(0, 1),
+                   help="enable Task 1b Vault 111 recovery readiness gate GLOB (0xB8D=1, default 0)")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")

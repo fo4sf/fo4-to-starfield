@@ -32,7 +32,7 @@ Unlike `FO4SF_SetupMenu` (which is a full-frame opaque 2D screen with `ShowFirst
    - `A` / `D` or right-mouse drag rotates the player's heading (`SetAngle`) on the portrait marker so the player can inspect profile and 3/4 angles without moving the camera into a wall.
 3. **Side-Panel Scaleform Movie (`Interface/FO4SF_LooksMenu.swf`):**
    - Left `42%` of the `1920x1080` stage holds our Pip-Boy / Vault-Tec category tabs (`IDENTITY`, `BODY`, `HEAD PRESET`, `HAIR & BEARD`, `EYES & SKIN`, `CONFIRM`), leaving the right `58%` clear over the lit 3D character.
-   - Registered as `FO4SF_LooksMenu` in `FO4SFPipboyMenu.dll` (and added to `sfse/common/blocking_menus.h`'s own-menu constants while keeping external `kBlockingMenus` guarded), opened and acknowledged through a `FO4SFCoreValues.esm` store global (`R13`), with an automatic `R10` fallback to `Quick start` (default preset) if the SWF or DLL is absent.
+   - Registered as `FO4SF_LooksMenu` in `FO4SFPipboyMenu.dll` (and added to `sfse/common/blocking_menus.h`'s own-menu constants while keeping external `kBlockingMenus` guarded), opened and acknowledged through a `FO4SFCoreValues.esm` store global (`R13`), with an automatic `R10` fallback to `Use preset look` (default preset) if the SWF or DLL is absent.
 
 ---
 
@@ -81,7 +81,7 @@ Mutations made directly to `TESNPC` (`0x00000007`) in memory only survive `.sfs`
 
 - Just like `--start-choice-backdrop empty_cell|setup_menu` (`S1`), `RunPreworldLooksChoice` in `FO4SF_NewGameQuest.psc` can switch by **one parameter** (`--looks-ui starfield_racemenu|fo4sf_looks|none`):
   1. Player finishes **Mode / Start Place / Survival / Difficulty** (`S1`) and **S.P.E.C.I.A.L.** in `FO4SF_StartRoomCell`.
-  2. Quest moves player onto the lit portrait marker in `FO4SF_StartRoomCell`, sets `FO4SF_LooksMenuOpen = 1.0`, and waits for `FO4SF_LooksMenuDone == 1.0` (with `LooksWait` timeout + `R10` fallback to preset `Quick start`).
+  2. Quest moves player onto the lit portrait marker in `FO4SF_StartRoomCell`, sets `FO4SF_LooksMenuOpen = 1.0`, and waits for `FO4SF_LooksMenuDone == 1.0` (with `LooksWait` timeout + `R10` fallback to preset `Use preset look`).
   3. Zero `ChargenMenu` opens, zero Starfield ENHANCE! text appears, and zero post-`ShowRaceMenu` UI teardown delay is needed before spawning at Vault 111 or the chosen Warfare start place.
 
 ---

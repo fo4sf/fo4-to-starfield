@@ -273,14 +273,18 @@ class SafeDefaultsTests(unittest.TestCase):
         funcs = (
             "BackdropName", "UsePreworldRoom", "EnterVault", "StandsInVault", "ResetInventory", "FillO2",
             "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
-            "FindStoryStartPlaceRow", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+            "FindStoryStartPlaceRow", "IsPrelaunchWarfare", "ResolvePrelaunchWarfareRow",
+            "EnterPrelaunchWarfareMarker", "ShowFirstBoxSafely", "SyncHardcoreFromStart",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
             "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
-            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, firstMessageDrawn, directWarfareEntered, "
+            "warfareDirectMoves, warfareBranchStarted, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, "
-            "ticks, startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
+            "ticks, startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, "
+            "vaultSavingRelocked"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
 
@@ -318,7 +322,8 @@ class SafeDefaultsTests(unittest.TestCase):
             ClearInventory=True, VaultSuitId=0, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
             faded=False, entered=True, startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
             loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False, h00SkipLoading=False,
-            modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+            modeChoiceRan=False, modeBoxWaiting=False, modeBoxWaitSeconds=0, firstMessageDrawn=False,
+            directWarfareEntered=False, warfareDirectMoves=0, warfareBranchStarted=False, vaultSavingRelocked=False,
             preworldLooksDone=False, preworldLooksHow="", preworldLooksBy="Trigger",
             applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False,
             exitUsedFallback=False, vaultMoves=1, centered=0, centerTries=0, ticks=0, startedAt=0.0,
@@ -362,6 +367,7 @@ class SafeDefaultsTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            TriggerVaultPodRecoveryAutosave=lambda *a: None,
             HoldOffPass=lambda p: None,
             Trace=lambda m: logs.append(m),
         )
@@ -508,7 +514,8 @@ class SafeDefaultsTests(unittest.TestCase):
         )
         vars_csv = (
             "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
-            "consoleRegistered, consoleWatchedRef, pistolPickedLogged"
+            "consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, "
+            "consoleOpening, pistolPickedLogged"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
 
@@ -536,6 +543,7 @@ class SafeDefaultsTests(unittest.TestCase):
             pipboy_ref = _make_ref("FO4SF_PipboyCorpsePickupRef", 0x0A00080F, (-55.0488, -0.9224, 0.7759))
             own_console = _make_ref("FO4SF_GearDoorConsoleRef", 0x0A000819, (-54.3644, -1.8147, 1.7541))
             port_console = _make_ref("FO4Port_GearDoorConsoleRef", 0x02001319, (-54.3644, -1.8748, 1.6940))
+            lift_ref = _make_ref("FO4Port_ExitLiftRef", 0x0200132F, (-30.6914, -1.5529, 4.9488))
             cog_door = SimpleNamespace(
                 BlockActivation=lambda *a: None,
                 GetOpenState=lambda: door_state[0],
@@ -550,6 +558,8 @@ class SafeDefaultsTests(unittest.TestCase):
                         return cog_door
                     if fid == 0x1319:
                         return port_console if port_ready[0] else None
+                    if fid == 0x132F:
+                        return lift_ref
                 return None
 
             sender = port_console if trigger_via_port_console else own_console
@@ -577,6 +587,7 @@ class SafeDefaultsTests(unittest.TestCase):
                 GearDoorConsoleRef=own_console,
                 CogDoorId=0x126D,
                 ConsoleRefId=0x1319,
+                LiftId=0x132F,
                 VaultPlugin="FO4Port.esm",
                 TestModeGlobal=None,
                 PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),

@@ -126,7 +126,7 @@ FO4SF_NEWGAME rt=<rt> pod settle ok=true pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<d
 FO4SF_NEWGAME rt=<rt> stage 20 by=scene
 FO4SF_NEWGAME rt=<rt> pistol filter added base=<form> id=<id>
 FO4SF_NEWGAME rt=<rt> console activator registered ref=<ref> id=<id> pos=<x> <y> <z>
-FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<equipped> base=<base>
 FO4SF_NEWGAME rt=<rt> cog door activate blocked by=player open_state=<state>
 FO4SF_NEWGAME rt=<rt> console refused: no pipboy
 FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
@@ -233,7 +233,7 @@ FO4SF_NEWGAME rt=<rt> warfare creator closed
 FO4SF_NEWGAME rt=<rt> warfare gear n=4
 FO4SF_NEWGAME rt=<rt> warfare move ok=true marker=<marker> dist=<dist> z=<z>
 FO4SF_NEWGAME rt=<rt> map setup done markers=<n> elapsed=<sec>
-FO4SF_NEWGAME rt=<rt> warfare standing slot=0 fame=<fame> infamy=<inf> karma=<karma> squad_cap=4
+FO4SF_NEWGAME rt=<rt> warfare standing slot=0 fame=<fame> infamy=<inf> karma=<karma> squad_cap=4 mission_fac=<mission_fac>
 FO4SF_NEWGAME rt=<rt> stage 210 by=Trigger
 FO4SF_NEWGAME rt=<rt> mission gate mode=2 started=false
 FO4SF_MISSION rt=<rt> mission gate mode=2 started=false

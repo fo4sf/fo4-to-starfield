@@ -803,9 +803,9 @@ static class NextStoryMissionsA4
                  string.Equals(talkActi.Model?.File?.GivenPath, GateProxyActiModel, StringComparison.OrdinalIgnoreCase),
                 $"A4 talk proxy {edid} (0x{actiId:X6}) missing or Name mismatch with NPC 0x{npcId:X6}");
         }
-        // Verify all 6 A4 persistent ACHRs are placed at merged Commonwealth coordinates and InitiallyDisabled (R3)
-        var topRefs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
-            .Where(r => IsA4ActorRefId(r.FormKey.ID)).ToList() ?? [];
+        // Verify all 6 A4 persistent ACHRs are placed inside holding cell / persistent refs at merged Commonwealth coords and InitiallyDisabled (R3)
+        var topRefs = Mission.PersistentNpcRefs(plug)
+            .Where(r => IsA4ActorRefId(r.FormKey.ID)).ToList();
         need(topRefs.Count == 6 && topRefs.All(r => r.Position.X < -1000f && r.Position.Y < -1000f),
             "A4 persistent ACHRs must all be placed at merged Commonwealth coordinates");
         need(topRefs.Count == 6 && topRefs.All(r => (r.MajorRecordFlagsRaw & 0x800) != 0),

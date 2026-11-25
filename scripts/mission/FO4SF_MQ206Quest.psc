@@ -50,8 +50,8 @@ string CorePlugin = "FO4TerrainCore.esm"
 string CoreMarsPlugin = "FO4TerrainCore_Mars.esm"
 string PortPlugin = "FO4Port.esm"
 string MissionPlugin = "FO4SFMission.esm"
-int CommonwealthWorldId = 0x000803
 int CommonwealthAnchorId = 0x0A775B
+int CommonwealthFallbackAnchorId = 0x005C50
 
 ; Verified FO4Port.esm cell IDs and persistent (0x400) Institute Concourse COCMarkerHeading
 int Greenetech01CellId = 0x056471
@@ -171,7 +171,14 @@ WorldSpace Function ResolveCommonwealthWorld()
             return aws
         endif
     endif
-    return Game.GetFormFromFile(CommonwealthWorldId, cp) as WorldSpace
+    ObjectReference fallbackAnchor = Game.GetFormFromFile(CommonwealthFallbackAnchorId, cp) as ObjectReference
+    if fallbackAnchor != None
+        WorldSpace fws = fallbackAnchor.GetWorldSpace()
+        if fws != None
+            return fws
+        endif
+    endif
+    return None
 EndFunction
 
 bool Function IsCommonwealthExterior(Actor player)

@@ -40,12 +40,13 @@ def _make_global(val: float):
 class SaveReloadPathTests(unittest.TestCase):
     def test_a6_newgame_surface_mid_exit_return_and_stage_guard_idempotency(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")
-        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage")
+        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage", "ClearVaultSaveLock", "RelockVaultSaving")
         vars_csv = (
             "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, "
             "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
             "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
-            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
+            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered, "
+            "vaultPodAutosaved, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(NEWGAME_PSC), "exec")
 
@@ -81,6 +82,14 @@ class SaveReloadPathTests(unittest.TestCase):
                 returnSurfaceWaitTicks=7 if return_pending else 0,
                 returnSurfaceTries=2 if return_pending else 0,
                 exitFailures=0,
+                vaultRecoveryTriggered=False,
+                vaultPodAutosaved=False,
+                vaultSavingRelocked=False,
+                StartCardOpenGlobal=None,
+                SurvivalLockedGlobal=None,
+                SurvivalStartGlobal=None,
+                StandsInVault=lambda *_: False,
+                CancelTimer=lambda *_: None,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: user_logs.append(n), Notification=lambda *a: None),
                 GetStage=lambda: stage,
                 SetObjectiveDisplayed=lambda *a: None,
@@ -91,6 +100,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 ReleaseStoryLandingFade=lambda: fade_calls.append(1),
                 UnregisterForAnimationEvent=lambda ref, ev: unreg_anims.append((ref, ev)),
                 ReturnPlayerToVaultPlatform=lambda p: returned_to_plat.append(p),
+                EnsureLoadHookRegistered=lambda p: None,
                 StartTimer=lambda sec, tid: timers.append((sec, tid)),
                 Trace=lambda m: logs.append(str(m)),
             )
@@ -153,7 +163,8 @@ class SaveReloadPathTests(unittest.TestCase):
             "dialogueMenuOpen, talkBoxOpen, codsworthTalkReloaded, choicesCount, completed, talkProxy, "
             "dialogueSeen, choice1Seen, choice2Seen, choice3Seen, choice4Seen, "
             "applied, pendingStage, pendingStageBy, "
-            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, scenePhase1At, sceneCheckTicks"
+            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, scenePhase1At, sceneCheckTicks, "
+            "s3Stage50AttemptOpened"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(CODSWORTH_PSC), "exec")
 
@@ -184,6 +195,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 scenePhase1Entered=True,
                 scenePhase1At=1.0,
                 sceneCheckTicks=5,
+                s3Stage50AttemptOpened=True,
                 choicesCount=1 if 20 in done_stages else 0,
                 completed=completed,
                 talkProxy=proxy,
@@ -221,6 +233,7 @@ class SaveReloadPathTests(unittest.TestCase):
         if "sceneTalkPending" in psc:
             self.assertFalse(ns["sceneTalkPending"])
             self.assertFalse(ns["sceneMenuOpened"])
+            self.assertFalse(ns["s3Stage50AttemptOpened"])
             self.assertFalse(ns["scenePhase1Entered"])
             self.assertEqual(ns["sceneCheckTicks"], 0)
             self.assertIn(2, cancels)
@@ -259,7 +272,9 @@ class SaveReloadPathTests(unittest.TestCase):
             "codsworthHeld, prestonFails, prestonFollow, applied, min00Given, "
             "prestonUsedFallback, prestonTalkLogged, prestonOff, prestonState, prestonMoves, "
             "codsworthOff, codsworthState, codsworthMoves, "
-            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonPhase1At, prestonSceneChecks"
+            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonPhase1At, prestonSceneChecks, "
+            "s6RoomScenePending, s6RoomSceneMenuOpened, s6RoomSceneRestarting, s6RoomScenePhase1, s6RoomPhase1At, s6RoomAttemptStartedAt, s6RoomSceneTicks, "
+            "s6SturgesScenePending, s6SturgesSceneMenuOpened, s6SturgesSceneRestarting, s6SturgesScenePhase1, s6SturgesPhase1At, s6SturgesAttemptStartedAt, s6SturgesSceneTicks"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(MIN00_PSC), "exec")
 
@@ -281,6 +296,7 @@ class SaveReloadPathTests(unittest.TestCase):
             regs: list[tuple[object, str]] = []
             menu_regs: list[str] = []
             scene_regs: list[int] = []
+            s6_regs: list[int] = []
             alias_calls: list[int] = []
             talkable: list[object] = []
             wfc01_checks: list[bool] = []
@@ -320,6 +336,20 @@ class SaveReloadPathTests(unittest.TestCase):
                 prestonScenePhase1=True,
                 prestonPhase1At=1.0,
                 prestonSceneChecks=4,
+                s6RoomScenePending=True,
+                s6RoomSceneMenuOpened=True,
+                s6RoomSceneRestarting=True,
+                s6RoomScenePhase1=True,
+                s6RoomPhase1At=1.0,
+                s6RoomAttemptStartedAt=1.0,
+                s6RoomSceneTicks=3,
+                s6SturgesScenePending=True,
+                s6SturgesSceneMenuOpened=True,
+                s6SturgesSceneRestarting=True,
+                s6SturgesScenePhase1=True,
+                s6SturgesPhase1At=1.0,
+                s6SturgesAttemptStartedAt=1.0,
+                s6SturgesSceneTicks=3,
                 codsworthFails=8,
                 codsworthKept=False,
                 codsworthHeld=True,
@@ -345,6 +375,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 EnsurePrestonAlias=lambda: alias_calls.append(1),
                 RegisterForMenuOpenCloseEvent=lambda m: menu_regs.append(m),
                 RegisterPrestonSceneEvents=lambda: scene_regs.append(1),
+                RegisterS6RoomEvents=lambda: s6_regs.append(1),
                 RegisterForRemoteEvent=lambda obj, ev: regs.append((obj, str(ev))),
                 InitRaiderTracking=lambda: raider_inits.append(1),
                 CheckConcordRaidersWfc01=lambda p, adv: wfc01_checks.append(adv),
@@ -565,6 +596,83 @@ class SaveReloadPathTests(unittest.TestCase):
         # Even r9hop2 -> persistent Museum marker (r9door) stays < 180 m per axis!
         self.assertLess(abs(museum_marker[0] - hops[1][1][0]), 180.0)
         self.assertLess(abs(museum_marker[1] - hops[1][1][1]), 180.0)
+
+    def test_t5_survival_persists_across_save_reload_and_locked_global(self) -> None:
+        psc = NEWGAME_PSC.read_text(encoding="utf-8")
+        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage", "SyncHardcoreFromStart")
+        vars_csv = (
+            "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, "
+            "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
+            "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
+            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered, "
+            "vaultPodAutosaved, vaultSavingRelocked"
+        )
+        compiled = compile(translated_functions(psc, funcs, vars_csv), str(NEWGAME_PSC), "exec")
+
+        for start_init, locked_init, want_locked_tag in ((0.0, 1.0, 1), (1.0, 0.0, 0)):
+            with self.subTest(start=start_init, locked=locked_init):
+                logs: list[str] = []
+                hc_calls: list[tuple[str, tuple]] = []
+                surv_start = _make_global(start_init)
+                surv_locked = _make_global(locked_init)
+                start_card = _make_global(-1.0)
+                hc_quest = SimpleNamespace(
+                    CastAs=lambda cls: SimpleNamespace(
+                        CallFunction=lambda fn, args: hc_calls.append((fn, tuple(args)))
+                    )
+                )
+                ns = dict(
+                    LogName="fo4sf_newgame",
+                    GameModeGlobal=_make_global(2.0),
+                    StartCardOpenGlobal=start_card,
+                    SurvivalStartGlobal=surv_start,
+                    SurvivalLockedGlobal=surv_locked,
+                    applied=210,
+                    h00SuspectsRead=True,
+                    rideActive=False,
+                    rideDone=False,
+                    rideTransferred=False,
+                    ridingLift=None,
+                    ridingCell=None,
+                    surfaceMovedAt=0.0,
+                    surfaceMoves=0,
+                    surfaceSets=0,
+                    exitUsedFallback=False,
+                    asked=True,
+                    returnSurfacePending=False,
+                    returnVaultAsked=False,
+                    returnSurfaceWaitTicks=0,
+                    returnSurfaceTries=0,
+                    exitFailures=0,
+                    vaultPodAutosaved=False,
+                    vaultSavingRelocked=False,
+                    vaultRecoveryTriggered=False,
+                    StandsInVault=lambda *_: False,
+                    CancelTimer=lambda *_: None,
+                    Game=SimpleNamespace(
+                        GetFormFromFile=lambda fid, plg: hc_quest if (fid, plg) == (0x000830, "FO4SFHardcore.esm") else None
+                    ),
+                    Debug=SimpleNamespace(OpenUserLog=lambda *a: None, Notification=lambda *a: None),
+                    GetStage=lambda: 210,
+                    SetObjectiveDisplayed=lambda *a: None,
+                    SetObjectiveCompleted=lambda *a: None,
+                    SetActive=lambda *a: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    ReleaseStoryLandingFade=lambda: None,
+                    UnregisterForAnimationEvent=lambda *a: None,
+                    ReturnPlayerToVaultPlatform=lambda p: None,
+                    EnsureLoadHookRegistered=lambda p: None,
+                    RelockVaultSaving=lambda *a: None,
+                    StartTimer=lambda *a: None,
+                    Trace=lambda m: logs.append(str(m)),
+                )
+                exec(compiled, ns)
+                ns["OnPlayerLoadGame"](SimpleNamespace(name="PlayerRef"))
+                self.assertEqual(start_card._state["v"], 0.0)
+                self.assertEqual(surv_start._state["v"], 1.0)
+                self.assertIn(("EvaluateHardcore", ("load_persist",)), hc_calls)
+                self.assertIn(f"survival reload persisted=1 locked={want_locked_tag}", logs)
 
     def test_a2_vault111_lift_platform_radius_covers_cage_and_clears_catwalk(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")

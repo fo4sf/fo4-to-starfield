@@ -164,6 +164,8 @@ class Reference:
         self.moveto_calls = []
         self.enables = []
         self.discovery_calls = 0
+        self.equipped = set()
+        self.equip_calls = []
 
     def GetWorldSpace(self): return self.world
     def GetParentCell(self): return self.cell
@@ -174,6 +176,11 @@ class Reference:
     def Is3DLoaded(self): return self.loaded
     def IsInInterior(self): return self.interior
     def SetAngle(self, *args): pass
+    def IsEquipped(self, item): return item in self.equipped
+
+    def EquipItem(self, item, prevent_removal=False, silent=False):
+        self.equip_calls.append((item, prevent_removal, silent))
+        self.equipped.add(item)
 
     def Enable(self, fade=False):
         self.enables.append(fade)
@@ -413,6 +420,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
 
     EXIT_FUNCTIONS = (
         "InVault",
+        "PromptVaultExitLift",
         "StartAscent",
         "OnAnimationEvent",
         "AtLiftTop",
@@ -423,13 +431,15 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         "Near",
         "ReturnPlayerToVaultPlatform",
         "FallbackExitToSurface",
+        "RelockVaultSaving",
         "Actor.OnPlayerLoadGame",
     )
     EXIT_VARS = (
         "asked, liftSpecConfirmed, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
         "rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, "
         "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, "
-        "fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks"
+        "fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks, "
+        "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered"
     )
 
     def setUp(self):
@@ -554,6 +564,12 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             discoveryMarkerMoved=False,
             discoveryAttachPending=False,
             landingChecks=0,
+            vaultPodAutosaved=False,
+            vaultSavingRelocked=False,
+            vaultRecoveryTriggered=False,
+            StartCardOpenGlobal=None,
+            SurvivalLockedGlobal=None,
+            SurvivalStartGlobal=None,
             Game=SimpleNamespace(
                 GetFormFromFile=get_form,
                 GetPlayer=lambda: self.player,
@@ -564,6 +580,10 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
             ExitMessage=SimpleNamespace(Show=exit_show),
             ExitFallbackMessage=SimpleNamespace(Show=fallback_show),
             EnsureVaultInteractivesRegistered=lambda: None,
+            EnsureLoadHookRegistered=lambda *_: None,
+            TriggerVaultPodRecoveryAutosave=lambda *_: None,
+            CancelTimer=lambda *_: None,
+            ReadH00SuspectsOnce=lambda: None,
             OpenLiftAttributeAllocation=lambda: None,
             OpenLiftCharacterRespec=lambda: None,
             RunSharedMapSetup=lambda: 4,
@@ -832,7 +852,7 @@ class H00SurfaceSuspectIsolationTests(unittest.TestCase):
 class ReturnLiftB3HopSpikeTests(unittest.TestCase):
     """B3 (candidate-2e in-game fix): FO4SF_MapMarkersHop reload hop must never falsely arm or trigger the Vault 111 return lift."""
 
-    RETURN_FUNCTIONS = ("CheckReturnLift", "Near")
+    RETURN_FUNCTIONS = ("ResolveHostWorld", "CheckReturnLift", "Near")
     RETURN_VARS = (
         "arrivalWorld, leftArrivalPad, returnLiftArmed, returnArmTicks, "
         "returnHasExteriorSample, returnLastExteriorX, returnLastExteriorY, "

@@ -115,7 +115,7 @@ Message Property WarfareGroupMsg Auto Const Mandatory
 Message Property WarfareSpotMsg Auto Const Mandatory
 {S4 Box 5 (0x80A): starting Warfare deployment spot.}
 Message Property StartPickMsg Auto Const
-{N2 pre-world appearance prompt (0x802): 0 Quick start, 1 Create character.}
+{N2 pre-world appearance prompt (0x802): 0 Use preset look, 1 Create character.}
 Message Property NoPipboyMsg Auto Const Mandatory
 {X2 / A16 (0x817): shown when activating the Vault 111 console before picking up the Pip-Boy.}
 
@@ -422,6 +422,15 @@ bool returnVaultAsked = false
 bool returnSurfacePending = false
 int returnSurfaceWaitTicks = 0
 int returnSurfaceTries = 0
+bool dyingHookRegistered = false
+bool vaultPodAutosaved = false
+bool vaultSavingRelocked = false
+bool vaultRecoveryTriggered = false
+int vaultPodAutosaveSkips = 0
+bool directWarfareEntered = false
+int warfareDirectMoves = 0
+bool warfareBranchStarted = false
+bool firstMessageDrawn = false
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -470,12 +479,15 @@ Function Begin(string route)
         StandDown(loading, "not a new game")
         return
     endif
-    if UsePreworldRoom()
+    SyncPrelaunchHandshake()
+    if IsPrelaunchWarfare()
+        directWarfareEntered = EnterPrelaunchWarfareMarker(player)
+    elseif UsePreworldRoom()
         startRoomEntered = EnterStartRoom(player)
     else
         entered = EnterVault(player)
     endif
-    if startRoomMoves == 0 && vaultMoves == 0 && centered == 0
+    if startRoomMoves == 0 && vaultMoves == 0 && centered == 0 && warfareDirectMoves == 0
         ; nothing moved the player, so the first load would never end (28 Oct run 2)
         Trace("no move into the vault: anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve; standing down")
         StandDown(loading, "no move into the vault")
@@ -491,7 +503,10 @@ Function Begin(string route)
     endif
     EnsureLoadHookRegistered(player)
     loadingMenuOpen = loading
-    if UsePreworldRoom() || FadeHold
+    if IsPrelaunchWarfare()
+        faded = true
+        Trace("warfare direct black fade held until exterior position settled")
+    elseif UsePreworldRoom() || FadeHold
         RegisterStartLoadingHook()
     endif
     StartTimer(1.0, 1)
@@ -583,6 +598,7 @@ Function NoteLooksStage20()
     if applied < 20
         applied = 20
     endif
+    TriggerVaultPodRecoveryAutosave(20)
 EndFunction
 
 bool Function IsPreworldLooksHandled()
@@ -601,15 +617,37 @@ Function ApplyStage(int n, string by)
     if n == 10
         SetObjectiveDisplayed(10)
         SetActive(True)
+    elseif n == 20
+        TriggerVaultPodRecoveryAutosave(n)
     elseif n == 40
+        ClearVaultSaveLock()
         SetObjectiveCompleted(10)
     elseif n == 200
         CompleteQuest()
         StartLandingQuests()
+        ClearVaultSaveLock()
         ReleaseStoryLandingFade()
     elseif n == 210
         CompleteQuest()
         StartLandingQuests()
+        ClearVaultSaveLock()
+    endif
+EndFunction
+
+Function ClearVaultSaveLock()
+    CancelTimer(6)
+    CancelTimer(7)
+    if vaultSavingRelocked
+        vaultSavingRelocked = false
+        Game.SetInChargen(false, false, false)
+    endif
+EndFunction
+
+Function RelockVaultSaving(Actor p, int st)
+    if !vaultSavingRelocked && st >= 10 && st < 200 && (GameModeGlobal == None || (GameModeGlobal.GetValue() as int) != 2) && p != None && StandsInVault(p)
+        vaultSavingRelocked = true
+        Game.SetInChargen(true, false, false)
+        Trace("vault_death_recovery=save_locked stage=" + st)
     endif
 EndFunction
 
@@ -626,6 +664,9 @@ Function AdvanceTo(int n, string by = "Trigger")
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
+    if auiStageID == 20
+        TriggerVaultPodRecoveryAutosave(20)
+    endif
     if auiStageID == 20 && looksSetStage20
         return
     endif
@@ -637,6 +678,14 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 6
+        RelockVaultSaving(Game.GetPlayer(), GetStage())
+        return
+    endif
+    if aiTimerID == 7
+        TriggerVaultPodRecoveryAutosave(GetStage())
+        return
+    endif
     if aiTimerID == 5
         Actor storyPlayer = Game.GetPlayer()
         if storyPlayer == None || storyPlayer.IsInInterior()
@@ -716,7 +765,19 @@ Event OnTimer(int aiTimerID)
         else
             FadeIn("timer")                                  ; once: the start may still be in its 3D wait
             if !entered
-                if vaultMoves > 0 && StandsInVault(player)
+                if IsPrelaunchWarfare()
+                    if !directWarfareEntered
+                        if !player.IsInInterior()
+                            directWarfareEntered = true
+                            warfareDirectMoves += 1
+                        else
+                            directWarfareEntered = EnterPrelaunchWarfareMarker(player)
+                        endif
+                    endif
+                    if directWarfareEntered || warfareDirectMoves > 0
+                        entered = true
+                    endif
+                elseif vaultMoves > 0 && StandsInVault(player)
                     ; the start's move took once the load was through (the cell check right after a MoveTo during the first
                     ; load is unverified): no second move, which would be a second loading screen
                     entered = true
@@ -743,6 +804,12 @@ Event OnTimer(int aiTimerID)
             startedAt = Utility.GetCurrentRealTime()
         endif
     elseif stage == 5
+        if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
+            if !warfareBranchStarted
+                RunWarfareBranch(player, ResolvePrelaunchWarfareRow())
+            endif
+            return
+        endif
         if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 1
             if !entered
                 entered = EnterVault(player)
@@ -1012,6 +1079,14 @@ Function InVault(Actor player, int stage)
     if asked
         return
     endif
+    PromptVaultExitLift(player)
+EndFunction
+
+Function PromptVaultExitLift(Actor player)
+{Shows ExitMessage on the Vault 111 elevator platform (called both on PlatformRadius entry and on direct E control activation).}
+    if rideActive || rideTransferred
+        return
+    endif
     asked = true                                             ; asked once per visit to the platform
     Trace("lift platform waiting cage_door=open")
     int button = ExitMessage.Show()
@@ -1184,9 +1259,9 @@ EndFunction
 Function FinishSurface(Actor player)
 {The ride up, second half: SetPosition on the merged arrival, a tick after the MoveTo at the earliest and once the player
  is outside with their 3D loaded. Because persistent references in the overlay world retain their unmerged local XY while
- exterior grid cells are shifted by MergeOffset, the initial MoveTo lands in a procedural Mars Surface cell of the runtime
- MarsPlanetWorld; SetPosition shifts the player onto the merged core cell first, and the post-move parent cell must then
- carry the core plugin's load index. Exhaustion stops the exit with failure.}
+ exterior grid cells are shifted by MergeOffset, the initial MoveTo lands in a procedural exterior cell of the live host
+ worldspace resolved from ExitAnchorId / Sanctuary workbench; SetPosition shifts the player onto the merged core cell
+ first, and the post-move parent cell must then carry the core plugin's load index. Exhaustion stops the exit with failure.}
     if player.IsInInterior()
         if Utility.GetCurrentRealTime() - surfaceMovedAt > SurfaceWait
             if surfaceMoves < 2
@@ -1449,18 +1524,126 @@ Function StartLandingQuests()
 EndFunction
 
 Function EnsureLoadHookRegistered(Actor player)
-    if !loadHookRegistered && player != None
-        loadHookRegistered = true
-        RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+    if player != None
+        if !loadHookRegistered
+            loadHookRegistered = true
+            RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+        endif
+        if !dyingHookRegistered
+            dyingHookRegistered = true
+            RegisterForRemoteEvent(player, "OnDying")
+        endif
     endif
 EndFunction
 
+Function TriggerVaultPodRecoveryAutosave(int stageNum)
+{Task 1b (#853 M1): Wait until player is 3D-loaded & standing in Vault 111 (retrying via Timer 7 up to 60 skips),
+ autosave once after cryo pod / looks finishes, then Timer 6 re-locks saving inside Vault 111 (< 200).}
+    if vaultPodAutosaved || stageNum < 10 || stageNum >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2)
+        return
+    endif
+    Actor player = Game.GetPlayer()
+    if player == None || player.IsDead()
+        CancelTimer(7)
+        return
+    endif
+    if !player.Is3DLoaded() || !StandsInVault(player)
+        vaultPodAutosaveSkips += 1
+        Trace("vault_death_recovery=autosave_skip skips=" + vaultPodAutosaveSkips + " stage=" + stageNum)
+        if vaultPodAutosaveSkips < 60
+            StartTimer(1.0, 7)
+        endif
+        return
+    endif
+    CancelTimer(7)
+    EnsureLoadHookRegistered(player)
+    vaultPodAutosaved = true
+    vaultRecoveryTriggered = false
+    vaultSavingRelocked = false
+    Game.SetInChargen(false, false, false)
+    Game.RequestAutoSave()
+    Trace("vault_death_recovery=autosave stage=" + stageNum + " skips=" + vaultPodAutosaveSkips)
+    StartTimer(1.5, 6)
+EndFunction
+
+WorldSpace Function ResolveHostWorld()
+{Task 1i (#858 F7): Resolve live host exterior worldspace dynamically from persistent ExitAnchorId (0x0A775B, flags=0x400)
+ FIRST, using Sanctuary workbench (0x005C50, flags=0x0) only as secondary fallback.}
+    ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+    if anchor != None
+        WorldSpace aws = anchor.GetWorldSpace()
+        if aws != None
+            return aws
+        endif
+    endif
+    ObjectReference benchRef = Game.GetFormFromFile(0x005C50, CorePlugin) as ObjectReference
+    if benchRef != None
+        WorldSpace bws = benchRef.GetWorldSpace()
+        if bws != None
+            return bws
+        endif
+    endif
+    return None
+EndFunction
+
+Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
+    if akSender == None || akSender != Game.GetPlayer()
+        return
+    endif
+    int st = GetStage()
+    if st >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2) || vaultRecoveryTriggered
+        return
+    endif
+    vaultRecoveryTriggered = true
+    if vaultPodAutosaved
+        Trace("vault_death_recovery=autosave stage=" + st)
+        return
+    endif
+    ActorValue healthAv = Game.GetFormFromFile(0x0002D4, "Starfield.esm") as ActorValue
+    if healthAv != None
+        akSender.RestoreValue(healthAv, 9999.0)
+    endif
+    if akSender.IsInInterior() && StandsInVault(akSender)
+        akSender.SetPosition(PodX, PodY, PodZ + PodLift)
+        akSender.SetAngle(0.0, 0.0, PodHeading)
+    else
+        ObjectReference podAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if podAnchor != None
+            akSender.MoveTo(podAnchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
+            akSender.SetAngle(0.0, 0.0, PodHeading)
+        endif
+    endif
+    Trace("vault_death_recovery=pod_reset stage=" + st)
+    if vaultPodAutosaveSkips >= 60
+        vaultPodAutosaveSkips = 0
+    endif
+    StartTimer(1.0, 7)
+EndEvent
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    vaultRecoveryTriggered = false
+    EnsureLoadHookRegistered(akSender)
     int st = GetStage()
     if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 0 && st >= 10
         GameModeGlobal.SetValue(1.0)
         Trace("mode load default=story stage=" + GetStage())
+    endif
+    if StartCardOpenGlobal != None && StartCardOpenGlobal.GetValue() < 0.0
+        StartCardOpenGlobal.SetValue(0.0)
+    endif
+    if SurvivalLockedGlobal != None && SurvivalLockedGlobal.GetValue() >= 0.5
+        if SurvivalStartGlobal != None && SurvivalStartGlobal.GetValue() < 0.5
+            SurvivalStartGlobal.SetValue(1.0)
+        endif
+    endif
+    if SurvivalStartGlobal != None && SurvivalStartGlobal.GetValue() >= 0.5
+        SyncHardcoreFromStart("load_persist")
+        int lockedFlag = 0
+        if SurvivalLockedGlobal != None && SurvivalLockedGlobal.GetValue() >= 0.5
+            lockedFlag = 1
+        endif
+        Trace("survival reload persisted=1 locked=" + lockedFlag)
     endif
     if st >= 10 && st < 40
         h00SuspectsRead = false
@@ -1481,6 +1664,9 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         if wasMidExit && akSender != None
             ReturnPlayerToVaultPlatform(akSender)
             Trace("exit reload recovered stage=" + st + " failures=" + exitFailures)
+        endif
+        if vaultPodAutosaved && !vaultSavingRelocked && akSender != None && StandsInVault(akSender)
+            RelockVaultSaving(akSender, st)
         endif
     endif
     if st >= 200 && returnSurfacePending
@@ -1734,6 +1920,159 @@ int Function FindWarfareStartPlaceRow(int wfRowIdx, string wfKey)
     return 0
 EndFunction
 
+Function SyncPrelaunchHandshake()
+{F4: Signals a true New Game Begin() to FO4SFPipboyMenu via FO4SF_StartCardOpen=-1.0 with a bounded real-time wait so late launcher hydration never detours Warfare into Vault 111.}
+    if StartCardOpenGlobal == None || StartChoiceDoneGlobal == None
+        return
+    endif
+    if StartChoiceDoneGlobal.GetValue() >= 0.5
+        return
+    endif
+    StartCardOpenGlobal.SetValue(-1.0)
+    float hsStart = Utility.GetCurrentRealTime()
+    int hsTries = 0
+    while StartChoiceDoneGlobal.GetValue() < 0.5 && StartCardOpenGlobal.GetValue() > -1.5 && hsTries < 2000 && (Utility.GetCurrentRealTime() - hsStart) < 0.75
+        hsTries += 1
+    endwhile
+    if StartCardOpenGlobal.GetValue() < -0.5
+        StartCardOpenGlobal.SetValue(0.0)
+    endif
+    float curMode = 0.0
+    if GameModeGlobal != None
+        curMode = GameModeGlobal.GetValue()
+    endif
+    Trace("prelaunch handshake tries=" + hsTries + " done=" + StartChoiceDoneGlobal.GetValue() + " mode=" + curMode)
+EndFunction
+
+int Function ResolvePrelaunchWarfareRow()
+    int rowIdx = -1
+    int placeRow = -1
+    if StartPlaceRowGlobal != None
+        placeRow = StartPlaceRowGlobal.GetValue() as int
+    endif
+    if StartPlaceWarfareRows != None && placeRow >= 0 && placeRow < StartPlaceWarfareRows.Length && StartPlaceModes != None && StartPlaceModes[placeRow] == 2
+        rowIdx = StartPlaceWarfareRows[placeRow]
+    endif
+    if rowIdx < 0 && WarfareStartIndexGlobal != None
+        rowIdx = WarfareStartIndexGlobal.GetValue() as int
+    endif
+    if rowIdx < 0 || (WarfareKeys != None && rowIdx >= WarfareKeys.Length)
+        rowIdx = 0
+    endif
+    return rowIdx
+EndFunction
+
+bool Function IsPrelaunchWarfare()
+    return StartChoiceDoneGlobal != None && StartChoiceDoneGlobal.GetValue() >= 0.5 && GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
+EndFunction
+
+bool Function EnterPrelaunchWarfareMarker(Actor player)
+{Moves the player directly onto the chosen Commonwealth Warfare exterior marker during Begin without any Vault 111 detour, keeping black fade active.}
+    if player == None
+        return false
+    endif
+    int rowIdx = ResolvePrelaunchWarfareRow()
+    string markerPlugin = CorePlugin
+    int markerId = ExitAnchorId
+    if WarfareMarkerIds != None && rowIdx >= 0 && rowIdx < WarfareMarkerIds.Length
+        markerId = WarfareMarkerIds[rowIdx]
+    endif
+    string wfKey = "minutemen_sanctuary"
+    if WarfareKeys != None && rowIdx >= 0 && rowIdx < WarfareKeys.Length
+        wfKey = WarfareKeys[rowIdx]
+    endif
+    int spRow = FindWarfareStartPlaceRow(rowIdx, wfKey)
+    if StartPlacePlugins != None && spRow >= 0 && spRow < StartPlacePlugins.Length && StartPlaceModes[spRow] == 2
+        markerPlugin = StartPlacePlugins[spRow]
+        markerId = StartPlaceMarkerIds[spRow]
+    endif
+    ObjectReference wMarker = Game.GetFormFromFile(markerId, markerPlugin) as ObjectReference
+    if wMarker == None
+        wMarker = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+    endif
+    if wMarker == None
+        return false
+    endif
+    player.MoveTo(wMarker, 0.0, 0.0, 0.0, True, False)
+    warfareDirectMoves += 1
+    Trace("direct_warfare enter row=" + rowIdx + " key=" + wfKey + " marker=" + wMarker)
+    return true
+EndFunction
+
+int Function ShowFirstBoxSafely(Message msg, string label)
+{Clears any residual fade veil before the very first prompt and retries once if cancelled on frame 0.}
+    if msg == None
+        return -1
+    endif
+    if !firstMessageDrawn
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+        Game.SetInChargen(false, false, false)
+        if !startUiReady
+            Utility.Wait(0.25)
+        endif
+    endif
+    int btn = msg.Show()
+    if !firstMessageDrawn && btn < 0
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+        Game.SetInChargen(false, false, false)
+        Utility.Wait(0.35)
+        Trace("first message box retry msg=" + label)
+        btn = msg.Show()
+    endif
+    if !firstMessageDrawn
+        firstMessageDrawn = true
+        Trace("first message box drawn msg=" + label + " btn=" + btn)
+    endif
+    return btn
+EndFunction
+
+Function SyncHardcoreFromStart(string why)
+    Form hcForm = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm")
+    if hcForm != None
+        ScriptObject hc = hcForm.CastAs("FO4SF_HardcoreQuest")
+        if hc != None
+            Var[] hcArgs = new Var[1]
+            hcArgs[0] = why
+            hc.CallFunction("EvaluateHardcore", hcArgs)
+        endif
+    endif
+EndFunction
+
+int Function GrantCoreItemIfPresent(Actor player, int coreId, int count, bool equipIt)
+    if player == None || coreId <= 0 || count <= 0
+        return 0
+    endif
+    Form item = Game.GetFormFromFile(coreId, "FO4SFCoreValues.esm")
+    if item == None
+        return 0
+    endif
+    player.AddItem(item, count, true)
+    if equipIt
+        player.EquipItem(item, false, true)
+    endif
+    return 1
+EndFunction
+
+int Function GrantWarfareCoreValuesKit(Actor player, string wfKey)
+{Grants faction CoreValues weapons/ammo/caps when Task 2 FO4SFCoreValues.esm records are installed; safely returns 0 on minimal CoreValues.}
+    int n = 0
+    if wfKey == "minutemen_sanctuary"
+        n += GrantCoreItemIfPresent(player, 0x00089D, 1, true)
+        n += GrantCoreItemIfPresent(player, 0x00089B, 30, false)
+        n += GrantCoreItemIfPresent(player, 0x0008A4, 25, false)
+    elseif wfKey == "raiders_corvega"
+        n += GrantCoreItemIfPresent(player, 0x0008A3, 1, true)
+        n += GrantCoreItemIfPresent(player, 0x0008A2, 1, false)
+        n += GrantCoreItemIfPresent(player, 0x0008A1, 48, false)
+        n += GrantCoreItemIfPresent(player, 0x0008A4, 15, false)
+    elseif wfKey == "gunners_plaza"
+        n += GrantCoreItemIfPresent(player, 0x0008CF, 1, true)
+        n += GrantCoreItemIfPresent(player, 0x00089B, 40, false)
+        n += GrantCoreItemIfPresent(player, 0x0008A4, 30, false)
+    endif
+    return n
+EndFunction
+
 Function RunPreworldLooksChoice(Actor player, bool isWarfare)
     SetStartCardBackdrop(false)
     if LooksWait <= 0.0
@@ -1744,7 +2083,7 @@ Function RunPreworldLooksChoice(Actor player, bool isWarfare)
     endif
     int cBtn = 1
     if StartPickMsg != None
-        cBtn = StartPickMsg.Show()
+        cBtn = ShowFirstBoxSafely(StartPickMsg, "StartPickMsg")
         Trace("start choice button=" + cBtn)
     elseif !isWarfare
         preworldLooksDone = true
@@ -1853,14 +2192,8 @@ int Function RunModeChoiceChain(Actor player)
         endif
         return 1
     endif
-    if StartChoiceDoneGlobal != None && StartChoiceDoneGlobal.GetValue() >= 0.5
-        modeChoiceRan = true
-        if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
-            return 2
-        endif
-        return 1
-    endif
-    if !FadeHold
+    bool preHydrated = StartChoiceDoneGlobal != None && StartChoiceDoneGlobal.GetValue() >= 0.5
+    if !preHydrated && !FadeHold
         modeChoiceRan = true
         int directRow = FindStoryStartPlaceRow("fo4_commonwealth")
         string directPlace = "fo4_vault111"
@@ -1894,24 +2227,20 @@ int Function RunModeChoiceChain(Actor player)
         if StartChoiceDoneGlobal != None
             StartChoiceDoneGlobal.SetValue(1.0)
         endif
-        Form directHcForm = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm")
-        if directHcForm != None
-            ScriptObject directHc = directHcForm.CastAs("FO4SF_HardcoreQuest")
-            if directHc != None
-                Var[] directHcArgs = new Var[1]
-                directHcArgs[0] = "start_choice"
-                directHc.CallFunction("EvaluateHardcore", directHcArgs)
-            endif
-        endif
+        SyncHardcoreFromStart("start_choice")
         Trace("mode choice mode=story survival=0")
         Trace("start record mode=story story=fo4_commonwealth faction=-1 place=" + directPlace + " survival=0 difficulty=1 backdrop=none")
         return 1
     endif
     modeChoiceRan = true
-    bool usedNeutralSpot = HoldNeutralSpotForModeChoice(player)
-    WaitForStartUiReady()
-    string effectiveBackdrop = BackdropName()
-    bool usedSetupMenu = false
+    bool usedNeutralSpot = false
+    string effectiveBackdrop = "launcher"
+    bool usedSetupMenu = preHydrated
+    if !preHydrated
+        usedNeutralSpot = HoldNeutralSpotForModeChoice(player)
+        WaitForStartUiReady()
+        effectiveBackdrop = BackdropName()
+    endif
     int modeVal = 1
     int storyBtn = 0
     int survVal = 0
@@ -1919,7 +2248,7 @@ int Function RunModeChoiceChain(Actor player)
     int pickedSlot = -1
     int rowIdx = -1
     int placeRow = 0
-    if StartChoiceBackdrop == 3 && StartCardOpenGlobal != None && StartChoiceDoneGlobal != None
+    if !preHydrated && StartChoiceBackdrop == 3 && StartCardOpenGlobal != None && StartChoiceDoneGlobal != None
         StartCardOpenGlobal.SetValue(2.0)
         float ackWait = 0.0
         while StartCardOpenGlobal.GetValue() < 2.5 && StartChoiceDoneGlobal.GetValue() < 0.5 && ackWait < 2.0
@@ -1938,53 +2267,54 @@ int Function RunModeChoiceChain(Actor player)
                 modeBoxWaiting = false
             endif
             StartCardOpenGlobal.SetValue(0.0)
-            if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
-                modeVal = 2
-            endif
-            if StoryLineGlobal != None
-                storyBtn = StoryLineGlobal.GetValue() as int
-            endif
-            if SurvivalStartGlobal != None && SurvivalStartGlobal.GetValue() >= 0.5
-                survVal = 1
-            endif
-            if SurvivalLockedGlobal != None
-                SurvivalLockedGlobal.SetValue(survVal as float)
-            endif
-            if StartDifficultyGlobal != None
-                diff = StartDifficultyGlobal.GetValue() as int
-            endif
-            if WarfareFactionGlobal != None
-                pickedSlot = WarfareFactionGlobal.GetValue() as int
-            endif
-            if WarfareStartIndexGlobal != None
-                rowIdx = WarfareStartIndexGlobal.GetValue() as int
-            endif
-            if StartPlaceRowGlobal != None
-                placeRow = StartPlaceRowGlobal.GetValue() as int
-            endif
-            if modeVal == 2 && StartPlaceWarfareRows != None && placeRow >= 0 && placeRow < StartPlaceWarfareRows.Length
-                int mappedWfRow = StartPlaceWarfareRows[placeRow]
-                if mappedWfRow >= 0 && (WarfareKeys == None || mappedWfRow < WarfareKeys.Length)
-                    rowIdx = mappedWfRow
-                    if WarfareStartIndexGlobal != None
-                        WarfareStartIndexGlobal.SetValue(rowIdx as float)
-                    endif
-                endif
-            endif
         else
             StartCardOpenGlobal.SetValue(0.0)
             effectiveBackdrop = "empty_cell"
             Trace("setup menu unavailable: falling back to empty_cell boxes")
         endif
     endif
-    if !usedSetupMenu
+    if usedSetupMenu
+        if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2
+            modeVal = 2
+        endif
+        if StoryLineGlobal != None
+            storyBtn = StoryLineGlobal.GetValue() as int
+        endif
+        if SurvivalStartGlobal != None && SurvivalStartGlobal.GetValue() >= 0.5
+            survVal = 1
+        endif
+        if SurvivalLockedGlobal != None
+            SurvivalLockedGlobal.SetValue(survVal as float)
+        endif
+        if StartDifficultyGlobal != None
+            diff = StartDifficultyGlobal.GetValue() as int
+        endif
+        if WarfareFactionGlobal != None
+            pickedSlot = WarfareFactionGlobal.GetValue() as int
+        endif
+        if WarfareStartIndexGlobal != None
+            rowIdx = WarfareStartIndexGlobal.GetValue() as int
+        endif
+        if StartPlaceRowGlobal != None
+            placeRow = StartPlaceRowGlobal.GetValue() as int
+        endif
+        if modeVal == 2 && StartPlaceWarfareRows != None && placeRow >= 0 && placeRow < StartPlaceWarfareRows.Length
+            int mappedWfRow = StartPlaceWarfareRows[placeRow]
+            if mappedWfRow >= 0 && (WarfareKeys == None || mappedWfRow < WarfareKeys.Length)
+                rowIdx = mappedWfRow
+                if WarfareStartIndexGlobal != None
+                    WarfareStartIndexGlobal.SetValue(rowIdx as float)
+                endif
+            endif
+        endif
+    else
         SetStartCardBackdrop(true)
         int mBtn = 0
         if ModePickMsg != None
             modeBoxWaiting = true
             modeBoxWaitSeconds = 0
             StartTimer(60.0, 2)
-            mBtn = ModePickMsg.Show()
+            mBtn = ShowFirstBoxSafely(ModePickMsg, "ModePickMsg")
             modeBoxWaiting = false
         endif
         if mBtn == 1
@@ -2134,15 +2464,7 @@ int Function RunModeChoiceChain(Actor player)
             placeId = StartPlaceIds[placeRow]
         endif
     endif
-    Form hcForm = Game.GetFormFromFile(0x000830, "FO4SFHardcore.esm")
-    if hcForm != None
-        ScriptObject hc = hcForm.CastAs("FO4SF_HardcoreQuest")
-        if hc != None
-            Var[] hcArgs = new Var[1]
-            hcArgs[0] = "start_choice"
-            hc.CallFunction("EvaluateHardcore", hcArgs)
-        endif
-    endif
+    SyncHardcoreFromStart("start_choice")
     Trace("mode choice mode=" + modeTag + " survival=" + survVal)
     if modeVal == 2
         Trace("warfare pick faction=" + pickedSlot + " start=" + placeId + " difficulty=" + diff)
@@ -2150,7 +2472,7 @@ int Function RunModeChoiceChain(Actor player)
     Trace("start record mode=" + modeTag + " story=" + storyId + " faction=" + pickedSlot + " place=" + placeId + " survival=" + survVal + " difficulty=" + diff + " backdrop=" + effectiveBackdrop)
     AdvanceTo(5)
     if modeVal == 1
-        if startRoomMoves > 0 || usedNeutralSpot
+        if !preHydrated && (startRoomMoves > 0 || usedNeutralSpot)
             RunPreworldLooksChoice(player, false)
         endif
         SpawnAtStoryStartPlace(player, placeRow)
@@ -2197,43 +2519,160 @@ Function ReleaseStoryLandingFade()
 EndFunction
 
 Function RunWarfareBranch(Actor player, int rowIdx)
-    Game.SetInChargen(false, false, false)
-    Form progForm = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")
-    ScriptObject prog = None
-    if progForm != None
-        prog = progForm.CastAs("FO4SF_ProgressionQuest")
+    if warfareBranchStarted
+        return
     endif
-    if prog != None
-        Var[] allocArgs = new Var[1]
-        allocArgs[0] = "warfare"
-        int tries = 0
-        bool allocOk = false
-        while !allocOk && tries < 3
-            tries += 1
-            allocOk = prog.CallFunction("OpenAttributeAllocation", allocArgs) as bool
-        endwhile
-        if !allocOk
-            Var[] spreadArgs = new Var[2]
-            spreadArgs[0] = "warfare"
-            spreadArgs[1] = false
-            allocOk = prog.CallFunction("OfferStandardSpread", spreadArgs) as bool
+    warfareBranchStarted = true
+    string wfKey = "minutemen_sanctuary"
+    if WarfareKeys != None && rowIdx >= 0 && rowIdx < WarfareKeys.Length
+        wfKey = WarfareKeys[rowIdx]
+    endif
+    string markerPlugin = CorePlugin
+    int markerId = WarfareMarkerIds[rowIdx]
+    int spRow = FindWarfareStartPlaceRow(rowIdx, wfKey)
+    if StartPlacePlugins != None && spRow >= 0 && spRow < StartPlacePlugins.Length && StartPlaceModes[spRow] == 2
+        markerPlugin = StartPlacePlugins[spRow]
+        markerId = StartPlaceMarkerIds[spRow]
+    endif
+    ObjectReference wMarker = Game.GetFormFromFile(markerId, markerPlugin) as ObjectReference
+    float wx = WarfareMarkerX[rowIdx] + MergeOffsetX
+    float wy = WarfareMarkerY[rowIdx] + MergeOffsetY
+    float wz = WarfareMarkerZ[rowIdx] + 1.0
+    bool moveOk = false
+    float dist = 9999.0
+    ObjectReference targetMarker = wMarker
+    bool menusFirstInBlackRoom = !directWarfareEntered && StandsInStartRoom(player)
+    if menusFirstInBlackRoom
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+        Game.SetInChargen(false, false, false)
+        Form progForm = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")
+        ScriptObject prog = None
+        if progForm != None
+            prog = progForm.CastAs("FO4SF_ProgressionQuest")
         endif
-        Var[] bgArgs = new Var[1]
-        bgArgs[0] = WarfareBgIndices[rowIdx]
-        prog.CallFunction("ApplyWarfareBackground", bgArgs)
+        if prog != None
+            Var[] allocArgs = new Var[1]
+            allocArgs[0] = "warfare"
+            int tries = 0
+            bool allocOk = false
+            while !allocOk && tries < 3
+                tries += 1
+                allocOk = prog.CallFunction("OpenAttributeAllocation", allocArgs) as bool
+            endwhile
+            if !allocOk
+                Var[] spreadArgs = new Var[2]
+                spreadArgs[0] = "warfare"
+                spreadArgs[1] = false
+                allocOk = prog.CallFunction("OfferStandardSpread", spreadArgs) as bool
+            endif
+            Var[] bgArgs = new Var[1]
+            bgArgs[0] = WarfareBgIndices[rowIdx]
+            prog.CallFunction("ApplyWarfareBackground", bgArgs)
+        endif
+        RunPreworldLooksChoice(player, true)
+    else
+        ; F5: Keep black fade active and move onto merged Warfare exterior cell BEFORE opening S.P.E.C.I.A.L. and Looks.
+        Game.FadeOutGame(True, True, 0.0, 0.1, True)
+        Game.SetInChargen(false, false, false)
+        int wMoveTry = 0
+        while targetMarker != None && player.IsInInterior() && wMoveTry < 3
+            wMoveTry += 1
+            player.MoveTo(targetMarker, 0.0, 0.0, 0.0, True, False)
+            float mWait = 0.0
+            while (player.IsInInterior() || !player.Is3DLoaded()) && mWait < SurfaceWait
+                Utility.Wait(0.25)
+                mWait += 0.25
+            endwhile
+        endwhile
+        if player.IsInInterior()
+            ObjectReference eFallback = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+            if eFallback != None
+                targetMarker = eFallback
+                wx = ArrivalX + MergeOffsetX
+                wy = ArrivalY + MergeOffsetY
+                wz = ArrivalZ + 1.0
+                int fbTry = 0
+                while player.IsInInterior() && fbTry < 3
+                    fbTry += 1
+                    player.MoveTo(eFallback, 0.0, 0.0, 0.0, True, False)
+                    float fbWait = 0.0
+                    while (player.IsInInterior() || !player.Is3DLoaded()) && fbWait < SurfaceWait
+                        Utility.Wait(0.25)
+                        fbWait += 0.25
+                    endwhile
+                endwhile
+                Trace("warfare move fallback anchor=" + eFallback + " tries=" + fbTry + " interior=" + player.IsInInterior())
+            endif
+        endif
+        if targetMarker != None && !player.IsInInterior()
+            int setTry = 0
+            while !moveOk && setTry < SurfaceTries
+                setTry += 1
+                player.SetPosition(wx, wy, wz)
+                player.SetAngle(0.0, 0.0, WarfareHeadings[rowIdx])
+                Cell wc = player.GetParentCell()
+                bool coreCell = false
+                if wc != None
+                    coreCell = (wc.GetFormID() / 16777216) == (targetMarker.GetFormID() / 16777216)
+                endif
+                float dx = player.GetPositionX() - wx
+                float dy = player.GetPositionY() - wy
+                float dz = player.GetPositionZ() - wz
+                dist = dx * dx + dy * dy
+                moveOk = dist <= 25.0 && dz > -FallDrop && dz < 3.0 && !player.IsInInterior() && coreCell
+                if !moveOk && setTry < SurfaceTries
+                    Utility.Wait(0.25)
+                endif
+            endwhile
+        endif
+        float wPost3d = 0.0
+        while !player.Is3DLoaded() && wPost3d < StartLoadTimeout
+            Utility.Wait(0.25)
+            wPost3d += 0.25
+        endwhile
+        Utility.Wait(0.5)
+        Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+        Form progFormPre = Game.GetFormFromFile(0x000880, "FO4SFProgression.esm")
+        ScriptObject progPre = None
+        if progFormPre != None
+            progPre = progFormPre.CastAs("FO4SF_ProgressionQuest")
+        endif
+        if progPre != None
+            Var[] allocArgsPre = new Var[1]
+            allocArgsPre[0] = "warfare"
+            int triesPre = 0
+            bool allocOkPre = false
+            while !allocOkPre && triesPre < 3
+                triesPre += 1
+                allocOkPre = progPre.CallFunction("OpenAttributeAllocation", allocArgsPre) as bool
+            endwhile
+            if !allocOkPre
+                Var[] spreadArgsPre = new Var[2]
+                spreadArgsPre[0] = "warfare"
+                spreadArgsPre[1] = false
+                allocOkPre = progPre.CallFunction("OfferStandardSpread", spreadArgsPre) as bool
+            endif
+            Var[] bgArgsPre = new Var[1]
+            bgArgsPre[0] = WarfareBgIndices[rowIdx]
+            progPre.CallFunction("ApplyWarfareBackground", bgArgsPre)
+        endif
+        RunPreworldLooksChoice(player, true)
     endif
-    RunPreworldLooksChoice(player, true)
     Game.ShowFirstPersonGeometry(true)
     Game.SetCharGenHUDMode(0)
     player.RemoveAllItems(None, false, false)
     FillO2(player)
+    bool pipboyWorn = false
     if PipboyWristArmor != None
         player.AddItem(PipboyWristArmor, 1, true)
         player.EquipItem(PipboyWristArmor, false, true)
+        pipboyWorn = player.IsEquipped(PipboyWristArmor)
     endif
     if PipboyAcquiredGlobal != None
         PipboyAcquiredGlobal.SetValue(1.0)
     endif
+    Trace("warfare pipboy worn=" + pipboyWorn + " flag=1")
     int gearAdded = 0
     int k = 0
     while k < WarfareGearIds.Length
@@ -2249,81 +2688,71 @@ Function RunWarfareBranch(Actor player, int rowIdx)
         endif
         k += 1
     endwhile
+    gearAdded += GrantWarfareCoreValuesKit(player, wfKey)
     Trace("warfare gear n=" + gearAdded)
-    string markerPlugin = CorePlugin
-    int markerId = WarfareMarkerIds[rowIdx]
-    int spRow = FindWarfareStartPlaceRow(rowIdx, WarfareKeys[rowIdx])
-    if StartPlacePlugins != None && spRow >= 0 && spRow < StartPlacePlugins.Length && StartPlaceModes[spRow] == 2
-        markerPlugin = StartPlacePlugins[spRow]
-        markerId = StartPlaceMarkerIds[spRow]
-    endif
-    ObjectReference wMarker = Game.GetFormFromFile(markerId, markerPlugin) as ObjectReference
-    float wx = WarfareMarkerX[rowIdx] + MergeOffsetX
-    float wy = WarfareMarkerY[rowIdx] + MergeOffsetY
-    float wz = WarfareMarkerZ[rowIdx] + 1.0
-    bool moveOk = false
-    float dist = 9999.0
-    ObjectReference targetMarker = wMarker
-    int wMoveTry = 0
-    while targetMarker != None && player.IsInInterior() && wMoveTry < 3
-        wMoveTry += 1
-        player.MoveTo(targetMarker, 0.0, 0.0, 0.0, True, False)
-        float mWait = 0.0
-        while (player.IsInInterior() || !player.Is3DLoaded()) && mWait < SurfaceWait
-            Utility.Wait(0.25)
-            mWait += 0.25
-        endwhile
-    endwhile
-    if player.IsInInterior()
-        ObjectReference eFallback = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
-        if eFallback != None
-            targetMarker = eFallback
-            wx = ArrivalX + MergeOffsetX
-            wy = ArrivalY + MergeOffsetY
-            wz = ArrivalZ + 1.0
-            int fbTry = 0
-            while player.IsInInterior() && fbTry < 3
-                fbTry += 1
-                player.MoveTo(eFallback, 0.0, 0.0, 0.0, True, False)
-                float fbWait = 0.0
-                while (player.IsInInterior() || !player.Is3DLoaded()) && fbWait < SurfaceWait
-                    Utility.Wait(0.25)
-                    fbWait += 0.25
-                endwhile
-            endwhile
-            Trace("warfare move fallback anchor=" + eFallback + " tries=" + fbTry + " interior=" + player.IsInInterior())
-        endif
-    endif
-    if targetMarker != None && !player.IsInInterior()
-        int setTry = 0
-        while !moveOk && setTry < SurfaceTries
-            setTry += 1
-            player.SetPosition(wx, wy, wz)
-            player.SetAngle(0.0, 0.0, WarfareHeadings[rowIdx])
-            Cell wc = player.GetParentCell()
-            bool coreCell = false
-            if wc != None
-                coreCell = (wc.GetFormID() / 16777216) == (targetMarker.GetFormID() / 16777216)
-            endif
-            float dx = player.GetPositionX() - wx
-            float dy = player.GetPositionY() - wy
-            float dz = player.GetPositionZ() - wz
-            dist = dx * dx + dy * dy
-            moveOk = dist <= 25.0 && dz > -FallDrop && dz < 3.0 && !player.IsInInterior() && coreCell
-            if !moveOk && setTry < SurfaceTries
+    if menusFirstInBlackRoom
+        int wMoveTryB = 0
+        while targetMarker != None && player.IsInInterior() && wMoveTryB < 3
+            wMoveTryB += 1
+            player.MoveTo(targetMarker, 0.0, 0.0, 0.0, True, False)
+            float mWaitB = 0.0
+            while (player.IsInInterior() || !player.Is3DLoaded()) && mWaitB < SurfaceWait
                 Utility.Wait(0.25)
-            endif
+                mWaitB += 0.25
+            endwhile
         endwhile
+        if player.IsInInterior()
+            ObjectReference eFallbackB = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+            if eFallbackB != None
+                targetMarker = eFallbackB
+                wx = ArrivalX + MergeOffsetX
+                wy = ArrivalY + MergeOffsetY
+                wz = ArrivalZ + 1.0
+                int fbTryB = 0
+                while player.IsInInterior() && fbTryB < 3
+                    fbTryB += 1
+                    player.MoveTo(eFallbackB, 0.0, 0.0, 0.0, True, False)
+                    float fbWaitB = 0.0
+                    while (player.IsInInterior() || !player.Is3DLoaded()) && fbWaitB < SurfaceWait
+                        Utility.Wait(0.25)
+                        fbWaitB += 0.25
+                    endwhile
+                endwhile
+                Trace("warfare move fallback anchor=" + eFallbackB + " tries=" + fbTryB + " interior=" + player.IsInInterior())
+            endif
+        endif
+        if targetMarker != None && !player.IsInInterior()
+            int setTryB = 0
+            while !moveOk && setTryB < SurfaceTries
+                setTryB += 1
+                player.SetPosition(wx, wy, wz)
+                player.SetAngle(0.0, 0.0, WarfareHeadings[rowIdx])
+                Cell wcB = player.GetParentCell()
+                bool coreCellB = false
+                if wcB != None
+                    coreCellB = (wcB.GetFormID() / 16777216) == (targetMarker.GetFormID() / 16777216)
+                endif
+                float dxB = player.GetPositionX() - wx
+                float dyB = player.GetPositionY() - wy
+                float dzB = player.GetPositionZ() - wz
+                dist = dxB * dxB + dyB * dyB
+                moveOk = dist <= 25.0 && dzB > -FallDrop && dzB < 3.0 && !player.IsInInterior() && coreCellB
+                if !moveOk && setTryB < SurfaceTries
+                    Utility.Wait(0.25)
+                endif
+            endwhile
+        endif
+        float wPost3dB = 0.0
+        while !player.Is3DLoaded() && wPost3dB < StartLoadTimeout
+            Utility.Wait(0.25)
+            wPost3dB += 0.25
+        endwhile
+        Utility.Wait(0.5)
+        Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())
     endif
-    float wPost3d = 0.0
-    while !player.Is3DLoaded() && wPost3d < StartLoadTimeout
-        Utility.Wait(0.25)
-        wPost3d += 0.25
-    endwhile
-    Utility.Wait(0.5)
-    Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())
     RunSharedMapSetup()
-    if wMarker != None
+    bool dedicatedMarker = wMarker != None && !(markerPlugin == CorePlugin && markerId == 0x000800)
+    if dedicatedMarker
         WorldSpace pw = player.GetWorldSpace()
         if pw != None
             wMarker.Enable(False)
@@ -2372,15 +2801,24 @@ Function RunWarfareBranch(Actor player, int rowIdx)
     if fac != None
         player.AddToFaction(fac)
     endif
+    bool missionJoined = false
+    if slot == 0
+        Faction mmFac = Game.GetFormFromFile(0x00081F, "FO4SFMission.esm") as Faction
+        if mmFac != None
+            player.AddToFaction(mmFac)
+            missionJoined = true
+        endif
+    endif
     GlobalVariable sqCapGlob = Game.GetFormFromFile(0x000801, "FO4SFCompanions.esm") as GlobalVariable
     if sqCapGlob != None
         sqCapGlob.SetValue(squadCap as float)
     endif
-    Trace("warfare standing slot=" + slot + " fame=" + fame + " infamy=" + infamy + " karma=" + karma + " squad_cap=" + squadCap)
+    Trace("warfare standing slot=" + slot + " fame=" + fame + " infamy=" + infamy + " karma=" + karma + " squad_cap=" + squadCap + " mission_fac=" + missionJoined)
     ForceFadeIn("warfare")
     warfareFadeTicks = 0
     StartTimer(1.5, 4)
     AdvanceTo(210)
+    Trace("warfare start quest=" + self + " row=" + wfKey + " faction=" + slot + " stage=210")
 EndFunction
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
@@ -2453,6 +2891,13 @@ Function EnsureVaultInteractivesRegistered()
     if !itemWatchRegistered && player != None && VaultPistolBase != None
         itemWatchRegistered = true
         AddInventoryEventFilter(VaultPistolBase)
+        if VaultPistolId == 0x000899
+            int ammo10mmId = VaultPistolId - 1
+            Form ammo10mm = Game.GetFormFromFile(ammo10mmId, "FO4SFCoreValues.esm")
+            if ammo10mm != None
+                AddInventoryEventFilter(ammo10mm)
+            endif
+        endif
         Trace("pistol filter added base=" + VaultPistolBase + " id=" + VaultPistolId)
         RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")
     endif
@@ -2490,12 +2935,32 @@ Function EnsureVaultInteractivesRegistered()
 EndFunction
 
 Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer, int aiTransferReason)
-    if pistolPickedLogged || GetStage() >= 40 || akBaseItem == None || VaultPistolBase == None
+    if GetStage() >= 40 || akBaseItem == None || VaultPistolBase == None
         return
     endif
     if akBaseItem == VaultPistolBase
-        pistolPickedLogged = true
-        Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)
+        if !pistolPickedLogged
+            pistolPickedLogged = true
+            Actor player = Game.GetPlayer()
+            bool equipped = False
+            if player != None
+                if !player.IsEquipped(VaultPistolBase)
+                    player.EquipItem(VaultPistolBase, False, False)
+                endif
+                equipped = player.IsEquipped(VaultPistolBase)
+            endif
+            string baseName = "XM2311"
+            if VaultPistolId == 0x000899
+                baseName = "FO4_10mmPistol"
+            endif
+            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + " base=" + baseName)
+        endif
+    elseif VaultPistolId == 0x000899
+        int ammo10mmId = VaultPistolId - 1
+        Form ammo10mm = Game.GetFormFromFile(ammo10mmId, "FO4SFCoreValues.esm")
+        if ammo10mm != None && akBaseItem == ammo10mm
+            Trace("pistol ammo picked item=" + akBaseItem + " count=" + aiItemCount + " base=FO4_Ammo10mm")
+        endif
     endif
 EndEvent
 
@@ -2792,10 +3257,7 @@ Function CheckReturnLift(Actor player)
     endif
     WorldSpace wantWorld = arrivalWorld
     if wantWorld == None
-        ObjectReference cAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
-        if cAnchor != None
-            wantWorld = cAnchor.GetWorldSpace()
-        endif
+        wantWorld = ResolveHostWorld()
     endif
     if wantWorld != None && pWorld != wantWorld
         returnArmTicks = 0
