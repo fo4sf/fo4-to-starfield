@@ -457,32 +457,37 @@ class LaunchChoicesTests(unittest.TestCase):
 
         try:
             import tkinter as tk
-            tk_root = tk.Tk()
-            tk_root.withdraw()
-            pal = gui.select_palette(False)
-            txt = tk.Text(
-                tk_root,
-                height=6,
-                wrap="word",
-                state="disabled",
-                background=pal["panel"],
-                foreground=pal["muted"],
-                relief="flat",
-                takefocus=0,
-                cursor="arrow",
-                exportselection=False,
-            )
-            txt.configure(state="normal")
-            txt.insert("1.0", text)
-            txt.configure(state="disabled")
-            self.assertEqual(str(txt.cget("state")), "disabled")
-            self.assertIn("Sanctuary Hills (Pre-War)", txt.get("1.0", "end"))
-            tk_root.destroy()
-        except (ImportError, Exception) as exc:
-            if "tk" in str(exc).lower() or isinstance(exc, ImportError):
-                pass
-            else:
-                raise
+        except ImportError:
+            tk = None
+
+        if tk is not None:
+            try:
+                tk_root = tk.Tk()
+            except tk.TclError:
+                tk_root = None
+            if tk_root is not None:
+                try:
+                    tk_root.withdraw()
+                    pal = gui.select_palette(False)
+                    txt = tk.Text(
+                        tk_root,
+                        height=6,
+                        wrap="word",
+                        state="disabled",
+                        background=pal["panel"],
+                        foreground=pal["muted"],
+                        relief="flat",
+                        takefocus=0,
+                        cursor="arrow",
+                        exportselection=False,
+                    )
+                    txt.configure(state="normal")
+                    txt.insert("1.0", text)
+                    txt.configure(state="disabled")
+                    self.assertEqual(str(txt.cget("state")), "disabled")
+                    self.assertIn("Sanctuary Hills (Pre-War)", txt.get("1.0", "end"))
+                finally:
+                    tk_root.destroy()
 
         # GUI control mapping stays 1:1 with SPEC
         keys = [c["key"] for c in gui.controls()]
