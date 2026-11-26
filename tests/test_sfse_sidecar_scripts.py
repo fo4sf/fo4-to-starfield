@@ -58,7 +58,7 @@ class CompilerRouteTests(unittest.TestCase):
             self.assertIn(line, theirs)
             theirs = theirs.replace(line, "", 1)
         mine = mine.replace("$sources = @('xmake.lua', 'src\\main.cpp', 'src\\pch.h', 'codec.h', 'runtime_dir.h', 'sha256.h', 'sha256.cpp', 'X.ini')",
-                            "$sources = @('xmake.lua', 'src\\main.cpp', 'src\\pch.h', 'src\\pipboy_map.cpp', 'src\\pipboy_map.h', 'src\\setup_places.h', 'src\\lift_menu.h', 'src\\world.cpp', 'src\\world.h', 'X.ini')")  # FAL-250 + PipboyMap + SetupMenu sources
+                            "$sources = @('xmake.lua', 'src\\main.cpp', 'src\\pch.h', 'src\\pipboy_map.cpp', 'src\\pipboy_map.h', 'src\\setup_places.h', 'src\\lift_menu.h', 'src\\pipboy_screen_source.h', 'src\\hud_quest_label.h', 'src\\world.cpp', 'src\\world.h', 'X.ini')")  # FAL-250 + PipboyMap + SetupMenu + R15 Wave A sources
         mine = mine.replace("plugin_version = '0.3.0'", "plugin_version = '0.1.0'")
         self.assertEqual(mine, theirs)
         self.assertIn("$PinnedLib = '9d090c4c521f4f2c1aa00bb05923c380d47ae596'", self.build)
