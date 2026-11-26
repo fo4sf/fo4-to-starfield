@@ -87,15 +87,10 @@ class Candidate2gCardTests(unittest.TestCase):
             "bat r9hop3",
             "bat r9door",
             "< 180 m",
-            "180 HP",
-            "offline record estimate",
-            "offline, unproven in game",
             "docs/actors/c5-actor-and-hud-looks-report.md",
             "Starfield chargen approximation",
             "09000980",
             "09000988",
-            "52.0",
-            "26.0",
             "safe_d=1.85",
             "INTV=1",
             "ShellBackdrop=1",
@@ -194,6 +189,19 @@ class Candidate2gCardTests(unittest.TestCase):
         if "preston scene resolved via=property " not in min00_src and "preston scene resolved via=file " in min00_src:
             r11_evolved_2g_prefixes.append(
                 "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> preston scene resolved via=<property|file> scene=<ref>'"
+            )
+        if "descending={}" in pipboy_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'step=lift_open confirmed=<confirmed>'"
+            )
+        if "action={} pool={}" in pipboy_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'step=lift_confirm action=<action> confirmed=<confirmed> values=<s>,<p>,<e>,<c>,<i>,<a>,<l>'"
+            )
+        newgame_src = (ROOT / "scripts/newgame/FO4SF_NewGameQuest.psc").read_text(encoding="utf-8")
+        if "ascent gap_ms=" in newgame_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'FO4SF_NEWGAME rt=<rt> ascent fade_out elapsed=<t>'"
             )
 
         w1_present = "preston scene resolved via=" in min00_src

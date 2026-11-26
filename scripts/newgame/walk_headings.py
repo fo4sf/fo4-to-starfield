@@ -132,6 +132,16 @@ BINARY_ANCHORS: Dict[str, Dict[str, Any]] = {
         "pos": (-54.364, -1.815, 1.754),
         "yaw_deg": 180.0,
     },
+    "v111_armory_pistol": {
+        "source": "FO4SFNewGame.esm:0x000820 (FO4SF_Vault111PistolRef, runtime 0A000820, wireframe armory cage top shelf)",
+        "pos": (-57.0338, 30.006, 1.29),
+        "yaw_deg": 270.0,
+    },
+    "v111_armory_ammo": {
+        "source": "FO4SFNewGame.esm:0x000821 (FO4SF_Vault111AmmoRef, runtime 0A000821, shelf below 0x820)",
+        "pos": (-57.0522, 30.3703, 0.696),
+        "yaw_deg": 270.0,
+    },
     "v111_gear_door": {
         "source": "FO4Port.esm:0x0100126D (FO4Port_VltGearDoor01)",
         "pos": (-54.857, -2.743, -0.143),
@@ -1174,15 +1184,100 @@ EXTENDED_PLACE_WALK_SEGMENTS: Tuple[WalkSegment, ...] = (
 
 ALL_WALK_SEGMENTS: Tuple[WalkSegment, ...] = OPENING_WALK_SEGMENTS + EXTENDED_PLACE_WALK_SEGMENTS
 
+# Vault 111 optional armory cage walk leg (G11: Pip-Boy deck -> unlocked doors 02001607/02001609/0200160A -> 02001539 -> 0A000820/0A000821)
+VAULT_ARMORY_WALK_SEGMENTS: Tuple[WalkSegment, ...] = (
+    WalkSegment(
+        leg_id="L10",
+        seg_id="10a",
+        zone="interior_vault111",
+        label="Pip-Boy pickup spot -> Down ramp to Vault 111 chamber floor",
+        start=(-54.500, 0.000, 0.590),
+        target=(-47.000, 0.000, 0.000),
+        start_yaw_deg=90.0,
+        action_at_target="Continue East (90.0 deg) toward east doorway (02001607)",
+        anchor_ref="v111_armory_pistol",
+        safe_overshoot_m=16.8,
+        overshoot_hazard="east chamber bulkhead beyond T-junction",
+    ),
+    WalkSegment(
+        leg_id="L10",
+        seg_id="10b",
+        zone="interior_vault111",
+        label="Chamber floor -> Through unlocked door 02001607 (-40.23, 0.00) to N-S corridor T-junction",
+        start=(-47.000, 0.000, 0.000),
+        target=(-32.914, 0.000, 0.131),
+        start_yaw_deg=None,
+        action_at_target="Press E on unlocked door 02001607 if closed, then turn North (0.0 deg) up corridor toward 02001609",
+        anchor_ref="v111_armory_pistol",
+        safe_overshoot_m=3.9,
+        overshoot_hazard="east wall behind T-junction",
+    ),
+    WalkSegment(
+        leg_id="L10",
+        seg_id="10c",
+        zone="interior_vault111",
+        label="N-S corridor T-junction -> Through 02001609 (-32.91, 3.66) to security-hall corner",
+        start=(-32.914, 0.000, 0.131),
+        target=(-32.914, 14.630, 0.030),
+        start_yaw_deg=None,
+        action_at_target="Pass through unlocked door 02001609, turn West (270.0 deg) down Vault security hall",
+        anchor_ref="v111_armory_pistol",
+        safe_overshoot_m=1.0,
+        overshoot_hazard="north bulkhead wall at security-hall bend",
+    ),
+    WalkSegment(
+        leg_id="L10",
+        seg_id="10d",
+        zone="interior_vault111",
+        label="Security-hall corner -> Overseer vestibule West turn",
+        start=(-32.914, 14.630, 0.030),
+        target=(-53.029, 14.630, 0.000),
+        start_yaw_deg=None,
+        action_at_target="Turn North (0.0 deg) toward unlocked Overseer door 0200160A (-53.03, 18.29)",
+        anchor_ref="v111_armory_pistol",
+        safe_overshoot_m=3.9,
+        overshoot_hazard="west security-office alcove wall",
+    ),
+    WalkSegment(
+        leg_id="L10",
+        seg_id="10e",
+        zone="interior_vault111",
+        label="Overseer vestibule -> Through 0200160A (-53.03, 18.29) to armory gate vestibule",
+        start=(-53.029, 14.630, 0.000),
+        target=(-53.029, 29.714, 0.000),
+        start_yaw_deg=None,
+        action_at_target="Open unlocked Overseer door 0200160A with E, turn West (275.1 deg) through open wire gate 02001539",
+        anchor_ref="v111_armory_pistol",
+        safe_overshoot_m=8.4,
+        overshoot_hazard="north Overseer office wall",
+    ),
+    WalkSegment(
+        leg_id="L10",
+        seg_id="10f",
+        zone="interior_vault111",
+        label="Armory gate vestibule -> Wire armory cage shelf (0A000820 / 0A000821 stance)",
+        start=(-53.029, 29.714, 0.000),
+        target=(-56.250, 30.000, 0.000),
+        start_yaw_deg=None,
+        action_at_target="Pass wire gate 02001539 (-54.92, 29.71); aim West at 0A000820 (0.86 m reach) & 0A000821 (1.30 m reach) & press E",
+        anchor_ref="v111_armory_pistol",
+        aim_target=(-57.0338, 30.006, 1.29),
+        safe_overshoot_m=0.5,
+        overshoot_hazard="wire armory cage shelf & west locker wall",
+    ),
+)
+
 
 def segments_for_scope(scope: str = "opening") -> Tuple[WalkSegment, ...]:
     if scope == "opening":
         return OPENING_WALK_SEGMENTS
     if scope == "extended":
         return EXTENDED_PLACE_WALK_SEGMENTS
+    if scope == "armory":
+        return VAULT_ARMORY_WALK_SEGMENTS
     if scope == "all":
         return ALL_WALK_SEGMENTS
-    raise ValueError(f"Unknown scope {scope!r}; expected opening, extended, or all")
+    raise ValueError(f"Unknown scope {scope!r}; expected opening, extended, armory, or all")
 
 
 def compute_route_rows(
@@ -1515,7 +1610,10 @@ def verify_museum_navm_segments(
     }
 
 
-def _read_vault111_navm_metrics(fo4_esm: Path) -> Dict[str, Any]:
+def _read_vault111_navm_metrics(
+    fo4_esm: Path,
+    segments: Sequence[WalkSegment] = OPENING_WALK_SEGMENTS,
+) -> Dict[str, Any]:
     src_root = Path(__file__).resolve().parents[2] / "src"
     if str(src_root) not in sys.path:
         sys.path.insert(0, str(src_root))
@@ -1565,7 +1663,7 @@ def _read_vault111_navm_metrics(fo4_esm: Path) -> Dict[str, Any]:
     total_pts = 0
     hit_pts = 0
     max_step_dz = 0.0
-    for seg in OPENING_WALK_SEGMENTS:
+    for seg in segments:
         if seg.zone != "interior_vault111":
             continue
         d = horizontal_distance(seg.start, seg.target)
@@ -1706,7 +1804,8 @@ def verify_against_staged_esms(
     museum_navm_summary: Optional[Dict[str, Any]] = None
     if fo4_esm is not None:
         if any(s.zone == "interior_vault111" for s in segs):
-            v111_res = _read_vault111_navm_metrics(fo4_esm)
+            v111_segs = tuple(segs) if scope != "all" else tuple(OPENING_WALK_SEGMENTS) + VAULT_ARMORY_WALK_SEGMENTS
+            v111_res = _read_vault111_navm_metrics(fo4_esm, segments=v111_segs)
             navm_summary = {
                 "triangles": v111_res["triangles"],
                 "sampled_points": v111_res["sampled_points"],
@@ -1980,11 +2079,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("export-markers-json", "Print optional diagnostic walk-marker spec JSON."),
     ):
         p = sub.add_parser(cmd_name, help=help_txt)
-        p.add_argument("--scope", choices=("opening", "extended", "all"), default="opening")
+        p.add_argument("--scope", choices=("opening", "extended", "armory", "all"), default="opening")
         p.add_argument("--run-speed", type=float, default=RUN_SPEED_MPS, help=f"Measured player run speed in m/s (default {RUN_SPEED_MPS}; 2g measured 4.6-5.0).")
 
     p_ver = sub.add_parser("verify", help="Verify continuity and optional binary ESM / NAVM parity.")
-    p_ver.add_argument("--scope", choices=("opening", "extended", "all"), default="opening")
+    p_ver.add_argument("--scope", choices=("opening", "extended", "armory", "all"), default="opening")
     p_ver.add_argument("--newgame-esm", type=Path, default=None)
     p_ver.add_argument("--mission-esm", type=Path, default=None)
     p_ver.add_argument("--core-esm", type=Path, default=None)

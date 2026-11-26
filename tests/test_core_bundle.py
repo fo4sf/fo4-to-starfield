@@ -1443,7 +1443,7 @@ class CoreBundleTests(unittest.TestCase):
             _make_tes4_esm(mm_stage / "FO4SFMapMarkers.esm", masters=("Starfield.esm", "FO4TerrainCore.esm"))
             mm_pex = _build_minimal_pex(
                 "FO4SF_MapMarkers",
-                ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker", "SuppressArrivalDarkHold"),
+                ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker", "DiscoverSingleMarkerSilent", "SuppressArrivalDarkHold"),
             )
             (mm_stage / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(mm_pex)
             (mm_stage / "FO4SFMapMarkers - Main.ba2").write_bytes(

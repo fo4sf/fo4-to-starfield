@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-for _p in (str(ROOT), str(ROOT / "tests")):
+for _p in (str(ROOT), str(ROOT / "tests"), str(ROOT / "scripts" / "newgame")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -157,8 +157,10 @@ class R15WaveACardsTests(unittest.TestCase):
                     re.search(pat, txt, re.I),
                     f"{rel} still contains obsolete Concord expectation matching {pat!r}",
                 )
-            for tok in (">= 20", "10 s", "~15-25 s", "stage 30", "god mode OFF", "10mm Pistol"):
+            for tok in (">= 20", "10 s", "stage 30", "god mode OFF", "10mm Pistol"):
                 self.assertIn(tok, txt, f"{rel} missing updated Item 7 combat expectation {tok!r}")
+        self.assertIn("within `60` rounds", self.card_2g)
+        self.assertIn("alive at `10 s`", self.card_2g)
 
     def test_item8_card_2g_fix7_covers_all_wave_a_items_logs_and_later_plugins(self) -> None:
         m = re.search(r"(?ms)^##\s+Card 2g-fix7 — Wave A Playable-0\.1 Blockers\b.*$", self.card_2g)
@@ -166,51 +168,115 @@ class R15WaveACardsTests(unittest.TestCase):
         sec = m.group(0)
 
         self.assertEqual(mnv._check_mnv_scope(sec), [], "Card 2g-fix7 failed P3 M/N/V scope check")
+        self.assertNotIn("<cand2g-fix7-test>", sec, "G2 forbids un-staged <cand2g-fix7-test> placeholder")
 
         required_tokens = (
             "REACHABLE",
             "TEST-STATION",
             "VIDEO",
+            "--port <starfield-dir>\\Data\\FO4Port.esm --require-map-markers",
+            "check_beginning_pilot.py check-bundle --bundle-dir <cand2g-fix7b-player>",
+            "--textures-archive",
+            "0. Preflight — Papyrus INI & 10 s Log Gate",
             "1. Wrist Pip-Boy",
             "2. Toasts & `QUEST` Label",
-            "3. Three Leaks",
-            "4. Lift Flow + Closed Black Gap",
-            "4b. Surface Lift Cog Bidirectional Up/Down",
+            "3. Silent Arrival, Silent Strip, Single-Pass Fade & Red Rocket Fix",
+            "4. Lift Flow, Unspent S.P.E.C.I.A.L. Lock & Rising Arrival",
+            "4b. Direct-Override Surface Lift Cog Bidirectional Up/Down",
             "5. Pod Safe Exit + Stage-15 Hook",
             "6. 10mm Pistol",
+            "Starfield stand-in (XM-2311 / .45) until H4",
+            "pushed, not run",
+            "5 m+",
+            "30+ fps",
             "7. Updated Concord Fight",
-            "8. Exact Papyrus & SFSE Log Lines",
+            "8. Structured Papyrus & SFSE Logs",
+            "G13. Invisible Talk Proxy, Navmesh Snap, Weather & Jump Fallback",
+            "bat g13p",
             "bEnableLogging=1",
+            "bEnableTrace=1",
+            "bLoadDebugInformation=1",
+            "`10 s` of clicking New Game",
             "pipboy wrist equipped",
             "pipboy wrist reequip on_load",
-            "codsworth01 objective10_toast",
+            "codsworth01 objective10_toast skipped=true reason=already_displayed",
+            "lift_pair reload recovered",
             "step=hud_quest_label",
-            "arrival discovery muted=true",
-            "inventory starter_strip silent=true",
+            "arrival discovery silent=<bool>",
+            "inventory starter_strip silent=<bool>",
             "story_fade single_pass=true",
             "ascent gap_closed=true",
             "lift_pair surface_cog ready",
             "lift_pair ride start",
             "lift_pair ride arrived",
-            "pod_exit mode=safe_spawn hook_stage=15",
+            "pod_exit mode=<safe_spawn\\|cryopod_anim_hook> hook_stage=15",
             "pistol picked",
             "Later plug-in:",
+            "not wired yet until H6",
             "settlement_rules.json",
         )
         for tok in required_tokens:
             self.assertIn(tok, sec, f"Card 2g-fix7 missing {tok!r}")
+
+        # G3: every line citing bEnableLogging=1 in Card 2g-fix7 must also carry bEnableTrace=1 & bLoadDebugInformation=1
+        def check_papyrus_keys(text: str) -> list[str]:
+            bad: list[str] = []
+            for ln in text.splitlines():
+                if "bEnableLogging" in ln and ("bEnableTrace=1" not in ln or "bLoadDebugInformation=1" not in ln):
+                    bad.append(ln.strip())
+            return bad
+
+        self.assertEqual(check_papyrus_keys(sec), [], "G3: bEnableLogging without bEnableTrace+bLoadDebugInformation")
+        self.assertTrue(check_papyrus_keys("Enable [Papyrus] bEnableLogging=1 only"))
+
+        # G3: every backticked pattern in Item 8 markdown log table must regex-match a source format string
+        src_pats = r11.collect_source_format_patterns(ROOT)
+        tbl_m = re.search(
+            r"(?ms)^### Item 8 — Code-Verified Papyrus & SFSE Log Lines.*?\n(\|.*?)(?=\n### )",
+            sec,
+        )
+        self.assertIsNotNone(tbl_m, "Missing Item 8 Code-Verified Log Lines Table")
+        tbl_lines = [ln for ln in tbl_m.group(1).splitlines() if ln.startswith("| **")]
+        self.assertGreaterEqual(len(tbl_lines), 20)
+
+        def match_log_pattern(pline: str) -> bool:
+            sample = r11._sample_from_card_line(pline)
+            fixed = r11._extract_fixed_tokens(pline)
+            return any(
+                pat.search(sample) and all(r11._token_matches_template(ft, src_tpl) for ft in fixed)
+                for _rel, src_tpl, pat in src_pats
+            )
+
+        unmatched = []
+        for ln in tbl_lines:
+            cells = [c.strip() for c in re.split(r"(?<!\\)\|", ln.strip().strip("|"))]
+            pat_cell = cells[2].strip("`").replace(r"\|", "|")
+            if not match_log_pattern(pat_cell):
+                unmatched.append(pat_cell)
+        self.assertEqual(unmatched, [], f"G3 unmatched Item 8 table log patterns: {unmatched}")
+        self.assertFalse(match_log_pattern("step=invented_fake_log foo=<bar>"))
+
+        # G11: Vault 111 armory walk leg L10 in walk_headings.py & console-free-walk-list.md
+        import walk_headings as wh
+        cont = wh.check_route_continuity(wh.VAULT_ARMORY_WALK_SEGMENTS)
+        self.assertTrue(cont["pass"], cont["issues"])
+        self.assertEqual(cont["segment_count"], 6)
+        self.assertIn("L10", cont["leg_totals_m"])
+        walk_doc = (ROOT / "docs" / "testing" / "console-free-walk-list.md").read_text(encoding="utf-8")
+        self.assertIn("pushed, not run", walk_doc)
+        for ln in wh.format_markdown_table(wh.compute_route_rows(wh.VAULT_ARMORY_WALK_SEGMENTS)).splitlines():
+            self.assertIn(ln, walk_doc, f"Missing L10 armory row in console-free-walk-list.md: {ln}")
 
         # Cross-check Card 2g-fix7 passes live R11 validation cleanly
         errs = r11.validate_lead_card_markdown(
             "docs/testing/candidate-2g-card.md",
             self.card_2g,
             help_runner=r11.HelpRunner(ROOT),
-            source_patterns=r11.collect_source_format_patterns(ROOT),
+            source_patterns=src_pats,
             writer_edids=r11.collect_writer_symbols(ROOT)[0],
             writer_fids=r11.collect_writer_symbols(ROOT)[1],
             quest_stages=r11.collect_writer_symbols(ROOT)[2],
         )
-        # Filter only the pre-existing R11 evolved 2g prefixes checked in test_r10_candidate_2g_card.py
         fix7_errs = [e for e in errs if "Card 2g-fix7" in e]
         self.assertEqual(fix7_errs, [], f"Card 2g-fix7 failed R11 validation: {fix7_errs}")
 

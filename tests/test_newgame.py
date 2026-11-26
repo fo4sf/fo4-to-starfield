@@ -1088,7 +1088,8 @@ class ContractTests(unittest.TestCase):
 # Starfield's Game.psc declarations (PC read, 19 Oct): the fade in turns saving and the HUD on with both
 CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, bool abShowControlsDisabledMessage) "
            "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n"
-           "Function ShowFirstPersonGeometry(bool abShow = true) native global\n")
+           "Function ShowFirstPersonGeometry(bool abShow = true) native global\n"
+           "Function ForceFirstPerson() native global\n")
 # Game.FadeOutGame, our own start's fade in: the five-argument call Roleplayers' Alternate Start makes (FO4's parameter
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
@@ -1109,6 +1110,7 @@ ACTOR_CORE = ("int Function GetLevel() native\n"
               "bool Function IsDead() native\n"
               "Function AddToFaction(Faction akFaction) native\n"
               "bool Function PlayIdle(Idle akIdle) native\n"
+              "Function SheatheWeapon() native\n"
               "Event OnPlayerLoadGame()\nEndEvent\n"
               "Event OnDying(ObjectReference akKiller)\nEndEvent\n"
               "Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n"
@@ -1285,6 +1287,7 @@ class PrecheckTests(unittest.TestCase):
                           "bool Function IsDead() native\n"
                           "Function AddToFaction(Faction akFaction) native\n"
                           "bool Function PlayIdle(Idle akIdle) native\n"
+                          "Function SheatheWeapon() native\n"
                           "Event OnPlayerLoadGame()\nEndEvent\n"
                           "Event OnDying(ObjectReference akKiller)\nEndEvent\n"
                           "Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n"
@@ -2269,7 +2272,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         # A6 & A16: FO4SF_PipboyAcquired lives solely in FO4SFCoreValues.esm:000865; 0x80C and 0x810..0x816 stay reserved
         self.assertNotIn("PipboyAcquiredGlobId =", cs)
         self.assertIn('var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));', cs)
-        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 }", cs)
+        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x825 }", cs)
         self.assertIn("PipboyWristArmorId = 0x80D", cs)
         self.assertIn("PipboyCorpseActiId = 0x80E", cs)
         self.assertIn("PipboyCorpseRefId = 0x80F", cs)
@@ -4131,7 +4134,7 @@ class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
 
         from tests.test_exit_arrival import _PStr, translated_functions
         psc = read(PSC)
-        compiled = compile(translated_functions(psc, ("ApplyArrivalWeather", "ResetInventory"), ""), PSC, "exec")
+        compiled = compile(translated_functions(psc, ("ApplyArrivalWeather", "ResetInventory", "StripStarterItemsSilently"), ""), PSC, "exec")
         traces = []
         force_calls = []
         weather_obj = type("Wthr", (), {"__repr__": lambda _s: "NewAtlantisWeather50(0027CF9B)",

@@ -4324,10 +4324,10 @@ Function CheckPairedLiftRide(Actor player)
     endif
     bool readyToTransfer = false
     if !liftPairDescending
-        float dxUp = player.GetPositionX() - liftPairStartX
-        float dyUp = player.GetPositionY() - liftPairStartY
-        float dzUp = player.GetPositionZ() - (liftPairStartZ + LiftRise)
-        readyToTransfer = liftPairDone && dxUp * dxUp + dyUp * dyUp <= PlatformRadius * PlatformRadius && dzUp > -0.75 && dzUp < 0.75
+        float upDx = player.GetPositionX() - liftPairStartX
+        float upDy = player.GetPositionY() - liftPairStartY
+        float upDz = player.GetPositionZ() - (liftPairStartZ + LiftRise)
+        readyToTransfer = liftPairDone && upDx * upDx + upDy * upDy <= PlatformRadius * PlatformRadius && upDz > -0.75 && upDz < 0.75
     else
         float descFadeAt = PairSurfaceLiftFadeAt(pairId)
         readyToTransfer = (liftPairDone || elapsed >= descFadeAt + 1.5) && (player.GetPositionZ() <= liftPairStartZ - 3.0 || elapsed >= descFadeAt + 2.0)
