@@ -13,6 +13,7 @@ Message Property CodsworthReply0Msg Auto Const
 Message Property CodsworthReply1Msg Auto Const
 Message Property CodsworthReply2Msg Auto Const
 GlobalVariable Property TalkUseMessageBox Auto Const
+bool Property MuteDuplicateObjectiveToasts = True Auto Const
 
 string LogName = "fo4sf_mission"
 float CodsworthLocalX = -1146.709
@@ -61,6 +62,8 @@ bool choice3Seen = False
 bool choice4Seen = False
 int choicesCount = 0
 bool completed = False
+bool objective10DisplayedOnce = False
+bool objective10SkipLogged = False
 
 int Function EffectiveStage()
     int st = GetStage()
@@ -74,13 +77,30 @@ Function ShowCodsworthObjective()
     if completed || concordCleared
         return
     endif
+    if MuteDuplicateObjectiveToasts && objective10DisplayedOnce
+        if !objective10SkipLogged
+            objective10SkipLogged = True
+            Trace("codsworth01 objective10_toast skipped=true reason=already_displayed muted_duplicates=" + MuteDuplicateObjectiveToasts)
+        endif
+        return
+    endif
     if !IsRunning()
         Start()
     endif
     EnsureCodsworthAlias(ResolveCodsworth())
-    SetObjectiveDisplayed(10, True, True)
-    SetActive(True)
-    SetObjectiveDisplayedAtTop(10)
+    if MuteDuplicateObjectiveToasts
+        objective10DisplayedOnce = True
+        objective10SkipLogged = False
+        SetObjectiveDisplayed(10, True, False)
+        SetActive(True)
+        Trace("codsworth01 objective10_toast shown=true muted_duplicates=" + MuteDuplicateObjectiveToasts + " force=false")
+    else
+        objective10DisplayedOnce = True
+        SetObjectiveDisplayed(10, True, True)
+        SetActive(True)
+        SetObjectiveDisplayedAtTop(10)
+        Trace("codsworth01 objective10_toast shown=true muted_duplicates=" + MuteDuplicateObjectiveToasts + " force=true")
+    endif
 EndFunction
 
 Actor Function ResolveCodsworth()
@@ -270,8 +290,6 @@ Function EnsureTalkProxy(Actor player)
                 proxyLogged = True
                 if !completed && !concordCleared
                     EnsureCodsworthAlias(cods)
-                    SetObjectiveDisplayed(10, True, True)
-                    SetActive(True)
                 endif
                 Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
             endif
@@ -890,7 +908,7 @@ Event OnTimer(int aiTimerID)
         if applied > 0 && GetStage() < applied
             SetStage(applied)
         endif
-        if applied >= 10 && !concordCleared && !IsObjectiveDisplayed(10)
+        if applied >= 10 && !concordCleared && (!MuteDuplicateObjectiveToasts || !objective10DisplayedOnce) && !IsObjectiveDisplayed(10)
             ShowCodsworthObjective()
         endif
     endif
