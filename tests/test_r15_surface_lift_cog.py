@@ -340,6 +340,42 @@ class StageSurfaceLiftCogTests(unittest.TestCase):
         problems = sslc.verify_stage(str(out), plan, str(self.sf_data))
         self.assertTrue(any("changed after stage" in p for p in problems))
 
+    def test_verify_stage_accepts_separate_starfield_and_port_dirs(self):
+        from types import SimpleNamespace
+
+        sf_only = self.tmp / "sf_only"
+        port_only = self.tmp / "port_only"
+        sf_only.mkdir()
+        port_only.mkdir()
+        (sf_only / "Starfield.esm").write_bytes(b"SF-ONLY")
+        (port_only / "FO4Port.esm").write_bytes(b"PORT-ONLY")
+
+        out = self.tmp / "surface-cog-split-dirs"
+        port_textures = {"textures/fo4port/interiors/vault/vault111/v111elevplatform01_color.dds"}
+        args = SimpleNamespace(
+            out=str(out),
+            pair="fo4.vault111_exit",
+            lift_pairs=str(LIFT_PAIRS_PATH),
+            starfield_data=str(sf_only),
+            port_data=str(port_only),
+            fo4_data=str(self.fo4_data),
+            door_anim_dll="CALUMI.Animation.dll",
+            collision_template="tmpl.nif",
+            texconv="texconv.exe",
+            content_resources="ContentResources.zip",
+            foley="",
+        )
+        rc = sslc.stage(
+            args,
+            converter=lambda _a, st: (FakeSrc(b"nif"), FakeSurfaceConv(st)),
+            port_names_fn=lambda _d: port_textures,
+        )
+        self.assertEqual(rc, 0)
+        plan = json.loads((out / "plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(sslc.verify_stage(str(out), plan, str(port_only), str(sf_only)), [])
+        missing_sf = sslc.verify_stage(str(out), plan, str(port_only))
+        self.assertTrue(any("missing Starfield.esm" in p for p in missing_sf), msg=missing_sf)
+
 
 class PapyrusSpecContractTests(unittest.TestCase):
     def test_spec_defines_unified_functions_and_exact_log_lines(self):

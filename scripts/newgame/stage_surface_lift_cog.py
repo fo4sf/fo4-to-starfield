@@ -283,7 +283,12 @@ def stage(
     return 0
 
 
-def verify_stage(stage_dir: str, plan: dict, port_data: Optional[str] = None) -> list[str]:
+def verify_stage(
+    stage_dir: str,
+    plan: dict,
+    port_data: Optional[str] = None,
+    starfield_data: Optional[str] = None,
+) -> list[str]:
     """Return a list of drift/contract problems for a staged surface cog directory ([] = pass)."""
     problems: list[str] = []
     if plan.get("kind") != SURFACE_COG_KIND or plan.get("world_overrides") != 0:
@@ -297,11 +302,13 @@ def verify_stage(stage_dir: str, plan: dict, port_data: Optional[str] = None) ->
     extra = sorted(set(now) - set(plan.get("outputs", {})))
     if extra:
         problems.append(f"unexpected files not in plan.json: {extra}")
-    if port_data is not None:
-        for name in ("Starfield.esm", "FO4Port.esm"):
-            p = os.path.join(port_data, name)
+    if port_data is not None or starfield_data is not None:
+        sf_dir = starfield_data or port_data
+        p_dir = port_data or starfield_data
+        for name, folder in (("Starfield.esm", sf_dir), ("FO4Port.esm", p_dir)):
+            p = os.path.join(folder, name)
             if not os.path.isfile(p):
-                problems.append(f"missing {name} in {port_data}")
+                problems.append(f"missing {name} in {folder}")
             elif sha256(p) != plan["inputs"][name]["sha256"]:
                 problems.append(f"{name} changed since stage")
     return problems
@@ -313,7 +320,7 @@ def verify(a) -> int:
         sys.exit(f"missing {plan_path}")
     with open(plan_path, encoding="utf-8") as f:
         plan = json.load(f)
-    problems = verify_stage(a.stage, plan, a.port_data or None)
+    problems = verify_stage(a.stage, plan, a.port_data or None, getattr(a, "starfield_data", "") or None)
     for p in problems:
         print("FAIL ", p)
     print("verify: ok" if not problems else f"verify: {len(problems)} problem(s)")
@@ -346,6 +353,7 @@ def main(argv=None) -> int:
     vf = sub.add_parser("verify")
     vf.add_argument("--stage", required=True)
     vf.add_argument("--port-data", default="")
+    vf.add_argument("--starfield-data", default="")
 
     a = p.parse_args(argv)
     return {"inspect-source": inspect_source, "stage": stage, "verify": verify}[a.cmd](a)

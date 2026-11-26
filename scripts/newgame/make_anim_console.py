@@ -481,7 +481,7 @@ def finish_production_lift(a, out, final, work, tool, port, sf, before, original
             sys.exit(f"missing surface cog plan.json: {surf_plan_path}")
         with open(surf_plan_path, encoding="utf-8") as f:
             surface_cog_plan = json.load(f)
-        problems = sslc.verify_stage(surface_cog_stage, surface_cog_plan, os.path.dirname(port))
+        problems = sslc.verify_stage(surface_cog_stage, surface_cog_plan, os.path.dirname(port), os.path.dirname(sf))
         if problems:
             sys.exit(f"surface cog stage failed verification: {problems}")
         for rel, want in surface_cog_plan["outputs"].items():
