@@ -574,7 +574,8 @@ static class NewGame
         string ArrivalWeatherPlugin,
         bool ArrivalWeatherOverride,
         int VaultSuitFallbackId,
-        string VaultSuitFallbackPlugin);
+        string VaultSuitFallbackPlugin,
+        string LandingHandoff);
 
     static readonly uint[] DefaultStarterStripArmorIds =
     {
@@ -589,7 +590,7 @@ static class NewGame
         if (path is null || !File.Exists(path))
         {
             return new GameStartConfig(true, "add_to_map", true, DefaultStarterStripArmorIds, true, "safe_spawn", -2.5f, -3.2f, 270.0f, false,
-                0x0027CF9B, "Starfield.esm", true, 0x0001D1D7, "Starfield.esm");
+                0x0027CF9B, "Starfield.esm", true, 0x0001D1D7, "Starfield.esm", "single_quest");
         }
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
@@ -603,6 +604,11 @@ static class NewGame
         bool weatherOverride = !fo4.TryGetProperty("arrival_weather_override", out var awo) || awo.GetBoolean();
         int fallbackSuitId = fo4.TryGetProperty("vault_suit_fallback_armor_id", out var vsfid) ? (int)ParseHex(vsfid.GetString() ?? "0") : 0x0001D1D7;
         string fallbackSuitPlugin = fo4.TryGetProperty("vault_suit_fallback_plugin", out var vsfp) ? (vsfp.GetString() ?? "Starfield.esm") : "Starfield.esm";
+        var handoff = fo4.TryGetProperty("landing_handoff", out var lh) ? (lh.GetString() ?? "single_quest") : "single_quest";
+        if (handoff != "single_quest" && handoff != "two_quests")
+        {
+            throw new InvalidDataException($"Unsupported landing_handoff '{handoff}' in {path}");
+        }
         return new GameStartConfig(
             fo4.GetProperty("silent_arrival_discovery").GetBoolean(),
             fo4.GetProperty("arrival_discovery_method").GetString() ?? "add_to_map",
@@ -618,7 +624,8 @@ static class NewGame
             weatherPlugin,
             weatherOverride,
             fallbackSuitId,
-            fallbackSuitPlugin);
+            fallbackSuitPlugin,
+            handoff);
     }
 
     public static List<FormKey> ResolveStarterStripKeys(SF.IStarfieldModGetter sf, GameStartConfig gs)
@@ -1449,6 +1456,7 @@ static class NewGame
             ("SilentArrivalDiscovery", gs.SilentArrivalDiscovery),
             ("ArrivalDiscoveryMethod", gs.ArrivalDiscoveryMethod),
             ("SilentStarterStrip", gs.SilentStarterStrip),
+            ("LandingHandoff", gs.LandingHandoff),
             ("SinglePassLandingFade", gs.SinglePassLandingFade),
             ("PodExitMode", gs.PodExitMode),
             ("PodEntryStep", gs.PodEntryStep),

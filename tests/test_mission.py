@@ -46,8 +46,10 @@ class ContractTests(unittest.TestCase):
         for s in make_mission.STAGES:
             self.assertRegex(psc, rf"auiStageID == {s}\b", f"the script never handles stage {s}")
         for o in (10, 85, 86):                                   # Min00's objective indices, written by Program.cs
-            self.assertIn(f"SetObjectiveDisplayed({o})", psc)
+            self.assertIn(f"FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, {o},", psc)
             self.assertIn(f"({o}, \"", cs)
+        util_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_QuestToastUtil.psc"))
+        self.assertIn("q.SetObjectiveDisplayed(obj, True, False)", util_psc)
 
     def test_make_mission_compiles_without_warnings(self):
         """PC, Python 3.14 (FAL-128): make_mission.py's docstring printed a SyntaxWarning for "\\S" (Data\\Scripts)."""
@@ -1625,7 +1627,47 @@ def _translate_mission_psc(src_text, fn_names, global_vars):
         "class _PStr(str):",
         "    def __add__(self, other): return _PStr(super().__add__(str(other)))",
         "    def __radd__(self, other): return _PStr(str(other) + str(self))",
+        "MuteDuplicateObjectiveToasts = globals().setdefault('MuteDuplicateObjectiveToasts', True)",
+        "LandingHandoff = globals().setdefault('LandingHandoff', 'two_quests')",
+        "obj10DisplayedOnce = globals().setdefault('obj10DisplayedOnce', False)",
+        "obj85DisplayedOnce = globals().setdefault('obj85DisplayedOnce', False)",
+        "obj86DisplayedOnce = globals().setdefault('obj86DisplayedOnce', False)",
+        "objective10DisplayedOnce = globals().setdefault('objective10DisplayedOnce', False)",
+        "objective10SkipLogged = globals().setdefault('objective10SkipLogged', False)",
+        "class _QuestToastSelfShim:",
+        "    def __getattr__(self, name):",
+        "        if name in globals(): return globals()[name]",
+        "        raise AttributeError(name)",
+        "Self = globals().setdefault('Self', _QuestToastSelfShim())",
+        "if 'FO4SF_QuestToastUtil' not in globals():",
+        "    class FO4SF_QuestToastUtil:",
+        "        @staticmethod",
+        "        def ShowObjectiveOnce(q, obj, mute=True, alreadyDisplayed=False, atTop=False):",
+        "            if q is None: return False",
+        "            has_is = hasattr(q, 'IsObjectiveDisplayed')",
+        "            if mute and alreadyDisplayed: return q.IsObjectiveDisplayed(obj) if has_is else True",
+        "            disp = q.IsObjectiveDisplayed(obj) if has_is else False",
+        "            if mute:",
+        "                if not disp:",
+        "                    q.SetObjectiveDisplayed(obj, True, False)",
+        "                    q.SetActive(True)",
+        "                    disp = q.IsObjectiveDisplayed(obj) if has_is else True",
+        "                    if disp and atTop and not alreadyDisplayed and hasattr(q, 'SetObjectiveDisplayedAtTop'):",
+        "                        q.SetObjectiveDisplayedAtTop(obj)",
+        "                else:",
+        "                    q.SetActive(True)",
+        "                return disp",
+        "            q.SetObjectiveDisplayed(obj, True, True)",
+        "            q.SetActive(True)",
+        "            disp = q.IsObjectiveDisplayed(obj) if has_is else True",
+        "            if disp and atTop and hasattr(q, 'SetObjectiveDisplayedAtTop'):",
+        "                q.SetObjectiveDisplayedAtTop(obj)",
+        "            return disp",
     ]
+    all_globals = list(global_vars or ())
+    for _latch in ("obj10DisplayedOnce", "obj85DisplayedOnce", "obj86DisplayedOnce", "objective10DisplayedOnce", "objective10SkipLogged"):
+        if _latch not in all_globals:
+            all_globals.append(_latch)
     for name in fn_names:
         esc = re.escape(name)
         match = re.search(
@@ -1651,8 +1693,8 @@ def _translate_mission_psc(src_text, fn_names, global_vars):
                 py_args.append(raw_arg.split()[-1])
         fn_py_name = name.split(".")[-1]
         out.append(f"def {fn_py_name}({', '.join(py_args)}):")
-        if global_vars:
-            out.append("    global " + ", ".join(global_vars))
+        if all_globals:
+            out.append("    global " + ", ".join(all_globals))
         depth = 1
         for raw_line in body.splitlines():
             line = re.sub(r'("(?:[^"\\]|\\.)*")|;.*', lambda m: m.group(1) or "", raw_line).strip()

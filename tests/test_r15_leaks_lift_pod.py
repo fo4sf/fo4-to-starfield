@@ -188,7 +188,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
     def test_silent_starter_strip_unequips_and_removes_silently_before_remove_all_items(self):
         psc = read(PSC)
         compiled = compile(
-            translated_functions(psc, ("ResetInventory",), ""),
+            translated_functions(psc, ("ResetInventory", "StripStarterItemsSilently"), ""),
             PSC,
             "exec",
         )

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Stage-time generator for `Data/Interface/Translate_en.txt` replacing Starfield's HUD "MISSION" labels.
+"""Stage-time generator for `Data/Interface/Translate_en.txt` replacing Starfield's HUD and menu "MISSION" labels.
 
 Reads the full vanilla `interface/translate_en.txt` directly from `<starfield-data>/Starfield - Interface.ba2`,
-preserves its exact BOM, encoding (UTF-16LE with BOM), line endings, and 100% of all other translation lines, and
-under `--mode quest` rewrites only the 6 `$Mission*` HUD toast/status keys to use `--label` (default `QUEST`).
+preserves its exact BOM, encoding (UTF-16LE with BOM), line endings, and all unrelated translation lines, and
+under `--mode quest` rewrites the 20 `$MISSION*` / `$Mission*` / `$QUEST*` HUD toast and menu keys to use `--label`
+(default `QUEST`) while recording source BA2 `size`, `mtime`, and `sha256` in `<out>/plan.json`.
 Under `--mode mission`, all lines are preserved untouched.
 
 Never writes inside any Git worktree or game installation directory (Rule R4).
@@ -11,6 +12,8 @@ Never writes inside any Git worktree or game installation directory (Rule R4).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -30,13 +33,68 @@ TRANSLATE_ENTRY_NAME = "interface/translate_en.txt"
 TARGET_REL_PATH = Path("Data") / "Interface" / "Translate_en.txt"
 
 TARGET_KEY_TEMPLATES: Dict[str, str] = {
-    "$MISSION FAILED": "{label} FAILED",
-    "$MISSION STATUS": "{label} STATUS",
-    "$MISSION UPDATED": "{label} UPDATED",
-    "$MissionFailed": "{label} FAILED",
-    "$MissionNew": "NEW {label}",
-    "$MissionUpdate": "{label} UPDATED",
+    "$MISSION": "{upper}",
+    "$MISSIONS": "{plural_upper}",
+    "$MISSION COMPLETE": "{upper} COMPLETE",
+    "$MISSION FAILED": "{upper} FAILED",
+    "$MISSION REWARDS": "{upper} REWARDS",
+    "$MISSION STATUS": "{upper} STATUS",
+    "$MISSION UPDATED": "{upper} UPDATED",
+    "$MissionAdded": "ADDED TO {upper} LOG",
+    "$MissionComplete": "{upper} COMPLETED",
+    "$MissionFailed": "{upper} FAILED",
+    "$MissionMenu": "{upper} LOG",
+    "$MissionNew": "NEW {upper}",
+    "$MissionUpdate": "{upper} UPDATED",
+    "$Mission Data": "{title} Data",
+    "$Mission Info": "{title} Info",
+    "$Mission name": "{title} Name",
+    "$QUEST": "{upper}",
+    "$Quest": "{title}",
+    "$QUESTS": "{plural_upper}",
+    "$SET MISSION ACTIVE": "SET {upper} ACTIVE",
 }
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def source_ba2_metadata(ba2_path: Path) -> Dict[str, object]:
+    st = ba2_path.stat()
+    return {
+        "path": str(ba2_path),
+        "name": ba2_path.name,
+        "size": int(st.st_size),
+        "mtime": float(st.st_mtime),
+        "mtime_ns": int(st.st_mtime_ns),
+        "sha256": sha256_file(ba2_path),
+    }
+
+
+def _label_forms(lbl: str) -> Dict[str, str]:
+    upper = lbl.upper() if lbl.islower() or lbl.isupper() else lbl
+    title = " ".join(w.capitalize() if w.isupper() else w for w in lbl.split())
+    if upper.endswith("S") or upper.endswith("X") or upper.endswith("Z") or upper.endswith("CH") or upper.endswith("SH"):
+        plural_upper = upper + ("ES" if upper.isupper() else "es")
+    elif upper.endswith("Y") and len(upper) > 1 and upper[-2] not in "AEIOUaeiou":
+        plural_upper = upper[:-1] + ("IES" if upper.isupper() else "ies")
+    else:
+        plural_upper = upper + ("S" if upper.isupper() else "s")
+    return {
+        "label": lbl,
+        "upper": upper,
+        "title": title,
+        "plural_upper": plural_upper,
+    }
 
 
 class QuestTranslateError(ValueError):
@@ -99,7 +157,7 @@ def rewrite_translate_bytes(
     if mode == "mission":
         return raw, len(lines), 0
 
-    replacements = {k: tmpl.format(label=lbl) for k, tmpl in TARGET_KEY_TEMPLATES.items()}
+    replacements = {k: tmpl.format(**_label_forms(lbl)) for k, tmpl in TARGET_KEY_TEMPLATES.items()}
     seen_keys = set()
     changed = 0
     out_lines = []
@@ -162,16 +220,49 @@ def generate_quest_translate(
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_bytes(out_bytes)
+    ba2_meta = source_ba2_metadata(ba2_path)
+    out_sha = sha256_bytes(out_bytes)
+    plan_path = refuse_unsafe_output_path(stage_root / "plan.json")
+    plan_doc: Dict[str, object] = {}
+    if plan_path.is_file():
+        try:
+            loaded = json.loads(plan_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                plan_doc = loaded
+        except (OSError, ValueError):
+            plan_doc = {}
+    quest_translate_meta = {
+        "mode": mode,
+        "label": validate_label(label),
+        "out_rel": "Data/Interface/Translate_en.txt",
+        "out_sha256": out_sha,
+        "encoding": encoding,
+        "bom": bom.hex(),
+        "total_lines": total_lines,
+        "changed_lines": changed,
+        "keys": sorted(TARGET_KEY_TEMPLATES),
+        "source_ba2": ba2_meta,
+    }
+    plan_doc["quest_translate"] = quest_translate_meta
+    if isinstance(plan_doc.get("outputs"), dict):
+        plan_doc["outputs"]["Data/Interface/Translate_en.txt"] = out_sha
+    if isinstance(plan_doc.get("files"), dict):
+        plan_doc["files"]["Data/Interface/Translate_en.txt"] = {"sha256": out_sha, "bytes": len(out_bytes)}
+    plan_path.write_text(json.dumps(plan_doc, indent=2) + "\n", encoding="utf-8")
 
     return {
         "ba2_path": str(ba2_path),
         "out_path": str(target_path),
+        "plan_path": str(plan_path),
         "mode": mode,
         "label": validate_label(label),
         "encoding": encoding,
         "bom": bom.hex(),
         "total_lines": total_lines,
         "changed_lines": changed,
+        "out_sha256": out_sha,
+        "keys": sorted(TARGET_KEY_TEMPLATES),
+        "source_ba2": ba2_meta,
     }
 
 

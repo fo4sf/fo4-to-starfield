@@ -10,6 +10,14 @@
     "during_fade",
     "add_to_map"
   ],
+  "landing_handoff_modes_supported": [
+    "single_quest",
+    "two_quests"
+  ],
+  "hud_label_modes_supported": [
+    "quest",
+    "vanilla"
+  ],
   "starter_strip_starfield_armor_ids": [
     "0x001E2B17",
     "0x001E2B18",
@@ -113,6 +121,12 @@
       "vault_suit_fallback_plugin": "Starfield.esm",
       "vault_suit_fallback_armor_id": "0x0001D1D7",
       "vault_suit_fallback_note": "FO4Port.esm is produced by the interiors/doors converter and contains 0 ARMO/ARMA/OTFT records; no wearable FO4 Vault 111 jumpsuit conversion exists in staged assets (only static/clothed-skeleton props in doors_anim_work), so when VaultSuitId==0, ResetInventory equips Starfield.esm Clothes_Miner_Jumpsuit (0x0001D1D7) as fallback.",
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
       "notes": "Vault 111 cryo pod safe spawn steps -3.2 m from MQPlayerCryopodREF (9.143, -4.114, -1.029) onto main corridor aisle centerline (9.143, -7.314, -1.029) facing West (270.0 deg) toward v111_door_1_closed (-7.314, -7.314, 0.000)."
     },
     "fo3": {
@@ -146,6 +160,12 @@
       "arrival_weather_override": true,
       "vault_suit_fallback_plugin": "Starfield.esm",
       "vault_suit_fallback_armor_id": "0x0001D1D7",
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
       "notes": "Fallout 3 Capital Wasteland Vault 101 exit placeholder; no cryo pod hook required."
     },
     "fnv": {
@@ -179,6 +199,12 @@
       "arrival_weather_override": true,
       "vault_suit_fallback_plugin": "Starfield.esm",
       "vault_suit_fallback_armor_id": "0x0001D1D7",
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
       "notes": "Fallout: New Vegas Doc Mitchell's house wake-up placeholder; no cryo pod hook required."
     }
   }

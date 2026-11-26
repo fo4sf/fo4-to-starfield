@@ -294,6 +294,7 @@ float Property StartLoadTimeout = 15.0 Auto Const
 bool Property SilentArrivalDiscovery = true Auto Const
 string Property ArrivalDiscoveryMethod = "add_to_map" Auto Const
 bool Property SilentStarterStrip = true Auto Const
+string Property LandingHandoff = "single_quest" Auto Const
 Form[] Property StarterStripItems Auto Const
 bool Property SinglePassLandingFade = true Auto Const
 int Property ArrivalWeatherId = 0x0027CF9B Auto Const
@@ -1108,12 +1109,36 @@ bool Function CenterOnVault()
 EndFunction
 
 Function ResetInventory(Actor player)
-{The starting inventory reset (NG-K8), once, when the player is confirmed in the vault: RemoveAllItems(None, false,
- false), written with FO4's arguments. Starfield's third parameter is abRespectTargetCapacity (ObjectReference.psc,
- ContentResources.zip, read 29 Oct), so whether quest items stay is unverified: the count before and after is logged
- (GetItemCount(None) counts every item in FO4; unverified in Starfield, so both numbers are logged). When
- SilentStarterStrip is true, Starfield starter armor/watch forms are unequipped and removed silently before
- RemoveAllItems so no removed HUD toast fires, then the vault suit, when the build names one, is added and equipped.}
+{The starting inventory reset (NG-K8), once, when the player is confirmed in the vault: strips Starfield starter
+ armor/watch silently via StripStarterItemsSilently when SilentStarterStrip is true before RemoveAllItems(None, false,
+ false) — written with FO4's arguments; whether quest items stay is unverified: the count before and after is logged
+ — then adds and equips the vault suit when the build names one.}
+    StripStarterItemsSilently(player)
+    if VaultSuitId > 0
+        Armor suit = Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor
+        if suit == None
+            Trace("vault suit " + VaultPlugin + ":" + VaultSuitId + " does not resolve")
+            return
+        endif
+        player.AddItem(suit, 1, true)
+        player.EquipItem(suit, false, true)
+        Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
+    else
+        if VaultSuitFallbackId > 0 && VaultSuitFallbackPlugin != ""
+            Armor fallbackSuit = Game.GetFormFromFile(VaultSuitFallbackId, VaultSuitFallbackPlugin) as Armor
+            if fallbackSuit != None
+                player.AddItem(fallbackSuit, 1, true)
+                player.EquipItem(fallbackSuit, false, true)
+                Trace("vault suit fallback equipped " + fallbackSuit + " worn=" + player.IsEquipped(fallbackSuit) + " id=" + VaultSuitFallbackId)
+            else
+                Trace("vault suit fallback " + VaultSuitFallbackPlugin + ":" + VaultSuitFallbackId + " does not resolve")
+            endif
+        endif
+    endif
+EndFunction
+
+int Function StripStarterItemsSilently(Actor player)
+{Shared silent starter strip + RemoveAllItems helper called by both Story ResetInventory and Warfare RunWarfareBranch.}
     int before = player.GetItemCount(None)
     int stripped = 0
     if SilentStarterStrip
@@ -1165,27 +1190,7 @@ Function ResetInventory(Actor player)
     int after = player.GetItemCount(None)
     Trace("inventory starter_strip silent=" + SilentStarterStrip + " stripped=" + stripped + " left=" + after)
     Trace("inventory cleared removed=" + (before - after) + " left=" + after)
-    if VaultSuitId > 0
-        Armor suit = Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor
-        if suit == None
-            Trace("vault suit " + VaultPlugin + ":" + VaultSuitId + " does not resolve")
-            return
-        endif
-        player.AddItem(suit, 1, true)
-        player.EquipItem(suit, false, true)
-        Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
-    else
-        if VaultSuitFallbackId > 0 && VaultSuitFallbackPlugin != ""
-            Armor fallbackSuit = Game.GetFormFromFile(VaultSuitFallbackId, VaultSuitFallbackPlugin) as Armor
-            if fallbackSuit != None
-                player.AddItem(fallbackSuit, 1, true)
-                player.EquipItem(fallbackSuit, false, true)
-                Trace("vault suit fallback equipped " + fallbackSuit + " worn=" + player.IsEquipped(fallbackSuit) + " id=" + VaultSuitFallbackId)
-            else
-                Trace("vault suit fallback " + VaultSuitFallbackPlugin + ":" + VaultSuitFallbackId + " does not resolve")
-            endif
-        endif
-    endif
+    return after
 EndFunction
 
 Function FillO2(Actor player)
@@ -1948,6 +1953,9 @@ Function StartLandingQuests()
         endif
     endif
     bool codsworth01Ok = StartOptionalMissionQuest(0x000816) && storyAllowed
+    bool newgameCompleted = storyAllowed && (GetStage() == 200 || applied == 200 || GetStageDone(200))
+    bool codsworth01Displayed = codsworth01Ok && LandingHandoff != "single_quest"
+    Trace("landing handoff mode=" + LandingHandoff + " newgame_completed=" + newgameCompleted + " codsworth01_displayed=" + codsworth01Displayed)
     if storyAllowed
         Trace("landing quests started min00=" + min00Ok + " keeper=" + keeperOk + " codsworth01=" + codsworth01Ok)
     endif
@@ -2844,7 +2852,7 @@ Function RunWarfareBranch(Actor player, int rowIdx)
     RunPreworldLooksChoice(player, true)
     Game.ShowFirstPersonGeometry(true)
     Game.SetCharGenHUDMode(0)
-    player.RemoveAllItems(None, false, false)
+    StripStarterItemsSilently(player)
     FillO2(player)
     if PipboyWristArmor != None
         player.AddItem(PipboyWristArmor, 1, true)

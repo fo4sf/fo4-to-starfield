@@ -9,17 +9,21 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace fo4sf::hud
 {
 	inline constexpr std::string_view kDefaultQuestHudLabel = "QUEST";
 	inline constexpr std::size_t      kMaxQuestHudLabelLen = 32;
+	inline constexpr std::size_t      kTranslateTargetKeyCount = 20;
 
 	struct QuestLabelConfig
 	{
@@ -35,6 +39,14 @@ namespace fo4sf::hud
 		{
 			return Active() ? "quest" : "mission";
 		}
+	};
+
+	struct TranslateFileStatus
+	{
+		bool        filePresent{ false };
+		bool        fileOk{ false };
+		std::size_t keysMatched{ 0 };
+		std::size_t keysExpected{ kTranslateTargetKeyCount };
 	};
 
 	namespace detail
@@ -104,6 +116,83 @@ namespace fo4sf::hud
 			}
 			return std::string(trimmed);
 		}
+
+		inline std::string ToUpperAscii(std::string_view a_sv)
+		{
+			std::string out(a_sv);
+			for (char& ch : out) {
+				ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+			}
+			return out;
+		}
+
+		inline std::string ToTitleWords(std::string_view a_sv)
+		{
+			std::string out;
+			out.reserve(a_sv.size());
+			bool newWord = true;
+			for (const char ch : a_sv) {
+				const auto uc = static_cast<unsigned char>(ch);
+				if (ch == ' ' || ch == '\t' || ch == '_' || ch == '-') {
+					out.push_back(ch);
+					newWord = true;
+				} else if (newWord) {
+					out.push_back(static_cast<char>(std::toupper(uc)));
+					newWord = false;
+				} else {
+					out.push_back(static_cast<char>(std::tolower(uc)));
+				}
+			}
+			return out;
+		}
+
+		inline std::string ToPluralUpperAscii(std::string_view a_sv)
+		{
+			std::string u = ToUpperAscii(a_sv);
+			if (u.empty()) {
+				return "QUESTS";
+			}
+			if (u.ends_with('S') || u.ends_with('X') || u.ends_with('Z') || u.ends_with("CH") || u.ends_with("SH")) {
+				u += "ES";
+			} else if (u.ends_with('Y') && u.size() > 1 &&
+			           std::string_view("AEIOU").find(u[u.size() - 2]) == std::string_view::npos) {
+				u.pop_back();
+				u += "IES";
+			} else {
+				u.push_back('S');
+			}
+			return u;
+		}
+
+		inline std::string DecodeTranslateText(std::string_view a_raw)
+		{
+			std::string out;
+			if (a_raw.size() >= 2 && static_cast<unsigned char>(a_raw[0]) == 0xFF &&
+			    static_cast<unsigned char>(a_raw[1]) == 0xFE) {
+				out.reserve((a_raw.size() - 2) / 2);
+				for (std::size_t i = 2; i + 1 < a_raw.size(); i += 2) {
+					const std::uint16_t ch = static_cast<unsigned char>(a_raw[i]) |
+					                         (static_cast<unsigned char>(a_raw[i + 1]) << 8);
+					out.push_back(ch < 0x80 ? static_cast<char>(ch) : '?');
+				}
+				return out;
+			}
+			if (a_raw.size() >= 2 && static_cast<unsigned char>(a_raw[0]) == 0xFE &&
+			    static_cast<unsigned char>(a_raw[1]) == 0xFF) {
+				out.reserve((a_raw.size() - 2) / 2);
+				for (std::size_t i = 2; i + 1 < a_raw.size(); i += 2) {
+					const std::uint16_t ch = (static_cast<unsigned char>(a_raw[i]) << 8) |
+					                         static_cast<unsigned char>(a_raw[i + 1]);
+					out.push_back(ch < 0x80 ? static_cast<char>(ch) : '?');
+				}
+				return out;
+			}
+			if (a_raw.size() >= 3 && static_cast<unsigned char>(a_raw[0]) == 0xEF &&
+			    static_cast<unsigned char>(a_raw[1]) == 0xBB && static_cast<unsigned char>(a_raw[2]) == 0xBF) {
+				a_raw.remove_prefix(3);
+			}
+			return std::string(a_raw);
+		}
 	}   // namespace detail
 
 	/// Parse [FO4SFPipboyMenu] ReplaceMissionLabel and QuestHudLabel from raw INI text.
@@ -163,12 +252,215 @@ namespace fo4sf::hud
 		return ParseQuestLabelIniText(ss.str());
 	}
 
-	/// Format the SFSE startup log line recording the active per-game HUD quest label configuration.
-	[[nodiscard]] inline std::string FormatStartupLog(const QuestLabelConfig& a_cfg)
+	inline constexpr std::array<std::string_view, kTranslateTargetKeyCount> kTranslateTargetKeys{ {
+		"$MISSION",
+		"$MISSIONS",
+		"$MISSION COMPLETE",
+		"$MISSION FAILED",
+		"$MISSION REWARDS",
+		"$MISSION STATUS",
+		"$MISSION UPDATED",
+		"$MissionAdded",
+		"$MissionComplete",
+		"$MissionFailed",
+		"$MissionMenu",
+		"$MissionNew",
+		"$MissionUpdate",
+		"$Mission Data",
+		"$Mission Info",
+		"$Mission name",
+		"$QUEST",
+		"$Quest",
+		"$QUESTS",
+		"$SET MISSION ACTIVE",
+	} };
+
+	[[nodiscard]] inline std::string ExpectedTranslateValue(std::string_view a_key, const QuestLabelConfig& a_cfg)
+	{
+		if (!a_cfg.Active()) {
+			if (a_key == "$MISSIONS" || a_key == "$QUESTS") {
+				return "MISSIONS";
+			}
+			if (a_key == "$MISSION COMPLETE") {
+				return "MISSION COMPLETE";
+			}
+			if (a_key == "$MISSION FAILED" || a_key == "$MissionFailed") {
+				return "MISSION FAILED";
+			}
+			if (a_key == "$MISSION REWARDS") {
+				return "MISSION REWARDS";
+			}
+			if (a_key == "$MISSION STATUS") {
+				return "MISSION STATUS";
+			}
+			if (a_key == "$MISSION UPDATED" || a_key == "$MissionUpdate") {
+				return "MISSION UPDATED";
+			}
+			if (a_key == "$MissionAdded") {
+				return "ADDED TO MISSION MENU";
+			}
+			if (a_key == "$MissionComplete") {
+				return "MISSION COMPLETE";
+			}
+			if (a_key == "$MissionMenu") {
+				return "MISSION MENU";
+			}
+			if (a_key == "$MissionNew") {
+				return "NEW MISSION";
+			}
+			if (a_key == "$Mission Data") {
+				return "Mission Data";
+			}
+			if (a_key == "$Mission Info") {
+				return "Mission Info";
+			}
+			if (a_key == "$Mission name") {
+				return "Mission Name";
+			}
+			if (a_key == "$Quest") {
+				return "Mission";
+			}
+			if (a_key == "$SET MISSION ACTIVE") {
+				return "SET MISSION ACTIVE";
+			}
+			return "MISSION";
+		}
+
+		const std::string& raw = a_cfg.questHudLabel;
+		const std::string  upper = (std::ranges::all_of(raw, [](char c) { return !std::islower(static_cast<unsigned char>(c)); }))
+		                              ? raw
+		                              : detail::ToUpperAscii(raw);
+		const std::string  title = detail::ToTitleWords(raw);
+		const std::string  pluralUpper = detail::ToPluralUpperAscii(upper);
+
+		if (a_key == "$MISSION" || a_key == "$QUEST") {
+			return upper;
+		}
+		if (a_key == "$MISSIONS" || a_key == "$QUESTS") {
+			return pluralUpper;
+		}
+		if (a_key == "$MISSION COMPLETE") {
+			return std::format("{} COMPLETE", upper);
+		}
+		if (a_key == "$MISSION FAILED" || a_key == "$MissionFailed") {
+			return std::format("{} FAILED", upper);
+		}
+		if (a_key == "$MISSION REWARDS") {
+			return std::format("{} REWARDS", upper);
+		}
+		if (a_key == "$MISSION STATUS") {
+			return std::format("{} STATUS", upper);
+		}
+		if (a_key == "$MISSION UPDATED" || a_key == "$MissionUpdate") {
+			return std::format("{} UPDATED", upper);
+		}
+		if (a_key == "$MissionAdded") {
+			return std::format("ADDED TO {} LOG", upper);
+		}
+		if (a_key == "$MissionComplete") {
+			return std::format("{} COMPLETED", upper);
+		}
+		if (a_key == "$MissionMenu") {
+			return std::format("{} LOG", upper);
+		}
+		if (a_key == "$MissionNew") {
+			return std::format("NEW {}", upper);
+		}
+		if (a_key == "$Mission Data") {
+			return std::format("{} Data", title);
+		}
+		if (a_key == "$Mission Info") {
+			return std::format("{} Info", title);
+		}
+		if (a_key == "$Mission name") {
+			return std::format("{} Name", title);
+		}
+		if (a_key == "$Quest") {
+			return title;
+		}
+		if (a_key == "$SET MISSION ACTIVE") {
+			return std::format("SET {} ACTIVE", upper);
+		}
+		return upper;
+	}
+
+	/// Verify `<dataDir>/Interface/Translate_en.txt` on disk contains expected translations for all 20 HUD/menu keys.
+	[[nodiscard]] inline TranslateFileStatus VerifyTranslateEnFile(
+		const std::filesystem::path& a_dataDir,
+		const QuestLabelConfig&      a_cfg)
+	{
+		TranslateFileStatus status{};
+		std::filesystem::path filePath = a_dataDir / "Interface" / "Translate_en.txt";
+		std::error_code       ec;
+		if (!std::filesystem::is_regular_file(filePath, ec)) {
+			const auto lowerPath = a_dataDir / "interface" / "translate_en.txt";
+			if (std::filesystem::is_regular_file(lowerPath, ec)) {
+				filePath = lowerPath;
+			} else {
+				return status;
+			}
+		}
+		std::ifstream in(filePath, std::ios::binary);
+		if (!in) {
+			return status;
+		}
+		std::ostringstream ss;
+		ss << in.rdbuf();
+		const std::string raw = ss.str();
+		if (raw.empty()) {
+			return status;
+		}
+		status.filePresent = true;
+		const std::string                        decoded = detail::DecodeTranslateText(raw);
+		std::array<bool, kTranslateTargetKeyCount> matched{};
+
+		std::size_t pos = 0;
+		while (pos <= decoded.size()) {
+			const auto nextNl = decoded.find('\n', pos);
+			auto       line = (nextNl == std::string::npos)
+			                      ? std::string_view(decoded).substr(pos)
+			                      : std::string_view(decoded).substr(pos, nextNl - pos);
+			pos = (nextNl == std::string::npos) ? decoded.size() + 1 : nextNl + 1;
+			if (!line.empty() && line.back() == '\r') {
+				line.remove_suffix(1);
+			}
+			const auto tab = line.find('\t');
+			if (tab == std::string_view::npos) {
+				continue;
+			}
+			const auto key = line.substr(0, tab);
+			const auto val = line.substr(tab + 1);
+			for (std::size_t i = 0; i < kTranslateTargetKeyCount; ++i) {
+				if (key == kTranslateTargetKeys[i]) {
+					const std::string expected = ExpectedTranslateValue(key, a_cfg);
+					const bool        ok = a_cfg.Active() ? (val == expected) : detail::EqualsIgnoreCase(val, expected);
+					if (ok) {
+						matched[i] = true;
+					}
+					break;
+				}
+			}
+		}
+
+		for (const bool m : matched) {
+			if (m) {
+				++status.keysMatched;
+			}
+		}
+		status.fileOk = (status.keysMatched == kTranslateTargetKeyCount);
+		return status;
+	}
+
+	/// Format the SFSE startup log line recording the active per-game HUD quest label configuration and Translate_en.txt check.
+	[[nodiscard]] inline std::string FormatStartupLog(
+		const QuestLabelConfig&    a_cfg,
+		const TranslateFileStatus& a_fileStatus = {})
 	{
 		const std::string_view lbl = a_cfg.questHudLabel.empty() ? kDefaultQuestHudLabel : std::string_view(a_cfg.questHudLabel);
-		return std::format("step=hud_quest_label mode={} label={} active={}",
-			a_cfg.Mode(), lbl, a_cfg.Active() ? 1 : 0);
+		return std::format("step=hud_quest_label mode={} label={} active={} file={} file_ok={}",
+			a_cfg.Mode(), lbl, a_cfg.Active() ? 1 : 0,
+			a_fileStatus.filePresent ? "present" : "absent",
+			a_fileStatus.fileOk ? 1 : 0);
 	}
 
 	/// Rewrite Starfield's "MISSION" HUD label / toast tokens to the configured QuestHudLabel (default "QUEST")
@@ -195,7 +487,31 @@ namespace fo4sf::hud
 		    detail::EqualsIgnoreCase(trimmed, "MISSION FAILED")) {
 			return std::format("{} FAILED", label);
 		}
-		if (trimmed == "$MISSION" || detail::EqualsIgnoreCase(trimmed, "MISSION")) {
+		if (trimmed == "$MISSION COMPLETE" || detail::EqualsIgnoreCase(trimmed, "MISSION COMPLETE")) {
+			return std::format("{} COMPLETE", label);
+		}
+		if (trimmed == "$MissionComplete" || detail::EqualsIgnoreCase(trimmed, "MISSION COMPLETED")) {
+			return std::format("{} COMPLETED", label);
+		}
+		if (trimmed == "$MISSION REWARDS" || detail::EqualsIgnoreCase(trimmed, "MISSION REWARDS")) {
+			return std::format("{} REWARDS", label);
+		}
+		if (trimmed == "$MissionAdded" || detail::EqualsIgnoreCase(trimmed, "ADDED TO MISSION MENU")) {
+			return std::format("ADDED TO {} LOG", label);
+		}
+		if (trimmed == "$MissionMenu" || detail::EqualsIgnoreCase(trimmed, "MISSION MENU")) {
+			return std::format("{} LOG", label);
+		}
+		if (trimmed == "$MISSIONS" || trimmed == "$QUESTS" || detail::EqualsIgnoreCase(trimmed, "MISSIONS")) {
+			return detail::ToPluralUpperAscii(label);
+		}
+		if (trimmed == "$Mission Data" || trimmed == "$Mission Info" || trimmed == "$Mission name" || trimmed == "$Quest") {
+			return ExpectedTranslateValue(trimmed, a_cfg);
+		}
+		if (trimmed == "$SET MISSION ACTIVE" || detail::EqualsIgnoreCase(trimmed, "SET MISSION ACTIVE")) {
+			return std::format("SET {} ACTIVE", label);
+		}
+		if (trimmed == "$MISSION" || trimmed == "$QUEST" || detail::EqualsIgnoreCase(trimmed, "MISSION")) {
 			return label;
 		}
 		return std::string(a_text);

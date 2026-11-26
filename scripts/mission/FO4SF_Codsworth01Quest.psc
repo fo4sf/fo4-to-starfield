@@ -14,6 +14,7 @@ Message Property CodsworthReply1Msg Auto Const
 Message Property CodsworthReply2Msg Auto Const
 GlobalVariable Property TalkUseMessageBox Auto Const
 bool Property MuteDuplicateObjectiveToasts = True Auto Const
+string Property LandingHandoff = "single_quest" Auto Const
 
 string LogName = "fo4sf_mission"
 float CodsworthLocalX = -1146.709
@@ -74,7 +75,7 @@ int Function EffectiveStage()
 EndFunction
 
 Function ShowCodsworthObjective()
-    if completed || concordCleared
+    if completed || concordCleared || LandingHandoff == "single_quest"
         return
     endif
     if MuteDuplicateObjectiveToasts && objective10DisplayedOnce
@@ -88,18 +89,13 @@ Function ShowCodsworthObjective()
         Start()
     endif
     EnsureCodsworthAlias(ResolveCodsworth())
-    if MuteDuplicateObjectiveToasts
+    bool shown = FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, objective10DisplayedOnce, True)
+    if shown
         objective10DisplayedOnce = True
         objective10SkipLogged = False
-        SetObjectiveDisplayed(10, True, False)
-        SetActive(True)
-        Trace("codsworth01 objective10_toast shown=true muted_duplicates=" + MuteDuplicateObjectiveToasts + " force=false")
+        Trace("codsworth01 objective10_toast shown=true muted_duplicates=" + MuteDuplicateObjectiveToasts + " force=" + (!MuteDuplicateObjectiveToasts))
     else
-        objective10DisplayedOnce = True
-        SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
-        SetObjectiveDisplayedAtTop(10)
-        Trace("codsworth01 objective10_toast shown=true muted_duplicates=" + MuteDuplicateObjectiveToasts + " force=true")
+        Trace("codsworth01 objective10_toast deferred=true reason=not_displayed muted_duplicates=" + MuteDuplicateObjectiveToasts)
     endif
 EndFunction
 
@@ -358,7 +354,9 @@ Function StartQuestInstance()
     RegisterCodsworthSceneEvents()
     BindCodsworthActivation()
     AdvanceTo(10, "Trigger")
-    ShowCodsworthObjective()
+    if LandingHandoff != "single_quest"
+        ShowCodsworthObjective()
+    endif
     Trace("codsworth01 init stage=10")
     StartTimer(1.0, 1)
 EndFunction
@@ -921,7 +919,7 @@ Event OnTimer(int aiTimerID)
         if applied > 0 && GetStage() < applied
             SetStage(applied)
         endif
-        if applied >= 10 && !concordCleared && (!MuteDuplicateObjectiveToasts || !objective10DisplayedOnce) && !IsObjectiveDisplayed(10)
+        if LandingHandoff != "single_quest" && applied >= 10 && !concordCleared && (!MuteDuplicateObjectiveToasts || !objective10DisplayedOnce) && !IsObjectiveDisplayed(10)
             ShowCodsworthObjective()
         endif
     endif
