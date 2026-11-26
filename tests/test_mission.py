@@ -1707,6 +1707,8 @@ class V2MissionTalkTests(unittest.TestCase):
         self.assertIn('CodsworthTalkActiId = 0x970', cs)
         self.assertIn('CodsworthTalkActiEdid = "FO4SF_CodsworthTalkActi"', cs)
         self.assertIn('SFBGS006_SBShipDecoratorMarker.nif', cs)
+        self.assertIn('Model = null,', cs)
+        self.assertIn('string.IsNullOrEmpty(codsTalkActi.Model?.File?.GivenPath)', cs)
         self.assertIn('CodsworthTalkMsgId = 0x971', cs)
         self.assertIn('PrestonTalkMsgId = 0x975', cs)
         self.assertIn('MaxTalkButtons = 4', cs)
@@ -1831,6 +1833,12 @@ class V2MissionTalkTests(unittest.TestCase):
             def SetScale(self, s):
                 self.scale = float(s)
 
+            def SetAngle(self, ax, ay, az):
+                self.angle = (float(ax), float(ay), float(az))
+
+            def MoveToNearestNavmeshLocation(self):
+                return True
+
             def EnableNoWait(self, fade=False):
                 self.disabled = False
                 return True
@@ -1858,6 +1866,12 @@ class V2MissionTalkTests(unittest.TestCase):
 
             def SetPosition(self, x, y, z):
                 self.pos = [float(x), float(y), float(z)]
+
+            def SetAngle(self, ax, ay, az):
+                self.angle = (float(ax), float(ay), float(az))
+
+            def MoveToNearestNavmeshLocation(self):
+                return True
 
             def PlaceAtMe(self, base_form, count=1, persistent=False, disabled=False, delete_when_able=False):
                 prx = _MockRef("CodsworthTalkProxyRef", tuple(self.pos), disabled=disabled)
@@ -1915,6 +1929,7 @@ class V2MissionTalkTests(unittest.TestCase):
             "PrestonSceneCheckSeconds": 1.5,
             "PrestonSceneMaxWaitChecks": 16,
             "PrestonMaxSceneRestarts": 3,
+            "Math": SimpleNamespace(Sqrt=math.sqrt, atan=lambda v: math.degrees(math.atan(v))),
             "min00Given": False,
             "applied": 0,
             "pendingStage": -1,
@@ -1968,7 +1983,7 @@ class V2MissionTalkTests(unittest.TestCase):
             m_psc,
             ("IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias", "ResolvePrestonScene",
              "ResolvePrestonSceneLogged", "ResolvePrestonPostScene", "ResolveActivePrestonScene",
-             "EnsureKeeperPrestonAlias", "RegisterPrestonSceneEvents", "EnsureActorTalkable", "HoldActor",
+             "EnsureKeeperPrestonAlias", "RegisterPrestonSceneEvents", "EnsureActorTalkable", "SnapActorToFloor", "FaceActorToward", "HoldActor",
              "GiveFromCodsworth", "AdvanceTo", "Apply", "FoundPreston", "ResolvePrestonMsg", "RunPrestonTalk",
              "FallbackPrestonToMessageBox", "RestartOrFailPrestonScene", "MarkPrestonFallback", "TalkCompleteReady",
              "ObjectReference.OnActivate"),
@@ -2073,6 +2088,7 @@ class V2MissionTalkTests(unittest.TestCase):
             "Game": SimpleNamespace(
                 GetPlayer=lambda: player,
                 GetFormFromFile=lambda fid, plg: min00_obj if (fid, plg) == (0x000800, "FO4SFMission.esm") else None,
+                StartDialogueCameraOrCenterOnTarget=lambda *_: None,
             ),
         }
         c_code = _translate_mission_psc(
@@ -2263,6 +2279,12 @@ class A1dRealTalkTests(unittest.TestCase):
             def SetPosition(self, x, y, z):
                 self.pos = [float(x), float(y), float(z)]
 
+            def SetAngle(self, ax, ay, az):
+                self.angle = (float(ax), float(ay), float(az))
+
+            def MoveToNearestNavmeshLocation(self):
+                return True
+
             def GetAngleZ(self):
                 return 0.0
 
@@ -2371,6 +2393,7 @@ class A1dRealTalkTests(unittest.TestCase):
             "TalkRadius": 3.0,
             "TalkFallbackSeconds": 120.0,
             "TalkSceneTimeout": 120.0,
+            "Math": SimpleNamespace(Sqrt=math.sqrt, atan=lambda v: math.degrees(math.atan(v))),
             "IsRunning": lambda: True,
             "Start": lambda: True,
             "IsCompleted": lambda: m_cur[0] >= 200,
@@ -2401,13 +2424,14 @@ class A1dRealTalkTests(unittest.TestCase):
                     else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                     else None
                 ),
+                StartDialogueCameraOrCenterOnTarget=lambda *_: None,
             ),
         }
         m_code = _translate_mission_psc(
             m_psc,
             ("IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias", "ResolvePrestonScene",
              "ResolvePrestonSceneLogged", "ResolvePrestonPostScene", "ResolveActivePrestonScene",
-             "EnsureKeeperPrestonAlias", "RegisterPrestonSceneEvents", "EnsureActorTalkable", "GiveFromCodsworth",
+             "EnsureKeeperPrestonAlias", "RegisterPrestonSceneEvents", "EnsureActorTalkable", "FaceActorToward", "GiveFromCodsworth",
              "Actor.OnPlayerLoadGame", "AdvanceTo", "OnStageSet", "Apply", "EnsureSanctuaryStarted",
              "CheckPostConcordSanctuaryHandoff", "FoundPreston", "ResolvePrestonMsg", "RunPrestonTalk",
              "FallbackPrestonToMessageBox", "RestartOrFailPrestonScene", "CheckPrestonSceneOpen",
@@ -2527,6 +2551,7 @@ class A1dRealTalkTests(unittest.TestCase):
                     else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                     else None
                 ),
+                StartDialogueCameraOrCenterOnTarget=lambda *_: None,
             ),
         }
         c_code = _translate_mission_psc(
@@ -3018,6 +3043,12 @@ class A1aInGame2eBreakTests(unittest.TestCase):
             def SetPosition(self, x, y, z):
                 self.pos = [float(x), float(y), float(z)]
 
+            def SetAngle(self, ax, ay, az):
+                self.angle = (float(ax), float(ay), float(az))
+
+            def MoveToNearestNavmeshLocation(self):
+                return True
+
             def IsInInterior(self):
                 if self.on_query is not None:
                     self.on_query()
@@ -3059,6 +3090,12 @@ class A1aInGame2eBreakTests(unittest.TestCase):
                 return not self.interior and self.world == fo4_world
 
             def SetRestrained(self, _v):
+                return True
+
+            def SetAngle(self, ax, ay, az):
+                self.angle = (float(ax), float(ay), float(az))
+
+            def MoveToNearestNavmeshLocation(self):
                 return True
 
             def AllowPCDialogue(self, _v):
@@ -3160,7 +3197,7 @@ class A1aInGame2eBreakTests(unittest.TestCase):
         code = _translate_mission_psc(
             m_psc,
             ("ResolveCommonwealthWorld", "IsCommonwealthExterior", "IsPlayerStableAt", "SpotOff", "HeldState",
-             "HoldDue", "EnsureActorTalkable", "HoldActor", "HoldPreston", "PlaceAt", "PlacePreston", "MoveOver",
+             "HoldDue", "EnsureActorTalkable", "SnapActorToFloor", "FaceActorToward", "HoldActor", "HoldPreston", "PlaceAt", "PlacePreston", "MoveOver",
              "Relocate", "GetRaiderHealth", "WriteOffRaider", "CheckConcordRaidersWfc01"),
             ("relocateFails", "prestonPlaced", "prestonFollow", "prestonOff", "prestonMoves", "prestonHeld",
              "prestonHolds", "prestonState", "raiderTargetX", "raiderTargetY", "raiderTargetZ",
@@ -3558,6 +3595,149 @@ class Round12Task1aAnd1iTests(unittest.TestCase):
         ns_r["InitRaiderTracking"]()
         self.assertTrue(ns_r["raiderCleared"][0])
         self.assertAlmostEqual(ns_r["raiderTargetX"][0], -3229.0)
+
+
+class G13ProxyNavmeshAndFacingTests(unittest.TestCase):
+    """G13: invisible model-less Codsworth talk proxy, dialogue camera framing Codsworth,
+    navmesh floor Z snapping (<= 0.2 m) with roof-warp rejection, and Preston facing player."""
+
+    def test_g13a_codsworth_proxy_is_modelless_and_camera_frames_codsworth(self):
+        from types import SimpleNamespace
+        cs = read(CS)
+        c_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_Codsworth01Quest.psc"))
+        self.assertIn("Model = null,", cs)
+        self.assertIn("string.IsNullOrEmpty(codsTalkActi.Model?.File?.GivenPath)", cs)
+        self.assertIn('Trace("codsworth talk proxy model=none visible=false")', c_psc)
+        self.assertIn("Game.StartDialogueCameraOrCenterOnTarget(cods)", c_psc)
+
+        h = A1dRealTalkTests()._build_harnesses(glob_val=0.0)
+        cam_targets = []
+        h.c_ns["Game"] = SimpleNamespace(
+            GetPlayer=h.c_ns["Game"].GetPlayer,
+            GetFormFromFile=h.c_ns["Game"].GetFormFromFile,
+            StartDialogueCameraOrCenterOnTarget=lambda ref: cam_targets.append(ref),
+        )
+        h.c_ns["BindCodsworthActivation"]()
+        self.assertTrue(any("codsworth talk proxy model=none visible=false" in ln for ln in h.logs), h.logs)
+
+        # Activating talkProxy (via=proxy) frames Codsworth (09000811), never talkProxy!
+        h.c_ns["OnActivate"](h.c_ns["talkProxy"], h.player)
+        self.assertEqual(cam_targets[-1], h.cods)
+        self.assertNotEqual(cam_targets[-1], h.c_ns["talkProxy"])
+        self.assertTrue(any("codsworth talk camera target=CodsworthRef(09000811)" in ln for ln in h.logs), h.logs)
+
+        # DEVT Scene.OnBegin also frames Codsworth (09000811)
+        h.c_ns["OnBegin"](h.cods_scene)
+        self.assertEqual(cam_targets[-1], h.cods)
+
+    def test_g13b_hold_actors_snap_to_navmesh_floor_and_preston_faces_player(self):
+        from types import SimpleNamespace
+        from tests.test_r11_d1_d3_min00 import _PStr
+        import numpy as np
+        sys.path.insert(0, os.path.join(ROOT, "src"))
+        from fo4sf import navmesh as nm
+
+        # Synthetic Starfield v17 navmesh triangles:
+        # 1) Museum steps landing under Preston (-811.14, 1002.46) at z=89.131 + overhead balcony at z=98.49
+        # 2) Concord street under Raider 1 (-829.06, 1008.31) at z=88.335 (fixes 88.093 -> dz=+0.242 m > 0.2 m)
+        # 3) Sanctuary yard under Codsworth (-1146.71, 1293.84) at z=111.776
+        verts = np.array([
+            [-814.0, 1000.0, 89.131], [-809.0, 1000.0, 89.131], [-811.5, 1005.0, 89.131],
+            [-814.0, 1000.0, 98.490], [-809.0, 1000.0, 98.490], [-811.5, 1005.0, 98.490],
+            [-832.0, 1006.0, 88.335], [-826.0, 1006.0, 88.335], [-829.0, 1011.0, 88.335],
+            [-1150.0, 1291.0, 111.776], [-1143.0, 1291.0, 111.776], [-1146.5, 1296.0, 111.776],
+        ], dtype=np.float64)
+        tris = np.zeros(4, dtype=nm.TRI_DTYPE)
+        tris["v"] = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]]
+        tris["e"] = -1
+        tris["height"] = nm.FLT_MAX
+        nv = nm.Nvnm(
+            version=nm.SF_VERSION, magic=nm.MAGIC, world=0x3C, grid=(-9, 10), cell=None,
+            vertices=verts, vertex_extra=np.zeros(len(verts), dtype=np.int32), triangles=tris,
+            links=np.zeros(0, dtype=nm.LINK_DTYPE), doors=np.zeros(0, dtype=nm.DOOR_DTYPE),
+            cover=[], cover_map=np.zeros(0, dtype=nm.COVERMAP_DTYPE), waypoints=np.zeros(0, dtype=nm.WAYPOINT_DTYPE),
+            grid_divisor=1, grid_size=(100.0, 100.0),
+            grid_min=(-1150.0, 1000.0, 88.0), grid_max=(-809.0, 1296.0, 112.0),
+            grid_lists=[[0, 1, 2, 3]], trailer=nm.SF_TRAILER,
+        )
+        parsed = nm.parse(nm.write_sf(nv), "sf")
+
+        def floor_z(x, y, ref_z):
+            hits = []
+            for ti in range(len(parsed.triangles)):
+                tv = parsed.vertices[parsed.triangles["v"][ti]]
+                x0, y0, z0 = tv[0]
+                x1, y1, z1 = tv[1]
+                x2, y2, z2 = tv[2]
+                den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+                a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / den
+                b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / den
+                c = 1.0 - a - b
+                if a >= -1e-4 and b >= -1e-4 and c >= -1e-4:
+                    tz = float(a * z0 + b * z1 + c * z2)
+                    if abs(tz - ref_z) <= 2.5:
+                        hits.append((abs(tz - ref_z), tz))
+            hits.sort()
+            return hits[0][1]
+
+        self.assertAlmostEqual(floor_z(-811.14, 1002.46, 89.09), 89.131, places=3)
+        self.assertAlmostEqual(floor_z(-829.06, 1008.31, 88.093), 88.335, places=3)
+        self.assertAlmostEqual(floor_z(-1146.71, 1293.84, 111.734), 111.776, places=3)
+
+        # Runtime HoldActor + FaceActorToward translated execution
+        m_psc = read(PSC)
+        logs = []
+        preston_pos = [-2011.14, -1697.54, 89.09]
+        preston_ang = [0.0, 0.0, 0.0]
+        snap_target = [89.131]
+        player_pos = [-2013.06, -1695.94, 88.20]
+
+        class _Preston:
+            def GetPositionX(self): return preston_pos[0]
+            def GetPositionY(self): return preston_pos[1]
+            def GetPositionZ(self): return preston_pos[2]
+            def SetPosition(self, x, y, z): preston_pos[:] = [float(x), float(y), float(z)]
+            def MoveToNearestNavmeshLocation(self):
+                preston_pos[2] = snap_target[0]
+            def SetRestrained(self, _v): return True
+            def AllowPCDialogue(self, _v): pass
+            def BlockActivation(self, *_a): pass
+            def IgnoreFriendlyHits(self, *_a): pass
+            def SetAngle(self, ax, ay, az): preston_ang[:] = [float(ax), float(ay), float(az)]
+
+        preston = _Preston()
+        player = SimpleNamespace(
+            GetPositionX=lambda: player_pos[0],
+            GetPositionY=lambda: player_pos[1],
+            GetPositionZ=lambda: player_pos[2],
+        )
+        ns = {
+            "_PStr": _PStr,
+            "Trace": logs.append,
+            "KeeperOnly": False,
+            "Preston": preston,
+            "Math": SimpleNamespace(Sqrt=math.sqrt, atan=lambda v: math.degrees(math.atan(v))),
+        }
+        code = _translate_mission_psc(m_psc, ("EnsureActorTalkable", "SnapActorToFloor", "FaceActorToward", "HoldActor"), ())
+        exec(compile(code, "FO4SF_Min00Quest.psc", "exec"), ns)
+
+        # Normal floor snap: 89.09 -> 89.131 (|ground_dz| <= 0.2 m)
+        ns["HoldActor"](preston, "preston", "mission", 0.0)
+        self.assertAlmostEqual(preston_pos[2], 89.131, places=3)
+        self.assertTrue(any("hold preston ground_dz=0.04" in ln for ln in logs), logs)
+
+        # Roof-warp guard: if MoveToNearestNavmeshLocation jumps +9.16 m onto balcony, restore pre-snap Z!
+        logs.clear()
+        preston_pos[2] = 89.33
+        snap_target[0] = 98.49
+        ns["HoldActor"](preston, "preston", "mission", 0.0)
+        self.assertAlmostEqual(preston_pos[2], 89.33, places=3)
+        self.assertTrue(any("hold preston ground_dz=0.0" in ln for ln in logs), logs)
+
+        # FaceActorToward turns Preston NW (~310 deg) toward safe bat player position (-2013.06, -1695.94)
+        ns["FaceActorToward"](preston, player)
+        self.assertAlmostEqual(preston_ang[2], 309.8, delta=1.5)
+        self.assertTrue(any("preston face player angle_z=" in ln for ln in logs), logs)
 
 
 @unittest.skipUnless(shutil.which("dotnet") and os.environ.get("FO4SF_DOTNET_TESTS"),

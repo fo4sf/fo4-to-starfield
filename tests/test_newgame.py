@@ -1147,6 +1147,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                           "Scriptname ReferenceAlias extends Alias\nEvent OnPlayerLoadGame()\nEndEvent\n",
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
+        "Weather": "Scriptname Weather extends Form Native Hidden\nFunction ForceActive(bool abOverride = false) native\n",
     }
     if animation:
         base["ScriptObject"] += ("\nFunction RegisterForAnimationEvent(ObjectReference source, string name) native\n"
@@ -4072,6 +4073,76 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             "[x] FO4SF_NEWGAME rt=12.0 vault_death_recovery=save_locked stage=20\n",
         ])
         self.assertEqual(s["vault_death_recovery"], ["autosave stage=20 skips=0", "save_locked stage=20"])
+
+
+class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
+    """G13 Minors 1 & 2: per-game arrival weather & Vault 111 jumpsuit fallback config + Papyrus wiring."""
+
+    def test_g13_game_start_config_pins_clear_weather_and_vault_suit_fallback(self):
+        cfg_path = os.path.join(ROOT, "src", "fo4sf", "core", "game_start_config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        fo4 = cfg["games"]["fo4"]
+        self.assertEqual(fo4["arrival_weather_plugin"], "Starfield.esm")
+        self.assertEqual(fo4["arrival_weather_id"], "0x0027CF9B")
+        self.assertTrue(fo4["arrival_weather_override"])
+        self.assertEqual(fo4["vault_suit_fallback_plugin"], "Starfield.esm")
+        self.assertEqual(fo4["vault_suit_fallback_armor_id"], "0x0001D1D7")
+        self.assertIn("0 ARMO", fo4["vault_suit_fallback_note"])
+
+        cs = read(CS)
+        for token in ('("ArrivalWeatherId", gs.ArrivalWeatherId)', '("ArrivalWeatherPlugin", gs.ArrivalWeatherPlugin)',
+                      '("ArrivalWeatherOverride", gs.ArrivalWeatherOverride)',
+                      '("VaultSuitFallbackId", gs.VaultSuitFallbackId)',
+                      '("VaultSuitFallbackPlugin", gs.VaultSuitFallbackPlugin)'):
+            self.assertIn(token, cs)
+        self.assertIn("ForceActive", ng.NATIVES[ng.SCRIPT]["Weather"])
+
+        from tests.test_exit_arrival import _PStr, translated_functions
+        psc = read(PSC)
+        compiled = compile(translated_functions(psc, ("ApplyArrivalWeather", "ResetInventory"), ""), PSC, "exec")
+        traces = []
+        force_calls = []
+        weather_obj = type("Wthr", (), {"__repr__": lambda _s: "NewAtlantisWeather50(0027CF9B)",
+                                        "ForceActive": lambda _s, ov=False: force_calls.append(bool(ov))})()
+        suit_obj = type("Suit", (), {"__repr__": lambda _s: "Clothes_Miner_Jumpsuit(0001D1D7)"})()
+        forms = {
+            (0x0027CF9B, "Starfield.esm"): weather_obj,
+            (0x0001D1D7, "Starfield.esm"): suit_obj,
+        }
+        equipped = set()
+        added = []
+        player = type("Plr", (), {
+            "GetItemCount": lambda _s, _x=None: 0,
+            "IsEquipped": lambda _s, item: item in equipped,
+            "RemoveAllItems": lambda *_a: None,
+            "AddItem": lambda _s, item, n=1, s=False: added.append((item, n, s)),
+            "EquipItem": lambda _s, item, p=False, s=False: equipped.add(item),
+        })()
+        ns = {
+            "_PStr": _PStr,
+            "Trace": traces.append,
+            "SilentStarterStrip": False,
+            "StarterStripItems": [],
+            "VaultSuitId": 0,
+            "VaultPlugin": "FO4Port.esm",
+            "ArrivalWeatherId": 0x0027CF9B,
+            "ArrivalWeatherPlugin": "Starfield.esm",
+            "ArrivalWeatherOverride": True,
+            "VaultSuitFallbackId": 0x0001D1D7,
+            "VaultSuitFallbackPlugin": "Starfield.esm",
+            "Game": type("Gm", (), {"GetFormFromFile": staticmethod(lambda fid, plg: forms.get((fid, plg)))})(),
+        }
+        exec(compiled, ns)
+        ns["ApplyArrivalWeather"]()
+        self.assertEqual(force_calls, [True])
+        self.assertTrue(any("arrival weather id=2609051 plugin=Starfield.esm override=True" in ln for ln in traces), traces)
+
+        traces.clear()
+        ns["ResetInventory"](player)
+        self.assertEqual(added, [(suit_obj, 1, True)])
+        self.assertIn(suit_obj, equipped)
+        self.assertTrue(any("vault suit fallback equipped Clothes_Miner_Jumpsuit(0001D1D7) worn=True id=119255" in ln for ln in traces), traces)
 
 
 if __name__ == "__main__":

@@ -291,6 +291,7 @@ Function EnsureTalkProxy(Actor player)
                 if !completed && !concordCleared
                     EnsureCodsworthAlias(cods)
                 endif
+                Trace("codsworth talk proxy model=none visible=false")
                 Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
             endif
         endif
@@ -549,6 +550,9 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
         else
             EnsureCodsworthAlias(cods)
         endif
+        if cods != None
+            Game.StartDialogueCameraOrCenterOnTarget(cods)
+        endif
         if scn.IsPlaying()
             ownSceneStopPending = True
             scn.Stop()
@@ -599,7 +603,12 @@ Event Scene.OnBegin(Scene akSender)
     bool isPost = postScn != None && akSender == postScn
     if isPrimary || isPost
         dialogueSeen = True
-        EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), ResolveCodsworth())
+        Actor cods = ResolveCodsworth()
+        EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), cods)
+        if cods != None
+            Game.StartDialogueCameraOrCenterOnTarget(cods)
+            Trace("codsworth talk camera target=" + cods)
+        endif
         if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && (isPost || !completed)
             ownSceneStopPending = False
             sceneTalkPending = True
@@ -776,6 +785,10 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         EnsureCodsworthAlias(cods)
     endif
     EnsureSafeCodsworthCameraDistance(player, cods)
+    if cods != None
+        Game.StartDialogueCameraOrCenterOnTarget(cods)
+        Trace("codsworth talk camera target=" + cods)
+    endif
     dialogueSeen = True
     ownSceneStopPending = False
     sceneTalkPending = True

@@ -1098,6 +1098,7 @@ Event Scene.OnBegin(Scene akSender)
         prestonPostSceneActive = False
         talkActivated = True
         prestonUsedFallback = False
+        FaceActorToward(Preston, Game.GetPlayer())
         if talkStartedAt <= 0.0
             talkStartedAt = Utility.GetCurrentRealTime()
         endif
@@ -1123,6 +1124,7 @@ Event Scene.OnBegin(Scene akSender)
             return
         endif
         prestonPostSceneActive = True
+        FaceActorToward(Preston, Game.GetPlayer())
         if !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
             ownPrestonSceneStop = False
             prestonScenePending = True
@@ -1202,6 +1204,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
+            FaceActorToward(Preston, Game.GetPlayer())
             Scene scn = ResolvePrestonSceneLogged()
             ; A2.2: Re-check after ResolvePrestonSceneLogged() so a concurrent native DEVT greeting that already
             ; opened DialogueMenu (observed in 2g run3 at rt=343.486 vs 343.662) is never overwritten or re-armed.
@@ -1247,6 +1250,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
                     RunPrestonTalk(stage, postMsg)
                 endif
             else
+                FaceActorToward(Preston, Game.GetPlayer())
                 Scene postScn = ResolvePrestonPostScene()
                 if postScn != None
                     EnsureKeeperPrestonAlias()
@@ -2251,8 +2255,57 @@ Function EnsureActorTalkable(Actor a)
     endif
 EndFunction
 
+float Function SnapActorToFloor(Actor a, string label)
+{Snap actor onto nearby floor/navmesh (guarding against roof warps > 1.0 m) and trace ground_dz.}
+    if a == None
+        return 0.0
+    endif
+    float preX = a.GetPositionX()
+    float preY = a.GetPositionY()
+    float preZ = a.GetPositionZ()
+    a.MoveToNearestNavmeshLocation()
+    float postZ = a.GetPositionZ()
+    float dz = postZ - preZ
+    if dz > 1.0 || dz < -1.0
+        a.SetPosition(preX, preY, preZ)
+        dz = 0.0
+    endif
+    Trace("hold " + label + " ground_dz=" + dz)
+    return dz
+EndFunction
+
+Function FaceActorToward(Actor actorRef, ObjectReference targetRef)
+{Turn actorRef yaw toward targetRef on Z-up XY plane when a conversation starts.}
+    if actorRef == None || targetRef == None
+        return
+    endif
+    float dx = targetRef.GetPositionX() - actorRef.GetPositionX()
+    float dy = targetRef.GetPositionY() - actorRef.GetPositionY()
+    if dx * dx + dy * dy < 0.0001
+        return
+    endif
+    float deg = 0.0
+    if dy > 0.0001
+        deg = Math.atan(dx / dy)
+    elseif dy < -0.0001
+        deg = Math.atan(dx / dy) + 180.0
+    elseif dx >= 0.0
+        deg = 90.0
+    else
+        deg = 270.0
+    endif
+    if deg < 0.0
+        deg += 360.0
+    elseif deg >= 360.0
+        deg -= 360.0
+    endif
+    actorRef.SetAngle(0.0, 0.0, deg)
+    Trace("preston face player angle_z=" + deg)
+EndFunction
+
 Function HoldActor(Actor a, string name, string who, float off)
-{SetRestrained(True), keep player talk activation unblocked, and one log line, "hold <name> by=<who> off=<m> ok=<bool>".}
+{Snap onto navmesh floor, SetRestrained(True), keep player talk activation unblocked, and log hold + ground_dz.}
+    SnapActorToFloor(a, name)
     bool ok = a.SetRestrained(True)
     EnsureActorTalkable(a)
     Trace("hold " + name + " by=" + who + " off=" + off + " ok=" + ok)
@@ -2372,6 +2425,7 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     Trace("world " + what + " after=" + afterWs + " cell=" + a.GetParentCell())
     Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
     if !failed
+        SnapActorToFloor(a, what)
         a.EvaluatePackage()
     endif
     return failed

@@ -199,8 +199,15 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         IgnoreFriendlyHits=lambda *_: None,
         AllowPCDialogue=lambda *_: None,
         BlockActivation=lambda *_: None,
+        GetPositionX=lambda: -2011.14,
+        GetPositionY=lambda: -1697.54,
+        SetAngle=lambda *_: None,
     )
-    player = SimpleNamespace(AddItem=mock.MagicMock())
+    player = SimpleNamespace(
+        AddItem=mock.MagicMock(),
+        GetPositionX=lambda: -2013.06,
+        GetPositionY=lambda: -1695.94,
+    )
     sanctuary_q = SimpleNamespace(IsRunning=lambda: False, StartNoWait=mock.MagicMock(return_value=True))
     glob_obj = SimpleNamespace(GetValue=lambda: float(glob_val))
     alias_ref = SimpleNamespace(actor=None)
@@ -215,6 +222,7 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
     ns = {
         "KeeperOnly": False,
         "Trace": logs.append,
+        "Math": SimpleNamespace(Sqrt=math.sqrt, atan=lambda v: math.degrees(math.atan(v))),
         "Preston": preston,
         "Credits": "StarfieldCredits",
         "RewardCount": 100,
@@ -295,6 +303,8 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         fns.insert(9, "EnsureKeeperPrestonAlias")
     if "Function RestartOrFailPrestonScene(" in min00_src:
         fns.insert(10, "RestartOrFailPrestonScene")
+    if "Function FaceActorToward(" in min00_src:
+        fns.append("FaceActorToward")
     globals_list = (
         "min00Given", "applied", "pendingStage", "pendingStageBy", "prestonFound",
         "talkActivated", "talkStartedAt", "talkFailures", "prestonUsedFallback", "prestonTalkLogged",
@@ -490,6 +500,12 @@ class R10OpeningFixTests(unittest.TestCase):
                 self.cell = "Cell<Surface>"
                 self.pos = [ref.GetPositionX() + dx, ref.GetPositionY() + dy, ref.GetPositionZ() + dz]
 
+            def SetPosition(self, x, y, z):
+                self.pos = [float(x), float(y), float(z)]
+
+            def MoveToNearestNavmeshLocation(self):
+                pass
+
         class _Player:
             def __init__(self, pos):
                 self.pos = list(pos)
@@ -564,7 +580,7 @@ class R10OpeningFixTests(unittest.TestCase):
         code = _translate_mission_psc(
             m_psc,
             ("ResolveCommonwealthWorld", "IsCommonwealthExterior", "IsPlayerStableAt", "SpotOff",
-             "ComputeEffectiveWeaponDamage", "ArmRaiderForCombat", "MoveOver"),
+             "ComputeEffectiveWeaponDamage", "ArmRaiderForCombat", "SnapActorToFloor", "MoveOver"),
             ("raiderArmed",),
         )
         init_src = re.sub(r"new (?:float|bool)\[count\]", "_PArray([0] * count)", function_body(m_psc, "InitRaiderTracking"))
