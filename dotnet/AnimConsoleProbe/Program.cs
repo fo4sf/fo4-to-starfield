@@ -37,11 +37,21 @@ try
     var model = Opt("--model");
     var rig = Opt("--rig");
     var anims = Opt("--anims");
+    var surfaceModel = Opt("--surface-model");
+    var surfaceRig = Opt("--surface-rig");
+    var surfaceAnims = Opt("--surface-anims");
+    bool hasAnySurface = surfaceModel != null || surfaceRig != null || surfaceAnims != null;
+    if (hasAnySurface)
+    {
+        if (!productionLift) throw new AnimConsoleProbe.Refusal("--surface-* options require --production-lift");
+        if (surfaceModel == null || surfaceRig == null || surfaceAnims == null)
+            throw new AnimConsoleProbe.Refusal("--surface-model, --surface-rig, and --surface-anims must all be provided together");
+    }
     if (rest.Count == 3 && rest[0] == "info") return AnimConsoleProbe.Info(rest[1], rest[2], edid);
     if (rest.Count == 4 && rest[0] == "build" && model != null && rig != null && anims != null)
-        return AnimConsoleProbe.Build(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift);
+        return AnimConsoleProbe.Build(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, surfaceModel, surfaceRig, surfaceAnims);
     if (rest.Count == 4 && rest[0] == "check" && model != null && rig != null && anims != null)
-        return AnimConsoleProbe.Check(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift);
+        return AnimConsoleProbe.Check(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, surfaceModel, surfaceRig, surfaceAnims);
     if (rest.Count == 2 && rest[0] == "fixture") return AnimConsoleProbe.Fixture(rest[1]);
 }
 catch (AnimConsoleProbe.Refusal r)
@@ -123,9 +133,11 @@ static class AnimConsoleProbe
         return quest;
     }
 
-    public static int Build(string portPath, string sfPath, string outDir, string edid, string model, string rig, string anims, bool productionLift = false)
+    public static int Build(string portPath, string sfPath, string outDir, string edid, string model, string rig, string anims, bool productionLift = false, string? surfaceModel = null, string? surfaceRig = null, string? surfaceAnims = null)
     {
         if (productionLift && edid != "FO4Port_acti_0244ef_fallout4") throw new Refusal("production lift must override the original Vault 111 lift");
+        bool hasSurface = surfaceModel != null && surfaceRig != null && surfaceAnims != null;
+        if (hasSurface && !productionLift) throw new Refusal("--surface-* options require --production-lift");
         using var port = Open(portPath);
         var baseRec = FindBase(port, edid);
         if (baseRec.FormKey.ModKey != PortEsm) throw new Refusal("ACTI must be owned by FO4Port.esm");
@@ -141,6 +153,7 @@ static class AnimConsoleProbe
         mod.Activators.Add(ov);
         if (!productionLift) mod.Quests.Add(MakeQuest());
         mod.ModHeader.Stats.NextFormID = 0x801;
+        if (hasSurface) SurfaceLiftCog.BuildSurfaceCog(mod, surfaceModel!, surfaceRig!, surfaceAnims!);
         Write(mod, outDir, SfEsm, PortEsm);
         var path = Path.Combine(outDir, key.FileName);
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): override of {Show(baseRec)}");
@@ -174,9 +187,11 @@ static class AnimConsoleProbe
 
     // ---------------------------------------------------------------- check (Mutagen read-back)
 
-    public static int Check(string pluginPath, string portPath, string sfPath, string edid, string model, string rig, string anims, bool productionLift = false)
+    public static int Check(string pluginPath, string portPath, string sfPath, string edid, string model, string rig, string anims, bool productionLift = false, string? surfaceModel = null, string? surfaceRig = null, string? surfaceAnims = null)
     {
         if (productionLift && edid != "FO4Port_acti_0244ef_fallout4") throw new Refusal("production lift must override the original Vault 111 lift");
+        bool hasSurface = surfaceModel != null && surfaceRig != null && surfaceAnims != null;
+        if (hasSurface && !productionLift) throw new Refusal("--surface-* options require --production-lift");
         using var port = Open(portPath);
         var baseRec = FindBase(port, edid);
         using var mod = Open(pluginPath);
@@ -191,12 +206,29 @@ static class AnimConsoleProbe
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
         Need(masters.SequenceEqual(new[] { SfEsm, PortEsm }), "masters are not exactly [Starfield.esm, FO4Port.esm]");
         var all = mod.EnumerateMajorRecords().ToList();
-        Need(all.Count == (productionLift ? 1 : 2), "unexpected record count (production lift has only the ACTI override)");
+        int expectedAll = productionLift ? (hasSurface ? 2 : 1) : 2;
+        Need(all.Count == expectedAll, "unexpected record count in exit lift plugin");
         var own = all.Where(r => r.FormKey.ModKey == key).Select(r => r.FormKey).ToList();
-        Need(productionLift ? own.Count == 0 : own.Count == 1 && own[0] == Own(QuestId), "unexpected records owned by this plugin");
-        if (productionLift) Need(mod.Quests.Count == 0, "production lift carries a probe quest");
-        var ovr = mod.Activators.FirstOrDefault();
-        Need(mod.Activators.Count() == 1 && ovr != null && ovr.FormKey == baseRec.FormKey, $"the ACTI is not an override of {baseRec.FormKey}");
+        if (productionLift)
+        {
+            if (hasSurface)
+            {
+                Need(own.Count == 1 && own[0] == SurfaceLiftCog.SurfaceCogKey(key), "unexpected records owned by this plugin");
+                problems.AddRange(SurfaceLiftCog.CheckSurfaceCog(mod, surfaceModel!, surfaceRig!, surfaceAnims!));
+            }
+            else
+            {
+                Need(own.Count == 0, "unexpected records owned by this plugin");
+            }
+            Need(mod.Quests.Count == 0, "production lift carries a probe quest");
+        }
+        else
+        {
+            Need(own.Count == 1 && own[0] == Own(QuestId), "unexpected records owned by this plugin");
+        }
+        int expectedActi = hasSurface ? 2 : 1;
+        var ovr = mod.Activators.FirstOrDefault(a => a.FormKey == baseRec.FormKey);
+        Need(mod.Activators.Count() == expectedActi && ovr != null, $"the ACTI is not an override of {baseRec.FormKey}");
         if (ovr != null)
         {
             Console.WriteLine("  override: " + Show(ovr));

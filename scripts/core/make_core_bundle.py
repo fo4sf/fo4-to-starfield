@@ -1228,10 +1228,25 @@ def stage_from_checkout(a) -> Dict[str, str]:
         ])
     stages["cog_door"] = cog_dir
 
+    surf_cog_dir = os.path.join(work, "02a-surface-lift-cog")
+    if not os.path.exists(surf_cog_dir):
+        _run_py(py_render, "scripts/newgame/stage_surface_lift_cog.py", [
+            "stage",
+            "--out", surf_cog_dir,
+            "--starfield-data", sf_data,
+            "--port-data", port_dir,
+            "--fo4-data", os.path.abspath(a.fo4_data),
+            "--door-anim-dll", os.path.abspath(a.door_anim_dll),
+            "--collision-template", os.path.abspath(a.collision_template),
+            "--texconv", os.path.abspath(a.texconv),
+            "--content-resources", cr_zip,
+        ])
+
     lift_dir = os.path.join(work, "02-exit-lift")
     if not os.path.exists(lift_dir):
         _run_py(py_render, "scripts/newgame/make_anim_console.py", [
             "stage", "--production-lift",
+            "--surface-cog-stage", surf_cog_dir,
             "--edid", "FO4Port_acti_0244ef_fallout4",
             "--states", "stage3=StateA_Play,stage2=StateB_Play",
             "--idles", "toggle",
@@ -1275,6 +1290,16 @@ def stage_from_checkout(a) -> Dict[str, str]:
             _run_py(py_main, "scripts/mission/make_mission.py", ms_args)
         stages["mission"] = mission_dir
 
+    wrist_dir = os.path.join(work, "03a-pipboy-wrist")
+    if not os.path.exists(wrist_dir):
+        _run_py(py_render, "scripts/ui/stage_pipboy_wrist.py", [
+            "--fo4-data", os.path.abspath(a.fo4_data),
+            "--sf-data", sf_data,
+            "--staging", wrist_dir,
+            "--content-resources", cr_zip,
+            "--texconv", os.path.abspath(a.texconv),
+        ])
+
     want_fade_hold = (
         not getattr(a, "no_fade_hold", False)
         and (profile == "test" or bool(getattr(a, "fade_hold", False)))
@@ -1287,6 +1312,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
             "--out", ng_dir,
             "--cog-door", cog_dir,
             "--exit-lift", lift_dir,
+            "--pipboy-wrist", wrist_dir,
             "--fo4", os.path.join(os.path.abspath(a.fo4_data), "Fallout4.esm"),
             "--port", port_esm,
             "--port-ids", os.path.abspath(a.port_ids),
@@ -1439,6 +1465,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
                 pb_refreshed,
                 os.path.abspath(a.fo4_data),
                 setup_show_unavailable=resolved_show_unavail or 0,
+                sf_data_dir=sf_data,
             )
         stages["pipboy"] = pb_refreshed
         if pb_override:
@@ -1592,6 +1619,7 @@ def refresh_pipboy_stage_for_bundle(
     *,
     setup_show_unavailable: int = 0,
     require_pickup: int = 1,
+    sf_data_dir: Optional[str] = None,
 ) -> None:
     """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT/boot/Setup SWFs, generate clean INI, and update plan.json."""
     ui_dir = os.path.join(REPO, "scripts", "ui")
@@ -1599,6 +1627,7 @@ def refresh_pipboy_stage_for_bundle(
         sys.path.insert(0, ui_dir)
     import make_pipboy_stage_ini  # type: ignore
     import make_probe_swf  # type: ignore
+    import make_quest_translate  # type: ignore
     import pipboy_map_store  # type: ignore
 
     try:
@@ -1632,12 +1661,29 @@ def refresh_pipboy_stage_for_bundle(
         boot_spec = pipboy_map_store.stage_fo4_boot_movie(fo4_iface_ba2, iface_dir)
         updated_data_rels.append(f"Data/Interface/{boot_spec}.swf")
 
+    if sf_data_dir:
+        sf_iface_ba2 = os.path.join(sf_data_dir, "Starfield - Interface.ba2")
+        if os.path.isfile(sf_iface_ba2):
+            try:
+                make_quest_translate.generate_quest_translate(
+                    sf_data_dir,
+                    partial,
+                    mode="quest",
+                    label="QUEST",
+                )
+            except make_quest_translate.QuestTranslateError as exc:
+                raise BundleRefused(str(exc)) from exc
+            updated_data_rels.append("Data/Interface/Translate_en.txt")
+
     if any(p.lower().endswith(".swf") for _, _, fns in os.walk(iface_dir) for p in fns):
         try:
             make_pipboy_stage_ini.generate_stage_ini(
                 partial,
                 require_pickup=require_pickup,
                 setup_show_unavailable=setup_show_unavailable,
+                screen_source="2d_imenu",
+                replace_mission_label=1,
+                quest_hud_label="QUEST",
             )
         except make_pipboy_stage_ini.StageIniError as exc:
             raise BundleRefused(str(exc)) from exc

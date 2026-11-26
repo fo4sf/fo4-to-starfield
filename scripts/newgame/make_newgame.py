@@ -77,6 +77,7 @@ STAGE_CONTRACT = {
     1: "stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)",
     5: "mode chosen: start mode and survival choice stored",
     10: "in the vault: the player stands at their pod",
+    15: "pod exited: safe spawn or cryopod exit hook complete",
     20: "looks done: character creation closed, or LooksWait passed",
     30: "cog door opened: from its console",
     40: "on the surface: the elevator ride is over",
@@ -255,14 +256,14 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "PlayIdle", "OnPlayerLoadGame", "OnDying", "OnItemEquipped", "OnItemUnequipped"],
+        "Actor": ["GetLevel", "EquipItem", "UnequipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "PlayIdle", "OnPlayerLoadGame", "OnDying", "OnItemEquipped", "OnItemUnequipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "FastTravel", "ShowRaceMenu", "ShowFirstPersonGeometry", "RequestAutoSave"],
+        "Game": ["GetPlayer", "GetFormFromFile", "FindClosestReferenceOfType", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "FastTravel", "ShowRaceMenu", "ShowFirstPersonGeometry", "RequestAutoSave"],
         "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
         "InputEnableLayer": ["Create", "EnableHandscanner"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
-                            "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
+                            "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "PlaceAtMe", "RemoveItem", "RemoveAllItems",
                             "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
                             "SetMarkerDiscovered", "AddToMap", "EnableFastTravel", "Reset", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
                             "BlockActivation", "OnActivate", "OnItemAdded", "OnItemRemoved", "RestoreValue"],
@@ -638,6 +639,23 @@ def exit_lift_component(folder, port, starfield):
     return plan
 
 
+def pipboy_wrist_component(folder):
+    """Validate a staged Pip-Boy wrist directory and return {Data/<rel>: sha256} asset outputs."""
+    ui_dir = os.path.join(REPO, "scripts", "ui")
+    if ui_dir not in sys.path:
+        sys.path.insert(0, ui_dir)
+    import stage_pipboy_wrist as spw
+    verified = spw.verify_staged_pipboy_wrist(folder)
+    rels = []
+    for key in ("nifs", "meshes", "local_mats", "local_textures"):
+        rels.extend(verified.get(key) or ())
+    outputs = {}
+    for rel in sorted(set(rels)):
+        src = os.path.join(folder, *rel.split("/"))
+        outputs[f"Data/{rel}"] = sha256(src)
+    return outputs
+
+
 def points_options(a):
     """The optional flags `stage` hands to `dotnet NewGame points` (none given: the tool's DefaultPodStep = -2.5)."""
     return ((["--pod-ref", a.pod_ref] if a.pod_ref else [])
@@ -669,6 +687,8 @@ def stage(a):
     cog = cog_door_component(cog_folder, a.port, a.starfield) if cog_folder else None
     lift_folder = getattr(a, "exit_lift", None)
     lift = exit_lift_component(lift_folder, a.port, a.starfield) if lift_folder else None
+    wrist_folder = getattr(a, "pipboy_wrist", None)
+    wrist_assets = pipboy_wrist_component(wrist_folder) if wrist_folder else None
     out = new_partial(final)
     work = os.path.join(out, "work")
     os.makedirs(work)
@@ -738,6 +758,22 @@ def stage(a):
         plan["cog_door"] = cog
     if lift:
         plan["exit_lift"] = lift
+    if wrist_assets is not None:
+        for data_rel, want in wrist_assets.items():
+            src_sub = data_rel.removeprefix("Data/")
+            src_file = os.path.join(wrist_folder, *src_sub.split("/"))
+            dest_file = os.path.join(out, *data_rel.split("/"))
+            if os.path.exists(dest_file):
+                if sha256(dest_file) == want:
+                    continue
+                sys.exit(f"pipboy wrist asset collides with staged output: {data_rel}")
+            os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+            shutil.copyfile(src_file, dest_file)
+            if sha256(dest_file) != want:
+                sys.exit(f"pipboy wrist asset changed while copying: {data_rel}")
+            staged_assets[data_rel] = want
+        plan["pipboy_wrist_assets"] = wrist_assets
+        plan["outputs"].update(wrist_assets)
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
@@ -788,6 +824,8 @@ def verify_dir(exp_dir, plan, port=None, core=None):
         same("cog door", os.path.join(exp_dir, *rel.split("/")), want)
     for rel, want in plan.get("exit_lift", {}).get("outputs", {}).items():
         same("exit lift", os.path.join(exp_dir, *rel.split("/")), want)
+    for rel, want in plan.get("pipboy_wrist_assets", {}).items():
+        same("pipboy wrist", os.path.join(exp_dir, *rel.split("/")), want)
     pinned = plan["checked_against_sha256"]
     for name, given in (("FO4Port.esm", port), ("FO4TerrainCore.esm", core)):
         path = os.path.join(exp_dir, name)
@@ -854,6 +892,7 @@ def fold(a):
     core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
     stage_readme = read_text(os.path.join(a.stage, "README.txt"))
     act_outputs = plan.get("activator_assets", {})
+    wrist_outputs = plan.get("pipboy_wrist_assets", {})
     cog_outputs = plan.get("cog_door", {}).get("outputs", {})
     cog_plugins = plan.get("cog_door", {}).get("plugins", [])
     lift_outputs = plan.get("exit_lift", {}).get("outputs", {})
@@ -867,7 +906,7 @@ def fold(a):
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
     folded_assets = {}
-    for label, outputs in (("vault activator", act_outputs), ("cog door", cog_outputs), ("lift", lift_outputs)):
+    for label, outputs in (("vault activator", act_outputs), ("pipboy wrist", wrist_outputs), ("cog door", cog_outputs), ("lift", lift_outputs)):
         for rel, want in outputs.items():
             dst = os.path.join(out, *rel.split("/"))
             core_src = os.path.join(a.core_dir, *rel.split("/"))
@@ -1159,6 +1198,7 @@ def main(argv=None):
     s.add_argument("--out", required=True)
     s.add_argument("--cog-door", default=None, help="validated make_cog_door.py --production-cog stage; includes FO4SFVaultGearDoor.esm and its assets")
     s.add_argument("--exit-lift", default=None, help="validated make_anim_console.py --production-lift stage; enables the carrying ascent and includes its assets")
+    s.add_argument("--pipboy-wrist", default=None, help="validated stage_pipboy_wrist.py staging directory; copies split housing/screen wrist NIFs, meshes, materials, and textures")
     s.add_argument("--fo4", required=True)
     s.add_argument("--port", required=True)
     s.add_argument("--port-ids", required=True)

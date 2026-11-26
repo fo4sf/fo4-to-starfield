@@ -109,6 +109,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2D4B: ("ACTI", "FO4Core_acti_19d22f_fallout4"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
@@ -118,8 +119,12 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2D4B: ("ACTI", "FO4Core_acti_19d22f_fallout4"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
+    },
+    "FO4SFExitLift.esm": {
+        0x000802: ("ACTI", "FO4SF_Vault111SurfaceCog"),
     },
     "FO4ActorRaider.esm": {
         0xF04800: ("NPC_", "FO4_LvlRaider"),
@@ -904,6 +909,9 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
         records.setdefault(0x820, ("REFR", "FO4SF_Vault111PistolRef"))
         records.setdefault(0x821, ("REFR", "FO4SF_Vault111AmmoRef"))
         records.setdefault(0x822, ("WEAP", "FO4SF_Vault111_10mm"))
+        records.setdefault(0x823, ("ARMA", "FO4SF_PipboyWristHousingAA"))
+        records.setdefault(0x824, ("ARMA", "FO4SF_PipboyWristScreenAA"))
+        records.setdefault(0x825, ("GLOB", "FO4SF_PipboyScreenSource"))
 
     return plugin, records
 

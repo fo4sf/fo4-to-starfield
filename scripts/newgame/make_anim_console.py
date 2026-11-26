@@ -467,28 +467,74 @@ def validate_lift_animation(anim):
 
 
 def finish_production_lift(a, out, final, work, tool, port, sf, before, original, info, res, copied, textures):
-    """One ACTI override and asset files; no probe quest, script, spawn or installer promotion."""
+    """One ACTI override (plus optional 0x802 surface cog ACTI) and asset files; no probe quest, script, spawn or installer promotion."""
     anim = res["anim"]
     validate_lift_animation(anim)
     model = res["out_name"].replace("/", "\\") + ".nif"
     opts = ["--model", model, "--rig", anim["skeleton"], "--anims", anim["animations"], "--edid", a.edid, "--production-lift"]
+    surface_cog_plan = None
+    surface_cog_stage = getattr(a, "surface_cog_stage", "") or ""
+    if surface_cog_stage:
+        import stage_surface_lift_cog as sslc
+        surf_plan_path = os.path.join(surface_cog_stage, "plan.json")
+        if not os.path.isfile(surf_plan_path):
+            sys.exit(f"missing surface cog plan.json: {surf_plan_path}")
+        with open(surf_plan_path, encoding="utf-8") as f:
+            surface_cog_plan = json.load(f)
+        problems = sslc.verify_stage(surface_cog_stage, surface_cog_plan, os.path.dirname(port))
+        if problems:
+            sys.exit(f"surface cog stage failed verification: {problems}")
+        for rel, want in surface_cog_plan["outputs"].items():
+            if not rel.startswith("Data/"):
+                continue
+            if rel.startswith("Data/textures/"):
+                sys.exit(f"surface cog stage contains forbidden texture output: {rel}")
+            src_file = os.path.join(surface_cog_stage, *rel.split("/"))
+            dest_file = os.path.join(out, *rel.split("/"))
+            if os.path.exists(dest_file):
+                if sha256(dest_file) == want:
+                    continue
+                sys.exit(f"surface cog asset collides with exit lift asset: {rel}")
+            os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+            shutil.copyfile(src_file, dest_file)
+            if sha256(dest_file) != want:
+                sys.exit(f"surface cog asset changed while copying: {rel}")
+            copied.append(os.path.relpath(dest_file, os.path.join(out, "Data")))
+        opts += [
+            "--surface-model", surface_cog_plan["model"],
+            "--surface-rig", surface_cog_plan["rig"],
+            "--surface-anims", surface_cog_plan["anims"],
+        ]
     wrote = run(tool + ["build", port, sf, out] + opts).stdout
     check = run(tool + ["check", os.path.join(out, LIFT_PLUGIN), port, sf] + opts).stdout
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(wrote + check)
     with open(os.path.join(out, "anim_manifest.json"), "w", encoding="utf-8") as f:
         json.dump({"original": original, "base_edid": a.edid, "base_id": info["base_id"], "model": model,
-                   "states": LIFT_STATES, "anim": anim, "kit_files": copied, "textures_not_shipped": textures}, f, indent=1)
+                   "states": LIFT_STATES, "anim": anim, "kit_files": copied, "textures_not_shipped": textures,
+                   "surface_cog": surface_cog_plan}, f, indent=1)
     shutil.rmtree(work)
     if {"Starfield.esm": sha256(sf), "FO4Port.esm": sha256(port)} != before:
         sys.exit(f"lift inputs changed during conversion; attempt kept in {out}")
     plan = {"kind": LIFT_KIND, "version": 1, "plugins": [LIFT_PLUGIN], "outputs": probe_a.stage_files(out),
             "inputs": {k: {"sha256": v} for k, v in before.items()}, "states": LIFT_STATES,
             "rise_m": 21.6, "seconds": 9.8667, "event": "Play01"}
+    if surface_cog_plan is not None:
+        plan["surface_cog"] = {
+            "pair_id": surface_cog_plan["pair_id"],
+            "cog_plugin": surface_cog_plan["cog_plugin"],
+            "cog_base_id": surface_cog_plan["cog_base_id"],
+            "cog_edid": surface_cog_plan["cog_edid"],
+            "model": surface_cog_plan["model"],
+            "rig": surface_cog_plan["rig"],
+            "anims": surface_cog_plan["anims"],
+            "states": surface_cog_plan["states"],
+            "world_overrides": 0,
+        }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
-        f.write("Production lift asset component: one ACTI override; no test quest or PEX.\n"
+        f.write("Production lift asset component: ACTI override" + (" + 0x802 surface cog ACTI" if surface_cog_plan else "") + "; no test quest or PEX.\n"
                 "Floor-start/gates-open idle (StateA_Idle = stage2 last pose) and carrying ascent (StateA_Play = stage3).\n"
                 "Pair through make_newgame.py stage --exit-lift <this folder>; never use anim_console_install.py.\n")
     os.replace(out, final)
@@ -817,6 +863,7 @@ def main(argv=None):
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
     s.add_argument("--production-lift", action="store_true", help="build the floor-start Vault 111 asset component without the test quest or PEX")
+    s.add_argument("--surface-cog-stage", default="", help="staged surface-lift-cog folder (stage_surface_lift_cog.py) to bundle into FO4SFExitLift.esm 0x802")
     s.add_argument("--starfield-data", default=os.path.join(STARFIELD, "Data"))
     s.add_argument("--port-data", default="", help="the folder with FO4Port.esm and its archives (default: --starfield-data)")
     s.add_argument("--fo4-data", required=True)

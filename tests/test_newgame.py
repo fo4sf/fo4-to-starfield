@@ -760,8 +760,9 @@ class ContractTests(unittest.TestCase):
         cs, psc = read(CS), read(PSC)
         self.assertIn("Stages = { " + ", ".join(str(s) for s in ng.STAGES) + " }", cs)
         for s in ng.STAGES:
-            if s not in (20, 30):                            # 20 is set by the looks script or the wait, 30 by the cog door
+            if s not in (15, 20, 30):                            # 15 is set by RunPodExitHook, 20 is set by the looks script or the wait, 30 by the cog door
                 self.assertRegex(psc, rf"AdvanceTo\({s}\)")
+        self.assertIn("SetStage(15)", psc)
         self.assertIn("SetStage(20)", read(LOOKS))
         self.assertIn("AdvanceTo(30)", psc)
         self.assertIn("SetObjectiveDisplayed(10)", psc)
@@ -774,7 +775,7 @@ class ContractTests(unittest.TestCase):
         listed = {int(m.group(1)): m.group(2).strip()
                   for m in re.finditer(r"^\s+(\d+) ([a-z].*)$", header[header.index("Stages are the published"):], re.M)}
         self.assertEqual(listed, ng.STAGE_CONTRACT)
-        self.assertEqual(ng.STAGES, (1, 5, 10, 20, 30, 40, 200, 210))
+        self.assertEqual(ng.STAGES, (1, 5, 10, 15, 20, 30, 40, 200, 210))
         self.assertEqual(list(ng.STAGE_CONTRACT), [0] + list(ng.STAGES))
         doc = read(os.path.join(ROOT, "docs", "newgame", "vault111-start.md"))
         audit = read(os.path.join(ROOT, "docs", "newgame", "lift-rules-audit.md"))
@@ -1101,6 +1102,7 @@ ACTOR_O2 = ("Function ModValue(ActorValue akAV, float afAmount) native\n"
             "float Function GetValue(ActorValue akAV) native\n")
 ACTOR_CORE = ("int Function GetLevel() native\n"
               "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
+              "Function UnequipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
               "bool Function IsEquipped(Form akItem) native\n"
               "bool Function IsDead() native\n"
               "Function AddToFaction(Faction akFaction) native\n"
@@ -1126,6 +1128,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                  "Function Notification(string a) native global\nFunction CenterOnCell(string asCellname) native global\n",
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
+                                              "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                                               + CHARGEN + FADE + FAST_READ + AUTOSAVE,
         "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\nFunction SetValue(float afNewValue) native\n",
@@ -1213,6 +1216,7 @@ class PrecheckTests(unittest.TestCase):
     def test_missing_show_race_menu_only_drops_the_looks(self):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
+                    "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
                     + CHARGEN + FADE + FAST_READ + AUTOSAVE)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Game.ShowRaceMenu"])
@@ -1273,6 +1277,7 @@ class PrecheckTests(unittest.TestCase):
         --keep-inventory builds still compile it): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+                          "Function UnequipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
                           "bool Function IsDead() native\n"
                           "Function AddToFaction(Faction akFaction) native\n"
                           "bool Function PlayIdle(Idle akIdle) native\n"
@@ -1311,6 +1316,7 @@ class PrecheckTests(unittest.TestCase):
         without the second is too, and it drops the looks and SPECIAL scripts as well, which start their timers on it."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
+                         "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
                          "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN + FAST_READ + AUTOSAVE)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Game.FadeOutGame"])
@@ -1366,6 +1372,7 @@ class PrecheckTests(unittest.TestCase):
         fake_zip(
             z,
             game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
+                 "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
                  "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                  "Function EnableFastTravel(bool abEnable = true) native global\n"
                  + CHARGEN + FADE + FAST_READ + AUTOSAVE,

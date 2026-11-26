@@ -168,7 +168,8 @@ class SafeDefaultsTests(unittest.TestCase):
 
             def _spy_run_py(py_exe: str, script_rel: str, args):
                 arg_list = list(args)
-                out_dir = Path(arg_list[arg_list.index("--out") + 1])
+                out_flag = "--out" if "--out" in arg_list else "--staging"
+                out_dir = Path(arg_list[arg_list.index(out_flag) + 1])
                 out_dir.mkdir(parents=True, exist_ok=True)
                 if script_rel == "scripts/newgame/make_newgame.py":
                     ng_invocations.append((out_dir.name, arg_list))

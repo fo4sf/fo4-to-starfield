@@ -115,6 +115,8 @@
 
 #include "setup_places.h"
 #include "lift_menu.h"
+#include "pipboy_screen_source.h"
+#include "hud_quest_label.h"
 
 // Win32 calls that libxse's REX::W32 does not wrap, imported the way REX/W32.cpp imports its own (REX/W32/BASE.h):
 // libxse refuses a <windows.h> included before it
@@ -562,6 +564,8 @@ namespace
 	bool                                     g_tabOpensPipboy = false;   // Round 10 C4-4: opt-in closed-Pip-Boy Tab open with blocking-menu cooldown (default 0)
 	bool                                     g_hideStarfieldWatch = false; // Round 11 D7(b): hide Starfield HUDMenu BottomLeftGroup_mc wrist watch (C++ fallback 0, staged 1, rollback 0)
 	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
+	fo4sf::pipboy::ScreenSourceMode          g_screenSourceIni = fo4sf::pipboy::ScreenSourceMode::k2DIMenu;
+	fo4sf::hud::QuestLabelConfig             g_questLabelCfg{};
 	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
 	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
 	std::filesystem::path                    g_gameDir;                 // Game root (<Starfield>/) for Data\Interface\<BootMovie>.swf check
@@ -10278,6 +10282,35 @@ namespace
 		return true;
 	}
 
+	fo4sf::pipboy::ScreenSourceMode ResolvePipboyScreenSourceMainThread()
+	{
+		std::optional<float> globVal;
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		const auto     fid = KitFileForm(
+            fo4sf::pipboy::kPipboyScreenSourcePlugin,
+            fo4sf::pipboy::kPipboyScreenSourceGlobLocalId,
+            "TESGlobal@@",
+            detail);
+		if (fid) {
+			AcceptById(
+				fid,
+				std::string(fo4sf::pipboy::kPipboyScreenSourceGlobEdid).c_str(),
+				"TESGlobal@@",
+				kGlobalEditorIdAt,
+				form);
+		}
+		if (form) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			float             v = 0.0f;
+			if (Peek(form + valAt, v) && std::isfinite(v)) {
+				globVal = v;
+			}
+		}
+		return fo4sf::pipboy::ResolvePipboyScreenSource(g_screenSourceIni, globVal);
+	}
+
 	void Toggle(std::uint32_t a_n)
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -10309,9 +10342,24 @@ namespace
 		if (g_stage == 5 && !open) {
 			KitCollect();    // the kit's screen before the show
 		}
-		g_expectOpen = open ? 0 : 1;
-		queue->AddMessage(MenuName(), open ? RE::UI_MESSAGE_TYPE::kHide : RE::UI_MESSAGE_TYPE::kShow);
-		REX::INFO("step=toggle n={} was_open={} sent={}", a_n, open ? 1 : 0, open ? "hide" : "show");
+		if (open) {
+			g_expectOpen = 0;
+			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=toggle n={} was_open=1 sent=hide", a_n);
+			return;
+		}
+		const auto effectiveMode = ResolvePipboyScreenSourceMainThread();
+		const auto openRes = fo4sf::pipboy::OpenPipboyScreenViaSource(
+			effectiveMode,
+			[&]() {
+				g_expectOpen = 1;
+				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
+				return true;
+			},
+			[]() { return false; });
+		REX::INFO("step=toggle n={} was_open=0 sent={} screen_source={} fallback={} reason={}",
+			a_n, openRes.opened ? "show" : "none",
+			fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
 	}
 
 	// stage d: the CLOSE button, heard on the menu's thread, closes the menu here, on the main thread, as F10 does
@@ -10525,10 +10573,19 @@ namespace
 				CollectShellVitalsMainThread(target);
 			}
 			g_cancelHeld = false;
-			g_expectOpen = 1;
 			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
-				REX::INFO("step=toggle n={} was_open=0 sent=show by=tab_key", n);
+				const auto effectiveMode = ResolvePipboyScreenSourceMainThread();
+				const auto openRes = fo4sf::pipboy::OpenPipboyScreenViaSource(
+					effectiveMode,
+					[&]() {
+						g_expectOpen = 1;
+						queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
+						return true;
+					},
+					[]() { return false; });
+				REX::INFO("step=toggle n={} was_open=0 sent={} by=tab_key screen_source={} fallback={} reason={}",
+					n, openRes.opened ? "show" : "none",
+					fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
 			}
 		} else {
 			Toggle(n);
@@ -11625,6 +11682,14 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_tabOpensPipboy = ReadNumber(ini, L"TabOpensPipboy", 0) != 0;
 	g_hideStarfieldWatch = ReadNumber(ini, L"HideStarfieldWatch", 0) != 0;
 	g_requirePickup = ReadNumber(ini, L"RequirePickup", 0) != 0;
+	const auto screenSourceRaw = ReadText(ini, L"ScreenSource");
+	const auto screenSourceOpt = fo4sf::pipboy::ParseScreenSourceIni(screenSourceRaw);
+	if (!screenSourceOpt.has_value()) {
+		Refuse("ini", std::format("ScreenSource={} (expected 2d_imenu or 3d_rtt)", screenSourceRaw));
+		return true;
+	}
+	g_screenSourceIni = *screenSourceOpt;
+	g_questLabelCfg = fo4sf::hud::LoadQuestLabelConfig(ini);
 	g_bootMovie = ReadText(ini, L"BootMovie");
 	g_bootOnFirstOpen = ReadNumber(ini, L"BootOnFirstOpen", 0) != 0;
 	g_specialMenu = ReadNumber(ini, L"SpecialMenu", 0) != 0;
@@ -11768,6 +11833,8 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 				g_shellBackdrop ? 1 : 0, g_shellVitalsFill ? 1 : 0, g_suppressDataMenu ? 1 : 0, g_tabOpensPipboy ? 1 : 0,
 				g_hideStarfieldWatch ? 1 : 0);
 		}
+		REX::INFO("step=pipboy_screen_source mode={}", fo4sf::pipboy::ScreenSourceModeName(g_screenSourceIni));
+		REX::INFO("{}", fo4sf::hud::FormatStartupLog(g_questLabelCfg));
 	}
 	if (g_codeObjSound) {
 		g_soundDir = dir / kSoundFolder;

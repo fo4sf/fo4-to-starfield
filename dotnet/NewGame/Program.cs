@@ -393,7 +393,7 @@ static class NewGame
     public const uint O2CapacityId = 0x0002E2;
     public const float O2CapacityAmount = 100f;
     // the stages and the objective FO4SF_NewGameQuest.psc drives (stage 0, the start and the wait for the vault, is no record)
-    public static readonly ushort[] Stages = { 1, 5, 10, 20, 30, 40, 200, 210 };
+    public static readonly ushort[] Stages = { 1, 5, 10, 15, 20, 30, 40, 200, 210 };
     public const ushort Objective = 10;
     public const string ObjectiveText = "Leave Vault 111";
     public const float Units = 70f, MergeX = -1200f, MergeY = -2700f;   // FO4 units per metre; vmad_patch.MERGE_MEASURED
@@ -543,6 +543,106 @@ static class NewGame
                         ScanCell(ec);
         }
         return hits.OrderBy(h => h.ExitDist).ThenBy(h => h.Id).Select(h => (int)h.Id).Distinct().ToArray();
+    }
+
+    static uint ParseHex(string s) => Convert.ToUInt32(s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s, 16);
+
+    public static string? FindRepoJsonPath(string relPath)
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, relPath);
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), relPath);
+        return File.Exists(cwd) ? cwd : null;
+    }
+
+    public record GameStartConfig(
+        bool MuteArrivalDiscoveryPopup,
+        bool SilentStarterStrip,
+        uint[] StarterStripArmorIds,
+        bool SinglePassLandingFade,
+        string PodExitMode,
+        float PodSafeStep,
+        float PodSafeHeading,
+        bool HasPodSafeExitOverride);
+
+    static readonly uint[] DefaultStarterStripArmorIds =
+    {
+        0x001E2B17, 0x001E2B18, 0x001E2B19, 0x0001D1E7,
+        0x0001D1D7, 0x000D4893, 0x00052792, 0x0005278E,
+        0x002EDF1F, 0x00029C7A, 0x00104631, 0x00104632,
+    };
+
+    public static GameStartConfig LoadGameStartConfig(string? jsonPath = null)
+    {
+        var path = jsonPath ?? FindRepoJsonPath(Path.Combine("src", "fo4sf", "core", "game_start_config.json"));
+        if (path is null || !File.Exists(path))
+        {
+            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false);
+        }
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var defGame = root.TryGetProperty("default_game", out var dg) ? (dg.GetString() ?? "fo4") : "fo4";
+        var fo4 = root.GetProperty("games").GetProperty(defGame);
+        var ids = fo4.GetProperty("starter_strip_starfield_armor_ids").EnumerateArray()
+            .Select(x => ParseHex(x.GetString() ?? "0"))
+            .ToArray();
+        return new GameStartConfig(
+            fo4.GetProperty("mute_arrival_discovery_popup").GetBoolean(),
+            fo4.GetProperty("silent_starter_strip").GetBoolean(),
+            ids,
+            fo4.GetProperty("single_pass_landing_fade").GetBoolean(),
+            fo4.GetProperty("pod_exit_mode").GetString() ?? "safe_spawn",
+            fo4.GetProperty("pod_safe_step_m").GetSingle(),
+            fo4.GetProperty("pod_safe_heading_deg").GetSingle(),
+            false);
+    }
+
+    public static List<FormKey> ResolveStarterStripKeys(SF.IStarfieldModGetter sf, GameStartConfig gs)
+    {
+        var known = sf.Armors.Select(a => a.FormKey.ID).ToHashSet();
+        return gs.StarterStripArmorIds.Where(id => known.Contains(id)).Select(id => new FormKey(SfEsm, id)).ToList();
+    }
+
+    public record LiftPairConfig(
+        string ExitLiftPlugin,
+        int SurfaceCogBaseId,
+        float SurfaceCogOffsetX,
+        float SurfaceCogOffsetY,
+        float SurfaceCogOffsetZ,
+        float SurfaceCogRotZ,
+        float SurfaceLiftDrop,
+        float SurfaceLiftSeconds,
+        float SurfaceLiftFadeAt,
+        float SurfaceLiftDoneMargin,
+        int CoreStaticSurfaceLiftBaseId);
+
+    public static LiftPairConfig LoadLiftPairConfig(string? jsonPath = null, string pairId = "fo4.vault111_exit")
+    {
+        var path = jsonPath ?? FindRepoJsonPath(Path.Combine("src", "fo4sf", "core", "lift_pairs.json"));
+        if (path is null || !File.Exists(path))
+        {
+            return new LiftPairConfig("FO4SFExitLift.esm", 0x000802, -7.8009033f, 2.9952393f, -94.85599f, 27.811361f,
+                                      59.1425f, 18.6667f, 7.533f, 0.25f, 0x0A2D4B);
+        }
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var surf = doc.RootElement.GetProperty("pairs").GetProperty(pairId).GetProperty("surface");
+        var xy = surf.GetProperty("xy_offset_m").EnumerateArray().Select(x => x.GetSingle()).ToArray();
+        return new LiftPairConfig(
+            surf.GetProperty("cog_plugin").GetString() ?? "FO4SFExitLift.esm",
+            (int)ParseHex(surf.GetProperty("cog_base_id").GetString() ?? "0x000802"),
+            xy[0],
+            xy[1],
+            surf.GetProperty("z_offset_m").GetSingle(),
+            surf.GetProperty("rot_z_deg").GetSingle(),
+            surf.GetProperty("descend_drop_m").GetSingle(),
+            surf.GetProperty("descend_duration_s").GetSingle(),
+            surf.GetProperty("descend_fade_at_s").GetSingle(),
+            surf.GetProperty("descend_done_margin_s").GetSingle(),
+            (int)ParseHex(surf.GetProperty("core_static_base_id").GetString() ?? "0x0A2D4B"));
     }
 
     public static string DefaultWarfareStartsJsonPath()
@@ -1300,6 +1400,8 @@ static class NewGame
         var con = Floats(pts.GetProperty("console").GetProperty("pos"));
         var plat = Floats(pts.GetProperty("platform").GetProperty("pos"));
         var arr = Floats(pts.GetProperty("arrival").GetProperty("pos"));
+        var gs = LoadGameStartConfig();
+        var lp = LoadLiftPairConfig();
         return new()
         {
             ("VaultAnchorId", (int)p.VaultAnchor), ("AnchorX", p.AnchorPos.X), ("AnchorY", p.AnchorPos.Y), ("AnchorZ", p.AnchorPos.Z),
@@ -1308,11 +1410,29 @@ static class NewGame
             ("PortPipboyStaticId", (int)p.PortPipboyStatic), ("VaultPistolId", (int)vaultPistolId),
             ("PlatformX", plat[0]), ("PlatformY", plat[1]), ("PlatformZ", plat[2]),
             ("LiftId", (int)p.Lift), ("LiftBaseId", (int)p.LiftBase), ("LiftRise", 21.6f), ("LiftSeconds", 9.8667f),
+            ("ExitLiftPlugin", lp.ExitLiftPlugin),
+            ("SurfaceCogBaseId", lp.SurfaceCogBaseId),
+            ("SurfaceCogOffsetX", lp.SurfaceCogOffsetX),
+            ("SurfaceCogOffsetY", lp.SurfaceCogOffsetY),
+            ("SurfaceCogOffsetZ", lp.SurfaceCogOffsetZ),
+            ("SurfaceCogRotZ", lp.SurfaceCogRotZ),
+            ("SurfaceLiftDrop", lp.SurfaceLiftDrop),
+            ("SurfaceLiftSeconds", lp.SurfaceLiftSeconds),
+            ("SurfaceLiftFadeAt", lp.SurfaceLiftFadeAt),
+            ("SurfaceLiftDoneMargin", lp.SurfaceLiftDoneMargin),
+            ("CoreStaticSurfaceLiftBaseId", lp.CoreStaticSurfaceLiftBaseId),
             ("ExitAnchorId", (int)p.ExitAnchor), ("ArrivalX", arr[0]), ("ArrivalY", arr[1]), ("ArrivalZ", arr[2]),
             ("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)p.ExitAnchor : 0),
             ("ArrivalHeading", pts.GetProperty("arrival").GetProperty("heading").GetSingle()),
             ("FallbackX", p.ExitPos.X), ("FallbackY", p.ExitPos.Y), ("FallbackZ", p.ExitPos.Z),
             ("MergeOffsetX", MergeX), ("MergeOffsetY", MergeY), ("LooksWait", o.Looks ? 120f : 0f),
+            ("MuteArrivalDiscoveryPopup", gs.MuteArrivalDiscoveryPopup),
+            ("SilentStarterStrip", gs.SilentStarterStrip),
+            ("SinglePassLandingFade", gs.SinglePassLandingFade),
+            ("PodExitMode", gs.PodExitMode),
+            ("PodSafeStep", gs.PodSafeStep),
+            ("PodSafeHeading", gs.PodSafeHeading),
+            ("HasPodSafeExitOverride", gs.HasPodSafeExitOverride),
             ("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit),
             ("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell),
             ("DebugAfterHold", o.DebugAfterHold),           // written into MQ101Debug right after the hold-off (0: never)
@@ -1513,8 +1633,7 @@ static class NewGame
         var pipboyWrist = (SF.Armor)wristTpl.Duplicate(new FormKey(modKey, PipboyWristArmorId));
         pipboyWrist.EditorID = PipboyWristArmorEdid;
         pipboyWrist.Name = "Pip-Boy 3000";
-        pipboyWrist.VirtualMachineAdapter = null;
-        pipboyWrist.MajorRecordFlagsRaw &= ~0x4;
+        PipboyWristBuilder.BuildWristRecords(mod, sf, pipboyWrist, SfEsm);
         mod.Armors.Add(pipboyWrist);
 
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
@@ -1580,7 +1699,8 @@ static class NewGame
                 Position = new P3Float(-57.0338f, 30.006f, 1.29f),
                 Rotation = new P3Float(-1.444f, 0.412f, 4.831f),
             };
-            cellOver.Temporary.Add(pistolRef);
+            pistolRef.MajorRecordFlagsRaw |= 0x400;
+            cellOver.Persistent.Add(pistolRef);
             var ammoRef = new SF.PlacedObject(new FormKey(modKey, VaultAmmoRefId), SF.StarfieldRelease.Starfield)
             {
                 EditorID = VaultAmmoRefEdid,
@@ -1589,7 +1709,8 @@ static class NewGame
                 Rotation = new P3Float(0.001f, 0.0f, 2.835f),
                 Count = VaultAmmoCount,
             };
-            cellOver.Temporary.Add(ammoRef);
+            ammoRef.MajorRecordFlagsRaw |= 0x400;
+            cellOver.Persistent.Add(ammoRef);
         }
         var cBlock = new SF.CellBlock { BlockNumber = places.CellBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var cSub = new SF.CellSubBlock { BlockNumber = places.CellSubBlockNum, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
@@ -1702,6 +1823,10 @@ static class NewGame
         script.Properties.Add(Obj("GearDoorConsoleRef", gearConsoleRef.FormKey));
         script.Properties.Add(Obj("StartRoomMarkerRef", startRoomMarkerRef.FormKey));
         script.Properties.Add(Obj("VaultPistolBase", vaultPistolKey));
+        var starterStripKeys = ResolveStarterStripKeys(sf, LoadGameStartConfig());
+        var stripList = new SF.ScriptObjectListProperty { Name = "StarterStripItems", Flags = SF.ScriptProperty.Flag.Edited };
+        foreach (var fk in starterStripKeys) stripList.Objects.Add(Obj("", fk));
+        script.Properties.Add(stripList);
         foreach (var (name, value) in Properties(pts, places, o, wf, sp, vaultPistolId, routeLootRefIds))
             script.Properties.Add(ValueProperty(name, value));
         quest.VirtualMachineAdapter = new SF.QuestAdapter
@@ -1770,7 +1895,7 @@ static class NewGame
             gmstOver.Data = 0;
             mod.GameSettings.Add(gmstOver);
         }
-        mod.ModHeader.Stats.NextFormID = Vault10mmWeapId + 1;
+        mod.ModHeader.Stats.NextFormID = PipboyWristBuilder.PipboyScreenSourceGlobId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         WritePlugin(mod, path);
@@ -1872,6 +1997,7 @@ static class NewGame
         var pipboyWrist = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyWristArmorId));
         Need(plug.Armors.Count == 1 && pipboyWrist is { EditorID: PipboyWristArmorEdid } && (pipboyWrist.MajorRecordFlagsRaw & 0x4) == 0,
              $"ARMO 0x{PipboyWristArmorId:X} is not playable {PipboyWristArmorEdid}");
+        PipboyWristBuilder.ValidateWristRecords(plug, pipboyWrist, Need);
         var pipboyActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyCorpseActiId));
         var gearConsoleActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, GearDoorConsoleActiId));
         Need(plug.Activators.Count == 2 &&
@@ -1890,10 +2016,10 @@ static class NewGame
         var wantConPos = ConsoleWorldPos(new P3Float(conCoords[0], conCoords[1], conCoords[2]), places.ConsoleRot);
         bool hasVaultPistolAndAmmo = sf.Weapons.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultPistolId)) &&
                                      sf.Ammunitions.Any(w => w.FormKey == new FormKey(SfEsm, SfVaultAmmoId));
-        int wantVaultTempCount = hasVaultPistolAndAmmo ? 2 : 0;
+        int wantVaultPersistCount = hasVaultPistolAndAmmo ? 4 : 2;
         Need(allPlugCells.Count == 2 &&
              cellOver is not null && cellOver.FormKey == new FormKey(PortEsm, places.PortCellId) && cellOver.EditorID == VaultCell &&
-             cellOver.Temporary.Count == wantVaultTempCount && cellOver.Persistent.Count == 2 &&
+             cellOver.Temporary.Count == 0 && cellOver.Persistent.Count == wantVaultPersistCount &&
              pipboyRef is { EditorID: PipboyCorpseRefEdid } && IsPersistent(pipboyRef) &&
              pipboyRef.Base.FormKey == new FormKey(key, PipboyCorpseActiId) &&
              MathF.Abs((pipboyRef.Scale ?? 1f) - PipboyPickupScale) <= 1e-4f &&
@@ -1915,21 +2041,21 @@ static class NewGame
                  weap10mm.AmmoCapacity == Vault10mmAmmoCapacity &&
                  MathF.Abs(weap10mm.AttackDamage - Vault10mmAttackDamage) < 1e-4f,
                  $"WEAP 0x{Vault10mmWeapId:X} is not {Vault10mmWeapEdid} ('10mm Pistol', cap={Vault10mmAmmoCapacity}, dmg={Vault10mmAttackDamage})");
-            var pistolRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultPistolRefId));
-            var ammoRef = cellOver?.Temporary.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultAmmoRefId));
-            Need(pistolRef is { EditorID: VaultPistolRefEdid } && !IsPersistent(pistolRef) &&
+            var pistolRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultPistolRefId));
+            var ammoRef = cellOver?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, VaultAmmoRefId));
+            Need(pistolRef is { EditorID: VaultPistolRefEdid } && IsPersistent(pistolRef) &&
                  pistolRef.Base.FormKey == new FormKey(key, Vault10mmWeapId) &&
                  MathF.Abs(pistolRef.Position.X - (-57.0338f)) <= 1e-3f &&
                  MathF.Abs(pistolRef.Position.Y - 30.006f) <= 1e-3f &&
                  MathF.Abs(pistolRef.Position.Z - 1.29f) <= 1e-3f,
-                 $"CELL override lacks temporary {VaultPistolRefEdid} (0x{VaultPistolRefId:X}) -> {Plugin}:{Vault10mmWeapId:X}");
-            Need(ammoRef is { EditorID: VaultAmmoRefEdid } && !IsPersistent(ammoRef) &&
+                 $"CELL override lacks persistent {VaultPistolRefEdid} (0x{VaultPistolRefId:X}) -> {Plugin}:{Vault10mmWeapId:X}");
+            Need(ammoRef is { EditorID: VaultAmmoRefEdid } && IsPersistent(ammoRef) &&
                  ammoRef.Base.FormKey == new FormKey(SfEsm, SfVaultAmmoId) &&
                  ammoRef.Count == VaultAmmoCount &&
                  MathF.Abs(ammoRef.Position.X - (-57.0522f)) <= 1e-3f &&
                  MathF.Abs(ammoRef.Position.Y - 30.3703f) <= 1e-3f &&
                  MathF.Abs(ammoRef.Position.Z - 0.696f) <= 1e-3f,
-                 $"CELL override lacks temporary {VaultAmmoRefEdid} (0x{VaultAmmoRefId:X}) -> Starfield.esm:{SfVaultAmmoId:X6} count {VaultAmmoCount}");
+                 $"CELL override lacks persistent {VaultAmmoRefEdid} (0x{VaultAmmoRefId:X}) -> Starfield.esm:{SfVaultAmmoId:X6} count {VaultAmmoCount}");
         }
         Need(startRoomCell is { EditorID: StartRoomCellEdid } && (startRoomCell.Flags & SF.Cell.Flag.IsInteriorCell) != 0 &&
              startRoomCell.Temporary.Count == 0 && startRoomCell.Persistent.Count == 1 &&
@@ -2010,14 +2136,15 @@ static class NewGame
                  $"GLOB MQ101Debug is not overridden to {F(dbg)}");
         }
         else Need(overrides.Count == 0, "a build without --mq101debug overrides a GLOB");
-        var ver = own.FirstOrDefault(g => g.FormKey == new FormKey(key, VersionGlobId));
+        var verGlobals = own.Where(g => g.FormKey.ID != PipboyWristBuilder.PipboyScreenSourceGlobId).ToList();
+        var ver = verGlobals.FirstOrDefault(g => g.FormKey == new FormKey(key, VersionGlobId));
         if (o.Version)
         {
-            Need(own.Count == 1 && ver is { EditorID: VersionGlobEdid } && ver.Data == o.BuildVersion && ver.MajorFlags.HasFlag(SF.Global.MajorFlag.Constant),
+            Need(verGlobals.Count == 1 && ver is { EditorID: VersionGlobEdid } && ver.Data == o.BuildVersion && ver.MajorFlags.HasFlag(SF.Global.MajorFlag.Constant),
                  $"GLOB 0x{VersionGlobId:X} is not {VersionGlobEdid} = {F(o.BuildVersion)}, constant");
             Console.WriteLine($"  GLOB {VersionGlobEdid} = {(ver?.Data is { } vd ? F(vd) : "missing")} flags {ver?.MajorFlags}");
         }
-        else Need(own.Count == 0, "a --no-version build carries a local GLOB");
+        else Need(verGlobals.Count == 0, "a --no-version build carries a local version GLOB");
 
         var sfDiscoverXp = sf.GameSettings.OfType<SF.IGameSettingIntGetter>()
             .FirstOrDefault(g => string.Equals(g.EditorID, DiscoverSecretAreaXpGmstEdid, StringComparison.Ordinal));
@@ -2166,13 +2293,17 @@ static class NewGame
                      "property StartRoomMarkerRef");
                 Need(props.TryGetValue("VaultPistolBase", out var vpbp) && vpbp is SF.IScriptObjectPropertyGetter vpbo && vpbo.Object.FormKey == vaultPistolKey,
                      $"property VaultPistolBase is not {vaultPistolKey}");
+                var wantStrip = ResolveStarterStripKeys(sf, LoadGameStartConfig());
+                Need(props.TryGetValue("StarterStripItems", out var ssip) && ssip is SF.IScriptObjectListPropertyGetter ssil &&
+                     ssil.Objects.Select(x => x.Object.FormKey).SequenceEqual(wantStrip),
+                     $"property StarterStripItems mismatch");
                 var want = o.Hold.Select(e => sf.Quests.FirstOrDefault(x => x.EditorID == e)?.FormKey).ToList();
                 Need(want.All(x => x is not null) && props.TryGetValue("HoldOff", out var hp) && hp is SF.IScriptObjectListPropertyGetter hl &&
                      hl.Objects.Select(x => (FormKey?)x.Object.FormKey).SequenceEqual(want), $"property HoldOff is not [{string.Join(", ", o.Hold)}] in order");
                 var expected = Properties(pts, places, o, wf, sp, vaultPistolId, routeLootRefIds);
                 foreach (var (name, value) in expected)
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
-                Need(props.Count == expected.Count + 43, $"{props.Count} properties, expected {expected.Count + 43}");
+                Need(props.Count == expected.Count + 44, $"{props.Count} properties, expected {expected.Count + 44}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
                 Need((o.VaultSuit is null) == (places.VaultSuit == 0), "the vault suit id does not follow --vault-suit");
                 Console.WriteLine($"  inventory reset {InventoryText(o, places)}; {O2Text(o)}");
@@ -2466,10 +2597,22 @@ static class NewGame
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x1D307F), rel) { EditorID = "SQ_ApplyVoices_OBSOLETE" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x257DE5), rel) { EditorID = "LDMasterQuest" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
+        sf.Races.Add(new SF.Race(new FormKey(SfEsm, PipboyWristBuilder.HumanRaceId), rel) { EditorID = "HumanRace" });
+        var watchAa = new SF.ArmorAddon(new FormKey(SfEsm, PipboyWristBuilder.WatchTemplateArmaId), rel)
+        {
+            EditorID = "AA_Spacesuit_Mark1_ChronoWatch",
+            FirstPersonFlags = SF.FirstPersonFlag.SSChronoMark,
+        };
+        sf.ArmorAddons.Add(watchAa);
         var chrono = new SF.Armor(new FormKey(SfEsm, SfChronomarkArmorId), rel) { EditorID = "Clothes_Chronomark_Mq101_NOTPLAYABLE" };
         chrono.MajorRecordFlagsRaw |= 0x4;
         sf.Armors.Add(chrono);
         sf.Armors.Add(new SF.Armor(new FormKey(SfEsm, SfFallbackJumpsuitId), rel) { EditorID = "Clothes_Miner_Jumpsuit" });
+        foreach (var stripId in DefaultStarterStripArmorIds)
+        {
+            if (stripId != SfChronomarkArmorId && stripId != SfFallbackJumpsuitId)
+                sf.Armors.Add(new SF.Armor(new FormKey(SfEsm, stripId), rel) { EditorID = $"Starter_{stripId:X6}" });
+        }
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, 0x24561C), rel) { EditorID = "SynthPistol" });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, 0x2B5598), rel) { EditorID = "SynthPistolAmmo" });
         sf.Ingestibles.Add(new SF.Ingestible(new FormKey(SfEsm, 0x00ABF9), rel) { EditorID = "MedPack" });
@@ -2840,9 +2983,10 @@ static class NewGame
             ("GearDoorConsoleRef made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent.First(x => x.EditorID == GearDoorConsoleRefEdid); r.MajorRecordFlagsRaw &= ~0x400; }),
             ("GearDoorConsoleActi lost its name", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).Name = ""),
             ("VaultPistolBase pointed at another form", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultPistolBase")).Object.SetTo(new FormKey(SfEsm, SfFallbackJumpsuitId))),
-            ("Vault111 temporary pistol removed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; c.Temporary.Remove(c.Temporary.First(x => x.EditorID == VaultPistolRefEdid)); }),
+            ("Vault111 persistent pistol removed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; c.Persistent.Remove(c.Persistent.First(x => x.EditorID == VaultPistolRefEdid)); }),
+            ("Vault111 persistent pistol made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent.First(x => x.EditorID == VaultPistolRefEdid); r.MajorRecordFlagsRaw &= ~0x400; }),
             ("Vault111 10mm WEAP capacity reverted to 9", m => m.Weapons.First(w => w.EditorID == Vault10mmWeapEdid).AmmoCapacity = 9u),
-            ("Vault111 temporary ammo count changed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; ((SF.PlacedObject)c.Temporary.First(x => x.EditorID == VaultAmmoRefEdid)).Count = 12; }),
+            ("Vault111 persistent ammo count changed", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; ((SF.PlacedObject)c.Persistent.First(x => x.EditorID == VaultAmmoRefEdid)).Count = 12; }),
             ("iXPRewardDiscoverSecretArea GMST removed", m => m.GameSettings.Clear()),
             ("iXPRewardDiscoverSecretArea GMST nonzero", m => ((SF.GameSettingInt)m.GameSettings.First(g => g.EditorID == DiscoverSecretAreaXpGmstEdid)).Data = 40),
             ("ConsoleRefId changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ConsoleRefId")).Data = 0x999),

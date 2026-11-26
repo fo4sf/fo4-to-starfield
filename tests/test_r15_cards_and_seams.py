@@ -119,7 +119,9 @@ class R15WaveACardsTests(unittest.TestCase):
         self.assertIn("Vault10mmAmmoCapacity = 12u", ng_cs)
         self.assertIn("Vault10mmAttackDamage = 18.0f", ng_cs)
         self.assertIn("-57.0338f, 30.006f, 1.29f", ng_cs)
-        self.assertIn("cellOver.Temporary.Add(pistolRef)", ng_cs)
+        self.assertIn("pistolRef.MajorRecordFlagsRaw |= 0x400", ng_cs)
+        self.assertIn("cellOver.Persistent.Add(pistolRef)", ng_cs)
+        self.assertIn("cellOver.Persistent.Add(ammoRef)", ng_cs)
         self.assertIn("pistol picked", ng_psc)
 
         for tok in (

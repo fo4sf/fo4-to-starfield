@@ -11,6 +11,7 @@ Scriptname FO4SF_NewGameQuest extends Quest
    1 stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)
    5 mode chosen: start mode and survival choice stored
    10 in the vault: the player stands at their pod
+   15 pod exited: safe spawn or cryopod exit hook complete
    20 looks done: character creation closed, or LooksWait passed
    30 cog door opened: from its console
    40 on the surface: the elevator ride is over
@@ -298,6 +299,17 @@ string Property PodExitMode = "safe_spawn" Auto Const
 float Property PodSafeStep = -3.2 Auto Const
 float Property PodSafeHeading = 270.0 Auto Const
 bool Property HasPodSafeExitOverride = false Auto Const
+string Property ExitLiftPlugin = "FO4SFExitLift.esm" Auto Const
+int Property SurfaceCogBaseId = 0x000802 Auto Const
+float Property SurfaceCogOffsetX = -7.8009033 Auto Const
+float Property SurfaceCogOffsetY = 2.9952393 Auto Const
+float Property SurfaceCogOffsetZ = -94.85599 Auto Const
+float Property SurfaceCogRotZ = 27.811361 Auto Const
+float Property SurfaceLiftDrop = 59.1425 Auto Const
+float Property SurfaceLiftSeconds = 18.6667 Auto Const
+float Property SurfaceLiftFadeAt = 7.533 Auto Const
+float Property SurfaceLiftDoneMargin = 0.25 Auto Const
+int Property CoreStaticSurfaceLiftBaseId = 0x0A2D4B Auto Const
 int Property RaceMenuMode = 2 Auto Const
 {Looks-only creator mode (2 = body and face) shared with FO4SF_NewGameLooks.}
 int[] Property CoreMarkerIds Auto Const
@@ -439,6 +451,21 @@ bool vaultRecoveryTriggered = false
 int vaultPodAutosaveSkips = 0
 bool surfaceFadeInDone = false
 bool podExitDone = false
+ObjectReference surfaceCogRef = None
+bool surfaceCogActivationRegistered = false
+bool liftPairActive = false
+bool liftPairDescending = false
+bool liftPairDone = false
+bool liftPairTransferred = false
+bool liftPairTransferPending = false
+bool liftPairFadeStarted = false
+ObjectReference liftPairActiveRef = None
+Cell liftPairStartCell = None
+WorldSpace liftPairStartWorld = None
+float liftPairStartedAt = 0.0
+float liftPairStartX = 0.0
+float liftPairStartY = 0.0
+float liftPairStartZ = 0.0
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -919,7 +946,11 @@ Event OnTimer(int aiTimerID)
     elseif stage == 40
         CheckLanding(player)
     elseif stage == 200
-        CheckReturnLift(player)
+        if liftPairActive || liftPairTransferPending || surfaceMovedAt > 0.0
+            CheckPairedLiftRide(player)
+        else
+            CheckReturnLift(player)
+        endif
     endif
     if GetStage() < 200 && ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
@@ -932,8 +963,8 @@ Event OnTimer(int aiTimerID)
             StartTimer(1.0, 1)
         endif
     elseif curStage == 200
-        if returnSurfacePending
-            StartTimer(1.0, 1)
+        if liftPairActive || liftPairTransferPending || returnSurfacePending || surfaceMovedAt > 0.0
+            StartTimer(0.15, 1)
         else
             StartTimer(5.0, 1)
         endif
@@ -1402,6 +1433,22 @@ Function StartAscent(Actor player)
 EndFunction
 
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+    if liftPairActive && akSource == liftPairActiveRef && asEventName == "Done"
+        float lpElapsed = Utility.GetCurrentRealTime() - liftPairStartedAt
+        float lpDur = LiftSeconds
+        float lpMargin = LiftDoneMargin
+        if liftPairDescending
+            lpDur = SurfaceLiftSeconds
+            lpMargin = SurfaceLiftDoneMargin
+        endif
+        if lpElapsed >= lpDur - lpMargin
+            liftPairDone = true
+            Trace("lift_pair done elapsed=" + lpElapsed + " ref=" + akSource)
+        else
+            Trace("lift_pair ignored early_done elapsed=" + lpElapsed)
+        endif
+        return
+    endif
     if !rideActive || akSource != ridingLift || asEventName != "Done"
         return
     endif
@@ -1560,6 +1607,8 @@ Function FinishSurface(Actor player)
         arrivalWorld = afterWorld
         surfaceMovedAt = 0.0
         arrivedAt = Utility.GetCurrentRealTime()
+        EnsurePipboyWristEquipped(player, "surface")
+        EnsureSurfaceLiftCog(player)
         if SinglePassLandingFade && !surfaceFadeInDone
             surfaceFadeInDone = true
             ForceFadeIn("story_landing")
@@ -1972,6 +2021,8 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         returnSurfaceTries = 0
         Trace("return lift reload recovered")
     endif
+    EnsurePipboyWristEquipped(akSender, "load")
+    RecoverPairedLiftOnLoad(akSender)
     if st != 1
         StartTimer(1.0, 1)
     endif
@@ -2719,7 +2770,7 @@ Function RunWarfareBranch(Actor player, int rowIdx)
     FillO2(player)
     if PipboyWristArmor != None
         player.AddItem(PipboyWristArmor, 1, true)
-        player.EquipItem(PipboyWristArmor, false, true)
+        player.EquipItem(PipboyWristArmor, true, true)
     endif
     EnsureVaultInteractivesRegistered()
     if !SyncPipboyOwnedWornState(player)
@@ -2956,6 +3007,34 @@ bool Function SyncPipboyOwnedWornState(Actor player)
     return owned && worn
 EndFunction
 
+bool Function EnsurePipboyWristEquipped(Actor player, string why)
+    if player == None || PipboyWristArmor == None
+        return false
+    endif
+    bool acq = pipboyPickedUp || (PipboyAcquiredGlobal != None && PipboyAcquiredGlobal.GetValue() >= 0.5)
+    if !acq && why != "pickup"
+        return false
+    endif
+    if player.GetItemCount(PipboyWristArmor) <= 0
+        player.AddItem(PipboyWristArmor, 1, true)
+    endif
+    if !player.IsEquipped(PipboyWristArmor)
+        player.EquipItem(PipboyWristArmor, true, true)
+    endif
+    bool worn = player.IsEquipped(PipboyWristArmor)
+    if PipboyAcquiredGlobal != None && (why == "pickup" || worn)
+        PipboyAcquiredGlobal.SetValue(1.0)
+    else
+        SyncPipboyOwnedWornState(player)
+    endif
+    if why == "pickup"
+        Trace("pipboy wrist equipped item=" + PipboyWristArmor + " worn=" + worn + " slot=SSChronoMark")
+    else
+        Trace("pipboy wrist reequip on_load=" + why + " acquired=" + acq + " worn=" + worn)
+    endif
+    return worn
+EndFunction
+
 Function EnsureVaultInteractivesRegistered()
     Actor player = Game.GetPlayer()
     if !itemWatchRegistered && player != None && VaultPistolBase != None
@@ -3058,6 +3137,19 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     if akActionRef != player
         return
     endif
+    if surfaceCogRef != None && akSender == surfaceCogRef
+        if !liftPairActive && !liftPairTransferPending && !returnAsked && ReturnMessage != None
+            returnAsked = true
+            int surfActBtn = ReturnMessage.Show()
+            Trace("return lift prompt button=" + surfActBtn + " source=surface_cog")
+            if surfActBtn == 0
+                StartPairedLiftRide(player, true)
+            else
+                returnAsked = false
+            endif
+        endif
+        return
+    endif
     if cogDoorWatchedRef != None && akSender == cogDoorWatchedRef
         if GetStage() < 30 && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
             int curState = cogDoorWatchedRef.GetOpenState()
@@ -3152,11 +3244,7 @@ Function HandlePipboyPickup(Actor player)
     if PipboyCorpseRef != None
         UnregisterForRemoteEvent(PipboyCorpseRef, "OnActivate")
     endif
-    if PipboyWristArmor != None
-        player.AddItem(PipboyWristArmor, 1, true)
-        player.EquipItem(PipboyWristArmor, false, true)
-    endif
-    SyncPipboyOwnedWornState(player)
+    bool worn = EnsurePipboyWristEquipped(player, "pickup")
     bool examinePlayed = false
     Idle examineIdle = Game.GetFormFromFile(0x000C154F, "Starfield.esm") as Idle
     if examineIdle != None && player != None
@@ -3170,10 +3258,6 @@ Function HandlePipboyPickup(Actor player)
         if staticPipboy != None
             staticPipboy.DisableNoWait(False)
         endif
-    endif
-    bool worn = false
-    if PipboyWristArmor != None
-        worn = player.IsEquipped(PipboyWristArmor)
     endif
     Trace("pipboy pickup equipped flag=1 worn=" + worn)
     Trace("pipboy pickup examine_idle=" + examinePlayed)
@@ -3255,6 +3339,314 @@ Function PreAttachArrivalMarker(Actor player)
     endif
 EndFunction
 
+Function ResetSurfaceLiftCog()
+    if surfaceCogRef != None && surfaceCogRef.Is3DLoaded()
+        bool raised = surfaceCogRef.PlayAnimation("Play02")
+        if !raised
+            surfaceCogRef.Reset()
+        endif
+    endif
+EndFunction
+
+ObjectReference Function EnsureSurfaceLiftCog(Actor player)
+    if player == None || !player.Is3DLoaded() || player.IsInInterior()
+        return None
+    endif
+    WorldSpace hostWorld = ResolveHostWorld()
+    if hostWorld == None || player.GetWorldSpace() != hostWorld
+        return None
+    endif
+    float baseSurfX = ArrivalX + MergeOffsetX
+    float baseSurfY = ArrivalY + MergeOffsetY
+    float dxPlayer = player.GetPositionX() - baseSurfX
+    float dyPlayer = player.GetPositionY() - baseSurfY
+    if dxPlayer * dxPlayer + dyPlayer * dyPlayer > 14400.0
+        return surfaceCogRef
+    endif
+    float tx = baseSurfX + SurfaceCogOffsetX
+    float ty = baseSurfY + SurfaceCogOffsetY
+    float tz = ArrivalZ + SurfaceCogOffsetZ
+    if surfaceCogRef == None
+        Form cogBase = Game.GetFormFromFile(SurfaceCogBaseId, ExitLiftPlugin)
+        if cogBase == None
+            return None
+        endif
+        if CoreStaticSurfaceLiftBaseId > 0
+            Form staticBase = Game.GetFormFromFile(CoreStaticSurfaceLiftBaseId, CorePlugin)
+            if staticBase != None
+                ObjectReference staticRef = Game.FindClosestReferenceOfType(staticBase, tx, ty, tz + 94.0, 20.0)
+                if staticRef != None
+                    staticRef.DisableNoWait(False)
+                endif
+            endif
+        endif
+        surfaceCogRef = player.PlaceAtMe(cogBase, 1, true, false, false)
+        if surfaceCogRef != None
+            surfaceCogRef.SetPosition(tx, ty, tz)
+            surfaceCogRef.SetAngle(0.0, 0.0, SurfaceCogRotZ)
+            surfaceCogRef.Enable(False)
+        endif
+    elseif !liftPairActive && surfaceCogRef.Is3DLoaded()
+        float cx = surfaceCogRef.GetPositionX() - tx
+        float cy = surfaceCogRef.GetPositionY() - ty
+        float cz = surfaceCogRef.GetPositionZ() - tz
+        if cx * cx + cy * cy + cz * cz > 0.0625
+            surfaceCogRef.SetPosition(tx, ty, tz)
+            surfaceCogRef.SetAngle(0.0, 0.0, SurfaceCogRotZ)
+        endif
+    endif
+    if surfaceCogRef != None && !surfaceCogActivationRegistered
+        RegisterForRemoteEvent(surfaceCogRef, "OnActivate")
+        surfaceCogActivationRegistered = true
+    endif
+    if surfaceCogRef != None
+        Trace("lift_pair surface_cog ready ref=" + surfaceCogRef + " base=" + ExitLiftPlugin + ":" + SurfaceCogBaseId + " pos=" + tx + " " + ty + " " + tz + " rotz=" + SurfaceCogRotZ)
+    endif
+    return surfaceCogRef
+EndFunction
+
+Function FailPairedLift(string reason)
+    if liftPairActiveRef != None
+        UnregisterForAnimationEvent(liftPairActiveRef, "Done")
+    endif
+    liftPairActive = false
+    liftPairDone = false
+    liftPairTransferred = false
+    liftPairTransferPending = false
+    liftPairFadeStarted = false
+    liftPairActiveRef = None
+    liftPairStartCell = None
+    liftPairStartWorld = None
+    Trace("lift_pair fail reason=" + reason)
+EndFunction
+
+bool Function StartPairedLiftRide(Actor player, bool descending)
+    if liftPairActive || liftPairTransferred || liftPairTransferPending || player == None
+        return false
+    endif
+    string dir = "up"
+    if descending
+        dir = "down"
+    endif
+    ObjectReference lift = None
+    if !descending
+        lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference
+        Form base = Game.GetFormFromFile(LiftBaseId, VaultPlugin)
+        if !player.Is3DLoaded() || !player.IsInInterior() || !StandsInVault(player)
+            return false
+        endif
+        if lift == None || base == None || !lift.Is3DLoaded() || lift.GetParentCell() != player.GetParentCell() || lift.GetBaseObject() != base
+            return false
+        endif
+        if !Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)
+            return false
+        endif
+    else
+        lift = EnsureSurfaceLiftCog(player)
+        if !player.Is3DLoaded() || player.IsInInterior() || lift == None || !lift.Is3DLoaded()
+            return false
+        endif
+        if !Near(player, ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ, PlatformRadius)
+            return false
+        endif
+    endif
+    liftPairActiveRef = lift
+    liftPairStartCell = player.GetParentCell()
+    liftPairStartWorld = player.GetWorldSpace()
+    liftPairStartX = player.GetPositionX()
+    liftPairStartY = player.GetPositionY()
+    liftPairStartZ = player.GetPositionZ()
+    liftPairDescending = descending
+    liftPairDone = false
+    liftPairTransferred = false
+    liftPairFadeStarted = false
+    RegisterForAnimationEvent(lift, "Done")
+    liftPairStartedAt = Utility.GetCurrentRealTime()
+    liftPairActive = true
+    bool accepted = lift.PlayAnimation("Play01")
+    if !accepted && lift.Is3DLoaded()
+        lift.Reset()
+        Utility.Wait(0.25)
+        if descending
+            player.SetPosition(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ)
+        else
+            player.SetPosition(PlatformX, PlatformY, PlatformZ + 0.2)
+        endif
+        liftPairStartX = player.GetPositionX()
+        liftPairStartY = player.GetPositionY()
+        liftPairStartZ = player.GetPositionZ()
+        liftPairStartedAt = Utility.GetCurrentRealTime()
+        accepted = lift.PlayAnimation("Play01")
+    endif
+    Trace("lift_pair ride start dir=" + dir + " accepted=" + accepted + " ref=" + lift + " from_z=" + liftPairStartZ + " stage=" + GetStage())
+    if !accepted
+        FailPairedLift("play_refused")
+        return false
+    endif
+    if !descending
+        RunSharedMapSetup()
+        PrepareArrivalMarkerDuringRide()
+    endif
+    StartTimer(0.15, 1)
+    return true
+EndFunction
+
+Function CheckPairedLiftRide(Actor player)
+    if player == None
+        return
+    endif
+    string dir = "up"
+    if liftPairDescending
+        dir = "down"
+    endif
+    if liftPairTransferPending
+        if !liftPairDescending
+            if !player.IsInInterior() && player.Is3DLoaded()
+                float surfX = ArrivalX + MergeOffsetX
+                float surfY = ArrivalY + MergeOffsetY
+                player.SetPosition(surfX, surfY, ArrivalZ)
+                player.SetAngle(0.0, 0.0, ArrivalHeading)
+                arrivalWorld = player.GetWorldSpace()
+                surfaceMovedAt = 0.0
+                liftPairTransferPending = false
+                liftPairTransferred = false
+                liftPairFadeStarted = false
+                liftPairActiveRef = None
+                EnsurePipboyWristEquipped(player, "surface")
+                EnsureSurfaceLiftCog(player)
+                ResetSurfaceLiftCog()
+                Game.FadeOutGame(False, True, 0.0, 0.5, False)
+                leftArrivalPad = false
+                returnLiftArmed = false
+                Trace("lift_pair ride arrived dir=up z=" + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
+            endif
+        else
+            float waitElapsed = Utility.GetCurrentRealTime() - liftPairStartedAt
+            if player.Is3DLoaded() && player.IsInInterior() && StandsInVault(player)
+                ResetVaultExitLift()
+                liftPairTransferPending = false
+                liftPairTransferred = false
+                liftPairFadeStarted = false
+                liftPairActiveRef = None
+                returnVaultAsked = true
+                returnAsked = false
+                Game.FadeOutGame(False, True, 0.0, 0.5, False)
+                Trace("lift_pair ride arrived dir=down z=" + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
+            elseif waitElapsed >= SurfaceLiftSeconds + 15.0
+                ObjectReference vRetry = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+                if vRetry != None
+                    player.MoveTo(vRetry, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)
+                endif
+            endif
+        endif
+        return
+    endif
+    if !liftPairActive
+        return
+    endif
+    float elapsed = Utility.GetCurrentRealTime() - liftPairStartedAt
+    float dur = LiftSeconds
+    float fadeAt = LiftSeconds - 1.1
+    if liftPairDescending
+        dur = SurfaceLiftSeconds
+        fadeAt = SurfaceLiftFadeAt
+    endif
+    if elapsed > dur + 30.0
+        FailPairedLift("timeout")
+        if !liftPairDescending
+            ReturnPlayerToVaultPlatform(player)
+        else
+            player.SetPosition(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ)
+            ResetSurfaceLiftCog()
+            Game.FadeOutGame(False, True, 0.0, 0.5, False)
+        endif
+        return
+    endif
+    if !liftPairDescending && (!player.IsInInterior() || player.GetParentCell() != liftPairStartCell)
+        FailPairedLift("cell_changed")
+        return
+    endif
+    if liftPairDescending && (player.IsInInterior() || player.GetWorldSpace() != liftPairStartWorld)
+        FailPairedLift("world_changed")
+        return
+    endif
+    if !liftPairFadeStarted && elapsed >= fadeAt
+        liftPairFadeStarted = true
+        Game.FadeOutGame(True, True, 0.0, 1.0, True)
+    endif
+    bool readyToTransfer = false
+    if !liftPairDescending
+        float dzUp = player.GetPositionZ() - (liftPairStartZ + LiftRise)
+        readyToTransfer = liftPairDone && dzUp > -0.75 && dzUp < 0.75
+    else
+        readyToTransfer = (liftPairDone || elapsed >= SurfaceLiftFadeAt + 1.5) && (player.GetPositionZ() <= liftPairStartZ - 3.0 || elapsed >= SurfaceLiftFadeAt + 2.0)
+    endif
+    if !readyToTransfer
+        return
+    endif
+    liftPairTransferred = true
+    liftPairActive = false
+    liftPairTransferPending = true
+    if liftPairActiveRef != None
+        UnregisterForAnimationEvent(liftPairActiveRef, "Done")
+    endif
+    if !liftPairDescending
+        Surface(player)
+    else
+        ObjectReference vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if vAnchor != None
+            player.MoveTo(vAnchor, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)
+        endif
+    endif
+EndFunction
+
+Function RecoverPairedLiftOnLoad(Actor player)
+    bool wasMidRide = liftPairActive || liftPairTransferred || liftPairTransferPending
+    string dir = "up"
+    if liftPairDescending
+        dir = "down"
+    endif
+    if liftPairActiveRef != None
+        UnregisterForAnimationEvent(liftPairActiveRef, "Done")
+    endif
+    liftPairActive = false
+    liftPairDone = false
+    liftPairTransferred = false
+    liftPairTransferPending = false
+    liftPairFadeStarted = false
+    liftPairActiveRef = None
+    liftPairStartCell = None
+    liftPairStartWorld = None
+    if surfaceCogRef != None
+        UnregisterForRemoteEvent(surfaceCogRef, "OnActivate")
+        RegisterForRemoteEvent(surfaceCogRef, "OnActivate")
+        surfaceCogActivationRegistered = true
+    endif
+    if wasMidRide
+        surfaceMovedAt = 0.0
+        surfaceMoves = 0
+        surfaceSets = 0
+        asked = false
+        returnAsked = false
+        returnVaultAsked = false
+        Game.FadeOutGame(False, True, 0.0, 0.5, False)
+        bool isInt = false
+        if player != None
+            isInt = player.IsInInterior()
+            if isInt
+                ReturnPlayerToVaultPlatform(player)
+            else
+                player.SetPosition(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ)
+                ResetSurfaceLiftCog()
+            endif
+        endif
+        Trace("lift_pair reload recovered dir=" + dir + " stage=" + GetStage() + " interior=" + isInt)
+    endif
+    if player != None && !player.IsInInterior() && GetStage() >= 40
+        EnsureSurfaceLiftCog(player)
+    endif
+EndFunction
+
 Function CheckReturnLift(Actor player)
 {Post-stage-200 return lift loop: prompts Ride down / Stay once the player leaves > 12 m for >= 2 valid Commonwealth exterior ticks and steps back onto the surface pad.}
     if player == None || !player.Is3DLoaded()
@@ -3280,6 +3672,9 @@ Function CheckReturnLift(Actor player)
             returnLastExteriorX = sx
             returnLastExteriorY = sy
             returnAsked = true
+            EnsureSurfaceLiftCog(player)
+            ResetSurfaceLiftCog()
+            EnsurePipboyWristEquipped(player, "surface")
             Trace("return lift arrived surface pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
             return
         endif
@@ -3317,6 +3712,9 @@ Function CheckReturnLift(Actor player)
         int ubtn = ExitMessage.Show()
         Trace("return vault lift prompt button=" + ubtn)
         if ubtn == 0
+            if LiftId > 0 && StartPairedLiftRide(player, false)
+                return
+            endif
             ObjectReference eAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
             if eAnchor != None
                 returnSurfacePending = true
@@ -3331,6 +3729,7 @@ Function CheckReturnLift(Actor player)
         endif
         return
     endif
+    EnsureSurfaceLiftCog(player)
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
@@ -3409,6 +3808,9 @@ Function CheckReturnLift(Actor player)
     int rbtn = ReturnMessage.Show()
     Trace("return lift prompt button=" + rbtn)
     if rbtn == 0
+        if surfaceCogRef != None && StartPairedLiftRide(player, true)
+            return
+        endif
         ObjectReference vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
         if vAnchor != None
             if LiftId > 0
