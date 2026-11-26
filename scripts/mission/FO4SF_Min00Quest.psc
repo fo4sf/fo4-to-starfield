@@ -23,6 +23,8 @@ bool Property KeeperOnly = False Auto Const
 {True on FO4SF_CodsworthKeeper: this instance only keeps Codsworth (enabled, put back at his merged spot, PlaceCodsworth)
  and Preston (put back at his merged spot, KeepPreston) and never runs the mission.}
 
+bool Property MuteDuplicateObjectiveToasts = True Auto Const
+
 Message Property PrestonTalkMsg Auto Const
 Message Property PrestonReply0Msg Auto Const
 Message Property PrestonReply1Msg Auto Const
@@ -108,6 +110,9 @@ float Property Wfc01StuckLimit = 60.0 Auto Const
 string LogName = "fo4sf_mission"
 bool instanceStarted = False
 bool min00Given = False
+bool obj10DisplayedOnce = False
+bool obj85DisplayedOnce = False
+bool obj86DisplayedOnce = False
 int ticks = 0
 int relocateFails = 0
 int codsworthFails = 0
@@ -450,9 +455,9 @@ Function GiveFromCodsworth()
         AdvanceTo(10, "info")
     elseif st < 20
         EnsurePrestonAlias()
-        SetObjectiveDisplayed(10)
-        SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, obj10DisplayedOnce)
+            obj10DisplayedOnce = True
+        endif
     endif
 EndFunction
 
@@ -672,20 +677,20 @@ Function Apply(int auiStageID, string by = "other")
     Trace("stage " + auiStageID + " by=" + by)
     if auiStageID == 10
         min00Given = True
-        SetObjectiveDisplayed(10)
-        SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, obj10DisplayedOnce)
+            obj10DisplayedOnce = True
+        endif
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
-        SetObjectiveDisplayed(85)
-        SetObjectiveDisplayed(85, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 85, MuteDuplicateObjectiveToasts, obj85DisplayedOnce)
+            obj85DisplayedOnce = True
+        endif
     elseif auiStageID == 30
         Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
-        SetObjectiveDisplayed(86)
-        SetObjectiveDisplayed(86, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 86, MuteDuplicateObjectiveToasts, obj86DisplayedOnce)
+            obj86DisplayedOnce = True
+        endif
     elseif auiStageID == 35
         if by == "info" && !prestonUsedFallback && !prestonTalkLogged
             prestonTalkLogged = True
@@ -1752,18 +1757,20 @@ Event OnTimer(int aiTimerID)
         Apply(rawStage, "other")
         stage = EffectiveStage()
     endif
-    if stage == 10 && min00Given && !IsObjectiveDisplayed(10)
+    if stage == 10 && min00Given && !IsObjectiveDisplayed(10) && (!MuteDuplicateObjectiveToasts || !obj10DisplayedOnce)
         EnsurePrestonAlias()
-        SetObjectiveDisplayed(10)
-        SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
-    elseif stage == 20 && !IsObjectiveDisplayed(85)
-        SetObjectiveDisplayed(85)
-        SetObjectiveDisplayed(85, True, True)
-    elseif stage == 30 && !IsObjectiveDisplayed(86)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, obj10DisplayedOnce)
+            obj10DisplayedOnce = True
+        endif
+    elseif stage == 20 && !IsObjectiveDisplayed(85) && (!MuteDuplicateObjectiveToasts || !obj85DisplayedOnce)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 85, MuteDuplicateObjectiveToasts, obj85DisplayedOnce)
+            obj85DisplayedOnce = True
+        endif
+    elseif stage == 30 && !IsObjectiveDisplayed(86) && (!MuteDuplicateObjectiveToasts || !obj86DisplayedOnce)
         EnsurePrestonAlias()
-        SetObjectiveDisplayed(86)
-        SetObjectiveDisplayed(86, True, True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 86, MuteDuplicateObjectiveToasts, obj86DisplayedOnce)
+            obj86DisplayedOnce = True
+        endif
     endif
     float dp = player.GetDistance(Preston)
     if stage < 20 && dp < FindRadius

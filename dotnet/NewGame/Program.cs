@@ -567,7 +567,8 @@ static class NewGame
         string PodExitMode,
         float PodSafeStep,
         float PodSafeHeading,
-        bool HasPodSafeExitOverride);
+        bool HasPodSafeExitOverride,
+        string LandingHandoff);
 
     static readonly uint[] DefaultStarterStripArmorIds =
     {
@@ -581,7 +582,7 @@ static class NewGame
         var path = jsonPath ?? FindRepoJsonPath(Path.Combine("src", "fo4sf", "core", "game_start_config.json"));
         if (path is null || !File.Exists(path))
         {
-            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false);
+            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false, "single_quest");
         }
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
@@ -590,6 +591,11 @@ static class NewGame
         var ids = fo4.GetProperty("starter_strip_starfield_armor_ids").EnumerateArray()
             .Select(x => ParseHex(x.GetString() ?? "0"))
             .ToArray();
+        var handoff = fo4.TryGetProperty("landing_handoff", out var lh) ? (lh.GetString() ?? "single_quest") : "single_quest";
+        if (handoff != "single_quest" && handoff != "two_quests")
+        {
+            throw new InvalidDataException($"Unsupported landing_handoff '{handoff}' in {path}");
+        }
         return new GameStartConfig(
             fo4.GetProperty("mute_arrival_discovery_popup").GetBoolean(),
             fo4.GetProperty("silent_starter_strip").GetBoolean(),
@@ -598,7 +604,8 @@ static class NewGame
             fo4.GetProperty("pod_exit_mode").GetString() ?? "safe_spawn",
             fo4.GetProperty("pod_safe_step_m").GetSingle(),
             fo4.GetProperty("pod_safe_heading_deg").GetSingle(),
-            false);
+            false,
+            handoff);
     }
 
     public static List<FormKey> ResolveStarterStripKeys(SF.IStarfieldModGetter sf, GameStartConfig gs)
@@ -1428,6 +1435,7 @@ static class NewGame
             ("MergeOffsetX", MergeX), ("MergeOffsetY", MergeY), ("LooksWait", o.Looks ? 120f : 0f),
             ("MuteArrivalDiscoveryPopup", gs.MuteArrivalDiscoveryPopup),
             ("SilentStarterStrip", gs.SilentStarterStrip),
+            ("LandingHandoff", gs.LandingHandoff),
             ("SinglePassLandingFade", gs.SinglePassLandingFade),
             ("PodExitMode", gs.PodExitMode),
             ("PodSafeStep", gs.PodSafeStep),

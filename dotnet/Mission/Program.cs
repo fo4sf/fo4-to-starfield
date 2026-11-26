@@ -213,6 +213,42 @@ static class Mission
     // Stages & Objectives
     public static readonly ushort[] Stages = { 10, 20, 30, 35, 40, 200 };
     public static readonly ushort[] CodsworthQuestStages = { 10, 20, 30, 40, 100 };
+
+    public record MissionStartConfig(bool MuteDuplicateObjectiveToasts, string LandingHandoff);
+
+    public static MissionStartConfig LoadMissionStartConfig(string? jsonPath = null)
+    {
+        string? path = jsonPath;
+        if (path is null)
+        {
+            var dir = AppContext.BaseDirectory;
+            for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+            {
+                var candidate = Path.Combine(dir, "src", "fo4sf", "core", "game_start_config.json");
+                if (File.Exists(candidate)) { path = candidate; break; }
+            }
+            if (path is null)
+            {
+                var cwd = Directory.GetCurrentDirectory();
+                for (int up = 0; up < 8 && cwd != null; up++, cwd = Directory.GetParent(cwd)?.FullName)
+                {
+                    var candidate = Path.Combine(cwd, "src", "fo4sf", "core", "game_start_config.json");
+                    if (File.Exists(candidate)) { path = candidate; break; }
+                }
+            }
+        }
+        if (path is null || !File.Exists(path))
+            return new MissionStartConfig(true, "single_quest");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var defGame = root.TryGetProperty("default_game", out var dg) ? (dg.GetString() ?? "fo4") : "fo4";
+        var game = root.GetProperty("games").GetProperty(defGame);
+        var mute = !game.TryGetProperty("mute_duplicate_objective_toasts", out var mp) || mp.GetBoolean();
+        var handoff = game.TryGetProperty("landing_handoff", out var lh) ? (lh.GetString() ?? "single_quest") : "single_quest";
+        if (handoff != "single_quest" && handoff != "two_quests")
+            throw new Refusal($"Unsupported landing_handoff '{handoff}' in {path}");
+        return new MissionStartConfig(mute, handoff);
+    }
     public static readonly ushort[] SanctuaryQuestStages = { 10, 100 };
     public static readonly short[] CodsworthChoiceEndStages = { 20, 30, 40, 100 };
 
@@ -1486,6 +1522,15 @@ static class Mission
         float primaryRecordDamage = concordPrimary.AttackDamage * Math.Max(1, (int)concordPrimary.ProjectilesCount);
         float sidearmRecordDamage = concordSidearm.AttackDamage * Math.Max(1, (int)concordSidearm.ProjectilesCount);
 
+        var startCfg = LoadMissionStartConfig();
+        SF.ScriptBoolProperty BoolProp(string name, bool val) => new()
+        {
+            Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = val,
+        };
+        SF.ScriptStringProperty StrProp(string name, string val) => new()
+        {
+            Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = val,
+        };
         var script = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
         SF.ScriptObjectProperty Obj(string name, FormKey fk) => new()
         {
@@ -1518,6 +1563,7 @@ static class Mission
         script.Properties.Add(Obj("RaiderSidearmAmmo", raiderSidearmAmmo.FormKey));
         script.Properties.Add(Flt("RaiderPrimaryRecordDamage", primaryRecordDamage));
         script.Properties.Add(Flt("RaiderSidearmRecordDamage", sidearmRecordDamage));
+        script.Properties.Add(BoolProp("MuteDuplicateObjectiveToasts", startCfg.MuteDuplicateObjectiveToasts));
         if (prestonScene is not null)
         {
             script.Properties.Add(Obj("PrestonTalkMsg", new FormKey(modKey, PrestonTalkMsgId)));
@@ -1746,6 +1792,8 @@ static class Mission
             cwScript.Properties.Add(CodsworthProp("CodsworthReply1Msg", new FormKey(modKey, CodsworthReply1MsgId)));
             cwScript.Properties.Add(CodsworthProp("CodsworthReply2Msg", new FormKey(modKey, CodsworthReply2MsgId)));
             cwScript.Properties.Add(CodsworthProp("TalkUseMessageBox", new FormKey(modKey, MissionTalkUseMessageBoxGlobId)));
+            cwScript.Properties.Add(BoolProp("MuteDuplicateObjectiveToasts", startCfg.MuteDuplicateObjectiveToasts));
+            cwScript.Properties.Add(StrProp("LandingHandoff", startCfg.LandingHandoff));
             codsworthQuest.VirtualMachineAdapter = Adapter(cwScript);
         }
 
@@ -2286,6 +2334,11 @@ static class Mission
                 Need(!props.ContainsKey("PrestonTalkScene") && !props.ContainsKey("PrestonPostTalkScene"),
                      "Task 0c: FO4SF_Min00 VMAD must not bind dead Scene properties PrestonTalkScene / PrestonPostTalkScene");
                 Need(!props.ContainsKey("Codsworth") && !props.ContainsKey("KeeperOnly"), "FO4SF_Min00 sets Codsworth or KeeperOnly");
+                var wantCfg = LoadMissionStartConfig();
+                Need(props.TryGetValue("MuteDuplicateObjectiveToasts", out var minMute) &&
+                     minMute is SF.IScriptBoolPropertyGetter minMuteB &&
+                     minMuteB.Data == wantCfg.MuteDuplicateObjectiveToasts,
+                     $"FO4SF_Min00 lacks MuteDuplicateObjectiveToasts == {wantCfg.MuteDuplicateObjectiveToasts}");
             }
         }
 
@@ -2452,6 +2505,15 @@ static class Mission
                          cprops.TryGetValue("CodsworthReply2Msg", out var cr2) && cr2 is SF.IScriptObjectPropertyGetter cr2o && cr2o.Object.FormKey == new FormKey(key, CodsworthReply2MsgId) &&
                          cprops.TryGetValue("TalkUseMessageBox", out var ctg) && ctg is SF.IScriptObjectPropertyGetter ctgo && ctgo.Object.FormKey == new FormKey(key, MissionTalkUseMessageBoxGlobId),
                          $"{CodsworthQuestEdid} lacks Codsworth / CodsworthTalkActi / CodsworthTalkMsg..Reply2Msg / TalkUseMessageBox properties");
+                    var wantCfgCw = LoadMissionStartConfig();
+                    Need(cprops.TryGetValue("MuteDuplicateObjectiveToasts", out var cwMute) &&
+                         cwMute is SF.IScriptBoolPropertyGetter cwMuteB &&
+                         cwMuteB.Data == wantCfgCw.MuteDuplicateObjectiveToasts,
+                         $"{CodsworthQuestEdid} lacks MuteDuplicateObjectiveToasts == {wantCfgCw.MuteDuplicateObjectiveToasts}");
+                    Need(cprops.TryGetValue("LandingHandoff", out var cwLh) &&
+                         cwLh is SF.IScriptStringPropertyGetter cwLhS &&
+                         cwLhS.Data == wantCfgCw.LandingHandoff,
+                         $"{CodsworthQuestEdid} lacks LandingHandoff == {wantCfgCw.LandingHandoff}");
                 }
                 Need(cwq.Scenes.Count == 1 && cwq.Scenes[0].FormKey == new FormKey(key, CodsworthSceneId), $"{CodsworthQuestEdid} lacks scene 0x{CodsworthSceneId:X}");
                 if (cwq.Scenes.Count == 1)
@@ -2946,6 +3008,8 @@ static class Mission
             ("keeper quest removed", m => m.Quests.Remove(new FormKey(m.ModKey, KeeperQuestId))),
             ("keeper carries StartsEnabled", m => Keeper(m).Data!.Flags |= SF.Quest.Flag.StartsEnabled),
             ("Min00 carries 0x10000 flag", m => Min00Q(m).Data!.Flags |= (SF.Quest.Flag)0x10000),
+            ("Min00 MuteDuplicateObjectiveToasts removed", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "MuteDuplicateObjectiveToasts")),
+            ("Codsworth01 LandingHandoff mutated", m => ((SF.ScriptStringProperty)m.Quests[new FormKey(m.ModKey, CodsworthQuestId)].VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "LandingHandoff")).Data = "invalid"),
             ("keeper runs the mission", m => ((SF.ScriptBoolProperty)Keeper(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "KeeperOnly")).Data = false),
             ("Codsworth also set on the mission", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
             {

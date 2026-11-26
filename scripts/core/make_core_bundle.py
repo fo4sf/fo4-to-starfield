@@ -791,6 +791,61 @@ def patch_planet_gravity_earth(
     return True
 
 
+def load_hud_label_config(game_id: Optional[str] = None) -> Tuple[str, str]:
+    """Load per-game `hud_label {mode, label}` from `src/fo4sf/core/game_start_config.json`."""
+    cfg_path = os.path.join(REPO, "src", "fo4sf", "core", "game_start_config.json")
+    if not os.path.isfile(cfg_path):
+        return "quest", "QUEST"
+    with open(cfg_path, encoding="utf-8") as f:
+        doc = json.load(f)
+    gid = game_id or doc.get("default_game") or "fo4"
+    g = (doc.get("games") or {}).get(gid) or {}
+    hl = g.get("hud_label") or {}
+    mode = str(hl.get("mode") or "quest").strip().lower()
+    label = str(hl.get("label") or "QUEST").strip() or "QUEST"
+    if mode not in ("quest", "vanilla", "mission"):
+        raise BundleRefused(f"unsupported hud_label mode {mode!r} in {cfg_path}")
+    return ("vanilla" if mode == "mission" else mode), label
+
+
+def verify_quest_translate_pin(bplan: dict, starfield_dir: Optional[str] = None) -> Optional[str]:
+    """Verify `quest_translate.source_ba2` (size, mtime, sha256) against configured/installed `Starfield - Interface.ba2`."""
+    qt = bplan.get("quest_translate")
+    if not isinstance(qt, dict):
+        return None
+    want_out_sha = str(qt.get("out_sha256") or "").strip().lower()
+    sc_map = bplan.get("sfse_sidecar") or {}
+    if want_out_sha and "Interface/Translate_en.txt" in sc_map:
+        got_sc_sha = str(sc_map["Interface/Translate_en.txt"]).strip().lower()
+        if got_sc_sha != want_out_sha:
+            return f"quest_translate: sidecar Translate_en.txt sha256 {got_sc_sha} != quest_translate {want_out_sha}"
+    src_ba2 = qt.get("source_ba2")
+    if not isinstance(src_ba2, dict):
+        return "quest_translate: missing source_ba2 metadata"
+    ba2_path = (
+        os.path.join(os.path.abspath(starfield_dir), "Data", "Starfield - Interface.ba2")
+        if starfield_dir
+        else str(src_ba2.get("path") or "")
+    )
+    if not ba2_path or not os.path.isfile(ba2_path):
+        return f"quest_translate: Starfield - Interface.ba2 missing: {ba2_path or '<unset>'}"
+    st = os.stat(ba2_path)
+    want_size = src_ba2.get("size")
+    if want_size is not None and int(st.st_size) != int(want_size):
+        return f"quest_translate: Starfield - Interface.ba2 size {st.st_size} != pinned {want_size} ({ba2_path})"
+    want_mtime_ns = src_ba2.get("mtime_ns")
+    if want_mtime_ns is not None and int(st.st_mtime_ns) != int(want_mtime_ns):
+        return f"quest_translate: Starfield - Interface.ba2 mtime_ns {st.st_mtime_ns} != pinned {want_mtime_ns} ({ba2_path})"
+    elif src_ba2.get("mtime") is not None and abs(float(st.st_mtime) - float(src_ba2["mtime"])) > 1e-3:
+        return f"quest_translate: Starfield - Interface.ba2 mtime {st.st_mtime} != pinned {src_ba2['mtime']} ({ba2_path})"
+    want_sha = str(src_ba2.get("sha256") or "").strip().lower()
+    if want_sha:
+        got_sha = sha256_file(ba2_path).lower()
+        if got_sha != want_sha:
+            return f"quest_translate: Starfield - Interface.ba2 sha256 {got_sha} != pinned {want_sha} ({ba2_path})"
+    return None
+
+
 def verify_bundle(
     bundle_dir: str,
     plan_path: Optional[str] = None,
@@ -799,6 +854,7 @@ def verify_bundle(
     max_ba2_bytes: int = MAX_BA2_BYTES,
     tool_head: Optional[str] = None,
     require_map_markers: bool = False,
+    starfield_dir: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, object]]:
     """Verify every component hash, TES4 master chain, plugin count, Data root cleanliness, and 4 GiB BA2 ceiling."""
     bdir = os.path.abspath(bundle_dir)
@@ -1002,6 +1058,10 @@ def verify_bundle(
                     f"pipboy: Data/Interface/{matched_rel} (named by {ini_key}) is missing from bundle_plan.json manifest"
                 )
         break
+
+    qt_prob = verify_quest_translate_pin(bplan, starfield_dir=starfield_dir)
+    if qt_prob:
+        problems.append(qt_prob)
 
     # 4. Run make_newgame.verify_dir when real newgame plan is bundled
     ng_plan = bplan.get("newgame_plan")
@@ -1620,6 +1680,7 @@ def refresh_pipboy_stage_for_bundle(
     setup_show_unavailable: int = 0,
     require_pickup: int = 1,
     sf_data_dir: Optional[str] = None,
+    game_id: Optional[str] = None,
 ) -> None:
     """Copy a Pip-Boy stage into <out_stage>, re-patch Pipboy_MapPage.swf, stage STAT/boot/Setup SWFs, generate clean INI, and update plan.json."""
     ui_dir = os.path.join(REPO, "scripts", "ui")
@@ -1661,15 +1722,24 @@ def refresh_pipboy_stage_for_bundle(
         boot_spec = pipboy_map_store.stage_fo4_boot_movie(fo4_iface_ba2, iface_dir)
         updated_data_rels.append(f"Data/Interface/{boot_spec}.swf")
 
+    hud_mode, hud_label = load_hud_label_config(game_id)
+    translate_mode = "quest" if hud_mode == "quest" else "mission"
+    replace_mission_label = 1 if hud_mode == "quest" else 0
+
     if sf_data_dir:
         sf_iface_ba2 = os.path.join(sf_data_dir, "Starfield - Interface.ba2")
-        if os.path.isfile(sf_iface_ba2):
+        if not os.path.isfile(sf_iface_ba2):
+            if hud_mode == "quest":
+                raise BundleRefused(
+                    f"pipboy refresh refused: hud_label mode=quest requires {sf_iface_ba2}"
+                )
+        else:
             try:
                 make_quest_translate.generate_quest_translate(
                     sf_data_dir,
                     partial,
-                    mode="quest",
-                    label="QUEST",
+                    mode=translate_mode,
+                    label=hud_label,
                 )
             except make_quest_translate.QuestTranslateError as exc:
                 raise BundleRefused(str(exc)) from exc
@@ -1682,8 +1752,8 @@ def refresh_pipboy_stage_for_bundle(
                 require_pickup=require_pickup,
                 setup_show_unavailable=setup_show_unavailable,
                 screen_source="2d_imenu",
-                replace_mission_label=1,
-                quest_hud_label="QUEST",
+                replace_mission_label=replace_mission_label,
+                quest_hud_label=hud_label,
             )
         except make_pipboy_stage_ini.StageIniError as exc:
             raise BundleRefused(str(exc)) from exc
@@ -1973,6 +2043,12 @@ def fold_bundle(
     if dropped_keys:
         stages = {k: v for k, v in stages.items() if k not in dropped_keys}
 
+    hud_mode, hud_label = load_hud_label_config()
+    if starfield_dir and "pipboy" in stages and hud_mode == "quest":
+        sf_iface_ba2 = os.path.join(os.path.abspath(starfield_dir), "Data", "Starfield - Interface.ba2")
+        if not os.path.isfile(sf_iface_ba2):
+            raise BundleRefused(f"fold refused: hud_label mode=quest requires {sf_iface_ba2}")
+
     has_mission_stage = "mission" in stages
     mission_data_rels: List[str] = []
     if has_mission_stage:
@@ -2012,6 +2088,7 @@ def fold_bundle(
     folded_data_hashes: Dict[str, str] = {}
     sfse_sidecar_hashes: Dict[str, str] = {}
     ng_plan_obj: Optional[dict] = None
+    quest_translate_obj: Optional[dict] = None
 
     for key in ordered_keys:
         st_dir = os.path.abspath(stages[key])
@@ -2100,8 +2177,28 @@ def fold_bundle(
                             setup_show_unavailable=effective_setup_show_unavailable,
                         )
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
+            st_translate = os.path.join(st_dir, "Data", "Interface", "Translate_en.txt")
+            if os.path.isfile(st_translate):
+                dst_translate = os.path.join(partial, "sfse_sidecar", "Interface", "Translate_en.txt")
+                os.makedirs(os.path.dirname(dst_translate), exist_ok=True)
+                shutil.copy2(st_translate, dst_translate)
+                sfse_sidecar_hashes["Interface/Translate_en.txt"] = sha256_file(dst_translate)
+            pb_plan_p = os.path.join(st_dir, "plan.json")
+            if os.path.isfile(pb_plan_p):
+                try:
+                    pb_plan_doc = json.loads(Path(pb_plan_p).read_text(encoding="utf-8"))
+                    if isinstance(pb_plan_doc.get("quest_translate"), dict):
+                        quest_translate_obj = pb_plan_doc["quest_translate"]
+                except (OSError, ValueError):
+                    pass
 
         comp_plugins, comp_outputs = extract_component_outputs(key, st_dir)
+        if key == "pipboy":
+            comp_outputs = {
+                rel: h
+                for rel, h in comp_outputs.items()
+                if rel.replace("\\", "/").casefold() != "data/interface/translate_en.txt"
+            }
         if key == "pipboy":
             for pb_ini_cand in (
                 os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.ini"),
@@ -2190,6 +2287,8 @@ def fold_bundle(
         "plugins": plugins,
         "components": components_record,
         "sfse_sidecar": sfse_sidecar_hashes,
+        "hud_label": {"mode": hud_mode, "label": hud_label},
+        "quest_translate": quest_translate_obj,
         "newgame_plan": ng_plan_obj,
         "port_esm_checked": os.path.abspath(port_esm) if port_esm else None,
         "install_command": install_cmd,
@@ -2207,6 +2306,7 @@ def fold_bundle(
         port_esm=port_esm,
         max_plugins=max_plugins,
         max_ba2_bytes=max_ba2_bytes,
+        starfield_dir=starfield_dir,
     )
     if problems:
         for p in problems:
@@ -2355,8 +2455,12 @@ def _atomic_write_file(dst_path: str, payload: bytes, prefix: str = ".fo4sf-side
 def _safe_sidecar_rel_target(data_dir: str, rel: str) -> str:
     norm = rel.replace("\\", "/")
     parts = [p for p in norm.split("/") if p]
-    if len(parts) != 3 or parts[0] != "SFSE" or parts[1] != "Plugins" or parts[2] in (".", ".."):
-        raise BundleRefused(f"sidecar path must be SFSE/Plugins/<filename>, got {rel!r}")
+    is_sfse_plugin = len(parts) == 3 and parts[0] == "SFSE" and parts[1] == "Plugins" and parts[2] not in (".", "..")
+    is_translate = norm == "Interface/Translate_en.txt"
+    if not (is_sfse_plugin or is_translate):
+        raise BundleRefused(
+            f"sidecar path must be SFSE/Plugins/<filename> or Interface/Translate_en.txt, got {rel!r}"
+        )
     data_real = os.path.realpath(data_dir)
     target = os.path.abspath(os.path.join(data_dir, *parts))
     parent_real = os.path.realpath(os.path.dirname(target)) if os.path.exists(os.path.dirname(target)) else data_real
@@ -2404,6 +2508,10 @@ def sidecar_install(bundle_dir: str, starfield_dir: str, system=None) -> Dict[st
     with open(ppath, encoding="utf-8") as f:
         bplan = json.load(f)
 
+    qt_prob = verify_quest_translate_pin(bplan, starfield_dir=sf_dir)
+    if qt_prob:
+        raise BundleRefused(f"sidecar install refused: {qt_prob}")
+
     sidecar_map: Dict[str, str] = dict(bplan.get("sfse_sidecar") or {})
     install_entries: List[Tuple[str, str, str]] = []
     skipped_reputation: List[str] = []
@@ -2412,7 +2520,7 @@ def sidecar_install(bundle_dir: str, starfield_dir: str, system=None) -> Dict[st
         if norm.startswith("reputation/"):
             skipped_reputation.append(norm)
             continue
-        if not norm.startswith("SFSE/Plugins/"):
+        if not (norm.startswith("SFSE/Plugins/") or norm == "Interface/Translate_en.txt"):
             raise BundleRefused(f"sidecar install refused: unexpected sfse_sidecar entry {rel!r}")
         src_p = os.path.join(bdir, "sfse_sidecar", *norm.split("/"))
         if os.path.islink(src_p) or not os.path.isfile(src_p):
@@ -2427,11 +2535,18 @@ def sidecar_install(bundle_dir: str, starfield_dir: str, system=None) -> Dict[st
 
     staged_plugins_dir = os.path.join(bdir, "sfse_sidecar", "SFSE", "Plugins")
     if os.path.isdir(staged_plugins_dir):
-        expected_names = {os.path.basename(norm) for norm, _, _ in install_entries}
+        expected_names = {os.path.basename(norm) for norm, _, _ in install_entries if norm.startswith("SFSE/Plugins/")}
         actual_names = set(os.listdir(staged_plugins_dir))
         untracked = sorted(actual_names - expected_names)
         if untracked:
             raise BundleRefused(f"sidecar install refused: untracked files in sfse_sidecar/SFSE/Plugins: {untracked}")
+    staged_iface_dir = os.path.join(bdir, "sfse_sidecar", "Interface")
+    if os.path.isdir(staged_iface_dir):
+        expected_iface = {os.path.basename(norm) for norm, _, _ in install_entries if norm.startswith("Interface/")}
+        actual_iface = set(os.listdir(staged_iface_dir))
+        untracked_iface = sorted(actual_iface - expected_iface)
+        if untracked_iface:
+            raise BundleRefused(f"sidecar install refused: untracked files in sfse_sidecar/Interface: {untracked_iface}")
 
     created_sfse_dir = not os.path.exists(sfse_dir)
     created_plugins_dir = not os.path.exists(plugins_dir)
@@ -2656,6 +2771,7 @@ def cmd_verify(a) -> int:
         max_plugins=a.max_plugins,
         max_ba2_bytes=a.max_ba2_bytes,
         require_map_markers=bool(getattr(a, "require_map_markers", False)),
+        starfield_dir=getattr(a, "starfield_dir", None),
     )
     if len(problems) == 1 and problems[0].startswith("this bundle was built at "):
         print(problems[0])
@@ -2783,6 +2899,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     v.add_argument("--bundle-dir", required=True)
     v.add_argument("--plan", default=None)
     v.add_argument("--port", default=None)
+    v.add_argument("--starfield-dir", default=None)
     v.add_argument("--max-plugins", type=int, default=MAX_STARFIELD_PLUGINS)
     v.add_argument("--max-ba2-bytes", type=int, default=MAX_BA2_BYTES)
     v.add_argument("--require-map-markers", action="store_true")

@@ -2674,7 +2674,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "RunWarfareBranch", "StripStarterItemsSilently", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
             "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
         )
         vars_csv = (
@@ -2718,6 +2718,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
                     IsInInterior=lambda: player.interior,
                     Is3DLoaded=lambda: True,
+                    GetItemCount=lambda *_a: 0,
+                    IsEquipped=lambda *_a: False,
+                    UnequipItem=lambda *_a: None,
+                    RemoveItem=lambda *_a: None,
                     RemoveAllItems=lambda *a: None,
                     AddItem=lambda *a: None,
                     EquipItem=lambda *a: None,
@@ -2891,7 +2895,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
             "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "ResetInventory",
-            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "RunWarfareBranch", "StripStarterItemsSilently", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
             "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
@@ -3162,7 +3166,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "FillO2",
+            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "StripStarterItemsSilently", "FillO2",
             "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
             "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
         )
@@ -3365,7 +3369,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "ForceFadeIn", "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
+            "ForceFadeIn", "RunWarfareBranch", "StripStarterItemsSilently", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
             "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
@@ -3436,6 +3440,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
             GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
             IsInInterior=lambda: player.interior,
             Is3DLoaded=is_3d_loaded,
+            GetItemCount=lambda *_a: 0,
+            IsEquipped=lambda *_a: False,
+            UnequipItem=lambda *_a: None,
+            RemoveItem=lambda *_a: None,
             RemoveAllItems=lambda *a: None,
             AddItem=lambda *a: None,
             EquipItem=lambda *a: None,

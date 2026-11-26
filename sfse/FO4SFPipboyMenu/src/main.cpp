@@ -566,6 +566,11 @@ namespace
 	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
 	fo4sf::pipboy::ScreenSourceMode          g_screenSourceIni = fo4sf::pipboy::ScreenSourceMode::k2DIMenu;
 	fo4sf::hud::QuestLabelConfig             g_questLabelCfg{};
+	fo4sf::hud::TranslateFileStatus          g_translateStatus{};
+	std::atomic<bool>                        g_questLabelRuntimeIdsOk{ false };
+	std::uint32_t                            g_scaleformSingletonRva = 0;
+	std::uint32_t                            g_scaleformTranslateRva = 0;
+	std::uint32_t                            g_scaleformRttiRva = 0;
 	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
 	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
 	std::filesystem::path                    g_gameDir;                 // Game root (<Starfield>/) for Data\Interface\<BootMovie>.swf check
@@ -11204,11 +11209,16 @@ namespace
 		}
 	}
 
+	void ProbeQuestLabelRuntime();
+
 	void OnMessage(SFSE::MessagingInterface::Message* a_msg)
 	{
 		if (a_msg && a_msg->type == SFSE::MessagingInterface::kPostDataLoad) {
 			REX::INFO("step=post_data_load");
 			g_task->AddTask([]() { Register(); });   // the first main-thread task after game data loaded
+			if (g_stage == 2 && g_codeObj) {
+				g_task->AddTask([]() { ProbeQuestLabelRuntime(); });
+			}
 		}
 	}
 
@@ -11641,6 +11651,119 @@ namespace
 			REX::INFO("step=hud_watch_hide_init ok=1 source=optional_resolve movie_root_rtti={}", Hex(g_rva[kMovieRootRtti]));
 		}
 	}
+
+	std::string WideToSafeAscii(const wchar_t* a_ws)
+	{
+		if (!a_ws) {
+			return {};
+		}
+		std::string out;
+		for (const wchar_t* p = a_ws; *p; ++p) {
+			const auto wc = static_cast<unsigned int>(*p);
+			out.push_back((wc >= 0x20 && wc < 0x7F) ? static_cast<char>(wc) : '?');
+		}
+		return out;
+	}
+
+	void TryInitQuestLabelRuntimeIds(const std::filesystem::path& a_file)
+	{
+		g_questLabelRuntimeIdsOk.store(false);
+		std::ifstream in(a_file, std::ios::binary);
+		if (!in) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=addrlib_unreadable");
+			return;
+		}
+		std::array<std::uint8_t, kHeaderBytes> head{};
+		in.read(reinterpret_cast<char*>(head.data()), head.size());
+		if (!in) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=addrlib_header");
+			return;
+		}
+		const auto u32 = [&](std::size_t a_at) {
+			std::uint32_t v;
+			std::memcpy(&v, head.data() + a_at, sizeof v);
+			return v;
+		};
+		const auto         format = u32(0);
+		const REL::Version version{ static_cast<std::uint16_t>(u32(4)), static_cast<std::uint16_t>(u32(8)),
+			static_cast<std::uint16_t>(u32(12)), static_cast<std::uint16_t>(u32(16)) };
+		const auto         pointerSize = u32(84);
+		const auto         count = u32(92);
+		if (format != 5 || version != kRuntime || pointerSize != 8) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=addrlib_version");
+			return;
+		}
+		auto readChecked = [&](std::uint64_t a_id, std::uint32_t& a_outRva) -> bool {
+			if (a_id >= count) {
+				return false;
+			}
+			std::uint32_t offset = 0;
+			in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * a_id));
+			in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+			if (!in || !offset || offset >= g_imageSize || REL::ID(a_id).offset() != offset) {
+				return false;
+			}
+			a_outRva = offset;
+			return true;
+		};
+		std::uint32_t singletonRva = 0;
+		std::uint32_t translateRva = 0;
+		std::uint32_t rttiRva = 0;
+		if (!readChecked(RE::ID::BSScaleformManager::Singleton.id(), singletonRva) ||
+		    !readChecked(RE::ID::BSScaleformManager::Translate.id(), translateRva) ||
+		    !readChecked(RE::RTTI::BSScaleformManager.id(), rttiRva)) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=id_lookup_failed");
+			return;
+		}
+		if (!NameIs(TypeNameAt(g_base + rttiRva), "BSScaleformManager@@")) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=rtti_mismatch");
+			return;
+		}
+		g_scaleformSingletonRva = singletonRva;
+		g_scaleformTranslateRva = translateRva;
+		g_scaleformRttiRva = rttiRva;
+		g_questLabelRuntimeIdsOk.store(true);
+		REX::INFO("step=hud_quest_label_ids ok=1 singleton={} translate={} rtti={}",
+			Hex(singletonRva), Hex(translateRva), Hex(rttiRva));
+	}
+
+	void ProbeQuestLabelRuntime()
+	{
+		if (g_stage != 2 || !g_codeObj) {
+			return;
+		}
+		if (!g_questLabelRuntimeIdsOk.load()) {
+			REX::INFO("step=hud_quest_label_runtime file={} file_ok={} runtime_ok=0 reason=scaleform_ids_unavailable",
+				g_translateStatus.filePresent ? "present" : "absent",
+				g_translateStatus.fileOk ? 1 : 0);
+			return;
+		}
+		const auto* singletonPtr = reinterpret_cast<RE::BSScaleformManager* const*>(g_base + g_scaleformSingletonRva);
+		auto*       mgr = singletonPtr ? *singletonPtr : nullptr;
+		if (!mgr) {
+			REX::INFO("step=hud_quest_label_runtime file={} file_ok={} runtime_ok=0 reason=manager_null",
+				g_translateStatus.filePresent ? "present" : "absent",
+				g_translateStatus.fileOk ? 1 : 0);
+			return;
+		}
+		using TranslateFn_t = RE::BSFixedStringW* (*)(RE::BSScaleformManager*, RE::BSFixedStringW*, const wchar_t*);
+		const auto translateFn = reinterpret_cast<TranslateFn_t>(g_base + g_scaleformTranslateRva);
+		RE::BSFixedStringW statusRes;
+		RE::BSFixedStringW newRes;
+		translateFn(mgr, std::addressof(statusRes), L"$MISSION STATUS");
+		translateFn(mgr, std::addressof(newRes), L"$MissionNew");
+		const std::string statusAscii = WideToSafeAscii(statusRes.c_str());
+		const std::string newAscii = WideToSafeAscii(newRes.c_str());
+		const bool        runtimeOk = !g_questLabelCfg.Active() ||
+		                       (statusAscii.find(g_questLabelCfg.questHudLabel) != std::string::npos &&
+		                        newAscii.find(g_questLabelCfg.questHudLabel) != std::string::npos);
+		REX::INFO("step=hud_quest_label_runtime file={} file_ok={} mission_status={} mission_new={} runtime_ok={}",
+			g_translateStatus.filePresent ? "present" : "absent",
+			g_translateStatus.fileOk ? 1 : 0,
+			statusAscii.empty() ? "-" : statusAscii,
+			newAscii.empty() ? "-" : newAscii,
+			runtimeOk ? 1 : 0);
+	}
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
@@ -11834,7 +11957,9 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 				g_hideStarfieldWatch ? 1 : 0);
 		}
 		REX::INFO("step=pipboy_screen_source mode={}", fo4sf::pipboy::ScreenSourceModeName(g_screenSourceIni));
-		REX::INFO("{}", fo4sf::hud::FormatStartupLog(g_questLabelCfg));
+		const auto dataDir = !g_gameDir.empty() ? (g_gameDir / "Data") : dir.parent_path().parent_path();
+		g_translateStatus = fo4sf::hud::VerifyTranslateEnFile(dataDir, g_questLabelCfg);
+		REX::INFO("{}", fo4sf::hud::FormatStartupLog(g_questLabelCfg, g_translateStatus));
 	}
 	if (g_codeObjSound) {
 		g_soundDir = dir / kSoundFolder;
@@ -11896,6 +12021,9 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	}
 	if (g_hideStarfieldWatch) {
 		TryInitHudWatchIds(dir / "versionlib-1-16-244-0.bin");
+	}
+	if (g_stage == 2 && g_codeObj) {
+		TryInitQuestLabelRuntimeIds(dir / "versionlib-1-16-244-0.bin");
 	}
 	if (g_stage == 2 && (g_codeObj || g_specialMenu) && !CheckShellIds(dir / "versionlib-1-16-244-0.bin")) {
 		return true;

@@ -6,6 +6,14 @@
     "cryopod_anim",
     "none"
   ],
+  "landing_handoff_modes_supported": [
+    "single_quest",
+    "two_quests"
+  ],
+  "hud_label_modes_supported": [
+    "quest",
+    "vanilla"
+  ],
   "starter_strip_starfield_armor_ids": [
     "0x001E2B17",
     "0x001E2B18",
@@ -100,6 +108,12 @@
         "z": -1.029
       },
       "single_pass_landing_fade": true,
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
       "notes": "Vault 111 cryo pod safe spawn steps -3.2 m from MQPlayerCryopodREF (9.143, -4.114, -1.029) onto main corridor aisle centerline (9.143, -7.314, -1.029) facing West (270.0 deg) toward v111_door_1_closed (-7.314, -7.314, 0.000)."
     },
     "fo3": {
@@ -126,6 +140,12 @@
       "pod_safe_step_m": 0.0,
       "pod_safe_heading_deg": 0.0,
       "single_pass_landing_fade": true,
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
       "notes": "Fallout 3 Capital Wasteland Vault 101 exit placeholder; no cryo pod hook required."
     },
     "fnv": {
@@ -152,6 +172,12 @@
       "pod_safe_step_m": 0.0,
       "pod_safe_heading_deg": 0.0,
       "single_pass_landing_fade": true,
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
       "notes": "Fallout: New Vegas Doc Mitchell's house wake-up placeholder; no cryo pod hook required."
     }
   }
