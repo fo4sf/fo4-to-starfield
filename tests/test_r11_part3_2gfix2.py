@@ -366,6 +366,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
             def GetPositionZ(self): return self.pos[2]
             def SetPosition(self, x, y, z): self.pos = [float(x), float(y), float(z)]
             def GetAngleZ(self): return 0.0
+            def SetAngle(self, ax, ay, az): self.angle = (float(ax), float(ay), float(az))
+            def MoveToNearestNavmeshLocation(self): return True
             def SetScale(self, *_): pass
             def EnableNoWait(self, *_): return True
             def DisableNoWait(self, *_): pass
@@ -415,6 +417,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
         m_ns = {
             "_PStr": _PStr,
             "Trace": logs.append,
+            "Math": SimpleNamespace(Sqrt=math.sqrt, atan=lambda v: math.degrees(math.atan(v))),
             "LogName": "fo4sf_mission",
             "KeeperOnly": False,
             "Preston": preston,
@@ -486,12 +489,13 @@ class R11Part3Slice1ATests(unittest.TestCase):
                     else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                     else None
                 ),
+                StartDialogueCameraOrCenterOnTarget=lambda *_: None,
             ),
         }
         m_code = _translate_psc(
             m_psc,
             ("IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias",
-             "EnsureKeeperPrestonAlias", "EnsureActorTalkable", "ResolvePrestonScene",
+             "EnsureKeeperPrestonAlias", "EnsureActorTalkable", "FaceActorToward", "ResolvePrestonScene",
              "ResolvePrestonSceneLogged", "ResolvePrestonPostScene", "ResolveActivePrestonScene",
              "RegisterPrestonSceneEvents", "GiveFromCodsworth", "Actor.OnPlayerLoadGame",
              "AdvanceTo", "OnStageSet", "Apply", "FoundPreston", "ResolvePrestonMsg",
@@ -617,6 +621,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
                     else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                     else None
                 ),
+                StartDialogueCameraOrCenterOnTarget=lambda *_: None,
             ),
         }
         c_code = _translate_psc(

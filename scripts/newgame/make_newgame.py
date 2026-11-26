@@ -274,6 +274,7 @@ NATIVES = {
                          "CastAs", "CallFunction",
                          "RegisterForMenuOpenCloseEvent", "UnregisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["GetCurrentRealTime", "Wait"],
+        "Weather": ["ForceActive"],
     },
     LOOKS: {
         "Debug": ["TraceUser"],

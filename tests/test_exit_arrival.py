@@ -58,9 +58,9 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
-        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('MuteArrivalDiscoveryPopup', True), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('HasPodSafeExitOverride', False), ('podExitDone', False), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False)):",
+        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('MuteArrivalDiscoveryPopup', True), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('ArrivalWeatherId', 0x0027CF9B), ('ArrivalWeatherPlugin', 'Starfield.esm'), ('ArrivalWeatherOverride', True), ('VaultSuitFallbackId', 0x0001D1D7), ('VaultSuitFallbackPlugin', 'Starfield.esm'), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('HasPodSafeExitOverride', False), ('podExitDone', False), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False)):",
         "    if _k not in globals(): globals()[_k] = _v",
-        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'ForceFadeIn', 'RunPodExitHook', 'EnsurePipboyWristEquipped', 'EnsureSurfaceLiftCog', 'RecoverPairedLiftOnLoad', 'CheckPairedLiftRide', 'StartPairedLiftRide', 'ResetSurfaceLiftCog'):",
+        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'ForceFadeIn', 'RunPodExitHook', 'EnsurePipboyWristEquipped', 'EnsureSurfaceLiftCog', 'RecoverPairedLiftOnLoad', 'CheckPairedLiftRide', 'StartPairedLiftRide', 'ResetSurfaceLiftCog', 'ApplyArrivalWeather'):",
         "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
         "if 'ReadH00Glob' not in globals(): globals()['ReadH00Glob'] = lambda g, _fid: bool(g is not None and g.GetValue() >= 0.5)",
         "if 'BoolBit' not in globals(): globals()['BoolBit'] = lambda f: 1 if f else 0",
@@ -117,12 +117,12 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
             line = re.sub(r"\bnew\s+Var\[0\]", "[]", line)
             line = re.sub(r"^int\s+(\w+)\s*=\s*(.+)", r"\1 = int(\2)", line)
             line = re.sub(
-                r"^(?:bool|float|string|WorldSpace|Cell|Form|ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|FO4SF_\w+)\s+(\w+)\s*=",
+                r"^(?:bool|float|string|WorldSpace|Cell|Form|ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|Weather|FO4SF_\w+)\s+(\w+)\s*=",
                 r"\1 =",
                 line,
             )
             line = re.sub(
-                r"\s+as\s+(?:ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|FO4SF_\w+)\b",
+                r"\s+as\s+(?:ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|Weather|FO4SF_\w+)\b",
                 "",
                 line,
             )

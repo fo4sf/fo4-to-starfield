@@ -567,7 +567,12 @@ static class NewGame
         string PodExitMode,
         float PodSafeStep,
         float PodSafeHeading,
-        bool HasPodSafeExitOverride);
+        bool HasPodSafeExitOverride,
+        int ArrivalWeatherId,
+        string ArrivalWeatherPlugin,
+        bool ArrivalWeatherOverride,
+        int VaultSuitFallbackId,
+        string VaultSuitFallbackPlugin);
 
     static readonly uint[] DefaultStarterStripArmorIds =
     {
@@ -581,7 +586,8 @@ static class NewGame
         var path = jsonPath ?? FindRepoJsonPath(Path.Combine("src", "fo4sf", "core", "game_start_config.json"));
         if (path is null || !File.Exists(path))
         {
-            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false);
+            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false,
+                0x0027CF9B, "Starfield.esm", true, 0x0001D1D7, "Starfield.esm");
         }
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
@@ -590,6 +596,11 @@ static class NewGame
         var ids = fo4.GetProperty("starter_strip_starfield_armor_ids").EnumerateArray()
             .Select(x => ParseHex(x.GetString() ?? "0"))
             .ToArray();
+        int weatherId = fo4.TryGetProperty("arrival_weather_id", out var awid) ? (int)ParseHex(awid.GetString() ?? "0") : 0x0027CF9B;
+        string weatherPlugin = fo4.TryGetProperty("arrival_weather_plugin", out var awp) ? (awp.GetString() ?? "Starfield.esm") : "Starfield.esm";
+        bool weatherOverride = !fo4.TryGetProperty("arrival_weather_override", out var awo) || awo.GetBoolean();
+        int fallbackSuitId = fo4.TryGetProperty("vault_suit_fallback_armor_id", out var vsfid) ? (int)ParseHex(vsfid.GetString() ?? "0") : 0x0001D1D7;
+        string fallbackSuitPlugin = fo4.TryGetProperty("vault_suit_fallback_plugin", out var vsfp) ? (vsfp.GetString() ?? "Starfield.esm") : "Starfield.esm";
         return new GameStartConfig(
             fo4.GetProperty("mute_arrival_discovery_popup").GetBoolean(),
             fo4.GetProperty("silent_starter_strip").GetBoolean(),
@@ -598,7 +609,12 @@ static class NewGame
             fo4.GetProperty("pod_exit_mode").GetString() ?? "safe_spawn",
             fo4.GetProperty("pod_safe_step_m").GetSingle(),
             fo4.GetProperty("pod_safe_heading_deg").GetSingle(),
-            false);
+            false,
+            weatherId,
+            weatherPlugin,
+            weatherOverride,
+            fallbackSuitId,
+            fallbackSuitPlugin);
     }
 
     public static List<FormKey> ResolveStarterStripKeys(SF.IStarfieldModGetter sf, GameStartConfig gs)
@@ -1433,7 +1449,12 @@ static class NewGame
             ("PodSafeStep", gs.PodSafeStep),
             ("PodSafeHeading", gs.PodSafeHeading),
             ("HasPodSafeExitOverride", gs.HasPodSafeExitOverride),
+            ("ArrivalWeatherId", gs.ArrivalWeatherId),
+            ("ArrivalWeatherPlugin", gs.ArrivalWeatherPlugin),
+            ("ArrivalWeatherOverride", gs.ArrivalWeatherOverride),
             ("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit),
+            ("VaultSuitFallbackId", gs.VaultSuitFallbackId),
+            ("VaultSuitFallbackPlugin", gs.VaultSuitFallbackPlugin),
             ("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell),
             ("DebugAfterHold", o.DebugAfterHold),           // written into MQ101Debug right after the hold-off (0: never)
             ("O2CapacityAmount", o.O2 ? O2CapacityAmount : 0f),   // added to O2Capacity right after the reset (0: never)

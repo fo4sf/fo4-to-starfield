@@ -295,6 +295,11 @@ bool Property MuteArrivalDiscoveryPopup = true Auto Const
 bool Property SilentStarterStrip = true Auto Const
 Form[] Property StarterStripItems Auto Const
 bool Property SinglePassLandingFade = true Auto Const
+int Property ArrivalWeatherId = 0x0027CF9B Auto Const
+string Property ArrivalWeatherPlugin = "Starfield.esm" Auto Const
+bool Property ArrivalWeatherOverride = true Auto Const
+int Property VaultSuitFallbackId = 0x0001D1D7 Auto Const
+string Property VaultSuitFallbackPlugin = "Starfield.esm" Auto Const
 string Property PodExitMode = "safe_spawn" Auto Const
 float Property PodSafeStep = -3.2 Auto Const
 float Property PodSafeHeading = 270.0 Auto Const
@@ -1154,11 +1159,15 @@ Function ResetInventory(Actor player)
         player.EquipItem(suit, false, true)
         Trace("vault suit equipped " + suit + " worn=" + player.IsEquipped(suit))
     else
-        Armor fallbackSuit = Game.GetFormFromFile(0x0001D1D7, "Starfield.esm") as Armor
-        if fallbackSuit != None
-            player.AddItem(fallbackSuit, 1, true)
-            player.EquipItem(fallbackSuit, false, true)
-            Trace("vault suit fallback equipped " + fallbackSuit + " worn=" + player.IsEquipped(fallbackSuit))
+        if VaultSuitFallbackId > 0 && VaultSuitFallbackPlugin != ""
+            Armor fallbackSuit = Game.GetFormFromFile(VaultSuitFallbackId, VaultSuitFallbackPlugin) as Armor
+            if fallbackSuit != None
+                player.AddItem(fallbackSuit, 1, true)
+                player.EquipItem(fallbackSuit, false, true)
+                Trace("vault suit fallback equipped " + fallbackSuit + " worn=" + player.IsEquipped(fallbackSuit) + " id=" + VaultSuitFallbackId)
+            else
+                Trace("vault suit fallback " + VaultSuitFallbackPlugin + ":" + VaultSuitFallbackId + " does not resolve")
+            endif
         endif
     endif
 EndFunction
@@ -1607,6 +1616,7 @@ Function FinishSurface(Actor player)
         arrivalWorld = afterWorld
         surfaceMovedAt = 0.0
         arrivedAt = Utility.GetCurrentRealTime()
+        ApplyArrivalWeather()
         EnsurePipboyWristEquipped(player, "surface")
         EnsureSurfaceLiftCog(player)
         if SinglePassLandingFade && !surfaceFadeInDone
@@ -1622,6 +1632,20 @@ Function FinishSurface(Actor player)
             FailExit("surface_position_not_confirmed")
         endif
     endif
+EndFunction
+
+Function ApplyArrivalWeather()
+{Pin configured clear Commonwealth arrival weather on surface arrival when ArrivalWeatherId > 0.}
+    if ArrivalWeatherId <= 0 || ArrivalWeatherPlugin == ""
+        return
+    endif
+    Weather arrivalWthr = Game.GetFormFromFile(ArrivalWeatherId, ArrivalWeatherPlugin) as Weather
+    if arrivalWthr == None
+        Trace("arrival weather " + ArrivalWeatherPlugin + ":" + ArrivalWeatherId + " does not resolve")
+        return
+    endif
+    arrivalWthr.ForceActive(ArrivalWeatherOverride)
+    Trace("arrival weather id=" + ArrivalWeatherId + " plugin=" + ArrivalWeatherPlugin + " override=" + ArrivalWeatherOverride + " weather=" + arrivalWthr)
 EndFunction
 
 Function CheckLanding(Actor player)

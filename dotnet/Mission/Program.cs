@@ -1180,14 +1180,21 @@ static class Mission
         var cellBlock = new SF.CellBlock { BlockNumber = (int)(MissionHoldingCellId % 10), GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         cellBlock.SubBlocks.Add(cellSub);
         mod.Cells.Records.Add(cellBlock);
+        var coreNavs = NavmeshSnap.LoadWorldNavmeshes(corePath);
         SF.PlacedNpc Ach(uint id, FormKey baseKey, string edid, JsonElement e, float dx = 0f, float dy = 0f)
         {
             var p = Floats(e.GetProperty("pos"));
             var r = Floats(e.GetProperty("rot"));
+            float z = p[2];
+            if (NavmeshSnap.TryFindFloorZ(coreNavs, p[0], p[1], p[2], out var floorZ))
+            {
+                Console.WriteLine($"  navmesh snap {edid}: z {p[2]:F3} -> {floorZ:F3} (dz={floorZ - p[2]:+0.000;-0.000;+0.000} m)");
+                z = floorZ;
+            }
             var a = new SF.PlacedNpc(new FormKey(modKey, id), SF.StarfieldRelease.Starfield)
             {
                 EditorID = edid, Base = new FormLink<SF.INpcGetter>(baseKey),
-                Position = new P3Float(p[0] + dx, p[1] + dy, p[2]), Rotation = new P3Float(r[0], r[1], r[2]),
+                Position = new P3Float(p[0] + dx, p[1] + dy, z), Rotation = new P3Float(r[0], r[1], r[2]),
             };
             a.MajorRecordFlagsRaw |= 0x400;
             cell.Persistent.Add(a);
@@ -1543,7 +1550,7 @@ static class Mission
         SF.Quest? codsworthQuest = null;
         if (codsRef is not null && cods is not null)
         {
-            // V2: Invisible 360-degree eye-level talk sphere matching Codsworth's z = +1.36 m Mr. Handy body
+            // G13(a): Invisible model-less eye-level talk activator (no visible green decorator NIF)
             var codsTalkActi = new SF.Activator(new FormKey(modKey, CodsworthTalkActiId), SF.StarfieldRelease.Starfield)
             {
                 EditorID = CodsworthTalkActiEdid,
@@ -1558,10 +1565,7 @@ static class Mission
                     First = new P3Float(-0.25f, -0.25f, -0.25f),
                     Second = new P3Float(0.25f, 0.25f, 0.25f),
                 },
-                Model = new SF.Model
-                {
-                    File = new AssetLink<StarfieldModelAssetType>(CodsworthTalkActiModel),
-                },
+                Model = null,
             };
             mod.Activators.Add(codsTalkActi);
 
@@ -2052,8 +2056,8 @@ static class Mission
             Need(codsTalkActi is { EditorID: CodsworthTalkActiEdid, ActivationAngle: 360, InvertFacing: false, Flags: 0, MajorRecordFlagsRaw: 0 } &&
                  codsTalkActi.ActivateTextOverride?.String == "Talk" &&
                  codsTalkActi.VirtualMachineAdapter is null && (codsTalkActi.Keywords?.Count ?? 0) == 0 && codsTalkActi.Components.Count == 0 &&
-                 string.Equals(codsTalkActi.Model?.File?.GivenPath, CodsworthTalkActiModel, StringComparison.OrdinalIgnoreCase),
-                 $"ACTI 0x{CodsworthTalkActiId:X} is not clean {CodsworthTalkActiEdid} with Talk prompt and {CodsworthTalkActiModel}");
+                 string.IsNullOrEmpty(codsTalkActi.Model?.File?.GivenPath),
+                 $"ACTI 0x{CodsworthTalkActiId:X} is not clean {CodsworthTalkActiEdid} with Talk prompt and invisible Model=null");
             CheckTalkMessages(new[]
             {
                 (CodsworthTalkMsgId, CodsworthTalkMsgEdid),
@@ -2109,6 +2113,22 @@ static class Mission
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(key, FalloutActorLooks.ConcordRaiderNpcId)), "no raider ACHR on FO4_ConcordRaider (0x986)");
         Need(raiders.All(r => r.Position.X < -1500f && r.Position.Y < -1000f),
              "C3: a raider ACHR is still at unmerged coordinates instead of merged Concord coordinates");
+        var coreNavs = NavmeshSnap.LoadWorldNavmeshes(corePath);
+        if (coreNavs.Count > 0)
+        {
+            foreach (var r in new[] { preston, codsRef }.Concat(raiders).Where(x => x is not null))
+            {
+                bool isRaider = r!.FormKey.ID >= FirstRaiderRefId && r.FormKey.ID < CodsworthNpcId;
+                float lx = isRaider ? r.Position.X - MergeOffsetX : r.Position.X;
+                float ly = isRaider ? r.Position.Y - MergeOffsetY : r.Position.Y;
+                if (NavmeshSnap.TryFindFloorZ(coreNavs, lx, ly, r.Position.Z, out var floorZ))
+                {
+                    float dz = MathF.Abs(r.Position.Z - floorZ);
+                    Need(dz <= NavmeshSnap.HoldFloorMaxToleranceM,
+                         $"G13(b): ACHR {r.EditorID} z={r.Position.Z:F3} deviates from core navmesh floor {floorZ:F3} by {dz:F3} m (> {NavmeshSnap.HoldFloorMaxToleranceM:F1} m)");
+                }
+            }
+        }
 
         static bool HasPhase1Intv(SF.IDialogResponsesGetter info) =>
             info.INTV is { Length: >= 4 } raw && BitConverter.ToInt32(raw.Span) == 1;
