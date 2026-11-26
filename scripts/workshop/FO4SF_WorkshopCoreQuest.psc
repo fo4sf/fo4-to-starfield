@@ -19,6 +19,9 @@ Scriptname FO4SF_WorkshopCoreQuest extends Quest
  Format:   FO4SFWSCORE rt=<real time s> <event> key=value ... end=true}
 
 GlobalVariable Property TestModeGlobal Auto Const
+string Property SanctuaryWorkbenchPlugin = "" Auto Const
+int Property SanctuaryWorkbenchRefId = 0 Auto Const
+float Property SanctuaryBuildRadiusM = 0.0 Auto Const
 
 ; ---------------------------------------------------------------- deterministic layout (dotnet/WorkshopCore/Program.cs)
 
@@ -98,7 +101,7 @@ Event OnQuestInit()
     int iresN = ListSize(iresList)
     int miscN = ListSize(miscList)
     int recN = ListSize(recList)
-    Trace("init version=" + Version + " quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(WorkshopPlugin) + " core=" + ActiveCoreName() + " benchbase=" + Id(ResolveBenchBase()) + " beaconbase=" + Id(Game.GetFormFromFile(BeaconBaseId, "Starfield.esm")) + " workshopkw=" + Id(Game.GetFormFromFile(WorkshopKwId, "Starfield.esm")) + " stationkw=" + Id(Game.GetFormFromFile(StationFurnKwId, "Starfield.esm")) + " cmpo_ires=" + iresN + " cmpo_misc=" + miscN + " recipes=" + recN)
+    Trace("init version=" + Version + " quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(WorkshopPlugin) + " core=" + ActiveCoreName() + " benchbase=" + Id(ResolveBenchBase()) + " beaconbase=" + Id(Game.GetFormFromFile(BeaconBaseId, "Starfield.esm")) + " workshopkw=" + Id(Game.GetFormFromFile(WorkshopKwId, "Starfield.esm")) + " stationkw=" + Id(Game.GetFormFromFile(StationFurnKwId, "Starfield.esm")) + " cmpo_ires=" + iresN + " cmpo_misc=" + miscN + " recipes=" + recN + " sanc_plugin=" + SanctuaryWorkbenchPlugin + " sanc_ref=" + SanctuaryWorkbenchRefId + " sanc_radius=" + SanctuaryBuildRadiusM)
     if playerRef != None
         LastPlayerCell = playerRef.GetParentCell()
     endif

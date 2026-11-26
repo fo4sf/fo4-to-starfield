@@ -78,6 +78,7 @@ ALL_SCRIPTS = (
     MQ106_SCRIPT, MQ203_SCRIPT, MQ204_SCRIPT, MQ206_SCRIPT,
 )
 DOORS_DIR = os.path.join(REPO, "scripts", "doors")
+WORKSHOP_DIR = os.path.join(REPO, "scripts", "workshop")
 VAULT_ROACHES_SCRIPT = "FO4SF_Vault111RoachesQuest"
 PICKUP_SCRIPT = "FO4SF_S5S6ItemPickup"
 LOAD_DOOR_SCRIPT = "FO4SF_LoadDoorQuest"
@@ -307,7 +308,7 @@ def compile_script(compiler, src_dir, out_dir, script, script_dir=None):
     os.makedirs(out_dir, exist_ok=True)
     name = script + ".psc"
     work_dir = script_dir or HERE
-    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{DOORS_DIR};{src_dir}", f"-o={out_dir}"], cwd=work_dir)
+    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{DOORS_DIR};{WORKSHOP_DIR};{src_dir}", f"-o={out_dir}"], cwd=work_dir)
     pex = os.path.join(out_dir, script + ".pex")
     if "Compilation succeeded" not in out or not os.path.exists(pex):
         sys.exit(f"the Papyrus compile did not produce {script}.pex")

@@ -187,6 +187,10 @@ def stage(a):
 
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
     opts = ["--exclusion-radius", str(a.exclusion_radius)]
+    if getattr(a, "settlement_rules", ""):
+        if not os.path.isfile(a.settlement_rules):
+            sys.exit(f"missing --settlement-rules: {a.settlement_rules!r}")
+        opts += ["--settlement-rules", os.path.abspath(a.settlement_rules)]
     wrote = run(tool + ["build", a.starfield, out] + opts).stdout
     check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield] + opts).stdout
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
@@ -450,6 +454,7 @@ def main(argv=None):
     s.add_argument("--compiler", default=default_comp)
     s.add_argument("--content-resources", default=default_cr)
     s.add_argument("--exclusion-radius", type=float, default=45.0)
+    s.add_argument("--settlement-rules", default="", help="optional settlement_rules.json override")
 
     v = sub.add_parser("verify")
     v.add_argument("--exp-dir", required=True)

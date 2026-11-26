@@ -138,7 +138,6 @@ static class WorkshopCore
     public const string SanctuaryCrateCobjEdid = "FO4SF_COBJ_Sanctuary_StorageCrate";
     public const string SanctuaryBenchName = "Sanctuary Hills Workshop";
     public const string SanctuaryBenchModel = "fo4core\\setdressing\\garage\\workbenchgarage01.nif";
-    public const float SanctuaryBenchRadius = 250.0f;
 
     // R11 E6 + fix4: Starfield.esm Outpost category FLST overrides (FULL cleared; ZERO LCTN/STDT/PNDT overrides!)
     // and 3 Starfield furniture/container placeables (0x84B..0x84D) with swap-gated zero-skill COBJs (0x84E..0x850).
@@ -695,7 +694,14 @@ static class WorkshopCore
         return flst;
     }
 
-    static Quest MakeQuest(uint id, string edid, string name, string script, IEnumerable<ushort> stages, FormKey testModeKey)
+    static Quest MakeQuest(
+        uint id,
+        string edid,
+        string name,
+        string script,
+        IEnumerable<ushort> stages,
+        FormKey testModeKey,
+        SettlementRuleEntry sancRule)
     {
         var quest = new Quest(Own(id), Release)
         {
@@ -709,6 +715,24 @@ static class WorkshopCore
             quest.Stages.Add(new QuestStage { Index = s });
         var se = new ScriptEntry { Name = script, Flags = ScriptEntry.Flag.Local };
         se.Properties.Add(ObjProp("TestModeGlobal", testModeKey));
+        se.Properties.Add(new ScriptStringProperty
+        {
+            Name = "SanctuaryWorkbenchPlugin",
+            Flags = ScriptProperty.Flag.Edited,
+            Data = sancRule.WorkbenchPlugin,
+        });
+        se.Properties.Add(new ScriptIntProperty
+        {
+            Name = "SanctuaryWorkbenchRefId",
+            Flags = ScriptProperty.Flag.Edited,
+            Data = unchecked((int)sancRule.WorkbenchRefId),
+        });
+        se.Properties.Add(new ScriptFloatProperty
+        {
+            Name = "SanctuaryBuildRadiusM",
+            Flags = ScriptProperty.Flag.Edited,
+            Data = sancRule.BuildRadiusM,
+        });
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
@@ -737,7 +761,7 @@ static class WorkshopCore
         mod.ModHeader.Author = "fo4-to-starfield";
 
         // 1. Quest & Globals
-        mod.Quests.Add(MakeQuest(QuestId, QuestEdid, "FO4SF Settlements and C.A.M.P.s", QuestScript, Stages, testModeKey));
+        mod.Quests.Add(MakeQuest(QuestId, QuestEdid, "FO4SF Settlements and C.A.M.P.s", QuestScript, Stages, testModeKey, sancRule));
         mod.Globals.Add(MakeGlobal(CampExclusionRadiusGlobId, "FO4SF_CAMPExclusionRadiusM", exclRadius));
         mod.Globals.Add(MakeGlobal(ActiveCampCountGlobId, "FO4SF_ActiveCAMPCount", 0.0f));
         mod.Globals.Add(MakeGlobal(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f));
@@ -882,7 +906,7 @@ static class WorkshopCore
                 new ObjectProperty
                 {
                     ActorValue = new FormLink<IActorValueInformationGetter>(Sf(SfOutpostBuildAreaRadiusAvId)),
-                    Value = SanctuaryBenchRadius,
+                    Value = sancRule.BuildRadiusM,
                 },
             },
         };
@@ -973,7 +997,7 @@ static class WorkshopCore
         var outPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-                          $"1 QUST (TestModeGlobal -> {testModeKey}), 6 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m, cleanSwap=0), " +
+                          $"1 QUST (TestModeGlobal -> {testModeKey}, SanctuaryWorkbenchPlugin={sancRule.WorkbenchPlugin}, SanctuaryWorkbenchRefId=0x{sancRule.WorkbenchRefId:X}, SanctuaryBuildRadiusM={sancRule.BuildRadiusM.ToString("0.#", CultureInfo.InvariantCulture)}), 6 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m, cleanSwap=0), " +
                           $"10 MISC, 4 ALCH, 2 FURN + 1 CONT + 11 COBJ (3 Sanctuary zero-skill, swap-gated 0x84A==1), 5 own FLST + 2 Outpost FLST overrides (0 LCTN/STDT/PNDT), " +
                           $"1 KYWD + 1 ACTI (Sanctuary Hills Workshop, 0 Starfield OutpostCategory* KWs)");
         return 0;
@@ -1060,13 +1084,30 @@ static class WorkshopCore
             var scripts = q.VirtualMachineAdapter?.Scripts.ToList() ?? new();
             Need(q.Data?.Flags.HasFlag(Quest.Flag.StartGameEnabled) == true, $"{QuestEdid} lacks StartGameEnabled");
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), $"{QuestEdid} stages are [{string.Join(",", q.Stages.Select(s => s.Index))}], expected [{string.Join(",", Stages)}]");
-            Need(scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == 1,
-                $"{QuestEdid} script must be {QuestScript} with 1 property (TestModeGlobal)");
-            if (scripts.Count == 1 && scripts[0].Properties.Count == 1)
+            Need(scripts.Count == 1 && scripts[0].Name == QuestScript && scripts[0].Properties.Count == 4,
+                $"{QuestEdid} script must be {QuestScript} with 4 properties (TestModeGlobal, SanctuaryWorkbenchPlugin, SanctuaryWorkbenchRefId, SanctuaryBuildRadiusM)");
+            if (scripts.Count == 1 && scripts[0].Properties.Count == 4)
             {
-                var p0 = scripts[0].Properties[0] as IScriptObjectPropertyGetter;
-                Need(p0 != null && p0.Name == "TestModeGlobal" && p0.Object.FormKey == testModeKey,
-                    $"{QuestEdid} property[0] must be TestModeGlobal -> {testModeKey}");
+                var pByName = new Dictionary<string, IScriptPropertyGetter>(StringComparer.Ordinal);
+                foreach (var prop in scripts[0].Properties)
+                    pByName[prop.Name] = prop;
+                Need(pByName.Count == 4, $"{QuestEdid} has duplicate script property names");
+
+                var p0 = pByName.GetValueOrDefault("TestModeGlobal") as IScriptObjectPropertyGetter;
+                Need(p0 != null && p0.Object.FormKey == testModeKey,
+                    $"{QuestEdid} property TestModeGlobal must target {testModeKey}");
+
+                var pPlug = pByName.GetValueOrDefault("SanctuaryWorkbenchPlugin") as IScriptStringPropertyGetter;
+                Need(pPlug != null && string.Equals(pPlug.Data, sancRule.WorkbenchPlugin, StringComparison.Ordinal),
+                    $"{QuestEdid} property SanctuaryWorkbenchPlugin must equal '{sancRule.WorkbenchPlugin}'");
+
+                var pRef = pByName.GetValueOrDefault("SanctuaryWorkbenchRefId") as IScriptIntPropertyGetter;
+                Need(pRef != null && unchecked((uint)pRef.Data) == sancRule.WorkbenchRefId,
+                    $"{QuestEdid} property SanctuaryWorkbenchRefId must equal 0x{sancRule.WorkbenchRefId:X}");
+
+                var pRad = pByName.GetValueOrDefault("SanctuaryBuildRadiusM") as IScriptFloatPropertyGetter;
+                Need(pRad != null && MathF.Abs(pRad.Data - sancRule.BuildRadiusM) < 0.01f,
+                    $"{QuestEdid} property SanctuaryBuildRadiusM must equal {sancRule.BuildRadiusM}");
             }
         }
 
@@ -1213,8 +1254,8 @@ static class WorkshopCore
             Need(forbidden.Count == 0,
                 $"{SanctuaryBenchActiEdid} must carry ZERO Starfield OutpostCategory* keywords, found: {string.Join(", ", forbidden)}");
             var radiusProp = sancActi.Properties?.FirstOrDefault(p => p.ActorValue.FormKey == Sf(SfOutpostBuildAreaRadiusAvId));
-            Need(radiusProp != null && Math.Abs(radiusProp.Value - SanctuaryBenchRadius) < 0.01f,
-                $"{SanctuaryBenchActiEdid} missing OutpostBuildAreaRadius={SanctuaryBenchRadius}");
+            Need(radiusProp != null && Math.Abs(radiusProp.Value - sancRule.BuildRadiusM) < 0.01f,
+                $"{SanctuaryBenchActiEdid} missing OutpostBuildAreaRadius={sancRule.BuildRadiusM}");
         }
 
         // 9. R11 E6 + fix4: 3 clean Sanctuary settlement placeables + 3 swap-gated zero-skill Outpost COBJs + 2 FLST overrides
@@ -1547,9 +1588,54 @@ static class WorkshopCore
             if (Build(sfPath, bDir, 45.0f, null, settlementRulesPath) != 0) throw new Refusal($"build {mode} failed");
             if (Check(Path.Combine(bDir, Plugin.FileName), sfPath, 45.0f, null, settlementRulesPath) != 0) throw new Refusal($"check {mode} failed");
         }
+        var fullSf = Path.Combine(scratchDir, "m_full", "Starfield.esm");
+
+        // Custom settlement_rules.json check: changing bench plugin, bench id, or radius updates VMAD quest properties + ACTI radius
+        var h6CustomRulesPath = Path.Combine(scratchDir, "settlement_rules_h6_custom.json");
+        File.WriteAllText(h6CustomRulesPath, """
+        {
+          "schema_version": 1,
+          "settlements": [
+            {
+              "id": "sanctuary_hills",
+              "name": "Sanctuary Hills",
+              "workbench_plugin": "FO4TerrainCore_Mars.esm",
+              "workbench_ref_id": "0x005C99",
+              "clean_swap_bench_plugin": "FO4SFWorkshop.esm",
+              "clean_swap_bench_id": "0x000849",
+              "build_radius_m": 315.0,
+              "attack_rule_id": "commonwealth_raider_probe",
+              "initial_population": 0,
+              "max_tier": 3
+            }
+          ],
+          "attack_rules": [
+            {
+              "id": "commonwealth_raider_probe",
+              "status": "NOT WIRED",
+              "wired": false,
+              "min_population": 2,
+              "min_defense_exempt_ratio": 1.0,
+              "cooldown_game_hours": 48.0,
+              "base_chance_pct": 15.0,
+              "attacker_faction": "raider",
+              "enabled_hook": false
+            }
+          ],
+          "population_upgrade_rules": [
+            { "tier": 1, "id": "outpost", "label": "Outpost", "status": "NOT WIRED", "wired": false, "min_population": 0, "min_beds": 0, "min_food": 0, "min_water": 0, "beacon_recruit_cap": 5 },
+            { "tier": 2, "id": "settlement", "label": "Settlement", "status": "NOT WIRED", "wired": false, "min_population": 5, "min_beds": 5, "min_food": 5, "min_water": 5, "beacon_recruit_cap": 12 },
+            { "tier": 3, "id": "hub", "label": "Regional Hub", "status": "NOT WIRED", "wired": false, "min_population": 12, "min_beds": 12, "min_food": 12, "min_water": 12, "beacon_recruit_cap": 20 }
+          ]
+        }
+        """);
+        var h6Dir = Path.Combine(scratchDir, "b_h6_custom");
+        if (Build(fullSf, h6Dir, 45.0f, null, h6CustomRulesPath) != 0) throw new Refusal("build --settlement-rules custom failed");
+        if (Check(Path.Combine(h6Dir, Plugin.FileName), fullSf, 45.0f, null, h6CustomRulesPath) != 0) throw new Refusal("check --settlement-rules custom failed");
+        if (Check(Path.Combine(h6Dir, Plugin.FileName), fullSf, 45.0f, null, settlementRulesPath) == 0)
+            throw new Refusal("check failed to reject mismatched --settlement-rules");
 
         // Custom exclusion radius check
-        var fullSf = Path.Combine(scratchDir, "m_full", "Starfield.esm");
         var optDir = Path.Combine(scratchDir, "b_opt");
         if (Build(fullSf, optDir, 60.0f) != 0) throw new Refusal("build --exclusion-radius 60 failed");
         if (Check(Path.Combine(optDir, Plugin.FileName), fullSf, 60.0f) != 0) throw new Refusal("check --exclusion-radius 60 failed");
@@ -1566,7 +1652,7 @@ static class WorkshopCore
             var mod = OpenMutablePlugin(cleanPlugin);
             mutate(mod);
             Write(mod, tDir, SfEsm, CoreValuesEsm);
-            if (Check(Path.Combine(tDir, Plugin.FileName), fullSf, 45.0f) == 0)
+            if (Check(Path.Combine(tDir, Plugin.FileName), fullSf, 45.0f, null, settlementRulesPath) == 0)
                 throw new Refusal($"tamper control #{tIdx} ({label}) unexpectedly passed Check");
         }
 
@@ -1644,7 +1730,22 @@ static class WorkshopCore
         ExpectTamperFail("ws0a_start_via_script_nonzero", m =>
             m.Globals.First(g => g.FormKey == Own(WorkshopStartViaScriptGlobId)).Data = 1.0f);
 
-        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 17 tamper controls passed)");
+        // 18. H6: SanctuaryWorkbenchPlugin property tampered
+        ExpectTamperFail("h6_bad_sanctuary_bench_plugin", m =>
+            m.Quests.First(q => q.FormKey == Own(QuestId)).VirtualMachineAdapter!.Scripts[0].Properties
+                .OfType<ScriptStringProperty>().First(p => p.Name == "SanctuaryWorkbenchPlugin").Data = "WrongPlugin.esm");
+
+        // 19. H6: SanctuaryWorkbenchRefId property tampered
+        ExpectTamperFail("h6_bad_sanctuary_bench_id", m =>
+            m.Quests.First(q => q.FormKey == Own(QuestId)).VirtualMachineAdapter!.Scripts[0].Properties
+                .OfType<ScriptIntProperty>().First(p => p.Name == "SanctuaryWorkbenchRefId").Data = 0x000001);
+
+        // 20. H6: SanctuaryBuildRadiusM property tampered
+        ExpectTamperFail("h6_bad_sanctuary_build_radius", m =>
+            m.Quests.First(q => q.FormKey == Own(QuestId)).VirtualMachineAdapter!.Scripts[0].Properties
+                .OfType<ScriptFloatProperty>().First(p => p.Name == "SanctuaryBuildRadiusM").Data = 999.0f);
+
+        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 20 tamper controls passed)");
         return 0;
     }
 }

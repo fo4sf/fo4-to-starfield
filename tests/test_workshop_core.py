@@ -310,12 +310,23 @@ class ScriptAndContractTests(unittest.TestCase):
             self.assertIn(hex_str, DOC_TEXT)
 
     def test_core_values_test_mode_property_and_masters_contract(self):
-        props = re.findall(r"^\s*(\w+)\s+Property\s+(\w+)\s+Auto\s+Const\b", PSC_TEXT, re.M)
-        self.assertEqual(props, [("GlobalVariable", "TestModeGlobal")])
+        props = re.findall(r"^\s*(\w+)\s+Property\s+(\w+)(?:\s*=\s*\S+)?\s+Auto\s+Const\b", PSC_TEXT, re.M)
+        self.assertEqual(
+            props,
+            [
+                ("GlobalVariable", "TestModeGlobal"),
+                ("string", "SanctuaryWorkbenchPlugin"),
+                ("int", "SanctuaryWorkbenchRefId"),
+                ("float", "SanctuaryBuildRadiusM"),
+            ],
+        )
         all_props = re.findall(r"\bProperty\s+(\w+)\b", PSC_TEXT)
-        self.assertEqual(all_props, ["TestModeGlobal"])
+        self.assertEqual(
+            all_props,
+            ["TestModeGlobal", "SanctuaryWorkbenchPlugin", "SanctuaryWorkbenchRefId", "SanctuaryBuildRadiusM"],
+        )
         self.assertIn("if TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", PSC_TEXT)
-        self.assertIn("1 property (TestModeGlobal)", CS_TEXT)
+        self.assertIn("with 4 properties (TestModeGlobal, SanctuaryWorkbenchPlugin, SanctuaryWorkbenchRefId, SanctuaryBuildRadiusM)", CS_TEXT)
         self.assertIn("expected [Starfield.esm, FO4SFCoreValues.esm]", CS_TEXT)
         self.assertIn('string WorkshopPlugin = "FO4SFWorkshop.esm"', PSC_TEXT)
         self.assertEqual(CORE_VALUES_PLUGIN, "FO4SFCoreValues.esm")

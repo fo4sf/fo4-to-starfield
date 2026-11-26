@@ -1511,7 +1511,9 @@ class Phase2TrackBTests(unittest.TestCase):
         self.assertIn("sanctuaryQuest.StartNoWait()", apply_fn)
 
         s_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_Sanctuary01Quest.psc"))
-        self.assertIn("int BenchRefId = 0x005C50", s_psc)
+        self.assertNotIn("005C50", s_psc)
+        self.assertIn("int Function ResolveSanctuaryBenchRefId()", s_psc)
+        self.assertIn("string Function ResolveSanctuaryBenchPlugin()", s_psc)
         self.assertIn("int BenchBaseId = 0x0A2ECD", s_psc)
         self.assertIn('RegisterForRemoteEvent(boundBench, "OnActivate")', s_psc)
         self.assertIn('RegisterForRemoteEvent(boundBench, "OnWorkshopMode")', s_psc)
@@ -3825,18 +3827,32 @@ class Round12Task1aAnd1iTests(unittest.TestCase):
         bench_ws, v111_ws = object(), object()
         for src in (m_psc, s_psc):
             from tests.test_r11_d1_d3_min00 import _translate_psc
-            fns = ("ResolveCommonwealthWorld",) if "Min00" in src else ("ActiveCorePlugin", "ResolveCommonwealthWorld")
+            is_min00 = "Scriptname FO4SF_Min00Quest" in src
+            fns = (
+                ("ResolveCommonwealthWorld",)
+                if is_min00
+                else ("ActiveCorePlugin", "ResolveSanctuaryBenchPlugin", "ResolveSanctuaryBenchRefId", "ResolveCommonwealthWorld")
+            )
             allow_v111 = [True]
+            ws_core_stub = SimpleNamespace(
+                SanctuaryWorkbenchPlugin="FO4TerrainCore.esm",
+                SanctuaryWorkbenchRefId=0x005C50,
+                SanctuaryBuildRadiusM=250.0,
+            )
             ns = {
                 "CorePlugin": "FO4TerrainCore.esm",
-                "BenchRefId": 0x005C50,
+                "CoreFallbackPlugin": "FO4TerrainCore_Mars.esm",
+                "WorkshopPlugin": "FO4SFWorkshop.esm",
+                "WorkshopQuestId": 0x000800,
                 "ActiveCorePlugin": lambda: "FO4TerrainCore.esm",
                 "Game": SimpleNamespace(
-                    GetFormFromFile=lambda fid, plg, allow=allow_v111: (
-                        SimpleNamespace(GetWorldSpace=lambda: v111_ws) if (fid == 0x0A775B and allow[0])
+                    IsPluginInstalled=lambda plg: plg in ("FO4TerrainCore.esm", "FO4SFWorkshop.esm"),
+                    GetFormFromFile=lambda fid, plg, allow=allow_v111, ws=ws_core_stub: (
+                        ws if (fid == 0x000800 and plg == "FO4SFWorkshop.esm")
+                        else SimpleNamespace(GetWorldSpace=lambda: v111_ws) if (fid == 0x0A775B and allow[0])
                         else SimpleNamespace(GetWorldSpace=lambda: bench_ws) if fid == 0x005C50
                         else None
-                    )
+                    ),
                 ),
             }
             ns["commonwealthWorld"] = None

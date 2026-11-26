@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Data-driven FO4SF workshop settlement registry, W5/W6 attack rules, and W6 population upgrade tiers.",
+  "description": "Data-driven FO4SF workshop settlement registry (0.1 Sanctuary Hills wired into FO4SFWorkshop.esm quest properties), plus NOT WIRED W5/W6 attack and population upgrade design tables.",
   "settlements": [
     {
       "id": "sanctuary_hills",
@@ -9,7 +9,6 @@
       "workbench_ref_id": "0x005C50",
       "clean_swap_bench_plugin": "FO4SFWorkshop.esm",
       "clean_swap_bench_id": "0x000849",
-      "clean_swap_bench_runtime_hex": "0B000849",
       "swap_global_id": "0x00084A",
       "category_keyword_id": "0x000848",
       "build_radius_m": 250.0,
@@ -22,6 +21,8 @@
     {
       "id": "commonwealth_raider_probe",
       "wave_target": "W5/W6",
+      "status": "NOT WIRED",
+      "wired": false,
       "min_population": 2,
       "min_defense_exempt_ratio": 1.0,
       "cooldown_game_hours": 48.0,
@@ -36,6 +37,8 @@
       "id": "outpost",
       "label": "Outpost",
       "wave_target": "W6",
+      "status": "NOT WIRED",
+      "wired": false,
       "min_population": 0,
       "min_beds": 0,
       "min_food": 0,
@@ -47,6 +50,8 @@
       "id": "settlement",
       "label": "Settlement",
       "wave_target": "W6",
+      "status": "NOT WIRED",
+      "wired": false,
       "min_population": 5,
       "min_beds": 5,
       "min_food": 5,
@@ -58,6 +63,8 @@
       "id": "hub",
       "label": "Regional Hub",
       "wave_target": "W6",
+      "status": "NOT WIRED",
+      "wired": false,
       "min_population": 12,
       "min_beds": 12,
       "min_food": 12,
