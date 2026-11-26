@@ -84,7 +84,7 @@ class Round11D4AndA21Tests(unittest.TestCase):
         self.assertIn("public const uint SanctuaryCotCobjId = 0x84F;", cs)
         self.assertIn("public const uint SanctuaryCrateCobjId = 0x850;", cs)
         self.assertIn('public const string SanctuaryCleanBenchSwapGlobEdid = "FO4SF_SanctuaryCleanBenchSwap";', cs)
-        self.assertIn("public const int ExpectedOwnRecordCount = 41;", cs)
+        self.assertIn("public const int ExpectedOwnRecordCount = 42;", cs)
         self.assertIn("public const int ExpectedOverrideRecordCount = 2;", cs)
         self.assertIn('public const string SanctuaryBenchName = "Sanctuary Hills Workshop";', cs)
         self.assertIn('public const string SanctuaryBenchModel = "fo4core\\\\setdressing\\\\garage\\\\workbenchgarage01.nif";', cs)

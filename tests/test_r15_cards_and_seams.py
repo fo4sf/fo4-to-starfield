@@ -44,7 +44,7 @@ class R15WorkshopSeamTests(unittest.TestCase):
         sanc = by_id["sanctuary_hills"]
         self.assertEqual(int(sanc["workbench_ref_id"], 16), 0x005C50)
         self.assertEqual(int(sanc["clean_swap_bench_id"], 16), 0x000849)
-        self.assertEqual(sanc["clean_swap_bench_runtime_hex"], "0B000849")
+        self.assertNotIn("clean_swap_bench_runtime_hex", sanc)
         self.assertEqual(int(sanc["swap_global_id"], 16), 0x00084A)
         self.assertEqual(float(sanc["build_radius_m"]), 250.0)
 

@@ -47,7 +47,7 @@ Implemented strictly inside `FO4SFWorkshop.esm` (`dotnet/WorkshopCore/Program.cs
 |---|---|---|
 | `0x000849` carries `WorkshopKeyword` + `FO4SF_WorkshopCategorySanctuary` and `0` Starfield `OutpostCategory*` keywords (`0/261` Starfield `COBJ` match) | Yes (`WorkshopCore check` + `Starfield.esm` scan + tamper control `#9`) | How `WorkshopMenu` renders a workshop whose only `RecipeFilter` category has `0` buildable `COBJ`s (empty panel vs tab bar hidden) |
 | `0x000849` uses exact FO4 mesh `fo4core\setdressing\garage\workbenchgarage01.nif` and `FULL = "Sanctuary Hills Workshop"` | Yes (binary readback against real `Starfield.esm`) | Prompt text (`SANCTUARY HILLS WORKSHOP / BUILD [E]`) and `sOutpostName` in `WorkshopMenu` footer |
-| `LCTN 0x01B736`, `0x01B735`, `0x061527` and `STDT 0x05E5CB` (`FULL` + `ANAM`) carry `"Commonwealth"` / `"Massachusetts"` with `0` `PNDT` overrides | Yes (raw binary subrecord inspection + tamper control `#10`) | Whether `sOutpostLocation` reads `LCTN` + `STDT` (now `"COMMONWEALTH, MASSACHUSETTS"`) or `PNDT.FULL` + `STDT.FULL` |
+| `LCTN`/`STDT`/`PNDT` overrides in `FO4SFWorkshop.esm`: `0` (`E6` fix removed localized `LCTN 0x01B735` / `STDT 0x05E5CB` overrides); `PNDT 0x0003F59A` stays in `FO4SFCoreValues.esm`, while footer `"MARS, SOL"` stays until `#858`. | Yes (`fix4` / `WS0a` `WorkshopCore check` + tamper controls `#14`–`#17`: `42` own + `2` unlocalized `FLST` overrides `0x058606`/`0x1A5507` = `44` major records; `0x000858` opening-toast switch default `0.0`; `0x000843` C.A.M.P. kit TestMode-gated `until owner Q6`) | `sOutpostLocation` reads `FO4SFCoreValues` / `#858` world location (`"COMMONWEALTH, MASSACHUSETTS"` once `#858` lands) |
 
 ---
 

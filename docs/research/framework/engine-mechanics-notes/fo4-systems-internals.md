@@ -40,9 +40,10 @@ name is given for a vanilla script, the source is a public forum post or wiki pa
   resource issues". Adding `LocTypeWorkshopSettlement` at runtime triggers `ResetWorkshop()`, so settlements cannot
   practically be created or moved at runtime. **verified** (same article). This is the converter's checklist for every
   FO4 settlement.
-- **Attack chance constants** on `WorkshopScript`: `attackChanceBase = 0.05`, `attackChanceResourceMult = 0.05`,
-  `attackChanceSafetyMult = 0.01`, `attackChancePopulationMult = 0.02`, `minDaysSinceLastAttack = 1.0` (all `const`);
-  the daily check is `CheckForAttacks()` on `WorkshopScript`, gated by `AllowAttacks` on `WorkshopParent`; a
+- **Attack chance constants** on `WorkshopScript` (`VERIFIED` in Fallout 4 `Base.zip` `WorkshopScript.psc`):
+  `attackChanceBase = 0.02`, `attackChanceResourceMult = 0.001`, `attackChanceSafetyMult = 0.01`,
+  `attackChancePopulationMult = 0.005`, `minDaysSinceLastAttack = 7.0` (all `const`);
+  the daily check is `CheckForAttack()` on `WorkshopScript`, gated per workbench by `AllowAttacks` (and `AllowAttacksBeforeOwned`); a
   `pWorkshopAttackScript.attackDelayGameTime` property exists; `WorkshopParentScript.TriggerAttack` can be called from
   the console. **verified** as quoted from posted source and console examples
   (https://forums.nexusmods.com/topic/6395706-need-help-getting-more-settlement-attacks,

@@ -1,7 +1,7 @@
 Scriptname FO4SF_Sanctuary01Quest extends Quest
 {Sanctuary settlement quest (FO4SFMission.esm 0x000817, completed IN PLACE from Fallout 4's Min01 0x05DEE4;
  started via StartNoWait when FO4SF_Min00 reaches stage 200; Story mode only via FO4SF_GameMode == 1).
- Preserves stage 10 -> 100 Sanctuary Hills workshop workbench activation (0250FE -> FO4TerrainCore.esm 0x005C50
+ Preserves stage 10 -> 100 Sanctuary Hills workshop workbench activation (resolved from FO4SFWorkshop.esm quest properties;
  of base ACTI 0x0A2ECD at merged -2329.250, -1420.193, 112.086) and continues in place through Sturges'
  Min01 milestones: 5 beds (1000/1050) -> 5 clean water (1200/1250) -> 5 food (1300/1350) -> 2 defense (1400/1450)
  -> completion (1500) + FO4SF_MinRecruit00 (0x000A20) handoff.
@@ -32,17 +32,21 @@ Message Property SturgesDoneMsg Auto Const
 Message Property WorkbenchBuildMsg Auto Const
 ; R11-fix #2: Clean Sanctuary bench swap is OFF by default in candidate-2g-fix (also controlled by FO4SFWorkshop.esm:0x00084A)
 bool Property EnableCleanBenchSwap = False Auto
+; WS0a DO-1: Opening-toast candidate fix is OFF by default (also controlled by FO4SFWorkshop.esm:0x000858)
+bool Property EnableWorkshopStartViaScript = False Auto
 
 string LogName = "fo4sf_mission"
 string CorePlugin = "FO4TerrainCore.esm"
 string CoreFallbackPlugin = "FO4TerrainCore_Mars.esm"
 string MissionPlugin = "FO4SFMission.esm"
 string WorkshopPlugin = "FO4SFWorkshop.esm"
-int BenchRefId = 0x005C50
+int WorkshopQuestId = 0x000800
 int BenchBaseId = 0x0A2ECD
 int CleanBenchBaseId = 0x000849
 int CleanBenchSwapGlobId = 0x00084A
+int StartViaScriptGlobId = 0x000858
 float CleanBenchSelfHealSeconds = 3.5
+float StartViaScriptDelaySeconds = 0.25
 float BenchLocalX = -1129.250
 float BenchLocalY = 1279.807
 float BenchLocalZ = 112.086
@@ -51,7 +55,6 @@ float SturgesLocalY = 1281.5
 float SturgesLocalZ = 112.1
 float MergeOffsetX = -1200.0
 float MergeOffsetY = -2700.0
-float BindRadius = 300.0
 float SearchRadius = 15.0
 float BenchFallbackRadius = 3.0
 float BenchFallbackLimit = 120.0
@@ -70,6 +73,7 @@ bool workshopMenuOpen = False
 bool cleanBenchVerifyPending = False
 bool cleanBenchSawWorkshop = False
 bool cleanBenchSelfHealed = False
+bool startViaScriptBlocked = False
 bool a4Upgraded = False
 bool minRecruitHandoffDone = False
 int talkSessionId = 0
@@ -203,6 +207,38 @@ bool Function IsCleanBenchSwapEnabled()
     return False
 EndFunction
 
+bool Function IsWorkshopStartViaScriptEnabled()
+{WS0a DO-1: Opening-toast candidate fix (BlockActivation + delayed StartWorkshop) is OFF by default (0x000858 == 0.0).
+ Returns True only when explicitly switched ON via property or FO4SFWorkshop.esm:0x000858.}
+    if EnableWorkshopStartViaScript
+        return True
+    endif
+    if Game.IsPluginInstalled(WorkshopPlugin)
+        GlobalVariable sw = Game.GetFormFromFile(StartViaScriptGlobId, WorkshopPlugin) as GlobalVariable
+        if sw != None && sw.GetValue() != 0.0
+            return True
+        endif
+    endif
+    return False
+EndFunction
+
+Function SyncBenchActivationMode()
+    if boundBench == None || boundBench.IsDeleted()
+        startViaScriptBlocked = False
+        return
+    endif
+    bool wantScriptStart = IsWorkshopStartViaScriptEnabled()
+    if wantScriptStart && !startViaScriptBlocked
+        boundBench.BlockActivation(True, False)
+        startViaScriptBlocked = True
+        Trace("sanctuary01 start_via_script block_activation=true ref=" + boundBench)
+    elseif !wantScriptStart && startViaScriptBlocked
+        boundBench.BlockActivation(False, False)
+        startViaScriptBlocked = False
+        Trace("sanctuary01 start_via_script block_activation=false ref=" + boundBench)
+    endif
+EndFunction
+
 bool Function IsSturgesReadyForSanctuary()
 {A2.1 / S9: Sturges arrives with Preston's group in S9 and is NO LONGER placed at the bench by stage 100 in normal play.
  Returns True only after S9 arrival (OnSturgesArrivedFromConcord or Sturges already enabled by S9) or explicit TestMode.}
@@ -238,12 +274,42 @@ int Function EffectiveStage()
     return raw
 EndFunction
 
+string Function ResolveSanctuaryBenchPlugin()
+    if Game.IsPluginInstalled(WorkshopPlugin)
+        FO4SF_WorkshopCoreQuest ws = Game.GetFormFromFile(WorkshopQuestId, WorkshopPlugin) as FO4SF_WorkshopCoreQuest
+        if ws != None && ws.SanctuaryWorkbenchPlugin != ""
+            return ws.SanctuaryWorkbenchPlugin
+        endif
+    endif
+    return ActiveCorePlugin()
+EndFunction
+
+int Function ResolveSanctuaryBenchRefId()
+    if Game.IsPluginInstalled(WorkshopPlugin)
+        FO4SF_WorkshopCoreQuest ws = Game.GetFormFromFile(WorkshopQuestId, WorkshopPlugin) as FO4SF_WorkshopCoreQuest
+        if ws != None && ws.SanctuaryWorkbenchRefId != 0
+            return ws.SanctuaryWorkbenchRefId
+        endif
+    endif
+    return 0
+EndFunction
+
+float Function ResolveSanctuaryBuildRadius()
+    if Game.IsPluginInstalled(WorkshopPlugin)
+        FO4SF_WorkshopCoreQuest ws = Game.GetFormFromFile(WorkshopQuestId, WorkshopPlugin) as FO4SF_WorkshopCoreQuest
+        if ws != None && ws.SanctuaryBuildRadiusM > 0.0
+            return ws.SanctuaryBuildRadiusM
+        endif
+    endif
+    return 0.0
+EndFunction
+
 WorldSpace Function ResolveCommonwealthWorld()
     if commonwealthWorld != None
         return commonwealthWorld
     endif
     ; Task 1i (#858 F7): resolve host world dynamically from persistent V111 exit marker (0x0A775B, flags=0x400) FIRST,
-    ; using Sanctuary workbench (0x005C50, flags=0x0) strictly as secondary fallback.
+    ; using Sanctuary workbench (resolved from FO4SFWorkshop.esm quest properties) strictly as secondary fallback.
     ObjectReference coreV111 = Game.GetFormFromFile(0x0A775B, CorePlugin) as ObjectReference
     if coreV111 != None
         commonwealthWorld = coreV111.GetWorldSpace()
@@ -251,11 +317,15 @@ WorldSpace Function ResolveCommonwealthWorld()
             return commonwealthWorld
         endif
     endif
-    ObjectReference coreBench = Game.GetFormFromFile(BenchRefId, CorePlugin) as ObjectReference
-    if coreBench != None
-        commonwealthWorld = coreBench.GetWorldSpace()
-        if commonwealthWorld != None
-            return commonwealthWorld
+    int benchId = ResolveSanctuaryBenchRefId()
+    string benchPlugin = ResolveSanctuaryBenchPlugin()
+    if benchId != 0 && benchPlugin != ""
+        ObjectReference coreBench = Game.GetFormFromFile(benchId, benchPlugin) as ObjectReference
+        if coreBench != None
+            commonwealthWorld = coreBench.GetWorldSpace()
+            if commonwealthWorld != None
+                return commonwealthWorld
+            endif
         endif
     endif
     string cName = ActiveCorePlugin()
@@ -267,11 +337,13 @@ WorldSpace Function ResolveCommonwealthWorld()
                 return commonwealthWorld
             endif
         endif
-        ObjectReference activeBench = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
-        if activeBench != None
-            commonwealthWorld = activeBench.GetWorldSpace()
-            if commonwealthWorld != None
-                return commonwealthWorld
+        if benchId != 0
+            ObjectReference activeBench = Game.GetFormFromFile(benchId, cName) as ObjectReference
+            if activeBench != None
+                commonwealthWorld = activeBench.GetWorldSpace()
+                if commonwealthWorld != None
+                    return commonwealthWorld
+                endif
             endif
         endif
     endif
@@ -500,7 +572,8 @@ Function StartQuestInstance()
     SetActive(True)
     ; R1: Do NOT start FO4SF_MQ103 during the opening; First Settlement stays the sole active HUD objective.
     Trace("min01 objective 10 bench")
-    Trace("sanctuary01 init stage=10 bench_ref=0x005C50")
+    Trace("sanctuary01 init stage=10 bench_ref=" + ResolveSanctuaryBenchRefId())
+    Trace("sanctuary01 bench_rule plugin=" + ResolveSanctuaryBenchPlugin() + " ref=" + ResolveSanctuaryBenchRefId() + " radius=" + ResolveSanctuaryBuildRadius())
     Trace("sanctuary01 min01_mode full_min01=" + HasFullMin01())
     StartTimer(1.0, 1)
 EndFunction
@@ -539,6 +612,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
             SetStage(applied)
         endif
         if boundBench != None
+            if startViaScriptBlocked
+                boundBench.BlockActivation(False, False)
+                startViaScriptBlocked = False
+            endif
             UnregisterForRemoteEvent(boundBench, "OnActivate")
             UnregisterForRemoteEvent(boundBench, "OnWorkshopMode")
             boundBench = None
@@ -556,6 +633,13 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 4
+        if boundBench != None && !boundBench.IsDeleted() && IsWorkshopStartViaScriptEnabled() && !workshopModeActive && !workshopMenuOpen && !IsAnyMenuOrWorkshopOpen()
+            boundBench.StartWorkshop(True)
+            Trace("sanctuary01 start_via_script fired=true ref=" + boundBench)
+        endif
+        return
+    endif
     if aiTimerID == 3
         if cleanBenchVerifyPending && !cleanBenchSawWorkshop && !workshopModeActive && !workshopMenuOpen && sanctuaryBenchOverride != None && !cleanBenchSelfHealed
             cleanBenchSelfHealed = True
@@ -603,6 +687,7 @@ Event OnTimer(int aiTimerID)
         elseif !wantSwapNow && sanctuaryBenchOverride != None && boundBench == sanctuaryBenchOverride
             RestoreCoreBench("switch_off")
         endif
+        SyncBenchActivationMode()
         if boundBench == None || boundBench.IsDeleted()
             EnsureGuideMarker(player)
             TryBindBench(player)
@@ -680,7 +765,8 @@ Function KeepSturges(Actor player)
     float sz = SturgesLocalZ
     float pdx = player.GetPositionX() - sx
     float pdy = player.GetPositionY() - sy
-    if pdx * pdx + pdy * pdy <= BindRadius * BindRadius
+    float bindR = ResolveSanctuaryBuildRadius()
+    if bindR > 0.0 && pdx * pdx + pdy * pdy <= bindR * bindR
         if IsTestModeEnabled()
             float sdx = st.GetPositionX() - sx
             float sdy = st.GetPositionY() - sy
@@ -904,14 +990,21 @@ Function CleanupMarker()
 EndFunction
 
 Function RestoreCoreBench(string reason)
-{R11-fix #2: Re-enable 04005C50, disable sanctuaryBenchOverride, and re-bind boundBench + Alias 0 back to 04005C50.}
+{R11-fix #2: Re-enable core bench, disable sanctuaryBenchOverride, and re-bind boundBench + Alias 0 back to core bench.}
     cleanBenchVerifyPending = False
     CancelTimer(3)
     ObjectReference coreRef = coreBenchDisabled
     if coreRef == None
-        string cName = ActiveCorePlugin()
-        if cName != ""
-            coreRef = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
+        int benchId = ResolveSanctuaryBenchRefId()
+        string benchPlugin = ResolveSanctuaryBenchPlugin()
+        if benchId != 0 && benchPlugin != ""
+            coreRef = Game.GetFormFromFile(benchId, benchPlugin) as ObjectReference
+        endif
+        if coreRef == None
+            string cName = ActiveCorePlugin()
+            if benchId != 0 && cName != "" && cName != benchPlugin
+                coreRef = Game.GetFormFromFile(benchId, cName) as ObjectReference
+            endif
         endif
     endif
     if sanctuaryBenchOverride != None && !sanctuaryBenchOverride.IsDeleted()
@@ -930,6 +1023,7 @@ Function RestoreCoreBench(string reason)
         boundBench = coreRef
         RegisterForRemoteEvent(boundBench, "OnActivate")
         RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+        SyncBenchActivationMode()
         ReferenceAlias bAliasRestore = GetAlias(0) as ReferenceAlias
         if bAliasRestore != None
             bAliasRestore.ForceRefTo(boundBench)
@@ -967,6 +1061,7 @@ Function TryBindBench(Actor player)
             boundBench = sanctuaryBenchOverride
             RegisterForRemoteEvent(boundBench, "OnActivate")
             RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+            SyncBenchActivationMode()
             ReferenceAlias bAliasRe = GetAlias(0) as ReferenceAlias
             if bAliasRe != None
                 bAliasRe.ForceRefTo(boundBench)
@@ -977,19 +1072,35 @@ Function TryBindBench(Actor player)
         endif
         return
     endif
+    string benchPlugin = ResolveSanctuaryBenchPlugin()
+    int benchId = ResolveSanctuaryBenchRefId()
+    float bindR = ResolveSanctuaryBuildRadius()
     string cName = ActiveCorePlugin()
-    if cName == ""
+    if benchPlugin == ""
+        benchPlugin = cName
+    endif
+    if benchPlugin == "" && cName == ""
         return
     endif
     float mx = BenchLocalX + MergeOffsetX
     float my = BenchLocalY + MergeOffsetY
     float mz = BenchLocalZ
-    ObjectReference cand = Game.GetFormFromFile(BenchRefId, cName) as ObjectReference
-    if cand == None && IsCommonwealthExterior(player)
+    ObjectReference cand = None
+    if benchId != 0 && benchPlugin != ""
+        cand = Game.GetFormFromFile(benchId, benchPlugin) as ObjectReference
+    endif
+    if cand == None && benchId != 0 && cName != "" && cName != benchPlugin
+        cand = Game.GetFormFromFile(benchId, cName) as ObjectReference
+    endif
+    string lookupPlugin = cName
+    if lookupPlugin == ""
+        lookupPlugin = benchPlugin
+    endif
+    if cand == None && lookupPlugin != "" && IsCommonwealthExterior(player)
         float dx = player.GetPositionX() - mx
         float dy = player.GetPositionY() - my
-        if dx * dx + dy * dy <= BindRadius * BindRadius
-            Form benchBase = Game.GetFormFromFile(BenchBaseId, cName)
+        if bindR > 0.0 && dx * dx + dy * dy <= bindR * bindR
+            Form benchBase = Game.GetFormFromFile(BenchBaseId, lookupPlugin)
             if benchBase != None
                 cand = Game.FindClosestReferenceOfType(benchBase, mx, my, mz, SearchRadius)
             endif
@@ -998,9 +1109,9 @@ Function TryBindBench(Actor player)
     if cand == None
         return
     endif
-    ; R11 D4 / fix #2: Only swap core bench (0x005C50) for clean bench (FO4SFWorkshop.esm:0x000849)
+    ; R11 D4 / fix #2: Only swap core bench for clean bench (FO4SFWorkshop.esm:0x000849)
     ; when explicitly switched ON (FO4SF_SanctuaryCleanBenchSwap 0x00084A == 1 or EnableCleanBenchSwap == True).
-    ; Default in candidate-2g-fix is OFF so 04005C50 stays enabled and bound.
+    ; Default in candidate-2g-fix is OFF so core bench stays enabled and bound.
     bool swappedClean = False
     ObjectReference targetBench = cand
     if wantSwap && Game.IsPluginInstalled(WorkshopPlugin)
@@ -1030,6 +1141,7 @@ Function TryBindBench(Actor player)
         boundBench = targetBench
         RegisterForRemoteEvent(boundBench, "OnActivate")
         RegisterForRemoteEvent(boundBench, "OnWorkshopMode")
+        SyncBenchActivationMode()
         ReferenceAlias benchAlias = GetAlias(0) as ReferenceAlias
         if benchAlias != None
             benchAlias.ForceRefTo(boundBench)
@@ -1135,6 +1247,12 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     endif
     if boundBench != None && akSender == boundBench
         int cur = EffectiveStage()
+        if startViaScriptBlocked || IsWorkshopStartViaScriptEnabled()
+            SyncBenchActivationMode()
+            CancelTimer(4)
+            StartTimer(StartViaScriptDelaySeconds, 4)
+            Trace("sanctuary01 start_via_script queued=true delay=" + StartViaScriptDelaySeconds)
+        endif
         if cur < 100
             ; R2: Never pop a modal menu over the real workshop on bench activation.
             CompleteSanctuaryObjective(akSender)
