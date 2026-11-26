@@ -93,6 +93,14 @@ R12_EXTRA_SCRIPTS = (
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
+# robot-anim (--codsworth-handy): the Mr. Handy bundle of scripts/probes/stage_ra2_handy.py. Its plugin is the race
+# template for dotnet/Mission; its Data holds the rig, clips, manifests, skeleton and mesh.
+HANDY_TEMPLATE = "FO4SF_RA2Handy.esm"
+HANDY_MESH = "FO4SF\\Actors\\Handy\\handy.nif"
+HANDY_RACE_EDID = "FO4SF_HandyRace"
+CODSWORTH_RACE_EDID = "FO4SF_CodsworthRace"
+HANDY_DIRS = ("geometries/", "meshes/actors/fo4sf/handy/", "meshes/fo4sf/actors/handy/")
+HANDY_MANIFEST_DIRS = ("AnimationFileData", "AnimationOffsets", "AnimationStanceData", "DynamicIdleData")
 # Codsworth carries his own VTYP FO4SF_CodsworthVoice (0x819, AllowDefaultDialog) so Starfield resolves his .wem files here:
 VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/fo4sf_codsworthvoice"
 # Preston uses Starfield.esm GenericMaleEvenToned (AllowDefaultDialog), resolved under FO4SFMission.esm's voice folder:
@@ -140,6 +148,7 @@ def build_look_descriptions(a, codsworth_pos=None):
     """Build real Preston, raider, and Codsworth look descriptions from the passed look inputs."""
     actor_looks = getattr(a, "actor_looks_assets", None)
     codsworth_assets = getattr(a, "codsworth_assets", None)
+    codsworth_handy = getattr(a, "codsworth_handy", None)
     race_framing = bool(getattr(a, "codsworth_race_framing", False))
 
     if actor_looks:
@@ -160,16 +169,22 @@ def build_look_descriptions(a, codsworth_pos=None):
     if not getattr(a, "codsworth", True):
         codsworth_desc = "left out (--no-codsworth)"
     else:
-        model_note = (
-            f"FO4 model from {os.path.abspath(codsworth_assets)} ({CODSWORTH_MESH})"
-            if codsworth_assets
-            else "Starfield robot stand-in (no --codsworth-assets)"
-        )
-        framing_note = (
-            "standing camera framing enabled (--codsworth-race-framing)"
-            if race_framing
-            else "default race camera framing"
-        )
+        if codsworth_handy:
+            model_note = f"FO4 Mr. Handy model/skeleton from {os.path.abspath(codsworth_handy)} ({HANDY_MESH})"
+            if codsworth_assets:
+                model_note += f" + materials/textures from {os.path.abspath(codsworth_assets)}"
+            framing_note = "Mr. Handy race skeleton/animations (--codsworth-handy)"
+        else:
+            model_note = (
+                f"FO4 model from {os.path.abspath(codsworth_assets)} ({CODSWORTH_MESH})"
+                if codsworth_assets
+                else "Starfield robot stand-in (no --codsworth-assets)"
+            )
+            framing_note = (
+                "standing camera framing enabled (--codsworth-race-framing)"
+                if race_framing
+                else "default race camera framing"
+            )
         pos_str = f" at {codsworth_pos} m" if codsworth_pos is not None else ""
         codsworth_desc = (
             "NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + "
@@ -206,6 +221,8 @@ def mission_cli_args(a, final_out):
         tokens.extend(["--codsworth-voice", os.path.abspath(a.codsworth_voice)])
     if getattr(a, "codsworth_assets", None):
         tokens.extend(["--codsworth-assets", os.path.abspath(a.codsworth_assets)])
+    if getattr(a, "codsworth_handy", None):
+        tokens.extend(["--codsworth-handy", os.path.abspath(a.codsworth_handy)])
     if getattr(a, "actor_looks_assets", None):
         tokens.extend(["--actor-looks-assets", os.path.abspath(a.actor_looks_assets)])
     if getattr(a, "codsworth_race_framing", False):
@@ -631,6 +648,8 @@ def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_v
 
 
 def stage(a):
+    if getattr(a, "codsworth_race_framing", False) and getattr(a, "codsworth_handy", None):
+        sys.exit("--codsworth-race-framing cannot be used together with --codsworth-handy")
     with open(os.path.join(HERE, SCRIPT + ".psc"), encoding="utf-8") as f:
         psc = f.read()
     props = mandatory_properties(psc)
@@ -667,6 +686,9 @@ def stage(a):
         if problem:
             sys.exit(f"{problem}; attempt kept in {out}")
 
+        if getattr(a, "codsworth_race_framing", False) and getattr(a, "codsworth_handy", None):
+            sys.exit("--codsworth-race-framing cannot be used together with --codsworth-handy")
+
         alias = [] if a.alias else ["--no-alias"]
         cods = [] if a.codsworth else ["--no-codsworth"]
         assets = set()
@@ -675,6 +697,12 @@ def stage(a):
                 sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
             assets = set(copy_assets(a.codsworth_assets, os.path.join(out, "Data")))
             cods = ["--codsworth-model", CODSWORTH_MESH]
+        if getattr(a, "codsworth_handy", None):
+            if not a.codsworth:
+                sys.exit("--codsworth-handy needs Codsworth (drop --no-codsworth)")
+            template, handy_copied = copy_handy_bundle(a.codsworth_handy, os.path.join(out, "Data"))
+            assets |= set(handy_copied)
+            cods = ["--codsworth-model", HANDY_MESH, "--codsworth-handy", template]
 
         has_explicit_voice = bool(getattr(a, "codsworth_voice", None))
         if has_explicit_voice:
@@ -780,6 +808,7 @@ def stage(a):
         mission_cli_args(a, final),
         asset_dirs={
             "codsworth_assets": getattr(a, "codsworth_assets", None),
+            "codsworth_handy": getattr(a, "codsworth_handy", None),
             "actor_looks_assets": getattr(a, "actor_looks_assets", None),
             "codsworth_voice": getattr(a, "codsworth_voice", None),
         },
@@ -961,6 +990,57 @@ def copy_assets(src, data):
                 shutil.copy2(os.path.join(src, rel), dst)
                 copied.append(rel_slash)
     return copied
+
+
+def handy_bundle_files(src):
+    """robot-anim: {path under the bundle's Data: path under the mission's Data} for Codsworth on the Mr. Handy body.
+    Takes the Handy mesh, skeleton, rig, clips and geometry, the manifests of the template race's own sub-graph keys, and
+    its generated sub-graph text renamed for FO4SF_CodsworthRace. Leaves the bundle's Mini Bot test files out."""
+    from fo4sf import handy_race as hr
+    from fo4sf.planet import esm
+    template = os.path.join(src, HANDY_TEMPLATE)
+    root = os.path.join(src, "Data")
+    if not os.path.isfile(template) or not os.path.isdir(root):
+        sys.exit(f"--codsworth-handy {src} is not a stage_ra2_handy.py bundle ({HANDY_TEMPLATE} and Data\\)")
+    with esm.Plugin(template) as p:
+        race = next((r for r in p.records("RACE") if r.edid == HANDY_RACE_EDID), None)
+    if race is None:
+        sys.exit(f"--codsworth-handy: {HANDY_TEMPLATE} has no RACE {HANDY_RACE_EDID}")
+    keys = {f"{hr.manifest_key(g, f)}.txt" for g, f in hr.race_subgraph_sets(race)}
+    gsd = f"meshes/animtextdata/generatedsubgraphdata/{HANDY_RACE_EDID.lower()}.txt"
+    out = {}
+    for dirpath, _, files in os.walk(root):
+        for name in files:
+            rel = os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/")
+            low = rel.lower()
+            parts = low.split("/")
+            if low == gsd:
+                out[rel] = "meshes/AnimTextData/GeneratedSubgraphData/" + CODSWORTH_RACE_EDID.lower() + ".txt"
+            elif low.startswith(HANDY_DIRS):
+                out[rel] = rel
+            elif (len(parts) == 4 and parts[:2] == ["meshes", "animtextdata"] and
+                  parts[2] in {d.lower() for d in HANDY_MANIFEST_DIRS} and name in keys):
+                out[rel] = rel
+    mesh = "meshes/" + HANDY_MESH.replace("\\", "/").lower()
+    if not any(v.lower() == mesh for v in out.values()):
+        sys.exit(f"--codsworth-handy: the bundle has no Data\\meshes\\{HANDY_MESH}")
+    if gsd not in {k.lower() for k in out}:
+        sys.exit(f"--codsworth-handy: the bundle has no generated sub-graph text for {HANDY_RACE_EDID}")
+    return template, out
+
+
+def copy_handy_bundle(src, data):
+    """Copies handy_bundle_files() into data; refuses to overwrite. Returns (template plugin, copied paths under data)."""
+    template, files = handy_bundle_files(src)
+    copied = []
+    for rel, out_rel in sorted(files.items()):
+        dst = os.path.join(data, *out_rel.split("/"))
+        if os.path.exists(dst):
+            sys.exit(f"--codsworth-handy would overwrite Data/{out_rel}")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(src, "Data", *rel.split("/")), dst)
+        copied.append(out_rel)
+    return template, copied
 
 
 def copy_actor_looks_assets(src, data):
@@ -1426,6 +1506,9 @@ def main(argv=None):
                    help="a codsworth_voice.py output folder (lines.tsv, wem): his Hello lines and their .wem files")
     s.add_argument("--codsworth-assets", default=None,
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
+    s.add_argument("--codsworth-handy", default=None,
+                   help="a scripts/probes/stage_ra2_handy.py bundle: Codsworth on the Mr. Handy body with his Fallout 4 "
+                        "skeleton and animations (race and body parts from its plugin, files from its Data)")
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
     s.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1),

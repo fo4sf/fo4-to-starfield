@@ -39,8 +39,7 @@ class Packfile:
             raise PackfileError("only 64-bit packfiles are supported")
         nsec, = struct.unpack_from("<i", data, 20)
         self.version = data[40:56].split(b"\0")[0].decode("latin-1")
-        hdr = 64 + (16 if version >= 11 else 0) - 16       # v11: section headers start at 64 (padding inside header)
-        hdr = 64
+        self.header_end = hdr = self.section_header_offset(data)
         self.sections: List[Section] = []
         for i in range(nsec):
             h = hdr + 64 * i
@@ -67,6 +66,32 @@ class Packfile:
                     s.virtual.append((a, data[nm_at:data.index(b"\0", nm_at)].decode("latin-1")))
         self.data_section = next(s for s in self.sections if s.tag == "__data__")
         del cls
+
+    @staticmethod
+    def section_header_offset(data: bytes) -> int:
+        """Where the section headers start, read from the file header (never guessed).
+
+        The 64-byte header ends with two int16 fields (offset 60: maxPredicate, offset 62:
+        predicateArraySizePlusPadding, file version >= 9). A predicate array of that many bytes follows the header
+        and the section headers come after it. Measured: packfiles embedded in Fallout 4 NIFs carry 0 there
+        (headers at 0x40); the standalone skeleton and animation .hkx files carry 16 (headers at 0x50); the standalone
+        Robot\\Characters\\RobotCharacter.hkx carries 0 (0x40), so the file kind alone does not decide it."""
+        if len(data) < 64:
+            raise PackfileError("truncated packfile header")
+        version, = struct.unpack_from("<i", data, 12)
+        pad = 0
+        if version >= 9:
+            _max_pred, pad = struct.unpack_from("<hh", data, 60)
+            if pad < 0 or pad % 4 or pad > 1024:
+                raise PackfileError(f"implausible predicate array size {pad}")
+        off = 64 + pad
+        nsec, = struct.unpack_from("<i", data, 20)
+        if nsec <= 0 or nsec > 64 or off + 64 * nsec > len(data):
+            raise PackfileError(f"implausible section count {nsec}")
+        tag = data[off:off + 20].split(b"\0")[0]
+        if not tag.startswith(b"__") or not tag.endswith(b"__"):
+            raise PackfileError(f"no section header at 0x{off:x} (found {tag[:20]!r})")
+        return off
 
     # -- access in the data section (offsets are section-relative) ---------------------------------------------------
     def objects(self, class_name: Optional[str] = None) -> List[Tuple[int, str]]:

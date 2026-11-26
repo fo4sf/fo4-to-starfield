@@ -7,15 +7,19 @@
 //         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth]
 //         [--codsworth-model <mesh under Meshes>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
 //         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>] [--r11-full-mission <0|1>]
-//         [--load-doors <load_doors.json>] [--game <id>]
+//         [--load-doors <load_doors.json>] [--game <id>] [--codsworth-handy <Mr. Handy template plugin>]
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth]
 //         [--codsworth-model <mesh>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
 //         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>] [--r11-full-mission <0|1>]
-//         [--load-doors <load_doors.json>] [--game <id>]
+//         [--load-doors <load_doors.json>] [--game <id>] [--codsworth-handy <Mr. Handy template plugin>]
+// --codsworth-handy: Codsworth's race is a copy of FO4SF_HandyRace (Fallout 4 Mr. Handy skeleton, clips and sub-graphs,
+// built by scripts/probes/stage_ra2_handy.py) with its body part data copied in as FO4SF_CodsworthBodyPartData (0x81A),
+// instead of a copy of the Mini Bot's race; the rig, clips and mesh files come with the template's bundle (make_mission.py).
+// Cannot be combined with --codsworth-race-framing.
 //   npcs <plugin.esm> <fo4 | sf> <regex>
 //   quests <Starfield.esm> [faction regex]
 //   infos <Starfield.esm> <regex | wem:hex,hex...>
-//   selftest <scratch dir>
+//   selftest <scratch dir> | --self-test [<scratch dir>]
 // Nothing is deployed and no game file is written. SelfTest uses synthetic masters and synthetic strings only.
 using System.Globalization;
 using System.Text.Json;
@@ -57,7 +61,8 @@ try
                                                        Mission.ArgOrNull(args, "--creatures-esm"),
                                                        Mission.ArgOrNull(args, "--fo4-human-anims-esm"),
                                                        Mission.ArgOrNull(args, "--load-doors"),
-                                                       Mission.ArgOrNull(args, "--game")),
+                                                       Mission.ArgOrNull(args, "--game"),
+                                                       Mission.ArgOrNull(args, "--codsworth-handy")),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"),
                                                        !args.Contains("--no-codsworth"),
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
@@ -72,11 +77,13 @@ try
                                                        Mission.ArgOrNull(args, "--creatures-esm"),
                                                        Mission.ArgOrNull(args, "--fo4-human-anims-esm"),
                                                        Mission.ArgOrNull(args, "--load-doors"),
-                                                       Mission.ArgOrNull(args, "--game")),
+                                                       Mission.ArgOrNull(args, "--game"),
+                                                       Mission.ArgOrNull(args, "--codsworth-handy")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
         "selftest" when args.Length >= 2 => Mission.SelfTest(args[1]),
+        "--self-test" => Mission.SelfTestScratch(args.Length >= 2 ? args[1] : null),
         _ => Mission.Usage(),
     };
 }
@@ -155,6 +162,10 @@ static class Mission
     public const string SanctuaryQuestEdid = "FO4SF_Sanctuary01", SanctuaryScriptName = "FO4SF_Sanctuary01Quest";
     public const uint CodsworthRaceId = 0x818, CodsworthVoiceId = 0x819;
     public const string CodsworthRaceEdid = "FO4SF_CodsworthRace", CodsworthVoiceEdid = "FO4SF_CodsworthVoice";
+    // robot-anim: Codsworth on the converted Mr. Handy body (--codsworth-handy); names in the template plugin.
+    public const uint CodsworthBptdId = 0x81A;
+    public const string CodsworthBptdEdid = "FO4SF_CodsworthBodyPartData";
+    public const string HandyRaceEdid = "FO4SF_HandyRace", HandyBptdEdid = "FO4SF_HandyBodyPartData";
 
     public const uint CodsworthDialId = 0x820, FirstCodsworthInfoId = 0x821;
     public const string CodsworthDialEdid = "FO4SF_CodsworthHellos";
@@ -1214,8 +1225,10 @@ static class Mission
                             string? actorLooksDir = null, bool codsworthRaceFraming = false, bool r11FullMission = false,
                             string? creatureSlotsPath = null, bool fo4HumanAnims = false, bool task1bVaultRecovery = false,
                             string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null,
-                            string? loadDoorsPath = null, string? gameId = null)
+                            string? loadDoorsPath = null, string? gameId = null, string? codsworthHandy = null)
     {
+        if (codsworthRaceFraming && codsworthHandy is not null)
+            throw new Refusal("--codsworth-race-framing cannot be used together with --codsworth-handy");
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
         var loadDoors = r11FullMission || !string.IsNullOrWhiteSpace(loadDoorsPath) || !string.IsNullOrWhiteSpace(gameId)
@@ -1399,6 +1412,8 @@ static class Mission
             // (--codsworth-race-framing 0, exact 2g parity).
             // Passing --codsworth-race-framing 1 opts into the 5 standing-robot dialogue framing edits for variant testing.
             var codsRace = (SF.Race)baseBotRace.Duplicate(new FormKey(modKey, CodsworthRaceId));
+            if (codsworthHandy is not null)
+                codsRace = HandyCodsworthRace(codsworthHandy, mod, baseBotRace);
             codsRace.EditorID = CodsworthRaceEdid;
             codsRace.Flags |= SF.Race.Flag.AllowPcDialog;
             if (codsworthRaceFraming)
@@ -2223,6 +2238,34 @@ static class Mission
         return $"{c.Data.GetType().Name.Replace("BinaryOverlay", "")} {c.Data.RunOnType} {c.CompareOperator} {(c as SF.IConditionFloatGetter)?.ComparisonValue} {c.Flags} {param}";
     }
 
+    /// <summary>robot-anim: Codsworth's race as a copy of the template plugin's FO4SF_HandyRace (Fallout 4 Mr. Handy skeleton,
+    /// rig, clip folders, sub-graphs, ZNAM bones), with the template's FO4SF_HandyBodyPartData copied in as
+    /// FO4SF_CodsworthBodyPartData (0x81A). The race's default skin stays the Mini Bot's (Codsworth wears his own skin).
+    /// Refuses when any link into the template plugin is left, so the template never becomes a master.</summary>
+    public static SF.Race HandyCodsworthRace(string templatePath, SF.StarfieldMod mod, SF.IRaceGetter baseBotRace)
+    {
+        if (!File.Exists(templatePath)) throw new Refusal($"--codsworth-handy {templatePath} does not exist");
+        using var tpl = SF.StarfieldMod.CreateFromBinaryOverlay(templatePath, SF.StarfieldRelease.Starfield, Styles(SfEsm));
+        var name = Path.GetFileName(templatePath);
+        var hr = tpl.Races.FirstOrDefault(r => r.EditorID == HandyRaceEdid)
+                 ?? throw new Refusal($"{name} has no RACE {HandyRaceEdid}");
+        var hb = tpl.BodyParts.FirstOrDefault(b => b.EditorID == HandyBptdEdid)
+                 ?? throw new Refusal($"{name} has no BPTD {HandyBptdEdid}");
+        if (hr.BodyPartData.FormKey != hb.FormKey)
+            throw new Refusal($"{name}: {HandyRaceEdid} does not use {HandyBptdEdid}");
+        var bptd = (SF.BodyPartData)hb.Duplicate(new FormKey(mod.ModKey, CodsworthBptdId));
+        bptd.EditorID = CodsworthBptdEdid;
+        mod.BodyParts.Add(bptd);
+        var race = (SF.Race)hr.Duplicate(new FormKey(mod.ModKey, CodsworthRaceId));
+        race.BodyPartData.SetTo(bptd.FormKey);
+        race.Skin.SetTo(baseBotRace.Skin.FormKeyNullable);
+        var stray = race.EnumerateFormLinks().Concat(bptd.EnumerateFormLinks())
+                        .Where(l => l.FormKey.ModKey == tpl.ModKey).Select(l => l.FormKey.ToString()).Distinct().ToList();
+        if (stray.Count > 0)
+            throw new Refusal($"{name}: links into the template left after the copy: {string.Join(", ", stray)}");
+        return race;
+    }
+
     public static string ModelPath(string vanilla, string rel)
     {
         rel = rel.Replace('/', '\\').TrimStart('\\');
@@ -2235,8 +2278,10 @@ static class Mission
                             string? prestonVoicePath = null, string? actorLooksDir = null, bool codsworthRaceFraming = false,
                             bool r11FullMission = false, bool fo4HumanAnims = false,
                             string? creatureSlotsPath = null, string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null,
-                            string? loadDoorsPath = null, string? gameId = null)
+                            string? loadDoorsPath = null, string? gameId = null, string? codsworthHandy = null)
     {
+        if (codsworthRaceFraming && codsworthHandy is not null)
+            throw new Refusal("--codsworth-race-framing cannot be used together with --codsworth-handy");
         using var m = Open(sfPath, corePath, raiderPath);
         var loadDoors = r11FullMission || !string.IsNullOrWhiteSpace(loadDoorsPath) || !string.IsNullOrWhiteSpace(gameId)
             ? NextStoryMissionsS2S6.LoadDoorsConfig.Load(loadDoorsPath, gameId)
@@ -2452,21 +2497,39 @@ static class Mission
             Need(codsRace is { EditorID: CodsworthRaceEdid } && codsRace.Flags.HasFlag(SF.Race.Flag.AllowPcDialog) &&
                  cods?.Race.FormKey == codsRace.FormKey,
                  $"Codsworth lacks local RACE {CodsworthRaceEdid} (0x{CodsworthRaceId:X}) with AllowPcDialog");
-            if (codsworthRaceFraming)
+            var codsBptd = plug.BodyParts.FirstOrDefault(b => b.FormKey == new FormKey(key, CodsworthBptdId));
+            if (codsworthHandy is not null)
             {
-                Need(codsRace is { Size: SF.Size.Medium } && codsRace.DialogueQuest.IsNull &&
-                     codsRace.Flags.HasFlag(SF.Race.Flag.HeadAxisBit0) &&
-                     !codsRace.Flags.HasFlag(SF.Race.Flag.TiltFrontBack) &&
-                     (((ulong)codsRace.Flags & 0x0080000000000000UL) != 0),
-                     $"R11 D1: {CodsworthRaceEdid} lacks standing dialogue framing metadata (--codsworth-race-framing 1)");
+                using var tpl = SF.StarfieldMod.CreateFromBinaryOverlay(codsworthHandy, SF.StarfieldRelease.Starfield, Styles(SfEsm));
+                var hr = tpl.Races.FirstOrDefault(r => r.EditorID == HandyRaceEdid);
+                Need(codsBptd is { EditorID: CodsworthBptdEdid } && codsRace?.BodyPartData.FormKey == codsBptd.FormKey,
+                     $"robot-anim: {CodsworthRaceEdid} does not use local BPTD {CodsworthBptdEdid} (0x{CodsworthBptdId:X})");
+                Need(hr is not null && codsRace is not null && (hr.Flags | SF.Race.Flag.AllowPcDialog) == codsRace.Flags &&
+                     hr.Name?.String == codsRace.Name?.String,
+                     $"robot-anim: {CodsworthRaceEdid} is not a copy of the template's {HandyRaceEdid}");
+                Need(codsRace is not null && !codsRace.EnumerateFormLinks().Any(l => l.FormKey.ModKey == tpl.ModKey) &&
+                     !plug.ModHeader.MasterReferences.Any(x => x.Master == tpl.ModKey),
+                     $"robot-anim: {Plugin} links into {tpl.ModKey}");
             }
-            else if (codsRace is not null && m.Cache.TryResolve<SF.IRaceGetter>(codsRace.ArmorRace.FormKey, out var baseBotRaceCheck))
+            else
             {
-                Need(codsRace.Size == baseBotRaceCheck.Size &&
-                     codsRace.DialogueQuest.FormKey == baseBotRaceCheck.DialogueQuest.FormKey &&
-                     codsRace.Flags == (baseBotRaceCheck.Flags | SF.Race.Flag.AllowPcDialog) &&
-                     codsRace.DAT2Unknown3.Span.SequenceEqual(baseBotRaceCheck.DAT2Unknown3.Span),
-                     $"R11 Review Item #6: default build (--codsworth-race-framing 0) must keep 2g {CodsworthRaceEdid} (AllowPcDialog + ArmorRace only)");
+                Need(codsBptd is null && plug.BodyParts.Count == 0, "a build without --codsworth-handy carries body part data");
+                if (codsworthRaceFraming)
+                {
+                    Need(codsRace is { Size: SF.Size.Medium } && codsRace.DialogueQuest.IsNull &&
+                         codsRace.Flags.HasFlag(SF.Race.Flag.HeadAxisBit0) &&
+                         !codsRace.Flags.HasFlag(SF.Race.Flag.TiltFrontBack) &&
+                         (((ulong)codsRace.Flags & 0x0080000000000000UL) != 0),
+                         $"R11 D1: {CodsworthRaceEdid} lacks standing dialogue framing metadata (--codsworth-race-framing 1)");
+                }
+                else if (codsRace is not null && m.Cache.TryResolve<SF.IRaceGetter>(codsRace.ArmorRace.FormKey, out var baseBotRaceCheck))
+                {
+                    Need(codsRace.Size == baseBotRaceCheck.Size &&
+                         codsRace.DialogueQuest.FormKey == baseBotRaceCheck.DialogueQuest.FormKey &&
+                         codsRace.Flags == (baseBotRaceCheck.Flags | SF.Race.Flag.AllowPcDialog) &&
+                         codsRace.DAT2Unknown3.Span.SequenceEqual(baseBotRaceCheck.DAT2Unknown3.Span),
+                         $"R11 Review Item #6: default build (--codsworth-race-framing 0) must keep 2g {CodsworthRaceEdid} (AllowPcDialog + ArmorRace only)");
+                }
             }
             Need(codsVoice is { EditorID: CodsworthVoiceEdid } && codsVoice.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog) &&
                  cods?.Voice.FormKey == codsVoice.FormKey,
@@ -3063,6 +3126,14 @@ static class Mission
 
     // ---------------------------------------------------------------- selftest (synthetic masters & synthetic strings only)
 
+    public static int SelfTestScratch(string? dir)
+    {
+        if (!string.IsNullOrWhiteSpace(dir)) return SelfTest(dir);
+        var autoScratch = Path.Combine(Path.GetTempPath(), "mission-selftest-" + Guid.NewGuid().ToString("N"));
+        try { return SelfTest(autoScratch); }
+        finally { if (Directory.Exists(autoScratch)) Directory.Delete(autoScratch, recursive: true); }
+    }
+
     public static int SelfTest(string dir)
     {
         Directory.CreateDirectory(dir);
@@ -3457,6 +3528,60 @@ static class Mission
             if (Check(Path.Combine(oAltDoors, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true) == 0)
                 { Console.WriteLine("FAIL  check passed test_game load_doors plugin under default fo4 load_doors"); return 1; }
             Console.WriteLine("verified: alternate load_doors.json game row propagates into FO4SF_LoadDoorQuest + S5 door VMAD");
+        }
+        {
+            var handyKey = ModKey.FromFileName("FO4SF_RA2Handy.esm");
+            var handyTpl = new SF.StarfieldMod(handyKey, rel);
+            handyTpl.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
+            var handyBptd = new SF.BodyPartData(new FormKey(handyKey, 0x801), rel) { EditorID = HandyBptdEdid };
+            handyTpl.BodyParts.Add(handyBptd);
+            var handyRace = new SF.Race(new FormKey(handyKey, 0x800), rel)
+            {
+                EditorID = HandyRaceEdid,
+                Name = "Mr. Handy",
+                Size = SF.Size.Medium,
+                Flags = SF.Race.Flag.HeadAxisBit0,
+                BodyPartData = new FormLinkNullable<SF.IBodyPartDataGetter>(handyBptd.FormKey),
+                DAT2Unknown3 = modelADat3,
+            };
+            handyTpl.Races.Add(handyRace);
+            handyTpl.ModHeader.Stats.NextFormID = 0x802;
+            var handyTplPath = Path.Combine(dir, handyKey.FileName);
+            handyTpl.BeginWrite.ToPath(handyTplPath).WithLoadOrder(SfEsm)
+                .WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+
+            var o = Path.Combine(outDir, "codsworth_handy");
+            const string handyModel = "FO4SF\\Actors\\Handy\\handy.nif";
+            int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, handyModel, codsworthHandy: handyTplPath);
+            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, handyModel, codsworthHandy: handyTplPath);
+            if (rc != 0) return rc;
+
+            bool refusedWrite = false;
+            try { Write(sfPath, corePath, raiderPath, pointsPath, Path.Combine(outDir, "codsworth_handy_framing_refused"), Plugin, World, true, CodsworthBody, handyModel, codsworthRaceFraming: true, codsworthHandy: handyTplPath); }
+            catch (Refusal) { refusedWrite = true; }
+            if (!refusedWrite) { Console.WriteLine("FAIL  write accepted --codsworth-race-framing with --codsworth-handy"); return 1; }
+
+            bool refusedCheck = false;
+            try { Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, handyModel, codsworthRaceFraming: true, codsworthHandy: handyTplPath); }
+            catch (Refusal) { refusedCheck = true; }
+            if (!refusedCheck) { Console.WriteLine("FAIL  check accepted --codsworth-race-framing with --codsworth-handy"); return 1; }
+            Console.WriteLine("refusal verified: --codsworth-race-framing with --codsworth-handy");
+
+            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, handyModel) == 0)
+                { Console.WriteLine("FAIL  check passed --codsworth-handy plugin without --codsworth-handy"); return 1; }
+            if (Check(Path.Combine(outDir, "alias", Plugin), sfPath, corePath, raiderPath, true, true, codsworthHandy: handyTplPath) == 0)
+                { Console.WriteLine("FAIL  check passed MiniBot plugin under --codsworth-handy mode"); return 1; }
+
+            var hmod = SF.StarfieldMod.CreateFromBinary(Path.Combine(o, Plugin), rel, Styles(SfEsm, coreKey, raiderKey));
+            hmod.Races[new FormKey(hmod.ModKey, CodsworthRaceId)].BodyPartData.Clear();
+            var hmd = Path.Combine(outDir, "codsworth_handy_mutated");
+            Directory.CreateDirectory(hmd);
+            var hlo = new[] { SfEsm, coreKey, raiderKey };
+            hmod.BeginWrite.ToPath(Path.Combine(hmd, Plugin)).WithLoadOrder(hlo)
+                .WithKnownMasters(hlo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
+            if (Check(Path.Combine(hmd, Plugin), sfPath, corePath, raiderPath, true, true, handyModel, codsworthHandy: handyTplPath) == 0)
+                { Console.WriteLine("FAIL  check passed mutated --codsworth-handy plugin (cleared BodyPartData)"); return 1; }
+            Console.WriteLine("mutation rejected: --codsworth-handy Codsworth race BodyPartData cleared");
         }
         {
             var o = Path.Combine(outDir, "nocodsworth");
