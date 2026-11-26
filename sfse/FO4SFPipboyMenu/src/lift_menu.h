@@ -47,8 +47,9 @@ namespace fo4sf::lift
 	class LiftMenuModel
 	{
 	public:
-		void Reset(const std::array<int, kSpecialCount>& a_initial, bool a_alreadyConfirmed)
+		void Reset(const std::array<int, kSpecialCount>& a_initial, bool a_alreadyConfirmed, bool a_descending = false)
 		{
+			descending_ = a_descending;
 			special_ = a_initial;
 			for (int& v : special_) {
 				v = std::clamp(v, kSpecialMin, kSpecialMax);
@@ -70,9 +71,11 @@ namespace fo4sf::lift
 			page_ = Page::kOptions;
 			cursor_ = 0;
 			if (Remaining() > 0 && !confirmed_) {
-				status_ = std::format("CHOOSE RIDE LIFT TO SURFACE NOW, OR EDIT S.P.E.C.I.A.L. ({} PT(S) UNSPENT)", Remaining());
+				status_ = std::format("SPEND ALL {} REMAINING S.P.E.C.I.A.L. POINT(S) FIRST", Remaining());
 			} else {
-				status_ = "CHOOSE RIDE LIFT TO SURFACE TO RIDE UP, OR EDIT S.P.E.C.I.A.L.";
+				status_ = descending_
+					? "CHOOSE RIDE LIFT DOWN TO VAULT 111, OR EDIT S.P.E.C.I.A.L."
+					: "CHOOSE RIDE LIFT TO SURFACE, OR EDIT S.P.E.C.I.A.L.";
 			}
 		}
 
@@ -166,7 +169,7 @@ namespace fo4sf::lift
 				cursor_ = 0;
 				status_ = Remaining() == 0
 					? "RETURNED TO LIFT OPTIONS"
-					: std::format("UNSPENT POINTS: {} - RIDE LIFT TO SURFACE OR EDIT S.P.E.C.I.A.L.", Remaining());
+					: std::format("SPEND ALL {} REMAINING POINT(S) BEFORE RIDING THE LIFT", Remaining());
 				return false;
 			}
 			a_out.action = CommitAction::kStay;
@@ -189,12 +192,21 @@ namespace fo4sf::lift
 				confirmed_ = true;
 				page_ = Page::kOptions;
 				cursor_ = 0;
-				status_ = "S.P.E.C.I.A.L. CONFIRMED - SELECT RIDE LIFT TO SURFACE";
+				status_ = descending_
+					? "S.P.E.C.I.A.L. CONFIRMED - SELECT RIDE LIFT DOWN TO VAULT 111"
+					: "S.P.E.C.I.A.L. CONFIRMED - SELECT RIDE LIFT TO SURFACE";
 				return false;
 			}
 
 			switch (cursor_) {
 			case 0:
+				if (Remaining() > 0) {
+					EnterSpecialPage();
+					if (a_allowSpecialFinish) {
+						status_ = std::format("ALLOCATE ALL {} REMAINING POINT(S) FIRST", Remaining());
+					}
+					return false;
+				}
 				confirmed_ = true;
 				a_out.action = CommitAction::kRide;
 				a_out.special = special_;
@@ -221,11 +233,18 @@ namespace fo4sf::lift
 		{
 			a_rows.fill(" ");
 			if (page_ == Page::kOptions) {
+				const int rem = Remaining();
+				const std::string rideBase = descending_
+					? "RIDE LIFT DOWN TO VAULT 111"
+					: "RIDE LIFT TO SURFACE";
+				const std::string rideRow = (rem > 0)
+					? std::format("{} (SPEND {} {} FIRST)", rideBase, rem, (rem == 1) ? "POINT" : "POINTS")
+					: rideBase;
 				const std::array<std::string, 4> opts{
-					"RIDE LIFT TO SURFACE",
-					std::format("EDIT S.P.E.C.I.A.L. (POOL: {})", Remaining()),
+					rideRow,
+					std::format("EDIT S.P.E.C.I.A.L. (POOL: {})", rem),
 					"CHANGE APPEARANCE",
-					"STAY IN VAULT 111",
+					descending_ ? "STAY ON SURFACE" : "STAY IN VAULT 111",
 				};
 				for (std::size_t i = 0; i < opts.size(); ++i) {
 					a_rows[i] = std::format("{}{}", (static_cast<int>(i) == cursor_) ? "> " : "  ", opts[i]);
@@ -247,6 +266,7 @@ namespace fo4sf::lift
 		Page                          page_ = Page::kOptions;
 		int                           cursor_ = 0;
 		bool                          confirmed_ = false;
+		bool                          descending_ = false;
 		std::array<int, kSpecialCount> special_{ 5, 5, 5, 5, 5, 5, 5 };
 		std::string                   status_;
 	};

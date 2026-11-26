@@ -51,13 +51,12 @@
         "play_event": "Play01",
         "reset_event": "Play02",
         "duration_s": 9.8667,
+        "reset_duration_s": 23.8333,
         "fade_lead_s": 1.1,
         "done_margin_s": 0.25
       },
       "surface": {
         "cog_plugin": "FO4SFExitLift.esm",
-        "cog_base_id": "0x000802",
-        "cog_edid": "FO4SF_Vault111SurfaceCog",
         "cog_name": "Vault 111 Elevator",
         "source_nif": "meshes/interiors/vault/rooms/vltelevator/vltelevatorexterior.nif",
         "model_out": "fo4port\\interiors\\vault\\rooms\\vltelevator\\vltelevatorexterior_anim.nif",
@@ -80,20 +79,10 @@
           1296.0703,
           33.253544
         ],
-        "xy_offset_m": [
-          -7.8009033,
-          2.9952393
-        ],
-        "z_offset_m": -94.85599,
-        "rot_z_deg": 27.811361,
-        "rot_z_rad": 0.48539984,
-        "offset_from_000998e3_m": [
-          -7.239502,
-          2.413208,
-          -78.44072
-        ],
+        "core_plugin": "FO4TerrainCore.esm",
         "core_static_base_edid": "FO4Core_acti_19d22f_fallout4",
         "core_static_base_id": "0x0A2D4B",
+        "cog_pad_radius_m": 3.2,
         "states": {
           "stage8": "StateA_Play",
           "stage4": "StateB_Play"

@@ -40,18 +40,24 @@ try
     var surfaceModel = Opt("--surface-model");
     var surfaceRig = Opt("--surface-rig");
     var surfaceAnims = Opt("--surface-anims");
-    bool hasAnySurface = surfaceModel != null || surfaceRig != null || surfaceAnims != null;
+    var corePath = Opt("--core");
+    var surfaceBounds = Opt("--surface-bounds");
+    var surfaceBaseIdHex = Opt("--surface-base-id");
+    bool hasAnySurface = surfaceModel != null || surfaceRig != null || surfaceAnims != null || corePath != null || surfaceBounds != null || surfaceBaseIdHex != null;
     if (hasAnySurface)
     {
-        if (!productionLift) throw new AnimConsoleProbe.Refusal("--surface-* options require --production-lift");
-        if (surfaceModel == null || surfaceRig == null || surfaceAnims == null)
-            throw new AnimConsoleProbe.Refusal("--surface-model, --surface-rig, and --surface-anims must all be provided together");
+        if (!productionLift) throw new AnimConsoleProbe.Refusal("--surface-* / --core options require --production-lift");
+        if (surfaceModel == null || surfaceRig == null || surfaceAnims == null || corePath == null || surfaceBounds == null)
+            throw new AnimConsoleProbe.Refusal("--surface-model, --surface-rig, --surface-anims, --core, and --surface-bounds must all be provided together");
     }
+    uint surfaceBaseId = surfaceBaseIdHex != null
+        ? uint.Parse(surfaceBaseIdHex.Replace("0x", "", StringComparison.OrdinalIgnoreCase), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture)
+        : SurfaceLiftCog.CoreSurfaceBaseId;
     if (rest.Count == 3 && rest[0] == "info") return AnimConsoleProbe.Info(rest[1], rest[2], edid);
     if (rest.Count == 4 && rest[0] == "build" && model != null && rig != null && anims != null)
-        return AnimConsoleProbe.Build(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, surfaceModel, surfaceRig, surfaceAnims);
+        return AnimConsoleProbe.Build(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, corePath, surfaceModel, surfaceRig, surfaceAnims, surfaceBounds, surfaceBaseId);
     if (rest.Count == 4 && rest[0] == "check" && model != null && rig != null && anims != null)
-        return AnimConsoleProbe.Check(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, surfaceModel, surfaceRig, surfaceAnims);
+        return AnimConsoleProbe.Check(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, corePath, surfaceModel, surfaceRig, surfaceAnims, surfaceBounds, surfaceBaseId);
     if (rest.Count == 2 && rest[0] == "fixture") return AnimConsoleProbe.Fixture(rest[1]);
 }
 catch (AnimConsoleProbe.Refusal r)
@@ -72,6 +78,7 @@ static class AnimConsoleProbe
     public const string GraphAnam = "AnimTextData\\Tables\\Graphs\\ActivatorStateGraph01.agx";
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
     static readonly ModKey PortEsm = ModKey.FromFileName("FO4Port.esm");
+    static readonly ModKey CoreEsm = SurfaceLiftCog.CoreEsm;
     public static readonly ModKey Plugin = ModKey.FromFileName("FO4SFAnimConsole.esm");
 
     // the layout (scripts/newgame/FO4SF_AnimConsoleQuest.psc carries the same quest id)
@@ -86,6 +93,7 @@ static class AnimConsoleProbe
         var styles = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         styles.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
         styles.Set(new KeyedMasterStyle(PortEsm, MasterStyle.Full));
+        styles.Set(new KeyedMasterStyle(CoreEsm, MasterStyle.Full));
         return styles;
     }
 
@@ -133,10 +141,10 @@ static class AnimConsoleProbe
         return quest;
     }
 
-    public static int Build(string portPath, string sfPath, string outDir, string edid, string model, string rig, string anims, bool productionLift = false, string? surfaceModel = null, string? surfaceRig = null, string? surfaceAnims = null)
+    public static int Build(string portPath, string sfPath, string outDir, string edid, string model, string rig, string anims, bool productionLift = false, string? corePath = null, string? surfaceModel = null, string? surfaceRig = null, string? surfaceAnims = null, string? surfaceBounds = null, uint surfaceBaseId = SurfaceLiftCog.CoreSurfaceBaseId)
     {
         if (productionLift && edid != "FO4Port_acti_0244ef_fallout4") throw new Refusal("production lift must override the original Vault 111 lift");
-        bool hasSurface = surfaceModel != null && surfaceRig != null && surfaceAnims != null;
+        bool hasSurface = surfaceModel != null && surfaceRig != null && surfaceAnims != null && corePath != null && surfaceBounds != null;
         if (hasSurface && !productionLift) throw new Refusal("--surface-* options require --production-lift");
         using var port = Open(portPath);
         var baseRec = FindBase(port, edid);
@@ -153,8 +161,17 @@ static class AnimConsoleProbe
         mod.Activators.Add(ov);
         if (!productionLift) mod.Quests.Add(MakeQuest());
         mod.ModHeader.Stats.NextFormID = 0x801;
-        if (hasSurface) SurfaceLiftCog.BuildSurfaceCog(mod, surfaceModel!, surfaceRig!, surfaceAnims!);
-        Write(mod, outDir, SfEsm, PortEsm);
+        if (hasSurface)
+        {
+            var (boundsMin, boundsMax) = SurfaceLiftCog.ParseBounds(surfaceBounds!);
+            using var core = Open(corePath!);
+            SurfaceLiftCog.BuildSurfaceCog(mod, core, ov, surfaceModel!, surfaceRig!, surfaceAnims!, boundsMin, boundsMax, surfaceBaseId);
+            Write(mod, outDir, SfEsm, PortEsm, CoreEsm);
+        }
+        else
+        {
+            Write(mod, outDir, SfEsm, PortEsm);
+        }
         var path = Path.Combine(outDir, key.FileName);
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): override of {Show(baseRec)}");
         Console.WriteLine($"now model {model}, graph component ANAM {GraphAnam} BNAM {rig} CNAM {anims}");
@@ -187,10 +204,10 @@ static class AnimConsoleProbe
 
     // ---------------------------------------------------------------- check (Mutagen read-back)
 
-    public static int Check(string pluginPath, string portPath, string sfPath, string edid, string model, string rig, string anims, bool productionLift = false, string? surfaceModel = null, string? surfaceRig = null, string? surfaceAnims = null)
+    public static int Check(string pluginPath, string portPath, string sfPath, string edid, string model, string rig, string anims, bool productionLift = false, string? corePath = null, string? surfaceModel = null, string? surfaceRig = null, string? surfaceAnims = null, string? surfaceBounds = null, uint surfaceBaseId = SurfaceLiftCog.CoreSurfaceBaseId)
     {
         if (productionLift && edid != "FO4Port_acti_0244ef_fallout4") throw new Refusal("production lift must override the original Vault 111 lift");
-        bool hasSurface = surfaceModel != null && surfaceRig != null && surfaceAnims != null;
+        bool hasSurface = surfaceModel != null && surfaceRig != null && surfaceAnims != null && corePath != null && surfaceBounds != null;
         if (hasSurface && !productionLift) throw new Refusal("--surface-* options require --production-lift");
         using var port = Open(portPath);
         var baseRec = FindBase(port, edid);
@@ -204,30 +221,29 @@ static class AnimConsoleProbe
         Need(mod.ModKey == key, $"the file is {mod.ModKey}, not {key}");
         Need(baseRec.FormKey.ModKey == PortEsm, "ACTI is not owned by FO4Port.esm");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
-        Need(masters.SequenceEqual(new[] { SfEsm, PortEsm }), "masters are not exactly [Starfield.esm, FO4Port.esm]");
+        var wantMasters = hasSurface ? new[] { SfEsm, PortEsm, CoreEsm } : new[] { SfEsm, PortEsm };
+        Need(masters.SequenceEqual(wantMasters), $"masters are not exactly [{string.Join(", ", wantMasters)}]");
         var all = mod.EnumerateMajorRecords().ToList();
         int expectedAll = productionLift ? (hasSurface ? 2 : 1) : 2;
         Need(all.Count == expectedAll, "unexpected record count in exit lift plugin");
         var own = all.Where(r => r.FormKey.ModKey == key).Select(r => r.FormKey).ToList();
+        int expectedActi = hasSurface ? 2 : 1;
+        var ovr = mod.Activators.FirstOrDefault(a => a.FormKey == baseRec.FormKey);
         if (productionLift)
         {
+            Need(own.Count == 0, "unexpected records owned by this plugin");
+            Need(mod.Quests.Count == 0, "production lift carries a probe quest");
             if (hasSurface)
             {
-                Need(own.Count == 1 && own[0] == SurfaceLiftCog.SurfaceCogKey(key), "unexpected records owned by this plugin");
-                problems.AddRange(SurfaceLiftCog.CheckSurfaceCog(mod, surfaceModel!, surfaceRig!, surfaceAnims!));
+                var (boundsMin, boundsMax) = SurfaceLiftCog.ParseBounds(surfaceBounds!);
+                using var core = Open(corePath!);
+                problems.AddRange(SurfaceLiftCog.CheckSurfaceCog(mod, core, ovr, surfaceModel!, surfaceRig!, surfaceAnims!, boundsMin, boundsMax, surfaceBaseId));
             }
-            else
-            {
-                Need(own.Count == 0, "unexpected records owned by this plugin");
-            }
-            Need(mod.Quests.Count == 0, "production lift carries a probe quest");
         }
         else
         {
             Need(own.Count == 1 && own[0] == Own(QuestId), "unexpected records owned by this plugin");
         }
-        int expectedActi = hasSurface ? 2 : 1;
-        var ovr = mod.Activators.FirstOrDefault(a => a.FormKey == baseRec.FormKey);
         Need(mod.Activators.Count() == expectedActi && ovr != null, $"the ACTI is not an override of {baseRec.FormKey}");
         if (ovr != null)
         {
@@ -273,12 +289,29 @@ static class AnimConsoleProbe
         port.Activators.Add(acti);
         port.Activators.Add(new Mutagen.Bethesda.Starfield.Activator(new FormKey(PortEsm, 0x1235), Release)
         {
-            EditorID = "FO4Port_acti_0244ef_fallout4", Model = new Model { File = "fo4port/lift.nif" },
+            EditorID = "FO4Port_acti_0244ef_fallout4",
+            Model = new Model { File = "fo4port/lift.nif" },
+            MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+            Flags = (Mutagen.Bethesda.Starfield.Activator.Flag)0,
+            ActivationAngle = 360,
         });
         port.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
         port.BeginWrite.ToPath(Path.Combine(outDir, "FO4Port.esm")).WithLoadOrder(SfEsm)
             .WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).WithMastersListContent(MastersListContentOption.NoCheck).Write();
-        Console.WriteLine($"wrote {Path.Combine(outDir, "Starfield.esm")} and {Path.Combine(outDir, "FO4Port.esm")}");
+        var core = new StarfieldMod(CoreEsm, Release);
+        core.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+        core.Activators.Add(new Mutagen.Bethesda.Starfield.Activator(new FormKey(CoreEsm, SurfaceLiftCog.CoreSurfaceBaseId), Release)
+        {
+            EditorID = SurfaceLiftCog.CoreSurfaceBaseEdid,
+            Model = new Model { File = "fo4core/vltelevatorexterior.nif" },
+            MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+            Flags = (Mutagen.Bethesda.Starfield.Activator.Flag)0,
+            ActivationAngle = 360,
+        });
+        core.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
+        core.BeginWrite.ToPath(Path.Combine(outDir, "FO4TerrainCore.esm")).WithLoadOrder(SfEsm)
+            .WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).WithMastersListContent(MastersListContentOption.NoCheck).Write();
+        Console.WriteLine($"wrote {Path.Combine(outDir, "Starfield.esm")}, {Path.Combine(outDir, "FO4Port.esm")}, and {Path.Combine(outDir, "FO4TerrainCore.esm")}");
         return 0;
     }
 }

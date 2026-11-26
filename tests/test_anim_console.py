@@ -341,6 +341,28 @@ class StageTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0)
         self.assertFalse((self.root / "not-production").exists())
 
+    def test_production_lift_with_surface_cog_overrides_core_0a2d4b(self):
+        port, sf = self.paths()
+        core = self.data / "FO4TerrainCore.esm"
+        out = self.root / "production-lift-surface"
+        opts = [
+            *self.margs,
+            "--edid", mac.LIFT_EDID,
+            "--production-lift",
+            "--core", core,
+            "--surface-model", "fo4port\\interiors\\vault\\rooms\\vltelevator\\vltelevatorexterior_anim.nif",
+            "--surface-rig", "fo4port\\interiors\\vault\\rooms\\vltelevator\\vltelevatorexterior_anim\\characterassets\\skeleton.rig",
+            "--surface-anims", "fo4port\\interiors\\vault\\rooms\\vltelevator\\vltelevatorexterior_anim\\animations",
+            "--surface-bounds", "-3.0,-3.0,-59.5,3.0,3.0,2.5",
+        ]
+        made = self.run_tool("build", port, sf, out, *opts)
+        self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+        plugin = out / mac.LIFT_PLUGIN
+        checked = self.run_tool("check", plugin, port, sf, *opts)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        self.assertIn("masters [Starfield.esm, FO4Port.esm, FO4TerrainCore.esm]", norm(checked.stdout))
+        self.assertNotIn(b"FO4SF_Vault111SurfaceCog", plugin.read_bytes())
+
     def test_the_plugin_is_one_override_and_one_quest_raw(self):
         """Raw bytes: ACTI carries the FO4Port load index (1), the quest ours (2); the master list is Starfield.esm, FO4Port.esm."""
         port, sf = self.paths()

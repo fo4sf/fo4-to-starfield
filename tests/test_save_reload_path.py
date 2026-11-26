@@ -40,11 +40,18 @@ def _make_global(val: float):
 class SaveReloadPathTests(unittest.TestCase):
     def test_a6_newgame_surface_mid_exit_return_and_stage_guard_idempotency(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")
-        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage", "ClearVaultSaveLock", "RelockVaultSaving")
+        funcs = (
+            "Actor.OnPlayerLoadGame",
+            "RecoverPairedLiftOnLoad",
+            "ApplyStage",
+            "ClearVaultSaveLock",
+            "RelockVaultSaving",
+        )
         vars_csv = (
-            "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, rideFadeStarted, "
-            "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
-            "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
+            "applied, h00SuspectsRead, liftPairActive, liftPairDone, liftPairTransferred, liftPairTransferPending, liftPairFadeStarted, "
+            "liftPairActiveRef, liftPairStartCell, liftPairStartWorld, liftPairDescending, liftPairTransferRetries, "
+            "surfaceMovedAt, surfaceMoves, surfaceSets, surfaceFadeInDone, "
+            "exitUsedFallback, asked, returnAsked, returnSurfacePending, returnVaultAsked, "
             "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered, "
             "vaultPodAutosaved, vaultSavingRelocked"
         )
@@ -61,23 +68,29 @@ class SaveReloadPathTests(unittest.TestCase):
             fade_calls: list[int] = []
             gm = _make_global(game_mode)
             lift_obj = SimpleNamespace(name="V111ElevatorREF") if mid_exit else None
-            player = SimpleNamespace(name="PlayerRef")
+            player = SimpleNamespace(name="PlayerRef", IsInInterior=lambda: True)
             ns = dict(
                 LogName="fo4sf_newgame",
                 GameModeGlobal=gm,
                 applied=stage,
                 h00SuspectsRead=True,
-                rideActive=mid_exit,
-                rideDone=mid_exit,
-                rideTransferred=False,
-                rideFadeStarted=False,
-                ridingLift=lift_obj,
-                ridingCell="FO4Port_Vault111Cryo" if mid_exit else None,
+                liftPairActive=mid_exit,
+                liftPairDone=mid_exit,
+                liftPairDescending=False,
+                liftPairTransferred=False,
+                liftPairTransferPending=False,
+                liftPairFadeStarted=False,
+                liftPairActiveRef=lift_obj,
+                liftPairStartCell="FO4Port_Vault111Cryo" if mid_exit else None,
+                liftPairStartWorld=None,
+                liftPairTransferRetries=0,
                 surfaceMovedAt=12.5 if mid_exit else 0.0,
                 surfaceMoves=1 if mid_exit else 0,
                 surfaceSets=1 if mid_exit else 0,
+                surfaceFadeInDone=False,
                 exitUsedFallback=mid_exit,
                 asked=True,
+                returnAsked=False,
                 returnSurfacePending=return_pending,
                 returnVaultAsked=return_pending,
                 returnSurfaceWaitTicks=7 if return_pending else 0,
@@ -89,6 +102,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 StandsInVault=lambda *_: False,
                 CancelTimer=lambda *_: None,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: user_logs.append(n), Notification=lambda *a: None),
+                Game=SimpleNamespace(FadeOutGame=lambda *_: None),
                 GetStage=lambda: stage,
                 SetObjectiveDisplayed=lambda *a: None,
                 SetObjectiveCompleted=lambda *a: None,
@@ -98,6 +112,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 ReleaseStoryLandingFade=lambda: fade_calls.append(1),
                 UnregisterForAnimationEvent=lambda ref, ev: unreg_anims.append((ref, ev)),
                 ReturnPlayerToVaultPlatform=lambda p: returned_to_plat.append(p),
+                ResetSurfaceLiftCog=lambda *_: None,
                 EnsureLoadHookRegistered=lambda p: None,
                 SyncPipboyOwnedWornState=lambda p: False,
                 StartTimer=lambda sec, tid: timers.append((sec, tid)),
@@ -131,16 +146,16 @@ class SaveReloadPathTests(unittest.TestCase):
 
         # 3. Mid-exit save/reload at stage 30 recovers rider cleanly onto lift platform
         ns_mid, logs_mid, timers_mid, _, ret_mid, unreg_mid, _, _, _, _ = _run_reload(30, mid_exit=True)
-        self.assertFalse(ns_mid["rideActive"])
-        self.assertFalse(ns_mid["rideDone"])
-        self.assertFalse(ns_mid["rideTransferred"])
-        self.assertIsNone(ns_mid["ridingLift"])
+        self.assertFalse(ns_mid["liftPairActive"])
+        self.assertFalse(ns_mid["liftPairDone"])
+        self.assertFalse(ns_mid["liftPairTransferred"])
+        self.assertIsNone(ns_mid["liftPairActiveRef"])
         self.assertEqual(ns_mid["surfaceMovedAt"], 0.0)
         self.assertFalse(ns_mid["asked"])
         self.assertEqual(len(ret_mid), 1)
         self.assertEqual(len(unreg_mid), 1)
         self.assertEqual(timers_mid, [(1.0, 1)])
-        self.assertTrue(any("exit reload recovered stage=30" in m for m in logs_mid), logs_mid)
+        self.assertTrue(any("lift_pair reload recovered dir=up stage=30" in m for m in logs_mid), logs_mid)
 
         # 4. Mid-return-lift save/reload at stage 200 clears pending return state
         ns_ret, logs_ret, timers_ret, _, _, _, _, _, _, _ = _run_reload(200, return_pending=True)
@@ -595,17 +610,17 @@ class SaveReloadPathTests(unittest.TestCase):
             "NoteLooksStage20", "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
             "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "StageSetEvent",
             "Actor.OnPlayerLoadGame", "ResetVaultExitLift", "ReturnPlayerToVaultPlatform",
-            "StartAscent", "TryFastTravelSurface", "TrySurfaceExteriorFallbacks", "Surface", "FinishSurface",
+            "StartPairedLiftRide", "CheckPairedLiftRide", "FailPairedLift", "TryFastTravelSurface", "TrySurfaceExteriorFallbacks", "Surface", "FinishSurface",
             "Near", "FailExit",
         )
         vars_csv = (
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
             "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
             "loadHookRegistered, dyingHookRegistered, h00SuspectsRead, "
-            "rideActive, rideDone, rideTransferred, rideFadeStarted, ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, "
+            "liftPairActive, liftPairDone, liftPairTransferred, liftPairTransferPending, liftPairFadeStarted, liftPairActiveRef, liftPairStartCell, liftPairStartWorld, liftPairDescending, liftPairStartedAt, liftPairStartX, liftPairStartY, liftPairStartZ, liftPairTransferRetries, "
             "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, fallbackPending, "
             "discoveryMarkerMoved, discoveryAttachPending, landingChecks, asked, "
-            "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
+            "returnSurfacePending, returnAsked, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), str(NEWGAME_PSC), "exec")
         looks_compiled = compile(translated_functions(looks_psc, ("Done",), ""), "FO4SF_NewGameLooks.psc", "exec")
@@ -700,24 +715,28 @@ class SaveReloadPathTests(unittest.TestCase):
             VaultPlugin="FO4Port.esm", VaultAnchorId=0x805,
             AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
             PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
-            LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftDoneMargin=0.25,
+            LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftFadeLead=1.1, LiftDoneMargin=0.25,
+            LiftPlayEvent="Play01", LiftResetEvent="Play02", ActiveLiftPairId="fo4.vault111_exit", LiftPairIds=["fo4.vault111_exit"],
             ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=100.0, ArrivalHeading=0.0,
             MergeOffsetX=-1200.0, MergeOffsetY=-2700.0, FallDrop=3.0, SurfaceWait=10.0, SurfaceTries=3,
             applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False, exitUsedFallback=False,
             vaultPodAutosaved=False, vaultSavingRelocked=False, vaultRecoveryTriggered=False, vaultPodAutosaveSkips=0,
             loadHookRegistered=False, dyingHookRegistered=False, h00SuspectsRead=True,
-            rideActive=False, rideDone=False, rideTransferred=False, rideFadeStarted=False, ridingLift=None, ridingCell=None,
-            rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
+            liftPairActive=False, liftPairDone=False, liftPairTransferred=False, liftPairTransferPending=False, liftPairFadeStarted=False,
+            liftPairActiveRef=None, liftPairStartCell=None, liftPairStartWorld=None, liftPairDescending=False,
+            liftPairStartedAt=0.0, liftPairStartX=0.0, liftPairStartY=0.0, liftPairStartZ=0.0, liftPairTransferRetries=0,
             surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, arrivalWorld=None, arrivedAt=0.0,
             fallbackPending=False, discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
-            asked=False, returnSurfacePending=False, returnVaultAsked=False,
+            asked=False, returnAsked=False, returnSurfacePending=False, returnVaultAsked=False,
             returnSurfaceWaitTicks=0, returnSurfaceTries=0, exitFailures=0,
+            PrepareArrivalMarkerDuringRide=lambda: None,
             SyncPipboyOwnedWornState=lambda *_: False,
             Debug=SimpleNamespace(OpenUserLog=lambda *_: None, Notification=lambda *_: None),
             Utility=SimpleNamespace(GetCurrentRealTime=lambda: now[0], Wait=lambda *_: None),
             Game=SimpleNamespace(
                 GetPlayer=lambda: player,
                 GetFormFromFile=_get_form,
+                FadeOutGame=lambda *_: None,
                 SetInChargen=lambda a, b, c: chargens.append((a, b, c)),
                 SetCharGenHUDMode=lambda m: huds.append(m),
                 RequestAutoSave=lambda: autosaves.append(cur_stage[0]),
@@ -761,12 +780,11 @@ class SaveReloadPathTests(unittest.TestCase):
         self.assertTrue(ns["vaultSavingRelocked"])
         self.assertIn("vault_death_recovery=save_locked stage=20", logs)
 
-        # 3. Retrying a raised lift resets it (Play02 + Reset) and StartAscent succeeds
+        # 3. Retrying a raised lift resets it (Play02) and StartPairedLiftRide succeeds
         cur_stage[0] = 30
-        ns["StartAscent"](player)
-        self.assertTrue(ns["rideActive"])
+        self.assertTrue(ns["StartPairedLiftRide"](player, False))
+        self.assertTrue(ns["liftPairActive"])
         self.assertEqual(lift_state["plays"], ["Play01", "Play02", "Play01"])
-        self.assertEqual(lift_state["resets"], 1)
 
         # 4. Surface clears save lock / HUD chargen, tries 0x000800, falls back to last-resort FastTravel(0x0008F2) after retries exhaust, reaches stage 40!
         ns["Surface"](player)

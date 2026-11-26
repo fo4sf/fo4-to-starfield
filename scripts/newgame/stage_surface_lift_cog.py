@@ -142,6 +142,25 @@ def validate_surface_cog_animation(anim: dict, pair: dict) -> None:
             sys.exit(f"surface cog clip {slot} b_Platform travel {travel!r} differs from (0, 0, {dz})")
 
 
+def _manifest_bounds(anim: dict) -> list[list[float]]:
+    """Compute union AABB [[min_x, min_y, min_z], [max_x, max_y, max_z]] (m) from converted pose bounds."""
+    boxes = anim.get("pose_boxes_m") or {}
+    rest = boxes.get("rest") or {}
+    if rest:
+        los = [b[0] for b in rest.values()]
+        his = [b[1] for b in rest.values()]
+        mins = [round(min(float(lo[k]) for lo in los), 4) for k in range(3)]
+        maxs = [round(max(float(hi[k]) for hi in his), 4) for k in range(3)]
+    elif anim.get("bounds") and len(anim["bounds"]) == 2:
+        mins = [round(float(v), 4) for v in anim["bounds"][0]]
+        maxs = [round(float(v), 4) for v in anim["bounds"][1]]
+    else:
+        sys.exit("surface cog conversion lacked pose_boxes_m.rest and bounds for OBND")
+    if any(not math.isfinite(v) for v in mins + maxs) or any(mins[k] > maxs[k] for k in range(3)):
+        sys.exit(f"surface cog computed invalid bounds: {mins} .. {maxs}")
+    return [mins, maxs]
+
+
 def inspect_source(a) -> int:
     """Read-only inspection of the source NIF sequences for the selected lift pair."""
     from fo4sf import pipeline
@@ -155,7 +174,7 @@ def inspect_source(a) -> int:
     rows = mac.sequences_table(raw)
     motion = mac.sequence_motion(raw, [r["name"] for r in rows])
     print(f"pair: {pair['id']} ({pair['game']}), source: {surf['source_nif']} ({len(raw)} bytes)")
-    print(f"  states={surf['states']} xy_offset_m={surf['xy_offset_m']} z_offset_m={surf['z_offset_m']} rot_z_deg={surf['rot_z_deg']}")
+    print(f"  states={surf['states']} core={surf.get('core_plugin', 'FO4TerrainCore.esm')}:{surf['core_static_base_id']} ref_local_pos_m={surf['ref_local_pos_m']}")
     for r in rows:
         print(f"  {r['name']}: {r['seconds']} s, tracks {', '.join(r['bones']) or 'none'}; text keys: {'; '.join(r['text_keys']) or 'none'}")
         for m in motion.get(r["name"], []):
@@ -216,23 +235,25 @@ def stage(
         )
 
     model_rel = res["out_name"].replace("/", "\\") + ".nif"
+    bounds = _manifest_bounds(anim)
+    core_plugin = surf.get("core_plugin", "FO4TerrainCore.esm")
     manifest = {
         "pair_id": pair["id"],
         "game": pair["game"],
         "source_nif": surf["source_nif"],
         "cog_plugin": surf["cog_plugin"],
-        "cog_base_id": surf["cog_base_id"],
-        "cog_edid": surf["cog_edid"],
+        "core_plugin": core_plugin,
+        "core_static_base_id": surf["core_static_base_id"],
+        "core_static_base_edid": surf["core_static_base_edid"],
         "cog_name": surf["cog_name"],
         "graph_anam": surf["graph_anam"],
         "model": model_rel,
         "rig": anim["skeleton"],
         "anims": anim["animations"],
+        "bounds": bounds,
         "states": dict(surf["states"]),
         "idles": surf.get("idles", "toggle"),
-        "xy_offset_m": list(surf["xy_offset_m"]),
-        "z_offset_m": surf["z_offset_m"],
-        "rot_z_deg": surf["rot_z_deg"],
+        "ref_local_pos_m": list(surf["ref_local_pos_m"]),
         "descend_duration_s": surf["descend_duration_s"],
         "descend_drop_m": surf["descend_drop_m"],
         "descend_fade_at_s": surf["descend_fade_at_s"],
@@ -255,12 +276,14 @@ def stage(
         "version": 1,
         "pair_id": pair["id"],
         "cog_plugin": surf["cog_plugin"],
-        "cog_base_id": surf["cog_base_id"],
-        "cog_edid": surf["cog_edid"],
+        "core_plugin": core_plugin,
+        "core_static_base_id": surf["core_static_base_id"],
+        "core_static_base_edid": surf["core_static_base_edid"],
         "cog_name": surf["cog_name"],
         "model": model_rel,
         "rig": anim["skeleton"],
         "anims": anim["animations"],
+        "bounds": bounds,
         "graph_anam": surf["graph_anam"],
         "world_overrides": 0,
         "states": dict(surf["states"]),
@@ -272,7 +295,7 @@ def stage(
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(
             f"Vault 111 surface entrance lift cog asset component ({pair['id']}).\n"
-            f"ACTI {surf['cog_base_id']} {surf['cog_edid']} '{surf['cog_name']}' -> {model_rel}\n"
+            f"ACTI override {core_plugin}:{surf['core_static_base_id']} ({surf['core_static_base_edid']}, '{surf['cog_name']}') -> {model_rel}\n"
             f"States: {surf['states']} (toggle); descend {surf['descend_duration_s']} s (-{surf['descend_drop_m']} m), "
             f"fade at {surf['descend_fade_at_s']} s.\n"
             f"Shipped assets: {len(copied)} file(s) under Data/ (zero textures, zero WRLD overrides).\n"
