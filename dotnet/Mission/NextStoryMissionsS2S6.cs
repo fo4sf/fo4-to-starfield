@@ -224,6 +224,134 @@ static class NextStoryMissionsS2S6
         }
     }
 
+    public sealed record DoorSpecConfig(
+        string TargetPlugin,
+        int TargetFormId,
+        string FallbackTargetPlugin,
+        int FallbackTargetFormId,
+        string Direction,
+        string DoorTag,
+        bool UseDestinationPosition,
+        P3Float DestinationPos);
+
+    public sealed record LoadDoorsConfig(
+        string GameId,
+        string ExitAnchorPlugin,
+        int ExitAnchorId,
+        string SecondaryExitAnchorPlugin,
+        int SecondaryExitAnchorId,
+        DoorSpecConfig ExtFrontIn,
+        DoorSpecConfig IntFrontOut,
+        DoorSpecConfig IntRoofOut,
+        DoorSpecConfig ExtRoofIn)
+    {
+        static int ParseFormId(JsonElement obj, string prop)
+        {
+            if (!obj.TryGetProperty(prop, out var el))
+                return 0;
+            if (el.ValueKind == JsonValueKind.Number)
+                return el.GetInt32();
+            if (el.ValueKind == JsonValueKind.String)
+            {
+                string raw = (el.GetString() ?? "").Trim();
+                if (raw.Length == 0) return 0;
+                return raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    ? Convert.ToInt32(raw[2..], 16)
+                    : int.Parse(raw, CultureInfo.InvariantCulture);
+            }
+            throw new Mission.Refusal($"load_doors.json property '{prop}' must be a hex string or integer");
+        }
+
+        static string? FindRepoJsonPath(string relPath)
+        {
+            foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+            {
+                var dir = start;
+                for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+                {
+                    var candidate = Path.Combine(dir, relPath);
+                    if (File.Exists(candidate)) return candidate;
+                }
+            }
+            return null;
+        }
+
+        static DoorSpecConfig ParseDoor(JsonElement doorsEl, string key, string path)
+        {
+            if (!doorsEl.TryGetProperty(key, out var d) || d.ValueKind != JsonValueKind.Object)
+                throw new Mission.Refusal($"load_doors.json missing doors.{key} in {path}");
+            string tgtPlugin = d.GetProperty("target_plugin").GetString() ?? "";
+            int tgtId = ParseFormId(d, "target_form_id");
+            string fbPlugin = d.TryGetProperty("fallback_target_plugin", out var fbp) ? (fbp.GetString() ?? "") : "";
+            int fbId = ParseFormId(d, "fallback_target_form_id");
+            string dir = d.GetProperty("direction").GetString() ?? "";
+            string tag = d.GetProperty("door_tag").GetString() ?? key;
+            bool usePos = d.TryGetProperty("use_destination_position", out var up) && up.GetBoolean();
+            var pos = new P3Float(0f, 0f, 0f);
+            if (d.TryGetProperty("destination_pos", out var dp) && dp.ValueKind == JsonValueKind.Array)
+            {
+                var vals = dp.EnumerateArray().Select(x => x.GetSingle()).ToArray();
+                if (vals.Length != 3)
+                    throw new Mission.Refusal($"load_doors.json doors.{key}.destination_pos must have 3 floats in {path}");
+                pos = new P3Float(vals[0], vals[1], vals[2]);
+            }
+            if (string.IsNullOrWhiteSpace(tgtPlugin) || tgtId <= 0)
+                throw new Mission.Refusal($"load_doors.json doors.{key} requires non-empty target_plugin and positive target_form_id in {path}");
+            return new DoorSpecConfig(tgtPlugin, tgtId, fbPlugin, fbId, dir, tag, usePos, pos);
+        }
+
+        public static LoadDoorsConfig Load(string? jsonPath = null, string? gameId = null)
+        {
+            string? path = jsonPath;
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                if (!File.Exists(path))
+                    throw new Mission.Refusal($"load_doors.json not found: {path}");
+            }
+            else
+            {
+                path = FindRepoJsonPath(Path.Combine("src", "fo4sf", "core", "load_doors.json"));
+                if (path is null || !File.Exists(path))
+                    throw new Mission.Refusal("missing src/fo4sf/core/load_doors.json (pass --load-doors <path> or run inside repo)");
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var root = doc.RootElement;
+            string defGame = root.TryGetProperty("default_game", out var dg) ? (dg.GetString() ?? "fo4") : "fo4";
+            string targetGame = (gameId ?? defGame).Trim().ToLowerInvariant();
+            if (!root.TryGetProperty("games", out var gamesEl) || !gamesEl.TryGetProperty(targetGame, out var gameEl))
+                throw new Mission.Refusal($"load_doors.json has no games.{targetGame} ({path})");
+            if (gameEl.TryGetProperty("available", out var av) && !av.GetBoolean())
+            {
+                string? reason = gameEl.TryGetProperty("unavailable_reason", out var ur) ? ur.GetString() : null;
+                throw new Mission.Refusal($"game '{targetGame}' is unavailable in load_doors.json" +
+                                          (string.IsNullOrWhiteSpace(reason) ? "" : $": {reason}"));
+            }
+            if (!gameEl.TryGetProperty("controller", out var ctrl) || ctrl.ValueKind != JsonValueKind.Object)
+                throw new Mission.Refusal($"load_doors.json games.{targetGame} missing controller object ({path})");
+            string exitPlugin = ctrl.GetProperty("exit_anchor_plugin").GetString() ?? "";
+            int exitId = ParseFormId(ctrl, "exit_anchor_id");
+            string secPlugin = ctrl.TryGetProperty("secondary_exit_anchor_plugin", out var sp) ? (sp.GetString() ?? "") : "";
+            int secId = ParseFormId(ctrl, "secondary_exit_anchor_id");
+            if (string.IsNullOrWhiteSpace(exitPlugin) || exitId <= 0)
+                throw new Mission.Refusal($"load_doors.json games.{targetGame}.controller requires exit_anchor_plugin and positive exit_anchor_id ({path})");
+
+            if (!gameEl.TryGetProperty("doors", out var doorsEl) || doorsEl.ValueKind != JsonValueKind.Object)
+                throw new Mission.Refusal($"load_doors.json games.{targetGame} missing doors object ({path})");
+
+            return new LoadDoorsConfig(
+                targetGame,
+                exitPlugin,
+                exitId,
+                secPlugin,
+                secId,
+                ParseDoor(doorsEl, "s5_front_in", path),
+                ParseDoor(doorsEl, "s5_front_out", path),
+                ParseDoor(doorsEl, "s5_roof_out", path),
+                ParseDoor(doorsEl, "s5_roof_in", path));
+        }
+    }
+
     static SF.ScriptObjectProperty ObjProp(string name, FormKey fk) => new()
     {
         Name = name,
@@ -296,26 +424,25 @@ static class NextStoryMissionsS2S6
     }
 
     static void AttachConfirmedDoorScript(
-        SF.PlacedObject refObj, FormKey loadDoorQuestKey, string targetPlugin, int targetFormId, string direction, string doorTag,
-        bool useDestPos, P3Float destPos, int fallbackFormId = 0)
+        SF.PlacedObject refObj, FormKey loadDoorQuestKey, DoorSpecConfig door)
     {
         var s = new SF.ScriptEntry { Name = LoadDoorScriptName, Flags = SF.ScriptEntry.Flag.Local };
         s.Properties.Add(ObjProp("LoadDoorController", loadDoorQuestKey));
-        s.Properties.Add(new SF.ScriptStringProperty { Name = "TargetPlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = targetPlugin });
-        s.Properties.Add(new SF.ScriptIntProperty { Name = "TargetFormId", Flags = SF.ScriptProperty.Flag.Edited, Data = targetFormId });
-        if (fallbackFormId > 0)
+        s.Properties.Add(new SF.ScriptStringProperty { Name = "TargetPlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = door.TargetPlugin });
+        s.Properties.Add(new SF.ScriptIntProperty { Name = "TargetFormId", Flags = SF.ScriptProperty.Flag.Edited, Data = door.TargetFormId });
+        if (!string.IsNullOrWhiteSpace(door.FallbackTargetPlugin) && door.FallbackTargetFormId > 0)
         {
-            s.Properties.Add(new SF.ScriptStringProperty { Name = "FallbackTargetPlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = "FO4TerrainCore.esm" });
-            s.Properties.Add(new SF.ScriptIntProperty { Name = "FallbackTargetFormId", Flags = SF.ScriptProperty.Flag.Edited, Data = fallbackFormId });
+            s.Properties.Add(new SF.ScriptStringProperty { Name = "FallbackTargetPlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = door.FallbackTargetPlugin });
+            s.Properties.Add(new SF.ScriptIntProperty { Name = "FallbackTargetFormId", Flags = SF.ScriptProperty.Flag.Edited, Data = door.FallbackTargetFormId });
         }
-        s.Properties.Add(new SF.ScriptStringProperty { Name = "Direction", Flags = SF.ScriptProperty.Flag.Edited, Data = direction });
-        s.Properties.Add(new SF.ScriptStringProperty { Name = "DoorTag", Flags = SF.ScriptProperty.Flag.Edited, Data = doorTag });
-        s.Properties.Add(new SF.ScriptBoolProperty { Name = "UseDestinationPosition", Flags = SF.ScriptProperty.Flag.Edited, Data = useDestPos });
-        if (useDestPos)
+        s.Properties.Add(new SF.ScriptStringProperty { Name = "Direction", Flags = SF.ScriptProperty.Flag.Edited, Data = door.Direction });
+        s.Properties.Add(new SF.ScriptStringProperty { Name = "DoorTag", Flags = SF.ScriptProperty.Flag.Edited, Data = door.DoorTag });
+        s.Properties.Add(new SF.ScriptBoolProperty { Name = "UseDestinationPosition", Flags = SF.ScriptProperty.Flag.Edited, Data = door.UseDestinationPosition });
+        if (door.UseDestinationPosition)
         {
-            s.Properties.Add(new SF.ScriptFloatProperty { Name = "DestinationX", Flags = SF.ScriptProperty.Flag.Edited, Data = destPos.X });
-            s.Properties.Add(new SF.ScriptFloatProperty { Name = "DestinationY", Flags = SF.ScriptProperty.Flag.Edited, Data = destPos.Y });
-            s.Properties.Add(new SF.ScriptFloatProperty { Name = "DestinationZ", Flags = SF.ScriptProperty.Flag.Edited, Data = destPos.Z });
+            s.Properties.Add(new SF.ScriptFloatProperty { Name = "DestinationX", Flags = SF.ScriptProperty.Flag.Edited, Data = door.DestinationPos.X });
+            s.Properties.Add(new SF.ScriptFloatProperty { Name = "DestinationY", Flags = SF.ScriptProperty.Flag.Edited, Data = door.DestinationPos.Y });
+            s.Properties.Add(new SF.ScriptFloatProperty { Name = "DestinationZ", Flags = SF.ScriptProperty.Flag.Edited, Data = door.DestinationPos.Z });
         }
         var vm = new SF.VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
         vm.Scripts.Add(s);
@@ -475,8 +602,10 @@ static class NextStoryMissionsS2S6
         bool fo4HumanAnims,
         bool task1bVaultRecoveryReady,
         SF.IStarfieldModGetter? creaturesMod = null,
-        SF.IStarfieldModGetter? humanAnimsMod = null)
+        SF.IStarfieldModGetter? humanAnimsMod = null,
+        LoadDoorsConfig? loadDoors = null)
     {
+        loadDoors ??= LoadDoorsConfig.Load();
         var modKey = mod.ModKey;
         var rel = SF.StarfieldRelease.Starfield;
         var forceHideAv = new FormKey(SfEsm, FalloutActorLooks.SfForceHideSpacesuitAvId);
@@ -678,6 +807,10 @@ static class NextStoryMissionsS2S6
         ldStage.LogEntries.Add(new SF.QuestLogEntry { Flags = (SF.QuestLogEntry.Flag)0 });
         loadDoorQuest.Stages.Add(ldStage);
         var ldScript = new SF.ScriptEntry { Name = LoadDoorQuestScriptName, Flags = SF.ScriptEntry.Flag.Local };
+        ldScript.Properties.Add(new SF.ScriptStringProperty { Name = "ExitAnchorPlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = loadDoors.ExitAnchorPlugin });
+        ldScript.Properties.Add(new SF.ScriptIntProperty { Name = "ExitAnchorId", Flags = SF.ScriptProperty.Flag.Edited, Data = loadDoors.ExitAnchorId });
+        ldScript.Properties.Add(new SF.ScriptStringProperty { Name = "SecondaryExitAnchorPlugin", Flags = SF.ScriptProperty.Flag.Edited, Data = loadDoors.SecondaryExitAnchorPlugin });
+        ldScript.Properties.Add(new SF.ScriptIntProperty { Name = "SecondaryExitAnchorId", Flags = SF.ScriptProperty.Flag.Edited, Data = loadDoors.SecondaryExitAnchorId });
         loadDoorQuest.VirtualMachineAdapter = new SF.QuestAdapter
         {
             Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
@@ -709,10 +842,10 @@ static class NextStoryMissionsS2S6
         var intRoofOut = PlacePersistentMarker(holdingCell, modKey, S5IntRoofOutRefId, "FO4SF_S5_IntRoofOutRef", roofDoorOutActi.FormKey, new P3Float(0, 0, 0), true);
         var extRoofIn = PlacePersistentMarker(holdingCell, modKey, S5ExtRoofInRefId, "FO4SF_S5_ExtRoofInRef", roofDoorInActi.FormKey, new P3Float(0, 0, 0), true);
 
-        AttachConfirmedDoorScript(extFrontIn, loadDoorQuest.FormKey, "FO4Port.esm", 0x00E2F5, "in", "s5_front_in", false, new P3Float(0, 0, 0));
-        AttachConfirmedDoorScript(intFrontOut, loadDoorQuest.FormKey, "FO4TerrainCore.esm", CoreExitAnchorVault111, "out", "s5_front_out", true, S5FrontOutDestPos, CoreExitAnchorCommonwealth);
-        AttachConfirmedDoorScript(intRoofOut, loadDoorQuest.FormKey, "FO4TerrainCore.esm", CoreExitAnchorVault111, "out", "s5_roof_out", true, S5RoofOutDestPos, CoreExitAnchorCommonwealth);
-        AttachConfirmedDoorScript(extRoofIn, loadDoorQuest.FormKey, "FO4Port.esm", 0x00E2F5, "in", "s5_roof_in", true, S5RoofInDestPos);
+        AttachConfirmedDoorScript(extFrontIn, loadDoorQuest.FormKey, loadDoors.ExtFrontIn);
+        AttachConfirmedDoorScript(intFrontOut, loadDoorQuest.FormKey, loadDoors.IntFrontOut);
+        AttachConfirmedDoorScript(intRoofOut, loadDoorQuest.FormKey, loadDoors.IntRoofOut);
+        AttachConfirmedDoorScript(extRoofIn, loadDoorQuest.FormKey, loadDoors.ExtRoofIn);
 
         // Ground Museum Raider pursue package (0xBE1, cloned from defaultFollowPlayerPKG 0x021E76)
         cache.TryResolve<SF.IPackageGetter>(new FormKey(SfEsm, SfDefaultFollowPackageId), out var baseFollowPkg);
@@ -908,7 +1041,8 @@ static class NextStoryMissionsS2S6
         bool fo4HumanAnims,
         bool creatureSlotsReady = false,
         SF.IStarfieldModGetter? creaturesMod = null,
-        SF.IStarfieldModGetter? humanAnimsMod = null)
+        SF.IStarfieldModGetter? humanAnimsMod = null,
+        LoadDoorsConfig? loadDoors = null)
     {
         void Need(bool ok, string msg) { if (!ok) problems.Add(msg); }
         var key = plug.ModKey;
@@ -937,6 +1071,8 @@ static class NextStoryMissionsS2S6
         Need(s2q is { EditorID: S2RoachesQuestEdid } && (s2q.Data?.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled) == true),
              $"R11 full mission lacks StartGameEnabled {S2RoachesQuestEdid} (0x{S2RoachesQuestId:X})");
 
+        loadDoors ??= LoadDoorsConfig.Load();
+
         var ldq = plug.Quests.FirstOrDefault(q => q.FormKey == new FormKey(key, LoadDoorQuestId));
         var ldScript = ldq?.VirtualMachineAdapter?.Scripts.FirstOrDefault(s => s.Name == LoadDoorQuestScriptName);
         Need(ldq is { EditorID: LoadDoorQuestEdid } &&
@@ -945,6 +1081,16 @@ static class NextStoryMissionsS2S6
              !ldq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud) &&
              ldScript is not null,
              $"R11 full mission lacks StartGameEnabled {LoadDoorQuestEdid} (0x{LoadDoorQuestId:X}) with script {LoadDoorQuestScriptName}");
+        if (ldScript is not null)
+        {
+            var exitPlug = (ldScript.Properties.FirstOrDefault(p => p.Name == "ExitAnchorPlugin") as SF.IScriptStringPropertyGetter)?.Data;
+            var exitId = (ldScript.Properties.FirstOrDefault(p => p.Name == "ExitAnchorId") as SF.IScriptIntPropertyGetter)?.Data;
+            var secPlug = (ldScript.Properties.FirstOrDefault(p => p.Name == "SecondaryExitAnchorPlugin") as SF.IScriptStringPropertyGetter)?.Data;
+            var secId = (ldScript.Properties.FirstOrDefault(p => p.Name == "SecondaryExitAnchorId") as SF.IScriptIntPropertyGetter)?.Data;
+            Need(exitPlug == loadDoors.ExitAnchorPlugin && exitId == loadDoors.ExitAnchorId &&
+                 secPlug == loadDoors.SecondaryExitAnchorPlugin && secId == loadDoors.SecondaryExitAnchorId,
+                 $"FO4SF_LoadDoorQuest anchor properties ({exitPlug}:0x{exitId ?? 0:X}, {secPlug}:0x{secId ?? 0:X}) do not match load_doors.json games.{loadDoors.GameId}");
+        }
 
         // S3 Travel PACKs + Pursue PACK + markers
         Need(plug.Packages.Any(p => p.FormKey == new FormKey(key, S3PackHouse01Id)) &&
@@ -1030,8 +1176,15 @@ static class NextStoryMissionsS2S6
             }
         }
 
-        // Door anchors (0x0A775B primary / 0x0A775C fallback), LoadDoorController, and F9 roof exit landing (-1990.58, -1724.19, 97.56)
-        foreach (var doorId in new[] { S5ExtFrontInRefId, S5IntFrontOutRefId, S5IntRoofOutRefId, S5ExtRoofInRefId })
+        // Door anchors, LoadDoorController, and arrival coordinates from load_doors.json
+        var doorExpectations = new (uint DoorId, DoorSpecConfig Spec)[]
+        {
+            (S5ExtFrontInRefId, loadDoors.ExtFrontIn),
+            (S5IntFrontOutRefId, loadDoors.IntFrontOut),
+            (S5IntRoofOutRefId, loadDoors.IntRoofOut),
+            (S5ExtRoofInRefId, loadDoors.ExtRoofIn),
+        };
+        foreach (var (doorId, spec) in doorExpectations)
         {
             if (holdObjs.TryGetValue(doorId, out var dref))
             {
@@ -1039,25 +1192,33 @@ static class NextStoryMissionsS2S6
                 var ctrl = dsc?.Properties.FirstOrDefault(p => p.Name == "LoadDoorController") as SF.IScriptObjectPropertyGetter;
                 Need(ctrl is not null && ctrl.Object.FormKey == new FormKey(key, LoadDoorQuestId),
                      $"door 0x{doorId:X} missing LoadDoorController -> 0x{LoadDoorQuestId:X}");
-                if (doorId is S5IntFrontOutRefId or S5IntRoofOutRefId)
+                var tgtPlug = (dsc?.Properties.FirstOrDefault(p => p.Name == "TargetPlugin") as SF.IScriptStringPropertyGetter)?.Data;
+                var tgt = dsc?.Properties.FirstOrDefault(p => p.Name == "TargetFormId") as SF.IScriptIntPropertyGetter;
+                var dirProp = (dsc?.Properties.FirstOrDefault(p => p.Name == "Direction") as SF.IScriptStringPropertyGetter)?.Data;
+                var tagProp = (dsc?.Properties.FirstOrDefault(p => p.Name == "DoorTag") as SF.IScriptStringPropertyGetter)?.Data;
+                var useDestProp = (dsc?.Properties.FirstOrDefault(p => p.Name == "UseDestinationPosition") as SF.IScriptBoolPropertyGetter)?.Data;
+                Need(tgtPlug == spec.TargetPlugin && tgt?.Data == spec.TargetFormId &&
+                     dirProp == spec.Direction && tagProp == spec.DoorTag &&
+                     useDestProp == spec.UseDestinationPosition,
+                     $"door 0x{doorId:X} does not match load_doors.json games.{loadDoors.GameId} ({spec.DoorTag})");
+                if (!string.IsNullOrWhiteSpace(spec.FallbackTargetPlugin) && spec.FallbackTargetFormId > 0)
                 {
-                    var tgt = dsc?.Properties.FirstOrDefault(p => p.Name == "TargetFormId") as SF.IScriptIntPropertyGetter;
+                    var fbPlug = (dsc?.Properties.FirstOrDefault(p => p.Name == "FallbackTargetPlugin") as SF.IScriptStringPropertyGetter)?.Data;
                     var fb = dsc?.Properties.FirstOrDefault(p => p.Name == "FallbackTargetFormId") as SF.IScriptIntPropertyGetter;
-                    Need(tgt?.Data == CoreExitAnchorVault111 && fb?.Data == CoreExitAnchorCommonwealth,
-                         $"out door 0x{doorId:X} must target persistent 0x{CoreExitAnchorVault111:X} with fallback 0x{CoreExitAnchorCommonwealth:X}");
+                    Need(fbPlug == spec.FallbackTargetPlugin && fb?.Data == spec.FallbackTargetFormId,
+                         $"door 0x{doorId:X} fallback ({fbPlug}:0x{fb?.Data ?? 0:X}) != load_doors.json ({spec.FallbackTargetPlugin}:0x{spec.FallbackTargetFormId:X})");
+                }
+                if (spec.UseDestinationPosition)
+                {
+                    var xProp = dsc?.Properties.FirstOrDefault(p => p.Name == "DestinationX") as SF.IScriptFloatPropertyGetter;
+                    var yProp = dsc?.Properties.FirstOrDefault(p => p.Name == "DestinationY") as SF.IScriptFloatPropertyGetter;
+                    var zProp = dsc?.Properties.FirstOrDefault(p => p.Name == "DestinationZ") as SF.IScriptFloatPropertyGetter;
+                    Need(xProp is not null && MathF.Abs(xProp.Data - spec.DestinationPos.X) < 0.05f &&
+                         yProp is not null && MathF.Abs(yProp.Data - spec.DestinationPos.Y) < 0.05f &&
+                         zProp is not null && MathF.Abs(zProp.Data - spec.DestinationPos.Z) < 0.05f,
+                         $"door 0x{doorId:X} ({spec.DoorTag}) arrival mismatch against load_doors.json ({spec.DestinationPos.X}, {spec.DestinationPos.Y}, {spec.DestinationPos.Z})");
                 }
             }
-        }
-        if (holdObjs.TryGetValue(S5IntRoofOutRefId, out var rOut))
-        {
-            var sc = rOut.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == LoadDoorScriptName);
-            var xProp = sc?.Properties.FirstOrDefault(p => p.Name == "DestinationX") as SF.IScriptFloatPropertyGetter;
-            var yProp = sc?.Properties.FirstOrDefault(p => p.Name == "DestinationY") as SF.IScriptFloatPropertyGetter;
-            var zProp = sc?.Properties.FirstOrDefault(p => p.Name == "DestinationZ") as SF.IScriptFloatPropertyGetter;
-            Need(xProp is not null && MathF.Abs(xProp.Data - S5RoofOutDestPos.X) < 0.05f &&
-                 yProp is not null && MathF.Abs(yProp.Data - S5RoofOutDestPos.Y) < 0.05f &&
-                 zProp is not null && MathF.Abs(zProp.Data - S5RoofOutDestPos.Z) < 0.05f,
-                 $"S5IntRoofOutRef missing F9 roof arrival ({S5RoofOutDestPos.X}, {S5RoofOutDestPos.Y}, {S5RoofOutDestPos.Z})");
         }
 
         // H2: Sturges, Mama Murphy, Marcy, Jun wear explicit (Stand-In) clothes

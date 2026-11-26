@@ -7,19 +7,19 @@ Why a Quest owns the active MoveTo + StartTimer loop:
   stale busy flags while the interior cell unloads. Hosting the transition loop on a persistent
   StartGameEnabled Quest keeps timers alive across interior unload, hooks Actor.OnPlayerLoadGame to
   cancel stale timers and reset busy/inFlight on reload, and prioritizes persistent surface anchor
-  FO4TerrainCore.esm:0x0A775B with an immediate 1.5 s retry anchor if still inside.}
+  ExitAnchorPlugin:ExitAnchorId with an immediate 1.5 s retry anchor if still inside.}
 
-string Property ExitAnchorPlugin = "FO4TerrainCore.esm" Auto
-{Primary persistent exterior anchor plugin for "out" transitions.}
+string Property ExitAnchorPlugin = "" Auto
+{Primary persistent exterior anchor plugin for "out" transitions (populated by builder from load_doors.json).}
 
-int Property ExitAnchorId = 0x0A775B Auto
-{Primary persistent exterior surface anchor FormID (0x0A775B FO4Core_CommonwealthMapMarkerVault111).}
+int Property ExitAnchorId = 0 Auto
+{Primary persistent exterior surface anchor FormID (populated by builder from load_doors.json).}
 
-string Property SecondaryExitAnchorPlugin = "FO4TerrainCore.esm" Auto
-{Secondary persistent exterior anchor plugin used on 1.5 s retry when needed.}
+string Property SecondaryExitAnchorPlugin = "" Auto
+{Secondary persistent exterior anchor plugin used on 1.5 s retry when needed (populated by builder from load_doors.json).}
 
-int Property SecondaryExitAnchorId = 0x0A775C Auto
-{Secondary persistent exterior surface anchor FormID (0x0A775C FO4Core_CommonwealthMapMarkerConcord).}
+int Property SecondaryExitAnchorId = 0 Auto
+{Secondary persistent exterior surface anchor FormID (populated by builder from load_doors.json).}
 
 float Property OutRetryAfterSeconds = 1.5 Auto
 {For "out" transitions still inside the interior after MoveTo, immediately try retry anchor after this delay.}
@@ -85,7 +85,7 @@ Function EnsureInitialized()
         if player != None
             curCell = player.GetParentCell()
         endif
-        Log("FO4SF_LOADDOOR quest_init cell=" + curCell + " exit_anchor=0x0A775B")
+        Log("FO4SF_LOADDOOR quest_init cell=" + curCell + " exit_plugin=" + ExitAnchorPlugin + " exit_anchor=" + ExitAnchorId + " secondary_plugin=" + SecondaryExitAnchorPlugin + " secondary_anchor=" + SecondaryExitAnchorId)
     endif
 EndFunction
 
@@ -317,7 +317,7 @@ EndFunction
 
 ObjectReference Function ResolvePrimaryAnchor(ObjectReference explicitAnchor, bool isOut, string tgtPlugin, int tgtFormId, string fbPlugin, int fbFormId)
     if isOut
-        ; Cold-reload fix: prioritize persistent ExitAnchorId (0x0A775B) first for exterior transitions.
+        ; Cold-reload fix: prioritize persistent ExitAnchorId first for exterior transitions.
         if ExitAnchorPlugin != "" && ExitAnchorId > 0
             ObjectReference exitRef = Game.GetFormFromFile(ExitAnchorId, ExitAnchorPlugin) as ObjectReference
             if exitRef != None

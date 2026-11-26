@@ -407,8 +407,28 @@ def _make_p1_quest() -> ext.RawRecord:
     return _rec(b"QUST", FID_QUST_P1, subs, flags=0, version=581)
 
 
+def _load_fo4_doors_controller_props() -> List[dict]:
+    cfg_path = REPO / "src" / "fo4sf" / "core" / "load_doors.json"
+    if not cfg_path.is_file():
+        raise ProbeError(f"missing per-game load_doors.json: {cfg_path}")
+    data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    ctrl = data.get("games", {}).get("fo4", {}).get("controller", {})
+    exit_plugin = str(ctrl.get("exit_anchor_plugin") or "")
+    exit_id_raw = ctrl.get("exit_anchor_id", "0x0")
+    exit_id = int(str(exit_id_raw), 16) if isinstance(exit_id_raw, str) else int(exit_id_raw)
+    sec_plugin = str(ctrl.get("secondary_exit_anchor_plugin") or "")
+    sec_id_raw = ctrl.get("secondary_exit_anchor_id", "0x0")
+    sec_id = int(str(sec_id_raw), 16) if isinstance(sec_id_raw, str) else int(sec_id_raw)
+    return [
+        {"name": "ExitAnchorPlugin", "type": vmad_patch.T_STRING, "status": 1, "value": exit_plugin},
+        {"name": "ExitAnchorId", "type": vmad_patch.T_INT, "status": 1, "value": exit_id},
+        {"name": "SecondaryExitAnchorPlugin", "type": vmad_patch.T_STRING, "status": 1, "value": sec_plugin},
+        {"name": "SecondaryExitAnchorId", "type": vmad_patch.T_INT, "status": 1, "value": sec_id},
+    ]
+
+
 def _make_load_door_quest() -> ext.RawRecord:
-    q_vmad = vmad_patch.encode([{"name": "FO4SF_LoadDoorQuest", "status": 0, "properties": []}]) + QUST_VMAD_TAIL
+    q_vmad = vmad_patch.encode([{"name": "FO4SF_LoadDoorQuest", "status": 0, "properties": _load_fo4_doors_controller_props()}]) + QUST_VMAD_TAIL
     subs: List[Tuple[bytes, bytes]] = [
         (b"EDID", b"FO4SF_P1_LoadDoor\x00"),
         (b"VMAD", q_vmad),
