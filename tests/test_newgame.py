@@ -162,7 +162,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
         self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story"])
-        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "warfare"])
+        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "story_landing", "story_landing", "warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("ShowFirstPersonGeometry", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
@@ -636,7 +636,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("elseif surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
         self.assertLess(branch.index("FinishSurface(player)"), branch.index("InVault(player, stage)"))
         land = psc[psc.index("Function CheckLanding"):psc.index("bool Function Near")]
-        self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 3.0", land)   # three seconds after the arrival that took
+        self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 0.25", land)   # 0.25 s settle wait for fall-rescue check
 
     def test_special_at_the_vault_terminal(self):
         """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
@@ -1035,9 +1035,10 @@ class ContractTests(unittest.TestCase):
         calls = set(re.findall(r"\.(\w+)\(", psc)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer|AddInventoryEventFilter)\(", psc, re.M))
         listed = {f for bases in ng.NATIVES[ng.SCRIPT].values() for f in bases}
         own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", psc, re.M))
-        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls go through CastAs + CallFunction
+        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls go through CastAs + CallFunction;
+        # UnequipItem (Actor.psc) and RemoveItem (ObjectReference.psc) verified in ContentResources.zip for R15 silent starter strip.
         calls |= set(re.findall(r"^Event (?:\w+\.)?(On\w+)\(", psc, re.M)) - {"OnTimer"}
-        fo4sf_methods = {"GetPositionY", "GetPositionZ"}
+        fo4sf_methods = {"GetPositionY", "GetPositionZ", "UnequipItem", "RemoveItem"}
         missing = calls - listed - own - fo4sf_methods
         self.assertEqual(missing, set())
         self.assertTrue({"OnQuestStarted", "OnQuestInit", "FadeOutGame", "WaitFor3DLoad", "StartNoWait", "IsStarting"} <= calls)
@@ -2968,6 +2969,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 Is3DLoaded=lambda: True,
                 GetItemCount=lambda *a: 0,
                 RemoveAllItems=lambda *a: None,
+                UnequipItem=lambda *a: None,
+                RemoveItem=lambda *a: 0,
                 AddItem=lambda *a: None,
                 EquipItem=lambda *a: None,
                 IsEquipped=lambda *a: True,
@@ -3627,7 +3630,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             )
 
             ns = dict(
-                faded=False, warfareFadeTicks=0, storyFadeTicks=0, loadingHookRegistered=False,
+                faded=False, warfareFadeTicks=0, storyFadeTicks=0, loadingHookRegistered=False, SinglePassLandingFade=False, surfaceFadeInDone=False,
                 vaultMoves=1, applied=30, pendingStage=-1, pendingStageBy="other",
                 exitUsedFallback=False, scannerLayer=None,
                 arrivalWorld=None, surfaceSets=0, surfaceMovedAt=99.0, surfaceMoves=1,
