@@ -100,8 +100,14 @@ def _translate_psc(src, names, global_vars=()):
         py_name = full_name.split(".")[-1]
         params = []
         for p in (x.strip() for x in params_raw.split(",") if x.strip()):
-            toks = p.split("=")[0].split()
-            params.append(toks[-1])
+            if "=" in p:
+                lhs, rhs = p.split("=", 1)
+                pname = lhs.strip().split()[-1]
+                rhs = rhs.strip()
+                rhs = {"true": "True", "false": "False", "none": "None"}.get(rhs.lower(), rhs)
+                params.append(f"{pname}={rhs}")
+            else:
+                params.append(p.split()[-1])
         out.append(f"def {py_name}({', '.join(params)}):")
         if all_globals:
             out.append("    global " + ", ".join(all_globals))
@@ -283,7 +289,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
         }
         code = _translate_psc(
             c_psc,
-            ("EffectiveStage", "ResolveCodsworthScene", "ResolveCodsworthPostScene", "Scene.OnPhaseBegin"),
+            ("EffectiveStage", "ResolveCodsworthScene", "ResolveCodsworthPostScene", "ResolveActiveCodsworthScene", "Scene.OnPhaseBegin"),
             ("sceneTalkPending", "sceneMenuOpened", "dialogueMenuOpen", "scenePhase1Entered", "scenePhase1At", "applied"),
         )
         exec(compile(code, "FO4SF_Codsworth01Quest.psc", "exec"), ns)
