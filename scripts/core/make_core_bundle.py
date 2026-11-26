@@ -1466,6 +1466,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
         return {"plugin": "FO4SFCoreValues.esm", "plugins": ["FO4SFCoreValues.esm"], "outputs": outputs}
 
     fo4_arsenal_opt = getattr(a, "fo4_arsenal", None)
+    fo4_10mm_opt = getattr(a, "fo4_10mm", None)
     cv_args = [
         "stage",
         "--sf-data", sf_data,
@@ -1473,9 +1474,14 @@ def stage_from_checkout(a) -> Dict[str, str]:
     ]
     if fo4_arsenal_opt is not None:
         if int(fo4_arsenal_opt) == 1:
-            cv_args.extend(["--fo4-10mm", "1", "--fo4-p5-weapons", "1", "--fo4-arsenal", "1"])
+            cv_10mm = str(int(fo4_10mm_opt)) if fo4_10mm_opt is not None else "1"
+            cv_args.extend(["--fo4-10mm", cv_10mm, "--fo4-p5-weapons", "1", "--fo4-arsenal", "1"])
         else:
+            if fo4_10mm_opt is not None:
+                cv_args.extend(["--fo4-10mm", str(int(fo4_10mm_opt))])
             cv_args.extend(["--fo4-arsenal", "0"])
+    elif fo4_10mm_opt is not None:
+        cv_args.extend(["--fo4-10mm", str(int(fo4_10mm_opt))])
     cv_args.extend(["--test-mode", want_test_mode])
     _reuse_or_run_py(
         cv_dir,
@@ -1623,6 +1629,11 @@ def stage_from_checkout(a) -> Dict[str, str]:
         ng_args.append("--fade-hold")
     if getattr(a, "show_unavailable_starts", None) is not None:
         ng_args.extend(["--show-unavailable-starts", str(int(a.show_unavailable_starts))])
+    cv_esm_staged = os.path.join(cv_dir, "Data", "FO4SFCoreValues.esm")
+    if os.path.isfile(cv_esm_staged):
+        ng_args.extend(["--core-values-esm", cv_esm_staged])
+    effective_fo4_10mm = 1 if fo4_10mm_opt is None else int(fo4_10mm_opt)
+    ng_args.extend(["--fo4-10mm", str(effective_fo4_10mm)])
     _reuse_or_run_py(ng_dir, py_main, "scripts/newgame/make_newgame.py", ng_args)
     # Verify hold 199, pod_step -2.5, and fade_hold policy in staged NewGame plan
     with open(os.path.join(ng_dir, "plan.json"), encoding="utf-8") as f:
@@ -3166,6 +3177,8 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--fo4-human-anims", nargs="?", const=1, default=0, type=int, choices=(0, 1))
     b.add_argument("--fo4-human-anims-esm", default=None)
     b.add_argument("--task1b-vault-recovery", nargs="?", const=1, default=0, type=int, choices=(0, 1))
+    b.add_argument("--fo4-10mm", nargs="?", const=1, default=None, type=int, choices=(0, 1),
+                   help="Forward --fo4-10mm 0|1 to make_core_values.py and make_newgame.py (default: 1 for NewGame)")
     b.add_argument("--fo4-arsenal", nargs="?", const=1, default=None, type=int, choices=(0, 1),
                    help="Forward --fo4-arsenal 0|1 (and --fo4-10mm/--fo4-p5-weapons when 1) to make_core_values.py")
     b.add_argument("--codsworth-assets", default=None, help="convert_codsworth.py output folder forwarded to make_mission.py")

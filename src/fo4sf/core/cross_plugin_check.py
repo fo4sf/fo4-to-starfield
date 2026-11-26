@@ -476,6 +476,26 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
         except (OSError, ValueError, KeyError):
             pass
 
+    # Resolve `vpBind.VaultPistolBaseKey` / `vpBind.VaultAmmoBaseKey` from `src/fo4sf/core/game_start_config.json`
+    gs_default = os.path.join(os.path.dirname(CORE_VALUES_JSON), "game_start_config.json")
+    if os.path.isfile(gs_default):
+        try:
+            with open(gs_default, encoding="utf-8") as gs_h:
+                gs_data = json.load(gs_h)
+            vp_cfg = ((gs_data.get("games") or {}).get("fo4") or {}).get("vault_pistol") or {}
+            wp = str(vp_cfg.get("weapon_plugin") or "").strip()
+            wid = str(vp_cfg.get("weapon_id") or "").strip()
+            ap = str(vp_cfg.get("ammo_plugin") or "").strip()
+            aid = str(vp_cfg.get("ammo_id") or "").strip()
+            if wp and wid and re.search(r"\bvar\s+vaultPistolKey\s*=\s*vpBind\.VaultPistolBaseKey\s*;", body):
+                local_formkey_vars["vaultPistolKey"] = (wp, int(wid, 16))
+            if ap and aid:
+                m_vak = re.search(r"\bvpBind\.VaultAmmoBaseKey\s+is\s+\{\s*var\s+(\w+)\s*\}", body)
+                if m_vak:
+                    local_formkey_vars[m_vak.group(1)] = (ap, int(aid, 16))
+        except (OSError, ValueError, KeyError):
+            pass
+
     # Resolve `var <var> = new FormKey(<modKeyAlias>, <idConstOrVar>);`
     for m_fkvar in re.finditer(r"var\s+(\w+)\s*=\s*new\s+FormKey\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*;", body):
         vname, mk_alias, id_tok = m_fkvar.groups()
@@ -1320,6 +1340,24 @@ def validate_vault_pistol_sync(
             f"route_loot_ids.json vault111.pickups lacks Starfield.esm:0x{want_pid:06X} matching vault111.pistol_id"
         )
 
+    valid_pistol_targets: Set[Tuple[str, int]] = {
+        ("Starfield.esm", want_pid),
+        ("FO4SFCoreValues.esm", 0x000899),
+        ("FO4SFNewGame.esm", 0x000822),
+    }
+    gs_default = os.path.join(os.path.dirname(CORE_VALUES_JSON), "game_start_config.json")
+    if os.path.isfile(gs_default):
+        try:
+            with open(gs_default, encoding="utf-8") as gs_h:
+                gs_data = json.load(gs_h)
+            vp_cfg = ((gs_data.get("games") or {}).get("fo4") or {}).get("vault_pistol") or {}
+            wp = str(vp_cfg.get("weapon_plugin") or "").strip()
+            wid = str(vp_cfg.get("weapon_id") or "").strip()
+            if wp and wid:
+                valid_pistol_targets.add((wp, int(wid, 16)))
+        except (OSError, ValueError, KeyError):
+            pass
+
     ng_pistol_bindings = [
         b for b in bindings if b.script_name == "FO4SF_NewGameQuest" and b.prop_name == "VaultPistolBase"
     ]
@@ -1329,7 +1367,7 @@ def validate_vault_pistol_sync(
         )
     else:
         b = ng_pistol_bindings[0]
-        if (b.target_plugin, b.target_id) != ("Starfield.esm", want_pid):
+        if (b.target_plugin, b.target_id) not in valid_pistol_targets:
             errors.append(
                 f"FO4SF_NewGameQuest.VaultPistolBase bound to {b.target_plugin}:0x{b.target_id:06X} "
                 f"!= route_loot_ids.json vault111.pistol_id Starfield.esm:0x{want_pid:06X}"
@@ -1347,10 +1385,6 @@ def validate_vault_pistol_sync(
                     errors.append("FO4SFNewGame.esm missing compiled VMAD FO4SF_NewGameQuest.VaultPistolBase")
                 else:
                     _alias, tgt_plg, tgt_id = vps[0].object_refs[0]
-                    valid_pistol_targets = {
-                        ("Starfield.esm", want_pid),
-                        ("FO4SFCoreValues.esm", 0x000899),
-                    }
                     if (tgt_plg, tgt_id) not in valid_pistol_targets:
                         errors.append(
                             f"FO4SFNewGame.esm compiled VaultPistolBase={tgt_plg}:0x{tgt_id:06X} "

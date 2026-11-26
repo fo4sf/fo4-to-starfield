@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 from fo4sf.ba2 import Ba2, Ba2Error
-from fo4sf.core.cross_plugin_check import CORE_VALUES_ARSENAL_RECORDS
+from fo4sf.core.cross_plugin_check import CORE_VALUES_ARSENAL_RECORDS, inspect_esm_binary
 from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin
 
 
@@ -1165,6 +1165,127 @@ def verify_core_values_arsenal_weaps(
     }
 
 
+def _load_fo4_vault_pistol_config() -> Tuple[Tuple[str, int], Tuple[str, int]]:
+    """Read `(weapon_plugin, weapon_id), (ammo_plugin, ammo_id)` from `game_start_config.json`."""
+    cfg_path = Path(__file__).resolve().parent / "core" / "game_start_config.json"
+    if cfg_path.is_file():
+        try:
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            vp = ((data.get("games") or {}).get("fo4") or {}).get("vault_pistol") or {}
+            wp = str(vp.get("weapon_plugin") or "FO4SFCoreValues.esm").strip()
+            wid = int(str(vp.get("weapon_id") or "0x000899").strip(), 16)
+            ap = str(vp.get("ammo_plugin") or "FO4SFCoreValues.esm").strip()
+            aid = int(str(vp.get("ammo_id") or "0x000898").strip(), 16)
+            return (wp, wid), (ap, aid)
+        except (OSError, ValueError, KeyError):
+            pass
+    return ("FO4SFCoreValues.esm", 0x000899), ("FO4SFCoreValues.esm", 0x000898)
+
+
+def _verify_newgame_vault_pistol_binding(bundle_dir: str) -> List[str]:
+    """Verify `FO4SFNewGame.esm` `VaultPistolBase`/`VaultAmmoBase` and `0x820`/`0x821` refs acceptably match."""
+    ng_path = os.path.join(bundle_dir, "FO4SFNewGame.esm")
+    if not _is_tes4_plugin(ng_path):
+        return []
+    try:
+        ng_rep = inspect_esm_binary(ng_path)
+    except (OSError, EsmError, ValueError) as exc:
+        return [f"unreadable FO4SFNewGame.esm ({exc})"]
+
+    has_ng_quest = 0x000800 in ng_rep.own_records or any(
+        vp.script_name.casefold() == "fo4sf_newgamequest" for vp in ng_rep.vmad_properties
+    )
+    if not has_ng_quest:
+        return []
+
+    cfg_weap, cfg_ammo = _load_fo4_vault_pistol_config()
+    fallback_weap = ("FO4SFNewGame.esm", 0x000822)
+    fallback_ammo = ("Starfield.esm", 0x2B5598)
+    legacy_weap = ("Starfield.esm", 0x24561C)
+
+    accepted_pairs = {
+        cfg_weap: cfg_ammo,
+        fallback_weap: fallback_ammo,
+        legacy_weap: fallback_ammo,
+    }
+
+    pistol_props = [
+        vp for vp in ng_rep.vmad_properties
+        if vp.script_name.casefold() == "fo4sf_newgamequest" and vp.prop_name == "VaultPistolBase"
+    ]
+    if len(pistol_props) != 1 or len(pistol_props[0].object_refs) != 1:
+        return ["FO4SFNewGame.esm missing FO4SF_NewGameQuest.VaultPistolBase VMAD binding"]
+
+    _alias, bound_wp_plg, bound_wp_id = pistol_props[0].object_refs[0]
+    bound_weap = (bound_wp_plg, bound_wp_id)
+    matched_key = next(
+        (k for k in accepted_pairs if k[0].casefold() == bound_weap[0].casefold() and k[1] == bound_weap[1]),
+        None,
+    )
+    if matched_key is None:
+        return [
+            f"FO4SFNewGame.esm VaultPistolBase bound to {bound_wp_plg}:0x{bound_wp_id:06X}, "
+            f"expected {cfg_weap[0]}:0x{cfg_weap[1]:06X} or {fallback_weap[0]}:0x{fallback_weap[1]:06X}"
+        ]
+
+    expected_ammo = accepted_pairs[matched_key]
+    issues: List[str] = []
+
+    if matched_key[0].casefold() == "fo4sfnewgame.esm":
+        own_rec = ng_rep.own_records.get(matched_key[1])
+        if own_rec is None or own_rec[0] != "WEAP":
+            issues.append(f"FO4SFNewGame.esm missing fallback WEAP 0x{matched_key[1]:06X}")
+    elif matched_key[0].casefold() == "fo4sfcorevalues.esm":
+        cv_path = os.path.join(bundle_dir, "FO4SFCoreValues.esm")
+        if _is_tes4_plugin(cv_path):
+            try:
+                cv_rep = inspect_esm_binary(cv_path)
+                if any(rt in ("WEAP", "AMMO") for rt, _ in cv_rep.own_records.values()):
+                    w_rec = cv_rep.own_records.get(matched_key[1])
+                    if w_rec is None or w_rec[0] != "WEAP":
+                        issues.append(f"FO4SFCoreValues.esm missing bound VaultPistolBase WEAP 0x{matched_key[1]:06X}")
+                    if expected_ammo[0].casefold() == "fo4sfcorevalues.esm":
+                        a_rec = cv_rep.own_records.get(expected_ammo[1])
+                        if a_rec is None or a_rec[0] != "AMMO":
+                            issues.append(f"FO4SFCoreValues.esm missing bound VaultAmmoBase AMMO 0x{expected_ammo[1]:06X}")
+            except (OSError, EsmError, ValueError):
+                pass
+
+    ammo_props = [
+        vp for vp in ng_rep.vmad_properties
+        if vp.script_name.casefold() == "fo4sf_newgamequest" and vp.prop_name == "VaultAmmoBase"
+    ]
+    bound_ammo: Optional[Tuple[str, int]] = None
+    if ammo_props:
+        if len(ammo_props[0].object_refs) != 1:
+            issues.append("FO4SFNewGame.esm FO4SF_NewGameQuest.VaultAmmoBase VMAD binding is empty")
+        else:
+            _a_alias, bound_am_plg, bound_am_id = ammo_props[0].object_refs[0]
+            bound_ammo = (bound_am_plg, bound_am_id)
+            if bound_am_plg.casefold() != expected_ammo[0].casefold() or bound_am_id != expected_ammo[1]:
+                issues.append(
+                    f"FO4SFNewGame.esm VaultAmmoBase bound to {bound_am_plg}:0x{bound_am_id:06X}, "
+                    f"expected {expected_ammo[0]}:0x{expected_ammo[1]:06X}"
+                )
+
+    for ctx, tgt_plg, tgt_id in ng_rep.cross_plugin_item_refs:
+        if ctx == "REFR:FO4SF_Vault111PistolRef.NAME":
+            if tgt_plg.casefold() != bound_weap[0].casefold() or tgt_id != bound_weap[1]:
+                issues.append(
+                    f"FO4SFNewGame.esm FO4SF_Vault111PistolRef base {tgt_plg}:0x{tgt_id:06X} "
+                    f"!= VaultPistolBase {bound_weap[0]}:0x{bound_weap[1]:06X}"
+                )
+        elif ctx == "REFR:FO4SF_Vault111AmmoRef.NAME":
+            want_am = bound_ammo or expected_ammo
+            if tgt_plg.casefold() != want_am[0].casefold() or tgt_id != want_am[1]:
+                issues.append(
+                    f"FO4SFNewGame.esm FO4SF_Vault111AmmoRef base {tgt_plg}:0x{tgt_id:06X} "
+                    f"!= VaultAmmoBase {want_am[0]}:0x{want_am[1]:06X}"
+                )
+
+    return issues
+
+
 def verify_bundle_beginning_readiness(
     bundle_dir: str,
     *,
@@ -1217,10 +1338,12 @@ def verify_bundle_beginning_readiness(
             if not os.path.isfile(sc_full) or os.path.getsize(sc_full) < 16:
                 step_issues.append(f"missing compiled Papyrus script: Data/Scripts/{sc}")
 
-        if spec.step_id == "B2_gear_door" and isinstance(components, Mapping) and components:
-            cog = components.get("cog_door")
-            if not isinstance(cog, Mapping) or len(cog.get("outputs") or {}) < 2:
-                step_issues.append("bundle_plan.json missing cog_door mesh/material outputs")
+        if spec.step_id == "B2_gear_door":
+            if isinstance(components, Mapping) and components:
+                cog = components.get("cog_door")
+                if not isinstance(cog, Mapping) or len(cog.get("outputs") or {}) < 2:
+                    step_issues.append("bundle_plan.json missing cog_door mesh/material outputs")
+            step_issues.extend(_verify_newgame_vault_pistol_binding(b_abs))
 
         if spec.step_id == "B3_exit_lift":
             if isinstance(components, Mapping) and components:

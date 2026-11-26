@@ -591,6 +591,12 @@ def tool_options(a):
         opts += ["--start-places", a.start_places]
     if getattr(a, "game", None):
         opts += ["--game", a.game]
+    if getattr(a, "game_start_config", None):
+        opts += ["--game-start-config", a.game_start_config]
+    if getattr(a, "fo4_10mm", None) is not None:
+        opts += ["--fo4-10mm", str(int(a.fo4_10mm))]
+    if getattr(a, "core_values_esm", None):
+        opts += ["--core-values-esm", a.core_values_esm]
     return opts
 
 
@@ -791,6 +797,7 @@ def stage(a):
                         "fade_hold": fade_hold_option(a),
                         "start_choice_backdrop": getattr(a, "start_choice_backdrop", None) or "empty_cell",
                         "show_unavailable_starts": int(bool(o_show_unavailable)),
+                        "fo4_10mm": getattr(a, "fo4_10mm", None),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -1300,6 +1307,12 @@ def main(argv=None):
                    help="path to start_places.json (default: src/fo4sf/core/start_places.json)")
     s.add_argument("--game", default=None,
                    help="target game id in game_start_config.json / lift_pairs.json (default: fo4)")
+    s.add_argument("--game-start-config", default=None,
+                   help="path to game_start_config.json (default: src/fo4sf/core/game_start_config.json)")
+    s.add_argument("--fo4-10mm", nargs="?", const=1, type=int, choices=(0, 1), default=None,
+                   help="1 places 0x820/0x821 on games.fo4.vault_pistol (FO4SFCoreValues.esm:0x899/0x898); 0 falls back to 0x822")
+    s.add_argument("--core-values-esm", default=None,
+                   help="path to staged FO4SFCoreValues.esm used to validate/auto-detect --fo4-10mm")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

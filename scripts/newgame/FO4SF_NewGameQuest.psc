@@ -291,9 +291,11 @@ ObjectReference Property GearDoorConsoleRef Auto Const Mandatory
 ObjectReference Property StartRoomMarkerRef Auto Const
 {FO4SFNewGame.esm FO4SF_StartRoomMarkerRef (0x81D), persistent marker in owned empty FO4SF_StartRoomCell (0x81C).}
 Weapon Property VaultPistolBase Auto Const Mandatory
-{Starfield.esm WEAP for vault111.pistol_id from route_loot_ids.json, filtered for OnItemAdded.}
+{Vault 111 pistol WEAP bound from game_start_config.json (or 0x822 fallback), filtered for OnItemAdded.}
+Ammo Property VaultAmmoBase Auto Const
+{Vault 111 ammo AMMO bound from game_start_config.json (or Starfield.esm fallback), filtered for OnItemAdded.}
 int Property VaultPistolId = 0 Auto Const
-{Plugin-local FormID of VaultPistolBase in Starfield.esm, logged when adding the inventory event filter.}
+{Plugin-local FormID of VaultPistolBase, logged when adding the inventory event filter.}
 bool Property FadeHold = false Auto Const
 {W1 / T3: false by default so New Game enters Vault 111 Story mode directly (--fade-hold opts in to pre-world start setup).}
 int Property StartChoiceBackdrop = 1 Auto Const
@@ -3260,16 +3262,9 @@ Function EnsureVaultInteractivesRegistered()
     if !itemWatchRegistered && player != None && VaultPistolBase != None
         itemWatchRegistered = true
         AddInventoryEventFilter(VaultPistolBase)
-        if VaultPistolId == 0x000899
-            int ammo10mmId = VaultPistolId - 1
-            Form ammo10mm = Game.GetFormFromFile(ammo10mmId, "FO4SFCoreValues.esm")
-            if ammo10mm != None
-                AddInventoryEventFilter(ammo10mm)
-            endif
-        endif
-        Form ownPistol = Game.GetFormFromFile(0x000822, "FO4SFNewGame.esm")
-        if ownPistol != None
-            AddInventoryEventFilter(ownPistol)
+        if VaultAmmoBase != None
+            AddInventoryEventFilter(VaultAmmoBase)
+            Trace("pistol ammo filter added base=" + VaultAmmoBase)
         endif
         Trace("pistol filter added base=" + VaultPistolBase + " id=" + VaultPistolId)
         RegisterForRemoteEvent(player as ObjectReference, "OnItemAdded")
@@ -3337,8 +3332,7 @@ Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int
     if GetStage() >= 40 || akBaseItem == None || VaultPistolBase == None
         return
     endif
-    Form ownPistol = Game.GetFormFromFile(0x000822, "FO4SFNewGame.esm")
-    if akBaseItem == VaultPistolBase || (ownPistol != None && akBaseItem == ownPistol)
+    if akBaseItem == VaultPistolBase
         if !pistolPickedLogged
             pistolPickedLogged = true
             Actor player = Game.GetPlayer()
@@ -3349,20 +3343,11 @@ Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int
                 endif
                 equipped = player.IsEquipped(akBaseItem)
             endif
-            string baseSuffix = ""
-            if VaultPistolId == 0x000899
-                baseSuffix = " base=FO4_10mmPistol"
-            elseif ownPistol != None && akBaseItem == ownPistol
-                baseSuffix = " base=FO4SF_Vault111_10mm"
-            endif
-            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + baseSuffix)
+            string baseTag = " base="
+            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + baseTag + VaultPistolBase)
         endif
-    elseif VaultPistolId == 0x000899
-        int ammo10mmId = VaultPistolId - 1
-        Form ammo10mm = Game.GetFormFromFile(ammo10mmId, "FO4SFCoreValues.esm")
-        if ammo10mm != None && akBaseItem == ammo10mm
-            Trace("pistol ammo picked item=" + akBaseItem + " count=" + aiItemCount + " base=FO4_Ammo10mm")
-        endif
+    elseif VaultAmmoBase != None && akBaseItem == VaultAmmoBase
+        Trace("pistol ammo picked item=" + akBaseItem + " count=" + aiItemCount + " base=" + VaultAmmoBase)
     endif
 EndEvent
 
