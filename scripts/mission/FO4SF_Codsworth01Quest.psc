@@ -7,13 +7,14 @@ Scriptname FO4SF_Codsworth01Quest extends Quest
    stage 100 = choice 4 (head to Concord -> completes FO4SF_Codsworth01 and gives FO4SF_Min00 stage 10).}
 
 Actor Property Codsworth Auto Const
-Scene Property CodsworthScene Auto Const
 Activator Property CodsworthTalkActi Auto Const
 Message Property CodsworthTalkMsg Auto Const
 Message Property CodsworthReply0Msg Auto Const
 Message Property CodsworthReply1Msg Auto Const
 Message Property CodsworthReply2Msg Auto Const
 GlobalVariable Property TalkUseMessageBox Auto Const
+bool Property MuteDuplicateObjectiveToasts = True Auto Const
+string Property LandingHandoff = "single_quest" Auto Const
 
 string LogName = "fo4sf_mission"
 float CodsworthLocalX = -1146.709
@@ -30,6 +31,7 @@ float MinTalkCameraDistance = 1.65
 float SafeTalkCameraDistance = 1.85
 float SceneOpenCheckSeconds = 1.5
 int SceneMaxWaitChecks = 16
+int MaxSceneRestarts = 3
 
 bool instanceStarted = False
 bool dialogueSeen = False
@@ -40,6 +42,10 @@ bool sceneMenuOpened = False
 bool scenePhase1Entered = False
 float scenePhase1At = 0.0
 int sceneCheckTicks = 0
+int sceneRestartCount = 0
+bool scenePostActive = False
+bool ownSceneStopPending = False
+float sceneAttemptStartedAt = 0.0
 int talkSessionId = 0
 bool codsworthTalkReloaded = False
 bool concordCleared = False
@@ -57,6 +63,8 @@ bool choice3Seen = False
 bool choice4Seen = False
 int choicesCount = 0
 bool completed = False
+bool objective10DisplayedOnce = False
+bool objective10SkipLogged = False
 
 int Function EffectiveStage()
     int st = GetStage()
@@ -67,16 +75,28 @@ int Function EffectiveStage()
 EndFunction
 
 Function ShowCodsworthObjective()
-    if completed || concordCleared
+    if completed || concordCleared || LandingHandoff == "single_quest"
+        return
+    endif
+    if MuteDuplicateObjectiveToasts && objective10DisplayedOnce
+        if !objective10SkipLogged
+            objective10SkipLogged = True
+            Trace("codsworth01 objective10_toast skipped=true reason=already_displayed muted_duplicates=" + MuteDuplicateObjectiveToasts)
+        endif
         return
     endif
     if !IsRunning()
         Start()
     endif
     EnsureCodsworthAlias(ResolveCodsworth())
-    SetObjectiveDisplayed(10, True, True)
-    SetActive(True)
-    SetObjectiveDisplayedAtTop(10)
+    bool shown = FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, objective10DisplayedOnce, True)
+    if shown
+        objective10DisplayedOnce = True
+        objective10SkipLogged = False
+        Trace("codsworth01 objective10_toast shown=true muted_duplicates=" + MuteDuplicateObjectiveToasts + " force=" + (!MuteDuplicateObjectiveToasts))
+    else
+        Trace("codsworth01 objective10_toast deferred=true reason=not_displayed muted_duplicates=" + MuteDuplicateObjectiveToasts)
+    endif
 EndFunction
 
 Actor Function ResolveCodsworth()
@@ -117,10 +137,18 @@ Message Function ResolveTalkMsg(int slot)
 EndFunction
 
 Scene Function ResolveCodsworthScene()
-    if CodsworthScene != None
-        return CodsworthScene
-    endif
     return Game.GetFormFromFile(0x000940, "FO4SFMission.esm") as Scene
+EndFunction
+
+Scene Function ResolveCodsworthPostScene()
+    return Game.GetFormFromFile(0x0009C0, "FO4SFMission.esm") as Scene
+EndFunction
+
+Scene Function ResolveActiveCodsworthScene(bool postMode)
+    if postMode
+        return ResolveCodsworthPostScene()
+    endif
+    return ResolveCodsworthScene()
 EndFunction
 
 bool Function ShouldUseMessageBox()
@@ -144,12 +172,34 @@ Function EnsureCodsworthAlias(Actor cods)
     endif
 EndFunction
 
+Function EnsureKeeperCodsworthAlias(Actor cods)
+    if cods == None
+        return
+    endif
+    Quest kq = Game.GetFormFromFile(0x000814, "FO4SFMission.esm") as Quest
+    if kq != None
+        if !kq.IsRunning()
+            kq.StartNoWait()
+        endif
+        ReferenceAlias al = kq.GetAlias(1) as ReferenceAlias
+        if al != None && al.GetActorRef() != cods
+            al.ForceRefTo(cods)
+        endif
+    endif
+EndFunction
+
 Function RegisterCodsworthSceneEvents()
     Scene scn = ResolveCodsworthScene()
     if scn != None
         RegisterForRemoteEvent(scn, "OnBegin")
         RegisterForRemoteEvent(scn, "OnPhaseBegin")
         RegisterForRemoteEvent(scn, "OnEnd")
+    endif
+    Scene postScn = ResolveCodsworthPostScene()
+    if postScn != None
+        RegisterForRemoteEvent(postScn, "OnBegin")
+        RegisterForRemoteEvent(postScn, "OnPhaseBegin")
+        RegisterForRemoteEvent(postScn, "OnEnd")
     endif
 EndFunction
 
@@ -160,6 +210,11 @@ Function BindCodsworthActivation()
         cods.AllowPCDialogue(True)
         cods.BlockActivation(False, False)
         EnsureCodsworthAlias(cods)
+        if completed
+            EnsureKeeperCodsworthAlias(cods)
+            RegisterForMenuOpenCloseEvent("DialogueMenu")
+            RegisterCodsworthSceneEvents()
+        endif
         RegisterForRemoteEvent(cods, "OnActivate")
     endif
     if talkProxy != None && !talkProxy.IsDeleted()
@@ -231,9 +286,8 @@ Function EnsureTalkProxy(Actor player)
                 proxyLogged = True
                 if !completed && !concordCleared
                     EnsureCodsworthAlias(cods)
-                    SetObjectiveDisplayed(10, True, True)
-                    SetActive(True)
                 endif
+                Trace("codsworth talk proxy model=none visible=false")
                 Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
             endif
         endif
@@ -300,7 +354,9 @@ Function StartQuestInstance()
     RegisterCodsworthSceneEvents()
     BindCodsworthActivation()
     AdvanceTo(10, "Trigger")
-    ShowCodsworthObjective()
+    if LandingHandoff != "single_quest"
+        ShowCodsworthObjective()
+    endif
     Trace("codsworth01 init stage=10")
     StartTimer(1.0, 1)
 EndFunction
@@ -315,6 +371,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     scenePhase1Entered = False
     scenePhase1At = 0.0
     sceneCheckTicks = 0
+    sceneRestartCount = 0
+    scenePostActive = False
+    ownSceneStopPending = False
+    sceneAttemptStartedAt = 0.0
     CancelTimer(2)
     int st = GetStage()
     if applied > st
@@ -340,11 +400,15 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
         if abOpening
             dialogueSeen = True
             Scene scn = ResolveCodsworthScene()
-            if sceneTalkPending || (scn != None && scn.IsPlaying())
+            Scene postScn = ResolveCodsworthPostScene()
+            bool anyPlaying = (scn != None && scn.IsPlaying()) || (postScn != None && postScn.IsPlaying())
+            if sceneTalkPending || anyPlaying
                 sceneMenuOpened = True
                 sceneTalkPending = False
                 scenePhase1Entered = False
                 scenePhase1At = 0.0
+                sceneRestartCount = 0
+                sceneAttemptStartedAt = 0.0
                 CancelTimer(2)
                 Trace("codsworth dialogue menu opened")
             endif
@@ -357,14 +421,17 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
-{C6: When the player activates Codsworth inside his 0.65 m chassis radius (e.g. moveto at d=0.62 m), step back along the
- sightline to SafeTalkCameraDistance (1.85 m) so DisableDialogueCamera (0x0800) frames Codsworth cleanly like a 2.0 m
- walk-up without clipping inside his hull. Normal walk-ups (>= 1.65 m) are left untouched.}
+{C6 + R11 A2.5: When the player activates Codsworth inside his 0.65 m chassis radius (e.g. moveto at d=0.62 m),
+ step back to SafeTalkCameraDistance (1.85 m) only after validating ground-Z alignment (|pz - cz| <= 1.5 m) and
+ Sanctuary Player House wall clearance (derived from Fallout4.esm WRLD 0x3C: exterior facade lies ~1.15 m NW of
+ Codsworth along normal (-0.6428, +0.7660)). If the direct ray back points into the NW house wall, redirect onto
+ the nearest unobstructed Sanctuary yard/driveway azimuth at exact 1.85 m. Normal walk-ups (>= 1.65 m) untouched.}
     if player == None || cods == None || player.IsInInterior()
         return
     endif
     float cx = cods.GetPositionX()
     float cy = cods.GetPositionY()
+    float cz = cods.GetPositionZ()
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
@@ -372,6 +439,12 @@ Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
     float dy = py - cy
     float horiz = Math.Sqrt(dx * dx + dy * dy)
     if horiz >= MinTalkCameraDistance
+        return
+    endif
+    ; A2.5: Ground-Z validation — never shove a player off a roof/ledge or through terrain far from Codsworth's ground plane.
+    float dz = pz - cz
+    if dz < -1.5 || dz > 1.5
+        Trace("codsworth talk camera_guard skipped reason=ground_z_mismatch prev_d=" + horiz + " dz=" + dz)
         return
     endif
     float ux = 0.0
@@ -384,21 +457,166 @@ Function EnsureSafeCodsworthCameraDistance(Actor player, Actor cods)
         ux = Math.Sin(yaw)
         uy = Math.Cos(yaw)
     endif
-    player.SetPosition(cx + ux * SafeTalkCameraDistance, cy + uy * SafeTalkCameraDistance, pz)
-    Trace("codsworth talk camera_guard prev_d=" + horiz + " safe_d=" + SafeTalkCameraDistance)
+    float candDx = ux * SafeTalkCameraDistance
+    float candDy = uy * SafeTalkCameraDistance
+    bool wallAvoid = False
+    ; A2.5: Sanctuary Player House wall clearance check around Codsworth's merged Sanctuary spot (-2346.709, -1406.163).
+    float sx = cx - (-2346.709)
+    float sy = cy - (-1406.163)
+    if sx * sx + sy * sy <= 25.0
+        float wallProj = candDx * (-0.6428) + candDy * 0.7660
+        if wallProj > 1.0
+            ; Candidate lies inside the NW Player House wall footprint -> pick closest unobstructed yard/street direction.
+            float bestX = 0.6428
+            float bestY = -0.7660
+            float bestDot = ux * bestX + uy * bestY
+            float swDot = ux * (-0.7660) + uy * (-0.6428)
+            if swDot > bestDot
+                bestDot = swDot
+                bestX = -0.7660
+                bestY = -0.6428
+            endif
+            float neDot = ux * 0.7660 + uy * 0.6428
+            if neDot > bestDot
+                bestDot = neDot
+                bestX = 0.7660
+                bestY = 0.6428
+            endif
+            candDx = bestX * SafeTalkCameraDistance
+            candDy = bestY * SafeTalkCameraDistance
+            wallAvoid = True
+        endif
+    endif
+    float targetZ = pz
+    if targetZ < cz - 0.35
+        targetZ = cz
+    elseif targetZ > cz + 0.60
+        targetZ = cz + 0.35
+    endif
+    float newPx = cx + candDx
+    float newPy = cy + candDy
+    float toX = cx - newPx
+    float toY = cy - newPy
+    float facingDeg = 0.0
+    if toY > 0.0001
+        facingDeg = Math.atan(toX / toY)
+    elseif toY < -0.0001
+        facingDeg = Math.atan(toX / toY) + 180.0
+    elseif toX >= 0.0
+        facingDeg = 90.0
+    else
+        facingDeg = 270.0
+    endif
+    if facingDeg < 0.0
+        facingDeg += 360.0
+    elseif facingDeg >= 360.0
+        facingDeg -= 360.0
+    endif
+    player.SetPosition(newPx, newPy, targetZ)
+    player.SetAngle(0.0, 0.0, facingDeg)
+    Trace("codsworth talk camera_guard prev_d=" + horiz + " safe_d=" + SafeTalkCameraDistance + " wall_avoid=" + wallAvoid + " facing_deg=" + facingDeg)
+EndFunction
+
+bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
+{R11 Part 3 + F1: When TalkUseMessageBox == 0 (default), NEVER open a MessageBox. Mark ownSceneStopPending before own Stop(),
+ count each retry only after a full SceneOpenCheckSeconds window, and log real retry counts.}
+    Actor cods = ResolveCodsworth()
+    Scene scn = ResolveActiveCodsworthScene(postMode)
+    if scn == None
+        int usedRetries = sceneRestartCount
+        sceneTalkPending = False
+        sceneMenuOpened = False
+        scenePhase1Entered = False
+        scenePhase1At = 0.0
+        sceneCheckTicks = 0
+        sceneRestartCount = 0
+        scenePostActive = False
+        ownSceneStopPending = False
+        sceneAttemptStartedAt = 0.0
+        CancelTimer(2)
+        if cods != None
+            cods.AllowPCDialogue(True)
+            cods.BlockActivation(False, False)
+        endif
+        Trace("codsworth talk ERROR scene_failed retries=" + usedRetries + " reason=no_scene actor_talkable=true")
+        return False
+    endif
+    if sceneRestartCount < MaxSceneRestarts
+        sceneRestartCount += 1
+        if postMode
+            EnsureKeeperCodsworthAlias(cods)
+        else
+            EnsureCodsworthAlias(cods)
+        endif
+        if cods != None
+            Game.StartDialogueCameraOrCenterOnTarget(cods)
+        endif
+        if scn.IsPlaying()
+            ownSceneStopPending = True
+            scn.Stop()
+        endif
+        sceneAttemptStartedAt = Utility.GetCurrentRealTime()
+        scn.Start()
+        if !scn.IsPlaying()
+            scn.ForceStart()
+        endif
+        sceneTalkPending = True
+        scenePostActive = postMode
+        scenePhase1Entered = False
+        scenePhase1At = 0.0
+        sceneCheckTicks = 0
+        Trace("codsworth talk scene_restart retry=" + sceneRestartCount + "/" + MaxSceneRestarts + " reason=" + reason + " stage=" + EffectiveStage())
+        CancelTimer(2)
+        StartTimer(SceneOpenCheckSeconds, 2)
+        return True
+    endif
+    int maxUsed = sceneRestartCount
+    sceneTalkPending = False
+    sceneMenuOpened = False
+    scenePhase1Entered = False
+    scenePhase1At = 0.0
+    sceneCheckTicks = 0
+    sceneRestartCount = 0
+    scenePostActive = False
+    sceneAttemptStartedAt = 0.0
+    CancelTimer(2)
+    if scn.IsPlaying()
+        ownSceneStopPending = True
+        scn.Stop()
+    else
+        ownSceneStopPending = False
+    endif
+    if cods != None
+        cods.AllowPCDialogue(True)
+        cods.BlockActivation(False, False)
+    endif
+    Trace("codsworth talk ERROR scene_failed retries=" + maxUsed + " reason=" + reason + " actor_talkable=true")
+    return False
 EndFunction
 
 Event Scene.OnBegin(Scene akSender)
     Scene scn = ResolveCodsworthScene()
-    if scn != None && akSender == scn
+    Scene postScn = ResolveCodsworthPostScene()
+    bool isPrimary = scn != None && akSender == scn
+    bool isPost = postScn != None && akSender == postScn
+    if isPrimary || isPost
         dialogueSeen = True
-        EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), ResolveCodsworth())
-        if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && !completed
+        Actor cods = ResolveCodsworth()
+        EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), cods)
+        if cods != None
+            Game.StartDialogueCameraOrCenterOnTarget(cods)
+            Trace("codsworth talk camera target=" + cods)
+        endif
+        if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && (isPost || !completed)
+            ownSceneStopPending = False
             sceneTalkPending = True
+            scenePostActive = isPost
             scenePhase1Entered = False
             scenePhase1At = 0.0
+            sceneAttemptStartedAt = Utility.GetCurrentRealTime()
             sceneCheckTicks = 0
-            Trace("codsworth scene talk requested scene=" + scn + " via=devt stage=" + EffectiveStage())
+            sceneRestartCount = 0
+            Trace("codsworth scene talk requested scene=" + akSender + " via=devt stage=" + EffectiveStage())
             StartTimer(SceneOpenCheckSeconds, 2)
         endif
         Trace("codsworth talk scene started stage=" + EffectiveStage())
@@ -407,7 +625,8 @@ EndEvent
 
 Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
     Scene scn = ResolveCodsworthScene()
-    if scn != None && akSender == scn
+    Scene postScn = ResolveCodsworthPostScene()
+    if (scn != None && akSender == scn) || (postScn != None && akSender == postScn)
         Trace("codsworth talk scene phase=" + auiPhaseIndex + " stage=" + EffectiveStage())
         if auiPhaseIndex == 1
             scenePhase1Entered = True
@@ -422,21 +641,46 @@ EndEvent
 
 Event Scene.OnEnd(Scene akSender)
     Scene scn = ResolveCodsworthScene()
-    if scn != None && akSender == scn
+    Scene postScn = ResolveCodsworthPostScene()
+    bool isPrimary = scn != None && akSender == scn
+    bool isPost = postScn != None && akSender == postScn
+    if isPrimary || isPost
+        if ownSceneStopPending
+            ownSceneStopPending = False
+            return
+        endif
         SyncProgress()
         Trace("codsworth talk scene ended stage=" + EffectiveStage() + " completed=" + completed)
-        if sceneTalkPending && !sceneMenuOpened && !completed
-            sceneTalkPending = False
-            scenePhase1Entered = False
-            scenePhase1At = 0.0
-            CancelTimer(2)
-            Trace("codsworth talk fallback=messagebox reason=scene_incomplete")
-            RunCodsworthTalk()
+        if sceneTalkPending && !sceneMenuOpened && (isPost || !completed)
+            if ShouldUseMessageBox()
+                sceneTalkPending = False
+                scenePhase1Entered = False
+                scenePhase1At = 0.0
+                sceneAttemptStartedAt = 0.0
+                CancelTimer(2)
+                Trace("codsworth talk fallback=messagebox reason=scene_incomplete")
+                RunCodsworthTalk()
+            else
+                float nowEnd = Utility.GetCurrentRealTime()
+                if sceneAttemptStartedAt > 0.0 && nowEnd < sceneAttemptStartedAt
+                    sceneAttemptStartedAt = nowEnd
+                endif
+                float attElapsed = nowEnd - sceneAttemptStartedAt
+                if sceneAttemptStartedAt > 0.0 && attElapsed < (SceneOpenCheckSeconds - 0.05)
+                    CancelTimer(2)
+                    StartTimer(SceneOpenCheckSeconds - attElapsed, 2)
+                else
+                    RestartOrFailCodsworthScene("scene_incomplete", isPost)
+                endif
+            endif
         else
             sceneTalkPending = False
             sceneMenuOpened = False
             scenePhase1Entered = False
             scenePhase1At = 0.0
+            sceneRestartCount = 0
+            scenePostActive = False
+            sceneAttemptStartedAt = 0.0
         endif
     endif
 EndEvent
@@ -445,36 +689,62 @@ Function CheckCodsworthSceneOpen()
     if !sceneTalkPending
         return
     endif
-    if dialogueMenuOpen || sceneMenuOpened || talkBoxOpen || completed
+    if dialogueMenuOpen || sceneMenuOpened || talkBoxOpen || (!scenePostActive && completed)
         sceneTalkPending = False
         scenePhase1Entered = False
         scenePhase1At = 0.0
+        sceneRestartCount = 0
+        sceneAttemptStartedAt = 0.0
         return
     endif
     sceneCheckTicks += 1
+    float nowRt = Utility.GetCurrentRealTime()
+    if sceneAttemptStartedAt > 0.0 && nowRt < sceneAttemptStartedAt
+        sceneAttemptStartedAt = nowRt
+    endif
+    float attemptElapsed = SceneOpenCheckSeconds
+    if sceneAttemptStartedAt > 0.0
+        attemptElapsed = nowRt - sceneAttemptStartedAt
+    endif
     bool phase1Elapsed = False
     if scenePhase1Entered
-        float nowRt = Utility.GetCurrentRealTime()
         if nowRt < scenePhase1At
             scenePhase1At = nowRt
         elseif (nowRt - scenePhase1At) >= (SceneOpenCheckSeconds - 0.05)
             phase1Elapsed = True
         endif
     endif
-    Scene scn = ResolveCodsworthScene()
+    Scene scn = ResolveActiveCodsworthScene(scenePostActive)
     if scn == None || !scn.IsPlaying()
-        sceneTalkPending = False
-        scenePhase1Entered = False
-        scenePhase1At = 0.0
-        Trace("codsworth talk fallback=messagebox reason=scene_inactive")
-        RunCodsworthTalk()
+        if ShouldUseMessageBox()
+            sceneTalkPending = False
+            scenePhase1Entered = False
+            scenePhase1At = 0.0
+            sceneAttemptStartedAt = 0.0
+            Trace("codsworth talk fallback=messagebox reason=scene_inactive")
+            RunCodsworthTalk()
+        elseif attemptElapsed < (SceneOpenCheckSeconds - 0.05)
+            StartTimer(SceneOpenCheckSeconds - attemptElapsed, 2)
+        else
+            RestartOrFailCodsworthScene("scene_inactive", scenePostActive)
+        endif
+    elseif (phase1Elapsed || sceneCheckTicks >= SceneMaxWaitChecks) && attemptElapsed >= (SceneOpenCheckSeconds - 0.05)
+        if ShouldUseMessageBox()
+            sceneTalkPending = False
+            scenePhase1Entered = False
+            scenePhase1At = 0.0
+            sceneAttemptStartedAt = 0.0
+            if scn.IsPlaying()
+                ownSceneStopPending = True
+                scn.Stop()
+            endif
+            Trace("codsworth talk fallback=messagebox reason=dialogue_menu_timeout")
+            RunCodsworthTalk()
+        else
+            RestartOrFailCodsworthScene("dialogue_menu_timeout", scenePostActive)
+        endif
     elseif phase1Elapsed || sceneCheckTicks >= SceneMaxWaitChecks
-        sceneTalkPending = False
-        scenePhase1Entered = False
-        scenePhase1At = 0.0
-        scn.Stop()
-        Trace("codsworth talk fallback=messagebox reason=dialogue_menu_timeout")
-        RunCodsworthTalk()
+        StartTimer(SceneOpenCheckSeconds - attemptElapsed, 2)
     else
         StartTimer(SceneOpenCheckSeconds, 2)
     endif
@@ -497,26 +767,36 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         RunCodsworthTalk()
         return
     endif
-    Scene scn = ResolveCodsworthScene()
+    bool postMode = completed
+    Scene scn = ResolveActiveCodsworthScene(postMode)
     if scn == None
-        Trace("codsworth talk fallback=messagebox reason=no_scene")
-        RunCodsworthTalk()
-        return
-    endif
-    if completed
-        if talkProxy != None && akSender == talkProxy && cods != None
-            cods.Activate(player, True)
+        if cods != None
+            cods.AllowPCDialogue(True)
+            cods.BlockActivation(False, False)
         endif
+        Trace("codsworth talk ERROR scene_failed retries=" + sceneRestartCount + " reason=no_scene actor_talkable=true")
         return
     endif
-    EnsureCodsworthAlias(cods)
+    if postMode
+        EnsureKeeperCodsworthAlias(cods)
+    else
+        EnsureCodsworthAlias(cods)
+    endif
     EnsureSafeCodsworthCameraDistance(player, cods)
+    if cods != None
+        Game.StartDialogueCameraOrCenterOnTarget(cods)
+        Trace("codsworth talk camera target=" + cods)
+    endif
     dialogueSeen = True
+    ownSceneStopPending = False
     sceneTalkPending = True
+    scenePostActive = postMode
     sceneMenuOpened = False
     scenePhase1Entered = False
     scenePhase1At = 0.0
+    sceneAttemptStartedAt = Utility.GetCurrentRealTime()
     sceneCheckTicks = 0
+    sceneRestartCount = 0
     string via = "actor"
     if talkProxy != None && akSender == talkProxy
         via = "proxy"
@@ -533,6 +813,10 @@ EndEvent
 
 Function RunCodsworthTalk()
     if talkBoxOpen || IsWarfareMode()
+        return
+    endif
+    if !ShouldUseMessageBox()
+        Trace("codsworth messagebox suppressed reason=glob_off")
         return
     endif
     Message curMsg = ResolveTalkMsg(-1)
@@ -635,7 +919,7 @@ Event OnTimer(int aiTimerID)
         if applied > 0 && GetStage() < applied
             SetStage(applied)
         endif
-        if applied >= 10 && !concordCleared && !IsObjectiveDisplayed(10)
+        if LandingHandoff != "single_quest" && applied >= 10 && !concordCleared && (!MuteDuplicateObjectiveToasts || !objective10DisplayedOnce) && !IsObjectiveDisplayed(10)
             ShowCodsworthObjective()
         endif
     endif

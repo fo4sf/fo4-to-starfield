@@ -162,7 +162,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
         self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story"])
-        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "warfare"])
+        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "story_landing", "warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("ShowFirstPersonGeometry", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
@@ -521,7 +521,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("int Property CenterTicks = 30 Auto Const", psc)
         enter = psc[psc.index("bool Function EnterVault"):psc.index("bool Function CenterOnVault")]
         self.assertIn("if anchor == None\n        if AnchorTemporary\n            return CenterOnVault()\n        endif", enter)
-        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
+        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, entryY - AnchorY, PodZ + PodLift - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
         center = psc[psc.index("bool Function CenterOnVault"):psc.index("Function ResetInventory")]
         self.assertEqual(center.count("Debug.CenterOnCell(VaultCell)"), 1)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)      # nowhere else
@@ -574,13 +574,14 @@ class ContractTests(unittest.TestCase):
         self.assertIn("float Property PodDrop = 0.5 Auto Const", psc)
         self.assertAlmostEqual(-1.029 + 0.3, -0.738, delta=0.01)   # the lifted start is the marker's height
         enter = psc[psc.index("bool Function EnterVault"):psc.index("Function CheckPod")]
-        self.assertIn('" target=" + PodX + " " + PodY + " " + (PodZ + PodLift) + " cell="', enter)   # the log's target is the start
+        self.assertIn('" target=" + PodX + " " + entryY + " " + (PodZ + PodLift) + " cell="', enter)   # the log's target is the start
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         ten = body[body.index("elseif stage == 10"):body.index("elseif stage == 20 || stage == 30")]
         self.assertIn("if !podChecked && player.Is3DLoaded()\n            CheckPod(player)\n        endif", ten)
         self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
         check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
         self.assertIn("podChecked = true", check)
+        self.assertIn("float targetY = PodEntryY()", check)
         self.assertIn("float targetZ = PodZ + PodLift", check)
         self.assertIn("float drop = targetZ - sampleZ", check)
         self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
@@ -621,17 +622,23 @@ class ContractTests(unittest.TestCase):
         self.assertLess(finish.index("if ok\n"), finish.index("AdvanceTo(40)"))
         self.assertIn("if surfaceMoves < 2", finish)
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
+        self.assertIn("ClearVaultSaveLock()", surface)
+        self.assertIn("anchor.Enable(False)", surface)
+        self.assertNotIn("TrySurfaceExteriorFallbacks(", surface)
+        self.assertIn("TrySurfaceExteriorFallbacks(player, fbAnchor)", finish)
+        self.assertEqual(psc.count("Debug.CenterOnCell("), 1)
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
-        self.assertEqual(psc.count("FinishSurface(player)"), 1)   # only a later tick's OnTimer finishes the ride
+        self.assertEqual(psc.count("FinishSurface(player)"), 1)   # only a later tick's CheckPairedLiftRide finishes the ride
         invault = psc[psc.index("Function InVault"):psc.index("Function Surface(Actor player)")]
         self.assertIn("Surface(player)", invault)
         self.assertNotIn("SetPosition(", invault)
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         branch = body[body.index("elseif stage == 20 || stage == 30"):body.index("elseif stage == 40")]
-        self.assertIn("elseif surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
-        self.assertLess(branch.index("FinishSurface(player)"), branch.index("InVault(player, stage)"))
+        self.assertIn("if liftPairActive || liftPairTransferPending || surfaceMovedAt > 0.0", branch)
+        self.assertIn("CheckPairedLiftRide(player)", branch)
+        self.assertLess(branch.index("CheckPairedLiftRide(player)"), branch.index("InVault(player, stage)"))
         land = psc[psc.index("Function CheckLanding"):psc.index("bool Function Near")]
-        self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 3.0", land)   # three seconds after the arrival that took
+        self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 0.25", land)   # 0.25 s settle wait for fall-rescue check
 
     def test_special_at_the_vault_terminal(self):
         """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
@@ -755,8 +762,9 @@ class ContractTests(unittest.TestCase):
         cs, psc = read(CS), read(PSC)
         self.assertIn("Stages = { " + ", ".join(str(s) for s in ng.STAGES) + " }", cs)
         for s in ng.STAGES:
-            if s not in (20, 30):                            # 20 is set by the looks script or the wait, 30 by the cog door
+            if s not in (15, 20, 30):                            # 15 is set by RunPodExitHook, 20 is set by the looks script or the wait, 30 by the cog door
                 self.assertRegex(psc, rf"AdvanceTo\({s}\)")
+        self.assertIn("SetStage(15)", psc)
         self.assertIn("SetStage(20)", read(LOOKS))
         self.assertIn("AdvanceTo(30)", psc)
         self.assertIn("SetObjectiveDisplayed(10)", psc)
@@ -769,7 +777,7 @@ class ContractTests(unittest.TestCase):
         listed = {int(m.group(1)): m.group(2).strip()
                   for m in re.finditer(r"^\s+(\d+) ([a-z].*)$", header[header.index("Stages are the published"):], re.M)}
         self.assertEqual(listed, ng.STAGE_CONTRACT)
-        self.assertEqual(ng.STAGES, (1, 5, 10, 20, 30, 40, 200, 210))
+        self.assertEqual(ng.STAGES, (1, 5, 10, 15, 20, 30, 40, 200, 210))
         self.assertEqual(list(ng.STAGE_CONTRACT), [0] + list(ng.STAGES))
         doc = read(os.path.join(ROOT, "docs", "newgame", "vault111-start.md"))
         audit = read(os.path.join(ROOT, "docs", "newgame", "lift-rules-audit.md"))
@@ -1030,9 +1038,10 @@ class ContractTests(unittest.TestCase):
         calls = set(re.findall(r"\.(\w+)\(", psc)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer|AddInventoryEventFilter)\(", psc, re.M))
         listed = {f for bases in ng.NATIVES[ng.SCRIPT].values() for f in bases}
         own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", psc, re.M))
-        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls go through CastAs + CallFunction
+        # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls go through CastAs + CallFunction;
+        # UnequipItem (Actor.psc) and RemoveItem (ObjectReference.psc) verified in ContentResources.zip for R15 silent starter strip.
         calls |= set(re.findall(r"^Event (?:\w+\.)?(On\w+)\(", psc, re.M)) - {"OnTimer"}
-        fo4sf_methods = {"GetPositionY", "GetPositionZ"}
+        fo4sf_methods = {"GetPositionY", "GetPositionZ", "UnequipItem", "RemoveItem"}
         missing = calls - listed - own - fo4sf_methods
         self.assertEqual(missing, set())
         self.assertTrue({"OnQuestStarted", "OnQuestInit", "FadeOutGame", "WaitFor3DLoad", "StartNoWait", "IsStarting"} <= calls)
@@ -1079,12 +1088,15 @@ class ContractTests(unittest.TestCase):
 # Starfield's Game.psc declarations (PC read, 19 Oct): the fade in turns saving and the HUD on with both
 CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, bool abShowControlsDisabledMessage) "
            "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n"
-           "Function ShowFirstPersonGeometry(bool abShow = true) native global\n")
+           "Function ShowFirstPersonGeometry(bool abShow = true) native global\n"
+           "Function ForceFirstPerson() native global\n")
 # Game.FadeOutGame, our own start's fade in: the five-argument call Roleplayers' Alternate Start makes (FO4's parameter
 # names; Starfield's declaration is what the precheck reads)
 FADE = ("Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration, "
         "bool abStayFaded = false) native global\n")
-FAST_READ = "bool Function IsFastTravelEnabled() native global\n"
+FAST_READ = ("bool Function IsFastTravelEnabled() native global\n"
+             "Function FastTravel(ObjectReference akDestination) native global\n")
+AUTOSAVE = "Function RequestAutoSave() native global\n"
 # Actor.psc's declarations the quest script itself needs: the guard's GetLevel, the inventory reset's EquipItem /
 # IsEquipped and the O2 fill's ModValue / GetValue (FO4's signatures; Starfield's are what the precheck reads: its
 # Actor.psc declares GetValue on a parent, 28 Oct). ObjectReference's RemoveAllItems, GetItemCount and AddItem are
@@ -1093,9 +1105,16 @@ ACTOR_O2 = ("Function ModValue(ActorValue akAV, float afAmount) native\n"
             "float Function GetValue(ActorValue akAV) native\n")
 ACTOR_CORE = ("int Function GetLevel() native\n"
               "Function EquipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
+              "Function UnequipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
               "bool Function IsEquipped(Form akItem) native\n"
+              "bool Function IsDead() native\n"
               "Function AddToFaction(Faction akFaction) native\n"
-              "Event OnPlayerLoadGame()\nEndEvent\n" + ACTOR_O2)
+              "bool Function PlayIdle(Idle akIdle) native\n"
+              "Function SheatheWeapon() native\n"
+              "Event OnPlayerLoadGame()\nEndEvent\n"
+              "Event OnDying(ObjectReference akKiller)\nEndEvent\n"
+              "Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n"
+              "Event OnItemUnequipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n" + ACTOR_O2)
 
 
 def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None, referencealias=None, debug=None,
@@ -1113,8 +1132,9 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                  "Function Notification(string a) native global\nFunction CenterOnCell(string asCellname) native global\n",
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
+                                              "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
-                                              + CHARGEN + FADE + FAST_READ,
+                                              + CHARGEN + FADE + FAST_READ + AUTOSAVE,
         "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\nFunction SetValue(float afNewValue) native\n",
         "InputEnableLayer": "Scriptname InputEnableLayer extends ScriptObject\nInputEnableLayer Function Create() native global\nFunction EnableHandscanner(bool a = true) native\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
@@ -1125,12 +1145,14 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "ScriptObject": scriptobject if scriptobject is not None else
                         "Function StartTimer(float a, int b = 0) native\nFunction RegisterForMenuOpenCloseEvent(string asMenuName) native\n"
                         "Function UnregisterForMenuOpenCloseEvent(string asMenuName) native\n"
+                        "Function SendCustomEvent(CustomEventName asEvent, Var[] akArgs = None) native\n"
                         "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\nEvent OnInit()\nEndEvent\n",
         # ReferenceAlias.psc (PC read 19 Oct, NG-L3): OnPlayerLoadGame, the version script's event
         "ReferenceAlias": referencealias if referencealias is not None else
                           "Scriptname ReferenceAlias extends Alias\nEvent OnPlayerLoadGame()\nEndEvent\n",
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
+        "Weather": "Scriptname Weather extends Form Native Hidden\nFunction ForceActive(bool abOverride = false) native\n",
     }
     if animation:
         base["ScriptObject"] += ("\nFunction RegisterForAnimationEvent(ObjectReference source, string name) native\n"
@@ -1200,7 +1222,8 @@ class PrecheckTests(unittest.TestCase):
     def test_missing_show_race_menu_only_drops_the_looks(self):
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                    + CHARGEN + FADE + FAST_READ)
+                    "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
+                    + CHARGEN + FADE + FAST_READ + AUTOSAVE)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Game.ShowRaceMenu"])
         self.assertFalse(r["natives"][ng.LOOKS]["Game.ShowRaceMenu"])
@@ -1260,7 +1283,15 @@ class PrecheckTests(unittest.TestCase):
         --keep-inventory builds still compile it): an Actor.psc without EquipItem / IsEquipped is a core miss, not an optional drop."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
-                          "Function AddToFaction(Faction akFaction) native\nEvent OnPlayerLoadGame()\nEndEvent\n" + ACTOR_O2 +
+                          "Function UnequipItem(Form akItem, bool abPreventRemoval = false, bool abSilent = false) native\n"
+                          "bool Function IsDead() native\n"
+                          "Function AddToFaction(Faction akFaction) native\n"
+                          "bool Function PlayIdle(Idle akIdle) native\n"
+                          "Function SheatheWeapon() native\n"
+                          "Event OnPlayerLoadGame()\nEndEvent\n"
+                          "Event OnDying(ObjectReference akKiller)\nEndEvent\n"
+                          "Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n"
+                          "Event OnItemUnequipped(Form akBaseObject, ObjectReference akReference)\nEndEvent\n" + ACTOR_O2 +
                           "Function SetValue(ActorValue akAV, float afValue) native\nfloat Function GetValue(ActorValue akAV) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Actor.EquipItem", "Actor.IsEquipped"])
@@ -1292,7 +1323,8 @@ class PrecheckTests(unittest.TestCase):
         without the second is too, and it drops the looks and SPECIAL scripts as well, which start their timers on it."""
         z = os.path.join(self.tmp, "cr.zip")
         fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
-                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN + FAST_READ)
+                         "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
+                         "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n" + CHARGEN + FAST_READ + AUTOSAVE)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], ["Game.FadeOutGame"])
         self.assertEqual(r["drop"], [])
@@ -1318,7 +1350,7 @@ class PrecheckTests(unittest.TestCase):
         """The creator's close is awaited with RegisterForMenuOpenCloseEvent / OnMenuOpenCloseEvent (ScriptObject,
         PC read 19 Oct): both FO4SF_NewGameQuest (S5/X3) and FO4SF_NewGameLooks require them."""
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\n")
+        fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\nFunction SendCustomEvent(CustomEventName asEvent, Var[] akArgs = None) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(
             r["missing_core"],
@@ -1334,6 +1366,27 @@ class PrecheckTests(unittest.TestCase):
         with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
             self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
         self.assertIn("--no-looks", o.getvalue())
+
+    def test_task0a_natives_ownership_in_precheck(self):
+        self.assertIn("FastTravel", ng.NATIVES[ng.SCRIPT]["Game"])
+        self.assertNotIn("EnableFastTravel", ng.NATIVES[ng.SCRIPT]["Game"])
+        for obj_native in ("AddToMap", "EnableFastTravel", "Reset"):
+            self.assertIn(obj_native, ng.NATIVES[ng.SCRIPT]["ObjectReference"])
+        z = os.path.join(self.tmp, "cr.zip")
+        obj_without_eft = "\n".join(
+            f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"] if f != "EnableFastTravel"
+        )
+        fake_zip(
+            z,
+            game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
+                 "ObjectReference Function FindClosestReferenceOfType(Form arBaseObject, float afX, float afY, float afZ, float afRadius) native global\n"
+                 "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
+                 "Function EnableFastTravel(bool abEnable = true) native global\n"
+                 + CHARGEN + FADE + FAST_READ + AUTOSAVE,
+            objectreference=obj_without_eft,
+        )
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], ["ObjectReference.EnableFastTravel"])
 
 
 # the guard's stand-down line as the quest script writes it since our own start (days, level, and whether the game was
@@ -2149,7 +2202,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
     def test_s5_warfare_branch_shared_map_setup_and_stage_210(self):
         psc = read(PSC)
         self.assertEqual(psc.count("int Function RunSharedMapSetup()"), 1)
-        ascent = psc[psc.index("Function StartAscent"):psc.index("Event OnAnimationEvent")]
+        ascent = psc[psc.index("bool Function StartPairedLiftRide"):psc.index("Function CheckPairedLiftRide")]
         wf = psc[psc.index("Function RunWarfareBranch"):psc.index("Event OnMenuOpenCloseEvent")]
         self.assertIn("RunSharedMapSetup()", ascent)
         self.assertIn("RunSharedMapSetup()", wf)
@@ -2158,7 +2211,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn('CallFunction("ApplyWarfareBackground"', wf)
         self.assertIn('Trace("warfare gear n=" + gearAdded)', wf)
         self.assertIn('Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())', wf)
-        self.assertIn('CallFunction("DiscoverSingleMarker"', wf)
+        self.assertIn("DiscoverMarkerViaMapMarkers(wMarker)", wf)
+        self.assertIn('Trace("arrival discovery silent="', wf)
+        self.assertIn("DiscoverMarkerViaMapMarkers(", psc)
+        self.assertIn('CallFunction("DiscoverSingleMarkerSilent"', psc)
         self.assertIn('CallFunction("SetFactionScoresAbsolute"', wf)
         self.assertIn('CallFunction("SetKarmaAbsolute"', wf)
         self.assertIn("player.AddToFaction(fac)", wf)
@@ -2199,7 +2255,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn("GearDoorConsoleActiId = 0x818", cs)
         self.assertIn("GearDoorConsoleRefId = 0x819", cs)
         self.assertIn('if (console == 0)\n            throw new Refusal(', cs)
-        invault = psc[psc.index("Function InVault"):psc.index("Function StartAscent")]
+        invault = psc[psc.index("Function InVault"):psc.index("Function Surface(Actor player)")]
         self.assertIn("if stage == 20 && CogDoorId > 0 && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", invault)
         self.assertIn("cogDoorWatchedRef.BlockActivation(True, False)", psc)
         self.assertIn('RegisterForRemoteEvent(cogDoorWatchedRef, "OnActivate")', psc)
@@ -2216,7 +2272,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         # A6 & A16: FO4SF_PipboyAcquired lives solely in FO4SFCoreValues.esm:000865; 0x80C and 0x810..0x816 stay reserved
         self.assertNotIn("PipboyAcquiredGlobId =", cs)
         self.assertIn('var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));', cs)
-        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 }", cs)
+        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x825 }", cs)
         self.assertIn("PipboyWristArmorId = 0x80D", cs)
         self.assertIn("PipboyCorpseActiId = 0x80E", cs)
         self.assertIn("PipboyCorpseRefId = 0x80F", cs)
@@ -2234,7 +2290,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn("if akBaseItem == VaultPistolBase", psc)
         self.assertIn('Trace("console refused: no pipboy")', psc)
         self.assertIn('Trace("pipboy pickup equipped flag=1 worn=" + worn)', psc)
-        self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)', psc)
+        self.assertEqual(psc.count('Trace("pistol picked '), 1)
         z = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
         z.close()
         try:
@@ -2393,6 +2449,11 @@ class Phase2BeginningRealTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            EnsureVaultInteractivesRegistered=lambda: None,
+            SyncPipboyOwnedWornState=lambda *a: False,
+            TriggerVaultPodRecoveryAutosave=lambda *a: None,
+            CancelTimer=lambda *a: None,
+            vaultSavingRelocked=False,
             Trace=lambda m: logs.append(m),
         )
         funcs = (
@@ -2400,8 +2461,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
-            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "EnterVault", "PodEntryY", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
             "MenuEvent", "StageEvent", "TimerEvent",
         )
         vars_csv = (
@@ -2409,7 +2470,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
-            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
         exec(compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec"), ns)
 
@@ -2456,15 +2517,15 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
-            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "EnterVault", "PodEntryY", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
-            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
 
@@ -2570,6 +2631,9 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     CompleteQuest=lambda: None,
                     StartLandingQuests=lambda: None,
                     EnsureLoadHookRegistered=lambda p: None,
+                    TriggerVaultPodRecoveryAutosave=lambda *a: None,
+                    CancelTimer=lambda *a: None,
+                    vaultSavingRelocked=False,
                     Trace=lambda m: logs.append(m),
                 )
                 exec(compiled, ns)
@@ -2620,15 +2684,15 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
+            "RunWarfareBranch", "DiscoverMarkerViaMapMarkers", "StripStarterItemsSilently", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
-            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
 
@@ -2645,6 +2709,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     Enable=lambda *a: None,
                     MoveTo=lambda *a: None,
                     SetPosition=lambda *a: None,
+                    AddToMap=lambda *a: None,
+                    SetMarkerDiscovered=lambda: None,
+                    IsMapMarkerVisible=lambda: True,
+                    CanFastTravelToMarker=lambda: True,
                 )
                 player = SimpleNamespace(
                     pos=(0.0, 0.0, 0.0),
@@ -2664,6 +2732,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
                     IsInInterior=lambda: player.interior,
                     Is3DLoaded=lambda: True,
+                    GetItemCount=lambda *_a: 0,
+                    IsEquipped=lambda *_a: False,
+                    UnequipItem=lambda *_a: None,
+                    RemoveItem=lambda *_a: None,
                     RemoveAllItems=lambda *a: None,
                     AddItem=lambda *a: None,
                     EquipItem=lambda *a: None,
@@ -2795,6 +2867,11 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     SetActive=lambda *a: None,
                     CompleteQuest=lambda: None,
                     StartLandingQuests=lambda: None,
+                    EnsureVaultInteractivesRegistered=lambda: None,
+                    SyncPipboyOwnedWornState=lambda *a: False,
+                    TriggerVaultPodRecoveryAutosave=lambda *a: None,
+                    CancelTimer=lambda *a: None,
+                    vaultSavingRelocked=False,
                     Trace=lambda m: logs.append(m),
                 )
                 exec(compiled, ns)
@@ -2831,16 +2908,16 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "ResetInventory",
-            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
-            "NoteLooksStage20", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
+            "SpawnAtStoryStartPlace", "EnterVault", "PodEntryY", "StandsInVault", "ResetInventory",
+            "RunWarfareBranch", "DiscoverMarkerViaMapMarkers", "StripStarterItemsSilently", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, h00SkipMap, "
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
-            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer"
+            "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), PSC, "exec")
         rows = sp.load_start_places()
@@ -2897,6 +2974,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 Enable=lambda *a: None,
                 MoveTo=lambda *a: None,
                 SetPosition=lambda *a: None,
+                AddToMap=lambda *a: None,
+                SetMarkerDiscovered=lambda: None,
+                IsMapMarkerVisible=lambda: True,
+                CanFastTravelToMarker=lambda: True,
             )
             player = SimpleNamespace(
                 pos=(0.0, 0.0, 0.0),
@@ -2917,6 +2998,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 Is3DLoaded=lambda: True,
                 GetItemCount=lambda *a: 0,
                 RemoveAllItems=lambda *a: None,
+                UnequipItem=lambda *a: None,
+                RemoveItem=lambda *a: 0,
                 AddItem=lambda *a: None,
                 EquipItem=lambda *a: None,
                 IsEquipped=lambda *a: True,
@@ -3019,6 +3102,11 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 SetActive=lambda *a: None,
                 CompleteQuest=lambda: None,
                 StartLandingQuests=lambda: None,
+                EnsureVaultInteractivesRegistered=lambda: None,
+                SyncPipboyOwnedWornState=lambda *a: False,
+                TriggerVaultPodRecoveryAutosave=lambda *a: None,
+                CancelTimer=lambda *a: None,
+                vaultSavingRelocked=False,
                 Trace=lambda m: logs.append(m),
             )
             exec(compiled, ns)
@@ -3096,9 +3184,9 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "FillO2",
+            "SpawnAtStoryStartPlace", "EnterVault", "PodEntryY", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "StripStarterItemsSilently", "FillO2",
             "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
-            "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
+            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
@@ -3106,7 +3194,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, "
-            "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
+            "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
 
@@ -3218,6 +3306,9 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     CompleteQuest=lambda: None,
                     StartLandingQuests=lambda: None,
                     EnsureLoadHookRegistered=lambda p: None,
+                    TriggerVaultPodRecoveryAutosave=lambda *a: None,
+                    CancelTimer=lambda *a: None,
+                    vaultSavingRelocked=False,
                     EnsureVaultInteractivesRegistered=lambda: None,
                     Near=lambda *a: False,
                     HoldOffPass=lambda p: None,
@@ -3296,8 +3387,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "ForceFadeIn", "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
-            "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+            "ForceFadeIn", "RunWarfareBranch", "DiscoverMarkerViaMapMarkers", "StripStarterItemsSilently", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
+            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
@@ -3305,7 +3396,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
             "setupWaitingCreator, warfareWaitingCreator, mapSetupDone, applied, pendingStage, pendingStageBy, "
             "looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, ticks, startedAt, scannerLayer, "
-            "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
+            "podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
 
@@ -3343,6 +3434,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
             Enable=lambda *a: None,
             MoveTo=lambda *a: None,
             SetPosition=lambda *a: None,
+            AddToMap=lambda *a: None,
+            SetMarkerDiscovered=lambda: None,
+            IsMapMarkerVisible=lambda: True,
+            CanFastTravelToMarker=lambda: True,
         )
         load_checks = [0]
         def is_3d_loaded():
@@ -3367,6 +3462,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
             GetWorldSpace=lambda: None if player.interior else "CommonwealthWorld",
             IsInInterior=lambda: player.interior,
             Is3DLoaded=is_3d_loaded,
+            GetItemCount=lambda *_a: 0,
+            IsEquipped=lambda *_a: False,
+            UnequipItem=lambda *_a: None,
+            RemoveItem=lambda *_a: None,
             RemoveAllItems=lambda *a: None,
             AddItem=lambda *a: None,
             EquipItem=lambda *a: None,
@@ -3463,6 +3562,11 @@ class Phase2BeginningRealTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            EnsureVaultInteractivesRegistered=lambda: None,
+            SyncPipboyOwnedWornState=lambda *a: False,
+            TriggerVaultPodRecoveryAutosave=lambda *a: None,
+            CancelTimer=lambda *a: None,
+            vaultSavingRelocked=False,
             Trace=lambda m: logs.append(m),
         )
         exec(compiled, ns)
@@ -3507,15 +3611,15 @@ class Phase2BeginningRealTests(unittest.TestCase):
         wrapped = psc + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
         funcs = (
             "FadeIn", "ForceFadeIn", "ReleaseStoryLandingFade", "DisableHandScanner",
-            "StandsInVault", "FinishSurface", "CheckLanding", "RequestArrivalDiscovery",
-            "ApplyStage", "AdvanceTo", "TimerEvent",
+            "StandsInVault", "FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers",
+            "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "TimerEvent",
         )
         vars_csv = (
             "faded, warfareFadeTicks, storyFadeTicks, loadingHookRegistered, vaultMoves, "
             "applied, pendingStage, pendingStageBy, exitUsedFallback, scannerLayer, "
             "arrivalWorld, surfaceSets, surfaceMovedAt, surfaceMoves, arrivedAt, fallbackPending, "
             "discoveryMarkerMoved, discoveryAttachPending, landingChecks, asked, "
-            "h00SkipDiscovery, h00SkipSetPos"
+            "h00SkipDiscovery, h00SkipSetPos, vaultSavingRelocked"
         )
 
         def run_story_landing(source_text, *, stay_interior=False, delay_3d_once=False):
@@ -3537,6 +3641,9 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 MoveTo=lambda *a: None,
                 SetPosition=lambda *a: None,
                 SetMarkerDiscovered=lambda: None,
+                AddToMap=lambda *a: None,
+                IsMapMarkerVisible=lambda: True,
+                CanFastTravelToMarker=lambda: True,
             )
             loaded_state = [True]
             delayed_done = [False]
@@ -3563,7 +3670,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             )
 
             ns = dict(
-                faded=False, warfareFadeTicks=0, storyFadeTicks=0, loadingHookRegistered=False,
+                faded=False, warfareFadeTicks=0, storyFadeTicks=0, loadingHookRegistered=False, SinglePassLandingFade=False, surfaceFadeInDone=False,
                 vaultMoves=1, applied=30, pendingStage=-1, pendingStageBy="other",
                 exitUsedFallback=False, scannerLayer=None,
                 arrivalWorld=None, surfaceSets=0, surfaceMovedAt=99.0, surfaceMoves=1,
@@ -3600,6 +3707,9 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 SetActive=lambda *a: None,
                 CompleteQuest=lambda: None,
                 StartLandingQuests=lambda: logs.append("landing quests started min00=True keeper=True codsworth01=True"),
+                TriggerVaultPodRecoveryAutosave=lambda *a: None,
+                CancelTimer=lambda *a: None,
+                vaultSavingRelocked=False,
                 FailExit=lambda r: logs.append(f"fail {r}"),
                 Trace=lambda m: logs.append(m),
             )
@@ -3697,6 +3807,376 @@ class Phase2BeginningRealTests(unittest.TestCase):
         )
         self.assertEqual(summary["story_fade_reassert_ticks"], [1, 2, 3])
         self.assertEqual(summary["warfare_fade_reassert_ticks"], [])
+
+
+class Round12Task1bAnd1iTests(unittest.TestCase):
+    """Task 1b (Vault 111 death recovery before stage 200) and Task 1i (host world from persistent core refs)."""
+
+    def test_task1b_pod_autosave_locks_vault_saving_and_ondying_reload_fallback(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import translated_functions
+
+        psc = read(PSC)
+        looks_psc = read(LOOKS)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_dying = re.search(r"Event Actor\.OnDying\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_stage = re.search(r"Event OnStageSet\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        self.assertIsNotNone(ev_timer)
+        self.assertIsNotNone(ev_dying)
+        self.assertIsNotNone(ev_stage)
+        wrapped = (
+            psc
+            + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+            + f"\nFunction DyingEvent({ev_dying[1]})\n{ev_dying[2]}EndFunction\n"
+            + f"\nFunction StageSetEvent({ev_stage[1]})\n{ev_stage[2]}EndFunction\n"
+        )
+        funcs = (
+            "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
+            "ClearVaultSaveLock", "RelockVaultSaving",
+            "PodEntryY", "PodSafeY",
+            "NoteLooksStage20", "ApplyStage", "Actor.OnPlayerLoadGame",
+            "TimerEvent", "DyingEvent", "StageSetEvent", "ResolveHostWorld",
+        )
+        vars_csv = (
+            "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
+            "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
+            "loadHookRegistered, dyingHookRegistered, "
+            "h00SuspectsRead, rideActive, rideDone, rideTransferred, ridingLift, ridingCell, "
+            "surfaceMovedAt, surfaceMoves, surfaceSets, asked, "
+            "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+        looks_compiled = compile(translated_functions(looks_psc, ("Done",), ""), LOOKS, "exec")
+
+        def run_case(*, initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False, loaded=True, dead=False, fire_stage_set=True):
+            logs, chargens, autosaves, timers, cancels, reg_events = [], [], [], [], [], []
+            moves, sets, angles, restores = [], [], [], []
+            cur_stage = [initial_stage]
+            allow_anchor = [True]
+            health_av = object()
+            bench_ws = object()
+            anchor_ws = object()
+            bench_ref = SimpleNamespace(GetWorldSpace=lambda: bench_ws)
+            exit_ref = SimpleNamespace(GetWorldSpace=lambda: anchor_ws)
+            vault_anchor = SimpleNamespace(GetParentCell=lambda: "VaultCell")
+            player = SimpleNamespace(
+                pos=(1.0, 2.0, 3.0),
+                interior=in_vault,
+                loaded=loaded,
+                dead=dead,
+                Is3DLoaded=lambda: player.loaded,
+                IsDead=lambda: player.dead,
+                IsInInterior=lambda: player.interior,
+                SetPosition=lambda x, y, z: (sets.append((x, y, z)), setattr(player, "pos", (x, y, z))),
+                MoveTo=lambda ref, dx, dy, dz, *rest: moves.append((ref, dx, dy, dz)),
+                SetAngle=lambda rx, ry, rz: angles.append((rx, ry, rz)),
+                RestoreValue=lambda av, amt: restores.append((av, amt)),
+            )
+
+            def get_form(fid, plg):
+                if (fid, plg) == (0x0002D4, "Starfield.esm"):
+                    return health_av
+                if (fid, plg) == (0x805, "FO4Port.esm"):
+                    return vault_anchor
+                if (fid, plg) == (0x005C50, "FO4TerrainCore.esm"):
+                    return bench_ref
+                if (fid, plg) == (0x0A775B, "FO4TerrainCore.esm") and allow_anchor[0]:
+                    return exit_ref
+                return None
+
+            ns = dict(
+                _PStr=lambda v: "None" if v is None else str(v),
+                GameModeGlobal=SimpleNamespace(GetValue=lambda: mode),
+                CorePlugin="FO4TerrainCore.esm",
+                ExitAnchorId=0x0A775B,
+                VaultPlugin="FO4Port.esm",
+                VaultAnchorId=0x805,
+                AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
+                PodX=-62.5, PodY=1.5, PodZ=-1.0, PodLift=0.3, PodHeading=90.0,
+                PodEntryStep=-2.5, PodSafeStep=-3.2, PodSafeHeading=270.0, PodExitMode="safe_spawn",
+                applied=0, pendingStage=-1, pendingStageBy="other", exitUsedFallback=False,
+                vaultPodAutosaved=pre_autosaved, vaultSavingRelocked=False, vaultRecoveryTriggered=False,
+                vaultPodAutosaveSkips=0, loadHookRegistered=False, dyingHookRegistered=False,
+                warfareFadeTicks=0, storyFadeTicks=0, modeBoxWaiting=False, modeBoxWaitSeconds=0,
+                ticks=0, looksSetStage20=False,
+                LogName="fo4sf_newgame",
+                h00SuspectsRead=False, rideActive=False, rideDone=False, rideTransferred=False, rideFadeStarted=False,
+                ridingLift=None, ridingCell=None, surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0,
+                asked=False, returnSurfacePending=False, returnVaultAsked=False,
+                returnSurfaceWaitTicks=0, returnSurfaceTries=0, exitFailures=0,
+                Debug=SimpleNamespace(OpenUserLog=lambda *_: None),
+                ReturnPlayerToVaultPlatform=lambda *_: None,
+                UnregisterForAnimationEvent=lambda *_: None,
+                Game=SimpleNamespace(
+                    GetPlayer=lambda: player,
+                    GetFormFromFile=get_form,
+                    SetInChargen=lambda a, b, c: chargens.append((a, b, c)),
+                    RequestAutoSave=lambda: autosaves.append(cur_stage[0]),
+                    ShowFirstPersonGeometry=lambda *a: None,
+                    FadeOutGame=lambda *a: None,
+                    SetCharGenHUDMode=lambda *a: None,
+                ),
+                RegisterForRemoteEvent=lambda obj, ev: reg_events.append((obj, ev)),
+                StandsInVault=lambda p: p.interior,
+                StartTimer=lambda s, tid: timers.append((s, tid)),
+                CancelTimer=lambda tid: cancels.append(tid),
+                GetStage=lambda: cur_stage[0],
+                SetStage=lambda st: (cur_stage.__setitem__(0, st), ns["StageSetEvent"](st, 0) if fire_stage_set else None),
+                SetObjectiveDisplayed=lambda *a: None,
+                SetObjectiveCompleted=lambda *a: None,
+                SetActive=lambda *a: None,
+                CompleteQuest=lambda: None,
+                StartLandingQuests=lambda: None,
+                ReleaseStoryLandingFade=lambda: None,
+                EnsureVaultInteractivesRegistered=lambda: None,
+                SyncPipboyOwnedWornState=lambda *a: False,
+                Trace=lambda m: logs.append(m),
+            )
+            exec(compiled, ns)
+            return SimpleNamespace(
+                ns=ns, player=player, cur_stage=cur_stage, logs=logs, chargens=chargens,
+                autosaves=autosaves, timers=timers, cancels=cancels, reg_events=reg_events,
+                moves=moves, sets=sets, angles=angles, restores=restores,
+                health_av=health_av, bench_ws=bench_ws, anchor_ws=anchor_ws, allow_anchor=allow_anchor,
+            )
+
+        # 1. Stage 20 cryo pod opens -> autosave once (momentary save unlock), then Timer 6 re-locks inside Vault (< 200)
+        c1 = run_case(initial_stage=10, mode=1.0, in_vault=True)
+        c1.cur_stage[0] = 20
+        c1.ns["ApplyStage"](20, "Trigger")
+        self.assertTrue(c1.ns["vaultPodAutosaved"])
+        self.assertEqual(c1.autosaves, [20])
+        self.assertEqual(c1.chargens, [(False, False, False)])
+        self.assertIn((1.5, 6), c1.timers)
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=0", c1.logs)
+        self.assertIn((c1.player, "OnDying"), c1.reg_events)
+        c1.ns["TimerEvent"](6)
+        self.assertTrue(c1.ns["vaultSavingRelocked"])
+        self.assertEqual(c1.chargens[-1], (True, False, False))
+        self.assertIn("vault_death_recovery=save_locked stage=20", c1.logs)
+
+        # Dying after pod autosave logs autosave mode and lets the engine reload that autosave
+        c1.ns["DyingEvent"](c1.player, None)
+        self.assertIn("vault_death_recovery=autosave stage=20", c1.logs)
+        self.assertEqual(c1.restores, [])
+
+        # Stage 40 exit cancels Timers 6 & 7 and clears the Vault save lock
+        c1.cur_stage[0] = 40
+        c1.ns["ApplyStage"](40, "Trigger")
+        self.assertIn(6, c1.cancels)
+        self.assertIn(7, c1.cancels)
+        self.assertFalse(c1.ns["vaultSavingRelocked"])
+        self.assertEqual(c1.chargens[-1], (False, False, False))
+
+        # 1b (#853 M1): If player is unloaded / outside vault at stage 20, autosave is skipped and retried via Timer 7
+        c_skip = run_case(initial_stage=10, mode=1.0, in_vault=True, loaded=False)
+        c_skip.cur_stage[0] = 20
+        c_skip.ns["ApplyStage"](20, "Trigger")
+        self.assertFalse(c_skip.ns["vaultPodAutosaved"])
+        self.assertEqual(c_skip.ns["vaultPodAutosaveSkips"], 1)
+        self.assertEqual(c_skip.autosaves, [])
+        self.assertIn("vault_death_recovery=autosave_skip skips=1 stage=20", c_skip.logs)
+        self.assertIn((1.0, 7), c_skip.timers)
+        c_skip.player.loaded = True
+        c_skip.ns["TimerEvent"](7)
+        self.assertTrue(c_skip.ns["vaultPodAutosaved"])
+        self.assertEqual(c_skip.autosaves, [20])
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=1", c_skip.logs)
+
+        # 1c (#852 candidate-2g-fix4): Quick Start path (FO4SF_NewGameLooks.Done("quick start") -> NoteLooksStage20 -> SetStage(20))
+        # MUST arm/fire vault_death_recovery=autosave stage=20 even though OnStageSet(20) short-circuits ApplyStage;
+        # a subsequent death reloads via the engine with zero RequestAutoSave during OnDying.
+        c_qs = run_case(initial_stage=10, mode=1.0, in_vault=True)
+
+        def qs_set_stage(st):
+            c_qs.cur_stage[0] = st
+            c_qs.ns["StageSetEvent"](st, 0)
+
+        looks_ns = dict(
+            GetStage=lambda: c_qs.cur_stage[0],
+            SetStage=qs_set_stage,
+            TracePosition=lambda *_: None,
+            Trace=lambda m: c_qs.logs.append(m),
+        )
+        looks_ns["self"] = SimpleNamespace(NoteLooksStage20=c_qs.ns["NoteLooksStage20"])
+        exec(looks_compiled, looks_ns)
+        looks_ns["Done"]("quick start")
+        self.assertTrue(c_qs.ns["looksSetStage20"])
+        self.assertTrue(c_qs.ns["vaultPodAutosaved"])
+        self.assertEqual(c_qs.cur_stage[0], 20)
+        self.assertEqual(c_qs.autosaves, [20])
+        self.assertEqual(c_qs.chargens, [(False, False, False)])
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=0", c_qs.logs)
+        self.assertIn((1.5, 6), c_qs.timers)
+        c_qs.ns["TimerEvent"](6)
+        self.assertTrue(c_qs.ns["vaultSavingRelocked"])
+        self.assertEqual(c_qs.chargens[-1], (True, False, False))
+        c_qs.player.dead = True
+        c_qs.ns["DyingEvent"](c_qs.player, None)
+        self.assertEqual(c_qs.autosaves, [20])
+        self.assertEqual(c_qs.restores, [])
+        self.assertIn("vault_death_recovery=autosave stage=20", c_qs.logs)
+
+        # 1d (Task 0a): Even when SetStage(20) does NOT fire OnStageSet synchronously, NoteLooksStage20() MUST commit
+        # stage 20 BEFORE TriggerVaultPodRecoveryAutosave(20) calls Game.RequestAutoSave(), so pod autosave is ALWAYS stage 20.
+        c_qs_nosync = run_case(initial_stage=10, mode=1.0, in_vault=True, fire_stage_set=False)
+        looks_nosync_ns = dict(
+            GetStage=lambda: c_qs_nosync.cur_stage[0],
+            SetStage=lambda st: c_qs_nosync.cur_stage.__setitem__(0, st),
+            TracePosition=lambda *_: None,
+            Trace=lambda m: c_qs_nosync.logs.append(m),
+            self=SimpleNamespace(NoteLooksStage20=c_qs_nosync.ns["NoteLooksStage20"]),
+        )
+        exec(looks_compiled, looks_nosync_ns)
+        looks_nosync_ns["Done"]("quick start")
+        self.assertEqual(c_qs_nosync.cur_stage[0], 20)
+        self.assertEqual(c_qs_nosync.autosaves, [20])
+        self.assertEqual(c_qs_nosync.logs.count("stage 20 by=other"), 0)
+
+        # Direct OnStageSet(20, 0) (even when applied >= 20 and looksSetStage20=True) also fires stage=20 autosave once
+        c_set20 = run_case(initial_stage=20, mode=1.0, in_vault=True)
+        c_set20.ns["applied"] = 20
+        c_set20.ns["looksSetStage20"] = True
+        c_set20.ns["StageSetEvent"](20, 0)
+        self.assertTrue(c_set20.ns["vaultPodAutosaved"])
+        self.assertEqual(c_set20.autosaves, [20])
+        self.assertIn("vault_death_recovery=autosave stage=20 skips=0", c_set20.logs)
+
+        # Even if StageSetEvent(20, 0) is reached directly with applied >= 20, autosave fires and dead player cancels Timer 7
+        c_dead = run_case(initial_stage=20, mode=1.0, in_vault=True, pre_autosaved=False, dead=True)
+        c_dead.ns["applied"] = 20
+        c_dead.ns["StageSetEvent"](20, 0)
+        self.assertFalse(c_dead.ns["vaultPodAutosaved"])
+        self.assertEqual(c_dead.autosaves, [])
+        self.assertEqual(c_dead.chargens, [])
+        self.assertEqual(c_dead.timers, [])
+        self.assertIn(7, c_dead.cancels)
+
+        # 2. Dying BEFORE stage 200 without an autosave restores health + resets to pod_safe_spawn position & heading + logs pod_reset + arms Timer 7 (NO save in OnDying!)
+        c2 = run_case(initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False)
+        c2.ns["DyingEvent"](c2.player, None)
+        self.assertEqual(c2.restores, [(c2.health_av, 9999.0)])
+        self.assertAlmostEqual(c2.sets[-1][0], -62.5, places=3)
+        self.assertAlmostEqual(c2.sets[-1][1], 0.8, places=3)
+        self.assertAlmostEqual(c2.sets[-1][2], -0.7, places=3)
+        self.assertEqual(c2.angles[-1], (0.0, 0.0, 270.0))
+        self.assertEqual(c2.autosaves, [])
+        self.assertEqual(c2.chargens, [])
+        self.assertIn((1.0, 7), c2.timers)
+        self.assertNotIn((1.5, 6), c2.timers)
+        self.assertFalse(c2.ns["vaultPodAutosaved"])
+        self.assertIn("vault_death_recovery=pod_reset stage=10", c2.logs)
+        # Timer 7 then performs the deferred pod autosave & resets vaultRecoveryTriggered so subsequent Vault deaths reload autosave
+        c2.ns["TimerEvent"](7)
+        self.assertTrue(c2.ns["vaultPodAutosaved"])
+        self.assertFalse(c2.ns["vaultRecoveryTriggered"])
+        self.assertEqual(c2.autosaves, [10])
+        self.assertIn("vault_death_recovery=autosave stage=10 skips=0", c2.logs)
+
+        # 2b. Death-reload onto the stage-20 pod autosave (saved before Timer 6) re-locks Vault saving on load,
+        # and ApplyStage(210) clears vaultSavingRelocked / SetInChargen symmetrically with ApplyStage(40)/(200).
+        c_reload = run_case(initial_stage=20, mode=1.0, in_vault=True, pre_autosaved=True)
+        c_reload.ns["OnPlayerLoadGame"](c_reload.player)
+        self.assertTrue(c_reload.ns["vaultSavingRelocked"])
+        self.assertEqual(c_reload.chargens[-1], (True, False, False))
+        self.assertIn("vault_death_recovery=save_locked stage=20", c_reload.logs)
+        c_reload.cur_stage[0] = 210
+        c_reload.ns["ApplyStage"](210, "Trigger")
+        self.assertIn(6, c_reload.cancels)
+        self.assertIn(7, c_reload.cancels)
+        self.assertFalse(c_reload.ns["vaultSavingRelocked"])
+        self.assertEqual(c_reload.chargens[-1], (False, False, False))
+
+        # 3. After stage 200 or in Warfare mode, Vault death recovery does not trigger
+        c3 = run_case(initial_stage=200, mode=1.0, in_vault=True, pre_autosaved=False)
+        c3.ns["DyingEvent"](c3.player, None)
+        self.assertFalse(c3.ns["vaultRecoveryTriggered"])
+        c4 = run_case(initial_stage=10, mode=2.0, in_vault=True, pre_autosaved=False)
+        c4.ns["DyingEvent"](c4.player, None)
+        self.assertFalse(c4.ns["vaultRecoveryTriggered"])
+
+        # 4. Task 1i (#858 F7): ResolveHostWorld checks persistent ExitAnchorId 0x0A775B FIRST, falling back to 0x005C50
+        self.assertIs(c1.ns["ResolveHostWorld"](), c1.anchor_ws)
+        c1.allow_anchor[0] = False
+        self.assertIs(c1.ns["ResolveHostWorld"](), c1.bench_ws)
+        self.assertNotIn("MarsPlanetWorld", psc)
+
+        # 5. make_newgame.summarize() records vault_death_recovery lines
+        s = ng.summarize([
+            "[x] FO4SF_NEWGAME rt=10.0 vault_death_recovery=autosave stage=20 skips=0\n",
+            "[x] FO4SF_NEWGAME rt=12.0 vault_death_recovery=save_locked stage=20\n",
+        ])
+        self.assertEqual(s["vault_death_recovery"], ["autosave stage=20 skips=0", "save_locked stage=20"])
+
+
+class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
+    """G13 Minors 1 & 2: per-game arrival weather & Vault 111 jumpsuit fallback config + Papyrus wiring."""
+
+    def test_g13_game_start_config_pins_clear_weather_and_vault_suit_fallback(self):
+        cfg_path = os.path.join(ROOT, "src", "fo4sf", "core", "game_start_config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        fo4 = cfg["games"]["fo4"]
+        self.assertEqual(fo4["arrival_weather_plugin"], "Starfield.esm")
+        self.assertEqual(fo4["arrival_weather_id"], "0x0027CF9B")
+        self.assertTrue(fo4["arrival_weather_override"])
+        self.assertEqual(fo4["vault_suit_fallback_plugin"], "Starfield.esm")
+        self.assertEqual(fo4["vault_suit_fallback_armor_id"], "0x0001D1D7")
+        self.assertIn("0 ARMO", fo4["vault_suit_fallback_note"])
+
+        cs = read(CS)
+        for token in ('("ArrivalWeatherId", gs.ArrivalWeatherId)', '("ArrivalWeatherPlugin", gs.ArrivalWeatherPlugin)',
+                      '("ArrivalWeatherOverride", gs.ArrivalWeatherOverride)',
+                      '("VaultSuitFallbackId", gs.VaultSuitFallbackId)',
+                      '("VaultSuitFallbackPlugin", gs.VaultSuitFallbackPlugin)'):
+            self.assertIn(token, cs)
+        self.assertIn("ForceActive", ng.NATIVES[ng.SCRIPT]["Weather"])
+
+        from tests.test_exit_arrival import _PStr, translated_functions
+        psc = read(PSC)
+        compiled = compile(translated_functions(psc, ("ApplyArrivalWeather", "ResetInventory", "StripStarterItemsSilently"), ""), PSC, "exec")
+        traces = []
+        force_calls = []
+        weather_obj = type("Wthr", (), {"__repr__": lambda _s: "NewAtlantisWeather50(0027CF9B)",
+                                        "ForceActive": lambda _s, ov=False: force_calls.append(bool(ov))})()
+        suit_obj = type("Suit", (), {"__repr__": lambda _s: "Clothes_Miner_Jumpsuit(0001D1D7)"})()
+        forms = {
+            (0x0027CF9B, "Starfield.esm"): weather_obj,
+            (0x0001D1D7, "Starfield.esm"): suit_obj,
+        }
+        equipped = set()
+        added = []
+        player = type("Plr", (), {
+            "GetItemCount": lambda _s, _x=None: 0,
+            "IsEquipped": lambda _s, item: item in equipped,
+            "RemoveAllItems": lambda *_a: None,
+            "AddItem": lambda _s, item, n=1, s=False: added.append((item, n, s)),
+            "EquipItem": lambda _s, item, p=False, s=False: equipped.add(item),
+        })()
+        ns = {
+            "_PStr": _PStr,
+            "Trace": traces.append,
+            "SilentStarterStrip": False,
+            "StarterStripItems": [],
+            "VaultSuitId": 0,
+            "VaultPlugin": "FO4Port.esm",
+            "ArrivalWeatherId": 0x0027CF9B,
+            "ArrivalWeatherPlugin": "Starfield.esm",
+            "ArrivalWeatherOverride": True,
+            "VaultSuitFallbackId": 0x0001D1D7,
+            "VaultSuitFallbackPlugin": "Starfield.esm",
+            "Game": type("Gm", (), {"GetFormFromFile": staticmethod(lambda fid, plg: forms.get((fid, plg)))})(),
+        }
+        exec(compiled, ns)
+        ns["ApplyArrivalWeather"]()
+        self.assertEqual(force_calls, [True])
+        self.assertTrue(any("arrival weather id=2609051 plugin=Starfield.esm override=True" in ln for ln in traces), traces)
+
+        traces.clear()
+        ns["ResetInventory"](player)
+        self.assertEqual(added, [(suit_obj, 1, True)])
+        self.assertIn(suit_obj, equipped)
+        self.assertTrue(any("vault suit fallback equipped Clothes_Miner_Jumpsuit(0001D1D7) worn=True id=119255" in ln for ln in traces), traces)
 
 
 if __name__ == "__main__":

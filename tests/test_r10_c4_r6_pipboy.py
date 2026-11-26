@@ -317,7 +317,7 @@ class Round10C4R6PipboyTests(unittest.TestCase):
             "SuppressDataMenu=0",
             "TabOpensPipboy=0",
             "MapBlockStarMap=0",
-            "Arm=0",
+            "Arm=1",
             "BootOnFirstOpen=0",
         ):
             self.assertIn(f"\n{req}\n", shipped, req)
@@ -329,7 +329,7 @@ class Round10C4R6PipboyTests(unittest.TestCase):
             "SuppressDataMenu=0",
             "TabOpensPipboy=0",
             "MapBlockStarMap=0",
-            "Arm=0",
+            "Arm=1",
             "BootOnFirstOpen=0",
         ):
             self.assertIn(f"\n{req}\n", staged, req)

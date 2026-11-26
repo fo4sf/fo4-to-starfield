@@ -13,6 +13,7 @@ Scriptname FO4SF_MarkerProbeQuest extends Quest
 ;   LAND  FO4SFMapMarkers.esm 0x0008F2 the landing marker (undiscovered only in a plugin built with --landing-undiscovered, PR 781)
 ;   TEST  FO4SFMapMarkers.esm 0x000900 the first plain marker of the plugin (not Vault 111), moved in stage 20
 ;   TEST2 FO4SFMapMarkers.esm 0x000901 the second plain marker, used by stage 70 only
+;   TEST3 FO4SFMapMarkers.esm 0x000902 the third plain marker, used by stage 80 only
 ; The stages (set one at a time, after the last stage's "later done" line; the console is closed between them):
 ; 10      baseline: read V111, LAND, TEST, TEST2 and the player; nothing changes. Stand INSIDE the vault (lift cell) for 10 to 30.
 ; 20      indoor placement, the one engine fact: TEST.MoveTo(V111) (the exit's own call and anchor), read; then SetPosition to the merged
@@ -24,6 +25,7 @@ Scriptname FO4SF_MarkerProbeQuest extends Quest
 ; 60      landing (a build with --landing-undiscovered): read LAND, LAND.SetMarkerDiscovered(), read at once and 2 s later (the owner's
 ;         "first location" moment: does fast travel, a label or a landing target appear).
 ; 70      the variant: TEST2.AddToMap(false) instead of SetMarkerDiscovered (nothing can undo Discovered, so a different marker), read the same.
+; 80      the variant: TEST3.AddToMap(true) instead of false/SetMarkerDiscovered (silent discovery with fast-travel unlock), read the same.
 ; One line per finding in the user log "FO4SFMarkerProbe" (My Games\Starfield\Logs\Script\User\FO4SFMarkerProbe.0.log):
 ; FO4SFMARK rt=<real time s> <event> key=value ... end=true. Every finding also shows on screen as a notification beginning "AP ".
 
@@ -38,6 +40,7 @@ int V111Id = 0x0A775B
 int LandId = 0x0008F2
 int TestId = 0x000900
 int Test2Id = 0x000901
+int Test3Id = 0x000902
 float MergeX = -1200.0
 float MergeY = -2700.0
 float LaterS = 2.0
@@ -54,8 +57,8 @@ int LaterStage = 0          ; the stage whose 2 s re-read is pending, 0 = none
 
 Event OnInit()
     Debug.OpenUserLog(LogName)
-    StageList = new int[7]
-    DoneList = new bool[7]
+    StageList = new int[8]
+    DoneList = new bool[8]
     StageList[0] = 10
     StageList[1] = 20
     StageList[2] = 30
@@ -63,6 +66,7 @@ Event OnInit()
     StageList[4] = 50
     StageList[5] = 60
     StageList[6] = 70
+    StageList[7] = 80
     Trace("init version=" + Version + " quest=" + GetFormID() + " installed=" + Game.IsPluginInstalled(ProbePlugin) + " core=" + Game.IsPluginInstalled(CorePlugin) + " markers=" + Game.IsPluginInstalled(MarkPlugin))
     StartTimer(1.0, TIMER_POLL)
 EndEvent
@@ -90,7 +94,7 @@ string Function Id(Form f)
 EndFunction
 
 ObjectReference Function RefNamed(string nm)
-    {One of the four references by its short name (V111, LAND, TEST, TEST2), or None when it does not resolve.}
+    {One of the five references by its short name (V111, LAND, TEST, TEST2, TEST3), or None when it does not resolve.}
     if nm == "V111"
         return Game.GetFormFromFile(V111Id, CorePlugin) as ObjectReference
     elseif nm == "LAND"
@@ -99,6 +103,8 @@ ObjectReference Function RefNamed(string nm)
         return Game.GetFormFromFile(TestId, MarkPlugin) as ObjectReference
     elseif nm == "TEST2"
         return Game.GetFormFromFile(Test2Id, MarkPlugin) as ObjectReference
+    elseif nm == "TEST3"
+        return Game.GetFormFromFile(Test3Id, MarkPlugin) as ObjectReference
     endif
     return None
 EndFunction
@@ -133,6 +139,7 @@ Function ReadAll(string whenText, int stage)
     Reading(whenText, stage, "LAND")
     Reading(whenText, stage, "TEST")
     Reading(whenText, stage, "TEST2")
+    Reading(whenText, stage, "TEST3")
 EndFunction
 
 ; ---------------------------------------------------------------- stages
@@ -200,6 +207,17 @@ Function Step(int stage)
         Fast("after", stage)
         Reading("after", stage, "TEST2")
     endif
+    if stage == 80
+        Fast("before", stage)
+        Reading("before", stage, "TEST3")
+        ObjectReference t3 = RefNamed("TEST3")
+        if t3 != None
+            t3.AddToMap(true)
+            Trace("addtomap stage=" + stage + " name=TEST3 allowfasttravel=true")
+        endif
+        Fast("after", stage)
+        Reading("after", stage, "TEST3")
+    endif
     LaterStage = stage
     StartTimer(LaterS, TIMER_LATER)
 EndFunction
@@ -244,6 +262,9 @@ Function Later()
     elseif stage == 70
         Fast("later", stage)
         Reading("later", stage, "TEST2")
+    elseif stage == 80
+        Fast("later", stage)
+        Reading("later", stage, "TEST3")
     endif
     Trace("later done stage=" + stage)
     Say("S" + stage + " later done")

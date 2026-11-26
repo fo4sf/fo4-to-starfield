@@ -10,10 +10,15 @@
 //   0x860        FO4SF_TestModeEnabled GLOB (default 0)
 //   0x865        FO4SF_PipboyAcquired GLOB (default 0, non-constant)
 //   0x870..0x876 Start & Mode GLOBs (GameMode, SurvivalStart, SurvivalLocked, StartDifficulty, WarfareFaction, WarfareStartIndex, StartChoiceDone)
+//   D7(a) optional Starfield.esm overrides (--commonwealth-weather 1, default on when Starfield.esm contains Mars/NewAtlantis CLMT/ATMO;
+//         --commonwealth-weather 0 rollback; Mars-wide known side effect on all Mars locations including Cydonia):
+//     CLMT 0x00310DB1 ClimateUniqueCydonia       -> Weathers & WeatherSettings copied from CLMT 0x0024E982 ClimateUniqueNewAtlantis
+//     CLMT 0x002EDEA5 ClimateUniqueCydoniaFrozen -> Weathers & WeatherSettings copied from CLMT 0x0024E982 ClimateUniqueNewAtlantis
+//     ATMO 0x0000C9D2 ATMO_Mars                  -> ATMO_Jemison (0x0000C010) clear blue-sky atmospheric scattering
 //
 // usage:
-//   CoreValues build <Starfield.esm> <out dir> [--json <core_values.json>] [--default-rads-rule 0|1] [--default-hardcore 0|1] [--test-mode 0|1]
-//   CoreValues check <FO4SFCoreValues.esm> <Starfield.esm> [--json <core_values.json>] [--default-rads-rule 0|1] [--default-hardcore 0|1] [--test-mode 0|1]
+//   CoreValues build <Starfield.esm> <out dir> [--json <core_values.json>] [--default-rads-rule 0|1] [--default-hardcore 0|1] [--test-mode 0|1] [--commonwealth-weather 0|1]
+//   CoreValues check <FO4SFCoreValues.esm> <Starfield.esm> [--json <core_values.json>] [--default-rads-rule 0|1] [--default-hardcore 0|1] [--test-mode 0|1] [--commonwealth-weather 0|1]
 //   CoreValues fixture <out dir>
 //   CoreValues selftest <scratch dir>
 
@@ -33,6 +38,7 @@ try
     int radsRule = 0;
     int hardcore = 0;
     int testMode = 0;
+    int commonwealthWeather = 1;
 
     void OptInt(string name, ref int into)
     {
@@ -56,7 +62,8 @@ try
     OptInt("--default-rads-rule", ref radsRule);
     OptInt("--default-hardcore", ref hardcore);
     OptInt("--test-mode", ref testMode);
-    var opts = new CoreValuesWriter.BuildOptions(jsonPath ?? CoreValuesWriter.DefaultJsonPath(), radsRule, hardcore, testMode);
+    OptInt("--commonwealth-weather", ref commonwealthWeather);
+    var opts = new CoreValuesWriter.BuildOptions(jsonPath ?? CoreValuesWriter.DefaultJsonPath(), radsRule, hardcore, testMode, commonwealthWeather);
 
     if (rest.Count == 3 && rest[0] == "build") return CoreValuesWriter.Build(rest[1], rest[2], opts);
     if (rest.Count == 3 && rest[0] == "check") return CoreValuesWriter.Check(rest[1], rest[2], opts);
@@ -76,13 +83,54 @@ return 2;
 public static class CoreValuesWriter
 {
     public class Refusal(string m) : Exception(m);
-    public record BuildOptions(string JsonPath, int DefaultRadsRule = 0, int DefaultHardcore = 0, int TestMode = 0);
+    public record BuildOptions(string JsonPath, int DefaultRadsRule = 0, int DefaultHardcore = 0, int TestMode = 0, int CommonwealthWeather = 1);
     public record RecordSpec(
         uint Id, string Type, string Edid, string Name, string Abbr, string Desc,
         float Default, float Min, float Max, string[] Flags, string[] Items, string Effect, bool Constant = false);
 
     const StarfieldRelease Release = StarfieldRelease.Starfield;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
+
+    // D7(a): binary-verified Starfield.esm FormIDs driving Mars/Cydonia dust storms over FO4Core_Commonwealth
+    // (WRLD 0x01000803 BNAM -> BIOM 0x002A3777 DesertRockyNoLifeMars -> ENAM CLMT 0x00310DB1 ClimateUniqueCydonia;
+    //  PNDT 0x0003F59A MarsPlanetData -> ATMO 0x0000C9D2 ATMO_Mars).
+    static readonly FormKey ClimateCydoniaKey = new(SfEsm, 0x00310DB1);
+    static readonly FormKey ClimateCydoniaFrozenKey = new(SfEsm, 0x002EDEA5);
+    static readonly FormKey ClimateNewAtlantisKey = new(SfEsm, 0x0024E982);
+    static readonly FormKey AtmoMarsKey = new(SfEsm, 0x0000C9D2);
+    static readonly FormKey AtmoJemisonKey = new(SfEsm, 0x0000C010);
+    const string ExpectedClimateNewAtlantisEdid = "ClimateUniqueNewAtlantis";
+    const string ExpectedClimateCydoniaEdid = "ClimateUniqueCydonia";
+    const string ExpectedClimateCydoniaFrozenEdid = "ClimateUniqueCydoniaFrozen";
+    const string ExpectedAtmoMarsEdid = "ATMO_Mars";
+    const string ExpectedAtmoJemisonEdid = "ATMO_Jemison";
+    static readonly HashSet<FormKey> AllowedWeatherOverrideKeys = new()
+    {
+        ClimateCydoniaKey,
+        ClimateCydoniaFrozenKey,
+        AtmoMarsKey,
+    };
+
+    static void ValidateWeatherSourceEditorIds(
+        Dictionary<FormKey, IClimateGetter> sfClimates,
+        Dictionary<FormKey, IAtmosphereGetter> sfAtmos)
+    {
+        static void RequireEdid(string kind, FormKey fk, string? actual, string expected)
+        {
+            if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                throw new Refusal($"{kind} {fk} EditorID '{actual ?? "<null>"}' != expected '{expected}'");
+        }
+        if (sfClimates.TryGetValue(ClimateNewAtlantisKey, out var naClmt))
+            RequireEdid("CLMT", ClimateNewAtlantisKey, naClmt.EditorID, ExpectedClimateNewAtlantisEdid);
+        if (sfClimates.TryGetValue(ClimateCydoniaKey, out var cydClmt))
+            RequireEdid("CLMT", ClimateCydoniaKey, cydClmt.EditorID, ExpectedClimateCydoniaEdid);
+        if (sfClimates.TryGetValue(ClimateCydoniaFrozenKey, out var cydFrzClmt))
+            RequireEdid("CLMT", ClimateCydoniaFrozenKey, cydFrzClmt.EditorID, ExpectedClimateCydoniaFrozenEdid);
+        if (sfAtmos.TryGetValue(AtmoMarsKey, out var marsAtmo))
+            RequireEdid("ATMO", AtmoMarsKey, marsAtmo.EditorID, ExpectedAtmoMarsEdid);
+        if (sfAtmos.TryGetValue(AtmoJemisonKey, out var jemAtmo))
+            RequireEdid("ATMO", AtmoJemisonKey, jemAtmo.EditorID, ExpectedAtmoJemisonEdid);
+    }
 
     public static string DefaultJsonPath()
     {
@@ -237,8 +285,8 @@ public static class CoreValuesWriter
 
         var byEdid = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
 
-        // Pass 1: AVIF, GLOB, MGEF
-        foreach (var s in specs.Where(x => x.Type is "AVIF" or "GLOB" or "MGEF"))
+        // Pass 1: AVIF, GLOB, MGEF, KYWD
+        foreach (var s in specs.Where(x => x.Type is "AVIF" or "GLOB" or "MGEF" or "KYWD"))
         {
             var fk = new FormKey(pluginKey, s.Id);
             byEdid[s.Edid] = fk;
@@ -265,6 +313,10 @@ public static class CoreValuesWriter
                 };
                 if (s.Constant) g.MajorFlags |= Global.MajorFlag.Constant;
                 mod.Globals.Add(g);
+            }
+            else if (s.Type == "KYWD")
+            {
+                mod.Keywords.Add(new Keyword(fk, Release) { EditorID = s.Edid });
             }
             else if (s.Type == "MGEF")
             {
@@ -367,6 +419,43 @@ public static class CoreValuesWriter
             }
         }
 
+        // Pass 3 (D7a): Clear Commonwealth Weather & Blue-Sky Atmosphere overrides in FO4SFCoreValues.esm.
+        // FO4Core_Commonwealth (WRLD 0x01000803) inherits BIOM 0x002A3777 DesertRockyNoLifeMars -> CLMT 0x00310DB1 ClimateUniqueCydonia
+        // and MarsPlanetData (PNDT 0x0003F59A) embeds ATMO 0x0000C9D2 ATMO_Mars. Validate exact source EditorIDs (refusing on
+        // mismatch) and copy WeatherSettings directly from ClimateUniqueNewAtlantis (DeepCopy) when present in Starfield.esm
+        // and --commonwealth-weather 1 (default), keeping minimal synthetic Fixture() builds byte-identical.
+        // Known side effect: Mars-wide override affects all Mars locations (including Cydonia); rollback via --commonwealth-weather 0.
+        int clmtOverrides = 0;
+        int atmoOverrides = 0;
+        if (opts.CommonwealthWeather != 0)
+        {
+            var sfClimates = sf.Climates.ToDictionary(c => c.FormKey);
+            var sfAtmos = sf.Atmospheres.ToDictionary(a => a.FormKey);
+            ValidateWeatherSourceEditorIds(sfClimates, sfAtmos);
+
+            if (sfClimates.TryGetValue(ClimateNewAtlantisKey, out var naClmt))
+            {
+                foreach (var targetKey in new[] { ClimateCydoniaKey, ClimateCydoniaFrozenKey })
+                {
+                    if (!sfClimates.TryGetValue(targetKey, out var srcClmt))
+                        continue;
+                    var ov = srcClmt.DeepCopy();
+                    ov.Weathers = naClmt.Weathers?.Select(wt => wt.DeepCopy()).ToExtendedList();
+                    ov.WeatherSettings = naClmt.WeatherSettings?.Select(ws => ws.DeepCopy()).ToExtendedList();
+                    mod.Climates.Add(ov);
+                    clmtOverrides++;
+                }
+            }
+
+            if (sfAtmos.TryGetValue(AtmoMarsKey, out var marsAtmo) && sfAtmos.TryGetValue(AtmoJemisonKey, out var jemAtmo))
+            {
+                var ovAtmo = (Atmosphere)jemAtmo.Duplicate(AtmoMarsKey);
+                ovAtmo.EditorID = marsAtmo.EditorID;
+                mod.Atmospheres.Add(ovAtmo);
+                atmoOverrides++;
+            }
+        }
+
         mod.ModHeader.Stats.NextFormID = nextId;
         if (!mod.ModHeader.MasterReferences.Any(m => m.Master == SfEsm))
             mod.ModHeader.MasterReferences.Add(new MasterReference { Master = SfEsm });
@@ -375,7 +464,9 @@ public static class CoreValuesWriter
         var outPath = Path.Combine(outDir, pluginKey.FileName);
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
                           $"{mod.ActorValueInformation.Count} AVIF, {mod.Globals.Count} GLOB, " +
-                          $"{mod.FormLists.Count} FLST, {mod.MagicEffects.Count} MGEF, {mod.Ingestibles.Count} ALCH");
+                          $"{mod.Keywords.Count} KYWD, {mod.FormLists.Count} FLST, " +
+                          $"{mod.MagicEffects.Count} MGEF, {mod.Ingestibles.Count} ALCH" +
+                          (clmtOverrides > 0 || atmoOverrides > 0 ? $", {clmtOverrides} CLMT, {atmoOverrides} ATMO" : ""));
         return 0;
     }
 
@@ -394,7 +485,41 @@ public static class CoreValuesWriter
         var masters = plug.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
         Need(masters.SequenceEqual(new[] { "Starfield.esm" }), $"masters [{string.Join(", ", masters)}] != [Starfield.esm]");
         Need(plug.ModHeader.Stats.NextFormID == nextId, $"NextFormID 0x{plug.ModHeader.Stats.NextFormID:X} != 0x{nextId:X}");
-        Need(plug.EnumerateMajorRecords().All(r => r.FormKey.ModKey == pluginKey), "contains foreign record override");
+
+        var sfClimates = sf.Climates.ToDictionary(c => c.FormKey);
+        var sfAtmos = sf.Atmospheres.ToDictionary(a => a.FormKey);
+        if (opts.CommonwealthWeather != 0)
+            ValidateWeatherSourceEditorIds(sfClimates, sfAtmos);
+
+        int expectClmt = (opts.CommonwealthWeather != 0 && sfClimates.ContainsKey(ClimateNewAtlantisKey))
+            ? (sfClimates.ContainsKey(ClimateCydoniaKey) ? 1 : 0) + (sfClimates.ContainsKey(ClimateCydoniaFrozenKey) ? 1 : 0)
+            : 0;
+        int expectAtmo = (opts.CommonwealthWeather != 0 && sfAtmos.ContainsKey(AtmoMarsKey) && sfAtmos.ContainsKey(AtmoJemisonKey)) ? 1 : 0;
+
+        Need(plug.EnumerateMajorRecords().All(r =>
+            r.FormKey.ModKey == pluginKey ||
+            (opts.CommonwealthWeather != 0 && AllowedWeatherOverrideKeys.Contains(r.FormKey))),
+            "contains unexpected foreign record override");
+
+        Need(plug.Climates.Count == expectClmt, $"CLMT override count {plug.Climates.Count} != {expectClmt}");
+        Need(plug.Atmospheres.Count == expectAtmo, $"ATMO override count {plug.Atmospheres.Count} != {expectAtmo}");
+        if (expectClmt > 0 && sfClimates.TryGetValue(ClimateNewAtlantisKey, out var wantNaClmt))
+        {
+            var wantWslt = wantNaClmt.WeatherSettings?.Select(w => (w.Settings.FormKey, w.Chance)).ToList() ?? new();
+            foreach (var clmt in plug.Climates)
+            {
+                var wantEdid = clmt.FormKey == ClimateCydoniaKey ? ExpectedClimateCydoniaEdid : ExpectedClimateCydoniaFrozenEdid;
+                var gotWslt = clmt.WeatherSettings?.Select(w => (w.Settings.FormKey, w.Chance)).ToList() ?? new();
+                Need(string.Equals(clmt.EditorID, wantEdid, StringComparison.Ordinal) && gotWslt.SequenceEqual(wantWslt),
+                     $"CLMT {clmt.FormKey} ({clmt.EditorID}) does not match copied ClimateUniqueNewAtlantis WeatherSettings");
+            }
+        }
+        if (expectAtmo == 1)
+        {
+            var ovAtmo = plug.Atmospheres.FirstOrDefault(a => a.FormKey == AtmoMarsKey);
+            Need(ovAtmo != null && string.Equals(ovAtmo.EditorID, ExpectedAtmoMarsEdid, StringComparison.Ordinal),
+                 "ATMO_Mars (0x0000C9D2) override mismatch");
+        }
 
         foreach (var s in specs)
         {
@@ -429,6 +554,11 @@ public static class CoreValuesWriter
                 var r = plug.MagicEffects.FirstOrDefault(x => x.FormKey == fk);
                 Need(r != null && r.EditorID == s.Edid, $"MGEF 0x{s.Id:X} {s.Edid} mismatch");
             }
+            else if (s.Type == "KYWD")
+            {
+                var r = plug.Keywords.FirstOrDefault(x => x.FormKey == fk);
+                Need(r != null && r.EditorID == s.Edid, $"KYWD 0x{s.Id:X} {s.Edid} mismatch");
+            }
             else if (s.Type == "ALCH")
             {
                 var r = plug.Ingestibles.FirstOrDefault(x => x.FormKey == fk);
@@ -441,6 +571,7 @@ public static class CoreValuesWriter
 
         Need(plug.ActorValueInformation.Count == specs.Count(x => x.Type == "AVIF"), "unexpected AVIF count");
         Need(plug.Globals.Count == specs.Count(x => x.Type == "GLOB"), "unexpected GLOB count");
+        Need(plug.Keywords.Count == specs.Count(x => x.Type == "KYWD"), "unexpected KYWD count");
         Need(plug.FormLists.Count == specs.Count(x => x.Type == "FLST"), "unexpected FLST count");
         Need(plug.MagicEffects.Count == specs.Count(x => x.Type == "MGEF"), "unexpected MGEF count");
         Need(plug.Ingestibles.Count == specs.Count(x => x.Type == "ALCH"), "unexpected ALCH count");
@@ -448,7 +579,10 @@ public static class CoreValuesWriter
         if (problems.Count > 0)
             throw new Refusal(string.Join("; ", problems));
         Console.WriteLine($"check ok: {pluginKey} ({plug.ActorValueInformation.Count} AVIF, {plug.Globals.Count} GLOB, " +
-                          $"{plug.FormLists.Count} FLST, {plug.MagicEffects.Count} MGEF, {plug.Ingestibles.Count} ALCH)");
+                          $"{plug.Keywords.Count} KYWD, {plug.FormLists.Count} FLST, {plug.MagicEffects.Count} MGEF, {plug.Ingestibles.Count} ALCH" +
+                          (plug.Climates.Count > 0 || plug.Atmospheres.Count > 0
+                              ? $", {plug.Climates.Count} CLMT, {plug.Atmospheres.Count} ATMO"
+                              : "") + ")");
         return 0;
     }
 
@@ -527,6 +661,73 @@ public static class CoreValuesWriter
         try { Check(Path.Combine(outTamper, "FO4SFCoreValues.esm"), sfPath, defOpts); }
         catch (Refusal) { rejected = true; }
         if (!rejected) throw new Refusal("Check accepted tampered FO4SF_Rads EditorID at 0x800");
+
+        // D7(a) weather + atmosphere override selftest on a synthetic Starfield.esm fixture containing Mars/NewAtlantis CLMT & ATMO
+        var wFixDir = Path.Combine(scratchDir, "weather_fixture");
+        var wSf = StarfieldMod.CreateFromBinary(sfPath, Release, new BinaryReadParameters
+        {
+            MasterFlagsLookup = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey) { new KeyedMasterStyle(SfEsm, MasterStyle.Full) }
+        });
+        var naFixtureClmt = new Climate(ClimateNewAtlantisKey, Release)
+        {
+            EditorID = ExpectedClimateNewAtlantisEdid,
+            WeatherSettings = new ExtendedList<ClimateWeatherSettings>
+            {
+                new ClimateWeatherSettings { Settings = new FormLink<IWeatherSettingGetter>(new FormKey(SfEsm, 0x0009BC5A)), Chance = 30 },
+                new ClimateWeatherSettings { Settings = new FormLink<IWeatherSettingGetter>(new FormKey(SfEsm, 0x001034AB)), Chance = 25 },
+            },
+        };
+        wSf.Climates.Add(naFixtureClmt);
+        wSf.Climates.Add(new Climate(ClimateCydoniaKey, Release) { EditorID = ExpectedClimateCydoniaEdid });
+        wSf.Climates.Add(new Climate(ClimateCydoniaFrozenKey, Release) { EditorID = ExpectedClimateCydoniaFrozenEdid });
+        wSf.Atmospheres.Add(new Atmosphere(AtmoJemisonKey, Release) { EditorID = ExpectedAtmoJemisonEdid });
+        wSf.Atmospheres.Add(new Atmosphere(AtmoMarsKey, Release) { EditorID = ExpectedAtmoMarsEdid });
+        WriteMod(wSf, SfEsm, wFixDir);
+        var wSfPath = Path.Combine(wFixDir, "Starfield.esm");
+
+        var wOnOpts = new BuildOptions(jsonPath, 0, 0, 0, 1);
+        var wOffOpts = new BuildOptions(jsonPath, 0, 0, 0, 0);
+        var outWOn = Path.Combine(scratchDir, "weather_on");
+        var outWOn2 = Path.Combine(scratchDir, "weather_on2");
+        var outWOff = Path.Combine(scratchDir, "weather_off");
+        Build(wSfPath, outWOn, wOnOpts);
+        Check(Path.Combine(outWOn, "FO4SFCoreValues.esm"), wSfPath, wOnOpts);
+        Build(wSfPath, outWOn2, wOnOpts);
+        if (!File.ReadAllBytes(Path.Combine(outWOn, "FO4SFCoreValues.esm"))
+                 .SequenceEqual(File.ReadAllBytes(Path.Combine(outWOn2, "FO4SFCoreValues.esm"))))
+            throw new Refusal("FO4SFCoreValues.esm weather override build is not byte-identical");
+        Build(wSfPath, outWOff, wOffOpts);
+        Check(Path.Combine(outWOff, "FO4SFCoreValues.esm"), wSfPath, wOffOpts);
+
+        rejected = false;
+        try { Check(Path.Combine(outWOn, "FO4SFCoreValues.esm"), wSfPath, wOffOpts); }
+        catch (Refusal) { rejected = true; }
+        if (!rejected) throw new Refusal("Check accepted weather overrides when --commonwealth-weather 0");
+
+        // Review item #4 negative check: mismatched weather/atmosphere source EditorIDs must refuse Build()
+        var badClmtDir = Path.Combine(scratchDir, "weather_bad_clmt");
+        var badClmtSf = StarfieldMod.CreateFromBinary(wSfPath, Release, new BinaryReadParameters
+        {
+            MasterFlagsLookup = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey) { new KeyedMasterStyle(SfEsm, MasterStyle.Full) }
+        });
+        badClmtSf.Climates.First(c => c.FormKey == ClimateCydoniaKey).EditorID = "WrongClimateEdid";
+        WriteMod(badClmtSf, SfEsm, badClmtDir);
+        rejected = false;
+        try { Build(Path.Combine(badClmtDir, "Starfield.esm"), Path.Combine(scratchDir, "weather_bad_clmt_out"), wOnOpts); }
+        catch (Refusal) { rejected = true; }
+        if (!rejected) throw new Refusal("Build accepted mismatched ClimateUniqueCydonia EditorID");
+
+        var badAtmoDir = Path.Combine(scratchDir, "weather_bad_atmo");
+        var badAtmoSf = StarfieldMod.CreateFromBinary(wSfPath, Release, new BinaryReadParameters
+        {
+            MasterFlagsLookup = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey) { new KeyedMasterStyle(SfEsm, MasterStyle.Full) }
+        });
+        badAtmoSf.Atmospheres.First(a => a.FormKey == AtmoJemisonKey).EditorID = "WrongAtmoEdid";
+        WriteMod(badAtmoSf, SfEsm, badAtmoDir);
+        rejected = false;
+        try { Build(Path.Combine(badAtmoDir, "Starfield.esm"), Path.Combine(scratchDir, "weather_bad_atmo_out"), wOnOpts); }
+        catch (Refusal) { rejected = true; }
+        if (!rejected) throw new Refusal("Build accepted mismatched ATMO_Jemison EditorID");
 
         Console.WriteLine("CoreValues selftest: ok");
         return 0;

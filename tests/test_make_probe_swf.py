@@ -360,6 +360,20 @@ class CliTest(unittest.TestCase):
             self.assertTrue(r.stderr.startswith("make_probe_swf: "))
             self.assertFalse(os.path.exists(os.path.join(tmp, "x.swf")))
 
+    def test_lift_screen_swf_tags_and_names(self):
+        data = swf.movie_bytes(lift_screen=True)
+        m = swf.read_movie(data)
+        self.assertEqual((m["signature"], m["version"]), ("CWS", 12))
+        names = [t.get("instance") for t in m["tags"] if t["name"] == "PlaceObject2" and "instance" in t]
+        for i in range(swf.LIFT_ROWS):
+            self.assertIn(f"fo4sfLiftHit{i}", names)
+            self.assertIn(f"fo4sfLiftRow{i}", names)
+            self.assertIn(f"fo4sfLiftPrev{i}", names)
+            self.assertIn(f"fo4sfLiftNext{i}", names)
+        self.assertIn("fo4sfLiftStatus", names)
+        self.assertIn("fo4sfLiftHint", names)
+        self.assertIn("fo4sfLiftConfirm", names)
+
 
 if __name__ == "__main__":
     unittest.main()

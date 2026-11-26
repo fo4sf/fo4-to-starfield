@@ -181,7 +181,7 @@ FO4SF_NEWGAME rt=<rt> mode choice mode=story survival=0
 FO4SF_NEWGAME rt=<rt> start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell
 FO4SF_NEWGAME rt=<rt> stage 10 by=Trigger
 FO4SF_NEWGAME rt=<rt> stage 20 by=scene
-FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<equipped>
 FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
 FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console

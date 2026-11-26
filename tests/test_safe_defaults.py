@@ -168,7 +168,8 @@ class SafeDefaultsTests(unittest.TestCase):
 
             def _spy_run_py(py_exe: str, script_rel: str, args):
                 arg_list = list(args)
-                out_dir = Path(arg_list[arg_list.index("--out") + 1])
+                out_flag = "--out" if "--out" in arg_list else "--staging"
+                out_dir = Path(arg_list[arg_list.index(out_flag) + 1])
                 out_dir.mkdir(parents=True, exist_ok=True)
                 if script_rel == "scripts/newgame/make_newgame.py":
                     ng_invocations.append((out_dir.name, arg_list))
@@ -202,6 +203,7 @@ class SafeDefaultsTests(unittest.TestCase):
                     commonlibsf=None,
                     msvc_env=None,
                     no_walk_harness=True,
+                    allow_starfield_standins=True,
                 )
                 # 1. Default --profile player: NO --fade-hold, NO Track 2 slice scripts, NO route loot!
                 mcb.stage_from_checkout(SimpleNamespace(**base_kwargs, profile="player"))
@@ -234,16 +236,16 @@ class SafeDefaultsTests(unittest.TestCase):
 
     def test_w1_pipboy_stage_ini_and_shipped_ini_safe_defaults(self) -> None:
         shipped_ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
-        for req in ("MapBlockStarMap=0", "Arm=0", "BootOnFirstOpen=0"):
+        for req in ("MapBlockStarMap=0", "Arm=1", "BootOnFirstOpen=0"):
             self.assertIn(f"\n{req}\n", "\n" + shipped_ini, req)
 
         fmt_default = mpsi.format_stage_ini(["HideMenu"], boot_movie="pipboybootsequence")
-        for req in ("MapBlockStarMap=0", "Arm=0", "BootOnFirstOpen=0"):
+        for req in ("MapBlockStarMap=0", "Arm=1", "BootOnFirstOpen=0"):
             self.assertIn(f"\n{req}\n", "\n" + fmt_default, req)
 
         parsed_default = mpsi.build_parser().parse_args(["--stage", "dummy"])
         self.assertEqual(parsed_default.map_block_starmap, 0)
-        self.assertEqual(parsed_default.arm, 0)
+        self.assertEqual(parsed_default.arm, 1)
         self.assertEqual(parsed_default.boot_on_first_open, 0)
 
         parsed_opt = mpsi.build_parser().parse_args([
@@ -362,6 +364,7 @@ class SafeDefaultsTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            TriggerVaultPodRecoveryAutosave=lambda *a: None,
             HoldOffPass=lambda p: None,
             Trace=lambda m: logs.append(m),
         )
@@ -507,8 +510,9 @@ class SafeDefaultsTests(unittest.TestCase):
             "ActivateGearDoorConsole",
         )
         vars_csv = (
-            "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
-            "consoleRegistered, consoleWatchedRef, pistolPickedLogged"
+            "itemWatchRegistered, pipboyRegistered, pipboyEquipWatchRegistered, cogDoorRegistered, cogDoorWatchedRef, "
+            "consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, "
+            "consoleOpening, pistolPickedLogged"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
 
@@ -536,6 +540,7 @@ class SafeDefaultsTests(unittest.TestCase):
             pipboy_ref = _make_ref("FO4SF_PipboyCorpsePickupRef", 0x0A00080F, (-55.0488, -0.9224, 0.7759))
             own_console = _make_ref("FO4SF_GearDoorConsoleRef", 0x0A000819, (-54.3644, -1.8147, 1.7541))
             port_console = _make_ref("FO4Port_GearDoorConsoleRef", 0x02001319, (-54.3644, -1.8748, 1.6940))
+            lift_ref = _make_ref("FO4Port_ExitLiftRef", 0x0200132F, (-30.6914, -1.5529, 4.9488))
             cog_door = SimpleNamespace(
                 BlockActivation=lambda *a: None,
                 GetOpenState=lambda: door_state[0],
@@ -550,6 +555,8 @@ class SafeDefaultsTests(unittest.TestCase):
                         return cog_door
                     if fid == 0x1319:
                         return port_console if port_ready[0] else None
+                    if fid == 0x132F:
+                        return lift_ref
                 return None
 
             sender = port_console if trigger_via_port_console else own_console
@@ -563,6 +570,8 @@ class SafeDefaultsTests(unittest.TestCase):
             ns = dict(
                 itemWatchRegistered=True,
                 pipboyRegistered=False,
+                pipboyEquipWatchRegistered=False,
+                PipboyWristArmor=None,
                 cogDoorRegistered=False,
                 cogDoorWatchedRef=None,
                 consoleRegistered=False,
@@ -577,6 +586,7 @@ class SafeDefaultsTests(unittest.TestCase):
                 GearDoorConsoleRef=own_console,
                 CogDoorId=0x126D,
                 ConsoleRefId=0x1319,
+                LiftId=0x132F,
                 VaultPlugin="FO4Port.esm",
                 TestModeGlobal=None,
                 PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),

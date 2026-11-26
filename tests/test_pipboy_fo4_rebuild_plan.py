@@ -673,10 +673,10 @@ class RebuildPlanTests(unittest.TestCase):
             self.assertLessEqual(int(setting(name)), 6000, name)           # kMaxArmMs
         self.assertEqual(setting("ArmLowerIdle"), "")
         self.assertEqual(setting("ArmLowerEvent"), "")
-        # the ini: off as shipped, the card's other values as shipped
+        # the ini: Arm=1 + Key=0x76 shipped default (G12b), the card's other values as shipped
         ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
-        for line in ("Arm=0", "ArmRaiseIdle=idleexaminewatch", "ArmRaiseMs=2000", "ArmLowerIdle=", "ArmLowerEvent=",
-                     "ArmLowerMs=3500", "ArmRetryMs=2000", "Pause=0", "Key=0x79"):
+        for line in ("Arm=1", "ArmRaiseIdle=idleexaminewatch", "ArmRaiseMs=2000", "ArmLowerIdle=", "ArmLowerEvent=",
+                     "ArmLowerMs=3500", "ArmRetryMs=2000", "Pause=0", "Key=0x76"):
             self.assertRegex(ini, rf"\n{line}\r?\n", line)
         for name in ("ArmRaiseMs", "ArmLowerMs", "ArmRetryMs"):
             self.assertEqual(setting(name), re.search(rf"\n{name}=(\d+)", ini).group(1), name)

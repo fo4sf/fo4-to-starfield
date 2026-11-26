@@ -672,6 +672,7 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         self.assertIn("  reload stop ", check.stdout)
         self.assertIn("  HopMarker: ", check.stdout)
+        self.assertIn("  ReturnAnchor: 000800:Synthetic.esm alias -1", check.stdout)
         recs = self.records_by_form(plugin)
         own = 0x02000000                                                            # after Starfield.esm and the core
         sig, cell, _ = recs[own | 0x8F4]
@@ -693,6 +694,11 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<BBHhI", vmads[0], at), (1, 1, 0, -1, own | 0x8F5))   # object, edited, direct
         self.assertNotIn(name, vmads[1])                                            # only the first quest reloads
         self.assertNotIn(name, vmads[2])
+        rname = b"\x0c\x00ReturnAnchor"
+        rat = vmads[0].index(rname) + len(rname)
+        self.assertEqual(struct.unpack_from("<BBHhI", vmads[0], rat), (1, 1, 0, -1, 0x01000800))  # core XMarker anchor
+        self.assertNotIn(rname, vmads[1])
+        self.assertNotIn(rname, vmads[2])
         nxt = struct.unpack_from("<I", data, 24 + 4 + 2 + 8)[0]                     # HEDR next id: past --extra's
         self.assertEqual(nxt, 0x900 + 40)
         # the check wants the same --reload: a stop it was not asked for, or none when it was, fails
@@ -700,6 +706,7 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(other.returncode, 1, other.stdout)
         self.assertIn("1 cell(s) of this plugin's own without --reload", other.stdout)
         self.assertIn("FAIL  HopMarker set without --reload", other.stdout)
+        self.assertIn("FAIL  ReturnAnchor set without --reload", other.stdout)
         self.assertIn("is a REFR of this plugin that --extra and --landing do not list", other.stdout)
         plain = self.root / "plugin-reload-none"
         self.assertEqual(self.tool_run("build", "--core", self.core, "--out", plain, "--extra", extra).returncode, 0)
@@ -707,6 +714,7 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertEqual(none.returncode, 1, none.stdout)
         self.assertIn("--reload: cells [], want only", none.stdout)
         self.assertIn("FAIL  HopMarker is not the stop's marker", none.stdout)
+        self.assertIn("FAIL  ReturnAnchor is not the core's XMarker anchor", none.stdout)
         # a plain build without --extra or --landing has its stop's ids too (next id past them)
         bare = self.root / "plugin-reload-bare"
         self.assertEqual(self.tool_run("build", "--core", self.core, "--out", bare, "--reload").returncode, 0)
@@ -1131,12 +1139,11 @@ class ScriptContractTests(unittest.TestCase):
             self.assertLess(dark, reload.index(spot))
             self.assertLess(reload.index(spot), recheck)
         self.assertLess(recheck, out)
-        for way_back in ("hopAnchor = a", "hopWorld = w"):
-            self.assertLess(recheck, reload.index(way_back))
-            self.assertLess(reload.index(way_back), out)
-        # the way back is a marker in the player's world: a quest out of moves may have some still in their own
-        self.assertIn("while a < Markers.Length && (Markers[a] == None || refused[a] || player.GetDistance(Markers[a]) > SameWorld)",
-                      reload)
+        self.assertIn("hopWorld = w", reload[recheck:out])
+        # non-marker return anchor (FO4Core_CommonwealthAnchor), never Markers[a] / Markers[0] (Red Rocket)
+        self.assertIn("ObjectReference anchor = ResolveReturnAnchor()", reload)
+        self.assertIn("if anchor == None || player.GetDistance(anchor) > SameWorld", reload)
+        self.assertNotIn("Markers[hopAnchor]", reload)
         called_off = reload[recheck:reload.index("endif", recheck)]
         self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", called_off)
         self.assertIn("return", called_off)
@@ -1151,8 +1158,10 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_the_way_back_lands_on_the_spot_and_never_leaves_the_screen_black(self):
         back = self.fn("Function ComeBack(Actor player)", "\nEndFunction")
+        self.assertIn("ObjectReference anchor = ResolveReturnAnchor()", back)
+        self.assertNotIn("Markers[", back)
         self.assertIn("player.MoveTo(anchor, hopX - ax, hopY - ay, hopZ - az, False, False)", back)
-        self.assertIn("float ax = LocalX[hopAnchor] + MergeOffsetX", back)
+        self.assertIn("float ax = anchor.GetPositionX()", back)
         # once outside with the 3D in, the spot (a SetPosition in the MoveTo's own tick is ignored) and the facing
         self.assertLess(back.index("while !player.Is3DLoaded()"), back.index("player.SetPosition(hopX, hopY, hopZ)"))
         # the spot is one in hopWorld: a world made again on the way, or a save made there loaded in a new launch, is not
@@ -1160,7 +1169,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertLess(back.index("WorldSpace back = player.GetWorldSpace()"), back.index("bool snapped"))
         self.assertIn("player.SetAngle(0.0, 0.0, hopA)", back)
         # every way out of ComeBack fades the screen back in
-        parts = back.split("return")
+        parts = re.split(r"(?m)^\s*return\b", back)
         for part in parts[:-1]:
             self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", part.split("endif")[-1] if "endif" in part else part)
         self.assertIn("Game.FadeOutGame(False, True, 0.0, 0.5, False)", parts[-1])
@@ -1171,9 +1180,8 @@ class ScriptContractTests(unittest.TestCase):
         self.assertNotIn("hopOut", self.text)
 
     def test_the_dark_hold_starts_at_an_arrivals_first_late_marker(self):
-        # option A put to the owner, 2026-10-31: the screen black from an arrival until the reload is back, so the first map opened
-        # lists every marker (the retest: the reload was back about 14 s after the last marker went in)
-        self.assertIn("bool Property HoldDark = True Auto Const", self.text)
+        # HoldDark defaults to False so story landing never catches a 24+ s second black hold; Hold() remains gated
+        self.assertIn("bool Property HoldDark = False Auto Const", self.text)
         window = float(re.search(r"float Property HoldWindow = ([0-9.]+) Auto Const", self.text).group(1))
         most = float(re.search(r"float Property HoldMax = ([0-9.]+) Auto Const", self.text).group(1))
         self.assertGreater(window, 133.0 - 125.8)                       # the ride to the first quest's first move
@@ -1217,15 +1225,21 @@ class ScriptContractTests(unittest.TestCase):
         loop = place[place.index("while i < Markers.Length && moves < MaxMoves"):]
         self.assertLess(loop.index("if holding\n                    HoldCheck(player, w == ourWorld)"), loop.index("m.MoveTo(player"))
         reload = self.fn("Function Reload(Actor player, WorldSpace w)", "EndFunction")
-        waits = reload[reload.index("if player.IsInCombat() || player.IsInScene()"):reload.index("int a = 0")]
+        waits = reload[reload.index("if player.IsInCombat() || player.IsInScene()"):reload.index("ObjectReference anchor = ResolveReturnAnchor()")]
         self.assertIn('Release("the reload waits")', waits)
-        skipped = reload[reload.index("skipped: no marker"):reload.index("Game.FadeOutGame(True, True, 0.0, 0.5, True)")]
+        skipped = reload[reload.index("skipped: no "):reload.index("Game.FadeOutGame(True, True, 0.0, 0.5, True)")]
         self.assertIn('Release("the reload was skipped")', skipped)
         recheck = reload.index("if player.IsInInterior() || player.GetWorldSpace() != w || hopX < MinX")
         self.assertRegex(reload[recheck:], r"\n\s+holding = False\s+Game\.FadeOutGame\(False, True, 0\.0, 0\.5, False\)")
         # the way back fades in on every way out (test above), so it ends the hold first
         back = self.fn("Function ComeBack(Actor player)", "\nEndFunction")
-        self.assertLess(back.index("holding = False"), back.index("if hopAnchor < 0"))
+        self.assertLess(back.index("holding = False"), back.index("if anchor == None"))
+
+    def test_discover_single_marker_silent_helper_exists(self):
+        silent = self.fn("bool Function DiscoverSingleMarkerSilent(ObjectReference target, string method = \"add_to_map\")", "EndFunction")
+        self.assertIn('if method == "add_to_map"', silent)
+        self.assertIn("target.AddToMap(True)", silent)
+        self.assertIn("target.SetMarkerDiscovered()", silent)
 
     def test_the_fast_travel_line_reads_the_switches_and_a_marker(self):
         line = self.fn("Function FastTravelLine", "EndFunction")

@@ -1,15 +1,16 @@
 // WorkshopCore: Core Settlements, Junk Scrapping (CMPO -> IRES), FO4 COBJ + FNV RCPE Bench Recipes, and Portable C.A.M.P.s
 // (docs/workshop/workshop-camps.md)
 //
-// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 32 records, overrides 0).
+// FO4SFWorkshop.esm (masters Starfield.esm, FO4SFCoreValues.esm; adds 41 own records + 2 FLST category overrides for D4/E6; 0 LCTN/STDT/PNDT overrides).
 // The terrain core is NOT a master: FO4SF_WorkshopCoreQuest resolves FO4TerrainCore.esm / FO4TerrainCore_Mars.esm
 // workshop bases at runtime via Game.GetFormFromFile so FO4SFWorkshop.esm loads standalone or folded without cell overrides.
 //
 // usage:
-//   WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>]
-//   WorkshopCore check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>]
+//   WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>]
+//   WorkshopCore check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>]
 //   WorkshopCore fixture <out dir> [--mode full|minimal]
-//   WorkshopCore selftest <scratch dir>
+//   WorkshopCore selftest <scratch dir> [--settlement-rules <settlement_rules.json>]
+//   WorkshopCore --self-test [<scratch dir>] [--settlement-rules <settlement_rules.json>]
 
 using System.Globalization;
 using System.Text.Json;
@@ -41,11 +42,19 @@ try
     }
     var mode = Opt("--mode") ?? "full";
     var jsonPath = Opt("--json");
+    var settlementRulesPath = Opt("--settlement-rules");
 
-    if (rest.Count == 3 && rest[0] == "build") return WorkshopCore.Build(rest[1], rest[2], exclRadius, jsonPath);
-    if (rest.Count == 3 && rest[0] == "check") return WorkshopCore.Check(rest[1], rest[2], exclRadius, jsonPath);
+    if (rest.Count == 3 && rest[0] == "build") return WorkshopCore.Build(rest[1], rest[2], exclRadius, jsonPath, settlementRulesPath);
+    if (rest.Count == 3 && rest[0] == "check") return WorkshopCore.Check(rest[1], rest[2], exclRadius, jsonPath, settlementRulesPath);
     if (rest.Count == 2 && rest[0] == "fixture") return WorkshopCore.Fixture(rest[1], mode);
-    if (rest.Count == 2 && rest[0] == "selftest") return WorkshopCore.SelfTest(rest[1]);
+    if (rest.Count == 2 && rest[0] == "selftest") return WorkshopCore.SelfTest(rest[1], settlementRulesPath);
+    if (rest.Count is 1 or 2 && rest[0] == "--self-test")
+    {
+        if (rest.Count == 2) return WorkshopCore.SelfTest(rest[1], settlementRulesPath);
+        var autoScratch = Path.Combine(Path.GetTempPath(), "wscore-selftest-" + Guid.NewGuid().ToString("N"));
+        try { return WorkshopCore.SelfTest(autoScratch, settlementRulesPath); }
+        finally { if (Directory.Exists(autoScratch)) Directory.Delete(autoScratch, true); }
+    }
 }
 catch (WorkshopCore.Refusal r)
 {
@@ -53,9 +62,9 @@ catch (WorkshopCore.Refusal r)
     return 1;
 }
 
-Console.Error.WriteLine("usage: WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>] | " +
-                        "check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>] | " +
-                        "fixture <out dir> [--mode full|minimal] | selftest <scratch dir>");
+Console.Error.WriteLine("usage: WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>] | " +
+                        "check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>] | " +
+                        "fixture <out dir> [--mode full|minimal] | selftest <scratch dir> | --self-test [<scratch dir>]");
 return 2;
 
 static class WorkshopCore
@@ -106,8 +115,61 @@ static class WorkshopCore
     public const uint RcpeNvHandLoad777Id = 0x846;
     public const uint RcpeNvTrailRationId = 0x847;
 
-    public const uint NextId = 0x850;
-    public const int ExpectedMajorRecordCount = 32;
+    // R11 D4 / E6: Clean Sanctuary Hills Workshop bench (zero Starfield OutpostCategory* keywords),
+    // runtime swap switch GLOB 0x84A (default 0.0 = OFF in candidate-2g-fix2), and 3 clean Sanctuary
+    // placeables + zero-skill Outpost COBJs (0x84B..0x850).
+    public const uint SanctuaryCategoryKwId = 0x848;
+    public const uint SanctuaryBenchActiId = 0x849;
+    public const uint SanctuaryCleanBenchSwapGlobId = 0x84A;
+    public const uint SanctuaryChairFurnId = 0x84B;
+    public const uint SanctuaryCotFurnId = 0x84C;
+    public const uint SanctuaryCrateContId = 0x84D;
+    public const uint SanctuaryChairCobjId = 0x84E;
+    public const uint SanctuaryCotCobjId = 0x84F;
+    public const uint SanctuaryCrateCobjId = 0x850;
+    public const string SanctuaryCategoryKwEdid = "FO4SF_WorkshopCategorySanctuary";
+    public const string SanctuaryBenchActiEdid = "FO4SF_SanctuaryWorkshopBench";
+    public const string SanctuaryCleanBenchSwapGlobEdid = "FO4SF_SanctuaryCleanBenchSwap";
+    public const string SanctuaryChairFurnEdid = "FO4SF_Sanctuary_WoodChair";
+    public const string SanctuaryCotFurnEdid = "FO4SF_Sanctuary_SleepingCot";
+    public const string SanctuaryCrateContEdid = "FO4SF_Sanctuary_StorageCrate";
+    public const string SanctuaryChairCobjEdid = "FO4SF_COBJ_Sanctuary_WoodChair";
+    public const string SanctuaryCotCobjEdid = "FO4SF_COBJ_Sanctuary_SleepingCot";
+    public const string SanctuaryCrateCobjEdid = "FO4SF_COBJ_Sanctuary_StorageCrate";
+    public const string SanctuaryBenchName = "Sanctuary Hills Workshop";
+    public const string SanctuaryBenchModel = "fo4core\\setdressing\\garage\\workbenchgarage01.nif";
+    public const float SanctuaryBenchRadius = 250.0f;
+
+    // R11 E6 + fix4: Starfield.esm Outpost category FLST overrides (FULL cleared; ZERO LCTN/STDT/PNDT overrides!)
+    // and 3 Starfield furniture/container placeables (0x84B..0x84D) with swap-gated zero-skill COBJs (0x84E..0x850).
+    public const uint SfFlstOutpostRecipeCategoriesId = 0x058606;
+    public const uint SfFlstOutpostFollowCameraCategoriesId = 0x1A5507;
+    public const uint SfFurnWoodChairTplId = 0x12A77F;
+    public const uint SfFurnScrapCotTplId = 0x1FEDFD;
+    public const uint SfContStorageCrateTplId = 0x0A47D5;
+    public const uint SfCobjOutpostDecorTplId = 0x03962D;
+    public const uint SfMustPersistKwId = 0x04AF68;
+    public const uint SfWorkshopKwId = 0x054BA7;
+    public const uint SfOutpostBuildAreaRadiusAvId = 0x063FC5;
+    public const string SanctuaryChairName = "Wooden Chair";
+    public const string SanctuaryCotName = "Sleeping Cot";
+    public const string SanctuaryCrateName = "Storage Crate";
+
+    static readonly uint[] ForbiddenStarfieldOutpostCategoryIds =
+    {
+        0x002CFDE6, // OutpostCategoryCrafting (Industrial/Spacesuit/Weapon/Chem/Food/Research)
+        0x002BE3B5, // OutpostCategoryFurniture
+        0x00293ADF, // OutpostCategoryDecorations
+        0x0002BD59, // OutpostCategoryTestAssets
+        0x00397027, // OutpostCategoryDisplays
+        0x0028F890, // OutpostCategoryPower_InteriorLights
+        0x000E6A3E, // OutpostCategoryMiscInterior
+    };
+
+    public const uint NextId = 0x858;
+    public const int ExpectedOwnRecordCount = 41;
+    public const int ExpectedOverrideRecordCount = 2;
+    public const int ExpectedMajorRecordCount = ExpectedOwnRecordCount + ExpectedOverrideRecordCount;
 
     const string QuestEdid = "FO4SF_WorkshopCoreQuest";
     const string QuestScript = "FO4SF_WorkshopCoreQuest";
@@ -233,6 +295,155 @@ static class WorkshopCore
     static FormKey Core(IReadOnlyDictionary<string, uint> coreIds, string edid) =>
         coreIds.TryGetValue(edid, out var id) ? new FormKey(CoreValuesEsm, id) : throw new Refusal($"core_values.json missing {edid}");
 
+    public record SettlementRuleEntry(
+        string Id,
+        string Name,
+        string WorkbenchPlugin,
+        uint WorkbenchRefId,
+        string CleanSwapBenchPlugin,
+        uint CleanSwapBenchId,
+        float BuildRadiusM,
+        string AttackRuleId,
+        int InitialPopulation,
+        int MaxTier);
+
+    public record AttackRuleEntry(
+        string Id,
+        int MinPopulation,
+        float MinDefenseExemptRatio,
+        float CooldownGameHours,
+        float BaseChancePct,
+        string AttackerFaction,
+        bool EnabledHook);
+
+    public record PopulationUpgradeRuleEntry(
+        int Tier,
+        string Id,
+        string Label,
+        int MinPopulation,
+        int MinBeds,
+        int MinFood,
+        int MinWater,
+        int BeaconRecruitCap);
+
+    public record SettlementRulesTable(
+        int SchemaVersion,
+        SettlementRuleEntry[] Settlements,
+        AttackRuleEntry[] AttackRules,
+        PopulationUpgradeRuleEntry[] PopulationUpgradeRules);
+
+    public static string DefaultSettlementRulesJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "workshop", "settlement_rules.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "workshop", "settlement_rules.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/workshop/settlement_rules.json; pass --settlement-rules <path>");
+    }
+
+    static uint ParseHexId(JsonElement obj, string prop, string ctx)
+    {
+        if (!obj.TryGetProperty(prop, out var el) || el.ValueKind != JsonValueKind.String)
+            throw new Refusal($"{ctx} missing string hex field {prop}");
+        var raw = (el.GetString() ?? "").Trim();
+        if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) raw = raw[2..];
+        if (raw.Length == 0 || !uint.TryParse(raw, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var val) || val == 0)
+            throw new Refusal($"{ctx} invalid hex FormID {prop}='{el.GetString()}'");
+        return val;
+    }
+
+    public static SettlementRulesTable LoadSettlementRules(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultSettlementRulesJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing settlement_rules.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("schema_version", out var svEl) || svEl.ValueKind != JsonValueKind.Number || svEl.GetInt32() != 1)
+            throw new Refusal($"settlement_rules.json unsupported schema_version in {path}");
+
+        if (!root.TryGetProperty("attack_rules", out var atkArr) || atkArr.ValueKind != JsonValueKind.Array)
+            throw new Refusal($"settlement_rules.json missing attack_rules array in {path}");
+        var attackRules = new List<AttackRuleEntry>();
+        var attackIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var el in atkArr.EnumerateArray())
+        {
+            var id = (el.GetProperty("id").GetString() ?? "").Trim();
+            if (id.Length == 0 || !attackIds.Add(id))
+                throw new Refusal($"settlement_rules.json duplicate or empty attack_rule id '{id}'");
+            int minPop = el.GetProperty("min_population").GetInt32();
+            float defRatio = el.GetProperty("min_defense_exempt_ratio").GetSingle();
+            float cooldownH = el.GetProperty("cooldown_game_hours").GetSingle();
+            float chancePct = el.GetProperty("base_chance_pct").GetSingle();
+            var faction = (el.GetProperty("attacker_faction").GetString() ?? "").Trim();
+            bool enabledHook = el.TryGetProperty("enabled_hook", out var ehEl) && ehEl.GetBoolean();
+            if (minPop < 0 || defRatio < 0f || cooldownH <= 0f || chancePct < 0f || chancePct > 100f || faction.Length == 0)
+                throw new Refusal($"settlement_rules.json invalid attack_rule '{id}' bounds");
+            attackRules.Add(new AttackRuleEntry(id, minPop, defRatio, cooldownH, chancePct, faction, enabledHook));
+        }
+        if (attackRules.Count == 0)
+            throw new Refusal($"settlement_rules.json attack_rules must not be empty: {path}");
+
+        if (!root.TryGetProperty("population_upgrade_rules", out var popArr) || popArr.ValueKind != JsonValueKind.Array)
+            throw new Refusal($"settlement_rules.json missing population_upgrade_rules array in {path}");
+        var popRules = new List<PopulationUpgradeRuleEntry>();
+        var popIds = new HashSet<string>(StringComparer.Ordinal);
+        int prevTier = 0;
+        int prevMinPop = -1;
+        foreach (var el in popArr.EnumerateArray())
+        {
+            int tier = el.GetProperty("tier").GetInt32();
+            var id = (el.GetProperty("id").GetString() ?? "").Trim();
+            var label = (el.GetProperty("label").GetString() ?? "").Trim();
+            int minPop = el.GetProperty("min_population").GetInt32();
+            int minBeds = el.GetProperty("min_beds").GetInt32();
+            int minFood = el.GetProperty("min_food").GetInt32();
+            int minWater = el.GetProperty("min_water").GetInt32();
+            int recruitCap = el.GetProperty("beacon_recruit_cap").GetInt32();
+            if (id.Length == 0 || !popIds.Add(id) || label.Length == 0)
+                throw new Refusal($"settlement_rules.json invalid population_upgrade_rule id/label '{id}'");
+            if (tier <= prevTier || minPop <= prevMinPop || minPop < 0 || minBeds < 0 || minFood < 0 || minWater < 0 || recruitCap < minPop)
+                throw new Refusal($"settlement_rules.json non-monotonic or invalid population_upgrade_rule tier={tier} '{id}'");
+            prevTier = tier;
+            prevMinPop = minPop;
+            popRules.Add(new PopulationUpgradeRuleEntry(tier, id, label, minPop, minBeds, minFood, minWater, recruitCap));
+        }
+        if (popRules.Count == 0)
+            throw new Refusal($"settlement_rules.json population_upgrade_rules must not be empty: {path}");
+
+        if (!root.TryGetProperty("settlements", out var setArr) || setArr.ValueKind != JsonValueKind.Array)
+            throw new Refusal($"settlement_rules.json missing settlements array in {path}");
+        var settlements = new List<SettlementRuleEntry>();
+        var setIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var el in setArr.EnumerateArray())
+        {
+            var id = (el.GetProperty("id").GetString() ?? "").Trim();
+            var name = (el.GetProperty("name").GetString() ?? "").Trim();
+            if (id.Length == 0 || !setIds.Add(id) || name.Length == 0)
+                throw new Refusal($"settlement_rules.json duplicate or empty settlement id/name '{id}'");
+            var wbPlugin = (el.GetProperty("workbench_plugin").GetString() ?? "").Trim();
+            var cleanPlugin = (el.GetProperty("clean_swap_bench_plugin").GetString() ?? "").Trim();
+            if (wbPlugin.Length == 0 || cleanPlugin.Length == 0)
+                throw new Refusal($"settlement_rules.json settlement '{id}' missing plugin name");
+            uint wbId = ParseHexId(el, "workbench_ref_id", $"settlement '{id}'");
+            uint cleanId = ParseHexId(el, "clean_swap_bench_id", $"settlement '{id}'");
+            float radiusM = el.GetProperty("build_radius_m").GetSingle();
+            var atkId = (el.GetProperty("attack_rule_id").GetString() ?? "").Trim();
+            int initPop = el.GetProperty("initial_population").GetInt32();
+            int maxTier = el.GetProperty("max_tier").GetInt32();
+            if (radiusM <= 0f || !attackIds.Contains(atkId) || initPop < 0 || maxTier < 1 || maxTier > popRules[^1].Tier)
+                throw new Refusal($"settlement_rules.json settlement '{id}' has invalid radius/attack_rule_id/tier");
+            settlements.Add(new SettlementRuleEntry(id, name, wbPlugin, wbId, cleanPlugin, cleanId, radiusM, atkId, initPop, maxTier));
+        }
+        if (settlements.Count == 0)
+            throw new Refusal($"settlement_rules.json settlements must not be empty: {path}");
+
+        return new SettlementRulesTable(1, settlements.ToArray(), attackRules.ToArray(), popRules.ToArray());
+    }
+
     static ScriptObjectProperty ObjProp(string name, FormKey fk) => new()
     {
         Name = name, Flags = ScriptProperty.Flag.Edited, Object = new FormLink<IStarfieldMajorRecordGetter>(fk),
@@ -267,6 +478,10 @@ static class WorkshopCore
         public required IIngestibleGetter AidTemplate { get; init; }
         public required IIngestibleGetter FoodTemplate { get; init; }
         public IConstructibleObjectGetter? CobjTemplate { get; init; }
+        public IConstructibleObjectGetter? OutpostCobjTemplate { get; init; }
+        public required IFurnitureGetter SanctuaryChairTemplate { get; init; }
+        public required IFurnitureGetter SanctuaryCotTemplate { get; init; }
+        public required IContainerGetter SanctuaryCrateTemplate { get; init; }
         public required string Summary { get; init; }
     }
 
@@ -379,6 +594,27 @@ static class WorkshopCore
 
         var cobjTpl = sf.ConstructibleObjects.FirstOrDefault(c => string.Equals(c.EditorID, "co_mfg_Tier01_AdaptiveFrame", StringComparison.OrdinalIgnoreCase))
                       ?? sf.ConstructibleObjects.OrderBy(c => c.FormKey.ID).FirstOrDefault();
+        var outpostCobjTpl = sf.ConstructibleObjects.FirstOrDefault(c => c.FormKey == Sf(SfCobjOutpostDecorTplId))
+                             ?? sf.ConstructibleObjects.FirstOrDefault(c => string.Equals(c.EditorID, "co_Outpost_Decor_PortableStoveTop01", StringComparison.OrdinalIgnoreCase))
+                             ?? cobjTpl;
+
+        var allFurn = sf.Furniture.Where(f => f.Model != null && !string.IsNullOrEmpty(f.EditorID)).OrderBy(f => f.FormKey.ID).ToList();
+        if (allFurn.Count == 0) allFurn = sf.Furniture.OrderBy(f => f.FormKey.ID).ToList();
+        if (allFurn.Count == 0) throw new Refusal("no Furniture (FURN) template found in Starfield.esm");
+        var chairTpl = allFurn.FirstOrDefault(f => f.FormKey == Sf(SfFurnWoodChairTplId))
+                       ?? allFurn.FirstOrDefault(f => string.Equals(f.EditorID, "AK_Chair_Wood_01_Free", StringComparison.OrdinalIgnoreCase))
+                       ?? allFurn[0];
+        var cotTpl = allFurn.FirstOrDefault(f => f.FormKey == Sf(SfFurnScrapCotTplId))
+                     ?? allFurn.FirstOrDefault(f => string.Equals(f.EditorID, "FoundScrapCot01", StringComparison.OrdinalIgnoreCase))
+                     ?? allFurn.FirstOrDefault(f => string.Equals(f.EditorID, "FoundCanvasCot01", StringComparison.OrdinalIgnoreCase))
+                     ?? allFurn[allFurn.Count - 1];
+
+        var allCont = sf.Containers.Where(c => c.Model != null && !string.IsNullOrEmpty(c.EditorID)).OrderBy(c => c.FormKey.ID).ToList();
+        if (allCont.Count == 0) allCont = sf.Containers.OrderBy(c => c.FormKey.ID).ToList();
+        if (allCont.Count == 0) throw new Refusal("no Container (CONT) template found in Starfield.esm");
+        var crateTpl = allCont.FirstOrDefault(c => c.FormKey == Sf(SfContStorageCrateTplId))
+                       ?? allCont.FirstOrDefault(c => string.Equals(c.EditorID, "Loot_Storage_Miscbox05_Common_Empty", StringComparison.OrdinalIgnoreCase))
+                       ?? allCont[0];
 
         var summary = $"CMPO exact={exactCount}/{CmpoSpecs.Length}, Steel={pairs[0].IresEdid}->{pairs[0].MiscEdid}, " +
                       $"Aluminum={pairs[2].IresEdid}->{pairs[2].MiscEdid}, Adhesive={pairs[3].IresEdid}->{pairs[3].MiscEdid}, " +
@@ -398,6 +634,10 @@ static class WorkshopCore
             AidTemplate = aidTpl,
             FoodTemplate = foodTpl,
             CobjTemplate = cobjTpl,
+            OutpostCobjTemplate = outpostCobjTpl,
+            SanctuaryChairTemplate = chairTpl,
+            SanctuaryCotTemplate = cotTpl,
+            SanctuaryCrateTemplate = crateTpl,
             Summary = summary,
         };
     }
@@ -477,9 +717,14 @@ static class WorkshopCore
         return quest;
     }
 
-    public static int Build(string templatePath, string outDir, float exclRadius, string? jsonPath = null)
+    public static int Build(string templatePath, string outDir, float exclRadius, string? jsonPath = null, string? settlementRulesPath = null)
     {
         var coreIds = LoadCoreValues(jsonPath);
+        var settlementRules = LoadSettlementRules(settlementRulesPath);
+        var sancRule = settlementRules.Settlements.FirstOrDefault(s => s.Id == "sanctuary_hills")
+            ?? throw new Refusal("settlement_rules.json missing sanctuary_hills entry");
+        if (sancRule.CleanSwapBenchId != SanctuaryBenchActiId)
+            throw new Refusal($"settlement_rules.json sanctuary_hills clean_swap_bench_id 0x{sancRule.CleanSwapBenchId:X} != 0x{SanctuaryBenchActiId:X}");
         var testModeKey = Core(coreIds, TestModeEdid);
         using var sf = OpenTemplate(templatePath);
         var tpl = ResolveTemplates(sf);
@@ -494,6 +739,7 @@ static class WorkshopCore
         mod.Globals.Add(MakeGlobal(ActiveCampCountGlobId, "FO4SF_ActiveCAMPCount", 0.0f));
         mod.Globals.Add(MakeGlobal(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f));
         mod.Globals.Add(MakeGlobal(TrackedStationCountGlobId, "FO4SF_TrackedStationCount", 0.0f));
+        mod.Globals.Add(MakeGlobal(SanctuaryCleanBenchSwapGlobId, SanctuaryCleanBenchSwapGlobEdid, 0.0f));
 
         // 2. Portable C.A.M.P., Pack-Up, Settlement, and Scrapper Kits
         var campKitTpl = PickMiscTemplate(sf, new[] { "Tool_DuctTape01", "Deskfan03" }, tpl.DefaultMiscTemplate);
@@ -591,14 +837,129 @@ static class WorkshopCore
         mod.FormLists.Add(MakeFormList(KitFilterListId, "FO4SF_KitFilterList",
             new[] { Own(CampKitId), Own(CampPackTokenId), Own(SettlementKitId), Own(ScrapTokenId) }));
 
+        // 7. R11 D4: Clean Sanctuary Hills Workshop bench (zero Starfield OutpostCategory* keywords)
+        var sancCatKw = new Keyword(Own(SanctuaryCategoryKwId), Release)
+        {
+            EditorID = SanctuaryCategoryKwEdid,
+            Name = "Sanctuary",
+            Type = Keyword.TypeEnum.RecipeFilter,
+        };
+        mod.Keywords.Add(sancCatKw);
+
+        var sancBenchActi = new Mutagen.Bethesda.Starfield.Activator(Own(SanctuaryBenchActiId), Release)
+        {
+            EditorID = SanctuaryBenchActiEdid,
+            Name = SanctuaryBenchName,
+            Model = new Model { File = SanctuaryBenchModel },
+            MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+            Flags = (Mutagen.Bethesda.Starfield.Activator.Flag)0,
+            ActivationAngle = 360,
+            InvertFacing = false,
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>>
+            {
+                new FormLink<IKeywordGetter>(Sf(SfMustPersistKwId)),
+                new FormLink<IKeywordGetter>(Sf(SfWorkshopKwId)),
+                new FormLink<IKeywordGetter>(sancCatKw.FormKey),
+            },
+            Properties = new ExtendedList<ObjectProperty>
+            {
+                new ObjectProperty
+                {
+                    ActorValue = new FormLink<IActorValueInformationGetter>(Sf(SfOutpostBuildAreaRadiusAvId)),
+                    Value = SanctuaryBenchRadius,
+                },
+            },
+        };
+        mod.Activators.Add(sancBenchActi);
+
+        // 8. R11 E6 + fix4: 3 clean Sanctuary settlement placeables + 3 zero-skill Outpost COBJs (0x84B..0x850)
+        // gated on GetGlobalValue(FO4SF_SanctuaryCleanBenchSwap 0x00084A) == 1.0 so they appear on the swapped bench
+        // and hide on the default 04005C50 bench / other outposts, plus FLST overrides on OutpostRecipeCategories (0x058606)
+        // + OutpostFollowCameraCategoryList (0x1A5507) with FULL cleared (0 LCTN/STDT/PNDT overrides!).
+        Furniture CloneSanctuaryFurn(IFurnitureGetter src, uint id, string edid, string name)
+        {
+            var f = (Furniture)src.Duplicate(Own(id), new Furniture.TranslationMask(defaultOn: true) { Name = false });
+            f.EditorID = edid;
+            f.Name = name;
+            f.VirtualMachineAdapter = null;
+            return f;
+        }
+        mod.Furniture.Add(CloneSanctuaryFurn(tpl.SanctuaryChairTemplate, SanctuaryChairFurnId, SanctuaryChairFurnEdid, SanctuaryChairName));
+        mod.Furniture.Add(CloneSanctuaryFurn(tpl.SanctuaryCotTemplate, SanctuaryCotFurnId, SanctuaryCotFurnEdid, SanctuaryCotName));
+
+        var sancCrate = (Container)tpl.SanctuaryCrateTemplate.Duplicate(Own(SanctuaryCrateContId), new Container.TranslationMask(defaultOn: true) { Name = false });
+        sancCrate.EditorID = SanctuaryCrateContEdid;
+        sancCrate.Name = SanctuaryCrateName;
+        sancCrate.VirtualMachineAdapter = null;
+        sancCrate.Items?.Clear();
+        mod.Containers.Add(sancCrate);
+
+        ConstructibleObject MakeSanctuaryOutpostCobj(uint cobjId, string cobjEdid, uint createdOwnId, uint steelCost, float sortOrder)
+        {
+            ConstructibleObject cobj;
+            if (tpl.OutpostCobjTemplate != null)
+            {
+                cobj = (ConstructibleObject)tpl.OutpostCobjTemplate.Duplicate(Own(cobjId), new ConstructibleObject.TranslationMask(defaultOn: true) { Description = false });
+                cobj.VirtualMachineAdapter = null;
+                cobj.Conditions.Clear();
+                cobj.RequiredPerks?.Clear();
+                cobj.RepairComponents?.Clear();
+                cobj.LearnedFrom.Clear();
+                cobj.MaxBuildCountGlobal.Clear();
+                cobj.InstantiationFilterKeyword.Clear();
+            }
+            else
+            {
+                cobj = new ConstructibleObject(Own(cobjId), Release) { FormVersion = 581 };
+            }
+            cobj.EditorID = cobjEdid;
+            cobj.Description = string.Empty;
+            cobj.AmountProduced = 1;
+            cobj.MenuSortOrder = sortOrder;
+            cobj.Tier = 0;
+            cobj.LearnMethod = ConstructibleObject.LearnMethodEnum.DefaultOrConditions;
+            cobj.WorkbenchKeyword.SetTo(sancCatKw.FormKey);
+            cobj.RecipeFilters = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { sancCatKw.FormKey.ToLinkGetter<IKeywordGetter>() };
+            cobj.CreatedObject.SetTo(Own(createdOwnId));
+            var cc = new ConstructibleObjectComponent { RequiredCount = steelCost };
+            cc.Component.SetTo(tpl.CmpoPairs[0].Ires);
+            cobj.ConstructableComponents = new ExtendedList<ConstructibleObjectComponent> { cc };
+            var swapCondData = new GetGlobalValueConditionData { RunOnType = Condition.RunOnType.Subject };
+            swapCondData.FirstParameter.Link.SetTo(Own(SanctuaryCleanBenchSwapGlobId));
+            cobj.Conditions.Add(new ConditionFloat
+            {
+                CompareOperator = CompareOperator.EqualTo,
+                ComparisonValue = 1.0f,
+                Data = swapCondData,
+            });
+            return cobj;
+        }
+        mod.ConstructibleObjects.Add(MakeSanctuaryOutpostCobj(SanctuaryChairCobjId, SanctuaryChairCobjEdid, SanctuaryChairFurnId, 2, 1.0f));
+        mod.ConstructibleObjects.Add(MakeSanctuaryOutpostCobj(SanctuaryCotCobjId, SanctuaryCotCobjEdid, SanctuaryCotFurnId, 2, 2.0f));
+        mod.ConstructibleObjects.Add(MakeSanctuaryOutpostCobj(SanctuaryCrateCobjId, SanctuaryCrateCobjEdid, SanctuaryCrateContId, 1, 3.0f));
+
+        void AppendSanctuaryCategoryToFlst(uint sfFlstId, string label)
+        {
+            var src = sf.FormLists.FirstOrDefault(x => x.FormKey == Sf(sfFlstId))
+                ?? throw new Refusal($"Starfield.esm missing FLST 0x{sfFlstId:X6} ({label})");
+            var copy = src.DeepCopy();
+            copy.Name = null; // Never write inline FULL onto a localized Starfield.esm override!
+            if (!copy.Items.Any(x => x.FormKey == sancCatKw.FormKey))
+                copy.Items.Add(sancCatKw.FormKey.ToLinkGetter<IStarfieldMajorRecordGetter>());
+            mod.FormLists.Add(copy);
+        }
+        AppendSanctuaryCategoryToFlst(SfFlstOutpostRecipeCategoriesId, "OutpostRecipeCategories");
+        AppendSanctuaryCategoryToFlst(SfFlstOutpostFollowCameraCategoriesId, "OutpostFollowCameraCategoryList");
+
         mod.ModHeader.Stats.NextFormID = NextId;
 
         Write(mod, outDir, SfEsm, CoreValuesEsm);
         var outPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-                          $"1 QUST (TestModeGlobal -> {testModeKey}), 4 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m), " +
-                          $"10 MISC, 4 ALCH, 8 COBJ, 5 FLST (18 CMPO->IRES->MISC pairs)");
+                          $"1 QUST (TestModeGlobal -> {testModeKey}), 5 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m, cleanSwap=0), " +
+                          $"10 MISC, 4 ALCH, 2 FURN + 1 CONT + 11 COBJ (3 Sanctuary zero-skill, swap-gated 0x84A==1), 5 own FLST + 2 Outpost FLST overrides (0 LCTN/STDT/PNDT), " +
+                          $"1 KYWD + 1 ACTI (Sanctuary Hills Workshop, 0 Starfield OutpostCategory* KWs)");
         return 0;
     }
 
@@ -630,9 +991,13 @@ static class WorkshopCore
 
     // ---------------------------------------------------------------- check
 
-    public static int Check(string pluginPath, string templatePath, float exclRadius, string? jsonPath = null)
+    public static int Check(string pluginPath, string templatePath, float exclRadius, string? jsonPath = null, string? settlementRulesPath = null)
     {
         var coreIds = LoadCoreValues(jsonPath);
+        var settlementRules = LoadSettlementRules(settlementRulesPath);
+        var sancRule = settlementRules.Settlements.FirstOrDefault(s => s.Id == "sanctuary_hills");
+        if (sancRule == null || sancRule.CleanSwapBenchId != SanctuaryBenchActiId)
+            throw new Refusal($"settlement_rules.json sanctuary_hills missing or clean_swap_bench_id != 0x{SanctuaryBenchActiId:X}");
         var testModeKey = Core(coreIds, TestModeEdid);
         using var sf = OpenTemplate(templatePath);
         var tpl = ResolveTemplates(sf);
@@ -646,16 +1011,29 @@ static class WorkshopCore
         Console.WriteLine($"{Path.GetFileName(pluginPath)}: header {mod.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{mod.ModHeader.Stats.NextFormID:X}");
         Need(mod.ModKey == Plugin, $"file ModKey is {mod.ModKey}, expected {Plugin}");
         Need(mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Master), "plugin header lacks Master flag");
+        Need(!mod.ModHeader.Flags.HasFlag(StarfieldModHeader.HeaderFlag.Localized), "E6: FO4SFWorkshop.esm must not set HeaderFlag.Localized (inline strings only)");
         Need(masters.SequenceEqual(new[] { SfEsm, CoreValuesEsm }), $"masters are [{string.Join(", ", masters)}], expected [Starfield.esm, FO4SFCoreValues.esm]");
 
+        var allowedOverrides = new HashSet<FormKey>
+        {
+            Sf(SfFlstOutpostRecipeCategoriesId),
+            Sf(SfFlstOutpostFollowCameraCategoriesId),
+        };
         var allRecords = mod.EnumerateMajorRecords().ToList();
-        var foreign = allRecords.Where(r => r.FormKey.ModKey != Plugin).Select(r => r.FormKey.ToString()).ToList();
-        Need(foreign.Count == 0, $"plugin contains foreign override records: {string.Join(", ", foreign)}");
-        var dupCore = allRecords.Where(r => r.FormKey.ModKey == Plugin && r.EditorID != null && coreIds.ContainsKey(r.EditorID))
+        var ownRecords = allRecords.Where(r => r.FormKey.ModKey == Plugin).ToList();
+        var foreign = allRecords.Where(r => r.FormKey.ModKey != Plugin).ToList();
+        var badForeign = foreign.Where(r => !allowedOverrides.Contains(r.FormKey)).Select(r => r.FormKey.ToString()).ToList();
+        Need(badForeign.Count == 0, $"plugin contains unauthorized foreign override records: {string.Join(", ", badForeign)}");
+        Need(mod.Planets.Count == 0, $"plugin must never override Planet (PNDT 0x03F59A belongs to FO4TerrainCore_Mars.esm), found {mod.Planets.Count}");
+        Need(mod.Locations.Count == 0, $"plugin must never override localized Starfield LCTN records (E6 blank footer), found {mod.Locations.Count}");
+        Need(mod.Stars.Count == 0, $"plugin must never override localized Starfield STDT records (E6 blank footer), found {mod.Stars.Count}");
+        var dupCore = ownRecords.Where(r => r.EditorID != null && coreIds.ContainsKey(r.EditorID))
             .Select(r => r.EditorID!).ToList();
         Need(dupCore.Count == 0, $"plugin duplicates FO4SFCoreValues.esm EditorIDs: {string.Join(", ", dupCore)}");
-        var lowRange = allRecords.Where(r => r.FormKey.ModKey == Plugin && r.FormKey.ID < 0x800).Select(r => r.FormKey.ToString()).ToList();
+        var lowRange = ownRecords.Where(r => r.FormKey.ID < 0x800).Select(r => r.FormKey.ToString()).ToList();
         Need(lowRange.Count == 0, $"plugin contains low-range FormIDs (<0x800): {string.Join(", ", lowRange)}");
+        Need(ownRecords.Count == ExpectedOwnRecordCount, $"expected {ExpectedOwnRecordCount} own major records, found {ownRecords.Count}");
+        Need(foreign.Count == ExpectedOverrideRecordCount, $"expected {ExpectedOverrideRecordCount} scoped D4 overrides, found {foreign.Count}");
         Need(allRecords.Count == ExpectedMajorRecordCount, $"expected {ExpectedMajorRecordCount} major records, found {allRecords.Count}");
 
         // 1. Quest check
@@ -687,6 +1065,7 @@ static class WorkshopCore
         CheckGlob(ActiveCampCountGlobId, "FO4SF_ActiveCAMPCount", 0.0f);
         CheckGlob(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f);
         CheckGlob(TrackedStationCountGlobId, "FO4SF_TrackedStationCount", 0.0f);
+        CheckGlob(SanctuaryCleanBenchSwapGlobId, SanctuaryCleanBenchSwapGlobEdid, 0.0f);
 
         // 3. CMPO -> IRES -> MISC FormLists check
         var iresList = mod.FormLists.FirstOrDefault(x => x.FormKey == Own(CmpoIresListId));
@@ -780,6 +1159,86 @@ static class WorkshopCore
                 new[] { Own(CampKitId), Own(CampPackTokenId), Own(SettlementKitId), Own(ScrapTokenId) }),
             "FLST FO4SF_KitFilterList does not list the 4 portable kit/token items in order");
 
+        // 8. R11 D4: Clean Sanctuary Hills Workshop bench + Mars/Sol LCTN/STDT overrides
+        var sancKw = mod.Keywords.FirstOrDefault(x => x.FormKey == Own(SanctuaryCategoryKwId));
+        Need(sancKw != null && sancKw.EditorID == SanctuaryCategoryKwEdid &&
+             sancKw.Name?.String == "Sanctuary" && sancKw.Type == Keyword.TypeEnum.RecipeFilter,
+            $"KYWD 0x{SanctuaryCategoryKwId:X} ({SanctuaryCategoryKwEdid}) missing or invalid");
+
+        var sancActi = mod.Activators.FirstOrDefault(x => x.FormKey == Own(SanctuaryBenchActiId));
+        Need(sancActi != null && sancActi.EditorID == SanctuaryBenchActiEdid &&
+             sancActi.Name?.String == SanctuaryBenchName &&
+             string.Equals(sancActi.Model?.File?.GivenPath, SanctuaryBenchModel, StringComparison.OrdinalIgnoreCase) &&
+             sancActi.ActivationAngle == 360 && !sancActi.InvertFacing,
+            $"ACTI 0x{SanctuaryBenchActiId:X} ({SanctuaryBenchActiEdid}) missing or invalid metadata/model");
+        if (sancActi != null)
+        {
+            var kwSet = (sancActi.Keywords ?? Enumerable.Empty<IFormLinkGetter<IKeywordGetter>>()).Select(k => k.FormKey).ToHashSet();
+            Need(kwSet.Contains(Sf(SfWorkshopKwId)) && kwSet.Contains(Own(SanctuaryCategoryKwId)),
+                $"{SanctuaryBenchActiEdid} must carry WorkshopKeyword and {SanctuaryCategoryKwEdid}");
+            var forbidden = ForbiddenStarfieldOutpostCategoryIds.Where(id => kwSet.Contains(Sf(id))).Select(id => $"0x{id:X6}").ToList();
+            Need(forbidden.Count == 0,
+                $"{SanctuaryBenchActiEdid} must carry ZERO Starfield OutpostCategory* keywords, found: {string.Join(", ", forbidden)}");
+            var radiusProp = sancActi.Properties?.FirstOrDefault(p => p.ActorValue.FormKey == Sf(SfOutpostBuildAreaRadiusAvId));
+            Need(radiusProp != null && Math.Abs(radiusProp.Value - SanctuaryBenchRadius) < 0.01f,
+                $"{SanctuaryBenchActiEdid} missing OutpostBuildAreaRadius={SanctuaryBenchRadius}");
+        }
+
+        // 9. R11 E6 + fix4: 3 clean Sanctuary settlement placeables + 3 swap-gated zero-skill Outpost COBJs + 2 FLST overrides
+        foreach (var (fid, edid, wantName) in new[] {
+            (SanctuaryChairFurnId, SanctuaryChairFurnEdid, SanctuaryChairName),
+            (SanctuaryCotFurnId, SanctuaryCotFurnEdid, SanctuaryCotName),
+        })
+        {
+            var f = mod.Furniture.FirstOrDefault(x => x.FormKey == Own(fid));
+            Need(f != null && f.EditorID == edid && f.Name?.String == wantName && f.Model != null && (f.VirtualMachineAdapter?.Scripts.Count ?? 0) == 0,
+                $"FURN 0x{fid:X} ({edid}) missing, misnamed, lacks model, or carries script");
+        }
+        var crateRec = mod.Containers.FirstOrDefault(x => x.FormKey == Own(SanctuaryCrateContId));
+        Need(crateRec != null && crateRec.EditorID == SanctuaryCrateContEdid && crateRec.Name?.String == SanctuaryCrateName &&
+             crateRec.Model != null && (crateRec.VirtualMachineAdapter?.Scripts.Count ?? 0) == 0 && (crateRec.Items?.Count ?? 0) == 0,
+            $"CONT 0x{SanctuaryCrateContId:X} ({SanctuaryCrateContEdid}) missing, misnamed, non-empty, or carries script");
+
+        foreach (var (cobjId, cobjEdid, createdId, steelCost) in new[] {
+            (SanctuaryChairCobjId, SanctuaryChairCobjEdid, SanctuaryChairFurnId, 2u),
+            (SanctuaryCotCobjId, SanctuaryCotCobjEdid, SanctuaryCotFurnId, 2u),
+            (SanctuaryCrateCobjId, SanctuaryCrateCobjEdid, SanctuaryCrateContId, 1u),
+        })
+        {
+            var c = mod.ConstructibleObjects.FirstOrDefault(x => x.FormKey == Own(cobjId));
+            Need(c != null && c.EditorID == cobjEdid, $"Sanctuary COBJ 0x{cobjId:X} ({cobjEdid}) missing");
+            if (c == null) continue;
+            Need(c.WorkbenchKeyword.FormKey == Own(SanctuaryCategoryKwId),
+                $"Sanctuary COBJ {cobjEdid} WorkbenchKeyword is {c.WorkbenchKeyword.FormKey}, expected {Own(SanctuaryCategoryKwId)}");
+            var rfs = c.RecipeFilters?.Select(k => k.FormKey).ToList() ?? new();
+            Need(rfs.SequenceEqual(new[] { Own(SanctuaryCategoryKwId) }),
+                $"Sanctuary COBJ {cobjEdid} RecipeFilters must be [{Own(SanctuaryCategoryKwId)}]");
+            Need(c.CreatedObject.FormKey == Own(createdId) && c.AmountProduced == 1 && c.Tier == 0,
+                $"Sanctuary COBJ {cobjEdid} CreatedObject/AmountProduced/Tier mismatch");
+            var swapCond = c.Conditions.Count == 1 ? c.Conditions[0] as IConditionFloatGetter : null;
+            var swapData = swapCond?.Data as IGetGlobalValueConditionDataGetter;
+            Need(swapCond != null &&
+                 swapCond.CompareOperator == CompareOperator.EqualTo &&
+                 MathF.Abs(swapCond.ComparisonValue - 1.0f) < 1e-4f &&
+                 swapData != null &&
+                 swapData.FirstParameter.Link.FormKey == Own(SanctuaryCleanBenchSwapGlobId) &&
+                 (c.RequiredPerks?.Count ?? 0) == 0 &&
+                 c.LearnMethod == ConstructibleObject.LearnMethodEnum.DefaultOrConditions,
+                $"Sanctuary COBJ {cobjEdid} missing GetGlobalValue({SanctuaryCleanBenchSwapGlobEdid} 0x{SanctuaryCleanBenchSwapGlobId:X} == 1.0) condition or has perk/LearnMethod lock");
+            var comps = c.ConstructableComponents?.Select(cc => (cc.Component.FormKey, cc.RequiredCount)).ToList() ?? new();
+            Need(comps.SequenceEqual(new[] { (tpl.CmpoPairs[0].Ires, steelCost) }),
+                $"Sanctuary COBJ {cobjEdid} ConstructableComponents mismatch");
+        }
+
+        void CheckFlstOverride(uint sfFlstId, string label)
+        {
+            var fl = mod.FormLists.FirstOrDefault(x => x.FormKey == Sf(sfFlstId));
+            Need(fl != null && fl.Name == null && fl.Items.Any(x => x.FormKey == Own(SanctuaryCategoryKwId)),
+                $"E6 FLST override 0x{sfFlstId:X6} ({label}) missing, carries FULL, or lacks {SanctuaryCategoryKwEdid}");
+        }
+        CheckFlstOverride(SfFlstOutpostRecipeCategoriesId, "OutpostRecipeCategories");
+        CheckFlstOverride(SfFlstOutpostFollowCameraCategoriesId, "OutpostFollowCameraCategoryList");
+
         foreach (var x in problems) Console.WriteLine("FAIL  " + x);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
         return problems.Count == 0 ? 0 : 1;
@@ -795,13 +1254,53 @@ static class WorkshopCore
         var mod = new StarfieldMod(SfEsm, Release);
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
 
-        // WorkshopKeyword (0x054BA7), AnimFurnWorkbench (0x01A21C), OutpostBeaconActivator (0x2C60E9)
-        mod.Keywords.Add(new Keyword(Sf(0x054BA7), Release) { EditorID = "WorkshopKeyword" });
+        // WorkshopKeyword (0x054BA7), MustPersist (0x04AF68), AnimFurnWorkbench (0x01A21C), OutpostBuildAreaRadius (0x063FC5), OutpostBeaconActivator (0x2C60E9)
+        mod.Keywords.Add(new Keyword(Sf(SfMustPersistKwId), Release) { EditorID = "MustPersist" });
+        mod.Keywords.Add(new Keyword(Sf(SfWorkshopKwId), Release) { EditorID = "WorkshopKeyword" });
         mod.Keywords.Add(new Keyword(Sf(0x01A21C), Release) { EditorID = "AnimFurnWorkbench" });
+        mod.ActorValueInformation.Add(new ActorValueInformation(Sf(SfOutpostBuildAreaRadiusAvId), Release) { EditorID = "OutpostBuildAreaRadius" });
         mod.Activators.Add(new Mutagen.Bethesda.Starfield.Activator(Sf(0x2C60E9), Release)
         {
             EditorID = "OutpostBeaconActivator",
             Model = new Model { File = "Meshes\\Outpost\\Beacon.nif" },
+        });
+
+        // Starfield.esm Outpost category FormLists + clean FURN/CONT templates for E6 Sanctuary buildables
+        mod.FormLists.Add(new FormList(Sf(SfFlstOutpostRecipeCategoriesId), Release)
+        {
+            EditorID = "OutpostRecipeCategories",
+            Items = new ExtendedList<IFormLinkGetter<IStarfieldMajorRecordGetter>>
+            {
+                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002CFDE6)),
+                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002BE3B5)),
+            },
+        });
+        mod.FormLists.Add(new FormList(Sf(SfFlstOutpostFollowCameraCategoriesId), Release)
+        {
+            EditorID = "OutpostFollowCameraCategoryList",
+            Items = new ExtendedList<IFormLinkGetter<IStarfieldMajorRecordGetter>>
+            {
+                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002CFDE6)),
+                new FormLink<IStarfieldMajorRecordGetter>(Sf(0x002BE3B5)),
+            },
+        });
+        mod.Furniture.Add(new Furniture(Sf(SfFurnWoodChairTplId), Release)
+        {
+            EditorID = "AK_Chair_Wood_01_Free",
+            Name = "Chair",
+            Model = new Model { File = "Furniture\\Chairs\\Generic\\AK_Chair_Wood_01.nif" },
+        });
+        mod.Furniture.Add(new Furniture(Sf(SfFurnScrapCotTplId), Release)
+        {
+            EditorID = "FoundScrapCot01",
+            Name = "Cot",
+            Model = new Model { File = "SetDressing\\Found\\FoundScrapCot01.nif" },
+        });
+        mod.Containers.Add(new Container(Sf(SfContStorageCrateTplId), Release)
+        {
+            EditorID = "Loot_Storage_Miscbox05_Common_Empty",
+            Name = "Storage Crate",
+            Model = new Model { File = "SetDressing\\Toolbox_Kits\\ToolBox_SetA_03.nif" },
         });
 
         // Bench & RecipeFilter Keywords
@@ -920,17 +1419,100 @@ static class WorkshopCore
         return StarfieldMod.CreateFromBinary(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
-    public static int SelfTest(string scratchDir)
+    public static int SelfTest(string scratchDir, string? settlementRulesPath = null)
     {
         Directory.CreateDirectory(scratchDir);
+        var defaultRules = LoadSettlementRules(settlementRulesPath);
+        var sanc = defaultRules.Settlements.FirstOrDefault(s => s.Id == "sanctuary_hills")
+            ?? throw new Refusal("default settlement_rules.json missing sanctuary_hills");
+        if (sanc.WorkbenchRefId != 0x005C50 || sanc.CleanSwapBenchId != SanctuaryBenchActiId)
+            throw new Refusal("default settlement_rules.json sanctuary_hills FormIDs mismatch");
+
+        // Verify extensible seam: synthetic 2nd settlement + custom attack/population rules load cleanly with 0 code edits
+        var synthRulesPath = Path.Combine(scratchDir, "settlement_rules_synth.json");
+        File.WriteAllText(synthRulesPath, """
+        {
+          "schema_version": 1,
+          "settlements": [
+            {
+              "id": "sanctuary_hills",
+              "name": "Sanctuary Hills",
+              "workbench_plugin": "FO4TerrainCore.esm",
+              "workbench_ref_id": "0x005C50",
+              "clean_swap_bench_plugin": "FO4SFWorkshop.esm",
+              "clean_swap_bench_id": "0x000849",
+              "build_radius_m": 250.0,
+              "attack_rule_id": "commonwealth_raider_probe",
+              "initial_population": 0,
+              "max_tier": 3
+            },
+            {
+              "id": "red_rocket_truck_stop",
+              "name": "Red Rocket Truck Stop",
+              "workbench_plugin": "FO4TerrainCore.esm",
+              "workbench_ref_id": "0x005C51",
+              "clean_swap_bench_plugin": "FO4SFWorkshop.esm",
+              "clean_swap_bench_id": "0x000860",
+              "build_radius_m": 180.0,
+              "attack_rule_id": "synthetic_custom_siege",
+              "initial_population": 2,
+              "max_tier": 4
+            }
+          ],
+          "attack_rules": [
+            {
+              "id": "commonwealth_raider_probe",
+              "min_population": 2,
+              "min_defense_exempt_ratio": 1.0,
+              "cooldown_game_hours": 48.0,
+              "base_chance_pct": 15.0,
+              "attacker_faction": "raider",
+              "enabled_hook": false
+            },
+            {
+              "id": "synthetic_custom_siege",
+              "min_population": 4,
+              "min_defense_exempt_ratio": 1.5,
+              "cooldown_game_hours": 24.0,
+              "base_chance_pct": 30.0,
+              "attacker_faction": "gunner",
+              "enabled_hook": true
+            }
+          ],
+          "population_upgrade_rules": [
+            { "tier": 1, "id": "outpost", "label": "Outpost", "min_population": 0, "min_beds": 0, "min_food": 0, "min_water": 0, "beacon_recruit_cap": 5 },
+            { "tier": 2, "id": "settlement", "label": "Settlement", "min_population": 5, "min_beds": 5, "min_food": 5, "min_water": 5, "beacon_recruit_cap": 12 },
+            { "tier": 3, "id": "hub", "label": "Regional Hub", "min_population": 12, "min_beds": 12, "min_food": 12, "min_water": 12, "beacon_recruit_cap": 20 },
+            { "tier": 4, "id": "citadel", "label": "Fortified Citadel", "min_population": 20, "min_beds": 20, "min_food": 20, "min_water": 20, "beacon_recruit_cap": 30 }
+          ]
+        }
+        """);
+        var synth = LoadSettlementRules(synthRulesPath);
+        if (synth.Settlements.Length != 2 || synth.Settlements[1].Id != "red_rocket_truck_stop" ||
+            synth.AttackRules.Length != 2 || synth.PopulationUpgradeRules.Length != 4)
+            throw new Refusal("synthetic 2nd settlement + custom attack/population rule check failed");
+
+        // Negative tamper check on settlement_rules.json: unknown attack_rule_id and non-monotonic population tier must refuse
+        var badRulesPath = Path.Combine(scratchDir, "settlement_rules_bad.json");
+        File.WriteAllText(badRulesPath, File.ReadAllText(synthRulesPath).Replace("\"attack_rule_id\": \"synthetic_custom_siege\"", "\"attack_rule_id\": \"missing_rule_id\"", StringComparison.Ordinal));
+        var badThrew = false;
+        try { LoadSettlementRules(badRulesPath); } catch (Refusal) { badThrew = true; }
+        if (!badThrew) throw new Refusal("LoadSettlementRules failed to reject unknown attack_rule_id");
+
+        var badTierPath = Path.Combine(scratchDir, "settlement_rules_bad_tier.json");
+        File.WriteAllText(badTierPath, File.ReadAllText(synthRulesPath).Replace("\"min_population\": 12", "\"min_population\": 4", StringComparison.Ordinal));
+        var badTierThrew = false;
+        try { LoadSettlementRules(badTierPath); } catch (Refusal) { badTierThrew = true; }
+        if (!badTierThrew) throw new Refusal("LoadSettlementRules failed to reject non-monotonic population_upgrade_rules");
+
         foreach (var mode in new[] { "full", "minimal" })
         {
             var mDir = Path.Combine(scratchDir, "m_" + mode);
             var bDir = Path.Combine(scratchDir, "b_" + mode);
             if (Fixture(mDir, mode) != 0) throw new Refusal($"fixture {mode} failed");
             var sfPath = Path.Combine(mDir, "Starfield.esm");
-            if (Build(sfPath, bDir, 45.0f) != 0) throw new Refusal($"build {mode} failed");
-            if (Check(Path.Combine(bDir, Plugin.FileName), sfPath, 45.0f) != 0) throw new Refusal($"check {mode} failed");
+            if (Build(sfPath, bDir, 45.0f, null, settlementRulesPath) != 0) throw new Refusal($"build {mode} failed");
+            if (Check(Path.Combine(bDir, Plugin.FileName), sfPath, 45.0f, null, settlementRulesPath) != 0) throw new Refusal($"check {mode} failed");
         }
 
         // Custom exclusion radius check
@@ -990,7 +1572,38 @@ static class WorkshopCore
             m.ConstructibleObjects.First(c => c.FormKey == Own(RcpeNvSurgicalBagId)).Conditions
                 .Add(new ConditionFloat { Data = new IsInWaterConditionData() }));
 
-        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 7 tamper controls passed)");
+        // 8. D4: Starfield OutpostCategoryCrafting leaked onto Sanctuary bench
+        ExpectTamperFail("d4_starfield_outpost_category_leaked", m =>
+            m.Activators.First(a => a.FormKey == Own(SanctuaryBenchActiId)).Keywords!
+                .Add(new FormLink<IKeywordGetter>(Sf(ForbiddenStarfieldOutpostCategoryIds[0]))));
+
+        // 10. E6: OutpostRecipeCategories missing FO4SF_WorkshopCategorySanctuary
+        ExpectTamperFail("d4_outpost_categories_missing_sanctuary", m =>
+            m.FormLists.First(fl => fl.FormKey == Sf(SfFlstOutpostRecipeCategoriesId)).Items
+                .RemoveWhere(x => x.FormKey == Own(SanctuaryCategoryKwId)));
+
+        // 11. D4: Sanctuary clean bench swap switch defaults to non-zero (must default to 0.0 = OFF)
+        ExpectTamperFail("d4_clean_bench_swap_default_nonzero", m =>
+            m.Globals.First(g => g.FormKey == Own(SanctuaryCleanBenchSwapGlobId)).Data = 1.0f);
+
+        // 12. E6/F3: Sanctuary Outpost COBJ lacks swap-global Condition (must hide on 04005C50 / show on r11swp1)
+        ExpectTamperFail("e6_sanctuary_cobj_missing_swap_condition", m =>
+            m.ConstructibleObjects.First(c => c.FormKey == Own(SanctuaryChairCobjId)).Conditions.Clear());
+
+        // 13. D4/E6: Sanctuary COBJ replaced with unrelated Condition
+        ExpectTamperFail("d4_sanctuary_cobj_locked_by_condition", m =>
+            m.ConstructibleObjects.First(c => c.FormKey == Own(SanctuaryChairCobjId)).Conditions
+                .Add(new ConditionFloat { Data = new IsInWaterConditionData() }));
+
+        // 14. E6: Localized Starfield LCTN override leaked back into FO4SFWorkshop.esm
+        ExpectTamperFail("d4_localized_location_override_leaked", m =>
+            m.Locations.Add(new Location(Sf(0x01B735), Release) { EditorID = "SSol_PMars", Name = "Commonwealth" }));
+
+        // 15. E6: HeaderFlag.Localized leaked back into FO4SFWorkshop.esm
+        ExpectTamperFail("e6_localized_header_leaked", m =>
+            m.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Localized);
+
+        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 15 tamper controls passed)");
         return 0;
     }
 }

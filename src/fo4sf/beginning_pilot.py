@@ -13,11 +13,17 @@ Covers the eight console-free Story-mode beginning steps (`B1`..`B8`) documented
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import struct
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from pathlib import Path
+from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
+
+from fo4sf.ba2 import Ba2, Ba2Error
+from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin
 
 
 @dataclass(frozen=True)
@@ -116,9 +122,48 @@ BEGINNING_STEPS: Tuple[BeginningStepSpec, ...] = (
 )
 
 CODSWORTH_NIF_REL = "meshes/fo4port/actors/codsworth/codsworth.nif"
+PRESTON_OUTFIT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyoutfit_m.nif"
+PRESTON_HAT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyhat_m.nif"
+CONCORD_RAIDER_NIF_REL = "meshes/fo4core/armor/raider04/concord_raider_m.nif"
+B5_REQUIRED_ACTOR_NIFS: Tuple[Tuple[str, str], ...] = (
+    ("Codsworth NIF", CODSWORTH_NIF_REL),
+    ("Preston outfit NIF", PRESTON_OUTFIT_NIF_REL),
+    ("Preston hat NIF", PRESTON_HAT_NIF_REL),
+    ("Concord Raider NIF", CONCORD_RAIDER_NIF_REL),
+)
 CODSWORTH_VOICE_DIR_REL = "sound/voice/fo4sfmission.esm/fo4sf_codsworthvoice"
 MIN_CODSWORTH_WEMS = 25
 MAX_PROTECTED_UNSTOPPED_HOLD_QUESTS = 4
+
+MAP_MARKERS_DIRNAME = "map-markers"
+MAP_MARKERS_PLUGIN = "FO4SFMapMarkers.esm"
+MAP_MARKERS_ARCHIVE = "FO4SFMapMarkers - Main.ba2"
+MAP_MARKERS_PEX_REL = "Scripts/FO4SF_MapMarkers.pex"
+MAP_MARKERS_SCRIPT = "FO4SF_MapMarkers"
+NEWGAME_QUEST_SCRIPT = "FO4SF_NewGameQuest"
+PEX_MAGIC = 0xFA57C0DE
+
+_PEX_FIXED_OP_ARGS: Dict[int, int] = {
+    0x00: 0,
+    0x01: 3, 0x02: 3, 0x03: 3, 0x04: 3, 0x05: 3, 0x06: 3, 0x07: 3, 0x08: 3, 0x09: 3,
+    0x0A: 2, 0x0B: 2, 0x0C: 2, 0x0D: 2, 0x0E: 2,
+    0x0F: 3, 0x10: 3, 0x11: 3, 0x12: 3, 0x13: 3,
+    0x14: 1, 0x15: 2, 0x16: 2,
+    0x1A: 1, 0x1B: 3, 0x1C: 3, 0x1D: 3,
+    0x1E: 2, 0x1F: 2, 0x20: 3, 0x21: 3, 0x22: 4, 0x23: 4,
+    0x24: 3, 0x25: 1, 0x26: 3, 0x27: 3, 0x28: 5, 0x29: 5,
+    0x2A: 3, 0x2B: 3, 0x2C: 1, 0x2D: 3, 0x2E: 1,
+    0x2F: 6,
+}
+_PEX_VARARG_OP_ARGS: Dict[int, int] = {0x17: 3, 0x18: 2, 0x19: 3}
+_PEX_DST0_OPS: frozenset[int] = frozenset({
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+    0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+    0x0F, 0x10, 0x11, 0x12, 0x13,
+    0x1B, 0x1E, 0x1F, 0x20, 0x24, 0x25, 0x26,
+})
+_PEX_DST1_OPS: frozenset[int] = frozenset({0x18, 0x22, 0x23, 0x28, 0x29})
+_PEX_DST2_OPS: frozenset[int] = frozenset({0x17, 0x19, 0x1C})
 
 NOT_BUILT_MUSEUM_CONTENT: Tuple[str, ...] = (
     "laser musket",
@@ -153,7 +198,7 @@ SESSION2_SHEET_PASS_SPECS: Tuple[Tuple[str, str], ...] = (
     ("Card 2", "FO4SF_NEWGAME rt=<rt> start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell"),
     ("Card 2", f"FO4SF_NEWGAME rt=<rt> stage 10 by={CANONICAL_CAUSE_TRIGGER}"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 20 by=scene"),
-    ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<equipped>"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console"),
@@ -226,7 +271,565 @@ def _is_tes4_plugin(path: str) -> bool:
         return False
 
 
-def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _pex_read_wstr(buf: bytes, pos: int) -> Tuple[str, int]:
+    if pos + 2 > len(buf):
+        raise ValueError(f"truncated PEX string length at {pos}")
+    n = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    if pos + n > len(buf):
+        raise ValueError(f"truncated PEX string ({n} bytes) at {pos}")
+    return buf[pos:pos + n].decode("utf-8", "replace"), pos + n
+
+
+def _pex_read_var_data(buf: bytes, pos: int, strings: Sequence[str]) -> Tuple[Tuple[str, object], int]:
+    if pos >= len(buf):
+        raise ValueError(f"truncated PEX variable value at {pos}")
+    vtype = buf[pos]
+    pos += 1
+    if vtype == 0:
+        return ("null", None), pos
+    if vtype in (1, 2):
+        if pos + 2 > len(buf):
+            raise ValueError(f"truncated PEX string index at {pos}")
+        idx = struct.unpack_from("<H", buf, pos)[0]
+        if idx >= len(strings):
+            raise ValueError(f"PEX string index {idx} out of range ({len(strings)})")
+        return ("id" if vtype == 1 else "str", strings[idx]), pos + 2
+    if vtype == 3:
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX int at {pos}")
+        return ("int", struct.unpack_from("<i", buf, pos)[0]), pos + 4
+    if vtype == 4:
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX float at {pos}")
+        return ("float", struct.unpack_from("<f", buf, pos)[0]), pos + 4
+    if vtype == 5:
+        if pos >= len(buf):
+            raise ValueError(f"truncated PEX bool at {pos}")
+        return ("bool", bool(buf[pos])), pos + 1
+    raise ValueError(f"unsupported PEX variable data type {vtype} at {pos - 1}")
+
+
+def _pex_read_fn_body(buf: bytes, pos: int, strings: Sequence[str]) -> Tuple[dict, int]:
+    if pos + 11 > len(buf):
+        raise ValueError(f"truncated PEX function header at {pos}")
+    ret_idx, _doc, _uflags, flags, pcnt = struct.unpack_from("<HHIBH", buf, pos)
+    pos += 11
+    params: List[Tuple[str, str]] = []
+    for _ in range(pcnt):
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX parameter at {pos}")
+        pnm, ptp = struct.unpack_from("<HH", buf, pos)
+        pos += 4
+        params.append((strings[pnm], strings[ptp]))
+    if pos + 2 > len(buf):
+        raise ValueError(f"truncated PEX local count at {pos}")
+    lcnt = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    locals_list: List[Tuple[str, str]] = []
+    for _ in range(lcnt):
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX local at {pos}")
+        lnm, ltp = struct.unpack_from("<HH", buf, pos)
+        pos += 4
+        locals_list.append((strings[lnm], strings[ltp]))
+    if pos + 2 > len(buf):
+        raise ValueError(f"truncated PEX instruction count at {pos}")
+    icnt = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    instructions: List[Tuple[int, List[object]]] = []
+    for _ in range(icnt):
+        if pos >= len(buf):
+            raise ValueError(f"truncated PEX instruction at {pos}")
+        op = buf[pos]
+        pos += 1
+        args: List[object] = []
+        if op in _PEX_FIXED_OP_ARGS:
+            for _ in range(_PEX_FIXED_OP_ARGS[op]):
+                val, pos = _pex_read_var_data(buf, pos, strings)
+                args.append(val)
+        elif op in _PEX_VARARG_OP_ARGS:
+            for _ in range(_PEX_VARARG_OP_ARGS[op]):
+                val, pos = _pex_read_var_data(buf, pos, strings)
+                args.append(val)
+            vc_arg, pos = _pex_read_var_data(buf, pos, strings)
+            if vc_arg[0] != "int" or not isinstance(vc_arg[1], int) or vc_arg[1] < 0:
+                raise ValueError(f"invalid PEX vararg count {vc_arg!r} at {pos}")
+            vargs: List[Tuple[str, object]] = []
+            for _ in range(vc_arg[1]):
+                val, pos = _pex_read_var_data(buf, pos, strings)
+                vargs.append(val)
+            args.append(vargs)
+        else:
+            raise ValueError(f"unsupported PEX opcode 0x{op:02X} at {pos - 1}")
+        instructions.append((op, args))
+    return {
+        "return_type": strings[ret_idx],
+        "flags": flags,
+        "params": params,
+        "locals": locals_list,
+        "instructions": instructions,
+    }, pos
+
+
+def _parse_pex_objects(buf: bytes) -> Dict[str, Dict[str, object]]:
+    """Parse a compiled Papyrus `.pex` binary into `{object_name: {'vars': ..., 'functions': ...}}`."""
+    if len(buf) < 16:
+        raise ValueError("truncated PEX header")
+    magic, major, minor, _gid = struct.unpack_from("<IBBH", buf, 0)
+    if magic != PEX_MAGIC:
+        raise ValueError(f"not a little-endian PEX file (magic=0x{magic:08X})")
+    pos = 16
+    for _ in range(3):
+        _, pos = _pex_read_wstr(buf, pos)
+    if pos + 2 > len(buf):
+        raise ValueError("truncated PEX string table count")
+    scount = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    strings: List[str] = []
+    for _ in range(scount):
+        s, pos = _pex_read_wstr(buf, pos)
+        strings.append(s)
+
+    if pos >= len(buf):
+        raise ValueError("truncated PEX debug flag")
+    has_debug = buf[pos]
+    pos += 1
+    if has_debug:
+        pos += 8
+        if pos + 2 > len(buf):
+            raise ValueError("truncated PEX debug function count")
+        fc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        for _ in range(fc):
+            pos += 7
+            if pos + 2 > len(buf):
+                raise ValueError("truncated PEX debug line count")
+            ic = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2 + (ic * 2)
+        if (major, minor) >= (3, 9):
+            pgc = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2
+            for _ in range(pgc):
+                pos += 10
+                nc = struct.unpack_from("<H", buf, pos)[0]
+                pos += 2 + (nc * 2)
+            soc = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2
+            for _ in range(soc):
+                pos += 4
+                nc = struct.unpack_from("<H", buf, pos)[0]
+                pos += 2 + (nc * 2)
+
+    if pos + 2 > len(buf):
+        raise ValueError("truncated PEX user flags")
+    ufc = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2 + (ufc * 3)
+    if pos + 2 > len(buf):
+        raise ValueError("truncated PEX object count")
+    ocount = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+
+    objects: Dict[str, Dict[str, object]] = {}
+    for _ in range(ocount):
+        if pos + 17 > len(buf):
+            raise ValueError(f"truncated PEX object header at {pos}")
+        oname_idx, _osize = struct.unpack_from("<HI", buf, pos)
+        pos += 6
+        pos += 11  # parent, docstring, constFlag, userFlags, autoStateName
+        if (major, minor) >= (3, 9):
+            st_cnt = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2
+            for _ in range(st_cnt):
+                _sn, mc = struct.unpack_from("<HH", buf, pos)
+                pos += 4
+                for _ in range(mc):
+                    pos += 8
+                    _, pos = _pex_read_var_data(buf, pos, strings)
+                    pos += 3
+
+        vc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        obj_vars: List[Tuple[str, str]] = []
+        for _ in range(vc):
+            vn_idx, vt_idx, _vu = struct.unpack_from("<HHI", buf, pos)
+            pos += 8
+            _, pos = _pex_read_var_data(buf, pos, strings)
+            if (major, minor) >= (3, 9):
+                pos += 1
+            obj_vars.append((strings[vn_idx], strings[vt_idx]))
+
+        if (major, minor) >= (3, 10):
+            gc = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2 + (gc * 2)
+
+        pc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        for _ in range(pc):
+            _pn, _pt, _pd, _pu, pf = struct.unpack_from("<HHHIB", buf, pos)
+            pos += 11
+            if pf & 4:
+                pos += 2
+            else:
+                if pf & 1:
+                    _, pos = _pex_read_fn_body(buf, pos, strings)
+                if pf & 2:
+                    _, pos = _pex_read_fn_body(buf, pos, strings)
+
+        stc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        fns: Dict[Tuple[str, str], dict] = {}
+        for _ in range(stc):
+            sn_idx, fnc = struct.unpack_from("<HH", buf, pos)
+            pos += 4
+            state_name = strings[sn_idx]
+            for _ in range(fnc):
+                fn_idx = struct.unpack_from("<H", buf, pos)[0]
+                pos += 2
+                body, pos = _pex_read_fn_body(buf, pos, strings)
+                fns[(state_name, strings[fn_idx])] = body
+        objects[strings[oname_idx]] = {"vars": obj_vars, "functions": fns}
+
+    if pos != len(buf):
+        raise ValueError(f"PEX parse ended at byte {pos}, expected {len(buf)}")
+    return objects
+
+
+def pex_defined_functions(buf: bytes, script_name: str = MAP_MARKERS_SCRIPT) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Return `(default_state_map, all_states_map)` of `{fn_casefold: fn_name}` defined on `script_name`."""
+    objects = _parse_pex_objects(buf)
+    target = next((obj for name, obj in objects.items() if name.casefold() == script_name.casefold()), None)
+    if target is None:
+        raise ValueError(f"PEX lacks script object {script_name}")
+    default_fns: Dict[str, str] = {}
+    all_fns: Dict[str, str] = {}
+    for (state_name, fn_name) in target["functions"]:
+        low = fn_name.casefold()
+        all_fns.setdefault(low, fn_name)
+        if state_name == "":
+            default_fns.setdefault(low, fn_name)
+    return default_fns, all_fns
+
+
+def extract_mapmarker_calls_from_pex(
+    buf: bytes,
+    script_name: str = MAP_MARKERS_SCRIPT,
+    caller_object: Optional[str] = NEWGAME_QUEST_SCRIPT,
+) -> List[str]:
+    """Extract member function names called on `script_name` (via `CastAs` + `CallFunction` or typed refs) from PEX."""
+    objects = _parse_pex_objects(buf)
+    target_low = script_name.casefold()
+    called: Dict[str, str] = {}
+
+    selected_objs = [
+        obj for name, obj in objects.items()
+        if caller_object is None or name.casefold() == caller_object.casefold()
+    ]
+    for obj in selected_objs:
+        typed_obj_vars = {vn.casefold() for vn, vt in obj["vars"] if vt.casefold() == target_low}
+        for _fn_key, body in obj["functions"].items():
+            typed_vars = set(typed_obj_vars)
+            for vn, vt in body["params"] + body["locals"]:
+                if vt.casefold() == target_low:
+                    typed_vars.add(vn.casefold())
+            mm_vars = set(typed_vars)
+
+            for op, args in body["instructions"]:
+                if op == 0x17:
+                    method = str(args[0][1])
+                    recv = args[1]
+                    dst = args[2]
+                    vargs = args[3]
+                    if recv[0] == "id" and str(recv[1]).casefold() in mm_vars:
+                        m_low = method.casefold()
+                        if m_low in ("callfunction", "callfunctionnowait"):
+                            if vargs and vargs[0][0] == "str" and str(vargs[0][1]):
+                                tgt = str(vargs[0][1])
+                                called.setdefault(tgt.casefold(), tgt)
+                        elif m_low != "castas":
+                            called.setdefault(m_low, method)
+                    if dst[0] == "id":
+                        dst_low = str(dst[1]).casefold()
+                        if (
+                            method.casefold() == "castas"
+                            and vargs
+                            and vargs[0][0] == "str"
+                            and str(vargs[0][1]).casefold() == target_low
+                        ):
+                            mm_vars.add(dst_low)
+                        elif dst_low not in typed_vars:
+                            mm_vars.discard(dst_low)
+                    continue
+
+                if op in (0x0D, 0x0E):
+                    dst, src = args[0], args[1]
+                    if dst[0] == "id":
+                        dst_low = str(dst[1]).casefold()
+                        if src[0] == "id" and str(src[1]).casefold() in mm_vars:
+                            mm_vars.add(dst_low)
+                        elif dst_low not in typed_vars:
+                            mm_vars.discard(dst_low)
+                    continue
+
+                dst_idx = 0 if op in _PEX_DST0_OPS else 1 if op in _PEX_DST1_OPS else 2 if op in _PEX_DST2_OPS else None
+                if dst_idx is not None and dst_idx < len(args):
+                    dst = args[dst_idx]
+                    if isinstance(dst, tuple) and dst[0] == "id":
+                        dst_low = str(dst[1]).casefold()
+                        if dst_low not in typed_vars:
+                            mm_vars.discard(dst_low)
+
+    return sorted(called.values())
+
+
+def _strip_psc_comments_and_docs(psc_text: str) -> str:
+    """Strip Papyrus `{ ... }` docstrings and `; ...` line comments while preserving string literals."""
+    out: List[str] = []
+    i = 0
+    n = len(psc_text)
+    in_str = False
+    in_doc = False
+    while i < n:
+        ch = psc_text[i]
+        if in_doc:
+            if ch == "}":
+                in_doc = False
+            elif ch == "\n":
+                out.append("\n")
+            i += 1
+            continue
+        if in_str:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(psc_text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "{":
+            in_doc = True
+            i += 1
+            continue
+        if ch == ";":
+            while i < n and psc_text[i] != "\n":
+                i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def extract_mapmarker_calls_from_psc(psc_text: str, script_name: str = MAP_MARKERS_SCRIPT) -> List[str]:
+    """Extract member function names called on `script_name` from Papyrus source (`CastAs` + `CallFunction` / typed calls)."""
+    cleaned = _strip_psc_comments_and_docs(psc_text)
+    esc = re.escape(script_name)
+    mm_vars: Set[str] = set()
+    for m in re.finditer(rf"\b([A-Za-z_]\w*)\s*=\s*[^\r\n;]*\.CastAs\(\s*\"{esc}\"\s*\)", cleaned, re.IGNORECASE):
+        mm_vars.add(m.group(1).casefold())
+    for m in re.finditer(rf"^\s*{esc}\s+(?:Property\s+)?([A-Za-z_]\w*)\b", cleaned, re.IGNORECASE | re.MULTILINE):
+        mm_vars.add(m.group(1).casefold())
+    for m in re.finditer(rf"\b([A-Za-z_]\w*)\s*=\s*[^\r\n;]*\bas\s+{esc}\b", cleaned, re.IGNORECASE):
+        mm_vars.add(m.group(1).casefold())
+
+    called: Dict[str, str] = {}
+    for var_low in sorted(mm_vars):
+        var_esc = re.escape(var_low)
+        for m in re.finditer(
+            rf"\b{var_esc}\s*\.\s*CallFunction(?:NoWait)?\(\s*\"([A-Za-z_]\w*)\"",
+            cleaned,
+            re.IGNORECASE,
+        ):
+            fn = m.group(1)
+            called.setdefault(fn.casefold(), fn)
+        for m in re.finditer(rf"\b{var_esc}\s*\.\s*([A-Za-z_]\w*)\s*\(", cleaned, re.IGNORECASE):
+            fn = m.group(1)
+            if fn.casefold() not in ("castas", "callfunction", "callfunctionnowait"):
+                called.setdefault(fn.casefold(), fn)
+
+    for m in re.finditer(
+        rf"\.CastAs\(\s*\"{esc}\"\s*\)\s*\.\s*CallFunction(?:NoWait)?\(\s*\"([A-Za-z_]\w*)\"",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        fn = m.group(1)
+        called.setdefault(fn.casefold(), fn)
+    for m in re.finditer(rf"\bas\s+{esc}\s*\)\s*\.\s*([A-Za-z_]\w*)\s*\(", cleaned, re.IGNORECASE):
+        fn = m.group(1)
+        if fn.casefold() not in ("castas", "callfunction", "callfunctionnowait"):
+            called.setdefault(fn.casefold(), fn)
+
+    return sorted(called.values())
+
+
+def verify_map_markers_bundle_compatibility(bundle_dir: str, repo_root: Optional[str] = None) -> List[str]:
+    """Verify staged `FO4SFMapMarkers.esm`, `FO4SFMapMarkers - Main.ba2`, `core.json`, and `FO4SF_NewGameQuest` calls."""
+    b_abs = os.path.abspath(bundle_dir)
+    issues: List[str] = []
+
+    mm_subdir = os.path.join(b_abs, MAP_MARKERS_DIRNAME)
+    if os.path.isdir(mm_subdir):
+        mm_root = mm_subdir
+        rel_prefix = MAP_MARKERS_DIRNAME + "/"
+        require_core_json = True
+    elif os.path.isfile(os.path.join(b_abs, MAP_MARKERS_PLUGIN)) or os.path.isfile(os.path.join(b_abs, MAP_MARKERS_ARCHIVE)):
+        mm_root = b_abs
+        rel_prefix = ""
+        require_core_json = False
+    else:
+        return [f"missing {MAP_MARKERS_DIRNAME}/{MAP_MARKERS_PLUGIN} and {MAP_MARKERS_DIRNAME}/{MAP_MARKERS_ARCHIVE}"]
+
+    mm_esm = os.path.join(mm_root, MAP_MARKERS_PLUGIN)
+    if not os.path.isfile(mm_esm):
+        issues.append(f"missing {rel_prefix}{MAP_MARKERS_PLUGIN}")
+    else:
+        try:
+            with RawEsmPlugin(mm_esm) as mm_plg:
+                masters_low = {m.casefold() for m in mm_plg.masters}
+                if "fo4terraincore.esm" not in masters_low:
+                    issues.append(f"{rel_prefix}{MAP_MARKERS_PLUGIN} does not master FO4TerrainCore.esm")
+        except (OSError, EsmError) as exc:
+            issues.append(f"invalid TES4 plugin {rel_prefix}{MAP_MARKERS_PLUGIN}: {exc}")
+
+    core_json_p = os.path.join(mm_root, "core.json")
+    bundle_core_p = os.path.join(b_abs, "FO4TerrainCore.esm")
+    if require_core_json or os.path.isfile(core_json_p):
+        if not os.path.isfile(core_json_p):
+            issues.append(f"missing {rel_prefix}core.json")
+        else:
+            try:
+                with open(core_json_p, encoding="utf-8") as fp:
+                    pin_doc = json.load(fp)
+                masters = pin_doc.get("masters") if isinstance(pin_doc, dict) else None
+                if not isinstance(masters, dict):
+                    raise ValueError("core.json missing 'masters' object")
+                pinned_core = next(
+                    (str(v).lower() for k, v in masters.items() if str(k).casefold() == "fo4terraincore.esm"),
+                    None,
+                )
+                if not pinned_core:
+                    raise ValueError("core.json lacks FO4TerrainCore.esm sha256")
+                if os.path.isfile(bundle_core_p):
+                    actual_core = _sha256_file(bundle_core_p).lower()
+                    if pinned_core != actual_core:
+                        issues.append(
+                            f"{rel_prefix}core.json pins FO4TerrainCore.esm {pinned_core[:12]}... "
+                            f"!= bundle FO4TerrainCore.esm {actual_core[:12]}..."
+                        )
+            except (OSError, ValueError) as exc:
+                issues.append(f"invalid {rel_prefix}core.json: {exc}")
+
+    mm_ba2 = os.path.join(mm_root, MAP_MARKERS_ARCHIVE)
+    packed_pex: Optional[bytes] = None
+    if not os.path.isfile(mm_ba2):
+        issues.append(f"missing {rel_prefix}{MAP_MARKERS_ARCHIVE}")
+    else:
+        try:
+            arc = Ba2(mm_ba2)
+            if arc.kind != "GNRL":
+                issues.append(f"{rel_prefix}{MAP_MARKERS_ARCHIVE} must be GNRL archive (found {arc.kind})")
+            else:
+                idx = arc.find(MAP_MARKERS_PEX_REL)
+                if idx is None:
+                    issues.append(f"{rel_prefix}{MAP_MARKERS_ARCHIVE} missing {MAP_MARKERS_PEX_REL}")
+                else:
+                    packed_pex = arc.read(idx)
+        except (OSError, Ba2Error) as exc:
+            issues.append(f"unreadable BA2 {rel_prefix}{MAP_MARKERS_ARCHIVE}: {exc}")
+
+    loose_candidates: List[Tuple[str, str]] = [
+        (f"{rel_prefix}Data/{MAP_MARKERS_PEX_REL}", os.path.join(mm_root, "Data", *MAP_MARKERS_PEX_REL.split("/")))
+    ]
+    if mm_root != b_abs:
+        loose_candidates.append((f"Data/{MAP_MARKERS_PEX_REL}", os.path.join(b_abs, "Data", *MAP_MARKERS_PEX_REL.split("/"))))
+
+    loose_pex_blobs: List[Tuple[str, bytes]] = []
+    for loose_rel, loose_path in loose_candidates:
+        if os.path.isfile(loose_path):
+            try:
+                loose_bytes = Path(loose_path).read_bytes()
+            except OSError as exc:
+                issues.append(f"unreadable loose {loose_rel}: {exc}")
+                continue
+            loose_pex_blobs.append((loose_rel, loose_bytes))
+            if packed_pex is not None and loose_bytes != packed_pex:
+                issues.append(
+                    f"loose {loose_rel} differs from {MAP_MARKERS_PEX_REL} inside {rel_prefix}{MAP_MARKERS_ARCHIVE}"
+                )
+
+    required_calls: List[str] = []
+    ng_pex_path = os.path.join(b_abs, "Data", "Scripts", f"{NEWGAME_QUEST_SCRIPT}.pex")
+    ng_is_real_pex = False
+    if os.path.isfile(ng_pex_path):
+        try:
+            ng_bytes = Path(ng_pex_path).read_bytes()
+            if len(ng_bytes) >= 4 and struct.unpack_from("<I", ng_bytes, 0)[0] == PEX_MAGIC:
+                ng_is_real_pex = True
+                required_calls = extract_mapmarker_calls_from_pex(ng_bytes, MAP_MARKERS_SCRIPT, NEWGAME_QUEST_SCRIPT)
+        except (OSError, ValueError) as exc:
+            issues.append(f"unreadable {NEWGAME_QUEST_SCRIPT}.pex: {exc}")
+
+    if not ng_is_real_pex:
+        repo_base = Path(repo_root) if repo_root else Path(__file__).resolve().parents[2]
+        ng_psc_path = repo_base / "scripts" / "newgame" / f"{NEWGAME_QUEST_SCRIPT}.psc"
+        if not ng_psc_path.is_file():
+            issues.append(f"cannot extract {MAP_MARKERS_SCRIPT} calls: missing {ng_psc_path}")
+        else:
+            required_calls = extract_mapmarker_calls_from_psc(
+                ng_psc_path.read_text(encoding="utf-8", errors="replace"),
+                MAP_MARKERS_SCRIPT,
+            )
+
+    if not required_calls and not any("unreadable" in msg or "cannot extract" in msg for msg in issues):
+        issues.append(f"no {MAP_MARKERS_SCRIPT} member-function calls found in {NEWGAME_QUEST_SCRIPT}")
+
+    pex_sources_to_check: List[Tuple[str, bytes]] = []
+    if packed_pex is not None:
+        pex_sources_to_check.append((f"{rel_prefix}{MAP_MARKERS_ARCHIVE} ({MAP_MARKERS_PEX_REL})", packed_pex))
+    for loose_rel, loose_bytes in loose_pex_blobs:
+        if packed_pex is None or loose_bytes != packed_pex:
+            pex_sources_to_check.append((loose_rel, loose_bytes))
+
+    for src_label, pex_bytes in pex_sources_to_check:
+        try:
+            default_fns, all_fns = pex_defined_functions(pex_bytes, MAP_MARKERS_SCRIPT)
+        except ValueError as exc:
+            issues.append(f"{src_label} is not a valid compiled PEX ({exc})")
+            continue
+        for req_fn in required_calls:
+            req_low = req_fn.casefold()
+            if req_low not in default_fns:
+                if req_low in all_fns:
+                    issues.append(
+                        f"{src_label} defines {req_fn}() only in a non-default state, not callable on {MAP_MARKERS_SCRIPT}"
+                    )
+                else:
+                    issues.append(
+                        f"{src_label} lacks {MAP_MARKERS_SCRIPT}.{req_fn}() called by {NEWGAME_QUEST_SCRIPT}"
+                    )
+
+    return issues
+
+
+def verify_bundle_beginning_readiness(
+    bundle_dir: str,
+    *,
+    require_map_markers: bool = True,
+) -> Dict[str, object]:
     """Check offline that `bundle_dir` contains every plugin, script, mesh, and voice asset for `B1`..`B8`."""
     b_abs = os.path.abspath(bundle_dir)
     problems: List[str] = []
@@ -274,15 +877,66 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
             if not isinstance(cog, Mapping) or len(cog.get("outputs") or {}) < 2:
                 step_issues.append("bundle_plan.json missing cog_door mesh/material outputs")
 
-        if spec.step_id == "B3_exit_lift" and isinstance(components, Mapping) and components:
-            lift = components.get("exit_lift")
-            if not isinstance(lift, Mapping) or len(lift.get("outputs") or {}) < 2:
-                step_issues.append("bundle_plan.json missing exit_lift mesh/material outputs")
+        if spec.step_id == "B3_exit_lift":
+            if isinstance(components, Mapping) and components:
+                lift = components.get("exit_lift")
+                if not isinstance(lift, Mapping) or len(lift.get("outputs") or {}) < 2:
+                    step_issues.append("bundle_plan.json missing exit_lift mesh/material outputs")
+            mars_esm = os.path.join(b_abs, "FO4TerrainCore_Mars.esm")
+            if _is_tes4_plugin(mars_esm):
+                from pathlib import Path as _P
+                import sys as _sys
+                _core_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts", "core")
+                if _core_dir not in _sys.path:
+                    _sys.path.insert(0, _core_dir)
+                import make_core_bundle as _mcb
+                g_val = _mcb.read_planet_gravity_g(_P(mars_esm))
+                if g_val is not None and abs(g_val - _mcb.EARTH_GRAVITY_G) > 0.02:
+                    step_issues.append(f"FO4TerrainCore_Mars.esm PNDT gravity is {g_val:.4f}g, expected {_mcb.EARTH_GRAVITY_G:.2f}g (Earth)")
+            if require_map_markers:
+                step_issues.extend(verify_map_markers_bundle_compatibility(b_abs))
+
+        if spec.step_id == "B1_vault_start":
+            pb_ini = os.path.join(b_abs, "SFSE", "Plugins", "FO4SFPipboyMenu.ini")
+            if os.path.isfile(pb_ini):
+                ini_txt = open(pb_ini, encoding="utf-8", errors="ignore").read().lower()
+                if "requirepickup=" in ini_txt and "requirepickup=1" not in ini_txt:
+                    step_issues.append("FO4SFPipboyMenu.ini must set RequirePickup=1")
 
         if spec.step_id == "B5_codsworth_sanctuary":
-            nif_full = os.path.join(b_abs, "Data", *CODSWORTH_NIF_REL.split("/"))
-            if not os.path.isfile(nif_full):
-                step_issues.append(f"missing Codsworth NIF: Data/{CODSWORTH_NIF_REL}")
+            mission_esm_full = os.path.join(b_abs, "FO4SFMission.esm")
+            mission_is_tes4 = _is_tes4_plugin(mission_esm_full)
+            arma_model_paths: Set[str] = set()
+            if mission_is_tes4:
+                try:
+                    with RawEsmPlugin(mission_esm_full) as mplg:
+                        for rec in mplg.records("ARMA"):
+                            for tag in (b"MOD2", b"MOD3", b"MODL"):
+                                raw_m = rec.get(tag)
+                                if not raw_m:
+                                    continue
+                                norm_m = (
+                                    raw_m.split(b"\x00", 1)[0]
+                                    .decode("latin-1", errors="replace")
+                                    .replace("\\", "/")
+                                    .strip()
+                                    .casefold()
+                                )
+                                if norm_m:
+                                    arma_model_paths.add(norm_m)
+                                    if norm_m.startswith("meshes/"):
+                                        arma_model_paths.add(norm_m[len("meshes/"):])
+                except (OSError, EsmError) as exc:
+                    step_issues.append(f"unreadable FO4SFMission.esm ARMA records ({exc})")
+
+            for label, nif_rel in B5_REQUIRED_ACTOR_NIFS:
+                nif_full = os.path.join(b_abs, "Data", *nif_rel.split("/"))
+                if not os.path.isfile(nif_full):
+                    step_issues.append(f"missing {label}: Data/{nif_rel}")
+                mod_rel = nif_rel[len("meshes/"):] if nif_rel.startswith("meshes/") else nif_rel
+                if mission_is_tes4 and mod_rel.casefold() not in arma_model_paths and nif_rel.casefold() not in arma_model_paths:
+                    step_issues.append(f"FO4SFMission.esm does not reference {label} ({mod_rel})")
+
             v_dir = os.path.join(b_abs, "Data", *CODSWORTH_VOICE_DIR_REL.split("/"))
             wems = [f for f in os.listdir(v_dir) if f.lower().endswith(".wem")] if os.path.isdir(v_dir) else []
             if len(wems) < MIN_CODSWORTH_WEMS:
