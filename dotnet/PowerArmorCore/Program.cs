@@ -85,6 +85,7 @@ static class PowerArmorCore
     const uint ArrivalRefId = 0x820, CocRefId = 0x821, FrameFurnRefId = 0x822, ExitChairRefId = 0x823,
         CoreRef1Id = 0x824, CoreRef2Id = 0x825, CoreRef3Id = 0x826, SalvagedBodyRefId = 0x827, SalvagedHelmRefId = 0x828;
     const uint FirstCloneArmaId = 0x830, FirstTileId = 0x860;
+    const ulong PipboySlotMask = (1UL << 54) | (1UL << 55); // Bits 54 (SSChronoMark) & 55 (Pipboy screen) — never overlap Pip-Boy wrist slots
 
     public const string DefaultControlEdid = "NPCChairTech03_Free_270";
     const string CellEdid = "FO4SF_PATestCell",
@@ -255,6 +256,39 @@ static class PowerArmorCore
         }
     }
 
+    static bool TouchesPipboySlots(FirstPersonFlag? flags) =>
+        ((ulong)(flags ?? 0) & PipboySlotMask) != 0;
+
+    static void StripPipboySlotMaskFromArmor(Armor target)
+    {
+        if (target.FirstPersonFlags is { } flags && ((ulong)flags & PipboySlotMask) != 0)
+            target.FirstPersonFlags = (FirstPersonFlag)((ulong)flags & ~PipboySlotMask);
+    }
+
+    static void StripPipboySlotArmatures(
+        Armor target,
+        Dictionary<FormKey, IArmorAddonGetter> sfArmas,
+        Dictionary<FormKey, ArmorAddon>? ownArmas = null)
+    {
+        StripPipboySlotMaskFromArmor(target);
+        if (target.Armatures == null || target.Armatures.Count == 0)
+            return;
+        for (int i = target.Armatures.Count - 1; i >= 0; i--)
+        {
+            var fk = target.Armatures[i].ArmorAddon.FormKeyNullable;
+            if (fk is null) continue;
+            if (ownArmas != null && ownArmas.TryGetValue(fk.Value, out var ownAa) && TouchesPipboySlots(ownAa.FirstPersonFlags))
+            {
+                target.Armatures.RemoveAt(i);
+                continue;
+            }
+            if (sfArmas.TryGetValue(fk.Value, out var sfAa) && TouchesPipboySlots(sfAa.FirstPersonFlags))
+            {
+                target.Armatures.RemoveAt(i);
+            }
+        }
+    }
+
     static void CloneArmaturesForPaRace(
         StarfieldMod mod,
         Dictionary<FormKey, IArmorAddonGetter> sfArmas,
@@ -264,6 +298,7 @@ static class PowerArmorCore
         Dictionary<FormKey, FormKey> armaMap,
         ref uint nextArmaId)
     {
+        StripPipboySlotArmatures(target, sfArmas);
         if (target.Armatures == null || target.Armatures.Count == 0)
             throw new Refusal($"{target.EditorID} has zero armatures to bind to {RaceEdid}");
 
@@ -524,6 +559,7 @@ static class PowerArmorCore
         foreach (var kc in salvagedBody.Components.OfType<KeywordFormComponent>())
             kc.Keywords?.RemoveAll(k => k.FormKey == frameKw.FormKey || k.FormKey == furnPaKw.FormKey);
         salvagedBody.Keywords = salvBodyKws;
+        StripPipboySlotArmatures(salvagedBody, sfArmas);
         mod.Armors.Add(salvagedBody);
 
         var salvagedHelm = DuplicateArmorClean(helmTmpl, SalvagedHelmId, SalvagedHelmEdid, "FO4SF Salvaged Power Helmet");
@@ -538,6 +574,7 @@ static class PowerArmorCore
         foreach (var kc in salvagedHelm.Components.OfType<KeywordFormComponent>())
             kc.Keywords?.RemoveAll(k => k.FormKey == frameKw.FormKey || k.FormKey == furnPaKw.FormKey);
         salvagedHelm.Keywords = salvHelmKws;
+        StripPipboySlotArmatures(salvagedHelm, sfArmas);
         mod.Armors.Add(salvagedHelm);
 
         // 9. Opt-in DFOB overrides (--override-dfob only; default build touches zero Starfield.esm records)
@@ -834,6 +871,23 @@ static class PowerArmorCore
                 Need(piece.Keywords?.Any(k => k.FormKey == Own(ArmorKeywordId)) == true, $"{piece.EditorID} lacks {ArmorKeywordEdid}");
         }
 
+        // Verify no PA ARMO or ARMA overlaps Pip-Boy wrist slots (bits 54 & 55)
+        var sfArmaMap = sf.ArmorAddons.ToDictionary(a => a.FormKey);
+        foreach (var armor in mod.Armors)
+        {
+            Need(!TouchesPipboySlots(armor.FirstPersonFlags),
+                $"{armor.EditorID} FirstPersonFlags ({armor.FirstPersonFlags}) overlaps Pip-Boy slots (bits 54/55)");
+            foreach (var entry in armor.Armatures ?? Enumerable.Empty<IArmorAddonModelGetter>())
+            {
+                if (entry.ArmorAddon.FormKeyNullable is not { } fk) continue;
+                IArmorAddonGetter? aa = ownArmas.TryGetValue(fk, out var ownAa)
+                    ? ownAa
+                    : sfArmaMap.TryGetValue(fk, out var sfAa) ? sfAa : null;
+                Need(aa == null || !TouchesPipboySlots(aa.FirstPersonFlags),
+                    $"{armor.EditorID} references ARMA {fk} ({aa?.EditorID}) on Pip-Boy wrist slots (bits 54/55)");
+            }
+        }
+
         // Verify FNV Salvaged NCR Power Armor (#806): plain worn heavy ARMO on HumanRace, NO frame keyword, high DR, -1 AGI ENCH/MGEF
         var salvBody = mod.Armors.FirstOrDefault(a => a.FormKey == Own(SalvagedBodyId));
         var salvHelm = mod.Armors.FirstOrDefault(a => a.FormKey == Own(SalvagedHelmId));
@@ -973,6 +1027,13 @@ static class PowerArmorCore
         var aaSkinHands = MakeArma(0x030580, "AA_Naked_Hands");
         var aaFatigues = MakeArma(0x17C68E, "AA_Akila_Fatigues");
         var aaMark1Body = MakeArma(0x017550, "AA_Mark1_Body");
+        var aaMark1ChronoWatch = new ArmorAddon(Sf(0x1C9BC2), Release)
+        {
+            EditorID = "AA_Spacesuit_Mark1_ChronoWatch",
+            Race = new FormLinkNullable<IRaceGetter>(human.FormKey),
+            FirstPersonFlags = FirstPersonFlag.SSChronoMark,
+        };
+        mod.ArmorAddons.Add(aaMark1ChronoWatch);
         var aaMark1Helm = MakeArma(0x017551, "AA_Mark1_Helmet");
         var aaMark1Pack = MakeArma(0x017552, "AA_Mark1_Backpack");
 
@@ -1011,7 +1072,7 @@ static class PowerArmorCore
             Health = 200,
             Keywords = SuitKws(),
             Resistances = new ExtendedList<DamageTypeValue> { new DamageTypeValue { Value = 128 } },
-            Armatures = Addons(aaMark1Body),
+            Armatures = Addons(aaMark1Body, aaMark1ChronoWatch),
         });
         mod.Armors.Add(new Armor(Sf(0x01754F), Release)
         {
@@ -1165,7 +1226,26 @@ static class PowerArmorCore
                 throw new Refusal("selftest failed: tampered TestModeGlobal VMAD property was not rejected");
         }
 
-        Console.WriteLine("selftest pass: default build, --no-test-cell build, --override-dfob build, and 5 negative tamper checks all verified");
+        // 9. Negative mutation: attach a Pip-Boy slot ARMA (SSChronoMark / bit 54) onto FO4SF_PATorso -> Check must fail
+        var badWatchDir = Path.Combine(scratchDir, "bad-watch-slot");
+        {
+            var mut = StarfieldMod.CreateFromBinary(cleanPlugin, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
+            var watchAa = new ArmorAddon(Own(0x85F), Release)
+            {
+                EditorID = "AA_BadWatchOverlap",
+                Race = new FormLinkNullable<IRaceGetter>(Sf(0x00347D)),
+                FirstPersonFlags = FirstPersonFlag.SSChronoMark,
+            };
+            watchAa.AdditionalRaces.Add(new FormLink<IRaceGetter>(Own(RaceId)));
+            mut.ArmorAddons.Add(watchAa);
+            var torso = mut.Armors.First(a => a.FormKey == Own(PaTorsoId));
+            torso.Armatures.Add(new ArmorAddonModel { ArmorAddon = new FormLinkNullable<IArmorAddonGetter>(watchAa.FormKey) });
+            WritePlugin(mut, badWatchDir, SfEsm, CoreValuesEsm);
+            if (Check(Path.Combine(badWatchDir, Plugin.FileName), sfPath, DefaultControlEdid, overrideDfob: false) == 0)
+                throw new Refusal("selftest failed: PA ARMO carrying SSChronoMark ARMA was not rejected");
+        }
+
+        Console.WriteLine("selftest pass: default build, --no-test-cell build, --override-dfob build, and 6 negative tamper checks all verified");
         return 0;
     }
 }

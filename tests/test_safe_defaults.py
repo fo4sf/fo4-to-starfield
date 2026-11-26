@@ -235,16 +235,16 @@ class SafeDefaultsTests(unittest.TestCase):
 
     def test_w1_pipboy_stage_ini_and_shipped_ini_safe_defaults(self) -> None:
         shipped_ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
-        for req in ("MapBlockStarMap=0", "Arm=0", "BootOnFirstOpen=0"):
+        for req in ("MapBlockStarMap=0", "Arm=1", "BootOnFirstOpen=0"):
             self.assertIn(f"\n{req}\n", "\n" + shipped_ini, req)
 
         fmt_default = mpsi.format_stage_ini(["HideMenu"], boot_movie="pipboybootsequence")
-        for req in ("MapBlockStarMap=0", "Arm=0", "BootOnFirstOpen=0"):
+        for req in ("MapBlockStarMap=0", "Arm=1", "BootOnFirstOpen=0"):
             self.assertIn(f"\n{req}\n", "\n" + fmt_default, req)
 
         parsed_default = mpsi.build_parser().parse_args(["--stage", "dummy"])
         self.assertEqual(parsed_default.map_block_starmap, 0)
-        self.assertEqual(parsed_default.arm, 0)
+        self.assertEqual(parsed_default.arm, 1)
         self.assertEqual(parsed_default.boot_on_first_open, 0)
 
         parsed_opt = mpsi.build_parser().parse_args([

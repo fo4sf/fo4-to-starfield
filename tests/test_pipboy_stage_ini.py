@@ -458,7 +458,7 @@ class StageIniGeneratorTests(unittest.TestCase):
                 "RequirePickup=1",
                 "BootMovie=pipboybootsequence",
                 "BootOnFirstOpen=0",
-                "Arm=0",
+                "Arm=1",
                 "ArmRaiseIdle=idleexaminewatch",
                 "ArmRaiseMs=2000",
                 "ArmLowerMs=3500",

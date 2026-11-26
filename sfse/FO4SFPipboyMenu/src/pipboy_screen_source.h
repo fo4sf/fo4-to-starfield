@@ -1,9 +1,10 @@
 #pragma once
 
-// Pip-Boy screen source seam (Round 15 Wave A Item 1):
+// Pip-Boy screen source seam & shared wrist gate constants (Round 15 Wave A Item 1 / G5):
 // Isolates how FO4SFPipboyMenu opens the Pip-Boy UI (2D IMenu overlay vs future 3D RTT surface)
-// behind INI ScreenSource=2d_imenu|3d_rtt and GLOB FO4SF_PipboyScreenSource (0.0 = 2D_IMenu, 1.0 = 3D_RTT)
-// in FO4SFNewGame.esm (0x825), so 3D RTT plugs in without touching wrist ARMAs, equip logic, or reload.
+// behind INI ScreenSource=2d_imenu|3d_rtt and 3-state GLOB FO4SF_PipboyScreenSource
+// (0 = follow INI, 1 = force 2D IMenu, 2 = force 3D RTT) plus shared wrist keyword FO4SF_Kw_Pipboy
+// in FO4SFCoreValues.esm (0x867 / 0x868), so shared DLL headers hold zero NewGame-plugin constants.
 
 #include <cctype>
 #include <cmath>
@@ -15,8 +16,12 @@
 
 namespace fo4sf::pipboy
 {
-	inline constexpr std::uint32_t kPipboyScreenSourceGlobLocalId = 0x825;
-	inline constexpr std::string_view kPipboyScreenSourcePlugin = "FO4SFNewGame.esm";
+	inline constexpr std::uint32_t    kPipboyKeywordLocalId = 0x867;
+	inline constexpr std::string_view kPipboyKeywordPlugin = "FO4SFCoreValues.esm";
+	inline constexpr std::string_view kPipboyKeywordEdid = "FO4SF_Kw_Pipboy";
+
+	inline constexpr std::uint32_t    kPipboyScreenSourceGlobLocalId = 0x868;
+	inline constexpr std::string_view kPipboyScreenSourcePlugin = "FO4SFCoreValues.esm";
 	inline constexpr std::string_view kPipboyScreenSourceGlobEdid = "FO4SF_PipboyScreenSource";
 
 	enum class ScreenSourceMode : std::uint8_t
@@ -77,19 +82,23 @@ namespace fo4sf::pipboy
 		return std::nullopt;
 	}
 
-	// Resolve effective screen source from INI config and runtime FO4SF_PipboyScreenSource global.
-	// Either the runtime global >= 0.5 or ScreenSource=3d_rtt selects k3DRTT; otherwise k2DIMenu.
+	// Resolve effective screen source from INI config and runtime 3-state FO4SF_PipboyScreenSource global:
+	//   0 (or absent / < 0.5)  -> follow INI ScreenSource= (lets INI force 2D or 3D)
+	//   1 (0.5 <= v < 1.5)     -> force 2D IMenu
+	//   2 (v >= 1.5)           -> force 3D RTT
 	inline ScreenSourceMode ResolvePipboyScreenSource(
 		ScreenSourceMode a_iniMode,
 		std::optional<float> a_globalValue = std::nullopt) noexcept
 	{
-		if (a_globalValue.has_value() && std::isfinite(*a_globalValue) && *a_globalValue >= 0.5f) {
-			return ScreenSourceMode::k3DRTT;
+		if (a_globalValue.has_value() && std::isfinite(*a_globalValue)) {
+			if (*a_globalValue >= 1.5f) {
+				return ScreenSourceMode::k3DRTT;
+			}
+			if (*a_globalValue >= 0.5f) {
+				return ScreenSourceMode::k2DIMenu;
+			}
 		}
-		if (a_iniMode == ScreenSourceMode::k3DRTT) {
-			return ScreenSourceMode::k3DRTT;
-		}
-		return ScreenSourceMode::k2DIMenu;
+		return a_iniMode == ScreenSourceMode::k3DRTT ? ScreenSourceMode::k3DRTT : ScreenSourceMode::k2DIMenu;
 	}
 
 	// Single seam invoked by FO4SFPipboyMenu when opening the Pip-Boy screen.

@@ -7,12 +7,12 @@ Usage:
 
 Splits Fallout 4's 1st-person (pipboy.nif) and 3rd-person (pipboylowplayer.nif) Pip-Boy into two separate ARMA-ready
 model families anchored to Starfield's spacesuit ChronoWatch template (spacesuit_suitzero_chronowatch_{m,f}.nif):
-  - Housing NIFs: meshes/fo4port/pipboy/pipboy_wrist_housing_{m,f,1st}.nif  (Screen* & TapREF excluded)
-  - Screen NIFs:  meshes/fo4port/pipboy/pipboy_wrist_screen_{m,f,1st}.nif   (Screen:0 only -> pipboy_screen_2d.mat)
+  - Housing NIFs: meshes/fo4port/pipboy/pipboy_wrist_housing_{m,f,1st,1st_f}.nif  (Screen* & TapREF excluded)
+  - Screen NIFs:  meshes/fo4port/pipboy/pipboy_wrist_screen_{m,f,1st,1st_f}.nif   (Screen:0 only -> pipboy_screen_2d.mat)
 
 All outputs bind rigidly (100% weight) to L_Wrist_Twist2 (slot 3) in the 4-bone SkinAttach table
-['L_Forearm', 'L_Wrist_Twist', 'L_Wrist_Twist1', 'L_Wrist_Twist2'], so equipping clothes/spacesuits in slots 3/8/35
-never occludes the wrist Pip-Boy and 3D RTT later swaps only the screen material/NIF seam without rebuilding housing.
+['L_Forearm', 'L_Wrist_Twist', 'L_Wrist_Twist1', 'L_Wrist_Twist2'], and equipping clothes/spacesuits in slots 3/8/35
+with non-overlapping wrist bits is unverified until game check; 3D RTT later swaps only the screen material/NIF seam without rebuilding housing.
 """
 from __future__ import annotations
 
@@ -36,31 +36,45 @@ if os.path.join(REPO, "src") not in sys.path:
 
 from fo4sf import actor_rebind, ba2, convert_material as cm, convert_static, fo4skin, nif as nifmod, pipeline, sfmesh, sfnif, textures  # noqa: E402
 
-SF_WATCH_TEMPLATE_M = "meshes/clothes/spacesuit_suitzero/spacesuit_suitzero_chronowatch_m.nif"
-SF_WATCH_TEMPLATE_F = "meshes/clothes/spacesuit_suitzero/spacesuit_suitzero_chronowatch_f.nif"
+WRIST_SOURCES_JSON = os.path.join(REPO, "src", "fo4sf", "core", "pipboy_wrist_sources.json")
 
-FO4_PIPBOY_1ST_SOURCE = "meshes/pipboy/characterassets/pipboy.nif"
-FO4_PIPBOY_3RD_SOURCE = "meshes/pipboy/characterassets/pipboylowplayer.nif"
+
+def load_wrist_sources(game: Optional[str] = None, json_path: str = WRIST_SOURCES_JSON) -> dict:
+    """Load per-game Pip-Boy source NIFs, cuff centre, and screen/housing shape predicates."""
+    with open(json_path, encoding="utf-8") as fh:
+        cfg = json.load(fh)
+    key = game or cfg.get("default_game", "fo4")
+    games = cfg.get("games", {})
+    if key not in games:
+        raise KeyError(f"game {key!r} not defined in {json_path}")
+    entry = dict(games[key])
+    entry["game"] = key
+    return entry
+
 
 HOUSING_NIF_M = "meshes/fo4port/pipboy/pipboy_wrist_housing_m.nif"
 HOUSING_NIF_F = "meshes/fo4port/pipboy/pipboy_wrist_housing_f.nif"
 HOUSING_NIF_1ST = "meshes/fo4port/pipboy/pipboy_wrist_housing_1st.nif"
+HOUSING_NIF_1ST_F = "meshes/fo4port/pipboy/pipboy_wrist_housing_1st_f.nif"
 
 SCREEN_NIF_M = "meshes/fo4port/pipboy/pipboy_wrist_screen_m.nif"
 SCREEN_NIF_F = "meshes/fo4port/pipboy/pipboy_wrist_screen_f.nif"
 SCREEN_NIF_1ST = "meshes/fo4port/pipboy/pipboy_wrist_screen_1st.nif"
+SCREEN_NIF_1ST_F = "meshes/fo4port/pipboy/pipboy_wrist_screen_1st_f.nif"
 
 ALL_WRIST_NIFS = (
     HOUSING_NIF_M,
     HOUSING_NIF_F,
     HOUSING_NIF_1ST,
+    HOUSING_NIF_1ST_F,
     SCREEN_NIF_M,
     SCREEN_NIF_F,
     SCREEN_NIF_1ST,
+    SCREEN_NIF_1ST_F,
 )
 
-HOUSING_NIFS = (HOUSING_NIF_M, HOUSING_NIF_F, HOUSING_NIF_1ST)
-SCREEN_NIFS = (SCREEN_NIF_M, SCREEN_NIF_F, SCREEN_NIF_1ST)
+HOUSING_NIFS = (HOUSING_NIF_M, HOUSING_NIF_F, HOUSING_NIF_1ST, HOUSING_NIF_1ST_F)
+SCREEN_NIFS = (SCREEN_NIF_M, SCREEN_NIF_F, SCREEN_NIF_1ST, SCREEN_NIF_1ST_F)
 
 SCREEN_MAT_REL = "materials/fo4port/pipboy/pipboy_screen_2d.mat"
 SCREEN_MAT_GAME = "materials\\fo4port\\pipboy\\pipboy_screen_2d.mat"
@@ -72,8 +86,8 @@ WRIST_DOMINANT_BONE = "L_Wrist_Twist2"
 WRIST_DOMINANT_SLOT = 3
 WEIGHTS_PER_VERTEX = 4
 
-# Measured FO4 inner cuff center (PipboyBody_mesh:8 + PipboyBack_mesh:8 in FO4 units)
-FO4_CUFF_CENTER = (5.810, 0.014, -0.106)
+_DEFAULT_SOURCES = load_wrist_sources()
+FO4_CUFF_CENTER = tuple(float(v) for v in _DEFAULT_SOURCES["cuff_center"])
 # Canonical FO4 -> Starfield HumanRace scale (matches stage_c5_actor_looks.py)
 FO4_TO_SF_HUMAN_SCALE = 1.63227 / 120.84
 FO4_TO_SF_WRIST_SCALE_M = FO4_TO_SF_HUMAN_SCALE
@@ -154,17 +168,38 @@ def _rot_vec(r: Sequence[float], v: Tuple[float, float, float]) -> Tuple[float, 
     return (x / ln, y / ln, z / ln)
 
 
-def is_screen_shape(name: str) -> bool:
-    return name.strip().lower().startswith("screen")
+def make_shape_predicates(sources: dict) -> Tuple[Callable[[str], bool], Callable[[str], bool], Callable[[str], bool]]:
+    screen_prefixes = tuple(str(p).lower() for p in sources.get("screen_shape_prefixes", []))
+    primary_names = frozenset(str(p).lower() for p in sources.get("primary_screen_shapes", []))
+    excluded_prefixes = tuple(str(p).lower() for p in sources.get("housing_excluded_prefixes", []))
+
+    def _is_screen(name: str) -> bool:
+        low = name.strip().lower()
+        return any(low.startswith(p) for p in screen_prefixes)
+
+    def _is_primary_screen(name: str) -> bool:
+        return name.strip().lower() in primary_names
+
+    def _is_housing(name: str) -> bool:
+        low = name.strip().lower()
+        return not any(low.startswith(p) for p in excluded_prefixes)
+
+    return _is_screen, _is_primary_screen, _is_housing
 
 
-def is_primary_screen_shape(name: str) -> bool:
-    return name.strip().lower() == "screen:0"
-
-
-def is_housing_shape(name: str) -> bool:
+def is_screen_shape(name: str, sources: dict = _DEFAULT_SOURCES) -> bool:
     low = name.strip().lower()
-    return not low.startswith("screen") and not low.startswith("tapref")
+    return any(low.startswith(str(p).lower()) for p in sources.get("screen_shape_prefixes", ()))
+
+
+def is_primary_screen_shape(name: str, sources: dict = _DEFAULT_SOURCES) -> bool:
+    primary_names = {str(p).lower() for p in sources.get("primary_screen_shapes", ())}
+    return name.strip().lower() in primary_names
+
+
+def is_housing_shape(name: str, sources: dict = _DEFAULT_SOURCES) -> bool:
+    low = name.strip().lower()
+    return not any(low.startswith(str(p).lower()) for p in sources.get("housing_excluded_prefixes", ()))
 
 
 def transform_fo4_to_wrist_bone(
@@ -488,12 +523,20 @@ def stage_pipboy_wrist(
     staging: str,
     content_resources: Optional[str] = None,
     texconv: Optional[str] = None,
+    game: Optional[str] = None,
+    sources_json: str = WRIST_SOURCES_JSON,
 ) -> dict:
     """Stage split Pip-Boy housing + screen wrist NIFs, meshes, materials, and textures into `staging`."""
     pipeline.refuse_unsafe_output_dir(staging, "--staging")
 
     if os.path.exists(staging) and os.listdir(staging):
         raise SystemExit(f"{staging} is not empty: pass a new or empty staging folder")
+
+    sources = load_wrist_sources(game=game, json_path=sources_json)
+    if not sources.get("enabled", False):
+        raise SystemExit(f"wrist source table entry {sources['game']!r} is disabled / unconfigured")
+    cuff_center = tuple(float(v) for v in sources["cuff_center"])
+    _is_screen, pred_primary_screen, pred_housing = make_shape_predicates(sources)
 
     texconv_exe = find_texconv(texconv)
     cr_zip = find_content_resources(sf_data, content_resources)
@@ -506,14 +549,20 @@ def stage_pipboy_wrist(
         src = pipeline.Fo4Archives(fo4_data)
         conv = pipeline.Converter(src, partial, texconv_exe, cr_zip, prefix="fo4port")
 
-        sf_tpl_m = read_sf_mesh_ba2(sf_data, SF_WATCH_TEMPLATE_M)
-        sf_tpl_f = read_sf_mesh_ba2(sf_data, SF_WATCH_TEMPLATE_F)
-        fo4_1st = src.mesh(FO4_PIPBOY_1ST_SOURCE)
-        fo4_3rd = src.mesh(FO4_PIPBOY_3RD_SOURCE)
+        sf_tpl_m = read_sf_mesh_ba2(sf_data, sources["sf_watch_template_m"])
+        sf_tpl_f = read_sf_mesh_ba2(sf_data, sources["sf_watch_template_f"])
+        tpl_1st_m_rel = sources.get("sf_watch_template_1st_m") or sources["sf_watch_template_m"]
+        tpl_1st_f_rel = sources.get("sf_watch_template_1st_f") or sources["sf_watch_template_f"]
+        sf_tpl_1st_m = sf_tpl_m if tpl_1st_m_rel == sources["sf_watch_template_m"] else read_sf_mesh_ba2(sf_data, tpl_1st_m_rel)
+        sf_tpl_1st_f = sf_tpl_f if tpl_1st_f_rel == sources["sf_watch_template_f"] else read_sf_mesh_ba2(sf_data, tpl_1st_f_rel)
+        fo4_1st_rel = sources["source_1st"]
+        fo4_3rd_rel = sources["source_3rd"]
+        fo4_1st = src.mesh(fo4_1st_rel)
+        fo4_3rd = src.mesh(fo4_3rd_rel)
         if fo4_1st is None:
-            raise FileNotFoundError(f"{FO4_PIPBOY_1ST_SOURCE} not found in {fo4_data}")
+            raise FileNotFoundError(f"{fo4_1st_rel} not found in {fo4_data}")
         if fo4_3rd is None:
-            raise FileNotFoundError(f"{FO4_PIPBOY_3RD_SOURCE} not found in {fo4_data}")
+            raise FileNotFoundError(f"{fo4_3rd_rel} not found in {fo4_data}")
 
         screen_mat_game = stage_screen_material_2d(src, partial, texconv_exe, conv.template_mat)
 
@@ -525,34 +574,44 @@ def stage_pipboy_wrist(
 
         builds = {
             HOUSING_NIF_M: rebind_pipboy_to_wrist(
-                sf_tpl_m, fo4_3rd, is_housing_shape, housing_mat,
+                sf_tpl_m, fo4_3rd, pred_housing, housing_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_M, unit_scale=FO4_TO_SF_WRIST_SCALE_M,
-                group_prefix="FO4WristHousingM",
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristHousingM",
             ),
             HOUSING_NIF_F: rebind_pipboy_to_wrist(
-                sf_tpl_f, fo4_3rd, is_housing_shape, housing_mat,
+                sf_tpl_f, fo4_3rd, pred_housing, housing_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_F, unit_scale=FO4_TO_SF_WRIST_SCALE_F,
-                group_prefix="FO4WristHousingF",
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristHousingF",
             ),
             HOUSING_NIF_1ST: rebind_pipboy_to_wrist(
-                sf_tpl_m, fo4_1st, is_housing_shape, housing_mat,
+                sf_tpl_1st_m, fo4_1st, pred_housing, housing_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_M, unit_scale=FO4_TO_SF_WRIST_SCALE_M,
-                group_prefix="FO4WristHousing1st",
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristHousing1st",
+            ),
+            HOUSING_NIF_1ST_F: rebind_pipboy_to_wrist(
+                sf_tpl_1st_f, fo4_1st, pred_housing, housing_mat,
+                cuff_center_bone=WRIST_CENTER_BONE_F, unit_scale=FO4_TO_SF_WRIST_SCALE_F,
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristHousing1stF",
             ),
             SCREEN_NIF_M: rebind_pipboy_to_wrist(
-                sf_tpl_m, fo4_3rd, is_primary_screen_shape, screen_mat,
+                sf_tpl_m, fo4_3rd, pred_primary_screen, screen_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_M, unit_scale=FO4_TO_SF_WRIST_SCALE_M,
-                group_prefix="FO4WristScreenM",
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristScreenM",
             ),
             SCREEN_NIF_F: rebind_pipboy_to_wrist(
-                sf_tpl_f, fo4_3rd, is_primary_screen_shape, screen_mat,
+                sf_tpl_f, fo4_3rd, pred_primary_screen, screen_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_F, unit_scale=FO4_TO_SF_WRIST_SCALE_F,
-                group_prefix="FO4WristScreenF",
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristScreenF",
             ),
             SCREEN_NIF_1ST: rebind_pipboy_to_wrist(
-                sf_tpl_m, fo4_1st, is_primary_screen_shape, screen_mat,
+                sf_tpl_1st_m, fo4_1st, pred_primary_screen, screen_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_M, unit_scale=FO4_TO_SF_WRIST_SCALE_M,
-                group_prefix="FO4WristScreen1st",
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristScreen1st",
+            ),
+            SCREEN_NIF_1ST_F: rebind_pipboy_to_wrist(
+                sf_tpl_1st_f, fo4_1st, pred_primary_screen, screen_mat,
+                cuff_center_bone=WRIST_CENTER_BONE_F, unit_scale=FO4_TO_SF_WRIST_SCALE_F,
+                cuff_center_fo4=cuff_center, group_prefix="FO4WristScreen1stF",
             ),
         }
 
@@ -592,7 +651,7 @@ def stage_pipboy_wrist(
 
 
 def verify_staged_pipboy_wrist(root_dir: str) -> dict:
-    """Verify all 6 wrist NIFs, external .mesh weights/bboxes, SkinAttach 4-bone layout, materials, and DDS files."""
+    """Verify all 8 wrist NIFs, external .mesh weights/bboxes, SkinAttach 4-bone layout, materials, and DDS files."""
     if not os.path.isdir(root_dir):
         raise FileNotFoundError(f"staged directory not found: {root_dir}")
 
@@ -726,6 +785,11 @@ def verify_staged_pipboy_wrist(root_dir: str) -> dict:
             "materials": nif_mats,
         }
 
+    for nif_m, nif_f in ((HOUSING_NIF_1ST, HOUSING_NIF_1ST_F), (SCREEN_NIF_1ST, SCREEN_NIF_1ST_F)):
+        with open(os.path.join(root_dir, *nif_m.split("/")), "rb") as fm, open(os.path.join(root_dir, *nif_f.split("/")), "rb") as ff:
+            if fm.read() == ff.read():
+                raise ValueError(f"female 1st-person wrist NIF {nif_f} must differ from male {nif_m}")
+
     return {
         "nifs": sorted(set(checked_nifs)),
         "meshes": sorted(set(checked_meshes)),
@@ -743,6 +807,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--staging", default=None, help="Empty target staging directory (outside Git/game)")
     ap.add_argument("--content-resources", default=None, help="Starfield Tools/ContentResources.zip")
     ap.add_argument("--texconv", default=None, help="Path to texconv.exe / Texconvx64.exe")
+    ap.add_argument("--game", default=None, help="Game entry in src/fo4sf/core/pipboy_wrist_sources.json (default fo4)")
     args = ap.parse_args(argv)
 
     if args.verify_only:
@@ -759,6 +824,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.staging,
         content_resources=args.content_resources,
         texconv=args.texconv,
+        game=args.game,
     )
     print(json.dumps({
         "screen_material": manifest["screen_material"],

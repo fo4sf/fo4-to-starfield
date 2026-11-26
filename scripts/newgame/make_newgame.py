@@ -256,9 +256,9 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "UnequipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "PlayIdle", "OnPlayerLoadGame", "OnDying", "OnItemEquipped", "OnItemUnequipped"],
+        "Actor": ["GetLevel", "EquipItem", "UnequipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "PlayIdle", "SheatheWeapon", "OnPlayerLoadGame", "OnDying", "OnItemEquipped", "OnItemUnequipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "FindClosestReferenceOfType", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "FastTravel", "ShowRaceMenu", "ShowFirstPersonGeometry", "RequestAutoSave"],
+        "Game": ["GetPlayer", "GetFormFromFile", "FindClosestReferenceOfType", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "FastTravel", "ShowRaceMenu", "ShowFirstPersonGeometry", "ForceFirstPerson", "RequestAutoSave"],
         "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
         "InputEnableLayer": ["Create", "EnableHandscanner"],
         "Message": ["Show"],
