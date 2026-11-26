@@ -17,6 +17,8 @@ usage:
       --door-anim-dll <CALUMI.Animation.dll> --collision-template <nif> --texconv <texconv.exe>
       [--render-python <venv-render/python.exe>] [--combat-sfse-build <combat-sfse-dir>]
       [--mission-stage <02b-mission-dir>] [--route-loot-stage <17-route-loot-dir>]
+      [--codsworth-assets <convert_codsworth-dir>] [--actor-looks-assets <c5-looks-dir>]
+      [--codsworth-race-framing]
       [--with-pipboy --pipboy-stage <pipboy-stage-dir>]
       [--no-alife] [--no-fort-hagen] [--no-walk-harness] [--no-hardlink]
 
@@ -1165,6 +1167,38 @@ def validate_pipboy_stage(stage_dir: str, has_override_dll: bool = False) -> Non
         raise BundleRefused(f"--with-pipboy refused: {st} holds no FO4SFPipboyMenu.dll (and no source build provided)")
 
 
+def mission_asset_forward_args(a) -> List[str]:
+    """Arguments a fresh 02b-mission stage must receive so C5 actor looks survive.
+
+    26 Nov check-bundle B5 failed on candidate-2g-fix7: ``build`` staged
+    ``02b-mission`` with neither ``--codsworth-assets`` nor ``--actor-looks-assets``,
+    so the mission plugin lost ``codsworth.nif``, Preston's outfit and hat, and
+    ``concord_raider_m.nif``. Race framing stays off unless the caller opts in
+    (the 2g default). A pre-built ``--mission-stage`` does not come through here.
+    """
+    cods = getattr(a, "codsworth_assets", None)
+    looks = getattr(a, "actor_looks_assets", None)
+    missing: List[str] = []
+    if not cods or not os.path.isdir(cods):
+        missing.append("--codsworth-assets")
+    if not looks or not os.path.isdir(looks):
+        missing.append("--actor-looks-assets")
+    if missing:
+        raise BundleRefused(
+            "refusing to stage 02b-mission without "
+            + " and ".join(missing)
+            + " (26 Nov B5: a fresh mission stage dropped C5 actor looks). "
+            "Pass both directories, or pass --mission-stage for an already-built stage."
+        )
+    args = [
+        "--codsworth-assets", os.path.abspath(cods),
+        "--actor-looks-assets", os.path.abspath(looks),
+    ]
+    if getattr(a, "codsworth_race_framing", False):
+        args.append("--codsworth-race-framing")
+    return args
+
+
 def _run_py(py_exe: str, script_rel: str, args: Sequence[str]) -> None:
     cmd = [py_exe, os.path.join(REPO, *script_rel.split("/")), *args]
     print("+ " + " ".join(cmd), flush=True)
@@ -1287,6 +1321,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
                 ms_args.extend(["--fo4-interface", fo4_iface])
             if os.path.isfile(fo4_voices):
                 ms_args.extend(["--fo4-voices", fo4_voices])
+            ms_args.extend(mission_asset_forward_args(a))
             _run_py(py_main, "scripts/mission/make_mission.py", ms_args)
         stages["mission"] = mission_dir
 
@@ -2720,6 +2755,12 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--combat-sfse-build", default=None)
     b.add_argument("--pipboy-sfse-build", default=None)
     b.add_argument("--mission-stage", default=None)
+    b.add_argument("--codsworth-assets", default=None,
+                   help="convert_codsworth.py output folder; required when build stages 02b-mission itself")
+    b.add_argument("--actor-looks-assets", default=None,
+                   help="stage_c5_actor_looks.py output folder; required when build stages 02b-mission itself")
+    b.add_argument("--codsworth-race-framing", action="store_true",
+                   help="forward make_mission --codsworth-race-framing (default off, 2g parity)")
     b.add_argument("--route-loot-stage", default=None)
     b.add_argument("--map-markers-stage", default=None)
     b.add_argument("--map-markers-core-stage", default=None)

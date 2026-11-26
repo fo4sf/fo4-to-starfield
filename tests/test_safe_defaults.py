@@ -188,6 +188,8 @@ class SafeDefaultsTests(unittest.TestCase):
 
             mcb._run_py = _spy_run_py
             try:
+                (root / "codsworth-assets").mkdir()
+                (root / "actor-looks").mkdir()
                 base_kwargs = dict(
                     work=str(root / "work"),
                     out=str(root / "out"),
@@ -203,6 +205,8 @@ class SafeDefaultsTests(unittest.TestCase):
                     commonlibsf=None,
                     msvc_env=None,
                     no_walk_harness=True,
+                    codsworth_assets=str(root / "codsworth-assets"),
+                    actor_looks_assets=str(root / "actor-looks"),
                 )
                 # 1. Default --profile player: NO --fade-hold, NO Track 2 slice scripts, NO route loot!
                 mcb.stage_from_checkout(SimpleNamespace(**base_kwargs, profile="player"))
