@@ -181,6 +181,43 @@ class R15H1ArsenalBundleTests(unittest.TestCase):
             self.assertEqual(aw_s2s6["status"], "FAIL")
             self.assertIn("missing 25/25", aw_s2s6["detail"])
 
+    def test_fold_arsenal_assets_copies_data_and_bat_and_refuses_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            aa = root / "arsenal_assets"
+            w_nif = aa / "Data" / "meshes" / "fo4sf" / "weapons" / "10mm" / "fo4_10mmpistol.nif"
+            w_nif.parent.mkdir(parents=True, exist_ok=True)
+            w_nif.write_bytes(b"NIF_BYTES")
+            (aa / "Data" / "textures" / "fo4core" / "weapons" / "10mm").mkdir(parents=True, exist_ok=True)
+            (aa / "Data" / "textures" / "fo4core" / "weapons" / "10mm" / "10mm_d.dds").write_bytes(b"DDS_BYTES")
+            (aa / "Data" / "Scripts").mkdir(parents=True, exist_ok=True)
+            (aa / "Data" / "Scripts" / "Ignored.pex").write_bytes(b"PEX")
+            (aa / "bat").mkdir(parents=True, exist_ok=True)
+            (aa / "bat" / "h2st.txt").write_text("getglobalvalue 06000860\n", encoding="utf-8")
+
+            partial = root / "partial"
+            partial.mkdir()
+            cc = root / "cc"
+            cc.mkdir()
+            folded_hashes: dict[str, str] = {}
+            comps = {"core_values": {"plugins": ["FO4SFCoreValues.esm"], "outputs": {}}}
+            mcb._fold_arsenal_assets(str(aa), str(partial), str(cc), folded_hashes, comps)
+
+            rel_nif = "Data/meshes/fo4sf/weapons/10mm/fo4_10mmpistol.nif"
+            rel_dds = "Data/textures/fo4core/weapons/10mm/10mm_d.dds"
+            self.assertTrue((partial / rel_nif).is_file())
+            self.assertTrue((partial / rel_dds).is_file())
+            self.assertFalse((partial / "Data" / "Scripts" / "Ignored.pex").exists())
+            self.assertTrue((partial / "bat" / "h2st.txt").is_file())
+            self.assertIn(rel_nif, comps["core_values"]["outputs"])
+            self.assertIn(rel_dds, folded_hashes)
+
+            # Re-folding identical bytes is idempotent; differing bytes refuse.
+            mcb._fold_arsenal_assets(str(aa), str(partial), str(cc), folded_hashes, comps)
+            w_nif.write_bytes(b"DIFFERING")
+            with self.assertRaises(mcb.BundleRefused):
+                mcb._fold_arsenal_assets(str(aa), str(partial), str(cc), folded_hashes, comps)
+
 
 if __name__ == "__main__":
     unittest.main()

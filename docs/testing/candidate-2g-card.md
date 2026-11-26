@@ -474,7 +474,7 @@ player.setpos z 89.20
 | **4b. Arrived CustomEvent** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> lift_pair event name=LiftPairArrived pair=<pair> dir=<up\|down> z=<z>` | `SendCustomEvent("LiftPairArrived")` emitted |
 | **4b. Reload Recovery** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> lift_pair reload recovered dir=<up\|down> stage=<n> interior=<bool>` | Mid-ride reload recovery |
 | **5. Pod Safe Exit + Stage 15** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> pod_exit mode=<safe_spawn\|cryopod_anim_hook> hook_stage=15 moved=<bool> pos=<x> <y> <z> heading=<deg>` | Stage-15 pod-exit hook on every route |
-| **6. 10mm Pistol Auto-Equip** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<bool>` | Picking up `0A000820` (`0A000822`) in armory cage |
+| **6. 10mm Pistol Auto-Equip** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<bool> base=<form>` | Picking up `0A000820` (`06000899` / `0A000822`) in armory cage |
 | **G13. Invisible Proxy** | `fo4sf_mission.0.log` | `FO4SF_MISSION rt=<rt> codsworth talk proxy model=none visible=false` | Codsworth invisible `0x970` proxy verification |
 | **G13. Actor Ground Snap** | `fo4sf_mission.0.log` | `FO4SF_MISSION rt=<rt> hold <actor> ground_dz=<m>` | Held actor grounded within `0.2 m` of navmesh |
 | **G13. Preston Facing** | `fo4sf_mission.0.log` | `FO4SF_MISSION rt=<rt> preston face player angle_z=<deg>` | Preston turns to face player on talk |
@@ -495,7 +495,7 @@ step=lift_confirm action=<action> pool=<n> confirmed=<0|1> values=<s>,<p>,<e>,<c
 FO4SF_NEWGAME rt=<rt> stage 20 by=Trigger
 FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=<worn>
 FO4SF_NEWGAME rt=<rt> pipboy pickup examine_idle=<idle>
-FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=<eq>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=<eq> base=<form>
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console
 FO4SF_NEWGAME rt=<rt> stage 40 by=Trigger
 FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger

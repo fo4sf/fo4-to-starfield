@@ -2288,6 +2288,61 @@ def _fold_map_markers_stage(
     }
 
 
+def _fold_arsenal_assets(
+    arsenal_assets: str,
+    partial: str,
+    cc_dir: str,
+    folded_data_hashes: Dict[str, str],
+    components_record: Dict[str, Dict[str, object]],
+) -> None:
+    aa_dir = os.path.abspath(arsenal_assets)
+    if not os.path.isdir(aa_dir):
+        raise BundleRefused(f"--arsenal-assets directory not found: {aa_dir}")
+    aa_data_dir = os.path.join(aa_dir, "Data")
+    if not os.path.isdir(aa_data_dir):
+        raise BundleRefused(f"--arsenal-assets missing Data/ directory: {aa_data_dir}")
+    target_comp = "core_values" if "core_values" in components_record else next(iter(components_record), None)
+    allowed_tops = {"meshes", "geometries", "materials", "textures", "sound"}
+    for root_d, _, filenames in os.walk(aa_data_dir):
+        for fn in sorted(filenames):
+            src_f = os.path.join(root_d, fn)
+            rel_sub = os.path.relpath(src_f, aa_data_dir).replace("\\", "/")
+            top = rel_sub.split("/", 1)[0].casefold()
+            if top not in allowed_tops:
+                continue
+            rel = f"Data/{rel_sub}"
+            want = sha256_file(src_f)
+            dst_f = os.path.join(partial, *rel.split("/"))
+            cc_f = os.path.join(cc_dir, *rel.split("/"))
+            if os.path.exists(cc_f):
+                if os.path.isfile(cc_f) and sha256_file(cc_f) == want and sha256_file(dst_f) == want:
+                    folded_data_hashes[rel] = want
+                    if target_comp is not None:
+                        components_record[target_comp]["outputs"][rel] = want
+                    continue
+                raise BundleRefused(f"fold refused: clean core already has {rel} with differing sha256 (arsenal_assets)")
+            if os.path.exists(dst_f):
+                if os.path.isfile(dst_f) and folded_data_hashes.get(rel) == want and sha256_file(dst_f) == want:
+                    if target_comp is not None:
+                        components_record[target_comp]["outputs"][rel] = want
+                    continue
+                raise BundleRefused(f"fold refused: arsenal_assets {rel} collides with differing staged file")
+            os.makedirs(os.path.dirname(dst_f), exist_ok=True)
+            shutil.copy2(src_f, dst_f)
+            folded_data_hashes[rel] = want
+            if target_comp is not None:
+                components_record[target_comp]["outputs"][rel] = want
+    aa_bat_dir = os.path.join(aa_dir, "bat")
+    if os.path.isdir(aa_bat_dir):
+        dst_bat_dir = os.path.join(partial, "bat")
+        os.makedirs(dst_bat_dir, exist_ok=True)
+        for fn in sorted(os.listdir(aa_bat_dir)):
+            sp = os.path.join(aa_bat_dir, fn)
+            dp = os.path.join(dst_bat_dir, fn)
+            if os.path.isfile(sp) and fn.lower().endswith(".txt") and not os.path.exists(dp):
+                shutil.copy2(sp, dp)
+
+
 def fold_bundle(
     owner_set: str,
     stages: Dict[str, str],
@@ -2307,6 +2362,7 @@ def fold_bundle(
     codsworth_race_framing: bool = False,
     asset_dirs: Optional[Dict[str, object]] = None,
     build_args: Optional[Dict[str, object]] = None,
+    arsenal_assets: Optional[str] = None,
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
     final = os.path.abspath(out_dir)
@@ -2542,6 +2598,9 @@ def fold_bundle(
                 if os.path.isfile(sp) and fn.lower().endswith(".txt"):
                     shutil.copy2(sp, os.path.join(dst_bat_dir, fn))
 
+    if arsenal_assets:
+        _fold_arsenal_assets(arsenal_assets, partial, cc_dir, folded_data_hashes, components_record)
+
     # B1: Ensure Data/meshes/fo4sf/powerarmor/fusioncore.nif exists when FO4SFMission.esm references it.
     partial_mission = os.path.join(partial, "FO4SFMission.esm")
     fc_rel = "Data/meshes/fo4sf/powerarmor/fusioncore.nif"
@@ -2672,6 +2731,7 @@ def cmd_build(a, system=None) -> int:
         "codsworth_handy": getattr(a, "codsworth_handy", None),
         "actor_looks_assets": getattr(a, "actor_looks_assets", None),
         "pipboy_stage": getattr(a, "pipboy_stage", None),
+        "arsenal_assets": getattr(a, "arsenal_assets", None),
     })
     fold_bundle(
         owner_set=a.owner_set,
@@ -2692,6 +2752,7 @@ def cmd_build(a, system=None) -> int:
         codsworth_race_framing=bool(getattr(a, "codsworth_race_framing", False)),
         asset_dirs=asset_dirs,
         build_args=_normalized_namespace_args(a),
+        arsenal_assets=getattr(a, "arsenal_assets", None),
     )
     return 0
 
@@ -2788,8 +2849,12 @@ def cmd_fold(a, system=None) -> int:
         with_experimental_core=with_experimental_core,
         setup_show_unavailable=getattr(a, "show_unavailable_starts", None),
         allow_starfield_standins=bool(getattr(a, "allow_starfield_standins", False)),
-        asset_dirs=collect_asset_dir_summaries({"pipboy_stage": getattr(a, "pipboy_stage", None)}),
+        asset_dirs=collect_asset_dir_summaries({
+            "pipboy_stage": getattr(a, "pipboy_stage", None),
+            "arsenal_assets": getattr(a, "arsenal_assets", None),
+        }),
         build_args=_normalized_namespace_args(a),
+        arsenal_assets=getattr(a, "arsenal_assets", None),
     )
     return 0
 
@@ -3193,6 +3258,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
                    help="Forward --fo4-10mm 0|1 to make_core_values.py and make_newgame.py (default: 1 for NewGame)")
     b.add_argument("--fo4-arsenal", nargs="?", const=1, default=None, type=int, choices=(0, 1),
                    help="Forward --fo4-arsenal 0|1 (and --fo4-10mm/--fo4-p5-weapons when 1) to make_core_values.py")
+    b.add_argument("--arsenal-assets", default=None, help="Pre-staged P6b arsenal Data/ and bat/ folder folded into bundle")
     b.add_argument("--codsworth-assets", default=None, help="convert_codsworth.py output folder forwarded to make_mission.py")
     b.add_argument("--codsworth-handy", default=None, help="stage_ra2_handy.py bundle folder forwarded to make_mission.py")
     b.add_argument("--actor-looks-assets", default=None, help="stage_c5_actor_looks.py output folder forwarded to make_mission.py")
@@ -3235,6 +3301,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--starfield-dir", default=None)
     fo.add_argument("--profile", choices=("player", "test"), default="player")
     fo.add_argument("--mission-stage", default=None)
+    fo.add_argument("--arsenal-assets", default=None, help="Pre-staged P6b arsenal Data/ and bat/ folder folded into bundle")
     fo.add_argument("--allow-starfield-standins", action="store_true", help="Explicitly allow player fold without FO4 Codsworth/C5 look assets")
     fo.add_argument("--route-loot-stage", default=None)
     fo.add_argument("--map-markers-stage", default=None)

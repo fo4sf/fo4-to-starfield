@@ -1490,12 +1490,27 @@ class Phase2TrackBTests(unittest.TestCase):
         patched = make_mission.patch_codsworth_steel_mat(json.loads(json.dumps(dark_mat)))
         self.assertAlmostEqual(patched["Summary"]["Layer1"]["Tint"]["w"], 0.72)
         self.assertAlmostEqual(patched["Summary"]["Layer1"]["Textures"]["Metalness"]["Replacement"]["x"], 0.85)
-        self.assertTrue(patched["Summary"]["Layer1"]["Textures"]["Roughness"]["UseReplacement"])
-        self.assertAlmostEqual(patched["Summary"]["Layer1"]["Textures"]["Roughness"]["Replacement"]["x"], 0.22)
+        self.assertFalse(patched["Summary"]["Layer1"]["Textures"]["Roughness"]["UseReplacement"])
         mr_indices = [
             c["Index"] for c in patched["Objects"][1]["Components"] if c["Type"] == "BSMaterial::MRTextureFile"
         ]
-        self.assertEqual(mr_indices, [0, 1])
+        self.assertEqual(mr_indices, [0, 1, 3])
+
+        no_rough_mat = json.loads(json.dumps(dark_mat))
+        no_rough_mat["Objects"][1]["Components"] = [
+            c for c in no_rough_mat["Objects"][1]["Components"]
+            if not (c.get("Type") == "BSMaterial::MRTextureFile" and c.get("Index") == 3)
+        ]
+        no_rough_mat["Summary"]["Layer1"]["Textures"]["Roughness"]["File"] = ""
+        patched_fallback = make_mission.patch_codsworth_steel_mat(no_rough_mat)
+        self.assertAlmostEqual(patched_fallback["Summary"]["Layer1"]["Tint"]["w"], 0.72)
+        self.assertAlmostEqual(patched_fallback["Summary"]["Layer1"]["Textures"]["Metalness"]["Replacement"]["x"], 0.85)
+        self.assertTrue(patched_fallback["Summary"]["Layer1"]["Textures"]["Roughness"]["UseReplacement"])
+        self.assertGreaterEqual(patched_fallback["Summary"]["Layer1"]["Textures"]["Roughness"]["Replacement"]["x"], 0.4)
+        fb_mr_indices = [
+            c["Index"] for c in patched_fallback["Objects"][1]["Components"] if c["Type"] == "BSMaterial::MRTextureFile"
+        ]
+        self.assertEqual(fb_mr_indices, [0, 1])
 
         s = make_mission.summarize([
             "FO4SF_MISSION rt=119.9 codsworth talk end -> min00 stage 10",

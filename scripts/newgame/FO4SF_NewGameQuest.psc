@@ -3343,8 +3343,7 @@ Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int
                 endif
                 equipped = player.IsEquipped(akBaseItem)
             endif
-            string baseTag = " base="
-            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + baseTag + VaultPistolBase)
+            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + " base=" + VaultPistolBase)
         endif
     elseif VaultAmmoBase != None && akBaseItem == VaultAmmoBase
         Trace("pistol ammo picked item=" + akBaseItem + " count=" + aiItemCount + " base=" + VaultAmmoBase)
