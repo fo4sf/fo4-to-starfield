@@ -20,6 +20,7 @@ Covers:
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -68,6 +69,27 @@ class GameStartConfigTests(unittest.TestCase):
         self.assertAlmostEqual(fo4["pod_safe_heading_deg"], 270.0, places=3)
         self.assertTrue(fo4["single_pass_landing_fade"])
         self.assertEqual(fo4["pod_safe_pos_override"], {"x": 9.143, "y": -7.314, "z": -1.029})
+        # Aisle is 3.2 m south of the cryopod and faces the west door, not the pod shell.
+        cryo = (9.143, -4.114, -1.029)
+        aisle = (fo4["pod_safe_pos_override"]["x"], fo4["pod_safe_pos_override"]["y"], fo4["pod_safe_pos_override"]["z"])
+        door = (-7.314, -7.314, 0.0)
+        self.assertAlmostEqual(math.dist(aisle[:2], cryo[:2]), 3.2, places=3)
+        self.assertGreater(math.dist(aisle[:2], cryo[:2]), 1.0)  # clear of PodRadius
+        yaw = math.degrees(math.atan2(door[0] - aisle[0], door[1] - aisle[1])) % 360.0
+        self.assertAlmostEqual(yaw, fo4["pod_safe_heading_deg"], places=1)
+        for axis, value, limit in (("x", aisle[0], 80.0), ("y", aisle[1], 80.0), ("z", aisle[2], 20.0)):
+            self.assertTrue(math.isfinite(value), axis)
+            self.assertLessEqual(abs(value), limit, axis)
+
+        cs = (ROOT / "dotnet" / "NewGame" / "Program.cs").read_text(encoding="utf-8")
+        self.assertIn("pod_safe_pos_override", cs)
+        loader = cs.split("public static GameStartConfig LoadGameStartConfig", 1)[1].split("public static List<FormKey> ResolveStarterStripKeys", 1)[0]
+        self.assertIn("ReadPodSafeOverride", loader)
+        self.assertNotIn("270.0f, false);", loader)
+        self.assertIn("outside the interior frame", cs)
+        props = cs.split("public static List<(string Name, object Value)> Properties", 1)[1].split("public static List<(string Name, object Value)> LooksProperties", 1)[0]
+        for name in ("HasPodSafeExitOverride", "PodSafeX", "PodSafeY", "PodSafeZ"):
+            self.assertIn(f'("{name}"', props)
 
         ids = fo4["starter_strip_starfield_armor_ids"]
         for expected_id in ("0x001E2B17", "0x001E2B18", "0x001E2B19", "0x0001D1E7", "0x000D4893"):
@@ -433,6 +455,9 @@ class Item5PodExitTests(unittest.TestCase):
                 PodSafeStep=-3.2,
                 PodSafeHeading=270.0,
                 HasPodSafeExitOverride=override,
+                PodSafeX=9.143,
+                PodSafeY=-7.314,
+                PodSafeZ=-1.029,
                 PodX=9.143,
                 PodY=pod_y,
                 PodZ=-1.029,
@@ -480,11 +505,14 @@ class Item5PodExitTests(unittest.TestCase):
         ns1["ApplyStage"](20, "Trigger")
         self.assertEqual(player.pos, (-5.0, -7.314, 0.0))
 
-        # 2) HasPodSafeExitOverride=True with PodY already at -7.314 does not double-step
-        ns2 = make_ns(mode="safe_spawn", override=True, pod_y=-7.314)
+        # 2) Override uses PodSafeX/Y/Z, not PodY, so the cryopod stand (-6.614) is not stepped again
+        #    and is not left as the landing. Z stays the stand height (PodSafeZ + PodLift).
+        ns2 = make_ns(mode="safe_spawn", override=True, pod_y=-6.614)
         exec(compiled, ns2)
         ns2["NoteLooksStage20"]()
+        self.assertAlmostEqual(player.pos[0], 9.143, places=3)
         self.assertAlmostEqual(player.pos[1], -7.314, places=3)
+        self.assertAlmostEqual(player.pos[2], -0.729, places=3)
 
         # 3) cryopod_anim hook mode leaves player & fade untouched and logs hook seam
         ns3 = make_ns(mode="cryopod_anim", override=False, pod_y=-6.614)

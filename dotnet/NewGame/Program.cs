@@ -567,7 +567,10 @@ static class NewGame
         string PodExitMode,
         float PodSafeStep,
         float PodSafeHeading,
-        bool HasPodSafeExitOverride);
+        bool HasPodSafeExitOverride,
+        float PodSafeX,
+        float PodSafeY,
+        float PodSafeZ);
 
     static readonly uint[] DefaultStarterStripArmorIds =
     {
@@ -576,12 +579,33 @@ static class NewGame
         0x002EDF1F, 0x00029C7A, 0x00104631, 0x00104632,
     };
 
+    /// Interior-frame box for pod_safe_pos_override. Vault 111 local metres are tens, not worldspace kilometres.
+    /// A value outside this is the wrong frame (or unreadable) and must not be written onto the quest.
+    const float PodSafeMaxAbsXY = 80f;
+    const float PodSafeMaxAbsZ = 20f;
+
+    static (bool Has, float X, float Y, float Z) ReadPodSafeOverride(JsonElement game)
+    {
+        if (!game.TryGetProperty("pod_safe_pos_override", out var ov) || ov.ValueKind == JsonValueKind.Null)
+            return (false, 0f, 0f, 0f);
+        if (ov.ValueKind != JsonValueKind.Object
+            || !ov.TryGetProperty("x", out var xe) || xe.ValueKind != JsonValueKind.Number
+            || !ov.TryGetProperty("y", out var ye) || ye.ValueKind != JsonValueKind.Number
+            || !ov.TryGetProperty("z", out var ze) || ze.ValueKind != JsonValueKind.Number)
+            throw new Refusal("pod_safe_pos_override must be an object with numeric x, y, z");
+        float x = xe.GetSingle(), y = ye.GetSingle(), z = ze.GetSingle();
+        if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z)
+            || MathF.Abs(x) > PodSafeMaxAbsXY || MathF.Abs(y) > PodSafeMaxAbsXY || MathF.Abs(z) > PodSafeMaxAbsZ)
+            throw new Refusal($"pod_safe_pos_override ({x}, {y}, {z}) is outside the interior frame");
+        return (true, x, y, z);
+    }
+
     public static GameStartConfig LoadGameStartConfig(string? jsonPath = null)
     {
         var path = jsonPath ?? FindRepoJsonPath(Path.Combine("src", "fo4sf", "core", "game_start_config.json"));
         if (path is null || !File.Exists(path))
         {
-            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false);
+            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false, 0f, 0f, 0f);
         }
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
@@ -590,6 +614,7 @@ static class NewGame
         var ids = fo4.GetProperty("starter_strip_starfield_armor_ids").EnumerateArray()
             .Select(x => ParseHex(x.GetString() ?? "0"))
             .ToArray();
+        var safe = ReadPodSafeOverride(fo4);
         return new GameStartConfig(
             fo4.GetProperty("mute_arrival_discovery_popup").GetBoolean(),
             fo4.GetProperty("silent_starter_strip").GetBoolean(),
@@ -598,7 +623,10 @@ static class NewGame
             fo4.GetProperty("pod_exit_mode").GetString() ?? "safe_spawn",
             fo4.GetProperty("pod_safe_step_m").GetSingle(),
             fo4.GetProperty("pod_safe_heading_deg").GetSingle(),
-            false);
+            safe.Has,
+            safe.X,
+            safe.Y,
+            safe.Z);
     }
 
     public static List<FormKey> ResolveStarterStripKeys(SF.IStarfieldModGetter sf, GameStartConfig gs)
@@ -1433,6 +1461,9 @@ static class NewGame
             ("PodSafeStep", gs.PodSafeStep),
             ("PodSafeHeading", gs.PodSafeHeading),
             ("HasPodSafeExitOverride", gs.HasPodSafeExitOverride),
+            ("PodSafeX", gs.PodSafeX),
+            ("PodSafeY", gs.PodSafeY),
+            ("PodSafeZ", gs.PodSafeZ),
             ("ClearInventory", o.ClearInventory), ("VaultSuitId", (int)p.VaultSuit),
             ("AnchorTemporary", p.AnchorTemporary), ("VaultCell", VaultCell),
             ("DebugAfterHold", o.DebugAfterHold),           // written into MQ101Debug right after the hold-off (0: never)

@@ -298,7 +298,11 @@ bool Property SinglePassLandingFade = true Auto Const
 string Property PodExitMode = "safe_spawn" Auto Const
 float Property PodSafeStep = -3.2 Auto Const
 float Property PodSafeHeading = 270.0 Auto Const
-bool Property HasPodSafeExitOverride = false Auto Const
+bool Property HasPodSafeExitOverride = true Auto Const
+{True when PodSafeX/Y/Z came from game_start_config.json pod_safe_pos_override. Those are the aisle, not PodX/Y (the cryopod stand).}
+float Property PodSafeX = 9.143 Auto Const
+float Property PodSafeY = -7.314 Auto Const
+float Property PodSafeZ = -1.029 Auto Const
 string Property ExitLiftPlugin = "FO4SFExitLift.esm" Auto Const
 int Property SurfaceCogBaseId = 0x000802 Auto Const
 float Property SurfaceCogOffsetX = -7.8009033 Auto Const
@@ -670,11 +674,13 @@ Function RunPodExitHook(Actor player)
     endif
     if PodExitMode == "safe_spawn"
         float safeX = PodX
-        float safeY = PodY
-        if !HasPodSafeExitOverride
-            safeY = PodY + (PodSafeStep + 2.5)
-        endif
+        float safeY = PodY + (PodSafeStep + 2.5)
         float safeZ = PodZ + PodLift
+        if HasPodSafeExitOverride
+            safeX = PodSafeX
+            safeY = PodSafeY
+            safeZ = PodSafeZ + PodLift
+        endif
         if player != None && player.IsInInterior() && StandsInVault(player)
             player.SetPosition(safeX, safeY, safeZ)
             player.SetAngle(0.0, 0.0, PodSafeHeading)
