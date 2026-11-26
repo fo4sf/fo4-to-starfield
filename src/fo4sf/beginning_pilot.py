@@ -122,6 +122,15 @@ BEGINNING_STEPS: Tuple[BeginningStepSpec, ...] = (
 )
 
 CODSWORTH_NIF_REL = "meshes/fo4port/actors/codsworth/codsworth.nif"
+PRESTON_OUTFIT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyoutfit_m.nif"
+PRESTON_HAT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyhat_m.nif"
+CONCORD_RAIDER_NIF_REL = "meshes/fo4core/armor/raider04/concord_raider_m.nif"
+B5_REQUIRED_ACTOR_NIFS: Tuple[Tuple[str, str], ...] = (
+    ("Codsworth NIF", CODSWORTH_NIF_REL),
+    ("Preston outfit NIF", PRESTON_OUTFIT_NIF_REL),
+    ("Preston hat NIF", PRESTON_HAT_NIF_REL),
+    ("Concord Raider NIF", CONCORD_RAIDER_NIF_REL),
+)
 CODSWORTH_VOICE_DIR_REL = "sound/voice/fo4sfmission.esm/fo4sf_codsworthvoice"
 MIN_CODSWORTH_WEMS = 25
 MAX_PROTECTED_UNSTOPPED_HOLD_QUESTS = 4
@@ -816,7 +825,11 @@ def verify_map_markers_bundle_compatibility(bundle_dir: str, repo_root: Optional
     return issues
 
 
-def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
+def verify_bundle_beginning_readiness(
+    bundle_dir: str,
+    *,
+    require_map_markers: bool = True,
+) -> Dict[str, object]:
     """Check offline that `bundle_dir` contains every plugin, script, mesh, and voice asset for `B1`..`B8`."""
     b_abs = os.path.abspath(bundle_dir)
     problems: List[str] = []
@@ -880,7 +893,8 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
                 g_val = _mcb.read_planet_gravity_g(_P(mars_esm))
                 if g_val is not None and abs(g_val - _mcb.EARTH_GRAVITY_G) > 0.02:
                     step_issues.append(f"FO4TerrainCore_Mars.esm PNDT gravity is {g_val:.4f}g, expected {_mcb.EARTH_GRAVITY_G:.2f}g (Earth)")
-            step_issues.extend(verify_map_markers_bundle_compatibility(b_abs))
+            if require_map_markers:
+                step_issues.extend(verify_map_markers_bundle_compatibility(b_abs))
 
         if spec.step_id == "B1_vault_start":
             pb_ini = os.path.join(b_abs, "SFSE", "Plugins", "FO4SFPipboyMenu.ini")
@@ -890,9 +904,39 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
                     step_issues.append("FO4SFPipboyMenu.ini must set RequirePickup=1")
 
         if spec.step_id == "B5_codsworth_sanctuary":
-            nif_full = os.path.join(b_abs, "Data", *CODSWORTH_NIF_REL.split("/"))
-            if not os.path.isfile(nif_full):
-                step_issues.append(f"missing Codsworth NIF: Data/{CODSWORTH_NIF_REL}")
+            mission_esm_full = os.path.join(b_abs, "FO4SFMission.esm")
+            mission_is_tes4 = _is_tes4_plugin(mission_esm_full)
+            arma_model_paths: Set[str] = set()
+            if mission_is_tes4:
+                try:
+                    with RawEsmPlugin(mission_esm_full) as mplg:
+                        for rec in mplg.records("ARMA"):
+                            for tag in (b"MOD2", b"MOD3", b"MODL"):
+                                raw_m = rec.get(tag)
+                                if not raw_m:
+                                    continue
+                                norm_m = (
+                                    raw_m.split(b"\x00", 1)[0]
+                                    .decode("latin-1", errors="replace")
+                                    .replace("\\", "/")
+                                    .strip()
+                                    .casefold()
+                                )
+                                if norm_m:
+                                    arma_model_paths.add(norm_m)
+                                    if norm_m.startswith("meshes/"):
+                                        arma_model_paths.add(norm_m[len("meshes/"):])
+                except (OSError, EsmError) as exc:
+                    step_issues.append(f"unreadable FO4SFMission.esm ARMA records ({exc})")
+
+            for label, nif_rel in B5_REQUIRED_ACTOR_NIFS:
+                nif_full = os.path.join(b_abs, "Data", *nif_rel.split("/"))
+                if not os.path.isfile(nif_full):
+                    step_issues.append(f"missing {label}: Data/{nif_rel}")
+                mod_rel = nif_rel[len("meshes/"):] if nif_rel.startswith("meshes/") else nif_rel
+                if mission_is_tes4 and mod_rel.casefold() not in arma_model_paths and nif_rel.casefold() not in arma_model_paths:
+                    step_issues.append(f"FO4SFMission.esm does not reference {label} ({mod_rel})")
+
             v_dir = os.path.join(b_abs, "Data", *CODSWORTH_VOICE_DIR_REL.split("/"))
             wems = [f for f in os.listdir(v_dir) if f.lower().endswith(".wem")] if os.path.isdir(v_dir) else []
             if len(wems) < MIN_CODSWORTH_WEMS:

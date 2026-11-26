@@ -1081,6 +1081,51 @@ class StageAndInstallTests(unittest.TestCase):
             self.assertEqual(make_mission.main(["verify", "--exp-dir", folded, "--plan", os.path.join(out, "plan.json"),
                                                 "--raider", raider]), 1)
 
+    def test_g2_readme_look_lines_and_plan_provenance(self):
+        with tempfile.TemporaryDirectory() as d:
+            out_std = os.path.join(d, "m_standin")
+            self.fake_stage(d, out_std)
+            readme_std = read(os.path.join(out_std, "README.txt"))
+            self.assertIn(make_mission.PRESTON_PLACEHOLDER_NOTE, readme_std)
+            self.assertIn("Starfield stand-in (FO4_LvlRaider)", readme_std)
+            self.assertIn("Starfield robot stand-in (no --codsworth-assets)", readme_std)
+            self.assertIn("default race camera framing", readme_std)
+            plan_std = json.loads(read(os.path.join(out_std, "plan.json")))
+            self.assertEqual(plan_std["preston_placeholder"], make_mission.PRESTON_PLACEHOLDER_NOTE)
+            for k in ("build_head", "dirty", "args", "asset_dirs", "codsworth_race_framing", "FO4SF_C5_ACTOR_LOOKS_DIR"):
+                self.assertIn(k, plan_std)
+            self.assertFalse(plan_std["codsworth_race_framing"])
+
+            cw_src = os.path.join(d, "cw_assets")
+            _write(os.path.join(cw_src, "meshes", "fo4port", "actors", "codsworth", "codsworth.nif"), b"nif")
+            looks_src = os.path.join(d, "c5_looks")
+            _write(os.path.join(looks_src, "meshes", "fo4port", "armor", "preston_garvey", "prestongarveyoutfit_m.nif"), b"nif")
+            out_looks = os.path.join(d, "m_looks")
+            with mock.patch.object(make_mission, "copy_actor_looks_assets", return_value=[]):
+                self.fake_stage(
+                    d,
+                    out_looks,
+                    extra=[
+                        "--codsworth-assets", cw_src,
+                        "--actor-looks-assets", looks_src,
+                        "--codsworth-race-framing",
+                    ],
+                )
+            readme_looks = read(os.path.join(out_looks, "README.txt"))
+            self.assertNotIn(make_mission.PRESTON_PLACEHOLDER_NOTE, readme_looks)
+            self.assertIn(os.path.abspath(looks_src), readme_looks)
+            self.assertIn("prestongarveyoutfit_m.nif + prestongarveyhat_m.nif", readme_looks)
+            self.assertIn("concord_raider_m.nif", readme_looks)
+            self.assertIn(os.path.abspath(cw_src), readme_looks)
+            self.assertIn("standing camera framing enabled (--codsworth-race-framing)", readme_looks)
+            plan_looks = json.loads(read(os.path.join(out_looks, "plan.json")))
+            self.assertIsNone(plan_looks["preston_placeholder"])
+            self.assertTrue(plan_looks["codsworth_race_framing"])
+            self.assertIn("codsworth_assets", plan_looks["asset_dirs"])
+            self.assertIn("actor_looks_assets", plan_looks["asset_dirs"])
+            self.assertTrue(plan_looks["asset_dirs"]["codsworth_assets"]["sha256"])
+            self.assertTrue(plan_looks["asset_dirs"]["actor_looks_assets"]["sha256"])
+
     def test_codsworth_voice_reaches_the_writer_and_the_plan(self):
         """His voice (PR #361): each lines.tsv row's <info>_<response>.wem is copied under his voice type's folder, named
         by its WEMFile id; voice.json carries the text and the sex rule ("sir" male, "mum" female) to the writer."""

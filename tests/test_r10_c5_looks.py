@@ -363,8 +363,10 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
         self.assertEqual(sf_cat.get(0x2B4AFB), ("AMMO", "AmmoShotshell"))
 
         mcb_txt = (REPO_ROOT / "scripts" / "core" / "make_core_bundle.py").read_text(encoding="utf-8")
-        self.assertIn("mission_wants_c5", mcb_txt)
-        self.assertIn('b"prestongarveyoutfit_m.nif"', mcb_txt)
+        bp_txt = (REPO_ROOT / "src" / "fo4sf" / "beginning_pilot.py").read_text(encoding="utf-8")
+        self.assertIn("verify_bundle_beginning_readiness", mcb_txt)
+        self.assertIn("B5_REQUIRED_ACTOR_NIFS", bp_txt)
+        self.assertIn("prestongarveyoutfit_m.nif", bp_txt)
 
 
 if __name__ == "__main__":
