@@ -66,7 +66,9 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x01A21C: ("KYWD", "WorkshopItemKeyword"),
         0x01C21C: ("FACT", "PlayerFaction"),
         0x01D1D7: ("ARMO", "Clothes_Miner_Jumpsuit"),
+        0x01D1E7: ("ARMO", "Clothes_Miner_UtilitySuit"),
         0x028A02: ("WEAP", "Grendel"),
+        0x029C7A: ("ARMO", "Spacesuit_Miner_Backpack_NoBoostPack"),
         0x0301C5: ("PACK", "DefaultMaster_FollowPackage"),
         0x042240: ("PACK", "DefaultCombatMasterPackage"),
         0x04297C: ("NPC_", "OutpostRobotMiniBotA_Garden"),
@@ -75,6 +77,8 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x04AD3E: ("AMMO", "Ammo777mm"),
         0x04AD3F: ("AMMO", "Ammo11mm"),
         0x04F760: ("WEAP", "RescueAxe"),
+        0x05278E: ("ARMO", "Spacesuit_Miner"),
+        0x052792: ("ARMO", "Spacesuit_Miner_Helmet"),
         0x0546CD: ("WEAP", "Microgun"),
         0x0547A1: ("AMMO", "AmmoCaselessShotgun"),
         0x0547A3: ("WEAP", "Breach"),
@@ -86,11 +90,18 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0AA209: ("KYWD", "WorkbenchIndustrialKeyword"),
         0x0B0885: ("SPEL", "abBoostAssaultSlowTime"),
         0x0B120E: ("AVIF", "ActorShouldForceHideSpacesuit_AV"),
+        0x0C154F: ("IDLE", "IdleExamineWatch"),
+        0x0D4893: ("ARMO", "Clothes_Chronomark_Mq101_NOTPLAYABLE"),
+        0x104631: ("ARMO", "Spacesuit_Constellation_Backpack_01_NOTPLAYABLE"),
+        0x104632: ("ARMO", "Spacesuit_Constellation_Helmet_01_NOTPLAYABLE"),
         0x105688: ("CONT", "VaultCaseTemplate"),
         0x13E8CA: ("STAT", "AK_Crate_WoodenSmall"),
         0x1A5507: ("FLST", "OutpostFollowCameraCategoryList"),
         0x1A9565: ("QUST", "SQ_Groups"),
         0x1CCAC2: ("ACTI", "ControlConsoleTemplate"),
+        0x1E2B17: ("ARMO", "Spacesuit_Constellation_Helmet_01"),
+        0x1E2B18: ("ARMO", "Spacesuit_Constellation_01"),
+        0x1E2B19: ("ARMO", "Spacesuit_Constellation_Backpack_01"),
         0x1F50AD: ("KYWD", "OutpostBuildKeyword"),
         0x208E39: ("OTFT", "Outfit_FreestarRanger_Vest_with_Hat"),
         0x22DB8F: ("KYWD", "NoDisintegrate"),
@@ -105,6 +116,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x2B5599: ("AMMO", "Ammo45Caliber"),
         0x2B559A: ("AMMO", "Ammo50Caliber"),
         0x2C60E9: ("ACTI", "OutpostBeaconActivator"),
+        0x2EDF1F: ("ARMO", "Spacesuit_Miner_Backpack"),
         0x3FFD3A: ("ARMO", "Skin_MiniBotA_Gardening"),
     },
     "FO4Port.esm": {
@@ -124,18 +136,22 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
     "FO4TerrainCore.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2D4B: ("ACTI", "FO4Core_acti_19d22f_fallout4"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
     "FO4TerrainCore_Mars.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2D4B: ("ACTI", "FO4Core_acti_19d22f_fallout4"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
@@ -145,6 +161,13 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     },
     "FO4SFMapMarkers.esm": {
         **{0x000800 + i: ("QUST", f"FO4SF_MapMarkersQuest_{i:02d}") for i in range(16)},
+        0x0008F0: ("REFR", "FO4SF_MapMarkersLandingPad"),
+        0x0008F1: ("REFR", "FO4SF_MapMarkersLandingTrigger"),
+        0x0008F2: ("REFR", "FO4SF_MapMarkersLandingMarker"),
+        0x0008F3: ("REFR", "FO4SF_MapMarkersLandingHeading"),
+        0x0008F4: ("CELL", "FO4SF_MapMarkersHop"),
+        0x0008F5: ("REFR", "FO4SF_MapMarkersHopMarker"),
+        0x0008F6: ("REFR", "FO4SF_MapMarkersHopFloor"),
     },
     "FO4SFPipboyTravel.esm": {
         **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32) if i != 2},
@@ -1092,8 +1115,12 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
     if plugin == "FO4SFRouteLoot.esm":
         records.setdefault(0x800, ("CONT", "FO4SF_Vault111ArmoryCase"))
     if plugin == "FO4SFNewGame.esm":
+        records.setdefault(0x80D, ("ARMO", "FO4SF_PipboyWrist"))
         records.setdefault(0x820, ("REFR", "FO4SF_Vault111PistolRef"))
         records.setdefault(0x821, ("REFR", "FO4SF_Vault111AmmoRef"))
+        records.setdefault(0x822, ("WEAP", "FO4SF_Vault111_10mm"))
+        records.setdefault(0x823, ("ARMA", "FO4SF_PipboyWristHousingAA"))
+        records.setdefault(0x824, ("ARMA", "FO4SF_PipboyWristScreenAA"))
 
     return plugin, records
 
@@ -1780,6 +1807,7 @@ def validate_staged_esms(
 
 CPP_RTTI_TO_RECORD_TYPE: Dict[str, str] = {
     "ActorValueInfo@@": "AVIF",
+    "BGSKeyword@@": "KYWD",
     "TESGlobal@@": "GLOB",
     "AlchemyItem@@": "ALCH",
     "TESQuest@@": "QUST",
@@ -1867,6 +1895,22 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
         0x000866,
         "GLOB",
         "FO4SF_StartCardOpen",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_screen_source.h",
+        "kPipboyKeywordLocalId",
+        "FO4SFCoreValues.esm",
+        0x000867,
+        "KYWD",
+        "FO4SF_Kw_Pipboy",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_screen_source.h",
+        "kPipboyScreenSourceGlobLocalId",
+        "FO4SFCoreValues.esm",
+        0x000868,
+        "GLOB",
+        "FO4SF_PipboyScreenSource",
     ),
     NativeCoreValueSpec(
         "sfse/FO4SFPipboyMenu/src/main.cpp",
@@ -1975,18 +2019,23 @@ def _strip_cpp_comments(cpp_text: str) -> str:
     return re.sub(r"//[^\n]*", "", no_block)
 
 
-def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, int], List[CppPluginFormRef]]:
+def parse_cpp_plugin_form_refs(
+    cpp_rel: str,
+    cpp_text: str,
+    seed_uints: Optional[Dict[str, int]] = None,
+    seed_strs: Optional[Dict[str, str]] = None,
+) -> Tuple[Dict[str, int], List[CppPluginFormRef]]:
     """Parse C++ `uint32_t` FormID constants and `KitFileForm` / plugin-local FormID lookups in `cpp_text`."""
     clean = _strip_cpp_comments(cpp_text)
-    uint_consts: Dict[str, int] = {}
-    str_vars: Dict[str, str] = {}
+    uint_consts: Dict[str, int] = dict(seed_uints or {})
+    str_vars: Dict[str, str] = dict(seed_strs or {})
 
-    for m in re.finditer(r"\bconstexpr\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
+    for m in re.finditer(r"\b(?:inline\s+)?constexpr\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
         val = _parse_int_literal(m.group(2).strip(), uint_consts)
         if val is not None:
             uint_consts[m.group(1)] = val
 
-    for m in re.finditer(r'\b(?:constexpr\s+auto|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean):
+    for m in re.finditer(r'\b(?:(?:inline\s+)?constexpr\s+(?:auto|std::string_view)|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean):
         str_vars[m.group(1)] = m.group(2)
 
     # Also resolve local aliases such as `const std::uint32_t spLocalId = kCoreSpecialFirstLocalId + ...;`
@@ -2000,7 +2049,7 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
     refs: List[CppPluginFormRef] = []
     # Match multi-line KitFileForm(pluginExpr, idExpr, "RTTI@@", ...) calls
     for km in re.finditer(
-        r'KitFileForm\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.]*)\s*,\s*([^,]+?)\s*,\s*"([^"]+)"',
+        r'KitFileForm\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.:]*)\s*,\s*([^,]+?)\s*,\s*"([^"]+)"',
         clean,
         flags=re.S,
     ):
@@ -2008,12 +2057,16 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
         if plg_raw.startswith('"') and plg_raw.endswith('"'):
             plugin = plg_raw[1:-1]
         else:
-            plugin = str_vars.get(plg_raw, "")
+            plg_leaf = plg_raw.split("::")[-1]
+            plugin = str_vars.get(plg_raw) or str_vars.get(plg_leaf, "")
         if not plugin:
             continue
 
         id_clean = re.sub(r"static_cast<[^>]+>\(([^)]+)\)", r"\1", id_raw)
+        id_leaf = id_clean.split("::")[-1].strip()
         fid = _parse_int_literal(id_clean, local_aliases)
+        if fid is None:
+            fid = _parse_int_literal(id_leaf, local_aliases)
         line_no = clean.count("\n", 0, km.start()) + 1
         if fid is None or fid <= 0:
             continue
@@ -2077,7 +2130,7 @@ def validate_native_core_value_refs(
         if not os.path.isdir(abs_dir):
             continue
         for fn in sorted(os.listdir(abs_dir)):
-            if fn.endswith(".cpp"):
+            if fn.endswith((".cpp", ".h")):
                 rel = f"{rel_dir}/{fn}"
                 if rel in overrides:
                     cpp_texts[rel] = overrides[rel]
@@ -2087,11 +2140,32 @@ def validate_native_core_value_refs(
     for rel, txt in overrides.items():
         cpp_texts.setdefault(rel, txt)
 
-    parsed_by_file: Dict[str, Tuple[Dict[str, int], List[CppPluginFormRef]]] = {
-        rel: parse_cpp_plugin_form_refs(rel, txt) for rel, txt in sorted(cpp_texts.items())
-    }
+    # First pass over headers so .cpp files inherit shared header constexpr IDs and plugin names
+    header_uints_by_dir: Dict[str, Dict[str, int]] = {}
+    header_strs_by_dir: Dict[str, Dict[str, str]] = {}
+    parsed_by_file: Dict[str, Tuple[Dict[str, int], List[CppPluginFormRef]]] = {}
+    for rel, txt in sorted(cpp_texts.items()):
+        if rel.endswith(".h"):
+            dir_rel = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            u, r = parse_cpp_plugin_form_refs(rel, txt)
+            parsed_by_file[rel] = (u, r)
+            header_uints_by_dir.setdefault(dir_rel, {}).update(u)
+            clean_h = _strip_cpp_comments(txt)
+            for hm in re.finditer(r'\b(?:(?:inline\s+)?constexpr\s+(?:auto|std::string_view)|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean_h):
+                header_strs_by_dir.setdefault(dir_rel, {})[hm.group(1)] = hm.group(2)
+
+    for rel, txt in sorted(cpp_texts.items()):
+        if not rel.endswith(".h"):
+            dir_rel = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            parsed_by_file[rel] = parse_cpp_plugin_form_refs(
+                rel,
+                txt,
+                seed_uints=header_uints_by_dir.get(dir_rel),
+                seed_strs=header_strs_by_dir.get(dir_rel),
+            )
 
     registered_core_ids: Set[Tuple[str, int]] = set()
+    registered_core_dirs: Set[Tuple[str, int]] = set()
 
     # 1. Validate every entry in the R13 native core-values table against catalog and C++ constants
     for spec in specs:
@@ -2100,10 +2174,12 @@ def validate_native_core_value_refs(
             errors.append(f"{spec.cpp_rel}:{spec.const_name} references unknown plugin {spec.plugin}")
             continue
 
+        spec_dir = spec.cpp_rel.rsplit("/", 1)[0] if "/" in spec.cpp_rel else ""
         for off in range(spec.count):
             fid = spec.local_id + off
             if spec.plugin == "FO4SFCoreValues.esm":
                 registered_core_ids.add((spec.cpp_rel, fid))
+                registered_core_dirs.add((spec_dir, fid))
             if fid not in plg_table:
                 errors.append(
                     f"{spec.cpp_rel}:{spec.const_name} -> {spec.plugin}:0x{fid:06X} ({spec.edid}) missing in writer table"
@@ -2154,7 +2230,8 @@ def validate_native_core_value_refs(
                     f"is {actual_type}, incompatible with RTTI {ref.rtti_name} ({expected_type})"
                 )
 
-            if ref.plugin == "FO4SFCoreValues.esm" and (ref.cpp_rel, ref.local_id) not in registered_core_ids:
+            ref_dir = ref.cpp_rel.rsplit("/", 1)[0] if "/" in ref.cpp_rel else ""
+            if ref.plugin == "FO4SFCoreValues.esm" and (ref.cpp_rel, ref.local_id) not in registered_core_ids and (ref_dir, ref.local_id) not in registered_core_dirs:
                 errors.append(
                     f"{ref.cpp_rel}:{ref.line_no} native lookup FO4SFCoreValues.esm:0x{ref.local_id:06X} ({actual_edid}) "
                     f"is missing from NATIVE_CORE_VALUE_SPECS"

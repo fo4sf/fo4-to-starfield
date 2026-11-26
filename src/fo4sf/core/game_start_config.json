@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "default_game": "fo4",
+  "pod_exit_modes_supported": [
+    "safe_spawn",
+    "cryopod_anim",
+    "none"
+  ],
+  "arrival_discovery_methods_supported": [
+    "during_fade",
+    "add_to_map"
+  ],
+  "landing_handoff_modes_supported": [
+    "single_quest",
+    "two_quests"
+  ],
+  "hud_label_modes_supported": [
+    "quest",
+    "vanilla"
+  ],
+  "starter_strip_starfield_armor_records": {
+    "0x001E2B17": {
+      "edid": "Spacesuit_Constellation_Helmet_01",
+      "source": "Starfield.esm (Player 00000007 SOFT Outfit_Spacesuit_DefaultPlayer 0008CCAE)"
+    },
+    "0x001E2B18": {
+      "edid": "Spacesuit_Constellation_01",
+      "source": "Starfield.esm (Player 00000007 SOFT Outfit_Spacesuit_DefaultPlayer 0008CCAE)"
+    },
+    "0x001E2B19": {
+      "edid": "Spacesuit_Constellation_Backpack_01",
+      "source": "Starfield.esm (Player 00000007 SOFT Outfit_Spacesuit_DefaultPlayer 0008CCAE)"
+    },
+    "0x0001D1E7": {
+      "edid": "Clothes_Miner_UtilitySuit",
+      "source": "Starfield.esm (Player 00000007 DOFT Outfit_DefaultPlayer 00007F79)"
+    },
+    "0x0001D1D7": {
+      "edid": "Clothes_Miner_Jumpsuit",
+      "source": "Starfield.esm (Outfit_MinerJumpsuit_ClosedJacket 0005C5F8)"
+    },
+    "0x000D4893": {
+      "edid": "Clothes_Chronomark_Mq101_NOTPLAYABLE",
+      "source": "Starfield.esm (MQ101 Chronomark watch)"
+    },
+    "0x00052792": {
+      "edid": "Spacesuit_Miner_Helmet",
+      "source": "Starfield.esm (MQ101 miner helmet)"
+    },
+    "0x0005278E": {
+      "edid": "Spacesuit_Miner",
+      "source": "Starfield.esm (MQ101 miner spacesuit)"
+    },
+    "0x002EDF1F": {
+      "edid": "Spacesuit_Miner_Backpack",
+      "source": "Starfield.esm (MQ101 miner pack)"
+    },
+    "0x00029C7A": {
+      "edid": "Spacesuit_Miner_Backpack_NoBoostPack",
+      "source": "Starfield.esm (MQ101 miner pack no-boost)"
+    },
+    "0x00104631": {
+      "edid": "Spacesuit_Constellation_Backpack_01_NOTPLAYABLE",
+      "source": "Starfield.esm (Constellation pack variant)"
+    },
+    "0x00104632": {
+      "edid": "Spacesuit_Constellation_Helmet_01_NOTPLAYABLE",
+      "source": "Starfield.esm (Constellation helmet variant)"
+    }
+  },
+  "games": {
+    "fo4": {
+      "available": true,
+      "opening_quest_edid": "FO4SF_NewGame",
+      "start_place_id": "fo4_vault111",
+      "silent_arrival_discovery": true,
+      "arrival_discovery_method": "add_to_map",
+      "silent_starter_strip": true,
+      "starter_strip_starfield_armor_ids": [
+        "0x001E2B17",
+        "0x001E2B18",
+        "0x001E2B19",
+        "0x0001D1E7",
+        "0x0001D1D7",
+        "0x000D4893",
+        "0x00052792",
+        "0x0005278E",
+        "0x002EDF1F",
+        "0x00029C7A",
+        "0x00104631",
+        "0x00104632"
+      ],
+      "pod_exit_mode": "safe_spawn",
+      "pod_entry_step_m": -2.5,
+      "pod_safe_step_m": -3.2,
+      "pod_safe_heading_deg": 270.0,
+      "single_pass_landing_fade": true,
+      "arrival_weather_plugin": "Starfield.esm",
+      "arrival_weather_id": "0x0027CF9B",
+      "arrival_weather_override": true,
+      "arrival_weather_note": "Starfield.esm NewAtlantisWeather50 (0x0027CF9B, 100% entry in ClimateUniqueNewAtlantis 0x0024E982); pinned on Commonwealth surface arrival via Weather.ForceActive(true).",
+      "vault_suit_fallback_plugin": "Starfield.esm",
+      "vault_suit_fallback_armor_id": "0x0001D1D7",
+      "vault_suit_fallback_note": "FO4Port.esm is produced by the interiors/doors converter and contains 0 ARMO/ARMA/OTFT records; no wearable FO4 Vault 111 jumpsuit conversion exists in staged assets (only static/clothed-skeleton props in doors_anim_work), so when VaultSuitId==0, ResetInventory equips Starfield.esm Clothes_Miner_Jumpsuit (0x0001D1D7) as fallback.",
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
+      "autosave_points": [
+        "pod_exit",
+        "pipboy_pickup"
+      ],
+      "notes": "Vault 111 cryo pod safe spawn steps -3.2 m from MQPlayerCryopodREF (9.143, -4.114, -1.029) onto main corridor aisle centerline (9.143, -7.314, -1.029) facing West (270.0 deg) toward v111_door_1_closed (-7.314, -7.314, 0.000)."
+    },
+    "fo3": {
+      "available": false,
+      "opening_quest_edid": "FO3SF_Opening",
+      "start_place_id": "fo3_vault101",
+      "silent_arrival_discovery": true,
+      "arrival_discovery_method": "during_fade",
+      "silent_starter_strip": true,
+      "starter_strip_starfield_armor_ids": [
+        "0x001E2B17",
+        "0x001E2B18",
+        "0x001E2B19",
+        "0x0001D1E7",
+        "0x0001D1D7",
+        "0x000D4893",
+        "0x00052792",
+        "0x0005278E",
+        "0x002EDF1F",
+        "0x00029C7A",
+        "0x00104631",
+        "0x00104632"
+      ],
+      "pod_exit_mode": "none",
+      "pod_entry_step_m": 0.0,
+      "pod_safe_step_m": 0.0,
+      "pod_safe_heading_deg": 0.0,
+      "single_pass_landing_fade": true,
+      "arrival_weather_plugin": "Starfield.esm",
+      "arrival_weather_id": "0x0027CF9B",
+      "arrival_weather_override": true,
+      "vault_suit_fallback_plugin": "Starfield.esm",
+      "vault_suit_fallback_armor_id": "0x0001D1D7",
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
+      "autosave_points": [],
+      "notes": "Fallout 3 Capital Wasteland Vault 101 exit placeholder; no cryo pod hook required."
+    },
+    "fnv": {
+      "available": false,
+      "opening_quest_edid": "FNVSF_Opening",
+      "start_place_id": "fnv_goodsprings",
+      "silent_arrival_discovery": true,
+      "arrival_discovery_method": "during_fade",
+      "silent_starter_strip": true,
+      "starter_strip_starfield_armor_ids": [
+        "0x001E2B17",
+        "0x001E2B18",
+        "0x001E2B19",
+        "0x0001D1E7",
+        "0x0001D1D7",
+        "0x000D4893",
+        "0x00052792",
+        "0x0005278E",
+        "0x002EDF1F",
+        "0x00029C7A",
+        "0x00104631",
+        "0x00104632"
+      ],
+      "pod_exit_mode": "none",
+      "pod_entry_step_m": 0.0,
+      "pod_safe_step_m": 0.0,
+      "pod_safe_heading_deg": 0.0,
+      "single_pass_landing_fade": true,
+      "arrival_weather_plugin": "Starfield.esm",
+      "arrival_weather_id": "0x0027CF9B",
+      "arrival_weather_override": true,
+      "vault_suit_fallback_plugin": "Starfield.esm",
+      "vault_suit_fallback_armor_id": "0x0001D1D7",
+      "landing_handoff": "single_quest",
+      "mute_duplicate_objective_toasts": true,
+      "hud_label": {
+        "mode": "quest",
+        "label": "QUEST"
+      },
+      "autosave_points": [],
+      "notes": "Fallout: New Vegas Doc Mitchell's house wake-up placeholder; no cryo pod hook required."
+    }
+  }
+}

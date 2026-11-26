@@ -153,12 +153,12 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
             )
             self.assertEqual(struct.unpack("<Q", armas[0x984][b"BO64"])[0], 0x12)
             self.assertEqual(struct.unpack("<Q", armas[0x981][b"BO64"])[0], 0x68)
-            self.assertEqual(struct.unpack("<Q", armas[0x989][b"BO64"])[0], 0x68)
+            self.assertEqual(struct.unpack("<Q", armas[0x989][b"BO64"])[0], 0x28)
 
             armos = {fid & 0xFFFFFF: dict(subs) for sig, fid, _, _, subs in m_recs if sig == b"ARMO" and (fid >> 24) == local_hi}
             self.assertEqual(struct.unpack("<Q", armos[0x985][b"BO64"])[0], 0x10)
             self.assertEqual(struct.unpack("<Q", armos[0x983][b"BO64"])[0], 0x68)
-            self.assertEqual(struct.unpack("<Q", armos[0x98A][b"BO64"])[0], 0x68)
+            self.assertEqual(struct.unpack("<Q", armos[0x98A][b"BO64"])[0], 0x28)
 
             # 3. A2.3 + Review #7 checks: ZERO foreign NPC_ overrides of FO4ActorRaider.esm; local 0x986 FO4_ConcordRaider
             #    present; ZERO NPC_ records in FO4SFMission.esm carry 0x003D094D Spacer spacesuit outfit; all 3 later-mission
@@ -188,6 +188,17 @@ Console.WriteLine("R11_W3_SELFTEST_OK");
             self.assertEqual(struct.unpack("<I", sd_986[b"DOFT"])[0], (local_hi << 24) | 0x988)
             self.assertEqual(struct.unpack("<I", sd_986[b"SOFT"])[0], (local_hi << 24) | 0x988)
             self.assertNotIn(b"CNTO", sd_986, "R13 E3: FO4_ConcordRaider must have 0 CNTO inventory items")
+            aidt = sd_986[b"AIDT"]
+            self.assertGreaterEqual(aidt[0], 1, "FO4_ConcordRaider AIDT Aggression must be >= Aggressive")
+            self.assertGreaterEqual(aidt[1], 3, "FO4_ConcordRaider AIDT Confidence must be >= Brave")
+
+            import sys as _sys
+            if str(REPO_ROOT / "scripts" / "actors") not in _sys.path:
+                _sys.path.insert(0, str(REPO_ROOT / "scripts" / "actors"))
+            import stage_c5_actor_looks as _c5
+            self.assertFalse(any("malehands" in s.lower() for s in _c5.RAIDER_OUTFIT_SOURCES))
+            self.assertEqual(_c5.fo4_human_bone_to_sf("Belly_skin", ["C_Spine1", "C_Spine2", "C_Chest"]), "C_Spine1")
+            self.assertEqual(_c5.fo4_human_bone_to_sf("UpperBelly_skin", ["C_Spine1", "C_Spine2", "C_Chest"]), "C_Spine2")
 
             for boss_id, boss_edid in (
                 (0x0A23, b"FO4_CorvegaBoss"),

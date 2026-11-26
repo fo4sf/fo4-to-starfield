@@ -122,8 +122,8 @@ class Round11D4AndA21Tests(unittest.TestCase):
         ev_add = re.search(r"Event ObjectReference\.OnItemAdded\(.*?EndEvent", psc, re.S)
         self.assertIsNotNone(ev_add)
         body = ev_add.group(0)
-        self.assertIn("if !player.IsEquipped(VaultPistolBase)", body)
-        self.assertIn("player.EquipItem(VaultPistolBase, False, False)", body)
+        self.assertIn("if !player.IsEquipped(akBaseItem)", body)
+        self.assertIn("player.EquipItem(akBaseItem, False, False)", body)
         self.assertEqual(body.count('Trace("pistol picked '), 1)
         self.assertIn('Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped', body)
 
@@ -145,7 +145,7 @@ class Round11D4AndA21Tests(unittest.TestCase):
             VaultPistolBase=pistol,
             VaultPistolId=0,
             GetStage=lambda: 20,
-            Game=SimpleNamespace(GetPlayer=lambda: player),
+            Game=SimpleNamespace(GetPlayer=lambda: player, GetFormFromFile=lambda fid, plg: None),
         )
         exec(
             compile(translated_functions(psc, ("ObjectReference.OnItemAdded",), "pistolPickedLogged"), str(NEWGAME_PSC), "exec"),

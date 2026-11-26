@@ -23,13 +23,7 @@ bool Property KeeperOnly = False Auto Const
 {True on FO4SF_CodsworthKeeper: this instance only keeps Codsworth (enabled, put back at his merged spot, PlaceCodsworth)
  and Preston (put back at his merged spot, KeepPreston) and never runs the mission.}
 
-Scene Property PrestonTalkScene Auto Const
-{Short 3-exchange Starfield player-dialogue Scene (0x900) on FO4SF_Min00 when built with --alias; None on --no-alias
- and on FO4SF_CodsworthKeeper.}
-
-Scene Property PrestonPostTalkScene Auto Const
-{Repeatable voiced post-mission Starfield player-dialogue Scene (0x990) hosted on FO4SF_CodsworthKeeper (0x814),
- gated by GetStage(FO4SF_Min00) >= 200 and TalkUseMessageBox == 0.}
+bool Property MuteDuplicateObjectiveToasts = True Auto Const
 
 Message Property PrestonTalkMsg Auto Const
 Message Property PrestonReply0Msg Auto Const
@@ -164,6 +158,9 @@ float Property Wfc01StuckLimit = 60.0 Auto Const
 string LogName = "fo4sf_mission"
 bool instanceStarted = False
 bool min00Given = False
+bool obj10DisplayedOnce = False
+bool obj85DisplayedOnce = False
+bool obj86DisplayedOnce = False
 int ticks = 0
 int relocateFails = 0
 int codsworthFails = 0
@@ -378,19 +375,11 @@ Function EnsurePrestonAlias()
 EndFunction
 
 Scene Function ResolvePrestonScene()
-{C1: Return PrestonTalkScene when bound, otherwise resolve 0x000900 from FO4SFMission.esm (the same route that
- resolved Codsworth's scene in 2f when PrestonTalkScene evaluated to None at runtime despite VMAD binding).}
-    if PrestonTalkScene != None
-        return PrestonTalkScene
-    endif
+{Resolve 0x000900 directly from FO4SFMission.esm rather than binding a VMAD Scene property.}
     return Game.GetFormFromFile(0x000900, "FO4SFMission.esm") as Scene
 EndFunction
 
 Scene Function ResolvePrestonSceneLogged()
-    if PrestonTalkScene != None
-        Trace("preston scene resolved via=property scene=" + PrestonTalkScene)
-        return PrestonTalkScene
-    endif
     Scene fileScn = Game.GetFormFromFile(0x000900, "FO4SFMission.esm") as Scene
     if fileScn != None
         Trace("preston scene resolved via=file scene=" + fileScn)
@@ -401,9 +390,6 @@ Scene Function ResolvePrestonSceneLogged()
 EndFunction
 
 Scene Function ResolvePrestonPostScene()
-    if PrestonPostTalkScene != None
-        return PrestonPostTalkScene
-    endif
     return Game.GetFormFromFile(0x000990, "FO4SFMission.esm") as Scene
 EndFunction
 
@@ -493,9 +479,45 @@ Function StartQuestInstance()
     RegisterPrestonSceneEvents()
     RegisterS6RoomEvents()
     Preston.IgnoreFriendlyHits(True)                     ; a stray shot in the fight must not turn him (in game 18 Oct 15:16)
+    SyncPrestonFightHold(EffectiveStage())
     ; M1: starts silent with NO objective shown until Codsworth's talk finishes or the player reaches <= 150 m of Concord
     StartTimer(1.0, 1)
     KeepCodsworthStart()
+EndFunction
+
+Function SyncPrestonFightHold(int stage)
+{Task 0d: Keep Preston passive and untargeted while Concord raiders fight (stage < 30) so raiders engage and aim
+ exclusively at the player while Preston stands visibly at the Museum doorway/balcony. Un-ghosts at stage >= 30.}
+    if Preston == None || KeeperOnly
+        return
+    endif
+    if stage < 30
+        bool changed = False
+        if !Preston.IsGhost()
+            Preston.SetGhost(True)
+            changed = True
+        endif
+        ActorValue aggrAv = Game.GetAggressionAV()
+        if aggrAv != None && Preston.GetValue(aggrAv) != 0.0
+            Preston.SetValue(aggrAv, 0.0)
+        endif
+        Weapon pw = Preston.GetEquippedWeapon()
+        if pw != None
+            Preston.UnequipItem(pw, False, True)
+            changed = True
+        endif
+        if Preston.GetCombatState() != 0 || Preston.GetCombatTarget() != None
+            Preston.StopCombat()
+            Preston.StopCombatAlarm()
+            changed = True
+        endif
+        if changed
+            Trace("preston hold_fire stage=" + stage + " ghost=true")
+        endif
+    elseif Preston.IsGhost()
+        Preston.SetGhost(False)
+        Trace("preston hold_fire stage=" + stage + " ghost=false")
+    endif
 EndFunction
 
 Function ClearCodsworthObjectiveForConcord()
@@ -520,9 +542,9 @@ Function GiveFromCodsworth()
         AdvanceTo(10, "info")
     elseif st < 20
         EnsurePrestonAlias()
-        SetObjectiveDisplayed(10)
-        SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, obj10DisplayedOnce)
+            obj10DisplayedOnce = True
+        endif
     endif
 EndFunction
 
@@ -759,20 +781,20 @@ Function Apply(int auiStageID, string by = "other")
     Trace("stage " + auiStageID + " by=" + by)
     if auiStageID == 10
         min00Given = True
-        SetObjectiveDisplayed(10)
-        SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, obj10DisplayedOnce)
+            obj10DisplayedOnce = True
+        endif
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
-        SetObjectiveDisplayed(85)
-        SetObjectiveDisplayed(85, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 85, MuteDuplicateObjectiveToasts, obj85DisplayedOnce)
+            obj85DisplayedOnce = True
+        endif
     elseif auiStageID == 30
         Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
-        SetObjectiveDisplayed(86)
-        SetObjectiveDisplayed(86, True, True)
-        SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 86, MuteDuplicateObjectiveToasts, obj86DisplayedOnce)
+            obj86DisplayedOnce = True
+        endif
     elseif auiStageID == 35
         if EnableS6ToS9Full
             SetObjectiveCompleted(60)
@@ -1240,6 +1262,7 @@ Event Scene.OnBegin(Scene akSender)
         prestonPostSceneActive = False
         talkActivated = True
         prestonUsedFallback = False
+        FaceActorToward(Preston, Game.GetPlayer())
         if talkStartedAt <= 0.0
             talkStartedAt = Utility.GetCurrentRealTime()
         endif
@@ -1265,6 +1288,7 @@ Event Scene.OnBegin(Scene akSender)
             return
         endif
         prestonPostSceneActive = True
+        FaceActorToward(Preston, Game.GetPlayer())
         if !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
             ownPrestonSceneStop = False
             prestonScenePending = True
@@ -1410,6 +1434,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
+            FaceActorToward(Preston, Game.GetPlayer())
             Scene scn = ResolvePrestonSceneLogged()
             ; A2.2: Re-check after ResolvePrestonSceneLogged() so a concurrent native DEVT greeting that already
             ; opened DialogueMenu (observed in 2g run3 at rt=343.486 vs 343.662) is never overwritten or re-armed.
@@ -1455,6 +1480,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
                     RunPrestonTalk(stage, postMsg)
                 endif
             else
+                FaceActorToward(Preston, Game.GetPlayer())
                 Scene postScn = ResolvePrestonPostScene()
                 if postScn != None
                     EnsureKeeperPrestonAlias()
@@ -1699,8 +1725,8 @@ float Function ComputeEffectiveWeaponDamage(Actor r, float recordDmg)
 EndFunction
 
 Function ArmRaiderForCombat(Actor r, int idx)
-{C3 + R11 D3 + R13 E3 + fix4: Ensure each Concord raider is unrestrained, aggressive, brave, unequips only wrong
- weapons (keeping FO4 0x0988 outfits intact!), equips softened non-playable RaiderWeapon (0x97B, 6.0 dmg) +
+{C3 + R11 D3 + R13 E3 + fix4 + Task 0d: Ensure each Concord raider is unrestrained, aggressive, brave, unequips only wrong
+ weapons (keeping FO4 0x0988 outfits intact!), equips softened non-playable RaiderWeapon (0x97B, 4.0 dmg) +
  deterministic AmmoShotshell=60, and logs effective damage.}
     if r == None || r.IsDead()
         return
@@ -1796,7 +1822,7 @@ Function EquipBalancedRaiderSidearm(Actor r, int idx)
             r.RemoveItem(RaiderAmmo, curShells, True)
         endif
     endif
-    r.EquipItem(chosenWeap, True, True)
+    r.EquipItem(chosenWeap, False, True)
     int targetSidearmAmmo = 36
     int curSidearmAmmo = r.GetItemCount(chosenAmmo)
     if curSidearmAmmo < targetSidearmAmmo
@@ -2018,18 +2044,20 @@ Event OnTimer(int aiTimerID)
         Apply(rawStage, "other")
         stage = EffectiveStage()
     endif
-    if stage == 10 && min00Given && !IsObjectiveDisplayed(10)
+    if stage == 10 && min00Given && !IsObjectiveDisplayed(10) && (!MuteDuplicateObjectiveToasts || !obj10DisplayedOnce)
         EnsurePrestonAlias()
-        SetObjectiveDisplayed(10)
-        SetObjectiveDisplayed(10, True, True)
-        SetActive(True)
-    elseif stage == 20 && !IsObjectiveDisplayed(85)
-        SetObjectiveDisplayed(85)
-        SetObjectiveDisplayed(85, True, True)
-    elseif stage == 30 && !IsObjectiveDisplayed(86)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, obj10DisplayedOnce)
+            obj10DisplayedOnce = True
+        endif
+    elseif stage == 20 && !IsObjectiveDisplayed(85) && (!MuteDuplicateObjectiveToasts || !obj85DisplayedOnce)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 85, MuteDuplicateObjectiveToasts, obj85DisplayedOnce)
+            obj85DisplayedOnce = True
+        endif
+    elseif stage == 30 && !IsObjectiveDisplayed(86) && (!MuteDuplicateObjectiveToasts || !obj86DisplayedOnce)
         EnsurePrestonAlias()
-        SetObjectiveDisplayed(86)
-        SetObjectiveDisplayed(86, True, True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 86, MuteDuplicateObjectiveToasts, obj86DisplayedOnce)
+            obj86DisplayedOnce = True
+        endif
     endif
     if EnableS4Balcony && !s4BalconySetup && stage >= 10 && stage < 30 && IsCommonwealthExterior(player)
         SetupS4BalconyEncounter(player)
@@ -2052,6 +2080,7 @@ Event OnTimer(int aiTimerID)
     else
         CheckConcordRaidersWfc01(player, False)
     endif
+    SyncPrestonFightHold(stage)
     bool everyone = prestonFound || stage >= 20          ; once the fight is on, no raider stands by
     int dead = 0
     bool fighting = false
@@ -2071,11 +2100,11 @@ Event OnTimer(int aiTimerID)
                 ArmRaiderForCombat(r, i)
                 EquipBalancedRaiderSidearm(r, i)
             endif
-            if (r.GetCombatState() == 1 && raiderEngaged[i]) || (raiderEngaged[i] && nowCombatRt >= raiderStartCombatAt[i] && (nowCombatRt - raiderStartCombatAt[i]) < 10.0)
+            if (r.GetCombatState() == 1 && r.GetCombatTarget() == player && raiderEngaged[i]) || (raiderEngaged[i] && nowCombatRt >= raiderStartCombatAt[i] && (nowCombatRt - raiderStartCombatAt[i]) < 4.0)
                 fighting = true
             elseif stage < 30 && (everyone || d < EngageRadius) && r.Is3DLoaded()
                 ; FO4's forced fight: every living loaded raider is put into combat with the player, even if
-                ; faction-alerted (GetCombatState == 2), rate-limited to once per 10 s after initial engage (C3).
+                ; faction-alerted (GetCombatState == 2) or targeting someone else, rate-limited to once per 4 s (C3 + Task 0d).
                 r.StartCombat(player)
                 raiderEngaged[i] = True
                 raiderStartCombatAt[i] = nowCombatRt
@@ -2135,6 +2164,9 @@ Event OnTimer(int aiTimerID)
         endif
         AdvanceTo(stage, nextBy)
     endwhile
+    if stage >= 30
+        SyncPrestonFightHold(stage)
+    endif
     ticks += 1
     if ticks % 5 == 0
         Trace("status stage=" + stage + " dead=" + dead + "/" + Raiders.Length + " nearest_raider=" + nearest + " preston=" + dp + " preston_off=" + prestonOff + " held=" + prestonHeld + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
@@ -2548,8 +2580,57 @@ Function EnsureActorTalkable(Actor a)
     endif
 EndFunction
 
+float Function SnapActorToFloor(Actor a, string label)
+{Snap actor onto nearby floor/navmesh (guarding against roof warps > 1.0 m) and trace ground_dz.}
+    if a == None
+        return 0.0
+    endif
+    float preX = a.GetPositionX()
+    float preY = a.GetPositionY()
+    float preZ = a.GetPositionZ()
+    a.MoveToNearestNavmeshLocation()
+    float postZ = a.GetPositionZ()
+    float dz = postZ - preZ
+    if dz > 1.0 || dz < -1.0
+        a.SetPosition(preX, preY, preZ)
+        dz = 0.0
+    endif
+    Trace("hold " + label + " ground_dz=" + dz)
+    return dz
+EndFunction
+
+Function FaceActorToward(Actor actorRef, ObjectReference targetRef)
+{Turn actorRef yaw toward targetRef on Z-up XY plane when a conversation starts.}
+    if actorRef == None || targetRef == None
+        return
+    endif
+    float dx = targetRef.GetPositionX() - actorRef.GetPositionX()
+    float dy = targetRef.GetPositionY() - actorRef.GetPositionY()
+    if dx * dx + dy * dy < 0.0001
+        return
+    endif
+    float deg = 0.0
+    if dy > 0.0001
+        deg = Math.atan(dx / dy)
+    elseif dy < -0.0001
+        deg = Math.atan(dx / dy) + 180.0
+    elseif dx >= 0.0
+        deg = 90.0
+    else
+        deg = 270.0
+    endif
+    if deg < 0.0
+        deg += 360.0
+    elseif deg >= 360.0
+        deg -= 360.0
+    endif
+    actorRef.SetAngle(0.0, 0.0, deg)
+    Trace("preston face player angle_z=" + deg)
+EndFunction
+
 Function HoldActor(Actor a, string name, string who, float off)
-{SetRestrained(True), keep player talk activation unblocked, and one log line, "hold <name> by=<who> off=<m> ok=<bool>".}
+{Snap onto navmesh floor, SetRestrained(True), keep player talk activation unblocked, and log hold + ground_dz.}
+    SnapActorToFloor(a, name)
     bool ok = a.SetRestrained(True)
     EnsureActorTalkable(a)
     Trace("hold " + name + " by=" + who + " off=" + off + " ok=" + ok)
@@ -2669,6 +2750,7 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     Trace("world " + what + " after=" + afterWs + " cell=" + a.GetParentCell())
     Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
     if !failed
+        SnapActorToFloor(a, what)
         a.EvaluatePackage()
     endif
     return failed

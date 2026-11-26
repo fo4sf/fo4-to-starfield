@@ -56,7 +56,43 @@ def _extract_block(src, name):
 
 
 def _translate_psc(src, names, global_vars=()):
-    out = ["from types import SimpleNamespace"]
+    out = [
+        "from types import SimpleNamespace",
+        "MuteDuplicateObjectiveToasts = globals().setdefault('MuteDuplicateObjectiveToasts', True)",
+        "LandingHandoff = globals().setdefault('LandingHandoff', 'two_quests')",
+        "obj10DisplayedOnce = globals().setdefault('obj10DisplayedOnce', False)",
+        "obj85DisplayedOnce = globals().setdefault('obj85DisplayedOnce', False)",
+        "obj86DisplayedOnce = globals().setdefault('obj86DisplayedOnce', False)",
+        "objective10DisplayedOnce = globals().setdefault('objective10DisplayedOnce', False)",
+        "class _QuestToastSelfShim:",
+        "    def __getattr__(self, name):",
+        "        if name in globals(): return globals()[name]",
+        "        raise AttributeError(name)",
+        "Self = globals().setdefault('Self', _QuestToastSelfShim())",
+        "if 'FO4SF_QuestToastUtil' not in globals():",
+        "    class FO4SF_QuestToastUtil:",
+        "        @staticmethod",
+        "        def ShowObjectiveOnce(q, obj, mute=True, alreadyDisplayed=False, atTop=False):",
+        "            if q is None: return False",
+        "            has_is = hasattr(q, 'IsObjectiveDisplayed')",
+        "            if mute and alreadyDisplayed: return q.IsObjectiveDisplayed(obj) if has_is else True",
+        "            disp = q.IsObjectiveDisplayed(obj) if has_is else False",
+        "            if mute:",
+        "                if not disp:",
+        "                    q.SetObjectiveDisplayed(obj, True, False)",
+        "                    q.SetActive(True)",
+        "                    disp = q.IsObjectiveDisplayed(obj) if has_is else True",
+        "                else:",
+        "                    q.SetActive(True)",
+        "                return disp",
+        "            q.SetObjectiveDisplayed(obj, True, True)",
+        "            q.SetActive(True)",
+        "            return q.IsObjectiveDisplayed(obj) if has_is else True",
+    ]
+    all_globals = list(global_vars or ())
+    for _latch in ("obj10DisplayedOnce", "obj85DisplayedOnce", "obj86DisplayedOnce", "objective10DisplayedOnce"):
+        if _latch not in all_globals:
+            all_globals.append(_latch)
     for full_name in names:
         params_raw, body = _extract_block(src, full_name)
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
@@ -67,8 +103,8 @@ def _translate_psc(src, names, global_vars=()):
             toks = p.split("=")[0].split()
             params.append(toks[-1])
         out.append(f"def {py_name}({', '.join(params)}):")
-        if global_vars:
-            out.append("    global " + ", ".join(global_vars))
+        if all_globals:
+            out.append("    global " + ", ".join(all_globals))
         depth = 1
         for raw_line in body.splitlines():
             line = re.sub(r'("(?:[^"\\]|\\.)*")|;.*', lambda m: m.group(1) or "", raw_line).strip()
@@ -219,8 +255,6 @@ class R11Part3Slice1ATests(unittest.TestCase):
         ns = {
             "_PStr": _PStr,
             "Trace": logs.append,
-            "CodsworthScene": scene,
-            "CodsworthPostScene": post_scene,
             "S3Stage50Scene": None,
             "SceneOpenCheckSeconds": 1.5,
             "sceneTalkPending": True,
@@ -239,7 +273,11 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "CancelTimer": lambda *_: None,
             "Utility": SimpleNamespace(GetCurrentRealTime=lambda: 50.0),
             "Game": SimpleNamespace(
-                GetFormFromFile=lambda *_: None,
+                GetFormFromFile=lambda fid, plg: (
+                    scene if (fid, plg) == (0x000940, "FO4SFMission.esm")
+                    else post_scene if (fid, plg) == (0x0009C0, "FO4SFMission.esm")
+                    else None
+                ),
                 StopDialogueCamera=lambda *a: stop_cam.append(a),
             ),
         }
@@ -370,6 +408,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
             def GetPositionZ(self): return self.pos[2]
             def SetPosition(self, x, y, z): self.pos = [float(x), float(y), float(z)]
             def GetAngleZ(self): return 0.0
+            def SetAngle(self, ax, ay, az): self.angle = (float(ax), float(ay), float(az))
+            def MoveToNearestNavmeshLocation(self): return True
             def SetScale(self, *_): pass
             def EnableNoWait(self, *_): return True
             def DisableNoWait(self, *_): pass
@@ -419,6 +459,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
         m_ns = {
             "_PStr": _PStr,
             "Trace": logs.append,
+            "Math": SimpleNamespace(Sqrt=math.sqrt, atan=lambda v: math.degrees(math.atan(v))),
             "LogName": "fo4sf_mission",
             "KeeperOnly": False,
             "EnableS4Balcony": False,
@@ -439,8 +480,6 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "Codsworth": cods,
             "Credits": "Credits",
             "RewardCount": 100,
-            "PrestonTalkScene": preston_scn,
-            "PrestonPostTalkScene": preston_post,
             "PrestonTalkMsg": p_msg,
             "PrestonReply0Msg": p_msg,
             "PrestonReply1Msg": p_msg,
@@ -506,12 +545,13 @@ class R11Part3Slice1ATests(unittest.TestCase):
                     else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                     else None
                 ),
+                StartDialogueCameraOrCenterOnTarget=lambda *_: None,
             ),
         }
         m_code = _translate_psc(
             m_psc,
             ("IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias",
-             "EnsureKeeperPrestonAlias", "EnsureActorTalkable", "ResolvePrestonScene",
+             "EnsureKeeperPrestonAlias", "EnsureActorTalkable", "FaceActorToward", "ResolvePrestonScene",
              "ResolvePrestonSceneLogged", "ResolvePrestonPostScene", "ResolveActivePrestonScene",
              "RegisterPrestonSceneEvents", "GiveFromCodsworth", "Actor.OnPlayerLoadGame",
              "AdvanceTo", "OnStageSet", "Apply", "FoundPreston", "ResolvePrestonMsg",
@@ -554,8 +594,6 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "Trace": logs.append,
             "LogName": "fo4sf_mission",
             "Codsworth": cods,
-            "CodsworthScene": cods_scn,
-            "CodsworthPostScene": cods_post,
             "S3Stage50Scene": None,
             "EnableS3HouseSearch": False,
             "s3Stage50Pending": False,
@@ -650,6 +688,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
                     else glob_obj if (fid, plg) == (0x000979, "FO4SFMission.esm")
                     else None
                 ),
+                StartDialogueCameraOrCenterOnTarget=lambda *_: None,
             ),
         }
         c_code = _translate_psc(
@@ -826,13 +865,13 @@ class R11Part3Slice1ATests(unittest.TestCase):
         self.assertFalse(any("fallback=messagebox" in ln for ln in h.logs), h.logs)
 
     def test_item5_e3_concord_raider_3dmg_sidearm_and_deterministic_36_ammo(self):
-        """Item 5 (E3 + R13 + fix4): WEAP 0x097B (6.0 dmg Coachman, NonPlayable, ObjectTemplates+AttachParentSlots intact) +
+        """Item 5 (E3 + R13 + fix4 + Task 0d): WEAP 0x097B (4.0 dmg Coachman, NonPlayable, ObjectTemplates+AttachParentSlots intact) +
         WEAP 0x097A (AttackDamage=1.5, ObjectTemplates+AttachParentSlots intact, AmmoList=null) + ArmRaiderForCombat
         UnequipItem-only weapon swap (preserving FO4 0x0988 outfits!) + EquipBalancedRaiderSidearm clamping Ammo777mm=36."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("ConcordRaiderPrimaryWeapId = 0x97B", cs)
-        self.assertIn("ConcordRaiderPrimaryDamage = 6.0f", cs)
+        self.assertIn("ConcordRaiderPrimaryDamage = 4.0f", cs)
         self.assertIn("ConcordRaiderSidearmWeapId = 0x97A", cs)
         self.assertIn("ConcordRaiderSidearmDamage = 1.5f", cs)
         self.assertIn("concordSidearm.AttackDamage = ConcordRaiderSidearmDamage;", cs)
@@ -906,7 +945,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "RaiderWeapon": "ConcordCoachman097B",
             "RaiderAmmo": "AmmoShotshell",
             "RaiderSidearm": "ConcordEon097A",
-            "RaiderPrimaryRecordDamage": 6.0,
+            "RaiderPrimaryRecordDamage": 4.0,
             "RaiderSidearmRecordDamage": 1.5,
             "AttackDamageMult": None,
             "RaiderSidearmAmmo": "Ammo777mm",
@@ -926,12 +965,12 @@ class R11Part3Slice1ATests(unittest.TestCase):
             self.assertTrue(r.outfit_worn)
             self.assertNotIn(("VanillaSpacerGun", False), r.equipped)
             self.assertEqual(r.equipped[-1], ("ConcordCoachman097B", False))
-            self.assertIn("eff_dmg=6.0", logs[-1])
+            self.assertIn("eff_dmg=4.0", logs[-1])
             ns["EquipBalancedRaiderSidearm"](r, i)
             self.assertEqual(r.inv["Ammo777mm"], 36, f"raider {i} got {r.inv['Ammo777mm']} instead of 36")
             self.assertEqual(r.inv["ConcordCoachman097B"], 0)
             self.assertEqual(r.inv["AmmoShotshell"], 0)
-            self.assertEqual(r.equipped[-1], ("ConcordEon097A", True))
+            self.assertEqual(r.equipped[-1], ("ConcordEon097A", False))
             self.assertIn(f"arm raider {i} sidearm=eon sidearm_ammo=36", logs[-1])
             self.assertIn("eff_dmg=1.5", logs[-1])
 
@@ -1126,8 +1165,8 @@ class R11Part3Slice1ATests(unittest.TestCase):
                 elif sig == b"CELL" and lid == 0xB60:
                     cells[lid] = dict(_iter_subrecords(body))
 
-            # E3 + fix4: WEAP 0x097A FO4SF_ConcordRaiderSidearm ("Eon", AttackDamage=1.5f, AmmoList=0, ObjectTemplates+APPR kept, NonPlayable)
-            # and WEAP 0x097B FO4SF_ConcordRaiderPrimary ("Coachman", AttackDamage=6.0f, AmmoList=0, ObjectTemplates+APPR kept, NonPlayable)
+            # E3 + fix4 + Task 0d: WEAP 0x097A FO4SF_ConcordRaiderSidearm ("Eon", AttackDamage=1.5f, AmmoList=0, ObjectTemplates+APPR kept, NonPlayable)
+            # and WEAP 0x097B FO4SF_ConcordRaiderPrimary ("Coachman", AttackDamage=4.0f, AmmoList=0, ObjectTemplates+APPR kept, NonPlayable)
             self.assertIn(0x97A, weaps)
             w_subs = dict(weaps[0x97A])
             self.assertEqual(w_subs[b"EDID"].rstrip(b"\x00").decode(), "FO4SF_ConcordRaiderSidearm")
@@ -1152,7 +1191,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
             self.assertEqual(pwam2_ammo, 0x002B4AFB, f"WAM2 Primary Ammo expected 0x2B4AFB, got 0x{pwam2_ammo:08X}")
             self.assertEqual(pwam2_list, 0, f"WAM2 Primary AmmoList must be cleared (0), got 0x{pwam2_list:08X}")
             pdmg = struct.unpack_from("<f", p_subs[b"WDMG"], 0)[0]
-            self.assertAlmostEqual(pdmg, 6.0, places=4, msg=f"Primary AttackDamage expected 6.0, got {pdmg}")
+            self.assertAlmostEqual(pdmg, 4.0, places=4, msg=f"Primary AttackDamage expected 4.0, got {pdmg}")
 
             self.assertIn(0xB60, cells)
             cell_full = cells[0xB60].get(b"FULL", b"").rstrip(b"\x00").decode()

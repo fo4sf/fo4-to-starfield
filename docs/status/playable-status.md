@@ -2,7 +2,7 @@
 
 Single-source status tracker for Fallout 4 -> Starfield builds, standalone probes, Claude's 5 additions, and Round 13 workstreams.
 
-- **Tracked Target (`#852`):** `candidate-2g-fix4` (`gemini/round11-first-mission`), staged cleanly offline with reused tested Pip-Boy DLL (`sha256 7d5ba49c0c6ab2aa`, `FO4SFPipboyMenu.ini` `HideStarfieldWatch=1`). (`candidate-2g-fix3` `8fed4642` ran `24 Nov` `#852` `7142188721` — **NOT CLEAR**.)
+- **Tracked Target (`#852`):** `candidate-2g-fix7b` (`gemini/round11-first-mission`), staged cleanly offline with freshly built `pipboy-r15-fix7b-merged` (`FO4SFPipboyMenu.dll` `Arm=1`, `HideStarfieldWatch=1`). (`candidate-2g-fix3` `8fed4642` ran `24 Nov` `#852` `7142188721` — **NOT CLEAR**.)
 - **Video & Audio Evidence Policy (`24 Nov`, `#32` `7134488668`, `7142189232`):** `read_file` samples `.mp4` at ~`1 fps` with no audio stream (`>= 1 s` events & legible HUD text valid; `< 1 s` or subtle motion **`needs a slowed take`**). **Audio is judged ONLY from the accompanying `.audio.wav` / `.mp3` capture file** (or **`audio: not judged`** when absent / silent Vault 111 interior).
 
 ---
@@ -31,7 +31,7 @@ Single-source status tracker for Fallout 4 -> Starfield builds, standalone probe
 
 | Addition | PR / Track | Status & Integration on `#852` (`candidate-2g-fix4`) |
 |---|---|---|---|
-| **1. Robot animations & Codsworth** | `#854` (`claude/robot-anim` `abfa189c`, `OPEN`) | **gated (`#854`)**: Mr. Handy `15`-part body + FO4 `.rig`/`.af`/`.afx` clips partial-passed `23 Nov` (`4`-line Sanctuary talk); `24 Nov` `2g-fix2` confirmed `#852` dialogue camera still aims under Codsworth (`camera_guard` `prev_d=0.62 safe_d=1.85`) until `#854` lands. `#852` stays `--codsworth-race-framing 0` Mini Bot stand-in with local M1 prep branch `gemini/r13-m1-854-prep` tested and ready. |
+| **1. Robot animations & Codsworth** | `#854` (`claude/robot-anim` `abfa189c`, `OPEN`) | **gated (`#854`)**: Mr. Handy `15`-part body + FO4 `.rig`/`.af`/`.afx` clips partial-passed `23 Nov` (`4`-line Sanctuary talk); `24 Nov` `2g-fix2` and `fix6` confirmed `#852` dialogue camera still aims under Codsworth (`camera_guard` `prev_d=0.62 safe_d=1.85`) until `#854` lands. `#852` builds `--codsworth-race-framing 1` (`codsworth_race_framing=true`, `fix6` parity, invisible `09000970` proxy) until `#854` (`2h-3` H3) replaces it. |
 | **2. Creature animations** | `#855` (`claude/creature-anim` `b182e0a5`, `OPEN`) | **not applicable**: Radroach idle & deathclaw tail/spines partial-passed `23 Nov`; walking/attacks/deaths & bloatfly/mole rat/dog unverified. `#852` Track 1 uses zero creatures (`S2` Vault radroaches & `S8` Deathclaw sit on Track 2 `#853`). |
 | **3. Human animations** | `#856` (`claude/human-anim` `3dab65f0`, `OPEN`) | **not applicable**: Surrender idle partial-passed `23 Nov`; walking & 1stP gun clip unverified. Held behind `--fo4-human-anims` (OFF); `#852` uses Starfield `HumanRace` (`0x00347D`) with FO4 outfits (`C5`/`D2`). |
 | **4. Gun moving parts proof** | `#32` `7110977923` (`gunpart-slide-vanilla-vs-ours-1123.jpg`) | **not applicable**: `Gun_*.af` slide/trigger/magazine proof applies to FO4 custom weapon meshes (`P5`/`P6`); `#852` raiders/Preston use Starfield stand-in weapons (`0x97B` Coachman, `0x97A` Eon, `Orion`). Owner `"Parts must move"` rule remains gated; verification `needs a slowed take`. |

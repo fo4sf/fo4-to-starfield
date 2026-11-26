@@ -114,6 +114,9 @@
 #include <vector>
 
 #include "setup_places.h"
+#include "lift_menu.h"
+#include "pipboy_screen_source.h"
+#include "hud_quest_label.h"
 
 // Win32 calls that libxse's REX::W32 does not wrap, imported the way REX/W32.cpp imports its own (REX/W32/BASE.h):
 // libxse refuses a <windows.h> included before it
@@ -213,6 +216,12 @@ namespace
 	constexpr std::uint32_t kCoreHardcoreFastTravelBlockedId = 0x841; // FO4SFCoreValues.esm GLOB FO4SF_HardcoreFastTravelBlocked (A2)
 	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
 	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
+	constexpr std::uint32_t kPowerArmorInPaAvId = 0x80A;     // FO4SFPowerArmor.esm AVIF FO4SF_PAInPowerArmor
+	constexpr std::uint32_t kPowerArmorKwId = 0x806;         // FO4SFPowerArmor.esm KYWD FO4SF_PAArmorKeyword
+	constexpr std::uint32_t kSfPowerArmorFrameKwId = 0x15503F; // Starfield.esm KYWD isPowerArmorFrame
+	constexpr std::size_t   kActorBoolBitsAt = 0x208;        // libxse RE::Actor::boolBits
+	constexpr std::uint32_t kActorSwimmingBit = 1u << 19;    // libxse RE::Actor::BOOL_BITS::kSwimming
+	constexpr std::size_t   kKeywordFormArrayAt = 0x20;      // libxse RE::BGSKeywordForm::keywords (BSTArray<BGSKeyword*>)
 	constexpr std::uint32_t kCoreStartCardOpenId = 0x866;    // FO4SFCoreValues.esm GLOB FO4SF_StartCardOpen (N2, R13)
 	constexpr std::uint32_t kCoreGameModeId = 0x870;         // FO4SFCoreValues.esm GLOB FO4SF_GameMode (S1, R13)
 	constexpr std::uint32_t kCoreSurvivalStartId = 0x871;    // FO4SFCoreValues.esm GLOB FO4SF_SurvivalStart (S1, R13)
@@ -560,6 +569,13 @@ namespace
 	bool                                     g_tabOpensPipboy = false;   // Round 10 C4-4: opt-in closed-Pip-Boy Tab open with blocking-menu cooldown (default 0)
 	bool                                     g_hideStarfieldWatch = false; // Round 11 D7(b): hide Starfield HUDMenu BottomLeftGroup_mc wrist watch (C++ fallback 0, staged 1, rollback 0)
 	bool                                     g_requirePickup = false;   // Task 4 step X2: RequirePickup=0 default off; 1 checks FO4SF_PipboyAcquired >= 0.5
+	fo4sf::pipboy::ScreenSourceMode          g_screenSourceIni = fo4sf::pipboy::ScreenSourceMode::k2DIMenu;
+	fo4sf::hud::QuestLabelConfig             g_questLabelCfg{};
+	fo4sf::hud::TranslateFileStatus          g_translateStatus{};
+	std::atomic<bool>                        g_questLabelRuntimeIdsOk{ false };
+	std::uint32_t                            g_scaleformSingletonRva = 0;
+	std::uint32_t                            g_scaleformTranslateRva = 0;
+	std::uint32_t                            g_scaleformRttiRva = 0;
 	std::string                              g_bootMovie;               // Task 1 step 1f: BootMovie=pipboybootsequence
 	bool                                     g_bootOnFirstOpen = false; // Task 1 step 1f: play BootMovie once after FO4SF_PipboyAcquired >= 0.5
 	std::filesystem::path                    g_gameDir;                 // Game root (<Starfield>/) for Data\Interface\<BootMovie>.swf check
@@ -600,6 +616,16 @@ namespace
 	std::mutex                               g_setupLock;
 	fo4sf::setup::SetupScreenModel           g_setupModel;
 	bool                                     g_setupModelLoaded = false;
+	// Paused Vault 111 Exit Lift + 40-pt S.P.E.C.I.A.L. Screen (FO4SF_LiftMenu -> Interface/FO4SF_LiftScreen.swf)
+	PrimaryVtable                            g_liftVtbl{};
+	InputVtable                              g_liftInputVtbl{};
+	std::atomic<bool>                        g_liftOpen{ false };
+	std::atomic<bool>                        g_loadingLiftMovie{ false };
+	std::atomic<bool>                        g_liftMissing{ false };
+	std::atomic<const void*>                 g_liftListenedMovie{ nullptr };
+	std::atomic<std::uint32_t>               g_liftCreated{ 0 };
+	std::mutex                               g_liftLock;
+	fo4sf::lift::LiftMenuModel               g_liftModel;
 	// Persistent across opens (Step 1): Key opens s_savedPage; MapKey sets s_savedPage = 3 and opens 3
 	std::atomic<std::uint32_t>               s_savedPage{ 0 };
 	std::array<std::atomic<std::uint32_t>, 5> s_savedTabs{ { 0, 0, 0, 0, 0 } };
@@ -7792,6 +7818,10 @@ namespace
 		g_task->AddTask([n]() { ArmLower(n); });
 	}
 
+	fo4sf::pipboy::ScreenOpenResult OpenPipboyScreen(std::uint32_t a_targetPage);
+
+	void ArmShow(std::uint32_t a_n);
+
 	RE::UI_MESSAGE_RESULT MenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
 	{
 		const auto type = a_message.type;
@@ -7857,12 +7887,10 @@ namespace
 							}
 							return;
 						}
-						if (g_stage == 2 && g_codeObj) {
-							CollectShellVitalsMainThread(targetPage);
-						}
-						g_expectOpen = 1;
-						queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
-						REX::INFO("step=boot_reopen page={} sent=show", targetPage);
+						const auto openRes = OpenPipboyScreen(targetPage);
+						REX::INFO("step=boot_reopen page={} sent={} screen_source={} fallback={} reason={}",
+							targetPage, openRes.opened ? "show" : "none",
+							fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
 					});
 				}
 			}
@@ -9053,6 +9081,451 @@ namespace
 		}
 	}
 
+	const RE::BSFixedString& LiftMenuName()
+	{
+		static const RE::BSFixedString s{ fo4sf::kOurLiftMenuName };
+		return s;
+	}
+
+	std::array<int, fo4sf::lift::kSpecialCount> ReadInitialLiftSpecialMainThread(bool& a_outConfirmed)
+	{
+		FindGlobalValue();
+		std::array<int, fo4sf::lift::kSpecialCount> vals{ 5, 5, 5, 5, 5, 5, 5 };
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		for (std::size_t i = 0; i < fo4sf::lift::kSpecialCount; ++i) {
+			std::string         detail;
+			const std::uint32_t localId = kCoreSpecialMenuPendingFirstId + static_cast<std::uint32_t>(i);
+			std::uintptr_t      form = 0;
+			if (const auto fid = KitFileForm("FO4SFCoreValues.esm", localId, "TESGlobal@@", detail)) {
+				AcceptById(fid, kSpecialPendingEditorIds[i], "TESGlobal@@", kGlobalEditorIdAt, form);
+			}
+			float v = 5.0f;
+			if (form && Peek(form + valAt, v) && std::isfinite(v) && v >= 1.0f && v <= 10.0f) {
+				vals[i] = static_cast<int>(std::lround(v));
+			}
+		}
+		a_outConfirmed = false;
+		{
+			std::string    reqDetail;
+			std::uintptr_t reqForm = 0;
+			if (const auto reqFid = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialMenuCommitReqId, "TESGlobal@@", reqDetail)) {
+				AcceptById(reqFid, "FO4SF_SpecialMenuCommitRequested", "TESGlobal@@", kGlobalEditorIdAt, reqForm);
+			}
+			float reqVal = 0.0f;
+			if (reqForm && Peek(reqForm + valAt, reqVal) && std::isfinite(reqVal)) {
+				a_outConfirmed = reqVal >= 0.5f;
+			}
+		}
+		return vals;
+	}
+
+	void CommitLiftPayloadMainThread(const fo4sf::lift::LiftCommitPayload& a_payload)
+	{
+		FindGlobalValue();
+		const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+		if (a_payload.specialConfirmed) {
+			std::array<std::uintptr_t, fo4sf::lift::kSpecialCount> pendingGlobs{};
+			std::size_t                                            fromCore = 0;
+			for (std::size_t i = 0; i < fo4sf::lift::kSpecialCount; ++i) {
+				std::string         detail;
+				const std::uint32_t localId = kCoreSpecialMenuPendingFirstId + static_cast<std::uint32_t>(i);
+				if (const auto fid = KitFileForm("FO4SFCoreValues.esm", localId, "TESGlobal@@", detail)) {
+					AcceptById(fid, kSpecialPendingEditorIds[i], "TESGlobal@@", kGlobalEditorIdAt, pendingGlobs[i]);
+					if (pendingGlobs[i]) {
+						++fromCore;
+					}
+				}
+			}
+			std::string    reqDetail;
+			std::uintptr_t reqGlob = 0;
+			if (const auto reqFid = KitFileForm("FO4SFCoreValues.esm", kCoreSpecialMenuCommitReqId, "TESGlobal@@", reqDetail)) {
+				AcceptById(reqFid, "FO4SF_SpecialMenuCommitRequested", "TESGlobal@@", kGlobalEditorIdAt, reqGlob);
+			}
+			if (fromCore == fo4sf::lift::kSpecialCount && reqGlob) {
+				std::size_t written = 0;
+				for (std::size_t i = 0; i < fo4sf::lift::kSpecialCount; ++i) {
+					const float sv = static_cast<float>(std::clamp(a_payload.special[i], 1, 10));
+					if (WriteCoreGlobalFloatVerified(pendingGlobs[i], valAt, sv)) {
+						++written;
+					}
+				}
+				if (written == fo4sf::lift::kSpecialCount) {
+					WriteCoreGlobalFloatVerified(reqGlob, valAt, 1.0f);
+				}
+			}
+		}
+		int specialSum = 0;
+		for (int sv : a_payload.special) {
+			specialSum += sv;
+		}
+		const int poolLeft = std::max(0, fo4sf::lift::kSpecialTotal - specialSum);
+		if (a_payload.action == fo4sf::lift::CommitAction::kRide && poolLeft > 0) {
+			REX::WARN("step=lift_confirm refused reason=unspent_pool pool={}", poolLeft);
+			return;
+		}
+		float code = 7.0f;
+		const char* actionStr = "stay";
+		if (a_payload.action == fo4sf::lift::CommitAction::kRide) {
+			code = 6.0f;
+			actionStr = "ride";
+		} else if (a_payload.action == fo4sf::lift::CommitAction::kChangeAppearance) {
+			code = 8.0f;
+			actionStr = "change_appearance";
+		} else if (a_payload.action == fo4sf::lift::CommitAction::kNone) {
+			actionStr = "none";
+		}
+		std::string    detail;
+		std::uintptr_t openForm = 0;
+		if (const auto fid = KitFileForm("FO4SFCoreValues.esm", kCoreStartCardOpenId, "TESGlobal@@", detail)) {
+			AcceptById(fid, "FO4SF_StartCardOpen", "TESGlobal@@", kGlobalEditorIdAt, openForm);
+			WriteStoreGlobalFloat(openForm, code);
+		}
+		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+		}
+		REX::INFO("step=lift_confirm action={} pool={} confirmed={} values={},{},{},{},{},{},{}",
+			actionStr, poolLeft, a_payload.specialConfirmed ? 1 : 0,
+			a_payload.special[0], a_payload.special[1], a_payload.special[2], a_payload.special[3],
+			a_payload.special[4], a_payload.special[5], a_payload.special[6]);
+	}
+
+	void HandleLiftActivateOrConfirmMainThread(bool a_fromConfirmButton)
+	{
+		fo4sf::lift::LiftCommitPayload payload;
+		bool                           committed = false;
+		{
+			std::scoped_lock lock(g_liftLock);
+			committed = g_liftModel.ActivateOrConfirm(a_fromConfirmButton, payload);
+		}
+		if (committed) {
+			CommitLiftPayloadMainThread(payload);
+		} else if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+		}
+	}
+
+	void HandleLiftBackOrStayMainThread()
+	{
+		fo4sf::lift::LiftCommitPayload payload;
+		bool                           committed = false;
+		{
+			std::scoped_lock lock(g_liftLock);
+			committed = g_liftModel.BackOrStay(payload);
+		}
+		if (committed) {
+			CommitLiftPayloadMainThread(payload);
+		} else if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+		}
+	}
+
+	class LiftButtonHandler final : public RE::Scaleform::GFx::FunctionHandler
+	{
+	public:
+		void Configure(SetupClickKind a_kind, int a_row)
+		{
+			_kind = a_kind;
+			_row = a_row;
+		}
+
+		void Call(const Params&) override
+		{
+			if (_kind == SetupClickKind::kConfirm) {
+				if (g_task) {
+					g_task->AddTask([]() { HandleLiftActivateOrConfirmMainThread(true); });
+				}
+				return;
+			}
+			if (_kind == SetupClickKind::kSelectRow) {
+				bool activateOptions = false;
+				{
+					std::scoped_lock lock(g_liftLock);
+					g_liftModel.SelectRow(_row);
+					activateOptions = (g_liftModel.CurrentPage() == fo4sf::lift::Page::kOptions);
+				}
+				if (g_task) {
+					if (activateOptions) {
+						g_task->AddTask([]() { HandleLiftActivateOrConfirmMainThread(false); });
+					} else {
+						g_task->AddTask([]() {
+							if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+								queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+							}
+						});
+					}
+				}
+				return;
+			}
+			{
+				std::scoped_lock lock(g_liftLock);
+				g_liftModel.AdjustCurrentOrRow(_row, _kind == SetupClickKind::kPrevValue ? -1 : 1);
+			}
+			if (g_task) {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+
+	private:
+		SetupClickKind _kind = SetupClickKind::kSelectRow;
+		int            _row = 0;
+	};
+	std::array<LiftButtonHandler, fo4sf::lift::kLiftRows * 3 + 1> g_liftButtonHandlers;
+
+	void LiftListen(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		const auto  movie = MovieOf(a_menu);
+		if (!root || !movie || g_liftListenedMovie.load() == movie) {
+			return;
+		}
+		g_liftListenedMovie.store(movie);
+		RE::Scaleform::GFx::Value top;
+		if (!root->GetVariable(&top, "root") || !top.IsObject()) {
+			return;
+		}
+		std::size_t hIdx = 0;
+		const auto  attach = [&](const std::string& a_name, SetupClickKind a_kind, int a_row) {
+			if (hIdx >= g_liftButtonHandlers.size()) {
+				return;
+			}
+			auto& handler = g_liftButtonHandlers[hIdx++];
+			handler.Configure(a_kind, a_row);
+			RE::Scaleform::GFx::Value btn, fn;
+			if (ChildOf(top, a_name.c_str(), btn)) {
+				root->CreateFunction(&fn, &handler);
+				if (!fn.IsUndefined()) {
+					std::array<RE::Scaleform::GFx::Value, 2> args{ "click", fn };
+					btn.Invoke("addEventListener", nullptr, args.data(), args.size());
+				}
+			}
+		};
+		for (int i = 0; i < static_cast<int>(fo4sf::lift::kLiftRows); ++i) {
+			attach(std::format("fo4sfLiftHit{}", i), SetupClickKind::kSelectRow, i);
+			attach(std::format("fo4sfLiftPrev{}", i), SetupClickKind::kPrevValue, i);
+			attach(std::format("fo4sfLiftNext{}", i), SetupClickKind::kNextValue, i);
+		}
+		attach("fo4sfLiftConfirm", SetupClickKind::kConfirm, 0);
+	}
+
+	void LiftWrite(const void* a_menu)
+	{
+		auto* const root = RootOf(a_menu);
+		if (!root) {
+			return;
+		}
+		RE::Scaleform::GFx::Value top;
+		if (!root->GetVariable(&top, "root") || !top.IsObject()) {
+			return;
+		}
+		std::array<std::string, fo4sf::lift::kLiftRows> rows{};
+		std::string                                     status;
+		std::string                                     hint;
+		{
+			std::scoped_lock lock(g_liftLock);
+			g_liftModel.RenderLines(rows, status, hint);
+		}
+		for (std::size_t i = 0; i < rows.size(); ++i) {
+			RE::Scaleform::GFx::Value field;
+			const auto                fname = std::format("fo4sfLiftRow{}", i);
+			if (ChildOf(top, fname.c_str(), field)) {
+				field.SetMember("text", RE::Scaleform::GFx::Value(rows[i].c_str()));
+			}
+		}
+		RE::Scaleform::GFx::Value statusField;
+		if (ChildOf(top, "fo4sfLiftStatus", statusField)) {
+			statusField.SetMember("text", RE::Scaleform::GFx::Value(status.c_str()));
+		}
+		RE::Scaleform::GFx::Value hintField;
+		if (ChildOf(top, "fo4sfLiftHint", hintField)) {
+			hintField.SetMember("text", RE::Scaleform::GFx::Value(hint.c_str()));
+		}
+	}
+
+	void* LiftMenuDestroy(void* a_self, std::uint32_t a_flags)
+	{
+		g_liftOpen.store(false);
+		g_liftListenedMovie.store(nullptr);
+		g_engineDtor(a_self, a_flags & ~1u);
+		if (a_flags & 1) {
+			std::free(a_self);
+		}
+		return a_self;
+	}
+
+	const char* LiftMenuGetName(const void*)
+	{
+		if (g_loadingLiftMovie.load()) {
+			return "FO4SF_LiftScreen";
+		}
+		return fo4sf::kOurLiftMenuName;
+	}
+
+	bool LiftMenuLoadMovie(void* a_self, bool, bool a_arg2)
+	{
+		if (MovieOf(a_self)) {
+			return true;
+		}
+		g_loadingLiftMovie.store(true);
+		const bool loaded = g_engineLoadMovie(a_self, false, a_arg2);
+		g_loadingLiftMovie.store(false);
+		const bool ok = loaded && MovieOf(a_self) != nullptr;
+		if (!ok && !g_liftMissing.exchange(true)) {
+			REX::INFO("step=lift_skip reason=missing movie=FO4SF_LiftScreen");
+		} else if (ok) {
+			REX::INFO("step=lift_load_movie result=1 movie=FO4SF_LiftScreen");
+		}
+		return ok;
+	}
+
+	RE::UI_MESSAGE_RESULT LiftMenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
+	{
+		const auto type = a_message.type;
+		if (type == RE::UI_MESSAGE_TYPE::kShow && !MovieOf(a_self)) {
+			if (!LiftMenuLoadMovie(a_self, false, false)) {
+				g_liftOpen.store(false);
+				return RE::UI_MESSAGE_RESULT::kHandled;
+			}
+		}
+		const auto result = g_engineProcessMessage(a_self, a_message);
+		if (type == RE::UI_MESSAGE_TYPE::kShow) {
+			g_liftOpen.store(true);
+			LiftListen(a_self);
+			LiftWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kUpdate) {
+			LiftListen(a_self);
+			LiftWrite(a_self);
+		} else if (type == RE::UI_MESSAGE_TYPE::kHide) {
+			g_liftOpen.store(false);
+			g_liftListenedMovie.store(nullptr);
+		}
+		return result;
+	}
+
+	bool LiftShouldHandleEvent(void* a_input, const void* a_event)
+	{
+		if (!a_event || !g_liftOpen.load()) {
+			return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType == RE::InputEvent::EventType::kButton &&
+		    (base->deviceType == RE::InputEvent::DeviceType::kKeyboard ||
+		     base->deviceType == RE::InputEvent::DeviceType::kGamepad) &&
+		    base->status != RE::InputEvent::Status::kStop) {
+			return true;
+		}
+		return g_engineShouldHandle ? g_engineShouldHandle(a_input, a_event) : false;
+	}
+
+	void LiftOnButtonEvent(void* a_input, const void* a_event)
+	{
+		if (g_engineOnButton) {
+			g_engineOnButton(a_input, a_event);
+		}
+		if (!a_event || !g_liftOpen.load()) {
+			return;
+		}
+		if (OpenBlockingOverlayMenu(RE::UI::GetSingleton(), true) != nullptr) {
+			return;
+		}
+		const auto* base = static_cast<const RE::InputEvent*>(a_event);
+		if (base->eventType != RE::InputEvent::EventType::kButton ||
+		    base->deviceType != RE::InputEvent::DeviceType::kKeyboard) {
+			return;
+		}
+		const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+		if (!(button->value > 0.0f && button->heldDownSecs == 0.0f)) {
+			return;
+		}
+		const auto vk = static_cast<std::uint32_t>(button->idCode);
+		bool       handled = false;
+		bool       wantActivate = false;
+		bool       wantBackOrStay = false;
+		{
+			std::scoped_lock lock(g_liftLock);
+			switch (vk) {
+			case 0x26:   // VK_UP
+			case 0x57:   // W
+				g_liftModel.MoveCursor(-1);
+				handled = true;
+				break;
+			case 0x28:   // VK_DOWN
+			case 0x53:   // S
+				g_liftModel.MoveCursor(1);
+				handled = true;
+				break;
+			case 0x25:   // VK_LEFT
+			case 0x41:   // A
+				g_liftModel.AdjustCurrentOrRow(g_liftModel.Cursor(), -1);
+				handled = true;
+				break;
+			case 0x27:   // VK_RIGHT
+			case 0x44:   // D
+				g_liftModel.AdjustCurrentOrRow(g_liftModel.Cursor(), 1);
+				handled = true;
+				break;
+			case 0x0D:   // VK_RETURN
+			case 0x45:   // E
+				handled = true;
+				wantActivate = true;
+				break;
+			case 0x1B:   // VK_ESCAPE
+				handled = true;
+				wantBackOrStay = true;
+				break;
+			default:
+				break;
+			}
+		}
+		if (!handled) {
+			return;
+		}
+		const_cast<RE::InputEvent*>(base)->status = RE::InputEvent::Status::kStop;
+		if (g_task) {
+			if (wantActivate) {
+				g_task->AddTask([]() { HandleLiftActivateOrConfirmMainThread(false); });
+			} else if (wantBackOrStay) {
+				g_task->AddTask([]() { HandleLiftBackOrStayMainThread(); });
+			} else {
+				g_task->AddTask([]() {
+					if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+						queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kUpdate);
+					}
+				});
+			}
+		}
+	}
+
+	RE::Scaleform::Ptr<RE::IMenu>* CreateLiftMenu(RE::Scaleform::Ptr<RE::IMenu>* a_out)
+	{
+		const auto n = ++g_liftCreated;
+		void*      menu = std::calloc(1, kMenuBytes);
+		if (!menu) {
+			REX::ERROR("refuse step=create menu=lift n={} reason=out_of_memory", n);
+			std::construct_at(a_out);
+			return a_out;
+		}
+		g_ctor(menu);
+		const auto base = reinterpret_cast<std::uintptr_t>(menu);
+		auto*      refs = reinterpret_cast<volatile std::uint32_t*>(base + 0x08);
+		const auto ctorRefs = *refs;
+		*reinterpret_cast<std::uintptr_t*>(base) = reinterpret_cast<std::uintptr_t>(g_liftVtbl.slots.data());
+		*reinterpret_cast<std::uintptr_t*>(base + 0x10) = reinterpret_cast<std::uintptr_t>(g_liftInputVtbl.slots.data());
+		auto* imenu = static_cast<RE::IMenu*>(menu);
+		imenu->menuName = LiftMenuName();
+		imenu->flags |= (0x19u | kPauseFlag);
+		imenu->flagsUpdated = true;
+		if (g_keepAlive && ctorRefs == 1) {
+			REX::W32::InterlockedIncrement(refs);
+		}
+		REX::INFO("step=lift_create n={} menu={} flags={}", n, Hex(base), Hex(imenu->flags));
+		std::memcpy(static_cast<void*>(a_out), &menu, sizeof(menu));
+		return a_out;
+	}
+
 	void* SetupMenuDestroy(void* a_self, std::uint32_t a_flags)
 	{
 		g_setupOpen.store(false);
@@ -9257,8 +9730,41 @@ namespace
 		static const RE::BSFixedString kChargenMenu{ "ChargenMenu" };
 		const bool blockedLoadOrChargen = ui->IsMenuOpen(kLoadingMenu) || ui->IsMenuOpen(kChargenMenu);
 
+		// Paused Exit Lift + 40-pt S.P.E.C.I.A.L. Screen: FO4SF_StartCardOpen == 4.0 requests FO4SF_LiftMenu (acked 5.0; commit 6.0/7.0/8.0).
+		const bool wantLift = (v >= 3.5f && v < 5.5f) && ui->IsMenuRegistered(LiftMenuName());
+		const bool liftIsOpen = ui->IsMenuRegistered(LiftMenuName()) && ui->IsMenuOpen(LiftMenuName());
+		if (wantLift) {
+			if (ui->IsMenuOpen(StartCardMenuName())) {
+				queue->AddMessage(StartCardMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			}
+			if (g_liftMissing.load()) {
+				WriteStoreGlobalFloat(form, 0.0f);
+				return;
+			}
+			if (!blockedLoadOrChargen) {
+				if (!liftIsOpen) {
+					bool alreadyConfirmed = false;
+					const bool descending = (v >= 4.1f && v < 4.4f);
+					auto initVals = ReadInitialLiftSpecialMainThread(alreadyConfirmed);
+					{
+						std::scoped_lock lock(g_liftLock);
+						g_liftModel.Reset(initVals, alreadyConfirmed, descending);
+					}
+					queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kShow);
+					REX::INFO("step=lift_open confirmed={} descending={}", alreadyConfirmed ? 1 : 0, descending ? 1 : 0);
+				} else if (v < 4.5f) {
+					WriteStoreGlobalFloat(form, 5.0f);
+				}
+			}
+			return;
+		}
+		if (liftIsOpen) {
+			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=lift_open open=0");
+		}
+
 		// S1 Variant (b): FO4SF_StartCardOpen == 2.0 requests FO4SF_SetupMenu (acked as 3.0 once open).
-		const bool wantSetup = (v >= 1.5f) && ui->IsMenuRegistered(SetupMenuName());
+		const bool wantSetup = (v >= 1.5f && v < 3.5f) && ui->IsMenuRegistered(SetupMenuName());
 		const bool setupIsOpen = ui->IsMenuRegistered(SetupMenuName()) && ui->IsMenuOpen(SetupMenuName());
 		if (wantSetup) {
 			if (ui->IsMenuOpen(StartCardMenuName())) {
@@ -9646,6 +10152,19 @@ namespace
 			g_setupInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&SetupShouldHandleEvent);
 			g_setupInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&SetupOnButtonEvent);
 
+			g_liftVtbl.locator = g_vtbl.locator;
+			std::copy_n(engine, kSlots, g_liftVtbl.slots.begin());
+			g_liftVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&LiftMenuDestroy);
+			g_liftVtbl.slots[0x03] = reinterpret_cast<std::uintptr_t>(&LiftMenuGetName);
+			g_liftVtbl.slots[0x04] = reinterpret_cast<std::uintptr_t>(&MenuGetRootPath);
+			g_liftVtbl.slots[0x05] = reinterpret_cast<std::uintptr_t>(&MenuGetViewScaleMode);
+			g_liftVtbl.slots[0x06] = reinterpret_cast<std::uintptr_t>(&LiftMenuLoadMovie);
+			g_liftVtbl.slots[0x08] = reinterpret_cast<std::uintptr_t>(&LiftMenuProcessMessage);
+			g_liftInputVtbl.locator = *reinterpret_cast<const std::uintptr_t*>(Address(kVtblInput) - 8);
+			std::copy_n(input, kInputSlots, g_liftInputVtbl.slots.begin());
+			g_liftInputVtbl.slots[1] = reinterpret_cast<std::uintptr_t>(&LiftShouldHandleEvent);
+			g_liftInputVtbl.slots[8] = reinterpret_cast<std::uintptr_t>(&LiftOnButtonEvent);
+
 			g_blockedMapVtbl.locator = g_vtbl.locator;
 			std::copy_n(engine, kSlots, g_blockedMapVtbl.slots.begin());
 			g_blockedMapVtbl.slots[0x00] = reinterpret_cast<std::uintptr_t>(&BlockedMapMenuDestroy);
@@ -9672,10 +10191,155 @@ namespace
 	std::atomic<std::int64_t>  g_stateCheckDueAt{ 0 };
 	std::atomic<std::uint32_t> g_stateCheckN{ 0 };
 
-	// Step X2 & Step 1f (R13): checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) float value at +0x48
-	bool IsPipboyPickedUpMainThread(float& a_outVal)
+	bool FormHasKeywordPtr(std::uintptr_t a_form, const ObjectType& a_type, std::uintptr_t a_kwPtr)
+	{
+		if (!a_form || !a_kwPtr) {
+			return false;
+		}
+		const auto kwAt = BaseOffset(a_type, "BGSKeywordForm@@");
+		if (!kwAt || !CheckSubobject(a_form, a_type, *kwAt)) {
+			return false;
+		}
+		ArrayHead kws{};
+		if (!Peek(a_form + *kwAt + kKeywordFormArrayAt, kws) || kws.size > kws.capacity || kws.size > kKitMaxItems ||
+		    (kws.size && !kws.data)) {
+			return false;
+		}
+		for (std::uint32_t k = 0; k < kws.size; ++k) {
+			std::uintptr_t kw = 0;
+			if (Peek(kws.data + k * sizeof(std::uintptr_t), kw) && kw == a_kwPtr) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool PlayerHasKeywordItemMainThread(std::uintptr_t a_kwPtr, bool& a_outOwned, bool& a_outWorn)
+	{
+		a_outOwned = false;
+		a_outWorn = false;
+		if (!a_kwPtr || !CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			return false;
+		}
+		const auto     player = Singleton(kPlayerSingleton);
+		std::uintptr_t invList = 0;
+		ObjectType     listType;
+		ArrayHead      items{};
+		if (!Peek(player + kInventoryListAt, invList) || !IsType(invList, "BGSInventoryList@@", listType) ||
+		    !Peek(invList + kInventoryDataAt, items) || items.size > items.capacity || items.size > kKitMaxItems ||
+		    (items.size && !items.data)) {
+			return false;
+		}
+		for (std::uint32_t i = 0; i < items.size; ++i) {
+			const auto     item = items.data + i * kInventoryItemSize;
+			std::uintptr_t obj = 0;
+			ObjectType     objType;
+			if (!Peek(item, obj) || !obj || !TypeOf(obj, objType)) {
+				continue;
+			}
+			if (!FormHasKeywordPtr(obj, objType, a_kwPtr)) {
+				continue;
+			}
+			ArrayHead     stacks{};
+			std::uint64_t total = 0;
+			bool          okStacks = Peek(item + kItemStacksAt, stacks) && stacks.size <= stacks.capacity &&
+			                         stacks.size <= kKitMaxItems && (!stacks.size || stacks.data);
+			for (std::uint32_t s = 0; okStacks && s < stacks.size; ++s) {
+				std::uint32_t cnt = 0;
+				okStacks = Peek(stacks.data + s * kStackSize + kStackCountAt, cnt);
+				total += cnt;
+			}
+			if (!okStacks || total == 0) {
+				continue;
+			}
+			a_outOwned = true;
+			std::uint32_t itemFlags = 0;
+			if (Peek(item + kItemFlagsAt, itemFlags) && (itemFlags & 0x7u) != 0) {
+				a_outWorn = true;
+			}
+		}
+		return a_outOwned && a_outWorn;
+	}
+
+	bool CheckPipboyWristOwnedAndWornMainThread(bool& a_outResolved, bool& a_outOwned, bool& a_outWorn)
+	{
+		a_outResolved = false;
+		a_outOwned = false;
+		a_outWorn = false;
+		std::string detail;
+		const auto  kwFid = KitFileForm(
+			fo4sf::pipboy::kPipboyKeywordPlugin,
+			fo4sf::pipboy::kPipboyKeywordLocalId,
+			"BGSKeyword@@",
+			detail);
+		const auto kwPtr = kwFid ? FormById(kwFid) : 0;
+		ObjectType kwType;
+		if (!kwPtr || !IsType(kwPtr, "BGSKeyword@@", kwType)) {
+			return false;
+		}
+		a_outResolved = true;
+		return PlayerHasKeywordItemMainThread(kwPtr, a_outOwned, a_outWorn);
+	}
+
+	bool IsPlayerSwimmingMainThread()
+	{
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			return false;
+		}
+		const auto    player = Singleton(kPlayerSingleton);
+		std::uint32_t boolBits = 0;
+		if (!player || !Peek(player + kActorBoolBitsAt, boolBits)) {
+			return false;
+		}
+		return (boolBits & kActorSwimmingBit) != 0;
+	}
+
+	bool IsPlayerInPowerArmorMainThread()
+	{
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			return false;
+		}
+		const auto player = Singleton(kPlayerSingleton);
+		if (!player) {
+			return false;
+		}
+		std::string detail;
+		if (const auto avFid = KitFileForm("FO4SFPowerArmor.esm", kPowerArmorInPaAvId, "ActorValueInfo@@", detail)) {
+			const auto     avPtr = FormById(avFid);
+			ObjectType     avType;
+			std::uintptr_t vtable = 0;
+			if (avPtr && IsType(avPtr, "ActorValueInfo@@", avType) &&
+				g_forms.getActorValue && Peek(player + g_forms.ownerOffset, vtable) && vtable == g_forms.ownerVtable) {
+				const float val = reinterpret_cast<GetActorValue_t>(g_forms.getActorValue)(
+					reinterpret_cast<void*>(player + g_forms.ownerOffset), reinterpret_cast<const void*>(avPtr));
+				if (std::isfinite(val) && val >= 0.5f) {
+					return true;
+				}
+			}
+		}
+		for (const auto kwFid : {
+			FormById(kSfPowerArmorFrameKwId) ? kSfPowerArmorFrameKwId : 0u,
+			KitFileForm("FO4SFPowerArmor.esm", kPowerArmorKwId, "BGSKeyword@@", detail),
+		}) {
+			if (!kwFid) {
+				continue;
+			}
+			const auto kwPtr = FormById(kwFid);
+			ObjectType kwType;
+			bool       owned = false, worn = false;
+			if (kwPtr && IsType(kwPtr, "BGSKeyword@@", kwType) && PlayerHasKeywordItemMainThread(kwPtr, owned, worn) && worn) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Step X2 & Step 1f (R13) & G5(c): checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) AND owned+worn item carrying FO4SF_Kw_Pipboy (0x867)
+	bool IsPipboyPickedUpMainThread(float& a_outVal, bool* a_outOwned = nullptr, bool* a_outWorn = nullptr)
 	{
 		a_outVal = 0.0f;
+		if (a_outOwned) *a_outOwned = false;
+		if (a_outWorn) *a_outWorn = false;
 		FindGlobalValue();
 		std::string    detail;
 		std::uintptr_t form = 0;
@@ -9697,7 +10361,14 @@ namespace
 			return false;
 		}
 		a_outVal = v;
-		return v >= 0.5f;
+		bool wristResolved = false, wristOwned = false, wristWorn = false;
+		const bool wristOk = CheckPipboyWristOwnedAndWornMainThread(wristResolved, wristOwned, wristWorn);
+		if (a_outOwned) *a_outOwned = wristResolved ? wristOwned : (v >= 0.5f);
+		if (a_outWorn) *a_outWorn = wristResolved ? wristWorn : (v >= 0.5f);
+		if (v < 0.5f) {
+			return false;
+		}
+		return wristResolved ? wristOk : true;
 	}
 
 	bool CheckOpenGateAndBootMainThread(std::uint32_t a_targetPage, const char* a_by)
@@ -9706,11 +10377,14 @@ namespace
 			return true;
 		}
 		float acqVal = 0.0f;
+		bool  owned = false;
+		bool  worn = false;
 		const bool needCheck = g_requirePickup || (g_bootOnFirstOpen && !g_bootMovie.empty() && !s_bootPlayed.load());
-		const bool acquired = needCheck ? IsPipboyPickedUpMainThread(acqVal) : false;
+		const bool acquired = needCheck ? IsPipboyPickedUpMainThread(acqVal, &owned, &worn) : false;
 		if (g_requirePickup && !acquired) {
 			s_bootPlayed.store(false);
-			REX::INFO("step=pipboy_pickup_required by={} page={} value={:.1f}", a_by ? a_by : "key", a_targetPage, acqVal);
+			REX::INFO("step=pipboy_pickup_required by={} page={} value={:.1f} owned={} worn={}",
+				a_by ? a_by : "key", a_targetPage, acqVal, owned ? 1 : 0, worn ? 1 : 0);
 			return false;
 		}
 		if (g_bootOnFirstOpen && !g_bootMovie.empty() && (acquired || !g_requirePickup) &&
@@ -9722,6 +10396,80 @@ namespace
 			}
 		}
 		return true;
+	}
+
+	fo4sf::pipboy::ScreenSourceMode ResolvePipboyScreenSourceMainThread()
+	{
+		std::optional<float> globVal;
+		FindGlobalValue();
+		std::string    detail;
+		std::uintptr_t form = 0;
+		const auto     fid = KitFileForm(
+            fo4sf::pipboy::kPipboyScreenSourcePlugin,
+            fo4sf::pipboy::kPipboyScreenSourceGlobLocalId,
+            "TESGlobal@@",
+            detail);
+		if (fid) {
+			AcceptById(
+				fid,
+				std::string(fo4sf::pipboy::kPipboyScreenSourceGlobEdid).c_str(),
+				"TESGlobal@@",
+				kGlobalEditorIdAt,
+				form);
+		}
+		if (form) {
+			const std::size_t valAt = g_forms.globalValueAt ? g_forms.globalValueAt : kGlobalValueAt;
+			float             v = 0.0f;
+			if (Peek(form + valAt, v) && std::isfinite(v)) {
+				globVal = v;
+			}
+		}
+		return fo4sf::pipboy::ResolvePipboyScreenSource(g_screenSourceIni, globVal);
+	}
+
+	fo4sf::pipboy::ScreenOpenResult OpenPipboyScreen(std::uint32_t a_targetPage)
+	{
+		const std::uint32_t target = std::min<std::uint32_t>(a_targetPage, 4u);
+		s_savedPage.store(target);
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue) {
+			return fo4sf::pipboy::ScreenOpenResult{ fo4sf::pipboy::ScreenSourceMode::k2DIMenu, false, false, "no_ui_or_queue" };
+		}
+		g_lastShellTransitionMs.store(NowMs());
+		g_cancelHeld = false;   // FAL-414: a release heard while the page was closed must not keep the gate shut
+		if (g_stage == 2 && g_codeObj) {
+			CollectShellVitalsMainThread(target);
+		}
+		if (g_stage == 4) {
+			PageCollect();
+		}
+		if (g_stage == 5) {
+			KitCollect();
+		}
+		const auto effectiveMode = ResolvePipboyScreenSourceMainThread();
+		return fo4sf::pipboy::OpenPipboyScreenViaSource(
+			effectiveMode,
+			[&]() {
+				g_expectOpen = 1;
+				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
+				return true;
+			},
+			[]() { return false; });
+	}
+
+	const char* ShouldSkipWristRaiseMainThread(RE::UI* a_ui)
+	{
+		if (IsPlayerInPowerArmorMainThread()) {
+			return "power_armor";
+		}
+		if (IsPlayerSwimmingMainThread()) {
+			return "swimming";
+		}
+		if (a_ui && OpenBlockingOverlayMenu(a_ui) != nullptr) {
+			return "menu_open";
+		}
+		return nullptr;
 	}
 
 	void Toggle(std::uint32_t a_n)
@@ -9745,19 +10493,17 @@ namespace
 			REX::INFO("step=toggle n={} ignored=menu_open menu={}", a_n, topModal);
 			return;
 		}
-		g_cancelHeld = false;   // FAL-414: a release heard while the page was closed must not keep the gate shut
-		if (g_stage == 2 && g_codeObj && !open) {
-			CollectShellVitalsMainThread(s_savedPage.load());
+		if (open) {
+			g_cancelHeld = false;
+			g_expectOpen = 0;
+			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kHide);
+			REX::INFO("step=toggle n={} was_open=1 sent=hide", a_n);
+			return;
 		}
-		if (g_stage == 4 && !open) {
-			PageCollect();   // the page's text before the show
-		}
-		if (g_stage == 5 && !open) {
-			KitCollect();    // the kit's screen before the show
-		}
-		g_expectOpen = open ? 0 : 1;
-		queue->AddMessage(MenuName(), open ? RE::UI_MESSAGE_TYPE::kHide : RE::UI_MESSAGE_TYPE::kShow);
-		REX::INFO("step=toggle n={} was_open={} sent={}", a_n, open ? 1 : 0, open ? "hide" : "show");
+		const auto openRes = OpenPipboyScreen(s_savedPage.load());
+		REX::INFO("step=toggle n={} was_open=0 sent={} screen_source={} fallback={} reason={}",
+			a_n, openRes.opened ? "show" : "none",
+			fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
 	}
 
 	// stage d: the CLOSE button, heard on the menu's thread, closes the menu here, on the main thread, as F10 does
@@ -9870,13 +10616,19 @@ namespace
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui || ui->IsMenuOpen(MenuName())) {
 			const auto lower = (g_armState != 1 || !ArmLowerSet()) ? std::string("none") : g_lowerIdle ? ArmPlayIdle(g_lowerIdle) : ArmNotify(*g_lowerEvent);
+			REX::INFO("step=pipboy_raise mode={} ms={} opened=0 reason={}",
+				g_armRaiseAccepted.load() ? "idle" : "arm", SincePress(), ui ? "already_open" : "no_ui");
 			REX::INFO("step=arm_show n={} result=skipped reason={} lower={} t_ms={}", a_n, ui ? "already_open" : "no_ui", lower,
 				SincePress());
 			return;
 		}
+		const auto elapsedMs = SincePress();
 		Toggle(a_n);
+		const int openedNow = (g_expectOpen.load() == 1 || ui->IsMenuOpen(MenuName())) ? 1 : 0;
+		REX::INFO("step=pipboy_raise mode={} ms={} opened={}",
+			g_armRaiseAccepted.load() ? "idle" : "arm", elapsedMs, openedNow);
 		REX::INFO("step=arm_show n={} sent=show raise={} arm_ready={} t_ms={}", a_n,
-			g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome, g_armState == 1 ? 1 : 0, SincePress());
+			g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome, g_armState == 1 ? 1 : 0, elapsedMs);
 	}
 
 	// FAL-852, the key thread's state check after an arm open or close: due at `at` (0 = none), for press n
@@ -9939,6 +10691,16 @@ namespace
 
 		const auto n = ++g_openPressSeq;
 		if (g_arm) {
+			if (const char* skipReason = ShouldSkipWristRaiseMainThread(ui)) {
+				const auto openRes = OpenPipboyScreen(target);
+				REX::INFO("step=pipboy_raise mode=arm ms=0 opened={} skip={}", openRes.opened ? 1 : 0, skipReason);
+				REX::INFO("step=toggle n={} was_open=0 sent={} by={} screen_source={} fallback={} reason={}",
+					n, openRes.opened ? "show" : "none", a_by ? a_by : "key",
+					fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
+				g_stateCheckN.store(n);
+				g_stateCheckDueAt.store(NowMs() + 750);
+				return;
+			}
 			const auto at = NowMs();
 			const bool opening = g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0;
 			if (g_lowerRetry.state.load() != kRetryIdle) {
@@ -9964,18 +10726,12 @@ namespace
 			return;
 		}
 
-		g_lastShellTransitionMs.store(NowMs());
 		if (a_by && std::string_view(a_by) == "tab_key" && g_suppressDataMenu) {
 			// Ensure Toggle() does not bail on a DataMenu frame whose kHide is still in flight
-			if (g_stage == 2 && g_codeObj) {
-				CollectShellVitalsMainThread(target);
-			}
-			g_cancelHeld = false;
-			g_expectOpen = 1;
-			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
-				REX::INFO("step=toggle n={} was_open=0 sent=show by=tab_key", n);
-			}
+			const auto openRes = OpenPipboyScreen(target);
+			REX::INFO("step=toggle n={} was_open=0 sent={} by=tab_key screen_source={} fallback={} reason={}",
+				n, openRes.opened ? "show" : "none",
+				fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
 		} else {
 			Toggle(n);
 		}
@@ -10106,6 +10862,16 @@ namespace
 						}
 					}
 					if (g_armPendingOpenN.load() != n) {
+						return;
+					}
+					if (const char* skipReason = ShouldSkipWristRaiseMainThread(ui)) {
+						g_armPendingOpenN = 0;
+						g_armPressAt = 0;
+						g_armWaitingRaiseGraph = false;
+						g_armRaiseAccepted = false;
+						Toggle(n);
+						const int openedNow = (g_expectOpen.load() == 1 || ui->IsMenuOpen(MenuName())) ? 1 : 0;
+						REX::INFO("step=pipboy_raise mode=arm ms=0 opened={} skip={}", openedNow, skipReason);
 						return;
 					}
 					g_armPressAt = at;
@@ -10417,6 +11183,12 @@ namespace
 				ui->IsMenuRegistered(SetupMenuName()) ? "ok" : "failed",
 				fo4sf::kOurSetupMenuName, g_setupShowUnavailable ? 1 : 0);
 		}
+		if (g_stage >= 2 && !ui->IsMenuRegistered(LiftMenuName())) {
+			ui->RegisterMenu(fo4sf::kOurLiftMenuName, &CreateLiftMenu);
+			REX::INFO("step=lift_register result={} name={} movie=FO4SF_LiftScreen",
+				ui->IsMenuRegistered(LiftMenuName()) ? "ok" : "failed",
+				fo4sf::kOurLiftMenuName);
+		}
 		World::Start(g_task);
 		PipboyMap::SetHostCallbacks(&RequestPipboyOpen, &Close, &GfxWatchdogEnter, &GfxWatchdogExit, &CreateBlockedMapMenuInstance);
 		PipboyMap::Start(g_task);
@@ -10587,11 +11359,16 @@ namespace
 		}
 	}
 
+	void ProbeQuestLabelRuntime();
+
 	void OnMessage(SFSE::MessagingInterface::Message* a_msg)
 	{
 		if (a_msg && a_msg->type == SFSE::MessagingInterface::kPostDataLoad) {
 			REX::INFO("step=post_data_load");
 			g_task->AddTask([]() { Register(); });   // the first main-thread task after game data loaded
+			if (g_stage == 2 && g_codeObj) {
+				g_task->AddTask([]() { ProbeQuestLabelRuntime(); });
+			}
 		}
 	}
 
@@ -11024,6 +11801,119 @@ namespace
 			REX::INFO("step=hud_watch_hide_init ok=1 source=optional_resolve movie_root_rtti={}", Hex(g_rva[kMovieRootRtti]));
 		}
 	}
+
+	std::string WideToSafeAscii(const wchar_t* a_ws)
+	{
+		if (!a_ws) {
+			return {};
+		}
+		std::string out;
+		for (const wchar_t* p = a_ws; *p; ++p) {
+			const auto wc = static_cast<unsigned int>(*p);
+			out.push_back((wc >= 0x20 && wc < 0x7F) ? static_cast<char>(wc) : '?');
+		}
+		return out;
+	}
+
+	void TryInitQuestLabelRuntimeIds(const std::filesystem::path& a_file)
+	{
+		g_questLabelRuntimeIdsOk.store(false);
+		std::ifstream in(a_file, std::ios::binary);
+		if (!in) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=addrlib_unreadable");
+			return;
+		}
+		std::array<std::uint8_t, kHeaderBytes> head{};
+		in.read(reinterpret_cast<char*>(head.data()), head.size());
+		if (!in) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=addrlib_header");
+			return;
+		}
+		const auto u32 = [&](std::size_t a_at) {
+			std::uint32_t v;
+			std::memcpy(&v, head.data() + a_at, sizeof v);
+			return v;
+		};
+		const auto         format = u32(0);
+		const REL::Version version{ static_cast<std::uint16_t>(u32(4)), static_cast<std::uint16_t>(u32(8)),
+			static_cast<std::uint16_t>(u32(12)), static_cast<std::uint16_t>(u32(16)) };
+		const auto         pointerSize = u32(84);
+		const auto         count = u32(92);
+		if (format != 5 || version != kRuntime || pointerSize != 8) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=addrlib_version");
+			return;
+		}
+		auto readChecked = [&](std::uint64_t a_id, std::uint32_t& a_outRva) -> bool {
+			if (a_id >= count) {
+				return false;
+			}
+			std::uint32_t offset = 0;
+			in.seekg(static_cast<std::streamoff>(kHeaderBytes + 4ull * a_id));
+			in.read(reinterpret_cast<char*>(&offset), sizeof offset);
+			if (!in || !offset || offset >= g_imageSize || REL::ID(a_id).offset() != offset) {
+				return false;
+			}
+			a_outRva = offset;
+			return true;
+		};
+		std::uint32_t singletonRva = 0;
+		std::uint32_t translateRva = 0;
+		std::uint32_t rttiRva = 0;
+		if (!readChecked(RE::ID::BSScaleformManager::Singleton.id(), singletonRva) ||
+		    !readChecked(RE::ID::BSScaleformManager::Translate.id(), translateRva) ||
+		    !readChecked(RE::RTTI::BSScaleformManager.id(), rttiRva)) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=id_lookup_failed");
+			return;
+		}
+		if (!NameIs(TypeNameAt(g_base + rttiRva), "BSScaleformManager@@")) {
+			REX::INFO("step=hud_quest_label_ids ok=0 reason=rtti_mismatch");
+			return;
+		}
+		g_scaleformSingletonRva = singletonRva;
+		g_scaleformTranslateRva = translateRva;
+		g_scaleformRttiRva = rttiRva;
+		g_questLabelRuntimeIdsOk.store(true);
+		REX::INFO("step=hud_quest_label_ids ok=1 singleton={} translate={} rtti={}",
+			Hex(singletonRva), Hex(translateRva), Hex(rttiRva));
+	}
+
+	void ProbeQuestLabelRuntime()
+	{
+		if (g_stage != 2 || !g_codeObj) {
+			return;
+		}
+		if (!g_questLabelRuntimeIdsOk.load()) {
+			REX::INFO("step=hud_quest_label_runtime file={} file_ok={} runtime_ok=0 reason=scaleform_ids_unavailable",
+				g_translateStatus.filePresent ? "present" : "absent",
+				g_translateStatus.fileOk ? 1 : 0);
+			return;
+		}
+		const auto* singletonPtr = reinterpret_cast<RE::BSScaleformManager* const*>(g_base + g_scaleformSingletonRva);
+		auto*       mgr = singletonPtr ? *singletonPtr : nullptr;
+		if (!mgr) {
+			REX::INFO("step=hud_quest_label_runtime file={} file_ok={} runtime_ok=0 reason=manager_null",
+				g_translateStatus.filePresent ? "present" : "absent",
+				g_translateStatus.fileOk ? 1 : 0);
+			return;
+		}
+		using TranslateFn_t = RE::BSFixedStringW* (*)(RE::BSScaleformManager*, RE::BSFixedStringW*, const wchar_t*);
+		const auto translateFn = reinterpret_cast<TranslateFn_t>(g_base + g_scaleformTranslateRva);
+		RE::BSFixedStringW statusRes;
+		RE::BSFixedStringW newRes;
+		translateFn(mgr, std::addressof(statusRes), L"$MISSION STATUS");
+		translateFn(mgr, std::addressof(newRes), L"$MissionNew");
+		const std::string statusAscii = WideToSafeAscii(statusRes.c_str());
+		const std::string newAscii = WideToSafeAscii(newRes.c_str());
+		const bool        runtimeOk = !g_questLabelCfg.Active() ||
+		                       (statusAscii.find(g_questLabelCfg.questHudLabel) != std::string::npos &&
+		                        newAscii.find(g_questLabelCfg.questHudLabel) != std::string::npos);
+		REX::INFO("step=hud_quest_label_runtime file={} file_ok={} mission_status={} mission_new={} runtime_ok={}",
+			g_translateStatus.filePresent ? "present" : "absent",
+			g_translateStatus.fileOk ? 1 : 0,
+			statusAscii.empty() ? "-" : statusAscii,
+			newAscii.empty() ? "-" : newAscii,
+			runtimeOk ? 1 : 0);
+	}
 }
 
 SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
@@ -11065,6 +11955,14 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	g_tabOpensPipboy = ReadNumber(ini, L"TabOpensPipboy", 0) != 0;
 	g_hideStarfieldWatch = ReadNumber(ini, L"HideStarfieldWatch", 0) != 0;
 	g_requirePickup = ReadNumber(ini, L"RequirePickup", 0) != 0;
+	const auto screenSourceRaw = ReadText(ini, L"ScreenSource");
+	const auto screenSourceOpt = fo4sf::pipboy::ParseScreenSourceIni(screenSourceRaw);
+	if (!screenSourceOpt.has_value()) {
+		Refuse("ini", std::format("ScreenSource={} (expected 2d_imenu or 3d_rtt)", screenSourceRaw));
+		return true;
+	}
+	g_screenSourceIni = *screenSourceOpt;
+	g_questLabelCfg = fo4sf::hud::LoadQuestLabelConfig(ini);
 	g_bootMovie = ReadText(ini, L"BootMovie");
 	g_bootOnFirstOpen = ReadNumber(ini, L"BootOnFirstOpen", 0) != 0;
 	g_specialMenu = ReadNumber(ini, L"SpecialMenu", 0) != 0;
@@ -11208,6 +12106,10 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 				g_shellBackdrop ? 1 : 0, g_shellVitalsFill ? 1 : 0, g_suppressDataMenu ? 1 : 0, g_tabOpensPipboy ? 1 : 0,
 				g_hideStarfieldWatch ? 1 : 0);
 		}
+		REX::INFO("step=pipboy_screen_source mode={}", fo4sf::pipboy::ScreenSourceModeName(g_screenSourceIni));
+		const auto dataDir = !g_gameDir.empty() ? (g_gameDir / "Data") : dir.parent_path().parent_path();
+		g_translateStatus = fo4sf::hud::VerifyTranslateEnFile(dataDir, g_questLabelCfg);
+		REX::INFO("{}", fo4sf::hud::FormatStartupLog(g_questLabelCfg, g_translateStatus));
 	}
 	if (g_codeObjSound) {
 		g_soundDir = dir / kSoundFolder;
@@ -11269,6 +12171,9 @@ SFSE_PLUGIN_LOAD(const SFSE::LoadInterface* a_sfse)
 	}
 	if (g_hideStarfieldWatch) {
 		TryInitHudWatchIds(dir / "versionlib-1-16-244-0.bin");
+	}
+	if (g_stage == 2 && g_codeObj) {
+		TryInitQuestLabelRuntimeIds(dir / "versionlib-1-16-244-0.bin");
 	}
 	if (g_stage == 2 && (g_codeObj || g_specialMenu) && !CheckShellIds(dir / "versionlib-1-16-244-0.bin")) {
 		return true;

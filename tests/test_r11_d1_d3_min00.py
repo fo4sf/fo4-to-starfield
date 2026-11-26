@@ -55,7 +55,43 @@ def _extract_block(src, name):
 
 
 def _translate_psc(src, names, global_vars=()):
-    out = ["from types import SimpleNamespace"]
+    out = [
+        "from types import SimpleNamespace",
+        "MuteDuplicateObjectiveToasts = globals().setdefault('MuteDuplicateObjectiveToasts', True)",
+        "LandingHandoff = globals().setdefault('LandingHandoff', 'two_quests')",
+        "obj10DisplayedOnce = globals().setdefault('obj10DisplayedOnce', False)",
+        "obj85DisplayedOnce = globals().setdefault('obj85DisplayedOnce', False)",
+        "obj86DisplayedOnce = globals().setdefault('obj86DisplayedOnce', False)",
+        "objective10DisplayedOnce = globals().setdefault('objective10DisplayedOnce', False)",
+        "class _QuestToastSelfShim:",
+        "    def __getattr__(self, name):",
+        "        if name in globals(): return globals()[name]",
+        "        raise AttributeError(name)",
+        "Self = globals().setdefault('Self', _QuestToastSelfShim())",
+        "if 'FO4SF_QuestToastUtil' not in globals():",
+        "    class FO4SF_QuestToastUtil:",
+        "        @staticmethod",
+        "        def ShowObjectiveOnce(q, obj, mute=True, alreadyDisplayed=False, atTop=False):",
+        "            if q is None: return False",
+        "            has_is = hasattr(q, 'IsObjectiveDisplayed')",
+        "            if mute and alreadyDisplayed: return q.IsObjectiveDisplayed(obj) if has_is else True",
+        "            disp = q.IsObjectiveDisplayed(obj) if has_is else False",
+        "            if mute:",
+        "                if not disp:",
+        "                    q.SetObjectiveDisplayed(obj, True, False)",
+        "                    q.SetActive(True)",
+        "                    disp = q.IsObjectiveDisplayed(obj) if has_is else True",
+        "                else:",
+        "                    q.SetActive(True)",
+        "                return disp",
+        "            q.SetObjectiveDisplayed(obj, True, True)",
+        "            q.SetActive(True)",
+        "            return q.IsObjectiveDisplayed(obj) if has_is else True",
+    ]
+    all_globals = list(global_vars or ())
+    for _latch in ("obj10DisplayedOnce", "obj85DisplayedOnce", "obj86DisplayedOnce", "objective10DisplayedOnce"):
+        if _latch not in all_globals:
+            all_globals.append(_latch)
     for full_name in names:
         params_raw, body = _extract_block(src, full_name)
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
@@ -65,8 +101,8 @@ def _translate_psc(src, names, global_vars=()):
             toks = p.split("=")[0].split()
             params.append(toks[-1])
         out.append(f"def {py_name}({', '.join(params)}):")
-        if global_vars:
-            out.append("    global " + ", ".join(global_vars))
+        if all_globals:
+            out.append("    global " + ", ".join(all_globals))
         depth = 1
         for raw_line in body.splitlines():
             line = re.sub(r'("(?:[^"\\]|\\.)*")|;.*', lambda m: m.group(1) or "", raw_line).strip()
@@ -173,8 +209,6 @@ class R11W1Tests(unittest.TestCase):
         ns = {
             "_PStr": _PStr,
             "Trace": logs.append,
-            "CodsworthScene": scene,
-            "CodsworthPostScene": None,
             "S3Stage50Scene": None,
             "SceneOpenCheckSeconds": 1.5,
             "sceneTalkPending": True,
@@ -211,15 +245,15 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(sum(1 for ln in logs if "dialogue_camera stopped" in ln), 0)
 
     def test_d3_raider_ammo_deterministic_60_and_balanced_eon_sidearm(self):
-        """D3 + R13 E3 + fix4: LL_Ammo_Shotshell spawn rolls normalize to exact 60 with softened 0x97B Coachman
-        (6.0 dmg, NonPlayable, ObjectTemplates+AttachParentSlots intact), then EquipBalancedRaiderSidearm equips
+        """D3 + R13 E3 + fix4 + Task 0d: LL_Ammo_Shotshell spawn rolls normalize to exact 60 with softened 0x97B Coachman
+        (4.0 dmg, NonPlayable, ObjectTemplates+AttachParentSlots intact), then EquipBalancedRaiderSidearm equips
         WEAP 0x097A (1.5-dmg FO4SF_ConcordRaiderSidearm, ObjectTemplates+AttachParentSlots intact, AmmoList=null),
         strips 0x97B + AmmoShotshell, clamps Ammo777mm=36, and preserves raider FO4 0x0988 outfits (no UnequipAll)."""
         cs = MISSION_CS.read_text(encoding="utf-8")
         m_psc = MIN00_PSC.read_text(encoding="utf-8")
         self.assertIn("SfRaiderSidearmId = 0x0476C4", cs)
         self.assertIn("ConcordRaiderPrimaryWeapId = 0x97B", cs)
-        self.assertIn("ConcordRaiderPrimaryDamage = 6.0f", cs)
+        self.assertIn("ConcordRaiderPrimaryDamage = 4.0f", cs)
         self.assertIn("ConcordRaiderSidearmWeapId = 0x97A", cs)
         self.assertIn("ConcordRaiderSidearmDamage = 1.5f", cs)
         self.assertIn("concordPrimary.AmmoList.SetToNull();", cs)
@@ -283,7 +317,7 @@ class R11W1Tests(unittest.TestCase):
             "RaiderWeapon": "Coachman097B",
             "RaiderAmmo": "AmmoShotshell",
             "RaiderSidearm": "Eon097A",
-            "RaiderPrimaryRecordDamage": 6.0,
+            "RaiderPrimaryRecordDamage": 4.0,
             "RaiderSidearmRecordDamage": 1.5,
             "AttackDamageMult": None,
             "RaiderSidearmAmmo": "Ammo777mm",
@@ -301,19 +335,19 @@ class R11W1Tests(unittest.TestCase):
             self.assertEqual(r.unequipped_all, 0)
             self.assertTrue(r.outfit_worn)
             self.assertEqual(r.inv["AmmoShotshell"], 60, f"raider {idx} shell count != 60 after ArmRaiderForCombat")
-            self.assertIn("eff_dmg=6.0", logs[-1])
+            self.assertIn("eff_dmg=4.0", logs[-1])
             ns["EquipBalancedRaiderSidearm"](r, idx)
             self.assertEqual(r.inv["Coachman097B"], 0, f"raider {idx} Coachman must be removed to prevent AI re-equip")
             self.assertEqual(r.inv["AmmoShotshell"], 0, f"raider {idx} AmmoShotshell must be removed after sidearm swap")
             self.assertEqual(r.inv["Ammo777mm"], 36, f"raider {idx} 7.77mm count != 36")
             self.assertEqual(r.unequipped, ["SpacerGun", "Coachman097B"])
-            self.assertEqual(r.equipped[-1], ("Eon097A", True))
+            self.assertEqual(r.equipped[-1], ("Eon097A", False))
             self.assertFalse(r.restrained)
             self.assertEqual(r.avs["Aggression"], 2.0)
             self.assertEqual(r.avs["Confidence"], 4.0)
             self.assertTrue(ns["raiderArmed"][idx])
             self.assertIn(f"arm raider {idx} ammo=60", logs[-2])
-            self.assertIn("eff_dmg=6.0", logs[-2])
+            self.assertIn("eff_dmg=4.0", logs[-2])
             self.assertIn(f"arm raider {idx} sidearm=eon sidearm_ammo=36", logs[-1])
             self.assertIn("eff_dmg=1.5", logs[-1])
 
@@ -327,7 +361,7 @@ class R11W1Tests(unittest.TestCase):
         self.assertEqual(fallback_r.inv["Coachman097B"], 1)
         self.assertEqual(fallback_r.inv["AmmoShotshell"], 60)
         self.assertEqual(fallback_r.equipped[-1], ("Coachman097B", False))
-        self.assertIn("eff_dmg=9.0", logs[-1])
+        self.assertIn("eff_dmg=6.0", logs[-1])
 
     def test_d5_preston_and_codsworth_choice_infos_carry_enam_zero_and_inam_low(self):
         """D5 Part 3: BuildTopScene sets explicit ENAM (Flags=0, ResetHours=0, DoNotGrayOut clear) and
@@ -385,8 +419,15 @@ class R11W1Tests(unittest.TestCase):
                 IgnoreFriendlyHits=lambda *_: None,
                 AllowPCDialogue=lambda *_: None,
                 BlockActivation=lambda *_: None,
+                GetPositionX=lambda: -2011.14,
+                GetPositionY=lambda: -1697.54,
+                SetAngle=lambda *_: None,
             )
-            player = SimpleNamespace(AddItem=mock.MagicMock())
+            player = SimpleNamespace(
+                AddItem=mock.MagicMock(),
+                GetPositionX=lambda: -2013.06,
+                GetPositionY=lambda: -1695.94,
+            )
             sanctuary_q = SimpleNamespace(IsRunning=lambda: False, StartNoWait=mock.MagicMock(return_value=True))
             glob_obj = SimpleNamespace(GetValue=lambda: float(glob_val))
             alias_ref = SimpleNamespace(actor=None)
@@ -410,6 +451,7 @@ class R11W1Tests(unittest.TestCase):
                 "_PStr": _PStr,
                 "KeeperOnly": False,
                 "Trace": logs.append,
+                "Math": SimpleNamespace(Sqrt=math.sqrt, atan=lambda v: math.degrees(math.atan(v))),
                 "Preston": preston,
                 "SturgesRef": None,
                 "EnableS6ToS9Full": False,
@@ -424,8 +466,6 @@ class R11W1Tests(unittest.TestCase):
                 "LookupOptionalForm": lambda *_: None,
                 "Credits": "StarfieldCredits",
                 "RewardCount": 100,
-                "PrestonTalkScene": scene,
-                "PrestonPostTalkScene": post_scene,
                 "PrestonTalkMsg": msg,
                 "PrestonReply0Msg": msg,
                 "PrestonReply1Msg": msg,
@@ -496,7 +536,7 @@ class R11W1Tests(unittest.TestCase):
             }
             fns = (
                 "IsWarfareMode", "ShouldUseMessageBox", "EffectiveStage", "EnsurePrestonAlias",
-                "EnsureActorTalkable", "ResolvePrestonScene", "ResolvePrestonSceneLogged",
+                "EnsureActorTalkable", "FaceActorToward", "ResolvePrestonScene", "ResolvePrestonSceneLogged",
                 "ResolvePrestonPostScene", "ResolveActivePrestonScene", "EnsureKeeperPrestonAlias",
                 "RegisterPrestonSceneEvents", "AdvanceTo", "OnStageSet", "Apply", "FoundPreston",
                 "ResolvePrestonMsg", "RunPrestonTalk", "FallbackPrestonToMessageBox",

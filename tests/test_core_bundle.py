@@ -23,6 +23,11 @@ for _p in (
         sys.path.insert(0, _p)
 
 import make_core_bundle as mcb  # noqa: E402
+from fo4sf.beginning_pilot import (  # noqa: E402
+    B5_REQUIRED_ACTOR_NIFS,
+    CODSWORTH_VOICE_DIR_REL,
+    MIN_CODSWORTH_WEMS,
+)
 from fo4sf.core import bundle_log  # noqa: E402
 from fo4sf.core.start_worlds import START_WORLD_TABLE, get_start_world  # noqa: E402
 from fo4sf.planet.esm import ESM, PluginWriter, Record, zbytes  # noqa: E402
@@ -30,6 +35,35 @@ from fo4sf.planet.esm import ESM, PluginWriter, Record, zbytes  # noqa: E402
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _make_mission_esm(
+    path: Path,
+    masters: tuple[str, ...] = ("Starfield.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"),
+    omitted_nifs: tuple[str, ...] = (),
+) -> str:
+    """Write a minimal valid FO4SFMission.esm with ARMA MOD2 records for B5 actor NIFs."""
+    w = PluginWriter(masters, flags=ESM, author="fo4-to-starfield Mission")
+    omit_low = {o.casefold() for o in omitted_nifs}
+    for idx, (_label, rel) in enumerate(B5_REQUIRED_ACTOR_NIFS):
+        if rel.casefold() in omit_low:
+            continue
+        mod_rel = rel[len("meshes/"):] if rel.startswith("meshes/") else rel
+        w.add(
+            Record(
+                b"ARMA",
+                w.own(0x000812 + idx),
+                [(b"EDID", zbytes(f"FO4_AA_B5_{idx}")), (b"MOD2", zbytes(mod_rel.replace("/", "\\")))],
+                0,
+                0,
+                581,
+                0,
+            )
+        )
+    blob = w.to_bytes(compress=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(blob)
+    return _sha256_bytes(blob)
 
 
 def _make_tes4_esm(path: Path, masters: tuple[str, ...] = ("Starfield.esm",), extra_tag: bytes = b"") -> str:
@@ -182,25 +216,48 @@ class CoreBundleTests(unittest.TestCase):
         add_stage("01-cog-door", "FO4SFVaultGearDoor.esm", masters=("Starfield.esm", "FO4Port.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/door_anim.nif": b"DOOR_NIF"})
-        add_stage("02-exit-lift", "FO4SFExitLift.esm", masters=("Starfield.esm", "FO4Port.esm"),
+        add_stage("02-exit-lift", "FO4SFExitLift.esm", masters=("Starfield.esm", "FO4Port.esm", "FO4TerrainCore.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/lift_anim.nif": b"LIFT_NIF"})
+        mission_extra = {
+            "Data/Scripts/FO4SF_COMPreston.pex": b"PEX:FO4SF_COMPreston",
+            "Data/Scripts/FO4SF_Codsworth01Quest.pex": b"PEX:FO4SF_Codsworth01Quest",
+            "Data/Scripts/FO4SF_Sanctuary01Quest.pex": b"PEX:FO4SF_Sanctuary01Quest",
+            "Data/materials/fo4port/_neutral.mat": shared_mat,
+            "Data/materials/fo4port/texsets/actors/handy/handyarmor_d_8e98a175.mat": b"PATCHED_BRUSHED_STEEL_MAT",
+        }
+        for _lbl, nif_rel in B5_REQUIRED_ACTOR_NIFS:
+            mission_extra[f"Data/{nif_rel}"] = f"NIF:{nif_rel}".encode("ascii")
+        for w_idx in range(1, MIN_CODSWORTH_WEMS + 1):
+            mission_extra[f"Data/{CODSWORTH_VOICE_DIR_REL}/00f4c{w_idx:03x}.wem"] = f"WEM:{w_idx}".encode("ascii")
+
+        ms_st = stages_root / "02b-mission"
+        ms_st.mkdir(parents=True, exist_ok=True)
+        ms_esm_sha = _make_mission_esm(ms_st / "FO4SFMission.esm")
+        ms_outputs = {"FO4SFMission.esm": ms_esm_sha}
+        ms_pex_bytes = b"PEX:FO4SF_Min00Quest"
+        (ms_st / "Data" / "Scripts").mkdir(parents=True, exist_ok=True)
+        (ms_st / "Data" / "Scripts" / "FO4SF_Min00Quest.pex").write_bytes(ms_pex_bytes)
+        ms_outputs["Data/Scripts/FO4SF_Min00Quest.pex"] = _sha256_bytes(ms_pex_bytes)
+        for rel, raw in mission_extra.items():
+            fp = ms_st / Path(*rel.split("/"))
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_bytes(raw)
+            ms_outputs[rel] = _sha256_bytes(raw)
+        (ms_st / "plan.json").write_text(
+            json.dumps({"plugin": "FO4SFMission.esm", "plugins": ["FO4SFMission.esm"], "outputs": ms_outputs}, indent=1),
+            encoding="utf-8",
+        )
         add_stage(
-            "02b-mission",
-            "FO4SFMission.esm",
-            pex_name="FO4SF_Min00Quest",
-            masters=("Starfield.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"),
+            "03-newgame",
+            "FO4SFNewGame.esm",
+            pex_name="FO4SF_NewGameQuest",
+            masters=("Starfield.esm", "FO4SFCoreValues.esm"),
             extra_files={
-                "Data/Scripts/FO4SF_COMPreston.pex": b"PEX:FO4SF_COMPreston",
-                "Data/Scripts/FO4SF_Codsworth01Quest.pex": b"PEX:FO4SF_Codsworth01Quest",
-                "Data/Scripts/FO4SF_Sanctuary01Quest.pex": b"PEX:FO4SF_Sanctuary01Quest",
-                "Data/materials/fo4port/_neutral.mat": shared_mat,
-                "Data/materials/fo4port/texsets/actors/handy/handyarmor_d_8e98a175.mat": b"PATCHED_BRUSHED_STEEL_MAT",
-                "Data/sound/voice/fo4sfmission.esm/fo4sf_codsworthvoice/00f4c001.wem": b"CODSWORTH_VOICE_WEM",
+                "Data/Scripts/FO4SF_NewGameLooks.pex": b"PEX:FO4SF_NewGameLooks",
+                "Data/Scripts/FO4SF_NewGameSpecial.pex": b"PEX:FO4SF_NewGameSpecial",
             },
         )
-        add_stage("03-newgame", "FO4SFNewGame.esm", pex_name="FO4SF_NewGameQuest",
-                  masters=("Starfield.esm", "FO4SFCoreValues.esm"))
         add_stage("04-rads", "FO4SFRads.esm", pex_name="FO4SF_RadsCoreQuest",
                   masters=("Starfield.esm", "FO4SFCoreValues.esm"))
         add_stage("05-hardcore", "FO4SFHardcore.esm", pex_name="FO4SF_HardcoreQuest",
@@ -733,6 +790,7 @@ class CoreBundleTests(unittest.TestCase):
                         "profile": prof,
                         "commonlibsf": None,
                         "msvc_env": None,
+                        "allow_starfield_standins": True,
                     })()
                     with self.assertRaises(StopIteration):
                         mcb.stage_from_checkout(ns)
@@ -1229,6 +1287,653 @@ class CoreBundleTests(unittest.TestCase):
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, msg=r.stderr + "\n" + r.stdout)
             self.assertIn("selftest: ok", r.stdout)
+
+
+    def test_t0b_make_map_markers_stage_packs_archive_and_respects_no_archive(self) -> None:
+        import subprocess
+        import unittest.mock
+        import make_core_bundle  # type: ignore
+
+        mm_dir = Path(make_core_bundle.REPO) / "scripts" / "mapmarkers"
+        if str(mm_dir) not in sys.path:
+            sys.path.insert(0, str(mm_dir))
+        import make_map_markers  # type: ignore
+        try:
+            from tests.ba2_fixture import general_archive
+        except ModuleNotFoundError:
+            from ba2_fixture import general_archive
+
+        pex_bytes = _build_minimal_pex(
+            "FO4SF_MapMarkers",
+            ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker", "SuppressArrivalDarkHold"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core_esm = root / "FO4TerrainCore.esm"
+            _make_tes4_esm(core_esm)
+
+            fake_sf = root / "FakeStarfield"
+            archive2_exe = fake_sf / "Tools" / "Archive2" / "Archive2.exe"
+            archive2_exe.parent.mkdir(parents=True, exist_ok=True)
+            archive2_exe.write_bytes(b"fake-archive2")
+            (fake_sf / "Data").mkdir(parents=True, exist_ok=True)
+
+            import zipfile
+
+            fake_compiler = root / "PapyrusCompiler.exe"
+            fake_compiler.write_bytes(b"fake-compiler")
+            cr_zip = root / "ContentResources.zip"
+            with zipfile.ZipFile(cr_zip, "w") as zf:
+                for rel in (
+                    "Scripts/Source/Actor.psc",
+                    "Scripts/Source/Cell.psc",
+                    "Scripts/Source/Debug.psc",
+                    "Scripts/Source/Form.psc",
+                    "Scripts/Source/Game.psc",
+                    "Scripts/Source/GlobalVariable.psc",
+                    "Scripts/Source/Location.psc",
+                    "Scripts/Source/ObjectReference.psc",
+                    "Scripts/Source/Quest.psc",
+                    "Scripts/Source/ScriptObject.psc",
+                    "Scripts/Source/Starfield_Papyrus_Flags.flg",
+                    "Scripts/Source/Utility.psc",
+                    "Scripts/Source/WorldSpace.psc",
+                ):
+                    zf.writestr(rel, f"; stub {rel}\n")
+
+            def _fake_build_ba2(_ns, data_root, ba2_out):
+                pex_in = Path(data_root) / "Scripts" / "FO4SF_MapMarkers.pex"
+                Path(ba2_out).write_bytes(general_archive({"Scripts/FO4SF_MapMarkers.pex": pex_in.read_bytes()}))
+                return ba2_out
+
+            def _fake_subprocess_run(cmd, *args, **kwargs):
+                cmd_s = [str(x) for x in cmd]
+                if Path(cmd_s[0]).name.lower().startswith("dotnet"):
+                    if "--out" in cmd_s:
+                        mm_out = Path(cmd_s[cmd_s.index("--out") + 1])
+                        mm_out.mkdir(parents=True, exist_ok=True)
+                        _make_tes4_esm(mm_out / "FO4SFMapMarkers.esm", masters=("Starfield.esm", "FO4TerrainCore.esm"))
+                        core_sha_val = make_core_bundle.sha256_file(str(core_esm))
+                        (mm_out / "core.json").write_text(
+                            json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": core_sha_val}}) + "\n",
+                            encoding="utf-8",
+                        )
+                        return unittest.mock.Mock(returncode=0, stdout="built FO4SFMapMarkers.esm\n", stderr="")
+                    return unittest.mock.Mock(returncode=0, stdout="check ok\n", stderr="")
+                for i, s_tok in enumerate(cmd_s):
+                    if s_tok.startswith(("-o=", "-output=")):
+                        out_dir = Path(s_tok.split("=", 1)[1])
+                        break
+                    if s_tok in ("-o", "-output") and i + 1 < len(cmd_s):
+                        out_dir = Path(cmd_s[i + 1])
+                        break
+                else:
+                    raise AssertionError(f"unexpected subprocess cmd: {cmd}")
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "FO4SF_MapMarkers.pex").write_bytes(pex_bytes)
+                return unittest.mock.Mock(returncode=0, stdout="Compilation succeeded.\n", stderr="")
+
+            with unittest.mock.patch.object(subprocess, "run", side_effect=_fake_subprocess_run), \
+                 unittest.mock.patch.object(make_core_bundle.exp_install, "build_ba2", side_effect=_fake_build_ba2):
+                out_with_ba2 = root / "mm-stage-with-ba2"
+                make_map_markers.main([
+                    "stage",
+                    "--core", str(core_esm),
+                    "--out", str(out_with_ba2),
+                    "--compiler", str(fake_compiler),
+                    "--content-resources", str(cr_zip),
+                    "--starfield", str(fake_sf),
+                    "--no-reload",
+                ])
+                self.assertTrue((out_with_ba2 / "FO4SFMapMarkers.esm").is_file())
+                self.assertTrue((out_with_ba2 / "FO4SFMapMarkers - Main.ba2").is_file())
+                self.assertTrue((out_with_ba2 / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").is_file())
+                self.assertTrue((out_with_ba2 / "core.json").is_file())
+
+                out_no_ba2 = root / "mm-stage-no-ba2"
+                make_map_markers.main([
+                    "stage",
+                    "--core", str(core_esm),
+                    "--out", str(out_no_ba2),
+                    "--compiler", str(fake_compiler),
+                    "--content-resources", str(cr_zip),
+                    "--starfield", str(fake_sf),
+                    "--no-archive",
+                    "--no-reload",
+                ])
+                self.assertTrue((out_no_ba2 / "FO4SFMapMarkers.esm").is_file())
+                self.assertFalse((out_no_ba2 / "FO4SFMapMarkers - Main.ba2").exists())
+
+    def test_t0b_fold_and_verify_stages_map_markers_keeps_plugins_and_checks_compatibility(self) -> None:
+        import subprocess
+        import make_core_bundle  # type: ignore
+        try:
+            from tests.ba2_fixture import general_archive
+        except ModuleNotFoundError:
+            from ba2_fixture import general_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            owner, stages_root, *_rest = self._build_synthetic_owner_and_stages(root)
+            core_sha = make_core_bundle.sha256_file(str(owner / "FO4TerrainCore.esm"))
+            fresh_clean = root / "fresh-clean-core"
+
+            # Baseline fold without map_markers (--no-map-markers) to assert plugins list is unchanged.
+            out_base = root / "bundle-no-mm"
+            self.assertEqual(
+                make_core_bundle.main([
+                    "fold",
+                    "--owner-set", str(owner),
+                    "--stages-root", str(stages_root),
+                    "--out", str(out_base),
+                    "--clean-core-out", str(fresh_clean),
+                    "--profile", "player",
+                    "--no-map-markers",
+                ]),
+                0,
+            )
+            base_plan = json.loads((out_base / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertNotIn("map_markers", base_plan["components"])
+            missing_mm_probs, _ = make_core_bundle.verify_bundle(str(out_base), require_map_markers=True)
+            self.assertTrue(any("missing map-markers/" in p for p in missing_mm_probs), missing_mm_probs)
+
+            # Build valid 18-map-markers inside stages_root matching owner FO4TerrainCore.esm.
+            mm_stage = stages_root / "18-map-markers"
+            (mm_stage / "Data" / "Scripts").mkdir(parents=True, exist_ok=True)
+            _make_tes4_esm(mm_stage / "FO4SFMapMarkers.esm", masters=("Starfield.esm", "FO4TerrainCore.esm"))
+            mm_pex = _build_minimal_pex(
+                "FO4SF_MapMarkers",
+                ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker", "DiscoverSingleMarkerSilent", "SuppressArrivalDarkHold"),
+            )
+            (mm_stage / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(mm_pex)
+            (mm_stage / "FO4SFMapMarkers - Main.ba2").write_bytes(
+                general_archive({"Scripts/FO4SF_MapMarkers.pex": mm_pex})
+            )
+            (mm_stage / "core.json").write_text(
+                json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": core_sha}}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (mm_stage / "offline_check.txt").write_text("ok\n", encoding="utf-8")
+            (mm_stage / "README.txt").write_text("readme\n", encoding="utf-8")
+
+            out_with_mm = root / "bundle-with-mm"
+            fresh_clean2 = root / "fresh-clean-core-2"
+            self.assertEqual(
+                make_core_bundle.main([
+                    "fold",
+                    "--owner-set", str(owner),
+                    "--stages-root", str(stages_root),
+                    "--out", str(out_with_mm),
+                    "--clean-core-out", str(fresh_clean2),
+                    "--profile", "player",
+                ]),
+                0,
+            )
+            mm_plan = json.loads((out_with_mm / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(mm_plan["plugins"], base_plan["plugins"])
+            self.assertNotIn("FO4SFMapMarkers.esm", mm_plan["plugins"])
+            self.assertEqual(mm_plan["components"]["map_markers"]["folder"], "map-markers")
+            self.assertEqual(mm_plan["components"]["map_markers"]["plugins"], [])
+            self.assertIn("map-markers", mm_plan["map_markers_install_command"])
+            self.assertTrue((out_with_mm / "map-markers" / "FO4SFMapMarkers.esm").is_file())
+            self.assertTrue((out_with_mm / "map-markers" / "FO4SFMapMarkers - Main.ba2").is_file())
+
+            readme_lines = (out_with_mm / "README.txt").read_text(encoding="utf-8").splitlines()
+            exp_install_lines = [ln for ln in readme_lines if "exp_install.py install" in ln]
+            self.assertEqual(len(exp_install_lines), 1, readme_lines)
+            self.assertTrue(any("map_markers_install.py install" in ln for ln in readme_lines), readme_lines)
+
+            ok_probs, _ = make_core_bundle.verify_bundle(str(out_with_mm), require_map_markers=True)
+            self.assertEqual(ok_probs, [])
+
+            # CLI verify --require-map-markers passes.
+            cli_ok = subprocess.run(
+                [sys.executable, str(Path(make_core_bundle.REPO) / "scripts" / "core" / "make_core_bundle.py"),
+                 "verify", "--bundle-dir", str(out_with_mm), "--require-map-markers"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(cli_ok.returncode, 0, cli_ok.stdout + cli_ok.stderr)
+
+            # Outdated map-markers PEX lacking PrepareKnownUndiscoveredAll fails verify_bundle.
+            old_pex = _build_minimal_pex("FO4SF_MapMarkers", ("DiscoverSingleMarker",))
+            (out_with_mm / "map-markers" / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(old_pex)
+            (out_with_mm / "map-markers" / "FO4SFMapMarkers - Main.ba2").write_bytes(
+                general_archive({"Scripts/FO4SF_MapMarkers.pex": old_pex})
+            )
+            bad_probs, _ = make_core_bundle.verify_bundle(str(out_with_mm), require_map_markers=True)
+            self.assertTrue(
+                any("PrepareKnownUndiscoveredAll" in p for p in bad_probs),
+                bad_probs,
+            )
+
+            # _fold_map_markers_stage refuses stale core.json pin in 18-map-markers.
+            (mm_stage / "core.json").write_text(
+                json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": "f" * 64}}) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(make_core_bundle.BundleRefused) as ctx:
+                make_core_bundle._fold_map_markers_stage(str(mm_stage), str(out_base))
+            self.assertIn("core.json pins", str(ctx.exception))
+
+    def test_t0b_resolve_map_markers_options_matches_core_sha_and_rejects_mismatch(self) -> None:
+        import argparse
+        import make_core_bundle  # type: ignore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            owner = root / "staging" / "owner"
+            sibling_cs = root / "staging" / "terrain_core64v6i_l125"
+            cw_json = root / "scratch" / "mapmarkers" / "cw_markers.json"
+            owner.mkdir(parents=True)
+            sibling_cs.mkdir(parents=True)
+            cw_json.parent.mkdir(parents=True)
+
+            core_esm = owner / "FO4TerrainCore.esm"
+            _make_tes4_esm(core_esm)
+            core_sha = make_core_bundle.sha256_file(str(core_esm))
+
+            (sibling_cs / "FO4TerrainCore.esm").write_bytes(core_esm.read_bytes())
+            (sibling_cs / "Data" / "terrain").mkdir(parents=True)
+            (sibling_cs / "Data" / "terrain" / "fo4core.btd").write_bytes(b"btd")
+            (sibling_cs / "overlays_params.json").write_text(
+                json.dumps({
+                    "overlays": [{
+                        "btd_file": "Data/terrain/fo4core.btd",
+                        "bounds_min_m": -2000.0,
+                        "bounds_max_m": 4000.0,
+                        "map_markers": [],
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            cw_json.write_text('{"markers": []}\n', encoding="utf-8")
+
+            ns = argparse.Namespace(
+                owner_set=str(owner),
+                map_markers_core_stage=None,
+                fo4_map_markers=None,
+                map_markers_landing=None,
+            )
+            cs, mm_json, landing = make_core_bundle._resolve_map_markers_options(ns, str(core_esm), core_sha)
+            self.assertEqual(Path(cs), sibling_cs)
+            self.assertEqual(Path(mm_json), cw_json)
+            self.assertEqual(landing, (-1959.0, -493.0))
+
+            # Explicit mismatching core stage refuses clearly.
+            (sibling_cs / "FO4TerrainCore.esm").write_bytes(b"different-core")
+            ns_bad = argparse.Namespace(
+                owner_set=str(owner),
+                map_markers_core_stage=str(sibling_cs),
+                fo4_map_markers=None,
+                map_markers_landing=None,
+            )
+            with self.assertRaises(make_core_bundle.BundleRefused):
+                make_core_bundle._resolve_map_markers_options(ns_bad, str(core_esm), core_sha)
+
+    def test_g2_b5_missing_nifs_and_mat_textures_refuse_verify_and_fold(self) -> None:
+        from unittest import mock
+        try:
+            from tests.ba2_fixture import general_archive
+        except ModuleNotFoundError:
+            from ba2_fixture import general_archive
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+
+            # 1. Baseline player fold succeeds when all 4 canonical B5 NIFs are in FO4SFMission.esm + Data/
+            out_ok = root / "bundle-b5-ok"
+            rc_ok = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(out_ok), "--port", str(port_esm), "--profile", "player",
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_ok, 0)
+
+            # verify_bundle directly invokes verify_bundle_beginning_readiness for player + mission
+            with mock.patch.object(mcb, "verify_bundle_beginning_readiness", wraps=mcb.verify_bundle_beginning_readiness) as spy:
+                probs_ok, _ = mcb.verify_bundle(str(out_ok), port_esm=str(port_esm))
+                self.assertEqual(probs_ok, [])
+                self.assertEqual(spy.call_count, 1)
+
+            # 2. Removing each canonical B5 NIF from Data/ or omitting it from FO4SFMission.esm refuses fold before os.replace
+            ms_dir = stages_root / "02b-mission"
+            orig_plan_txt = (ms_dir / "plan.json").read_text(encoding="utf-8")
+            orig_esm_bytes = (ms_dir / "FO4SFMission.esm").read_bytes()
+
+            for _label, nif_rel in B5_REQUIRED_ACTOR_NIFS:
+                # 2a. Missing file on disk in mission stage
+                plan_obj = json.loads(orig_plan_txt)
+                data_rel = f"Data/{nif_rel}"
+                saved_nif = (ms_dir / Path(*data_rel.split("/"))).read_bytes()
+                (ms_dir / Path(*data_rel.split("/"))).unlink()
+                plan_obj["outputs"].pop(data_rel, None)
+                (ms_dir / "plan.json").write_text(json.dumps(plan_obj, indent=1), encoding="utf-8")
+
+                out_miss = root / f"bundle-miss-{Path(nif_rel).stem}"
+                rc_miss = mcb.main([
+                    "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                    "--out", str(out_miss), "--port", str(port_esm), "--profile", "player",
+                ], system=_FakeSystemClosed())
+                self.assertEqual(rc_miss, 2, nif_rel)
+                self.assertFalse(out_miss.exists(), f"fold must refuse before os.replace for missing {nif_rel}")
+
+                # Restore file & plan
+                (ms_dir / Path(*data_rel.split("/"))).write_bytes(saved_nif)
+                (ms_dir / "plan.json").write_text(orig_plan_txt, encoding="utf-8")
+
+                # 2b. Present on disk, omitted from FO4SFMission.esm ARMA records
+                new_sha = _make_mission_esm(ms_dir / "FO4SFMission.esm", omitted_nifs=(nif_rel,))
+                plan_esm = json.loads(orig_plan_txt)
+                plan_esm["outputs"]["FO4SFMission.esm"] = new_sha
+                (ms_dir / "plan.json").write_text(json.dumps(plan_esm, indent=1), encoding="utf-8")
+
+                out_noref = root / f"bundle-noref-{Path(nif_rel).stem}"
+                rc_noref = mcb.main([
+                    "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                    "--out", str(out_noref), "--port", str(port_esm), "--profile", "player",
+                ], system=_FakeSystemClosed())
+                self.assertEqual(rc_noref, 2, nif_rel)
+                self.assertFalse(out_noref.exists())
+
+                (ms_dir / "FO4SFMission.esm").write_bytes(orig_esm_bytes)
+                (ms_dir / "plan.json").write_text(orig_plan_txt, encoding="utf-8")
+
+            # 3. Staged JSON .mat texture check catches missing _neutral_color.dds and accepts Data/ or FO4Port*.ba2
+            mat_p = out_ok / "Data" / "materials" / "fo4port" / "_neutral.mat"
+            mat_p.write_text(
+                json.dumps({"Objects": [], "Summary": {"Layer1": {"Textures": {"Albedo": {"File": "Data\\textures\\fo4port\\_neutral_color.dds"}}}}}),
+                encoding="utf-8",
+            )
+            bplan = json.loads((out_ok / "bundle_plan.json").read_text(encoding="utf-8"))
+            bplan["components"]["cog_door"]["outputs"]["Data/materials/fo4port/_neutral.mat"] = _sha256_bytes(mat_p.read_bytes())
+            bplan["components"]["exit_lift"]["outputs"]["Data/materials/fo4port/_neutral.mat"] = _sha256_bytes(mat_p.read_bytes())
+            bplan["components"]["mission"]["outputs"]["Data/materials/fo4port/_neutral.mat"] = _sha256_bytes(mat_p.read_bytes())
+            (out_ok / "bundle_plan.json").write_text(json.dumps(bplan, indent=1), encoding="utf-8")
+
+            probs_tex_miss, _ = mcb.verify_bundle(str(out_ok), port_esm=str(port_esm))
+            self.assertTrue(any("_neutral_color.dds" in p for p in probs_tex_miss), probs_tex_miss)
+
+            # Satisfied via FO4Port - Textures.ba2 beside port_esm
+            port_ba2 = Path(port_esm).parent / "FO4Port - Textures.ba2"
+            port_ba2.write_bytes(general_archive({"textures/fo4port/_neutral_color.dds": b"DDS "}))
+            probs_tex_ba2, _ = mcb.verify_bundle(str(out_ok), port_esm=str(port_esm))
+            self.assertEqual(probs_tex_ba2, [])
+
+    def test_g2_player_build_refuses_without_look_assets_and_forwards_look_flags(self) -> None:
+        from types import SimpleNamespace
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+            port_ids = root / "ids.json"
+            port_ids.write_text("{}", encoding="utf-8")
+            cw_assets = root / "codsworth_assets"
+            looks_assets = root / "actor_looks"
+            (cw_assets / "meshes").mkdir(parents=True)
+            (cw_assets / "meshes" / "a.nif").write_bytes(b"nif")
+            (looks_assets / "meshes").mkdir(parents=True)
+            (looks_assets / "meshes" / "b.nif").write_bytes(b"nif")
+
+            base_kw = dict(
+                work=str(root / "work-refuse"),
+                out=str(root / "out-refuse"),
+                render_python=None,
+                starfield_dir=str(root / "sf"),
+                fo4_data=str(root / "fo4"),
+                port=str(port_esm),
+                port_ids=str(port_ids),
+                door_anim_dll=str(root / "calumi.dll"),
+                collision_template=str(root / "col.nif"),
+                texconv=str(root / "texconv.exe"),
+                owner_set=str(owner),
+                profile="player",
+                commonlibsf=None,
+                msvc_env=None,
+                no_walk_harness=True,
+            )
+
+            # 1. Missing look assets on player build without --allow-starfield-standins must refuse
+            with self.assertRaises(mcb.BundleRefused) as ctx:
+                mcb.stage_from_checkout(SimpleNamespace(**base_kw))
+            self.assertIn("--allow-starfield-standins", str(ctx.exception))
+
+            # 2. Missing only one of the two look asset dirs still refuses
+            with self.assertRaises(mcb.BundleRefused):
+                mcb.stage_from_checkout(SimpleNamespace(**base_kw, codsworth_assets=str(cw_assets)))
+
+            # 3. Passing --codsworth-assets, --actor-looks-assets, --codsworth-race-framing forwards all 3 to make_mission.py
+            mission_calls: list[list[str]] = []
+            orig_run_py = mcb._run_py
+
+            def _spy_run(py_exe, script_rel, args):
+                arg_l = list(args)
+                out_flag = "--out" if "--out" in arg_l else "--staging"
+                out_d = Path(arg_l[arg_l.index(out_flag) + 1])
+                out_d.mkdir(parents=True, exist_ok=True)
+                if script_rel == "scripts/mission/make_mission.py":
+                    mission_calls.append(arg_l)
+                    (out_d / "plan.json").write_text(json.dumps({"plugin": "FO4SFMission.esm", "outputs": {}}), encoding="utf-8")
+                elif script_rel == "scripts/newgame/make_newgame.py":
+                    (out_d / "plan.json").write_text(
+                        json.dumps({
+                            "options": {"hold": ",".join(f"Q{i}" for i in range(199)), "fade_hold": False},
+                            "points": {"pod": {"step_m": -2.5}},
+                        }),
+                        encoding="utf-8",
+                    )
+
+            mcb._run_py = _spy_run
+            try:
+                wk_fwd = root / "work-fwd"
+                stages = mcb.stage_from_checkout(
+                    SimpleNamespace(
+                        **{**base_kw, "work": str(wk_fwd), "out": str(root / "out-fwd")},
+                        codsworth_assets=str(cw_assets),
+                        actor_looks_assets=str(looks_assets),
+                        codsworth_race_framing=True,
+                    )
+                )
+                self.assertEqual(len(mission_calls), 1)
+                ms_cmd = mission_calls[0]
+                self.assertIn("--codsworth-assets", ms_cmd)
+                self.assertEqual(ms_cmd[ms_cmd.index("--codsworth-assets") + 1], str(cw_assets.resolve()))
+                self.assertIn("--actor-looks-assets", ms_cmd)
+                self.assertEqual(ms_cmd[ms_cmd.index("--actor-looks-assets") + 1], str(looks_assets.resolve()))
+                self.assertIn("--codsworth-race-framing", ms_cmd)
+
+                # Verify provenance fields in every staged plan.json
+                for st_name in ("00-core-values-player", "01-cog-door", "02a-surface-lift-cog", "02-exit-lift", "02b-mission", "03a-pipboy-wrist", "03-newgame"):
+                    pjson = json.loads((wk_fwd / st_name / "plan.json").read_text(encoding="utf-8"))
+                    for req_k in ("build_head", "dirty", "args", "asset_dirs", "codsworth_race_framing", "FO4SF_C5_ACTOR_LOOKS_DIR"):
+                        self.assertIn(req_k, pjson, f"{st_name}/plan.json missing {req_k}")
+                    self.assertTrue(pjson["codsworth_race_framing"])
+                    self.assertIn("codsworth_assets", pjson["asset_dirs"])
+                    self.assertTrue(pjson["asset_dirs"]["codsworth_assets"]["sha256"])
+
+                # 4. --allow-starfield-standins permits player build without look assets and records flag in bundle_plan.json
+                wk_standin = root / "work-standin"
+                mcb.stage_from_checkout(
+                    SimpleNamespace(
+                        **{**base_kw, "work": str(wk_standin), "out": str(root / "out-standin")},
+                        allow_starfield_standins=True,
+                    )
+                )
+                ms_standin_plan = json.loads((wk_standin / "02b-mission" / "plan.json").read_text(encoding="utf-8"))
+                self.assertTrue(ms_standin_plan["allow_starfield_standins"])
+            finally:
+                mcb._run_py = orig_run_py
+
+            # Fold with --allow-starfield-standins records allow_starfield_standins=True and allows missing B5 NIFs
+            ms_dir = stages_root / "02b-mission"
+            (ms_dir / "Data" / "meshes" / "fo4port" / "actors" / "codsworth" / "codsworth.nif").unlink()
+            plan_obj = json.loads((ms_dir / "plan.json").read_text(encoding="utf-8"))
+            plan_obj["outputs"].pop("Data/meshes/fo4port/actors/codsworth/codsworth.nif", None)
+            (ms_dir / "plan.json").write_text(json.dumps(plan_obj, indent=1), encoding="utf-8")
+            out_si = root / "bundle-standin"
+            rc_si = mcb.main([
+                "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
+                "--out", str(out_si), "--port", str(port_esm), "--profile", "player",
+                "--allow-starfield-standins",
+            ], system=_FakeSystemClosed())
+            self.assertEqual(rc_si, 0)
+            si_bplan = json.loads((out_si / "bundle_plan.json").read_text(encoding="utf-8"))
+            self.assertTrue(si_bplan["allow_starfield_standins"])
+            self.assertIn("dirty", si_bplan)
+            self.assertIn("args", si_bplan)
+            self.assertIn("asset_dirs", si_bplan)
+
+    def test_g2_stage_reuse_refused_on_differing_args_across_stage_sites(self) -> None:
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner, stages_root, port_esm, _ = self._build_synthetic_owner_and_stages(root)
+            port_ids = root / "ids.json"
+            port_ids.write_text("{}", encoding="utf-8")
+            cw_assets = root / "cw"
+            looks_assets = root / "looks"
+            cw_assets.mkdir()
+            looks_assets.mkdir()
+            pb_src = root / "pb-src"
+            (pb_src / "Data" / "Interface").mkdir(parents=True)
+            (pb_src / "Data" / "Scripts").mkdir(parents=True)
+            (pb_src / "SFSE" / "Plugins").mkdir(parents=True)
+            p1_sha = _make_tes4_esm(pb_src / "FO4SFPipboyProbe.esm", extra_tag=b"pbp")
+            (pb_src / "SFSE" / "Plugins" / "FO4SFPipboyMenu.dll").write_bytes(b"DLL")
+            (pb_src / "plan.json").write_text(json.dumps({"plugins": ["FO4SFPipboyProbe.esm"], "outputs": {"FO4SFPipboyProbe.esm": p1_sha}}), encoding="utf-8")
+
+            orig_run_py = mcb._run_py
+            orig_refresh = mcb.refresh_pipboy_stage_for_bundle
+
+            def _spy_run(py_exe, script_rel, args):
+                arg_l = list(args)
+                out_flag = "--out" if "--out" in arg_l else "--staging"
+                out_d = Path(arg_l[arg_l.index(out_flag) + 1])
+                out_d.mkdir(parents=True, exist_ok=True)
+                if script_rel == "scripts/newgame/make_newgame.py":
+                    (out_d / "plan.json").write_text(
+                        json.dumps({
+                            "options": {"hold": ",".join(f"Q{i}" for i in range(199)), "fade_hold": False},
+                            "points": {"pod": {"step_m": -2.5}},
+                        }),
+                        encoding="utf-8",
+                    )
+
+            def _spy_refresh(src_st, out_st, fo4_d, *, setup_show_unavailable=0, require_pickup=1, sf_data_dir=None):
+                Path(out_st).mkdir(parents=True, exist_ok=True)
+
+            mcb._run_py = _spy_run
+            mcb.refresh_pipboy_stage_for_bundle = _spy_refresh
+            try:
+                work_dir = root / "work-reuse"
+                kw = dict(
+                    work=str(work_dir),
+                    out=str(root / "out-reuse"),
+                    render_python=None,
+                    starfield_dir=str(root / "sf"),
+                    fo4_data=str(root / "fo4"),
+                    port=str(port_esm),
+                    port_ids=str(port_ids),
+                    door_anim_dll=str(root / "calumi.dll"),
+                    collision_template=str(root / "col.nif"),
+                    texconv=str(root / "texconv.exe"),
+                    owner_set=str(owner),
+                    profile="player",
+                    commonlibsf=None,
+                    msvc_env=None,
+                    no_walk_harness=True,
+                    codsworth_assets=str(cw_assets),
+                    actor_looks_assets=str(looks_assets),
+                    with_pipboy=True,
+                    pipboy_stage=str(pb_src),
+                    show_unavailable_starts=0,
+                )
+                mcb.stage_from_checkout(SimpleNamespace(**kw))
+
+                # Identical args reuse existing stages cleanly
+                mcb.stage_from_checkout(SimpleNamespace(**kw))
+
+                # 1. Differing args at :1272 (02b-mission) via --codsworth-race-framing refuses reuse
+                with self.assertRaises(mcb.BundleRefused) as ctx_ms:
+                    mcb.stage_from_checkout(SimpleNamespace(**{**kw, "codsworth_race_framing": True}))
+                self.assertIn("02b-mission", str(ctx_ms.exception))
+
+                # 2. Differing args at :1309 (03-newgame) and :1458 (16-pipboy-refreshed) via --show-unavailable-starts refuses reuse
+                with self.assertRaises(mcb.BundleRefused) as ctx_ng:
+                    mcb.stage_from_checkout(SimpleNamespace(**{**kw, "show_unavailable_starts": 1}))
+                self.assertIn("03-newgame", str(ctx_ng.exception))
+
+                # Tamper only 03-newgame/plan.json back and verify 16-pipboy-refreshed also refuses differing args
+                pb_plan_p = work_dir / "16-pipboy-refreshed" / "plan.json"
+                pb_plan_orig = pb_plan_p.read_text(encoding="utf-8")
+                pb_plan_mod = json.loads(pb_plan_orig)
+                pb_plan_mod["args"]["setup_show_unavailable"] = 1
+                pb_plan_p.write_text(json.dumps(pb_plan_mod, indent=1), encoding="utf-8")
+                with self.assertRaises(mcb.BundleRefused) as ctx_pb:
+                    mcb.stage_from_checkout(SimpleNamespace(**kw))
+                self.assertIn("16-pipboy-refreshed", str(ctx_pb.exception))
+                pb_plan_p.write_text(pb_plan_orig, encoding="utf-8")
+
+                # 3. Tampered args on 02a-surface-lift-cog (:1232), 02-exit-lift (:1246), 03a-pipboy-wrist (:1294) each refuse reuse
+                for folder in ("02a-surface-lift-cog", "02-exit-lift", "03a-pipboy-wrist"):
+                    p_path = work_dir / folder / "plan.json"
+                    orig_txt = p_path.read_text(encoding="utf-8")
+                    mod = json.loads(orig_txt)
+                    mod["args"]["--tampered"] = "1"
+                    p_path.write_text(json.dumps(mod, indent=1), encoding="utf-8")
+                    with self.assertRaises(mcb.BundleRefused) as ctx_site:
+                        mcb.stage_from_checkout(SimpleNamespace(**kw))
+                    self.assertIn(folder, str(ctx_site.exception))
+                    p_path.write_text(orig_txt, encoding="utf-8")
+
+                # 4. Legacy plan.json without recorded "args" also refuses reuse
+                legacy_p = work_dir / "02b-mission" / "plan.json"
+                legacy_obj = json.loads(legacy_p.read_text(encoding="utf-8"))
+                legacy_obj.pop("args", None)
+                legacy_p.write_text(json.dumps(legacy_obj, indent=1), encoding="utf-8")
+                with self.assertRaises(mcb.BundleRefused) as ctx_leg:
+                    mcb.stage_from_checkout(SimpleNamespace(**kw))
+                self.assertIn("02b-mission", str(ctx_leg.exception))
+            finally:
+                mcb._run_py = orig_run_py
+                mcb.refresh_pipboy_stage_for_bundle = orig_refresh
+
+
+def _build_minimal_pex(script_name: str, functions: tuple[str, ...]) -> bytes:
+    """Build a minimal valid little-endian Starfield v3.12 PEX binary with `functions` in default state."""
+    import struct
+    strings = ["", "None", "ScriptObject", script_name]
+    smap = {s: i for i, s in enumerate(strings)}
+
+    def sidx(text: str) -> int:
+        if text not in smap:
+            smap[text] = len(strings)
+            strings.append(text)
+        return smap[text]
+
+    fn_blobs = bytearray()
+    for fn_name in functions:
+        fn_blobs += struct.pack("<H", sidx(fn_name))
+        fn_blobs += struct.pack("<HHIBHHH", sidx("None"), sidx(""), 0, 0, 0, 0, 0)
+
+    obj_body = bytearray()
+    obj_body += struct.pack("<HHBIH", sidx("ScriptObject"), sidx(""), 0, 0, sidx(""))
+    obj_body += struct.pack("<HHHHH", 0, 0, 0, 0, 1)
+    obj_body += struct.pack("<HH", sidx(""), len(functions)) + fn_blobs
+    obj_bytes = struct.pack("<HI", sidx(script_name), len(obj_body) + 4) + bytes(obj_body)
+
+    buf = bytearray(struct.pack("<IBBHQ", 0xFA57C0DE, 3, 12, 4, 0))
+    buf += b"\x00\x00" * 3
+    buf += struct.pack("<H", len(strings))
+    for s in strings:
+        raw = s.encode("utf-8")
+        buf += struct.pack("<H", len(raw)) + raw
+    buf += b"\x00"
+    buf += struct.pack("<HH", 0, 1)
+    buf += obj_bytes
+    return bytes(buf)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,6 @@ Scriptname FO4SF_Codsworth01Quest extends Quest
    stage 100 = choice 4 (head to Concord -> completes FO4SF_Codsworth01 and gives FO4SF_Min00 stage 10).}
 
 Actor Property Codsworth Auto Const
-Scene Property CodsworthScene Auto Const
-Scene Property CodsworthPostScene Auto Const
 Activator Property CodsworthTalkActi Auto Const
 Message Property CodsworthTalkMsg Auto Const
 Message Property CodsworthReply0Msg Auto Const
@@ -36,6 +34,8 @@ float Property S3House2Y = -1424.97 Auto Const
 float Property S3House2Z = 111.77 Auto Const
 int Property S3House1RequiredKills = 3 Auto Const
 int Property S3House2RequiredKills = 3 Auto Const
+bool Property MuteDuplicateObjectiveToasts = True Auto Const
+string Property LandingHandoff = "single_quest" Auto Const
 
 string LogName = "fo4sf_mission"
 float CodsworthLocalX = -1146.709
@@ -106,6 +106,8 @@ bool s3Stage50Phase1 = False
 float s3Stage50Phase1At = 0.0
 float s3Stage50AttemptStartedAt = 0.0
 int s3Stage50CheckTicks = 0
+bool objective10DisplayedOnce = False
+bool objective10SkipLogged = False
 
 int Function EffectiveStage()
     int st = GetStage()
@@ -116,16 +118,28 @@ int Function EffectiveStage()
 EndFunction
 
 Function ShowCodsworthObjective()
-    if completed || concordCleared
+    if completed || concordCleared || LandingHandoff == "single_quest"
+        return
+    endif
+    if MuteDuplicateObjectiveToasts && objective10DisplayedOnce
+        if !objective10SkipLogged
+            objective10SkipLogged = True
+            Trace("codsworth01 objective10_toast skipped=true reason=already_displayed muted_duplicates=" + MuteDuplicateObjectiveToasts)
+        endif
         return
     endif
     if !IsRunning()
         Start()
     endif
     EnsureCodsworthAlias(ResolveCodsworth())
-    SetObjectiveDisplayed(10, True, True)
-    SetActive(True)
-    SetObjectiveDisplayedAtTop(10)
+    bool shown = FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 10, MuteDuplicateObjectiveToasts, objective10DisplayedOnce, True)
+    if shown
+        objective10DisplayedOnce = True
+        objective10SkipLogged = False
+        Trace("codsworth01 objective10_toast shown=true muted_duplicates=" + MuteDuplicateObjectiveToasts + " force=" + (!MuteDuplicateObjectiveToasts))
+    else
+        Trace("codsworth01 objective10_toast deferred=true reason=not_displayed muted_duplicates=" + MuteDuplicateObjectiveToasts)
+    endif
 EndFunction
 
 Actor Function ResolveCodsworth()
@@ -166,16 +180,10 @@ Message Function ResolveTalkMsg(int slot)
 EndFunction
 
 Scene Function ResolveCodsworthScene()
-    if CodsworthScene != None
-        return CodsworthScene
-    endif
     return Game.GetFormFromFile(0x000940, "FO4SFMission.esm") as Scene
 EndFunction
 
 Scene Function ResolveCodsworthPostScene()
-    if CodsworthPostScene != None
-        return CodsworthPostScene
-    endif
     return Game.GetFormFromFile(0x0009C0, "FO4SFMission.esm") as Scene
 EndFunction
 
@@ -326,9 +334,8 @@ Function EnsureTalkProxy(Actor player)
                 proxyLogged = True
                 if !completed && !concordCleared
                     EnsureCodsworthAlias(cods)
-                    SetObjectiveDisplayed(10, True, True)
-                    SetActive(True)
                 endif
+                Trace("codsworth talk proxy model=none visible=false")
                 Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
             endif
         endif
@@ -395,7 +402,9 @@ Function StartQuestInstance()
     RegisterCodsworthSceneEvents()
     BindCodsworthActivation()
     AdvanceTo(10, "Trigger")
-    ShowCodsworthObjective()
+    if LandingHandoff != "single_quest"
+        ShowCodsworthObjective()
+    endif
     Trace("codsworth01 init stage=10")
     StartTimer(1.0, 1)
 EndFunction
@@ -614,6 +623,9 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
         else
             EnsureCodsworthAlias(cods)
         endif
+        if cods != None
+            Game.StartDialogueCameraOrCenterOnTarget(cods)
+        endif
         if scn.IsPlaying()
             ownSceneStopPending = True
             scn.Stop()
@@ -671,7 +683,12 @@ Event Scene.OnBegin(Scene akSender)
     bool isPost = postScn != None && akSender == postScn
     if isPrimary || isPost
         dialogueSeen = True
-        EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), ResolveCodsworth())
+        Actor cods = ResolveCodsworth()
+        EnsureSafeCodsworthCameraDistance(Game.GetPlayer(), cods)
+        if cods != None
+            Game.StartDialogueCameraOrCenterOnTarget(cods)
+            Trace("codsworth talk camera target=" + cods)
+        endif
         if !ShouldUseMessageBox() && !sceneTalkPending && !sceneMenuOpened && !dialogueMenuOpen && !talkBoxOpen && (isPost || !completed)
             ownSceneStopPending = False
             sceneTalkPending = True
@@ -909,6 +926,10 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         EnsureCodsworthAlias(cods)
     endif
     EnsureSafeCodsworthCameraDistance(player, cods)
+    if cods != None
+        Game.StartDialogueCameraOrCenterOnTarget(cods)
+        Trace("codsworth talk camera target=" + cods)
+    endif
     dialogueSeen = True
     ownSceneStopPending = False
     sceneTalkPending = True
@@ -1060,7 +1081,7 @@ Event OnTimer(int aiTimerID)
         if applied > 0 && GetStage() < applied
             SetStage(applied)
         endif
-        if applied >= 10 && !concordCleared && !IsObjectiveDisplayed(10)
+        if LandingHandoff != "single_quest" && applied >= 10 && !concordCleared && (!MuteDuplicateObjectiveToasts || !objective10DisplayedOnce) && !IsObjectiveDisplayed(10)
             ShowCodsworthObjective()
         endif
     endif

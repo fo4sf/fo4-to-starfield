@@ -18,15 +18,24 @@ import make_cog_door as mcd
 
 
 GLOBALS = ('ridingLift, ridingCell, rideStartedAt, riderX, riderY, riderZ, '
-           'rideActive, rideDone, rideTransferred, exitFailures, exitUsedFallback, '
-           'surfaceMovedAt, surfaceMoves, surfaceSets, asked')
+           'rideActive, rideDone, rideTransferred, rideFadeStarted, exitFailures, exitUsedFallback, '
+           'surfaceMovedAt, surfaceMoves, surfaceSets, asked, liftSpecConfirmed')
 
 
 class Lift(Reference):
+    def __init__(self, world, pos, form_id=0x030A775B):
+        super().__init__(world, pos, form_id=form_id)
+        self.plays = []
+        self.resets = 0
+        self.accepted = True
+
     def GetBaseObject(self): return self.base
     def PlayAnimation(self, name):
         self.plays.append(name)
         return self.accepted
+
+    def Reset(self, target=None):
+        self.resets += 1
 
 
 class DoorRef(Reference):
@@ -63,8 +72,8 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             self.need_attr_modals += 1
             return 0
         self.ns = dict(
-            asked=False, liftSpecConfirmed=False, exitFailures=0, TestModeGlobal=None,
-            rideActive=False, rideTransferred=False,
+            asked=False, liftSpecConfirmed=False, exitFailures=0, TestModeGlobal=None, StartCardOpenGlobal=None,
+            liftPairActive=False, liftPairTransferred=False, liftPairTransferPending=False, liftPairFadeStarted=False,
             CogDoorId=0x126D, VaultPlugin='FO4Port.esm',
             ConsoleX=-53.7, ConsoleY=-3.7, ConsoleZ=0.53, ConsoleRadius=2.5,
             PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
@@ -80,10 +89,11 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
             OpenLiftAttributeAllocation=lambda: setattr(self, 'spec_calls', self.spec_calls + 1),
             RunSharedMapSetup=lambda: 4,
             AdvanceTo=self.stages.append,
-            StartAscent=self.ascents.append,
+            StartPairedLiftRide=lambda p, desc=False: (self.ascents.append((p, desc)), True)[1],
             FallbackExitToSurface=lambda p: None,
             Surface=self.surfaces.append,
         )
+        self.ns['ShowPausedExitLiftMenu'] = lambda *_: -1
         exec(compile(translated_functions(read(PSC), ('InVault', 'PromptVaultExitLift', 'Near'), 'asked, liftSpecConfirmed, exitFailures'), PSC, 'exec'), self.ns)
 
     def test_platform_marker_and_radius_constants(self):
@@ -123,13 +133,13 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
         self.button = 2
         self.ns['InVault'](self.player, 30)
         self.assertEqual(self.ascents, [])
-        # Once liftSpecConfirmed is True, button 0 (Continue) starts ascent once!
+        # Once liftSpecConfirmed is True, button 0 (Continue) starts ascent via StartPairedLiftRide(player, False) once!
         self.ns['asked'] = False
         self.ns['liftSpecConfirmed'] = True
         self.button = 0
         self.ns['InVault'](self.player, 30)
         self.ns['InVault'](self.player, 30)
-        self.assertEqual(self.ascents, [self.player])
+        self.assertEqual(self.ascents, [(self.player, False)])
 
     def test_test_mode_global_enables_legacy_console_stand_and_continue_shortcut(self):
         self.ns['TestModeGlobal'] = SimpleNamespace(GetValue=lambda: 1.0)
@@ -138,7 +148,7 @@ class InVaultPromptAndDoorTests(unittest.TestCase):
         self.assertEqual(self.stages, [30])
         self.player.pos = (-77.742, -3.958, -1.751)
         self.ns['InVault'](self.player, 30)
-        self.assertEqual(self.ascents, [self.player])
+        self.assertEqual(self.ascents, [(self.player, False)])
 
 
 class AscentExecutionTests(unittest.TestCase):
@@ -153,23 +163,32 @@ class AscentExecutionTests(unittest.TestCase):
         self.base = object()
         self.lift.base, self.lift.plays, self.lift.accepted = self.base, [], True
         self.lift.cell = self.cell
-        self.failures, self.transfers, self.registrations, self.unregistrations = [], [], [], []
+        self.failures, self.transfers, self.registrations, self.unregistrations, self.traces = [], [], [], [], []
         self.map_setup_calls = 0
         def run_map_setup():
             self.map_setup_calls += 1
             return 4
-        self.ns = dict(ridingLift=None, ridingCell=None, rideStartedAt=0.0, riderX=0.0, riderY=0.0, riderZ=0.0,
-                       rideActive=False, rideDone=False, rideTransferred=False, exitFailures=0, exitUsedFallback=False,
-                       surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, asked=False,
+        self.ns = dict(liftPairActiveRef=None, liftPairStartCell=None, liftPairStartWorld=None, liftPairStartedAt=0.0,
+                       liftPairStartX=0.0, liftPairStartY=0.0, liftPairStartZ=0.0,
+                       liftPairActive=False, liftPairDescending=False, liftPairDone=False,
+                       liftPairTransferred=False, liftPairTransferPending=False, liftPairFadeStarted=False,
+                       liftPairTransferRetries=0, exitFailures=0, exitUsedFallback=False,
+                       surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, asked=False, returnAsked=False, returnVaultAsked=False, liftSpecConfirmed=False,
+                       ActiveLiftPairId='fo4.vault111_exit', LiftPairIds=['fo4.vault111_exit'],
                        VaultAnchorId=0x805, AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
                        PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
-                       LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftDoneMargin=0.25, VaultPlugin='FO4Port.esm',
+                       LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftFadeLead=1.1, LiftDoneMargin=0.25,
+                       LiftPlayEvent='Play01', LiftResetEvent='Play02', VaultPlugin='FO4Port.esm',
                        Game=SimpleNamespace(
                            GetFormFromFile=lambda i, _: self.lift if i == 0x1618 else (self.vault_anchor if i == 0x805 else self.base),
                            GetPlayer=lambda: self.player,
+                           FadeOutGame=lambda *a: None,
                        ),
-                       Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
+                       Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now, Wait=lambda *_: None),
                        GetStage=lambda: 30,
+                       Trace=self.traces.append,
+                       StartTimer=lambda *_: None,
+                       PrepareArrivalMarkerDuringRide=lambda: None,
                        StandsInVault=lambda _: True, Surface=self.transfers.append,
                        RunSharedMapSetup=run_map_setup,
                        RegisterForAnimationEvent=lambda *args: self.registrations.append(args),
@@ -177,57 +196,62 @@ class AscentExecutionTests(unittest.TestCase):
         text = read(PSC)
         event = re.search(r'Event OnAnimationEvent\((.*?)\)\n(.*?)EndEvent', text, re.S)
         text += '\nFunction AscentEvent(' + event[1] + ')\n' + event[2] + 'EndFunction\n'
-        exec(compile(translated_functions(text, ('StartAscent', 'AscentEvent', 'AtLiftTop', 'CheckAscent', 'Near', 'FailExit', 'ReturnPlayerToVaultPlatform'), GLOBALS), PSC, 'exec'), self.ns)
-        actual_fail = self.ns['FailExit']
+        exec(compile(translated_functions(text, ('StartPairedLiftRide', 'AscentEvent', 'CheckPairedLiftRide', 'Near', 'FailPairedLift', 'FailExit', 'ReturnPlayerToVaultPlatform', 'ResetVaultExitLift'), GLOBALS), PSC, 'exec'), self.ns)
+        actual_fail = self.ns['FailPairedLift']
         def fail(reason):
             self.failures.append(reason)
             actual_fail(reason)
-        self.ns['FailExit'] = fail
+        self.ns['FailPairedLift'] = fail
 
-    def run_branch(self, name): self.ns[name](self.player)
+    def run_branch(self, name):
+        if name == 'StartPairedLiftRide':
+            return self.ns[name](self.player, False)
+        return self.ns[name](self.player)
     def done(self, source=None): self.ns['AscentEvent'](source or self.lift, 'Done')
     def top(self): self.player.pos = (-77.742, -3.958, 19.88)
 
     def test_carries_before_exactly_one_arrival_and_never_moves_player_on_start(self):
-        self.run_branch('StartAscent')
+        self.assertTrue(self.run_branch('StartPairedLiftRide'))
         self.assertEqual(self.lift.plays, ['Play01'])
         self.assertEqual(self.map_setup_calls, 1)
         self.assertEqual(self.player.moves, [])
         self.assertEqual(self.transfers, [])
         self.now += 9.8
         self.done()
-        self.assertTrue(self.ns['rideDone'])
-        self.run_branch('CheckAscent')
+        self.assertTrue(self.ns['liftPairDone'])
+        self.run_branch('CheckPairedLiftRide')
         self.assertEqual(self.transfers, [])
         self.top()
-        self.run_branch('CheckAscent')
-        self.run_branch('CheckAscent')
-        self.run_branch('StartAscent')
+        self.run_branch('CheckPairedLiftRide')
+        self.ns['surfaceMovedAt'] = 0.0
+        self.ns['liftPairTransferPending'] = False
+        self.run_branch('CheckPairedLiftRide')
+        self.run_branch('StartPairedLiftRide')
         self.assertEqual(self.transfers, [self.player])
         self.assertEqual(self.lift.plays, ['Play01'])
         self.assertEqual(self.unregistrations, [(self.lift, 'Done')])
 
     def test_early_done_is_not_reused_after_player_rises(self):
-        self.run_branch('StartAscent')
+        self.run_branch('StartPairedLiftRide')
         self.now += 0.068
         self.done()
         self.now += 10
         self.top()
-        self.run_branch('CheckAscent')
-        self.assertFalse(self.ns['rideDone'])
+        self.run_branch('CheckPairedLiftRide')
+        self.assertFalse(self.ns['liftPairDone'])
         self.assertEqual(self.transfers, [])
         self.done()
-        self.run_branch('CheckAscent')
+        self.run_branch('CheckPairedLiftRide')
         self.assertEqual(self.transfers, [self.player])
 
     def test_wrong_source_or_event_cannot_complete(self):
-        self.run_branch('StartAscent')
+        self.run_branch('StartPairedLiftRide')
         self.now += 10
         self.top()
         self.done(object())
         self.ns['AscentEvent'](self.lift, 'Trans01')
-        self.run_branch('CheckAscent')
-        self.assertFalse(self.ns['rideDone'])
+        self.run_branch('CheckPairedLiftRide')
+        self.assertFalse(self.ns['liftPairDone'])
         self.assertEqual(self.transfers, [])
 
     def test_refused_play_and_missing_wrong_base_cell_or_unloaded_lift_fail(self):
@@ -241,35 +265,36 @@ class AscentExecutionTests(unittest.TestCase):
                 if fault == 'unloaded': self.lift.loaded = False
                 if fault == 'exterior': self.player.interior = False
                 if fault == 'other_vault': self.ns['StandsInVault'] = lambda _: False
-                self.run_branch('StartAscent')
+                started = self.run_branch('StartPairedLiftRide')
                 self.now += 10
                 self.top()
                 self.done()
-                self.run_branch('CheckAscent')
-                self.assertEqual(len(self.failures), 1)
+                self.run_branch('CheckPairedLiftRide')
+                self.assertFalse(started)
+                self.assertTrue(any('lift_pair refused reason=' in t for t in self.traces), self.traces)
                 self.assertEqual(self.transfers, [])
-                self.assertFalse(self.ns['rideActive'])
+                self.assertFalse(self.ns['liftPairActive'])
 
     def test_done_without_height_or_outside_footprint_waits_then_times_out(self):
         for pos in ((-77.742, -3.958, -1.72), (-77.742, -3.958, 20.64),
                     (-77.742, -3.958, 19.12), (-74.742, -3.958, 19.88)):
             with self.subTest(pos=pos):
                 self.setUp()
-                self.run_branch('StartAscent')
+                self.run_branch('StartPairedLiftRide')
                 self.now += 10
                 self.player.pos = pos
                 self.done()
-                self.run_branch('CheckAscent')
+                self.run_branch('CheckPairedLiftRide')
                 self.assertEqual(self.transfers, [])
                 self.now += 31
-                self.run_branch('CheckAscent')
-                self.assertEqual(self.failures, ['lift_timeout'])
+                self.run_branch('CheckPairedLiftRide')
+                self.assertEqual(self.failures, ['timeout'])
 
     def test_cell_change_or_unloaded_timeout_cannot_transfer(self):
         for fault in ('player_cell', 'lift_cell', 'exterior', 'unloaded'):
             with self.subTest(fault=fault):
                 self.setUp()
-                self.run_branch('StartAscent')
+                self.run_branch('StartPairedLiftRide')
                 self.now += 10
                 self.top()
                 self.done()
@@ -277,27 +302,144 @@ class AscentExecutionTests(unittest.TestCase):
                 if fault == 'lift_cell': self.lift.cell = object()
                 if fault == 'exterior': self.player.interior = False
                 if fault == 'unloaded': self.player.loaded = False
-                self.run_branch('CheckAscent')
+                self.run_branch('CheckPairedLiftRide')
                 self.assertEqual(self.transfers, [])
                 self.now += 31
-                if not self.failures: self.run_branch('CheckAscent')
+                if not self.failures: self.run_branch('CheckPairedLiftRide')
                 self.assertEqual(len(self.failures), 1)
 
     def test_rider_leaves_during_registration_or_before_arrival(self):
         def leave(*_): self.player.cell = object()
         self.ns['RegisterForAnimationEvent'] = leave
-        self.run_branch('StartAscent')
+        self.assertFalse(self.run_branch('StartPairedLiftRide'))
         self.assertEqual(self.failures, ['lift_rider_left_before_play'])
-        self.assertEqual(self.lift.plays, [])
+        self.assertNotIn('Play01', self.lift.plays)
+        self.assertTrue(any('lift_pair refused reason=rider_left_before_play' in t for t in self.traces))
         self.setUp()
-        self.run_branch('StartAscent')
+        self.run_branch('StartPairedLiftRide')
         self.now += 10
         self.top()
         self.done()
         self.ns['UnregisterForAnimationEvent'] = leave
-        self.run_branch('CheckAscent')
+        self.run_branch('CheckPairedLiftRide')
         self.assertEqual(self.failures, ['lift_rider_left_before_arrival'])
         self.assertEqual(self.transfers, [])
+
+    def test_raised_lift_resets_via_play02_and_reset_then_succeeds_on_retry_and_second_ascent(self):
+        # 1) Simulate a lift stuck in raised StateB_Idle: first PlayAnimation("Play01") refuses (returns False),
+        #    ResetVaultExitLift() plays Play02 (falling back to Reset only if Play02 fails), StartPairedLiftRide
+        #    repositions player, and retry succeeds!
+        lift_raised = [True]
+
+        def toggle_play(name):
+            self.lift.plays.append(name)
+            if name == 'Play01':
+                return not lift_raised[0]
+            if name == 'Play02':
+                lift_raised[0] = False
+                return True
+            return False
+
+        def toggle_reset(target=None):
+            self.lift.resets += 1
+            lift_raised[0] = False
+
+        self.lift.PlayAnimation = toggle_play
+        self.lift.Reset = toggle_reset
+
+        self.assertTrue(self.run_branch('StartPairedLiftRide'))
+        self.assertEqual(self.failures, [])
+        self.assertTrue(self.ns['liftPairActive'])
+        self.assertEqual(self.lift.plays, ['Play01', 'Play02', 'Play01'])
+        self.assertEqual(self.player.moves[-1], (-77.742, -3.958, -1.551))
+
+        # 2) Complete first ascent, then simulate FailExit / second ascent retry after ResetVaultExitLift
+        self.now += 10.0
+        self.top()
+        self.done()
+        self.run_branch('CheckPairedLiftRide')
+        self.assertEqual(self.transfers, [self.player])
+
+        lift_raised[0] = True
+        self.ns['liftPairTransferred'] = False
+        self.ns['liftPairTransferPending'] = False
+        self.ns['FailExit']('lift_surface_missed')
+        self.assertFalse(lift_raised[0])
+        self.assertTrue(self.run_branch('StartPairedLiftRide'))
+        self.assertTrue(self.ns['liftPairActive'])
+        self.assertEqual(self.lift.plays[-1], 'Play01')
+        self.now += 10.0
+        self.top()
+        self.done()
+        self.run_branch('CheckPairedLiftRide')
+        self.assertEqual(self.transfers, [self.player, self.player])
+
+    def test_smooth_fade_out_triggers_once_near_top_of_ascent(self):
+        fades = []
+        self.ns['Game'].FadeOutGame = lambda *args: fades.append(args)
+        self.run_branch('StartPairedLiftRide')
+        self.now += 5.0
+        self.run_branch('CheckPairedLiftRide')
+        self.assertEqual(fades, [])
+        self.now += 3.9
+        self.run_branch('CheckPairedLiftRide')
+        self.run_branch('CheckPairedLiftRide')
+        self.assertEqual(fades, [(True, True, 0.0, 1.0, True)])
+
+    def test_paused_lift_menu_40pt_special_commit_and_last_resort_fallback_rules(self):
+        psc = read(PSC)
+        # Surface() must wait for FinishSurface() rather than calling TrySurfaceExteriorFallbacks immediately
+        surf_body = psc[psc.index('Function Surface(Actor player)'):psc.index('Function FinishSurface(Actor player)')]
+        self.assertNotIn('TrySurfaceExteriorFallbacks', surf_body)
+        # Last-resort fast travel never marks or discovers map markers
+        ft_body = psc[psc.index('Function TryFastTravelSurface'):psc.index('Function TrySurfaceExteriorFallbacks')]
+        self.assertNotIn('AddToMap(', ft_body)
+        self.assertNotIn('SetMarkerDiscovered(', ft_body)
+
+        store = {0x880 + i: SimpleNamespace(v=5.0, GetValue=lambda i=i: store[0x880 + i].v, SetValue=lambda x, i=i: setattr(store[0x880 + i], 'v', x)) for i in range(7)}
+        store[0x887] = SimpleNamespace(v=0.0, GetValue=lambda: store[0x887].v, SetValue=lambda x: setattr(store[0x887], 'v', x))
+        open_glob = SimpleNamespace(v=0.0, GetValue=lambda: open_glob.v, SetValue=lambda x: setattr(open_glob, 'v', x))
+        av_vals = {0x810 + i: 5.0 for i in range(7)}
+        player = SimpleNamespace(
+            GetValue=lambda av: av_vals[av],
+            SetValue=lambda av, val: av_vals.__setitem__(av, val),
+        )
+        traces = []
+        waits = [0]
+        def fake_wait(_s):
+            waits[0] += 1
+            if open_glob.v == 4.0:
+                open_glob.v = 5.0
+            elif open_glob.v == 5.0:
+                store[0x880].v = 10.0
+                store[0x887].v = 1.0
+                open_glob.v = 6.0
+        ns = dict(
+            StartCardOpenGlobal=open_glob,
+            TestModeGlobal=None,
+            liftSpecConfirmed=False,
+            asked=True,
+            Game=SimpleNamespace(
+                GetFormFromFile=lambda fid, plg: store.get(fid, fid if 0x810 <= fid <= 0x816 else None),
+                ShowRaceMenu=lambda *a: None,
+            ),
+            Utility=SimpleNamespace(Wait=fake_wait),
+            Trace=traces.append,
+        )
+        exec(compile(translated_functions(psc, ('ShowPausedExitLiftMenu',), 'liftSpecConfirmed, asked'), PSC, 'exec'), ns)
+        btn = ns['ShowPausedExitLiftMenu'](player)
+        self.assertEqual(btn, 0)
+        self.assertTrue(ns['liftSpecConfirmed'])
+        self.assertEqual(av_vals[0x810], 10.0)
+        self.assertEqual(open_glob.v, 0.0)
+        # Missing DLL/SWF falls back (-1) cleanly when StartCardOpenGlobal stays 0
+        open_glob.v = 0.0
+        ns['liftSpecConfirmed'] = False
+        def no_dll_wait(_s):
+            if open_glob.v == 4.0:
+                open_glob.v = 0.0
+        ns['Utility'].Wait = no_dll_wait
+        self.assertEqual(ns['ShowPausedExitLiftMenu'](player), -1)
 
 
 class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
@@ -310,7 +452,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
         'ActivateGearDoorConsole',
     )
     VARS = (
-        'itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, '
+        'itemWatchRegistered, pipboyRegistered, pipboyEquipWatchRegistered, cogDoorRegistered, cogDoorWatchedRef, '
         'consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, '
         'consoleOpening, pistolPickedLogged'
     )
@@ -346,6 +488,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             Trace=self.traces.append,
             itemWatchRegistered=False,
             pipboyRegistered=False,
+            pipboyEquipWatchRegistered=False,
             cogDoorRegistered=False,
             cogDoorWatchedRef=None,
             consoleRegistered=False,
@@ -356,6 +499,7 @@ class VaultConsoleAndPistolFilterExecutionTests(unittest.TestCase):
             pistolPickedLogged=False,
             VaultPistolBase=self.vault_pistol,
             VaultPistolId=0x24561C,
+            PipboyWristArmor=None,
             PipboyCorpseRef=self.pipboy_ref,
             GearDoorConsoleRef=self.console_ref,
             CogDoorId=0x126D,
