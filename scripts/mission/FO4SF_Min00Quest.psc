@@ -72,8 +72,6 @@ ObjectReference[] Property S5MuseumLootMarkers Auto Const
 ObjectReference Property S4DisplayMusketRef Auto Const
 ObjectReference[] Property S4FusionCellRefs Auto Const
 Actor Property SturgesRef Auto Const
-Scene Property S6PrestonRoomScene Auto Const
-Scene Property S6SturgesRoomScene Auto Const
 int Property PipePistolId = 0x0008A2 Auto Const
 int Property PipeRifleId = 0x0008A3 Auto Const
 int Property Ammo38Id = 0x0008A1 Auto Const
@@ -400,7 +398,26 @@ Scene Function ResolvePrestonPostScene()
     return Game.GetFormFromFile(0x000990, "FO4SFMission.esm") as Scene
 EndFunction
 
-Scene Function ResolveActivePrestonScene(bool postMode)
+Scene Function ResolveActivePrestonScene(bool postMode = False, int formId = 0, bool logResult = False)
+    if formId != 0
+        Scene scn = Game.GetFormFromFile(formId, "FO4SFMission.esm") as Scene
+        if logResult
+            string hexId = "0x000900"
+            if formId == 0x000BC9
+                hexId = "0x000BC9"
+            elseif formId == 0x000BD0
+                hexId = "0x000BD0"
+            elseif formId == 0x000990
+                hexId = "0x000990"
+            endif
+            if scn != None
+                Trace("scene resolved via=file id=" + hexId + " scene=" + scn)
+            else
+                Trace("scene missing id=" + hexId)
+            endif
+        endif
+        return scn
+    endif
     if postMode
         return ResolvePrestonPostScene()
     endif
@@ -710,6 +727,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     s6RoomPhase1At = 0.0
     s6RoomAttemptStartedAt = 0.0
     s6RoomSceneTicks = 0
+    s6RoomSceneRetries = 0
     s6SturgesScenePending = False
     s6SturgesSceneMenuOpened = False
     s6SturgesSceneRestarting = False
@@ -717,6 +735,8 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     s6SturgesPhase1At = 0.0
     s6SturgesAttemptStartedAt = 0.0
     s6SturgesSceneTicks = 0
+    s6SturgesSceneRetries = 0
+    s6RoomEventsRegistered = False
     ownPrestonSceneStop = False
     prestonAttemptStartedAt = 0.0
     CancelTimer(3)
@@ -1137,10 +1157,12 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     prestonDialogueMenuOpen = abOpening
     Scene scn = ResolvePrestonScene()
     Scene postScn = ResolvePrestonPostScene()
+    Scene s6PrestonScn = ResolveActivePrestonScene(False, 0x000BC9)
+    Scene s6SturgesScn = ResolveActivePrestonScene(False, 0x000BD0)
     bool primaryPlaying = scn != None && scn.IsPlaying()
     bool postPlaying = postScn != None && postScn.IsPlaying()
-    bool s6PrestonPlaying = S6PrestonRoomScene != None && S6PrestonRoomScene.IsPlaying()
-    bool s6SturgesPlaying = S6SturgesRoomScene != None && S6SturgesRoomScene.IsPlaying()
+    bool s6PrestonPlaying = s6PrestonScn != None && s6PrestonScn.IsPlaying()
+    bool s6SturgesPlaying = s6SturgesScn != None && s6SturgesScn.IsPlaying()
     if abOpening
         if s6RoomScenePending || s6PrestonPlaying
             s6RoomSceneMenuOpened = True
@@ -1241,14 +1263,16 @@ Event Scene.OnBegin(Scene akSender)
     if KeeperOnly
         return
     endif
-    if S6PrestonRoomScene != None && akSender == S6PrestonRoomScene
+    Scene s6PrestonScn = ResolveActivePrestonScene(False, 0x000BC9)
+    if s6PrestonScn != None && akSender == s6PrestonScn
         s6RoomScenePhase1 = False
         s6RoomPhase1At = 0.0
         s6RoomSceneTicks = 0
         Trace("s6 preston room scene started")
         return
     endif
-    if S6SturgesRoomScene != None && akSender == S6SturgesRoomScene
+    Scene s6SturgesScn = ResolveActivePrestonScene(False, 0x000BD0)
+    if s6SturgesScn != None && akSender == s6SturgesScn
         s6SturgesScenePhase1 = False
         s6SturgesPhase1At = 0.0
         s6SturgesSceneTicks = 0
@@ -1315,7 +1339,8 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
     if KeeperOnly
         return
     endif
-    if S6PrestonRoomScene != None && akSender == S6PrestonRoomScene
+    Scene s6PrestonScn = ResolveActivePrestonScene(False, 0x000BC9)
+    if s6PrestonScn != None && akSender == s6PrestonScn
         Trace("s6 preston room scene phase=" + auiPhaseIndex)
         if auiPhaseIndex >= 1
             s6RoomScenePhase1 = True
@@ -1327,7 +1352,8 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
         endif
         return
     endif
-    if S6SturgesRoomScene != None && akSender == S6SturgesRoomScene
+    Scene s6SturgesScn = ResolveActivePrestonScene(False, 0x000BD0)
+    if s6SturgesScn != None && akSender == s6SturgesScn
         Trace("s6 sturges room scene phase=" + auiPhaseIndex)
         if auiPhaseIndex >= 1
             s6SturgesScenePhase1 = True
@@ -1391,6 +1417,10 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     if akSender == SturgesRef && EnableS6ToS9Full && EffectiveStage() >= 35
+        if s6SturgesScenePending || s6SturgesSceneMenuOpened || prestonDialogueMenuOpen
+            return
+        endif
+        s6SturgesSceneRetries = 0
         TriggerS6RoomScene(True, "activate")
         return
     endif
@@ -1425,7 +1455,11 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     if akSender == Preston && akActionRef == player
-        if EnableS6ToS9Full && s5MuseumCleared && EffectiveStage() == 35 && s6FullStage < 40 && S6PrestonRoomScene != None
+        if EnableS6ToS9Full && s5MuseumCleared && EffectiveStage() == 35 && s6FullStage < 40
+            if s6RoomScenePending || s6RoomSceneMenuOpened || prestonDialogueMenuOpen
+                return
+            endif
+            s6RoomSceneRetries = 0
             TriggerS6RoomScene(False, "activate")
             return
         endif
@@ -1619,10 +1653,16 @@ Event Scene.OnEnd(Scene akSender)
             CancelTimer(3)
             EnsureActorTalkable(Preston)
         endif
-    elseif S6PrestonRoomScene != None && akSender == S6PrestonRoomScene
-        HandleS6RoomSceneEnded(False)
-    elseif S6SturgesRoomScene != None && akSender == S6SturgesRoomScene
-        HandleS6RoomSceneEnded(True)
+    else
+        Scene s6PrestonScn = ResolveActivePrestonScene(False, 0x000BC9)
+        if s6PrestonScn != None && akSender == s6PrestonScn
+            HandleS6RoomSceneEnded(False)
+        else
+            Scene s6SturgesScn = ResolveActivePrestonScene(False, 0x000BD0)
+            if s6SturgesScn != None && akSender == s6SturgesScn
+                HandleS6RoomSceneEnded(True)
+            endif
+        endif
     endif
 EndEvent
 
@@ -3380,15 +3420,17 @@ Function RegisterS6RoomEvents()
         return
     endif
     s6RoomEventsRegistered = True
-    if S6PrestonRoomScene != None
-        RegisterForRemoteEvent(S6PrestonRoomScene, "OnBegin")
-        RegisterForRemoteEvent(S6PrestonRoomScene, "OnPhaseBegin")
-        RegisterForRemoteEvent(S6PrestonRoomScene, "OnEnd")
+    Scene pRoomScn = ResolveActivePrestonScene(False, 0x000BC9)
+    if pRoomScn != None
+        RegisterForRemoteEvent(pRoomScn, "OnBegin")
+        RegisterForRemoteEvent(pRoomScn, "OnPhaseBegin")
+        RegisterForRemoteEvent(pRoomScn, "OnEnd")
     endif
-    if S6SturgesRoomScene != None
-        RegisterForRemoteEvent(S6SturgesRoomScene, "OnBegin")
-        RegisterForRemoteEvent(S6SturgesRoomScene, "OnPhaseBegin")
-        RegisterForRemoteEvent(S6SturgesRoomScene, "OnEnd")
+    Scene sRoomScn = ResolveActivePrestonScene(False, 0x000BD0)
+    if sRoomScn != None
+        RegisterForRemoteEvent(sRoomScn, "OnBegin")
+        RegisterForRemoteEvent(sRoomScn, "OnPhaseBegin")
+        RegisterForRemoteEvent(sRoomScn, "OnEnd")
     endif
     if SturgesRef != None
         RegisterForRemoteEvent(SturgesRef, "OnActivate")
@@ -3633,13 +3675,20 @@ bool Function TryOpenS6BasementGate(string reason)
 EndFunction
 
 Function TriggerS6RoomScene(bool isSturges, string via)
-    Scene scn = S6PrestonRoomScene
+    int targetId = 0x000BC9
     Actor speaker = Preston
     int timerId = 5
     if isSturges
-        scn = S6SturgesRoomScene
+        if s6SturgesScenePending || s6SturgesSceneMenuOpened || prestonDialogueMenuOpen
+            return
+        endif
+        targetId = 0x000BD0
         speaker = SturgesRef
         timerId = 6
+    else
+        if s6RoomScenePending || s6RoomSceneMenuOpened || prestonDialogueMenuOpen
+            return
+        endif
     endif
     if speaker != None
         EnsureActorTalkable(speaker)
@@ -3652,10 +3701,14 @@ Function TriggerS6RoomScene(bool isSturges, string via)
         endif
         return
     endif
+    Scene scn = ResolveActivePrestonScene(False, targetId, True)
     if scn == None
         RestartOrFailS6RoomScene(isSturges, "no_scene")
         return
     endif
+    RegisterForRemoteEvent(scn, "OnBegin")
+    RegisterForRemoteEvent(scn, "OnPhaseBegin")
+    RegisterForRemoteEvent(scn, "OnEnd")
     if isSturges
         s6SturgesScenePending = True
         s6SturgesSceneMenuOpened = False
@@ -3766,25 +3819,45 @@ Function RestartOrFailS6RoomScene(bool isSturges, string reason)
         endif
         return
     endif
-    Scene scn = S6PrestonRoomScene
+    int targetId = 0x000BC9
     Actor speaker = Preston
-    int timerId = 5
     if isSturges
-        scn = S6SturgesRoomScene
+        targetId = 0x000BD0
         speaker = SturgesRef
-        timerId = 6
+    endif
+    Scene scn = ResolveActivePrestonScene(False, targetId, True)
+    if isSturges
         if scn == None
-            s6SturgesScenePending = False
-            s6SturgesScenePhase1 = False
-            s6SturgesPhase1At = 0.0
-            s6SturgesAttemptStartedAt = 0.0
-            CancelTimer(6)
-            if speaker != None
-                EnsureActorTalkable(speaker)
+            if s6SturgesSceneRetries < PrestonMaxSceneRestarts
+                s6SturgesSceneRetries += 1
+                s6SturgesScenePending = True
+                s6SturgesSceneMenuOpened = False
+                s6SturgesScenePhase1 = False
+                s6SturgesPhase1At = 0.0
+                s6SturgesAttemptStartedAt = Utility.GetCurrentRealTime()
+                s6SturgesSceneTicks = 0
+                if speaker != None
+                    EnsureActorTalkable(speaker)
+                endif
+                Trace("s6 sturges scene_restart retry=" + s6SturgesSceneRetries + "/" + PrestonMaxSceneRestarts + " reason=" + reason)
+                CancelTimer(6)
+                StartTimer(PrestonSceneCheckSeconds, 6)
+            else
+                s6SturgesScenePending = False
+                s6SturgesScenePhase1 = False
+                s6SturgesPhase1At = 0.0
+                s6SturgesAttemptStartedAt = 0.0
+                CancelTimer(6)
+                if speaker != None
+                    EnsureActorTalkable(speaker)
+                endif
+                Trace("s6 sturges ERROR scene_failed retries=" + s6SturgesSceneRetries + "/" + PrestonMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
             endif
-            Trace("s6 sturges ERROR scene_failed retries=" + s6SturgesSceneRetries + "/" + PrestonMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
             return
         endif
+        RegisterForRemoteEvent(scn, "OnBegin")
+        RegisterForRemoteEvent(scn, "OnPhaseBegin")
+        RegisterForRemoteEvent(scn, "OnEnd")
         if s6SturgesSceneRetries < PrestonMaxSceneRestarts
             s6SturgesSceneRetries += 1
             if scn.IsPlaying()
@@ -3836,9 +3909,13 @@ Function RestartOrFailS6RoomScene(bool isSturges, string reason)
         if speaker != None
             EnsureActorTalkable(speaker)
         endif
-        Trace("s6 preston ERROR scene_failed retries=" + s6RoomSceneRetries + "/" + PrestonMaxSceneRestarts + " reason=" + reason + " actor_talkable=true")
+        AdvanceS6PrestonGroupTalk()
+        Trace("s6 preston fallback stage=40 reason=no_scene")
         return
     endif
+    RegisterForRemoteEvent(scn, "OnBegin")
+    RegisterForRemoteEvent(scn, "OnPhaseBegin")
+    RegisterForRemoteEvent(scn, "OnEnd")
     if s6RoomSceneRetries < PrestonMaxSceneRestarts
         s6RoomSceneRetries += 1
         if scn.IsPlaying()
@@ -3906,9 +3983,14 @@ Function CheckS6RoomSceneOpen(bool isSturges)
                 sPhase1Elapsed = True
             endif
         endif
-        if S6SturgesRoomScene == None
-            RestartOrFailS6RoomScene(True, "scene_inactive")
-        elseif !S6SturgesRoomScene.IsPlaying()
+        Scene sScn = ResolveActivePrestonScene(False, 0x000BD0)
+        if sScn == None
+            if sAttemptElapsed < (PrestonSceneCheckSeconds - 0.05)
+                StartTimer(PrestonSceneCheckSeconds - sAttemptElapsed, 6)
+            else
+                RestartOrFailS6RoomScene(True, "no_scene")
+            endif
+        elseif !sScn.IsPlaying()
             if sAttemptElapsed < (PrestonSceneCheckSeconds - 0.05)
                 StartTimer(PrestonSceneCheckSeconds - sAttemptElapsed, 6)
             else
@@ -3948,9 +4030,14 @@ Function CheckS6RoomSceneOpen(bool isSturges)
             pPhase1Elapsed = True
         endif
     endif
-    if S6PrestonRoomScene == None
-        RestartOrFailS6RoomScene(False, "scene_inactive")
-    elseif !S6PrestonRoomScene.IsPlaying()
+    Scene pScn = ResolveActivePrestonScene(False, 0x000BC9)
+    if pScn == None
+        if pAttemptElapsed < (PrestonSceneCheckSeconds - 0.05)
+            StartTimer(PrestonSceneCheckSeconds - pAttemptElapsed, 5)
+        else
+            RestartOrFailS6RoomScene(False, "no_scene")
+        endif
+    elseif !pScn.IsPlaying()
         if pAttemptElapsed < (PrestonSceneCheckSeconds - 0.05)
             StartTimer(PrestonSceneCheckSeconds - pAttemptElapsed, 5)
         else

@@ -490,6 +490,8 @@ def _build_codsworth_harness(
             return min00_q
         if plugin == "FO4SFMission.esm" and fid == 0x000B8B:
             return r11_glob
+        if plugin == "FO4SFMission.esm" and fid == 0x000B9A:
+            return stage50_scene
         if plugin == "FO4SF_RA5Creatures.esm" and fid == 0x000809 and creature_slot_ready:
             return bloatfly_base or SimpleNamespace(name="FO4SF_RA5BloatflyTest")
         return None
@@ -611,6 +613,7 @@ def _build_codsworth_harness(
         psc,
         [
             "EffectiveStage",
+            "ResolveActiveCodsworthScene",
             "ResolveTalkMsg",
             "AdvanceTo",
             "SyncProgress",
@@ -750,6 +753,10 @@ def _build_min00_harness(
                 return minrecruit00_q
             if fid == 0x000B8A:
                 return dc_marker
+            if fid == 0x000BC9:
+                return s6_preston_scene
+            if fid == 0x000BD0:
+                return s6_sturges_scene
         if plugin == "FO4TerrainCore.esm" and fid == 0x005C50:
             return host_wb
         if plugin == "FO4Port.esm":
@@ -990,6 +997,7 @@ def _build_min00_harness(
         psc,
         [
             "HeldState",
+            "ResolveActivePrestonScene",
             "HoldDue",
             "EnsureActorTalkable",
             "HoldActor",

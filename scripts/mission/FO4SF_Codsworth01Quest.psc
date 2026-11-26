@@ -16,7 +16,6 @@ GlobalVariable Property TalkUseMessageBox Auto Const
 bool Property EnableS3HouseSearch = False Auto Const
 Actor[] Property S3House1Bloatflies Auto Const
 Actor[] Property S3House2Bloatflies Auto Const
-Scene Property S3Stage50Scene Auto Const
 ObjectReference Property S3House1Marker Auto Const
 ObjectReference Property S3House2Marker Auto Const
 Package Property S3House1TravelPack Auto Const
@@ -187,7 +186,24 @@ Scene Function ResolveCodsworthPostScene()
     return Game.GetFormFromFile(0x0009C0, "FO4SFMission.esm") as Scene
 EndFunction
 
-Scene Function ResolveActiveCodsworthScene(bool postMode)
+Scene Function ResolveActiveCodsworthScene(bool postMode, int formId = 0, bool logResult = False)
+    if formId != 0
+        Scene scn = Game.GetFormFromFile(formId, "FO4SFMission.esm") as Scene
+        if logResult
+            string hexId = "0x000940"
+            if formId == 0x0009C0
+                hexId = "0x0009C0"
+            elseif formId == 0x000B9A
+                hexId = "0x000B9A"
+            endif
+            if scn != None
+                Trace("scene resolved via=file id=" + hexId + " scene=" + scn)
+            else
+                Trace("scene missing id=" + hexId)
+            endif
+        endif
+        return scn
+    endif
     if postMode
         return ResolveCodsworthPostScene()
     endif
@@ -244,10 +260,13 @@ Function RegisterCodsworthSceneEvents()
         RegisterForRemoteEvent(postScn, "OnPhaseBegin")
         RegisterForRemoteEvent(postScn, "OnEnd")
     endif
-    if S3Stage50Scene != None
-        RegisterForRemoteEvent(S3Stage50Scene, "OnBegin")
-        RegisterForRemoteEvent(S3Stage50Scene, "OnPhaseBegin")
-        RegisterForRemoteEvent(S3Stage50Scene, "OnEnd")
+    if EnableS3HouseSearch
+        Scene s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A)
+        if s3Scn != None
+            RegisterForRemoteEvent(s3Scn, "OnBegin")
+            RegisterForRemoteEvent(s3Scn, "OnPhaseBegin")
+            RegisterForRemoteEvent(s3Scn, "OnEnd")
+        endif
     endif
 EndFunction
 
@@ -459,7 +478,11 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             dialogueSeen = True
             Scene scn = ResolveCodsworthScene()
             Scene postScn = ResolveCodsworthPostScene()
-            if s3Stage50Pending || (S3Stage50Scene != None && S3Stage50Scene.IsPlaying())
+            Scene s3Scn = None
+            if EnableS3HouseSearch
+                s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A)
+            endif
+            if s3Stage50Pending || (s3Scn != None && s3Scn.IsPlaying())
                 s3Stage50MenuOpened = True
                 s3Stage50AttemptOpened = True
                 s3Stage50Pending = False
@@ -670,7 +693,8 @@ bool Function RestartOrFailCodsworthScene(string reason, bool postMode)
 EndFunction
 
 Event Scene.OnBegin(Scene akSender)
-    if S3Stage50Scene != None && akSender == S3Stage50Scene
+    Scene s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A)
+    if s3Scn != None && akSender == s3Scn
         s3Stage50Phase1 = False
         s3Stage50Phase1At = 0.0
         s3Stage50CheckTicks = 0
@@ -706,7 +730,8 @@ Event Scene.OnBegin(Scene akSender)
 EndEvent
 
 Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
-    if S3Stage50Scene != None && akSender == S3Stage50Scene
+    Scene s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A)
+    if s3Scn != None && akSender == s3Scn
         Trace("codsworth01 s3_stage50 phase=" + auiPhaseIndex)
         if auiPhaseIndex >= 1
             s3Stage50Phase1 = True
@@ -734,7 +759,8 @@ Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
 EndEvent
 
 Event Scene.OnEnd(Scene akSender)
-    if S3Stage50Scene != None && akSender == S3Stage50Scene
+    Scene s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A)
+    if s3Scn != None && akSender == s3Scn
         if s3Stage50Restarting
             s3Stage50Restarting = False
             return
@@ -899,7 +925,7 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     if IsWarfareMode() || talkBoxOpen || dialogueMenuOpen || sceneTalkPending || s3Stage50Pending
         return
     endif
-    if EnableS3HouseSearch && !completed && !s3ConcordPointed && EffectiveStage() == 50 && S3Stage50Scene != None && !ShouldUseMessageBox()
+    if EnableS3HouseSearch && !completed && !s3ConcordPointed && EffectiveStage() == 50 && !ShouldUseMessageBox()
         s3Stage50SceneStarted = False
         s3Stage50Retries = 0
         StartS3Stage50Scene()
@@ -1411,7 +1437,7 @@ int Function RecordS3BloatflyKill(int houseIndex)
 EndFunction
 
 Function StartS3Stage50Scene()
-    if S3Stage50Scene == None || ShouldUseMessageBox()
+    if ShouldUseMessageBox()
         CompleteS3AndPointToConcord()
         return
     endif
@@ -1419,6 +1445,14 @@ Function StartS3Stage50Scene()
         return
     endif
     s3Stage50SceneStarted = True
+    Scene s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A, True)
+    if s3Scn == None
+        CompleteS3AndPointToConcord()
+        return
+    endif
+    RegisterForRemoteEvent(s3Scn, "OnBegin")
+    RegisterForRemoteEvent(s3Scn, "OnPhaseBegin")
+    RegisterForRemoteEvent(s3Scn, "OnEnd")
     s3Stage50MenuOpened = False
     s3Stage50AttemptOpened = False
     s3Stage50Retries = 0
@@ -1426,7 +1460,7 @@ Function StartS3Stage50Scene()
     s3Stage50Phase1At = 0.0
     s3Stage50AttemptStartedAt = Utility.GetCurrentRealTime()
     s3Stage50CheckTicks = 0
-    if !S3Stage50Scene.IsPlaying()
+    if !s3Scn.IsPlaying()
         s3Stage50Restarting = False
     endif
     s3Stage50Pending = True
@@ -1436,10 +1470,10 @@ Function StartS3Stage50Scene()
         cods.AllowPCDialogue(True)
         cods.BlockActivation(False, False)
     endif
-    if !S3Stage50Scene.IsPlaying()
-        S3Stage50Scene.Start()
-        if !S3Stage50Scene.IsPlaying()
-            S3Stage50Scene.ForceStart()
+    if !s3Scn.IsPlaying()
+        s3Scn.Start()
+        if !s3Scn.IsPlaying()
+            s3Scn.ForceStart()
         endif
     endif
     Trace("codsworth01 stage 50 scene started")
@@ -1450,7 +1484,7 @@ Function RestartOrCompleteS3Stage50Scene(string reason)
     if s3ConcordPointed || completed
         return
     endif
-    if S3Stage50Scene == None || ShouldUseMessageBox()
+    if ShouldUseMessageBox()
         s3Stage50Pending = False
         s3Stage50Phase1 = False
         s3Stage50Phase1At = 0.0
@@ -1459,12 +1493,25 @@ Function RestartOrCompleteS3Stage50Scene(string reason)
         CompleteS3AndPointToConcord()
         return
     endif
+    Scene s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A, True)
     Actor cods = ResolveCodsworth()
+    if s3Scn == None
+        s3Stage50Pending = False
+        s3Stage50Phase1 = False
+        s3Stage50Phase1At = 0.0
+        s3Stage50AttemptStartedAt = 0.0
+        CancelTimer(4)
+        CompleteS3AndPointToConcord()
+        return
+    endif
+    RegisterForRemoteEvent(s3Scn, "OnBegin")
+    RegisterForRemoteEvent(s3Scn, "OnPhaseBegin")
+    RegisterForRemoteEvent(s3Scn, "OnEnd")
     if s3Stage50Retries < MaxSceneRestarts
         s3Stage50Retries += 1
-        if S3Stage50Scene.IsPlaying()
+        if s3Scn.IsPlaying()
             s3Stage50Restarting = True
-            S3Stage50Scene.Stop()
+            s3Scn.Stop()
         endif
         s3Stage50Pending = True
         s3Stage50MenuOpened = False
@@ -1474,9 +1521,9 @@ Function RestartOrCompleteS3Stage50Scene(string reason)
         s3Stage50AttemptStartedAt = Utility.GetCurrentRealTime()
         s3Stage50CheckTicks = 0
         EnsureCodsworthAlias(cods)
-        S3Stage50Scene.Start()
-        if !S3Stage50Scene.IsPlaying()
-            S3Stage50Scene.ForceStart()
+        s3Scn.Start()
+        if !s3Scn.IsPlaying()
+            s3Scn.ForceStart()
         endif
         Trace("codsworth01 s3_stage50 scene_restart retry=" + s3Stage50Retries + "/" + MaxSceneRestarts + " reason=" + reason)
         CancelTimer(4)
@@ -1487,9 +1534,9 @@ Function RestartOrCompleteS3Stage50Scene(string reason)
         s3Stage50Phase1At = 0.0
         s3Stage50AttemptStartedAt = 0.0
         CancelTimer(4)
-        if S3Stage50Scene.IsPlaying()
+        if s3Scn.IsPlaying()
             s3Stage50Restarting = True
-            S3Stage50Scene.Stop()
+            s3Scn.Stop()
         else
             s3Stage50Restarting = False
         endif
@@ -1505,7 +1552,7 @@ Function CheckS3Stage50SceneOpen()
     if !s3Stage50Pending || s3ConcordPointed || completed
         return
     endif
-    if S3Stage50Scene == None || ShouldUseMessageBox()
+    if ShouldUseMessageBox()
         s3Stage50Pending = False
         s3Stage50Phase1 = False
         s3Stage50Phase1At = 0.0
@@ -1537,7 +1584,14 @@ Function CheckS3Stage50SceneOpen()
             phase1Elapsed = True
         endif
     endif
-    if !S3Stage50Scene.IsPlaying()
+    Scene s3Scn = ResolveActiveCodsworthScene(False, 0x000B9A)
+    if s3Scn == None
+        if attemptElapsed < (SceneOpenCheckSeconds - 0.05)
+            StartTimer(SceneOpenCheckSeconds - attemptElapsed, 4)
+        else
+            RestartOrCompleteS3Stage50Scene("no_scene")
+        endif
+    elseif !s3Scn.IsPlaying()
         if attemptElapsed < (SceneOpenCheckSeconds - 0.05)
             StartTimer(SceneOpenCheckSeconds - attemptElapsed, 4)
         else

@@ -603,7 +603,6 @@ static class NextStoryMissionsS2S6
                     ("Ask Codsworth where to check next.", new[] { ("Try Concord across the river bridge to the south.", 0u, 0f) }, (short)100, true),
                 });
 
-            codsworthScript.Properties.Add(ObjProp("S3Stage50Scene", s3Stage50Scene.FormKey));
             codsworthScript.Properties.Add(ObjProp("S3House1Marker", h1Marker.FormKey));
             codsworthScript.Properties.Add(ObjProp("S3House2Marker", h2Marker.FormKey));
             codsworthScript.Properties.Add(ObjProp("S3House1TravelPack", packH1.FormKey));
@@ -893,8 +892,6 @@ static class NextStoryMissionsS2S6
         var fcListProp = new SF.ScriptObjectListProperty { Name = "S4FusionCellRefs", Flags = SF.ScriptProperty.Flag.Edited };
         foreach (var fcr in fcRefs) fcListProp.Objects.Add(ObjProp("", fcr.FormKey));
         min00Script.Properties.Add(fcListProp);
-        min00Script.Properties.Add(ObjProp("S6PrestonRoomScene", s6PrestonScene.FormKey));
-        min00Script.Properties.Add(ObjProp("S6SturgesRoomScene", s6SturgesScene.FormKey));
         min00Script.Properties.Add(new SF.ScriptBoolProperty { Name = "StopAtFusionCorePowerArmor", Flags = SF.ScriptProperty.Flag.Edited, Data = true });
         min00Script.Properties.Add(new SF.ScriptIntProperty { Name = "LaserMusketId", Flags = SF.ScriptProperty.Flag.Edited, Data = (int)Fo4LaserMusketId });
         min00Script.Properties.Add(new SF.ScriptIntProperty { Name = "FusionCellId", Flags = SF.ScriptProperty.Flag.Edited, Data = (int)Fo4FusionCellId });

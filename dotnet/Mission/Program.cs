@@ -3001,6 +3001,47 @@ static class Mission
         // S2-S6: Check full-mission S2 roaches, S3 travel packs + House markers, S4 musket/cells, S5 doors/raiders, S6 settlers, B1/H2/M2/M3 & LoadDoorQuest
         NextStoryMissionsS2S6.CheckS2S6Missions(plug, problems, r11FullMission, fo4HumanAnims, creatureSlots.Ready, creaturesMod, humanAnimsMod);
 
+        // H2: Refuse ANY quest/script VMAD property that targets a SCEN record (Scene VMAD properties bind to None at new game).
+        var localSceneKeys = plug.Quests.SelectMany(qq => qq.Scenes).Select(sc => sc.FormKey).ToHashSet();
+        bool TargetsScene(FormKey fk) => !fk.IsNull && (localSceneKeys.Contains(fk) || m.Cache.TryResolve<SF.ISceneGetter>(fk, out _));
+        void CheckNoSceneVmadProps(string ownerLabel, SF.IScriptEntryGetter sc)
+        {
+            foreach (var prop in sc.Properties)
+            {
+                if (prop is SF.IScriptObjectPropertyGetter op && TargetsScene(op.Object.FormKey))
+                    problems.Add($"H2: {ownerLabel} script {sc.Name} property {prop.Name} targets SCEN {op.Object.FormKey} (must resolve via Game.GetFormFromFile)");
+                else if (prop is SF.IScriptObjectListPropertyGetter lp && lp.Objects.Any(item => TargetsScene(item.Object.FormKey)))
+                    problems.Add($"H2: {ownerLabel} script {sc.Name} list property {prop.Name} targets SCEN (must resolve via Game.GetFormFromFile)");
+            }
+        }
+        foreach (var qq in plug.Quests)
+        {
+            if (qq.VirtualMachineAdapter is null) continue;
+            string qLabel = $"QUST {qq.EditorID ?? qq.FormKey.ToString()}";
+            foreach (var sc in qq.VirtualMachineAdapter.Scripts)
+                CheckNoSceneVmadProps(qLabel, sc);
+            if (qq.VirtualMachineAdapter is SF.IQuestAdapterGetter qa)
+            {
+                if (qa.Script is not null)
+                    CheckNoSceneVmadProps(qLabel, qa.Script);
+                foreach (var qal in qa.Aliases)
+                {
+                    foreach (var asc in qal.Scripts)
+                        CheckNoSceneVmadProps($"{qLabel} alias", asc);
+                }
+            }
+        }
+        foreach (var placed in plug.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells)
+                     .SelectMany(c => c.Persistent.Concat(c.Temporary)))
+        {
+            if (placed is SF.IPlacedObjectGetter po && po.VirtualMachineAdapter is { } pvm)
+            {
+                string pLabel = $"REFR {po.EditorID ?? po.FormKey.ToString()}";
+                foreach (var sc in pvm.Scripts)
+                    CheckNoSceneVmadProps(pLabel, sc);
+            }
+        }
+
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
         Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");
         return problems.Count == 0 ? 0 : 1;
@@ -3338,6 +3379,21 @@ static class Mission
                 {
                     m.Packages.Remove(new FormKey(m.ModKey, NextStoryMissionsS2S6.S5MuseumRaiderPursuePackId));
                 }),
+                ("H2 Codsworth01 binds S3Stage50Scene (0xB9A) VMAD property", m => m.Quests[new FormKey(m.ModKey, CodsworthQuestId)].VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+                {
+                    Name = "S3Stage50Scene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                    Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, NextStoryMissionsS2S6.S3Stage50SceneId)),
+                })),
+                ("H2 Min00 binds S6PrestonRoomScene (0xBC9) VMAD property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+                {
+                    Name = "S6PrestonRoomScene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                    Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, NextStoryMissionsS2S6.S6PrestonRoomSceneId)),
+                })),
+                ("H2 Min00 binds S6SturgesRoomScene (0xBD0) VMAD property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+                {
+                    Name = "S6SturgesRoomScene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                    Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, NextStoryMissionsS2S6.S6SturgesRoomSceneId)),
+                })),
             };
             foreach (var (name, edit) in r11FullMutations)
             {
@@ -3503,6 +3559,23 @@ static class Mission
             {
                 Name = "CodsworthPostScene", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
                 Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, CodsworthPostSceneId)),
+            })),
+            ("Sanctuary01 binds arbitrary SCEN-targeting VMAD property", m => Sanct01(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectProperty
+            {
+                Name = "ArbitrarySceneProp", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, PrestonTalkSceneId)),
+            })),
+            ("Min00 binds SCEN-targeting VMAD list property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.Add(new SF.ScriptObjectListProperty
+            {
+                Name = "SceneListProp", Flags = SF.ScriptProperty.Flag.Edited,
+                Objects =
+                {
+                    new SF.ScriptObjectProperty
+                    {
+                        Name = "", Flags = SF.ScriptProperty.Flag.Edited, Alias = -1,
+                        Object = new FormLink<SF.IStarfieldMajorRecordGetter>(new FormKey(m.ModKey, CodsworthSceneId)),
+                    },
+                },
             })),
             ("Preston choice 0 missing ENAM flags (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = null),
             ("Preston choice 0 sets DoNotGrayOut (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = new SF.DialogResponseFlags { Flags = (short)SF.DialogResponses.Flag.DoNotGrayOut }),
