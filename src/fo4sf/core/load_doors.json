@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "default_game": "fo4",
+  "supported_games": [
+    "FO4",
+    "FO3",
+    "FNV"
+  ],
+  "game_schema": {
+    "required_keys": [
+      "id",
+      "game",
+      "available",
+      "controller",
+      "doors"
+    ],
+    "unavailable_requires": "unavailable_reason"
+  },
+  "games": {
+    "fo4": {
+      "id": "fo4",
+      "game": "FO4",
+      "available": true,
+      "controller": {
+        "exit_anchor_plugin": "FO4TerrainCore.esm",
+        "exit_anchor_id": "0x0A775B",
+        "secondary_exit_anchor_plugin": "FO4TerrainCore.esm",
+        "secondary_exit_anchor_id": "0x0A775C"
+      },
+      "doors": {
+        "s5_front_in": {
+          "direction": "in",
+          "door_tag": "s5_front_in",
+          "target_plugin": "FO4Port.esm",
+          "target_form_id": "0x00E2F5",
+          "fallback_target_plugin": "",
+          "fallback_target_form_id": "0x0",
+          "use_destination_position": false,
+          "destination_pos": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "s5_front_out": {
+          "direction": "out",
+          "door_tag": "s5_front_out",
+          "target_plugin": "FO4TerrainCore.esm",
+          "target_form_id": "0x0A775B",
+          "fallback_target_plugin": "FO4TerrainCore.esm",
+          "fallback_target_form_id": "0x0A775C",
+          "use_destination_position": true,
+          "destination_pos": [
+            -2012.5,
+            -1697.94,
+            88.24
+          ]
+        },
+        "s5_roof_out": {
+          "direction": "out",
+          "door_tag": "s5_roof_out",
+          "target_plugin": "FO4TerrainCore.esm",
+          "target_form_id": "0x0A775B",
+          "fallback_target_plugin": "FO4TerrainCore.esm",
+          "fallback_target_form_id": "0x0A775C",
+          "use_destination_position": true,
+          "destination_pos": [
+            -1990.58,
+            -1724.19,
+            97.56
+          ]
+        },
+        "s5_roof_in": {
+          "direction": "in",
+          "door_tag": "s5_roof_in",
+          "target_plugin": "FO4Port.esm",
+          "target_form_id": "0x00E2F5",
+          "fallback_target_plugin": "",
+          "fallback_target_form_id": "0x0",
+          "use_destination_position": true,
+          "destination_pos": [
+            -21.9,
+            8.68,
+            9.15
+          ]
+        }
+      }
+    },
+    "fo3": {
+      "id": "fo3",
+      "game": "FO3",
+      "available": false,
+      "unavailable_reason": "Capital Wasteland load-door anchors are not built into the bundle yet",
+      "controller": {
+        "exit_anchor_plugin": "",
+        "exit_anchor_id": "0x0",
+        "secondary_exit_anchor_plugin": "",
+        "secondary_exit_anchor_id": "0x0"
+      },
+      "doors": {}
+    },
+    "fnv": {
+      "id": "fnv",
+      "game": "FNV",
+      "available": false,
+      "unavailable_reason": "Mojave Wasteland load-door anchors are not built into the bundle yet",
+      "controller": {
+        "exit_anchor_plugin": "",
+        "exit_anchor_id": "0x0",
+        "secondary_exit_anchor_plugin": "",
+        "secondary_exit_anchor_id": "0x0"
+      },
+      "doors": {}
+    }
+  }
+}

@@ -78,6 +78,7 @@ ALL_SCRIPTS = (
     MQ106_SCRIPT, MQ203_SCRIPT, MQ204_SCRIPT, MQ206_SCRIPT,
 )
 DOORS_DIR = os.path.join(REPO, "scripts", "doors")
+LOAD_DOORS_JSON = os.path.join(REPO, "src", "fo4sf", "core", "load_doors.json")
 VAULT_ROACHES_SCRIPT = "FO4SF_Vault111RoachesQuest"
 PICKUP_SCRIPT = "FO4SF_S5S6ItemPickup"
 LOAD_DOOR_SCRIPT = "FO4SF_LoadDoorQuest"
@@ -208,7 +209,31 @@ def mission_cli_args(a, final_out):
         tokens.extend(["--actor-looks-assets", os.path.abspath(a.actor_looks_assets)])
     if getattr(a, "codsworth_race_framing", False):
         tokens.append("--codsworth-race-framing")
+    if getattr(a, "load_doors", None):
+        tokens.extend(["--load-doors", os.path.abspath(a.load_doors)])
+    if getattr(a, "game", None):
+        tokens.extend(["--game", str(a.game)])
     return canonicalize_cli_args(tokens)
+
+
+def load_doors_config(json_path=None, game_id=None):
+    """Load and validate a per-game entry from src/fo4sf/core/load_doors.json."""
+    path = os.path.abspath(json_path) if json_path else LOAD_DOORS_JSON
+    if not os.path.isfile(path):
+        sys.exit(f"missing load_doors.json: {path}")
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if data.get("schema_version") != 1:
+        sys.exit(f"unsupported load_doors.json schema_version: {data.get('schema_version')!r}")
+    target_game = (game_id or data.get("default_game") or "fo4").strip().lower()
+    games = data.get("games")
+    if not isinstance(games, dict) or target_game not in games:
+        sys.exit(f"load_doors.json has no games.{target_game}: {path}")
+    entry = games[target_game]
+    if entry.get("available") is False:
+        reason = entry.get("unavailable_reason") or "unavailable"
+        sys.exit(f"game '{target_game}' is unavailable in load_doors.json: {reason}")
+    return target_game, entry
 
 STAGES = (10, 20, 30, 35, 40, 200)
 PROPERTIES = ("Preston", "Raiders", "Credits")
@@ -684,6 +709,11 @@ def stage(a):
         creature_slots = getattr(a, "creature_slots", None)
         creatures_esm = getattr(a, "creatures_esm", None)
         fo4_human_anims_esm = getattr(a, "fo4_human_anims_esm", None)
+        load_doors_path = getattr(a, "load_doors", None)
+        game_id = getattr(a, "game", None)
+        resolved_doors_game = None
+        if r11_full or load_doors_path or game_id:
+            resolved_doors_game, _ = load_doors_config(load_doors_path, game_id)
         r12_check_args = []
         if r11_full:
             r12_check_args += ["--r11-full-mission", "1"]
@@ -695,6 +725,10 @@ def stage(a):
             r12_check_args += ["--creatures-esm", creatures_esm]
         if fo4_human_anims_esm:
             r12_check_args += ["--fo4-human-anims-esm", fo4_human_anims_esm]
+        if load_doors_path:
+            r12_check_args += ["--load-doors", load_doors_path]
+        if game_id:
+            r12_check_args += ["--game", game_id]
         r12_write_args = list(r12_check_args)
         if t1b_ready:
             r12_write_args += ["--task1b-vault-recovery", "1"]
@@ -777,6 +811,7 @@ def stage(a):
         "fo4_human_anims": fo4_anims,
         "task1b_vault_recovery": t1b_ready,
         "creature_slots": creature_slots,
+        "load_doors_game": resolved_doors_game,
         "bat": bat_files,
         "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log",
         **provenance,
@@ -1404,6 +1439,10 @@ def main(argv=None):
                    help="optional FO4SFHumanAnims.esm path when --fo4-human-anims 1")
     s.add_argument("--task1b-vault-recovery", nargs="?", const=1, default=0, type=int, choices=(0, 1),
                    help="enable Task 1b Vault 111 recovery readiness gate GLOB (0xB8D=1, default 0)")
+    s.add_argument("--load-doors", default=None,
+                   help="optional per-game load_doors.json path (default: src/fo4sf/core/load_doors.json)")
+    s.add_argument("--game", default=None,
+                   help="target game id in load_doors.json (default: fo4)")
     s.add_argument("--codsworth-race-framing", action="store_true",
                    help="opt into ModelARace standing dialogue camera framing edits on FO4SF_CodsworthRace")
     g = sub.add_parser("log")

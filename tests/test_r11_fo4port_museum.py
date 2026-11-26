@@ -713,8 +713,10 @@ class TestConfirmedLoadDoorAndDocs(unittest.TestCase):
         self.assertNotIn("Utility.Wait(", lq_txt, "FO4SF_LoadDoorQuest must be non-blocking")
         for required in (
             "Scriptname FO4SF_LoadDoorQuest extends Quest",
-            "int Property ExitAnchorId = 0x0A775B Auto",
-            "int Property SecondaryExitAnchorId = 0x0A775C Auto",
+            'string Property ExitAnchorPlugin = "" Auto',
+            "int Property ExitAnchorId = 0 Auto",
+            'string Property SecondaryExitAnchorPlugin = "" Auto',
+            "int Property SecondaryExitAnchorId = 0 Auto",
             "float Property OutRetryAfterSeconds = 1.5 Auto",
             "Event Actor.OnPlayerLoadGame(Actor akSender)",
             "Function ResetAfterReload(Actor player)",

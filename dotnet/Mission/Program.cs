@@ -7,9 +7,11 @@
 //         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth]
 //         [--codsworth-model <mesh under Meshes>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
 //         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>] [--r11-full-mission <0|1>]
+//         [--load-doors <load_doors.json>] [--game <id>]
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth]
 //         [--codsworth-model <mesh>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
 //         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>] [--r11-full-mission <0|1>]
+//         [--load-doors <load_doors.json>] [--game <id>]
 //   npcs <plugin.esm> <fo4 | sf> <regex>
 //   quests <Starfield.esm> [faction regex]
 //   infos <Starfield.esm> <regex | wem:hex,hex...>
@@ -53,7 +55,9 @@ try
                                                        Mission.BoolFlag(args, "--fo4-human-anims", false),
                                                        Mission.BoolFlag(args, "--task1b-vault-recovery", false),
                                                        Mission.ArgOrNull(args, "--creatures-esm"),
-                                                       Mission.ArgOrNull(args, "--fo4-human-anims-esm")),
+                                                       Mission.ArgOrNull(args, "--fo4-human-anims-esm"),
+                                                       Mission.ArgOrNull(args, "--load-doors"),
+                                                       Mission.ArgOrNull(args, "--game")),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"),
                                                        !args.Contains("--no-codsworth"),
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
@@ -66,7 +70,9 @@ try
                                                        Mission.BoolFlag(args, "--fo4-human-anims", false),
                                                        Mission.ArgOrNull(args, "--creature-slots"),
                                                        Mission.ArgOrNull(args, "--creatures-esm"),
-                                                       Mission.ArgOrNull(args, "--fo4-human-anims-esm")),
+                                                       Mission.ArgOrNull(args, "--fo4-human-anims-esm"),
+                                                       Mission.ArgOrNull(args, "--load-doors"),
+                                                       Mission.ArgOrNull(args, "--game")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
@@ -1207,10 +1213,14 @@ static class Mission
                             string? codsworthVoice = null, string? codsworthMqVoice = null, string? prestonVoicePath = null,
                             string? actorLooksDir = null, bool codsworthRaceFraming = false, bool r11FullMission = false,
                             string? creatureSlotsPath = null, bool fo4HumanAnims = false, bool task1bVaultRecovery = false,
-                            string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null)
+                            string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null,
+                            string? loadDoorsPath = null, string? gameId = null)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
+        var loadDoors = r11FullMission || !string.IsNullOrWhiteSpace(loadDoorsPath) || !string.IsNullOrWhiteSpace(gameId)
+            ? NextStoryMissionsS2S6.LoadDoorsConfig.Load(loadDoorsPath, gameId)
+            : null;
         var creatureSlots = r11FullMission
             ? NextStoryMissionsS2S6.CreatureSlotsConfig.LoadOrEmpty(creatureSlotsPath)
             : NextStoryMissionsS2S6.CreatureSlotsConfig.DisabledDefault();
@@ -2129,7 +2139,7 @@ static class Mission
                 mod, cell, m.Sf, m.Cache, quest, script, codsworthQuest, cwScript, qtyp.FormKey, xMarker.FormKey,
                 minutemen.FormKey, prestonTpl, humanRace.FormKey, prestonVoice.FormKey, cods ?? npc,
                 new FormKey(modKey, FalloutActorLooks.ConcordRaiderNpcId), raiderCombatPack.FormKey, raiderSandboxPack.FormKey,
-                creatureSlots, fo4HumanAnims, task1bVaultRecovery, creaturesMod, humanAnimsMod);
+                creatureSlots, fo4HumanAnims, task1bVaultRecovery, creaturesMod, humanAnimsMod, loadDoors);
         }
 
         uint maxId = Math.Max(MissionHoldingCellId + 1, Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))))));
@@ -2224,9 +2234,13 @@ static class Mission
                             string? codsworthModel = null, string? codsworthVoice = null, string? codsworthMqVoice = null,
                             string? prestonVoicePath = null, string? actorLooksDir = null, bool codsworthRaceFraming = false,
                             bool r11FullMission = false, bool fo4HumanAnims = false,
-                            string? creatureSlotsPath = null, string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null)
+                            string? creatureSlotsPath = null, string? creaturesEsmPath = null, string? fo4HumanAnimsEsmPath = null,
+                            string? loadDoorsPath = null, string? gameId = null)
     {
         using var m = Open(sfPath, corePath, raiderPath);
+        var loadDoors = r11FullMission || !string.IsNullOrWhiteSpace(loadDoorsPath) || !string.IsNullOrWhiteSpace(gameId)
+            ? NextStoryMissionsS2S6.LoadDoorsConfig.Load(loadDoorsPath, gameId)
+            : null;
         var creatureSlots = r11FullMission
             ? NextStoryMissionsS2S6.CreatureSlotsConfig.LoadOrEmpty(creatureSlotsPath)
             : NextStoryMissionsS2S6.CreatureSlotsConfig.DisabledDefault();
@@ -2999,7 +3013,7 @@ static class Mission
         // A7cd: Check Act II FO4SF_MQ106 (0xAD0), FO4SF_MQ203 (0xAF0), FO4SF_MQ204 (0xB10), FO4SF_MQ206 (0xB30)
         NextStoryMissionsA7cd.CheckA7cdMissions(plug, SfEsm, QuestTypeSideId, Need);
         // S2-S6: Check full-mission S2 roaches, S3 travel packs + House markers, S4 musket/cells, S5 doors/raiders, S6 settlers, B1/H2/M2/M3 & LoadDoorQuest
-        NextStoryMissionsS2S6.CheckS2S6Missions(plug, problems, r11FullMission, fo4HumanAnims, creatureSlots.Ready, creaturesMod, humanAnimsMod);
+        NextStoryMissionsS2S6.CheckS2S6Missions(plug, problems, r11FullMission, fo4HumanAnims, creatureSlots.Ready, creaturesMod, humanAnimsMod, loadDoors);
 
         // H2: Refuse ANY quest/script VMAD property that targets a SCEN record (Scene VMAD properties bind to None at new game).
         var localSceneKeys = plug.Quests.SelectMany(qq => qq.Scenes).Select(sc => sc.FormKey).ToHashSet();
@@ -3408,6 +3422,41 @@ static class Mission
                     { Console.WriteLine($"FAIL  check passed mutated --r11-full-mission 1 plugin: {name}"); return 1; }
                 Console.WriteLine($"mutation rejected: {name} (--r11-full-mission 1)");
             }
+
+            // H5: Alternate game row in load_doors.json builds & validates FO4SF_LoadDoorQuest + 4 doors without touching .psc
+            var altDoorsPath = Path.Combine(dir, "alt_load_doors.json");
+            File.WriteAllText(altDoorsPath, """
+            {
+              "schema_version": 1,
+              "default_game": "fo4",
+              "games": {
+                "test_game": {
+                  "id": "test_game",
+                  "game": "TEST",
+                  "available": true,
+                  "controller": {
+                    "exit_anchor_plugin": "TestTerrainCore.esm",
+                    "exit_anchor_id": "0x0B1234",
+                    "secondary_exit_anchor_plugin": "TestTerrainCore.esm",
+                    "secondary_exit_anchor_id": "0x0B5678"
+                  },
+                  "doors": {
+                    "s5_front_in": {"direction": "in", "door_tag": "s5_front_in", "target_plugin": "TestPort.esm", "target_form_id": "0x00F100", "fallback_target_plugin": "", "fallback_target_form_id": "0x0", "use_destination_position": false, "destination_pos": [0.0, 0.0, 0.0]},
+                    "s5_front_out": {"direction": "out", "door_tag": "s5_front_out", "target_plugin": "TestTerrainCore.esm", "target_form_id": "0x0B1234", "fallback_target_plugin": "TestTerrainCore.esm", "fallback_target_form_id": "0x0B5678", "use_destination_position": true, "destination_pos": [100.0, 200.0, 30.0]},
+                    "s5_roof_out": {"direction": "out", "door_tag": "s5_roof_out", "target_plugin": "TestTerrainCore.esm", "target_form_id": "0x0B1234", "fallback_target_plugin": "TestTerrainCore.esm", "fallback_target_form_id": "0x0B5678", "use_destination_position": true, "destination_pos": [110.0, 210.0, 42.0]},
+                    "s5_roof_in": {"direction": "in", "door_tag": "s5_roof_in", "target_plugin": "TestPort.esm", "target_form_id": "0x00F100", "fallback_target_plugin": "", "fallback_target_form_id": "0x0", "use_destination_position": true, "destination_pos": [1.0, 2.0, 3.0]}
+                  }
+                }
+              }
+            }
+            """);
+            var oAltDoors = Path.Combine(outDir, "r11_alt_load_doors");
+            int rcAlt = Write(sfPath, corePath, raiderPath, pointsPath, oAltDoors, Plugin, World, true, CodsworthBody, r11FullMission: true, loadDoorsPath: altDoorsPath, gameId: "test_game");
+            if (rcAlt == 0) rcAlt = Check(Path.Combine(oAltDoors, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true, loadDoorsPath: altDoorsPath, gameId: "test_game");
+            if (rcAlt != 0) return rcAlt;
+            if (Check(Path.Combine(oAltDoors, Plugin), sfPath, corePath, raiderPath, true, true, r11FullMission: true) == 0)
+                { Console.WriteLine("FAIL  check passed test_game load_doors plugin under default fo4 load_doors"); return 1; }
+            Console.WriteLine("verified: alternate load_doors.json game row propagates into FO4SF_LoadDoorQuest + S5 door VMAD");
         }
         {
             var o = Path.Combine(outDir, "nocodsworth");

@@ -53,7 +53,7 @@ Group Target
     {Short identifier included in every FO4SF_LOADDOOR log line.}
 
     Quest Property LoadDoorController Auto
-    {Optional StartGameEnabled FO4SF_LoadDoorQuest controller that owns active MoveTo + StartTimer transitions.}
+    {Required StartGameEnabled FO4SF_LoadDoorQuest controller that owns active MoveTo + StartTimer transitions.}
 EndGroup
 
 Group Coordinates
@@ -146,21 +146,10 @@ Function ResetOnReload()
 EndFunction
 
 FO4SF_LoadDoorQuest Function ResolveLoadDoorController()
-    if LoadDoorController != None
-        FO4SF_LoadDoorQuest bound = LoadDoorController as FO4SF_LoadDoorQuest
-        if bound != None
-            return bound
-        endif
+    if LoadDoorController == None
+        return None
     endif
-    FO4SF_LoadDoorQuest missionCtrl = Game.GetFormFromFile(0x000BDE, "FO4SFMission.esm") as FO4SF_LoadDoorQuest
-    if missionCtrl != None
-        return missionCtrl
-    endif
-    FO4SF_LoadDoorQuest probeCtrl = Game.GetFormFromFile(0x000821, "FO4SF_R11P1Museum.esm") as FO4SF_LoadDoorQuest
-    if probeCtrl != None
-        return probeCtrl
-    endif
-    return None
+    return LoadDoorController as FO4SF_LoadDoorQuest
 EndFunction
 
 float Function GetWatchdogSeconds()
@@ -195,50 +184,27 @@ Event OnActivate(ObjectReference akActionRef)
     float ty = DestinationY + MergeOffsetY
     float tz = DestinationZ
 
-    FO4SF_LoadDoorQuest ctrl = ResolveLoadDoorController()
-    if ctrl != None
-        busy = true
-        inFlight = true
-        settlePending = false
-        delegatedToQuest = true
-        watchdogStartedAt = Utility.GetCurrentRealTime()
-        StartTimer(GetWatchdogSeconds(), TIMER_WATCHDOG)
-        bool accepted = ctrl.BeginDoorTransition(Self, player, DestinationAnchor, TargetPlugin, TargetFormId, FallbackTargetPlugin, FallbackTargetFormId, Direction, DoorTag, UseDestinationPosition, tx, ty, tz, DestinationHeading, RequireCoreCell, PositionToleranceSq, FallDrop, MaxRetries, GetPollInterval(), MaxWaitSteps, SettleSeconds)
-        if !accepted
-            ClearState()
-        endif
+    if LoadDoorController == None
+        Log("FO4SF_LOADDOOR failed tag=" + DoorTag + " dir=" + Direction + " attempts=0 reason=controller_unbound")
         return
     endif
 
-    ObjectReference anchor = ResolveAnchor()
-    if anchor == None
-        Log("FO4SF_LOADDOOR failed tag=" + DoorTag + " dir=" + Direction + " attempts=0 reason=anchor_missing plugin=" + TargetPlugin + " formid=" + TargetFormId)
+    FO4SF_LoadDoorQuest ctrl = ResolveLoadDoorController()
+    if ctrl == None
+        Log("FO4SF_LOADDOOR failed tag=" + DoorTag + " dir=" + Direction + " attempts=0 reason=controller_invalid controller=" + LoadDoorController)
         return
     endif
 
     busy = true
     inFlight = true
     settlePending = false
-    delegatedToQuest = false
-    watchdogStartedAt = 0.0
-    activeIsOut = (Direction == "out" || Direction == "OUT" || Direction == "Out")
-    activeBeforeCell = beforeCell
-    activeAnchor = anchor
-    activeAnchorCell = anchor.GetParentCell()
-    activeTx = tx
-    activeTy = ty
-    activeTz = tz
-    activeMaxTries = MaxRetries
-    if activeMaxTries < 1
-        activeMaxTries = 1
+    delegatedToQuest = true
+    watchdogStartedAt = Utility.GetCurrentRealTime()
+    StartTimer(GetWatchdogSeconds(), TIMER_WATCHDOG)
+    bool accepted = ctrl.BeginDoorTransition(Self, player, DestinationAnchor, TargetPlugin, TargetFormId, FallbackTargetPlugin, FallbackTargetFormId, Direction, DoorTag, UseDestinationPosition, tx, ty, tz, DestinationHeading, RequireCoreCell, PositionToleranceSq, FallDrop, MaxRetries, GetPollInterval(), MaxWaitSteps, SettleSeconds)
+    if !accepted
+        ClearState()
     endif
-    activeAttempt = 1
-    activeWaitStep = 0
-    lastReason = ""
-
-    ; Non-blocking MoveTo + StartTimer: return from OnActivate immediately so CE2 cell streaming never stalls.
-    player.MoveTo(activeAnchor, 0.0, 0.0, 0.0, True, False)
-    StartTimer(GetPollInterval(), TIMER_ARRIVAL)
 EndEvent
 
 Event OnTimer(int aiTimerID)
