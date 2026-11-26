@@ -65,6 +65,12 @@ SPEC = (
      "main before play and before the window opens, fast-forwards this checkout when it is on main with nothing of "
      "its own uncommitted or unpushed, and starts again on the new code; check only says how far behind it is; off "
      "fetches nothing. A network or git problem never stops play. Built plugins and installs are not updated by it."),
+    ("start_cover", False, bool,
+     "show the Fallout-style Start Cover (src/fo4sf/launcher/start_cover.py) while Starfield boots and remove it on "
+     "the ready signal file, hard timeout, Cancel, or any crash/exit. Off by default; never tails game logs, sends "
+     "input, or steals focus."),
+    ("start_cover.timeout_s", 90.0, float,
+     "hard timeout in seconds before the Start Cover removes itself automatically even if no ready signal arrives."),
 )
 KEYS = {k: (d, t, why) for k, d, t, why in SPEC}
 # the plain name `settings` shows first on each line, so a toggle reads without knowing its key
@@ -86,6 +92,8 @@ LABELS = {
     "route": "How the game starts",
     "instance": "FO4SF game folder",
     "update": "Update the launcher from GitHub",
+    "start_cover": "Start cover while Starfield boots",
+    "start_cover.timeout_s": "Start cover timeout (s)",
 }
 
 
@@ -187,6 +195,8 @@ def problems(values):
         out.append("bridge=on needs papyrus_logging=on: the bridge only sees what Papyrus logs")
     if values["papyrus_logging"] != "unchanged" and not values["my_games"] and not values["instance"]:
         out.append("my_games is not set (needed to change Papyrus logging)")
+    if values["start_cover"] and values["start_cover.timeout_s"] <= 0:
+        out.append("start_cover.timeout_s must be greater than 0 (needed while the start cover is on)")
     return out
 
 

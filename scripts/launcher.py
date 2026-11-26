@@ -76,7 +76,8 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from fo4sf.launcher import (bundle, crashwatch, detect, driver, files, instance, locate, manifest,  # noqa: E402
-                            paths, plugin_checks, recovery, restore, runtimes, same_ids, selfupdate, settings, test_kits)
+                            paths, plugin_checks, recovery, restore, runtimes, same_ids, selfupdate, settings,
+                            start_cover, test_kits)
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -479,6 +480,42 @@ def cmd_gui(a):
                       fo4_data=a.fo4_data, starfield=a.starfield)
 
 
+def cmd_cover_signal(a):
+    sig = a.signal_file or start_cover.default_signal_path()
+    written = start_cover.write_fake_ready_signal(sig, nonce=a.nonce, stage=a.stage)
+    print(f"wrote ready signal: {written} (stage={a.stage})")
+    return 0
+
+
+def cmd_cover_preview(a):
+    sig = a.signal_file or start_cover.default_signal_path()
+    ctrl = start_cover.StartCoverController(sig, timeout_s=a.timeout, expected_nonce=a.nonce)
+    from fo4sf.launcher import gui
+    try:
+        import tkinter as tk
+        from tkinter import font as tkfont, ttk
+    except ImportError:
+        raise ValueError("cover-preview needs Python's tkinter") from None
+    root = tk.Tk()
+    root.withdraw()
+    use_light = gui.detect_windows_light_theme()
+    pal = gui.select_palette(use_light)
+    gui.apply_theme(root, ttk, tkfont, light=use_light)
+    face = gui.pick_font(set(tkfont.families(root)))
+    result = {}
+
+    def done(snap):
+        result.update(snap)
+        root.quit()
+
+    start_cover.StartCoverWindow(root, ctrl, palette=pal, font_family=face, fullscreen=not a.windowed, on_closed=done)
+    root.mainloop()
+    root.destroy()
+    stage = (result.get("ready_info") or {}).get("stage") or "none"
+    print(f"cover closed: reason={result.get('reason', 'unknown')} stage={stage}")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -609,6 +646,15 @@ def main(argv=None):
     s.add_argument("--settings", default="")
     s.add_argument("--keep-data-dir", action="append", default=[], help="a Data folder to keep (repeatable)")
     s.add_argument("--min-free-gb", type=float, default=40.0, help="free space the drive keeps (default 40)")
+    s = sub.add_parser("cover-preview", help="preview the standalone Start Cover without starting Starfield")
+    s.add_argument("--signal-file", default="")
+    s.add_argument("--timeout", type=float, default=15.0)
+    s.add_argument("--nonce", default="")
+    s.add_argument("--windowed", action="store_true")
+    s = sub.add_parser("cover-signal", help="write an atomic fake ready signal for Start Cover verification")
+    s.add_argument("--signal-file", default="")
+    s.add_argument("--nonce", default="")
+    s.add_argument("--stage", default="fake_ready")
     given = list(sys.argv[1:] if argv is None else argv)
     command = []
     if given[:1] == ["instance"] and "--" in given:            # instance run -- <command>: everything after -- is it
@@ -624,7 +670,8 @@ def main(argv=None):
                 "check-plugins": cmd_check_plugins, "find": cmd_find, "bundle": cmd_bundle, "measure": cmd_measure,
                 "status": cmd_status, "settings": cmd_settings, "play": cmd_play,
                 "watch": cmd_watch, "gui": cmd_gui, "paths": cmd_paths, "update": cmd_update,
-                "instance": cmd_instance, "recover-install": cmd_recover_install, "tests": cmd_tests}[a.cmd](a)
+                "instance": cmd_instance, "recover-install": cmd_recover_install, "tests": cmd_tests,
+                "cover-preview": cmd_cover_preview, "cover-signal": cmd_cover_signal}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2
