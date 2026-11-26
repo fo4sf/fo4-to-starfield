@@ -265,7 +265,7 @@ NATIVES = {
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
                             "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "PlaceAtMe", "RemoveItem", "RemoveAllItems",
                             "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
-                            "SetMarkerDiscovered", "AddToMap", "EnableFastTravel", "Reset", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
+                            "SetMarkerDiscovered", "AddToMap", "IsMapMarkerVisible", "CanFastTravelToMarker", "EnableFastTravel", "Reset", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
                             "BlockActivation", "OnActivate", "OnItemAdded", "OnItemRemoved", "RestoreValue"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
@@ -1097,6 +1097,8 @@ def summarize(lines):
             s["landed"] = True
         elif msg.startswith("arrival discovery requested "):
             s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("arrival discovery silent="):
+            s["arrival_discovery_requested"] = msg[len("arrival discovery "):]
         elif msg.startswith("arrival discovery failed "):
             s["arrival_discovery_failed"] = msg[len("arrival discovery failed "):]
         elif msg.startswith("special default "):

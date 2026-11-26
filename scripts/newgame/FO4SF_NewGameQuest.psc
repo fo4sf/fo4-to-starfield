@@ -291,11 +291,13 @@ int Property StartChoiceBackdrop = 1 Auto Const
 {N2 / S1 / R5 backdrop variant: 1 empty_cell (default), 2 title_card (FO4SF_StartCardMenu), 3 setup_menu (FO4SF_SetupMenu), 0 none.}
 float Property StartLoadTimeout = 15.0 Auto Const
 {H0 / R10 hard ceiling (seconds) waiting for LoadingMenu close before forcing fade lift and showing set-up prompts.}
-bool Property MuteArrivalDiscoveryPopup = true Auto Const
+bool Property SilentArrivalDiscovery = true Auto Const
+string Property ArrivalDiscoveryMethod = "add_to_map" Auto Const
 bool Property SilentStarterStrip = true Auto Const
 Form[] Property StarterStripItems Auto Const
 bool Property SinglePassLandingFade = true Auto Const
 string Property PodExitMode = "safe_spawn" Auto Const
+float Property PodEntryStep = -2.5 Auto Const
 float Property PodSafeStep = -3.2 Auto Const
 float Property PodSafeHeading = 270.0 Auto Const
 bool Property HasPodSafeExitOverride = false Auto Const
@@ -641,18 +643,29 @@ bool Function IsPreworldLooksHandled()
     return preworldLooksDone || looksSetStage20 || UsePreworldRoom()
 EndFunction
 
+float Function PodEntryY()
+    return PodY + (PodEntryStep + 2.5)
+EndFunction
+
+float Function PodSafeY()
+    if HasPodSafeExitOverride
+        return PodY
+    endif
+    return PodEntryY() + (PodSafeStep - PodEntryStep)
+EndFunction
+
 Function RunPodExitHook(Actor player)
 {Stage 15 pod-exit seam: places the player clear of the cryo pod facing PodSafeHeading (safe_spawn) or reserves the cryopod_anim hook without touching fade or exit lift.}
     if podExitDone
         return
     endif
     podExitDone = true
-    if GetStage() < 15
-        SetStage(15)
-    endif
     if applied < 15
         applied = 15
         Trace("stage 15 by=" + PodExitMode)
+    endif
+    if GetStage() < 15
+        SetStage(15)
     endif
     if PodExitMode == "cryopod_anim"
         float animX = PodX
@@ -665,19 +678,18 @@ Function RunPodExitHook(Actor player)
             animZ = player.GetPositionZ()
             animHdg = player.GetAngleZ()
         endif
-        Trace("pod_exit mode=cryopod_anim_hook hook_stage=15 clear=true pos=" + animX + " " + animY + " " + animZ + " heading=" + animHdg)
+        Trace("pod_exit mode=cryopod_anim_hook hook_stage=15 moved=false pos=" + animX + " " + animY + " " + animZ + " heading=" + animHdg)
         return
     endif
     if PodExitMode == "safe_spawn"
         float safeX = PodX
-        float safeY = PodY
-        if !HasPodSafeExitOverride
-            safeY = PodY + (PodSafeStep + 2.5)
-        endif
+        float safeY = PodSafeY()
         float safeZ = PodZ + PodLift
+        bool moved = false
         if player != None && player.IsInInterior() && StandsInVault(player)
             player.SetPosition(safeX, safeY, safeZ)
             player.SetAngle(0.0, 0.0, PodSafeHeading)
+            moved = true
         endif
         float outX = safeX
         float outY = safeY
@@ -687,7 +699,7 @@ Function RunPodExitHook(Actor player)
             outY = player.GetPositionY()
             outZ = player.GetPositionZ()
         endif
-        Trace("pod_exit mode=" + PodExitMode + " hook_stage=15 clear=true pos=" + outX + " " + outY + " " + outZ + " heading=" + PodSafeHeading)
+        Trace("pod_exit mode=" + PodExitMode + " hook_stage=15 moved=" + moved + " pos=" + outX + " " + outY + " " + outZ + " heading=" + PodSafeHeading)
         return
     endif
     float curX = PodX
@@ -700,7 +712,7 @@ Function RunPodExitHook(Actor player)
         curZ = player.GetPositionZ()
         curHdg = player.GetAngleZ()
     endif
-    Trace("pod_exit mode=" + PodExitMode + " hook_stage=15 clear=true pos=" + curX + " " + curY + " " + curZ + " heading=" + curHdg)
+    Trace("pod_exit mode=" + PodExitMode + " hook_stage=15 moved=false pos=" + curX + " " + curY + " " + curZ + " heading=" + curHdg)
 EndFunction
 
 Function ApplyStage(int n, string by)
@@ -917,14 +929,16 @@ Event OnTimer(int aiTimerID)
             preworldLooksDone = false
             looksSetStage20 = true
             Trace("looks done: " + preworldLooksHow)
+            RunPodExitHook(player)
             AdvanceTo(20, preworldLooksBy)
-            NoteLooksStage20()
         elseif Utility.GetCurrentRealTime() - startedAt > LooksWait
             if LooksWait > 0.0
                 Trace("looks done: LooksWait fallback after " + LooksWait + " s")
+                RunPodExitHook(player)
                 AdvanceTo(20, "fallback")
             else
                 Trace("looks done: no-looks immediate start")
+                RunPodExitHook(player)
                 AdvanceTo(20, "Trigger")
             endif
         endif
@@ -1023,11 +1037,12 @@ bool Function EnterVault(Actor player)
         Trace("vault anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve")
         return false
     endif
-    player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
+    float entryY = PodEntryY()
+    player.MoveTo(anchor, PodX - AnchorX, entryY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
     vaultMoves += 1
     player.SetAngle(0.0, 0.0, PodHeading)
     bool ok = player.GetParentCell() == anchor.GetParentCell()
-    Trace("enter vault ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + PodX + " " + PodY + " " + (PodZ + PodLift) + " cell=" + player.GetParentCell())
+    Trace("enter vault ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + PodX + " " + entryY + " " + (PodZ + PodLift) + " cell=" + player.GetParentCell())
     if ok && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
         Debug.Notification("Vault 111")
     endif
@@ -1044,9 +1059,10 @@ Function CheckPod(Actor player)
     float sampleX = player.GetPositionX()
     float sampleY = player.GetPositionY()
     float sampleZ = player.GetPositionZ()
+    float targetY = PodEntryY()
     float targetZ = PodZ + PodLift
     float dx = sampleX - PodX
-    float dy = sampleY - PodY
+    float dy = sampleY - targetY
     float drop = targetZ - sampleZ
     bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop
     float sampledHeading = player.GetAngleZ()
@@ -1054,7 +1070,7 @@ Function CheckPod(Actor player)
     Cell sampledCell = player.GetParentCell()
     WorldSpace sampledWorld = player.GetWorldSpace()
     float sampleEnd = Utility.GetCurrentRealTime()
-    Trace("pod settle ok=" + ok + " pos=" + sampleX + " " + sampleY + " " + sampleZ + " dx=" + dx + " dy=" + dy + " drop=" + drop + " target=" + PodX + " " + PodY + " " + targetZ + " heading=" + sampledHeading + " loaded=" + sampledLoaded + " cell=" + sampledCell + " world=" + sampledWorld + " sample_start=" + sampleStart + " sample_end=" + sampleEnd)
+    Trace("pod settle ok=" + ok + " pos=" + sampleX + " " + sampleY + " " + sampleZ + " dx=" + dx + " dy=" + dy + " drop=" + drop + " target=" + PodX + " " + targetY + " " + targetZ + " heading=" + sampledHeading + " loaded=" + sampledLoaded + " cell=" + sampledCell + " world=" + sampledWorld + " sample_start=" + sampleStart + " sample_end=" + sampleEnd)
 EndFunction
 
 bool Function StandsInVault(Actor player)
@@ -1701,12 +1717,44 @@ bool Function RequestArrivalDiscovery(Actor player)
         Trace("arrival discovery failed reason=state_changed_before_discover ref=" + marker)
         return false
     endif
-    if MuteArrivalDiscoveryPopup
-        Trace("arrival discovery muted=true reason=per_game_flag ref=" + marker)
-        return true
+    DiscoverMarkerViaMapMarkers(marker)
+    bool visible = marker.IsMapMarkerVisible()
+    bool canTravel = marker.CanFastTravelToMarker()
+    Trace("arrival discovery silent=" + SilentArrivalDiscovery + " method=" + ArrivalDiscoveryMethod + " visible=" + visible + " can_travel=" + canTravel + " ref=" + marker + " world=" + marker.GetWorldSpace() + " fast_before=" + enabledBefore + " fast_after=" + Game.IsFastTravelEnabled())
+    return true
+EndFunction
+
+bool Function DiscoverMarkerViaMapMarkers(ObjectReference target)
+    if target == None
+        return false
     endif
-    marker.SetMarkerDiscovered()
-    Trace("arrival discovery requested ref=" + marker + " world=" + marker.GetWorldSpace() + " fast_before=" + enabledBefore + " fast_after=" + Game.IsFastTravelEnabled())
+    ScriptObject mm = None
+    if MapMarkerQuestIds.Length > 0
+        Form mmForm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm")
+        if mmForm != None
+            mm = mmForm.CastAs("FO4SF_MapMarkers")
+        endif
+    endif
+    if mm != None
+        if SilentArrivalDiscovery
+            Var[] args = new Var[2]
+            args[0] = target
+            args[1] = ArrivalDiscoveryMethod
+            mm.CallFunction("DiscoverSingleMarkerSilent", args)
+            return true
+        else
+            Var[] args = new Var[1]
+            args[0] = target
+            mm.CallFunction("DiscoverSingleMarker", args)
+            return true
+        endif
+    endif
+    target.Enable(False)
+    if SilentArrivalDiscovery && ArrivalDiscoveryMethod == "add_to_map"
+        target.AddToMap(True)
+    else
+        target.SetMarkerDiscovered()
+    endif
     return true
 EndFunction
 
@@ -1961,14 +2009,20 @@ Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
     if healthAv != None
         akSender.RestoreValue(healthAv, 9999.0)
     endif
+    float resetY = PodEntryY()
+    float resetHeading = PodHeading
+    if PodExitMode == "safe_spawn"
+        resetY = PodSafeY()
+        resetHeading = PodSafeHeading
+    endif
     if akSender.IsInInterior() && StandsInVault(akSender)
-        akSender.SetPosition(PodX, PodY, PodZ + PodLift)
-        akSender.SetAngle(0.0, 0.0, PodHeading)
+        akSender.SetPosition(PodX, resetY, PodZ + PodLift)
+        akSender.SetAngle(0.0, 0.0, resetHeading)
     else
         ObjectReference podAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
         if podAnchor != None
-            akSender.MoveTo(podAnchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
-            akSender.SetAngle(0.0, 0.0, PodHeading)
+            akSender.MoveTo(podAnchor, PodX - AnchorX, resetY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
+            akSender.SetAngle(0.0, 0.0, resetHeading)
         endif
     endif
     Trace("vault_death_recovery=pod_reset stage=" + st)
@@ -2373,8 +2427,8 @@ Function SpawnAtStoryStartPlace(Actor player, int placeRow)
             preworldLooksDone = false
             looksSetStage20 = true
             Trace("looks done: " + preworldLooksHow)
+            RunPodExitHook(player)
             AdvanceTo(20, preworldLooksBy)
-            NoteLooksStage20()
         endif
     endif
 EndFunction
@@ -2878,18 +2932,8 @@ Function RunWarfareBranch(Actor player, int rowIdx)
                 wMarker.SetPosition(wx, wy, WarfareMarkerZ[rowIdx])
             endif
         endif
-        ScriptObject wmm = None
-        if MapMarkerQuestIds.Length > 0
-            Form wmmForm = Game.GetFormFromFile(MapMarkerQuestIds[0], "FO4SFMapMarkers.esm")
-            if wmmForm != None
-                wmm = wmmForm.CastAs("FO4SF_MapMarkers")
-            endif
-        endif
-        if wmm != None
-            Var[] wmmArgs = new Var[1]
-            wmmArgs[0] = wMarker
-            wmm.CallFunction("DiscoverSingleMarker", wmmArgs)
-        endif
+        DiscoverMarkerViaMapMarkers(wMarker)
+        Trace("arrival discovery silent=" + SilentArrivalDiscovery + " method=" + ArrivalDiscoveryMethod + " visible=" + wMarker.IsMapMarkerVisible() + " can_travel=" + wMarker.CanFastTravelToMarker() + " ref=" + wMarker)
     endif
     int slot = WarfareFactionSlots[rowIdx]
     float fame = WarfareFames[rowIdx]

@@ -521,7 +521,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("int Property CenterTicks = 30 Auto Const", psc)
         enter = psc[psc.index("bool Function EnterVault"):psc.index("bool Function CenterOnVault")]
         self.assertIn("if anchor == None\n        if AnchorTemporary\n            return CenterOnVault()\n        endif", enter)
-        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
+        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, entryY - AnchorY, PodZ + PodLift - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
         center = psc[psc.index("bool Function CenterOnVault"):psc.index("Function ResetInventory")]
         self.assertEqual(center.count("Debug.CenterOnCell(VaultCell)"), 1)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)      # nowhere else
@@ -574,13 +574,14 @@ class ContractTests(unittest.TestCase):
         self.assertIn("float Property PodDrop = 0.5 Auto Const", psc)
         self.assertAlmostEqual(-1.029 + 0.3, -0.738, delta=0.01)   # the lifted start is the marker's height
         enter = psc[psc.index("bool Function EnterVault"):psc.index("Function CheckPod")]
-        self.assertIn('" target=" + PodX + " " + PodY + " " + (PodZ + PodLift) + " cell="', enter)   # the log's target is the start
+        self.assertIn('" target=" + PodX + " " + entryY + " " + (PodZ + PodLift) + " cell="', enter)   # the log's target is the start
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         ten = body[body.index("elseif stage == 10"):body.index("elseif stage == 20 || stage == 30")]
         self.assertIn("if !podChecked && player.Is3DLoaded()\n            CheckPod(player)\n        endif", ten)
         self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
         check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
         self.assertIn("podChecked = true", check)
+        self.assertIn("float targetY = PodEntryY()", check)
         self.assertIn("float targetZ = PodZ + PodLift", check)
         self.assertIn("float drop = targetZ - sampleZ", check)
         self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
@@ -2204,7 +2205,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn('CallFunction("ApplyWarfareBackground"', wf)
         self.assertIn('Trace("warfare gear n=" + gearAdded)', wf)
         self.assertIn('Trace("warfare move ok=" + moveOk + " marker=" + wMarker + " dist=" + dist + " z=" + player.GetPositionZ())', wf)
-        self.assertIn('CallFunction("DiscoverSingleMarker"', wf)
+        self.assertIn("DiscoverMarkerViaMapMarkers(wMarker)", wf)
+        self.assertIn('Trace("arrival discovery silent="', wf)
+        self.assertIn("DiscoverMarkerViaMapMarkers(", psc)
+        self.assertIn('CallFunction("DiscoverSingleMarkerSilent"', psc)
         self.assertIn('CallFunction("SetFactionScoresAbsolute"', wf)
         self.assertIn('CallFunction("SetKarmaAbsolute"', wf)
         self.assertIn("player.AddToFaction(fac)", wf)
@@ -2451,7 +2455,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
-            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "EnterVault", "PodEntryY", "StandsInVault", "FadeIn", "DisableHandScanner",
             "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
             "MenuEvent", "StageEvent", "TimerEvent",
         )
@@ -2507,7 +2511,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice", "SpawnAtStoryStartPlace",
-            "EnterVault", "StandsInVault", "FadeIn", "DisableHandScanner",
+            "EnterVault", "PodEntryY", "StandsInVault", "FadeIn", "DisableHandScanner",
             "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
@@ -2674,7 +2678,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "RunWarfareBranch", "DiscoverMarkerViaMapMarkers", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
             "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent",
         )
         vars_csv = (
@@ -2699,6 +2703,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     Enable=lambda *a: None,
                     MoveTo=lambda *a: None,
                     SetPosition=lambda *a: None,
+                    AddToMap=lambda *a: None,
+                    SetMarkerDiscovered=lambda: None,
+                    IsMapMarkerVisible=lambda: True,
+                    CanFastTravelToMarker=lambda: True,
                 )
                 player = SimpleNamespace(
                     pos=(0.0, 0.0, 0.0),
@@ -2890,8 +2898,8 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "ResetInventory",
-            "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
+            "SpawnAtStoryStartPlace", "EnterVault", "PodEntryY", "StandsInVault", "ResetInventory",
+            "RunWarfareBranch", "DiscoverMarkerViaMapMarkers", "RunSharedMapSetup", "FillO2", "FadeIn", "ForceFadeIn", "DisableHandScanner",
             "NoteLooksStage20", "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain",
         )
         vars_csv = (
@@ -2956,6 +2964,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 Enable=lambda *a: None,
                 MoveTo=lambda *a: None,
                 SetPosition=lambda *a: None,
+                AddToMap=lambda *a: None,
+                SetMarkerDiscovered=lambda: None,
+                IsMapMarkerVisible=lambda: True,
+                CanFastTravelToMarker=lambda: True,
             )
             player = SimpleNamespace(
                 pos=(0.0, 0.0, 0.0),
@@ -3162,7 +3174,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "SpawnAtStoryStartPlace", "EnterVault", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "FillO2",
+            "SpawnAtStoryStartPlace", "EnterVault", "PodEntryY", "StandsInVault", "CheckPod", "InVault", "ResetInventory", "FillO2",
             "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
             "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "MenuEvent", "TimerEvent",
         )
@@ -3365,7 +3377,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
             "SetStartCardBackdrop", "WaitForStartUiReady", "HoldNeutralSpotForModeChoice",
             "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "ReadH00Glob",
             "FindStoryStartPlaceRow", "FindWarfareStartPlaceRow", "RunPreworldLooksChoice",
-            "ForceFadeIn", "RunWarfareBranch", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
+            "ForceFadeIn", "RunWarfareBranch", "DiscoverMarkerViaMapMarkers", "RunSharedMapSetup", "FillO2", "FadeIn", "DisableHandScanner",
             "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
@@ -3412,6 +3424,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
             Enable=lambda *a: None,
             MoveTo=lambda *a: None,
             SetPosition=lambda *a: None,
+            AddToMap=lambda *a: None,
+            SetMarkerDiscovered=lambda: None,
+            IsMapMarkerVisible=lambda: True,
+            CanFastTravelToMarker=lambda: True,
         )
         load_checks = [0]
         def is_3d_loaded():
@@ -3581,7 +3597,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         wrapped = psc + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
         funcs = (
             "FadeIn", "ForceFadeIn", "ReleaseStoryLandingFade", "DisableHandScanner",
-            "StandsInVault", "FinishSurface", "CheckLanding", "RequestArrivalDiscovery",
+            "StandsInVault", "FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers",
             "ClearVaultSaveLock", "ApplyStage", "AdvanceTo", "TimerEvent",
         )
         vars_csv = (
@@ -3611,6 +3627,9 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 MoveTo=lambda *a: None,
                 SetPosition=lambda *a: None,
                 SetMarkerDiscovered=lambda: None,
+                AddToMap=lambda *a: None,
+                IsMapMarkerVisible=lambda: True,
+                CanFastTravelToMarker=lambda: True,
             )
             loaded_state = [True]
             delayed_done = [False]
@@ -3800,6 +3819,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         funcs = (
             "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
             "ClearVaultSaveLock", "RelockVaultSaving",
+            "PodEntryY", "PodSafeY",
             "NoteLooksStage20", "ApplyStage", "Actor.OnPlayerLoadGame",
             "TimerEvent", "DyingEvent", "StageSetEvent", "ResolveHostWorld",
         )
@@ -3859,6 +3879,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 VaultAnchorId=0x805,
                 AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
                 PodX=-62.5, PodY=1.5, PodZ=-1.0, PodLift=0.3, PodHeading=90.0,
+                PodEntryStep=-2.5, PodSafeStep=-3.2, PodSafeHeading=270.0, HasPodSafeExitOverride=False, PodExitMode="safe_spawn",
                 applied=0, pendingStage=-1, pendingStageBy="other", exitUsedFallback=False,
                 vaultPodAutosaved=pre_autosaved, vaultSavingRelocked=False, vaultRecoveryTriggered=False,
                 vaultPodAutosaveSkips=0, loadHookRegistered=False, dyingHookRegistered=False,
@@ -4017,14 +4038,14 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertEqual(c_dead.timers, [])
         self.assertIn(7, c_dead.cancels)
 
-        # 2. Dying BEFORE stage 200 without an autosave restores health + moves to pod coords + logs pod_reset + arms Timer 7 (NO save in OnDying!)
+        # 2. Dying BEFORE stage 200 without an autosave restores health + resets to pod_safe_spawn position & heading + logs pod_reset + arms Timer 7 (NO save in OnDying!)
         c2 = run_case(initial_stage=10, mode=1.0, in_vault=True, pre_autosaved=False)
         c2.ns["DyingEvent"](c2.player, None)
         self.assertEqual(c2.restores, [(c2.health_av, 9999.0)])
         self.assertAlmostEqual(c2.sets[-1][0], -62.5, places=3)
-        self.assertAlmostEqual(c2.sets[-1][1], 1.5, places=3)
+        self.assertAlmostEqual(c2.sets[-1][1], 0.8, places=3)
         self.assertAlmostEqual(c2.sets[-1][2], -0.7, places=3)
-        self.assertEqual(c2.angles[-1], (0.0, 0.0, 90.0))
+        self.assertEqual(c2.angles[-1], (0.0, 0.0, 270.0))
         self.assertEqual(c2.autosaves, [])
         self.assertEqual(c2.chargens, [])
         self.assertIn((1.0, 7), c2.timers)

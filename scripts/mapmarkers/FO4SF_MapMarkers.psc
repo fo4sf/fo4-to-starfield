@@ -90,11 +90,17 @@ int Property HopLimit = 1 Auto Const
 {Reloads per game session: one that does not help (a world made again on the way back moves every marker in again)
  would otherwise repeat.}
 
-bool Property HoldDark = True Auto Const
-{The first quest keeps the screen black from an arrival until its reload is back, so the first map the player opens
- lists every marker (option A put to the owner, 2026-10-31): it fades out at its first marker that comes in late
- within HoldWindow seconds of the player entering the world, and the reload's way back fades in. False: the reload
- only (a short blink).}
+ObjectReference Property ReturnAnchor Auto Const
+{Non-marker exterior XMarker anchor (FO4Core_CommonwealthAnchor in FO4TerrainCore.esm) used by ComeBack so the reload never lands on Markers[0] (Red Rocket).}
+
+string Property CorePlugin = "FO4TerrainCore.esm" Auto Const
+{Master core plugin queried when ReturnAnchor is unset.}
+
+int Property ReturnAnchorId = 0x000800 Auto Const
+{FormID of the non-marker exterior XMarker anchor in CorePlugin when ReturnAnchor is unset.}
+
+bool Property HoldDark = False Auto Const
+{False (default): never black-hold story landing. True: keep the screen black from a late marker arrival until the reload is back.}
 
 float Property HoldWindow = 15.0 Auto Const
 {Seconds after the player entered the world in which a late marker still starts the hold; later, they are playing. The
@@ -507,13 +513,10 @@ Function Reload(Actor player, WorldSpace w)
         endif
         return
     endif
-    int a = 0                                                 ; the way back: a marker of this quest in the player's world
-    while a < Markers.Length && (Markers[a] == None || refused[a] || player.GetDistance(Markers[a]) > SameWorld)
-        a += 1                                                ; (a quest out of moves may have some still in their own)
-    endwhile
+    ObjectReference anchor = ResolveReturnAnchor()
     hops += 1
-    if a >= Markers.Length
-        Trace("reload " + hops + " skipped: no marker of this quest in the player's world to come back by")
+    if anchor == None || player.GetDistance(anchor) > SameWorld
+        Trace("reload " + hops + " skipped: no non-marker return anchor in the player's world to come back by")
         Release("the reload was skipped")
         return
     endif
@@ -532,7 +535,6 @@ Function Reload(Actor player, WorldSpace w)
         Trace("reload " + hops + " called off: the player went indoors, to another world or off the map")
         return
     endif
-    hopAnchor = a
     hopWorld = w
     player.MoveTo(HopMarker)
     Trace("reload " + hops + ": out to " + HopMarker + " and back to " + hopX + " " + hopY + " " + hopZ + " in " + w)
@@ -554,24 +556,31 @@ Function Reload(Actor player, WorldSpace w)
     FastTravelLine("after reload " + hops)
 EndFunction
 
-; Back from the stop to where the reload began: MoveTo the anchor marker (in that world at its merged spot) with the
-; difference as the offset, twice at most; once outside with the 3D in, SetPosition there if the move landed more than
-; 2 m off (a SetPosition in the MoveTo's own tick is ignored: FO4SF_NewGameQuest.psc FinishSurface), the facing back,
-; and the screen in. Also from the first quest's next pass for a player still at the stop (a save made there).
+ObjectReference Function ResolveReturnAnchor()
+    if ReturnAnchor != None
+        return ReturnAnchor
+    endif
+    return Game.GetFormFromFile(ReturnAnchorId, CorePlugin) as ObjectReference
+EndFunction
+
+; Back from the stop to where the reload began: MoveTo the non-marker return anchor (FO4Core_CommonwealthAnchor, never
+; Markers[0] / Red Rocket) with the difference as the offset, twice at most; once outside with the 3D in, SetPosition
+; there if the move landed more than 2 m off (a SetPosition in the MoveTo's own tick is ignored: FO4SF_NewGameQuest.psc
+; FinishSurface), the facing back, and the screen in. Also from the first quest's next pass for a player still at the stop.
 Function ComeBack(Actor player)
     if holding
         Trace("dark hold ends with the reload after " + (Utility.GetCurrentRealTime() - holdAt) + " s")
         holding = False                                       ; every way out of here fades in
     endif
-    if hopAnchor < 0 || hopAnchor >= Markers.Length || Markers[hopAnchor] == None
-        Trace("reload: no way back (anchor " + hopAnchor + " of " + Markers.Length + ")")
+    ObjectReference anchor = ResolveReturnAnchor()
+    if anchor == None
+        Trace("reload: no non-marker return anchor to come back by")
         Game.FadeOutGame(False, True, 0.0, 0.5, False)
         return
     endif
-    ObjectReference anchor = Markers[hopAnchor]
-    float ax = LocalX[hopAnchor] + MergeOffsetX
-    float ay = LocalY[hopAnchor] + MergeOffsetY
-    float az = LocalZ[hopAnchor]
+    float ax = anchor.GetPositionX()
+    float ay = anchor.GetPositionY()
+    float az = anchor.GetPositionZ()
     int tries = 0
     while player.IsInInterior() && tries < 2
         player.MoveTo(anchor, hopX - ax, hopY - ay, hopZ - az, False, False)
@@ -687,5 +696,19 @@ bool Function DiscoverSingleMarker(ObjectReference target)
     endif
     target.Enable(False)
     target.SetMarkerDiscovered()
+    return true
+EndFunction
+
+bool Function DiscoverSingleMarkerSilent(ObjectReference target, string method = "add_to_map")
+    {Discover target silently: "add_to_map" uses AddToMap(True) so no discovery banner pops; "during_fade" uses SetMarkerDiscovered() under screen fade.}
+    if target == None
+        return false
+    endif
+    target.Enable(False)
+    if method == "add_to_map"
+        target.AddToMap(True)
+    else
+        target.SetMarkerDiscovered()
+    endif
     return true
 EndFunction

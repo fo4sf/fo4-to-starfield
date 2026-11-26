@@ -42,6 +42,7 @@ class GameStartConfigTests(unittest.TestCase):
         cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         self.assertEqual(cfg["schema_version"], 1)
         self.assertEqual(cfg["default_game"], "fo4")
+        self.assertEqual(cfg["arrival_discovery_methods_supported"], ["during_fade", "add_to_map"])
         self.assertIn("safe_spawn", cfg["pod_exit_modes_supported"])
         self.assertIn("cryopod_anim", cfg["pod_exit_modes_supported"])
 
@@ -50,10 +51,12 @@ class GameStartConfigTests(unittest.TestCase):
             self.assertIn(game_key, games)
             entry = games[game_key]
             for req_key in (
-                "mute_arrival_discovery_popup",
+                "silent_arrival_discovery",
+                "arrival_discovery_method",
                 "silent_starter_strip",
                 "starter_strip_starfield_armor_ids",
                 "pod_exit_mode",
+                "pod_entry_step_m",
                 "pod_safe_step_m",
                 "pod_safe_heading_deg",
                 "single_pass_landing_fade",
@@ -61,9 +64,11 @@ class GameStartConfigTests(unittest.TestCase):
                 self.assertIn(req_key, entry, f"{game_key} missing {req_key}")
 
         fo4 = games["fo4"]
-        self.assertTrue(fo4["mute_arrival_discovery_popup"])
+        self.assertTrue(fo4["silent_arrival_discovery"])
+        self.assertEqual(fo4["arrival_discovery_method"], "add_to_map")
         self.assertTrue(fo4["silent_starter_strip"])
         self.assertEqual(fo4["pod_exit_mode"], "safe_spawn")
+        self.assertAlmostEqual(fo4["pod_entry_step_m"], -2.5, places=3)
         self.assertAlmostEqual(fo4["pod_safe_step_m"], -3.2, places=3)
         self.assertAlmostEqual(fo4["pod_safe_heading_deg"], 270.0, places=3)
         self.assertTrue(fo4["single_pass_landing_fade"])
@@ -76,6 +81,10 @@ class GameStartConfigTests(unittest.TestCase):
         # Ensure documented FO3/FNV placeholders do not inherit FO4 pod step/heading
         self.assertEqual(games["fo3"]["pod_exit_mode"], "none")
         self.assertEqual(games["fnv"]["pod_exit_mode"], "none")
+        self.assertEqual(games["fo3"]["arrival_discovery_method"], "during_fade")
+        self.assertEqual(games["fnv"]["arrival_discovery_method"], "during_fade")
+        self.assertAlmostEqual(games["fo3"]["pod_entry_step_m"], 0.0, places=3)
+        self.assertAlmostEqual(games["fnv"]["pod_entry_step_m"], 0.0, places=3)
 
 
 class Item3LeaksBehindFlagsTests(unittest.TestCase):
@@ -84,7 +93,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         compiled = compile(
             translated_functions(
                 psc,
-                ("RequestArrivalDiscovery", "CheckLanding", "Near"),
+                ("RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers", "CheckLanding", "Near"),
                 "arrivalWorld, fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks",
             ),
             PSC,
@@ -94,7 +103,16 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         other_world = object()
         player = Reference(world, (-1200.0, -2700.0, 100.0))
         marker = Reference(other_world, (-10.0, -20.0, 95.0))
-        traces, stages = [], []
+        traces, stages, mm_calls = [], [], []
+        mm_quest = SimpleNamespace(
+            CastAs=lambda cls: SimpleNamespace(
+                CallFunction=lambda fn, args: (
+                    mm_calls.append((fn, list(args))),
+                    args[0].AddToMap(True) if fn == "DiscoverSingleMarkerSilent" and args[1] == "add_to_map"
+                    else args[0].SetMarkerDiscovered(),
+                )
+            )
+        )
         ns = dict(
             _PStr=_PStr,
             Trace=traces.append,
@@ -111,13 +129,18 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
             ExitAnchorId=0x0A775B,
             ArrivalDiscoveryId=0x0A775B,
             CorePlugin="FO4TerrainCore.esm",
+            MapMarkerQuestIds=[0x800],
             arrivedAt=0.0,
             fallbackPending=False,
             discoveryMarkerMoved=False,
             discoveryAttachPending=False,
             landingChecks=0,
-            MuteArrivalDiscoveryPopup=True,
-            Game=SimpleNamespace(GetFormFromFile=lambda *_: marker, IsFastTravelEnabled=lambda: True),
+            SilentArrivalDiscovery=True,
+            ArrivalDiscoveryMethod="add_to_map",
+            Game=SimpleNamespace(
+                GetFormFromFile=lambda fid, plg: mm_quest if plg == "FO4SFMapMarkers.esm" else marker,
+                IsFastTravelEnabled=lambda: True,
+            ),
             Utility=SimpleNamespace(GetCurrentRealTime=lambda: 10.0),
             FailExit=lambda *_: None,
             AdvanceTo=stages.append,
@@ -125,18 +148,42 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         exec(compiled, ns)
         ns["CheckLanding"](player)  # tick 1: attaches unmerged marker cleanly
         self.assertEqual(len(marker.moveto_calls), 1)
+        self.assertEqual(marker.add_to_map_calls, [])
         self.assertEqual(marker.discovery_calls, 0)
         self.assertEqual(stages, [])
-        ns["CheckLanding"](player)  # tick 2: muted discovery -> no SetMarkerDiscovered(), completes stage 200
+        ns["CheckLanding"](player)  # tick 2: never returns early -> silent discovery via AddToMap(True) + stage 200
+        self.assertEqual(marker.add_to_map_calls, [True])
         self.assertEqual(marker.discovery_calls, 0)
+        self.assertEqual(mm_calls, [("DiscoverSingleMarkerSilent", [marker, "add_to_map"])])
         self.assertEqual(stages, [200])
-        self.assertTrue(any("arrival discovery muted=true reason=per_game_flag ref=" in t for t in traces), traces)
+        self.assertTrue(
+            any("arrival discovery silent=True method=add_to_map visible=True can_travel=True ref=" in t for t in traces),
+            traces,
+        )
 
-        # Flag off restores original SetMarkerDiscovered() behavior
-        ns["MuteArrivalDiscoveryPopup"] = False
+        # during_fade method calls DiscoverSingleMarkerSilent with method="during_fade"
+        traces.clear()
+        mm_calls.clear()
+        ns["ArrivalDiscoveryMethod"] = "during_fade"
         ns["CheckLanding"](player)
         self.assertEqual(marker.discovery_calls, 1)
-        self.assertTrue(any("arrival discovery requested ref=" in t for t in traces), traces)
+        self.assertEqual(mm_calls, [("DiscoverSingleMarkerSilent", [marker, "during_fade"])])
+        self.assertTrue(
+            any("arrival discovery silent=True method=during_fade visible=True can_travel=True ref=" in t for t in traces),
+            traces,
+        )
+
+        # Flag off restores DiscoverSingleMarker / SetMarkerDiscovered()
+        traces.clear()
+        mm_calls.clear()
+        ns["SilentArrivalDiscovery"] = False
+        ns["CheckLanding"](player)
+        self.assertEqual(marker.discovery_calls, 2)
+        self.assertEqual(mm_calls, [("DiscoverSingleMarker", [marker])])
+        self.assertTrue(
+            any("arrival discovery silent=False method=during_fade visible=True can_travel=True ref=" in t for t in traces),
+            traces,
+        )
 
     def test_silent_starter_strip_unequips_and_removes_silently_before_remove_all_items(self):
         psc = read(PSC)
@@ -403,8 +450,8 @@ class Item5PodExitTests(unittest.TestCase):
         compiled = compile(
             translated_functions(
                 psc,
-                ("RunPodExitHook", "NoteLooksStage20", "ApplyStage", "StandsInVault"),
-                "applied, looksSetStage20, podExitDone",
+                ("PodEntryY", "PodSafeY", "RunPodExitHook", "NoteLooksStage20", "ApplyStage", "AdvanceTo", "StandsInVault"),
+                "applied, looksSetStage20, podExitDone, pendingStage, pendingStageBy, exitUsedFallback",
             ),
             PSC,
             "exec",
@@ -415,21 +462,27 @@ class Item5PodExitTests(unittest.TestCase):
         player = Reference(None, (9.143, -6.614, -0.729))
         player.interior = True
         player.cell = vault_cell
-        angles, traces, autosaves = [], [], []
+        angles, traces, autosaves, stages = [], [], [], []
         player.SetAngle = lambda rx, ry, rz: angles.append((rx, ry, rz))
         player.GetAngleZ = lambda: angles[-1][2] if angles else 0.0
         cur_stage = [10]
 
-        def make_ns(mode="safe_spawn", override=False, pod_y=-6.614):
+        def set_stage(n):
+            cur_stage[0] = n
+            stages.append(n)
+
+        def make_ns(mode="safe_spawn", override=False, pod_y=-6.614, entry_step=-2.5):
             traces.clear()
             angles.clear()
             autosaves.clear()
+            stages.clear()
             cur_stage[0] = 10
             player.pos = (9.143, pod_y, -0.729)
             return dict(
                 _PStr=_PStr,
                 Trace=traces.append,
                 PodExitMode=mode,
+                PodEntryStep=entry_step,
                 PodSafeStep=-3.2,
                 PodSafeHeading=270.0,
                 HasPodSafeExitOverride=override,
@@ -443,9 +496,12 @@ class Item5PodExitTests(unittest.TestCase):
                 applied=10,
                 looksSetStage20=False,
                 podExitDone=False,
+                pendingStage=0,
+                pendingStageBy="",
+                exitUsedFallback=False,
                 Game=SimpleNamespace(GetPlayer=lambda: player, GetFormFromFile=lambda *_: vault_anchor),
                 GetStage=lambda: cur_stage[0],
-                SetStage=lambda n: cur_stage.__setitem__(0, n),
+                SetStage=set_stage,
                 SetObjectiveDisplayed=lambda *_: None,
                 SetObjectiveCompleted=lambda *_: None,
                 SetActive=lambda *_: None,
@@ -461,6 +517,7 @@ class Item5PodExitTests(unittest.TestCase):
         exec(compiled, ns1)
         ns1["NoteLooksStage20"]()
         self.assertEqual(cur_stage[0], 20)
+        self.assertEqual(stages, [15, 20])
         self.assertEqual(autosaves, [20])
         self.assertAlmostEqual(player.pos[0], 9.143, places=3)
         self.assertAlmostEqual(player.pos[1], -7.314, places=3)
@@ -469,7 +526,7 @@ class Item5PodExitTests(unittest.TestCase):
         self.assertIn("stage 15 by=safe_spawn", traces)
         self.assertTrue(
             any(
-                t.startswith("pod_exit mode=safe_spawn hook_stage=15 clear=true pos=9.143 -7.314 ")
+                t.lower().startswith("pod_exit mode=safe_spawn hook_stage=15 moved=true pos=9.143 -7.314 ")
                 and t.endswith(" heading=270.0")
                 for t in traces
             ),
@@ -486,17 +543,114 @@ class Item5PodExitTests(unittest.TestCase):
         ns2["NoteLooksStage20"]()
         self.assertAlmostEqual(player.pos[1], -7.314, places=3)
 
-        # 3) cryopod_anim hook mode leaves player & fade untouched and logs hook seam
+        # 3) cryopod_anim hook mode leaves player & fade untouched and logs hook seam with moved=false
         ns3 = make_ns(mode="cryopod_anim", override=False, pod_y=-6.614)
         exec(compiled, ns3)
         ns3["NoteLooksStage20"]()
+        self.assertEqual(stages, [15, 20])
         self.assertEqual(player.pos, (9.143, -6.614, -0.729))
         self.assertEqual(angles, [])
         self.assertIn("stage 15 by=cryopod_anim", traces)
         self.assertTrue(
-            any("pod_exit mode=cryopod_anim_hook hook_stage=15 clear=true pos=9.143 -6.614 -0.729 " in t for t in traces),
+            any("pod_exit mode=cryopod_anim_hook hook_stage=15 moved=false pos=9.143 -6.614 -0.729 " in t.lower() for t in traces),
             traces,
         )
+
+    def test_pod_exit_hook_runs_stage_15_before_20_on_lookswait_nolooks_and_preworld(self):
+        """G6: LooksWait, no-looks, and preworld routes all run RunPodExitHook(15) before AdvanceTo(20)."""
+        psc = read(PSC)
+        timer_start = psc.index("Event OnTimer(int aiTimerID)")
+        timer_src = psc[timer_start:psc.index("EndEvent", timer_start)]
+        preworld_src = psc[psc.index("Function SpawnAtStoryStartPlace"):psc.index("int Function RunModeChoiceChain")]
+        for label, src in (("OnTimer(1)", timer_src), ("SpawnAtStoryStartPlace", preworld_src)):
+            self.assertIn("RunPodExitHook(", src, f"{label} must invoke RunPodExitHook before stage 20")
+            self.assertNotIn("NoteLooksStage20()", src, f"{label} should not defer pod hook after AdvanceTo(20)")
+
+        stage10_branch = timer_src[timer_src.index("elseif stage == 10"):timer_src.index("elseif stage == 20 || stage == 30")]
+        for anchor in ('preworldLooksBy)', 'AdvanceTo(20, "fallback")', 'AdvanceTo(20, "Trigger")'):
+            idx_adv = stage10_branch.index(anchor)
+            idx_hook = stage10_branch.rindex("RunPodExitHook(player)", 0, idx_adv)
+            self.assertLess(idx_hook, idx_adv)
+
+        # Synthetic route verification for LooksWait, no-looks, and preworld (via OnTimer(1) + SpawnAtStoryStartPlace)
+        vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+        vault_anchor = Reference(None, (-60.0, 0.0, -1.0))
+        vault_anchor.cell = vault_cell
+        player = Reference(None, (9.143, -6.614, -0.729))
+        player.interior = True
+        player.cell = vault_cell
+        traces, stages, autosaves = [], [], []
+        angles = []
+        player.SetAngle = lambda rx, ry, rz: angles.append((rx, ry, rz))
+        player.GetAngleZ = lambda: angles[-1][2] if angles else 0.0
+        cur_stage = [10]
+
+        def set_stage(n):
+            cur_stage[0] = n
+            stages.append(n)
+
+        compiled = compile(
+            translated_functions(
+                psc,
+                ("PodEntryY", "PodSafeY", "RunPodExitHook", "ApplyStage", "AdvanceTo", "StandsInVault"),
+                "applied, looksSetStage20, podExitDone, pendingStage, pendingStageBy, exitUsedFallback",
+            ),
+            PSC,
+            "exec",
+        )
+        for route, looks_wait, cause in (
+            ("LooksWait", 30.0, "fallback"),
+            ("no-looks", 0.0, "Trigger"),
+            ("preworld", 30.0, "Trigger"),
+        ):
+            with self.subTest(route=route):
+                traces.clear()
+                stages.clear()
+                autosaves.clear()
+                angles.clear()
+                cur_stage[0] = 10
+                player.pos = (9.143, -6.614, -0.729)
+                ns = dict(
+                    _PStr=_PStr,
+                    Trace=traces.append,
+                    PodExitMode="safe_spawn",
+                    PodEntryStep=-2.5,
+                    PodSafeStep=-3.2,
+                    PodSafeHeading=270.0,
+                    HasPodSafeExitOverride=False,
+                    PodX=9.143,
+                    PodY=-6.614,
+                    PodZ=-1.029,
+                    PodLift=0.3,
+                    PodHeading=0.0,
+                    VaultPlugin="FO4Port.esm",
+                    VaultAnchorId=0x805,
+                    applied=10,
+                    looksSetStage20=False,
+                    podExitDone=False,
+                    pendingStage=0,
+                    pendingStageBy="",
+                    exitUsedFallback=False,
+                    Game=SimpleNamespace(GetPlayer=lambda: player, GetFormFromFile=lambda *_: vault_anchor),
+                    GetStage=lambda: cur_stage[0],
+                    SetStage=set_stage,
+                    SetObjectiveDisplayed=lambda *_: None,
+                    SetObjectiveCompleted=lambda *_: None,
+                    SetActive=lambda *_: None,
+                    CompleteQuest=lambda: None,
+                    StartLandingQuests=lambda: None,
+                    ClearVaultSaveLock=lambda: None,
+                    ReleaseStoryLandingFade=lambda: None,
+                    TriggerVaultPodRecoveryAutosave=autosaves.append,
+                )
+                exec(compiled, ns)
+                ns["RunPodExitHook"](player)
+                ns["AdvanceTo"](20, cause)
+                self.assertEqual(stages, [15, 20])
+                self.assertLess(traces.index("stage 15 by=safe_spawn"), traces.index(f"stage 20 by={cause}"))
+                self.assertTrue(any("pod_exit mode=safe_spawn hook_stage=15 moved=true " in t.lower() for t in traces), traces)
+                self.assertAlmostEqual(player.pos[1], -7.314, places=3)
+                self.assertEqual(angles, [(0.0, 0.0, 270.0)])
 
 
 if __name__ == "__main__":

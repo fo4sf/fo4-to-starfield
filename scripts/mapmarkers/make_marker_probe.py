@@ -142,12 +142,12 @@ def stage(a):
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Map marker probe ({datetime.date.today().isoformat()}). FAL-771 / FAL-489 notes 34 and 36.
-{PLUGIN} (sha256 {plan['outputs'][PLUGIN]}): QUST FO4SF_MarkerProbeQuest (stages 10 20 30 40 50 60 70), master Starfield.esm only.
+{PLUGIN} (sha256 {plan['outputs'][PLUGIN]}): QUST FO4SF_MarkerProbeQuest (stages 10 20 30 40 50 60 70 80), master Starfield.esm only.
 Checked against Starfield.esm {before['Starfield.esm']}.
 Stages (set one at a time from the console, `setstage FO4SF_MarkerProbeQuest <n>`, after the last stage's "later done" line; the console
 stays closed between stages): 10 read, 20 move a plain marker onto the exit anchor from INSIDE the vault, 30 discover Vault 111 inside,
 40 read outside, 50 read after save / quit / load, 60 discover the landing marker (needs the --landing-undiscovered map-marker build),
-70 AddToMap(false) on a second plain marker.
+70 AddToMap(false) on a second plain marker, 80 AddToMap(true) on a third plain marker.
 Install (the owner's word, game closed; loose files are not read, the installer packs them into a ba2):
   python scripts\\mapmarkers\\marker_probe_install.py install --dir <this folder> --starfield <game dir>
 Remove:  python scripts\\mapmarkers\\marker_probe_install.py uninstall --starfield <game dir>

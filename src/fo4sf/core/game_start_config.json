@@ -6,6 +6,10 @@
     "cryopod_anim",
     "none"
   ],
+  "arrival_discovery_methods_supported": [
+    "during_fade",
+    "add_to_map"
+  ],
   "starter_strip_starfield_armor_ids": [
     "0x001E2B17",
     "0x001E2B18",
@@ -75,7 +79,8 @@
       "available": true,
       "opening_quest_edid": "FO4SF_NewGame",
       "start_place_id": "fo4_vault111",
-      "mute_arrival_discovery_popup": true,
+      "silent_arrival_discovery": true,
+      "arrival_discovery_method": "add_to_map",
       "silent_starter_strip": true,
       "starter_strip_starfield_armor_ids": [
         "0x001E2B17",
@@ -92,6 +97,7 @@
         "0x00104632"
       ],
       "pod_exit_mode": "safe_spawn",
+      "pod_entry_step_m": -2.5,
       "pod_safe_step_m": -3.2,
       "pod_safe_heading_deg": 270.0,
       "pod_safe_pos_override": {
@@ -106,7 +112,8 @@
       "available": false,
       "opening_quest_edid": "FO3SF_Opening",
       "start_place_id": "fo3_vault101",
-      "mute_arrival_discovery_popup": true,
+      "silent_arrival_discovery": true,
+      "arrival_discovery_method": "during_fade",
       "silent_starter_strip": true,
       "starter_strip_starfield_armor_ids": [
         "0x001E2B17",
@@ -123,6 +130,7 @@
         "0x00104632"
       ],
       "pod_exit_mode": "none",
+      "pod_entry_step_m": 0.0,
       "pod_safe_step_m": 0.0,
       "pod_safe_heading_deg": 0.0,
       "single_pass_landing_fade": true,
@@ -132,7 +140,8 @@
       "available": false,
       "opening_quest_edid": "FNVSF_Opening",
       "start_place_id": "fnv_goodsprings",
-      "mute_arrival_discovery_popup": true,
+      "silent_arrival_discovery": true,
+      "arrival_discovery_method": "during_fade",
       "silent_starter_strip": true,
       "starter_strip_starfield_armor_ids": [
         "0x001E2B17",
@@ -149,6 +158,7 @@
         "0x00104632"
       ],
       "pod_exit_mode": "none",
+      "pod_entry_step_m": 0.0,
       "pod_safe_step_m": 0.0,
       "pod_safe_heading_deg": 0.0,
       "single_pass_landing_fade": true,
