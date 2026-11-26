@@ -290,6 +290,14 @@ int Property StartChoiceBackdrop = 1 Auto Const
 {N2 / S1 / R5 backdrop variant: 1 empty_cell (default), 2 title_card (FO4SF_StartCardMenu), 3 setup_menu (FO4SF_SetupMenu), 0 none.}
 float Property StartLoadTimeout = 15.0 Auto Const
 {H0 / R10 hard ceiling (seconds) waiting for LoadingMenu close before forcing fade lift and showing set-up prompts.}
+bool Property MuteArrivalDiscoveryPopup = true Auto Const
+bool Property SilentStarterStrip = true Auto Const
+Form[] Property StarterStripItems Auto Const
+bool Property SinglePassLandingFade = true Auto Const
+string Property PodExitMode = "safe_spawn" Auto Const
+float Property PodSafeStep = -3.2 Auto Const
+float Property PodSafeHeading = 270.0 Auto Const
+bool Property HasPodSafeExitOverride = false Auto Const
 int Property RaceMenuMode = 2 Auto Const
 {Looks-only creator mode (2 = body and face) shared with FO4SF_NewGameLooks.}
 int[] Property CoreMarkerIds Auto Const
@@ -429,6 +437,8 @@ bool vaultPodAutosaved = false
 bool vaultSavingRelocked = false
 bool vaultRecoveryTriggered = false
 int vaultPodAutosaveSkips = 0
+bool surfaceFadeInDone = false
+bool podExitDone = false
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -587,6 +597,7 @@ EndFunction
 
 Function NoteLooksStage20()
     looksSetStage20 = true
+    RunPodExitHook(Game.GetPlayer())
     if applied < 20
         applied = 20
     endif
@@ -603,6 +614,68 @@ bool Function IsPreworldLooksHandled()
     return preworldLooksDone || looksSetStage20 || UsePreworldRoom()
 EndFunction
 
+Function RunPodExitHook(Actor player)
+{Stage 15 pod-exit seam: places the player clear of the cryo pod facing PodSafeHeading (safe_spawn) or reserves the cryopod_anim hook without touching fade or exit lift.}
+    if podExitDone
+        return
+    endif
+    podExitDone = true
+    if GetStage() < 15
+        SetStage(15)
+    endif
+    if applied < 15
+        applied = 15
+        Trace("stage 15 by=" + PodExitMode)
+    endif
+    if PodExitMode == "cryopod_anim"
+        float animX = PodX
+        float animY = PodY
+        float animZ = PodZ + PodLift
+        float animHdg = PodHeading
+        if player != None
+            animX = player.GetPositionX()
+            animY = player.GetPositionY()
+            animZ = player.GetPositionZ()
+            animHdg = player.GetAngleZ()
+        endif
+        Trace("pod_exit mode=cryopod_anim_hook hook_stage=15 clear=true pos=" + animX + " " + animY + " " + animZ + " heading=" + animHdg)
+        return
+    endif
+    if PodExitMode == "safe_spawn"
+        float safeX = PodX
+        float safeY = PodY
+        if !HasPodSafeExitOverride
+            safeY = PodY + (PodSafeStep + 2.5)
+        endif
+        float safeZ = PodZ + PodLift
+        if player != None && player.IsInInterior() && StandsInVault(player)
+            player.SetPosition(safeX, safeY, safeZ)
+            player.SetAngle(0.0, 0.0, PodSafeHeading)
+        endif
+        float outX = safeX
+        float outY = safeY
+        float outZ = safeZ
+        if player != None
+            outX = player.GetPositionX()
+            outY = player.GetPositionY()
+            outZ = player.GetPositionZ()
+        endif
+        Trace("pod_exit mode=" + PodExitMode + " hook_stage=15 clear=true pos=" + outX + " " + outY + " " + outZ + " heading=" + PodSafeHeading)
+        return
+    endif
+    float curX = PodX
+    float curY = PodY
+    float curZ = PodZ + PodLift
+    float curHdg = PodHeading
+    if player != None
+        curX = player.GetPositionX()
+        curY = player.GetPositionY()
+        curZ = player.GetPositionZ()
+        curHdg = player.GetAngleZ()
+    endif
+    Trace("pod_exit mode=" + PodExitMode + " hook_stage=15 clear=true pos=" + curX + " " + curY + " " + curZ + " heading=" + curHdg)
+EndFunction
+
 Function ApplyStage(int n, string by)
     if n <= applied
         return
@@ -612,7 +685,10 @@ Function ApplyStage(int n, string by)
     if n == 10
         SetObjectiveDisplayed(10)
         SetActive(True)
+    elseif n == 15
+        RunPodExitHook(Game.GetPlayer())
     elseif n == 20
+        RunPodExitHook(Game.GetPlayer())
         TriggerVaultPodRecoveryAutosave(n)
     elseif n == 40
         ClearVaultSaveLock()
@@ -682,6 +758,9 @@ Event OnTimer(int aiTimerID)
         return
     endif
     if aiTimerID == 5
+        if SinglePassLandingFade
+            return
+        endif
         Actor storyPlayer = Game.GetPlayer()
         if storyPlayer == None || storyPlayer.IsInInterior()
             return
@@ -845,13 +924,14 @@ Event OnTimer(int aiTimerID)
     if GetStage() < 200 && ticks % 5 == 0
         Trace("status stage=" + GetStage() + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace())
     endif
-    if GetStage() < 200 && GetStage() != 1
-        if rideActive || surfaceMovedAt > 0.0
-            StartTimer(0.2, 1)
+    int curStage = GetStage()
+    if curStage < 200 && curStage != 1
+        if rideActive || surfaceMovedAt > 0.0 || curStage == 40
+            StartTimer(0.15, 1)
         else
             StartTimer(1.0, 1)
         endif
-    elseif GetStage() == 200
+    elseif curStage == 200
         if returnSurfacePending
             StartTimer(1.0, 1)
         else
@@ -978,12 +1058,60 @@ EndFunction
 Function ResetInventory(Actor player)
 {The starting inventory reset (NG-K8), once, when the player is confirmed in the vault: RemoveAllItems(None, false,
  false), written with FO4's arguments. Starfield's third parameter is abRespectTargetCapacity (ObjectReference.psc,
- ContentResources.zip, read 29 Oct), so whether quest items stay is unverified: the count left says how many items
- stayed, not which. The count before and after is logged (GetItemCount(None) counts every item in FO4; unverified in
- Starfield, so both numbers are logged), then the vault suit, when the build names one, is added and equipped.}
+ ContentResources.zip, read 29 Oct), so whether quest items stay is unverified: the count before and after is logged
+ (GetItemCount(None) counts every item in FO4; unverified in Starfield, so both numbers are logged). When
+ SilentStarterStrip is true, Starfield starter armor/watch forms are unequipped and removed silently before
+ RemoveAllItems so no removed HUD toast fires, then the vault suit, when the build names one, is added and equipped.}
     int before = player.GetItemCount(None)
+    int stripped = 0
+    if SilentStarterStrip
+        bool useExplicit = StarterStripItems != None && StarterStripItems.Length > 0
+        int[] fallbackIds = new int[12]
+        int loopLen = 0
+        if useExplicit
+            loopLen = StarterStripItems.Length
+        else
+            fallbackIds[0] = 0x001E2B17
+            fallbackIds[1] = 0x001E2B18
+            fallbackIds[2] = 0x001E2B19
+            fallbackIds[3] = 0x0001D1E7
+            fallbackIds[4] = 0x0001D1D7
+            fallbackIds[5] = 0x000D4893
+            fallbackIds[6] = 0x00052792
+            fallbackIds[7] = 0x0005278E
+            fallbackIds[8] = 0x002EDF1F
+            fallbackIds[9] = 0x00029C7A
+            fallbackIds[10] = 0x00104631
+            fallbackIds[11] = 0x00104632
+            loopLen = fallbackIds.Length
+        endif
+        int si = 0
+        while si < loopLen
+            Form item = None
+            if useExplicit
+                item = StarterStripItems[si]
+            else
+                item = Game.GetFormFromFile(fallbackIds[si], "Starfield.esm")
+            endif
+            if item != None
+                bool worn = player.IsEquipped(item)
+                if worn
+                    player.UnequipItem(item, false, true)
+                endif
+                int count = player.GetItemCount(item)
+                if count > 0
+                    player.RemoveItem(item, count, true)
+                    stripped += count
+                elseif worn
+                    stripped += 1
+                endif
+            endif
+            si += 1
+        endwhile
+    endif
     player.RemoveAllItems(None, false, false)
     int after = player.GetItemCount(None)
+    Trace("inventory starter_strip silent=" + SilentStarterStrip + " stripped=" + stripped + " left=" + after)
     Trace("inventory cleared removed=" + (before - after) + " left=" + after)
     if VaultSuitId > 0
         Armor suit = Game.GetFormFromFile(VaultSuitId, VaultPlugin) as Armor
@@ -1143,6 +1271,7 @@ int Function ShowPausedExitLiftMenu(Actor player)
         asked = false
         return 2
     elseif gVal >= 5.5 && gVal < 6.5
+        liftSpecConfirmed = true
         Trace("lift menu action=ride")
         return 0
     endif
@@ -1157,13 +1286,14 @@ Function PromptVaultExitLift(Actor player)
     endif
     asked = true                                             ; asked once per visit to the platform
     Trace("lift platform waiting cage_door=open")
-    int button = ShowPausedExitLiftMenu(player)
+    int pausedBtn = ShowPausedExitLiftMenu(player)
+    int button = pausedBtn
     if button < 0
         button = ExitMessage.Show()
     endif
     Trace("elevator prompt button=" + button)
     if button == 0
-        if !liftSpecConfirmed && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
+        if pausedBtn != 0 && !liftSpecConfirmed && (TestModeGlobal == None || TestModeGlobal.GetValue() == 0.0)
             Trace("elevator continue refused: special unconfirmed")
             if ExitNeedAttrMsg != None
                 ExitNeedAttrMsg.Show()
@@ -1354,6 +1484,7 @@ Function Surface(Actor player)
     fallbackPending = false
     discoveryMarkerMoved = false
     landingChecks = 0
+    surfaceFadeInDone = false
     anchor.Enable(False)
     player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)
     surfaceMoves += 1
@@ -1429,6 +1560,11 @@ Function FinishSurface(Actor player)
         arrivalWorld = afterWorld
         surfaceMovedAt = 0.0
         arrivedAt = Utility.GetCurrentRealTime()
+        if SinglePassLandingFade && !surfaceFadeInDone
+            surfaceFadeInDone = true
+            ForceFadeIn("story_landing")
+            Trace("ascent gap_closed=true fade_in_at_surface=true")
+        endif
         AdvanceTo(40)
     elseif surfaceSets >= SurfaceTries
         if !coreCell
@@ -1441,7 +1577,7 @@ EndFunction
 
 Function CheckLanding(Actor player)
 {Confirm landing once the player is in arrivalWorld with 3D loaded; fall rescue runs once, and marker discovery runs separately without blocking stage 200.}
-    if Utility.GetCurrentRealTime() - arrivedAt < 3.0
+    if Utility.GetCurrentRealTime() - arrivedAt < 0.25
         return
     endif
     if !player.Is3DLoaded()
@@ -1516,6 +1652,10 @@ bool Function RequestArrivalDiscovery(Actor player)
         Trace("arrival discovery failed reason=state_changed_before_discover ref=" + marker)
         return false
     endif
+    if MuteArrivalDiscoveryPopup
+        Trace("arrival discovery muted=true reason=per_game_flag ref=" + marker)
+        return true
+    endif
     marker.SetMarkerDiscovered()
     Trace("arrival discovery requested ref=" + marker + " world=" + marker.GetWorldSpace() + " fast_before=" + enabledBefore + " fast_after=" + Game.IsFastTravelEnabled())
     return true
@@ -1545,6 +1685,7 @@ Function FailExit(string reason)
     surfaceMovedAt = 0.0
     surfaceMoves = 0
     surfaceSets = 0
+    surfaceFadeInDone = false
     exitUsedFallback = false
     asked = false
     Actor player = Game.GetPlayer()
@@ -1813,6 +1954,7 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         surfaceMovedAt = 0.0
         surfaceMoves = 0
         surfaceSets = 0
+        surfaceFadeInDone = false
         exitUsedFallback = false
         asked = false
         if wasMidExit && akSender != None
@@ -2514,9 +2656,17 @@ Function ForceFadeIn(string by)
 EndFunction
 
 Function ReleaseStoryLandingFade()
-{V1: Release Starfield's interior-to-exterior LoadingMenu black fade after Story exterior arrival and 3D streaming settle, then arm bounded Timer 5 re-asserts.}
+{V1: Release Starfield's interior-to-exterior LoadingMenu black fade after Story exterior arrival; single-pass skips Timer 5 re-dims.}
     Actor player = Game.GetPlayer()
     if player == None || player.IsInInterior()
+        return
+    endif
+    if SinglePassLandingFade
+        if !surfaceFadeInDone
+            ForceFadeIn("story_landing")
+            surfaceFadeInDone = true
+        endif
+        Trace("story_fade single_pass=true already_faded=" + faded)
         return
     endif
     float w3d = 0.0

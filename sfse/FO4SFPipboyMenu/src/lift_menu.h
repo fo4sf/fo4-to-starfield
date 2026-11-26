@@ -70,9 +70,9 @@ namespace fo4sf::lift
 			page_ = Page::kOptions;
 			cursor_ = 0;
 			if (Remaining() > 0 && !confirmed_) {
-				status_ = std::format("ALLOCATE {} S.P.E.C.I.A.L. POINT(S) OR RIDE IMMEDIATELY AFTER", Remaining());
+				status_ = std::format("CHOOSE RIDE LIFT TO SURFACE NOW, OR EDIT S.P.E.C.I.A.L. ({} PT(S) UNSPENT)", Remaining());
 			} else {
-				status_ = "BUILD READY - CHOOSE RIDE LIFT TO SURFACE TO BEGIN";
+				status_ = "CHOOSE RIDE LIFT TO SURFACE TO RIDE UP, OR EDIT S.P.E.C.I.A.L.";
 			}
 		}
 
@@ -163,10 +163,10 @@ namespace fo4sf::lift
 		{
 			if (page_ == Page::kSpecial) {
 				page_ = Page::kOptions;
-				cursor_ = Remaining() == 0 ? 0 : 1;
+				cursor_ = 0;
 				status_ = Remaining() == 0
 					? "RETURNED TO LIFT OPTIONS"
-					: std::format("UNSPENT POINTS: {} - FINISH S.P.E.C.I.A.L. BEFORE RIDING UP", Remaining());
+					: std::format("UNSPENT POINTS: {} - RIDE LIFT TO SURFACE OR EDIT S.P.E.C.I.A.L.", Remaining());
 				return false;
 			}
 			a_out.action = CommitAction::kStay;
@@ -195,11 +195,6 @@ namespace fo4sf::lift
 
 			switch (cursor_) {
 			case 0:
-				if (Remaining() > 0) {
-					EnterSpecialPage();
-					status_ = std::format("SPEND {} REMAINING S.P.E.C.I.A.L. POINT(S) BEFORE RIDING UP", Remaining());
-					return false;
-				}
 				confirmed_ = true;
 				a_out.action = CommitAction::kRide;
 				a_out.special = special_;

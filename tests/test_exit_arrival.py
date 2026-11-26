@@ -58,9 +58,9 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
-        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False)):",
+        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('MuteArrivalDiscoveryPopup', True), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('HasPodSafeExitOverride', False), ('podExitDone', False)):",
         "    if _k not in globals(): globals()[_k] = _v",
-        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook'):",
+        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'ForceFadeIn', 'RunPodExitHook'):",
         "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
         "if 'ReadH00Glob' not in globals(): globals()['ReadH00Glob'] = lambda g, _fid: bool(g is not None and g.GetValue() >= 0.5)",
         "if 'BoolBit' not in globals(): globals()['BoolBit'] = lambda f: 1 if f else 0",
@@ -96,7 +96,7 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         fn_py_name = name.split(".")[-1]
         out.append(f"def {fn_py_name}({', '.join(py_args)}):")
         if variables.strip():
-            out.append("    global " + variables + ", portConsoleRegistered, portConsoleWatchedRef, consoleOpening")
+            out.append("    global " + variables + ", portConsoleRegistered, portConsoleWatchedRef, consoleOpening, surfaceFadeInDone, podExitDone")
         depth = 1
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
         for line in body.splitlines():
@@ -230,6 +230,7 @@ class ArrivalExecutionTests(unittest.TestCase):
             ArrivalHeading=0.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
             FallbackX=-10.0, FallbackY=-20.0, FallbackZ=95.0, FallDrop=3.0,
             ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x0A775B, CorePlugin="FO4TerrainCore.esm",
+            MuteArrivalDiscoveryPopup=False, SinglePassLandingFade=True, surfaceFadeInDone=False,
             SurfaceWait=10.0, SurfaceTries=3, surfaceMoves=1, surfaceSets=0,
             surfaceMovedAt=1.0, arrivedAt=1.0, fallbackPending=False,
             discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
@@ -299,9 +300,9 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.run_branch("FinishSurface")
         self.assertEqual(self.stages, [40])
         self.assertEqual(self.marker.discovery_calls, 0)
-        self.run_branch("CheckLanding")  # still within the three-second settling interval
+        self.run_branch("CheckLanding")  # still within the 0.25 s settling interval
         self.assertEqual(self.marker.discovery_calls, 0)
-        self.now += 3.0
+        self.now += 0.25
         self.run_branch("CheckLanding")
         self.assertEqual(self.marker.discovery_calls, 1)
         self.assertTrue(any(t.startswith("arrival discovery requested ") for t in self.traces))
