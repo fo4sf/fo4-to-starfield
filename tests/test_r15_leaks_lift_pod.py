@@ -60,6 +60,7 @@ class GameStartConfigTests(unittest.TestCase):
                 "pod_safe_step_m",
                 "pod_safe_heading_deg",
                 "single_pass_landing_fade",
+                "autosave_points",
             ):
                 self.assertIn(req_key, entry, f"{game_key} missing {req_key}")
 
@@ -72,19 +73,22 @@ class GameStartConfigTests(unittest.TestCase):
         self.assertAlmostEqual(fo4["pod_safe_step_m"], -3.2, places=3)
         self.assertAlmostEqual(fo4["pod_safe_heading_deg"], 270.0, places=3)
         self.assertTrue(fo4["single_pass_landing_fade"])
+        self.assertEqual(fo4["autosave_points"], ["pod_exit", "pipboy_pickup"])
         self.assertEqual(fo4["pod_safe_pos_override"], {"x": 9.143, "y": -7.314, "z": -1.029})
 
         ids = fo4["starter_strip_starfield_armor_ids"]
         for expected_id in ("0x001E2B17", "0x001E2B18", "0x001E2B19", "0x0001D1E7", "0x000D4893"):
             self.assertIn(expected_id, ids)
 
-        # Ensure documented FO3/FNV placeholders do not inherit FO4 pod step/heading
+        # Ensure documented FO3/FNV placeholders do not inherit FO4 pod step/heading or autosave points
         self.assertEqual(games["fo3"]["pod_exit_mode"], "none")
         self.assertEqual(games["fnv"]["pod_exit_mode"], "none")
         self.assertEqual(games["fo3"]["arrival_discovery_method"], "during_fade")
         self.assertEqual(games["fnv"]["arrival_discovery_method"], "during_fade")
         self.assertAlmostEqual(games["fo3"]["pod_entry_step_m"], 0.0, places=3)
         self.assertAlmostEqual(games["fnv"]["pod_entry_step_m"], 0.0, places=3)
+        self.assertEqual(games["fo3"]["autosave_points"], [])
+        self.assertEqual(games["fnv"]["autosave_points"], [])
 
 
 class Item3LeaksBehindFlagsTests(unittest.TestCase):
@@ -651,6 +655,162 @@ class Item5PodExitTests(unittest.TestCase):
                 self.assertTrue(any("pod_exit mode=safe_spawn hook_stage=15 moved=true " in t.lower() for t in traces), traces)
                 self.assertAlmostEqual(player.pos[1], -7.314, places=3)
                 self.assertEqual(angles, [(0.0, 0.0, 270.0)])
+
+
+class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
+    def test_pickup_forces_first_person_sheathes_autosaves_and_reload_reequips_after_unequip(self):
+        psc = read(PSC)
+        compiled = compile(
+            translated_functions(
+                psc,
+                (
+                    "HandlePipboyPickup",
+                    "EnsurePipboyWristEquipped",
+                    "SyncPipboyOwnedWornState",
+                    "TriggerVaultPickupAutosave",
+                    "Actor.OnPlayerLoadGame",
+                    "StandsInVault",
+                ),
+                "pipboyPickedUp, pipboyGranted, pipboyPickupAutosaved, vaultPodAutosaved, vaultRecoveryTriggered, vaultSavingRelocked, "
+                "h00SuspectsRead, rideActive, rideDone, rideTransferred, rideFadeStarted, ridingLift, ridingCell, "
+                "surfaceMovedAt, surfaceMoves, surfaceSets, surfaceFadeInDone, exitUsedFallback, asked, "
+                "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries",
+            ),
+            PSC,
+            "exec",
+        )
+        vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+        vault_anchor = Reference(None, (-60.0, 0.0, -1.0))
+        vault_anchor.cell = vault_cell
+        wrist = object()
+        corpse = SimpleNamespace(disabled=False, DisableNoWait=lambda *_: setattr(corpse, "disabled", True))
+        examine_idle = object()
+
+        state = {
+            "count": 0,
+            "equipped": False,
+            "equips": [],
+            "sheathed": 0,
+            "first_person": 0,
+            "played_idles": [],
+            "autosaves": 0,
+            "chargens": [],
+            "timers": [],
+            "traces": [],
+            "glob": 0.0,
+            "stage": 20,
+        }
+
+        class _Player:
+            def __init__(self):
+                self.interior = True
+                self.cell = vault_cell
+
+            def IsDead(self): return False
+            def Is3DLoaded(self): return True
+            def IsInInterior(self): return self.interior
+            def GetParentCell(self): return self.cell
+            def GetItemCount(self, item): return state["count"] if item is wrist else 0
+            def AddItem(self, item, n, silent=False):
+                if item is wrist:
+                    state["count"] += int(n)
+            def IsEquipped(self, item): return bool(item is wrist and state["equipped"])
+            def EquipItem(self, item, prevent_removal=False, silent=False):
+                if item is wrist:
+                    state["equips"].append((prevent_removal, silent))
+                    state["equipped"] = True
+            def SheatheWeapon(self): state["sheathed"] += 1
+            def PlayIdle(self, idle):
+                state["played_idles"].append(idle)
+                return True
+
+        player = _Player()
+        glob = SimpleNamespace(
+            GetValue=lambda: state["glob"],
+            SetValue=lambda v: state.__setitem__("glob", float(v)),
+        )
+        ns = dict(
+            _PStr=_PStr,
+            Trace=state["traces"].append,
+            LogName="fo4sf_newgame",
+            pipboyPickedUp=False,
+            pipboyGranted=False,
+            pipboyPickupAutosaved=False,
+            vaultPodAutosaved=True,
+            vaultRecoveryTriggered=False,
+            vaultSavingRelocked=True,
+            h00SuspectsRead=False,
+            rideActive=False,
+            rideDone=False,
+            rideTransferred=False,
+            rideFadeStarted=False,
+            ridingLift=None,
+            ridingCell=None,
+            surfaceMovedAt=0.0,
+            surfaceMoves=0,
+            surfaceSets=0,
+            surfaceFadeInDone=False,
+            exitUsedFallback=False,
+            asked=False,
+            returnSurfacePending=False,
+            returnVaultAsked=False,
+            returnSurfaceWaitTicks=0,
+            returnSurfaceTries=0,
+            PipboyWristArmor=wrist,
+            PipboyWristSlotLabel="54,55",
+            PipboyAcquiredGlobal=glob,
+            PipboyCorpseRef=corpse,
+            PortPipboyStaticId=0,
+            VaultPlugin="FO4Port.esm",
+            VaultAnchorId=0x805,
+            GameModeGlobal=SimpleNamespace(GetValue=lambda: 1.0),
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player,
+                GetFormFromFile=lambda fid, plg: examine_idle if (fid == 0x000C154F and plg == "Starfield.esm") else vault_anchor,
+                ForceFirstPerson=lambda: state.__setitem__("first_person", state["first_person"] + 1),
+                SetInChargen=lambda a, b, c: state["chargens"].append((a, b, c)),
+                RequestAutoSave=lambda: state.__setitem__("autosaves", state["autosaves"] + 1),
+            ),
+            Debug=SimpleNamespace(OpenUserLog=lambda *_: True, TraceUser=lambda *_: True, Notification=lambda *_: None),
+            GetStage=lambda: state["stage"],
+            UnregisterForRemoteEvent=lambda *_: None,
+            EnsureLoadHookRegistered=lambda *_: None,
+            RelockVaultSaving=lambda *_: None,
+            RecoverPairedLiftOnLoad=lambda *_: None,
+            StartTimer=lambda s, tid: state["timers"].append((s, tid)),
+        )
+        exec(compiled, ns)
+
+        # 1. Pickup equips wrist, logs slot=54,55 (data), forces 1st person & sheathes, plays idle, triggers pickup autosave
+        ns["HandlePipboyPickup"](player)
+        self.assertTrue(ns["pipboyGranted"])
+        self.assertTrue(ns["pipboyPickedUp"])
+        self.assertEqual(state["first_person"], 1)
+        self.assertEqual(state["sheathed"], 1)
+        self.assertEqual(state["played_idles"], [examine_idle])
+        self.assertEqual(state["autosaves"], 1)
+        self.assertFalse(ns["vaultSavingRelocked"])
+        self.assertIn((False, False, False), state["chargens"])
+        self.assertIn((1.5, 6), state["timers"])
+        self.assertIn("vault_death_recovery=autosave stage=20 after=pipboy_pickup", state["traces"])
+        self.assertTrue(any("slot=54,55" in t for t in state["traces"]), state["traces"])
+        self.assertFalse(any("SSChronoMark" in t for t in state["traces"]), state["traces"])
+
+        # 2. Grant -> unequip -> save -> load re-equips unconditionally with (true, true)
+        state["equipped"] = False
+        ns["SyncPipboyOwnedWornState"](player)
+        self.assertEqual(state["glob"], 0.0)
+        ns["OnPlayerLoadGame"](player)
+        self.assertTrue(state["equipped"])
+        self.assertEqual(state["glob"], 1.0)
+        self.assertGreaterEqual(len(state["equips"]), 2)
+        self.assertEqual(state["equips"][-1], (True, True))
+
+        # Even if IsEquipped was already True on load, OnPlayerLoadGame re-applies EquipItem(true, true)
+        equips_before = len(state["equips"])
+        ns["OnPlayerLoadGame"](player)
+        self.assertEqual(len(state["equips"]), equips_before + 1)
+        self.assertEqual(state["equips"][-1], (True, True))
 
 
 if __name__ == "__main__":

@@ -486,7 +486,7 @@ def format_stage_ini(
     suppress_data_menu: int = 0,
     tab_opens_pipboy: int = 0,
     hide_starfield_watch: int = 1,
-    arm: int = 0,
+    arm: int = 1,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
     require_pickup: int = 1,
@@ -633,7 +633,7 @@ def generate_stage_ini(
     suppress_data_menu: int = 0,
     tab_opens_pipboy: int = 0,
     hide_starfield_watch: int = 1,
-    arm: int = 0,
+    arm: int = 1,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
     require_pickup: int = 1,
@@ -790,7 +790,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--suppress-data-menu", type=int, choices=(0, 1), default=0, help="C4-4 opt-in hide-only Starfield DataMenu suppression (default 0)")
     ap.add_argument("--tab-opens-pipboy", type=int, choices=(0, 1), default=0, help="C4-4 opt-in closed-Pip-Boy Tab open with 500 ms blocking cooldown (default 0)")
     ap.add_argument("--hide-starfield-watch", type=int, choices=(0, 1), default=1, help="D7(b) hide Starfield HUDMenu BottomLeftGroup_mc wrist watch (default 1; 0 = one-line rollback)")
-    ap.add_argument("--arm", type=int, choices=(0, 1), default=0, help="Opt-in 1i/N1 first-person arm PlayIdle (default 0: T7 off)")
+    ap.add_argument("--arm", type=int, choices=(0, 1), default=1, help="First-person wrist arm raise PlayIdle (default 1: G12b)")
     ap.add_argument("--stat-actions", type=int, choices=(0, 1), default=0, help="Enable 1j STAT actions (default 0)")
     ap.add_argument("--inv-data-answers", type=int, choices=(0, 1), default=0, help="Enable 1k INV/DATA answers (default 0)")
     ap.add_argument("--require-pickup", type=int, choices=(0, 1), default=1, help="Enable X2 RequirePickup (default 1)")
@@ -835,7 +835,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--a5-playable",
         action="store_true",
-        help="A5 playable preset: enable PopulateInCall=1, StatActions=1, InvDataAnswers=1 and stage FO4SFPipboyQuestObjectives.tsv (Arm stays 0 unless --arm 1)",
+        help="A5 playable preset: enable PopulateInCall=1, StatActions=1, InvDataAnswers=1 and stage FO4SFPipboyQuestObjectives.tsv (Arm=1 default)",
     )
     ap.add_argument("--expect-file", default=None, help="Optional file of expected BGSCodeObj names to cross-check against SWF string pools")
     ap.add_argument("--omit", action="append", default=[], help="Omit a BGSCodeObj name from CodeObjNames= (repeatable)")

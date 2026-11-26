@@ -216,7 +216,12 @@ namespace
 	constexpr std::uint32_t kCoreHardcoreFastTravelBlockedId = 0x841; // FO4SFCoreValues.esm GLOB FO4SF_HardcoreFastTravelBlocked (A2)
 	constexpr std::uint32_t kCoreStimpakLocalId = 0x851;     // FO4SFCoreValues.esm ALCH FO4SF_Stimpak
 	constexpr std::uint32_t kCorePipboyAcquiredId = 0x865;   // FO4SFCoreValues.esm GLOB FO4SF_PipboyAcquired (X2)
-	constexpr std::uint32_t kNewGamePipboyWristId = 0x80D;   // FO4SFNewGame.esm ARMO FO4SF_PipboyWrist (owned + worn gate)
+	constexpr std::uint32_t kPowerArmorInPaAvId = 0x80A;     // FO4SFPowerArmor.esm AVIF FO4SF_PAInPowerArmor
+	constexpr std::uint32_t kPowerArmorKwId = 0x806;         // FO4SFPowerArmor.esm KYWD FO4SF_PAArmorKeyword
+	constexpr std::uint32_t kSfPowerArmorFrameKwId = 0x15503F; // Starfield.esm KYWD isPowerArmorFrame
+	constexpr std::size_t   kActorBoolBitsAt = 0x208;        // libxse RE::Actor::boolBits
+	constexpr std::uint32_t kActorSwimmingBit = 1u << 19;    // libxse RE::Actor::BOOL_BITS::kSwimming
+	constexpr std::size_t   kKeywordFormArrayAt = 0x20;      // libxse RE::BGSKeywordForm::keywords (BSTArray<BGSKeyword*>)
 	constexpr std::uint32_t kCoreStartCardOpenId = 0x866;    // FO4SFCoreValues.esm GLOB FO4SF_StartCardOpen (N2, R13)
 	constexpr std::uint32_t kCoreGameModeId = 0x870;         // FO4SFCoreValues.esm GLOB FO4SF_GameMode (S1, R13)
 	constexpr std::uint32_t kCoreSurvivalStartId = 0x871;    // FO4SFCoreValues.esm GLOB FO4SF_SurvivalStart (S1, R13)
@@ -7813,6 +7818,10 @@ namespace
 		g_task->AddTask([n]() { ArmLower(n); });
 	}
 
+	fo4sf::pipboy::ScreenOpenResult OpenPipboyScreen(std::uint32_t a_targetPage);
+
+	void ArmShow(std::uint32_t a_n);
+
 	RE::UI_MESSAGE_RESULT MenuProcessMessage(void* a_self, RE::UIMessageData& a_message)
 	{
 		const auto type = a_message.type;
@@ -7878,12 +7887,10 @@ namespace
 							}
 							return;
 						}
-						if (g_stage == 2 && g_codeObj) {
-							CollectShellVitalsMainThread(targetPage);
-						}
-						g_expectOpen = 1;
-						queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
-						REX::INFO("step=boot_reopen page={} sent=show", targetPage);
+						const auto openRes = OpenPipboyScreen(targetPage);
+						REX::INFO("step=boot_reopen page={} sent={} screen_source={} fallback={} reason={}",
+							targetPage, openRes.opened ? "show" : "none",
+							fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
 					});
 				}
 			}
@@ -10169,18 +10176,34 @@ namespace
 	std::atomic<std::int64_t>  g_stateCheckDueAt{ 0 };
 	std::atomic<std::uint32_t> g_stateCheckN{ 0 };
 
-	bool CheckPipboyWristOwnedAndWornMainThread(bool& a_outResolved, bool& a_outOwned, bool& a_outWorn)
+	bool FormHasKeywordPtr(std::uintptr_t a_form, const ObjectType& a_type, std::uintptr_t a_kwPtr)
 	{
-		a_outResolved = false;
-		a_outOwned = false;
-		a_outWorn = false;
-		std::string detail;
-		const auto wristFid = KitFileForm("FO4SFNewGame.esm", kNewGamePipboyWristId, "TESObjectARMO@@", detail);
-		if (!wristFid) {
+		if (!a_form || !a_kwPtr) {
 			return false;
 		}
-		a_outResolved = true;
-		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+		const auto kwAt = BaseOffset(a_type, "BGSKeywordForm@@");
+		if (!kwAt || !CheckSubobject(a_form, a_type, *kwAt)) {
+			return false;
+		}
+		ArrayHead kws{};
+		if (!Peek(a_form + *kwAt + kKeywordFormArrayAt, kws) || kws.size > kws.capacity || kws.size > kKitMaxItems ||
+		    (kws.size && !kws.data)) {
+			return false;
+		}
+		for (std::uint32_t k = 0; k < kws.size; ++k) {
+			std::uintptr_t kw = 0;
+			if (Peek(kws.data + k * sizeof(std::uintptr_t), kw) && kw == a_kwPtr) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool PlayerHasKeywordItemMainThread(std::uintptr_t a_kwPtr, bool& a_outOwned, bool& a_outWorn)
+	{
+		a_outOwned = false;
+		a_outWorn = false;
+		if (!a_kwPtr || !CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
 			return false;
 		}
 		const auto     player = Singleton(kPlayerSingleton);
@@ -10195,11 +10218,11 @@ namespace
 		for (std::uint32_t i = 0; i < items.size; ++i) {
 			const auto     item = items.data + i * kInventoryItemSize;
 			std::uintptr_t obj = 0;
-			if (!Peek(item, obj) || !obj) {
+			ObjectType     objType;
+			if (!Peek(item, obj) || !obj || !TypeOf(obj, objType)) {
 				continue;
 			}
-			std::uint32_t fid = 0;
-			if (!Peek(obj + kFormIdAt, fid) || fid != wristFid) {
+			if (!FormHasKeywordPtr(obj, objType, a_kwPtr)) {
 				continue;
 			}
 			ArrayHead     stacks{};
@@ -10223,7 +10246,80 @@ namespace
 		return a_outOwned && a_outWorn;
 	}
 
-	// Step X2 & Step 1f (R13) & 2g-fix6: checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) AND owned+worn FO4SF_PipboyWrist (0x80D)
+	bool CheckPipboyWristOwnedAndWornMainThread(bool& a_outResolved, bool& a_outOwned, bool& a_outWorn)
+	{
+		a_outResolved = false;
+		a_outOwned = false;
+		a_outWorn = false;
+		std::string detail;
+		const auto  kwFid = KitFileForm(
+			fo4sf::pipboy::kPipboyKeywordPlugin,
+			fo4sf::pipboy::kPipboyKeywordLocalId,
+			"BGSKeyword@@",
+			detail);
+		const auto kwPtr = kwFid ? FormById(kwFid) : 0;
+		ObjectType kwType;
+		if (!kwPtr || !IsType(kwPtr, "BGSKeyword@@", kwType)) {
+			return false;
+		}
+		a_outResolved = true;
+		return PlayerHasKeywordItemMainThread(kwPtr, a_outOwned, a_outWorn);
+	}
+
+	bool IsPlayerSwimmingMainThread()
+	{
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			return false;
+		}
+		const auto    player = Singleton(kPlayerSingleton);
+		std::uint32_t boolBits = 0;
+		if (!player || !Peek(player + kActorBoolBitsAt, boolBits)) {
+			return false;
+		}
+		return (boolBits & kActorSwimmingBit) != 0;
+	}
+
+	bool IsPlayerInPowerArmorMainThread()
+	{
+		if (!CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
+			return false;
+		}
+		const auto player = Singleton(kPlayerSingleton);
+		if (!player) {
+			return false;
+		}
+		std::string detail;
+		if (const auto avFid = KitFileForm("FO4SFPowerArmor.esm", kPowerArmorInPaAvId, "ActorValueInfo@@", detail)) {
+			const auto     avPtr = FormById(avFid);
+			ObjectType     avType;
+			std::uintptr_t vtable = 0;
+			if (avPtr && IsType(avPtr, "ActorValueInfo@@", avType) &&
+				g_forms.getActorValue && Peek(player + g_forms.ownerOffset, vtable) && vtable == g_forms.ownerVtable) {
+				const float val = reinterpret_cast<GetActorValue_t>(g_forms.getActorValue)(
+					reinterpret_cast<void*>(player + g_forms.ownerOffset), reinterpret_cast<const void*>(avPtr));
+				if (std::isfinite(val) && val >= 0.5f) {
+					return true;
+				}
+			}
+		}
+		for (const auto kwFid : {
+			FormById(kSfPowerArmorFrameKwId) ? kSfPowerArmorFrameKwId : 0u,
+			KitFileForm("FO4SFPowerArmor.esm", kPowerArmorKwId, "BGSKeyword@@", detail),
+		}) {
+			if (!kwFid) {
+				continue;
+			}
+			const auto kwPtr = FormById(kwFid);
+			ObjectType kwType;
+			bool       owned = false, worn = false;
+			if (kwPtr && IsType(kwPtr, "BGSKeyword@@", kwType) && PlayerHasKeywordItemMainThread(kwPtr, owned, worn) && worn) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Step X2 & Step 1f (R13) & G5(c): checks FO4SF_PipboyAcquired (FO4SFCoreValues.esm 0x000865) AND owned+worn item carrying FO4SF_Kw_Pipboy (0x867)
 	bool IsPipboyPickedUpMainThread(float& a_outVal, bool* a_outOwned = nullptr, bool* a_outWorn = nullptr)
 	{
 		a_outVal = 0.0f;
@@ -10316,6 +10412,51 @@ namespace
 		return fo4sf::pipboy::ResolvePipboyScreenSource(g_screenSourceIni, globVal);
 	}
 
+	fo4sf::pipboy::ScreenOpenResult OpenPipboyScreen(std::uint32_t a_targetPage)
+	{
+		const std::uint32_t target = std::min<std::uint32_t>(a_targetPage, 4u);
+		s_savedPage.store(target);
+		auto* ui = RE::UI::GetSingleton();
+		auto* queue = RE::UIMessageQueue::GetSingleton();
+		if (!ui || !queue) {
+			return fo4sf::pipboy::ScreenOpenResult{ fo4sf::pipboy::ScreenSourceMode::k2DIMenu, false, false, "no_ui_or_queue" };
+		}
+		g_lastShellTransitionMs.store(NowMs());
+		g_cancelHeld = false;   // FAL-414: a release heard while the page was closed must not keep the gate shut
+		if (g_stage == 2 && g_codeObj) {
+			CollectShellVitalsMainThread(target);
+		}
+		if (g_stage == 4) {
+			PageCollect();
+		}
+		if (g_stage == 5) {
+			KitCollect();
+		}
+		const auto effectiveMode = ResolvePipboyScreenSourceMainThread();
+		return fo4sf::pipboy::OpenPipboyScreenViaSource(
+			effectiveMode,
+			[&]() {
+				g_expectOpen = 1;
+				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
+				return true;
+			},
+			[]() { return false; });
+	}
+
+	const char* ShouldSkipWristRaiseMainThread(RE::UI* a_ui)
+	{
+		if (IsPlayerInPowerArmorMainThread()) {
+			return "power_armor";
+		}
+		if (IsPlayerSwimmingMainThread()) {
+			return "swimming";
+		}
+		if (a_ui && OpenBlockingOverlayMenu(a_ui) != nullptr) {
+			return "menu_open";
+		}
+		return nullptr;
+	}
+
 	void Toggle(std::uint32_t a_n)
 	{
 		auto* ui = RE::UI::GetSingleton();
@@ -10337,31 +10478,14 @@ namespace
 			REX::INFO("step=toggle n={} ignored=menu_open menu={}", a_n, topModal);
 			return;
 		}
-		g_cancelHeld = false;   // FAL-414: a release heard while the page was closed must not keep the gate shut
-		if (g_stage == 2 && g_codeObj && !open) {
-			CollectShellVitalsMainThread(s_savedPage.load());
-		}
-		if (g_stage == 4 && !open) {
-			PageCollect();   // the page's text before the show
-		}
-		if (g_stage == 5 && !open) {
-			KitCollect();    // the kit's screen before the show
-		}
 		if (open) {
+			g_cancelHeld = false;
 			g_expectOpen = 0;
 			queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kHide);
 			REX::INFO("step=toggle n={} was_open=1 sent=hide", a_n);
 			return;
 		}
-		const auto effectiveMode = ResolvePipboyScreenSourceMainThread();
-		const auto openRes = fo4sf::pipboy::OpenPipboyScreenViaSource(
-			effectiveMode,
-			[&]() {
-				g_expectOpen = 1;
-				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
-				return true;
-			},
-			[]() { return false; });
+		const auto openRes = OpenPipboyScreen(s_savedPage.load());
 		REX::INFO("step=toggle n={} was_open=0 sent={} screen_source={} fallback={} reason={}",
 			a_n, openRes.opened ? "show" : "none",
 			fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
@@ -10477,13 +10601,19 @@ namespace
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui || ui->IsMenuOpen(MenuName())) {
 			const auto lower = (g_armState != 1 || !ArmLowerSet()) ? std::string("none") : g_lowerIdle ? ArmPlayIdle(g_lowerIdle) : ArmNotify(*g_lowerEvent);
+			REX::INFO("step=pipboy_raise mode={} ms={} opened=0 reason={}",
+				g_armRaiseAccepted.load() ? "idle" : "arm", SincePress(), ui ? "already_open" : "no_ui");
 			REX::INFO("step=arm_show n={} result=skipped reason={} lower={} t_ms={}", a_n, ui ? "already_open" : "no_ui", lower,
 				SincePress());
 			return;
 		}
+		const auto elapsedMs = SincePress();
 		Toggle(a_n);
+		const int openedNow = (g_expectOpen.load() == 1 || ui->IsMenuOpen(MenuName())) ? 1 : 0;
+		REX::INFO("step=pipboy_raise mode={} ms={} opened={}",
+			g_armRaiseAccepted.load() ? "idle" : "arm", elapsedMs, openedNow);
 		REX::INFO("step=arm_show n={} sent=show raise={} arm_ready={} t_ms={}", a_n,
-			g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome, g_armState == 1 ? 1 : 0, SincePress());
+			g_armRaiseOutcome.empty() ? "-" : g_armRaiseOutcome, g_armState == 1 ? 1 : 0, elapsedMs);
 	}
 
 	// FAL-852, the key thread's state check after an arm open or close: due at `at` (0 = none), for press n
@@ -10546,6 +10676,16 @@ namespace
 
 		const auto n = ++g_openPressSeq;
 		if (g_arm) {
+			if (const char* skipReason = ShouldSkipWristRaiseMainThread(ui)) {
+				const auto openRes = OpenPipboyScreen(target);
+				REX::INFO("step=pipboy_raise mode=arm ms=0 opened={} skip={}", openRes.opened ? 1 : 0, skipReason);
+				REX::INFO("step=toggle n={} was_open=0 sent={} by={} screen_source={} fallback={} reason={}",
+					n, openRes.opened ? "show" : "none", a_by ? a_by : "key",
+					fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
+				g_stateCheckN.store(n);
+				g_stateCheckDueAt.store(NowMs() + 750);
+				return;
+			}
 			const auto at = NowMs();
 			const bool opening = g_armDispatching.load() || g_raiseRetry.state.load() != kRetryIdle || g_armShowAt.load() != 0;
 			if (g_lowerRetry.state.load() != kRetryIdle) {
@@ -10571,27 +10711,12 @@ namespace
 			return;
 		}
 
-		g_lastShellTransitionMs.store(NowMs());
 		if (a_by && std::string_view(a_by) == "tab_key" && g_suppressDataMenu) {
 			// Ensure Toggle() does not bail on a DataMenu frame whose kHide is still in flight
-			if (g_stage == 2 && g_codeObj) {
-				CollectShellVitalsMainThread(target);
-			}
-			g_cancelHeld = false;
-			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
-				const auto effectiveMode = ResolvePipboyScreenSourceMainThread();
-				const auto openRes = fo4sf::pipboy::OpenPipboyScreenViaSource(
-					effectiveMode,
-					[&]() {
-						g_expectOpen = 1;
-						queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
-						return true;
-					},
-					[]() { return false; });
-				REX::INFO("step=toggle n={} was_open=0 sent={} by=tab_key screen_source={} fallback={} reason={}",
-					n, openRes.opened ? "show" : "none",
-					fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
-			}
+			const auto openRes = OpenPipboyScreen(target);
+			REX::INFO("step=toggle n={} was_open=0 sent={} by=tab_key screen_source={} fallback={} reason={}",
+				n, openRes.opened ? "show" : "none",
+				fo4sf::pipboy::ScreenSourceModeName(openRes.mode), openRes.fellBackTo2D ? 1 : 0, openRes.reason);
 		} else {
 			Toggle(n);
 		}
@@ -10722,6 +10847,16 @@ namespace
 						}
 					}
 					if (g_armPendingOpenN.load() != n) {
+						return;
+					}
+					if (const char* skipReason = ShouldSkipWristRaiseMainThread(ui)) {
+						g_armPendingOpenN = 0;
+						g_armPressAt = 0;
+						g_armWaitingRaiseGraph = false;
+						g_armRaiseAccepted = false;
+						Toggle(n);
+						const int openedNow = (g_expectOpen.load() == 1 || ui->IsMenuOpen(MenuName())) ? 1 : 0;
+						REX::INFO("step=pipboy_raise mode=arm ms=0 opened={} skip={}", openedNow, skipReason);
 						return;
 					}
 					g_armPressAt = at;

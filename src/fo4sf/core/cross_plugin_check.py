@@ -922,7 +922,6 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
         records.setdefault(0x822, ("WEAP", "FO4SF_Vault111_10mm"))
         records.setdefault(0x823, ("ARMA", "FO4SF_PipboyWristHousingAA"))
         records.setdefault(0x824, ("ARMA", "FO4SF_PipboyWristScreenAA"))
-        records.setdefault(0x825, ("GLOB", "FO4SF_PipboyScreenSource"))
 
     return plugin, records
 
@@ -1527,6 +1526,7 @@ def validate_staged_esms(
 
 CPP_RTTI_TO_RECORD_TYPE: Dict[str, str] = {
     "ActorValueInfo@@": "AVIF",
+    "BGSKeyword@@": "KYWD",
     "TESGlobal@@": "GLOB",
     "AlchemyItem@@": "ALCH",
     "TESQuest@@": "QUST",
@@ -1614,6 +1614,22 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
         0x000866,
         "GLOB",
         "FO4SF_StartCardOpen",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_screen_source.h",
+        "kPipboyKeywordLocalId",
+        "FO4SFCoreValues.esm",
+        0x000867,
+        "KYWD",
+        "FO4SF_Kw_Pipboy",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_screen_source.h",
+        "kPipboyScreenSourceGlobLocalId",
+        "FO4SFCoreValues.esm",
+        0x000868,
+        "GLOB",
+        "FO4SF_PipboyScreenSource",
     ),
     NativeCoreValueSpec(
         "sfse/FO4SFPipboyMenu/src/main.cpp",
@@ -1722,18 +1738,23 @@ def _strip_cpp_comments(cpp_text: str) -> str:
     return re.sub(r"//[^\n]*", "", no_block)
 
 
-def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, int], List[CppPluginFormRef]]:
+def parse_cpp_plugin_form_refs(
+    cpp_rel: str,
+    cpp_text: str,
+    seed_uints: Optional[Dict[str, int]] = None,
+    seed_strs: Optional[Dict[str, str]] = None,
+) -> Tuple[Dict[str, int], List[CppPluginFormRef]]:
     """Parse C++ `uint32_t` FormID constants and `KitFileForm` / plugin-local FormID lookups in `cpp_text`."""
     clean = _strip_cpp_comments(cpp_text)
-    uint_consts: Dict[str, int] = {}
-    str_vars: Dict[str, str] = {}
+    uint_consts: Dict[str, int] = dict(seed_uints or {})
+    str_vars: Dict[str, str] = dict(seed_strs or {})
 
-    for m in re.finditer(r"\bconstexpr\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
+    for m in re.finditer(r"\b(?:inline\s+)?constexpr\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
         val = _parse_int_literal(m.group(2).strip(), uint_consts)
         if val is not None:
             uint_consts[m.group(1)] = val
 
-    for m in re.finditer(r'\b(?:constexpr\s+auto|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean):
+    for m in re.finditer(r'\b(?:(?:inline\s+)?constexpr\s+(?:auto|std::string_view)|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean):
         str_vars[m.group(1)] = m.group(2)
 
     # Also resolve local aliases such as `const std::uint32_t spLocalId = kCoreSpecialFirstLocalId + ...;`
@@ -1747,7 +1768,7 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
     refs: List[CppPluginFormRef] = []
     # Match multi-line KitFileForm(pluginExpr, idExpr, "RTTI@@", ...) calls
     for km in re.finditer(
-        r'KitFileForm\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.]*)\s*,\s*([^,]+?)\s*,\s*"([^"]+)"',
+        r'KitFileForm\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.:]*)\s*,\s*([^,]+?)\s*,\s*"([^"]+)"',
         clean,
         flags=re.S,
     ):
@@ -1755,12 +1776,16 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
         if plg_raw.startswith('"') and plg_raw.endswith('"'):
             plugin = plg_raw[1:-1]
         else:
-            plugin = str_vars.get(plg_raw, "")
+            plg_leaf = plg_raw.split("::")[-1]
+            plugin = str_vars.get(plg_raw) or str_vars.get(plg_leaf, "")
         if not plugin:
             continue
 
         id_clean = re.sub(r"static_cast<[^>]+>\(([^)]+)\)", r"\1", id_raw)
+        id_leaf = id_clean.split("::")[-1].strip()
         fid = _parse_int_literal(id_clean, local_aliases)
+        if fid is None:
+            fid = _parse_int_literal(id_leaf, local_aliases)
         line_no = clean.count("\n", 0, km.start()) + 1
         if fid is None or fid <= 0:
             continue
@@ -1824,7 +1849,7 @@ def validate_native_core_value_refs(
         if not os.path.isdir(abs_dir):
             continue
         for fn in sorted(os.listdir(abs_dir)):
-            if fn.endswith(".cpp"):
+            if fn.endswith((".cpp", ".h")):
                 rel = f"{rel_dir}/{fn}"
                 if rel in overrides:
                     cpp_texts[rel] = overrides[rel]
@@ -1834,11 +1859,32 @@ def validate_native_core_value_refs(
     for rel, txt in overrides.items():
         cpp_texts.setdefault(rel, txt)
 
-    parsed_by_file: Dict[str, Tuple[Dict[str, int], List[CppPluginFormRef]]] = {
-        rel: parse_cpp_plugin_form_refs(rel, txt) for rel, txt in sorted(cpp_texts.items())
-    }
+    # First pass over headers so .cpp files inherit shared header constexpr IDs and plugin names
+    header_uints_by_dir: Dict[str, Dict[str, int]] = {}
+    header_strs_by_dir: Dict[str, Dict[str, str]] = {}
+    parsed_by_file: Dict[str, Tuple[Dict[str, int], List[CppPluginFormRef]]] = {}
+    for rel, txt in sorted(cpp_texts.items()):
+        if rel.endswith(".h"):
+            dir_rel = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            u, r = parse_cpp_plugin_form_refs(rel, txt)
+            parsed_by_file[rel] = (u, r)
+            header_uints_by_dir.setdefault(dir_rel, {}).update(u)
+            clean_h = _strip_cpp_comments(txt)
+            for hm in re.finditer(r'\b(?:(?:inline\s+)?constexpr\s+(?:auto|std::string_view)|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean_h):
+                header_strs_by_dir.setdefault(dir_rel, {})[hm.group(1)] = hm.group(2)
+
+    for rel, txt in sorted(cpp_texts.items()):
+        if not rel.endswith(".h"):
+            dir_rel = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            parsed_by_file[rel] = parse_cpp_plugin_form_refs(
+                rel,
+                txt,
+                seed_uints=header_uints_by_dir.get(dir_rel),
+                seed_strs=header_strs_by_dir.get(dir_rel),
+            )
 
     registered_core_ids: Set[Tuple[str, int]] = set()
+    registered_core_dirs: Set[Tuple[str, int]] = set()
 
     # 1. Validate every entry in the R13 native core-values table against catalog and C++ constants
     for spec in specs:
@@ -1847,10 +1893,12 @@ def validate_native_core_value_refs(
             errors.append(f"{spec.cpp_rel}:{spec.const_name} references unknown plugin {spec.plugin}")
             continue
 
+        spec_dir = spec.cpp_rel.rsplit("/", 1)[0] if "/" in spec.cpp_rel else ""
         for off in range(spec.count):
             fid = spec.local_id + off
             if spec.plugin == "FO4SFCoreValues.esm":
                 registered_core_ids.add((spec.cpp_rel, fid))
+                registered_core_dirs.add((spec_dir, fid))
             if fid not in plg_table:
                 errors.append(
                     f"{spec.cpp_rel}:{spec.const_name} -> {spec.plugin}:0x{fid:06X} ({spec.edid}) missing in writer table"
@@ -1901,7 +1949,8 @@ def validate_native_core_value_refs(
                     f"is {actual_type}, incompatible with RTTI {ref.rtti_name} ({expected_type})"
                 )
 
-            if ref.plugin == "FO4SFCoreValues.esm" and (ref.cpp_rel, ref.local_id) not in registered_core_ids:
+            ref_dir = ref.cpp_rel.rsplit("/", 1)[0] if "/" in ref.cpp_rel else ""
+            if ref.plugin == "FO4SFCoreValues.esm" and (ref.cpp_rel, ref.local_id) not in registered_core_ids and (ref_dir, ref.local_id) not in registered_core_dirs:
                 errors.append(
                     f"{ref.cpp_rel}:{ref.line_no} native lookup FO4SFCoreValues.esm:0x{ref.local_id:06X} ({actual_edid}) "
                     f"is missing from NATIVE_CORE_VALUE_SPECS"

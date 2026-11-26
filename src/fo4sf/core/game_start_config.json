@@ -127,6 +127,10 @@
         "mode": "quest",
         "label": "QUEST"
       },
+      "autosave_points": [
+        "pod_exit",
+        "pipboy_pickup"
+      ],
       "notes": "Vault 111 cryo pod safe spawn steps -3.2 m from MQPlayerCryopodREF (9.143, -4.114, -1.029) onto main corridor aisle centerline (9.143, -7.314, -1.029) facing West (270.0 deg) toward v111_door_1_closed (-7.314, -7.314, 0.000)."
     },
     "fo3": {
@@ -166,6 +170,7 @@
         "mode": "quest",
         "label": "QUEST"
       },
+      "autosave_points": [],
       "notes": "Fallout 3 Capital Wasteland Vault 101 exit placeholder; no cryo pod hook required."
     },
     "fnv": {
@@ -205,6 +210,7 @@
         "mode": "quest",
         "label": "QUEST"
       },
+      "autosave_points": [],
       "notes": "Fallout: New Vegas Doc Mitchell's house wake-up placeholder; no cryo pod hook required."
     }
   }

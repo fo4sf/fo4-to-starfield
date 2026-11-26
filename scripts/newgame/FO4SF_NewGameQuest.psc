@@ -275,6 +275,8 @@ GlobalVariable Property H00SkipLandingQuestsGlobal Auto Const
 GlobalVariable Property H00SkipSurfaceSetPosGlobal Auto Const
 Armor Property PipboyWristArmor Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyWrist (0x80D), playable left-wrist Pip-Boy 3000 equipped on pickup.}
+string Property PipboyWristSlotLabel = "54,55" Auto Const
+{Biped slot indices (housing bit 54, screen bit 55) supplied by NewGame builder data for pickup logging.}
 ObjectReference Property PipboyCorpseRef Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyCorpsePickupRef (0x80F), placed persistent pickup beside the Vault-Tec scientist skeleton.}
 ObjectReference Property GearDoorConsoleRef Auto Const Mandatory
@@ -435,6 +437,8 @@ ObjectReference cogDoorWatchedRef = None
 bool pipboyRegistered = false
 bool pipboyEquipWatchRegistered = false
 bool pipboyPickedUp = false
+bool pipboyGranted = false
+bool pipboyPickupAutosaved = false
 bool itemWatchRegistered = false
 bool pistolPickedLogged = false
 bool liftSpecConfirmed = false
@@ -2004,6 +2008,27 @@ Function TriggerVaultPodRecoveryAutosave(int stageNum)
     StartTimer(1.5, 6)
 EndFunction
 
+Function TriggerVaultPickupAutosave(int stageNum)
+{G5(d) / G12(a): Autosave once right after Pip-Boy pickup equips the wrist item via vault death-recovery,
+ keeping manual saves locked in Vault 111 via Timer 6.}
+    if pipboyPickupAutosaved || stageNum < 10 || stageNum >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2)
+        return
+    endif
+    Actor player = Game.GetPlayer()
+    if player == None || player.IsDead() || !player.Is3DLoaded() || !StandsInVault(player)
+        return
+    endif
+    pipboyPickupAutosaved = true
+    EnsureLoadHookRegistered(player)
+    vaultPodAutosaved = true
+    vaultRecoveryTriggered = false
+    vaultSavingRelocked = false
+    Game.SetInChargen(false, false, false)
+    Game.RequestAutoSave()
+    Trace("vault_death_recovery=autosave stage=" + stageNum + " after=pipboy_pickup")
+    StartTimer(1.5, 6)
+EndFunction
+
 WorldSpace Function ResolveHostWorld()
 {Task 1i (#858 F7): Resolve live host exterior worldspace dynamically from persistent ExitAnchorId (0x0A775B, flags=0x400)
  FIRST, using Sanctuary workbench (0x005C50, flags=0x0) only as secondary fallback.}
@@ -2855,6 +2880,7 @@ Function RunWarfareBranch(Actor player, int rowIdx)
     StripStarterItemsSilently(player)
     FillO2(player)
     if PipboyWristArmor != None
+        pipboyGranted = true
         player.AddItem(PipboyWristArmor, 1, true)
         player.EquipItem(PipboyWristArmor, true, true)
     endif
@@ -3087,14 +3113,14 @@ bool Function EnsurePipboyWristEquipped(Actor player, string why)
     if player == None || PipboyWristArmor == None
         return false
     endif
-    bool acq = pipboyPickedUp || (PipboyAcquiredGlobal != None && PipboyAcquiredGlobal.GetValue() >= 0.5)
+    bool acq = pipboyGranted || pipboyPickedUp || (PipboyAcquiredGlobal != None && PipboyAcquiredGlobal.GetValue() >= 0.5)
     if !acq && why != "pickup"
         return false
     endif
     if player.GetItemCount(PipboyWristArmor) <= 0
         player.AddItem(PipboyWristArmor, 1, true)
     endif
-    if !player.IsEquipped(PipboyWristArmor)
+    if why == "load" || !player.IsEquipped(PipboyWristArmor)
         player.EquipItem(PipboyWristArmor, true, true)
     endif
     bool worn = player.IsEquipped(PipboyWristArmor)
@@ -3104,7 +3130,7 @@ bool Function EnsurePipboyWristEquipped(Actor player, string why)
         SyncPipboyOwnedWornState(player)
     endif
     if why == "pickup"
-        Trace("pipboy wrist equipped item=" + PipboyWristArmor + " worn=" + worn + " slot=SSChronoMark")
+        Trace("pipboy wrist equipped item=" + PipboyWristArmor + " worn=" + worn + " slot=" + PipboyWristSlotLabel)
     else
         Trace("pipboy wrist reequip on_load=" + why + " acquired=" + acq + " worn=" + worn)
     endif
@@ -3312,15 +3338,21 @@ Function ActivateGearDoorConsole()
 EndFunction
 
 Function HandlePipboyPickup(Actor player)
-{Equips FO4SF_PipboyWrist, raises wrist via IdleExamineWatch (0x000C154F), sets FO4SF_PipboyAcquired=1 when owned+worn.}
+{Equips FO4SF_PipboyWrist, forces 1st person & sheathes weapon before playing IdleExamineWatch (0x000C154F),
+ sets FO4SF_PipboyAcquired=1 when owned+worn, and triggers one vault pickup autosave.}
     if pipboyPickedUp
         return
     endif
     pipboyPickedUp = true
+    pipboyGranted = true
     if PipboyCorpseRef != None
         UnregisterForRemoteEvent(PipboyCorpseRef, "OnActivate")
     endif
     bool worn = EnsurePipboyWristEquipped(player, "pickup")
+    Game.ForceFirstPerson()
+    if player != None
+        player.SheatheWeapon()
+    endif
     bool examinePlayed = false
     Idle examineIdle = Game.GetFormFromFile(0x000C154F, "Starfield.esm") as Idle
     if examineIdle != None && player != None
@@ -3336,6 +3368,7 @@ Function HandlePipboyPickup(Actor player)
         endif
     endif
     Trace("pipboy pickup equipped flag=1 worn=" + worn)
+    TriggerVaultPickupAutosave(GetStage())
     Trace("pipboy pickup examine_idle=" + examinePlayed)
 EndFunction
 

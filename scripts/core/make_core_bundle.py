@@ -540,7 +540,7 @@ def install_and_rollback_commands(bundle_dir: str, starfield_dir: str, plugins: 
     joined = ",".join(plugins)
     install_cmd = (
         f'python scripts/game/exp_install.py install --exp-dir "{bundle_dir}" '
-        f'--starfield "{starfield_dir}" --plugins {joined} --pack'
+        f'--starfield "{starfield_dir}" --plugins {joined} --pack --textures-archive'
     )
     rollback_cmd = f'python scripts/game/exp_install.py uninstall --starfield "{starfield_dir}"'
     return install_cmd, rollback_cmd

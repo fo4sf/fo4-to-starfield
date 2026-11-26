@@ -285,8 +285,8 @@ public static class CoreValuesWriter
 
         var byEdid = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
 
-        // Pass 1: AVIF, GLOB, MGEF
-        foreach (var s in specs.Where(x => x.Type is "AVIF" or "GLOB" or "MGEF"))
+        // Pass 1: AVIF, GLOB, MGEF, KYWD
+        foreach (var s in specs.Where(x => x.Type is "AVIF" or "GLOB" or "MGEF" or "KYWD"))
         {
             var fk = new FormKey(pluginKey, s.Id);
             byEdid[s.Edid] = fk;
@@ -313,6 +313,10 @@ public static class CoreValuesWriter
                 };
                 if (s.Constant) g.MajorFlags |= Global.MajorFlag.Constant;
                 mod.Globals.Add(g);
+            }
+            else if (s.Type == "KYWD")
+            {
+                mod.Keywords.Add(new Keyword(fk, Release) { EditorID = s.Edid });
             }
             else if (s.Type == "MGEF")
             {
@@ -460,7 +464,8 @@ public static class CoreValuesWriter
         var outPath = Path.Combine(outDir, pluginKey.FileName);
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
                           $"{mod.ActorValueInformation.Count} AVIF, {mod.Globals.Count} GLOB, " +
-                          $"{mod.FormLists.Count} FLST, {mod.MagicEffects.Count} MGEF, {mod.Ingestibles.Count} ALCH" +
+                          $"{mod.Keywords.Count} KYWD, {mod.FormLists.Count} FLST, " +
+                          $"{mod.MagicEffects.Count} MGEF, {mod.Ingestibles.Count} ALCH" +
                           (clmtOverrides > 0 || atmoOverrides > 0 ? $", {clmtOverrides} CLMT, {atmoOverrides} ATMO" : ""));
         return 0;
     }
@@ -549,6 +554,11 @@ public static class CoreValuesWriter
                 var r = plug.MagicEffects.FirstOrDefault(x => x.FormKey == fk);
                 Need(r != null && r.EditorID == s.Edid, $"MGEF 0x{s.Id:X} {s.Edid} mismatch");
             }
+            else if (s.Type == "KYWD")
+            {
+                var r = plug.Keywords.FirstOrDefault(x => x.FormKey == fk);
+                Need(r != null && r.EditorID == s.Edid, $"KYWD 0x{s.Id:X} {s.Edid} mismatch");
+            }
             else if (s.Type == "ALCH")
             {
                 var r = plug.Ingestibles.FirstOrDefault(x => x.FormKey == fk);
@@ -561,6 +571,7 @@ public static class CoreValuesWriter
 
         Need(plug.ActorValueInformation.Count == specs.Count(x => x.Type == "AVIF"), "unexpected AVIF count");
         Need(plug.Globals.Count == specs.Count(x => x.Type == "GLOB"), "unexpected GLOB count");
+        Need(plug.Keywords.Count == specs.Count(x => x.Type == "KYWD"), "unexpected KYWD count");
         Need(plug.FormLists.Count == specs.Count(x => x.Type == "FLST"), "unexpected FLST count");
         Need(plug.MagicEffects.Count == specs.Count(x => x.Type == "MGEF"), "unexpected MGEF count");
         Need(plug.Ingestibles.Count == specs.Count(x => x.Type == "ALCH"), "unexpected ALCH count");
@@ -568,7 +579,7 @@ public static class CoreValuesWriter
         if (problems.Count > 0)
             throw new Refusal(string.Join("; ", problems));
         Console.WriteLine($"check ok: {pluginKey} ({plug.ActorValueInformation.Count} AVIF, {plug.Globals.Count} GLOB, " +
-                          $"{plug.FormLists.Count} FLST, {plug.MagicEffects.Count} MGEF, {plug.Ingestibles.Count} ALCH" +
+                          $"{plug.Keywords.Count} KYWD, {plug.FormLists.Count} FLST, {plug.MagicEffects.Count} MGEF, {plug.Ingestibles.Count} ALCH" +
                           (plug.Climates.Count > 0 || plug.Atmospheres.Count > 0
                               ? $", {plug.Climates.Count} CLMT, {plug.Atmospheres.Count} ATMO"
                               : "") + ")");

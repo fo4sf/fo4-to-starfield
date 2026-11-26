@@ -117,12 +117,12 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
             line = re.sub(r"\bnew\s+Var\[0\]", "[]", line)
             line = re.sub(r"^int\s+(\w+)\s*=\s*(.+)", r"\1 = int(\2)", line)
             line = re.sub(
-                r"^(?:bool|float|string|WorldSpace|Cell|Form|ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|Weather|FO4SF_\w+)\s+(\w+)\s*=",
+                r"^(?:bool|float|string|WorldSpace|Cell|Form|ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|Idle|ScriptObject|Var|Weather|FO4SF_\w+)\s+(\w+)\s*=",
                 r"\1 =",
                 line,
             )
             line = re.sub(
-                r"\s+as\s+(?:ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|ScriptObject|Var|Weather|FO4SF_\w+)\b",
+                r"\s+as\s+(?:ObjectReference|Weapon|Armor|Actor|Quest|Faction|GlobalVariable|ActorValue|Idle|ScriptObject|Var|Weather|FO4SF_\w+)\b",
                 "",
                 line,
             )

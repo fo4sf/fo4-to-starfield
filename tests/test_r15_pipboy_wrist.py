@@ -195,9 +195,34 @@ class TestR15PipboyWrist(unittest.TestCase):
         self.assertEqual(list(screen_res.report["groups"].keys()), [spw.SCREEN_MAT_GAME])
         self.assertEqual(screen_res.report["groups"][spw.SCREEN_MAT_GAME]["shapes"], ["Screen:0"])
 
+        housing_res_f = spw.rebind_pipboy_to_wrist(
+            tpl_bytes,
+            fo4_bytes,
+            spw.is_housing_shape,
+            lambda _nf, _s: housing_mat_game,
+            cuff_center_bone=spw.WRIST_CENTER_BONE_F,
+            unit_scale=spw.FO4_TO_SF_WRIST_SCALE_F,
+            group_prefix="FO4WristHousing1stF",
+        )
+        screen_res_f = spw.rebind_pipboy_to_wrist(
+            tpl_bytes,
+            fo4_bytes,
+            spw.is_primary_screen_shape,
+            lambda _nf, _s: spw.SCREEN_MAT_GAME,
+            cuff_center_bone=spw.WRIST_CENTER_BONE_F,
+            unit_scale=spw.FO4_TO_SF_WRIST_SCALE_F,
+            group_prefix="FO4WristScreen1stF",
+        )
+
         # Verify Screen:0 orientation: FO4 -Z (-4.7 < -0.106) rotated by Ry(180) -> +Z (> +0.002)
         scr_bounds = screen_res.report["bone_bounds_m"]
         self.assertGreater(scr_bounds["z"][0], 0.05)
+
+        # Verify per-game wrist sources table exists and carries fo4/fo3/fnv rows
+        fo4_sources = spw.load_wrist_sources("fo4")
+        self.assertTrue(fo4_sources["enabled"])
+        self.assertEqual(len(fo4_sources["cuff_center"]), 3)
+        self.assertTrue(fo4_sources["source_1st"].endswith("pipboy.nif"))
 
         # Stage into temp dir outside Git and run verify_staged_pipboy_wrist positive + negative checks
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,13 +230,13 @@ class TestR15PipboyWrist(unittest.TestCase):
                 p = os.path.join(tmp, *nif_rel.split("/"))
                 os.makedirs(os.path.dirname(p), exist_ok=True)
                 with open(p, "wb") as fh:
-                    fh.write(housing_res.nif)
+                    fh.write(housing_res_f.nif if nif_rel.endswith(("_f.nif", "_1st_f.nif")) else housing_res.nif)
             for nif_rel in spw.SCREEN_NIFS:
                 p = os.path.join(tmp, *nif_rel.split("/"))
                 os.makedirs(os.path.dirname(p), exist_ok=True)
                 with open(p, "wb") as fh:
-                    fh.write(screen_res.nif)
-            for res in (housing_res, screen_res):
+                    fh.write(screen_res_f.nif if nif_rel.endswith(("_f.nif", "_1st_f.nif")) else screen_res.nif)
+            for res in (housing_res, screen_res, housing_res_f, screen_res_f):
                 for (d, f), mb in res.meshes.items():
                     mp = os.path.join(tmp, "geometries", d, f"{f}.mesh")
                     os.makedirs(os.path.dirname(mp), exist_ok=True)
@@ -232,7 +257,7 @@ class TestR15PipboyWrist(unittest.TestCase):
                     json.dump({"Albedo": f"Data\\{tex_rel.replace('/', chr(92))}"}, fh)
 
             verified = spw.verify_staged_pipboy_wrist(tmp)
-            self.assertEqual(len(verified["nifs"]), 6)
+            self.assertEqual(len(verified["nifs"]), 8)
             self.assertIn(spw.SCREEN_MAT_REL, verified["local_mats"])
 
             # Negative: missing screen texture must fail
@@ -285,6 +310,9 @@ var watchAa = new SF.ArmorAddon(new FormKey(sfKey, PipboyWristBuilder.WatchTempl
 watchAa.Race.SetTo(new FormKey(sfKey, PipboyWristBuilder.HumanRaceId));
 sf.ArmorAddons.Add(watchAa);
 
+var coreKey = ModKey.FromFileName("FO4SFCoreValues.esm");
+var pipboyKwKey = new FormKey(coreKey, 0x867);
+
 var ngKey = ModKey.FromFileName("FO4SFNewGame.esm");
 var ng = new SF.StarfieldMod(ngKey, rel);
 ng.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
@@ -293,26 +321,37 @@ wrist.EditorID = "FO4SF_PipboyWrist";
 wrist.Name = "Pip-Boy 3000";
 ng.Armors.Add(wrist);
 
-var (housingAa, screenAa, sourceGlob) = PipboyWristBuilder.BuildWristRecords(ng, sf, wrist, sfKey);
+var (housingAa, screenAa) = PipboyWristBuilder.BuildWristRecords(ng, sf, wrist, sfKey, pipboyKwKey);
 
 var problems = new List<string>();
-PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) problems.Add(msg); });
+PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) problems.Add(msg); }, pipboyKwKey);
 if (problems.Count > 0)
 {
     Console.Error.WriteLine(string.Join("\n", problems));
     return 1;
 }
 
-Console.WriteLine($"OK housing={housingAa.FormKey} screen={screenAa.FormKey} glob={sourceGlob.FormKey} slot=0x{(ulong)(wrist.FirstPersonFlags ?? 0):X16}");
+Console.WriteLine($"OK housing={housingAa.FormKey} screen={screenAa.FormKey} hslot=0x{(ulong)(housingAa.FirstPersonFlags ?? 0):X16} sslot=0x{(ulong)(screenAa.FirstPersonFlags ?? 0):X16} slot=0x{(ulong)(wrist.FirstPersonFlags ?? 0):X16}");
 
-// Negative control: mutating wrist FirstPersonFlags back to occluded Chronomark must fail validation
+// Negative control 1: colliding screen slot onto bit 54 (SSChronoMark) must FAIL validation
+screenAa.FirstPersonFlags = PipboyWristBuilder.HousingSlotFlag;
+var collideProblems = new List<string>();
+PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) collideProblems.Add(msg); }, pipboyKwKey);
+if (collideProblems.Count == 0)
+{
+    Console.Error.WriteLine("negative control failed: colliding housing/screen bits passed validation");
+    return 2;
+}
+screenAa.FirstPersonFlags = PipboyWristBuilder.ScreenSlotFlag;
+
+// Negative control 2: mutating wrist FirstPersonFlags back to occluded Chronomark must fail validation
 wrist.FirstPersonFlags = SF.FirstPersonFlag.Chronomark;
 var negProblems = new List<string>();
-PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) negProblems.Add(msg); });
+PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) negProblems.Add(msg); }, pipboyKwKey);
 if (negProblems.Count == 0)
 {
     Console.Error.WriteLine("negative control failed: occluded slot passed validation");
-    return 2;
+    return 3;
 }
 
 return 0;
@@ -326,9 +365,18 @@ return 0;
                 text=True,
             )
             self.assertEqual(r.returncode, 0, msg=f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}")
-            self.assertIn("slot=0x0040000000000000", r.stdout)
+            self.assertIn("hslot=0x0040000000000000", r.stdout)
+            self.assertIn("sslot=0x0080000000000000", r.stdout)
+            self.assertIn("slot=0x00C0000000000000", r.stdout)
 
     def test_cpp_pipboy_screen_source_header(self) -> None:
+        # G5(c): shared DLL headers under sfse/**/src/*.h must hold zero FO4SFNewGame.esm constants
+        import glob
+        for hdr_path in sorted(glob.glob(os.path.join(REPO, "sfse", "*", "src", "*.h"))):
+            with open(hdr_path, encoding="utf-8") as hfh:
+                htxt = hfh.read()
+            self.assertNotIn("FO4SFNewGame.esm", htxt, f"{hdr_path} must not reference FO4SFNewGame.esm")
+
         hdr = os.path.join(REPO, "sfse", "FO4SFPipboyMenu", "src", "pipboy_screen_source.h")
         self.assertTrue(os.path.isfile(hdr))
         with open(hdr, encoding="utf-8") as fh:
@@ -340,14 +388,16 @@ return 0;
             "ParseScreenSourceIni",
             "ResolvePipboyScreenSource",
             "OpenPipboyScreenViaSource",
-            "0x825",
+            "FO4SFCoreValues.esm",
+            "0x867",
+            "0x868",
         ):
             self.assertIn(sym, text)
 
         gpp = shutil.which("g++")
         cl = shutil.which("cl")
         if not (gpp or cl):
-            return
+            self.skipTest("no C++ compiler (g++ or cl) found on PATH")
 
         with tempfile.TemporaryDirectory() as tmp:
             cpp = os.path.join(tmp, "test_seam.cpp")
@@ -363,8 +413,9 @@ return 0;
                     '  assert(ParseScreenSourceIni(" 3D_RTT ") == ScreenSourceMode::k3DRTT);\n'
                     '  assert(!ParseScreenSourceIni("invalid_mode").has_value());\n'
                     '  assert(ResolvePipboyScreenSource(ScreenSourceMode::k2DIMenu, 0.0f) == ScreenSourceMode::k2DIMenu);\n'
-                    '  assert(ResolvePipboyScreenSource(ScreenSourceMode::k2DIMenu, 1.0f) == ScreenSourceMode::k3DRTT);\n'
                     '  assert(ResolvePipboyScreenSource(ScreenSourceMode::k3DRTT, 0.0f) == ScreenSourceMode::k3DRTT);\n'
+                    '  assert(ResolvePipboyScreenSource(ScreenSourceMode::k3DRTT, 1.0f) == ScreenSourceMode::k2DIMenu);\n'
+                    '  assert(ResolvePipboyScreenSource(ScreenSourceMode::k2DIMenu, 2.0f) == ScreenSourceMode::k3DRTT);\n'
                     '  auto r2d = OpenPipboyScreenViaSource(ScreenSourceMode::k2DIMenu, [](){ return true; }, [](){ return false; });\n'
                     '  assert(r2d.opened && !r2d.fellBackTo2D && r2d.mode == ScreenSourceMode::k2DIMenu);\n'
                     '  auto r3d_fb = OpenPipboyScreenViaSource(ScreenSourceMode::k3DRTT, [](){ return true; }, [](){ return false; });\n'

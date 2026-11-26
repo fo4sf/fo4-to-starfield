@@ -159,7 +159,8 @@ static class NewGame
     public const uint Vault10mmAmmoCapacity = 12u;
     public const float Vault10mmAttackDamage = 18.0f;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
-    public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816 };
+    // 0x80C = former FO4SF_PipboyAcquired; 0x810..0x816 = former SPECIAL AVIFs; 0x825 = former FO4SF_PipboyScreenSource (now FO4SFCoreValues.esm:0x000868).
+    public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x825 };
     public const int MaxMessageButtons = 7;
     public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, BackdropSetupMenu = 3, DefaultStartChoiceBackdrop = BackdropEmptyCell;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfCompactActiTemplateId = 0x143492, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010,
@@ -1473,6 +1474,7 @@ static class NewGame
             ("DebugAfterHold", o.DebugAfterHold),           // written into MQ101Debug right after the hold-off (0: never)
             ("O2CapacityAmount", o.O2 ? O2CapacityAmount : 0f),   // added to O2Capacity right after the reset (0: never)
             ("FadeHold", o.FadeHold), ("RaceMenuMode", o.RaceMenuMode),
+            ("PipboyWristSlotLabel", PipboyWristBuilder.WristSlotLabel),
             ("StartChoiceBackdrop", o.StartChoiceBackdrop),
             ("CoreMarkerIds", p.CoreMarkers ?? Array.Empty<int>()),
             ("RouteLootRefIds", routeLootRefIds ?? Array.Empty<int>()),
@@ -1551,6 +1553,7 @@ static class NewGame
         var storyLineKey = new FormKey(coreKey, RequireCoreId(coreIds, StoryLineGlobEdid));
         var startPlaceRowKey = new FormKey(coreKey, RequireCoreId(coreIds, StartPlaceRowGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
+        var pipboyKeywordKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyWristBuilder.PipboyKeywordEdid));
         var h00SkipLoadingHookKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLoadingHookGlobEdid));
         var h00ClearChargenKey = new FormKey(coreKey, RequireCoreId(coreIds, H00ClearChargenGlobEdid));
         var h00SkipArrivalDiscoveryKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipArrivalDiscoveryGlobEdid));
@@ -1668,7 +1671,7 @@ static class NewGame
         var pipboyWrist = (SF.Armor)wristTpl.Duplicate(new FormKey(modKey, PipboyWristArmorId));
         pipboyWrist.EditorID = PipboyWristArmorEdid;
         pipboyWrist.Name = "Pip-Boy 3000";
-        PipboyWristBuilder.BuildWristRecords(mod, sf, pipboyWrist, SfEsm);
+        PipboyWristBuilder.BuildWristRecords(mod, sf, pipboyWrist, SfEsm, pipboyKeywordKey);
         mod.Armors.Add(pipboyWrist);
 
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
@@ -1930,7 +1933,7 @@ static class NewGame
             gmstOver.Data = 0;
             mod.GameSettings.Add(gmstOver);
         }
-        mod.ModHeader.Stats.NextFormID = PipboyWristBuilder.PipboyScreenSourceGlobId + 1;
+        mod.ModHeader.Stats.NextFormID = PipboyWristBuilder.WristScreenArmaId + 2;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         WritePlugin(mod, path);
@@ -1998,6 +2001,7 @@ static class NewGame
         var storyLineKey = new FormKey(coreKey, RequireCoreId(coreIds, StoryLineGlobEdid));
         var startPlaceRowKey = new FormKey(coreKey, RequireCoreId(coreIds, StartPlaceRowGlobEdid));
         var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));
+        var pipboyKeywordKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyWristBuilder.PipboyKeywordEdid));
         var h00SkipLoadingHookKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipLoadingHookGlobEdid));
         var h00ClearChargenKey = new FormKey(coreKey, RequireCoreId(coreIds, H00ClearChargenGlobEdid));
         var h00SkipArrivalDiscoveryKey = new FormKey(coreKey, RequireCoreId(coreIds, H00SkipArrivalDiscoveryGlobEdid));
@@ -2032,7 +2036,7 @@ static class NewGame
         var pipboyWrist = plug.Armors.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyWristArmorId));
         Need(plug.Armors.Count == 1 && pipboyWrist is { EditorID: PipboyWristArmorEdid } && (pipboyWrist.MajorRecordFlagsRaw & 0x4) == 0,
              $"ARMO 0x{PipboyWristArmorId:X} is not playable {PipboyWristArmorEdid}");
-        PipboyWristBuilder.ValidateWristRecords(plug, pipboyWrist, Need);
+        PipboyWristBuilder.ValidateWristRecords(plug, pipboyWrist, Need, pipboyKeywordKey);
         var pipboyActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, PipboyCorpseActiId));
         var gearConsoleActi = plug.Activators.FirstOrDefault(a => a.FormKey == new FormKey(key, GearDoorConsoleActiId));
         Need(plug.Activators.Count == 2 &&
@@ -2171,7 +2175,7 @@ static class NewGame
                  $"GLOB MQ101Debug is not overridden to {F(dbg)}");
         }
         else Need(overrides.Count == 0, "a build without --mq101debug overrides a GLOB");
-        var verGlobals = own.Where(g => g.FormKey.ID != PipboyWristBuilder.PipboyScreenSourceGlobId).ToList();
+        var verGlobals = own;
         var ver = verGlobals.FirstOrDefault(g => g.FormKey == new FormKey(key, VersionGlobId));
         if (o.Version)
         {
