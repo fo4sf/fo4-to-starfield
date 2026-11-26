@@ -36,6 +36,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Verify offline that a staged bundle carries all B1..B8 plugins, scripts, meshes, and voices.",
     )
     p_bun.add_argument("--bundle-dir", required=True)
+    p_bun.add_argument(
+        "--require-arsenal",
+        action="store_true",
+        help="Require the full FO4SFCoreValues.esm arsenal WEAP set (0x000899..0x0008D6) even if S2-S6 mission records are absent.",
+    )
 
     p_log = sub.add_parser(
         "check-logs",
@@ -74,11 +79,17 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
     if args.cmd == "check-bundle":
-        res = verify_bundle_beginning_readiness(args.bundle_dir)
+        res = verify_bundle_beginning_readiness(
+            args.bundle_dir,
+            require_arsenal=True if args.require_arsenal else None,
+        )
         for spec in BEGINNING_STEPS:
             info = res["steps"][spec.step_id]
             detail = "ok" if not info["issues"] else "; ".join(info["issues"])
             print(f"{info['status']:4s}  {spec.step_id} [{spec.label}] ({spec.title}): {detail}")
+        aw = res["arsenal_weaps"]
+        aw_detail = aw["detail"] if not aw["issues"] else "; ".join(aw["issues"])
+        print(f"{aw['status']:4s}  arsenal_weap [FO4SFCoreValues.esm] (Arsenal WEAP Set): {aw_detail}")
         if not res["ok"]:
             return 1
         print(f"beginning bundle check: ok (all {len(BEGINNING_STEPS)} beginning steps staged)")

@@ -422,6 +422,9 @@ class _FakeQuest:
     def SetObjectiveDisplayed(self, idx: int, *_args) -> None:
         self.objectives_displayed.append(int(idx))
 
+    def IsObjectiveDisplayed(self, idx: int) -> bool:
+        return int(idx) in self.objectives_displayed
+
     def SetObjectiveCompleted(self, idx: int, *_args) -> None:
         self.objectives_completed.append(int(idx))
 
@@ -723,7 +726,12 @@ def _build_min00_harness(
             keeper_state["prestonFollow"] = True
 
     keeper_q = SimpleNamespace(ApplyPrestonMode=keeper_apply_mode, state=keeper_state, calls=keeper_mode_calls)
-    self_sentinel = SimpleNamespace(name="SelfMin00")
+    self_sentinel = SimpleNamespace(
+        name="SelfMin00",
+        SetObjectiveDisplayed=lambda idx, *_a: obj_disp.append(int(idx)),
+        IsObjectiveDisplayed=lambda idx: int(idx) in obj_disp,
+        SetActive=lambda _v: None,
+    )
 
     def set_stage(st: int) -> None:
         quest_state["stage"] = int(st)
@@ -793,6 +801,9 @@ def _build_min00_harness(
         "s6SturgesAttemptStartedAt", "s6SturgesSceneRetries", "s6SturgesSceneTicks", "s6FullStage",
         "s9LobbyCompleted", "s9DiamondCityRevealed", "s9DiamondCityMerged", "s9PatrolStarted",
         "s9PatrolRelease", "s9PatrolStartedAt", "s9PatrolElapsed", "s9GroupArrived", "s9ArrivalVia",
+        "obj10DisplayedOnce", "obj60DisplayedOnce", "obj70DisplayedOnce", "obj85DisplayedOnce",
+        "obj86DisplayedOnce", "obj87DisplayedOnce", "obj90DisplayedOnce", "obj95DisplayedOnce",
+        "obj150DisplayedOnce", "sanctuaryObj1000DisplayedOnce",
     }
     ns = {
         "Self": self_sentinel,
@@ -801,6 +812,7 @@ def _build_min00_harness(
         "PrestonAmmo": SimpleNamespace(name="AmmoLaser"),
         "Credits": credits_form,
         "KeeperOnly": keeper_only,
+        "MuteDuplicateObjectiveToasts": True,
         "EnableS4Balcony": enable_s4,
         "EnableS6ToS9Full": enable_s6_s9,
         "StopAtFusionCorePowerArmor": stop_at_core,
@@ -925,6 +937,25 @@ def _build_min00_harness(
         "s9PatrolElapsed": 0.0,
         "s9GroupArrived": False,
         "s9ArrivalVia": "",
+        "obj10DisplayedOnce": False,
+        "obj60DisplayedOnce": False,
+        "obj70DisplayedOnce": False,
+        "obj85DisplayedOnce": False,
+        "obj86DisplayedOnce": False,
+        "obj87DisplayedOnce": False,
+        "obj90DisplayedOnce": False,
+        "obj95DisplayedOnce": False,
+        "obj150DisplayedOnce": False,
+        "sanctuaryObj1000DisplayedOnce": False,
+        "FO4SF_QuestToastUtil": SimpleNamespace(
+            ShowObjectiveOnce=lambda q, obj, mute=True, already=False, _at_top=False: (
+                q.IsObjectiveDisplayed(int(obj)) if (mute and already) else (
+                    (q.SetObjectiveDisplayed(int(obj), True, False), q.SetActive(True), q.IsObjectiveDisplayed(int(obj)))[2]
+                    if not q.IsObjectiveDisplayed(int(obj)) else (q.SetActive(True), True)[1]
+                )
+            )
+        ),
+        "SnapActorToFloor": lambda *_a: 0.0,
         "EffectiveStage": lambda: quest_state["stage"],
         "AdvanceTo": lambda st, _by="info": set_stage(st),
         "GetStage": lambda: quest_state["stage"],

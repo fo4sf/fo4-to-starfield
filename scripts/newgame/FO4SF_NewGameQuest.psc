@@ -3349,13 +3349,13 @@ Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int
                 endif
                 equipped = player.IsEquipped(akBaseItem)
             endif
-            string baseName = "XM2311"
+            string baseSuffix = ""
             if VaultPistolId == 0x000899
-                baseName = "FO4_10mmPistol"
+                baseSuffix = " base=FO4_10mmPistol"
             elseif ownPistol != None && akBaseItem == ownPistol
-                baseName = "FO4SF_Vault111_10mm"
+                baseSuffix = " base=FO4SF_Vault111_10mm"
             endif
-            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + " base=" + baseName)
+            Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + baseSuffix)
         endif
     elseif VaultPistolId == 0x000899
         int ammo10mmId = VaultPistolId - 1

@@ -163,6 +163,8 @@ def _build_codsworth_harness(*, mute_duplicates=True, landing_handoff="two_quest
         "SceneOpenCheckSeconds": 1.5,
         "SceneMaxWaitChecks": 16,
         "MaxSceneRestarts": 3,
+        "S3Stage50Scene": None,
+        "EnableS3HouseSearch": False,
         "instanceStarted": False,
         "dialogueSeen": False,
         "dialogueMenuOpen": False,

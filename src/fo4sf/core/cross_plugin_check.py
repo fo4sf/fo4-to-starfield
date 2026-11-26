@@ -110,6 +110,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x26319B: ("EFSH", "CritLaserDisintegration"),
         0x26D96B: ("WEAP", "Coachman"),
         0x2773C8: ("WEAP", "Orion"),
+        0x27CF9B: ("WTHR", "NewAtlantisWeather50"),
         0x2B4AFB: ("AMMO", "AmmoShotshell"),
         0x2B558D: ("AMMO", "AmmoShotgun"),
         0x2B5598: ("AMMO", "Ammo27Caliber"),
@@ -277,6 +278,7 @@ CAST_EXPECTED_TYPES: Dict[str, Set[str]] = {
     "objectreference": {"REFR", "ACHR"},
     "gameplayoption": {"GPOF"},
     "scene": {"SCEN"},
+    "weather": {"WTHR"},
     "worldspace": {"WRLD"},
     "form": {
         "MISC", "ALCH", "AMMO", "ARMO", "ARMA", "OTFT", "WEAP", "ACTI", "FURN", "STAT",

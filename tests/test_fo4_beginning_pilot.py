@@ -225,6 +225,8 @@ def _populate_synthetic_map_markers(
         "PrepareKnownUndiscoveredSingle",
         "PrepareKnownUndiscoveredAll",
         "DiscoverSingleMarker",
+        "DiscoverSingleMarkerSilent",
+        "SuppressArrivalDarkHold",
     ),
     non_default_fns: Sequence[str] = (),
     root_fallback: bool = False,
@@ -892,8 +894,16 @@ class BeginningPilotTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp:
+            import hashlib as _hashlib
+            import json as _json
+
             bundle = self._build_synthetic_bundle(Path(tmp))
             (bundle / "FO4TerrainCore.esm").write_bytes(bad_plugin_bytes)
+            core_sha = _hashlib.sha256(bad_plugin_bytes).hexdigest()
+            (bundle / "map-markers" / "core.json").write_text(
+                _json.dumps({"schema_version": 1, "masters": {"FO4TerrainCore.esm": core_sha}}, indent=2) + "\n",
+                encoding="utf-8",
+            )
             ok_res = verify_bundle_beginning_readiness(str(bundle))
             self.assertTrue(ok_res["ok"], ok_res["problems"])
 

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 from fo4sf.ba2 import Ba2, Ba2Error
+from fo4sf.core.cross_plugin_check import CORE_VALUES_ARSENAL_RECORDS
 from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin
 
 
@@ -1043,10 +1044,132 @@ def verify_map_markers_bundle_compatibility(bundle_dir: str, repo_root: Optional
     return issues
 
 
+def _read_arsenal_weaps_from_esm(cv_path: str) -> Dict[int, str]:
+    """Read own WEAP `{local_form_id: editor_id}` entries from `FO4SFCoreValues.esm`."""
+    found: Dict[int, str] = {}
+    with RawEsmPlugin(cv_path) as plg:
+        self_idx = plg.self_index
+        for rec in plg.records("WEAP"):
+            if (rec.formid >> 24) == self_idx:
+                found[rec.formid & 0x00FFFFFF] = rec.edid
+    return found
+
+
+def _mission_has_s2_s6_markers(mission_path: str) -> bool:
+    """Return True if `FO4SFMission.esm` carries S2-S6 quests (`FO4SF_Vault111Roaches` / `FO4SF_LoadDoor`)."""
+    if not _is_tes4_plugin(mission_path):
+        return False
+    try:
+        with RawEsmPlugin(mission_path) as plg:
+            for rec in plg.records("QUST"):
+                if rec.edid.casefold() in ("fo4sf_vault111roaches", "fo4sf_loaddoor"):
+                    return True
+    except (OSError, EsmError):
+        return False
+    return False
+
+
+EXPECTED_ARSENAL_WEAPS: Dict[int, str] = {
+    fid: edid for fid, (rtype, edid) in CORE_VALUES_ARSENAL_RECORDS.items() if rtype == "WEAP"
+}
+
+
+def verify_core_values_arsenal_weaps(
+    bundle_dir: str,
+    *,
+    require_arsenal: Optional[bool] = None,
+) -> Dict[str, object]:
+    """Verify bundled/staged `FO4SFCoreValues.esm` holds `EXPECTED_ARSENAL_WEAPS` when required or detected."""
+    b_abs = os.path.abspath(bundle_dir)
+    cv_candidates = (
+        os.path.join(b_abs, "FO4SFCoreValues.esm"),
+        os.path.join(b_abs, "Data", "FO4SFCoreValues.esm"),
+    )
+    cv_path = next((p for p in cv_candidates if os.path.isfile(p)), cv_candidates[0])
+    mission_candidates = (
+        os.path.join(b_abs, "FO4SFMission.esm"),
+        os.path.join(b_abs, "Data", "FO4SFMission.esm"),
+    )
+    mission_path = next((p for p in mission_candidates if os.path.isfile(p)), mission_candidates[0])
+
+    bplan: Mapping[str, object] = {}
+    bplan_path = os.path.join(b_abs, "bundle_plan.json")
+    if os.path.isfile(bplan_path):
+        try:
+            with open(bplan_path, encoding="utf-8") as fp:
+                bplan = json.load(fp)
+        except (OSError, ValueError):
+            bplan = {}
+    bargs = bplan.get("args") if isinstance(bplan.get("args"), Mapping) else {}
+    plan_wants_arsenal = bargs.get("fo4_arsenal") == 1
+
+    found_weaps: Dict[int, str] = {}
+    read_err: Optional[str] = None
+    if os.path.isfile(cv_path):
+        try:
+            found_weaps = _read_arsenal_weaps_from_esm(cv_path)
+        except (OSError, EsmError) as exc:
+            read_err = str(exc)
+
+    if require_arsenal is False:
+        should_check = False
+    elif require_arsenal is True:
+        should_check = True
+    else:
+        should_check = _mission_has_s2_s6_markers(mission_path) or bool(found_weaps) or plan_wants_arsenal
+
+    if not should_check:
+        return {
+            "status": "SKIP",
+            "issues": [],
+            "found_count": len(found_weaps),
+            "expected_count": len(EXPECTED_ARSENAL_WEAPS),
+            "detail": "not required (non-arsenal / candidate-2g-fix7b bundle)",
+        }
+
+    issues: List[str] = []
+    if not os.path.isfile(cv_path):
+        issues.append("missing FO4SFCoreValues.esm")
+    elif read_err is not None:
+        issues.append(f"unreadable FO4SFCoreValues.esm ({read_err})")
+    else:
+        missing = [
+            f"0x{fid:06X} ({edid})"
+            for fid, edid in sorted(EXPECTED_ARSENAL_WEAPS.items())
+            if fid not in found_weaps
+        ]
+        mismatched = [
+            f"0x{fid:06X} expected {edid}, got {found_weaps[fid]!r}"
+            for fid, edid in sorted(EXPECTED_ARSENAL_WEAPS.items())
+            if fid in found_weaps and found_weaps[fid] != edid
+        ]
+        if missing:
+            issues.append(f"missing {len(missing)}/{len(EXPECTED_ARSENAL_WEAPS)} arsenal WEAP(s): {', '.join(missing[:6])}" + ("..." if len(missing) > 6 else ""))
+        if mismatched:
+            issues.append(f"EditorID mismatch on {len(mismatched)} arsenal WEAP(s): {', '.join(mismatched[:4])}")
+
+    if issues:
+        return {
+            "status": "FAIL",
+            "issues": issues,
+            "found_count": len(found_weaps),
+            "expected_count": len(EXPECTED_ARSENAL_WEAPS),
+            "detail": "; ".join(issues),
+        }
+    return {
+        "status": "PASS",
+        "issues": [],
+        "found_count": len(found_weaps),
+        "expected_count": len(EXPECTED_ARSENAL_WEAPS),
+        "detail": f"{len(EXPECTED_ARSENAL_WEAPS)}/{len(EXPECTED_ARSENAL_WEAPS)} arsenal WEAPs verified (0x000899..0x0008D6)",
+    }
+
+
 def verify_bundle_beginning_readiness(
     bundle_dir: str,
     *,
     require_map_markers: bool = True,
+    require_arsenal: Optional[bool] = None,
 ) -> Dict[str, object]:
     """Check offline that `bundle_dir` contains every plugin, script, mesh, and voice asset for `B1`..`B8`."""
     b_abs = os.path.abspath(bundle_dir)
@@ -1174,9 +1297,14 @@ def verify_bundle_beginning_readiness(
             "issues": step_issues,
         }
 
+    arsenal_res = verify_core_values_arsenal_weaps(b_abs, require_arsenal=require_arsenal)
+    if arsenal_res["status"] == "FAIL":
+        problems.extend(f"arsenal_weap: {msg}" for msg in arsenal_res["issues"])
+
     return {
         "ok": len(problems) == 0,
         "steps": step_results,
+        "arsenal_weaps": arsenal_res,
         "problems": problems,
     }
 

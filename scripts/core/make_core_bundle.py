@@ -1465,12 +1465,18 @@ def stage_from_checkout(a) -> Dict[str, str]:
         outputs = {"FO4SFCoreValues.esm": sha256_file(cv_esm)} if os.path.isfile(cv_esm) else {}
         return {"plugin": "FO4SFCoreValues.esm", "plugins": ["FO4SFCoreValues.esm"], "outputs": outputs}
 
+    fo4_arsenal_opt = getattr(a, "fo4_arsenal", None)
     cv_args = [
         "stage",
         "--sf-data", sf_data,
         "--out", cv_dir,
-        "--test-mode", want_test_mode,
     ]
+    if fo4_arsenal_opt is not None:
+        if int(fo4_arsenal_opt) == 1:
+            cv_args.extend(["--fo4-10mm", "1", "--fo4-p5-weapons", "1", "--fo4-arsenal", "1"])
+        else:
+            cv_args.extend(["--fo4-arsenal", "0"])
+    cv_args.extend(["--test-mode", want_test_mode])
     _reuse_or_run_py(
         cv_dir,
         py_main,
@@ -3160,6 +3166,8 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--fo4-human-anims", nargs="?", const=1, default=0, type=int, choices=(0, 1))
     b.add_argument("--fo4-human-anims-esm", default=None)
     b.add_argument("--task1b-vault-recovery", nargs="?", const=1, default=0, type=int, choices=(0, 1))
+    b.add_argument("--fo4-arsenal", nargs="?", const=1, default=None, type=int, choices=(0, 1),
+                   help="Forward --fo4-arsenal 0|1 (and --fo4-10mm/--fo4-p5-weapons when 1) to make_core_values.py")
     b.add_argument("--codsworth-assets", default=None, help="convert_codsworth.py output folder forwarded to make_mission.py")
     b.add_argument("--actor-looks-assets", default=None, help="stage_c5_actor_looks.py output folder forwarded to make_mission.py")
     b.add_argument("--codsworth-race-framing", action="store_true", help="Forward --codsworth-race-framing to make_mission.py")

@@ -57,6 +57,9 @@ def cmd_stage(ns: argparse.Namespace) -> int:
         "--default-hardcore", str(ns.default_hardcore),
         "--test-mode", str(ns.test_mode),
         "--commonwealth-weather", str(ns.commonwealth_weather),
+        "--fo4-10mm", str(ns.fo4_10mm),
+        "--fo4-p5-weapons", str(ns.fo4_p5_weapons),
+        "--fo4-arsenal", str(ns.fo4_arsenal),
     ]
     _run_dotnet(["build", sf_esm, data_dir, *opts])
     esm_path = os.path.join(data_dir, plugin_name)
@@ -70,6 +73,9 @@ def cmd_stage(ns: argparse.Namespace) -> int:
         "default_hardcore": ns.default_hardcore,
         "test_mode": ns.test_mode,
         "commonwealth_weather": ns.commonwealth_weather,
+        "fo4_10mm": ns.fo4_10mm,
+        "fo4_p5_weapons": ns.fo4_p5_weapons,
+        "fo4_arsenal": ns.fo4_arsenal,
         "plugin_sha256": _sha256(esm_path),
         "schema_sha256": _sha256(ns.json),
     }
@@ -107,6 +113,9 @@ def cmd_verify(ns: argparse.Namespace) -> int:
             "--default-hardcore", str(plan.get("default_hardcore", 0)),
             "--test-mode", str(plan.get("test_mode", 0)),
             "--commonwealth-weather", str(plan.get("commonwealth_weather", 1)),
+            "--fo4-10mm", str(plan.get("fo4_10mm", 1)),
+            "--fo4-p5-weapons", str(plan.get("fo4_p5_weapons", 1)),
+            "--fo4-arsenal", str(plan.get("fo4_arsenal", 1)),
         ]
         _run_dotnet(["check", esm_path, sf_esm, *opts])
     print(f"verify: ok ({plugin_name})")
@@ -135,6 +144,9 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--default-hardcore", type=int, choices=(0, 1), default=0)
     st.add_argument("--test-mode", type=int, choices=(0, 1), default=0)
     st.add_argument("--commonwealth-weather", type=int, choices=(0, 1), default=1)
+    st.add_argument("--fo4-10mm", nargs="?", const=1, type=int, choices=(0, 1), default=1)
+    st.add_argument("--fo4-p5-weapons", nargs="?", const=1, type=int, choices=(0, 1), default=1)
+    st.add_argument("--fo4-arsenal", nargs="?", const=1, type=int, choices=(0, 1), default=1)
     st.set_defaults(func=cmd_stage)
 
     vr = sub.add_parser("verify")

@@ -159,8 +159,15 @@ string LogName = "fo4sf_mission"
 bool instanceStarted = False
 bool min00Given = False
 bool obj10DisplayedOnce = False
+bool obj60DisplayedOnce = False
+bool obj70DisplayedOnce = False
 bool obj85DisplayedOnce = False
 bool obj86DisplayedOnce = False
+bool obj87DisplayedOnce = False
+bool obj90DisplayedOnce = False
+bool obj95DisplayedOnce = False
+bool obj150DisplayedOnce = False
+bool sanctuaryObj1000DisplayedOnce = False
 int ticks = 0
 int relocateFails = 0
 int codsworthFails = 0
@@ -798,8 +805,9 @@ Function Apply(int auiStageID, string by = "other")
     elseif auiStageID == 35
         if EnableS6ToS9Full
             SetObjectiveCompleted(60)
-            SetObjectiveDisplayed(86, True, True)
-            SetActive(True)
+            if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 86, MuteDuplicateObjectiveToasts, obj86DisplayedOnce)
+                obj86DisplayedOnce = True
+            endif
         elseif by == "info" && !prestonUsedFallback && !prestonTalkLogged
             prestonTalkLogged = True
             Trace("preston talk end info=0x092A -> stage 40")
@@ -2130,8 +2138,9 @@ Event OnTimer(int aiTimerID)
         if dead >= Raiders.Length && !s4StreetCleared && stage < 35
             s4StreetCleared = True
             SetObjectiveCompleted(85)
-            SetObjectiveDisplayed(60, True, True)
-            SetActive(True)
+            if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 60, MuteDuplicateObjectiveToasts, obj60DisplayedOnce)
+                obj60DisplayedOnce = True
+            endif
             Trace("s4 street_cleared dead=" + dead + "/" + Raiders.Length + " next=enter_museum")
         endif
         if !s5MuseumCleared && target >= 30
@@ -2936,9 +2945,12 @@ bool Function SetupS4BalconyEncounter(Actor player)
         EnsureActorTalkable(Preston)
     endif
     s4BalconySetup = True
-    SetObjectiveDisplayed(60, True, True)
-    SetObjectiveDisplayed(70, True, False)
-    SetActive(True)
+    if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 60, MuteDuplicateObjectiveToasts, obj60DisplayedOnce)
+        obj60DisplayedOnce = True
+    endif
+    if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 70, MuteDuplicateObjectiveToasts, obj70DisplayedOnce)
+        obj70DisplayedOnce = True
+    endif
     Trace("s4 balcony preston_z=" + S4BalconyZLabel + " ext_raiders=" + S4ExteriorRaiderCount)
     return True
 EndFunction
@@ -2978,8 +2990,9 @@ bool Function AdvanceS6PrestonGroupTalk()
     SetStage(40)
     SetObjectiveCompleted(60)
     SetObjectiveCompleted(86)
-    SetObjectiveDisplayed(87, True, True)
-    SetActive(True)
+    if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 87, MuteDuplicateObjectiveToasts, obj87DisplayedOnce)
+        obj87DisplayedOnce = True
+    endif
     Trace("s6 stage 40 preston_group talk")
     if s6BasementUnlockedPending
         s6BasementUnlockedPending = False
@@ -2997,8 +3010,9 @@ bool Function AdvanceS6BasementGateOpened()
     applied = 45
     SetStage(45)
     SetObjectiveCompleted(87)
-    SetObjectiveDisplayed(90, True, True)
-    SetActive(True)
+    if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 90, MuteDuplicateObjectiveToasts, obj90DisplayedOnce)
+        obj90DisplayedOnce = True
+    endif
     Trace("s6 stage 45 basement_gate opened")
     return True
 EndFunction
@@ -3012,8 +3026,9 @@ bool Function AdvanceS6FusionCorePicked()
     applied = 50
     SetStage(50)
     SetObjectiveCompleted(90)
-    SetObjectiveDisplayed(95, True, True)
-    SetActive(True)
+    if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 95, MuteDuplicateObjectiveToasts, obj95DisplayedOnce)
+        obj95DisplayedOnce = True
+    endif
     if StopAtFusionCorePowerArmor
         Trace("s6 stage 50 fusion_core picked obj=95 stop=put_fusion_core_in_pa")
     else
@@ -3077,8 +3092,9 @@ bool Function CompleteS9LobbyTalkAndReward(Actor player)
     s6FullStage = 150
     applied = 150
     SetStage(150)
-    SetObjectiveDisplayed(150, True, True)
-    SetActive(True)
+    if FO4SF_QuestToastUtil.ShowObjectiveOnce(Self, 150, MuteDuplicateObjectiveToasts, obj150DisplayedOnce)
+        obj150DisplayedOnce = True
+    endif
     Trace("s9 stage 150 diamond_city addtomap=" + s9DiamondCityRevealed + " mq103_stage=0 minrecruit00_stage=0")
     return True
 EndFunction
@@ -3261,8 +3277,9 @@ bool Function CheckS9SanctuaryArrival(Actor player, float deltaSec = 1.0)
             sancScript.AdvanceTo(1000, "s9_arrival")
         endif
         sanctuaryQuest.SetStage(1000)
-        sanctuaryQuest.SetObjectiveDisplayed(1000, True, True)
-        sanctuaryQuest.SetActive(True)
+        if FO4SF_QuestToastUtil.ShowObjectiveOnce(sanctuaryQuest, 1000, MuteDuplicateObjectiveToasts, sanctuaryObj1000DisplayedOnce)
+            sanctuaryObj1000DisplayedOnce = True
+        endif
     endif
     Trace("sanctuary01 stage 1000 obj=1000 hard_stop=true")
     return True

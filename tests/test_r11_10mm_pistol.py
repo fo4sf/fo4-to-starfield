@@ -356,7 +356,7 @@ class R11Pistol10mmTests(unittest.TestCase):
         psc = NEWGAME_PSC.read_text(encoding="utf-8")
         funcs = ("EnsureVaultInteractivesRegistered", "ObjectReference.OnItemAdded")
         vars_csv = (
-            "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
+            "itemWatchRegistered, pipboyRegistered, pipboyEquipWatchRegistered, cogDoorRegistered, cogDoorWatchedRef, "
             "consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, "
             "consoleOpening, pistolPickedLogged"
         )
@@ -384,6 +384,8 @@ class R11Pistol10mmTests(unittest.TestCase):
             Trace=traces.append,
             itemWatchRegistered=False,
             pipboyRegistered=True,
+            pipboyEquipWatchRegistered=True,
+            PipboyWristArmor=None,
             cogDoorRegistered=True,
             cogDoorWatchedRef=None,
             consoleRegistered=True,
