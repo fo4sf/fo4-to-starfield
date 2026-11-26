@@ -16,11 +16,9 @@ comments (stripped by the compiler).
 1. Quest Properties (populated from `lift_pairs.json` by `dotnet/NewGame`)
 --------------------------------------------------------------------------
 string Property ExitLiftPlugin = "FO4SFExitLift.esm" Auto Const
-int Property SurfaceCogBaseId = 0x000802 Auto Const
-float Property SurfaceCogOffsetX = -7.8009033 Auto Const
-float Property SurfaceCogOffsetY = 2.9952393 Auto Const
-float Property SurfaceCogOffsetZ = -94.85599 Auto Const
-float Property SurfaceCogRotZ = 27.811361 Auto Const
+float Property SurfaceCogLocalX = -1275.5824 Auto Const
+float Property SurfaceCogLocalY = 1296.0703 Auto Const
+float Property SurfaceCogLocalZ = 33.253544 Auto Const
 float Property SurfaceLiftDrop = 59.1425 Auto Const
 float Property SurfaceLiftSeconds = 18.6667 Auto Const
 float Property SurfaceLiftFadeAt = 7.533 Auto Const
@@ -31,6 +29,7 @@ int Property CoreStaticSurfaceLiftBaseId = 0x0A2D4B Auto Const
 -------------------------
 ObjectReference surfaceCogRef = None
 bool surfaceCogActivationRegistered = false
+bool surfaceCogLoggedArrival = false
 bool liftPairActive = false
 bool liftPairDescending = false
 bool liftPairDone = false
@@ -52,22 +51,18 @@ A. `ObjectReference Function EnsureSurfaceLiftCog(Actor player)`
    - Guards: returns `None` if `player == None || !player.Is3DLoaded() || player.IsInInterior()`.
    - Verifies `WorldSpace hostWorld = ResolveHostWorld()` and `player.GetWorldSpace() == hostWorld`.
    - Computes target world coordinates in `FO4Core_Commonwealth`:
-       tx = ArrivalX + MergeOffsetX + SurfaceCogOffsetX
-       ty = ArrivalY + MergeOffsetY + SurfaceCogOffsetY
-       tz = ArrivalZ + SurfaceCogOffsetZ
-   - Guards cell loading: only spawns/repositions when player is within 120.0 m XY of `(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY)`.
-   - If `surfaceCogRef == None`:
-     - Resolves `Form cogBase = Game.GetFormFromFile(SurfaceCogBaseId, ExitLiftPlugin)`. If `None`, returns `None`.
-     - If `CoreStaticSurfaceLiftBaseId > 0`: looks up `Form staticBase = Game.GetFormFromFile(CoreStaticSurfaceLiftBaseId, CorePlugin)` and disables any overlapping static `FO4Core_acti_19d22f_fallout4` near `(tx, ty, tz + 94.0)` (`Game.FindClosestReferenceOfType(staticBase, tx, ty, tz + 94.0, 20.0)` -> `DisableNoWait(False)`).
-     - Spawns `surfaceCogRef = player.PlaceAtMe(cogBase, 1, true, false, false)` (persistent).
-     - Places at `(tx, ty, tz)` and `SurfaceCogRotZ` via `SetPosition(tx, ty, tz)` and `SetAngle(0.0, 0.0, SurfaceCogRotZ)`, `Enable(False)`.
-   - When `!liftPairActive` and `surfaceCogRef != None` and `surfaceCogRef.Is3DLoaded()`:
-     - Corrects position/heading if drifted > 0.25 m from `(tx, ty, tz)`.
+       cx = SurfaceCogLocalX + MergeOffsetX
+       cy = SurfaceCogLocalY + MergeOffsetY
+       cz = SurfaceCogLocalZ
+   - Guards cell loading: only resolves when player is within 120.0 m XY of `(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY)`.
+   - When `surfaceCogRef == None || !surfaceCogRef.Is3DLoaded()`:
+     - Resolves `Form cogBase = Game.GetFormFromFile(CoreStaticSurfaceLiftBaseId, CorePlugin)` (`FO4TerrainCore.esm:0x0A2D4B`, overridden by `FO4SFExitLift.esm`).
+     - Re-resolves the merged-overlay runtime `FF` instance via `Game.FindClosestReferenceOfType(cogBase, cx, cy, cz, 2.0)` (radius 2 m; no `PlaceAtMe`, no `SetPosition`).
    - Ensures `OnActivate` remote event registration (`!surfaceCogActivationRegistered`):
      - `RegisterForRemoteEvent(surfaceCogRef, "OnActivate")`
      - `surfaceCogActivationRegistered = true`
-   - Logs exact trace line:
-       `lift_pair surface_cog ready ref=<surfaceCogRef> base=<ExitLiftPlugin>:<SurfaceCogBaseId> pos=<tx> <ty> <tz> rotz=<SurfaceCogRotZ>`
+   - Logs once per arrival (`!surfaceCogLoggedArrival`) with hex ID and cog's real runtime position:
+       `lift_pair surface_cog ready ref=<0xHEX> base=<CorePlugin>:<0xHEX> pos=<rx> <ry> <rz> rotz=<rrot>`
    - Returns `surfaceCogRef`.
 
 B. `bool Function StartPairedLiftRide(Actor player, bool descending)`
@@ -136,6 +131,8 @@ C. `Function CheckPairedLiftRide(Actor player)`
        - `liftPairActive = false`
        - `liftPairTransferPending = true`
        - `UnregisterForAnimationEvent(liftPairActiveRef, "Done")`
+     - Logs exact trace line:
+         `lift_pair transfer dir=<d> z=<z> drop=<startZ-z> elapsed=<s>`
      - Executes transfer:
        - `dir=up`: calls `Surface(player)`
        - `dir=down`: resolves `vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference`, calls `player.MoveTo(vAnchor, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)`.
@@ -146,7 +143,7 @@ D. `Function RecoverPairedLiftOnLoad(Actor player)`
    - `string dir = "down"` if `liftPairDescending` else `"up"`
    - If `liftPairActiveRef != None`: `UnregisterForAnimationEvent(liftPairActiveRef, "Done")`
    - Resets all transient ride latches (`liftPairActive = false`, `liftPairDone = false`, `liftPairTransferred = false`, `liftPairTransferPending = false`, `liftPairFadeStarted = false`, `liftPairActiveRef = None`, `liftPairStartCell = None`, `liftPairStartWorld = None`, `surfaceMovedAt = 0.0`, `surfaceMoves = 0`, `surfaceSets = 0`, `asked = false`, `returnAsked = false`, `returnVaultAsked = false`).
-   - Re-registers `surfaceCogRef` `OnActivate` cleanly if `surfaceCogRef != None` (`UnregisterForRemoteEvent(surfaceCogRef, "OnActivate")` then `RegisterForRemoteEvent(surfaceCogRef, "OnActivate")`).
+   - Invalidates `surfaceCogRef = None`, `surfaceCogActivationRegistered = false`, `surfaceCogLoggedArrival = false` after every load so `EnsureSurfaceLiftCog(player)` re-resolves the runtime `FF` instance cleanly.
    - If `wasMidRide`:
      - Lifts black fade: `Game.FadeOutGame(False, True, 0.0, 0.5, False)`.
      - If `player != None && player.IsInInterior()`: calls `ReturnPlayerToVaultPlatform(player)` (repositions to `PlatformX/Y/Z + 0.2` and resets interior lift).
@@ -154,7 +151,7 @@ D. `Function RecoverPairedLiftOnLoad(Actor player)`
      - Logs exact trace line:
          `lift_pair reload recovered dir=<up|down> stage=<GetStage()> interior=<player.IsInInterior()>`
    - If `player != None && !player.IsInInterior() && GetStage() >= 40`:
-     - Calls `EnsureSurfaceLiftCog(player)` so the surface cog is spawned/aligned and activated-ready on any exterior save load.
+     - Calls `EnsureSurfaceLiftCog(player)` so the surface cog is re-resolved and activated-ready on any exterior save load.
    - Restarts `StartTimer(1.0, 1)`.
 
 4. `OnAnimationEvent` & `OnActivate` Integration

@@ -134,9 +134,6 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
-    "FO4SFExitLift.esm": {
-        0x000802: ("ACTI", "FO4SF_Vault111SurfaceCog"),
-    },
     "FO4ActorRaider.esm": {
         0xF04800: ("NPC_", "FO4_LvlRaider"),
         0xF04801: ("NPC_", "FO4_LvlRaider_Calm"),

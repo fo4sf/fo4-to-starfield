@@ -75,7 +75,32 @@ STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User", "FO4SFAnimD.0.log")
 EDID = "FO4Port_acti_091a48_fallout4"
 KIT_FOLDERS = ("meshes", "geometries", "materials")      # what the kit ships; textures must already be in the port's archives
+LIFT_PAIRS_JSON = os.path.join(REPO, "src", "fo4sf", "core", "lift_pairs.json")
 BASE_LINE = re.compile(r"^int BaseId = 0 +;BASE", re.M)
+
+
+def load_interior_lift_contract(pair_id="fo4.vault111_exit", json_path=None):
+    """Read the interior lift parameters from src/fo4sf/core/lift_pairs.json (fails if missing)."""
+    path = json_path or LIFT_PAIRS_JSON
+    if not os.path.isfile(path):
+        sys.exit(f"missing lift_pairs.json: {path}")
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    pairs = data.get("pairs") or {}
+    pair = pairs.get(pair_id)
+    if not pair or not pair.get("available"):
+        sys.exit(f"lift pair {pair_id!r} missing or unavailable in {path}")
+    intr = pair.get("interior") or {}
+    return {
+        "pair_id": pair_id,
+        "rise_m": float(intr["rise_m"]),
+        "duration_s": float(intr["duration_s"]),
+        "reset_duration_s": float(intr.get("reset_duration_s", 23.8333)),
+        "play_event": str(intr["play_event"]),
+        "reset_event": str(intr["reset_event"]),
+        "fade_lead_s": float(intr["fade_lead_s"]),
+        "done_margin_s": float(intr["done_margin_s"]),
+    }
 
 
 def set_base_id(text, base_id):
@@ -318,6 +343,18 @@ def stage(a, converter=None):
     port_data = a.port_data or a.starfield_data
     sf_esm, port_esm = os.path.join(a.starfield_data, "Starfield.esm"), os.path.join(port_data, "FO4Port.esm")
     before = {"Starfield.esm": sha256(sf_esm), "FO4Port.esm": sha256(port_esm)}
+    surface_cog_stage = getattr(a, "surface_cog_stage", "") or ""
+    core_esm = getattr(a, "core", "") or ""
+    if surface_cog_stage:
+        if not core_esm:
+            for cand_dir in (port_data, a.starfield_data):
+                cand = os.path.join(cand_dir, "FO4TerrainCore.esm")
+                if os.path.isfile(cand):
+                    core_esm = cand
+                    break
+        if not core_esm or not os.path.isfile(core_esm):
+            sys.exit(f"missing FO4TerrainCore.esm for --surface-cog-stage (pass --core; tried {core_esm!r})")
+        before["FO4TerrainCore.esm"] = sha256(core_esm)
     out = new_partial(final)
     work = os.path.join(out, "work")
     staging = os.path.join(work, "conversion")
@@ -435,7 +472,7 @@ LIFT_CARRIED_BY_BONE = {
 LIFT_MOVING_BODIES = sum(LIFT_CARRIED_BY_BONE.values())  # 37
 
 
-def validate_lift_animation(anim):
+def validate_lift_animation(anim, pair_id="fo4.vault111_exit", lift_pairs=None):
     """Refuse a different recipe before it can be paired with the controller's measured rise/length/collision contract."""
     if (anim.get("idles") != "toggle" or anim.get("rest_after") != "stage2"
             or anim.get("moving_bodies") != LIFT_MOVING_BODIES):
@@ -454,7 +491,8 @@ def validate_lift_animation(anim):
         sys.exit("production lift needs exactly the four two-state clips")
     if clips["StateA_Idle"].get("hold_of") != "StateB_Play" or clips["StateA_Idle"].get("hold_frame") != "last":
         sys.exit("production lift does not start at the downward clip's floor pose")
-    for slot, seconds, rise in (("StateA_Play", 9.8667, 21.6), ("StateB_Play", 23.8333, -21.6)):
+    intr = load_interior_lift_contract(pair_id=pair_id, json_path=lift_pairs)
+    for slot, seconds, rise in (("StateA_Play", intr["duration_s"], intr["rise_m"]), ("StateB_Play", intr["reset_duration_s"], -intr["rise_m"])):
         c = clips.get(slot, {})
         motion = [m for m in c.get("motion", []) if m["bone"] == "b_Platform"]
         if len(motion) != 1 or not math.isfinite(c.get("seconds", 0)) or abs(c.get("seconds", 0) - seconds) > 0.05 or c.get("slowed"):
@@ -467,12 +505,13 @@ def validate_lift_animation(anim):
 
 
 def finish_production_lift(a, out, final, work, tool, port, sf, before, original, info, res, copied, textures):
-    """One ACTI override (plus optional 0x802 surface cog ACTI) and asset files; no probe quest, script, spawn or installer promotion."""
+    """One 0x00E0E6 ACTI override (plus optional 0x0A2D4B surface cog override) and asset files; no probe quest, script, spawn or installer promotion."""
     anim = res["anim"]
     validate_lift_animation(anim)
     model = res["out_name"].replace("/", "\\") + ".nif"
     opts = ["--model", model, "--rig", anim["skeleton"], "--anims", anim["animations"], "--edid", a.edid, "--production-lift"]
     surface_cog_plan = None
+    core_esm = getattr(a, "core", "") or ""
     surface_cog_stage = getattr(a, "surface_cog_stage", "") or ""
     if surface_cog_stage:
         import stage_surface_lift_cog as sslc
@@ -500,10 +539,22 @@ def finish_production_lift(a, out, final, work, tool, port, sf, before, original
             if sha256(dest_file) != want:
                 sys.exit(f"surface cog asset changed while copying: {rel}")
             copied.append(os.path.relpath(dest_file, os.path.join(out, "Data")))
+        bounds = surface_cog_plan.get("bounds")
+        if not (isinstance(bounds, list) and len(bounds) == 2):
+            sys.exit(f"surface cog plan.json lacks bounds for OBND (attempt kept in {out})")
+        if not core_esm:
+            for cand_dir in (os.path.dirname(port), os.path.dirname(sf)):
+                cand = os.path.join(cand_dir, "FO4TerrainCore.esm")
+                if os.path.isfile(cand):
+                    core_esm = cand
+                    break
         opts += [
+            "--core", core_esm,
             "--surface-model", surface_cog_plan["model"],
             "--surface-rig", surface_cog_plan["rig"],
             "--surface-anims", surface_cog_plan["anims"],
+            "--surface-bounds", ",".join(str(v) for pt in bounds for v in pt),
+            "--surface-base-id", surface_cog_plan["core_static_base_id"],
         ]
     wrote = run(tool + ["build", port, sf, out] + opts).stdout
     check = run(tool + ["check", os.path.join(out, LIFT_PLUGIN), port, sf] + opts).stdout
@@ -514,27 +565,33 @@ def finish_production_lift(a, out, final, work, tool, port, sf, before, original
                    "states": LIFT_STATES, "anim": anim, "kit_files": copied, "textures_not_shipped": textures,
                    "surface_cog": surface_cog_plan}, f, indent=1)
     shutil.rmtree(work)
-    if {"Starfield.esm": sha256(sf), "FO4Port.esm": sha256(port)} != before:
+    after = {"Starfield.esm": sha256(sf), "FO4Port.esm": sha256(port)}
+    if "FO4TerrainCore.esm" in before:
+        after["FO4TerrainCore.esm"] = sha256(core_esm)
+    if after != before:
         sys.exit(f"lift inputs changed during conversion; attempt kept in {out}")
+    intr = load_interior_lift_contract()
     plan = {"kind": LIFT_KIND, "version": 1, "plugins": [LIFT_PLUGIN], "outputs": probe_a.stage_files(out),
             "inputs": {k: {"sha256": v} for k, v in before.items()}, "states": LIFT_STATES,
-            "rise_m": 21.6, "seconds": 9.8667, "event": "Play01"}
+            "pair_id": intr["pair_id"], "rise_m": intr["rise_m"], "seconds": intr["duration_s"], "event": intr["play_event"]}
     if surface_cog_plan is not None:
         plan["surface_cog"] = {
             "pair_id": surface_cog_plan["pair_id"],
             "cog_plugin": surface_cog_plan["cog_plugin"],
-            "cog_base_id": surface_cog_plan["cog_base_id"],
-            "cog_edid": surface_cog_plan["cog_edid"],
+            "core_plugin": surface_cog_plan.get("core_plugin", "FO4TerrainCore.esm"),
+            "core_static_base_id": surface_cog_plan["core_static_base_id"],
+            "core_static_base_edid": surface_cog_plan["core_static_base_edid"],
             "model": surface_cog_plan["model"],
             "rig": surface_cog_plan["rig"],
             "anims": surface_cog_plan["anims"],
+            "bounds": surface_cog_plan["bounds"],
             "states": surface_cog_plan["states"],
             "world_overrides": 0,
         }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
-        f.write("Production lift asset component: ACTI override" + (" + 0x802 surface cog ACTI" if surface_cog_plan else "") + "; no test quest or PEX.\n"
+        f.write("Production lift asset component: ACTI 0x00E0E6 override" + (" + ACTI 0x0A2D4B surface cog override" if surface_cog_plan else "") + "; no test quest or PEX.\n"
                 "Floor-start/gates-open idle (StateA_Idle = stage2 last pose) and carrying ascent (StateA_Play = stage3).\n"
                 "Pair through make_newgame.py stage --exit-lift <this folder>; never use anim_console_install.py.\n")
     os.replace(out, final)
@@ -863,7 +920,8 @@ def main(argv=None):
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
     s.add_argument("--production-lift", action="store_true", help="build the floor-start Vault 111 asset component without the test quest or PEX")
-    s.add_argument("--surface-cog-stage", default="", help="staged surface-lift-cog folder (stage_surface_lift_cog.py) to bundle into FO4SFExitLift.esm 0x802")
+    s.add_argument("--surface-cog-stage", default="", help="staged surface-lift-cog folder (stage_surface_lift_cog.py) to bundle into FO4SFExitLift.esm (ACTI 0x0A2D4B override)")
+    s.add_argument("--core", default="", help="path to FO4TerrainCore.esm for --surface-cog-stage (defaults to port/starfield data)")
     s.add_argument("--starfield-data", default=os.path.join(STARFIELD, "Data"))
     s.add_argument("--port-data", default="", help="the folder with FO4Port.esm and its archives (default: --starfield-data)")
     s.add_argument("--fo4-data", required=True)

@@ -242,6 +242,41 @@ DEFAULT_FADE_HOLD = False
 DEFAULT_REQUIRE_PERSISTENT_ANCHOR = True
 ANCHOR_LINE = re.compile(r"vault anchor FO4Port\.esm:(?P<id>[0-9A-Fa-f]+) (?P<mode>persistent|temporary)\b")
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
+LIFT_PAIRS_JSON = os.path.join(REPO, "src", "fo4sf", "core", "lift_pairs.json")
+GAME_START_CONFIG_JSON = os.path.join(REPO, "src", "fo4sf", "core", "game_start_config.json")
+
+
+def load_interior_lift_contract(game=None, pair_id=None, json_path=None):
+    """Read interior lift values (rise_m, duration_s, play_event, reset_event, fade_lead_s) from lift_pairs.json."""
+    path = json_path or LIFT_PAIRS_JSON
+    if not os.path.isfile(path):
+        sys.exit(f"missing lift_pairs.json: {path}")
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    pairs = data.get("pairs") or {}
+    target_game = (game or "fo4").strip().lower()
+    chosen = None
+    for pid, p in pairs.items():
+        if not p.get("available"):
+            continue
+        if pair_id and pid.lower() == pair_id.lower():
+            chosen = p
+            break
+        if not pair_id and str(p.get("game", "")).lower() == target_game:
+            chosen = p
+            break
+    if not chosen:
+        sys.exit(f"no available lift pair for game={target_game!r} pair={pair_id!r} in {path}")
+    intr = chosen.get("interior") or {}
+    return {
+        "pair_id": chosen["id"],
+        "rise_m": float(intr["rise_m"]),
+        "duration_s": float(intr["duration_s"]),
+        "play_event": str(intr["play_event"]),
+        "reset_event": str(intr["reset_event"]),
+        "fade_lead_s": float(intr["fade_lead_s"]),
+        "done_margin_s": float(intr["done_margin_s"]),
+    }
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
 LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
@@ -271,7 +306,7 @@ NATIVES = {
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
                          "RegisterForRemoteEvent", "UnregisterForRemoteEvent", "AddInventoryEventFilter",
-                         "CastAs", "CallFunction",
+                         "CastAs", "CallFunction", "SendCustomEvent",
                          "RegisterForMenuOpenCloseEvent", "UnregisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["GetCurrentRealTime", "Wait"],
     },
@@ -553,6 +588,8 @@ def tool_options(a):
         opts += ["--warfare-starts", a.warfare_starts]
     if getattr(a, "start_places", None):
         opts += ["--start-places", a.start_places]
+    if getattr(a, "game", None):
+        opts += ["--game", a.game]
     return opts
 
 
@@ -619,14 +656,17 @@ def cog_door_component(folder, port, starfield):
     return plan
 
 
-def exit_lift_component(folder, port, starfield):
+def exit_lift_component(folder, port, starfield, game=None, lift_pairs_json=None):
     """Validate the separate production asset stage, refusing all probe kits and any file drift."""
     import make_anim_console as mac
+    intr = load_interior_lift_contract(game=game, json_path=lift_pairs_json)
     with open(os.path.join(folder, "plan.json"), encoding="utf-8") as f:
         plan = json.load(f)
     if (plan.get("kind") != mac.LIFT_KIND or plan.get("plugins") != [mac.LIFT_PLUGIN]
-            or plan.get("states") != mac.LIFT_STATES or plan.get("rise_m") != 21.6
-            or plan.get("seconds") != 9.8667 or plan.get("event") != "Play01"):
+            or plan.get("states") != mac.LIFT_STATES
+            or abs(float(plan.get("rise_m") or 0.0) - intr["rise_m"]) > 1e-4
+            or abs(float(plan.get("seconds") or 0.0) - intr["duration_s"]) > 1e-4
+            or plan.get("event") != intr["play_event"]):
         sys.exit("--exit-lift needs the production floor-start lift component, never an animation probe")
     files = mac.probe_a.stage_files(folder)
     if files != plan.get("outputs") or any(p != mac.LIFT_PLUGIN and not p.startswith(("Data/meshes/", "Data/geometries/", "Data/materials/")) for p in files):
@@ -715,7 +755,7 @@ def stage(a):
     act_assets = vfa.stage_vault_activators(out, a.port, a.starfield)
     staged_assets = dict(act_assets)
     for label, comp, folder, checker in (("cog door", cog, cog_folder, cog_door_component),
-                                         ("lift", lift, lift_folder, exit_lift_component)):
+                                         ("lift", lift, lift_folder, lambda fd, prt, sf: exit_lift_component(fd, prt, sf, game=getattr(a, "game", None)))):
         if comp:
             if checker(folder, a.port, a.starfield) != comp:
                 sys.exit(f"{label} component changed during the build")
@@ -1255,6 +1295,8 @@ def main(argv=None):
                    help="path to warfare_starts.json (default: src/fo4sf/core/warfare_starts.json)")
     s.add_argument("--start-places", default=None,
                    help="path to start_places.json (default: src/fo4sf/core/start_places.json)")
+    s.add_argument("--game", default=None,
+                   help="target game id in game_start_config.json / lift_pairs.json (default: fo4)")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

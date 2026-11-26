@@ -182,7 +182,7 @@ class CoreBundleTests(unittest.TestCase):
         add_stage("01-cog-door", "FO4SFVaultGearDoor.esm", masters=("Starfield.esm", "FO4Port.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/door_anim.nif": b"DOOR_NIF"})
-        add_stage("02-exit-lift", "FO4SFExitLift.esm", masters=("Starfield.esm", "FO4Port.esm"),
+        add_stage("02-exit-lift", "FO4SFExitLift.esm", masters=("Starfield.esm", "FO4Port.esm", "FO4TerrainCore.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/lift_anim.nif": b"LIFT_NIF"})
         add_stage(
@@ -1247,7 +1247,7 @@ class CoreBundleTests(unittest.TestCase):
 
         pex_bytes = _build_minimal_pex(
             "FO4SF_MapMarkers",
-            ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"),
+            ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker", "SuppressArrivalDarkHold"),
         )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1385,7 +1385,7 @@ class CoreBundleTests(unittest.TestCase):
             _make_tes4_esm(mm_stage / "FO4SFMapMarkers.esm", masters=("Starfield.esm", "FO4TerrainCore.esm"))
             mm_pex = _build_minimal_pex(
                 "FO4SF_MapMarkers",
-                ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker"),
+                ("PrepareKnownUndiscoveredSingle", "PrepareKnownUndiscoveredAll", "DiscoverSingleMarker", "SuppressArrivalDarkHold"),
             )
             (mm_stage / "Data" / "Scripts" / "FO4SF_MapMarkers.pex").write_bytes(mm_pex)
             (mm_stage / "FO4SFMapMarkers - Main.ba2").write_bytes(

@@ -138,6 +138,7 @@ int hopAnchor = -1
 ; the dark hold (first quest): on since holdAt; held once per entry into a world
 bool holding = False
 bool heldEntry = False
+bool suppressNextDarkHold = False
 float holdAt = 0.0
 float hopX = 0.0
 float hopY = 0.0
@@ -272,6 +273,11 @@ Function Place(Actor player)
         late = False
         enteredAt = Utility.GetCurrentRealTime()
         heldEntry = False
+    endif
+    if suppressNextDarkHold
+        heldEntry = True
+        suppressNextDarkHold = False
+        Trace("dark hold suppressed for arrival")
     endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
@@ -609,6 +615,13 @@ Function ComeBack(Actor player)
 EndFunction
 
 ; The dark hold (HoldDark): the screen black from an arrival until the reload is back, so the map is never opened before.
+Function SuppressArrivalDarkHold()
+    suppressNextDarkHold = True
+    if holding
+        Release("story arrival suppressed dark hold")
+    endif
+EndFunction
+
 Function Hold()
     heldEntry = True
     holding = True

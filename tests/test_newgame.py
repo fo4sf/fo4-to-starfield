@@ -162,7 +162,7 @@ class ContractTests(unittest.TestCase):
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
         self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story"])
-        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "story_landing", "story_landing", "warfare"])
+        self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "story_landing", "warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("ShowFirstPersonGeometry", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("WaitFor3DLoad", ng.NATIVES[ng.SCRIPT]["ObjectReference"])
@@ -627,14 +627,15 @@ class ContractTests(unittest.TestCase):
         self.assertIn("TrySurfaceExteriorFallbacks(player, fbAnchor)", finish)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)
         self.assertEqual(psc.count("AdvanceTo(40)"), 1)
-        self.assertEqual(psc.count("FinishSurface(player)"), 1)   # only a later tick's OnTimer finishes the ride
+        self.assertEqual(psc.count("FinishSurface(player)"), 1)   # only a later tick's CheckPairedLiftRide finishes the ride
         invault = psc[psc.index("Function InVault"):psc.index("Function Surface(Actor player)")]
         self.assertIn("Surface(player)", invault)
         self.assertNotIn("SetPosition(", invault)
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         branch = body[body.index("elseif stage == 20 || stage == 30"):body.index("elseif stage == 40")]
-        self.assertIn("elseif surfaceMovedAt > 0.0\n            FinishSurface(player)", branch)
-        self.assertLess(branch.index("FinishSurface(player)"), branch.index("InVault(player, stage)"))
+        self.assertIn("if liftPairActive || liftPairTransferPending || surfaceMovedAt > 0.0", branch)
+        self.assertIn("CheckPairedLiftRide(player)", branch)
+        self.assertLess(branch.index("CheckPairedLiftRide(player)"), branch.index("InVault(player, stage)"))
         land = psc[psc.index("Function CheckLanding"):psc.index("bool Function Near")]
         self.assertIn("if Utility.GetCurrentRealTime() - arrivedAt < 0.25", land)   # 0.25 s settle wait for fall-rescue check
 
@@ -1141,6 +1142,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         "ScriptObject": scriptobject if scriptobject is not None else
                         "Function StartTimer(float a, int b = 0) native\nFunction RegisterForMenuOpenCloseEvent(string asMenuName) native\n"
                         "Function UnregisterForMenuOpenCloseEvent(string asMenuName) native\n"
+                        "Function SendCustomEvent(CustomEventName asEvent, Var[] akArgs = None) native\n"
                         "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\nEvent OnInit()\nEndEvent\n",
         # ReferenceAlias.psc (PC read 19 Oct, NG-L3): OnPlayerLoadGame, the version script's event
         "ReferenceAlias": referencealias if referencealias is not None else
@@ -1343,7 +1345,7 @@ class PrecheckTests(unittest.TestCase):
         """The creator's close is awaited with RegisterForMenuOpenCloseEvent / OnMenuOpenCloseEvent (ScriptObject,
         PC read 19 Oct): both FO4SF_NewGameQuest (S5/X3) and FO4SF_NewGameLooks require them."""
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\n")
+        fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\nFunction SendCustomEvent(CustomEventName asEvent, Var[] akArgs = None) native\n")
         r = ng.precheck_zip(z)
         self.assertEqual(
             r["missing_core"],
@@ -2195,7 +2197,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
     def test_s5_warfare_branch_shared_map_setup_and_stage_210(self):
         psc = read(PSC)
         self.assertEqual(psc.count("int Function RunSharedMapSetup()"), 1)
-        ascent = psc[psc.index("Function StartAscent"):psc.index("Event OnAnimationEvent")]
+        ascent = psc[psc.index("bool Function StartPairedLiftRide"):psc.index("Function CheckPairedLiftRide")]
         wf = psc[psc.index("Function RunWarfareBranch"):psc.index("Event OnMenuOpenCloseEvent")]
         self.assertIn("RunSharedMapSetup()", ascent)
         self.assertIn("RunSharedMapSetup()", wf)
@@ -2245,7 +2247,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         self.assertIn("GearDoorConsoleActiId = 0x818", cs)
         self.assertIn("GearDoorConsoleRefId = 0x819", cs)
         self.assertIn('if (console == 0)\n            throw new Refusal(', cs)
-        invault = psc[psc.index("Function InVault"):psc.index("Function StartAscent")]
+        invault = psc[psc.index("Function InVault"):psc.index("Function Surface(Actor player)")]
         self.assertIn("if stage == 20 && CogDoorId > 0 && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0", invault)
         self.assertIn("cogDoorWatchedRef.BlockActivation(True, False)", psc)
         self.assertIn('RegisterForRemoteEvent(cogDoorWatchedRef, "OnActivate")', psc)

@@ -61,13 +61,14 @@ class GameStartConfigTests(unittest.TestCase):
                 self.assertIn(req_key, entry, f"{game_key} missing {req_key}")
 
         fo4 = games["fo4"]
+        self.assertNotIn("starter_strip_starfield_armor_ids", cfg)
         self.assertTrue(fo4["mute_arrival_discovery_popup"])
         self.assertTrue(fo4["silent_starter_strip"])
         self.assertEqual(fo4["pod_exit_mode"], "safe_spawn")
         self.assertAlmostEqual(fo4["pod_safe_step_m"], -3.2, places=3)
         self.assertAlmostEqual(fo4["pod_safe_heading_deg"], 270.0, places=3)
         self.assertTrue(fo4["single_pass_landing_fade"])
-        self.assertEqual(fo4["pod_safe_pos_override"], {"x": 9.143, "y": -7.314, "z": -1.029})
+        self.assertNotIn("pod_safe_pos_override", fo4)
 
         ids = fo4["starter_strip_starfield_armor_ids"]
         for expected_id in ("0x001E2B17", "0x001E2B18", "0x001E2B19", "0x0001D1E7", "0x000D4893"):
@@ -230,7 +231,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         compiled = compile(
             translated_functions(
                 wrapped,
-                ("ForceFadeIn", "ReleaseStoryLandingFade", "FinishSurface", "ApplyStage", "AdvanceTo", "ClearVaultSaveLock", "TimerEvent"),
+                ("ForceFadeIn", "CompleteLandingFadeIn", "ReleaseStoryLandingFade", "FinishSurface", "ApplyStage", "AdvanceTo", "ClearVaultSaveLock", "TimerEvent"),
                 "faded, surfaceFadeInDone, storyFadeTicks, arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, applied, pendingStage, pendingStageBy, exitUsedFallback, h00SkipSetPos, vaultSavingRelocked",
             ),
             PSC,
@@ -299,13 +300,15 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         ns["FinishSurface"](player)
         self.assertTrue(ns["surfaceFadeInDone"])
         self.assertEqual(len(fades), 1)
+        self.assertIn("story_fade single_pass=true path=immediate loading_menu_open=False", traces)
         self.assertIn("ascent gap_closed=true fade_in_at_surface=true", traces)
+        self.assertTrue(any(t.startswith("ascent gap_ms=") for t in traces), traces)
 
         # Stage 200 -> ReleaseStoryLandingFade() must NOT fade again or start Timer 5
         ns["AdvanceTo"](200)
         self.assertEqual(len(fades), 1)
         self.assertEqual(timers, [])
-        self.assertIn("story_fade single_pass=true already_faded=True", traces)
+        self.assertFalse(any("already_faded" in t for t in traces), traces)
 
         # Even if Timer 5 fired, SinglePassLandingFade=True guards it
         ns["TimerEvent"](5)
@@ -314,18 +317,201 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
 
 
 class Item4LiftFlowTests(unittest.TestCase):
-    def test_lift_menu_header_rides_immediately_even_with_unspent_special(self):
+    def test_g12c_lift_menu_header_refuses_ride_with_unspent_special_on_ascent_and_descent(self):
         hdr = LIFT_MENU_H.read_text(encoding="utf-8")
+        cpp = (ROOT / "sfse" / "FO4SFPipboyMenu" / "src" / "main.cpp").read_text(encoding="utf-8")
+        swf_py = (ROOT / "scripts" / "ui" / "make_probe_swf.py").read_text(encoding="utf-8")
+
+        # Reset handles descending flag; fix7 immediate-ride text is gone
+        self.assertIn("bool a_descending = false", hdr)
+        self.assertNotIn("CHOOSE RIDE LIFT TO SURFACE NOW, OR EDIT S.P.E.C.I.A.L.", hdr)
+
+        # case 0 refuses CommitAction::kRide when Remaining() > 0, opens S.P.E.C.I.A.L. editor, and Confirm refuses
         case0 = hdr[hdr.index("case 0:"):hdr.index("case 1:")]
-        self.assertNotIn("EnterSpecialPage", case0)
-        self.assertNotIn("Remaining()", case0)
-        self.assertIn("a_out.action = CommitAction::kRide;", case0)
-        self.assertIn("a_out.specialConfirmed = true;", case0)
-        self.assertIn("return true;", case0)
+        self.assertIn("if (Remaining() > 0)", case0)
+        self.assertIn("EnterSpecialPage();", case0)
+        self.assertIn("return false;", case0)
+        self.assertLess(case0.index("return false;"), case0.index("a_out.action = CommitAction::kRide;"))
+
+        special_blk = hdr[hdr.index("if (page_ == Page::kSpecial)"):hdr.index("switch (cursor_)")]
+        self.assertIn("if (Remaining() > 0 && a_allowSpecialFinish)", special_blk)
+
+        # Row labels show SPEND <N> POINTS FIRST while pool > 0 for both surface ascent and hilltop return
+        self.assertIn("RIDE LIFT TO SURFACE", hdr)
+        self.assertIn("RIDE LIFT DOWN TO VAULT 111", hdr)
+        self.assertIn("(SPEND {} {} FIRST)", hdr)
+        self.assertIn("STAY ON SURFACE", hdr)
+        self.assertIn("> RIDE LIFT TO SURFACE (SPEND 5 POINTS FIRST)", swf_py)
+
         # Edit S.P.E.C.I.A.L. on row 1 remains intact
         case1 = hdr[hdr.index("case 1:"):hdr.index("case 2:")]
         self.assertIn("EnterSpecialPage();", case1)
-        self.assertIn("CHOOSE RIDE LIFT TO SURFACE NOW, OR EDIT S.P.E.C.I.A.L.", hdr)
+
+        # main.cpp passes descending=(4.1..4.4), guards kRide with poolLeft > 0, and logs action + pool
+        self.assertIn("const bool descending = (v >= 4.1f && v < 4.4f);", cpp)
+        self.assertIn("g_liftModel.Reset(initVals, alreadyConfirmed, descending);", cpp)
+        self.assertIn('REX::INFO("step=lift_confirm action={} pool={} confirmed={}', cpp)
+        self.assertIn("a_payload.action == fo4sf::lift::CommitAction::kRide && poolLeft > 0", cpp)
+
+    def test_g12c_harness_pool5_never_reaches_lift_menu_action_ride(self):
+        psc = read(PSC)
+        compiled = compile(
+            translated_functions(
+                psc,
+                ("UnspentSpecialPool", "ShowPausedExitLiftMenu", "PromptVaultExitLift", "StartPairedLiftRide", "CheckReturnLift"),
+                "asked, liftSpecConfirmed, liftPairActive, liftPairTransferred, liftPairTransferPending, interiorLiftDescending, surfaceCogRising, landingAwaitingFadeIn, returnAsked, returnVaultAsked, returnLiftArmed, returnSurfacePending, returnArmTicks, returnHasExteriorSample, returnLastExteriorX, returnLastExteriorY, arrivalWorld",
+            ),
+            PSC,
+            "exec",
+        )
+        stats = [5, 5, 5, 5, 5, 5, 5]  # Total 35 -> pool = 5 unspent!
+        stat_avs = [SimpleNamespace(idx=i) for i in range(7)]
+        stat_globs = [SimpleNamespace(idx=i, GetValue=lambda idx=i: float(stats[idx]), SetValue=lambda v, idx=i: None) for i in range(7)]
+        open_glob = SimpleNamespace(v=0.0, GetValue=lambda: open_glob.v, SetValue=lambda x: setattr(open_glob, "v", x))
+        req_glob = SimpleNamespace(v=0.0, GetValue=lambda: req_glob.v, SetValue=lambda x: setattr(req_glob, "v", x))
+        vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+        core_cell = SimpleNamespace(GetFormID=lambda: 0x03000CF0)
+        vault_world = object()
+        surface_world = object()
+        lift_base = object()
+        cog_base = object()
+        interior_lift = Reference(vault_world, (-77.742, -3.958, -1.751), form_id=0x02001618)
+        interior_lift.interior = True
+        interior_lift.cell = vault_cell
+        interior_lift.GetBaseObject = lambda: lift_base
+        interior_lift.PlayAnimation = lambda *_: True
+        surface_cog = Reference(surface_world, (-2475.5824, -1403.9297, 33.253544), form_id=0xFF001234)
+        surface_cog.cell = core_cell
+        surface_cog.PlayAnimation = lambda *_: True
+
+        player = Reference(vault_world, (-77.742, -3.958, -1.751))
+        player.interior = True
+        player.cell = vault_cell
+        player.GetValue = lambda av: float(stats[av.idx])
+        player.SetValue = lambda av, v: stats.__setitem__(av.idx, int(v))
+
+        alloc_calls, traces = [], []
+        cur_stage = [30]
+
+        def fake_wait(_s):
+            if open_glob.v in (4.0, 4.2):
+                open_glob.v = 5.0
+            elif open_glob.v == 5.0:
+                open_glob.v = 6.0  # Harness tries to force Ride!
+
+        def get_form(fid, plg):
+            if plg == "FO4SFCoreValues.esm":
+                if 0x810 <= fid <= 0x816:
+                    return stat_avs[fid - 0x810]
+                if 0x880 <= fid <= 0x886:
+                    return stat_globs[fid - 0x880]
+                if fid == 0x887:
+                    return req_glob
+            if plg == "FO4Port.esm":
+                if fid == 0x1618:
+                    return interior_lift
+                if fid == 0x1619:
+                    return lift_base
+            if plg == "FO4TerrainCore.esm" and fid == 0x0A2D4B:
+                return cog_base
+            return None
+
+        ns = dict(
+            _PStr=_PStr,
+            Trace=traces.append,
+            StartCardOpenGlobal=open_glob,
+            TestModeGlobal=None,
+            ExitMessage=SimpleNamespace(Show=lambda: 2),
+            ExitNeedAttrMsg=SimpleNamespace(Show=lambda: None),
+            ExitFallbackMessage=SimpleNamespace(Show=lambda: 0),
+            asked=False,
+            liftSpecConfirmed=False,
+            liftPairActive=False,
+            liftPairTransferred=False,
+            liftPairTransferPending=False,
+            interiorLiftDescending=False,
+            surfaceCogRising=False,
+            landingAwaitingFadeIn=False,
+            returnAsked=False,
+            returnVaultAsked=False,
+            returnLiftArmed=True,
+            returnSurfacePending=False,
+            returnArmTicks=0,
+            returnHasExteriorSample=False,
+            returnLastExteriorX=0.0,
+            returnLastExteriorY=0.0,
+            arrivalWorld=surface_world,
+            leftArrivalPad=True,
+            exitFailures=0,
+            LiftId=0x1618,
+            LiftBaseId=0x1619,
+            VaultPlugin="FO4Port.esm",
+            CorePlugin="FO4TerrainCore.esm",
+            PlatformX=-77.742,
+            PlatformY=-3.958,
+            PlatformZ=-1.751,
+            PlatformRadius=2.0,
+            ArrivalX=-1275.5824,
+            ArrivalY=1296.0703,
+            ArrivalZ=33.253544,
+            MergeOffsetX=-1200.0,
+            MergeOffsetY=-2700.0,
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player,
+                GetFormFromFile=get_form,
+                FindClosestReferenceOfType=lambda *_: surface_cog,
+            ),
+            Utility=SimpleNamespace(Wait=fake_wait, GetCurrentRealTime=lambda: 100.0),
+            ReadH00SuspectsOnce=lambda: None,
+            OpenLiftAttributeAllocation=lambda: alloc_calls.append("special"),
+            GetStage=lambda: cur_stage[0],
+            StandsInVault=lambda _p: True,
+            Near=lambda _p, x, y, z, r: True,
+            ResolveHostWorld=lambda: surface_world,
+            EnsureSurfaceLiftCog=lambda _p: surface_cog,
+            StartTimer=lambda *_: None,
+            RegisterForAnimationEvent=lambda *_: None,
+            UnregisterForAnimationEvent=lambda *_: None,
+            RunSharedMapSetup=lambda: None,
+            PrepareArrivalMarkerDuringRide=lambda: None,
+        )
+        exec(compiled, ns)
+
+        # Pool == 5: Vault exit prompt refuses ride -> NEVER reaches 'lift menu action=ride'
+        ns["PromptVaultExitLift"](player)
+        self.assertFalse(any("lift menu action=ride" in t for t in traces), traces)
+        self.assertIn("lift menu ride_refused pool=5", traces)
+        self.assertEqual(alloc_calls, ["special"])
+        self.assertFalse(ns["StartPairedLiftRide"](player, False))
+        self.assertIn("lift_pair refused reason=special_points_remaining dir=up pool=5", traces)
+
+        # Pool == 5: Hilltop return & vault return back up ALSO refuse ride!
+        cur_stage[0] = 200
+        player.interior = False
+        player.world = surface_world
+        player.cell = core_cell
+        player.pos = (-2475.5824, -1403.9297, 33.253544)
+        ns["CheckReturnLift"](player)
+        self.assertFalse(any("lift menu action=ride" in t for t in traces), traces)
+        self.assertFalse(ns["StartPairedLiftRide"](player, True))
+        self.assertIn("lift_pair refused reason=special_points_remaining dir=down pool=5", traces)
+
+        player.interior = True
+        player.world = vault_world
+        player.cell = vault_cell
+        player.pos = (-77.742, -3.958, -1.751)
+        ns["returnVaultAsked"] = False
+        ns["CheckReturnLift"](player)
+        self.assertFalse(any("lift menu action=ride" in t for t in traces), traces)
+
+        # Spend all 5 points (40 total -> pool == 0): now Ride succeeds cleanly!
+        stats[:] = [6, 6, 6, 6, 6, 5, 5]
+        traces.clear()
+        cur_stage[0] = 30
+        ns["asked"] = False
+        ns["PromptVaultExitLift"](player)
+        self.assertIn("lift menu action=ride", traces)
+        self.assertTrue(ns["liftPairActive"])
 
     def test_paused_lift_ride_never_bounces_and_timer1_closes_black_gap(self):
         psc = read(PSC)
@@ -335,7 +521,7 @@ class Item4LiftFlowTests(unittest.TestCase):
             translated_functions(
                 wrapped,
                 ("ShowPausedExitLiftMenu", "PromptVaultExitLift", "TimerEvent"),
-                "asked, liftSpecConfirmed, rideActive, rideTransferred, surfaceMovedAt, ticks",
+                "asked, liftSpecConfirmed, liftPairActive, liftPairTransferred, liftPairTransferPending, surfaceMovedAt, ticks",
             ),
             PSC,
             "exec",
@@ -362,8 +548,9 @@ class Item4LiftFlowTests(unittest.TestCase):
             ExitFallbackMessage=SimpleNamespace(Show=lambda: 0),
             asked=False,
             liftSpecConfirmed=False,
-            rideActive=False,
-            rideTransferred=False,
+            liftPairActive=False,
+            liftPairTransferred=False,
+            liftPairTransferPending=False,
             surfaceMovedAt=0.0,
             exitFailures=0,
             LiftId=0x1618,
@@ -378,7 +565,7 @@ class Item4LiftFlowTests(unittest.TestCase):
             Utility=SimpleNamespace(Wait=fake_wait),
             ReadH00SuspectsOnce=lambda: None,
             EnsureLoadHookRegistered=lambda *_: None,
-            StartAscent=ascents.append,
+            StartPairedLiftRide=lambda p, desc=False: (ascents.append((p, desc)), True)[1],
             OpenLiftAttributeAllocation=lambda: None,
             StartTimer=lambda s, tid: timers.append((s, tid)),
             GetStage=lambda: cur_stage[0],
@@ -386,11 +573,11 @@ class Item4LiftFlowTests(unittest.TestCase):
         )
         exec(compiled, ns)
         ns["PromptVaultExitLift"](player)
-        self.assertEqual(ascents, [player])
+        self.assertEqual(ascents, [(player, False)])
         self.assertEqual(need_attr, [])
         self.assertTrue(ns["liftSpecConfirmed"])
 
-        # Timer 1 schedules 0.15 s at stage 40 (and during rideActive / surfaceMovedAt > 0.0)
+        # Timer 1 schedules 0.15 s at stage 40 (and during liftPairActive / surfaceMovedAt > 0.0)
         cur_stage[0] = 40
         ns["applied"] = 40
         ns["TimerEvent"](1)

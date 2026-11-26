@@ -9142,11 +9142,25 @@ namespace
 				}
 			}
 		}
+		int specialSum = 0;
+		for (int sv : a_payload.special) {
+			specialSum += sv;
+		}
+		const int poolLeft = std::max(0, fo4sf::lift::kSpecialTotal - specialSum);
+		if (a_payload.action == fo4sf::lift::CommitAction::kRide && poolLeft > 0) {
+			REX::WARN("step=lift_confirm refused reason=unspent_pool pool={}", poolLeft);
+			return;
+		}
 		float code = 7.0f;
+		const char* actionStr = "stay";
 		if (a_payload.action == fo4sf::lift::CommitAction::kRide) {
 			code = 6.0f;
+			actionStr = "ride";
 		} else if (a_payload.action == fo4sf::lift::CommitAction::kChangeAppearance) {
 			code = 8.0f;
+			actionStr = "change_appearance";
+		} else if (a_payload.action == fo4sf::lift::CommitAction::kNone) {
+			actionStr = "none";
 		}
 		std::string    detail;
 		std::uintptr_t openForm = 0;
@@ -9157,8 +9171,8 @@ namespace
 		if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
 			queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kHide);
 		}
-		REX::INFO("step=lift_confirm action={} confirmed={} values={},{},{},{},{},{},{}",
-			static_cast<int>(a_payload.action), a_payload.specialConfirmed ? 1 : 0,
+		REX::INFO("step=lift_confirm action={} pool={} confirmed={} values={},{},{},{},{},{},{}",
+			actionStr, poolLeft, a_payload.specialConfirmed ? 1 : 0,
 			a_payload.special[0], a_payload.special[1], a_payload.special[2], a_payload.special[3],
 			a_payload.special[4], a_payload.special[5], a_payload.special[6]);
 	}
@@ -9718,13 +9732,14 @@ namespace
 			if (!blockedLoadOrChargen) {
 				if (!liftIsOpen) {
 					bool alreadyConfirmed = false;
+					const bool descending = (v >= 4.1f && v < 4.4f);
 					auto initVals = ReadInitialLiftSpecialMainThread(alreadyConfirmed);
 					{
 						std::scoped_lock lock(g_liftLock);
-						g_liftModel.Reset(initVals, alreadyConfirmed);
+						g_liftModel.Reset(initVals, alreadyConfirmed, descending);
 					}
 					queue->AddMessage(LiftMenuName(), RE::UI_MESSAGE_TYPE::kShow);
-					REX::INFO("step=lift_open confirmed={}", alreadyConfirmed ? 1 : 0);
+					REX::INFO("step=lift_open confirmed={} descending={}", alreadyConfirmed ? 1 : 0, descending ? 1 : 0);
 				} else if (v < 4.5f) {
 					WriteStoreGlobalFloat(form, 5.0f);
 				}

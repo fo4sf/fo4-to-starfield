@@ -1247,6 +1247,7 @@ def stage_from_checkout(a) -> Dict[str, str]:
         _run_py(py_render, "scripts/newgame/make_anim_console.py", [
             "stage", "--production-lift",
             "--surface-cog-stage", surf_cog_dir,
+            "--core", core_esm,
             "--edid", "FO4Port_acti_0244ef_fallout4",
             "--states", "stage3=StateA_Play,stage2=StateB_Play",
             "--idles", "toggle",
