@@ -677,6 +677,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x817, "QUST", "FO4SF_Sanctuary01"),
             (0x818, "RACE", "FO4SF_CodsworthRace"),
             (0x819, "VTYP", "FO4SF_CodsworthVoice"),
+            (0x81A, "BPTD", "FO4SF_CodsworthBodyPartData"),   # robot-anim, only with --codsworth-handy
             (0x81F, "FACT", "FO4SF_MinutemenFaction"),
             (0x820, "DIAL", "FO4SF_CodsworthHellos"),
             (0x900, "SCEN", "FO4SF_Min00_PrestonScene"),
