@@ -122,6 +122,7 @@ BEGINNING_STEPS: Tuple[BeginningStepSpec, ...] = (
 )
 
 CODSWORTH_NIF_REL = "meshes/fo4port/actors/codsworth/codsworth.nif"
+CODSWORTH_HANDY_NIF_REL = "meshes/fo4sf/actors/handy/handy.nif"
 PRESTON_OUTFIT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyoutfit_m.nif"
 PRESTON_HAT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyhat_m.nif"
 CONCORD_RAIDER_NIF_REL = "meshes/fo4core/armor/raider04/concord_raider_m.nif"
@@ -929,7 +930,22 @@ def verify_bundle_beginning_readiness(
                 except (OSError, EsmError) as exc:
                     step_issues.append(f"unreadable FO4SFMission.esm ARMA records ({exc})")
 
-            for label, nif_rel in B5_REQUIRED_ACTOR_NIFS:
+            asset_dirs = bplan.get("asset_dirs") if isinstance(bplan.get("asset_dirs"), Mapping) else {}
+            expect_handy_nif = bool(asset_dirs.get("codsworth_handy")) or (
+                os.path.isfile(os.path.join(b_abs, "Data", *CODSWORTH_HANDY_NIF_REL.split("/")))
+                and (
+                    not mission_is_tes4
+                    or CODSWORTH_HANDY_NIF_REL[len("meshes/"):].casefold() in arma_model_paths
+                    or CODSWORTH_HANDY_NIF_REL.casefold() in arma_model_paths
+                )
+            )
+            required_actor_nifs = tuple(
+                ("Codsworth Handy NIF", CODSWORTH_HANDY_NIF_REL)
+                if nif_rel == CODSWORTH_NIF_REL and expect_handy_nif
+                else (label, nif_rel)
+                for label, nif_rel in B5_REQUIRED_ACTOR_NIFS
+            )
+            for label, nif_rel in required_actor_nifs:
                 nif_full = os.path.join(b_abs, "Data", *nif_rel.split("/"))
                 if not os.path.isfile(nif_full):
                     step_issues.append(f"missing {label}: Data/{nif_rel}")

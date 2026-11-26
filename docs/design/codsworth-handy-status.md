@@ -1,18 +1,18 @@
 # Codsworth (Mister Handy) Status & Integration Requirements
 
-Status as of `2g-fix6` (`2026-11-25`):
+Status as of Round 15 Wave B (`#854`, `claude/robot-anim` @ `abfa189c` integrated onto `gemini/r15-wb-854-handy`):
 
 ## What `#854` (`claude/robot-anim` @ `abfa189c`) Fixes
-Evidence inspected in `<owner-tests>/robot-anim/E2` (proven RA3 offline + anim checks; not yet merged to `main`):
-1. **Locomotion & Animation (58 `.af` clips):** Provides 58 converted Animation Framework clips targeting the 112-bone Mister Handy `.rig` so Codsworth translates, hovers, turns, and idles cleanly instead of freezing in bind pose or sliding statically.
-2. **Textures & Materials (5 `.mat` / `.dds`):** Supplies the converted Mister Handy brushed-steel/paint material and DDS texture chain matching the `codsworth.nif` plain-shader geometry slots.
-3. **Eye-Level `DirectAt` (`z = 0.984447 m`):** Fixes the Mister Handy eye-stalk focus height at `0.984447 m` so player-to-Codsworth conversation camera framing (`DirectAt`) targets his optical sensor instead of the ground plane or belly thrusters.
+Evidence inspected in `<owner-tests>/robot-anim/E2` (proven RA3 offline + anim checks, merged with `#854` chrome & `HandyLens.BGEM` materials):
+1. **Locomotion & Animation (58 `.af` clips):** Provides 58 converted Animation Framework clips targeting the 113-bone Mister Handy `.rig` (`112` FO4 `skeleton.hkx` bones + `DirectAt`) so Codsworth translates, hovers, turns, and idles cleanly instead of freezing in bind pose or sliding statically.
+2. **Textures & Materials (5 body `.mat` + `HandyLens.BGEM` `.mat` / `.dds`):** `convert_codsworth.py` converts the 5 FO4 `Handy*_s.DDS` specular/gloss maps from `Fallout4 - Textures1.ba2` into real BC4 `_rough.dds` textures (preserving roughness maps alongside brushed-steel Metalness) and generates a glass `.mat` for `HandyLens.BGEM`.
+3. **COM-Height `DirectAt` (`z = 0.984447 m`):** Appends `DirectAt` (map key `137`, look-at / aim) directly under rebased `COM` at local `(0, 0, 0)` with identity rotation (`model_position_m = [-0.0, 0.0, 0.984447]`, matching `com_model_position_m`), mirroring Starfield's Mini Bot rig (`DirectAt` under `C_Body` on `COM`). That `0.984447 m` height is Codsworth's `COM` (torso-base) height — not eye-stalk sensor height — which replaced the Mini Bot ground-plane framing in RA3 while leaving eye-level framing and choice-greeting replay as separate checks.
 
-## What `2g-fix6` Carries Today
-- In `FO4SFMission.esm`, `dotnet/Mission/Program.cs` includes `--codsworth-race-framing 1` (configured for `ModelARace` standing dialogue camera height until `#854` lands).
+## What `2g-fix7` / Candidate Integration Carries
+- In `FO4SFMission.esm`, `dotnet/Mission/Program.cs` supports `--codsworth-handy <template>` (mutually exclusive with `--codsworth-race-framing`; framing-0 MiniBot parity check is off under `--codsworth-handy`), and `make_mission.py` / `make_core_bundle.py` forward `--codsworth-handy` alongside `--codsworth-assets` and `--actor-looks-assets`.
 - Existing converted `codsworth.nif`, `FO4SF_CodsworthRace`, `FO4SF_CodsworthVoice`, and `FO4SF_Codsworth01Quest` remain intact in the folded bundle (`02b-mission`).
 
-## What `#854` Needs Before Joining the Candidate Bundle
-1. **Host/CI review & merge to `main` (or explicit bundle override):** Merge `#854` (`claude/robot-anim` @ `abfa189c`) into `main` once Claude clears live-game E2 dialogue + hover locomotion in Sanctuary.
-2. **Bundle manifest & hash update (`make_mission.py` / `make_core_bundle.py`):** Point `make_core_bundle.py` / `convert_codsworth.py` asset copy and expected SHA-256 verification tables at the 58 `.af` clips, 112-bone `.rig`, and 5 `.mat`/`.dds` files shipped by `#854`.
-3. **Clean-core fold check (`<= 4.000 GiB`):** Verify the added `.af`/`.rig`/`.dds` count and byte total stay within Starfield BA2 archive bounds when folded into `FO4SFMission - Main.ba2`.
+## Integration Checklist
+1. **Live-game verification (`#854` + chrome):** Verify Sanctuary hover locomotion, eye-stalks/arms, brushed-steel/chrome roughness shading, `HandyLens` eye glass, and 4-choice `DialogueMenu` in Sanctuary once deployed by Claude (PC).
+2. **Bundle manifest & hash update (`make_mission.py` / `make_core_bundle.py`):** Fold `--codsworth-handy` (58 `.af` clips, 113-bone `.rig`, `handy.nif`, manifests) with `--codsworth-assets` (converted `_s.dds` -> `_rough.dds`, 5 body `.mat`s, `HandyLens` `.mat`).
+3. **Clean-core fold check (`<= 4.000 GiB`):** Verify the added `.af`/`.rig`/`.dds` count and byte total stay within Starfield BA2 archive bounds when folded into `FO4ActorRaider - Main.ba2`.

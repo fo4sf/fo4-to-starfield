@@ -1762,6 +1762,42 @@ class CoreBundleTests(unittest.TestCase):
                 )
                 ms_standin_plan = json.loads((wk_standin / "02b-mission" / "plan.json").read_text(encoding="utf-8"))
                 self.assertTrue(ms_standin_plan["allow_starfield_standins"])
+
+                # 5. --codsworth-handy + --actor-looks-assets (+ optional --codsworth-assets) forwards cleanly;
+                #    --codsworth-race-framing + --codsworth-handy refuses cleanly
+                handy_dir = root / "handy_bundle"
+                (handy_dir / "Data").mkdir(parents=True)
+                (handy_dir / "FO4SF_RA2Handy.esm").write_bytes(b"TES4")
+                with self.assertRaises(mcb.BundleRefused) as ctx_excl:
+                    mcb.stage_from_checkout(
+                        SimpleNamespace(
+                            **{**base_kw, "work": str(root / "work-excl"), "out": str(root / "out-excl")},
+                            codsworth_handy=str(handy_dir),
+                            actor_looks_assets=str(looks_assets),
+                            codsworth_race_framing=True,
+                        )
+                    )
+                self.assertIn("--codsworth-race-framing", str(ctx_excl.exception))
+
+                mission_calls.clear()
+                wk_handy = root / "work-handy"
+                mcb.stage_from_checkout(
+                    SimpleNamespace(
+                        **{**base_kw, "work": str(wk_handy), "out": str(root / "out-handy")},
+                        codsworth_assets=str(cw_assets),
+                        codsworth_handy=str(handy_dir),
+                        actor_looks_assets=str(looks_assets),
+                    )
+                )
+                self.assertEqual(len(mission_calls), 1)
+                h_cmd = mission_calls[0]
+                self.assertIn("--codsworth-handy", h_cmd)
+                self.assertEqual(h_cmd[h_cmd.index("--codsworth-handy") + 1], str(handy_dir.resolve()))
+                self.assertIn("--codsworth-assets", h_cmd)
+                self.assertNotIn("--codsworth-race-framing", h_cmd)
+                h_plan = json.loads((wk_handy / "02b-mission" / "plan.json").read_text(encoding="utf-8"))
+                self.assertFalse(h_plan["codsworth_race_framing"])
+                self.assertIn("codsworth_handy", h_plan["asset_dirs"])
             finally:
                 mcb._run_py = orig_run_py
 

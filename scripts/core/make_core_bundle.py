@@ -161,8 +161,12 @@ DROPPED_MISSION_PEX = frozenset({
 DROPPED_MISSION_DATA_PREFIXES = (
     "data/sound/voice/fo4sfmission.esm/",
     "data/meshes/fo4port/actors/codsworth/",
+    "data/meshes/fo4sf/actors/handy/",
+    "data/meshes/actors/fo4sf/handy/",
     "data/materials/fo4port/texsets/actors/handy/",
     "data/textures/fo4port/texsets/actors/handy/",
+    "data/materials/fo4port/glass/actors/handy/",
+    "data/textures/fo4port/glass/actors/handy/",
 )
 
 ORDERED_COMPONENT_KEYS = (
@@ -1369,25 +1373,30 @@ def stage_from_checkout(a) -> Dict[str, str]:
     msvc_env = getattr(a, "msvc_env", None)
 
     codsworth_assets = getattr(a, "codsworth_assets", None)
+    codsworth_handy = getattr(a, "codsworth_handy", None)
     actor_looks_assets = getattr(a, "actor_looks_assets", None)
     codsworth_race_framing = bool(getattr(a, "codsworth_race_framing", False))
     allow_starfield_standins = bool(getattr(a, "allow_starfield_standins", False))
+
+    if codsworth_race_framing and codsworth_handy:
+        raise BundleRefused("--codsworth-race-framing cannot be used together with --codsworth-handy")
 
     if (
         profile == "player"
         and not getattr(a, "no_mission", False)
         and not getattr(a, "mission_stage", None)
         and not allow_starfield_standins
-        and (not codsworth_assets or not actor_looks_assets)
+        and (not actor_looks_assets or (not codsworth_assets and not codsworth_handy))
     ):
         raise BundleRefused(
-            "player build refused: requires --codsworth-assets and --actor-looks-assets "
+            "player build refused: requires --codsworth-assets (or --codsworth-handy) and --actor-looks-assets "
             "(or pass --allow-starfield-standins explicitly)"
         )
 
     def _stage_prov(norm_args, extra_asset_dirs=None, extra_fields=None):
         asset_dirs_map: Dict[str, Optional[str]] = {
             "codsworth_assets": codsworth_assets,
+            "codsworth_handy": codsworth_handy,
             "actor_looks_assets": actor_looks_assets,
         }
         if extra_asset_dirs:
@@ -1527,6 +1536,8 @@ def stage_from_checkout(a) -> Dict[str, str]:
             ms_args.extend(["--fo4-voices", fo4_voices])
         if codsworth_assets:
             ms_args.extend(["--codsworth-assets", os.path.abspath(codsworth_assets)])
+        if codsworth_handy:
+            ms_args.extend(["--codsworth-handy", os.path.abspath(codsworth_handy)])
         if actor_looks_assets:
             ms_args.extend(["--actor-looks-assets", os.path.abspath(actor_looks_assets)])
         if codsworth_race_framing:
@@ -2560,6 +2571,7 @@ def cmd_build(a, system=None) -> int:
     stages = stage_from_checkout(a)
     asset_dirs = collect_asset_dir_summaries({
         "codsworth_assets": getattr(a, "codsworth_assets", None),
+        "codsworth_handy": getattr(a, "codsworth_handy", None),
         "actor_looks_assets": getattr(a, "actor_looks_assets", None),
         "pipboy_stage": getattr(a, "pipboy_stage", None),
     })
@@ -3074,6 +3086,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--pipboy-sfse-build", default=None)
     b.add_argument("--mission-stage", default=None)
     b.add_argument("--codsworth-assets", default=None, help="convert_codsworth.py output folder forwarded to make_mission.py")
+    b.add_argument("--codsworth-handy", default=None, help="stage_ra2_handy.py bundle folder forwarded to make_mission.py")
     b.add_argument("--actor-looks-assets", default=None, help="stage_c5_actor_looks.py output folder forwarded to make_mission.py")
     b.add_argument("--codsworth-race-framing", action="store_true", help="Forward --codsworth-race-framing to make_mission.py")
     b.add_argument("--allow-starfield-standins", action="store_true", help="Explicitly allow player build without FO4 Codsworth/C5 look assets")
