@@ -73,7 +73,7 @@ using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 using Noggog;
 
-const uint QuestId = 0x800, MapMarkerStat = 0x10, ExtraId = 0x900, MapMarkerRefType = 0x2271F;
+const uint QuestId = 0x800, MapMarkerStat = 0x10, XMarkerStat = 0x3B, ExtraId = 0x900, MapMarkerRefType = 0x2271F;
 const uint LandingId = 0x8F0;           // pad, trigger, marker, heading: 0x8F0..0x8F3, so the quests end below 0x8F0
 const uint HopId = 0x8F4;               // --reload: the stop's CELL, its marker (0x8F5) and its floor (0x8F6)
 // Starfield.esm 1.16.244, dotnet/PluginSpike's door test cell (in game, 2026-10-08)
@@ -176,6 +176,12 @@ List<IPlacedObjectGetter> CoreMarkers(IStarfieldModGetter core) =>
     core.EnumerateMajorRecords<IPlacedObjectGetter>()
         .Where(r => r.FormKey.ModKey == core.ModKey && r.Base.FormKey == new FormKey(sfKey, MapMarkerStat))
         .OrderBy(r => r.FormKey.ID).ToList();
+
+// the core's own XMarker anchor (FO4Core_CommonwealthAnchor at 0x800, Starfield.esm 0x00003B)
+IPlacedObjectGetter? CoreAnchor(IStarfieldModGetter core) =>
+    core.EnumerateMajorRecords<IPlacedObjectGetter>()
+        .Where(r => r.FormKey.ModKey == core.ModKey && r.Base.FormKey == new FormKey(sfKey, XMarkerStat))
+        .OrderBy(r => r.FormKey.ID).FirstOrDefault();
 
 if (args[0] == "build")
 {
@@ -325,11 +331,19 @@ if (args[0] == "build")
         if (MaxMovesFor(part.Length) is int cap)                     // every marker may need a move, plus retries
             script.Properties.Add(new ScriptIntProperty { Name = "MaxMoves", Flags = ScriptProperty.Flag.Edited, Data = cap });
         if (reload && k == 0)                                        // the first quest does the reload
+        {
             script.Properties.Add(new ScriptObjectProperty
             {
                 Name = "HopMarker", Flags = ScriptProperty.Flag.Edited,
                 Object = new FormLink<IStarfieldMajorRecordGetter>(new FormKey(modKey, HopId + 1)), Alias = -1, Unused = 0,
             });
+            if (CoreAnchor(core) is IPlacedObjectGetter returnAnchor)
+                script.Properties.Add(new ScriptObjectProperty
+                {
+                    Name = "ReturnAnchor", Flags = ScriptProperty.Flag.Edited,
+                    Object = new FormLink<IStarfieldMajorRecordGetter>(returnAnchor.FormKey), Alias = -1, Unused = 0,
+                });
+        }
         var vmad = new QuestAdapter
         {
             Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
@@ -622,6 +636,15 @@ if (args[0] == "check" && args.Length >= 3)
         else if (wantHop && (hops.Count != 1 || hops[0] is not IScriptObjectPropertyGetter hp
                              || hp.Object.FormKey != new FormKey(mod.ModKey, HopId + 1) || hp.Alias != -1 || hp.Unused != 0))
             problems.Add($"{tag}HopMarker is not the stop's marker {new FormKey(mod.ModKey, HopId + 1)} (a direct reference)");
+        var returns = s.Properties.Where(p => p.Name == "ReturnAnchor").ToList();
+        var wantReturn = wantHop ? CoreAnchor(core) : null;
+        if (returns.Count > 0 || wantReturn != null)
+            Console.WriteLine($"  {tag}ReturnAnchor: {(returns.Count == 0 ? "missing" : string.Join(", ", returns.OfType<IScriptObjectPropertyGetter>().Select(p => $"{p.Object.FormKey} alias {p.Alias}")))}");
+        if (wantReturn == null && returns.Count > 0)
+            problems.Add($"{tag}ReturnAnchor set{(reload ? " (only the first quest does the reload)" : " without --reload")}");
+        else if (wantReturn != null && (returns.Count != 1 || returns[0] is not IScriptObjectPropertyGetter rp
+                                        || rp.Object.FormKey != wantReturn.FormKey || rp.Alias != -1 || rp.Unused != 0))
+            problems.Add($"{tag}ReturnAnchor is not the core's XMarker anchor {wantReturn.FormKey} (a direct reference)");
     }
     foreach (var p in problems) Console.WriteLine("FAIL  " + p);
     Console.WriteLine(problems.Count == 0 ? "all checks pass" : $"{problems.Count} problem(s)");

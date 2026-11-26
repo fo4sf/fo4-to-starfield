@@ -560,11 +560,13 @@ static class NewGame
     }
 
     public record GameStartConfig(
-        bool MuteArrivalDiscoveryPopup,
+        bool SilentArrivalDiscovery,
+        string ArrivalDiscoveryMethod,
         bool SilentStarterStrip,
         uint[] StarterStripArmorIds,
         bool SinglePassLandingFade,
         string PodExitMode,
+        float PodEntryStep,
         float PodSafeStep,
         float PodSafeHeading,
         bool HasPodSafeExitOverride,
@@ -586,7 +588,7 @@ static class NewGame
         var path = jsonPath ?? FindRepoJsonPath(Path.Combine("src", "fo4sf", "core", "game_start_config.json"));
         if (path is null || !File.Exists(path))
         {
-            return new GameStartConfig(true, true, DefaultStarterStripArmorIds, true, "safe_spawn", -3.2f, 270.0f, false,
+            return new GameStartConfig(true, "add_to_map", true, DefaultStarterStripArmorIds, true, "safe_spawn", -2.5f, -3.2f, 270.0f, false,
                 0x0027CF9B, "Starfield.esm", true, 0x0001D1D7, "Starfield.esm");
         }
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
@@ -602,11 +604,13 @@ static class NewGame
         int fallbackSuitId = fo4.TryGetProperty("vault_suit_fallback_armor_id", out var vsfid) ? (int)ParseHex(vsfid.GetString() ?? "0") : 0x0001D1D7;
         string fallbackSuitPlugin = fo4.TryGetProperty("vault_suit_fallback_plugin", out var vsfp) ? (vsfp.GetString() ?? "Starfield.esm") : "Starfield.esm";
         return new GameStartConfig(
-            fo4.GetProperty("mute_arrival_discovery_popup").GetBoolean(),
+            fo4.GetProperty("silent_arrival_discovery").GetBoolean(),
+            fo4.GetProperty("arrival_discovery_method").GetString() ?? "add_to_map",
             fo4.GetProperty("silent_starter_strip").GetBoolean(),
             ids,
             fo4.GetProperty("single_pass_landing_fade").GetBoolean(),
             fo4.GetProperty("pod_exit_mode").GetString() ?? "safe_spawn",
+            fo4.GetProperty("pod_entry_step_m").GetSingle(),
             fo4.GetProperty("pod_safe_step_m").GetSingle(),
             fo4.GetProperty("pod_safe_heading_deg").GetSingle(),
             false,
@@ -1442,10 +1446,12 @@ static class NewGame
             ("ArrivalHeading", pts.GetProperty("arrival").GetProperty("heading").GetSingle()),
             ("FallbackX", p.ExitPos.X), ("FallbackY", p.ExitPos.Y), ("FallbackZ", p.ExitPos.Z),
             ("MergeOffsetX", MergeX), ("MergeOffsetY", MergeY), ("LooksWait", o.Looks ? 120f : 0f),
-            ("MuteArrivalDiscoveryPopup", gs.MuteArrivalDiscoveryPopup),
+            ("SilentArrivalDiscovery", gs.SilentArrivalDiscovery),
+            ("ArrivalDiscoveryMethod", gs.ArrivalDiscoveryMethod),
             ("SilentStarterStrip", gs.SilentStarterStrip),
             ("SinglePassLandingFade", gs.SinglePassLandingFade),
             ("PodExitMode", gs.PodExitMode),
+            ("PodEntryStep", gs.PodEntryStep),
             ("PodSafeStep", gs.PodSafeStep),
             ("PodSafeHeading", gs.PodSafeHeading),
             ("HasPodSafeExitOverride", gs.HasPodSafeExitOverride),

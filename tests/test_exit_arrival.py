@@ -15,7 +15,7 @@ import unittest
 from tests.test_newgame import CS, PSC, read, ng
 
 
-FUNCTIONS = ("FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "AtArrival", "Near")
+FUNCTIONS = ("FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers", "AtArrival", "Near")
 VARIABLES = (
     "arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, fallbackPending, "
     "discoveryMarkerMoved, discoveryAttachPending, landingChecks"
@@ -58,7 +58,7 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
-        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('MuteArrivalDiscoveryPopup', True), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('ArrivalWeatherId', 0x0027CF9B), ('ArrivalWeatherPlugin', 'Starfield.esm'), ('ArrivalWeatherOverride', True), ('VaultSuitFallbackId', 0x0001D1D7), ('VaultSuitFallbackPlugin', 'Starfield.esm'), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('HasPodSafeExitOverride', False), ('podExitDone', False), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False)):",
+        "for _k, _v in (('ExitNeedAttrMsg', None), ('RouteLootRefIds', []), ('MapMarkerQuestIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('SilentArrivalDiscovery', True), ('ArrivalDiscoveryMethod', 'add_to_map'), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('ArrivalWeatherId', 0x0027CF9B), ('ArrivalWeatherPlugin', 'Starfield.esm'), ('ArrivalWeatherOverride', True), ('VaultSuitFallbackId', 0x0001D1D7), ('VaultSuitFallbackPlugin', 'Starfield.esm'), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodEntryStep', -2.5), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('HasPodSafeExitOverride', False), ('podExitDone', False), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False)):",
         "    if _k not in globals(): globals()[_k] = _v",
         "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'ForceFadeIn', 'RunPodExitHook', 'EnsurePipboyWristEquipped', 'EnsureSurfaceLiftCog', 'RecoverPairedLiftOnLoad', 'CheckPairedLiftRide', 'StartPairedLiftRide', 'ResetSurfaceLiftCog', 'ApplyArrivalWeather'):",
         "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
@@ -209,6 +209,12 @@ class Reference:
     def AddToMap(self, allow_fast_travel=False):
         self.add_to_map_calls.append(allow_fast_travel)
 
+    def IsMapMarkerVisible(self):
+        return len(self.add_to_map_calls) > 0 or self.discovery_calls > 0
+
+    def CanFastTravelToMarker(self):
+        return (True in self.add_to_map_calls) or self.discovery_calls > 0
+
     def EnableFastTravel(self, enable=True):
         self.enable_fast_travel_calls.append(enable)
 
@@ -230,7 +236,8 @@ class ArrivalExecutionTests(unittest.TestCase):
             ArrivalHeading=0.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
             FallbackX=-10.0, FallbackY=-20.0, FallbackZ=95.0, FallDrop=3.0,
             ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x0A775B, CorePlugin="FO4TerrainCore.esm",
-            MuteArrivalDiscoveryPopup=False, SinglePassLandingFade=True, surfaceFadeInDone=False,
+            MapMarkerQuestIds=[], SilentArrivalDiscovery=False, ArrivalDiscoveryMethod="during_fade",
+            SinglePassLandingFade=True, surfaceFadeInDone=False,
             SurfaceWait=10.0, SurfaceTries=3, surfaceMoves=1, surfaceSets=0,
             surfaceMovedAt=1.0, arrivedAt=1.0, fallbackPending=False,
             discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
@@ -305,7 +312,7 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.now += 0.25
         self.run_branch("CheckLanding")
         self.assertEqual(self.marker.discovery_calls, 1)
-        self.assertTrue(any(t.startswith("arrival discovery requested ") for t in self.traces))
+        self.assertTrue(any(t.startswith("arrival discovery silent=False method=during_fade visible=True can_travel=True ") for t in self.traces), self.traces)
         self.assertEqual(self.stages, [40, 200])
         self.assertEqual(self.failures, [])
 
@@ -408,8 +415,12 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.assertIn('("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)p.ExitAnchor : 0)', read(CS))
         code = re.sub(r"\{.*?\}|;[^\n]*", "", read(PSC), flags=re.S)
         req_code = code[code.index("bool Function RequestArrivalDiscovery"):code.index("bool Function AtArrival")]
-        self.assertEqual(req_code.count(".SetMarkerDiscovered()"), 1)
-        self.assertNotIn(".AddToMap(", req_code)
+        self.assertIn("DiscoverMarkerViaMapMarkers(marker)", req_code)
+        self.assertIn(".IsMapMarkerVisible()", req_code)
+        self.assertIn(".CanFastTravelToMarker()", req_code)
+        self.assertIn("DiscoverSingleMarkerSilent", req_code)
+        self.assertIn(".AddToMap(True)", req_code)
+        self.assertIn(".SetMarkerDiscovered()", req_code)
         ft_code = code[code.index("Function TryFastTravelSurface"):code.index("Function TrySurfaceExteriorFallbacks")]
         self.assertNotIn(".AddToMap(", ft_code)
         self.assertNotIn(".SetMarkerDiscovered()", ft_code)
