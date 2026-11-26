@@ -102,6 +102,16 @@
       "vault_suit_fallback_plugin": "Starfield.esm",
       "vault_suit_fallback_armor_id": "0x0001D1D7",
       "vault_suit_fallback_note": "FO4Port.esm is produced by the interiors/doors converter and contains 0 ARMO/ARMA/OTFT records; no wearable FO4 Vault 111 jumpsuit conversion exists in staged assets (only static/clothed-skeleton props in doors_anim_work), so when VaultSuitId==0, ResetInventory equips Starfield.esm Clothes_Miner_Jumpsuit (0x0001D1D7) as fallback.",
+      "vault_pistol": {
+        "weapon_plugin": "FO4SFCoreValues.esm",
+        "weapon_id": "0x000899",
+        "ammo_plugin": "FO4SFCoreValues.esm",
+        "ammo_id": "0x000898",
+        "ref_ids": [
+          "0x000820",
+          "0x000821"
+        ]
+      },
       "landing_handoff": "single_quest",
       "mute_duplicate_objective_toasts": true,
       "hud_label": {

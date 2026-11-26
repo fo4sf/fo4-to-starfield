@@ -369,18 +369,24 @@ class R11Pistol10mmTests(unittest.TestCase):
         )
         player.IsEquipped = lambda item: item in equipped_set  # type: ignore[attr-defined]
 
-        pistol_10mm = object()
-        ammo_10mm = object()
-        unrelated_item = object()
+        class _NamedForm:
+            def __init__(self, label: str) -> None:
+                self.label = label
+
+            def __str__(self) -> str:
+                return self.label
+
+        pistol_10mm = _NamedForm("FO4_10mmPistol (06000899)")
+        ammo_10mm = _NamedForm("FO4_Ammo10mm (06000898)")
+        unrelated_item = _NamedForm("UnrelatedItem")
         traces: list[str] = []
         call_order: list[tuple[object, ...]] = []
 
-        def get_form(fid: int, plg: str):
-            if plg == "FO4SFCoreValues.esm" and fid == 0x000898:
-                return ammo_10mm
-            return None
-
         ns = dict(
+            _PStr=type("_PStr", (str,), {
+                "__add__": lambda self, o: type(self)(super().__add__(str(o))),
+                "__radd__": lambda self, o: type(self)(str(o) + str(self)),
+            }),
             Trace=traces.append,
             itemWatchRegistered=False,
             pipboyRegistered=True,
@@ -395,6 +401,7 @@ class R11Pistol10mmTests(unittest.TestCase):
             consoleOpening=False,
             pistolPickedLogged=False,
             VaultPistolBase=pistol_10mm,
+            VaultAmmoBase=ammo_10mm,
             VaultPistolId=0x000899,
             PipboyCorpseRef=None,
             GearDoorConsoleRef=None,
@@ -403,7 +410,7 @@ class R11Pistol10mmTests(unittest.TestCase):
             LiftId=0x126F,
             VaultPlugin="FO4Port.esm",
             TestModeGlobal=None,
-            Game=SimpleNamespace(GetPlayer=lambda: player, GetFormFromFile=get_form),
+            Game=SimpleNamespace(GetPlayer=lambda: player, GetFormFromFile=lambda fid, plg: None),
             AddInventoryEventFilter=lambda f: call_order.append(("filter", f)),
             RegisterForRemoteEvent=lambda target, ev: call_order.append(("register", target, ev)),
             GetStage=lambda: 20,
@@ -420,7 +427,7 @@ class R11Pistol10mmTests(unittest.TestCase):
         self.assertEqual(equip_calls, [])
         self.assertFalse(ns["pistolPickedLogged"])
 
-        # Picking up FO4_10mmPistol auto-equips into hand and logs equipped=True base=FO4_10mmPistol
+        # Picking up FO4_10mmPistol auto-equips into hand and logs equipped=True base=...FO4_10mmPistol...
         ns["OnItemAdded"](player, pistol_10mm, 1, None, None, 0)
         self.assertTrue(ns["pistolPickedLogged"])
         self.assertEqual(equip_calls, [(pistol_10mm, False, False)])
@@ -433,7 +440,7 @@ class R11Pistol10mmTests(unittest.TestCase):
         # Picking up FO4_Ammo10mm AFTER pistol pickup still logs ammo pickup verification
         ns["OnItemAdded"](player, ammo_10mm, 48, None, None, 0)
         self.assertTrue(
-            any(t.startswith("pistol ammo picked item=") and "count=48 base=FO4_Ammo10mm" in t for t in traces),
+            any(t.startswith("pistol ammo picked item=") and "count=48" in t and "base=FO4_Ammo10mm" in t for t in traces),
             traces,
         )
 
