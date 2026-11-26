@@ -6,10 +6,11 @@
 // workshop bases at runtime via Game.GetFormFromFile so FO4SFWorkshop.esm loads standalone or folded without cell overrides.
 //
 // usage:
-//   WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>]
-//   WorkshopCore check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>]
+//   WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>]
+//   WorkshopCore check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>]
 //   WorkshopCore fixture <out dir> [--mode full|minimal]
-//   WorkshopCore selftest <scratch dir>
+//   WorkshopCore selftest <scratch dir> [--settlement-rules <settlement_rules.json>]
+//   WorkshopCore --self-test [<scratch dir>] [--settlement-rules <settlement_rules.json>]
 
 using System.Globalization;
 using System.Text.Json;
@@ -41,11 +42,19 @@ try
     }
     var mode = Opt("--mode") ?? "full";
     var jsonPath = Opt("--json");
+    var settlementRulesPath = Opt("--settlement-rules");
 
-    if (rest.Count == 3 && rest[0] == "build") return WorkshopCore.Build(rest[1], rest[2], exclRadius, jsonPath);
-    if (rest.Count == 3 && rest[0] == "check") return WorkshopCore.Check(rest[1], rest[2], exclRadius, jsonPath);
+    if (rest.Count == 3 && rest[0] == "build") return WorkshopCore.Build(rest[1], rest[2], exclRadius, jsonPath, settlementRulesPath);
+    if (rest.Count == 3 && rest[0] == "check") return WorkshopCore.Check(rest[1], rest[2], exclRadius, jsonPath, settlementRulesPath);
     if (rest.Count == 2 && rest[0] == "fixture") return WorkshopCore.Fixture(rest[1], mode);
-    if (rest.Count == 2 && rest[0] == "selftest") return WorkshopCore.SelfTest(rest[1]);
+    if (rest.Count == 2 && rest[0] == "selftest") return WorkshopCore.SelfTest(rest[1], settlementRulesPath);
+    if (rest.Count is 1 or 2 && rest[0] == "--self-test")
+    {
+        if (rest.Count == 2) return WorkshopCore.SelfTest(rest[1], settlementRulesPath);
+        var autoScratch = Path.Combine(Path.GetTempPath(), "wscore-selftest-" + Guid.NewGuid().ToString("N"));
+        try { return WorkshopCore.SelfTest(autoScratch, settlementRulesPath); }
+        finally { if (Directory.Exists(autoScratch)) Directory.Delete(autoScratch, true); }
+    }
 }
 catch (WorkshopCore.Refusal r)
 {
@@ -53,9 +62,9 @@ catch (WorkshopCore.Refusal r)
     return 1;
 }
 
-Console.Error.WriteLine("usage: WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>] | " +
-                        "check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>] | " +
-                        "fixture <out dir> [--mode full|minimal] | selftest <scratch dir>");
+Console.Error.WriteLine("usage: WorkshopCore build <Starfield.esm> <out dir> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>] | " +
+                        "check <plugin> <Starfield.esm> [--exclusion-radius <float>] [--json <core_values.json>] [--settlement-rules <settlement_rules.json>] | " +
+                        "fixture <out dir> [--mode full|minimal] | selftest <scratch dir> | --self-test [<scratch dir>]");
 return 2;
 
 static class WorkshopCore
@@ -285,6 +294,155 @@ static class WorkshopCore
 
     static FormKey Core(IReadOnlyDictionary<string, uint> coreIds, string edid) =>
         coreIds.TryGetValue(edid, out var id) ? new FormKey(CoreValuesEsm, id) : throw new Refusal($"core_values.json missing {edid}");
+
+    public record SettlementRuleEntry(
+        string Id,
+        string Name,
+        string WorkbenchPlugin,
+        uint WorkbenchRefId,
+        string CleanSwapBenchPlugin,
+        uint CleanSwapBenchId,
+        float BuildRadiusM,
+        string AttackRuleId,
+        int InitialPopulation,
+        int MaxTier);
+
+    public record AttackRuleEntry(
+        string Id,
+        int MinPopulation,
+        float MinDefenseExemptRatio,
+        float CooldownGameHours,
+        float BaseChancePct,
+        string AttackerFaction,
+        bool EnabledHook);
+
+    public record PopulationUpgradeRuleEntry(
+        int Tier,
+        string Id,
+        string Label,
+        int MinPopulation,
+        int MinBeds,
+        int MinFood,
+        int MinWater,
+        int BeaconRecruitCap);
+
+    public record SettlementRulesTable(
+        int SchemaVersion,
+        SettlementRuleEntry[] Settlements,
+        AttackRuleEntry[] AttackRules,
+        PopulationUpgradeRuleEntry[] PopulationUpgradeRules);
+
+    public static string DefaultSettlementRulesJsonPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int up = 0; up < 8 && dir != null; up++, dir = Directory.GetParent(dir)?.FullName)
+        {
+            var candidate = Path.Combine(dir, "src", "fo4sf", "workshop", "settlement_rules.json");
+            if (File.Exists(candidate)) return candidate;
+        }
+        var cwd = Path.Combine(Directory.GetCurrentDirectory(), "src", "fo4sf", "workshop", "settlement_rules.json");
+        if (File.Exists(cwd)) return cwd;
+        throw new Refusal("cannot locate src/fo4sf/workshop/settlement_rules.json; pass --settlement-rules <path>");
+    }
+
+    static uint ParseHexId(JsonElement obj, string prop, string ctx)
+    {
+        if (!obj.TryGetProperty(prop, out var el) || el.ValueKind != JsonValueKind.String)
+            throw new Refusal($"{ctx} missing string hex field {prop}");
+        var raw = (el.GetString() ?? "").Trim();
+        if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) raw = raw[2..];
+        if (raw.Length == 0 || !uint.TryParse(raw, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var val) || val == 0)
+            throw new Refusal($"{ctx} invalid hex FormID {prop}='{el.GetString()}'");
+        return val;
+    }
+
+    public static SettlementRulesTable LoadSettlementRules(string? jsonPath = null)
+    {
+        var path = jsonPath ?? DefaultSettlementRulesJsonPath();
+        if (!File.Exists(path)) throw new Refusal($"missing settlement_rules.json: {path}");
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("schema_version", out var svEl) || svEl.ValueKind != JsonValueKind.Number || svEl.GetInt32() != 1)
+            throw new Refusal($"settlement_rules.json unsupported schema_version in {path}");
+
+        if (!root.TryGetProperty("attack_rules", out var atkArr) || atkArr.ValueKind != JsonValueKind.Array)
+            throw new Refusal($"settlement_rules.json missing attack_rules array in {path}");
+        var attackRules = new List<AttackRuleEntry>();
+        var attackIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var el in atkArr.EnumerateArray())
+        {
+            var id = (el.GetProperty("id").GetString() ?? "").Trim();
+            if (id.Length == 0 || !attackIds.Add(id))
+                throw new Refusal($"settlement_rules.json duplicate or empty attack_rule id '{id}'");
+            int minPop = el.GetProperty("min_population").GetInt32();
+            float defRatio = el.GetProperty("min_defense_exempt_ratio").GetSingle();
+            float cooldownH = el.GetProperty("cooldown_game_hours").GetSingle();
+            float chancePct = el.GetProperty("base_chance_pct").GetSingle();
+            var faction = (el.GetProperty("attacker_faction").GetString() ?? "").Trim();
+            bool enabledHook = el.TryGetProperty("enabled_hook", out var ehEl) && ehEl.GetBoolean();
+            if (minPop < 0 || defRatio < 0f || cooldownH <= 0f || chancePct < 0f || chancePct > 100f || faction.Length == 0)
+                throw new Refusal($"settlement_rules.json invalid attack_rule '{id}' bounds");
+            attackRules.Add(new AttackRuleEntry(id, minPop, defRatio, cooldownH, chancePct, faction, enabledHook));
+        }
+        if (attackRules.Count == 0)
+            throw new Refusal($"settlement_rules.json attack_rules must not be empty: {path}");
+
+        if (!root.TryGetProperty("population_upgrade_rules", out var popArr) || popArr.ValueKind != JsonValueKind.Array)
+            throw new Refusal($"settlement_rules.json missing population_upgrade_rules array in {path}");
+        var popRules = new List<PopulationUpgradeRuleEntry>();
+        var popIds = new HashSet<string>(StringComparer.Ordinal);
+        int prevTier = 0;
+        int prevMinPop = -1;
+        foreach (var el in popArr.EnumerateArray())
+        {
+            int tier = el.GetProperty("tier").GetInt32();
+            var id = (el.GetProperty("id").GetString() ?? "").Trim();
+            var label = (el.GetProperty("label").GetString() ?? "").Trim();
+            int minPop = el.GetProperty("min_population").GetInt32();
+            int minBeds = el.GetProperty("min_beds").GetInt32();
+            int minFood = el.GetProperty("min_food").GetInt32();
+            int minWater = el.GetProperty("min_water").GetInt32();
+            int recruitCap = el.GetProperty("beacon_recruit_cap").GetInt32();
+            if (id.Length == 0 || !popIds.Add(id) || label.Length == 0)
+                throw new Refusal($"settlement_rules.json invalid population_upgrade_rule id/label '{id}'");
+            if (tier <= prevTier || minPop <= prevMinPop || minPop < 0 || minBeds < 0 || minFood < 0 || minWater < 0 || recruitCap < minPop)
+                throw new Refusal($"settlement_rules.json non-monotonic or invalid population_upgrade_rule tier={tier} '{id}'");
+            prevTier = tier;
+            prevMinPop = minPop;
+            popRules.Add(new PopulationUpgradeRuleEntry(tier, id, label, minPop, minBeds, minFood, minWater, recruitCap));
+        }
+        if (popRules.Count == 0)
+            throw new Refusal($"settlement_rules.json population_upgrade_rules must not be empty: {path}");
+
+        if (!root.TryGetProperty("settlements", out var setArr) || setArr.ValueKind != JsonValueKind.Array)
+            throw new Refusal($"settlement_rules.json missing settlements array in {path}");
+        var settlements = new List<SettlementRuleEntry>();
+        var setIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var el in setArr.EnumerateArray())
+        {
+            var id = (el.GetProperty("id").GetString() ?? "").Trim();
+            var name = (el.GetProperty("name").GetString() ?? "").Trim();
+            if (id.Length == 0 || !setIds.Add(id) || name.Length == 0)
+                throw new Refusal($"settlement_rules.json duplicate or empty settlement id/name '{id}'");
+            var wbPlugin = (el.GetProperty("workbench_plugin").GetString() ?? "").Trim();
+            var cleanPlugin = (el.GetProperty("clean_swap_bench_plugin").GetString() ?? "").Trim();
+            if (wbPlugin.Length == 0 || cleanPlugin.Length == 0)
+                throw new Refusal($"settlement_rules.json settlement '{id}' missing plugin name");
+            uint wbId = ParseHexId(el, "workbench_ref_id", $"settlement '{id}'");
+            uint cleanId = ParseHexId(el, "clean_swap_bench_id", $"settlement '{id}'");
+            float radiusM = el.GetProperty("build_radius_m").GetSingle();
+            var atkId = (el.GetProperty("attack_rule_id").GetString() ?? "").Trim();
+            int initPop = el.GetProperty("initial_population").GetInt32();
+            int maxTier = el.GetProperty("max_tier").GetInt32();
+            if (radiusM <= 0f || !attackIds.Contains(atkId) || initPop < 0 || maxTier < 1 || maxTier > popRules[^1].Tier)
+                throw new Refusal($"settlement_rules.json settlement '{id}' has invalid radius/attack_rule_id/tier");
+            settlements.Add(new SettlementRuleEntry(id, name, wbPlugin, wbId, cleanPlugin, cleanId, radiusM, atkId, initPop, maxTier));
+        }
+        if (settlements.Count == 0)
+            throw new Refusal($"settlement_rules.json settlements must not be empty: {path}");
+
+        return new SettlementRulesTable(1, settlements.ToArray(), attackRules.ToArray(), popRules.ToArray());
+    }
 
     static ScriptObjectProperty ObjProp(string name, FormKey fk) => new()
     {
@@ -559,9 +717,14 @@ static class WorkshopCore
         return quest;
     }
 
-    public static int Build(string templatePath, string outDir, float exclRadius, string? jsonPath = null)
+    public static int Build(string templatePath, string outDir, float exclRadius, string? jsonPath = null, string? settlementRulesPath = null)
     {
         var coreIds = LoadCoreValues(jsonPath);
+        var settlementRules = LoadSettlementRules(settlementRulesPath);
+        var sancRule = settlementRules.Settlements.FirstOrDefault(s => s.Id == "sanctuary_hills")
+            ?? throw new Refusal("settlement_rules.json missing sanctuary_hills entry");
+        if (sancRule.CleanSwapBenchId != SanctuaryBenchActiId)
+            throw new Refusal($"settlement_rules.json sanctuary_hills clean_swap_bench_id 0x{sancRule.CleanSwapBenchId:X} != 0x{SanctuaryBenchActiId:X}");
         var testModeKey = Core(coreIds, TestModeEdid);
         using var sf = OpenTemplate(templatePath);
         var tpl = ResolveTemplates(sf);
@@ -828,9 +991,13 @@ static class WorkshopCore
 
     // ---------------------------------------------------------------- check
 
-    public static int Check(string pluginPath, string templatePath, float exclRadius, string? jsonPath = null)
+    public static int Check(string pluginPath, string templatePath, float exclRadius, string? jsonPath = null, string? settlementRulesPath = null)
     {
         var coreIds = LoadCoreValues(jsonPath);
+        var settlementRules = LoadSettlementRules(settlementRulesPath);
+        var sancRule = settlementRules.Settlements.FirstOrDefault(s => s.Id == "sanctuary_hills");
+        if (sancRule == null || sancRule.CleanSwapBenchId != SanctuaryBenchActiId)
+            throw new Refusal($"settlement_rules.json sanctuary_hills missing or clean_swap_bench_id != 0x{SanctuaryBenchActiId:X}");
         var testModeKey = Core(coreIds, TestModeEdid);
         using var sf = OpenTemplate(templatePath);
         var tpl = ResolveTemplates(sf);
@@ -1252,17 +1419,100 @@ static class WorkshopCore
         return StarfieldMod.CreateFromBinary(pluginPath, Release, new BinaryReadParameters { MasterFlagsLookup = styles });
     }
 
-    public static int SelfTest(string scratchDir)
+    public static int SelfTest(string scratchDir, string? settlementRulesPath = null)
     {
         Directory.CreateDirectory(scratchDir);
+        var defaultRules = LoadSettlementRules(settlementRulesPath);
+        var sanc = defaultRules.Settlements.FirstOrDefault(s => s.Id == "sanctuary_hills")
+            ?? throw new Refusal("default settlement_rules.json missing sanctuary_hills");
+        if (sanc.WorkbenchRefId != 0x005C50 || sanc.CleanSwapBenchId != SanctuaryBenchActiId)
+            throw new Refusal("default settlement_rules.json sanctuary_hills FormIDs mismatch");
+
+        // Verify extensible seam: synthetic 2nd settlement + custom attack/population rules load cleanly with 0 code edits
+        var synthRulesPath = Path.Combine(scratchDir, "settlement_rules_synth.json");
+        File.WriteAllText(synthRulesPath, """
+        {
+          "schema_version": 1,
+          "settlements": [
+            {
+              "id": "sanctuary_hills",
+              "name": "Sanctuary Hills",
+              "workbench_plugin": "FO4TerrainCore.esm",
+              "workbench_ref_id": "0x005C50",
+              "clean_swap_bench_plugin": "FO4SFWorkshop.esm",
+              "clean_swap_bench_id": "0x000849",
+              "build_radius_m": 250.0,
+              "attack_rule_id": "commonwealth_raider_probe",
+              "initial_population": 0,
+              "max_tier": 3
+            },
+            {
+              "id": "red_rocket_truck_stop",
+              "name": "Red Rocket Truck Stop",
+              "workbench_plugin": "FO4TerrainCore.esm",
+              "workbench_ref_id": "0x005C51",
+              "clean_swap_bench_plugin": "FO4SFWorkshop.esm",
+              "clean_swap_bench_id": "0x000860",
+              "build_radius_m": 180.0,
+              "attack_rule_id": "synthetic_custom_siege",
+              "initial_population": 2,
+              "max_tier": 4
+            }
+          ],
+          "attack_rules": [
+            {
+              "id": "commonwealth_raider_probe",
+              "min_population": 2,
+              "min_defense_exempt_ratio": 1.0,
+              "cooldown_game_hours": 48.0,
+              "base_chance_pct": 15.0,
+              "attacker_faction": "raider",
+              "enabled_hook": false
+            },
+            {
+              "id": "synthetic_custom_siege",
+              "min_population": 4,
+              "min_defense_exempt_ratio": 1.5,
+              "cooldown_game_hours": 24.0,
+              "base_chance_pct": 30.0,
+              "attacker_faction": "gunner",
+              "enabled_hook": true
+            }
+          ],
+          "population_upgrade_rules": [
+            { "tier": 1, "id": "outpost", "label": "Outpost", "min_population": 0, "min_beds": 0, "min_food": 0, "min_water": 0, "beacon_recruit_cap": 5 },
+            { "tier": 2, "id": "settlement", "label": "Settlement", "min_population": 5, "min_beds": 5, "min_food": 5, "min_water": 5, "beacon_recruit_cap": 12 },
+            { "tier": 3, "id": "hub", "label": "Regional Hub", "min_population": 12, "min_beds": 12, "min_food": 12, "min_water": 12, "beacon_recruit_cap": 20 },
+            { "tier": 4, "id": "citadel", "label": "Fortified Citadel", "min_population": 20, "min_beds": 20, "min_food": 20, "min_water": 20, "beacon_recruit_cap": 30 }
+          ]
+        }
+        """);
+        var synth = LoadSettlementRules(synthRulesPath);
+        if (synth.Settlements.Length != 2 || synth.Settlements[1].Id != "red_rocket_truck_stop" ||
+            synth.AttackRules.Length != 2 || synth.PopulationUpgradeRules.Length != 4)
+            throw new Refusal("synthetic 2nd settlement + custom attack/population rule check failed");
+
+        // Negative tamper check on settlement_rules.json: unknown attack_rule_id and non-monotonic population tier must refuse
+        var badRulesPath = Path.Combine(scratchDir, "settlement_rules_bad.json");
+        File.WriteAllText(badRulesPath, File.ReadAllText(synthRulesPath).Replace("\"attack_rule_id\": \"synthetic_custom_siege\"", "\"attack_rule_id\": \"missing_rule_id\"", StringComparison.Ordinal));
+        var badThrew = false;
+        try { LoadSettlementRules(badRulesPath); } catch (Refusal) { badThrew = true; }
+        if (!badThrew) throw new Refusal("LoadSettlementRules failed to reject unknown attack_rule_id");
+
+        var badTierPath = Path.Combine(scratchDir, "settlement_rules_bad_tier.json");
+        File.WriteAllText(badTierPath, File.ReadAllText(synthRulesPath).Replace("\"min_population\": 12", "\"min_population\": 4", StringComparison.Ordinal));
+        var badTierThrew = false;
+        try { LoadSettlementRules(badTierPath); } catch (Refusal) { badTierThrew = true; }
+        if (!badTierThrew) throw new Refusal("LoadSettlementRules failed to reject non-monotonic population_upgrade_rules");
+
         foreach (var mode in new[] { "full", "minimal" })
         {
             var mDir = Path.Combine(scratchDir, "m_" + mode);
             var bDir = Path.Combine(scratchDir, "b_" + mode);
             if (Fixture(mDir, mode) != 0) throw new Refusal($"fixture {mode} failed");
             var sfPath = Path.Combine(mDir, "Starfield.esm");
-            if (Build(sfPath, bDir, 45.0f) != 0) throw new Refusal($"build {mode} failed");
-            if (Check(Path.Combine(bDir, Plugin.FileName), sfPath, 45.0f) != 0) throw new Refusal($"check {mode} failed");
+            if (Build(sfPath, bDir, 45.0f, null, settlementRulesPath) != 0) throw new Refusal($"build {mode} failed");
+            if (Check(Path.Combine(bDir, Plugin.FileName), sfPath, 45.0f, null, settlementRulesPath) != 0) throw new Refusal($"check {mode} failed");
         }
 
         // Custom exclusion radius check

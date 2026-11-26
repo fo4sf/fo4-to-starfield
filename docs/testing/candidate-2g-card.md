@@ -152,7 +152,7 @@ python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2g-pla
 3. **`C3` — Concord Street Fight With GOD MODE OFF & Zero `2.85 km` Raider Return (`09000803..09000807`):**
    - Walk (or `bat r9hop2` -> wait `3–5 s` -> `bat r9hop3`, both strictly `< 180 m`/axis) to the Museum of Freedom door `(-2011.14, -1697.54, 89.09)` m. Play with **god mode OFF** (do NOT enable god mode in the console; leave normal player damage active).
    - **`C3` Stay-Put PASS:** Raiders `0`–`4` (`09000803..09000807`) are authored at merged Concord coordinates (`(-2029, -1698)`), NOT unmerged `(-829, +1002)` — verify `fo4sf_mission.0.log` shows **ZERO `before=2846..2868` `2.85 km` snap-back re-placement passes**!
-   - **`C3` Live Combat & Hits-To-Kill PASS (God Mode OFF):** All `5` live raiders arm with `WEAP 0026D96B` Coachman + `60` `AMMO 002B4AFB` `AmmoShotshell` (`arm raider 0..4 ammo=60`, `Aggression=2`, `Confidence=4`, `SetRestrained(False)`) and receive `startcombat raider 0..4 d=<d>` (all `5`, not just `raider 0`!). **Starting-Character Survivability (`offline record estimate` — armor, difficulty, and level scaling ignored; Level-1 Vault 111 player = `180 HP`):** Coachman deals `52.0` base damage (`<= 20 m`) falling linearly to `26.0` damage (`35 m`), giving an offline record estimate of **`4` close-range full blasts** (`<= 20 m`: `4 x 52 = 208 >= 180 HP`) up to **`7` max-range blasts** (`35 m`: `7 x 26 = 182 >= 180 HP`) to kill! Confirm raiders advance/fire and take real HP off the player; defeat `1–2` raiders (`stage 20`), then run Cold Reload #2 before killing the rest!
+   - **`C3` Live Combat & Hits-To-Kill PASS (God Mode OFF):** All `5` live raiders arm with `WEAP 0026D96B` Coachman + `60` `AMMO 002B4AFB` `AmmoShotshell` (`arm raider 0..4 ammo=60`, `Aggression=2`, `Confidence=4`, `SetRestrained(False)`) and receive `startcombat raider 0..4 d=<d>` (all `5`, not just `raider 0`!). **Starting-Character Survivability (`offline record estimate` — armor, difficulty, and level scaling ignored; Level-1 Vault 111 player = `180 HP`):** Coachman deals `52.0` base damage (`<= 20 m`) falling linearly to `26.0` damage (`35 m`), giving an offline record estimate of **`4` close-range full blasts** (`<= 20 m`: `4 x 52 = 208 >= 180 HP`) up to **`7` max-range blasts** (`35 m`: `7 x 26 = 182 >= 180 HP`) to kill! Confirm raiders advance/fire and take real HP off the player; defeat `1–2` raiders (`stage 20`), then run Cold Reload #2 before killing the rest! *(Superseded in [`Card 2g-fix7`](#card-2g-fix7--wave-a-playable-01-blockers) below: raiders engage and actively fire at the player with god mode OFF; standing idle drops HP `>= 20` within `10 s` and is lethal in `~15-25 s`, while taking cover and shooting back with the Vault 111 10mm Pistol defeats all `5` raiders cleanly to `stage 30`.)*
 4. **Cold Quit-to-Desktop & Reload #2 — Mid-Mission (`Throwaway_2g_MidWFC`):**
    - Save **`Throwaway_2g_MidWFC`** at `stage 20` (with `1–4` raiders dead) OR at `stage 30` (all `5` dead, before talking to Preston), **`Quit to Desktop`**, relaunch via SFSE, and load `Throwaway_2g_MidWFC`.
    - **Expected:** `reload mission stage=<20|30> relocate_fails=0`, dead raiders stay dead, living raiders stay at Concord, and Preston (`09000802`) stays held at the Museum door. Finish remaining raiders to reach `stage 30` (`Talk to Preston Garvey`).
@@ -377,3 +377,107 @@ FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=<worn>
 FO4SF_NEWGAME rt=<rt> pipboy pickup examine_idle=<idle>
 FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<eq>
 ```
+
+---
+
+## Card 2g-fix7 — Wave A Playable-0.1 Blockers
+
+- **Stage Placeholders:** `<cand2g-fix7-player>`, `<cand2g-fix7-test>`, `<starfield-dir>`
+- **Disk Need:** `~4.2 GB` (`13`-plugin player bundle or `22`-plugin test bundle without `FO4SFRouteLoot.esm` or `FO4SFBridge.esm`) + `~5 MB` `FO4SFPipboyMenu.dll` sidecar.
+- **Plugin List (`Plugins.txt`, `13` Track-1 plugins + `*FO4SFMapMarkers.esm`; `FO4SFRouteLoot.esm` & `FO4SFBridge.esm` OFF):**
+  `FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm`
+
+### Install Command (`<cand2g-fix7-player>`, Game Closed)
+```bash
+python scripts/core/make_core_bundle.py verify --bundle-dir <cand2g-fix7-player> --require-map-markers
+python scripts/game/exp_install.py install --exp-dir <cand2g-fix7-player> --starfield <starfield-dir> --plugins FO4ActorRaider.esm,FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SFCoreValues.esm,FO4SFVaultGearDoor.esm,FO4SFExitLift.esm,FO4SFMission.esm,FO4SFNewGame.esm,FO4SFWorkshop.esm,FO4SFPowerArmor.esm,FO4SFFortHagen.esm,FO4SFPipboyProbe.esm,FO4SFPipboyTravel.esm --pack
+python scripts/core/make_core_bundle.py sidecar-install --bundle-dir <cand2g-fix7-player> --starfield <starfield-dir>
+python scripts/game/map_markers_install.py install --dir <cand2g-fix7-player>/map-markers --starfield <starfield-dir>
+```
+
+### Wave A Playable-0.1 Verification Matrix (`Items 1–8` + `4b`)
+
+| Wave A Item | Truth Label | Requirement & Console-Free Verification | Evidence / **`VIDEO`** Requirement |
+|---|---|---|---|
+| **1. Wrist Pip-Boy (`0A00080D`)** | **`TEST-STATION`** / **`REACHABLE`** | After `E` pickup on `0A00080F`, `FO4SF_PipboyWrist` (`0A00080D`) equips on the left wrist and re-equips automatically on save/load, death-reload, and Vault 111 exit lift arrival (`FO4SF_PipboyAcquired = 1`). | **`VIDEO`:** Confirm left-wrist Pip-Boy in **1st person** and **3rd person** inside Vault 111, then verify persistence across **save/load**, **death-reload**, and **surface exit lift** (`v111-wrist-pipboy`). |
+| **2. Toasts & `QUEST` Label** | **`TEST-STATION`** / **`REACHABLE`** | `FO4SF_Codsworth01` (`09000816`) fires its Objective 10 toast cleanly on start/update, and the HUD/Pip-Boy header shows the Fallout **`QUEST`** label (`step=hud_quest_label`). | Confirm Objective 10 toast appears on Vault exit / Sanctuary approach and **`QUEST`** label displays cleanly without Starfield mission-tag overlap. |
+| **3. Three Leaks (Silent Arrival, Silent Strip, Single-Pass Fade)** | **`TEST-STATION`** | Vault arrival map discovery runs silently (`arrival discovery muted=true`), Vault starter inventory strip emits zero item-loss spam (`inventory starter_strip silent=true`), and `ReleaseStoryLandingFade` runs a clean single pass (`story_fade single_pass=true`) with zero stuck black fade. | Confirm silent transition from cryo pod -> surface daylight with zero discovery XP/banner leak and zero item-removed toast flood. |
+| **4. Lift Flow + Closed Black Gap** | **`TEST-STATION`** | Paused `FO4SF_LiftMenu` (`0x19 \| kPauseFlag`) transitions directly into the exit lift ride (`S.P.E.C.I.A.L.` / `Change Appearance` / `Ride`) with the ascent black gap closed (`ascent gap_closed=true`). | **`VIDEO`:** Continuous clip from boarding the exit lift platform through `Continue` -> ascent -> Commonwealth daylight showing zero exposed black frame gap (`v111-lift-flow`). |
+| **4b. Surface Lift Cog Bidirectional Up/Down** | **`TEST-STATION`** | Vault 111 hilltop surface cog returns the player down into `FO4Port_Vault111Cryo` AND rides back up to the Commonwealth surface cleanly in both directions (`lift_pair`). | **`VIDEO`:** Capture **both ride down** (surface cog -> Vault 111) **and ride up** (Vault 111 lift -> surface hilltop) in one continuous or paired take (`v111-cog-bidirectional`). |
+| **5. Pod Safe Exit + Stage-15 Hook** | **`TEST-STATION`** | Cryo pod opening places the player on a validated safe spawn pad outside pod geometry (`pod_exit mode=safe_spawn`) and fires the `stage 15` hook cleanly before `stage 20`. | **`VIDEO`:** Clip from `"Character Appearance"` close -> cryo pod open -> clean footing in front of pod with zero clipping (`v111-pod-safe-exit`). |
+| **6. 10mm Pistol (`0A000820`/`0A000822`) & Falling Objects Reachable Without Console Travel** | **`REACHABLE`** / **`TEST-STATION`** | **Hand-play walk (zero console):** From the control deck (`y = 0`), do NOT walk straight north (solid wall at `x = -53, y = 4..14`). Walk **east** through unlocked doors `02001607` `(-40.23, 0.00, 0.00)` and `02001609` `(-32.91, 3.66, 0.00)` into the north-south hall (`x = -33`), walk **north** to `y = 14`, turn **west** down the security hall to `(-53.03, 18.29, 0.00)`, press **`E`** on unlocked Overseer door `0200160A`, and walk north through open wire gate `02001539` `(-54.92, 29.71, 0.00)` into the **wire armory cage** between Cryo Hall and Vault Door Console at **`(-57.0338, 30.006, 1.29)`** (matching [`walk_headings.py`](../../scripts/newgame/walk_headings.py) / [`console-free-walk-list.md`](console-free-walk-list.md)). Press **`E`** on `0A000820` (`FO4SF_Vault111_10mm` `0A000822`, `"10mm Pistol"`, **`18 dmg`**, **`12-round` mag**, auto-equips on pickup) and **`0A000821`** (`48` rounds, one shelf below at `(-57.0522, 30.3703, 0.696)`). **Why `moveto 0A000820` previously failed:** `0x820`/`0x821` were authored in `Temporary` without the `0x400` Persistent flag; once the Integrator flags `0x820`/`0x821` Persistent (`0x400`), optional `P3`-safe `bat r15p10` also works alongside hand-play. **Falling objects (zero console travel):** Outdoors at the Vault 111 hilltop or Sanctuary, open inventory (`I`), drop any carried item (`R`, or optional `bat r15drp`), and confirm crisp **`1.00 g` (`9.81 m/s^2`)** Earth fall. | **`VIDEO`:** (a) Hand-play walk into armory cage + picking up `0A000820` (`18 dmg`, `12-round` mag, auto-equip in 1st person) & `0A000821`; (b) Dropping an inventory object outdoors at Vault 111 hilltop or Sanctuary falling at `1.00 g` (`v111-10mm-and-drop`). |
+| **7. Updated Concord Fight (God Mode OFF)** | **`TEST-STATION`** | Raiders (`09000803..09000807`) engage and actively fire at the player (**god mode OFF**; standing idle drops HP **`>= 20` within `10 s`** and is **lethal in `~15-25 s`**); taking cover and shooting back with the Vault 111 **10mm Pistol** (`0A000820`/`0A000822`) defeats all `5` raiders cleanly to **`stage 30`** (`Talk to Preston Garvey`). | **`VIDEO`:** Uninterrupted Concord Main Street fight (`god mode OFF`) showing idle HP drop `>= 20` in `10 s` (or lethal `~15-25 s` exposure) AND cover + 10mm Pistol clearing all `5` raiders to `stage 30` (`concord-fight-10mm`). |
+| **8. Exact Papyrus & SFSE Log Lines (`bEnableLogging=1`)** | **`TEST-STATION`** | Verify every Wave A log line below in `fo4sf_newgame.0.log`, `fo4sf_mission.0.log`, and `FO4SFPipboyMenu.log` with `[Papyrus] bEnableLogging=1` enabled. | Log audit table below + fenced `log` block. |
+
+### Optional `P3`-Safe Diagnostic Console & Batches for Item 6 (`ZERO M/N/V` in Typed Console & Filenames)
+```console
+sqs 0A000800
+getstage 09000800
+bat r15p10
+bat r15drp
+```
+
+```bat
+; <starfield-dir>/r15p10.txt — optional diagnostic moveto once 0A000820/0A000821 carry Persistent 0x400 flag (hand-play walk needs zero console!)
+player.moveto 0A000820
+
+; <starfield-dir>/r15drp.txt — optional outdoor inventory item for 1.00 g Earth fall check at Vault 111 hilltop or Sanctuary (drop via I -> R)
+player.additem 0000FBDB 1
+```
+
+### Item 8 — Exact Papyrus & SFSE Log Lines Table (`bEnableLogging=1`)
+
+| Wave A Item | Log File | Exact Log Pattern (`bEnableLogging=1`) | Trigger / When Logged |
+|---|---|---|---|
+| **1. Wrist Pip-Boy (Equip)** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> pipboy wrist equipped item=<form> worn=<true\|false>` | Immediately on `0A00080F` pickup (`0A00080D` equipped on left wrist) |
+| **1. Wrist Pip-Boy (Re-equip)** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> pipboy wrist reequip on_load=<reason> worn=<true\|false>` | On save/load, death-reload, and surface exit lift arrival |
+| **2. Objective 10 Toast** | `fo4sf_mission.0.log` | `FO4SF_MISSION rt=<rt> codsworth01 objective10_toast shown=<true\|false>` | When `FO4SF_Codsworth01` (`09000816`) displays Objective 10 toast |
+| **2. HUD `QUEST` Label** | `FO4SFPipboyMenu.log` | `step=hud_quest_label text=QUEST ok=<0\|1>` | HUD quest header tag patched to `QUEST` |
+| **3. Leak 1 — Silent Discovery** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> arrival discovery muted=true id=<id>` | On hilltop surface arrival (`SetMarkerDiscovered` XP/toast suppressed) |
+| **3. Leak 2 — Silent Strip** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> inventory starter_strip silent=true removed=<n>` | Vault 111 starter inventory strip (`RemoveAllItems` silent) |
+| **3. Leak 3 — Single-Pass Fade** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> story_fade single_pass=true by=<by>` | Single-pass `ReleaseStoryLandingFade` completion |
+| **4. Lift Black Gap Closed** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> ascent gap_closed=true elapsed=<t>` | Exit lift ascent overlap fade closes black frame gap |
+| **4b. Surface Cog Ready** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> lift_pair surface_cog ready=<true\|false> ref=<ref>` | Surface hilltop return cog bound & ready |
+| **4b. Bidirectional Ride Start** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> lift_pair ride start dir=<down\|up> ref=<ref>` | Starting either surface->Vault (`down`) or Vault->surface (`up`) ride |
+| **4b. Bidirectional Ride Arrived** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> lift_pair ride arrived dir=<down\|up> cell=<cell>` | Arriving in destination cell after bidirectional lift ride |
+| **5. Pod Safe Exit + Stage 15** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> pod_exit mode=safe_spawn hook_stage=15 pos=<x,y,z>` | Safe pod exit spawn + stage-15 hook firing |
+| **6. 10mm Pistol Auto-Equip** | `fo4sf_newgame.0.log` | `FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<eq>` | Picking up `0A000820` (`FO4SF_Vault111_10mm` `0A000822`) in armory cage |
+
+### Undo Command (Game Closed)
+```bash
+python scripts/game/map_markers_install.py uninstall --starfield <starfield-dir>
+python scripts/core/make_core_bundle.py sidecar-undo --starfield <starfield-dir>
+python scripts/game/exp_install.py uninstall --starfield <starfield-dir>
+```
+
+### Required Core PASS Log Lines (`fo4sf_newgame.0.log`, `fo4sf_mission.0.log`, `FO4SFPipboyMenu.log`)
+```log
+step=shell_c4_config shell_backdrop=1 shell_vitals_fill=1 suppress_data_menu=0 tab_opens_pipboy=0 hide_starfield_watch=1
+step=lift_open confirmed=<confirmed>
+step=lift_confirm action=<action> confirmed=<confirmed> values=<s>,<p>,<e>,<c>,<i>,<a>,<l>
+FO4SF_NEWGAME rt=<rt> stage 20 by=Trigger
+FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=<worn>
+FO4SF_NEWGAME rt=<rt> pipboy pickup examine_idle=<idle>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<item> count=<cnt> equipped=<eq>
+FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console
+FO4SF_NEWGAME rt=<rt> stage 40 by=Trigger
+FO4SF_NEWGAME rt=<rt> stage 200 by=Trigger
+FO4SF_MISSION rt=<rt> codsworth01 complete choices=<cnt> concord_pointed=true
+FO4SF_MISSION rt=<rt> stage 30 by=Trigger
+FO4SF_MISSION rt=<rt> complete stage=200
+```
+
+### `Later plug-in:` Attachment Map (Deferred Features Without Rebuilding Core)
+
+| Wave A Item / Seam | Current Playable-0.1 Behavior | `Later plug-in:` How Deferred Features Attach Without Rebuilding |
+|---|---|---|
+| **Item 1 — Wrist Pip-Boy (`0A00080D`)** | Equip/re-equip `FO4SF_PipboyWrist` on pickup, load, death-reload, and exit lift. | Custom FO4 Pip-Boy 3000 NIF/textures & arm-raise animation attach by swapping `0A00080D` armor/addon meshes and `IdleExamineWatch` without changing quest logic. |
+| **Item 2 — Toasts & `QUEST` Label** | `codsworth01` Objective 10 toast + `QUEST` HUD label. | Localized multi-quest toast/radio strings and Scaleform font skinning plug into the same HUD hook & `FO4SF_Codsworth01` objective table. |
+| **Item 3 — Three Leaks** | Silent arrival discovery, silent starter strip, single-pass story fade. | Survival/difficulty intros or custom arrival vignettes hook after `story_fade single_pass=true` without re-opening discovery/inventory leaks. |
+| **Item 4 — Lift Flow + Black Gap** | Paused `FO4SF_LiftMenu` + closed ascent black gap. | Full Vault 111 surface elevator cutscene/audio plugs into the same `LiftSeconds` fade window without touching chargen or `Surface()`. |
+| **Item 4b — Surface Lift Cog** | Bidirectional hilltop <-> Vault 111 cog travel. | Companion follow-through and Vault 111 return-visit encounters attach onto `lift_pair ride arrived` destination triggers. |
+| **Item 5 — Pod Safe Exit + Stage 15** | Safe pod exit spawn + stage-15 hook. | Intro spouse/cryo-chamber scripted beats and vault tutorial popups attach to `hook_stage=15` without altering pod spawn coordinates. |
+| **Item 6 — 10mm Pistol (`0A000822`) & Gravity** | `18` dmg, `12-round` mag on `0A000822` + `1.00 g` Earth drop (`0x820`/`0x821` Persistent `0x400`). | `#853` `fo4_10mmpistol.nif` + `10mmAmmo` (`0x0001F276`) plug straight onto `WEAP 0A000822` and `0A000821` without moving `0A000820` or touching `NewGame` quests. |
+| **Item 7 — Concord Fight** | Active raider fire (`>= 20` HP / `10 s`, lethal `~15-25 s`), cover + 10mm to `stage 30`. | FO4 Pipe Guns (`A4`), raider loot/barks, and Museum interior wave (`L7`–`L9`) plug onto `0900097B`/`0900097A` and `Min00` `stage 30` without changing opening flow. |
+| **Item 8 — Structured Logs (`bEnableLogging=1`)** | Unified Papyrus + SFSE log keys (`pipboy`, `codsworth01`, `lift_pair`, `pod_exit`, `pistol picked`). | Automated CI/PC log-judge parsers subscribe to the frozen key prefixes with zero script rewrites. |
+| **Workshop Seam (`src/fo4sf/workshop/settlement_rules.json`)** | Data-driven settlements (`sanctuary_hills`, `0x005C50`, `0B000849`), `attack_rules` (W5/W6), `population_upgrade_rules` (W6) validated by `WorkshopCore --settlement-rules` / `--self-test`. | W5/W6 add new settlements, attack probabilities, and tier thresholds by appending JSON rows — zero C#/Papyrus rebuild required for table expansion. |
