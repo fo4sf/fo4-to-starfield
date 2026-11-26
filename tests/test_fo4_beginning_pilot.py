@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from fo4sf.beginning_pilot import (  # noqa: E402
+    B5_REQUIRED_ACTOR_NIFS,
     BEGINNING_STEPS,
     CODSWORTH_NIF_REL,
     CODSWORTH_VOICE_DIR_REL,
@@ -27,10 +28,30 @@ from fo4sf.beginning_pilot import (  # noqa: E402
     evaluate_beginning_logs,
     verify_bundle_beginning_readiness,
 )
+from fo4sf.planet.esm import ESM, PluginWriter, Record, zbytes  # noqa: E402
 
 
 def _dummy_tes4() -> bytes:
     return b"TES4" + struct.pack("<IIII", 0, 1, 0, 0) + b"\x00\x00\x00\x00"
+
+
+def _dummy_mission_esm_with_b5(nifs: Sequence[str] | None = None) -> bytes:
+    w = PluginWriter(("Starfield.esm", "FO4TerrainCore.esm", "FO4ActorRaider.esm"), flags=ESM)
+    rel_list = list(nifs) if nifs is not None else [rel for _, rel in B5_REQUIRED_ACTOR_NIFS]
+    for idx, rel in enumerate(rel_list):
+        mod_rel = rel[len("meshes/"):] if rel.startswith("meshes/") else rel
+        w.add(
+            Record(
+                b"ARMA",
+                w.own(0x000812 + idx),
+                [(b"EDID", zbytes(f"FO4_AA_B5_{idx}")), (b"MOD2", zbytes(mod_rel.replace("/", "\\")))],
+                0,
+                0,
+                581,
+                0,
+            )
+        )
+    return w.to_bytes(compress=False)
 
 
 def _handwritten_newgame_lines() -> list[str]:
@@ -259,7 +280,7 @@ class BeginningPilotTests(unittest.TestCase):
             "FO4SFProgression.esm",
         }
         for p in sorted(req_plugins):
-            (bundle / p).write_bytes(_dummy_tes4())
+            (bundle / p).write_bytes(_dummy_mission_esm_with_b5() if p == "FO4SFMission.esm" else _dummy_tes4())
         _populate_synthetic_map_markers(bundle)
 
         for sc in (
@@ -273,9 +294,10 @@ class BeginningPilotTests(unittest.TestCase):
         ):
             (bundle / "Data" / "Scripts" / sc).write_bytes(b"PEX_SYNTHETIC_BINARY_PAYLOAD")
 
-        nif = bundle / "Data" / Path(CODSWORTH_NIF_REL)
-        nif.parent.mkdir(parents=True, exist_ok=True)
-        nif.write_bytes(b"NIF_CODSWORTH")
+        for _label, nif_rel in B5_REQUIRED_ACTOR_NIFS:
+            nif = bundle / "Data" / Path(*nif_rel.split("/"))
+            nif.parent.mkdir(parents=True, exist_ok=True)
+            nif.write_bytes(b"NIF_SYNTHETIC")
 
         vdir = bundle / "Data" / Path(CODSWORTH_VOICE_DIR_REL)
         vdir.mkdir(parents=True, exist_ok=True)
@@ -423,6 +445,20 @@ class BeginningPilotTests(unittest.TestCase):
             bad_res = verify_bundle_beginning_readiness(str(bundle))
             self.assertFalse(bad_res["ok"])
             self.assertEqual(bad_res["steps"]["B5_codsworth_sanctuary"]["status"], "FAIL")
+
+            # Removing any one of the 4 canonical B5 NIFs or dropping its ARMA ref in FO4SFMission.esm fails B5
+            for _label, nif_rel in B5_REQUIRED_ACTOR_NIFS:
+                b2 = self._build_synthetic_bundle(Path(tmp) / ("miss-" + Path(nif_rel).stem))
+                (b2 / "Data" / Path(*nif_rel.split("/"))).unlink()
+                r_miss = verify_bundle_beginning_readiness(str(b2))
+                self.assertFalse(r_miss["ok"])
+                self.assertEqual(r_miss["steps"]["B5_codsworth_sanctuary"]["status"], "FAIL")
+                b2_esm = self._build_synthetic_bundle(Path(tmp) / ("noref-" + Path(nif_rel).stem))
+                kept = [r for _, r in B5_REQUIRED_ACTOR_NIFS if r != nif_rel]
+                (b2_esm / "FO4SFMission.esm").write_bytes(_dummy_mission_esm_with_b5(kept))
+                r_noref = verify_bundle_beginning_readiness(str(b2_esm))
+                self.assertFalse(r_noref["ok"])
+                self.assertEqual(r_noref["steps"]["B5_codsworth_sanctuary"]["status"], "FAIL")
 
     def test_full_handwritten_story_walk_passes_all_eight_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

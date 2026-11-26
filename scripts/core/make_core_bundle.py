@@ -68,9 +68,21 @@ for _p in (
 import exp_install  # noqa: E402
 import make_newgame  # noqa: E402
 from make_workshop_probe import compile_text  # noqa: E402
-from fo4sf.beginning_pilot import verify_map_markers_bundle_compatibility  # noqa: E402
+from fo4sf.ba2 import Ba2, Ba2Error  # noqa: E402
+from fo4sf.beginning_pilot import (  # noqa: E402
+    verify_bundle_beginning_readiness,
+    verify_map_markers_bundle_compatibility,
+)
 from fo4sf.core import bundle_log, cross_plugin_check  # noqa: E402
 from fo4sf.core.core_values import core_form_id  # noqa: E402
+from fo4sf.core.stage_provenance import (  # noqa: E402
+    build_provenance,
+    canonicalize_cli_args,
+    check_stage_reuse,
+    collect_asset_dir_summaries,
+    is_git_dirty,
+    stamp_stage_plan,
+)
 from fo4sf.launcher.crashwatch import GAME_EXE, System  # noqa: E402
 from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin  # noqa: E402
 
@@ -791,6 +803,86 @@ def patch_planet_gravity_earth(
     return True
 
 
+_MAT_DDS_RE = re.compile(r'([A-Za-z0-9_./\\\\:-]+\.dds)', re.IGNORECASE)
+
+
+def _collect_ba2_entry_names(search_dirs: Sequence[Optional[str]]) -> set[str]:
+    """Return lowercased slash-normalized entry names from all *.ba2 files in `search_dirs`."""
+    names: set[str] = set()
+    seen_dirs: set[str] = set()
+    for d in search_dirs:
+        if not d:
+            continue
+        abs_d = os.path.abspath(d)
+        norm_d = os.path.normcase(abs_d)
+        if norm_d in seen_dirs or not os.path.isdir(abs_d):
+            continue
+        seen_dirs.add(norm_d)
+        for fn in sorted(os.listdir(abs_d)):
+            if not fn.lower().endswith(".ba2"):
+                continue
+            ba2_path = os.path.join(abs_d, fn)
+            if not os.path.isfile(ba2_path):
+                continue
+            try:
+                arch = Ba2(ba2_path)
+                names.update(e.name.replace("\\", "/").lower() for e in arch.entries)
+            except (Ba2Error, OSError, struct.error, ValueError):
+                pass
+    return names
+
+
+def _verify_staged_mat_textures(
+    data_dir: str,
+    *,
+    bundle_dir: Optional[str] = None,
+    port_esm: Optional[str] = None,
+) -> List[str]:
+    """Verify every fo4port/fo4core .dds named by staged JSON .mat files exists in Data/ or port/bundle BA2s."""
+    if not os.path.isdir(data_dir):
+        return []
+    archive_dirs: List[Optional[str]] = [bundle_dir]
+    if port_esm:
+        archive_dirs.append(os.path.dirname(os.path.abspath(port_esm)))
+    archive_names: Optional[set[str]] = None
+    problems: List[str] = []
+
+    for dp, dirs, fns in os.walk(data_dir):
+        dirs.sort()
+        for fn in sorted(fns):
+            if not fn.lower().endswith(".mat"):
+                continue
+            mat_p = os.path.join(dp, fn)
+            try:
+                raw_txt = Path(mat_p).read_text(encoding="utf-8")
+                mat_obj = json.loads(raw_txt)
+            except (OSError, UnicodeDecodeError, ValueError):
+                continue
+            if not isinstance(mat_obj, dict):
+                continue
+            mat_rel = os.path.relpath(mat_p, data_dir).replace("\\", "/")
+            mat_text = json.dumps(mat_obj)
+            checked_here: set[str] = set()
+            for tok in _MAT_DDS_RE.findall(mat_text):
+                norm = tok.replace("\\\\", "/").replace("\\", "/").lstrip("/")
+                if norm.lower().startswith("data/"):
+                    norm = norm[5:]
+                low = norm.lower()
+                if not (low.startswith("textures/fo4port/") or low.startswith("textures/fo4core/")):
+                    continue
+                if low in checked_here:
+                    continue
+                checked_here.add(low)
+                disk_tex = os.path.join(data_dir, *norm.split("/"))
+                if os.path.isfile(disk_tex):
+                    continue
+                if archive_names is None:
+                    archive_names = _collect_ba2_entry_names(archive_dirs)
+                if low not in archive_names:
+                    problems.append(f"material {mat_rel} references missing texture {norm}")
+    return problems
+
+
 def verify_bundle(
     bundle_dir: str,
     plan_path: Optional[str] = None,
@@ -1013,35 +1105,52 @@ def verify_bundle(
             for p in ng_probs:
                 problems.append(f"newgame verify: {p}")
 
-    # 5. Check Data/ root has no loose root files (exp_install.py --pack refuses root-level Data files)
+    # 5. Check Data/ root cleanliness, staged .mat textures, and canonical B5 / C5 readiness
     data_dir = os.path.join(bdir, "Data")
+    mm_bundle_dir = os.path.join(bdir, MAP_MARKERS_DIRNAME)
+    has_mm_comp = "map_markers" in (bplan.get("components") or {})
+    mm_expected = bool(require_map_markers or has_mm_comp or os.path.isdir(mm_bundle_dir))
+    effective_port_for_tex = port_esm or bplan.get("port_esm_checked")
+
     if os.path.isdir(data_dir):
         root_files = sorted(n for n in os.listdir(data_dir) if os.path.isfile(os.path.join(data_dir, n)))
         if root_files:
             problems.append(f"Data/ contains root-level files refused by exp_install --pack: {root_files}")
-        c5_probe = os.path.join(data_dir, "meshes", "fo4port", "armor", "preston_garvey", "prestongarveyoutfit_m.nif")
-        mission_esm_p = os.path.join(bdir, "FO4SFMission.esm")
-        mission_wants_c5 = False
-        if os.path.isfile(mission_esm_p):
-            try:
-                mission_wants_c5 = b"prestongarveyoutfit_m.nif" in Path(mission_esm_p).read_bytes().lower()
-            except OSError:
-                mission_wants_c5 = False
-        if os.path.isfile(c5_probe) or mission_wants_c5:
+        problems.extend(
+            _verify_staged_mat_textures(
+                data_dir,
+                bundle_dir=bdir,
+                port_esm=effective_port_for_tex,
+            )
+        )
+
+    has_mission_comp = (
+        "mission" in (bplan.get("components") or {})
+        or "fo4sfmission.esm" in p_low
+        or os.path.isfile(os.path.join(bdir, "FO4SFMission.esm"))
+    )
+    if bundle_profile == "player" and has_mission_comp and not bplan.get("allow_starfield_standins", False):
+        readiness = verify_bundle_beginning_readiness(bdir, require_map_markers=mm_expected)
+        if not readiness["ok"]:
+            problems.extend(str(p) for p in readiness["problems"])
+        if os.path.isdir(data_dir):
             try:
                 actors_dir = os.path.join(REPO, "scripts", "actors")
                 if actors_dir not in sys.path:
                     sys.path.insert(0, actors_dir)
                 import stage_c5_actor_looks  # type: ignore
 
-                stage_c5_actor_looks.verify_staged_c5_assets(data_dir, require_preston_mats=True)
+                c5_outfit_p = os.path.join(data_dir, "meshes", *stage_c5_actor_looks.PRESTON_OUTFIT_REL.split("/"))
+                if os.path.isfile(c5_outfit_p):
+                    with open(c5_outfit_p, "rb") as nf_h:
+                        is_real_nif = nf_h.read(8) == b"Gamebryo"
+                    if is_real_nif:
+                        stage_c5_actor_looks.verify_staged_c5_assets(data_dir, require_preston_mats=True)
             except Exception as exc:
                 problems.append(f"c5 actor looks verify: {exc}")
 
     # 5b. Verify staged map-markers/ (FO4SFMapMarkers.esm + Main.ba2 + core.json + PEX compatibility) when present or required
-    mm_bundle_dir = os.path.join(bdir, MAP_MARKERS_DIRNAME)
-    has_mm_comp = "map_markers" in (bplan.get("components") or {})
-    if require_map_markers or has_mm_comp or os.path.isdir(mm_bundle_dir):
+    if mm_expected:
         if not os.path.isdir(mm_bundle_dir):
             problems.append(f"map_markers: missing {MAP_MARKERS_DIRNAME}/ directory")
         else:
@@ -1199,67 +1308,136 @@ def stage_from_checkout(a) -> Dict[str, str]:
     commonlibsf = getattr(a, "commonlibsf", None)
     msvc_env = getattr(a, "msvc_env", None)
 
+    codsworth_assets = getattr(a, "codsworth_assets", None)
+    actor_looks_assets = getattr(a, "actor_looks_assets", None)
+    codsworth_race_framing = bool(getattr(a, "codsworth_race_framing", False))
+    allow_starfield_standins = bool(getattr(a, "allow_starfield_standins", False))
+
+    if (
+        profile == "player"
+        and not getattr(a, "no_mission", False)
+        and not getattr(a, "mission_stage", None)
+        and not allow_starfield_standins
+        and (not codsworth_assets or not actor_looks_assets)
+    ):
+        raise BundleRefused(
+            "player build refused: requires --codsworth-assets and --actor-looks-assets "
+            "(or pass --allow-starfield-standins explicitly)"
+        )
+
+    def _stage_prov(norm_args, extra_asset_dirs=None, extra_fields=None):
+        asset_dirs_map: Dict[str, Optional[str]] = {
+            "codsworth_assets": codsworth_assets,
+            "actor_looks_assets": actor_looks_assets,
+        }
+        if extra_asset_dirs:
+            asset_dirs_map.update(extra_asset_dirs)
+        return build_provenance(
+            REPO,
+            norm_args,
+            asset_dirs=asset_dirs_map,
+            codsworth_race_framing=codsworth_race_framing,
+            extra=extra_fields,
+        )
+
+    def _reuse_or_run_py(
+        stage_dir: str,
+        py_exe: str,
+        script_rel: str,
+        st_args: Sequence[str],
+        *,
+        plan_filename: str = "plan.json",
+        extra_asset_dirs: Optional[Dict[str, Optional[str]]] = None,
+        extra_fields: Optional[Dict[str, object]] = None,
+        defaults_fn=None,
+    ) -> None:
+        norm_args = canonicalize_cli_args(st_args)
+        if os.path.exists(stage_dir):
+            try:
+                check_stage_reuse(stage_dir, norm_args, plan_filename=plan_filename)
+            except ValueError as err:
+                raise BundleRefused(str(err)) from err
+            return
+        _run_py(py_exe, script_rel, st_args)
+        prov = _stage_prov(norm_args, extra_asset_dirs=extra_asset_dirs, extra_fields=extra_fields)
+        defaults = defaults_fn(stage_dir) if defaults_fn is not None else None
+        stamp_stage_plan(stage_dir, prov, plan_filename=plan_filename, defaults=defaults)
+
     stages: Dict[str, str] = {}
 
     want_test_mode = "1" if profile == "test" else "0"
     cv_folder = "00-core-values-test" if profile == "test" else "00-core-values-player"
     cv_dir = os.path.join(work, cv_folder)
-    if not os.path.exists(cv_dir):
-        _run_py(py_main, "scripts/core/make_core_values.py", [
-            "stage",
-            "--sf-data", sf_data,
-            "--out", cv_dir,
-            "--test-mode", want_test_mode,
-        ])
+    def _cv_defaults(sdir: str) -> Dict[str, object]:
+        cv_esm = os.path.join(sdir, "Data", "FO4SFCoreValues.esm")
+        outputs = {"FO4SFCoreValues.esm": sha256_file(cv_esm)} if os.path.isfile(cv_esm) else {}
+        return {"plugin": "FO4SFCoreValues.esm", "plugins": ["FO4SFCoreValues.esm"], "outputs": outputs}
+
+    cv_args = [
+        "stage",
+        "--sf-data", sf_data,
+        "--out", cv_dir,
+        "--test-mode", want_test_mode,
+    ]
+    _reuse_or_run_py(
+        cv_dir,
+        py_main,
+        "scripts/core/make_core_values.py",
+        cv_args,
+        defaults_fn=_cv_defaults,
+    )
+    if os.path.isfile(os.path.join(cv_dir, "core_values_plan.json")):
+        stamp_stage_plan(
+            cv_dir,
+            _stage_prov(canonicalize_cli_args(cv_args)),
+            plan_filename="core_values_plan.json",
+        )
     stages["core_values"] = cv_dir
 
     cog_dir = os.path.join(work, "01-cog-door")
-    if not os.path.exists(cog_dir):
-        _run_py(py_render, "scripts/newgame/make_cog_door.py", [
-            "stage", "--production-cog",
-            "--out", cog_dir,
-            "--starfield-data", sf_data,
-            "--port-data", port_dir,
-            "--fo4-data", os.path.abspath(a.fo4_data),
-            "--door-anim-dll", os.path.abspath(a.door_anim_dll),
-            "--collision-template", os.path.abspath(a.collision_template),
-            "--texconv", os.path.abspath(a.texconv),
-            "--content-resources", cr_zip,
-        ])
+    _reuse_or_run_py(cog_dir, py_render, "scripts/newgame/make_cog_door.py", [
+        "stage", "--production-cog",
+        "--out", cog_dir,
+        "--starfield-data", sf_data,
+        "--port-data", port_dir,
+        "--fo4-data", os.path.abspath(a.fo4_data),
+        "--door-anim-dll", os.path.abspath(a.door_anim_dll),
+        "--collision-template", os.path.abspath(a.collision_template),
+        "--texconv", os.path.abspath(a.texconv),
+        "--content-resources", cr_zip,
+    ])
     stages["cog_door"] = cog_dir
 
     surf_cog_dir = os.path.join(work, "02a-surface-lift-cog")
-    if not os.path.exists(surf_cog_dir):
-        _run_py(py_render, "scripts/newgame/stage_surface_lift_cog.py", [
-            "stage",
-            "--out", surf_cog_dir,
-            "--starfield-data", sf_data,
-            "--port-data", port_dir,
-            "--fo4-data", os.path.abspath(a.fo4_data),
-            "--door-anim-dll", os.path.abspath(a.door_anim_dll),
-            "--collision-template", os.path.abspath(a.collision_template),
-            "--texconv", os.path.abspath(a.texconv),
-            "--content-resources", cr_zip,
-        ])
+    _reuse_or_run_py(surf_cog_dir, py_render, "scripts/newgame/stage_surface_lift_cog.py", [
+        "stage",
+        "--out", surf_cog_dir,
+        "--starfield-data", sf_data,
+        "--port-data", port_dir,
+        "--fo4-data", os.path.abspath(a.fo4_data),
+        "--door-anim-dll", os.path.abspath(a.door_anim_dll),
+        "--collision-template", os.path.abspath(a.collision_template),
+        "--texconv", os.path.abspath(a.texconv),
+        "--content-resources", cr_zip,
+    ])
 
     lift_dir = os.path.join(work, "02-exit-lift")
-    if not os.path.exists(lift_dir):
-        _run_py(py_render, "scripts/newgame/make_anim_console.py", [
-            "stage", "--production-lift",
-            "--surface-cog-stage", surf_cog_dir,
-            "--edid", "FO4Port_acti_0244ef_fallout4",
-            "--states", "stage3=StateA_Play,stage2=StateB_Play",
-            "--idles", "toggle",
-            "--rest-after", "stage2",
-            "--out", lift_dir,
-            "--starfield-data", sf_data,
-            "--port-data", port_dir,
-            "--fo4-data", os.path.abspath(a.fo4_data),
-            "--door-anim-dll", os.path.abspath(a.door_anim_dll),
-            "--collision-template", os.path.abspath(a.collision_template),
-            "--texconv", os.path.abspath(a.texconv),
-            "--content-resources", cr_zip,
-        ])
+    _reuse_or_run_py(lift_dir, py_render, "scripts/newgame/make_anim_console.py", [
+        "stage", "--production-lift",
+        "--surface-cog-stage", surf_cog_dir,
+        "--edid", "FO4Port_acti_0244ef_fallout4",
+        "--states", "stage3=StateA_Play,stage2=StateB_Play",
+        "--idles", "toggle",
+        "--rest-after", "stage2",
+        "--out", lift_dir,
+        "--starfield-data", sf_data,
+        "--port-data", port_dir,
+        "--fo4-data", os.path.abspath(a.fo4_data),
+        "--door-anim-dll", os.path.abspath(a.door_anim_dll),
+        "--collision-template", os.path.abspath(a.collision_template),
+        "--texconv", os.path.abspath(a.texconv),
+        "--content-resources", cr_zip,
+    ])
     stages["exit_lift"] = lift_dir
 
     if getattr(a, "mission_stage", None):
@@ -1269,36 +1447,46 @@ def stage_from_checkout(a) -> Dict[str, str]:
         stages["mission"] = ms_override
     elif not getattr(a, "no_mission", False) and os.path.isfile(raider_esm):
         mission_dir = os.path.join(work, "02b-mission")
-        if not os.path.exists(mission_dir):
-            fo4_data_abs = os.path.abspath(a.fo4_data)
-            ms_args = [
-                "stage",
-                "--out", mission_dir,
-                "--fo4", os.path.join(fo4_data_abs, "Fallout4.esm"),
-                "--starfield", sf_esm,
-                "--core", core_esm,
-                "--raider", raider_esm,
-                "--compiler", compiler,
-                "--content-resources", cr_zip,
-            ]
-            fo4_iface = os.path.join(fo4_data_abs, "Fallout4 - Interface.ba2")
-            fo4_voices = os.path.join(fo4_data_abs, "Fallout4 - Voices.ba2")
-            if os.path.isfile(fo4_iface):
-                ms_args.extend(["--fo4-interface", fo4_iface])
-            if os.path.isfile(fo4_voices):
-                ms_args.extend(["--fo4-voices", fo4_voices])
-            _run_py(py_main, "scripts/mission/make_mission.py", ms_args)
+        fo4_data_abs = os.path.abspath(a.fo4_data)
+        ms_args = [
+            "stage",
+            "--out", mission_dir,
+            "--fo4", os.path.join(fo4_data_abs, "Fallout4.esm"),
+            "--starfield", sf_esm,
+            "--core", core_esm,
+            "--raider", raider_esm,
+            "--compiler", compiler,
+            "--content-resources", cr_zip,
+        ]
+        fo4_iface = os.path.join(fo4_data_abs, "Fallout4 - Interface.ba2")
+        fo4_voices = os.path.join(fo4_data_abs, "Fallout4 - Voices.ba2")
+        if os.path.isfile(fo4_iface):
+            ms_args.extend(["--fo4-interface", fo4_iface])
+        if os.path.isfile(fo4_voices):
+            ms_args.extend(["--fo4-voices", fo4_voices])
+        if codsworth_assets:
+            ms_args.extend(["--codsworth-assets", os.path.abspath(codsworth_assets)])
+        if actor_looks_assets:
+            ms_args.extend(["--actor-looks-assets", os.path.abspath(actor_looks_assets)])
+        if codsworth_race_framing:
+            ms_args.append("--codsworth-race-framing")
+        _reuse_or_run_py(
+            mission_dir,
+            py_main,
+            "scripts/mission/make_mission.py",
+            ms_args,
+            extra_fields={"allow_starfield_standins": allow_starfield_standins},
+        )
         stages["mission"] = mission_dir
 
     wrist_dir = os.path.join(work, "03a-pipboy-wrist")
-    if not os.path.exists(wrist_dir):
-        _run_py(py_render, "scripts/ui/stage_pipboy_wrist.py", [
-            "--fo4-data", os.path.abspath(a.fo4_data),
-            "--sf-data", sf_data,
-            "--staging", wrist_dir,
-            "--content-resources", cr_zip,
-            "--texconv", os.path.abspath(a.texconv),
-        ])
+    _reuse_or_run_py(wrist_dir, py_render, "scripts/ui/stage_pipboy_wrist.py", [
+        "--fo4-data", os.path.abspath(a.fo4_data),
+        "--sf-data", sf_data,
+        "--staging", wrist_dir,
+        "--content-resources", cr_zip,
+        "--texconv", os.path.abspath(a.texconv),
+    ])
 
     want_fade_hold = (
         not getattr(a, "no_fade_hold", False)
@@ -1306,26 +1494,25 @@ def stage_from_checkout(a) -> Dict[str, str]:
     )
     ng_folder = "03-newgame-fadehold" if want_fade_hold else "03-newgame"
     ng_dir = os.path.join(work, ng_folder)
-    if not os.path.exists(ng_dir):
-        ng_args = [
-            "stage",
-            "--out", ng_dir,
-            "--cog-door", cog_dir,
-            "--exit-lift", lift_dir,
-            "--pipboy-wrist", wrist_dir,
-            "--fo4", os.path.join(os.path.abspath(a.fo4_data), "Fallout4.esm"),
-            "--port", port_esm,
-            "--port-ids", os.path.abspath(a.port_ids),
-            "--core", core_esm,
-            "--starfield", sf_esm,
-            "--compiler", compiler,
-            "--content-resources", cr_zip,
-        ]
-        if want_fade_hold:
-            ng_args.append("--fade-hold")
-        if getattr(a, "show_unavailable_starts", None) is not None:
-            ng_args.extend(["--show-unavailable-starts", str(int(a.show_unavailable_starts))])
-        _run_py(py_main, "scripts/newgame/make_newgame.py", ng_args)
+    ng_args = [
+        "stage",
+        "--out", ng_dir,
+        "--cog-door", cog_dir,
+        "--exit-lift", lift_dir,
+        "--pipboy-wrist", wrist_dir,
+        "--fo4", os.path.join(os.path.abspath(a.fo4_data), "Fallout4.esm"),
+        "--port", port_esm,
+        "--port-ids", os.path.abspath(a.port_ids),
+        "--core", core_esm,
+        "--starfield", sf_esm,
+        "--compiler", compiler,
+        "--content-resources", cr_zip,
+    ]
+    if want_fade_hold:
+        ng_args.append("--fade-hold")
+    if getattr(a, "show_unavailable_starts", None) is not None:
+        ng_args.extend(["--show-unavailable-starts", str(int(a.show_unavailable_starts))])
+    _reuse_or_run_py(ng_dir, py_main, "scripts/newgame/make_newgame.py", ng_args)
     # Verify hold 199, pod_step -2.5, and fade_hold policy in staged NewGame plan
     with open(os.path.join(ng_dir, "plan.json"), encoding="utf-8") as f:
         ng_plan = json.load(f)
@@ -1355,17 +1542,16 @@ def stage_from_checkout(a) -> Dict[str, str]:
             continue
         suffix = "-player" if (profile == "player" and key in TEST_CELL_SLICE_KEYS) else ""
         sdir = os.path.join(work, folder + suffix)
-        if not os.path.exists(sdir):
-            st_args = [
-                "stage",
-                "--out", sdir,
-                "--starfield", sf_esm,
-                "--compiler", compiler,
-                "--content-resources", cr_zip,
-            ]
-            if profile == "player" and key in TEST_CELL_SLICE_KEYS:
-                st_args.append("--no-test-cell")
-            _run_py(py_main, rel_script, st_args)
+        st_args = [
+            "stage",
+            "--out", sdir,
+            "--starfield", sf_esm,
+            "--compiler", compiler,
+            "--content-resources", cr_zip,
+        ]
+        if profile == "player" and key in TEST_CELL_SLICE_KEYS:
+            st_args.append("--no-test-cell")
+        _reuse_or_run_py(sdir, py_main, rel_script, st_args)
         stages[key] = sdir
 
     if include_experimental_core:
@@ -1380,28 +1566,26 @@ def stage_from_checkout(a) -> Dict[str, str]:
 
         combat_folder = "10-combat-player" if profile == "player" else "10-combat"
         combat_dir = os.path.join(work, combat_folder)
-        if not os.path.exists(combat_dir):
-            combat_args = ["stage", "--out", combat_dir, "--starfield-dir", sf_dir]
-            if profile == "player":
-                combat_args.append("--no-test-cell")
-            if combat_sfse_dir:
-                combat_args.extend(["--sfse-build", os.path.abspath(combat_sfse_dir)])
-            _run_py(py_main, "scripts/combat/make_combat_core.py", combat_args)
+        combat_args = ["stage", "--out", combat_dir, "--starfield-dir", sf_dir]
+        if profile == "player":
+            combat_args.append("--no-test-cell")
+        if combat_sfse_dir:
+            combat_args.extend(["--sfse-build", os.path.abspath(combat_sfse_dir)])
+        _reuse_or_run_py(combat_dir, py_main, "scripts/combat/make_combat_core.py", combat_args)
         stages["combat"] = combat_dir
 
         alife_script = os.path.join(REPO, "scripts", "alife", "make_alife.py")
         if not getattr(a, "no_alife", False) and os.path.isfile(alife_script) and os.path.isfile(raider_esm):
             alife_dir = os.path.join(work, "13-alife")
-            if not os.path.exists(alife_dir):
-                _run_py(py_main, "scripts/alife/make_alife.py", [
-                    "stage",
-                    "--out", alife_dir,
-                    "--starfield", sf_esm,
-                    "--core", core_esm,
-                    "--raider", raider_esm,
-                    "--compiler", compiler,
-                    "--content-resources", cr_zip,
-                ])
+            _reuse_or_run_py(alife_dir, py_main, "scripts/alife/make_alife.py", [
+                "stage",
+                "--out", alife_dir,
+                "--starfield", sf_esm,
+                "--core", core_esm,
+                "--raider", raider_esm,
+                "--compiler", compiler,
+                "--content-resources", cr_zip,
+            ])
             stages["alife"] = alife_dir
 
     include_route_loot = (
@@ -1417,35 +1601,42 @@ def stage_from_checkout(a) -> Dict[str, str]:
         rl_script = os.path.join(REPO, "scripts", "loot", "make_route_loot.py")
         if os.path.isfile(rl_script):
             rl_dir = os.path.join(work, "17-route-loot")
-            if not os.path.exists(rl_dir):
-                _run_py(py_main, "scripts/loot/make_route_loot.py", [
-                    "stage",
-                    "--out", rl_dir,
-                    "--starfield", sf_esm,
-                    "--core", core_esm,
-                    "--port", port_esm,
-                ])
+            _reuse_or_run_py(rl_dir, py_main, "scripts/loot/make_route_loot.py", [
+                "stage",
+                "--out", rl_dir,
+                "--starfield", sf_esm,
+                "--core", core_esm,
+                "--port", port_esm,
+            ])
             stages["route_loot"] = rl_dir
 
     fh_script = os.path.join(REPO, "scripts", "fort_hagen", "make_fort_hagen.py")
     if not getattr(a, "no_fort_hagen", False) and os.path.isfile(fh_script):
         fh_dir = os.path.join(work, "14-fort-hagen")
-        if not os.path.exists(fh_dir):
-            _run_py(py_main, "scripts/fort_hagen/make_fort_hagen.py", [
-                "stage",
-                "--out", fh_dir,
-                "--starfield", sf_esm,
-                "--port", port_esm,
-                "--core", core_esm,
-                "--compiler", compiler,
-                "--content-resources", cr_zip,
-            ])
+        _reuse_or_run_py(fh_dir, py_main, "scripts/fort_hagen/make_fort_hagen.py", [
+            "stage",
+            "--out", fh_dir,
+            "--starfield", sf_esm,
+            "--port", port_esm,
+            "--core", core_esm,
+            "--compiler", compiler,
+            "--content-resources", cr_zip,
+        ])
         stages["fort_hagen"] = fh_dir
 
     if profile == "test" and not getattr(a, "no_walk_harness", False):
         cw_dir = os.path.join(work, "15-candidate-walk")
-        if not os.path.exists(cw_dir):
+        cw_norm = canonicalize_cli_args([
+            "stage", "--out", cw_dir, "--starfield", sf_esm, "--compiler", compiler, "--content-resources", cr_zip,
+        ])
+        if os.path.exists(cw_dir):
+            try:
+                check_stage_reuse(cw_dir, cw_norm)
+            except ValueError as err:
+                raise BundleRefused(str(err)) from err
+        else:
             stage_candidate_walk(cw_dir, sf_esm, compiler, cr_zip)
+            stamp_stage_plan(cw_dir, _stage_prov(cw_norm))
         stages["candidate_walk"] = cw_dir
 
     if getattr(a, "with_pipboy", False):
@@ -1455,17 +1646,32 @@ def stage_from_checkout(a) -> Dict[str, str]:
         has_src_pb = bool(pb_override or (commonlibsf and msvc_env))
         validate_pipboy_stage(a.pipboy_stage, has_override_dll=has_src_pb)
         pb_refreshed = os.path.join(work, "16-pipboy-refreshed")
-        if not os.path.exists(pb_refreshed):
-            resolved_show_unavail = resolve_setup_show_unavailable(
-                getattr(a, "show_unavailable_starts", None),
-                ng_plan,
-            )
+        resolved_show_unavail = resolve_setup_show_unavailable(
+            getattr(a, "show_unavailable_starts", None),
+            ng_plan,
+        )
+        pb_args = {
+            "pipboy_stage": os.path.abspath(a.pipboy_stage),
+            "fo4_data": os.path.abspath(a.fo4_data),
+            "sf_data": sf_data,
+            "setup_show_unavailable": resolved_show_unavail or 0,
+        }
+        if os.path.exists(pb_refreshed):
+            try:
+                check_stage_reuse(pb_refreshed, pb_args)
+            except ValueError as err:
+                raise BundleRefused(str(err)) from err
+        else:
             refresh_pipboy_stage_for_bundle(
                 os.path.abspath(a.pipboy_stage),
                 pb_refreshed,
                 os.path.abspath(a.fo4_data),
                 setup_show_unavailable=resolved_show_unavail or 0,
                 sf_data_dir=sf_data,
+            )
+            stamp_stage_plan(
+                pb_refreshed,
+                _stage_prov(pb_args, extra_asset_dirs={"pipboy_stage": a.pipboy_stage}),
             )
         stages["pipboy"] = pb_refreshed
         if pb_override:
@@ -1501,24 +1707,23 @@ def stage_from_checkout(a) -> Dict[str, str]:
                 raise BundleRefused(
                     f"existing {mm_dir} core.json pins {pinned[:12]}... != {core_esm} {core_sha[:12]}...; remove {mm_dir} or use fresh --work"
                 )
-        if not os.path.exists(mm_dir):
-            core_stage, fo4_markers, landing_xy = _resolve_map_markers_options(a, core_esm, core_sha)
-            mm_args = [
-                "stage",
-                "--core", core_esm,
-                "--out", mm_dir,
-                "--compiler", compiler,
-                "--content-resources", cr_zip,
-            ]
-            if os.path.isfile(os.path.join(sf_dir, "Tools", "Archive2", "Archive2.exe")):
-                mm_args.extend(["--starfield", sf_dir])
-            if core_stage:
-                mm_args.extend(["--core-stage", core_stage])
-            if fo4_markers:
-                mm_args.extend(["--fo4-map-markers", fo4_markers])
-            if landing_xy is not None:
-                mm_args.extend(["--landing", repr(landing_xy[0]), repr(landing_xy[1])])
-            _run_py(py_main, "scripts/mapmarkers/make_map_markers.py", mm_args)
+        core_stage, fo4_markers, landing_xy = _resolve_map_markers_options(a, core_esm, core_sha)
+        mm_args = [
+            "stage",
+            "--core", core_esm,
+            "--out", mm_dir,
+            "--compiler", compiler,
+            "--content-resources", cr_zip,
+        ]
+        if os.path.isfile(os.path.join(sf_dir, "Tools", "Archive2", "Archive2.exe")):
+            mm_args.extend(["--starfield", sf_dir])
+        if core_stage:
+            mm_args.extend(["--core-stage", core_stage])
+        if fo4_markers:
+            mm_args.extend(["--fo4-map-markers", fo4_markers])
+        if landing_xy is not None:
+            mm_args.extend(["--landing", repr(landing_xy[0]), repr(landing_xy[1])])
+        _reuse_or_run_py(mm_dir, py_main, "scripts/mapmarkers/make_map_markers.py", mm_args)
         stages["map_markers"] = mm_dir
 
     return stages
@@ -1955,6 +2160,10 @@ def fold_bundle(
     with_route_loot: bool = False,
     with_experimental_core: bool = False,
     setup_show_unavailable: Optional[int] = None,
+    allow_starfield_standins: bool = False,
+    codsworth_race_framing: bool = False,
+    asset_dirs: Optional[Dict[str, object]] = None,
+    build_args: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     """Prepare clean core from owner_set, fold all staged components, verify, and publish <out_dir>."""
     final = os.path.abspath(out_dir)
@@ -2183,6 +2392,12 @@ def fold_bundle(
         "kind": "core-candidate-bundle",
         "version": 2,
         "build_head": current_git_head(REPO),
+        "dirty": is_git_dirty(REPO),
+        "args": build_args or {},
+        "asset_dirs": asset_dirs or {},
+        "codsworth_race_framing": bool(codsworth_race_framing),
+        "FO4SF_C5_ACTOR_LOOKS_DIR": os.environ.get("FO4SF_C5_ACTOR_LOOKS_DIR"),
+        "allow_starfield_standins": bool(allow_starfield_standins),
         "profile": profile,
         "with_route_loot": bool(with_route_loot),
         "with_experimental_core": True if profile == "test" else bool(with_experimental_core),
@@ -2230,9 +2445,23 @@ def fold_bundle(
     return {"bundle_dir": final, "clean_core": cc_info, "metrics": metrics, "plan": bplan}
 
 
+def _normalized_namespace_args(a) -> Dict[str, object]:
+    out: Dict[str, object] = {}
+    for k, v in sorted(vars(a).items()):
+        if k.startswith("_") or v is None:
+            continue
+        out[k] = v
+    return out
+
+
 def cmd_build(a, system=None) -> int:
     ensure_game_closed(system)
     stages = stage_from_checkout(a)
+    asset_dirs = collect_asset_dir_summaries({
+        "codsworth_assets": getattr(a, "codsworth_assets", None),
+        "actor_looks_assets": getattr(a, "actor_looks_assets", None),
+        "pipboy_stage": getattr(a, "pipboy_stage", None),
+    })
     fold_bundle(
         owner_set=a.owner_set,
         stages=stages,
@@ -2248,6 +2477,10 @@ def cmd_build(a, system=None) -> int:
         with_route_loot=bool(getattr(a, "with_route_loot", False)),
         with_experimental_core=bool(getattr(a, "with_experimental_core", False)),
         setup_show_unavailable=getattr(a, "show_unavailable_starts", None),
+        allow_starfield_standins=bool(getattr(a, "allow_starfield_standins", False)),
+        codsworth_race_framing=bool(getattr(a, "codsworth_race_framing", False)),
+        asset_dirs=asset_dirs,
+        build_args=_normalized_namespace_args(a),
     )
     return 0
 
@@ -2343,6 +2576,9 @@ def cmd_fold(a, system=None) -> int:
         with_route_loot=with_route_loot,
         with_experimental_core=with_experimental_core,
         setup_show_unavailable=getattr(a, "show_unavailable_starts", None),
+        allow_starfield_standins=bool(getattr(a, "allow_starfield_standins", False)),
+        asset_dirs=collect_asset_dir_summaries({"pipboy_stage": getattr(a, "pipboy_stage", None)}),
+        build_args=_normalized_namespace_args(a),
     )
     return 0
 
@@ -2720,6 +2956,10 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--combat-sfse-build", default=None)
     b.add_argument("--pipboy-sfse-build", default=None)
     b.add_argument("--mission-stage", default=None)
+    b.add_argument("--codsworth-assets", default=None, help="convert_codsworth.py output folder forwarded to make_mission.py")
+    b.add_argument("--actor-looks-assets", default=None, help="stage_c5_actor_looks.py output folder forwarded to make_mission.py")
+    b.add_argument("--codsworth-race-framing", action="store_true", help="Forward --codsworth-race-framing to make_mission.py")
+    b.add_argument("--allow-starfield-standins", action="store_true", help="Explicitly allow player build without FO4 Codsworth/C5 look assets")
     b.add_argument("--route-loot-stage", default=None)
     b.add_argument("--map-markers-stage", default=None)
     b.add_argument("--map-markers-core-stage", default=None)
@@ -2757,6 +2997,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--starfield-dir", default=None)
     fo.add_argument("--profile", choices=("player", "test"), default="player")
     fo.add_argument("--mission-stage", default=None)
+    fo.add_argument("--allow-starfield-standins", action="store_true", help="Explicitly allow player fold without FO4 Codsworth/C5 look assets")
     fo.add_argument("--route-loot-stage", default=None)
     fo.add_argument("--map-markers-stage", default=None)
     fo.add_argument("--no-route-loot", action="store_true")

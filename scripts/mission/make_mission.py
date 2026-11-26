@@ -55,6 +55,7 @@ for _p in (SRC_DIR, ACTORS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from convert_codsworth import patch_codsworth_steel_mat  # noqa: E402
+from fo4sf.core.stage_provenance import build_provenance, canonicalize_cli_args  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "Mission")
 PLUGIN = "FO4SFMission.esm"
@@ -119,6 +120,83 @@ PRESTON_PLACEHOLDER_NOTE = (
     "HumanRace (0x00347D, UC_NA_PapaKatz 0x01169C template) + GenericMaleEvenToned + "
     "Outfit_FreestarRanger_Vest_with_Hat (0x208E39) + Orion laser rifle (0x2773C8)"
 )
+
+
+def build_look_descriptions(a, codsworth_pos=None):
+    """Build real Preston, raider, and Codsworth look descriptions from the passed look inputs."""
+    actor_looks = getattr(a, "actor_looks_assets", None)
+    codsworth_assets = getattr(a, "codsworth_assets", None)
+    race_framing = bool(getattr(a, "codsworth_race_framing", False))
+
+    if actor_looks:
+        looks_abs = os.path.abspath(actor_looks)
+        preston_desc = (
+            f"HumanRace (0x00347D, C5 FO4 outfit+hat from {looks_abs}: "
+            "FO4_Outfit_PrestonMinuteman prestongarveyoutfit_m.nif + prestongarveyhat_m.nif) + "
+            "GenericMaleEvenToned + Orion laser rifle (0x2773C8)"
+        )
+        raider_desc = (
+            f"C5 FO4 outfit from {looks_abs} "
+            "(FO4_ConcordRaider 0x000986 / FO4_Outfit_ConcordRaider concord_raider_m.nif)"
+        )
+    else:
+        preston_desc = PRESTON_PLACEHOLDER_NOTE
+        raider_desc = "Starfield stand-in (FO4_LvlRaider)"
+
+    if not getattr(a, "codsworth", True):
+        codsworth_desc = "left out (--no-codsworth)"
+    else:
+        model_note = (
+            f"FO4 model from {os.path.abspath(codsworth_assets)} ({CODSWORTH_MESH})"
+            if codsworth_assets
+            else "Starfield robot stand-in (no --codsworth-assets)"
+        )
+        framing_note = (
+            "standing camera framing enabled (--codsworth-race-framing)"
+            if race_framing
+            else "default race camera framing"
+        )
+        pos_str = f" at {codsworth_pos} m" if codsworth_pos is not None else ""
+        codsworth_desc = (
+            "NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + "
+            f"FO4SF_CodsworthVoice AllowDefaultDialog; {model_note}; {framing_note}){pos_str}"
+        )
+    return preston_desc, raider_desc, codsworth_desc
+
+
+def mission_cli_args(a, final_out):
+    """Canonicalized CLI args matching `make_core_bundle.stage_from_checkout`."""
+    tokens = [
+        "stage",
+        "--out", os.path.abspath(final_out),
+        "--fo4", os.path.abspath(a.fo4),
+        "--starfield", os.path.abspath(a.starfield),
+        "--core", os.path.abspath(a.core),
+        "--raider", os.path.abspath(a.raider),
+        "--compiler", os.path.abspath(a.compiler),
+        "--content-resources", os.path.abspath(a.content_resources),
+    ]
+    if getattr(a, "fo4_interface", None):
+        tokens.extend(["--fo4-interface", os.path.abspath(a.fo4_interface)])
+    if getattr(a, "fo4_voices", None):
+        tokens.extend(["--fo4-voices", os.path.abspath(a.fo4_voices)])
+    if getattr(a, "xwmaencode", None):
+        tokens.extend(["--xwmaencode", os.path.abspath(a.xwmaencode)])
+    if getattr(a, "wwise_console", None):
+        tokens.extend(["--wwise-console", os.path.abspath(a.wwise_console)])
+    if not getattr(a, "alias", True):
+        tokens.append("--no-alias")
+    if not getattr(a, "codsworth", True):
+        tokens.append("--no-codsworth")
+    if getattr(a, "codsworth_voice", None):
+        tokens.extend(["--codsworth-voice", os.path.abspath(a.codsworth_voice)])
+    if getattr(a, "codsworth_assets", None):
+        tokens.extend(["--codsworth-assets", os.path.abspath(a.codsworth_assets)])
+    if getattr(a, "actor_looks_assets", None):
+        tokens.extend(["--actor-looks-assets", os.path.abspath(a.actor_looks_assets)])
+    if getattr(a, "codsworth_race_framing", False):
+        tokens.append("--codsworth-race-framing")
+    return canonicalize_cli_args(tokens)
 
 STAGES = (10, 20, 30, 35, 40, 200)
 PROPERTIES = ("Preston", "Raiders", "Credits")
@@ -617,6 +695,20 @@ def stage(a):
     for rel, digest in assets_sha.items():
         outputs_sha[f"Data/{rel}"] = digest
 
+    codsworth_pt = pts.get("codsworth") if a.codsworth else None
+    preston_look_note, raider_look_note, codsworth_look_note = build_look_descriptions(
+        a, codsworth_pos=(codsworth_pt["pos"] if isinstance(codsworth_pt, dict) else None)
+    )
+    provenance = build_provenance(
+        REPO,
+        mission_cli_args(a, final),
+        asset_dirs={
+            "codsworth_assets": getattr(a, "codsworth_assets", None),
+            "actor_looks_assets": getattr(a, "actor_looks_assets", None),
+            "codsworth_voice": getattr(a, "codsworth_voice", None),
+        },
+        codsworth_race_framing=getattr(a, "codsworth_race_framing", False),
+    )
     plan = {
         "kind": "mission",
         "plugin": PLUGIN,
@@ -632,12 +724,16 @@ def stage(a):
         "stages": list(STAGES),
         "raiders": [r["src"] for r in pts["raiders"]],
         "preston": pts["preston"],
-        "preston_placeholder": PRESTON_PLACEHOLDER_NOTE,
-        "codsworth": pts.get("codsworth") if a.codsworth else None,
+        "preston_placeholder": None if getattr(a, "actor_looks_assets", None) else PRESTON_PLACEHOLDER_NOTE,
+        "preston_looks": preston_look_note,
+        "raider_looks": raider_look_note,
+        "codsworth_looks": codsworth_look_note,
+        "codsworth": codsworth_pt,
         "sanctuary_workbench": {"fo4_src": "0250FE", "core_base": "0A2ECD", "core_ref": "005C50",
                                 "merged_pos": [-2329.25043, -1420.19271, 112.08571]},
         "assets": assets_sha,
         "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log",
+        **provenance,
     }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
@@ -654,9 +750,9 @@ def stage(a):
 - QUST FO4SF_MQ103 (0x0A50, Jewel of the Commonwealth — Diamond City Gate / Piper / Mayor / Valentine Detective Agency, NOT StartGameEnabled),
 - QUST FO4SF_MQ104 (0x0A80, Unlikely Valentine — Park Street Station / Vault 114 / Nick Valentine / Skinny Malone, NOT StartGameEnabled),
 - QUST FO4SF_MQ105 (0x0AB0, Getting a Clue — Valentine Agency / Kellogg's House / Cigar Trail / Fort Hagen 0D handoff, NOT StartGameEnabled).
-Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {PRESTON_PLACEHOLDER_NOTE}.
-Raiders: {len(pts['raiders'])} ACHR(s) of FO4_LvlRaider ({raiders}).
-Codsworth: {"NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + FO4SF_CodsworthVoice AllowDefaultDialog) at " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
+Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {preston_look_note}.
+Raiders: {len(pts['raiders'])} ACHR(s) ({raider_look_note}; {raiders}).
+Codsworth: {codsworth_look_note}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
 Scripts compiled into Data\\Scripts\\: {", ".join(s + ".pex" for s in ALL_SCRIPTS)}.
 The follow command is test-only (requires FO4SFCoreValues.esm:0x000860 FO4SF_TestModeEnabled != 0):

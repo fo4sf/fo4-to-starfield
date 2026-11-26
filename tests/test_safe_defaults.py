@@ -203,6 +203,7 @@ class SafeDefaultsTests(unittest.TestCase):
                     commonlibsf=None,
                     msvc_env=None,
                     no_walk_harness=True,
+                    allow_starfield_standins=True,
                 )
                 # 1. Default --profile player: NO --fade-hold, NO Track 2 slice scripts, NO route loot!
                 mcb.stage_from_checkout(SimpleNamespace(**base_kwargs, profile="player"))
