@@ -2769,12 +2769,12 @@ WorldSpace Function ResolveHostWorld()
 EndFunction
 
 Function SetDeathReloadPlainBlackCover(bool abEnable)
-{Single-hook seam for Worker 1's shared LoadingMenu plain-black cover API (never registers a second LoadingMenu hook).
- Integrator: wire Worker 1's shared cover call or global here (1-2 lines) when abEnable toggles.}
+{Single-hook seam via Worker 1's shared LoadingMenu plain-black cover API (never registers a second LoadingMenu hook).}
     if deathReloadPlainBlackActive == abEnable
         return
     endif
     deathReloadPlainBlackActive = abEnable
+    SetLoadingBlackCover(abEnable, "death_reload")
     Trace("death_reload plain_black_cover=" + abEnable)
 EndFunction
 

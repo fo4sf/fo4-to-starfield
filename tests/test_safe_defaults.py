@@ -41,6 +41,7 @@ EXPECTED_TRACK1_PLAYER_PLUGINS = (
     "FO4SFCoreValues.esm",
     "FO4SFVaultGearDoor.esm",
     "FO4SFExitLift.esm",
+    "FO4SFVaultPod.esm",
     "FO4SFMission.esm",
     "FO4SFNewGame.esm",
     "FO4SFWorkshop.esm",
@@ -65,7 +66,7 @@ TRACK2_EXPERIMENTAL_ESMS = (
 
 class SafeDefaultsTests(unittest.TestCase):
     def test_w1_bundle_lists_and_cli_defaults_keep_routeloot_bridge_and_track2_off(self) -> None:
-        self.assertEqual(len(EXPECTED_TRACK1_PLAYER_PLUGINS), 13)
+        self.assertEqual(len(EXPECTED_TRACK1_PLAYER_PLUGINS), 14)
         self.assertEqual(mcb.PLAYER_BUNDLE_PLUGINS, EXPECTED_TRACK1_PLAYER_PLUGINS)
         self.assertNotIn("FO4SFRouteLoot.esm", mcb.PLAYER_BUNDLE_PLUGINS)
         self.assertNotIn("FO4SFRouteLoot.esm", mcb.CORE_BUNDLE_PLUGINS)
@@ -75,7 +76,7 @@ class SafeDefaultsTests(unittest.TestCase):
         for t2_esm in TRACK2_EXPERIMENTAL_ESMS:
             self.assertNotIn(t2_esm, mcb.PLAYER_BUNDLE_PLUGINS, f"{t2_esm} leaked into Track-1 PLAYER_BUNDLE_PLUGINS")
             self.assertIn(t2_esm, mcb.CORE_BUNDLE_PLUGINS)
-        self.assertEqual(len(mcb.CORE_BUNDLE_PLUGINS), 22)
+        self.assertEqual(len(mcb.CORE_BUNDLE_PLUGINS), 23)
 
         sig_fold = inspect.signature(mcb.fold_bundle)
         self.assertIs(sig_fold.parameters["with_route_loot"].default, False)
@@ -118,7 +119,7 @@ class SafeDefaultsTests(unittest.TestCase):
                 0,
             )
             pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(pplan["plugins"]), 11)  # 13 minus 2 optional Pip-Boy ESMs when --with-pipboy omitted
+            self.assertEqual(len(pplan["plugins"]), 12)  # 14 minus 2 optional Pip-Boy ESMs when --with-pipboy omitted
             self.assertFalse(pplan["with_route_loot"])
             self.assertFalse(pplan["with_experimental_core"])
 
@@ -274,13 +275,18 @@ class SafeDefaultsTests(unittest.TestCase):
         wrapped = psc + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
         funcs = (
             "BackdropName", "UsePreworldRoom", "EnterVault", "StandsInVault", "ResetInventory", "FillO2",
-            "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
-            "FindStoryStartPlaceRow", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+            "FadeIn", "DisableHandScanner", "PodEntryX", "PodEntryY", "PodSafeX", "PodSafeY",
+            "EnsureFadedInForChoice", "PrepareBeforeCreator",
+            "PodAnimReady", "ShouldSkipMenuDelay", "NoteLooksDone",
+            "NoteLooksStage20", "CompleteLooksStage20AfterPodExit", "StartPodOpen", "RunPodExitHook",
+            "IsPreworldLooksHandled", "FindStoryStartPlaceRow", "ApplyStage", "AdvanceTo",
+            "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
             "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "podLooksDone, podLooksHow, podLooksBy, podExitDone, podExitStarted, podFellBack, "
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, "
             "ticks, startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
         )
@@ -301,6 +307,7 @@ class SafeDefaultsTests(unittest.TestCase):
             GetPositionX=lambda: player.pos[0],
             GetPositionY=lambda: player.pos[1],
             GetPositionZ=lambda: player.pos[2],
+            SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
             SetAngle=lambda *a: None,
             MoveTo=lambda *a: None,
             GetParentCell=lambda: player.cell,
@@ -317,6 +324,10 @@ class SafeDefaultsTests(unittest.TestCase):
         )
         ns = dict(
             FadeHold=False, StartChoiceBackdrop=1, StartLoadTimeout=15.0, LooksWait=120.0, RaceMenuMode=2,
+            PodExitMode="safe_spawn", PodAnimPlugin="FO4SFVaultPod.esm", PodCreatorInPod=False,
+            PodOriginX=0.0, PodOriginY=0.0, PodOriginZ=0.0,
+            PodEntryStep=-2.5, PodSafeStep=-3.2, PodSafeHeading=270.0,
+            podLooksDone=False, podLooksHow="", podLooksBy="Trigger", podExitDone=False, podExitStarted=False, podFellBack=False,
             ClearInventory=True, VaultSuitId=0, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
             faded=False, entered=True, startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
             loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False, h00SkipLoading=False,
@@ -392,6 +403,10 @@ class SafeDefaultsTests(unittest.TestCase):
         fake_ng_quest = SimpleNamespace(
             IsPreworldLooksHandled=ns["IsPreworldLooksHandled"],
             NoteLooksStage20=ns["NoteLooksStage20"],
+            NoteLooksDone=ns["NoteLooksDone"],
+            ShouldSkipMenuDelay=ns["ShouldSkipMenuDelay"],
+            EnsureFadedInForChoice=ns["EnsureFadedInForChoice"],
+            PrepareBeforeCreator=ns["PrepareBeforeCreator"],
         )
         lns = dict(
             self=fake_ng_quest,

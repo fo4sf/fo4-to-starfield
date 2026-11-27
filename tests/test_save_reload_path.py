@@ -630,7 +630,9 @@ class SaveReloadPathTests(unittest.TestCase):
         assert ev_stage is not None
         wrapped = psc + f"\nFunction StageSetEvent({ev_stage[1]})\n{ev_stage[2]}EndFunction\n"
         funcs = (
-            "NoteLooksStage20", "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
+            "PodEntryX", "PodEntryY", "PodSafeX", "PodSafeY",
+            "NoteLooksStage20", "NoteLooksDone", "StartPodOpen", "CompleteLooksStage20AfterPodExit", "PodAnimReady", "RunPodExitHook",
+            "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
             "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "StageSetEvent",
             "Actor.OnPlayerLoadGame", "ResetVaultExitLift", "ReturnPlayerToVaultPlatform", "ArriveOnInteriorLift", "SetInteriorLiftState", "QueueSharedMapSetup", "SetLoadingBlackCover", "BeginSurfaceCogWait3D", "PollSurfaceCogWait3D", "SqrtF", "HexDigit", "HexFormId",
             "StartPairedLiftRide", "CheckPairedLiftRide", "FailPairedLift", "TryFastTravelSurface", "TrySurfaceExteriorFallbacks", "Surface", "FinishSurface",
@@ -638,6 +640,7 @@ class SaveReloadPathTests(unittest.TestCase):
         )
         vars_csv = (
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
+            "podLooksDone, podLooksHow, podLooksBy, podExitDone, podExitStarted, podFellBack, "
             "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
             "loadHookRegistered, dyingHookRegistered, h00SuspectsRead, "
             "liftPairActive, liftPairDone, liftPairTransferred, liftPairTransferPending, liftPairFadeStarted, liftPairActiveRef, liftPairStartCell, liftPairStartWorld, liftPairDescending, liftPairStartedAt, liftPairStartX, liftPairStartY, liftPairStartZ, liftPairTransferRetries, "
@@ -733,6 +736,10 @@ class SaveReloadPathTests(unittest.TestCase):
 
         ns = dict(
             LogName="fo4sf_newgame",
+            PodExitMode="safe_spawn", PodAnimPlugin="FO4SFVaultPod.esm", PodCreatorInPod=False,
+            PodSafeStep=-3.2, PodEntryStep=-2.5, PodSafeHeading=270.0, PodHeading=0.0,
+            PodOriginX=0.0, PodOriginY=0.0, PodOriginZ=0.0, PodX=0.0, PodY=0.0, PodZ=0.0, PodLift=0.3,
+            podLooksDone=False, podLooksHow="", podLooksBy="Trigger", podExitDone=False, podExitStarted=False, podFellBack=False,
             GameModeGlobal=_make_global(1.0),
             CorePlugin="FO4TerrainCore.esm", ExitAnchorId=0x0A775B,
             VaultPlugin="FO4Port.esm", VaultAnchorId=0x805,
@@ -789,7 +796,7 @@ class SaveReloadPathTests(unittest.TestCase):
             SetStage=lambda st: cur_stage.__setitem__(0, st),
             TracePosition=lambda *_: None,
             Trace=lambda m: logs.append(str(m)),
-            self=SimpleNamespace(NoteLooksStage20=ns["NoteLooksStage20"]),
+            self=SimpleNamespace(NoteLooksStage20=ns["NoteLooksStage20"], NoteLooksDone=ns["NoteLooksDone"]),
         )
         exec(looks_compiled, looks_ns)
 
@@ -805,6 +812,7 @@ class SaveReloadPathTests(unittest.TestCase):
 
         # 3. Retrying a raised lift resets it (Play02) and StartPairedLiftRide succeeds
         cur_stage[0] = 30
+        player.SetPosition(-77.742, -3.958, -1.72)
         self.assertTrue(ns["StartPairedLiftRide"](player, False))
         self.assertTrue(ns["liftPairActive"])
         self.assertEqual(lift_state["plays"], ["Play01", "Play02", "Play01"])

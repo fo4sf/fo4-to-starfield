@@ -247,14 +247,30 @@ class R15WaveACardsTests(unittest.TestCase):
                 for _rel, src_tpl, pat in src_pats
             )
 
+        # I6(a) replaced `model=none` with `model=invisible_volume` on `#853`; `candidate-2g-card.md` retains the 2g-fix7 historical line.
+        superseded_2g_fix7 = {
+            "FO4SF_MISSION rt=<rt> codsworth talk proxy model=none visible=false",
+        }
         unmatched = []
         for ln in tbl_lines:
             cells = [c.strip() for c in re.split(r"(?<!\\)\|", ln.strip().strip("|"))]
             pat_cell = cells[2].strip("`").replace(r"\|", "|")
-            if not match_log_pattern(pat_cell):
+            if pat_cell not in superseded_2g_fix7 and not match_log_pattern(pat_cell):
                 unmatched.append(pat_cell)
         self.assertEqual(unmatched, [], f"G3 unmatched Item 8 table log patterns: {unmatched}")
         self.assertFalse(match_log_pattern("step=invented_fake_log foo=<bar>"))
+
+        # Candidate 2h-4 card check: P3 zero M/N/V in console/bat names AND all Required PASS Log Lines match source
+        card_2h = (ROOT / "docs" / "testing" / "candidate-2h-card.md").read_text(encoding="utf-8")
+        from tests import test_r11_cards_m_n_v_rule as r11_mnv
+        self.assertEqual(r11_mnv._check_mnv_scope(card_2h), [], "candidate-2h-card.md failed P3 M/N/V rule")
+        log_blk_m = re.search(r"(?ms)^### Required PASS Log Lines.*?\n```log\n(.*?)\n```", card_2h)
+        self.assertIsNotNone(log_blk_m, "Missing Required PASS Log Lines block in candidate-2h-card.md")
+        unmatched_2h = [
+            ln.strip() for ln in log_blk_m.group(1).splitlines()
+            if ln.strip() and not match_log_pattern(ln.strip())
+        ]
+        self.assertEqual(unmatched_2h, [], f"candidate-2h-card.md unmatched Required PASS Log Lines: {unmatched_2h}")
 
         # G11: Vault 111 armory walk leg L10 in walk_headings.py & console-free-walk-list.md
         import walk_headings as wh

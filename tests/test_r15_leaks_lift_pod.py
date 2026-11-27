@@ -1336,11 +1336,11 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
         self.assertFalse(ns["vaultSavingRelocked"])
         self.assertIn((False, False, False), state["chargens"])
         self.assertIn((1.5, 6), state["timers"])
-        self.assertIn((1.0, 8), state["timers"])
+        self.assertIn((1.0, 9), state["timers"])
         self.assertIn("vault_death_recovery=autosave stage=20 after=pipboy_pickup", state["traces"])
         self.assertTrue(any("slot=55" in t for t in state["traces"]), state["traces"])
         self.assertFalse(any("SSChronoMark" in t for t in state["traces"]), state["traces"])
-        ns["OnTimer"](8)
+        ns["OnTimer"](9)
         self.assertIn("pipboy wrist 3d housing=True screen=True", state["traces"])
         self.assertIn('QueueSharedMapSetup("pickup")', read(PSC))
 
