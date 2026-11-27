@@ -29,9 +29,9 @@ for (var i = 0; i < args.Length; i++)
     else rest.Add(args[i]);
 }
 args = rest.ToArray();
-if (args.Length < 3 || args[1] is not ("list" or "export" or "locations") || (args[1] != "list" && args.Length < 4))
+if (args.Length < 3 || args[1] is not ("list" or "export" or "locations" or "quest-ref" or "exterior-anchor" or "verify-ids") || (args[1] != "list" && args[1] != "verify-ids" && args.Length < 4))
 {
-    Console.Error.WriteLine("usage: <plugin.esm> [--master <master.esm>]... list <substr> | export <EditorID> <out.json> | locations <out.json> <EditorID>...");
+    Console.Error.WriteLine("usage: <plugin.esm> [--master <master.esm>]... list <substr> | export <EditorID> <out.json> | locations <out.json> <EditorID>... | quest-ref <out.json> <Quest>... | exterior-anchor <out.json> <World> <Anchor:RadiusM>... | verify-ids <ids.txt>");
     Environment.ExitCode = 1;
     return;
 }
@@ -39,6 +39,27 @@ var masters = masterPaths.Select(p => (IFallout4ModGetter)Fallout4Mod.CreateFrom
 using var mod = Fallout4Mod.CreateFromBinaryOverlay(args[0], Fallout4Release.Fallout4);
 var loadOrder = masters.Append((IFallout4ModGetter)mod).ToList();
 ILinkCache cache = loadOrder.ToImmutableLinkCache();
+if (args[1] == "quest-ref")
+{
+    Environment.ExitCode = QuestRefExport.Run(loadOrder, cache, args[2], args.Skip(3).ToArray());
+    return;
+}
+if (args[1] == "exterior-anchor")
+{
+    if (args.Length < 5)
+    {
+        Console.Error.WriteLine("usage: <plugin.esm> [--master <master.esm>]... exterior-anchor <out.json> <World> <Anchor:RadiusM>...");
+        Environment.ExitCode = 1;
+        return;
+    }
+    Environment.ExitCode = ExteriorAnchorExport.Run(loadOrder, cache, args[2], args[3], args.Skip(4).ToArray());
+    return;
+}
+if (args[1] == "verify-ids")
+{
+    Environment.ExitCode = QuestRefExport.VerifyIds(loadOrder, cache, args[2]);
+    return;
+}
 // the placed FormKeys each later plugin holds (the first is never scanned), so a reference a DLC moved out of a cell is
 // not exported from the master's copy; computed once, before any merge
 var placedKeys = CellMerge.PlacedKeys(loadOrder);
