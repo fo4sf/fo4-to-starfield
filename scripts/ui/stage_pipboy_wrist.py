@@ -1,18 +1,20 @@
-"""Stage Fallout 4 Pip-Boy 3000 wrist models onto Starfield's non-occluded spacesuit-watch slot (Round 15 Wave A Item 1).
+"""Stage Fallout 4 Pip-Boy 3000 wrist models onto Starfield's non-occluded spacesuit-watch slot (Round 15 Wave A / Round 16 I2).
 
 Usage:
   python scripts/ui/stage_pipboy_wrist.py --fo4-data "<Fallout 4/Data>" --sf-data "<Starfield/Data>"
       --staging "<new empty dir>" [--content-resources "<ContentResources.zip>"] [--texconv "<texconv.exe>"]
+      [--fo4-shell "<FO4SF_Fo4Shell.swf>"]
   python scripts/ui/stage_pipboy_wrist.py --verify-only "<staged dir>"
 
-Splits Fallout 4's 1st-person (pipboy.nif) and 3rd-person (pipboylowplayer.nif) Pip-Boy into two separate ARMA-ready
-model families anchored to Starfield's spacesuit ChronoWatch template (spacesuit_suitzero_chronowatch_{m,f}.nif):
-  - Housing NIFs: meshes/fo4port/pipboy/pipboy_wrist_housing_{m,f,1st,1st_f}.nif  (Screen* & TapREF excluded)
-  - Screen NIFs:  meshes/fo4port/pipboy/pipboy_wrist_screen_{m,f,1st,1st_f}.nif   (Screen:0 only -> pipboy_screen_2d.mat)
+Builds Fallout 4's 1st-person (pipboy.nif) and 3rd-person (pipboylowplayer.nif) Pip-Boy NIFs anchored to
+Starfield's spacesuit ChronoWatch template (spacesuit_suitzero_chronowatch_{m,f}.nif):
+  - Combined wrist NIFs: meshes/fo4port/pipboy/pipboy_wrist_housing_{m,f,1st,1st_f}.nif (housing + PipboyScreen)
+  - Screen-only NIFs:   meshes/fo4port/pipboy/pipboy_wrist_screen_{m,f,1st,1st_f}.nif  (PipboyScreen only)
 
+Every variant names its screen geometry `PipboyScreen` bound to `materials/fo4port/pipboy/pipboy_screen_2d.mat`
+(emissive green FO4 status screen rendered from FO4SF_Fo4Shell into `textures/fo4port/pipboy/pipboy_screen_idle_*.dds`).
 All outputs bind rigidly (100% weight) to L_Wrist_Twist2 (slot 3) in the 4-bone SkinAttach table
-['L_Forearm', 'L_Wrist_Twist', 'L_Wrist_Twist1', 'L_Wrist_Twist2'], and equipping clothes/spacesuits in slots 3/8/35
-with non-overlapping wrist bits is unverified until game check; 3D RTT later swaps only the screen material/NIF seam without rebuilding housing.
+['L_Forearm', 'L_Wrist_Twist', 'L_Wrist_Twist1', 'L_Wrist_Twist2'].
 """
 from __future__ import annotations
 
@@ -78,8 +80,13 @@ SCREEN_NIFS = (SCREEN_NIF_M, SCREEN_NIF_F, SCREEN_NIF_1ST, SCREEN_NIF_1ST_F)
 
 SCREEN_MAT_REL = "materials/fo4port/pipboy/pipboy_screen_2d.mat"
 SCREEN_MAT_GAME = "materials\\fo4port\\pipboy\\pipboy_screen_2d.mat"
-SCREEN_TEX_PREFIX = "textures/fo4port/pipboy/pipboy_screen_2d"
+SCREEN_GEOM_NAME = "PipboyScreen"
+SCREEN_TEX_PREFIX = "textures/fo4port/pipboy/pipboy_screen_idle"
 SCREEN_BGSM_PATH = "Materials\\AnimObjects\\PipBoy\\PipBoyScreen.BGSM"
+SCREEN_SWF_SHELL_REL = "Interface\\PipboyMenu.swf"
+SCREEN_SWF_STATS_REL = "Interface\\Pipboy_StatsPage.swf"
+SCREEN_SWF_COND_BODY_REL = "Interface\\Components\\ConditionClips\\Condition_Body_0.swf"
+SCREEN_SWF_COND_HEAD_REL = "Interface\\Components\\ConditionClips\\Condition_Head.swf"
 
 EXPECTED_SKIN_ATTACH = ("L_Forearm", "L_Wrist_Twist", "L_Wrist_Twist1", "L_Wrist_Twist2")
 WRIST_DOMINANT_BONE = "L_Wrist_Twist2"
@@ -349,9 +356,11 @@ def rebind_pipboy_to_wrist(
         spheres = {sl: bone3_sphere for sl in range(len(slot_names)) if bone3_sphere is not None}
 
         flags = g0.meshes[0].flags if g0.meshes[0] else 0x40
+        is_screen_group = mat.replace("/", "\\").lower() == SCREEN_MAT_GAME.lower()
+        geom_name = SCREEN_GEOM_NAME if is_screen_group else f"{group_prefix}_{k}"
         g = replace(
             g0,
-            name_idx=t.string_index(f"{group_prefix}_{k}".encode("latin-1")),
+            name_idx=t.string_index(geom_name.encode("latin-1")),
             sphere=sphere,
             box=box,
             meshes=[
@@ -453,35 +462,425 @@ def find_content_resources(sf_data: str, explicit: Optional[str] = None) -> str:
     raise FileNotFoundError(f"ContentResources.zip not found under {sf_root}\\Tools; pass --content-resources")
 
 
+# Minimal 5x7 crisp pixel bitmap font for rendering FO4 Pip-Boy green status screen text
+_FONT_5X7: Dict[str, Tuple[str, ...]] = {
+    " ": ("00000", "00000", "00000", "00000", "00000", "00000", "00000"),
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00110", "01000", "10000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
+    "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
+    "/": ("00001", "00010", "00010", "00100", "01000", "01000", "10000"),
+    ":": ("00000", "00100", "00100", "00000", "00100", "00100", "00000"),
+    ".": ("00000", "00000", "00000", "00000", "00000", "00100", "00100"),
+    "-": ("00000", "00000", "00000", "11111", "00000", "00000", "00000"),
+    "(": ("00010", "00100", "01000", "01000", "01000", "00100", "00010"),
+    ")": ("01000", "00100", "00010", "00010", "00010", "00100", "01000"),
+    "[": ("01110", "01000", "01000", "01000", "01000", "01000", "01110"),
+    "]": ("01110", "00010", "00010", "00010", "00010", "00010", "01110"),
+    "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "B": ("11110", "10001", "10001", "11110", "10001", "10001", "11110"),
+    "C": ("01110", "10001", "10000", "10000", "10000", "10001", "01110"),
+    "D": ("11110", "10001", "10001", "10001", "10001", "10001", "11110"),
+    "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+    "F": ("11111", "10000", "10000", "11110", "10000", "10000", "10000"),
+    "G": ("01110", "10001", "10000", "10111", "10001", "10001", "01110"),
+    "H": ("10001", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "I": ("01110", "00100", "00100", "00100", "00100", "00100", "01110"),
+    "K": ("10001", "10010", "10100", "11000", "10100", "10010", "10001"),
+    "L": ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
+    "M": ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
+    "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
+    "O": ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+    "R": ("11110", "10001", "10001", "11110", "10100", "10010", "10001"),
+    "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
+    "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+    "U": ("10001", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "V": ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
+    "W": ("10001", "10001", "10001", "10101", "10101", "11011", "10001"),
+    "X": ("10001", "10001", "01010", "00100", "01010", "10001", "10001"),
+    "Y": ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
+}
+
+
+class _SwfBits:
+    """Bit-level reader for SWF RECT/MATRIX/SHAPE records."""
+
+    def __init__(self, data: bytes, byte_pos: int = 0) -> None:
+        self.data = data
+        self.bitpos = byte_pos * 8
+
+    def align(self) -> None:
+        rem = self.bitpos & 7
+        if rem:
+            self.bitpos += 8 - rem
+
+    def read_bits(self, n: int) -> int:
+        val = 0
+        for _ in range(n):
+            byte_i = self.bitpos >> 3
+            if byte_i >= len(self.data):
+                return val << (n - _) if n else val
+            bit = (self.data[byte_i] >> (7 - (self.bitpos & 7))) & 1
+            val = (val << 1) | bit
+            self.bitpos += 1
+        return val
+
+    def read_sbits(self, n: int) -> int:
+        if n <= 0:
+            return 0
+        v = self.read_bits(n)
+        if v & (1 << (n - 1)):
+            v -= 1 << n
+        return v
+
+    def read_rect(self) -> Tuple[int, int, int, int]:
+        self.align()
+        nb = self.read_bits(5)
+        return tuple(self.read_sbits(nb) for _ in range(4))  # type: ignore[return-value]
+
+
+def _decompress_swf_body(swf_bytes: bytes) -> Tuple[Tuple[float, float], bytes]:
+    """Return ((stage_w, stage_h), decompressed_body) for FWS/CWS/GFX/CFX."""
+    import zlib
+
+    if len(swf_bytes) < 12 or swf_bytes[:3] not in (b"FWS", b"CWS", b"GFX", b"CFX"):
+        raise ValueError("not a valid SWF/GFX container")
+    body = zlib.decompress(swf_bytes[8:]) if swf_bytes[:3] in (b"CWS", b"CFX") else swf_bytes[8:]
+    br = _SwfBits(body, 0)
+    xmin, xmax, ymin, ymax = br.read_rect()
+    pos = ((br.bitpos + 7) // 8) + 4
+    return ((xmax - xmin) / 20.0, (ymax - ymin) / 20.0), body[pos:]
+
+
+def _iter_swf_tags(tag_bytes: bytes) -> Iterable[Tuple[int, bytes]]:
+    pos = 0
+    while pos + 2 <= len(tag_bytes):
+        head, = struct.unpack_from("<H", tag_bytes, pos)
+        code, size, pos = head >> 6, head & 0x3F, pos + 2
+        if size == 0x3F:
+            if pos + 4 > len(tag_bytes):
+                break
+            size, pos = struct.unpack_from("<I", tag_bytes, pos)[0], pos + 4
+        if pos + size > len(tag_bytes):
+            break
+        yield code, tag_bytes[pos:pos + size]
+        pos += size
+        if code == 0:
+            break
+
+
+def extract_swf_screen_metadata(shell_swf: Optional[bytes], stats_swf: Optional[bytes] = None) -> dict:
+    """Read FO4SF_Fo4Shell / PipboyMenu.swf & Pipboy_StatsPage.swf stage + DefineEditText placeholders."""
+    import re
+
+    info: dict = {
+        "stage": (876.0, 700.0),
+        "tabs": ["STAT", "INV", "DATA", "MAP", "RADIO"],
+        "subtabs": ["STATUS", "SPECIAL", "PERKS"],
+        "hp": "HP  80/80",
+        "level": "LEVEL 1",
+        "ap": "AP  90/90",
+        "weight": "370/175",
+        "caps": "110",
+        "shell_strings": [],
+        "stats_strings": [],
+    }
+    for key, raw in (("shell_strings", shell_swf), ("stats_strings", stats_swf)):
+        if not raw:
+            continue
+        stage, tag_bytes = _decompress_swf_body(raw)
+        if key == "shell_strings":
+            info["stage"] = stage
+        found: List[str] = []
+        for code, tag in _iter_swf_tags(tag_bytes):
+            if code == 37:
+                for m in re.findall(rb"[A-Za-z0-9/$ .:/()+-]{2,}", tag):
+                    txt = m.decode("latin-1", "ignore").strip()
+                    if txt and not txt.startswith("$MAIN_Font") and not txt.startswith("$Controller"):
+                        found.append(txt)
+        info[key] = found
+        if key == "shell_strings":
+            joined = " ".join(found)
+            for lbl_key, needle in (("hp", "HP "), ("level", "LEVEL"), ("ap", "AP ")):
+                for s in found:
+                    if s.startswith(needle):
+                        info[lbl_key] = s.upper()
+                        break
+            if "$STAT" in joined:
+                info["tabs"] = ["STAT", "INV", "DATA", "MAP", "RADIO"]
+    return info
+
+
+def _extract_condition_shape_bounds(cond_swf: Optional[bytes]) -> List[Tuple[float, float, float, float]]:
+    """Extract normalized [0..1] shape bounding boxes from a ConditionClips SWF when available."""
+    if not cond_swf:
+        return []
+    (sw, sh), tag_bytes = _decompress_swf_body(cond_swf)
+    sw = sw or 100.0
+    sh = sh or 100.0
+    boxes: List[Tuple[float, float, float, float]] = []
+    for code, tag in _iter_swf_tags(tag_bytes):
+        if code in (2, 22, 32, 83) and len(tag) >= 6:
+            br = _SwfBits(tag, 2)
+            x0, x1, y0, y1 = br.read_rect()
+            boxes.append((x0 / 20.0 / sw, y0 / 20.0 / sh, x1 / 20.0 / sw, y1 / 20.0 / sh))
+    return boxes
+
+
+def _draw_text(canvas, x: int, y: int, text: str, color: Tuple[int, int, int], scale: int = 2) -> None:
+    h, w, _ = canvas.shape
+    cx = x
+    for ch in text.upper():
+        glyph = _FONT_5X7.get(ch, _FONT_5X7[" "])
+        for row_i, row in enumerate(glyph):
+            py0 = y + row_i * scale
+            if py0 >= h or py0 + scale <= 0:
+                continue
+            for col_i, bit in enumerate(row):
+                if bit == "1":
+                    px0 = cx + col_i * scale
+                    if px0 >= w or px0 + scale <= 0:
+                        continue
+                    canvas[max(0, py0):min(h, py0 + scale), max(0, px0):min(w, px0 + scale), :3] = color
+        cx += 6 * scale
+
+
+def _fill_rect(canvas, x0: int, y0: int, x1: int, y1: int, color: Tuple[int, int, int]) -> None:
+    h, w, _ = canvas.shape
+    xa, xb = max(0, min(x0, x1)), min(w, max(x0, x1))
+    ya, yb = max(0, min(y0, y1)), min(h, max(y0, y1))
+    if xa < xb and ya < yb:
+        canvas[ya:yb, xa:xb, :3] = color
+
+
+def _stroke_rect(canvas, x0: int, y0: int, x1: int, y1: int, color: Tuple[int, int, int], t: int = 2) -> None:
+    _fill_rect(canvas, x0, y0, x1, y0 + t, color)
+    _fill_rect(canvas, x0, y1 - t, x1, y1, color)
+    _fill_rect(canvas, x0, y0, x0 + t, y1, color)
+    _fill_rect(canvas, x1 - t, y0, x1, y1, color)
+
+
+def render_fo4_status_screen_rgba(
+    shell_swf: Optional[bytes] = None,
+    stats_swf: Optional[bytes] = None,
+    cond_body_swf: Optional[bytes] = None,
+    cond_head_swf: Optional[bytes] = None,
+    size: int = 512,
+):
+    """Render Fallout 4's green STAT/STATUS Pip-Boy screen into (color_rgba, emissive_rgba) uint8 arrays."""
+    import numpy as np
+
+    meta = extract_swf_screen_metadata(shell_swf, stats_swf)
+    _ = _extract_condition_shape_bounds(cond_body_swf)
+    _ = _extract_condition_shape_bounds(cond_head_swf)
+
+    # Phosphor green palette matching Fallout 4's Pip-Boy CRT (#18FF62 foreground on #031107 glass)
+    bg_color = (4, 16, 7)
+    bg_emit = (2, 10, 4)
+    fg_bright = (28, 255, 98)
+    fg_mid = (18, 175, 68)
+    fg_dim = (10, 92, 36)
+
+    color = np.zeros((size, size, 4), dtype=np.uint8)
+    color[:, :, :3] = bg_color
+    color[:, :, 3] = 255
+
+    emissive = np.zeros((size, size, 4), dtype=np.uint8)
+    emissive[:, :, :3] = bg_emit
+    emissive[:, :, 3] = 255
+
+    s = size / 512.0
+    def px(v: float) -> int:
+        return int(round(v * s))
+
+    for target, fg_hi, fg_m, fg_lo in (
+        (color, fg_bright, fg_mid, fg_dim),
+        (emissive, fg_bright, fg_mid, fg_dim),
+    ):
+        # Outer CRT frame & top/bottom rule lines (from PipboyMenu.swf 876x700 header/footer)
+        _stroke_rect(target, px(16), px(14), px(496), px(498), fg_lo, max(1, px(2)))
+        _fill_rect(target, px(24), px(52), px(488), px(55), fg_hi)
+        _fill_rect(target, px(24), px(452), px(488), px(455), fg_hi)
+
+        # Top tabs: STAT selected (bracketed), INV, DATA, MAP, RADIO
+        tab_xs = [42, 136, 222, 316, 396]
+        for idx, (tab_name, tx) in enumerate(zip(meta["tabs"][:5], tab_xs)):
+            if idx == 0:
+                _stroke_rect(target, px(tx - 10), px(22), px(tx + 58), px(54), fg_hi, max(1, px(2)))
+                _fill_rect(target, px(tx - 8), px(52), px(tx + 56), px(56), bg_color if target is color else bg_emit)
+                _draw_text(target, px(tx), px(30), tab_name, fg_hi, max(1, px(2)))
+            else:
+                _draw_text(target, px(tx), px(30), tab_name, fg_m, max(1, px(2)))
+
+        # Sub-tabs: STATUS (selected), SPECIAL, PERKS
+        _draw_text(target, px(54), px(66), meta["subtabs"][0], fg_hi, max(1, px(2)))
+        _fill_rect(target, px(52), px(84), px(124), px(86), fg_hi)
+        _draw_text(target, px(168), px(66), meta["subtabs"][1], fg_lo, max(1, px(2)))
+        _draw_text(target, px(294), px(66), meta["subtabs"][2], fg_lo, max(1, px(2)))
+
+        # Vault Boy status figure in center (head, torso, arms, legs)
+        cx = 256
+        # Head circle/box
+        _fill_rect(target, px(cx - 18), px(144), px(cx + 18), px(182), fg_hi)
+        _fill_rect(target, px(cx - 12), px(152), px(cx + 12), px(176), bg_color if target is color else bg_emit)
+        # Hair crest & eyes/smile
+        _fill_rect(target, px(cx - 16), px(140), px(cx + 12), px(149), fg_hi)
+        _fill_rect(target, px(cx - 7), px(160), px(cx - 3), px(164), fg_hi)
+        _fill_rect(target, px(cx + 3), px(160), px(cx + 7), px(164), fg_hi)
+        _fill_rect(target, px(cx - 7), px(169), px(cx + 7), px(172), fg_hi)
+        # Torso & Vault suit stripe
+        _fill_rect(target, px(cx - 24), px(186), px(cx + 24), px(256), fg_hi)
+        _fill_rect(target, px(cx - 5), px(190), px(cx + 5), px(252), fg_m)
+        # Left & right arms
+        _fill_rect(target, px(cx - 52), px(190), px(cx - 26), px(208), fg_hi)
+        _fill_rect(target, px(cx - 52), px(208), px(cx - 36), px(244), fg_hi)
+        _fill_rect(target, px(cx + 26), px(190), px(cx + 52), px(208), fg_hi)
+        _fill_rect(target, px(cx + 36), px(208), px(cx + 52), px(244), fg_hi)
+        # Legs
+        _fill_rect(target, px(cx - 22), px(258), px(cx - 4), px(316), fg_hi)
+        _fill_rect(target, px(cx + 4), px(258), px(cx + 22), px(316), fg_hi)
+        _fill_rect(target, px(cx - 28), px(312), px(cx - 4), px(324), fg_hi)
+        _fill_rect(target, px(cx + 4), px(312), px(cx + 28), px(324), fg_hi)
+
+        # Six full limb condition bars around Vault Boy (Head, Torso, LArm, RArm, LLeg, RLeg)
+        limb_bars = [
+            (226, 114, 286, 124),  # Head
+            (226, 338, 286, 348),  # Torso
+            (116, 198, 174, 208),  # Left arm
+            (338, 198, 396, 208),  # Right arm
+            (116, 286, 174, 296),  # Left leg
+            (338, 286, 396, 296),  # Right leg
+        ]
+        for bx0, by0, bx1, by1 in limb_bars:
+            _stroke_rect(target, px(bx0), px(by0), px(bx1), px(by1), fg_hi, max(1, px(1)))
+            _fill_rect(target, px(bx0 + 2), px(by0 + 2), px(bx1 - 2), px(by1 - 2), fg_hi)
+
+        # DMG & DR boxes + Stimpak / RadAway footer strip (Pipboy_StatsPage.swf widgets)
+        _fill_rect(target, px(120), px(368), px(196), px(398), fg_lo)
+        _stroke_rect(target, px(120), px(368), px(196), px(398), fg_hi, max(1, px(1)))
+        _draw_text(target, px(128), px(376), "DMG 18", fg_hi, max(1, px(2)))
+
+        _fill_rect(target, px(316), px(368), px(392), px(398), fg_lo)
+        _stroke_rect(target, px(316), px(368), px(392), px(398), fg_hi, max(1, px(1)))
+        _draw_text(target, px(326), px(376), "DR  0", fg_hi, max(1, px(2)))
+
+        _fill_rect(target, px(36), px(412), px(476), px(442), fg_lo)
+        _draw_text(target, px(50), px(420), "STIMPAK (0)", fg_hi, max(1, px(2)))
+        _draw_text(target, px(262), px(420), "RADAWAY (0)", fg_hi, max(1, px(2)))
+
+        # Bottom bar: HP, LEVEL + XP bar, AP (from PipboyMenu.swf BottomBar)
+        _fill_rect(target, px(24), px(462), px(152), px(488), fg_lo)
+        _draw_text(target, px(32), px(469), meta["hp"][:10], fg_hi, max(1, px(2)))
+
+        _fill_rect(target, px(164), px(462), px(344), px(488), fg_lo)
+        _draw_text(target, px(172), px(469), meta["level"][:8], fg_hi, max(1, px(2)))
+        _stroke_rect(target, px(264), px(468), px(336), px(482), fg_hi, max(1, px(1)))
+        _fill_rect(target, px(267), px(471), px(294), px(479), fg_hi)
+
+        _fill_rect(target, px(356), px(462), px(488), px(488), fg_lo)
+        _draw_text(target, px(364), px(469), meta["ap"][:10], fg_hi, max(1, px(2)))
+
+    # Apply subtle CRT scanline modulation on odd rows so the phosphor glass feels physical
+    color[1::2, :, :3] = (color[1::2, :, :3].astype(np.uint16) * 82 // 100).astype(np.uint8)
+    emissive[1::2, :, :3] = (emissive[1::2, :, :3].astype(np.uint16) * 82 // 100).astype(np.uint8)
+    return color, emissive
+
+
+def _read_fo4_interface_swfs(fo4_data: str, fo4_shell_path: Optional[str] = None) -> Tuple[Optional[bytes], Optional[bytes], Optional[bytes], Optional[bytes]]:
+    shell_swf: Optional[bytes] = None
+    stats_swf: Optional[bytes] = None
+    cond_body_swf: Optional[bytes] = None
+    cond_head_swf: Optional[bytes] = None
+
+    if fo4_shell_path and os.path.isfile(fo4_shell_path):
+        with open(fo4_shell_path, "rb") as fh:
+            shell_swf = fh.read()
+
+    iface_ba2 = os.path.join(fo4_data, "Fallout4 - Interface.ba2")
+    if os.path.isfile(iface_ba2):
+        arc = ba2.Ba2(iface_ba2)
+        if shell_swf is None:
+            idx = arc.find(SCREEN_SWF_SHELL_REL)
+            if idx is not None:
+                shell_swf = arc.read(idx)
+        for rel, target in (
+            (SCREEN_SWF_STATS_REL, "stats"),
+            (SCREEN_SWF_COND_BODY_REL, "body"),
+            (SCREEN_SWF_COND_HEAD_REL, "head"),
+        ):
+            idx = arc.find(rel)
+            if idx is not None:
+                blob = arc.read(idx)
+                if target == "stats":
+                    stats_swf = blob
+                elif target == "body":
+                    cond_body_swf = blob
+                else:
+                    cond_head_swf = blob
+    return shell_swf, stats_swf, cond_body_swf, cond_head_swf
+
+
 def stage_screen_material_2d(
     src: pipeline.Fo4Archives,
     staging_root: str,
     texconv_exe: str,
     template_mat: dict,
+    fo4_data: Optional[str] = None,
+    fo4_shell_path: Optional[str] = None,
 ) -> str:
-    """Convert PipBoyScreen.BGSM into swappable materials/fo4port/pipboy/pipboy_screen_2d.mat + DDS files."""
+    """Render green FO4 status screen from FO4SF_Fo4Shell into emissive screen .mat + idle DDS files."""
     import numpy as np
 
     raw_bgsm = src.material(SCREEN_BGSM_PATH)
     if raw_bgsm is not None:
         bgsm = cm.parse_bgsm(raw_bgsm)
-        diffuse = bgsm.diffuse or "AnimObjects/PipBoy/PipBoyScreen_d.dds"
         normal = bgsm.normal or "Shared/FlatFlat_n.dds"
     else:
-        diffuse = "AnimObjects/PipBoy/PipBoyScreen_d.dds"
         normal = "Shared/FlatFlat_n.dds"
 
-    d_bytes = src.texture(diffuse)
     n_bytes = src.texture(normal)
-    if d_bytes is None:
-        raise FileNotFoundError(f"missing FO4 screen diffuse texture: {diffuse}")
+    shell_swf, stats_swf, cond_body_swf, cond_head_swf = (
+        _read_fo4_interface_swfs(fo4_data, fo4_shell_path)
+        if fo4_data
+        else (None, None, None, None)
+    )
+    color_rgba, emissive_rgba = render_fo4_status_screen_rgba(
+        shell_swf=shell_swf,
+        stats_swf=stats_swf,
+        cond_body_swf=cond_body_swf,
+        cond_head_swf=cond_head_swf,
+    )
 
     out_paths: Dict[str, str] = {}
     with tempfile.TemporaryDirectory() as tmp:
-        d_in = os.path.join(tmp, "d.dds")
-        with open(d_in, "wb") as fh:
-            fh.write(d_bytes)
-        textures.texconv(texconv_exe, d_in, tmp, "BC1_UNORM_SRGB", ("-srgbi",))
+        c_in = os.path.join(tmp, "color.dds")
+        textures.write_dds_dx10(
+            c_in,
+            color_rgba.shape[1],
+            color_rgba.shape[0],
+            textures.DXGI_R8G8B8A8_UNORM,
+            np.ascontiguousarray(color_rgba, dtype=np.uint8).tobytes(),
+            4,
+        )
+        textures.texconv(texconv_exe, c_in, tmp, "BC1_UNORM_SRGB", ("-srgbi",))
+
+        e_in = os.path.join(tmp, "emissive.dds")
+        textures.write_dds_dx10(
+            e_in,
+            emissive_rgba.shape[1],
+            emissive_rgba.shape[0],
+            textures.DXGI_R8G8B8A8_UNORM,
+            np.ascontiguousarray(emissive_rgba, dtype=np.uint8).tobytes(),
+            4,
+        )
+        textures.texconv(texconv_exe, e_in, tmp, "BC1_UNORM_SRGB", ("-srgbi",))
 
         if n_bytes is not None:
             nr, ng = pipeline._plane_pair(n_bytes, tmp, texconv_exe)
@@ -493,10 +892,10 @@ def stage_screen_material_2d(
         textures.texconv(texconv_exe, n_in, tmp, "BC5_SNORM")
 
         r_in = os.path.join(tmp, "r_in.dds")
-        textures.write_r8(r_in, np.full((4, 4), 190, dtype=np.uint8))
+        textures.write_r8(r_in, np.full((4, 4), 55, dtype=np.uint8))
         textures.texconv(texconv_exe, r_in, tmp, "BC4_UNORM")
 
-        for kind, fn in (("color", "d.dds"), ("normal", "n_in.dds"), ("rough", "r_in.dds")):
+        for kind, fn in (("color", "color.dds"), ("emissive", "emissive.dds"), ("normal", "n_in.dds"), ("rough", "r_in.dds")):
             dst = os.path.join(staging_root, *f"{SCREEN_TEX_PREFIX}_{kind}.dds".split("/"))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with open(os.path.join(tmp, fn), "rb") as fh:
@@ -510,6 +909,10 @@ def stage_screen_material_2d(
         out_paths["normal"],
         out_paths["rough"],
         metalness=0.0,
+        emissive=out_paths["emissive"],
+        emissive_tint=(1.0, 1.0, 1.0, 1.0),
+        luminous_emittance=120.0,
+        exposure_offset=0.0,
     )
     mat_disk = os.path.join(staging_root, *SCREEN_MAT_REL.split("/"))
     os.makedirs(os.path.dirname(mat_disk), exist_ok=True)
@@ -525,8 +928,9 @@ def stage_pipboy_wrist(
     texconv: Optional[str] = None,
     game: Optional[str] = None,
     sources_json: str = WRIST_SOURCES_JSON,
+    fo4_shell: Optional[str] = None,
 ) -> dict:
-    """Stage split Pip-Boy housing + screen wrist NIFs, meshes, materials, and textures into `staging`."""
+    """Stage combined wrist NIFs (housing + PipboyScreen), screen-only NIFs, meshes, emissive screen mat, and DDS files."""
     pipeline.refuse_unsafe_output_dir(staging, "--staging")
 
     if os.path.exists(staging) and os.listdir(staging):
@@ -537,6 +941,9 @@ def stage_pipboy_wrist(
         raise SystemExit(f"wrist source table entry {sources['game']!r} is disabled / unconfigured")
     cuff_center = tuple(float(v) for v in sources["cuff_center"])
     _is_screen, pred_primary_screen, pred_housing = make_shape_predicates(sources)
+
+    def pred_housing_with_screen(name: str) -> bool:
+        return pred_housing(name) or pred_primary_screen(name)
 
     texconv_exe = find_texconv(texconv)
     cr_zip = find_content_resources(sf_data, content_resources)
@@ -564,9 +971,19 @@ def stage_pipboy_wrist(
         if fo4_3rd is None:
             raise FileNotFoundError(f"{fo4_3rd_rel} not found in {fo4_data}")
 
-        screen_mat_game = stage_screen_material_2d(src, partial, texconv_exe, conv.template_mat)
+        screen_mat_game = stage_screen_material_2d(
+            src,
+            partial,
+            texconv_exe,
+            conv.template_mat,
+            fo4_data=fo4_data,
+            fo4_shell_path=fo4_shell,
+        )
 
-        def housing_mat(nf_src: nifmod.NifFile, shape) -> Optional[str]:
+        def housing_and_screen_mat(nf_src: nifmod.NifFile, shape) -> Optional[str]:
+            sname = shape.name.decode("latin-1", "replace")
+            if pred_primary_screen(sname):
+                return screen_mat_game
             return conv._shape_material(nf_src, shape)
 
         def screen_mat(_nf_src: nifmod.NifFile, _shape) -> Optional[str]:
@@ -574,22 +991,22 @@ def stage_pipboy_wrist(
 
         builds = {
             HOUSING_NIF_M: rebind_pipboy_to_wrist(
-                sf_tpl_m, fo4_3rd, pred_housing, housing_mat,
+                sf_tpl_m, fo4_3rd, pred_housing_with_screen, housing_and_screen_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_M, unit_scale=FO4_TO_SF_WRIST_SCALE_M,
                 cuff_center_fo4=cuff_center, group_prefix="FO4WristHousingM",
             ),
             HOUSING_NIF_F: rebind_pipboy_to_wrist(
-                sf_tpl_f, fo4_3rd, pred_housing, housing_mat,
+                sf_tpl_f, fo4_3rd, pred_housing_with_screen, housing_and_screen_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_F, unit_scale=FO4_TO_SF_WRIST_SCALE_F,
                 cuff_center_fo4=cuff_center, group_prefix="FO4WristHousingF",
             ),
             HOUSING_NIF_1ST: rebind_pipboy_to_wrist(
-                sf_tpl_1st_m, fo4_1st, pred_housing, housing_mat,
+                sf_tpl_1st_m, fo4_1st, pred_housing_with_screen, housing_and_screen_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_M, unit_scale=FO4_TO_SF_WRIST_SCALE_M,
                 cuff_center_fo4=cuff_center, group_prefix="FO4WristHousing1st",
             ),
             HOUSING_NIF_1ST_F: rebind_pipboy_to_wrist(
-                sf_tpl_1st_f, fo4_1st, pred_housing, housing_mat,
+                sf_tpl_1st_f, fo4_1st, pred_housing_with_screen, housing_and_screen_mat,
                 cuff_center_bone=WRIST_CENTER_BONE_F, unit_scale=FO4_TO_SF_WRIST_SCALE_F,
                 cuff_center_fo4=cuff_center, group_prefix="FO4WristHousing1stF",
             ),
@@ -628,6 +1045,7 @@ def stage_pipboy_wrist(
 
         manifest = {
             "screen_material": SCREEN_MAT_REL,
+            "screen_geometry_name": SCREEN_GEOM_NAME,
             "skin_attach_bones": list(EXPECTED_SKIN_ATTACH),
             "dominant_bone": WRIST_DOMINANT_BONE,
             "converter_stats": conv.stats,
@@ -651,13 +1069,31 @@ def stage_pipboy_wrist(
 
 
 def verify_staged_pipboy_wrist(root_dir: str) -> dict:
-    """Verify all 8 wrist NIFs, external .mesh weights/bboxes, SkinAttach 4-bone layout, materials, and DDS files."""
+    """Verify all 8 wrist NIFs, PipboyScreen geometry & emissive .mat, external .mesh weights/bboxes, and DDS files."""
     if not os.path.isdir(root_dir):
         raise FileNotFoundError(f"staged directory not found: {root_dir}")
 
     screen_mat_disk = os.path.join(root_dir, *SCREEN_MAT_REL.split("/"))
     if not os.path.isfile(screen_mat_disk):
         raise FileNotFoundError(f"missing swappable screen material: {screen_mat_disk}")
+    with open(screen_mat_disk, encoding="utf-8") as sm_fh:
+        screen_mat_json = json.load(sm_fh)
+    sm_textures = ((screen_mat_json.get("Summary") or {}).get("Layer1") or {}).get("Textures") or {}
+    emissive_entry = sm_textures.get("Emissive") or {}
+    if not emissive_entry.get("File"):
+        raise ValueError(f"{SCREEN_MAT_REL}: Summary.Layer1.Textures.Emissive.File is missing")
+    has_emissive_comp = any(
+        c.get("Type") == "BSMaterial::EmissiveSettingsComponent"
+        for o in screen_mat_json.get("Objects", [])
+        for c in o.get("Components", [])
+    )
+    has_emissive_slot7 = any(
+        c.get("Type") == "BSMaterial::MRTextureFile" and c.get("Index") == cm.EMISSIVE_SLOT
+        for o in screen_mat_json.get("Objects", [])
+        for c in o.get("Components", [])
+    )
+    if not (has_emissive_comp and has_emissive_slot7):
+        raise ValueError(f"{SCREEN_MAT_REL}: missing EmissiveSettingsComponent or slot 7 MRTextureFile")
 
     checked_nifs: List[str] = []
     checked_meshes: List[str] = []
@@ -685,13 +1121,14 @@ def verify_staged_pipboy_wrist(root_dir: str) -> dict:
         nif_bone_pts: List[Tuple[float, float, float]] = []
         nif_mesh_pts: List[Tuple[float, float, float]] = []
         nif_mats: List[str] = []
+        nif_geoms: List[str] = []
         nif_bones_count = 0
+        pipboy_screen_count = 0
 
         for gi in geom_indices:
             g = sfnif.parse_bsgeometry(nf.blocks[gi])
             gname = nf.strings[g.name_idx].decode("latin-1", "replace") if 0 <= g.name_idx < len(nf.strings) else ""
-            if not is_screen_nif and "screen" in gname.lower():
-                raise ValueError(f"{nif_rel}: housing NIF contains screen BSGeometry {gname!r}")
+            nif_geoms.append(gname)
 
             sa_ref = next((e for e in g.extra_refs if nf.type_of(e) == "SkinAttach"), None)
             if sa_ref is None:
@@ -742,10 +1179,16 @@ def verify_staged_pipboy_wrist(root_dir: str) -> dict:
             sidx, = struct.unpack_from("<i", nf.blocks[g.shader], 0)
             mat_bs = nf.strings[sidx].decode("latin-1").replace("/", "\\")
             mat_rel = mat_bs.replace("\\", "/")
-            if is_screen_nif and mat_rel.lower() != SCREEN_MAT_REL:
-                raise ValueError(f"{nif_rel}: screen NIF must bind {SCREEN_MAT_REL}, got {mat_rel}")
-            if not is_screen_nif and mat_rel.lower() == SCREEN_MAT_REL:
-                raise ValueError(f"{nif_rel}: housing NIF must not bind {SCREEN_MAT_REL}")
+            is_screen_mat = mat_rel.lower() == SCREEN_MAT_REL
+            if gname == SCREEN_GEOM_NAME:
+                if not is_screen_mat:
+                    raise ValueError(f"{nif_rel}: {SCREEN_GEOM_NAME} must bind {SCREEN_MAT_REL}, got {mat_rel}")
+                pipboy_screen_count += 1
+            else:
+                if "screen" in gname.lower():
+                    raise ValueError(f"{nif_rel}: non-{SCREEN_GEOM_NAME} geometry {gname!r} uses 'screen' in name")
+                if is_screen_mat:
+                    raise ValueError(f"{nif_rel}: non-{SCREEN_GEOM_NAME} geometry {gname!r} must not bind {SCREEN_MAT_REL}")
 
             mat_id_ref = next(
                 (e for e in g.extra_refs if nf.type_of(e) == "NiIntegerExtraData" and actor_rebind._name(nf, e) == "MaterialID"),
@@ -776,8 +1219,14 @@ def verify_staged_pipboy_wrist(root_dir: str) -> dict:
                         raise FileNotFoundError(f"{mat_rel} references missing/empty texture: {tex_disk}")
                     checked_textures.append(tok_norm)
 
+        if pipboy_screen_count != 1:
+            raise ValueError(
+                f"{nif_rel}: expected exactly 1 {SCREEN_GEOM_NAME!r} BSGeometry bound to {SCREEN_MAT_REL}, found {pipboy_screen_count}"
+            )
+
         nif_summaries[nif_rel] = {
             "geometries": len(geom_indices),
+            "geometry_names": nif_geoms,
             "skin_attach_bones": nif_bones_count,
             "verts": len(nif_bone_pts),
             "bone_bounds_m": _bounds_dict(nif_bone_pts),
@@ -808,6 +1257,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--content-resources", default=None, help="Starfield Tools/ContentResources.zip")
     ap.add_argument("--texconv", default=None, help="Path to texconv.exe / Texconvx64.exe")
     ap.add_argument("--game", default=None, help="Game entry in src/fo4sf/core/pipboy_wrist_sources.json (default fo4)")
+    ap.add_argument("--fo4-shell", default=None, help="Optional FO4SF_Fo4Shell.swf path (defaults to Fallout4 - Interface.ba2 PipboyMenu.swf)")
     args = ap.parse_args(argv)
 
     if args.verify_only:
@@ -825,6 +1275,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         content_resources=args.content_resources,
         texconv=args.texconv,
         game=args.game,
+        fo4_shell=args.fo4_shell,
     )
     print(json.dumps({
         "screen_material": manifest["screen_material"],

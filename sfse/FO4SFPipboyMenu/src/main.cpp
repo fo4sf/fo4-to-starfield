@@ -10427,6 +10427,15 @@ namespace
 		return fo4sf::pipboy::ResolvePipboyScreenSource(g_screenSourceIni, globVal);
 	}
 
+	// I2(b) 3D RTT hook (ScreenSource=3d_rtt / FO4SF_PipboyScreenSource=2):
+	// Returns false until the BSMenu3D::Scene -> PipboyScreen RTT bind probe is active,
+	// cleanly falling back to the proven flat 2d_imenu overlay via OpenPipboyScreenViaSource.
+	bool OpenPipboy3DRTTMainThread()
+	{
+		REX::INFO("step=pipboy_rtt status=stub_fallback reason=probe_not_enabled target=PipboyScreen");
+		return false;
+	}
+
 	fo4sf::pipboy::ScreenOpenResult OpenPipboyScreen(std::uint32_t a_targetPage)
 	{
 		const std::uint32_t target = std::min<std::uint32_t>(a_targetPage, 4u);
@@ -10434,6 +10443,7 @@ namespace
 		auto* ui = RE::UI::GetSingleton();
 		auto* queue = RE::UIMessageQueue::GetSingleton();
 		if (!ui || !queue) {
+			REX::INFO("step=pipboy_screen wrist_draw=none");
 			return fo4sf::pipboy::ScreenOpenResult{ fo4sf::pipboy::ScreenSourceMode::k2DIMenu, false, false, "no_ui_or_queue" };
 		}
 		g_lastShellTransitionMs.store(NowMs());
@@ -10448,14 +10458,28 @@ namespace
 			KitCollect();
 		}
 		const auto effectiveMode = ResolvePipboyScreenSourceMainThread();
-		return fo4sf::pipboy::OpenPipboyScreenViaSource(
+		const auto openRes = fo4sf::pipboy::OpenPipboyScreenViaSource(
 			effectiveMode,
 			[&]() {
 				g_expectOpen = 1;
 				queue->AddMessage(MenuName(), RE::UI_MESSAGE_TYPE::kShow);
 				return true;
 			},
-			[]() { return false; });
+			[&]() { return OpenPipboy3DRTTMainThread(); });
+
+		const char* wristDraw = "none";
+		if (openRes.opened) {
+			if (openRes.mode == fo4sf::pipboy::ScreenSourceMode::k3DRTT) {
+				wristDraw = "rtt";
+			} else {
+				bool wristResolved = false, wristOwned = false, wristWorn = false;
+				if (CheckPipboyWristOwnedAndWornMainThread(wristResolved, wristOwned, wristWorn) && wristWorn) {
+					wristDraw = "static";
+				}
+			}
+		}
+		REX::INFO("step=pipboy_screen wrist_draw={}", wristDraw);
+		return openRes;
 	}
 
 	const char* ShouldSkipWristRaiseMainThread(RE::UI* a_ui)

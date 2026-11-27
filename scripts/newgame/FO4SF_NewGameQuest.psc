@@ -285,8 +285,8 @@ GlobalVariable Property H00SkipLandingQuestsGlobal Auto Const
 GlobalVariable Property H00SkipSurfaceSetPosGlobal Auto Const
 Armor Property PipboyWristArmor Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyWrist (0x80D), playable left-wrist Pip-Boy 3000 equipped on pickup.}
-string Property PipboyWristSlotLabel = "54,55" Auto Const
-{Biped slot indices (housing bit 54, screen bit 55) supplied by NewGame builder data for pickup logging.}
+string Property PipboyWristSlotLabel = "55" Auto Const
+{Biped slot index (bit 55, off bit 54 SSChronoMark) supplied by NewGame builder data for pickup logging.}
 ObjectReference Property PipboyCorpseRef Auto Const Mandatory
 {FO4SFNewGame.esm FO4SF_PipboyCorpsePickupRef (0x80F), placed persistent pickup beside the Vault-Tec scientist skeleton.}
 ObjectReference Property GearDoorConsoleRef Auto Const Mandatory
@@ -1223,10 +1223,14 @@ Event OnStageSet(int auiStageID, int auiItemID)
     ApplyStage(auiStageID, cause)
 EndEvent
 
-; Shared OnTimer ownership: IDs 1=stage/lift tick, 2=mode box wait trace, 4=Warfare fade, 5=Story landing guard/fade, 6=vault save relock, 7=pod autosave retry.
+; Shared OnTimer ownership: IDs 1=stage/lift tick, 2=mode box wait trace, 4=Warfare fade, 5=Story landing guard/fade, 6=vault save relock, 7=pod autosave retry, 8=pod open/walk-out, 9=wrist 3D HasNode log.
 Event OnTimer(int aiTimerID)
     if aiTimerID == 8
         HandlePodAnimTimer(Game.GetPlayer())
+        return
+    endif
+    if aiTimerID == 9
+        LogPipboyWrist3DNodes(Game.GetPlayer())
         return
     endif
     if aiTimerID == 6
@@ -4018,6 +4022,16 @@ bool Function SyncPipboyOwnedWornState(Actor player)
     return owned && worn
 EndFunction
 
+Function LogPipboyWrist3DNodes(Actor player)
+{Logs 3P wrist node attachment ~1 s after pickup or re-equip using staged 3P geometry names.}
+    if player == None
+        return
+    endif
+    bool hasHousing = player.HasNode("FO4WristHousingM_1") || player.HasNode("FO4WristHousingF_1")
+    bool hasScreen = player.HasNode("PipboyScreen")
+    Trace("pipboy wrist 3d housing=" + hasHousing + " screen=" + hasScreen)
+EndFunction
+
 bool Function EnsurePipboyWristEquipped(Actor player, string why)
     if player == None || PipboyWristArmor == None
         return false
@@ -4040,8 +4054,12 @@ bool Function EnsurePipboyWristEquipped(Actor player, string why)
     endif
     if why == "pickup"
         Trace("pipboy wrist equipped item=" + PipboyWristArmor + " worn=" + worn + " slot=" + PipboyWristSlotLabel)
+        ; [HOOK:Worker1] QueueSharedMapSetup("pickup")
     else
         Trace("pipboy wrist reequip on_load=" + why + " acquired=" + acq + " worn=" + worn)
+    endif
+    if worn
+        StartTimer(1.0, 9)
     endif
     return worn
 EndFunction
@@ -4275,6 +4293,7 @@ Function HandlePipboyPickup(Actor player)
         UnregisterForRemoteEvent(PipboyCorpseRef, "OnActivate")
     endif
     bool worn = EnsurePipboyWristEquipped(player, "pickup")
+    ; [HOOK:Worker1] Shared map setup call spot after pickup equip: QueueSharedMapSetup("pickup")
     Game.ForceFirstPerson()
     if player != None
         player.SheatheWeapon()

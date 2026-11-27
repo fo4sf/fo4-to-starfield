@@ -1205,9 +1205,11 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
                 (
                     "HandlePipboyPickup",
                     "EnsurePipboyWristEquipped",
+                    "LogPipboyWrist3DNodes",
                     "SyncPipboyOwnedWornState",
                     "TriggerVaultPickupAutosave",
                     "Actor.OnPlayerLoadGame",
+                    "OnTimer",
                     "StandsInVault",
                 ),
                 "pipboyPickedUp, pipboyGranted, pipboyPickupAutosaved, vaultPodAutosaved, vaultRecoveryTriggered, vaultSavingRelocked, "
@@ -1262,6 +1264,8 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
             def PlayIdle(self, idle):
                 state["played_idles"].append(idle)
                 return True
+            def HasNode(self, node_name):
+                return node_name in ("FO4WristHousingM_1", "PipboyScreen")
 
         player = _Player()
         glob = SimpleNamespace(
@@ -1296,7 +1300,7 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
             returnSurfaceWaitTicks=0,
             returnSurfaceTries=0,
             PipboyWristArmor=wrist,
-            PipboyWristSlotLabel="54,55",
+            PipboyWristSlotLabel="55",
             PipboyAcquiredGlobal=glob,
             PipboyCorpseRef=corpse,
             PortPipboyStaticId=0,
@@ -1320,7 +1324,7 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
         )
         exec(compiled, ns)
 
-        # 1. Pickup equips wrist, logs slot=54,55 (data), forces 1st person & sheathes, plays idle, triggers pickup autosave
+        # 1. Pickup equips wrist, logs slot=55 (data), queues 1s timer 8 for 3D node log, forces 1st person & sheathes, plays idle, triggers pickup autosave
         ns["HandlePipboyPickup"](player)
         self.assertTrue(ns["pipboyGranted"])
         self.assertTrue(ns["pipboyPickedUp"])
@@ -1331,9 +1335,13 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
         self.assertFalse(ns["vaultSavingRelocked"])
         self.assertIn((False, False, False), state["chargens"])
         self.assertIn((1.5, 6), state["timers"])
+        self.assertIn((1.0, 8), state["timers"])
         self.assertIn("vault_death_recovery=autosave stage=20 after=pipboy_pickup", state["traces"])
-        self.assertTrue(any("slot=54,55" in t for t in state["traces"]), state["traces"])
+        self.assertTrue(any("slot=55" in t for t in state["traces"]), state["traces"])
         self.assertFalse(any("SSChronoMark" in t for t in state["traces"]), state["traces"])
+        ns["OnTimer"](8)
+        self.assertIn("pipboy wrist 3d housing=True screen=True", state["traces"])
+        self.assertIn('QueueSharedMapSetup("pickup")', read(PSC))
 
         # 2. Grant -> unequip -> save -> load re-equips unconditionally with (true, true)
         state["equipped"] = False

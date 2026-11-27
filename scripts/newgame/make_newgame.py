@@ -302,7 +302,7 @@ NATIVES = {
         "Math": ["sin", "cos", "sqrt"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
-                            "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "PlaceAtMe", "RemoveItem", "RemoveAllItems",
+                            "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "HasNode", "GetOpenState", "SetOpen", "PlaceAtMe", "RemoveItem", "RemoveAllItems",
                             "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
                             "SetMarkerDiscovered", "AddToMap", "IsMapMarkerVisible", "CanFastTravelToMarker", "EnableFastTravel", "Reset", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
                             "IsDisabled", "BlockActivation", "OnActivate", "OnItemAdded", "OnItemRemoved", "RestoreValue"],

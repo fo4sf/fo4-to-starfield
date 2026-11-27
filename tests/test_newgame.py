@@ -2286,7 +2286,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         # A6 & A16: FO4SF_PipboyAcquired lives solely in FO4SFCoreValues.esm:000865; 0x80C and 0x810..0x816 stay reserved
         self.assertNotIn("PipboyAcquiredGlobId =", cs)
         self.assertIn('var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));', cs)
-        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x825 }", cs)
+        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x824, 0x825 }", cs)
         self.assertIn("PipboyWristArmorId = 0x80D", cs)
         self.assertIn("PipboyCorpseActiId = 0x80E", cs)
         self.assertIn("PipboyCorpseRefId = 0x80F", cs)

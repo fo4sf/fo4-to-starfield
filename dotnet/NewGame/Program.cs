@@ -161,8 +161,8 @@ static class NewGame
     public const uint Vault10mmAmmoCapacity = 12u;
     public const float Vault10mmAttackDamage = 18.0f;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
-    // 0x80C = former FO4SF_PipboyAcquired; 0x810..0x816 = former SPECIAL AVIFs; 0x825 = former FO4SF_PipboyScreenSource (now FO4SFCoreValues.esm:0x000868).
-    public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x825 };
+    // 0x80C = former FO4SF_PipboyAcquired; 0x810..0x816 = former SPECIAL AVIFs; 0x824 = former FO4SF_PipboyWristScreenAA (retired in I2(c)); 0x825 = former FO4SF_PipboyScreenSource (now FO4SFCoreValues.esm:0x000868).
+    public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x824, 0x825 };
     public const int MaxMessageButtons = 7;
     public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, BackdropSetupMenu = 3, DefaultStartChoiceBackdrop = BackdropEmptyCell;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfCompactActiTemplateId = 0x143492, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010,
@@ -2350,7 +2350,7 @@ static class NewGame
             gmstOver.Data = 0;
             mod.GameSettings.Add(gmstOver);
         }
-        uint minNextId = Math.Max(PipboyWristBuilder.WristScreenArmaId + 2, ArrivalMergedMarkerRefId + 1);
+        uint minNextId = Math.Max(PipboyWristBuilder.RetiredWristScreenArmaId + 2, ArrivalMergedMarkerRefId + 1);
         if (vpBind.HasVaultPistolAndAmmo)
             minNextId = Math.Max(minNextId, Math.Max(vpBind.PistolRefId, vpBind.AmmoRefId) + 1);
         mod.ModHeader.Stats.NextFormID = minNextId;
@@ -3491,8 +3491,11 @@ static class NewGame
             ("the exit fallback prompt lost a button", m => m.Messages.First(x => x.EditorID == ExitFallbackMsgEdid).MenuButtons.RemoveAt(1)),
             ("retired GLOB 0x80C added", m => m.Globals.Add(new SF.Global(new FormKey(m.ModKey, 0x80C), rel) { EditorID = PipboyAcquiredGlobEdid })),
             ("retired FormID 0x811 reused", m => m.Messages.Add(new SF.Message(new FormKey(m.ModKey, 0x811), rel) { EditorID = "FO4SF_Retired811", Flags = SF.Message.Flag.MessageBox })),
+            ("retired FormID 0x824 reused", m => m.ArmorAddons.Add(new SF.ArmorAddon(new FormKey(m.ModKey, PipboyWristBuilder.RetiredWristScreenArmaId), rel) { EditorID = "FO4SF_Retired824", FirstPersonFlags = PipboyWristBuilder.WristSlotFlag })),
             ("PipboyAcquiredGlobal pointed off FO4SFCoreValues.esm", m => ((SF.ScriptObjectProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "PipboyAcquiredGlobal")).Object.SetTo(new FormKey(SfEsm, GameDaysPassedId))),
             ("PipboyWrist marked NonPlayable", m => m.Armors.First(a => a.EditorID == PipboyWristArmorEdid).MajorRecordFlagsRaw |= 0x4),
+            ("PipboyWrist ARMO uses bit 54", m => m.Armors.First(a => a.EditorID == PipboyWristArmorEdid).FirstPersonFlags = PipboyWristBuilder.ForbiddenSpacesuitWatchFlag),
+            ("PipboyWrist ARMA uses bit 54", m => m.ArmorAddons.First(a => a.FormKey.ID == PipboyWristBuilder.WristArmaId).FirstPersonFlags = PipboyWristBuilder.ForbiddenSpacesuitWatchFlag),
             ("PipboyCorpseRef made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent.First(x => x.EditorID == PipboyCorpseRefEdid); r.MajorRecordFlagsRaw &= ~0x400; }),
             ("GearDoorConsoleRef made temporary", m => { var c = m.Cells.Records[0].SubBlocks[0].Cells[0]; var r = (SF.PlacedObject)c.Persistent.First(x => x.EditorID == GearDoorConsoleRefEdid); r.MajorRecordFlagsRaw &= ~0x400; }),
             ("GearDoorConsoleActi lost its name", m => m.Activators.First(a => a.EditorID == GearDoorConsoleActiEdid).Name = ""),

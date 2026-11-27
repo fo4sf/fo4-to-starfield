@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 sys.path.insert(0, os.path.join(REPO, "scripts", "ui"))
 
 import stage_pipboy_wrist as spw  # noqa: E402
-from fo4sf import actor_rebind, nif as nifmod, sfmesh, sfnif  # noqa: E402
+from fo4sf import actor_rebind, convert_material as cm, nif as nifmod, sfmesh, sfnif  # noqa: E402
+from tests.test_materials import mini_template  # noqa: E402
 
 
 def _make_synthetic_sf_chronowatch_template() -> bytes:
@@ -169,8 +170,8 @@ class TestR15PipboyWrist(unittest.TestCase):
         housing_res = spw.rebind_pipboy_to_wrist(
             tpl_bytes,
             fo4_bytes,
-            spw.is_housing_shape,
-            lambda _nf, _s: housing_mat_game,
+            lambda n: spw.is_housing_shape(n) or spw.is_primary_screen_shape(n),
+            lambda _nf, s: spw.SCREEN_MAT_GAME if spw.is_primary_screen_shape(s.name.decode("latin-1", "replace")) else housing_mat_game,
             cuff_center_bone=spw.WRIST_CENTER_BONE_M,
             unit_scale=spw.FO4_TO_SF_WRIST_SCALE_M,
             group_prefix="FO4WristHousingM",
@@ -185,21 +186,37 @@ class TestR15PipboyWrist(unittest.TestCase):
             group_prefix="FO4WristScreenM",
         )
 
-        # Housing excludes Screen* and TapREF*
-        self.assertEqual(list(housing_res.report["groups"].keys()), [housing_mat_game])
+        # Combined housing NIF holds BOTH housing and PipboyScreen (excluding TapREF*),
+        # and gives the screen group the fixed name PipboyScreen.
+        self.assertEqual(set(housing_res.report["groups"].keys()), {housing_mat_game, spw.SCREEN_MAT_GAME})
         self.assertEqual(housing_res.report["groups"][housing_mat_game]["shapes"], ["PipboyBody_mesh:0"])
+        self.assertEqual(housing_res.report["groups"][spw.SCREEN_MAT_GAME]["shapes"], ["Screen:0"])
         self.assertEqual(housing_res.report["dominant_bone"], "L_Wrist_Twist2")
         self.assertEqual(housing_res.report["dominant_slot"], 3)
+        parsed_h = nifmod.parse(housing_res.nif)
+        h_names = [
+            parsed_h.strings[sfnif.parse_bsgeometry(parsed_h.blocks[i]).name_idx].decode("latin-1", "replace")
+            for i in range(len(parsed_h.blocks))
+            if parsed_h.type_of(i) == "BSGeometry"
+        ]
+        self.assertEqual(h_names.count(spw.SCREEN_GEOM_NAME), 1)
 
-        # Screen has ONLY Screen:0 bound to pipboy_screen_2d.mat
+        # Screen-only NIF has ONLY Screen:0 bound to pipboy_screen_2d.mat with BSGeometry name PipboyScreen
         self.assertEqual(list(screen_res.report["groups"].keys()), [spw.SCREEN_MAT_GAME])
         self.assertEqual(screen_res.report["groups"][spw.SCREEN_MAT_GAME]["shapes"], ["Screen:0"])
+        parsed_s = nifmod.parse(screen_res.nif)
+        s_names = [
+            parsed_s.strings[sfnif.parse_bsgeometry(parsed_s.blocks[i]).name_idx].decode("latin-1", "replace")
+            for i in range(len(parsed_s.blocks))
+            if parsed_s.type_of(i) == "BSGeometry"
+        ]
+        self.assertEqual(s_names, [spw.SCREEN_GEOM_NAME])
 
         housing_res_f = spw.rebind_pipboy_to_wrist(
             tpl_bytes,
             fo4_bytes,
-            spw.is_housing_shape,
-            lambda _nf, _s: housing_mat_game,
+            lambda n: spw.is_housing_shape(n) or spw.is_primary_screen_shape(n),
+            lambda _nf, s: spw.SCREEN_MAT_GAME if spw.is_primary_screen_shape(s.name.decode("latin-1", "replace")) else housing_mat_game,
             cuff_center_bone=spw.WRIST_CENTER_BONE_F,
             unit_scale=spw.FO4_TO_SF_WRIST_SCALE_F,
             group_prefix="FO4WristHousing1stF",
@@ -243,26 +260,84 @@ class TestR15PipboyWrist(unittest.TestCase):
                     with open(mp, "wb") as fh:
                         fh.write(mb)
 
-            for mat_rel, tex_rel in (
-                (housing_mat_rel, housing_tex_rel),
-                (spw.SCREEN_MAT_REL, f"{spw.SCREEN_TEX_PREFIX}_color.dds"),
+            for tex_rel in (
+                housing_tex_rel,
+                f"{spw.SCREEN_TEX_PREFIX}_color.dds",
+                f"{spw.SCREEN_TEX_PREFIX}_emissive.dds",
             ):
                 tp = os.path.join(tmp, *tex_rel.split("/"))
                 os.makedirs(os.path.dirname(tp), exist_ok=True)
                 with open(tp, "wb") as fh:
                     fh.write(b"DDS_PLACEHOLDER")
-                mp = os.path.join(tmp, *mat_rel.split("/"))
-                os.makedirs(os.path.dirname(mp), exist_ok=True)
-                with open(mp, "w", encoding="utf-8") as fh:
-                    json.dump({"Albedo": f"Data\\{tex_rel.replace('/', chr(92))}"}, fh)
+
+            hp = os.path.join(tmp, *housing_mat_rel.split("/"))
+            os.makedirs(os.path.dirname(hp), exist_ok=True)
+            with open(hp, "w", encoding="utf-8") as fh:
+                json.dump({"Albedo": f"Data\\{housing_tex_rel.replace('/', chr(92))}"}, fh)
+
+            sm_tpl = mini_template()
+            sm_tpl["Objects"][0]["Components"].append({"Type": "BSMaterial::LayerID", "Index": 0, "Data": {"ID": "res:LAYER"}})
+            sm_tpl["Objects"][1]["Components"].append({"Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": {"FileName": "Data\\old_color.dds"}})
+            sm_json = cm.build_mat(
+                sm_tpl,
+                "FO4Port_PipboyScreen2D",
+                f"Data\\{spw.SCREEN_TEX_PREFIX.replace('/', chr(92))}_color.dds",
+                "Data\\Shared\\FlatFlat_n.dds",
+                "Data\\Shared\\FlatFlat_r.dds",
+                emissive=f"Data\\{spw.SCREEN_TEX_PREFIX.replace('/', chr(92))}_emissive.dds",
+                luminous_emittance=120.0,
+            )
+            sp_mat = os.path.join(tmp, *spw.SCREEN_MAT_REL.split("/"))
+            os.makedirs(os.path.dirname(sp_mat), exist_ok=True)
+            with open(sp_mat, "w", encoding="utf-8") as fh:
+                fh.write(cm.dump_mat(sm_json))
 
             verified = spw.verify_staged_pipboy_wrist(tmp)
             self.assertEqual(len(verified["nifs"]), 8)
             self.assertIn(spw.SCREEN_MAT_REL, verified["local_mats"])
+            for nif_rel, nif_info in verified["summaries"].items():
+                self.assertEqual(nif_info["geometry_names"].count(spw.SCREEN_GEOM_NAME), 1, nif_rel)
 
-            # Negative: missing screen texture must fail
-            os.remove(os.path.join(tmp, *f"{spw.SCREEN_TEX_PREFIX}_color.dds".split("/")))
+            # Negative 1: missing emissive texture in screen .mat must fail
+            os.remove(os.path.join(tmp, *f"{spw.SCREEN_TEX_PREFIX}_emissive.dds".split("/")))
             with self.assertRaises(FileNotFoundError):
+                spw.verify_staged_pipboy_wrist(tmp)
+
+            # Restore emissive DDS, then Negative 2: missing EmissiveSettingsComponent must fail
+            with open(os.path.join(tmp, *f"{spw.SCREEN_TEX_PREFIX}_emissive.dds".split("/")), "wb") as fh:
+                fh.write(b"DDS_PLACEHOLDER")
+            non_emissive = cm.build_mat(
+                sm_tpl,
+                "FO4Port_PipboyScreen2D_NoEmissive",
+                f"Data\\{spw.SCREEN_TEX_PREFIX.replace('/', chr(92))}_color.dds",
+                "Data\\Shared\\FlatFlat_n.dds",
+                "Data\\Shared\\FlatFlat_r.dds",
+            )
+            with open(sp_mat, "w", encoding="utf-8") as fh:
+                fh.write(cm.dump_mat(non_emissive))
+            with self.assertRaises(ValueError):
+                spw.verify_staged_pipboy_wrist(tmp)
+
+            # Restore emissive .mat, then Negative 3: missing PipboyScreen geometry name must fail
+            with open(sp_mat, "w", encoding="utf-8") as fh:
+                fh.write(cm.dump_mat(sm_json))
+            wrong_name_res = spw.rebind_pipboy_to_wrist(
+                tpl_bytes,
+                fo4_bytes,
+                spw.is_primary_screen_shape,
+                lambda _nf, _s: housing_mat_game,
+                cuff_center_bone=spw.WRIST_CENTER_BONE_M,
+                unit_scale=spw.FO4_TO_SF_WRIST_SCALE_M,
+                group_prefix="WrongName",
+            )
+            with open(os.path.join(tmp, *spw.SCREEN_NIF_M.split("/")), "wb") as fh:
+                fh.write(wrong_name_res.nif)
+            for (d, f), mb in wrong_name_res.meshes.items():
+                mp = os.path.join(tmp, "geometries", d, f"{f}.mesh")
+                os.makedirs(os.path.dirname(mp), exist_ok=True)
+                with open(mp, "wb") as fh:
+                    fh.write(mb)
+            with self.assertRaises(ValueError):
                 spw.verify_staged_pipboy_wrist(tmp)
 
     def test_refuses_staging_inside_git_worktree(self) -> None:
@@ -321,7 +396,7 @@ wrist.EditorID = "FO4SF_PipboyWrist";
 wrist.Name = "Pip-Boy 3000";
 ng.Armors.Add(wrist);
 
-var (housingAa, screenAa) = PipboyWristBuilder.BuildWristRecords(ng, sf, wrist, sfKey, pipboyKwKey);
+var wristAa = PipboyWristBuilder.BuildWristRecords(ng, sf, wrist, sfKey, pipboyKwKey);
 
 var problems = new List<string>();
 PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) problems.Add(msg); }, pipboyKwKey);
@@ -331,27 +406,47 @@ if (problems.Count > 0)
     return 1;
 }
 
-Console.WriteLine($"OK housing={housingAa.FormKey} screen={screenAa.FormKey} hslot=0x{(ulong)(housingAa.FirstPersonFlags ?? 0):X16} sslot=0x{(ulong)(screenAa.FirstPersonFlags ?? 0):X16} slot=0x{(ulong)(wrist.FirstPersonFlags ?? 0):X16}");
+Console.WriteLine($"OK wristAa={wristAa.FormKey} wslot=0x{(ulong)(wristAa.FirstPersonFlags ?? 0):X16} slot=0x{(ulong)(wrist.FirstPersonFlags ?? 0):X16}");
 
-// Negative control 1: colliding screen slot onto bit 54 (SSChronoMark) must FAIL validation
-screenAa.FirstPersonFlags = PipboyWristBuilder.HousingSlotFlag;
-var collideProblems = new List<string>();
-PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) collideProblems.Add(msg); }, pipboyKwKey);
-if (collideProblems.Count == 0)
+// Negative control 1: setting bit 54 (SSChronoMark) on Pip-Boy ARMA must FAIL validation
+wristAa.FirstPersonFlags = PipboyWristBuilder.ForbiddenSpacesuitWatchFlag | PipboyWristBuilder.WristSlotFlag;
+var armaBit54Problems = new List<string>();
+PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) armaBit54Problems.Add(msg); }, pipboyKwKey);
+if (armaBit54Problems.Count == 0)
 {
-    Console.Error.WriteLine("negative control failed: colliding housing/screen bits passed validation");
+    Console.Error.WriteLine("negative control failed: ARMA bit 54 passed validation");
     return 2;
 }
-screenAa.FirstPersonFlags = PipboyWristBuilder.ScreenSlotFlag;
+wristAa.FirstPersonFlags = PipboyWristBuilder.WristSlotFlag;
 
-// Negative control 2: mutating wrist FirstPersonFlags back to occluded Chronomark must fail validation
+// Negative control 2: setting bit 54 (SSChronoMark) or Chronomark on Pip-Boy ARMO must FAIL validation
+wrist.FirstPersonFlags = PipboyWristBuilder.ForbiddenSpacesuitWatchFlag;
+var armoBit54Problems = new List<string>();
+PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) armoBit54Problems.Add(msg); }, pipboyKwKey);
+if (armoBit54Problems.Count == 0)
+{
+    Console.Error.WriteLine("negative control failed: ARMO bit 54 passed validation");
+    return 3;
+}
 wrist.FirstPersonFlags = SF.FirstPersonFlag.Chronomark;
 var negProblems = new List<string>();
 PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) negProblems.Add(msg); }, pipboyKwKey);
 if (negProblems.Count == 0)
 {
     Console.Error.WriteLine("negative control failed: occluded slot passed validation");
-    return 3;
+    return 4;
+}
+wrist.FirstPersonFlags = PipboyWristBuilder.WristSlotFlag;
+
+// Negative control 3: reusing retired 0x824 must FAIL validation
+var zombieAa = new SF.ArmorAddon(new FormKey(ngKey, PipboyWristBuilder.RetiredWristScreenArmaId), SF.StarfieldRelease.Starfield);
+ng.ArmorAddons.Add(zombieAa);
+var retiredProblems = new List<string>();
+PipboyWristBuilder.ValidateWristRecords(ng, wrist, (ok, msg) => { if (!ok) retiredProblems.Add(msg); }, pipboyKwKey);
+if (retiredProblems.Count == 0)
+{
+    Console.Error.WriteLine("negative control failed: retired 0x824 passed validation");
+    return 5;
 }
 
 return 0;
@@ -365,9 +460,32 @@ return 0;
                 text=True,
             )
             self.assertEqual(r.returncode, 0, msg=f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}")
-            self.assertIn("hslot=0x0040000000000000", r.stdout)
-            self.assertIn("sslot=0x0080000000000000", r.stdout)
-            self.assertIn("slot=0x00C0000000000000", r.stdout)
+            self.assertIn("wslot=0x0080000000000000", r.stdout)
+            self.assertIn("slot=0x0080000000000000", r.stdout)
+            self.assertNotIn("0x0040000000000000", r.stdout)
+
+    def test_spacesuit_check_bat_and_rtt_hook_presence(self) -> None:
+        bat_path = os.path.join(REPO, "bat", "h2s.txt")
+        self.assertTrue(os.path.isfile(bat_path), f"missing {bat_path}")
+        stem = os.path.basename(bat_path)
+        for ch in ("m", "n", "v", "M", "N", "V"):
+            self.assertNotIn(ch, stem)
+        with open(bat_path, encoding="utf-8") as fh:
+            bat_text = fh.read()
+        self.assertIn("player.additem 1E2B18 1", bat_text)
+        self.assertIn("player.equipitem 1E2B18", bat_text)
+
+        color, emissive = spw.render_fo4_status_screen_rgba()
+        self.assertEqual(color.shape, (512, 512, 4))
+        self.assertEqual(emissive.shape, (512, 512, 4))
+        self.assertGreater(int(color[:, :, 1].max()), 200)
+        self.assertGreater(int(emissive[:, :, 1].max()), 200)
+
+        main_cpp = os.path.join(REPO, "sfse", "FO4SFPipboyMenu", "src", "main.cpp")
+        with open(main_cpp, encoding="utf-8") as fh:
+            cpp_text = fh.read()
+        self.assertIn("step=pipboy_screen wrist_draw={}", cpp_text)
+        self.assertIn("OpenPipboy3DRTTMainThread", cpp_text)
 
     def test_cpp_pipboy_screen_source_header(self) -> None:
         # G5(c): shared DLL headers under sfse/**/src/*.h must hold zero FO4SFNewGame.esm constants

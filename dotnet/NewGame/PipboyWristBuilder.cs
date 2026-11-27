@@ -1,17 +1,11 @@
-// PipboyWristBuilder: Fallout 4 Pip-Boy 3000 wrist ARMO/ARMA seam for FO4SFNewGame.esm (Round 15 Wave A Item 1 / G5).
+// PipboyWristBuilder: Fallout 4 Pip-Boy 3000 wrist ARMO/ARMA seam for FO4SFNewGame.esm (Round 16 I2(c)).
 //
-// Splits FO4SF_PipboyWrist (0x80D) into two separate disjoint ARMAs cloned from Starfield.esm:0x001C9BC2
-// (AA_Spacesuit_Mark1_ChronoWatch):
-//   - 0x823 FO4SF_PipboyWristHousingAA (bit 54 SSChronoMark; M/F = *_m/f.nif, FirstPerson M/F = *_1st.nif / *_1st_f.nif)
-//   - 0x824 FO4SF_PipboyWristScreenAA  (bit 55 unused; M/F = *_m/f.nif, FirstPerson M/F = *_1st.nif / *_1st_f.nif)
+// Moves FO4SF_PipboyWrist (0x80D) completely off bit 54 (SSChronoMark, which Starfield.esm spacesuits use for
+// ChronoWatch) onto a single combined ARMA on bit 55 (housing + PipboyScreen in one NIF per sex/view):
+//   - 0x823 FO4SF_PipboyWristAA (bit 55 only; M/F = pipboy_wrist_housing_{m,f}.nif, 1st M/F = *_1st.nif / *_1st_f.nif)
+//   - 0x824 RETIRED & never reused (former FO4SF_PipboyWristScreenAA)
 // and attaches shared keyword FO4SF_Kw_Pipboy (FO4SFCoreValues.esm:0x000867) to 0x80D (FO4SF_PipboyScreenSource
-// lives at FO4SFCoreValues.esm:0x000868; local 0x825 stays retired/reserved).
-//
-// Note on BO64 / FirstPersonFlag: Starfield.esm:0x001C9BC2 (AA_Spacesuit_Mark1_ChronoWatch) uses
-// SF.FirstPersonFlag.SSChronoMark (0x0040000000000000UL, bit 54) and bit 55 (0x0080000000000000UL) is
-// unused in Starfield.esm. Housing 0x823 (bit 54) and Screen 0x824 (bit 55) are disjoint so the engine renders
-// both sub-armatures on 0x80D (bits 54|55). Behavior against clothes and spacesuits in slots 3 (BODY),
-// 8 (SleevesVisOnly), and 35 (SSBODY) is unverified until game check.
+// lives at FO4SFCoreValues.esm:0x000868; local 0x824 and 0x825 stay retired/reserved).
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Assets;
@@ -23,31 +17,23 @@ using SF = Mutagen.Bethesda.Starfield;
 
 static class PipboyWristBuilder
 {
-    public const uint WatchTemplateArmaId = 0x001C9BC2; // Starfield.esm AA_Spacesuit_Mark1_ChronoWatch
+    public const uint WatchTemplateArmaId = 0x001C9BC2; // Starfield.esm AA_Spacesuit_Mark1_ChronoWatch (used as template only; bit 54 is stripped)
     public const uint HumanRaceId = 0x00347D;         // Starfield.esm HumanRace
 
-    public const uint WristHousingArmaId = 0x823;
-    public const string WristHousingArmaEdid = "FO4SF_PipboyWristHousingAA";
-
-    public const uint WristScreenArmaId = 0x824;
-    public const string WristScreenArmaEdid = "FO4SF_PipboyWristScreenAA";
+    public const uint WristArmaId = 0x823;
+    public const string WristArmaEdid = "FO4SF_PipboyWristAA";
+    public const uint RetiredWristScreenArmaId = 0x824; // Retired in Round 16 I2(c); never reuse
 
     public const string PipboyKeywordEdid = "FO4SF_Kw_Pipboy";
-    public const string WristSlotLabel = "54,55";
+    public const string WristSlotLabel = "55";
 
-    public const SF.FirstPersonFlag HousingSlotFlag = SF.FirstPersonFlag.SSChronoMark; // bit 54 (0x0040000000000000UL)
-    public const SF.FirstPersonFlag ScreenSlotFlag = (SF.FirstPersonFlag)(1UL << 55);   // bit 55 (0x0080000000000000UL, disjoint)
-    public const SF.FirstPersonFlag WristSlotFlag = HousingSlotFlag | ScreenSlotFlag;   // bits 54|55 (0x00C0000000000000UL)
+    public const SF.FirstPersonFlag ForbiddenSpacesuitWatchFlag = SF.FirstPersonFlag.SSChronoMark; // bit 54 (0x0040000000000000UL)
+    public const SF.FirstPersonFlag WristSlotFlag = (SF.FirstPersonFlag)(1UL << 55);              // bit 55 only (0x0080000000000000UL)
 
-    public const string HousingWorldMaleModel = @"fo4port\pipboy\pipboy_wrist_housing_m.nif";
-    public const string HousingWorldFemaleModel = @"fo4port\pipboy\pipboy_wrist_housing_f.nif";
-    public const string HousingFirstPersonModel = @"fo4port\pipboy\pipboy_wrist_housing_1st.nif";
-    public const string HousingFirstPersonFemaleModel = @"fo4port\pipboy\pipboy_wrist_housing_1st_f.nif";
-
-    public const string ScreenWorldMaleModel = @"fo4port\pipboy\pipboy_wrist_screen_m.nif";
-    public const string ScreenWorldFemaleModel = @"fo4port\pipboy\pipboy_wrist_screen_f.nif";
-    public const string ScreenFirstPersonModel = @"fo4port\pipboy\pipboy_wrist_screen_1st.nif";
-    public const string ScreenFirstPersonFemaleModel = @"fo4port\pipboy\pipboy_wrist_screen_1st_f.nif";
+    public const string WristWorldMaleModel = @"fo4port\pipboy\pipboy_wrist_housing_m.nif";
+    public const string WristWorldFemaleModel = @"fo4port\pipboy\pipboy_wrist_housing_f.nif";
+    public const string WristFirstPersonModel = @"fo4port\pipboy\pipboy_wrist_housing_1st.nif";
+    public const string WristFirstPersonFemaleModel = @"fo4port\pipboy\pipboy_wrist_housing_1st_f.nif";
 
     public static readonly string[] StagedMeshRelPaths =
     {
@@ -85,11 +71,10 @@ static class PipboyWristBuilder
     }
 
     /// <summary>
-    /// Clones Starfield.esm:0x001C9BC2 (AA_Spacesuit_Mark1_ChronoWatch) into disjoint slots:
-    /// 0x823 (housing, bit 54 SSChronoMark) and 0x824 (screen, bit 55), rewires ARMO 0x80D (FO4SF_PipboyWrist)
-    /// to [0x823, 0x824] on bits 54|55, and attaches shared keyword FO4SF_Kw_Pipboy.
+    /// Clones Starfield.esm:0x001C9BC2 into a single combined ARMA 0x823 on bit 55 ONLY (off bit 54 SSChronoMark),
+    /// rewires ARMO 0x80D (FO4SF_PipboyWrist) to [0x823] on bit 55, retires 0x824, and attaches FO4SF_Kw_Pipboy.
     /// </summary>
-    public static (SF.ArmorAddon HousingAa, SF.ArmorAddon ScreenAa) BuildWristRecords(
+    public static SF.ArmorAddon BuildWristRecords(
         SF.StarfieldMod mod,
         SF.IStarfieldModGetter sf,
         SF.Armor pipboyWrist,
@@ -98,29 +83,19 @@ static class PipboyWristBuilder
     {
         var templateAa = sf.ArmorAddons.FirstOrDefault(a => a.FormKey == new FormKey(sfEsm, WatchTemplateArmaId));
 
-        var housingAa = CreateWristArma(
-            mod,
-            sfEsm,
-            templateAa,
-            WristHousingArmaId,
-            WristHousingArmaEdid,
-            HousingSlotFlag,
-            HousingWorldMaleModel,
-            HousingWorldFemaleModel,
-            HousingFirstPersonModel,
-            HousingFirstPersonFemaleModel);
+        mod.ArmorAddons.Remove(new FormKey(mod.ModKey, RetiredWristScreenArmaId));
 
-        var screenAa = CreateWristArma(
+        var wristAa = CreateWristArma(
             mod,
             sfEsm,
             templateAa,
-            WristScreenArmaId,
-            WristScreenArmaEdid,
-            ScreenSlotFlag,
-            ScreenWorldMaleModel,
-            ScreenWorldFemaleModel,
-            ScreenFirstPersonModel,
-            ScreenFirstPersonFemaleModel);
+            WristArmaId,
+            WristArmaEdid,
+            WristSlotFlag,
+            WristWorldMaleModel,
+            WristWorldFemaleModel,
+            WristFirstPersonModel,
+            WristFirstPersonFemaleModel);
 
         pipboyWrist.FirstPersonFlags = WristSlotFlag;
         pipboyWrist.MajorRecordFlagsRaw &= ~0x4; // playable
@@ -129,19 +104,14 @@ static class PipboyWristBuilder
         pipboyWrist.Armatures.Add(new SF.ArmorAddonModel
         {
             AddonIndex = 0,
-            ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(housingAa.FormKey),
-        });
-        pipboyWrist.Armatures.Add(new SF.ArmorAddonModel
-        {
-            AddonIndex = 0,
-            ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(screenAa.FormKey),
+            ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(wristAa.FormKey),
         });
         if (pipboyKeywordKey is { } kwKey)
         {
             AttachKeyword(pipboyWrist, kwKey);
         }
 
-        return (housingAa, screenAa);
+        return wristAa;
     }
 
     static SF.ArmorAddon CreateWristArma(
@@ -186,7 +156,7 @@ static class PipboyWristBuilder
     }
 
     /// <summary>
-    /// Validates ARMO 0x80D, disjoint ARMAs 0x823 (bit 54) &amp; 0x824 (bit 55), and FO4SF_Kw_Pipboy keyword.
+    /// Validates ARMO 0x80D, single ARMA 0x823 on bit 55 only, retired 0x824, zero bit-54 usage, and FO4SF_Kw_Pipboy.
     /// </summary>
     public static void ValidateWristRecords(
         SF.IStarfieldModGetter plug,
@@ -195,31 +165,37 @@ static class PipboyWristBuilder
         FormKey? pipboyKeywordKey = null)
     {
         var key = plug.ModKey;
-        var housingAa = plug.ArmorAddons.FirstOrDefault(a => a.FormKey == new FormKey(key, WristHousingArmaId));
-        var screenAa = plug.ArmorAddons.FirstOrDefault(a => a.FormKey == new FormKey(key, WristScreenArmaId));
+        var wristAa = plug.ArmorAddons.FirstOrDefault(a => a.FormKey == new FormKey(key, WristArmaId));
+        var retiredAa = plug.ArmorAddons.FirstOrDefault(a => a.FormKey == new FormKey(key, RetiredWristScreenArmaId));
 
-        need(plug.ArmorAddons.Count == 2 && housingAa is not null && screenAa is not null,
-             $"expected 2 ARMAs (0x{WristHousingArmaId:X}, 0x{WristScreenArmaId:X}), found {plug.ArmorAddons.Count}");
+        need(retiredAa is null,
+             $"retired FormID 0x{RetiredWristScreenArmaId:X} must not carry an ARMA record");
+        need(plug.ArmorAddons.Count == 1 && wristAa is not null,
+             $"expected 1 ARMA (0x{WristArmaId:X}), found {plug.ArmorAddons.Count}");
 
-        ValidateArma(housingAa, WristHousingArmaId, WristHousingArmaEdid, HousingSlotFlag,
-                     HousingWorldMaleModel, HousingWorldFemaleModel,
-                     HousingFirstPersonModel, HousingFirstPersonFemaleModel, need);
-        ValidateArma(screenAa, WristScreenArmaId, WristScreenArmaEdid, ScreenSlotFlag,
-                     ScreenWorldMaleModel, ScreenWorldFemaleModel,
-                     ScreenFirstPersonModel, ScreenFirstPersonFemaleModel, need);
+        foreach (var aa in plug.ArmorAddons)
+        {
+            ulong bits = (ulong)(aa.FirstPersonFlags ?? 0);
+            need((bits & (ulong)ForbiddenSpacesuitWatchFlag) == 0,
+                 $"Pip-Boy ARMA 0x{aa.FormKey.ID:X} ({aa.EditorID}) must not use bit 54 (SSChronoMark spacesuit clash): 0x{bits:X16}");
+        }
+        foreach (var armo in plug.Armors)
+        {
+            ulong bits = (ulong)(armo.FirstPersonFlags ?? 0);
+            need((bits & (ulong)ForbiddenSpacesuitWatchFlag) == 0,
+                 $"Pip-Boy ARMO 0x{armo.FormKey.ID:X} ({armo.EditorID}) must not use bit 54 (SSChronoMark spacesuit clash): 0x{bits:X16}");
+        }
 
-        ulong housingBits = (ulong)(housingAa?.FirstPersonFlags ?? 0);
-        ulong screenBits = (ulong)(screenAa?.FirstPersonFlags ?? 0);
-        need(housingBits != 0 && screenBits != 0 && (housingBits & screenBits) == 0,
-             $"housing ARMA 0x{WristHousingArmaId:X} (0x{housingBits:X16}) and screen ARMA 0x{WristScreenArmaId:X} (0x{screenBits:X16}) must use disjoint FirstPersonFlags");
+        ValidateArma(wristAa, WristArmaId, WristArmaEdid, WristSlotFlag,
+                     WristWorldMaleModel, WristWorldFemaleModel,
+                     WristFirstPersonModel, WristFirstPersonFemaleModel, need);
 
         need(pipboyWrist is not null &&
              pipboyWrist.FirstPersonFlags == WristSlotFlag &&
              (pipboyWrist.MajorRecordFlagsRaw & 0x4) == 0 &&
-             pipboyWrist.Armatures.Count == 2 &&
-             pipboyWrist.Armatures[0].ArmorAddon.FormKey == new FormKey(key, WristHousingArmaId) &&
-             pipboyWrist.Armatures[1].ArmorAddon.FormKey == new FormKey(key, WristScreenArmaId),
-             $"ARMO FO4SF_PipboyWrist is not playable {WristSlotFlag} (0x{(ulong)WristSlotFlag:X16}) pointing to [0x{WristHousingArmaId:X}, 0x{WristScreenArmaId:X}]");
+             pipboyWrist.Armatures.Count == 1 &&
+             pipboyWrist.Armatures[0].ArmorAddon.FormKey == new FormKey(key, WristArmaId),
+             $"ARMO FO4SF_PipboyWrist is not playable {WristSlotFlag} (0x{(ulong)WristSlotFlag:X16}) pointing to [0x{WristArmaId:X}]");
 
         if (pipboyKeywordKey is { } kwKey)
         {

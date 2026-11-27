@@ -1147,8 +1147,8 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
         records.setdefault(0x820, ("REFR", "FO4SF_Vault111PistolRef"))
         records.setdefault(0x821, ("REFR", "FO4SF_Vault111AmmoRef"))
         records.setdefault(0x822, ("WEAP", "FO4SF_Vault111_10mm"))
-        records.setdefault(0x823, ("ARMA", "FO4SF_PipboyWristHousingAA"))
-        records.setdefault(0x824, ("ARMA", "FO4SF_PipboyWristScreenAA"))
+        records.setdefault(0x823, ("ARMA", "FO4SF_PipboyWristAA"))
+        # 0x824 retired (former FO4SF_PipboyWristScreenAA; housing + PipboyScreen merged onto 0x823 bit 55)
 
     return plugin, records
 
