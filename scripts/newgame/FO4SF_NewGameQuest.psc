@@ -313,10 +313,30 @@ string Property ArrivalWeatherPlugin = "Starfield.esm" Auto Const
 bool Property ArrivalWeatherOverride = true Auto Const
 int Property VaultSuitFallbackId = 0x0001D1D7 Auto Const
 string Property VaultSuitFallbackPlugin = "Starfield.esm" Auto Const
-string Property PodExitMode = "safe_spawn" Auto Const
+string Property PodExitMode = "cryopod_anim" Auto Const
 float Property PodEntryStep = -2.5 Auto Const
 float Property PodSafeStep = -3.2 Auto Const
 float Property PodSafeHeading = 270.0 Auto Const
+float Property PodOriginX = 0.0 Auto Const
+float Property PodOriginY = 0.0 Auto Const
+float Property PodOriginZ = 0.0 Auto Const
+float Property PodSeatX = 0.0 Auto Const
+float Property PodSeatY = 0.0 Auto Const
+float Property PodSeatZ = 0.0 Auto Const
+string Property PodAnimPlugin = "FO4SFVaultPod.esm" Auto Const
+int Property PodAnimRefId = 0x000801 Auto Const
+string Property PodStaticRefPlugin = "FO4Port.esm" Auto Const
+int Property PodStaticRefId = 0x001617 Auto Const
+string Property PodOpenEvent = "Play01" Auto Const
+float Property PodOpenSeconds = 5.3333 Auto Const
+float Property PodDoneMargin = 0.25 Auto Const
+float Property PodOpenTimeoutS = 8.0 Auto Const
+float Property PodSeatStepM = -0.55 Auto Const
+float Property PodSeatHeadingDeg = 180.0 Auto Const
+float Property PodStepOutToM = -2.5 Auto Const
+float Property PodPushToleranceM = 0.35 Auto Const
+float Property PodExitTimeoutS = 20.0 Auto Const
+bool Property PodCreatorInPod = false Auto Const
 string[] Property SurfaceCogPlugins Auto Const
 float[] Property SurfaceCogLocalX Auto Const
 float[] Property SurfaceCogLocalY Auto Const
@@ -468,6 +488,19 @@ bool vaultRecoveryTriggered = false
 int vaultPodAutosaveSkips = 0
 bool surfaceFadeInDone = false
 bool podExitDone = false
+bool podExitStarted = false
+InputEnableLayer podHoldLayer = None
+ObjectReference podAnimRef = None
+bool podDoorDone = false
+bool podAnimOpened = false
+bool podFellBack = false
+int podExitPhase = 0
+float podOpenStartedAt = 0.0
+float podStepOutStartedAt = 0.0
+float podLastOpenDuration = 0.0
+bool podLooksDone = false
+string podLooksHow = ""
+string podLooksBy = "Trigger"
 float ascentGapStartedAt = 0.0
 ObjectReference[] surfaceCogRefs = None
 bool[] surfaceCogActivationReg = None
@@ -577,8 +610,8 @@ Function Begin(string route)
         if UsePreworldRoom()
             PrepareStartRoomUi("start")
             Game.ShowFirstPersonGeometry(false)
-        else
-            FadeIn("start")                                  ; else the timer fades in once the 3D is in
+        elseif !PodAnimReady()
+            FadeIn("start")                                  ; else the timer fades in once the 3D is in (cryopod_anim fades in right before StartMessage.Show)
         endif
     endif
 EndFunction
@@ -632,7 +665,11 @@ Function FadeIn(string by)
     UnregisterStartLoadingHook()
     Actor player = Game.GetPlayer()
     if vaultMoves > 0 && StandsInVault(player)
-        player.SetAngle(0.0, 0.0, PodHeading)
+        if PodAnimReady() && !podFellBack && !podExitDone
+            player.SetAngle(0.0, 0.0, PodSeatHeadingDeg)
+        else
+            player.SetAngle(0.0, 0.0, PodHeading)
+        endif
     endif
     Game.ShowFirstPersonGeometry(true)
     Game.FadeOutGame(False, True, 0.0, 0.1, False)
@@ -653,6 +690,80 @@ Function DisableHandScanner()
     endif
 EndFunction
 
+bool Function PodAnimReady()
+    if PodExitMode != "cryopod_anim"
+        return false
+    endif
+    return Game.GetFormFromFile(0x000800, PodAnimPlugin) != None
+EndFunction
+
+bool Function ShouldSkipMenuDelay()
+    return PodAnimReady() && !podFellBack
+EndFunction
+
+Function EnsureFadedInForChoice()
+    if !faded
+        FadeIn("stage10_choice")
+    endif
+EndFunction
+
+Function PrepareBeforeCreator()
+    if !PodAnimReady() || PodCreatorInPod || podFellBack
+        return
+    endif
+    Actor player = Game.GetPlayer()
+    if player == None
+        return
+    endif
+    Game.FadeOutGame(True, True, 0.0, 0.25, False)
+    Utility.Wait(0.3)
+    ReleasePodHold()
+    float entryX = PodEntryX()
+    float entryY = PodEntryY()
+    float entryZ = PodZ + PodLift
+    if player.IsInInterior() && StandsInVault(player)
+        player.SetPosition(entryX, entryY, entryZ)
+        player.SetAngle(0.0, 0.0, PodHeading)
+    else
+        ObjectReference anchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if anchor != None
+            player.MoveTo(anchor, entryX - AnchorX, entryY - AnchorY, entryZ - AnchorZ, False, False)
+            player.SetAngle(0.0, 0.0, PodHeading)
+        endif
+    endif
+EndFunction
+
+Function NoteLooksDone(string how)
+    string by = "Trigger"
+    if how == "creator closed"
+        by = "scene"
+    endif
+    podLooksDone = true
+    podLooksHow = how
+    podLooksBy = by
+    looksSetStage20 = true
+    Actor player = Game.GetPlayer()
+    if how == "creator closed" && PodAnimReady() && !PodCreatorInPod && !podFellBack && player != None
+        float seatX = PodSeatPosX()
+        float seatY = PodSeatPosY()
+        float seatZ = PodZ + PodLift
+        if player.IsInInterior() && StandsInVault(player)
+            player.SetPosition(seatX, seatY, seatZ)
+            player.SetAngle(0.0, 0.0, PodSeatHeadingDeg)
+        else
+            ObjectReference anchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+            if anchor != None
+                player.MoveTo(anchor, seatX - AnchorX, seatY - AnchorY, seatZ - AnchorZ, False, False)
+                player.SetAngle(0.0, 0.0, PodSeatHeadingDeg)
+            endif
+        endif
+        HoldInPod(player)
+        Utility.Wait(0.15)
+        Game.FadeOutGame(False, True, 0.0, 0.1, False)
+    endif
+    StartPodOpen(player)
+EndFunction
+
 Function NoteLooksStage20()
     looksSetStage20 = true
     RunPodExitHook(Game.GetPlayer())
@@ -667,22 +778,310 @@ EndFunction
 
 bool Function IsPreworldLooksHandled()
     if !FadeHold
-        return looksSetStage20
+        return looksSetStage20 || podLooksDone
     endif
-    return preworldLooksDone || looksSetStage20 || UsePreworldRoom()
+    return preworldLooksDone || looksSetStage20 || podLooksDone || UsePreworldRoom()
+EndFunction
+
+float Function PodEntryX()
+    if PodOriginX != 0.0 || PodOriginY != 0.0
+        return PodOriginX + PodEntryStep * Math.sin(PodHeading)
+    endif
+    return PodX
 EndFunction
 
 float Function PodEntryY()
+    if PodOriginX != 0.0 || PodOriginY != 0.0
+        return PodOriginY + PodEntryStep * Math.cos(PodHeading)
+    endif
     return PodY + (PodEntryStep + 2.5)
 EndFunction
 
+float Function PodSafeX()
+    if PodOriginX != 0.0 || PodOriginY != 0.0
+        return PodOriginX + PodSafeStep * Math.sin(PodHeading)
+    endif
+    return PodX
+EndFunction
+
 float Function PodSafeY()
+    if PodOriginX != 0.0 || PodOriginY != 0.0
+        return PodOriginY + PodSafeStep * Math.cos(PodHeading)
+    endif
     return PodEntryY() + (PodSafeStep - PodEntryStep)
 EndFunction
 
+float Function PodSeatPosX()
+    if PodSeatX != 0.0 || PodSeatY != 0.0
+        return PodSeatX
+    endif
+    if PodOriginX != 0.0 || PodOriginY != 0.0
+        return PodOriginX + PodSeatStepM * Math.sin(PodHeading)
+    endif
+    return PodX
+EndFunction
+
+float Function PodSeatPosY()
+    if PodSeatX != 0.0 || PodSeatY != 0.0
+        return PodSeatY
+    endif
+    if PodOriginX != 0.0 || PodOriginY != 0.0
+        return PodOriginY + PodSeatStepM * Math.cos(PodHeading)
+    endif
+    return PodY
+EndFunction
+
+Function HoldInPod(Actor player)
+    if podHoldLayer == None
+        podHoldLayer = InputEnableLayer.Create()
+        if podHoldLayer != None
+            podHoldLayer.DisablePlayerControls(true, true, true, true, true, false, true, false, true, true, true)
+        endif
+    endif
+    Game.ForceFirstPerson()
+    ObjectReference pod = Game.GetFormFromFile(PodAnimRefId, PodAnimPlugin) as ObjectReference
+    if pod != None && pod.Is3DLoaded()
+        pod.BlockActivation(true, true)
+    endif
+    Trace("pod_hold on seat=" + PodSeatPosX() + " " + PodSeatPosY() + " " + (PodZ + PodLift) + " heading=" + PodSeatHeadingDeg)
+EndFunction
+
+Function ReleasePodHold()
+    if podHoldLayer != None
+        podHoldLayer.Delete()
+        podHoldLayer = None
+    endif
+    Trace("pod_hold off")
+EndFunction
+
+Function CompleteLooksStage20AfterPodExit()
+    if !podExitDone
+        return
+    endif
+    string by = podLooksBy
+    if by == ""
+        by = "Trigger"
+    endif
+    AdvanceTo(20, by)
+    TriggerVaultPodRecoveryAutosave(20)
+EndFunction
+
+Function PodFallback(Actor player, string reason)
+    ReleasePodHold()
+    podExitPhase = 0
+    if podAnimRef != None
+        UnregisterForAnimationEvent(podAnimRef, "Done")
+    endif
+    bool preChoice = !podExitStarted && GetStage() <= 10
+    podFellBack = true
+    if preChoice
+        float entryX = PodEntryX()
+        float entryY = PodEntryY()
+        float entryZ = PodZ + PodLift
+        if player != None && player.IsInInterior() && StandsInVault(player)
+            player.SetPosition(entryX, entryY, entryZ)
+            player.SetAngle(0.0, 0.0, PodHeading)
+        elseif player != None
+            ObjectReference anchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+            if anchor != None
+                player.MoveTo(anchor, entryX - AnchorX, entryY - AnchorY, entryZ - AnchorZ, False, False)
+                player.SetAngle(0.0, 0.0, PodHeading)
+            endif
+        endif
+        Trace("pod_exit mode=safe_spawn fallback_from=cryopod_anim reason=" + reason)
+        return
+    endif
+    float safeX = PodSafeX()
+    float safeY = PodSafeY()
+    float safeZ = PodZ + PodLift
+    if player != None && player.IsInInterior() && StandsInVault(player)
+        player.SetPosition(safeX, safeY, safeZ)
+        player.SetAngle(0.0, 0.0, PodSafeHeading)
+    elseif player != None
+        ObjectReference anchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if anchor != None
+            player.MoveTo(anchor, safeX - AnchorX, safeY - AnchorY, safeZ - AnchorZ, False, False)
+            player.SetAngle(0.0, 0.0, PodSafeHeading)
+        endif
+    endif
+    podExitDone = true
+    if applied < 15
+        applied = 15
+        Trace("stage 15 by=safe_spawn")
+    endif
+    if GetStage() < 15
+        SetStage(15)
+    endif
+    Trace("pod_exit mode=safe_spawn fallback_from=cryopod_anim reason=" + reason)
+    CompleteLooksStage20AfterPodExit()
+EndFunction
+
+Function StartPodOpen(Actor player)
+    if podExitDone || podExitStarted
+        return
+    endif
+    if PodExitMode != "cryopod_anim"
+        RunPodExitHook(player)
+        CompleteLooksStage20AfterPodExit()
+        return
+    endif
+    if !PodAnimReady()
+        podExitStarted = true
+        PodFallback(player, "no_pod_plugin")
+        return
+    endif
+    if podFellBack
+        podExitStarted = true
+        float safeX = PodSafeX()
+        float safeY = PodSafeY()
+        float safeZ = PodZ + PodLift
+        if player != None && player.IsInInterior() && StandsInVault(player)
+            player.SetPosition(safeX, safeY, safeZ)
+            player.SetAngle(0.0, 0.0, PodSafeHeading)
+        endif
+        podExitDone = true
+        if applied < 15
+            applied = 15
+            Trace("stage 15 by=safe_spawn")
+        endif
+        if GetStage() < 15
+            SetStage(15)
+        endif
+        CompleteLooksStage20AfterPodExit()
+        return
+    endif
+    podExitStarted = true
+    if applied < 15
+        applied = 15
+        Trace("stage 15 by=cryopod_anim")
+    endif
+    if GetStage() < 15
+        SetStage(15)
+    endif
+    podAnimRef = Game.GetFormFromFile(PodAnimRefId, PodAnimPlugin) as ObjectReference
+    if podAnimRef == None
+        PodFallback(player, "no_pod_ref")
+        return
+    endif
+    if !podAnimRef.Is3DLoaded()
+        podAnimRef.WaitFor3DLoad()
+        if !podAnimRef.Is3DLoaded()
+            PodFallback(player, "not_loaded")
+            return
+        endif
+    endif
+    ObjectReference staticPod = Game.GetFormFromFile(PodStaticRefId, PodStaticRefPlugin) as ObjectReference
+    if staticPod != None && !staticPod.IsDisabled()
+        staticPod.DisableNoWait()
+    endif
+    if podHoldLayer == None
+        HoldInPod(player)
+    endif
+    RegisterForAnimationEvent(podAnimRef, "Done")
+    bool accepted = podAnimRef.PlayAnimation(PodOpenEvent)
+    Trace("pod_open play=" + PodOpenEvent + " accepted=" + accepted)
+    if !accepted
+        UnregisterForAnimationEvent(podAnimRef, "Done")
+        PodFallback(player, "play_refused")
+        return
+    endif
+    podDoorDone = false
+    podExitPhase = 1
+    podOpenStartedAt = Utility.GetCurrentRealTime()
+    StartTimer(0.1, 8)
+EndFunction
+
+Function HandlePodAnimTimer(Actor player)
+    if podExitDone || !podExitStarted
+        return
+    endif
+    if podExitPhase == 1
+        if !podDoorDone && player != None
+            float curDx = player.GetPositionX() - PodSeatPosX()
+            float curDy = player.GetPositionY() - PodSeatPosY()
+            if Math.sqrt(curDx * curDx + curDy * curDy) > PodPushToleranceM
+                UnregisterForAnimationEvent(podAnimRef, "Done")
+                PodFallback(player, "pushed")
+                return
+            endif
+        endif
+        if podDoorDone
+            if podAnimRef != None
+                UnregisterForAnimationEvent(podAnimRef, "Done")
+            endif
+            podAnimOpened = true
+            ReleasePodHold()
+            Trace("pod_step_out by=walk")
+            podExitPhase = 2
+            podStepOutStartedAt = Utility.GetCurrentRealTime()
+            StartTimer(0.1, 8)
+            return
+        endif
+        float openElapsed = Utility.GetCurrentRealTime() - podOpenStartedAt
+        if openElapsed >= PodOpenTimeoutS
+            if podAnimRef != None
+                UnregisterForAnimationEvent(podAnimRef, "Done")
+            endif
+            PodFallback(player, "open_timeout")
+            return
+        endif
+        StartTimer(0.1, 8)
+        return
+    endif
+    if podExitPhase == 2
+        if player != None
+            float px = player.GetPositionX()
+            float py = player.GetPositionY()
+            float pz = player.GetPositionZ()
+            float dx = px - PodSeatPosX()
+            float dy = py - PodSeatPosY()
+            float walked = Math.sqrt(dx * dx + dy * dy)
+            if walked >= 1.0
+                podExitDone = true
+                podExitPhase = 0
+                Trace("pod_exit mode=cryopod_anim hook_stage=15 moved=true pos=" + px + " " + py + " " + pz + " heading=" + player.GetAngleZ() + " open_s=" + podLastOpenDuration + " by=walk")
+                CompleteLooksStage20AfterPodExit()
+                return
+            endif
+            float walkElapsed = Utility.GetCurrentRealTime() - podStepOutStartedAt
+            if walkElapsed >= PodExitTimeoutS
+                podExitDone = true
+                podExitPhase = 0
+                Trace("pod_exit mode=cryopod_anim hook_stage=15 moved=false pos=" + px + " " + py + " " + pz + " heading=" + player.GetAngleZ() + " open_s=" + podLastOpenDuration + " by=timeout")
+                CompleteLooksStage20AfterPodExit()
+                return
+            endif
+        endif
+        StartTimer(0.1, 8)
+    endif
+EndFunction
+
 Function RunPodExitHook(Actor player)
-{Stage 15 pod-exit seam: places the player clear of the cryo pod facing PodSafeHeading (safe_spawn) or reserves the cryopod_anim hook without touching fade or exit lift.}
+{Stage 15 pod-exit seam: places the player clear of the cryo pod facing PodSafeHeading (safe_spawn) or invokes StartPodOpen for cryopod_anim.}
     if podExitDone
+        return
+    endif
+    if PodExitMode == "cryopod_anim" && PodAnimReady() && !podFellBack
+        if !podExitStarted
+            float animX = PodSeatPosX()
+            float animY = PodSeatPosY()
+            float animZ = PodZ + PodLift
+            float animHdg = PodSeatHeadingDeg
+            if player != None
+                animX = player.GetPositionX()
+                animY = player.GetPositionY()
+                animZ = player.GetPositionZ()
+                animHdg = player.GetAngleZ()
+            endif
+            if applied < 15
+                applied = 15
+                Trace("stage 15 by=" + PodExitMode)
+            endif
+            if GetStage() < 15
+                SetStage(15)
+            endif
+            Trace("pod_exit mode=cryopod_anim_hook hook_stage=15 moved=false pos=" + animX + " " + animY + " " + animZ + " heading=" + animHdg)
+        endif
         return
     endif
     podExitDone = true
@@ -693,22 +1092,8 @@ Function RunPodExitHook(Actor player)
     if GetStage() < 15
         SetStage(15)
     endif
-    if PodExitMode == "cryopod_anim"
-        float animX = PodX
-        float animY = PodY
-        float animZ = PodZ + PodLift
-        float animHdg = PodHeading
-        if player != None
-            animX = player.GetPositionX()
-            animY = player.GetPositionY()
-            animZ = player.GetPositionZ()
-            animHdg = player.GetAngleZ()
-        endif
-        Trace("pod_exit mode=cryopod_anim_hook hook_stage=15 moved=false pos=" + animX + " " + animY + " " + animZ + " heading=" + animHdg)
-        return
-    endif
-    if PodExitMode == "safe_spawn"
-        float safeX = PodX
+    if PodExitMode == "safe_spawn" || podFellBack
+        float safeX = PodSafeX()
         float safeY = PodSafeY()
         float safeZ = PodZ + PodLift
         bool moved = false
@@ -743,6 +1128,15 @@ EndFunction
 
 Function ApplyStage(int n, string by)
     if n <= applied
+        return
+    endif
+    if n == 20 && !podExitDone && PodAnimReady() && !podFellBack
+        if !podExitStarted
+            podLooksDone = true
+            podLooksHow = "stage_20"
+            podLooksBy = by
+            StartPodOpen(Game.GetPlayer())
+        endif
         return
     endif
     applied = n
@@ -814,6 +1208,10 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 8
+        HandlePodAnimTimer(Game.GetPlayer())
+        return
+    endif
     if aiTimerID == 6
         RelockVaultSaving(Game.GetPlayer(), GetStage())
         return
@@ -907,7 +1305,9 @@ Event OnTimer(int aiTimerID)
                 return
             endif
         else
-            FadeIn("timer")                                  ; once: the start may still be in its 3D wait
+            if !PodAnimReady()
+                FadeIn("timer")                                  ; once: the start may still be in its 3D wait
+            endif
             if !entered
                 if vaultMoves > 0 && StandsInVault(player)
                     ; the start's move took once the load was through (the cell check right after a MoveTo during the first
@@ -932,8 +1332,17 @@ Event OnTimer(int aiTimerID)
                 ResetInventory(player)
                 FillO2(player)
             endif
+            if PodAnimReady() && !podFellBack
+                HoldInPod(player)
+                if !podChecked && player.Is3DLoaded()
+                    CheckPod(player)
+                endif
+            endif
             AdvanceTo(10)
             startedAt = Utility.GetCurrentRealTime()
+            if PodAnimReady() && !podFellBack
+                EnsureFadedInForChoice()
+            endif
         endif
     elseif stage == 5
         if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 1
@@ -956,21 +1365,29 @@ Event OnTimer(int aiTimerID)
             CheckPod(player)
         endif
         EnsureVaultInteractivesRegistered()
-        if preworldLooksDone
-            preworldLooksDone = false
-            looksSetStage20 = true
-            Trace("looks done: " + preworldLooksHow)
-            RunPodExitHook(player)
-            AdvanceTo(20, preworldLooksBy)
-        elseif Utility.GetCurrentRealTime() - startedAt > LooksWait
-            if LooksWait > 0.0
-                Trace("looks done: LooksWait fallback after " + LooksWait + " s")
-                RunPodExitHook(player)
-                AdvanceTo(20, "fallback")
-            else
-                Trace("looks done: no-looks immediate start")
-                RunPodExitHook(player)
-                AdvanceTo(20, "Trigger")
+        if !podExitStarted
+            if preworldLooksDone
+                preworldLooksDone = false
+                looksSetStage20 = true
+                podLooksDone = true
+                podLooksHow = preworldLooksHow
+                podLooksBy = preworldLooksBy
+                Trace("looks done: " + preworldLooksHow)
+                EnsureFadedInForChoice()
+                StartPodOpen(player)
+            elseif !podLooksDone && Utility.GetCurrentRealTime() - startedAt > LooksWait
+                podLooksDone = true
+                if LooksWait > 0.0
+                    podLooksHow = "LooksWait fallback"
+                    podLooksBy = "fallback"
+                    Trace("looks done: LooksWait fallback after " + LooksWait + " s")
+                else
+                    podLooksHow = "no-looks"
+                    podLooksBy = "Trigger"
+                    Trace("looks done: no-looks immediate start")
+                endif
+                EnsureFadedInForChoice()
+                StartPodOpen(player)
             endif
         endif
     elseif stage == 20 || stage == 30
@@ -1052,14 +1469,6 @@ Function HoldOffPass(int pass)
 EndFunction
 
 bool Function EnterVault(Actor player)
-{MoveTo the vault's anchor with the pod's offset (the verified MoveTo form of the mission and FO4SF_Probe), then the
- pod's heading. False when the anchor does not resolve or the player did not land in the anchor's cell; vaultMoves counts
- the MoveTo calls, so Begin can tell "moved, the cell not confirmed yet" from "nothing moved". The first call is Begin's,
- during the first load, as MQ101's own intro moves the player then; whether GetParentCell already names the vault right
- after it is unverified, so the timer confirms the cell once the 3D has loaded before it moves again. In the
- temporary-anchor mode an unresolved anchor means the cell is not loaded yet: CenterOnVault loads it and the retry one
- tick later resolves the marker; the MoveTo then applies the pod's offset even though the player already stands in the
- cell (on the COC marker), so the two modes end at the same spot.}
     ObjectReference anchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
     if anchor == None
         if AnchorTemporary
@@ -1068,12 +1477,26 @@ bool Function EnterVault(Actor player)
         Trace("vault anchor " + VaultPlugin + ":" + VaultAnchorId + " does not resolve")
         return false
     endif
-    float entryY = PodEntryY()
-    player.MoveTo(anchor, PodX - AnchorX, entryY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
+    bool useSeat = PodAnimReady() && !podFellBack
+    float targetX = PodEntryX()
+    float targetY = PodEntryY()
+    float targetZ = PodZ + PodLift
+    float targetHdg = PodHeading
+    string enterMode = "entry_point"
+    if useSeat
+        targetX = PodSeatPosX()
+        targetY = PodSeatPosY()
+        targetHdg = PodSeatHeadingDeg
+        enterMode = "pod_seat"
+    endif
+    player.MoveTo(anchor, targetX - AnchorX, targetY - AnchorY, targetZ - AnchorZ, False, False)
     vaultMoves += 1
-    player.SetAngle(0.0, 0.0, PodHeading)
+    player.SetAngle(0.0, 0.0, targetHdg)
     bool ok = player.GetParentCell() == anchor.GetParentCell()
-    Trace("enter vault ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + PodX + " " + entryY + " " + (PodZ + PodLift) + " cell=" + player.GetParentCell())
+    Trace("enter vault ok=" + ok + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " target=" + targetX + " " + targetY + " " + targetZ + " cell=" + player.GetParentCell() + " mode=" + enterMode)
+    if ok && useSeat
+        HoldInPod(player)
+    endif
     if ok && TestModeGlobal != None && TestModeGlobal.GetValue() != 0.0
         Debug.Notification("Vault 111")
     endif
@@ -1084,24 +1507,39 @@ Function CheckPod(Actor player)
 {Where the player stands the first tick they are loaded after the move into the pod: the "pod settle" line (PodRadius,
  PodDrop). In run 3 of 28 Oct that tick came after the game had already put the sunk player on the COC marker.}
     podChecked = true
-    ; One set of sequential readings, not an atomic engine snapshot. Earlier lines read XYZ again after computing
-    ; dx/dy/drop, so a moving actor could print coordinates that did not reproduce those deltas.
     float sampleStart = Utility.GetCurrentRealTime()
     float sampleX = player.GetPositionX()
     float sampleY = player.GetPositionY()
     float sampleZ = player.GetPositionZ()
+    bool checkSeat = PodAnimReady() && !podFellBack && !podExitStarted && GetStage() < 15
+    float targetX = PodEntryX()
     float targetY = PodEntryY()
+    if checkSeat
+        targetX = PodSeatPosX()
+        targetY = PodSeatPosY()
+    endif
     float targetZ = PodZ + PodLift
-    float dx = sampleX - PodX
+    float dx = sampleX - targetX
     float dy = sampleY - targetY
+    float distXY = Math.sqrt(dx * dx + dy * dy)
     float drop = targetZ - sampleZ
-    bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop
+    bool pushed = false
+    bool ok = false
+    if checkSeat
+        pushed = distXY > PodPushToleranceM
+        ok = !pushed && drop <= PodDrop
+    else
+        ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop
+    endif
     float sampledHeading = player.GetAngleZ()
     bool sampledLoaded = player.Is3DLoaded()
     Cell sampledCell = player.GetParentCell()
     WorldSpace sampledWorld = player.GetWorldSpace()
     float sampleEnd = Utility.GetCurrentRealTime()
-    Trace("pod settle ok=" + ok + " pos=" + sampleX + " " + sampleY + " " + sampleZ + " dx=" + dx + " dy=" + dy + " drop=" + drop + " target=" + PodX + " " + targetY + " " + targetZ + " heading=" + sampledHeading + " loaded=" + sampledLoaded + " cell=" + sampledCell + " world=" + sampledWorld + " sample_start=" + sampleStart + " sample_end=" + sampleEnd)
+    Trace("pod settle ok=" + ok + " pos=" + sampleX + " " + sampleY + " " + sampleZ + " dx=" + dx + " dy=" + dy + " drop=" + drop + " target=" + targetX + " " + targetY + " " + targetZ + " heading=" + sampledHeading + " loaded=" + sampledLoaded + " cell=" + sampledCell + " world=" + sampledWorld + " sample_start=" + sampleStart + " sample_end=" + sampleEnd + " pushed=" + pushed)
+    if pushed && checkSeat
+        PodFallback(player, "pushed")
+    endif
 EndFunction
 
 bool Function StandsInVault(Actor player)
@@ -1480,6 +1918,19 @@ Function PromptVaultExitLift(Actor player)
 EndFunction
 
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+    if podAnimRef != None && akSource == podAnimRef
+        if asEventName == "Done" && podExitPhase == 1
+            float podElapsed = Utility.GetCurrentRealTime() - podOpenStartedAt
+            if podElapsed >= PodOpenSeconds - PodDoneMargin
+                podDoorDone = true
+                podLastOpenDuration = podElapsed
+                Trace("pod_open done elapsed=" + podElapsed + " ref=" + akSource)
+            else
+                Trace("pod_open ignored early_done elapsed=" + podElapsed)
+            endif
+        endif
+        return
+    endif
     if asEventName != "Done"
         return
     endif
@@ -2129,6 +2580,9 @@ Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
         return
     endif
     vaultRecoveryTriggered = true
+    if podHoldLayer != None
+        ReleasePodHold()
+    endif
     if vaultPodAutosaved
         Trace("vault_death_recovery=autosave stage=" + st)
         return
@@ -2137,19 +2591,25 @@ Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
     if healthAv != None
         akSender.RestoreValue(healthAv, 9999.0)
     endif
+    float resetX = PodEntryX()
     float resetY = PodEntryY()
     float resetHeading = PodHeading
-    if PodExitMode == "safe_spawn"
+    if PodAnimReady() && !podFellBack && !podExitDone && st < 20
+        resetX = PodSeatPosX()
+        resetY = PodSeatPosY()
+        resetHeading = PodSeatHeadingDeg
+    elseif PodExitMode == "safe_spawn" || podFellBack
+        resetX = PodSafeX()
         resetY = PodSafeY()
         resetHeading = PodSafeHeading
     endif
     if akSender.IsInInterior() && StandsInVault(akSender)
-        akSender.SetPosition(PodX, resetY, PodZ + PodLift)
+        akSender.SetPosition(resetX, resetY, PodZ + PodLift)
         akSender.SetAngle(0.0, 0.0, resetHeading)
     else
         ObjectReference podAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
         if podAnchor != None
-            akSender.MoveTo(podAnchor, PodX - AnchorX, resetY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
+            akSender.MoveTo(podAnchor, resetX - AnchorX, resetY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
             akSender.SetAngle(0.0, 0.0, resetHeading)
         endif
     endif
@@ -2185,6 +2645,15 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     endif
     EnsurePipboyWristEquipped(akSender, "load")
     RecoverPairedLiftOnLoad(akSender)
+    if podExitDone && PodAnimReady() && !podFellBack
+        ObjectReference podReloadRef = Game.GetFormFromFile(PodAnimRefId, PodAnimPlugin) as ObjectReference
+        if podReloadRef != None && podReloadRef.Is3DLoaded()
+            podReloadRef.PlayAnimation(PodOpenEvent)
+        endif
+        Trace("pod_state on_load=open")
+    elseif podExitStarted && !podExitDone && PodAnimReady() && !podFellBack
+        StartTimer(0.1, 8)
+    endif
     if st != 1
         StartTimer(1.0, 1)
     endif
@@ -2541,7 +3010,9 @@ Function SpawnAtStoryStartPlace(Actor player, int placeRow)
         w3d += 0.25
     endwhile
     entered = movedOk || StandsInVault(player)
-    FadeIn("mode_story")
+    if entered && PodAnimReady() && !podFellBack && StandsInVault(player)
+        HoldInPod(player)
+    endif
     if startRoomMoves > 0 || preworldLooksDone
         if ClearInventory
             ResetInventory(player)
@@ -2549,13 +3020,18 @@ Function SpawnAtStoryStartPlace(Actor player, int placeRow)
         endif
         AdvanceTo(10)
         startedAt = Utility.GetCurrentRealTime()
+        FadeIn("mode_story")
         if preworldLooksDone
             preworldLooksDone = false
             looksSetStage20 = true
+            podLooksDone = true
+            podLooksHow = preworldLooksHow
+            podLooksBy = preworldLooksBy
             Trace("looks done: " + preworldLooksHow)
-            RunPodExitHook(player)
-            AdvanceTo(20, preworldLooksBy)
+            StartPodOpen(player)
         endif
+    else
+        FadeIn("mode_story")
     endif
 EndFunction
 

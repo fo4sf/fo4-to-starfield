@@ -90,6 +90,10 @@ def main(argv: list[str] | None = None) -> int:
         aw = res["arsenal_weaps"]
         aw_detail = aw["detail"] if not aw["issues"] else "; ".join(aw["issues"])
         print(f"{aw['status']:4s}  arsenal_weap [FO4SFCoreValues.esm] (Arsenal WEAP Set): {aw_detail}")
+        pa = res.get("pod_anim")
+        if isinstance(pa, dict):
+            pa_detail = pa["detail"] if not pa["issues"] else "; ".join(pa["issues"])
+            print(f"{pa['status']:4s}  pod_anim [FO4SFVaultPod.esm] (CryoPod Animation & Placement): {pa_detail}")
         if not res["ok"]:
             return 1
         print(f"beginning bundle check: ok (all {len(BEGINNING_STEPS)} beginning steps staged)")

@@ -106,6 +106,7 @@ DROPPED_SLICE_ESMS = frozenset({
     "fo4sfnewgame.esm",
     "fo4sfvaultgeardoor.esm",
     "fo4sfexitlift.esm",
+    "fo4sfvaultpod.esm",
     "fo4sfrads.esm",
     "fo4sfhardcore.esm",
     "fo4sfworkshop.esm",
@@ -177,6 +178,7 @@ ORDERED_COMPONENT_KEYS = (
     "core_values",
     "cog_door",
     "exit_lift",
+    "vault_pod",
     "mission",
     "newgame",
     "rads",
@@ -225,6 +227,7 @@ PLAYER_BUNDLE_PLUGINS = (
     "FO4SFCoreValues.esm",
     "FO4SFVaultGearDoor.esm",
     "FO4SFExitLift.esm",
+    "FO4SFVaultPod.esm",
     "FO4SFMission.esm",
     "FO4SFNewGame.esm",
     "FO4SFWorkshop.esm",
@@ -241,6 +244,7 @@ PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS = (
     "FO4SFCoreValues.esm",
     "FO4SFVaultGearDoor.esm",
     "FO4SFExitLift.esm",
+    "FO4SFVaultPod.esm",
     "FO4SFMission.esm",
     "FO4SFNewGame.esm",
     "FO4SFRads.esm",
@@ -259,21 +263,21 @@ PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS = (
 )
 
 PLAYER_WITH_ROUTE_LOOT_PLUGINS = (
-    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[:11],
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[:12],
     "FO4SFRouteLoot.esm",
-    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[11:],
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[12:],
 )
 
 CORE_BUNDLE_PLUGINS = (
-    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[:19],
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[:20],
     "FO4SFCoreCandidate.esm",
-    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[19:],
+    *PLAYER_WITH_EXPERIMENTAL_CORE_PLUGINS[20:],
 )
 
 CORE_WITH_ROUTE_LOOT_PLUGINS = (
-    *PLAYER_WITH_ROUTE_LOOT_PLUGINS[:20],
+    *PLAYER_WITH_ROUTE_LOOT_PLUGINS[:21],
     "FO4SFCoreCandidate.esm",
-    *PLAYER_WITH_ROUTE_LOOT_PLUGINS[20:],
+    *PLAYER_WITH_ROUTE_LOOT_PLUGINS[21:],
 )
 
 TEST_CELL_SLICE_KEYS = frozenset({"powerarmor", "list_dialogue", "combat", "reputation", "companions"})
@@ -1554,6 +1558,30 @@ def stage_from_checkout(a) -> Dict[str, str]:
     ])
     stages["exit_lift"] = lift_dir
 
+    pod_override = getattr(a, "pod_anim", None)
+    if pod_override:
+        pod_dir = os.path.abspath(pod_override)
+        if not os.path.isdir(pod_dir) or not os.path.isfile(os.path.join(pod_dir, "FO4SFVaultPod.esm")):
+            raise BundleRefused(f"--pod-anim directory missing FO4SFVaultPod.esm: {pod_dir}")
+    else:
+        pod_dir = os.path.join(work, "02c-vault-pod")
+        _reuse_or_run_py(pod_dir, py_render, "scripts/newgame/make_anim_console.py", [
+            "stage", "--production-pod",
+            "--edid", "FO4Port_CryoPod01",
+            "--states", "Exit=StateA_Play,Enter=StateB_Play",
+            "--idles", "toggle",
+            "--rest-after", "Enter",
+            "--out", pod_dir,
+            "--starfield-data", sf_data,
+            "--port-data", port_dir,
+            "--fo4-data", os.path.abspath(a.fo4_data),
+            "--door-anim-dll", os.path.abspath(a.door_anim_dll),
+            "--collision-template", os.path.abspath(a.collision_template),
+            "--texconv", os.path.abspath(a.texconv),
+            "--content-resources", cr_zip,
+        ])
+    stages["vault_pod"] = pod_dir
+
     if getattr(a, "mission_stage", None):
         ms_override = os.path.abspath(a.mission_stage)
         if not os.path.isdir(ms_override):
@@ -2601,6 +2629,16 @@ def fold_bundle(
     if arsenal_assets:
         _fold_arsenal_assets(arsenal_assets, partial, cc_dir, folded_data_hashes, components_record)
 
+    repo_bat_dir = os.path.join(REPO, "bat")
+    if os.path.isdir(repo_bat_dir):
+        dst_bat_dir = os.path.join(partial, "bat")
+        os.makedirs(dst_bat_dir, exist_ok=True)
+        for fn in sorted(os.listdir(repo_bat_dir)):
+            sp = os.path.join(repo_bat_dir, fn)
+            dp = os.path.join(dst_bat_dir, fn)
+            if os.path.isfile(sp) and fn.lower().endswith(".txt") and not os.path.exists(dp):
+                shutil.copy2(sp, dp)
+
     # B1: Ensure Data/meshes/fo4sf/powerarmor/fusioncore.nif exists when FO4SFMission.esm references it.
     partial_mission = os.path.join(partial, "FO4SFMission.esm")
     fc_rel = "Data/meshes/fo4sf/powerarmor/fusioncore.nif"
@@ -2778,6 +2816,7 @@ def cmd_fold(a, system=None) -> int:
         ),
         "cog_door": ("01-cog-door-r2", "01-cog-door"),
         "exit_lift": ("02-exit-lift-r2", "02-exit-lift"),
+        "vault_pod": ("02c-vault-pod",),
         "mission": ("02b-mission-r2", "02b-mission"),
         "newgame": (
             ("03-newgame-fadehold", "03-newgame-r2", "03-newgame")
@@ -2812,6 +2851,11 @@ def cmd_fold(a, system=None) -> int:
             if os.path.isdir(cand):
                 stages[k] = cand
                 break
+    if getattr(a, "pod_anim", None):
+        pod_dir = os.path.abspath(a.pod_anim)
+        if not os.path.isdir(pod_dir) or not os.path.isfile(os.path.join(pod_dir, "FO4SFVaultPod.esm")):
+            raise BundleRefused(f"--pod-anim directory missing FO4SFVaultPod.esm: {pod_dir}")
+        stages["vault_pod"] = pod_dir
     if getattr(a, "mission_stage", None):
         ms_dir = os.path.abspath(a.mission_stage)
         if not os.path.isdir(ms_dir):
@@ -3259,6 +3303,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     b.add_argument("--fo4-arsenal", nargs="?", const=1, default=None, type=int, choices=(0, 1),
                    help="Forward --fo4-arsenal 0|1 (and --fo4-10mm/--fo4-p5-weapons when 1) to make_core_values.py")
     b.add_argument("--arsenal-assets", default=None, help="Pre-staged P6b arsenal Data/ and bat/ folder folded into bundle")
+    b.add_argument("--pod-anim", default=None, help="Optional pre-staged FO4SFVaultPod.esm folder (default: auto-staged 02c-vault-pod)")
     b.add_argument("--codsworth-assets", default=None, help="convert_codsworth.py output folder forwarded to make_mission.py")
     b.add_argument("--codsworth-handy", default=None, help="stage_ra2_handy.py bundle folder forwarded to make_mission.py")
     b.add_argument("--actor-looks-assets", default=None, help="stage_c5_actor_looks.py output folder forwarded to make_mission.py")
@@ -3302,6 +3347,7 @@ def main(argv: Optional[Sequence[str]] = None, system=None) -> int:
     fo.add_argument("--profile", choices=("player", "test"), default="player")
     fo.add_argument("--mission-stage", default=None)
     fo.add_argument("--arsenal-assets", default=None, help="Pre-staged P6b arsenal Data/ and bat/ folder folded into bundle")
+    fo.add_argument("--pod-anim", default=None, help="Optional pre-staged FO4SFVaultPod.esm folder (default: fold 02c-vault-pod)")
     fo.add_argument("--allow-starfield-standins", action="store_true", help="Explicitly allow player fold without FO4 Codsworth/C5 look assets")
     fo.add_argument("--route-loot-stage", default=None)
     fo.add_argument("--map-markers-stage", default=None)

@@ -1287,11 +1287,234 @@ def _verify_newgame_vault_pistol_binding(bundle_dir: str) -> List[str]:
     return issues
 
 
+def _read_fo4_pod_exit_mode_from_config() -> str:
+    cfg_path = Path(__file__).resolve().parent / "core" / "game_start_config.json"
+    if cfg_path.is_file():
+        try:
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            mode = ((data.get("games") or {}).get("fo4") or {}).get("pod_exit_mode")
+            if isinstance(mode, str) and mode.strip():
+                return mode.strip()
+        except (OSError, ValueError):
+            pass
+    return "cryopod_anim"
+
+
+def _read_newgame_pod_exit_mode(ng_path: str) -> Optional[str]:
+    """Read `PodExitMode` string property from `FO4SF_NewGameQuest` VMAD in `FO4SFNewGame.esm`, if present."""
+    if not _is_tes4_plugin(ng_path):
+        return None
+    try:
+        with open(ng_path, "rb") as fp:
+            raw = fp.read()
+    except OSError:
+        return None
+    if len(raw) < 24 or raw[:4] != b"TES4":
+        return None
+    hdr_sz = struct.unpack_from("<I", raw, 4)[0]
+    pos = 24 + hdr_sz
+    while pos + 24 <= len(raw):
+        sig = raw[pos : pos + 4]
+        sz = struct.unpack_from("<I", raw, pos + 4)[0]
+        if sig == b"GRUP":
+            pos += 24
+            continue
+        rflags = struct.unpack_from("<I", raw, pos + 8)[0]
+        rbody_end = min(len(raw), pos + 24 + sz)
+        if sig == b"QUST":
+            payload = raw[pos + 24 : rbody_end]
+            if (rflags & 0x40000) and len(payload) >= 4:
+                try:
+                    payload = zlib.decompress(payload[4:])
+                except zlib.error:
+                    payload = b""
+            for ss, sp in _iter_esm_subrecords(payload):
+                if ss == b"VMAD" and b"PodExitMode" in sp:
+                    idx = sp.find(b"PodExitMode")
+                    window = sp[idx : idx + 80]
+                    if b"cryopod_anim" in window:
+                        return "cryopod_anim"
+                    if b"safe_spawn" in window:
+                        return "safe_spawn"
+        pos = rbody_end
+    return None
+
+
+def _bundle_data_asset_path(bundle_dir: str, rel_path: str) -> Optional[str]:
+    norm = rel_path.replace("\\", "/").lstrip("/")
+    if not norm:
+        return None
+    cands = [os.path.join(bundle_dir, "Data", *norm.split("/"))]
+    if not norm.lower().startswith("meshes/"):
+        cands.insert(0, os.path.join(bundle_dir, "Data", "meshes", *norm.split("/")))
+    for p in cands:
+        if os.path.exists(p):
+            return p
+        # Case-insensitive fallback scan inside Data tree on Windows/POSIX
+        parent = os.path.dirname(p)
+        base = os.path.basename(p).casefold()
+        if os.path.isdir(parent):
+            for ent in os.listdir(parent):
+                if ent.casefold() == base:
+                    return os.path.join(parent, ent)
+    return None
+
+
+def verify_cryopod_anim_bundle(
+    bundle_dir: str,
+    active_plugins: Optional[Set[str]] = None,
+    *,
+    pod_exit_mode: Optional[str] = None,
+) -> Dict[str, object]:
+    """Verify `FO4SFVaultPod.esm`, ACTI 0x800, persistent REFR 0x801, disabled 0x001617, and model/rig/clips."""
+    b_abs = os.path.abspath(bundle_dir)
+    ng_path = os.path.join(b_abs, "FO4SFNewGame.esm")
+    mode = pod_exit_mode or _read_newgame_pod_exit_mode(ng_path) or _read_fo4_pod_exit_mode_from_config()
+    if mode != "cryopod_anim":
+        return {
+            "status": "SKIP",
+            "mode": mode,
+            "issues": [],
+            "detail": f"pod_exit_mode={mode!r} (not cryopod_anim)",
+        }
+
+    issues: List[str] = []
+    pod_esm = os.path.join(b_abs, "FO4SFVaultPod.esm")
+    if not _is_tes4_plugin(pod_esm):
+        issues.append("missing or invalid FO4SFVaultPod.esm")
+        return {"status": "FAIL", "mode": mode, "issues": issues, "detail": "; ".join(issues)}
+
+    if active_plugins and "fo4sfvaultpod.esm" not in active_plugins:
+        issues.append("FO4SFVaultPod.esm missing from bundle_plan.json plugins list")
+
+    with open(pod_esm, "rb") as fp:
+        raw = fp.read()
+    hdr_sz = struct.unpack_from("<I", raw, 4)[0]
+    masters: List[str] = []
+    for ss, sp in _iter_esm_subrecords(raw[24 : 24 + hdr_sz]):
+        if ss == b"MAST":
+            masters.append(sp.rstrip(b"\x00").decode("utf-8", errors="replace"))
+    master_low = [m.casefold() for m in masters]
+    if "starfield.esm" not in master_low or "fo4port.esm" not in master_low:
+        issues.append(f"FO4SFVaultPod.esm masters {masters} must include Starfield.esm and FO4Port.esm")
+    self_mod_idx = len(masters)
+
+    actis: Dict[int, dict] = {}
+    refrs: Dict[int, dict] = {}
+
+    def _walk(start: int, end: int) -> None:
+        cur = start
+        while cur + 24 <= end:
+            sig = raw[cur : cur + 4]
+            sz = struct.unpack_from("<I", raw, cur + 4)[0]
+            if sig == b"GRUP":
+                if sz < 24 or cur + sz > end:
+                    break
+                _walk(cur + 24, cur + sz)
+                cur += sz
+                continue
+            rflags = struct.unpack_from("<I", raw, cur + 8)[0]
+            rfid = struct.unpack_from("<I", raw, cur + 12)[0]
+            rbody_end = min(end, cur + 24 + sz)
+            if sig in (b"ACTI", b"REFR"):
+                payload = raw[cur + 24 : rbody_end]
+                if (rflags & 0x40000) and len(payload) >= 4:
+                    try:
+                        payload = zlib.decompress(payload[4:])
+                    except zlib.error:
+                        payload = b""
+                if sig == b"ACTI":
+                    edid, modl, obnd, anam, bnam, cnam = "", "", b"", "", "", ""
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"EDID":
+                            edid = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"MODL":
+                            modl = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"OBND":
+                            obnd = sp
+                        elif ss == b"ANAM":
+                            anam = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"BNAM":
+                            bnam = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"CNAM":
+                            cnam = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                    actis[rfid] = {"edid": edid, "modl": modl, "obnd": obnd, "anam": anam, "bnam": bnam, "cnam": cnam}
+                else:
+                    base_fid = 0
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"NAME" and len(sp) == 4:
+                            base_fid = struct.unpack("<I", sp)[0]
+                    refrs[rfid] = {"flags": rflags, "base_fid": base_fid}
+            cur = rbody_end
+
+    _walk(24 + hdr_sz, len(raw))
+
+    acti_key = (self_mod_idx << 24) | 0x000800
+    acti = actis.get(acti_key)
+    if acti is None:
+        issues.append("FO4SFVaultPod.esm missing ACTI 0x800")
+    else:
+        if not acti["modl"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing MODL")
+        else:
+            m_path = _bundle_data_asset_path(b_abs, acti["modl"])
+            if not m_path or not os.path.isfile(m_path) or os.path.getsize(m_path) == 0:
+                issues.append(f"bundle missing ACTI 0x800 model: Data/meshes/{acti['modl']}")
+        if not acti["anam"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing graph ANAM")
+        if not acti["bnam"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing rig BNAM")
+        else:
+            r_path = _bundle_data_asset_path(b_abs, acti["bnam"])
+            if not r_path or not os.path.isfile(r_path) or os.path.getsize(r_path) == 0:
+                issues.append(f"bundle missing ACTI 0x800 rig: Data/meshes/{acti['bnam']}")
+        if not acti["cnam"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing clips CNAM")
+        else:
+            c_dir = _bundle_data_asset_path(b_abs, acti["cnam"])
+            if not c_dir or not os.path.isdir(c_dir):
+                issues.append(f"bundle missing ACTI 0x800 clips folder: Data/meshes/{acti['cnam']}")
+            else:
+                files_low = {fn.casefold() for fn in os.listdir(c_dir)}
+                for req_clip in ("statea_play.af", "statea_play.afx", "stateb_play.af", "stateb_play.afx",
+                                 "statea_idle.af", "statea_idle.afx", "stateb_idle.af", "stateb_idle.afx"):
+                    if req_clip not in files_low:
+                        issues.append(f"bundle missing clip Data/meshes/{acti['cnam']}/{req_clip}")
+
+    ref_key = (self_mod_idx << 24) | 0x000801
+    ref801 = refrs.get(ref_key)
+    if ref801 is None:
+        issues.append("FO4SFVaultPod.esm missing persistent REFR 0x801")
+    else:
+        if (ref801["flags"] & 0x400) == 0:
+            issues.append("FO4SFVaultPod.esm REFR 0x801 lacks Persistent flag (0x400)")
+        if ref801["base_fid"] != acti_key:
+            issues.append(f"FO4SFVaultPod.esm REFR 0x801 NAME=0x{ref801['base_fid']:08X} != 0x{acti_key:08X}")
+
+    port_idx = master_low.index("fo4port.esm") if "fo4port.esm" in master_low else 1
+    dis_key = (port_idx << 24) | 0x001617
+    ref1617 = refrs.get(dis_key)
+    if ref1617 is None:
+        issues.append("FO4SFVaultPod.esm missing override of FO4Port REFR 0x001617")
+    elif (ref1617["flags"] & 0x800) == 0:
+        issues.append("FO4SFVaultPod.esm override of REFR 0x001617 lacks Initially Disabled flag (0x800)")
+
+    if issues:
+        return {"status": "FAIL", "mode": mode, "issues": issues, "detail": "; ".join(issues)}
+    return {
+        "status": "PASS",
+        "mode": mode,
+        "issues": [],
+        "detail": "FO4SFVaultPod.esm ACTI 0x800, persistent REFR 0x801, disabled 0x001617, model/rig/clips verified",
+    }
+
+
 def verify_bundle_beginning_readiness(
     bundle_dir: str,
     *,
     require_map_markers: bool = True,
     require_arsenal: Optional[bool] = None,
+    pod_exit_mode: Optional[str] = None,
 ) -> Dict[str, object]:
     """Check offline that `bundle_dir` contains every plugin, script, mesh, and voice asset for `B1`..`B8`."""
     b_abs = os.path.abspath(bundle_dir)
@@ -1440,10 +1663,19 @@ def verify_bundle_beginning_readiness(
     if arsenal_res["status"] == "FAIL":
         problems.extend(f"arsenal_weap: {msg}" for msg in arsenal_res["issues"])
 
+    pod_anim_res = verify_cryopod_anim_bundle(b_abs, active_plugins, pod_exit_mode=pod_exit_mode)
+    if pod_anim_res["status"] == "FAIL":
+        problems.extend(f"pod_anim: {msg}" for msg in pod_anim_res["issues"])
+        b1_entry = step_results.get("B1_pod")
+        if isinstance(b1_entry, dict):
+            b1_entry["issues"].extend(pod_anim_res["issues"])
+            b1_entry["status"] = "FAIL"
+
     return {
         "ok": len(problems) == 0,
         "steps": step_results,
         "arsenal_weaps": arsenal_res,
+        "pod_anim": pod_anim_res,
         "problems": problems,
     }
 

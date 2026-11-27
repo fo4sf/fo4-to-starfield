@@ -267,6 +267,91 @@ def _populate_synthetic_map_markers(
     return mm_root
 
 
+def _dummy_vault_pod_esm(
+    *,
+    include_acti: bool = True,
+    include_refr801: bool = True,
+    refr801_persistent: bool = True,
+    include_1617: bool = True,
+    disabled_1617: bool = True,
+) -> bytes:
+    def _sub(sig: bytes, data: bytes) -> bytes:
+        return sig + struct.pack("<H", len(data)) + data
+
+    def _rec(sig: bytes, fid: int, subs: list[bytes], flags: int = 0) -> bytes:
+        body = b"".join(subs)
+        return sig + struct.pack("<IIIII", len(body), flags, fid, 0, 0) + body
+
+    def _grup(label: bytes, gtype: int, payload: bytes) -> bytes:
+        return b"GRUP" + struct.pack("<I", 24 + len(payload)) + label + struct.pack("<III", gtype, 0, 0) + payload
+
+    w = PluginWriter(("Starfield.esm", "FO4Port.esm"), flags=ESM, author="fo4-to-starfield VaultPod")
+    if include_acti:
+        acti_subs = [
+            (b"EDID", zbytes("FO4SF_PlayerCryoPod")),
+            (b"OBND", struct.pack("<6f", -1.0, -1.0, 0.0, 1.0, 1.0, 2.5)),
+            (b"MODL", zbytes(r"fo4port\pod\cryopod01.nif")),
+            (b"ANAM", zbytes(r"Actors\Character\Animation\StateMachines\ActivatorStateGraph01.agx")),
+            (b"BNAM", zbytes(r"fo4port\pod\rig.hkt")),
+            (b"CNAM", zbytes(r"fo4port\pod\clips")),
+        ]
+        w.add(Record(b"ACTI", w.own(0x000800), acti_subs, 0, 0, 581, 0))
+    blob = w.to_bytes(compress=False)
+    cell_children = bytearray()
+    if include_refr801:
+        cell_children += _rec(
+            b"REFR",
+            w.own(0x000801),
+            [_sub(b"NAME", struct.pack("<I", w.own(0x000800)))],
+            flags=0x00000400 if refr801_persistent else 0,
+        )
+    if include_1617:
+        cell_children += _rec(
+            b"REFR",
+            (1 << 24) | 0x001617,
+            [_sub(b"NAME", struct.pack("<I", (1 << 24) | 0x000855))],
+            flags=0x00000800 if disabled_1617 else 0,
+        )
+    if cell_children:
+        cell_fid = (1 << 24) | 0x0011F3
+        cell_rec = _rec(b"CELL", cell_fid, [_sub(b"EDID", zbytes("FO4Port_Vault111Cryo"))], flags=0x00000401)
+        blob += _grup(b"CELL", 0, cell_rec + _grup(struct.pack("<I", cell_fid), 6, bytes(cell_children)))
+    return blob
+
+
+def _populate_synthetic_vault_pod(
+    bundle: Path,
+    *,
+    write_esm: bool = True,
+    include_acti: bool = True,
+    include_refr801: bool = True,
+    refr801_persistent: bool = True,
+    include_1617: bool = True,
+    disabled_1617: bool = True,
+    omit_clip: str | None = None,
+) -> None:
+    if write_esm:
+        (bundle / "FO4SFVaultPod.esm").write_bytes(
+            _dummy_vault_pod_esm(
+                include_acti=include_acti,
+                include_refr801=include_refr801,
+                refr801_persistent=refr801_persistent,
+                include_1617=include_1617,
+                disabled_1617=disabled_1617,
+            )
+        )
+    pod_dir = bundle / "Data" / "meshes" / "fo4port" / "pod"
+    clips_dir = pod_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    (pod_dir / "cryopod01.nif").write_bytes(b"NIF_POD")
+    (pod_dir / "rig.hkt").write_bytes(b"RIG_POD")
+    for clip in ("statea_play.af", "statea_play.afx", "stateb_play.af", "stateb_play.afx",
+                 "statea_idle.af", "statea_idle.afx", "stateb_idle.af", "stateb_idle.afx"):
+        if omit_clip and clip.casefold() == omit_clip.casefold():
+            continue
+        (clips_dir / clip).write_bytes(b"CLIP_POD")
+
+
 class BeginningPilotTests(unittest.TestCase):
     def _build_synthetic_bundle(self, root: Path) -> Path:
         bundle = root / "candidate"
@@ -278,11 +363,15 @@ class BeginningPilotTests(unittest.TestCase):
             "FO4SFMission.esm",
             "FO4SFVaultGearDoor.esm",
             "FO4SFExitLift.esm",
+            "FO4SFVaultPod.esm",
             "FO4SFNewGame.esm",
             "FO4SFProgression.esm",
         }
         for p in sorted(req_plugins):
+            if p == "FO4SFVaultPod.esm":
+                continue
             (bundle / p).write_bytes(_dummy_mission_esm_with_b5() if p == "FO4SFMission.esm" else _dummy_tes4())
+        _populate_synthetic_vault_pod(bundle)
         _populate_synthetic_map_markers(bundle)
 
         for sc in (
@@ -912,6 +1001,45 @@ class BeginningPilotTests(unittest.TestCase):
             self.assertFalse(bad_res["ok"])
             self.assertEqual(bad_res["steps"]["B5_codsworth_sanctuary"]["status"], "FAIL")
             self.assertTrue(any("FO4Core_ZeroObndTestActi" in msg for msg in bad_res["problems"]))
+
+    def test_cryopod_anim_check_bundle_enforces_pod_assets_and_records(self) -> None:
+        cli = ROOT / "scripts" / "testing" / "check_beginning_pilot.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = self._build_synthetic_bundle(Path(tmp))
+            r_ok = subprocess.run(
+                [sys.executable, str(cli), "check-bundle", "--bundle-dir", str(bundle)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r_ok.returncode, 0, r_ok.stdout)
+            self.assertIn("PASS  pod_anim", r_ok.stdout)
+
+            # Missing FO4SFVaultPod.esm -> FAIL (never pass silently into fallback)
+            (bundle / "FO4SFVaultPod.esm").unlink()
+            res_no_esm = verify_bundle_beginning_readiness(str(bundle), pod_exit_mode="cryopod_anim")
+            self.assertFalse(res_no_esm["ok"])
+            self.assertEqual(res_no_esm["pod_anim"]["status"], "FAIL")
+            self.assertEqual(res_no_esm["steps"]["B1_pod"]["status"], "FAIL")
+
+            # Missing clip -> FAIL
+            _populate_synthetic_vault_pod(bundle)
+            (bundle / "Data" / "meshes" / "fo4port" / "pod" / "clips" / "statea_play.afx").unlink()
+            res_no_clip = verify_bundle_beginning_readiness(str(bundle), pod_exit_mode="cryopod_anim")
+            self.assertFalse(res_no_clip["ok"])
+            self.assertEqual(res_no_clip["pod_anim"]["status"], "FAIL")
+            self.assertTrue(any("statea_play.afx" in p for p in res_no_clip["problems"]))
+
+            # Missing Disabled flag on 0x001617 -> FAIL
+            _populate_synthetic_vault_pod(bundle, disabled_1617=False)
+            res_not_dis = verify_bundle_beginning_readiness(str(bundle), pod_exit_mode="cryopod_anim")
+            self.assertFalse(res_not_dis["ok"])
+            self.assertTrue(any("0x001617" in p and "Initially Disabled" in p for p in res_not_dis["problems"]))
+
+            # Missing Persistent flag on 0x801 -> FAIL
+            _populate_synthetic_vault_pod(bundle, refr801_persistent=False)
+            res_not_pers = verify_bundle_beginning_readiness(str(bundle), pod_exit_mode="cryopod_anim")
+            self.assertFalse(res_not_pers["ok"])
+            self.assertTrue(any("0x801" in p and "Persistent" in p for p in res_not_pers["problems"]))
 
 
 if __name__ == "__main__":

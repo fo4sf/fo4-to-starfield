@@ -69,13 +69,33 @@ class GameStartConfigTests(unittest.TestCase):
         self.assertEqual(fo4["arrival_discovery_method"], "add_to_map")
         self.assertNotIn("starter_strip_starfield_armor_ids", cfg)
         self.assertTrue(fo4["silent_starter_strip"])
-        self.assertEqual(fo4["pod_exit_mode"], "safe_spawn")
+        self.assertEqual(fo4["pod_exit_mode"], "cryopod_anim")
         self.assertAlmostEqual(fo4["pod_entry_step_m"], -2.5, places=3)
         self.assertAlmostEqual(fo4["pod_safe_step_m"], -3.2, places=3)
         self.assertAlmostEqual(fo4["pod_safe_heading_deg"], 270.0, places=3)
         self.assertTrue(fo4["single_pass_landing_fade"])
         self.assertEqual(fo4["autosave_points"], ["pod_exit", "pipboy_pickup"])
         self.assertNotIn("pod_safe_pos_override", fo4)
+        self.assertIn("pod_anim", fo4)
+        pod_anim = fo4["pod_anim"]
+        self.assertEqual(pod_anim["plugin"], "FO4SFVaultPod.esm")
+        self.assertEqual(pod_anim["ref_id"], "0x000801")
+        self.assertEqual(pod_anim["static_ref_plugin"], "FO4Port.esm")
+        self.assertEqual(pod_anim["static_ref_id"], "0x001617")
+        self.assertEqual(pod_anim["open_event"], "Play01")
+        self.assertAlmostEqual(pod_anim["open_seconds"], 5.3333, places=4)
+        self.assertAlmostEqual(pod_anim["done_margin"], 0.25, places=3)
+        self.assertAlmostEqual(pod_anim["open_timeout_s"], 8.0, places=3)
+        self.assertAlmostEqual(pod_anim["seat_step_m"], -0.55, places=3)
+        self.assertAlmostEqual(pod_anim["seat_heading_deg"], 180.0, places=3)
+        self.assertAlmostEqual(pod_anim["step_out_to_m"], -2.5, places=3)
+        self.assertAlmostEqual(pod_anim["push_tolerance_m"], 0.35, places=3)
+        self.assertAlmostEqual(pod_anim["exit_timeout_s"], 20.0, places=3)
+        self.assertFalse(pod_anim["creator_in_pod"])
+        # No FO4 start may use safe_spawn directly (quick start wakes in the closed pod too).
+        for g_key, g_val in games.items():
+            if g_key.startswith("fo4"):
+                self.assertNotEqual(g_val.get("pod_exit_mode"), "safe_spawn")
 
         ids = fo4["starter_strip_starfield_armor_ids"]
         for expected_id in ("0x001E2B17", "0x001E2B18", "0x001E2B19", "0x0001D1E7", "0x000D4893"):
@@ -727,7 +747,7 @@ class Item5PodExitTests(unittest.TestCase):
         ns1["ApplyStage"](20, "Trigger")
         self.assertEqual(player.pos, (-5.0, -7.314, 0.0))
 
-        # 2) cryopod_anim hook mode leaves player & fade untouched and logs hook seam with moved=false
+        # 2) cryopod_anim mode leaves player & fade untouched when pod plugin isn't installed and logs mode=cryopod_anim
         ns3 = make_ns(mode="cryopod_anim", pod_y=-6.614)
         exec(compiled, ns3)
         ns3["NoteLooksStage20"]()
@@ -736,27 +756,27 @@ class Item5PodExitTests(unittest.TestCase):
         self.assertEqual(angles, [])
         self.assertIn("stage 15 by=cryopod_anim", traces)
         self.assertTrue(
-            any("pod_exit mode=cryopod_anim_hook hook_stage=15 moved=false pos=9.143 -6.614 -0.729 " in t.lower() for t in traces),
+            any("pod_exit mode=cryopod_anim hook_stage=15 moved=false pos=9.143 -6.614 -0.729 " in t.lower() for t in traces),
             traces,
         )
 
     def test_pod_exit_hook_runs_stage_15_before_20_on_lookswait_nolooks_and_preworld(self):
-        """G6: LooksWait, no-looks, and preworld routes all run RunPodExitHook(15) before AdvanceTo(20)."""
+        """G6 + I1: LooksWait, no-looks, and preworld routes invoke StartPodOpen / RunPodExitHook(15) before stage 20."""
         psc = read(PSC)
         timer_start = psc.index("Event OnTimer(int aiTimerID)")
         timer_src = psc[timer_start:psc.index("EndEvent", timer_start)]
         preworld_src = psc[psc.index("Function SpawnAtStoryStartPlace"):psc.index("int Function RunModeChoiceChain")]
-        for label, src in (("OnTimer(1)", timer_src), ("SpawnAtStoryStartPlace", preworld_src)):
-            self.assertIn("RunPodExitHook(", src, f"{label} must invoke RunPodExitHook before stage 20")
-            self.assertNotIn("NoteLooksStage20()", src, f"{label} should not defer pod hook after AdvanceTo(20)")
+        self.assertIn("StartPodOpen(", timer_src)
+        self.assertIn("StartPodOpen(", preworld_src)
+        self.assertNotIn("NoteLooksStage20()", timer_src)
+        self.assertNotIn("NoteLooksStage20()", preworld_src)
 
         stage10_branch = timer_src[timer_src.index("elseif stage == 10"):timer_src.index("elseif stage == 20 || stage == 30")]
-        for anchor in ('preworldLooksBy)', 'AdvanceTo(20, "fallback")', 'AdvanceTo(20, "Trigger")'):
-            idx_adv = stage10_branch.index(anchor)
-            idx_hook = stage10_branch.rindex("RunPodExitHook(player)", 0, idx_adv)
-            self.assertLess(idx_hook, idx_adv)
+        self.assertIn("preworldLooksDone", stage10_branch)
+        self.assertIn("LooksWait", stage10_branch)
+        self.assertLess(stage10_branch.index("EnsureFadedInForChoice()"), stage10_branch.index("StartPodOpen(player)"))
 
-        # Synthetic route verification for LooksWait, no-looks, and preworld (via OnTimer(1) + SpawnAtStoryStartPlace)
+        # Synthetic route verification for safe_spawn legacy hook (when PodExitMode="safe_spawn")
         vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
         vault_anchor = Reference(None, (-60.0, 0.0, -1.0))
         vault_anchor.cell = vault_cell
@@ -834,6 +854,343 @@ class Item5PodExitTests(unittest.TestCase):
                 self.assertTrue(any("pod_exit mode=safe_spawn hook_stage=15 moved=true " in t.lower() for t in traces), traces)
                 self.assertAlmostEqual(player.pos[1], -7.314, places=3)
                 self.assertEqual(angles, [(0.0, 0.0, 270.0)])
+
+    def test_i1_cryopod_anim_all_six_paths_looks_done_wait_black_and_clearance(self):
+        """I1: Full Papyrus state machine across all 6 exit paths, Looks.Done, creator_in_pod, reload, OnDying, and clearance gate."""
+        from tests.test_newgame import LOOKS
+        from scripts.newgame import make_anim_console as mac
+
+        psc = read(PSC)
+        looks_psc = read(LOOKS)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_anim = re.search(r"Event OnAnimationEvent\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_load = re.search(r"Event Actor\.OnPlayerLoadGame\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_dying = re.search(r"Event Actor\.OnDying\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = (
+            psc
+            + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+            + f"\nFunction AnimEvent({ev_anim[1]})\n{ev_anim[2]}EndFunction\n"
+            + f"\nFunction LoadEvent({ev_load[1]})\n{ev_load[2]}EndFunction\n"
+            + f"\nFunction DyingEvent({ev_dying[1]})\n{ev_dying[2]}EndFunction\n"
+        )
+        funcs = (
+            "PodEntryX", "PodEntryY", "PodSafeX", "PodSafeY", "PodSeatPosX", "PodSeatPosY",
+            "PodAnimReady", "ShouldSkipMenuDelay", "EnsureFadedInForChoice", "PrepareBeforeCreator",
+            "NoteLooksDone", "HoldInPod", "ReleasePodHold", "CompleteLooksStage20AfterPodExit",
+            "PodFallback", "StartPodOpen", "HandlePodAnimTimer", "RunPodExitHook",
+            "ApplyStage", "AdvanceTo", "StandsInVault", "EnterVault", "FadeIn", "CheckPod",
+            "TimerEvent", "AnimEvent", "LoadEvent", "DyingEvent",
+        )
+        vars_csv = (
+            "applied, looksSetStage20, pendingStage, pendingStageBy, exitUsedFallback, "
+            "faded, vaultMoves, podChecked, entered, ticks, startedAt, startRoomMoves, "
+            "preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
+            "loadHookRegistered, dyingHookRegistered, "
+            "pipboyPickedUp, pipboyGranted, pipboyPickupAutosaved, returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+        looks_compiled = compile(translated_functions(looks_psc, ("Done",), ""), LOOKS, "exec")
+
+        def run_pod_scenario(*, has_plugin=True, play_accepted=True, creator_in_pod=False):
+            vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+            vault_anchor = Reference(None, (-60.0, 0.0, -1.0))
+            vault_anchor.cell = vault_cell
+            static_pod = SimpleNamespace(disabled=False, IsDisabled=lambda: static_pod.disabled, DisableNoWait=lambda: setattr(static_pod, "disabled", True))
+            pod_ref = SimpleNamespace(
+                loaded=True,
+                blocked=[],
+                plays=[],
+                Is3DLoaded=lambda: pod_ref.loaded,
+                WaitFor3DLoad=lambda: None,
+                BlockActivation=lambda b1, b2: pod_ref.blocked.append((b1, b2)),
+                PlayAnimation=lambda ev: (pod_ref.plays.append(ev), play_accepted)[1],
+            )
+            player = Reference(None, (0.0, 0.0, 0.0))
+            player.interior = True
+            player.cell = vault_cell
+            angles, traces, stages, timers, fades, layers, first_person, reg_anim, unreg_anim, av_restores = [], [], [], [], [], [], [], [], [], []
+            player.SetAngle = lambda rx, ry, rz: angles.append((rx, ry, rz))
+            player.GetAngleZ = lambda: angles[-1][2] if angles else 0.0
+            player.RestoreValue = lambda av, v: av_restores.append(v)
+
+            def fake_moveto(target, dx=0.0, dy=0.0, dz=0.0, *_):
+                player.pos = (target.pos[0] + dx, target.pos[1] + dy, target.pos[2] + dz)
+
+            def fake_setpos(x, y, z):
+                player.pos = (x, y, z)
+
+            player.MoveTo = fake_moveto
+            player.SetPosition = fake_setpos
+            cur_time = [10.0]
+            cur_stage = [0]
+
+            class _Layer:
+                def __init__(self):
+                    self.disabled_args = None
+                    self.deleted = False
+                    layers.append(self)
+
+                def DisablePlayerControls(self, *args):
+                    self.disabled_args = args
+
+                def Delete(self):
+                    self.deleted = True
+
+            def set_stage(n):
+                cur_stage[0] = n
+                stages.append(n)
+
+            def get_form(fid, plg):
+                if plg == "FO4SFVaultPod.esm" and fid in (0x000800, 0x000801):
+                    return pod_ref if has_plugin else None
+                if plg == "FO4Port.esm" and fid == 0x001617:
+                    return static_pod
+                if plg == "FO4Port.esm" and fid == 0x000805:
+                    return vault_anchor
+                if plg == "Starfield.esm" and fid == 0x0002D4:
+                    return object()
+                return None
+
+            ns = dict(
+                _PStr=_PStr,
+                Trace=traces.append,
+                LogName="fo4sf_newgame",
+                Math=SimpleNamespace(sin=lambda deg: __import__("math").sin(__import__("math").radians(deg)),
+                                     cos=lambda deg: __import__("math").cos(__import__("math").radians(deg)),
+                                     sqrt=lambda x: __import__("math").sqrt(x)),
+                InputEnableLayer=SimpleNamespace(Create=lambda: _Layer()),
+                Utility=SimpleNamespace(GetCurrentRealTime=lambda: cur_time[0], Wait=lambda dt: cur_time.__setitem__(0, cur_time[0] + dt)),
+                Game=SimpleNamespace(
+                    GetPlayer=lambda: player,
+                    GetFormFromFile=get_form,
+                    ForceFirstPerson=lambda: first_person.append(1),
+                    ShowFirstPersonGeometry=lambda *_: None,
+                    FadeOutGame=lambda *args: fades.append(args),
+                    SetInChargen=lambda *_: None,
+                    SetCharGenHUDMode=lambda *_: None,
+                ),
+                Debug=SimpleNamespace(OpenUserLog=lambda *_: True, Notification=lambda *_: None, CenterOnCell=lambda *_: None),
+                GetStage=lambda: cur_stage[0],
+                SetStage=set_stage,
+                SetObjectiveDisplayed=lambda *_: None,
+                SetObjectiveCompleted=lambda *_: None,
+                SetActive=lambda *_: None,
+                CompleteQuest=lambda: None,
+                StartLandingQuests=lambda: None,
+                ClearVaultSaveLock=lambda: None,
+                RelockVaultSaving=lambda *_: None,
+                ReleaseStoryLandingFade=lambda: None,
+                TriggerVaultPodRecoveryAutosave=lambda *_: None,
+                EnsureLoadHookRegistered=lambda *_: None,
+                EnsurePipboyWristEquipped=lambda *_: None,
+                RecoverPairedLiftOnLoad=lambda *_: None,
+                SyncPipboyOwnedWornState=lambda *_: None,
+                DisableHandScanner=lambda: None,
+                UnregisterStartLoadingHook=lambda: None,
+                CancelTimer=lambda *_: None,
+                StartTimer=lambda s, tid: timers.append((s, tid)),
+                RegisterForAnimationEvent=lambda ref, ev: reg_anim.append((ref, ev)),
+                UnregisterForAnimationEvent=lambda ref, ev: unreg_anim.append((ref, ev)),
+                GameModeGlobal=SimpleNamespace(GetValue=lambda: 1.0),
+                LooksWait=30.0,
+                PodExitMode="cryopod_anim",
+                PodEntryStep=-2.5,
+                PodSafeStep=-3.2,
+                PodSafeHeading=270.0,
+                PodOriginX=9.142858,
+                PodOriginY=-4.114286,
+                PodOriginZ=-1.0285715,
+                PodSeatX=9.142858,
+                PodSeatY=-4.664286,
+                PodSeatZ=-1.0285715,
+                PodX=9.142858,
+                PodY=-6.614286,
+                PodZ=-1.0285715,
+                PodLift=0.3,
+                PodDrop=0.5,
+                PodRadius=1.0,
+                PodHeading=0.0,
+                AnchorX=-60.0,
+                AnchorY=0.0,
+                AnchorZ=-1.0,
+                VaultPlugin="FO4Port.esm",
+                VaultAnchorId=0x000805,
+                AnchorTemporary=False,
+                PodAnimPlugin="FO4SFVaultPod.esm",
+                PodAnimRefId=0x000801,
+                PodStaticRefPlugin="FO4Port.esm",
+                PodStaticRefId=0x001617,
+                PodOpenEvent="Play01",
+                PodOpenSeconds=5.3333,
+                PodDoneMargin=0.25,
+                PodOpenTimeoutS=8.0,
+                PodSeatStepM=-0.55,
+                PodSeatHeadingDeg=180.0,
+                PodStepOutToM=-2.5,
+                PodPushToleranceM=0.35,
+                PodExitTimeoutS=20.0,
+                PodCreatorInPod=creator_in_pod,
+                applied=0,
+                looksSetStage20=False,
+                pendingStage=-1,
+                pendingStageBy="",
+                exitUsedFallback=False,
+                faded=False,
+                vaultMoves=0,
+                podChecked=False,
+                entered=False,
+                ticks=0,
+                startedAt=0.0,
+                startRoomMoves=0,
+                preworldLooksDone=False,
+                preworldLooksHow="",
+                preworldLooksBy="",
+                vaultPodAutosaved=False,
+                vaultSavingRelocked=False,
+                vaultRecoveryTriggered=False,
+                vaultPodAutosaveSkips=0,
+                loadHookRegistered=False,
+                dyingHookRegistered=False,
+                pipboyPickedUp=False,
+                pipboyGranted=False,
+                pipboyPickupAutosaved=False,
+                returnSurfacePending=False,
+                returnVaultAsked=False,
+                returnSurfaceWaitTicks=0,
+                returnSurfaceTries=0,
+            )
+            exec(compiled, ns)
+            return SimpleNamespace(
+                ns=ns, player=player, pod_ref=pod_ref, static_pod=static_pod,
+                angles=angles, traces=traces, stages=stages, timers=timers,
+                fades=fades, layers=layers, first_person=first_person,
+                reg_anim=reg_anim, unreg_anim=unreg_anim, cur_time=cur_time, cur_stage=cur_stage,
+            )
+
+        # Path 1: Normal Done + walk-out >= 1.0 m (also checks FO4SF_NewGameLooks.Done & Wait-under-black + creator_in_pod=False)
+        s1 = run_pod_scenario(has_plugin=True, creator_in_pod=False)
+        self.assertTrue(s1.ns["PodAnimReady"]())
+        self.assertTrue(s1.ns["ShouldSkipMenuDelay"]())
+        self.assertTrue(s1.ns["EnterVault"](s1.player))
+        self.assertAlmostEqual(s1.player.pos[1], -4.664286, places=4)
+        self.assertEqual(s1.angles[-1], (0.0, 0.0, 180.0))
+        self.assertTrue(any("mode=pod_seat" in t for t in s1.traces), s1.traces)
+        # Menu stays enabled (index 8 == False), move/fight/cam/look/sneak/activate/VATS/favorites disabled
+        self.assertEqual(s1.layers[0].disabled_args, (True, True, True, True, True, False, True, False, True, True, True))
+        self.assertEqual(s1.pod_ref.blocked, [(True, True)])
+        self.assertEqual(s1.first_person, [1])
+        # creator_in_pod=False moves to entry point under black then returns to seat before StartPodOpen
+        s1.ns["PrepareBeforeCreator"]()
+        self.assertAlmostEqual(s1.player.pos[1], -6.614286, places=4)
+        looks_ns = dict(GetStage=lambda: s1.cur_stage[0], SetStage=lambda st: s1.cur_stage.__setitem__(0, st),
+                        TracePosition=lambda *_: None, Trace=s1.traces.append,
+                        self=SimpleNamespace(NoteLooksDone=s1.ns["NoteLooksDone"]))
+        exec(looks_compiled, looks_ns)
+        looks_ns["Done"]("creator closed")
+        self.assertAlmostEqual(s1.player.pos[1], -4.664286, places=4)
+        self.assertFalse(s1.ns["podExitDone"])
+        self.assertEqual(s1.stages, [15])
+        self.assertIn("stage 15 by=cryopod_anim", s1.traces)
+        self.assertTrue(s1.static_pod.disabled)
+        self.assertEqual(s1.pod_ref.plays, ["Play01"])
+        self.assertIn("pod_open play=Play01 accepted=True", s1.traces)
+        # Early Done is ignored; Done at >= open_seconds - margin opens door & releases hold
+        s1.cur_time[0] += 1.0
+        s1.ns["AnimEvent"](s1.pod_ref, "Done")
+        self.assertFalse(s1.ns["podDoorDone"])
+        s1.cur_time[0] += 4.2
+        s1.ns["AnimEvent"](s1.pod_ref, "Done")
+        self.assertTrue(s1.ns["podDoorDone"])
+        s1.ns["TimerEvent"](8)
+        self.assertTrue(s1.layers[0].deleted)
+        self.assertIn("pod_step_out by=walk", s1.traces)
+        self.assertFalse(s1.ns["podExitDone"])
+        # Walk >= 1.0 m -> pod_exit moved=true by=walk -> Stage 20; NO SetPosition snap after fade-in
+        s1.player.pos = (9.142858, -6.0, -0.7285715)
+        s1.ns["TimerEvent"](8)
+        self.assertTrue(s1.ns["podExitDone"])
+        self.assertEqual(s1.stages, [15, 20])
+        self.assertTrue(any("pod_exit mode=cryopod_anim hook_stage=15 moved=true " in t and t.endswith(" by=walk") for t in s1.traces), s1.traces)
+        # OnPlayerLoadGame re-plays open pose when podExitDone
+        s1.ns["LoadEvent"](s1.player)
+        self.assertIn("pod_state on_load=open", s1.traces)
+        self.assertEqual(s1.pod_ref.plays, ["Play01", "Play01"])
+
+        # Path 2: open_timeout
+        s2 = run_pod_scenario(has_plugin=True)
+        s2.ns["EnterVault"](s2.player)
+        s2.ns["StartPodOpen"](s2.player)
+        s2.cur_time[0] += 8.5
+        s2.ns["TimerEvent"](8)
+        self.assertTrue(s2.ns["podExitDone"])
+        self.assertEqual(s2.stages, [15, 20])
+        self.assertIn("pod_exit mode=safe_spawn fallback_from=cryopod_anim reason=open_timeout", s2.traces)
+
+        # Path 3: exit_timeout (door opens, player stays in pod >= 20s)
+        s3 = run_pod_scenario(has_plugin=True)
+        s3.ns["EnterVault"](s3.player)
+        s3.ns["StartPodOpen"](s3.player)
+        s3.cur_time[0] += 5.33
+        s3.ns["AnimEvent"](s3.pod_ref, "Done")
+        s3.ns["TimerEvent"](8)
+        s3.cur_time[0] += 20.5
+        s3.ns["TimerEvent"](8)
+        self.assertTrue(s3.ns["podExitDone"])
+        self.assertEqual(s3.stages, [15, 20])
+        self.assertTrue(any("pod_exit mode=cryopod_anim hook_stage=15 moved=false " in t and t.endswith(" by=timeout") for t in s3.traces), s3.traces)
+
+        # Path 4: play_refused
+        s4 = run_pod_scenario(has_plugin=True, play_accepted=False)
+        s4.ns["EnterVault"](s4.player)
+        s4.ns["StartPodOpen"](s4.player)
+        self.assertTrue(s4.ns["podExitDone"])
+        self.assertEqual(s4.stages, [15, 20])
+        self.assertIn("pod_exit mode=safe_spawn fallback_from=cryopod_anim reason=play_refused", s4.traces)
+
+        # Path 5: pushed (pre-choice CheckPod stays stage <= 10 at entry point -> post-choice StartPodOpen finishes 20)
+        s5 = run_pod_scenario(has_plugin=True)
+        s5.cur_stage[0] = 10
+        s5.ns["EnterVault"](s5.player)
+        s5.player.pos = (9.142858, -5.5, -0.7285715)  # > 0.35m from seat
+        s5.ns["CheckPod"](s5.player)
+        self.assertTrue(s5.ns["podFellBack"])
+        self.assertEqual(s5.cur_stage[0], 10)
+        self.assertIn("pod_exit mode=safe_spawn fallback_from=cryopod_anim reason=pushed", s5.traces)
+        self.assertAlmostEqual(s5.player.pos[1], -6.614286, places=4)
+        s5.ns["StartPodOpen"](s5.player)
+        self.assertEqual(s5.stages, [15, 20])
+        self.assertTrue(s5.ns["podExitDone"])
+
+        # Path 6: no_pod_plugin (PodAnimReady == False -> fallback)
+        s6 = run_pod_scenario(has_plugin=False)
+        self.assertFalse(s6.ns["PodAnimReady"]())
+        s6.ns["StartPodOpen"](s6.player)
+        self.assertTrue(s6.ns["podExitDone"])
+        self.assertIn("pod_exit mode=safe_spawn fallback_from=cryopod_anim reason=no_pod_plugin", s6.traces)
+
+        # OnDying under pod hold releases input layer
+        s7 = run_pod_scenario(has_plugin=True)
+        s7.ns["EnterVault"](s7.player)
+        self.assertFalse(s7.layers[0].deleted)
+        s7.ns["DyingEvent"](s7.player, None)
+        self.assertTrue(s7.layers[0].deleted)
+
+        # Offline clearance gate refuses intersecting body unless explicitly dropped
+        ident = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        with self.assertRaises(ValueError):
+            mac.evaluate_pod_clearance(
+                [{"bone": "door", "centre_m": [0.0, -0.55, 1.5], "half_m": [0.7, 0.45, 1.2], "rotation_row_major": ident, "moving": True, "dropped": False}],
+                seat_step_m=-0.55,
+            )
+        ok_clear = mac.evaluate_pod_clearance(
+            [
+                {"bone": "door", "centre_m": [0.0, -0.55, 1.5], "half_m": [0.7, 0.45, 1.2], "rotation_row_major": ident, "moving": True, "dropped": True},
+                {"bone": "arm3", "centre_m": [0.0, -1.08, 2.1], "half_m": [0.62, 0.12, 0.72], "rotation_row_major": ident, "moving": True, "dropped": False},
+            ],
+            seat_step_m=-0.55,
+        )
+        self.assertGreater(ok_clear["min_clearance_m"], 0.05)
 
 
 class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):

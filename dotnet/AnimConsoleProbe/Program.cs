@@ -24,6 +24,8 @@ try
 {
     var rest = args.ToList();
     bool productionLift = rest.Remove("--production-lift");
+    bool productionPod = rest.Remove("--production-pod");
+    if (productionLift && productionPod) throw new AnimConsoleProbe.Refusal("choose either --production-lift or --production-pod");
     string? Opt(string name)
     {
         int i = rest.IndexOf(name);
@@ -33,10 +35,11 @@ try
         rest.RemoveRange(i, 2);
         return v;
     }
-    var edid = Opt("--edid") ?? AnimConsoleProbe.DefaultEdid;
+    var edid = Opt("--edid") ?? (productionPod ? VaultPod.PortPodStatEdid : AnimConsoleProbe.DefaultEdid);
     var model = Opt("--model");
     var rig = Opt("--rig");
     var anims = Opt("--anims");
+    var podBounds = Opt("--pod-bounds");
     var surfaceModel = Opt("--surface-model");
     var surfaceRig = Opt("--surface-rig");
     var surfaceAnims = Opt("--surface-anims");
@@ -53,6 +56,14 @@ try
     uint surfaceBaseId = surfaceBaseIdHex != null
         ? uint.Parse(surfaceBaseIdHex.Replace("0x", "", StringComparison.OrdinalIgnoreCase), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture)
         : SurfaceLiftCog.CoreSurfaceBaseId;
+    if (productionPod)
+    {
+        if (rest.Count == 3 && rest[0] == "info") return VaultPod.Info(rest[1], edid);
+        if (rest.Count == 4 && rest[0] == "build" && model != null && rig != null && anims != null && podBounds != null)
+            return VaultPod.Build(rest[1], rest[2], rest[3], model, rig, anims, podBounds);
+        if (rest.Count == 4 && rest[0] == "check" && model != null && rig != null && anims != null && podBounds != null)
+            return VaultPod.Check(rest[1], rest[2], rest[3], model, rig, anims, podBounds);
+    }
     if (rest.Count == 3 && rest[0] == "info") return AnimConsoleProbe.Info(rest[1], rest[2], edid);
     if (rest.Count == 4 && rest[0] == "build" && model != null && rig != null && anims != null)
         return AnimConsoleProbe.Build(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, corePath, surfaceModel, surfaceRig, surfaceAnims, surfaceBounds, surfaceBaseId);
@@ -60,9 +71,9 @@ try
         return AnimConsoleProbe.Check(rest[1], rest[2], rest[3], edid, model, rig, anims, productionLift, corePath, surfaceModel, surfaceRig, surfaceAnims, surfaceBounds, surfaceBaseId);
     if (rest.Count == 2 && rest[0] == "fixture") return AnimConsoleProbe.Fixture(rest[1]);
 }
-catch (AnimConsoleProbe.Refusal r)
+catch (Exception ex) when (ex is AnimConsoleProbe.Refusal || ex is InvalidOperationException || ex is ArgumentException)
 {
-    Console.Error.WriteLine("refused: " + r.Message);
+    Console.Error.WriteLine("refused: " + ex.Message);
     return 1;
 }
 Console.Error.WriteLine("usage: AnimConsoleProbe info <FO4Port.esm> <Starfield.esm> [--edid E] | build <FO4Port.esm> <Starfield.esm> <out dir> --model M --rig R --anims A [--edid E] | " +

@@ -569,6 +569,22 @@ static class NewGame
         uint AmmoId,
         uint[] RefIds);
 
+    public record PodAnimConfig(
+        string Plugin,
+        uint RefId,
+        string StaticRefPlugin,
+        uint StaticRefId,
+        string OpenEvent,
+        float OpenSeconds,
+        float DoneMargin,
+        float OpenTimeoutS,
+        float SeatStepM,
+        float SeatHeadingDeg,
+        float StepOutToM,
+        float PushToleranceM,
+        float ExitTimeoutS,
+        bool CreatorInPod);
+
     public record GameStartConfig(
         string GameId,
         bool SilentArrivalDiscovery,
@@ -586,7 +602,8 @@ static class NewGame
         int VaultSuitFallbackId,
         string VaultSuitFallbackPlugin,
         string LandingHandoff,
-        VaultPistolConfig VaultPistol);
+        VaultPistolConfig VaultPistol,
+        PodAnimConfig PodAnim);
 
     public static GameStartConfig LoadGameStartConfig(string? jsonPath = null, string? gameId = null)
     {
@@ -645,6 +662,40 @@ static class NewGame
         {
             vaultPistol = new VaultPistolConfig(CoreValuesPlugin, ExternalCore10mmPistolId, CoreValuesPlugin, ExternalCoreAmmo10mmId, new[] { VaultPistolRefId, VaultAmmoRefId });
         }
+        PodAnimConfig podAnim;
+        if (gameEl.TryGetProperty("pod_anim", out var paEl))
+        {
+            string paPlugin = paEl.GetProperty("plugin").GetString()?.Trim() ?? "";
+            uint paRefId = ParseHex(paEl.GetProperty("ref_id").GetString() ?? "0");
+            string paStaticPlugin = paEl.GetProperty("static_ref_plugin").GetString()?.Trim() ?? "";
+            uint paStaticRefId = ParseHex(paEl.GetProperty("static_ref_id").GetString() ?? "0");
+            string paOpenEvent = paEl.GetProperty("open_event").GetString()?.Trim() ?? "";
+            if (paPlugin.Length == 0 || paRefId == 0 || paStaticPlugin.Length == 0 || paStaticRefId == 0 || paOpenEvent.Length == 0)
+                throw new Refusal($"game_start_config.json games.{targetGame}.pod_anim has empty plugin/event or zero id");
+            podAnim = new PodAnimConfig(
+                paPlugin,
+                paRefId,
+                paStaticPlugin,
+                paStaticRefId,
+                paOpenEvent,
+                paEl.GetProperty("open_seconds").GetSingle(),
+                paEl.GetProperty("done_margin").GetSingle(),
+                paEl.GetProperty("open_timeout_s").GetSingle(),
+                paEl.GetProperty("seat_step_m").GetSingle(),
+                paEl.GetProperty("seat_heading_deg").GetSingle(),
+                paEl.GetProperty("step_out_to_m").GetSingle(),
+                paEl.GetProperty("push_tolerance_m").GetSingle(),
+                paEl.GetProperty("exit_timeout_s").GetSingle(),
+                paEl.GetProperty("creator_in_pod").GetBoolean());
+        }
+        else if (targetGame == "fo4")
+        {
+            throw new Refusal($"game_start_config.json games.{targetGame} missing pod_anim");
+        }
+        else
+        {
+            podAnim = new PodAnimConfig("FO4SFVaultPod.esm", 0x801, "FO4Port.esm", 0x1617, "Play01", 5.3333f, 0.25f, 8.0f, -0.55f, 180.0f, -2.5f, 0.35f, 20.0f, false);
+        }
         return new GameStartConfig(
             targetGame,
             gameEl.GetProperty("silent_arrival_discovery").GetBoolean(),
@@ -652,7 +703,7 @@ static class NewGame
             gameEl.GetProperty("silent_starter_strip").GetBoolean(),
             ids,
             gameEl.GetProperty("single_pass_landing_fade").GetBoolean(),
-            gameEl.GetProperty("pod_exit_mode").GetString() ?? "safe_spawn",
+            gameEl.GetProperty("pod_exit_mode").GetString() ?? "cryopod_anim",
             gameEl.GetProperty("pod_entry_step_m").GetSingle(),
             gameEl.GetProperty("pod_safe_step_m").GetSingle(),
             gameEl.GetProperty("pod_safe_heading_deg").GetSingle(),
@@ -662,7 +713,8 @@ static class NewGame
             fallbackSuitId,
             fallbackSuitPlugin,
             handoff,
-            vaultPistol);
+            vaultPistol,
+            podAnim);
     }
 
     public static List<FormKey> ResolveStarterStripKeys(SF.IStarfieldModGetter sf, GameStartConfig gs)
@@ -1697,15 +1749,23 @@ static class NewGame
         var pod = Floats(pts.GetProperty("pod").GetProperty("pos"));
         var con = Floats(pts.GetProperty("console").GetProperty("pos"));
         var plat = Floats(pts.GetProperty("platform").GetProperty("pos"));
+        var podAt = Floats(pts.GetProperty("pod").GetProperty("at"));
+        float podHeadingDeg = pts.GetProperty("pod").GetProperty("heading").GetSingle();
         var arr = Floats(pts.GetProperty("arrival").GetProperty("pos"));
         var gs = LoadGameStartConfig(o.GameStartConfigJson, o.GameId);
+        float podHeadingRad = podHeadingDeg * MathF.PI / 180f;
+        float seatX = podAt[0] + gs.PodAnim.SeatStepM * MathF.Sin(podHeadingRad);
+        float seatY = podAt[1] + gs.PodAnim.SeatStepM * MathF.Cos(podHeadingRad);
+        float seatZ = podAt[2];
         var lp = LoadLiftPairConfig(o.LiftPairsJson, gs.GameId);
         var active = lp.Active;
         var pairs = lp.Pairs;
         return new()
         {
             ("VaultAnchorId", (int)p.VaultAnchor), ("AnchorX", p.AnchorPos.X), ("AnchorY", p.AnchorPos.Y), ("AnchorZ", p.AnchorPos.Z),
-            ("PodX", pod[0]), ("PodY", pod[1]), ("PodZ", pod[2]), ("PodHeading", pts.GetProperty("pod").GetProperty("heading").GetSingle()),
+            ("PodX", pod[0]), ("PodY", pod[1]), ("PodZ", pod[2]), ("PodHeading", podHeadingDeg),
+            ("PodOriginX", podAt[0]), ("PodOriginY", podAt[1]), ("PodOriginZ", podAt[2]),
+            ("PodSeatX", seatX), ("PodSeatY", seatY), ("PodSeatZ", seatZ),
             ("CogDoorId", (int)p.CogDoor), ("ConsoleRefId", (int)p.Console), ("ConsoleX", con[0]), ("ConsoleY", con[1]), ("ConsoleZ", con[2]),
             ("PortPipboyStaticId", (int)p.PortPipboyStatic), ("VaultPistolId", (int)vaultPistolId),
             ("PlatformX", plat[0]), ("PlatformY", plat[1]), ("PlatformZ", plat[2]),
@@ -1745,6 +1805,20 @@ static class NewGame
             ("PodEntryStep", gs.PodEntryStep),
             ("PodSafeStep", gs.PodSafeStep),
             ("PodSafeHeading", gs.PodSafeHeading),
+            ("PodAnimPlugin", gs.PodAnim.Plugin),
+            ("PodAnimRefId", (int)gs.PodAnim.RefId),
+            ("PodStaticRefPlugin", gs.PodAnim.StaticRefPlugin),
+            ("PodStaticRefId", (int)gs.PodAnim.StaticRefId),
+            ("PodOpenEvent", gs.PodAnim.OpenEvent),
+            ("PodOpenSeconds", gs.PodAnim.OpenSeconds),
+            ("PodDoneMargin", gs.PodAnim.DoneMargin),
+            ("PodOpenTimeoutS", gs.PodAnim.OpenTimeoutS),
+            ("PodSeatStepM", gs.PodAnim.SeatStepM),
+            ("PodSeatHeadingDeg", gs.PodAnim.SeatHeadingDeg),
+            ("PodStepOutToM", gs.PodAnim.StepOutToM),
+            ("PodPushToleranceM", gs.PodAnim.PushToleranceM),
+            ("PodExitTimeoutS", gs.PodAnim.ExitTimeoutS),
+            ("PodCreatorInPod", gs.PodAnim.CreatorInPod),
             ("ArrivalWeatherId", gs.ArrivalWeatherId),
             ("ArrivalWeatherPlugin", gs.ArrivalWeatherPlugin),
             ("ArrivalWeatherOverride", gs.ArrivalWeatherOverride),
@@ -3653,6 +3727,21 @@ static class NewGame
                 lpProps.TryGetValue("SurfaceLiftAscendRise", out var slar) && slar is SF.IScriptFloatListPropertyGetter slarL && slarL.Data.Count == 1 && MathF.Abs(slarL.Data[0] - 27.5f) < 1e-4f;
             if (!lpOk) { Console.WriteLine("FAIL  modified lift_pairs.json did not propagate into built VMAD"); return 1; }
             Console.WriteLine("verified: modified lift_pairs.json propagates into built VMAD and missing configs refuse");
+
+            // I1: Verify PodOrigin/PodSeat/pod_anim VMAD propagation from points.pod.at + game_start_config.json
+            bool podOk =
+                lpProps.TryGetValue("PodExitMode", out var pem) && pem is SF.IScriptStringPropertyGetter pemS && pemS.Data == "cryopod_anim" &&
+                lpProps.TryGetValue("PodOriginX", out var pox) && pox is SF.IScriptFloatPropertyGetter poxF && MathF.Abs(poxF.Data - 10f) < 1e-4f &&
+                lpProps.TryGetValue("PodOriginY", out var poy) && poy is SF.IScriptFloatPropertyGetter poyF && MathF.Abs(poyF.Data - 20f) < 1e-4f &&
+                lpProps.TryGetValue("PodSeatX", out var psx) && psx is SF.IScriptFloatPropertyGetter psxF && MathF.Abs(psxF.Data - (10f + (-0.55f))) < 1e-4f &&
+                lpProps.TryGetValue("PodSeatY", out var psy) && psy is SF.IScriptFloatPropertyGetter psyF && MathF.Abs(psyF.Data - 20f) < 1e-4f &&
+                lpProps.TryGetValue("PodAnimPlugin", out var pap) && pap is SF.IScriptStringPropertyGetter papS && papS.Data == "FO4SFVaultPod.esm" &&
+                lpProps.TryGetValue("PodAnimRefId", out var par) && par is SF.IScriptIntPropertyGetter parI && parI.Data == 0x801 &&
+                lpProps.TryGetValue("PodOpenEvent", out var poe) && poe is SF.IScriptStringPropertyGetter poeS && poeS.Data == "Play01" &&
+                lpProps.TryGetValue("PodSeatStepM", out var pss) && pss is SF.IScriptFloatPropertyGetter pssF && MathF.Abs(pssF.Data - (-0.55f)) < 1e-4f &&
+                lpProps.TryGetValue("PodCreatorInPod", out var pcip) && pcip is SF.IScriptBoolPropertyGetter pcipB && !pcipB.Data;
+            if (!podOk) { Console.WriteLine("FAIL  PodOrigin/PodSeat/pod_anim VMAD check"); return 1; }
+            Console.WriteLine("verified: PodOrigin/PodSeat/pod_anim VMAD properties match game_start_config.json");
         }
         // the records reader (Records.cs): its own synthetic plugins, under this scratch dir
         if (NewGameRecords.SelfTest(Path.Combine(dir, "records")) != 0) return 1;

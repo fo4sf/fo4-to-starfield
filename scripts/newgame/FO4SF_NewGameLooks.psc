@@ -51,12 +51,17 @@ Event OnTimer(int aiTimerID)
             return
         endif
         shown = true
-        Utility.Wait(MenuDelay)
+        if ngQuest == None || !ngQuest.ShouldSkipMenuDelay()
+            Utility.Wait(MenuDelay)
+        endif
         if GetStage() >= 20
             return
         endif
         if ngQuest != None && ngQuest.IsPreworldLooksHandled()
             return
+        endif
+        if ngQuest != None
+            ngQuest.EnsureFadedInForChoice()
         endif
         int button = StartMessage.Show()
         Trace("start choice button=" + button)
@@ -64,6 +69,9 @@ Event OnTimer(int aiTimerID)
             Trace("quick start: preset kept, creator skipped")
             Done("quick start")
             return
+        endif
+        if ngQuest != None
+            ngQuest.PrepareBeforeCreator()
         endif
         ; registered before the menu opens so its close is not missed; the event sets stage 20 (Done). The quest's
         ; LooksWait timer is the fallback when the event never comes
@@ -87,10 +95,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 Function Done(string how)
-{Stage 20 once, with what ended the wait (the quest logs "looks done: LooksWait fallback after ..." when its LooksWait
- does, and this then logs nothing: the first ending is the one the log summary reads). Then the "stage 20" line the
- quest's AdvanceTo would have traced: the stage is set here, not through AdvanceTo, and the log summary's "stages"
- reads only those lines (21 Oct review on #393).}
+{Stage 20 once, with what ended the wait (handing off to FO4SF_NewGameQuest.NoteLooksDone so cryopod_anim finishes
+ opening and walk-out before stage 20).}
     if GetStage() >= 20
         return
     endif
@@ -98,12 +104,13 @@ Function Done(string how)
     if how == "creator closed"
         by = "scene"
     endif
-    FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
-    if ngQuest != None
-        ngQuest.NoteLooksStage20()
-    endif
     TracePosition("done: " + how)
     Trace("looks done: " + how)
+    FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
+    if ngQuest != None
+        ngQuest.NoteLooksDone(how)
+        return
+    endif
     SetStage(20)
     Trace("stage 20 by=" + by)
 EndFunction

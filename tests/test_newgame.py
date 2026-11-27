@@ -137,7 +137,7 @@ class ContractTests(unittest.TestCase):
         code = fade[fade.index("    if faded"):]                  # past the doc comment
         self.assertTrue(code.startswith("    if faded\n        return\n    endif\n    faded = true\n"))
         # the pod's heading again while the screen is still dark, for a player the start moved into the vault
-        self.assertIn("    if vaultMoves > 0 && StandsInVault(player)\n        player.SetAngle(0.0, 0.0, PodHeading)\n    endif\n", code)
+        self.assertIn("    if vaultMoves > 0 && StandsInVault(player)\n        if PodAnimReady() && !podFellBack && !podExitDone\n            player.SetAngle(0.0, 0.0, PodSeatHeadingDeg)\n        else\n            player.SetAngle(0.0, 0.0, PodHeading)\n        endif\n    endif\n", code)
         self.assertLess(code.index("player.SetAngle(0.0, 0.0, PodHeading)"), code.index("Game.FadeOutGame("))
         self.assertLess(code.index("Game.FadeOutGame(False, True, 0.0, 0.1, False)"), code.index("Game.SetInChargen(false, false, false)"))
         self.assertLess(code.index("Game.SetInChargen(false, false, false)"), code.index("Game.SetCharGenHUDMode(0)"))
@@ -154,14 +154,14 @@ class ContractTests(unittest.TestCase):
         self.assertLess(begin.index("player.WaitFor3DLoad()"), begin.index('FadeIn("start")'))
         self.assertIn('    player.WaitFor3DLoad()                                   ; latent: returns once the 3D is in, or will not load\n'
                       '    bool ready = player.Is3DLoaded()\n    Trace("3d wait over loaded=" + ready)\n'
-                      '    if ready\n        if UsePreworldRoom()\n            PrepareStartRoomUi("start")\n            Game.ShowFirstPersonGeometry(false)\n        else\n            FadeIn("start")', begin)
+                      '    if ready\n        if UsePreworldRoom()\n            PrepareStartRoomUi("start")\n            Game.ShowFirstPersonGeometry(false)\n        elseif !PodAnimReady()\n            FadeIn("start")', begin)
         zero = psc[psc.index("    if stage == 0\n"):psc.index("    elseif stage == 10")]
         self.assertIn('        if !player.Is3DLoaded()\n', zero)
         self.assertIn('            StartTimer(1.0, 1)                               ; the game is still loading\n'
                       '            return\n        endif\n        if UsePreworldRoom()\n            PrepareStartRoomUi("timer")', zero)
         self.assertLess(zero.index('        if !player.Is3DLoaded()\n'), zero.index('FadeIn("timer")'))
         self.assertLess(zero.index('FadeIn("timer")'), zero.index("if !entered"))
-        self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "timer", "mode_story"])
+        self.assertEqual(re.findall(r'\bFadeIn\("([^"]+)"\)', psc), ["start", "stage10_choice", "timer", "mode_story", "mode_story"])
         self.assertEqual(re.findall(r'\bForceFadeIn\("([^"]+)"\)', psc), ["story_landing", "story_landing", "warfare"])
         self.assertIn("FadeOutGame", ng.NATIVES[ng.SCRIPT]["Game"])
         self.assertIn("ShowFirstPersonGeometry", ng.NATIVES[ng.SCRIPT]["Game"])
@@ -521,7 +521,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("int Property CenterTicks = 30 Auto Const", psc)
         enter = psc[psc.index("bool Function EnterVault"):psc.index("bool Function CenterOnVault")]
         self.assertIn("if anchor == None\n        if AnchorTemporary\n            return CenterOnVault()\n        endif", enter)
-        self.assertEqual(enter.count("player.MoveTo(anchor, PodX - AnchorX, entryY - AnchorY, PodZ + PodLift - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
+        self.assertEqual(enter.count("player.MoveTo(anchor, targetX - AnchorX, targetY - AnchorY, targetZ - AnchorZ, False, False)"), 1)   # one MoveTo, both modes
         center = psc[psc.index("bool Function CenterOnVault"):psc.index("Function ResetInventory")]
         self.assertEqual(center.count("Debug.CenterOnCell(VaultCell)"), 1)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)      # nowhere else
@@ -574,21 +574,21 @@ class ContractTests(unittest.TestCase):
         self.assertIn("float Property PodDrop = 0.5 Auto Const", psc)
         self.assertAlmostEqual(-1.029 + 0.3, -0.738, delta=0.01)   # the lifted start is the marker's height
         enter = psc[psc.index("bool Function EnterVault"):psc.index("Function CheckPod")]
-        self.assertIn('" target=" + PodX + " " + entryY + " " + (PodZ + PodLift) + " cell="', enter)   # the log's target is the start
+        self.assertIn('" target=" + targetX + " " + targetY + " " + targetZ + " cell="', enter)   # the log's target is the start
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         ten = body[body.index("elseif stage == 10"):body.index("elseif stage == 20 || stage == 30")]
         self.assertIn("if !podChecked && player.Is3DLoaded()\n            CheckPod(player)\n        endif", ten)
         self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
-        check = psc[psc.index("Function CheckPod"):psc.index("bool Function CenterOnVault")]
+        check = psc[psc.index("Function CheckPod"):psc.index("bool Function StandsInVault")]
         self.assertIn("podChecked = true", check)
         self.assertIn("float targetY = PodEntryY()", check)
         self.assertIn("float targetZ = PodZ + PodLift", check)
-        self.assertIn("float drop = targetZ - sampleZ", check)
-        self.assertIn("bool ok = dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
+        self.assertIn("dx * dx + dy * dy <= PodRadius * PodRadius && drop <= PodDrop", check)
         self.assertIn('Trace("pod settle ok=" + ok + " pos="', check)
+        self.assertIn('" pushed=" + pushed', check)
         for call in ("MoveTo(", "SetPosition(", "CenterOnCell("):
             self.assertNotIn(call, check)                    # evidence only
-        self.assertEqual(psc.count("CheckPod(player)"), 2)   # stage 10 legacy wait + InVault for pre-world Story jump to stage 20
+        self.assertEqual(psc.count("CheckPod(player)"), 3)   # stage 10 wait, stage 20/30 fallback, InVault
 
     def test_the_surface_arrival_waits_a_tick(self):
         """Run 3 of 28 Oct: the ride's SetPosition, called in the MoveTo's own tick, was ignored (the "surface
@@ -1056,7 +1056,13 @@ class ContractTests(unittest.TestCase):
         looks_calls |= set(re.findall(r"^Event (On\w+)\(", looks, re.M)) - {"OnTimer"}
         looks_own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", looks, re.M))
         looks_listed = {f for bases in ng.NATIVES[ng.LOOKS].values() for f in bases}
-        self.assertEqual(looks_calls - looks_listed - looks_own - {"NoteLooksStage20", "IsPreworldLooksHandled"}, set())
+        self.assertEqual(
+            looks_calls - looks_listed - looks_own - {
+                "NoteLooksStage20", "IsPreworldLooksHandled",
+                "NoteLooksDone", "ShouldSkipMenuDelay", "EnsureFadedInForChoice", "PrepareBeforeCreator",
+            },
+            set(),
+        )
         self.assertEqual(set(ng.NATIVES[ng.LOOKS]["ScriptObject"]), {"StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"})
         # the SPECIAL script the same way; its Actor.SetValue / GetValue are the unverified pair the precheck reads
         special = read(SPECIAL)
@@ -1136,7 +1142,12 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                                               + CHARGEN + FADE + FAST_READ + AUTOSAVE,
         "GlobalVariable": "float Function GetValue() native\nFunction SetValueInt(int aiValue) native\nFunction SetValue(float afNewValue) native\n",
-        "InputEnableLayer": "Scriptname InputEnableLayer extends ScriptObject\nInputEnableLayer Function Create() native global\nFunction EnableHandscanner(bool a = true) native\n",
+        "InputEnableLayer": "\n".join([
+            "Scriptname InputEnableLayer extends ScriptObject",
+            "InputEnableLayer Function Create() native global",
+            *[f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["InputEnableLayer"]],
+        ]) + "\n",
+        "Math": "Scriptname Math Native Hidden\n" + "\n".join(f"float Function {f}(float x) native global" for f in ng.NATIVES[ng.SCRIPT]["Math"]) + "\n",
         "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
         "ObjectReference": objectreference if objectreference is not None else
                            "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
@@ -3998,7 +4009,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             TracePosition=lambda *_: None,
             Trace=lambda m: c_qs.logs.append(m),
         )
-        looks_ns["self"] = SimpleNamespace(NoteLooksStage20=c_qs.ns["NoteLooksStage20"])
+        looks_ns["self"] = SimpleNamespace(NoteLooksDone=lambda _how: c_qs.ns["NoteLooksStage20"]())
         exec(looks_compiled, looks_ns)
         looks_ns["Done"]("quick start")
         self.assertTrue(c_qs.ns["looksSetStage20"])
@@ -4025,7 +4036,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             SetStage=lambda st: c_qs_nosync.cur_stage.__setitem__(0, st),
             TracePosition=lambda *_: None,
             Trace=lambda m: c_qs_nosync.logs.append(m),
-            self=SimpleNamespace(NoteLooksStage20=c_qs_nosync.ns["NoteLooksStage20"]),
+            self=SimpleNamespace(NoteLooksDone=lambda _how: c_qs_nosync.ns["NoteLooksStage20"]()),
         )
         exec(looks_compiled, looks_nosync_ns)
         looks_nosync_ns["Done"]("quick start")

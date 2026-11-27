@@ -125,6 +125,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0011F3: ("CELL", "FO4Port_Vault111Cryo"),
         0x001338: ("REFR", ""),
         0x001539: ("REFR", "FO4Port_ArmoryCageDoor"),
+        0x001617: ("REFR", ""),
         0x00E0D6: ("CONT", "FO4Port_VaultLocker"),
         0x00E2F4: ("CELL", "FO4Port_ConcordMuseum01"),
         0x00E2F5: ("REFR", ""),
@@ -135,6 +136,10 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x00EFAA: ("REFR", "FO4Port_PrestonExitDoor"),
         0x0337F0: ("QUST", "FO4Port_DialogueSceneRef"),
         0x04D8A1: ("KYWD", "ArmorTypePower"),
+    },
+    "FO4SFVaultPod.esm": {
+        0x000800: ("ACTI", "FO4SF_PlayerCryoPod"),
+        0x000801: ("REFR", "FO4SF_PlayerCryoPodRef"),
     },
     "FO4TerrainCore.esm": {
         0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),

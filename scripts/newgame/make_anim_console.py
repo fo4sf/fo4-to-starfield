@@ -71,6 +71,24 @@ LIFT_KIND = "exit-lift"
 LIFT_PLUGIN = "FO4SFExitLift.esm"
 LIFT_EDID = "FO4Port_acti_0244ef_fallout4"
 LIFT_STATES = {"stage3": "StateA_Play", "stage2": "StateB_Play"}
+POD_KIND = "vault-pod"
+POD_PLUGIN = "FO4SFVaultPod.esm"
+POD_EDID = "FO4Port_CryoPod01"
+POD_BASE_EDID = "FO4SF_PlayerCryoPod"
+POD_BASE_ID = 0x800
+POD_REF_ID = 0x801
+POD_STATIC_REF_ID = 0x001617
+POD_CELL_ID = 0x0011F3
+POD_STATES = {"Exit": "StateA_Play", "Enter": "StateB_Play"}
+POD_MOVING_BONES = ("arm0", "arm2", "arm", "arm3", "door")
+POD_STATIC_BONES = ("CryoPod01", "ColPush01")
+POD_ALLOWED_CLOSED_DROPS = ("CryoPod01", "ColPush01", "door")
+POD_CAPSULE_RADIUS_M = 0.35
+POD_CAPSULE_FLOOR_M = 0.0
+POD_CAPSULE_TOP_M = 1.9
+POD_EYE_HEIGHT_M = 1.68
+POD_VAULT_FLOOR_LOCAL_Z_M = 0.2986   # Vault floor -0.73 m minus pod origin -1.0285715 m
+POD_FOLEY_XWM = "Sound\\FX\\DRS\\Cryopod\\DRS_Vault_111_Cryopod_Open_01.xwm"
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User", "FO4SFAnimD.0.log")
 EDID = "FO4Port_acti_091a48_fallout4"
@@ -329,10 +347,17 @@ def stage(a, converter=None):
     """converter: (a, staging) -> (src, conv) for tests; default build_converter."""
     states = anim_object.parse_states(a.states)
     production = getattr(a, "production_lift", False)
+    production_pod = getattr(a, "production_pod", False)
+    if production and production_pod:
+        sys.exit("choose either --production-lift or --production-pod")
     if production and (states != LIFT_STATES or a.edid != LIFT_EDID or getattr(a, "idles", "toggle") != "toggle"
                        or getattr(a, "rest_after", None) != "stage2" or getattr(a, "swap_siblings", False)
                        or getattr(a, "placed_ref", None) or any(getattr(a, k + "_m", None) is not None for k in ("ahead", "up", "side"))):
         sys.exit("--production-lift requires the original lift, stage3=StateA_Play,stage2=StateB_Play, toggle, --rest-after stage2; no probe placement or experimental options")
+    if production_pod and (states != POD_STATES or a.edid != POD_EDID or getattr(a, "idles", "toggle") != "toggle"
+                           or getattr(a, "rest_after", None) != "Enter" or getattr(a, "swap_siblings", False)
+                           or getattr(a, "placed_ref", None) or any(getattr(a, k + "_m", None) is not None for k in ("ahead", "up", "side"))):
+        sys.exit("--production-pod requires FO4Port_CryoPod01, Exit=StateA_Play,Enter=StateB_Play, toggle, --rest-after Enter; no probe placement or experimental options")
     rest_after = getattr(a, "rest_after", None)
     if rest_after is not None and (getattr(a, "idles", "toggle") != "toggle" or rest_after not in states):
         sys.exit("--rest-after needs toggle idles and a mapped source sequence")
@@ -360,7 +385,8 @@ def stage(a, converter=None):
     staging = os.path.join(work, "conversion")
     os.makedirs(staging)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
-    info = parse_info(run(tool + ["info", port_esm, sf_esm, "--edid", a.edid]).stdout)
+    info_cmd = tool + ["info", port_esm, sf_esm, "--edid", a.edid] + (["--production-pod"] if production_pod else [])
+    info = parse_info(run(info_cmd).stdout)
     src, conv = (converter or build_converter)(a, staging)
     original, _raw = find_original(src, info["model"], a.model)
     extra = {"rest_after": rest_after} if rest_after is not None else {}
@@ -368,6 +394,14 @@ def stage(a, converter=None):
         extra["swap_siblings"] = True
     if getattr(a, "idles", "toggle") != "toggle":
         extra["idles"] = a.idles
+    if production_pod:
+        extra.update({
+            "force_static_bones": POD_STATIC_BONES,
+            "max_mesh_part_tris": 1000,
+            "include_static_collision": True,
+            "drop_collision_bones": POD_ALLOWED_CLOSED_DROPS,
+            "closed_pose_clip": "StateA_Idle",
+        })
     res = conv.convert_anim_object(original, states, a.foley or None, **extra)
     if not res.get("ok"):
         sys.exit(f"the console did not convert: {res.get('reason')} (attempt kept in {out})")
@@ -380,6 +414,8 @@ def stage(a, converter=None):
         sys.exit(f"the conversion wrote {len(lacking)} texture(s) the port's archives do not hold (the kit ships none): {lacking[:8]} (attempt kept in {out})")
     if production:
         return finish_production_lift(a, out, final, work, tool, port_esm, sf_esm, before, original, info, res, copied, textures)
+    if production_pod:
+        return finish_production_pod(a, out, final, work, tool, port_esm, sf_esm, before, original, info, res, copied, textures, src=src)
     wrote = run(tool + ["build", port_esm, sf_esm, out, "--model", model_path, "--rig", anim["skeleton"], "--anims", anim["animations"],
                         "--edid", a.edid]).stdout
     check = run(tool + ["check", os.path.join(out, PLUGIN), port_esm, sf_esm, "--model", model_path, "--rig", anim["skeleton"],
@@ -596,6 +632,219 @@ def finish_production_lift(a, out, final, work, tool, port, sf, before, original
                 "Pair through make_newgame.py stage --exit-lift <this folder>; never use anim_console_install.py.\n")
     os.replace(out, final)
     print(f"staged {final}: {LIFT_PLUGIN}, {len(copied)} assets, no probe quest/scripts")
+    return 0
+
+
+def capsule_obb_clearance(centre, half, rotation_row_major, cap_x, cap_y, z0=POD_CAPSULE_FLOOR_M,
+                          z1=POD_CAPSULE_TOP_M, radius=POD_CAPSULE_RADIUS_M, steps=80):
+    """Exact signed clearance (m) between a standing capsule segment (z0+radius .. z1-radius) and a 3D OBB."""
+    lo_z = z0 + radius
+    hi_z = max(lo_z, z1 - radius)
+    R = rotation_row_major
+    best = float("inf")
+    for s_i in range(steps + 1):
+        pz = lo_z + (hi_z - lo_z) * (s_i / steps)
+        dx, dy, dz = cap_x - centre[0], cap_y - centre[1], pz - centre[2]
+        # local = R^T * (p - centre)
+        lx = R[0] * dx + R[3] * dy + R[6] * dz
+        ly = R[1] * dx + R[4] * dy + R[7] * dz
+        lz = R[2] * dx + R[5] * dy + R[8] * dz
+        cx = max(-half[0], min(half[0], lx))
+        cy = max(-half[1], min(half[1], ly))
+        cz = max(-half[2], min(half[2], lz))
+        dist = math.sqrt((lx - cx) ** 2 + (ly - cy) ** 2 + (lz - cz) ** 2) - radius
+        if dist < best:
+            best = dist
+    return best
+
+
+def evaluate_pod_clearance(closed_boxes, seat_step_m, allowed_drops=POD_ALLOWED_CLOSED_DROPS,
+                           capsule_radius=POD_CAPSULE_RADIUS_M, z0=POD_CAPSULE_FLOOR_M, z1=POD_CAPSULE_TOP_M):
+    """Offline clearance gate: check every closed-pose collision body against the standing player capsule.
+
+    Refuses (ValueError) if an intersecting body is not explicitly marked dropped in `allowed_drops`, or if no
+    kept collision body remains. Returns detailed per-body report + min_clearance_m across kept bodies."""
+    if not closed_boxes:
+        raise ValueError("pod offline clearance gate: no closed-pose collision boxes found")
+    allow_set = {x.lower() for x in (allowed_drops or ())}
+    rows, dropped, kept_clearances, unexpected = [], [], [], []
+    for box in closed_boxes:
+        bone = box["bone"]
+        clr = capsule_obb_clearance(
+            box["centre_m"], box["half_m"], box["rotation_row_major"],
+            0.0, seat_step_m, z0=z0, z1=z1, radius=capsule_radius,
+        )
+        intersects = clr < 0.0
+        is_dropped = bool(box.get("dropped")) or (intersects and bone.lower() in allow_set)
+        row = {
+            "bone": bone,
+            "moving": bool(box.get("moving")),
+            "centre_m": box["centre_m"],
+            "half_m": box["half_m"],
+            "clearance_m": round(clr, 4),
+            "intersects": intersects,
+            "dropped": is_dropped,
+        }
+        rows.append(row)
+        if intersects and not box.get("dropped"):
+            unexpected.append((bone, clr))
+        elif is_dropped:
+            dropped.append(row)
+        elif intersects:
+            unexpected.append((bone, clr))
+        else:
+            kept_clearances.append(clr)
+    if unexpected:
+        msg = ", ".join(f"{b} ({c:+.4f} m)" for b, c in unexpected)
+        raise ValueError(f"pod offline clearance gate REFUSED at seat_step_m={seat_step_m}: intersecting body not dropped: {msg}")
+    if not kept_clearances:
+        raise ValueError("pod offline clearance gate REFUSED: all collision bodies were dropped")
+    return {
+        "seat_step_m": seat_step_m,
+        "capsule_radius_m": capsule_radius,
+        "capsule_z_m": [z0, z1],
+        "min_clearance_m": round(min(kept_clearances), 4),
+        "kept_count": len(kept_clearances),
+        "dropped_bodies": [r["bone"] for r in dropped],
+        "bodies": rows,
+    }
+
+
+def choose_pod_seat_step(closed_boxes, start_step_m=-0.6, min_margin_m=0.05, step_delta_m=0.05,
+                         max_step_m=0.0, allowed_drops=POD_ALLOWED_CLOSED_DROPS,
+                         capsule_radius=POD_CAPSULE_RADIUS_M):
+    """Starting at start_step_m (-0.6), adjust toward +Y until all retained closed-pose bodies clear by >= min_margin_m."""
+    y = start_step_m
+    last_err = None
+    while y <= max_step_m + 1e-6:
+        try:
+            rep = evaluate_pod_clearance(closed_boxes, round(y, 4), allowed_drops=allowed_drops, capsule_radius=capsule_radius)
+            if rep["min_clearance_m"] >= min_margin_m:
+                return round(y, 4), rep
+        except ValueError as exc:
+            last_err = exc
+        y += step_delta_m
+    raise ValueError(f"pod clearance gate could not find safe seat_step_m >= {start_step_m}: {last_err}")
+
+
+def validate_pod_animation(anim):
+    """Enforce production Vault 111 CryoPod animation contract (closed StateA_Idle, Exit=5.3333s, inner faces, window Z)."""
+    if anim.get("idles") != "toggle" or anim.get("rest_after") != "Enter":
+        sys.exit(f"production pod lacks toggle closed-idle rest_after='Enter' (idles={anim.get('idles')!r}, rest_after={anim.get('rest_after')!r})")
+    clips = {c["name"]: c for c in anim["clips"]}
+    if set(clips) != {"StateA_Play", "StateB_Play", "StateA_Idle", "StateB_Idle"}:
+        sys.exit(f"production pod clips mismatch: {sorted(clips)}")
+    if clips["StateA_Idle"].get("hold_of") != "StateB_Play" or clips["StateA_Idle"].get("hold_frame") != "last":
+        sys.exit("production pod does not rest CLOSED (StateA_Idle must hold last frame of Enter/StateB_Play)")
+    exit_s = clips["StateA_Play"].get("seconds", 0.0)
+    enter_s = clips["StateB_Play"].get("seconds", 0.0)
+    if abs(exit_s - 5.3333) > 0.05 or abs(enter_s - 10.0) > 0.05:
+        sys.exit(f"production pod durations differ from CryoPod01 (Exit={exit_s}, Enter={enter_s})")
+    bones_animated = sorted(anim.get("animated_bones") or ())
+    if bones_animated != sorted(POD_MOVING_BONES):
+        sys.exit(f"production pod animated bones {bones_animated} != expected {sorted(POD_MOVING_BONES)}")
+    # Inner & window shapes must be kept (not skipped/dropped)
+    kept_shapes = {s["shape"]: s for s in (anim.get("shapes") or []) if s.get("fate") == "kept"}
+    for req_shape in ("door:2", "door:7", "CryoPod01:3", "CryoPod01:8", "Window:11", "Window:9"):
+        if req_shape not in kept_shapes:
+            sys.exit(f"production pod dropped inner/window shape {req_shape!r}")
+    # Measure Window Z bounds in closed pose (StateA_Idle = rest pose of converted model)
+    atts = anim.get("attachments") or []
+    rest_boxes = (anim.get("pose_boxes_m") or {}).get("rest") or []
+    win_z = None
+    for att in atts:
+        if att.get("shape") in ("Window:9", "Window:11"):
+            box = rest_boxes.get(att.get("key")) or rest_boxes.get(str(att.get("key")))
+            if box is not None:
+                lo, hi = box
+                if win_z is None:
+                    win_z = [lo[2], hi[2]]
+                else:
+                    win_z = [min(win_z[0], lo[2]), max(win_z[1], hi[2])]
+    if win_z is None:
+        sys.exit("production pod lacks closed-pose Window bounds")
+    eye_from_vault_floor = POD_VAULT_FLOOR_LOCAL_Z_M + POD_EYE_HEIGHT_M
+    eye_from_pod_origin = POD_EYE_HEIGHT_M
+    return {
+        "window_z_m": [round(win_z[0], 4), round(win_z[1], 4)],
+        "assumed_eye_height_m": POD_EYE_HEIGHT_M,
+        "eye_pod_local_z_from_vault_floor_m": round(eye_from_vault_floor, 4),
+        "eye_pod_local_z_from_pod_origin_m": round(eye_from_pod_origin, 4),
+        "eye_within_window_z": (win_z[0] <= eye_from_vault_floor <= win_z[1]) and (win_z[0] <= eye_from_pod_origin <= win_z[1]),
+        "inner_shapes_kept": [k for k in ("door:2", "door:7", "CryoPod01:3", "CryoPod01:8", "Window:11") if k in kept_shapes],
+        "skipped_shapes": [s["shape"] for s in (anim.get("shapes") or []) if s.get("fate") != "kept"],
+    }
+
+
+def finish_production_pod(a, out, final, work, tool, port, sf, before, original, info, res, copied, textures, src=None):
+    """Build FO4SFVaultPod.esm (ACTI 0x800, persistent REFR 0x801, disabled 0x001617), enforce clearance gate, and publish stage."""
+    anim = res["anim"]
+    inner_win = validate_pod_animation(anim)
+    closed_boxes = anim.get("closed_collision_boxes") or []
+    try:
+        seat_step_m, clearance = choose_pod_seat_step(closed_boxes, start_step_m=-0.6, min_margin_m=0.05)
+    except ValueError as exc:
+        sys.exit(f"{exc} (attempt kept in {out})")
+
+    sounds_ba2 = os.path.join(a.fo4_data, "Fallout4 - Sounds.ba2")
+    if os.path.isfile(sounds_ba2):
+        from fo4sf import ba2
+        foley_present = ba2.Ba2(sounds_ba2).find(POD_FOLEY_XWM) is not None
+    else:
+        foley_present = False
+    model = res["out_name"].replace("/", "\\") + ".nif"
+    bounds = anim["bounds"]
+    bounds_spec = ",".join(str(v) for pt in bounds for v in pt)
+    opts = ["--production-pod", "--model", model, "--rig", anim["skeleton"], "--anims", anim["animations"], "--pod-bounds", bounds_spec]
+    wrote = run(tool + ["build", port, sf, out] + opts).stdout
+    check = run(tool + ["check", os.path.join(out, POD_PLUGIN), port, sf] + opts).stdout
+    lines_out = [
+        f"Clearance gate: seat_step_m={seat_step_m}, min_clearance_m={clearance['min_clearance_m']}, dropped={clearance['dropped_bodies']}",
+        *[
+            f"  body {r['bone']} ({'moving' if r['moving'] else 'static'}): centre={r['centre_m']} half={r['half_m']} "
+            f"clearance={r['clearance_m']:+.4f}m status={'DROPPED' if r['dropped'] else 'KEPT'}"
+            for r in clearance["bodies"]
+        ],
+        f"Window Z: {inner_win['window_z_m']} m vs assumed standing eye {inner_win['assumed_eye_height_m']} m "
+        f"(from vault floor: {inner_win['eye_pod_local_z_from_vault_floor_m']} m; from pod origin: {inner_win['eye_pod_local_z_from_pod_origin_m']} m; in_window={inner_win['eye_within_window_z']})",
+        f"Inner shapes kept: {inner_win['inner_shapes_kept']}; skipped shapes: {inner_win['skipped_shapes']}",
+        f"Ignored tracks ({len(anim.get('ignored_tracks') or [])}): {anim.get('ignored_tracks') or []}",
+        f"Optional foley {POD_FOLEY_XWM}: present_in_fo4={foley_present}, afx_foley={anim.get('foley') or 'none'}",
+    ]
+    with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
+        f.write(wrote + check + "\n" + "\n".join(lines_out) + "\n")
+    with open(os.path.join(out, "anim_manifest.json"), "w", encoding="utf-8") as f:
+        json.dump({
+            "original": original, "base_edid": a.edid, "base_id": info["base_id"], "model": model,
+            "states": POD_STATES, "anim": anim, "kit_files": copied, "textures_not_shipped": textures,
+            "clearance": clearance, "inner_and_window": inner_win,
+            "foley_xwm": {"path": POD_FOLEY_XWM, "present_in_fo4": foley_present, "afx_foley": anim.get("foley") or ""},
+        }, f, indent=1)
+    shutil.rmtree(work)
+    after = {"Starfield.esm": sha256(sf), "FO4Port.esm": sha256(port)}
+    if after != before:
+        sys.exit(f"pod inputs changed during conversion; attempt kept in {out}")
+    plan = {
+        "kind": POD_KIND, "version": 1, "plugins": [POD_PLUGIN], "outputs": probe_a.stage_files(out),
+        "inputs": {k: {"sha256": v} for k, v in before.items()}, "states": POD_STATES,
+        "acti_id": f"0x{POD_BASE_ID:06X}", "acti_edid": POD_BASE_EDID,
+        "ref_id": f"0x{POD_REF_ID:06X}", "static_ref_id": f"0x{POD_STATIC_REF_ID:06X}",
+        "cell_id": f"0x{POD_CELL_ID:06X}",
+        "model": model, "rig": anim["skeleton"], "anims": anim["animations"], "bounds": bounds,
+        "seat_step_m": seat_step_m, "clearance": clearance, "inner_and_window": inner_win,
+    }
+    with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
+        json.dump(plan, f, indent=1)
+    with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join([
+            f"Production Vault 111 CryoPod component: {POD_PLUGIN} (ACTI 0x800 {POD_BASE_EDID}, persistent REFR 0x801 in cell 0x0011F3, Initially Disabled override 0x001617).",
+            f"Closed idle: StateA_Idle = last frame of Enter (StateB_Play); open animation StateA_Play = Exit (5.3333 s).",
+            *lines_out,
+        ]) + "\n")
+    os.replace(out, final)
+    print(f"staged {final}: {POD_PLUGIN}, {len(copied)} assets, seat_step_m={seat_step_m}, min_clearance={clearance['min_clearance_m']}m")
+    for ln in lines_out:
+        print("  " + ln)
     return 0
 
 
@@ -920,6 +1169,7 @@ def main(argv=None):
     s = sub.add_parser("stage")
     s.add_argument("--out", required=True)
     s.add_argument("--production-lift", action="store_true", help="build the floor-start Vault 111 asset component without the test quest or PEX")
+    s.add_argument("--production-pod", action="store_true", help="build FO4SFVaultPod.esm (ACTI 0x800, REFR 0x801, disabled 0x001617) and animated CryoPod01 with offline clearance gate")
     s.add_argument("--surface-cog-stage", default="", help="staged surface-lift-cog folder (stage_surface_lift_cog.py) to bundle into FO4SFExitLift.esm (ACTI 0x0A2D4B override)")
     s.add_argument("--core", default="", help="path to FO4TerrainCore.esm for --surface-cog-stage (defaults to port/starfield data)")
     s.add_argument("--starfield-data", default=os.path.join(STARFIELD, "Data"))
@@ -951,6 +1201,8 @@ def main(argv=None):
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     a = p.parse_args(argv)
+    if a.cmd == "stage" and getattr(a, "production_pod", False) and a.edid == EDID:
+        a.edid = POD_EDID
     return {"precheck": precheck, "clips": clips, "stage": stage, "inspect": inspect_stage, "dump": dump_stage, "log": log}[a.cmd](a)
 
 

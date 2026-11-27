@@ -219,6 +219,56 @@ class CoreBundleTests(unittest.TestCase):
         add_stage("02-exit-lift", "FO4SFExitLift.esm", masters=("Starfield.esm", "FO4Port.esm", "FO4TerrainCore.esm"),
                   extra_files={"Data/materials/fo4port/_neutral.mat": shared_mat,
                                "Data/meshes/fo4port/lift_anim.nif": b"LIFT_NIF"})
+
+        pod_st = stages_root / "02c-vault-pod"
+        pod_st.mkdir(parents=True, exist_ok=True)
+        pod_w = PluginWriter(("Starfield.esm", "FO4Port.esm"), flags=ESM, author="fo4-to-starfield VaultPod")
+        pod_w.add(
+            Record(
+                b"ACTI",
+                pod_w.own(0x000800),
+                [
+                    (b"EDID", zbytes("FO4SF_PlayerCryoPod")),
+                    (b"OBND", struct.pack("<6f", -1.0, -1.0, 0.0, 1.0, 1.0, 2.5)),
+                    (b"MODL", zbytes(r"fo4port\pod\cryopod01.nif")),
+                    (b"ANAM", zbytes(r"Actors\Character\Animation\StateMachines\ActivatorStateGraph01.agx")),
+                    (b"BNAM", zbytes(r"fo4port\pod\rig.hkt")),
+                    (b"CNAM", zbytes(r"fo4port\pod\clips")),
+                ],
+                0, 0, 581, 0,
+            )
+        )
+        def _pod_sub(sig: bytes, data: bytes) -> bytes:
+            return sig + struct.pack("<H", len(data)) + data
+        def _pod_rec(sig: bytes, fid: int, subs: list[bytes], flags: int = 0) -> bytes:
+            body = b"".join(subs)
+            return sig + struct.pack("<IIIII", len(body), flags, fid, 0, 0) + body
+        def _pod_grup(label: bytes, gtype: int, payload: bytes) -> bytes:
+            return b"GRUP" + struct.pack("<I", 24 + len(payload)) + label + struct.pack("<III", gtype, 0, 0) + payload
+        cell_fid = (1 << 24) | 0x0011F3
+        cell_rec = _pod_rec(b"CELL", cell_fid, [_pod_sub(b"EDID", zbytes("FO4Port_Vault111Cryo"))], flags=0x00000401)
+        refr_801 = _pod_rec(b"REFR", pod_w.own(0x000801), [_pod_sub(b"NAME", struct.pack("<I", pod_w.own(0x000800)))], flags=0x00000400)
+        refr_1617 = _pod_rec(b"REFR", (1 << 24) | 0x001617, [_pod_sub(b"NAME", struct.pack("<I", (1 << 24) | 0x000855))], flags=0x00000800)
+        pod_esm_bytes = pod_w.to_bytes(compress=False) + _pod_grup(b"CELL", 0, cell_rec + _pod_grup(struct.pack("<I", cell_fid), 6, refr_801 + refr_1617))
+        (pod_st / "FO4SFVaultPod.esm").write_bytes(pod_esm_bytes)
+        pod_outputs = {"FO4SFVaultPod.esm": _sha256_bytes(pod_esm_bytes)}
+        pod_extra: dict[str, bytes] = {
+            "Data/materials/fo4port/_neutral.mat": shared_mat,
+            "Data/meshes/fo4port/pod/cryopod01.nif": b"POD_NIF",
+            "Data/meshes/fo4port/pod/rig.hkt": b"POD_RIG",
+        }
+        for clip in ("statea_play.af", "statea_play.afx", "stateb_play.af", "stateb_play.afx",
+                     "statea_idle.af", "statea_idle.afx", "stateb_idle.af", "stateb_idle.afx"):
+            pod_extra[f"Data/meshes/fo4port/pod/clips/{clip}"] = f"POD_CLIP:{clip}".encode("ascii")
+        for rel, raw in pod_extra.items():
+            fp = pod_st / Path(*rel.split("/"))
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_bytes(raw)
+            pod_outputs[rel] = _sha256_bytes(raw)
+        (pod_st / "plan.json").write_text(
+            json.dumps({"plugin": "FO4SFVaultPod.esm", "plugins": ["FO4SFVaultPod.esm"], "outputs": pod_outputs}, indent=1),
+            encoding="utf-8",
+        )
         mission_extra = {
             "Data/Scripts/FO4SF_COMPreston.pex": b"PEX:FO4SF_COMPreston",
             "Data/Scripts/FO4SF_Codsworth01Quest.pex": b"PEX:FO4SF_Codsworth01Quest",
@@ -421,9 +471,10 @@ class CoreBundleTests(unittest.TestCase):
 
             bplan = json.loads((out / "bundle_plan.json").read_text(encoding="utf-8"))
             self.assertFalse(bplan["with_route_loot"])
-            self.assertEqual(len(bplan["plugins"]), 22)
+            self.assertEqual(len(bplan["plugins"]), 23)
             self.assertEqual(bplan["plugins"], list(mcb.CORE_BUNDLE_PLUGINS))
             self.assertIn("FO4SFCoreValues.esm", bplan["plugins"])
+            self.assertIn("FO4SFVaultPod.esm", bplan["plugins"])
             self.assertIn("FO4SFMission.esm", bplan["plugins"])
             self.assertNotIn("FO4SFRouteLoot.esm", bplan["plugins"])
             self.assertLess(bplan["plugins"].index("FO4SFCoreValues.esm"), bplan["plugins"].index("FO4SFNewGame.esm"))
@@ -451,7 +502,7 @@ class CoreBundleTests(unittest.TestCase):
             self.assertTrue((out / "sfse_sidecar" / "reputation" / "FO4SFPipboyKit.ini").is_file())
             self.assertFalse((out / "Data" / "SFSE").exists())
 
-            # T1 opt-in on --profile test: --with-route-loot folds FO4SFRouteLoot.esm -> 23 plugins
+            # T1 opt-in on --profile test: --with-route-loot folds FO4SFRouteLoot.esm -> 24 plugins
             out_test_rl = root / "bundle-test-with-rl"
             rc_test_rl = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
@@ -461,11 +512,11 @@ class CoreBundleTests(unittest.TestCase):
             self.assertEqual(rc_test_rl, 0)
             tplan_rl = json.loads((out_test_rl / "bundle_plan.json").read_text(encoding="utf-8"))
             self.assertTrue(tplan_rl["with_route_loot"])
-            self.assertEqual(len(tplan_rl["plugins"]), 23)
+            self.assertEqual(len(tplan_rl["plugins"]), 24)
             self.assertEqual(tplan_rl["plugins"], list(mcb.CORE_WITH_ROUTE_LOOT_PLUGINS))
             self.assertLess(tplan_rl["plugins"].index("FO4SFMission.esm"), tplan_rl["plugins"].index("FO4SFRouteLoot.esm"))
 
-            # W1 + A17 + T1: Default profile for fold (when --profile is omitted) is Track-1 'player' -> 13 plugins
+            # W1 + A17 + T1: Default profile for fold (when --profile is omitted) is Track-1 'player' -> 14 plugins
             out_player = root / "bundle-player"
             rc_player = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
@@ -479,13 +530,13 @@ class CoreBundleTests(unittest.TestCase):
             self.assertEqual(pplan["profile"], "player")
             self.assertFalse(pplan["with_route_loot"])
             self.assertFalse(pplan["with_experimental_core"])
-            self.assertEqual(len(pplan["plugins"]), 13)
+            self.assertEqual(len(pplan["plugins"]), 14)
             self.assertEqual(pplan["plugins"], list(mcb.PLAYER_BUNDLE_PLUGINS))
             self.assertNotIn("FO4SFCoreCandidate.esm", pplan["plugins"])
             self.assertNotIn("FO4SFRouteLoot.esm", pplan["plugins"])
             self.assertFalse((out_player / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFCombat.dll").exists())
 
-            # Opt-in --with-experimental-core + --with-route-loot on player profile -> 22 plugins
+            # Opt-in --with-experimental-core + --with-route-loot on player profile -> 23 plugins
             out_player_rl = root / "bundle-player-with-rl"
             rc_player_rl = mcb.main([
                 "fold", "--owner-set", str(owner), "--stages-root", str(stages_root),
@@ -498,7 +549,7 @@ class CoreBundleTests(unittest.TestCase):
             pplan_rl = json.loads((out_player_rl / "bundle_plan.json").read_text(encoding="utf-8"))
             self.assertTrue(pplan_rl["with_route_loot"])
             self.assertTrue(pplan_rl["with_experimental_core"])
-            self.assertEqual(len(pplan_rl["plugins"]), 22)
+            self.assertEqual(len(pplan_rl["plugins"]), 23)
             self.assertEqual(pplan_rl["plugins"], list(mcb.PLAYER_WITH_ROUTE_LOOT_PLUGINS))
             # Tampering with_route_loot=False on a player bundle holding FO4SFRouteLoot.esm must fail verify
             pplan_rl["with_route_loot"] = False
@@ -1648,6 +1699,7 @@ class CoreBundleTests(unittest.TestCase):
             bplan = json.loads((out_ok / "bundle_plan.json").read_text(encoding="utf-8"))
             bplan["components"]["cog_door"]["outputs"]["Data/materials/fo4port/_neutral.mat"] = _sha256_bytes(mat_p.read_bytes())
             bplan["components"]["exit_lift"]["outputs"]["Data/materials/fo4port/_neutral.mat"] = _sha256_bytes(mat_p.read_bytes())
+            bplan["components"]["vault_pod"]["outputs"]["Data/materials/fo4port/_neutral.mat"] = _sha256_bytes(mat_p.read_bytes())
             bplan["components"]["mission"]["outputs"]["Data/materials/fo4port/_neutral.mat"] = _sha256_bytes(mat_p.read_bytes())
             (out_ok / "bundle_plan.json").write_text(json.dumps(bplan, indent=1), encoding="utf-8")
 
