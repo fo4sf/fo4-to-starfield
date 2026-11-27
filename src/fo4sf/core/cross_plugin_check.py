@@ -92,6 +92,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0B120E: ("AVIF", "ActorShouldForceHideSpacesuit_AV"),
         0x0C154F: ("IDLE", "IdleExamineWatch"),
         0x0D4893: ("ARMO", "Clothes_Chronomark_Mq101_NOTPLAYABLE"),
+        0x1034AB: ("WTHS", "WeatherUniqueNA_Clear_Unique"),
         0x104631: ("ARMO", "Spacesuit_Constellation_Backpack_01_NOTPLAYABLE"),
         0x104632: ("ARMO", "Spacesuit_Constellation_Helmet_01_NOTPLAYABLE"),
         0x105688: ("CONT", "VaultCaseTemplate"),

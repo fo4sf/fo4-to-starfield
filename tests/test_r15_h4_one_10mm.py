@@ -54,8 +54,40 @@ class R15H4One10mmTests(unittest.TestCase):
             )
         self.assertIn("Weapon Property VaultPistolBase Auto Const Mandatory", psc)
         self.assertIn("Ammo Property VaultAmmoBase Auto Const", psc)
+        self.assertIn("int Property VaultAmmoCount = 48 Auto Const", psc)
         self.assertIn("AddInventoryEventFilter(VaultPistolBase)", psc)
         self.assertIn("AddInventoryEventFilter(VaultAmmoBase)", psc)
+
+    def test_psc_ammo_world_pickup_tops_up_count_1_to_48(self) -> None:
+        psc = NEWGAME_PSC.read_text(encoding="utf-8")
+        funcs = ("ObjectReference.OnItemAdded",)
+        vars_csv = "pistolPickedLogged, ammoPickedLogged"
+        compiled = compile(translated_functions(psc, funcs, vars_csv), str(NEWGAME_PSC), "exec")
+        player = Reference(None, (-57.0, 30.37, 0.70), form_id=0x00000014)
+        ammo = "FO4_Ammo10mm (06000898)"
+        inv = {ammo: 1}  # Simulate Starfield world REFR pickup granting only 1 round despite XCNT=48
+        traces: list[str] = []
+
+        def add_item(item, count=1, _silent=False):
+            inv[item] = inv.get(item, 0) + count
+            # Re-entrant OnItemAdded from AddItem must not double-grant or double-log
+            ns["OnItemAdded"](player, item, count, None, None, 0)
+
+        player.AddItem = add_item  # type: ignore[attr-defined]
+        ns = dict(
+            Trace=traces.append,
+            pistolPickedLogged=False,
+            ammoPickedLogged=False,
+            VaultPistolBase="FO4_10mmPistol (06000899)",
+            VaultAmmoBase=ammo,
+            VaultAmmoCount=48,
+            Game=SimpleNamespace(GetPlayer=lambda: player),
+            GetStage=lambda: 20,
+        )
+        exec(compiled, ns)
+        ns["OnItemAdded"](player, ammo, 1, None, None, 0)
+        self.assertEqual(inv[ammo], 48)
+        self.assertEqual(traces, [f"pistol ammo picked item={ammo} count=48 base={ammo}"])
 
     def test_psc_uses_only_bound_vault_pistol_and_ammo_bases_for_both_modes(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")

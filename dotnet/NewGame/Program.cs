@@ -23,7 +23,7 @@
 //        written for), the quest carrying
 //        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
 //        their properties, MESG FO4SF_NewGameElevator and MESG FO4SF_NewGameStart (two buttons each: the elevator
-//        prompt, and the opening choice "Create character" or "Quick start" the looks script shows, NG-6 / NG-C9), and
+//        prompt, and the opening choice "Create character" or "Use preset look" the looks script shows, NG-6 / NG-C9), and
 //        no override of Starfield's GLOB MQ101Debug by default (each of MQ101's stage-0 entries moves the player into the
 //        game; the first build's 10 was the pirate-fight developer start, the second build's 2 matched no entry and left
 //        the new game on its loading screen, 28 Oct), or --mq101debug <n> to override it for an experiment. The quest
@@ -171,7 +171,7 @@ static class NewGame
     public const string CoreFo4Ammo10mmEdid = "FO4_Ammo10mm", CoreFo410mmPistolEdid = "FO4_10mmPistol";
     public const int VaultAmmoCount = 48;
     public const string PortPipboyStaticEdid = "FO4Port_NpcPipboyGroundTake01";
-    public static readonly string[] StartButtons = { "Quick start", "Create character" };
+    public static readonly string[] StartButtons = { "Use preset look", "Create character" };
     public static readonly string[] ExitButtons = { "Continue", "S.P.E.C.I.A.L.", "Stay" };
     public static readonly string[] ExitNeedSpecialButtons = { "OK" };
     public static readonly string[] ExitFallbackButtons = { "Go up to the Commonwealth", "Retry lift" };
@@ -626,7 +626,7 @@ static class NewGame
         var ids = gameEl.GetProperty("starter_strip_starfield_armor_ids").EnumerateArray()
             .Select(x => ParseHex(x.GetString() ?? "0"))
             .ToArray();
-        int weatherId = gameEl.TryGetProperty("arrival_weather_id", out var awid) ? (int)ParseHex(awid.GetString() ?? "0") : 0x0027CF9B;
+        int weatherId = gameEl.TryGetProperty("arrival_weather_id", out var awid) ? (int)ParseHex(awid.GetString() ?? "0") : 0x001034AB;
         string weatherPlugin = gameEl.TryGetProperty("arrival_weather_plugin", out var awp) ? (awp.GetString() ?? "Starfield.esm") : "Starfield.esm";
         bool weatherOverride = !gameEl.TryGetProperty("arrival_weather_override", out var awo) || awo.GetBoolean();
         int fallbackSuitId = gameEl.TryGetProperty("vault_suit_fallback_armor_id", out var vsfid) ? (int)ParseHex(vsfid.GetString() ?? "0") : 0x0001D1D7;
@@ -1774,7 +1774,7 @@ static class NewGame
             ("PodOriginX", podAt[0]), ("PodOriginY", podAt[1]), ("PodOriginZ", podAt[2]),
             ("PodSeatX", seatX), ("PodSeatY", seatY), ("PodSeatZ", seatZ),
             ("CogDoorId", (int)p.CogDoor), ("ConsoleRefId", (int)p.Console), ("ConsoleX", con[0]), ("ConsoleY", con[1]), ("ConsoleZ", con[2]),
-            ("PortPipboyStaticId", (int)p.PortPipboyStatic), ("VaultPistolId", (int)vaultPistolId),
+            ("PortPipboyStaticId", (int)p.PortPipboyStatic), ("VaultPistolId", (int)vaultPistolId), ("VaultAmmoCount", VaultAmmoCount),
             ("PlatformX", plat[0]), ("PlatformY", plat[1]), ("PlatformZ", plat[2]),
             ("PlatformRadius", active.PlatformRadius),
             ("ActiveLiftPairId", lp.ActivePairId),
@@ -1996,7 +1996,7 @@ static class NewGame
             EditorID = StartMessageEdid, Name = "Character Appearance", Description = "Start quickly with the preset, or create your character?",
             Flags = SF.Message.Flag.MessageBox,
         };
-        start.MenuButtons.Add(new SF.MessageButton { Text = "Quick start" });
+        start.MenuButtons.Add(new SF.MessageButton { Text = "Use preset look" });
         start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
         mod.Messages.Add(start);
         // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt and two <=7-button allocation MESGs (the seven AVIFs live in FO4SFCoreValues.esm)

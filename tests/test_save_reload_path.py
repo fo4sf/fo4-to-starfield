@@ -793,8 +793,8 @@ class SaveReloadPathTests(unittest.TestCase):
         )
         exec(looks_compiled, looks_ns)
 
-        # 1. Quick Start commits stage 20 BEFORE pod RequestAutoSave
-        looks_ns["Done"]("quick start")
+        # 1. Use preset look commits stage 20 BEFORE pod RequestAutoSave
+        looks_ns["Done"]("use preset look")
         self.assertEqual(cur_stage[0], 20)
         self.assertEqual(autosaves, [20])
 

@@ -118,7 +118,7 @@ Message Property WarfareGroupMsg Auto Const Mandatory
 Message Property WarfareSpotMsg Auto Const Mandatory
 {S4 Box 5 (0x80A): starting Warfare deployment spot.}
 Message Property StartPickMsg Auto Const
-{N2 pre-world appearance prompt (0x802): 0 Quick start, 1 Create character.}
+{N2 pre-world appearance prompt (0x802): 0 Use preset look, 1 Create character.}
 Message Property NoPipboyMsg Auto Const Mandatory
 {X2 / A16 (0x817): shown when activating the Vault 111 console before picking up the Pip-Boy.}
 
@@ -299,6 +299,8 @@ Ammo Property VaultAmmoBase Auto Const
 {Vault 111 ammo AMMO bound from game_start_config.json (or Starfield.esm fallback), filtered for OnItemAdded.}
 int Property VaultPistolId = 0 Auto Const
 {Plugin-local FormID of VaultPistolBase, logged when adding the inventory event filter.}
+int Property VaultAmmoCount = 48 Auto Const
+{Target round count granted by the Vault 111 10mm ammo pickup (0x821); tops up world pickups if the engine grants fewer.}
 bool Property FadeHold = false Auto Const
 {W1 / T3: false by default so New Game enters Vault 111 Story mode directly (--fade-hold opts in to pre-world start setup).}
 int Property StartChoiceBackdrop = 1 Auto Const
@@ -311,7 +313,7 @@ bool Property SilentStarterStrip = true Auto Const
 string Property LandingHandoff = "single_quest" Auto Const
 Form[] Property StarterStripItems Auto Const
 bool Property SinglePassLandingFade = true Auto Const
-int Property ArrivalWeatherId = 0x0027CF9B Auto Const
+int Property ArrivalWeatherId = 0x001034AB Auto Const
 string Property ArrivalWeatherPlugin = "Starfield.esm" Auto Const
 bool Property ArrivalWeatherOverride = true Auto Const
 int Property VaultSuitFallbackId = 0x0001D1D7 Auto Const
@@ -469,6 +471,8 @@ bool pipboyGranted = false
 bool pipboyPickupAutosaved = false
 bool itemWatchRegistered = false
 bool pistolPickedLogged = false
+bool ammoPickedLogged = false
+bool deathReloadPlainBlackActive = false
 bool liftSpecConfirmed = false
 bool warfareWaitingCreator = false
 bool mapSetupDone = false
@@ -2764,12 +2768,26 @@ WorldSpace Function ResolveHostWorld()
     return None
 EndFunction
 
+Function SetDeathReloadPlainBlackCover(bool abEnable)
+{Single-hook seam for Worker 1's shared LoadingMenu plain-black cover API (never registers a second LoadingMenu hook).
+ Integrator: wire Worker 1's shared cover call or global here (1-2 lines) when abEnable toggles.}
+    if deathReloadPlainBlackActive == abEnable
+        return
+    endif
+    deathReloadPlainBlackActive = abEnable
+    Trace("death_reload plain_black_cover=" + abEnable)
+EndFunction
+
 Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
     if akSender == None || akSender != Game.GetPlayer()
         return
     endif
     int st = GetStage()
-    if st >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2) || vaultRecoveryTriggered
+    if st >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2)
+        SetDeathReloadPlainBlackCover(true)
+        return
+    endif
+    if vaultRecoveryTriggered
         return
     endif
     vaultRecoveryTriggered = true
@@ -2777,6 +2795,7 @@ Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
         ReleasePodHold()
     endif
     if vaultPodAutosaved
+        SetDeathReloadPlainBlackCover(true)
         Trace("vault_death_recovery=autosave stage=" + st)
         return
     endif
@@ -2816,6 +2835,7 @@ EndEvent
 ; Shared Actor.OnPlayerLoadGame ownership: reopens log, syncs save-lock & Pip-Boy state, logs cog/interior state, and recovers mid-ride lifts.
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    SetDeathReloadPlainBlackCover(false)
     vaultRecoveryTriggered = false
     EnsureLoadHookRegistered(akSender)
     SyncPipboyOwnedWornState(akSender)
@@ -3146,14 +3166,14 @@ Function RunPreworldLooksChoice(Actor player, bool isWarfare)
         Trace("start choice button=" + cBtn)
     elseif !isWarfare
         preworldLooksDone = true
-        preworldLooksHow = "quick start"
+        preworldLooksHow = "use preset look"
         preworldLooksBy = "Trigger"
         return
     endif
     if cBtn == 0
-        Trace("quick start: preset kept, creator skipped")
+        Trace("use preset look: preset kept, creator skipped")
         preworldLooksDone = true
-        preworldLooksHow = "quick start"
+        preworldLooksHow = "use preset look"
         preworldLooksBy = "Trigger"
         return
     endif
@@ -4158,7 +4178,19 @@ Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int
             Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped + " base=" + VaultPistolBase)
         endif
     elseif VaultAmmoBase != None && akBaseItem == VaultAmmoBase
-        Trace("pistol ammo picked item=" + akBaseItem + " count=" + aiItemCount + " base=" + VaultAmmoBase)
+        if !ammoPickedLogged
+            ammoPickedLogged = true
+            int grantedCount = aiItemCount
+            if akSourceContainer == None && VaultAmmoCount > aiItemCount
+                int topUp = VaultAmmoCount - aiItemCount
+                Actor ammoPlayer = Game.GetPlayer()
+                if ammoPlayer != None
+                    ammoPlayer.AddItem(VaultAmmoBase, topUp, true)
+                    grantedCount = aiItemCount + topUp
+                endif
+            endif
+            Trace("pistol ammo picked item=" + akBaseItem + " count=" + grantedCount + " base=" + VaultAmmoBase)
+        endif
     endif
 EndEvent
 

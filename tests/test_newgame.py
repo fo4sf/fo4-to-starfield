@@ -726,8 +726,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn('StartMessageEdid = "FO4SF_NewGameStart"', cs)
         self.assertIn('Name = "Character Appearance"', cs)
         self.assertIn('Text = "Create character"', cs)
-        self.assertIn('Text = "Quick start"', cs)
-        self.assertLess(cs.index('Text = "Quick start"'), cs.index('Text = "Create character"'))
+        self.assertIn('Text = "Use preset look"', cs)
+        self.assertLess(cs.index('Text = "Use preset look"'), cs.index('Text = "Create character"'))
         self.assertIn("if button == 0", looks)
         self.assertIn("if cBtn == 0", psc)
         self.assertIn("ngQuest.IsPreworldLooksHandled()", looks)
@@ -738,7 +738,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('string Property MenuName = "ChargenMenu" Auto Const', looks)
         self.assertIn("Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)", looks)
         self.assertIn("if asMenuName == MenuName && !abOpening && waiting", looks)
-        self.assertIn('Done("quick start")', looks)
+        self.assertIn('Done("use preset look")', looks)
         self.assertIn('Done("creator closed")', looks)
         self.assertIn('Trace("looks done: " + how)', looks)
         self.assertIn('Trace("looks done: LooksWait fallback after " + LooksWait + " s")', psc)
@@ -1838,7 +1838,7 @@ class LogTests(unittest.TestCase):
         """What ended the looks wait: the creator's close event, the quick start, or the quest's LooksWait fallback;
         the first ending counts, and a run without one reads None."""
         head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 anchor_temporary=False core=FO4TerrainCore.esm:685915\n"
-        for ending, want in (("quick start", "quick start"), ("LooksWait fallback after 120.0 s", "LooksWait fallback after 120.0 s")):
+        for ending, want in (("use preset look", "use preset look"), ("LooksWait fallback after 120.0 s", "LooksWait fallback after 120.0 s")):
             code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=9.0 looks done: {ending}\n[x] FO4SF_NEWGAME rt=9.0 stage 20\n")
             self.assertEqual(s["looks_done"], want)
         code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 looks done: creator closed\n"
@@ -3337,7 +3337,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 self.assertTrue(ns["IsPreworldLooksHandled"]())
                 # T4 critical proof: Timer 1 MUST be re-armed (1.0, 1) after Story mode completes stage 0 -> 20!
                 self.assertIn((1.0, 1), timers)
-                self.assertIn("looks done: quick start", logs)
+                self.assertIn("looks done: use preset look", logs)
                 self.assertIn("stage 20 by=Trigger", logs)
                 # Second Timer 1 tick at stage 20 must run CheckPod(player) inside InVault so pod settle ok= is logged!
                 self.assertFalse(ns["podChecked"])
@@ -3847,7 +3847,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         )
         funcs = (
             "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
-            "ClearVaultSaveLock", "RelockVaultSaving",
+            "ClearVaultSaveLock", "RelockVaultSaving", "SetDeathReloadPlainBlackCover",
             "PodEntryY", "PodSafeY",
             "NoteLooksStage20", "ApplyStage", "Actor.OnPlayerLoadGame",
             "TimerEvent", "DyingEvent", "StageSetEvent", "ResolveHostWorld",
@@ -3855,7 +3855,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         vars_csv = (
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
             "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
-            "loadHookRegistered, dyingHookRegistered, "
+            "deathReloadPlainBlackActive, loadHookRegistered, dyingHookRegistered, "
             "h00SuspectsRead, rideActive, rideDone, rideTransferred, ridingLift, ridingCell, "
             "surfaceMovedAt, surfaceMoves, surfaceSets, asked, "
             "returnSurfacePending, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries"
@@ -3911,7 +3911,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
                 PodEntryStep=-2.5, PodSafeStep=-3.2, PodSafeHeading=270.0, PodExitMode="safe_spawn",
                 applied=0, pendingStage=-1, pendingStageBy="other", exitUsedFallback=False,
                 vaultPodAutosaved=pre_autosaved, vaultSavingRelocked=False, vaultRecoveryTriggered=False,
-                vaultPodAutosaveSkips=0, loadHookRegistered=False, dyingHookRegistered=False,
+                vaultPodAutosaveSkips=0, deathReloadPlainBlackActive=False, loadHookRegistered=False, dyingHookRegistered=False,
                 warfareFadeTicks=0, storyFadeTicks=0, modeBoxWaiting=False, modeBoxWaitSeconds=0,
                 ticks=0, looksSetStage20=False,
                 LogName="fo4sf_newgame",
@@ -3970,9 +3970,11 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertEqual(c1.chargens[-1], (True, False, False))
         self.assertIn("vault_death_recovery=save_locked stage=20", c1.logs)
 
-        # Dying after pod autosave logs autosave mode and lets the engine reload that autosave
+        # Dying after pod autosave logs autosave mode, sets plain-black cover seam, and lets the engine reload
         c1.ns["DyingEvent"](c1.player, None)
         self.assertIn("vault_death_recovery=autosave stage=20", c1.logs)
+        self.assertTrue(c1.ns["deathReloadPlainBlackActive"])
+        self.assertIn("death_reload plain_black_cover=True", c1.logs)
         self.assertEqual(c1.restores, [])
 
         # Stage 40 exit cancels Timers 6 & 7 and clears the Vault save lock
@@ -4015,7 +4017,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         )
         looks_ns["self"] = SimpleNamespace(NoteLooksDone=lambda _how: c_qs.ns["NoteLooksStage20"]())
         exec(looks_compiled, looks_ns)
-        looks_ns["Done"]("quick start")
+        looks_ns["Done"]("use preset look")
         self.assertTrue(c_qs.ns["looksSetStage20"])
         self.assertTrue(c_qs.ns["vaultPodAutosaved"])
         self.assertEqual(c_qs.cur_stage[0], 20)
@@ -4043,7 +4045,7 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
             self=SimpleNamespace(NoteLooksDone=lambda _how: c_qs_nosync.ns["NoteLooksStage20"]()),
         )
         exec(looks_compiled, looks_nosync_ns)
-        looks_nosync_ns["Done"]("quick start")
+        looks_nosync_ns["Done"]("use preset look")
         self.assertEqual(c_qs_nosync.cur_stage[0], 20)
         self.assertEqual(c_qs_nosync.autosaves, [20])
         self.assertEqual(c_qs_nosync.logs.count("stage 20 by=other"), 0)
@@ -4088,10 +4090,13 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertEqual(c2.autosaves, [10])
         self.assertIn("vault_death_recovery=autosave stage=10 skips=0", c2.logs)
 
-        # 2b. Death-reload onto the stage-20 pod autosave (saved before Timer 6) re-locks Vault saving on load,
+        # 2b. Death-reload onto the stage-20 pod autosave clears plain-black cover & re-locks Vault saving on load,
         # and ApplyStage(210) clears vaultSavingRelocked / SetInChargen symmetrically with ApplyStage(40)/(200).
         c_reload = run_case(initial_stage=20, mode=1.0, in_vault=True, pre_autosaved=True)
+        c_reload.ns["deathReloadPlainBlackActive"] = True
         c_reload.ns["OnPlayerLoadGame"](c_reload.player)
+        self.assertFalse(c_reload.ns["deathReloadPlainBlackActive"])
+        self.assertIn("death_reload plain_black_cover=False", c_reload.logs)
         self.assertTrue(c_reload.ns["vaultSavingRelocked"])
         self.assertEqual(c_reload.chargens[-1], (True, False, False))
         self.assertIn("vault_death_recovery=save_locked stage=20", c_reload.logs)
@@ -4102,13 +4107,15 @@ class Round12Task1bAnd1iTests(unittest.TestCase):
         self.assertFalse(c_reload.ns["vaultSavingRelocked"])
         self.assertEqual(c_reload.chargens[-1], (False, False, False))
 
-        # 3. After stage 200 or in Warfare mode, Vault death recovery does not trigger
+        # 3. After stage 200 or in Warfare mode, Vault death recovery does not trigger, while plain-black reload cover does
         c3 = run_case(initial_stage=200, mode=1.0, in_vault=True, pre_autosaved=False)
         c3.ns["DyingEvent"](c3.player, None)
         self.assertFalse(c3.ns["vaultRecoveryTriggered"])
+        self.assertTrue(c3.ns["deathReloadPlainBlackActive"])
         c4 = run_case(initial_stage=10, mode=2.0, in_vault=True, pre_autosaved=False)
         c4.ns["DyingEvent"](c4.player, None)
         self.assertFalse(c4.ns["vaultRecoveryTriggered"])
+        self.assertTrue(c4.ns["deathReloadPlainBlackActive"])
 
         # 4. Task 1i (#858 F7): ResolveHostWorld checks persistent ExitAnchorId 0x0A775B FIRST, falling back to 0x005C50
         self.assertIs(c1.ns["ResolveHostWorld"](), c1.anchor_ws)
@@ -4133,7 +4140,7 @@ class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
             cfg = json.load(f)
         fo4 = cfg["games"]["fo4"]
         self.assertEqual(fo4["arrival_weather_plugin"], "Starfield.esm")
-        self.assertEqual(fo4["arrival_weather_id"], "0x0027CF9B")
+        self.assertEqual(fo4["arrival_weather_id"], "0x001034AB")
         self.assertTrue(fo4["arrival_weather_override"])
         self.assertEqual(fo4["vault_suit_fallback_plugin"], "Starfield.esm")
         self.assertEqual(fo4["vault_suit_fallback_armor_id"], "0x0001D1D7")
@@ -4152,11 +4159,11 @@ class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
         compiled = compile(translated_functions(psc, ("ApplyArrivalWeather", "ResetInventory", "StripStarterItemsSilently"), ""), PSC, "exec")
         traces = []
         force_calls = []
-        weather_obj = type("Wthr", (), {"__repr__": lambda _s: "NewAtlantisWeather50(0027CF9B)",
+        weather_obj = type("Wthr", (), {"__repr__": lambda _s: "WeatherUniqueNA_Clear_Unique(001034AB)",
                                         "ForceActive": lambda _s, ov=False: force_calls.append(bool(ov))})()
         suit_obj = type("Suit", (), {"__repr__": lambda _s: "Clothes_Miner_Jumpsuit(0001D1D7)"})()
         forms = {
-            (0x0027CF9B, "Starfield.esm"): weather_obj,
+            (0x001034AB, "Starfield.esm"): weather_obj,
             (0x0001D1D7, "Starfield.esm"): suit_obj,
         }
         equipped = set()
@@ -4175,7 +4182,7 @@ class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
             "StarterStripItems": [],
             "VaultSuitId": 0,
             "VaultPlugin": "FO4Port.esm",
-            "ArrivalWeatherId": 0x0027CF9B,
+            "ArrivalWeatherId": 0x001034AB,
             "ArrivalWeatherPlugin": "Starfield.esm",
             "ArrivalWeatherOverride": True,
             "VaultSuitFallbackId": 0x0001D1D7,
@@ -4185,7 +4192,7 @@ class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
         exec(compiled, ns)
         ns["ApplyArrivalWeather"]()
         self.assertEqual(force_calls, [True])
-        self.assertTrue(any("arrival weather id=2609051 plugin=Starfield.esm override=True" in ln for ln in traces), traces)
+        self.assertTrue(any("arrival weather id=1062059 plugin=Starfield.esm override=True" in ln for ln in traces), traces)
 
         traces.clear()
         ns["ResetInventory"](player)

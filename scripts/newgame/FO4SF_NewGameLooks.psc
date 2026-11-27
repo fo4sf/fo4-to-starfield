@@ -1,7 +1,7 @@
 Scriptname FO4SF_NewGameLooks extends Quest
 {Optional second script on FO4SF_NewGame (docs/newgame/vault111-start.md): once the player stands in Vault 111 (stage
- 10) it asks "Create character" or "Quick start" (StartMessage, NG-6 / NG-C9). Create opens Starfield's character
- creation, in place of Fallout 4's bathroom mirror, and waits for the creator ("ChargenMenu") to close; quick start
+ 10) it asks "Create character" or "Use preset look" (StartMessage, NG-6 / NG-C9). Create opens Starfield's character
+ creation, in place of Fallout 4's bathroom mirror, and waits for the creator ("ChargenMenu") to close; Use preset look
  keeps the preset the player already has and skips the creator. Either way it sets stage 20 and traces "stage 20" to
  the quest's log as the quest's AdvanceTo would; the quest sets stage 20 itself after LooksWait if this script never
  does (the fallback), and the log says which ended the wait.
@@ -12,7 +12,7 @@ Scriptname FO4SF_NewGameLooks extends Quest
  Fallout 4's signature (string asMenuName, bool abOpening); the compile on the PC is its check.}
 
 Message Property StartMessage Auto Const Mandatory
-{The opening choice (FO4SFNewGame.esm 0x802): button 0 is the quick start, button 1 creates the character.}
+{The opening choice (FO4SFNewGame.esm 0x802): button 0 uses the preset look, button 1 creates the character.}
 
 int Property RaceMenuMode = 2 Auto Const
 {The uiMode passed to Game.ShowRaceMenu (the writer's --race-menu-mode). 0 is the full creator, with Starfield's
@@ -66,8 +66,8 @@ Event OnTimer(int aiTimerID)
         int button = StartMessage.Show()
         Trace("start choice button=" + button)
         if button == 0
-            Trace("quick start: preset kept, creator skipped")
-            Done("quick start")
+            Trace("use preset look: preset kept, creator skipped")
+            Done("use preset look")
             return
         endif
         if ngQuest != None
