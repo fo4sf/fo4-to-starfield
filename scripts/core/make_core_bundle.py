@@ -918,6 +918,13 @@ def verify_quest_translate_pin(bplan: dict, starfield_dir: Optional[str] = None)
     if not isinstance(qt, dict):
         return None
     want_out_sha = str(qt.get("out_sha256") or "").strip().lower()
+    pb_outputs = ((bplan.get("components") or {}).get("pipboy") or {}).get("outputs") or {}
+    pb_out_sha = next(
+        (str(h).strip().lower() for rel, h in pb_outputs.items() if rel.replace("\\", "/").casefold() == "data/interface/translate_en.txt"),
+        "",
+    )
+    if want_out_sha and pb_out_sha and pb_out_sha != want_out_sha:
+        return f"quest_translate: Data/Interface/Translate_en.txt sha256 {pb_out_sha} != quest_translate {want_out_sha}"
     sc_map = bplan.get("sfse_sidecar") or {}
     if want_out_sha and "Interface/Translate_en.txt" in sc_map:
         got_sc_sha = str(sc_map["Interface/Translate_en.txt"]).strip().lower()
@@ -1194,6 +1201,22 @@ def verify_bundle(
     qt_prob = verify_quest_translate_pin(bplan, starfield_dir=starfield_dir)
     if qt_prob:
         problems.append(qt_prob)
+    hl_obj = bplan.get("hud_label") if isinstance(bplan.get("hud_label"), dict) else {}
+    hl_mode = str(hl_obj.get("mode") or "").strip().lower()
+    has_pipboy_comp = "pipboy" in (bplan.get("components") or {})
+    if hl_mode == "quest" and has_pipboy_comp:
+        translate_rel = "Data/Interface/Translate_en.txt"
+        translate_disk = os.path.join(bdir, "Data", "Interface", "Translate_en.txt")
+        has_translate_output = translate_rel.casefold() in pb_manifest_low
+        if isinstance(bplan.get("quest_translate"), dict) or os.path.isfile(translate_disk) or "Interface/Translate_en.txt" in (bplan.get("sfse_sidecar") or {}):
+            if not os.path.isfile(translate_disk):
+                problems.append(
+                    "pipboy: hud_label mode=quest requires Data/Interface/Translate_en.txt in bundle Data/ for Main.ba2 packing"
+                )
+            elif not has_translate_output:
+                problems.append(
+                    "pipboy: Data/Interface/Translate_en.txt is missing from bundle_plan.json pipboy outputs"
+                )
 
     # 4. Run make_newgame.verify_dir when real newgame plan is bundled
     ng_plan = bplan.get("newgame_plan")
@@ -2543,12 +2566,6 @@ def fold_bundle(
                             setup_show_unavailable=effective_setup_show_unavailable,
                         )
                         sfse_sidecar_hashes[rel_sc] = sha256_file(dst_sc)
-            st_translate = os.path.join(st_dir, "Data", "Interface", "Translate_en.txt")
-            if os.path.isfile(st_translate):
-                dst_translate = os.path.join(partial, "sfse_sidecar", "Interface", "Translate_en.txt")
-                os.makedirs(os.path.dirname(dst_translate), exist_ok=True)
-                shutil.copy2(st_translate, dst_translate)
-                sfse_sidecar_hashes["Interface/Translate_en.txt"] = sha256_file(dst_translate)
             pb_plan_p = os.path.join(st_dir, "plan.json")
             if os.path.isfile(pb_plan_p):
                 try:
@@ -2560,11 +2577,11 @@ def fold_bundle(
 
         comp_plugins, comp_outputs = extract_component_outputs(key, st_dir)
         if key == "pipboy":
-            comp_outputs = {
-                rel: h
-                for rel, h in comp_outputs.items()
-                if rel.replace("\\", "/").casefold() != "data/interface/translate_en.txt"
-            }
+            st_translate = os.path.join(st_dir, "Data", "Interface", "Translate_en.txt")
+            if os.path.isfile(st_translate):
+                existing_low = {r.replace("\\", "/").casefold() for r in comp_outputs}
+                if "data/interface/translate_en.txt" not in existing_low:
+                    comp_outputs["Data/Interface/Translate_en.txt"] = sha256_file(st_translate)
         if key == "pipboy":
             for pb_ini_cand in (
                 os.path.join(partial, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.ini"),

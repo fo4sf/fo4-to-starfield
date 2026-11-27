@@ -345,6 +345,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
             StartLoadTimeout=15.0,
             CorePlugin="FO4TerrainCore.esm",
             ExitAnchorId=0x0A775B,
+            LandingHandoff="single_quest",
             Game=SimpleNamespace(
                 GetPlayer=lambda: player,
                 GetFormFromFile=lambda *_: anchor,

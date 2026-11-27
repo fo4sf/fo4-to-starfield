@@ -330,14 +330,14 @@ class CodsworthDuplicateToastTests(unittest.TestCase):
         self.assertEqual(h.obj_calls[-1], (10, False, False))
         self.assertEqual(h.active_calls[-1], False)
 
-    def test_single_quest_handoff_keeps_codsworth01_out_of_hud_and_latch_requires_displayed(self):
+    def test_single_quest_handoff_displays_codsworth01_go_home_once_and_latch_requires_displayed(self):
         h_single = _build_codsworth_harness(mute_duplicates=True, landing_handoff="single_quest")
         h_single.ns["StartQuestInstance"]()
         for _ in range(5):
             h_single.ns["OnTimer"](1)
-        self.assertEqual(h_single.obj_calls, [])
-        self.assertEqual(h_single.top_calls, [])
-        self.assertFalse(h_single.ns["objective10DisplayedOnce"])
+        self.assertEqual(h_single.obj_calls, [(10, True, False)])
+        self.assertEqual(h_single.top_calls, [10])
+        self.assertTrue(h_single.ns["objective10DisplayedOnce"])
 
         # Latch stays False when IsObjectiveDisplayed(10) returns False (fail_display=True)
         h_fail = _build_codsworth_harness(mute_duplicates=True, landing_handoff="two_quests", fail_display=True)
@@ -666,11 +666,13 @@ class SharedToastUtilMin00AndLandingHandoffTests(unittest.TestCase):
         self.assertEqual(ng_psc.count("RemoveAllItems(None, false, false)"), 1)
 
         # Single-quest vs two-quests landing handoff at stage 40 -> 200 -> Codsworth01 start
-        for mode, want_cw_disp, want_events in (("single_quest", False, 1), ("two_quests", True, 2)):
+        for mode, want_ng_comp, want_cw_disp, want_events in (("single_quest", False, True, 1), ("two_quests", True, True, 2)):
             with self.subTest(mode=mode):
                 cw = _build_codsworth_harness(mute_duplicates=True, landing_handoff=mode)
                 ng_logs = []
                 ng_complete_calls = []
+                ng_obj_completed = []
+                ng_obj_displayed = []
                 quest_map = {
                     (0x000800, "FO4SFMission.esm"): SimpleNamespace(IsRunning=lambda: False, StartNoWait=lambda: True),
                     (0x000814, "FO4SFMission.esm"): SimpleNamespace(IsRunning=lambda: False, StartNoWait=lambda: True),
@@ -681,14 +683,14 @@ class SharedToastUtilMin00AndLandingHandoffTests(unittest.TestCase):
                     "LandingHandoff": mode,
                     "h00SkipQuests": False,
                     "GameModeGlobal": SimpleNamespace(GetValue=lambda: 1.0),
-                    "applied": 40,
+                    "applied": 20,
                     "GetStage": lambda: 200,
                     "GetStageDone": lambda s: int(s) in (40, 200),
                     "CompleteQuest": lambda: ng_complete_calls.append("NewGame:OutOfTime"),
                     "ClearVaultSaveLock": lambda: None,
                     "ReleaseStoryLandingFade": lambda: None,
-                    "SetObjectiveDisplayed": lambda *_a: None,
-                    "SetObjectiveCompleted": lambda *_a: None,
+                    "SetObjectiveDisplayed": lambda o, d=True: ng_obj_displayed.append((int(o), bool(d))),
+                    "SetObjectiveCompleted": lambda o: ng_obj_completed.append(int(o)),
                     "SetActive": lambda *_a: None,
                     "RunPodExitHook": lambda *_a: None,
                     "TriggerVaultPodRecoveryAutosave": lambda *_a: None,
@@ -699,11 +701,17 @@ class SharedToastUtilMin00AndLandingHandoffTests(unittest.TestCase):
                 }
                 ng_code = translated_functions(ng_psc, ("ApplyStage", "StartOptionalMissionQuest", "StartLandingQuests"), "applied")
                 exec(compile(ng_code, "FO4SF_NewGameQuest.psc", "exec"), ng_ns)
+                ng_ns["ApplyStage"](40, "Trigger")
                 ng_ns["ApplyStage"](200, "Trigger")
+                self.assertEqual(ng_obj_completed, [10])
                 hud_out_of_time_events = len(ng_complete_calls) + len(cw.obj_calls)
                 self.assertEqual(hud_out_of_time_events, want_events)
+                if mode == "single_quest":
+                    self.assertEqual(ng_complete_calls, [])
+                    self.assertIn((10, False), ng_obj_displayed)
+                    self.assertEqual(cw.obj_calls, [(10, True, False)])
                 self.assertIn(
-                    f"landing handoff mode={mode} newgame_completed=True codsworth01_displayed={want_cw_disp}",
+                    f"landing handoff mode={mode} newgame_completed={want_ng_comp} codsworth01_displayed={want_cw_disp}",
                     ng_logs,
                 )
 

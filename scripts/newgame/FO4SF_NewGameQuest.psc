@@ -1169,7 +1169,12 @@ Function ApplyStage(int n, string by)
         ClearVaultSaveLock()
         SetObjectiveCompleted(10)
     elseif n == 200
-        CompleteQuest()
+        if LandingHandoff != "single_quest"
+            CompleteQuest()
+        else
+            SetObjectiveDisplayed(10, False)
+            SetActive(False)
+        endif
         StartLandingQuests()
         ClearVaultSaveLock()
         ReleaseStoryLandingFade()
@@ -2667,8 +2672,8 @@ Function StartLandingQuests()
         endif
     endif
     bool codsworth01Ok = StartOptionalMissionQuest(0x000816) && storyAllowed
-    bool newgameCompleted = storyAllowed && (GetStage() == 200 || applied == 200 || GetStageDone(200))
-    bool codsworth01Displayed = codsworth01Ok && LandingHandoff != "single_quest"
+    bool newgameCompleted = storyAllowed && LandingHandoff != "single_quest" && (GetStage() == 200 || applied == 200 || GetStageDone(200))
+    bool codsworth01Displayed = codsworth01Ok
     Trace("landing handoff mode=" + LandingHandoff + " newgame_completed=" + newgameCompleted + " codsworth01_displayed=" + codsworth01Displayed)
     if storyAllowed
         Trace("landing quests started min00=" + min00Ok + " keeper=" + keeperOk + " codsworth01=" + codsworth01Ok)

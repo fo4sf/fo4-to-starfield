@@ -1509,12 +1509,162 @@ def verify_cryopod_anim_bundle(
     }
 
 
+def verify_quest_translate_archive_readiness(
+    bundle_dir: str,
+    bplan: Optional[Mapping[str, object]] = None,
+    *,
+    require_quest_translate: Optional[bool] = None,
+) -> Dict[str, object]:
+    """Verify quest-mode `Data/Interface/Translate_en.txt` is staged for `Main.ba2` packing (never loose-only)."""
+    b_abs = os.path.abspath(bundle_dir)
+    plan = bplan if isinstance(bplan, Mapping) else {}
+    components = plan.get("components") if isinstance(plan.get("components"), Mapping) else {}
+    sfse_sidecar = plan.get("sfse_sidecar") if isinstance(plan.get("sfse_sidecar"), Mapping) else {}
+    hl_obj = plan.get("hud_label") if isinstance(plan.get("hud_label"), Mapping) else None
+
+    mode = str((hl_obj or {}).get("mode") or "").strip().lower()
+    label = str((hl_obj or {}).get("label") or "").strip()
+    if not mode:
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "core", "game_start_config.json"
+        )
+        if os.path.isfile(cfg_path):
+            try:
+                cfg_doc = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+                gid = str(cfg_doc.get("default_game") or "fo4")
+                g_hl = ((cfg_doc.get("games") or {}).get(gid) or {}).get("hud_label") or {}
+                mode = str(g_hl.get("mode") or "quest").strip().lower()
+                if not label:
+                    label = str(g_hl.get("label") or "QUEST").strip()
+            except (OSError, ValueError):
+                mode = "quest"
+        else:
+            mode = "quest"
+    if mode == "mission":
+        mode = "vanilla"
+    if not label:
+        label = "QUEST"
+
+    translate_disk = os.path.join(b_abs, "Data", "Interface", "Translate_en.txt")
+    sidecar_disk = os.path.join(b_abs, "sfse_sidecar", "Interface", "Translate_en.txt")
+    has_pipboy = (
+        "pipboy" in components
+        or os.path.isfile(os.path.join(b_abs, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.dll"))
+        or "SFSE/Plugins/FO4SFPipboyMenu.dll" in sfse_sidecar
+        or os.path.isdir(os.path.join(b_abs, "Data", "Interface"))
+    )
+    has_qt_signal = (
+        isinstance(plan.get("quest_translate"), Mapping)
+        or "Interface/Translate_en.txt" in sfse_sidecar
+        or os.path.isfile(sidecar_disk)
+        or os.path.isfile(translate_disk)
+    )
+    plan_args = plan.get("args") if isinstance(plan.get("args"), Mapping) else {}
+    has_starfield_build_arg = bool(plan_args.get("starfield_dir"))
+    should_check = mode == "quest" and (
+        bool(require_quest_translate and (hl_obj is not None or has_pipboy or has_qt_signal))
+        or has_qt_signal
+        or (has_pipboy and has_starfield_build_arg)
+    )
+    if not should_check:
+        detail = f"mode={mode} (not required)" if mode != "quest" else "not staged (no pipboy/hud_label)"
+        return {"status": "PASS", "detail": detail, "issues": []}
+
+    issues: List[str] = []
+    if os.path.isfile(sidecar_disk) or "Interface/Translate_en.txt" in sfse_sidecar:
+        issues.append(
+            "Interface/Translate_en.txt is staged in sfse_sidecar/ (loose) instead of Data/Interface/Translate_en.txt for Main.ba2 packing"
+        )
+    if not os.path.isfile(translate_disk):
+        issues.append(
+            "hud_label mode=quest requires Data/Interface/Translate_en.txt staged in Data/ so exp_install --pack includes it in Main.ba2"
+        )
+        return {"status": "FAIL", "detail": "missing Data/Interface/Translate_en.txt", "issues": issues}
+
+    raw = Path(translate_disk).read_bytes()
+    if not raw:
+        issues.append("Data/Interface/Translate_en.txt is empty")
+        return {"status": "FAIL", "detail": "empty Data/Interface/Translate_en.txt", "issues": issues}
+
+    if components:
+        all_outputs_low: Dict[str, str] = {}
+        for cinfo in components.values():
+            if isinstance(cinfo, Mapping):
+                for rel, h in (cinfo.get("outputs") or {}).items():
+                    all_outputs_low[str(rel).replace("\\", "/").casefold()] = str(h).strip().lower()
+        want_key = "data/interface/translate_en.txt"
+        if want_key not in all_outputs_low:
+            issues.append(
+                "Data/Interface/Translate_en.txt is missing from bundle_plan.json component outputs (archive inputs)"
+            )
+        else:
+            got_sha = hashlib.sha256(raw).hexdigest().lower()
+            if got_sha != all_outputs_low[want_key]:
+                issues.append(
+                    f"Data/Interface/Translate_en.txt sha256 {got_sha} != bundle_plan.json {all_outputs_low[want_key]}"
+                )
+
+    try:
+        if raw.startswith(b"\xff\xfe"):
+            decoded = raw[2:].decode("utf-16-le")
+        elif raw.startswith(b"\xfe\xff"):
+            decoded = raw[2:].decode("utf-16-be")
+        elif raw.startswith(b"\xef\xbb\xbf"):
+            decoded = raw[3:].decode("utf-8")
+        else:
+            decoded = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        issues.append(f"Data/Interface/Translate_en.txt unreadable encoding: {exc}")
+        return {"status": "FAIL", "detail": "invalid encoding", "issues": issues}
+
+    kv: Dict[str, str] = {}
+    for ln in decoded.splitlines():
+        if "\t" in ln:
+            k, v = ln.split("\t", 1)
+            kv[k] = v
+
+    upper = label.upper() if label.islower() or label.isupper() else label
+    title = " ".join(w.capitalize() if w.isupper() else w for w in label.split())
+    plural_upper = (
+        upper + ("ES" if upper.isupper() else "es")
+        if upper.endswith(("S", "X", "Z", "CH", "SH"))
+        else (upper[:-1] + ("IES" if upper.isupper() else "ies") if upper.endswith("Y") and len(upper) > 1 and upper[-2] not in "AEIOUaeiou" else upper + ("S" if upper.isupper() else "s"))
+    )
+    required_pairs = {
+        "$MISSION": upper,
+        "$MISSIONS": plural_upper,
+        "$MISSION STATUS": f"{upper} STATUS",
+        "$MissionNew": f"NEW {upper}",
+        "$MissionMenu": f"{upper} LOG",
+        "$MissionAdded": f"ADDED TO {upper} LOG",
+        "$Quest": title,
+        "$QUEST": upper,
+        "$QUESTS": plural_upper,
+    }
+    bad_keys = [
+        f"{k}={kv.get(k)!r} (want {v!r})"
+        for k, v in required_pairs.items()
+        if kv.get(k) != v
+    ]
+    if bad_keys:
+        issues.append("Data/Interface/Translate_en.txt missing/wrong quest keys: " + ", ".join(bad_keys[:5]))
+
+    status = "PASS" if not issues else "FAIL"
+    detail = (
+        f"Data/Interface/Translate_en.txt staged for Main.ba2 (mode={mode}, label={label})"
+        if not issues
+        else "; ".join(issues)
+    )
+    return {"status": status, "detail": detail, "issues": issues}
+
+
 def verify_bundle_beginning_readiness(
     bundle_dir: str,
     *,
     require_map_markers: bool = True,
     require_arsenal: Optional[bool] = None,
     pod_exit_mode: Optional[str] = None,
+    require_quest_translate: Optional[bool] = None,
 ) -> Dict[str, object]:
     """Check offline that `bundle_dir` contains every plugin, script, mesh, and voice asset for `B1`..`B8`."""
     b_abs = os.path.abspath(bundle_dir)
@@ -1671,11 +1821,18 @@ def verify_bundle_beginning_readiness(
             b1_entry["issues"].extend(pod_anim_res["issues"])
             b1_entry["status"] = "FAIL"
 
+    qt_res = verify_quest_translate_archive_readiness(
+        b_abs, bplan=bplan, require_quest_translate=require_quest_translate
+    )
+    if qt_res["status"] == "FAIL":
+        problems.extend(f"quest_translate: {msg}" for msg in qt_res["issues"])
+
     return {
         "ok": len(problems) == 0,
         "steps": step_results,
         "arsenal_weaps": arsenal_res,
         "pod_anim": pod_anim_res,
+        "quest_translate": qt_res,
         "problems": problems,
     }
 

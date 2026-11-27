@@ -193,6 +193,143 @@ namespace fo4sf::hud
 			}
 			return std::string(a_raw);
 		}
+		inline bool ReadU16Le(const unsigned char* a_p, std::uint16_t& a_out) noexcept
+		{
+			a_out = static_cast<std::uint16_t>(a_p[0]) | (static_cast<std::uint16_t>(a_p[1]) << 8);
+			return true;
+		}
+
+		inline std::uint32_t ReadU32Le(const unsigned char* a_p) noexcept
+		{
+			return static_cast<std::uint32_t>(a_p[0]) | (static_cast<std::uint32_t>(a_p[1]) << 8) |
+			       (static_cast<std::uint32_t>(a_p[2]) << 16) | (static_cast<std::uint32_t>(a_p[3]) << 24);
+		}
+
+		inline std::uint64_t ReadU64Le(const unsigned char* a_p) noexcept
+		{
+			std::uint64_t v = 0;
+			for (int i = 0; i < 8; ++i) {
+				v |= static_cast<std::uint64_t>(a_p[i]) << (8 * i);
+			}
+			return v;
+		}
+
+		inline std::string NormalizeArchiveEntryName(std::string_view a_name)
+		{
+			std::string out;
+			out.reserve(a_name.size());
+			for (char ch : a_name) {
+				if (ch == '\\') {
+					ch = '/';
+				}
+				if (out.empty() && ch == '/') {
+					continue;
+				}
+				out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+			}
+			return out;
+		}
+
+		inline bool ReadUncompressedBa2Entry(
+			const std::filesystem::path& a_ba2Path,
+			std::string_view             a_targetNormalized,
+			std::string&                 a_outBytes)
+		{
+			std::error_code ec;
+			const auto      fileSize = std::filesystem::file_size(a_ba2Path, ec);
+			if (ec || fileSize < 24) {
+				return false;
+			}
+			std::ifstream in(a_ba2Path, std::ios::binary);
+			if (!in) {
+				return false;
+			}
+			std::array<unsigned char, 24> hdr{};
+			if (!in.read(reinterpret_cast<char*>(hdr.data()), hdr.size())) {
+				return false;
+			}
+			if (hdr[0] != 'B' || hdr[1] != 'T' || hdr[2] != 'D' || hdr[3] != 'X') {
+				return false;
+			}
+			if (hdr[8] != 'G' || hdr[9] != 'N' || hdr[10] != 'R' || hdr[11] != 'L') {
+				return false;
+			}
+			const auto version = ReadU32Le(hdr.data() + 4);
+			std::size_t extra = 0;
+			if (version == 2) {
+				extra = 8;
+			} else if (version == 3) {
+				extra = 12;
+			} else if (version != 1 && version != 7 && version != 8) {
+				return false;
+			}
+			const auto count = ReadU32Le(hdr.data() + 12);
+			const auto nameOff = ReadU64Le(hdr.data() + 16);
+			if (count == 0 || count > 1000000u || nameOff < 24ull + extra || nameOff >= fileSize) {
+				return false;
+			}
+			in.seekg(static_cast<std::streamoff>(nameOff));
+			if (!in) {
+				return false;
+			}
+			std::uint32_t matchIdx = count;
+			for (std::uint32_t i = 0; i < count; ++i) {
+				std::array<unsigned char, 2> lenBuf{};
+				if (!in.read(reinterpret_cast<char*>(lenBuf.data()), lenBuf.size())) {
+					return false;
+				}
+				std::uint16_t nameLen = 0;
+				ReadU16Le(lenBuf.data(), nameLen);
+				if (nameLen == 0 || nameLen > 4096) {
+					return false;
+				}
+				std::string entryName(nameLen, '\0');
+				if (!in.read(entryName.data(), nameLen)) {
+					return false;
+				}
+				if (NormalizeArchiveEntryName(entryName) == a_targetNormalized) {
+					matchIdx = i;
+					break;
+				}
+			}
+			if (matchIdx >= count) {
+				return false;
+			}
+			const std::uint64_t recOff = 24ull + extra + static_cast<std::uint64_t>(matchIdx) * 36ull;
+			if (recOff + 36ull > fileSize) {
+				return false;
+			}
+			in.seekg(static_cast<std::streamoff>(recOff));
+			std::array<unsigned char, 36> rec{};
+			if (!in.read(reinterpret_cast<char*>(rec.data()), rec.size())) {
+				return false;
+			}
+			const auto dataOffset = ReadU64Le(rec.data() + 16);
+			const auto packed = ReadU32Le(rec.data() + 24);
+			const auto unpacked = ReadU32Le(rec.data() + 28);
+			if (packed != 0 || unpacked == 0 || dataOffset + unpacked > fileSize) {
+				return false;
+			}
+			in.seekg(static_cast<std::streamoff>(dataOffset));
+			a_outBytes.assign(unpacked, '\0');
+			return static_cast<bool>(in.read(a_outBytes.data(), unpacked));
+		}
+
+		inline bool StartsWithIgnoreCase(std::string_view a_sv, std::string_view a_prefix) noexcept
+		{
+			if (a_sv.size() < a_prefix.size()) {
+				return false;
+			}
+			return EqualsIgnoreCase(a_sv.substr(0, a_prefix.size()), a_prefix);
+		}
+
+		inline bool EndsWithIgnoreCase(std::string_view a_sv, std::string_view a_suffix) noexcept
+		{
+			if (a_sv.size() < a_suffix.size()) {
+				return false;
+			}
+			return EqualsIgnoreCase(a_sv.substr(a_sv.size() - a_suffix.size()), a_suffix);
+		}
 	}   // namespace detail
 
 	/// Parse [FO4SFPipboyMenu] ReplaceMissionLabel and QuestHudLabel from raw INI text.
@@ -384,34 +521,17 @@ namespace fo4sf::hud
 		return upper;
 	}
 
-	/// Verify `<dataDir>/Interface/Translate_en.txt` on disk contains expected translations for all 20 HUD/menu keys.
-	[[nodiscard]] inline TranslateFileStatus VerifyTranslateEnFile(
-		const std::filesystem::path& a_dataDir,
-		const QuestLabelConfig&      a_cfg)
+	/// Verify raw `Translate_en.txt` bytes contain expected translations for all 20 HUD/menu keys.
+	[[nodiscard]] inline TranslateFileStatus VerifyTranslateEnBytes(
+		std::string_view        a_raw,
+		const QuestLabelConfig& a_cfg)
 	{
 		TranslateFileStatus status{};
-		std::filesystem::path filePath = a_dataDir / "Interface" / "Translate_en.txt";
-		std::error_code       ec;
-		if (!std::filesystem::is_regular_file(filePath, ec)) {
-			const auto lowerPath = a_dataDir / "interface" / "translate_en.txt";
-			if (std::filesystem::is_regular_file(lowerPath, ec)) {
-				filePath = lowerPath;
-			} else {
-				return status;
-			}
-		}
-		std::ifstream in(filePath, std::ios::binary);
-		if (!in) {
-			return status;
-		}
-		std::ostringstream ss;
-		ss << in.rdbuf();
-		const std::string raw = ss.str();
-		if (raw.empty()) {
+		if (a_raw.empty()) {
 			return status;
 		}
 		status.filePresent = true;
-		const std::string                        decoded = detail::DecodeTranslateText(raw);
+		const std::string                        decoded = detail::DecodeTranslateText(a_raw);
 		std::array<bool, kTranslateTargetKeyCount> matched{};
 
 		std::size_t pos = 0;
@@ -449,6 +569,65 @@ namespace fo4sf::hud
 		}
 		status.fileOk = (status.keysMatched == kTranslateTargetKeyCount);
 		return status;
+	}
+
+	/// Verify `interface/translate_en.txt` in a mod `Main.ba2` archive (preferring `FO4ActorRaider - Main.ba2`)
+	/// or loose `<dataDir>/Interface/Translate_en.txt` on disk contains expected translations for all 20 HUD/menu keys.
+	[[nodiscard]] inline TranslateFileStatus VerifyTranslateEnFile(
+		const std::filesystem::path& a_dataDir,
+		const QuestLabelConfig&      a_cfg)
+	{
+		std::error_code ec;
+		const auto      primaryBa2 = a_dataDir / "FO4ActorRaider - Main.ba2";
+		if (std::filesystem::is_regular_file(primaryBa2, ec)) {
+			std::string raw;
+			if (detail::ReadUncompressedBa2Entry(primaryBa2, "interface/translate_en.txt", raw)) {
+				return VerifyTranslateEnBytes(raw, a_cfg);
+			}
+		}
+		if (std::filesystem::is_directory(a_dataDir, ec)) {
+			std::vector<std::filesystem::path> otherArchives;
+			for (const auto& entry : std::filesystem::directory_iterator(a_dataDir, ec)) {
+				if (!entry.is_regular_file(ec)) {
+					continue;
+				}
+				const auto name = entry.path().filename().string();
+				if (!detail::EndsWithIgnoreCase(name, " - Main.ba2")) {
+					continue;
+				}
+				if (detail::StartsWithIgnoreCase(name, "Starfield") ||
+				    detail::StartsWithIgnoreCase(name, "BlueprintShips") ||
+				    detail::StartsWithIgnoreCase(name, "SFBGS")) {
+					continue;
+				}
+				otherArchives.push_back(entry.path());
+			}
+			std::sort(otherArchives.begin(), otherArchives.end());
+			for (const auto& ba2Path : otherArchives) {
+				std::string raw;
+				if (detail::ReadUncompressedBa2Entry(ba2Path, "interface/translate_en.txt", raw)) {
+					return VerifyTranslateEnBytes(raw, a_cfg);
+				}
+			}
+		}
+
+		TranslateFileStatus   status{};
+		std::filesystem::path filePath = a_dataDir / "Interface" / "Translate_en.txt";
+		if (!std::filesystem::is_regular_file(filePath, ec)) {
+			const auto lowerPath = a_dataDir / "interface" / "translate_en.txt";
+			if (std::filesystem::is_regular_file(lowerPath, ec)) {
+				filePath = lowerPath;
+			} else {
+				return status;
+			}
+		}
+		std::ifstream in(filePath, std::ios::binary);
+		if (!in) {
+			return status;
+		}
+		std::ostringstream ss;
+		ss << in.rdbuf();
+		return VerifyTranslateEnBytes(ss.str(), a_cfg);
 	}
 
 	/// Format the SFSE startup log line recording the active per-game HUD quest label configuration and Translate_en.txt check.

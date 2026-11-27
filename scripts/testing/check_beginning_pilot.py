@@ -82,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         res = verify_bundle_beginning_readiness(
             args.bundle_dir,
             require_arsenal=True if args.require_arsenal else None,
+            require_quest_translate=True,
         )
         for spec in BEGINNING_STEPS:
             info = res["steps"][spec.step_id]
@@ -94,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(pa, dict):
             pa_detail = pa["detail"] if not pa["issues"] else "; ".join(pa["issues"])
             print(f"{pa['status']:4s}  pod_anim [FO4SFVaultPod.esm] (CryoPod Animation & Placement): {pa_detail}")
+        qt = res.get("quest_translate")
+        if isinstance(qt, dict):
+            qt_detail = qt["detail"] if not qt["issues"] else "; ".join(qt["issues"])
+            print(f"{qt['status']:4s}  quest_translate [Main.ba2] (Quest HUD & Menu Translate_en.txt): {qt_detail}")
         if not res["ok"]:
             return 1
         print(f"beginning bundle check: ok (all {len(BEGINNING_STEPS)} beginning steps staged)")

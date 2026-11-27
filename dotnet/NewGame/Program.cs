@@ -2222,7 +2222,7 @@ static class NewGame
         foreach (var s in Stages)
         {
             var st = new SF.QuestStage { Index = s };
-            if (s == 200 || s == 210) st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
+            if (s == 210) st.LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest });
             quest.Stages.Add(st);
         }
         quest.Objectives.Add(new SF.QuestObjective { Index = Objective, DisplayText = ObjectiveText });
@@ -2677,7 +2677,7 @@ static class NewGame
                  "the quest is not FO4SF_NewGame, run once and NOT start game enabled (the startup quest)");
             Need(q.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"the quest's QuestType is not {QuestTypeSideEdid}");
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
-            Need(q.Stages.FirstOrDefault(s => s.Index == 200)?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
+            Need(q.Stages.FirstOrDefault(s => s.Index == 200)?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) != true, "stage 200 must not carry CompleteQuest flag");
             Need(q.Stages.FirstOrDefault(s => s.Index == 210)?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 210 does not complete the quest");
             Need(q.Objectives.Count == 1 && q.Objectives[0].Index == Objective && q.Objectives[0].DisplayText?.String == ObjectiveText, $"objective {Objective} is not \"{ObjectiveText}\"");
             Need(q.DialogTopics.Count == 0, "the quest carries dialogue");
@@ -3424,6 +3424,7 @@ static class NewGame
             ("an MQ101 override added", m => m.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x902), rel) { EditorID = "MQ101" })),
             ("not run once", m => m.Quests.First().Data!.Flags &= ~SF.Quest.Flag.RunOnce),
             ("a stage missing", m => m.Quests.First().Stages.RemoveAt(0)),
+            ("stage 200 carries CompleteQuest", m => m.Quests.First().Stages.First(s => s.Index == 200).LogEntries.Add(new SF.QuestLogEntry { Flags = SF.QuestLogEntry.Flag.CompleteQuest })),
             ("the vault anchor id changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "VaultAnchorId")).Data = 0x999),
             ("a position changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ArrivalX")).Data += 1),
             ("the merge offset changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "MergeOffsetY")).Data = 0),

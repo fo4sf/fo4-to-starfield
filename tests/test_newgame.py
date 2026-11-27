@@ -2136,7 +2136,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
     def test_2b_landing_handoff_starts_mission_quests_with_start_no_wait(self):
         psc = read(PSC)
         adv = psc[psc.index("Function ApplyStage"):psc.index("Event OnTimer")]
-        self.assertIn("elseif n == 200\n        CompleteQuest()\n        StartLandingQuests()", adv)
+        self.assertIn("elseif n == 200\n        if LandingHandoff != \"single_quest\"\n            CompleteQuest()\n        else\n            SetObjectiveDisplayed(10, False)\n            SetActive(False)\n        endif\n        StartLandingQuests()", adv)
         self.assertIn("elseif n == 210\n        CompleteQuest()\n        StartLandingQuests()", adv)
         handoff = psc[psc.index("Function StartLandingQuests"):psc.index("Function EnsureLoadHookRegistered")]
         self.assertIn('Trace("mission gate mode=" + gm + " started=" + storyAllowed)', handoff)
@@ -3685,6 +3685,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
 
             ns = dict(
                 faded=False, warfareFadeTicks=0, storyFadeTicks=0, loadingHookRegistered=False, SinglePassLandingFade=False, surfaceFadeInDone=False,
+                LandingHandoff="single_quest",
                 vaultMoves=1, applied=30, pendingStage=-1, pendingStageBy="other",
                 exitUsedFallback=False, scannerLayer=None,
                 arrivalWorld=None, surfaceSets=0, surfaceMovedAt=99.0, surfaceMoves=1,

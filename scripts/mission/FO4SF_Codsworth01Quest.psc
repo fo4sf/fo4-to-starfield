@@ -117,7 +117,7 @@ int Function EffectiveStage()
 EndFunction
 
 Function ShowCodsworthObjective()
-    if completed || concordCleared || LandingHandoff == "single_quest"
+    if completed || concordCleared
         return
     endif
     if MuteDuplicateObjectiveToasts && objective10DisplayedOnce
@@ -430,9 +430,7 @@ Function StartQuestInstance()
     RegisterCodsworthSceneEvents()
     BindCodsworthActivation()
     AdvanceTo(10, "Trigger")
-    if LandingHandoff != "single_quest"
-        ShowCodsworthObjective()
-    endif
+    ShowCodsworthObjective()
     Trace("codsworth01 init stage=10")
     StartTimer(1.0, 1)
 EndFunction
@@ -1124,7 +1122,7 @@ Event OnTimer(int aiTimerID)
         if applied > 0 && GetStage() < applied
             SetStage(applied)
         endif
-        if LandingHandoff != "single_quest" && applied >= 10 && !concordCleared && (!MuteDuplicateObjectiveToasts || !objective10DisplayedOnce) && !IsObjectiveDisplayed(10)
+        if applied >= 10 && !concordCleared && (!MuteDuplicateObjectiveToasts || !objective10DisplayedOnce) && !IsObjectiveDisplayed(10)
             ShowCodsworthObjective()
         endif
     endif
