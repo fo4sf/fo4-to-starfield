@@ -99,6 +99,8 @@ HANDY_TEMPLATE = "FO4SF_RA2Handy.esm"
 HANDY_MESH = "FO4SF\\Actors\\Handy\\handy.nif"
 HANDY_RACE_EDID = "FO4SF_HandyRace"
 CODSWORTH_RACE_EDID = "FO4SF_CodsworthRace"
+CODSWORTH_TALK_PROXY_MESH = "meshes/fo4sf/actors/handy/codsworth_talk_proxy.nif"
+DECORATOR_MARKER_NIF = "meshes/effects/sfbgs006/sfbgs006_sbshipdecoratormarker.nif"
 HANDY_DIRS = ("geometries/", "meshes/actors/fo4sf/handy/", "meshes/fo4sf/actors/handy/")
 HANDY_MANIFEST_DIRS = ("AnimationFileData", "AnimationOffsets", "AnimationStanceData", "DynamicIdleData")
 # Codsworth carries his own VTYP FO4SF_CodsworthVoice (0x819, AllowDefaultDialog) so Starfield resolves his .wem files here:
@@ -703,6 +705,10 @@ def stage(a):
             template, handy_copied = copy_handy_bundle(a.codsworth_handy, os.path.join(out, "Data"))
             assets |= set(handy_copied)
             cods = ["--codsworth-model", HANDY_MESH, "--codsworth-handy", template]
+        if a.codsworth:
+            proxy_rel = stage_codsworth_talk_proxy(a.starfield, os.path.join(out, "Data"))
+            if proxy_rel:
+                assets.add(proxy_rel)
 
         has_explicit_voice = bool(getattr(a, "codsworth_voice", None))
         if has_explicit_voice:
@@ -1041,6 +1047,26 @@ def copy_handy_bundle(src, data):
         shutil.copy2(os.path.join(src, "Data", *rel.split("/")), dst)
         copied.append(out_rel)
     return template, copied
+
+
+def stage_codsworth_talk_proxy(starfield_esm, data_dir):
+    """Build Data/meshes/fo4sf/actors/handy/codsworth_talk_proxy.nif from Starfield's decorator marker NIF
+    (keeping its Havok sphere collision/activation hull intact with Invisible.mat) if Starfield - Meshes01.ba2
+    is present beside starfield_esm. Returns the relative Data/ asset path, or None for synthetic tests."""
+    sf_data = os.path.dirname(os.path.abspath(starfield_esm))
+    meshes01 = os.path.join(sf_data, "Starfield - Meshes01.ba2")
+    if not os.path.isfile(meshes01):
+        return None
+    from fo4sf import ba2, sfnif
+
+    arc = ba2.Ba2(meshes01)
+    raw = arc.read(DECORATOR_MARKER_NIF)
+    proxy_bytes = sfnif.build_codsworth_talk_proxy_nif(raw)
+    dst = os.path.join(data_dir, *CODSWORTH_TALK_PROXY_MESH.split("/"))
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "wb") as f:
+        f.write(proxy_bytes)
+    return CODSWORTH_TALK_PROXY_MESH
 
 
 def copy_actor_looks_assets(src, data):

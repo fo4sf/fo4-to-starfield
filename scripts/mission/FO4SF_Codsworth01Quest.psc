@@ -44,8 +44,8 @@ float MergeOffsetX = -1200.0
 float MergeOffsetY = -2700.0
 float ProxyHoldRadius = 25.0
 float ProxyBindRadius = 180.0
-float ProxyZOffset = 1.36
-float ProxyScale = 1.6
+float ProxyZOffset = 1.38
+float ProxyScale = 2.2
 float ProxyResyncDrift = 0.25
 float MinTalkCameraDistance = 1.65
 float SafeTalkCameraDistance = 1.85
@@ -354,11 +354,20 @@ Function EnsureTalkProxy(Actor player)
                 if !completed && !concordCleared
                     EnsureCodsworthAlias(cods)
                 endif
-                Trace("codsworth talk proxy model=none visible=false")
+                Trace("codsworth talk proxy model=invisible_volume visible=false")
                 Trace("codsworth talk proxy ready ref=" + talkProxy + " z=" + (cz + ProxyZOffset))
             endif
         endif
     endif
+EndFunction
+
+bool Function IsS3HouseWalkActive()
+{True while Codsworth is walking Sanctuary houses during S3 (stages 30..99) so FO4SF_CodsworthKeeper yields
+ and never teleports or holds him back inside HoldRadius=25 m.}
+    if !EnableS3HouseSearch || completed
+        return False
+    endif
+    return s3House1Started || EffectiveStage() >= 30
 EndFunction
 
 Function ClearObjectiveOnConcordStart()
@@ -493,7 +502,15 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 CancelTimer(4)
                 Trace("codsworth s3_stage50 dialogue menu opened")
             endif
-            bool anyPlaying = (scn != None && scn.IsPlaying()) || (postScn != None && postScn.IsPlaying())
+            bool primaryPlaying = scn != None && scn.IsPlaying()
+            bool anyPlaying = primaryPlaying || (postScn != None && postScn.IsPlaying())
+            if primaryPlaying && !completed
+                GlobalVariable greeted = Game.GetFormFromFile(0x00097C, "FO4SFMission.esm") as GlobalVariable
+                if greeted != None && greeted.GetValue() == 0.0
+                    greeted.SetValue(1.0)
+                    Trace("codsworth01 greeting_played=1")
+                endif
+            endif
             if sceneTalkPending || anyPlaying
                 sceneMenuOpened = True
                 sceneTalkPending = False
@@ -1137,23 +1154,39 @@ Function SyncProgress()
         endif
         Trace("codsworth01 choice=1 choices=" + choicesCount)
     endif
-    if (GetStageDone(30) || pendingStage == 30 || applied == 30) && !choice2Seen
-        choice2Seen = True
-        choicesCount += 1
-        if applied < 30
-            applied = 30
-            Trace("codsworth01 stage 30 by=" + infoCause)
+    if !choice2Seen
+        int st2 = -1
+        if GetStageDone(22) || pendingStage == 22 || applied == 22
+            st2 = 22
+        elseif GetStageDone(30) || pendingStage == 30 || applied == 30
+            st2 = 30
         endif
-        Trace("codsworth01 choice=2 choices=" + choicesCount)
+        if st2 > 0
+            choice2Seen = True
+            choicesCount += 1
+            if applied < st2
+                applied = st2
+                Trace("codsworth01 stage " + st2 + " by=" + infoCause)
+            endif
+            Trace("codsworth01 choice=2 choices=" + choicesCount)
+        endif
     endif
-    if (GetStageDone(40) || pendingStage == 40 || applied == 40) && !choice3Seen
-        choice3Seen = True
-        choicesCount += 1
-        if applied < 40
-            applied = 40
-            Trace("codsworth01 stage 40 by=" + infoCause)
+    if !choice3Seen
+        int st3 = -1
+        if GetStageDone(24) || pendingStage == 24 || applied == 24
+            st3 = 24
+        elseif GetStageDone(40) || pendingStage == 40 || applied == 40
+            st3 = 40
         endif
-        Trace("codsworth01 choice=3 choices=" + choicesCount)
+        if st3 > 0
+            choice3Seen = True
+            choicesCount += 1
+            if applied < st3
+                applied = st3
+                Trace("codsworth01 stage " + st3 + " by=" + infoCause)
+            endif
+            Trace("codsworth01 choice=3 choices=" + choicesCount)
+        endif
     endif
     if !completed && (GetStageDone(100) || GetStage() >= 100 || applied >= 100 || pendingStage == 100)
         completed = True

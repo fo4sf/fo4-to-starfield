@@ -1768,8 +1768,8 @@ class V2MissionTalkTests(unittest.TestCase):
         self.assertIn('CodsworthTalkActiId = 0x970', cs)
         self.assertIn('CodsworthTalkActiEdid = "FO4SF_CodsworthTalkActi"', cs)
         self.assertIn('SFBGS006_SBShipDecoratorMarker.nif', cs)
-        self.assertIn('Model = null,', cs)
-        self.assertIn('string.IsNullOrEmpty(codsTalkActi.Model?.File?.GivenPath)', cs)
+        self.assertIn('CodsworthTalkProxyModel = "FO4SF\\\\Actors\\\\Handy\\\\codsworth_talk_proxy.nif";', cs)
+        self.assertIn('ModelPath("", CodsworthTalkProxyModel)', cs)
         self.assertIn('CodsworthTalkMsgId = 0x971', cs)
         self.assertIn('PrestonTalkMsgId = 0x975', cs)
         self.assertIn('MaxTalkButtons = 4', cs)
@@ -3921,9 +3921,9 @@ class G13ProxyNavmeshAndFacingTests(unittest.TestCase):
         from types import SimpleNamespace
         cs = read(CS)
         c_psc = read(os.path.join(ROOT, "scripts", "mission", "FO4SF_Codsworth01Quest.psc"))
-        self.assertIn("Model = null,", cs)
-        self.assertIn("string.IsNullOrEmpty(codsTalkActi.Model?.File?.GivenPath)", cs)
-        self.assertIn('Trace("codsworth talk proxy model=none visible=false")', c_psc)
+        self.assertIn('CodsworthTalkProxyModel = "FO4SF\\\\Actors\\\\Handy\\\\codsworth_talk_proxy.nif";', cs)
+        self.assertIn("Model = new SF.Model { File = new AssetLink<StarfieldModelAssetType>(CodsworthTalkProxyModel) }", cs)
+        self.assertIn('Trace("codsworth talk proxy model=invisible_volume visible=false")', c_psc)
         self.assertIn("Game.StartDialogueCameraOrCenterOnTarget(cods)", c_psc)
 
         h = A1dRealTalkTests()._build_harnesses(glob_val=0.0)
@@ -3934,7 +3934,7 @@ class G13ProxyNavmeshAndFacingTests(unittest.TestCase):
             StartDialogueCameraOrCenterOnTarget=lambda ref: cam_targets.append(ref),
         )
         h.c_ns["BindCodsworthActivation"]()
-        self.assertTrue(any("codsworth talk proxy model=none visible=false" in ln for ln in h.logs), h.logs)
+        self.assertTrue(any("codsworth talk proxy model=invisible_volume visible=false" in ln for ln in h.logs), h.logs)
 
         # Activating talkProxy (via=proxy) frames Codsworth (09000811), never talkProxy!
         h.c_ns["OnActivate"](h.c_ns["talkProxy"], h.player)

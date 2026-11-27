@@ -2539,7 +2539,14 @@ EndFunction
 
 bool Function PlaceCodsworth(Actor player)
 {Codsworth's fixed spot (FAL-163): CodsworthLocalX/Y/Z + the merge offset, by PlaceAt, Preston's rule; only the keeper
- places him.}
+ places him. Yields during Sanctuary house walk (FO4SF_Codsworth01 S3 stages 30..99) so the keeper never yanks
+ him back inside HoldRadius=25 m before he clears House 1 (47.6 m) and House 2 (53.9 m).}
+    FO4SF_Codsworth01Quest cods01 = Game.GetFormFromFile(0x000816, "FO4SFMission.esm") as FO4SF_Codsworth01Quest
+    if cods01 != None && cods01.IsS3HouseWalkActive()
+        codsworthHeld = False
+        codsworthState = HeldState("s3_house_walk", codsworthHeld)
+        return False
+    endif
     float tx = CodsworthLocalX + MergeOffsetX
     float ty = CodsworthLocalY + MergeOffsetY
     float tz = CodsworthLocalZ
