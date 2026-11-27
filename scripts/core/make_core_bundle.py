@@ -2701,6 +2701,9 @@ def fold_bundle(
 
     # J8: Regenerate P3-clean console batch files in partial/bat from finalized plugin load order & Starfield base masters.
     if mission_stage_dir and os.path.isdir(os.path.join(os.path.abspath(mission_stage_dir), "bat")):
+        _ms_dir = os.path.join(REPO, "scripts", "mission")
+        if _ms_dir not in sys.path:
+            sys.path.insert(0, _ms_dir)
         import make_mission  # noqa: E402
         make_mission.write_r12_h2_batches(
             os.path.join(partial, "bat"),
