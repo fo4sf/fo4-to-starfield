@@ -249,8 +249,13 @@ Event OnTimer(int aiTimerID)
             endif
         else
             if UseDestinationPosition
-                player.SetPosition(activeTx, activeTy, activeTz)
-                player.SetAngle(0.0, 0.0, DestinationHeading)
+                if activeIsOut
+                    FO4SF_Placement.HoldPlainBlackFrame()
+                    FO4SF_Placement.SetPlayerMergedPosition(player, activeTx, activeTy, activeTz, DestinationHeading, 0.0, 0.0, "loaddoor_" + DoorTag, LogName)
+                else
+                    player.SetPosition(activeTx, activeTy, activeTz)
+                    player.SetAngle(0.0, 0.0, DestinationHeading)
+                endif
                 settlePending = true
                 float settleWait = SettleSeconds
                 if settleWait <= 0.0
@@ -265,6 +270,9 @@ Event OnTimer(int aiTimerID)
     bool confirmed = ConfirmLanding(player, activeAnchor, activeAnchorCell, activeIsOut, activeTx, activeTy, activeTz)
     if confirmed
         bool coreCell = IsCoreCellMatch(player.GetParentCell(), activeAnchor)
+        if activeIsOut
+            FO4SF_Placement.EndHeldTransferFade(0.35)
+        endif
         Log("FO4SF_LOADDOOR confirmed tag=" + DoorTag + " dir=" + Direction + " attempts=" + activeAttempt + " core_cell=" + coreCell + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace() + " pos=" + FormatPos(player) + " heading=" + DestinationHeading)
         ClearState()
         return
@@ -285,7 +293,15 @@ Event OnTimer(int aiTimerID)
             activeAnchor = retryAnchor
             activeAnchorCell = retryAnchor.GetParentCell()
         endif
-        player.MoveTo(activeAnchor, 0.0, 0.0, 0.0, True, False)
+        if activeIsOut
+            bool retryMoveOk = FO4SF_Placement.MovePlayerToExteriorAnchor(player, activeAnchor, "loaddoor_" + DoorTag, LogName, true)
+            if !retryMoveOk
+                FinishFailed(player, "anchor_inside_footprint")
+                return
+            endif
+        else
+            player.MoveTo(activeAnchor, 0.0, 0.0, 0.0, True, False)
+        endif
     endif
     StartTimer(GetPollInterval(), TIMER_ARRIVAL)
 EndEvent
@@ -433,12 +449,7 @@ bool Function ConfirmLanding(Actor player, ObjectReference anchor, Cell anchorCe
 EndFunction
 
 bool Function IsCoreCellMatch(Cell afterCell, ObjectReference anchor)
-    if afterCell == None || anchor == None
-        return false
-    endif
-    int cellMod = afterCell.GetFormID() / 16777216
-    int anchorMod = anchor.GetFormID() / 16777216
-    return cellMod == anchorMod
+    return FO4SF_Placement.IsCoreCellMatch(afterCell, anchor)
 EndFunction
 
 string Function FormatPos(Actor player)

@@ -527,6 +527,7 @@ class R11W1Tests(unittest.TestCase):
                 "CancelTimer": lambda tid: cancelled.append(int(tid)),
                 "CompleteQuest": mock.MagicMock(),
                 "RegisterForRemoteEvent": lambda *_: None,
+                "ResolveS6BasementGate": lambda *_: None,
                 "Utility": SimpleNamespace(GetCurrentRealTime=lambda: rt[0]),
                 "Game": SimpleNamespace(
                     GetPlayer=lambda: player,

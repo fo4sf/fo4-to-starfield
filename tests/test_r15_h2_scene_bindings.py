@@ -174,6 +174,7 @@ class TestR15H2SceneBindings(unittest.TestCase):
             stop_at_core=False,
             s6_preston_scene=None,
             s6_sturges_scene=None,
+            basement_gate=s2s6._FakeMarker("FO4Port_MQ03SecurityGateREF", 0.0, 0.0, 0.0),
         )
         s2s6._compile_papyrus(
             MIN00_PSC.read_text(encoding="utf-8"),

@@ -198,6 +198,10 @@ class Candidate2gCardTests(unittest.TestCase):
             r11_evolved_2g_prefixes.append(
                 "PASS line does not match any source format string: 'step=lift_confirm action=<action> confirmed=<confirmed> values=<s>,<p>,<e>,<c>,<i>,<a>,<l>'"
             )
+        if "mission_update={}" in pipboy_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'step=hud_quest_label_runtime file=<present|absent> file_ok=<0|1> mission_status=<txt> mission_new=<txt> runtime_ok=<0|1>'"
+            )
         newgame_src = (ROOT / "scripts/newgame/FO4SF_NewGameQuest.psc").read_text(encoding="utf-8")
         if "ascent gap_ms=" in newgame_src:
             r11_evolved_2g_prefixes.append(

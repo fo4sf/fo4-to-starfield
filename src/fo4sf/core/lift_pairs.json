@@ -57,7 +57,6 @@
         "done_margin_s": 0.25
       },
       "surface": {
-        "arrival_merged_marker_id": "0x000826",
         "cog_plugin": "FO4SFExitLift.esm",
         "cog_name": "Vault 111 Elevator",
         "source_nif": "meshes/interiors/vault/rooms/vltelevator/vltelevatorexterior.nif",

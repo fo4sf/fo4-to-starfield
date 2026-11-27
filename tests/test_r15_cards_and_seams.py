@@ -247,9 +247,10 @@ class R15WaveACardsTests(unittest.TestCase):
                 for _rel, src_tpl, pat in src_pats
             )
 
-        # I6(a) replaced `model=none` with `model=invisible_volume` on `#853`; `candidate-2g-card.md` retains the 2g-fix7 historical line.
+        # I6(a) / J3 replaced older log signatures on `#853`; `candidate-2g-card.md` retains the 2g-fix7 historical lines.
         superseded_2g_fix7 = {
             "FO4SF_MISSION rt=<rt> codsworth talk proxy model=none visible=false",
+            "step=hud_quest_label_runtime file=<present|absent> file_ok=<0|1> mission_status=<txt> mission_new=<txt> runtime_ok=<0|1>",
         }
         unmatched = []
         for ln in tbl_lines:

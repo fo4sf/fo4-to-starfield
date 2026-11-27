@@ -207,7 +207,15 @@ bool Function BeginDoorTransition(ObjectReference doorRef, Actor player, ObjectR
     attemptStartedAt = Utility.GetCurrentRealTime()
     lastReason = ""
 
-    player.MoveTo(activeAnchor, 0.0, 0.0, 0.0, True, False)
+    if isOut
+        bool moveOk = FO4SF_Placement.MovePlayerToExteriorAnchor(player, activeAnchor, "loaddoor_" + activeDoorTag, LogName, true)
+        if !moveOk
+            FinishFailed(player, "anchor_inside_footprint")
+            return false
+        endif
+    else
+        player.MoveTo(activeAnchor, 0.0, 0.0, 0.0, True, False)
+    endif
     StartTimer(activeWaitStepSec, TIMER_ARRIVAL)
     return true
 EndFunction
@@ -245,8 +253,13 @@ Event OnTimer(int aiTimerID)
             endif
         else
             if activeUseDestPos
-                player.SetPosition(activeTx, activeTy, activeTz)
-                player.SetAngle(0.0, 0.0, activeHeading)
+                if activeIsOut
+                    FO4SF_Placement.HoldPlainBlackFrame()
+                    FO4SF_Placement.SetPlayerMergedPosition(player, activeTx, activeTy, activeTz, activeHeading, 0.0, 0.0, "loaddoor_" + activeDoorTag, LogName)
+                else
+                    player.SetPosition(activeTx, activeTy, activeTz)
+                    player.SetAngle(0.0, 0.0, activeHeading)
+                endif
                 settlePending = true
                 StartTimer(activeSettleSec, TIMER_ARRIVAL)
                 return
@@ -257,6 +270,9 @@ Event OnTimer(int aiTimerID)
     bool confirmed = ConfirmLanding(player, activeAnchor, activeAnchorCell, activeIsOut, activeTx, activeTy, activeTz)
     if confirmed
         bool coreCell = IsCoreCellMatch(player.GetParentCell(), activeAnchor)
+        if activeIsOut
+            FO4SF_Placement.EndHeldTransferFade(0.35)
+        endif
         Log("FO4SF_LOADDOOR confirmed tag=" + activeDoorTag + " dir=" + activeDirection + " attempts=" + activeAttempt + " core_cell=" + coreCell + " cell=" + player.GetParentCell() + " world=" + player.GetWorldSpace() + " pos=" + FormatPos(player) + " heading=" + activeHeading)
         ClearState(true, "")
         return
@@ -282,7 +298,15 @@ Function AdvanceAttemptAndRetryMove(Actor player)
             activeAnchor = retryAnchor
             activeAnchorCell = retryAnchor.GetParentCell()
         endif
-        player.MoveTo(activeAnchor, 0.0, 0.0, 0.0, True, False)
+        if activeIsOut
+            bool retryMoveOk = FO4SF_Placement.MovePlayerToExteriorAnchor(player, activeAnchor, "loaddoor_" + activeDoorTag, LogName, true)
+            if !retryMoveOk
+                FinishFailed(player, "anchor_inside_footprint")
+                return
+            endif
+        else
+            player.MoveTo(activeAnchor, 0.0, 0.0, 0.0, True, False)
+        endif
     endif
     StartTimer(activeWaitStepSec, TIMER_ARRIVAL)
 EndFunction
@@ -471,12 +495,7 @@ bool Function ConfirmLanding(Actor player, ObjectReference anchor, Cell anchorCe
 EndFunction
 
 bool Function IsCoreCellMatch(Cell afterCell, ObjectReference anchor)
-    if afterCell == None || anchor == None
-        return false
-    endif
-    int cellMod = afterCell.GetFormID() / 16777216
-    int anchorMod = anchor.GetFormID() / 16777216
-    return cellMod == anchorMod
+    return FO4SF_Placement.IsCoreCellMatch(afterCell, anchor)
 EndFunction
 
 string Function FormatPos(Actor player)

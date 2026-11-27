@@ -537,6 +537,7 @@ class R11Part3Slice1ATests(unittest.TestCase):
             "CompleteQuest": mock.MagicMock(),
             "RegisterForRemoteEvent": lambda o, ev: m_remote_regs.append((o, ev)),
             "RegisterForMenuOpenCloseEvent": lambda m: m_menu_regs.append(m),
+            "ResolveS6BasementGate": lambda *_: None,
             "Debug": SimpleNamespace(OpenUserLog=lambda *_: None),
             "InitRaiderTracking": lambda: None,
             "CheckConcordRaidersWfc01": lambda p, adv: wfc_calls.append(adv),

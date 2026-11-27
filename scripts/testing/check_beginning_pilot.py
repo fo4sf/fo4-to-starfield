@@ -99,6 +99,17 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(qt, dict):
             qt_detail = qt["detail"] if not qt["issues"] else "; ".join(qt["issues"])
             print(f"{qt['status']:4s}  quest_translate [Main.ba2] (Quest HUD & Menu Translate_en.txt): {qt_detail}")
+        for key_name, tag_label in (
+            ("j1_footprint", "j1_footprint [FO4SFNewGame.esm + FO4SF_Placement] (Footprint Guard & 0x826 Retired)"),
+            ("j1_anchor_immutability", "j1_anchor_immutability [Scripts] (Immobile Exit/Discovery/Door Anchors)"),
+            ("j1_shared_placement", "j1_shared_placement [Scripts] (Shared FO4SF_Placement & 2h-6 Allowlist)"),
+            ("j6_basement_lock", "j6_basement_lock [FO4SF_Min00Quest] (Single Lock() & Passive OnLockStateChanged)"),
+            ("j8_card_and_batches", "j8_card_and_batches [bat/ + card] (Derived IDs & >=15m Raider Cover)"),
+        ):
+            chk = res.get(key_name)
+            if isinstance(chk, dict):
+                chk_detail = chk["detail"] if not chk["issues"] else "; ".join(chk["issues"])
+                print(f"{chk['status']:4s}  {tag_label}: {chk_detail}")
         if not res["ok"]:
             return 1
         print(f"beginning bundle check: ok (all {len(BEGINNING_STEPS)} beginning steps staged)")

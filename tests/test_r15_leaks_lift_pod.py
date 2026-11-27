@@ -118,7 +118,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         compiled = compile(
             translated_functions(
                 psc,
-                ("RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers", "CheckLanding", "Near"),
+                ("ResolveArrivalDiscoveryMarker", "RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers", "CheckLanding", "Near"),
                 "arrivalWorld, fallbackPending, discoveryMarkerMoved, discoveryAttachPending, landingChecks",
             ),
             PSC,
@@ -152,8 +152,17 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
             MergeOffsetY=-2700.0,
             FallDrop=3.0,
             ExitAnchorId=0x0A775B,
-            ArrivalDiscoveryId=0x0A775B,
+            ArrivalDiscoveryId=0x000827,
+            ArrivalDiscoveryPlugin="FO4SFNewGame.esm",
             CorePlugin="FO4TerrainCore.esm",
+            LogName="fo4sf_newgame",
+            FO4SF_Placement=SimpleNamespace(
+                ToMergedX=lambda x, dx: x + dx,
+                ToMergedY=lambda y, dy: y + dy,
+                RelocateDiscoveryMarker=lambda m, p, mx, my, mz, *_a: m.MoveTo(
+                    p, mx - p.GetPositionX(), my - p.GetPositionY(), mz - p.GetPositionZ(), True, False
+                ),
+            ),
             MapMarkerQuestIds=[0x800],
             arrivedAt=0.0,
             fallbackPending=False,
@@ -346,6 +355,17 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
             CorePlugin="FO4TerrainCore.esm",
             ExitAnchorId=0x0A775B,
             LandingHandoff="single_quest",
+            LogName="fo4sf_newgame",
+            FO4SF_Placement=SimpleNamespace(
+                ToMergedX=lambda x, dx: x + dx,
+                ToMergedY=lambda y, dy: y + dy,
+                IsCoreCellMatch=lambda c, a: (
+                    c is not None and a is not None and (c.GetFormID() // 16777216) == (a.GetFormID() // 16777216)
+                ),
+                HoldPlainBlackFrame=lambda: fades.append(("black", True)),
+                SetPlayerMergedPosition=lambda p, rx, ry, rz, _hdg, dx, dy, *_a: p.SetPosition(rx + dx, ry + dy, rz),
+                EndHeldTransferFade=lambda sec=0.5: fades.append(("fade_in", sec)),
+            ),
             Game=SimpleNamespace(
                 GetPlayer=lambda: player,
                 GetFormFromFile=lambda *_: anchor,
@@ -374,20 +394,23 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         now[0] += 3.1
         ns["PollSurfaceCogWait3D"](player)
         self.assertTrue(ns["surfaceFadeInDone"])
-        self.assertEqual(len(fades), 1)
+        fade_in_calls = [f for f in fades if isinstance(f, tuple) and f and (f[0] is False or f[0] == "fade_in")]
+        self.assertEqual(len(fade_in_calls), 1)
+        self.assertGreaterEqual(len([f for f in fades if isinstance(f, tuple) and f and f[0] == "black"]), 1)
         self.assertIn("story_fade single_pass=true path=immediate loading_menu_open=False", traces)
         self.assertIn("ascent gap_closed=true fade_in_at_surface=true", traces)
         self.assertTrue(any(t.startswith("ascent gap_ms=") for t in traces), traces)
 
         # Stage 200 -> ReleaseStoryLandingFade() must NOT fade again or start Timer 5
+        total_fades_before_200 = len(fades)
         ns["AdvanceTo"](200)
-        self.assertEqual(len(fades), 1)
+        self.assertEqual(len(fades), total_fades_before_200)
         self.assertEqual(timers, [])
         self.assertFalse(any("already_faded" in t for t in traces), traces)
 
         # Even if Timer 5 fired, SinglePassLandingFade=True guards it
         ns["TimerEvent"](5)
-        self.assertEqual(len(fades), 1)
+        self.assertEqual(len(fades), total_fades_before_200)
         self.assertEqual(timers, [])
 
 
@@ -777,7 +800,8 @@ class Item5PodExitTests(unittest.TestCase):
 
         stage10_branch = timer_src[timer_src.index("elseif stage == 10"):timer_src.index("elseif stage == 20 || stage == 30")]
         self.assertIn("preworldLooksDone", stage10_branch)
-        self.assertIn("LooksWait", stage10_branch)
+        self.assertNotIn("LooksWait", stage10_branch)
+        self.assertIn("pod start choice=none rule=D-V111-10", stage10_branch)
         self.assertLess(stage10_branch.index("EnsureFadedInForChoice()"), stage10_branch.index("StartPodOpen(player)"))
 
         # Synthetic route verification for safe_spawn legacy hook (when PodExitMode="safe_spawn")
@@ -1266,7 +1290,7 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
                 state["played_idles"].append(idle)
                 return True
             def HasNode(self, node_name):
-                return node_name in ("FO4WristHousingM_1", "PipboyScreen")
+                return node_name in ("FO4WristHousing1st_21", "PipboyScreen")
 
         player = _Player()
         glob = SimpleNamespace(

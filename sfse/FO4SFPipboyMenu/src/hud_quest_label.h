@@ -476,8 +476,8 @@ namespace fo4sf::hud
 		if (a_key == "$MISSIONS" || a_key == "$QUESTS") {
 			return pluralUpper;
 		}
-		if (a_key == "$MISSION COMPLETE") {
-			return std::format("{} COMPLETE", upper);
+		if (a_key == "$MISSION COMPLETE" || a_key == "$MissionComplete") {
+			return std::format("{} COMPLETED", upper);
 		}
 		if (a_key == "$MISSION FAILED" || a_key == "$MissionFailed") {
 			return std::format("{} FAILED", upper);
@@ -491,17 +491,11 @@ namespace fo4sf::hud
 		if (a_key == "$MISSION UPDATED" || a_key == "$MissionUpdate") {
 			return std::format("{} UPDATED", upper);
 		}
-		if (a_key == "$MissionAdded") {
-			return std::format("ADDED TO {} LOG", upper);
-		}
-		if (a_key == "$MissionComplete") {
-			return std::format("{} COMPLETED", upper);
+		if (a_key == "$MissionAdded" || a_key == "$MissionNew") {
+			return std::format("{} ADDED", upper);
 		}
 		if (a_key == "$MissionMenu") {
 			return std::format("{} LOG", upper);
-		}
-		if (a_key == "$MissionNew") {
-			return std::format("NEW {}", upper);
 		}
 		if (a_key == "$Mission Data") {
 			return std::format("{} Data", title);
@@ -652,8 +646,9 @@ namespace fo4sf::hud
 		const std::string& label = a_cfg.questHudLabel;
 		const auto         trimmed = detail::TrimWs(a_text);
 
-		if (trimmed == "$MissionNew" || detail::EqualsIgnoreCase(trimmed, "NEW MISSION")) {
-			return std::format("NEW {}", label);
+		if (trimmed == "$MissionNew" || detail::EqualsIgnoreCase(trimmed, "NEW MISSION") ||
+		    trimmed == "$MissionAdded" || detail::EqualsIgnoreCase(trimmed, "ADDED TO MISSION MENU")) {
+			return std::format("{} ADDED", label);
 		}
 		if (trimmed == "$MissionUpdate" || trimmed == "$MISSION UPDATED" ||
 		    detail::EqualsIgnoreCase(trimmed, "MISSION UPDATED")) {
@@ -666,17 +661,12 @@ namespace fo4sf::hud
 		    detail::EqualsIgnoreCase(trimmed, "MISSION FAILED")) {
 			return std::format("{} FAILED", label);
 		}
-		if (trimmed == "$MISSION COMPLETE" || detail::EqualsIgnoreCase(trimmed, "MISSION COMPLETE")) {
-			return std::format("{} COMPLETE", label);
-		}
-		if (trimmed == "$MissionComplete" || detail::EqualsIgnoreCase(trimmed, "MISSION COMPLETED")) {
+		if (trimmed == "$MISSION COMPLETE" || detail::EqualsIgnoreCase(trimmed, "MISSION COMPLETE") ||
+		    trimmed == "$MissionComplete" || detail::EqualsIgnoreCase(trimmed, "MISSION COMPLETED")) {
 			return std::format("{} COMPLETED", label);
 		}
 		if (trimmed == "$MISSION REWARDS" || detail::EqualsIgnoreCase(trimmed, "MISSION REWARDS")) {
 			return std::format("{} REWARDS", label);
-		}
-		if (trimmed == "$MissionAdded" || detail::EqualsIgnoreCase(trimmed, "ADDED TO MISSION MENU")) {
-			return std::format("ADDED TO {} LOG", label);
 		}
 		if (trimmed == "$MissionMenu" || detail::EqualsIgnoreCase(trimmed, "MISSION MENU")) {
 			return std::format("{} LOG", label);

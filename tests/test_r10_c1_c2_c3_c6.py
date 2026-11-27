@@ -294,6 +294,7 @@ def _run_c1_preston_activation_harness(min00_src, *, runtime_scene_prop_none=Tru
         "CancelTimer": lambda tid: cancelled.append(int(tid)),
         "CompleteQuest": mock.MagicMock(),
         "RegisterForRemoteEvent": lambda *_: None,
+        "ResolveS6BasementGate": lambda *_: None,
         "Utility": SimpleNamespace(GetCurrentRealTime=lambda: rt[0]),
         "Game": SimpleNamespace(
             GetPlayer=lambda: player,

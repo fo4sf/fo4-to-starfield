@@ -65,6 +65,7 @@ SURVIVAL_SCRIPTS = os.path.join(REPO, "scripts", "survival")
 REPUTATION_SCRIPTS = os.path.join(REPO, "scripts", "reputation")
 MAPMARKERS_SCRIPTS = os.path.join(REPO, "scripts", "mapmarkers")
 PLUGIN = "FO4SFNewGame.esm"
+PLACEMENT = "FO4SF_Placement"
 SCRIPT = "FO4SF_NewGameQuest"
 LOOKS = "FO4SF_NewGameLooks"
 SPECIAL = "FO4SF_NewGameSpecial"
@@ -756,7 +757,7 @@ def stage(a):
     if anchor is None:
         sys.exit(f"check printed no vault anchor line (persistent or temporary); attempt kept in {out}")
     src = extract_sources(a.content_resources, work)
-    scripts = [SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else []) + ([VERSION] if a.version else [])
+    scripts = [PLACEMENT, SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else []) + ([VERSION] if a.version else [])
     pex = {s: compile_script(a.compiler, s, src, os.path.join(out, "Data", "Scripts")) for s in scripts}
     for s in scripts:
         shutil.copy(os.path.join(HERE, s + ".psc"), os.path.join(out, s + ".psc"))

@@ -7409,6 +7409,7 @@ namespace
 			}
 		} else if (!loadingNow && g_armSawLoadingMenu) {
 			g_armSawLoadingMenu = false;
+			REX::INFO("step=loading_menu_closed gen={}", g_armGraphLoadGen.load());
 		}
 	}
 
@@ -11901,6 +11902,87 @@ namespace
 			Hex(singletonRva), Hex(translateRva), Hex(rttiRva));
 	}
 
+	struct LiveTranslatorBucket
+	{
+		RE::BSFixedStringW key;
+		RE::BSFixedStringW value;
+		std::uint32_t      nextIdx;
+		std::uint32_t      pad;
+	};
+	static_assert(sizeof(LiveTranslatorBucket) == 0x18);
+
+	std::wstring AsciiToWide(std::string_view a_sv)
+	{
+		std::wstring out;
+		out.reserve(a_sv.size());
+		for (const unsigned char ch : a_sv) {
+			out.push_back(static_cast<wchar_t>(ch));
+		}
+		return out;
+	}
+
+	void ApplyQuestLabelRuntime(RE::BSScaleformManager* a_mgr)
+	{
+		if (!a_mgr || !g_questLabelCfg.Active()) {
+			return;
+		}
+		const auto* mgrBytes = reinterpret_cast<const std::byte*>(a_mgr);
+		const auto* holder = *reinterpret_cast<const std::byte* const*>(mgrBytes + 0x20);
+		if (!holder) {
+			REX::INFO("step=hud_quest_label_patch ok=0 reason=holder_null");
+			return;
+		}
+		const auto* gfxTranslator = *reinterpret_cast<const std::byte* const*>(holder + 0x00);
+		if (!gfxTranslator) {
+			REX::INFO("step=hud_quest_label_patch ok=0 reason=gfx_translator_null");
+			return;
+		}
+		const auto* bsTranslator = *reinterpret_cast<const std::byte* const*>(gfxTranslator + 0x20);
+		if (!bsTranslator || bsTranslator != holder + 0x08) {
+			REX::INFO("step=hud_quest_label_patch ok=0 reason=layout_mismatch");
+			return;
+		}
+		auto*             buckets = *reinterpret_cast<LiveTranslatorBucket* const*>(bsTranslator + 0x18);
+		const std::uint64_t capacity = *reinterpret_cast<const std::uint64_t*>(bsTranslator + 0x20);
+		if (!buckets || capacity == 0 || (capacity & (capacity - 1)) != 0 || capacity > (1ull << 24)) {
+			REX::INFO("step=hud_quest_label_patch ok=0 reason=invalid_table capacity={}", capacity);
+			return;
+		}
+
+		struct TargetEntry
+		{
+			std::wstring keyW;
+			std::wstring valW;
+		};
+		std::array<TargetEntry, fo4sf::hud::kTranslateTargetKeyCount> targets{};
+		for (std::size_t ti = 0; ti < fo4sf::hud::kTranslateTargetKeyCount; ++ti) {
+			const auto key = fo4sf::hud::kTranslateTargetKeys[ti];
+			targets[ti].keyW = AsciiToWide(key);
+			targets[ti].valW = AsciiToWide(fo4sf::hud::ExpectedTranslateValue(key, g_questLabelCfg));
+		}
+
+		std::size_t patched = 0;
+		for (std::uint64_t i = 0; i < capacity; ++i) {
+			if (buckets[i].nextIdx == 0xFFFFFFFFu) {
+				continue;
+			}
+			const wchar_t* kStr = buckets[i].key.c_str();
+			if (!kStr || !*kStr) {
+				continue;
+			}
+			const std::wstring_view kView(kStr);
+			for (const auto& entry : targets) {
+				if (kView == entry.keyW) {
+					buckets[i].value = RE::BSFixedStringW(entry.valW.c_str());
+					++patched;
+					break;
+				}
+			}
+		}
+		REX::INFO("step=hud_quest_label_patch ok=1 patched={}/{} capacity={}",
+			patched, fo4sf::hud::kTranslateTargetKeyCount, capacity);
+	}
+
 	void ProbeQuestLabelRuntime()
 	{
 		if (g_stage != 2 || !g_codeObj) {
@@ -11920,22 +12002,43 @@ namespace
 				g_translateStatus.fileOk ? 1 : 0);
 			return;
 		}
+		ApplyQuestLabelRuntime(mgr);
 		using TranslateFn_t = RE::BSFixedStringW* (*)(RE::BSScaleformManager*, RE::BSFixedStringW*, const wchar_t*);
-		const auto translateFn = reinterpret_cast<TranslateFn_t>(g_base + g_scaleformTranslateRva);
-		RE::BSFixedStringW statusRes;
-		RE::BSFixedStringW newRes;
-		translateFn(mgr, std::addressof(statusRes), L"$MISSION STATUS");
-		translateFn(mgr, std::addressof(newRes), L"$MissionNew");
-		const std::string statusAscii = WideToSafeAscii(statusRes.c_str());
-		const std::string newAscii = WideToSafeAscii(newRes.c_str());
-		const bool        runtimeOk = !g_questLabelCfg.Active() ||
-		                       (statusAscii.find(g_questLabelCfg.questHudLabel) != std::string::npos &&
-		                        newAscii.find(g_questLabelCfg.questHudLabel) != std::string::npos);
-		REX::INFO("step=hud_quest_label_runtime file={} file_ok={} mission_status={} mission_new={} runtime_ok={}",
+		const auto  translateFn = reinterpret_cast<TranslateFn_t>(g_base + g_scaleformTranslateRva);
+		std::size_t keysOk = 0;
+		std::string statusAscii;
+		std::string newAscii;
+		std::string updateAscii;
+		for (std::size_t ti = 0; ti < fo4sf::hud::kTranslateTargetKeyCount; ++ti) {
+			const auto         key = fo4sf::hud::kTranslateTargetKeys[ti];
+			const std::wstring keyW = AsciiToWide(key);
+			const std::string  expected = fo4sf::hud::ExpectedTranslateValue(key, g_questLabelCfg);
+			RE::BSFixedStringW res;
+			translateFn(mgr, std::addressof(res), keyW.c_str());
+			const std::string actual = WideToSafeAscii(res.c_str());
+			const bool        keyOk = !g_questLabelCfg.Active() || (actual == expected);
+			if (keyOk) {
+				++keysOk;
+			}
+			if (key == "$MISSION STATUS") {
+				statusAscii = actual;
+			} else if (key == "$MissionNew") {
+				newAscii = actual;
+			} else if (key == "$MissionUpdate") {
+				updateAscii = actual;
+			}
+			REX::INFO("step=hud_quest_label_key key={} value={} expected={} runtime_ok={}",
+				key, actual.empty() ? "-" : actual, expected, keyOk ? 1 : 0);
+		}
+		const bool runtimeOk = !g_questLabelCfg.Active() || (keysOk == fo4sf::hud::kTranslateTargetKeyCount);
+		REX::INFO("step=hud_quest_label_runtime file={} file_ok={} mission_status={} mission_new={} mission_update={} keys_ok={}/{} runtime_ok={}",
 			g_translateStatus.filePresent ? "present" : "absent",
 			g_translateStatus.fileOk ? 1 : 0,
 			statusAscii.empty() ? "-" : statusAscii,
 			newAscii.empty() ? "-" : newAscii,
+			updateAscii.empty() ? "-" : updateAscii,
+			keysOk,
+			fo4sf::hud::kTranslateTargetKeyCount,
 			runtimeOk ? 1 : 0);
 	}
 }

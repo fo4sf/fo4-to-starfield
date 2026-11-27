@@ -18,6 +18,7 @@ import json
 import os
 import re
 import struct
+import sys
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -1634,9 +1635,15 @@ def verify_quest_translate_archive_readiness(
         "$MISSION": upper,
         "$MISSIONS": plural_upper,
         "$MISSION STATUS": f"{upper} STATUS",
-        "$MissionNew": f"NEW {upper}",
+        "$MissionNew": f"{upper} ADDED",
+        "$MissionUpdate": f"{upper} UPDATED",
+        "$MISSION UPDATED": f"{upper} UPDATED",
+        "$MissionComplete": f"{upper} COMPLETED",
+        "$MISSION COMPLETE": f"{upper} COMPLETED",
+        "$MissionFailed": f"{upper} FAILED",
+        "$MISSION FAILED": f"{upper} FAILED",
         "$MissionMenu": f"{upper} LOG",
-        "$MissionAdded": f"ADDED TO {upper} LOG",
+        "$MissionAdded": f"{upper} ADDED",
         "$Quest": title,
         "$QUEST": upper,
         "$QUESTS": plural_upper,
@@ -1652,6 +1659,394 @@ def verify_quest_translate_archive_readiness(
     status = "PASS" if not issues else "FAIL"
     detail = (
         f"Data/Interface/Translate_en.txt staged for Main.ba2 (mode={mode}, label={label})"
+        if not issues
+        else "; ".join(issues)
+    )
+    return {"status": status, "detail": detail, "issues": issues}
+
+
+def _repo_scripts_root() -> Path:
+    return Path(__file__).resolve().parents[2] / "scripts"
+
+
+def _strip_papyrus_comments(src: str) -> str:
+    """Strip Papyrus `{ ... }` doc comments and `; ...` line comments outside string literals."""
+    no_braces = re.sub(r"\{.*?\}", "", src, flags=re.DOTALL)
+    out_lines: List[str] = []
+    for ln in no_braces.splitlines():
+        in_str = False
+        esc = False
+        cut = len(ln)
+        for i, ch in enumerate(ln):
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+            elif ch == ";" and not in_str:
+                cut = i
+                break
+        out_lines.append(ln[:cut])
+    return "\n".join(out_lines)
+
+
+def _extract_papyrus_blocks(psc_text: str) -> Dict[str, str]:
+    """Return mapping of Papyrus Function/Event name to its comment-stripped body."""
+    cleaned = _strip_papyrus_comments(psc_text)
+    blocks: Dict[str, str] = {}
+    cur_name: Optional[str] = None
+    cur_lines: List[str] = []
+    for ln in cleaned.splitlines():
+        m = re.match(r"^\s*(?:[\w\[\]]+\s+)?(?:Function|Event)\s+([\w.]+)\s*\(", ln, re.IGNORECASE)
+        if m:
+            cur_name = m.group(1)
+            cur_lines = [ln]
+            continue
+        if cur_name is not None:
+            cur_lines.append(ln)
+            if re.match(r"^\s*End(?:Function|Event)\b", ln, re.IGNORECASE):
+                blocks[cur_name] = "\n".join(cur_lines)
+                cur_name = None
+                cur_lines = []
+    return blocks
+
+
+def _is_inside_merged_footprint_xy(x: float, y: float) -> bool:
+    return -4400.0 <= float(x) <= 2000.0 and -5900.0 <= float(y) <= 500.0
+
+
+def verify_j1_footprint_guard(
+    bundle_dir: str,
+    bplan: Optional[Mapping[str, object]] = None,
+    *,
+    scripts_dir: Optional[Union[str, os.PathLike[str]]] = None,
+) -> Dict[str, object]:
+    """J1: Verify 0x826 retired, MoveTo targets outside merged footprint, and runtime guard present."""
+    b_abs = os.path.abspath(bundle_dir)
+    s_root = Path(scripts_dir) if scripts_dir else _repo_scripts_root()
+    issues: List[str] = []
+
+    ng_esm = os.path.join(b_abs, "FO4SFNewGame.esm")
+    if _is_tes4_plugin(ng_esm) and os.path.getsize(ng_esm) > 64:
+        raw_ng = Path(ng_esm).read_bytes()
+        if b"FO4SF_ArrivalMergedMarker" in raw_ng or b"ArrivalMergedMarkerId" in raw_ng:
+            issues.append("FO4SFNewGame.esm still contains retired 0x826 (FO4SF_ArrivalMergedMarker / ArrivalMergedMarkerId)")
+        try:
+            with RawEsmPlugin(ng_esm) as nplg:
+                for rec in nplg.records("REFR"):
+                    if (rec.formid & 0xFFFFFF) == 0x000826:
+                        issues.append("FO4SFNewGame.esm still authors REFR 0x000826")
+        except (OSError, EsmError) as exc:
+            issues.append(f"unreadable FO4SFNewGame.esm ({exc})")
+
+    core_esm = os.path.join(b_abs, "FO4TerrainCore.esm")
+    if _is_tes4_plugin(core_esm) and os.path.getsize(core_esm) > 64:
+        try:
+            raw_core = Path(core_esm).read_bytes()
+            # Scan binary plugin REFRs for local ID 0x0A775B DATA <3f> coords when present
+            pos = 24 + struct.unpack_from("<I", raw_core, 4)[0]
+            end = len(raw_core)
+            stack = [end]
+            while pos + 24 <= end:
+                tag = raw_core[pos:pos + 4]
+                sz = struct.unpack_from("<I", raw_core, pos + 4)[0]
+                if tag == b"GRUP":
+                    pos += 24
+                    continue
+                fid = struct.unpack_from("<I", raw_core, pos + 12)[0]
+                flags = struct.unpack_from("<I", raw_core, pos + 8)[0]
+                data_start = pos + 24
+                pos = data_start + sz
+                if tag == b"REFR" and (fid & 0xFFFFFF) == 0x0A775B:
+                    sub = raw_core[data_start:data_start + sz]
+                    if flags & 0x40000:
+                        sub = zlib.decompress(sub[4:])
+                    i = 0
+                    while i + 6 <= len(sub):
+                        st = sub[i:i + 4]
+                        ln = struct.unpack_from("<H", sub, i + 4)[0]
+                        if st == b"DATA" and ln >= 12:
+                            x, y, _z = struct.unpack_from("<3f", sub, i + 6)
+                            if _is_inside_merged_footprint_xy(x, y):
+                                issues.append(
+                                    f"FO4TerrainCore.esm REFR 0x0A775B raw DATA ({x:.2f}, {y:.2f}) lies inside merged footprint"
+                                )
+                            break
+                        i += 6 + ln
+        except (OSError, struct.error, zlib.error):
+            pass
+
+    plc_psc = s_root / "newgame" / "FO4SF_Placement.psc"
+    ng_psc = s_root / "newgame" / "FO4SF_NewGameQuest.psc"
+    if not plc_psc.is_file() or "Function IsInsideMergedFootprint" not in plc_psc.read_text(encoding="utf-8", errors="replace"):
+        issues.append("missing IsInsideMergedFootprint in scripts/newgame/FO4SF_Placement.psc")
+    if not ng_psc.is_file():
+        issues.append("missing scripts/newgame/FO4SF_NewGameQuest.psc")
+    else:
+        ng_blocks = _extract_papyrus_blocks(ng_psc.read_text(encoding="utf-8", errors="replace"))
+        surf = ng_blocks.get("Surface", "")
+        if "FO4SF_Placement.IsInsideMergedFootprint" not in surf:
+            issues.append("FO4SF_NewGameQuest.Surface does not enforce FO4SF_Placement.IsInsideMergedFootprint")
+
+    if isinstance(bplan, Mapping):
+        comp_ng = (bplan.get("components") or {}).get("newgame") if isinstance(bplan.get("components"), Mapping) else None
+        ng_pex = os.path.join(b_abs, "Data", "Scripts", "FO4SF_NewGameQuest.pex")
+        if isinstance(comp_ng, Mapping) and os.path.isfile(ng_pex):
+            ng_outs = comp_ng.get("outputs") or {}
+            is_real_pex = os.path.getsize(ng_pex) >= 256 or "Data/Scripts/FO4SF_Placement.pex" in ng_outs
+            if is_real_pex and not os.path.isfile(os.path.join(b_abs, "Data", "Scripts", "FO4SF_Placement.pex")):
+                issues.append("missing compiled script: Data/Scripts/FO4SF_Placement.pex")
+
+    status = "PASS" if not issues else "FAIL"
+    detail = "0x826 retired, exterior MoveTo target outside merged footprint, runtime guard present" if not issues else "; ".join(issues)
+    return {"status": status, "detail": detail, "issues": issues}
+
+
+def verify_j1_anchor_immutability(
+    bundle_dir: str,
+    *,
+    scripts_dir: Optional[Union[str, os.PathLike[str]]] = None,
+) -> Dict[str, object]:
+    """J1: Verify ExitAnchorId, ArrivalDiscoveryId==ExitAnchorId, and load-door anchors never MoveTo/SetPosition."""
+    s_root = Path(scripts_dir) if scripts_dir else _repo_scripts_root()
+    issues: List[str] = []
+
+    forbidden_receivers = ("anchor", "exitanchor", "eanchor", "ranchor", "activeanchor", "targetanchor")
+    for rel in (
+        Path("newgame") / "FO4SF_NewGameQuest.psc",
+        Path("doors") / "FO4SF_ConfirmedLoadDoor.psc",
+        Path("doors") / "FO4SF_LoadDoorQuest.psc",
+        Path("newgame") / "FO4SF_Placement.psc",
+    ):
+        p = s_root / rel
+        if not p.is_file():
+            issues.append(f"missing script {rel.as_posix()}")
+            continue
+        blocks = _extract_papyrus_blocks(p.read_text(encoding="utf-8", errors="replace"))
+        for bname, body in blocks.items():
+            for m in re.finditer(r"\b([A-Za-z_]\w*)\.(MoveTo|SetPosition)\s*\(", body, re.IGNORECASE):
+                recv = m.group(1).casefold()
+                if recv in forbidden_receivers:
+                    issues.append(f"{rel.name}:{bname} moves/setpositions anchor receiver {m.group(1)}")
+
+        if rel.name == "FO4SF_NewGameQuest.psc":
+            res_disc = blocks.get("ResolveArrivalDiscoveryMarker", "")
+            if "ArrivalDiscoveryId == ExitAnchorId" not in res_disc:
+                issues.append("FO4SF_NewGameQuest.ResolveArrivalDiscoveryMarker missing ArrivalDiscoveryId != ExitAnchorId guard")
+            for bname in ("PreAttachArrivalMarker", "RequestArrivalDiscovery"):
+                body = blocks.get(bname, "")
+                if "ExitAnchorId" in body:
+                    issues.append(f"FO4SF_NewGameQuest.{bname} references ExitAnchorId for discovery relocation")
+                if "ArrivalDiscoveryId" not in body and "ResolveArrivalDiscoveryMarker" not in body:
+                    issues.append(f"FO4SF_NewGameQuest.{bname} missing dedicated ArrivalDiscoveryId lookup")
+
+    status = "PASS" if not issues else "FAIL"
+    detail = "ExitAnchorId and ConfirmedLoadDoor anchors are never moved at runtime" if not issues else "; ".join(issues)
+    return {"status": status, "detail": detail, "issues": issues}
+
+
+_J1_ALLOWED_NEWGAME_DIRECT_MOVES = frozenset({
+    # Vault-internal setup / pod / elevator lift-platform helpers (non-boundary)
+    "PrepareBeforeCreator",
+    "NoteLooksDone",
+    "PodFallback",
+    "StartPodOpen",
+    "RunPodExitHook",
+    "EnterVault",
+    "ArriveOnInteriorLift",
+    "EnterStartRoom",
+    "HoldNeutralSpotForModeChoice",
+    # Documented 2h-6 deferred callers
+    "CheckLanding",
+    "FailExit",
+    "TrySurfaceExteriorFallbacks",
+    "SpawnAtStoryStartPlace",
+    "RunWarfareBranch",
+    "PlaySurfaceCogRise",
+    "FailPairedLift",
+    "StartPairedLiftRide",
+    "CheckPairedLiftRide",
+    "RecoverPairedLiftOnLoad",
+    "CheckReturnLift",
+})
+
+
+def verify_j1_shared_placement(
+    bundle_dir: str,
+    *,
+    scripts_dir: Optional[Union[str, os.PathLike[str]]] = None,
+) -> Dict[str, object]:
+    """J1: Verify Surface/FinishSurface/LoadDoor(out) use FO4SF_Placement and only documented 2h-6 callers remain."""
+    s_root = Path(scripts_dir) if scripts_dir else _repo_scripts_root()
+    issues: List[str] = []
+
+    ng_p = s_root / "newgame" / "FO4SF_NewGameQuest.psc"
+    door_p = s_root / "doors" / "FO4SF_ConfirmedLoadDoor.psc"
+    if not ng_p.is_file() or not door_p.is_file():
+        issues.append("missing FO4SF_NewGameQuest.psc or FO4SF_ConfirmedLoadDoor.psc")
+        return {"status": "FAIL", "detail": "; ".join(issues), "issues": issues}
+
+    ng_blocks = _extract_papyrus_blocks(ng_p.read_text(encoding="utf-8", errors="replace"))
+    if "FO4SF_Placement.MovePlayerToExteriorAnchor" not in ng_blocks.get("Surface", ""):
+        issues.append("FO4SF_NewGameQuest.Surface does not call FO4SF_Placement.MovePlayerToExteriorAnchor")
+    if "FO4SF_Placement.SetPlayerMergedPosition" not in ng_blocks.get("FinishSurface", ""):
+        issues.append("FO4SF_NewGameQuest.FinishSurface does not call FO4SF_Placement.SetPlayerMergedPosition")
+
+    for bname, body in ng_blocks.items():
+        if bname not in _J1_ALLOWED_NEWGAME_DIRECT_MOVES and re.search(r"\bplayer\.(?:MoveTo|SetPosition)\s*\(", body, re.IGNORECASE):
+            issues.append(f"FO4SF_NewGameQuest.{bname} has unlisted direct player MoveTo/SetPosition")
+
+    door_blocks = _extract_papyrus_blocks(door_p.read_text(encoding="utf-8", errors="replace"))
+    timer_body = door_blocks.get("OnTimer", "")
+    if "FO4SF_Placement.SetPlayerMergedPosition" not in timer_body:
+        issues.append("FO4SF_ConfirmedLoadDoor.OnTimer missing FO4SF_Placement.SetPlayerMergedPosition")
+    if "FO4SF_Placement.MovePlayerToExteriorAnchor" not in timer_body:
+        issues.append("FO4SF_ConfirmedLoadDoor.OnTimer missing FO4SF_Placement.MovePlayerToExteriorAnchor")
+    for bname, body in door_blocks.items():
+        if bname != "OnTimer" and re.search(r"\bplayer\.(?:MoveTo|SetPosition)\s*\(", body, re.IGNORECASE):
+            issues.append(f"FO4SF_ConfirmedLoadDoor.{bname} has unlisted direct player MoveTo/SetPosition")
+
+    status = "PASS" if not issues else "FAIL"
+    detail = "Surface/FinishSurface/LoadDoor(out) routed via FO4SF_Placement; remaining direct callers within 2h-6 allowlist" if not issues else "; ".join(issues)
+    return {"status": status, "detail": detail, "issues": issues}
+
+
+def verify_j6_basement_lock(
+    bundle_dir: str,
+    *,
+    scripts_dir: Optional[Union[str, os.PathLike[str]]] = None,
+) -> Dict[str, object]:
+    """J6: Verify <=1 Lock() in TryOpenS6BasementGate and 0 lock/TryOpen calls in OnLockStateChanged."""
+    s_root = Path(scripts_dir) if scripts_dir else _repo_scripts_root()
+    issues: List[str] = []
+    min_p = s_root / "mission" / "FO4SF_Min00Quest.psc"
+    if not min_p.is_file():
+        issues.append("missing scripts/mission/FO4SF_Min00Quest.psc")
+        return {"status": "FAIL", "detail": "; ".join(issues), "issues": issues}
+
+    blocks = _extract_papyrus_blocks(min_p.read_text(encoding="utf-8", errors="replace"))
+    on_lock = blocks.get("ObjectReference.OnLockStateChanged", "")
+    if not on_lock:
+        issues.append("FO4SF_Min00Quest.psc missing ObjectReference.OnLockStateChanged")
+    else:
+        for pat, desc in (
+            (r"\bTryOpenS6BasementGate\b", "TryOpenS6BasementGate call"),
+            (r"\.(?:Lock|Unlock|SetLockLevel|SetOpen)\s*\(", "Lock/Unlock/SetLockLevel/SetOpen call"),
+        ):
+            if re.search(pat, on_lock, re.IGNORECASE):
+                issues.append(f"OnLockStateChanged contains forbidden {desc}")
+
+    reg_s6 = blocks.get("RegisterS6RoomEvents", "")
+    if re.search(r"(?<!Un)\bRegisterForRemoteEvent\s*\(\s*termRef\s*,\s*\"OnLockStateChanged\"", reg_s6, re.IGNORECASE):
+        issues.append("RegisterS6RoomEvents registers OnLockStateChanged on basement terminal")
+
+    try_open = blocks.get("TryOpenS6BasementGate", "")
+    if not try_open:
+        issues.append("FO4SF_Min00Quest.psc missing TryOpenS6BasementGate")
+    else:
+        lock_calls = re.findall(r"\.\s*Lock\s*\(", try_open, re.IGNORECASE)
+        if len(lock_calls) > 1:
+            issues.append(f"TryOpenS6BasementGate makes {len(lock_calls)} Lock() calls (max 1)")
+        for pat, desc in (
+            (r"\.\s*Unlock\s*\(", "Unlock()"),
+            (r"\.\s*SetLockLevel\s*\(", "SetLockLevel()"),
+            (r"\.\s*SetOpen\s*\(", "SetOpen()"),
+            (r"\btermRef\.\s*Lock\s*\(", "terminal Lock()"),
+        ):
+            if re.search(pat, try_open, re.IGNORECASE):
+                issues.append(f"TryOpenS6BasementGate calls forbidden {desc}")
+
+    status = "PASS" if not issues else "FAIL"
+    detail = "OnLockStateChanged passive; <=1 gate.Lock(False, False, False); terminal unregistered" if not issues else "; ".join(issues)
+    return {"status": status, "detail": detail, "issues": issues}
+
+
+def verify_j8_card_and_batches(
+    bundle_dir: str,
+    bplan: Optional[Mapping[str, object]] = None,
+    *,
+    card_path: Optional[Union[str, os.PathLike[str]]] = None,
+    ini_path: Optional[Union[str, os.PathLike[str]]] = None,
+) -> Dict[str, object]:
+    """J8: Verify batch FormID prefixes, >=15 m Concord cover clearance, and card FormID/key sync."""
+    b_abs = os.path.abspath(bundle_dir)
+    issues: List[str] = []
+    bat_dir = Path(b_abs) / "bat"
+    has_bats = bat_dir.is_dir() and any((bat_dir / fn).is_file() for fn in ("h2st.txt", "h2h4.txt", "h2b.txt"))
+
+    repo_root = Path(__file__).resolve().parents[2]
+    for sub in ("mission", "testing", "ui", "core"):
+        sd = str(repo_root / "scripts" / sub)
+        if sd not in sys.path:
+            sys.path.insert(0, sd)
+    import make_core_bundle  # noqa: E402
+    import make_mission  # noqa: E402
+    import generate_candidate_2h_card  # noqa: E402
+
+    plan_plugins = list(bplan.get("plugins") or ()) if isinstance(bplan, Mapping) else []
+    args_obj = (bplan.get("args") or {}) if isinstance(bplan, Mapping) else {}
+    r11_full = bool(args_obj.get("r11_full_mission")) if isinstance(args_obj, Mapping) else False
+    plugins = plan_plugins or list(make_core_bundle.PLAYER_BUNDLE_PLUGINS)
+    if not has_bats and not r11_full:
+        return {"status": "PASS", "detail": "synthetic/non-R11 bundle without 2h mission batches (not applicable)", "issues": []}
+
+    args_obj = (bplan.get("args") or {}) if isinstance(bplan, Mapping) else {}
+    sf_dir = str(args_obj.get("starfield_dir") or "") if isinstance(args_obj, Mapping) else ""
+    data_dir = os.path.join(sf_dir, "Data") if sf_dir and os.path.isdir(os.path.join(sf_dir, "Data")) else None
+    port_esm = str(bplan.get("port_esm_checked") or "") if isinstance(bplan, Mapping) else ""
+
+    idx = make_mission.compute_bundle_load_indices(
+        plugins,
+        data_dir=data_dir,
+        bundle_dir=b_abs,
+        port_esm=port_esm or None,
+    )
+    port_p = f"{idx['FO4Port.esm']:02X}"
+    cv_p = f"{idx['FO4SFCoreValues.esm']:02X}"
+    mis_p = f"{idx['FO4SFMission.esm']:02X}"
+    pa_p = f"{idx['FO4SFPowerArmor.esm']:02X}"
+
+    if has_bats:
+        expected_batches = make_mission.build_r12_h2_batches(
+            plugins=plugins,
+            data_dir=data_dir,
+            bundle_dir=b_abs,
+            port_esm=port_esm or None,
+        )
+        actual_batches: Dict[str, str] = {}
+        for bp in sorted(bat_dir.glob("*.txt")):
+            actual_batches[bp.name] = bp.read_text(encoding="utf-8", errors="replace")
+        for fn, exp_body in expected_batches.items():
+            if fn not in actual_batches:
+                issues.append(f"bat/{fn} missing from bundle")
+            elif actual_batches[fn] != exp_body:
+                issues.append(f"bat/{fn} does not match derived plugin load indices / h2h4 cover coordinates")
+        issues.extend(make_mission.validate_batch_hops_clear_of_raiders(actual_batches))
+
+    eff_card = Path(card_path) if card_path else (repo_root / "docs" / "testing" / "candidate-2h-card.md")
+    if eff_card.is_file():
+        card_txt = eff_card.read_text(encoding="utf-8", errors="replace")
+        eff_ini = Path(ini_path) if ini_path else (Path(b_abs) / "sfse_sidecar" / "SFSE" / "Plugins" / "FO4SFPipboyMenu.ini")
+        kmap = generate_candidate_2h_card.read_pipboy_key_map(eff_ini if eff_ini.is_file() else None)
+        required_tokens = (
+            f"{port_p}00EDF0",
+            f"{pa_p}000809",
+            f"getstage {mis_p}000816",
+            f"getstage {mis_p}000800",
+            "bat h2ge",
+            kmap["toggle_key"],
+            f"Key={kmap['toggle_hex']}",
+        )
+        for tok in required_tokens:
+            if tok not in card_txt:
+                issues.append(f"{eff_card.name} missing derived token {tok!r}")
+
+    status = "PASS" if not issues else "FAIL"
+    detail = (
+        f"batches & card match plugin order (Port={port_p}, CV={cv_p}, Mis={mis_p}, PA={pa_p}, h2h4 >= {make_mission.MIN_RAIDER_HOP_CLEARANCE_M:.0f}m)"
         if not issues
         else "; ".join(issues)
     )
@@ -1827,12 +2222,37 @@ def verify_bundle_beginning_readiness(
     if qt_res["status"] == "FAIL":
         problems.extend(f"quest_translate: {msg}" for msg in qt_res["issues"])
 
+    j1_fp_res = verify_j1_footprint_guard(b_abs, bplan=bplan)
+    if j1_fp_res["status"] == "FAIL":
+        problems.extend(f"j1_footprint: {msg}" for msg in j1_fp_res["issues"])
+
+    j1_anc_res = verify_j1_anchor_immutability(b_abs)
+    if j1_anc_res["status"] == "FAIL":
+        problems.extend(f"j1_anchor_immutability: {msg}" for msg in j1_anc_res["issues"])
+
+    j1_place_res = verify_j1_shared_placement(b_abs)
+    if j1_place_res["status"] == "FAIL":
+        problems.extend(f"j1_shared_placement: {msg}" for msg in j1_place_res["issues"])
+
+    j6_lock_res = verify_j6_basement_lock(b_abs)
+    if j6_lock_res["status"] == "FAIL":
+        problems.extend(f"j6_basement_lock: {msg}" for msg in j6_lock_res["issues"])
+
+    j8_res = verify_j8_card_and_batches(b_abs, bplan=bplan)
+    if j8_res["status"] == "FAIL":
+        problems.extend(f"j8_card_and_batches: {msg}" for msg in j8_res["issues"])
+
     return {
         "ok": len(problems) == 0,
         "steps": step_results,
         "arsenal_weaps": arsenal_res,
         "pod_anim": pod_anim_res,
         "quest_translate": qt_res,
+        "j1_footprint": j1_fp_res,
+        "j1_anchor_immutability": j1_anc_res,
+        "j1_shared_placement": j1_place_res,
+        "j6_basement_lock": j6_lock_res,
+        "j8_card_and_batches": j8_res,
         "problems": problems,
     }
 

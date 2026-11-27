@@ -51,11 +51,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 SRC_DIR = os.path.join(REPO, "src")
 ACTORS_DIR = os.path.join(REPO, "scripts", "actors")
-for _p in (SRC_DIR, ACTORS_DIR):
+PROBES_DIR = os.path.join(REPO, "scripts", "probes")
+for _p in (SRC_DIR, ACTORS_DIR, PROBES_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from convert_codsworth import patch_codsworth_steel_mat  # noqa: E402
 from fo4sf.core.stage_provenance import build_provenance, canonicalize_cli_args  # noqa: E402
+import probe_common  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "Mission")
 PLUGIN = "FO4SFMission.esm"
@@ -78,6 +80,7 @@ ALL_SCRIPTS = (
     MQ106_SCRIPT, MQ203_SCRIPT, MQ204_SCRIPT, MQ206_SCRIPT,
 )
 DOORS_DIR = os.path.join(REPO, "scripts", "doors")
+NEWGAME_DIR = os.path.join(REPO, "scripts", "newgame")
 LOAD_DOORS_JSON = os.path.join(REPO, "src", "fo4sf", "core", "load_doors.json")
 WORKSHOP_DIR = os.path.join(REPO, "scripts", "workshop")
 VAULT_ROACHES_SCRIPT = "FO4SF_Vault111RoachesQuest"
@@ -352,7 +355,7 @@ def compile_script(compiler, src_dir, out_dir, script, script_dir=None):
     os.makedirs(out_dir, exist_ok=True)
     name = script + ".psc"
     work_dir = script_dir or HERE
-    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{DOORS_DIR};{WORKSHOP_DIR};{src_dir}", f"-o={out_dir}"], cwd=work_dir)
+    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{DOORS_DIR};{WORKSHOP_DIR};{NEWGAME_DIR};{src_dir}", f"-o={out_dir}"], cwd=work_dir)
     pex = os.path.join(out_dir, script + ".pex")
     if "Compilation succeeded" not in out or not os.path.exists(pex):
         sys.exit(f"the Papyrus compile did not produce {script}.pex")
@@ -783,7 +786,10 @@ def stage(a):
         for scr_name, scr_dir in R12_EXTRA_SCRIPTS:
             compiled_pex[scr_name] = compile_script(a.compiler, src, scripts_dir, scr_name, script_dir=scr_dir)
             shutil.copy(os.path.join(scr_dir, scr_name + ".psc"), os.path.join(out, scr_name + ".psc"))
-        bat_files = write_r12_h2_batches(os.path.join(out, "bat"))
+        bat_files = write_r12_h2_batches(
+            os.path.join(out, "bat"),
+            plugins_txt_lines=getattr(a, "plugins_txt_lines", None),
+        )
     else:
         bat_files = []
     if os.path.isdir(work):
@@ -884,21 +890,151 @@ Uninstall: exp_install.py uninstall.
           ", offline_check.txt, plan.json, README.txt")
 
 
-def write_r12_h2_batches(bat_dir):
-    """Write P3-clean R12/R13 2h console batch files into bat_dir (outside Data/)."""
-    batches = {
+DEFAULT_PLAYER_BUNDLE_PLUGINS = (
+    "FO4ActorRaider.esm",
+    "FO4TerrainCore.esm",
+    "FO4TerrainCore_Mars.esm",
+    "FO4SFCoreValues.esm",
+    "FO4SFVaultGearDoor.esm",
+    "FO4SFExitLift.esm",
+    "FO4SFVaultPod.esm",
+    "FO4SFMission.esm",
+    "FO4SFNewGame.esm",
+    "FO4SFWorkshop.esm",
+    "FO4SFPowerArmor.esm",
+    "FO4SFFortHagen.esm",
+    "FO4SFPipboyProbe.esm",
+    "FO4SFPipboyTravel.esm",
+)
+
+# Concord street S4 raider coordinates in merged Commonwealth coordinates (from FO4SFMission.esm ACHRs 0x803..0x805)
+CONCORD_STREET_RAIDER_SPOTS = (
+    (-2029.10, -1698.27),
+    (-2029.06, -1691.69),
+    (-2027.17, -1678.16),
+)
+MIN_RAIDER_HOP_CLEARANCE_M = 15.0
+H2H4_HOP_POS = (-2061.23, -1657.46, 87.50)
+H2H4_HOP_ANGLE_Z = 135
+
+
+def compute_bundle_load_indices(
+    plugins=None,
+    *,
+    data_dir=None,
+    plugins_txt_lines=None,
+    bundle_dir=None,
+    port_esm=None,
+    base_full_slots=2,
+):
+    """Return `{plugin_name: full_master_slot_int}` deriving full-master slots from ordered plugins.
+
+    Uses `probe_common.compute_full_master_load_index` when `data_dir` contains Starfield base ESMs,
+    counting implicit full masters (Starfield.esm, BlueprintShips-Starfield.esm) before `FO4Port.esm`
+    plus each active full master in `[FO4Port.esm, *plugins]`.
+    """
+    ordered_rest = list(plugins) if plugins else list(DEFAULT_PLAYER_BUNDLE_PLUGINS)
+    ordered = []
+    seen = set()
+    for pname in ["FO4Port.esm", *ordered_rest]:
+        low = pname.casefold()
+        if low not in seen:
+            seen.add(low)
+            ordered.append(pname)
+
+    slot = int(base_full_slots)
+    if data_dir and os.path.isdir(data_dir):
+        star_path = os.path.join(data_dir, "Starfield.esm")
+        if os.path.isfile(star_path):
+            slot = probe_common.compute_full_master_load_index(
+                data_dir,
+                plugins_txt_lines or (),
+                "FO4Port.esm",
+            )
+
+    def _is_light_or_medium(pname):
+        candidates = []
+        if pname.casefold() == "fo4port.esm" and port_esm:
+            candidates.append(port_esm)
+        if bundle_dir:
+            candidates.append(os.path.join(bundle_dir, pname))
+        if data_dir:
+            candidates.append(os.path.join(data_dir, pname))
+        for cand in candidates:
+            if cand and os.path.isfile(cand):
+                fl = probe_common._tes4_flags(cand)
+                if fl is not None:
+                    return (fl & 0x300) != 0
+        return False
+
+    indices = {}
+    for pname in ordered:
+        if _is_light_or_medium(pname):
+            continue
+        indices[pname] = slot
+        slot += 1
+    return indices
+
+
+def validate_batch_hops_clear_of_raiders(
+    batches,
+    raider_spots=CONCORD_STREET_RAIDER_SPOTS,
+    min_dist_m=MIN_RAIDER_HOP_CLEARANCE_M,
+):
+    """Return list of error strings for any batch player.setpos landing within `min_dist_m` of street raiders."""
+    errors = []
+    for fname, body in sorted(batches.items()):
+        xs = re.findall(r"(?im)^\s*player\.setpos\s+x\s+([-\d.]+)\s*$", body)
+        ys = re.findall(r"(?im)^\s*player\.setpos\s+y\s+([-\d.]+)\s*$", body)
+        if not xs or not ys:
+            continue
+        # Only check exterior Concord/Sanctuary hops (world coords have negative X < -1000)
+        px, py = float(xs[-1]), float(ys[-1])
+        if px > -1000.0:
+            continue
+        for rx, ry in raider_spots:
+            dist = math.hypot(px - rx, py - ry)
+            if dist < float(min_dist_m):
+                errors.append(
+                    f"{fname}: setpos ({px:.2f}, {py:.2f}) is {dist:.2f} m from raider ({rx:.2f}, {ry:.2f}) < {min_dist_m:.1f} m"
+                )
+    return errors
+
+
+def build_r12_h2_batches(
+    *,
+    plugins=None,
+    data_dir=None,
+    plugins_txt_lines=None,
+    bundle_dir=None,
+    port_esm=None,
+):
+    """Build P3-clean console batch contents keyed by filename with dynamically derived FormID prefixes."""
+    idx = compute_bundle_load_indices(
+        plugins,
+        data_dir=data_dir,
+        plugins_txt_lines=plugins_txt_lines,
+        bundle_dir=bundle_dir,
+        port_esm=port_esm,
+    )
+    port_p = f"{idx['FO4Port.esm']:02X}"
+    cv_p = f"{idx['FO4SFCoreValues.esm']:02X}"
+    mis_p = f"{idx['FO4SFMission.esm']:02X}"
+
+    hx, hy, hz = H2H4_HOP_POS
+    templates = {
         "h2st.txt": (
-            "; 2h globals & quest state check (06=FO4SFCoreValues, 09=FO4SFMission)\n"
-            "getglobalvalue 06000860\n"
-            "getglobalvalue 06000865\n"
-            "getglobalvalue 09000979\n"
-            "getglobalvalue 09000B8B\n"
-            "getglobalvalue 09000B8C\n"
-            "getglobalvalue 09000B8D\n"
-            "getglobalvalue 09000B8E\n"
-            "sqv 09000800\n"
-            "sqv 09000816\n"
-            "sqv 09000B90\n"
+            f"; 2h globals & quest state check (<PORT>=FO4Port, <CV>=FO4SFCoreValues, <MIS>=FO4SFMission)\n"
+            f"getglobalvalue <CV>000860\n"
+            f"getglobalvalue <CV>000865\n"
+            f"getglobalvalue <MIS>000979\n"
+            f"getglobalvalue <MIS>000B8B\n"
+            f"getglobalvalue <MIS>000B8C\n"
+            f"getglobalvalue <MIS>000B8D\n"
+            f"getglobalvalue <MIS>000B8E\n"
+            f"sqv <MIS>000800\n"
+            f"sqv <MIS>000816\n"
+            f"sqv <MIS>000B90\n"
         ),
         "h2h2.txt": (
             "; < 156 m hop: Sanctuary House 01 -> Red Rocket North\n"
@@ -913,14 +1049,14 @@ def write_r12_h2_batches(bat_dir):
             "player.setpos z 98.00\n"
         ),
         "h2h4.txt": (
-            "; < 135 m hop: Red Rocket South -> Concord Museum street\n"
-            "player.setpos x -2015.00\n"
-            "player.setpos y -1700.00\n"
-            "player.setpos z 90.00\n"
-            "player.setangle z 90\n"
+            "; < 73 m hop: Red Rocket South -> Concord NW cover (>= 15 m from street raiders)\n"
+            f"player.setpos x {hx:.2f}\n"
+            f"player.setpos y {hy:.2f}\n"
+            f"player.setpos z {hz:.2f}\n"
+            f"player.setangle z {H2H4_HOP_ANGLE_Z}\n"
         ),
         "h2f.txt": (
-            "; Enter FO4Port_ConcordMuseum01 (0x0100E2F4, lobby NAVM tri 87)\n"
+            "; Enter FO4Port_ConcordMuseum01 (<PORT>00E2F4, lobby NAVM tri 87)\n"
             "coc FO4Port_ConcordMuseum01\n"
             "player.setpos x 7.73\n"
             "player.setpos y 0.91\n"
@@ -928,11 +1064,19 @@ def write_r12_h2_batches(bat_dir):
             "player.setangle z 270\n"
         ),
         "h2b.txt": (
-            "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): jump to basement Novice gate (0x0100EDF0 at -13.714, -0.457, -3.657)\n"
+            "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): jump to basement Novice gate (<PORT>00EDF0 at -13.714, -0.457, -3.657)\n"
             "player.setpos x -14.38\n"
             "player.setpos y -0.10\n"
             "player.setpos z -3.32\n"
             "player.setangle z 90\n"
+        ),
+        "h2ge.txt": (
+            "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): step to gate <PORT>00EDF0 for E probe\n"
+            "player.setpos x -14.38\n"
+            "player.setpos y -0.10\n"
+            "player.setpos z -3.32\n"
+            "player.setangle z 90\n"
+            "prid <PORT>00EDF0\n"
         ),
         "h2k.txt": (
             "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): jump outside 3F PrestonDoorREF (5.486, -7.314, 9.143)\n"
@@ -942,9 +1086,9 @@ def write_r12_h2_batches(bat_dir):
             "player.setangle z 90\n"
         ),
         "h2p.txt": (
-            "; Grant Bobby Pin & Starfield Digipick for Novice lock 0x0100EDF0 testing (Row 5b)\n"
+            "; Grant Bobby Pin & Starfield Digipick for Novice lock <PORT>00EDF0 testing (Row 5b)\n"
             "player.additem 0000000A 2\n"
-            "player.additem 060008A5 2\n"
+            "player.additem <CV>0008A5 2\n"
         ),
         "h2r.txt": (
             "; Exterior Museum roof bulkhead (FO4 0002C1C6 XTEL arrival, facing ExtRoofIn door at -1991.27, -1722.57)\n"
@@ -954,6 +1098,44 @@ def write_r12_h2_batches(bat_dir):
             "player.setangle z 335\n"
         ),
     }
+    batches = {}
+    for fname, tpl in templates.items():
+        body = tpl.replace("<PORT>", port_p).replace("<CV>", cv_p).replace("<MIS>", mis_p)
+        batches[fname] = body
+
+    # Also stamp via probe_common._stamp_text_formid_prefix scoped by each plugin's local IDs
+    for fname in list(batches.keys()):
+        txt = batches[fname]
+        txt = probe_common._stamp_text_formid_prefix(txt, port_p, (0x00E2F4, 0x00EDF0))
+        txt = probe_common._stamp_text_formid_prefix(txt, cv_p, (0x000860, 0x000865, 0x0008A5))
+        txt = probe_common._stamp_text_formid_prefix(
+            txt, mis_p, (0x000979, 0x000B8B, 0x000B8C, 0x000B8D, 0x000B8E, 0x000800, 0x000816, 0x000B90)
+        )
+        batches[fname] = txt
+
+    hop_errors = validate_batch_hops_clear_of_raiders(batches)
+    if hop_errors:
+        raise ValueError("; ".join(hop_errors))
+    return batches
+
+
+def write_r12_h2_batches(
+    bat_dir,
+    *,
+    plugins=None,
+    data_dir=None,
+    plugins_txt_lines=None,
+    bundle_dir=None,
+    port_esm=None,
+):
+    """Write P3-clean R12/R13/R17 2h console batch files into bat_dir (outside Data/)."""
+    batches = build_r12_h2_batches(
+        plugins=plugins,
+        data_dir=data_dir,
+        plugins_txt_lines=plugins_txt_lines,
+        bundle_dir=bundle_dir,
+        port_esm=port_esm,
+    )
     os.makedirs(bat_dir, exist_ok=True)
     for fname, body in sorted(batches.items()):
         stem = os.path.splitext(fname)[0]

@@ -15,7 +15,7 @@ import unittest
 from tests.test_newgame import CS, PSC, read, ng
 
 
-FUNCTIONS = ("FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers", "AtArrival", "Near")
+FUNCTIONS = ("FinishSurface", "CheckLanding", "RequestArrivalDiscovery", "ResolveArrivalDiscoveryMarker", "DiscoverMarkerViaMapMarkers", "AtArrival", "Near")
 VARIABLES = (
     "arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, fallbackPending, "
     "discoveryMarkerMoved, discoveryAttachPending, landingChecks"
@@ -59,9 +59,55 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
-        "for _k, _v in (('faded', False), ('modeChoiceRan', False), ('ExitNeedAttrMsg', None), ('TestModeGlobal', None), ('VaultAmmoBase', None), ('VaultAmmoCount', 48), ('ammoPickedLogged', False), ('deathReloadPlainBlackActive', False), ('LandingHandoff', 'single_quest'), ('RouteLootRefIds', []), ('CoreMarkerIds', []), ('MapMarkerQuestIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('loadingMenuOpen', False), ('loadingMenuClosedSeen', False), ('landingLoadingMode', False), ('landingAwaitingFadeIn', False), ('landingFadeGuardRan', False), ('loadingBlackCoverEnabled', False), ('loadingBlackCoverWhy', ''), ('surfaceTriggeredLoad', False), ('mapSetupQueued', False), ('mapSetupDone', False), ('exitUsedFallback', False), ('ascentGapStartedAt', 0.0), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('SilentArrivalDiscovery', True), ('ArrivalDiscoveryMethod', 'add_to_map'), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('ArrivalWeatherId', 0x001034AB), ('ArrivalWeatherPlugin', 'Starfield.esm'), ('ArrivalWeatherOverride', True), ('VaultSuitFallbackId', 0x0001D1D7), ('VaultSuitFallbackPlugin', 'Starfield.esm'), ('pipboyGranted', False), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodEntryStep', -2.5), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('PodOriginX', 0.0), ('PodOriginY', 0.0), ('PodOriginZ', 0.0), ('PodSeatX', 0.0), ('PodSeatY', 0.0), ('PodSeatZ', 0.0), ('PodAnimPlugin', 'FO4SFVaultPod.esm'), ('PodAnimRefId', 0x000801), ('PodStaticRefPlugin', 'FO4Port.esm'), ('PodStaticRefId', 0x001617), ('PodOpenEvent', 'Play01'), ('PodOpenSeconds', 5.3333), ('PodDoneMargin', 0.25), ('PodOpenTimeoutS', 8.0), ('PodSeatStepM', -0.55), ('PodSeatHeadingDeg', 180.0), ('PodStepOutToM', -2.5), ('PodPushToleranceM', 0.35), ('PodExitTimeoutS', 20.0), ('PodCreatorInPod', False), ('podExitDone', False), ('podExitStarted', False), ('podHoldLayer', None), ('podAnimRef', None), ('podDoorDone', False), ('podAnimOpened', False), ('podFellBack', False), ('podExitPhase', 0), ('podOpenStartedAt', 0.0), ('podStepOutStartedAt', 0.0), ('podLastOpenDuration', 0.0), ('podLooksDone', False), ('podLooksHow', ''), ('podLooksBy', 'Trigger'), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('liftPairStartCell', None), ('liftPairStartWorld', None), ('liftPairStartedAt', 0.0), ('liftPairStartX', 0.0), ('liftPairStartY', 0.0), ('liftPairStartZ', 0.0), ('liftPairTransferRetries', 0), ('liftPairTransferRetryAt', 0.0), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False), ('surfaceCogLoggedArrival', False), ('surfaceCogRefs', None), ('surfaceCogActivationReg', None), ('surfaceCogLogged', None), ('surfaceCogStates', None), ('surfaceCogRisePending', False), ('surfaceCogRising', False), ('surfaceCogRiseStartedAt', 0.0), ('surfaceCogDone', False), ('surfaceCogCarryLogged', False), ('surfaceCogWaiting3D', False), ('surfaceCogWaitStartedAt', 0.0), ('surfaceCogWaitTicks', 0), ('surfaceCogWaitPath', 'loading_close'), ('interiorLiftState', 'A'), ('interiorLiftDescending', False), ('interiorLiftDescendAt', 0.0), ('interiorLiftDescendDone', False), ('interiorLiftControlReleased', False), ('interiorBusyLogged', False), ('lastLiftRefusalReason', ''), ('liftPairUpArriveEventPending', False), ('NewGamePlugin', 'FO4SFNewGame.esm'), ('ArrivalMergedMarkerId', 0), ('ActiveLiftPairId', 'fo4.vault111_exit'), ('LiftPairIds', ['fo4.vault111_exit']), ('LiftRise', 21.6), ('LiftSeconds', 9.8667), ('LiftResetSeconds', 23.8333), ('LiftResetMotionSeconds', 9.9), ('LiftFadeLead', 1.4), ('LiftDoneMargin', 0.25), ('LiftPlayEvent', 'Play01'), ('LiftResetEvent', 'Play02'), ('SurfaceCogPlugins', ['FO4SFExitLift.esm']), ('SurfaceCogLocalX', [-1275.5824]), ('SurfaceCogLocalY', [1296.0703]), ('SurfaceCogLocalZ', [33.253544]), ('SurfaceCogPadRadius', [3.2]), ('SurfaceLiftDrop', [59.1425]), ('SurfaceLiftSeconds', [18.6667]), ('SurfaceLiftFadeAt', [7.533]), ('SurfaceLiftDoneMargin', [0.25]), ('SurfaceLiftPlayEvents', ['Play01']), ('SurfaceLiftResetEvents', ['Play02']), ('SurfaceLiftAscendClips', ['StateB_Play']), ('SurfaceLiftAscendSeconds', [11.6667]), ('SurfaceLiftAscendRise', [25.9932]), ('SurfaceCoreStaticBaseIds', [0x0A2D4B]), ('leftArrivalPad', False), ('returnLiftArmed', False), ('returnAsked', False), ('returnVaultAsked', False), ('returnHasExteriorSample', False), ('returnLastExteriorX', 0.0), ('returnLastExteriorY', 0.0)):",
+        "for _k, _v in (('faded', False), ('modeChoiceRan', False), ('ExitNeedAttrMsg', None), ('TestModeGlobal', None), ('VaultAmmoBase', None), ('VaultAmmoCount', 48), ('ammoPickedLogged', False), ('deathReloadPlainBlackActive', False), ('LandingHandoff', 'single_quest'), ('RouteLootRefIds', []), ('CoreMarkerIds', []), ('MapMarkerQuestIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('loadingMenuOpen', False), ('loadingMenuClosedSeen', False), ('landingLoadingMode', False), ('landingAwaitingFadeIn', False), ('landingFadeGuardRan', False), ('loadingBlackCoverEnabled', False), ('loadingBlackCoverWhy', ''), ('surfaceTriggeredLoad', False), ('mapSetupQueued', False), ('mapSetupDone', False), ('exitUsedFallback', False), ('ascentGapStartedAt', 0.0), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('SilentArrivalDiscovery', True), ('ArrivalDiscoveryMethod', 'add_to_map'), ('ArrivalDiscoveryPlugin', 'FO4SFNewGame.esm'), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('ArrivalWeatherId', 0x001034AB), ('ArrivalWeatherPlugin', 'Starfield.esm'), ('ArrivalWeatherOverride', True), ('VaultSuitFallbackId', 0x0001D1D7), ('VaultSuitFallbackPlugin', 'Starfield.esm'), ('pipboyGranted', False), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodEntryStep', -2.5), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('PodOriginX', 0.0), ('PodOriginY', 0.0), ('PodOriginZ', 0.0), ('PodSeatX', 0.0), ('PodSeatY', 0.0), ('PodSeatZ', 0.0), ('PodAnimPlugin', 'FO4SFVaultPod.esm'), ('PodAnimRefId', 0x000801), ('PodStaticRefPlugin', 'FO4Port.esm'), ('PodStaticRefId', 0x001617), ('PodOpenEvent', 'Play01'), ('PodOpenSeconds', 5.3333), ('PodDoneMargin', 0.25), ('PodOpenTimeoutS', 8.0), ('PodSeatStepM', -0.55), ('PodSeatHeadingDeg', 180.0), ('PodStepOutToM', -2.5), ('PodPushToleranceM', 0.35), ('PodExitTimeoutS', 20.0), ('PodCreatorInPod', False), ('podExitDone', False), ('podExitStarted', False), ('podHoldLayer', None), ('podAnimRef', None), ('podDoorDone', False), ('podAnimOpened', False), ('podFellBack', False), ('podExitPhase', 0), ('podOpenStartedAt', 0.0), ('podStepOutStartedAt', 0.0), ('podLastOpenDuration', 0.0), ('podLooksDone', False), ('podLooksHow', ''), ('podLooksBy', 'Trigger'), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('liftPairStartCell', None), ('liftPairStartWorld', None), ('liftPairStartedAt', 0.0), ('liftPairStartX', 0.0), ('liftPairStartY', 0.0), ('liftPairStartZ', 0.0), ('liftPairTransferRetries', 0), ('liftPairTransferRetryAt', 0.0), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False), ('surfaceCogLoggedArrival', False), ('surfaceCogRefs', None), ('surfaceCogActivationReg', None), ('surfaceCogLogged', None), ('surfaceCogStates', None), ('surfaceCogRisePending', False), ('surfaceCogRising', False), ('surfaceCogRiseStartedAt', 0.0), ('surfaceCogDone', False), ('surfaceCogCarryLogged', False), ('surfaceCogWaiting3D', False), ('surfaceCogWaitStartedAt', 0.0), ('surfaceCogWaitTicks', 0), ('surfaceCogWaitPath', 'loading_close'), ('interiorLiftState', 'A'), ('interiorLiftDescending', False), ('interiorLiftDescendAt', 0.0), ('interiorLiftDescendDone', False), ('interiorLiftControlReleased', False), ('interiorBusyLogged', False), ('lastLiftRefusalReason', ''), ('liftPairUpArriveEventPending', False), ('NewGamePlugin', 'FO4SFNewGame.esm'), ('LogName', 'fo4sf_newgame'), ('ActiveLiftPairId', 'fo4.vault111_exit'), ('LiftPairIds', ['fo4.vault111_exit']), ('LiftRise', 21.6), ('LiftSeconds', 9.8667), ('LiftResetSeconds', 23.8333), ('LiftResetMotionSeconds', 9.9), ('LiftFadeLead', 1.4), ('LiftDoneMargin', 0.25), ('LiftPlayEvent', 'Play01'), ('LiftResetEvent', 'Play02'), ('SurfaceCogPlugins', ['FO4SFExitLift.esm']), ('SurfaceCogLocalX', [-1275.5824]), ('SurfaceCogLocalY', [1296.0703]), ('SurfaceCogLocalZ', [33.253544]), ('SurfaceCogPadRadius', [3.2]), ('SurfaceLiftDrop', [59.1425]), ('SurfaceLiftSeconds', [18.6667]), ('SurfaceLiftFadeAt', [7.533]), ('SurfaceLiftDoneMargin', [0.25]), ('SurfaceLiftPlayEvents', ['Play01']), ('SurfaceLiftResetEvents', ['Play02']), ('SurfaceLiftAscendClips', ['StateB_Play']), ('SurfaceLiftAscendSeconds', [11.6667]), ('SurfaceLiftAscendRise', [25.9932]), ('SurfaceCoreStaticBaseIds', [0x0A2D4B]), ('leftArrivalPad', False), ('returnLiftArmed', False), ('returnAsked', False), ('returnVaultAsked', False), ('returnHasExteriorSample', False), ('returnLastExteriorX', 0.0), ('returnLastExteriorY', 0.0)):",
         "    if _k not in globals(): globals()[_k] = _v",
-        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'RegisterForMenuOpenCloseEvent', 'UnregisterForMenuOpenCloseEvent', 'SetLoadingBlackCover', 'IsLoadingBlackCoverEnabled', 'QueueSharedMapSetup', 'BeginSurfaceCogWait3D', 'PollSurfaceCogWait3D', 'ArriveOnInteriorLift', 'SetInteriorLiftState', 'RequestArrivalDiscovery', 'ForceFadeIn', 'CompleteLandingFadeIn', 'PlaySurfaceCogRise', 'FinishSurfaceCogRise', 'SuppressMapMarkersDarkHold', 'CancelTimer', 'RunPodExitHook', 'HoldInPod', 'ReleasePodHold', 'PodFallback', 'CompleteLooksStage20AfterPodExit', 'EnsureFadedInForChoice', 'PrepareBeforeCreator', 'NoteLooksDone', 'HandlePodAnimTimer', 'TriggerVaultPodRecoveryAutosave', 'EnsurePipboyWristEquipped', 'EnsureSurfaceLiftCog', 'RecoverPairedLiftOnLoad', 'CheckPairedLiftRide', 'StartPairedLiftRide', 'ResetSurfaceLiftCog', 'EnsurePairCogStorage', 'EmitLiftPairArrived', 'SendCustomEvent', 'ApplyArrivalWeather', 'SetDeathReloadPlainBlackCover', 'StripStarterItemsSilently'):",
+        "if 'FO4SF_Placement' not in globals():",
+        "    class _FO4SFPlacement:",
+        "        @staticmethod",
+        "        def ToMergedX(rx, mx=-1200.0): return rx + mx",
+        "        @staticmethod",
+        "        def ToMergedY(ry, my=-2700.0): return ry + my",
+        "        @staticmethod",
+        "        def IsInsideMergedFootprint(x, y): return (-4400.0 <= x <= 2000.0) and (-5900.0 <= y <= 500.0)",
+        "        @staticmethod",
+        "        def IsCoreCellMatch(ac, anc): return ac is not None and anc is not None and (ac.GetFormID() // 16777216) == (anc.GetFormID() // 16777216)",
+        "        @staticmethod",
+        "        def BeginHeldTransferFade(): globals()['Game'].FadeOutGame(True, True, 0.0, 0.2, True)",
+        "        @staticmethod",
+        "        def HoldPlainBlackFrame(): globals()['Game'].FadeOutGame(True, True, 0.0, 0.05, True)",
+        "        @staticmethod",
+        "        def EndHeldTransferFade(s=0.5): globals()['Game'].FadeOutGame(False, True, 0.0, s, False)",
+        "        @staticmethod",
+        "        def MovePlayerToExteriorAnchor(pl, anc, what, log_name='fo4sf_newgame', hold_fade=True):",
+        "            if pl is None or anc is None: return False",
+        "            ax, ay, az = anc.GetPositionX(), anc.GetPositionY(), anc.GetPositionZ()",
+        "            inside = _FO4SFPlacement.IsInsideMergedFootprint(ax, ay)",
+        "            globals()['Trace'](f'place move={what} target={ax} {ay} {az} frame=raw inside_footprint={inside} cell={anc.GetParentCell()}')",
+        "            if inside:",
+        "                globals()['Trace'](f'place refused reason=inside_merged_footprint move={what} target={ax} {ay} {az} cell={anc.GetParentCell()}')",
+        "                return False",
+        "            if hold_fade: _FO4SFPlacement.BeginHeldTransferFade()",
+        "            anc.Enable(False)",
+        "            pl.MoveTo(anc, 0.0, 0.0, 0.0, True, False)",
+        "            return True",
+        "        @staticmethod",
+        "        def SetPlayerMergedPosition(pl, rx, ry, rz, hdg, mx, my, what, log_name='fo4sf_newgame'):",
+        "            tx, ty = rx + mx, ry + my",
+        "            pl.SetPosition(tx, ty, rz)",
+        "            pl.SetAngle(0.0, 0.0, hdg)",
+        "            globals()['Trace'](f'place move={what} target={tx} {ty} {rz} frame=merged inside_footprint={_FO4SFPlacement.IsInsideMergedFootprint(tx, ty)} cell={pl.GetParentCell()}')",
+        "            return True",
+        "        @staticmethod",
+        "        def RelocateDiscoveryMarker(mk, pl, mx, my, mz, what, log_name='fo4sf_newgame'):",
+        "            px, py, pz = pl.GetPositionX(), pl.GetPositionY(), pl.GetPositionZ()",
+        "            pw = pl.GetWorldSpace()",
+        "            mk.Enable(False)",
+        "            mk.MoveTo(pl, mx - px, my - py, mz - pz, False, False)",
+        "            if pw is not None and mk.GetWorldSpace() == pw: mk.SetPosition(mx, my, mz)",
+        "            globals()['Trace'](f'place move={what} target={mx} {my} {mz} frame=merged inside_footprint={_FO4SFPlacement.IsInsideMergedFootprint(mx, my)} cell={mk.GetParentCell()}')",
+        "            return True",
+        "    globals()['FO4SF_Placement'] = _FO4SFPlacement",
+        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'RegisterForMenuOpenCloseEvent', 'UnregisterForMenuOpenCloseEvent', 'SetLoadingBlackCover', 'IsLoadingBlackCoverEnabled', 'QueueSharedMapSetup', 'BeginSurfaceCogWait3D', 'PollSurfaceCogWait3D', 'ArriveOnInteriorLift', 'SetInteriorLiftState', 'RequestArrivalDiscovery', 'ResolveArrivalDiscoveryMarker', 'ForceFadeIn', 'CompleteLandingFadeIn', 'PlaySurfaceCogRise', 'FinishSurfaceCogRise', 'SuppressMapMarkersDarkHold', 'CancelTimer', 'RunPodExitHook', 'HoldInPod', 'ReleasePodHold', 'PodFallback', 'CompleteLooksStage20AfterPodExit', 'EnsureFadedInForChoice', 'PrepareBeforeCreator', 'NoteLooksDone', 'HandlePodAnimTimer', 'TriggerVaultPodRecoveryAutosave', 'EnsurePipboyWristEquipped', 'EnsureSurfaceLiftCog', 'RecoverPairedLiftOnLoad', 'CheckPairedLiftRide', 'StartPairedLiftRide', 'ResetSurfaceLiftCog', 'EnsurePairCogStorage', 'EmitLiftPairArrived', 'SendCustomEvent', 'ApplyArrivalWeather', 'SetDeathReloadPlainBlackCover', 'StripStarterItemsSilently'):",
         "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
         "if 'StartPodOpen' not in globals(): globals()['StartPodOpen'] = lambda _p=None: (globals()['RunPodExitHook'](_p), globals().get('AdvanceTo', lambda *_: None)(20, globals().get('podLooksBy', '') or 'Trigger'))",
         "if 'PodAnimReady' not in globals(): globals()['PodAnimReady'] = lambda: False",
@@ -301,13 +347,13 @@ class ArrivalExecutionTests(unittest.TestCase):
             arrivalWorld=self.world, ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=100.0,
             ArrivalHeading=0.0, MergeOffsetX=-1200.0, MergeOffsetY=-2700.0,
             FallbackX=-10.0, FallbackY=-20.0, FallbackZ=95.0, FallDrop=3.0,
-            ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x0A775B, CorePlugin="FO4TerrainCore.esm",
+            ExitAnchorId=0x0A775B, ArrivalDiscoveryId=0x000827, ArrivalDiscoveryPlugin="FO4SFNewGame.esm", CorePlugin="FO4TerrainCore.esm",
             MapMarkerQuestIds=[], SilentArrivalDiscovery=False, ArrivalDiscoveryMethod="during_fade",
             SinglePassLandingFade=True, surfaceFadeInDone=False,
             SurfaceWait=10.0, SurfaceTries=3, surfaceMoves=1, surfaceSets=0,
             surfaceMovedAt=1.0, arrivedAt=1.0, fallbackPending=False,
             discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
-            Game=SimpleNamespace(GetFormFromFile=lambda *_: self.marker, IsFastTravelEnabled=lambda: True),
+            Game=SimpleNamespace(GetFormFromFile=lambda *_: self.marker, IsFastTravelEnabled=lambda: True, FadeOutGame=lambda *_: None),
             Utility=SimpleNamespace(GetCurrentRealTime=lambda: self.now),
             FailExit=self.failures.append, AdvanceTo=self.stages.append,
         )
@@ -333,12 +379,12 @@ class ArrivalExecutionTests(unittest.TestCase):
 
     def test_translator_catches_untruncated_float_formid_divide(self):
         """Without storing both / 16777216 quotients in int, 03000CF0/16777216 != 030A775B/16777216 fails as float."""
-        buggy = re.sub(
-            r"bool coreCell = false.*?endif",
+        placement_psc = (Path(PSC).parent / "FO4SF_Placement.psc").read_text(encoding="utf-8")
+        self.assertIn("int cellMod = afterCell.GetFormID() / 16777216", placement_psc)
+        buggy = read(PSC).replace(
+            "bool coreCell = FO4SF_Placement.IsCoreCellMatch(afterCell, anchor)",
             "bool coreCell = afterCell != None && afterCell.GetFormID() / 16777216 == anchor.GetFormID() / 16777216",
-            read(PSC),
-            count=1,
-            flags=re.S,
+            1,
         )
         ns = dict(self.ns)
         failures, stages = [], []
@@ -478,9 +524,11 @@ class ArrivalExecutionTests(unittest.TestCase):
         self.run_branch("CheckLanding")
         self.assertEqual(self.marker.discovery_calls, 0)
         self.assertEqual(self.stages, [200])
-        self.assertIn('("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)p.ExitAnchor : 0)', read(CS))
+        self.assertIn('("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)ArrivalDiscoveryMarkerRefId : 0)', read(CS))
+        self.assertIn('("ArrivalDiscoveryPlugin", Plugin)', read(CS))
         code = re.sub(r"\{.*?\}|;[^\n]*", "", read(PSC), flags=re.S)
         req_code = code[code.index("bool Function RequestArrivalDiscovery"):code.index("bool Function AtArrival")]
+        self.assertIn("ResolveArrivalDiscoveryMarker()", req_code)
         self.assertIn("DiscoverMarkerViaMapMarkers(marker)", req_code)
         self.assertIn(".IsMapMarkerVisible()", req_code)
         self.assertIn(".CanFastTravelToMarker()", req_code)
@@ -1375,7 +1423,7 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
             "HexFormId", "HexDigit", "SqrtF",
             "FailPairedLift", "StartPairedLiftRide", "CheckPairedLiftRide", "RecoverPairedLiftOnLoad",
             "Near", "StandsInVault", "ApplyStage", "AdvanceTo", "ClearVaultSaveLock", "RelockVaultSaving",
-            "RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers", "TrySurfaceExteriorFallbacks", "ResolveHostWorld",
+            "RequestArrivalDiscovery", "ResolveArrivalDiscoveryMarker", "PreAttachArrivalMarker", "DiscoverMarkerViaMapMarkers", "TrySurfaceExteriorFallbacks", "ResolveHostWorld",
             "RunSharedMapSetup", "QueueSharedMapSetup", "PrepareArrivalMarkerDuringRide",
             "TimerEvent", "MenuEvent", "AnimEvent",
         )
@@ -1419,7 +1467,7 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
         cog_base = object()
         lift_base = object()
         vault_anchor = AnimRef(vault_world, vault_cell, (-70.0, -3.0, -1.751), 0x02000805)
-        exit_anchor = AnimRef(surface_world, unmerged_cell, (-1210.0, -2720.0, 95.0), 0x030A775B)
+        exit_anchor = AnimRef(surface_world, unmerged_cell, (-1275.31, 1305.28, 127.21), 0x030A775B)
         interior_lift = AnimRef(vault_world, vault_cell, (-77.742, -3.958, -1.751), 0x02001618, base=lift_base)
         surface_cog = AnimRef(surface_world, core_cell, (-2475.5824, -1403.9297, 33.253544), 0xFF001234, base=cog_base)
 
@@ -1593,6 +1641,8 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
         return SimpleNamespace(
             ns=ns,
             player=player,
+            vault_anchor=vault_anchor,
+            exit_anchor=exit_anchor,
             interior_lift=interior_lift,
             surface_cog=surface_cog,
             vault_world=vault_world,
@@ -1852,7 +1902,7 @@ class Round16LiftAndRobustnessTests(G7AndG12eLiftOrderAndFadeTests):
         pair = cfg["pairs"]["fo4.vault111_exit"]
         self.assertAlmostEqual(pair["interior"]["fade_lead_s"], 1.4, places=3)
         self.assertAlmostEqual(pair["interior"]["reset_motion_s"], 9.9, places=3)
-        self.assertEqual(pair["surface"]["arrival_merged_marker_id"].lower(), "0x000826")
+        self.assertNotIn("arrival_merged_marker_id", pair["surface"])
 
         mm_psc = (Path(PSC).parents[2] / "scripts" / "mapmarkers" / "FO4SF_MapMarkers.psc").read_text(encoding="utf-8")
         self.assertIn('Trace("prepare_all done count=" + total + " elapsed=" + elapsed)', mm_psc)
@@ -1885,28 +1935,19 @@ class Round16LiftAndRobustnessTests(G7AndG12eLiftOrderAndFadeTests):
         self.assertFalse(any("map setup queued by=ride_start" in t for t in env.traces))
         self.assertIn((0.15, 1), env.timers)
 
-    def test_i3b_and_i3c_single_load_merged_marker_one_move_and_black_loading_cover(self):
+    def test_i3b_and_j1_outside_footprint_two_load_landing_and_black_loading_cover(self):
         env = self._build_env()
         ns, player = env.ns, env.player
-        merged_marker = SimpleNamespace(
-            enables=[],
-            world=env.surface_world,
-            cell=env.core_cell,
-            pos=(-1275.5824 - 1200.0, 1296.0703 - 2700.0, 33.253544),
-            Enable=lambda *a: merged_marker.enables.append(a),
-            GetFormID=lambda: 0x05000826,
-        )
-        orig_gf = ns["Game"].GetFormFromFile
-        ns["Game"].GetFormFromFile = lambda fid, plg: merged_marker if (fid, plg) == (0x000826, "FO4SFNewGame.esm") else orig_gf(fid, plg)
-        ns["ArrivalMergedMarkerId"] = 0x000826
+        proc_cell = SimpleNamespace(GetFormID=lambda: 0x050009D5, __str__=lambda _: "ProcCell")
         ns["LiftFadeLead"] = 1.4
 
         def move_to_core(target, ox=0.0, oy=0.0, oz=0.0, *_):
-            if target is merged_marker:
+            player.moveto_calls.append((target, ox, oy, oz))
+            if target is env.exit_anchor:
                 player.interior = False
                 player.world = env.surface_world
-                player.cell = env.core_cell
-                player.pos = merged_marker.pos
+                player.cell = proc_cell
+                player.pos = target.pos
                 ns["MenuEvent"]("LoadingMenu", True)
                 ns["MenuEvent"]("LoadingMenu", False)
             elif target is env.vault_anchor:
@@ -1915,7 +1956,13 @@ class Round16LiftAndRobustnessTests(G7AndG12eLiftOrderAndFadeTests):
                 player.cell = env.vault_cell
                 player.pos = (-77.742, -3.958, -1.751 + ox * 0.0 + 0.2)
 
+        def setpos_core(x, y, z):
+            player.pos = (x, y, z)
+            if abs(x - (-1275.5824 - 1200.0)) < 25.0 and abs(y - (1296.0703 - 2700.0)) < 25.0:
+                player.cell = env.core_cell
+
         player.MoveTo = move_to_core
+        player.SetPosition = setpos_core
 
         self.assertTrue(ns["StartPairedLiftRide"](player, False))
         # I3(B): fade triggers at LiftSeconds - 1.4 (= 8.4667)
@@ -1925,17 +1972,66 @@ class Round16LiftAndRobustnessTests(G7AndG12eLiftOrderAndFadeTests):
         self.assertEqual(len(fade_logs), 1, env.traces)
         self.assertIn("fade_at=8.466", fade_logs[0])
 
-        # Complete ride up -> MoveTo merged_marker -> FinishSurface skips SetPosition within 5 m -> one_move set=False
+        # Complete ride up -> MoveTo ExitAnchorId strictly outside footprint (procedural cell) -> FinishSurface SetPositions into 0x03000CF0 under held black!
         env.now[0] += 1.4
         player.pos = (-77.742, -3.958, -1.751 + 21.6)
         ns["AnimEvent"](env.interior_lift, "Done")
         ns["CheckPairedLiftRide"](player)
+        self.assertIn("story landing loading menu opened", env.traces)
+        self.assertLess(env.traces.index("story landing loading menu opened"), len(env.traces))
         ns["FinishSurface"](player)
         self.assertTrue(ns["surfaceTriggeredLoad"])
-        self.assertEqual(ns["surfaceSets"], 0)
-        self.assertIn("surface one_move off=0.0 set=False cell=0x03000CF0", env.traces)
+        self.assertEqual(ns["surfaceSets"], 1)
+        self.assertTrue(any(t.startswith("surface moveto_target source=fo4_0009f272_div70 ") and "inside_footprint=False" in t for t in env.traces), env.traces)
+        self.assertTrue(any(t.startswith("place move=surface ") and "frame=raw inside_footprint=False" in t for t in env.traces), env.traces)
+        self.assertTrue(any("set=True cell=0x03000CF0" in t for t in env.traces), env.traces)
+        # Held fade stays black across the load and through SetPosition until CompleteLandingFadeIn lifts it
+        setpos_idx = [i for i, f in enumerate(env.fades) if f[0] is True]
+        fadein_idx = [i for i, f in enumerate(env.fades) if f[0] is False]
+        self.assertTrue(setpos_idx and fadein_idx and max(setpos_idx) < min(fadein_idx), env.fades)
         self.assertTrue(any("story_fade single_pass=true path=loading_close" in t for t in env.traces), env.traces)
         self.assertFalse(any("path=immediate" in t for t in env.traces), env.traces)
+
+        # J1: Second ascent AND ascent after save/load both MoveTo ExitAnchorId outside footprint; ExitAnchorId never moves
+        exit_anchor_start_pos = tuple(env.exit_anchor.pos)
+        ns["arrivalWorld"] = env.surface_world
+        disc_marker = Reference(env.vault_world, (0.0, 0.0, -10.0), form_id=0x0B000827)
+        disc_marker.AddToMap = lambda *_: None
+        disc_marker.IsMapMarkerVisible = lambda: True
+        disc_marker.CanFastTravelToMarker = lambda: True
+        ns["ArrivalDiscoveryId"] = 0x000827
+        ns["ArrivalDiscoveryPlugin"] = "FO4SFNewGame.esm"
+        orig_gf_disc = ns["Game"].GetFormFromFile
+        ns["Game"].GetFormFromFile = lambda fid, plg: disc_marker if (fid, plg) == (0x000827, "FO4SFNewGame.esm") else orig_gf_disc(fid, plg)
+        ns["PreAttachArrivalMarker"](player)
+        ns["RequestArrivalDiscovery"](player)
+        self.assertEqual(tuple(env.exit_anchor.pos), exit_anchor_start_pos)
+        player.interior = True
+        player.world = env.vault_world
+        player.cell = env.vault_cell
+        ns["Surface"](player)
+        self.assertEqual(player.moveto_calls[-1][0], env.exit_anchor)
+        self.assertFalse(ns["FO4SF_Placement"].IsInsideMergedFootprint(*env.exit_anchor.pos[:2]))
+        # Simulate save/load reset + 3rd ascent -> still MoveTo ExitAnchorId outside footprint
+        ns["RecoverPairedLiftOnLoad"](player)
+        player.interior = True
+        player.world = env.vault_world
+        player.cell = env.vault_cell
+        ns["Surface"](player)
+        self.assertEqual(player.moveto_calls[-1][0], env.exit_anchor)
+        self.assertFalse(ns["FO4SF_Placement"].IsInsideMergedFootprint(*env.exit_anchor.pos[:2]))
+
+        # J1 runtime guard refuses MoveTo into merged footprint
+        bad_anchor = Reference(env.surface_world, (-2467.78, -1406.92, 128.11), form_id=0x0B000999)
+        self.assertFalse(ns["FO4SF_Placement"].MovePlayerToExteriorAnchor(player, bad_anchor, "bad_test", "fo4sf_newgame", False))
+        self.assertTrue(any(t.startswith("place refused reason=inside_merged_footprint ") for t in env.traces), env.traces)
+
+        # J1: SetLoadingBlackCover honors h00SkipLoading
+        ns["h00SkipLoading"] = True
+        ns["loadingBlackCoverEnabled"] = False
+        ns["SetLoadingBlackCover"](True, "blocked_by_h00")
+        self.assertFalse(ns["IsLoadingBlackCoverEnabled"]())
+        ns["h00SkipLoading"] = False
 
         # Shared plain-black LoadingMenu cover flag usable for I7 death reload
         env.fades.clear()
@@ -2090,19 +2186,14 @@ class Round16LiftAndRobustnessTests(G7AndG12eLiftOrderAndFadeTests):
         ns["TimerEvent"](1)
         self.assertEqual(env.timers[-1], (5.0, 1))
 
-        # I4(f): 2nd ride up at stage 200 triggers silent RequestArrivalDiscovery
-        marker = Reference(env.surface_world, (-10.0 - 1200.0, -20.0 - 2700.0, 127.0), form_id=0x030A775B)
-        marker.AddToMap = lambda *_: None
-        marker.IsMapMarkerVisible = lambda: True
-        marker.CanFastTravelToMarker = lambda: True
-        ns["ArrivalDiscoveryId"] = 0x0A775B
-        orig_gf2 = ns["Game"].GetFormFromFile
-        ns["Game"].GetFormFromFile = lambda fid, plg: marker if (fid, plg) == (0x0A775B, "FO4TerrainCore.esm") else orig_gf2(fid, plg)
+        # J1: 2nd ride up at stage 200 skips scripted arrival discovery (FO4 previsible) and never moves ExitAnchorId
+        exit_before = tuple(env.exit_anchor.pos)
         ns["arrivalWorld"] = env.surface_world
         player.pos = (-1275.5824 - 1200.0, 1296.0703 - 2700.0, 33.253544)
         ns["surfaceMovedAt"] = env.now[0]
         ns["FinishSurface"](player)
-        self.assertTrue(any(t.startswith("arrival discovery silent=True method=add_to_map") for t in env.traces), env.traces)
+        self.assertIn("arrival discovery skipped reason=fo4_previsible", env.traces)
+        self.assertEqual(tuple(env.exit_anchor.pos), exit_before)
 
 
 if __name__ == "__main__":

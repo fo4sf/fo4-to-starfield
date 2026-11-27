@@ -51,9 +51,6 @@ Event OnTimer(int aiTimerID)
             return
         endif
         shown = true
-        if ngQuest == None || !ngQuest.ShouldSkipMenuDelay()
-            Utility.Wait(MenuDelay)
-        endif
         if GetStage() >= 20
             return
         endif
@@ -63,24 +60,8 @@ Event OnTimer(int aiTimerID)
         if ngQuest != None
             ngQuest.EnsureFadedInForChoice()
         endif
-        int button = StartMessage.Show()
-        Trace("start choice button=" + button)
-        if button == 0
-            Trace("use preset look: preset kept, creator skipped")
-            Done("use preset look")
-            return
-        endif
-        if ngQuest != None
-            ngQuest.PrepareBeforeCreator()
-        endif
-        ; registered before the menu opens so its close is not missed; the event sets stage 20 (Done). The quest's
-        ; LooksWait timer is the fallback when the event never comes
-        RegisterForMenuOpenCloseEvent(MenuName)
-        waiting = true
-        Trace("looks menu mode=" + RaceMenuMode)
-        TracePosition("before creator")
-        Game.ShowRaceMenu(None, RaceMenuMode)
-        Trace("looks returned stage=" + GetStage())
+        Trace("pod start choice=none rule=D-V111-10")
+        Done("pod start choice=none rule=D-V111-10")
         return
     endif
     StartTimer(1.0, 2)

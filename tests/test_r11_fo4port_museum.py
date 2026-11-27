@@ -776,6 +776,9 @@ class TestConfirmedLoadDoorAndDocs(unittest.TestCase):
             def ResetOnReload(self) -> None:
                 self.reset_calls += 1
 
+            def Enable(self, *_a) -> None:
+                pass
+
             def NotifyControllerComplete(self, ok: bool, reason: str) -> None:
                 self.completed_calls.append((bool(ok), str(reason)))
 
@@ -860,7 +863,38 @@ class TestConfirmedLoadDoorAndDocs(unittest.TestCase):
             "activeFallbackPlugin", "activeFallbackFormId", "activeDirection", "activeDoorTag",
             "lastReason", "registeredPlayer",
         }
+        def _is_inside_fp(x, y):
+            return (-4400.0 <= x <= 2000.0) and (-5900.0 <= y <= 500.0)
+        def _move_to_ext(pl, anc, what, log_name="fo4sf_loaddoor", hold_fade=True):
+            if pl is None or anc is None:
+                return False
+            if _is_inside_fp(anc.GetPositionX(), anc.GetPositionY()):
+                return False
+            anc.Enable(False)
+            pl.MoveTo(anc, 0.0, 0.0, 0.0, True, False)
+            return True
+        def _set_merged(pl, rx, ry, rz, hdg, mx, my, what, log_name="fo4sf_loaddoor"):
+            pl.SetPosition(rx + mx, ry + my, rz)
+            pl.SetAngle(0.0, 0.0, hdg)
+            return True
         ns = {
+            "Game": SimpleNamespace(
+                GetPlayer=lambda: player,
+                GetFormFromFile=lambda fid, plg: (
+                    anchor_75b if plg == "FO4TerrainCore.esm" and fid == 0x0A775B
+                    else (anchor_75c if plg == "FO4TerrainCore.esm" and fid == 0x0A775C else None)
+                ),
+                FadeOutGame=lambda *a: None,
+            ),
+            "Math": SimpleNamespace(Floor=lambda x: __import__("math").floor(x)),
+            "FO4SF_Placement": SimpleNamespace(
+                IsInsideMergedFootprint=_is_inside_fp,
+                IsCoreCellMatch=lambda ac, anc: ac is not None and anc is not None and (ac.GetFormID() // 16777216) == (anc.GetFormID() // 16777216),
+                MovePlayerToExteriorAnchor=_move_to_ext,
+                HoldPlainBlackFrame=lambda: None,
+                SetPlayerMergedPosition=_set_merged,
+                EndHeldTransferFade=lambda *_a: None,
+            ),
             "_PStr": _PStr,
             "ExitAnchorPlugin": "FO4TerrainCore.esm",
             "ExitAnchorId": 0x0A775B,
@@ -909,13 +943,6 @@ class TestConfirmedLoadDoorAndDocs(unittest.TestCase):
             "StartTimer": lambda sec, tid: started_timers.append((float(sec), int(tid))),
             "Utility": SimpleNamespace(GetCurrentRealTime=lambda: clock["rt"]),
             "Debug": SimpleNamespace(OpenUserLog=lambda _n: None, TraceUser=lambda _n, m: logs.append(str(m))),
-            "Game": SimpleNamespace(
-                GetPlayer=lambda: player,
-                GetFormFromFile=lambda fid, plg: (
-                    anchor_75b if plg == "FO4TerrainCore.esm" and fid == 0x0A775B
-                    else (anchor_75c if plg == "FO4TerrainCore.esm" and fid == 0x0A775C else None)
-                ),
-            ),
         }
 
         fn_re = re.compile(r"(?:^(?:[A-Za-z_]\w*\s+)?Function|Event)\s+([A-Za-z0-9_.]+)\s*\(([^)]*)\)\s*\r?\n(.*?)\r?\nEnd(?:Function|Event)", re.DOTALL | re.MULTILINE)

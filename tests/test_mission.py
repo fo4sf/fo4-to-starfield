@@ -1728,12 +1728,12 @@ def _translate_mission_psc(src_text, fn_names, global_vars):
                 line = re.sub(r'"([^"\\]*(?:\\.[^"\\]*)*)"', r'_PStr("\1")', line)
             line = re.sub(r"^int\s+(\w+)\s*=\s*(.+)", r"\1 = int(\2)", line)
             line = re.sub(
-                r"^(?:bool|float|string|Actor|ActorValue|Activator|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|Weapon|WorldSpace|FO4SF_\w+)\s+(\w+)\s*=",
+                r"^(?:bool|float|string|Actor|ActorValue|Activator|Form|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|Weapon|WorldSpace|FO4SF_\w+)\s+(\w+)\s*=",
                 r"\1 =",
                 line,
             )
             line = re.sub(
-                r"\s+as\s+(?:Actor|ActorValue|Activator|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|Weapon|WorldSpace|FO4SF_\w+)\b",
+                r"\s+as\s+(?:Actor|ActorValue|Activator|Form|Message|ObjectReference|Quest|GlobalVariable|Scene|ReferenceAlias|Weapon|WorldSpace|FO4SF_\w+)\b",
                 "",
                 line,
             )
@@ -2066,6 +2066,7 @@ class V2MissionTalkTests(unittest.TestCase):
             "TriggerS6RoomScene": lambda *_: None,
             "HandleS6RoomScenePhase": lambda *_: None,
             "HandleS6RoomSceneEnded": lambda *_: None,
+            "ResolveS6BasementGate": lambda *_: None,
             "TryOpenS6BasementGate": lambda *_: False,
             "SyncS5ExteriorDoors": lambda *_: None,
             "SyncS4StreetEncounter": lambda *_: None,
@@ -2587,6 +2588,7 @@ class A1dRealTalkTests(unittest.TestCase):
             "TriggerS6RoomScene": lambda *_: None,
             "HandleS6RoomScenePhase": lambda *_: None,
             "HandleS6RoomSceneEnded": lambda *_: None,
+            "ResolveS6BasementGate": lambda *_: None,
             "TryOpenS6BasementGate": lambda *_: False,
             "SyncS5ExteriorDoors": lambda *_: None,
             "SyncS4StreetEncounter": lambda *_: None,

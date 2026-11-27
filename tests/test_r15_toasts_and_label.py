@@ -391,16 +391,16 @@ class MakeQuestTranslateTests(unittest.TestCase):
     EXPECTED_QUEST_MAP = {
         "$MISSION": "QUEST",
         "$MISSIONS": "QUESTS",
-        "$MISSION COMPLETE": "QUEST COMPLETE",
+        "$MISSION COMPLETE": "QUEST COMPLETED",
         "$MISSION FAILED": "QUEST FAILED",
         "$MISSION REWARDS": "QUEST REWARDS",
         "$MISSION STATUS": "QUEST STATUS",
         "$MISSION UPDATED": "QUEST UPDATED",
-        "$MissionAdded": "ADDED TO QUEST LOG",
+        "$MissionAdded": "QUEST ADDED",
         "$MissionComplete": "QUEST COMPLETED",
         "$MissionFailed": "QUEST FAILED",
         "$MissionMenu": "QUEST LOG",
-        "$MissionNew": "NEW QUEST",
+        "$MissionNew": "QUEST ADDED",
         "$MissionUpdate": "QUEST UPDATED",
         "$Mission Data": "Quest Data",
         "$Mission Info": "Quest Info",
@@ -465,7 +465,7 @@ class MakeQuestTranslateTests(unittest.TestCase):
             rc3 = make_quest_translate.main(["--starfield-data", str(data_dir), "--out", str(job_stage), "--label", "JOB"])
             self.assertEqual(rc3, 0)
             job_text = (job_stage / "Data" / "Interface" / "Translate_en.txt").read_bytes()[2:].decode("utf-16-le")
-            self.assertIn("$MissionNew\tNEW JOB\r\n", job_text)
+            self.assertIn("$MissionNew\tJOB ADDED\r\n", job_text)
             self.assertIn("$MissionUpdate\tJOB UPDATED\r\n", job_text)
             self.assertIn("$MISSIONS\tJOBS\r\n", job_text)
             self.assertIn("$Quest\tJob\r\n", job_text)
@@ -553,8 +553,12 @@ class HudQuestLabelHeaderTests(unittest.TestCase):
             self.assertIn(token, src)
         self.assertNotIn("Out of Time", src.split("RewriteMissionHudLabel", 1)[1])
         self.assertIn("VerifyTranslateEnFile(", main_src)
+        self.assertIn("ApplyQuestLabelRuntime(", main_src)
+        self.assertIn("LiveTranslatorBucket", main_src)
         self.assertIn("ProbeQuestLabelRuntime(", main_src)
         self.assertIn("BSScaleformManager", main_src)
+        self.assertIn("step=hud_quest_label_patch", main_src)
+        self.assertIn("step=hud_quest_label_key", main_src)
         self.assertIn("step=hud_quest_label_runtime", main_src)
 
 

@@ -129,6 +129,7 @@ DROPPED_MISSION_ESMS = frozenset({
 })
 
 DROPPED_SLICE_PEX = frozenset({
+    "data/scripts/fo4sf_placement.pex",
     "data/scripts/fo4sf_newgamequest.pex",
     "data/scripts/fo4sf_newgamelooks.pex",
     "data/scripts/fo4sf_newgamespecial.pex",
@@ -2697,6 +2698,17 @@ def fold_bundle(
         joined_miss = ", ".join(f"{p}->{m}" for p, m in missing_masters)
         raise BundleRefused(f"bundle plugins missing required masters: {joined_miss}")
     plugins = [ln.lstrip("*") for ln in ordered_lines if ln.lstrip("*").casefold() != "fo4port.esm"]
+
+    # J8: Regenerate P3-clean console batch files in partial/bat from finalized plugin load order & Starfield base masters.
+    if mission_stage_dir and os.path.isdir(os.path.join(os.path.abspath(mission_stage_dir), "bat")):
+        import make_mission  # noqa: E402
+        make_mission.write_r12_h2_batches(
+            os.path.join(partial, "bat"),
+            plugins=plugins,
+            data_dir=os.path.join(starfield_dir, "Data") if starfield_dir else None,
+            bundle_dir=partial,
+            port_esm=port_esm,
+        )
 
     Path(os.path.join(partial, "README.txt")).write_text(
         bundle_readme(clean_readme, plugins, ordered_keys),

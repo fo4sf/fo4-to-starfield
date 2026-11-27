@@ -134,6 +134,7 @@ static class NewGame
                         VaultAmmoRefEdid = "FO4SF_Vault111AmmoRef",
                         Vault10mmWeapEdid = "FO4SF_Vault111_10mm",
                         ArrivalMergedMarkerRefEdid = "FO4SF_ArrivalMergedMarkerRef",
+                        ArrivalDiscoveryMarkerRefEdid = "FO4SF_ArrivalDiscoveryMarkerRef",
                         DiscoverSecretAreaXpGmstEdid = "iXPRewardDiscoverSecretArea";
     public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the overrides keep Starfield's ids
     public const uint ModePickMsgId = 0x806,
@@ -157,12 +158,13 @@ static class NewGame
                       StoryLineMsgId = 0x81E,
                       ExitNeedSpecialMsgId = 0x81F;
     public const uint VaultPistolRefId = 0x820, VaultAmmoRefId = 0x821, Vault10mmWeapId = 0x822;
-    public const uint ArrivalMergedMarkerRefId = 0x826;
+    public const uint ArrivalMergedMarkerRefId = 0x826;   // Retired in Round 17 J1 (deadlock); never reuse
+    public const uint ArrivalDiscoveryMarkerRefId = 0x827; // Dedicated silent Vault 111 MapMarker (separate from ExitAnchorId)
     public const uint Vault10mmAmmoCapacity = 12u;
     public const float Vault10mmAttackDamage = 18.0f;
     // Retired local FormIDs in FO4SFNewGame.esm: never reused so older saves or external checks never alias new records onto retired forms.
-    // 0x80C = former FO4SF_PipboyAcquired; 0x810..0x816 = former SPECIAL AVIFs; 0x824 = former FO4SF_PipboyWristScreenAA (retired in I2(c)); 0x825 = former FO4SF_PipboyScreenSource (now FO4SFCoreValues.esm:0x000868).
-    public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x824, 0x825 };
+    // 0x80C = former FO4SF_PipboyAcquired; 0x810..0x816 = former SPECIAL AVIFs; 0x824 = former FO4SF_PipboyWristScreenAA (retired in I2(c)); 0x825 = former FO4SF_PipboyScreenSource (now FO4SFCoreValues.esm:0x000868); 0x826 = former FO4SF_ArrivalMergedMarkerRef (retired in Round 17 J1).
+    public static readonly uint[] ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x824, 0x825, 0x826 };
     public const int MaxMessageButtons = 7;
     public const int BackdropNone = 0, BackdropEmptyCell = 1, BackdropTitleCard = 2, BackdropSetupMenu = 3, DefaultStartChoiceBackdrop = BackdropEmptyCell;
     public const uint SfChronomarkArmorId = 0x0D4893, SfFallbackJumpsuitId = 0x01D1D7, SfCompactActiTemplateId = 0x143492, SfConsoleActiTemplateId = 0x1CCAC2, SfMapMarkerStaticId = 0x000010,
@@ -751,8 +753,7 @@ static class NewGame
         string SurfaceLiftAscendClip,
         float SurfaceLiftAscendSeconds,
         float SurfaceLiftAscendRise,
-        int CoreStaticSurfaceLiftBaseId,
-        int ArrivalMergedMarkerId);
+        int CoreStaticSurfaceLiftBaseId);
 
     public record LiftPairConfig(
         string ActivePairId,
@@ -807,8 +808,7 @@ static class NewGame
                 surf.GetProperty("ascend_reset_clip").GetString() ?? throw new Refusal($"pair {id} missing surface.ascend_reset_clip"),
                 surf.GetProperty("ascend_reset_duration_s").GetSingle(),
                 surf.GetProperty("ascend_rise_m").GetSingle(),
-                (int)ParseHex(surf.GetProperty("core_static_base_id").GetString() ?? throw new Refusal($"pair {id} missing surface.core_static_base_id")),
-                (int)ParseHex(surf.GetProperty("arrival_merged_marker_id").GetString() ?? throw new Refusal($"pair {id} missing surface.arrival_merged_marker_id"))));
+                (int)ParseHex(surf.GetProperty("core_static_base_id").GetString() ?? throw new Refusal($"pair {id} missing surface.core_static_base_id"))));
         }
         if (entries.Count == 0)
             throw new Refusal($"lift_pairs.json has no available lift pairs: {path}");
@@ -1168,17 +1168,22 @@ static class NewGame
         }
     }
 
+    public static bool IsInsideMergedFootprint(float x, float y) =>
+        x >= -4400f && x <= 2000f && y >= -5900f && y <= 500f;
+
+    public static (int GridX, int GridY) CoreGridFromMerged(float mergedX, float mergedY) =>
+        ((int)MathF.Floor((mergedX - MergeX) / 100f), (int)MathF.Floor((mergedY - MergeY) / 100f));
+
     static void WritePlugin(SF.StarfieldMod mod, string path)
     {
         var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
         masters.Set(new KeyedMasterStyle(SfEsm, MasterStyle.Full));
         masters.Set(new KeyedMasterStyle(PortEsm, MasterStyle.Full));
         masters.Set(new KeyedMasterStyle(CoreValuesEsm, MasterStyle.Full));
-        masters.Set(new KeyedMasterStyle(CoreEsm, MasterStyle.Full));
         ((IModGetter)mod).WriteToBinary(path, new BinaryWriteParameters
         {
             ModKey = ModKeyOption.NoCheck,
-            MastersListOrdering = new MastersListOrderingByLoadOrder(new[] { SfEsm, PortEsm, CoreValuesEsm, CoreEsm }),
+            MastersListOrdering = new MastersListOrderingByLoadOrder(new[] { SfEsm, PortEsm, CoreValuesEsm }),
             MasterFlagsLookup = masters,
         });
     }
@@ -1658,6 +1663,8 @@ static class NewGame
         if (exits.Count != 1) throw new Refusal($"{World} has {exits.Count} references {exitAnchor}, not one");
         Owned(exits[0], core.ModKey, "the exit anchor");
         if (!IsPersistent(exits[0])) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
+        if (IsInsideMergedFootprint(exits[0].Position.X, exits[0].Position.Y))
+            throw new Refusal($"{exitAnchor} ({exits[0].FormKey}) raw DATA {Show(exits[0].Position)} lies inside the merged footprint [-4400..2000, -5900..500] and would self-deadlock BGSPlanet::Manager");
         var coreMarkers = all.OfType<SF.IPlacedObjectGetter>()
             .Where(r => r.FormKey.ModKey == core.ModKey && IsPersistent(r) &&
                         (r.Base.FormKey == new FormKey(SfEsm, SfMapMarkerStaticId) ||
@@ -1798,9 +1805,9 @@ static class NewGame
             ("SurfaceLiftAscendSeconds", pairs.Select(x => x.SurfaceLiftAscendSeconds).ToArray()),
             ("SurfaceLiftAscendRise", pairs.Select(x => x.SurfaceLiftAscendRise).ToArray()),
             ("SurfaceCoreStaticBaseIds", pairs.Select(x => x.CoreStaticSurfaceLiftBaseId).ToArray()),
-            ("ArrivalMergedMarkerId", active.ArrivalMergedMarkerId),
             ("ExitAnchorId", (int)p.ExitAnchor), ("ArrivalX", arr[0]), ("ArrivalY", arr[1]), ("ArrivalZ", arr[2]),
-            ("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)p.ExitAnchor : 0),
+            ("ArrivalDiscoveryId", o.ExitAnchor == ExitAnchorEdid ? (int)ArrivalDiscoveryMarkerRefId : 0),
+            ("ArrivalDiscoveryPlugin", Plugin),
             ("ArrivalHeading", pts.GetProperty("arrival").GetProperty("heading").GetSingle()),
             ("FallbackX", p.ExitPos.X), ("FallbackY", p.ExitPos.Y), ("FallbackZ", p.ExitPos.Z),
             ("MergeOffsetX", MergeX), ("MergeOffsetY", MergeY), ("LooksWait", o.Looks ? 120f : 0f),
@@ -2148,6 +2155,22 @@ static class NewGame
         startRoomMarkerRef.MajorRecordFlagsRaw |= 0x400;
         startRoomCell.Persistent.Add(startRoomMarkerRef);
 
+        var arrivalDiscoveryRef = new SF.PlacedObject(new FormKey(modKey, ArrivalDiscoveryMarkerRefId), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = ArrivalDiscoveryMarkerRefEdid,
+            Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, SfMapMarkerStaticId)),
+            Position = new P3Float(0f, 0f, -10f),
+            Rotation = new P3Float(0f, 0f, 0f),
+            MapMarker = new SF.PlacedObjectMapMarker
+            {
+                Flags = (SF.PlacedObjectMapMarker.Flag)0x12,
+                Name = "Vault 111",
+                Type = 16,
+            },
+        };
+        arrivalDiscoveryRef.MajorRecordFlagsRaw |= 0x400 | 0x800; // Persistent | InitiallyDisabled
+        startRoomCell.Persistent.Add(arrivalDiscoveryRef);
+
         if (places.CellBlockNum == 0 && places.CellSubBlockNum == 0)
         {
             cSub.Cells.Add(startRoomCell);
@@ -2164,53 +2187,6 @@ static class NewGame
             sBlock.SubBlocks.Add(sSub);
             mod.Cells.Records.Add(sBlock);
         }
-
-        // I3(C): Persistent heading marker in FO4Core_Commonwealth.TopCell.Persistent at the merged arrival point
-        // (ArrivalX + MergeX, ArrivalY + MergeY, ArrivalZ) with heading ArrivalHeading inside the core's arrival exterior cell.
-        var arrCoords = Floats(pts.GetProperty("arrival").GetProperty("pos"));
-        float arrHeadingDeg = pts.GetProperty("arrival").GetProperty("heading").GetSingle();
-        float arrHeadingRad = arrHeadingDeg * MathF.PI / 180f;
-        var mergedArrPos = new P3Float(arrCoords[0] + MergeX, arrCoords[1] + MergeY, arrCoords[2]);
-        var lpWrite = LoadLiftPairConfig(o.LiftPairsJson, gs.GameId);
-        uint arrivalMergedMarkerId = (uint)lpWrite.Active.ArrivalMergedMarkerId;
-        if (arrivalMergedMarkerId != ArrivalMergedMarkerRefId)
-            throw new Refusal($"lift_pairs.json surface.arrival_merged_marker_id 0x{arrivalMergedMarkerId:X} != expected 0x{ArrivalMergedMarkerRefId:X}");
-        using var coreForMarker = SF.StarfieldMod.CreateFromBinaryOverlay(corePath, SF.StarfieldRelease.Starfield, Full(SfEsm));
-        Owner(coreForMarker.ModKey, CorePluginFile, "the core");
-        var coreWorld = coreForMarker.Worldspaces.FirstOrDefault(w => w.EditorID == World && w.FormKey.ModKey == coreForMarker.ModKey)
-                        ?? throw new Refusal($"{coreForMarker.ModKey} has no worldspace {World}");
-        var coreTopCell = coreWorld.TopCell ?? throw new Refusal($"{coreForMarker.ModKey} {World} has no TopCell");
-        int arrGridX = (int)MathF.Floor(mergedArrPos.X / 100f);
-        int arrGridY = (int)MathF.Floor(mergedArrPos.Y / 100f);
-        var coreArrCell = coreWorld.SubCells.SelectMany(b => b.Items).SelectMany(s => s.Items)
-            .FirstOrDefault(c => c.Grid is { } g && g.Point.X == arrGridX && g.Point.Y == arrGridY)
-            ?? throw new Refusal($"{coreForMarker.ModKey} {World} lacks exterior cell ({arrGridX}, {arrGridY}) for merged arrival {Show(mergedArrPos)}");
-        var worldOver = (SF.Worldspace)coreWorld.DeepCopy(new SF.Worldspace.TranslationMask(defaultOn: true)
-        {
-            SubCells = new SF.WorldspaceBlock.TranslationMask(defaultOn: false, onOverall: false),
-            TopCell = new SF.Cell.TranslationMask(defaultOn: false, onOverall: false),
-        });
-        worldOver.SubCells.Clear();
-        var topOver = (SF.Cell)coreTopCell.DeepCopy(new SF.Cell.TranslationMask(defaultOn: true)
-        {
-            Persistent = false,
-            Temporary = false,
-            NavigationMeshes = new SF.NavigationMesh.TranslationMask(defaultOn: false, onOverall: false),
-        });
-        topOver.Persistent.Clear();
-        topOver.Temporary.Clear();
-        topOver.NavigationMeshes.Clear();
-        var arrivalMergedMarkerRef = new SF.PlacedObject(new FormKey(modKey, arrivalMergedMarkerId), SF.StarfieldRelease.Starfield)
-        {
-            EditorID = ArrivalMergedMarkerRefEdid,
-            Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, CocMarkerId)),
-            Position = mergedArrPos,
-            Rotation = new P3Float(0f, 0f, arrHeadingRad),
-        };
-        arrivalMergedMarkerRef.MajorRecordFlagsRaw |= 0x400;
-        topOver.Persistent.Add(arrivalMergedMarkerRef);
-        worldOver.TopCell = topOver;
-        mod.Worldspaces.Add(worldOver);
 
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
         {
@@ -2438,7 +2414,7 @@ static class NewGame
         var sp = LoadStartPlaces(o.StartPlacesJson, pts, places, wf, portPath, corePath);
         uint routeLootPistolId = LoadVaultPistolId(o.RouteLootJson, sf);
         var routeLootRefIds = LoadRouteLootRefIds(o.RouteLootJson, corePath, places.ExitPos);
-        using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm, PortEsm, CoreValuesEsm, CoreEsm));
+        using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm, PortEsm, CoreValuesEsm));
         var key = plug.ModKey;
         var vpBind = ResolveVaultPistolBinding(sf, key, gs, o, Path.GetDirectoryName(Path.GetFullPath(pluginPath)) ?? ".", routeLootPistolId);
         uint vaultPistolId = vpBind.VaultPistolIdProp;
@@ -2449,7 +2425,7 @@ static class NewGame
                           $"{plug.Cells.Records.Count} CELL, {plug.Worldspaces.Count} WRLD, {plug.ActorValueInformation.Count} AVIF, " +
                           $"{plug.DefaultObjects.Count} DFOB, {plug.Quests.Sum(q => q.Aliases?.Count ?? 0)} alias(es)");
         Need(plug.ModHeader.Flags.HasFlag(SF.StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
-        Need(masters.SequenceEqual(new[] { "Starfield.esm", PortPlugin, CoreValuesPlugin, CorePluginFile }), $"masters [{string.Join(", ", masters)}] are not [Starfield.esm, {PortPlugin}, {CoreValuesPlugin}, {CorePluginFile}]");
+        Need(masters.SequenceEqual(new[] { "Starfield.esm", PortPlugin, CoreValuesPlugin }), $"masters [{string.Join(", ", masters)}] are not [Starfield.esm, {PortPlugin}, {CoreValuesPlugin}]");
         Need(plug.Npcs.Count == 0, "the plugin carries NPC_ records");
         Need(plug.ActorValueInformation.Count == 0, "the plugin carries AVIF records (S.P.E.C.I.A.L. AVIFs live in FO4SFCoreValues.esm)");
         var reservedSet = ReservedFormIds.ToHashSet();
@@ -2520,38 +2496,17 @@ static class NewGame
                  MathF.Abs(ammoRef.Position.Z - 0.696f) <= 1e-3f,
                  $"CELL override lacks persistent {VaultAmmoRefEdid} (0x{vpBind.AmmoRefId:X}) -> {vpBind.PlacedAmmoBaseKey} count {VaultAmmoCount}");
         }
+        var arrivalDiscoveryMarkerRef = startRoomCell?.Persistent.OfType<SF.IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == new FormKey(key, ArrivalDiscoveryMarkerRefId));
         Need(startRoomCell is { EditorID: StartRoomCellEdid } && (startRoomCell.Flags & SF.Cell.Flag.IsInteriorCell) != 0 &&
-             startRoomCell.Temporary.Count == 0 && startRoomCell.Persistent.Count == 1 &&
+             startRoomCell.Temporary.Count == 0 && startRoomCell.Persistent.Count == 2 &&
              startRoomMarkerRef is { EditorID: StartRoomMarkerRefEdid } && IsPersistent(startRoomMarkerRef) &&
-             startRoomMarkerRef.Base.FormKey == new FormKey(SfEsm, CocMarkerId),
-             $"CELL 0x{StartRoomCellId:X} is not interior {StartRoomCellEdid} carrying persistent {StartRoomMarkerRefEdid} (0x{StartRoomMarkerRefId:X})");
-        using var coreCheck = SF.StarfieldMod.CreateFromBinaryOverlay(corePath, SF.StarfieldRelease.Starfield, Full(SfEsm));
-        var coreCheckWorld = coreCheck.Worldspaces.FirstOrDefault(w => w.EditorID == World && w.FormKey.ModKey == coreCheck.ModKey);
-        var arrPts = Floats(pts.GetProperty("arrival").GetProperty("pos"));
-        float arrHdgRad = pts.GetProperty("arrival").GetProperty("heading").GetSingle() * MathF.PI / 180f;
-        var wantArrMerged = new P3Float(arrPts[0] + MergeX, arrPts[1] + MergeY, arrPts[2]);
-        int wantGridX = (int)MathF.Floor(wantArrMerged.X / 100f);
-        int wantGridY = (int)MathF.Floor(wantArrMerged.Y / 100f);
-        var coreCheckArrCell = coreCheckWorld?.SubCells.SelectMany(b => b.Items).SelectMany(s => s.Items)
-            .FirstOrDefault(c => c.Grid is { } g && g.Point.X == wantGridX && g.Point.Y == wantGridY);
-        var wOverCheck = plug.Worldspaces.FirstOrDefault();
-        var arrMarkerRef = wOverCheck?.TopCell?.Persistent.OfType<SF.IPlacedObjectGetter>()
-            .FirstOrDefault(r => r.FormKey == new FormKey(key, ArrivalMergedMarkerRefId));
-        float arrMarkerDist = arrMarkerRef is null ? float.PositiveInfinity : MathF.Sqrt(
-            MathF.Pow(arrMarkerRef.Position.X - wantArrMerged.X, 2) +
-            MathF.Pow(arrMarkerRef.Position.Y - wantArrMerged.Y, 2) +
-            MathF.Pow(arrMarkerRef.Position.Z - wantArrMerged.Z, 2));
-        bool arrMarkerInCell = arrMarkerRef is not null && coreCheckArrCell is not null &&
-            (int)MathF.Floor(arrMarkerRef.Position.X / 100f) == coreCheckArrCell.Grid!.Point.X &&
-            (int)MathF.Floor(arrMarkerRef.Position.Y / 100f) == coreCheckArrCell.Grid.Point.Y;
-        Need(plug.Worldspaces.Count == 1 && wOverCheck is not null && coreCheckWorld is not null &&
-             wOverCheck.FormKey == coreCheckWorld.FormKey && wOverCheck.SubCells.Count == 0 &&
-             wOverCheck.TopCell is not null && wOverCheck.TopCell.Temporary.Count == 0 && wOverCheck.TopCell.Persistent.Count == 1 &&
-             arrMarkerRef is { EditorID: ArrivalMergedMarkerRefEdid } && IsPersistent(arrMarkerRef) &&
-             arrMarkerRef.Base.FormKey == new FormKey(SfEsm, CocMarkerId) &&
-             arrMarkerDist <= 0.1f && arrMarkerInCell &&
-             MathF.Abs(arrMarkerRef.Rotation.Z - arrHdgRad) <= 1e-3f,
-             $"WRLD {World} TopCell does not carry persistent {ArrivalMergedMarkerRefEdid} (0x{ArrivalMergedMarkerRefId:X}) within 0.1m of {Show(wantArrMerged)} in arrival cell {coreCheckArrCell?.FormKey}");
+             startRoomMarkerRef.Base.FormKey == new FormKey(SfEsm, CocMarkerId) &&
+             arrivalDiscoveryMarkerRef is { EditorID: ArrivalDiscoveryMarkerRefEdid } && IsPersistent(arrivalDiscoveryMarkerRef) &&
+             arrivalDiscoveryMarkerRef.Base.FormKey == new FormKey(SfEsm, SfMapMarkerStaticId) &&
+             arrivalDiscoveryMarkerRef.MapMarker?.Name?.String == "Vault 111",
+             $"CELL 0x{StartRoomCellId:X} is not interior {StartRoomCellEdid} carrying persistent {StartRoomMarkerRefEdid} (0x{StartRoomMarkerRefId:X}) and {ArrivalDiscoveryMarkerRefEdid} (0x{ArrivalDiscoveryMarkerRefId:X})");
+        Need(plug.Worldspaces.Count == 0, $"plug.Worldspaces.Count={plug.Worldspaces.Count}, expected 0 (0x{ArrivalMergedMarkerRefId:X} retired in J1)");
+        Need(!IsInsideMergedFootprint(places.ExitPos.X, places.ExitPos.Y), $"ExitAnchor (0x{places.ExitAnchor:X}) at {Show(places.ExitPos)} lies inside the merged footprint");
         Console.WriteLine($"  gear door console ACTI {GearDoorConsoleActiEdid} {gearConsoleActi?.FormKey} -> REFR {GearDoorConsoleRefEdid} {gearConsoleRef?.FormKey} persistent at {Show(wantConPos)} (port ref FO4Port.esm:{places.Console:X6})");
 
         foreach (var anyMsg in plug.Messages)
@@ -3509,9 +3464,9 @@ static class NewGame
             ("iXPRewardDiscoverSecretArea GMST removed", m => m.GameSettings.Clear()),
             ("iXPRewardDiscoverSecretArea GMST nonzero", m => ((SF.GameSettingInt)m.GameSettings.First(g => g.EditorID == DiscoverSecretAreaXpGmstEdid)).Data = 40),
             ("ConsoleRefId changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "ConsoleRefId")).Data = 0x999),
-            ("arrival merged marker removed", m => m.Worldspaces.First().TopCell!.Persistent.Clear()),
-            ("arrival merged marker made temporary", m => { var r = (SF.PlacedObject)m.Worldspaces.First().TopCell!.Persistent.First(); r.MajorRecordFlagsRaw &= ~0x400; }),
-            ("arrival merged marker moved out of arrival cell", m => { var r = (SF.PlacedObject)m.Worldspaces.First().TopCell!.Persistent.First(); r.Position = new P3Float(r.Position.X, r.Position.Y + 50f, r.Position.Z); }),
+            ("retired FormID 0x826 reused", m => m.Globals.Add(new SF.Global(new FormKey(m.ModKey, ArrivalMergedMarkerRefId), rel) { EditorID = "FO4SF_Retired826" })),
+            ("arrival discovery marker removed", m => { var c = m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First(x => x.FormKey.ID == StartRoomCellId); c.Persistent.Remove(c.Persistent.First(x => x.FormKey.ID == ArrivalDiscoveryMarkerRefId)); }),
+            ("WRLD override re-added", m => m.Worldspaces.Add(new SF.Worldspace(new FormKey(m.ModKey, 0x828), rel) { EditorID = World })),
         };
         foreach (var (name, edit) in mutations)
         {
@@ -3820,7 +3775,9 @@ static class NewGame
                 lpProps.TryGetValue("LiftSeconds", out var ls) && ls is SF.IScriptFloatPropertyGetter lsF && MathF.Abs(lsF.Data - 12.5f) < 1e-4f &&
                 lpProps.TryGetValue("LiftResetSeconds", out var lrs) && lrs is SF.IScriptFloatPropertyGetter lrsF && MathF.Abs(lrsF.Data - 24.5f) < 1e-4f &&
                 lpProps.TryGetValue("LiftResetMotionSeconds", out var lrms) && lrms is SF.IScriptFloatPropertyGetter lrmsF && MathF.Abs(lrmsF.Data - 10.4f) < 1e-4f &&
-                lpProps.TryGetValue("ArrivalMergedMarkerId", out var amm) && amm is SF.IScriptIntPropertyGetter ammI && ammI.Data == (int)ArrivalMergedMarkerRefId &&
+                lpProps.TryGetValue("ArrivalDiscoveryPlugin", out var adp) && adp is SF.IScriptStringPropertyGetter adpS && adpS.Data == Plugin &&
+                !lpProps.ContainsKey("ArrivalMergedMarkerId") &&
+                CoreGridFromMerged(-2475.31f, -1394.72f) == (-13, 13) &&
                 lpProps.TryGetValue("LiftPlayEvent", out var lpe) && lpe is SF.IScriptStringPropertyGetter lpeS && lpeS.Data == "PlayAlt01" &&
                 lpProps.TryGetValue("LiftResetEvent", out var lre) && lre is SF.IScriptStringPropertyGetter lreS && lreS.Data == "PlayAlt02" &&
                 lpProps.TryGetValue("LiftFadeLead", out var lfl) && lfl is SF.IScriptFloatPropertyGetter lflF && MathF.Abs(lflF.Data - 1.75f) < 1e-4f &&
@@ -3829,6 +3786,17 @@ static class NewGame
                 lpProps.TryGetValue("SurfaceLiftAscendRise", out var slar) && slar is SF.IScriptFloatListPropertyGetter slarL && slarL.Data.Count == 1 && MathF.Abs(slarL.Data[0] - 27.5f) < 1e-4f;
             if (!lpOk) { Console.WriteLine("FAIL  modified lift_pairs.json did not propagate into built VMAD"); return 1; }
             Console.WriteLine("verified: modified lift_pairs.json propagates into built VMAD and missing configs refuse");
+
+            // J1: ExitAnchor placed inside merged footprint [-4400..2000] x [-5900..500] must refuse at build time
+            var badCoreMod = SF.StarfieldMod.CreateFromBinary(corePath, rel, Full(SfEsm));
+            var badAnchor = badCoreMod.Worldspaces.First(w => w.EditorID == World).TopCell!.Persistent.OfType<SF.PlacedObject>().First(r => r.FormKey.ID == 0xA775B);
+            badAnchor.Position = new P3Float(-1275.3f, -1305.3f, 108.2f);
+            var badCoreDir = Path.Combine(dir, "bad_core_fp");
+            Directory.CreateDirectory(badCoreDir);
+            var badCorePath = Path.Combine(badCoreDir, CoreEsm.FileName);
+            badCoreMod.BeginWrite.ToPath(badCorePath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+            try { Write(sfPath, portPath, idsPath, badCorePath, pointsPath, Path.Combine(outDir, "refused_j1_fp"), plain); Console.WriteLine("FAIL  write accepted ExitAnchor inside merged footprint"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (ExitAnchor inside merged footprint): {e.Message}"); }
 
             // I1: Verify PodOrigin/PodSeat/pod_anim VMAD propagation from points.pod.at + game_start_config.json
             bool podOk =

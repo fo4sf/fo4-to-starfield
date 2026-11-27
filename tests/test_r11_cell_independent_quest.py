@@ -346,6 +346,9 @@ class _FakeMarker:
     def IsDisabled(self) -> bool:
         return not self.enabled
 
+    def GetLinkedRef(self, _kw=None):
+        return self.linked_ref
+
     def SetAngle(self, *_args) -> None:
         pass
 
@@ -799,7 +802,8 @@ def _build_min00_harness(
         "prestonPostSceneActive", "prestonTalkBoxOpen", "prestonFallbackActive", "prestonTalkLogged",
         "prestonUsedFallback", "talkActivated", "talkStartedAt", "talkFailures",
         "s4BalconySetup", "s4BalconyActive", "s4PrestonArmed", "s4StreetCleared", "s4MusketTaken", "s4FusionCellsPlaced",
-        "s5MuseumInitialized", "s5MuseumCleared", "s5MuseumRaidersDead", "s5RaiderEngageTicks", "s6BasementUnlockedPending",
+        "s5MuseumInitialized", "s5MuseumCleared", "s5MuseumRaidersDead", "s5RaiderEngageTicks",
+        "s6BasementUnlockedPending", "s6BasementGateOpening", "s6FusionCorePickedPending",
         "min00Given", "pendingStage", "pendingStageBy",
         "s6RoomEventsRegistered", "s6RoomScenePending", "s6RoomSceneMenuOpened",
         "s6RoomSceneRestarting", "s6RoomScenePhase1", "s6RoomPhase1At", "s6RoomAttemptStartedAt", "s6RoomSceneRetries",
@@ -917,6 +921,8 @@ def _build_min00_harness(
         "pendingStage": -1,
         "pendingStageBy": "other",
         "s6BasementUnlockedPending": False,
+        "s6BasementGateOpening": False,
+        "s6FusionCorePickedPending": False,
         "s6RoomEventsRegistered": False,
         "s6RoomScenePending": False,
         "s6RoomSceneMenuOpened": False,
@@ -974,6 +980,7 @@ def _build_min00_harness(
         "StartTimer": lambda sec, tid: timers.append((float(sec), int(tid))),
         "CancelTimer": lambda _tid: None,
         "RegisterForRemoteEvent": lambda *_a: None,
+        "UnregisterForRemoteEvent": lambda *_a: None,
         "ShouldUseMessageBox": lambda: bool(use_msgbox),
         "CompleteQuest": lambda: quest_state.__setitem__("completed", True),
         "IsCommonwealthExterior": lambda p: p is not None and not p.IsInInterior(),
@@ -1024,6 +1031,9 @@ def _build_min00_harness(
             "InitializeS5MuseumEncounter",
             "UpdateS5MuseumEncounter",
             "PlayerHasBobbyPin",
+            "PlayerHasFusionCore",
+            "ResolveS6BasementGate",
+            "RecordS6BasementGateUnlocked",
             "TryOpenS6BasementGate",
             "TriggerS6RoomScene",
             "HandleS6RoomSceneEnded",
@@ -1267,9 +1277,8 @@ class TestR11S6AndS9FullWiring(unittest.TestCase):
             enable_s4=True, enable_s6_s9=True,
             cap_id=0x000903, cell_id=0x000902, with_forms=True,
         )
-        # S6 out-of-order guard
+        # S6 out-of-order guard: gate stage 45 waits for Preston talk; J6 Fusion Core pickup sets pending if picked before stage 45
         self.assertFalse(mh.ns["AdvanceS6BasementGateOpened"]())
-        self.assertFalse(mh.ns["AdvanceS6FusionCorePicked"]())
         self.assertTrue(mh.ns["AdvanceS6PrestonGroupTalk"]())
         self.assertTrue(mh.ns["AdvanceS6BasementGateOpened"]())
         self.assertTrue(mh.ns["AdvanceS6FusionCorePicked"]())
@@ -2022,8 +2031,8 @@ class TestR12S2S3S5S6Missions(unittest.TestCase):
         self.assertTrue(mh.ns["TryOpenS6BasementGate"]("bobby_pin"))
         self.assertFalse(basement_gate.locked)
         self.assertFalse(basement_gate.activation_blocked)
-        self.assertTrue(basement_gate.opened)
-        self.assertIn("basement_gate_unlock=bobby_pin", mh.logs)
+        self.assertFalse(basement_gate.opened)
+        self.assertIn("s6 basement_gate unlocked reason=lockpick", mh.logs)
         self.assertTrue(mh.ns["AdvanceS6FusionCorePicked"]())
         self.assertEqual(mh.stages, [35, 40, 45, 50])
         self.assertIn(95, mh.obj_disp)
@@ -2038,8 +2047,8 @@ class TestR12S2S3S5S6Missions(unittest.TestCase):
         self.assertTrue(mh_term.ns["TryOpenS6BasementGate"]("terminal"))
         self.assertFalse(term_gate.locked)
         self.assertFalse(term_gate.activation_blocked)
-        self.assertTrue(term_gate.opened)
-        self.assertIn("basement_gate_unlock=terminal", mh_term.logs)
+        self.assertFalse(term_gate.opened)
+        self.assertIn("s6 basement_gate unlocked reason=terminal", mh_term.logs)
 
     def test_799_async_dialogue_open_and_close_races_s3_stage50_and_s6(self):
         # 1. Codsworth S3Stage50Scene: (a) Attempt 2 DialogueMenu Open must NOT clear s3Stage50Restarting before

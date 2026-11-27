@@ -198,13 +198,19 @@ class ArchiveTranslatePackingAndGuardTests(unittest.TestCase):
                 if "\t" in ln
             )
             self.assertEqual(kv.get("$MISSION STATUS"), "QUEST STATUS")
-            self.assertEqual(kv.get("$MissionNew"), "NEW QUEST")
+            self.assertEqual(kv.get("$MissionNew"), "QUEST ADDED")
+            self.assertEqual(kv.get("$MissionUpdate"), "QUEST UPDATED")
+            self.assertEqual(kv.get("$MISSION UPDATED"), "QUEST UPDATED")
+            self.assertEqual(kv.get("$MissionComplete"), "QUEST COMPLETED")
+            self.assertEqual(kv.get("$MISSION COMPLETE"), "QUEST COMPLETED")
+            self.assertEqual(kv.get("$MissionFailed"), "QUEST FAILED")
+            self.assertEqual(kv.get("$MISSION FAILED"), "QUEST FAILED")
             # G12(d) menu words: "Quest", "Quests", "Quest Log"
             self.assertEqual(kv.get("$Quest"), "Quest")
             self.assertEqual(kv.get("$QUESTS"), "QUESTS")
             self.assertEqual(kv.get("$MISSIONS"), "QUESTS")
             self.assertEqual(kv.get("$MissionMenu"), "QUEST LOG")
-            self.assertEqual(kv.get("$MissionAdded"), "ADDED TO QUEST LOG")
+            self.assertEqual(kv.get("$MissionAdded"), "QUEST ADDED")
 
             # If MSVC host compiler is available, verify hud_quest_label.h reads FO4ActorRaider - Main.ba2 directly
             if MSVC_ENV_PS1.is_file():

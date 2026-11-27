@@ -578,7 +578,8 @@ class ContractTests(unittest.TestCase):
         body = psc[psc.index("Event OnTimer"):psc.index("bool Function IsNewGame")]
         ten = body[body.index("elseif stage == 10"):body.index("elseif stage == 20 || stage == 30")]
         self.assertIn("if !podChecked && player.Is3DLoaded()\n            CheckPod(player)\n        endif", ten)
-        self.assertLess(ten.index("CheckPod(player)"), ten.index("LooksWait"))   # a --no-looks build still checks first
+        self.assertLess(ten.index("CheckPod(player)"), ten.index("StartPodOpen(player)"))
+        self.assertIn("pod start choice=none rule=D-V111-10", ten)
         check = psc[psc.index("Function CheckPod"):psc.index("bool Function StandsInVault")]
         self.assertIn("podChecked = true", check)
         self.assertIn("float targetY = PodEntryY()", check)
@@ -601,17 +602,17 @@ class ContractTests(unittest.TestCase):
         self.assertIn("float Property SurfaceWait = 10.0 Auto Const", psc)
         self.assertIn("int Property SurfaceTries = 3 Auto Const", psc)
         surface = psc[psc.index("Function Surface(Actor player)"):psc.index("Function FinishSurface")]
-        self.assertEqual(surface.count("player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)"), 1)
+        self.assertEqual(surface.count('FO4SF_Placement.MovePlayerToExteriorAnchor(player, anchor, "surface", LogName, false)'), 1)
         self.assertNotIn("SetPosition(", surface)
         self.assertNotIn("AdvanceTo(", surface)
-        self.assertLess(surface.index("player.MoveTo("), surface.index("surfaceMovedAt = Utility.GetCurrentRealTime()"))
+        self.assertLess(surface.index("FO4SF_Placement.MovePlayerToExteriorAnchor("), surface.index("surfaceMovedAt = Utility.GetCurrentRealTime()"))
         finish = psc[psc.index("Function FinishSurface"):psc.index("Function CheckLanding")]
         self.assertNotIn("MoveTo(", finish.replace("Surface(player)", ""))   # its only move is Surface's, once more
         # inside: wait, or count a missed move; outside but not loaded: wait; both return before the SetPosition
         inside = finish[finish.index("    if player.IsInInterior()\n"):finish.index("    if !player.Is3DLoaded()\n")]
         self.assertTrue(inside.endswith("        return\n    endif\n"), inside)
         self.assertIn("    if !player.Is3DLoaded()\n        return", finish)
-        self.assertLess(finish.index("if !player.Is3DLoaded()"), finish.index("player.SetPosition(x, y, ArrivalZ)"))
+        self.assertLess(finish.index("if !player.Is3DLoaded()"), finish.index("FO4SF_Placement.SetPlayerMergedPosition(player, ArrivalX, ArrivalY, ArrivalZ, ArrivalHeading, MergeOffsetX, MergeOffsetY"))
         self.assertNotIn("Is3DLoaded", inside)               # an outside player still loading is never a missed move
         self.assertIn("bool ok = dx * dx + dy * dy <= 25.0", finish)
         self.assertIn('Trace("surface setposition ok=" + ok +', finish)
@@ -623,7 +624,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn("if surfaceMoves < 2", finish)
         self.assertIn("asked = false", finish)               # a missed ride lets the platform ask again
         self.assertIn("ClearVaultSaveLock()", surface)
-        self.assertIn("anchor.Enable(False)", surface)
+        placement_text = read(os.path.join(os.path.dirname(PSC), "FO4SF_Placement.psc"))
+        self.assertIn("anchor.Enable(False)", placement_text)
         self.assertNotIn("TrySurfaceExteriorFallbacks(", surface)
         self.assertIn("TrySurfaceExteriorFallbacks(player, fbAnchor)", finish)
         self.assertEqual(psc.count("Debug.CenterOnCell("), 1)
@@ -712,36 +714,26 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.special_press(base, pts, -1), (base, pts, "left"))
 
     def test_the_race_menu_mode_and_the_opening_choice(self):
-        """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 2) is the looks script's RaceMenuMode, passed
-        to ShowRaceMenu as its uiMode; the opening MESG offers the creator or the quick start, and the quick start never
-        calls ShowRaceMenu. The creator's close is awaited on "ChargenMenu", registered before the menu opens, with
-        the quest's LooksWait as the fallback; every ending is logged as "looks done: <how>" (the log summary reads it)."""
+        """J2 / D-V111-10: No start choice box or character creator over the closed pod or pre-world path.
+        StartMessage.Show() and preworld ShowRaceMenu are removed; the Vault 111 lift keeps Change Appearance (ShowRaceMenu(player, 1))."""
         cs, looks, psc = read(CS), read(LOOKS), read(PSC)
         self.assertIn(f"DefaultRaceMenuMode = {ng.DEFAULT_RACE_MENU_MODE};", cs)
         self.assertIn('ArgOrNull(a, "--race-menu-mode")', cs)
         self.assertIn(f"int Property RaceMenuMode = {ng.DEFAULT_RACE_MENU_MODE} Auto Const", looks)
         code = looks[looks.index("Message Property StartMessage"):]   # past the header's signature note
-        self.assertEqual(code.count("ShowRaceMenu("), 1)
-        self.assertIn("Game.ShowRaceMenu(None, RaceMenuMode)", code)
-        self.assertIn('StartMessageEdid = "FO4SF_NewGameStart"', cs)
-        self.assertIn('Name = "Character Appearance"', cs)
-        self.assertIn('Text = "Create character"', cs)
-        self.assertIn('Text = "Use preset look"', cs)
-        self.assertLess(cs.index('Text = "Use preset look"'), cs.index('Text = "Create character"'))
-        self.assertIn("if button == 0", looks)
-        self.assertIn("if cBtn == 0", psc)
+        self.assertEqual(code.count("ShowRaceMenu("), 0)
+        self.assertNotIn("StartMessage.Show()", code)
+        self.assertIn('Trace("pod start choice=none rule=D-V111-10")', code)
+        self.assertIn('Done("pod start choice=none rule=D-V111-10")', code)
         self.assertIn("ngQuest.IsPreworldLooksHandled()", looks)
         self.assertIn("Message Property StartMessage Auto Const Mandatory", looks)
-        body = looks[looks.index("Event OnTimer"):]
-        self.assertLess(body.index("StartMessage.Show()"), body.index("RegisterForMenuOpenCloseEvent(MenuName)"))
-        self.assertLess(body.index("RegisterForMenuOpenCloseEvent(MenuName)"), body.index("Game.ShowRaceMenu("))
-        self.assertIn('string Property MenuName = "ChargenMenu" Auto Const', looks)
-        self.assertIn("Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)", looks)
-        self.assertIn("if asMenuName == MenuName && !abOpening && waiting", looks)
-        self.assertIn('Done("use preset look")', looks)
-        self.assertIn('Done("creator closed")', looks)
-        self.assertIn('Trace("looks done: " + how)', looks)
-        self.assertIn('Trace("looks done: LooksWait fallback after " + LooksWait + " s")', psc)
+        # Only the Vault 111 lift's Change Appearance calls ShowRaceMenu in FO4SF_NewGameQuest.psc
+        self.assertEqual(psc.count("Game.ShowRaceMenu("), 1)
+        self.assertIn("Game.ShowRaceMenu(player, 1)", psc)
+        preworld_fn = psc[psc.index("Function RunPreworldLooksChoice"):psc.index("Function SpawnAtStoryStartPlace")]
+        self.assertNotIn("Show(", preworld_fn)
+        self.assertNotIn("ShowRaceMenu(", preworld_fn)
+        self.assertIn('Trace("pod start choice=none rule=D-V111-10")', preworld_fn)
         self.assertEqual(ng.tool_options(namespace(race_menu_mode=1)), ["--race-menu-mode", "1"])
 
     def test_the_default_creator_has_no_starfield_backgrounds(self):
@@ -1041,7 +1033,10 @@ class ContractTests(unittest.TestCase):
         # GetPositionY/Z share GetPositionX's script; cross-slice FO4SF quest calls go through CastAs + CallFunction;
         # UnequipItem (Actor.psc) and RemoveItem (ObjectReference.psc) verified in ContentResources.zip for R15 silent starter strip.
         calls |= set(re.findall(r"^Event (?:\w+\.)?(On\w+)\(", psc, re.M)) - {"OnTimer"}
-        fo4sf_methods = {"GetPositionY", "GetPositionZ", "UnequipItem", "RemoveItem"}
+        with open(os.path.join(os.path.dirname(PSC), "FO4SF_Placement.psc"), encoding="utf-8") as pf:
+            placement_psc = pf.read()
+        placement_fns = set(re.findall(r"\bFunction\s+(\w+)\s*\(", placement_psc))
+        fo4sf_methods = {"GetPositionY", "GetPositionZ", "UnequipItem", "RemoveItem"} | placement_fns
         missing = calls - listed - own - fo4sf_methods
         self.assertEqual(missing, set())
         self.assertTrue({"OnQuestStarted", "OnQuestInit", "FadeOutGame", "WaitFor3DLoad", "StartNoWait", "IsStarting"} <= calls)
@@ -2286,7 +2281,7 @@ class Phase2BeginningRealTests(unittest.TestCase):
         # A6 & A16: FO4SF_PipboyAcquired lives solely in FO4SFCoreValues.esm:000865; 0x80C and 0x810..0x816 stay reserved
         self.assertNotIn("PipboyAcquiredGlobId =", cs)
         self.assertIn('var pipboyAcquiredKey = new FormKey(coreKey, RequireCoreId(coreIds, PipboyAcquiredGlobEdid));', cs)
-        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x824, 0x825 }", cs)
+        self.assertIn("ReservedFormIds = { 0x80C, 0x810, 0x811, 0x812, 0x813, 0x814, 0x815, 0x816, 0x824, 0x825, 0x826 }", cs)
         self.assertIn("PipboyWristArmorId = 0x80D", cs)
         self.assertIn("PipboyCorpseActiId = 0x80E", cs)
         self.assertIn("PipboyCorpseRefId = 0x80F", cs)
@@ -2899,9 +2894,9 @@ class Phase2BeginningRealTests(unittest.TestCase):
                     "start record mode=warfare story=none faction=0 place=minutemen_sanctuary survival=0 difficulty=0 backdrop=title_card",
                     logs,
                 )
-                self.assertLess(events.index("OpenAttributeAllocation"), events.index("ShowRaceMenu"))
-                self.assertLess(events.index("ShowRaceMenu"), events.index("Wait(2.0)"))
-                self.assertLess(events.index("Wait(2.0)"), events.index("MoveToWarfareStart"))
+                self.assertNotIn("ShowRaceMenu", events)
+                self.assertIn("pod start choice=none rule=D-V111-10", logs)
+                self.assertLess(events.index("OpenAttributeAllocation"), events.index("MoveToWarfareStart"))
                 if cancel_all_tries:
                     self.assertEqual(events.count("OpenAttributeAllocation"), 3)
                     self.assertIn("OfferStandardSpread", events)
@@ -3333,11 +3328,11 @@ class Phase2BeginningRealTests(unittest.TestCase):
                 # Drive stage 0 via OnTimer(1) just like in-game!
                 ns["TimerEvent"](1)
                 self.assertEqual(cur_stage[0], 20)
-                self.assertEqual(start_msg_calls, ["preworld"])
+                self.assertEqual(start_msg_calls, [])
                 self.assertTrue(ns["IsPreworldLooksHandled"]())
                 # T4 critical proof: Timer 1 MUST be re-armed (1.0, 1) after Story mode completes stage 0 -> 20!
                 self.assertIn((1.0, 1), timers)
-                self.assertIn("looks done: use preset look", logs)
+                self.assertIn("pod start choice=none rule=D-V111-10", logs)
                 self.assertIn("stage 20 by=Trigger", logs)
                 # Second Timer 1 tick at stage 20 must run CheckPod(player) inside InVault so pod settle ok= is logged!
                 self.assertFalse(ns["podChecked"])
@@ -4199,6 +4194,164 @@ class G13WeatherAndVaultSuitConfigTests(unittest.TestCase):
         self.assertEqual(added, [(suit_obj, 1, True)])
         self.assertIn(suit_obj, equipped)
         self.assertTrue(any("vault suit fallback equipped Clothes_Miner_Jumpsuit(0001D1D7) worn=True id=119255" in ln for ln in traces), traces)
+
+
+class J2PodStartNoChoiceAndSaveLockTests(unittest.TestCase):
+    """Round 17 J2 (D-V111-10): Direct cryopod start with zero choice box/creator before lift, saving locked through pod,
+    autosave unlocked/requested after pod exit, death reload never opens creator, and lift Change Appearance stays working."""
+
+    def test_j2_pod_save_lock_direct_open_recovery_and_lift_appearance_choice(self):
+        from types import SimpleNamespace
+        from tests.test_exit_arrival import _PStr, translated_functions
+
+        psc = read(PSC)
+        looks_psc = read(LOOKS)
+        ev_timer = re.search(r"Event OnTimer\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        ev_dying = re.search(r"Event Actor\.OnDying\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        wrapped = (
+            psc
+            + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
+            + f"\nFunction DyingEvent({ev_dying[1]})\n{ev_dying[2]}EndFunction\n"
+        )
+        funcs = (
+            "FadeIn", "EnsureFadedInForChoice", "HoldInPod", "ReleasePodHold", "StartPodOpen",
+            "CompleteLooksStage20AfterPodExit", "TriggerVaultPodRecoveryAutosave",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "AdvanceTo",
+            "TimerEvent", "DyingEvent", "ShowPausedExitLiftMenu", "UnspentSpecialPool",
+            "RunPreworldLooksChoice", "IsPreworldLooksHandled", "PodAnimReady",
+        )
+        vars_csv = (
+            "faded, vaultMoves, entered, podExitStarted, podExitDone, podFellBack, podHoldLayer, "
+            "podLooksDone, podLooksHow, podLooksBy, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "looksSetStage20, podChecked, vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, "
+            "vaultPodAutosaveSkips, deathReloadPlainBlackActive, loadHookRegistered, dyingHookRegistered, "
+            "applied, pendingStage, pendingStageBy, startedAt, ticks, scannerLayer, "
+            "liftPairActive, liftPairTransferPending, surfaceMovedAt, landingAwaitingFadeIn, "
+            "surfaceCogWaiting3D, surfaceCogRising, interiorLiftDescending, returnSurfacePending, "
+            "setupWaitingCreator, liftSpecConfirmed, asked, exitUsedFallback, centered, centerTries"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), PSC, "exec")
+
+        chargens, autosaves, logs, race_calls, shows = [], [], [], [], []
+        cur_stage = [10]
+        player = SimpleNamespace(
+            pos=(10.0, 20.0, 1.0),
+            Is3DLoaded=lambda: True,
+            IsDead=lambda: False,
+            IsInInterior=lambda: True,
+            GetParentCell=lambda: "VaultCell",
+            SetAngle=lambda *a: None,
+            SetPosition=lambda *a: None,
+        )
+        lift_menu = SimpleNamespace(Show=lambda: 0)
+        lift_action_glob = SimpleNamespace(GetValue=lambda: 8.0, SetValue=lambda v: None)
+        start_card_glob = SimpleNamespace(GetValue=lambda: 8.0, SetValue=lambda v: None)
+        forms = {(0x000830, "FO4SFNewGame.esm"): lift_menu, (0x000831, "FO4SFNewGame.esm"): lift_action_glob}
+        ns = {
+            "_PStr": _PStr,
+            "Trace": logs.append,
+            "GameModeGlobal": SimpleNamespace(GetValue=lambda: 1.0),
+            "TestModeGlobal": None,
+            "StartPickMsg": SimpleNamespace(Show=lambda: (shows.append("StartPickMsg"), 0)[1]),
+            "StartCardOpenGlobal": start_card_glob,
+            "SpecialMenuOpenGlobal": None,
+            "LiftMenuActionGlobal": lift_action_glob,
+            "LiftMenuMsg": None,
+            "LiftMenuPoolGlobal": None,
+            "LiftMenuSpecialIds": [],
+            "LiftMenuReqGlobals": [],
+            "Special": [],
+            "SpecialNames": [],
+            "SpecialMin": 1,
+            "SpecialMax": 10,
+            "PodExitMode": "safe_spawn",
+            "PodAnimPlugin": "FO4SFVaultPod.esm",
+            "PodAnimRefId": 0x801,
+            "PodZ": -1.0,
+            "PodLift": 0.3,
+            "PodHeading": 90.0,
+            "PodSeatHeadingDeg": 180.0,
+            "LooksWait": 120.0,
+            "RaceMenuMode": 2,
+            "NewGamePlugin": "FO4SFNewGame.esm",
+            "UsePreworldRoom": lambda: False,
+            "StandsInVault": lambda p: True,
+            "Near": lambda *a: False,
+            "CheckPod": lambda p: ns.__setitem__("podChecked", True),
+            "EnsureLoadHookRegistered": lambda p: None,
+            "EnsureVaultInteractivesRegistered": lambda: None,
+            "DisableHandScanner": lambda: None,
+            "QueueSharedMapSetup": lambda *a: None,
+            "RunPodExitHook": lambda p: ns.__setitem__("podExitDone", True),
+            "StartTimer": lambda *a: None,
+            "CancelTimer": lambda *a: None,
+            "RegisterForRemoteEvent": lambda *a: None,
+            "RegisterForMenuOpenCloseEvent": lambda *a: None,
+            "UnregisterForMenuOpenCloseEvent": lambda *a: None,
+            "UnregisterStartLoadingHook": lambda: None,
+            "SetDeathReloadPlainBlackCover": lambda *a: None,
+            "ReleasePodHold": lambda: None,
+            "SetObjectiveDisplayed": lambda *a: None,
+            "SetObjectiveCompleted": lambda *a: None,
+            "SetActive": lambda *a: None,
+            "PodSeatPosX": lambda: 10.0,
+            "PodSeatPosY": lambda: 20.0,
+            "InputEnableLayer": SimpleNamespace(Create=lambda: SimpleNamespace(DisablePlayerControls=lambda *a: None, EnableHandscanner=lambda *a: None, Delete=lambda: None)),
+            "GetStage": lambda: cur_stage[0],
+            "SetStage": lambda s: cur_stage.__setitem__(0, int(s)),
+            "Utility": SimpleNamespace(Wait=lambda *a: None, GetCurrentRealTime=lambda: 10.0),
+            "Game": SimpleNamespace(
+                GetPlayer=lambda: player,
+                GetFormFromFile=lambda fid, plg: forms.get((int(fid), str(plg))),
+                SetInChargen=lambda a, b, c: chargens.append((bool(a), bool(b), bool(c))),
+                SetCharGenHUDMode=lambda *a: None,
+                ShowFirstPersonGeometry=lambda *a: None,
+                FadeOutGame=lambda *a: None,
+                ForceFirstPerson=lambda: None,
+                RequestAutoSave=lambda: autosaves.append(cur_stage[0]),
+                ShowRaceMenu=lambda actor, mode: race_calls.append((actor, int(mode))),
+            ),
+            "faded": False, "vaultMoves": 1, "entered": True, "podExitStarted": False, "podExitDone": False,
+            "podFellBack": False, "podHoldLayer": None, "podLooksDone": False, "podLooksHow": "",
+            "podLooksBy": "Trigger", "preworldLooksDone": False, "preworldLooksHow": "", "preworldLooksBy": "Trigger",
+            "looksSetStage20": False, "podChecked": False, "vaultPodAutosaved": False, "vaultSavingRelocked": False,
+            "vaultRecoveryTriggered": False, "vaultPodAutosaveSkips": 0, "deathReloadPlainBlackActive": False,
+            "loadHookRegistered": False, "dyingHookRegistered": False, "applied": 10, "pendingStage": -1,
+            "pendingStageBy": "other", "startedAt": 10.0, "ticks": 0, "scannerLayer": None,
+            "liftPairActive": False, "liftPairTransferPending": False, "surfaceMovedAt": 0.0,
+            "landingAwaitingFadeIn": False, "surfaceCogWaiting3D": False, "surfaceCogRising": False,
+            "interiorLiftDescending": False, "returnSurfacePending": False, "setupWaitingCreator": False,
+            "liftSpecConfirmed": False, "asked": False, "exitUsedFallback": False, "centered": 0, "centerTries": 0,
+        }
+        exec(compiled, ns)
+
+        # 1. HoldInPod + FadeIn at stage 10 lock saving (True, True, False) and emit no Show()/ShowRaceMenu()
+        ns["HoldInPod"](player)
+        ns["EnsureFadedInForChoice"]()
+        self.assertTrue(all(c == (True, True, False) for c in chargens), chargens)
+        self.assertEqual(autosaves, [])
+
+        # 2. Stage 10 timer opens pod directly (zero LooksWait stall), marks podExitDone=True, advances stage 20 -> unlocks & autosaves
+        ns["TimerEvent"](1)
+        self.assertEqual(shows, [])
+        self.assertEqual(race_calls, [])
+        self.assertEqual(cur_stage[0], 20)
+        self.assertIn("pod start choice=none rule=D-V111-10", logs)
+        self.assertEqual(autosaves, [20])
+        self.assertEqual(chargens[-1], (False, False, False))
+
+        # 3. Death in vault after pod exit reloads autosave and never opens creator
+        ns["DyingEvent"](player, None)
+        self.assertEqual(race_calls, [])
+        self.assertEqual(shows, [])
+
+        # 4. Vault 111 lift Change Appearance (gVal=8.0) STILL opens ShowRaceMenu(player, 1)
+        rc_lift = ns["ShowPausedExitLiftMenu"](player, False)
+        self.assertEqual(rc_lift, 2)
+        self.assertEqual(race_calls, [(player, 1)])
+        looks_code = looks_psc[looks_psc.index("Event OnQuestStarted"):]
+        self.assertEqual(looks_code.count("ShowRaceMenu"), 0)
+        self.assertEqual(looks_code.count("StartMessage.Show"), 0)
 
 
 if __name__ == "__main__":

@@ -421,7 +421,7 @@ class SafeDefaultsTests(unittest.TestCase):
         )
         exec(looks_compiled, lns)
         lns["LooksTimer"](2)
-        self.assertEqual(vault_looks_prompts, [1])
+        self.assertEqual(vault_looks_prompts, [])
         self.assertEqual(cur_stage[0], 20)
         self.assertTrue(ns["IsPreworldLooksHandled"]())
 

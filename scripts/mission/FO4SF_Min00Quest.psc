@@ -230,6 +230,8 @@ bool s5MuseumInitialized = False
 bool s5MuseumCleared = False
 int s5MuseumRaidersDead = 0
 bool s6BasementUnlockedPending = False
+bool s6BasementGateOpening = False
+bool s6FusionCorePickedPending = False
 bool s6RoomEventsRegistered = False
 bool s6RoomScenePending = False
 bool s6RoomSceneMenuOpened = False
@@ -1426,25 +1428,17 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
     endif
     ObjectReference termRef = LookupOptionalForm(0x00E35E, "FO4Port.esm") as ObjectReference
     if termRef != None && akSender == termRef
-        if !termRef.IsLocked() || PlayerHasBobbyPin(player) || EffectiveStage() >= 40
-            termRef.BlockActivation(False, False)
-            termRef.Unlock(False)
-            termRef.SetLockLevel(0)
-            termRef.Lock(False, False, False)
-            TryOpenS6BasementGate("terminal")
-        else
-            termRef.BlockActivation(True, False)
-            Trace("s6 basement_terminal locked needs=bobby_pin_or_stage40")
-        endif
+        termRef.BlockActivation(False, False)
+        TryOpenS6BasementGate("terminal")
         return
     endif
-    ObjectReference gateRef = LookupOptionalForm(0x00EDF0, "FO4Port.esm") as ObjectReference
+    ObjectReference gateRef = ResolveS6BasementGate()
     if gateRef != None && akSender == gateRef
         if !gateRef.IsLocked()
             gateRef.BlockActivation(False, False)
-            TryOpenS6BasementGate("already_unlocked")
+            RecordS6BasementGateUnlocked("already_unlocked")
         elseif PlayerHasBobbyPin(player)
-            TryOpenS6BasementGate("bobby_pin")
+            TryOpenS6BasementGate("lockpick")
         else
             gateRef.BlockActivation(True, False)
             if IsTestModeEnabled()
@@ -1667,17 +1661,12 @@ Event Scene.OnEnd(Scene akSender)
 EndEvent
 
 Event ObjectReference.OnLockStateChanged(ObjectReference akSender)
-    if KeeperOnly
+    if KeeperOnly || !EnableS6ToS9Full
         return
     endif
-    ObjectReference gateRef = LookupOptionalForm(0x00EDF0, "FO4Port.esm") as ObjectReference
+    ObjectReference gateRef = ResolveS6BasementGate()
     if gateRef != None && akSender == gateRef && !gateRef.IsLocked()
-        TryOpenS6BasementGate("terminal")
-        return
-    endif
-    ObjectReference termRef = LookupOptionalForm(0x00E35E, "FO4Port.esm") as ObjectReference
-    if termRef != None && akSender == termRef && !termRef.IsLocked()
-        TryOpenS6BasementGate("terminal")
+        RecordS6BasementGateUnlocked("lock_event")
     endif
 EndEvent
 
@@ -3048,8 +3037,16 @@ bool Function AdvanceS6PrestonGroupTalk()
     return True
 EndFunction
 
+bool Function PlayerHasFusionCore(Actor player)
+    if player == None
+        return False
+    endif
+    Form fc = LookupOptionalForm(0x000809, "FO4SFPowerArmor.esm")
+    return fc != None && player.GetItemCount(fc) >= 1
+EndFunction
+
 bool Function AdvanceS6BasementGateOpened()
-{R11 Step 3q: S6 Museum basement security gate unlocked -> stage 45.}
+{R11 Step 3q: S6 Museum basement security gate unlocked -> stage 45 (FO4 Min00 stage 50 equivalent).}
     if !EnableS6ToS9Full || KeeperOnly || s6FullStage < 40 || s6FullStage >= 45
         return False
     endif
@@ -3061,14 +3058,23 @@ bool Function AdvanceS6BasementGateOpened()
         obj90DisplayedOnce = True
     endif
     Trace("s6 stage 45 basement_gate opened")
+    if s6FusionCorePickedPending || PlayerHasFusionCore(Game.GetPlayer())
+        AdvanceS6FusionCorePicked()
+    endif
     return True
 EndFunction
 
 bool Function AdvanceS6FusionCorePicked()
-{R11 Step 3q: S6 Museum basement Fusion Core collected -> stage 50 -> displays Obj 95 "Put the Fusion Core in the Power Armor" and stops.}
-    if !EnableS6ToS9Full || KeeperOnly || s6FullStage < 45 || s6FullStage >= 50
+{R11 Step 3q / R17 J6: Order-independent Fusion Core check; completes obj 90 + shows obj 95 (FO4 obj 105) once gate stage >= 45.}
+    if !EnableS6ToS9Full || KeeperOnly || s6FullStage >= 50
         return False
     endif
+    if s6FullStage < 45
+        s6FusionCorePickedPending = True
+        Trace("s6 fusion_core picked pending_stage45=true stage=" + s6FullStage)
+        return True
+    endif
+    s6FusionCorePickedPending = False
     s6FullStage = 50
     applied = 50
     SetStage(50)
@@ -3445,9 +3451,9 @@ Function RegisterS6RoomEvents()
     ObjectReference termRef = LookupOptionalForm(0x00E35E, "FO4Port.esm") as ObjectReference
     if termRef != None
         RegisterForRemoteEvent(termRef, "OnActivate")
-        RegisterForRemoteEvent(termRef, "OnLockStateChanged")
+        UnregisterForRemoteEvent(termRef, "OnLockStateChanged")
     endif
-    ObjectReference gateRef = LookupOptionalForm(0x00EDF0, "FO4Port.esm") as ObjectReference
+    ObjectReference gateRef = ResolveS6BasementGate()
     if gateRef != None
         RegisterForRemoteEvent(gateRef, "OnActivate")
         RegisterForRemoteEvent(gateRef, "OnLockStateChanged")
@@ -3653,32 +3659,59 @@ bool Function PlayerHasBobbyPin(Actor player)
     return bp != None && player.GetItemCount(bp) >= 1
 EndFunction
 
-bool Function TryOpenS6BasementGate(string reason)
+ObjectReference Function ResolveS6BasementGate()
+    ObjectReference termRef = LookupOptionalForm(0x00E35E, "FO4Port.esm") as ObjectReference
+    if termRef != None
+        ObjectReference linkedGate = termRef.GetLinkedRef(None)
+        if linkedGate != None
+            return linkedGate
+        endif
+    endif
+    return LookupOptionalForm(0x00EDF0, "FO4Port.esm") as ObjectReference
+EndFunction
+
+bool Function RecordS6BasementGateUnlocked(string reason)
     if !EnableS6ToS9Full || KeeperOnly
         return False
     endif
-    ObjectReference gateRef = LookupOptionalForm(0x00EDF0, "FO4Port.esm") as ObjectReference
-    if gateRef != None
-        gateRef.BlockActivation(False, False)
-        gateRef.Unlock(False)
-        gateRef.SetLockLevel(0)
-        gateRef.Lock(False, False, True)
-        gateRef.SetOpen(True)
+    if s6FullStage >= 45
+        return False
     endif
-    ObjectReference termRef = LookupOptionalForm(0x00E35E, "FO4Port.esm") as ObjectReference
-    if termRef != None
-        termRef.BlockActivation(False, False)
-        termRef.Unlock(False)
-        termRef.SetLockLevel(0)
-        termRef.Lock(False, False, False)
-    endif
-    Trace("basement_gate_unlock=" + reason)
+    Trace("s6 basement_gate unlocked reason=" + reason)
     if s6FullStage >= 40
         return AdvanceS6BasementGateOpened()
     endif
     s6BasementUnlockedPending = True
-    Trace("s6 basement_gate unlocked reason=" + reason + " pending_stage40=true")
+    Trace("s6 basement_gate pending_stage40=true reason=" + reason)
     return True
+EndFunction
+
+bool Function TryOpenS6BasementGate(string reason)
+    if !EnableS6ToS9Full || KeeperOnly
+        return False
+    endif
+    ObjectReference gateRef = ResolveS6BasementGate()
+    if gateRef == None
+        return False
+    endif
+    if s6BasementGateOpening
+        return True
+    endif
+    s6BasementGateOpening = True
+    string logReason = reason
+    if logReason == "bobby_pin"
+        logReason = "lockpick"
+    endif
+    if gateRef.IsLocked()
+        gateRef.Lock(False, False, False)
+    endif
+    gateRef.BlockActivation(False, False)
+    UnregisterForRemoteEvent(gateRef, "OnLockStateChanged")
+    ObjectReference termRef = LookupOptionalForm(0x00E35E, "FO4Port.esm") as ObjectReference
+    if termRef != None
+        UnregisterForRemoteEvent(termRef, "OnLockStateChanged")
+    endif
+    return RecordS6BasementGateUnlocked(logReason)
 EndFunction
 
 Function TriggerS6RoomScene(bool isSturges, string via)

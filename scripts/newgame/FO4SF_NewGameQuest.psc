@@ -188,14 +188,14 @@ float Property LiftDoneMargin = 0.25 Auto Const
 
 string Property CorePlugin = "FO4TerrainCore.esm" Auto Const
 string Property NewGamePlugin = "FO4SFNewGame.esm" Auto Const
-int Property ArrivalMergedMarkerId = 0 Auto Const
 int Property ExitAnchorId Auto Const Mandatory
-{A persistent reference in the core world (its Vault 111 map marker): MoveTo it puts the player in the core world at
- the reference's LOCAL position (persistent references are not moved by the merge), a later tick's SetPosition then
- places them (FinishSurface).}
+{A persistent reference in the core world (FO4 Vault 111 map marker 0009F272/70 at (-1275.31, 1305.28, 127.21), outside
+ the merged footprint): MoveTo lands in a procedural cell first, then FinishSurface SetPositions to 04000CF0 under held black.}
 int Property ArrivalDiscoveryId = 0 Auto Const
-{Only the canonical Vault 111 map marker, supplied by the writer; zero disables discovery for a custom exit anchor.
- The call is made after confirmed exterior arrival. Its return and the fast-travel reads do not prove map discovery.}
+{Dedicated silent Vault 111 map marker reference ID (never ExitAnchorId); zero disables discovery for a custom exit anchor.
+ The call is made once on first confirmed exterior arrival. Never moved at runtime on later arrivals.}
+string Property ArrivalDiscoveryPlugin = "FO4SFNewGame.esm" Auto Const
+{Plugin owning the dedicated silent ArrivalDiscoveryId MapMarker reference (defaults to CorePlugin when empty).}
 float Property ArrivalX Auto Const Mandatory
 float Property ArrivalY Auto Const Mandatory
 float Property ArrivalZ Auto Const Mandatory
@@ -692,10 +692,15 @@ Function FadeIn(string by)
     endif
     Game.ShowFirstPersonGeometry(true)
     Game.FadeOutGame(False, True, 0.0, 0.1, False)
-    Game.SetInChargen(false, false, false)
+    if GetStage() < 20 && !podExitDone && player != None && StandsInVault(player)
+        Game.SetInChargen(true, true, false)
+        Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; pod saving locked")
+    else
+        Game.SetInChargen(false, false, false)
+        Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")
+    endif
     Game.SetCharGenHUDMode(0)
     DisableHandScanner()
-    Trace("fade in by=" + by + " loaded=" + player.Is3DLoaded() + " cell=" + player.GetParentCell() + "; saving and HUD on")
 EndFunction
 
 Function DisableHandScanner()
@@ -857,12 +862,13 @@ Function HoldInPod(Actor player)
             podHoldLayer.DisablePlayerControls(true, true, true, true, true, false, true, false, true, true, true)
         endif
     endif
+    Game.SetInChargen(true, true, false)
     Game.ForceFirstPerson()
     ObjectReference pod = Game.GetFormFromFile(PodAnimRefId, PodAnimPlugin) as ObjectReference
     if pod != None && pod.Is3DLoaded()
         pod.BlockActivation(true, true)
     endif
-    Trace("pod_hold on seat=" + PodSeatPosX() + " " + PodSeatPosY() + " " + (PodZ + PodLift) + " heading=" + PodSeatHeadingDeg)
+    Trace("pod_hold on seat=" + PodSeatPosX() + " " + PodSeatPosY() + " " + (PodZ + PodLift) + " heading=" + PodSeatHeadingDeg + " saving=locked")
 EndFunction
 
 Function ReleasePodHold()
@@ -1403,22 +1409,15 @@ Event OnTimer(int aiTimerID)
                 podLooksHow = preworldLooksHow
                 podLooksBy = preworldLooksBy
                 Trace("looks done: " + preworldLooksHow)
-                EnsureFadedInForChoice()
-                StartPodOpen(player)
-            elseif !podLooksDone && Utility.GetCurrentRealTime() - startedAt > LooksWait
+            elseif !podLooksDone
+                looksSetStage20 = true
                 podLooksDone = true
-                if LooksWait > 0.0
-                    podLooksHow = "LooksWait fallback"
-                    podLooksBy = "fallback"
-                    Trace("looks done: LooksWait fallback after " + LooksWait + " s")
-                else
-                    podLooksHow = "no-looks"
-                    podLooksBy = "Trigger"
-                    Trace("looks done: no-looks immediate start")
-                endif
-                EnsureFadedInForChoice()
-                StartPodOpen(player)
+                podLooksHow = "pod start choice=none rule=D-V111-10"
+                podLooksBy = "Trigger"
+                Trace("pod start choice=none rule=D-V111-10")
             endif
+            EnsureFadedInForChoice()
+            StartPodOpen(player)
         endif
     elseif stage == 20 || stage == 30
         if !podChecked && player.Is3DLoaded() && StandsInVault(player)
@@ -2030,16 +2029,10 @@ float Function SqrtF(float v)
 EndFunction
 
 Function Surface(Actor player)
-{The ride up, first half: MoveTo the merged persistent heading marker (or core anchor fallback) so the ride lands
- in the arrival cell with a single load; FinishSurface confirms position and runs cog wait_3d before fade-in.}
+{The ride up, first half: MoveTo persistent ExitAnchorId (FO4 Vault 111 map marker 0009F272/70) strictly outside the merged
+ footprint via shared FO4SF_Placement helper; FinishSurface SetPositions into 04000CF0 under held plain-black fade.}
     ReadH00SuspectsOnce()
-    ObjectReference anchor = None
-    if ArrivalMergedMarkerId > 0
-        anchor = Game.GetFormFromFile(ArrivalMergedMarkerId, NewGamePlugin) as ObjectReference
-    endif
-    if anchor == None
-        anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
-    endif
+    ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
     if anchor == None
         Trace("exit anchor " + CorePlugin + ":" + ExitAnchorId + " does not resolve")
         if LiftId > 0
@@ -2047,6 +2040,11 @@ Function Surface(Actor player)
         endif
         return
     endif
+    float surfAncX = anchor.GetPositionX()
+    float surfAncY = anchor.GetPositionY()
+    float surfAncZ = anchor.GetPositionZ()
+    bool insideFootprint = FO4SF_Placement.IsInsideMergedFootprint(surfAncX, surfAncY)
+    Trace("surface moveto_target source=fo4_0009f272_div70 pos=" + surfAncX + " " + surfAncY + " " + surfAncZ + " inside_footprint=" + insideFootprint)
     ApplyH00PreSurfaceOverrides()
     ClearVaultSaveLock()
     SuppressMapMarkersDarkHold()
@@ -2055,7 +2053,7 @@ Function Surface(Actor player)
     RegisterStartLoadingHook(true)
     if !liftPairFadeStarted
         liftPairFadeStarted = true
-        Game.FadeOutGame(True, True, 0.0, 0.2, True)
+        FO4SF_Placement.BeginHeldTransferFade()
     endif
     if ascentGapStartedAt <= 0.0
         ascentGapStartedAt = Utility.GetCurrentRealTime()
@@ -2075,16 +2073,19 @@ Function Surface(Actor player)
     surfaceCogRising = false
     surfaceCogDone = false
     surfaceCogCarryLogged = false
-    anchor.Enable(False)
-    player.MoveTo(anchor, 0.0, 0.0, 0.0, True, False)
+    bool moveStarted = FO4SF_Placement.MovePlayerToExteriorAnchor(player, anchor, "surface", LogName, false)
+    if !moveStarted
+        FailExit("surface_anchor_inside_footprint")
+        return
+    endif
     surfaceMoves += 1
     surfaceMovedAt = Utility.GetCurrentRealTime()
     Trace("surface moveto pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ() + " world=" + player.GetWorldSpace() + " moves=" + surfaceMoves)
 EndFunction
 
 Function FinishSurface(Actor player)
-{The ride up, second half: verifies core arrival cell and skips SetPosition when already within 5 m of the merged
- arrival point, logging one_move; holds fade black through LoadingMenu close -> surface_cog wait_3d -> PlaySurfaceCogRise.}
+{The ride up, second half: routes SetPosition into 04000CF0 through FO4SF_Placement while keeping plain-black fade held
+ across both loads; runs cog wait_3d before fade-in and skips later-arrival discovery.}
     if surfaceMovedAt > 0.0 && Utility.GetCurrentRealTime() - surfaceMovedAt > SurfaceWait * 3.0
         FailExit("lift_surface_timeout")
         return
@@ -2108,7 +2109,7 @@ Function FinishSurface(Actor player)
                     asked = false
                     liftPairFadeStarted = false
                     SetLoadingBlackCover(false, "surface_missed")
-                    Game.FadeOutGame(False, True, 0.0, 0.5, False)
+                    FO4SF_Placement.EndHeldTransferFade(0.5)
                 endif
             endif
         endif
@@ -2123,15 +2124,10 @@ Function FinishSurface(Actor player)
         FailExit("surface_world_or_cell_unavailable")
         return
     endif
-    float x = ArrivalX + MergeOffsetX
-    float y = ArrivalY + MergeOffsetY
+    float x = FO4SF_Placement.ToMergedX(ArrivalX, MergeOffsetX)
+    float y = FO4SF_Placement.ToMergedY(ArrivalY, MergeOffsetY)
     Cell beforeCell = player.GetParentCell()
-    int anchorMod = anchor.GetFormID() / 16777216
-    bool coreBefore = false
-    if beforeCell != None
-        int beforeMod = beforeCell.GetFormID() / 16777216
-        coreBefore = beforeMod == anchorMod
-    endif
+    bool coreBefore = FO4SF_Placement.IsCoreCellMatch(beforeCell, anchor)
     float preDx = player.GetPositionX() - x
     float preDy = player.GetPositionY() - y
     float preDz = player.GetPositionZ() - ArrivalZ
@@ -2140,12 +2136,17 @@ Function FinishSurface(Actor player)
     bool within5m = coreBefore && offSq <= 25.0 && preDz > -FallDrop && preDz < 3.0
     bool didSetPos = false
     Trace("surface pre_setposition target=" + x + " " + y + " " + ArrivalZ + " cell=" + beforeCell + " world=" + w)
+    if SinglePassLandingFade && !surfaceFadeInDone
+        FO4SF_Placement.HoldPlainBlackFrame()
+    endif
     if !h00SkipSetPos
         if within5m
             player.SetAngle(0.0, 0.0, ArrivalHeading)
         else
-            player.SetPosition(x, y, ArrivalZ)
-            player.SetAngle(0.0, 0.0, ArrivalHeading)
+            FO4SF_Placement.SetPlayerMergedPosition(player, ArrivalX, ArrivalY, ArrivalZ, ArrivalHeading, MergeOffsetX, MergeOffsetY, "finish_surface", LogName)
+            if SinglePassLandingFade && !surfaceFadeInDone
+                FO4SF_Placement.HoldPlainBlackFrame()
+            endif
             surfaceSets += 1
             didSetPos = true
         endif
@@ -2156,11 +2157,7 @@ Function FinishSurface(Actor player)
     if afterCell != None
         cellHex = "0x" + HexFormId(afterCell.GetFormID())
     endif
-    bool coreCell = false
-    if afterCell != None
-        int cellMod = afterCell.GetFormID() / 16777216
-        coreCell = cellMod == anchorMod
-    endif
+    bool coreCell = FO4SF_Placement.IsCoreCellMatch(afterCell, anchor)
     float dx = player.GetPositionX() - x
     float dy = player.GetPositionY() - y
     float dz = player.GetPositionZ() - ArrivalZ
@@ -2202,7 +2199,7 @@ Function FinishSurface(Actor player)
             returnHasExteriorSample = true
             returnLastExteriorX = x
             returnLastExteriorY = y
-            RequestArrivalDiscovery(player)
+            Trace("arrival discovery skipped reason=fo4_previsible")
         endif
         if SinglePassLandingFade
             if loadingMenuOpen && !loadingMenuClosedSeen
@@ -2308,6 +2305,21 @@ Function CheckLanding(Actor player)
     AdvanceTo(200)
 EndFunction
 
+ObjectReference Function ResolveArrivalDiscoveryMarker()
+    if ArrivalDiscoveryId <= 0
+        return None
+    endif
+    string discPlugin = ArrivalDiscoveryPlugin
+    if discPlugin == ""
+        discPlugin = CorePlugin
+    endif
+    if discPlugin == CorePlugin && ArrivalDiscoveryId == ExitAnchorId
+        Trace("arrival discovery refused reason=exit_anchor_shared id=" + ArrivalDiscoveryId)
+        return None
+    endif
+    return Game.GetFormFromFile(ArrivalDiscoveryId, discPlugin) as ObjectReference
+EndFunction
+
 bool Function RequestArrivalDiscovery(Actor player)
     discoveryAttachPending = false
     if h00SkipDiscovery
@@ -2318,13 +2330,13 @@ bool Function RequestArrivalDiscovery(Actor player)
         Trace("arrival discovery disabled: custom exit anchor")
         return true
     endif
-    ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
+    ObjectReference marker = ResolveArrivalDiscoveryMarker()
     if marker == None
         Trace("arrival discovery failed reason=marker_missing id=" + ArrivalDiscoveryId)
         return false
     endif
-    float mx = FallbackX + MergeOffsetX
-    float my = FallbackY + MergeOffsetY
+    float mx = FO4SF_Placement.ToMergedX(FallbackX, MergeOffsetX)
+    float my = FO4SF_Placement.ToMergedY(FallbackY, MergeOffsetY)
     float mz = FallbackZ
     bool sameWorld = marker.GetWorldSpace() == arrivalWorld
     float dx = marker.GetPositionX() - mx
@@ -2332,18 +2344,10 @@ bool Function RequestArrivalDiscovery(Actor player)
     float dz = marker.GetPositionZ() - mz
     bool atMerged = dx * dx + dy * dy <= 25.0 && dz >= -3.0 && dz <= 3.0
     if !sameWorld || !atMerged
-        ; When the separate map-marker mover is not installed, attach the canonical Vault 111 marker once and confirm next tick.
         if !discoveryMarkerMoved && player.Is3DLoaded() && !player.IsInInterior() && player.GetWorldSpace() == arrivalWorld
             discoveryMarkerMoved = true
             discoveryAttachPending = true
-            float px = player.GetPositionX()
-            float py = player.GetPositionY()
-            float pz = player.GetPositionZ()
-            marker.Enable(False)
-            marker.MoveTo(player, mx - px, my - py, mz - pz, False, False)
-            if marker.GetWorldSpace() == arrivalWorld
-                marker.SetPosition(mx, my, mz)
-            endif
+            FO4SF_Placement.RelocateDiscoveryMarker(marker, player, mx, my, mz, "arrival_discovery", LogName)
             Trace("arrival discovery marker moved ref=" + marker + " world=" + marker.GetWorldSpace() + " pos=" + marker.GetPositionX() + " " + marker.GetPositionY() + " " + marker.GetPositionZ() + " target=" + mx + " " + my + " " + mz)
         else
             Trace("arrival discovery failed reason=marker_not_attached ref=" + marker + " world=" + marker.GetWorldSpace() + " same_world=" + sameWorld + " at_merged=" + atMerged)
@@ -2875,6 +2879,10 @@ EndEvent
 
 ; Shared LoadingMenu cover API: one plain-black LoadingMenu hook during start/surface/death-reload.
 Function SetLoadingBlackCover(bool enabled, string why = "script")
+    if enabled && (h00SkipLoading || ReadH00Glob(H00SkipLoadingHookGlobal, 0x000890))
+        Trace("h00 skipped SetLoadingBlackCover why=" + why)
+        return
+    endif
     loadingBlackCoverEnabled = enabled
     loadingBlackCoverWhy = why
     if enabled
@@ -3154,58 +3162,10 @@ EndFunction
 
 Function RunPreworldLooksChoice(Actor player, bool isWarfare)
     SetStartCardBackdrop(false)
-    if LooksWait <= 0.0
-        preworldLooksDone = true
-        preworldLooksHow = "no-looks immediate start"
-        preworldLooksBy = "Trigger"
-        return
-    endif
-    int cBtn = 1
-    if StartPickMsg != None
-        cBtn = StartPickMsg.Show()
-        Trace("start choice button=" + cBtn)
-    elseif !isWarfare
-        preworldLooksDone = true
-        preworldLooksHow = "use preset look"
-        preworldLooksBy = "Trigger"
-        return
-    endif
-    if cBtn == 0
-        Trace("use preset look: preset kept, creator skipped")
-        preworldLooksDone = true
-        preworldLooksHow = "use preset look"
-        preworldLooksBy = "Trigger"
-        return
-    endif
-    Game.ShowFirstPersonGeometry(true)
-    RegisterForMenuOpenCloseEvent("ChargenMenu")
-    setupWaitingCreator = true
-    if isWarfare
-        warfareWaitingCreator = true
-        Trace("warfare creator open mode=" + RaceMenuMode)
-    else
-        Trace("looks menu mode=" + RaceMenuMode)
-    endif
-    Game.ShowRaceMenu(None, RaceMenuMode)
-    float waitedCreator = 0.0
-    while (setupWaitingCreator || warfareWaitingCreator) && waitedCreator < LooksWait
-        Utility.Wait(0.5)
-        waitedCreator += 0.5
-    endwhile
-    UnregisterForMenuOpenCloseEvent("ChargenMenu")
-    bool timedOut = setupWaitingCreator || warfareWaitingCreator
-    setupWaitingCreator = false
-    warfareWaitingCreator = false
-    Utility.Wait(2.0)
-    Game.SetInChargen(false, false, false)
     preworldLooksDone = true
-    if timedOut
-        preworldLooksHow = "LooksWait fallback after " + LooksWait + " s"
-        preworldLooksBy = "fallback"
-    else
-        preworldLooksHow = "creator closed"
-        preworldLooksBy = "scene"
-    endif
+    preworldLooksHow = "pod start choice=none rule=D-V111-10"
+    preworldLooksBy = "Trigger"
+    Trace("pod start choice=none rule=D-V111-10")
 EndFunction
 
 Function SpawnAtStoryStartPlace(Actor player, int placeRow)
@@ -3907,14 +3867,17 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
                 loadingMenuOpen = true
                 loadingMenuClosedSeen = false
                 surfaceTriggeredLoad = true
-                if loadingBlackCoverEnabled
-                    Game.FadeOutGame(True, True, 0.0, 0.1, True)
-                endif
                 Trace("story landing loading menu opened")
+                if loadingBlackCoverEnabled
+                    FO4SF_Placement.BeginHeldTransferFade()
+                endif
             else
                 loadingMenuOpen = false
                 loadingMenuClosedSeen = true
                 Trace("story landing loading menu closed")
+                if SinglePassLandingFade && !surfaceFadeInDone && (surfaceMovedAt > 0.0 || surfaceSets == 0 || landingAwaitingFadeIn || surfaceCogWaiting3D)
+                    FO4SF_Placement.HoldPlainBlackFrame()
+                endif
                 if landingAwaitingFadeIn && !surfaceFadeInDone && !surfaceCogWaiting3D
                     BeginSurfaceCogWait3D(Game.GetPlayer(), "loading_close")
                 endif
@@ -4048,11 +4011,11 @@ bool Function SyncPipboyOwnedWornState(Actor player)
 EndFunction
 
 Function LogPipboyWrist3DNodes(Actor player)
-{Logs 3P wrist node attachment ~1 s after pickup or re-equip using staged 3P geometry names.}
+{Logs wrist housing & screen node attachment ~1 s after pickup or re-equip across all 4 staged 1P/3P NIF node prefixes.}
     if player == None
         return
     endif
-    bool hasHousing = player.HasNode("FO4WristHousingM_1") || player.HasNode("FO4WristHousingF_1")
+    bool hasHousing = player.HasNode("FO4WristHousing1st_21") || player.HasNode("FO4WristHousing1stF_21") || player.HasNode("FO4WristHousingM_21") || player.HasNode("FO4WristHousingF_21") || player.HasNode("FO4WristHousing1st_01") || player.HasNode("FO4WristHousing1stF_01") || player.HasNode("FO4WristHousingM_11") || player.HasNode("FO4WristHousingF_11")
     bool hasScreen = player.HasNode("PipboyScreen")
     Trace("pipboy wrist 3d housing=" + hasHousing + " screen=" + hasScreen)
 EndFunction
@@ -4390,12 +4353,12 @@ Function OpenLiftAttributeAllocation()
 EndFunction
 
 Function PrepareArrivalMarkerDuringRide()
-{Pre-resolves and enables the Vault 111 map marker during the lift ascent so arrival needs no extra setup tick.}
+{Pre-resolves and enables the dedicated silent arrival discovery marker during the lift ascent so arrival needs no extra setup tick.}
     if h00SkipDiscovery || rideMarkerPrepared || ArrivalDiscoveryId == 0
         return
     endif
     rideMarkerPrepared = true
-    ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
+    ObjectReference marker = ResolveArrivalDiscoveryMarker()
     if marker != None
         marker.Enable(False)
         Trace("arrival marker prepared during ride ref=" + marker)
@@ -4406,12 +4369,12 @@ Function PreAttachArrivalMarker(Actor player)
     if h00SkipDiscovery || discoveryMarkerMoved || ArrivalDiscoveryId == 0 || arrivalWorld == None
         return
     endif
-    ObjectReference marker = Game.GetFormFromFile(ArrivalDiscoveryId, CorePlugin) as ObjectReference
+    ObjectReference marker = ResolveArrivalDiscoveryMarker()
     if marker == None || !player.Is3DLoaded() || player.IsInInterior() || player.GetWorldSpace() != arrivalWorld
         return
     endif
-    float mx = FallbackX + MergeOffsetX
-    float my = FallbackY + MergeOffsetY
+    float mx = FO4SF_Placement.ToMergedX(FallbackX, MergeOffsetX)
+    float my = FO4SF_Placement.ToMergedY(FallbackY, MergeOffsetY)
     float mz = FallbackZ
     float dx = marker.GetPositionX() - mx
     float dy = marker.GetPositionY() - my
@@ -4419,14 +4382,7 @@ Function PreAttachArrivalMarker(Actor player)
     bool atMerged = marker.GetWorldSpace() == arrivalWorld && dx * dx + dy * dy <= 25.0 && dz >= -3.0 && dz <= 3.0
     if !atMerged
         discoveryMarkerMoved = true
-        float px = player.GetPositionX()
-        float py = player.GetPositionY()
-        float pz = player.GetPositionZ()
-        marker.Enable(False)
-        marker.MoveTo(player, mx - px, my - py, mz - pz, False, False)
-        if marker.GetWorldSpace() == arrivalWorld
-            marker.SetPosition(mx, my, mz)
-        endif
+        FO4SF_Placement.RelocateDiscoveryMarker(marker, player, mx, my, mz, "preattach_discovery", LogName)
         Trace("arrival discovery marker preattached ref=" + marker + " world=" + marker.GetWorldSpace() + " pos=" + marker.GetPositionX() + " " + marker.GetPositionY() + " " + marker.GetPositionZ() + " target=" + mx + " " + my + " " + mz)
     endif
 EndFunction

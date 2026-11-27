@@ -974,13 +974,14 @@ def compile_papyrus_scripts(starfield_dir: Path, sources: Sequence[Path], out_di
                     (base_dir / name[len("Scripts/Source/") :]).write_bytes(zf.read(info))
         flg = base_dir / "Starfield_Papyrus_Flags.flg"
         doors_dir = REPO / "scripts" / "doors"
+        newgame_dir = REPO / "scripts" / "newgame"
         compiled: Dict[str, Path] = {}
         for src in sources:
             cmd = [
                 str(compiler),
                 str(src),
                 f"-f={flg}",
-                f"-i={src.parent};{doors_dir};{base_dir}",
+                f"-i={src.parent};{doors_dir};{newgame_dir};{base_dir}",
                 f"-o={out_dir}",
                 "-op",
             ]
