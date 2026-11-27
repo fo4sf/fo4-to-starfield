@@ -263,9 +263,12 @@ class A4PapyrusContractTests(unittest.TestCase):
 
     def test_sanctuary01_preserves_legacy_contracts_and_adds_min01_in_place(self) -> None:
         txt = SANC_PSC.read_text(encoding="utf-8")
-        # Legacy test_mission.py contracts must remain intact
+        # Legacy test_mission.py contracts must remain intact (H6 reads bench id/plugin/radius from FO4SFWorkshop.esm)
         self.assertIn("Form Property XMarkerBase Auto Const Mandatory", txt)
-        self.assertIn("int BenchRefId = 0x005C50", txt)
+        self.assertNotIn("005C50", txt)
+        self.assertIn("int Function ResolveSanctuaryBenchRefId()", txt)
+        self.assertIn("string Function ResolveSanctuaryBenchPlugin()", txt)
+        self.assertIn("float Function ResolveSanctuaryBuildRadius()", txt)
         self.assertIn("int BenchBaseId = 0x0A2ECD", txt)
         self.assertIn('Trace("min01 bench activated -> stage 100")', txt)
         self.assertIn('Trace("sanctuary01 bench_activated=true ref=" + refUsed + " complete=true")', txt)

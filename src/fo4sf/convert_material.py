@@ -117,6 +117,8 @@ def _new_id(old: str, salt: str) -> str:
 
 
 METALNESS_SLOT = 4      # MRTextureFile / TextureReplacement index: 0 albedo, 1 normal, 2 opacity, 3 roughness, 4 metalness, 5 AO
+EMISSIVE_SLOT = 7       # MRTextureFile / TextureReplacement index: 7 emissive
+COLOR_EMISSIVE_SHADER_MODEL = "Data\\MATERIALS\\Layered\\ShaderModels\\ColorEmissive.mat"
 
 
 def _num(v: float) -> str:
@@ -167,7 +169,10 @@ def _force_metalness(mat: dict, metalness: float) -> None:
 
 
 def build_mat(template: dict, name: str, albedo: str, normal: str, rough: str,
-              tint=(1.0, 1.0, 1.0, 0.0), metalness: float = 0.0, opacity: str = None, alpha_threshold: float = 0.5) -> dict:
+              tint=(1.0, 1.0, 1.0, 0.0), metalness: float = 0.0, opacity: str = None, alpha_threshold: float = 0.5,
+              emissive: Optional[str] = None, emissive_tint=(1.0, 1.0, 1.0, 1.0),
+              luminous_emittance: float = 100.0, exposure_offset: float = 0.0,
+              adaptive_emittance: bool = True, emissive_clip_threshold: float = 0.0) -> dict:
     """tint: x, y, z = colour, w = how strongly the tint replaces the albedo texture (1.0 = flat colour, texture
     ignored; measured in game). 0 keeps the converted texture as is."""
     """Return a new .mat dict. Texture arguments are game paths like 'Data\\Textures\\...\\x_color.dds'."""
@@ -211,6 +216,67 @@ def build_mat(template: dict, name: str, albedo: str, normal: str, rough: str,
             if "ID" not in o and any(c.get("Type") == "BSMaterial::LayerID" for c in comps):
                 comps.append({"Data": {"AlphaTestThreshold": f"{alpha_threshold:.3f}", "HasOpacity": "true"}, "Index": 0,
                               "Type": "BSMaterial::AlphaSettingsComponent"})
+    if emissive:                                   # self-lit screen/display: slot 7 Emissive + ColorEmissive + EmittanceSettings
+        texset_ids = {
+            c["Data"]["ID"]
+            for o in mat["Objects"]
+            for c in o.get("Components", [])
+            if c.get("Type") == "BSMaterial::TextureSetID" and isinstance(c.get("Data"), dict) and "ID" in c["Data"]
+        }
+        if isinstance(mat.get("Import"), list) and not any(
+            str(imp).lower() == COLOR_EMISSIVE_SHADER_MODEL.lower() for imp in mat["Import"]
+        ):
+            mat["Import"].append(COLOR_EMISSIVE_SHADER_MODEL)
+        for o in mat["Objects"]:
+            comps = o.setdefault("Components", [])
+            is_texset = any(c.get("Type") == "BSMaterial::MRTextureFile" for c in comps) or (
+                o.get("ID") in texset_ids and not any(c.get("Type") == "BSMaterial::TextureSetID" for c in comps)
+            )
+            if is_texset:
+                comps[:] = [
+                    c for c in comps
+                    if not (c.get("Type") in ("BSMaterial::MRTextureFile", "BSMaterial::TextureReplacement")
+                            and c.get("Index") == EMISSIVE_SLOT)
+                ]
+                comps.append({"Data": {"FileName": emissive}, "Index": EMISSIVE_SLOT,
+                              "Type": "BSMaterial::MRTextureFile", "Version": 1})
+                comps.append({"Data": {"Enabled": "false"}, "Index": EMISSIVE_SLOT,
+                              "Type": "BSMaterial::TextureReplacement"})
+            if "ID" not in o and any(c.get("Type") == "BSMaterial::LayerID" for c in comps):
+                o["Parent"] = COLOR_EMISSIVE_SHADER_MODEL
+                comps[:] = [c for c in comps if c.get("Type") != "BSMaterial::EmissiveSettingsComponent"]
+                comps.append({
+                    "Data": {
+                        "Enabled": "true",
+                        "Settings": {
+                            "Data": {
+                                "AdaptiveEmittance": "true" if adaptive_emittance else "false",
+                                "EmissiveClipThreshold": _num(emissive_clip_threshold),
+                                "EmissiveTint": {
+                                    "Data": {
+                                        "Value": {
+                                            "Data": {
+                                                "w": _num(emissive_tint[3]),
+                                                "x": _num(emissive_tint[0]),
+                                                "y": _num(emissive_tint[1]),
+                                                "z": _num(emissive_tint[2]),
+                                            },
+                                            "Type": "XMFLOAT4",
+                                        }
+                                    },
+                                    "Type": "BSMaterial::Color",
+                                    "Version": 1,
+                                },
+                                "ExposureOffset": _num(exposure_offset),
+                                "LuminousEmittance": _num(luminous_emittance),
+                            },
+                            "Type": "BSMaterial::EmittanceSettings",
+                        },
+                    },
+                    "Index": 0,
+                    "Type": "BSMaterial::EmissiveSettingsComponent",
+                    "Version": 1,
+                })
     layer = mat["Summary"]["Layer1"]
     layer["Tint"] = {"w": tint[3], "x": tint[0], "y": tint[1], "z": tint[2]}
     m = layer["Textures"]["Metalness"]
@@ -222,6 +288,10 @@ def build_mat(template: dict, name: str, albedo: str, normal: str, rough: str,
         layer["Textures"]["Opacity"] = {"File": opacity,
                                         "Replacement": {"w": 1, "x": 1, "y": 1, "z": 1},
                                         "UseReplacement": False}
+    if emissive:
+        layer["Textures"]["Emissive"] = {"File": emissive,
+                                         "Replacement": {"w": 1, "x": 1, "y": 1, "z": 1},
+                                         "UseReplacement": False}
     return mat
 
 

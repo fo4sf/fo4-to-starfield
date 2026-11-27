@@ -187,6 +187,10 @@ def stage(a):
 
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
     opts = ["--exclusion-radius", str(a.exclusion_radius)]
+    if getattr(a, "settlement_rules", ""):
+        if not os.path.isfile(a.settlement_rules):
+            sys.exit(f"missing --settlement-rules: {a.settlement_rules!r}")
+        opts += ["--settlement-rules", os.path.abspath(a.settlement_rules)]
     wrote = run(tool + ["build", a.starfield, out] + opts).stdout
     check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield] + opts).stdout
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
@@ -288,6 +292,9 @@ def verify_dir(exp_dir, plan, starfield=None):
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     for s, want in plan["scripts"].items():
         same("script", os.path.join(exp_dir, "Data", "Scripts", s + ".pex"), want)
+    for rel, want in sorted(plan.get("outputs", {}).items()):
+        if rel.lower().startswith("data/strings/"):
+            same(rel, os.path.join(exp_dir, *rel.split("/")), want)
     if starfield:
         same("Starfield.esm", starfield, plan["inputs"]["Starfield.esm"]["sha256"])
     return problems
@@ -377,6 +384,14 @@ def fold(a):
             sys.exit(f"fold refused: core set already has Data/Scripts/{s}.pex (attempt kept in {out})")
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(os.path.join(a.stage, "Data", "Scripts", s + ".pex"), dst)
+    for rel in sorted(plan.get("outputs", {})):
+        if not rel.lower().startswith("data/strings/"):
+            continue
+        dst = os.path.join(out, *rel.split("/"))
+        if os.path.exists(dst):
+            sys.exit(f"fold refused: core set already has {rel} (attempt kept in {out})")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(a.stage, *rel.split("/")), dst)
 
     problems = verify_dir(out, plan, a.starfield or None)
     if problems:
@@ -439,6 +454,7 @@ def main(argv=None):
     s.add_argument("--compiler", default=default_comp)
     s.add_argument("--content-resources", default=default_cr)
     s.add_argument("--exclusion-radius", type=float, default=45.0)
+    s.add_argument("--settlement-rules", default="", help="optional settlement_rules.json override")
 
     v = sub.add_parser("verify")
     v.add_argument("--exp-dir", required=True)

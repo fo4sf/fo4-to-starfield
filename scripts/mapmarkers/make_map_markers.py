@@ -54,9 +54,12 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "scripts", "bridge"))
+sys.path.insert(0, os.path.join(REPO, "scripts", "game"))
 import make_bridge  # noqa: E402  (run, extract_sources, the default tool paths)
+import exp_install  # noqa: E402  (build_ba2, verify_archive)
 
 SCRIPT = "FO4SF_MapMarkers"
+DEFAULT_COMPILER = os.path.join(make_bridge.STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe")
 LOG = "<My Games>/Starfield/Logs/Script/User/fo4sf_map.0.log"
 
 
@@ -73,6 +76,7 @@ def compile_script(compiler, src_dir, out_dir):
 
 
 PLUGIN = "FO4SFMapMarkers.esm"   # the one name scripts/game/map_markers_install.py installs
+ARCHIVE = "FO4SFMapMarkers - Main.ba2"
 DEFAULT_Z_LIFT = 2.5             # dotnet/MapMarkers DefaultZLift: the landing heading's lift when --z-lift is not given
 # the markers Mars's planet view lists under the Commonwealth's one icon (the owner's pick A, 2026-10-28: "go with a"):
 # the core's four and a few major places of FO4's export (Diamond City and Goodneighbor have no marker in it); the
@@ -167,8 +171,44 @@ def refuse_forbidden_out_dir(out_dir):
         cur = parent
 
 
+def _resolve_starfield_for_archive(a):
+    """Return the Starfield folder to pack FO4SFMapMarkers - Main.ba2 with, or None when skipped/absent."""
+    if getattr(a, "no_archive", False):
+        return None
+    explicit = getattr(a, "starfield", None)
+    if explicit:
+        return os.path.abspath(explicit)
+    comp_abs = os.path.abspath(a.compiler)
+    if os.path.normcase(comp_abs) == os.path.normcase(os.path.abspath(DEFAULT_COMPILER)):
+        cand = make_bridge.STARFIELD
+    else:
+        papyrus_dir = os.path.dirname(comp_abs)
+        tools_dir = os.path.dirname(papyrus_dir)
+        if (os.path.basename(papyrus_dir).casefold() == "papyrus compiler"
+                and os.path.basename(tools_dir).casefold() == "tools"):
+            cand = os.path.dirname(tools_dir)
+        else:
+            cand = None
+    if cand and os.path.isfile(os.path.join(cand, "Tools", "Archive2", "Archive2.exe")):
+        return cand
+    return None
+
+
+def _pack_stage_archive(out, starfield_dir, pex_path):
+    """Pack Data/Scripts/FO4SF_MapMarkers.pex into <out>/FO4SFMapMarkers - Main.ba2 via exp_install.build_ba2."""
+    ba2_path = os.path.join(out, ARCHIVE)
+    exp_install.build_ba2(
+        argparse.Namespace(starfield=starfield_dir),
+        os.path.join(out, "Data"),
+        ba2_path,
+    )
+    exp_install.verify_archive(ba2_path, {f"Data/Scripts/{SCRIPT}.pex": sha256(pex_path)})
+    return ba2_path
+
+
 def stage(a):
     a.plugin = PLUGIN
+    a.archive = ARCHIVE
     out = os.path.abspath(a.out)
     refuse_forbidden_out_dir(out)
     if os.path.exists(out) and os.listdir(out):
@@ -229,6 +269,9 @@ def stage(a):
     with open(os.path.join(out, PIN), "w", encoding="utf-8") as f:
         json.dump({"masters": {os.path.basename(a.core): core_sha256}}, f, indent=1)
     shutil.copy(os.path.join(HERE, SCRIPT + ".psc"), os.path.join(out, SCRIPT + ".psc"))
+    starfield_for_ba2 = _resolve_starfield_for_archive(a)
+    ba2_path = _pack_stage_archive(out, starfield_for_ba2, pex) if starfield_for_ba2 else None
+    archive_note = f"\n{a.archive}: packed General archive of Data\\Scripts\\{SCRIPT}.pex." if ba2_path else ""
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Map markers into the merged world (Claude-cloud, {datetime.date.today().isoformat()}). docs/terrain/map-markers.md.
 {a.plugin}: QUST FO4SF_MapMarkersQuest (0x800, start game enabled) carrying {SCRIPT}, built against
@@ -236,7 +279,7 @@ def stage(a):
   each of those REFRs: the marker's own name on the map, the arrival lifted {'the tool\'s default 2.5' if a.z_lift is None else a.z_lift} m.{extra_note}
   Its WRLD copy (an override too, loading after the core's): --world {a.world}{WORLDS[a.world]}.
   {PIN} pins that core's sha256: the installer refuses a Data folder holding any other build of it.
-Data\\Scripts\\{SCRIPT}.pex: compiled from {SCRIPT}.psc here.
+Data\\Scripts\\{SCRIPT}.pex: compiled from {SCRIPT}.psc here.{archive_note}
 Install (game closed), with the core active (its own record, beside exp_install's experiment; packs the .pex):
   python scripts\\game\\map_markers_install.py install --dir "{out}" --starfield <game>
 In game: outdoors in the Commonwealth the log {LOG} gets one line per marker moved:
@@ -247,7 +290,8 @@ In game: outdoors in the Commonwealth the log {LOG} gets one line per marker mov
 Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game>. Uninstall it before a core swap
   and install it again after (its only master, the core, leaves Plugins.txt during the swap).
 """)
-    print(f"staged {out}: {a.plugin}, {os.path.relpath(pex, out)}, {PIN}, offline_check.txt, README.txt"
+    print(f"staged {out}: {a.plugin}, " + (f"{a.archive}, " if ba2_path else "")
+          + f"{os.path.relpath(pex, out)}, {PIN}, offline_check.txt, README.txt"
           + (", extra_markers.json, map_markers_left_out.json" if a.fo4_map_markers else "")
           + (", landing.json" if a.landing else "") + ("" if a.star_map_all else ", star_map.json"))
 
@@ -258,8 +302,12 @@ def main(argv=None):
     s = sub.add_parser("stage")
     s.add_argument("--core", required=True, help="the FO4TerrainCore.esm the plugin is installed with")
     s.add_argument("--out", required=True)
-    s.add_argument("--compiler", default=os.path.join(make_bridge.STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
+    s.add_argument("--compiler", default=DEFAULT_COMPILER)
     s.add_argument("--content-resources", default=os.path.join(make_bridge.STARFIELD, "Tools", "ContentResources.zip"))
+    s.add_argument("--starfield", default="",
+                   help="Starfield folder holding Tools\\Archive2\\Archive2.exe to pack FO4SFMapMarkers - Main.ba2 "
+                        "(default: auto-detect from --compiler when Archive2.exe exists)")
+    s.add_argument("--no-archive", action="store_true", help="skip packing FO4SFMapMarkers - Main.ba2")
     s.add_argument("--z-lift", type=float, default=None,
                    help="metres the override lifts each marker above the core's height, a multiple of 0.1 (default: the tool's 2.5)")
     s.add_argument("--world", choices=sorted(WORLDS), default="control",

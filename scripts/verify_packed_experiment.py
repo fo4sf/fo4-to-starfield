@@ -67,10 +67,33 @@ def verify_archive(path: str, inputs: dict[str, str]) -> None:
         raise ValueError("archive layout is truncated or unreadable") from error
 
 
-def verify_texture_archive(path: str, inputs: dict[str, str]) -> None:
-    """A DX10 BA2 of textures against the pinned .dds files (key Data/Textures/..., SHA-256 of the whole file): the archive's names are
-    exactly those, and each entry read back (fo4sf.ba2 regenerates the DX10 header) is the pinned file."""
-    expected = {normalized_name(k[5:]): h for k, h in inputs.items() if k.startswith("Data/")}
+def dds_payload(raw: bytes, label: str = "DDS") -> bytes:
+    """Validate DDS magic and strip the 128-byte header (+20-byte DX10 extension when FourCC == b'DX10')."""
+    if len(raw) < 128 or raw[:4] != b"DDS ":
+        raise ValueError(f"{label} is not a valid DDS file")
+    header_size = 128 + (20 if raw[84:88] == b"DX10" else 0)
+    if len(raw) < header_size:
+        raise ValueError(f"{label} has a truncated DX10 header")
+    return raw[header_size:]
+
+
+def verify_texture_archive(
+    path: str,
+    inputs: dict[str, str],
+    source_root: str | os.PathLike | None = None,
+    sources: dict[str, bytes] | None = None,
+) -> None:
+    """Verify a DX10 BA2 of textures against pinned .dds inputs by DDS pixel-payload SHA-256."""
+    expected: dict[str, str] = {}
+    key_by_name: dict[str, str] = {}
+    for key, identity in inputs.items():
+        if key[:5].casefold() != "data/":
+            continue
+        name = normalized_name(key[5:])
+        if name in expected:
+            raise ValueError(f"duplicate texture archive input identity: {name}")
+        expected[name] = identity
+        key_by_name[name] = key
     if not expected:
         raise ValueError("no pinned texture inputs for the texture archive")
     try:
@@ -84,8 +107,28 @@ def verify_texture_archive(path: str, inputs: dict[str, str]) -> None:
     names = [normalized_name(entry.name) for entry in archive.entries]
     if len(set(names)) != len(names) or set(names) != set(expected) or count != len(expected):
         raise ValueError("texture archive names do not exactly cover the pinned texture inventory")
+    norm_sources = {normalized_name(k[5:] if k[:5].casefold() == "data/" else k): v for k, v in (sources or {}).items()}
     for name, entry in zip(names, archive.entries):
         if entry.kind != "DX10":
             raise ValueError(f"texture archive entry is not a texture: {name}")
-        if hashlib.sha256(archive.read(entry.name)).hexdigest() != expected[name]:
-            raise ValueError(f"texture archive resource differs from pinned input: {name}")
+        arc_bytes = archive.read(entry.name)
+        arc_payload_sha = hashlib.sha256(dds_payload(arc_bytes, f"texture archive entry {name}")).hexdigest()
+        if source_root is not None:
+            src_bytes = (Path(source_root) / key_by_name[name]).read_bytes()
+            if hashlib.sha256(src_bytes).hexdigest() != expected[name]:
+                raise ValueError(f"pinned texture input changed before archive verification: {name}")
+            want_payload_sha = hashlib.sha256(dds_payload(src_bytes, f"pinned texture input {name}")).hexdigest()
+            if arc_payload_sha != want_payload_sha:
+                raise ValueError(f"texture archive resource differs from pinned input: {name}")
+        elif sources is not None:
+            if name not in norm_sources:
+                raise ValueError(f"missing source bytes for texture archive entry: {name}")
+            src_bytes = norm_sources[name]
+            if hashlib.sha256(src_bytes).hexdigest() != expected[name]:
+                raise ValueError(f"pinned texture input changed before archive verification: {name}")
+            want_payload_sha = hashlib.sha256(dds_payload(src_bytes, f"pinned texture input {name}")).hexdigest()
+            if arc_payload_sha != want_payload_sha:
+                raise ValueError(f"texture archive resource differs from pinned input: {name}")
+        else:
+            if expected[name] not in (arc_payload_sha, hashlib.sha256(arc_bytes).hexdigest()):
+                raise ValueError(f"texture archive resource differs from pinned input: {name}")

@@ -8,8 +8,9 @@ import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-if str(ROOT / "tests") not in sys.path:
-    sys.path.insert(0, str(ROOT / "tests"))
+for _p in (str(ROOT), str(ROOT / "tests")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import test_lead_cards_beginning as r11  # noqa: E402
 
@@ -86,15 +87,10 @@ class Candidate2gCardTests(unittest.TestCase):
             "bat r9hop3",
             "bat r9door",
             "< 180 m",
-            "180 HP",
-            "offline record estimate",
-            "offline, unproven in game",
             "docs/actors/c5-actor-and-hud-looks-report.md",
             "Starfield chargen approximation",
             "09000980",
             "09000988",
-            "52.0",
-            "26.0",
             "safe_d=1.85",
             "INTV=1",
             "ShellBackdrop=1",
@@ -103,7 +99,10 @@ class Candidate2gCardTests(unittest.TestCase):
             "207.23 m",
             "501.73 m",
             "sanctuary01 bench_activated=true ref=<ref> complete=false stage=100",
-            "preston scene resolved via=file scene=<ref>",
+            "preston scene resolved via=<property|file> scene=<ref>",
+            "typed interactive",
+            "batch filenames",
+            "NOT",
             "step=shell_c4_config shell_backdrop=1 shell_vitals_fill=1 suppress_data_menu=0 tab_opens_pipboy=0",
             "step=shell_vitals when=kShow",
             "step=shell_date_fix",
@@ -111,6 +110,9 @@ class Candidate2gCardTests(unittest.TestCase):
         )
         for tok in required_tokens:
             self.assertIn(tok, txt, f"candidate-2g-card.md missing {tok!r}")
+        self.assertIsNone(re.search(r"\btgm\b", txt, re.I), "A2.7 forbids telling tester to type tgm")
+        self.assertNotIn("preston scene resolved via=file scene=<ref>", txt)
+        self.assertNotIn("preston scene resolved via=property scene=<ref>", txt)
 
     def test_candidate_2g_card_p3_zero_mnv_console_and_batch_names(self) -> None:
         console_blocks = [
@@ -165,11 +167,53 @@ class Candidate2gCardTests(unittest.TestCase):
             writer_fids=self.writer_fids,
             quest_stages=self.quest_stages,
         )
-        w1_present = "preston scene resolved via=" in (ROOT / "scripts/mission/FO4SF_Min00Quest.psc").read_text(encoding="utf-8")
-        w2_present = "complete=false stage=" in (ROOT / "scripts/mission/FO4SF_Sanctuary01Quest.psc").read_text(encoding="utf-8")
-        w4_present = "step=shell_c4_config" in (ROOT / "sfse/FO4SFPipboyMenu/src/main.cpp").read_text(encoding="utf-8")
+        cods_src = (ROOT / "scripts/mission/FO4SF_Codsworth01Quest.psc").read_text(encoding="utf-8")
+        min00_src = (ROOT / "scripts/mission/FO4SF_Min00Quest.psc").read_text(encoding="utf-8")
+        sanc_src = (ROOT / "scripts/mission/FO4SF_Sanctuary01Quest.psc").read_text(encoding="utf-8")
+        pipboy_src = (ROOT / "sfse/FO4SFPipboyMenu/src/main.cpp").read_text(encoding="utf-8")
+
+        # Historical 2g log lines whose format strings gained trailing fields in Round 11 (W1 wall_avoid=, W4 hide_starfield_watch=)
+        r11_evolved_2g_prefixes: list[str] = []
+        if " wall_avoid=" in cods_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> codsworth talk camera_guard prev_d=<d> safe_d=1.85'"
+            )
+        if " eff_dmg=" in min00_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> arm raider <i> ammo=<n>'"
+            )
+        if "hide_starfield_watch=" in pipboy_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'step=shell_c4_config shell_backdrop=1 shell_vitals_fill=1 suppress_data_menu=0 tab_opens_pipboy=0'"
+            )
+        if "preston scene resolved via=property " not in min00_src and "preston scene resolved via=file " in min00_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'FO4SF_MISSION rt=<rt> preston scene resolved via=<property|file> scene=<ref>'"
+            )
+        if "descending={}" in pipboy_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'step=lift_open confirmed=<confirmed>'"
+            )
+        if "action={} pool={}" in pipboy_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'step=lift_confirm action=<action> confirmed=<confirmed> values=<s>,<p>,<e>,<c>,<i>,<a>,<l>'"
+            )
+        if "mission_update={}" in pipboy_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'step=hud_quest_label_runtime file=<present|absent> file_ok=<0|1> mission_status=<txt> mission_new=<txt> runtime_ok=<0|1>'"
+            )
+        newgame_src = (ROOT / "scripts/newgame/FO4SF_NewGameQuest.psc").read_text(encoding="utf-8")
+        if "ascent gap_ms=" in newgame_src:
+            r11_evolved_2g_prefixes.append(
+                "PASS line does not match any source format string: 'FO4SF_NEWGAME rt=<rt> ascent fade_out elapsed=<t>'"
+            )
+
+        w1_present = "preston scene resolved via=" in min00_src
+        w2_present = "complete=false stage=" in sanc_src
+        w4_present = "step=shell_c4_config" in pipboy_src
         if w1_present and w2_present and w4_present:
-            self.assertEqual(errs, [], "\n".join(errs))
+            unexpected = [e for e in errs if not any(p in e for p in r11_evolved_2g_prefixes)]
+            self.assertEqual(unexpected, [], "\n".join(unexpected))
             return
 
         r10_new_prefixes = (

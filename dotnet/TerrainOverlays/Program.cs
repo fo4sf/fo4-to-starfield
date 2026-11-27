@@ -1337,6 +1337,12 @@ else if (hasHost && hostEl.TryGetProperty("registration_plugin", out var regProp
 
 if (regPluginName != null)
 {
+    double? requestedGravityG = null;
+    if (Has(prm, "mars") && prm.GetProperty("mars").TryGetProperty("gravity_g", out var mgProp) && mgProp.ValueKind == JsonValueKind.Number)
+        requestedGravityG = mgProp.GetDouble();
+    else if (hasHost && hostEl.TryGetProperty("gravity_g", out var hgProp) && hgProp.ValueKind == JsonValueKind.Number)
+        requestedGravityG = hgProp.GetDouble();
+
     var marsKey = ModKey.FromNameAndExtension(regPluginName);
     var mars = new StarfieldMod(marsKey, release);
     mars.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
@@ -1360,6 +1366,19 @@ if (regPluginName != null)
             ?? throw new InvalidDataException($"host planet {hostPlanetEdid} not found in {hostPlanetPlugin.FileName}");
         planet = (Planet)srcPlanet.DeepCopy();
     }
+    // Set Earth gravity (1.0g = 9.81 m/s^2) on PNDT OrbitedData (BDST..BDED FNAM[4]) when present or requested,
+    // replacing MarsPlanetData's 0.38g default while leaving header/body-less synthetic fixtures untouched.
+    if (planet.OrbitedData is not null)
+    {
+        planet.OrbitedData.Gravity = (float)(requestedGravityG ?? 1.0);
+    }
+    else if (requestedGravityG is not null)
+    {
+        planet.OrbitedData = new OrbitedData
+        {
+            Gravity = (float)requestedGravityG.Value,
+        };
+    }
     mars.Planets.Add(planet);
     planet.MasterWorldspaces ??= new ExtendedList<MasterWorldspace>();
     foreach (var (w, o) in worlds)
@@ -1377,5 +1396,6 @@ if (regPluginName != null)
     if (hostPlanetPlugin != sfEsm)
         regWrite = regWrite.WithExtraIncludedMasters(sfEsm);
     regWrite.Write();
-    Console.WriteLine($"wrote {marsPath} ({new FileInfo(marsPath).Length:N0} bytes); {hostPlanetEdid} master worldspaces now {planet.MasterWorldspaces.Count}");
+    string gravNote = planet.OrbitedData is not null ? $"; gravity {planet.OrbitedData.Gravity:0.###}g" : "";
+    Console.WriteLine($"wrote {marsPath} ({new FileInfo(marsPath).Length:N0} bytes); {hostPlanetEdid} master worldspaces now {planet.MasterWorldspaces.Count}{gravNote}");
 }

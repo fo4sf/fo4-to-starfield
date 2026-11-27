@@ -229,10 +229,10 @@ owner's word, with tests per AGENTS.md.
   attack options suggest? Default yes, three presets.
 - **CC-04.** Reuse Workshop Framework code sections with credit, if its author's note allows it despite the page's
   ban on conversion? Default no: write our own (owner decides).
-- **CC-50.** Chronological story option: start each game's opening in date order, with the sandbox muted? Default yes.
+- **CC-50.** Chronological story option: start each game's opening in date order, with the sandbox muted? Default yes. *(Stays **open / pending** under the story routes proposal, [#32 comment 7148051464](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7148051464) and [decisions.md](../../ai/decisions.md).)*
 - **CC-51.** GAMMA-style starts (pick a faction and a starting place) alongside Vault 111? Status: **decided by owner,
-  2026-10-19 23:29Z: A** (Vault 111 stays the story start; faction starts added later, using Alternate Start's GPL-3
-  code where it fits). The new-game phase needs nothing now beyond the start-world hook it already has (MG-18).
+  2026-10-19 23:29Z: A; updated 2026-11-24** (**superseded only in `"Vault 111 stays the story start"`** by two-starts-per-game [#32 comment 7146850600](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146850600) and [decisions.md](../../ai/decisions.md), with multi-game opening game pending routes [`7148051464`](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7148051464); **faction starts added later still stand**, using Alternate Start's GPL-3
+  code where it fits). The new-game phase needs nothing now beyond the start-world hook it already has (`MG-18`, extended in `MG-28`).
 - **CC-60.** RP-style SPECIAL with older games' skills (NG-4): its own design note after G4.
 - **CC-61.** The ship as a vertibird (NG-9): its own probe later.
 - **CC-62.** Assisted world generation for lore places (WO-4): later, after MU-1's multi-game spike.
