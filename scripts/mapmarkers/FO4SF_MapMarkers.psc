@@ -691,6 +691,7 @@ int Function PrepareKnownUndiscoveredSingle()
 EndFunction
 
 int Function PrepareKnownUndiscoveredAll()
+    float t0 = Utility.GetCurrentRealTime()
     int total = 0
     int id = GetFormID()
     FO4SF_MapMarkers q = Self
@@ -700,6 +701,9 @@ int Function PrepareKnownUndiscoveredAll()
         k += 1
         q = Game.GetForm(id + k) as FO4SF_MapMarkers
     endwhile
+    float elapsed = Utility.GetCurrentRealTime() - t0
+    Debug.OpenUserLog(LogName)
+    Trace("prepare_all done count=" + total + " elapsed=" + elapsed)
     return total
 EndFunction
 

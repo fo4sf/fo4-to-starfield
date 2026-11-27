@@ -302,7 +302,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         compiled = compile(
             translated_functions(
                 wrapped,
-                ("ForceFadeIn", "CompleteLandingFadeIn", "ReleaseStoryLandingFade", "FinishSurface", "ApplyStage", "AdvanceTo", "ClearVaultSaveLock", "TimerEvent"),
+                ("ForceFadeIn", "CompleteLandingFadeIn", "ReleaseStoryLandingFade", "FinishSurface", "ApplyStage", "AdvanceTo", "ClearVaultSaveLock", "TimerEvent", "BeginSurfaceCogWait3D", "PollSurfaceCogWait3D", "QueueSharedMapSetup", "SetLoadingBlackCover", "SqrtF", "HexDigit", "HexFormId"),
                 "faded, surfaceFadeInDone, storyFadeTicks, arrivalWorld, surfaceSets, surfaceMovedAt, arrivedAt, applied, pendingStage, pendingStageBy, exitUsedFallback, h00SkipSetPos, vaultSavingRelocked",
             ),
             PSC,
@@ -315,6 +315,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         player.cell = core_cell
         fades, timers, traces = [], [], []
         cur_stage = [30]
+        now = [20.0]
         ns = dict(
             _PStr=_PStr,
             Trace=traces.append,
@@ -352,7 +353,7 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
                 SetInChargen=lambda *_: None,
                 SetCharGenHUDMode=lambda *_: None,
             ),
-            Utility=SimpleNamespace(GetCurrentRealTime=lambda: 20.0, Wait=lambda *_: None),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: now[0], Wait=lambda *_: None),
             UnregisterStartLoadingHook=lambda: None,
             DisableHandScanner=lambda: None,
             CancelTimer=lambda *_: None,
@@ -369,6 +370,8 @@ class Item3LeaksBehindFlagsTests(unittest.TestCase):
         )
         exec(compiled, ns)
         ns["FinishSurface"](player)
+        now[0] += 3.1
+        ns["PollSurfaceCogWait3D"](player)
         self.assertTrue(ns["surfaceFadeInDone"])
         self.assertEqual(len(fades), 1)
         self.assertIn("story_fade single_pass=true path=immediate loading_menu_open=False", traces)

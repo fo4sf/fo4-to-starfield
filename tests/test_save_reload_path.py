@@ -112,6 +112,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 ReleaseStoryLandingFade=lambda: fade_calls.append(1),
                 UnregisterForAnimationEvent=lambda ref, ev: unreg_anims.append((ref, ev)),
                 ReturnPlayerToVaultPlatform=lambda p: returned_to_plat.append(p),
+                ArriveOnInteriorLift=lambda p, why='': returned_to_plat.append(p),
                 ResetSurfaceLiftCog=lambda *_: None,
                 EnsureLoadHookRegistered=lambda p: None,
                 SyncPipboyOwnedWornState=lambda p: False,
@@ -631,7 +632,7 @@ class SaveReloadPathTests(unittest.TestCase):
         funcs = (
             "NoteLooksStage20", "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
             "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "StageSetEvent",
-            "Actor.OnPlayerLoadGame", "ResetVaultExitLift", "ReturnPlayerToVaultPlatform",
+            "Actor.OnPlayerLoadGame", "ResetVaultExitLift", "ReturnPlayerToVaultPlatform", "ArriveOnInteriorLift", "SetInteriorLiftState", "QueueSharedMapSetup", "SetLoadingBlackCover", "BeginSurfaceCogWait3D", "PollSurfaceCogWait3D", "SqrtF", "HexDigit", "HexFormId",
             "StartPairedLiftRide", "CheckPairedLiftRide", "FailPairedLift", "TryFastTravelSurface", "TrySurfaceExteriorFallbacks", "Surface", "FinishSurface",
             "Near", "FailExit",
         )

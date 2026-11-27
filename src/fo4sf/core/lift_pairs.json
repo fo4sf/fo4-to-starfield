@@ -52,10 +52,12 @@
         "reset_event": "Play02",
         "duration_s": 9.8667,
         "reset_duration_s": 23.8333,
-        "fade_lead_s": 1.1,
+        "reset_motion_s": 9.9,
+        "fade_lead_s": 1.4,
         "done_margin_s": 0.25
       },
       "surface": {
+        "arrival_merged_marker_id": "0x000826",
         "cog_plugin": "FO4SFExitLift.esm",
         "cog_name": "Vault 111 Elevator",
         "source_nif": "meshes/interiors/vault/rooms/vltelevator/vltelevatorexterior.nif",

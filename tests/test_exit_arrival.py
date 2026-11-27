@@ -59,9 +59,9 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "def _p_cast_as(obj, name): return None if obj is None else (obj.CastAs(name) if hasattr(obj, 'CastAs') else obj)",
         "def _p_call_fn(obj, fn, args=()): return obj.CallFunction(fn, args) if hasattr(obj, 'CallFunction') else getattr(obj, fn)(*args)",
         "if 'self' not in globals(): globals()['self'] = None",
-        "for _k, _v in (('ExitNeedAttrMsg', None), ('TestModeGlobal', None), ('VaultAmmoBase', None), ('RouteLootRefIds', []), ('MapMarkerQuestIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('loadingMenuOpen', False), ('loadingMenuClosedSeen', False), ('landingLoadingMode', False), ('landingAwaitingFadeIn', False), ('landingFadeGuardRan', False), ('ascentGapStartedAt', 0.0), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('SilentArrivalDiscovery', True), ('ArrivalDiscoveryMethod', 'add_to_map'), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('ArrivalWeatherId', 0x0027CF9B), ('ArrivalWeatherPlugin', 'Starfield.esm'), ('ArrivalWeatherOverride', True), ('VaultSuitFallbackId', 0x0001D1D7), ('VaultSuitFallbackPlugin', 'Starfield.esm'), ('pipboyGranted', False), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodEntryStep', -2.5), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('PodOriginX', 0.0), ('PodOriginY', 0.0), ('PodOriginZ', 0.0), ('PodSeatX', 0.0), ('PodSeatY', 0.0), ('PodSeatZ', 0.0), ('PodAnimPlugin', 'FO4SFVaultPod.esm'), ('PodAnimRefId', 0x000801), ('PodStaticRefPlugin', 'FO4Port.esm'), ('PodStaticRefId', 0x001617), ('PodOpenEvent', 'Play01'), ('PodOpenSeconds', 5.3333), ('PodDoneMargin', 0.25), ('PodOpenTimeoutS', 8.0), ('PodSeatStepM', -0.55), ('PodSeatHeadingDeg', 180.0), ('PodStepOutToM', -2.5), ('PodPushToleranceM', 0.35), ('PodExitTimeoutS', 20.0), ('PodCreatorInPod', False), ('podExitDone', False), ('podExitStarted', False), ('podHoldLayer', None), ('podAnimRef', None), ('podDoorDone', False), ('podAnimOpened', False), ('podFellBack', False), ('podExitPhase', 0), ('podOpenStartedAt', 0.0), ('podStepOutStartedAt', 0.0), ('podLastOpenDuration', 0.0), ('podLooksDone', False), ('podLooksHow', ''), ('podLooksBy', 'Trigger'), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('liftPairStartCell', None), ('liftPairStartWorld', None), ('liftPairStartedAt', 0.0), ('liftPairStartX', 0.0), ('liftPairStartY', 0.0), ('liftPairStartZ', 0.0), ('liftPairTransferRetries', 0), ('liftPairTransferRetryAt', 0.0), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False), ('surfaceCogLoggedArrival', False), ('surfaceCogRefs', None), ('surfaceCogActivationReg', None), ('surfaceCogLogged', None), ('surfaceCogStates', None), ('surfaceCogRisePending', False), ('surfaceCogRising', False), ('surfaceCogRiseStartedAt', 0.0), ('surfaceCogDone', False), ('interiorLiftState', 'A'), ('interiorLiftDescending', False), ('interiorLiftDescendAt', 0.0), ('interiorLiftDescendDone', False), ('liftPairUpArriveEventPending', False), ('ActiveLiftPairId', 'fo4.vault111_exit'), ('LiftPairIds', ['fo4.vault111_exit']), ('LiftRise', 21.6), ('LiftSeconds', 9.8667), ('LiftResetSeconds', 23.8333), ('LiftFadeLead', 1.1), ('LiftDoneMargin', 0.25), ('LiftPlayEvent', 'Play01'), ('LiftResetEvent', 'Play02'), ('SurfaceCogPlugins', ['FO4SFExitLift.esm']), ('SurfaceCogLocalX', [-1275.5824]), ('SurfaceCogLocalY', [1296.0703]), ('SurfaceCogLocalZ', [33.253544]), ('SurfaceCogPadRadius', [3.2]), ('SurfaceLiftDrop', [59.1425]), ('SurfaceLiftSeconds', [18.6667]), ('SurfaceLiftFadeAt', [7.533]), ('SurfaceLiftDoneMargin', [0.25]), ('SurfaceLiftPlayEvents', ['Play01']), ('SurfaceLiftResetEvents', ['Play02']), ('SurfaceLiftAscendClips', ['StateB_Play']), ('SurfaceLiftAscendSeconds', [11.6667]), ('SurfaceLiftAscendRise', [25.9932]), ('SurfaceCoreStaticBaseIds', [0x0A2D4B]), ('leftArrivalPad', False), ('returnLiftArmed', False), ('returnAsked', False), ('returnVaultAsked', False), ('returnHasExteriorSample', False), ('returnLastExteriorX', 0.0), ('returnLastExteriorY', 0.0)):",
+        "for _k, _v in (('faded', False), ('modeChoiceRan', False), ('ExitNeedAttrMsg', None), ('TestModeGlobal', None), ('VaultAmmoBase', None), ('RouteLootRefIds', []), ('CoreMarkerIds', []), ('MapMarkerQuestIds', []), ('H00SkipLoadingHookGlobal', None), ('H00ClearChargenGlobal', None), ('H00SkipArrivalDiscoveryGlobal', None), ('H00SkipMapSetupGlobal', None), ('H00SkipRouteLootGlobal', None), ('H00SkipMissionActorsGlobal', None), ('H00SkipLandingQuestsGlobal', None), ('H00SkipSurfaceSetPosGlobal', None), ('loadingHookRegistered', False), ('loadingMenuOpen', False), ('loadingMenuClosedSeen', False), ('landingLoadingMode', False), ('landingAwaitingFadeIn', False), ('landingFadeGuardRan', False), ('loadingBlackCoverEnabled', False), ('loadingBlackCoverWhy', ''), ('surfaceTriggeredLoad', False), ('mapSetupQueued', False), ('mapSetupDone', False), ('exitUsedFallback', False), ('ascentGapStartedAt', 0.0), ('h00SuspectsRead', False), ('h00SkipLoading', False), ('h00ClearChargen', False), ('h00SkipDiscovery', False), ('h00SkipMap', False), ('h00SkipLoot', False), ('h00SkipActors', False), ('h00SkipQuests', False), ('h00SkipSetPos', False), ('portConsoleRegistered', False), ('portConsoleWatchedRef', None), ('consoleOpening', False), ('SilentArrivalDiscovery', True), ('ArrivalDiscoveryMethod', 'add_to_map'), ('SilentStarterStrip', True), ('StarterStripItems', []), ('SinglePassLandingFade', True), ('ArrivalWeatherId', 0x0027CF9B), ('ArrivalWeatherPlugin', 'Starfield.esm'), ('ArrivalWeatherOverride', True), ('VaultSuitFallbackId', 0x0001D1D7), ('VaultSuitFallbackPlugin', 'Starfield.esm'), ('pipboyGranted', False), ('surfaceFadeInDone', False), ('PodExitMode', 'safe_spawn'), ('PodEntryStep', -2.5), ('PodSafeStep', -3.2), ('PodSafeHeading', 270.0), ('PodOriginX', 0.0), ('PodOriginY', 0.0), ('PodOriginZ', 0.0), ('PodSeatX', 0.0), ('PodSeatY', 0.0), ('PodSeatZ', 0.0), ('PodAnimPlugin', 'FO4SFVaultPod.esm'), ('PodAnimRefId', 0x000801), ('PodStaticRefPlugin', 'FO4Port.esm'), ('PodStaticRefId', 0x001617), ('PodOpenEvent', 'Play01'), ('PodOpenSeconds', 5.3333), ('PodDoneMargin', 0.25), ('PodOpenTimeoutS', 8.0), ('PodSeatStepM', -0.55), ('PodSeatHeadingDeg', 180.0), ('PodStepOutToM', -2.5), ('PodPushToleranceM', 0.35), ('PodExitTimeoutS', 20.0), ('PodCreatorInPod', False), ('podExitDone', False), ('podExitStarted', False), ('podHoldLayer', None), ('podAnimRef', None), ('podDoorDone', False), ('podAnimOpened', False), ('podFellBack', False), ('podExitPhase', 0), ('podOpenStartedAt', 0.0), ('podStepOutStartedAt', 0.0), ('podLastOpenDuration', 0.0), ('podLooksDone', False), ('podLooksHow', ''), ('podLooksBy', 'Trigger'), ('liftPairActive', False), ('liftPairDescending', False), ('liftPairDone', False), ('liftPairTransferred', False), ('liftPairTransferPending', False), ('liftPairFadeStarted', False), ('liftPairActiveRef', None), ('liftPairStartCell', None), ('liftPairStartWorld', None), ('liftPairStartedAt', 0.0), ('liftPairStartX', 0.0), ('liftPairStartY', 0.0), ('liftPairStartZ', 0.0), ('liftPairTransferRetries', 0), ('liftPairTransferRetryAt', 0.0), ('surfaceCogRef', None), ('surfaceCogActivationRegistered', False), ('surfaceCogLoggedArrival', False), ('surfaceCogRefs', None), ('surfaceCogActivationReg', None), ('surfaceCogLogged', None), ('surfaceCogStates', None), ('surfaceCogRisePending', False), ('surfaceCogRising', False), ('surfaceCogRiseStartedAt', 0.0), ('surfaceCogDone', False), ('surfaceCogCarryLogged', False), ('surfaceCogWaiting3D', False), ('surfaceCogWaitStartedAt', 0.0), ('surfaceCogWaitTicks', 0), ('surfaceCogWaitPath', 'loading_close'), ('interiorLiftState', 'A'), ('interiorLiftDescending', False), ('interiorLiftDescendAt', 0.0), ('interiorLiftDescendDone', False), ('interiorLiftControlReleased', False), ('interiorBusyLogged', False), ('lastLiftRefusalReason', ''), ('liftPairUpArriveEventPending', False), ('NewGamePlugin', 'FO4SFNewGame.esm'), ('ArrivalMergedMarkerId', 0), ('ActiveLiftPairId', 'fo4.vault111_exit'), ('LiftPairIds', ['fo4.vault111_exit']), ('LiftRise', 21.6), ('LiftSeconds', 9.8667), ('LiftResetSeconds', 23.8333), ('LiftResetMotionSeconds', 9.9), ('LiftFadeLead', 1.4), ('LiftDoneMargin', 0.25), ('LiftPlayEvent', 'Play01'), ('LiftResetEvent', 'Play02'), ('SurfaceCogPlugins', ['FO4SFExitLift.esm']), ('SurfaceCogLocalX', [-1275.5824]), ('SurfaceCogLocalY', [1296.0703]), ('SurfaceCogLocalZ', [33.253544]), ('SurfaceCogPadRadius', [3.2]), ('SurfaceLiftDrop', [59.1425]), ('SurfaceLiftSeconds', [18.6667]), ('SurfaceLiftFadeAt', [7.533]), ('SurfaceLiftDoneMargin', [0.25]), ('SurfaceLiftPlayEvents', ['Play01']), ('SurfaceLiftResetEvents', ['Play02']), ('SurfaceLiftAscendClips', ['StateB_Play']), ('SurfaceLiftAscendSeconds', [11.6667]), ('SurfaceLiftAscendRise', [25.9932]), ('SurfaceCoreStaticBaseIds', [0x0A2D4B]), ('leftArrivalPad', False), ('returnLiftArmed', False), ('returnAsked', False), ('returnVaultAsked', False), ('returnHasExteriorSample', False), ('returnLastExteriorX', 0.0), ('returnLastExteriorY', 0.0)):",
         "    if _k not in globals(): globals()[_k] = _v",
-        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'ForceFadeIn', 'CompleteLandingFadeIn', 'PlaySurfaceCogRise', 'FinishSurfaceCogRise', 'SuppressMapMarkersDarkHold', 'CancelTimer', 'RunPodExitHook', 'HoldInPod', 'ReleasePodHold', 'PodFallback', 'CompleteLooksStage20AfterPodExit', 'EnsureFadedInForChoice', 'PrepareBeforeCreator', 'NoteLooksDone', 'HandlePodAnimTimer', 'TriggerVaultPodRecoveryAutosave', 'EnsurePipboyWristEquipped', 'EnsureSurfaceLiftCog', 'RecoverPairedLiftOnLoad', 'CheckPairedLiftRide', 'StartPairedLiftRide', 'ResetSurfaceLiftCog', 'EnsurePairCogStorage', 'EmitLiftPairArrived', 'SendCustomEvent', 'ApplyArrivalWeather'):",
+        "for _fn in ('ReadH00SuspectsOnce', 'ApplyH00PreSurfaceOverrides', 'RegisterStartLoadingHook', 'UnregisterStartLoadingHook', 'RegisterForMenuOpenCloseEvent', 'UnregisterForMenuOpenCloseEvent', 'SetLoadingBlackCover', 'IsLoadingBlackCoverEnabled', 'QueueSharedMapSetup', 'BeginSurfaceCogWait3D', 'PollSurfaceCogWait3D', 'ArriveOnInteriorLift', 'SetInteriorLiftState', 'RequestArrivalDiscovery', 'ForceFadeIn', 'CompleteLandingFadeIn', 'PlaySurfaceCogRise', 'FinishSurfaceCogRise', 'SuppressMapMarkersDarkHold', 'CancelTimer', 'RunPodExitHook', 'HoldInPod', 'ReleasePodHold', 'PodFallback', 'CompleteLooksStage20AfterPodExit', 'EnsureFadedInForChoice', 'PrepareBeforeCreator', 'NoteLooksDone', 'HandlePodAnimTimer', 'TriggerVaultPodRecoveryAutosave', 'EnsurePipboyWristEquipped', 'EnsureSurfaceLiftCog', 'RecoverPairedLiftOnLoad', 'CheckPairedLiftRide', 'StartPairedLiftRide', 'ResetSurfaceLiftCog', 'EnsurePairCogStorage', 'EmitLiftPairArrived', 'SendCustomEvent', 'ApplyArrivalWeather'):",
         "    if _fn not in globals(): globals()[_fn] = lambda *_a: None",
         "if 'StartPodOpen' not in globals(): globals()['StartPodOpen'] = lambda _p=None: (globals()['RunPodExitHook'](_p), globals().get('AdvanceTo', lambda *_: None)(20, globals().get('podLooksBy', '') or 'Trigger'))",
         "if 'PodAnimReady' not in globals(): globals()['PodAnimReady'] = lambda: False",
@@ -69,6 +69,9 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         "if 'PodSafeX' not in globals(): globals()['PodSafeX'] = lambda: globals().get('PodX', 9.143)",
         "if 'PodSeatPosX' not in globals(): globals()['PodSeatPosX'] = lambda: globals().get('PodX', 9.143)",
         "if 'PodSeatPosY' not in globals(): globals()['PodSeatPosY'] = lambda: globals().get('PodY', -6.614)",
+        "if 'SqrtF' not in globals(): globals()['SqrtF'] = lambda v: (float(v) ** 0.5) if v and float(v) > 0.0 else 0.0",
+        "if 'HexDigit' not in globals(): globals()['HexDigit'] = lambda d: '0123456789ABCDEF'[int(d) & 15]",
+        "if 'HexFormId' not in globals(): globals()['HexFormId'] = lambda fid: f'{int(fid) & 0xFFFFFFFF:08X}'",
         "if 'PairIndex' not in globals(): globals()['PairIndex'] = lambda _p='': 0",
         "if 'UnspentSpecialPool' not in globals(): globals()['UnspentSpecialPool'] = lambda *_a: 0",
         "if 'GetPairCogState' not in globals(): globals()['GetPairCogState'] = lambda _p='': 'A' if globals().get('surfaceCogStates') is None else (surfaceCogStates[0] or 'A')",
@@ -127,7 +130,31 @@ def translated_functions(text, names=FUNCTIONS, variables=VARIABLES):
         fn_py_name = name.split(".")[-1]
         out.append(f"def {fn_py_name}({', '.join(py_args)}):")
         if variables.strip():
-            out.append("    global " + variables + ", portConsoleRegistered, portConsoleWatchedRef, consoleOpening, surfaceFadeInDone, podExitDone, podExitStarted, podHoldLayer, podAnimRef, podDoorDone, podAnimOpened, podFellBack, podExitPhase, podOpenStartedAt, podStepOutStartedAt, podLastOpenDuration, podLooksDone, podLooksHow, podLooksBy, loadingMenuOpen, loadingMenuClosedSeen, landingLoadingMode, landingAwaitingFadeIn, landingFadeGuardRan, ascentGapStartedAt, liftPairActive, liftPairDescending, liftPairDone, liftPairTransferred, liftPairTransferPending, liftPairFadeStarted, liftPairActiveRef, liftPairStartCell, liftPairStartWorld, liftPairStartedAt, liftPairStartX, liftPairStartY, liftPairStartZ, liftPairTransferRetries, liftPairTransferRetryAt, surfaceCogRefs, surfaceCogActivationReg, surfaceCogLogged, surfaceCogStates, surfaceCogRisePending, surfaceCogRising, surfaceCogRiseStartedAt, surfaceCogDone, interiorLiftState, interiorLiftDescending, interiorLiftDescendAt, interiorLiftDescendDone, liftPairUpArriveEventPending, leftArrivalPad, returnLiftArmed, returnAsked, returnVaultAsked, returnHasExteriorSample, returnLastExteriorX, returnLastExteriorY")
+            existing_vars = {v.strip() for v in variables.split(",") if v.strip()}
+            extra_vars = [
+                v for v in (
+                    "faded", "loadingHookRegistered", "portConsoleRegistered", "portConsoleWatchedRef", "consoleOpening",
+                    "surfaceFadeInDone", "podExitDone", "podExitStarted", "podHoldLayer", "podAnimRef", "podDoorDone",
+                    "podAnimOpened", "podFellBack", "podExitPhase", "podOpenStartedAt", "podStepOutStartedAt",
+                    "podLastOpenDuration", "podLooksDone", "podLooksHow", "podLooksBy", "loadingMenuOpen",
+                    "loadingMenuClosedSeen", "landingLoadingMode", "landingAwaitingFadeIn", "landingFadeGuardRan",
+                    "loadingBlackCoverEnabled", "loadingBlackCoverWhy", "surfaceTriggeredLoad", "mapSetupQueued",
+                    "mapSetupDone", "exitUsedFallback", "ascentGapStartedAt", "liftPairActive", "liftPairDescending",
+                    "liftPairDone", "liftPairTransferred", "liftPairTransferPending", "liftPairFadeStarted",
+                    "liftPairActiveRef", "liftPairStartCell", "liftPairStartWorld", "liftPairStartedAt", "liftPairStartX",
+                    "liftPairStartY", "liftPairStartZ", "liftPairTransferRetries", "liftPairTransferRetryAt",
+                    "surfaceCogRefs", "surfaceCogActivationReg", "surfaceCogLogged", "surfaceCogStates",
+                    "surfaceCogRisePending", "surfaceCogRising", "surfaceCogRiseStartedAt", "surfaceCogDone",
+                    "surfaceCogCarryLogged", "surfaceCogWaiting3D", "surfaceCogWaitStartedAt", "surfaceCogWaitTicks",
+                    "surfaceCogWaitPath", "interiorLiftState", "interiorLiftDescending", "interiorLiftDescendAt",
+                    "interiorLiftDescendDone", "interiorLiftControlReleased", "interiorBusyLogged",
+                    "lastLiftRefusalReason", "liftPairUpArriveEventPending", "leftArrivalPad", "returnLiftArmed",
+                    "returnAsked", "returnVaultAsked", "returnHasExteriorSample", "returnLastExteriorX",
+                    "returnLastExteriorY",
+                )
+                if v not in existing_vars
+            ]
+            out.append("    global " + ", ".join([variables] + extra_vars))
         depth = 1
         body = re.sub(r"\{.*?\}", "", body, flags=re.S)
         for line in body.splitlines():
@@ -500,7 +527,17 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         "FailExit",
         "Near",
         "ReturnPlayerToVaultPlatform",
+        "ArriveOnInteriorLift",
+        "SetInteriorLiftState",
         "ResetVaultExitLift",
+        "QueueSharedMapSetup",
+        "BeginSurfaceCogWait3D",
+        "PollSurfaceCogWait3D",
+        "SetLoadingBlackCover",
+        "IsLoadingBlackCoverEnabled",
+        "SqrtF",
+        "HexDigit",
+        "HexFormId",
         "TryFastTravelSurface",
         "TrySurfaceExteriorFallbacks",
         "FallbackExitToSurface",
@@ -709,7 +746,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.assertTrue(self.ns["Near"](self.player, -77.742, -3.958, -1.751, 2.0))
 
     def test_b1_timeout_stepped_off_and_refused_play_each_return_to_platform_and_fourth_reaches_stage_40_by_fallback(self):
-        # 1) Lift timeout: rider stays mid-shaft past LiftSeconds + 30 -> returns to platform, logs exit retry n=1, prompt ready again
+        # 1) Lift timeout: rider stays mid-shaft past LiftSeconds + 30 -> ArriveOnInteriorLift lowers via Play02 or lands on platform, logs exit retry n=1
         self.ns["InVault"](self.player, 30)
         self.assertEqual(self.exit_prompts, 1)
         self.assertTrue(self.ns["liftPairActive"])
@@ -719,10 +756,12 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.assertFalse(self.ns["liftPairActive"])
         self.assertFalse(self.ns["asked"])
         self.assertEqual(self.ns["exitFailures"], 1)
-        self.assert_at_platform()
+        self.assertEqual(self.lift.plays[-1], "Play02")
+        self.assertAlmostEqual(self.player.pos[2], -1.751 + 21.6 + 0.2, places=3)
         self.assertIn("exit retry n=1 reason=timeout stage=30", self.traces)
 
-        # Prompt is offered again on the next InVault tick; 2) Rider stepped off platform before play -> exit retry n=2
+        # Simulate platform back at floor in state A; 2) Rider stepped off platform before play -> exit retry n=2
+        self.player.pos = (-77.742, -3.958, -1.551)
         def step_off_during_register(*_):
             self.player.pos = (-72.0, -3.958, -1.72)  # stepped off onto catwalk (> 2 m from platform)
 
@@ -732,20 +771,23 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.assertFalse(self.ns["liftPairActive"])
         self.assertFalse(self.ns["asked"])
         self.assertEqual(self.ns["exitFailures"], 2)
+        self.assert_at_platform()
         self.assertIn("exit retry n=2 reason=lift_rider_left_before_play stage=30", self.traces)
         self.ns["RegisterForAnimationEvent"] = lambda *_: None
         self.player.pos = (-77.742, -3.958, -1.551)
 
-        # Prompt is offered again on the next InVault tick; 3) Refused Play01 -> exit retry n=3
-        self.lift.accepted = False
+        # 3) Third timeout -> exit retry n=3
         self.ns["InVault"](self.player, 30)
         self.assertEqual(self.exit_prompts, 3)
-        self.assertFalse(self.ns["liftPairActive"])
-        self.assertFalse(self.ns["asked"])
+        self.assertTrue(self.ns["liftPairActive"])
+        self.player.pos = (-77.742, -3.958, 8.0)
+        self.now += 41.0
+        self.ns["CheckPairedLiftRide"](self.player)
         self.assertEqual(self.ns["exitFailures"], 3)
-        self.assertIn("exit retry n=3 reason=play_refused stage=30", self.traces)
+        self.assertIn("exit retry n=3 reason=timeout stage=30", self.traces)
+        self.player.pos = (-77.742, -3.958, -1.551)
 
-        # Prompt is offered again on the 4th attempt; after 3 failures, offers plain way up -> logs exit fallback by=move -> stage 40!
+        # 4) After 3 failures, offers plain way up -> logs exit fallback by=move -> stage 40!
         self.fallback_button = 0  # "Go up to the Commonwealth"
         self.ns["InVault"](self.player, 30)
         self.assertEqual(self.exit_prompts, 4)
@@ -756,6 +798,17 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.now += 1.0
         self.ns["FinishSurface"](self.player)
         self.assertEqual(self.stages, [40])
+        self.assertEqual(self.stage, 40)
+
+    def test_b1_refused_play_falls_back_under_held_black_without_soft_lock(self):
+        # I4(e): after logged lift_pair refused reason=play_refused, vault prompt immediately falls back to held-fade move!
+        self.lift.accepted = False
+        self.ns["InVault"](self.player, 30)
+        self.assertIn("lift_pair refused reason=play_refused dir=up", self.traces)
+        self.assertIn("lift_pair fallback_move dir=up reason=play_refused", self.traces)
+        self.assertGreater(self.ns["surfaceMovedAt"], 0.0)
+        self.now += 1.0
+        self.ns["FinishSurface"](self.player)
         self.assertEqual(self.stage, 40)
 
     def test_b1_rider_stepped_off_before_arrival_also_returns_to_platform_for_retry(self):
@@ -771,9 +824,10 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.assertEqual(self.ns["exitFailures"], 1)
         self.assertFalse(self.ns["liftPairTransferred"])
         self.assertFalse(self.ns["asked"])
-        self.assert_at_platform()
+        self.assertEqual(self.lift.plays[-1], "Play02")
         self.assertIn("exit retry n=1 reason=lift_rider_left_before_arrival stage=30", self.traces)
-        # Verify the prompt fires again immediately on the next InVault tick
+        # Verify the prompt fires again immediately once back on floor platform
+        self.player.pos = (-77.742, -3.958, -1.551)
         self.exit_button = 3  # Stay
         self.ns["InVault"](self.player, 30)
         self.assertEqual(self.exit_prompts, 2)
@@ -788,7 +842,7 @@ class ExitRetryAndFallbackExecutionTests(unittest.TestCase):
         self.assertFalse(self.ns["liftPairTransferred"])
         self.assertFalse(self.ns["asked"])
         self.assertEqual(self.unregistrations, [(self.lift, "Done")])
-        self.assert_at_platform()
+        self.assertEqual(self.lift.plays[-1], "Play02")
         self.assertIn((1.0, 1), self.timers)
         self.assertTrue(any("lift_pair reload recovered dir=up stage=30" in t for t in self.traces), self.traces)
 
@@ -1307,8 +1361,8 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
             + f"\nFunction AnimEvent({ev_anim[1]})\n{ev_anim[2]}EndFunction\n"
         )
         funcs = (
-            "Surface", "FinishSurface", "CheckLanding", "FailExit", "ReturnPlayerToVaultPlatform", "ResetVaultExitLift",
-            "ForceFadeIn", "CompleteLandingFadeIn", "ReleaseStoryLandingFade", "RegisterStartLoadingHook", "UnregisterStartLoadingHook",
+            "Surface", "FinishSurface", "CheckLanding", "FailExit", "ReturnPlayerToVaultPlatform", "ArriveOnInteriorLift", "SetInteriorLiftState", "ResetVaultExitLift",
+            "ForceFadeIn", "CompleteLandingFadeIn", "BeginSurfaceCogWait3D", "PollSurfaceCogWait3D", "ReleaseStoryLandingFade", "RegisterStartLoadingHook", "UnregisterStartLoadingHook", "SetLoadingBlackCover", "IsLoadingBlackCoverEnabled",
             "SuppressMapMarkersDarkHold", "EnsurePipboyWristEquipped", "SyncPipboyOwnedWornState",
             "PairIndex", "EnsurePairCogStorage", "GetPairCogState", "SetPairCogState",
             "GetPairSurfaceCog", "SetPairSurfaceCog", "GetPairCogActivationReg", "SetPairCogActivationReg",
@@ -1318,11 +1372,11 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
             "PairSurfacePlayEvent", "PairSurfaceResetEvent", "PairSurfaceAscendClip",
             "PairSurfaceAscendSeconds", "PairSurfaceAscendRise", "PairCoreStaticCogBaseId",
             "EmitLiftPairArrived", "ResetSurfaceLiftCog", "EnsureSurfaceLiftCog", "PlaySurfaceCogRise", "FinishSurfaceCogRise",
-            "HexFormId", "HexDigit",
+            "HexFormId", "HexDigit", "SqrtF",
             "FailPairedLift", "StartPairedLiftRide", "CheckPairedLiftRide", "RecoverPairedLiftOnLoad",
             "Near", "StandsInVault", "ApplyStage", "AdvanceTo", "ClearVaultSaveLock", "RelockVaultSaving",
-            "RequestArrivalDiscovery", "TrySurfaceExteriorFallbacks", "ResolveHostWorld",
-            "RunSharedMapSetup", "PrepareArrivalMarkerDuringRide",
+            "RequestArrivalDiscovery", "DiscoverMarkerViaMapMarkers", "TrySurfaceExteriorFallbacks", "ResolveHostWorld",
+            "RunSharedMapSetup", "QueueSharedMapSetup", "PrepareArrivalMarkerDuringRide",
             "TimerEvent", "MenuEvent", "AnimEvent",
         )
         vars_csv = (
@@ -1380,7 +1434,10 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
         pipboy_armor = object()
         pipboy_glob = SimpleNamespace(v=1.0, GetValue=lambda: pipboy_glob.v, SetValue=lambda val: setattr(pipboy_glob, "v", val))
         suppressed = []
-        mm_quest = SimpleNamespace(CallFunction=lambda fn, _a=(): (suppressed.append(fn) if fn == "SuppressArrivalDarkHold" else None, 0)[1])
+        mm_quest = SimpleNamespace(
+            CallFunction=lambda fn, _a=(): (suppressed.append(fn) if fn == "SuppressArrivalDarkHold" else None, 0)[1],
+            CallFunctionNoWait=lambda fn, _a=(): 0,
+        )
         mm_form = SimpleNamespace(CastAs=lambda name: mm_quest if name == "FO4SF_MapMarkers" else None)
 
         events, traces, fades, timers, cancels, custom_events, anim_regs, anim_unregs, menu_regs, menu_unregs = (
@@ -1572,22 +1629,23 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
         self.assertIn("LoadingMenu", env.menu_regs)
         self.assertTrue(any(f[0] is True for f in env.fades))
 
-        # Exterior FinishSurface: places rider at ArrivalZ - 25.9932, lifts fade, equips wrist, THEN plays StateB_Play!
+        # Exterior FinishSurface: starts cog wait_3d, PlaySurfaceCogRise accepts StateB_Play, puts rider at ArrivalZ - ascendRise + 0.3, THEN lifts fade!
         env.now[0] += 0.3
         ns["FinishSurface"](player)
         self.assertEqual(env.cur_stage[0], 40)
-        self.assertAlmostEqual(player.pos[2], 33.253544 - 25.9932, places=3)
+        self.assertAlmostEqual(player.pos[2], 33.253544 - 25.9932 + 0.3, places=3)
         self.assertIn("story_fade single_pass=true path=immediate loading_menu_open=False", env.traces)
         self.assertTrue(any(t.startswith("ascent gap_ms=") for t in env.traces))
-        self.assertTrue(any(t.startswith("lift_pair surface_cog state=A player_z=7.2603") for t in env.traces), env.traces)
+        self.assertIn("lift_pair surface_cog wait_3d n=1 loaded=True", env.traces)
+        self.assertTrue(any(t.startswith("lift_pair surface_cog state=A player_z=33.253") for t in env.traces), env.traces)
         self.assertEqual(env.surface_cog.plays, ["StateB_Play"])
 
-        # Ordering check: fade lifted -> wrist equipped -> cog rise started
+        # Ordering check (I3(D)): wrist equipped -> cog rise started (+ SetPosition) -> fade lifted!
         fade_in_idx = max(i for i, e in enumerate(env.events) if e == ("fade", False))
         equip_idx = env.events.index(("equip_wrist",))
         cog_play_idx = next(i for i, e in enumerate(env.events) if e[0] == "cog_play")
-        self.assertLess(fade_in_idx, equip_idx)
         self.assertLess(equip_idx, cog_play_idx)
+        self.assertLess(cog_play_idx, fade_in_idx)
 
         # While StateB_Play is still rising, CheckLanding must NOT fall-rescue or finish stage 200!
         ns["CheckLanding"](player)
@@ -1634,7 +1692,7 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
         self.assertEqual(env.interior_lift.plays, ["Play01", "Play02"])
         self.assertTrue(any("lift_pair ride arrived dir=down" in t for t in env.traces))
 
-        # 3) Repeat ride UP (cog state == "B"): arrives at ArrivalZ - 25.9932, lifts fade, plays Play02!
+        # Repeat ride UP (cog state == "B"): Play02 accepted -> arrives at ArrivalZ - 25.9932 + 0.3, lifts fade!
         env.traces.clear()
         env.events.clear()
         self.assertTrue(ns["StartPairedLiftRide"](player, False))
@@ -1645,7 +1703,7 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
         ns["CheckPairedLiftRide"](player)
         env.now[0] += 0.2
         ns["FinishSurface"](player)
-        self.assertTrue(any(t.startswith("lift_pair surface_cog state=B player_z=7.2603") for t in env.traces), env.traces)
+        self.assertTrue(any(t.startswith("lift_pair surface_cog state=B player_z=33.253") for t in env.traces), env.traces)
         self.assertEqual(env.surface_cog.plays, ["StateB_Play", "Play01", "Play02"])
         env.now[0] += 11.7
         player.pos = (-2475.5824, -1403.9297, 33.253544)
@@ -1763,7 +1821,9 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
         ns2["FinishSurface"](p2)
         self.assertIn("exit retry n=1 reason=lift_surface_timeout stage=30", env2.traces)
         self.assertFalse(env2.fades[-1][0])
-        self.assertAlmostEqual(p2.pos[2], -1.751 + 0.2, places=2)
+        self.assertEqual(env2.interior_lift.plays[-1], "Play02")
+        self.assertEqual(ns2["interiorLiftState"], "A")
+        self.assertAlmostEqual(p2.pos[2], -1.751 + 21.6 + 0.2, places=2)
 
         # 3) Every abort path (cell_changed, world_changed, timeout, play_refused, RecoverPairedLiftOnLoad) ends with fade lifted!
         for reason in ("cell_changed", "world_changed", "timeout", "play_refused", "reload"):
@@ -1781,6 +1841,268 @@ class G7AndG12eLiftOrderAndFadeTests(unittest.TestCase):
                 ns_a["FailPairedLift"](reason)
             self.assertFalse(env_a.fades[-1][0], f"Abort {reason} left fade down!")
 
+
+class Round16LiftAndRobustnessTests(G7AndG12eLiftOrderAndFadeTests):
+    """Round 16 I3(A-D) & I4(a-h): non-blocking map setup, fade_lead_s=1.4, merged marker one_move, wait_3d rise, 9.9s down arrival, state guards, silent 2nd discovery, 1s stage-200 pad tick."""
+
+    def test_i3a_nonblocking_map_setup_early_queue_and_immediate_fast_tick(self):
+        import json
+        from pathlib import Path
+        cfg = json.loads((Path(PSC).parents[2] / "src" / "fo4sf" / "core" / "lift_pairs.json").read_text(encoding="utf-8"))
+        pair = cfg["pairs"]["fo4.vault111_exit"]
+        self.assertAlmostEqual(pair["interior"]["fade_lead_s"], 1.4, places=3)
+        self.assertAlmostEqual(pair["interior"]["reset_motion_s"], 9.9, places=3)
+        self.assertEqual(pair["surface"]["arrival_merged_marker_id"].lower(), "0x000826")
+
+        mm_psc = (Path(PSC).parents[2] / "scripts" / "mapmarkers" / "FO4SF_MapMarkers.psc").read_text(encoding="utf-8")
+        self.assertIn('Trace("prepare_all done count=" + total + " elapsed=" + elapsed)', mm_psc)
+
+        psc = read(PSC)
+        self.assertIn('QueueSharedMapSetup("pickup")', psc)
+        self.assertIn('QueueSharedMapSetup("stage_20")', psc)
+        self.assertIn('QueueSharedMapSetup("ride_start")', psc)
+
+        env = self._build_env()
+        ns = env.ns
+        no_wait_calls = []
+        mm_quest = SimpleNamespace(
+            CallFunction=lambda fn, _a=(): 0,
+            CallFunctionNoWait=lambda fn, args=(): no_wait_calls.append((fn, list(args))),
+        )
+        mm_form = SimpleNamespace(CastAs=lambda name: mm_quest if name == "FO4SF_MapMarkers" else None)
+        orig_gf = ns["Game"].GetFormFromFile
+        ns["Game"].GetFormFromFile = lambda fid, plg: mm_form if (fid, plg) == (0x000800, "FO4SFMapMarkers.esm") else orig_gf(fid, plg)
+        ns["MapMarkerQuestIds"] = [0x000800]
+        ns["applied"] = 15
+        ns["mapSetupQueued"] = False
+        ns["mapSetupDone"] = False
+
+        ns["ApplyStage"](20, "Trigger")
+        ns["StartPairedLiftRide"](env.player, False)
+        self.assertEqual(len(no_wait_calls), 1)
+        self.assertEqual(no_wait_calls[0][0], "PrepareKnownUndiscoveredAll")
+        self.assertIn("map setup queued by=stage_20", env.traces)
+        self.assertFalse(any("map setup queued by=ride_start" in t for t in env.traces))
+        self.assertIn((0.15, 1), env.timers)
+
+    def test_i3b_and_i3c_single_load_merged_marker_one_move_and_black_loading_cover(self):
+        env = self._build_env()
+        ns, player = env.ns, env.player
+        merged_marker = SimpleNamespace(
+            enables=[],
+            world=env.surface_world,
+            cell=env.core_cell,
+            pos=(-1275.5824 - 1200.0, 1296.0703 - 2700.0, 33.253544),
+            Enable=lambda *a: merged_marker.enables.append(a),
+            GetFormID=lambda: 0x05000826,
+        )
+        orig_gf = ns["Game"].GetFormFromFile
+        ns["Game"].GetFormFromFile = lambda fid, plg: merged_marker if (fid, plg) == (0x000826, "FO4SFNewGame.esm") else orig_gf(fid, plg)
+        ns["ArrivalMergedMarkerId"] = 0x000826
+        ns["LiftFadeLead"] = 1.4
+
+        def move_to_core(target, ox=0.0, oy=0.0, oz=0.0, *_):
+            if target is merged_marker:
+                player.interior = False
+                player.world = env.surface_world
+                player.cell = env.core_cell
+                player.pos = merged_marker.pos
+                ns["MenuEvent"]("LoadingMenu", True)
+                ns["MenuEvent"]("LoadingMenu", False)
+            elif target is env.vault_anchor:
+                player.interior = True
+                player.world = env.vault_world
+                player.cell = env.vault_cell
+                player.pos = (-77.742, -3.958, -1.751 + ox * 0.0 + 0.2)
+
+        player.MoveTo = move_to_core
+
+        self.assertTrue(ns["StartPairedLiftRide"](player, False))
+        # I3(B): fade triggers at LiftSeconds - 1.4 (= 8.4667)
+        env.now[0] += 8.6
+        ns["CheckPairedLiftRide"](player)
+        fade_logs = [t for t in env.traces if t.startswith("lift_pair fade_out dir=up ")]
+        self.assertEqual(len(fade_logs), 1, env.traces)
+        self.assertIn("fade_at=8.466", fade_logs[0])
+
+        # Complete ride up -> MoveTo merged_marker -> FinishSurface skips SetPosition within 5 m -> one_move set=False
+        env.now[0] += 1.4
+        player.pos = (-77.742, -3.958, -1.751 + 21.6)
+        ns["AnimEvent"](env.interior_lift, "Done")
+        ns["CheckPairedLiftRide"](player)
+        ns["FinishSurface"](player)
+        self.assertTrue(ns["surfaceTriggeredLoad"])
+        self.assertEqual(ns["surfaceSets"], 0)
+        self.assertIn("surface one_move off=0.0 set=False cell=0x03000CF0", env.traces)
+        self.assertTrue(any("story_fade single_pass=true path=loading_close" in t for t in env.traces), env.traces)
+        self.assertFalse(any("path=immediate" in t for t in env.traces), env.traces)
+
+        # Shared plain-black LoadingMenu cover flag usable for I7 death reload
+        env.fades.clear()
+        ns["landingLoadingMode"] = False
+        ns["SetLoadingBlackCover"](True, "death_reload")
+        ns["MenuEvent"]("LoadingMenu", True)
+        ns["MenuEvent"]("LoadingMenu", False)
+        self.assertIn("loading cover black opened why=death_reload", env.traces)
+        self.assertIn("loading cover black closed why=death_reload", env.traces)
+        self.assertFalse(ns["IsLoadingBlackCoverEnabled"]())
+
+    def test_i3d_wait_3d_poll_and_play_surface_cog_rise_after_acceptance_and_carry(self):
+        env = self._build_env()
+        ns, player = env.ns, env.player
+        player.interior = False
+        player.world = env.surface_world
+        player.cell = env.core_cell
+        player.pos = (-1275.5824 - 1200.0, 1296.0703 - 2700.0, 33.253544)
+
+        cog_loaded = [False]
+        env.surface_cog.Is3DLoaded = lambda: cog_loaded[0]
+        ns["surfaceMovedAt"] = env.now[0]
+        ns["liftPairTransferred"] = True
+        ns["liftPairTransferPending"] = True
+        ns["SetLoadingBlackCover"](True, "surface")
+        ns["RegisterStartLoadingHook"](True)
+        ns["MenuEvent"]("LoadingMenu", True)
+        ns["FinishSurface"](player)
+        self.assertTrue(ns["landingAwaitingFadeIn"])
+        self.assertFalse(ns["surfaceFadeInDone"])
+
+        # LoadingMenu closes -> wait_3d polls 3 times at 0.15s before cog loads
+        ns["MenuEvent"]("LoadingMenu", False)
+        self.assertTrue(ns["surfaceCogWaiting3D"])
+        ns["PollSurfaceCogWait3D"](player)  # tick 2 (1 was BeginSurfaceCogWait3D)
+        self.assertTrue(ns["surfaceCogWaiting3D"])
+        cog_loaded[0] = True
+        setpos_order = []
+        orig_setpos = player.SetPosition
+        def track_setpos(x, y, z):
+            setpos_order.append(("setpos", z, len(env.surface_cog.plays), env.fades[-1][0] if env.fades else None))
+            orig_setpos(x, y, z)
+        player.SetPosition = track_setpos
+
+        ns["PollSurfaceCogWait3D"](player)  # tick 3 -> loaded!
+        self.assertIn("lift_pair surface_cog wait_3d n=3 loaded=True", env.traces)
+        # SetPosition occurred AFTER StateB_Play acceptance and while fade was still held True, BEFORE ForceFadeIn
+        self.assertEqual(len(setpos_order), 1)
+        self.assertAlmostEqual(setpos_order[0][1], 33.253544 - 25.9932 + 0.3, places=2)
+        self.assertEqual(setpos_order[0][2], 1)
+        self.assertTrue(setpos_order[0][3])
+        self.assertFalse(env.fades[-1][0])
+
+        # t=2.0 carry log then Done -> FinishSurfaceCogRise
+        env.now[0] += 2.1
+        ns["CheckPairedLiftRide"](player)
+        self.assertTrue(any(t.startswith("lift_pair rise carry t=2.0 z=") for t in env.traces), env.traces)
+        env.now[0] += 10.0
+        ns["AnimEvent"](env.surface_cog, "Done")
+        ns["CheckPairedLiftRide"](player)
+        self.assertEqual(ns["GetPairCogState"]("fo4.vault111_exit"), "A")
+
+    def test_i3d_wait_3d_timeout_logs_skipped_not_loaded_only_after_3s(self):
+        env = self._build_env()
+        ns, player = env.ns, env.player
+        player.interior = False
+        player.world = env.surface_world
+        player.cell = env.core_cell
+        player.pos = (-1275.5824 - 1200.0, 1296.0703 - 2700.0, 33.253544)
+        env.surface_cog.Is3DLoaded = lambda: False
+        ns["surfaceMovedAt"] = env.now[0]
+        ns["FinishSurface"](player)
+        self.assertFalse(any("surface_cog rise skipped" in t for t in env.traces))
+        env.now[0] += 3.1
+        ns["PollSurfaceCogWait3D"](player)
+        self.assertIn("lift_pair surface_cog wait_3d n=2 loaded=False", env.traces)
+        self.assertIn("surface_cog rise skipped reason=not_loaded", env.traces)
+        self.assertTrue(ns["surfaceFadeInDone"])
+
+    def test_i4_descent_motion_vs_done_busy_unified_interior_arrive_and_second_discovery(self):
+        env = self._build_env()
+        ns, player = env.ns, env.player
+        ns["SetPairCogState"]("fo4.vault111_exit", "A")
+        ns["interiorLiftState"] = "B"
+        env.cur_stage[0] = 200
+        player.interior = False
+        player.world = env.surface_world
+        player.cell = env.core_cell
+        player.pos = (-1275.5824 - 1200.0, 1296.0703 - 2700.0, 33.253544)
+        env.fades.append((False, True, 0.0, 0.5, False))
+        orig_moveto = player.MoveTo
+        def move_with_cell(target, ox=0.0, oy=0.0, oz=0.0, *_):
+            orig_moveto(target, ox, oy, oz)
+            player.interior = (target.world is env.vault_world)
+            player.cell = target.cell
+        player.MoveTo = move_with_cell
+
+        # I4(a): ride down -> arrives at motion end (~9.9s), Done is cleanup-only with busy guard until Done
+        self.assertTrue(ns["StartPairedLiftRide"](player, True))
+        env.now[0] += 18.6
+        player.pos = (-1275.5824 - 1200.0, 1296.0703 - 2700.0, 25.0)
+        ns["AnimEvent"](env.surface_cog, "Done")
+        ns["CheckPairedLiftRide"](player)
+        ns["CheckPairedLiftRide"](player)
+        self.assertTrue(ns["interiorLiftDescending"])
+        self.assertEqual(env.interior_lift.plays[-1], "Play02")
+        self.assertFalse(env.fades[-1][0])  # I4(b): faded in only after Play02 acceptance at top of shaft
+        self.assertFalse(ns["interiorLiftControlReleased"])  # control not released until ~9.9s motion ends
+
+        env.now[0] += 10.0
+        player.pos = (-77.742, -3.958, -1.751)
+        ns["CheckPairedLiftRide"](player)
+        self.assertTrue(ns["interiorLiftControlReleased"])
+        self.assertFalse(env.fades[-1][0])
+        self.assertTrue(any("lift_pair ride arrived dir=down " in t for t in env.traces), env.traces)
+        self.assertIn("lift_pair interior busy until_done", env.traces)
+        self.assertFalse(ns["StartPairedLiftRide"](player, False))
+
+        env.now[0] += 14.0
+        ns["AnimEvent"](env.interior_lift, "Done")
+        ns["CheckPairedLiftRide"](player)
+        self.assertFalse(ns["interiorLiftDescending"])
+        self.assertIn("lift_pair interior state=A why=descend_done", env.traces)
+
+        # I4(b)+(c)+(d): ArriveOnInteriorLift state_mismatch fallback when Play02 refused, and unloaded ResetVaultExitLift keeps state
+        ns["interiorLiftState"] = "B"
+        env.interior_lift.accept_clips = False
+        ns["ArriveOnInteriorLift"](player, "test_mismatch")
+        self.assertIn("lift_pair interior state_mismatch", env.traces)
+        self.assertIn("lift_pair interior state=A why=test_mismatch_mismatch", env.traces)
+        self.assertAlmostEqual(player.pos[2], -1.751 + 0.2, places=3)
+
+        ns["interiorLiftState"] = "B"
+        env.interior_lift.Is3DLoaded = lambda: False
+        ns["ResetVaultExitLift"]("unloaded_check")
+        self.assertEqual(ns["interiorLiftState"], "B")
+        self.assertTrue(any("lift reset skipped unloaded" in t for t in env.traces), env.traces)
+        env.interior_lift.Is3DLoaded = lambda: True
+
+        # I4(h): stage 200 ticks at 1.0s near pad or in vault, 5.0s far away
+        env.timers.clear()
+        ns["returnSurfacePending"] = False
+        ns["CheckReturnLift"] = lambda *_: None
+        ns["PreAttachArrivalMarker"] = lambda *_: None
+        ns["EnsureLoadHookRegistered"] = lambda *_: None
+        ns["TimerEvent"](1)
+        self.assertEqual(env.timers[-1], (1.0, 1))
+        player.interior = False
+        player.world = env.surface_world
+        player.cell = env.core_cell
+        player.pos = (500.0, 500.0, 0.0)
+        ns["TimerEvent"](1)
+        self.assertEqual(env.timers[-1], (5.0, 1))
+
+        # I4(f): 2nd ride up at stage 200 triggers silent RequestArrivalDiscovery
+        marker = Reference(env.surface_world, (-10.0 - 1200.0, -20.0 - 2700.0, 127.0), form_id=0x030A775B)
+        marker.AddToMap = lambda *_: None
+        marker.IsMapMarkerVisible = lambda: True
+        marker.CanFastTravelToMarker = lambda: True
+        ns["ArrivalDiscoveryId"] = 0x0A775B
+        orig_gf2 = ns["Game"].GetFormFromFile
+        ns["Game"].GetFormFromFile = lambda fid, plg: marker if (fid, plg) == (0x0A775B, "FO4TerrainCore.esm") else orig_gf2(fid, plg)
+        ns["arrivalWorld"] = env.surface_world
+        player.pos = (-1275.5824 - 1200.0, 1296.0703 - 2700.0, 33.253544)
+        ns["surfaceMovedAt"] = env.now[0]
+        ns["FinishSurface"](player)
+        self.assertTrue(any(t.startswith("arrival discovery silent=True method=add_to_map") for t in env.traces), env.traces)
 
 
 if __name__ == "__main__":

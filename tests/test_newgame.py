@@ -1176,7 +1176,8 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor
         base["ScriptObject"] += "\nFunction AddInventoryEventFilter(Form akFilter) native\n"
     if dynamic_cast:
         base["ScriptObject"] += ("\nScriptObject Function CastAs(string asScriptName) native\n"
-                                 "Var Function CallFunction(string asFuncName, Var[] aParams) native\n")
+                                 "Var Function CallFunction(string asFuncName, Var[] aParams) native\n"
+                                 "Function CallFunctionNoWait(string asFuncName, Var[] aParams) native\n")
     with zipfile.ZipFile(path, "w") as z:
         for name, text in base.items():
             z.writestr(f"Scripts/Source/{name}.psc", text)
@@ -2214,8 +2215,10 @@ class Phase2BeginningRealTests(unittest.TestCase):
         psc = read(PSC)
         self.assertEqual(psc.count("int Function RunSharedMapSetup()"), 1)
         ascent = psc[psc.index("bool Function StartPairedLiftRide"):psc.index("Function CheckPairedLiftRide")]
+        pickup = psc[psc.index("Function HandlePipboyPickup"):psc.index("Function OpenLiftAttributeAllocation")]
         wf = psc[psc.index("Function RunWarfareBranch"):psc.index("Event OnMenuOpenCloseEvent")]
-        self.assertIn("RunSharedMapSetup()", ascent)
+        self.assertIn('QueueSharedMapSetup("ride_start")', ascent)
+        self.assertIn('QueueSharedMapSetup("pickup")', pickup)
         self.assertIn("RunSharedMapSetup()", wf)
         self.assertIn('CastAs("FO4SF_ProgressionQuest")', wf)
         self.assertIn('CallFunction("OpenAttributeAllocation"', wf)

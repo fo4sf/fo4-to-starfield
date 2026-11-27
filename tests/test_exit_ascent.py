@@ -191,12 +191,13 @@ class AscentExecutionTests(unittest.TestCase):
                        PrepareArrivalMarkerDuringRide=lambda: None,
                        StandsInVault=lambda _: True, Surface=self.transfers.append,
                        RunSharedMapSetup=run_map_setup,
+                       QueueSharedMapSetup=lambda _why='': run_map_setup(),
                        RegisterForAnimationEvent=lambda *args: self.registrations.append(args),
                        UnregisterForAnimationEvent=lambda *args: self.unregistrations.append(args))
         text = read(PSC)
         event = re.search(r'Event OnAnimationEvent\((.*?)\)\n(.*?)EndEvent', text, re.S)
         text += '\nFunction AscentEvent(' + event[1] + ')\n' + event[2] + 'EndFunction\n'
-        exec(compile(translated_functions(text, ('StartPairedLiftRide', 'AscentEvent', 'CheckPairedLiftRide', 'Near', 'FailPairedLift', 'FailExit', 'ReturnPlayerToVaultPlatform', 'ResetVaultExitLift'), GLOBALS), PSC, 'exec'), self.ns)
+        exec(compile(translated_functions(text, ('StartPairedLiftRide', 'AscentEvent', 'CheckPairedLiftRide', 'Near', 'FailPairedLift', 'FailExit', 'ReturnPlayerToVaultPlatform', 'ResetVaultExitLift', 'ArriveOnInteriorLift', 'SetInteriorLiftState', 'SetLoadingBlackCover', 'BeginSurfaceCogWait3D', 'PollSurfaceCogWait3D'), GLOBALS), PSC, 'exec'), self.ns)
         actual_fail = self.ns['FailPairedLift']
         def fail(reason):
             self.failures.append(reason)
@@ -365,6 +366,7 @@ class AscentExecutionTests(unittest.TestCase):
         self.ns['liftPairTransferPending'] = False
         self.ns['FailExit']('lift_surface_missed')
         self.assertFalse(lift_raised[0])
+        self.player.pos = (-77.742, -3.958, -1.751)
         self.assertTrue(self.run_branch('StartPairedLiftRide'))
         self.assertTrue(self.ns['liftPairActive'])
         self.assertEqual(self.lift.plays[-1], 'Play01')
